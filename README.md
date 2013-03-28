@@ -8,7 +8,7 @@
 cd ~
 git init
 git remote add origin https://github.com/balupton/dotfiles.git
-git pull origin master
+git pull origin master  --force
 ```
 
 ### Tell your system to load the custom configurations
