@@ -15,6 +15,7 @@ git pull origin master  --force
 
 ```
 printf "\n\n# Source our custom profile configuration\nsource ~/.userprofile" >> ~/.profile
+printf "\n\n# Source our custom profile configuration\nsource ~/.userprofile" >> ~/.bash_profile
 printf "\n\n# Source our custom rc configuration\nsource ~/.userrc" >> ~/.bashrc
 ```
 
