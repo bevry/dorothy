@@ -14,9 +14,9 @@ git pull origin master  --force
 ### Tell your system to load the custom configurations
 
 ```
-printf "\n\n# Source our custom profile configuration\nsource ~/.userprofile" >> ~/.profile
-printf "\n\n# Source our custom profile configuration\nsource ~/.userprofile" >> ~/.bash_profile
-printf "\n\n# Source our custom rc configuration\nsource ~/.userrc" >> ~/.bashrc
+printf "\n\n# Source our custom profile configuration\nsource ~/.userprofile.sh" >> ~/.profile
+printf "\n\n# Source our custom profile configuration\nsource ~/.userprofile.sh" >> ~/.bash_profile
+printf "\n\n# Source our custom rc configuration\nsource ~/.userrc.sh" >> ~/.bashrc
 ```
 
 
