@@ -43,4 +43,4 @@ fi
 # Source
 
 # Source our custom rc configuration
-source "$HOME/.userrc"
+source "$HOME/.userrc.sh"
