@@ -265,6 +265,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Applications
 	alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
 	alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
+	alias installapp='brew cask install'
 fi
 
 # Aliases: Linux
