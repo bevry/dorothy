@@ -54,6 +54,9 @@ fi
 # Don't check mail
 export MAILCHECK=0
 
+# Apps
+mkdir -p ~/bin
+
 # Custom
 if [[ -s ~/.customrc ]]; then
 	source ~/.customrc
@@ -77,17 +80,8 @@ fi
 
 # Sublime
 if [ ! -f ~/bin/sublime ]; then
-	if [ -f "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ]; then
-		mkdir -p ~/bin
-		ln -s "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ~/bin/sublime
-	fi
-	if [ -f "/Applications/Sublime Text 2.app/Contents/SharedSupport/bin/subl" ]; then
-		mkdir -p ~/bin
-		ln -s "/Applications/Sublime Text 2.app/Contents/SharedSupport/bin/subl" ~/bin/sublime
-	fi
 	if [ -f "/opt/sublime_text_2/sublime_text" ]; then
-		mkdir -p ~/bin
-		ln -s "/opt/sublime_text_2/sublime_text" ~/bin/sublime
+		ln -s "/opt/sublime_text_2/sublime_text" ~/bin/subl
 	fi
 fi
 
@@ -242,8 +236,8 @@ elif [[ -f `which pbcopy` ]]; then
 fi
 
 # Aliases: Edit
-if [[ -f `which sublime` ]]; then
-	alias edit='sublime'
+if [[ -f `which subl` ]]; then
+	alias edit='subl'
 elif [[ -f `which gedit` ]]; then
 	alias edit='gedit'
 fi
