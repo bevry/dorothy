@@ -149,6 +149,8 @@ if [[ -f `which nvm` ]]; then
 	alias nta4='nvm use 0.4 && npm test && nvm use 0.6 && npm test && nvm use 0.8 && npm test'
 	alias nta6='nvm use 0.6 && npm test && nvm use 0.8 && npm test'
 fi
+alias npmusa='npm set registry http://registry.npmjs.org/'
+alias npmaus='npm set registry http://registry.npmjs.org.au/'
 
 # Aliases: App Fog
 if [[ -f `which af` ]]; then
