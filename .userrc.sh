@@ -151,6 +151,8 @@ if [[ -f `which nvm` ]]; then
 fi
 alias npmusa='npm set registry http://registry.npmjs.org/'
 alias npmaus='npm set registry http://registry.npmjs.org.au/'
+alias npmpublish='npmusa; npm publish; npmaus'
+alias cakepublish='npmusa; cake publish; npmaus'
 
 # Aliases: App Fog
 if [[ -f `which af` ]]; then
