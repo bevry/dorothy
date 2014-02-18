@@ -136,7 +136,7 @@ function docpad_branch_sync {
 # Aliases
 
 # Aliases: System
-alias reload='source ~/.userrc'
+alias reload='source ~/.userrc.sh'
 alias bye='exit'
 alias restartaudio="sudo kill `ps -ax | grep 'coreaudiod' | grep 'sbin' |awk '{print $1}'`"
 
