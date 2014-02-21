@@ -191,7 +191,9 @@ alias gpo='gp origin; gp origin --tags'
 alias gitrm='git ls-files --deleted | xargs git rm'
 alias git-svn='git svn'
 alias gitsync='git checkout dev && git merge master; git checkout master && git merge dev; git checkout dev; git push origin --all && git push origin --tags'
-alias release='npm publish && git tag -a $1'
+gitdown() {
+	wget "https://github.com/$@/archive/master.tar.gz" && extar master.tar.gz && rm master.tar.gz
+}
 
 # Aliases: System
 alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
