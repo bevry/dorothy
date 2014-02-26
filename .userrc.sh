@@ -79,9 +79,11 @@ fi
 #fi
 
 # Sublime
-if [ ! -f ~/bin/sublime ]; then
+if [ ! -f ~/bin/subl ]; then
 	if [ -f "/opt/sublime_text_2/sublime_text" ]; then
 		ln -s "/opt/sublime_text_2/sublime_text" ~/bin/subl
+	elif [ -f "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ]; then
+		ln -s "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ~/bin/subl
 	fi
 fi
 
