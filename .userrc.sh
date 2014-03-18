@@ -255,6 +255,9 @@ elif [[ -f `which gedit` ]]; then
 	alias edit='gedit'
 fi
 
+# Aliases: Dev
+alias dev='edit ~/Projects'
+
 # Aliases: OSX
 if [[ "$OS" = "Darwin" ]]; then
 	# System
