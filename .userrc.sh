@@ -57,6 +57,9 @@ export MAILCHECK=0
 # Apps
 mkdir -p ~/bin
 
+# Bask Cask Location
+export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Library/Applications"
+
 # Custom
 if [[ -s ~/.customrc ]]; then
 	source ~/.customrc
@@ -244,7 +247,9 @@ elif [[ -f `which pbcopy` ]]; then
 fi
 
 # Aliases: Edit
-if [[ -f `which subl` ]]; then
+if [[ -f `which atom` ]]; then
+	alias edit='atom'
+elif [[ -f `which subl` ]]; then
 	alias edit='subl'
 elif [[ -f `which gedit` ]]; then
 	alias edit='gedit'
