@@ -64,7 +64,7 @@ function precmd {
 		local C_USER=$RED
 	fi
 
-	local basename=$(basename $target)
+	local basename=$(basename "$target")
 	# local pathReversed=$(echo -n $target | split '/' | sed '1!G;h;$!d' | join '\\\\')
 	local title="${basename}${separator}${user}${separator}${target}$(git_prompt)"
 	local prefix="${C_TIME}${time}${C_RESET}${separator}${C_USER}${user}${C_RESET}${separator}${C_PATH}${target}${C_RESET}$(git_prompt_color)"
