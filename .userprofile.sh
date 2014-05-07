@@ -3,7 +3,8 @@
 
 # Core
 export RBENV_ROOT=/usr/local/opt/rbenv
-export PATH=$HOME/bin:/usr/local/bin:/usr/local/share/python:$RBENV_ROOT/bin:/usr/local/opt/ruby/bin:/usr/local/heroku/bin:$PATH
+export GOPATH=$HOME/Library/Developer/go
+export PATH=$HOME/bin:/usr/local/bin:/usr/local/share/python:$RBENV_ROOT/bin:/usr/local/opt/ruby/bin:/usr/local/heroku/bin:$GOPATH/bin:/usr/local/Cellar/go/*/libexec/bin:$PATH
 export MANPATH=/usr/local/man:$MANPATH
 export OS="$(uname -s)"
 
