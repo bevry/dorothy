@@ -143,6 +143,9 @@ function docpad_branch_sync {
 ###
 # Aliases
 
+# Alises: mongo
+alias mongostart='mongod --config /usr/local/etc/mongod.conf'
+
 # Aliases: System
 alias reload='source ~/.userrc.sh'
 alias bye='exit'
