@@ -63,6 +63,9 @@ export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Library/Applicat
 # Brew Python Location
 export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
 
+# Docker Host Location (boot2docker)
+export DOCKER_HOST=tcp://localhost:4243
+
 # Custom
 if [[ -s ~/.customrc ]]; then
 	source ~/.customrc
