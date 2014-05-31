@@ -58,7 +58,7 @@ export MAILCHECK=0
 mkdir -p ~/bin
 
 # Brew Cask Location
-export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Library/Applications"
+export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications"
 
 # Brew Python Location
 export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
@@ -146,7 +146,13 @@ function docpad_branch_sync {
 ###
 # Aliases
 
-# Alises: mongo
+# Aliases: install
+alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
+alias geminstall='gem install git-up terminal-notifier sass compass'
+alias pipinstall='pip install --upgrade httpie'
+alias install='npminstall && geminstall && pipinstall'
+
+# Aliases: mongo
 alias mongostart='mongod --config /usr/local/etc/mongod.conf'
 
 # Aliases: System
