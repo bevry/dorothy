@@ -94,6 +94,7 @@ if [ ! -f ~/bin/subl ]; then
 	elif [ -f "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ]; then
 		ln -s "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ~/bin/subl
 	fi
+	# if sublime is installed via brew cask, then symlink will be created for us
 fi
 
 # Theme
@@ -218,7 +219,7 @@ gitdown() {
 # Aliases: System
 alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
 alias edithooks='edit .git/hooks/pre-commit'
-alias edithosts='sudo sublime /etc/hosts'
+alias edithosts='sudo subl /etc/hosts'
 
 # Aliases: Tar
 alias mktar='tar -cvzf'
