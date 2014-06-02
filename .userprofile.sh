@@ -44,10 +44,3 @@ if [[ -n $SSH_CONNECTION ]]; then
 else
 	export EDITOR='subl -w'
 fi
-
-
-###
-# Source
-
-# Source our custom rc configuration
-source "$HOME/.userrc.sh"
