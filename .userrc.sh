@@ -57,7 +57,7 @@ elif [[ $PROFILE_SHELL = "zsh" ]]; then
 	export C_GIT_DIRTY=$fg[red]
 
 	# OH MY ZSH
-	ZSH_THEME="tjkirch"
+	ZSH_THEME="avit"
 	export ZSH=$HOME/.oh-my-zsh
 	plugins=(autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
 	source $ZSH/oh-my-zsh.sh
