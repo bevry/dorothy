@@ -1,6 +1,9 @@
 ###
 # Configuration
 
+# Make the terminal ttitle not show the current process when initially setting up
+echo -ne "\033]0;-\007"
+
 # Paths
 if [[ -f /usr/local/opt/rbenv ]]; then
 	export RBENV_ROOT=/usr/local/opt/rbenv
