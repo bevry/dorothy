@@ -4,6 +4,9 @@
 ###
 # Environemnt
 
+# OS
+export OS="$(uname -s)"
+
 # Shell
 if test -n "$ZSH_VERSION"; then
 	export PROFILE_SHELL='zsh'
@@ -41,6 +44,9 @@ if [[ $PROFILE_SHELL = "bash" ]]; then
 	export C_GIT_CLEAN=$CYAN
 	export C_GIT_DIRTY=$RED
 
+	# Theme
+	source "$HOME/.usertheme.sh"
+
 elif [[ $PROFILE_SHELL = "zsh" ]]; then
 	# Custom
 	export C_RESET=$reset_color
@@ -49,6 +55,12 @@ elif [[ $PROFILE_SHELL = "zsh" ]]; then
 	export C_PATH=$fg[yellow]
 	export C_GIT_CLEAN=$fg[cyan]
 	export C_GIT_DIRTY=$fg[red]
+
+	# OH MY ZSH
+	ZSH_THEME="tjkirch"
+	export ZSH=$HOME/.oh-my-zsh
+	plugins=(autojump bower brew brew-cask cake coffee cp docker gem git github heroku node npm nvm python ruby)
+	source $ZSH/oh-my-zsh.sh
 fi
 
 # Don't check mail
@@ -97,9 +109,6 @@ if [ ! -f ~/bin/subl ]; then
 	# if sublime is installed via brew cask, then symlink will be created for us
 fi
 
-# Theme
-source "$HOME/.usertheme.sh"
-
 
 ###
 # Functions
@@ -120,6 +129,30 @@ function sync_to_airmail {
 	rm "$airmailPrefDirUser/Accounts.db"
 	cp "$airmailPrefDirSync/prefs" "$airmailPrefDirUser/prefs"
 	cp "$airmailPrefDirSync/Accounts.db" "$airmailPrefDirUser/Accounts.db"
+}
+
+# Configuration Git
+function configure_git {
+	###
+	# Git Configuration
+
+	# Configure Git
+	git config --global core.excludesfile ~/.gitignore_global
+	git config --global push.default simple
+	git config --global mergetool.keepBackup false
+	git config --global color.ui auto
+	git config --global hub.protocol https
+
+	# Use OSX Credential Helper if available, otherwise default to time cache
+	if [[ "$OS" = "Darwin" ]]; then
+		git config --global credential.helper osxkeychain
+		git config --global diff.tool opendiff
+		git config --global merge.tool opendiff
+		git config --global difftool.prompt false
+	else
+		git config --global credential.helper cache
+		git config credential.helper 'cache --timeout=86400'
+	fi
 }
 
 # DocPad Extra Branch Sync
@@ -168,7 +201,7 @@ alias mongostart='mongod --config /usr/local/etc/mongod.conf'
 # Aliases: System
 alias reload='source ~/.userrc.sh'
 alias bye='exit'
-alias restartaudio="sudo kill `ps -ax | grep 'coreaudiod' | grep 'sbin' |awk '{print $1}'`"
+#alias restartaudio="sudo kill `ps -ax | grep 'coreaudiod' | grep 'sbin' |awk '{print $1}'`"
 
 # Aliases: Compliance
 alias php5='php'
