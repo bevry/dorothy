@@ -7,7 +7,7 @@
 # Shell
 if test -n "$ZSH_VERSION"; then
 	export PROFILE_SHELL='zsh'
-	local HOSTNAME='%m'
+	local HOSTNAME='%m'  # what does this do?
 elif test -n "$BASH_VERSION"; then
 	export PROFILE_SHELL='bash'
 elif test -n "$KSH_VERSION"; then
