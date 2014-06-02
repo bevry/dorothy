@@ -26,7 +26,7 @@ function git_prompt_color {
 function precmd {
 	local separator=':'
 	local time=$(date +%H:%M:%S)
-	local target=${PWD/$HOME/~}
+	local target="${PWD/HOME/~}"
 	local user="${USER}@${HOSTNAME}"
 	if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
 		local C_USER=$RED
