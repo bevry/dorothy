@@ -48,6 +48,12 @@ if [[ $PROFILE_SHELL = "bash" ]]; then
 	source "$HOME/.usertheme.sh"
 
 elif [[ $PROFILE_SHELL = "zsh" ]]; then
+	# OH MY ZSH
+	#ZSH_THEME="avit"
+	export ZSH=$HOME/.oh-my-zsh
+	plugins=(autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
+	source $ZSH/oh-my-zsh.sh
+
 	# Custom
 	export C_RESET=$reset_color
 	export C_TIME=$fg[green]
@@ -56,11 +62,8 @@ elif [[ $PROFILE_SHELL = "zsh" ]]; then
 	export C_GIT_CLEAN=$fg[cyan]
 	export C_GIT_DIRTY=$fg[red]
 
-	# OH MY ZSH
-	ZSH_THEME="avit"
-	export ZSH=$HOME/.oh-my-zsh
-	plugins=(autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
-	source $ZSH/oh-my-zsh.sh
+	# Theme
+	source "$HOME/.usertheme.sh"
 fi
 
 # Don't check mail

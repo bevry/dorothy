@@ -22,38 +22,6 @@ function git_prompt_color {
 	echo ":${git_color}${git_branch}${C_RESET}"
 }
 
-# Split
-# http://blog.jacobodevera.com/2009/03/10/split-strings-and-join-lists-using-bash.html
-# function split {
-# 	DEFAULT_DELIMITER=" "
-
-# 	delimiter=${1:-$DEFAULT_DELIMITER}
-# 	inputfile=$2
-
-# 	awk -F "$delimiter" \
-# 	'{  for(i = 1; i <= NF; i++) {
-# 			print $i
-# 		}
-# 	}' $inputfile
-
-# 	return $?
-# }
-
-# Join
-# http://blog.jacobodevera.com/2009/03/10/split-strings-and-join-lists-using-bash.html
-# function join {
-# 	DEFAULT_DELIMITER=""
-
-# 	delimiter=${1:-$DEFAULT_DELIMITER}
-# 	inputfile=$2
-
-# 	awk -v ORS="$delimiter" '{print}' $inputfile | \
-# 		sed "s/$delimiteresc\$/\n/" # Remove the last delimiter and
-# 									# add a new line char at the end
-
-# 	return $?
-# }
-
 # Terminal Prefix
 function precmd {
 	local separator=':'
