@@ -25,20 +25,21 @@ function git_prompt_color {
 # Terminal Prefix
 function precmd {
 	local separator=':'
-	local time=$(date +%H:%M:%S)
+	local time="$(date +%H:%M:%S)"
 	local target="${PWD/HOME/~}"
 	local user="${USER}@${HOSTNAME}"
 	if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
-		local C_USER=$RED
+		local C_USER=$C_GIT_DIRTY
 	fi
-
-	local basename=$(basename "$target")
-	# local pathReversed=$(echo -n $target | split '/' | sed '1!G;h;$!d' | join '\\\\')
-	local title="${basename}${separator}${user}${separator}${target}$(git_prompt)"
+	
 	local prefix="${C_TIME}${time}${C_RESET}${separator}${C_USER}${user}${C_RESET}${separator}${C_PATH}${target}${C_RESET}$(git_prompt_color)"
 
 	# Bash
 	if [[ $PROFILE_SHELL = 'bash' ]]; then
+		local basename=$(basename "$target")
+		# local pathReversed=$(echo -n $target | split '/' | sed '1!G;h;$!d' | join '\\\\')
+		local title="${basename}${separator}${user}${separator}${target}$(git_prompt)"
+	
 		export PS1="${prefix}\n\$ "
 		echo -ne "\033]0;${title}\007"
 
