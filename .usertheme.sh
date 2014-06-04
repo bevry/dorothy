@@ -31,7 +31,7 @@ function precmd {
 	if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
 		local C_USER=$C_GIT_DIRTY
 	fi
-	
+
 	local prefix="${C_TIME}${time}${C_RESET}${separator}${C_USER}${user}${C_RESET}${separator}${C_PATH}${target}${C_RESET}$(git_prompt_color)"
 
 	# Bash
@@ -39,7 +39,7 @@ function precmd {
 		local basename=$(basename "$target")
 		# local pathReversed=$(echo -n $target | split '/' | sed '1!G;h;$!d' | join '\\\\')
 		local title="${basename}${separator}${user}${separator}${target}$(git_prompt)"
-	
+
 		export PS1="${prefix}\n\$ "
 		echo -ne "\033]0;${title}\007"
 
@@ -50,4 +50,8 @@ $ "     # zsh
 		# echo -ne "\e]1;${title}\a"
 	fi
 }
-export PROMPT_COMMAND=precmd  # bash
+
+
+if [[ $PROFILE_SHELL = 'bash' ]]; then
+	export PROMPT_COMMAND=precmd  # bash
+fi
