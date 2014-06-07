@@ -280,6 +280,7 @@ alias flushdns='dscacheutil -flushcache'
 alias rmall='rm -fdR'
 alias search='find . -name'
 alias allow='chmod +x'
+alias sha256='shasum -a 256'
 
 # Aliases: Rails
 alias dierails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -KILL $1'
