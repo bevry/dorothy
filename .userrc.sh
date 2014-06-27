@@ -199,8 +199,9 @@ alias atomupdate='rm /Library/Caches/Homebrew/atom-latest && brew cask install a
 # Aliases: update
 alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
-# Aliases: mongo
-alias mongostart='mongod --config /usr/local/etc/mongod.conf'
+# Aliases: db
+alias startredis='redis-server /usr/local/etc/redis.conf'
+alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
 # Aliases: System
 alias reload='source ~/.userrc.sh'
