@@ -190,11 +190,11 @@ alias pipinstall='pip install --upgrade httpie'
 alias install='npminstall && geminstall && pipinstall'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && nvm install 0.10.28 && nvm use 0.10 && nvm alias default 0.10'
 alias brewinstall='brew install bash git git-extras python ruby wget hub'
-alias caskinstall='brew cask install alfred atom google-chrome google-hangouts firefox lastfm picasa github skype screenflow sublime-text3 soundcleod xld slate'  #  google-drive dropbox bittorrent-sync
+alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
 alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python ruby libnotify-bin'
 alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
-alias atomupdate='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
+alias updateatom='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
 
 # Aliases: update
 alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
