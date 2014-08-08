@@ -73,7 +73,7 @@ export MAILCHECK=0
 mkdir -p ~/bin
 
 # Brew Cask Location
-export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications"
+export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications --binarydir=~/bin"
 
 # Brew Python Location
 export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
