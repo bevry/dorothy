@@ -195,6 +195,7 @@ alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo
 alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 alias updateatom='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
+alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 
 # Aliases: update
 alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
@@ -259,6 +260,7 @@ alias gpo='gp origin; gp origin --tags'
 alias gitrm='git ls-files --deleted | xargs git rm'
 alias git-svn='git svn'
 alias gitsync='git checkout dev && git merge master; git checkout master && git merge dev; git checkout dev; git push origin --all && git push origin --tags'
+alias gup='git pull origin master'
 gitdown() {
 	wget "https://github.com/$@/archive/master.tar.gz" && extar master.tar.gz && rm master.tar.gz
 }
@@ -267,6 +269,11 @@ gitdown() {
 alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
 alias edithooks='edit .git/hooks/pre-commit'
 alias edithosts='sudo subl /etc/hosts'
+
+# Aliases: Misc
+geocode() {
+	open "https://api.tiles.mapbox.com/v3/examples.map-zr0njcqy/geocode/$@.json"
+}
 
 # Aliases: Tar
 alias mktar='tar -cvzf'
