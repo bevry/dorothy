@@ -81,10 +81,11 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinstall='brew install bash git git-extras python ruby wget hub'
 	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
+	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
-	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
+	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -105,6 +106,7 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python ruby libnotify-bin'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
+	alias install='aptinstall && exposeinstall && solarizedinstall && nvminstall && npminstall && geminstall && pipinstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -197,8 +199,7 @@ function docpad_branch_sync {
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
 alias geminstall='gem install git-up terminal-notifier sass compass'
 alias pipinstall='pip install --upgrade httpie'
-alias install='npminstall && geminstall && pipinstall'
-alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && nvm install 0.10.28 && nvm use 0.10 && nvm alias default 0.10'
+alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && nvm install 0.10.30 && nvm use 0.10 && nvm alias default 0.10'
 alias atominstall='apm install '
 
 # Aliases: db
