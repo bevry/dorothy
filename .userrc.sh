@@ -81,11 +81,11 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinstall='brew install bash git git-extras python ruby wget hub'
 	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
-	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
 	# Generic
+	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias atominstall='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
 	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
@@ -110,8 +110,28 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 
 	# Generic
+	function fontinstall {
+		# Prepare
+		mkdir -p ~/.fonts
+		mkdir /tmp/fonts
+		cd /tmp/fonts
+
+		# Source Code Pro
+		wget http://downloads.sourceforge.net/project/sourcecodepro.adobe/SourceCodePro_FontsOnly-1.017.zip
+		unzip SourceCodePro_FontsOnly-1.017.zip
+		mv SourceCodePro_FontsOnly-1.017/OTF/*.otf ~/.fonts
+		rm -Rf SourceCodePro_FontsOnly-1.017*
+
+		# Monaco
+		wget -c https://github.com/cstrap/monaco-font/raw/master/Monaco_Linux.ttf
+		mv Monaco_Linux.ttf ~/.fonts
+
+		# Refresh
+		fc-cache -f -v
+		cd ~
+	}
 	alias atominstall='sudo apt-get install atom'
-	alias install='aptinstall && exposeinstall && solarizedinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias install='aptinstall && exposeinstall && solarizedinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
