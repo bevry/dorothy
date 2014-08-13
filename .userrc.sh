@@ -86,7 +86,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
 	# Generic
-	alias atominstall='rm /Library/Caches/Homebrew/atom-latest || brew cask install atom --force'
+	alias atominstall='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
 	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# MD5
