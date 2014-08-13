@@ -132,9 +132,9 @@ if which rbenv > /dev/null; then
 fi
 
 # NVM
+alias loadnvm='export NVM_DIR=~/.nvm && source ~/.nvm/nvm.sh'
 if [[ -s ~/.nvm/nvm.sh ]]; then
-	NVM_DIR=~/.nvm
-	source ~/.nvm/nvm.sh
+	loadnvm
 fi
 
 # Hub
@@ -199,7 +199,7 @@ function docpad_branch_sync {
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
 alias geminstall='gem install git-up terminal-notifier sass compass'
 alias pipinstall='pip install --upgrade httpie'
-alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && nvm install 0.10.30 && nvm use 0.10 && nvm alias default 0.10'
+alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install 0.10.30 && nvm use 0.10 && nvm alias default 0.10'
 alias atominstall='apm install '
 
 # Aliases: db
