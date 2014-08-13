@@ -200,7 +200,7 @@ alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint
 alias pipinstall='pip install --upgrade httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install 0.10.30 && nvm use 0.10 && nvm alias default 0.10'
-alias atominstall='apm install '
+alias atominstall='apm install Zen atom-handlebars atom-mac-theme auto-detect-indentation autoclose-html base16-eighties-dark base16-light-syntax base16-monokai-dark-syntax docs-snippets editorconfig highlight-selected language-ember-script language-jade monokai semicolons sort-lines toggle-quotes visual-bell'
 
 # Aliases: db
 alias startredis='redis-server /usr/local/etc/redis.conf'
