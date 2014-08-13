@@ -207,7 +207,7 @@ alias startredis='redis-server /usr/local/etc/redis.conf'
 alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
 # Aliases: System
-alias reload='source ~/.userrc.sh'
+alias reload='cd ~ && git pull origin master && source ~/.userrc.sh'
 alias bye='exit'
 #alias restartaudio="sudo kill `ps -ax | grep 'coreaudiod' | grep 'sbin' |awk '{print $1}'`"
 
