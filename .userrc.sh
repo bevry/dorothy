@@ -82,10 +82,12 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias brewinstall='brew install bash git git-extras python ruby wget hub'
 	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato'
-	alias updateatom='rm /Library/Caches/Homebrew/atom-latest || brew cask install atom --force'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
-	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
+
+	# Generic
+	alias atominstall='rm /Library/Caches/Homebrew/atom-latest || brew cask install atom --force'
+	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -106,7 +108,10 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
-	alias install='aptinstall && exposeinstall && solarizedinstall && nvminstall && npminstall && geminstall && pipinstall'
+
+	# Generic
+	alias atominstall='cd ~ && git clone https://github.com/atom/atom.git .atom-app && '
+	alias install='aptinstall && exposeinstall && solarizedinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -249,7 +254,7 @@ alias git-svn='git svn'
 alias gitsync='git checkout dev && git merge master; git checkout master && git merge dev; git checkout dev; git push origin --all && git push origin --tags'
 alias gup='git pull origin master'
 gitdown() {
-	wget "https://github.com/$@/archive/master.tar.gz" && extar master.tar.gz && rm master.tar.gz
+	rm -Rf $2 $2.tar.gz && mkdir -p $2 && cd $2 && wget "https://github.com/$1/archive/master.tar.gz" -O $2.tar.gz && tar -xvzf $2.tar.gz && mv *-master/* . && rm -Rf *-master $2.tar.gz && cd ..
 }
 
 # Aliases: System
@@ -258,7 +263,7 @@ alias edithooks='edit .git/hooks/pre-commit'
 
 # Aliases: Misc
 geocode() {
-	open "https://api.tiles.mapbox.com/v3/examples.map-zr0njcqy/geocode/$@.json"
+	open "https://api.tiles.mapbox.com/v3/examples.map-zr0njcqy/geocode/$1.json"
 }
 
 # Aliases: Tar
@@ -339,8 +344,8 @@ fi
 
 # Aliases: Minify
 # minify() {
-#	rm -f $@.min.js $@.min.map;
-#	uglifyjs $@.js -o $@.min.js --source-map $@.min.map;
+#	rm -f $1.min.js $1.min.map;
+#	uglifyjs $1.js -o $1.min.js --source-map $1.min.map;
 # }
 
 # # Aliases: Rails
