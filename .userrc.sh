@@ -110,7 +110,18 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 
 	# Generic
-	alias atominstall='cd ~ && gitdown atom/atom .atom-app && cd .atom-app && ./script/build && sudo script/grunt install && cd ..'
+	function atominstall {
+		cd ~
+		mkdir -p .atom-app
+		cd .atom-app
+		git init
+		git remote add origin https://github.com/atom/atom.git
+		git pull origin master
+		git checkout master
+		./script/build
+		sudo script/grunt install
+		cd ~
+	}
 	alias install='aptinstall && exposeinstall && solarizedinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
