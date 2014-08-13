@@ -85,9 +85,6 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
-
-	# Generic
-	alias geminstall='gem install git-up terminal-notifier sass compass'
 	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
 
 	# MD5
@@ -109,9 +106,6 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
-
-	# Generic
-	alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 	alias install='aptinstall && exposeinstall && solarizedinstall && nvminstall && npminstall && geminstall && pipinstall'
 
 	# System
@@ -204,6 +198,7 @@ function docpad_branch_sync {
 # Aliases: install
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
 alias pipinstall='pip install --upgrade httpie'
+alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install 0.10.30 && nvm use 0.10 && nvm alias default 0.10'
 alias atominstall='apm install '
 
