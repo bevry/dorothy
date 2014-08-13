@@ -66,17 +66,55 @@ elif [[ $PROFILE_SHELL = "zsh" ]]; then
 	source "$HOME/.usertheme.sh"
 fi
 
+# Aliases: OSX
+if [[ "$OS" = "Darwin" ]]; then
+	# System
+	alias stackhighlightyes='defaults write com.apple.dock mouse-over-hilte-stack -boolean yes ; killall Dock'
+	alias stackhighlightno='defaults write com.apple.dock mouse-over-hilte-stack -boolean no ; killall Dock'
+	alias showallfilesyes='defaults write com.apple.finder AppleShowAllFiles TRUE ; killall Finder'
+	alias showallfilesno='defaults write com.apple.finder AppleShowAllFiles FALSE ; killall Finder'
+	alias autoswooshyes='defaults write com.apple.Dock workspaces-auto-swoosh -bool YES ; killall Dock'
+	alias autoswooshno='defaults write com.apple.Dock workspaces-auto-swoosh -bool NO ; killall Dock'
+	alias nodesktopicons='defaults write com.apple.finder CreateDesktop -bool false'
+	alias edithosts='sudo edit /etc/hosts'
+
+	# Install
+	alias brewinstall='brew install bash git git-extras python ruby wget hub'
+	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
+	alias updateatom='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
+	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
+	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato'
+	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
+
+	# MD5
+	alias md5sum='md5 -r'
+
+	# Applications
+	alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
+	alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
+
+	# Brew Cask Location
+	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications --binarydir=~/bin"
+
+	# Brew Python Location
+	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
+
+# Aliases: Linux
+elif [[ "$OS" = "Linux" ]]; then
+	# Install
+	alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python ruby libnotify-bin'
+	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
+	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
+
+	# System
+	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
+fi
+
 # Don't check mail
 export MAILCHECK=0
 
 # Apps
 mkdir -p ~/bin
-
-# Brew Cask Location
-export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications --binarydir=~/bin"
-
-# Brew Python Location
-export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
 
 # Docker Host Location (boot2docker)
 export DOCKER_HOST=tcp://localhost:4243
@@ -102,37 +140,9 @@ fi
 #	alias git='hub'
 #fi
 
-# Sublime
-if [ ! -f ~/bin/subl ]; then
-	if [ -f "/opt/sublime_text_2/sublime_text" ]; then
-		ln -s "/opt/sublime_text_2/sublime_text" ~/bin/subl
-	elif [ -f "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ]; then
-		ln -s "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ~/bin/subl
-	fi
-	# if sublime is installed via brew cask, then symlink will be created for us
-fi
-
 
 ###
 # Functions
-
-# Airmail
-export airmailPrefDirUser="$HOME/Library/Containers/it.bloop.airmail.beta8/Data/Library/Application Support/Airmail/General"
-export airmailPrefDirSync="$HOME/Dropbox/Preferences/Airmail"
-function airmail_to_sync {
-	mkdir -p "$airmailPrefDirSync"
-	rm "$airmailPrefDirSync/prefs"
-	rm "$airmailPrefDirSync/Accounts.db"
-	cp "$airmailPrefDirUser/prefs" "$airmailPrefDirSync/prefs"
-	cp "$airmailPrefDirUser/Accounts.db" "$airmailPrefDirSync/Accounts.db"
-}
-function sync_to_airmail {
-	mkdir -p "$airmailPrefDirUser"
-	rm "$airmailPrefDirUser/prefs"
-	rm "$airmailPrefDirUser/Accounts.db"
-	cp "$airmailPrefDirSync/prefs" "$airmailPrefDirUser/prefs"
-	cp "$airmailPrefDirSync/Accounts.db" "$airmailPrefDirUser/Accounts.db"
-}
 
 # Configuration Git
 function configure_git {
@@ -189,17 +199,7 @@ alias geminstall='gem install git-up terminal-notifier sass compass'
 alias pipinstall='pip install --upgrade httpie'
 alias install='npminstall && geminstall && pipinstall'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && nvm install 0.10.28 && nvm use 0.10 && nvm alias default 0.10'
-alias brewinstall='brew install bash git git-extras python ruby wget hub'
-alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
-alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato'
-alias aptinstall='sudo add-apt-repository ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python ruby libnotify-bin'
-alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
-alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
-alias updateatom='rm /Library/Caches/Homebrew/atom-latest && brew cask install atom --force'
-alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
-
-# Aliases: update
-alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
+alias atominstall='apm install '
 
 # Aliases: db
 alias startredis='redis-server /usr/local/etc/redis.conf'
@@ -223,21 +223,6 @@ alias npmusa='npm set registry http://registry.npmjs.org/'
 alias npmaus='npm set registry http://registry.npmjs.org.au/'
 alias npmpublish='npmusa; npm publish; npmaus'
 alias cakepublish='npmusa; cake publish; npmaus'
-
-# Aliases: App Fog
-if [[ -f `which af` ]]; then
-	alias afs='af logs $1; af crashes $1; af files $1'
-	alias afd='af delete $1; af push $1; af start $1'
-	alias afu='af update $1; af start $1'
-	afpush() { af update $@; aflog $@; }
-	aflog() { af logs $@; af crashlogs $@; af instances $@; }
-fi
-
-# Aliases: Minify
-# minify() {
-#	rm -f $@.min.js $@.min.map;
-#	uglifyjs $@.js -o $@.min.js --source-map $@.min.map;
-# }
 
 # Aliases: Git
 alias ga='git add'
@@ -269,7 +254,6 @@ gitdown() {
 # Aliases: System
 alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
 alias edithooks='edit .git/hooks/pre-commit'
-alias edithosts='sudo subl /etc/hosts'
 
 # Aliases: Misc
 geocode() {
@@ -292,25 +276,6 @@ alias search='find . -name'
 alias allow='chmod +x'
 alias sha256='shasum -a 256'
 
-# Aliases: Rails
-alias dierails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -KILL $1'
-alias resetrails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -HUP $1'
-
-# Alises: Zend
-if [[ -f `which zendctl.sh` ]]; then
-	alias restartzend='sudo zendctl.sh restart'
-	alias startzend='sudo zendctl.sh start'
-	alias startzendx='startzend; mysqld'
-	alias stopzend='sudo zendctl.sh stop'
-	alias cleanzend='sudo rm -Rf /usr/local/zend /etc/my.cnf /tmp/mysql.sock'
-	alias postinstallzend='sudo rm -f /tmp/mysql.sock /etc/my.cnf ; sudo ln -s /usr/local/zend/mysql/tmp/mysql.sock /tmp/mysql.sock ; sudo ln -s /usr/local/zend/mysql/data/my.cnf /etc/my.cnf'
-	alias mysql='/usr/local/zend/mysql/bin/mysql'
-	alias mysqladmin='/usr/local/zend/mysql/bin/mysqladmin'
-	alias editmysql='edit /usr/local/zend/mysql/support-files/my.cnf'
-	alias openmysql='open /usr/local/zend/mysql/'
-	alias openserver='open /usr/local/zend/mysql/'
-fi
-
 # Aliases: Copy
 if [[ -f `which xclip` ]]; then
 	alias copy='pbcopy '
@@ -320,42 +285,83 @@ fi
 
 # Aliases: Edit
 if [[ -f `which atom` ]]; then
-	alias edit='atom'
+	export EDITOR='atom'
 elif [[ -f `which subl` ]]; then
-	alias edit='subl'
+	export EDITOR='subl'
 elif [[ -f `which gedit` ]]; then
-	alias edit='gedit'
+	export EDITOR='gedit'
+fi
+alias edit=$EDITOR
+if [ ! -f ~/bin/edit ]; then
+	ln -s `which $EDITOR` ~/bin/edit
 fi
 
-# Aliases: Dev
-alias dev='edit ~/Projects'
+###
+# Unused
 
-# Aliases: OSX
-if [[ "$OS" = "Darwin" ]]; then
-	# System
-	alias stackhighlightyes='defaults write com.apple.dock mouse-over-hilte-stack -boolean yes ; killall Dock'
-	alias stackhighlightno='defaults write com.apple.dock mouse-over-hilte-stack -boolean no ; killall Dock'
-	alias showallfilesyes='defaults write com.apple.finder AppleShowAllFiles TRUE ; killall Finder'
-	alias showallfilesno='defaults write com.apple.finder AppleShowAllFiles FALSE ; killall Finder'
-	alias autoswooshyes='defaults write com.apple.Dock workspaces-auto-swoosh -bool YES ; killall Dock'
-	alias autoswooshno='defaults write com.apple.Dock workspaces-auto-swoosh -bool NO ; killall Dock'
-	alias nodesktopicons='defaults write com.apple.finder CreateDesktop -bool false'
+# # Sublime
+# if [ ! -f ~/bin/subl ]; then
+# 	if [ -f "/opt/sublime_text_2/sublime_text" ]; then
+# 		ln -s "/opt/sublime_text_2/sublime_text" ~/bin/subl
+# 	elif [ -f "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ]; then
+# 		ln -s "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ~/bin/subl
+# 	fi
+# 	# if sublime is installed via brew cask, then symlink will be created for us
+# fi
 
-	# MD5
-	alias md5sum='md5 -r'
+# # Airmail
+# export airmailPrefDirUser="$HOME/Library/Containers/it.bloop.airmail.beta8/Data/Library/Application Support/Airmail/General"
+# export airmailPrefDirSync="$HOME/Dropbox/Preferences/Airmail"
+# function airmail_to_sync {
+# 	mkdir -p "$airmailPrefDirSync"
+# 	rm "$airmailPrefDirSync/prefs"
+# 	rm "$airmailPrefDirSync/Accounts.db"
+# 	cp "$airmailPrefDirUser/prefs" "$airmailPrefDirSync/prefs"
+# 	cp "$airmailPrefDirUser/Accounts.db" "$airmailPrefDirSync/Accounts.db"
+# }
+# function sync_to_airmail {
+# 	mkdir -p "$airmailPrefDirUser"
+# 	rm "$airmailPrefDirUser/prefs"
+# 	rm "$airmailPrefDirUser/Accounts.db"
+# 	cp "$airmailPrefDirSync/prefs" "$airmailPrefDirUser/prefs"
+# 	cp "$airmailPrefDirSync/Accounts.db" "$airmailPrefDirUser/Accounts.db"
+# }
 
-	# Applications
-	alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
-	alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
-	alias installapp='brew cask install'
-fi
+# # Aliases: App Fog
+# if [[ -f `which af` ]]; then
+# 	alias afs='af logs $1; af crashes $1; af files $1'
+# 	alias afd='af delete $1; af push $1; af start $1'
+# 	alias afu='af update $1; af start $1'
+# 	afpush() { af update $@; aflog $@; }
+# 	aflog() { af logs $@; af crashlogs $@; af instances $@; }
+# fi
 
-# Aliases: Linux
-if [[ "$OS" = "Linux" ]]; then
-	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
-fi
+# Aliases: Minify
+# minify() {
+#	rm -f $@.min.js $@.min.map;
+#	uglifyjs $@.js -o $@.min.js --source-map $@.min.map;
+# }
 
-# Aliases: Wget
-alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
-alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
-alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agent="Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6""'
+# # Aliases: Rails
+# alias dierails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -KILL $1'
+# alias resetrails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -HUP $1'
+
+# # Alises: Zend
+# if [[ -f `which zendctl.sh` ]]; then
+# 	alias restartzend='sudo zendctl.sh restart'
+# 	alias startzend='sudo zendctl.sh start'
+# 	alias startzendx='startzend; mysqld'
+# 	alias stopzend='sudo zendctl.sh stop'
+# 	alias cleanzend='sudo rm -Rf /usr/local/zend /etc/my.cnf /tmp/mysql.sock'
+# 	alias postinstallzend='sudo rm -f /tmp/mysql.sock /etc/my.cnf ; sudo ln -s /usr/local/zend/mysql/tmp/mysql.sock /tmp/mysql.sock ; sudo ln -s /usr/local/zend/mysql/data/my.cnf /etc/my.cnf'
+# 	alias mysql='/usr/local/zend/mysql/bin/mysql'
+# 	alias mysqladmin='/usr/local/zend/mysql/bin/mysqladmin'
+# 	alias editmysql='edit /usr/local/zend/mysql/support-files/my.cnf'
+# 	alias openmysql='open /usr/local/zend/mysql/'
+# 	alias openserver='open /usr/local/zend/mysql/'
+# fi
+
+# # Aliases: Wget
+# alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
+# alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+# alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agent="Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6""'
