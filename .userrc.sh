@@ -79,7 +79,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias edithosts='sudo edit /etc/hosts'
 
 	# Install
-	alias brewinstall='brew install bash git git-extras python ruby wget hub'
+	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
 	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
@@ -87,7 +87,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias atominstall='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias install='brewinstall && caskinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -108,7 +108,7 @@ if [[ "$OS" = "Darwin" ]]; then
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
 	# Install
-	alias aptinstall='sudo add-apt-repository ppa:webupd8team/atom ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev'
+	alias aptinstall='sudo add-apt-repository ppa:webupd8team/atom ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev zsh'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 
@@ -134,7 +134,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd ~
 	}
 	alias atominstall='sudo apt-get install atom'
-	alias install='aptinstall && exposeinstall && solarizedinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias install='aptinstall && exposeinstall && solarizedinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -224,6 +224,7 @@ function docpad_branch_sync {
 # Aliases
 
 # Aliases: install
+alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
 alias pipinstall='pip install --upgrade httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
