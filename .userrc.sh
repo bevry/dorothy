@@ -150,8 +150,8 @@ mkdir -p ~/bin
 export DOCKER_HOST=tcp://localhost:4243
 
 # Custom
-if [[ -s ~/.customrc ]]; then
-	source ~/.customrc
+if [[ -s ~/.userenv.sh ]]; then
+	source ~/.userenv.sh
 fi
 
 # RBEnv
