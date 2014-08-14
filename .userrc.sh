@@ -312,19 +312,6 @@ elif [[ -f `which pbcopy` ]]; then
 	alias copy='pbcopy '
 fi
 
-# Aliases: Edit
-if [[ -f `which atom` ]]; then
-	export EDITOR='atom'
-elif [[ -f `which subl` ]]; then
-	export EDITOR='subl'
-elif [[ -f `which gedit` ]]; then
-	export EDITOR='gedit'
-fi
-alias edit=$EDITOR
-if [ ! -f ~/bin/edit ]; then
-	ln -s `which $EDITOR` ~/bin/edit
-fi
-
 ###
 # Unused
 

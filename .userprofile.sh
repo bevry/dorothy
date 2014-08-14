@@ -44,7 +44,15 @@ fi
 # Editor
 export LC_CTYPE=en_US.UTF-8
 if [[ -n $SSH_CONNECTION ]]; then
+	alias edit=`which vim`
 	export EDITOR='vim'
-else
+elif [[ -f `which atom` ]]; then
+	alias edit=`which atom`
+	export EDITOR='atom -w'
+elif [[ -f `which subl` ]]; then
+	alias edit=`which subl`
 	export EDITOR='subl -w'
+elif [[ -f `which gedit` ]]; then
+	alias edit=`which gedit`
+	export EDITOR='gedit'
 fi
