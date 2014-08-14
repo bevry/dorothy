@@ -25,9 +25,10 @@ fi
 if [[ -d /usr/local/heroku/bin ]]; then
 	export PATH=/usr/local/heroku/bin:$PATH
 fi
-if [[ -d /usr/local/share/python ]]; then
-	export PATH=/usr/local/share/python:$PATH
-fi
+# apparently this is not needed anymore
+# if [[ -d /usr/local/share/python ]]; then
+# 	export PATH=/usr/local/share/python:$PATH
+# fi
 if [[ -d /usr/local/bin ]]; then
 	export PATH=/usr/local/bin:$PATH
 fi
