@@ -1,5 +1,8 @@
 # [Benjamin Lupton's](http://balupton.com) Dotfiles
 
+Goes well with my [Things I Use](https://gist.github.com/balupton/5259595) listing.
+
+
 ## Install
 
 ### Pull the repo into your home directory
