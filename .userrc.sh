@@ -86,8 +86,8 @@ if [[ "$OS" = "Darwin" ]]; then
 
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
-	alias atominstall='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='brewinstall && caskinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
+	alias install='brewinstall && caskinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
