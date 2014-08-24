@@ -103,7 +103,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
 
 	# Atom Location
-	export ATOM_PATH="~/Applications"
+	export ATOM_PATH="/Users/$USER/Applications"
 
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
