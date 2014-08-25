@@ -277,6 +277,7 @@ alias gitrm='git ls-files --deleted | xargs git rm'
 alias git-svn='git svn'
 alias gitsync='git checkout dev && git merge master; git checkout master && git merge dev; git checkout dev; git push origin --all && git push origin --tags'
 alias gup='git pull origin master'
+alias gap='git remote | xargs -L1 git push'
 gitdown() {
 	rm -Rf $2 $2.tar.gz && mkdir -p $2 && cd $2 && wget "https://github.com/$1/archive/master.tar.gz" -O $2.tar.gz && tar -xvzf $2.tar.gz && mv *-master/* . && rm -Rf *-master $2.tar.gz && cd ..
 }
