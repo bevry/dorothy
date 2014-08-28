@@ -80,7 +80,7 @@ if [[ "$OS" = "Darwin" ]]; then
 
 	# Install
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
-	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
+	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod toggldesktop transmission xld'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
@@ -108,7 +108,7 @@ if [[ "$OS" = "Darwin" ]]; then
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
 	# Install
-	alias aptinstall='sudo add-apt-repository ppa:webupd8team/atom ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev zsh'
+	alias aptinstall='sudo apt-get update && sudo apt-get install curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev zsh'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 
@@ -134,7 +134,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd ~
 	}
 	alias atominstall='sudo apt-get install atom'
-	alias install='aptinstall && exposeinstall && solarizedinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias install='aptinstall && solarizedinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
