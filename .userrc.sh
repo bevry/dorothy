@@ -133,7 +133,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		fc-cache -f -v
 		cd ~
 	}
-	alias atominstall='sudo apt-get install atom'
+	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
 	alias install='aptinstall && solarizedinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
@@ -226,7 +226,7 @@ function docpad_branch_sync {
 # Aliases: install
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
-alias pipinstall='pip install --upgrade httpie'
+alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install 0.10 && nvm use 0.10 && nvm alias default 0.10'
 alias apminstall='apm install Zen atom-handlebars auto-detect-indentation autoclose-html base16-eighties-dark base16-light-syntax base16-monokai-dark-syntax docs-snippets editorconfig highlight-selected language-ember-script language-jade monokai atom-semicolons sort-lines toggle-quotes visual-bell unity-ui'
