@@ -80,14 +80,14 @@ if [[ "$OS" = "Darwin" ]]; then
 
 	# Install
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
-	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod sublime-text3 toggldesktop transmission xld'
+	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod toggldesktop transmission xld'
 	alias updatebrew='brew update && brew upgrade brew-cask && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='brewinstall && caskinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -103,12 +103,12 @@ if [[ "$OS" = "Darwin" ]]; then
 	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
 
 	# Atom Location
-	export ATOM_PATH="~/Applications"
+	export ATOM_PATH="/Users/$USER/Applications"
 
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
 	# Install
-	alias aptinstall='sudo add-apt-repository ppa:webupd8team/atom ppa:webupd8team/sublime-text-3 && sudo apt-get update && sudo apt-get install sublime-text-installer curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev zsh'
+	alias aptinstall='sudo apt-get update && sudo apt-get install curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev zsh'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 
@@ -133,8 +133,8 @@ elif [[ "$OS" = "Linux" ]]; then
 		fc-cache -f -v
 		cd ~
 	}
-	alias atominstall='sudo apt-get install atom'
-	alias install='aptinstall && exposeinstall && solarizedinstall && ohmyzshinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
+	alias install='aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -226,7 +226,7 @@ function docpad_branch_sync {
 # Aliases: install
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
-alias pipinstall='pip install --upgrade httpie'
+alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install 0.10 && nvm use 0.10 && nvm alias default 0.10'
 alias apminstall='apm install Zen atom-handlebars auto-detect-indentation autoclose-html base16-eighties-dark base16-light-syntax base16-monokai-dark-syntax docs-snippets editorconfig highlight-selected language-ember-script language-jade monokai atom-semicolons sort-lines toggle-quotes visual-bell unity-ui'
