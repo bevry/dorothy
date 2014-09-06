@@ -81,7 +81,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
 	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod toggldesktop transmission xld'
-	alias updatebrew='brew update && brew upgrade brew-cask; brew cleanup && brew cask cleanup'
+	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
 	# Generic
