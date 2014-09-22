@@ -79,6 +79,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias edithosts='sudo edit /etc/hosts'
 
 	# Install
+	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts && brew tap caskroom/fonts'
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
 	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod toggldesktop transmission xld'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
@@ -87,7 +88,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias install='brew init && brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
