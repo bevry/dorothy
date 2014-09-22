@@ -81,7 +81,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts && brew tap caskroom/fonts'
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
-	alias caskinstall='brew cask install alfred atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm picasa github skype screenflow slate soundcleod toggldesktop transmission xld'
+	alias caskinstall='brew cask install alfred appzapper atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm mailbox opera picasa plex-media-server skype screenflow slate soundcleod steam toggldesktop transmission undercover xld'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
@@ -98,7 +98,8 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
 
 	# Brew Cask Location
-	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications --binarydir=~/bin"
+	export HOMEBREW_CASK_OPTS="--appdir=/Applications --binarydir=/usr/local/bin"
+	# export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications --binarydir=~/bin"
 
 	# Brew Python Location
 	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
