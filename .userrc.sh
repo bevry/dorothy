@@ -81,7 +81,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts && brew tap caskroom/fonts'
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
-	alias caskinstall='brew cask install alfred appzapper atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts java lastfm mailbox opera picasa plex-media-server skype screenflow slate soundcleod steam toggldesktop transmission undercover xld'
+	alias caskinstall='brew cask install alfred appzapper atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts heroku-toolbelt java lastfm mailbox opera picasa plex-media-server skype screenflow slate soundcleod steam toggldesktop transmission undercover xld'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
