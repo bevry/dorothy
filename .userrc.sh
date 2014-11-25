@@ -81,14 +81,14 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts && brew tap caskroom/fonts'
 	alias brewinstall='brew install bash git git-extras python ruby wget hub zsh'
-	alias caskinstall='brew cask install alfred appzapper atom bittorrent-sync bee cyberduck dropbox firefox github google-chrome google-drive google-hangouts heroku-toolbelt java lastfm mailbox opera picasa plex-media-server skype screenflow slate soundcleod steam toggldesktop transmission undercover xld'
+	alias caskinstall='brew cask install alfred appzapper atom bittorrent-sync dropbox firefox github google-drive google-earth google-hangouts heroku-toolbelt java lastfm mailbox opera picasa plex-media-server skype screenflow slate soundcleod steam toggldesktop transmission undercover xld xbmc vlc'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='brew init && brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias install='brewinit && brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -136,7 +136,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd ~
 	}
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
-	alias install='aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias install='aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall && ohmyzshinstall && usezsh'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -226,6 +226,7 @@ function docpad_branch_sync {
 # Aliases
 
 # Aliases: install
+alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
 alias pipinstall='pip install httpie'
