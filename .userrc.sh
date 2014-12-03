@@ -177,7 +177,7 @@ fi
 # Functions
 
 # Configuration Git
-function configure_git {
+function setupgit {
 	###
 	# Git Configuration
 
@@ -241,6 +241,8 @@ alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 # Aliases: System
 alias reload='cd ~ && git pull origin master && source ~/.userrc.sh'
 alias bye='exit'
+alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
+alias edithooks='edit .git/hooks/pre-commit'
 #alias restartaudio="sudo kill `ps -ax | grep 'coreaudiod' | grep 'sbin' |awk '{print $1}'`"
 
 # Aliases: Compliance
@@ -285,12 +287,11 @@ gitdown() {
 	rm -Rf $2 $2.tar.gz && mkdir -p $2 && cd $2 && wget "https://github.com/$1/archive/master.tar.gz" -O $2.tar.gz && tar -xvzf $2.tar.gz && mv *-master/* . && rm -Rf *-master $2.tar.gz && cd ..
 }
 
-# Aliases: System
-alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
-alias edithooks='edit .git/hooks/pre-commit'
-
 # Aliases: Misc
-geocode() {
+function down {
+	http -c -d $1 -o $2
+}
+function geocode {
 	open "https://api.tiles.mapbox.com/v3/examples.map-zr0njcqy/geocode/$1.json"
 }
 
