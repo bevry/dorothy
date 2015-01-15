@@ -301,7 +301,7 @@ alias extar='tar -xvzf'
 
 # Aliases: Administration
 alias sha1check='openssl sha1 '
-alias takeownership='sudo chown -R balupton .'
+alias takeownership='sudo chown -R $USER .'
 alias svnshowexternals='svn propget -R svn:externals .'
 alias rmsvn='sudo find . -name ".svn" -exec rm -Rf $1 {} \;'
 alias rmtmp='sudo find ./* -name ".tmp*" -exec rm -Rf $1 {} \;'
