@@ -105,7 +105,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
 
 	# Atom Location
-	export ATOM_PATH="/Users/$USER/Applications"
+	#export ATOM_PATH="/Users/$USER/Applications"
 
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
@@ -239,6 +239,7 @@ alias startredis='redis-server /usr/local/etc/redis.conf'
 alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
 # Aliases: System
+alias serve='python -m SimpleHTTPServer 8000'
 alias reload='cd ~ && git pull origin master && source ~/.userrc.sh'
 alias bye='exit'
 alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
