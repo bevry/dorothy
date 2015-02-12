@@ -51,6 +51,7 @@ elif [[ $PROFILE_SHELL = "zsh" ]]; then
 	# OH MY ZSH
 	#ZSH_THEME="avit"
 	if [ -d "$HOME/.oh-my-zsh" ]; then
+		export DISABLE_UPDATE_PROMPT=true
 		export ZSH=$HOME/.oh-my-zsh
 		plugins=(terminalapp osx autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
 		source $ZSH/oh-my-zsh.sh
