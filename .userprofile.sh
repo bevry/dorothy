@@ -56,3 +56,6 @@ elif [[ -f `which gedit` ]]; then
 	alias edit=`which gedit`
 	export EDITOR='gedit'
 fi
+
+# Source our custom rc configuration
+source "$HOME/.userrc.sh
