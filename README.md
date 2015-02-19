@@ -17,10 +17,15 @@ git pull origin master  --force
 ### Tell your system to load the custom configurations
 
 ```
+# Optional Cleaning
+rm ~/.profile
+rm ~/.bash_profile
+rm ~/.bashrc
+rm ~/.zshrc
+
 # Prepare
 export USERPROFILE='# Source our custom profile configuration\nsource "$HOME/.userprofile.sh"'
 export USERRC='# Source our custom rc configuration\nsource "$HOME/.userrc.sh"'
-rm ~/.zshrc
 
 # Linux
 printf "\n\n$USERPROFILE" >> ~/.profile
