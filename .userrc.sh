@@ -1,6 +1,62 @@
 ###
 # Configuration
 
+
+###
+# Functions
+
+# Check if a Command Exists
+function command_exists {
+    type "$1" &> /dev/null
+}
+
+# Configuration Git
+function setupgit {
+	###
+	# Git Configuration
+
+	# Configure Git
+	git config --global core.excludesfile ~/.gitignore_global
+	git config --global push.default simple
+	git config --global mergetool.keepBackup false
+	git config --global color.ui auto
+	git config --global hub.protocol https
+
+	# Use OSX Credential Helper if available, otherwise default to time cache
+	if [[ "$OS" = "Darwin" ]]; then
+		git config --global credential.helper osxkeychain
+		git config --global diff.tool opendiff
+		git config --global merge.tool opendiff
+		git config --global difftool.prompt false
+	else
+		git config --global credential.helper cache
+		git config credential.helper 'cache --timeout=86400'
+	fi
+}
+
+# DocPad Extra Branch Sync
+function docpad_branch_sync {
+	git checkout docpad-6.x
+	git pull origin docpad-6.x
+	git merge master
+
+	git checkout master
+	git pull origin master
+	git merge docpad-6.x
+
+	git checkout docpad-6.x
+	git merge master
+
+	git checkout dev
+	git pull origin dev
+	git merge master
+
+	git checkout master
+	git push origin --all
+}
+
+
+
 ###
 # Environemnt
 
@@ -160,7 +216,7 @@ if [[ -s ~/.userenv.sh ]]; then
 fi
 
 # RBEnv
-if which rbenv > /dev/null; then
+if command_exists rbenv > /dev/null; then
 	eval "$(rbenv init -)"
 fi
 
@@ -171,58 +227,9 @@ if [[ -s ~/.nvm/nvm.sh ]]; then
 fi
 
 # Hub
-#if which hub > /dev/null; then
+#if command_exists hub > /dev/null; then
 #	alias git='hub'
 #fi
-
-
-###
-# Functions
-
-# Configuration Git
-function setupgit {
-	###
-	# Git Configuration
-
-	# Configure Git
-	git config --global core.excludesfile ~/.gitignore_global
-	git config --global push.default simple
-	git config --global mergetool.keepBackup false
-	git config --global color.ui auto
-	git config --global hub.protocol https
-
-	# Use OSX Credential Helper if available, otherwise default to time cache
-	if [[ "$OS" = "Darwin" ]]; then
-		git config --global credential.helper osxkeychain
-		git config --global diff.tool opendiff
-		git config --global merge.tool opendiff
-		git config --global difftool.prompt false
-	else
-		git config --global credential.helper cache
-		git config credential.helper 'cache --timeout=86400'
-	fi
-}
-
-# DocPad Extra Branch Sync
-function docpad_branch_sync {
-	git checkout docpad-6.x
-	git pull origin docpad-6.x
-	git merge master
-
-	git checkout master
-	git pull origin master
-	git merge docpad-6.x
-
-	git checkout docpad-6.x
-	git merge master
-
-	git checkout dev
-	git pull origin dev
-	git merge master
-
-	git checkout master
-	git push origin --all
-}
 
 
 ###
@@ -254,7 +261,7 @@ alias php5='php'
 alias make="make OS=$OS OSTYPE=$OSTYPE"
 
 # Aliases: Node
-if [[ -f `which nvm` ]]; then
+if command_exists nvm; then
 	alias nta4='nvm use 0.4 && npm test && nvm use 0.6 && npm test && nvm use 0.8 && npm test'
 	alias nta6='nvm use 0.6 && npm test && nvm use 0.8 && npm test'
 fi
@@ -317,9 +324,9 @@ alias allow='chmod +x'
 alias sha256='shasum -a 256'
 
 # Aliases: Copy
-if [[ -f `which xclip` ]]; then
+if command_exists xclip; then
 	alias copy='pbcopy '
-elif [[ -f `which pbcopy` ]]; then
+elif command_exists pbcopy; then
 	alias copy='pbcopy '
 fi
 
@@ -355,7 +362,7 @@ fi
 # }
 
 # # Aliases: App Fog
-# if [[ -f `which af` ]]; then
+# if command_exists af; then
 # 	alias afs='af logs $1; af crashes $1; af files $1'
 # 	alias afd='af delete $1; af push $1; af start $1'
 # 	alias afu='af update $1; af start $1'
@@ -374,7 +381,7 @@ fi
 # alias resetrails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -HUP $1'
 
 # # Alises: Zend
-# if [[ -f `which zendctl.sh` ]]; then
+# if command_exists zendctl.sh; then
 # 	alias restartzend='sudo zendctl.sh restart'
 # 	alias startzend='sudo zendctl.sh start'
 # 	alias startzendx='startzend; mysqld'

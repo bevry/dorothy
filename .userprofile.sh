@@ -1,4 +1,13 @@
 ###
+# Functions
+
+# Check if a Command Exists
+function command_exists {
+    type "$1" &> /dev/null
+}
+
+
+###
 # Configuration
 
 # Make the terminal ttitle not show the current process when initially setting up
@@ -40,19 +49,24 @@ if [[ -d /user/local/man ]]; then
 	export MANPATH=/usr/local/man:$MANPATH
 fi
 
+# Software Metrics Unit
+if [[ -d /usr/units/sm/bin ]]; then
+	export PATH=/opt/rsm:/usr/units/sm/bin:$PATH
+	export CLASSPATH=.:/usr/units/sm/classes:$CLASSPATH
+fi
 
 # Editor
 export LC_CTYPE=en_US.UTF-8
 if [[ -n $SSH_CONNECTION ]]; then
 	alias edit=`which vim`
 	export EDITOR='vim'
-elif [[ -f `which atom` ]]; then
+elif command_exists atom; then
 	alias edit=`which atom`
 	export EDITOR='atom -w'
-elif [[ -f `which subl` ]]; then
+elif command_exists subl; then
 	alias edit=`which subl`
 	export EDITOR='subl -w'
-elif [[ -f `which gedit` ]]; then
+elif command_exists gedit; then
 	alias edit=`which gedit`
 	export EDITOR='gedit'
-fi
+fi`
