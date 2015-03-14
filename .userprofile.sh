@@ -69,4 +69,4 @@ elif command_exists subl; then
 elif command_exists gedit; then
 	alias edit=`which gedit`
 	export EDITOR='gedit'
-fi`
+fi
