@@ -241,7 +241,7 @@ alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias npminstall='npm install -g npm && npm install -g jshint csslint coffeelint coffee-script node-inspector simple-server'
 alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
-alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm install node && nvm alias default iojs'
+alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm install node && nvm alias default iojs && nvm use iojs'
 alias apminstall='apm install linter Zen atom-pair atom-detect-indentation autoclose-html docs-snippets editorconfig emmet file-type-icons git-blame highlight-selected language-jade language-handlebars linter-coffeelint linter-csslint linter-js-yaml linter-jshint linter-jsonlint linter-tidy merge-conflicts open-in-browser open-in-github-app react sort-lines symbols-tree-view toggle-quotes visual-bell pen-paper-coffee-syntax unity-ui'
 
 # Aliases: db
