@@ -17,16 +17,19 @@ echo -ne "\033]0;-\007"
 if [[ -f /usr/local/opt/rbenv ]]; then
 	export RBENV_ROOT=/usr/local/opt/rbenv
 fi
-if [[ -f $HOME/Library/Developer/go ]]; then
-	export GOPATH=$HOME/Library/Developer/go
-fi
 
 # Path
 if test -n "$RBENV_ROOT"; then
 	export PATH=$RBENV_ROOT/bin:$PATH
 fi
-if test -n "$GOPATH"; then
-	export PATH=$GOPATH/bin:$PATH
+if command_exists go; then
+    if test -n "$GOPATH"; then; else
+    	export GOPATH=$HOME/go
+		mkdir -p $GOPATH
+    fi
+    if test -n "$GOPATH"; then
+    	export PATH=$GOPATH/bin:$PATH
+    fi
 fi
 if [[ -d /usr/local/opt/ruby/bin ]]; then
 	export PATH=/usr/local/opt/ruby/bin:$PATH
