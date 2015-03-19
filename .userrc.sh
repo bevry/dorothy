@@ -147,7 +147,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='brewinit && brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias install='setupgit && brewinit && brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -195,7 +195,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd ~
 	}
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
-	alias install='aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall && ohmyzshinstall && usezsh'
+	alias install='setupgit && aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall && ohmyzshinstall && usezsh'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
