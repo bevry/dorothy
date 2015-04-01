@@ -238,7 +238,7 @@ fi
 # Aliases: install
 alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
-alias npminstall='npm install -g npm && npm install -g eslint csslint coffeelint coffee-script node-inspector'
+alias npminstall='npm install -g npm && npm install -g eslint csslint coffeelint coffee-script'
 alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm alias default iojs && nvm use iojs'
