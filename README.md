@@ -5,23 +5,18 @@ Goes well with my [Things I Use](https://gist.github.com/balupton/5259595) listi
 
 ## Install
 
-### Pull the repo into your home directory
-
-``` bash
-cd ~
-git init
-git remote add origin https://github.com/balupton/dotfiles.git
-git pull origin master  --force
-```
-
-### Tell your system to load the custom configurations
-
 ```
 # Optional Cleaning
 rm ~/.profile
 rm ~/.bash_profile
 rm ~/.bashrc
 rm ~/.zshrc
+
+# Clone the repository into your home directory
+cd ~
+git init
+git remote add origin https://github.com/balupton/dotfiles.git
+git pull origin master  --force
 
 # Prepare
 export USERPROFILE='# Source our custom profile configuration\nsource "$HOME/.userprofile.sh"'
