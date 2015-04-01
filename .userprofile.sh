@@ -23,9 +23,9 @@ if test -n "$RBENV_ROOT"; then
 	export PATH=$RBENV_ROOT/bin:$PATH
 fi
 if command_exists go; then
-    if test -n "$GOPATH"; then; else
+    if ! test -n "$GOPATH"; then
     	export GOPATH=$HOME/go
-		mkdir -p $GOPATH
+	mkdir -p $GOPATH
     fi
     if test -n "$GOPATH"; then
     	export PATH=$GOPATH/bin:$PATH
