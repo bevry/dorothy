@@ -5,7 +5,7 @@ Goes well with my [Things I Use](https://gist.github.com/balupton/5259595) listi
 
 ## Install
 
-```
+``` bash
 # Optional Cleaning
 rm ~/.profile
 rm ~/.bash_profile
