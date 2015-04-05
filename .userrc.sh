@@ -269,6 +269,7 @@ alias npmusa='npm set registry http://registry.npmjs.org/'
 alias npmaus='npm set registry http://registry.npmjs.org.au/'
 alias npmpublish='npmusa; npm publish; npmaus'
 alias cakepublish='npmusa; cake publish; npmaus'
+alias nake='npm run-script'
 
 # Aliases: Git
 alias ga='git add'
