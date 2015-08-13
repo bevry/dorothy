@@ -14,14 +14,14 @@ function command_exists {
 function setupgit {
 	###
 	# Git Configuration
-
+	
 	# Configure Git
 	git config --global core.excludesfile ~/.gitignore_global
 	git config --global push.default simple
 	git config --global mergetool.keepBackup false
 	git config --global color.ui auto
 	git config --global hub.protocol https
-
+	
 	# Use OSX Credential Helper if available, otherwise default to time cache
 	if [[ "$OS" = "Darwin" ]]; then
 		git config --global credential.helper osxkeychain
