@@ -242,7 +242,7 @@ alias npminstall='npm install -g npm && npm install -g eslint csslint coffeelint
 alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm alias default iojs && nvm use iojs'
-alias apminstall='apm install linter Zen atom-pair editorconfig file-type-icons git-blame highlight-selected language-jade language-handlebars linter-coffeelint linter-csslint linter-js-yaml linter-eslint linter-jsonlint linter-tidy merge-conflicts react visual-bell pen-paper-coffee-syntax'
+alias apminstall='apm install linter zen editorconfig file-type-icons git-blame highlight-selected language-jade language-handlebars linter-coffeelint linter-csslint linter-eslint linter-jsonlint linter-tidy merge-conflicts react visual-bell pen-paper-coffee-syntax'
 
 # Aliases: db
 alias startredis='redis-server /usr/local/etc/redis.conf'
