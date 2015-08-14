@@ -143,8 +143,7 @@ if [[ "$OS" = "Darwin" ]]; then
     alias caskinit='brew untap caskroom/cask && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
     alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
-	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
-
+	
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
