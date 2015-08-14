@@ -1,6 +1,6 @@
 # [Benjamin Lupton's](http://balupton.com) Dotfiles
 
-Goes well with my [Things I Use](https://gist.github.com/balupton/5259595) listing.
+Goes well with my [New Machine Starter Kit](https://gist.github.com/balupton/5259595)
 
 
 ## Install
