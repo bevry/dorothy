@@ -14,14 +14,14 @@ function command_exists {
 function setupgit {
 	###
 	# Git Configuration
-	
+
 	# Configure Git
 	git config --global core.excludesfile ~/.gitignore_global
 	git config --global push.default simple
 	git config --global mergetool.keepBackup false
 	git config --global color.ui auto
 	git config --global hub.protocol https
-	
+
 	# Use OSX Credential Helper if available, otherwise default to time cache
 	if [[ "$OS" = "Darwin" ]]; then
 		git config --global credential.helper osxkeychain
@@ -138,16 +138,17 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias edithosts='sudo edit /etc/hosts'
 
 	# Install
-	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)" && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts && brew tap caskroom/fonts && brew tap caskroom/versions'
+	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
 	alias brewinstall='brew install aria2 bash git git-extras python ruby wget hub vim zsh'
-	alias caskinstall='brew cask install alfred appzapper atom bittorrent-sync dropbox firefox github google-drive google-earth google-hangouts heroku-toolbelt java lastfm mailbox opera picasa plex-media-server skype screenflow slate soundcleod steam toggldesktop transmission undercover xld xbmc vlc'
-	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
+    alias caskinit='brew untap caskroom/cask && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
+	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
+    alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias updatesublime='cd ~/Library/Application\ Support/Sublime\ Text\ 3/ && git pull origin master && ./update.sh'
 
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
-	alias install='setupgit && brewinit && brewinstall && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
 	alias md5sum='md5 -r'
@@ -157,8 +158,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
 
 	# Brew Cask Location
-	export HOMEBREW_CASK_OPTS="--appdir=/Applications --binarydir=/usr/local/bin"
-	# export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications --binarydir=~/bin"
+	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
 
 	# Brew Python Location
 	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
