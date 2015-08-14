@@ -120,11 +120,8 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias brewinstall='brew install aria2 bash git git-extras python ruby wget hub vim zsh'
     alias caskinit='brew untap caskroom/cask && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
-    alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
-
-	# Generic
-	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
-	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
+    alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
+	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
 	# MD5
