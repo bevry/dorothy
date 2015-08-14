@@ -183,6 +183,7 @@ export MAILCHECK=0
 
 # Apps
 mkdir -p ~/bin
+mkdir -p ~/Applications
 
 # Docker Host Location (boot2docker)
 export DOCKER_HOST=tcp://localhost:4243
