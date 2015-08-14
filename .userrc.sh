@@ -34,28 +34,6 @@ function setupgit {
 	fi
 }
 
-# DocPad Extra Branch Sync
-function docpad_branch_sync {
-	git checkout docpad-6.x
-	git pull origin docpad-6.x
-	git merge master
-
-	git checkout master
-	git pull origin master
-	git merge docpad-6.x
-
-	git checkout docpad-6.x
-	git merge master
-
-	git checkout dev
-	git pull origin dev
-	git merge master
-
-	git checkout master
-	git push origin --all
-}
-
-
 
 ###
 # Environemnt
