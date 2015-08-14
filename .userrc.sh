@@ -294,11 +294,18 @@ gitdown() {
 	rm -Rf $2 $2.tar.gz && mkdir -p $2 && cd $2 && wget "https://github.com/$1/archive/master.tar.gz" -O $2.tar.gz && tar -xvzf $2.tar.gz && mv *-master/* . && rm -Rf *-master $2.tar.gz && cd ..
 }
 
-# Aliases: Misc
+# Aliases: Downloading
 function wdown {
 	http -c -d $1 -o $2
 }
 alias down='aria2c'
+
+# # Aliases: Wget
+alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
+alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agent="Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6""'
+
+# Aliases: Geocoding
 function geocode {
 	open "https://api.tiles.mapbox.com/v3/examples.map-zr0njcqy/geocode/$1.json"
 }
@@ -339,24 +346,6 @@ fi
 # 	# if sublime is installed via brew cask, then symlink will be created for us
 # fi
 
-# # Airmail
-# export airmailPrefDirUser="$HOME/Library/Containers/it.bloop.airmail.beta8/Data/Library/Application Support/Airmail/General"
-# export airmailPrefDirSync="$HOME/Dropbox/Preferences/Airmail"
-# function airmail_to_sync {
-# 	mkdir -p "$airmailPrefDirSync"
-# 	rm "$airmailPrefDirSync/prefs"
-# 	rm "$airmailPrefDirSync/Accounts.db"
-# 	cp "$airmailPrefDirUser/prefs" "$airmailPrefDirSync/prefs"
-# 	cp "$airmailPrefDirUser/Accounts.db" "$airmailPrefDirSync/Accounts.db"
-# }
-# function sync_to_airmail {
-# 	mkdir -p "$airmailPrefDirUser"
-# 	rm "$airmailPrefDirUser/prefs"
-# 	rm "$airmailPrefDirUser/Accounts.db"
-# 	cp "$airmailPrefDirSync/prefs" "$airmailPrefDirUser/prefs"
-# 	cp "$airmailPrefDirSync/Accounts.db" "$airmailPrefDirUser/Accounts.db"
-# }
-
 # # Aliases: App Fog
 # if command_exists af; then
 # 	alias afs='af logs $1; af crashes $1; af files $1'
@@ -365,12 +354,6 @@ fi
 # 	afpush() { af update $@; aflog $@; }
 # 	aflog() { af logs $@; af crashlogs $@; af instances $@; }
 # fi
-
-# Aliases: Minify
-# minify() {
-#	rm -f $1.min.js $1.min.map;
-#	uglifyjs $1.js -o $1.min.js --source-map $1.min.map;
-# }
 
 # # Aliases: Rails
 # alias dierails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -KILL $1'
@@ -390,8 +373,3 @@ fi
 # 	alias openmysql='open /usr/local/zend/mysql/'
 # 	alias openserver='open /usr/local/zend/mysql/'
 # fi
-
-# # Aliases: Wget
-alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
-alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
-alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agent="Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6""'
