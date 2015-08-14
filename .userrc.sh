@@ -143,7 +143,7 @@ if [[ "$OS" = "Darwin" ]]; then
     alias caskinit='brew untap caskroom/cask && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
     alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
-	
+
 	# Generic
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro'
 	alias updateatom='rm /Library/Caches/Homebrew/atom-latest; brew cask install atom --force'
@@ -237,7 +237,7 @@ fi
 # Aliases: install
 alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
-alias npminstall='npm install -g npm && npm install -g eslint csslint coffeelint coffee-script'
+alias npminstall='npm install -g npm'
 alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm alias default iojs && nvm use iojs'
