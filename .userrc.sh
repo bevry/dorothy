@@ -169,7 +169,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd ~
 	}
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
-	alias install='setupgit && aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall && ohmyzshinstall && usezsh'
+	alias install='setupgit && aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -213,6 +213,7 @@ fi
 # Aliases: install
 alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
+alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm alias default iojs && nvm use iojs'
 alias npminstall='npm install -g npm'
 alias pipinstall='pip install httpie'
