@@ -10,7 +10,7 @@ function command_exists {
 ###
 # Configuration
 
-# Make the terminal ttitle not show the current process when initially setting up
+# Make the terminal title not show the current process when initially setting up
 echo -ne "\033]0;-\007"
 
 # Paths
