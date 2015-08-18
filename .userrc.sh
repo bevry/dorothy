@@ -127,9 +127,23 @@ if [[ "$OS" = "Darwin" ]]; then
 	# MD5
 	alias md5sum='md5 -r'
 
-	# Applications
-	alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
-	alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
+	# iOS Simulator
+	if [ -d "$HOME/Applications/Xcode-beta.app" ]; then
+        alias iosdev='open ~/Applications/Xcode-beta.app/Contents/Developer/Applications/Simulator.app'
+	elif [ -d "$HOME/Applications/Xcode.app" ]; then
+        alias iosdev='open ~/Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
+    elif [ -d "/Applications/Xcode.app" ]; then
+        alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
+    else
+        alias iosdev='echo "Xcode is not installed"'
+    fi
+
+	# Android Simulator
+	if [ -d "/Applications/Android\ Studio.app" ]; then
+		alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
+	else
+        alias androiddev='echo "Android Studio is not installed"'
+    fi
 
 	# Brew Cask Location
 	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
