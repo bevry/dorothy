@@ -234,7 +234,7 @@ alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm alias default iojs && nvm use iojs'
 alias npminstall='npm install -g npm'
 alias pipinstall='pip install httpie'
-alias geminstall='sudo gem install git-up terminal-notifier sass compass'
+alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
 alias apminstall='apm install linter zen editorconfig file-type-icons highlight-selected language-jade language-handlebars linter-coffeelint linter-csslint linter-eslint linter-jsonlint linter-tidy react visual-bell pen-paper-coffee-syntax'
 
 # Aliases: db
