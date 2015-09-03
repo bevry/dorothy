@@ -48,7 +48,7 @@ if [[ -d $HOME/bin ]]; then
 	export PATH=$HOME/bin:$PATH
 fi
 
-if [[ -d /user/local/man ]]; then
+if [[ -d /usr/local/man ]]; then
 	export MANPATH=/usr/local/man:$MANPATH
 fi
 
