@@ -58,6 +58,12 @@ if [[ -d /usr/units/sm/bin ]]; then
 	export CLASSPATH=.:/usr/units/sm/classes:$CLASSPATH
 fi
 
+# Atom
+# if [[ -d $HOME/Applications/Atom.app ]]; then
+# 	alias atom="$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh"
+#     alias apm="$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm"
+# fi
+
 # Editor
 export LC_CTYPE=en_US.UTF-8
 if [[ -n $SSH_CONNECTION ]]; then
