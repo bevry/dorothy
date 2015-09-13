@@ -254,11 +254,15 @@ alias php5='php'
 alias make="make OS=$OS OSTYPE=$OSTYPE"
 
 # Aliases: Node
-alias npmusa='npm set registry http://registry.npmjs.org/'
-alias npmaus='npm set registry http://registry.npmjs.org.au/'
-alias npmpublish='npmusa; npm publish; npmaus'
-alias cakepublish='npmusa; cake publish; npmaus'
-alias nake='npm run-script'
+alias npmus='npm set registry http://registry.npmjs.org/'
+alias npmau='npm set registry http://registry.npmjs.org.au/'
+alias npmeu='npm set registry http://registry.npmjs.eu/'
+alias npmcn='npm set registry http://r.cnpmjs.org/'
+function nake {
+    npmus
+    npm run-script $1
+    npmcn
+}
 
 # Aliases: Git
 alias ga='git add'
