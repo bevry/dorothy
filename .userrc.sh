@@ -258,6 +258,7 @@ alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
 alias npmcn='npm set registry http://r.cnpmjs.org/'
+alias nake='npm run-script'
 
 # Aliases: Git
 alias ga='git add'
