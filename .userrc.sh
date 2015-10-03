@@ -7,7 +7,7 @@
 
 # Check if a Command Exists
 function command_exists {
-    type "$1" &> /dev/null
+	type "$1" &> /dev/null
 }
 
 # Configuration Git
@@ -118,35 +118,35 @@ if [[ "$OS" = "Darwin" ]]; then
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
 	alias brewinstall='brew install aria2 bash flow git git-extras python ruby wget hub vim zsh'
-    alias caskinit='brew untap caskroom/cask && brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
+	alias caskinit='brew untap caskroom/cask; brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
-    alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro font-open-sans font-montserrat'
+	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro font-open-sans font-montserrat'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
-    # Font Seaching
-    alias fontlist='brew cask search /font-/'
+	# Font Seaching
+	alias fontlist='brew cask search /font-/'
 
 	# MD5
 	alias md5sum='md5 -r'
 
 	# iOS Simulator
 	if [ -d "$HOME/Applications/Xcode-beta.app" ]; then
-        alias iosdev='open ~/Applications/Xcode-beta.app/Contents/Developer/Applications/Simulator.app'
+		alias iosdev='open ~/Applications/Xcode-beta.app/Contents/Developer/Applications/Simulator.app'
 	elif [ -d "$HOME/Applications/Xcode.app" ]; then
-        alias iosdev='open ~/Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
-    elif [ -d "/Applications/Xcode.app" ]; then
-        alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
-    else
-        alias iosdev='echo "Xcode is not installed"'
-    fi
+		alias iosdev='open ~/Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
+	elif [ -d "/Applications/Xcode.app" ]; then
+		alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
+	else
+		alias iosdev='echo "Xcode is not installed"'
+	fi
 
 	# Android Simulator
 	if [ -d "/Applications/Android\ Studio.app" ]; then
 		alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
 	else
-        alias androiddev='echo "Android Studio is not installed"'
-    fi
+		alias androiddev='echo "Android Studio is not installed"'
+	fi
 
 	# Brew Cask Location
 	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
@@ -231,7 +231,7 @@ fi
 alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias zshinstall='ohmyzshinstall && usezsh'
-alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install iojs && nvm alias default iojs && nvm use iojs'
+alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install node && nvm alias default node && nvm use node && npm install -g npm'
 alias npminstall='npm install -g npm && npm install -g npm-check-updates node-debugger'
 alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
