@@ -117,10 +117,10 @@ if [[ "$OS" = "Darwin" ]]; then
 
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
-	alias brewinstall='brew install aria2 bash flow git git-extras python ruby wget hub vim zsh'
+	alias brewinstall='brew install aria2 bash flow git git-extras python ruby tree wget watchman hub vim zsh'
 	alias caskinit='brew untap caskroom/cask; brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
-	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-source-code-pro font-open-sans font-montserrat'
+	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-maven-pro font-source-code-pro font-open-sans font-montserrat'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
@@ -232,7 +232,7 @@ alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install node && nvm alias default node && nvm use node && npm install -g npm'
-alias npminstall='npm install -g npm && npm install -g npm-check-updates node-debugger'
+alias npminstall='npm install -g npm && npm install -g npm-check-updates node-debugger ampersand ember-cli yo bower gulp jspm webpack'
 alias pipinstall='pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
 alias apminstall='apm install linter zen editorconfig file-type-icons highlight-selected language-jade language-handlebars linter-coffeelint linter-csslint linter-eslint linter-jsonlint linter-tidy react visual-bell pen-paper-coffee-syntax'
