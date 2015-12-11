@@ -34,6 +34,14 @@ function setupgit {
 	fi
 }
 
+# Clone each repo
+function clone {
+	for ARG in $*
+	do
+		hub clone $ARG
+	done
+}
+
 
 ###
 # Environemnt
