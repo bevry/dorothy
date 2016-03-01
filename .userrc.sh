@@ -15,13 +15,14 @@ function setupgit {
 	###
 	# Git Configuration
 
-	# Configure Git
+	# General
 	git config --global core.excludesfile ~/.gitignore_global
 	git config --global push.default simple
 	git config --global mergetool.keepBackup false
 	git config --global color.ui auto
 	git config --global hub.protocol https
 
+    # Authentication
 	# Use OSX Credential Helper if available, otherwise default to time cache
 	if [[ "$OS" = "Darwin" ]]; then
 		git config --global credential.helper osxkeychain
@@ -156,6 +157,10 @@ if [[ "$OS" = "Darwin" ]]; then
 		alias androiddev='echo "Android Studio is not installed"'
 	fi
 
+    # Apps
+    mkdir -p ~/bin
+    mkdir -p ~/Applications
+
 	# Brew Cask Location
 	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
 
@@ -168,11 +173,6 @@ if [[ "$OS" = "Darwin" ]]; then
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
 	# Install
-	alias aptinstall='sudo apt-get update && sudo apt-get install curl build-essential openssl libssl-dev git python python-pip ruby libnotify-bin libgnome-keyring-dev zsh'
-	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
-	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
-
-	# Generic
 	function fontinstall {
 		# Prepare
 		mkdir -p ~/.fonts
@@ -193,8 +193,12 @@ elif [[ "$OS" = "Linux" ]]; then
 		fc-cache -f -v
 		cd ~
 	}
+	alias aptinstall='sudo apt-get update && sudo apt-get install curl build-essential openssl libssl-dev git python python-pip ruby'
+	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
+	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
-	alias install='setupgit && aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && atominstall && apminstall'
+	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && exposeinstall && atominstall && apminstall'
+	alias install='setupgit && aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -202,10 +206,6 @@ fi
 
 # Don't check mail
 export MAILCHECK=0
-
-# Apps
-mkdir -p ~/bin
-mkdir -p ~/Applications
 
 # Docker Host Location (boot2docker)
 export DOCKER_HOST=tcp://localhost:4243
@@ -225,11 +225,6 @@ alias loadnvm='export NVM_DIR=~/.nvm && source ~/.nvm/nvm.sh'
 if [[ -s ~/.nvm/nvm.sh ]]; then
 	loadnvm
 fi
-
-# Hub
-#if command_exists hub > /dev/null; then
-#	alias git='hub'
-#fi
 
 
 ###
@@ -336,44 +331,3 @@ if command_exists xclip; then
 elif command_exists pbcopy; then
 	alias copy='pbcopy '
 fi
-
-###
-# Unused
-
-# # Sublime
-# if [ ! -f ~/bin/subl ]; then
-# 	if [ -f "/opt/sublime_text_2/sublime_text" ]; then
-# 		ln -s "/opt/sublime_text_2/sublime_text" ~/bin/subl
-# 	elif [ -f "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ]; then
-# 		ln -s "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl" ~/bin/subl
-# 	fi
-# 	# if sublime is installed via brew cask, then symlink will be created for us
-# fi
-
-# # Aliases: App Fog
-# if command_exists af; then
-# 	alias afs='af logs $1; af crashes $1; af files $1'
-# 	alias afd='af delete $1; af push $1; af start $1'
-# 	alias afu='af update $1; af start $1'
-# 	afpush() { af update $@; aflog $@; }
-# 	aflog() { af logs $@; af crashlogs $@; af instances $@; }
-# fi
-
-# # Aliases: Rails
-# alias dierails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -KILL $1'
-# alias resetrails='ps -a|grep "/usr/local/bin/ruby script/server"|grep -v "grep /usr"|cut -d " " -f1|xargs -n 1 kill -HUP $1'
-
-# # Alises: Zend
-# if command_exists zendctl.sh; then
-# 	alias restartzend='sudo zendctl.sh restart'
-# 	alias startzend='sudo zendctl.sh start'
-# 	alias startzendx='startzend; mysqld'
-# 	alias stopzend='sudo zendctl.sh stop'
-# 	alias cleanzend='sudo rm -Rf /usr/local/zend /etc/my.cnf /tmp/mysql.sock'
-# 	alias postinstallzend='sudo rm -f /tmp/mysql.sock /etc/my.cnf ; sudo ln -s /usr/local/zend/mysql/tmp/mysql.sock /tmp/mysql.sock ; sudo ln -s /usr/local/zend/mysql/data/my.cnf /etc/my.cnf'
-# 	alias mysql='/usr/local/zend/mysql/bin/mysql'
-# 	alias mysqladmin='/usr/local/zend/mysql/bin/mysqladmin'
-# 	alias editmysql='edit /usr/local/zend/mysql/support-files/my.cnf'
-# 	alias openmysql='open /usr/local/zend/mysql/'
-# 	alias openserver='open /usr/local/zend/mysql/'
-# fi
