@@ -15,7 +15,7 @@ rm ~/.zshrc
 # Clone the repository into your home directory
 cd ~
 git init
-git remote add origin git@github.com:balupton/dotfiles.git
+git remote add origin https://github.com/balupton/dotfiles.git
 git pull origin master  --force
 
 # Prepare
