@@ -53,10 +53,10 @@ if [[ -d /usr/local/man ]]; then
 fi
 
 # Software Metrics Unit
-if [[ -d /usr/units/sm/bin ]]; then
-	export PATH=/opt/rsm:/usr/units/sm/bin:$PATH
-	export CLASSPATH=.:/usr/units/sm/classes:$CLASSPATH
-fi
+# if [[ -d /usr/units/sm/bin ]]; then
+# 	export PATH=/opt/rsm:/usr/units/sm/bin:$PATH
+# 	export CLASSPATH=.:/usr/units/sm/classes:$CLASSPATH
+# fi
 
 # Atom
 # if [[ -d $HOME/Applications/Atom.app ]]; then
