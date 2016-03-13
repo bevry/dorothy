@@ -219,7 +219,7 @@ if [[ -s ~/.userenv.sh ]]; then
 fi
 
 # RBEnv
-if command_exists rbenv > /dev/null; then
+if command_exists rbenv; then
 	eval "$(rbenv init -)"
 fi
 
