@@ -60,7 +60,7 @@ fi
 
 # Atom
 if [[ -d $HOME/Applications/Atom.app ]]; then
-	if ! [ command_exists atom ]; then
+	if ! command_exists atom; then
 		ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
 		ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
 	fi
