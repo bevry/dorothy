@@ -239,7 +239,7 @@ alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install node && nvm alias default node && nvm use node && npm install -g npm'
 alias npminstall='npm install -g npm && npm install -g bower coffee-script jspm ember-cli gulp greenkeeper npm-check-updates node-debugger webpack yo'
-alias pipinstall='pip install httpie'
+alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
 alias apminstall='apm install linter zen editorconfig file-type-icons highlight-selected linter-coffeelint linter-csslint linter-eslint linter-jsonlint linter-tidy react visual-bell pen-paper-coffee-syntax'
 
