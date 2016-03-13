@@ -59,10 +59,12 @@ fi
 # fi
 
 # Atom
-# if [[ -d $HOME/Applications/Atom.app ]]; then
-# 	alias atom="$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh"
-#     alias apm="$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm"
-# fi
+if [[ -d $HOME/Applications/Atom.app ]]; then
+	if command_exists atom > /dev/null; then
+		alias atom="$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh"
+		alias apm="$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm"
+	fi
+fi
 
 # Editor
 export LC_CTYPE=en_US.UTF-8
