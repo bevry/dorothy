@@ -61,8 +61,8 @@ fi
 # Atom
 if [[ -d $HOME/Applications/Atom.app ]]; then
 	if command_exists atom > /dev/null; then
-		alias atom="$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh"
-		alias apm="$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm"
+		ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
+		ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
 	fi
 fi
 
