@@ -157,15 +157,18 @@ if [[ "$OS" = "Darwin" ]]; then
 		alias androiddev='echo "Android Studio is not installed"'
 	fi
 
-    # Apps
-    mkdir -p ~/bin
-    mkdir -p ~/Applications
+	# Apps
+	mkdir -p ~/bin
+	mkdir -p ~/Applications
 
 	# Brew Cask Location
 	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
-
-	# Brew Python Location
-	export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
+	
+	# BRew Locations
+	if command_exists brew; then
+		# Brew Python Location
+		export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
+	fi
 
 	# Atom Location
 	#export ATOM_PATH="/Users/$USER/Applications"
