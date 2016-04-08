@@ -19,6 +19,7 @@ if [[ -f /usr/local/opt/rbenv ]]; then
 fi
 
 # Path
+export PATH=$PATH:./node_modules/.bin
 if test -n "$RBENV_ROOT"; then
 	export PATH=$RBENV_ROOT/bin:$PATH
 fi
@@ -48,6 +49,7 @@ if [[ -d $HOME/bin ]]; then
 	export PATH=$HOME/bin:$PATH
 fi
 
+# Man Path
 if [[ -d /usr/local/man ]]; then
 	export MANPATH=/usr/local/man:$MANPATH
 fi

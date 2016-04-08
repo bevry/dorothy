@@ -126,7 +126,7 @@ if [[ "$OS" = "Darwin" ]]; then
 
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
-	alias brewinstall='brew install aria2 bash flow heroku git git-extras python ruby tree wget watchman hub vim zsh'
+	alias brewinstall='brew install aria2 bash heroku git git-extras gnupg python ruby tree wget watchman hub vim zsh'
 	alias caskinit='brew untap caskroom/cask; brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
 	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-maven-pro font-source-code-pro font-open-sans font-montserrat'
