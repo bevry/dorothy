@@ -22,12 +22,12 @@ git pull origin master  --force
 export USERPROFILE='# Source our custom profile configuration\nsource "$HOME/.userprofile.sh"'
 export USERRC='# Source our custom rc configuration\nsource "$HOME/.userrc.sh"'
 
+# OSX: https://github.com/balupton/dotfiles/blob/master/.userprofile.sh
+printf "\n\n$USERPROFILE\n\n$USERRC" >> ~/.bash_profile
+
 # Linux
 printf "\n\n$USERPROFILE" >> ~/.profile
 printf "\n\n$USERRC" >> ~/.bashrc
-
-# OSX: https://github.com/balupton/dotfiles/blob/master/.userprofile.sh
-printf "\n\n$USERPROFILE\n\n$USERRC" >> ~/.bash_profile
 
 # ZSH
 printf "\n\n$USERPROFILE\n\n$USERRC" >> ~/.zshrc
