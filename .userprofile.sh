@@ -70,16 +70,31 @@ fi
 
 # Editor
 export LC_CTYPE=en_US.UTF-8
-if [[ -n $SSH_CONNECTION ]]; then
-	alias edit=`which vim`
-	export EDITOR='vim'
-elif command_exists atom; then
-	alias edit=`which atom`
-	export EDITOR='atom -w'
+
+if command_exists micro; then
+	export TERMINAL_EDITOR='micro'
+elif command_exists vim; then
+	export TERMINAL_EDITOR='vim'
+fi
+
+if command_exists atom; then
+	export GUI_EDITOR='atom'
+    # export GUI_EDITOR_PROMPT='atom -w'
 elif command_exists subl; then
-	alias edit=`which subl`
-	export EDITOR='subl -w'
+	export GUI_EDITOR='subl'
+    # export GUI_EDITOR_PROMPT='subl -w'
 elif command_exists gedit; then
-	alias edit=`which gedit`
-	export EDITOR='gedit'
+	export GUI_EDITOR='gedit'
+    # export GUI_EDITOR_PROMPT='gedit'
+fi
+
+if [[ -n $SSH_CONNECTION ]]; then
+	alias edit=`which $TERMINAL_EDITOR`
+	export EDITOR=$TERMINAL_EDITOR
+else
+	alias edit=`which $GUI_EDITOR`
+    # export EDITOR=$GUI_EDITOR_PROMPT
+	export EDITOR=$TERMINAL_EDITOR
+    # ^ prefer terminal editors these days for prompts
+    # ^ gui editors are just too slow
 fi
