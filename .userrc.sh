@@ -203,6 +203,7 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && atominstall'
 	alias install='setupgit && aptinstall && shellinstall && fontinstall && nvminstall && npminstall'
 	alias cleaninstall='sudo apt-get clean && sudo apt-get autoremove'
+	alias removeinstall='sudo apt-get remove --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
