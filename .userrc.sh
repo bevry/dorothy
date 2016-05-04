@@ -201,7 +201,7 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom && apminstall'
 	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && atominstall'
-	alias install='setupgit && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
+	alias install='setupgit && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && pipinstall'
 	alias cleaninstall='sudo apt-get clean && sudo apt-get autoremove'
 
 	# System
