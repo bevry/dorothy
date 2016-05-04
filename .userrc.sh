@@ -202,6 +202,7 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
 	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && atominstall && apminstall'
 	alias install='setupgit && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
+	alias cleaninstall='sudo apt-get clean && sudo apt-get autoremove'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
