@@ -196,7 +196,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		fc-cache -f -v
 		cd ~
 	}
-	alias aptinstall='sudo apt-get update && sudo apt-get install curl build-essential openssl libssl-dev git python ruby httpie'
+	alias aptinstall='sudo apt-get update && sudo apt-get install curl build-essential openssl libssl-dev git python ruby openjdk-8-jdk httpie'
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom && apminstall'
