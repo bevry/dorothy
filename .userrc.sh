@@ -241,7 +241,7 @@ alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnv
 alias npminstall='npm install -g npm && npm install -g bower coffee-script jspm ember-cli gulp greenkeeper npm-check-updates node-debugger webpack yo'
 alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
-alias apminstall='apm install atom-material-syntax atom-material-syntax-light atom-material-light editorconfig file-type-icons highlight-selected linter linter-eslint linter-flow react visual-bell'
+alias apminstall='apm install atom-material-syntax atom-material-syntax-light atom-material-ui editorconfig file-type-icons highlight-selected indentation-indicator linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint react visual-bell'
 
 # Aliases: db
 alias startredis='redis-server /usr/local/etc/redis.conf'
