@@ -175,7 +175,7 @@ if [[ "$OS" = "Darwin" ]]; then
 
 # Aliases: Linux
 elif [[ "$OS" = "Linux" ]]; then
-	# Install
+	# Installers
 	function fontinstall {
 		# Prepare
 		mkdir -p ~/.fonts
@@ -200,8 +200,8 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom'
-	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && exposeinstall && atominstall && apminstall'
-	alias install='setupgit && aptinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
+	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && atominstall && apminstall'
+	alias install='setupgit && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
