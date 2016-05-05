@@ -202,6 +202,7 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom && apminstall'
 	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev && atominstall'
 	alias install='setupgit && aptinstall && shellinstall && fontinstall && nvminstall && npminstall'
+	alias updateinstall='sudo apt-get update && sudo apt-get upgrade'
 	alias cleaninstall='sudo apt-get clean && sudo apt-get autoremove'
 	alias removeinstall='sudo apt-get remove --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick'
 
