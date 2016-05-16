@@ -22,6 +22,12 @@ function setupgit {
 	git config --global color.ui auto
 	git config --global hub.protocol https
 
+	# Signing Key
+	# https://github.com/keybase/keybase-issues/issues/2182#issuecomment-206409733
+	if test -n "$GIT_SIGNING_KEY"; then
+		git config --global user.signingkey $GIT_SIGNING_KEY
+	fi
+
     # Authentication
 	# Use OSX Credential Helper if available, otherwise default to time cache
 	if [[ "$OS" = "Darwin" ]]; then
