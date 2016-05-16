@@ -33,7 +33,7 @@ printf "\n\n$USERRC" >> ~/.bashrc
 printf "\n\n$USERPROFILE\n\n$USERRC" >> ~/.zshrc
 ```
 
-Put your (private) environment configuration inside `.userenv.sh` - copy this from machine to machine manually.
+Put your (private) environment configuration inside `.userenv.sh` - it is git ignored - must by copied machine to machine manually.
 
 
 ## License
