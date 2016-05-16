@@ -29,6 +29,8 @@ function setupgit {
 		git config --global push.gpgsign true
 		git config --global user.signingkey $GIT_SIGNING_KEY
 		git config --global gpg.program $(which gpg)
+ 		echo "no-tty" >> ~/.gnupg/gpg.conf
+		# ^ http://github.com/isaacs/github/issues/675
 	fi
 
     # Authentication
