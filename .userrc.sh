@@ -26,6 +26,7 @@ function setupgit {
 	# https://github.com/keybase/keybase-issues/issues/2182#issuecomment-206409733
 	if test -n "$GIT_SIGNING_KEY"; then
 		git config --global commit.gpgsign true
+		git config --global push.gpgsign true
 		git config --global user.signingkey $GIT_SIGNING_KEY
 		git config --global gpg.program $(which gpg)
 	fi
