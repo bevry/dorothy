@@ -54,6 +54,12 @@ function clone {
 	done
 }
 
+# Java
+function jstats {
+	javac "$1"
+	javap -c "$1" > "$1.javap"
+	rsm -c "$1" > "$1.rsm"
+}
 
 ###
 # Environemnt
