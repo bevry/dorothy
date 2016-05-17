@@ -58,7 +58,7 @@ function clone {
 function jstats {
 	javac "$1.java"
 	javap -c "$1" > "$1.javap"
-	rsm -c "$1" > "$1.rsm"
+	rsm -c "$1.java" > "$1.rsm"
 }
 
 ###
