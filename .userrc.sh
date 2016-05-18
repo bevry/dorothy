@@ -56,9 +56,24 @@ function clone {
 
 # Java
 function jstats {
-	javac "$1.java"
-	javap -c "$1" > "$1.javap"
-	rsm -c "$1.java" > "$1.rsm"
+	if command_exists javac; then
+		javac "$1.java"
+		echo "compiled $1.class"
+		if command_exists javap; then
+			javap -c "$1" > "$1.javap"
+			echo "compiled $1.javap"
+		else
+			echo "no javap"
+		fi
+	else
+		echo "no javac"
+	fi
+	if command_exists rsm; then
+		rsm -c "$1.java" > "$1.rsm"
+		echo "compiled $1.rsm"
+	else
+		echo "no rsm"
+	fi
 }
 
 ###
