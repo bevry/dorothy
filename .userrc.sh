@@ -54,6 +54,11 @@ function clone {
 	done
 }
 
+# Get current directory
+function dir {
+	basename "`pwd`"
+}
+
 # Java
 function jstats {
 	if command_exists javac; then
