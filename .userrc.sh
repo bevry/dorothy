@@ -59,6 +59,12 @@ function dir {
 	basename "`pwd`"
 }
 
+# Merge videos in current directory
+function vmerge {
+	ffmpeg -f concat -safe 0 -i <(for f in *m4v; do echo "file '$PWD/$f'"; done) -c copy `dir`.m4v
+	mv `dir`.m4v ..
+}
+
 # Java
 function jstats {
 	if command_exists javac; then
