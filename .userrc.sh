@@ -240,15 +240,15 @@ elif [[ "$OS" = "Linux" ]]; then
 		fc-cache -f -v
 		cd ~
 	}
-	alias aptinstall='sudo apt-get install curl build-essential openssl libssl-dev git python ruby httpie vim'
-	alias exposeinstall='sudo apt-get install compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
+	alias aptinstall='sudo apt-get install -y curl build-essential openssl libssl-dev git python ruby httpie vim'
+	alias exposeinstall='sudo apt-get install -y compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
-	alias atominstall='sudo add-apt-repository ppa:webupd8team/atom && sudo apt-get update && sudo apt-get install atom && apminstall'
-	alias shellinstall='sudo apt-get update && sudo apt-get install libnotify-bin libgnome-keyring-dev'
+	alias atominstall='sudo add-apt-repository -y ppa:webupd8team/atom && sudo apt-get update -y && sudo apt-get install -y atom && apminstall'
+	alias shellinstall='sudo apt-get -y update && sudo apt-get install -y libnotify-bin libgnome-keyring-dev'
 	alias install='setupgit && updateinstall && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && cleaninstall'
-	alias updateinstall='sudo apt-get update && sudo apt-get upgrade'
-	alias cleaninstall='sudo apt-get clean && sudo apt-get autoremove'
-	alias removeinstall='sudo apt-get remove --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick && cleaninstall'
+	alias updateinstall='sudo apt-get update -y && sudo apt-get upgrade -y'
+	alias cleaninstall='sudo apt-get clean -y && sudo apt-get autoremove -y'
+	alias removeinstall='sudo apt-get remove -y --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick && cleaninstall'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
