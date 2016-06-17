@@ -1,3 +1,5 @@
+export LOADEDDOTFILES="$LOADEDDOTFILES .userprofile.sh"
+
 ###
 # Functions
 

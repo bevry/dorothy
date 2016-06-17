@@ -1,6 +1,7 @@
+export LOADEDDOTFILES="$LOADEDDOTFILES .userrc.sh"
+
 ###
 # Configuration
-
 
 ###
 # Functions
@@ -110,51 +111,19 @@ else
 	export PROFILE_SHELL='sh'
 fi
 
-# Bash
-if [[ $PROFILE_SHELL = "bash" ]]; then
-	# Standard
-	export RED="\[\033[0;31m\]"
-	export RED_BOLD="\[\033[01;31m\]"
-	export BLUE="\[\033[0;34m\]"
-	export CYAN='\[\e[0;36m\]'
-	export PURPLE='\[\e[0;35m\]'
-	export GREEN="\[\033[0;32m\]"
-	export YELLOW="\[\033[0;33m\]"
-	export BLACK="\[\033[0;38m\]"
-	export NO_COLOUR="\[\033[0m\]"
-
-	# Custom
-	export C_RESET='\[\e[0m\]'
-	export C_TIME=$GREEN
-	export C_USER=$BLUE
-	export C_PATH=$YELLOW
-	export C_GIT_CLEAN=$CYAN
-	export C_GIT_DIRTY=$RED
-
-	# Theme
-	source "$HOME/.usertheme.sh"
-
-elif [[ $PROFILE_SHELL = "zsh" ]]; then
-	# OH MY ZSH
-	#ZSH_THEME="avit"
+# OH MY ZSH
+if [[ $PROFILE_SHELL = "zsh" ]]; then
 	if [ -d "$HOME/.oh-my-zsh" ]; then
 		export DISABLE_UPDATE_PROMPT=true
 		export ZSH=$HOME/.oh-my-zsh
+		# ZSH_THEME="avit"
 		plugins=(terminalapp osx autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
 		source $ZSH/oh-my-zsh.sh
 	fi
-
-	# Custom
-	export C_RESET=$reset_color
-	export C_TIME=$fg[green]
-	export C_USER=$fg[blue]
-	export C_PATH=$fg[yellow]
-	export C_GIT_CLEAN=$fg[cyan]
-	export C_GIT_DIRTY=$fg[red]
-
-	# Theme
-	source "$HOME/.usertheme.sh"
 fi
+
+# Theme
+source "$HOME/.usertheme.sh"
 
 # Aliases: OSX
 if [[ "$OS" = "Darwin" ]]; then

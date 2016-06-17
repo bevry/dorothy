@@ -1,3 +1,41 @@
+export LOADEDDOTFILES="$LOADEDDOTFILES .usertheme.sh"
+
+# Colours
+# Can start with either \033 or \e
+# Normal is \e[0;
+# Bold is \e[01;
+if [[ $PROFILE_SHELL = "bash" ]]; then
+	export RED="\e[0;31m"
+	export RED_BOLD="\e[01;31m"
+	export BLUE="\e[0;34m"
+	export CYAN='\e[0;36m'
+	export PURPLE='\e[0;35m'
+	export GREEN="\e[0;32m"
+	export YELLOW="\e[0;33m"
+	export BLACK="\e[0;38m"
+	export NO_COLOR="\e[0m"
+
+elif [[ $PROFILE_SHELL = "zsh" ]]; then
+	autoload colors && colors
+	export RED=$fg[red]
+	export RED_BOLD=$fg_bold[RED]
+	export BLUE=$fg[blue]
+	export CYAN=$fg[cyan]
+	export PURPLE=$fg[purple]
+	export GREEN=$fg[green]
+	export YELLOW=$fg[yellow]
+	export BLACK=$fg[black]
+	export NO_COLOR=$reset_color
+fi
+
+# Alias colours for specific usages
+export C_RESET=$NO_COLOR
+export C_TIME=$GREEN
+export C_USER=$BLUE
+export C_PATH=$YELLOW
+export C_GIT_CLEAN=$CYAN
+export C_GIT_DIRTY=$RED
+
 # Function to assemble the Git part of our prompt.
 function git_prompt {
 	if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -22,8 +60,8 @@ function git_prompt_color {
 	echo ":${git_color}${git_branch}${C_RESET}"
 }
 
-# Terminal Prefix
-function precmd {
+# Theme
+function our_theme {
 	local separator=':'
 	local time="$(date +%H:%M:%S)"
 	local target="${PWD/HOME/~}"
@@ -45,13 +83,19 @@ function precmd {
 
 	# ZSH
 	else
-		export PROMPT="${prefix}
-$ "     # zsh
+		export PS1="${prefix}
+\$ "
+		# export PROMPT="${prefix}\n\$ "
 		# echo -ne "\e]1;${title}\a"
 	fi
 }
 
 
+# Set the terminal to use the theme
 if [[ $PROFILE_SHELL = 'bash' ]]; then
-	export PROMPT_COMMAND=precmd  # bash
+	export PROMPT_COMMAND="our_theme"
+elif [[ $PROFILE_SHELL = "zsh" ]]; then
+	function precmd {
+		our_theme
+	}
 fi
