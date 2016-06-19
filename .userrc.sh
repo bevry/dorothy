@@ -191,23 +191,29 @@ elif [[ "$OS" = "Linux" ]]; then
 	# Installers
 	function fontinstall {
 		# Prepare
-		mkdir -p ~/.fonts
-		mkdir /tmp/fonts
-		cd /tmp/fonts
+		local f=~/.fonts
+		local ft=$f/tmp
+		local p=$(pwd)
+		mkdir -p $f $ft
+		cd $ft
 
 		# Source Code Pro
-		wget http://downloads.sourceforge.net/project/sourcecodepro.adobe/SourceCodePro_FontsOnly-1.017.zip
-		unzip SourceCodePro_FontsOnly-1.017.zip
-		mv SourceCodePro_FontsOnly-1.017/OTF/*.otf ~/.fonts
-		rm -Rf SourceCodePro_FontsOnly-1.017*
+		# http://askubuntu.com/a/193073/22776
+		# https://github.com/adobe-fonts/source-code-pro
+		wget https://github.com/adobe-fonts/source-code-pro/archive/2.010R-ro/1.030R-it.zip
+		unzip 1.030R-it.zip
+		cp source-code-pro-2.010R-ro-1.030R-it/OTF/*.otf $f
 
 		# Monaco
-		wget -c https://github.com/cstrap/monaco-font/raw/master/Monaco_Linux.ttf
-		mv Monaco_Linux.ttf ~/.fonts
+		# https://github.com/showcases/fonts
+		# https://github.com/todylu/monaco.ttf
+		wget https://github.com/todylu/monaco.ttf/raw/master/monaco.ttf
+		mv monaco.ttf $f
 
 		# Refresh
 		fc-cache -f -v
-		cd ~
+		cd $p
+		rm -Rf $ft
 	}
 	alias aptinstall='sudo apt-get install -y curl build-essential openssl libssl-dev git python ruby httpie vim'
 	alias exposeinstall='sudo apt-get install -y compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
