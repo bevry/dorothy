@@ -11,6 +11,25 @@ function command_exists {
 	type "$1" &> /dev/null
 }
 
+# Create a SSH Key
+function newsshkey {
+	if test -n "$1"; then
+		local name=$1
+
+		if test -n "$2"; then
+			local email="b@lupton.cc"
+		else
+			local email=$2
+		fi
+		local path=$HOME/.ssh/$name
+		ssh-keygen -t rsa -b 4096 -C "$email" -f "$path"
+		eval "$(ssh-agent -s)"
+		ssh-add "$path"
+	else
+		echo "newsshkey KEY_NAME [YOUR_EMAIL]"
+	fi
+}
+
 # Configuration Git
 function setupgit {
 	###
