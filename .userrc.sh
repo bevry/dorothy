@@ -30,6 +30,14 @@ function newsshkey {
 	fi
 }
 
+# Flush DNS
+function flushdns {
+	# https://support.apple.com/en-us/HT202516
+	sudo killall -HUP mDNSResponder
+	sudo dscacheutil -flushcache
+	sudo discoveryutil mdnsflushcache
+}
+
 # Configuration Git
 function setupgit {
 	###
@@ -363,7 +371,6 @@ alias rmsvn='sudo find . -name ".svn" -exec rm -Rf $1 {} \;'
 alias rmtmp='sudo find ./* -name ".tmp*" -exec rm -Rf $1 {} \;'
 alias rmsync='sudo find . -name ".sync" -exec rm -Rf $1 {} \;'
 alias rmmodules='sudo find ./* -name "node_modules" -exec rm -Rf $1 {} \;'
-alias flushdns='dscacheutil -flushcache'
 alias rmall='rm -fdR'
 alias search='find . -name'
 alias allow='chmod +x'
