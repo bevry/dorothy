@@ -122,6 +122,9 @@ function jstats {
 # OS
 export OS="$(uname -s)"
 
+# Don't check mail
+export MAILCHECK=0
+
 # Shell
 if test -n "$ZSH_VERSION"; then
 	export PROFILE_SHELL='zsh'
@@ -169,7 +172,7 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias brewinstall='brew install aria2 bash heroku git git-extras gnupg python ruby tree wget watchman hub vim zsh'
 	alias caskinit='brew untap caskroom/cask; brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
-	alias fontinstall='brew cask install font-ubuntu font-droid-sans font-lato font-maven-pro font-source-code-pro font-open-sans font-montserrat'
+	alias fontinstall='brew cask install font-fira-mono font-fira-code font-ubuntu font-droid-sans font-lato font-maven-pro font-source-code-pro font-open-sans font-montserrat'
 	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 
@@ -256,12 +259,6 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
 fi
 
-# Don't check mail
-export MAILCHECK=0
-
-# Docker Host Location (boot2docker)
-export DOCKER_HOST=tcp://localhost:4243
-
 # Custom
 if [[ -s ~/.userenv.sh ]]; then
 	source ~/.userenv.sh
@@ -290,7 +287,7 @@ alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnv
 alias npminstall='npm install -g npm && npm install -g coffee-script npm-check-updates node-inspector'
 alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
-alias apminstall='apm install atom-material-syntax atom-material-syntax-light atom-material-ui editorconfig file-type-icons highlight-selected indentation-indicator linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint react visual-bell'
+alias apminstall='apm install chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui editorconfig file-type-icons highlight-selected indentation-indicator linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint react visual-bell'
 
 # Aliases: db
 alias startredis='redis-server /usr/local/etc/redis.conf'
