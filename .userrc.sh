@@ -169,12 +169,13 @@ if [[ "$OS" = "Darwin" ]]; then
 
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
-	alias brewinstall='brew install aria2 bash heroku git git-extras gnupg python ruby tree wget watchman hub vim zsh'
+	alias brewinstall='brew install aria2 bash heroku git git-extras gpg python ruby tree wget watchman hub vim zsh homebrew/emacs/org-mode'
 	alias caskinit='brew untap caskroom/cask; brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
 	alias fontinstall='brew cask install font-monoid font-hasklig font-fira-mono font-fira-code font-ubuntu font-droid-sans font-lato font-maven-pro font-source-code-pro font-open-sans font-montserrat'
-	alias updatebrew='brew update && brew upgrade && brew cleanup && brew cask cleanup'
+	alias brewupdate='brew update && brew upgrade && brew cleanup && brew cask cleanup'
 	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias update='baseupdate && brewupdate && apmupdate'
 
 	# Font Seaching
 	alias fontlist='brew cask search /font-/'
@@ -246,14 +247,15 @@ elif [[ "$OS" = "Linux" ]]; then
 		rm -Rf $ft
 	}
 	alias aptinstall='sudo apt-get install -y curl build-essential openssl libssl-dev git python ruby httpie vim'
+	alias aptupdate='sudo apt-get update -y && sudo apt-get upgrade -y'
+	alias aptclean='sudo apt-get clean -y && sudo apt-get autoremove -y'
+	alias aptremove='sudo apt-get remove -y --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick && aptclean'
 	alias exposeinstall='sudo apt-get install -y compiz compizconfig-settings-manager compiz-plugins-extra compiz-plugins-main compiz-plugins'
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository -y ppa:webupd8team/atom && sudo apt-get update -y && sudo apt-get install -y atom && apminstall'
 	alias shellinstall='sudo apt-get -y update && sudo apt-get install -y libnotify-bin libgnome-keyring-dev'
-	alias install='setupgit && updateinstall && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && cleaninstall'
-	alias updateinstall='sudo apt-get update -y && sudo apt-get upgrade -y'
-	alias cleaninstall='sudo apt-get clean -y && sudo apt-get autoremove -y'
-	alias removeinstall='sudo apt-get remove -y --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick && cleaninstall'
+	alias install='setupgit && aptupdate && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && aptclean'
+	alias update='baseupdate && aptupdate && aptclean'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
@@ -288,6 +290,8 @@ alias npminstall='npm install -g npm && npm install -g coffee-script npm-check-u
 alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
 alias apminstall='apm install chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui editorconfig file-type-icons highlight-selected indentation-indicator linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint react visual-bell'
+alias apmupdate='apm update --no-confirm'
+alias baseupdate='cd ~ && git pull origin master'
 
 # Aliases: db
 alias startredis='redis-server /usr/local/etc/redis.conf'
