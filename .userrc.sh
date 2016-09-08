@@ -25,6 +25,7 @@ function newsshkey {
 		ssh-keygen -t rsa -b 4096 -C "$email" -f "$path"
 		eval "$(ssh-agent -s)"
 		ssh-add "$path"
+		cat "$path.pub"
 	else
 		echo "newsshkey KEY_NAME [YOUR_EMAIL]"
 	fi
