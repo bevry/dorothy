@@ -50,18 +50,6 @@ function setupgit {
 	git config --global color.ui auto
 	git config --global hub.protocol https
 
-	# Signing Key
-	# https://github.com/keybase/keybase-issues/issues/2182#issuecomment-206409733
-	if test -n "$GIT_SIGNING_KEY"; then
-		git config --global commit.gpgsign true
-		# git config --global push.gpgsign true
-		# ^ github doesn't support this, will do: fatal: the receiving end does not support --signed push
-		git config --global user.signingkey $GIT_SIGNING_KEY
-		git config --global gpg.program $(which gpg)
- 		echo "no-tty" >> ~/.gnupg/gpg.conf
-		# ^ http://github.com/isaacs/github/issues/675
-	fi
-
     # Authentication
 	# Use OSX Credential Helper if available, otherwise default to time cache
 	if [[ "$OS" = "Darwin" ]]; then
