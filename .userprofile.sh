@@ -70,6 +70,13 @@ if [[ -d $HOME/Applications/Atom.app ]]; then
 	fi
 fi
 
+# GitHub
+if [[ -d $HOME/Applications/GitHub.app ]]; then
+	if ! command_exists github; then
+		ln -s "$HOME/Applications/GitHub Desktop.app/Contents/MacOS/github_cli" "$HOME/bin/github"
+    fi
+fi
+
 # Editor
 export LC_CTYPE=en_US.UTF-8
 
