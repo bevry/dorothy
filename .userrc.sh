@@ -206,7 +206,6 @@ function gitsetup {
 	git config --global push.default simple
 	git config --global mergetool.keepBackup false
 	git config --global color.ui auto
-	git config --global hub.protocol https
 
 	# Authentication
 	# Use OSX Credential Helper if available, otherwise default to time cache
