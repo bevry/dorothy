@@ -190,7 +190,7 @@ alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install node && nvm alias default node && nvm use node && npm install -g npm'
-alias npminstall='npm install -g npm && npm install -g coffee-script node-inspector npm-check-updates npm-offline'
+alias npminstall='npm install -g npm && npm install -g coffee-script node-inspector npm-check-updates'
 alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
 # graveyard themes: chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui
@@ -301,8 +301,8 @@ alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
 alias npmcn='npm set registry http://r.cnpmjs.org/'
-alias npmoffline='npm set registry http://localhost:12644/'
 alias nake='npm run-script'
+alias npmio='npm install --cache-min 999999999'
 
 # Git
 alias ga='git add'
