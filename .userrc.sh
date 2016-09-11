@@ -64,9 +64,6 @@ if [[ "$OS" = "Darwin" ]]; then
 		# http://superuser.com/a/176197/32418
 		# defaults write com.apple.dock workspaces-auto-swoosh -bool false
 
-		# https://software.com/mac/tweaks/auto-hide-the-dock
-		defaults write com.apple.dock autohide -boolean true
-
 		# https://software.com/mac/tweaks/show-file-extensions-in-finder
 		defaults write NSGlobalDomain AppleShowAllExtensions -boolean true
 
@@ -78,6 +75,16 @@ if [[ "$OS" = "Darwin" ]]; then
 
 		# http://osxdaily.com/2012/04/11/disable-the-file-extension-change-warning-in-mac-os-x/
 		defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
+
+		# https://software.com/mac/tweaks/auto-hide-the-dock
+		defaults write com.apple.dock autohide -boolean true
+
+		# disable the annoying terminal bell
+		# http://superuser.com/a/1123198/32418
+		local TERMINAL_PLIST="$HOME/Library/Preferences/com.apple.Terminal.plist"
+		local TERMINAL_THEME=`/usr/libexec/PlistBuddy -c "Print 'Default Window Settings'" $TERMINAL_PLIST`
+		/usr/libexec/PlistBuddy -c "Set 'Window Settings':$TERMINAL_THEME:Bell false" $TERMINAL_PLIST
+		/usr/libexec/PlistBuddy -c "Set 'Window Settings':$TERMINAL_THEME:VisualBellOnlyWhenMuted false" $TERMINAL_PLIST
 	}
 
 	# Install
