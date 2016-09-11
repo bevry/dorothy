@@ -1,112 +1,12 @@
 export LOADEDDOTFILES="$LOADEDDOTFILES .userrc.sh"
 
 ###
-# Configuration
-
-###
-# Functions
+# Environment, Configuration, Installation
 
 # Check if a Command Exists
 function command_exists {
 	type "$1" &> /dev/null
 }
-
-# Create a SSH Key
-function newsshkey {
-	if test -n "$1"; then
-		local name=$1
-
-		if test -n "$2"; then
-			local email="b@lupton.cc"
-		else
-			local email=$2
-		fi
-		local path=$HOME/.ssh/$name
-		ssh-keygen -t rsa -b 4096 -C "$email" -f "$path"
-		eval "$(ssh-agent -s)"
-		ssh-add "$path"
-		cat "$path.pub"
-	else
-		echo "newsshkey KEY_NAME [YOUR_EMAIL]"
-	fi
-}
-
-# Flush DNS
-function flushdns {
-	# https://support.apple.com/en-us/HT202516
-	sudo killall -HUP mDNSResponder
-	sudo dscacheutil -flushcache
-	sudo discoveryutil mdnsflushcache
-}
-
-# Configuration Git
-function setupgit {
-	###
-	# Git Configuration
-
-	# General
-	git config --global core.excludesfile ~/.gitignore_global
-	git config --global push.default simple
-	git config --global mergetool.keepBackup false
-	git config --global color.ui auto
-	git config --global hub.protocol https
-
-    # Authentication
-	# Use OSX Credential Helper if available, otherwise default to time cache
-	if [[ "$OS" = "Darwin" ]]; then
-		git config --global credential.helper osxkeychain
-		git config --global diff.tool opendiff
-		git config --global merge.tool opendiff
-		git config --global difftool.prompt false
-	else
-		git config --global credential.helper cache
-		git config credential.helper 'cache --timeout=86400'
-	fi
-}
-
-# Clone each repo
-function clone {
-	for ARG in $*
-	do
-		hub clone $ARG
-	done
-}
-
-# Get current directory
-function dir {
-	basename "`pwd`"
-}
-
-# Merge videos in current directory
-function vmerge {
-	ffmpeg -f concat -safe 0 -i <(for f in *m4v; do echo "file '$PWD/$f'"; done) -c copy `dir`.m4v
-	mv `dir`.m4v ..
-}
-
-# Java
-function jstats {
-	if command_exists javac; then
-		javac "$1.java"
-		echo "compiled $1.class"
-		if command_exists javap; then
-			javap -c "$1" > "$1.javap"
-			echo "compiled $1.javap"
-		else
-			echo "no javap"
-		fi
-	else
-		echo "no javac"
-	fi
-	if command_exists rsm; then
-		rsm -c "$1.java" > "$1.rsm"
-		echo "compiled $1.rsm"
-	else
-		echo "no rsm"
-	fi
-}
-
-###
-# Environemnt
 
 # OS
 export OS="$(uname -s)"
@@ -144,17 +44,41 @@ fi
 # Theme
 source "$HOME/.usertheme.sh"
 
-# Aliases: OSX
+# Environment
+source "$HOME/.userenv.sh"
+
+# Specific Operating System Configuration: macOS
 if [[ "$OS" = "Darwin" ]]; then
-	# System
-	alias stackhighlightyes='defaults write com.apple.dock mouse-over-hilte-stack -boolean yes ; killall Dock'
-	alias stackhighlightno='defaults write com.apple.dock mouse-over-hilte-stack -boolean no ; killall Dock'
-	alias showallfilesyes='defaults write com.apple.finder AppleShowAllFiles TRUE ; killall Finder'
-	alias showallfilesno='defaults write com.apple.finder AppleShowAllFiles FALSE ; killall Finder'
-	alias autoswooshyes='defaults write com.apple.Dock workspaces-auto-swoosh -bool YES ; killall Dock'
-	alias autoswooshno='defaults write com.apple.Dock workspaces-auto-swoosh -bool NO ; killall Dock'
-	alias nodesktopicons='defaults write com.apple.finder CreateDesktop -bool false'
-	alias edithosts='sudo edit /etc/hosts'
+	# Brew Cask Location
+	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
+
+	# Configuration
+	function macsetup {
+		# Apps
+		mkdir -p ~/bin
+		mkdir -p ~/Applications
+
+		# https://software.com/mac/tweaks/highlight-stacked-items-in-dock
+		# defaults write com.apple.dock mouse-over-hilite-stack -boolean true
+
+		# http://superuser.com/a/176197/32418
+		# defaults write com.apple.dock workspaces-auto-swoosh -bool false
+
+		# https://software.com/mac/tweaks/auto-hide-the-dock
+		defaults write com.apple.dock autohide -boolean true
+
+		# https://software.com/mac/tweaks/show-file-extensions-in-finder
+		defaults write NSGlobalDomain AppleShowAllExtensions -boolean true
+
+		# https://software.com/mac/tweaks/show-all-files-in-finder
+		defaults write com.apple.finder AppleShowAllFiles -boolean true
+
+		# https://software.com/mac/tweaks/hide-desktop-icons
+		defaults write com.apple.finder CreateDesktop -bool false
+
+		# http://osxdaily.com/2012/04/11/disable-the-file-extension-change-warning-in-mac-os-x/
+		defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
+	}
 
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
@@ -163,50 +87,47 @@ if [[ "$OS" = "Darwin" ]]; then
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
 	alias fontinstall='brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu'  # font-andale-mono failed to install
 	alias brewupdate='brew update && brew upgrade && brew cleanup && brew cask cleanup'
-	alias install='setupgit && brewinit && brewinstall && caskinit && caskinstall && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
+	alias install='macsetup && brewinit && brewinstall && gitsetup && caskinit && caskinstall && binsetup && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 	alias update='baseupdate && brewupdate && apmupdate'
 
 	# Font Seaching
-	alias fontlist='brew cask search /font-/'
+	alias fontsearch='brew cask search /font-/'
 
-	# MD5
+	# Flush DNS
+	function flushdns {
+		# https://support.apple.com/en-us/HT202516
+		sudo killall -HUP mDNSResponder
+		sudo dscacheutil -flushcache
+		sudo discoveryutil mdnsflushcache
+	}
+
+	# Mac specific aliases
 	alias md5sum='md5 -r'
+	alias edithosts='sudo edit /etc/hosts'
 
 	# iOS Simulator
-	if [ -d "$HOME/Applications/Xcode-beta.app" ]; then
-		alias iosdev='open ~/Applications/Xcode-beta.app/Contents/Developer/Applications/Simulator.app'
-	elif [ -d "$HOME/Applications/Xcode.app" ]; then
-		alias iosdev='open ~/Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
-	elif [ -d "/Applications/Xcode.app" ]; then
-		alias iosdev='open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app'
-	else
-		alias iosdev='echo "Xcode is not installed"'
-	fi
+	function iosdev {
+		if [ -d "$HOME/Applications/Xcode-beta.app" ]; then
+			open ~/Applications/Xcode-beta.app/Contents/Developer/Applications/Simulator.app
+		elif [ -d "$HOME/Applications/Xcode.app" ]; then
+			open ~/Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app
+		elif [ -d "/Applications/Xcode.app" ]; then
+			open /Applications/Xcode.app/Contents/Applications/iPhone\ Simulator.app
+		else
+			echo "Xcode is not installed"
+		fi
+	}
 
 	# Android Simulator
-	if [ -d "/Applications/Android\ Studio.app" ]; then
-		alias androiddev='/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic'
-	else
-		alias androiddev='echo "Android Studio is not installed"'
-	fi
+	function androiddev {
+		if [ -d "/Applications/Android\ Studio.app" ]; then
+			/Applications/Android\ Studio.app/sdk/tools/emulator -avd basic
+		else
+			echo "Android Studio is not installed"
+		fi
+	}
 
-	# Apps
-	mkdir -p ~/bin
-	mkdir -p ~/Applications
-
-	# Brew Cask Location
-	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
-
-	# BRew Locations
-	if command_exists brew; then
-		# Brew Python Location
-		export PKG_CONFIG_PATH=$(brew --prefix python3)/Frameworks/Python.framework/Versions/3.4/lib/pkgconfig
-	fi
-
-	# Atom Location
-	#export ATOM_PATH="/Users/$USER/Applications"
-
-# Aliases: Linux
+# Specific Operating System Configuration: Linux
 elif [[ "$OS" = "Linux" ]]; then
 	# Installers
 	function fontinstall {
@@ -243,21 +164,11 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository -y ppa:webupd8team/atom && sudo apt-get update -y && sudo apt-get install -y atom && apminstall'
 	alias shellinstall='sudo apt-get -y update && sudo apt-get install -y libnotify-bin libgnome-keyring-dev'
-	alias install='setupgit && aptupdate && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && aptclean'
+	alias install='gitsetup && aptupdate && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && aptclean'
 	alias update='baseupdate && aptupdate && aptclean'
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
-fi
-
-# Custom
-if [[ -s ~/.userenv.sh ]]; then
-	source ~/.userenv.sh
-fi
-
-# RBEnv
-if command_exists rbenv; then
-	eval "$(rbenv init -)"
 fi
 
 # NVM
@@ -266,11 +177,8 @@ if [[ -s ~/.nvm/nvm.sh ]]; then
 	loadnvm
 fi
 
-
-###
-# Aliases
-
-# Aliases: install
+# Installers
+alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
 alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias zshinstall='ohmyzshinstall && usezsh'
@@ -284,30 +192,112 @@ alias apminstall='apm install atom-beautify editorconfig file-type-icons highlig
 alias apmupdate='apm update --no-confirm'
 alias baseupdate='cd ~ && git pull origin master'
 
-# Aliases: db
+# Setup git configuraiton
+function gitsetup {
+	# General
+	git config --global core.excludesfile ~/.gitignore_global
+	git config --global push.default simple
+	git config --global mergetool.keepBackup false
+	git config --global color.ui auto
+	git config --global hub.protocol https
+
+	# Authentication
+	# Use OSX Credential Helper if available, otherwise default to time cache
+	if [[ "$OS" = "Darwin" ]]; then
+		git config --global credential.helper osxkeychain
+		git config --global diff.tool opendiff
+		git config --global merge.tool opendiff
+		git config --global difftool.prompt false
+	else
+		git config --global credential.helper cache
+		git config credential.helper 'cache --timeout=86400'
+	fi
+}
+
+# Setup binary files
+function binsetup {
+	# Atom
+	if [[ -d $HOME/Applications/Atom.app ]]; then
+		if ! command_exists atom; then
+			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
+			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
+			editorsetup
+		fi
+	fi
+
+	# GitHub
+	if [[ -d $HOME/Applications/GitHub.app ]]; then
+		if ! command_exists github; then
+			ln -s "$HOME/Applications/GitHub Desktop.app/Contents/MacOS/github_cli" "$HOME/bin/github"
+		fi
+	fi
+
+	# Git Scan
+	if ! command_exists git-scan; then
+		curl -LsS "https://download.civicrm.org/git-scan/git-scan.phar" -o "$HOME/bin/git-scan"
+		chmod +x "$HOME/bin/git-scan"
+	fi
+}
+
+# Setup a SSH Key
+function newsshkey {
+	if test -n "$1"; then
+		local name=$1
+
+		if test -n "$2"; then
+			local email="b@lupton.cc"
+		else
+			local email=$2
+		fi
+		local path=$HOME/.ssh/$name
+		ssh-keygen -t rsa -b 4096 -C "$email" -f "$path"
+		eval "$(ssh-agent -s)"
+		ssh-add "$path"
+		cat "$path.pub"
+	else
+		echo "newsshkey KEY_NAME [YOUR_EMAIL]"
+	fi
+}
+
+# All loaded and configured
+# To install and configure a new machine, type `install`
+# To update an existing machine type `update`
+
+# Now time for any additional helpers that are not necessary for the above,
+# but are there to assist the user
+
+
+###
+# Helpers
+
+# Get current directory
+function dir {
+	basename "`pwd`"
+}
+
+# Tar
+alias mktar='tar -cvzf'
+alias extar='tar -xvzf'
+
+# Database
 alias startredis='redis-server /usr/local/etc/redis.conf'
 alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
-# Aliases: System
+# Servers
 alias serve='python -m SimpleHTTPServer 8000'
-alias reload='cd ~ && git pull origin master && source ~/.userrc.sh'
-alias bye='exit'
-alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
-alias edithooks='edit .git/hooks/pre-commit'
-#alias restartaudio="sudo kill `ps -ax | grep 'coreaudiod' | grep 'sbin' |awk '{print $1}'`"
 
-# Aliases: Compliance
+# Compliance
 alias php5='php'
 alias make="make OS=$OS OSTYPE=$OSTYPE"
 
-# Aliases: Node
+# Node
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
 alias npmcn='npm set registry http://r.cnpmjs.org/'
 alias nake='npm run-script'
 
-# Aliases: Git
+# Git
 alias ga='git add'
 alias gu='git add -u'
 alias gp='git push'
@@ -331,31 +321,66 @@ alias git-svn='git svn'
 alias gitsync='git checkout dev && git merge master; git checkout master && git merge dev; git checkout dev; git push origin --all && git push origin --tags'
 alias gup='git pull origin'
 alias gap='git remote | xargs -L1 git push'
-gitdown() {
+
+# Download and extract a github repository rather than cloning it, should be faster if you don't need git history
+function gitdown {
 	rm -Rf $2 $2.tar.gz && mkdir -p $2 && cd $2 && wget "https://github.com/$1/archive/master.tar.gz" -O $2.tar.gz && tar -xvzf $2.tar.gz && mv *-master/* . && rm -Rf *-master $2.tar.gz && cd ..
 }
 
-# Aliases: Downloading
+# Clone a list of repositories
+function clone {
+	for ARG in $*
+	do
+		hub clone $ARG
+	done
+}
+
+# Downloading
 function wdown {
 	http -c -d $1 -o $2
 }
 alias down='aria2c'
 
-# # Aliases: Wget
+# Wget
 alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
 alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
 alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agent="Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6""'
 
-# Aliases: Geocoding
+# Get the geocoordinates of a location
 function geocode {
 	open "https://api.tiles.mapbox.com/v3/examples.map-zr0njcqy/geocode/$1.json"
 }
 
-# Aliases: Tar
-alias mktar='tar -cvzf'
-alias extar='tar -xvzf'
+# Merge videos in current directory
+function vmerge {
+	ffmpeg -f concat -safe 0 -i <(for f in *m4v; do echo "file '$PWD/$f'"; done) -c copy `dir`.m4v
+	mv `dir`.m4v ..
+}
 
-# Aliases: Administration
+# Get stats on a java program
+function jstats {
+	if command_exists javac; then
+		javac "$1.java"
+		echo "compiled $1.class"
+		if command_exists javap; then
+			javap -c "$1" > "$1.javap"
+			echo "compiled $1.javap"
+		else
+			echo "no javap"
+		fi
+	else
+		echo "no javac"
+	fi
+	if command_exists rsm; then
+		rsm -c "$1.java" > "$1.rsm"
+		echo "compiled $1.rsm"
+	else
+		echo "no rsm"
+	fi
+}
+
+# Administration
+alias edithooks='edit .git/hooks/pre-commit'
 alias sha1check='openssl sha1 '
 alias takeownership='sudo chown -R $USER .'
 alias svnshowexternals='svn propget -R svn:externals .'
@@ -367,10 +392,3 @@ alias rmall='rm -fdR'
 alias search='find . -name'
 alias allow='chmod +x'
 alias sha256='shasum -a 256'
-
-# Aliases: Copy
-if command_exists xclip; then
-	alias copy='pbcopy '
-elif command_exists pbcopy; then
-	alias copy='pbcopy '
-fi
