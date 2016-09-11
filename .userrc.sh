@@ -281,6 +281,10 @@ function dir {
 	basename "`pwd`"
 }
 
+# Highlight clipboard code as RTF for keynote
+# styles: https://help.farbox.com/pygments.html
+alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango' | pbcopy"
+
 # Tar
 alias mktar='tar -cvzf'
 alias extar='tar -xvzf'
