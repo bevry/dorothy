@@ -50,7 +50,7 @@ source "$HOME/.userenv.sh"
 # Specific Operating System Configuration: macOS
 if [[ "$OS" = "Darwin" ]]; then
 	# Brew Cask Location
-	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom --binarydir=~/bin"
+	export HOMEBREW_CASK_OPTS="--appdir=~/Applications --caskroom=~/Applications/Caskroom"
 
 	# Configuration
 	function macsetup {
