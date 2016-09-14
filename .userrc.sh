@@ -335,7 +335,9 @@ alias gap='git remote | xargs -L1 git push'
 
 # Download and extract a github repository rather than cloning it, should be faster if you don't need git history
 function gitdown {
-	rm -Rf $2 $2.tar.gz && mkdir -p $2 && cd $2 && wget "https://github.com/$1/archive/master.tar.gz" -O $2.tar.gz && tar -xvzf $2.tar.gz && mv *-master/* . && rm -Rf *-master $2.tar.gz && cd ..
+	local repo=`echo "$1" | sed "s/https:\/\/github.com\///" | sed "s/.git//"`
+	local file=`basename "$repo"`
+	rm -Rf $file $file.tar.gz && mkdir -p $file && cd $file && wget "https://github.com/$repo/archive/master.tar.gz" -O $file.tar.gz && tar -xvzf $file.tar.gz && mv *-master/* . && rm -Rf *-master $file.tar.gz && cd ..
 }
 
 # Clone a list of repositories
