@@ -62,15 +62,27 @@ function git_prompt_color {
 
 # Theme
 function our_theme {
+	local prefix=""
 	local separator=':'
 	local time="$(date +%H:%M:%S)"
+	local user=""
 	local target="${PWD/HOME/~}"
-	local user="${USER}@${HOSTNAME}"
 	if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+		user="${USER}@${HOSTNAME}"
 		local C_USER=$C_GIT_DIRTY
 	fi
 
-	local prefix="${C_TIME}${time}${C_RESET}${separator}${C_USER}${user}${C_RESET}${separator}${C_PATH}${target}${C_RESET}$(git_prompt_color)"
+	if [ -n "$time" ]; then
+		prefix="${prefix}${C_TIME}${time}${C_RESET}${separator}"
+	fi
+	if [ -n "$user" ]; then
+		prefix="${prefix}${C_USER}${user}${C_RESET}${separator}"
+	fi
+	if [ -n "$target" ]; then
+		prefix="${prefix}${C_PATH}${target}${C_RESET}"
+	fi
+
+	prefix="${prefix}$(git_prompt_color)"
 
 	# Bash
 	if [[ $PROFILE_SHELL = 'bash' ]]; then
