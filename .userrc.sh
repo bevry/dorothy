@@ -337,7 +337,8 @@ alias gap='git remote | xargs -L1 git push'
 function gitdown {
 	local repo=`echo "$1" | sed "s/https:\/\/github.com\///" | sed "s/.git//"`
 	local file=`basename "$repo"`
-	rm -Rf $file $file.tar.gz && mkdir -p $file && cd $file && wget "https://github.com/$repo/archive/master.tar.gz" -O $file.tar.gz && tar -xvzf $file.tar.gz && mv *-master/* . && rm -Rf *-master $file.tar.gz && cd ..
+	rm -Rf $file $file.tar.gz && mkdir -p $file && cd $file && down "https://github.com/$repo/archive/master.tar.gz" -O $file.tar.gz && tar -xvzf $file.tar.gz && mv *-master/* . && rm -Rf *-master $file.tar.gz && cd ..
+}
 
 # Download a file from a github repo
 function gdown {
