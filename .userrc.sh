@@ -338,6 +338,10 @@ function gitdown {
 	local repo=`echo "$1" | sed "s/https:\/\/github.com\///" | sed "s/.git//"`
 	local file=`basename "$repo"`
 	rm -Rf $file $file.tar.gz && mkdir -p $file && cd $file && wget "https://github.com/$repo/archive/master.tar.gz" -O $file.tar.gz && tar -xvzf $file.tar.gz && mv *-master/* . && rm -Rf *-master $file.tar.gz && cd ..
+
+# Download a file from a github repo
+function gdown {
+	down https://raw.githubusercontent.com/$1
 }
 
 # Clone a list of repositories
@@ -352,7 +356,13 @@ function clone {
 function wdown {
 	http -c -d $1 -o $2
 }
-alias down='aria2c'
+function down {
+	if ! command_exists aria2c; then
+		aria2c $1
+	else
+		wget -N $1
+	fi
+}
 
 # Wget
 alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
