@@ -250,13 +250,15 @@ function newsshkey {
 	if test -n "$1"; then
 		local name=$1
 
+		local comment=$name
 		if test -n "$2"; then
-			local email="b@lupton.cc"
-		else
-			local email=$2
+			comment=$2
 		fi
+
 		local path=$HOME/.ssh/$name
-		ssh-keygen -t rsa -b 4096 -C "$email" -f "$path"
+		rm -f "$path*"
+		echo "Creating new ssh-key at $path with comment $comment"
+		ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
 		eval "$(ssh-agent -s)"
 		ssh-add "$path"
 		cat "$path.pub"
