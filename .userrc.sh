@@ -361,7 +361,7 @@ function wdown {
 }
 function down {
 	if command_exists aria2c; then
-		aria2c $1
+		aria2c -c --allow-overwrite=true --auto-file-renaming=false $1
 	elif command_exists wget; then
 		wget -N $1
 	elif command_exists curl; then
