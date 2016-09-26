@@ -362,9 +362,9 @@ function wdown {
 function down {
 	if command_exists aria2c; then
 		aria2c $1
-	else if command_exists wget; then
+	elif command_exists wget; then
 		wget -N $1
-	else if command_exists curl; then
+	elif command_exists curl; then
 		curl -OL $1
 	fi
 }
