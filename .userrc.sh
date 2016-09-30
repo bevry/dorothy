@@ -146,21 +146,21 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd $ft
 		
 		# Monoid
-		wget https://cdn.rawgit.com/larsenwork/monoid/2db2d289f4e61010dd3f44e09918d9bb32fb96fd/Monoid.zip
+		down https://cdn.rawgit.com/larsenwork/monoid/2db2d289f4e61010dd3f44e09918d9bb32fb96fd/Monoid.zip
 		unzip Monoid.zip
 		mv *.ttf $f
 
 		# Source Code Pro
 		# http://askubuntu.com/a/193073/22776
 		# https://github.com/adobe-fonts/source-code-pro
-		wget https://github.com/adobe-fonts/source-code-pro/archive/2.010R-ro/1.030R-it.zip
+		down https://github.com/adobe-fonts/source-code-pro/archive/2.010R-ro/1.030R-it.zip
 		unzip 1.030R-it.zip
 		mv source-code-pro-2.010R-ro-1.030R-it/OTF/*.otf $f
 
 		# Monaco
 		# https://github.com/showcases/fonts
 		# https://github.com/todylu/monaco.ttf
-		wget https://github.com/todylu/monaco.ttf/raw/master/monaco.ttf
+		down https://github.com/todylu/monaco.ttf/raw/master/monaco.ttf
 		mv monaco.ttf $f
 
 		# Refresh
