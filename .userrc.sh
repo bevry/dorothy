@@ -144,7 +144,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		local p=$(pwd)
 		mkdir -p $f $ft
 		cd $ft
-		
+
 		# Monoid
 		down https://cdn.rawgit.com/larsenwork/monoid/2db2d289f4e61010dd3f44e09918d9bb32fb96fd/Monoid.zip
 		unzip Monoid.zip
@@ -176,6 +176,7 @@ elif [[ "$OS" = "Linux" ]]; then
 	alias solarizedinstall='cd ~ && git clone git://github.com/sigurdga/gnome-terminal-colors-solarized.git && cd gnome-terminal-colors-solarized && chmod +x install.sh && cd ~ && rm -Rf gnome-terminal-colors-solarized'
 	alias atominstall='sudo add-apt-repository -y ppa:webupd8team/atom && sudo apt-get update -y && sudo apt-get install -y atom && apminstall'
 	alias shellinstall='sudo apt-get -y update && sudo apt-get install -y libnotify-bin libgnome-keyring-dev'
+	alias javainstall='sudo add-apt-repository ppa:webupd8team/java && sudo apt-get update -y && sudo apt-get install -y oracle-java8-installer oracle-java8-set-default'
 	alias install='gitsetup && aptupdate && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && aptclean'
 	alias update='baseupdate && aptupdate && aptclean'
 
