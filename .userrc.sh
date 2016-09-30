@@ -205,6 +205,18 @@ alias apminstall='apm install atom-beautify editorconfig file-type-icons highlig
 alias apmupdate='apm update --no-confirm'
 alias baseupdate='cd ~ && git pull origin master'
 
+# Clojure install
+function clojureinstall {
+	# Install Clojure
+	rm -Rf ~/.clojure && mkdir ~/.clojure && cd ~/.clojure && down http://repo1.maven.org/maven2/org/clojure/clojure/1.8.0/clojure-1.8.0.zip && unzip clojure-1.8.0.zip
+
+	# Install ClojureScript
+	cd ~/bin && down https://github.com/clojure/clojurescript/releases/download/r1.9.229/cljs.jar
+
+	# Install Boot
+	cd ~/bin && down https://github.com/boot-clj/boot-bin/releases/download/latest/boot.sh && chmod +x boot.sh
+}
+
 # Setup git configuraiton
 function gitsetup {
 	# General

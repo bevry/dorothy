@@ -57,6 +57,12 @@ if command_exists go; then
 fi
 
 # Straightforward other additions to the path
+if [[ -d $HOME/.clojure ]]; then
+	if [[ -d $HOME/.clojure/clojure-1.8.0 ]]; then
+		export PATH=$HOME/.clojure/clojure-1.8.0:$PATH
+		export CLASSPATH=$CLASSPATH:$HOME/.clojure/clojure-1.8.0
+	fi
+fi
 if [[ -d /usr/local/opt/ruby/bin ]]; then
 	export PATH=/usr/local/opt/ruby/bin:$PATH
 fi
