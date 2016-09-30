@@ -163,7 +163,7 @@ elif [[ "$OS" = "Linux" ]]; then
 		cd $p
 		rm -Rf $ft
 	}
-	alias aptinstall='sudo apt-get install -y curl build-essential openssl libssl-dev git python ruby httpie vim'
+	alias aptinstall='sudo apt-get install -y build-essential curl git httpie libssl-dev openssl python ruby software-properties-common vim'
 	alias aptupdate='sudo apt-get update -y && sudo apt-get upgrade -y'
 	alias aptclean='sudo apt-get clean -y && sudo apt-get autoremove -y'
 	alias aptremove='sudo apt-get remove -y --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick && aptclean'
