@@ -19,21 +19,20 @@ git remote add origin https://github.com/balupton/dotfiles.git
 git pull origin master  --force
 
 # Prepare
-export USERPROFILE='# Source our custom profile configuration\nsource "$HOME/.userprofile.sh"'
-export USERRC='# Source our custom rc configuration\nsource "$HOME/.userrc.sh"'
+export USERDOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.user.sh"'
+printf 'export LOADEDDOTFILES="$LOADEDDOTFILES .userenv.sh"\n\n# Theme\nexport THEME="baltheme"' >> ~/.userenv.sh
 
-# OSX: https://github.com/balupton/dotfiles/blob/master/.userprofile.sh
-printf "\n\n$USERPROFILE\n\n$USERRC" >> ~/.bash_profile
+# OSX
+printf "\n\n$USERDOTFILE" >> ~/.bash_profile
 
 # Linux
-printf "\n\n$USERPROFILE" >> ~/.profile
-printf "\n\n$USERRC" >> ~/.bashrc
+printf "\n\n$USERDOTFILE" >> ~/.bashrc
 
 # ZSH
-printf "\n\n$USERPROFILE\n\n$USERRC" >> ~/.zshrc
+printf "\n\n$USERDOTFILE" >> ~/.zshrc
 ```
 
-Put your (private) environment configuration inside `.userenv.sh` - it is git ignored - must by copied machine to machine manually.
+Put your private environment configuration into `.userenv.sh`
 
 
 ## License
