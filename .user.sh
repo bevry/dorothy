@@ -54,111 +54,20 @@ function command_missing {
 	! command_exists "$1"
 }
 
+
 ###
-# Setup Helpers
-
-# Setup git configuraiton
-function gitsetup {
-	# General
-	git config --global core.excludesfile ~/.gitignore_global
-	git config --global push.default simple
-	git config --global mergetool.keepBackup false
-	git config --global color.ui auto
-
-	# Authentication
-	# Use OSX Credential Helper if available, otherwise default to time cache
-	if is_mac; then
-		git config --global credential.helper osxkeychain
-		git config --global diff.tool opendiff
-		git config --global merge.tool opendiff
-		git config --global difftool.prompt false
-	else
-		git config --global credential.helper cache
-		git config credential.helper 'cache --timeout=86400'
-	fi
-}
-
-# Setup shell configuration
-function shellsetup {
-	if is_string "$ZSH_VERSION"; then
-		export PROFILE_SHELL='zsh'
-	elif is_string "$BASH_VERSION"; then
-		export PROFILE_SHELL='bash'
-	elif is_string "$KSH_VERSION"; then
-		export PROFILE_SHELL='ksh'
-	elif is_string "$FCEDIT"; then
-		export PROFILE_SHELL='ksh'
-	elif is_string "$PS3"; then
-		export PROFILE_SHELL='unknown'
-	else
-		export PROFILE_SHELL='sh'
-	fi
-}
-
-# Setup binary files
-function binsetup {
-	# Atom
-	if is_dir "$HOME/Applications/Atom.app"; then
-		if command_missing atom; then
-			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
-			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
-			editorsetup
-		fi
-	fi
-
-	# GitHub
-	if is_dir "$HOME/Applications/GitHub.app"; then
-		if command_missing github; then
-			ln -s "$HOME/Applications/GitHub Desktop.app/Contents/MacOS/github_cli" "$HOME/bin/github"
-		fi
-	fi
-
-	# Git Scan
-	if command_missing git-scan; then
-		curl -LsS "https://download.civicrm.org/git-scan/git-scan.phar" -o "$HOME/bin/git-scan"
-		chmod +x "$HOME/bin/git-scan"
-	fi
-}
-
-# Set the editor configuration
-function editorsetup {
-    export LC_CTYPE=en_US.UTF-8
-
-	if command_exists vim; then
-		export TERMINAL_EDITOR='vim'
-		export TERMINAL_EDITOR_PROMPT='vim'
-	fi
-
-	if command_exists atom; then
-		export GUI_EDITOR='atom'
-		export GUI_EDITOR_PROMPT='atom -w'
-	elif command_exists subl; then
-		export GUI_EDITOR='subl'
-		export GUI_EDITOR_PROMPT='subl -w'
-	elif command_exists gedit; then
-		export GUI_EDITOR='gedit'
-		export GUI_EDITOR_PROMPT='gedit'
-	fi
-
-	if is_string "$SSH_CONNECTION"; then
-		alias edit='$(which "$TERMINAL_EDITOR")'
-	else
-		alias edit='$(which "$GUI_EDITOR")'
-	fi
-
-	# Always use terminal editor for prompts
-	# as GUI editors are too slow
-	export EDITOR=$TERMINAL_EDITOR_PROMPT
-}
+# Init Helpers
 
 # Setup the path
-function pathsetup {
+function pathinit {
 	if is_empty_string "$PATH_ORIGINAL"; then
 		export PATH_ORIGINAL=$PATH
-		export CLASSPATH=$CLASSPATH
+		export MANPATH_ORIGINAL=$MANPATH
+		export CLASSPATH_ORIGINAL=$CLASSPATH
 	else
 		export PATH=$PATH_ORIGINAL
 		export CLASSPATH=$CLASSPATH_ORIGINAL
+		export MANPATH=$MANPATH_ORIGINAL
 	fi
 
 	# Add current directories node_module binaries to the end of the path, so least preferred
@@ -203,6 +112,104 @@ function pathsetup {
 	# Man path
 	if is_dir /usr/local/man; then
 		export MANPATH=/usr/local/man:$MANPATH
+	fi
+}
+
+# Setup shell configuration
+function shellinit {
+	if is_string "$ZSH_VERSION"; then
+		export PROFILE_SHELL='zsh'
+	elif is_string "$BASH_VERSION"; then
+		export PROFILE_SHELL='bash'
+	elif is_string "$KSH_VERSION"; then
+		export PROFILE_SHELL='ksh'
+	elif is_string "$FCEDIT"; then
+		export PROFILE_SHELL='ksh'
+	elif is_string "$PS3"; then
+		export PROFILE_SHELL='unknown'
+	else
+		export PROFILE_SHELL='sh'
+	fi
+}
+
+# Set the editor configuration
+function editorinit {
+    export LC_CTYPE=en_US.UTF-8
+
+	if command_exists vim; then
+		export TERMINAL_EDITOR='vim'
+		export TERMINAL_EDITOR_PROMPT='vim'
+	fi
+
+	if command_exists atom; then
+		export GUI_EDITOR='atom'
+		export GUI_EDITOR_PROMPT='atom -w'
+	elif command_exists subl; then
+		export GUI_EDITOR='subl'
+		export GUI_EDITOR_PROMPT='subl -w'
+	elif command_exists gedit; then
+		export GUI_EDITOR='gedit'
+		export GUI_EDITOR_PROMPT='gedit'
+	fi
+
+	if is_string "$SSH_CONNECTION"; then
+		alias edit=$TERMINAL_EDITOR
+	else
+		alias edit=$GUI_EDITOR
+	fi
+
+	# Always use terminal editor for prompts
+	# as GUI editors are too slow
+	export EDITOR=$TERMINAL_EDITOR_PROMPT
+}
+
+
+###
+# Setup Helpers
+
+# Setup git configuraiton
+function gitsetup {
+	# General
+	git config --global core.excludesfile ~/.gitignore_global
+	git config --global push.default simple
+	git config --global mergetool.keepBackup false
+	git config --global color.ui auto
+
+	# Authentication
+	# Use OSX Credential Helper if available, otherwise default to time cache
+	if is_mac; then
+		git config --global credential.helper osxkeychain
+		git config --global diff.tool opendiff
+		git config --global merge.tool opendiff
+		git config --global difftool.prompt false
+	else
+		git config --global credential.helper cache
+		git config credential.helper 'cache --timeout=86400'
+	fi
+}
+
+# Setup binary files
+function binsetup {
+	# Atom
+	if is_dir "$HOME/Applications/Atom.app"; then
+		if command_missing atom; then
+			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
+			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
+			editorinit
+		fi
+	fi
+
+	# GitHub
+	if is_dir "$HOME/Applications/GitHub.app"; then
+		if command_missing github; then
+			ln -s "$HOME/Applications/GitHub Desktop.app/Contents/MacOS/github_cli" "$HOME/bin/github"
+		fi
+	fi
+
+	# Git Scan
+	if command_missing git-scan; then
+		curl -LsS "https://download.civicrm.org/git-scan/git-scan.phar" -o "$HOME/bin/git-scan"
+		chmod +x "$HOME/bin/git-scan"
 	fi
 }
 
@@ -304,13 +311,13 @@ OS=$(uname -s)
 export MAILCHECK=0
 
 # Path
-pathsetup
+pathinit
 
 # Editor
-editorsetup
+editorinit
 
 # Shell
-shellsetup
+shellinit
 
 # Oh my zsh
 if is_equal "$PROFILE_SHELL" "zsh"; then
