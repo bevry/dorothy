@@ -267,6 +267,10 @@ function vmerge {
 }
 
 # Setup a SSH Key
+function addsshkey {
+	eval "$(ssh-agent -s)"
+	ssh-add "$HOME/.ssh/$1"
+}
 function newsshkey {
 	if is_string "$1"; then
 		local name=$1
@@ -280,8 +284,7 @@ function newsshkey {
 		rm -f "$path*"
 		echo "Creating new ssh-key at $path with comment $comment"
 		ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
-		eval "$(ssh-agent -s)"
-		ssh-add "$path"
+		addsshkey "$name"
 		cat "$path.pub"
 	else
 		echo "newsshkey KEY_NAME [YOUR_EMAIL]"
