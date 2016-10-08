@@ -1,3 +1,4 @@
+#!/bin/sh
 export LOADEDDOTFILES="$LOADEDDOTFILES .user.sh"
 
 ###
@@ -182,6 +183,8 @@ function gitsetup {
 		git config --global diff.tool opendiff
 		git config --global merge.tool opendiff
 		git config --global difftool.prompt false
+		# http://apple.stackexchange.com/a/254619/15131
+		echo "\nAddKeysToAgent yes" >> ~/.ssh/config
 	else
 		git config --global credential.helper cache
 		git config credential.helper 'cache --timeout=86400'
@@ -269,7 +272,7 @@ function vmerge {
 # Setup a SSH Key
 function addsshkey {
 	eval "$(ssh-agent -s)"
-	ssh-add "$HOME/.ssh/$1"
+	ssh-add -K "$HOME/.ssh/$1"
 }
 function newsshkey {
 	if is_string "$1"; then

@@ -1,3 +1,4 @@
+#!/bin/sh
 export LOADEDDOTFILES="$LOADEDDOTFILES .usertheme.sh"
 
 # Colours
