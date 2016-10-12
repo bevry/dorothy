@@ -145,6 +145,9 @@ function editorinit {
 	if command_exists atom; then
 		export GUI_EDITOR='atom'
 		export GUI_EDITOR_PROMPT='atom -w'
+	elif command_exists code; then
+		export GUI_EDITOR='code'
+		export GUI_EDITOR_PROMPT='code -w'
 	elif command_exists subl; then
 		export GUI_EDITOR='subl'
 		export GUI_EDITOR_PROMPT='subl -w'
@@ -198,6 +201,14 @@ function binsetup {
 		if command_missing atom; then
 			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
 			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
+			editorinit
+		fi
+	fi
+
+	# Visual Studio Code
+	if is_dir "$HOME/Applications/Visual Studio Code.app"; then
+		if command_missing code; then
+			ln -s "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" "$HOME/bin/code"
 			editorinit
 		fi
 	fi
