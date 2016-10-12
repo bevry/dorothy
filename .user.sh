@@ -50,6 +50,7 @@ function is_zsh {
 }
 function command_exists {
 	type "$1" &> /dev/null
+	# fish not bash: type --quiet "$1"
 }
 function command_missing {
 	! command_exists "$1"
