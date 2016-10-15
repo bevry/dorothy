@@ -569,6 +569,7 @@ alias svnshowexternals='svn propget -R svn:externals .'
 alias search='find . -name'
 alias allow='chmod +x'
 alias sha256='shasum -a 256'
+alias filecount='find . | wc -l'
 
 # Cleaners
 function rmdir {
