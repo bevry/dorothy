@@ -517,7 +517,7 @@ alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango'
 
 # Tar
 alias mktar='tar -cvzf'
-alias extar='tar -xvzf'
+alias untar='tar -xvzf'
 
 # Database
 alias startredis='redis-server /usr/local/etc/redis.conf'
