@@ -235,14 +235,15 @@ function binsetup {
 # Download a file
 alias download='down'
 function down {
+	# do not use the continue flags as they will prefer the local file over the remote file if the local exists
 	if command_exists aria2c; then
-		aria2c -c --allow-overwrite=true --auto-file-renaming=false "$1"
+		aria2c --allow-overwrite=true --auto-file-renaming=false "$1"
 	elif command_exists wget; then
 		wget -N "$1"
 	elif command_exists curl; then
 		curl -OL "$1"
 	elif command_exists http; then
-		http -c -d "$1"
+		http -d "$1"
 	fi
 }
 
@@ -502,7 +503,7 @@ alias usezsh='chpass -u $USER -s $(which zsh)'
 alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
 alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install node && nvm alias default node && nvm use node && npm install -g npm'
-alias npminstall='npm install -g npm && npm install -g node-inspector npm-check-updates yarn'
+alias npminstall='npm install -g npm && npm install -g yarn && nig node-inspector npm-check-updates '
 alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
 # graveyard themes: chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui
@@ -527,6 +528,10 @@ alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 alias serve='python -m SimpleHTTPServer 8000'
 
 # Node
+alias nic='rm -Rf node_modules yarn.lock && yarn'
+alias ni='yarn add'  # npm install --save
+alias nid='yarn add --dev'  # npm install --save-dev
+alias nig='yarn global add'  # npm install --global
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
