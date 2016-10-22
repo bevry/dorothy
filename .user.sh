@@ -535,8 +535,10 @@ alias nig='yarn global add'  # npm install --global
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
-alias nake='npm run-script'
 alias npmio='npm install --cache-min 999999999'
+function nake {
+	npm run-script "our:$1"
+}
 
 # Git
 alias ga='git add'
