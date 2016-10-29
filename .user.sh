@@ -407,8 +407,9 @@ if is_mac; then
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
 	alias fontinstall='brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu'  # font-andale-mono failed to install
 	alias brewupdate='brew update && brew upgrade && brew cleanup && brew cask cleanup'
+	alias nvmupdate='cd "$HOME/.nvm" && git checkout master && git pull origin master && cd "$HOME"'
 	alias install='macsetup && brewinit && brewinstall && gitsetup && caskinit && caskinstall && binsetup && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
-	alias update='baseupdate && brewupdate && apmupdate'
+	alias update='baseupdate && brewupdate && nvmupdate && apmupdate'
 
 	# Mac specific aliases
 	alias md5sum='md5 -r'
