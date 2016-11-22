@@ -138,9 +138,15 @@ function shellinit {
 function editorinit {
     export LC_CTYPE=en_US.UTF-8
 
-	if command_exists vim; then
+	if command_exists micro; then
+		export TERMINAL_EDITOR='micro'
+		export TERMINAL_EDITOR_PROMPT='micro'
+	elif command_exists nano; then
+		export TERMINAL_EDITOR='nano'
+		export TERMINAL_EDITOR_PROMPT='nano'
+	elif command_exists vim; then
 		export TERMINAL_EDITOR='vim'
-		export TERMINAL_EDITOR_PROMPT='vim'
+		export TERMINAL_EDITOR_PROMPT='vim' # --noplugin -c "set nowrap"'
 	fi
 
 	if command_exists atom; then
