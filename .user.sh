@@ -395,15 +395,6 @@ if is_mac; then
 
 		# https://software.com/mac/tweaks/auto-hide-the-dock
 		defaults write com.apple.dock autohide -boolean true
-
-		# disable the annoying terminal bell
-		# http://superuser.com/a/1123198/32418
-		local TERMINAL_PLIST
-		local TERMINAL_THEME
-		TERMINAL_PLIST="$HOME/Library/Preferences/com.apple.Terminal.plist"
-		TERMINAL_THEME=$(/usr/libexec/PlistBuddy -c "Print 'Default Window Settings'" "$TERMINAL_PLIST")
-		/usr/libexec/PlistBuddy -c "Set 'Window Settings':$TERMINAL_THEME:Bell false" "$TERMINAL_PLIST"
-		/usr/libexec/PlistBuddy -c "Set 'Window Settings':$TERMINAL_THEME:VisualBellOnlyWhenMuted false" "$TERMINAL_PLIST"
 	}
 
 	# Install
