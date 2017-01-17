@@ -585,6 +585,65 @@ alias rmtmp='sudo find ./* -name ".tmp*" -exec rmdir {} \;'
 alias rmsync='sudo find . -name ".sync" -exec rmdir {} \;'
 alias rmmodules='sudo find ./* -name "node_modules" -exec rmdir {} \;'
 
+# Get an Alias Path
+# http://stackoverflow.com/a/1330366/130638
+function aliasPath {
+	osascript 2>/dev/null <<EOF
+tell application "Finder"
+set theItem to (POSIX file "${1}") as alias
+if the kind of theItem is "alias" then
+get the posix path of ((original item of theItem) as text)
+end if
+end tell
+EOF
+}
+
+# Is an Alias
+function isAlias {
+	osascript 2>/dev/null <<EOF
+tell application "Finder"
+set theItem to (POSIX file "${1}") as alias
+if the kind of theItem is "alias" then
+get the posix path of ((theItem) as text)
+end if
+end tell
+EOF
+	}
+
+# Alias
+function aliasDetails {
+	local source=$(isAlias "$1")
+	local target=$(aliasPath "$1")
+	if is_file "$target"; then
+		echo "$source -> $target"
+	else
+		echo "$source -> $target <- missing"
+	fi
+}
+
+# Alias to Symlink
+function aliasToSymlink {
+	local source=$(isAlias "$1")
+	if is_empty_string "$source"; then
+		echo "skipped $1"
+	else
+		local target=$(aliasPath "$1")
+
+		if is_file "$target"; then
+			ln -nfs "$target" "$source"
+			echo "converted $1 -> $target"
+		elif is_dir "$target"; then
+			ln -nfs "$target" "$source"
+			echo "converted $1 -> $target"
+		else
+			echo "missing $1 -> $target"
+		fi
+	fi
+}
+alias symlinks='ls -la | grep ^l'
+alias aliases='find ./* | while read file; do aliasDetails "$file"; done'
+alias aliasesToSymlink='find ./* | while read file; do aliasToSymlink "$file"; done'
+
 # Environment
 if is_file "$HOME/.userenv.sh"; then
 	# shellcheck source=.userenv.sh
