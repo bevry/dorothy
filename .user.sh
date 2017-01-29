@@ -260,16 +260,18 @@ function xps2pdf {
 	local bin=gxps
 	if command_missing $bin; then
 		bin=$HOME/bin/ghostpdl-9.20/bin/gxps
-		echo "downloading and compiling gxps dependency to $bin"
-		mkdir -p $HOME/bin
-		cd $HOME/bin
-		down https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
-		untar ghostpdl-9.20.tar.gz
-		rm ghostpdl-9.20.tar.gz
-		cd ./ghostpdl-9.20
-		./configure
-		make
-		cd $cwd
+		if command_missing $bin; then
+			echo "downloading and compiling gxps dependency to $bin"
+			mkdir -p $HOME/bin
+			cd $HOME/bin
+			down https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
+			untar ghostpdl-9.20.tar.gz
+			rm ghostpdl-9.20.tar.gz
+			cd ./ghostpdl-9.20
+			./configure
+			make
+			cd $cwd
+		fi
 	fi
 
 	echo "converting $# files"
