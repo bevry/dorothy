@@ -253,6 +253,39 @@ function down {
 	fi
 }
 
+# XPS to PDF
+# https://gist.github.com/balupton/7f15f6627d90426f12b24a12a4ac5975
+function xps2pdf {
+	local cwd=$(pwd)
+	local bin=gxps
+	if command_missing $bin; then
+		bin=$HOME/bin/ghostpdl-9.20/bin/gxps
+		echo "downloading and compiling gxps dependency to $bin"
+		mkdir -p $HOME/bin
+		cd $HOME/bin
+		down https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
+		untar ghostpdl-9.20.tar.gz
+		rm ghostpdl-9.20.tar.gz
+		cd ./ghostpdl-9.20
+		./configure
+		make
+		cd $cwd
+	fi
+
+	echo "converting $# files"
+	for xps in "$@"
+	do
+		local file=$(echo "$xps" | sed 's/...$//')
+		local pdf=${file}pdf
+
+		echo "converting $xps to $pdf"
+		$bin -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
+
+		local ctime=$(GetFileInfo -m "$xps")
+		SetFile -d "$ctime" "$pdf"
+	done
+}
+
 # Download a file from a github repo
 function gdown {
 	down "https://raw.githubusercontent.com/$1"
