@@ -81,9 +81,16 @@ function pathinit {
 			export GOPATH=$HOME/.go
 			mkdir -p "$GOPATH"
 		fi
-		if is_string "$GOPATH"; then
-			export PATH=$GOPATH/bin:$PATH
+		export PATH=$GOPATH/bin:$PATH
+	fi
+
+	# Ruby
+	if command_exists go; then
+		if is_empty_string "$GEM_HOME"; then
+			export GEM_HOME=$HOME/.gems
+			mkdir -p "$GEM_HOME"
 		fi
+		export PATH=$GEM_HOME/bin:$PATH
 	fi
 
 	# Java
@@ -538,7 +545,7 @@ alias zshinstall='ohmyzshinstall && usezsh'
 alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnvm && nvm install node && nvm alias default node && nvm use node && npm install -g npm'
 alias npminstall='npm install -g npm && npm install -g yarn && nig npm-check-updates' # node-inspector
 alias pipinstall='pip install --upgrade pip && pip install httpie'
-alias geminstall='sudo gem install git-up terminal-notifier sass compass travis rhc'
+alias geminstall='gem install git-up terminal-notifier sass compass travis rhc'
 # graveyard themes: chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui
 # graveyard packages: markdown-preview-plus language-markdown
 alias apminstall='apm install apex/apex-ui-slim atom-beautify editorconfig file-type-icons highlight-selected indentation-indicator linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint linter-shellcheck react visual-bell'
@@ -615,10 +622,10 @@ alias filecount='find . | wc -l'
 function rmdir {
 	rm -Rfd "$1"
 }
-alias rmsvn='sudo find . -name ".svn" -exec rmdir {} \;'
-alias rmtmp='sudo find ./* -name ".tmp*" -exec rmdir {} \;'
-alias rmsync='sudo find . -name ".sync" -exec rmdir {} \;'
-alias rmmodules='sudo find ./* -name "node_modules" -exec rmdir {} \;'
+alias rmsvn='find . -name ".svn" -exec rmdir {} \;'
+alias rmtmp='find ./* -name ".tmp*" -exec rmdir {} \;'
+alias rmsync='find . -name ".sync" -exec rmdir {} \;'
+alias rmmodules='find ./* -name "node_modules" -exec rmdir {} \;'
 
 # Get an Alias Path
 # http://stackoverflow.com/a/1330366/130638
