@@ -380,7 +380,7 @@ editorinit
 shellinit
 
 # Oh my zsh
-if is_equal "$PROFILE_SHELL" "zsh"; then
+if is_zsh; then
 	if is_dir "$HOME/.oh-my-zsh"; then
 		export DISABLE_UPDATE_PROMPT=true
 		export ZSH="$HOME/.oh-my-zsh"
