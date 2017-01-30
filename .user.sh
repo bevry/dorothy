@@ -450,6 +450,9 @@ if is_mac; then
 	alias install='macsetup && brewinit && brewinstall && gitsetup && caskinit && caskinstall && binsetup && fontinstall && nvminstall && npminstall && geminstall && pipinstall && apminstall'
 	alias update='baseupdate && brewupdate && nvmupdate && apmupdate'
 
+	# Perhaps use --appdir for cask: https://github.com/caskroom/homebrew-cask/blob/master/USAGE.md#options
+	# Perhaps use ~/homebrew: https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
+
 	# Mac specific aliases
 	alias md5sum='md5 -r'
 	alias edithosts='sudo edit /etc/hosts'
