@@ -574,13 +574,14 @@ alias serve='python -m SimpleHTTPServer 8000'
 alias nic='rm -Rf node_modules yarn.lock && yarn'
 alias ni='yarn add'  # npm install --save
 alias nid='yarn add --dev'  # npm install --save-dev
-alias nig='npm install --global add'  # yarn global
+alias nig='yarn global add'  # npm istall -g
+alias nir='yarn run'  # npm run-script
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
 alias npmio='npm install --cache-min 999999999'
 function nake {
-	npm run-script "our:$1"
+	nir "our:$1"
 }
 
 # Git
