@@ -331,6 +331,10 @@ function vmerge {
 }
 
 # Setup a SSH Key
+function addsshkeys {
+	eval "$(ssh-agent -s)"
+	ssh-add -A
+}
 function addsshkey {
 	eval "$(ssh-agent -s)"
 	ssh-add -K "$HOME/.ssh/$1"
