@@ -487,7 +487,7 @@ if is_mac; then
 
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
-	alias brewinstall='brew install aria2 bash heroku hub git git-extras gpg python micro ruby shellcheck tree wget watchman vim zsh'
+	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro ruby shellcheck tree wget watchman vim zsh'
 	alias caskinit='brew untap caskroom/cask; brew install caskroom/cask/brew-cask && brew tap caskroom/fonts'
 	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
 	alias fontinstall='brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu'  # font-andale-mono failed to install
@@ -538,6 +538,13 @@ if is_mac; then
 		fi
 	}
 
+	# Bash Completion
+	if is_bash; then
+		if is_file "$(brew --prefix)/etc/bash_completion"; then
+			source "$(brew --prefix)/etc/bash_completion"
+		fi
+	fi
+
 # Specific Operating System Configuration: Linux
 elif is_linux; then
 	# Installers
@@ -547,8 +554,7 @@ elif is_linux; then
 		local ft="$f/tmp"
 		local p
 		p=$(pwd)
-		mkdir -p "$f" "$ft" && \
-		cd "$ft" || exit
+		mkdir -p "$f" "$ft" && cd "$ft" || exit
 
 		# Monoid
 		down https://cdn.rawgit.com/larsenwork/monoid/2db2d289f4e61010dd3f44e09918d9bb32fb96fd/Monoid.zip && \
@@ -584,6 +590,13 @@ elif is_linux; then
 
 	# System
 	alias resetfirefox="rm ~/.mozilla/firefox/*.default/.parentlock"
+
+	# Bash Autocompletion
+	if is_bash; then
+		if is_file /etc/bash_completion; then
+			source /etc/bash_completion
+		fi
+	fi
 fi
 
 # Installers
