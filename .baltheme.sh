@@ -2,22 +2,9 @@
 export LOADEDDOTFILES="$LOADEDDOTFILES .usertheme.sh"
 
 # Colours
-# Can start with either \033 or \e
-# Normal is \e[0;
-# Bold is \e[01;
-if test "$PROFILE_SHELL" = "bash"; then
-	export RED="\e[0;31m"
-	export RED_BOLD="\e[01;31m"
-	export BLUE="\e[0;34m"
-	export CYAN='\e[0;36m'
-	export PURPLE='\e[0;35m'
-	export GREEN="\e[0;32m"
-	export YELLOW="\e[0;33m"
-	export BLACK="\e[0;38m"
-	export NO_COLOR="\e[0m"
-
-elif test "$PROFILE_SHELL" = "bash"; then
-	autoload colors && colors
+if is_zsh; then
+	autoload colors
+	colors
 	export RED="$fg[red]"
 	export RED_BOLD="$fg_bold[RED]"
 	export BLUE="$fg[blue]"
@@ -27,6 +14,20 @@ elif test "$PROFILE_SHELL" = "bash"; then
 	export YELLOW="$fg[yellow]"
 	export BLACK="$fg[black]"
 	export NO_COLOR="$reset_color"
+else
+	# Bash Colours
+	# Can start with either \033 or \e
+	# Normal is \e[0;
+	# Bold is \e[01;
+	export RED="\e[0;31m"
+	export RED_BOLD="\e[01;31m"
+	export BLUE="\e[0;34m"
+	export CYAN='\e[0;36m'
+	export PURPLE='\e[0;35m'
+	export GREEN="\e[0;32m"
+	export YELLOW="\e[0;33m"
+	export BLACK="\e[0;38m"
+	export NO_COLOR="\e[0m"
 fi
 
 # Alias colours for specific usages
@@ -38,12 +39,13 @@ export C_GIT_CLEAN=$CYAN
 export C_GIT_DIRTY=$RED
 
 # Function to assemble the Git part of our prompt.
+alias git_branch="silent_stderr git branch | sed -n '/^\*/s/^\* //p'"
 function git_prompt {
-	if ! git rev-parse --git-dir > /dev/null 2>&1; then
+	if ! silent git rev-parse --git-dir; then
 		return 0
 	fi
 
-	echo ":$(git branch 2>/dev/null| sed -n '/^\*/s/^\* //p')"
+	echo ":$(git_branch)"
 }
 function git_prompt_color {
 	if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -51,9 +53,9 @@ function git_prompt_color {
 	fi
 
 	local git_branch
-	git_branch=$(git branch 2> /dev/null | sed -n '/^\*/s/^\* //p')
+	git_branch=$(git_branch)
 
-	if git diff --quiet 2>/dev/null >&2; then
+	if silent git diff --quiet; then
 		local git_color=$C_GIT_CLEAN
 	else
 		local git_color=$C_GIT_DIRTY
@@ -70,25 +72,26 @@ function baltheme {
 	moment="$(date +%H:%M:%S)"
 	local user=""
 	local target="${PWD/HOME/~}"
-	if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+
+	if is_ssh; then
 		user="${USER}@${HOSTNAME}"
 		local C_USER=$C_GIT_DIRTY
 	fi
 
-	if [ -n "$moment" ]; then
+	if is_string "$moment"; then
 		prefix="${prefix}${C_TIME}${moment}${C_RESET}${separator}"
 	fi
-	if [ -n "$user" ]; then
+	if is_string "$user"; then
 		prefix="${prefix}${C_USER}${user}${C_RESET}${separator}"
 	fi
-	if [ -n "$target" ]; then
+	if is_string "$target"; then
 		prefix="${prefix}${C_PATH}${target}${C_RESET}"
 	fi
 
 	prefix="${prefix}$(git_prompt_color)"
 
 	# Bash
-	if test "$PROFILE_SHELL" = "bash"; then
+	if is_bash; then
 		local basename
 		local title
 		basename=$(basename "$target")
@@ -109,9 +112,9 @@ function baltheme {
 
 
 # Set the terminal to use the theme
-if test "$PROFILE_SHELL" = "bash"; then
+if is_bash; then
 	export PROMPT_COMMAND="baltheme"
-elif test "$PROFILE_SHELL" = "zsh"; then
+elif is_zsh; then
 	function precmd {
 		baltheme
 	}

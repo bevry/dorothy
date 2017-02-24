@@ -2,10 +2,17 @@
 export LOADEDDOTFILES="$LOADEDDOTFILES .user.sh"
 
 ###
-# Base Helpers
+# Help Resources
 
 # function arguments
 # http://stackoverflow.com/a/6212408/130638
+
+# dev/null
+# http://unix.stackexchange.com/q/70963/50703
+# http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections
+
+###
+# Base Helpers
 
 # test, man test
 # -z is empty string: True if the length of string is zero.
@@ -48,12 +55,45 @@ function is_bash {
 function is_zsh {
 	test "$PROFILE_SHELL" = "zsh"
 }
+function is_fish {
+	test "$PROFILE_SHELL" = "fish"
+}
+
+function silent {
+	if is_fish; then
+		"$@" > /dev/null ^ /dev/null
+	else
+		"$@" &> /dev/null
+	fi
+}
+function silent_stderr {
+	if is_fish; then
+		"$@" ^ /dev/null
+	else
+		"$@" 2> /dev/null
+	fi
+}
+function silent_stdout {
+	"$@" > /dev/null
+}
+
 function command_exists {
-	type "$1" &> /dev/null
-	# fish not bash: type --quiet "$1"
+	if is_fish; then
+		type --quiet "$1"
+	else
+		silent type "$1"
+	fi
 }
 function command_missing {
 	! command_exists "$1"
+}
+
+function is_ssh {
+	if is_fish; then
+		is_string "$SSH_CLIENT"; or is_string "$SSH_TTY"
+	else
+		is_string "$SSH_CLIENT" || is_string "$SSH_TTY"
+	fi
 }
 
 
@@ -128,6 +168,8 @@ function pathinit {
 function shellinit {
 	if is_string "$ZSH_VERSION"; then
 		export PROFILE_SHELL='zsh'
+	elif is_string "$FISH_VERSION"; then
+		export PROFILE_SHELL='fish'
 	elif is_string "$BASH_VERSION"; then
 		export PROFILE_SHELL='bash'
 	elif is_string "$KSH_VERSION"; then
@@ -705,3 +747,6 @@ if is_equal "$THEME" "baltheme"; then
 	# shellcheck source=.baltheme.sh
 	source "$HOME/.baltheme.sh"
 fi
+
+# SSH Keys silently
+silent addsshkeys
