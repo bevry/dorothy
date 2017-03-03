@@ -426,6 +426,9 @@ function vscodesetup {
 	# Install extensions
 	vscodeinstall EditorConfig.EditorConfig akamud.vscode-caniuse akamud.vscode-theme-onelight bernardodsanderson.theme-material-neutral christian-kohler.npm-intellisense dbaeumer.vscode-eslint flowtype.flow-for-vscode gerane.Theme-IDLE slb235.vscode-coffeelint timonwong.shellcheck waderyan.gitblame
 
+	# Customise settings
+	ln -f "$HOME/.vscode/settings.json" "$HOME/Library/Application Support/Code/User/settings.json"
+
 	# Customise stylesheets
 	local stylesheet
 
