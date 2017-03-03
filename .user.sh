@@ -610,7 +610,7 @@ alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='gem install git-up terminal-notifier sass compass travis rhc'
 # graveyard themes: chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui
 # graveyard packages: markdown-preview-plus language-markdown
-alias apminstall='apm install apex/apex-ui-slim atom-beautify editorconfig file-type-icons highlight-selected indentation-indicator linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint linter-shellcheck react visual-bell'
+alias apminstall='apm install apex/apex-ui-slim atom-beautify editorconfig file-type-icons highlight-selected indentation-indicator language-stylus linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint linter-shellcheck react visual-bell'
 alias apmupdate='apm update --no-confirm'
 alias baseupdate='cd ~ && git pull origin master'
 
