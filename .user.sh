@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 export LOADEDDOTFILES="$LOADEDDOTFILES .user.sh"
 
 ###
@@ -198,12 +198,12 @@ function editorinit {
 		export TERMINAL_EDITOR_PROMPT='vim' # --noplugin -c "set nowrap"'
 	fi
 
-	if command_exists atom; then
-		export GUI_EDITOR='atom'
-		export GUI_EDITOR_PROMPT='atom -w'
-	elif command_exists code; then
+	if command_exists code; then
 		export GUI_EDITOR='code'
 		export GUI_EDITOR_PROMPT='code -w'
+	elif command_exists atom; then
+		export GUI_EDITOR='atom'
+		export GUI_EDITOR_PROMPT='atom -w'
 	elif command_exists subl; then
 		export GUI_EDITOR='subl'
 		export GUI_EDITOR_PROMPT='subl -w'
@@ -411,6 +411,48 @@ function clojureinstall {
 
 	# Install Boot
 	cd ~/bin && down https://github.com/boot-clj/boot-bin/releases/download/latest/boot.sh && chmod +x boot.sh
+}
+
+# Visual Studio Code Customisations
+function expandpath {
+	eval echo "$@"
+}
+function vscodesetup {
+	local stylesheet
+
+	# https://github.com/Microsoft/vscode/issues/1896#issuecomment-283858289
+	stylesheet="$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/electron-browser/workbench.main.css"
+	if is_file "$stylesheet"; then
+		if silent grep 'fix font rendering' < "$stylesheet"; then
+			echo "setup already completed"
+		else
+			echo "
+			/* fix font rendering */
+			.monaco-editor {
+				-webkit-font-smoothing: none !important;
+				-webkit-font-smoothing: antialiased !important;
+				-webkit-font-smoothing: subpixel-antialiased !important;
+				text-rendering: auto !important;
+				text-rendering: optimizeSpeed !important;
+				text-rendering: optimizeLegibility !important;
+				text-rendering: geometricPrecision !important;
+			}" >> "$stylesheet"
+			echo "setup completed"
+		fi
+	else
+		echo "vscode not installed"
+	fi
+
+	# https://github.com/akamud/vscode-theme-onelight/pull/2
+	stylesheet=$(expandpath "$HOME/.vscode/extensions/akamud.vscode-theme-onelight-*/themes/OneLight.tmTheme")
+	if is_file "$stylesheet"; then
+		echo "fixing theme"
+		sed -e 's/#FAFAFA/#FFFFFF/' -e 's/#F2F2F2/#F5F5F5/' < "$stylesheet" > "$stylesheet.tmp"
+		mv -f "$stylesheet.tmp" "$stylesheet"
+		echo "fixed theme"
+	else
+		echo "theme not installed"
+	fi
 }
 
 ###
