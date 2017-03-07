@@ -52,8 +52,7 @@ function git_prompt_color {
 		return 0
 	fi
 
-	local git_branch
-	git_branch=$(git_branch)
+	local git_branch; git_branch=$(git_branch)
 
 	if silent git diff --quiet; then
 		local git_color=$C_GIT_CLEAN
@@ -68,8 +67,7 @@ function git_prompt_color {
 function baltheme {
 	local prefix=""
 	local separator=':'
-	local moment
-	moment="$(date +%H:%M:%S)"
+	local moment; moment="$(date +%H:%M:%S)"
 	local user=""
 	local target="${PWD/HOME/~}"
 
@@ -92,11 +90,9 @@ function baltheme {
 
 	# Bash
 	if is_bash; then
-		local basename
-		local title
-		basename=$(basename "$target")
 		# local pathReversed=$(echo -n $target | split '/' | sed '1!G;h;$!d' | join '\\\\')
-		title="${basename}${separator}${user}${separator}${target}$(git_prompt)"
+		local base; base=$(basename "$target")
+		local title; title="${base}${separator}${user}${separator}${target}$(git_prompt)"
 
 		export PS1="${prefix}\n\$ "
 		echo -ne "\033]0;${title}\007"

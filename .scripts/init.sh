@@ -366,11 +366,21 @@ function gdown {
 
 # Download and extract a github repository rather than cloning it, should be faster if you don't need git history
 function gitdown {
-	local repo
-	local file
-	repo=$(echo "$1" | sed "s/https:\/\/github.com\///" | sed "s/.git//")
-	file=$(basename "$repo")
-	rm -Rf "$file" "$file.tar.gz" && mkdir -p "$file" && cd "$file" && down "https://github.com/$repo/archive/master.tar.gz" -O "$file.tar.gz" && tar -xvzf "$file.tar.gz" && mv ./*-master/* . && rm -Rf ./*-master "$file.tar.gz" && cd ..
+	set -e
+	local repo; repo=$(echo "$1" | sed "s/https:\/\/github.com\///" | sed "s/.git//")
+	local file; file=$(basename "$repo")
+
+	# Download the tarball
+	rm -Rf "$file" "$file.tar.gz"
+	mkdir -p "$file"
+	cd "$file"
+	down "https://github.com/$repo/archive/master.tar.gz" -O "$file.tar.gz"
+
+	# Extract the tarball
+	tar -xvzf "$file.tar.gz"
+	mv ./*-master/* .
+	rm -Rf ./*-master "$file.tar.gz"
+	cd ..
 }
 
 # Clone a list of repositories
@@ -388,8 +398,7 @@ function geocode {
 
 # Merge videos in current directory
 function vmerge {
-	local dir
-	dir=$(basename "$(pwd)")
+	local dir; dir=$(basename "$(pwd)")
 	ffmpeg -f concat -safe 0 -i <(for f in *m4v; do echo "file '$PWD/$f'"; done) -c copy "$dir.m4v"
 	mv "$dir.m4v" ..
 }
@@ -425,14 +434,25 @@ function newsshkey {
 
 # Clojure install
 function clojureinstall {
+	set -e
+
+	# Make the directory
+	rm -Rf "$HOME/.clojure"
+	mkdir "$HOME/.clojure"
+	cd "$HOME/.clojure"
+
 	# Install Clojure
-	rm -Rf ~/.clojure && mkdir ~/.clojure && cd ~/.clojure && down http://repo1.maven.org/maven2/org/clojure/clojure/1.8.0/clojure-1.8.0.zip && unzip clojure-1.8.0.zip
+	down http://repo1.maven.org/maven2/org/clojure/clojure/1.8.0/clojure-1.8.0.zip
+	unzip clojure-1.8.0.zip
 
 	# Install ClojureScript
-	cd ~/bin && down https://github.com/clojure/clojurescript/releases/download/r1.9.229/cljs.jar
+	cd "$HOME/bin"
+	down https://github.com/clojure/clojurescript/releases/download/r1.9.229/cljs.jar
 
 	# Install Boot
-	cd ~/bin && down https://github.com/boot-clj/boot-bin/releases/download/latest/boot.sh && chmod +x boot.sh
+	cd "$HOME/bin"
+	down https://github.com/boot-clj/boot-bin/releases/download/latest/boot.sh
+	chmod +x boot.sh
 }
 
 # Visual Studio Code Customisations
@@ -446,7 +466,7 @@ function expandpath {
 }
 function vscodesetup {
 	# Install extensions
-	vscodeinstall EditorConfig.EditorConfig akamud.vscode-caniuse akamud.vscode-theme-onelight bernardodsanderson.theme-material-neutral christian-kohler.npm-intellisense dbaeumer.vscode-eslint flowtype.flow-for-vscode gerane.Theme-IDLE slb235.vscode-coffeelint timonwong.shellcheck waderyan.gitblame
+	vscodeinstall EditorConfig.EditorConfig akamud.vscode-caniuse akamud.vscode-theme-onelight bernardodsanderson.theme-material-neutral christian-kohler.npm-intellisense dbaeumer.vscode-eslint flowtype.flow-for-vscode gerane.Theme-IDLE slb235.vscode-coffeelint timonwong.shellcheck
 
 	# Customise settings
 	ln -f "$HOME/.vscode/settings.json" "$HOME/Library/Application Support/Code/User/settings.json"
@@ -495,8 +515,7 @@ function vscodesetup {
 # Initialise
 
 # OS
-export OS
-OS=$(uname -s)
+export OS; OS=$(uname -s)
 
 # Don't check mail
 export MAILCHECK=0
@@ -629,30 +648,35 @@ elif is_linux; then
 	# Installers
 	function fontinstall {
 		# Prepare
+		set -e
 		local f="$HOME/.fonts"
 		local ft="$f/tmp"
 		local p; p=$(pwd)
-		mkdir -p "$f" "$ft" && cd "$ft" || exit
+		mkdir -p "$f" "$ft"
+		cd "$ft"
 
 		# Monoid
-		down https://cdn.rawgit.com/larsenwork/monoid/2db2d289f4e61010dd3f44e09918d9bb32fb96fd/Monoid.zip && \
-		unzip Monoid.zip && \
+		down https://cdn.rawgit.com/larsenwork/monoid/2db2d289f4e61010dd3f44e09918d9bb32fb96fd/Monoid.zip
+		unzip Monoid.zip
 		mv ./*.ttf "$f"
 
 		# Source Code Pro
 		# http://askubuntu.com/a/193073/22776
 		# https://github.com/adobe-fonts/source-code-pro
-		down https://github.com/adobe-fonts/source-code-pro/archive/2.010R-ro/1.030R-it.zip && \
-		unzip 1.030R-it.zip && \
+		down https://github.com/adobe-fonts/source-code-pro/archive/2.010R-ro/1.030R-it.zip
+		unzip 1.030R-it.zip
 		mv source-code-pro-2.010R-ro-1.030R-it/OTF/*.otf "$f"
 
 		# Monaco
 		# https://github.com/showcases/fonts
 		# https://github.com/todylu/monaco.ttf
-		down https://github.com/todylu/monaco.ttf/raw/master/monaco.ttf && mv monaco.ttf "$f"
+		down https://github.com/todylu/monaco.ttf/raw/master/monaco.ttf
+		mv monaco.ttf "$f"
 
 		# Refresh
-		fc-cache -f -v && cd "$p" && rm -Rf "$ft"
+		fc-cache -f -v
+		cd "$p"
+		rm -Rf "$ft"
 	}
 	alias aptinstall='sudo apt-get install -y build-essential curl git httpie libssl-dev openssl python ruby software-properties-common vim'
 	alias aptupdate='sudo apt-get update -y && sudo apt-get upgrade -y'
@@ -687,8 +711,6 @@ alias nvminstall='git clone git://github.com/creationix/nvm.git ~/.nvm && loadnv
 alias npminstall='npm install -g npm && npm install -g yarn && nig npm-check-updates' # node-inspector
 alias pipinstall='pip install --upgrade pip && pip install httpie'
 alias geminstall='gem install git-up terminal-notifier sass compass travis rhc'
-# graveyard themes: chester-atom-syntax duotone-dark-syntax duotone-dark-space-syntax duotone-light-syntax duotone-snow atom-material-syntax atom-material-syntax-light atom-material-ui
-# graveyard packages: markdown-preview-plus language-markdown
 alias apminstall='apm install apex/apex-ui-slim atom-beautify editorconfig file-type-icons highlight-selected indentation-indicator language-stylus linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint linter-shellcheck react visual-bell'
 alias apmupdate='apm update --no-confirm'
 alias baseupdate='cd ~ && git pull origin master'
