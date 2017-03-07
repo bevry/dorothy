@@ -254,8 +254,7 @@ function gitsetup {
 
 # Setup binary files
 function getapp {
-	local p
-	p="$HOME/Applications/$*"
+	local p="$HOME/Applications/$*"
 	if is_dir "$p"; then
 		echo "$p"
 	fi
@@ -409,7 +408,7 @@ function newsshkey {
 			comment=$2
 		fi
 
-		local path=$HOME/.ssh/$name
+		local path="$HOME/.ssh/$name"
 		rm -f "$path*"
 		echo "Creating new ssh-key at $path with comment $comment"
 		ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
@@ -450,8 +449,8 @@ function vscodesetup {
 	ln -f "$HOME/.vscode/keybindings.json" "$HOME/Library/Application Support/Code/User/keybindings.json"
 
 	# Customise stylesheets
+	local app; app=$(getapp Visual Studio Code.app)
 	local stylesheet
-	local app=$(getapp Visual Studio Code.app)
 
 	# https://github.com/Microsoft/vscode/issues/1896#issuecomment-283858289
 	stylesheet="$app/Contents/Resources/app/out/vs/workbench/electron-browser/workbench.main.css"
@@ -522,7 +521,7 @@ fi
 # NVM
 if is_dir "$HOME/.nvm"; then
 	export NVM_DIR="$HOME/.nvm"
-	# shellcheck disable=SC1091
+	# shellcheck disable=SC1090
 	source "$NVM_DIR/nvm.sh"
 fi
 
@@ -628,8 +627,7 @@ elif is_linux; then
 		# Prepare
 		local f="$HOME/.fonts"
 		local ft="$f/tmp"
-		local p
-		p=$(pwd)
+		local p; p=$(pwd)
 		mkdir -p "$f" "$ft" && cd "$ft" || exit
 
 		# Monoid
@@ -670,6 +668,7 @@ elif is_linux; then
 	# Bash Autocompletion
 	if is_bash; then
 		if is_file /etc/bash_completion; then
+			# shellcheck disable=SC1091
 			source /etc/bash_completion
 		fi
 	fi
@@ -793,31 +792,31 @@ EOF
 
 # Alias
 function aliasDetails {
-	local source; source=$(isAlias "$1")
-	local target; target=$(aliasPath "$1")
-	if is_file "$target"; then
-		echo "$source -> $target"
+	local src; src=$(isAlias "$1")
+	local out; out=$(aliasPath "$1")
+	if is_file "$out"; then
+		echo "$src -> $out"
 	else
-		echo "$source -> $target <- missing"
+		echo "$src -> $out <- missing"
 	fi
 }
 
 # Alias to Symlink
 function aliasToSymlink {
-	local source; source=$(isAlias "$1")
-	if is_empty_string "$source"; then
+	local src; src=$(isAlias "$1")
+	if is_empty_string "$src"; then
 		echo "skipped $1"
 	else
-		local target; target=$(aliasPath "$1")
+		local out; out=$(aliasPath "$1")
 
-		if is_file "$target"; then
-			ln -nfs "$target" "$source"
-			echo "converted $1 -> $target"
-		elif is_dir "$target"; then
-			ln -nfs "$target" "$source"
-			echo "converted $1 -> $target"
+		if is_file "$out"; then
+			ln -nfs "$out" "$src"
+			echo "converted $1 -> $out"
+		elif is_dir "$out"; then
+			ln -nfs "$out" "$src"
+			echo "converted $1 -> $out"
 		else
-			echo "missing $1 -> $target"
+			echo "missing $1 -> $out"
 		fi
 	fi
 }
@@ -827,13 +826,13 @@ alias aliasesToSymlink='find ./* | while read file; do aliasToSymlink "$file"; d
 
 # Environment
 if is_file "$HOME/.userenv.sh"; then
-	# shellcheck source=.userenv.sh
+	# shellcheck disable=SC1090
 	source "$HOME/.userenv.sh"
 fi
 
 # Theme
 if is_equal "$THEME" "baltheme"; then
-	# shellcheck source=.baltheme.sh
+	# shellcheck disable=SC1090
 	source "$HOME/.baltheme.sh"
 fi
 
