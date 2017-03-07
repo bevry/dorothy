@@ -1,5 +1,5 @@
-#!/bin/bash
-export LOADEDDOTFILES="$LOADEDDOTFILES .user.sh"
+#!/bin/fish
+export LOADEDDOTFILES="$LOADEDDOTFILES init.sh"
 
 ###
 # Help Resources
