@@ -829,15 +829,15 @@ alias aliases='find ./* | while read file; do aliasDetails "$file"; done'
 alias aliasesToSymlink='find ./* | while read file; do aliasToSymlink "$file"; done'
 
 # Environment
-if is_file "$HOME/.userenv.sh"; then
+if is_file "$HOME/.scripts/env.sh"; then
 	# shellcheck disable=SC1090
-	source "$HOME/.userenv.sh"
+	source "$HOME/.scripts/env.sh"
 fi
 
 # Theme
 if is_equal "$THEME" "baltheme"; then
 	# shellcheck disable=SC1090
-	source "$HOME/.baltheme.sh"
+	source "$HOME/.scripts/$THEME.sh"
 fi
 
 # SSH Keys silently
