@@ -11,6 +11,9 @@ export LOADEDDOTFILES="$LOADEDDOTFILES .user.sh"
 # http://unix.stackexchange.com/q/70963/50703
 # http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections
 
+# $@ vs $*
+# https://github.com/koalaman/shellcheck/wiki/SC2124
+
 ###
 # Base Helpers
 
@@ -61,20 +64,20 @@ function is_fish {
 
 function silent {
 	if is_fish; then
-		"$*" > /dev/null ^ /dev/null
+		"$@" > /dev/null ^ /dev/null
 	else
-		"$*" &> /dev/null
+		"$@" &> /dev/null
 	fi
 }
 function silent_stderr {
 	if is_fish; then
-		"$*" ^ /dev/null
+		"$@" ^ /dev/null
 	else
-		"$*" 2> /dev/null
+		"$@" 2> /dev/null
 	fi
 }
 function silent_stdout {
-	"$*" > /dev/null
+	"$@" > /dev/null
 }
 
 function command_exists {
@@ -438,7 +441,7 @@ function vscodeinstall {
 	done
 }
 function expandpath {
-	eval echo "$*"
+	eval echo "$@"
 }
 function vscodesetup {
 	# Install extensions
