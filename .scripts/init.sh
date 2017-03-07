@@ -1,4 +1,4 @@
-#!/bin/fish
+#!/bin/bash
 export LOADEDDOTFILES="$LOADEDDOTFILES init.sh"
 
 ###
