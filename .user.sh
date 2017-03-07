@@ -251,28 +251,44 @@ function gitsetup {
 }
 
 # Setup binary files
+function getapp {
+	local p
+	p="$HOME/Applications/$@"
+	if is_dir "$p"; then
+		echo $p
+	fi
+	p="/Applications/$@"
+	if is_dir "$p"; then
+		echo $p
+	fi
+}
 function binsetup {
+	local app
+
 	# Atom
-	if is_dir "$HOME/Applications/Atom.app"; then
+	app=$(getapp Atom.app)
+	if is_dir "$app"; then
 		if command_missing atom; then
-			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
-			ln -s "$HOME/Applications/Atom.app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
+			ln -s "$app/Contents/Resources/app/atom.sh" "$HOME/bin/atom"
+			ln -s "$app/Contents/Resources/app/apm/bin/apm" "$HOME/bin/apm"
 			editorinit
 		fi
 	fi
 
 	# Visual Studio Code
-	if is_dir "$HOME/Applications/Visual Studio Code.app"; then
+	app=$(getapp Visual Studio Code.app)
+	if is_dir "$app"; then
 		if command_missing code; then
-			ln -s "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" "$HOME/bin/code"
+			ln -s "$app/Contents/Resources/app/bin/code" "$HOME/bin/code"
 			editorinit
 		fi
 	fi
 
 	# GitHub
-	if is_dir "$HOME/Applications/GitHub.app"; then
+	app=$(getapp GitHub.app)
+	if is_dir "$app"; then
 		if command_missing github; then
-			ln -s "$HOME/Applications/GitHub Desktop.app/Contents/MacOS/github_cli" "$HOME/bin/github"
+			ln -s "$app/Contents/MacOS/github_cli" "$HOME/bin/github"
 		fi
 	fi
 
@@ -432,9 +448,10 @@ function vscodesetup {
 
 	# Customise stylesheets
 	local stylesheet
+	local app=$(getapp Visual Studio Code.app)
 
 	# https://github.com/Microsoft/vscode/issues/1896#issuecomment-283858289
-	stylesheet="$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/electron-browser/workbench.main.css"
+	stylesheet="$app/Contents/Resources/app/out/vs/workbench/electron-browser/workbench.main.css"
 	if is_file "$stylesheet"; then
 		if silent grep 'fix font rendering' < "$stylesheet"; then
 			echo "setup already completed"
