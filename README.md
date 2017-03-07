@@ -19,20 +19,20 @@ git remote add origin https://github.com/balupton/dotfiles.git
 git pull origin master  --force
 
 # Prepare
-export USERDOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.user.sh"'
-printf 'export LOADEDDOTFILES="$LOADEDDOTFILES .userenv.sh"\n\n# Theme\nexport THEME="baltheme"' >> ~/.userenv.sh
+export DOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.user.sh"'
+printf 'export LOADEDDOTFILES="$LOADEDDOTFILES env.sh"\n\n# Theme\nexport THEME="baltheme"' >> ~/env.sh
 
 # OSX
-printf "\n\n$USERDOTFILE" >> ~/.bash_profile
+printf "\n\n$DOTFILE" >> ~/.bash_profile
 
 # Linux
-printf "\n\n$USERDOTFILE" >> ~/.bashrc
+printf "\n\n$DOTFILE" >> ~/.bashrc
 
 # ZSH
-printf "\n\n$USERDOTFILE" >> ~/.zshrc
+printf "\n\n$DOTFILE" >> ~/.zshrc
 ```
 
-Put your private environment configuration into `.userenv.sh`
+Put your private environment configuration into `.scripts/env.sh`
 
 
 ## License
