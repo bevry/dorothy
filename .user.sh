@@ -61,20 +61,20 @@ function is_fish {
 
 function silent {
 	if is_fish; then
-		"$@" > /dev/null ^ /dev/null
+		"$*" > /dev/null ^ /dev/null
 	else
-		"$@" &> /dev/null
+		"$*" &> /dev/null
 	fi
 }
 function silent_stderr {
 	if is_fish; then
-		"$@" ^ /dev/null
+		"$*" ^ /dev/null
 	else
-		"$@" 2> /dev/null
+		"$*" 2> /dev/null
 	fi
 }
 function silent_stdout {
-	"$@" > /dev/null
+	"$*" > /dev/null
 }
 
 function command_exists {
@@ -213,8 +213,10 @@ function editorinit {
 	fi
 
 	if is_string "$SSH_CONNECTION"; then
+		# shellcheck disable=SC2139
 		alias edit=$TERMINAL_EDITOR
 	else
+		# shellcheck disable=SC2139
 		alias edit=$GUI_EDITOR
 	fi
 
@@ -243,7 +245,7 @@ function gitsetup {
 		git config --global merge.tool opendiff
 		git config --global difftool.prompt false
 		# http://apple.stackexchange.com/a/254619/15131
-		echo "\nAddKeysToAgent yes" >> ~/.ssh/config
+		printf "\nAddKeysToAgent yes" >> ~/.ssh/config
 	else
 		git config --global credential.helper cache
 		git config credential.helper 'cache --timeout=86400'
@@ -253,13 +255,13 @@ function gitsetup {
 # Setup binary files
 function getapp {
 	local p
-	p="$HOME/Applications/$@"
+	p="$HOME/Applications/$*"
 	if is_dir "$p"; then
-		echo $p
+		echo "$p"
 	fi
-	p="/Applications/$@"
+	p="/Applications/$*"
 	if is_dir "$p"; then
-		echo $p
+		echo "$p"
 	fi
 }
 function binsetup {
@@ -321,34 +323,35 @@ function down {
 # XPS to PDF
 # https://gist.github.com/balupton/7f15f6627d90426f12b24a12a4ac5975
 function xps2pdf {
-	local cwd=$(pwd)
+	set -e
+	local cwd; cwd=$(pwd)
 	local bin=gxps
 	if command_missing $bin; then
 		bin=$HOME/bin/ghostpdl-9.20/bin/gxps
-		if command_missing $bin; then
+		if command_missing "$bin"; then
 			echo "downloading and compiling gxps dependency to $bin"
 			mkdir -p $HOME/bin
-			cd $HOME/bin
+			cd "$HOME/bin"
 			down https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
 			untar ghostpdl-9.20.tar.gz
 			rm ghostpdl-9.20.tar.gz
 			cd ./ghostpdl-9.20
 			./configure
 			make
-			cd $cwd
+			cd "$cwd"
 		fi
 	fi
 
 	echo "converting $# files"
 	for xps in "$@"
 	do
-		local file=$(echo "$xps" | sed 's/...$//')
+		local file; file=$(echo "$xps" | sed 's/...$//')
 		local pdf=${file}pdf
 
 		echo "converting $xps to $pdf"
 		$bin -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
 
-		local ctime=$(GetFileInfo -m "$xps")
+		local ctime; ctime=$(GetFileInfo -m "$xps")
 		SetFile -d "$ctime" "$pdf"
 	done
 }
@@ -436,7 +439,7 @@ function vscodeinstall {
 	done
 }
 function expandpath {
-	eval echo "$@"
+	eval echo "$*"
 }
 function vscodesetup {
 	# Install extensions
@@ -511,7 +514,7 @@ if is_zsh; then
 		export ZSH="$HOME/.oh-my-zsh"
 		# export ZSH_THEME="avit"
 		export plugins=(terminalapp osx autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
-		# shellcheck source=.oh-my-zsh/oh-my-zsh.sh
+		# shellcheck disable=SC1091
 		source "$ZSH/oh-my-zsh.sh"
 	fi
 fi
@@ -519,7 +522,7 @@ fi
 # NVM
 if is_dir "$HOME/.nvm"; then
 	export NVM_DIR="$HOME/.nvm"
-	# shellcheck source=.nvm/nvm.sh
+	# shellcheck disable=SC1091
 	source "$NVM_DIR/nvm.sh"
 fi
 
@@ -613,6 +616,7 @@ if is_mac; then
 	# Bash Completion
 	if is_bash; then
 		if is_file "$(brew --prefix)/etc/bash_completion"; then
+			# shellcheck disable=SC1091
 			source "$(brew --prefix)/etc/bash_completion"
 		fi
 	fi
@@ -789,8 +793,8 @@ EOF
 
 # Alias
 function aliasDetails {
-	local source=$(isAlias "$1")
-	local target=$(aliasPath "$1")
+	local source; source=$(isAlias "$1")
+	local target; target=$(aliasPath "$1")
 	if is_file "$target"; then
 		echo "$source -> $target"
 	else
@@ -800,11 +804,11 @@ function aliasDetails {
 
 # Alias to Symlink
 function aliasToSymlink {
-	local source=$(isAlias "$1")
+	local source; source=$(isAlias "$1")
 	if is_empty_string "$source"; then
 		echo "skipped $1"
 	else
-		local target=$(aliasPath "$1")
+		local target; target=$(aliasPath "$1")
 
 		if is_file "$target"; then
 			ln -nfs "$target" "$source"
