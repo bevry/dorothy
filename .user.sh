@@ -332,7 +332,7 @@ function xps2pdf {
 		bin=$HOME/bin/ghostpdl-9.20/bin/gxps
 		if command_missing "$bin"; then
 			echo "downloading and compiling gxps dependency to $bin"
-			mkdir -p $HOME/bin
+			mkdir -p "$HOME/bin"
 			cd "$HOME/bin"
 			down https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
 			untar ghostpdl-9.20.tar.gz
@@ -347,8 +347,9 @@ function xps2pdf {
 	echo "converting $# files"
 	for xps in "$@"
 	do
-		local file; file=$(echo "$xps" | sed 's/...$//')
-		local pdf=${file}pdf
+		local pdf
+		# shellcheck disable=SC2001
+		pdf=$(echo "$xps" | sed 's/...$//')pdf
 
 		echo "converting $xps to $pdf"
 		$bin -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
@@ -516,7 +517,7 @@ if is_zsh; then
 		export ZSH="$HOME/.oh-my-zsh"
 		# export ZSH_THEME="avit"
 		export plugins=(terminalapp osx autojump bower brew brew-cask cake coffee cp docker gem git heroku node npm nvm python ruby)
-		# shellcheck disable=SC1091
+		# shellcheck disable=SC1090
 		source "$ZSH/oh-my-zsh.sh"
 	fi
 fi
@@ -618,7 +619,7 @@ if is_mac; then
 	# Bash Completion
 	if is_bash; then
 		if is_file "$(brew --prefix)/etc/bash_completion"; then
-			# shellcheck disable=SC1091
+			# shellcheck disable=SC1090
 			source "$(brew --prefix)/etc/bash_completion"
 		fi
 	fi
