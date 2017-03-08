@@ -1,19 +1,19 @@
 #!/bin/bash
-set -e
 
 # Don't check mail
 export MAILCHECK=0
 
 # Path
 export PATH=$HOME/.scripts/commands:$PATH
-"$HOME/.scripts/commands/pathinit"
-
-# Editor
-"$HOME/.scripts/commands/editorinit"
+if test -z "$PATHS_SET"; then
+	eval "$(getpaths)"
+fi
 
 # Extras
+source "$HOME/.scripts/sources/editor.sh"
+source "$HOME/.scripts/sources/mac.bash"
+source "$HOME/.scripts/sources/linux.bash"
 source "$HOME/.scripts/sources/nvm.bash"
-source "$HOME/.scripts/sources/edit.bash"
 source "$HOME/.scripts/sources/aliases.sh"
 source "$HOME/.scripts/sources/cleaners.bash"
 source "$HOME/.scripts/sources/gcloud.bash"
@@ -28,7 +28,14 @@ if is_file "$HOME/.scripts/env.sh"; then
 fi
 
 if is_equal "$THEME" "baltheme"; then
-	source "$HOME/.scripts/baltheme.sh"
+	source "$HOME/.scripts/themes/baltheme"
+	if is_bash; then
+		export PROMPT_COMMAND="baltheme"
+	elif is_zsh; then
+		function precmd {
+			baltheme
+		}
+	fi
 fi
 
 # SSH Keys silently

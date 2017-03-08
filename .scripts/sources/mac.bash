@@ -4,27 +4,28 @@ if is_mac; then
 	# -------------------------------------
 	# Settings
 
-	# https://software.com/mac/tweaks/highlight-stacked-items-in-dock
-	# defaults write com.apple.dock mouse-over-hilite-stack -boolean true
+	function macsettings {
+		# https://software.com/mac/tweaks/highlight-stacked-items-in-dock
+		# defaults write com.apple.dock mouse-over-hilite-stack -boolean true
 
-	# http://superuser.com/a/176197/32418
-	# defaults write com.apple.dock workspaces-auto-swoosh -bool false
+		# http://superuser.com/a/176197/32418
+		# defaults write com.apple.dock workspaces-auto-swoosh -bool false
 
-	# https://software.com/mac/tweaks/show-file-extensions-in-finder
-	defaults write NSGlobalDomain AppleShowAllExtensions -boolean true
+		# https://software.com/mac/tweaks/show-file-extensions-in-finder
+		defaults write NSGlobalDomain AppleShowAllExtensions -boolean true
 
-	# https://software.com/mac/tweaks/show-all-files-in-finder
-	defaults write com.apple.finder AppleShowAllFiles -boolean true
+		# https://software.com/mac/tweaks/show-all-files-in-finder
+		defaults write com.apple.finder AppleShowAllFiles -boolean true
 
-	# https://software.com/mac/tweaks/hide-desktop-icons
-	defaults write com.apple.finder CreateDesktop -bool false
+		# https://software.com/mac/tweaks/hide-desktop-icons
+		defaults write com.apple.finder CreateDesktop -bool false
 
-	# http://osxdaily.com/2012/04/11/disable-the-file-extension-change-warning-in-mac-os-x/
-	defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
+		# http://osxdaily.com/2012/04/11/disable-the-file-extension-change-warning-in-mac-os-x/
+		defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
 
-	# https://software.com/mac/tweaks/auto-hide-the-dock
-	defaults write com.apple.dock autohide -boolean true
-
+		# https://software.com/mac/tweaks/auto-hide-the-dock
+		defaults write com.apple.dock autohide -boolean true
+	}
 
 	# -------------------------------------
 	# Installers
@@ -63,7 +64,7 @@ if is_mac; then
 	}
 	function install {
 		set -e
-		macsetup
+		macsettings
 		brewinit
 		brewinstall
 		gitsetup

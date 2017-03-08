@@ -5,10 +5,9 @@ export MAILCHECK=0
 
 # Path
 set PATH $PATH $HOME/.scripts/commands
-pathinit
-
-# Editor
-editorinit
+if test -z "$PATHS_SET"
+	eval (getpaths fish)
+end
 
 # Extras
 source "$HOME/.scripts/sources/aliases.sh"
