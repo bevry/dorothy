@@ -1,5 +1,4 @@
 #!/bin/bash
-export LOADEDDOTFILES="$LOADEDDOTFILES baltheme.sh"
 
 # Colours
 if is_zsh; then
