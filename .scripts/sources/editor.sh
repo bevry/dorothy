@@ -31,10 +31,3 @@ fi
 # Always use terminal editor for prompts
 # as GUI editors are too slow
 export EDITOR=$TERMINAL_EDITOR_PROMPT
-
-# Edit alias
-if is_ssh; then
-	alias edit="$TERMINAL_EDITOR"
-else
-	alias edit="$GUI_EDITOR"
-fi
