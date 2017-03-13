@@ -80,6 +80,7 @@ if is_mac; then
 		vscodesetup
 	}
 	function update {
+		set -e
 		baseupdate
 		brewupdate
 		nvmupdate

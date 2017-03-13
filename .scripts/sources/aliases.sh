@@ -1,13 +1,5 @@
 #!/bin/sh
 
-# Installers
-# alias usezsh='chpass -u $USER -s $(which zsh)'
-alias editprofile='edit ~/.profile ~/.*profile ~/.*rc'
-alias ohmyzshinstall='curl -L http://install.ohmyz.sh | sh'
-alias geminstall='gem install git-up terminal-notifier sass compass travis rhc'
-alias apminstall='apm install apex/apex-ui-slim atom-beautify editorconfig file-type-icons highlight-selected indentation-indicator language-stylus linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint linter-shellcheck react visual-bell'
-alias apmupdate='apm update --no-confirm'
-
 # Highlight clipboard code as RTF for keynote
 # styles: https://help.farbox.com/pygments.html
 alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango' | pbcopy"

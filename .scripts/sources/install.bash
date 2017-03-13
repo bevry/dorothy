@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Installers
 function zshinstall {
 	set -e
 	ohmyzshinstall
@@ -30,4 +29,22 @@ function baseupdate {
 	set -e
 	cd ~
 	git pull origin master
+}
+function useshell {
+	chpass -u "$USER" -s "$(which $1)"
+}
+function editprofile {
+	edit ~/.profile ~/.*profile ~/.*rc
+}
+function ohmyzshinstall {
+	curl -L http://install.ohmyz.sh | sh
+}
+function geminstall {
+	gem install git-up terminal-notifier sass compass travis rhc
+}
+function apminstall {
+	apm install apex/apex-ui-slim atom-beautify editorconfig file-type-icons highlight-selected indentation-indicator language-stylus linter linter-coffeelint linter-csslint linter-eslint linter-flow linter-jsonlint linter-shellcheck react visual-bell
+}
+function apmupdate {
+	apm update --no-confirm
 }
