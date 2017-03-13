@@ -31,7 +31,8 @@ function baseupdate {
 	git pull origin master
 }
 function useshell {
-	chpass -u "$USER" -s "$(which $1)"
+	local shell; shell=$(which "$1")
+	chpass -u "$USER" -s "$shell"
 }
 function editprofile {
 	edit ~/.profile ~/.*profile ~/.*rc
