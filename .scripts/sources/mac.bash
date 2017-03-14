@@ -35,7 +35,7 @@ if is_mac; then
 
 	# Install
 	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
-	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro ruby shellcheck tree wget watchman vim zsh'
+	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh'
 
 	function caskinit {
 		brew untap caskroom/cask
