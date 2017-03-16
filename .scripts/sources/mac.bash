@@ -12,19 +12,39 @@ if is_mac; then
 		# defaults write com.apple.dock workspaces-auto-swoosh -bool false
 
 		# https://software.com/mac/tweaks/show-file-extensions-in-finder
-		defaults write NSGlobalDomain AppleShowAllExtensions -boolean true
+		if confirm "Show all file extensions?"; then
+			defaults write NSGlobalDomain AppleShowAllExtensions -boolean true
+		else
+			defaults delete NSGlobalDomain AppleShowAllExtensions
+		fi
 
 		# https://software.com/mac/tweaks/show-all-files-in-finder
-		defaults write com.apple.finder AppleShowAllFiles -boolean true
+		if confirm "Show hidden files?"; then
+			defaults write com.apple.finder AppleShowAllFiles -boolean true
+		else
+			defaults delete com.apple.finder AppleShowAllFiles
+		fi
 
 		# https://software.com/mac/tweaks/hide-desktop-icons
-		defaults write com.apple.finder CreateDesktop -bool false
+		if confirm "Hide desktop icons?"; then
+			defaults write com.apple.finder CreateDesktop -bool false
+		else
+			defaults delete com.apple.finder CreateDesktop
+		fi
 
 		# http://osxdaily.com/2012/04/11/disable-the-file-extension-change-warning-in-mac-os-x/
-		defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
+		if confirm "Disable extension confirm dialog?"; then
+			defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
+		else
+			defaults delete com.apple.finder FXEnableExtensionChangeWarning
+		fi
 
 		# https://software.com/mac/tweaks/auto-hide-the-dock
-		defaults write com.apple.dock autohide -boolean true
+		if confirm "Hide the dock automatically?"; then
+			defaults write com.apple.dock autohide -boolean true
+		else
+			defaults delete com.apple.dock autohide
+		fi
 	}
 
 	# -------------------------------------
