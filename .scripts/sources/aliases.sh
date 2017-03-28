@@ -20,6 +20,7 @@ alias nic='rm -Rf node_modules yarn.lock'
 alias ni='yarn add'  # npm install --save
 alias nid='yarn add --dev'  # npm install --save-dev
 alias nig='yarn global add'  # npm istall -g
+alias nigr='yarn global remove'  # npm uninstall -g
 alias nir='yarn run'  # npm run-script
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'

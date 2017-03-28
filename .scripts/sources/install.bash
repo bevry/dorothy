@@ -18,7 +18,9 @@ function npminstall {
 	set -e
 	npm install -g npm
 	npm install -g yarn
-	nig npm-check-updates
+	local packages='npm-check-updates'  # slap
+	nigr $packages  # https://github.com/yarnpkg/yarn/issues/2993#issuecomment-289703085
+	nig $packages
 }
 function pipinstall {
 	set -e
