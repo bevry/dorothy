@@ -5,21 +5,41 @@ function zshinstall {
 	ohmyzshinstall
 	usezsh
 }
+function nvmload {
+	source "$HOME/.scripts/sources/nvm.bash"
+}
 function nvminstall {
 	set -e
-	git clone git://github.com/creationix/nvm.git ~/.nvm
-	loadnvm
+	if is_dir "$HOME/.nvm"; then
+		nvmupdate
+	else
+		echo "installing nvm..."
+		git clone git://github.com/creationix/nvm.git "$HOME/.nvm"
+		nvmload
+	fi
+}
+function nodeinstall {
+	set -e
+	nvminstall
 	nvm install node
 	nvm alias default node
 	nvm use node
-	npm install -g npm
+	npminstall
+}
+function nvmupdate {
+	set -e
+	echo "updating nvm..."
+	cd "$HOME/.nvm"
+	git checkout master
+	git pull origin master
+	cd "$HOME"
 }
 function npminstall {
 	set -e
 	npm install -g npm
 	npm install -g yarn
 	local packages='npm-check-updates'  # slap
-	nigr $packages  # https://github.com/yarnpkg/yarn/issues/2993#issuecomment-289703085
+	nigr $packages || echo "is fine"  # https://github.com/yarnpkg/yarn/issues/2993#issuecomment-289703085
 	nig $packages
 }
 function pipinstall {

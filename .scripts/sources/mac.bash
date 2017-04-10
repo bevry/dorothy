@@ -110,14 +110,6 @@ if is_mac; then
 		brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu
 		# font-andale-mono failed to install
 	}
-	function nvmupdate {
-		set -e
-		echo "initialising nvm..."
-		cd "$HOME/.nvm"
-		git checkout master
-		git pull origin master
-		cd "$HOME"
-	}
 	function install {
 		set -e
 		macsettings
@@ -133,7 +125,7 @@ if is_mac; then
 		masinstall
 		fontinstall
 
-		nvminstall && npminstall
+		nodeinstall
 		geminstall
 		pipinstall
 		apminstall
