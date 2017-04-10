@@ -70,7 +70,7 @@ if is_mac; then
 
 	# Install
 	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh'
-	alias caskinstall='brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc xld'
+	alias caskinstall='brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld'
 
 	function brewupdate {
 		set -e
