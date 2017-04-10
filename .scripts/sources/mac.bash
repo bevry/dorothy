@@ -60,9 +60,8 @@ if is_mac; then
 		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function caskinit {
-		brew untap caskroom/cask
 		set -e
-		brew install caskroom/cask/brew-cask
+		brew tap caskroom/cask
 		brew tap caskroom/fonts
 	}
 	function brewinstall {
@@ -77,8 +76,8 @@ if is_mac; then
 	}
 	function masinstall {
 		set -e
-		mas signout
-		mas signin --dialog apple@bevry.me
+		# mas signout
+		# mas signin --dialog apple@bevry.me
 		mas install 937984704   # Amphetamine
 		mas install 1121192229  # Better.fyi
 		mas install 430798174   # HazeOver
@@ -112,19 +111,25 @@ if is_mac; then
 		macsettings
 		brewinit
 		brewupdate
-		brewinstall
-		gitsetup
 		caskinit
-		caskinstall
-		masinstall
+		brew install git
+		gitsetup
 		binsetup
-		fontinstall
-		nvminstall
-		npminstall
-		geminstall
-		pipinstall
-		apminstall
+
+		brewinstall &
+		caskinstall &
+		masinstall &
+		fontinstall &
+		wait
+
+		(nvminstall && npminstall) &
+		geminstall &
+		pipinstall &
+		apminstall &
+		wait
+
 		vscodesetup
+		binsetup
 		source "$HOME/.scripts/sources/paths.bash"
 		usesh bash
 	}
