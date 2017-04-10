@@ -4,6 +4,18 @@
 # PATH=a/b
 # add PATH a
 
+# Reset paths
+if is_empty_string "$PATH_ORIGINAL"; then
+	export PATH_ORIGINAL="$PATH"
+	export MANPATH_ORIGINAL="$MANPATH"
+	export CLASSPATH_ORIGINAL="$CLASSPATH"
+else		
+	export PATH="$PATH_ORIGINAL"
+	export CLASSPATH="$CLASSPATH_ORIGINAL"
+	export MANPATH="$MANPATH_ORIGINAL"
+fi
+
+# Modification methods
 function clear {
 	export "$1"=''
 }
