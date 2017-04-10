@@ -126,6 +126,7 @@ if is_mac; then
 		apminstall
 		vscodesetup
 		source "$HOME/.scripts/sources/paths.bash"
+		usesh bash
 	}
 	function update {
 		set -e
