@@ -67,13 +67,25 @@ if is_mac; then
 	}
 	function brewinstall {
 		set -e
-		brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh
+		brew install aria2 bash bash-completion heroku hub fish git git-extras gpg python mas micro rmtrash ruby shellcheck tree wget watchman vim zsh
 		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function caskinstall {
 		set -e
 		brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld
 		source "$HOME/.scripts/sources/paths.bash"
+	}
+	function masinstall {
+		set -e
+		mas signout
+		mas signin --dialog apple@bevry.me
+		mas install 937984704   # Amphetamine
+		mas install 1121192229  # Better.fyi
+		mas install 430798174   # HazeOver
+		mas install 441258766   # Magnet
+		mas install 1124077199  # Paws for Trello
+		mas install 803453959   # Slack
+		mas install 931134707   # Wire
 	}
 	function brewupdate {
 		set -e
@@ -99,10 +111,12 @@ if is_mac; then
 		set -e
 		macsettings
 		brewinit
+		brewupdate
 		brewinstall
 		gitsetup
 		caskinit
 		caskinstall
+		masinstall
 		binsetup
 		fontinstall
 		nvminstall
