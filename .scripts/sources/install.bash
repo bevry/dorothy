@@ -32,10 +32,6 @@ function baseupdate {
 	cd ~
 	git pull origin master
 }
-function useshell {
-	local shell; shell=$(which "$1")
-	chpass -u "$USER" -s "$shell"
-}
 function editprofile {
 	edit ~/.profile ~/.*profile ~/.*rc
 }
