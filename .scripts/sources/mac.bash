@@ -52,14 +52,12 @@ if is_mac; then
 
 	# https://github.com/caskroom/homebrew-cask/blob/master/USAGE.md#options
 	export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications --caskroom=$HOME/.cache/Caskroom"
-
-	# Initialise locally
-	# https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
-	# alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
 	function brewinit {
+		# https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
 		set -e
 		mkdir -p "$HOME/.homebrew"
 		curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C "$HOME/.homebrew"
+		source ./paths.bash
 	}
 	function caskinit {
 		brew untap caskroom/cask
@@ -67,21 +65,29 @@ if is_mac; then
 		brew install caskroom/cask/brew-cask
 		brew tap caskroom/fonts
 	}
-
-	# Install
-	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh'
-	alias caskinstall='brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld'
-
+	function brewinstall {
+		set -e
+		brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh
+		source ./paths.bash
+	}
+	function caskinstall {
+		set -e
+		brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld
+		source ./paths.bash
+	}
 	function brewupdate {
 		set -e
 		brew update
 		brew upgrade
 		brew cleanup
 		brew cask cleanup
+		source ./paths.bash
 	}
-
-	alias fontinstall='brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu'  # font-andale-mono failed to install
-
+	function fontinstall {
+		set -e
+		brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu
+		# font-andale-mono failed to install
+	}
 	function nvmupdate {
 		set -e
 		cd "$HOME/.nvm"
@@ -105,6 +111,7 @@ if is_mac; then
 		pipinstall
 		apminstall
 		vscodesetup
+		source ./paths.bash
 	}
 	function update {
 		set -e
@@ -112,6 +119,7 @@ if is_mac; then
 		brewupdate
 		nvmupdate
 		apmupdate
+		source ./paths.bash
 	}
 
 	# -------------------------------------
