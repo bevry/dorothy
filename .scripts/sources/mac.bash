@@ -57,7 +57,7 @@ if is_mac; then
 		set -e
 		mkdir -p "$HOME/.homebrew"
 		curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C "$HOME/.homebrew"
-		source ./paths.bash
+		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function caskinit {
 		brew untap caskroom/cask
@@ -68,12 +68,12 @@ if is_mac; then
 	function brewinstall {
 		set -e
 		brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh
-		source ./paths.bash
+		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function caskinstall {
 		set -e
 		brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld
-		source ./paths.bash
+		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function brewupdate {
 		set -e
@@ -81,7 +81,7 @@ if is_mac; then
 		brew upgrade
 		brew cleanup
 		brew cask cleanup
-		source ./paths.bash
+		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function fontinstall {
 		set -e
@@ -111,7 +111,7 @@ if is_mac; then
 		pipinstall
 		apminstall
 		vscodesetup
-		source ./paths.bash
+		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function update {
 		set -e
@@ -119,7 +119,7 @@ if is_mac; then
 		brewupdate
 		nvmupdate
 		apmupdate
-		source ./paths.bash
+		source "$HOME/.scripts/sources/paths.bash"
 	}
 
 	# -------------------------------------
