@@ -53,24 +53,32 @@ if is_mac; then
 	# https://github.com/caskroom/homebrew-cask/blob/master/USAGE.md#options
 	export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications --caskroom=$HOME/.cache/Caskroom"
 	function brewinit {
-		# https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
 		set -e
-		mkdir -p "$HOME/.homebrew"
-		curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C "$HOME/.homebrew"
-		source "$HOME/.scripts/sources/paths.bash"
+		if command_exists brew; then
+			echo "brew already installed"
+		else
+			echo "installing brew locally..."
+			# https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
+			mkdir -p "$HOME/.homebrew"
+			curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C "$HOME/.homebrew"
+			source "$HOME/.scripts/sources/paths.bash"
+		fi
 	}
 	function caskinit {
 		set -e
+		echo "initialising cask..."
 		brew tap caskroom/cask
 		brew tap caskroom/fonts
 	}
 	function brewinstall {
 		set -e
+		echo "installing brew apps..."
 		brew install aria2 bash bash-completion heroku hub fish git git-extras gpg python mas micro rmtrash ruby shellcheck tree wget watchman vim zsh
 		source "$HOME/.scripts/sources/paths.bash"
 	}
 	function caskinstall {
 		set -e
+		echo "install cask apps..."
 		brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld
 		source "$HOME/.scripts/sources/paths.bash"
 	}
@@ -78,6 +86,7 @@ if is_mac; then
 		set -e
 		# mas signout
 		# mas signin --dialog apple@bevry.me
+		echo "install mac app store paps..."
 		mas install 937984704   # Amphetamine
 		mas install 1121192229  # Better.fyi
 		mas install 430798174   # HazeOver
@@ -88,6 +97,7 @@ if is_mac; then
 	}
 	function brewupdate {
 		set -e
+		echo "updating brew..."
 		brew update
 		brew upgrade
 		brew cleanup
@@ -96,11 +106,13 @@ if is_mac; then
 	}
 	function fontinstall {
 		set -e
+		echo "installing fonts..."
 		brew cask install font-cantarell font-droid-sans font-hasklig font-lato font-fira-code font-maven-pro font-fira-mono font-monoid font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-source-code-pro font-ubuntu
 		# font-andale-mono failed to install
 	}
 	function nvmupdate {
 		set -e
+		echo "initialising nvm..."
 		cd "$HOME/.nvm"
 		git checkout master
 		git pull origin master
@@ -116,17 +128,15 @@ if is_mac; then
 		gitsetup
 		binsetup
 
-		brewinstall &
-		caskinstall &
-		masinstall &
-		fontinstall &
-		wait
+		brewinstall
+		caskinstall  # sometimes requires sudo input, so & is not an option
+		masinstall
+		fontinstall
 
-		(nvminstall && npminstall) &
-		geminstall &
-		pipinstall &
-		apminstall &
-		wait
+		nvminstall && npminstall
+		geminstall
+		pipinstall
+		apminstall
 
 		vscodesetup
 		binsetup
