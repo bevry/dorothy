@@ -50,20 +50,27 @@ if is_mac; then
 	# -------------------------------------
 	# Installers
 
-	# Brew Cask Location
-	export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications --caskroom=$HOME/Applications/Caskroom"
+	# https://github.com/caskroom/homebrew-cask/blob/master/USAGE.md#options
+	export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications --caskroom=$HOME/.cache/Caskroom"
 
-	# Install
-	alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
-	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh'
-
+	# Initialise locally
+	# https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
+	# alias brewinit='ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
+	function brewinit {
+		set -e
+		mkdir -p "$HOME/.homebrew"
+		curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C "$HOME/.homebrew"
+	}
 	function caskinit {
 		brew untap caskroom/cask
 		set -e
 		brew install caskroom/cask/brew-cask
 		brew tap caskroom/fonts
 	}
-	alias caskinstall='echo "User applications should now be manually installed to ~/Applications — https://gist.github.com/balupton/5259595"'
+
+	# Install
+	alias brewinstall='brew install aria2 bash bash-completion heroku hub git git-extras gpg python micro rmtrash ruby shellcheck tree wget watchman vim zsh'
+	alias caskinstall='brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc xld'
 
 	function brewupdate {
 		set -e
@@ -106,9 +113,6 @@ if is_mac; then
 		nvmupdate
 		apmupdate
 	}
-
-	# Perhaps use --appdir for cask: https://github.com/caskroom/homebrew-cask/blob/master/USAGE.md#options
-	# Perhaps use ~/homebrew: https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
 
 	# -------------------------------------
 	# Helpers

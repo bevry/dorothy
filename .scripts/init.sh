@@ -5,9 +5,7 @@ export MAILCHECK=0
 
 # Path
 export PATH=$HOME/.scripts/commands:$PATH
-if test -z "$PATHS_SET"; then
-	eval "$(getpaths)"
-fi
+source "$HOME/.scripts/sources/paths.bash"
 
 # Extras
 source "$HOME/.scripts/sources/editor.sh"
