@@ -1,4 +1,4 @@
-#!/bin/fish
+#!/usr/bin/env fish
 
 # Don't check mail
 export MAILCHECK=0
@@ -7,22 +7,22 @@ export MAILCHECK=0
 set PATH $PATH $HOME/.scripts/commands
 
 # Fisherman
-if is_dir "$HOME/.config/fisherman"; else
+if is_dir "$HOME/.config/fisherman"
+	# Paths
+	bass "$HOME/.scripts/sources/paths.bash"
+
+	# Extras
+	source "$HOME/.scripts/sources/aliases.sh"
+	if is_file "$HOME/.scripts/env.sh"
+		source "$HOME/.scripts/env.sh"
+	end
+
+	# SSH Keys silently
+	silent addsshkeys
+else
+	echo "setting up fish..."
 	curl -Lo ~/.config/fish/functions/fisher.fish --create-dirs git.io/fisher
-end
-if is_file "$HOME/.config/fish/functions/bass.fish"; else
 	fisher edc/bass
+	echo "fish setup, load it again"
+	exit 0
 end
-
-# Paths
-bass "$HOME/.scripts/sources/paths.bash"
-
-# Extras
-source "$HOME/.scripts/sources/aliases.sh"
-
-if is_file "$HOME/.scripts/env.sh"
-	source "$HOME/.scripts/env.sh"
-end
-
-# SSH Keys silently
-silent addsshkeys
