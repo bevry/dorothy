@@ -34,16 +34,24 @@ if is_dir "$HOME/bin"; then
 	append PATH "$HOME/bin"
 fi
 
-# Homebrew
+# Local
 if is_dir "$HOME/bin"; then
 	append PATH "$HOME/bin"
 fi
 
-# Homebrew
+# Homebrew core
+if is_dir "$HOME/.homebrew"; then
+	append PATH "$HOME/.homebrew/bin"
+	append MANPATH "$HOME/.homebrew/man"
+fi
+if is_dir "/usr/local"; then
+	append PATH "/usr/local/bin"
+	append MANPATH "/usr/local/man"
+fi
+
+# Homebrew libs
 if command_exists brew; then
 	export BREW_PREFIX; BREW_PREFIX=$(brew --prefix)
-	append PATH "$BREW_PREFIX/bin"
-	append MANPATH "$BREW_PREFIX/man"
 
 	# Heroku
 	if is_dir "$BREW_PREFIX/bin"; then
