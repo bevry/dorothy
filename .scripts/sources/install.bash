@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+function shellsetup {
+	usesh fish
+}
 function zshinstall {
 	set -e
 	ohmyzshinstall

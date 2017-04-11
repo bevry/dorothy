@@ -36,7 +36,7 @@ if is_linux; then
 		cd "$p"
 		rm -Rf "$ft"
 	}
-	alias aptinstall='sudo apt-get install -y build-essential curl git httpie libssl-dev openssl python ruby software-properties-common vim'
+	alias aptinstall='sudo apt-get install -y build-essential curl git httpie fish libssl-dev openssl python ruby software-properties-common vim'
 	alias aptupdate='sudo apt-get update -y && sudo apt-get upgrade -y'
 	alias aptclean='sudo apt-get clean -y && sudo apt-get autoremove -y'
 	alias aptremove='sudo apt-get remove -y --purge libreoffice* rhythmbox thunderbird shotwell gnome-mahjongg gnomine gnome-sudoku gnome-mines aisleriot imagemagick && aptclean'
@@ -45,7 +45,7 @@ if is_linux; then
 	alias atominstall='sudo add-apt-repository -y ppa:webupd8team/atom && sudo apt-get update -y && sudo apt-get install -y atom && apminstall'
 	alias shellinstall='sudo apt-get -y update && sudo apt-get install -y libnotify-bin libgnome-keyring-dev'
 	alias javainstall='sudo add-apt-repository -y ppa:webupd8team/java && sudo apt-get update -y && sudo apt-get install -y oracle-java8-installer oracle-java8-set-default'
-	alias install='gitsetup && aptupdate && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && aptclean'
+	alias install='gitsetup && aptupdate && aptinstall && shellinstall && fontinstall && nvminstall && npminstall && atominstall && aptclean && paths_init && shellsetup'
 	alias update='baseupdate && aptupdate && aptclean'
 
 	# System

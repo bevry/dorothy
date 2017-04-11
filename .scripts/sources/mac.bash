@@ -133,7 +133,7 @@ if is_mac; then
 		vscodesetup
 		binsetup
 		paths_init
-		usesh bash
+		shellsetup
 	}
 	function update {
 		set -e
