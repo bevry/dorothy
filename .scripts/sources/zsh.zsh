@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env zsh
 
 # Oh my zsh
 if is_dir "$HOME/.oh-my-zsh"; then

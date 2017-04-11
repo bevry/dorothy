@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env sh
 
 # Highlight clipboard code as RTF for keynote
 # styles: https://help.farbox.com/pygments.html
