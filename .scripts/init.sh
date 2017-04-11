@@ -3,32 +3,16 @@
 # Don't check mail
 export MAILCHECK=0
 
-# Path
-function paths_add {
-	local exists="no"
-	local X="${!1}"
-	local Y="${X//:/\\n}"
-	while read -r line; do
-		if test "$line" = "$2"; then
-			exists="yes"
-			break
-		fi
-	done < <(echo -e "$Y")
-
-	if test "$exists" = "no"; then
-		export "$1"="$2":"${!1}"
-	fi
-}
+# Paths
+source "$HOME/.scripts/sources/var.sh"
+var_add PATH "$HOME/.scripts/commands"
 function paths_init {
 	eval "$(paths_commands)"
 }
-paths_add PATH "$HOME/.scripts/commands"
-
-# Paths
 paths_init
 
 # Extras
-source "$HOME/.scripts/sources/editor.sh"
+eval "$(editor_commands)"
 source "$HOME/.scripts/sources/mac.bash"
 source "$HOME/.scripts/sources/linux.bash"
 source "$HOME/.scripts/sources/nvm.bash"

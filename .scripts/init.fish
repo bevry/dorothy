@@ -3,36 +3,24 @@
 # Don't check mail
 export MAILCHECK=0
 
-# Path
-function paths_add
-	set exists "no"
-	for line in $$argv[1]
-		if test "$line" = "$argv[2]"
-			set exists "yes"
-			break
-		end
-	end
-	if test "$exists" = "no"
-		set -x "$argv[1]" "$argv[2]" $$argv[1]
-	end
-end
+# Paths
+source "$HOME/.scripts/sources/var.fish"
+var_add PATH "$HOME/.scripts/commands"
 function paths_init
 	eval (paths_commands)
 end
-
-paths_add PATH "$HOME/.scripts/commands"
+paths_init
 
 # Fisherman
 if test -d "$HOME/.config/fisherman"; else
 	echo "setting up fisherman..."
 	curl -Lo ~/.config/fish/functions/fisher.fish --create-dirs git.io/fisher
-	fisher edc/bass
+	# fisher edc/bass <-- bass doesn't work well
+	echo "...fisherman setup"
 end
 
-# Paths
-paths_init
-
 # Extras
+eval (editor_commands)
 source "$HOME/.scripts/sources/aliases.sh"
 if is_file "$HOME/.scripts/env.sh"
 	source "$HOME/.scripts/env.sh"
