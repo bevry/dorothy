@@ -4,7 +4,7 @@
 export MAILCHECK=0
 
 # Path
-function varadd
+function paths_add
 	set exists "no"
 	for line in $$argv[1]
 		if test "$line" = "$argv[2]"
@@ -16,11 +16,11 @@ function varadd
 		set -x "$argv[1]" "$argv[2]" $$argv[1]
 	end
 end
-function pathsinit
-	eval (pathslist)
+function paths_init
+	eval (paths_commands)
 end
 
-varadd PATH "$HOME/.scripts/commands"
+paths_add PATH "$HOME/.scripts/commands"
 
 # Fisherman
 if test -d "$HOME/.config/fisherman"; else
@@ -30,7 +30,7 @@ if test -d "$HOME/.config/fisherman"; else
 end
 
 # Paths
-pathsinit
+paths_init
 
 # Extras
 source "$HOME/.scripts/sources/aliases.sh"

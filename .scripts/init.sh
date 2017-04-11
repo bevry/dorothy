@@ -4,7 +4,7 @@
 export MAILCHECK=0
 
 # Path
-function varadd {
+function paths_add {
 	local exists="no"
 	local X="${!1}"
 	local Y="${X//:/\\n}"
@@ -19,13 +19,13 @@ function varadd {
 		export "$1"="$2":"${!1}"
 	fi
 }
-function pathsinit {
-	eval "$(pathslist)"
+function paths_init {
+	eval "$(paths_commands)"
 }
-varadd PATH "$HOME/.scripts/commands"
+paths_add PATH "$HOME/.scripts/commands"
 
 # Paths
-pathsinit
+paths_init
 
 # Extras
 source "$HOME/.scripts/sources/editor.sh"
