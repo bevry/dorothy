@@ -83,10 +83,10 @@ if is_mac; then
 		paths_init
 	}
 	function masinstall {
+		mas signout
+		mas signin --dialog apple@bevry.me
+		echo "install mac app store apps..."
 		set -e
-		# mas signout
-		# mas signin --dialog apple@bevry.me
-		echo "install mac app store paps..."
 		mas install 937984704   # Amphetamine
 		mas install 1121192229  # Better.fyi
 		mas install 430798174   # HazeOver
@@ -116,19 +116,14 @@ if is_mac; then
 		brewinit
 		brewupdate
 		caskinit
-		brew install git
+		brew install git tmux
 		gitsetup
 		binsetup
 
-		brewinstall
-		caskinstall  # sometimes requires sudo input, so & is not an option
-		masinstall
-		fontinstall
+		together brewinstall caskinstall masinstall fontinstall
 
 		nodeinstall
-		geminstall
-		pipinstall
-		apminstall
+		together geminstall pipinstall apminstall
 
 		vscodesetup
 		binsetup
