@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # NVM
 if is_dir "$HOME/.nvm"; then

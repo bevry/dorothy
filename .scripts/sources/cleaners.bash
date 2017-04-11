@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Cleaners
 alias rmsvn='find . -name ".svn" -exec rmdir {} \;'

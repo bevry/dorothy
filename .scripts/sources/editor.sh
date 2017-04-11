@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Set the editor configuration
 export LC_CTYPE=en_US.UTF-8

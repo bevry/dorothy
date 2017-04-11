@@ -4,12 +4,25 @@
 export MAILCHECK=0
 
 # Path
-set PATH $PATH $HOME/.scripts/commands
+function varadd
+	set exists "no"
+	for line in $$argv[1]
+		echo "[$line] [$argv[2]]"
+		if test "$line" = "$argv[2]"
+			set exists "yes"
+			break
+		end
+	end
+	if test "$exists" = "no"
+		set -x "$argv[1]" "$argv[2]" $$argv[1]
+	end
+end
+varadd PATH "$HOME/.scripts/commands"
 
 # Fisherman
 if is_dir "$HOME/.config/fisherman"
 	# Paths
-	bass "$HOME/.scripts/sources/paths.bash"
+	eval (varpaths)
 
 	# Extras
 	source "$HOME/.scripts/sources/aliases.sh"

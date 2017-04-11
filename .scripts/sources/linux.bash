@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Specific Operating System Configuration: Linux
 if is_linux; then

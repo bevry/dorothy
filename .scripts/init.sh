@@ -1,11 +1,28 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Don't check mail
 export MAILCHECK=0
 
 # Path
-export PATH=$HOME/.scripts/commands:$PATH
-source "$HOME/.scripts/sources/paths.bash"
+function varadd {
+	local exists="no"
+	local X="${!1}"
+	local Y="${X//:/\\n}"
+	while read -r line; do
+		if test "$line" = "$2"; then
+			exists="yes"
+			break
+		fi
+	done < <(echo -e "$Y")
+
+	if test "$exists" = "no"; then
+		export "$1"="$2":"${!1}"
+	fi
+}
+varadd PATH "$HOME/.scripts/commands"
+
+# Paths
+eval "$(varpaths)"
 
 # Extras
 source "$HOME/.scripts/sources/editor.sh"

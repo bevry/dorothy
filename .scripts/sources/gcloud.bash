@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Google Cloud SDK
 # https://cloud.google.com/functions/docs/quickstart
