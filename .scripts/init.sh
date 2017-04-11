@@ -3,6 +3,9 @@
 # Don't check mail
 export MAILCHECK=0
 
+# Enable bash v4's globstar: **
+shopt -s globstar
+
 # Paths
 source "$HOME/.scripts/sources/var.sh"
 var_add PATH "$HOME/.scripts/commands"
