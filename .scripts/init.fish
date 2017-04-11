@@ -15,7 +15,7 @@ paths_init
 if test -d "$HOME/.config/fisherman"; else
 	echo "setting up fisherman..."
 	curl -Lo ~/.config/fish/functions/fisher.fish --create-dirs git.io/fisher
-	# fisher edc/bass <-- bass doesn't work well
+	fisher bass nvm
 	echo "...fisherman setup"
 end
 
