@@ -61,7 +61,7 @@ if is_mac; then
 			# https://github.com/Homebrew/brew/blob/master/docs/Installation.md#untar-anywhere
 			mkdir -p "$HOME/.homebrew"
 			curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C "$HOME/.homebrew"
-			source "$HOME/.scripts/sources/paths.bash"
+			pathsinit
 		fi
 	}
 	function caskinit {
@@ -74,13 +74,13 @@ if is_mac; then
 		set -e
 		echo "installing brew apps..."
 		brew install aria2 bash bash-completion heroku hub fish git git-extras gpg python mas micro rmtrash ruby shellcheck tree wget watchman vim zsh
-		source "$HOME/.scripts/sources/paths.bash"
+		pathsinit
 	}
 	function caskinstall {
 		set -e
 		echo "install cask apps..."
 		brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld
-		source "$HOME/.scripts/sources/paths.bash"
+		pathsinit
 	}
 	function masinstall {
 		set -e
@@ -102,7 +102,7 @@ if is_mac; then
 		brew upgrade
 		brew cleanup
 		brew cask cleanup
-		source "$HOME/.scripts/sources/paths.bash"
+		pathsinit
 	}
 	function fontinstall {
 		set -e
@@ -132,7 +132,7 @@ if is_mac; then
 
 		vscodesetup
 		binsetup
-		source "$HOME/.scripts/sources/paths.bash"
+		pathsinit
 		usesh bash
 	}
 	function update {
@@ -141,7 +141,7 @@ if is_mac; then
 		brewupdate
 		nvmupdate
 		apmupdate
-		source "$HOME/.scripts/sources/paths.bash"
+		pathsinit
 	}
 
 	# -------------------------------------

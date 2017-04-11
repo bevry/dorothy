@@ -19,10 +19,13 @@ function varadd {
 		export "$1"="$2":"${!1}"
 	fi
 }
+function pathsinit {
+	eval "$(pathslist)"
+}
 varadd PATH "$HOME/.scripts/commands"
 
 # Paths
-eval "$(varpaths)"
+pathsinit
 
 # Extras
 source "$HOME/.scripts/sources/editor.sh"

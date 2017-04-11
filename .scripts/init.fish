@@ -16,6 +16,10 @@ function varadd
 		set -x "$argv[1]" "$argv[2]" $$argv[1]
 	end
 end
+function pathsinit
+	eval (pathslist)
+end
+
 varadd PATH "$HOME/.scripts/commands"
 
 # Fisherman
@@ -26,7 +30,7 @@ if test -d "$HOME/.config/fisherman"; else
 end
 
 # Paths
-eval (varpaths)
+pathsinit
 
 # Extras
 source "$HOME/.scripts/sources/aliases.sh"
