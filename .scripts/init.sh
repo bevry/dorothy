@@ -17,7 +17,6 @@ source "$HOME/.scripts/sources/mac.bash"
 source "$HOME/.scripts/sources/linux.bash"
 source "$HOME/.scripts/sources/nvm.bash"
 source "$HOME/.scripts/sources/aliases.sh"
-source "$HOME/.scripts/sources/cleaners.bash"
 source "$HOME/.scripts/sources/gcloud.bash"
 source "$HOME/.scripts/sources/install.bash"
 
