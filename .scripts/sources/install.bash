@@ -3,14 +3,6 @@
 function shellsetup {
 	usesh fish
 }
-function zshinstall {
-	set -e
-	ohmyzshinstall
-	usezsh
-}
-function nvmload {
-	source "$HOME/.scripts/sources/nvm.bash"
-}
 function nvminstall {
 	set -e
 	if is_dir "$HOME/.nvm"; then
@@ -18,7 +10,7 @@ function nvminstall {
 	else
 		echo "installing nvm..."
 		git clone git://github.com/creationix/nvm.git "$HOME/.nvm"
-		nvmload
+		source "$HOME/.scripts/sources/nvm.bash"
 	fi
 }
 function nodeinstall {
@@ -55,11 +47,8 @@ function baseupdate {
 	cd ~
 	git pull origin master
 }
-function editprofile {
-	edit ~/.profile ~/.*profile ~/.*rc
-}
 function ohmyzshinstall {
-	curl -L http://install.ohmyz.sh | sh
+	sh -c "$(curl -fsSL https://install.ohmyz.sh)"
 }
 function geminstall {
 	gem install git-up terminal-notifier sass compass travis rhc
