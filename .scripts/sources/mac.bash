@@ -79,7 +79,9 @@ if is_mac; then
 	function caskinstall {
 		set -e
 		echo "install cask apps..."
-		brew cask install airparrot appzapper atom bartender brave burn calibre caption ccleaner contexts devdocs firefox freedom geekbench github-desktop jaikoz keepingyouawake kodi opera plex-media-server pomello reflector screenflow sketch skype spotify spotifree teamviewer toggldesktop torbrowser transmission tunnelbear typora usage visual-studio-code vlc vmware-fusion xld
+		brew cask install airparrot appzapper atom bartender brave calibre contexts devdocs firefox freedom geekbench github-desktop kodi opera plex-media-server screenflow skype spotify spotifree teamviewer torbrowser transmission tunnelbear typora usage visual-studio-code vlc
+		# as needed
+		# brew cask install burn caption ccleaner jaikoz pomello toggldesktop reflector sketch vmware-fusion xld
 		paths_init
 	}
 	function masinstall {
