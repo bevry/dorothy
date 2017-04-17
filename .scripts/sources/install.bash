@@ -33,7 +33,7 @@ function npminstall {
 	set -e
 	npm install -g npm
 	npm install -g yarn
-	local packages='npm-check-updates live-server'  # slap
+	local packages='npm-check-updates live-server ci-watch'  # slap
 	nigr $packages || echo "is fine"  # https://github.com/yarnpkg/yarn/issues/2993#issuecomment-289703085
 	nig $packages
 }
