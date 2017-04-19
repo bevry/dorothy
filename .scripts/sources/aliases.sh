@@ -19,13 +19,13 @@ alias serve='python -m SimpleHTTPServer 8000'
 alias nic='rm -Rf node_modules yarn.lock'
 alias ni='yarn add'  # npm install --save
 alias nid='yarn add --dev'  # npm install --save-dev
-alias nig='yarn global add'  # npm istall -g
-alias nigr='yarn global remove'  # npm uninstall -g
+alias nig='npm install -g'  # yarn is too unreliable on globals: yarn global add
+alias nigr='npm uninstall -g'  # yarn is too unreliable on globals: yarn global remove
 alias nir='yarn run'  # npm run-script
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
-alias npmio='npm install --cache-min 999999999'
+# alias npmio='npm install --cache-min 999999999'
 
 # Wget
 alias wgett='echo -e "\nHave you remembered to correct the following:\n user agent, trial attempts, timeout, retry and wait times?\n\nIf you are about to leech use:\n [wgetbot] to brute-leech as googlebot\n [wgetff]  to slow-leech  as firefox (120 seconds)\nRemember to use -w to customize wait time.\n\nPress any key to continue...\n" ; read -n 1 ; wget --no-check-certificate'
