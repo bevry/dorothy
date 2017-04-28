@@ -28,13 +28,14 @@ if is_file "$HOME/.scripts/env.sh"; then
 	source "$HOME/.scripts/env.sh"
 fi
 
+# Theme
 if is_equal "$THEME" "baltheme"; then
 	source "$HOME/.scripts/themes/baltheme"
 	if is_bash; then
-		export PROMPT_COMMAND="baltheme"
+		export PROMPT_COMMAND="baltheme bash"
 	elif is_zsh; then
 		function precmd {
-			baltheme
+			baltheme zsh
 		}
 	fi
 fi

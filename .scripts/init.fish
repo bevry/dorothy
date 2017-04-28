@@ -26,5 +26,12 @@ if is_file "$HOME/.scripts/env.sh"
 	source "$HOME/.scripts/env.sh"
 end
 
+# Theme
+if is_equal "$THEME" "baltheme"
+	function fish_prompt
+		~/.scripts/themes/baltheme fish
+	end
+end
+
 # SSH Keys silently
 silent addsshkeys
