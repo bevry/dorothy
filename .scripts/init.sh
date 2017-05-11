@@ -11,8 +11,17 @@ function paths_init {
 }
 paths_init
 
-# Extras
+# Editor
 eval "$(editor_commands)"
+function edit {
+	if is_ssh; then
+		eval "$TERMINAL_EDITOR" "$@"
+	else
+		eval "$GUI_EDITOR" "$@"
+	fi
+}
+
+# Extras
 source "$HOME/.scripts/sources/mac.bash"
 source "$HOME/.scripts/sources/linux.bash"
 source "$HOME/.scripts/sources/nvm.bash"

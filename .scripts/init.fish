@@ -19,8 +19,17 @@ if test -d "$HOME/.config/fisherman"; else
 	echo "...fisherman setup"
 end
 
-# Extras
+# Editor
 eval (editor_commands)
+function edit
+	if is_ssh
+		eval "$TERMINAL_EDITOR" $argv
+	else
+		eval "$GUI_EDITOR" $argv
+	end
+end
+
+# Extras
 source "$HOME/.scripts/sources/aliases.sh"
 if is_file "$HOME/.scripts/env.sh"
 	source "$HOME/.scripts/env.sh"
