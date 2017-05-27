@@ -22,8 +22,13 @@ function edit {
 }
 
 # Extras
-source "$HOME/.scripts/sources/mac.bash"
-source "$HOME/.scripts/sources/linux.bash"
+if is_mac; then
+	source "$HOME/.scripts/sources/mac.sh"
+	source "$HOME/.scripts/sources/mac.bash"
+elif is_linux; then
+	source "$HOME/.scripts/sources/linux.sh"
+	source "$HOME/.scripts/sources/linux.bash"
+fi
 source "$HOME/.scripts/sources/nvm.bash"
 source "$HOME/.scripts/sources/aliases.sh"
 source "$HOME/.scripts/sources/gcloud.bash"

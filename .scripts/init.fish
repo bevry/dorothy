@@ -31,6 +31,11 @@ end
 
 # Extras
 source "$HOME/.scripts/sources/aliases.sh"
+if is_mac
+	source "$HOME/.scripts/sources/mac.sh"
+else if is_linux
+	source "$HOME/.scripts/sources/linux.sh"
+end
 if is_file "$HOME/.scripts/env.sh"
 	source "$HOME/.scripts/env.sh"
 end
