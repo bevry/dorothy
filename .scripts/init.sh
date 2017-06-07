@@ -32,7 +32,6 @@ fi
 source "$HOME/.scripts/sources/nvm.bash"
 source "$HOME/.scripts/sources/aliases.sh"
 source "$HOME/.scripts/sources/gcloud.bash"
-source "$HOME/.scripts/sources/install.bash"
 
 if is_zsh; then
 	source "$HOME/.scripts/sources/zsh.zsh"
