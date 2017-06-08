@@ -19,7 +19,7 @@ git remote add origin https://github.com/balupton/dotfiles.git
 git pull origin master  --force
 
 # Enforce correct permissions
-chmod +x "$HOME/.scripts/commands/*"
+chmod +x ./.scripts/commands/*
 
 # Prepare
 export DOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"'
