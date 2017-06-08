@@ -18,6 +18,9 @@ git init
 git remote add origin https://github.com/balupton/dotfiles.git
 git pull origin master  --force
 
+# Enforce correct permissions
+chmod +x "$HOME/.scripts/commands/*"
+
 # Prepare
 export DOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"'
 printf 'export # Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
