@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env sh
 
 # https://github.com/caskroom/homebrew-cask/blob/master/USAGE.md#options
 # uses env to make sure that HOMEBREW_CASK_OPTS is set regardless of shell

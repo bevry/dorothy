@@ -4,12 +4,8 @@
 export MAILCHECK=0
 
 # Paths
-source "$HOME/.scripts/sources/var.sh"
-var_add PATH "$HOME/.scripts/commands"
-function paths_init {
-	eval "$(paths_commands)"
-}
-paths_init
+source "$HOME/.scripts/sources/paths.sh"
+setup-paths
 
 # Editor
 eval "$(editor_commands)"

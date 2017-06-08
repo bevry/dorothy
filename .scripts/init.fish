@@ -4,19 +4,15 @@
 export MAILCHECK=0
 
 # Paths
-source "$HOME/.scripts/sources/var.fish"
-var_add PATH "$HOME/.scripts/commands"
-function paths_init
-	eval (paths_commands)
-end
-paths_init
+source "$HOME/.scripts/sources/paths.fish"
 
 # Fisherman
 if test -d "$HOME/.config/fisherman"; else
 	echo "setting up fisherman..."
 	curl -Lo ~/.config/fish/functions/fisher.fish --create-dirs git.io/fisher
 	fisher bass nvm
-	echo "...fisherman setup"
+	echo "...fisherman setup, reload your terminal"
+	exit
 end
 
 # Editor
