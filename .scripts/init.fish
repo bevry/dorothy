@@ -10,7 +10,7 @@ source "$HOME/.scripts/sources/paths.fish"
 if test -d "$HOME/.config/fisherman"; else
 	echo "setting up fisherman..."
 	curl -Lo ~/.config/fish/functions/fisher.fish --create-dirs git.io/fisher
-	fisher bass nvm
+	fisher bass nvm done
 	echo "...fisherman setup, reload your terminal"
 	exit
 end
