@@ -5,7 +5,6 @@ export MAILCHECK=0
 
 # Paths
 source "$HOME/.scripts/sources/paths.sh"
-setup-paths
 
 # Editor
 eval "$(editor_commands)"
