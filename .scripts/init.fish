@@ -3,6 +3,9 @@
 # Don't check mail
 export MAILCHECK=0
 
+# Disable welcome greeting
+set -U fish_greeting
+
 # Paths
 source "$HOME/.scripts/sources/paths.fish"
 
