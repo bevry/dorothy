@@ -8,7 +8,7 @@
 
 if is_string "$BREW_CASKROOM"; then
 	GDIR="$BREW_CASKROOM/google-cloud-sdk"
-else
+elif command_exists brew; then
 	GDIR="$(brew --prefix)/Caskroom/google-cloud-sdk"
 fi
 
