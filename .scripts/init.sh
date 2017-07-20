@@ -31,6 +31,9 @@ source "$HOME/.scripts/sources/gcloud.sh"
 
 if is_zsh; then
 	source "$HOME/.scripts/sources/zsh.zsh"
+	source "$HOME/.scripts/sources/azure.zsh"
+else
+	source "$HOME/.scripts/sources/azure.bash"
 fi
 
 if is_file "$HOME/.scripts/env.sh"; then
