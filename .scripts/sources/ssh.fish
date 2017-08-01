@@ -2,7 +2,7 @@
 
 function addsshkey
 	eval (ssh-agent -c)
-	ssh-add -K "$HOME/.ssh/$1"
+	ssh-add -K "$HOME/.ssh/$argv[1]"
 end
 
 function addsshkeys
