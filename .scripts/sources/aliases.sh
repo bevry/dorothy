@@ -17,11 +17,11 @@ alias serve='python -m SimpleHTTPServer 8000'
 
 # Node
 alias nic='rm -Rf node_modules yarn.lock'
-alias ni='yarn add'  # npm install --save
-alias nid='yarn add --dev'  # npm install --save-dev
-alias nig='npm install -g'  # yarn is too unreliable on globals: yarn global add
-alias nigr='npm uninstall -g'  # yarn is too unreliable on globals: yarn global remove
-alias nir='yarn run'  # npm run-script
+alias ni='npm install --save'  # yarn add
+alias nid='npm install --save-dev'  # yarn add --dev
+alias nig='nvm use system; npm install -g; nvm use'  # yarn is too unreliable on globals: yarn global add
+alias nigr='nvm use system; npm uninstall -g; nvm use'  # yarn is too unreliable on globals: yarn global remove
+alias nir='npm run-script'  # yarn run
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
@@ -64,4 +64,3 @@ alias gitclean='rm -rf .git/refs/original/; git reflog expire --expire=now --all
 alias gitsvnupdate='git svn rebase'
 alias gitrm='git ls-files --deleted | xargs git rm'
 alias githooks='edit .git/hooks/pre-commit'
-
