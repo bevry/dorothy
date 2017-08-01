@@ -47,6 +47,3 @@ if is_equal "$THEME" "baltheme"
 		~/.scripts/themes/baltheme fish
 	end
 end
-
-# SSH Keys silently
-silent addsshkeys

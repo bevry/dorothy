@@ -51,6 +51,3 @@ if is_equal "$THEME" "baltheme"; then
 		}
 	fi
 fi
-
-# SSH Keys silently
-silent addsshkeys
