@@ -22,19 +22,19 @@ git pull origin master  --force
 chmod +x ./.scripts/commands/*
 
 # If you want to use my theme
-printf '# Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
+printf '\n\n# Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
 
 # Prepare
-export DOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"'
+export DOTFILE='\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"'
 
 # OSX
-printf "\n\n$DOTFILE" >> ~/.bash_profile
+printf "$DOTFILE" >> ~/.bash_profile
 
 # Linux
-printf "\n\n$DOTFILE" >> ~/.bashrc
+printf "$DOTFILE" >> ~/.bashrc
 
 # ZSH
-printf "\n\n$DOTFILE" >> ~/.zshrc
+printf "$DOTFILE" >> ~/.zshrc
 ```
 
 Put your private environment configuration into `.scripts/env.sh`
