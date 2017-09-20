@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env zsh
 
 function var_set {
 	export $1="$2"
@@ -6,7 +6,7 @@ function var_set {
 
 function var_add {
 	local exists="no"
-	local X="${!1}"
+	local X="${(P)1}"
 	if test -z "$X"; then
 		export $1="$2"
 	else
@@ -19,7 +19,7 @@ function var_add {
 		done < <(echo -e "$Y")
 
 		if test "$exists" = "no"; then
-			export $1="$2":"${!1}"
+			export $1="$2":"${(P)1}"
 		fi
 	fi
 }

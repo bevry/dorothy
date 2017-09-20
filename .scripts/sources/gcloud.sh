@@ -13,13 +13,13 @@ elif command_exists brew; then
 fi
 
 if is_dir "$GDIR"; then
-	if is_bash; then
+	if test -n "$BASH_VERSION"; then
 		# shellcheck disable=SC1090
 		source "$GDIR/latest/google-cloud-sdk/path.bash.inc"
 		# shellcheck disable=SC1090
 		source "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
 
-	elif is_zsh; then
+	elif test -n "$ZSH_VERSION"; then
 		# shellcheck disable=SC1090
 		source "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
 		# shellcheck disable=SC1090

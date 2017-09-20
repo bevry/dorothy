@@ -4,6 +4,11 @@
 export MAILCHECK=0
 
 # Paths
+if test -n "$ZSH_VERSION"; then
+	source "$HOME/.scripts/sources/var.zsh"
+else
+	source "$HOME/.scripts/sources/var.bash"
+fi
 source "$HOME/.scripts/sources/paths.sh"
 
 # Editor
@@ -29,7 +34,7 @@ source "$HOME/.scripts/sources/aliases.sh"
 source "$HOME/.scripts/sources/ssh.sh"
 source "$HOME/.scripts/sources/gcloud.sh"
 
-if is_zsh; then
+if test -n "$ZSH_VERSION"; then
 	source "$HOME/.scripts/sources/zsh.zsh"
 	source "$HOME/.scripts/sources/azure.zsh"
 else
@@ -43,9 +48,9 @@ fi
 # Theme
 if is_equal "$THEME" "baltheme"; then
 	source "$HOME/.scripts/themes/baltheme"
-	if is_bash; then
+	if test -n "$BASH_VERSION"; then
 		export PROMPT_COMMAND="baltheme bash"
-	elif is_zsh; then
+	elif test -n "$ZSH_VERSION"; then
 		function precmd {
 			baltheme zsh
 		}

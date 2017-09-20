@@ -7,6 +7,7 @@ export MAILCHECK=0
 set -U fish_greeting
 
 # Paths
+source "$HOME/.scripts/sources/var.fish"
 source "$HOME/.scripts/sources/paths.fish"
 
 # Fisherman
