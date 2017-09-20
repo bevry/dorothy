@@ -21,9 +21,11 @@ git pull origin master  --force
 # Enforce correct permissions
 chmod +x ./.scripts/commands/*
 
+# If you want to use my theme
+printf '# Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
+
 # Prepare
 export DOTFILE='# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"'
-printf '# Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
 
 # OSX
 printf "\n\n$DOTFILE" >> ~/.bash_profile
