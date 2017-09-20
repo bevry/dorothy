@@ -24,17 +24,17 @@ chmod +x ./.scripts/commands/*
 # If you want to use my theme
 printf '\n\n# Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
 
-# Prepare
-export DOTFILE='\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"'
+# Load the dotfiles for BASH in OSX
+printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.bash_profile
 
-# OSX
-printf "$DOTFILE" >> ~/.bash_profile
+# Load the dotfiles for BASH in Linux
+printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.bashrc
 
-# Linux
-printf "$DOTFILE" >> ~/.bashrc
+# Load the dotfiles for ZSH
+printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.zshrc
 
-# ZSH
-printf "$DOTFILE" >> ~/.zshrc
+# Load the dotfiles for FISH
+printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.fish"' >> ~/.scripts/init.fish
 ```
 
 Put your private environment configuration into `.scripts/env.sh`
