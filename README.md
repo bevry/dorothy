@@ -34,7 +34,7 @@ printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/in
 printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.zshrc
 
 # Load the dotfiles for FISH
-printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.fish"' >> ~/.scripts/init.fish
+printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.fish"' >>  ~/.config/fish/config.fish
 ```
 
 Put your private environment configuration into `.scripts/env.sh`
