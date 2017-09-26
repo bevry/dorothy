@@ -16,7 +16,7 @@ rm ~/.zshrc
 cd ~
 git init
 git remote add origin https://github.com/balupton/dotfiles.git
-git pull origin master  --force
+git pull origin master --force
 
 # Enforce correct permissions
 chmod +x ./.scripts/commands/*
