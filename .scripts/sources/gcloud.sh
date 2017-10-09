@@ -3,8 +3,13 @@
 # Google Cloud SDK
 # https://cloud.google.com/functions/docs/quickstart
 # brew cask install google-cloud-sdk
-# gcloud components install alpha
+# gcloud components install beta
 # gcloud init
+#
+# Firebase SDK
+# https://firebase.google.com/docs/functions/get-started
+# npm install -g firebase-tools
+# firebase init
 
 if is_string "$BREW_CASKROOM"; then
 	GDIR="$BREW_CASKROOM/google-cloud-sdk"
