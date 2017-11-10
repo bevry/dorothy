@@ -15,7 +15,7 @@ Put your private environment configuration into `.scripts/env.sh`
 
 ## Explanation
 
-The dotfiles resise inside [`$HOME/.scripts`](https://github.com/balupton/dotfiles/tree/master/.scripts), containing:
+The dotfiles resise inside [`$HOME/.scripts`](https://github.com/balupton/dotfiles/tree/master/.scripts) containing:
 
 - [`commands` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/commands) contains executable commands
 - [`sources` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/sources) contains scripts that are loaded into the shell environment
