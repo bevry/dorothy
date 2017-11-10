@@ -34,6 +34,7 @@ printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/in
 printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.zshrc
 
 # Load the dotfiles for FISH
+mkdir -p ~/.config/fish
 printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.fish"' >>  ~/.config/fish/config.fish
 ```
 
