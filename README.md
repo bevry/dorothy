@@ -6,40 +6,25 @@ Goes well with my [New Machine Starter Kit](https://gist.github.com/balupton/525
 ## Install
 
 ``` bash
-# Optional Cleaning
-rm ~/.profile
-rm ~/.bash_profile
-rm ~/.bashrc
-rm ~/.zshrc
-
-# Clone the repository into your home directory
-cd ~
-git init
-git remote add origin https://github.com/balupton/dotfiles.git
-git pull origin master --force
-
-# Enforce correct permissions
-chmod +x ./.scripts/commands/*
-
-# If you want to use my theme
-printf '\n\n# Theme\nexport THEME="baltheme"' >> ~/.scripts/env.sh
-
-# Load the dotfiles for BASH in OSX
-printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.bash_profile
-
-# Load the dotfiles for BASH in Linux
-printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.bashrc
-
-# Load the dotfiles for ZSH
-printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.sh"' >> ~/.zshrc
-
-# Load the dotfiles for FISH
-mkdir -p ~/.config/fish
-printf '\n\n# Source our custom dotfile configuration\nsource "$HOME/.scripts/init.fish"' >>  ~/.config/fish/config.fish
+curl -fsSL https://raw.githubusercontent.com/balupton/dotfiles/master/.scripts/commands/install-dotfiles | bash
 ```
 
 Put your private environment configuration into `.scripts/env.sh`
 
+
+## Explanation
+
+The dotfiles resise inside [`$HOME/.scripts`](https://github.com/balupton/dotfiles/tree/master/.scripts), containing:
+
+- [`commands` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/commands) contains executable commands
+- [`sources` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/sources) contains scripts that are loaded into the shell environment
+- [`themes` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/themes) contains themes that you can select via the `THEME` environment variable
+- [`init.fish`](https://github.com/balupton/dotfiles/blob/master/.scripts/init.fish) the initialisation script for the fish shell
+- [`init.sh`](https://github.com/balupton/dotfiles/blob/master/.scripts/init.sh) the initialisation script for other shells
+
+The initialisation scripts are loaded via the changes made to your dotfiles via the [`setup-dotfiles`](https://github.com/balupton/dotfiles/blob/master/.scripts//commands/setup-dotfiles) command.
+
+To setup your machine with the exact same apps and preferences as Benjamin Lupton, then install the dotfiles, then run `install`, and every now and run `update` to keep thing updated.
 
 ## License
 
