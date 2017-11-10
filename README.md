@@ -6,7 +6,8 @@ Goes well with my [New Machine Starter Kit](https://gist.github.com/balupton/525
 ## Install
 
 ``` bash
-curl -fsSL https://raw.githubusercontent.com/balupton/dotfiles/master/.scripts/commands/install-dotfiles | bash
+bash -il
+eval "$(curl -fsSL https://raw.githubusercontent.com/balupton/dotfiles/master/.scripts/commands/install-dotfiles)"
 ```
 
 Put your private environment configuration into `.scripts/env.sh`
