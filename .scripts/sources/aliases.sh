@@ -34,7 +34,6 @@ alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agen
 
 # Administration
 alias sha1check='openssl sha1 '
-alias takeownership='sudo chown -R $USER .'
 alias svnshowexternals='svn propget -R svn:externals .'
 alias search='find . -name'
 alias allow='chmod +x'
