@@ -14,8 +14,8 @@ Put your private environment configuration into `.scripts/env.sh`
 
 If you would like to do the setup process manually, refer to:
 
-- https://github.com/balupton/dotfiles/blob/master/.scripts/commands/install-dotfiles
-- https://github.com/balupton/dotfiles/blob/master/.scripts/commands/setup-dotfiles
+- [`.scripts/commands/install-dotfiles`](https://github.com/balupton/dotfiles/blob/master/.scripts/commands/install-dotfiles)
+- [`.scripts/commands/setup-dotfiles`](https://github.com/balupton/dotfiles/blob/master/.scripts/commands/setup-dotfiles)
 
 
 ## Explanation
