@@ -33,6 +33,7 @@ source "$HOME/.scripts/sources/nvm.bash"
 source "$HOME/.scripts/sources/aliases.sh"
 source "$HOME/.scripts/sources/ssh.sh"
 source "$HOME/.scripts/sources/gcloud.sh"
+source "$HOME/.scripts/sources/secure.sh"
 
 if test -n "$ZSH_VERSION"; then
 	source "$HOME/.scripts/sources/zsh.zsh"

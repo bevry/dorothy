@@ -33,6 +33,7 @@ end
 source "$HOME/.scripts/sources/aliases.sh"
 source "$HOME/.scripts/sources/ssh.fish"
 source "$HOME/.scripts/sources/azure.fish"
+source "$HOME/.scripts/sources/secure.fish"
 if is_mac
 	source "$HOME/.scripts/sources/mac.sh"
 else if is_linux
