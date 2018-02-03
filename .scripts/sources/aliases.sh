@@ -12,9 +12,6 @@ alias untar='tar -xvzf'
 alias startredis='redis-server /usr/local/etc/redis.conf'
 alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
-# Servers
-alias serve='python -m SimpleHTTPServer 8000'
-
 # Node
 alias nic='rm -Rf node_modules yarn.lock'
 alias ni='npm install --save'  # yarn add
