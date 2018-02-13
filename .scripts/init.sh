@@ -9,6 +9,7 @@ if test -n "$ZSH_VERSION"; then
 else
 	source "$HOME/.scripts/sources/var.bash"
 fi
+source "$HOME/.scripts/sources/user.sh"
 source "$HOME/.scripts/sources/paths.sh"
 
 # Editor
