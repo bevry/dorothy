@@ -33,8 +33,6 @@ The dotfiles reside inside [`$HOME/.scripts`](https://github.com/balupton/dotfil
 
 The initialisation scripts are loaded via the changes made to your dotfiles via the [`setup-dotfiles`](https://github.com/balupton/dotfiles/blob/master/.scripts//commands/setup-dotfiles) command.
 
-To setup your machine with the exact same apps and preferences as Benjamin Lupton, then install the dotfiles, then run `install`, and every now and run `update` to keep thing updated.
-
 
 ## Highlights
 
