@@ -12,7 +12,7 @@ fi
 source "$HOME/.scripts/sources/paths.sh"
 
 # Editor
-eval "$(editor_commands)"
+eval "$(setup-editor-commands)"
 function edit {
 	if is_ssh; then
 		eval "$TERMINAL_EDITOR" "$@"

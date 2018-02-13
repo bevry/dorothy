@@ -20,7 +20,7 @@ if test -d "$HOME/.config/fisherman"; else
 end
 
 # Editor
-eval (editor_commands)
+eval (setup-editor-commands)
 function edit
 	if is_ssh
 		eval "$TERMINAL_EDITOR" $argv
