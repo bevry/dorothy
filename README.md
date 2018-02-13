@@ -86,16 +86,28 @@ To setup your machine with the exact same apps and preferences as Benjamin Lupto
 
 - `podvideo` for converting a video file to a new file with h264+aac encoding
 
+- `vmerge` for merging multiple video files in a directory together into a single video file
+
 - `rmvmware` for uninstalling vmware
 
 - `addscripts` and `editscripts` for quickly working with these dotfiles
+
+- `aliasdetails`, `aliases`, `aliasestosymlink`, `aliaspath`, `aliasverify` for converting MacOS aliases to symlinks
+
+- `mailsync` to move everything from one IMAP provider to another
+
+- `pdfdecrypt` for mass converting encrypted documents into new unencrypted documents
+
+- `xps2pdf` for mass converting xps documents ito new pdf documents
+
+- `findfiles` for finding files that match a given extension, and optionally running a command on them
 
 - youtube download helpers
 	- `youtube-dl-audio` for downloading the best quality audio from a youtube video with m4a encoding
 	- `youtube-dl-native` for downloading the best quality options from a youtube video with mp4+m4a encoding
 	- `youtube-dl-everything` for downloading an entire playlist using `youtube-dl-native`
 
-- many helpers for general shell scripting, such as those named `contains*`, `is*`, `silent*`
+- many helpers for general shell scripting, such as those named `command*`, `contains*`, `is*`, `silent*`
 
 
 ## License
