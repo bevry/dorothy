@@ -42,6 +42,11 @@ To setup your machine with the exact same apps and preferences as Benjamin Lupto
 	- cross-shell compatibility, with tested support for `bash`, `fish`, and `zsh`
 	- cross-operating-system compatibility, with tested support for MacOS and Ubuntu
 
+- user customisable
+	- use `$HOME/.scripts/env.sh` for hidden environment variable configuration
+	- use `$HOME/.scripts/users/$(whoami).sh` to customise which apps to install and whatnot, or to inherit someone else's configuration
+	- the dotfile installation script will help you setup these files
+
 - automatic editor detection
 	- use `edit` to open your favourite installed editor automatically
 		- in GUI environments will open your GUI editor

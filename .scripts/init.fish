@@ -8,6 +8,7 @@ set -U fish_greeting
 
 # Paths
 source "$HOME/.scripts/sources/var.fish"
+source "$HOME/.scripts/sources/user.fish"
 source "$HOME/.scripts/sources/paths.fish"
 
 # Fisherman
