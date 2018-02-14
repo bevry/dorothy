@@ -135,7 +135,7 @@ httpie
 '
 
 export NODE_INSTALL='
-bevry-base
+boundation
 ci-watch
 coinmon
 firebase-tools
