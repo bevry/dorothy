@@ -164,7 +164,7 @@ timonwong.shellcheck
 # julialang.language-julia
 
 export ATOM_INSTALL='
- city-lights-ui
+city-lights-ui
 editorconfig
 file-type-icons
 highlight-selected
