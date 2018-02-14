@@ -151,18 +151,25 @@ export VSCODE_INSTALL='
 akamud.vscode-theme-onelight
 dbaeumer.vscode-eslint
 EditorConfig.EditorConfig
+mauve.terraform
+mindginative.terraform-snippets
+ms-python.python
+PeterJausovec.vscode-docker
 PKief.material-icon-theme
 TeddyDD.fish
 timonwong.shellcheck
 '
+# donjayamanne.jupyter
+# flowtype.flow-for-vscode
+# julialang.language-julia
 
 export ATOM_INSTALL='
-apex/apex-ui-slim
-atom-beautify
+ city-lights-ui
 editorconfig
 file-type-icons
 highlight-selected
 indentation-indicator
+jackhammer-syntax
 language-stylus
 linter
 linter-coffeelint
@@ -174,3 +181,13 @@ linter-shellcheck
 react
 visual-bell
 '
+# atom-beautify
+# atom-ide-ui
+# ide-flowtype
+# ide-typescript
+
+# busy-singal
+# intentions
+# linter
+# linter-flow
+# linter-ui-default

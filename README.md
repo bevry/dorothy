@@ -42,7 +42,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - user customisable
 	- use `$HOME/.scripts/env.sh` for hidden environment variable configuration
-	- use `$HOME/.scripts/users/$(whoami).sh` to customise which apps to install and whatnot, or to inherit someone else's configuration
+	- use `$HOME/.scripts/users/$(whoami)/` to customise application installations and editor configurations
 	- the dotfile installation script will help you setup these files
 
 - automatic editor detection
