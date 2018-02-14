@@ -28,6 +28,7 @@ The dotfiles reside inside [`$HOME/.scripts`](https://github.com/balupton/dotfil
 - [`commands` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/commands) contains executable commands
 - [`sources` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/sources) contains scripts that are loaded into the shell environment
 - [`themes` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/themes) contains themes that you can select via the `THEME` environment variable
+- [`users` directory](https://github.com/balupton/dotfiles/tree/master/.scripts/users) contains configuration specific to the currently logged in user, use it to customise installation configurations and editor configs
 - [`init.fish`](https://github.com/balupton/dotfiles/blob/master/.scripts/init.fish) the initialisation script for the fish shell
 - [`init.sh`](https://github.com/balupton/dotfiles/blob/master/.scripts/init.sh) the initialisation script for other shells
 
