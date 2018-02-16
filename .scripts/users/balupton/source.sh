@@ -45,6 +45,7 @@ aria2
 azure-cli
 bash
 bash-completion
+blackbox
 fish
 git
 git-extras
