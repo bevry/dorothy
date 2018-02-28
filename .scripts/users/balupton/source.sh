@@ -55,6 +55,7 @@ kryptco/tap/kr
 mas
 micro
 python
+python3
 rmtrash
 ruby
 terminal-notifier
