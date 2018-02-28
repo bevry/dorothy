@@ -99,6 +99,7 @@ kodi
 little-snitch
 loopback
 micro-snitch
+numi
 opera
 plex-media-server
 pomello
