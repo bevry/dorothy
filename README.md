@@ -112,6 +112,8 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - `macos-drive` for creating a bootable MacOS install media drive
 
+- `itunes-owners` for generating a table of owners and media, from one's iTunes Media Library
+
 - youtube download helpers
 	- `youtube-dl-audio` for downloading the best quality audio from a youtube video with m4a encoding
 	- `youtube-dl-native` for downloading the best quality options from a youtube video with mp4+m4a encoding
