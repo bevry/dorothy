@@ -68,6 +68,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - intelligent cross-shell setup of your PATH variables
 	- uses `setup-paths-commands` to determine the correct configuration, which is then applied via `sources/paths.*` which are loaded by the init scripts
+	- automatically adds appropriate path configuration for many different applications, libraries, and utilities
 
 - ssh key management
 	- stores ssh key passwords in the operating system's keychain, so you don't have to reenter them every time
