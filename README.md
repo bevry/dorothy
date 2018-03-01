@@ -84,7 +84,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - `down` for downloading files using the best currently installed downloader app
 
-- `isodev` for opening the iOS simulator
+- `iosdev` for opening the iOS simulator
 
 - `podcast` for converting an audio file to a new file with aac-he 48k encoding
 
