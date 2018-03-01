@@ -61,8 +61,9 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 	- configures git (via `setup-git`)
 		- user
 		- diff
-		- keychain
-		- gpg
+		- keychain credential storage
+		- ssh, with additional [krypton](https://krypt.co) support
+		- gpg, with additional [krypton](https://krypt.co) and [keybase](https://keybase.io) support
 	- configures terminal commands for several GUI apps (via `setup-bin`)
 
 - intelligent cross-shell setup of your PATH variables
