@@ -108,6 +108,10 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - `findfiles` for finding files that match a given extension, and optionally running a command on them
 
+- `expandpath` for outputting results of glob patterns each on their own line
+
+- `macos-drive` for creating a bootable MacOS install media drive
+
 - youtube download helpers
 	- `youtube-dl-audio` for downloading the best quality audio from a youtube video with m4a encoding
 	- `youtube-dl-native` for downloading the best quality options from a youtube video with mp4+m4a encoding
