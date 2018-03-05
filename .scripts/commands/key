@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+IFS=$'\n' # https://unix.stackexchange.com/q/9496/50703
 
 # Guides
 # https://www.gnupg.org/gph/en/manual.html
@@ -19,15 +20,47 @@ set -e
 # pub => 'PUBlic key'
 # sub => 'public SUBkey'
 
+function getmode {
+	if test -n "$1"; then
+		echo "$1"
+	else
+		modes=$'public\nprivate'
+		select mode in $modes; do
+			test -n "$mode" && break
+		done
+		echo "$mode"
+	fi
+}
+function getkey {
+	if test -n "$1"; then
+		echo "$1"
+	else
+		key get
+	fi
+}
+function getdate {
+	if test -n "$1"; then
+		echo "$1"
+	else
+		date -v +1y "+%Y-%m-%d"
+	fi
+}
+
 if test "$1" = "list"; then
-	if test "$2" = "private"; then
+	m="$(getmode "$2")"
+	if test "$m" = "private"; then
 		gpg --keyid-format LONG -K
 	else
 		gpg --keyid-format LONG -k
 	fi
 
 elif test "$1" = "get"; then
-	if test "$2" = "private"; then
+	if test -n "$3"; then
+		echo "$3"
+		exit 0
+	fi
+	m="$(getmode "$2")"
+	if test "$m" = "private"; then
 		flag="K"
 		type="sec"
 	else
@@ -51,40 +84,52 @@ elif test "$1" = "get"; then
 		echo "$key"
 	fi
 
-elif test "$1" = "export" -a -n "$3"; then
-	if test "$2" = "private"; then
-		gpg --armor --export-secret-keys "$3"
+elif test "$1" = "export"; then
+	m="$(getmode "$2")"
+	k="$(key get "$m" "$3")"
+	if test "$m" = "private"; then
+		gpg --armor --export-secret-keys "$k"
 	else
-		gpg --armor --export "$3"
+		gpg --armor --export "$k"
 	fi
 
-elif test "$1" = "delete" -a -n "$3"; then
-	if test "$2" = "private"; then
-		gpg --delete-secret-keys "$3"
-	else
-		gpg --delete-keys "$3"
+elif test "$1" = "delete"; then
+	m="$(getmode "$2")"
+	k="$(key get "$m" "$3")"
+	if confirm "Confirm you wish to delete [$m] key [$k]?"; then
+		if test "$m" = "private"; then
+			gpg --delete-secret-keys "$k"
+		else
+			gpg --delete-keys "$k"
+		fi
 	fi
 
 elif test "$1" = "new"; then
 	gpg --gen-key
 
 elif test "$1" = "edit"; then
+	k="$(getkey "$2")"
 	gpg --edit-key "$2"
 
 elif test "$1" = "trust"; then
-	echo "trust" | gpg --edit-key "$2"
+	k="$(key get private "$2")"
+	if confirm "Confirm you wish to trust key [$k]?"; then
+		echo "trust" | gpg --edit-key "$2"
+	fi
 
 elif test "$1" = "extend"; then
-	if test -n "$3"; then
-		DATE="$3"
-	else
-		DATE="$(date -v +1y "+%Y-%m-%d")"
+	k="$(key get private "$2")"
+	d="$(getdate "$3")"
+	if confirm "Confirm you wish to extend key [$k] to [$d]?"; then
+		gpg --quick-set-expire "$k" "$d"
 	fi
-	gpg --quick-set-expire "$2" "$DATE"
 
 elif test "$1" = "expire"; then
-	DATE="$(date -v +0d "+%Y-%m-%d")"
-	gpg --quick-set-expire "$2" "$DATE"
+	k="$(key get private "$2")"
+	d="$(date -v +0d "+%Y-%m-%d")"
+	if confirm "Confirm you want to expire key [$k]?"; then
+		gpg --quick-set-expire "$k" "$d"
+	fi
 
 elif test "$1" = "encrypt"; then
 	FILE="$2"
@@ -97,9 +142,11 @@ elif test "$1" = "encrypt"; then
 	fi
 
 elif test "$1" = "decrypt"; then
+	# 2: file
 	gpg -d "$2"
 
 elif test "$1" = "sencrypt"; then
+	# 2: file
 	gpg -c "$2"
 
 else
