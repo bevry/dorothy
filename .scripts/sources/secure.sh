@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 function secure {
-	if confirm "[y] to delete all history, [n] to delete some"; then
+	if test "$(choice all some)" = "all"; then
 		echo 'deleting all'
 		history -c
 	else
@@ -11,6 +11,7 @@ function secure {
 		echo 'all' | history delete --contains "vault"
 		echo 'all' | history delete --contains "key"
 		echo 'all' | history delete --contains "token"
+		echo 'all' | history delete --contains "env"
 	fi
 	echo 'deleted'
 }
