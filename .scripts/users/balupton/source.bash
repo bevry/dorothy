@@ -2,6 +2,19 @@
 
 export USER_SHELL="fish"
 
+export TERMINAL_EDITORS=(
+	vim  # --noplugin -c "set nowrap"'
+	micro
+	nano
+)
+
+export GUI_EDITORS=(
+	"code -w"
+	"atom -w"
+	"subl -w"
+	gedit
+)
+
 export APK_INSTALL=(
 	aria2
 	bash
