@@ -24,9 +24,17 @@ end
 eval (setup-editor-commands)
 function edit
 	if is_ssh
-		eval "$TERMINAL_EDITOR" $argv
+		if test -z "$TERMINAL_EDITOR"
+			echo "\$TERMINAL_EDITOR is undefined"
+		else
+			eval "$TERMINAL_EDITOR" $argv
+		end
 	else
-		eval "$GUI_EDITOR" $argv
+		if test -z "$TERMINAL_EDITOR"
+			echo "\$GUI_EDITOR is undefined"
+		else
+			eval "$GUI_EDITOR" $argv
+		end
 	end
 end
 

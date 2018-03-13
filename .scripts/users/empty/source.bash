@@ -1,6 +1,8 @@
 #!/bin/bash
 
 export USER_SHELL=''
+export TERMINAL_EDITORS=()
+export GUI_EDITORS=()
 export APK_INSTALL=()
 export APT_REMOVE=()
 export APT_ADD=()
