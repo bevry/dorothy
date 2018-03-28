@@ -29,10 +29,29 @@
 - `-s` is nonempty file: True if file exists and has a size greater than zero.
 - `=` is equal: True if the strings s1 and s2 are identical.
 
+## cwd
+
+``` bash
+# ensure cwd is the directory of the script, and not user's runtime location
+cd "$(dirname "$0")"
+
+# same as above, but supports when executable is symlinked
+cd "$(dirname "$(rlink "$0")")"
+```
+
 
 ## string replacement
 
 - http://tldp.org/LDP/abs/html/string-manipulation.html
+
+``` bash
+# get first line
+echo "${var%$'\n'*}"
+
+# trim first part
+echo "${var#*v}" # "Consul v1.0.6" to "1.0.6"
+```
+
 
 ## arrays
 
