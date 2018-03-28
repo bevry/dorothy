@@ -59,6 +59,7 @@ export BREW_INSTALL=(
 	bash
 	bash-completion
 	blackbox
+	coreutils
 	fish
 	git
 	git-extras
