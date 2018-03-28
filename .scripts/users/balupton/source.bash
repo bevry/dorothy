@@ -165,17 +165,23 @@ export NODE_INSTALL=(
 )
 
 export VSCODE_INSTALL=(
-	akamud.vscode-theme-onelight
+	#akamud.vscode-theme-onedark
+	#akamud.vscode-theme-onelight
+	DavidAnson.vscode-markdownlint
 	dbaeumer.vscode-eslint
-	# donjayamanne.jupyter
+	#donjayamanne.jupyter
 	EditorConfig.EditorConfig
-	# flowtype.flow-for-vscode
-	# julialang.language-julia
+	fatihacet.gitlab-workflow
+	#flowtype.flow-for-vscode
+	#julialang.language-julia
 	mauve.terraform
 	mindginative.terraform-snippets
 	ms-python.python
 	PeterJausovec.vscode-docker
 	PKief.material-icon-theme
+	richie5um2.vscode-sort-json
+	shinnn.stylelint
+	teabyii.ayu
 	TeddyDD.fish
 	timonwong.shellcheck
 )
