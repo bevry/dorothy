@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+shopt -s globstar
 
 export USER_SHELL="fish"
 
