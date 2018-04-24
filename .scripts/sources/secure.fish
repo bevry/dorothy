@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 function secure
-	if test (choice all some) = "all"; then
+	if test (choose all some) = "all"; then
 		echo 'deleting all'
 		history -c
 	else
