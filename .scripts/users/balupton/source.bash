@@ -158,6 +158,7 @@ export NODE_INSTALL=(
 	coinmon
 	firebase-tools
 	heroku
+	json
 	live-server
 	npm-check-updates
 	serve
