@@ -59,10 +59,10 @@ fi
 if is_equal "$THEME" "baltheme"; then
 	source "$HOME/.scripts/themes/baltheme"
 	if test -n "$BASH_VERSION"; then
-		export PROMPT_COMMAND="baltheme bash"
+		export PROMPT_COMMAND="baltheme bash $?"
 	elif test -n "$ZSH_VERSION"; then
 		function precmd {
-			baltheme zsh
+			baltheme zsh $?
 		}
 	fi
 fi
