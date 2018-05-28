@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -eE -o pipefail
+
+# Adjusting TLS formats
+
+# Vault
+# https://www.vaultproject.io/api/secret/pki/index.html#generate-certificate
+
+# Detection
+# https://serverfault.com/a/9717/63348
+# https://en.wikipedia.org/wiki/X.509#Certificate_filename_extensions
+# https://stackoverflow.com/a/47765718/130638
+# https://techjourney.net/how-to-decrypt-an-enrypted-ssl-rsa-private-key-pem-key/
+
+# Utilities
+# https://support.ssl.com/Knowledgebase/Article/View/19/0/der-vs-crt-vs-cer-vs-pem-certificates-and-how-to-convert-them
+# https://www.sslshopper.com/article-most-common-openssl-commands.html
+
+# Definitions
+# https://en.wikipedia.org/wiki/PKCS_12
+# https://en.wikipedia.org/wiki/X.690 ber+cer+der
+# https://en.wikipedia.org/wiki/X.509
+
+# To convert from binary to Base64:
+# certutil -encode filename.cer newfilename.cer
+
+# To convert from Base64 to binary:
+# certutil -decode filename.cer newfilename.cer
+
+# openssl rsa -in ssl.key.secure -out ssl.key
+
+# decode csr
+# openssl req -in server.csr -noout -text
+
+# cert + key to pkcs12 bundle
+# openssl pkcs12 -export -clcerts -in consul.crt  -inkey consul.key -out consul.p12
+# openssl pkcs12 -export -inkey cert_key_pem.txt -in cert_key_pem.txt -out cert_key.p12
+
+# pem to der
+# openssl x509 -in cert.crt -outform der -out cert.der
+
+# der to pem
+# openssl x509 -in cert.crt -inform der -outform pem -out cert.pem
+
+# pkcs12 to pem
+# openssl pkcs12 -in cert_key.p12 -out cert_key.pem -nodes
+
+# MacOS
+# https://sdqali.in/blog/2012/06/05/managing-security-certificates-from-the-console---on-windows-mac-os-x-and-linux/
+# security add-certificate foo.crt
+# security add-trusted-cert foo.crt
+# security find-certificates -a -e foo@bar.com
+
+# Encryption and Decryption
+# https://security.stackexchange.com/q/36358/110805
+# openssl enc -in ciphertext -out binarytext -d -a
+# openssl rsautl -decrypt -in binarytext -inkey private.pem
+
+# Action
+if test -n "$1"; then
+	action="$1"
+else
+	action="$(choose inspect combine import extract encrypt decrypt)"
+fi
+
+# Inspect
+if test "$action" = "inspect"; then
+	if silent_stderr openssl x509 -in "$2" -noout -text; then
+		echo 'is x509 certificate'
+	elif silent_stderr openssl rsa -in "$2" -noout -text; then
+		echo 'is rsa private key'
+	elif silent_stderr openssl rsa -pubin -in "$2" -noout -text; then
+		echo 'is rsa public key'
+	elif silent_stderr openssl req -in "$2" -noout -text; then
+		echo 'is certificate signing request'
+	elif silent_stderr openssl pkcs12 -info -in "$2"; then
+		echo 'is pkcs#12 bundle'
+	fi
+fi
+
+# Encrypt
+if test "$action" = "combine" -o "$action" = "bundle"; then
+	key_file="$(ask "Specify the private key file (.key):" "$2")"
+	cert_file="$(ask "Specify the certificate file (.crt):" "$3")"
+	ca_file="$(ask "Specify the certificate authority file (.ca):" "$4")"
+	bundle_file="$(ask "Specify the output bundle file (.p12):" "$5")"
+	pass="$(ask "Specify the password to use:" "$6")"
+
+	if test -f "$bundle_file"; then
+		rm "$bundle_file"
+	fi
+
+	# -nokeys       don't output private keys.
+	# -nodes        don't encrypt private keys
+	# consul requres private+cert+ca combo
+	openssl pkcs12 -export -CAfile "$ca_file" -inkey "$key_file" -in "$cert_file" -password "pass:$pass" -out "$bundle_file"
+	if confirm_positive "Would you like to import this bundle?"; then
+		cert import "$bundle_file" "$cert_file" "$ca_file" "$pass"
+	fi
+fi
+
+# Import into keychain
+if test "$action" = "import"; then
+	bundle_file="$(ask "Specify the bundle file (.p12):" "$2")"
+	cert_file="$(ask "Specify the certificate file (.crt):" "$3")"
+	ca_file="$(ask "Specify the certificate authority file (.ca):" "$4")"
+	pass="$(ask "Specify the password to use:" "$5")"
+
+	security import "$bundle_file" -P "$pass"
+	security add-trusted-cert -d -r trustAsRoot "$cert_file"
+	security add-trusted-cert -d -r trustAsRoot "$ca_file"
+fi
+
+
+# Extract
+if test "$action" = "extract"; then
+	if test -n "$2"; then
+		cert_file="$2"
+	else
+		read -r -p "Specify the certificate file (.crt): " cert_file
+	fi
+
+	openssl x509 -in "$cert_file" -pubkey -noout
+fi
+
+# Encrypt
+if test "$action" = "encrypt"; then
+	key_type="$2"
+	key_file="$3"
+
+	if test "$key_type" = "public"; then
+		openssl rsautl -encrypt -inkey "$key_file" -pubin
+	elif test "$key_type" = "private"; then
+		openssl rsautl -encrypt -inkey "$key_file"
+	else
+		echo 'cert encrypt <public|private> <key_file>'
+		exit 1
+	fi
+fi
+
+# Decrypt
+if test "$action" = "decrypt"; then
+	key_type="$2"
+	key_file="$3"
+
+	if test "$key_type" = "public"; then
+		openssl rsautl -decrypt -inkey "$key_file" -pubin
+	elif test "$key_type" = "private"; then
+		openssl rsautl -decrypt -inkey "$key_file"
+	else
+		echo 'cert encrypt <public|private> <key_file>'
+		exit 1
+	fi
+fi
+
