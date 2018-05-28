@@ -55,6 +55,6 @@ end
 # Theme
 if is_equal "$THEME" "baltheme"
 	function fish_prompt
-		~/.scripts/themes/baltheme fish
+		~/.scripts/themes/baltheme fish $status
 	end
 end
