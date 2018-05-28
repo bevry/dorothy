@@ -90,6 +90,8 @@ export BREW_INSTALL_SLOW=(
 )
 
 export BREW_INSTALL_CASK=(
+	acorn
+	adguard
 	airparrot
 	appzapper
 	atom
@@ -141,10 +143,9 @@ export BREW_INSTALL_CASK=(
 )
 
 export RUBY_INSTALL=(
-	compass
-	git-up
+	# compass, travis => disabled because of https://github.com/Compass/compass/issues/2139
 	sass
-	travis
+	git-up
 )
 
 export PYTHON_INSTALL=(
@@ -157,7 +158,6 @@ export NODE_INSTALL=(
 	ci-watch
 	coinmon
 	firebase-tools
-	heroku
 	json
 	live-server
 	npm-check-updates
@@ -184,7 +184,7 @@ export VSCODE_INSTALL=(
 	richie5um2.vscode-sort-json
 	shinnn.stylelint
 	teabyii.ayu
-	TeddyDD.fish
+	skyapps.fish-vscode
 	timonwong.shellcheck
 )
 
