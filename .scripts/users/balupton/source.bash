@@ -61,6 +61,7 @@ export BREW_INSTALL=(
 	bash-completion
 	blackbox
 	coreutils
+	dnscrypt-proxy
 	fish
 	git
 	git-extras
@@ -109,19 +110,23 @@ export BREW_INSTALL_CASK=(
 	freedom
 	geekbench
 	github-desktop
+	gitter
 	google-chrome
 	google-hangouts
 	jaikoz
+	keybase
 	kodi
 	little-snitch
 	loopback
 	micro-snitch
 	numi
 	opera
+	paragon-ntfs
 	plex-media-server
 	pomello
 	reflector
 	screenflow
+	signal
 	sketch
 	skype
 	soundsource
@@ -132,12 +137,17 @@ export BREW_INSTALL_CASK=(
 	torbrowser
 	tower
 	transmission
+	transmit
 	tunnelbear
+	tunnelblick
+	ubersicht
 	usage
 	visual-studio-code
 	vlc
 	vmware-fusion
+	webtorrent
 	windscribe
+	workflowy
 	xld
 	undercover
 )
