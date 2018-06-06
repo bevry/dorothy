@@ -67,6 +67,7 @@ export BREW_INSTALL=(
 	fish
 	git
 	git-extras
+	go
 	heroku
 	hub
 	kryptco/tap/kr
