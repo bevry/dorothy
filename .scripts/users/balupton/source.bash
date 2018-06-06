@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-shopt -s globstar
+if is_latest_bash; then
+	shopt -s globstar
+fi
 
 export USER_SHELL="fish"
 
@@ -152,8 +154,11 @@ export BREW_INSTALL_CASK=(
 	undercover
 )
 
+# export RUBY_VERSION="ruby@2.3"
 export RUBY_INSTALL=(
-	# compass, travis => disabled because of https://github.com/Compass/compass/issues/2139
+	bundler
+	travis
+	compass
 	sass
 	git-up
 )
