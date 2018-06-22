@@ -63,7 +63,6 @@ export BREW_INSTALL=(
 	bash-completion
 	blackbox
 	coreutils
-	dnscrypt-proxy
 	fish
 	git
 	git-extras
