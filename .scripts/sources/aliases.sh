@@ -4,6 +4,9 @@
 # styles: https://help.farbox.com/pygments.html
 alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango' | pbcopy"
 
+# Github
+alias gh='hub browse'
+
 # Tar
 alias mktar='tar -cvzf'
 alias untar='tar -xvzf'
