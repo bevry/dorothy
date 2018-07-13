@@ -12,6 +12,10 @@ function secure
 		echo 'all' | history delete --contains "key"
 		echo 'all' | history delete --contains "token"
 		echo 'all' | history delete --contains "env"
+		echo 'all' | history delete --contains "session"
+		echo 'all' | history delete --contains "cookie"
+		echo 'all' | history delete --contains "secret"
+		echo 'all' | history delete --contains "op "
 	end
 	echo 'deleted'
 end
