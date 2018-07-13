@@ -48,7 +48,13 @@ cd "$(dirname "$(rlink "$0")")"
 # get first line
 echo "${var%$'\n'*}"
 
-# trim first part
+# trim everything after the space
+echo "${var% *}" # "hello world" to "hello
+
+# trim evrything before the space
+echo "${var#* }" # "hello world" to "world
+
+# trim everything before "v"
 echo "${var#*v}" # "Consul v1.0.6" to "1.0.6"
 ```
 
