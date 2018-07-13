@@ -156,10 +156,9 @@ export BREW_INSTALL_CASK=(
 
 # export RUBY_VERSION="ruby@2.3"
 export RUBY_INSTALL=(
-	bundler
 	travis
-	compass
-	sass
+	"sass 3.4.25"
+	"compass 1.0.3"
 	git-up
 )
 
