@@ -38,43 +38,48 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 ## Highlights
 
 - great compatibility
-	- cross-shell compatibility, with tested support for `bash`, `fish`, and `zsh`
-	- cross-operating-system compatibility, with tested support for MacOS and Ubuntu
+    - cross-shell compatibility, with tested support for `bash`, `fish`, and `zsh`
+    - cross-operating-system compatibility, with tested support for MacOS and Ubuntu
 
 - user customisable
-	- use `$HOME/.scripts/env.sh` for hidden environment variable configuration
-	- use `$HOME/.scripts/users/$(whoami)/` to customise application installations and editor configurations
-	- the dotfile installation script will help you setup these files
+    - use `$HOME/.scripts/env.sh` for hidden environment variable configuration
+    - use `$HOME/.scripts/users/$(whoami)/` to customise application installations and editor configurations
+    - the dotfile installation script will help you setup these files
 
 - automatic editor detection
-	- use `edit` to open your favourite installed editor automatically
-		- in GUI environments will open your GUI editor
-		- in terminal environments will open your terminal editor
-	- git prompts are configured correctly to use your favourite terminal editor
-	- uses `setup-editor-commands` to determine the correct configuration, which is then appied via the init scripts
+    - use `edit` to open your favourite installed editor automatically
+        - in GUI environments will open your GUI editor
+        - in terminal environments will open your terminal editor
+    - git prompts are configured correctly to use your favourite terminal editor
+    - uses `setup-editor-commands` to determine the correct configuration, which is then appied via the init scripts
 
 - `install` and `update` will setup your entire system for development, including
-	- installs and configures linux (via `setup-linux-*`) and mac (via `setup-mac-*`)
-	- installs and configures node (via `setup-node`), ruby (via `setup-ruby`), python (via `setup-python`)
-	- installs and configures vscode, and if atom is installed will configure it
-	- installs fonts (via `setup-*-fonts`)
-	- configures git (via `setup-git`)
-		- user
-		- diff
-		- keychain credential storage
-		- ssh, with additional [krypton](https://krypt.co) support
-		- gpg, with additional [krypton](https://krypt.co) and [keybase](https://keybase.io) support
-	- configures terminal commands for several GUI apps (via `setup-bin`)
+    - installs and configures linux (via `setup-linux-*`) and mac (via `setup-mac-*`)
+    - installs and configures node (via `setup-node`), ruby (via `setup-ruby`), python (via `setup-python`)
+    - installs and configures vscode, and if atom is installed will configure it
+    - installs fonts (via `setup-*-fonts`)
+    - configures git (via `setup-git`)
+        - user
+        - diff
+        - keychain credential storage
+        - ssh, with additional [krypton](https://krypt.co) support
+        - gpg, with additional [krypton](https://krypt.co) and [keybase](https://keybase.io) support
+    - configures terminal commands for several GUI apps (via `setup-bin`)
 
 - intelligent cross-shell setup of your PATH variables
-	- uses `setup-paths-commands` to determine the correct configuration, which is then applied via `sources/paths.*` which are loaded by the init scripts
-	- automatically adds appropriate path configuration for many different applications, libraries, and utilities
+    - uses `setup-paths-commands` to determine the correct configuration, which is then applied via `sources/paths.*` which are loaded by the init scripts
+    - automatically adds appropriate path configuration for many different applications, libraries, and utilities
 
 - ssh key management
-	- stores ssh key passwords in the operating system's keychain, so you don't have to reenter them every time
-	- `addsshkey` to add a specific ssh key to the agent
-	- `addsshkeys` to all known ssh keys to the agent
-	- `newsshkey` for generating new ssh keys
+    - stores ssh key passwords in the operating system's keychain, so you don't have to reenter them every time
+    - `addsshkey` to add a specific ssh key to the agent
+    - `addsshkeys` to all known ssh keys to the agent
+    - `newsshkey` for generating new ssh keys
+
+- `secret` for setting env secrets for commands securely
+    - secrets ares fetched directly from 1Password, with a short lived session
+    - secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
+    - secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
 
 - `key` for creating and managing your gpg keys
 
@@ -115,9 +120,9 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 - `itunes-owners` for generating a table of owners and media, from one's iTunes Media Library
 
 - youtube download helpers
-	- `youtube-dl-audio` for downloading the best quality audio from a youtube video with m4a encoding
-	- `youtube-dl-native` for downloading the best quality options from a youtube video with mp4+m4a encoding
-	- `youtube-dl-everything` for downloading an entire playlist using `youtube-dl-native`
+    - `youtube-dl-audio` for downloading the best quality audio from a youtube video with m4a encoding
+    - `youtube-dl-native` for downloading the best quality options from a youtube video with mp4+m4a encoding
+    - `youtube-dl-everything` for downloading an entire playlist using `youtube-dl-native`
 
 - many helpers for general shell scripting, such as those named `command*`, `contains*`, `is*`, `silent*`
 
