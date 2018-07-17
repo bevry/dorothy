@@ -5,6 +5,8 @@ fi
 
 export USER_SHELL="fish"
 
+export KRYPTON_GPG="no"
+
 export TERMINAL_EDITORS=(
 	vim  # --noplugin -c "set nowrap"'
 	micro
