@@ -29,6 +29,17 @@
 - `-s` is nonempty file: True if file exists and has a size greater than zero.
 - `=` is equal: True if the strings s1 and s2 are identical.
 
+
+## ignoring exit code
+
+``` bash
+ok the-error-command arg1 arg2
+ok exit 1
+```
+
+`ok` is one of our commands
+
+
 ## cwd
 
 ``` bash
