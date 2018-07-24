@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+
+# Source the cross shell stuff
+. "$HOME/.scripts/users/balupton/source.sh"
+
+# The rest of this stuff is bash specific
 if is_latest_bash; then
 	shopt -s globstar
 fi
-
-export USER_SHELL="fish"
-
-export KRYPTON_GPG="no"
 
 export TERMINAL_EDITORS=(
 	vim  # --noplugin -c "set nowrap"'

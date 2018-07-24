@@ -11,9 +11,7 @@
 # npm install -g firebase-tools
 # firebase init
 
-if is_string "$BREW_CASKROOM"; then
-	GDIR="$BREW_CASKROOM/google-cloud-sdk"
-elif command_exists brew; then
+if command_exists brew; then
 	GDIR="$(brew --prefix)/Caskroom/google-cloud-sdk"
 fi
 

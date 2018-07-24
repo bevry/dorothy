@@ -1,7 +1,11 @@
 #!/usr/bin/env sh
 
-function secure {
-	if test "$(choose all some)" = "all"; then
+function secure_history {
+	WHAT="$1"
+	if test -z "$WHAT"; then
+		WHAT="$(choose all some)"
+	fi
+	if test "WHAT" = "all"; then
 		echo 'deleting all'
 		history -c
 	else

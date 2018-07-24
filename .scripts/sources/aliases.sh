@@ -4,24 +4,11 @@
 # styles: https://help.farbox.com/pygments.html
 alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango' | pbcopy"
 
-# Github
-alias gh='hub browse'
-
-# Tar
-alias mktar='tar -cvzf'
-alias untar='tar -xvzf'
-
 # Database
 alias startredis='redis-server /usr/local/etc/redis.conf'
 alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
 # Node
-alias nic='rm -Rf node_modules yarn.lock'
-alias ni='npm install --save'  # yarn add
-alias nid='npm install --save-dev'  # yarn add --dev
-alias nig='nvm use system; npm install -g'  # yarn is too unreliable on globals: yarn global add
-alias nigr='nvm use system; npm uninstall -g'  # yarn is too unreliable on globals: yarn global remove
-alias nir='npm run-script'  # yarn run
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
@@ -37,7 +24,6 @@ alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agen
 alias sha1check='openssl sha1 '
 alias svnshowexternals='svn propget -R svn:externals .'
 alias search='find . -name'
-alias allow='chmod +x'
 alias sha256='shasum -a 256'
 alias filecount='find . | wc -l'
 
