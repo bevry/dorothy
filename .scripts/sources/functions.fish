@@ -1,7 +1,11 @@
 #!/usr/bin/env fish
 
-function secure
-	if test (choose all some) = "all"; then
+function secure_history
+	set WHAT $argv[1]
+	if test -z "$WHAT"
+		set WHAT (choose all some)
+	end
+	if test "WHAT" = "all"
 		echo 'deleting all'
 		history -c
 	else
