@@ -12,7 +12,6 @@ alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 alias npmus='npm set registry http://registry.npmjs.org/'
 alias npmau='npm set registry http://registry.npmjs.org.au/'
 alias npmeu='npm set registry http://registry.npmjs.eu/'
-# alias npmio='npm install --cache-min 999999999'
 
 # Wget, consider also using: --no-check-certificate
 # Wget: brute-leech as GoogleBot
