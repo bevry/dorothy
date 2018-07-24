@@ -56,6 +56,8 @@ cd "$(dirname "$(rlink "$0")")"
 - http://tldp.org/LDP/abs/html/string-manipulation.html
 
 ``` bash
+var="$(echo -e "hello world\\nhello world")"
+
 # get first line
 echo "${var%$'\n'*}"
 
@@ -67,6 +69,13 @@ echo "${var#* }" # "hello world" to "world
 
 # trim everything before "v"
 echo "${var#*v}" # "Consul v1.0.6" to "1.0.6"
+
+# replace first o with O
+echo "${var/o/O}"
+
+# replace all o with O
+echo "${var//o/O}"
+
 ```
 
 
