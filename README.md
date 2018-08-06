@@ -72,9 +72,9 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - ssh key management
     - stores ssh key passwords in the operating system's keychain, so you don't have to reenter them every time
-    - `addsshkey` to add a specific ssh key to the agent
-    - `addsshkeys` to all known ssh keys to the agent
-    - `newsshkey` for generating new ssh keys
+    - `ssh-add` to add a specific ssh key to the agent
+    - `ssh-add-all` to all known ssh keys to the agent
+    - `ssh-new` for generating new ssh keys
 
 - `secret` for setting env secrets for commands securely
     - secrets ares fetched directly from 1Password, with a short lived session
@@ -85,35 +85,35 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - `sparse-vault` for creating and managing sparsebundles and sparseimages
 
-- `macup` command for backup then restore of all your application and system preferences prior and after a computer restore
+- `mac-state` command for backup then restore of all your application and system preferences prior and after a computer restore
 
 - `git-fix-email` for fixing incorrect contributor details in commit histories
 
 - `down` for downloading files using the best currently installed downloader app
 
-- `iosdev` for opening the iOS simulator
+- `ios-dev` for opening the iOS simulator
 
 - `podcast` for converting an audio file to a new file with aac-he encoding
 
 - `podvideo` for converting a video file to a new file with h264+aac encoding
 
-- `vmerge` for merging multiple video files in a directory together into a single video file
+- `video-merge` for merging multiple video files in a directory together into a single video file
 
-- `rmvmware` for uninstalling vmware
+- `rm-vmware` for uninstalling vmware
 
-- `addscripts` and `editscripts` for quickly working with these dotfiles
+- `add-scripts`, `edit-scripts`, `edit-script` for quickly working with these dotfiles
 
-- `aliasdetails`, `aliases`, `aliasestosymlink`, `aliaspath`, `aliasverify` for converting MacOS aliases to symlinks
+- `alias-details`, `aliases`, `aliases-to-symlink`, `alias-path`, `alias-verify` for converting MacOS aliases to symlinks
 
-- `mailsync` to move everything from one IMAP provider to another
+- `mail-sync` to move everything from one IMAP provider to another
 
-- `pdfdecrypt` for mass converting encrypted documents into new unencrypted documents
+- `pdf-decrypt` for mass converting encrypted documents into new unencrypted documents
 
 - `xps2pdf` for mass converting xps documents ito new pdf documents
 
-- `findfiles` for finding files that match a given extension, and optionally running a command on them
+- `find-files` for finding files that match a given extension, and optionally running a command on them
 
-- `expandpath` for outputting results of glob patterns each on their own line
+- `expand-path` for outputting results of glob patterns each on their own line
 
 - `macos-drive` for creating a bootable MacOS install media drive
 
