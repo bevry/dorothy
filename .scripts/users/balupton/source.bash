@@ -61,16 +61,16 @@ export APT_ADD=(
 
 export BREW_INSTALL=(
 	aria2
-	azure-cli
+	# azure-cli
 	bash
 	bash-completion
-	blackbox
+	# blackbox
 	coreutils
 	fish
 	git
 	git-extras
 	go
-	heroku
+	# heroku
 	hub
 	kryptco/tap/kr
 	mas
@@ -98,60 +98,59 @@ export BREW_INSTALL_SLOW=(
 export BREW_INSTALL_CASK=(
 	acorn
 	adguard
-	airparrot
+	# airparrot
 	appzapper
 	atom
 	backblaze
 	bartender
 	brave
-	burn
+	# burn
 	calibre
-	caption
-	ccleaner
+	# caption
+	# ccleaner
 	contexts
-	dat
+	# dat
 	devdocs
-	firefox
+	# firefox
 	freedom
 	geekbench
-	github-desktop
-	gitter
+	# github-desktop
+	# gitter
 	google-chrome
 	google-hangouts
-	jaikoz
+	# jaikoz
 	keybase
 	kodi
 	little-snitch
 	loopback
 	micro-snitch
 	numi
-	opera
+	# opera
 	paragon-ntfs
 	plex-media-server
-	pomello
-	reflector
+	# pomello
+	# reflector
 	screenflow
-	signal
+	# signal
 	sketch
 	skype
 	soundsource
-	spotifree
 	spotify
 	teamviewer
-	toggldesktop
-	torbrowser
+	# toggldesktop
+	# torbrowser
 	tower
-	transmission
+	# transmission
 	transmit
-	tunnelbear
-	tunnelblick
+	# tunnelbear
+	# tunnelblick
 	ubersicht
-	usage
+	# usage
 	visual-studio-code
 	vlc
 	vmware-fusion
 	webtorrent
-	windscribe
+	# windscribe
 	workflowy
 	xld
 	undercover
@@ -174,28 +173,32 @@ export NODE_INSTALL=(
 	boundation
 	ci-watch
 	coinmon
-	firebase-tools
+	# firebase-tools
 	json
-	live-server
+	# live-server
 	npm-check-updates
 	serve
+	travis-watch
 	typescript
 	yarn
 )
 
 export VSCODE_INSTALL=(
-	#akamud.vscode-theme-onedark
-	#akamud.vscode-theme-onelight
+	# akamud.vscode-theme-onedark
+	# akamud.vscode-theme-onelight
 	DavidAnson.vscode-markdownlint
 	dbaeumer.vscode-eslint
-	#donjayamanne.jupyter
+	# donjayamanne.jupyter
 	EditorConfig.EditorConfig
 	fatihacet.gitlab-workflow
-	#flowtype.flow-for-vscode
-	#julialang.language-julia
+	# flowtype.flow-for-vscode
+	idleberg.applescript
+	# julialang.language-julia
 	mauve.terraform
+	mechatroner.rainbow-csv
 	mindginative.terraform-snippets
 	ms-python.python
+	ms-vscode.go
 	PeterJausovec.vscode-docker
 	PKief.material-icon-theme
 	richie5um2.vscode-sort-json
