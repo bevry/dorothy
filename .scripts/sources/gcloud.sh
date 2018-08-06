@@ -11,11 +11,11 @@
 # npm install -g firebase-tools
 # firebase init
 
-if command_exists brew; then
+if command-exists brew; then
 	GDIR="$(brew --prefix)/Caskroom/google-cloud-sdk"
 fi
 
-if is_dir "$GDIR"; then
+if is-dir "$GDIR"; then
 	if test -n "$BASH_VERSION"; then
 		. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
 		. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"

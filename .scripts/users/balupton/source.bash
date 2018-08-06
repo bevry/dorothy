@@ -4,7 +4,7 @@
 . "$HOME/.scripts/users/balupton/source.sh"
 
 # The rest of this stuff is bash specific
-if is_latest_bash; then
+if is-latest-bash; then
 	shopt -s globstar
 fi
 

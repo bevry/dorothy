@@ -2,7 +2,7 @@
 
 eval "$(setup-editor-commands)"
 function edit {
-	if is_ssh; then
+	if is-ssh; then
 		if test -z "$TERMINAL_EDITOR"; then
 			echo "\$TERMINAL_EDITOR is undefined"
 		else
