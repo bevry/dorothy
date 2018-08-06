@@ -1,6 +1,29 @@
 # Scripts
 
-## Help
+## tutotials
+
+- [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
+
+
+## opts
+
+Run `help set` to get more details. Use `set -Eeuo pipefail` as safe mode.
+
+``` text
+-E  If set, the ERR trap is inherited by shell functions.
+    https://stackoverflow.com/q/25378845/130638
+-e  Exit immediately if a command exits with a non-zero status.
+-u  Treat unset variables as an error when substituting.
+-o  option-name
+    Set the variable corresponding to option-name:
+    errtrace    same as -E
+    errexit     same as -e
+    nounset     same as -u
+    pipefail    the return value of a pipeline is the status of
+                the last command to exit with a non-zero status,
+                or zero if no command exited with a non-zero status
+```
+
 
 ## function arguments
 
@@ -83,15 +106,15 @@ echo "${var//o/O}"
 
 ``` bash
 a=(
-	a
-	b
-	"c d"
-	e
-	f
+    a
+    b
+    "c d"
+    e
+    f
 )
 
 for r in "${a[@]}"; do
-	echo "[$r]"
+    echo "[$r]"
 done
 ```
 
