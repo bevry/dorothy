@@ -6,13 +6,13 @@ function edit
 		if test -z "$TERMINAL_EDITOR"
 			echo "\$TERMINAL_EDITOR is undefined"
 		else
-			eval "$TERMINAL_EDITOR" $argv
+			eval "$TERMINAL_EDITOR" '"'$argv'"'
 		end
 	else
 		if test -z "$TERMINAL_EDITOR"
 			echo "\$GUI_EDITOR is undefined"
 		else
-			eval "$GUI_EDITOR" $argv
+			eval "$GUI_EDITOR" '"'$argv'"'
 		end
 	end
 end
