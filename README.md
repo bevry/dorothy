@@ -72,7 +72,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - ssh key management
     - stores ssh key passwords in the operating system's keychain, so you don't have to reenter them every time
-    - `ssh-add` to add a specific ssh key to the agent
+    - `ssh-add-one` to add a specific ssh key to the agent
     - `ssh-add-all` to all known ssh keys to the agent
     - `ssh-new` for generating new ssh keys
 
