@@ -7,7 +7,7 @@ function ssh-start {
 	fi
 }
 
-function ssh-add {
+function ssh-add-one {
 	ssh-start
 	ssh-add -K "$HOME/.ssh/$1"
 }

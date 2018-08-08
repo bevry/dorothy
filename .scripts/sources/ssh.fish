@@ -7,7 +7,7 @@ function ssh-start
 	end
 end
 
-function ssh-add
+function ssh-add-one
 	ssh-start
 	ssh-add -K "$HOME/.ssh/$argv[1]"
 end
