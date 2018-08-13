@@ -56,11 +56,13 @@ Run `help set` to get more details. Use `set -Eeuo pipefail` as safe mode.
 ## ignoring exit code
 
 ``` bash
+# using our `ok` command
 ok the-error-command arg1 arg2
 ok exit 1
-```
 
-`ok` is one of our commands
+# using `|| :` bash builtin
+the-error-command arg1 arg2 || :
+```
 
 
 ## cwd
