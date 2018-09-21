@@ -79,6 +79,7 @@ export BREW_INSTALL=(
 	python3
 	rmtrash
 	ruby
+	screen
 	terminal-notifier
 	terraform
 	tmux
