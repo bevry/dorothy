@@ -1,6 +1,6 @@
 # Scripts
 
-## tutotials
+## tutorials
 
 - [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
 
