@@ -108,16 +108,34 @@ echo "${var//o/O}"
 
 ``` bash
 a=(
-    a
-    b
-    "c d"
-    e
-    f
+	a
+	b
+	"c d"
+	e
+	f
+)
+a+=(
+	g
+	"h i"
+	j
 )
 
 for r in "${a[@]}"; do
     echo "[$r]"
 done
+
+if test "${a[@]}" = *"c"*; then
+	echo 'with c'
+else
+	echo 'without c'
+fi
+
+
+if test "${a[@]}" = *"c d"*; then
+	echo 'with c d'
+else
+	echo 'without c d'
+fi
 ```
 
 ```
@@ -126,4 +144,7 @@ done
 [c d]
 [e]
 [f]
+[g]
+[h i]
+[j]
 ```
