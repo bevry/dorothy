@@ -85,7 +85,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 
 - `sparse-vault` for creating and managing sparsebundles and sparseimages
 
-- `mac-state` command for backup then restore of all your application and system preferences prior and after a computer restore
+- `macos-state` command for backup then restore of all your application and system preferences prior and after a computer restore
 
 - `git-fix-email` for fixing incorrect contributor details in commit histories
 
