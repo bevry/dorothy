@@ -53,7 +53,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
     - git prompts are configured correctly to use your favourite terminal editor
     - uses `setup-editor-commands` to determine the correct configuration, which is then appied via the init scripts
 
-- `install` and `update` will setup your entire system for development, including
+- `setup-install` and `setup-update` will setup your entire system for development, including
     - installs and configures linux (via `setup-linux-*`) and mac (via `setup-mac-*`)
     - installs and configures node (via `setup-node`), ruby (via `setup-ruby`), python (via `setup-python`)
     - installs and configures vscode, and if atom is installed will configure it
