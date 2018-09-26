@@ -75,6 +75,7 @@ export BREW_INSTALL=(
 	kryptco/tap/kr
 	mas
 	micro
+	pkg-config
 	python
 	python3
 	rmtrash
