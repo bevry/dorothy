@@ -86,11 +86,11 @@ var="$(echo -e "hello world\\nhello world")"
 # get first line
 echo "${var%$'\n'*}"
 
-# trim everything after the space
-echo "${var% *}" # "hello world" to "hello
+# trim everything after the colon
+echo "${var%:*}" # "hello:world" to "hello
 
-# trim evrything before the space
-echo "${var#* }" # "hello world" to "world
+# trim evrything before the colon
+echo "${var#*:}" # "hello:world" to "world
 
 # trim everything before "v"
 echo "${var#*v}" # "Consul v1.0.6" to "1.0.6"
