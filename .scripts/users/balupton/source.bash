@@ -160,9 +160,11 @@ export BREW_INSTALL_CASK=(
 
 # export RUBY_VERSION="ruby@2.3"
 export RUBY_INSTALL=(
+	ffi # "ffi 1.9.21"
 	travis
-	"sass 3.4.25"
-	"compass 1.0.3"
+	travis_migrate_to_apps
+	sass # "sass 3.4.25"
+	compass # "compass 1.0.3"
 	git-up
 )
 
@@ -172,17 +174,40 @@ export PYTHON_INSTALL=(
 )
 
 export NODE_INSTALL=(
+	# bevry
+	"@bevry/testen"
 	boundation
-	ci-watch
-	coinmon
-	# firebase-tools
-	json
-	# live-server
-	npm-check-updates
+
+	# servers
+	browser-refresh
+	live-server
 	serve
-	travis-watch
+
+	# ecosystem
+	"@stencil/core"
+	apollo
+	ember-cli
+	firebase-tools
+	ionic
+	lasso-cli
+	marko-cli
+	marko-starter
+	now
+
+	# tools
+	eslint
+	json
+	npm-check-updates
+	prettier
 	typescript
-	yarn
+
+	# continuous integration
+	ci-watch
+	travis-watch
+
+	# cryptocurrency
+	cartera
+	coinmon
 )
 
 export VSCODE_INSTALL=(
