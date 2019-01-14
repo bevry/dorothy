@@ -1,5 +1,8 @@
 #!/usr/bin/env sh
 
+# Trash
+alias trash='rmtrash'
+
 # Highlight clipboard code as RTF for keynote
 # styles: https://help.farbox.com/pygments.html
 alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango' | pbcopy"
