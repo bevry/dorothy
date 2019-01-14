@@ -54,17 +54,17 @@ export APT_ADD=(
 )
 
 export BREW_INSTALL=(
-	aria2
 	# azure-cli
+	# blackbox
+	# heroku
+	aria2
 	bash
 	bash-completion
-	# blackbox
 	coreutils
 	fish
 	git
 	git-extras
 	go
-	# heroku
 	hub
 	kryptco/tap/kr
 	mas
@@ -84,6 +84,7 @@ export BREW_INSTALL=(
 	watch
 	watchman
 	wget
+	yarn
 )
 
 export BREW_INSTALL_SLOW=(
@@ -92,64 +93,64 @@ export BREW_INSTALL_SLOW=(
 )
 
 export BREW_INSTALL_CASK=(
+	# airparrot
+	# burn
+	# caption
+	# ccleaner
+	# dat
+	# firefox
+	# github-desktop
+	# gitter
+	# jaikoz
+	# opera
+	# pomello
+	# reflector
+	# signal
+	# toggldesktop
+	# torbrowser
+	# transmission
+	# tunnelbear
+	# tunnelblick
+	# usage
+	# windscribe
 	acorn
 	adguard
-	# airparrot
 	appzapper
 	atom
 	backblaze
 	bartender
 	brave
-	# burn
 	calibre
-	# caption
-	# ccleaner
 	contexts
-	# dat
 	devdocs
-	# firefox
 	freedom
 	geekbench
-	# github-desktop
-	# gitter
 	google-chrome
 	google-hangouts
-	# jaikoz
 	keybase
 	kodi
 	little-snitch
 	loopback
 	micro-snitch
 	numi
-	# opera
 	paragon-ntfs
 	plex-media-server
-	# pomello
-	# reflector
 	screenflow
-	# signal
 	sketch
 	skype
 	soundsource
 	spotify
 	teamviewer
-	# toggldesktop
-	# torbrowser
 	tower
-	# transmission
 	transmit
-	# tunnelbear
-	# tunnelblick
 	ubersicht
-	# usage
+	undercover
 	visual-studio-code
 	vlc
 	vmware-fusion
 	webtorrent
-	# windscribe
 	workflowy
 	xld
-	undercover
 )
 
 # export RUBY_VERSION="ruby@2.3"
@@ -177,6 +178,9 @@ export NODE_INSTALL=(
 	live-server
 	serve
 
+	# database
+	fauna-shell
+
 	# ecosystem
 	"@stencil/core"
 	apollo
@@ -186,7 +190,7 @@ export NODE_INSTALL=(
 	lasso-cli
 	marko-cli
 	marko-starter
-	now
+	'now@canary'
 
 	# tools
 	eslint
@@ -207,14 +211,14 @@ export NODE_INSTALL=(
 export VSCODE_INSTALL=(
 	# akamud.vscode-theme-onedark
 	# akamud.vscode-theme-onelight
+	# donjayamanne.jupyter
+	# flowtype.flow-for-vscode
+	# julialang.language-julia
 	DavidAnson.vscode-markdownlint
 	dbaeumer.vscode-eslint
-	# donjayamanne.jupyter
 	EditorConfig.EditorConfig
 	fatihacet.gitlab-workflow
-	# flowtype.flow-for-vscode
 	idleberg.applescript
-	# julialang.language-julia
 	mauve.terraform
 	mechatroner.rainbow-csv
 	mindginative.terraform-snippets
@@ -224,8 +228,8 @@ export VSCODE_INSTALL=(
 	PKief.material-icon-theme
 	richie5um2.vscode-sort-json
 	shinnn.stylelint
-	teabyii.ayu
 	skyapps.fish-vscode
+	teabyii.ayu
 	timonwong.shellcheck
 )
 
@@ -246,15 +250,4 @@ export ATOM_INSTALL=(
 	linter-shellcheck
 	react
 	visual-bell
-
-	# atom-beautify
-	# atom-ide-ui
-	# ide-flowtype
-	# ide-typescript
-
-	# busy-singal
-	# intentions
-	# linter
-	# linter-flow
-	# linter-ui-default
 )
