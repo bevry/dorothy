@@ -15,6 +15,7 @@ function secure_history
 		echo 'all' | history delete --contains "vault"
 		echo 'all' | history delete --contains "key"
 		echo 'all' | history delete --contains "token"
+		echo 'all' | history delete --contains "auth"
 		echo 'all' | history delete --contains "env"
 		echo 'all' | history delete --contains "session"
 		echo 'all' | history delete --contains "cookie"
