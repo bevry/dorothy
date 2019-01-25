@@ -22,7 +22,7 @@ function var_set {
 
 function var_add {
 	local exists="no"
-	local X="${!1}"
+	local X="${!1:-}"
 	if test -z "$X"; then
 		export "$1"="$2"
 	else
