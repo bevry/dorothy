@@ -4,42 +4,18 @@
 
 - [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
 
-
-## opts
-
-Run `help set` to get more details. Use `set -Eeuo pipefail` as safe mode.
-
-``` text
--E  If set, the ERR trap is inherited by shell functions.
-    https://stackoverflow.com/q/25378845/130638
--e  Exit immediately if a command exits with a non-zero status.
--u  Treat unset variables as an error when substituting.
--o  option-name
-    Set the variable corresponding to option-name:
-    errtrace    same as -E
-    errexit     same as -e
-    nounset     same as -u
-    pipefail    the return value of a pipeline is the status of
-                the last command to exit with a non-zero status,
-                or zero if no command exited with a non-zero status
-```
-
-
 ## function arguments
 
 - http://stackoverflow.com/a/6212408/130638
-
 
 ## dev/null
 
 - http://unix.stackexchange.com/q/70963/50703
 - http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections
 
-
-## $@ vs $*
+## $@ vs $\*
 
 - https://github.com/koalaman/shellcheck/wiki/SC2124
-
 
 ## test, man test
 
@@ -52,10 +28,9 @@ Run `help set` to get more details. Use `set -Eeuo pipefail` as safe mode.
 - `-s` is nonempty file: True if file exists and has a size greater than zero.
 - `=` is equal: True if the strings s1 and s2 are identical.
 
-
 ## ignoring exit code
 
-``` bash
+```bash
 # using our `ok` command
 ok the-error-command arg1 arg2
 ok exit 1
@@ -64,10 +39,9 @@ ok exit 1
 the-error-command arg1 arg2 || :
 ```
 
-
 ## cwd
 
-``` bash
+```bash
 # ensure cwd is the directory of the script, and not user's runtime location
 cd "$(dirname "$0")"
 
@@ -75,12 +49,11 @@ cd "$(dirname "$0")"
 cd "$(dirname "$(rlink "$0")")"
 ```
 
-
 ## string replacement
 
 - http://tldp.org/LDP/abs/html/string-manipulation.html
 
-``` bash
+```bash
 var="$(echo -e "hello world\\nhello world")"
 
 # get first line
@@ -103,10 +76,9 @@ echo "${var//o/O}"
 
 ```
 
-
 ## arrays
 
-``` bash
+```bash
 a=(
 	a
 	b
