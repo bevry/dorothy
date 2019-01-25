@@ -190,7 +190,7 @@ export NODE_INSTALL=(
 	lasso-cli
 	marko-cli
 	marko-starter
-	'now@canary'
+	now
 
 	# tools
 	eslint
