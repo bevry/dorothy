@@ -2,7 +2,7 @@
 
 function ssh-start {
 	# http://rabexc.org/posts/pitfalls-of-ssh-agents
-	if test -z "$SSH_AUTH_SOCK"; then
+	if is-empty-string "${SSH_AUTH_SOCK:-}"; then
 		eval "$(ssh-agent -s)"
 	fi
 }

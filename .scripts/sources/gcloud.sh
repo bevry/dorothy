@@ -15,12 +15,12 @@ if command-exists brew; then
 	GDIR="$(brew --prefix)/Caskroom/google-cloud-sdk"
 fi
 
-if is-dir "$GDIR"; then
-	if test -n "$BASH_VERSION"; then
+if is-dir "${GDIR:-}"; then
+	if is-string "${BASH_VERSION:-}"; then
 		. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
 		. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
 
-	elif test -n "$ZSH_VERSION"; then
+	elif is-string "${ZSH_VERSION:-}"; then
 		. "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
 		. "$GDIR/latest/google-cloud-sdk/completion.zsh.inc"
 	fi

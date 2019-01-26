@@ -3,14 +3,14 @@
 eval (setup-editor-commands)
 function edit
 	if is-ssh
-		if test -z "$TERMINAL_EDITOR"
-			echo "\$TERMINAL_EDITOR is undefined"
+		if is-empty-string "$TERMINAL_EDITOR"
+			echo "TERMINAL_EDITOR must be configured"
 		else
 			eval "$TERMINAL_EDITOR" '"'$argv'"'
 		end
 	else
-		if test -z "$TERMINAL_EDITOR"
-			echo "\$GUI_EDITOR is undefined"
+		if is-empty-string "$TERMINAL_EDITOR"
+			echo "GUI_EDITOR must be configured"
 		else
 			eval "$GUI_EDITOR" '"'$argv'"'
 		end
