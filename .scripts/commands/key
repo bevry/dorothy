@@ -21,46 +21,50 @@ source "$HOME/.scripts/sources/splitnewline.bash"
 # sub => 'public SUBkey'
 
 function getmode {
-	if test -n "$1"; then
+	if is-string "${1:-}"; then
 		echo "$1"
 	else
 		modes=$'public\nprivate'
 		select mode in $modes; do
-			test -n "$mode" && break
+			is-string "$mode" && break
 		done
 		echo "$mode"
 	fi
 }
 function getkey {
-	if test -n "$1"; then
+	if is-string "${1:-}"; then
 		echo "$1"
 	else
 		key get
 	fi
 }
 function getdate {
-	if test -n "$1"; then
+	if is-string "${1:-}"; then
 		echo "$1"
 	else
 		date -v +1y "+%Y-%m-%d"
 	fi
 }
 
-if test "$1" = "list"; then
-	m="$(getmode "$2")"
-	if test "$m" = "private"; then
+action="${1:-"$(choose list get export delete new edit trust extend expire encrypt decrypt sencrypt)"}"
+
+# list [mode]
+if test "$action" = "list"; then
+	mode="$(getmode "${2:-}")"
+	if test "$mode" = "private"; then
 		gpg --keyid-format LONG -K
 	else
 		gpg --keyid-format LONG -k
 	fi
 
-elif test "$1" = "get"; then
-	if test -n "$3"; then
+# get [mode] [key]
+elif test "$action" = "get"; then
+	if is-string "${3:-}"; then
 		echo "$3"
 		exit 0
 	fi
-	m="$(getmode "$2")"
-	if test "$m" = "private"; then
+	mode="$(getmode "${2:-}")"
+	if test "$mode" = "private"; then
 		flag="K"
 		type="sec"
 	else
@@ -69,7 +73,7 @@ elif test "$1" = "get"; then
 	fi
 
 	keys="$(gpg --fingerprint --keyid-format LONG -$flag | grep -A1 "$type" | grep "Key fingerprint =" | sed "s/.*=//; s/ *//g")"
-	if test -z "$keys"; then
+	if is-empty-string "$keys"; then
 		stderr echo 'no keys yet'
 		exit 1
 	fi
@@ -79,81 +83,87 @@ elif test "$1" = "get"; then
 		echo "$keys"
 	else
 		select key in $keys; do
-			test -n "$key" && break
+			is-string "$key" && break
 		done
 		echo "$key"
 	fi
 
-elif test "$1" = "export"; then
-	m="$(getmode "$2")"
-	k="$(key get "$m" "$3")"
-	if test "$m" = "private"; then
-		gpg --armor --export-secret-keys "$k"
+# export [mode] [key]
+elif test "$action" = "export"; then
+	mode="$(getmode "${2:-}")"
+	key="$(key get "$mode" "${3:-}")"
+	if test "$mode" = "private"; then
+		gpg --armor --export-secret-keys "$key"
 	else
-		gpg --armor --export "$k"
+		gpg --armor --export "$key"
 	fi
 
-elif test "$1" = "delete"; then
-	m="$(getmode "$2")"
-	k="$(key get "$m" "$3")"
-	if confirm "Confirm you wish to delete [$m] key [$k]?"; then
-		if test "$m" = "private"; then
-			gpg --delete-secret-keys "$k"
+# delete [mode] [key]
+elif test "$action" = "delete"; then
+	mode="$(getmode "${2:-}")"
+	key="$(key get "$mode" "${3:?"USAGE: key delete <mode> <KEY>"}")"
+	if confirm "Confirm you wish to delete [$mode] key [$key]?"; then
+		if test "$mode" = "private"; then
+			gpg --delete-secret-keys "$key"
 		else
-			gpg --delete-keys "$k"
+			gpg --delete-keys "$key"
 		fi
 	fi
 
-elif test "$1" = "new"; then
+# new
+elif test "$action" = "new"; then
 	gpg --gen-key
 
-elif test "$1" = "edit"; then
-	k="$(getkey "$2")"
-	gpg --edit-key "$2"
+# edit [key]
+elif test "$action" = "edit"; then
+	key="$(getkey "${2:-}")"
+	gpg --edit-key "$key"
 
-elif test "$1" = "trust"; then
-	k="$(key get private "$2")"
+# trust [key]
+elif test "$action" = "trust"; then
+	key="$(key get private "${2:-}")"
 	if confirm "Confirm you wish to trust key [$k]?"; then
-		echo "trust" | gpg --edit-key "$2"
+		echo "trust" | gpg --edit-key "$key"
 	fi
 
-elif test "$1" = "extend"; then
-	k="$(key get private "$2")"
-	d="$(getdate "$3")"
-	if confirm "Confirm you wish to extend key [$k] to [$d]?"; then
-		gpg --quick-set-expire "$k" "$d"
+# extend [key] [date]
+elif test "$action" = "extend"; then
+	key="$(key get private "${2:-}")"
+	date="$(getdate "${3:-}")"
+	if confirm "Confirm you wish to extend key [$key] to [$date]?"; then
+		gpg --quick-set-expire "$key" "$date"
 	fi
 
-elif test "$1" = "expire"; then
-	k="$(key get private "$2")"
-	d="$(date -v +0d "+%Y-%m-%d")"
-	if confirm "Confirm you want to expire key [$k]?"; then
-		gpg --quick-set-expire "$k" "$d"
+# expire [key]
+elif test "$action" = "expire"; then
+	key="$(key get private "${2:-}")"
+	date="$(date -v +0d "+%Y-%m-%d")"
+	if confirm "Confirm you want to expire key [$key]?"; then
+		gpg --quick-set-expire "$key" "$date"
 	fi
 
-elif test "$1" = "encrypt"; then
-	FILE="$2"
-	THEM="$3"
-	YOU="$4"
-	if test -n "$YOU"; then
-		gpg -ase -r "$THEM" -u "$YOU" "$FILE"
+# encrypt <file> <receipient's key> [your key]
+elif test "$action" = "encrypt"; then
+	file="${2:?"USAGE: key encrypt <FILE> <RECIPIENT's KEY> [your key]"}"
+	recipient="${3:?"USAGE: key encrypt <file> <RECIPIENT's KEY> [your key]"}"
+	you="${4:-}"
+	if is-string "$YOU"; then
+		gpg -ase -r "$recipient" -u "$you" "$file"
 	else
-		gpg -ase -r "$THEM" "$FILE"
+		gpg -ase -r "$recipient" "$file"
 	fi
 
-elif test "$1" = "decrypt"; then
-	# 2: file
-	gpg -d "$2"
+# decrypt <file>
+elif test "$action" = "decrypt"; then
+	file="${2:?"USAGE: key descrypt <FILE>"}"
+	gpg -d "$file"
 
-elif test "$1" = "sencrypt"; then
-	# 2: file
-	gpg -c "$2"
+# sencrypt <file>
+elif test "$action" = "sencrypt"; then
+	file="${2:?"USAGE: key sencrypt <FILE>"}"
+	gpg -c "$file"
 
 else
-	echo "key <list|get> <public|private>"
-	echo "key <export|delete> <public|private> <\$key>"
-	echo "key <extend> <\$key> [\$date]"
-	echo "key <edit|trust|expire> <\$key>"
-	echo "key <encrypt> <\$file> <\$recipient> [\$key]"
-	echo "key <decrypt|sencrypt> <\$file>"
+	stderr echo 'invalid action'
+	exit 1
 fi

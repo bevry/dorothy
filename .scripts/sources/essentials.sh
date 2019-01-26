@@ -4,7 +4,7 @@
 export MAILCHECK=0
 
 # Essential
-if test -n "$ZSH_VERSION"; then
+if test -n "${ZSH_VERSION:-}"; then
 	. "$HOME/.scripts/sources/var.zsh"
 else
 	. "$HOME/.scripts/sources/var.bash"

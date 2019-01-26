@@ -1,8 +1,8 @@
 #!/usr/bin/env fish
 
-function secure_history
+function secure-history
 	set WHAT $argv[1]
-	if test -z "$WHAT"
+	if is-empty-string "$WHAT"
 		set WHAT (choose all some)
 	end
 	if test "WHAT" = "all"
