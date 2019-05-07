@@ -3,7 +3,7 @@ source "$HOME/.scripts/sources/globstar.bash"
 source "$HOME/.scripts/users/balupton/source.sh"
 
 export TERMINAL_EDITORS=(
-	vim  # --noplugin -c "set nowrap"'
+	vim # --noplugin -c "set nowrap"'
 	micro
 	nano
 )
@@ -53,6 +53,35 @@ export APT_ADD=(
 	vim
 )
 
+# https://github.com/Microsoft/vscode-go/wiki/Go-tools-that-the-Go-extension-depends-on
+# https://github.com/golang/go/wiki/gopls#editors-instructions
+# github.com/nsf/gocode is outdated
+export GO_INSTALL=(
+	github.com/766b/go-outliner
+	github.com/acroca/go-symbols
+	github.com/alecthomas/gometalinter
+	github.com/cweill/gotests/...
+	github.com/davidrjenni/reftools/cmd/fillstruct
+	github.com/derekparker/delve/cmd/dlv
+	github.com/fatih/gomodifytags
+	github.com/golangci/golangci-lint/cmd/golangci-lint
+	github.com/haya14busa/goplay/cmd/goplay
+	github.com/josharian/impl
+	github.com/mdempsky/gocode
+	github.com/ramya-rao-a/go-outline
+	github.com/rogpeppe/godef
+	github.com/sourcegraph/go-langserver
+	github.com/uudashr/gopkgs/cmd/gopkgs
+	github.com/zmb3/gogetdoc
+	golang.org/x/lint/golint
+	golang.org/x/tools/cmd/godoc
+	golang.org/x/tools/cmd/goimports
+	golang.org/x/tools/cmd/gopls
+	golang.org/x/tools/cmd/gorename
+	golang.org/x/tools/cmd/guru
+	sourcegraph.com/sqs/goreturns
+)
+
 export BREW_INSTALL=(
 	# azure-cli
 	# blackbox
@@ -93,46 +122,53 @@ export BREW_INSTALL_SLOW=(
 )
 
 export BREW_INSTALL_CASK=(
+	# acorn
 	# airparrot
+	# bartender
 	# burn
 	# caption
 	# ccleaner
+	# contexts
 	# dat
 	# firefox
+	# freedom
 	# github-desktop
 	# gitter
 	# jaikoz
+	# kodi
+	# numi
 	# opera
 	# pomello
 	# reflector
 	# signal
+	# teamviewer
 	# toggldesktop
 	# torbrowser
 	# transmission
 	# tunnelbear
 	# tunnelblick
+	# ubersicht
 	# usage
+	# vlc
+	# webtorrent
 	# windscribe
-	acorn
+	# workflowy
+	# xld
 	adguard
 	appzapper
 	atom
 	backblaze
-	bartender
 	brave
 	calibre
-	contexts
 	devdocs
-	freedom
 	geekbench
 	google-chrome
 	google-hangouts
+	julia
 	keybase
-	kodi
 	little-snitch
 	loopback
 	micro-snitch
-	numi
 	paragon-ntfs
 	plex-media-server
 	screenflow
@@ -140,17 +176,11 @@ export BREW_INSTALL_CASK=(
 	skype
 	soundsource
 	spotify
-	teamviewer
 	tower
 	transmit
-	ubersicht
 	undercover
 	visual-studio-code
-	vlc
 	vmware-fusion
-	webtorrent
-	workflowy
-	xld
 )
 
 # export RUBY_VERSION="ruby@2.3"
@@ -182,14 +212,14 @@ export NODE_INSTALL=(
 	fauna-shell
 
 	# ecosystem
-	"@stencil/core"
+	# "@stencil/core"
+	# ionic
+	# ember-cli
+	# firebase-tools
+	# lasso-cli
+	# marko-cli
+	# marko-starter
 	apollo
-	ember-cli
-	firebase-tools
-	ionic
-	lasso-cli
-	marko-cli
-	marko-starter
 	now
 
 	# tools
