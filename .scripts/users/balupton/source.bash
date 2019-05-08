@@ -56,21 +56,26 @@ export APT_ADD=(
 # https://github.com/Microsoft/vscode-go/wiki/Go-tools-that-the-Go-extension-depends-on
 # https://github.com/golang/go/wiki/gopls#editors-instructions
 # github.com/nsf/gocode is outdated
+# github.com/alecthomas/gometalinter is outdated
 export GO_INSTALL=(
 	github.com/766b/go-outliner
 	github.com/acroca/go-symbols
-	github.com/alecthomas/gometalinter
-	github.com/cweill/gotests/...
+	github.com/cweill/gotests
 	github.com/davidrjenni/reftools/cmd/fillstruct
-	github.com/derekparker/delve/cmd/dlv
 	github.com/fatih/gomodifytags
+	github.com/go-delve/delve/cmd/dlv
 	github.com/golangci/golangci-lint/cmd/golangci-lint
+	github.com/gorilla/handlers
 	github.com/haya14busa/goplay/cmd/goplay
 	github.com/josharian/impl
+	github.com/labstack/armor/cmd/armor
+	github.com/labstack/echo
 	github.com/mdempsky/gocode
+	github.com/mgechev/revive
 	github.com/ramya-rao-a/go-outline
 	github.com/rogpeppe/godef
 	github.com/sourcegraph/go-langserver
+	github.com/sqs/goreturns
 	github.com/uudashr/gopkgs/cmd/gopkgs
 	github.com/zmb3/gogetdoc
 	golang.org/x/lint/golint
@@ -79,6 +84,7 @@ export GO_INSTALL=(
 	golang.org/x/tools/cmd/gopls
 	golang.org/x/tools/cmd/gorename
 	golang.org/x/tools/cmd/guru
+	honnef.co/go/tools
 	sourcegraph.com/sqs/goreturns
 )
 
