@@ -3,6 +3,9 @@
 # Trash
 alias trash='rmtrash'
 
+# Go
+alias edit-go='open -a /Applications/GoLand.app'
+
 # Screensaver
 alias screensaver='open -a ScreenSaverEngine'
 
