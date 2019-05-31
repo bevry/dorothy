@@ -6,5 +6,4 @@ export USER_SHELL="fish"
 export GIT_PROTOCOL="ssh"
 export KRYPTON_GPG="no"
 
-alias textile="$HOME/Projects/textile/go-textile/dist/textile"
 alias go-open="open -a /Applications/GoLand.app ."

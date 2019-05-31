@@ -84,7 +84,7 @@ export GO_INSTALL=(
 	golang.org/x/tools/cmd/gopls
 	golang.org/x/tools/cmd/gorename
 	golang.org/x/tools/cmd/guru
-	honnef.co/go/tools
+	honnef.co/go/tools/cmd/...
 	sourcegraph.com/sqs/goreturns
 )
 
@@ -99,6 +99,7 @@ export BREW_INSTALL=(
 	fish
 	git
 	git-extras
+	git-lfs
 	go
 	hub
 	kryptco/tap/kr
