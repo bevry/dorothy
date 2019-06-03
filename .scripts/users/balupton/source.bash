@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-source "$HOME/.scripts/sources/globstar.bash"
+if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
+	source "$HOME/.scripts/sources/globstar.bash"
+fi
 source "$HOME/.scripts/users/balupton/source.sh"
 
 export TERMINAL_EDITORS=(
@@ -92,6 +94,7 @@ export BREW_INSTALL=(
 	# azure-cli
 	# blackbox
 	# heroku
+	1password-cli
 	aria2
 	bash
 	bash-completion
@@ -102,6 +105,7 @@ export BREW_INSTALL=(
 	git-lfs
 	go
 	hub
+	jq
 	kryptco/tap/kr
 	mas
 	micro
@@ -131,27 +135,38 @@ export BREW_INSTALL_SLOW=(
 export BREW_INSTALL_CASK=(
 	# acorn
 	# airparrot
+	# appzapper
+	# atom
 	# bartender
+	# brave
 	# burn
 	# caption
 	# ccleaner
 	# contexts
 	# dat
+	# devdocs
 	# firefox
 	# freedom
+	# geekbench
 	# github-desktop
 	# gitter
 	# jaikoz
+	# julia
+	# keybase
 	# kodi
+	# micro-snitch
 	# numi
 	# opera
-	# pomello
+	# paragon-ntfs
+	# plex-media-server
 	# reflector
 	# signal
+	# skype
 	# teamviewer
 	# toggldesktop
 	# torbrowser
 	# transmission
+	# transmit
 	# tunnelbear
 	# tunnelblick
 	# ubersicht
@@ -162,29 +177,20 @@ export BREW_INSTALL_CASK=(
 	# workflowy
 	# xld
 	adguard
-	appzapper
-	atom
+	audio-hijack
 	backblaze
-	brave
 	calibre
-	devdocs
-	geekbench
+	fantastical
 	google-chrome
 	google-hangouts
-	julia
-	keybase
 	little-snitch
 	loopback
-	micro-snitch
-	paragon-ntfs
-	plex-media-server
+	pomello
 	screenflow
 	sketch
-	skype
 	soundsource
 	spotify
 	tower
-	transmit
 	undercover
 	visual-studio-code
 	vmware-fusion

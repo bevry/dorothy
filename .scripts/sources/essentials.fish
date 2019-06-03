@@ -10,11 +10,15 @@ set -U fish_greeting
 source "$HOME/.scripts/sources/var.fish"
 source "$HOME/.scripts/sources/user.fish"
 source "$HOME/.scripts/sources/paths.fish"
-if test -d "$HOME/.config/fisherman"; else
-	echo "setting up fisherman..."
-	curl -Lo ~/.config/fish/functions/fisher.fish --create-dirs git.io/fisher
-	fisher edc/bass nvm done choices
-	echo "...fisherman setup, reload your terminal"
+if not functions -q fundle
+	eval (curl -sfL https://git.io/fundle-install)
+	fundle plugin 'edc/bass'
+	fundle plugin 'arzig/nvm-fish'
+	fundle install
 	exit
+else
+	fundle plugin 'edc/bass'
+	fundle plugin 'arzig/nvm-fish'
+	fundle init
 end
 source "$HOME/.scripts/sources/edit.fish"
