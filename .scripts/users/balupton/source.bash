@@ -62,6 +62,7 @@ export APT_ADD=(
 export GO_INSTALL=(
 	github.com/766b/go-outliner
 	github.com/acroca/go-symbols
+	github.com/ahmetb/govvv
 	github.com/cweill/gotests
 	github.com/davidrjenni/reftools/cmd/fillstruct
 	github.com/fatih/gomodifytags
@@ -271,6 +272,7 @@ export VSCODE_INSTALL=(
 	PKief.material-icon-theme
 	richie5um2.vscode-sort-json
 	shinnn.stylelint
+	silvenon.mdx
 	skyapps.fish-vscode
 	teabyii.ayu
 	timonwong.shellcheck
