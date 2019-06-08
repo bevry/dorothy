@@ -95,7 +95,6 @@ export BREW_INSTALL=(
 	# azure-cli
 	# blackbox
 	# heroku
-	1password-cli
 	aria2
 	bash
 	bash-completion
@@ -177,6 +176,7 @@ export BREW_INSTALL_CASK=(
 	# windscribe
 	# workflowy
 	# xld
+	1password-cli
 	adguard
 	audio-hijack
 	backblaze
