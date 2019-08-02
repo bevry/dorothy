@@ -6,6 +6,10 @@ export MAILCHECK=0
 # Disable welcome greeting
 set -U fish_greeting
 
+# Bugfix
+function fish_user_key_bindings
+end
+
 # Essential
 source "$HOME/.scripts/sources/var.fish"
 source "$HOME/.scripts/sources/user.fish"

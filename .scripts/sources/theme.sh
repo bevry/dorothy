@@ -6,7 +6,7 @@ if is-equal "${THEME:-}" "baltheme"; then
 		export PROMPT_COMMAND="baltheme bash $?"
 	elif is-string "${ZSH_VERSION:-}"; then
 		function precmd {
-			baltheme zsh $?
+			baltheme zsh "$?"
 		}
 	fi
 fi
