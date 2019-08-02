@@ -75,6 +75,7 @@ export GO_INSTALL=(
 	github.com/labstack/echo
 	github.com/mdempsky/gocode
 	github.com/mgechev/revive
+	github.com/nomasters/hashmap
 	github.com/ramya-rao-a/go-outline
 	github.com/rogpeppe/godef
 	github.com/sourcegraph/go-langserver
@@ -225,7 +226,7 @@ export NODE_INSTALL=(
 	# database
 	fauna-shell
 
-	# ecosystem
+	# ecosystems
 	# "@stencil/core"
 	# ionic
 	# ember-cli
@@ -234,12 +235,12 @@ export NODE_INSTALL=(
 	# marko-cli
 	# marko-starter
 	apollo
+	netlify-cli
 	now
 
-	# tools
+	# tooling
 	eslint
 	json
-	npm-check-updates
 	prettier
 	typescript
 
@@ -256,19 +257,24 @@ export VSCODE_INSTALL=(
 	# akamud.vscode-theme-onedark
 	# akamud.vscode-theme-onelight
 	# donjayamanne.jupyter
+	# fatihacet.gitlab-workflow
 	# flowtype.flow-for-vscode
 	# julialang.language-julia
+	bierner.lit-html
+	ccy.ayu-adaptive
 	DavidAnson.vscode-markdownlint
 	dbaeumer.vscode-eslint
+	dustinsanders.an-old-hope-theme-vscode
 	EditorConfig.EditorConfig
-	fatihacet.gitlab-workflow
+	esbenp.prettier-vscode
 	idleberg.applescript
+	jsaulou.theme-by-language
 	mauve.terraform
 	mechatroner.rainbow-csv
 	mindginative.terraform-snippets
 	ms-python.python
 	ms-vscode.go
-	PeterJausovec.vscode-docker
+	ms-vsliveshare.vsliveshare-pack
 	PKief.material-icon-theme
 	richie5um2.vscode-sort-json
 	shinnn.stylelint
