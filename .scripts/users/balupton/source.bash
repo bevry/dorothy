@@ -110,6 +110,7 @@ export BREW_INSTALL=(
 	kryptco/tap/kr
 	mas
 	micro
+	openssh
 	pkg-config
 	python
 	python3
