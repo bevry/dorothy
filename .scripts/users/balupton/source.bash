@@ -235,6 +235,7 @@ export NODE_INSTALL=(
 	# lasso-cli
 	# marko-cli
 	# marko-starter
+	@cloudflare/wrangler
 	apollo
 	netlify-cli
 	now
