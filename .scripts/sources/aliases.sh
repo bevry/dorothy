@@ -29,10 +29,8 @@ alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (com
 alias wgetff='wget -t 2 -T 15 --waitretry 10 -nc -w 120 --user-agent="-user-agent="Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6""'
 
 # Administration
-alias sha1check='openssl sha1 '
 alias svnshowexternals='svn propget -R svn:externals .'
 alias search='find . -name'
-alias sha256='shasum -a 256'
 alias filecount='find . | wc -l'
 
 # Git
