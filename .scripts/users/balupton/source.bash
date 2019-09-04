@@ -91,6 +91,7 @@ export GO_INSTALL=(
 	honnef.co/go/tools/cmd/...
 	sourcegraph.com/sqs/goreturns
 )
+export GO_INSTALL=()  # skip the above, as I no longer need go
 
 export BREW_INSTALL=(
 	# azure-cli
