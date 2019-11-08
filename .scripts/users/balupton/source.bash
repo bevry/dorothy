@@ -210,11 +210,6 @@ export RUBY_INSTALL=(
 	git-up
 )
 
-export PYTHON_INSTALL=(
-	setuptools
-	httpie
-)
-
 export NODE_INSTALL=(
 	# bevry
 	"@bevry/testen"
@@ -242,9 +237,11 @@ export NODE_INSTALL=(
 	now
 
 	# tooling
+	# typescript@next
 	eslint
 	json
 	prettier
+	tldr
 	typescript
 
 	# continuous integration
@@ -263,6 +260,7 @@ export VSCODE_INSTALL=(
 	# fatihacet.gitlab-workflow
 	# flowtype.flow-for-vscode
 	# julialang.language-julia
+	# ms-vscode.vscode-typescript-next
 	bierner.lit-html
 	ccy.ayu-adaptive
 	DavidAnson.vscode-markdownlint
