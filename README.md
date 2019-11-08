@@ -11,6 +11,10 @@ bash -il
 # install deps on ubuntu
 sudo apt install curl git
 
+# install krypton for easy and secure ssh management and connections
+curl https://krypt.co/kr | sh
+kr pair
+
 # perform the installation
 eval "$(curl -fsSL https://raw.githubusercontent.com/balupton/dotfiles/master/.scripts/commands/install-dotfiles)"
 ```
