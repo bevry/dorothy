@@ -8,6 +8,9 @@ Goes well with my [New Machine Starter Kit](https://gist.github.com/balupton/525
 # enter into a bash login shell
 bash -il
 
+# install deps on ubuntu
+sudo apt install curl git
+
 # perform the installation
 eval "$(curl -fsSL https://raw.githubusercontent.com/balupton/dotfiles/master/.scripts/commands/install-dotfiles)"
 ```
