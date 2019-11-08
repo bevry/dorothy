@@ -51,6 +51,7 @@ export APT_ADD=(
 	openssl
 	python
 	ruby
+	ruby-dev
 	software-properties-common
 	vim
 )
