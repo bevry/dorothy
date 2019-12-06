@@ -257,14 +257,16 @@ export NODE_INSTALL=(
 export VSCODE_INSTALL=(
 	# akamud.vscode-theme-onedark
 	# akamud.vscode-theme-onelight
+	# DavidAnson.vscode-markdownlint
 	# donjayamanne.jupyter
 	# fatihacet.gitlab-workflow
 	# flowtype.flow-for-vscode
 	# julialang.language-julia
+	# mindginative.terraform-snippets
 	# ms-vscode.vscode-typescript-next
+	# shinnn.stylelint
 	bierner.lit-html
 	ccy.ayu-adaptive
-	DavidAnson.vscode-markdownlint
 	dbaeumer.vscode-eslint
 	dustinsanders.an-old-hope-theme-vscode
 	EditorConfig.EditorConfig
@@ -273,13 +275,11 @@ export VSCODE_INSTALL=(
 	jsaulou.theme-by-language
 	mauve.terraform
 	mechatroner.rainbow-csv
-	mindginative.terraform-snippets
 	ms-python.python
 	ms-vscode.go
 	ms-vsliveshare.vsliveshare-pack
 	PKief.material-icon-theme
 	richie5um2.vscode-sort-json
-	shinnn.stylelint
 	silvenon.mdx
 	skyapps.fish-vscode
 	teabyii.ayu
