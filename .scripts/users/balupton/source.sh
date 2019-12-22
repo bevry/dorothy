@@ -8,3 +8,8 @@ export KRYPTON_GPG="no"
 export GITHUB_API="https://bevry.me/api/github"
 
 alias go-open="open -a /Applications/GoLand.app ."
+alias nrp="ghauth -- npm run our:release:prepare"
+alias nr="ghauth -- npm run our:release"
+alias np='nr'
+alias npp='nrp'
+alias nt='npm run our:compile && npm test'
