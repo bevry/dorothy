@@ -217,8 +217,8 @@ export NODE_INSTALL=(
 	boundation
 
 	# servers
-	browser-refresh
-	live-server
+	# browser-refresh
+	# live-server
 	serve
 
 	# database
@@ -226,16 +226,16 @@ export NODE_INSTALL=(
 
 	# ecosystems
 	# "@stencil/core"
-	# ionic
+	# apollo
 	# ember-cli
 	# firebase-tools
+	# ionic
 	# lasso-cli
 	# marko-cli
 	# marko-starter
+	# netlify-cli
+	# now
 	@cloudflare/wrangler
-	apollo
-	netlify-cli
-	now
 
 	# tooling
 	# typescript@next
@@ -246,12 +246,12 @@ export NODE_INSTALL=(
 	typescript
 
 	# continuous integration
-	ci-watch
-	travis-watch
+	# ci-watch
+	# travis-watch
 
 	# cryptocurrency
-	cartera
-	coinmon
+	# cartera
+	# coinmon
 )
 
 export VSCODE_INSTALL=(
