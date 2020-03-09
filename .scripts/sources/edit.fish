@@ -1,6 +1,6 @@
 #!/usr/bin/env fish
 
-eval (setup-editor-commands)
+eval (setup-editor-commands fish)
 function edit
 	if is-ssh
 		if is-empty-string "$TERMINAL_EDITOR"

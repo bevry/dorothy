@@ -99,6 +99,7 @@ export BREW_INSTALL=(
 	# blackbox
 	# heroku
 	aria2
+	balena-cli
 	bash
 	bash-completion
 	coreutils
@@ -114,8 +115,7 @@ export BREW_INSTALL=(
 	micro
 	openssh
 	pkg-config
-	python
-	python3
+	python@3
 	rmtrash
 	ruby
 	screen
@@ -209,6 +209,10 @@ export RUBY_INSTALL=(
 	sass # "sass 3.4.25"
 	compass # "compass 1.0.3"
 	git-up
+)
+
+export PYTHON_INSTALL=(
+	cairosvg
 )
 
 export NODE_INSTALL=(
