@@ -11,9 +11,8 @@ function fish_user_key_bindings
 end
 
 # Essential
-source "$HOME/.scripts/sources/var.fish"
-source "$HOME/.scripts/sources/user.fish"
 source "$HOME/.scripts/sources/paths.fish"
+source "$HOME/.scripts/sources/user.fish"
 if not functions -q fundle
 	eval (curl -sfL https://git.io/fundle-install)
 	fundle plugin 'edc/bass'
