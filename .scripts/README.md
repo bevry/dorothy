@@ -17,6 +17,10 @@
 
 -   https://github.com/koalaman/shellcheck/wiki/SC2124
 
+## :- vs -
+
+-   https://wiki.bash-hackers.org/syntax/pe#use_a_default_value
+
 ## test, man test
 
 -   http://unix.stackexchange.com/a/306115/50703
