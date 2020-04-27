@@ -288,6 +288,7 @@ export VSCODE_INSTALL=(
 	skyapps.fish-vscode
 	teabyii.ayu
 	timonwong.shellcheck
+	Uber.baseweb
 )
 
 export ATOM_INSTALL=(
