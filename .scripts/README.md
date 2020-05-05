@@ -90,9 +90,11 @@ var="$(echo -e "hello world\\nhello world")"
 echo "${var%$'\n'*}"
 
 # trim everything after the colon
+# aka, get everything before the colon
 echo "${var%:*}" # "hello:world" to "hello
 
-# trim evrything before the colon
+# trim everything before the colon
+# aka, get everything after the colon
 echo "${var#*:}" # "hello:world" to "world
 
 # trim everything before "v"
