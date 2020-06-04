@@ -20,12 +20,12 @@ eval "$(curl -fsSL https://raw.githubusercontent.com/bevry/dotfiles/master/comma
 
 If you would like to do the setup process manually, refer to:
 
-- [`commands/install-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/install-dotfiles)
-- [`commands/setup-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/setup-dotfiles)
+- [`commands/install-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/install-dotfiles) which clones the dotfiles, and gives them the correct permissions
+- [`commands/setup-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/setup-dotfiles) which upon approval, will configure the shells you wish to load the dotfiles for, and configure your user preferences such as themes and installation defaults
 
 ## Explanation
 
-The dotfiles will be cloned into the `$HOME/.scripts` directory, which contains the following:
+The dotfiles by default will be cloned into the `$HOME/.scripts` directory, which contains the following:
 
 - [`commands` directory](https://github.com/bevry/dotfiles/tree/master/commands) contains executable commands
 - [`sources` directory](https://github.com/bevry/dotfiles/tree/master/sources) contains scripts that are loaded into the shell environment
@@ -33,8 +33,6 @@ The dotfiles will be cloned into the `$HOME/.scripts` directory, which contains 
 - [`users` directory](https://github.com/bevry/dotfiles/tree/master/users) contains configuration specific to the currently logged in user, use it to customise installation configurations and editor configs
 - [`init.fish`](https://github.com/bevry/dotfiles/blob/master/init.fish) the initialisation script for the fish shell
 - [`init.sh`](https://github.com/bevry/dotfiles/blob/master/init.sh) the initialisation script for other shells
-
-The initialisation scripts are loaded via the changes made to your dotfiles via the [`setup-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/setup-dotfiles) command.
 
 ## Highlights
 
