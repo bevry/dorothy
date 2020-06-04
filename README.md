@@ -45,7 +45,6 @@ The dotfiles by default will be cloned into the `$HOME/.scripts` directory, whic
 
   - use `edit-env` for hidden and git-ignored environment variable configuration
   - use `edit-my-scripts` to customise your application and editor preferences
-  - the dotfile installation script will help you setup these files
 
 - automatic editor detection
 
@@ -54,7 +53,8 @@ The dotfiles by default will be cloned into the `$HOME/.scripts` directory, whic
     - in terminal environments will open your terminal editor
   - git prompts are configured correctly to use your favourite terminal editor
   - uses `setup-editor-commands` to determine the correct configuration, which is then applied via the init scripts
-
+  - use `git-review` to open your favourite git GUI editor / review tool
+  
 - `setup-install` and `setup-update` will setup your entire system for development, including
 
   - installs and configures linux (via `setup-linux-*`) and mac (via `setup-mac-*`)
@@ -92,6 +92,8 @@ The dotfiles by default will be cloned into the `$HOME/.scripts` directory, whic
 
 - `macos-state` command for backup then restore of all your application and system preferences prior and after a computer restore
 
+- `macos-drive` for creating a bootable MacOS install media drive
+
 - `git-fix-email` for fixing incorrect contributor details in commit histories
 
 - `down` for downloading files using the best currently installed downloader app
@@ -119,8 +121,6 @@ The dotfiles by default will be cloned into the `$HOME/.scripts` directory, whic
 - `find-files` for finding files that match a given extension, and optionally running a command on them
 
 - `expand-path` for outputting results of glob patterns each on their own line
-
-- `macos-drive` for creating a bootable MacOS install media drive
 
 - `itunes-owners` for generating a table of owners and media, from one's iTunes Media Library
 
