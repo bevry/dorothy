@@ -1,4 +1,4 @@
 #!/usr/bin/env fish
-
-source "$HOME/.scripts/sources/essentials.fish"
-source "$HOME/.scripts/sources/extras.fish"
+set BDIR (dirname (status -f))
+source "$BDIR/sources/essentials.fish"
+source "$BDIR/sources/extras.fish"

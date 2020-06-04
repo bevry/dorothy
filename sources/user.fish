@@ -1,13 +1,13 @@
 #!/usr/bin/env fish
 
-if test -f "$HOME/.scripts/env.fish"
-	. "$HOME/.scripts/env.fish"
-else if test -f "$HOME/.scripts/env.sh"
-	. "$HOME/.scripts/env.sh"
+if test -f "$BDIR/env.fish"
+	. "$BDIR/env.fish"
+else if test -f "$BDIR/env.sh"
+	. "$BDIR/env.sh"
 end
 
-if test -f "$HOME/.scripts/users/"(whoami)"/source.fish"
-	source "$HOME/.scripts/users/"(whoami)"/source.fish"
-else if test -f "$HOME/.scripts/users/"(whoami)"/source.sh"
-	source "$HOME/.scripts/users/"(whoami)"/source.sh"
+if test -f "$BDIR/users/"(whoami)"/source.fish"
+	source "$BDIR/users/"(whoami)"/source.fish"
+else if test -f "$BDIR/users/"(whoami)"/source.sh"
+	source "$BDIR/users/"(whoami)"/source.sh"
 end

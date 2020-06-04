@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
-	source "$HOME/.scripts/sources/globstar.bash"
+	source "$BDIR/sources/globstar.bash"
 fi
-source "$HOME/.scripts/users/balupton/source.sh"
+source "$BDIR/users/balupton/source.sh"
 
 export TERMINAL_EDITORS=(
 	vim # --noplugin -c "set nowrap"'

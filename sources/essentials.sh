@@ -4,7 +4,7 @@
 export MAILCHECK=0
 
 # Essential
-. "$HOME/.scripts/sources/paths.sh"
-. "$HOME/.scripts/sources/user.sh"
-. "$HOME/.scripts/sources/nvm.bash"
-. "$HOME/.scripts/sources/edit.sh"
+. "$BDIR/sources/paths.sh"
+. "$BDIR/sources/user.sh"
+. "$BDIR/sources/nvm.bash"
+. "$BDIR/sources/edit.sh"

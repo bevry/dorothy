@@ -3,6 +3,6 @@
 # Theme
 if is-equal "$THEME" "baltheme"
 	function fish_prompt
-		"$HOME/.scripts/themes/baltheme" fish "$status"
+		"$BDIR/themes/baltheme" fish "$status"
 	end
 end

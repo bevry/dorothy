@@ -1,8 +1,8 @@
 #!/usr/bin/env fish
 
 # Extras
-source "$HOME/.scripts/sources/aliases.sh"
-source "$HOME/.scripts/sources/functions.fish"
-source "$HOME/.scripts/sources/ssh.fish"
-source "$HOME/.scripts/sources/azure.fish"
-source "$HOME/.scripts/sources/theme.fish"
+source "$BDIR/sources/aliases.sh"
+source "$BDIR/sources/functions.fish"
+source "$BDIR/sources/ssh.fish"
+source "$BDIR/sources/azure.fish"
+source "$BDIR/sources/theme.fish"
