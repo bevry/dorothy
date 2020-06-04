@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 if is-equal "${THEME:-}" "baltheme"; then
-	. "$HOME/.scripts/themes/baltheme"
+	. "$BDIR/themes/baltheme"
 	if is-string "${BASH_VERSION:-}"; then
 		export PROMPT_COMMAND="baltheme bash $?"
 	elif is-string "${ZSH_VERSION:-}"; then

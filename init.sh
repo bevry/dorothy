@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
 
-. "$HOME/.scripts/sources/essentials.sh"
-. "$HOME/.scripts/sources/extras.sh"
+export BDIR; BDIR="$(realpath "$0")"
+. "$BDIR/sources/essentials.sh"
+. "$BDIR/sources/extras.sh"
