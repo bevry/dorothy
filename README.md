@@ -35,7 +35,7 @@ The dotfiles will be cloned into the `$HOME/.scripts` directory, which contains 
 - [`init.fish`](https://github.com/bevry/dotfiles/blob/master/init.fish) the initialisation script for the fish shell
 - [`init.sh`](https://github.com/bevry/dotfiles/blob/master/init.sh) the initialisation script for other shells
 
-The initialisation scripts are loaded via the changes made to your dotfiles via the [`setup-dotfiles`](https://github.com/bevry/dotfiles/blob/master//commands/setup-dotfiles) command.
+The initialisation scripts are loaded via the changes made to your dotfiles via the [`setup-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/setup-dotfiles) command.
 
 ## Highlights
 
@@ -47,7 +47,7 @@ The initialisation scripts are loaded via the changes made to your dotfiles via 
 - user customisable
 
   - use `edit-env` for hidden and git-ignored environment variable configuration
-  - use `$HOME/users/$(whoami)/` to customise application installations and editor configurations
+  - use `edit-my-scripts` to customise your application and editor preferences
   - the dotfile installation script will help you setup these files
 
 - automatic editor detection
