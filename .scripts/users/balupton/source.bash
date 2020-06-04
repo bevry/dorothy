@@ -96,10 +96,10 @@ export GO_INSTALL=()  # skip the above, as I no longer need go
 
 export BREW_INSTALL=(
 	# azure-cli
+	# balena-cli
 	# blackbox
 	# heroku
 	aria2
-	balena-cli
 	bash
 	bash-completion
 	coreutils
@@ -107,6 +107,7 @@ export BREW_INSTALL=(
 	git
 	git-extras
 	git-lfs
+	github/gh/gh
 	go
 	hub
 	jq
@@ -141,6 +142,7 @@ export BREW_INSTALL_CASK=(
 	# airparrot
 	# appzapper
 	# atom
+	# backblaze
 	# bartender
 	# brave
 	# burn
@@ -154,26 +156,32 @@ export BREW_INSTALL_CASK=(
 	# geekbench
 	# github-desktop
 	# gitter
+	# google-hangouts
 	# jaikoz
 	# julia
 	# keybase
 	# kodi
+	# little-snitch
 	# micro-snitch
 	# numi
 	# opera
 	# paragon-ntfs
 	# plex-media-server
+	# pomello
 	# reflector
 	# signal
+	# sketch
 	# skype
 	# teamviewer
 	# toggldesktop
 	# torbrowser
+	# tower
 	# transmission
 	# transmit
 	# tunnelbear
 	# tunnelblick
 	# ubersicht
+	# undercover
 	# usage
 	# vlc
 	# webtorrent
@@ -183,20 +191,13 @@ export BREW_INSTALL_CASK=(
 	1password-cli
 	adguard
 	audio-hijack
-	backblaze
 	calibre
 	fantastical
 	google-chrome
-	google-hangouts
-	little-snitch
 	loopback
-	pomello
 	screenflow
-	sketch
 	soundsource
 	spotify
-	tower
-	undercover
 	visual-studio-code
 	vmware-fusion
 )
@@ -230,6 +231,7 @@ export NODE_INSTALL=(
 
 	# ecosystems
 	# "@stencil/core"
+	# @cloudflare/wrangler
 	# apollo
 	# ember-cli
 	# firebase-tools
@@ -239,7 +241,6 @@ export NODE_INSTALL=(
 	# marko-starter
 	# netlify-cli
 	# now
-	@cloudflare/wrangler
 
 	# tooling
 	# typescript@next
@@ -269,15 +270,16 @@ export VSCODE_INSTALL=(
 	# mindginative.terraform-snippets
 	# ms-vscode.vscode-typescript-next
 	# shinnn.stylelint
+	# Uber.baseweb
 	bierner.lit-html
 	ccy.ayu-adaptive
 	dbaeumer.vscode-eslint
 	dustinsanders.an-old-hope-theme-vscode
 	EditorConfig.EditorConfig
 	esbenp.prettier-vscode
+	hashicorp.terraform
 	idleberg.applescript
 	jsaulou.theme-by-language
-	mauve.terraform
 	mechatroner.rainbow-csv
 	ms-python.python
 	ms-vscode.go
@@ -288,7 +290,6 @@ export VSCODE_INSTALL=(
 	skyapps.fish-vscode
 	teabyii.ayu
 	timonwong.shellcheck
-	Uber.baseweb
 )
 
 export ATOM_INSTALL=(
