@@ -5,9 +5,6 @@ Goes well with our [New Machine Starter Kit](https://gist.github.com/balupton/52
 ## Install
 
 ```bash
-# enter into a bash login shell
-bash -il
-
 # install deps on ubuntu
 sudo apt install curl git
 
@@ -15,7 +12,9 @@ sudo apt install curl git
 curl https://krypt.co/kr | sh
 kr pair
 
-# perform the installation
+# perform the installation using a bash login shell
+bash -il
+# then
 eval "$(curl -fsSL https://raw.githubusercontent.com/bevry/dotfiles/master/commands/install-dotfiles)"
 ```
 
