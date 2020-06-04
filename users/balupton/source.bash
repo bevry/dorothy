@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
+# this file is only loaded for bash, which is what most of the commands are coded in
+
+# make sure when we use bash, we use globstar if it is supported
 if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	source "$BDIR/sources/globstar.bash"
 fi
+
+# load anything cross-shell useful from source.sh
 source "$BDIR/users/balupton/source.sh"
 
 export TERMINAL_EDITORS=(
