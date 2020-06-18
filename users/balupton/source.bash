@@ -108,6 +108,7 @@ export BREW_INSTALL=(
 	bash
 	bash-completion
 	coreutils
+	deno
 	fish
 	git
 	git-extras
@@ -282,12 +283,12 @@ export VSCODE_INSTALL=(
 	dustinsanders.an-old-hope-theme-vscode
 	EditorConfig.EditorConfig
 	esbenp.prettier-vscode
+	golang.Go
 	hashicorp.terraform
 	idleberg.applescript
 	jsaulou.theme-by-language
 	mechatroner.rainbow-csv
 	ms-python.python
-	ms-vscode.go
 	ms-vsliveshare.vsliveshare-pack
 	PKief.material-icon-theme
 	richie5um2.vscode-sort-json
