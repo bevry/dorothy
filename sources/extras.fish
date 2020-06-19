@@ -1,6 +1,7 @@
 #!/usr/bin/env fish
 
-# Extras
+# Additional
+source "$BDIR/sources/edit.fish"
 source "$BDIR/sources/aliases.sh"
 source "$BDIR/sources/functions.fish"
 source "$BDIR/sources/ssh.fish"
