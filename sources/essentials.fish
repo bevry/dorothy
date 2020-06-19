@@ -13,6 +13,8 @@ end
 # Essential
 source "$BDIR/sources/paths.fish"
 source "$BDIR/sources/user.fish"
+
+# Bash & NVM
 if not functions -q fundle
 	eval (curl -sfL https://git.io/fundle-install)
 	fundle plugin 'edc/bass'
@@ -24,4 +26,3 @@ else
 	fundle plugin 'arzig/nvm-fish'
 	fundle init
 end
-source "$BDIR/sources/edit.fish"
