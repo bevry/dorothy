@@ -17,11 +17,6 @@ alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango'
 alias startredis='redis-server /usr/local/etc/redis.conf'
 alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
-# Node
-alias npmus='npm set registry http://registry.npmjs.org/'
-alias npmau='npm set registry http://registry.npmjs.org.au/'
-alias npmeu='npm set registry http://registry.npmjs.eu/'
-
 # Wget, consider also using: --no-check-certificate
 # Wget: brute-leech as GoogleBot
 alias wgetbot='wget -t 2 -T 15 --waitretry 10 -nc --user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
