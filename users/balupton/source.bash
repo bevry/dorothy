@@ -104,6 +104,7 @@ export BREW_INSTALL=(
 	# balena-cli
 	# blackbox
 	# heroku
+	# yarn
 	aria2
 	bash
 	bash-completion
@@ -122,6 +123,7 @@ export BREW_INSTALL=(
 	micro
 	openssh
 	pkg-config
+	podman
 	python@3
 	rmtrash
 	ruby
@@ -135,7 +137,6 @@ export BREW_INSTALL=(
 	watch
 	watchman
 	wget
-	yarn
 )
 
 export BREW_INSTALL_SLOW=(
@@ -280,6 +281,7 @@ export VSCODE_INSTALL=(
 	bierner.lit-html
 	ccy.ayu-adaptive
 	dbaeumer.vscode-eslint
+	denoland.vscode-deno
 	dustinsanders.an-old-hope-theme-vscode
 	EditorConfig.EditorConfig
 	esbenp.prettier-vscode
