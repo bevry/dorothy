@@ -360,7 +360,6 @@ export VSCODE_INSTALL=(
 	rahmanyerli.ra-spring
 	richie5um2.vscode-sort-json
 	sdras.night-owl
-	shinnn.stylelint
 	silvenon.mdx
 	skyapps.fish-vscode
 	timonwong.shellcheck
