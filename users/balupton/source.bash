@@ -63,6 +63,7 @@ export APT_ADD=(
 
 export SNAP_INSTALL=(
 	code
+	deno
 )
 
 # https://github.com/Microsoft/vscode-go/wiki/Go-tools-that-the-Go-extension-depends-on
