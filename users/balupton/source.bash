@@ -270,38 +270,101 @@ export NODE_INSTALL=(
 	# coinmon
 )
 
+## BAD THEMES ##
+# Adophis
+# After Dark
+# Ardent
+# Ayu
+# Ayu Adaptive
+# Cobalt2
+# Eva
+# Eye Care
+# Eye Relax Theme
+# Eye Relax Theme
+# Fons
+# IKKI
+# Kimbie Dark
+# Make Apps
+# Night Owl Light
+# Noctis
+# Palenight
+# Ra Eyeful
+# Rainbow
+# Red
+# Relax Eyes
+# Relax Eyes
+# Relax your eyes
+# Salad
+# Solarized
+# Tomorrow Night
+# Zenburn
+
+## BEST LIGHT THEMES ##
+# An Old Hope Light
+# Eyesore
+# GitHub Light
+# Ra Light
+# Ra Spring
+
+## BEST DARK THEMES ##
+# Github Dark
+# Monokai Night
+# Night Owl
+# PEGO Eye
+# Save Eyes HC
+# Save My Eyes
+# Zeal
 export VSCODE_INSTALL=(
 	# akamud.vscode-theme-onedark
 	# akamud.vscode-theme-onelight
+	# ccy.ayu-adaptive
 	# DavidAnson.vscode-markdownlint
 	# donjayamanne.jupyter
 	# fatihacet.gitlab-workflow
 	# flowtype.flow-for-vscode
+	# jsaulou.theme-by-language
 	# julialang.language-julia
 	# mindginative.terraform-snippets
 	# ms-vscode.vscode-typescript-next
 	# shinnn.stylelint
+	# teabyii.ayu
 	# Uber.baseweb
+	alexlab.save-eyes-hc
 	bierner.lit-html
-	ccy.ayu-adaptive
+	dbaeumer.vscode-eslint
 	dbaeumer.vscode-eslint
 	denoland.vscode-deno
+	dotjoshjohnson.xml
 	dustinsanders.an-old-hope-theme-vscode
-	EditorConfig.EditorConfig
+	eamodio.gitlens
+	editorconfig.editorconfig
 	esbenp.prettier-vscode
-	golang.Go
+	fabiospampinato.vscode-monokai-night
+	fauna.faunadb
+	github.github-vscode-theme
+	github.vscode-pull-request-github
+	golang.go
 	hashicorp.terraform
 	idleberg.applescript
-	jsaulou.theme-by-language
+	joonaskivikunnas.eyesore
+	kqadem.zeal-theme
 	mechatroner.rainbow-csv
+	ms-azuretools.vscode-docker
 	ms-python.python
 	ms-vsliveshare.vsliveshare-pack
-	PKief.material-icon-theme
+	pego.pego-eye
+	pkief.material-icon-theme
+	plievone.vscode-template-literal-editor
+	rahmanyerli.ra-light
+	rahmanyerli.ra-spring
 	richie5um2.vscode-sort-json
+	sdras.night-owl
+	shinnn.stylelint
 	silvenon.mdx
 	skyapps.fish-vscode
-	teabyii.ayu
 	timonwong.shellcheck
+	wayou.vscode-todo-highlight
+	zaphodando.save-my-eyes
 )
 
 export ATOM_INSTALL=(
