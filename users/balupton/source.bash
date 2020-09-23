@@ -61,6 +61,10 @@ export APT_ADD=(
 	vim
 )
 
+export SNAP_INSTALL=(
+	code
+)
+
 # https://github.com/Microsoft/vscode-go/wiki/Go-tools-that-the-Go-extension-depends-on
 # https://github.com/golang/go/wiki/gopls#editors-instructions
 # github.com/nsf/gocode is outdated
