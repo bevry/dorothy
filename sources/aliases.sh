@@ -1,8 +1,5 @@
 #!/usr/bin/env sh
 
-# Trash
-alias trash='rmtrash'
-
 # Go
 alias edit-go='open -a /Applications/GoLand.app'
 
