@@ -228,6 +228,7 @@ export RUBY_INSTALL=(
 
 export PYTHON_INSTALL=(
 	cairosvg
+	bitcoinlib
 )
 
 export NODE_INSTALL=(
