@@ -156,6 +156,7 @@ export BREW_INSTALL_CASK=(
 	# airparrot
 	# appzapper
 	# atom
+	# audio-hijack
 	# backblaze
 	# bartender
 	# brave
@@ -176,6 +177,7 @@ export BREW_INSTALL_CASK=(
 	# keybase
 	# kodi
 	# little-snitch
+	# loopback
 	# micro-snitch
 	# numi
 	# opera
@@ -186,6 +188,7 @@ export BREW_INSTALL_CASK=(
 	# signal
 	# sketch
 	# skype
+	# soundsource
 	# teamviewer
 	# toggldesktop
 	# torbrowser
@@ -204,13 +207,10 @@ export BREW_INSTALL_CASK=(
 	# xld
 	1password-cli
 	adguard
-	audio-hijack
 	calibre
 	fantastical
 	google-chrome
-	loopback
 	screenflow
-	soundsource
 	spotify
 	visual-studio-code
 	vmware-fusion
