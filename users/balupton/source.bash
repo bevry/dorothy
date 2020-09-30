@@ -121,6 +121,10 @@ export BREW_INSTALL=(
 	git-lfs
 	github/gh/gh
 	go
+	hashicorp/tap/consul
+	hashicorp/tap/nomad
+	hashicorp/tap/terraform
+	hashicorp/tap/vault
 	hub
 	jq
 	kryptco/tap/kr
@@ -134,10 +138,8 @@ export BREW_INSTALL=(
 	ruby
 	screen
 	terminal-notifier
-	terraform
 	tmux
 	tree
-	vault
 	vim
 	watch
 	watchman
