@@ -133,7 +133,7 @@ export BREW_INSTALL=(
 	openssh
 	pkg-config
 	podman
-	python@3
+	python
 	rmtrash
 	ruby
 	screen
@@ -229,6 +229,7 @@ export RUBY_INSTALL=(
 export PYTHON_INSTALL=(
 	cairosvg
 	bitcoinlib
+	httpie
 )
 
 export NODE_INSTALL=(
