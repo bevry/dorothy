@@ -119,8 +119,9 @@ export BREW_INSTALL=(
 	git
 	git-extras
 	git-lfs
-	github/gh/gh
+	gh
 	go
+	hashicorp/tap/boundary
 	hashicorp/tap/consul
 	hashicorp/tap/nomad
 	hashicorp/tap/terraform
@@ -218,12 +219,10 @@ export BREW_INSTALL_CASK=(
 
 # export RUBY_VERSION="ruby@2.3"
 export RUBY_INSTALL=(
-	ffi # "ffi 1.9.21"
-	travis
-	travis_migrate_to_apps
-	sass # "sass 3.4.25"
 	compass # "compass 1.0.3"
+	ffi # "ffi 1.9.21"
 	git-up
+	sass # "sass 3.4.25"
 )
 
 export PYTHON_INSTALL=(
@@ -265,10 +264,6 @@ export NODE_INSTALL=(
 	prettier
 	tldr
 	typescript
-
-	# continuous integration
-	# ci-watch
-	# travis-watch
 
 	# cryptocurrency
 	# cartera
