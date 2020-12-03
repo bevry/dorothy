@@ -226,8 +226,8 @@ export RUBY_INSTALL=(
 )
 
 export PYTHON_INSTALL=(
-	cairosvg
-	bitcoinlib
+	# bitcoinlib
+	# cairosvg
 	httpie
 )
 
