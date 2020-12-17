@@ -104,6 +104,9 @@ export GO_INSTALL=(
 	github.com/cloudflare/utahfs/cmd/utahfs-client
 )
 
+# Brew
+# alias brew='arch -x86_64 /usr/local/bin/brew'
+
 export BREW_INSTALL=(
 	# azure-cli
 	# balena-cli
@@ -114,7 +117,8 @@ export BREW_INSTALL=(
 	bash
 	bash-completion
 	coreutils
-	deno
+	# disabled until fixed: https://github.com/Homebrew/formulae.brew.sh/issues/380
+	# deno
 	fish
 	git
 	git-extras
