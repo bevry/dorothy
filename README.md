@@ -8,10 +8,6 @@ Goes well with our [New Machine Starter Kit](https://gist.github.com/balupton/52
 # install deps on ubuntu
 sudo apt install curl git
 
-# install krypton for easy and secure ssh management and connections
-curl https://krypt.co/kr | sh
-kr pair
-
 # perform the installation using a bash login shell
 bash -il
 # then
@@ -54,7 +50,7 @@ The dotfiles by default will be cloned into the `$HOME/.scripts` directory, whic
   - git prompts are configured correctly to use your favourite terminal editor
   - uses `setup-editor-commands` to determine the correct configuration, which is then applied via the init scripts
   - use `git-review` to open your favourite git GUI editor / review tool
-  
+
 - `setup-install` and `setup-update` will setup your entire system for development, including
 
   - installs and configures linux (via `setup-linux-*`) and mac (via `setup-mac-*`)

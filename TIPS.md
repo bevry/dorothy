@@ -46,28 +46,37 @@ the-error-command arg1 arg2 || :
 ## safe variables
 
 https://stackoverflow.com/a/14152610/130638
+https://stackoverflow.com/a/39621322
+http://www.gnu.org/software/bash/manual/bash.html#Shell-Parameter-Expansion
 
-There are two variants of the ${var-value} notation, one without a colon, as shown, and one with a colon: ${var:-value}.
-
-The first version, without colon, means 'if \$var is set to any value (including an empty string), use it; otherwise, use value instead'.
-
-The second version, with colon, means 'if \$var is set to any value except the empty string, use it; otherwise, use value instead'.
-
-This pattern holds for other variable substitutions too, notably:
-
--   ${var:=value}`
-    if $var is set to any non-empty string, leave it unchanged; otherwise, set \$var to value.
-
--   `${var=value}`
-    if $var is set to any value (including an empty string), leave it unchanged; otherwise, set $var to value.
-
--   `${var:?message}`
-    if \$var is set to any non-empty string, do nothing; otherwise, complain using the given message' (where a default message is supplied if message is itself empty).
-
--   `${var?message}`
-    if \$var is set to any value (including an empty string), do nothing; otherwise, complain using the given message'.
-
-These notations all apply to any POSIX-compatible shell (Bourne, Korn, Bash, and others). You can find the manual for the bash version online — in the section Shell Parameter Expansion. Bash also has a number of non-standard notations, many of which are extremely useful but not necessarily shared with other shells.
+- `${var:-value}`
+	- if var is truthy, use `var`
+	- if var is falsey, use `value`
+- `${var-value}`
+	- if var is bound, use `var`
+	- if var is unbound, use `value`
+- `test -n "${var-}"` and `test -n "${var-}"`
+	- if var is truthy, pass
+	- as both empty string values have 0 characters length
+- `test -z "${var-}"` and `test -z "${var-}"`
+	- if var is falsey, pass
+	- as both empty string values have 0 characters length
+- `test -v a`
+	- if var is bound, pass
+	- if var is unbound, fail
+	- only works on: bash >= 4.2 && zsh
+- `${var:?message}`
+	- if var is truthy, use `var`
+	- if var is falsey, stderr the message
+- `${var?message}`
+	- if var is bound, use `var`
+	- if var is unbound, stderr the message
+- `${var:=value}`
+	- if var is truthy, use `var`
+	- if var is falsey, set `var` to the `value`
+- `${var=value}`
+	- if var is bound, use `var`
+	- if var is unbound, set `var` to the `value`
 
 ## cwd
 

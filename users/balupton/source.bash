@@ -101,11 +101,11 @@ export GO_INSTALL=(
 	# golang.org/x/tools/cmd/guru
 	# honnef.co/go/tools/cmd/...
 	# sourcegraph.com/sqs/goreturns
+	changkun.de/x/rmtrash
 	github.com/cloudflare/utahfs/cmd/utahfs-client
 )
 
-# Brew
-# alias brew='arch -x86_64 /usr/local/bin/brew'
+export BREW_ARCH="x86_64"
 
 export BREW_INSTALL=(
 	# azure-cli
@@ -139,7 +139,6 @@ export BREW_INSTALL=(
 	pkg-config
 	podman
 	python
-	rmtrash
 	ruby
 	screen
 	terminal-notifier
@@ -157,7 +156,9 @@ export BREW_INSTALL_SLOW=(
 )
 
 export BREW_INSTALL_CASK=(
+	# 1password-cli
 	# acorn
+	# adguard
 	# airparrot
 	# appzapper
 	# atom
@@ -171,11 +172,13 @@ export BREW_INSTALL_CASK=(
 	# contexts
 	# dat
 	# devdocs
+	# fantastical
 	# firefox
 	# freedom
 	# geekbench
 	# github-desktop
 	# gitter
+	# google-chrome
 	# google-hangouts
 	# jaikoz
 	# julia
@@ -190,10 +193,12 @@ export BREW_INSTALL_CASK=(
 	# plex-media-server
 	# pomello
 	# reflector
+	# screenflow
 	# signal
 	# sketch
 	# skype
 	# soundsource
+	# spotify
 	# teamviewer
 	# toggldesktop
 	# torbrowser
@@ -205,20 +210,14 @@ export BREW_INSTALL_CASK=(
 	# ubersicht
 	# undercover
 	# usage
+	# visual-studio-code
 	# vlc
+	# vmware-fusion
 	# webtorrent
 	# windscribe
 	# workflowy
 	# xld
-	1password-cli
-	adguard
 	calibre
-	fantastical
-	google-chrome
-	screenflow
-	spotify
-	visual-studio-code
-	vmware-fusion
 )
 
 # export RUBY_VERSION="ruby@2.3"
