@@ -10,7 +10,7 @@
 . "$BDIR/sources/aliases.sh"
 . "$BDIR/sources/functions.sh"
 . "$BDIR/sources/ssh.sh"
-if is-string "${ZSH_VERSION:-}"; then
+if is-string "${ZSH_VERSION-}"; then
 	. "$BDIR/sources/zsh.zsh"
 	. "$BDIR/sources/azure.zsh"
 else

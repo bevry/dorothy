@@ -7,5 +7,5 @@ if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s globstar
 else
 	"$BDIR/commands/stderr" echo 'bash version is too old for globstar'
-	exit 1
+	# exit 1
 fi

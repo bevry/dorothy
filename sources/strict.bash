@@ -11,6 +11,3 @@
 # http://redsymbol.net/articles/unofficial-bash-strict-mode/
 
 set -Eeuo pipefail
-
-# In the case where an unbound variable is permitted, you would append :- like so:
-# "${var:-}"
