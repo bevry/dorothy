@@ -13,17 +13,23 @@ if test "$action" != "backup" -a "$action" != "restore"; then
 	exit 1
 fi
 
-echo "Make sure that Time Machine is configured, or you have the Time Machine Backup Volume mounted. Press any key to continue."
-read -r -n 1 -p ''
-echo -e '\n'
-
 echo ''
 echo 'What is your local volume?'
 export localRoot; localRoot="$(choose-subdir /Volumes)"
+echo "Selected: $localRoot"
 
 if is-equal "$action" "restore"; then
 	export backupRoot="${2-}"
-	if is-empty-string "$backupRoot"; then
+
+	# ssh
+	if [[ "$backupRoot" = *"@"* ]]; then
+		echo 'SSH location provided...'
+		if [[ "$backupRoot" != *":" ]]; then
+			backupRoot="$backupRoot:'"
+		fi
+	elif is-empty-string "$backupRoot"; then
+		echo "Make sure that Time Machine is configured, or you have the Time Machine Backup Volume mounted. Press any key to continue."
+		read -r -n 1 -p ''
 		echo ''
 		echo 'Fetching Time Machine backup automatically...'
 		timeRoot="$(tmutil latestbackup || exit 0)"
@@ -73,15 +79,22 @@ function backup {
 
 	local from
 	local to
+
+	# starts with /, so append directly
 	if [[ "$1" = "/"* ]]; then
 		from="$localRoot$1"
 		to="$cloudRoot$1"
 	else
+		# assume local, so append via home
 		from="$localRoot$HOME/$1"
 		to="$cloudRoot$HOME/$1"
 	fi
 
-	if is-exists "$from"; then
+	if [[ "$backupRoot" = *"@"* ]]; then
+		sudo rm -Rf "$to"
+		mkdir -p "$(dirname "$to")"
+		scp -r "$from" "$to'"
+	elif is-exists "$from"; then
 		sudo rm -Rf "$to"
 		mkdir -p "$(dirname "$to")"
 		cp -fpLRv "$from" "$to"
@@ -105,7 +118,15 @@ function restore {
 		to="$localRoot$HOME/$1"
 	fi
 
-	if is-exists "$from"; then
+	if [[ "$backupRoot" = *"@"* ]]; then
+		if is-dir "$to"; then
+			sudo rm -Rf "$to"
+		fi
+		mkdir -p "$(dirname "$to")"
+		echo scp -qpr "$from'" "'$to'"
+		scp -qpr "$from'" "$to"
+		own "$to"
+	elif is-exists "$from"; then
 		sudo rm -Rf "$to"
 		mkdir -p "$(dirname "$to")"
 		if contains-word "$backupRoot" "Time Machine Backups" || contains-word "$backupRoot" "Backups.backupdb"; then
@@ -145,48 +166,33 @@ function process {
 }
 
 # ===============
-# Apple
-# todo: dock
+# Current
 
-process "Apple iTunes" \
-	"Media" \
-	"Music" \
-	"Library/iTunes" \
-	"Library/Preferences/com.apple.iPod.plist" \
-	"Library/Preferences/com.apple.iTunes.plist"
+process "Choosy" \
+	"Library/Application Support/Choosy" \
+	"Library/Preferences/com.choosyosx.Choosy.plist"
+
+process "Elmedia" \
+	"Library/Preferences/com.eltima.elmedia-setapp.plist"
+
+process "Google Chrome" \
+	"Library/Application Support/Google/Chrome"
+
+process "OBS" \
+	"Library/Application Support/obs-studio" \
+	"Library/Preferences/com.obsproject.obs-studio.plist"
+
+process "Plex" \
+	"Library/Application Support/Plex Media Server" \
+	"Library/Preferences/com.plexapp.plexmediaserver.plist"
+
+process "Twitch Studio" \
+	"Library/Application Support/Twitch Studio"
+
+# ===============
+# Apple
 
 process "Apple Mail" "Library/Containers/com.apple.mail/Data/Library/Preferences"
-
-if confirm-bool "Apple Messages"; then
-	macosVersion=$(sw_vers -productVersion)
-	macosMajorVersion=$(echo "$macosVersion" | awk -F '.' '{print $2}')
-	macosMinorVersion=$(echo "$macosVersion" | awk -F '.' '{print $3}')
-	if test "$macosMajorVersion" -ge "13" -a "$macosMinorVersion" -ge "5"; then
-		echo 'Apple Messages should be restored via iCloud: https://apple.stackexchange.com/a/326527/15131'
-	else
-		remove "Library/Caches/com.apple.iChat"
-		act "Library/Preferences/com.apple.sms.plist"
-		act "Library/Preferences/com.apple.messaging.expire.plist"
-		act "Library/Preferences/com.apple.Messages.plist"
-		act "Library/Preferences/com.apple.imessage.plist"
-		act "Library/Preferences/com.apple.imessage.bag.plist"
-		act "Library/Preferences/com.apple.imdpersistence.IMDPersistenceAgent.plist"
-		act "Library/Preferences/com.apple.imdsmsrecordstore.plist"
-		act "Library/Preferences/com.apple.imservice.ids.FaceTime.plist"
-		act "Library/Preferences/com.apple.imservice.ids.iMessage.plist"
-		act "Library/Preferences/com.apple.iChat.AIM.plist"
-		act "Library/Preferences/com.apple.iChat.Jabber.plist"
-		act "Library/Preferences/com.apple.iChat.StatusMessages.plist"
-		act "Library/Preferences/com.apple.iChat.Yahoo.plist"
-		act "Library/Preferences/com.apple.iChat.plist"
-		act "Library/Messages"
-		act "Library/Containers/com.apple.iChat"
-		act "Library/Containers/com.apple.messages.MapRenderingService"
-		act "Library/Containers/com.apple.messages.ShareExtension"
-		act "Library/Containers/com.apple.messages.StorageManagementExtension"
-		act "Library/Containers/com.apple.messages.TranscriptRenderingService"
-	fi
-fi
 
 process "Apple Safari History" \
 	"Library/Safari/History.db" \
@@ -326,10 +332,6 @@ process "Paragon NTFS" \
 
 process "Pinstriped" "Library/Application Support/com.pinstriped.pinstriped-mac"
 
-process "Plex" \
-	"Library/Application Support/Plex Media Server" \
-	"Library/Preferences/com.plexapp.plexmediaserver.plist"
-
 process "ProtonVPN" \
 	"Library/Containers/ch.protonvpn.mac" \
 	"Library/Containers/ch.protonvpn.ProtonVPNStarter"
@@ -409,7 +411,6 @@ process "Ubersicht" \
 	"Library/Application Support/Übersicht"
 
 process "Usage" "Library/Application Support/com.mediaatelier.Usage"
-process "Visual Studio Code" "Library/Application Support/Code"
 
 process "VLC" \
 	"Library/Application Support/org.videolan.vlc" \
