@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+export BINDIR
+if is-mac; then
+	BINDIR="$HOME/bin"
+else
+	BINDIR="/usr/local/bin"
+fi
+mkdir -p "$BINDIR" # it is here to make sure it is gets included in PATH from essentials
 source "$BDIR/sources/essentials.sh"
 source "$BDIR/sources/strict.bash"
 
@@ -6,161 +13,167 @@ source "$BDIR/sources/strict.bash"
 # AdGuard Home
 
 function aghome_install {
+	# Install
 	if command-exists AdGuardHome; then
-		echo 'Updating AdGuard Home...'
+		echo 'AdGuard Home is being upgraded...'
 	else
-		echo 'Installing AdGuard Home...'
+		echo 'AdGuard Home is being installed...'
 	fi
-	mkdir -p "$HOME/bin"
 	if is-mac; then
-		down-zip-file "https://static.adguard.com/adguardhome/release/AdGuardHome_darwin_amd64.zip" "AdGuardHome/AdGuardHome" "$HOME/bin/AdGuardHome"
+		down-zip-file "https://static.adguard.com/adguardhome/release/AdGuardHome_darwin_amd64.zip" "AdGuardHome/AdGuardHome" "$BINDIR/AdGuardHome"
+	elif is-arm64; then
+		down-zip-file "https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz" "AdGuardHome/AdGuardHome" "$BINDIR/AdGuardHome"
 	else
-		down-zip-file "https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz" "AdGuardHome/AdGuardHome" "$HOME/bin/AdGuardHome"
+		stderr echo 'AdGuard Home support has not yet been added for this platform'
+		return 1
 	fi
-	chmod +x "$HOME/bin/AdGuardHome"
-	echo 'Installed AdGuard Home'
+	chmod +x "$BINDIR/AdGuardHome"
+	echo 'AdGuard Home is now installed'
+
+	# Configure
+	echo 'AdGuard Home is being configured...'
+	ok sudo "$BINDIR/AdGuardHome" -s uninstall
+	sudo "$BINDIR/AdGuardHome" -s install
+	confirm "Press any key once you have completed the AdGuard Home setup..."
+	echo 'AdGuard Home is configured'
 }
 
 function aghome_uninstall {
-	echo 'Uninstalling AdGuard Home...'
-	mkdir -p "$HOME/bin"
 	if command-exists AdGuardHome; then
+		echo 'AdGuard Home is being uninstalled...'
 		ok sudo AdGuardHome -s uninstall
-		ok rm -v "$HOME/bin/AdGuardHome"
-		ok rm -iv "$HOME/bin/AdGuardHome.yaml"
-		echo 'Uninstalled AdGuard Home'
+		ok rm -v "$BINDIR/AdGuardHome"
+		ok rm -iv "$BINDIR/AdGuardHome.yaml"
+		echo 'AdGuard Home is now unisntalled'
 	else
-		echo 'AdGuard Home is already uninstalled'
+		echo 'AdGuard Home has already been uninstalled'
 	fi
 }
 
-function aghome_service {
-	echo 'Configuring AdGuard Home...'
-	ok sudo "$HOME/bin/AdGuardHome" -s uninstall
-	sudo "$HOME/bin/AdGuardHome" -s install
-	confirm "Press any key once you have completed the AdGuard Home setup..."
-	echo 'Configured AdGuard Home'
-}
-
-function aghome_setup {
-	echo 'Setting up AdGuard Home...'
-	aghome_install && aghome_service
-	echo 'AdGuard home is now set up'
-}
-
 # -------------------------------------
-# Cloudflared
+# cloudflared
 # https://developers.cloudflare.com/1.1.1.1/dns-over-https/cloudflared-proxy/
 # https://developers.cloudflare.com/argo-tunnel/downloads/
 
 function cloudflared_install {
+	# Install
 	if command-exists cloudflared; then
-		echo 'Cloudflared is already installed'
+		echo 'cloudflared has already been installed'
 	else
-		echo 'Installing Cloudflared...'
 		if is-mac; then
+			echo 'cloudflared is being installed...'
 			brew install cloudflare/cloudflare/cloudflared
-			echo 'Installed Cloudflared'
+			echo 'cloudflared has been installed'
+		elif is-arm64; then
+			echo 'cloudflared is being installed...'
+			f="$(mktemp)"
+			github-release-file-download cloudflare/cloudflared cloudflared-linux-arm64 "$f"
+			sudo mv "$f" "$BINDIR/cloudflared"
+			chmod +x "$BINDIR/cloudflared"
+			echo 'cloudflared has been installed'
 		else
-			stderr echo 'Installation of Cloudflared not yet added for non-macos platforms'
+			stderr echo 'cloudflared support has not yet been added for this platform'
 			return 1
 		fi
+
+		# Then Configure
+		echo 'cloudflared is being configured...'
+		mkdir -p "$HOME/.cloudflared" # for cert.pem
+		sudo mkdir -p '/usr/local/etc/cloudflared/' # for config.yml
+
+		# create the sample config
+		f="$(mktemp)"
+		cat << EOF > "$f"
+proxy-dns: true
+proxy-dns-upstream:
+- https://1.1.1.2/dns-query
+- https://1.0.0.2/dns-query
+EOF
+		sudo mv "$f" '/usr/local/etc/cloudflared/config.yml'
+
+		# then prompt user to overwrite
+		confirm "You need to (1) Go to https://dash.teams.cloudflare.com/gateway/locations (2) Create a location (3) Press enter an replace the DNS settings."
+		sudo vim '/usr/local/etc/cloudflared/config.yml'
+		if is-mac; then
+			sudo cloudflared tunnel login
+			sudo cloudflared service install
+			sudo launchctl start com.cloudflare.cloudflared
+		elif is-arm64; then
+			"$BINDIR/cloudflared" tunnel login
+			sudo "$BINDIR/cloudflared" service install
+		fi
+		echo 'cloudflared is now configured'
 	fi
 }
 
 function cloudflared_uninstall {
-	echo 'Uninstalling Cloudflared...'
+	# Uninstall
 	if command-exists cloudflared; then
 		if is-mac; then
+			echo 'cloudflared is being uninstalled...'
 			ok sudo launchctl stop com.cloudflare.cloudflared
 			ok sudo launchctl remove com.cloudflare.cloudflared
 			ok sudo cloudflared service uninstall
 			ok brew uninstall cloudflare/cloudflare/cloudflared
-		echo 'Uninstalled Cloudflared'
+			echo 'cloudflared is now uninstalled'
+		elif is-arm64; then
+			echo 'cloudflared is being uninstalled...'
+			ok sudo cloudflared service uninstall
+			ok sudo rm -vi "$BINDIR/cloudflared"
+			echo 'cloudflared is now uninstalled'
 		else
-			stderr echo 'Uninstalling Cloudflared is not yet added for non-macos platforms'
+			stderr echo 'cloudflared support has not yet been added for this platform'
 			return 1
 		fi
 	else
-		echo 'Cloudflared is already uninstalled'
+		echo 'cloudflared has already been uninstalled'
 	fi
-}
-
-function cloudflared_service {
-	if is-file "/usr/local/etc/cloudflared/config.yml"; then
-		echo 'Cloudflared is already configured'
-	else
-		echo 'Configuring Cloudflared as service...'
-		mkdir -p /usr/local/etc/cloudflared
-		cat << EOF > /usr/local/etc/cloudflared/config.yml
-proxy-dns: true
-proxy-dns-upstream:
-  - https://1.1.1.1/dns-query
-  - https://1.0.0.1/dns-query
-
-EOF
-		sudo cloudflared service install
-		sudo launchctl start com.cloudflare.cloudflared
-		echo 'Configured Cloudflared'
-	fi
-}
-
-function cloudflared_setup {
-	echo 'Setting up Cloudflared...'
-	cloudflared_install && cloudflared_service
-	echo 'Cloudflared is now set up'
 }
 
 # -------------------------------------
 # DNSCrypt Proxy
 
 function dnscrypt_install {
+	# Install
 	if command-exists dnscrypt-proxy; then
-		echo 'DNSCrypt-Proxy is already installed'
+		echo 'DNSCrypt-Proxy has already been installed'
 	else
-		echo 'Installing DNSCrypt-Proxy...'
 		if is-mac; then
+			echo 'DNSCrypt-Proxy is installing...'
 			brew install dnscrypt-proxy
-			echo 'Installed DNSCrypt-Proxy'
+			echo 'DNSCrypt-Proxy is now installed'
 		else
-			stderr echo 'Installation of DNSCrypt-Proxy not yet added for non-macos platforms'
+			stderr echo 'DNSCrypt-Proxy support has not yet been added for this platform'
 			return 1
 		fi
+
+		# Then Configure
+		echo 'DNSCrypt-Proxy is being configuring...'
+		if is-missing "/usr/local/etc/dnscrypt-proxy.toml"; then
+			down "https://gist.githubusercontent.com/balupton/48057270a67d70e2ac984fdfa475ad29/raw/dnscrypt-proxy.toml" "/usr/local/etc/dnscrypt-proxy.toml"
+		fi
+		sudo brew services start dnscrypt-proxy
+		echo 'DNSCrypt-Proxy is now configured'
 	fi
 }
 
 function dnscrypt_uninstall {
-	echo 'Uninstalling DNSCrypt-Proxy...'
+	# Uninstall
 	if command-exists dnscrypt-proxy; then
 		if is-mac; then
+			echo 'DNSCrypt-Proxy is being uninstalled...'
 			ok sudo rm -vi /usr/local/etc/dnscrypt-proxy.toml
 			sudo brew services stop dnscrypt-proxy
 			ok brew uninstall dnscrypt-proxy
-			echo 'Uninstalled DNSCrypt-Proxy'
+			echo 'DNSCrypt-Proxy is now uninstalled'
 		else
-			stderr echo 'Uninstalling DNSCrypt-Proxy is not yet added for non-macos platforms'
+			stderr echo 'DNSCrypt-Proxy support has not yet been added for this platform'
 			return 1
 		fi
 	else
 		echo 'DNSCrypt-Proxy is already uninstalled'
 	fi
 }
-
-function dnscrypt_service {
-	echo 'Configuring DNSCrypt-Proxy as service...'
-	if is-missing "/usr/local/etc/dnscrypt-proxy.toml"; then
-		down "https://gist.githubusercontent.com/balupton/48057270a67d70e2ac984fdfa475ad29/raw/dnscrypt-proxy.toml" "/usr/local/etc/dnscrypt-proxy.toml"
-	fi
-	sudo brew services start dnscrypt-proxy
-	echo 'Configured DNSCrypt-Proxy'
-}
-
-function dnscrypt_setup {
-	echo 'Setting up DNSCrypt-Proxy...'
-	dnscrypt_install && dnscrypt_service
-	echo 'DNSCrypt-Proxy is now setup up'
-}
-
 
 # -------------------------------------
 # Setup
@@ -190,6 +203,13 @@ function dns_setup {
 			system
 		)
 		service=""
+	elif is-arm64; then
+		services=(
+			adguard-home
+			cloudflared
+			system
+		)
+		service="system"
 	else
 		services=(
 			adguard-home
@@ -208,17 +228,17 @@ function dns_setup {
 	# prepare
 	select-dns cf
 
-	# setup
+	# install
 	dns_uninstall
 	if test "$service" = "cloudflared"; then
-		cloudflared_setup
+		cloudflared_install
 	elif test "$service" = "dnscrypt"; then
-		dnscrypt_setup
+		dnscrypt_install
 	elif test "$service" = "system"; then
 		echo 'Skipping custom DNS: using the builtin system DNS'
 		return 0
 	elif test "$service" = "adguard-home" -o "$service" = "adguard"; then
-		aghome_setup
+		aghome_install
 	else
 		stderr echo "ERROR: setup-dns requires the DNS_SERVICE environment variable to be set, or requires a service to be specified, available services are: ${services[*]}"
 		return 1
