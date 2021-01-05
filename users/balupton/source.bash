@@ -220,18 +220,22 @@ export BREW_INSTALL_CASK=(
 	calibre
 )
 
+# gems
 # export RUBY_VERSION="ruby@2.3"
 export RUBY_INSTALL=(
-	compass # "compass 1.0.3"
-	ffi # "ffi 1.9.21"
+	compass
+	ffi
 	git-up
-	sass # "sass 3.4.25"
+	sass
+	twurl
 )
 
+# pip
 export PYTHON_INSTALL=(
 	# bitcoinlib
 	# cairosvg
 	httpie
+	PyPDF2
 )
 
 export NODE_INSTALL=(
