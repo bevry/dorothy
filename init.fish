@@ -1,6 +1,6 @@
 #!/usr/bin/env fish
-set -xg BDIR (dirname (status -f))
+set -xg DOROTHY (dirname (status -f))
 if status --is-login
-	source "$BDIR/sources/essentials.fish"
-	source "$BDIR/sources/extras.fish"
+	source "$DOROTHY/sources/essentials.fish"
+	source "$DOROTHY/sources/extras.fish"
 end

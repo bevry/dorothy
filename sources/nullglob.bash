@@ -6,6 +6,6 @@
 if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s nullglob
 else
-	"$BDIR/commands/stderr" echo 'bash version is too old for nullglob'
+	"$DOROTHY/commands/stderr" echo 'bash version is too old for nullglob'
 	# exit 1
 fi

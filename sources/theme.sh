@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 
-if is-equal "${THEME-}" "baltheme"; then
-	. "$BDIR/themes/baltheme"
+if is-equal "${DOROTHY_THEME-}" "oz"; then
+	. "$DOROTHY/themes/oz"
 	if is-string "${BASH_VERSION-}"; then
-		export PROMPT_COMMAND="baltheme bash $?"
+		export PROMPT_COMMAND="oztheme bash $?"
 	elif is-string "${ZSH_VERSION-}"; then
 		function precmd {
-			baltheme zsh "$?"
+			oztheme zsh "$?"
 		}
 	fi
 fi
