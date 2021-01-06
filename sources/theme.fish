@@ -1,8 +1,7 @@
 #!/usr/bin/env fish
 
-# Theme
-if is-equal "$THEME" "baltheme"
+if is-equal "$DOROTHY_THEME" "oz"
 	function fish_prompt
-		"$BDIR/themes/baltheme" fish "$status"
+		"$DOROTHY/themes/oz" fish "$status"
 	end
 end

@@ -11,8 +11,8 @@ function fish_user_key_bindings
 end
 
 # Essential
-source "$BDIR/sources/paths.fish"
-source "$BDIR/sources/user.fish"
+source "$DOROTHY/sources/paths.fish"
+source "$DOROTHY/sources/user.fish"
 
 # Bash & NVM
 if not functions -q fundle

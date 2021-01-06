@@ -1,9 +1,9 @@
 #!/usr/bin/env fish
 
 # Additional
-source "$BDIR/sources/edit.fish"
-source "$BDIR/sources/aliases.sh"
-source "$BDIR/sources/functions.fish"
-source "$BDIR/sources/ssh.fish"
-source "$BDIR/sources/azure.fish"
-source "$BDIR/sources/theme.fish"
+source "$DOROTHY/sources/edit.fish"
+source "$DOROTHY/sources/aliases.sh"
+source "$DOROTHY/sources/functions.fish"
+source "$DOROTHY/sources/ssh.fish"
+source "$DOROTHY/sources/azure.fish"
+source "$DOROTHY/sources/theme.fish"

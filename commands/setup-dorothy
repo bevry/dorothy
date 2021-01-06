@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+
+# determine directory
+if test -z "${DOROTHY-}"; then
+	# legacy compat
+	if test -n "${BDIR-}"; then
+		export DOROTHY="$BDIR"
+	else
+		export DOROTHY="$HOME/.dorothy"
+	fi
+fi
+
+# update or install dorothy
+echo
+if test -d "$DOROTHY"; then
+	echo "Updating the Dorothy installation at $DOROTHY"
+	cd "$DOROTHY"
+	log="$(mktemp)"
+	ok silent git-protocol-apply origin
+	git pull origin "$(git-default-branch)" > "$log"
+	cat "$log"
+	if grep "Already" < "$log"; then
+		echo "...Dorothy already updated, continuing!"
+		rm "$log"
+	else
+		echo -e '\n\nDorothy was updated, open a new terminal and run the earlier command again...'
+		rm "$log"
+		exit 1
+	fi
+else
+	# clone
+	echo "Installing Dorothy into $DOROTHY"
+	git clone "https://github.com/bevry/dorothy.git" "$DOROTHY"
+fi
+
+# update or install user
+echo
+if test -d "$DOROTHY/user"; then
+	echo "Updating the Dorothy user configuration at $DOROTHY/user"
+	cd "$DOROTHY/user"
+	log="$(mktemp)"
+	ok silent git-protocol-apply origin
+	if ! git pull origin "$(git-default-branch)" > "$log"; then
+		echo "...Dorothy user configuration was unable to be updated, you will have to figure out why later (probably you are disconnected, or there is no remote pushes yet), continuing!"
+		rm "$log"
+	else
+		cat "$log"
+		if grep "Already" < "$log"; then
+			echo "...Dorothy user configuration already updated, continuing!"
+			rm "$log"
+		else
+			echo -e '\n\nDorothy user configuration was updated, open a new terminal and run the earlier command again...'
+			rm "$log"
+			exit 1
+		fi
+	fi
+else
+	# fetch
+	if test -z "${DOROTHY_USER_REPO-}"; then
+		user="$( truthy "$(git config --global github.user)" "$(whoami)" )"
+		repo="https://github.com/$user/dotfiles.git"
+		echo "Dorothy requires a repository to be made to house your user configuration."
+		echo "Create a repository called \`dotfiles\` at https://github.com/new"
+		echo "Confirm it to be [$repo] by pressing enter/return, or by entering your own location:"
+		read -r -p "> " DOROTHY_USER_REPO
+		if test -z "$DOROTHY_USER_REPO"; then
+			export DOROTHY_USER_REPO="$repo"
+		fi
+	fi
+	# clone
+	echo "Cloning the Dorothy user configuration into $DOROTHY/user"
+	git clone "$DOROTHY_USER_REPO" "$DOROTHY/user"
+	cd "$DOROTHY/user"
+	# seed
+	if is-missing "$DOROTHY/user/source.bash" && confirm-positive "Would you like to seed the configuration with the defaults?"; then
+		cp -v "$DOROTHY/sources/defaults.bash" "$DOROTHY/user/source.bash"
+		cp -v "$DOROTHY/sources/defaults.sh" "$DOROTHY/user/source.sh"
+		mkdir -p "$DOROTHY/user/commands"
+		printf "**/env/\n**/env.*\n**/secrets/\n" > "$DOROTHY/user/.gitignore"
+	fi
+fi
+
+# ensure any updated or installed commands have the correct permissions
+cd "$DOROTHY"
+chmod -f +x ./commands/*
+ok silent chmod -f +x ./user/commands/*
+
+# proceed with install
+if test "${1-}" != 'update'; then
+	# now that dorothy is confirmed to exist, proceed with strict mode
+	source "$DOROTHY/sources/strict.bash"
+
+	echo
+	echo 'Dorothy will now confirm the modifications required to have it be loaded by your shell.'
+	echo
+	function check {
+		if "$DOROTHY/commands/is-file" "$1"; then
+			echo ''
+			echo "== <$1> =="
+			"$DOROTHY/commands/trim" < "$1"
+			echo "== </$1> =="
+			echo
+			if "$DOROTHY/commands/confirm-positive" "The above file is probably deprecated with Dorothy, would you like to remove it?"; then
+				rm "$1"
+			fi
+		fi
+		return 0
+	}
+	check "$HOME/.profile"
+	check "$HOME/.bash_profile"
+	check "$HOME/.bashrc"
+	check "$HOME/.zshrc"
+	check "$HOME/.config/fish/config.fish"
+	echo ''
+
+	if "$DOROTHY/commands/confirm-positive" "Would you like to configure the dotfiles for bash?"; then
+		if "$DOROTHY/commands/is-mac" || "$DOROTHY/commands/is-ubuntu"; then
+			# shellcheck disable=SC2016
+			printf '\n\n# Source our custom dotfile configuration\nsource "%s/init.sh"' "$DOROTHY" >> "$HOME/.bash_profile"
+		else
+			# shellcheck disable=SC2016
+			printf '\n\n# Source our custom dotfile configuration\nsource "%s/init.sh"' "$DOROTHY" >> "$HOME/.bashrc"
+		fi
+	fi
+
+	if "$DOROTHY/commands/confirm-positive" "Would you like to configure the dotfiles for zsh?"; then
+		# shellcheck disable=SC2016
+		printf '\n\n# Source our custom dotfile configuration\nsource "%s/init.sh"' "$DOROTHY" >> "$HOME/.zshrc"
+	fi
+
+	if "$DOROTHY/commands/confirm-positive" "Would you like to configure the dotfiles for fish?"; then
+		mkdir -p "$HOME/.config/fish"
+		# shellcheck disable=SC2016
+		printf '\n\n# Source our custom dotfile configuration\nsource "%s/init.fish"' "$DOROTHY" >>  "$HOME/.config/fish/config.fish"
+	fi
+
+	"$DOROTHY/commands/confirm" "Dorothy is now installed, this terminal will now be closed..."
+	exit
+fi

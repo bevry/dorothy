@@ -1,3 +1,3 @@
 #!/usr/bin/env sh
 
-eval "$("$BDIR/commands/setup-paths-commands")"
+eval "$("$DOROTHY/commands/setup-paths-commands")"

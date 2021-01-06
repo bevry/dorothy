@@ -1,132 +1,295 @@
-# [Bevry's](https://bevry.me) Dotfiles
+# Dorothy
 
-Goes well with our [New Machine Starter Kit](https://gist.github.com/balupton/5259595).
+Dorothy is a dotfile ecosystem featuring:
+
+- seamless support for bash, fish, and zsh (this is hands down amazing)
+- seamless support for multiple operating systems, such as MacOS and Ubuntu (again amazing)
+- seamless support for your favorite terminal and GUI editors (so amazing)
+- automatic configuration of your environment variables for what you have installed on your system (much amazing)
+- automatic installation and updating of your specified packages (easily amazing)
+- automatic git ssh and gpg configuration based on what your system supports and your configuration (oh so amazing)
+- hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity (yes amazing)
+- completely extensible and configurable with your own user repository (yahoo amazing)
+- all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine (thank you amazing)
 
 ## Install
 
+To install Dorothy run the following in your favorite terminal application:
+
 ```bash
-# install deps on ubuntu
+# if you are on ubuntu, install the dependencies
 sudo apt install curl git
 
-# perform the installation using a bash login shell
+# create a bash login shell session
 bash -il
-# then
-eval "$(curl -fsSL https://raw.githubusercontent.com/bevry/dotfiles/master/commands/install-dotfiles)"
+# run the dorothy installation script
+eval "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
 ```
 
-If you would like to do the setup process manually, refer to:
+If you would like to do the setup process manually, refer to [`commands/setup-dorothy`](https://github.com/bevry/dorothy/blob/master/commands/setup-dorothy).
 
-- [`commands/install-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/install-dotfiles) which clones the dotfiles, and gives them the correct permissions
-- [`commands/setup-dotfiles`](https://github.com/bevry/dotfiles/blob/master/commands/setup-dotfiles) which upon approval, will configure the shells you wish to load the dotfiles for, and configure your user preferences such as themes and installation defaults
+During installation, it will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another. If you decide to use your existing dotfiles repository refer to the [Configuration section](https://github.com/bevry/dorothy#configuration) for the expectations.
 
 ## Explanation
 
-The dotfiles by default will be cloned into the `$HOME/.scripts` directory, which contains the following:
+This will by default install Dorothy to `$HOME/.dorothy`, which consists of the following:
 
-- [`commands` directory](https://github.com/bevry/dotfiles/tree/master/commands) contains executable commands
-- [`sources` directory](https://github.com/bevry/dotfiles/tree/master/sources) contains scripts that are loaded into the shell environment
-- [`themes` directory](https://github.com/bevry/dotfiles/tree/master/themes) contains themes that you can select via the `THEME` environment variable
-- [`users` directory](https://github.com/bevry/dotfiles/tree/master/users) contains configuration specific to the currently logged in user, use it to customise installation configurations and editor configs
-- [`init.fish`](https://github.com/bevry/dotfiles/blob/master/init.fish) the initialisation script for the fish shell
-- [`init.sh`](https://github.com/bevry/dotfiles/blob/master/init.sh) the initialisation script for other shells
+- [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands
+- [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
+- [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `THEME` environment variable
+- [`user` directory](https://github.com/balupton/dotfiles) is your own github repository for your custom configuration
+- [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) the initialization script for the fish shell
+- [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) the initialization script for other shells
 
-## Highlights
+The initialization of Dorothy works as follows:
 
-- great compatibility
+1. Fish shell will be instructed to load Dorothy's `init.fish` file, and the other shell's will be instructed to load Dorothy's `init.sh` file.
+1. The initialization file will set the `DOROTHY` environment variable to the location of the Dorothy installation, and load the appropriate `sources/essentials` and `sources/extras` file for our shell.
+1. The essentials will configure the scripting necessities:
 
-  - cross-shell compatibility, with tested support for `bash`, `fish`, and `zsh`
-  - cross-operating-system compatibility, with tested support for MacOS and Ubuntu
+   1. evaluate the output of `setup-paths-commands` which will setup the various environment variables for what our system has installed (such as adding ecosystem tooling to `PATH` and setting up the various `*ROOT` variables etc)
+   1. load our user configuration and overrides
 
-- user customisable
+1. The extras will configure everything needed for user shells, rather than necessarily scripting:
+   1. Configure our editor preferences
+   1. Configure our aliases and functions
+   1. Configure ssh
+   1. Configure zsh
+   1. Configure azure and google cloud
+   1. Configure shell auto-completions
+   1. Configure the theme
 
-  - use `edit-env` for hidden and git-ignored environment variable configuration
-  - use `edit-my-scripts` to customise your application and editor preferences
+All up, this is pretty amazing.
 
-- automatic editor detection
+## Documentation
 
-  - use `edit` to open your favourite installed editor automatically
-    - in GUI environments will open your GUI editor
-    - in terminal environments will open your terminal editor
-  - git prompts are configured correctly to use your favourite terminal editor
-  - uses `setup-editor-commands` to determine the correct configuration, which is then applied via the init scripts
-  - use `git-review` to open your favourite git GUI editor / review tool
+After installing Dorothy, there will now be hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) available to you, most should be intuitive, and if they receive arguments, then they should alert you to what they are. [Soon](https://github.com/bevry/dorothy/issues/7) there will also be man page documentation for these.
 
-- `setup-install` and `setup-update` will setup your entire system for development, including
+The most prominent commands and functionality are grouped into categories below.
 
-  - installs and configures linux (via `setup-linux-*`) and mac (via `setup-mac-*`)
-  - installs and configures node (via `setup-node`), ruby (via `setup-ruby`), python (via `setup-python`)
-  - installs and configures vscode, and if atom is installed will configure it
-  - installs fonts (via `setup-*-fonts`)
-  - configures git (via `setup-git`)
-    - user
-    - diff
-    - keychain credential storage
-    - ssh, with additional [krypton](https://krypt.co) support
-    - gpg, with additional [krypton](https://krypt.co) and [keybase](https://keybase.io) support
-  - configures terminal commands for several GUI apps (via `setup-bin`)
+### Configuration
 
-- intelligent cross-shell setup of your PATH variables
+Dorothy is highly configurable. During the installation process, it would have set you up with your own `user` repository inside Dorothy. You can run `edit "$DOROTHY/user"` to open it in your favorite GUI editor. Or if you haven't installed Dorothy yet, you can refer to [Benjamin Lupton's dotfiles](https://github.com/balupton/dotfiles) for his directory.
 
-  - uses `setup-paths-commands` to determine the correct configuration, which is then applied via `sources/paths.*` which are loaded by the init scripts
-  - automatically adds appropriate path configuration for many different applications, libraries, and utilities
+Inside the user configuration will be a `commands` directory, which is automatically inside your `PATH` (meaning it is runnable by just typing its name in your terminal). If you have created a new command, ensure it is executable by running `chmod +x $DOROTHY/user/commands/*` or simply with `setup-dorothy perms`.
 
-- ssh key management
+There will also be a `source.bash` file and a `source.sh` file inside the user configuration. The `source.bash` file is where the configuration for our various bash commands will go, such as our [`setup-*` installation scripts](https://github.com/bevry/dorothy#installation). The `source.sh` file is where you will put configuration that is compatible with all your shells, and is for things primarily outside the Dorothy ecosystem.
 
-  - stores ssh key passwords in the operating system's keychain, so you don't have to reenter them every time
-  - `ssh-add-all` for adding your ssh keys and setting them to the correct permissions
-  - `ssh-new` for generating new ssh keys
+#### `source.bash`
 
-- `secret` for setting env secrets for commands securely
+Available `source.bash` configuration:
 
-  - secrets ares fetched directly from 1Password, with a short lived session
-  - secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
-  - secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
+- `USER_SHELLS` to specify your preferential order of the shell, such that `setup-shell` which is run within `setup-install` will select your favorite shell that is available
+- Other configuration is detailed in the various functionality sections.
 
-- `key` for creating and managing your gpg keys
+Open/edit your `source.bash` file:
 
-- `sparse-vault` for creating and managing sparsebundles and sparseimages
+```bash
+edit "$DOROTHY/user/source.bash"
+```
 
-- `macos-state` command for backup then restore of all your application and system preferences prior and after a computer restore
+Examples of the `source.bash` file:
 
-- `macos-drive` for creating a bootable MacOS install media drive
+- [Dorothy's `defaults.bash` which contains the defaults.](https://github.com/bevry/dorothy/tree/master/sources/defaults.bash)
+- [Benjamin Lupton's `source.bash` which contains many installation customizations.](https://github.com/balupton/dotfiles/tree/master/source.bash)
 
-- `git-fix-email` for fixing incorrect contributor details in commit histories
+#### `source.sh`
 
-- `down` for downloading files using the best currently installed downloader app
+Available `source.sh` configuration:
 
-- `ios-dev` for opening the iOS simulator
+- `DOROTHY_THEME` to specify which [Dorothy theme]https://github.com/bevry/dorothy/tree/master/themes) you would like to use (each Dorothy theme is consistent across the various different shells)
+- Other configuration is detailed in the various functionality sections.
 
-- `podcast` for converting an audio file to a new file with aac-he encoding
+Open/edit your `source.sh` file:
 
-- `podvideo` for converting a video file to a new file with h264+aac encoding
+```bash
+edit "$DOROTHY/user/source.sh"
+```
 
-- `video-merge` for merging multiple video files in a directory together into a single video file
+Examples of the `source.sh` file:
 
-- `rm-vmware` for uninstalling vmware
+- [Dorothy's `defaults.sh` which contains the defaults.](https://github.com/bevry/dorothy/tree/master/sources/defaults.sh)
+- [Benjamin Lupton's `source.sh` which contains a few shell configurations, as well as loading of a `env.sh` file.](https://github.com/balupton/dotfiles/tree/master/source.sh)
 
-- `add-scripts`, `edit-scripts`, `edit-script` for quickly working with these dotfiles
+#### Existing dotfiles
 
-- `alias-details`, `aliases`, `aliases-to-symlink`, `alias-path`, `alias-verify` for converting MacOS aliases to symlinks
+If you are wanting to migrate your existing dotfiles configuration to Dorothy, you will probably have a legacy setup where instead of commands, you have functions, and instead of being cross-shell compatible, all your functions are written for one particular shell. To level-up your setup dramatically you will want to:
 
-- `mail-sync` to move everything from one IMAP provider to another
+Turn each of these functions into their own command, such that they can be cross-compatible with any shell that calls it, do this by:
 
-- `pdf-decrypt` for mass converting encrypted documents into new unencrypted documents
+1. Moving the body of each function into their own command file at `$DOROTHY/user/commands/the-command-name`, and the shell prefix to the file, e.g. `#!/usr/bin/env bash` for bash, `#!/usr/bin/env zsh` for zsh, and `#!/usr/bin/env fish` for fish.
 
-- `xps2pdf` for mass converting xps documents ito new pdf documents
+2. For functions that you want to keep in your shell environment rather than becoming commands, create a `$DOROTHY/user/sources/` directory, and store them in there with the appropriate prefix, and include them via your `source.bash`, `source.zsh`, or `source.sh` file.
 
-- `find-files` for finding files that match a given extension, and optionally running a command on them
+For anything that modifies paths, or configures ecosystems, check the [`setup-paths-commands` command](https://github.com/bevry/dorothy/tree/master/commands/setup-paths-commands) to see if Dorothy already handles it for you, if so you can remove it.
 
-- `expand-path` for outputting results of glob patterns each on their own line
+### Installation
 
-- `itunes-owners` for generating a table of owners and media, from one's iTunes Media Library
+To automatically configure and install a brand new system, you can run [`setup-install`](https://github.com/bevry/dorothy/tree/master/commands/setup-install) which will go through the various installation scripts for various tooling, and ask you questions about configuring the defaults for your system, and if you wish to install from any backups.
 
-- youtube download helpers
+To routinely keep your system up to date with all the latest tooling, you can use [`setup-update`](https://github.com/bevry/dorothy/tree/master/commands/setup-install).
 
-  - `youtube-dl-audio` for downloading the best quality audio from a youtube video with m4a encoding
-  - `youtube-dl-native` for downloading the best quality options from a youtube video with mp4+m4a encoding
-  - `youtube-dl-everything` for downloading an entire playlist using `youtube-dl-native`
+Both of these use [your configuration](https://github.com/bevry/dorothy#configuration) to determine what to install and keep updated.
 
-- many helpers for general shell scripting, such as those named `command*`, `contains*`, `is*`, `silent*`
+Available `source.bash` configuration:
+
+- `APK_INSTALL` to specify what should be installed/updated with the APK ecosystem
+- `APT_REMOVE` to specify what should be removed with the APT (Debian/Ubuntu) ecosystem
+- `APT_ADD` to specify what should be installed/updated with the APT (Debian/Ubuntu) ecosystem
+- `SNAP_INSTALL` to specify what should be installed/updated with the SNAP (Ubuntu) ecosystem
+- `HOMEBREW_ARCH` to specify which architecture the Homebrew ecosystem should be used (only relevant for Apple Silicon machines)
+- `HOMEBREW_INSTALL` to specify what should be installed/updated with the Homebrew (Mac) ecosystem
+- `HOMEBREW_INSTALL_SLOW` to specify what should be installed/updated with the Homebrew (Mac) ecosystem, for things that take a very long time to install/update
+- `HOMEBREW_INSTALL_CASK` to specify what applications should be installed/updated with the Homebrew (Mac) ecosystem
+- `GO_INSTALL` to specify what should be installed/updated with the Golang ecosystem
+- `NODE_INSTALL` to specify what global dependencies should be installed/updated with the Node (npm/yarn) ecosystem
+- `PYTHON_INSTALL` to specify what should be installed/updated with the Python (Pip) ecosystem
+- `RUBY_INSTALL` to specify what should be installed/updated with the Ruby (Gem) ecosystem
+
+If you would prefer to focus on a specify ecosystem, you the relevant commands are:
+
+- `setup-linux-*`: installs and configures linux
+- `setup-mac-*`: installs and configures mac
+- `setup-go`, `setup-node`, `setup-python`, `setup-ruby` installs and configures their various ecosystems
+- `setup-*-fonts`: installs fonts for your specify operating system
+- `setup-bin`: installs the CLI commands for the GUI apps you have installed
+
+### Editors
+
+The [`edit` command](https://github.com/bevry/dorothy/tree/master/commands/edit)` will open your favorite installed editor automatically:
+
+- in GUI environments (such as your desktop computer and laptop) will open your favorite available GUI editor (such as VSCode, Atom, etc)
+- in terminal environments (such as accessing your computer via SSH, or accessing a remote computer that is using Dorothy) will open your favorite available terminal editor (such as vim, nano, etc)
+- git prompts, such as confirming a commit message or git tag annotation, are automatically configured to use your favorite editor for your environment
+
+Available `source.bash` configuration:
+
+- `TERMINAL_EDITORS` to specify your preferential order of the command line editors, such that `git` or `edit` (when running over SSH) will use your favorite terminal editor that is installed
+- `GUI_EDITORS` to specify your preferential order of the GUI editors, such that `edit` (when running inside a desktop environment) will use your favorite GUI editor that is available
+
+This is functionality is initialized via the [`setup-editor-commands` command](https://github.com/bevry/dorothy/tree/master/commands/setup-editor-commands) which is evaluated via the appropriate `source/edit` file.
+
+### Git
+
+The [`setup-git` command](https://github.com/bevry/dorothy/tree/master/commands/setup-git) (which is included in the `setup-update` flow) will configure git such that:
+
+- your user name, email, github preferences are all configured
+- your favorite available diff editor is selected
+- passwords will be stored securely in the operating system's secure keychain storage, so you don't have to renter them every time
+- ssh will be configured, and includes support for [krypton](https://krypt.co) if available
+- gpg will be configured, and includes support for [krypton](https://krypt.co) and [keybase](https://keybase.io) if available
+
+Available `source` configuration:
+
+- `GIT_PROTOCOL` to specify your preferred protocol when interacting with git repositories (`ssh` or `https`)
+- `GIT_DEFAULT_BRANCH` to specify your preferred branch name for new repositories (e.g. `main` or `master`)
+- `GPG_SIGNING_KEY` to specify your preferred GPG key
+
+The [`key` command](https://github.com/bevry/dorothy/tree/master/commands/key) will walk you through the management and creation of your gpg keys.
+
+The [`ssh-add-all` command](https://github.com/bevry/dorothy/tree/master/commands/ssh-add-all) will add new ssh keys to your ssh profile, and correct their permissions, ensuring they are correctly loaded from now on
+
+The [`ssh-new` command](https://github.com/bevry/dorothy/tree/master/commands/ssh-new) will walk you through the creation of new ssh keys.
+
+The [`git-review` command](https://github.com/bevry/dorothy/tree/master/commands/git-review) will open your favorite git review editor (e.g. GitHub Desktop, Gitfox, Tower, etc)
+
+The [`git-fix-email` command](https://github.com/bevry/dorothy/tree/master/commands/git-fix-email) will allow you to make sure that a repository's git history is using the correct emails for the various users that have committed to it.
+
+The [`git-protocol-apply` command](https://github.com/bevry/dorothy/tree/master/commands/git-protocol-apply) will ensure the remote you are using for your git repository is configured to the your desired git protocol.
+
+### Secrets
+
+Use the [`secret` command](https://github.com/bevry/dorothy/tree/master/commands/secret) to stop leaking your env secrets to the world when a malicious program sends your shell environment variables to a remote server. Instead, `secret` will use 1Password to securely expose your secrets to just the command that needs them. Specifically:
+
+- secrets ares fetched directly from 1Password, with a short lived session
+- secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
+- secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
+
+Available `source` configuration:
+
+- `SECRETS` to customize the database location for your [Secrets](https://github.com/bevry/dorothy#secrets) (defaults to `$DOROTHY/user/secrets`)
+
+### DNS
+
+One of the biggest security concerns these days with using the internet, is the leaking, and potential of modification of your DNS queries. A DNS query is what turns `google.com` to say `172.217.167.110`. With un-encrypted DNS (the default), your ISP, or say that public Wifi provider, can intercept these queries to find out what websites you are visiting, and they can even rewrite these queries, to direct you elsewhere. This is how many public Wifi providers offer their service for free, by selling the data they collect on you, or worse.
+
+The solution to this is encrypted DNS. Some VPN providers already include it within their service, however most don't. Any if you have encrypted DNS, then you get the benefits of preventing evesdropping without the need for expensive VPN, and the risk of your VPN provider evesdropping on you.
+
+Dorothy supports configuring your DNS to encrypted DNS via the [`setup-dns` command](https://github.com/bevry/dorothy/tree/master/commands/setup-dns), which includes installation and configuration for any of these:
+
+- AdGuard Home
+- Cloudflared
+- DNSCrypt
+
+The [`select-dns` command](https://github.com/bevry/dorothy/tree/master/commands/select-dns) lets you easily select your DNS provider out of many popular and secure variations, some even support adult content filtering and adblocking builtin.
+
+The [`flush-dns` command](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
+
+The [`select-hosts` command](https://github.com/bevry/dorothy/tree/master/commands/select-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
+
+Available `source` configuration for `setup-dns`:
+
+- `DNS_SERVICE` to automate selection of which DNS provider to use
+
+Available `source.bash` configuration for `select-dns`:
+
+- `DNS_PROVIDER` to automate selection of which DNS service you wish to get your DNS Queries from, if you use `env`, then you can set `DNS_IPV4SERVERS` and `DNS_IPV6SERVERS` to the specific servers to use (this is useful if you are using a local AdGuard Home installation that is available on another machine)
+
+- If you are a NoFapper, then you can configure `DNS_NOFAP`, `NOFAP_DISCORD_USERNAME`, `NOFAP_DISCORD_WEBHOOK`, `NOFAP_DISCORD_WEBHOOK_AUTH` to ensure your DNS prevents adult content, and alert your mates via the webhook if you are attempting to bypass it
+
+### Downloads
+
+The [`down` command](https://github.com/bevry/dorothy/tree/master/commands/down) will use the best downloader app that you currently have available for performing the download. Very useful for cross-system compatibility, as well as for resuming downloads. Supported apps are `aria2c`, `wget`, `curl`, `http` (httpie).
+
+## Mac
+
+The [`macos-state` command](https://github.com/bevry/dorothy/tree/master/commands/macos-state) for backup and restore of your various application and system preferences, from time machine backups, local directories, and sftp locations. This makes setting up clean installs easy, as even the configuration is automated. And it also helps you never forget an important file, like your env secrets ever again.
+
+The [`macos-drive` command](https://github.com/bevry/dorothy/tree/master/commands/macos-drive) is for easily turning a MacOS installer download into a bootable MacOS installer USB drive.
+
+The [`sparse-vault` command](https://github.com/bevry/dorothy/tree/master/commands/sparse-vault) lets you easily, and for free, create secure encrypted password-protected vaults on your mac, for securing those super secret data.
+
+The [`itunes-owners` command](https://github.com/bevry/dorothy/tree/master/commands/itunes-owners) will generate a table of who legally owns what inside your iTunes Media Library — which is useful for debugging certain iTunes Store authorization issues, which can occur upon backup restorations.
+
+The [`ios-dev` command](https://github.com/bevry/dorothy/tree/master/commands/ios-dev) lets you easily open the iOS simulator from the terminal.
+
+The [`alias-details`](https://github.com/bevry/dorothy/tree/master/commands/alias-details), [`aliases`](https://github.com/bevry/dorothy/tree/master/commands/aliases), [`aliases-to-symlink`](https://github.com/bevry/dorothy/tree/master/commands/aliases-to-symlink), [`alias-path`](https://github.com/bevry/dorothy/tree/master/commands/alias-path), [`alias-verify`](https://github.com/bevry/dorothy/tree/master/commands/alias-details) commands will help you convert MacOS aliases into symlinks.
+
+### Media
+
+The [`podcast` command](https://github.com/bevry/dorothy/tree/master/commands/podcast) will convert an audio file to a new file with Apple's recommended podcast encoding and settings `aac-he`, which is super optimized for podcast use cases with tiny file sizes and the same quality.
+
+The [`podvideo` command](https://github.com/bevry/dorothy/tree/master/commands/podvideo) will convert a video file to a new file with h264+aac encoding.
+
+The [`youtube-dl-archive` command](https://github.com/bevry/dorothy/tree/master/commands/youtube-dl-archive) will download something from youtube, with all the necessary extras such that you know you got everything.
+
+The [`video-merge` command](https://github.com/bevry/dorothy/tree/master/commands/video-merge) will merge multiple video files in a directory together into a single video file.
+
+### Scripting
+
+The [`expand-path` command](https://github.com/bevry/dorothy/tree/master/commands/expand-path) will output the results of glob patterns each on their own line.
+
+The [`ok` command](https://github.com/bevry/dorothy/tree/master/commands/ok) will execute the command and always return a success exit code, in a way that is cross-shell compatible.
+
+The [`silent` command](https://github.com/bevry/dorothy/tree/master/commands/silent) and its `silent-*` variants, will hide the various outputs of a command, in a way that is cross-shell compatible.
+
+Any plenty more for cross-shell scripting with the following namespaces:
+
+- `command-*`
+- `confirm-*`
+- `contains-*`
+- `is-*`
+- `rm-*`
+
+### Utilities
+
+The [`mail-sync` command](https://github.com/bevry/dorothy/tree/master/commands/mail-sync) will move everything from one IMAP provider to another IMAP provider.
+
+The [`pdf-decrypt` command](https://github.com/bevry/dorothy/tree/master/commands/pdf-decrypt) will mass decrypt encrypted PDFs and store their results.
+
+The [`xps2pdf` command](https://github.com/bevry/dorothy/tree/master/commands/xps2pdf) will convert a legacy XPS document into a modern PDF document.
+
+[There are hundreds more commands](https://github.com/bevry/dorothy/tree/master/commands), so you can check them out or carry on knowing that when the time comes, Dorothy probably already has it.
 
 ## License
 

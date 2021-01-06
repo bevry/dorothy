@@ -1,17 +1,17 @@
 #!/usr/bin/env sh
 
-if test -n "${BASH_VERSION-}" -a -f "$BDIR/env.bash"; then
-	. "$BDIR/env.bash"
-elif test -n "${ZSH_VERSION-}" -a -f "$BDIR/env.zsh"; then
-	. "$BDIR/env.zsh"
-elif test -f "$BDIR/env.sh"; then
-	. "$BDIR/env.sh"
+# defaults
+if test -n "${BASH_VERSION-}" -a -f "$DOROTHY/sources/defaults.bash"; then
+	. "$DOROTHY/sources/defaults.bash"
+else
+	. "$DOROTHY/sources/defaults.sh"
 fi
 
-if test -n "${BASH_VERSION-}" -a -f "$BDIR/users/$(whoami)/source.bash"; then
-	. "$BDIR/users/$(whoami)/source.bash"
-elif test -n "${ZSH_VERSION-}" -a -f "$BDIR/users/$(whoami)/source.zsh"; then
-	. "$BDIR/users/$(whoami)/source.zsh"
-elif test -f "$BDIR/users/$(whoami)/source.sh"; then
-	. "$BDIR/users/$(whoami)/source.sh"
+# user
+if test -n "${BASH_VERSION-}" -a -f "$DOROTHY/user/source.bash"; then
+	. "$DOROTHY/user/source.bash"
+elif test -n "${ZSH_VERSION-}" -a -f "$DOROTHY/user/source.zsh"; then
+	. "$DOROTHY/user/source.zsh"
+elif test -f "$DOROTHY/user/source.sh"; then
+	. "$DOROTHY/user/source.sh"
 fi

@@ -1,3 +1,3 @@
 #!/usr/bin/env fish
 
-eval ("$BDIR/commands/setup-paths-commands" fish)
+eval ("$DOROTHY/commands/setup-paths-commands" fish)

@@ -4,5 +4,5 @@
 export MAILCHECK=0
 
 # Essential
-. "$BDIR/sources/paths.sh"
-. "$BDIR/sources/user.sh"
+. "$DOROTHY/sources/paths.sh"
+. "$DOROTHY/sources/user.sh"
