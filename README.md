@@ -156,7 +156,7 @@ If you would prefer to focus on a specify ecosystem, you the relevant commands a
 
 ### Editors
 
-The [`edit` command](https://github.com/bevry/dorothy/tree/master/commands/edit)` will open your favorite installed editor automatically:
+The [`edit` command](https://github.com/bevry/dorothy/tree/master/commands/edit) will open your favorite installed editor automatically:
 
 - in GUI environments (such as your desktop computer and laptop) will open your favorite available GUI editor (such as VSCode, Atom, etc)
 - in terminal environments (such as accessing your computer via SSH, or accessing a remote computer that is using Dorothy) will open your favorite available terminal editor (such as vim, nano, etc)
