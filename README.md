@@ -97,7 +97,7 @@ Examples of the `source.bash` file:
 
 Available `source.sh` configuration:
 
-- `DOROTHY_THEME` to specify which [Dorothy theme]https://github.com/bevry/dorothy/tree/master/themes) you would like to use (each Dorothy theme is consistent across the various different shells)
+- `DOROTHY_THEME` to specify which [Dorothy theme](https://github.com/bevry/dorothy/tree/master/themes) you would like to use (each Dorothy theme is consistent across the various different shells)
 - Other configuration is detailed in the various functionality sections.
 
 Open/edit your `source.sh` file:
