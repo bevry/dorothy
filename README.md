@@ -71,7 +71,7 @@ The most prominent commands and functionality are grouped into categories below.
 
 Dorothy is highly configurable. During the installation process, it would have set you up with your own `user` repository inside Dorothy. You can run `edit "$DOROTHY/user"` to open it in your favorite GUI editor. Or if you haven't installed Dorothy yet, you can refer to [Benjamin Lupton's dotfiles](https://github.com/balupton/dotfiles) for his directory.
 
-Inside the user configuration will be a `commands` directory, which is automatically inside your `PATH` (meaning it is runnable by just typing its name in your terminal). If you have created a new command, ensure it is executable by running `chmod +x $DOROTHY/user/commands/*` or simply with `setup-dorothy perms`.
+Inside the user configuration will be a `commands` directory, which is automatically inside your `PATH` (meaning it is runnable by just typing its name in your terminal). If you have created a new command, ensure it is executable by running [`setup-dorothy-permissions`](https://github.com/bevry/dorothy/tree/master/commands/setup-dorothy-permissions).
 
 There will also be a `source.bash` file and a `source.sh` file inside the user configuration. The `source.bash` file is where the configuration for our various bash commands will go, such as our [`setup-*` installation scripts](https://github.com/bevry/dorothy#installation). The `source.sh` file is where you will put configuration that is compatible with all your shells, and is for things primarily outside the Dorothy ecosystem.
 
@@ -79,7 +79,7 @@ There will also be a `source.bash` file and a `source.sh` file inside the user c
 
 Available `source.bash` configuration:
 
-- `USER_SHELLS` to specify your preferential order of the shell, such that `setup-shell` which is run within `setup-install` will select your favorite shell that is available
+- `USER_SHELLS` to specify your preferential order of the shell, such that [`setup-shell`](https://github.com/bevry/dorothy/tree/master/commands/setup-shell) which is run within [`setup-install`](https://github.com/bevry/dorothy/tree/master/commands/setup-install) will select your favorite shell that is available
 - Other configuration is detailed in the various functionality sections.
 
 Open/edit your `source.bash` file:
@@ -150,9 +150,9 @@ If you would prefer to focus on a specify ecosystem, you the relevant commands a
 
 - `setup-linux-*`: installs and configures linux
 - `setup-mac-*`: installs and configures mac
-- `setup-go`, `setup-node`, `setup-python`, `setup-ruby` installs and configures their various ecosystems
+- [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go), [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node), [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python), [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby) installs and configures their various ecosystems
 - `setup-*-fonts`: installs fonts for your specify operating system
-- `setup-bin`: installs the CLI commands for the GUI apps you have installed
+- [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin): installs the CLI commands for the GUI apps you have installed
 
 ### Editors
 
@@ -171,7 +171,7 @@ This is functionality is initialized via the [`setup-editor-commands` command](h
 
 ### Git
 
-The [`setup-git` command](https://github.com/bevry/dorothy/tree/master/commands/setup-git) (which is included in the `setup-update` flow) will configure git such that:
+The [`setup-git` command](https://github.com/bevry/dorothy/tree/master/commands/setup-git) (which is included in the [`setup-update`](https://github.com/bevry/dorothy/tree/master/commands/setup-update) flow) will configure git such that:
 
 - your user name, email, github preferences are all configured
 - your favorite available diff editor is selected
