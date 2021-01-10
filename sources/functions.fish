@@ -20,6 +20,7 @@ function secure-history
 		echo 'all' | history delete --contains "secret"
 		echo 'all' | history delete --contains "session"
 		echo 'all' | history delete --contains "token"
+		echo 'all' | history delete --contains "twurl"
 		echo 'all' | history delete --contains "vault"
 		echo 'all' | history delete --contains "youtube-dl"
 	end
