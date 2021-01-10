@@ -39,4 +39,5 @@ export HOMEBREW_INSTALL_CASK=()
 export GO_INSTALL=()
 export NODE_INSTALL=()
 export PYTHON_INSTALL=()
+# export RUBY_VERSION='system'
 export RUBY_INSTALL=()
