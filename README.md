@@ -79,7 +79,7 @@ There will also be a `source.bash` file and a `source.sh` file inside the user c
 
 Available `source.bash` configuration:
 
-- `USER_SHELLS` to specify your preferential order of the shell, such that [`setup-shell`](https://github.com/bevry/dorothy/tree/master/commands/setup-shell) which is run within [`setup-install`](https://github.com/bevry/dorothy/tree/master/commands/setup-install) will select your favorite shell that is available
+- `USER_SHELLS` to specify your preferential order of the shell, such that [`select-shell`](https://github.com/bevry/dorothy/tree/master/commands/select-shell) which is run within [`setup-install`](https://github.com/bevry/dorothy/tree/master/commands/setup-install) will select your favorite shell that is available
 - Other configuration is detailed in the various functionality sections.
 
 Open/edit your `source.bash` file:

@@ -22,12 +22,12 @@ export GUI_EDITORS=(
 )
 
 # our shells in order of preference
-export USER_SHELLS=(
-	fish
-	zsh
-	bash
-	sh
-)
+# export USER_SHELLS=(
+# 	fish
+# 	zsh
+# 	bash
+# 	sh
+# )
 
 # what to install or remove
 export APK_INSTALL=()
