@@ -134,6 +134,13 @@ for r in "${a[@]}"; do
     echo "[$r]"
 done
 
+# args length
+echo "$#"
+
+# array length
+echo "${#a[@]}"
+
+# contains
 if test "${a[@]}" = *"c"*; then
 	echo 'with c'
 else
