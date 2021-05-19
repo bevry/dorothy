@@ -10,6 +10,11 @@ else
 fi
 
 # Setup install functions
+function brewforceuninstall() {
+	for ARG in "$@"; do
+		ok brew uninstall --ignore-dependencies "$ARG"
+	done
+}
 function brewinstall() {
 	for ARG in "$@"; do
 		if ! brew install "$ARG"; then
@@ -31,13 +36,29 @@ function slowbrewinstall() {
 	fi
 }
 function confirmbrewinstall() {
-	mapfile -t choices < <(read-choices "What formulas would you like to brew install?" "$@")
+	if test "$#" -eq 0; then
+		echo 'Dorothy user has not configured any formulas to install'
+	elif test "$#" -eq 1; then
+		if confirm-bool "Would you like to install the formula [$1]?"; then
+			choices=("$1")
+		fi
+	else
+		mapfile -t choices < <(read-choices "What formulas would you like to brew install?" "$@")
+	fi
 	if is-present "${choices-}"; then
 		brewinstall "${choices[@]}"
 	fi
 }
 function confirmcaskinstall() {
-	mapfile -t choices < <(read-choices "Which casks would you like to brew install?" "$@")
+	if test "$#" -eq 0; then
+		echo 'Dorothy user has not configured any casks to install'
+	elif test "$#" -eq 1; then
+		if confirm-bool "Would you like to install the cask [$1]?"; then
+			choices=("$1")
+		fi
+	else
+		mapfile -t choices < <(read-choices "Which casks would you like to brew install?" "$@")
+	fi
 	if is-present "${choices-}"; then
 		brew install --cask "${choices[@]}"
 	fi
@@ -60,7 +81,10 @@ ok silent brew untap caskroom/cask
 ok silent brew untap caskroom/fonts
 # fix: Error: homebrew-cask is a shallow clone
 # uses `ok` as if already done, wil fail with: fatal: --unshallow on a complete repository does not make sense
-ok git -C "$(brew --prefix)/Homebrew/Library/Taps/homebrew/homebrew-cask" fetch --unshallow
+brewrepodirs="$(echo-dirs "$(dirname "$(brew --repo homebrew/core)")")"
+for directory in $brewrepodirs; do
+	ok git -C "$directory" fetch --unshallow
+done
 # update and upgrade
 brew update
 brew upgrade
@@ -69,15 +93,29 @@ brew tap homebrew/cask-fonts
 # done
 echo '...updated homebrew!'
 
-echo -e '\nInstalling command line applications via homebrew...'
-if is-present "${HOMEBREW_INSTALL-}"; then
-	brew install "${HOMEBREW_INSTALL[@]}"
-fi
-if is-present "${HOMEBREW_INSTALL_SLOW-}"; then
-	slowbrewinstall "${HOMEBREW_INSTALL_SLOW[@]}"
-fi
-echo '...installed command line applications!'
+# Removing dependencies that routinelly fail due to their circular nature
+echo -e '\nRemoving circular brew dependencies for reinstallation later...'
+brewforceuninstall chromaprint homebrew-ffmpeg/ffmpeg/ffmpeg ffmpeg vim python ruby
+# finish wiping python
+rm -rf "/Users/$(whoami)/Library/Python/"*
+rm -rf "$(brew --cellar)/python"*
+rm -rf "$(brew --prefix)/opt/python"*
 
+# Reinstall dependencies
+# python
+brew install python
+# ruby
+if test -n "${RUBY_VERSION-}"; then
+	if test "$RUBY_VERSION" != "system"; then
+	echo -e "\nInstalling brew ruby $RUBY_VERSION..."
+		brew install "ruby@$RUBY_VERSION"
+	fi
+else
+	echo -e '\nInstalling latest brew ruby...'
+	brew install ruby
+fi
+
+# ffmpeg
 if test "$mode" = "install" && confirm-bool $'\nDo you want to install encoding tools?'; then
 	# install the ffmpeg formula that includes all the options
 	# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg
@@ -124,9 +162,24 @@ if test "$mode" = "install" && confirm-bool $'\nDo you want to install encoding 
 		;
 
 	# install with all the options
-	brew install homebrew-ffmpeg/ffmpeg/ffmpeg $(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)
+	opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
+	# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
+	opts="${opts/--with-decklink /}"
+	# install
+	brew install homebrew-ffmpeg/ffmpeg/ffmpeg $opts
 fi
 
+# user cli deps
+echo -e '\nInstalling command line applications via homebrew...'
+if is-present "${HOMEBREW_INSTALL-}"; then
+	brew install "${HOMEBREW_INSTALL[@]}"
+fi
+if is-present "${HOMEBREW_INSTALL_SLOW-}"; then
+	slowbrewinstall "${HOMEBREW_INSTALL_SLOW[@]}"
+fi
+echo '...installed command line applications!'
+
+# user cask deps
 if is-present "${HOMEBREW_INSTALL_CASK-}" && test "$mode" = "install"; then
 	confirmcaskinstall "${HOMEBREW_INSTALL_CASK[@]}"
 fi
