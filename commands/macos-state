@@ -1,150 +1,176 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# todo: support using scp -r remote:$HOME/blah $HOME/blah
+# To use with remote, use like so:
+# macos-state 'balupton@mbpe:/Volumes/System'
 
-warnings=""
-cloudRoot="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Apps/macos-state"
-action="${1-}"
-if test "$action" != "backup" -a "$action" != "restore"; then
-	stderr echo "USAGE:"
-	stderr echo "BACKUP TO CLOUD: macos-state backup [backup-root]"
-	stderr echo "RESTORE FROM TIME MACHINE: macos-state restore [backup-root]"
-	exit 1
-fi
+# Prepare
+warnings=''
+backupRoot="${1-}"
+backupType='fs' # tm, fs, remote
+tmp=''
 
+# What does the user want to do?
+echo ''
+echo 'What do you want to do? Make a backup, or restore a backup?'
+action="$(choose backup restore)"
+
+# What is the local volume?
 echo ''
 echo 'What is your local volume?'
-export localRoot; localRoot="$(choose-subdir /Volumes)"
-echo "Selected: $localRoot"
+localRoot="$(choose-subdir /Volumes)"
+echo "=> $localRoot"
 
-if is-equal "$action" "restore"; then
-	export backupRoot="${2-}"
-
-	# ssh
-	if [[ "$backupRoot" = *"@"* ]]; then
-		echo 'SSH location provided...'
-		if [[ "$backupRoot" != *":" ]]; then
-			backupRoot="$backupRoot:'"
-		fi
-	elif is-empty-string "$backupRoot"; then
-		echo "Make sure that Time Machine is configured, or you have the Time Machine Backup Volume mounted. Press any key to continue."
-		read -r -n 1 -p ''
+# Use time machine?
+if test "$action" = 'restore' -a -z "$backupRoot"; then
+	echo ''
+	if confirm-bool 'Do you want to restore from Time Machine?'; then
+		echo "Ensure either:"
+		echo "- Time Machine is configured in system preferences"
+		echo "- The Time Machine Backup Volume is already mounted"
+		confirm "Press any key to continue..."
 		echo ''
-		echo 'Fetching Time Machine backup automatically...'
-		timeRoot="$(tmutil latestbackup || exit 0)"
-		if ! is-dir "$timeRoot"; then
+		backupRoot="$(tmutil latestbackup || exit 0)"
+		if ! is-dir "$backupRoot"; then
 			echo ''
-			echo 'Fetching Time Machine backup manually...'
+			echo 'Unable to find the Time Machine backup automatically, attempting manual resolution...'
 			echo ''
 			echo 'Which volume contains the time machine backups?'
 			timeBackupVolume="$(choose-subdir /Volumes)"
 			echo ''
 			echo 'Which machine has the backups?'
 			timeBackupMachine="$(choose-subdir "$timeBackupVolume/Backups.backupdb")"
-			timeRoot="$timeBackupMachine/Latest"
+			backupRoot="$timeBackupMachine/Latest"
 		fi
-
-		if ! is-dir "$timeRoot"; then
-			stderr echo 'Time Machine backup could not be determined'
-			exit 1
-		fi
-
-		echo ''
-		echo 'Selecting volume...'
-		if is-dir "$timeRoot/Macintosh HD"; then
-			timeRoot="$timeRoot/Macintosh HD"
-		elif is-dir "$timeRoot/System"; then
-			timeRoot="$timeRoot/System"
+		if is-dir "$backupRoot"; then
+			echo "=> $backupRoot"
+			backupType='tm'
 		else
-			timeRoot="$timeRoot/$(choose-subdir "$timeRoot")"
+			stderr echo 'Time Machine backup could not be determined'
+			backupRoot=''
 		fi
-
-		if ! is-dir "$timeRoot/$HOME"; then
-			stderr echo "Could not find user directory in time machine backup directory: $timeRoot"
-			exit 1
-		fi
-
-		backupRoot="$timeRoot"
-	fi
-
-	echo ''
-	if is-equal "$action" "restore"; then
-		echo "Restoring from: $backupRoot"
 	fi
 fi
 
-function backup {
-	echo "backup: $1"
-
-	local from
-	local to
-
-	# starts with /, so append directly
-	if [[ "$1" = "/"* ]]; then
-		from="$localRoot$1"
-		to="$cloudRoot$1"
-	else
-		# assume local, so append via home
-		from="$localRoot$HOME/$1"
-		to="$cloudRoot$HOME/$1"
+# Use cloud location if it exists
+if test "$action" = 'restore' -a -z "$backupRoot"; then
+	cloudRoot="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Apps/macos-state"
+	if test -d "$cloudRoot"; then
+		backupRoot="$(fs-join "$cloudRoot" "$localRoot")"
 	fi
+fi
 
-	if [[ "$backupRoot" = *"@"* ]]; then
-		sudo rm -Rf "$to"
-		mkdir -p "$(dirname "$to")"
-		scp -r "$from" "$to'"
-	elif is-exists "$from"; then
-		sudo rm -Rf "$to"
-		mkdir -p "$(dirname "$to")"
-		cp -fpLRv "$from" "$to"
+# Confirm the backup location
+echo ''
+cloudRoot="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Apps/macos-state"
+if test "$action" = 'backup'; then
+	tmp="Where will the backups be stored? [${1:-"$cloudRoot"}]"
+else
+	tmp="Where are the backups stored? [${1:-"$cloudRoot"}]"
+fi
+echo "$tmp"
+read -r backupRoot
+if test -z "$backupRoot"; then
+	backupRoot="${1:-"$cloudRoot"}"
+fi
+echo "=> $backupRoot"
+
+# Detection
+if contains-word "$backupRoot" "Time Machine Backups" || contains-word "$backupRoot" "Backups.backupdb"; then
+	# tm
+	backupType='tm'
+elif [[ "$backupRoot" = *"@"* ]]; then
+	# remote
+	if [[ "$backupRoot" != *":"* ]]; then
+		backupRoot="$backupRoot:"
+	fi
+	backupType='remote'
+else
+	# fs
+	backupType='fs'
+fi
+
+# Ensure volume
+if [[ "$backupRoot" != *"Volumes"* ]]; then
+	# if it is backup, use our current location
+	if test "$action" = 'backup'; then
+		echo ''
+		echo 'Backup volume selected as:'
+		backupRoot="$(fs-join "$backupRoot" "$localRoot")"
+		echo "=> $backupRoot"
 	else
-		warning="MISSING: $from"
-		warnings="$warnings\\n$warning"
-		echo -e "$warning"
+		# if it is restore, then ask the user, if supported
+		if test "$backupType" = 'remote'; then
+			# fail on remote
+			stderr echo 'Remote backup locations must manually specify the volume, e.g.'
+			stderr echo "macos-state '$(fs-join "$backupRoot" "$localRoot")'"
+			exit 1
+		else
+			# ask
+			echo ''
+			echo 'Which backup volume to use?'
+			backupRoot="$(choose-subdir "$(fs-join "$backupRoot" "Volumes")")"
+			echo "=> $backupRoot"
+		fi
+	fi
+fi
+
+
+
+# Helpers
+function _remove {
+	if is-exists "$1"; then
+		if confirm-positive "^ will be replaced, continue?"; then
+			sudo rm -Rf "$1"
+		fi
+	fi
+}
+function _mkdir {
+	mkdir -p "$(dirname "$1")"
+}
+function _replace {
+	_remove "$1"
+	_mkdir "$1"
+}
+
+function backup {
+	local from="$(fs-volume-join "$localRoot" "$1")"
+	local to="$(fs-volume-join "$backupRoot" "$1")"
+	echo -e "Backup:\n$from\n=>\n$to"
+
+	if is-exists "$from"; then
+		if test "$backupType" = 'remote'; then
+			cpr "$from" "$(escape-spaces "$to")"
+		else
+			_replace "$to"
+			cpr "$from" "$to"
+		fi
+	else
+		echo "^ MISSING"
+		warnings="$warnings\\nMISSING: $from"
+		sudo rm -Rf "$1"
 	fi
 }
 
 function restore {
-	echo "Restoring: $1"
+	local from="$(fs-volume-join "$backupRoot" "$1")"
+	local to="$(fs-volume-join "$localRoot" "$1")"
+	echo -e "Restore:\n$from\n=>\n$to"
 
-	local from
-	local to
-	if [[ "$1" = "/"* ]]; then
-		from="$backupRoot$1"
-		to="$localRoot$1"
-	else
-		from="$backupRoot$HOME/$1"
-		to="$localRoot$HOME/$1"
-	fi
-
-	if [[ "$backupRoot" = *"@"* ]]; then
-		if is-dir "$to"; then
-			sudo rm -Rf "$to"
-		fi
-		mkdir -p "$(dirname "$to")"
-		echo scp -qpr "$from'" "'$to'"
-		scp -qpr "$from'" "$to"
-		own "$to"
+	if test "$backupType" = 'tm'; then
+		_replace "$to"
+		tmutil restore -v "$from" "$to"
+	elif test "$backupType" = 'remote'; then
+		_replace "$to"
+		cpr "$(escape-spaces "$from")" "$to"
 	elif is-exists "$from"; then
-		sudo rm -Rf "$to"
-		mkdir -p "$(dirname "$to")"
-		if contains-word "$backupRoot" "Time Machine Backups" || contains-word "$backupRoot" "Backups.backupdb"; then
-			tmutil restore -v "$from" "$to"
-		else
-			cp -fav "$from" "$to"
-			own "$to"
-		fi
+		_replace "$to"
+		cpr "$from" "$to"
 	else
-		warning="MISSING: $from"
-		warnings="$warnings\\n$warning"
-		echo -e "$warning"
+		echo "^ MISSING"
+		warnings="$warnings\\nMISSING: $from"
+		sudo rm -Rf "$1"
 	fi
-}
-
-function remove {
-	echo "Removing: $1"
-	sudo rm -Rf "$localRoot/$1"
 }
 
 function act {
@@ -156,7 +182,8 @@ function act {
 }
 
 function process {
-	if confirm-bool "$1"; then
+	echo ''
+	if confirm-bool "Do you want to $action $1"; then
 		for p in "${@:2}"; do
 			act "$p"
 		done
@@ -169,30 +196,30 @@ function process {
 # Current
 
 process "Choosy" \
-	"Library/Application Support/Choosy" \
+	"Library/Application Support/Choosy/" \
 	"Library/Preferences/com.choosyosx.Choosy.plist"
 
 process "Elmedia" \
 	"Library/Preferences/com.eltima.elmedia-setapp.plist"
 
 process "Google Chrome" \
-	"Library/Application Support/Google/Chrome"
+	"Library/Application Support/Google/Chrome/"
 
 process "OBS" \
-	"Library/Application Support/obs-studio" \
+	"Library/Application Support/obs-studio/" \
 	"Library/Preferences/com.obsproject.obs-studio.plist"
 
 process "Plex" \
-	"Library/Application Support/Plex Media Server" \
+	"Library/Application Support/Plex Media Server/" \
 	"Library/Preferences/com.plexapp.plexmediaserver.plist"
 
 process "Twitch Studio" \
-	"Library/Application Support/Twitch Studio"
+	"Library/Application Support/Twitch Studio/"
 
 # ===============
 # Apple
 
-process "Apple Mail" "Library/Containers/com.apple.mail/Data/Library/Preferences"
+process "Apple Mail" "Library/Containers/com.apple.mail/Data/Library/Preferences/"
 
 process "Apple Safari History" \
 	"Library/Safari/History.db" \
@@ -202,144 +229,144 @@ process "Apple Safari History" \
 	"Library/Safari/HistoryIndex.sk"
 
 process "Apple Safari Preferences" "Library/Preferences/com.apple.Safari.plist"
-process "Apple Saved Searches" "Library/Saved Searches"
-process "Apple Stickies" "Library/StickiesDatabase"
+process "Apple Saved Searches" "Library/Saved Searches/"
+process "Apple Stickies" "Library/StickiesDatabase/"
 process "Apple Terminal" "Library/Preferences/com.apple.Terminal.plist"
 
 # ===============
 # Documents
 
-process "Downloads" "Downloads"
-process "Projects" "Projects"
-process "Virtual Machines" "Virtual Machines"
+process "Downloads" "Downloads/"
+process "Projects" "Projects/"
+process "Virtual Machines" "Virtual Machines/"
 
-process "GPG" ".gnupg"
-process "SSH" ".ssh"
+process "$DOROTHY" "$DOROTHY/"
+process "GPG" ".gnupg/"
+process "SSH" ".ssh/"
 process "NPM" ".npmrc"
 process "Bash History" ".bash_history"
 process "Travis" ".travis/config.yml"
-process "$DOROTHY/env*" "$DOROTHY/env.sh" "$DOROTHY/env/secrets.json"
 
 # ===============
 # Apps
 # todo: acorn, adguard, authy, agenda, backblaze, bear, bee, bitcoin.com, gitter, jaikoz, keybase, kindle, ntfs for mac, numi, pastebot, paw, pinstriped, protonvpn, scrumpy, signal, sketch, sunama, things, thoughttrain, transmit, ubersicht, webtorrent, workflowy
 
 process "Acorn" \
-	"Library/Application Support/Acorn" \
+	"Library/Application Support/Acorn/" \
 	"Library/Preferences/com.flyingmeat.Acorn6.plist"
 
 process "Adguard" \
-	"Library/Application Support/com.adguard.Adguard" \
+	"Library/Application Support/com.adguard.Adguard/" \
 	"Library/Preferences/com.adguard.Adguard.plist"
 
-process "Agenda" "Library/Containers/com.momenta.agenda.macos"
-process "Amphetamine" "Library/Containers/com.if.Amphetamine"
+process "Agenda" "Library/Containers/com.momenta.agenda.macos/"
+process "Amphetamine" "Library/Containers/com.if.Amphetamine/"
 process "AppZapper" "Library/Preferences/com.appzapper.AppZapper.plist"
 
 process "Audio Hijack" \
-	"Library/Application Support/Audio Hijack" \
+	"Library/Application Support/Audio Hijack/" \
 	"Library/Preferences/com.rogueamoeba.audiohijack3.plist"
 
-process "Authy" "Library/Application Support/Authy Desktop"
+process "Authy" "Library/Application Support/Authy Desktop/"
 
 process "Base" \
-	"Library/Application Support/Base" \
+	"Library/Application Support/Base/" \
 	"Library/Preferences/uk.co.menial.Base.plist"
 
 process "Bartender" "Library/Preferences/com.surteesstudios.Bartender.plist"
-process "Bear" "Library/Containers/net.shinyfrog.bear"
-process "Bitcoin.com" "Library/Application Support/bitcoin.com"
+process "Bear" "Library/Containers/net.shinyfrog.bear/"
+process "Bitcoin.com" "Library/Application Support/bitcoin.com/"
 
 process "Blockstack" \
-	"Library/Application Support/Blockstack" \
+	"Library/Application Support/Blockstack/" \
 	"Library/Preferences/org.blockstack.mac.plist"
 
-process "Boxy" "Library/Containers/com.francescodilorenzo.Mailbro"
-process "Brave" "Library/Application Support/brave"
+process "Boxy" "Library/Containers/com.francescodilorenzo.Mailbro/"
+process "Brave" "Library/Application Support/brave/"
 
 process "Calibre" \
-	"Library/Preferences/calibre" \
+	"Library/Preferences/calibre/" \
 	"Library/Preferences/net.kovidgoyal.calibre.plist"
 
 process "Context" "Library/Preferences/com.contextsformac.Contexts.plist"
 
 process "Cyberduck" \
-	"Library/Containers/ch.sudo.cyberduck" \
+	"Library/Containers/ch.sudo.cyberduck/" \
 	"Library/Preferences/ch.sudo.cyberduck.plist"
 
-process "DevDocs" "Library/Application Support/DevDocs"
+process "DevDocs" "Library/Application Support/DevDocs/"
 process "DiskMap" "Library/Preferences/com.fiplab.diskmap.plist"
 process "DNSCrypt" '/usr/local/etc/dnscrypt-proxy.toml'
 
 process "Donut" \
-	"Library/Application Support/Donut" \
+	"Library/Application Support/Donut/" \
 	"Library/Preferences/com.harshjv.donut.helper.plist" \
 	"Library/Preferences/com.harshjv.donut.plist"
 
-process "Exodus" "Library/Application Support/Exodus"
+process "Exodus" "Library/Application Support/Exodus/"
 
 process "Firefox" \
-	"Library/Application Support/Firefox" \
+	"Library/Application Support/Firefox/" \
 	"Library/Preferences/org.mozilla.firefox.plist"
 
 process "Freedom" "Library/Preferences/com.80pct.FreedomPlatform.plist"
 
 process "Gitter" \
-	"Library/Application Support/Gitter" \
+	"Library/Application Support/Gitter/" \
 	"Library/Preferences/com.troupe.gitter.mac.Gitter.plist"
 
 process "Hazeover" \
-	"Library/Application Support/com.pointum.hazeover" \
+	"Library/Application Support/com.pointum.hazeover/" \
 	"Library/Preferences/com.pointum.hazeover.plist"
 
-process "Jaikoz" "Library/Preferences/Jaikoz"
+process "Jaikoz" "Library/Preferences/Jaikoz/"
 
 process "Keybase" \
-	"Library/Application Support/Keybase" \
+	"Library/Application Support/Keybase/" \
 	"Library/Preferences/keybase.Electron.plist" \
 	"Library/Preferences/keybase.ElectronHelper.plist"
 
-process "Kindle" "Library/Containers/com.amazon.Kindle"
-process "Kodi" "Library/Application Support/Kodi"
+process "Kindle" "Library/Containers/com.amazon.Kindle/"
+process "Kodi" "Library/Application Support/Kodi/"
 
 process "Little Snitch" \
-	"Library/Application Support/Objective Development" \
-	"Library/Application Support/Little Snitch" \
+	"Library/Application Support/Objective Development/" \
+	"Library/Application Support/Little Snitch/" \
 	"Library/Preferences/at.obdev.LittleSnitchAgent.plist" \
 	"Library/Preferences/at.obdev.LittleSnitchConfiguration.plist" \
 	"Library/Preferences/at.obdev.LittleSnitchNetworkMonitor.plist" \
 	"Library/Preferences/at.obdev.LittleSnitchSoftwareUpdate.plist"
 
 process "Loopback" \
-	"Library/Application Support/Loopback" \
+	"Library/Application Support/Loopback/" \
 	"Library/Preferences/com.rogueamoeba.Loopback.plist" \
 	"Library/Preferences/com.rogueamoeba.loopbackd.plist"
 
 process "Micro Snitch" "Library/Preferences/at.obdev.MicroSnitch.plist"
-process "Numi" "Library/Containers/com.dmitrynikolaev.numi.NumiExtension"
-process "Opera" "Library/Application Support/com.operasoftware.Opera"
-process "Parity" "Library/Application Support/io.parity.ethereum"
+process "Numi" "Library/Containers/com.dmitrynikolaev.numi.NumiExtension/"
+process "Opera" "Library/Application Support/com.operasoftware.Opera/"
+process "Parity" "Library/Application Support/io.parity.ethereum/"
 
 process "Pastebot" \
 	"Library/Preferences/com.tapbots.Pastebot2Mac.plist" \
-	"Library/Containers/com.tapbots.PAstebot2Mac"
+	"Library/Containers/com.tapbots.PAstebot2Mac/"
 
 process "Paragon NTFS" \
-	"Library/Application Support/com.paragon-software.ntfs.fsapp" \
-	"Library/Application Support/com.paragon-software.ntfs.notification-agent" \
+	"Library/Application Support/com.paragon-software.ntfs.fsapp/" \
+	"Library/Application Support/com.paragon-software.ntfs.notification-agent/" \
 	"Library/Preferences/com.paragon-software.ntfs.fsapp.plist" \
 	"Library/Preferences/com.paragon-software.ntfs.FSMenuApp.plist"
 
-process "Pinstriped" "Library/Application Support/com.pinstriped.pinstriped-mac"
+process "Pinstriped" "Library/Application Support/com.pinstriped.pinstriped-mac/"
 
 process "ProtonVPN" \
-	"Library/Containers/ch.protonvpn.mac" \
+	"Library/Containers/ch.protonvpn.mac/" \
 	"Library/Containers/ch.protonvpn.ProtonVPNStarter"
 
-process "Screenflow" "Library/Application Support/Telestream"
+process "Screenflow" "Library/Application Support/Telestream/"
 
 process "Signal" \
-	"Library/Application Support/Signal" \
+	"Library/Application Support/Signal/" \
 	"Library/Preferences/org.whispersystems.signal-desktop.helper.plist" \
 	"Library/Preferences/org.whispersystems.signal-desktop.plist"
 
@@ -348,30 +375,30 @@ process "Sketch" \
 	"Library/Preferences/com.bohemiancoding.sketch3.plist"
 
 process "Skype" \
-	"Library/Application Support/Skype" \
-	"Library/Application Support/Skype Helper" \
+	"Library/Application Support/Skype/" \
+	"Library/Application Support/Skype Helper/" \
 	"Library/Preferences/com.skype.skype.plist"
 
-process "Slack" "Library/Containers/com.tinyspeck.slackmacgap"
+process "Slack" "Library/Containers/com.tinyspeck.slackmacgap/"
 
 process "SoundSource" \
-	"Library/Application Support/SoundSource" \
+	"Library/Application Support/SoundSource/" \
 	"Library/Preferences/com.rogueamoeba.soundsource.plist"
 
 process "Spotify" \
-	"Library/Application Support/Spotify" \
+	"Library/Application Support/Spotify/" \
 	"Library/Preferences/com.spotify.client.plist"
 
 process "Spotifree" "Library/Preferences/de.eneas.Spotifree.plist"
 process "Teamviewer" "Library/Preferences/com.teamviewer.teamviewer.preferences.plist"
-process "Things" "Library/Containers/com.culturedcode.ThingsMac"
+process "Things" "Library/Containers/com.culturedcode.ThingsMac/"
 process "ThoughtTrain" "Library/Preferences/me.simonarcher.ThoughtTrain.plist"
 
 process "Timing" \
-	"Library/Application Support/info.eurocomp.Timing-setapp" \
-	"Library/Application Support/info.eurocomp.Timing-setapp.TimingHelper" \
-	"Library/Application Support/info.eurocomp.Timing2" \
-	"Library/Application Support/info.eurocomp.TimingHelper" \
+	"Library/Application Support/info.eurocomp.Timing-setapp/" \
+	"Library/Application Support/info.eurocomp.Timing-setapp.TimingHelper/" \
+	"Library/Application Support/info.eurocomp.Timing2/" \
+	"Library/Application Support/info.eurocomp.TimingHelper/" \
 	"Library/Preferences/info.eurocomp.Timing-setapp.plist" \
 	"Library/Preferences/info.eurocomp.Timing-setapp.TimingHelper.fallback.plist" \
 	"Library/Preferences/info.eurocomp.Timing-setapp.TimingHelper.plist" \
@@ -381,65 +408,65 @@ process "Timing" \
 	"Library/Preferences/info.eurocomp.TimingHelper.plist"
 
 process "Tower" \
-	"Library/Application Support/com.fournova.Tower2" \
+	"Library/Application Support/com.fournova.Tower2/" \
 	"Library/Preferences/com.fournova.Tower2.plist" \
-	"Library/Application Support/com.fournova.Tower3" \
+	"Library/Application Support/com.fournova.Tower3/" \
 	"Library/Preferences/com.fournova.Tower3.plist"
 
 process "Transmit" \
 	"Library/Preferences/com.panic.Transmit.plist" \
-	"Library/Application Support/com.panic.Transmit" \
-	"Library/Application Support/Transmit"
+	"Library/Application Support/com.panic.Transmit/" \
+	"Library/Application Support/Transmit/"
 
 process "Transmission" \
 	"Library/Preferences/org.m0k.transmission.plist" \
-	"Library/Application Support/Transmission" \
-	".config/transmission"
+	"Library/Application Support/Transmission/" \
+	".config/transmission/"
 
 process "Tunnelblick" \
-	"Library/Application Support/Tunnelblick" \
+	"Library/Application Support/Tunnelblick/" \
 	"Library/Preferences/net.tunnelblick.tunnelblick.plist"
 
 process "Typora" \
-	"Library/Application Support/abnerworks.Typora" \
+	"Library/Application Support/abnerworks.Typora/" \
 	"Library/Preferences/abnerworks.Typora.plist"
 
-process "The Unarchiver" "Library/Containers/cx.c3.theunarchiver"
+process "The Unarchiver" "Library/Containers/cx.c3.theunarchiver/"
 
 process "Ubersicht" \
-	"Library/Application Support/tracesOf.Uebersicht" \
-	"Library/Application Support/Übersicht"
+	"Library/Application Support/tracesOf.Uebersicht/" \
+	"Library/Application Support/Übersicht/"
 
-process "Usage" "Library/Application Support/com.mediaatelier.Usage"
+process "Usage" "Library/Application Support/com.mediaatelier.Usage/"
 
 process "VLC" \
-	"Library/Application Support/org.videolan.vlc" \
+	"Library/Application Support/org.videolan.vlc/" \
 	"Library/Preferences/org.videolan.vlc" \
 	"Library/Preferences/org.videolan.vlc.plist"
 
 process "VMware" \
-	"Library/Application Support/VMware Fusion" \
-	"Library/Preferences/VMware Fusion" \
+	"Library/Application Support/VMware Fusion/" \
+	"Library/Preferences/VMware Fusion/" \
 	"Library/Preferences/com.vmware.fusion.plist" \
 	"Library/Preferences/com.vmware.fusionStartMenu.plist"
 
 process "WebTorrent" \
-	"Library/Application Support/WebTorrent" \
+	"Library/Application Support/WebTorrent/" \
 	"Library/Preferences/io.webtorrent.webtorrent-helper.plist" \
 	"Library/Preferences/io.webtorrent.webtorrent.plist"
 
 process "Wire" \
-	"Library/Containers/com.wearezeta.zclient.mac" \
+	"Library/Containers/com.wearezeta.zclient.mac/" \
 	"Library/Preferences/com.wearezeta.zclient.mac.plist"
 
 process "Workflowy" \
-	"Library/Application Support/WorkFlowy" \
+	"Library/Application Support/WorkFlowy/" \
 	"Library/Preferences/com.workflowy.desktop.helper.plist" \
 	"Library/Preferences/com.workflowy.desktop.plist"
 
 process "XLD" "Library/Preferences/jp.tmkk.XLD.plist"
 
-process "ZeroNet" "Library/Application Support/ZeroNet"
+process "ZeroNet" "Library/Application Support/ZeroNet/"
 
 # ===============
 # Post
