@@ -8,6 +8,7 @@ end
 
 # kill it when our cli ends
 function finish
-	eval "$(ssh-agent -k)"
+	# killall ssh-agent
+	eval (ssh-agent -k)
 end
 trap finish EXIT
