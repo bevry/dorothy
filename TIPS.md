@@ -120,13 +120,13 @@ cd "$(dirname "$(rlink "$0")")"
 a=(
 	a
 	b
-	"c d"
+	'c d'
 	e
 	f
 )
 a+=(
 	g
-	"h i"
+	'h i'
 	j
 )
 
@@ -146,13 +146,24 @@ if test "${a[@]}" = *"c"*; then
 else
 	echo 'without c'
 fi
-
-
 if test "${a[@]}" = *"c d"*; then
 	echo 'with c d'
 else
 	echo 'without c d'
 fi
+
+# subsets
+echo "${a[@]:2:1}" # get one item, from the second index starting at 0
+# 'c d'
+
+echo "${a[@]:2:3}" # get three items, from the second index starting at 0
+# 'c d', e, f
+
+echo "${a[@]:1}"  # get all items, from the first index starting at 0
+# b, 'c d', e, f, g, 'h i', j
+
+echo ${a[@]::2}  # get all items until the second index, starting at 0
+# a, b
 ```
 
 ```
@@ -165,3 +176,11 @@ fi
 [h i]
 [j]
 ```
+
+associative/indexed/mapped arrays:
+
+> https://www.shell-tips.com/bash/arrays/
+
+# loops
+
+https://www.cyberciti.biz/faq/bash-for-loop/
