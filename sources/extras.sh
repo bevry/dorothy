@@ -5,11 +5,10 @@
 # so the speed of fish doesn't matter
 . "$DOROTHY/sources/nvm.bash"
 
-# Extras
+# Additional extras for an interactive shell
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/aliases.sh"
 . "$DOROTHY/sources/functions.sh"
-. "$DOROTHY/sources/ssh.sh"
 if is-string "${ZSH_VERSION-}"; then
 	. "$DOROTHY/sources/zsh.zsh"
 	. "$DOROTHY/sources/azure.zsh"
@@ -19,3 +18,4 @@ fi
 . "$DOROTHY/sources/gcloud.sh"
 . "$DOROTHY/sources/completions.sh"
 . "$DOROTHY/sources/theme.sh"
+. "$DOROTHY/sources/ssh.sh"
