@@ -16,13 +16,16 @@ source "$DOROTHY/sources/user.fish"
 
 # Bash & NVM
 if not functions -q fundle
-	eval (curl -sfL https://git.io/fundle-install)
-	fundle plugin 'edc/bass'
-	fundle plugin 'arzig/nvm-fish'
-	fundle install
-	exit
+    eval (curl -sfL https://git.io/fundle-install)i
+    echo 'fundle had to be installed, reopen your shell'
+    exit
 else
-	fundle plugin 'edc/bass'
+    # the install above will run this
+    fundle plugin 'edc/bass'
 	fundle plugin 'arzig/nvm-fish'
-	fundle init
+    # /usr/bin/grep is needed, as paths are not setup yet
+    if fundle init | /usr/bin/grep 'fundle install'
+        fundle install
+        fundle init
+    end
 end
