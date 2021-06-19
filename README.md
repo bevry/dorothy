@@ -51,6 +51,7 @@ The initialization of Dorothy works as follows:
    1. load our user configuration and overrides
 
 1. The extras will configure everything needed for user shells, rather than necessarily scripting:
+
    1. Configure our editor preferences
    1. Configure our aliases and functions
    1. Configure ssh

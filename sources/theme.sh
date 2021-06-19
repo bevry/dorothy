@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-if is-equal "${DOROTHY_THEME-}" "oz"; then
+if test "${DOROTHY_THEME-}" = "oz"; then
 	. "$DOROTHY/themes/oz"
 	if is-string "${BASH_VERSION-}"; then
 		export PROMPT_COMMAND="oztheme bash $?"
