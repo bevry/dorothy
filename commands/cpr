@@ -2,16 +2,73 @@
 source "$DOROTHY/sources/strict.bash"
 
 # copy everything from one location to another preserving properties
-_remote="${1:?"USAGE: cpr <REMOTE> <DESTINATION>"}"
-_destination="${2:?"USAGE: cpr <remote> <DESTINATION>"}"
-if test -d "${_destination}"; then
-	if confirm-bool "Destination directory [${_destination}] exists, confirm its deletion"; then
-		rm -Rf "${_destination}"
+_remote="${1:?"USAGE: env [TOOL] [ACTION] cpr <REMOTE> <DESTINATION>"}"
+_destination="${2:?"USAGE: env [TOOL] [ACTION] cpr <remote> <DESTINATION>"}"
+
+# tool
+tools=()
+if command-exists rsync; then
+	tools+=(rsync)
+fi
+if command-exists gcp; then
+	tools+=(gcp)
+fi
+if command-exists scp; then
+	tools+=(scp)
+fi
+if command-exists cp; then
+	tools+=(cp)
+fi
+if command-exists diff; then
+	tools+=(diff)
+fi
+if command-exists git; then
+	tools+=(git)
+fi
+echo 'Which tool do you wish to use?'
+tool="${TOOL:-"$(choose "${tools[@]}")"}"
+
+# verify
+if test "$tool" = 'diff' -o "$tool" = 'git'; then
+	action='verify only'
+else
+	actions=()
+	if test "$tool" = 'rsync'; then
+		actions=(
+			'copy then verify'
+			'copy only'
+			'verify only'
+		)
+	else
+		actions=(
+			'copy then verify'
+			'copy only'
+		)
 	fi
+	echo 'Which action do you wish to take?'
+	action="${ACTION:-"$(choose "${actions[@]}")"}"
 fi
 
-if command-exists rsync; then
+# prepare
+flags=()
+# if test -d "${_destination}"; then
+# 	if confirm-bool "Destination directory [${_destination}] exists, confirm its deletion"; then
+# 		rm -Rf "${_destination}"
+# 	fi
+# fi
+
+# action
+if test "$tool" = 'rsync'; then
 	# via rsync, file by file progress
+
+	# verify
+	if test "$action" = 'verify only'; then
+		# -i, --itemize-changes       output a change-summary for all updates
+		flags+=('--itemize-changes')
+		# -n, --dry-run               show what would have been transferred
+		flags+=('--dry-run')
+	fi
+
 	# --archive, -a: archive mode; equals -rlptgoD (no -H,-A,-X)
 	#   --recursive, -r: recurse into directories
 	#   --links, -l: copy symlinks as symlinks
@@ -22,54 +79,159 @@ if command-exists rsync; then
 	#   -D: same as --devices --specials
 	#   --devices: preserve device files (super-user only)
 	#   --specials: preserve special files
+	flags+=('--archive')
+
 	# --human-readable, -h: output numbers in a human-readable format
+	flags+=('--human-readable')
+
 	# --checksum, -c: skip based on checksum, not mod-time & size
-	# --acls, -A: preserve ACLs (implies --perms)
-	# --xattrs, -X: preserve extended attributes
-	# --atimes, -U: preserve access (use) times
-	# --crtimes, -N: preserve create times (newness)
-	# --delete: delete extraneous files from dest dirs
+	flags+=('--checksum')
+
+	# -P: same as --partial --progress
 	# --partial: keep partially transferred files
 	# --progress: show progress during transfer
-	# -P: same as --partial --progress
-	if is-mac; then
-		# remove ACL, xattrs, atimes, crtimes
-		rsync -ahcP  "${_remote}" "${_destination}"
-		# if confirm-bool "Would you like to verify everything copied over?"; then
-		# 	rsync -inahcP "${_remote}" "${_destination}"
-		# fi
-	elif is-linux; then
+	flags+=('-P')
+
+	# linux
+	if is-linux; then
+		# --acls, -A: preserve ACLs (implies --perms)
+		flags+=('--acls')
+
+		# --xattrs, -X: preserve extended attributes
+		flags+=('--xattrs')
+
+		# --atimes, -U: preserve access (use) times
+		flags+=('--atimes')
+
+		# --crtimes, -N: preserve create times (newness)
 		# --crtimes not supports on ubuntu server on raspberry pi 4
-		rsync -ahcAXUP  "${_remote}" "${_destination}"
-	else
-		# use everything
-		rsync -ahcAXUNP  "${_remote}" "${_destination}"
-		# if confirm-bool "Would you like to verify everything copied over?"; then
-		# 	rsync -inahcAXUNP "${_remote}" "${_destination}"
-		# fi
+		if ! is-ubuntu; then
+			flags+=('--crtimes')
+		fi
 	fi
-elif command-exists gcp; then
+
+	# run
+	echo rsync "${flags[@]}" "${_remote}" "${_destination}"
+	rsync "${flags[@]}" "${_remote}" "${_destination}"
+
+	# repeat
+	if test "$action" = 'copy then verify'; then
+		env ACTION='verify only' cpr "${_remote}" "${_destination}"
+	fi
+
+elif test "$tool" = 'gcp'; then
 	# via gcp, overall progress
+
+	# verify
+	if test "$action" = 'verify only'; then
+		stderr echo 'verify not supported with gcp'
+		exit 1
+	fi
+
 	# -a, --archive: same as -dR --preserve=all
 	# -d: same as --no-dereference --preserve=links
-	# -R, -r, --recursiveL copy directories recursively
-	# -v, --verbose: display what is being done
-	# -p: same as --preserve=mode,ownership,timestamps
+	# -R, -r, --recursive: copy directories recursively
 	# --preserve PRESERVE: preserve specified attributes; accepted values: 'all', or one or more amongst {'ownership', 'timestamps', 'mode'}
-	gcp -av "${_remote}" "${_destination}"
-elif command-exists scp; then
+	flags+=('--archive')
+
+	# -v, --verbose: display what is being done
+	flags+=('--verbose')
+
+	# run
+	echo gcp "${flags[@]}" "${_remote}" "${_destination}"
+	gcp "${flags[@]}" "${_remote}" "${_destination}"
+
+	# repeat
+	if test "$action" = 'copy then verify'; then
+		env ACTION='verify only' cpr "${_remote}" "${_destination}"
+	fi
+
+elif test "$tool" = 'scp'; then
 	# via scp
+
+	# verify
+	if test "$action" = 'verify only'; then
+		stderr echo 'verify not supported with scp'
+		exit 1
+	fi
+
 	# -A: Allows forwarding of ssh-agent(1) to the remote system.  The default is not to forward an authentication agent.
+	flags+=('-A')
+
 	# -p: Preserves modification times, access times, and modes from the original file.
+	flags+=('-p')
+
 	# -r: Recursively copy entire directories.  Note that scp follows symbolic links encountered in the tree traversal.
-	scp -Apr "${_remote}" "${_destination}"
-else
+	flags+=('-r')
+
+	# run
+	echo scp "${flags[@]}" "${_remote}" "${_destination}"
+	scp "${flags[@]}" "${_remote}" "${_destination}"
+
+	# repeat
+	if test "$action" = 'copy then verify'; then
+		env ACTION='verify only' cpr "${_remote}" "${_destination}"
+	fi
+
+elif test "$tool" = 'cp'; then
 	# via cp
+
+	# verify
+	if test "$action" = 'verify only'; then
+		stderr echo 'verify not supported with cp'
+		exit 1
+	fi
+
 	# -a: Same as -pPR options. Preserves structure and attributes of files but not directory structure.
-	# -f: If the destination file cannot be opened, remove it and create a new file, without prompting for confirmation regardless of its permissions.
-	# -L: If the -R option is specified, all symbolic links are followed.
-	# -p: Cause cp to preserve the following attributes of each source file in the copy: modification time, access time, file flags, file mode, user ID, and group ID, as allowed by permissions.  Access Control Lists (ACLs) and Extended Attributes (EAs), including resource forks, will also be preserved.
+	# -P; If the -R option is specified, no symbolic links are followed.  This is the default.
 	# -R: If source_file designates a directory, cp copies the directory and the entire subtree connected at that point.  If the source_file ends in a /, the contents of the directory are copied rather than the directory itself.  This option also causes symbolic links to be copied, rather than indirected through, and for cp to create spe- cial files rather than copying them as normal files.  Created directories have the same mode as the corresponding source direc- tory, unmodified by the process' umask.
+	flags+=('-a')
+
+	# -L: If the -R option is specified, all symbolic links are followed.
+	flags+=('-L')
+
+	# -p: Cause cp to preserve the following attributes of each source file in the copy: modification time, access time, file flags, file mode, user ID, and group ID, as allowed by permissions.  Access Control Lists (ACLs) and Extended Attributes (EAs), including resource forks, will also be preserved.
+	flags+=('-p')
+
+	# -f: If the destination file cannot be opened, remove it and create a new file, without prompting for confirmation regardless of its permissions.
+	flags+=('-f')
+
 	# -v: Cause cp to be verbose, showing files as they are copied.
-	cp -fLpRv "${_remote}" "${_destination}"
+	flags+=('-v')
+
+	# run
+	echo cp "${flags[@]}" "${_remote}" "${_destination}"
+	cp "${flags[@]}" "${_remote}" "${_destination}"
+
+	# repeat
+	if test "$action" = 'copy then verify'; then
+		env ACTION='verify only' cpr "${_remote}" "${_destination}"
+	fi
+
+elif test "$tool" = 'diff'; then
+
+	# -q  --brief: Output only whether files differ.
+	flags+=('--brief')
+
+	# -r  --recursive: Recursively compare any subdirectories found.
+	flags+=('--recursive')
+
+	# run
+	echo diff "${flags[@]}" "${_remote}" "${_destination}"
+	diff "${flags[@]}" "${_remote}" "${_destination}"
+
+elif test "$tool" = 'git'; then
+
+	# --no-index: This form is to compare the given two paths on the filesystem. You can omit the --no-index option when running the command in a working tree controlled by Git and at least one of the paths points outside the working tree, or when running the command outside a working tree controlled by Git. This form implies --exit-code.
+	flags+=('--no-index')
+
+	# run
+	echo git diff "${flags[@]}" "${_remote}" "${_destination}"
+	git diff "${flags[@]}" "${_remote}" "${_destination}"
+
+else
+
+	stderr echo 'please select a tool'
+	exit 1
+
 fi
