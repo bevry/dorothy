@@ -147,12 +147,14 @@ Available `source.bash` configuration:
 - `NODE_INSTALL` to specify what global dependencies should be installed/updated with the Node (npm/yarn) ecosystem
 - `PYTHON_INSTALL` to specify what should be installed/updated with the Python (Pip) ecosystem
 - `RUBY_INSTALL` to specify what should be installed/updated with the Ruby (Gem) ecosystem
+- `RUST_INSTALL` to specify what should be installed/updated with the Rust (Cargo) ecosystem
+- `SETUP_UTILS` to specify what cross-package-manager utilities should be setup
 
 If you would prefer to focus on a specify ecosystem, you the relevant commands are:
 
 - `setup-linux-*`: installs and configures linux
 - `setup-mac-*`: installs and configures mac
-- [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go), [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node), [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python), [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby) installs and configures their various ecosystems
+- [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go), [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node), [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python), [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby), [`setup-rust`](https://github.com/bevry/dorothy/tree/master/commands/setup-rust), [`setup-utils`](https://github.com/bevry/dorothy/tree/master/commands/setup-utils) installs and configures their various ecosystems
 - `setup-*-fonts`: installs fonts for your specify operating system
 - [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin): installs the CLI commands for the GUI apps you have installed
 
