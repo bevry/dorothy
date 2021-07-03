@@ -17,13 +17,14 @@ Dorothy is a dotfile ecosystem featuring:
 To install Dorothy run the following in your favorite terminal application:
 
 ```bash
-# if you are on ubuntu, install the dependencies
+# IF you are on ubuntu, install the dependencies
 sudo apt install curl git
 
-# create a bash login shell session
-bash -il
+# IF you are on macOS, install the dependencies
+xcode-select --install
+
 # run the dorothy installation script
-eval "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
+bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
 ```
 
 If you would like to do the setup process manually, refer to [`commands/setup-dorothy`](https://github.com/bevry/dorothy/blob/master/commands/setup-dorothy).
