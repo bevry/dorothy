@@ -99,10 +99,15 @@ Examples of the `source.bash` file:
 
 Available `source.sh` configuration:
 
-- `DOROTHY_THEME` to specify which [Dorothy theme](https://github.com/bevry/dorothy/tree/master/themes) you would like to use (each Dorothy theme is consistent across the various different shells)
-- Other configuration is detailed in the various functionality sections.
+- `DOROTHY_THEME` to specify which cross-shell theme you would like to use, supported themes are:
 
-Open/edit your `source.sh` file:
+  - [`oz` for the bundled dorothy theme](https://github.com/bevry/dorothy/tree/master/themes/oz)
+
+  - [`starship` for the external Starship theme](https://starship.rs) provided by [`setup-util-starship`](https://github.com/bevry/dorothy/tree/master/commands/setup-util-starship)
+
+- Other `source.sh` configuration is detailed in the various functionality sections.
+
+To open/edit your `source.sh` file:
 
 ```bash
 edit "$DOROTHY/user/source.sh"
