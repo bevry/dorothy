@@ -4,4 +4,4 @@
 # export GIT_PROTOCOL="ssh"
 # export GIT_DEFAULT_BRANCH="main"
 export SECRETS="$DOROTHY/user/secrets"
-export DOROTHY_THEME='oz'
+export DOROTHY_THEME='oz'  # 'starship' is also supported: https://starship.rs
