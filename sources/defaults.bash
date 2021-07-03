@@ -33,7 +33,10 @@ export GUI_EDITORS=(
 export APK_INSTALL=()
 export APT_REMOVE=()
 export APT_ADD=()
-export HOMEBREW_INSTALL=()
+export SNAP_INSTALL=()
+export HOMEBREW_INSTALL=(
+	coreutils  # provides realpath
+)
 export HOMEBREW_INSTALL_SLOW=()
 export HOMEBREW_INSTALL_CASK=()
 export GO_INSTALL=()
@@ -41,3 +44,7 @@ export NODE_INSTALL=()
 export PYTHON_INSTALL=()
 # export RUBY_VERSION='system'
 export RUBY_INSTALL=()
+export RUST_INSTALL=()
+export SETUP_UTILS=(
+	ripgrep  # used by is-prefix, is-suffix, get-volumes, get-local-to-remote
+)
