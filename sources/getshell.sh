@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-function getshell {
+getshell () {
 	if is-string "${ZSH_VERSION-}"; then
 		echo 'zsh'
 	elif is-string "${FISH_VERSION-}"; then

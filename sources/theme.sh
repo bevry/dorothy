@@ -5,7 +5,7 @@ if test "${DOROTHY_THEME-}" = 'oz'; then
 	if is-string "${BASH_VERSION-}"; then
 		export PROMPT_COMMAND="oztheme bash $?"
 	elif is-string "${ZSH_VERSION-}"; then
-		function precmd {
+		precmd () {
 			oztheme zsh "$?"
 		}
 	else

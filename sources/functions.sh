@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 
-function secure-history {
-	WHAT="${1:-"$(choose all some)"}"
-	if test "WHAT" = "all"; then
+secure_history () {
+	what="${1:-"$(choose all some)"}"
+	if test "$what" = "all"; then
 		echo 'deleting all'
 		history -c
 	else
