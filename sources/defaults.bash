@@ -32,13 +32,9 @@ export GUI_EDITORS=(
 # what to install or remove
 export APK_INSTALL=()
 export APT_REMOVE=()
-export APT_ADD=(
-	netscript-2.4  # provides `ifdown`, `ifup`, which are used by select-dns
-)
+export APT_ADD=()
 export SNAP_INSTALL=()
-export HOMEBREW_INSTALL=(
-	coreutils  # provides realpath
-)
+export HOMEBREW_INSTALL=()
 export HOMEBREW_INSTALL_SLOW=()
 export HOMEBREW_INSTALL_CASK=()
 export GO_INSTALL=()
@@ -47,7 +43,4 @@ export PYTHON_INSTALL=()
 # export RUBY_VERSION='system'
 export RUBY_INSTALL=()
 export RUST_INSTALL=()
-export SETUP_UTILS=(
-	sd  # used by select-dns
-	ripgrep  # used by select-dns and others
-)
+export SETUP_UTILS=()
