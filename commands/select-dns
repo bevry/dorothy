@@ -15,6 +15,7 @@ function fetch_servers {
 		cloudflare
 		cloudflare-malware
 		cloudflare-family
+		cloudflare-teams
 		google
 		opendns
 		quad9
@@ -103,6 +104,18 @@ function fetch_servers {
 			"${ipv4servers[@]}"
 			"${ipv6servers[@]}"
 		)
+	elif test "$provider" = "cloudflare-teams" -o "$provider" = "cf-teams"; then
+		# https://developers.cloudflare.com/1.1.1.1/1.1.1.1-for-families/setup-instructions/router/
+		nofap="yes"
+		ipv4servers=(
+			"172.64.36.1"
+			"172.64.36.2"
+		)
+		ipv6servers=()
+		servers=(
+			"${ipv4servers[@]}"
+			"${ipv6servers[@]}"
+		)
 	elif test "$provider" = "google"; then
 		ipv4servers=(
 			"8.8.8.8"
@@ -154,6 +167,17 @@ function fetch_servers {
 			"${ipv4servers[@]}"
 			"${ipv6servers[@]}"
 		)
+	elif test "$provider" = "local-5553"; then
+		ipv4servers=(
+			"127.0.0.1:5553"
+		)
+		ipv6servers=(
+			"::1:5553"
+		)
+		servers=(
+			"${ipv4servers[@]}"
+			"${ipv6servers[@]}"
+		)
 	elif test "$provider" = "env"; then
 		nofap="${DNS_NOFAP:-maybe}"
 		if is-present "${DNS_IPV4SERVERS-}" && is-present "${DNS_IPV6SERVERS-}"; then
@@ -191,26 +215,142 @@ if is-mac; then
 		stderr echo "Cannot figure out how to set DNS on this MacOS version"
 		exit 1
 	fi
-# this is probably worth a try:
-# https://dedunu.info/2020/05/24/ubuntu-20-04-server-change-dns-and-domain
-# https://ubuntu.com/server/docs/network-configuration
-# https://unix.stackexchange.com/a/442599/50703
-# the below I could not get to work
-# elif is-apt; then
-# 	if command-missing nmcli; then
-# 		sudo apt install -y network-manager
-# 	fi
-# 	# could read `nmcli device show` to find out which interfaces are available
-# 	echo "selecting DNS via nmcli"
-# 	nmcli connection modify eth0 ipv4.dns "${ipv4servers[@]}"
-# 	nmcli connection modify eth0 ipv6.dns "${ipv6servers[@]}"
+elif command-exists systemd-resolve; then
+	fetch_servers "$@"
+	echo "configuring dns to ${servers[*]}"
+
+	# sudo apt install netscript-2.4
+
+	# https://unix.stackexchange.com/a/334475/50703
+	# resolvectl is new way
+	# systemd-resolve is old way
+
+	# old ways
+	# sudo systemd-resolve --statistics
+	# sudo systemd-resolve --reset-server-features
+	# sudo systemd-resolve --revert --interface="$interface"
+
+	# https://www.internetsociety.org/blog/2018/12/dns-privacy-in-linux-systemd/
+	# Finally, setting ‘Domains’ to ‘~.’ instructs ‘systemd-resolved’ to prefer the specified nameserver over any per-link DNS server that may be available. This is an important setting as otherwise a non-DoT per-link DNS resolver could take precedence over the DoT resolver.
+	# The default-route command expects a boolean
+		#   parameter, and configures whether the link may be used as
+		#   default route for DNS lookups, i.e. if it is suitable for
+		#   lookups on domains no other link explicitly is configured
+		#   for.
+	# https://www.man7.org/linux/man-pages/man1/resolvectl.1.html
+	# https://www.man7.org/linux/man-pages/man5/resolved.conf.5.html
+	# https://www.freedesktop.org/software/systemd/man/resolved.conf.html
+
+	# trying to disable dhcp dns on eth0 is proving impossible
+	# https://askubuntu.com/q/1350022/22776
+	# these don't work:
+	# https://askubuntu.com/a/1140516/22776
+	# https://askubuntu.com/a/1047618/22776
+	# sudo apt remove netplan: https://renediepstraten.nl/?p=51
+	# https://netplan.io/examples/
+	# sudo apt-get purge cloud-init: https://askubuntu.com/a/1068584/22776
+	# dns=default: /etc/NetworkManager/NetworkManager.conf
+	# sudo vim /etc/systemd/network/eth0.network
+	# sudo vim /etc/systemd/networkd.conf
+	# sudo vim /etc/systemd/resolved.conf
+	# [Network]
+	# UseDNS=false
+	# [DHCP]
+	# UseDNS=false
+	# [DHCPv4]
+	# UseDNS=false
+	# [DHCPv6]
+	# UseDNS=false
+	# [IPv6AcceptRA]
+	# UseDNS=false
+
+	# trim existing values
+	contents="$(cat /etc/systemd/resolved.conf | sd -p '^(DNS|DNSSEC|DNSOverTLS|Domains)=.+?\n' '')"
+	# add new values
+	printf "$contents\nDNS=${servers[*]}\nDNSSEC=true\nDNSOverTLS=true\nDomains=~.\n" | sudo tee /etc/systemd/resolved.conf  &>/dev/null
+	# cat /etc/systemd/resolved.conf
+
+	# https://unix.stackexchange.com/a/442599/50703
+	# all three are necessary it seems, as have had issues with just systemd-resolved
+	sudo systemctl daemon-reload
+	sudo systemctl restart systemd-networkd # NOTE THAT THIS WIPES THE ETH0 DNS CONFIGURATION
+	sudo systemctl restart systemd-resolved
+
+	# reset
+	sudo resolvectl reset-server-features
+
+	# apply interface changes
+	interfaces="$(resolvectl status --no-pager | rg 'Link \d \((.+?)\)' --replace '$1')"
+	mapfile -t interfaces <<<"$interfaces"
+	for interface in "${interfaces[@]}"; do
+		# reset
+		# sudo systemd-resolve --revert --interface="$interface"
+		sudo resolvectl revert "$interface"
+
+		# OLD WAY
+		# args=(
+		# 	'--set-domain=~.'
+		# 	'--set-dnsovertls=true'
+		# 	'--set-dnssec=true'
+		# )
+		# for server in "${servers[@]}"; do
+		# 	args+=("--set-dns=$server")
+		# done
+		# sudo systemd-resolve "${args[@]}" --interface="$interface"
+
+		# apply changes
+		sudo resolvectl default-route "$interface" false
+		# sudo resolvectl llmnr "$interface" false
+		# sudo resolvectl mdns "$interface" false
+		sudo resolvectl domain "$interface" '~.'
+		sudo resolvectl dnssec "$interface" true
+		sudo resolvectl dnsovertls "$interface" true
+		sudo resolvectl dns "$interface" "${servers[@]}"
+		sleep 1
+		sudo ifdown "$interface"
+		sleep 1
+		sudo ifup "$interface"
+		sleep 1
+		# sudo ip a show "$interface"
+	done
+
+	# flush and check
+	sudo resolvectl flush-caches --no-pager
+	sudo resolvectl status --no-pager
+	# sudo resolvectl dns --no-pager
+	# sudo resolvectl statistics
+
+	# check
+	# resolvectl query yahoo.com
+
+	# if there are bogus ones, use the following to delete
+	# https://stackoverflow.com/a/34326753/130638
+	# ip link
+
 else
+	# this is probably worth a try:
+	# https://dedunu.info/2020/05/24/ubuntu-20-04-server-change-dns-and-domain
+	# https://ubuntu.com/server/docs/network-configuration
+	# https://unix.stackexchange.com/a/442599/50703
+	# the below I could not get to work
+	# if command-missing nmcli; then
+	# 		sudo apt install -y network-manager
+	# fi
+	# nmcli device show
+	# sudo nmcli device set eth0 autoconnect yes managed yes
+	# sudo nmcli device connect eth0
+	# sudo nmcli device modify eth0 'ipv4.dns'"${ipv4servers[@]}"
+	# Error: Failed to add/activate new connection: Connection 'eth0' is not available on device eth0 because device is strictly unmanaged
+	# # these don't work
+	# nmcli connection modify eth0 ipv4.dns "${ipv4servers[@]}"
+	# nmcli connection modify eth0 ipv6.dns "${ipv6servers[@]}"
+
 	stderr echo "DNS selection not yet implemented for this operating system"
 	exit 1
 fi
 
 # NoFap
-if command-exists http && test -n "$NOFAP_DISCORD_WEBHOOK"; then
+if command-exists http && test -n "${NOFAP_DISCORD_WEBHOOK-}"; then
 	message=''
 	user="${NOFAP_DISCORD_USERNAME:-"<@$(whoami)>"}"
 	if test "$nofap" = "yes"; then
