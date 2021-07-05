@@ -1,11 +1,11 @@
 #!/usr/bin/env fish
 
-function secure-history
-	set WHAT $argv[1]
-	if is-empty-string "$WHAT"
-		set WHAT (choose all some)
+function secure_history
+	set what $argv[1]
+	if is-empty-string "$what"
+		set what (choose all some)
 	end
-	if test "WHAT" = "all"
+	if test "what" = "all"
 		echo 'deleting all'
 		history -c
 	else
