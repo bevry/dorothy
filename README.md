@@ -34,6 +34,9 @@ sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
 bash --rcfile <(curl -fsSL https://dorothy.bevry.workers.dev)
 ```
 
+If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
+
+
 ## Install
 
 To install Dorothy run the following in your favorite terminal application:
@@ -53,9 +56,11 @@ xcode-select --install
 bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
 ```
 
-If you would like to do the setup process manually, refer to [`commands/setup-dorothy`](https://github.com/bevry/dorothy/blob/master/commands/setup-dorothy).
+If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
 
-During installation, it will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another. If you decide to use your existing dotfiles repository refer to the [Configuration section](https://github.com/bevry/dorothy#configuration) for the expectations.
+If you would like to do the installation manually, refer to [`commands/setup-dorothy`](https://github.com/bevry/dorothy/blob/master/commands/setup-dorothy).
+
+During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another. If you decide to use your existing dotfiles repository refer to the [Configuration section](https://github.com/bevry/dorothy#configuration) for the expectations.
 
 ## Explanation
 
