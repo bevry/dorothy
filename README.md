@@ -2,15 +2,15 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
-- seamless support for bash, fish, and zsh (this is hands down amazing)
-- seamless support for multiple operating systems, such as MacOS and Ubuntu (again amazing)
-- seamless support for your favorite terminal and GUI editors (so amazing)
-- automatic configuration of your environment variables for what you have installed on your system (much amazing)
-- automatic installation and updating of your specified packages (easily amazing)
-- automatic git ssh and gpg configuration based on what your system supports and your configuration (oh so amazing)
-- hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity (yes amazing)
-- completely extensible and configurable with your own user repository (yahoo amazing)
-- all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine (thank you amazing)
+- seamless support for bash, fish, and zsh
+- seamless support for multiple operating systems, such as MacOS and Ubuntu
+- seamless support for your favorite terminal and GUI editors
+- automatic configuration of your environment variables for what you have installed on your system
+- automatic installation and updating of your specified packages
+- automatic git ssh and gpg configuration based on what your system supports and your configuration
+- hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
+- completely extensible and configurable with your own user repository
+- all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
 
 ## Try
 
@@ -30,7 +30,7 @@ xcode-select --install
 # To run only a specific command, run the following and swap out `what-is-my-ip` with whatever command you wish to run
 sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
 
-# To run multiple commands in a REPL, run the following the type the commands you wish to execute
+# To run multiple commands in a REPL, run the following then type the commands you wish to execute
 bash --rcfile <(curl -fsSL https://dorothy.bevry.workers.dev)
 ```
 
