@@ -29,6 +29,9 @@ xcode-select --install
 
 # swap out `what-is-my-ip` with whatever command you wish to run
 sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
+
+# or if you wish to run multiple commands by name, run the dorothy trial environment
+bash --rcfile <(curl -fsSL https://dorothy.bevry.workers.dev)
 ```
 
 ## Install
