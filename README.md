@@ -14,7 +14,7 @@ Dorothy is a dotfile ecosystem featuring:
 
 ## Try
 
-If you just want to run one of our [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell, you can run the following:
+If you just want to trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell, you can do the following:
 
 ```bash
 # IF you are on alpine, install the dependencies
@@ -27,10 +27,10 @@ apt install curl git bash
 # IF you are on macOS, install the dependencies
 xcode-select --install
 
-# swap out `what-is-my-ip` with whatever command you wish to run
+# To run only a specific command, run the following and swap out `what-is-my-ip` with whatever command you wish to run
 sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
 
-# or if you wish to run multiple commands by name, run the dorothy trial environment
+# To run multiple commands in a REPL, run the following the type the commands you wish to execute
 bash --rcfile <(curl -fsSL https://dorothy.bevry.workers.dev)
 ```
 
@@ -49,7 +49,7 @@ apt install curl git bash
 # IF you are on macOS, install the dependencies
 xcode-select --install
 
-# run the dorothy installation script
+# Run the dorothy installation script
 bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
 ```
 
