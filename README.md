@@ -18,15 +18,16 @@ If you just want to run one of our [Dorothy commands](https://github.com/bevry/d
 
 ```bash
 # IF you are on alpine, install the dependencies
-sudo apk add curl git bash
+apk add curl git bash
 
 # IF you are on ubuntu, install the dependencies
-sudo apt update && sudo apt install curl git bash
+apt update
+apt install curl git bash
 
 # IF you are on macOS, install the dependencies
 xcode-select --install
 
-# Swap out `what-is-my-ip` with whatever command you wish to run
+# swap out `what-is-my-ip` with whatever command you wish to run
 sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
 ```
 
@@ -36,10 +37,11 @@ To install Dorothy run the following in your favorite terminal application:
 
 ```bash
 # IF you are on alpine, install the dependencies
-sudo apk add curl git bash
+apk add curl git bash
 
 # IF you are on ubuntu, install the dependencies
-sudo apt install curl git bash
+apt update
+apt install curl git bash
 
 # IF you are on macOS, install the dependencies
 xcode-select --install
