@@ -91,6 +91,13 @@ the-error-command arg1 arg2 || :
 > - http://tldp.org/LDP/abs/html/string-manipulation.html
 
 ```bash
+# get first line, via pipe
+# sed 1q: quit after first line
+# sed -n 1p: only print first line, but read everything
+# awk 'FNR == 1': only print first line, but read everything
+# head -n 1: fails if pipe closes prematurely
+echo -e 'a\nb' | sed 1q
+
 # get first line
 echo "${var%$'\n'*}" # "one\ntwo" to "one"
 
