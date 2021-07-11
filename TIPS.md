@@ -4,6 +4,14 @@
 
 - [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
 
+## run a command on each line
+
+```bash
+ls -1 | xargs -I %s -- echo %s
+```
+
+https://stackoverflow.com/a/68310927/130638
+
 ## function arguments
 
 - http://stackoverflow.com/a/6212408/130638
