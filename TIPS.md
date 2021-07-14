@@ -49,6 +49,9 @@ ok exit 1
 
 # using `|| :` bash builtin
 the-error-command arg1 arg2 || :
+
+# using `|| true` for cross-shell
+the-error-command arg1 arg2 || true
 ```
 
 ## safe variables
