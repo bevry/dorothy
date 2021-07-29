@@ -47,11 +47,13 @@ https://stackoverflow.com/a/68310927/130638
 ok the-error-command arg1 arg2
 ok exit 1
 
-# using `|| :` bash builtin
+# using `|| :` bash builtin, note that this makes exit code always 0
 the-error-command arg1 arg2 || :
+echo $?  # 0
 
-# using `|| true` for cross-shell
+# using `|| true` for cross-shell, note that this makes exit code always 0
 the-error-command arg1 arg2 || true
+echo $?  # 0
 ```
 
 ## safe variables
