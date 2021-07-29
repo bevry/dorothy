@@ -28,7 +28,7 @@ apt install curl git bash
 xcode-select --install
 
 # To run only a specific command, run the following and swap out `what-is-my-ip` with whatever command you wish to run
-sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
 
 # To run multiple commands in a REPL, run the following then type the commands you wish to execute
 eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
