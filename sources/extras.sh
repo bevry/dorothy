@@ -1,11 +1,11 @@
 #!/usr/bin/env sh
 
-# NVM is an extra for shell, as for bash it cannot be
-# however that is fine, as we probably aren't using fish for commands
-# so the speed of fish doesn't matter
-. "$DOROTHY/sources/nvm.bash"
+# scripts in here are especially unnecessary for commands, and are often slow
+# they are generally only useful for user interactive environments
+# if a command does need one of these, then the command can source it directly
 
 # Additional extras for an interactive shell
+. "$DOROTHY/sources/nvm.sh"  # very slow, hence extra
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/aliases.sh"
 . "$DOROTHY/sources/functions.sh"
