@@ -31,7 +31,7 @@ xcode-select --install
 sh -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
 
 # To run multiple commands in a REPL, run the following then type the commands you wish to execute
-sh --rcfile <(curl -fsSL https://dorothy.bevry.workers.dev)
+eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
 ```
 
 If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
