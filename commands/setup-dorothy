@@ -18,6 +18,7 @@ skipShell="${DOROTHY_SKIP_SHELL-}"
 skipUpdate="${DOROTHY_SKIP_UPDATE-}"
 skipUser="${DOROTHY_SKIP_USER-}"
 userRepo="${DOROTHY_USER_REPO-}"
+user="${DOROTHY_USER-}"
 
 # determine intent
 if test "$action" = 'update'; then
@@ -52,8 +53,7 @@ else
 fi
 
 # ensure any updated or installed commands have the correct permissions
-cd "$DOROTHY" || exit 1
-chmod -f +x ./commands/*
+chmod -f +x "$DOROTHY/commands/"*
 
 # stop git complaints for dorothy repo
 "$DOROTHY/commands/silent" git config pull.ff only
@@ -71,39 +71,41 @@ if test "$hostname" = 'ubuntu'; then
 	fi
 fi
 
-# update or install user
-if test -d "$DOROTHY/user"; then
-	if test -z "$skipUpdate"; then
-		# update
-		echo
-		echo "Updating the Dorothy user configuration at $DOROTHY/user"
-		cd "$DOROTHY/user" || exit 1
-		log="$(mktemp)"
-		"$DOROTHY/commands/ok" "$DOROTHY/commands/silent" git-protocol-apply origin
-		if ! git pull origin "$("$DOROTHY/commands/git-default-branch")" > "$log"; then
-			echo "...Dorothy user configuration was unable to be updated, you will have to figure out why later (probably you are disconnected, or there is no remote pushes yet), continuing!"
-			rm "$log"
-		else
-			cat "$log"
-			if grep "Already" < "$log"; then
-				echo "...Dorothy user configuration already updated, continuing!"
+# proceed with user cofniguration
+if test -z "$skipUser"; then
+	# <do update>
+	if test -d "$DOROTHY/user"; then
+		# <skip update?>
+		if test -z "$skipUpdate"; then
+			# update
+			echo
+			echo "Updating the Dorothy user configuration at $DOROTHY/user"
+			cd "$DOROTHY/user" || exit 1
+			log="$(mktemp)"
+			"$DOROTHY/commands/ok" "$DOROTHY/commands/silent" git-protocol-apply origin
+			if ! git pull origin "$("$DOROTHY/commands/git-default-branch")" > "$log"; then
+				echo "...Dorothy user configuration was unable to be updated, you will have to figure out why later (probably you are disconnected, or there is no remote pushes yet), continuing!"
 				rm "$log"
 			else
-				echo -e '\n\nDorothy user configuration was updated, open a new terminal and run the earlier command again...'
-				rm "$log"
-				exit 1
+				cat "$log"
+				if grep "Already" < "$log"; then
+					echo "...Dorothy user configuration already updated, continuing!"
+					rm "$log"
+				else
+					echo -e '\n\nDorothy user configuration was updated, open a new terminal and run the earlier command again...'
+					rm "$log"
+					exit 1
+				fi
 			fi
-		fi
-	fi
-else
-	echo
-	# check for skip
-	if test -z "$skipUser"; then
-		# install
+		fi # </skip updat?e>
+	else # </do update><install>
+		echo
+
+		# detect user repo
 		if test -z "$userRepo"; then
-			# can't use truthy, or ok command yet, as still installing
 			status='404'
-			user="${DOROTHY_USER-}"  # allow setting via environment variable
+
+			# get user if not set via env
 			if test -z "$user"; then
 				user="$(git config --global github.user || exit 0)"
 				if test -z "$user"; then
@@ -113,6 +115,8 @@ else
 					fi
 				fi
 			fi
+
+			# confirm implied user repo
 			echo "Dorothy houses user configuration inside its own git repository."
 			if test -n "$user"; then
 				status="$("$DOROTHY/commands/http-status" "https://github.com/$user/dotfiles")"
@@ -121,6 +125,8 @@ else
 					userRepo=''
 				fi
 			fi
+
+			# if no implied user repo, then prompt for repo
 			if test -z "$userRepo"; then
 				echo "If you don't have a repository for it yet, then create one at https://github.com/new using the following details:"
 				printf "\tRepository name: dotfiles\n"
@@ -138,7 +144,7 @@ else
 					userRepo="$manualRepo"
 				fi
 			fi
-		fi
+		fi # </detect user repo>
 
 		# clone
 		echo "Cloning the Dorothy user configuration into $DOROTHY/user"
@@ -146,27 +152,26 @@ else
 			echo "The clone of the repository [$userRepo] to [$DOROTHY/user] failed."
 			echo "Dorothy will initialise the directory as a git repository, and leave it up to you to sync it up with a remote."
 			echo
+		fi # </clone user repo>
+
+		# if skipped, or clone fail, then create the directory
+		if ! test -d "$DOROTHY/user"; then
+			echo "Scaffolding empty user configuration as instructured..."
+			mkdir -p "$DOROTHY/user"
+			cd "$DOROTHY/user" || exit 1
+			"$DOROTHY/commands/silent" git init
+		else
+			cd "$DOROTHY/user" || exit 1
 		fi
-	fi
 
-	# if skipped, or clone fail, then create the directory
-	if ! test -d "$DOROTHY/user"; then
-		echo "Scaffolding empty user configuration as instructured..."
-		mkdir -p "$DOROTHY/user"
-		cd "$DOROTHY/user" || exit 1
-		"$DOROTHY/commands/silent" git init
-	else
-		cd "$DOROTHY/user" || exit 1
-	fi
+		# stop git complaints for dorothy user repo
+		"$DOROTHY/commands/silent" git config pull.ff only
 
-	# stop git complaints for dorothy user repo
-	"$DOROTHY/commands/silent" git config pull.ff only
-
-	# create env.sh if it doesn't exist
-	# as cloning out a repo that expects it will cause it all to fail
-	# if you don't use env.sh then send PR to make this optional via an env var or argument
-	if "$DOROTHY/commands/is-missing" "$DOROTHY/user/env.sh"; then
-		cat << EOF > "$DOROTHY/user/env.sh"
+		# create env.sh if it doesn't exist
+		# as cloning out a repo that expects it will cause it all to fail
+		# if you don't use env.sh then send PR to make this optional via an env var or argument
+		if "$DOROTHY/commands/is-missing" "$DOROTHY/user/env.sh"; then
+			cat << EOF > "$DOROTHY/user/env.sh"
 #!/usr/bin/env sh
 # this file must be compatible with fish, zsh, bash
 
@@ -176,14 +181,14 @@ else
 # use this file for placing things that you do not want committed to git
 
 EOF
-	fi
+		fi # </env.sh
 
-	# seed
-	if "$DOROTHY/commands/is-missing" "$DOROTHY/user/source.bash" && (test -n "$skipUser" || "$DOROTHY/commands/confirm-positive" "Would you like to seed the configuration with the defaults?"); then
-		mkdir -p "$DOROTHY/user/commands"
+		# seed
+		if "$DOROTHY/commands/is-missing" "$DOROTHY/user/source.bash" && "$DOROTHY/commands/confirm-positive" "Would you like to seed the configuration with the defaults?"; then
+			mkdir -p "$DOROTHY/user/commands"
 
-		# source.bash
-		cat << EOF > "$DOROTHY/user/source.bash"
+			# source.bash
+			cat << EOF > "$DOROTHY/user/source.bash"
 #!/usr/bin/env bash
 
 # dorothy configuration options:
@@ -195,8 +200,8 @@ source "\$DOROTHY/user/source.sh"
 
 EOF
 
-		# source.sh
-		cat << EOF > "$DOROTHY/user/source.sh"
+			# source.sh
+			cat << EOF > "$DOROTHY/user/source.sh"
 #!/usr/bin/env sh
 # this file must be compatible with fish, zsh, bash
 
@@ -209,23 +214,23 @@ EOF
 
 EOF
 
-		# .gitignore
-		cat << EOF > "$DOROTHY/user/.gitignore"
+			# .gitignore
+			cat << EOF > "$DOROTHY/user/.gitignore"
 **/env/
 **/env.*
 **/secrets/
 
 EOF
-
-		# user installed
-	fi
-fi
+		fi # </seed user>
+	fi # </install user>
+fi # </setup user>
 
 # ensure any updated or installed commands have the correct permissions
-cd "$DOROTHY" || exit 1
-"$DOROTHY/commands/ok" "$DOROTHY/commands/silent" chmod -f +x ./user/commands/*  # would fail if no commands
+if test -d "$DOROTHY/user/commands"; then
+	"$DOROTHY/commands/ok" "$DOROTHY/commands/silent" chmod -f +x "$DOROTHY/user/commands/"*  # would fail if no commands
+fi
 
-# proceed with shell cofniguration
+# proceed with shell configuration
 if test -z "$skipShell"; then
 	# now that dorothy is confirmed to exist, proceed with strict mode
 	source "$DOROTHY/sources/strict.bash"
