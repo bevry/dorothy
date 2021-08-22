@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# prepare
+fallbacks=()  # for package systems that could be installed
+
 # quiet
 if is-affirmative "${QUIET-}"; then
 	if test -n "${CLI-}"; then
@@ -240,15 +243,6 @@ function do_pkgutil () {
 	fi
 }
 
-# npm / Node.js
-function do_npm () {
-	if test -n "${NPM-}" && command-exists npm; then
-		npm install -g "${NPM}"
-	else
-		return 1
-	fi
-}
-
 # huber
 function do_huber () {
 	if test -n "${HUBER-}" && command-exists huber; then
@@ -345,21 +339,53 @@ function do_conda () {
 	fi
 }
 
+# npm / Node.js
+function do_npm () {
+	if test -n "${NPM-}"; then
+		if command-missing npm; then
+			fallbacks+=('npm')
+			return 1
+		fi
+		npm install -g "${NPM}"
+	else
+		return 1
+	fi
+}
+function do_npm_fallback () {
+	setup-node
+	source "$DOROTHY/sources/paths.sh"
+	source "$DOROTHY/sources/nvm.sh"
+	do_gem "$@"
+}
+
 # pip / Python
 function do_pip () {
-	if test -n "${PIP-}" && silent pipp --version; then
+	if test -n "${PIP-}"; then
+		if ! silent pipp --version; then
+			fallbacks+=('pip')
+			return 1
+		fi
 		pipp install --user --upgrade --force-reinstall --no-warn-script-location "$PIP"
 	else
 		return 1
 	fi
+}
+function do_pip_fallback () {
+	setup-python
+	source "$DOROTHY/sources/paths.sh"
+	do_cargo "$@"
 }
 
 # gem / Ruby
 function do_gem () {
 	# we use --user-install because of:
 	# https://github.com/ffi/ffi/issues/631
-	if test -n "${GEM-}" && silent gem --version; then
-		gem uninstall "$GEM" -axI
+	if test -n "${GEM-}"; then
+		if command-missing gem; then
+			fallbacks+=('gem')
+			return 1
+		fi
+		silent gem uninstall "$GEM" -axI
 		if test -n "${GEM_VERSION-}"; then
 			gem install "$GEM" --version "$GEM_VERSION" --user-install --no-document
 		else
@@ -369,18 +395,28 @@ function do_gem () {
 		return 1
 	fi
 }
+function do_gem_fallback () {
+	setup-ruby
+	source "$DOROTHY/sources/paths.sh"
+	do_gem "$@"
+}
 
 # cargo / Crates.io / Rust
 function do_cargo () {
-	if test -n "${CARGO-}" && command-exists cargo; then
+	if test -n "${CARGO-}"; then
 		if command-missing cargo; then
-			stderr echo 'missing dependency [rust], installing automatically...'
-			stderr setup-rust
+			fallbacks+=('cargo')
+			return 1
 		fi
 		cargo install "${CARGO}"
 	else
 		return 1
 	fi
+}
+function do_cargo_fallback () {
+	setup-rust
+	source "$DOROTHY/sources/paths.sh"
+	do_cargo "$@"
 }
 
 # curl / Manual Installer
@@ -473,31 +509,30 @@ if test -z "${FORCE-}" -a -n "${CLI-}" && command-exists "${CLI}"; then
 else
 	for item in "${order[@]}"; do
 		pass='y'
-		(eval "do_${item}") || pass='n'
+		"do_${item}" || pass='n'
 		if test "${pass}" = 'y'; then
-			# installed fine, so everything else is fine too
+			# installed fine, so everything else is fine too ✅
 			exit 0
 		fi
 	done
 fi
 
-# fallback to installable package systems
-# @todo eventually support multiple, and do it in the order
-if test -n "${CARGO-}" && is-needle cargo "${order[@]}" && command-missing cargo; then
-	echo "Possibly failed to install [${CLI-}] because rust was missing."
-	echo 'Will setup rust and try again...'
-	source "$DOROTHY/commands/setup-rust" # source for PATH
-	setup-util "$@"
-	exit $?
-fi
-
+# fallback for failed packages which are missing their package system
+for item in "${fallbacks[@]}"; do
+	pass='y'
+	"do_${item}_fallback" || pass='n'
+	if test "${pass}" = 'y'; then
+		# installed fine, so everything else is fine too ✅
+		exit 0
+	fi
+done
 
 # failure
 if test -z "${CLI-}"; then
-	stderr echo 'unable to install the utility on this platform'
+	stderr echo 'Unable to install the unamed utility on this platform. ❌'
 	# env
 else
-	stderr echo "unable to install utility [${CLI-}] on this platform"
+	stderr echo "Unable to install the utility [${CLI-}] on this platform. ❌"
 fi
 exit 1
 
