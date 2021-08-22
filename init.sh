@@ -2,7 +2,7 @@
 
 # sometimes bash_profile and bashrc are loaded on new terminals
 # sometimes bash_profile is loaded at login, and bashrc is loaded on new terminals
-# soemtimes bash_profile will remember and export variables, but not functions
+# sometimes bash_profile will remember and export variables, but not functions
 # as such, expose a function and check if it is loaded, to prevent the case where both bash_profile and bashrc are doing the same thing
 # https://stackoverflow.com/a/14467452
 if [ "$(command -v "${is_dorothy_loaded-}")x" = "x" ]; then
