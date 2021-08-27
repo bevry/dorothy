@@ -187,12 +187,12 @@ function cloudflared_install {
 		sudo cloudflared service install
 		sudo launchctl start com.cloudflare.cloudflared
 	else
-		upstream="$(ask "Is there a specific upstream DNS provider you wish to proxy towards?")"
+		upstream="$(ask-default "Is there a specific upstream DNS provider you wish to proxy towards?" "${CLOUDFLARED_UPSTREAM-}")"
 		proxyargs=('proxy-dns')
 		if test -n "$upstream"; then
 			proxyargs+=(
 				'--upstream'
-				"'$upstream'"
+				"$upstream"
 			)
 		fi
 		sudo tee '/etc/systemd/system/cloudflared-proxy-dns.service' >/dev/null <<EOF
@@ -215,37 +215,43 @@ EOF
 	fi
 	echo 'Cloudflared is now configured'
 
-	if confirm-negative 'Do you also wish to configure a Cloudflared tunnel service?'; then
+	if is-affirmative "${CLOUDFLARED_TUNNEL-}" || confirm-negative 'Do you also wish to configure a Cloudflared tunnel service?'; then
 		# prepare
 		hd="$HOME/.cloudflared"
-		sd="/usr/local/etc/cloudflared"
+		sd='/usr/local/etc/cloudflared'
 		mkdir -p "$hd"
+		sudo mkdir -p "$sd"
 
-		# cert.pem
+		# user
 		cloudflared tunnel login
+		sudo cp "$hd/cert.pem" "$sd/"
 
-		# *.json
-		cloudflared tunnel create  #
-		tunnel_file="$(expand-path "$hd"'/*.json')"
-		tunnel_filename="$(basename "$tunnel_file")"
-		tunnel_name="$(jq -r .TunnelName "$tunnel_file")"
+		# tunnel prepare
+		tunnel_name="$(ask-mandatory "What will be name identifier of the tunnel?" "${CLOUDFLARED_TUNNEL_NAME-}")"
+		tunnel_cred="${tunnel_name}.json"
+		ok rm -rf "$hd/$tunnel_cred"
+		ok cloudflared tunnel delete "$tunnel_name"
 
-		# route
-		tunnel_hostname="$(ask-mandatory "What will be the hostname to access the tunnel?\nE.g. ${tunnel_name}.domain.com")\n"
-		cloudflared tunnel route dns "$tunnel_name" "$tunnel_hostname"
+		# tunnel create
+		cloudflared tunnel create --credentials-file "$hd/$tunnel_cred" "$tunnel_name"
+		sudo cp "$hd/$tunnel_cred" "$sd/"
 
-		# config.yml
-		tunnel_url="$(ask-default 'What is the URI that the tunnel exposes?' 'ssh://localhost:22')"
+		# tunnel route
+		tunnel_hostname="$(ask-mandatory "What will be the hostname to access the tunnel?\nE.g. ${tunnel_name}.domain.com" "${CLOUDFLARED_TUNNEL_HOSTNAME-}")"
+		cloudflared tunnel route dns --overwrite-dns "$tunnel_name" "$tunnel_hostname"
 
-		# move the local configuration to global
-		sudo mv "$HOME/.cloudflared" /usr/local/etc/
-		sudo tee "$sd/config.yml" >/dev/null <<EOF
+		# route create
+		tunnel_url="$(ask-default 'What is the URI that the tunnel exposes?' "${CLOUDFLARED_TUNNEL_URL:-"ssh://localhost:22"}")"
+		tunnel_config="${tunnel_name}.yml"
+		ok rm -Rf "$hd/$tunnel_config"
+		cat > "$hd/$tunnel_config" <<EOF
 url: $tunnel_url
 tunnel: $tunnel_name
-credentials-file: $sd/$tunnel_filename
+credentials-file: $sd/$tunnel_cred
 EOF
+		sudo cp "$hd/$tunnel_config" "$sd/"
 
-		# create the service
+		# service create
 		sudo tee '/etc/systemd/system/cloudflared-tunnel.service' >/dev/null <<EOF
 [Unit]
 Description=Argo Tunnel
@@ -254,7 +260,7 @@ After=network.target
 [Service]
 TimeoutStartSec=0
 Type=notify
-ExecStart=/usr/local/bin/cloudflared --config $sd/config.yml --no-autoupdate tunnel run
+ExecStart=/usr/local/bin/cloudflared --config "$sd/$tunnel_config" --no-autoupdate tunnel run
 Restart=on-failure
 RestartSec=5s
 
@@ -287,7 +293,6 @@ function cloudflared_uninstall {
 		ok sudo rm -fv "$BINDIR/cloudflared"
 	fi
 	# remove legacy configuration files
-	ok sudo rm -rfv "$HOME/.cloudflared/"
 	ok sudo rm -rfv /etc/cloudflared/
 	ok sudo rm -rfv /usr/local/etc/cloudflared/
 	ok sudo rm /etc/systemd/system/cloudflared*
@@ -488,6 +493,7 @@ aghome_uninstall
 dnscrypt_uninstall
 cloudflared_uninstall
 resolv_enable
+sudo systemctl daemon-reload
 
 echo
 if test "$service" = 'system'; then
@@ -516,6 +522,7 @@ else
 	echo 'Now selecting the desired custom DNS service...'
 	select-dns local # -5553
 	resolv_disable
+	sudo systemctl daemon-reload
 
 	# Test
 	echo
