@@ -4,5 +4,6 @@
 export MAILCHECK=0
 
 # Essential
+. "$DOROTHY/sources/env.sh"
 . "$DOROTHY/sources/paths.sh"
 . "$DOROTHY/sources/user.sh"
