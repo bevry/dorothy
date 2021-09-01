@@ -160,6 +160,21 @@ echo "$#"
 # array length
 echo "${#a[@]}"
 
+# mapfile of an empty value will produce an array with 1 value which is empty
+mapfile -t a <<<"$(failure-because-this-method-does-not-exist)"
+echo $? # 0
+echo "${#a[@]}" # 1
+echo "${a[@]}" # empty
+
+# so use these instead
+is-array-partial "${a[@]}"
+is-array-empty "${a[@]}"
+is-array-empty-or-partial "${a[@]}"
+is-array-full "${a[@]}"
+is-array-full-or-partial "${a[@]}"
+is-array-count 1 "${a[@]}"
+is-array-count-ge 1 "${a[@]}"
+
 # contains
 if test "${a[@]}" = *"c"*; then
 	echo 'with c'
