@@ -4,7 +4,7 @@ if ! test -z "${DOROTHY_THEME-}" -o "${DOROTHY_THEME}" = 'system'; then
 	if test "${DOROTHY_THEME}" = 'oz'; then
 		if test -n "${BASH_VERSION-}"; then
 			. "$DOROTHY/themes/oz"
-			export PROMPT_COMMAND="oztheme bash $?"
+			export PROMPT_COMMAND="oztheme bash \$?"
 		elif test -n "${ZSH_VERSION-}"; then
 			. "$DOROTHY/themes/oz"
 			precmd () {
