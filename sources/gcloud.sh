@@ -16,11 +16,11 @@ if is-brew; then
 fi
 
 if is-dir "${GDIR-}"; then
-	if is-string "${BASH_VERSION-}"; then
+	if test -n "${BASH_VERSION-}"; then
 		. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
 		. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
 
-	elif is-string "${ZSH_VERSION-}"; then
+	elif test -n "${ZSH_VERSION-}"; then
 		. "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
 		. "$GDIR/latest/google-cloud-sdk/completion.zsh.inc"
 	fi

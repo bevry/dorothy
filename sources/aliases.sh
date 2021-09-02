@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 
+# todo most as many of these into commands as possible
+
 # Go
 alias edit-go='open -a /Applications/GoLand.app'
 

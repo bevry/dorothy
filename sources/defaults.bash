@@ -27,6 +27,9 @@ export GUI_EDITORS=(
 # 	zsh
 # 	bash
 # 	sh
+#  dash
+#  ash
+#  tsch
 # )
 
 # what to install or remove
