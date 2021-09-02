@@ -9,7 +9,7 @@
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/aliases.sh"
 . "$DOROTHY/sources/functions.sh"
-if is-string "${ZSH_VERSION-}"; then
+if test -n "${ZSH_VERSION-}"; then
 	. "$DOROTHY/sources/zsh.zsh"
 	. "$DOROTHY/sources/azure.zsh"
 else
