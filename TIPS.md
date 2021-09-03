@@ -96,25 +96,19 @@ echo $?  # 0
 > - http://tldp.org/LDP/abs/html/string-manipulation.html
 
 ```bash
-# get first line, via pipe
-# sed 1q: quit after first line
-# sed -n 1p: only print first line, but read everything
-# awk 'FNR == 1': only print first line, but read everything
-# head -n 1: fails if pipe closes prematurely
-echo -e 'a\nb' | sed 1q
+# get first line, via pipe, tried and tested
+echo -e 'a\nb' | echo-first-line
 
-# get first line
-echo "${var%$'\n'*}" # "one\ntwo" to "one"
+# get first line, via variable
+var=$'one\ntwo'; echo "${var%$'\n'*}" # one
 
-# trim everything after the X
-# aka, return everything before the X
-var="helloXworld"
-echo "${var%X*}" # "helloXworld" to "hello
+# trim everything after the last X
+# aka, return everything before the last X
+var="aXbXc"; echo "${var%X*}" # aXb
 
-# trim everything before the X
-# aka, return everything after the X
-var="helloXworld"
-echo "${var#*X}" # "helloXworld" to "world
+# trim everything before the first X
+# aka, return everything after the first X
+var="aXbXc"; echo "${var#*X}" # bXc
 
 # replace first o with O
 echo "${var/o/O}"
