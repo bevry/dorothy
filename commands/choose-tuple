@@ -2,65 +2,88 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/splitlines.bash"
 
-# env
-RETURN="${RETURN-'value'}"
-VALUE_IN_LABEL="${VALUE_IN_LABEL='always'}"  # @todo: support only for duplcate labels
-# @todo: fix the case where RETURN=label and VALUE_IN_LABEL=always, which should not return the value in the label, but should show it to the user in selections
-
 # validate
-if test "${3-}" != '--'; then
-	stderr echo 'USAGE: choose-tuple <question> <selection> -- <[label, value]...>'
+if ! is-needle '--' "$@"; then
+	stderr echo 'USAGE:'
+	stderr echo "choose-tuple [question] [filter] [value|label] [value|label|visual] '$label [$value]' - <[value, label]...>"
+	stderr echo ''
+	stderr echo 'You can customise the order of the tuples via:'
+	stderr echo 'choose-tuple [question] [filter] value - <[value, label]...>'
+	stderr echo 'choose-tuple [question] [filter] label - <[label, value]...>'
+	stderr echo ''
+	stderr echo 'You can customise what is returned via:'
+	stderr echo 'choose-tuple [question] [filter] value value - <[value, label]...>'
+	stderr echo 'choose-tuple [question] [filter] value label - <[value, label]...>'
+	stderr echo ''
+	stderr echo 'You can customise what is displayed via:'
+	stderr echo "choose-tuple [question] [filter] value value '\$label' - <[value, label]...>"
+	stderr echo "choose-tuple [question] [filter] value label '\$label [\$value]' - <[value, label]...>"
 	exit 1
 fi
 
 # extract
-question="${1-}"
-selection="${2-}"
-tuples=("${@:4}")
+mapfile -t before < <(echo-before-separator "$@")
+mapfile -t tuples < <(echo-after-separator "$@")
+
+# options
+question="${before[0]-}"
+selection="${before[1]-}"
+first="${before[2]:-"value"}"
+wants="${before[3]:-"value"}"
+show="${before[4]:-"\$label [\$value]"}"
+
+# tuples
 labels=()
+visuals=()
 values=()
+filteredVisuals=()
 filteredLabels=()
 filteredValues=()
 if is-odd "${#tuples[@]}"; then
 	stderr echo "the amount of labels must match the amount of values"
 	exit 1
 fi
+
 # iterate two at a time
 for ((i = 0; i < ${#tuples[@]}; i=i+2)); do
-	label="${tuples[$i]}"
-	value="${tuples[$i+1]}"
+	# order of tuples
+	if test "$first" = 'label'; then
+		label="${tuples[$i]}"
+		value="${tuples[$i+1]}"
+	else
+		label="${tuples[$i+1]}"
+		value="${tuples[$i]}"
+	fi
+
 	# check both exist
 	if test -z "$label" -o -z "$value"; then
 		stderr echo "choose-tuple: both label [$label] and value [$value] must exist"
 		exit 1
 	fi
+
 	# add to the list
-	if test "$label" != "$value" -a "$VALUE_IN_LABEL" != 'never'; then
-		labels+=("$label [$value]")
-	else
-		labels+=("$label")
-	fi
+	eval "visual=\"$show\""  # this is easier than a sed thing
+	visuals+=("$visual")
+	labels+=("$label")
 	values+=("$value")
+
 	# if we have a value, then constrain selection
 	if test -n "$selection"; then
 		if [[ "${label,,}" = *"${selection,,}"* ]] || [[ "${value,,}" = *"${selection,,}"* ]]; then
-			if test "$label" != "$value" -a "$VALUE_IN_LABEL" != 'never'; then
-				filteredLabels+=("$label [$value]")
-			else
-				filteredLabels+=("$label")
-			fi
+			filteredVisuals+=("$visual")
+			filteredLabels+=("$label")
 			filteredValues+=("$value")
 		fi
 	fi
 done
 
 # sanity check
-if test "${#labels[@]}" -ne "${#values[@]}"; then
-	stderr echo "the amount of labels must match the amount of values"
+if test "${#labels[@]}" -ne "${#values[@]}" -o "${#values[@]}" -ne "${#visuals[@]}"; then
+	stderr echo "must be the same amount of values, labels, and visuals"
 	exit 1
 fi
-if test "${#filteredLabels[@]}" -ne "${#filteredValues[@]}"; then
-	stderr echo "the amount of filtered labels must match the amount of fitlered values"
+if test "${#filteredLabels[@]}" -ne "${#filteredValues[@]}" -o "${#filteredValues[@]}" -ne "${#filteredVisuals[@]}"; then
+	stderr echo "must be the same amount of filtered values, labels, and visuals"
 	exit 1
 fi
 if is-array-empty-or-partial "${labels[@]}"; then
@@ -73,21 +96,27 @@ if is-array-empty-or-partial "${values[@]}"; then
 	stderr echo-verbose "${values[@]}"
 	exit 1
 fi
-if test -n "$selection" && is-array-empty-or-partial "${filteredLabels[@]}"; then
+if is-array-empty-or-partial "${visuals[@]}"; then
+	stderr echo "empty visuals were provided"
+	stderr echo-verbose "${values[@]}"
+	exit 1
+fi
+if test -n "$selection" && is-array-empty-or-partial "${filteredValues[@]}"; then
 	stderr echo "selection criteria [$selection] returned no results:"
-	stderr echo-verbose "${filteredLabels[@]}"
+	stderr echo-verbose "${filteredValues[@]}"
 	exit 1
 fi
 
 # if we have a selection, then replace the options with it
 if is-array-full "${filteredValues[@]}"; then
+	visuals=("${filteredVisuals[@]}")
 	labels=("${filteredLabels[@]}")
 	values=("${filteredValues[@]}")
 fi
 
-# if we one option, then use that
+# if we have only one option, then use that
 if is-array-count 1 "${values[@]}"; then
-	if test "$RETURN" = 'label'; then
+	if test "$wants" = 'label'; then
 		echo "${labels[0]}"
 	else
 		echo "${values[0]}"
@@ -96,12 +125,12 @@ if is-array-count 1 "${values[@]}"; then
 fi
 
 # let the user pick
-stderr echo "$question"
-selection="$(choose "${labels[@]}")"
-for i in "${!labels[@]}"; do
-	label="${labels[$i]}"
-	if test "$selection" = "$label"; then
-		if test "$RETURN" = 'label'; then
+echo -e "$question" > /dev/tty
+selection="$(choose "${visuals[@]}")"
+for i in "${!visuals[@]}"; do
+	visual="${labels[$i]}"
+	if test "$selection" = "$visual"; then
+		if test "$wants" = 'label'; then
 			echo "$label"
 		else
 			echo "${values[$i]}"

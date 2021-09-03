@@ -2,18 +2,109 @@
 # don't use strict, as we need exit codes
 # strict mode, will cause exit code of 2 to explode and be exited
 
-# todo, bring in default/fallback, confirm, and required/mandatory flags into this
+# prepare
+flags=('-r')
 
-question="${1:?"USAGE: ask <QUESTION>"}"
-flags=()
-if is-affirmative "${PASS-}"; then
+# question argument
+question="${1:-?"USAGE: ask <QUESTION> [an-existing-answer] [--confirm] [--password] [--required]"}"
+
+# default argument
+result="${2-}"
+if test "$result" = '--confirm' -o "$result" = '--pasword' -o "$result" = '--required'; then
+	result=''
+fi
+
+# confirm option
+confirm='no'
+if is-affirmative "${CONFIRM-}" || is-needle '--confirm' -- "$@"; then
+	confirm='yes'
+fi
+
+# password option
+password='no'
+if is-affirmative "${PASS-}" || is-needle '--password' -- "$@"; then
+	password='yes'
 	flags+=('-s')
 fi
 
-stderr echo -e "$question"
-read "${flags[@]}" -t 3600 -r -p "> " result
-if test "$?" -gt 128; then
-	# timeout occured
-	exit 1
+# required option
+required='no'
+if is-affirmative "${REQUIRED-}" || is-needles '--required' -- "$@"; then
+	required='yes'
 fi
-echo "$result"
+
+# helpers
+asked='no'
+function ask () {
+	asked='yes'
+	while true; do
+		read "${flags[@]}" -t 300 -r -p "> " result
+		if test "$?" -gt 128; then
+			return 1  # timeout
+		fi
+		if is-value "$result"; then
+			break
+		elif test "$required" = 'no'; then
+			result=''
+			break
+		fi
+	done
+	clear > /dev/tty
+	validate
+}
+function validate () {
+	choices=()
+	timeout=''
+	if is-value "$result"; then
+		timeout=600  # ten minutes
+		# we have a value, so go for it
+		if test "$confirm" = 'no'; then
+			echo "$result"
+			exit
+		fi
+		# proceed with confirm
+		if test "$asked" = 'yes'; then
+			if test "$password" = 'yes'; then
+				choices+=('existing' 'use the entered password')
+			else
+				choices+=('existing' "use the entered value: [$result]")
+			fi
+		else
+			if test "$password" = 'yes'; then
+				choices+=('existing' 'use the preconfigured password')
+			else
+				choices+=('existing' "use the preconfigured value: [$result]")
+			fi
+		fi
+	fi
+	if test "$asked" = 'yes'; then
+		choices+=('custom' 'redo the entered value')
+	else
+		choices+=('custom' 'enter a value')
+	fi
+	if test "$required" = 'no'; then
+		choices+=('none' 'use no value')
+	fi
+	choice="$(env TIMEOUT="$timeout" choose-tuple "$question" '' value value "\$label" -- "${choices[@]}")"
+	if test "$choice" = 'existing'; then
+		echo "$result"
+		exit
+	elif test "$choice" = 'custom'; then
+		echo -e "$question" > /dev/tty
+		ask
+		exit $?
+	elif test "$choice" = 'none'; then
+		echo
+		exit
+	elif is-value "$result"; then
+		# timeout
+		echo "$result"
+		exit
+	else
+		# unknown error
+		exit 1
+	fi
+}
+
+# act
+validate
