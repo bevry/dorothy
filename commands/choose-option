@@ -3,58 +3,237 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/splitlines.bash"
 
 # validate
-if test "${3-}" != '--'; then
-	stderr echo 'USAGE: choose-option <question> <selection> -- <option...>'
+if ! is-needle '--' "$@"; then
+	stderr echo 'USAGE:'
+	stderr echo 'choose-option \ '
+	stderr echo '	[--question=question] \ '
+	stderr echo '	[--filter=filter] \ '
+	stderr echo '	[--label[=first]] \ '
+	stderr echo "  [--return='\$label'] \ "
+	stderr echo "	[--visual='\$label [\$value]' \ "
+	stderr echo "	[--multi]' \ "
+	stderr echo "	[--confirm]' \ "
+	stderr echo '	-- <[value]...> <value> <value>'
+	stderr echo ''
+	stderr echo 'If you wish to show a question above the menu:'
+	stderr echo '--question=question -- <...>'
+	stderr echo ''
+	stderr echo 'If you wish to filter the value and/or labels, use:'
+	stderr echo '--filter=filter -- <...>'
+	stderr echo ''
+	stderr echo 'If you wish to allow multiple selections:'
+	stderr echo '--multi -- <...>'
+	stderr echo ''
+	stderr echo 'If you wish to confirm the selection with the user:'
+	stderr echo '--confirm -- <...>'
+	stderr echo ''
+	stderr echo 'If you wish to pass values and labels, use:'
+	stderr echo '--label -- <[value, label]...> <value> <label> <value> <label>'
+	stderr echo ''
+	stderr echo 'If you wish to pass label then value, use:'
+	stderr echo '--label=first -- <[label, value]...> <label> <value> <label> <value>'
+	stderr echo ''
+	stderr echo 'By default, if the label and value differ, both will be displayed,'
+	stderr echo ' and if they are the same, then only the value will be displayed.'
+	stderr echo ''
+	stderr echo 'If you wish to customise what is displayed:'
+	stderr echo "--label --visual='\$label [\$value]' -- <[value, label]...>"
+	stderr echo "^ the value is eval'd"  # easier than sed
+	stderr echo ''
+	stderr echo 'If you wish to return the label use:'
+	stderr echo "--label --return='\$label' -- <[value, label]...>"
+	stderr echo "^ the value is eval'd"  # easier than sed
+	stderr echo ''
+	stderr echo 'If you wish to return the visual use:'
+	stderr echo "--label --return='\$visual' -- <[value, label]...>"
+	stderr echo "^ the value is eval'd"  # easier than sed
 	exit 1
 fi
 
-# extract
-question="${1-}"
-selection="${2-}"
+# options
+mapfile -t options < <(echo-before-separator "$@")
+option_question="$(get-flag-value question -- "${options[@]}")"
+option_filter="$(get-flag-value filter -- "${options[@]}")"
+option_label="$(get-flag-value label -- "${options[@]}" | echo-on-empty-stdin 'no')"
+option_visual="$(get-flag-value visual -- "${options[@]}")"
+option_multi="$(get-flag-value multi -- "${options[@]}" | echo-on-empty-stdin 'no')"
+option_timeout="$(get-flag-value timeout -- "${options[@]}")"
+option_confirm="$(get-flag-value confirm -- "${options[@]}")"
+# shellcheck disable=2016
+option_return="$(get-flag-value 'return' -- "${options[@]}" | echo-on-empty-stdin '$value')"
 
-# extract options
-if test "$#" -eq 4; then
-	# if only one argument, then options have been jumbled, so extract on newlines
-	mapfile -t options <<< "$4"
-else
-	# if using multiple arguments, allow arguments to contain newlines
-	options=("${@:4}")
+# items, echo-after-separator will also fix jumpling, as newlines will be newlines
+mapfile -t items < <(echo-after-separator "$@")
+values=()
+labels=()
+visuals=()
+
+# calculate item step size
+items_step=1
+if test "$option_label" != 'no'; then
+	items_step=2
 fi
 
-# sanity check
-if is-array-empty-or-partial "${options[@]}"; then
-	stderr echo "No options or an invalid option was provided:"
-	stderr echo-verbose "${options[@]}"
+# check user configuration has no mistakes
+if is-array-empty-or-partial "${items[@]}"; then
+	stderr echo "bad configuration: empty items were provided:"
+	stderr echo-verbose "${items[@]}"
+	exit 1
+fi
+if test "$option_label" != 'no' && is-odd "${#items[@]}"; then
+	stderr echo "the amount of labels must match the amount of values"
 	exit 1
 fi
 
-# filter
-if test -n "$selection"; then
-	filtered=()
-	for option in "${options[@]}"; do
-		if [[ "${option,,}" = *"${selection,,}"* ]]; then
-			filtered+=("${option}")
+# iterate our items
+for ((i = 0; i < ${#items[@]}; i=i+items_step)); do
+	# order of
+	if test "$option_label" = 'no'; then
+		value="${items[$i]}"
+		label="${items[$i]}"
+	elif test "$option_label" = 'yes'; then
+		value="${items[$i]}"
+		label="${items[$i+1]}"
+	elif test "$option_label" = 'first'; then
+		value="${items[$i+1]}"
+		label="${items[$i]}"
+	else
+		stderr echo "bad configuration: the --label value is invalid: [$option_label]"
+		exit 1
+	fi
+
+	# check both exist
+	if test -z "$label" -o -z "$value"; then
+		stderr echo "bad configuration: both label [$label] and value [$value] must exist"
+		exit 1
+	fi
+
+	# add to the list
+	if test -n "$option_visual"; then
+		eval "visual=\"$option_visual\""
+	else
+		visual="$label"
+	fi
+
+	# add to the list
+	visuals+=("$visual")
+	labels+=("$label")
+	values+=("$value")
+done
+
+# sanity checks
+if test "${#labels[@]}" -ne "${#values[@]}" -o "${#values[@]}" -ne "${#visuals[@]}"; then
+	stderr echo "bad state: there must be the same amount of values, labels, and visuals"
+	exit 1
+fi
+if is-array-empty-or-partial "${labels[@]}"; then
+	stderr echo "bad configuration: empty labels were provided:"
+	stderr echo-verbose "${labels[@]}"
+	exit 1
+fi
+if is-array-empty-or-partial "${values[@]}"; then
+	stderr echo "bad configuration: empty values were provided"
+	stderr echo-verbose "${values[@]}"
+	exit 1
+fi
+if is-array-empty-or-partial "${visuals[@]}"; then
+	stderr echo "bad configuration: empty visuals were provided"
+	stderr echo-verbose "${values[@]}"
+	exit 1
+fi
+
+# helpers
+final_results=()
+function send_result () {
+	value="$1"
+	label="$2"
+	visual="$3"
+	result=''
+	eval "result=\"$option_return\""
+	final_results+=("$result")
+}
+function act () {
+	final_results=()
+	result_values=()
+	result_labels=()
+	result_visuals=()
+
+	for i in "${!values[@]}"; do
+		value="${values[$i]}"
+		label="${labels[$i]}"
+		visual="${visuals[$i]}"
+		if test -n "$option_filter"; then
+			# if we have a value, then constrain selection
+			# ,, converts to lowercase
+			if [[ "${label,,}" = *"${option_filter,,}"* ]] || [[ "${value,,}" = *"${option_filter,,}"* ]]; then
+				result_values+=("$value")
+				result_labels+=("$label")
+				result_visuals+=("$visual")
+			fi
+		else
+			result_values+=("$value")
+			result_labels+=("$label")
+			result_visuals+=("$visual")
 		fi
 	done
 
-	# sanity check after filtering
-	if is-array-empty "${filtered[@]}"; then
-		echo "No options matched the selection [$selection], asking again..." > /dev/tty
-		choose-option "$1" '' -- "${options[@]}"
-		exit "$?"
+	# todo, have this reprompt
+	if is-array-empty-or-partial "${result_values[@]}"; then
+		echo "Filter [$option_filter] returned no results, providing you all the results to select from." > /dev/tty
+		option_filter=''
+		act
+		exit $?
 	fi
 
-	# apply
-	options=("${filtered[@]}")
-fi
+	# if we have only one option, then use that
+	if test "${#result_values[@]}" -eq 1; then
+		send_result "${result_values[0]}" "${result_labels[0]}" "${result_visuals[0]}"
+	else
+		# ask
+		set +e # disable hard fail so we can get the exit code
+		results="$(choose-menu --question="$option_question" --multi="$option_multi" --timeout="$option_timeout" -- "${result_visuals[@]}")"; ec="$?"
+		set -e # reenable hard fail
 
+		# check
+		if test "$ec" -ne 0; then
+			echo "Timed out." > /dev/stderr
+			sleep 2
+			exit 1
+		fi
 
-# if we have one option, then use that
-if is-array-count 1 "${options[@]}"; then
-	echo "${options[0]}"
-	exit
-fi
+		# results
+		mapfile -t results <<< "$results"
+		for i in "${results[@]}"; do
+			send_result "${result_values[$i]}" "${result_labels[$i]}" "${result_visuals[$i]}"
+		done
+	fi
 
-# let the user pick
-echo "$question" > /dev/tty
-choose "${options[@]}"
+	# confirm if necessary if more than one option
+	if test "${#values[@]}" -gt 1 -a "$option_confirm" = 'yes'; then
+		# timeout of one minute for confirms of existing values
+		confirm_value="$(echo -n "${final_results[@]}")"
+		set +e # disable hard fail so we can get the exit code
+		confirm="$(choose-option --timeout=60 --question="$option_question" --label -- \
+			yes "Use: $confirm_value" \
+			no  "Select something else.")"; ec="$?"
+		set -e # reenable hard fail
+
+		# check
+		if test "$ec" -ne 0; then
+			echo "Timed out, using fallback value: $confirm_value" > /dev/stderr
+			sleep 2
+		fi
+
+		# results
+		if test "$confirm" = 'no'; then
+			option_filter=''
+			act
+		fi
+	fi
+}
+
+# do the action
+act
+
+# return the results
+echo-lines "${final_results[@]}"

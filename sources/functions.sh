@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 
 secure_history () {
-	what="${1:-"$(choose 'delete only the known risks' 'erase your entire history')"}"
-	if test "$what" = 'erase your entire history'; then
+	action="$(choose-option --question='What do you want to delete?' --filter="${1-}" --label -- 'some' 'delete only the known risks' 'all' 'erase your entire history')"
+	if test "$action" = 'erase your entire history'; then
 		history -c
 		echo 'Erased everything.'
 	else

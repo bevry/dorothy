@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# support:
+# - timeout
+# - single selection
+# - multiple selections via --multi
+
+# todo:
+# - support default here? no: as this is what should navigate such a menu
+# - support required here? no: as this is what should navigate
+
+# validate
+if ! is-needle '--' "$@"; then
+	stderr echo 'USAGE:'
+	stderr echo 'choose-menu \ '
+	stderr echo '	[--question=question] \ '
+	stderr echo '	[--multi] \ '
+	stderr echo '	[--timeout=600] \ '
+	stderr echo '	-- <...>'
+	stderr echo ''
+	stderr echo 'returns the index of the result'
+	exit 1
+fi
+
+# options
+mapfile -t options < <(echo-before-separator "$@")
+option_question="$(get-flag-value question -- "${options[@]}")"
+option_multi="$(get-flag-value multi -- "${options[@]}" | echo-on-empty-stdin 'no')"
+option_timeout="$(get-flag-value timeout -- "${options[@]}")"
+mapfile -t choices < <(echo-after-separator "$@")
+
+# ensure we have items
+if is-array-empty-or-partial "${choices[@]}"; then
+	stderr echo "bad configuration: empty choices were provided:"
+	stderr echo-verbose "${choices[@]}"
+	exit 1
+fi
+
+# prepare
+cursor=0
+count="${#choices[@]}"
+last="$((count - 1 ))"
+action=''
+selections=()
+
+while test "$action" != 'done'; do
+	# question
+	if test -n "$option_question"; then
+		echo -e "$option_question" > /dev/tty
+	fi
+
+	# show the menu
+	for i in "${!choices[@]}"; do
+		if test "$i" -eq "$cursor"; then
+			echo -n ">" > /dev/tty
+		else
+			echo -n ' ' > /dev/tty
+		fi
+		if test "${selections[$i]-}" = 'yes'; then
+			echo -n "*" > /dev/tty
+		else
+			echo -n ' ' > /dev/tty
+		fi
+		choice="${choices[$i]}"
+		echo "$choice" > /dev/tty
+	done
+
+	# handle the response
+	set +e # disable hard fail so we can get the exit code
+	action="$(read-arrow --timeout="$option_timeout")"; ec="$?"
+	set -e # reenable hard fail
+
+	# handle special cases
+	if test "$ec" -ne 0; then
+		# timeout
+		# let the caller figure it out
+		exit 1
+	elif is-digit "$action"; then
+		# number jump
+		if test "$action" -le 1; then
+			cursor=0
+		elif test "$action" -le "$count"; then
+			cursor="$((action - 1))"
+		else
+			cursor="$last"
+		fi
+		action='space'
+	fi
+
+	# control key
+	if test "$action" = "left" -o "$action" = "up"; then
+		if test "$cursor" -ne 0; then
+			cursor="$((cursor - 1))"
+		fi
+	elif test "$action" = "right" -o "$action" = "down"; then
+		if test "$cursor" -ne "$last"; then
+			cursor="$((cursor + 1))"
+		fi
+	elif test "$action" = "home"; then
+		cursor=0
+	elif test "$action" = "end"; then
+		cursor="$last"
+	elif test "$action" = "backspace"; then
+		# unselect everything
+		for i in "${!choices[@]}"; do
+			selections[$i]=''
+		done
+	elif test "$action" = "all" -a "$option_multi" = 'yes'; then
+		# select everything
+		for i in "${!choices[@]}"; do
+			selections[$i]='yes'
+		done
+	elif test "$action" = 'tab'; then
+		# select and move to next line
+		selections[$cursor]='yes'
+		if test "$cursor" -eq "$last"; then
+			cursor=0
+		elif test "$cursor" -lt "$last"; then
+			cursor="$((cursor + 1))"
+		fi
+	elif test "$action" = 'space'; then
+		# toggle single
+		if test "${selections[$cursor]}" = 'yes'; then
+			selections[$cursor]=''
+		else
+			selections[$cursor]='yes'
+			if test "$option_multi" != 'yes'; then
+				break
+			fi
+		fi
+	elif test "$action" = "enter"; then
+		if test "$option_multi" != 'yes'; then
+			selections[$cursor]='yes'
+		fi
+		break
+	elif test "$action" = "escape"; then
+		break
+	fi
+
+	# no break, so repeat the menu
+	clear > /dev/tty
+done
+
+# if break, then no clear occured, so clear it here
+clear > /dev/tty
+
+# if multi with no selection then ask for everything
+if is-array-empty "${selections[@]}" && test "$option_multi" = 'yes'; then
+	if confirm-positive "You exited without selecting anything, do you wish to select all?" > /dev/tty; then
+		for i in "${!choices[@]}"; do
+			selections[$i]='yes'
+		done
+	fi
+	clear > /dev/tty
+fi
+
+# output the custom selections
+for i in "${!selections[@]}"; do
+	selection="${selections[$i]}"
+	if test "$selection" = 'yes'; then
+		echo "$i"
+	fi
+done

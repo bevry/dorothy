@@ -1,40 +1,36 @@
 #!/usr/bin/env bash
-# don't use strict, as we need exit codes
-# strict mode, will cause exit code of 2 to explode and be exited
+source "$DOROTHY/sources/strict.bash"
+
+# options
+option_question="$(get-flag-value question -- "$@")"
+option_default="$(get-flag-value default -- "$@")"
+option_confirm="$(get-flag-value confirm -- "$@")"
+option_password="$(get-flag-value password -- "$@")"
+option_required="$(get-flag-value required -- "$@")"
+option_timeout="$(get-flag-value timeout -- "$@")"
 
 # prepare
 flags=('-r')
-
-# question argument
-question="${1:-?"USAGE: ask <QUESTION> [an-existing-answer] [--confirm] [--password] [--required]"}"
-
-# default argument
-result="${2-}"
-if test "$result" = '--confirm' -o "$result" = '--pasword' -o "$result" = '--required'; then
-	result=''
-fi
-
-# confirm option
-confirm='no'
-if is-affirmative "${CONFIRM-}" || is-needle '--confirm' -- "$@"; then
-	confirm='yes'
-fi
-
-# password option
-password='no'
-if is-affirmative "${PASS-}" || is-needle '--password' -- "$@"; then
-	password='yes'
-	flags+=('-s')
-fi
-
-# required option
-required='no'
-if is-affirmative "${REQUIRED-}" || is-needles '--required' -- "$@"; then
-	required='yes'
-fi
+result="$option_default"
 
 # helpers
 asked='no'
+function handle_timeout () {
+	if is-value "$result"; then
+		echo "Timed out, using fallback value: $result" > /dev/stderr
+		sleep 2
+		echo "$result"
+		return 0
+	elif test "$option_required" != 'yes'; then
+		echo 'Timed out, as the field was optional will use no value.' > /dev/stderr
+		sleep 2
+		return 0
+	else
+		echo 'Timed out.' > /dev/stderr
+		sleep 2
+		return 1
+	fi
+}
 function ask () {
 	asked='yes'
 	while true; do
@@ -44,7 +40,7 @@ function ask () {
 		fi
 		if is-value "$result"; then
 			break
-		elif test "$required" = 'no'; then
+		elif test "$option_required" != 'yes'; then
 			result=''
 			break
 		fi
@@ -54,23 +50,21 @@ function ask () {
 }
 function validate () {
 	choices=()
-	timeout=''
 	if is-value "$result"; then
-		timeout=600  # ten minutes
 		# we have a value, so go for it
-		if test "$confirm" = 'no'; then
+		if test "$option_confirm" != 'yes'; then
 			echo "$result"
 			exit
 		fi
 		# proceed with confirm
 		if test "$asked" = 'yes'; then
-			if test "$password" = 'yes'; then
+			if test "$option_password" = 'yes'; then
 				choices+=('existing' 'use the entered password')
 			else
 				choices+=('existing' "use the entered value: [$result]")
 			fi
 		else
-			if test "$password" = 'yes'; then
+			if test "$option_password" = 'yes'; then
 				choices+=('existing' 'use the preconfigured password')
 			else
 				choices+=('existing' "use the preconfigured value: [$result]")
@@ -82,26 +76,54 @@ function validate () {
 	else
 		choices+=('custom' 'enter a value')
 	fi
-	if test "$required" = 'no'; then
+	if test "$option_required" != 'yes'; then
 		choices+=('none' 'use no value')
 	fi
-	choice="$(env TIMEOUT="$timeout" choose-tuple "$question" '' value value "\$label" -- "${choices[@]}")"
+
+	# as need to confirm, adjust the timeout
+	if test -z "$option_timeout" && (is-value "$result" || test "$option_required" != 'yes'); then
+		# timeout of one minute for confirms of existing values, or optional values
+		option_timeout=60
+	fi
+
+	# ask
+	set +e # disable hard fail so we can get the exit code
+	choice="$(choose-option --question="$option_question" --timeout="$option_timeout" --label -- "${choices[@]}")"; ec="$?"
+	set -e # reenable hard fail
+
+	# check
+	if test "$ec" -ne 0; then
+		handle_timeout
+		exit $?
+	fi
+
+	# handle
 	if test "$choice" = 'existing'; then
 		echo "$result"
 		exit
 	elif test "$choice" = 'custom'; then
-		echo -e "$question" > /dev/tty
-		ask
-		exit $?
+		if test -n "$option_question"; then
+			echo -e "$option_question" > /dev/tty
+		fi
+
+		# ask
+		ask; ec="$?"
+
+		# check
+		if test "$ec" -ne 0; then
+			# timeout
+			handle_timeout
+		fi
+
+		# done
+		exit "$ec"
 	elif test "$choice" = 'none'; then
 		echo
 		exit
-	elif is-value "$result"; then
-		# timeout
-		echo "$result"
-		exit
 	else
 		# unknown error
+		echo "invalid choice: [$result]" > /dev/stderr
+		sleep 2
 		exit 1
 	fi
 }
