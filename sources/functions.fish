@@ -1,11 +1,8 @@
 #!/usr/bin/env fish
 
 function secure_history
-	set what $argv[1]
-	if is-empty-string "$what"
-		set what (choose 'delete only the known risks' 'erase your entire history')
-	end
-	if test "$what" = 'erase your entire history'; then
+	set action (choose-option --question='What do you want to delete?' --filter=$argv[1] --label -- 'some' 'delete only the known risks' 'all' 'erase your entire history')
+	if test "$action" = 'all'; then
 		history -c
 		echo 'Erased everything.'
 	else

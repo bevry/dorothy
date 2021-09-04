@@ -2,9 +2,9 @@
 
 # calls the act function on each stdin line or argument
 
-# wait a second for stdin lines, and call act on each of them
+# wait 0.1 seconds for stdin lines, and call act on each of them
 stdin="no"
-while IFS= read -rt 1 item; do
+while IFS= read -rt 0.1 item; do
 	stdin="yes"
 	act "$item"
 done <&0
