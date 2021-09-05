@@ -8,14 +8,14 @@ set --global SSH_AGENT_PID
 if command-exists ssh-agent
 	# start the ssh agent
 	if test -z "$SSH_AUTH_SOCK"
-		eval (ssh-agent -c | sed -E 's/^setenv /set --global --export /' | sed -E 's/^echo /#echo /')
+		eval (ssh-agent -c | sed -E 's/^setenv /set --global --export /; s/^echo /#echo /')
 		# ssh-add-all
 	end
 
 	# kill it when our cli ends
 	function finish
 		# killall ssh-agent
-		eval (ssh-agent -k | sed -E 's/^unset /set --erase /' | sed -E 's/^echo /#echo /')
+		eval (ssh-agent -k | sed -E 's/^unset /set --erase /; s/^echo /#echo /')
 	end
 	trap finish EXIT
 end

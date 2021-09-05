@@ -6,6 +6,6 @@
 if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s extglob
 else
-	"$DOROTHY/commands/stderr" echo 'bash version is too old for extglob'
+	stderr echo 'bash version is too old for extglob'
 	exit 1
 fi
