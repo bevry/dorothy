@@ -6,6 +6,6 @@
 if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s globstar
 else
-	"$DOROTHY/commands/stderr" echo 'bash version is too old for globstar'
+	stderr echo 'bash version is too old for globstar'
 	# exit 1
 fi
