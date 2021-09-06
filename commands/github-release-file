@@ -8,22 +8,44 @@ env QUIET=y setup-util-jq
 # act
 slug="${1:?"USAGE: github-release-file <org/repo> [file]"}"
 url="https://api.github.com/repos/$slug/releases/latest"
-file="${2-}"
+filter="${2-}"
 
-curl -s "$url" | \
-	jq -r ".assets[] | select(.name) | .browser_download_url" | \
-	rg  --invert-match  '.(mini)?sig$' | \
-	fail-on-empty-stdin 'the release contains no downloads' | {
-		if test -z "$file"; then
-			# output all the files if no filter was provided
-			cat
-		else
-			# filter the files
-			mapfile -t urls
-			# exact match
-			echo-lines "${urls[@]}" | rg --line-regexp "$file" || {
-				# partial matches
-				echo-lines "${urls[@]}" | rg "$file"
-			} | fail-on-empty-stdin "filtering by [$file] returned no results"
-		fi
-}
+# prepare
+urls=()
+filtered=()
+exact=''
+
+# fetch
+tuples="$(curl -s "$url" | jq -r ".assets[] | (.name, .browser_download_url)")"
+mapfile -t names < <(array-odds "${tuples[@]}")
+mapfile -t values < <(array-odds "${tuples[@]}")
+
+# cycle
+for i in "${!names[@]}"; do
+	name="${names[$i]}"
+	value="${values[$i]}"
+	if rg '.(mini)?sig$' <<< "$name"; then
+		continue
+	elif test -z "$filter"; then
+		urls+=("$value")
+	elif test "$filter" = "$name"; then
+		exact="$value"
+		break
+	elif rg "$filter" <<< "$name"; then
+		filtered+=("$value")
+	else
+		urls+=("$value")
+	fi
+done
+
+# finish
+if test -n "$exact"; then
+	echo "$exact"
+elif test "${#filtered[@]}" -ne 0; then
+	echo-lines "${filtered[@]}"
+elif test -n "$filter" -a "${#urls[@]}" -ne 0; then
+	stderr echo "The the filter excluded all ${#urls[@]}" results.""
+	exit 1
+else
+	echo-lines "${urls[@]}"
+fi
