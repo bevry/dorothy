@@ -8,6 +8,14 @@ fi
 # inherit the cross-platform shell configuration
 source "$DOROTHY/sources/defaults.sh"
 
+# dns
+export DNS_NOFAP=''
+export DNS_SERVICE=''
+export DNS_PROVIDER=''
+export DNS_SERVERS=()
+export DNS_IPV4SERVERS=()
+export DNS_IPV6SERVERS=()
+
 # our editors in order of preference
 export TERMINAL_EDITORS=(
 	vim # --noplugin -c "set nowrap"'
