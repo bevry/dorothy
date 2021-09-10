@@ -2,15 +2,49 @@
 source "$DOROTHY/sources/essentials.sh"
 source "$DOROTHY/sources/strict.bash"
 
-# Prepare
+# options
+confirm="$(get-flag-value confirm -- "$@" | echo-on-empty-stdin 'yes')"
+allow_local="$(get-flag-value local -- "$@" | echo-on-empty-stdin 'yes')"
+
+# prepare
 ipv4servers=()
 ipv6servers=()
 servers=()
 nofap="no"
-confirm="$(get-flag-value confirm -- "$@" | echo-on-empty-stdin 'yes')"
+
+# args
+mapfile -t args < <(get-nonflags "$@")
+
+# env
+env_nofap="${DNS_NOFAP:-maybe}"
+env_servers=()
+env_ipv4servers=()
+env_ipv6servers=()
+if test -v 'DNS_SERVERS'; then
+	env_servers+=("${DNS_SERVERS[@]}")
+else
+	if test -v 'DNS_IPV4SERVERS'; then
+		env_ipv4servers+=("${DNS_IPV4SERVERS[@]}")
+		env_servers+=("${DNS_IPV4SERVERS[@]}")
+	fi
+	if test -v 'DNS_IPV6SERVERS'; then
+		env_ipv6servers+=("${DNS_IPV6SERVERS[@]}")
+		env_servers+=("${DNS_IPV6SERVERS[@]}")
+	fi
+fi
+
+# helpers
 function fetch_servers {
 	# select provider
-	providers=(
+	providers=()
+	if test "${#args[@]}" -ne 0; then
+		providers+=('args')
+	fi
+	if test "${#env_servers[@]}" -ne 0; then
+		providers+=('env')
+	fi
+	providers+=(
+		quad9
 		adguard
 		adguard-family
 		cloudflare
@@ -19,13 +53,13 @@ function fetch_servers {
 		cloudflare-teams
 		google
 		opendns
-		quad9
 		backup
-		local
-		env
-		args
 	)
-	provider="$(choose-option --confirm="$confirm" --question='Which DNS provider to use?' --filter="${1:-"${DNS_PROVIDER-}"}" -- "${providers[@]}")"
+	if test "$allow_local" != 'no'; then
+		providers+=('local')
+	fi
+	filter="${args[0]:-"${DNS_PROVIDER-}"}"
+	provider="$(choose-option --confirm="$confirm" --question='Which DNS provider to use?' --filter="$filter" -- "${providers[@]}")"
 
 	# backup alias
 	if test "$provider" = 'backup'; then
@@ -182,28 +216,14 @@ function fetch_servers {
 			"${ipv6servers[@]}"
 		)
 	elif test "$provider" = "env"; then
-		nofap="${DNS_NOFAP:-maybe}"
-		if test -n "${DNS_SERVERS-}"; then
-			servers=("${DNS_SERVERS[@]}")
-		else
-			if test -n "${DNS_IPV4SERVERS-}"; then
-				ipv4servers=("${DNS_IPV4SERVERS[@]}")
-				servers+=("${ipv4servers[@]}")
-			fi
-			if test -n "${DNS_IPV6SERVERS-}"; then
-				ipv6servers=("${DNS_IPV6SERVERS[@]}")
-				servers+=("${ipv6servers[@]}")
-			fi
-		fi
-		if is-array-empty-or-partial "${servers[@]}"; then
-			stderr echo "ERROR: select-dns: env provider requires the DNS_SERVERS environment variable to be set to an array of DNS servers to use:"
-			stderr echo-verbose "${servers[@]}"
-			return 1
-		fi
-	elif test "$#" -ne 0 && confirm-positive "Are these the DNS servers you wish to use? $*"; then
-		servers=("$@")
+		nofap="$env_nofap"
+		servers+=("${env_servers[@]}")
+		ipv4servers+=("${env_ipv4servers[@]}")
+		ipv6servers+=("${env_ipv6servers[@]}")
+	elif test "${#args[@]}" -ne 0 && confirm-positive "Are these the DNS servers you wish to use? ${args[*]}"; then
+		servers=("${args[@]}")
 	else
-		stderr echo "ERROR: select-dns requires the DNS_PROVIDER environment variable to be set, or requires a provider to be specified, available providers are: ${providers[*]}"
+		stderr echo "ERROR: select-dns requires the DNS_PROVIDER environment variable to be set, or requires a provider to be specified when prompted, available providers are: ${providers[*]}"
 		return 1
 	fi
 }
