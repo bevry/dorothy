@@ -8,7 +8,7 @@
 . "$DOROTHY/sources/nvm.sh"  # very slow, hence extra
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/aliases.sh"
-. "$DOROTHY/sources/functions.sh"
+. "$DOROTHY/sources/history.sh"
 if test -n "${ZSH_VERSION-}"; then
 	. "$DOROTHY/sources/zsh.zsh"
 	. "$DOROTHY/sources/azure.zsh"

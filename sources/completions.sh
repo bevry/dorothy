@@ -7,8 +7,8 @@ if test -n "${BASH_VERSION-}"; then
 			. '/etc/bash_completion'
 		fi
 	elif is-mac; then
-		if is-brew && is-file "$(brew --prefix)/etc/bash_completion"; then
-			. "$(brew --prefix)/etc/bash_completion"
+		if is-file "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
+			. "${HOMEBREW_PREFIX-}/etc/bash_completion"
 		fi
 	fi
 fi
