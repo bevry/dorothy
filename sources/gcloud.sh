@@ -12,7 +12,7 @@
 # firebase init
 
 if is-brew; then
-	GDIR="$(brew --prefix)/Caskroom/google-cloud-sdk"
+	GDIR="${HOMEBREW_PREFIX}/Caskroom/google-cloud-sdk"
 fi
 
 if is-dir "${GDIR-}"; then

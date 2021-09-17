@@ -3,7 +3,7 @@
 # todo most as many of these into commands as possible
 
 # Go
-alias edit-go='open -a /Applications/GoLand.app'
+# alias edit-go='open -a /Applications/GoLand.app'
 
 # Screensaver
 alias screensaver='open -a ScreenSaverEngine'
@@ -13,8 +13,8 @@ alias screensaver='open -a ScreenSaverEngine'
 alias highlight="pbpaste | pygmentize -g -f rtf -O 'fontface=Monaco,style=tango' | pbcopy"
 
 # Database
-alias startredis='redis-server /usr/local/etc/redis.conf'
-alias startmongo='mongod --config /usr/local/etc/mongod.conf'
+# alias startredis='redis-server /usr/local/etc/redis.conf'
+# alias startmongo='mongod --config /usr/local/etc/mongod.conf'
 
 # Wget, consider also using: --no-check-certificate
 # Wget: brute-leech as GoogleBot

@@ -16,7 +16,7 @@ source "$DOROTHY/sources/user.fish"
 
 # Bash & NVM
 if not functions -q fundle
-	eval (curl -sfL https://git.io/fundle-install)
+	eval (fetch https://git.io/fundle-install)
 	echo 'fundle had to be installed, reopen your shell'
 	exit
 else

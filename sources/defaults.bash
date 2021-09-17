@@ -45,7 +45,6 @@ export APK_INSTALL=()
 export APT_REMOVE=()
 export APT_ADD=()
 export SNAP_INSTALL=()
-# export HOMEBREW_ARCH='x86_64' # 'arm64e'
 export HOMEBREW_INSTALL=()
 export HOMEBREW_INSTALL_SLOW=()
 export HOMEBREW_INSTALL_CASK=()
@@ -56,3 +55,6 @@ export PYTHON_INSTALL=()
 export RUBY_INSTALL=()
 export RUST_INSTALL=()
 export SETUP_UTILS=()
+
+# choose your architecture for apple silicon
+# export HOMEBREW_ARCH='x86_64' # 'arm64e'

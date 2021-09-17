@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-getshell () {
+get_shell () {
 	if test -n "${ZSH_VERSION-}"; then
 		echo 'zsh'
 	elif test -n "${FISH_VERSION-}"; then
