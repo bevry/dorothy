@@ -17,8 +17,11 @@ set -Eeuo pipefail
 # to cause to the program to exit immediately, as the parents set +e was negated by the child's set -e
 # as such, the below returns the state of the current e status, and restores to it
 
-# strict_e_pause; local e="$?"
-# strict_e_resume "$e"
+# strict_e_pause; local eo="$?"
+# ...
+# local ec="$?"; strict_e_restore "$eo"
+# ...
+# if test "$ec" -ne 0; then
 
 function strict_e_pause () {
 	if [[ "$-" = *e* ]]; then
