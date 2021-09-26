@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# options
+mapfile -t options < <(echo-before-separator "$@")
+option_action=''  # confirmed later, as may not be necessary if file
+option_algorithm="$(get-flag-value algorithm -- "${options[@]}")"
+option_algorithm="$(choose-option --question='Which checksum algorithm do you wish to use?' --filter="$option_algorithm" -- 'md5sum' 'shasum' 'sha256sum')"
+mapfile -t option_paths < <(echo-after-separator "$@")
+
+# process
+paths=()
+if test "$#" -eq 0; then
+	paths+=("$(pwd)")
+else
+	for arg in "${option_paths[@]}"; do
+		paths+=("$(fs-absolute "$arg")")
+	done
+fi
+
+# helpers
+function do_checksum_of_stdin_with_filename {
+	"$option_algorithm" | {
+		IFS=' ' read -ra hash_dot
+		echo "${hash_dot[0]}  $1"
+	}
+}
+function do_checksum_of_file_or_directory {
+	# shows progress, works on files, and directories, and symlinks, and expands paths
+	# -L show symlinks too
+	path="$1"
+	relative="${2-}"
+	find -L "$1" -type f | sort | while read -r file; do
+		if test "$relative" = 'yes'; then
+			filename="$(basename $file)"
+		else
+			filename="$file"
+		fi
+		pv --delay-start 5 "$file" | do_checksum_of_stdin_with_filename "$filename"
+	done
+}
+
+# act
+for path in "${paths[@]}"; do
+	if test  -f "$path"; then
+		do_checksum_of_file_or_directory "$path"
+	else
+		# we have a directory, action is necessary
+		if test -z "$option_action"; then
+			option_action="$(get-flag-value action -- "${options[@]}")"
+			option_action="$(choose-option --question='Do you want the checksum for each item in the directory, or for the directory itself?' --filter="$option_action" -- 'itemised' 'summary')"
+		fi
+		# do the check for the directory based on action
+		if test "$option_action" = 'itemised'; then
+			do_checksum_of_file_or_directory "$path"
+		else
+			# tee aggregates everything together
+			# relative ensures checksums are relative, as otherwise full paths in checksums will ruin comparison
+			f="$(mktemp)"
+			do_checksum_of_file_or_directory "$path" yes | tee "$f" | do_checksum_of_stdin_with_filename "$path"
+			rm "$f"
+		fi
+	fi
+done

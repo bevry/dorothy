@@ -13,10 +13,13 @@ done <&0
 if test "$stdin" = "no"; then
 	# if no args, and noact exists, call noact
 	if test "$#" -eq 0; then
-		if [ "$(command -v "${noact-}")x" != "x" ]; then
+		# check if noact exists
+		if test "$(type -t noact)" = 'function' ; then
 			noact
+			exit "$?"
 		fi
 	fi
+
 	# we have args, so call act on each of them
 	for item in "$@"; do
 		act "$item"
