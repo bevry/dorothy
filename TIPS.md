@@ -1,5 +1,9 @@
 # Scripts
 
+## exit codes
+
+- [Command exit codes](https://gist.github.com/shinokada/5432e491f9992da994fbed05948bfba1)
+
 ## tutorials
 
 - [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
