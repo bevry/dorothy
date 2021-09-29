@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+mapfile -t options < <(echo-before-separator "$@")
+option_user="$(get-flag-value user -- "${options[@]}")"
+option_group="$(get-flag-value group -- "${options[@]}")"
+mapfile -t paths < <(echo-after-separator "$@")
+
+if is-array-empty-or-partial "${paths[@]}"; then
+	stderr echo 'USAGE: fs-own [--user=<user>] [--group=<group>] -- <...path>'
+	exit 1
+fi
+
+function do_user {
+	#   -H, --set-home                set HOME variable to target user's home dir
+	#   -u, --user=user               run command (or edit file) as specified user name or ID
+	echo "sudo -H -u $option_user $*"
+	sudo -H -u "$option_user" "$@" | { grep --invert-match 'retained' || :; }
+}
+
+function do_root {
+	echo "sudo $*"
+	sudo "$@" | { grep --invert-match 'retained' || :; }
+}
+
+function do_user_then_root {
+	if test -n "$option_user" && do_user "$@"; then
+		return 0
+	elif do_root "$@"; then
+		return 0
+	else
+		echo "^ sudo user, and sudo, both failed, giving up."
+		return 1
+	fi
+}
+
+for path in "${paths[@]}"; do
+	echo "Updating permissions for [$path]...  ⏲"
+	ls -la "$path"
+	echo
+	if test -n "$option_user" -a -n "$option_group"; then
+		do_root chown -Rv "$option_user:$option_group" "$path"
+	elif test -n "$option_user"; then
+		do_root chown -Rv "$option_user" "$path"
+	elif test -n "$option_group"; then
+		do_root chown -Rv ":$option_group" "$path"
+	fi
+	do_user_then_root chmod -Rv g+rwx "$path"
+	do_user_then_root chmod -Rv u+rwx "$path"
+	echo
+	ls -la "$path"
+	echo
+	echo "Updated permissions for [$path]. ✅"
+done
