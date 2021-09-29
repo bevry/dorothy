@@ -1,0 +1,665 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# dependencies
+env QUIET=y setup-util-ripgrep
+
+# check system
+if ! is-ubuntu; then
+	stderr echo 'only for ubuntu'
+	exit 1
+fi
+
+# =====================================
+# GENERIC HELPERS
+
+function is_vault {
+	test -f "$1/gocryptfs.conf"
+}
+function is_drive {
+	[[ "$1" = '/dev/'* ]]
+}
+function get_btrfs_drives_count {
+	local label="$1"
+	sudo btrfs filesystem show "$label" | rg -o 'Total devices ([0-9]+)' --replace '$1'
+}
+function verify_btrfs_drives_count {
+	local label="$1"
+	local expected="$2"
+	local actual="$(get_btrfs_drives_count "$label")"
+	if test "$actual" -ne "$expected"; then
+		echo "$actual out of $expected drives available, try again when all drives are available"
+		return 1
+	fi
+}
+function get_vault_features {
+	gocryptfs --info "$1" | grep FeatureFlags
+}
+function compare_vault_features {
+	old_vault="$1"
+	new_vault="$2"
+	old_vault_features="$(get_vault_features "$old_vault")"
+	new_vault_features="$(get_vault_features "$new_vault")"
+	if test "$old_vault_features" = "$new_vault_features"; then
+		echo
+		echo-red "No need for vault upgrade!"
+		echo "$old_vault and $new_vault"
+		echo "both have the same features"
+		return 1
+	else
+		echo
+		echo-green "Vault upgrade makes sense, changing features from:"
+		echo-black "$old_vault"
+		echo "$old_vault_features"
+		echo-black "$new_vault"
+		echo "$new_vault_features"
+	fi
+}
+
+# =====================================
+# CONFIGURED HELPERS
+
+function verify_drive_count {
+	verify_btrfs_drives_count "$option_drive_label" "$option_drive_count"
+}
+function is_drive_mounted {
+	is-mounted "$drive_device" "$option_drive_mount"
+}
+
+# =====================================
+# LOAD CONFIGURATION
+
+# check user config
+varfile="$DOROTHY/user/env/sharebox.bash"
+if test -f "$varfile"; then
+	echo "Loading configuration... [$varfile]"
+	source "$varfile"
+fi
+
+# =====================================
+# PROCESS CONFIGURATION
+
+echo
+echo "Processing configuration..."
+
+# options
+ask_options=('--required')
+mapfile -t options < <(echo-before-separator "$@")
+option_update_config="$(get-flag-value update-config -- "${options[@]}")"
+if test "$option_update_config" = 'yes'; then
+	ask_options+=('--confirm')
+fi
+option_action="$(get-flag-value action -- "${options[@]}")"  # confirmed later
+option_user="$(ask \
+	--question='Enter the username to use for the share.' \
+	--default="${SHAREBOX_USER-}" \
+	--flag=user "${ask_options[@]}" -- "${options[@]}")"
+option_group="$(ask \
+	--question='Enter the groupname to use for the share.' \
+	--default="${SHAREBOX_GROUP-}" \
+	--flag=group "${ask_options[@]}" -- "${options[@]}")"
+option_drive_label="$(ask \
+	--question='Enter the drive label to use for the share.' \
+	--default="${SHAREBOX_DRIVE_LABEL-}" \
+	--flag=drive-label "${ask_options[@]}" -- "${options[@]}")"
+option_drive_count="$(ask \
+	--question='Enter how many drives are part of the share.' \
+	--default="${SHAREBOX_DRIVE_COUNT-}" \
+	--flag=drive-count "${ask_options[@]}" -- "${options[@]}")"
+option_drive_mount="$(ask \
+	--question='Enter the path of the drive mount point.' \
+	--default="${SHAREBOX_DRIVE_MOUNT-}" \
+	--flag=drive-mount "${ask_options[@]}" -- "${options[@]}")"
+option_cipher="$(ask \
+	--question='Enter the path of the cipher directory.' \
+	--default="${SHAREBOX_CIPHER-}" \
+	--flag=cipher "${ask_options[@]}" -- "${options[@]}")"
+option_plain="$(ask \
+	--question='Enter the path of the decrypted cipher mount point.' \
+	--default="${SHAREBOX_PLAIN-}" \
+	--flag=plain "${ask_options[@]}" -- "${options[@]}")"
+option_algorithm="$(get-flag-value algorithm -- "${options[@]}")"
+if test -z "$option_algorithm" && is-raspi; then
+	option_algorithm='xchacha'
+fi
+mapfile -t args < <(echo-after-separator "$@")
+
+# write the config if the file does not exist
+function update_config {
+	cat << EOF > "$varfile"
+#!/usr/bin/env bash
+
+if test "\$(get-hostname)" = '$(get-hostname)'; then
+	export SHAREBOX_USER='$option_user'
+	export SHAREBOX_GROUP='$option_group'
+	export SHAREBOX_DRIVE_LABEL='$option_drive_label'
+	export SHAREBOX_DRIVE_COUNT='$option_drive_count'
+	export SHAREBOX_DRIVE_MOUNT='$option_drive_mount'
+	export SHAREBOX_CIPHER='$option_cipher'
+	export SHAREBOX_PLAIN='$option_plain'
+else
+	echo 'Not running on an intended host.'
+	exit 0
+fi
+
+EOF
+}
+if test "$option_update_config" = 'yes' -o ! -f "$varfile"; then
+	echo "Saving configuration... [$varfile]"
+	act_config
+	echo "Saved configuration. [$varfile]"
+fi
+
+# =====================================
+# VERIFY CONFIGURATION
+
+echo
+echo "Verifying configuration..."
+
+# verify drive
+# /dev/* locations can change, or be missing, so check for that
+verify_drive_count
+
+# drive configuration
+drive_device="$(blkid -L "$option_drive_label")"
+
+# vault configuration
+owner="$(uid "$option_user"):$(gid "$option_group")"
+gocryptfs_version="$(gocryptfs --version | rg -o '20\d+-\d+-\d+')"
+
+# upgrade configuration
+old_cipher="$option_cipher"  # this should never be different, they should always be the same
+old_plain="${option_plain}-old"
+new_cipher="${option_cipher}-${gocryptfs_version}"
+new_plain="${option_plain}-${gocryptfs_version}"
+
+
+# =====================================
+# ACTION
+
+echo
+echo "Proceeding with action..."
+
+# prepare helpers and actions
+function do_disable {
+	# prevent auto-start with system
+	sudo systemctl disable smbd || :
+	sudo systemctl disable plexmediaserver || :
+	sudo systemctl disable resilio-sync || :
+}
+function do_status {
+	sudo systemctl status smbd --no-pager || :
+	sudo systemctl status plexmediaserver --no-pager || :
+	sudo systemctl status resilio-sync --no-pager || :
+	seedbox status || :
+}
+function act_stop {
+	do_disable
+
+	sudo systemctl stop smbd || :
+	sudo systemctl stop plexmediaserver || :
+	sudo systemctl stop resilio-sync || :
+	seedbox stop
+
+	do_status
+
+	act_unmount
+}
+function act_start {
+	act_mount
+
+	do_disable
+
+	sudo systemctl restart smbd || :
+	sudo systemctl restart plexmediaserver || :
+	sudo systemctl restart resilio-sync || :
+	seedbox start
+
+	do_status
+}
+function act_reboot {
+	act_stop
+	sudo shutdown --reboot
+}
+function act_shutdown {
+	act_stop
+	sudo shutdown --poweroff
+}
+function act_size {
+	if is_drive_mounted; then
+		get-size "$option_drive_mount"
+	else
+		echo-red "Not yet mounted: $option_drive_mount"
+		return 1
+	fi
+}
+function act_info {
+	echo "SHAREBOX_USER         = $option_user"
+	echo "SHAREBOX_GROUP        = $option_group"
+	echo "SHAREBOX_DRIVE_LABEL  = $option_drive_label"
+	echo "SHAREBOX_DRIVE_COUNT  = $option_drive_count"
+	echo "SHAREBOX_DRIVE_MOUNT  = $option_drive_mount"
+	echo "SHAREBOX_CIPHER       = $option_cipher"
+	echo "SHAREBOX_PLAIN        = $option_plain"
+	echo
+	echo "device                = $drive_device"
+	echo "owner                 = $owner"
+	echo "gocryptfs version     = $gocryptfs_version"
+	echo
+	echo 'if upgrading:'
+	echo "old cipher            = $old_cipher"
+	echo "old plain             = $old_plain"
+	echo "new cipher            = $new_cipher"
+	echo "new plain             = $new_plain"
+
+	echo-eval gocryptfs --version
+	echo-eval gocryptfs --speed
+	echo-eval gocryptfs --info "$old_cipher"
+}
+function do_setup_restore {
+	local _root="$(ask --question="Where is root file system to copy from?" --required)"
+	local paths=(
+		# fuse
+		/etc/fuse.conf
+
+		# samba
+		/etc/samba/
+
+		# resilio
+		/lib/systemd/system/resilio-sync.service
+		/etc/resilio-sync/
+		/var/lib/resilio-sync/
+		# "$HOME/.config/resilio-sync" - perhaps not necessary, as was commented out
+
+		# plex
+		/lib/systemd/system/plexmediaserver.service
+		/var/lib/plexmediaserver/
+	)
+	local _source; for _path in "${paths[@]}"; do
+		_source="$(fs-join "$_root" "$_path")"
+		cpr --sudo --tool=rsync --action=copy --source="$_source" --destination="$_path"
+	done
+}
+function do_setup_plex {
+	# https://support.plex.tv/articles/235974187#enable-repository-updating-for-supported-linux-server-distributions/
+	# https://www.plex.tv/media-server-downloads##plex-media-server
+
+	# install
+	setup-util-plex
+	sudo systemctl disable plexmediaserver || :
+	sudo systemctl stop plexmediaserver || :
+
+	# permissions
+	sudo gpasswd -a plex "$option_group"
+	fs-own --user=plex --group=plex -- /var/lib/plexmediaserver/
+}
+function do_setup_resilio {
+	# https://help.resilio.com/hc/en-us/articles/206178924
+	# https://help.resilio.com/hc/en-us/articles/204762449-Guide-to-Linux
+
+	# install
+	setup-util-resilio
+	sudo systemctl disable resilio-sync || :
+	sudo systemctl stop resilio-sync || :
+
+	# permissions
+	sudo gpasswd -a rslsync "$option_group"
+	fs-own --user=rslsync --group=rslsync -- /etc/resilio-sync/ /var/lib/resilio-sync/
+
+	# configure
+	sudo nano /lib/systemd/system/resilio-sync.service
+	sudo nano /etc/resilio-sync/config.json
+}
+function do_setup_samba {
+	# install
+	env APT='samba samba-common-bin' setup-util
+	sudo systemctl disable smbd || :
+	sudo systemctl stop smbd || :
+
+	# ensure correct permissions
+	sudo mkdir -p /etc/samba/credentials/share
+	sudo chown root:root /etc/samba/credentials
+	sudo chmod 700 /etc/samba/credentials
+	sudo chmod 600 /etc/samba/credentials/share
+
+	# configure
+	sudo nano /etc/samba/smb.conf
+
+	# verify configuration
+	testparm
+}
+function do_setup_owner {
+	# create the user if necessary
+	local should_setup_users='yes'
+	if is-user "$option_user"; then
+		if confirm-negative "The share user exists, redo it?"; then
+			should_setup_users='yes'
+		else
+			should_setup_users='no'
+		fi
+	fi
+
+	if test "$should_setup_users" = 'yes'; then
+		echo "Creating the share user [$option_user] and share group [$option_group]..."
+
+		# create user and group
+		sudo useradd "$option_user"
+		sudo groupadd "$option_group"
+
+		# set a password for the user
+		sudo smbpasswd -a "$option_user"
+
+		# make it so the user is only a share user, rather than a login user
+		sudo usermod -L "$option_user"
+
+		# add system users to group
+		sudo gpasswd -a "$option_user" "$option_group"
+		sudo gpasswd -a "$USER" "$option_group"
+		sudo gpasswd -a root "$option_group"
+	fi
+
+	# confirm current is in the group
+	if is-user-in-group "$option_group"; then
+		stderr echo "The current user [$USER] has been added to group [$option_group] as well, as intened, however you have to logout or restart for the change to apply."
+		exit 1
+	fi
+}
+function act_setup {
+	do_setup_owner
+	do_setup_samba
+	do_setup_plex
+	do_setup_resilio
+	setup-util-gocryptfs
+	if confirm-bool "Restore sharebox configuration and caches from an existing location?"; then
+		do_setup_restore
+	fi
+	echo
+	echo "You should restart your computer now so the user and path changes take affect."
+}
+function act_chown {
+	fs-own \
+		--user="$option_user" --group="$option_group" \
+		-- "$@"
+}
+function do_remove {
+	for path in "$@"; do
+		if is-missing "$path"; then
+			echo-green "Already removed: $path"
+			continue
+		fi
+		echo "Checking size of: $path"
+		if is-empty-ls "$path" || is-empty-size "$path"; then
+			ls -lA "$path"
+			du -ha "$path"
+			if confirm-positive "$(echo-green "Confirm removal of empty directory: $path")"; then
+				sudo rm -Rfvi "$path"
+			else
+				return 1
+			fi
+		else
+			ls -lA "$path"
+			if confirm-bool "$(echo-red "Confirm removal of non-empty directory: $path")"; then
+				sudo rm -Rfvi "$path"
+			else
+				return 1
+			fi
+		fi
+		# check
+		if ! is-missing "$path"; then
+			stderr echo "Failed to remove [$path]."
+			return 1
+		fi
+	done
+}
+function act_run {
+	#   -E, --preserve-env            preserve user environment when running command
+	#       --preserve-env=list       preserve specific environment variables
+	#   -H, --set-home                set HOME variable to target user's home dir
+	#   -u, --user=user               run command (or edit file) as specified user name or ID
+	#   -g, --group=group             run command as the specified group name or ID
+	echo sudo --set-home --preserve-env='DOROTHY,PATH' --user="$option_user" --group="$option_group" "$@"
+	if confirm-positive "Confirm run of the above command."; then
+		sudo --set-home --preserve-env='DOROTHY,PATH' --user="$option_user" --group="$option_group" "$@"
+	else
+		return 1
+	fi
+}
+function do_unmount {
+	local target="$1"
+	# exists
+	if ! test -e "$target"; then
+		echo
+		echo-green "Already unmounted: $target"
+	else
+		# unmount
+		echo
+		echo-bold "Unmounting: $target"
+		local ec=0; sudo umount --verbose "$target" || ec="$?"
+		if test "$ec" -eq '32'; then
+			echo-green "Already unmounted: $target"
+		elif test "$ec" -ne 0; then
+			return "$ec"
+		else
+			echo-green "Unmounted: $target"
+		fi
+		# confirm we aren't removing a cipher directory
+		if is_vault "$target"; then
+			stderr echo-red "You attempted to remove a cipher directory, check your code! $target"
+			exit 1
+		fi
+		# remove
+		do_remove "$target"
+	fi
+	# if it doens't exist, then is unmounted
+}
+function do_unmount_all {
+	# unmount vaults
+	do_unmount "$option_plain"
+	do_unmount "$old_plain"
+	do_unmount "$new_plain"
+
+	# unmount drives
+	do_unmount "$option_drive_mount"
+}
+function act_unmount {
+	if test "$#" -eq 0; then
+		do_unmount_all
+	else
+		# user custom
+		do_unmount "$@"
+	fi
+}
+function do_mount {
+	local mount_source="$1"
+	local mount_target="$2"
+
+	# unmount
+	do_unmount "$mount_target"
+
+	# recreate
+	sudo mkdir -p "$mount_target"
+	act_chown "$mount_target"
+
+	# mount
+	if is_drive "$mount_source"; then
+		echo
+		echo-bold "Mounting:"
+		echo "$mount_source => $mount_target"
+		sudo mount "$mount_source" "$mount_target"
+	elif is_vault "$mount_source"; then
+		# prep
+		echo
+		echo-bold 'Enter the cipher password for mounting:'
+		echo "$mount_source => $mount_target"
+
+		# mount
+		act_run \
+			gocryptfs --rw --noprealloc --allow_other --force_owner "$owner" \
+			"$mount_source" "$mount_target"
+		echo-eval ls -la "$mount_target"
+		echo
+	else
+		echo
+		echo 'Unable to mount:'
+		echo "$mount_source => $mount_target"
+		return 1
+	fi
+
+	# now that it is mounted, fix perms again
+	# act_chown "$mount_target"
+}
+function do_mount_drive {
+	do_mount "$drive_device" "$option_drive_mount"
+	get-size "$option_drive_mount"
+}
+function do_mount_vault {
+	do_mount "$option_cipher" "$option_plain"
+}
+function do_mount_all {
+	do_mount_drive
+	if confirm-positive "Mount vault?"; then
+		do_mount_vault
+	fi
+}
+function act_mount {
+	if test "$#" -eq 0; then
+		do_unmount_all
+		do_mount_all
+	else
+		# user custom
+		do_mount "$@"
+	fi
+}
+function do_migrate {
+	local from="$1"
+	local to="$2"
+	if ! confirm-bool "Confirm migration of [$from] to [$to]?"; then
+		return 1
+	fi
+	act_run $(cpr --eval --remove --action=copy --tool=rsync --source="$from" --destination="$to")
+	if is-missing "$from"; then
+		echo "Migrated [$from] to [$to], leaving behind nothing."
+	elif is-empty-ls "$from"; then
+		echo "Migrated [$from] to [$to], leaving behind an empty directory."
+	elif is-empty-size "$from"; then
+		echo "Migrated [$from] to [$to], leaving behind only empty directories."
+	else
+		echo "Migration of [$from] to [$to] has left behind files..."
+		ls -la "$from"
+		return 1
+	fi
+}
+function do_speed {
+	local plain="$1"
+	rm -f "$plain/largefile"
+	if confirm-positive "Speed test [$plain]?"; then
+		echo
+		echo "$plain: determining write performance"
+		echo-eval dd if=/dev/zero of="$plain/largefile" bs=1M count=1024
+		echo
+		echo "$plain: determining read performance"
+		echo-eval dd if="$plain/largefile" of=/dev/null bs=4k
+		rm "$plain/largefile"
+	fi
+}
+function act_upgrade {
+	# reset mounts
+	do_unmount_all
+	do_mount_drive
+
+	# https://github.com/rfjakob/gocryptfs/blob/master/Documentation/MANPAGE.md
+
+	# create
+	if is_vault "$new_cipher"; then
+		echo
+		local message="$(echo-bold "The new vault [$new_cipher] already exists...")\nThis means a vault upgrade was started but not finished.\nDo you want to start again and remove it? Or do you want to continue with it?"
+		local huh="$(choose-option --question="$message" -- 'continue' remove exit)"
+
+		if test "$huh" = 'continue'; then
+			echo 'keeping'
+		elif test "$huh" = 'remove'; then
+			if confirm-bool "Are you sure you want to remove the new vault and start over? $new_cipher"; then
+				do_remove "$new_cipher"
+			else
+				return 1
+			fi
+		elif test "$huh" = 'exit'; then
+			stderr echo 'leaving for you to figure out'
+			exit 1
+		else
+			stderr echo 'unknown option'
+			exit 1
+		fi
+	fi
+	if is-empty-ls "$new_cipher"; then
+		# act_run to ensure it creates with the right perms
+		option_algorithm="$(choose-option --question="Which algorithm to use?" --filter="$option_algorithm" -- aessiv xchacha)"
+		act_run gocryptfs --init --"$option_algorithm" "$new_cipher"
+		act_chown "$new_cipher"
+	else
+		echo 'using exiting'
+	fi
+	gocryptfs --info "$new_cipher"
+
+	# verify there is a difference
+	compare_vault_features "$old_cipher" "$new_cipher"
+
+	# mount
+	do_mount "$old_cipher" "$old_plain"
+	do_mount "$new_cipher" "$new_plain"
+
+	# speed
+	do_speed "$old_plain"
+	do_speed "$new_plain"
+
+	# migrate
+	do_migrate "$old_plain/" "$new_plain/"
+
+	# delete
+	echo-eval ls -la "$old_plain/"
+	echo-eval ls -la "$new_plain/"
+	if ! confirm-bool "Confirm replacement of [$old_cipher] with [$new_cipher]?"; then
+		return 1
+	fi
+	do_unmount "$old_plain"
+	do_unmount "$new_plain"
+	echo-eval ls -la "$old_cipher"
+	echo-eval ls -la "$new_cipher"
+	if ! confirm-bool "Really confirm replacement of [$old_cipher] with [$new_cipher]?"; then
+		return 1
+	fi
+	do_remove "$old_cipher"
+	sudo mv "$new_cipher" "$old_cipher"
+
+	echo
+	echo 'New vault is now the standard vault:'
+	echo "$new_cipher => moved to => $old_cipher"
+
+	echo
+	echo 'Migration complete. ✅'
+	echo 'Leaving up to you to run: sharebox --action=start'
+}
+
+# action
+actions=(
+	'info'
+	'run'
+	'setup'
+	'mount'
+	'unmount'
+	'size'
+	'start'
+	'stop'
+	'shutdown'
+	'reboot'
+	'chown'
+	'upgrade'
+)
+action="$(choose-option --question='Which action to perform?' --filter="$option_action" -- "${actions[@]}")"
+if test "$(type -t "act_$action")" = 'function' ; then
+	"act_$action" "${args[@]}"
+else
+	stderr echo 'action not yet implemented'
+	exit 1
+fi
+exit "$?"

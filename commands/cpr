@@ -1,9 +1,42 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# @todo figure out how to make --eval compatible with paths that have spaces
+
+# @todo warn if given a directory without the trailing slash, as that will not move contents, but move inside
+
 # copy everything from one location to another preserving properties
-_remote="${1:?"USAGE: env [TOOL] [ACTION] cpr <REMOTE> <DESTINATION>"}"
-_destination="${2:?"USAGE: env [TOOL] [ACTION] cpr <remote> <DESTINATION>"}"
+if is-help "$@"; then
+	stderr echo "USAGE:"
+	stderr echo "cpr [...flags] -- <source> <destination>"
+	stderr echo "cpr [...flags] <--source=...> <--destination=...>"
+	stderr echo
+	stderr echo "Copy everything from one location to another:"
+	stderr echo "- preserving attributes"
+	stderr echo "- progress updates"
+	stderr echo "- local and remote sources"
+	stderr echo
+	stderr echo "FLAGS:"
+	stderr echo "Provide [--tool=...] to skip tool prompt."
+	stderr echo "Provide [--action=...] to skip action prompt."
+	stderr echo "Provide [--checksum] to use checksum with rsync instead of the default file size and mod time."
+	stderr echo "Provide [--remove] to have rsync remove source files as they are copied over."
+	stderr echo "Provide [--eval] to echo the command that would otherwise run, so that you can call it instead."
+	stderr echo "Provide [--sudo] to have the command run as sudo."
+	exit 1
+fi
+
+# options
+mapfile -t options < <(echo-before-separator "$@")
+mapfile -t args < <(echo-after-separator "$@")
+_source="$(ask --question="Enter the source path." --default="${args[0]-}" --flag=source -- "${options[@]}")"
+_destination="$(ask --question="Enter the destination path." --default="${args[1]-}" --flag=destination -- "${options[@]}")"
+_action="$(get-flag-value action -- "${options[@]}")" # confirmed later
+_tool="$(get-flag-value tool -- "${options[@]}")" # confirmed later
+_remove="$(get-flag-value remove -- "${options[@]}")"
+_sudo="$(get-flag-value sudo -- "${options[@]}")"
+_eval="$(get-flag-value 'eval' -- "${options[@]}")"
+_checksum="$(get-flag-value checksum -- "${options[@]}")"
 
 # Prepare
 actions=(
@@ -15,12 +48,12 @@ tools=()
 precmd=()
 
 # Determine sudo
-if is-affirmative "${CPR_SUDO-}"; then
+if test "$_sudo" = 'yes'; then
 	precmd+=(sudo)
 fi
 
 # Determine action
-action="$(choose-option --question='Which action do you wish to take?' --filter="${ACTION-}" -- "${actions[@]}")"
+action="$(choose-option --question='Which action do you wish to take?' --filter="${_action}" -- "${actions[@]}")"
 
 # Determine available tools for the action
 if test "$action" = 'verify'; then
@@ -53,10 +86,10 @@ else
 fi
 
 # Determine tool
-tool="$(choose-option --question='Which tool do you wish to use?' --filter="${TOOL-}" -- "${tools[@]}")"
+tool="$(choose-option --question='Which tool do you wish to use?' --filter="${_tool}" -- "${tools[@]}")"
 
 function rethink {
-	suggestion="$(get-local-to-remote "$1" || echo '')"
+	suggestion="$(silent-stderr get-local-to-remote "$1" || echo '')"
 	if test -n "$suggestion"; then
 		echo 'Using rsync with a remote directory that is mounted locally can be slow, you should probably try converting it to a local mount point.'
 		echo
@@ -72,7 +105,7 @@ function rethink {
 			echo 'Continuing as is...'
 			return 0
 		elif test "$tangent" = *'different'; then
-			env TOOL='' ACTION="$action" cpr "$_remote" "$_destination"
+			cpr --action="$action" --source="$_source" --destination="$_destination"
 			return $?
 		else
 			# exit / default
@@ -94,7 +127,7 @@ if test "$tool" = 'rsync'; then
 		flags+=('--dry-run')
 	else
 		# check if remote and destination are locally mounted remote folders
-		rethink "$_remote"
+		rethink "$_source"
 		rethink "$_destination"
 	fi
 
@@ -114,7 +147,9 @@ if test "$tool" = 'rsync'; then
 	flags+=('--human-readable')
 
 	# --checksum, -c: skip based on checksum, not mod-time & size
-	flags+=('--checksum')
+	if test "$_checksum" = 'yes'; then
+		flags+=('--checksum')
+	fi
 
 	# -P: same as --partial --progress
 	# --partial: keep partially transferred files
@@ -138,13 +173,15 @@ if test "$tool" = 'rsync'; then
 	fi
 
 	# remove
-	if is-affirmative "${CPR_REMOVE}"; then
+	if test "$_remove" = 'yes'; then
 		flags+=('--remove-source-files')
 	fi
 
 	# run
-	echo "${precmd[@]}" rsync "${flags[@]}" "$_remote" "$_destination"
-	"${precmd[@]}" rsync "${flags[@]}" "$_remote" "$_destination"
+	echo "${precmd[@]}" rsync "${flags[@]}" "$_source" "$_destination"
+	if test "$_eval" != 'yes'; then
+		"${precmd[@]}" rsync "${flags[@]}" "$_source" "$_destination"
+	fi
 
 elif test "$tool" = 'gcp'; then
 	# via gcp, overall progress
@@ -165,8 +202,10 @@ elif test "$tool" = 'gcp'; then
 	flags+=('--verbose')
 
 	# run
-	echo "${precmd[@]}" gcp "${flags[@]}" "$_remote" "$_destination"
-	"${precmd[@]}" gcp "${flags[@]}" "$_remote" "$_destination"
+	echo "${precmd[@]}" gcp "${flags[@]}" "$_source" "$_destination"
+	if test "$_eval" != 'yes'; then
+		"${precmd[@]}" gcp "${flags[@]}" "$_source" "$_destination"
+	fi
 
 elif test "$tool" = 'scp'; then
 	# via scp
@@ -187,8 +226,10 @@ elif test "$tool" = 'scp'; then
 	flags+=('-r')
 
 	# run
-	echo "${precmd[@]}" scp "${flags[@]}" "$_remote" "$_destination"
-	"${precmd[@]}" scp "${flags[@]}" "$_remote" "$_destination"
+	echo "${precmd[@]}" scp "${flags[@]}" "$_source" "$_destination"
+	if test "$_eval" != 'yes'; then
+		"${precmd[@]}" scp "${flags[@]}" "$_source" "$_destination"
+	fi
 
 elif test "$tool" = 'cp'; then
 	# via cp
@@ -217,8 +258,10 @@ elif test "$tool" = 'cp'; then
 	flags+=('-v')
 
 	# run
-	echo "${precmd[@]}" cp "${flags[@]}" "$_remote" "$_destination"
-	"${precmd[@]}" cp "${flags[@]}" "$_remote" "$_destination"
+	echo "${precmd[@]}" cp "${flags[@]}" "$_source" "$_destination"
+	if test "$_eval" != 'yes'; then
+		"${precmd[@]}" cp "${flags[@]}" "$_source" "$_destination"
+	fi
 
 elif test "$tool" = 'diff'; then
 
@@ -229,8 +272,10 @@ elif test "$tool" = 'diff'; then
 	flags+=('--recursive')
 
 	# run
-	echo "${precmd[@]}" diff "${flags[@]}" "$_remote" "$_destination"
-	"${precmd[@]}" diff "${flags[@]}" "$_remote" "$_destination"
+	echo "${precmd[@]}" diff "${flags[@]}" "$_source" "$_destination"
+	if test "$_eval" != 'yes'; then
+		"${precmd[@]}" diff "${flags[@]}" "$_source" "$_destination"
+	fi
 
 elif test "$tool" = 'git'; then
 
@@ -238,8 +283,10 @@ elif test "$tool" = 'git'; then
 	flags+=('--no-index')
 
 	# run
-	echo "${precmd[@]}" git diff "${flags[@]}" "$_remote" "$_destination"
-	"${precmd[@]}" git diff "${flags[@]}" "$_remote" "$_destination"
+	echo "${precmd[@]}" git diff "${flags[@]}" "$_source" "$_destination"
+	if test "$_eval" != 'yes'; then
+		"${precmd[@]}" git diff "${flags[@]}" "$_source" "$_destination"
+	fi
 
 else
 
