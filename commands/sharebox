@@ -63,7 +63,7 @@ function verify_drive_count {
 	verify_btrfs_drives_count "$option_drive_label" "$option_drive_count"
 }
 function is_drive_mounted {
-	is-mounted "$drive_device" "$option_drive_mount"
+	is-mounted --source="$drive_device" --target="$option_drive_mount"
 }
 
 # =====================================
@@ -383,30 +383,28 @@ function act_chown {
 }
 function do_remove {
 	for path in "$@"; do
+		# check if already missing
 		if is-missing "$path"; then
 			echo-green "Already removed: $path"
-			continue
+			return 0
 		fi
-		echo "Checking size of: $path"
-		if is-empty-ls "$path" || is-empty-size "$path"; then
-			ls -lA "$path"
-			du -ha "$path"
-			if confirm-positive "$(echo-green "Confirm removal of empty directory: $path")"; then
-				sudo rm -Rfvi "$path"
-			else
-				return 1
-			fi
+		# remove empty directories
+		sudo find "$path" -empty -type d -delete
+		# check again
+		if is-missing "$path"; then
+			echo-green "Trimmed: $path"
 		else
-			ls -lA "$path"
-			if confirm-bool "$(echo-red "Confirm removal of non-empty directory: $path")"; then
-				sudo rm -Rfvi "$path"
+			echo "Calculating tree size of: $path"
+			du -ha "$path"
+			if confirm-positive "$(echo-green "Confirm removal of non-empty directory: $path")"; then
+				sudo rm -RfvI "$path"
 			else
 				return 1
 			fi
 		fi
 		# check
 		if ! is-missing "$path"; then
-			stderr echo "Failed to remove [$path]."
+			stderr echo "Failed to remove: $path"
 			return 1
 		fi
 	done
@@ -434,20 +432,8 @@ function do_unmount {
 		# unmount
 		echo
 		echo-bold "Unmounting: $target"
-		local ec=0; sudo umount --verbose "$target" || ec="$?"
-		if test "$ec" -eq '32'; then
-			echo-green "Already unmounted: $target"
-		elif test "$ec" -ne 0; then
-			return "$ec"
-		else
-			echo-green "Unmounted: $target"
-		fi
-		# confirm we aren't removing a cipher directory
-		if is_vault "$target"; then
-			stderr echo-red "You attempted to remove a cipher directory, check your code! $target"
-			exit 1
-		fi
-		# remove
+		fs-unmount "$target"
+		echo-green "Unmounted: $target"
 		do_remove "$target"
 	fi
 	# if it doens't exist, then is unmounted
@@ -477,6 +463,7 @@ function do_mount {
 	do_unmount "$mount_target"
 
 	# recreate
+	echo "Making: $mount_target"
 	sudo mkdir -p "$mount_target"
 	act_chown "$mount_target"
 
@@ -510,7 +497,6 @@ function do_mount {
 }
 function do_mount_drive {
 	do_mount "$drive_device" "$option_drive_mount"
-	get-size "$option_drive_mount"
 }
 function do_mount_vault {
 	do_mount "$option_cipher" "$option_plain"
@@ -538,13 +524,13 @@ function do_migrate {
 	fi
 	act_run $(cpr --eval --remove --action=copy --tool=rsync --source="$from" --destination="$to")
 	if is-missing "$from"; then
-		echo "Migrated [$from] to [$to], leaving behind nothing."
+		echo-green "Migrated [$from] to [$to], leaving behind nothing."
 	elif is-empty-ls "$from"; then
-		echo "Migrated [$from] to [$to], leaving behind an empty directory."
+		echo-green "Migrated [$from] to [$to], leaving behind an empty directory."
 	elif is-empty-size "$from"; then
-		echo "Migrated [$from] to [$to], leaving behind only empty directories."
+		echo-green "Migrated [$from] to [$to], leaving behind only empty directories."
 	else
-		echo "Migration of [$from] to [$to] has left behind files..."
+		echo-red "Migration of [$from] to [$to] has left behind files..."
 		ls -la "$from"
 		return 1
 	fi
@@ -570,34 +556,22 @@ function act_upgrade {
 	# https://github.com/rfjakob/gocryptfs/blob/master/Documentation/MANPAGE.md
 
 	# create
+	echo
 	if is_vault "$new_cipher"; then
-		echo
-		local message="$(echo-bold "The new vault [$new_cipher] already exists...")\nThis means a vault upgrade was started but not finished.\nDo you want to start again and remove it? Or do you want to continue with it?"
-		local huh="$(choose-option --question="$message" -- 'continue' remove exit)"
-
-		if test "$huh" = 'continue'; then
-			echo 'keeping'
-		elif test "$huh" = 'remove'; then
-			if confirm-bool "Are you sure you want to remove the new vault and start over? $new_cipher"; then
-				do_remove "$new_cipher"
-			else
-				return 1
-			fi
-		elif test "$huh" = 'exit'; then
-			stderr echo 'leaving for you to figure out'
-			exit 1
-		else
-			stderr echo 'unknown option'
-			exit 1
-		fi
-	fi
-	if is-empty-ls "$new_cipher"; then
+		echo-bold "The new vault [$new_cipher] already exists..."
+		echo-bold "This means a vault upgrade was started but not finished."
+		echo-bold "We will continue with this vault, if you wish setup a new one, remove the old one first."
+	elif is-missing "$new_cipher" || is-empty-ls "$new_cipher"; then
 		# act_run to ensure it creates with the right perms
+		echo-bold "Creating a new vault vault at [$new_cipher]..."
 		option_algorithm="$(choose-option --question="Which algorithm to use?" --filter="$option_algorithm" -- aessiv xchacha)"
 		act_run gocryptfs --init --"$option_algorithm" "$new_cipher"
 		act_chown "$new_cipher"
 	else
-		echo 'using exiting'
+		echo-red "Something already existed at [$new_cipher] which was not a known vault structure..."
+		echo-red "Leaving for you to figure out."
+		echo-eval ls -la "$new_cipher"
+		return 1
 	fi
 	gocryptfs --info "$new_cipher"
 
