@@ -1,17 +1,51 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# algorithms
+algorithms=()
+for alg in 'md5sum' 'shasum' 'sha256sum'; do
+	if command-exists "$alg"; then
+		algorithms+=("$alg")
+	fi
+done
+
+# help
+if is-help "$@"; then
+	stderr echo-lines \
+		'ABOUT:' \
+		'Get the checksum for a path, with progress updates if it takes a while.' \
+		'' \
+		'USAGE:' \
+		'checksum [...flags] [--] # checksums the current directory' \
+		'checksum [...flags] -- <...path>  # checksums each path provided' \
+		'' \
+		'FLAGS:' \
+		'Provide [--summary] to summarise a directory as a single checksum.' \
+		'Provide [--relative] to use relative paths instead of absolute paths.' \
+		'Provide [--untitled] to not display the path that the checksums are for.' \
+		'Provide [--algorithm=...] to specify a filter to select the checksum algorithm by.' \
+		'' \
+		'ALGORITHMS:' \
+		'We have determined the following algorithms are available on your system:' \
+		"${algorithms[*]}" \
+		'' \
+		'QUIRKS:' \
+		'[--relative] does not respect pwd, as such [--relative] is only useful when in [--no-summary] mode.'
+	exit 22 # Invalid argument
+fi
+
 # options
 mapfile -t options < <(echo-before-separator "$@")
-option_action=''  # confirmed later, as may not be necessary if file
-option_name="$(get-flag-value name -- "${options[@]}")"
+option_relative="$(get-flag-value relative -- "${options[@]}")"
+option_untitled="$(get-flag-value untitled -- "${options[@]}")"
+option_summary="$(get-flag-value summary -- "${options[@]}")"
 option_algorithm="$(get-flag-value algorithm -- "${options[@]}")"
-option_algorithm="$(choose-option --question='Which checksum algorithm do you wish to use?' --filter="$option_algorithm" -- 'md5sum' 'shasum' 'sha256sum')"
+option_algorithm="$(choose-option --question='Which checksum algorithm do you wish to use?' --filter="$option_algorithm" -- "${algorithms[@]}")"
 mapfile -t option_paths < <(echo-after-separator "$@")
 
 # process
 paths=()
-if test "$#" -eq 0; then
+if test "${#option_paths[@]}" -eq 0; then
 	paths+=("$(pwd)")
 else
 	for arg in "${option_paths[@]}"; do
@@ -21,49 +55,38 @@ fi
 
 # helpers
 function do_checksum_of_stdin_with_filename {
+	local path="$1" relative="${2:-"$option_relative"}"
+	if test "$relative" = 'yes'; then
+		path="$(basename "$path")"
+	fi
 	"$option_algorithm" | {
 		IFS=' ' read -ra hash_dot
-		if test "$option_name" = 'no'; then
+		if test "$option_untitled" = 'yes'; then
 			echo "${hash_dot[0]}"
 		else
-			echo "${hash_dot[0]}  $1"
+			echo "${hash_dot[0]}  $path"
 		fi
 	}
 }
 function do_checksum_of_file_or_directory {
 	# shows progress, works on files, and directories, and symlinks, and expands paths
 	# -L show symlinks too
-	path="$1"
-	relative="${2-}"
-	find -L "$1" -type f | sort | while read -r file; do
-		if test "$relative" = 'yes'; then
-			filename="$(basename "$file")"
-		else
-			filename="$file"
-		fi
-		pv --delay-start 5 "$file" | do_checksum_of_stdin_with_filename "$filename"
+	local path="$1" relative="${2:-"$option_relative"}" file
+	find -L "$path" -type f | sort | while read -r file; do
+		pv --delay-start 5 "$file" | do_checksum_of_stdin_with_filename "$file" "$relative"
 	done
 }
 
 # act
 for path in "${paths[@]}"; do
-	if test  -f "$path"; then
+	if test -f "$path" -o "$option_summary" != 'yes'; then
+		# file, or itemise
 		do_checksum_of_file_or_directory "$path"
 	else
-		# we have a directory, action is necessary
-		if test -z "$option_action"; then
-			option_action="$(get-flag-value action -- "${options[@]}")"
-			option_action="$(choose-option --question='Do you want the checksum for each item in the directory, or for the directory itself?' --filter="$option_action" -- 'itemised' 'summary')"
-		fi
-		# do the check for the directory based on action
-		if test "$option_action" = 'itemised'; then
-			do_checksum_of_file_or_directory "$path"
-		else
-			# tee aggregates everything together
-			# relative ensures checksums are relative, as otherwise full paths in checksums will ruin comparison
-			f="$(mktemp)"
-			do_checksum_of_file_or_directory "$path" yes | tee "$f" | do_checksum_of_stdin_with_filename "$path"
-			rm "$f"
-		fi
+		# directory and summarise
+		# force --relative, as otherwise full paths in checksums will ruin comparison
+		f="$(mktemp)"
+		do_checksum_of_file_or_directory "$path" 'yes' | tee "$f" | do_checksum_of_stdin_with_filename "$path"
+		rm "$f"
 	fi
 done
