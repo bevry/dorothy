@@ -2,8 +2,8 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
-- seamless support for bash, fish, and zsh
-- seamless support for multiple operating systems, such as MacOS and Ubuntu
+- seamless support for [bash](https://en.wikipedia.org/wiki/Bash_(Unix_shell)), [fish](https://en.wikipedia.org/wiki/Fish_(Unix_shell)), and [zsh](https://en.wikipedia.org/wiki/Z_shell)
+- seamless support for multiple operating systems and architectures
 - seamless support for your favorite terminal and GUI editors
 - automatic configuration of your environment variables for what you have installed on your system
 - automatic installation and updating of your specified packages
@@ -11,6 +11,23 @@ Dorothy is a dotfile ecosystem featuring:
 - hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
 - completely extensible and configurable with your own user repository
 - all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
+
+Dorothy maintainers are daily driving Dorothy on:
+
+- macOS on Apple Silicon
+- macOS on Intel
+- macOS on Apple Silicon with HOMEBREW_ARCH="x86_64"
+- Ubuntu Server on Raspberry Pi 4 (ARM)
+- Ubuntu Desktop on Raspberry Pi 400 (ARM)
+- Ubuntu Desktop on Intel/AMD (x86_64) 
+
+Dorothy users are daily driving Dorothy on:
+
+- Manjaro/Arch on Intel/AMD (x86_64) 
+
+Dorothy maintainers and users are occasionally driving Dorothy on:
+
+- Fedora via Intel/AMD (x84_64) virtual machines
 
 ## Try
 
