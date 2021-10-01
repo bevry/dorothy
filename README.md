@@ -16,7 +16,6 @@ Dorothy maintainers are daily driving Dorothy on:
 
 - macOS on Apple Silicon
 - macOS on Intel
-- macOS on Apple Silicon with HOMEBREW_ARCH="x86_64"
 - Ubuntu Server on Raspberry Pi 4 (ARM)
 - Ubuntu Desktop on Raspberry Pi 400 (ARM)
 - Ubuntu Desktop on Intel/AMD (x86_64) 
@@ -27,6 +26,7 @@ Dorothy users are daily driving Dorothy on:
 
 Dorothy maintainers and users are occasionally driving Dorothy on:
 
+- macOS on Apple Silicon with `HOMEBREW_ARCH="x86_64"`
 - Fedora via Intel/AMD (x84_64) virtual machines
 
 ## Try
