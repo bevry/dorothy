@@ -25,3 +25,9 @@ if test "$stdin" = "no"; then
 		act "$item"
 	done
 fi
+
+# check if finish exists
+if test "$(type -t finish)" = 'function' ; then
+	finish
+	exit "$?"
+fi
