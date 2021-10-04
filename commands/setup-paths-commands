@@ -9,29 +9,46 @@ source "$DOROTHY/sources/user.sh" # load user overrides
 # so sudo should inherit standard config
 
 # shell
-lsh="${1-}"
+login_shell="${1-}"
 
 # helpers
 function vdel {
-	if test "$lsh" = "fish"; then
+	if test "$login_shell" = "fish"; then
 		echo "set --universal --erase $1;"
 	else
 		echo "export $1=\"\";"
 	fi
 }
 function vadd {
-	if test "$lsh" = "fish"; then
-		echo "set --export --path --prepend $1 \"$2\";"
+	local fish_flags=('--export' '--prepend') separator name value
+	if test "$#" -eq 3; then
+		separator="$1"
+		name="$2"
+		value="$3"
 	else
-		if test -z "${!1-}"; then
-			echo "export $1=\"$2\";"
+		# windows uses semicolon for separator
+		# unix uses colon for separator
+		# we do not yet support windows
+		fish_flags+=('--path')
+		separator=':'
+		name="$1"
+		value="$2"
+	fi
+	if test "$login_shell" = "fish"; then
+		# · -x or --export causes the specified shell variable to be exported to child processes (making it an "environment variable")
+		# · --path causes the specified variable to be treated as a path variable, meaning it will automatically be split on colons,  and joined using colons when quoted (echo "$PATH") or exported.
+		# · -p or --prepend causes the values to be prepended to the current set of values for the variable. This can be used with --append to both append and prepend at the same time. This cannot be used when assigning to a  variable slice.
+		echo "set ${fish_flags[*]} ${name} \"${value}\";"
+	else
+		if test -z "${!name-}"; then
+			echo "export ${name}=\"${value}\";"
 		else
-			echo "export $1=\"$2:\$$1\";"
+			echo "export ${name}=\"${value}${separator}\$${name}\";"
 		fi
 	fi
 }
 function vset {
-	if test "$lsh" = "fish"; then
+	if test "$login_shell" = "fish"; then
 		vdel "$1"
 		echo "set --export $1 \"$2\";"
 	else
@@ -147,10 +164,10 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 
 	# for compilers to find homebrew
 	if is-dir "$HOMEBREW_PREFIX/lib"; then
-		vadd LDFLAGS "-L$HOMEBREW_PREFIX/lib"
+		vadd ' ' LDFLAGS "-L$HOMEBREW_PREFIX/lib"
 	fi
 	if is-dir "$HOMEBREW_PREFIX/include"; then
-		vadd CPPFLAGS "-I$HOMEBREW_PREFIX/include"
+		vadd ' ' CPPFLAGS "-I$HOMEBREW_PREFIX/include"
 	fi
 	if is-dir "$HOMEBREW_PREFIX/lib/pkgconfig"; then
 		vadd PKG_CONFIG_PATH "$HOMEBREW_PREFIX/lib/pkgconfig"
@@ -163,10 +180,10 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 		rubygems "$p/bin/gem"
 		# for compilers to find llvm
 		if is-dir "$p/lib"; then
-			vadd LDFLAGS "-L$p/lib"
+			vadd ' ' LDFLAGS "-L$p/lib"
 		fi
 		if is-dir "$p/include"; then
-			vadd CPPFLAGS "-I$p/include"
+			vadd ' ' CPPFLAGS "-I$p/include"
 		fi
 	fi
 
@@ -176,10 +193,10 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 		vadd PATH "$p/bin"
 		# for compilers to find sqlite
 		if is-dir "$p/lib"; then
-			vadd LDFLAGS "-L$p/lib"
+			vadd ' ' LDFLAGS "-L$p/lib"
 		fi
 		if is-dir "$p/include"; then
-			vadd CPPFLAGS "-I$p/include"
+			vadd ' ' CPPFLAGS "-I$p/include"
 		fi
 		# for pkg-config to find sqlite
 		if is-dir "$p/lib/pkgconfig"; then
@@ -223,10 +240,10 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 		rubygems "$p/bin/gem"
 		# for compilers to find ruby
 		if is-dir "$p/lib"; then
-			vadd LDFLAGS "-L$p/lib"
+			vadd ' ' LDFLAGS "-L$p/lib"
 		fi
 		if is-dir "$p/include"; then
-			vadd CPPFLAGS "-I$p/include"
+			vadd ' ' CPPFLAGS "-I$p/include"
 		fi
 		# for pkg-config to find ruby
 		if is-dir "$p/lib/pkgconfig"; then
@@ -258,9 +275,19 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 	done
 
 	# OpenSSL (dependency of python, gpg, and node)
+	# openssl is a symlink to whatever directory has the latest version
 	if is-dir "$HOMEBREW_PREFIX/opt/openssl/bin"; then
-		vadd PATH "$HOMEBREW_PREFIX/opt/openssl/bin"
-		vadd PKG_CONFIG_PATH "$HOMEBREW_PREFIX/opt/openssl/lib/pkgconfig"
+		p="$HOMEBREW_PREFIX/opt/openssl"
+		vadd PATH "$p/bin"
+		if is-dir "$p/lib"; then
+			vadd ' ' LDFLAGS "-L$p/lib"
+		fi
+		if is-dir "$p/include"; then
+			vadd ' ' CPPFLAGS "-I$p/include"
+		fi
+		if is-dir "$p/lib/pkgconfig"; then
+			vadd PKG_CONFIG_PATH "$p/lib/pkgconfig"
+		fi
 		# ^^ setup-util-gocryptfs needs this on macos big sur
 		# ```
 		# Package libcrypto was not found in the pkg-config search path.
@@ -269,6 +296,11 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 		# No package 'libcrypto' found
 		# pkg-config: exit status 1
 		# ```
+		# and
+		# ```
+		# ld: library not found for -lcrypto
+		# clang: error: linker command failed with exit code 1 (use -v to see invocation)
+		# ````
 	fi
 
 	# NSS
