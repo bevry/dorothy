@@ -25,6 +25,10 @@ https://stackoverflow.com/a/68310927/130638
 - http://unix.stackexchange.com/q/70963/50703
 - http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections
 
+## dollar $ variables
+
+- https://stackoverflow.com/questions/5163144/what-are-the-special-dollar-sign-shell-variables
+
 ## $@ vs $\*
 
 - https://github.com/koalaman/shellcheck/wiki/SC2124
