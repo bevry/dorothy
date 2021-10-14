@@ -383,31 +383,21 @@ function act_chown {
 }
 function do_remove {
 	for path in "$@"; do
-		# check if already missing
-		if is-missing "$path"; then
-			echo-green "Already removed: $path"
-			return 0
+		# trim
+		if do_trim "$path"; then
+			echo-green "[$path] trimmed and removed."
+		elif confirm-positive "$(echo-green "Confirm removal of non-empty directory: $path")"; then
+			sudo rm -RfvI "$path" || :  # may or may not remove
 		fi
-		# remove empty directories
-		sudo find "$path" -empty -type d -delete
-		# check again
-		if is-missing "$path"; then
-			echo-green "Trimmed: $path"
-		else
-			echo "Calculating tree size of: $path"
-			du -ha "$path"
-			if confirm-positive "$(echo-green "Confirm removal of non-empty directory: $path")"; then
-				sudo rm -RfvI "$path"
-			else
-				return 1
-			fi
-		fi
-		# check
+		# confirm that it is removed
 		if ! is-missing "$path"; then
-			stderr echo "Failed to remove: $path"
+			echo-red "[$path] failed to remove."
 			return 1
 		fi
 	done
+}
+function do_run {
+	sudo --set-home --preserve-env='DOROTHY,PATH' --user="$option_user" --group="$option_group" "$@"
 }
 function act_run {
 	#   -E, --preserve-env            preserve user environment when running command
@@ -417,26 +407,25 @@ function act_run {
 	#   -g, --group=group             run command as the specified group name or ID
 	echo sudo --set-home --preserve-env='DOROTHY,PATH' --user="$option_user" --group="$option_group" "$@"
 	if confirm-positive "Confirm run of the above command."; then
-		sudo --set-home --preserve-env='DOROTHY,PATH' --user="$option_user" --group="$option_group" "$@"
+		do_run "$@"
 	else
 		return 1
 	fi
 }
 function do_unmount {
-	local target="$1"
+	local path="$1"
+	echo
+	echo-bold "[$path] unmounting..."
 	# exists
-	if ! test -e "$target"; then
-		echo
-		echo-green "Already unmounted: $target"
+	if is-missing "$path"; then
+		# unmounted
+		echo-green "[$path] already unmounted."
 	else
 		# unmount
-		echo
-		echo-bold "Unmounting: $target"
-		fs-unmount "$target"
-		echo-green "Unmounted: $target"
-		do_remove "$target"
+		fs-unmount "$path"
+		echo-green "[$path] unmounted."
+		do_remove "$path"
 	fi
-	# if it doens't exist, then is unmounted
 }
 function do_unmount_all {
 	# unmount vaults
@@ -463,23 +452,23 @@ function do_mount {
 	do_unmount "$mount_target"
 
 	# recreate
-	echo "Making: $mount_target"
+	echo
+	echo-bold "[$mount_target] making..."
 	sudo mkdir -p "$mount_target"
 	act_chown "$mount_target"
 
 	# mount
+	echo
+	echo-bold "Mounting:"
+	echo "$mount_source => $mount_target"
 	if is_drive "$mount_source"; then
-		echo
-		echo-bold "Mounting:"
-		echo "$mount_source => $mount_target"
+		# mount drive
 		sudo mount "$mount_source" "$mount_target"
 	elif is_vault "$mount_source"; then
-		# prep
-		echo
 		echo-bold 'Enter the cipher password for mounting:'
 		echo "$mount_source => $mount_target"
 
-		# mount
+		# mount vault
 		act_run \
 			gocryptfs --rw --noprealloc --allow_other --force_owner "$owner" \
 			"$mount_source" "$mount_target"
@@ -487,7 +476,7 @@ function do_mount {
 		echo
 	else
 		echo
-		echo 'Unable to mount:'
+		echo-red 'Failed to mount:'
 		echo "$mount_source => $mount_target"
 		return 1
 	fi
@@ -516,6 +505,61 @@ function act_mount {
 		do_mount "$@"
 	fi
 }
+function do_trim {
+	local path="$1"
+
+	# missing
+	if is-missing "$path"; then
+		echo-green "[$path] already removed."
+		return
+	fi
+
+	# empty
+	if is-empty-ls "$path"; then
+		echo-green "[$path] is an empty directory."
+	fi
+
+	# trim
+	do_size "$path"
+	echo-green "[$path] trimming empty directories."
+	sudo find "$path" -empty -type d -delete || :
+	do_run find "$path" -empty -type d -delete || :
+	if is-missing "$path"; then
+		echo-green "[$path] trimmed empty directories within, including itself."
+		return
+	fi
+
+	# leftovers
+	echo-bold "[$path] trimmed empty directories within, but not itself."
+	do_size "$path"
+	return 1
+}
+function do_size {
+	local path="$1"
+
+	if is-missing "$path"; then
+		echo-green "[$path] already removed."
+		return
+	fi
+
+	echo-eval ls -la "$path"
+
+	if is-empty-ls "$path"; then
+		echo-green "[$path] is an empty directory."
+		return
+	fi
+
+	echo-eval dust "$path"
+	echo-eval dust -f "$path"
+
+	if is-empty-size "$path"; then
+		echo-green "[$path] is only empty directories."
+		return
+	fi
+
+	echo-red "[$path] is not empty, it has non-empty files..."
+	return
+}
 function do_migrate {
 	local from="$1"
 	local to="$2"
@@ -523,30 +567,20 @@ function do_migrate {
 		return 1
 	fi
 	act_run $(cpr --eval --remove --action=copy --tool=rsync --source="$from" --destination="$to")
-	if is-missing "$from"; then
-		echo-green "Migrated [$from] to [$to], leaving behind nothing."
-	elif is-empty-ls "$from"; then
-		echo-green "Migrated [$from] to [$to], leaving behind an empty directory."
-	elif is-empty-size "$from"; then
-		echo-green "Migrated [$from] to [$to], leaving behind only empty directories."
-	else
-		echo-red "Migration of [$from] to [$to] has left behind files..."
-		ls -la "$from"
-		return 1
-	fi
 }
 function do_speed {
-	local plain="$1"
-	rm -f "$plain/largefile"
-	if confirm-positive "Speed test [$plain]?"; then
+	local path="$1"
+	rm -f "$path/largefile"
+	if confirm-positive "Speed test [$path]?"; then
 		echo
-		echo "$plain: determining write performance"
-		echo-eval dd if=/dev/zero of="$plain/largefile" bs=1M count=1024
+		echo "$path: determining write performance"
+		echo-eval dd if=/dev/zero of="$path/largefile" bs=1M count=1024
 		echo
-		echo "$plain: determining read performance"
-		echo-eval dd if="$plain/largefile" of=/dev/null bs=4k
-		rm "$plain/largefile"
+		echo "$path: determining read performance"
+		echo-eval dd if="$path/largefile" of=/dev/null bs=4k
+		rm "$path/largefile"
 	fi
+	echo
 }
 function act_upgrade {
 	# reset mounts
@@ -589,29 +623,34 @@ function act_upgrade {
 	# migrate
 	do_migrate "$old_plain/" "$new_plain/"
 
-	# delete
-	echo-eval ls -la "$old_plain/"
-	echo-eval ls -la "$new_plain/"
-	if ! confirm-bool "Confirm replacement of [$old_cipher] with [$new_cipher]?"; then
-		return 1
-	fi
+	# replace
+	echo
+	echo "Prepping replacement:"
+	do_trim "$old_plain/" || :
+	do_size "$new_plain/"
 	do_unmount "$old_plain"
 	do_unmount "$new_plain"
-	echo-eval ls -la "$old_cipher"
-	echo-eval ls -la "$new_cipher"
-	if ! confirm-bool "Really confirm replacement of [$old_cipher] with [$new_cipher]?"; then
+	do_size "$old_cipher"
+	do_size "$new_cipher"
+	echo
+	echo "Confirm the following replacement:"
+	echo "Delete:  $old_cipher"
+	echo "Move:    $new_cipher  =>  $old_cipher"
+	if ! confirm-bool "Proceed with replacement?"; then
 		return 1
 	fi
 	do_remove "$old_cipher"
-	sudo mv "$new_cipher" "$old_cipher"
-
+	sudo mv --verbose "$new_cipher" "$old_cipher"
 	echo
-	echo 'New vault is now the standard vault:'
-	echo "$new_cipher => moved to => $old_cipher"
+	echo 'Replacement complete.'
+	echo "Deleted:  $old_cipher"
+	echo "Moved:    $new_cipher  =>  $old_cipher"
 
+	# done
 	echo
 	echo 'Migration complete. ✅'
-	echo 'Leaving up to you to run: sharebox --action=start'
+	echo 'When you are ready to start the sharebox with the migrated vault, run:'
+	echo 'sharebox --action=start'
 }
 
 # action
