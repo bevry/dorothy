@@ -91,10 +91,11 @@ function seedbox_ip {
 	docker exec -it "$id" curl -fsSL 'http://ipecho.net/plain'
 }
 function seedbox_id {
-	# fetch container identifier
-	# docker container ls
-	# docker ps
-	docker ps -a --filter ancestor="$image" --format '{{ .ID }}' | echo-first-line
+	mapfile -t ids < <(docker ps -a --filter ancestor="$image" --format '{{ .ID }}')
+	if test "${#ids[@]}" -eq 0; then
+		return 0
+	fi
+	choose-option --question='Which container ID to use?' --required -- "${ids[@]}"
 }
 function seedbox_debug {
 	local id="$(seedbox_id)"
@@ -116,7 +117,7 @@ function seedbox_follow {
 	seedbox_logs --follow
 }
 function seedbox_status {
-	local id="$(seedbox_id)" localip hostip seedboxip
+	local id="$(seedbox_id)" localip hostip seedboxip details
 	if test -z "$id"; then
 		echo 'no seedbox to get status for'
 		return 1
@@ -125,7 +126,7 @@ function seedbox_status {
 	hostip="$(ip-remote)"
 	seedboxip="$(seedbox_ip)"
 	details=(
-		"host ip	  =  $hostip"
+		"host ip	     =  $hostip"
 		"seedbox ip   =  $seedboxip"
 		"seedbox url  =  http://$localip:$seedboxport"
 	)
@@ -151,12 +152,13 @@ function seedbox_create {
 	# create
 	dnsip="$(what-is-my-exposed-dns)"
 	set -x # <debug>
-	docker run --detach --restart=always  \
+	docker run \
+		--detach \
 		-v "$datapath":/data \
 		-e OPENVPN_PROVIDER="$vpnprovider" \
 		-e OPENVPN_USERNAME="$vpnuser" \
 		-e OPENVPN_PASSWORD="$vpnpass" \
-		-e OPENVPN_OPTS='--inactive 3600 --ping 10 --ping-exit 60' \
+		-e OPENVPN_OPTS='--mute-replay-warnings --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0 --pull-filter ignore ping' \
 		-e NORDVPN_CATEGORY='P2P' \
 		-e NORDVPN_COUNTRY="$vpncountry" \
 		-e NORDVPN_PROTOCOL="$vpnprotocol" \
@@ -164,22 +166,50 @@ function seedbox_create {
 		-e HEALTH_CHECK_HOST='api.nordvpn.com' \
 		-e TRANSMISSION_WEB_UI=flood-for-transmission \
 		-e WEBPROXY_ENABLED=false \
-		--restart unless-stopped \
 		--log-driver json-file \
 		--log-opt max-size=10m \
 		--cap-add=NET_ADMIN \
 		--net=bridge --dns="$dnsip" \
 		-p "$seedboxport":"$seedboxport" \
 		"$image"
-	# -e TZ=UTC \
-	# --sysctl net.ipv6.conf.all.disable_ipv6=0 \
-   # restart: unless-stopped
+
+	# https://docs.docker.com/engine/reference/run/
+	# https://docs.docker.com/engine/reference/run/#restart-policies---restart
+	# --restart=on-failure
+	# ^ Restart only if the container exits with a non-zero exit status. Optionally, limit the number of restart retries the Docker daemon attempts.
+	# --restart=unless-stopped
+	# ^ Always restart the container regardless of the exit status, including on daemon startup, except if the container was put into a stopped state before the Docker daemon was stopped
+	# restart is handled via `docker update` commands before and after start/stop
+
+	# -e OPENVPN_OPTS='-mute-replay-warnings' \
+	# --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+	# Options error: the --route-pre-down directive should have at most 1 parameter.  To pass a list of arguments as one of the parameters, try enclosing them in double quotes ("").
+
+
+	# https://openvpn.net/community-resources/reference-manual-for-openvpn-2-4/
+	# OPENVPN_OPTS
+	# --mute-replay-warnings
+	# ^ Silence the output of replay warnings, which are a common false alarm on WiFi networks. This option preserves the security of the replay protection code without the verbosity associated with warnings about duplicate packets.
+	# --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0
+	# --inactive 3600 --ping 10 --ping-exit 60
+	# ^ when used on both peers will cause OpenVPN to exit within 60 seconds if its peer disconnects, but will exit after one hour if no actual tunnel data is exchanged.
+	# --pull-filter ignore ping
+
+	# https://haugene.github.io/docker-transmission-openvpn/config-options/#health_check_option
+	# HEALTH_CHECK_HOST
+	# Because your VPN connection can sometimes fail, Docker will run a health check on this container every 5 minutes to see if the container is still connected to the internet. By default, this check is done by pinging google.com once. You change the host that is pinged.
+
+	# https://support.nordvpn.com/Connectivity/Linux/1047409422/How-can-I-connect-to-NordVPN-using-Linux-Terminal.htm
+	# nordvpn recommends disabling ipv6, which the image syntax should be
+	# https://haugene.github.io/docker-transmission-openvpn/provider-specific/
+	# --sysctl net.ipv6.conf.all.disable_ipv6=1
+
+	# -e TZ=UTC
 	# -e NORDVPN_PROTOCOL=tcp
+
+	# continue
 	set +x  # </debug>
 	id="$(seedbox_id)"
-
-	# ensure that it does not automatically start with the system
-	docker update --restart=no "$id"
 
 	echo 'seedbox created'
 }
@@ -189,8 +219,12 @@ function seedbox_stop {
 		echo 'no seedbox to stop'
 		return 0
 	fi
-	echo 'seedbox stopping...'
+	echo "seedbox stopping... $(date)"
+	set -x # <debug>
+	docker update --restart=no "$id"
+	#   -t, --time int   Seconds to wait for stop before killing it (default 10)
 	docker stop --time 60 "$id"
+	set +x # </debug>
 	echo 'seedbox stopped'
 }
 function seedbox_start {
@@ -201,7 +235,10 @@ function seedbox_start {
 		return 1
 	fi
 	echo 'seedbox starting...'
+	set -x # <debug>
+	docker update --restart=always "$id"
 	docker start "$id"
+	set +x # </debug>
 	echo 'seedbox started'
 }
 function seedbox_restart {
