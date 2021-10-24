@@ -270,7 +270,7 @@ Available `source` configuration:
 
 One of the biggest security concerns these days with using the internet, is the leaking, and potential of modification of your DNS queries. A DNS query is what turns `google.com` to say `172.217.167.110`. With un-encrypted DNS (the default), your ISP, or say that public Wifi provider, can intercept these queries to find out what websites you are visiting, and they can even rewrite these queries, to direct you elsewhere. This is how many public Wifi providers offer their service for free, by selling the data they collect on you, or worse.
 
-The solution to this is encrypted DNS. Some VPN providers already include it within their service, however most don't. Any if you have encrypted DNS, then you get the benefits of preventing evesdropping without the need for expensive VPN, and the risk of your VPN provider evesdropping on you.
+The solution to this is encrypted DNS. Some VPN providers already include it within their service, however most don't. And if you have encrypted DNS, then you get the benefits of preventing evesdropping without the need for expensive VPN, and the risk of your VPN provider evesdropping on you.
 
 Dorothy supports configuring your DNS to encrypted DNS via the [`setup-dns` command](https://github.com/bevry/dorothy/tree/master/commands/setup-dns), which includes installation and configuration for any of these:
 
