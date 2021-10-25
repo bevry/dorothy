@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# dependencies
+source "$DOROTHY/sources/ripgrep.bash"
+
+# e.g.
+# /etc/systemd/resolved.conf
+# shell.sh
+# .gitignore
+file="$(get-flag-value file -- "$@")"
+
+# e.g.
+# Domains=
+# DOROTHY_THEME=
+# config.local/
+mapfile -t find_array < <(get-flag-value find --multi -- "$@")
+find_count="${#find_array[@]}"
+
+# e.g.
+# Domains=~.
+# DOROTHY_THEME=oz
+# config.local/
+mapfile -t replace_array < <(get-flag-value replace --multi -- "$@")
+replace_count="${#replace_array[@]}"
+
+# check we are either only gets, or only replaces
+if test "$replace_count" -eq 0; then
+	for find in "${find_array[@]}"; do
+		pattern="^[ 	]*($find)=?(.*)$"
+		rg -o "$pattern" --replace '$2' "$file"
+	done
+	exit
+fi
+
+# we are a replacement
+# goal: replace all uncommented instances with a single set instance, after the first comment or at the end
+
+# check we have the same finds as replaces
+if test "$replace_count" -ne "$find_count"; then
+	stderr echo "--find arg count must match --replace arg count"
+	exit 22 # Invalid argument
+fi
+
+# prepare the file
+touch "$file"
+mapfile -t lines < "$file"
+
+# cycle through each find and replace pair
+for find_index in "${!find_array[@]}"; do
+	# prepare
+	find="${find_array[find_index]}"
+	replace="${replace_array[find_index]}"
+	pattern="^([ 	]*)[# 	]*($find)$"
+	found='no'
+	stack=()
+	results=()
+
+	# cycle through the lines
+	for line in "${lines[@]}"; do
+		# check if the lines matches the pattern
+		if prefix="$(rg -qo "$pattern" --replace '$1' <<< "$line")"; then
+			# if not found, add the replacement line to the stack, to be added when we get back to normal lines
+			if test "$found" = 'no'; then
+				stack+=(
+					"${prefix}${replace}"
+				)
+				found='yes'
+			fi
+
+			# get existing line, minus comment prefix
+			comment="$(rg -o "$pattern" --replace '$2' <<< "$line")"
+
+			# only add the comment, if it is different from the result
+			if test "$comment" != "${replace}"; then
+				# use ## so it is easy to see where the replacements were
+				results+=(
+					"${prefix}##${comment}"
+				)
+			fi
+		else
+			# not a match, so ordinary line
+
+			# empty the stack
+			if test "${#stack[@]}" -ne 0; then
+				results+=("${stack[@]}")
+				stack=()
+			fi
+
+			# and append
+			results+=("$line")
+		fi
+	done
+
+	# empty the stack
+	if test "${#stack[@]}" -ne 0; then
+		results+=("${stack[@]}")
+		stack=()
+	fi
+
+	# append replacement if it was never found
+	if test "$found" = 'no'; then
+		results+=("$replace")
+	fi
+
+	# replace the lines with the results, and move onto the next combo
+	lines=("${results[@]}")
+done
+
+# write the updated file
+echo-lines "${results[@]}" > "$file"
