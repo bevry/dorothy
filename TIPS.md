@@ -2,7 +2,7 @@
 
 ## shell
 
-``` bash
+```bash
 if test -n "${ZSH_VERSION-}"; then
 	echo 'zsh'
 elif test -n "${FISH_VERSION-}"; then
@@ -122,7 +122,7 @@ echo $?  # 0
 
 ```bash
 # get first line, via pipe, tried and tested
-echo -e 'a\nb' | echo-first-line
+echo -e 'a\nb' | echo-first
 
 # get first line, via variable
 var=$'one\ntwo'; echo "${var%$'\n'*}" # one
