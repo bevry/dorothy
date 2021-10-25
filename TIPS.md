@@ -1,5 +1,25 @@
 # Scripts
 
+## shell
+
+``` bash
+if test -n "${ZSH_VERSION-}"; then
+	echo 'zsh'
+elif test -n "${FISH_VERSION-}"; then
+	echo 'fish'
+elif test -n "${BASH_VERSION-}"; then
+	echo 'bash'
+elif test -n "${KSH_VERSION-}"; then
+	echo 'ksh'
+elif test -n "${FCEDIT-}"; then
+	echo 'ksh'
+elif test -n "${PS3-}"; then
+	echo 'unknown'
+else
+	echo 'sh'
+fi
+```
+
 ## exit codes
 
 - [Command exit codes](https://gist.github.com/shinokada/5432e491f9992da994fbed05948bfba1)
@@ -39,6 +59,7 @@ https://stackoverflow.com/a/68310927/130638
 - http://unix.stackexchange.com/a/246320/50703
 - `-z` is empty string: True if the length of string is zero.
 - `-n` is string: True if the length of string is nonzero.
+- `-e` is file or directory.
 - `-d` is dir: True if file exists and is a directory.
 - `-f` is file: True if file exists and is a regular file.
 - `-s` is nonempty file: True if file exists and has a size greater than zero.

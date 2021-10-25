@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/config.sh"
+
+# prepare
+actions=(
+	'info'
+	'run'
+	'setup'
+	'mount'
+	'unmount'
+	'size'
+	'start'
+	'stop'
+	'shutdown'
+	'reboot'
+	'chown'
+	'upgrade'
+)
 
 # dependencies
 env QUIET=y setup-util-ripgrep
@@ -8,6 +25,99 @@ env QUIET=y setup-util-ripgrep
 if ! is-ubuntu; then
 	stderr echo 'only for ubuntu'
 	exit 1
+fi
+
+
+# =====================================
+# CONFIGURATION
+
+echo > /dev/tty
+echo "Processing configuration..." > /dev/tty
+
+# load configuration
+config_file="$(get_dorothy_config 'sharebox.bash')"
+load_dorothy_config 'sharebox.bash'
+
+# load options
+mapfile -t options < <(echo-before-separator "$@")
+mapfile -t args < <(echo-after-separator "$@")
+
+# options: action
+option_action="$(get-flag-value action -- "${options[@]}")"
+option_action="$(choose-option \
+	--question='What action to perform?' \
+	--filter="${option_action:-"$1"}" \
+	-- "${actions[@]}")"
+
+# options: configure
+configure_options=()
+configure="$(get-flag-value configure -- "${options[@]}")"
+if test "$configure" = 'yes' -o ! -f "$config_file"; then
+	configure='yes'
+	configure_options+=('--confirm')
+fi
+
+# options: configuration
+option_user="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter the username to use for the share.' \
+	--default="${SHAREBOX_USER-}" \
+	--flag=user -- "${options[@]}")"
+option_group="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter the groupname to use for the share.' \
+	--default="${SHAREBOX_GROUP-}" \
+	--flag=group -- "${options[@]}")"
+option_drive_label="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter the drive label to use for the share.' \
+	--default="${SHAREBOX_DRIVE_LABEL-}" \
+	--flag=drive-label -- "${options[@]}")"
+option_drive_count="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter how many drives are part of the share.' \
+	--default="${SHAREBOX_DRIVE_COUNT-}" \
+	--flag=drive-count -- "${options[@]}")"
+option_drive_mount="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter the path of the drive mount point.' \
+	--default="${SHAREBOX_DRIVE_MOUNT-}" \
+	--flag=drive-mount -- "${options[@]}")"
+option_cipher="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter the path of the cipher directory.' \
+	--default="${SHAREBOX_CIPHER-}" \
+	--flag=cipher -- "${options[@]}")"
+option_plain="$(ask \
+	--required "${configure_options[@]}" \
+	--question='Enter the path of the decrypted cipher mount point.' \
+	--default="${SHAREBOX_PLAIN-}" \
+	--flag=plain -- "${options[@]}")"
+option_algorithm="$(get-flag-value algorithm -- "${options[@]}")"
+if test -z "$option_algorithm" && is-raspi; then
+	option_algorithm='xchacha'
+fi
+
+# update configuration
+if test "$configure" = 'yes'; then
+	cat << EOF > "$config_file"
+#!/usr/bin/env bash
+
+if test "\$(get-hostname)" = '$(get-hostname)'; then
+	export SHAREBOX_USER='$option_user'
+	export SHAREBOX_GROUP='$option_group'
+	export SHAREBOX_DRIVE_LABEL='$option_drive_label'
+	export SHAREBOX_DRIVE_COUNT='$option_drive_count'
+	export SHAREBOX_DRIVE_MOUNT='$option_drive_mount'
+	export SHAREBOX_CIPHER='$option_cipher'
+	export SHAREBOX_PLAIN='$option_plain'
+else
+	echo 'Not running on an intended host.'
+	exit 0
+fi
+
+EOF
+	echo "Saved configuration: $config_file"
 fi
 
 # =====================================
@@ -67,90 +177,6 @@ function is_drive_mounted {
 }
 
 # =====================================
-# LOAD CONFIGURATION
-
-# check user config
-varfile="$DOROTHY/user/env/sharebox.bash"
-if test -f "$varfile"; then
-	echo "Loading configuration... [$varfile]"
-	source "$varfile"
-fi
-
-# =====================================
-# PROCESS CONFIGURATION
-
-echo
-echo "Processing configuration..."
-
-# options
-ask_options=('--required')
-mapfile -t options < <(echo-before-separator "$@")
-option_update_config="$(get-flag-value update-config -- "${options[@]}")"
-if test "$option_update_config" = 'yes'; then
-	ask_options+=('--confirm')
-fi
-option_action="$(get-flag-value action -- "${options[@]}")"  # confirmed later
-option_user="$(ask \
-	--question='Enter the username to use for the share.' \
-	--default="${SHAREBOX_USER-}" \
-	--flag=user "${ask_options[@]}" -- "${options[@]}")"
-option_group="$(ask \
-	--question='Enter the groupname to use for the share.' \
-	--default="${SHAREBOX_GROUP-}" \
-	--flag=group "${ask_options[@]}" -- "${options[@]}")"
-option_drive_label="$(ask \
-	--question='Enter the drive label to use for the share.' \
-	--default="${SHAREBOX_DRIVE_LABEL-}" \
-	--flag=drive-label "${ask_options[@]}" -- "${options[@]}")"
-option_drive_count="$(ask \
-	--question='Enter how many drives are part of the share.' \
-	--default="${SHAREBOX_DRIVE_COUNT-}" \
-	--flag=drive-count "${ask_options[@]}" -- "${options[@]}")"
-option_drive_mount="$(ask \
-	--question='Enter the path of the drive mount point.' \
-	--default="${SHAREBOX_DRIVE_MOUNT-}" \
-	--flag=drive-mount "${ask_options[@]}" -- "${options[@]}")"
-option_cipher="$(ask \
-	--question='Enter the path of the cipher directory.' \
-	--default="${SHAREBOX_CIPHER-}" \
-	--flag=cipher "${ask_options[@]}" -- "${options[@]}")"
-option_plain="$(ask \
-	--question='Enter the path of the decrypted cipher mount point.' \
-	--default="${SHAREBOX_PLAIN-}" \
-	--flag=plain "${ask_options[@]}" -- "${options[@]}")"
-option_algorithm="$(get-flag-value algorithm -- "${options[@]}")"
-if test -z "$option_algorithm" && is-raspi; then
-	option_algorithm='xchacha'
-fi
-mapfile -t args < <(echo-after-separator "$@")
-
-# write the config if the file does not exist
-function update_config {
-	cat << EOF > "$varfile"
-#!/usr/bin/env bash
-
-if test "\$(get-hostname)" = '$(get-hostname)'; then
-	export SHAREBOX_USER='$option_user'
-	export SHAREBOX_GROUP='$option_group'
-	export SHAREBOX_DRIVE_LABEL='$option_drive_label'
-	export SHAREBOX_DRIVE_COUNT='$option_drive_count'
-	export SHAREBOX_DRIVE_MOUNT='$option_drive_mount'
-	export SHAREBOX_CIPHER='$option_cipher'
-	export SHAREBOX_PLAIN='$option_plain'
-else
-	echo 'Not running on an intended host.'
-	exit 0
-fi
-
-EOF
-}
-if test "$option_update_config" = 'yes' -o ! -f "$varfile"; then
-	echo "Saving configuration... [$varfile]"
-	act_config
-	echo "Saved configuration. [$varfile]"
-fi
-
-# =====================================
 # VERIFY CONFIGURATION
 
 echo
@@ -178,6 +204,11 @@ new_plain="${option_plain}-${gocryptfs_version}"
 # ACTION
 
 echo
+echo "Verifying internet..."
+
+is-internet-working
+
+echo
 echo "Proceeding with action..."
 
 # prepare helpers and actions
@@ -188,6 +219,7 @@ function do_disable {
 	sudo systemctl disable plexmediaserver || :
 	sudo systemctl disable resilio-sync || :
 	sudo systemctl disable docker || :
+	sudo systemctl disable docker.socket || :
 	set +x  # </debug>
 	echo-green 'disabled auto-start of services.'
 }
@@ -198,6 +230,7 @@ function do_status {
 	sudo systemctl status plexmediaserver --no-pager || :
 	sudo systemctl status resilio-sync --no-pager || :
 	sudo systemctl status docker --no-pager || :
+	sudo systemctl status docker.socket --no-pager || :
 	seedbox status || :
 	set +x  # </debug>
 	echo-green 'fetched status of services.'
@@ -205,17 +238,16 @@ function do_status {
 function act_stop {
 	echo-bold 'stopping services and unmonting...'
 
+	do_disable
+
 	set -x  # <debug>
 	sudo systemctl stop smbd || :
 	sudo systemctl stop plexmediaserver || :
 	sudo systemctl stop resilio-sync || :
-	seedbox stop || :
-	sudo systemctl stop docker || :
+	timeout 60s seedbox stop || :
+	sudo timeout 60s systemctl stop docker || :
+	# sudo systemctl stop docker.socket || :
 	set +x  # </debug>
-
-	do_status
-
-	do_disable
 
 	act_unmount
 	echo-green 'stopped services and unmounted.'
@@ -231,7 +263,7 @@ function act_start {
 	sudo systemctl restart smbd || :
 	sudo systemctl restart plexmediaserver || :
 	sudo systemctl restart resilio-sync || :
-	seedbox upgrade  # causes all torrents to be reverified
+	seedbox start || seedbox upgrade || :
 	set +x  # </debug>
 
 	do_status
@@ -314,9 +346,17 @@ function do_setup_plex {
 	sudo systemctl disable plexmediaserver || :
 	sudo systemctl stop plexmediaserver || :
 
+	# configure
+	local plex_config='/lib/systemd/system/plexmediaserver.service'
+	if confirm-negative "Customise Plex Media Server configuration?"; then
+		sudo nano "$plex_config"
+	fi
+
 	# permissions
-	sudo gpasswd -a plex "$option_group"
-	fs-own --user=plex --group=plex -- /var/lib/plexmediaserver/
+	local plex_user="$(config-get "$plex_config" User)"
+	local plex_group="$(config-get "$plex_config" Group)"
+	sudo gpasswd -a "$plex_user" "$option_group"
+	fs-own --user="$plex_user" --group="$plex_group" -- /var/lib/plexmediaserver/
 }
 function do_setup_resilio {
 	# https://help.resilio.com/hc/en-us/articles/206178924
@@ -327,17 +367,25 @@ function do_setup_resilio {
 	sudo systemctl disable resilio-sync || :
 	sudo systemctl stop resilio-sync || :
 
-	# permissions
-	sudo gpasswd -a rslsync "$option_group"
-	fs-own --user=rslsync --group=rslsync -- /etc/resilio-sync/ /var/lib/resilio-sync/
-
 	# configure
-	sudo nano /lib/systemd/system/resilio-sync.service
-	sudo nano /etc/resilio-sync/config.json
+	local resilio_config='/lib/systemd/system/resilio-sync.service'
+	if confirm-negative "Customise Resilio Sync configuration?"; then
+		sudo nano "$resilio_config"
+		sudo nano /etc/resilio-sync/config.json
+	fi
+
+	# permissions
+	local resilio_user="$(config-get "$resilio_config" User)"
+	local resilio_group="$(config-get "$resilio_config" Group)"
+	sudo gpasswd -a "$resilio_user" "$option_group"
+	fs-own --user="$resilio_user" --group="$resilio_group" -- /etc/resilio-sync/ /var/lib/resilio-sync/
 }
 function do_setup_samba {
 	# install
-	env APT='samba samba-common-bin' setup-util
+	env \
+		NAME='Samba' \
+		APT='samba samba-common-bin' \
+		setup-util
 	sudo systemctl disable smbd || :
 	sudo systemctl stop smbd || :
 
@@ -348,10 +396,12 @@ function do_setup_samba {
 	sudo chmod 600 /etc/samba/credentials/share
 
 	# configure
-	sudo nano /etc/samba/smb.conf
+	if confirm-negative "Customise Samba configuration?"; then
+		sudo nano /etc/samba/smb.conf
+	fi
 
 	# verify configuration
-	testparm
+	testparm --suppress-prompt
 }
 function do_setup_owner {
 	# create user if necessary
@@ -386,20 +436,24 @@ function do_setup_owner {
 	if ! is-user-in-group "$option_group" "$USER"; then
 		sudo gpasswd -a "$USER" "$option_group"
 		stderr echo "The current user [$USER] has been added to group [$option_group] as well, as intened, however you have to logout or restart for the change to apply."
+		stderr echo 'When you are ready to restart, run:'
+		stderr echo 'sharebox --action=reboot'
 		exit 1
 	fi
 }
 function act_setup {
+	if confirm-bool "Restore sharebox configuration and caches from an existing location?"; then
+		do_setup_restore
+	fi
 	do_setup_owner
 	do_setup_samba
 	do_setup_plex
 	do_setup_resilio
 	setup-util-gocryptfs
-	if confirm-bool "Restore sharebox configuration and caches from an existing location?"; then
-		do_setup_restore
-	fi
 	echo
-	echo "You should restart your computer now so the user and path changes take affect."
+	echo 'You should restart your computer now so the user and path changes take affect.'
+	echo 'When you are ready to restart, run:'
+	echo 'sharebox --action=reboot'
 }
 function act_chown {
 	fs-own \
@@ -680,23 +734,8 @@ function act_upgrade {
 }
 
 # action
-actions=(
-	'info'
-	'run'
-	'setup'
-	'mount'
-	'unmount'
-	'size'
-	'start'
-	'stop'
-	'shutdown'
-	'reboot'
-	'chown'
-	'upgrade'
-)
-action="$(choose-option --question='Which action to perform?' --filter="$option_action" -- "${actions[@]}")"
-if test "$(type -t "act_$action")" = 'function' ; then
-	"act_$action" "${args[@]}"
+if test "$(type -t "act_$option_action")" = 'function' ; then
+	"act_$option_action" "${args[@]}"
 else
 	stderr echo 'action not yet implemented'
 	exit 1

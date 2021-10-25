@@ -1,25 +1,59 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/config.sh"
 
-# config
-varfile="$DOROTHY/user/env/seedbox.bash"
-if test -f "$varfile"; then
-	source "$varfile"
-else
-	echo "The config file [$varfile] was not found, will create one for you manually..."
-	echo
-	echo "Currently creation only supports NordVPN, if you use a different VPN provider, then:"
-	echo -e "1. Code in the support: $DOROTHY/commands/seedbox"
-	echo -e "2. Send a pull request: https://github.com/bevry/dorothy/blob/master/commands/seedbox"
-	echo
+# prepare
+image='haugene/transmission-openvpn'
+version='3.7.1' # latest
+actions=(create start status debug stop restart clean remove upgrade logs follow id)
 
-	datapath="$(ask --question="Where do you want your seedbox data to exist?" --default="$HOME/Downloads/seedbox" --required --confirm)"
-	mkdir -p "$datapath"
-	vpnuser="$(ask --question="What is your NordVPN username?" --required)"
-	vpnpass="$(ask --question="What is your NordVPN password?" --required --password)"
-	echo
+# =====================================
+# CONFIGURATION
 
-	cat << EOF > "$varfile"
+# load configuration
+config_file="$(get_dorothy_config 'seedbox.bash')"
+load_dorothy_config 'seedbox.bash'
+configure='no'
+
+# load options
+mapfile -t options < <(echo-before-separator "$@")
+mapfile -t args < <(echo-after-separator "$@")
+
+# options: action
+option_action="$(get-flag-value action -- "${options[@]}")"
+option_action="$(choose-option \
+	--question='What action to perform?' \
+	--filter="${option_action:-"$1"}" \
+	-- "${actions[@]}")"
+
+# options: configure
+configure_options=()
+configure="$(get-flag-value configure -- "${options[@]}")"
+if test "$configure" = 'yes' -o ! -f "$config_file"; then
+	configure='yes'
+	configure_options+=('--confirm')
+fi
+
+# options: configuration
+datapath="$(ask \
+	"${configure_options[@]}" \
+	--question="Where do you want your seedbox data to exist?" \
+	--default="${datapath:-"$HOME/Downloads/seedbox"}" \
+	--required)"
+vpnuser="$(ask \
+	"${configure_options[@]}" \
+	--question="What is your NordVPN username?" \
+	--default="${vpnuser-}" \
+	--required)"
+vpnpass="$(ask \
+	"${configure_options[@]}" \
+	--question="What is your NordVPN password?" \
+	--default="${vpnpass-}" \
+	--required --password)"
+
+# update configuration
+if test "$configure" = 'yes'; then
+	cat << EOF > "$config_file"
 #!/usr/bin/env bash
 
 if test "\$(get-hostname)" = '$(get-hostname)'; then
@@ -32,11 +66,13 @@ else
 fi
 
 EOF
-
-	echo "[$varfile] created, proceeding with it now..."
-	source "$varfile"
-	echo
+	echo "Saved configuration: $config_file"
 fi
+
+# =====================================
+# VALIDATE
+
+mkdir -p "$datapath"
 
 # validate
 if test -z "${seedboxport-}"; then
@@ -47,9 +83,6 @@ if test -z "${vpnprovider-}"; then
 fi
 if test -z "${vpnprotocol-}"; then
 	vpnprotocol='udp'
-fi
-if test -z "${vpncountry-}"; then
-	vpncountry="$(what-is-my-country)"
 fi
 if test -z "${datapath-}"; then
 	stderr echo 'datapath configuration missing'
@@ -78,37 +111,45 @@ if ! command-exists docker; then
 	exit 1
 fi
 
-# prepare
-image='haugene/transmission-openvpn'
+# check docker is working
+silent sudo systemctl status docker --no-pager || {
+	stderr echo 'docker not ready'
+	exit 1
+}
+
+# =====================================
+# HELPERS
 
 # actions
 function seedbox_ip {
-	local id="$(seedbox_id)"
+	local id="$(seedbox_id || :)"
 	if test -z "$id"; then
-		echo 'no seedbox to get ip for'
+		echo 'no seedbox present to get ip for'
 		return 1
 	fi
 	docker exec -it "$id" curl -fsSL 'http://ipecho.net/plain'
 }
 function seedbox_id {
-	mapfile -t ids < <(docker ps -a --filter ancestor="$image" --format '{{ .ID }}')
+	# the bellow could hang if there is an issue, hence the timeout
+	mapfile -t ids < <(timeout 60s docker ps -a --filter ancestor="$image:$version" --format '{{ .ID }}' || :)
 	if test "${#ids[@]}" -eq 0; then
-		return 0
+		stderr echo 'no seedbox present to get id for'
+		return 1
 	fi
 	choose-option --question='Which container ID to use?' --required -- "${ids[@]}"
 }
 function seedbox_debug {
-	local id="$(seedbox_id)"
+	local id="$(seedbox_id || :)"
 	if test -z "$id"; then
-		echo 'no seedbox to get debug for'
+		echo 'no seedbox present to get debug for'
 		return 1
 	fi
-	docker exec -it "$id" sh -c "apk add curl bind-tools; $(cat "$DOROTHY/commands/debug-network")"
+	docker exec -it "$id" sh -c "$(cat "$DOROTHY/commands/debug-network")"
 }
 function seedbox_logs {
-	local id="$(seedbox_id)"
+	local id="$(seedbox_id || :)"
 	if test -z "$id"; then
-		echo 'no seedbox to get logs for'
+		echo 'no seedbox present to get logs for'
 		return 1
 	fi
 	docker logs "$id" "$@"
@@ -117,9 +158,9 @@ function seedbox_follow {
 	seedbox_logs --follow
 }
 function seedbox_status {
-	local id="$(seedbox_id)" localip hostip seedboxip details
+	local id="$(seedbox_id || :)" localip hostip seedboxip details
 	if test -z "$id"; then
-		echo 'no seedbox to get status for'
+		echo 'no seedbox present to get status for'
 		return 1
 	fi
 	localip="$(ip-local)"
@@ -149,29 +190,40 @@ function seedbox_create {
 	check_data
 	echo 'seedbox creating...'
 
-	# create
+	# prepare
+	if test -z "${vpncountry-}"; then
+		vpncountry="$(what-is-my-country)"
+	fi
 	dnsip="$(what-is-my-exposed-dns)"
+
+	# create
 	set -x # <debug>
+	# https://github.com/haugene/docker-transmission-openvpn/blob/master/docker-compose.yml
 	docker run \
 		--detach \
 		-v "$datapath":/data \
 		-e OPENVPN_PROVIDER="$vpnprovider" \
 		-e OPENVPN_USERNAME="$vpnuser" \
 		-e OPENVPN_PASSWORD="$vpnpass" \
-		-e OPENVPN_OPTS='--mute-replay-warnings --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0 --pull-filter ignore ping' \
+		-e OPENVPN_OPTS='--mute-replay-warnings' \
 		-e NORDVPN_CATEGORY='P2P' \
 		-e NORDVPN_COUNTRY="$vpncountry" \
 		-e NORDVPN_PROTOCOL="$vpnprotocol" \
 		-e LOCAL_NETWORK=192.168.0.0/16 \
 		-e HEALTH_CHECK_HOST='api.nordvpn.com' \
+		-e SELFHEAL=true \
 		-e TRANSMISSION_WEB_UI=flood-for-transmission \
 		-e WEBPROXY_ENABLED=false \
-		--log-driver json-file \
-		--log-opt max-size=10m \
+		--log-driver json-file --log-opt max-size=256kb \
 		--cap-add=NET_ADMIN \
 		--net=bridge --dns="$dnsip" \
 		-p "$seedboxport":"$seedboxport" \
-		"$image"
+		"$image:$version"
+
+	#  --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0 --pull-filter ignore ping
+
+	# --log-driver json-file \
+	# doesn't seem to do anything
 
 	# https://docs.docker.com/engine/reference/run/
 	# https://docs.docker.com/engine/reference/run/#restart-policies---restart
@@ -214,9 +266,9 @@ function seedbox_create {
 	echo 'seedbox created'
 }
 function seedbox_stop {
-	local id="$(seedbox_id)"
+	local id="$(seedbox_id || :)"
 	if test -z "$id"; then
-		echo 'no seedbox to stop'
+		echo 'no seedbox present to stop'
 		return 0
 	fi
 	echo "seedbox stopping... $(date)"
@@ -229,9 +281,9 @@ function seedbox_stop {
 }
 function seedbox_start {
 	check_data
-	local id="$(seedbox_id)"
+	local id="$(seedbox_id || :)"
 	if test -z "$id"; then
-		echo 'no seedbox to start'
+		echo 'no seedbox present to start'
 		return 1
 	fi
 	echo 'seedbox starting...'
@@ -247,9 +299,9 @@ function seedbox_restart {
 }
 function seedbox_remove {
 	seedbox_stop
-	local id="$(seedbox_id)"
+	local id="$(seedbox_id || :)"
 	if test -z "$id"; then
-		echo 'no seedbox to remove'
+		echo 'no seedbox present to remove'
 		return 0
 	fi
 	echo 'removing seedbox...'
@@ -258,45 +310,25 @@ function seedbox_remove {
 }
 function seedbox_clean {
 	seedbox_remove
-	docker rmi "$image" || :
+	docker rmi "$image:$version" || :
 }
 function seedbox_upgrade {
 	seedbox_clean
 	echo 'upgrading image...'
-	docker pull "$image"
+	docker pull "$image:$version"
 	echo 'upgraded image'
 	seedbox_create
 	seedbox_start
 }
 
-# proceed with the action
-actions=(create start status debug stop restart clean remove upgrade logs follow id)
-action="$(choose-option --question='What action do you want to take?' --filter="${1-}" -- "${actions[@]}")"
-if test "$action" = 'create'; then
-	seedbox_create
-elif test "$action" = 'start'; then
-	seedbox_start
-elif test "$action" = 'status'; then
-	seedbox_status
-elif test "$action" = 'debug'; then
-	seedbox_debug
-elif test "$action" = 'stop'; then
-	seedbox_stop
-elif test "$action" = 'restart'; then
-	seedbox_restart
-elif test "$action" = 'remove'; then
-	seedbox_remove
-elif test "$action" = 'clean'; then
-	seedbox_clean
-elif test "$action" = 'upgrade'; then
-	seedbox_upgrade
-elif test "$action" = 'logs'; then
-	seedbox_logs
-elif test "$action" = 'follow'; then
-	seedbox_follow
-elif test "$action" = 'id'; then
-	seedbox_id
+# =====================================
+# ACT
+
+# action
+if test "$(type -t "seedbox_$option_action")" = 'function' ; then
+	"seedbox_$option_action" "${args[@]}"
 else
-	stderr echo "unknown action [$action], available actions are [${actions[*]}]"
+	stderr echo 'action not yet implemented'
 	exit 1
 fi
+exit "$?"

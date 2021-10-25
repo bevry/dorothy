@@ -1,18 +1,18 @@
 #!/usr/bin/env fish
 
-# Don't check mail
+# don't check mail
 export MAILCHECK=0
 
-# Disable welcome greeting
+# disable welcome greeting
 set -U fish_greeting
 
-# Bugfix
+# bugfix
 function fish_user_key_bindings
 end
 
-# Essential
+# essential
+source "$DOROTHY/sources/home.sh"
 source "$DOROTHY/sources/paths.fish"
-source "$DOROTHY/sources/user.fish"
 
 # Bash & NVM
 if not functions -q fundle
