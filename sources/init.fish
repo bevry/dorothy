@@ -11,8 +11,7 @@ function fish_user_key_bindings
 end
 
 # essential
-source "$DOROTHY/sources/home.sh"
-source "$DOROTHY/sources/paths.fish"
+source "$DOROTHY/sources/environment.fish"
 
 # Bash & NVM
 if not functions -q fundle

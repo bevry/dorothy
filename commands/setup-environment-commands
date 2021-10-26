@@ -1,78 +1,93 @@
 #!/usr/bin/env bash
-export PATH="$DOROTHY_USER_HOME/commands.local:$DOROTHY_USER_HOME/commands:$DOROTHY/commands:$PATH"
-# ^ right to left is preference
-source "$DOROTHY/sources/home.sh"
-# ^ ensure env configured correctly
-source "$DOROTHY/sources/strict.bash"
-source "$DOROTHY/sources/splitlines.bash"
-source "$DOROTHY/sources/config.sh"
+# shellcheck disable=SC1091
 
+source "$DOROTHY/sources/home.sh"
+# ^ redo essentials in the `env -i` bare environment
+
+# notes:
 # don't use `is-admin` here, as sudo does not necessarily load this
 # so sudo should inherit standard config
 
 # shell
-login_shell="${1-}"
+shell="${1-}"
+
+# initial scanning of environment
+inherited=()
+while read -r line; do
+	# parse
+	IFS='=' read -ra fodder <<<"$line"
+	name="${fodder[0]}"
+	# process
+	inherited+=("$name")
+done < <(env)
+
+# final scanning of environment, and echo results
+function finish() {
+	while read -r line; do
+		# parse
+		IFS='=' read -ra fodder <<<"$line"
+		name="${fodder[0]}"
+		# discard inherited
+		for i in "${inherited[@]}"; do
+			if test "$name" = "$i"; then
+				continue 2
+			fi
+		done
+		# process remaining
+		if test "${#fodder[@]}" -gt 1; then
+			value="${fodder[1]}"
+			for i in "${fodder[@]:2}"; do
+				value="$value=$i"
+			done
+		fi
+		# type
+		if test -z "$value"; then
+			# delete
+			if test "$shell" = 'fish'; then
+				echo "set --universal --erase $name"
+			else
+				echo "export $name=''"
+			fi
+		elif [[ "$name" = *'PATH' ]] || [[ "$name" = *'DIRS' ]]; then
+			# trim trailing nothing
+			c="${#value}"
+			if test "${value:c-1:1}" = ':'; then
+				value="${value:0:c-1}"
+			fi
+			if test "$shell" = 'fish'; then
+				echo "set --export --path $name '$value'"
+			else
+				echo "export $name='$value'"
+			fi
+		else
+			if test "$shell" = 'fish'; then
+				echo "set --export $name '$value'"
+			else
+				echo "export $name='$value'"
+			fi
+		fi
+	done < <(env)
+}
+trap finish EXIT
+
+# reset
+export PATH="$DOROTHY/commands:/usr/sbin:/usr/bin:/sbin:/bin"
+export MANPATH='' CLASSPATH='' INFOPATH='' LDFLAGS='' CPPFLAGS='' PKG_CONFIG_PATH=''
+# ^ right to left is preference
+
+source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/splitlines.bash"
+source "$DOROTHY/sources/config.sh"
 
 # helpers
-function echo_var_del {
-	if test "$login_shell" = "fish"; then
-		echo "set --universal --erase $1;"
-	else
-		echo "export $1=\"\";"
-	fi
-}
-function echo_var_add {
-	local fish_flags=('--export' '--prepend') separator name value
-	if test "$#" -eq 3; then
-		separator="$1"
-		name="$2"
-		value="$3"
-	else
-		# windows uses semicolon for separator
-		# unix uses colon for separator
-		# we do not yet support windows
-		fish_flags+=('--path')
-		separator=':'
-		name="$1"
-		value="$2"
-	fi
-	if test "$login_shell" = "fish"; then
-		# · -x or --export causes the specified shell variable to be exported to child processes (making it an "environment variable")
-		# · --path causes the specified variable to be treated as a path variable, meaning it will automatically be split on colons,  and joined using colons when quoted (echo "$PATH") or exported.
-		# · -p or --prepend causes the values to be prepended to the current set of values for the variable. This can be used with --append to both append and prepend at the same time. This cannot be used when assigning to a  variable slice.
-		echo "set ${fish_flags[*]} ${name} \"${value}\";"
-	else
-		if test -z "${!name-}"; then
-			echo "export ${name}=\"${value}\";"
-		else
-			echo "export ${name}=\"${value}${separator}\$${name}\";"
-		fi
-	fi
-}
-function echo_var_set {
-	if test "$login_shell" = "fish"; then
-		echo_var_del "$1"
-		echo "set --export $1 \"$2\";"
-	else
-		echo "export $1=\"$2\";"
-	fi
-}
-function echo_and_eval_var_set {
-	eval "$1=\"$2\""
-	echo_var_set "$1" "$2"
-}
 function rubygems {
-	echo_var_set GEM_HOME "$HOME/.gem"
+	export GEM_HOME="$HOME/.gem"
 	if test -x "$1"; then
-		rubydirs="$("$1" environment gempath | tr ":" "\n")"
+		rubydirs="$("$1" environment gempath | tr ':' '\n')"
 		for i in $rubydirs; do
-			echo_var_add PATH "$i/bin"
+			PATH="$i/bin:$PATH"
 		done
 	fi
-}
-function command-exists {
-	stderr echo "cannot use [command-exists $*] yet, as paths have not been setup yet"
-	exit 1
 }
 
 # user
@@ -87,216 +102,186 @@ function after_everything {
 }
 load_dorothy_config 'environment.bash'
 
-# reset
-echo_var_del PATH
-echo_var_add PATH "/bin"
-echo_var_add PATH "/sbin"
-echo_var_add PATH "/usr/bin"
-echo_var_add PATH "/usr/sbin"
-
 # xdg
 # https://wiki.archlinux.org/title/XDG_Base_Directory
-if test -z "${XDG_CONFIG_HOME-}"; then
-	echo_and_eval_var_set XDG_CONFIG_HOME "$HOME/.config"
-fi
-if test -z "${XDG_CACHE_HOME-}"; then
-	echo_and_eval_var_set XDG_CACHE_HOME "$HOME/.cache"
-fi
-if test -z "${XDG_DATA_HOME-}"; then
-	echo_and_eval_var_set XDG_DATA_HOME "$HOME/.local/share"
-fi
-if test -z "${XDG_STATE_HOME-}"; then
-	echo_and_eval_var_set XDG_STATE_HOME "$HOME/.local/state"
-fi
-if test -z "${XDG_DATA_DIRS-}"; then
-	echo_var_del XDG_DATA_DIRS
-	echo_var_add XDG_DATA_DIRS '/usr/share'
-	echo_var_add XDG_DATA_DIRS '/usr/local/share'
-	echo_var_add XDG_DATA_DIRS "$XDG_DATA_HOME"
-fi
-if test -z "${XDG_CONFIG_DIRS-}"; then
-	echo_var_del XDG_CONFIG_DIRS
-	echo_var_add XDG_CONFIG_DIRS '/etc/xdg'
-	echo_var_add XDG_CONFIG_DIRS "$XDG_CONFIG_HOME"
-fi
-
-# dorothy
-# commented out, as nothing uses this yet
-# if test -z "${DOROTHY_CACHE_HOME-}"; then
-# 	echo_and_eval_var_set DOROTHY_CACHE_HOME "$XDG_CACHE_HOME/dorothy"
-# fi
-# if test -z "${DOROTHY_STATE_HOME-}"; then
-# 	echo_and_eval_var_set DOROTHY_STATE_HOME "$XDG_STATE_HOME/dorothy"
-# fi
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-"$HOME/.config"}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-"$HOME/.cache"}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-"$HOME/.local/share"}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-"$HOME/.local/state"}"
+export XDG_DATA_DIRS="${XDG_DATA_DIRS:-"$XDG_DATA_HOME:/usr/local/share:/usr/share"}"
+export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-"$XDG_CONFIG_HOME:/etc/xdg"}"
 
 # Xcode
 if test -d "/Applications/Xcode.app/Contents/Developer/usr/bin"; then
-	echo_var_add PATH "/Applications/Xcode.app/Contents/Developer/usr/bin"
+	PATH="/Applications/Xcode.app/Contents/Developer/usr/bin:$PATH"
 fi
 
 # Snap
 if test -d "/snap/bin"; then
-	echo_var_add PATH "/snap/bin"
+	PATH="/snap/bin:$PATH"
 fi
 
 # Homebrew, UNIX
 if test -d "/usr/local/bin"; then
-	echo_var_add PATH "/usr/local/bin"
+	PATH="/usr/local/bin:$PATH"
 fi
 if test -d "/usr/local/sbin"; then
-	echo_var_add PATH "/usr/local/sbin"
+	PATH="/usr/local/sbin:$PATH"
 fi
 if test -d "/usr/local/man"; then
-	echo_var_add MANPATH "/usr/local/man"
+	export MANPATH="/usr/local/man:$MANPATH"
 fi
 
 # Homebrew
 if is-mac; then
-	# ensure the brew vars [HOMEBREW_ARCH, HOMEBREW_PREFIX, HOMEBREW_CELLAR, HOMEBREW_REPOSITORY, HOMEBREW_SHELLENV_PREFIX] are set even if brew is not yet installed
+	export HOMEBREW_ARCH HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY HOMEBREW_SHELLENV_PREFIX
 	if test -z "${HOMEBREW_ARCH-}"; then
 		if test "$(uname -p)" = 'arm' -o "$(uname -m)" = 'arm64'; then
-			echo_and_eval_var_set HOMEBREW_ARCH 'arm64e'
+			HOMEBREW_ARCH='arm64e'
 		else
-			echo_and_eval_var_set HOMEBREW_ARCH 'x86_64'
+			HOMEBREW_ARCH='x86_64'
 		fi
 	fi
 	if test -z "${HOMEBREW_PREFIX-}"; then
 		if test "$HOMEBREW_ARCH" = 'arm64e'; then
-			echo_and_eval_var_set HOMEBREW_PREFIX '/opt/homebrew'
+			HOMEBREW_PREFIX='/opt/homebrew'
 		else
-			echo_and_eval_var_set HOMEBREW_PREFIX '/usr/local'
+			HOMEBREW_PREFIX='/usr/local'
 		fi
 	fi
 	if test -z "${HOMEBREW_CELLAR-}"; then
 		if test -x "${HOMEBREW_PREFIX}/bin/brew"; then
-			echo_and_eval_var_set HOMEBREW_CELLAR "$("${HOMEBREW_PREFIX}/bin/brew" --cellar)"
+			HOMEBREW_CELLAR="$("${HOMEBREW_PREFIX}/bin/brew" --cellar)"
 		else
-			echo_and_eval_var_set HOMEBREW_CELLAR "$HOMEBREW_PREFIX/Cellar"
+			HOMEBREW_CELLAR="$HOMEBREW_PREFIX/Cellar"
 		fi
 	fi
 	if test -z "${HOMEBREW_REPOSITORY-}"; then
 		if test -x "${HOMEBREW_PREFIX}/bin/brew"; then
-			echo_and_eval_var_set HOMEBREW_REPOSITORY "$("${HOMEBREW_PREFIX}/bin/brew" --repo)"
+			HOMEBREW_REPOSITORY="$("${HOMEBREW_PREFIX}/bin/brew" --repo)"
 		else
-			echo_and_eval_var_set HOMEBREW_REPOSITORY "$HOMEBREW_PREFIX"
+			HOMEBREW_REPOSITORY="$HOMEBREW_PREFIX"
 		fi
 	fi
 	if test -z "${HOMEBREW_SHELLENV_PREFIX-}"; then
-		echo_and_eval_var_set HOMEBREW_SHELLENV_PREFIX "$HOMEBREW_PREFIX"
+		HOMEBREW_SHELLENV_PREFIX="$HOMEBREW_PREFIX"
 	fi
 fi
-# on linux, HOMEBREW_PREFIX will still be missing, so still need to do ${...-}
+
 # if homebrew is installed, then add its paths
 if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
-	# /usr/local already added, so only add these if different
+	# linux
+	export HOMEBREW_PREFIX="${HOMEBREW_PREFIX:-"/usr/local"}"
+
+	# /usr/local already added to PATH, so only add these if different
 	if test "$HOMEBREW_PREFIX" != '/usr/local'; then
 		if test -d "$HOMEBREW_PREFIX/bin"; then
-			echo_var_add PATH "$HOMEBREW_PREFIX/bin"
+			PATH="$HOMEBREW_PREFIX/bin:$PATH"
 		fi
 		if test -d "$HOMEBREW_PREFIX/sbin"; then
-			echo_var_add PATH "$HOMEBREW_PREFIX/sbin"
+			PATH="$HOMEBREW_PREFIX/sbin:$PATH"
 		fi
 	fi
 
 	# add the rest
 	if test -d "$HOMEBREW_PREFIX/share/man"; then
-		echo_var_add MANPATH "$HOMEBREW_PREFIX/share/man"
+		export MANPATH="$HOMEBREW_PREFIX/share/man:$MANPATH"
 	fi
 	if test -d "$HOMEBREW_PREFIX/share/info"; then
-		echo_var_add INFOPATH "$HOMEBREW_PREFIX/share/info"
+		export INFOPATH="$HOMEBREW_PREFIX/share/info:$INFOPATH"
 	fi
 
 	# for compilers to find homebrew
 	if test -d "$HOMEBREW_PREFIX/lib"; then
-		echo_var_add ' ' LDFLAGS "-L$HOMEBREW_PREFIX/lib"
+		export LDFLAGS="-L$HOMEBREW_PREFIX/lib:$LDFLAGS"
 	fi
 	if test -d "$HOMEBREW_PREFIX/include"; then
-		echo_var_add ' ' CPPFLAGS "-I$HOMEBREW_PREFIX/include"
+		export CPPFLAGS="-I$HOMEBREW_PREFIX/include:$CPPFLAGS"
 	fi
 	if test -d "$HOMEBREW_PREFIX/lib/pkgconfig"; then
-		echo_var_add PKG_CONFIG_PATH "$HOMEBREW_PREFIX/lib/pkgconfig"
+		export PKG_CONFIG_PATH="$HOMEBREW_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
 	fi
 
 	# llvm
 	if test -d "$HOMEBREW_PREFIX/opt/llvm/bin"; then
 		p="$HOMEBREW_PREFIX/opt/llvm"
-		echo_var_add PATH "$p/bin"
+		PATH="$p/bin:$PATH"
 		rubygems "$p/bin/gem"
 		# for compilers to find llvm
 		if test -d "$p/lib"; then
-			echo_var_add ' ' LDFLAGS "-L$p/lib"
+			export LDFLAGS="-L$p/lib:$LDFLAGS"
 		fi
 		if test -d "$p/include"; then
-			echo_var_add ' ' CPPFLAGS "-I$p/include"
+			export CPPFLAGS="-I$p/include:$CPPFLAGS"
 		fi
 	fi
 
 	# SQLite (dependency of python)
 	if test -d "$HOMEBREW_PREFIX/opt/sqlite/bin"; then
 		p="$HOMEBREW_PREFIX/opt/sqlite"
-		echo_var_add PATH "$p/bin"
+		PATH="$p/bin:$PATH"
 		# for compilers to find sqlite
 		if test -d "$p/lib"; then
-			echo_var_add ' ' LDFLAGS "-L$p/lib"
+			export LDFLAGS="-L$p/lib:$LDFLAGS"
 		fi
 		if test -d "$p/include"; then
-			echo_var_add ' ' CPPFLAGS "-I$p/include"
+			export CPPFLAGS="-I$p/include:$CPPFLAGS"
 		fi
 		# for pkg-config to find sqlite
 		if test -d "$p/lib/pkgconfig"; then
-			echo_var_add PKG_CONFIG_PATH "$p/lib/pkgconfig"
+			export PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
 		fi
 	fi
 
 	# guile (dependency of something)
 	if test -d "$HOMEBREW_PREFIX/share/guile"; then
-		echo_var_set GUILE_LOAD_PATH "$HOMEBREW_PREFIX/share/guile/site/3.0"
-		echo_var_set GUILE_LOAD_COMPILED_PATH "$HOMEBREW_PREFIX/lib/guile/3.0/site-ccache"
-		echo_var_set GUILE_SYSTEM_EXTENSIONS_PATH "$HOMEBREW_PREFIX/lib/guile/3.0/extensions"
+		export GUILE_LOAD_PATH="$HOMEBREW_PREFIX/share/guile/site/3.0"
+		export GUILE_LOAD_COMPILED_PATH="$HOMEBREW_PREFIX/lib/guile/3.0/site-ccache"
+		export GUILE_SYSTEM_EXTENSIONS_PATH="$HOMEBREW_PREFIX/lib/guile/3.0/extensions"
 	fi
 
 	# icu4c (dependency of heroku)
 	if test -d "$HOMEBREW_PREFIX/opt/icu4c/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/opt/icu4c/bin"
+		PATH="$HOMEBREW_PREFIX/opt/icu4c/bin:$PATH"
 	fi
 	if test -d "$HOMEBREW_PREFIX/opt/icu4c/sbin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/opt/icu4c/sbin"
+		PATH="$HOMEBREW_PREFIX/opt/icu4c/sbin:$PATH"
 	fi
 
 	# Sphinx (dependency of ruby)
 	if test -d "$HOMEBREW_PREFIX/opt/sphinx-doc/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/opt/sphinx-doc/bin"
+		PATH="$HOMEBREW_PREFIX/opt/sphinx-doc/bin:$PATH"
 	fi
 
 	# GetText (dependency of gpg)
 	if test -d "$HOMEBREW_PREFIX/opt/gettext/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/opt/gettext/bin"
+		PATH="$HOMEBREW_PREFIX/opt/gettext/bin:$PATH"
 	fi
 
 	# Ruby
 	if test -n "${RUBY_VERSION-}" && test -d "$HOMEBREW_PREFIX/opt/ruby@$RUBY_VERSION/bin"; then
 		p="$HOMEBREW_PREFIX/opt/ruby@$RUBY_VERSION"
-		echo_var_add PATH "$p/bin"
+		PATH="$p/bin:$PATH"
 		rubygems "$p/bin/gem"
 	elif test -d "$HOMEBREW_PREFIX/opt/ruby/bin"; then
 		p="$HOMEBREW_PREFIX/opt/ruby"
-		echo_var_add PATH "$p/bin"
+		PATH="$p/bin:$PATH"
 		rubygems "$p/bin/gem"
 		# for compilers to find ruby
 		if test -d "$p/lib"; then
-			echo_var_add ' ' LDFLAGS "-L$p/lib"
+			export LDFLAGS="-L$p/lib:$LDFLAGS"
 		fi
 		if test -d "$p/include"; then
-			echo_var_add ' ' CPPFLAGS "-I$p/include"
+			export CPPFLAGS="-I$p/include:$CPPFLAGS"
 		fi
 		# for pkg-config to find ruby
 		if test -d "$p/lib/pkgconfig"; then
-			echo_var_add PKG_CONFIG_PATH "$p/lib/pkgconfig"
+			export PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
 		fi
 	else
 		rubydirs="$(expand-path "$HOMEBREW_PREFIX/opt/ruby*/bin")"
 		for rubydir in $rubydirs; do
-			echo_var_add PATH "$rubydir"
+			PATH="$rubydir:$PATH"
 			rubygems "$rubydir/gem"
 		done
 	fi
@@ -304,33 +289,33 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 	# Node
 	nodedirs="$(expand-path "$HOMEBREW_CELLAR/node/*/bin")"
 	for nodedir in $nodedirs; do
-		echo_var_add PATH "$nodedir"
+		PATH="$nodedir:$PATH"
 	done
 
 	# Python
 	if test -d "$HOMEBREW_PREFIX/opt/python/libexec/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/opt/python/libexec/bin"
+		PATH="$HOMEBREW_PREFIX/opt/python/libexec/bin:$PATH"
 	fi
 
 	# Python: Pip
 	pipdirs="$(expand-path "$HOME/Library/Python/*/bin")"
 	for pipdir in $pipdirs; do
-		echo_var_add PATH "$pipdir"
+		PATH="$pipdir:$PATH"
 	done
 
 	# OpenSSL (dependency of python, gpg, and node)
 	# openssl is a symlink to whatever directory has the latest version
 	if test -d "$HOMEBREW_PREFIX/opt/openssl/bin"; then
 		p="$HOMEBREW_PREFIX/opt/openssl"
-		echo_var_add PATH "$p/bin"
+		PATH="$p/bin:$PATH"
 		if test -d "$p/lib"; then
-			echo_var_add ' ' LDFLAGS "-L$p/lib"
+			export LDFLAGS="-L$p/lib:$LDFLAGS"
 		fi
 		if test -d "$p/include"; then
-			echo_var_add ' ' CPPFLAGS "-I$p/include"
+			export CPPFLAGS="-I$p/include:$CPPFLAGS"
 		fi
 		if test -d "$p/lib/pkgconfig"; then
-			echo_var_add PKG_CONFIG_PATH "$p/lib/pkgconfig"
+			export PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
 		fi
 		# ^^ setup-util-gocryptfs needs this on macos big sur
 		# ```
@@ -349,17 +334,17 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 
 	# NSS
 	if test -d "$HOMEBREW_PREFIX/opt/nss/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/opt/nss/bin"
+		PATH="$HOMEBREW_PREFIX/opt/nss/bin:$PATH"
 	fi
 
 	# Anaconda
 	if test -d "$HOMEBREW_PREFIX/anaconda3/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/anaconda3/bin"
+		PATH="$HOMEBREW_PREFIX/anaconda3/bin:$PATH"
 	fi
 
 	# Heroku
 	if test -d "$HOMEBREW_PREFIX/heroku/bin"; then
-		echo_var_add PATH "$HOMEBREW_PREFIX/heroku/bin"
+		PATH="$HOMEBREW_PREFIX/heroku/bin:$PATH"
 	fi
 
 else
@@ -368,36 +353,36 @@ fi
 
 # NVM
 if test -z "${NVM_DIR-}" -a -d "$HOME/.nvm"; then
-	echo_and_eval_var_set NVM_DIR "$HOME/.nvm"
+	export NVM_DIR="$HOME/.nvm"
 fi
 
 # Python: pyenv
 if test -z "${PYENV_ROOT-}" -a -d "$HOME/.pyenv"; then
-	echo_and_eval_var_set PYENV_ROOT "$HOME/.pyenv"
+	export PYENV_ROOT="$HOME/.pyenv"
 fi
 if test -n "${PYENV_ROOT-}"; then
-	echo_var_add PATH "$PYENV_ROOT/bin"
-	echo_var_add PATH "$PYENV_ROOT/shims"
+	PATH="$PYENV_ROOT/bin:$PATH"
+	PATH="$PYENV_ROOT/shims:$PATH"
 fi
 
 # Rust: rustup
 if test -z "${RUSTUP_HOME-}" -a -d "$HOME/.rustup"; then
-	echo_and_eval_var_set RUSTUP_HOME "$HOME/.rustup"
+	export RUSTUP_HOME="$HOME/.rustup"
 fi
 
 # Rust: cargo
 if test -z "${CARGO_HOME-}" -a -d "$HOME/.cargo"; then
-	echo_and_eval_var_set CARGO_HOME "$HOME/.cargo"
+	export CARGO_HOME="$HOME/.cargo"
 fi
 if test -n "${CARGO_HOME-}"; then
 	mkdir -p "$CARGO_HOME"
-	echo_var_add PATH "$CARGO_HOME/bin"
+	PATH="$CARGO_HOME/bin:$PATH"
 
 	# Rust: cargo target
 	# workaround for ubuntu server, which /tmp may often be read-only
 	# https://doc.rust-lang.org/stable/cargo/guide/build-cache.html
 	if test -z "${CARGO_TARGET_DIR-}" -a -d "$CARGO_HOME/target"; then
-		echo_and_eval_var_set CARGO_TARGET_DIR "$CARGO_HOME/target"
+		export CARGO_TARGET_DIR="$CARGO_HOME/target"
 	fi
 	if test -n "${CARGO_TARGET_DIR-}"; then
 		mkdir -p "$CARGO_TARGET_DIR"
@@ -405,29 +390,30 @@ if test -n "${CARGO_HOME-}"; then
 fi
 
 # Go
-if test -z "${GO-}"; then
+go=''
+if test -z "${go-}"; then
 	if test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/go"; then
-		GO="$HOMEBREW_PREFIX/bin/go"
+		go="$HOMEBREW_PREFIX/bin/go"
 	else
-		GO="$(echo-if-executable /usr/local/bin/go /bin/go | echo-first)"
+		go="$(echo-if-executable /usr/local/bin/go /bin/go | echo-first)"
 	fi
 fi
-if test -n "${GO-}" -a -x "${GO-}"; then
-	# GOPATH / GOBIN / GOROOT
+if test -n "${go-}" -a -x "${go-}"; then
+	export GOPATH GOBIN GOROOT
 	if test -z "${GOPATH-}" -o -z "${GOROOT-}" -o "${GOBIN-}"; then
 		gobins="$(expand-path "$HOMEBREW_CELLAR/go/*/bin")"
 		for gobin in $gobins; do
 			p="$(fs-parent "$gobin")"
 			if test -z "${GOPATH-}"; then
-				echo_and_eval_var_set GOPATH "$p"
+				export GOPATH="$p"
 			fi
 			if test -z "${GOROOT-}"; then
 				mkdir -p "$p/libexec"
-				echo_and_eval_var_set GOROOT "$p/libexec"
+				export GOROOT="$p/libexec"
 			fi
 			if test -z "${GOBIN-}"; then
-				echo_and_eval_var_set GOBIN "$p/bin"
-				echo_var_add PATH "$gobin"
+				export GOBIN="$p/bin"
+				PATH="$gobin:$PATH"
 			fi
 			break # only add the first
 		done
@@ -436,49 +422,50 @@ fi
 
 # Clojurescript
 if test -d "$HOME/.clojure/clojure-1.8"; then
-	echo_var_add PATH "$HOME/.clojure/clojure-1.8.0"
-	echo_var_add CLASSPATH "$HOME/.clojure/clojure-1.8.0"
+	PATH="$HOME/.clojure/clojure-1.8.0:$PATH"
+	export CLASSPATH="$HOME/.clojure/clojure-1.8.0:$CLASSPATH"
 fi
 
 # Yarn
-if test -z "${YARN-}"; then
+yarn=''
+if test -z "${yarn-}"; then
 	if test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/yarn"; then
-		YARN="$HOMEBREW_PREFIX/bin/yarn"
+		yarn="$HOMEBREW_PREFIX/bin/yarn"
 	else
-		YARN="$(echo-if-executable /usr/local/bin/yarn /bin/yarn | echo-first)"
+		yarn="$(echo-if-executable /usr/local/bin/yarn /bin/yarn | echo-first)"
 	fi
 fi
-if test -n "${YARN-}" -a -x "${YARN-}"; then
-	echo_var_add PATH "$(yarn global bin)"
+if test -n "${yarn-}" -a -x "${yarn-}"; then
+	PATH="$(yarn global bin):$PATH"
 fi
 
 # Flossbank
 if test -d "$HOME/.flossbank/bin"; then
-	echo_var_add PATH "$HOME/.flossbank/bin"
+	PATH="$HOME/.flossbank/bin:$PATH"
 fi
 
 # Generics: pip, pipx
 # python get-pip.py --user
 if test -d "$HOME/.local/bin"; then
-	echo_var_add PATH "$HOME/.local/bin"
+	PATH="$HOME/.local/bin:$PATH"
 fi
 
 # Geneics: Java
-echo_var_add CLASSPATH "."
+export CLASSPATH=".:$CLASSPATH"
 
 # Scripts
 before_dorothy_paths
-echo_var_add PATH "$DOROTHY/commands"
-echo_var_add PATH "$DOROTHY_USER_HOME/commands"
-echo_var_add PATH "$DOROTHY_USER_HOME/commands.local"
+PATH="$DOROTHY/commands:$PATH"
+PATH="$DOROTHY_USER_HOME/commands:$PATH"
+PATH="$DOROTHY_USER_HOME/commands.local:$PATH"
 after_dorothy_paths
 
 # Local
 if test -d "$HOME/.bin"; then
-	echo_var_add PATH "$HOME/.bin"
+	PATH="$HOME/.bin:$PATH"
 fi
 if test -d "$HOME/bin"; then
-	echo_var_add PATH "$HOME/bin"
+	PATH="$HOME/bin:$PATH"
 fi
 
 # Done

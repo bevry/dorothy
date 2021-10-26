@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 function load_dorothy_config
-	filename=$argv[1]
+	set filename $argv[1]
 	if test -f "$DOROTHY_USER_HOME/config.local/$filename"
 		# source user local configuration
 		source "$DOROTHY_USER_HOME/config.local/$filename"
