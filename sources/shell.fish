@@ -2,7 +2,7 @@
 
 # additional extras for an interactive shell
 source "$DOROTHY/sources/config.fish"
-load_dorothy_config 'shell.sh'
+load_dorothy_config 'shell.fish' 'shell.sh'
 source "$DOROTHY/sources/edit.fish"
 source "$DOROTHY/sources/history.fish"
 source "$DOROTHY/sources/azure.fish"

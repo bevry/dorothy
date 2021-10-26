@@ -27,6 +27,7 @@ function finish() {
 			fi
 		done
 		# process remaining
+		value=''
 		if test "${#fodder[@]}" -gt 1; then
 			value="${fodder[1]}"
 			for i in "${fodder[@]:2}"; do

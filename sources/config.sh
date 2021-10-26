@@ -19,15 +19,36 @@ get_dorothy_default_config () {
 }
 
 # for scripts that load the configuration file
+
+# zsh
+# user/config.local/shell.sh
+# user/config/shell.zsh
+
 load_dorothy_config () {
-	if test -f "$DOROTHY_USER_HOME/config.local/$1"; then
-		# source user local configuration
-		. "$DOROTHY_USER_HOME/config.local/$1"
-	elif test -f "$DOROTHY_USER_HOME/config/$1"; then
-		# source user standard configuration
-		. "$DOROTHY_USER_HOME/config/$1"
-	else
-		# source default configuration
-		. "$DOROTHY/config/$1"
+	found='no'
+
+	# load user/config.local
+	for filename in "$@"; do
+		if test -f "$DOROTHY_USER_HOME/config.local/$filename"; then
+			. "$DOROTHY_USER_HOME/config.local/$filename"
+			found='yes'
+		fi
+	done
+
+	# load user/config
+	for filename in "$@"; do
+		if test -f "$DOROTHY_USER_HOME/config/$filename"; then
+			. "$DOROTHY_USER_HOME/config/$filename"
+			found='yes'
+		fi
+	done
+
+	# load default if no user config was found
+	if test "$found" = 'no'; then
+		for filename in "$@"; do
+			if test -f "$DOROTHY_USER_HOME/config/$filename"; then
+				. "$DOROTHY/config/$filename"
+			fi
+		done
 	fi
 }
