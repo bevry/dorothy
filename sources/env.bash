@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 
-# sourcer must define $shell variable
+# NOTES
+# $shell is defined by sourcer
+# echos should suffix with ; otherwise fish support breaks
 
 # initial scanning of environment
 inherited=()
@@ -32,13 +34,16 @@ function finish() {
 			done
 		fi
 		# type
+		# if test "$shell" = 'fish'; then
+		# 	echo "set --universal --erase $name;"
+		# fi
 		if test -z "$value"; then
 			# delete
 			# shellcheck disable=SC2154
 			if test "$shell" = 'fish'; then
-				echo "set --universal --erase $name"
+				echo "set --universal --erase $name;"
 			else
-				echo "export $name=''"
+				echo "export $name='';"
 			fi
 		elif [[ "$name" = *'PATH' ]] || [[ "$name" = *'DIRS' ]]; then
 			# trim trailing nothing
@@ -47,15 +52,15 @@ function finish() {
 				value="${value:0:c-1}"
 			fi
 			if test "$shell" = 'fish'; then
-				echo "set --export --path $name '$value'"
+				echo "set --export --path $name '$value';"
 			else
-				echo "export $name='$value'"
+				echo "export $name='$value';"
 			fi
 		else
 			if test "$shell" = 'fish'; then
-				echo "set --export $name '$value'"
+				echo "set --export $name '$value';"
 			else
-				echo "export $name='$value'"
+				echo "export $name='$value';"
 			fi
 		fi
 	done < <(env)
