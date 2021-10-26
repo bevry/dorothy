@@ -4,5 +4,4 @@
 export MAILCHECK=0
 
 # essential
-. "$DOROTHY/sources/home.sh"
 . "$DOROTHY/sources/environment.sh"

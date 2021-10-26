@@ -6,7 +6,7 @@
 # as such, expose a function and check if it is loaded, to prevent the case where both bash_profile and bashrc are doing the same thing
 # https://stackoverflow.com/a/14467452
 if [ "$(command -v "${is_dorothy_loaded-}")x" = "x" ]; then
-	is_dorothy_loaded () {
+	is_dorothy_loaded() {
 		echo 'y'
 	}
 
@@ -22,14 +22,15 @@ if [ "$(command -v "${is_dorothy_loaded-}")x" = "x" ]; then
 		DOROTHY="$(dirname "${BASH_SOURCE:-"$0"}")"
 	fi
 	if test -z "${DOROTHY_USER_HOME-}"; then
+		export DOROTHY_USER_HOME
 		if test -z "${XDG_CONFIG_HOME-}" -a -d "${XDG_CONFIG_HOME-}/dorothy"; then
-			export DOROTHY_USER_HOME="$XDG_CONFIG_HOME/dorothy"
+			DOROTHY_USER_HOME="$XDG_CONFIG_HOME/dorothy"
 		elif test -d "$HOME/.config/dorothy"; then
-			export DOROTHY_USER_HOME="$HOME/.config/dorothy"
+			DOROTHY_USER_HOME="$HOME/.config/dorothy"
 		elif test -d "$DOROTHY/user"; then
-			export DOROTHY_USER_HOME="$DOROTHY/user"
+			DOROTHY_USER_HOME="$DOROTHY/user"
 		else
-			export DOROTHY_USER_HOME="$HOME/.config/dorothy"
+			DOROTHY_USER_HOME="$HOME/.config/dorothy"
 		fi
 	fi
 
