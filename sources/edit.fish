@@ -9,7 +9,7 @@ function edit
 			eval "$TERMINAL_EDITOR" '"'$argv'"'
 		end
 	else
-		if is-empty-string "$TERMINAL_EDITOR"
+		if is-empty-string "$GUI_EDITOR"
 			echo "GUI_EDITOR must be configured"
 		else
 			eval "$GUI_EDITOR" '"'$argv'"'
