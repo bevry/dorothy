@@ -1,7 +1,6 @@
 #!/usr/bin/env sh
 
-# dummy set to satisfy linter, as this is already provided by whatever sources us
-shell="${shell:?"USAGE: ensure \$shell is set by whatever sources env.bash"}"
+# sourcer must define $shell variable
 
 # initial scanning of environment
 inherited=()
@@ -35,6 +34,7 @@ function finish() {
 		# type
 		if test -z "$value"; then
 			# delete
+			# shellcheck disable=SC2154
 			if test "$shell" = 'fish'; then
 				echo "set --universal --erase $name"
 			else
