@@ -21,18 +21,6 @@ if [ "$(command -v "${is_dorothy_loaded-}")x" = "x" ]; then
 		# shellcheck disable=SC3028
 		DOROTHY="$(dirname "${BASH_SOURCE:-"$0"}")"
 	fi
-	if test -z "${DOROTHY_USER_HOME-}"; then
-		export DOROTHY_USER_HOME
-		if test -z "${XDG_CONFIG_HOME-}" -a -d "${XDG_CONFIG_HOME-}/dorothy"; then
-			DOROTHY_USER_HOME="$XDG_CONFIG_HOME/dorothy"
-		elif test -d "$HOME/.config/dorothy"; then
-			DOROTHY_USER_HOME="$HOME/.config/dorothy"
-		elif test -d "$DOROTHY/user"; then
-			DOROTHY_USER_HOME="$DOROTHY/user"
-		else
-			DOROTHY_USER_HOME="$HOME/.config/dorothy"
-		fi
-	fi
 
 	. "$DOROTHY/sources/init.sh"
 	. "$DOROTHY/sources/shell.sh"

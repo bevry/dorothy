@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-eval "$(env -i DOROTHY="$DOROTHY" DOROTHY_USER_HOME="$DOROTHY_USER_HOME" USER="$USER" HOME="$HOME" PATH="$PATH" "$DOROTHY/commands/setup-editor-commands")"
+eval "$("$DOROTHY/commands/setup-editor-commands" "$ACTIVE_SHELL")"
 edit() {
 	if is-ssh; then
 		eval "${TERMINAL_EDITOR:?"TERMINAL_EDITOR must be configured"}" "$@"

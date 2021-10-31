@@ -1,40 +1,58 @@
 #!/usr/bin/env sh
 
+# IMPORTED BY SOURCER
+# $shell - the current shell name, e.g. `fish` or `bash` or `zsh`
+#
 # NOTES
-# $shell is defined by sourcer
-# echos should suffix with ; otherwise fish support breaks
+# echos should suffix with ; otherwise fish will break
 
-# initial scanning of environment
-inherited=()
+# initial scanning of environment into a tuple]
+inherited=()  # [name, value], [name, value], ...
 while read -r line; do
-	# parse
-	IFS='=' read -ra fodder <<<"$line"
-	name="${fodder[0]}"
-	# process
-	inherited+=("$name")
+	# shellcheck disable=SC2066
+	for ((i=0; i<${#line}; i++)); do
+		if test "${line:i:1}" = '='; then
+			inherited+=("${line:0:i}")  # name
+			inherited+=("${line:i+1}")  # value
+			break
+		fi
+	done
 done < <(env)
 
 # final scanning of environment, and echo results
 function finish() {
+	# ignore failure conditions
+	local ec="$?"
+	if test "$ec" -ne 0; then
+		return "$ec"
+	fi
+
+	# success condition, echo var actions
+	local name value i
 	while read -r line; do
-		# parse
-		IFS='=' read -ra fodder <<<"$line"
-		name="${fodder[0]}"
-		# discard inherited
-		for i in "${inherited[@]}"; do
-			if test "$name" = "$i"; then
-				continue 2
+		# parse line
+		name='' value=''
+
+		# shellcheck disable=SC2066
+		for ((i=0; i<${#line}; i++)); do
+			if test "${line:i:1}" = '='; then
+				name="${line:0:i}"   # name
+				value="${line:i+1}"  # value
+				break
 			fi
 		done
-		# process remaining
-		value=''
-		if test "${#fodder[@]}" -gt 1; then
-			value="${fodder[1]}"
-			for i in "${fodder[@]:2}"; do
-				value="$value=$i"
-			done
-		fi
-		# type
+
+		# find it in inherited, and check if it is the same if it is the same as inherited
+		for ((i=0; i<${#inherited[@]}; i+=2)); do
+			if test "${inherited[$i]}" = "${name}"; then
+				if test "${inherited[$i+1]}" = "${value}"; then
+					# is inherited, continue to next item
+					continue 2
+				fi
+			fi
+		done
+
+		# echo the variable action based on type
 		# if test "$shell" = 'fish'; then
 		# 	echo "set --universal --erase $name;"
 		# fi
@@ -48,9 +66,9 @@ function finish() {
 			fi
 		elif [[ "$name" = *'PATH' ]] || [[ "$name" = *'DIRS' ]]; then
 			# trim trailing nothing
-			c="${#value}"
-			if test "${value:c-1:1}" = ':'; then
-				value="${value:0:c-1}"
+			separator_index="${#value}"
+			if test "${value:separator_index-1:1}" = ':'; then
+				value="${value:0:separator_index-1}"
 			fi
 			if test "$shell" = 'fish'; then
 				echo "set --export --path $name '$value';"
