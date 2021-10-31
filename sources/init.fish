@@ -4,7 +4,10 @@
 export MAILCHECK=0
 
 # disable welcome greeting
-set -U fish_greeting
+set --universal fish_greeting
+
+# shell
+set --global ACTIVE_SHELL fish
 
 # bugfix
 function fish_user_key_bindings

@@ -5,9 +5,8 @@
 # if a command does need one of these, then the command can source it directly
 
 # additional extras for an interactive shell
-. "$DOROTHY/sources/getshell.sh"
 . "$DOROTHY/sources/config.sh"
-load_dorothy_config "shell.$(getshell)" 'shell.sh'
+load_dorothy_config "shell.$ACTIVE_SHELL" 'shell.sh'
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/history.sh"
