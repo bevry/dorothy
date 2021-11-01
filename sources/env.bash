@@ -47,9 +47,10 @@ function finish() {
 			items_array=()
 			items_string=''
 			item_last_index=0
+			# the <= and -o, is to ensure that the last item is processed, as it does not have a trailing :
 			# shellcheck disable=SC2066
-			for ((item_index = 0; item_index < ${#value}; item_index++)); do
-				if test "${value:item_index:1}" = ':'; then
+			for ((item_index = 0; item_index <= ${#value}; item_index++)); do
+				if test "${value:item_index:1}" = ':' -o "$item_index" = "${#value}"; then
 					item="${value:item_last_index:item_index-item_last_index}"
 					item_last_index="$((item_index + 1))"
 					# check if empty
