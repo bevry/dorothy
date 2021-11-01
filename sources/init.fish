@@ -7,7 +7,7 @@ export MAILCHECK=0
 set --universal fish_greeting
 
 # shell
-set --global ACTIVE_SHELL fish
+set --universal --export ACTIVE_SHELL fish
 
 # bugfix
 function fish_user_key_bindings
