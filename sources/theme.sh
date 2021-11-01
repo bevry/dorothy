@@ -7,7 +7,7 @@ if ! test -z "${DOROTHY_THEME-}" -o "${DOROTHY_THEME}" = 'system'; then
 			export PROMPT_COMMAND="oztheme bash \$?"
 		elif test -n "${ZSH_VERSION-}"; then
 			. "$DOROTHY/themes/oz"
-			precmd () {
+			precmd() {
 				oztheme zsh "$?"
 			}
 		else
@@ -26,7 +26,7 @@ if ! test -z "${DOROTHY_THEME-}" -o "${DOROTHY_THEME}" = 'system'; then
 		if test -n "${BASH_VERSION-}"; then
 			export PROMPT_COMMAND="echo -n 'DorothyTrial> '"
 		elif test -n "${ZSH_VERSION-}"; then
-			precmd () {
+			precmd() {
 				echo -n 'DorothyTrial> '
 			}
 		else

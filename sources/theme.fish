@@ -3,6 +3,10 @@
 if ! test -z "$DOROTHY_THEME" -o "$DOROTHY_THEME"  = 'system'
 	if test "$DOROTHY_THEME" = 'oz'
 		function fish_prompt
+			if ! test -d "$DOROTHY"
+				echo 'DOROTHY has been moved, please re-open your shell'
+				return 1
+			end
 			"$DOROTHY/themes/oz" fish "$status"
 		end
 	else if test "$DOROTHY_THEME" = 'starship'
