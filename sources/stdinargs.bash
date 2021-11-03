@@ -20,7 +20,6 @@ if test "$stdin" = "no"; then
 	if test "$#" -eq 0; then
 		# check if noact exists
 		if test "$(type -t noact)" = 'function'; then
-
 			noact
 			exit "$?"
 		fi
