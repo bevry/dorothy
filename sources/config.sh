@@ -1,20 +1,20 @@
 #!/usr/bin/env sh
 
 # for scripts that configure the configuration file
-get_dorothy_local_config () {
+get_dorothy_local_config() {
 	echo "$DOROTHY/user/config.local/$1"
 }
-get_dorothy_user_config () {
+get_dorothy_user_config() {
 	echo "$DOROTHY/user/config/$1"
 }
-get_dorothy_config () {
+get_dorothy_config() {
 	if test -f "$DOROTHY/user/config.local/$1"; then
 		echo "$DOROTHY/user/config.local/$1"
 	else
 		echo "$DOROTHY/user/config/$1"
 	fi
 }
-get_dorothy_default_config () {
+get_dorothy_default_config() {
 	echo "$DOROTHY/config/$1"
 }
 
@@ -24,7 +24,7 @@ get_dorothy_default_config () {
 # user/config.local/shell.sh
 # user/config/shell.zsh
 
-load_dorothy_config () {
+load_dorothy_config() {
 	loaded_at_least_one_filename='no'
 	last_filename=''
 
@@ -56,7 +56,7 @@ load_dorothy_config () {
 
 	# if no filename was loaded, then fail and report
 	if test "$loaded_at_least_one_filename" = 'no'; then
-		echo "configuration file $filename was not able to be found" >&2  # stderr
-		return 2  # No such file or directory
+		echo "configuration file $filename was not able to be found" >&2 # stderr
+		return 2                                                         # No such file or directory
 	fi
 }
