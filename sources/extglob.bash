@@ -8,5 +8,5 @@ if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s extglob
 else
 	export EXTGLOB='no'
-	stderr echo 'bash version is too old for extglob'
+	echo 'bash version is too old for extglob' >/dev/stderr
 fi

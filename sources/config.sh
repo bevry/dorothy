@@ -56,7 +56,7 @@ load_dorothy_config() {
 
 	# if no filename was loaded, then fail and report
 	if test "$loaded_at_least_one_filename" = 'no'; then
-		echo "configuration file $filename was not able to be found" >&2 # stderr
-		return 2                                                         # No such file or directory
+		echo "configuration file $filename was not able to be found" >/dev/stderr
+		return 2 # No such file or directory
 	fi
 }

@@ -8,7 +8,13 @@ if ! test -z "${DOROTHY_THEME-}" -o "${DOROTHY_THEME}" = 'system'; then
 		elif test -n "${ZSH_VERSION-}"; then
 			. "$DOROTHY/themes/oz"
 			precmd() {
-				oztheme zsh "$?"
+				# shellcheck disable=SC3043
+				local last_command_exit_status="$?"
+				if ! test -d "$DOROTHY"; then
+					echo 'DOROTHY has been moved, please re-open your shell'
+					return 1
+				fi
+				oztheme zsh "$last_command_exit_status"
 			}
 		else
 			stderr echo "dorothy does not yet support the theme [$DOROTHY_THEME] on this shell"
@@ -27,7 +33,7 @@ if ! test -z "${DOROTHY_THEME-}" -o "${DOROTHY_THEME}" = 'system'; then
 			export PROMPT_COMMAND="echo -n 'DorothyTrial> '"
 		elif test -n "${ZSH_VERSION-}"; then
 			precmd() {
-				echo -n 'DorothyTrial> '
+				printf 'DorothyTrial> '
 			}
 		else
 			stderr echo "dorothy does not yet support the theme [$DOROTHY_THEME] on this shell"
