@@ -8,5 +8,5 @@ if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s globstar
 else
 	export GLOBSTAR='no'
-	stderr echo 'bash version is too old for globstar'
+	echo 'bash version is too old for globstar' >/dev/stderr
 fi

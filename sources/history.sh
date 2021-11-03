@@ -6,7 +6,7 @@ secure_history() {
 		history -c
 		echo 'Erased everything.'
 	else
-		stderr echo 'Erasing only known risks is not supported in shells that are not Fish.'
+		echo 'Erasing only known risks is not supported in shells that are not Fish.' >/dev/stderr
 		return 1
 	fi
 }

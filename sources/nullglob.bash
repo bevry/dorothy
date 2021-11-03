@@ -8,5 +8,5 @@ if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	shopt -s nullglob
 else
 	export NULLGLOB='no'
-	stderr echo 'bash version is too old for nullglob'
+	echo 'bash version is too old for nullglob' >/dev/stderr
 fi
