@@ -28,7 +28,7 @@ set -Eeuo pipefail
 #
 # note, don't do ( var= ) or ( read ) because the vars won't escape the subshell
 
-function strict_e_pause () {
+function strict_e_pause() {
 	if [[ "$-" = *e* ]]; then
 		set +e
 		return 1
@@ -38,7 +38,7 @@ function strict_e_pause () {
 	fi
 }
 
-function strict_e_restore () {
+function strict_e_restore() {
 	if test "$1" -eq 1; then
 		set -e
 	fi
