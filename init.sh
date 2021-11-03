@@ -3,12 +3,15 @@
 # sometimes bash_profile and bashrc are loaded on new terminals
 # sometimes bash_profile is loaded at login, and bashrc is loaded on new terminals
 # sometimes bash_profile will remember and export variables, but not functions
-# as such, expose a function and check if it is loaded, to prevent the case where both bash_profile and bashrc are doing the same thing
-# https://stackoverflow.com/a/14467452
-if [ "$(command -v "${is_dorothy_loaded-}")x" = "x" ]; then
-	is_dorothy_loaded() {
-		echo 'y'
-	}
+# ^ so can't check for exported variables, ruling export `export DOROTHY_LOADED=yes`
+# zsh loads zprofile, and zshrc, but forgets functions
+# ^ so can't check for functions, ruling out https://stackoverflow.com/a/14467452
+# so considering all that, define a normal (non global, non local) variable, and check for its existence
+if test ! -v 'DOROTHY_LOADED'; then
+	# shellcheck disable=SC2034
+	DOROTHY_LOADED='yes'
+	# ^ do not export this, as that will interfere with the case where:
+	#   bash_profile loads at login, then bashrc loads on new terminals
 
 	# this should be consistent with:
 	# $DOROTHY/init.fish
