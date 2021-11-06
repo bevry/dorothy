@@ -11,19 +11,20 @@ fallbacks=() # for package systems that could be installed
 # options
 CLI="${CLI:-"$(get-flag-value cli -- "$@")"}"
 NAME="${NAME:-"$(get-flag-value name --missing="$CLI" -- "$@")"}"
-QUIET="${QUIET:-"$(get-flag-value quiet --missing=no -- "$@" | echo-affirmative)"}"
+QUIET="${QUIET:-"$(get-flag-value quiet -- "$@" | echo-affirmative || :)"}" # empty by default, so not absolutely quiet
 CONFIRM="${CONFIRM:-"$(get-flag-value confirm --missing=no -- "$@" | echo-affirmative)"}"
+OPTIONAL="${OPTIONAL:-"$(get-flag-value confirm --missing=yes -- "$@" | echo-affirmative)"}"
 FORCE="${FORCE:-"$(get-flag-value force --missing=no -- "$@" | echo-affirmative)"}"
 
 # check if necessary
 if test -n "$CLI"; then
 	if command-missing "$CLI"; then
-		echo "The [$NAME] utility does not appear to be installed because [$CLI] is missing. Installing automatically... ⏲" >/dev/tty
+		echo-color --h3="The [$NAME] utility does not appear to be installed because [$CLI] is missing. Installing automatically... ⏲" >/dev/tty
 	elif test "$FORCE" = 'yes'; then
-		echo "The [$NAME] utility is already installed because [$CLI] is present. Forcing reinstall... ⏲" >/dev/tty
+		echo-color --h3="The [$NAME] utility is already installed because [$CLI] is present. Forcing reinstall... ⏲" >/dev/tty
 	else
-		if test "$QUIET" = 'no'; then
-			echo "The [$NAME] utility is already installed because [$CLI] is present. All good. ✅" >/dev/tty
+		if test "$QUIET" != 'yes'; then
+			echo-color --g3="The [$NAME] utility is already installed because [$CLI] is present. All good. ✅" >/dev/tty
 		fi
 		exit 0
 	fi
@@ -39,16 +40,54 @@ fi
 # log helpers
 function won() {
 	local method="$1"
-	echo "The [$NAME] utility is now installed via [$method]. ✅" >/dev/tty
+	echo-color --g3="The [$NAME] utility is now installed via [$method]. ✅" >/dev/tty
 }
 function lost() {
-	echo "The [$NAME] utility was unable to be installed. ❌" >/dev/stderr
+	local ec=1
+	echo-color --e3="The [$NAME] utility was unable to be installed. ❌" >/dev/stderr
+	if test "$OPTIONAL" != 'no'; then
+		echo-color --e3="However, [$NAME] has been marked as optional, so it is up to you to figure this out later."
+		ec=0
+	fi
 	if test "$NAME" = 'unnamed'; then
-		if test "$QUIET" = 'no' && confirm-negative "Do you want to output the environment variables to determine what it was?"; then
+		if test "$QUIET" != 'yes' && confirm-negative "Do you want to output the environment variables to determine what it was?"; then
 			env | sort
 		fi
 		sleep 5
 	fi
+	return "$ec"
+}
+function act() {
+	local ec output
+	ec=0 && output="$("$@" 2>&1)" || ec=$?
+	if test "$ec" -eq 0; then
+		if test "$QUIET" != 'yes'; then
+			if test -n "$output"; then
+				echo-color \
+					--dim+h3='< ' --h3="$*" --dim+h3=' >' $'\n' \
+					--dim="$output" $'\n' \
+					--dim+h3='</ ' --h3="$*" --dim+h3=' >' \
+					--g3="[$ec]" # ' ✅'
+			else
+				echo-color \
+					--dim+h3='< ' --h3="$*" --dim+h3=' />' \
+					--g3="[$ec]" # ' ✅'
+			fi
+		fi
+	else
+		if test -n "$output"; then
+			echo-color \
+				--dim+h3='< ' --h3="$*" --dim+h3=' >' $'\n' \
+				--dim="$output" $'\n' \
+				--dim+h3='</ ' --h3="$*" --dim+h3=' >' \
+				--e3="[$ec]" # ' ❌'
+		else
+			echo-color \
+				--dim+h3='< ' --h3="$*" --dim+h3=' />' \
+				--e3="[$ec]" # ' ❌'
+		fi
+	fi
+	return "$ec"
 }
 
 # brew / Homebrew / macOS
@@ -69,13 +108,18 @@ function do_brew() {
 		# support multiple args inside BREW
 		mapfile -t args < <(echo-split ' ' -- "$BREW")
 
+		# quiet mode
+		if test "$QUIET" != 'no'; then
+			args+=('--quiet')
+		fi
+
 		# optional --force
 		if test "$FORCE" = 'yes'; then
 			args+=('--force')
 		fi
 
-		# attempt install, if that fails, attempt upgrade
-		brew install "${args[@]}" || brew upgrade "${args[@]}"
+		# install, the `brew upgrade` in `setup-mac-brew` will handle upgrades
+		act brew install "${args[@]}"
 	else
 		return 1
 	fi
@@ -104,13 +148,18 @@ function do_cask() {
 		# support multiple args inside CASK
 		mapfile -t args < <(echo-split ' ' -- "$CASK")
 
+		# quiet mode
+		if test "$QUIET" != 'no'; then
+			args+=('--quiet')
+		fi
+
 		# optional --force
 		if test "$FORCE" = 'yes'; then
 			args+=('--force')
 		fi
 
 		# install
-		brew install --cask "${args[@]}"
+		act brew install --cask "${args[@]}"
 	else
 		# not applicable
 		return 1
@@ -124,13 +173,18 @@ function do_cask_fallback() {
 
 # pacman / Arch Linux / Manjaro
 function do_pacman() {
+	local args=()
 	# check applicabile and possible
 	if test -n "${PACMAN-}" && command-exists pacman; then
 		# package case
-		# -q, --quiet: show less information for query and search
 		# --needed: do not reinstall up to date packages
 		# --noconfirm: do not ask for any confirmation
-		sudo pacman -S --noconfirm --needed --quiet "${PACMAN}"
+		args+=('-S' '--needed' '--noconfirm')
+		if test "$QUIET" != 'no'; then
+			# -q, --quiet: show less information for query and search
+			args+=('--quiet')
+		fi
+		act sudo pacman "${args[@]}" "${PACMAN}"
 	else
 		# not needed
 		return 1
@@ -147,7 +201,7 @@ function do_yay() {
 	# check applicabile and possible
 	if test -n "$pkg" && command-exists yay; then
 		# package case
-		yay -Sy "$pkg"
+		act yay -Sy "$pkg"
 	else
 		# not needed
 		return 1
@@ -164,7 +218,7 @@ function do_paru() {
 	# check applicabile and possible
 	if test -n "$pkg" && command-exists paru; then
 		# package case
-		paru -Sy "$pkg"
+		act paru -Sy "$pkg"
 	else
 		# not needed
 		return 1
@@ -181,7 +235,7 @@ function do_pakku() {
 	# check applicabile and possible
 	if test -n "$pkg" && command-exists pakku; then
 		# package case
-		pakku -Sy "$pkg"
+		act pakku -Sy "$pkg"
 	else
 		# not needed
 		return 1
@@ -198,7 +252,7 @@ function do_aurutils() {
 	# check applicabile and possible
 	if test -n "$pkg" && command-exists aurutils; then
 		# package case
-		aurutils -Sy "$pkg"
+		act aurutils -Sy "$pkg"
 	else
 		# not needed
 		return 1
@@ -221,7 +275,7 @@ function do_pamac() {
 		fi
 
 		# package case
-		pamac install --no-confirm "$pkg"
+		act pamac install --no-confirm "$pkg"
 	else
 		# not applicable
 		return 1
@@ -248,7 +302,7 @@ function do_flatpak() {
 		fi
 
 		# package case
-		flatpak install "$repo" "$pkg"
+		act flatpak install "$repo" "$pkg"
 	else
 		# not applicable
 		return 1
@@ -285,7 +339,7 @@ function do_snap() {
 		fi
 
 		# package case
-		snap install "${args[@]}"
+		act snap install "${args[@]}"
 	else
 		# not applicable
 		return 1
@@ -327,7 +381,7 @@ function do_yum() {
 			fi
 
 			# install
-			sudo yum install -y "$pkg"
+			act sudo yum install -y "$pkg"
 		fi
 	else
 		# not applicable
@@ -377,7 +431,7 @@ function do_apt() {
 			fi
 
 			# install
-			sudo apt install -y --fix-broken "${args[@]}"
+			act sudo apt install -y --fix-broken "${args[@]}"
 		fi
 	else
 		# not applicable
@@ -395,7 +449,7 @@ function do_apk() {
 		mapfile -t args < <(echo-split ' ' -- "$APK")
 
 		# install
-		apk add "${args[@]}"
+		act apk add "${args[@]}"
 	else
 		# not needed
 		return 1
@@ -406,7 +460,7 @@ function do_apk() {
 function do_nix() {
 	# check applicable and possible
 	if test -n "${NIX-}" && command-exists nix-env; then
-		nix-env -iA "${NIX}"
+		act nix-env -iA "${NIX}"
 	else
 		# not needed
 		return 1
@@ -417,7 +471,7 @@ function do_nix() {
 function do_xbps() {
 	# check applicable and possible
 	if test -n "${XBPS-}" && command-exists xbps-install; then
-		xbps-install -S "${XBPS}"
+		act xbps-install -S "${XBPS}"
 	else
 		# not needed
 		return 1
@@ -428,7 +482,7 @@ function do_xbps() {
 function do_eopkg() {
 	# check applicable and possible
 	if test -n "${EOPKG-}" && command-exists eopkg; then
-		sudo eopkg it "${EOPKG}"
+		act sudo eopkg it "${EOPKG}"
 	else
 		# not needed
 		return 1
@@ -453,7 +507,7 @@ function do_emerge() {
 
 		# package case
 		if test -n "${EMERGE-}"; then
-			sudo emerge -av "${EMERGE}"
+			act sudo emerge -av "${EMERGE}"
 		fi
 	else
 		# not applicable
@@ -490,7 +544,7 @@ function do_dnf() {
 			fi
 
 			# install
-			sudo dnf install -y "${DNF}"
+			act sudo dnf install -y "${DNF}"
 		fi
 	else
 		return 1
@@ -523,7 +577,7 @@ function do_zypper() {
 			fi
 
 			# install
-			sudo zypper install "${ZYPPER}"
+			act sudo zypper install "${ZYPPER}"
 		fi
 	else
 		# not applicable
@@ -535,7 +589,7 @@ function do_zypper() {
 function do_port() {
 	# check applicable and possible
 	if test -n "${PORT-}" && command-exists port; then
-		sudo port install "${PORT}"
+		act sudo port install "${PORT}"
 	else
 		# not needed
 		return 1
@@ -546,7 +600,7 @@ function do_port() {
 function do_choco() {
 	# check applicable and possible
 	if test -n "${CHOCO-}" && command-exists choco; then
-		choco install "${CHOCO}"
+		act choco install "${CHOCO}"
 	else
 		# not needed
 		return 1
@@ -557,7 +611,7 @@ function do_choco() {
 function do_scoop() {
 	# check applicable and possible
 	if test -n "${SCOOP-}" && command-exists scoop; then
-		scoop install "${SCOOP}"
+		act scoop install "${SCOOP}"
 	else
 		# not needed
 		return 1
@@ -568,7 +622,7 @@ function do_scoop() {
 function do_winget() {
 	# check applicable and possible
 	if test -n "${WINGET-}" && command-exists winget; then
-		winget install "${WINGET}"
+		act winget install "${WINGET}"
 	else
 		# not needed
 		return 1
@@ -579,7 +633,7 @@ function do_winget() {
 function do_pkg() {
 	# check applicable and possible
 	if test -n "${PKG-}" && command-exists pkg; then
-		pkg install "${PKG}"
+		act pkg install "${PKG}"
 	else
 		# not needed
 		return 1
@@ -590,7 +644,7 @@ function do_pkg() {
 function do_pkgutil() {
 	# check applicable and possible
 	if test -n "${PKGUTIL-}" && command-exists pkgutil; then
-		pkgutil -i "${PKG}"
+		act pkgutil -i "${PKG}"
 	else
 		# not needed
 		return 1
@@ -601,7 +655,7 @@ function do_pkgutil() {
 function do_huber() {
 	# check applicable and possible
 	if test -n "${HUBER-}" && command-exists huber; then
-		huber install "${HUBER}"
+		act huber install "${HUBER}"
 	else
 		# not needed
 		return 1
@@ -612,7 +666,7 @@ function do_huber() {
 function do_guix() {
 	# check applicable and possible
 	if test -n "${GUIX-}" && command-exists guix; then
-		guix package -i "${GUIX}"
+		act guix package -i "${GUIX}"
 	else
 		# not needed
 		return 1
@@ -638,7 +692,7 @@ function do_dpkg() {
 
 		# package case
 		if test -n "${DPKG-}"; then
-			sudo dpkg --install "${DPKG}"
+			act sudo dpkg --install "${DPKG}"
 		fi
 	else
 		# not applicable
@@ -650,7 +704,7 @@ function do_dpkg() {
 function do_doas() {
 	# check applicable and possible
 	if test -n "${DOAS-}" && command-exists doas; then
-		doas pkg_add "${DOAS}"
+		act doas pkg_add "${DOAS}"
 	else
 		# not needed
 		return 1
@@ -661,7 +715,7 @@ function do_doas() {
 function do_pkg() {
 	# check applicable and possible
 	if test -n "${PKGADD-}" && command-exists pkg_add; then
-		pkg_add "${PKGADD}"
+		act pkg_add "${PKGADD}"
 	else
 		# not needed
 		return 1
@@ -672,7 +726,7 @@ function do_pkg() {
 function do_pkgin() {
 	# check applicable and possible
 	if test -n "${PKGIN-}" && command-exists pkgin; then
-		pkgin install "${PKGIN}"
+		act pkgin install "${PKGIN}"
 	else
 		# not needed
 		return 1
@@ -683,7 +737,7 @@ function do_pkgin() {
 function do_pkgman() {
 	# check applicable and possible
 	if test -n "${PKGMAN-}" && command-exists pkgman; then
-		pkgman install "${PKGMAN}"
+		act pkgman install "${PKGMAN}"
 	else
 		# not needed
 		return 1
@@ -695,7 +749,7 @@ function do_stack() {
 	# check applicable and possible
 	if test -n "${STACK-}" && command-exists stack; then
 		stack update
-		stack install "${STACK}"
+		act stack install "${STACK}"
 	else
 		# not needed
 		return 1
@@ -707,7 +761,7 @@ function do_cabal() {
 	# check applicable and possible
 	if test -n "${CABAL-}" && command-exists cabal; then
 		cabal update
-		cabal install "${CABAL}"
+		act cabal install "${CABAL}"
 	else
 		# not needed
 		return 1
@@ -720,9 +774,9 @@ function do_conda() {
 	if test -n "${CONDA-}" && command-exists conda; then
 		# customise CONDA install based on presence of CONDA_CHANNEL
 		if test -n "${CONDA_CHANNEL-}"; then
-			conda install -c "${CONDA_CHANNEL}" "${CONDA}"
+			act conda install -c "${CONDA_CHANNEL}" "${CONDA}"
 		else
-			conda install "${CONDA}"
+			act conda install "${CONDA}"
 		fi
 	else
 		# not needed
@@ -757,7 +811,7 @@ function do_npm() {
 			fi
 
 			# install
-			npm install --global "${args[@]}"
+			act npm install --global "${args[@]}"
 		fi
 	else
 		# not applicable
@@ -782,8 +836,13 @@ function do_go() {
 			return 1
 		fi
 
+		# add version if not there
+		if [[ "$GO" != *'@'* ]]; then
+			GO="${GO}@latest"
+		fi
+
 		# package case
-		go get -u -v "$GO"
+		act go install -v "$GO"
 	else
 		# not applicable
 		return 1
@@ -817,7 +876,7 @@ function do_pip() {
 			mapfile -t args < <(echo-split ' ' -- "$PIP")
 
 			# install
-			pipp install --user --upgrade --force-reinstall --no-warn-script-location "${args[@]}"
+			act pipp install --user --upgrade --force-reinstall --no-warn-script-location "${args[@]}"
 		fi
 	else
 		# not applicable
@@ -846,7 +905,7 @@ function do_pipx() {
 		mapfile -t args < <(echo-split ' ' -- "$PIPX")
 
 		# package case
-		pipx install "${args[@]}"
+		act pipx install "${args[@]}"
 	else
 		# not applicable
 		return 1
@@ -883,9 +942,9 @@ function do_gem() {
 		if test -n "${GEM-}"; then
 			silent gem uninstall "$GEM" -axI
 			if test -n "${GEM_VERSION-}"; then
-				gem install "$GEM" --version "$GEM_VERSION" --user-install --no-document
+				act gem install "$GEM" --version "$GEM_VERSION" --user-install --no-document
 			else
-				gem install "$GEM" --user-install --no-document
+				act gem install "$GEM" --user-install --no-document
 			fi
 		fi
 	else
@@ -910,10 +969,10 @@ function do_cargo() {
 		fi
 
 		# package case
-		if ! is-affirmative "${QUIET-}"; then
+		if test "$QUIET" != 'yes'; then
 			log-performance
 		fi
-		cargo install "${CARGO}"
+		act cargo install "${CARGO}"
 	else
 		# not applicable
 		return 1
@@ -960,9 +1019,9 @@ function do_zip() {
 		# download the zip, and optionally filter it, extracting to $HOME/bin
 		mkdir -p "$HOME/bin"
 		if test -n "${ZIP_FILTER-}"; then
-			down-zip "$ZIP" --filter="$ZIP_FILTER" --destination="$HOME/bin"
+			act down-zip "$ZIP" --filter="$ZIP_FILTER" --destination="$HOME/bin"
 		else
-			down-zip "$ZIP" --destination="$HOME/bin"
+			act down-zip "$ZIP" --destination="$HOME/bin"
 		fi
 	else
 		# not applicable
@@ -1073,4 +1132,4 @@ done
 
 # failure
 lost
-exit 1
+exit "$?"
