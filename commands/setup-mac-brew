@@ -1,74 +1,122 @@
 #!/usr/bin/env bash
 # environment provides: HOMEBREW_PREFIX, HOMEBREW_CELLAR
 source "$DOROTHY/sources/strict.bash"
+
+# =====================================
+# CONFIGURATION
+
 source "$DOROTHY/sources/config.sh"
 load_dorothy_config 'setup.bash'
-# ^ provides: HOMEBREW_ARCH, HOMEBREW_INSTALL_CASK, HOMEBREW_INSTALL_SLOW, HOMEBREW_INSTALL
-
-# Mode
-if test "${1-}" = "update"; then
-	mode="update"
-else
-	mode="install"
+if test ! -v 'HOMEBREW_ARCH'; then
+	HOMEBREW_ARCH=''
+fi
+if test ! -v 'HOMEBREW_TAPS'; then
+	HOMEBREW_TAPS=()
+fi
+HOMEBREW_TAPS+=('homebrew/cask-fonts')
+if test ! -v 'HOMEBREW_INSTALL'; then
+	HOMEBREW_INSTALL=()
+fi
+if test ! -v 'HOMEBREW_INSTALL_CASK'; then
+	HOMEBREW_INSTALL_CASK=()
+fi
+if test ! -v 'HOMEBREW_INSTALL_SLOW'; then
+	HOMEBREW_INSTALL_SLOW=()
+fi
+if test ! -v 'HOMEBREW_INSTALL_ENCODING'; then
+	HOMEBREW_INSTALL_ENCODING=''
+fi
+if test ! -v 'HOMEBREW_UNINSTALL'; then
+	HOMEBREW_UNINSTALL=()
 fi
 
-# Install brew
-if is-brew; then
-	echo -e '\nHomebrew is installed.'
-else
-	# recomended installation method, it is pretty much the only one that works properly
-	# https://github.com/balupton/dotfiles/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
-	# https://github.com/balupton/dotfiles/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
-	echo -e '\nInstalling homebrew via its recomended method...'
-	arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-	source "$DOROTHY/sources/environment.sh"
-fi
+# Remove problematic dependencies that routinely fail due to their circular nature
+# HOMEBREW_UNINSTALL+=(
+# 	chromaprint
+# 	homebrew-ffmpeg/ffmpeg/ffmpeg
+# 	ffmpeg
+# 	vim
+# 	python
+# 	ruby
+# )
+# ok rm -rf "/Users/$(whoami)/Library/Python/"*
+# ok rm -rf "${HOMEBREW_CELLAR}/python"*
+# ok rm -rf "${HOMEBREW_PREFIX}/opt/python"*
+# brew install python # reinstall python now that it has been cleaned
 
-# check arrays in case we need to install bash and reload
-source "$DOROTHY/sources/arrays.bash"
-if test "$ARRAYS" = 'no'; then
-	brew install bash
-	setup-mac-brew "$@"
-	exit "$?" # exit with the above on success and failure
-fi
+# =====================================
+# HELPERS
 
-# Helpers
-function brewforceuninstall() {
-	brew uninstall --ignore-dependencies "$@" || :
-}
-function brewinstall() {
-	echo -e "\nInstalling $# brew packages..."
+function brew_install_bulk() {
+	echo-color --h2="Installing $# formulas..."
 	env NAME="brew:$*" BREW="$*" setup-util brew
 }
-function slowbrewinstall() {
+function brew_install() {
+	echo-color --h2="Installing $# formulas..."
+	for item in "$@"; do
+		echo-color --dim="Installing: $item"
+		brew install "$item"
+	done
+}
+function brew_untap() {
+	echo-color --h2="Untapping $# repositories..."
+	echo-color --dim='You can ignore "Error: No available tap ..." errors.'
+	for item in "$@"; do
+		brew untap --quiet "$item" || :
+	done
+}
+function brew_tap() {
+	echo-color --h2="Tapping $# repositories..."
+	for item in "$@"; do
+		echo-color --dim="Tapping: $item"
+		brew tap "$item"
+	done
+}
+function brew_repo() {
+	echo-color --h2="Updating $# repositories..."
+	for directory in "$@"; do
+		(
+			echo-color --dim="Updating: $directory"
+			cd "$directory" || exit 1
+			if git-is-shallow; then
+				# https://github.com/Homebrew/brew/pull/9383
+				# ^ fix: Error: homebrew-cask is a shallow clone
+				# ^ github requested initial clones be shallow, however initial clones cannot be updated
+				# ^ as such we have to unshallow the repo
+				# ^ however, `git fetch --unshallow` will fail if already not shallow
+				# ^ as such, detect accordingly
+				# https://stackoverflow.com/a/37533086/130638
+				git fetch --unshallow
+			else
+				git fetch
+			fi
+		)
+	done
+}
+function brew_uninstall() {
+	echo-color --h2="Uninstalling $# formulas..."
+	echo-color --dim='You can ignore "No available ..." errors.'
+	for item in "$@"; do
+		echo-color --dim="Uninstalling: $item"
+		brew uninstall --ignore-dependencies "$item" || :
+	done
+}
+function brew_install_slow_bulk() {
+	echo-color --h2="Installing $# (potentially slow) formulas..."
 	# if we are on an official directory, then we are using bottles which are pre-compiled and fast
 	if test "${HOMEBREW_PREFIX}" = "/usr/local" -o "${HOMEBREW_PREFIX}" = "/opt/homebrew"; then
-		brewinstall "$@"
+		brew_install_bulk "$@"
 	else
 		# otherwise we are on a custom directory, can't use bottles, so have to compile ourselves, which takes forever
 		echo
 		if confirm-bool "Do you want to install [$*]? These can take hours, so best left overnight..."; then
 			echo "$*"
-			brewinstall "$@"
+			brew_install_bulk "$@"
 		fi
 	fi
 }
-function confirmbrewinstall() {
-	if test "$#" -eq 0; then
-		echo 'Dorothy user has not configured any formulas to install'
-	elif test "$#" -eq 1; then
-		if confirm-bool "Would you like to install the formula [$1]?"; then
-			choices=("$1")
-		fi
-	else
-		fodder="$(choose-option --multi --question="What formulas would you like to brew install?" -- "$@")"
-		mapfile -t choices <<<"$fodder" # <( destroys stdin
-	fi
-	if is-array-full-or-partial "${choices-}"; then
-		brewinstall "${choices[@]}"
-	fi
-}
-function confirmcaskinstall() {
+function brew_install_cask_bulk() {
+	echo-color --h2="Installing $# casks..."
 	if test "$#" -eq 0; then
 		echo 'Dorothy user has not configured any casks to install'
 	elif test "$#" -eq 1; then
@@ -85,41 +133,99 @@ function confirmcaskinstall() {
 	fi
 }
 
-# Update brew
-echo -e '\nUpdating homebrew...'
-# trim deprecations
-ok silent brew untap caskroom/cask
-ok silent brew untap caskroom/fonts
-# fix: Error: homebrew-cask is a shallow clone
-# uses `ok` as if already done, wil fail with: fatal: --unshallow on a complete repository does not make sense
-brewrepodirs="$(echo-subpaths "$(dirname "$(brew --repo homebrew/core)")")"
-for directory in $brewrepodirs; do
-	ok git -C "$directory" fetch --unshallow
-done
-# update and upgrade
-brew update
-brew upgrade
-# add fonts
-brew tap homebrew/cask-fonts
-# done
-echo '...updated homebrew!'
+# =====================================
+# MODE
 
-# Essentials
-echo -e '\nInstalling essentials...'
+if test "${1-}" = "update"; then
+	mode="update"
+else
+	mode="install"
+fi
+echo-color --h1="Setup/${mode@u} Homebrew..."
+
+# =====================================
+# INSTALL
+
+if is-brew; then
+	echo-color --h2 'Homebrew already installed.'
+else
+	# recomended installation method, it is pretty much the only one that works properly
+	# https://github.com/balupton/dotfiles/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
+	# https://github.com/balupton/dotfiles/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
+	echo-color --h2='Installing Homebrew via its recomended method...'
+	arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+	source "$DOROTHY/sources/environment.sh"
+	echo-color --g2='Homebrew is now installed.'
+fi
+
+# check arrays in case we need to install bash and reload
+source "$DOROTHY/sources/arrays.bash"
+if test "$ARRAYS" = 'no'; then
+	echo-color --h2='Bash version too outdated for proper array support, upgrading bash...'
+	brew install bash
+	echo-color --g2='Bash has been upgraded.'
+	echo-color --h2='Reloading setup with the upgraded bash.'
+	setup-mac-brew "$@"
+	exit "$?" # exit with the above on success and failure
+fi
+
+# =====================================
+# DEPRECATIONS
+
+deprecations=('caskroom/cask' 'caskroom/fonts')
+brew_untap "${deprecations[@]}"
+
+# =====================================
+# REPOS
+
+mapfile -t repos < <(echo-subpaths "$(dirname "$(brew --repo homebrew/core)")")
+brew_repo "${repos[@]}"
+
+# =====================================
+# UPDATE
+
+echo-color --h2="Updating Homebrew..."
+brew update
+
+# =====================================
+# UPGRADE
+
+echo-color --h2="Upgrading Homebrew..."
+brew upgrade
+
+# =====================================
+# TAPS
+
+brew_tap "${HOMEBREW_TAPS[@]}"
+
+# =====================================
+# ESSENTIALS
+
+echo-color --h2="Installing Homebrew essentials..." $'\n' \
+	--dim='You can ignore "already installed" warnings.'
 setup-util-devel
 
-# Reinstall problematic dependencies that routinely fail due to their circular nature
-echo -e '\nRemoving circular brew dependencies for reinstallation later...'
-brewforceuninstall chromaprint homebrew-ffmpeg/ffmpeg/ffmpeg ffmpeg vim python ruby
-ok rm -rf "/Users/$(whoami)/Library/Python/"*
-ok rm -rf "${HOMEBREW_CELLAR}/python"*
-ok rm -rf "${HOMEBREW_PREFIX}/opt/python"*
-# ok is used above as otherwise their non existance will cause failure
-brew cleanup        # used to fix the breaks from removing the above
-brew install python # reinstall python now that it has been cleaned
+# =====================================
+# REMOVALS
+
+brew_uninstall "${HOMEBREW_UNINSTALL[@]}"
+
+# used to fix any breaks after the removals
+source "$DOROTHY/sources/environment.sh"
+echo-color --h2='Running Homebrew cleanup...'
+brew cleanup
+
+# =====================================
+# WORKAROUNDS
 
 # ffmpeg
-if test "$mode" = "install" && confirm-bool $'\nDo you want to install encoding tools?'; then
+if test "$mode" = "install" && (
+	is-affirmative "$HOMEBREW_INSTALL_ENCODING" || confirm-bool $'\nDo you want to (re-)install encoding tools? This can take a while...'
+); then
+	echo
+	echo-color --h2="Installing Homebrew encoding tools... ⏲" $'\n' \
+		--dim='You can ignore all non-fatal warnings and errors.'
+
 	# install the ffmpeg formula that includes all the options
 	# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg
 	# https://trac.ffmpeg.org/wiki/CompilationGuide/macOS#Additionaloptions
@@ -172,21 +278,29 @@ if test "$mode" = "install" && confirm-bool $'\nDo you want to install encoding 
 	mapfile -t opts < <(echo-split ' ' -- "$opts")
 	# install
 	brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${opts[@]}"
+
+	# done
+	echo-color --g2="Installed Homebrew encoding tools."
 fi
 
-# user cli deps
-echo -e '\nInstalling command line applications via homebrew...'
-if test -v 'HOMEBREW_INSTALL'; then
-	brewinstall "${HOMEBREW_INSTALL[@]}"
-fi
-if test -v 'HOMEBREW_INSTALL_SLOW'; then
-	slowbrewinstall "${HOMEBREW_INSTALL_SLOW[@]}"
-fi
-echo '...installed command line applications!'
+# =====================================
+# INSTALL FORMULAS
 
-# user cask deps
-if test -v 'HOMEBREW_INSTALL_CASK' -a "$mode" = "install"; then
-	confirmcaskinstall "${HOMEBREW_INSTALL_CASK[@]}"
+brew_install_bulk "${HOMEBREW_INSTALL[@]}"
+
+# =====================================
+# INSTALL SLOW FORMULAS
+
+brew_install_slow_bulk "${HOMEBREW_INSTALL_SLOW[@]}"
+
+# =====================================
+# INSTALL CASK FORMULAS
+
+if test "$mode" = "install"; then
+	brew_install_cask_bulk "${HOMEBREW_INSTALL_CASK[@]}"
 fi
 
-echo -e '\nHomebrew setup!'
+# =====================================
+# INSTALL DONE
+
+echo-color --g1="Setup/${mode@u} Homebrew completed. ✅"

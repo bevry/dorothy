@@ -11,9 +11,12 @@ export APT_ADD=()
 export SNAP_INSTALL=()
 
 # brew
+export HOMEBREW_TAPS=()
 export HOMEBREW_INSTALL=()
 export HOMEBREW_INSTALL_SLOW=()
 export HOMEBREW_INSTALL_CASK=()
+export HOMEBREW_INSTALL_ENCODING='' # yes/no
+export HOMEBREW_UNINSTALL=()
 
 # go
 export GO_INSTALL=()
