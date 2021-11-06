@@ -4,19 +4,23 @@
 # they are generally only useful for user interactive environments
 # if a command does need one of these, then the command can source it directly
 
+# export the active shell as the active login shell
+export ACTIVE_LOGIN_SHELL
+ACTIVE_LOGIN_SHELL="$(get_active_shell)"
+
 # additional extras for an interactive shell
 . "$DOROTHY/sources/config.sh"
-load_dorothy_config "shell.$ACTIVE_SHELL" 'shell.sh'
+if test "$ACTIVE_LOGIN_SHELL" = 'sh'; then
+	load_dorothy_config 'shell.sh'
+else
+	load_dorothy_config "shell.$ACTIVE_LOGIN_SHELL" 'shell.sh'
+fi
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/history.sh"
-if test -n "${ZSH_VERSION-}"; then
+if test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
 	. "$DOROTHY/sources/zsh.zsh"
-	. "$DOROTHY/sources/azure.zsh"
-else
-	. "$DOROTHY/sources/azure.bash"
 fi
-. "$DOROTHY/sources/gcloud.sh"
 . "$DOROTHY/sources/completions.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"

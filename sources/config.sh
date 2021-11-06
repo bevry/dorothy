@@ -26,17 +26,9 @@ get_dorothy_default_config() {
 
 load_dorothy_config() {
 	loaded_at_least_one_filename='no'
-	last_filename=''
 
 	# load each provided filename
 	for filename in "$@"; do
-		# skip in the non-fish shell case, where the arguments may be:
-		# shell.sh shell.sh
-		if test "$filename" = "$last_filename"; then
-			continue
-		fi
-		last_filename="$filename"
-
 		# check config files
 		if test -f "$DOROTHY/user/config.local/$filename"; then
 			# load user/config.local
