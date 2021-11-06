@@ -5,7 +5,7 @@ if test -n "${DOROTHY_THEME-}" -a "${DOROTHY_THEME}" != 'system'; then
 		if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
 			. "$DOROTHY/themes/oz"
 			export PROMPT_COMMAND="oztheme bash \$?"
-		elif test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+		elif test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
 			. "$DOROTHY/themes/oz"
 			precmd() {
 				# shellcheck disable=SC3043
