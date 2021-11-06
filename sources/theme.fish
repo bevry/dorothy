@@ -1,10 +1,10 @@
 #!/usr/bin/env fish
 
-if ! test -z "$DOROTHY_THEME" -o "$DOROTHY_THEME"  = 'system'
+if test -n "$DOROTHY_THEME" -a "$DOROTHY_THEME"  != 'system'
 	if test "$DOROTHY_THEME" = 'oz'
 		function fish_prompt
 			set last_command_exit_status "$status"
-			if ! test -d "$DOROTHY"
+			if test ! -d "$DOROTHY"
 				echo 'DOROTHY has been moved, please re-open your shell'
 				return 1
 			end

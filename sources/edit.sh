@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
-eval "$("$DOROTHY/commands/setup-editor-commands" "$ACTIVE_SHELL")"
+. "$DOROTHY/sources/get_active_shell.sh"
+eval "$("$DOROTHY/commands/setup-editor-commands" "$(get_active_shell)")"
 edit() {
 	if is-ssh; then
 		eval "${TERMINAL_EDITOR:?"TERMINAL_EDITOR must be configured"}" "$@"

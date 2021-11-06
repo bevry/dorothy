@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 
 # Oh my zsh
-if is-dir "$HOME/.oh-my-zsh"; then
+if test -d "$HOME/.oh-my-zsh"; then
 	export DISABLE_UPDATE_PROMPT=true
 	export ZSH="$HOME/.oh-my-zsh"
 	# export ZSH_THEME="avit"

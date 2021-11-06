@@ -1,3 +1,10 @@
 #!/usr/bin/env sh
 
-eval "$("$DOROTHY/commands/setup-environment-commands" "$ACTIVE_SHELL")"
+. "$DOROTHY/sources/get_active_shell.sh"
+{
+	eval "$("$DOROTHY/commands/setup-environment-commands" "$(get_active_shell)")"
+} || {
+	echo "Failed to setup environment, failed command was:"
+	echo "$DOROTHY/commands/setup-environment-commands" "$(get_active_shell)"
+	exit 1
+} >/dev/stderr
