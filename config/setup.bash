@@ -32,7 +32,6 @@ export PYTHON3_PIP_INSTALL=()
 export PIPX_INSTALL=()
 
 # ruby
-# export RUBY_VERSION='system'
 export RUBY_INSTALL=()
 
 # cargo

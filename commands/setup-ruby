@@ -1,15 +1,28 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+
+# =====================================
+# Configuration
+
+# environment provides: GEM_HOME
+# environment.bash provides: RUBY_VERSION
+
 source "$DOROTHY/sources/config.sh"
 load_dorothy_config 'setup.bash'
-# ^ provides: RUBY_INSTALL
+# ^ provides: GEM_INSTALL/RUBY_INSTALL
 
-# Install ruby if necessary
-echo -e "\nEnsuring ruby is installed..."
+# =====================================
+# Install
+
+echo-color $'\n' --h1="Setup Ruby... ⏲"
+
+# install a specific ruby version via homebrew if supported
 brew_ruby='ruby'
-if test -n "${RUBY_VERSION-}" -a "${RUBY_VERSION-}" != 'system'; then
+if test -n "${RUBY_VERSION-}" -a "${RUBY_VERSION-}" != 'system' -a "${RUBY_VERSION-}" != 'default'; then
 	brew_ruby="ruby@${RUBY_VERSION}"
 fi
+
+# perform the installation
 env CLI=ruby \
 	APK=ruby \
 	APT='ruby-full' \
@@ -18,47 +31,92 @@ env CLI=ruby \
 	YUM=ruby-devel \
 	setup-util
 
+# =====================================
+# Selection
+
+# Use only a single ruby version
+if test -n "${HOMEBREW_PREFIX-}"; then
+	if test -z "${RUBY_VERSION-}" -o ! -d "$HOMEBREW_PREFIX/opt/ruby@${RUBY_VERSION-}"; then
+		# discover
+		rubyVersions=()
+		mapfile -t rubyDirectories < <(expand-path "$HOMEBREW_PREFIX/opt/ruby*/bin")
+		for rubyDirectory in "${rubyDirectories[@]}"; do
+			rubyVersionDirectory="$(basename "$(fs-parent "$rubyDirectory")")"
+			rubyVersion="${rubyVersionDirectory#*@}"
+			if test "$rubyVersion" = "$rubyVersionDirectory"; then
+				rubyVersion='default'
+			fi
+			rubyVersions+=("$rubyVersion" "$("$rubyDirectory/ruby" --version)")
+		done
+
+		# solicit
+		RUBY_VERSION="$(choose-option --question='There are multiple ruby versions installed, which version do you wish to prefer?' --label -- "${rubyDirectories[@]}")"
+
+		# apply
+		config-helper \
+			--file="$DOROTHY/user/config/environment.bash" \
+			--find="export RUBY_VERSION=.*" \
+			--replace="export RUBY_VERSION='$RUBY_VERSION'"
+	fi
+
+	echo-color --dim="Ruby Version:   $RUBY_VERSION"
+fi
+
+# =====================================
+# Caches
+
 # Clear caches that can conflict with paths and old installs
-# Using only the intended one, which is GEM_HOME
-echo -e "\nCleaning caches..."
+# Use only the intended one, which is GEM_HOME
+
+echo-color --h2="Cleaning caches..."
 if test -d "$HOME/.gem"; then
-	echo "Cleaning: $HOME/.gem"
+	echo-color --dim="Cleaning:       $HOME/.gem"
 	rm -Rf "$HOME/.gem"
 fi
 if test -d "$HOME/.ruby"; then
-	echo "Cleaning: $HOME/.ruby"
+	echo-color --dim="Cleaning:       $HOME/.ruby"
 	rm -Rf "$HOME/.ruby"
 fi
 if test -n "${GEM_HOME-}"; then
 	if test -d "$GEM_HOME"; then
-		echo "Cleaning: $GEM_HOME"
+		echo-color --dim="Cleaning:       $GEM_HOME"
 		rm -Rf "$GEM_HOME"
 	fi
 	mkdir -p "$GEM_HOME"
 fi
 
-# Reload paths
-echo -e '\nReload paths to help changes be detected...'
+# =====================================
+# Reload
+
+echo-color --h2="Reload paths to help changes be detected..."
 source "$DOROTHY/sources/environment.sh"
 
-# Check
+# check
 if ! command-exists gem; then
-	stderr echo -e '\nUnable to find [gem] executable, so cannot proceed... ❌'
+	echo-color --e2='Unable to find [gem] executable, so cannot proceed... ❌' >/dev/stderr
 	exit 1
 fi
+echo-color \
+	--dim="Ruby Path:      $(which ruby)" $'\n' \
+	--dim="Ruby Version:   $(ruby --version)" $'\n' \
+	--dim="Gem Path:       $(which gem)" $'\n' \
+	--dim="Gem Version:    $(gem --version)"
 
-# Helper
-function act {
+# =====================================
+# Gems
+
+function install_each_gem {
 	local name version
-	echo -e "\nInstalling $# ruby gems..."
+	echo-color --h2="Installing $# ruby gems..."
 	for arg in "$@"; do
 		name="${arg% *}"
-		version="${arg#* }"  # will be the same as name, if no version was provided
+		version="${arg#* }" # will be the same as name, if no version was provided
 		if test "$version" = "$name"; then
 			version=''
 		fi
 		env NAME="gem:$name" GEM="$name" GEM_VERSION="$version" setup-util gem
 	done
+	echo-color --g2="Installed $# ruby gems."
 }
 
 # Update
@@ -72,9 +130,14 @@ function act {
 # gem update --system
 
 # Install
+if test -v 'GEM_INSTALL'; then
+	install_each_gem "${GEM_INSTALL[@]}"
+fi
 if test -v 'RUBY_INSTALL'; then
-	act "${RUBY_INSTALL[@]}"
+	install_each_gem "${RUBY_INSTALL[@]}"
 fi
 
+# =====================================
 # Done
-echo -e '\nInstalled ruby and its gems successfully. ✅'
+
+echo-color --h1="Setup Ruby completed. ✅"
