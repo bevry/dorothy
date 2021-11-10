@@ -27,7 +27,7 @@ else
 	# read stdin, with a timeout of 0.1 seconds
 	# if stdin works, then mark it as so
 	# and call `act` on each line
-	while IFS= read -rt 0.1 item; do
+	while read -rt 0.1 item; do
 		stdin='yes'
 		act "$item"
 	done </dev/stdin
