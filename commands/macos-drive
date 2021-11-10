@@ -1,32 +1,39 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
-source "$DOROTHY/sources/splitlines.bash"
 
-# helper
-function find_installer {
-	versions="$(expand-path '/Applications/Install macOS*')"
+# find the installer, and download it if necessary
+function select_installer() {
+	local installers
+	mapfile -t installers < <(echo-lines '/Applications/Install macOS'*)
+	if test "${#installers[@]}" -eq 0; then
+		if test "${1-}" = '--downloaded'; then
+			echo-color --error \
+				'Even after fetching the installer, we could not find it. This is unexpected.' $'\n' \
+				'Report an issue at: https://github.com/bevry/dorothy/issues'
+			return 65 # Package not installed
+		fi
+		if confirm-positive \
+			'An existing macOS installer was not present on your system.' $'\n' \
+			'We can automatically fetch the latest installer from Apple now if you would like?'; then
+			softwareupdate --fetch-full-installer
+			# ^ --download flag doesn't work, despite documentation
+			select_installer --downloaded # try again
+			return "$?"
+		else
+			return 125 # Operation canceled
+		fi
+	fi
+	# select
+	choose-path --required --question="Which macOS installer to use?" -- "${installers[@]}"
 }
 
-# find it
-find_installer
-if test -z "$versions"; then
-	echo 'An existing macOS installer was not present on your system.'
-	echo 'Fetching the latest installer from Apple...'
-	softwareupdate --fetch-full-installer # --download flag doesn't work, despite documentation
-	find_installer
-	if test -z "$versions"; then
-		stderr echo 'Even after fetching the installer, we could not find it. This is unexpected.'
-		stderr echo 'Report an issue at: https://github.com/bevry/dorothy/issues'
-		exit 1
-	fi
+# select the installer
+installer="$(select_installer)"
+name="$(basename "$installer")"
+volume="$(choose-option --required --question="Install $name to which volume?" -- /Volumes/*)"
+if confirm-bool "Confirm installation of $name to $volume?"; then
+	sudo "$installer/Contents/Resources/createinstallmedia" --volume "$volume"
+	exit "$?"
+else
+	exit 125 # Operation canceled
 fi
-
-# select it
-select version in $versions; do
-	volume="$(choose-path /Volumes)"
-	if confirm-bool "Install $(basename "$version") to $volume?"; then
-		sudo "$version/Contents/Resources/createinstallmedia" --volume "$volume"
-		exit 0
-	fi
-	exit 1
-done

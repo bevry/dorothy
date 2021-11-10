@@ -1,46 +1,115 @@
-# Scripts
+# dorothy
 
-## exit codes
+> - [Dorothy Tips](https://github.com/bevry/dorothy/discussions/categories/tips)
 
-- [Command exit codes](https://gist.github.com/shinokada/5432e491f9992da994fbed05948bfba1)
+# shell features
+
+## manuals
+
+> - [bash manual](http://www.gnu.org/software/bash/manual/bash.html#Shell-Parameter-Expansion)
 
 ## tutorials
 
-- [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
+> - [Shell Scripts Matter](https://dev.to/thiht/shell-scripts-matter)
 
-## run a command on each line
+## exit codes
+
+> - [common exit codes](https://gist.github.com/shinokada/5432e491f9992da994fbed05948bfba1)
 
 ```bash
-ls -1 | xargs -I %s -- echo %s
+# get exit codes
+errno -l | cut -d' ' -f2-
+
+# ignore exit code with Dorothy's `ok` command
+ok the-error-command arg1 arg2
+ok exit 1
+
+# ignore exit code with `|| :` bash builtin, note that this makes exit code always 0
+the-error-command arg1 arg2 || :
+echo $?  # 0
+
+# ignore exist code with `|| true` for cross-shell, note that this makes exit code always 0
+the-error-command arg1 arg2 || true
+echo $?  # 0
 ```
 
-https://stackoverflow.com/a/68310927/130638
+## builtins
 
-## function arguments
+> - [bash manual: builtins](https://www.gnu.org/software/bash/manual/bash.html#Bash-Builtins)
 
-- http://stackoverflow.com/a/6212408/130638
+```bash
+# in bash
+help
 
-## dev/null
+# in any shell
+bash -c help
+```
 
-- http://unix.stackexchange.com/q/70963/50703
-- http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections
+## functions
 
-## dollar $ variables
+> - [bash manual: functions](https://www.gnu.org/software/bash/manual/bash.html#Shell-Functions)
+>   - [stack exchange](http://stackoverflow.com/a/6212408/130638)
 
-- https://stackoverflow.com/questions/5163144/what-are-the-special-dollar-sign-shell-variables
+## pipes
 
-## $@ vs $\*
+### redirections
 
-- https://github.com/koalaman/shellcheck/wiki/SC2124
+> - [bash manual: redirections](https://www.gnu.org/software/bash/manual/bash.html#Redirections)
+>   - [stack exchange](http://unix.stackexchange.com/q/70963/50703)
+> - [fish manual: redirections](http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections)
 
-## :- vs -
+### accidental subshells
 
-- https://wiki.bash-hackers.org/syntax/pe#use_a_default_value
+> - [explanation](https://mywiki.wooledge.org/BashFAQ/024)
 
-## test, man test
+```bash
+# never apply variables within pipes
+printf '%s\n' foo bar | mapfile -t line
+printf 'total number of lines: %s\n' "${#line[@]}"
+# outputs 0
 
-- http://unix.stackexchange.com/a/306115/50703
-- http://unix.stackexchange.com/a/246320/50703
+# always use <, <<<, or <( instead
+mapfile -t line < <(printf '%s\n' foo bar)
+printf 'total number of lines: %s\n' "${#line[@]}"
+# outputs 2
+```
+
+## loops
+
+> - [bash manual: loops](https://www.gnu.org/software/bash/manual/bash.html#Looping-Constructs)
+>   - [examples](https://www.cyberciti.biz/faq/bash-for-loop/)
+
+### trailing lines
+
+> - [stack exchange](https://unix.stackexchange.com/a/418067/50703)
+
+```bash
+# fails to output trailing line:
+printf $'a\nb\nc' | while read -r line; do
+	echo "[$line]"
+done
+# [a]
+# [b]
+
+# outputs correctly, including the trailing line:
+printf $'a\nb\nc' | while read -r line || test -n "$line"; do
+	echo "[$line]"
+done
+# [a]
+# [b]
+# [c]
+```
+
+## conditionals
+
+> - [bash manual: conditionals](https://www.gnu.org/software/bash/manual/bash.html#Conditional-Constructs)
+> - [bash manual: grouping](https://www.gnu.org/software/bash/manual/bash.html#Command-Grouping)
+> - [bash manual: test](https://www.gnu.org/software/bash/manual/bash.html#index-test)
+>   - [stack exchange](http://unix.stackexchange.com/a/306115/50703)
+>   - `help test` and `man test` for help
+
+Summary:
+
 - `-z` is empty string: True if the length of string is zero.
 - `-n` is string: True if the length of string is nonzero.
 - `-e` is file or directory.
@@ -49,24 +118,24 @@ https://stackoverflow.com/a/68310927/130638
 - `-s` is nonempty file: True if file exists and has a size greater than zero.
 - `=` is equal: True if the strings s1 and s2 are identical.
 
-## ignoring exit code
+### `[[` and `]]`
 
-```bash
-# using our `ok` command
-ok the-error-command arg1 arg2
-ok exit 1
+> - [stack exchange](http://unix.stackexchange.com/a/246320/50703)
 
-# using `|| :` bash builtin, note that this makes exit code always 0
-the-error-command arg1 arg2 || :
-echo $?  # 0
+Only useful if doing `[[ blah = *blah* ]]` or the like.
 
-# using `|| true` for cross-shell, note that this makes exit code always 0
-the-error-command arg1 arg2 || true
-echo $?  # 0
-```
+## variables
 
-## safe variables
+### special variables
 
+> - [bash manual](https://www.gnu.org/software/bash/manual/bash.html#Special-Parameters)
+>   - [stack exchange](https://stackoverflow.com/a/5163260/130638)
+>   - `$@` vs `$*`
+>     - [stack exchange](https://github.com/koalaman/shellcheck/wiki/SC2124)
+
+### safe variables
+
+> - https://wiki.bash-hackers.org/syntax/pe#use_a_default_value
 > - https://stackoverflow.com/a/14152610/130638
 > - https://stackoverflow.com/a/39621322
 > - http://www.gnu.org/software/bash/manual/bash.html#Shell-Parameter-Expansion
@@ -100,7 +169,7 @@ echo $?  # 0
   - if var is bound, use `var`
   - if var is unbound, set `var` to the `value`
 
-## string replacement
+### string replacement
 
 > - http://tldp.org/LDP/abs/html/string-manipulation.html
 
@@ -126,17 +195,10 @@ echo "${var/o/O}"
 echo "${var//o/O}"
 ```
 
-## cwd
-
-```bash
-# ensure cwd is the directory of the script, and not user's runtime location
-cd "$(dirname "$0")"
-
-# same as above, but supports when executable is symlinked
-cd "$(dirname "$(rlink "$0")")"
-```
-
 ## arrays
+
+> - [bash manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
+> - [tutorial](https://www.shell-tips.com/bash/arrays/)
 
 Input:
 
@@ -193,26 +255,13 @@ echo ${a[@]::2}  # get all items until the second index, starting at 0
 # a, b
 ```
 
-Result:
-
-```
-[a]
-[b]
-[c d]
-[e]
-[f]
-[g]
-[h i]
-[j]
-```
-
-## A note on array lengths
+### array lengths
 
 ```bash
 source "$DOROTHY/sources/strict.bash"
 
 # mapfile of an empty value will produce an array with 1 value which is empty
-mapfile -t a <<<"$(failure-because-this-method-does-not-exist | fail-on-empty-stdin 'empty stdin')"
+mapfile -t a < <(failure-because-this-method-does-not-exist | fail-on-empty-stdin 'empty stdin')
 # bash: failure-because-this-method-does-not-exist: command not found
 # empty stdin
 echo $? # 0
@@ -243,55 +292,78 @@ is-array-count 1 "${a[@]}"
 is-array-count-ge 1 "${a[@]}"
 ```
 
-# associative/indexed/mapped arrays:
+### strings to arrays
 
-> https://www.shell-tips.com/bash/arrays/
+> - [bash manual: word splitting](https://www.gnu.org/software/bash/manual/bash.html#Word-Splitting)
+>   - [explanation](https://unix.stackexchange.com/a/676876/50703)
+> - [`readarray`](https://www.gnu.org/software/bash/manual/bash.html#index-readarray) is an alias for [`mapfile`](https://www.gnu.org/software/bash/manual/bash.html#index-mapfile)
 
-# strings to arrays
-
-`readarray` is an alias for `mapfile`
-
-For newlines:
-
-```bash
-# these `read -ra` solutions are equivalent, and have issues
-read -ra a <<< $'a\nb'; echo-verbose "${a[@]}"
-# fails to output b
-IFS=$'\n' read -ra a <<< $'a\nb'; echo-verbose "${a[@]}"
-# fails to output b
-read -ra a -d $'\n' <<< $'a\nb'; echo-verbose "${a[@]}"
-# fails to output b
-
-# these `mapfile -t` solutions are equivalent, and work
-mapfile -t a <<< $'a\nb'; echo-verbose "${a[@]}"
-mapfile -td $'\n' a <<< $'a\nb'; echo-verbose "${a[@]}"
-```
-
-For a custom deliminator:
+#### newline deliminator
 
 ```bash
 str=$'a b\nc d'
 
-# these `read -ra` solutions are equivalent, and have issues
+# these `read -ra` all fail to output the second line [c d]
+read -ra a <<< "$str"; echo-verbose "${a[@]}"
+# outputs:
+# [0] = [a]
+# [1] = [b]
+read -ra a -d $'\n' <<< "$str"; echo-verbose "${a[@]}"
+# outputs:
+# [0] = [a]
+# [1] = [b]
+IFS=$'\n' read -ra a <<< "$str"; echo-verbose "${a[@]}"
+# outputs:
+# [0] = [a b]
+
+# these `mapfile -t` solutions are equivalent, and work
+mapfile -t a <<< "$str"; echo-verbose "${a[@]}"
+mapfile -td $'\n' a <<< "$str"; echo-verbose "${a[@]}"
+# both output:
+# [0] = [a b]
+# [1] = [c d]
+```
+
+#### custom deliminator
+
+```bash
+str=$'a b\nc d'
+
+# these `read -ra` solutions are equivalent, and have issues, both skipping the second line
 read -ra a -d ' ' <<< "$str"; echo-verbose "${a[@]}"
-# outputs only [a]
+# outputs:
+# [0] = [a]
 IFS=' ' read -ra a <<< "$str"; echo-verbose "${a[@]}"
-# outputs only [a] and [b], skips the second line
+# outputs:
+# [0] = [a]
+# [1] = [b]
 
 # these `mapfile -t` solutions are equivalent, and have issues
 mapfile -td ' ' a <<< "$str"; echo-verbose "${a[@]}"
-# outputs [a] [b\nc] [d\n] which mangles newlines
+# outputs mangled newlines:
+# [0] = [a]
+# [1] = [b
+# c]
+# [2] = [d
+# ]
 mapfile -td ' ' a <<< 'a b'; echo-verbose "${a[@]}"
-# outputs [a] [b\n] which mangles trailing item
+# outputs mangled trailing item:
+# [0] = [a]
+# [1] = [b
+# ]
 mapfile -td ' ' a <<< 'a b '; echo-verbose "${a[@]}"
-# outputs [a] [b] [\n] which adds a problem item
+# outputs trailing item, but adds a dummy item
+# [0] = [a]
+# [1] = [b]
+# [2] = [
+# ]
 ```
 
 The peculiarities for `read -ra` are because `read` goes one line at a time, as it is intended for while loops over draining file descriptors, such as pipes.
 
 The peculiarities for `mapfile -td` are just weird.
 
-As such, our recommendations are:
+#### recommendations
 
 ```bash
 str=$'a b\nc d'
@@ -299,46 +371,75 @@ str=$'a b\nc d'
 # for a custom deliminator for input that may span multiple lines
 fodder="$(echo-split ' ' -- "$str")"
 mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
-# outputs [a] [b] [c] [d]
+# output correct:
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
 
 # or even multiple arguments
 fodder="$(echo-split ' ' -- "$str" "$str")"
 mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
-# outputs [a] [b] [c] [d] [a] [b] [c] [d]
+# outputs correct:
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
+# [4] = [a]
+# [5] = [b]
+# [6] = [c]
+# [7] = [d]
 
 # for a custom deliminator for input that is guaranteed to only span a single line
 IFS=' ' read -ra a <<< 'a b'; echo-verbose "${a[@]}"
-# outputs [a] [b]
+# output correct:
+# [0] = [a]
+# [1] = [b]
 
 # for a newline deliminator that is not recursive between elements
 mapfile -t a <<< "$str"; echo-verbose "${a[@]}"
-# outputs [a b] [c d]
+# output correct:
+# [0] = [a b]
+# [1] = [c d]
 mapfile -t a < <(echo-lines 'a b' 'c d'); echo-verbose "${a[@]}"
-# outputs [a b] [c d]
+# output correct:
+# [0] = [a b]
+# [1] = [c d]
 
-# be careful of arguments being compressed to a single line when parsing to mapfile
+# be careful of arguments being jumbled into a single line when parsing to mapfile
 list=('a b' 'c d')
 mapfile -t a <<< "${list[@]}"; echo-verbose "${a[@]}"
-# outputs [a b c d]
+# output incorrect:
+# [0] = [a b c d]
 mapfile -t a <<< "${list[*]}"; echo-verbose "${a[@]}"
-# outputs [a b c d]
+# output incorrect:
+# [0] = [a b c d]
 
-# such compression is not a problem with echo-split
+# such jumbled compression is not a problem with echo-split
 list=('a b' 'c d')
 fodder="$(echo-split '' -- "${list[@]}")"
 mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
-# outputs [a b] [c d]
+# output correct:
+# [0] = [a b]
+# [1] = [c d]
 
 # you can even use echo-split to split on recursive newlines
 list=($'a\nb' $'c\nd')
 fodder="$(echo-split $'\n' -- "${list[@]}")"
 mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
-# outputs [a] [b] [c] [d]
+# output correct:
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
 
 # which the typical mapfile won't do
 list=($'a\nb' $'c\nd')
 mapfile -t a <<< "${list[@]}"; echo-verbose "${a[@]}"
-# outputs [a] [b c] [d]
+# output incorrect:
+# [0] = [a]
+# [1] = [b c]
+# [2] = [d]
 
 # as such these will always work as expected
 echo-lines ...  # for recursive and non-recursive newlines
@@ -355,39 +456,82 @@ list=('a b' $'c\nd' 'e f')
 echo-lines "${list[@]}" | while read -r line; do
 	echo "[$line]"
 done
-# outputs [a b] [c] [d] [e f]
+# output correct by arguments:
+# [a b]
+# [c]
+# [d]
+# [e f]
 
 # for custom deliminator
 list=('a b' $'c\nd' 'e f')
 echo-split ' ' -- "${list[@]}" | while read -r line; do
 	echo "[$line]"
 done
-# outputs [a] [b] [c] [d] [e] [f]
+# output correct by newline:
+# [a]
+# [b]
+# [c]
+# [d]
+# [e]
+# [f]
 ```
 
 Which are superior to the `done < <(...)` and `done <<< "$...` options, as it maintains syntax highlighting and less interpolation.
 
-You can even have the following benefits with `mapfile too:
+You can even have the following benefits with `mapfile` too:
 
 ```bash
+# same context throughout:
+a=()
+mapfile -t a < <(echo-split $'\n' -- $'a\nb' $'c\nd')
+echo-verbose "${a[@]}"
+# output correct:
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
+
+# if you want a inherited variable context:
+a=()
+{
+	mapfile -t a
+	echo-verbose "${a[@]}"
+} < <(echo-split $'\n' -- $'a\nb' $'c\nd')
+echo-verbose "${a[@]}"
+# output correct:
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
+
+# this creates a pipe subshell, regardless of { } over ( ) usage:
+a=()
 echo-split $'\n' -- $'a\nb' $'c\nd' | {
 	mapfile -t a
-	# ...
+	echo-verbose "${a[@]}"
 }
+echo-verbose "${a[@]}"
+# output correct:
+# [0] = [a]
+# [1] = [b]
+# [2] = [c]
+# [3] = [d]
+# [ nothing provided ]
+# ^ this is because the pipe does not transfer the variable
 ```
 
 See the comparison between `github-release-file` and `get-volumes`.
 
-# piping mapfile assignment
+# ecosystem tips and tricks
 
-> https://mywiki.wooledge.org/BashFAQ/024
+## run a command on each line
 
-# loops
-
-https://www.cyberciti.biz/faq/bash-for-loop/
-
-# builtins
+> - [stack exchange](https://stackoverflow.com/a/68310927/130638)
 
 ```bash
-bash -c help
+ls -1 | xargs -I %s -- echo %s
 ```
