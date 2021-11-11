@@ -180,13 +180,18 @@ echo -e 'a\nb' | echo-first
 # get first line, via variable
 var=$'one\ntwo'; echo "${var%$'\n'*}" # one
 
-# trim everything after the last X
-# aka, return everything before the last X
+# get everything before the first X
+var="aXbXc"; echo "${var%%X*}" # a
+
+# get everything after the first X
+var="aXbXc"; echo "${var#*X}" # bXc
+
+# get everything before the last X
 var="aXbXc"; echo "${var%X*}" # aXb
 
-# trim everything before the first X
-# aka, return everything after the first X
-var="aXbXc"; echo "${var#*X}" # bXc
+# get everything after the last X
+var="aXbXc"; echo "${var##*X}" # c
+
 
 # replace first o with O
 echo "${var/o/O}"
