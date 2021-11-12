@@ -1,6 +1,5 @@
 #!/usr/bin/env fish
 
-eval ("$DOROTHY/commands/setup-editor-commands" fish)
 function edit
 	if is-ssh
 		if test -z "$TERMINAL_EDITOR"
