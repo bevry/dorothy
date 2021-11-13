@@ -5,15 +5,17 @@ source "$DOROTHY/sources/strict.bash"
 # helper
 function eval_collapse() {
 	# prepare
-	local ec=0 status='' log options QUIET option_pending option_success option_failure args
-	log="$(mktemp)"
+	local ec=0 status='' headers body options QUIET option_pending option_success option_failure args
+	headers="$(mktemp)"
+	body="$(mktemp)"
 
 	# options
 	mapfile -t options < <(echo-before-separator "$@")
-	QUIET="$(get-flag-value quiet --missing="${QUIET-}" -- "${options[@]}" | echo-affirmative || get-flag-value verbose --missing="${VERBOSE-}" -- "$@" | echo-non-affirmative || :)"
+	QUIET="$(get-flag-value quiet --missing="${QUIET-}" -- "${options[@]}" | echo-affirmative || get-flag-value verbose --missing="${VERBOSE:-"no"}" -- "$@" | echo-non-affirmative || :)" # yes/no, default yes
 	option_pending="$(get-flag-value pending -- "${options[@]}")"
 	option_success="$(get-flag-value success -- "${options[@]}")"
 	option_failure="$(get-flag-value failure -- "${options[@]}")"
+	option_wrap="$(get-flag-value wrap --missing=yes -- "${options[@]}" | echo-affirmative)"
 	mapfile -t args < <(echo-after-separator "$@")
 
 	# footer
@@ -32,53 +34,54 @@ function eval_collapse() {
 	# shellcheck disable=SC2064
 	trap "eval_collapse_footer \$? ${option_success@Q} ${option_failure@Q}" RETURN
 
-	# header
+	# headers
 	if test -n "$option_pending"; then
-		echo "$option_pending"
+		echo "$option_pending" | tee -a "$headers"
 	fi
-	echo-color --oe --h3="${args[*]}" --ce
+	if test "$option_wrap" = 'yes'; then
+		echo-color --oe --h3="${args[*]}" --ce | tee -a "$headers"
+	fi
 
-	# command
-	ec=0 && ("${args[@]}" 2>&1 | tee "$log" | echo-revolving-door) || ec="$?"
+	# keep headers while we run the command and revolve door its output
+	ec=0 && ("${args[@]}" 2>&1 | tee "$body" | echo-revolving-door) || ec="$?"
+
+	# clear headers, we can re-add them if necessary
+	echo-clear-lines <"$headers"
+
+	# if queit, and successful, then we are done
+	if test "$QUIET" = 'yes' -a "$ec" -eq 0; then
+		return "$ec"
+	fi
+	# otherwise we want to output things
+
+	# prepare status output
 	if test "$ec" -eq 0; then
-		# unless QUIET=no (verbose mode) then
-		# hide header (the revolving door already hid the command output)
-		# and return
-		if test "$QUIET" != 'no'; then
-			# hide headers
-			if test -n "$option_pending"; then
-				echo-clear-line
-			fi
-			echo-clear-line
-			# return
-			return "$ec"
-		fi
-		# success status
+		# success
 		status="$(echo-color -n --g3="[$ec]")"
 	else
-		# failure status
+		# failure
 		status="$(echo-color -n --e3="[$ec]")"
 	fi
 
-	# did the command output anything?
-	if test -z "$(cat "$log")"; then
-		# if not, hide header
-		if test -n "$option_pending"; then
-			echo-clear-line
-		fi
-		echo-clear-line
-		# and output header footer combo
+	# if it didn't output anything, then output only the header footer combo, and be done
+	if test -z "$(cat "$body")"; then
 		echo-color --oe --h3="${args[*]}" --ces "$status"
-	else
-		# if it did
-		# then output its results (if error)
-		if test "$ec" -ne 0; then
-			cat "$log"
-		fi
-		# then output footer
+		return "$ec"
+	fi
+	# the command outputted things
+
+	# outpout wrap header
+	if test "$option_wrap" = 'yes'; then
+		echo-color --oe --h3="${args[*]}" --ce | tee -a "$headers"
+	fi
+	# if verbose, or failure, output body
+	if test "$QUIET" = 'no' -o "$ec" -ne 0; then
+		cat "$body"
+	fi
+	# outpout wrap footer
+	if test "$option_wrap" = 'yes'; then
 		echo-color --oes --h3="${args[*]}" --ce "$status"
 	fi
-
 	# done
 	return "$ec"
 }
