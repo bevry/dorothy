@@ -22,6 +22,7 @@ export HOMEBREW_UNINSTALL=()
 export GO_INSTALL=()
 
 # node
+# export CLEAN_NVM='yes' # yes/no
 export NODE_INSTALL=()
 
 # python

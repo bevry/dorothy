@@ -1,29 +1,89 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2164,SC1091
+# shellcheck disable=SC2164,SC1091,SC2016
 source "$DOROTHY/sources/strict.bash"
 source "$(which eval-collapse)"
-
-# setup-environment-commands provides: NVM_DIR
-if test -z "${NVM_DIR-}"; then
-	export NVM_DIR="$HOME/.nvm"
-fi
 
 # =====================================
 # Configuration
 
 source "$DOROTHY/sources/config.sh"
 load_dorothy_config 'setup.bash'
-# ^ provides: NPM_INSTALL/NODE_INSTALL
+# setup.bash provides:
+# CLEAN_NVM, NPM_INSTALL/NODE_INSTALL
+
+# environment.bash provides:
+# NVM_DIR
+# but in case it failed to:
+if test -z "${NVM_DIR-}"; then
+	export NVM_DIR="$HOME/.nvm"
+fi
 
 # =====================================
 # Prepare
 
 echo-segment --h1="Setup Node.js"
-echo-color --dim "NVM_DIR=$NVM_DIR"
+# cat <<-EOF
 
-# Wiping nvm, positive as we want to clear npm packages on outdated node versions
-if test -d "$NVM_DIR" && confirm-positive "Clean NVM installation? [$NVM_DIR]"; then
+# 	The following will be installed and upgraded:
+# 	- Node.js Version Manager (NVM)
+# 	- Node.js
+# 	- npm
+# 	- global packages
+
+# EOF
+
+# clean NVM unless configured otherwise
+# the intent of this is to purge unused global Node.js versions and packages
+# we use a configuration variable to change this, as interuppting the flow and asking the user creates too much confusion
+# as such a question is only necessary to experienced users
+function get_nvm_versions() {
+	source "$DOROTHY/sources/ripgrep.bash"
+	source "$DOROTHY/sources/nvm.sh"
+	nvm ls --no-colors --no-alias | rg -o 'v([^\s]+)' --replace '$1' || :
+}
+function clean_nvm() {
+	# run a subshell, so nvm is only loaded for this
+	# can't just do `trap 'nvm unload' RETURN` as `nvm unload` unsets NVM_DIR
+	(
+		source "$DOROTHY/sources/nvm.sh"
+		# fetch versions
+		mapfile -t versions < <(get_nvm_versions)
+		if test "${#versions[@]}" -eq 0; then
+			# already clean
+			return 0
+		fi
+		# clean versions
+		for version in "${versions[@]}"; do
+			nvm uninstall "$version" | sed 's/Uninstalled node /Uninstalled: /'
+		done
+		# confirm clean was successful
+		mapfile -t versions < <(get_nvm_versions)
+		test "${#versions[@]}" -eq 0
+	)
+}
+function wipe_nvm() {
 	rm -Rf "$NVM_DIR"
+}
+function clean_otherwise_wipe_nvm() {
+	# clean only what is necessary
+	echo-segment --h3='Clean Node.js versions and packages'
+	echo-color --dim='The desired versions and packages will be cleaned installed later.'
+	# echo-color --dim='Use `CLEAN_NVM=no` in your `setup.bash` configuration file to disable this recommendation.'
+	# ^ once this functionality is stabised for few months, make it official and annouce with the above
+	# ^ as perhaps calling it CLEAN_NODE or NODE_CLEAN makes more sense
+	# ^ NODE_CLEAN makes most sense, but implies we also clean packages from system node, which we don't yet
+	if clean_nvm; then
+		echo-segment --g3='Clean Node.js versions and packages'
+	else
+		# nvm buggered, clean it all
+		echo-segment --e3='Clean Node.js versions and packages'
+		echo-segment --h3='Clean Node.js Version Manager (NVM) instead'
+		wipe_nvm
+		echo-segment --g3='Clean Node.js Version Manager (NVM) instead'
+	fi
+}
+if test -d "$NVM_DIR" -a "${CLEAN_NVM-}" != 'no'; then
+	clean_otherwise_wipe_nvm
 fi
 
 # =====================================
@@ -31,14 +91,17 @@ fi
 
 # setup system node for global installs and vscode on mac
 function install_homebrew_node() {
-	brew install node || brew upgrade node || :
+	# `reinstall ... || :` as well as `install ... || upgrade ... || :` are no longer necessary,
+	# install does upgrade if it is already installed:
+	# https://github.com/Homebrew/brew/pull/11525
+	brew install node
 	npm cache clean --force
-	brew cleanup
 }
 if is-brew; then
-	echo-segment --h2='Install System Node.js'
-	eval_collapse -- install_homebrew_node
-	echo-segment --g2='Install System Node.js'
+	echo-segment --h2='Install Node.js via Homebrew'
+	eval_collapse --no-wrap -- install_homebrew_node
+	echo "Installed: $(node --version)"
+	echo-segment --g2='Install Node.js via Homebrew'
 fi
 
 # install nvm
@@ -60,9 +123,10 @@ function install_nvm() {
 	# shellcheck disable=SC2006,SC2046
 	git checkout "$(git describe --abbrev=0 --tags --match "v[0-9]*" "$(git rev-list --tags --max-count=1)")"
 }
-echo-segment --h2='Install Node Version Manager'
-eval_collapse -- install_nvm
-echo-segment --g2='Install Node Version Manager'
+echo-segment --h2='Install Node.js Version Manager (NVM)'
+echo-color --dim "NVM_DIR=$NVM_DIR"
+eval_collapse --no-wrap -- install_nvm
+echo-segment --g2='Install Node.js Version Manager (NVM)'
 
 # install nvm node
 function install_nvm_node() {
@@ -85,22 +149,50 @@ function install_nvm_node() {
 	nvm use default
 }
 echo-segment --h2='Install Node.js via NVM'
-eval_collapse -- install_nvm_node
+echo-color --dim='Installs active and LTS versions.'
+eval_collapse --no-wrap -- install_nvm_node
+mapfile -t versions < <(get_nvm_versions)
+for version in "${versions[@]}"; do
+	echo "Installed: v$version"
+done
 echo-segment --g2='Install Node.js via NVM'
 
 # npm
 echo-segment --h2='Upgrade npm'
-echo-color --dim="   npm version: $(npm --version)"
+echo-color --dim="Before: $(npm --version)"
 eval_collapse -- npm install -g npm --force
-echo-color --dim+green="   npm version: $(npm --version)"
+echo "After:  $(npm --version)"
 echo-segment --g2='Upgrade npm'
 
 # configure
 echo-segment --h2='Configure npm'
-npm config set init.author.name "$(ask --question="What is your name that you want to configure npm with?" --default="$(npm config get init.author.name)" --required --confirm)"
-npm config set init.author.email "$(ask --question="What is your email that you want to configure npm with?" --default="$(npm config get init.author.email)" --required --confirm)"
-npm config set init.author.url "$(ask --question="What is your homepage that you want to configure npm with?" --default="$(npm config get init.author.url)" --required --confirm)"
-npm config set init.license "$(ask --question="What license do you want to configure npm to default to?" --default="$(npm config get init.license)" --required --confirm)"
+settings_all_set='yes'
+settings=(
+	'Your Name'
+	init.author.name
+	'Your Email'
+	init.author.email
+	'Your Homepage'
+	init.author.url
+	'Your License'
+	init.license
+)
+settings_confirm_details=()
+for ((i = 0; i < ${#settings[@]}; i += 2)); do
+	label="${settings[i]}"
+	key="${settings[i + 1]}"
+	value="$(npm config get "$key")" # returns undefined if unset
+	settings_confirm_details+=("$label: $value")
+	if is-empty-string "$value"; then
+		settings_all_set='no'
+	fi
+done
+if test "$settings_all_set" = 'no' || confirm-negative "Do you wish to change your npm configuration?" "${settings_confirm_details[@]}"; then
+	npm config set init.author.name "$(ask --question="What is your name that you want to configure npm with?" --default="$(npm config get init.author.name)" --required --confirm)"
+	npm config set init.author.email "$(ask --question="What is your email that you want to configure npm with?" --default="$(npm config get init.author.email)" --required --confirm)"
+	npm config set init.author.url "$(ask --question="What is your homepage that you want to configure npm with?" --default="$(npm config get init.author.url)" --required --confirm)"
+	npm config set init.license "$(ask --question="What license do you want to configure npm to default to?" --default="$(npm config get init.license)" --required --confirm)"
+fi
 echo-segment --g2='Configure npm'
 
 # https://github.com/yarnpkg/yarn/issues/2993
@@ -119,4 +211,4 @@ fi
 # =====================================
 # Done
 
-echo-segment --h1='Setup Node.js'
+echo-segment --g1='Setup Node.js'

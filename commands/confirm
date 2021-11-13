@@ -1,31 +1,166 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# anything besides enter/space/y is ask again
-function confirmer() {
-	local ec
+# =====================================
+# Options
 
-	# timeout one hour
-	echo -en "$@"
-	answer="$(read-arrow --timeout 3600)" || return "$?"
-
-	# check their answer
-	ec=0 && is-affirmative "$answer" || ec="$?"
-	if test "$ec" -lt 2; then
-		return "$ec"
-	elif test "$answer" = 'enter' -o "$answer" = 'space'; then
-		return 0
-	elif test "$answer" = 'escape'; then
-		return 1
-	else
-		# ask again
-		echo # newline, otherwise everything on same line
-		confirmer "$@"
-		return "$?" # return with the above on success and failure
+timeout='3600' # one hour
+option_mode='confirm'
+option_yes='OK'
+option_no='CANCEL'
+while is-needle '--' "$@"; do
+	if [[ "$1" = '--mode='* ]]; then
+		option_mode="${1:7}" # bool/positive/negative/confirm
+		if test "$option_mode" = 'positive' -o "$option_mode" = 'negative'; then
+			timeout='60' # one minute
+			option_yes='YES'
+			option_no='NO'
+		elif test "$option_mode" = 'bool'; then
+			option_yes='YES'
+			option_no='NO'
+		fi
 	fi
+	shift
+done
+
+# =====================================
+# Helpers
+
+# used to process the input
+function confirmer() {
+	local ec answer
+
+	# ask and timeout
+	ec=0 && answer="$(read-arrow --timeout "$timeout")" || ec="$?"
+
+	# process
+	if test "$option_mode" = 'positive'; then
+		# positive
+		if test "$ec" -eq 62; then
+			return 0 # timeout
+		elif test "$ec" -ne 0; then
+			return "$ec" # failure
+		fi
+		ec=0 && is-affirmative "$answer" || ec="$?"
+		if test "$ec" -lt 2; then
+			return "$ec"
+		elif test "$answer" = 'enter' -o "$answer" = 'space'; then
+			return 0
+		elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+			return 125 # Operation canceled
+		fi
+
+	elif test "$option_mode" = 'negative'; then
+		# negative
+		if test "$ec" -eq 62; then
+			return 1 # timeout
+		elif test "$ec" -ne 0; then
+			return "$ec" # failure
+		fi
+		ec=0 && is-affirmative "$answer" || ec="$?"
+		if test "$ec" -lt 2; then
+			return "$ec"
+		elif test "$answer" = 'enter' -o "$answer" = 'space'; then
+			return 1
+		elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+			return 125 # Operation canceled
+		fi
+
+	elif test "$option_mode" = 'bool'; then
+		# bool
+		if test "$ec" -ne 0; then
+			return "$ec" # timeout and failure
+		fi
+		ec=0 && is-affirmative "$answer" || ec="$?"
+		if test "$ec" -lt 2; then
+			return "$ec"
+		elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+			return 125 # Operation canceled
+		fi
+
+	else
+		# confirm
+		if test "$ec" -ne 0; then
+			return "$ec" # timeout and failure
+		fi
+		if test "$answer" = 'escape'; then
+			return 125 # Operation canceled
+		else
+			# @todo what happens here if scrolling on ssh
+			return 0
+		fi
+	fi
+
+	# try again, and erase any leaked characters
+	echo -en "\e[${hx}G\e[K"
+	confirmer "$@"
+	return "$?" # return with the above on success and failure
 }
 
-# confirm with the user
-ec=0 && confirmer "$@" || ec="$?"
-echo       # newline, as y/n do not
+# =====================================
+# Question
+
+# prepare
+question_first_part="${1-} " # this is stored for the finale
+question_parts=("$@")
+question_parts_total="$(($# - 1))"
+header="$(mktemp)"
+lines=0
+ec=0
+
+# update the first question part
+if test "$option_mode" = 'positive'; then
+	question_parts[0]+=" $(echo-color --blink='(' --blink+green+bold='Y' --blink='/n)')"
+elif test "$option_mode" = 'negative'; then
+	question_parts[0]+=" $(echo-color --blink='(y/' --blink+red+bold='N' --blink=')')"
+elif test "$option_mode" = 'bool'; then
+	question_parts[0]+=" $(echo-color --blink='(y/n)')"
+fi
+for ((i = 0; i <= "$question_parts_total"; i++)); do
+	echo -n "${question_parts[i]} " | tee -a "$header"
+	if test "$i" -eq 0; then
+		# read cursor x y, discard y, set hx to y
+		IFS='[;' read -srd R -p $'\e[6n' _ _ hx
+	fi
+	if test "$i" -ne "$question_parts_total"; then
+		echo | tee -a "$header"
+	fi
+done
+
+# output question, and handle terminations
+if test "$question_parts_total" -ne 0; then
+	# reposition the cursor, to after the options in the first part
+	lines="$(echo-count-lines --no-inline <"$header")"
+	# move these lines up, and to the hx column
+	echo -en "\e[${lines}F\e[${hx}G"
+fi
+function failure() {
+	ec="$?"
+}
+function finish() {
+	# in case we were called naturally, erase the listen
+	trap - EXIT
+	# make sure to erase question, as ctrl+c buggers everything
+	echo -n $'\e[G\e[J'
+	# output the finale
+	if test "$ec" -eq 0; then
+		echo-color "$question_first_part" --green+bold="$option_yes"
+	elif test "$ec" -eq 1; then
+		echo-color "$question_first_part" --red+bold="$option_no"
+	else
+		echo-color "$question_first_part" --red+bold="ABORT"
+	fi
+}
+trap failure SIGINT SIGTERM
+trap finish EXIT
+
+# read and handle answer
+confirmer || ec="$?"
+finish
 exit "$ec" # exit with the result
+
+# @todo
+# an alternative implementation could be a new line like this at the end, with ENTER and ESCAPE and SPACE as the correct outputs
+# echo-color --blink='Press: ' --blink+green+bold='y ' --blink='for ' --blink+green='YES' --blink=', ' --blink+red+bold='n ' --blink='for ' --blink+red='NO' --blink=', ' --blink+bold='ENTER '  --blink='for ' --blink+red='NO'
+
+# using \e[s (save) and \e[u (restore) for ctrl+c handling did not work
