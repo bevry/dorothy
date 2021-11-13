@@ -7,7 +7,8 @@
 # zsh loads zprofile, and zshrc, but forgets functions
 # ^ so can't check for functions, ruling out https://stackoverflow.com/a/14467452
 # so considering all that, define a normal (non global, non local) variable, and check for its existence
-if test ! -v 'DOROTHY_LOADED'; then
+# no bash v3 support: if test ! -v 'DOROTHY_LOADED'; then
+if test -z "${DOROTHY_LOADED-}"; then
 	# shellcheck disable=SC2034
 	DOROTHY_LOADED='yes'
 	# ^ do not export this, as that will interfere with the case where:

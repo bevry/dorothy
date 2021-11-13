@@ -58,7 +58,8 @@ function finish() {
 						continue
 					fi
 					# check if duplicate
-					for item_existing in "${items_array[@]}"; do
+					# bash v3 compat: `test ... && for ...`
+					test "${#items_array[@]}" -ne 0 && for item_existing in "${items_array[@]}"; do
 						if test "$item" = "$item_existing"; then
 							# is duplicate, skip
 							continue 2
