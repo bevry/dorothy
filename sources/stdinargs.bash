@@ -3,6 +3,13 @@
 
 export STDIN='no'
 
+# bash v3 compatibility
+if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
+	timeout='0.1'
+else
+	timeout='1'
+fi
+
 # check for help argument
 if is-help "$@"; then
 	if test "$(type -t help)" = 'function'; then
@@ -30,10 +37,10 @@ else
 	# args was empty, so attempt stdin
 	STDIN='no'
 
-	# read stdin, with a timeout of 0.1 seconds
+	# read stdin
 	# if stdin works, then mark it as so
 	# and call `act` on each line
-	while read -rt 0.1 item; do
+	while read -rt "$timeout" item; do
 		STDIN='yes'
 		if test "$(type -t line)" = 'function'; then
 			line "$item"
