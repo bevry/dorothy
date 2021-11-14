@@ -36,7 +36,7 @@ echo $?  # 0
 ## get backslash escapes
 
 ```bash
-printf '%q' "$key"
+printf '%q' "$value"
 ```
 
 ## builtins

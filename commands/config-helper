@@ -6,6 +6,46 @@ if test "$ARRAYS" = 'no'; then
 	exit 95 # Operation not supported
 fi
 
+# test
+if is-needle '--test' "$@"; then
+	(
+		# prepare
+		echo-segment --h1="TEST: $0"
+		echo
+		file="$(mktemp)"
+
+		# test invalid arguments fail
+		eval-tester --ec=22 -- config-helper --file="$file"
+		eval-tester --ec=22 -- config-helper --file="$file" --replace='one'
+		eval-tester --ec=22 -- config-helper --file="$file" --find='one' --replace='one' --replace='two'
+		eval-tester --ec=22 -- config-helper --file="$file" --find='one' --find='two' --replace='one'
+
+		# test an empty file
+		eval-tester -- config-helper --file="$file" \
+			--find='commands.local/' --replace='commands.local/' \
+			--find='config.local/' --replace='config.local/'
+		eval-tester --stdout=$'commands.local/\nconfig.local/' -- cat "$file"
+
+		# test a file that as results
+		eval-tester -- config-helper --file="$file" \
+			--find='commands.local/' --replace='commands.replaced/' \
+			--find='config.local/' --replace='config.replaced/'
+		eval-tester --stdout=$'##commands.local/\ncommands.replaced/\n##config.local/\nconfig.replaced/' -- cat "$file"
+
+		# test find only, used by <sharebox> commandd
+		# this is only for fetching config values, not for fetching lines, so the .gitignore style stuff isn't for this
+		echo $'User=uu\nGroup=gg' >>"$file"
+		eval-tester --stdout='uu' -- \
+			config-helper --file="$file" --find='User=(.*)'
+		eval-tester --stdout=$'uu\ngg' -- \
+			config-helper --file="$file" --find='User=(.*)' --find='Group=(.*)'
+
+		# done
+		echo-segment --g1="TEST: $0"
+	)
+	exit "$?"
+fi
+
 # dependencies
 source "$DOROTHY/sources/ripgrep.bash"
 
@@ -21,6 +61,12 @@ file="$(get-flag-value file -- "$@")"
 # config.local/
 mapfile -t find_array < <(get-flag-value find --multi -- "$@")
 find_count="${#find_array[@]}"
+if test "$find_count" -eq 0; then
+	stderr echo-color \
+		--error="$0 $*" $'\n' \
+		--red="At least one [--find=...] argument must be provided."
+	exit 22 # Invalid argument
+fi
 
 # e.g.
 # Domains=~.
@@ -28,12 +74,11 @@ find_count="${#find_array[@]}"
 # config.local/
 mapfile -t replace_array < <(get-flag-value replace --multi -- "$@")
 replace_count="${#replace_array[@]}"
-
-# check we are either only gets, or only replaces
 if test "$replace_count" -eq 0; then
+	# we are find only
 	for find in "${find_array[@]}"; do
 		pattern="^[ 	]*($find)=?(.*)$"
-		rg -o "$pattern" --replace '$2' "$file"
+		rg -o "$pattern" --replace '$2' "$file" || : # don't fail on no results
 	done
 	exit
 fi
@@ -43,7 +88,9 @@ fi
 
 # check we have the same finds as replaces
 if test "$replace_count" -ne "$find_count"; then
-	stderr echo "--find arg count must match --replace arg count"
+	stderr echo-color \
+		--error="$0 $*" $'\n' \
+		--red="the amount of [--find=...] arguments must match the amount of [--replace=...] arguments."
 	exit 22 # Invalid argument
 fi
 
