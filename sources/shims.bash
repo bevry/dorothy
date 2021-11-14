@@ -7,12 +7,18 @@ if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	function ucf() {
 		echo "${1@u}"
 	}
+	function lc() {
+		echo "${1@L}"
+	}
 else
 	function testv() {
 		test -n "${!1-}"
 	}
 	function ucf() {
-		echo "${!1}" # not important, implement later
+		echo "$1" # not important, implement later
+	}
+	function lc() {
+		echo "$1" # not important, implement later
 	}
 fi
 

@@ -7,13 +7,15 @@ else
 	# bash v4 features:
 	# - `readarray` and `mapfile`
 	#     - our shim provides a workaround
-	# - iterating indexes: `${!array[@]}`
+	# - iterating indexes: `${!arr[@]}`
 	#     - use for (( ... )) loop instead
 	# - associative arrays
 	#     - no workaround, you are out of luck
-	# - iterating empty arrays: `array=(); for item in "${array[@]}"; do echo "$item"; done`
+	# - iterating empty arrays:
+	#     - broken: `arr=(); for item in "${arr[@]}"; do ...`
+	#     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
 	#     - use: `test "${#array[@]}" -ne 0 && for ...`
-	#     - or if you don't care for empty elements, use: `test -n "$array" && for ...`
+	#     - or if you don't care for empty elements, use: `test -n "$arr" && for ...`
 	function mapfile() {
 		# if you copy and paste this, please give credit:
 		# written by Benjamin Lupton https://balupton.com
