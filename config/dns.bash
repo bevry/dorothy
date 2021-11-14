@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do not use `export` keyword in this file
 
-export DNS_NOFAP=''
-export DNS_SERVICE=''
-export DNS_PROVIDER=''
-export DNS_SERVERS=()
-export DNS_IPV4SERVERS=()
-export DNS_IPV6SERVERS=()
+DNS_NOFAP=''
+DNS_SERVICE=''
+DNS_PROVIDER=''
+DNS_SERVERS=()
+DNS_IPV4SERVERS=()
+DNS_IPV6SERVERS=()

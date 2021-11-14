@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do not use `export` keyword in this file
 
-# export DOROTHY_THEME='system'  # use `select-theme` to select an available theme
+# DOROTHY_THEME='system'  # use `select-theme` to select an available theme
 
 # make sure when we use bash, we use globstar if it is supported
 if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then

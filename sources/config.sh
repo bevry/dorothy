@@ -1,12 +1,6 @@
 #!/usr/bin/env sh
 
-# for scripts that configure the configuration file
-get_dorothy_local_config() {
-	echo "$DOROTHY/user/config.local/$1"
-}
-get_dorothy_user_config() {
-	echo "$DOROTHY/user/config/$1"
-}
+# for scripts to create and update the correct configuration file
 get_dorothy_config() {
 	if test -f "$DOROTHY/user/config.local/$1"; then
 		echo "$DOROTHY/user/config.local/$1"
@@ -14,41 +8,33 @@ get_dorothy_config() {
 		echo "$DOROTHY/user/config/$1"
 	fi
 }
-get_dorothy_default_config() {
-	echo "$DOROTHY/config/$1"
+
+# for scripts to know what configuration file was loaded
+get_dorothy_config() {
+	# output each provided filename, that actualy exists at a configuration location
+	for dorothy_config_filename in "$@"; do
+		if test -f "$DOROTHY/user/config.local/$dorothy_config_filename"; then
+			echo "$DOROTHY/user/config.local/$dorothy_config_filename"
+		elif test -f "$DOROTHY/user/config/$dorothy_config_filename"; then
+			echo "$DOROTHY/user/config/$dorothy_config_filename"
+		elif test -f "$DOROTHY/config/$dorothy_config_filename"; then
+			echo "$DOROTHY/config/$dorothy_config_filename"
+		fi
+	done
 }
 
-# for scripts that load the configuration file
-
-# zsh
-# user/config.local/shell.sh
-# user/config/shell.zsh
-
+# for scripts to load a configuration file
 load_dorothy_config() {
-	loaded_at_least_one_filename='no'
-
-	# load each provided filename
-	for filename in "$@"; do
-		# check config files
-		if test -f "$DOROTHY/user/config.local/$filename"; then
-			# load user/config.local
-			. "$DOROTHY/user/config.local/$filename"
-			loaded_at_least_one_filename='yes'
-		elif test -f "$DOROTHY/user/config/$filename"; then
-			# otherwise load user/config
-			. "$DOROTHY/user/config/$filename"
-			loaded_at_least_one_filename='yes'
-		elif test -f "$DOROTHY/config/$filename"; then
-			# otherwise load default
-			. "$DOROTHY/config/$filename"
-			loaded_at_least_one_filename='yes'
-		fi
-		# otherwise try next filename
-	done
-
-	# if no filename was loaded, then fail and report
-	if test "$loaded_at_least_one_filename" = 'no'; then
-		echo "configuration file $filename was not able to be found" >/dev/stderr
+	dorothy_config_filepaths="$(get_dorothy_config "$@")"
+	if test -z "$dorothy_config_filepaths"; then
+		echo "Missing at least one of these configuration files: $*" >/dev/stderr
 		return 2 # No such file or directory
 	fi
+	# doesn't support spaces in paths, but that's ok
+	# alternative would be bash v4: while ... do <()
+	# or bash v4: mapfile
+	# but neither are cross compat
+	for dorothy_config_filepath in $dorothy_config_filepaths; do
+		. "$dorothy_config_filepath"
+	done
 }

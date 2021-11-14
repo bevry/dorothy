@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do not use `export` keyword in this file
 
-# export GIT_PROTOCOL="ssh"
-# export GIT_DEFAULT_BRANCH="main"
+# GIT_PROTOCOL="ssh"
+# GIT_DEFAULT_BRANCH="main"

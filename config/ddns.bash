@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do not use `export` keyword in this file
 
-export DDNS_URL=''
-export DDNS_WORKER=''
-export DDNS_WORKER_AUTH=''
+DDNS_URL=''
+DDNS_WORKER=''
+DDNS_WORKER_AUTH=''

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do not use `export` keyword in this file
 
 # our editors in order of preference
-export TERMINAL_EDITORS=(
+TERMINAL_EDITORS=(
 	nano
 	vim # --noplugin -c "set nowrap"'
 	micro
 )
-export GUI_EDITORS=(
+GUI_EDITORS=(
 	"code -w"
 	"atom -w"
 	"subl -w"
