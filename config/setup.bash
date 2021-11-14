@@ -1,42 +1,44 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do not use `export` keyword in this file
 
 # apk
-export APK_INSTALL=()
+APK_INSTALL=()
 
 # apt
-export APT_REMOVE=()
-export APT_ADD=()
+APT_REMOVE=()
+APT_ADD=()
 
 # snap
-export SNAP_INSTALL=()
+SNAP_INSTALL=()
 
 # brew
-export HOMEBREW_TAPS=()
-export HOMEBREW_INSTALL=()
-export HOMEBREW_INSTALL_SLOW=()
-export HOMEBREW_INSTALL_CASK=()
-export HOMEBREW_INSTALL_ENCODING='' # yes/no
-export HOMEBREW_UNINSTALL=()
+HOMEBREW_TAPS=()
+HOMEBREW_INSTALL=()
+HOMEBREW_INSTALL_SLOW=()
+HOMEBREW_INSTALL_CASK=()
+HOMEBREW_INSTALL_ENCODING='' # yes/no
+HOMEBREW_UNINSTALL=()
 
 # go
-export GO_INSTALL=()
+GO_INSTALL=()
 
 # node
-# export CLEAN_NVM='yes' # yes/no
-export NODE_INSTALL=()
+# CLEAN_NVM='yes' # yes/no
+NODE_INSTALL=()
 
 # python
-export PYTHON_INSTALL=()
-export PIP_INSTALL=()
-export PYTHON2_PIP_INSTALL=()
-export PYTHON3_PIP_INSTALL=()
-export PIPX_INSTALL=()
+PYTHON_INSTALL=()
+PIP_INSTALL=()
+PYTHON2_PIP_INSTALL=()
+PYTHON3_PIP_INSTALL=()
+PIPX_INSTALL=()
 
 # ruby
-export RUBY_INSTALL=()
+RUBY_INSTALL=()
 
 # cargo
-export RUST_INSTALL=()
+RUST_INSTALL=()
 
 # setup-util-*
-export SETUP_UTILS=()
+SETUP_UTILS=()
