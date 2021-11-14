@@ -30,11 +30,12 @@ load_dorothy_config() {
 		echo "Missing at least one of these configuration files: $*" >/dev/stderr
 		return 2 # No such file or directory
 	fi
-	# doesn't support spaces in paths, but that's ok
-	# alternative would be bash v4: while ... do <()
-	# or bash v4: mapfile
-	# but neither are cross compat
-	for dorothy_config_filepath in $dorothy_config_filepaths; do
-		. "$dorothy_config_filepath"
-	done
+	# fails in zsh: `for dorothy_config_filepath in $dorothy_config_filepaths; do``
+	# fails in bash v3: `while ... do <()``
+	# `<<<` is not POSIX compliant, but they work in: zsh, bash v3+
+	# so when a Dorothy user reports a problem with smoething it doesn't work in, then figure something out
+	# shellcheck disable=SC3011
+	while IFS= read -r dorothy_config_filepath; do
+		. "${dorothy_config_filepath}"
+	done <<<"$dorothy_config_filepaths"
 }
