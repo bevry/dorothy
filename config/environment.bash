@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # place all `export` keyword declarations at the start for bash v3 compatibility
-export NVM_DIR HOMEBREW_ARCH PYENV_VERSION RUBY_VERSION
+export NVM_DIR HOMEBREW_ARCH PYENV_VERSION RUBY_VERSION # ...
 
 # NVM_DIR="$HOME/.nvm"
 # ^ used by: setup-environment-commands, setup-node
