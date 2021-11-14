@@ -33,6 +33,12 @@ the-error-command arg1 arg2 || true
 echo $?  # 0
 ```
 
+## get backslash escapes
+
+```bash
+printf '%q' "$key"
+```
+
 ## builtins
 
 > - [bash manual: builtins](https://www.gnu.org/software/bash/manual/bash.html#Bash-Builtins)

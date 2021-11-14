@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# this command requires bash v3 compatibility, so:
-# use `IFS= read -sn1` instead of `read -sN1`
-
 # todo this failed on a new setup
 # perhaps old bash
 # or perhaps only doing 1 item causes it to fail
@@ -22,23 +19,50 @@ if ! is-number "$option_timeout"; then
 	option_timeout=600 # ten minutes
 fi
 
-# 1 char (not delimiter), silent
-ec=0 && IFS= read -sn1 -t "$option_timeout" k0 || ec="$?"
-if test "$ec" -gt 128; then
-	exit 62 # Timer expired
-elif test "$ec" -ne 0; then
-	exit "$ec" # some other issue, let the caller figure it out
-fi
-
-# catch multi-char special key sequences if they exist
-{
-	read -sN1 -t 0.0001 k1
-	read -sN1 -t 0.0001 k2
-	read -sN1 -t 0.0001 k3
-} &>/dev/null || : # bash v4 only
+# helper
+function read_key_bash_v4() {
+	local k0 k1 k2 k3
+	read -sN1 -t "$option_timeout" k0
+	read -sN1 -t 0.0001 k1 || :
+	read -sN1 -t 0.0001 k2 || :
+	read -sN1 -t 0.0001 k3 || :
+	echo "${k0}${k1}${k2}${k3}"
+}
+function read_key_bash_v3() {
+	local k0 k1 k2 key
+	# IFS= is necessary to separate space from enter
+	IFS= read -sn1 -t "$option_timeout" k0
+	# printf 'k0 = %q \n' "$k0" >/dev/stderr
+	if test "$k0" = $'\e'; then
+		IFS= read -sn1 -t1 k1 || :
+		# printf 'k1 = %q \n' "$k1" >/dev/stderr
+		if test "$k1" = '['; then
+			IFS= read -sn1 -t1 k2 || :
+			# printf 'k2 = %q \n' "$k2" >/dev/stderr
+		elif test "$k1" = $'\e'; then
+			k1='' # duplicate escape press
+		fi
+	fi
+	key="${k0}${k1}${k2}"
+	# printf 'key = %q \n' "$key" >/dev/stderr
+	echo "$key"
+}
+function read_key() {
+	local ec=0
+	if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
+		read_key_bash_v4 || ec="$?"
+	else
+		read_key_bash_v3 || ec="$?"
+	fi
+	if test "$ec" -gt 128; then
+		exit 62 # Timer expired
+	elif test "$ec" -ne 0; then
+		exit "$ec" # some other issue, let the caller figure it out
+	fi
+}
 
 # combine
-key="${k0}${k1-}${k2-}${k3-}"
+key="$(read_key)"
 
 case "$key" in
 # vt100
@@ -73,9 +97,10 @@ $'\eOA') echo up ;;
 
 	# special
 $'\x7f') echo backspace ;;
-$'\x01') echo all ;; # what type of key is this?
-$'\x1b') echo escape ;;
-$'\x0a') echo enter ;;
+$'\x01') echo all ;;    # what type of key is this?
+$'\x1b') echo escape ;; # same as $'\e'
+$'\x0a') echo enter ;;  # same as $'\n'
+'') echo enter ;;       # bash v3 compat
 $'\t') echo tab ;;
 ' ') echo space ;;
 
