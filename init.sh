@@ -17,9 +17,37 @@
 # only `bash -lc -- 'echo $BASH_VERSION'` should attempt to load this script
 # as otherwise we are loading aliases, ssh agents, and all the reset for scripts instead of login shell
 # as such, we need to detect this difference
-# "$0" will be prefixed with '-' if {zsh,bash} login shell, so if it is {bash,zsh} it is not a login shell and should be skipped
+#
+# if actual login shell, then for bash $0="-bash", and for zsh $0="-zsh"
+# `bash -il` invocation will be $0="bash" however `shopt -qp login_shell` will return 0
+# `/bin/bash -il` invocation will be $0="/bin/bash" however `shopt -qp login_shell` will return 0
+# `/bin/zsh -il` invocation will be $0="/Users/balupton/.dorothy/init.sh" however [[ -o login ]] will return 0
 
-if test -z "${DOROTHY_LOADED-}" -a "$0" != 'bash' -a "$0" != 'zsh'; then
+# set -x # <debug>
+DOROTHY_LOAD='no'
+if test -z "${DOROTHY_LOADED-}"; then
+	if test "$0" = '-bash' -o "$0" = '-zsh'; then
+		DOROTHY_LOAD='yes'
+	elif test "${BASH_VERISON-}"; then
+		# shellcheck disable=SC3044
+		if shopt -qp login_shell; then
+			DOROTHY_LOAD='yes'
+		fi
+	elif test "${ZSH_VERSION-}"; then
+		# shellcheck disable=SC3010
+		if [[ -o login ]]; then
+			DOROTHY_LOAD='yes'
+		fi
+	else
+		# bash v3 does not set l in $-
+		# zsh does, however zsh we have a definite option earlier
+		# so this is for the alternative posix shells
+		case $- in *l*) DOROTHY_LOAD='yes' ;; esac
+	fi
+fi
+# set +x # </debug>
+
+if test "$DOROTHY_LOAD" = 'yes'; then
 	# shellcheck disable=SC2034
 	DOROTHY_LOADED='yes'
 	# ^ do not export this, as that will interfere with the case where:
