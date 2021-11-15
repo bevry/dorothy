@@ -18,9 +18,6 @@ fi
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/history.sh"
-if test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
-	. "$DOROTHY/sources/zsh.zsh"
-fi
 . "$DOROTHY/sources/completions.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
