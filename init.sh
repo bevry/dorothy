@@ -62,7 +62,7 @@ DOROTHY_LOAD='no'
 if test -z "${DOROTHY_LOADED-}"; then
 	if test "$0" = '-bash' -o "$0" = '-zsh'; then
 		DOROTHY_LOAD='yes'
-	elif test "${BASH_VERISON-}"; then
+	elif test "${BASH_VERSION-}"; then
 		# shellcheck disable=SC3044
 		if shopt -qp login_shell; then
 			DOROTHY_LOAD='yes'
@@ -79,6 +79,7 @@ if test -z "${DOROTHY_LOADED-}"; then
 		case $- in *l*) DOROTHY_LOAD='yes' ;; esac
 	fi
 fi
+# printf '$DOROTHY_LOAD = %s\n' "$DOROTHY_LOAD"
 # set +x # </debug>
 
 if test "$DOROTHY_LOAD" = 'yes'; then
