@@ -1,6 +1,8 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
+# shellcheck disable=SC2034
+# do whatever you want in this file
 
-# Oh my zsh
+# oh my zsh
 if test -d "$HOME/.oh-my-zsh"; then
 	export DISABLE_UPDATE_PROMPT=true
 	export ZSH="$HOME/.oh-my-zsh"
