@@ -62,12 +62,12 @@ DOROTHY_LOAD='no'
 if test -z "${DOROTHY_LOADED-}"; then
 	if test "$0" = '-bash' -o "$0" = '-zsh'; then
 		DOROTHY_LOAD='yes'
-	elif test "${BASH_VERSION-}"; then
+	elif test -n "${BASH_VERSION-}"; then
 		# shellcheck disable=SC3044
 		if shopt -qp login_shell; then
 			DOROTHY_LOAD='yes'
 		fi
-	elif test "${ZSH_VERSION-}"; then
+	elif test -n "${ZSH_VERSION-}"; then
 		# shellcheck disable=SC3010
 		if [[ -o login ]]; then
 			DOROTHY_LOAD='yes'
