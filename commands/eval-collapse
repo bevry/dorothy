@@ -2,8 +2,9 @@
 # shellcheck disable=SC2164,SC1091
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
-if ! has_array_support 'mapfile' 'empty'; then
-	# bash version too old, just do a basic eval
+if test "${EVAL_COLLAPSE-}" = 'yes' || ! has_array_support 'mapfile' 'empty'; then
+	# already in a collapse, or bash version too old
+	# so just do a basic eval
 	while is-needle '--' "$@"; do
 		shift
 	done
@@ -16,34 +17,19 @@ fi
 # helper
 function eval_collapse() {
 	# prepare
-	local ec=0 headers body options QUIET option_pending option_success option_failure args
+	local ec headers footer body options option_quiet option_pending option_success option_failure option_wrap args
+	ec=0
 	headers="$(mktemp)"
 	body="$(mktemp)"
 
 	# options
 	mapfile -t options < <(echo-before-separator "$@")
-	QUIET="$(get-flag-value quiet --missing="${QUIET-}" -- "${options[@]}" | echo-affirmative || get-flag-value verbose --missing="${VERBOSE:-"no"}" -- "$@" | echo-non-affirmative || :)" # yes/no, default yes
+	option_quiet="$(is-quiet --missing="yes" -- "$@")"
 	option_pending="$(get-flag-value pending -- "${options[@]}")"
 	option_success="$(get-flag-value success -- "${options[@]}")"
 	option_failure="$(get-flag-value failure -- "${options[@]}")"
 	option_wrap="$(get-flag-value wrap --missing=yes -- "${options[@]}" | echo-affirmative)"
 	mapfile -t args < <(echo-after-separator "$@")
-
-	# footer
-	function eval_collapse_footer() {
-		local ec="$1" option_success="$2" option_failure="$3"
-		if test "$ec" -eq 0; then
-			if test -n "$option_success"; then
-				echo "$option_success"
-			fi
-		else
-			if test -n "$option_failure"; then
-				echo "$option_failure"
-			fi
-		fi
-	}
-	# shellcheck disable=SC2064
-	trap "eval_collapse_footer \$? ${option_success@Q} ${option_failure@Q}" RETURN
 
 	# headers
 	if test -n "$option_pending"; then
@@ -54,35 +40,57 @@ function eval_collapse() {
 	fi
 
 	# keep headers while we run the command and revolve door its output
+	export EVAL_COLLAPSE=yes # use epxort, as env doens't work with functions
 	ec=0 && ("${args[@]}" 2>&1 | tee "$body" | echo-revolving-door) || ec="$?"
 
-	# clear headers, we can re-add them if necessary
+	# clear headers, we can re-add them later if needed
 	echo-clear-lines <"$headers"
 
-	# if queit, and successful, then we are done
-	if test "$QUIET" = 'yes' -a "$ec" -eq 0; then
+	# generate footer
+	footer=''
+	if test "$ec" -eq 0; then
+		if test -n "$option_success"; then
+			footer+="$option_success"$'\n'
+		fi
+	else
+		if test -n "$option_failure"; then
+			footer+="$option_failure"$'\n'
+		fi
+	fi
+
+	# if quiet and successful, dump footer and exit
+	if test "$option_quiet" = 'yes' -a "$ec" -eq 0; then
+		if test -n "$footer"; then
+			echo -n "$footer"
+		fi
 		return "$ec"
 	fi
-	# otherwise we want to output things
 
-	# if it didn't output anything, then output only a header footer combo, and be done
+	# if it didn't output anything, output self closing wrap, then footer, then exit
 	if test -z "$(cat "$body")"; then
 		echo-element --openclose="${args[*]}" --status="$ec"
+		if test -n "$footer"; then
+			echo -n "$footer"
+		fi
 		return "$ec"
 	fi
 	# the command outputted things
 
 	# output wrap header
 	if test "$option_wrap" = 'yes'; then
-		echo-element --open="${args[*]}" | tee -a "$headers"
+		echo-element --open="${args[*]}"
 	fi
 	# if verbose, or failure, output body
-	if test "$QUIET" = 'no' -o "$ec" -ne 0; then
+	if test "$option_quiet" = 'no' -o "$ec" -ne 0; then
 		cat "$body"
 	fi
 	# outpout wrap footer
 	if test "$option_wrap" = 'yes'; then
 		echo-element --close="${args[*]}" --status="$ec"
+	fi
+	# output footer
+	if test -n "$footer"; then
+		echo -n "$footer"
 	fi
 	# done
 	return "$ec"
