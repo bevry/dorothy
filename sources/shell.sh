@@ -13,11 +13,13 @@ ACTIVE_LOGIN_SHELL="$(get_active_shell)"
 if test "$ACTIVE_LOGIN_SHELL" = 'sh'; then
 	load_dorothy_config 'shell.sh'
 else
+	# load each filename
+	# passes if one or more were loaded
+	# fails if none were loaded (all were missing)
 	load_dorothy_config "shell.$ACTIVE_LOGIN_SHELL" 'shell.sh'
 fi
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/history.sh"
-. "$DOROTHY/sources/completions.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"

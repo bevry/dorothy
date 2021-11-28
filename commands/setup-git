@@ -1,57 +1,236 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+source "$(which eval-collapse)"
 
-# =====================================
-# Configuration
-
-# environment provides:
-# TERMINAL_EDITOR_PROMPT, TERMINAL_EDITOR, EDITOR
-
-source "$DOROTHY/sources/config.sh"
-load_dorothy_config 'git.bash'
-# git.bash provides:
-# GPG_SIGNING_KEY, KRYPTON_GPG
-# GIT_DEFAULT_BRANCH
-# GIT_NAME, GIT_EMAIL, GITHUB_USERNAME
+# NOTES
+#
+# Do not do .insteadof changes, as it messages with our git-protocol-* commands
+#
+# https://hub.github.com/hub.1.html
+# https://stackoverflow.com/a/22027731/130638
 
 # =====================================
 # Prepare
 
 echo-segment --h1='Setup Git'
 
-# configuraiton file
-mkdir -p "$HOME/.ssh"
-if test ! -f "$HOME/.ssh/config"; then
-	touch "$HOME/.ssh/config"
+# dependencies
+echo-segment --h2='Install Git'
+setup-util-git
+setup-util-gh
+setup-util-glab
+echo-segment --g2='Install Git'
+
+# vars
+protocol_options=(
+	ssh
+	https
+)
+tool_options=()
+if command-exists meld; then
+	tool_options+=(meld)
+fi
+if command-exists opendiff; then
+	tool_options+=(opendiff)
+fi
+if command-exists diff; then
+	tool_options+=(diff)
 fi
 
 # =====================================
-# Install
+# Configuration
 
-setup-util-git
+# environment may provide:
+# TERMINAL_EDITOR_PROMPT, TERMINAL_EDITOR, EDITOR
+
+source "$DOROTHY/sources/config.sh"
+
+# git.bash provides:
+GPG_SIGNING_KEY='' # use 'krypton' for Krypt.co
+GIT_DEFAULT_BRANCH='main'
+GIT_PROTOCOL=''
+GIT_NAME=''
+GIT_EMAIL=''
+MERGE_TOOL=''
+GITHUB_USERNAME=''
+GITLAB_USERNAME=''
+# deprecrations
+HUB_PROTOCOL='' # deprecated, replaced by GIT_PROTOCOL
+KRYPTON_GPG=''  # deprecated, use GPG_SIGNING_KEY=krypton
+load_dorothy_config 'git.bash'
+# handle deprecations
+if test "$KRYPTON_GPG" = 'yes'; then
+	GPG_SIGNING_KEY='yes'
+fi
+if test -z "$GIT_PROTOCOL" -a -n "$HUB_PROTOCOL"; then
+	GIT_PROTOCOL="$HUB_PROTOCOL"
+fi
 
 # =====================================
-# Configure
+# Arguments
+
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Configures git, gpg, and ssh for your preferences and for the system capabilities.
+
+		USAGE:
+		setup-git [--flags]
+
+		FLAGS:
+		--configure            Configuration guide.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+reconfigure='no'
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--configure'*)
+		reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) help "An unrecognised argument was provided: $item" ;;
+	esac
+done
+
+# =====================================
+# Reconfiguration
+
+# optional:
+# GITHUB_USERNAME
+# GITLAB_USERNAME
+
+# required
+if test -z "$GIT_NAME" -o -z "$GIT_EMAIL" -o -z "$GIT_DEFAULT_BRANCH"; then
+	reconfigure='yes'
+fi
+if ! is-needle "$GIT_PROTOCOL" "${protocol_options[@]}"; then
+	reconfigure='yes'
+fi
+if ! is-needle "$MERGE_TOOL" "${tool_options[@]}"; then
+	reconfigure='yes'
+fi
+
+# reconfigure
+if test "$reconfigure" = 'yes'; then
+	# required
+	GIT_NAME="$(
+		ask --required --confirm \
+			--question="What is the name that you want to configure git with?" \
+			--default="${GIT_NAME:-"$(get-profile name -- git ...)"}"
+	)"
+	GIT_EMAIL="$(
+		ask --required --confirm \
+			--question="What is the email that you want to configure git with?" \
+			--default="${GIT_NAME:-"$(get-profile email -- git ...)"}"
+	)"
+	# optional
+	GITHUB_USERNAME="$(
+		ask --confirm \
+			--question="What is the GitHub username that you want to configure git with?" \
+			--default="${GITHUB_USERNAME:-"$(get-profile username -- git ...)"}"
+	)"
+	GITLAB_USERNAME="$(
+		ask --confirm \
+			--question="What is the GitLab username that you want to configure git with?" \
+			--default="${GITLAB_USERNAME:-"$(get-profile username -- git ...)"}"
+	)"
+	# required
+	GIT_PROTOCOL="$(
+		choose-option --required --confirm \
+			--question='Which git protocol to prefer?' \
+			--filter="$GIT_PROTOCOL" -- "${protocol_options[@]}"
+	)"
+	MERGE_TOOL="$(
+		choose-option --required --confirm \
+			--question='Which merge/diff tool to prefer?' \
+			--filter="$MERGE_TOOL" -- "${tool_options[@]}"
+	)"
+	GIT_DEFAULT_BRANCH="$(
+		ask --required --confirm \
+			--question='Which branch to use as the default for new repositories?' \
+			--default="$GIT_DEFAULT_BRANCH"
+	)"
+	if (command-exists krgpg || test "$GPG_SIGNING_KEY" = 'krypton') && confirm-positive 'Use Krypton for GPG?'; then
+		GPG_SIGNING_KEY='krypton'
+	else
+		# 2>/dev/null || : in case there are no gpg keys
+		GPG_SIGNING_KEY="$(key get private 2>/dev/null || :)"
+	fi
+
+	# save
+	update_dorothy_user_config --prefer=local 'git.bash' -- \
+		'GIT_DEFAULT_BRANCH' "$GIT_DEFAULT_BRANCH" \
+		'GIT_EMAIL' "$GIT_EMAIL" \
+		'GIT_NAME' "$GIT_NAME" \
+		'GIT_PROTOCOL' "$GIT_PROTOCOL" \
+		'GITHUB_USERNAME' "$GITHUB_USERNAME" \
+		'GITLAB_USERNAME' "$GITLAB_USERNAME" \
+		'GPG_SIGNING_KEY' "$GPG_SIGNING_KEY" \
+		'MERGE_TOOL' "$MERGE_TOOL"
+fi
+
+# =====================================
+# Apply Configuration
 
 # General
+echo-style --h2='Git Configuration: General'
 git config --global core.excludesfile "$HOME/.gitignore_global"
 git config --global push.default simple
 git config --global mergetool.keepBackup false
 git config --global color.ui auto
-if test -n "${GIT_DEFAULT_BRANCH-}"; then
+if test -n "$GIT_DEFAULT_BRANCH"; then
 	git config --global init.defaultBranch "$GIT_DEFAULT_BRANCH"
 fi
 
 # Profile
-# echo-color --dim "Name:              $(git config --global user.name)"
-# echo-color --dim "Email:             $(git config --global user.email)"
-# echo-color --dim "GitHub Username:   $(git config --global github.user)"
-git config --global user.name "$(ask --question='What is the name you want to configure git with?' --default="$(git config --global user.name)" --require --confirm)"
-git config --global user.email "$(ask --question='What is the email you want to configure git with?' --default="$(git config --global user.email)" --require --confirm)"
-git config --global github.user "$(ask --question='What is the GitHub username you want to configure git with?' --default="$(git config --global github.user)" --require --confirm)"
+echo-style --h2='Git Configuration: Profile'
+git config --global user.name "$GIT_NAME"
+git config --global user.email "$GIT_EMAIL"
+git config --global git.protocol "$GIT_PROTOCOL"
+# optional
+if test -n "$GITHUB_USERNAME"; then
+	git config --global github.user "$GITHUB_USERNAME"
+	gh auth status &>/dev/null || gh auth login
+else
+	git config --global --unset github.user || : # will fail if already unset
+fi
+if test -n "$GITLAB_USERNAME"; then
+	git config --global gitlab.user "$GITLAB_USERNAME"
+	glab auth status |& grep -q 'Logged in to ' || glab auth login
+	# ^ we use the grep, as glab auth status still returns success exit code if not logged in
+else
+	git config --global --unset gitlab.user || : # will fail if already unset
+fi
+
+# Protocol
+echo-style --h2="Git Configuration: Protocol: $GIT_PROTOCOL"
+git config --global git.protocol "$GIT_PROTOCOL"
+if command-exists hub; then
+	git config --global hub.protocol "$GIT_PROTOCOL"
+else
+	git config --global --unset hub.protocol || :
+fi
+if command-exists gh; then
+	gh config set git_protocol "$GIT_PROTOCOL"
+fi
+
+# Merge Tool
+echo-style --h2="Git Configuration: Merge/Diff Tool: $MERGE_TOOL"
+git config --global diff.tool "$MERGE_TOOL"
+git config --global merge.tool "$MERGE_TOOL"
 
 # Editor
-echo "Git Configuration: Editor"
+echo-style --h2="Git Configuration: Editor"
 if test -n "${TERMINAL_EDITOR_PROMPT-}"; then
 	git config --global core.editor "$TERMINAL_EDITOR_PROMPT"
 elif test -n "${TERMINAL_EDITOR-}"; then
@@ -60,48 +239,27 @@ elif test -n "${EDITOR-}"; then
 	git config --global core.editor "$EDITOR"
 fi
 
-# Merge Tool
-if command-exists meld; then
-	echo "Git Configuration: Meld"
-	git config --global diff.tool meld
-	git config --global merge.tool meld
-elif is-mac; then
-	echo "Git Configuration: OpenDiff"
-	git config --global diff.tool opendiff
-	git config --global merge.tool opendiff
-fi
-
 # Authentication
 # Use MacOS Credential Helper if available, otherwise default to time cache
 if is-mac; then
-	echo "Git Configuration: MacOS"
+	echo-style --h2="Git Configuration: MacOS Credentials"
 	git config --global credential.helper osxkeychain
 	git config --global difftool.prompt false
-	# http://apple.stackexchange.com/a/254619/15131
-	if ! silent grep 'AddKeysToAgent yes' <~/.ssh/config; then
-		echo "Git Configuration: AddKeysToAgent"
-		printf '\nAddKeysToAgent yes' >>~/.ssh/config
-	fi
 else
-	echo "Git Configuration: Linux"
+	echo-style --h2="Git Configuration: Linux Credentials"
 	git config --global credential.helper 'cache --timeout=86400'
 fi
 
-# Protocol
-# https://hub.github.com/hub.1.html
-# https://stackoverflow.com/a/22027731/130638
-# do not do .insteadof changes, as it messes with our git-protocol-* commands
-protocol="$(choose-option --confirm --question='Which git protocol to prefer?' --filter="${GIT_PROTOCOL:-"${HUB_PROTCOL-}"}" -- ssh https manual)"
-if test "$protocol" = "ssh"; then
-	echo "Git Protocol: SSH"
-	git config --global hub.protocol ssh
-elif test "$protocol" = "https"; then
-	echo "Git Protocol: HTTPS"
-	git config --global hub.protocol https
-else
-	echo "Git Protocol: Manual"
-	ok git config --global --unset hub.protocol
+# this applies to mac and linux
+# http://apple.stackexchange.com/a/254619/15131
+if ! silent grep 'AddKeysToAgent yes' <"$HOME/.ssh/config"; then
+	echo-style --h2="Git Configuration: AddKeysToAgent"
+	printf '\nAddKeysToAgent yes' >>"$HOME/.ssh/config"
 fi
+
+# ssh keys
+echo-style --h3="Add SSH Keys to SSH Agent"
+ssh-add-all
 
 # =====================================
 # GPG
@@ -114,22 +272,26 @@ function gpg_enabled {
 	# ^ github doesn’t support this with:
 	# fatal: receiving end does not support --signed push
 	# fatal: the receiving end does not support --signed push
-
 	if silent grep "no-tty" "$HOME/.gnupg/gpg.conf"; then
 		echo "no-tty" >>"$HOME/.gnupg/gpg.conf"
 		# ^ http://github.com/isaacs/github/issues/675
 	fi
-	echo "Git Configuration: GPG: Enabled"
+	echo-style --h2="Git Configuration: GPG: Enabled"
 }
 function gpg_disabled {
-	ok git config --global --unset tag.gpgsign
-	ok git config --global --unset commit.gpgsign
-	ok git config --global --unset user.signingkey
-	echo "Git Configuration: GPG: Disabled"
+	git config --global --unset tag.gpgsign || :
+	git config --global --unset commit.gpgsign || :
+	git config --global --unset user.signingkey || :
+	echo-style --h2="Git Configuration: GPG: Disabled"
 }
 function gpg_krypton {
+	# install krypton
+	env NAME='Krypton' CLI='krgpg' CURL='https://krypt.co/kr' setup-util curl
+	kr pair # krgpg and kr are both installed above
+	# configure git for krypton
 	git config --global gpg.program "$(command -v krgpg)"
-	ok git config --global --unset user.signingkey
+	git config --global --unset user.signingkey || :
+	echo-style --h2="Git Configuration: Kypton: Enabled"
 }
 function gpg_key {
 	# prepare
@@ -140,14 +302,14 @@ function gpg_key {
 	fi
 
 	# key
-	echo "Git Configuration: GPG: Key: $1"
+	echo-style --h2="Git Configuration: GPG: Key: $1"
 	git config --global gpg.program "$(command -v gpg)"
 	git config --global user.signingkey "$1"
 
 	# pinentry
 	agent_program="$(command -v pinentry)"
 	if test -n "$agent_program"; then
-		echo "Git Configuration: GPG: Pinentry"
+		echo-style --h2="Git Configuration: GPG: Pinentry"
 		agent_file="$HOME/.gnupg/gpg-agent.conf"
 		touch "$agent_file"
 		config-helper \
@@ -156,23 +318,14 @@ function gpg_key {
 	fi
 }
 function gpg_setup {
-	echo -e "\\nGit Configuration: GPG"
-	ok silent killall gpg-agent
-	ok silent killall gpg
-	if test -n "${GPG_SIGNING_KEY-}"; then
+	echo-style --h2="Git Configuration: GPG"
+	silent killall gpg-agent || :
+	silent killall gpg || :
+	if test -n "$GPG_SIGNING_KEY"; then
 		if test "$GPG_SIGNING_KEY" = "krypton"; then
 			gpg_krypton
 		else
 			gpg_key "$GPG_SIGNING_KEY"
-		fi
-	else
-		if test "${KRYPTON_GPG-}" != "no" && command-exists krgpg && (test "${KRYPTON_GPG-}" = "yes" || confirm-positive 'Use Krypton for GPG?'); then
-			gpg_krypton
-		else
-			echo "Available GPG Keys:"
-			key list private
-			echo "GPG Key Selection:"
-			gpg_key "$(ok key get private)"
 		fi
 	fi
 }

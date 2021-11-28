@@ -10,7 +10,7 @@ has_array_support() {
 
 requires_array_support() {
 	if ! has_array_support "$@"; then
-		echo-color \
+		echo-style \
 			--error="Array support insufficient." $'\n' \
 			--bold="$0" " is incompatible with " --bold="bash $BASH_VERSION" $'\n' \
 			"Run " --bold="setup-util-bash" " to upgrade capabilities, then run the prior command again." >/dev/stderr

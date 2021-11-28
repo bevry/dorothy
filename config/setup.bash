@@ -2,43 +2,74 @@
 # shellcheck disable=SC2034
 # do not use `export` keyword in this file
 
-# apk
+# APK
 APK_INSTALL=()
 
-# apt
-APT_REMOVE=()
-APT_ADD=()
+# Apt / apt-get
+APT_UNINSTALL=()
+APT_INSTALL=()
 
-# snap
+# Snap
 SNAP_INSTALL=()
 
-# brew
-HOMEBREW_TAPS=()
-HOMEBREW_INSTALL=()
-HOMEBREW_INSTALL_SLOW=()
-HOMEBREW_INSTALL_CASK=()
-HOMEBREW_INSTALL_ENCODING='' # yes/no
-HOMEBREW_UNINSTALL=()
+# macOS apps / mas
+# https://github.com/mas-cli/mas
+# use `mas list` and `mas search` to find apps
+MAS_INSTALL=() # tupe array of id, label
 
-# go
+# Homebrew / brew
+HOMEBREW_FORMULAS=()
+HOMEBREW_SLOW_FORMULAS=()
+HOMEBREW_ENCODING_INSTALL='' # yes/no
+HOMEBREW_UNINSTALL=()
+HOMEBREW_TAPS=()
+HOMEBREW_CASKS=()
+HOMEBREW_FONTS=(
+	font-cantarell
+	font-cascadia-code
+	font-fira-code
+	font-fira-code-nerd-font
+	font-fira-mono
+	font-fira-mono-nerd-font
+	font-hack
+	font-hasklig
+	font-ibm-plex
+	font-inconsolata-go-nerd-font
+	font-inter
+	font-jetbrains-mono
+	font-jetbrains-mono-nerd-font
+	font-lato
+	font-maven-pro
+	font-monoid
+	font-montserrat
+	font-open-sans
+	font-oxygen
+	font-oxygen-mono
+	font-roboto
+	font-roboto-mono
+	font-source-code-pro
+	font-ubuntu
+)
+
+# Golang / go
 GO_INSTALL=()
 
-# node
+# Node.js
 # CLEAN_NVM='yes' # yes/no
-NODE_INSTALL=()
+NPM_INSTALL=()
 
-# python
+# Python
 PYTHON_INSTALL=()
 PIP_INSTALL=()
 PYTHON2_PIP_INSTALL=()
 PYTHON3_PIP_INSTALL=()
 PIPX_INSTALL=()
 
-# ruby
-RUBY_INSTALL=()
+# Ruby
+GEM_INSTALL=()
 
-# cargo
-RUST_INSTALL=()
+# Rust / Cargo / Crates.io
+CARGO_INSTALL=()
 
 # setup-util-*
 SETUP_UTILS=()

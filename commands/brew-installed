@@ -1,24 +1,162 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
-source "$DOROTHY/sources/arrays.bash"
-requires_array_support 'mapfile' 'empty'
 
-mapfile -t options < <(echo-before-separator "$@")
-requested="$(get-flag-value requested --missing=no -- "${options[@]}" | echo-affirmative)"
-mapfile -t pkgs < <(echo-after-separator "$@")
+# =====================================
+# Arguments
 
-# get names of requested packages
-if test "${#pkgs[@]}" -eq 0; then
-	if test "$requested" = 'no'; then
-		brew list --versions
-	else
-		brew info --installed --json | jq -r '.[] | select(.installed | .[].installed_on_request == true) | .name'
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Outputs the names of the installed packages.
+
+		USAGE:
+		brew-installed [--requested] [--formula] [--cask] -- [...packages]
+
+		FLAGS:
+		--requested    Output only packages that were manually installed, not packages that were only dependencies.
+		--formula      Output only packages that are formulas.
+		--cask         Output only packages that are casks.
+		[...packages]  If provided, only get details for these packages. Fail if one of them has not yet been installed.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines "$@")" >/dev/stderr
 	fi
-	exit "$?"
+	return 22 # Invalid argument
+}
+
+# process
+brew_packages=()
+brew_list=(
+	'brew'
+	'list'
+	'--versions' # --versions is necessary to limit to installed packages, as --full-name/-1 doesn't
+)
+brew_info=(
+	'brew'
+	'info'
+)
+deno_script_args=(
+	'--requested' # the deno script only runs with brew info, which is only run when --requested is provided
+)
+brew_type='' # empty, formula, cask
+option_requested='no'
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--formula' | '--formulae') brew_type='formula' ;;
+	'--cask' | '--casks') brew_type='cask' ;;
+	'--requested'*) option_requested="$(
+		get-flag-value requested --missing="$option_requested" -- "$item" | echo-affirmative
+	)" ;;
+	'--')
+		brew_packages+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) help "An unrecognised argument was provided: $item" ;;
+	esac
+done
+
+# add the filter
+if test -n "$brew_type"; then
+	brew_list+=(--"${brew_type}")
+	brew_info+=(--"${brew_type}")
+	deno_script_args+=(--"${brew_type}")
 fi
 
-# [name verison] of installed packages
-brew list --versions "${pkgs[@]}"
-exit "$?" # returns 1 if one of them was missing
-# if you want to check if any were present, do
-# test -n "$(brew-installed -- rustup rust || :)"
+# add the packages
+if test "${#brew_packages[@]}" -ne 0; then
+	brew_list+=("${brew_packages[@]}")
+	brew_info+=(
+		'--json=v2'
+		"${brew_packages[@]}"
+	)
+else
+	brew_info+=(
+		'--json=v2'
+		'--installed'
+	)
+fi
+
+# helpers
+function do_brew_list() {
+	"${brew_list[@]}" | cut -d' ' -f1 | sort | uniq
+	# returns 1 if one of them was missing
+	# if you want to check if any were present, do
+	# test -n "$(brew-installed -- rustup rust || :)"
+}
+function do_brew_info() {
+	# ensure deno exists
+	env QUIET=yes setup-util-deno
+
+	# prepare as the .ts extension is essential
+	deno_script="$(fs-temp --suffix=".ts" "${XDG_CACHE_HOME}/dorothy")"
+	cat <<EOF >"$deno_script"
+// parse stdin
+import { readLines } from "https://deno.land/std/io/bufio.ts";
+let data = "";
+for await (const line of readLines(Deno.stdin)) {
+	data += line;
+}
+const json = JSON.parse(data);
+
+// prepare result
+const names = new Set<string>();
+
+// add casks if not filtered to only formula
+if ( Deno.args.includes("--formula") === false ) {
+	// all casks are by request, so no need for special --requested handling for casks
+	for (const cask of json.casks) {
+		names.add(cask.full_token);
+	}
+}
+
+// add formulas if not filtered to only casks
+if ( Deno.args.includes("--cask") === false ) {
+	if ( Deno.args.includes("--requested") ) {
+		// only requested formula
+		for (const formula of json.formulae) {
+			if (formula.installed.find((i: any) => i.installed_on_request)) {
+				names.add(formula.full_name);
+			}
+		}
+	} else {
+		// all formula
+		for (const formula of json.formulae) {
+			names.add(formula.full_name);
+		}
+	}
+}
+
+// output result
+if (names.size) {
+	await Deno.stdout.write(
+		new TextEncoder().encode(Array.from(names).sort().concat("").join("\n"))
+	);
+}
+EOF
+
+	# run
+	"${brew_info[@]}" | deno run --quiet "$deno_script" "${deno_script_args[@]}"
+}
+
+# get names of requested packages
+if test "$option_requested" = 'no'; then
+	do_brew_list
+else
+	# as brew_info doesn't do the missing exit code like brew_list does, we need to do it ourselves
+	if test "${#brew_packages[@]}" -eq 0; then
+		do_brew_info
+	else
+		temp="$(mktemp)"
+		do_brew_info | tee "$temp"
+		lines="$(echo-count-lines --no-inline <"$temp")"
+		if test "$lines" -ne "${#brew_packages[@]}"; then
+			exit 1
+		fi
+	fi
+fi

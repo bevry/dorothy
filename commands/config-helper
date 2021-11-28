@@ -3,6 +3,9 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
 
+# dependencies
+source "$DOROTHY/sources/ripgrep.bash"
+
 # test
 if is-needle '--test' "$@"; then
 	(
@@ -43,40 +46,149 @@ if is-needle '--test' "$@"; then
 		eval-tester --stdout=$'User=uu\nGroup' -- \
 			config-helper --file="$file" --find='User=.*' --find='(Group)=.*' --find='Party'
 
+		# todo, add tests for:
+		# -- find, replace
+		# -- find, (multiline replace)
+
 		# done
 		echo-segment --g1="TEST: $0"
 	)
 	exit "$?"
 fi
 
-# dependencies
-source "$DOROTHY/sources/ripgrep.bash"
+# =====================================
+# Arguments
+
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		USAGE:
+		config-helper <file> [--find=<pattern> --replace=<pattern>]...
+		config-helper <file> [--find=<pattern>]...
+		config-helper <file> -- [<find> <replace>]...
+
+		QUIRKS:
+
+		[--find=<pattern>] and [--replace=<pattern>] used rust based regular expressions.
+
+		<find> and <replace> use key-value pair replacements.
+
+		If replace is omitted, that is only finds are provided, then config-helper servers as a value fetcher.
+
+		If replace is provided, then config-helper will update the <file> with the replacements.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
 
 # e.g.
 # /etc/systemd/resolved.conf
 # shell.sh
 # .gitignore
-file="$(get-flag-value file -- "$@")"
+file=''
 
 # e.g.
 # Domains=
 # DOROTHY_THEME=
 # config.local/
-mapfile -t find_array < <(get-flag-value find --multi -- "$@")
-find_count="${#find_array[@]}"
-if test "$find_count" -eq 0; then
-	stderr echo-color \
-		--error="$0 $*" $'\n' \
-		--red="At least one [--find=...] argument must be provided."
-	exit 22 # Invalid argument
-fi
+find_array=()
 
 # e.g.
 # Domains=~.
 # DOROTHY_THEME=oz
 # config.local/
-mapfile -t replace_array < <(get-flag-value replace --multi -- "$@")
+replace_array=()
+
+# e.g.
+# Domains, ~.
+# DOROTHY_THEME, oz
+args=()
+
+# process
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--file='*) file="${item:7}" ;;
+	'--find='*) find_array+=("${item:7}") ;;
+	'--replace='*) find_array+=("${item:10}") ;;
+	'--')
+		args+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*)
+		if test -z "$file"; then
+			file="$item"
+		else
+			help "An unrecognised argument was provided: $item"
+		fi
+		;;
+	esac
+done
+
+# check if args is provided, as we will need to process it
+if test "${#args[@]}" -ne 0; then
+	if is-odd "${#args[@]}"; then
+		help "The amount of args must be even, as they are for [<find> <replace>] tuples."$'\n'"$(echo-verbose "${args[@]}")"
+	fi
+	for ((i = 0; i < ${#args[@]}; i = i + 2)); do
+		key="${args[i]}"
+		input="${args[i + 1]}"
+		mapfile -t values < <(echo-split $'\n' -- "$input" | sort)
+		find="${key}=(?:.*)"
+		if test "${#values[@]}" -eq 0; then
+			replace=''
+		else
+			if test "${#values[@]}" -eq 1; then
+				# single value
+				value="${values[0]@Q}"
+			else
+				# array
+				# https://github.com/chmln/sd/issues/146
+				find="${key}=(?:[(](?:\n|.)*?[)]|.*)"
+				value=$'('
+				for line in "${values[@]}"; do
+					value+=$'\n\t'"${line@Q}"
+				done
+				value+=$'\n)'
+			fi
+			replace="${key}=${value}"
+		fi
+		# multiline replace
+		if rg -Uq "$find" "$file"; then
+			# it was found, so do the replacement
+			sd -f m "$find" "$replace" "$file"
+		else
+			# wasn't found, add manually
+			if test -n "$replace"; then
+				echo "$replace" >>"$file"
+			fi
+		fi
+	done
+	# we do our own processing, as we need to support multiline matches
+	echo "Updated configuration file: $file"
+	exit 0
+fi
+
+# prepare verify
+find_count="${#find_array[@]}"
 replace_count="${#replace_array[@]}"
+
+# verify find
+if test "$find_count" -eq 0; then
+	stderr echo-style \
+		--error="$0 $*" $'\n' \
+		--red="At least one [--find=...] argument must be provided."
+	exit 22 # Invalid argument
+fi
+
+# check if we are find only
+# if so, life is simple, do a little thing then exist
 if test "$replace_count" -eq 0; then
 	# we are find only
 	for find in "${find_array[@]}"; do
@@ -91,13 +203,12 @@ if test "$replace_count" -eq 0; then
 	done
 	exit
 fi
-
-# we are a replacement
+# otherwise we are a replacement
 # goal: replace all uncommented instances with a single set instance, after the first comment or at the end
 
-# check we have the same finds as replaces
+# verify we have the same finds as replaces
 if test "$replace_count" -ne "$find_count"; then
-	stderr echo-color \
+	stderr echo-style \
 		--error="$0 $*" $'\n' \
 		--red="the amount of [--find=...] arguments must match the amount of [--replace=...] arguments."
 	exit 22 # Invalid argument
@@ -171,3 +282,4 @@ done
 
 # write the updated file
 echo-lines "${results[@]}" >"$file"
+echo "Updated configuration file: $file"

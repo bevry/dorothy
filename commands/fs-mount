@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# =====================================
+# Arguments
+
+# prepare
+if test "${1-}" = '--'; then
+	shift
+fi
+mount_source="${1-}"
+mount_point="${2-}"
+mount_owner="${3-}"
+
+# help
+if is-help "$@" || test -z "$mount_source" -o -z "$mount_point"; then
+	stderr cat <<-EOF
+		ABOUT:
+		Mounts a source (be it a drive or gocryptfs vault) to a mount point.
+
+		USAGE:
+		fs-mount [--] <source> <mount-point> [owner]
+
+		QUIRKS:
+
+		If [owner] is provided, a [fs-own <mount-point>] will be performed after a successful mount.
+		As well as gocryptfs vaults being forced to that owner.
+	EOF
+	exit 22 # Invalid argument
+fi
+
+# =====================================
+# Helpers
+
+function is_drive {
+	[[ "$1" = '/dev/'* ]]
+}
+
+# =====================================
+# Act
+
+title="fs-mount ${mount_source@Q}"
+conclusion=''
+mount_cmd=()
+
+function do_owner() {
+	# now that it is mounted, fix perms again
+	if test -n "$mount_owner"; then
+		fs-own --owner="$mount_owner" -- "$mount_point"
+		echo-style --success="${mount_source@Q} was permissions adjusted."
+	fi
+}
+function fs_mount() {
+	# verify and prep
+	if is_drive "$mount_source"; then
+		# mount drive
+		mount_cmd+=(
+			'sudo' 'mount' "$mount_source" "$mount_point"
+		)
+	elif gocryptfs-helper verify -- "$mount_source" &>/dev/null; then
+		# mount vault
+		mount_cmd+=(
+			'gocryptfs-helper' 'mount' '--' "$mount_source" "$mount_point" "$mount_owner"
+		)
+	else
+		echo-style --error="fs-mount doesn't know how to mount ${mount_source@Q}, it neither a drive nor a gocryptfs vault"
+		conclusion="$(
+			echo-style --red="invalid mount source."
+		)"
+		return 22 # Invalid argument
+	fi
+
+	# if already mounted, then only do perms
+	if test -d "$mount_point"; then
+		if is-mounted --source="$mount_source" --target="$mount_point"; then
+			conclusion="$(
+				echo-style --green="was previously mounted."
+			)"
+			echo-style --bold="${mount_source@Q}" " already mounted to " --bold="${mount_point@Q}"
+			do_owner
+			return "$?"
+		fi
+
+		# if mount is invalid, then unmount the directory
+		fs-unmount -- "$mount_point"
+	fi
+
+	# if not mounted, go through the process
+	sudo mkdir -p "$mount_point"
+	fs-own --owner="$mount_owner" -- "$mount_point"
+
+	# mount
+	"${mount_cmd[@]}"
+	echo-style --success="${mount_source@Q} was mounted."
+
+	# owner
+	do_owner
+
+	# success
+	conclusion="$(
+		echo-style --green="mounted successfully."
+	)"
+}
+
+# act
+echo-segment --h2="$title"
+if fs_mount; then
+	echo-segment --g2="$title" " $conclusion"
+else
+	echo-segment --e2="$title" " $conclusion"
+fi
