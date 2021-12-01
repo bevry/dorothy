@@ -2,7 +2,9 @@
 # shellcheck disable=SC2034
 # do whatever you want in this file
 
-# oh my zsh
+# Used by `shell.sh`
+
+# Load oh-my-zsh if it exists on the system
 if test -d "$HOME/.oh-my-zsh"; then
 	export DISABLE_UPDATE_PROMPT=true
 	export ZSH="$HOME/.oh-my-zsh"

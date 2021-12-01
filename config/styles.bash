@@ -2,6 +2,8 @@
 # shellcheck disable=SC2034
 # do not use `export` keyword in this file
 
+# Used by `echo-style`
+
 # colors which will be sought later
 # https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
 # https://gist.github.com/Prakasaka/219fe5695beeb4d6311583e79933a009

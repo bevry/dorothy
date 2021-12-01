@@ -3,73 +3,84 @@
 # do not use `export` keyword in this file
 
 # APK
-APK_INSTALL=()
+# Used by `setup-util-apk`
+# APK_INSTALL=()
 
 # Apt / apt-get
-APT_UNINSTALL=()
-APT_INSTALL=()
+# Used by `setup-util-apt`
+# APT_UNINSTALL=()
+# APT_INSTALL=()
 
 # Snap
-SNAP_INSTALL=()
+# Used by `setup-util-snap`
+# SNAP_INSTALL=()
 
-# macOS apps / mas
-# https://github.com/mas-cli/mas
-# use `mas list` and `mas search` to find apps
-MAS_INSTALL=() # tupe array of id, label
+# macOS apps / mas / https://github.com/mas-cli/mas
+# Used by `setup-mac-apps`
+# You can use `mas list` and `mas search` to find apps
+# MAS_INSTALL=() # tupe array of id, label
 
-# Homebrew / brew
-HOMEBREW_FORMULAS=()
-HOMEBREW_SLOW_FORMULAS=()
-HOMEBREW_ENCODING_INSTALL='' # yes/no
-HOMEBREW_UNINSTALL=()
-HOMEBREW_TAPS=()
-HOMEBREW_CASKS=()
-HOMEBREW_FONTS=(
-	font-cantarell
-	font-cascadia-code
-	font-fira-code
-	font-fira-code-nerd-font
-	font-fira-mono
-	font-fira-mono-nerd-font
-	font-hack
-	font-hasklig
-	font-ibm-plex
-	font-inconsolata-go-nerd-font
-	font-inter
-	font-jetbrains-mono
-	font-jetbrains-mono-nerd-font
-	font-lato
-	font-maven-pro
-	font-monoid
-	font-montserrat
-	font-open-sans
-	font-oxygen
-	font-oxygen-mono
-	font-roboto
-	font-roboto-mono
-	font-source-code-pro
-	font-ubuntu
-)
+# Homebrew / brew / https://brew.sh
+# Used by `setup-mac-brew`
+# You can use `setup-mac-brew --configure` to configure some of these.
+# HOMEBREW_TAPS=()
+# HOMEBREW_FORMULAS=()om
+# HOMEBREW_SLOW_FORMULAS=()
+# HOMEBREW_CASKS=()
+# HOMEBREW_FONTS=(
+# 	font-cantarell
+# 	font-cascadia-code
+# 	font-fira-code
+# 	font-fira-code-nerd-font
+# 	font-fira-mono
+# 	font-fira-mono-nerd-font
+# 	font-hack
+# 	font-hasklig
+# 	font-ibm-plex
+# 	font-inconsolata-go-nerd-font
+# 	font-inter
+# 	font-jetbrains-mono
+# 	font-jetbrains-mono-nerd-font
+# 	font-lato
+# 	font-maven-pro
+# 	font-monoid
+# 	font-montserrat
+# 	font-open-sans
+# 	font-oxygen
+# 	font-oxygen-mono
+# 	font-roboto
+# 	font-roboto-mono
+# 	font-source-code-pro
+# 	font-ubuntu
+# )
+# HOMEBREW_UNINSTALL=()        # for casks and formulas
+# HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
 
 # Golang / go
-GO_INSTALL=()
+# Used by `setup-go`
+# GO_INSTALL=()
 
 # Node.js
-# CLEAN_NVM='yes' # yes/no
-NPM_INSTALL=()
+# Used by `setup-node`
+# NPM_INSTALL=()
 
 # Python
-PYTHON_INSTALL=()
-PIP_INSTALL=()
-PYTHON2_PIP_INSTALL=()
-PYTHON3_PIP_INSTALL=()
-PIPX_INSTALL=()
+# Used by `setup-python`
+# PYTHON_INSTALL=()
+# PIP_INSTALL=()
+# PYTHON2_PIP_INSTALL=()
+# PYTHON3_PIP_INSTALL=()
+# PIPX_INSTALL=()
 
 # Ruby
-GEM_INSTALL=()
+# Used by `setup-ruby`
+# GEM_INSTALL=()
 
 # Rust / Cargo / Crates.io
-CARGO_INSTALL=()
+# Used by `setup-rust`
+# CARGO_INSTALL=()
 
-# setup-util-*
-SETUP_UTILS=()
+# Utilities to install, these are the [setup-util-*] scripts
+# Used by `setup-utils`
+# You can use `setup-utils --configure` to configure these.
+# SETUP_UTILS=()

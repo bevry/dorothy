@@ -2,7 +2,9 @@
 # shellcheck disable=SC2034
 # do not use `export` keyword in this file
 
-# our editors in order of preference
+# Used by `setup-environment-commands`
+
+# Our editors in order of preference
 TERMINAL_EDITORS=(
 	nano
 	vim # --noplugin -c "set nowrap"'
