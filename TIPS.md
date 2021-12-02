@@ -441,7 +441,7 @@ mapfile -t a <<< "$str"; echo-verbose "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
-mapfile -t a < <(echo-lines 'a b' 'c d'); echo-verbose "${a[@]}"
+mapfile -t a < <(echo-lines -- 'a b' 'c d'); echo-verbose "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
@@ -482,7 +482,7 @@ mapfile -t a <<< "${list[@]}"; echo-verbose "${a[@]}"
 # [2] = [d]
 
 # as such these will always work as expected
-echo-lines ...  # for recursive and non-recursive newlines
+echo-lines -- ...  # for recursive and non-recursive newlines
 echo-split ''    -- ...  # equivalent for recursive and non-recursive newlines
 echo-split $'\n' -- ...  # equivalent for recursive and non-recursive newlines
 echo-split ' '   -- ...  # for custom deliminator
@@ -493,7 +493,7 @@ If you don't meed the result as an array via `mapfile -t lines` which you would 
 ```bash
 # for newlines
 list=('a b' $'c\nd' 'e f')
-echo-lines "${list[@]}" | while read -r line; do
+echo-lines -- "${list[@]}" | while read -r line; do
 	echo "[$line]"
 done
 # output correct by arguments:
