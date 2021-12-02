@@ -5,6 +5,7 @@ requires_array_support 'mapfile'
 
 # dependencies
 source "$DOROTHY/sources/ripgrep.bash"
+env QUIET=yes setup-util-sd
 
 # test
 if is-needle '--test' "$@"; then
@@ -16,39 +17,43 @@ if is-needle '--test' "$@"; then
 
 		# test invalid arguments fail
 		eval-tester --ec=22 -- config-helper --file="$file"
-		eval-tester --ec=22 -- config-helper --file="$file" --replace='one'
-		eval-tester --ec=22 -- config-helper --file="$file" --find='one' --replace='one' --replace='two'
-		eval-tester --ec=22 -- config-helper --file="$file" --find='one' --find='two' --replace='one'
+		eval-tester --ec=22 -- config-helper --file="$file" -- --replace='one'
+		eval-tester --ec=22 -- config-helper --file="$file" -- --find='a' --replace='one' --replace='two'
+		eval-tester --stdout='one' -- cat "$file"
 
 		# test an empty file
-		eval-tester -- config-helper --file="$file" \
-			--find='commands.local/' --replace='commands.local/' \
-			--find='config.local/' --replace='config.local/'
-		eval-tester --stdout=$'commands.local/\nconfig.local/' -- cat "$file"
+		eval-tester -- config-helper --file="$file" -- \
+			--find='commands.local[/]' --replace='commands.local/' \
+			--find='config.local[/]' --replace='config.local/'
+		eval-tester --stdout=$'one\ncommands.local/\nconfig.local/' -- cat "$file"
 
 		# test a file that as results
-		eval-tester -- config-helper --file="$file" \
-			--find='commands.local/' --replace='commands.replaced/' \
-			--find='config.local/' --replace='config.replaced/'
-		eval-tester --stdout=$'##commands.local/\ncommands.replaced/\n##config.local/\nconfig.replaced/' -- cat "$file"
+		eval-tester -- config-helper --file="$file" -- \
+			--find='commands.local[/]' --replace='commands.replaced/' \
+			--find='config.local[/]' --replace='config.replaced/'
+		eval-tester --stdout=$'one\ncommands.replaced/\nconfig.replaced/' -- cat "$file"
 
-		# test find only, used by <sharebox> commandd
-		echo $'\tUser=uu\n\tGroup=gg\n\t# Party=pp' >>"$file"
-		eval-tester --stdout='uu' -- \
-			config-helper --file="$file" --find='User=(.*)'
-		eval-tester --stdout=$'uu\ngg' -- \
-			config-helper --file="$file" --find='User=(.*)' --find='Group=(.*)'
+		# test find only, used by <sharebox> command
+		echo $'User=uu\n\tGroup=gg\n\t# Party=pp' >"$file"
+		eval-tester --stdout=$'User=uu\nuu\nGroup=gg\ngg' -- config-helper --file="$file" -- \
+			--find='User=(.*)' \
+			--field='User' \
+			--find='Group=(.*)' \
+			--field='Group' \
+			--find='Party=(.*)' \
+			--field='Party'
 
-		# test unused but possible find patterns
-		eval-tester --stdout=$'##commands.local/\ncommands.replaced/' -- config-helper --file="$file" \
-			--find='##commands.local/' \
-			--find='commands.replaced/'
-		eval-tester --stdout=$'User=uu\nGroup' -- \
-			config-helper --file="$file" --find='User=.*' --find='(Group)=.*' --find='Party'
+		# uncomment party
+		eval-tester --stdout='sup' -- config-helper --quiet --file="$file" -- \
+			--find='Party=(.*)' --replace='Party=sup' \
+			--field='Party'
 
-		# todo, add tests for:
-		# -- find, replace
-		# -- find, (multiline replace)
+		# test variable replacements
+		echo $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$file"
+		eval-tester -- config-helper --quiet --file="$file" -- \
+			--field='a' --value='1' \
+			--field='b' --array="$(echo-lines --quoted 2 3)"
+		eval-tester --stdout=$'a=1\n\tb=(\n\t\t\'2\'\n\t\t\'3\'\n\t)' -- cat "$file"
 
 		# done
 		echo-segment --g1="TEST: $0"
@@ -63,19 +68,16 @@ fi
 function help() {
 	cat <<-EOF >/dev/stderr
 		USAGE:
-		config-helper <file> [--find=<pattern> --replace=<pattern>]...
-		config-helper <file> [--find=<pattern>]...
-		config-helper <file> -- [<find> <replace>]...
+		config-helper <file> -- ...
+			[--find=<pattern>] # outputs the found result
+			[--find=<pattern> [--replace=<pattern>]] # replaces the pattern with the pattern
+			[--field=<field>] # outputs the value of the field
+			[--field=<field> [--value=<value>]] # sets the field to the value
+			[--field=<field> [--array=<lines>]] # sets the field to an array of the lines
 
 		QUIRKS:
-
-		[--find=<pattern>] and [--replace=<pattern>] used rust based regular expressions.
-
-		<find> and <replace> use key-value pair replacements.
-
-		If replace is omitted, that is only finds are provided, then config-helper servers as a value fetcher.
-
-		If replace is provided, then config-helper will update the <file> with the replacements.
+		If a commented --find=<pattern> or --field=<field> is found, the replacement will be placed there.
+		If multiple results are found, the replacement will only leave the replacement.
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines "$@")" >/dev/stderr
@@ -89,32 +91,16 @@ function help() {
 # .gitignore
 file=''
 
-# e.g.
-# Domains=
-# DOROTHY_THEME=
-# config.local/
-find_array=()
-
-# e.g.
-# Domains=~.
-# DOROTHY_THEME=oz
-# config.local/
-replace_array=()
-
-# e.g.
-# Domains, ~.
-# DOROTHY_THEME, oz
-args=()
-
 # process
+args=()
+quiet='no'
 while test "$#" -ne 0; do
 	item="$1"
 	shift
 	case "$item" in
 	'--help' | '-h') help ;;
 	'--file='*) file="${item:7}" ;;
-	'--find='*) find_array+=("${item:7}") ;;
-	'--replace='*) replace_array+=("${item:10}") ;;
+	'--quiet'*) quiet="$(get-flag-value quiet --missing="$quiet" -- "$item" | echo-affirmative)" ;;
 	'--')
 		args+=("$@")
 		shift $#
@@ -131,155 +117,127 @@ while test "$#" -ne 0; do
 	esac
 done
 
-# check if args is provided, as we will need to process it
-if test "${#args[@]}" -ne 0; then
-	if is-odd "${#args[@]}"; then
-		help "The amount of args must be even, as they are for [<find> <replace>] tuples."$'\n'"$(echo-verbose "${args[@]}")"
-	fi
-	for ((i = 0; i < ${#args[@]}; i = i + 2)); do
-		key="${args[i]}"
-		input="${args[i + 1]}"
-		mapfile -t values < <(echo-split $'\n' -- "$input" | sort)
-		find="${key}=(?:.*)"
-		if test "${#values[@]}" -eq 0; then
-			replace=''
+# check
+if test "${#args[@]}" -eq 0; then
+	help "Need arguments, otherwise what is the point?"
+fi
+
+# =====================================
+# Action
+
+# prepare
+update='no'
+
+# cycle
+function act() {
+	local search sed_trim_duplicates get_value_pattern pattern replace find field value
+	while test "$#" -ne 0; do
+		# prepare
+		search="$1"
+		shift
+		sed_trim_duplicates=''
+		get_value_pattern=''
+		pattern=''
+		replace="${1-}"
+		find=''
+		field=''
+		value=''
+
+		# search
+		# https://docs.rs/regex/latest/regex/
+		# (?flags:exp)   set flags for exp (non-capturing)
+		# m     multi-line mode: ^ and $ match begin/end of line
+		# u     Unicode support (enabled by default)
+		# x     ignore whitespace and allow line comments (starting with `#`)
+		# ^ x doesn't seem to work
+		# sed magic is from https://unix.stackexchange.com/a/569675/50703
+		# the (?m) prefix turns out not be necessary, for sed, nor ripgrep
+		if [[ "$search" = '--pattern='* ]]; then
+			# raw pattern
+			pattern="(?P<value>${search:10})" # undocumented
+		elif [[ "$search" = '--find='* ]]; then
+			# indentable, commentable, pattern
+			find="${search:7}"
+			pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)(?P<value>${find})$"
+			get_value_pattern="^(?P<indent>[[:blank:]]*)(?P<value>${find})$" # ignore comments
+			sed_trim_duplicates="0,/[# 	]*${find}/!{//d}"
+		elif [[ "$search" = '--field='* ]]; then
+			# field that can be an array and value
+			field="${search:8}"
+			pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)${field}=(?P<value>[(](?ms:.*?)[)]|[^\n]*)$"
+			get_value_pattern="^(?P<indent>[[:blank:]]*)${field}=(?P<value>[(](?ms:.*?)[)]|[^\n]*)$" # ignore comments
+			sed_trim_duplicates="0,/[# 	]*${field}=(.*?)/!{//d}"
 		else
-			if test "${#values[@]}" -eq 1; then
-				# single value
-				value="${values[0]@Q}"
-			else
-				# array
-				# https://github.com/chmln/sd/issues/146
-				find="${key}=(?:[(](?:\n|.)*?[)]|.*)"
-				value=$'('
-				for line in "${values[@]}"; do
-					value+=$'\n\t'"${line@Q}"
-				done
-				value+=$'\n)'
-			fi
-			replace="${key}=${value}"
+			help "Invalid search argument [$search] it must be either --find=<pattern> or --field=<field>"
 		fi
-		# multiline replace
-		if rg -Uq "$find" "$file"; then
-			# it was found, so do the replacement
-			sd -f m "$find" "$replace" "$file"
+
+		# replace
+		if [[ "$replace" = '--replace='* ]]; then
+			# replace value
+			replace="${replace:10}"
+		elif [[ "$replace" = '--array='* ]]; then
+			value="${replace:8}"
+
+			# check for field
+			if test -z "$field"; then
+				help "--array=<$value> must be used with --field=<field>"
+			fi
+
+			# adapt for array
+			mapfile -t lines <<<"$value" # read lines into an array, such that indentation works
+			value=$'(\n'"$(echo-lines --indent=$'${indent}\t' "${lines[@]}")"$'\n${indent})'
+			replace="\${indent}${field}=${value}"
+		elif [[ "$replace" = '--value='* ]]; then
+			value="${replace:8}"
+
+			# check for field
+			if test -z "$field"; then
+				help "--value=<$value> must be used with --field=<field>"
+			fi
+
+			# apply for value
+			replace="\${indent}${field}=${value}"
 		else
-			# wasn't found, add manually
+			# this was a find only
+			# --max-count=1 is to workaround: https://github.com/BurntSushi/ripgrep/issues/2095
+			rg --max-count=1 --multiline --only-matching "${get_value_pattern:-"$pattern"}" --replace '${value}' "$file" || :
+			continue
+		fi
+
+		# it was a valid replace, so trim the replace value, so it is not the next iteration
+		shift
+		update='yes'
+
+		# and perform the replace
+		if rg --quiet --multiline "$pattern" "$file"; then
+			# trim all but the first occurance, this is complicated because these aren't a thing:
+			# https://github.com/BurntSushi/ripgrep/issues/2094
+			# https://github.com/chmln/sd/issues/105
+			# https://github.com/greymd/teip/issues/27
+			if test -n "$sed_trim_duplicates"; then
+				if test -n "$field"; then
+					# make everything a single line, as gsed can't do multiple lines
+					sd "$pattern" "\${indent}${field}=$RANDOM" "$file"
+				fi
+				# trim everything but the first occurance
+				gsed -i -E "$sed_trim_duplicates" "$file"
+			fi
+
+			# it was found, use sd for the replacement
+			sd "$pattern" "$replace" "$file"
+		else
+			# it wasn't found, so add manually if it's not empty
 			if test -n "$replace"; then
 				echo "$replace" >>"$file"
 			fi
 		fi
 	done
-	# we do our own processing, as we need to support multiline matches
-	echo "Updated configuration file: $file"
-	exit 0
+}
+
+# act
+act "${args[@]}"
+
+# we do our own processing, as we need to support multiline matches
+if test "$update" = 'yes' -a "$quiet" = 'no'; then
+	echo-style --success="Updated configuration file: $file" >/dev/tty
 fi
-
-# prepare verify
-find_count="${#find_array[@]}"
-replace_count="${#replace_array[@]}"
-
-# verify find
-if test "$find_count" -eq 0; then
-	stderr echo-style \
-		--error="$0 $*" $'\n' \
-		--red="At least one [--find=...] argument must be provided."
-	exit 22 # Invalid argument
-fi
-
-# check if we are find only
-# if so, life is simple, do a little thing then exist
-if test "$replace_count" -eq 0; then
-	# we are find only
-	for find in "${find_array[@]}"; do
-		if rg -q '[(].+?[)]' <<<"$find"; then
-			pattern="^[ 	]*(?:$find)$"
-		else
-			pattern="^[ 	]*($find)$"
-		fi
-		# ^ with indentation but no comment (so we only get real values), and with value group so that $2 is consistent with overrides
-		rg -o "$pattern" --replace '$1' "$file" || :
-		# ^ don't fail on no results
-	done
-	exit
-fi
-# otherwise we are a replacement
-# goal: replace all uncommented instances with a single set instance, after the first comment or at the end
-
-# verify we have the same finds as replaces
-if test "$replace_count" -ne "$find_count"; then
-	stderr echo-style \
-		--error="$0 $*" $'\n' \
-		--red="the amount of [--find=...] arguments must match the amount of [--replace=...] arguments."
-	exit 22 # Invalid argument
-fi
-
-# prepare the file
-touch "$file"
-mapfile -t lines <"$file"
-
-# cycle through each find and replace pair
-for find_index in "${!find_array[@]}"; do
-	# prepare
-	find="${find_array[find_index]}"
-	replace="${replace_array[find_index]}"
-	pattern="^([ 	]*)[# 	]*($find)$" # with indentation, with comment
-	found='no'
-	stack=()
-	results=()
-
-	# cycle through the lines
-	# `test ... && for ...` is for bash v3 compatibility
-	test "${#lines[@]}" -ne 0 && for line in "${lines[@]}"; do
-		# check if the lines matches the pattern
-		if prefix="$(rg -qo "$pattern" --replace '$1' <<<"$line")"; then
-			# if not found, add the replacement line to the stack, to be added when we get back to normal lines
-			if test "$found" = 'no'; then
-				stack+=(
-					"${prefix}${replace}"
-				)
-				found='yes'
-			fi
-
-			# get existing line, minus comment prefix
-			comment="$(rg -o "$pattern" --replace '$2' <<<"$line")"
-
-			# only add the comment, if it is different from the result
-			if test "$comment" != "${replace}"; then
-				# use ## so it is easy to see where the replacements were
-				results+=(
-					"${prefix}##${comment}"
-				)
-			fi
-		else
-			# not a match, so ordinary line
-
-			# empty the stack
-			if test "${#stack[@]}" -ne 0; then
-				results+=("${stack[@]}")
-				stack=()
-			fi
-
-			# and append
-			results+=("$line")
-		fi
-	done
-
-	# empty the stack
-	if test "${#stack[@]}" -ne 0; then
-		results+=("${stack[@]}")
-		stack=()
-	fi
-
-	# append replacement if it was never found
-	if test "$found" = 'no'; then
-		results+=("$replace")
-	fi
-
-	# replace the lines with the results, and move onto the next combo
-	lines=("${results[@]}")
-done
-
-# write the updated file
-echo-lines "${results[@]}" >"$file"
-echo "Updated configuration file: $file"

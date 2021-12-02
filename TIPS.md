@@ -206,6 +206,35 @@ echo "${var/o/O}"
 echo "${var//o/O}"
 ```
 
+### file replacement
+
+```bash
+if rg --multiline --quiet "$pattern" "$file"; then
+	# it was found, do the replacement
+	sd --flags m \
+		"$pattern" "$replace" \
+		"$file"
+else
+	# it wasn't found, so add manually if it's not empty
+	if test -n "$replace"; then
+		echo "$replace" >>"$file"
+	fi
+fi
+```
+
+is the same as:
+
+```bash
+if ! rg --multiline --passthru "$pattern" --replace "$replace" "$file" | sponge "$file"; then
+	# it wasn't found, so add manually if it's not empty
+	if test -n "$replace"; then
+		echo "$replace" >>"$file"
+	fi
+fi
+```
+
+however, due to https://github.com/BurntSushi/ripgrep/issues/2094 and other bugs, --passthru is unreliable.
+
 ## arrays
 
 > - [bash manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)

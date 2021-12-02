@@ -2,28 +2,68 @@
 source "$DOROTHY/sources/strict.bash"
 
 # =====================================
-# Options
+# Arguments
 
-timeout='3600' # one hour
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		USAGE:
+		confirm [<...flags>] -- [<question> [<...details>]]
+
+		FLAGS:
+		[--mode=<bool, positive, negative, confirm>]
+		[--timeout=<timeout in seconds>]
+		[--yes=<on positive confirmations, what value to display>]
+		[--no=<on negative confirmations, what value to display>]
+		[--abort=<on aborted confirmations, what value to display>]
+		[--term=<on aborted ocnfirmations, terminate this process id>]
+
+		QUIRKS:
+		As negative confirmations return a failure exit code, and abortions a different failure exit code, you probably need to use [--term=$$] so that confirmation abortions actually continue the abortion, and are not just considered a negative confirmation.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
 option_mode='confirm'
+option_timeout='3600' # one hour
 option_yes='OK'
 option_no='CANCEL'
+option_abort='ABORT'
 option_term=''
-while is-needle '--' "$@"; do
-	if [[ "$1" = '--mode='* ]]; then
-		option_mode="${1:7}" # bool/positive/negative/confirm
+question_parts=()
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--mode='*)
+		option_mode="${item:7}" # bool/positive/negative/confirm
 		if test "$option_mode" = 'positive' -o "$option_mode" = 'negative'; then
-			timeout='60' # one minute
+			option_timeout='60' # one minute
 			option_yes='YES'
 			option_no='NO'
 		elif test "$option_mode" = 'bool'; then
 			option_yes='YES'
 			option_no='NO'
 		fi
-	elif [[ "$1" = '--term='* ]]; then
-		option_term="${1:7}"
-	fi
-	shift
+		;;
+	'--timeout='*) option_timeout="${item:10}" ;;
+	'--yes='*) option_yes="${item:6}" ;;
+	'--no='*) option_no="${item:5}" ;;
+	'--abort='*) option_abort="${item:8}" ;;
+	'--term='*) option_term="${item:7}" ;;
+	'--')
+		question_parts+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) help "An unrecognised argument was provided: $item" ;;
+	esac
 done
 
 # =====================================
@@ -34,7 +74,7 @@ function confirmer() {
 	local ec answer
 
 	# ask and timeout
-	ec=0 && answer="$(read-arrow --timeout "$timeout")" || ec="$?"
+	ec=0 && answer="$(read-arrow --timeout "$option_timeout")" || ec="$?"
 
 	# process
 	if test "$option_mode" = 'positive'; then
@@ -104,9 +144,8 @@ function confirmer() {
 # Question
 
 # prepare
-question_first_part="${1-} " # this is stored for the finale
-question_parts=("$@")
-question_parts_total="$(($# - 1))"
+question_first_part="${question_parts[0]} " # this is stored for the finale
+question_parts_total="${#question_parts[@]}"
 header="$(mktemp)"
 lines=0
 ec=0
@@ -119,13 +158,13 @@ elif test "$option_mode" = 'negative'; then
 elif test "$option_mode" = 'bool'; then
 	question_parts[0]+=" $(echo-style --blink='(y/n)')"
 fi
-for ((i = 0; i <= "$question_parts_total"; i++)); do
+for ((i = 0; i < "$question_parts_total"; i++)); do
 	echo -n "${question_parts[i]} " | tee -a "$header"
 	if test "$i" -eq 0; then
 		# read cursor x y, discard y, set hx to y
 		IFS='[;' read -srd R -p $'\e[6n' _ _ hx
 	fi
-	if test "$i" -ne "$question_parts_total"; then
+	if test "$((i + 1))" -ne "$question_parts_total"; then
 		echo | tee -a "$header"
 	fi
 done
@@ -151,7 +190,7 @@ function finish() {
 	elif test "$ec" -eq 1; then
 		echo-style "$question_first_part" --red+bold="$option_no"
 	else
-		echo-style "$question_first_part" --red+bold="ABORT"
+		echo-style "$question_first_part" --red+bold="$option_abort"
 		if test -n "$option_term"; then
 			# kill "-$ec" ...
 			# ^ fails because 130 isn't supported
