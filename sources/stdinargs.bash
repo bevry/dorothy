@@ -17,7 +17,7 @@ fi
 # check for help argument
 if is-help "$@"; then
 	if test "$(type -t help)" = 'function'; then
-		help && exit 22 # Invalid argument
+		help >/dev/stderr && exit 22 # Invalid argument
 		exit "$?"
 	else
 		echo "please update the function you called with a [help] method" >/dev/stderr
