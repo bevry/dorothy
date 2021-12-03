@@ -3,11 +3,15 @@
 
 export STDIN='no'
 
-# bash v3 compatibility
-if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
-	timeout='0.1'
-else
-	timeout='1'
+# allow sourcer to overide
+if test -z "${timeout-}"; then
+	# don't use a value less than 1 (unless 0, which means infinite timeout)
+	# as too many commands take longer than a second to generate output (`mas search xcode` especially)
+	# and decimal timeouts will fail in bash v3
+	timeout="${TIMEOUT:-1}" # allow caller to override
+	# also can't use something like: mas search xcode | echo-wait | echo-trim-lines
+	# as `echo-trim-lines` will wait even longer in this case
+	# as such, this is the best solution: mas search xcode | env TIMEOUT=0 echo-trim-lines
 fi
 
 # check for help argument
@@ -40,7 +44,11 @@ else
 	# read stdin
 	# if stdin works, then mark it as so
 	# and call `act` on each line
-	while read -rt "$timeout" item; do
+	read_args=()
+	if test -n "$timeout" -a "$timeout" -ne 0; then
+		read_args+=("-t" "$timeout")
+	fi
+	while read -r "${read_args[@]}" item; do
 		STDIN='yes'
 		if test "$(type -t line)" = 'function'; then
 			line "$item"

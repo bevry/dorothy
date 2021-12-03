@@ -4,8 +4,11 @@ source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
 
 # dependencies
+export QUIET=yes
 source "$DOROTHY/sources/ripgrep.bash"
-env QUIET=yes setup-util-sd
+source "$(which setup-util-gsed)"
+setup-util-sd
+export QUIET=no
 
 # test
 if is-needle '--test' "$@"; then
@@ -48,12 +51,14 @@ if is-needle '--test' "$@"; then
 			--find='Party=(.*)' --replace='Party=sup' \
 			--field='Party'
 
-		# test variable replacements
+		# test variable replacements and additions
 		echo $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$file"
 		eval-tester -- config-helper --quiet --file="$file" -- \
 			--field='a' --value='1' \
-			--field='b' --array="$(echo-lines --quoted -- 2 3)"
-		eval-tester --stdout=$'a=1\n\tb=(\n\t\t\'2\'\n\t\t\'3\'\n\t)' -- cat "$file"
+			--field='b' --array="$(echo-lines --quoted -- 2 3)" \
+			--field='aa' --value='11' \
+			--field='bb' --array="$(echo-lines --quoted -- 22 33)"
+		eval-tester --stdout=$'a=1\n\tb=(\n\t\t\'2\'\n\t\t\'3\'\n\t)\naa=11\nbb=(\n\t\'22\'\n\t\'33\'\n)' -- cat "$file"
 
 		# done
 		echo-segment --g1="TEST: $0"
@@ -100,7 +105,7 @@ while test "$#" -ne 0; do
 	case "$item" in
 	'--help' | '-h') help ;;
 	'--file='*) file="${item:7}" ;;
-	'--quiet'*) quiet="$(get-flag-value quiet --missing="$quiet" -- "$item" | echo-affirmative)" ;;
+	'--no-quiet'* | '--quiet'*) quiet="$(get-flag-value quiet --missing="$quiet" -- "$item" | echo-affirmative)" ;;
 	'--')
 		args+=("$@")
 		shift $#
@@ -126,22 +131,27 @@ fi
 # Action
 
 # prepare
-update='no'
+updated='no'
 
 # cycle
 function act() {
-	local search sed_trim_duplicates get_value_pattern pattern replace find field value
+	local option_search option_replace search_pattern replace_pattern get_value_pattern sed_excess_pattern excess_value addition find field value
 	while test "$#" -ne 0; do
-		# prepare
-		search="$1"
+		# extract arguments
+		option_search="$1"
 		shift
-		sed_trim_duplicates=''
+		option_replace="${1-}"
+
+		# reset variables
+		search_pattern=''
+		replace_pattern=''
 		get_value_pattern=''
-		pattern=''
-		replace="${1-}"
-		find=''
-		field=''
-		value=''
+		sed_excess_pattern=''
+		excess_value=''
+		addition=''
+		find=''  # value of --find=<value>
+		field='' # value of --field=<value>
+		value='' # value of --{replace,array,value}=<value>
 
 		# search
 		# https://docs.rs/regex/latest/regex/
@@ -152,31 +162,36 @@ function act() {
 		# ^ x doesn't seem to work
 		# sed magic is from https://unix.stackexchange.com/a/569675/50703
 		# the (?m) prefix turns out not be necessary, for sed, nor ripgrep
-		if [[ "$search" = '--pattern='* ]]; then
+		if [[ "$option_search" = '--pattern='* ]]; then
 			# raw pattern
-			pattern="(?P<value>${search:10})" # undocumented
-		elif [[ "$search" = '--find='* ]]; then
+			search_pattern="(?P<value>${option_search:10})" # undocumented
+			get_value_pattern="$search_pattern"
+		elif [[ "$option_search" = '--find='* ]]; then
 			# indentable, commentable, pattern
-			find="${search:7}"
-			pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)(?P<value>${find})$"
+			find="${option_search:7}"
+			search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)(?P<value>${find})$"
 			get_value_pattern="^(?P<indent>[[:blank:]]*)(?P<value>${find})$" # ignore comments
-			sed_trim_duplicates="0,/[# 	]*${find}/!{//d}"
-		elif [[ "$search" = '--field='* ]]; then
+			sed_excess_pattern="0,/[# 	]*${find}/!{//d}"
+			excess_value="\${indent}${field}=$RANDOM"
+		elif [[ "$option_search" = '--field='* ]]; then
 			# field that can be an array and value
-			field="${search:8}"
-			pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)${field}=(?P<value>[(](?ms:.*?)[)]|[^\n]*)$"
+			field="${option_search:8}"
+			search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)${field}=(?P<value>[(](?ms:.*?)[)]|[^\n]*)$"
 			get_value_pattern="^(?P<indent>[[:blank:]]*)${field}=(?P<value>[(](?ms:.*?)[)]|[^\n]*)$" # ignore comments
-			sed_trim_duplicates="0,/[# 	]*${field}=(.*?)/!{//d}"
+			sed_excess_pattern="0,/[# 	]*${field}=(.*?)/!{//d}"
+			excess_value="\${indent}${field}=$RANDOM"
 		else
-			help "Invalid search argument [$search] it must be either --find=<pattern> or --field=<field>"
+			help "Invalid search argument [$option_search] it must be either --find=<pattern> or --field=<field>"
 		fi
 
-		# replace
-		if [[ "$replace" = '--replace='* ]]; then
+		# addition/replace
+		if [[ "$option_replace" = '--replace='* ]]; then
 			# replace value
-			replace="${replace:10}"
-		elif [[ "$replace" = '--array='* ]]; then
-			value="${replace:8}"
+			value="${option_replace:10}"
+			addition="$value"
+			replace_pattern="$value"
+		elif [[ "$option_replace" = '--array='* ]]; then
+			value="${option_replace:8}"
 
 			# check for field
 			if test -z "$field"; then
@@ -185,52 +200,63 @@ function act() {
 
 			# adapt for array
 			mapfile -t lines <<<"$value" # read lines into an array, such that indentation works
+
+			# addition
+			value=$'(\n'"$(echo-lines --indent=$'\t' -- "${lines[@]}")"$'\n)'
+			addition="${field}=${value}"
+
+			# replacement
 			value=$'(\n'"$(echo-lines --indent=$'${indent}\t' -- "${lines[@]}")"$'\n${indent})'
-			replace="\${indent}${field}=${value}"
-		elif [[ "$replace" = '--value='* ]]; then
-			value="${replace:8}"
+			replace_pattern="\${indent}${field}=${value}"
+		elif [[ "$option_replace" = '--value='* ]]; then
+			value="${option_replace:8}"
 
 			# check for field
 			if test -z "$field"; then
 				help "--value=<$value> must be used with --field=<field>"
 			fi
 
-			# apply for value
-			replace="\${indent}${field}=${value}"
+			# addition and replacement
+			addition="${field}=${value}"
+			replace_pattern="\${indent}${field}=${value}"
 		else
-			# this was a find only
+			# the replacement field was a find value, do not shift it, as we will use it in the next cycle
+			# instead, fetch the value, then continue to use the field as the next find
 			# --max-count=1 is to workaround: https://github.com/BurntSushi/ripgrep/issues/2095
-			rg --max-count=1 --multiline --only-matching "${get_value_pattern:-"$pattern"}" --replace '${value}' "$file" || :
+			rg --max-count=1 --multiline --only-matching "$get_value_pattern" --replace '${value}' "$file" || :
 			continue
 		fi
 
-		# it was a valid replace, so trim the replace value, so it is not the next iteration
+		# replacement field is a replacement field, and not another find
+		# as such, trim it from the next cycle, as we are using it now
 		shift
-		update='yes'
 
 		# and perform the replace
-		if rg --quiet --multiline "$pattern" "$file"; then
+		if rg --quiet --multiline "$search_pattern" "$file"; then
 			# trim all but the first occurance, this is complicated because these aren't a thing:
 			# https://github.com/BurntSushi/ripgrep/issues/2094
 			# https://github.com/chmln/sd/issues/105
 			# https://github.com/greymd/teip/issues/27
-			if test -n "$sed_trim_duplicates"; then
+			if test -n "$sed_excess_pattern"; then
 				if test -n "$field"; then
 					# make everything a single line, as gsed can't do multiple lines
-					sd "$pattern" "\${indent}${field}=$RANDOM" "$file"
+					sd "$search_pattern" "$excess_value" "$file"
 				fi
 				# trim everything but the first occurance
-				gsed -i -E "$sed_trim_duplicates" "$file"
+				gsed -i -E "$sed_excess_pattern" "$file"
 			fi
 
 			# it was found, use sd for the replacement
-			sd "$pattern" "$replace" "$file"
+			sd "$search_pattern" "$replace_pattern" "$file"
 		else
 			# it wasn't found, so add manually if it's not empty
-			if test -n "$replace"; then
-				echo "$replace" >>"$file"
+			if test -n "$addition"; then
+				echo "$addition" >>"$file"
 			fi
 		fi
+
+		# a valid update occured, note for logging
+		updated='yes'
 	done
 }
 
@@ -238,6 +264,6 @@ function act() {
 act "${args[@]}"
 
 # we do our own processing, as we need to support multiline matches
-if test "$update" = 'yes' -a "$quiet" = 'no'; then
+if test "$updated" = 'yes' -a "$quiet" = 'no'; then
 	echo-style --success="Updated configuration file: $file" >/dev/tty
 fi

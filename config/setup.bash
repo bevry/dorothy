@@ -58,6 +58,7 @@
 
 # Golang / go
 # Used by `setup-go`
+# GO_LINTING_INSTALL='' # '', 'yes', 'no'
 # GO_INSTALL=()
 
 # Node.js

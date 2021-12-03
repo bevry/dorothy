@@ -57,6 +57,7 @@ HOMEBREW_ENCODING_FORMULAS=(
 	youtube-dl
 )
 # Deprecated configurations:
+SETUO_UTILS=()               # for configuration fixes
 HOMEBREW_INSTALL_ENCODING='' # deprecated, replaced by HOMEBREW_ENCODING_INSTALL
 HOMEBREW_INSTALL=()          # deprecated, replaced by HOMEBREW_FORMULAS
 HOMEBREW_INSTALL_SLOW=()     # depreacted, replaced by HOMEBREW_SLOW_FORMULAS
@@ -155,10 +156,10 @@ while test "$#" -ne 0; do
 	case "$item" in
 	'--help' | '-h') help ;;
 	'--action='*) action="${item:9}" ;;
-	'--encoding'*)
+	'--no-encoding'* | '--encoding'*)
 		HOMEBREW_ENCODING_INSTALL="$(get-flag-value encoding --missing="$HOMEBREW_ENCODING_INSTALL" -- "$item" | echo-affirmative || :)"
 		;;
-	'--configure'*)
+	'--no-configure'* | '--configure'*)
 		reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
 		;;
 	'--')
@@ -410,50 +411,64 @@ eval_collapse -- setup-util-devel
 echo-segment --g2="Install build dependencies"
 
 # =====================================
-# Workarounds
+# Encoding
 
-# ffmpeg
-if test "$action" = "install" && (
-	is-affirmative "$HOMEBREW_ENCODING_INSTALL" || confirm-negative --ppid=$$ -- 'Do you want to (re-)install encoding tools? This can take a while...'
-); then
-	echo-segment --h2="Homebrew encoding tools"
-	echo-style --notice="This can take a while... ⏲"
+if test "$action" = "install"; then
+	# determine full value for HOMEBREW_ENCODING_INSTALL
+	if test -z "$HOMEBREW_ENCODING_INSTALL" -o "$reconfigure" = 'yes'; then
+		if confirm-negative --ppid=$$ -- 'Do you want to (re-)install encoding tools? This can take a while...'; then
+			HOMEBREW_ENCODING_INSTALL='yes'
+		else
+			HOMEBREW_ENCODING_INSTALL='no'
+		fi
+		# we don't want to trigger a full reconfigure, when just this is missing
+		if test "$reconfigure" = 'no'; then
+			update_dorothy_user_config 'setup.bash' -- \
+				--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL"
+		fi
+	fi
 
-	# install dependencies:
-	# https://github.com/varenc/homebrew-ffmpeg/issues/28
-	# https://trac.ffmpeg.org/wiki/CompilationGuide/MacOSX
-	# @todo perhaps this entire encoding section can become modifiers to the existing operations
-	brew_install_fast "${HOMEBREW_ENCODING_FORMULAS[@]}"
+	# if yes, then install the linting tools
+	if test "$HOMEBREW_ENCODING_INSTALL" = 'yes'; then
+		echo-segment --h2="Homebrew encoding tools"
+		echo-style --notice="This can take a while... ⏲"
 
-	# Installing chromaprint will cause ffmpeg to be installed automatically, as such we need to remove that ffmpeg
-	# so that we can install the one with the build options
-	# Uninstall is necessary to prevent:
-	# Error: ffmpeg is already installed
-	# --ignore-dependencies is necesasry to prevent:
-	# Error: Refusing to uninstall because it is required by chromaprint, which is currently installed.
-	# Error: chromaprint not found
-	# More details:
-	# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/13#issuecomment-647408007
-	brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || :
+		# install dependencies:
+		# https://github.com/varenc/homebrew-ffmpeg/issues/28
+		# https://trac.ffmpeg.org/wiki/CompilationGuide/MacOSX
+		# @todo perhaps this entire encoding section can become modifiers to the existing operations
+		brew_install_fast "${HOMEBREW_ENCODING_FORMULAS[@]}"
 
-	# log
-	echo-segment --h2="Install ffmpeg with options"
+		# Installing chromaprint will cause ffmpeg to be installed automatically, as such we need to remove that ffmpeg
+		# so that we can install the one with the build options
+		# Uninstall is necessary to prevent:
+		# Error: ffmpeg is already installed
+		# --ignore-dependencies is necesasry to prevent:
+		# Error: Refusing to uninstall because it is required by chromaprint, which is currently installed.
+		# Error: chromaprint not found
+		# More details:
+		# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/13#issuecomment-647408007
+		brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || :
 
-	# fetch all the build options for ffmpeg
-	ffmpeg_opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
-	# Remove decklink, as:
-	# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
-	# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
-	ffmpeg_opts="${ffmpeg_opts/--with-decklink /}"
-	# space seperated array
-	mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
+		# log
+		echo-segment --h2="Install ffmpeg with options"
 
-	# install with the build options
-	eval_collapse -- brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts[@]}"
+		# fetch all the build options for ffmpeg
+		ffmpeg_opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
+		# Remove decklink, as:
+		# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
+		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
+		ffmpeg_opts="${ffmpeg_opts/--with-decklink /}"
+		# space seperated array
+		mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
 
-	# log
-	echo-segment --g2="Install ffmpeg with options"
-	echo-segment --g2="Homebrew encoding tools"
+		# install with the build options
+		eval_collapse -- brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts[@]}"
+
+		# log
+		echo-segment --g2="Install ffmpeg with options"
+		echo-segment --g2="Homebrew encoding tools"
+	fi
 fi
 
 # =====================================
@@ -496,8 +511,25 @@ if test "$reconfigure" = 'yes'; then
 	mapfile -t requested_formulas < <(brew-installed --requested --formula)
 	mapfile -t requested_cask < <(brew-installed --requested --cask)
 
+	# because installation has completed, we can reset the config vars
+	# this will also allow us to put everything in the right place
+	HOMEBREW_FORMULAS=()
+	HOMEBREW_FONTS=()
+	HOMEBREW_CASKS=()
+	# do not reset SETUP_UTILS, only add to it, as there isn't installed detection for it
+
 	# update our listings appropriatley
 	for item in "${requested_formulas[@]}"; do
+		installer="$(get-installer "$item" || :)"
+		if test -n "$installer"; then
+			if [[ "$installer" = 'setup-util-'* ]]; then
+				SETUP_UTILS+=("${installer:11}")
+			fi
+			continue
+		fi
+		if is-needle "$item" "${HOMEBREW_FORMULAS[@]}"; then
+			continue
+		fi
 		if is-needle "$item" "${HOMEBREW_SLOW_FORMULAS[@]}"; then
 			continue
 		fi
@@ -511,6 +543,16 @@ if test "$reconfigure" = 'yes'; then
 		HOMEBREW_FORMULAS+=("$item")
 	done
 	for item in "${requested_cask[@]}"; do
+		installer="$(get-installer "$item" || :)"
+		if test -n "$installer"; then
+			if [[ "$installer" = 'setup-util-'* ]]; then
+				SETUP_UTILS+=("${installer:11}")
+			fi
+			continue
+		fi
+		if is-needle "$item" "${HOMEBREW_CASKS[@]}"; then
+			continue
+		fi
 		if is-needle "$item" "${HOMEBREW_FONTS[@]}"; then
 			continue
 		fi
@@ -523,9 +565,11 @@ if test "$reconfigure" = 'yes'; then
 
 	# save
 	update_dorothy_user_config 'setup.bash' -- \
-		--field='HOMEBREW_FORMULAS' --array="$(echo-lines --quoted -- "${HOMEBREW_FORMULAS[@]}" | sort)" \
-		--field='HOMEBREW_CASKS' --array="$(echo-lines --quoted -- "${HOMEBREW_CASKS[@]}" | sort)" \
-		--field='HOMEBREW_FONTS' --array="$(echo-lines --quoted -- "${HOMEBREW_FONTS[@]}" | sort)"
+		--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL" \
+		--field='HOMEBREW_FORMULAS' --array="$(echo-lines --quoted -- "${HOMEBREW_FORMULAS[@]}" | sort --ignore-case)" \
+		--field='HOMEBREW_CASKS' --array="$(echo-lines --quoted -- "${HOMEBREW_CASKS[@]}" | sort --ignore-case)" \
+		--field='HOMEBREW_FONTS' --array="$(echo-lines --quoted -- "${HOMEBREW_FONTS[@]}" | sort --ignore-case)" \
+		--field='SETUP_UTILS' --array="$(echo-lines --quoted -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
 fi
 
 # =====================================
