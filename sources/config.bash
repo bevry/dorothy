@@ -109,7 +109,7 @@ update_dorothy_user_config() {
 	# prompt the user which file to use
 	dorothy_config_filepath="$(
 		choose-option --required \
-			--question="Which [$dorothy_config_filename] configuration file to save changes to?" \
+			--question="The [$dorothy_config_filename] configuration file is pending updates, which one do you wish to update?" \
 			-- "${dorothy_config_filepaths[@]}"
 	)"
 
