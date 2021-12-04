@@ -14,6 +14,95 @@ if ! is-mac; then
 fi
 
 # =====================================
+# --clean
+
+function brew_clean() {
+	# environment provides:
+	# HOMEBREW_ARCH, HOMEBREW_PREFIX
+
+	echo-segment --h2='Cleanup homebrew'
+	if is-brew; then
+		# fix common permission errors
+		# Error: Could not cleanup old kegs! Fix your permissions on:
+		# /usr/local/Cellar/go/1.17.2
+		if test -d "$HOMEBREW_CELLAR/go"; then
+			fs-own -- "$HOMEBREW_CELLAR/go"
+		fi
+		# cleanup
+		eval-collapse -- brew cleanup --quiet -s --prune=all
+		# cleanup further
+		rm -rf "$(brew --cache)"
+	fi
+	echo-segment --g2='Cleanup homebrew'
+}
+if test "${1-}" = '--clean'; then
+	brew_clean
+	exit "$?"
+fi
+
+# =====================================
+# --uninstall
+
+function brew_uninstall() {
+	# environment provides:
+	# HOMEBREW_ARCH, HOMEBREW_PREFIX
+
+	# confirm
+	if ! confirm-negative --ppid=$$ -- 'Are you sure you want to uninstall Homebrew?'; then
+		return 1
+	fi
+
+	# prepare
+	source "$DOROTHY/sources/nullglob.bash"
+	removals=(
+		"${NVM_DIR-}"
+		"$HOME/.nvm"
+		"${HOMEBREW_PREFIX}/"*
+		/usr/local/*
+		/opt/homebrew/*
+	)
+
+	# log
+	echo-segment --h1='Uninstall Homebrew'
+
+	# reconfigure shells for the lack of brew, by trimming the brew shells
+	grep -v "$HOMEBREW_PREFIX" /etc/shells | sudo sponge /etc/shells
+
+	# set the default shell to a non-brew shell
+	if command-exists /bin/zsh; then
+		select-shell /bin/zsh
+	elif command-exists /bin/bash; then
+		select-shell /bin/bash
+	elif command-exists /bin/sh; then
+		select-shell /bin/sh
+	fi
+
+	# reset anything that depends on brew
+	setup-dns system || :
+	setup-git || :
+
+	# uninstall brew
+	if is-brew; then
+		arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
+	fi
+
+	# remove any leftover directories
+	for remove in "${removals[@]}"; do
+		if test -n "$remove" -a -e "$remove"; then
+			sudo rm -Rf "$remove" || :
+		fi
+	done
+
+	# log
+	echo-segment --g1='Uninstall Homebrew'
+	echo-style --green+bold='Homebrew uninstalled, ' --red+bold+underline='restart your terminal to avoid errors.'
+}
+if test "${1-}" = '--uninstall'; then
+	brew_uninstall
+	exit "$?"
+fi
+
+# =====================================
 # Configuration
 
 source "$DOROTHY/sources/config.bash"
@@ -397,9 +486,7 @@ brew_uninstall "${HOMEBREW_UNINSTALL[@]}"
 # Cleanup
 # used to fix any breaks after the removals
 source "$DOROTHY/sources/environment.sh"
-echo-segment --h2='Homebrew cleanup'
-brew cleanup --quiet
-echo-segment --g2='Homebrew cleanup'
+brew_clean
 
 # =====================================
 # Upgrade
