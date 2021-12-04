@@ -4,6 +4,45 @@ source "$DOROTHY/sources/config.sh"
 # todo
 # if test \"\$(get-hostname)\" = '$(get-hostname)'; then
 
+# for scripts to prune custom installers from packages
+# USAGE:
+# ``` bash
+# mapfile -t GEM_INSTALL < <(prepare_packages 'GEM_INSTALL' -- "${GEM_INSTALL[@]}" "${RUBY_INSTALL[@]}")
+# ````
+prepare_packages() {
+	local reconfigure='no' name="$1" packages=("${@:3}")
+
+	# SETUP_UTILS should have already been loaded, but let's create it if not
+	# we need to do it this way, otherwise we would wipe pre-existing custom configuration
+	if test -z "${SETUP_UTILS-}"; then
+		SETUP_UTILS=()
+	fi
+
+	# remove packages with dedicated installers
+	for item in "${packages[@]}"; do
+		installer="$(get-installer "$item" || :)"
+		if test -n "$installer"; then
+			if [[ "$installer" = 'setup-util-'* ]]; then
+				util="${installer:11}"
+				echo-style --notice="Moved [$item] from [$name] to [SETUP_UTILS] as [$util]." >/dev/tty
+				SETUP_UTILS+=("$util")
+				reconfigure='yes'
+			else
+				echo-style --notice="Skipping [$item] from [$name], as it should be installed via [$installer]." >/dev/tty
+			fi
+			continue
+		else
+			echo "$item"
+		fi
+	done
+
+	# update configuration if necessary
+	if test "$reconfigure" = 'yes'; then
+		update_dorothy_user_config 'setup.bash' -- \
+			--field='SETUP_UTILS' --array="$(echo-lines --quoted -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
+	fi
+}
+
 # for scripts to update the correct configuration file
 # update_dorothy_user_config [--prefer=local] <filename> -- <--find=., replace>...
 #
