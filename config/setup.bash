@@ -24,35 +24,35 @@
 # Used by `setup-mac-brew`
 # You can use `setup-mac-brew --configure` to configure some of these.
 # HOMEBREW_TAPS=()
-# HOMEBREW_FORMULAS=()om
+# HOMEBREW_FORMULAS=()
 # HOMEBREW_SLOW_FORMULAS=()
 # HOMEBREW_CASKS=()
-# HOMEBREW_FONTS=(
-# 	font-cantarell
-# 	font-cascadia-code
-# 	font-fira-code
-# 	font-fira-code-nerd-font
-# 	font-fira-mono
-# 	font-fira-mono-nerd-font
-# 	font-hack
-# 	font-hasklig
-# 	font-ibm-plex
-# 	font-inconsolata-go-nerd-font
-# 	font-inter
-# 	font-jetbrains-mono
-# 	font-jetbrains-mono-nerd-font
-# 	font-lato
-# 	font-maven-pro
-# 	font-monoid
-# 	font-montserrat
-# 	font-open-sans
-# 	font-oxygen
-# 	font-oxygen-mono
-# 	font-roboto
-# 	font-roboto-mono
-# 	font-source-code-pro
-# 	font-ubuntu
-# )
+HOMEBREW_FONTS=(
+	'font-cantarell'
+	'font-cascadia-code'
+	'font-fira-code'
+	'font-fira-code-nerd-font'
+	'font-fira-mono'
+	'font-fira-mono-nerd-font'
+	'font-hack' # many editors require this
+	'font-hasklig'
+	'font-ibm-plex' # many editors require this
+	'font-inconsolata-go-nerd-font'
+	'font-inter' # many apps require this
+	'font-jetbrains-mono'
+	'font-jetbrains-mono-nerd-font'
+	'font-lato'
+	'font-maven-pro'
+	'font-monoid'
+	'font-montserrat'
+	'font-open-sans'
+	'font-oxygen'
+	'font-oxygen-mono'
+	'font-roboto'
+	'font-roboto-mono'
+	'font-source-code-pro' # many editors require this
+	'font-ubuntu'
+)
 # HOMEBREW_UNINSTALL=()        # for casks and formulas
 # HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
 
@@ -84,4 +84,8 @@
 # Utilities to install, these are the [setup-util-*] scripts
 # Used by `setup-utils`
 # You can use `setup-utils --configure` to configure these.
-# SETUP_UTILS=()
+SETUP_UTILS=(
+	'nano'
+	'neovim'
+	'vim'
+)
