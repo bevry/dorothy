@@ -2,7 +2,7 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
-- seamless support for [bash](https://en.wikipedia.org/wiki/Bash_(Unix_shell)), [fish](https://en.wikipedia.org/wiki/Fish_(Unix_shell)), and [zsh](https://en.wikipedia.org/wiki/Z_shell)
+- seamless support for [bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), and [zsh](https://en.wikipedia.org/wiki/Z_shell)
 - seamless support for multiple operating systems and architectures
 - seamless support for your favorite terminal and GUI editors
 - automatic configuration of your environment variables for what you have installed on your system
@@ -18,11 +18,11 @@ Dorothy maintainers are daily driving Dorothy on:
 - macOS on Intel
 - Ubuntu Server on Raspberry Pi 4 (ARM)
 - Ubuntu Desktop on Raspberry Pi 400 (ARM)
-- Ubuntu Desktop on Intel/AMD (x86_64) 
+- Ubuntu Desktop on Intel/AMD (x86_64)
 
 Dorothy users are daily driving Dorothy on:
 
-- Manjaro/Arch on Intel/AMD (x86_64) 
+- Manjaro/Arch on Intel/AMD (x86_64)
 
 Dorothy maintainers and users are occasionally driving Dorothy on:
 
@@ -52,7 +52,6 @@ eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
 ```
 
 If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
-
 
 ## Install
 
