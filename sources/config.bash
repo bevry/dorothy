@@ -44,35 +44,77 @@ prepare_packages() {
 }
 
 # for scripts to update the correct configuration file
-# update_dorothy_user_config [--prefer=local] [--no-template] <filename> -- <--find=., replace>...
-#
-# if there are multiple config files, prompt the user which one to use
-# if there are no configuration files, then use --prefer=... if available
-# otherwise use standard
-# when creating a config file, copy the default one
+update_dorothy_user_config_help() {
+	cat <<-EOF >/dev/stderr
+		USAGE:
+		update_dorothy_user_config [--flags]... <filename> -- [arguments for \`config-helper\`]...
+
+		OPTIONS:
+		<filename>                       The filename of the configuratio file to find or create, then update.
+
+		[--prefer=local]                 If we need to create a file, make it inside user/config.local/
+		[--no-prefer] / [--prefer=]      DEFAULT: If we need to create a file, make it inside user/config/
+
+		[--template=default]             DEFAULT: If we have to create a file, copy the default config.
+		[--no-template] / [--template=]  If we have to create a file, only copy the headers from the default config.
+
+		[--source=default]               DEFAULT: If we have to create a file, copy the default config.
+		[--no-source] / [--source=]      If we have to create a file, only copy the headers from the default config.
+
+		All arguments after -- are passed to \`config-helper\`.
+
+		QUIRKS:
+		If there are multiple config files, prompt the user which one to use.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
 update_dorothy_user_config() {
-	local dorothy_config_prefer_local dorothy_config_copy_default dorothy_config_filename dorothy_config_filepaths
-
-	# --prefer=local
-	dorothy_config_prefer_local='no'
-	if test "$1" = '--prefer=local'; then
-		dorothy_config_prefer_local='yes'
+	local item
+	local dorothy_config_filename=''
+	local config_helper_args=()
+	local dorothy_config_prefer=''
+	local dorothy_config_template='default'
+	local dorothy_config_source='default'
+	while test "$#" -ne 0; do
+		item="$1"
 		shift
-	fi
+		case "$item" in
+		'--help' | '-h') update_dorothy_user_config_help ;;
+		'--file='*) dorothy_config_filename="${item:7}" ;;
+		'--prefer=local') dorothy_config_prefer='local' ;;
+		'--no-prefer' | '--prefer=') dorothy_config_prefer='' ;;
+		'--template=default') dorothy_config_template='default' ;;
+		'--no-template' | '--template=') dorothy_config_template='' ;;
+		'--source=default') dorothy_config_source='default' ;;
+		'--no-source' | '--source=') dorothy_config_source='' ;;
+		'--')
+			config_helper_args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$dorothy_config_filename"; then
+				dorothy_config_filename="$item"
+			else
+				update_dorothy_user_config_help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
 
-	# --no-template
-	dorothy_config_copy_default='yes'
-	if test "$1" = '--no-template'; then
-		dorothy_config_copy_default='no'
-		shift
+	# check extension
+	local dorothy_config_extension # this is used later too
+	dorothy_config_extension="$(fs-extension "$dorothy_config_filename")"
+	if ! [[ "$dorothy_config_extension" =~ bash|zsh|sh|fish ]]; then
+		help "The file extension of [$dorothy_config_filename] is not yet supported."
 	fi
-
-	# <filename>
-	dorothy_config_filename="$1"
-	shift
 
 	# check for existing
-	dorothy_config_filepaths=()
+	local dorothy_config_filepaths=()
 	if test -f "$DOROTHY/user/config.local/$dorothy_config_filename"; then
 		dorothy_config_filepaths+=("$DOROTHY/user/config.local/$dorothy_config_filename")
 	fi
@@ -81,36 +123,46 @@ update_dorothy_user_config() {
 	fi
 
 	# no user config exists, we got to make it
+	local dorothy_config_filepath
 	if test "${#dorothy_config_filepaths[@]}" -eq 0; then
 		# what location do we prefer?
-		if test "$dorothy_config_prefer_local" = 'yes'; then
+		if test "$dorothy_config_prefer" = 'local'; then
 			dorothy_config_filepath="$DOROTHY/user/config.local/$dorothy_config_filename"
 		else
 			dorothy_config_filepath="$DOROTHY/user/config/$dorothy_config_filename"
 		fi
 
 		# are we okay with using a template, if so, does a default config file exist?
-		if test "$dorothy_config_copy_default" = 'yes' -a -f "$DOROTHY/config/$dorothy_config_filename"; then
-			# if so, use it as the template
-			cp "$DOROTHY/config/$dorothy_config_filename" "$dorothy_config_filepath"
-		else
-			# if not, create the file manually
-			dorothy_config_extension="$(fs-extension "$dorothy_config_filepath")"
-			if test "$dorothy_config_extension" != "json"; then
-				# if not a json file, then use a shell style
-				cat <<-EOF >"$dorothy_config_filepath"
-					#!/usr/bin/env $dorothy_config_extension
-					# shellcheck disable=SC2034
-					# do not use \`export\` keyword in this file
-
-				EOF
+		local dorothy_config_default="$DOROTHY/config/$dorothy_config_filename"
+		if test -f "$dorothy_config_default"; then
+			if test "$dorothy_config_template" = 'default'; then
+				#  copy the entire template
+				cp "$dorothy_config_default" "$dorothy_config_filepath"
 			else
-				# it is a json file, so scaffold empty, and let the user figure it out
-				touch "$dorothy_config_filepath"
+				# copy only the header
+				echo-before-blank --append=$'\n' "$dorothy_config_default" >"$dorothy_config_filepath"
 			fi
+		else
+			# default missing, make it with the typical header
+			cat <<-EOF >"$dorothy_config_filepath"
+				#!/usr/bin/env $dorothy_config_extension
+				# shellcheck disable=SC2034
+				# do not use \`export\` keyword in this file
+
+			EOF
 		fi
 
-		# add it to the paths
+		# add the source of the default file
+		if test "$dorothy_config_source" = 'default'; then
+			# use `.` over `source` as must be posix, in case we are saving a .sh file
+			cat <<-EOF >>"$dorothy_config_filepath"
+				# Load the default configuration file
+				. "\$DOROTHY/config/${dorothy_config_filename}"
+
+			EOF
+		fi
+
+		# add the new file to the paths
 		dorothy_config_filepaths+=("$dorothy_config_filepath")
 	fi
 
@@ -122,7 +174,8 @@ update_dorothy_user_config() {
 	)"
 
 	# now that the file exists, update it if we have values to update it
-	if test "${1-}" = '--'; then
-		config-helper --file="$dorothy_config_filepath" "$@"
+	if test "${#config_helper_args[@]}" -ne 0; then
+		config-helper --file="$dorothy_config_filepath" \
+			-- "${config_helper_args[@]}"
 	fi
 }
