@@ -2,35 +2,84 @@
 # shellcheck disable=SC2164,SC1091
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
-if test "${EVAL_COLLAPSE-}" = 'yes' || ! has_array_support 'mapfile' 'empty'; then
-	# already in a collapse, or bash version too old
-	# so just do a basic eval
+has_array_support 'mapfile'
+
+# nested?
+if test "${EVAL_COLLAPSE-}" = 'yes'; then
+	# already in a collapse, so nested tty magic will be unexcepted
+	# as such, trim the flags
 	while is-needle '--' "$@"; do
 		shift
 	done
-	# same as echo-eval
-	echo-element --open="$*"
-	ec=0 && ("$@") || ec="$?"
-	echo-element --close="$*" --status="$ec"
-	exit "$ec"
+	# and use a simpler command
+	eval-eval "$@"
+	exit "$?"
 fi
+
+# help
+function eval_collapse_help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Runs a command, collapsing the output once it has completed.
+
+		USAGE:
+		eval-collapse [...flags] -- <command [...args]>
+
+		FLAGS:
+		--pending=<string>     If provided, this is displayed while the command is running.
+		--success=<string>     If provided, this is displayed if a success occurs.
+		--failure=<string>     If provided, this is displayed if a failure occurs.
+		--wrap                 Whether or not to wrap the output in the command itself.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
 
 # helper
 function eval_collapse() {
 	# prepare
-	local ec headers footer body options option_quiet option_pending option_success option_failure option_wrap args
+	local ec headers body footer args option_quiet option_pending option_success option_failure option_wrap
 	ec=0
 	headers="$(mktemp)"
 	body="$(mktemp)"
+	footer=''
 
 	# options
-	mapfile -t options < <(echo-before-separator "$@")
+	args=()
 	option_quiet="$(is-quiet --missing="yes" -- "$@")"
-	option_pending="$(get-flag-value pending -- "${options[@]}")"
-	option_success="$(get-flag-value success -- "${options[@]}")"
-	option_failure="$(get-flag-value failure -- "${options[@]}")"
-	option_wrap="$(get-flag-value wrap --missing=yes -- "${options[@]}" | echo-affirmative)"
-	mapfile -t args < <(echo-after-separator "$@")
+	option_pending=''
+	option_success=''
+	option_failure=''
+	option_wrap=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--pending='*) option_pending="${item:10}" ;;
+		'--success='*) option_success="${item:10}" ;;
+		'--failure='*) option_failure="${item:10}" ;;
+		'--wrap'*)
+			option_wrap="$(
+				get-flag-value wrap --missing=yes -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*)
+			option_quiet="$(
+				is-quiet --missing="$option_quiet" -- "$item"
+			)"
+			;;
+		'--')
+			args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) eval_collapse_help "An unrecognised flag was provided: $item" ;;
+		*) eval_collapse_help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
 
 	# headers
 	if test -n "$option_pending"; then
@@ -42,7 +91,7 @@ function eval_collapse() {
 
 	# keep headers while we run the command and revolve door its output
 	original_eval_collapse="${EVAL_COLLAPSE:-"no"}"
-	export EVAL_COLLAPSE="yes" # use export, as env doens't work with functions
+	export EVAL_COLLAPSE="yes" # use export, as env doesn't work if args[0] was a function
 	ec=0 && ("${args[@]}" |& tee "$body" | echo-revolving-door) || ec="$?"
 	export EVAL_COLLAPSE="$original_eval_collapse"
 
@@ -50,7 +99,6 @@ function eval_collapse() {
 	echo-clear-lines <"$headers"
 
 	# generate footer
-	footer=''
 	if test "$ec" -eq 0; then
 		if test -n "$option_success"; then
 			footer+="$option_success"$'\n'

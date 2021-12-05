@@ -44,14 +44,14 @@ prepare_packages() {
 }
 
 # for scripts to update the correct configuration file
-# update_dorothy_user_config [--prefer=local] <filename> -- <--find=., replace>...
+# update_dorothy_user_config [--prefer=local] [--no-template] <filename> -- <--find=., replace>...
 #
 # if there are multiple config files, prompt the user which one to use
 # if there are no configuration files, then use --prefer=... if available
 # otherwise use standard
 # when creating a config file, copy the default one
 update_dorothy_user_config() {
-	local dorothy_config_prefer_local dorothy_config_filename dorothy_config_filepaths
+	local dorothy_config_prefer_local dorothy_config_copy_default dorothy_config_filename dorothy_config_filepaths
 
 	# --prefer=local
 	dorothy_config_prefer_local='no'
@@ -60,11 +60,19 @@ update_dorothy_user_config() {
 		shift
 	fi
 
+	# --no-template
+	dorothy_config_copy_default='yes'
+	if test "$1" = '--no-template'; then
+		dorothy_config_copy_default='no'
+		shift
+	fi
+
 	# <filename>
 	dorothy_config_filename="$1"
 	shift
 
 	# check for existing
+	dorothy_config_filepaths=()
 	if test -f "$DOROTHY/user/config.local/$dorothy_config_filename"; then
 		dorothy_config_filepaths+=("$DOROTHY/user/config.local/$dorothy_config_filename")
 	fi
@@ -81,14 +89,14 @@ update_dorothy_user_config() {
 			dorothy_config_filepath="$DOROTHY/user/config/$dorothy_config_filename"
 		fi
 
-		# does a default config file exist?
-		if test -f "$DOROTHY/config/$dorothy_config_filename"; then
+		# are we okay with using a template, if so, does a default config file exist?
+		if test "$dorothy_config_copy_default" = 'yes' -a -f "$DOROTHY/config/$dorothy_config_filename"; then
 			# if so, use it as the template
 			cp "$DOROTHY/config/$dorothy_config_filename" "$dorothy_config_filepath"
 		else
-			# if nmot, create the file manually
+			# if not, create the file manually
 			dorothy_config_extension="$(fs-extension "$dorothy_config_filepath")"
-			if "$dorothy_config_extension" != "json"; then
+			if test "$dorothy_config_extension" != "json"; then
 				# if not a json file, then use a shell style
 				cat <<-EOF >"$dorothy_config_filepath"
 					#!/usr/bin/env $dorothy_config_extension

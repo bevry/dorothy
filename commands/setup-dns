@@ -15,7 +15,7 @@ load_dorothy_config 'dns.bash'
 
 # dependencies
 source "$DOROTHY/sources/ripgrep.bash"
-env QUIET=yes CLI=dig DNF='bind-utils' APT='dnsutils' PACMAN='dnsutils' setup-util
+env QUIET=yes setup-util-dig
 
 # installers
 # https://github.com/AdguardTeam/AdGuardHome/releases
@@ -50,6 +50,22 @@ elif is-linux; then
 	fi
 fi
 
+function die_unsupported() {
+	echo-style \
+		--error="This platform [$arch] does not yet support: $1" $'\n' \
+		--notice='Supported DNS services for this platform are:' $'\n' \
+		"${services[*]}"
+	return 19 # Operation not supported by device
+}
+
+function die_unknown() {
+	echo-style \
+		--error="Unknown DNS service: $1" $'\n' \
+		--notice='Supported DNS services for this platform are:' $'\n' \
+		"${services[*]}"
+	return 22 # Invalid argument
+}
+
 # -------------------------------------
 # AdGuard Home
 
@@ -70,8 +86,7 @@ function aghome_install {
 		sudo mv "$f" "$BINDIR/AdGuardHome"
 		sudo chmod +x "$BINDIR/AdGuardHome"
 	else
-		stderr echo 'AdGuard Home support has not yet been added for this platform'
-		return 1
+		die_unsupported 'AdGuard Home'
 	fi
 	echo "AdGuard Home is now installed to: $BINDIR/AdGuardHome"
 
@@ -92,7 +107,7 @@ function aghome_install {
 
 	# config
 	echo 'AdGuard Home is being configured...'
-	ok sudo "$BINDIR/AdGuardHome" -s uninstall
+	sudo "$BINDIR/AdGuardHome" -s uninstall || :
 	sudo "$BINDIR/AdGuardHome" -s install
 	confirm --ppid=$$ -- "Press any key once you have completed the AdGuard Home setup..."
 	echo 'AdGuard Home is now configured'
@@ -106,10 +121,10 @@ function aghome_uninstall {
 	fi
 
 	echo 'AdGuard Home is being uninstalled...'
-	ok killall AdGuardHome
-	ok sudo AdGuardHome -s uninstall
-	ok sudo rm -fv "$BINDIR/AdGuardHome"
-	ok sudo rm -fvi "$BINDIR/AdGuardHome.yaml"
+	killall AdGuardHome || :
+	sudo AdGuardHome -s uninstall || :
+	sudo rm -fv "$BINDIR/AdGuardHome" || :
+	sudo rm -fvi "$BINDIR/AdGuardHome.yaml" || :
 	echo 'AdGuard Home is now uninstalled'
 }
 
@@ -152,9 +167,11 @@ function cloudflared_install {
 	# install
 	echo
 	if command-exists cloudflared; then
-		echo "Cloudflared wasn't uninstalled earlier in the clean, so it is probably installed by something we don't know about."
-		echo 'Manually uninstall it, then proceed.'
-		exit 1
+		cat <<-EOF >/dev/stderr
+			Cloudflared wasn't uninstalled earlier in the clean, so it is probably installed by something we don't know about.
+			Manually uninstall it, then proceed.
+		EOF
+		return 1
 	fi
 
 	# binary
@@ -169,8 +186,7 @@ function cloudflared_install {
 		sudo mv "$f" "$BINDIR/cloudflared"
 		chmod +x "$BINDIR/cloudflared"
 	else
-		stderr echo 'cloudflared support has not yet been added for this platform'
-		return 1
+		die_unsupported 'Cloudflared'
 	fi
 	echo "Cloudflared is now installed to: $BINDIR/cloudflared"
 
@@ -185,28 +201,28 @@ function cloudflared_install {
 				--question="Is there a specific upstream DNS provider you wish to proxy towards?" \
 				--default="${CLOUDFLARED_UPSTREAM-}"
 		)"
-		proxyargs=('--no-autoupdate' 'proxy-dns')
+		proxy_cmd=("$BINDIR/cloudflared" '--no-autoupdate' 'proxy-dns')
 		if test -n "$upstream"; then
-			proxyargs+=(
+			proxy_cmd+=(
 				'--upstream'
 				"$upstream"
 			)
 		fi
-		sudo tee '/etc/systemd/system/cloudflared-proxy-dns.service' >/dev/null <<EOF
-[Unit]
-Description=DNS over HTTPS (DoH) proxy client
-Wants=network-online.target nss-lookup.target
-Before=nss-lookup.target
+		sudo tee '/etc/systemd/system/cloudflared-proxy-dns.service' >/dev/null <<-EOF
+			[Unit]
+			Description=DNS over HTTPS (DoH) proxy client
+			Wants=network-online.target nss-lookup.target
+			Before=nss-lookup.target
 
-[Service]
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-DynamicUser=yes
-ExecStart=$BINDIR/cloudflared ${proxyargs[*]}
+			[Service]
+			AmbientCapabilities=CAP_NET_BIND_SERVICE
+			CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+			DynamicUser=yes
+			ExecStart=${proxy_cmd[*]}
 
-[Install]
-WantedBy=multi-user.target
-EOF
+			[Install]
+			WantedBy=multi-user.target
+		EOF
 		sudo systemctl enable --now cloudflared-proxy-dns
 		sudo systemctl status cloudflared-proxy-dns --no-pager
 	fi
@@ -229,10 +245,10 @@ EOF
 				--question="What will be name identifier of the tunnel?" \
 				--default="${CLOUDFLARED_TUNNEL_NAME-}"
 		)"
-		ok cloudflared tunnel cleanup "$tunnel_name"
+		cloudflared tunnel cleanup "$tunnel_name" || :
 		tunnel_cred="${tunnel_name}.json"
-		ok rm -rf "$hd/$tunnel_cred"
-		ok cloudflared tunnel delete "$tunnel_name"
+		rm -rf "${hd}/${tunnel_cred}" || :
+		cloudflared tunnel delete "$tunnel_name" || :
 
 		# tunnel create
 		cloudflared tunnel create --credentials-file "$hd/$tunnel_cred" "$tunnel_name"
@@ -241,7 +257,7 @@ EOF
 		# route create
 		tunnel_ingress="${CLOUDFLARED_TUNNEL_INGRESS-}"
 		tunnel_config="${tunnel_name}.yml"
-		ok rm -Rf "$hd/$tunnel_config"
+		rm -Rf "$hd/$tunnel_config" || :
 		if test -z "$tunnel_ingress"; then
 			tunnel_url="$(
 				ask --required --confirm \
@@ -250,11 +266,11 @@ EOF
 			)"
 			tunnel_ingress="url: $tunnel_url"
 		fi
-		cat >"$hd/$tunnel_config" <<EOF
-tunnel: $tunnel_name
-credentials-file: $sd/$tunnel_cred
-$tunnel_ingress
-EOF
+		cat >"$hd/$tunnel_config" <<-EOF
+			tunnel: $tunnel_name
+			credentials-file: $sd/$tunnel_cred
+			$tunnel_ingress
+		EOF
 		sudo cp "$hd/$tunnel_config" "$sd/"
 
 		# tunnel route
@@ -264,12 +280,12 @@ EOF
 			mapfile -t tunnel_hostnames < <(rg -o 'hostname: (.+)' --replace '$1' "$hd/$tunnel_config" | uniq)
 		fi
 		if is-array-partial "${tunnel_hostnames[@]}"; then
-			{
-				echo "An invalid hostname is present:"
-				echo-verbose "${tunnel_hostnames[@]}"
-				echo
-				echo "You will be prompted for the hostname instead..."
-			} >/dev/stderr
+			cat <<-EOF >/dev/stderr
+				An invalid hostname is present:
+				$(echo-verbose "${tunnel_hostnames[@]}")
+
+				You will be prompted for the hostname instead...
+			EOF
 			tunnel_hostnames=()
 		fi
 		if is-array-empty "${tunnel_hostnames[@]}"; then
@@ -293,21 +309,21 @@ EOF
 		done
 
 		# service create
-		sudo tee '/etc/systemd/system/cloudflared-tunnel.service' >/dev/null <<EOF
-[Unit]
-Description=Argo Tunnel
-After=network.target
+		sudo tee '/etc/systemd/system/cloudflared-tunnel.service' >/dev/null <<-EOF
+			[Unit]
+			Description=Argo Tunnel
+			After=network.target
 
-[Service]
-TimeoutStartSec=0
-Type=notify
-ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config "$sd/$tunnel_config" tunnel run
-Restart=on-failure
-RestartSec=5s
+			[Service]
+			TimeoutStartSec=0
+			Type=notify
+			ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config "$sd/$tunnel_config" tunnel run
+			Restart=on-failure
+			RestartSec=5s
 
-[Install]
-WantedBy=multi-user.target
-EOF
+			[Install]
+			WantedBy=multi-user.target
+		EOF
 		sudo systemctl enable --now cloudflared-tunnel
 		sudo systemctl status cloudflared-tunnel --no-pager
 		# journalctl -u cloudflared-tunnel.service --no-pager
@@ -320,27 +336,27 @@ function cloudflared_uninstall {
 	echo
 	echo 'Cloudflared is being uninstalled...'
 	if is-mac; then
-		ok sudo launchctl stop com.cloudflare.cloudflared
-		ok sudo launchctl remove com.cloudflare.cloudflared
-		ok sudo cloudflared service uninstall
-		ok brew uninstall cloudflare/cloudflare/cloudflared
+		sudo launchctl stop com.cloudflare.cloudflared || :
+		sudo launchctl remove com.cloudflare.cloudflared || :
+		sudo cloudflared service uninstall || :
+		brew uninstall cloudflare/cloudflare/cloudflared || :
 	else
-		ok sudo cloudflared service uninstall
-		ok sudo systemctl stop cloudflared-proxy-dns
-		ok sudo systemctl disable cloudflared-proxy-dns
-		ok sudo rm -fv '/etc/systemd/system/cloudflared-proxy-dns.service'
+		sudo cloudflared service uninstall || :
+		sudo systemctl stop cloudflared-proxy-dns || :
+		sudo systemctl disable cloudflared-proxy-dns || :
+		sudo rm -fv '/etc/systemd/system/cloudflared-proxy-dns.service' || :
 		# tunnel
 		# todo: need to read in the tunnel name from the config file
 		# ok cloudflared tunnel cleanup "$tunnel_name"
-		ok sudo systemctl stop cloudflared-tunnel
-		ok sudo systemctl disable cloudflared-tunnel
-		ok sudo rm -fv '/etc/systemd/system/cloudflared-tunnel.service'
-		ok sudo rm -fv "$BINDIR/cloudflared"
+		sudo systemctl stop cloudflared-tunnel || :
+		sudo systemctl disable cloudflared-tunnel || :
+		sudo rm -fv '/etc/systemd/system/cloudflared-tunnel.service' || :
+		sudo rm -fv "$BINDIR/cloudflared" || :
 	fi
 	# remove legacy configuration files
-	ok sudo rm -rfv /etc/cloudflared/
-	ok sudo rm -rfv /usr/local/etc/cloudflared/
-	ok sudo rm /etc/systemd/system/cloudflared*
+	sudo rm -rfv /etc/cloudflared/ || :
+	sudo rm -rfv /usr/local/etc/cloudflared/ || :
+	sudo rm /etc/systemd/system/cloudflared* || :
 	echo 'Cloudflared is now uninstalled'
 }
 
@@ -352,15 +368,17 @@ function dnscrypt_install {
 	# install
 	echo
 	if command-exists dnscrypt-proxy; then
-		echo "DNSCrypt Proxy wasn't uninstalled earlier in the clean, so it is probably installed by something we don't know about."
-		echo 'Manually uninstall it, then proceed.'
+		cat <<-EOF >/dev/stderr
+			DNSCrypt Proxy wasn't uninstalled earlier in the clean, so it is probably installed by something we don't know about.
+			Manually uninstall it, then proceed.
+		EOF
 		exit 1
 	fi
 
 	# binary
 	echo 'DNSCrypt Proxy is installing...'
 	if is-mac; then
-		ok brew install dnscrypt-proxy
+		brew install dnscrypt-proxy || :
 	elif test -n "$dnscrypt_installer"; then
 		f="$(mktemp)"
 		github-release-file-download DNSCrypt/dnscrypt-proxy \
@@ -370,8 +388,7 @@ function dnscrypt_install {
 		sudo mv "$f" "$BINDIR/dnscrypt-proxy"
 		sudo chmod +x "$BINDIR/dnscrypt-proxy"
 	else
-		stderr echo 'DNSCrypt Proxy support has not yet been added for this platform'
-		return 1
+		die_unsupported 'DNSCrypt Proxy'
 	fi
 	echo "DNSCrypt Proxy is now installed to: $BINDIR/dnscrypt-proxy"
 
@@ -379,7 +396,8 @@ function dnscrypt_install {
 	echo 'DNSCrypt Proxy is being configured...'
 	if is-missing '/usr/local/etc/dnscrypt-proxy.toml'; then
 		f="$(mktemp)"
-		down "https://gist.githubusercontent.com/balupton/48057270a67d70e2ac984fdfa475ad29/raw/dnscrypt-proxy.toml" \
+		down \
+			"https://gist.githubusercontent.com/balupton/48057270a67d70e2ac984fdfa475ad29/raw/dnscrypt-proxy.toml" \
 			--destination="$f"
 		sudo mv "$f" '/usr/local/etc/dnscrypt-proxy.toml'
 	fi
@@ -410,21 +428,21 @@ function dnscrypt_uninstall {
 
 	# service first, as it uses the binary to uninstall the service
 	echo 'DNSCrypt Proxy service is being uninstalled...'
-	ok sudo dnscrypt-proxy -service stop -config '/usr/local/etc/dnscrypt-proxy.toml'
-	ok sudo dnscrypt-proxy -service uninstall -config '/usr/local/etc/dnscrypt-proxy.toml'
+	sudo dnscrypt-proxy -service stop -config '/usr/local/etc/dnscrypt-proxy.toml' || :
+	sudo dnscrypt-proxy -service uninstall -config '/usr/local/etc/dnscrypt-proxy.toml' || :
 	echo 'DNSCrypt Proxy is now completely uninstalled'
 
 	# binary
 	echo 'DNSCrypt Proxy is being uninstalled...'
 	if is-mac; then
 		sudo brew services stop dnscrypt-proxy
-		ok brew uninstall dnscrypt-proxy
+		brew uninstall dnscrypt-proxy || :
 	else
-		ok sudo rm -fv "$BINDIR/dnscrypt-proxy" # always remove
+		sudo rm -fv "$BINDIR/dnscrypt-proxy" # always remove || :
 	fi
 
 	# config
-	ok sudo rm -fvi '/usr/local/etc/dnscrypt-proxy.toml' # ask if they want it removed
+	sudo rm -fvi '/usr/local/etc/dnscrypt-proxy.toml' # ask if they want it removed || :
 }
 
 # -------------------------------------
@@ -441,7 +459,10 @@ function resolv_disable {
 	sudo systemctl stop systemd-resolved
 	sudo systemctl disable systemd-resolved
 	sudo rm -f /etc/resolv.conf
-	printf "nameserver 127.0.0.1\noptions edns0" | sudo tee /etc/resolv.conf &>/dev/null
+	sudo tee '/etc/resolv.conf' >/dev/null <<-EOF
+		nameserver 127.0.0.1
+		options edns0
+	EOF
 	sudo systemctl daemon-reload
 	echo 'Disabled resolv'
 
@@ -508,32 +529,24 @@ elif test "$service" = 'aghome' -o "$service" = 'adguard-home' -o "$service" = '
 		service='aghome'
 		echo 'Selected DNS service: AdGuard Home'
 	else
-		stderr echo 'AdGuard Home is not yet supported on this platform'
-		stderr echo "Supported DNS services for this platform are: ${services[*]}"
-		exit 1
+		die_unsupported 'AdGuard Home'
 	fi
 elif test "$service" = 'cloudflared' -o "$service" = 'cloudflare' -o "$service" = 'cf'; then
 	if is-needle 'cloudflared' "${services[@]}"; then
 		service='cloudflared'
 		echo 'Selected DNS service: Cloudflared'
 	else
-		stderr echo 'Cloudflared is not yet supported on this platform'
-		stderr echo "Supported DNS services for this platform are: ${services[*]}"
-		exit 1
+		die_unsupported 'Cloudflared'
 	fi
 elif test "$service" = 'dnscrypt' -o "$service" = 'dnscrypt-proxy'; then
 	if is-needle 'dnscrypt' "${services[@]}"; then
 		service='dnscrypt'
 		echo 'Selected DNS service: DNSCrypt Proxy'
 	else
-		stderr echo 'DNSCrypt Proxy is not yet supported on this platform'
-		stderr echo "Supported DNS services for this platform are: ${services[*]}"
-		exit 1
+		die_unsupported 'DNSCrypt Proxy'
 	fi
 else
-	stderr echo "Unknown DNS service: $service"
-	stderr echo "Supported DNS services for this platform are: ${services[*]}"
-	exit 1
+	die_unknown "$service"
 fi
 
 echo
@@ -545,8 +558,10 @@ resolv_enable
 
 echo
 if test "$service" = 'system'; then
-	echo "Custom DNS service removed, now using the system DNS service."
-	echo "If you have not yet configured a system DNS provider to use, you will soon be prompted."
+	cat <<-EOF
+		Custom DNS service removed, now using the system DNS service."
+		If you have not yet configured a system DNS provider to use, you will soon be prompted.
+	EOF
 	select-dns --no-local
 else
 	# backup dns provider
@@ -562,8 +577,7 @@ else
 	elif test "$service" = 'cloudflared'; then
 		cloudflared_install
 	else
-		stderr echo "unknown service: $service"
-		exit 1
+		die_unknown "$service"
 	fi
 
 	# local dns provider
@@ -576,13 +590,13 @@ else
 	echo
 	echo 'Testing that the system is now using the custom DNS service...'
 	if ! (dig -x cloudflare.com | rg -q ';; SERVER: 127.0.0.1'); then
-		{
-			echo 'FAILURE'
-			echo 'Custom DNS configuration has failed.'
-			echo 'The domain failed to resolve or did not resolve with the local DNS service.'
-			echo 'You should run [select-dns] to have working DNS in the meantime.'
-			echo 'You can debug further by running [debug-network].'
-		} >/dev/stderr
+		cat <<-EOF >/dev/stderr
+			FAILURE
+			Custom DNS configuration has failed.
+			The domain failed to resolve or did not resolve with the local DNS service.
+			You should run [select-dns] to have working DNS in the meantime.
+			You can debug further by running [debug-network].
+		EOF
 		exit 1
 	fi
 fi
