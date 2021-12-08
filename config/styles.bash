@@ -98,7 +98,7 @@ disable_overlined=$'\e[55m'       #
 # Values of TERM_PROGRAM that are known to not support italics:
 # - Apple_Terminal
 # As italics support is rare, do the swap if not in a known terminal that supports italics....
-if test "$TERM_PROGRAM" != 'Hyper'; then
+if ! [[ "${TERM_PROGRAM-}" =~ Hyper|tmux|vscode ]]; then
 	# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
 	# italic="$dim"
 	# disable_italic="$disable_dim"
