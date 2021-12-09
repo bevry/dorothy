@@ -93,8 +93,6 @@ disable_circled="$disable_framed" #
 disable_overlined=$'\e[55m'       #
 
 # If italics is not supported, swap it with something else...
-# Values of TERM_PROGRAM that are known to support italics:
-# - Hyper
 # Values of TERM_PROGRAM that are known to not support italics:
 # - Apple_Terminal
 # As italics support is rare, do the swap if not in a known terminal that supports italics....
