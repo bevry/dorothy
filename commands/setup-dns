@@ -26,25 +26,67 @@ function check_installation {
 	fi
 }
 # https://support.apple.com/en-au/guide/terminal/apdc6c1077b-5d5d-4d35-9c19-60f2397b2369/mac
-function disable_service {
+# https://apple.stackexchange.com/a/366388/15131
+function service_stop {
+	# stop the service (if it exists) temporarily
 	local file="$1" id
+	if test ! -f "$file"; then
+		return
+	fi
 	id="$(fs-filename "$(basename "$file")")"
 	if is-mac; then
-		# brew services stop "$id"
 		echo-eval -- sudo launchctl stop "$id" || :
-		echo-eval -- sudo launchctl unload "$file" || :
-		do_rm -- /Library/Logs/*"$id"*.log
+	else
+		sudo systemctl stop "$file" || :
+	fi
+}
+function service_disable {
+	# stops, uninstalls, and deletes the service (if it exists)
+	local file="$1" id
+	if test ! -f "$file"; then
+		return
+	fi
+	id="$(fs-filename "$(basename "$file")")"
+	if is-mac; then
+		# Usage: launchctl unload <service-path, service-path2, ...>
+		# -w      Additionally disables the service such that future load
+		#         operations will result in a service which launchd tracks but
+		#         cannot be launched or discovered in any way.
+		echo-eval -- sudo launchctl disable "system/$id" || :
+		echo-eval -- sudo launchctl stop "$id" || :
+		echo-eval -- sudo launchctl unload -w "$file" || :
+		do_rm -- /Library/Logs/*"$id"*.log || :
 	else
 		sudo systemctl disable --now "$file" || :
 		sudo systemctl status "$id" --no-pager || :
 	fi
+	do_rm -- "$file"
 }
-function enable_service {
+function service_enable {
+	# loads/installs the service, then enables and starts it
 	local file="$1"
 	id="$(fs-filename "$(basename "$file")")"
 	if is-mac; then
-		# brew services start "$id"
-		echo-eval -- sudo launchctl load "$file" || :
+		# ensure correct permissions, not sure why
+		# but [homebrew services] does this, so doing it here
+		sudo chown root:admin "$file"
+		sudo chmod +t "$file"
+
+		# Usage: launchctl load <service-path, service-path2, ...>
+		# -w      If the service is disabled, it will be enabled. In previous
+		#         versions of launchd, being disabled meant that a service was
+		#         not loaded. Now, services are always loaded. If a service is
+		#         disabled, launchd does not advertise its service endpoints
+		#         (sockets, Mach ports, etc.).
+		# -F      Forcibly load the service. This flag will ignore the service's
+		#         disabled state. In previous versions of launchd, this flag
+		#         would also ignore the ownership and permissions of the
+		#         specified launchd.plist. This is no longer the case. Note that,
+		#         unlike the -w flag, this flag will not  modify the service's
+		#         disabled state; it will instead only ignore it for the load
+		#         operation.
+		echo-eval -- sudo launchctl load -w "$file" || :
+		# echo-eval -- sudo launchctl enable "system/$id" || :
 		echo-eval -- sudo launchctl start "$id" || :
 		sleep 2
 		cat /Library/Logs/*"$id"*.log
@@ -162,11 +204,11 @@ function do_rm() {
 			"/usr/local/lib/$id"
 
 			# services
-			"/Library/LaunchAgents/"*"$id"*   # user
-			"/Library/LaunchDaemons/"*"$id"*  # everyone
-			"/etc/init.d/"*"$id"*             # alt
-			"/usr/lib/systemd/system/"*"$id"* # alt
-			"/etc/systemd/system/"*"$id"*     # desited
+			/Library/LaunchAgents/*"$id"*   # user
+			/Library/LaunchDaemons/*"$id"*  # everyone
+			/etc/init.d/*"$id"*             # alt
+			/usr/lib/systemd/system/*"$id"* # alt
+			/etc/systemd/system/*"$id"*     # desited
 
 			# logs
 			/Library/Logs/*"$id"*.log
@@ -182,7 +224,7 @@ function do_rm() {
 	# remove them
 	for rm_path in "${rm_paths[@]}"; do
 		if test -e "$rm_path"; then
-			if confirm-positive --ppid=$$ -- "Remove $rm_path?" "$(
+			if confirm-positive --ppid=$$ -- "Remove $(echo-style --bold="$rm_path")?" "$(
 				echo-style --dim="$(
 					ls -la "$rm_path"
 				)"
@@ -751,7 +793,6 @@ aghome_bin_cmd=(
 	'--logfile' "$aghome_state_log_file"
 )
 function aghome_exists {
-	check_installation "$aghome_id" "$aghome_bin_file"
 	test -x "$aghome_bin_file"
 }
 function aghome_install {
@@ -760,29 +801,46 @@ function aghome_install {
 		die_service_unsupported "$aghome_title"
 	fi
 
-	# log
-	local action='install'
+	# prepare and log
+	local action='install' # install/upgrade
 	if aghome_exists; then
 		action='upgrade'
 	fi
 	echo-segment --h1="${action@u} ${aghome_title}"
 
-	# make directories
+	# check we are the right one
+	check_installation "$aghome_id" "$aghome_bin_file"
+
+	# ensure directories
 	sudo mkdir -p "$aghome_conf_dir" "$aghome_data_dir" "$aghome_state_dir"
 
-	# install/upgrade
-	if test ! -f "$aghome_bin_file"; then
-		local temp_bin_file
-		temp_bin_file="$(fs-temp)"
-		down-zip "https://static.adguard.com/adguardhome/release/${aghome_installer}" \
-			--filter="AdGuardHome/AdGuardHome" \
-			--destination="$temp_bin_file"
-		sudo mv "$temp_bin_file" "$aghome_bin_file"
-		sudo chmod +x "$aghome_bin_file"
+	# download the upgrade if possible
+	local temp_bin_file
+	temp_bin_file="$(fs-temp)"
+	down-zip "https://static.adguard.com/adguardhome/release/${aghome_installer}" \
+		--filter="AdGuardHome/AdGuardHome" \
+		--destination="$temp_bin_file" || :
+	# ^ allow failures, in case dns is botched
+
+	# if downloaded, stop and install
+	if test -f "$temp_bin_file"; then
+		if test -x "$aghome_bin_file"; then
+			# only tell prior cmd to stop if the prior cmd exists
+			sudo "${aghome_bin_cmd[@]}" --service stop || :
+		fi
+		sudo mv "$temp_bin_file" "$aghome_bin_file" || :
+		sudo chmod +x "$aghome_bin_file" || :
+		# ^ allow failure,s as we will check this later
 	fi
 
-	# log
-	echo-segment --g1="${action@u} ${aghome_title}"
+	# confirm success
+	if test -x "$aghome_bin_file"; then
+		echo-segment --g1="${action@u} ${aghome_title}"
+	else
+		echo-style --error="Unable to make executable: $aghome_bin_file" >/dev/stderr
+		echo-segment --e1="${action@u} ${aghome_title}"
+		return 1
+	fi
 }
 function aghome_uninstall {
 	# check
@@ -812,21 +870,21 @@ function aghome_configure {
 		return 0
 	fi
 
-	# log
-	local action="$1"
+	# prepre and log
+	local action="$1" # enable/disable
 	echo-segment --h1="Configure and ${action@u} ${aghome_title}"
 
-	# enable?
-	if test "$action" = 'enable'; then
+	# this is here, because we need to seed the configuration file before we can do changes to it
+	if test ! -f "$aghome_conf_file" -a "$action" = 'enable'; then
 		sudo "${aghome_bin_cmd[@]}" --service install || :
 		sudo "${aghome_bin_cmd[@]}" --service enable || :
 		sudo "${aghome_bin_cmd[@]}" --service start || :
 		confirm --ppid=$$ -- "Press any key once you have completed the initial $aghome_title setup..."
-	else
-		sudo "${aghome_bin_cmd[@]}" --service stop || :
-		sudo "${aghome_bin_cmd[@]}" --service disable || :
 	fi
-	sudo "${aghome_bin_cmd[@]}" --service status || :
+
+	# stop before config update
+	sudo "${aghome_bin_cmd[@]}" --service stop || :
+	sudo "${aghome_bin_cmd[@]}" --service disable || :
 
 	# prepare desired providers
 	local upstream_servers=(
@@ -842,7 +900,7 @@ function aghome_configure {
 		)
 	fi
 
-	# use desired providers
+	# update the configuration with the new upstreams
 	local pattern replace
 	pattern='  upstream_dns:\n(  - .+\n)+'
 	replace=$'  upstream_dns:\n'
@@ -852,10 +910,14 @@ function aghome_configure {
 	sudo-inherit sd "$pattern" "$replace" "$aghome_conf_file"
 	sudo "${aghome_bin_cmd[@]}" --check-config
 
-	# reload if enable
+	# enable or disable
 	if test "$action" = 'enable'; then
 		sudo "${aghome_bin_cmd[@]}" --service reload || :
 		sudo "${aghome_bin_cmd[@]}" --service status || :
+	else
+		sudo "${dnscrypt_bin_cmd[@]}" --service stop || :
+		sudo "${dnscrypt_bin_cmd[@]}" --service disable || :
+		sudo "${dnscrypt_bin_cmd[@]}" --service uninstall || :
 	fi
 
 	# log
@@ -894,88 +956,95 @@ function dnscrypt_install {
 		die_service_unsupported "$dnscrypt_title"
 	fi
 
-	# prepare
-	local action='install'
+	# prepare and log
+	local action='install' # install/upgrade
 	if dnscrypt_exists; then
 		action='upgrade'
 	fi
-
-	# log
 	echo-segment --h1="${action@u} ${dnscrypt_title}"
 
-	# disable if it already exists
-	dnscrypt_disable
-
 	# don't use brew for this, as we want complete control
-	brew uninstall "$dnscrypt_brew_id" || :
+	brew uninstall "$dnscrypt_brew_id" &>/dev/null || :
 	check_installation "$dnscrypt_id" "$dnscrypt_bin_file"
 
-	# install/upgrade
-	if test ! -f "$dnscrypt_bin_file"; then
-		local temp_bin_file
-		temp_bin_file="$(fs-temp)"
-		github-release-file-download DNSCrypt/dnscrypt-proxy \
-			--filter="$dnscrypt_installer" \
-			--extract='*/dnscrypt-proxy' \
-			--destination="$temp_bin_file"
-		sudo mv "$temp_bin_file" "$dnscrypt_bin_file"
-		sudo chmod +x "$dnscrypt_bin_file"
+	# ensure directories
+	sudo mkdir -p "$dnscrypt_conf_dir"
+
+	# download the upgrade if possible
+	local temp_bin_file
+	temp_bin_file="$(fs-temp)"
+	github-release-file-download DNSCrypt/dnscrypt-proxy \
+		--filter="$dnscrypt_installer" \
+		--extract='dnscrypt-proxy' \
+		--destination="$temp_bin_file"
+
+	# if downloaded, stop and install
+	if test -f "$temp_bin_file"; then
+		if test -x "$dnscrypt_bin_file"; then
+			# only tell prior cmd to stop if the prior cmd exists
+			sudo "${dnscrypt_bin_cmd[@]}" --service stop || :
+		fi
+		sudo mv "$temp_bin_file" "$dnscrypt_bin_file" || :
+		sudo chmod +x "$dnscrypt_bin_file" || :
+		# ^ allow failure,s as we will check this later
+	fi
+
+	# confirm success
+	if test -x "$dnscrypt_bin_file"; then
+		echo-segment --g1="${action@u} ${dnscrypt_title}"
+	else
+		echo-style --error="Unable to make executable: $dnscrypt_bin_file" >/dev/stderr
+		echo-segment --e1="${action@u} ${dnscrypt_title}"
+		return 1
+	fi
+}
+function dnscrypt_uninstall {
+	# check
+	if ! dnscrypt_exists; then
+		return 0
 	fi
 
 	# log
-	echo-segment --g1="${action@u} ${dnscrypt_title}"
-}
-function dnscrypt_uninstall {
-	dnscrypt_disable
+	echo-segment --h1="Uninstall ${dnscrypt_title}"
 
-	echo-style --h2="$dnscrypt_title is being uninstalled..."
-	if is-brew; then # @todo remove
-		brew uninstall "$dnscrypt_brew_id" || :
-	fi
-	do_rm "$dnscrypt_id" -- "$dnscrypt_service_file"
-	echo-style --g2="$dnscrypt_title is now uninstalled."
-}
-function dnscrypt_disable {
-	echo-style --h2="$dnscrypt_title service is being disabled..."
-	if is-brew; then # @todo remove
-		sudo brew services stop "$dnscrypt_brew_id" || :
-	else
-		sudo "${dnscrypt_bin_cmd[@]}" -service stop || :
-		sudo "${dnscrypt_bin_cmd[@]}" -service uninstall || :
-	fi
-	echo-style --g2="$dnscrypt_title service is now disabled."
-}
-function dnscrypt_enable {
-	# service
-	echo "$dnscrypt_title service is being installed..."
-	if is-brew; then # @todo remove
-		sudo brew services start "$dnscrypt_brew_id"
-	else
-		sudo "${dnscrypt_bin_cmd[@]}" -check
-		sudo "${dnscrypt_bin_cmd[@]}" -service install
-		sudo "${dnscrypt_bin_cmd[@]}" -service start
-		sleep 5 # needed otherwise sometimes resolve fails
-		sudo systemctl status "$dnscrypt_service_id" --no-pager
-		sudo "${dnscrypt_bin_cmd[@]}" -resolve cloudflare.com
-	fi
-	echo "$dnscrypt_title service is now installed"
+	# stop and uninstall the service
+	sudo "${dnscrypt_bin_cmd[@]}" --service stop || :
+	sudo "${dnscrypt_bin_cmd[@]}" --service uninstall || :
+
+	# ensure adguard home has stopped
+	killall "$dnscrypt_id" || :
+
+	# clean it all up
+	do_rm "$dnscrypt_id" -- "$dnscrypt_bin_file" "$dnscrypt_conf_dir" "$dnscrypt_service_file"
+
+	# log
+	echo-segment --g1="Uninstall ${dnscrypt_title}"
 }
 function dnscrypt_configure {
-	echo-style --h2="$dnscrypt_title is being configured..."
-	# @todo make consistent with the otehrs
+	# check
+	if ! dnscrypt_exists; then
+		return 0
+	fi
 
-	# prep the config replacement
+	# prepare and log
+	local action="$1" # enable/disable
+	echo-segment --h1="Configure and ${action@u} ${dnscrypt_title}"
+
+	# initiate the config if it doesn't exist
 	if test ! -f "$dnscrypt_conf_file"; then
 		local temp_conf_file
 		temp_conf_file="$(fs-temp)"
+		# https://github.com/DNSCrypt/dnscrypt-proxy/blob/master/dnscrypt-proxy/example-dnscrypt-proxy.toml
 		github-file-download \
-			'dnscrypt-proxy/master/dnscrypt-proxy/example-dnscrypt-proxy.toml' \
+			'DNSCrypt/dnscrypt-proxy/master/dnscrypt-proxy/example-dnscrypt-proxy.toml' \
 			--destination="$temp_conf_file"
 		sudo mv "$temp_conf_file" "$dnscrypt_conf_file"
 	fi
 
-	# if the server names were missing, get the user to decide on an alternative
-	if test "${#dnscrypt_names[@]}" -eq 0; then
+	# if [dnscrypt_names] is empty, get the user to decide
+	# but only go through the trouble if we are actually intending
+	# to use dns-crypt
+	if test "${#dnscrypt_names[@]}" -eq 0 -a "$action" = 'enable'; then
 		mapfile -t dnscrypt_options < <(
 			fetch 'https://download.dnscrypt.info/resolvers-list/v2/public-resolvers.md' | rg '^## (.+)$' --replace '$1'
 		)
@@ -985,15 +1054,36 @@ function dnscrypt_configure {
 		)
 	fi
 
-	# apply the server names
-	sudo-inherit config-helper --file="$dnscrypt_conf_file" -- \
-		--field='ipv6_servers' --value='true' \
-		--field='dnscrypt_names' --value='true' \
-		--field='doh_servers' --value='true' \
-		--field='server_names' --value="[$(echo-join ', ' -- "${dnscrypt_names[@]}")]"
+	# stop before config update
+	sudo "${dnscrypt_bin_cmd[@]}" --service stop || :
+	sudo "${dnscrypt_bin_cmd[@]}" --service disable || :
 
-	# move the changes over
-	echo-style --g2="$dnscrypt_title is now configured"
+	# update the configuration with the new [dnscrypt_names], if any
+	if test "${#dnscrypt_names[@]}" -ne 0; then
+		sudo-inherit config-helper --file="$dnscrypt_conf_file" -- \
+			--field='ipv4_servers' --value='true' \
+			--field='ipv6_servers' --value='true' \
+			--field='dnscrypt_servers' --value='true' \
+			--field='doh_servers' --value='true' \
+			--field='server_names' --value="[$(
+				echo-join ', ' -- "${dnscrypt_names[@]@Q}"
+			)]"
+		sudo "${dnscrypt_bin_cmd[@]}" --check -config "$dnscrypt_conf_file"
+	fi
+
+	# enable or disable
+	if test "$action" = 'enable'; then
+		sudo "${dnscrypt_bin_cmd[@]}" --service install || :
+		sudo "${dnscrypt_bin_cmd[@]}" --service enable || :
+		sudo "${dnscrypt_bin_cmd[@]}" --service start || :
+	else
+		sudo "${dnscrypt_bin_cmd[@]}" --service stop || :
+		sudo "${dnscrypt_bin_cmd[@]}" --service disable || :
+		sudo "${dnscrypt_bin_cmd[@]}" --service uninstall || :
+	fi
+
+	# log
+	echo-segment --g1="Configure and ${action@u} ${dnscrypt_title}"
 }
 
 # =====================================
@@ -1027,35 +1117,42 @@ function cloudflared_install {
 		die_service_unsupported "$cloudflared_title"
 	fi
 
-	# prepare
+	# prepare and log
 	local action='install'
 	if cloudflared_exists; then
 		action='upgrade'
 	fi
-
-	# log
 	echo-segment --h1="${action@u} ${cloudflared_title}"
 
-	# disable if it already exists
-	cloudflared_disable
+	# disable/uninstall the service if it exists
+	service_disable "$cloudflared_proxy_service_file"
 
 	# don't use brew for this, as we want complete control
 	brew uninstall "$cloudflared_brew_id" &>/dev/null || :
 	check_installation "$cloudflared_id" "$cloudflared_bin_file"
 
-	# install/upgrade
-	if test ! -f "$cloudflared_bin_file"; then
-		local temp_bin_file
-		temp_bin_file="$(fs-temp)"
-		github-release-file-download cloudflare/cloudflared \
-			--filter="$cloudflared_installer" \
-			--destination="$temp_bin_file"
+	# download the upgrade if possible
+	local temp_bin_file
+	temp_bin_file="$(fs-temp)"
+	github-release-file-download cloudflare/cloudflared \
+		--filter="$cloudflared_installer" \
+		--destination="$temp_bin_file"
+
+	# if downloaded, stop and install
+	if test -f "$temp_bin_file"; then
+		service_stop "$cloudflared_proxy_service_file"
 		sudo mv "$temp_bin_file" "$cloudflared_bin_file"
 		sudo chmod +x "$cloudflared_bin_file"
 	fi
 
-	# log
-	echo-segment --g1="${action@u} ${cloudflared_title}"
+	# confirm success
+	if test -x "$cloudflared_bin_file"; then
+		echo-segment --g1="${action@u} ${cloudflared_title}"
+	else
+		echo-style --error="Unable to make executable: $cloudflared_bin_file" >/dev/stderr
+		echo-segment --e1="${action@u} ${cloudflared_title}"
+		return 1
+	fi
 }
 function cloudflared_uninstall {
 	# check
@@ -1066,54 +1163,21 @@ function cloudflared_uninstall {
 	# log
 	echo-segment --h1="Uninstall ${cloudflared_title}"
 
-	# disable
-	cloudflared_disable
+	# stop, disable, uninstall the service if it exists
+	service_disable "$cloudflared_proxy_service_file"
 
-	# don't use brew for this, as we want complete control
-	brew uninstall "$cloudflared_brew_id" &>/dev/null || :
-	check_installation "$cloudflared_id" "$cloudflared_bin_file"
-
-	# after systemctl additions and removals, one has to do this
-	if test "${#CLOUDFLARED_TUNNELS[@]}" -eq 0; then
-		do_rm "$cloudflared_id" -- "$cloudflared_proxy_service_file" || :
-	else
+	# if we are using tunnels
+	if test "${#CLOUDFLARED_TUNNELS[@]}" -ne 0; then
+		# only remove the service file
+		# as tunnels uses the same binary
 		do_rm -- "$cloudflared_proxy_service_file" || :
+	else
+		# ensure everything related to the proxy is removed
+		do_rm "$cloudflared_id" -- "$cloudflared_proxy_service_file" || :
 	fi
 
 	# log
 	echo-segment --g1="Uninstall ${cloudflared_title}"
-}
-function cloudflared_disable {
-	# check
-	if ! cloudflared_exists; then
-		return 0
-	fi
-
-	# log
-	echo-segment --h2="Disable ${cloudflared_title}"
-
-	# disable
-	if test -f "$cloudflared_proxy_service_file"; then
-		disable_service "$cloudflared_proxy_service_file"
-	fi
-
-	# log
-	echo-segment --g2="Disable ${cloudflared_title}"
-}
-function cloudflared_enable {
-	# check
-	if ! cloudflared_exists; then
-		return 0
-	fi
-
-	# log
-	echo-segment --h2="Enable ${cloudflared_title}"
-
-	# enable
-	enable_service "$cloudflared_proxy_service_file"
-
-	# log
-	echo-segment --g2="Enable ${cloudflared_title}"
 }
 function cloudflared_configure {
 	# check
@@ -1121,40 +1185,45 @@ function cloudflared_configure {
 		return 0
 	fi
 
-	# log
+	# prepare and log
 	local action="$1"
 	echo-segment --h1="Configure and ${action@u} ${cloudflared_title}"
 
 	# check
 	check_installation "$cloudflared_id" "$cloudflared_bin_file"
 
-	# disable for now
-	cloudflared_disable
+	# stop, disable, uninstall the old service if it exists
+	service_disable "$cloudflared_proxy_service_file"
 
-	# prepare
-	local upstream_servers=(
-		"${dot_servers[@]}"
-		"${doh_servers[@]}"
-		"${quic_servers[@]}"
-	)
-	if test "${#upstream_servers[@]}" -eq 0; then
-		upstream_servers=(
-			"${ipv4_servers[@]}"
-			"${ipv6_servers[@]}"
+	# only update the configuration, if we are [enable] action
+	# as the SERVICE IS THE CONFIGURATION for [cloudflared proxy-dns]
+	# as it doesn't support a configuration file
+	# so we have to configure it via CLI args in the service definition
+	if test "$action" = 'enable'; then
+		# prepare upstreams
+		local upstream_servers=(
+			"${dot_servers[@]}"
+			"${doh_servers[@]}"
+			"${quic_servers[@]}"
 		)
-	fi
+		if test "${#upstream_servers[@]}" -eq 0; then
+			upstream_servers=(
+				"${ipv4_servers[@]}"
+				"${ipv6_servers[@]}"
+			)
+		fi
 
-	# configure service
-	if is-mac; then
-		# generate upstreams
-		local upstream_section=''
-		for server in "${upstream_servers[@]}"; do
-			upstream_section+=$'\n'"			<string>--upstream</string>"
-			upstream_section+=$'\n'"			<string>$server</string>"
-		done
+		# configure service with the upstreams
+		if is-mac; then
+			# generate upstreams
+			local upstream_section=''
+			for server in "${upstream_servers[@]}"; do
+				upstream_section+=$'\n'"			<string>--upstream</string>"
+				upstream_section+=$'\n'"			<string>$server</string>"
+			done
 
-		# create service with custom upstreams
-		sudo tee "$cloudflared_proxy_service_file" >/dev/null <<EOF
+			# create service with custom upstreams
+			sudo tee "$cloudflared_proxy_service_file" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1183,37 +1252,33 @@ function cloudflared_configure {
 </plist>
 EOF
 
-		# update macos service permissions
-		sudo chown root:admin "$cloudflared_proxy_service_file"
-		sudo chmod +t "$cloudflared_proxy_service_file"
-	else
-		# generate upstreams
-		local upstream_args=''
-		for server in "${upstream_servers[@]}"; do
-			upstream_args+=" --upstream ${server@Q}"
-		done
+		else
+			# generate upstreams
+			local upstream_args=''
+			for server in "${upstream_servers[@]}"; do
+				upstream_args+=" --upstream ${server@Q}"
+			done
 
-		# create service with custom upstreams
-		sudo tee "$cloudflared_proxy_service_file" >/dev/null <<-EOF
-			[Unit]
-			Description=${cloudflared_proxy_service_id}
-			Wants=network-online.target nss-lookup.target
-			Before=nss-lookup.target
+			# create service with custom upstreams
+			sudo tee "$cloudflared_proxy_service_file" >/dev/null <<-EOF
+				[Unit]
+				Description=${cloudflared_proxy_service_id}
+				Wants=network-online.target nss-lookup.target
+				Before=nss-lookup.target
 
-			[Service]
-			AmbientCapabilities=CAP_NET_BIND_SERVICE
-			CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-			DynamicUser=yes
-			ExecStart=${cloudflared_bin_file} proxy-dns ${upstream_args}
+				[Service]
+				AmbientCapabilities=CAP_NET_BIND_SERVICE
+				CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+				DynamicUser=yes
+				ExecStart=${cloudflared_bin_file} proxy-dns ${upstream_args}
 
-			[Install]
-			WantedBy=multi-user.target
-		EOF
-	fi
+				[Install]
+				WantedBy=multi-user.target
+			EOF
+		fi
 
-	# reload if enable
-	if test "$action" = 'enable'; then
-		cloudflared_enable
+		# enable the service
+		service_enable "$cloudflared_proxy_service_file"
 	fi
 
 	# log
@@ -1225,8 +1290,11 @@ EOF
 
 tunnel_user_dir="$HOME/.cloudflared"
 tunnel_user_pem="$tunnel_user_dir/cert.pem"
-tunnel_conf_dir="$CONF_DIR/$cloudflared_id"
 # ^ cloudflared always places login cert here
+tunnel_conf_dir="$CONF_DIR/$cloudflared_id"
+# ^ store tunnel data into cloudflared conf dir
+# ^ ironically, [cloudflared proxy-dns] doesn't actually have conf
+# ^ only the tunnel stuff does
 
 function tunnel_install() {
 	# ensure cloudflared is installed
@@ -1235,38 +1303,17 @@ function tunnel_install() {
 	fi
 
 	# make tunnel directories
-	mkdir -p "$tunnel_user_dir"
+	mkdir -p "$tunnel_user_dir" "$tunnel_conf_dir"
 }
 function tunnel_uninstall() {
-	# disable tunnel
-	tunnel_disable
-
-	# remove files for all tunnels
-	do_rm 'cloudflared-tunnel' -- "$tunnel_user_dir" "$tunnel_conf_dir"
-}
-function tunnel_disable {
-	# check
-	if ! tunnel_exists; then
-		return 0
-	fi
-
 	# disable all the tunnels
 	local service_file
 	for service_file in "$SERVICE_DIR/"*'cloudflared-tunnel'*; do
-		disable_service "$service_file"
+		service_disable "$service_file"
 	done
-}
-function tunnel_enable {
-	# check
-	if test ! -f "$tunnel_service_file"; then
-		return 0
-	fi
 
-	# enable all the tunnels
-	local service_file
-	for service_file in "$SERVICE_DIR/"*'cloudflared-tunnel'*; do
-		enable_service "$service_file"
-	done
+	# remove files for all tunnels
+	do_rm 'cloudflared-tunnel' -- "$tunnel_user_dir" "$tunnel_conf_dir"
 }
 function tunnel_configure_single {
 	# check
@@ -1274,8 +1321,8 @@ function tunnel_configure_single {
 		return 0
 	fi
 
-	# log
-	echo-segment --h1="Configure Cloudflared Tunnel"
+	# log, tunnels are always enable
+	echo-segment --h1="Configure and Enable Cloudflared Tunnel"
 	echo-style --dim="$*"
 
 	# process args
@@ -1336,7 +1383,7 @@ function tunnel_configure_single {
 	tunnel_cred_file="$tunnel_conf_dir/$tunnel_service_id-$tunnel.json"
 
 	# cleanup old tunnel service if it exists
-	disable_service "$tunnel_service_file"
+	service_disable "$tunnel_service_file"
 
 	# cleanup old login details and login again
 	do_rm -- "$tunnel_user_pem"
@@ -1430,10 +1477,10 @@ EOF
 	fi
 
 	# enable the new tunnel
-	enable_service "$tunnel_service_file"
+	service_enable "$tunnel_service_file"
 
 	# log
-	echo-segment --g1="Configure Cloudflared Tunnel"
+	echo-segment --g1="Configure and Enable Cloudflared Tunnel"
 }
 function tunnel_configure {
 	# check
@@ -1545,6 +1592,8 @@ fi
 echo-segment --h1='Verify DNS'
 echo-eval -- dig -x cloudflare.com
 # echo-eval -- what-is-listening dns
+# open 'https://www.cloudflare.com/en-au/ssl/encrypted-sni/'
+# open 'https://1.1.1.1/help'
 echo-segment --g1='Verify DNS'
 
 # Prompt the user which hosts they want to use
