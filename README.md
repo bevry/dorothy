@@ -317,7 +317,7 @@ The [`podcast` command](https://github.com/bevry/dorothy/tree/master/commands/po
 
 The [`podvideo` command](https://github.com/bevry/dorothy/tree/master/commands/podvideo) will convert a video file to a new file with h264+aac encoding.
 
-The [`youtube-dl-archive` command](https://github.com/bevry/dorothy/tree/master/commands/youtube-dl-archive) will download something from youtube, with all the necessary extras such that you know you got everything.
+The [`ytd-helper` command](https://github.com/bevry/dorothy/tree/master/commands/ytd-helper) provides some additional flags to make using `youtube-dl` easier.
 
 The [`video-merge` command](https://github.com/bevry/dorothy/tree/master/commands/video-merge) will merge multiple video files in a directory together into a single video file.
 
