@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/ripgrep.bash"
+source "$DOROTHY/sources/arrays.bash"
+has_array_support 'mapfile'
 
 # =====================================
 # Arguments
@@ -15,22 +17,32 @@ actions=(
 function help() {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
-
 		Wrappers around btrfs to make things easier.
 
-
 		USAGE:
+		btrfs-helper drives
+		# ^ Lists all attached drives that are formatted to btrfs.
 
-		btrfs-helper <action> -- [...args]
+		btrfs-helper drive <btrfs-filesystem-label>
+		# ^ Gets the primary drive for the btrfs filesystem label.
 
+		btrfs-helper mounts
+		# ^ Lists all mount points which btrfs formatted drives are attached to.
 
-		ACTIONS:
+		btrfs-helper new
+		# ^ Prompts you to select a drive to erase and format to btrfs.
 
-		count -- <label>
-			Count the drives of a btrfs filesystem label.
+		btrfs-helper add
+		# ^ Prompts you to select a drive, and an existing btrfs mount point, to add the drive to.
 
-		verify -- <label> <expected-count>
-			Verify the amount of btrfs devices for a btrfs filesystem label matches what we expected.
+		btrfs-helper balance
+		# ^ Prompts you to select a btrfs mount point, to run a btrfs raid1 balance on.
+
+		btrfs-helper verify <btrfs-filesystem-label> <expected-count-of-btrfs-filesystem-drives>
+		# ^ Verifies that the drive count for a btrfs filesystem label is correct.
+
+		btrfs-helper mounted <btrfs-filesystem-label> <expected-mount-point>
+		# ^ Verifies that the btrfs filesystem label is mounted to the expected mount point.
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
@@ -71,17 +83,118 @@ action="$(
 )"
 
 # =====================================
-# Actions
+# Helpers
 
-function act_count {
-	# Get the amount of btrfs devices for the specified label
+function get_btrfs_mounts {
+	# Get all the mount points which btrfs drives are mounted to
+	df -Th | awk '($2 == "btrfs") {print $7}'
+	# lsblk -f | awk '($2 == "btrfs" && $7) {print $7}'
+}
+
+function get_btrfs_mount {
+	# Prompt for a specific btrfs mount point
+	mapfile -t mounts < <(btrfs_mounts)
+	local question="$1"
+	choose-option --required \
+		--question="$question" \
+		-- "${mounts[@]}"
+}
+
+function get_any_drive {
+	# Prompt for a specific drive
+	local question="$1"
+	mapfile -t drives < <(get-drives)
+	choose-option --required \
+		--question="$question" \
+		-- "${drives[@]}"
+}
+
+function get_btrfs_drives {
+	# Get all the drives which are formatted to btrfs
+	lsblk -f | awk '/btrfs/ {print "/dev/"$1}'
+}
+
+function get_btrfs_drive {
+	# Prompt for a specific btrfs drive
+	local question="$1"
+	mapfile -t drives < <(get_btrfs_drives)
+	choose-option --required \
+		--question="$question" \
+		-- "${drives[@]}"
+}
+
+function get_btrfs_drive_for_label {
+	# Get the primary drive of a btrfs filesystem label
+	local label="$1"
+	blkid -L "$label"
+}
+
+function get_btrfs_drives_for_label {
+	# Get the drives of a btrfs filesystem label
+	local label="$1"
+	sudo btrfs filesystem show "$label" | rg -o 'path ([a-z0-9/]+)' --replace '$1'
+}
+
+function get_btrfs_count_for_label {
+	# Count the drives of a btrfs filesystem label
 	local label="$1"
 	sudo btrfs filesystem show "$label" | rg -o 'Total devices ([0-9]+)' --replace '$1'
 }
-function act_verify {
-	# Verify the amount of btrfs devices matches what we expected
+
+# =====================================
+# Actions
+
+function btrfs_mounts {
+	get_btrfs_mounts
+}
+
+function btrfs_drives {
+	get_btrfs_drives
+}
+
+function btrfs_new {
+	local drive label
+	drive="$(
+		get_any_drive "Which drive to erase and format as btrfs?"
+	)"
+	label="$(
+		ask --required \
+			--question="What label to use for the new btrfs filesystem that will be attached to the drive [$drive]?"
+	)"
+	eval-confirm -- sudo mkfs.btrfs -f -L "$label" "$drive"
+}
+
+function btrfs_add {
+	# Add a drive to a btrfs cluster
+	local drive mount
+	echo 'You will now specify a mount point of an existing btrfs cluster, and a drive that you wish to be erased and added to it.'
+	mount="$(get_btrfs_mount "Which mount point is the btrfs cluster that will house the new drive?")"
+	drive="$(get_any_drive "Which drive is the one to be erased then added into the btrfs cluster?")"
+
+	# add the drive to the mount point
+	eval-confirm -- sudo btrfs device add -f "$drive" "$mount"
+
+	# balance the drives of the mount point
+	eval-confirm -- sudo btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$mount"
+}
+
+function btrfs_balance {
+	# Resume a balance
+	local mount
+	mount="$(get_btrfs_mount "Which btrfs mount point should we resume/start a btrfs raid1 balance operation on?")"
+	if echo-eval -- sudo btrfs balance status -v "$mount"; then
+		# finished
+		echo-eval -- sudo btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$mount"
+	else
+		# in progress
+		echo-eval -- sudo btrfs balance resume "$mount"
+	fi
+}
+
+function btrfs_verify {
+	# Verify the amount of btrfs drives matches the expected ount
 	local label="$1" expected="$2" actual
-	actual="$(get_btrfs_drives_count "$label")"
+	actual="$(get_btrfs_count_for_label "$label")"
 	if test "$actual" -ne "$expected"; then
 		cat <<-EOF >/dev/stderr
 			$(echo-style --error="$actual out of $expected drives available")
@@ -91,11 +204,26 @@ function act_verify {
 	fi
 }
 
+function btrfs_mounted {
+	local label="$1" mount="$2" drive
+	drive="$(get_btrfs_drive_for_label "$label")"
+	is-mounted --source="$drive" --target="$mount"
+}
+
+function btrfs_drive {
+	local label="${1-}"
+	if test -n "$label"; then
+		get_btrfs_drive_for_label "$label"
+	else
+		get_btrfs_drive 'Which btrfs drive to select?'
+	fi
+}
+
 # =====================================
 # Act
 
-if test "$(type -t "act_$action")" = 'function'; then
-	"act_$action" "${action_args[@]}"
+if test "$(type -t "btrfs_$action")" = 'function'; then
+	"btrfs_$action" "${action_args[@]}"
 	exit "$?"
 else
 	echo-style --error="Action [$action] not yet implemented." >/dev/stderr
