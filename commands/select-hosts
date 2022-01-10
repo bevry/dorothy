@@ -1,79 +1,101 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2164,SC1091,SC2016
 source "$DOROTHY/sources/strict.bash"
-source "$DOROTHY/sources/config.sh"
-load_dorothy_config 'nofap.bash'
+source "$DOROTHY/sources/arrays.bash"
+requires_array_support 'mapfile'
+source "$(which eval-collapse)"
 
-# details: https://github.com/StevenBlack/hosts
-# deprecated this: https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt
+# =====================================
+# Start
 
+echo-segment --h1="Setup Hosts file"
+
+# =====================================
+# Configuration
+
+source "$DOROTHY/sources/config.bash"
+
+# hosts.bash provides:
+# OPTIONS=()
+# CHOICE=''
+# NOFAP='' # yes/no/maybe
+load_dorothy_config 'hosts.bash'
+
+# reconfigure?
+reconfigure='no'
+if test "${1-}" = '--configure'; then
+	reconfigure='yes'
+	shift
+fi
+
+# adjustments
+if test -z "$CHOICE" -o "$reconfigure" = 'yes'; then
+	if test "${#OPTIONS[@]}" -eq 0; then
+		echo-segment --error="Invalid configuration, there must be valid OPTIONS."
+	fi
+	CHOICE="$(
+		choose-option \
+			--question='Which host file do you wish to use?' \
+			--label=first -- "${OPTIONS[@]}"
+	)"
+	# as this is a new selection, recalculate nofap compliance
+	if contains-word "$CHOICE" 'porn'; then
+		# if it has porn in it, then it means it blocks porn
+		NOFAP='yes'
+	else
+		NOFAP='no'
+	fi
+fi
+# else, it is a manual selection, so let the user determine NoFap compliance
+
+# =====================================
+# Action
+
+# prepare
+hosts_file='/etc/hosts'
+
+# helper
 function hosts {
+	# prepare
+	local url custom_file content_file
 	url="$1"
-	customfile="$(mktemp)"
-	contentfile="$(mktemp)"
-	dest="/etc/hosts"
-	echo "downloading [$url] to [$dest]"
+	custom_file="$(mktemp)"
+	content_file="$(mktemp)"
 
-	sed -n '/<custom>/,/<\/custom>/p' <"$dest" >"$customfile"
-	sudo-inherit down "$url" --destination="$contentfile"
+	# grab the custom content, and save it temporarily
+	sed -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
 
-	cat "$customfile" "$contentfile" | sudo dd of="$dest"
+	# download the new file to a temporary location
+	sudo-inherit down "$url" --destination="$content_file"
+
+	# combine the custom content with the new content, and save it to the destination
+	cat "$custom_file" "$content_file" | sudo dd of="$hosts_file"
 }
 
-tuples=(
-	'Unified hosts = (adware + malware)' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts'
-	'Unified hosts + fakenews' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews/hosts'
-	'Unified hosts + gambling' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/gambling/hosts'
-	'Unified hosts + porn' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn/hosts'
-	'Unified hosts + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/social/hosts'
-	'Unified hosts + fakenews + gambling' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling/hosts'
-	'Unified hosts + fakenews + porn' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-porn/hosts'
-	'Unified hosts + fakenews + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-social/hosts'
-	'Unified hosts + gambling + porn' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/gambling-porn/hosts'
-	'Unified hosts + gambling + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/gambling-social/hosts'
-	'Unified hosts + porn + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-social/hosts'
-	'Unified hosts + fakenews + gambling + porn' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn/hosts'
-	'Unified hosts + fakenews + gambling + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-social/hosts'
-	'Unified hosts + fakenews + porn + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-porn-social/hosts'
-	'Unified hosts + gambling + porn + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/gambling-porn-social/hosts'
-	'Unified hosts + fakenews + gambling + porn + social' # =>
-	'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn-social/hosts'
-)
+# apply
+eval_collapse \
+	--pending="$(echo-style --bold="Downloading [$CHOICE] to [$hosts_file]...")" \
+	--success="$(echo-style --success="Downloaded [$CHOICE] to [$hosts_file].")" \
+	-- hosts "$CHOICE"
 
-# List
-value="$(choose-option --question='Which host file do you wish to use?' --label=first -- "${tuples[@]}")"
-
-# Apply
-hosts "$value"
-
-# Reload
-flush-dns
-
+# =====================================
 # NoFap
-if command-exists http && test -n "${NOFAP_DISCORD_WEBHOOK-}"; then
-	message=''
-	user="${NOFAP_DISCORD_USERNAME:-"<@$(whoami)>"}"
-	if contains-word "$value" 'porn'; then
-		message="$user changed ${HIS_PRONOUN:-his} hosts file to \`$value\` which is NoFap compliant ✅"
-	else
-		message="$user changed ${HIS_PRONOUN:-his} hosts file to \`$value\` which VIOLATES NoFap ❌"
-	fi
-	http -q --check-status "$NOFAP_DISCORD_WEBHOOK" Authorization:"${NOFAP_DISCORD_WEBHOOK_AUTH-}" content="$message"
-	echo ''
-	echo 'NOFAP UPDATE SENT'
-	echo "$message"
-fi
+
+source "$DOROTHY/sources/nofap.bash"
+nofap "$NOFAP" 'hosts file' "$CHOICE"
+
+# =====================================
+# Reconfigure
+
+# update configuration
+update_dorothy_user_config --prefer=local --no-template 'hosts.bash' -- \
+	--field='NOFAP' --value="$NOFAP" \
+	--field='CHOICE' --value="${CHOICE@Q}"
+
+# =====================================
+# Finish
+
+echo-segment --g1="Setup Hosts file"
+
+# finally, flush dns
+flush-dns

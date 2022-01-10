@@ -1,10 +1,42 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# =====================================
+# Checks
+
+# check for support
+if ! is-linux; then
+	echo-style --notice="[$0] currently only supports Linux systems, skipping." >/dev/stderr
+	exit 0
+fi
+
+# =====================================
+# Action
+
+# https://support.plex.tv/articles/235974187#enable-repository-updating-for-supported-linux-server-distributions/
+# https://www.plex.tv/media-server-downloads##plex-media-server
+
+# --paths
+plex_service='/lib/systemd/system/plexmediaserver.service'
+plex_data_paths=(
+	'/var/lib/plexmediaserver/'
+)
+plex_paths=(
+	"$plex_service"
+	"${plex_data_paths[@]}"
+)
+if test "${1-}" = '--paths'; then
+	echo-lines -- "${plex_paths[@]}"
+	exit
+fi
+
+# install
 env NAME='Plex Media Server' \
+	APT_KEY_NAME='plexmediaserver' \
 	APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
 	APT_REPO='deb https://downloads.plex.tv/repo/deb public main' \
 	APT='apt-transport-https ca-certificates plexmediaserver' \
+	CASK='plex-media-server' \
 	setup-util
 
 # APT_EVAL="
@@ -14,3 +46,32 @@ env NAME='Plex Media Server' \
 # 	sudo apt update
 # 	sudo apt install plexmediaserver
 # "
+
+# service
+sudo systemctl disable plexmediaserver || :
+sudo systemctl stop plexmediaserver || :
+
+# configure
+if confirm-negative --ppid=$$ -- "Customise Plex Media Server configuration?"; then
+	source "$DOROTHY/sources/edit.bash"
+	sudo_edit "$plex_service"
+fi
+
+# permissions
+plex_user="$(
+	config-helper \
+		--file="$plex_service" -- \
+		--field='User'
+)"
+plex_group="$(
+	config-helper \
+		--file="$plex_service" -- \
+		--field='Group'
+)"
+fs-own --user="$plex_user" --group="$plex_group" -- "${plex_data_paths[@]}"
+
+# --group
+mapfile -t groups < <(get-flag-value group --multi -- "$@")
+for group in "${groups[@]}"; do
+	sudo gpasswd -a "$plex_user" "$group"
+done

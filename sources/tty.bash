@@ -14,7 +14,7 @@ tty_clear() {
 }
 
 tty_finish() {
-	# `tput rmcup` does not persist stderr, so for failure/stderr dumps, use `sleep 10` to ensure sterr is visible for long enough to be noticed before wiped.
+	# `tput rmcup` does not persist stderr, so for failure/stderr dumps, use `sleep 5` to ensure sterr is visible for long enough to be noticed before wiped.
 	tput rmcup >/dev/tty
 }
 

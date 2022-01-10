@@ -1,75 +1,138 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/environment.sh" # ensure new installations are detected
+
+# =====================================
+# Arguments
+
+if is-help "$@"; then
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Enforce your preferred shell as your user's login shell.
+
+		USAGE:
+		select-shell
+		# ^ uses [USER_SHELLS] in [shells.bash] to select a shell.
+
+		select-shell [--] <preference> [...<preference>]
+		# ^ uses arguments as the shell preferences
+
+		QUIRKS:
+		You can use a command name, such as [bash] to select the preferred variation of the shell.
+		You can use a full path, such as [/bin/bash] to select a specific variation of the shell.
+	EOF
+	exit 22 # Invalid argument
+fi
+
+if test "${1-}" = '--'; then
+	shift
+fi
+
+# =====================================
+# Configuration
+
 source "$DOROTHY/sources/config.sh"
-load_dorothy_config 'shells.bash'
-# ^ provides: USER_SHELLS
 
-function act {
-	shell="$(command -v "$1")"
+# shells.bash provides:
+USER_SHELLS=()
+load_dorothy_config 'setup.bash'
 
-	if ! command-exists "$shell"; then
-		stderr echo "ERROR: which for the shell [$1] returned [$shell]"
+# overrides
+if test "$#" -ne 0; then
+	USER_SHELLS=("$@")
+fi
+
+# =====================================
+# Action
+
+function select_shell {
+	# if name, expand the name into a path
+	# if path, validate the path exists
+	shell="$(command -v "$1" || :)"
+	if test -z "$shell"; then
+		echo-segment --error="Failed to verify that shell [$shell] exists and is executable."
 		exit 1
 	fi
 
-	echo "selected the shell [$1] at [$shell]"
+	# log
+	echo-segment --h1="Selected the shell [$1] at [$shell]"
 
+	# add the shell to the system whitelist
+	echo-segment --h2="Whitelisting as a login shell"
 	if contains-line "$shell" </etc/shells; then
-		echo "=> already added to [/etc/shells]"
+		echo-segment --green="Already within the system whitelist [/etc/shells]"
 	else
-		echo "=> adding to [/etc/shells]"
+		echo-segment --h3="Add to system whitelist [/etc/shells]"
 		echo "$shell" | sudo tee -a /etc/shells
+		echo-segment --g3="Add to system whitelist [/etc/shells]"
 	fi
+	echo-segment --g2="Whitelisting as a login shell"
 
-	echo "=> applying as [$USER]'s login shell"
+	echo-segment --h2="Set as the login shell for [$USER]"
 	if command-exists chpass; then
+		echo-style --dim="You can ignore [chpass: no changes made] warnings."
 		# mac
 		chpass -s "$shell" -u "$USER"
-	else
+	elif command-exists chsh; then
 		# ubuntu
 		chsh -s "$shell" "$USER"
+	else
+		# unknown fail
+		echo-style --red="Unable to apply the shell on this system, as neither of the tools to do it [chpass] nor [chsh] exist on this sytem." >/dev/stderr
+		echo-segment --e2="Set as the login shell for [$USER]"
+		exit 1
 	fi
+	echo-segment --g2="Set as the login shell for [$USER]"
 
 	# success case
-	echo "=> successfully selected the shell [$shell]"
+	echo-segment --g1="Selected the shell [$1] at [$shell]"
+	echo-style --notice="Restart your terminal, or open a new one, for the change to take effect."
 	exit 0
 }
 
-if test "$#" -ne 0; then
-	# cycle through the arguments
-	for item in "$@"; do
-		if command-exists "$item"; then
-			act "$item"
-			break
+if test "${#USER_SHELLS[@]}" -ne 0; then
+	# cycle through preferences, or argument overrides
+	for shell in "${USER_SHELLS[@]}"; do
+		if test -z "$shell"; then
+			continue # ignore user misconfiguration
 		fi
-	done
-elif test -v 'USER_SHELLS'; then
-	# cycle through preferences
-	for item in "${USER_SHELLS[@]}"; do
-		is-empty-string "$item" && continue
-		if command-exists "$item"; then
-			act "$item"
-			break
+		if command-exists "$shell"; then
+			echo-style --success="Preference available on this system:" --bold=" $shell"
+			select_shell "$shell"
+		else
+			echo-style --notice="Preference not yet installed on this system:" --bold=" $shell"
 		fi
 	done
 else
-	# ask the user
-	usual=(
+	# determine available shells
+	known_shells=(
+		# POSIX SHELLS
 		fish
-		zsh
-		bash
-		sh
+		zsh  # Z shell
+		bash # bourne again shell
+		sh   # bourne shell
+		ash  # almquist shell
+		dash # debian almquist shell
+		ksh  # korn shell
+		hush # hush, an independent implementation of a Bourne shell for BusyBox
+		# NON-POSIX SHELLS, do not enable, as Dorothy does not support
+		# tsch
 	)
-	choices=()
-	for item in "${usual[@]}"; do
-		if command-exists "$item"; then
-			choices+=("$item")
+	available_shells=()
+	for shell in "${known_shells[@]}"; do
+		if command-exists "$shell"; then
+			available_shells+=("$shell")
 		fi
 	done
-	act "$(choose-option --question="Which shell to use as your login shell?" -- "${choices[@]}")"
+
+	# prompt the user which available shell to use
+	select_shell "$(
+		choose-option --required \
+			--question="Which shell to use as your login shell?" \
+			-- "${available_shells[@]}"
+	)"
 fi
 
 # no shell was selected, error
-stderr echo 'no shell was found that was selected'
+echo-style --error="No preferred shell was currently installed, as such none were able to be selected." >/dev/stderr
 exit 1

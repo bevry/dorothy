@@ -1,128 +1,201 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
+# ^ manual strict mode
 
 # NOTE:
-# this script may be eval'd or sourced
-# for install and trial modes
-# and dorothy may not exist yet
-# use stderr for errors, as otherwise trial mode will output failures to stdout
+# This script may be run directly, eval'd, or even sourced
+# DOROTHY may or may not exist exit yet
+# Dorothy clone may or may not exist yet
 
-# prepare
-export DOROTHY DOROTHY_USER_HOME DOROTHY_XDG
-action="${DOROTHY_SETUP_ACTION:-"${1:-"install"}"}" # install (runs everything), update, trial
-if test "${action:0:2}" = '--'; then
-	action='install'
-fi
+# @TODOS:
+# https://github.com/bevry/dorothy/issues/93
 
-# check for --xdg argument
-for arg in "$@"; do
-	if test "$arg" = '--xdg'; then
-		DOROTHY_XDG='yes'
-	elif test "$arg" = '--no-xdg' -o "$arg" = '--xdg=no'; then
-		DOROTHY_XDG='no'
-	fi
-done
+# =====================================
+# Dependencies
 
-# dependencies
+# git
 if ! git --version >/dev/null; then
-	cat <<-EOF >/dev/stderr
+	cat <<-EOF
 		git is missing, please recheck the installation instructions:
 		https://github.com/bevry/dorothy
 	EOF
-	exit 1
+	exit 19 # Operation not supported by device
 fi
 
-# check custom initiation
+# =====================================
+# Variables
+
+# exports (vars that should be exported to subshells)
+export DOROTHY DOROTHY_XDG XDG_DATA_HOME XDG_CONFIG_HOME PATH
 if test -z "${DOROTHY-}"; then
-	# setup-dorothy is running via curl, so dorothy init has not happened
-	# check if dorothy has previously been cloned
-	# such that when we setup the shell init scripts, they go to the correct location
-	if test -n "${XDG_DATA_HOME-}" -a -d "${XDG_DATA_HOME-}/dorothy"; then
-		DOROTHY="$XDG_DATA_HOME/dorothy"
-	elif test -d "$HOME/.local/share/dorothy"; then
-		DOROTHY="$HOME/.local/share/dorothy"
-	else
-		DOROTHY="$HOME/.dorothy"
-	fi
+	DOROTHY=''
+fi
+if test -z "${DOROTHY_XDG-}"; then
+	DOROTHY_XDG=''
+fi
+if test -z "${XDG_DATA_HOME-}"; then
+	XDG_DATA_HOME="$HOME/.local/share"
+fi
+if test -z "${XDG_CONFIG_HOME-}"; then
+	XDG_CONFIG_HOME="$HOME/.config"
 fi
 
-# ensure dorothy, and its xdg permutations are accessible
-export PATH="$DOROTHY/commands:$HOME/.dorothy/commands:$HOME/.local/share/dorothy/commands:$PATH"
-# ^ right to left is preference
+# globals (environment vars that should not be exported to subshells)
+if test -z "${ZDOTDIR-}"; then
+	ZDOTDIR=''
+fi
 
-# check xdg env var
-if test "${DOROTHY_XDG-}" = 'yes'; then
-	# move .dorothy
-	if test "$DOROTHY" = "$HOME/.dorothy"; then
-		if test -d "$DOROTHY"; then
-			DOROTHY="${XDG_DATA_HOME:-"$HOME/.local/share"}/dorothy"
-			if test -d "$DOROTHY"; then
-				cat <<-EOF >/dev/stderr
-					Unable to move:  $HOME/.dorothy
-					To the location: $DOROTHY
-					Because both locations already exist!
-				EOF
-				exit 1
-			fi
-			mv -v "$HOME/.dorothy" "$DOROTHY"
-		fi
-	else
-		echo "Dorothy already installed to $DOROTHY"
-	fi
+# script vars (vars local to this script)
+dorothy_url="https://github.com/bevry/dorothy"
+action=''
 
-	# move .dorothy/user
-	# -h and -L are both tests for symlinks
-	if test -L "$DOROTHY/user"; then
-		DOROTHY_USER_HOME="$(fs-realpath "$DOROTHY/user")"
-		echo "Dorothy User Configuration already installed to $DOROTHY_USER_HOME"
-	else
-		DOROTHY_USER_HOME="${DOROTHY_USER_HOME:-"${XDG_CONFIG_HOME:-"$HOME/.config"}/dorothy"}"
-		if test -d "$DOROTHY/user"; then
-			# gotta move it
-			DOROTHY_USER_HOME="${DOROTHY_USER_HOME:-"${XDG_CONFIG_HOME:-"$HOME/.config"}/dorothy"}"
-			mv -v "$DOROTHY/user" "$DOROTHY_USER_HOME"
-			ln -vsfF "$DOROTHY_USER_HOME" "$DOROTHY/user"
+# arguments
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--xdg') DOROTHY_XDG='yes' ;;
+	'--no-xdg') DOROTHY_XDG='no' ;;
+	*)
+		if test -z "$action"; then
+			action="$item"
 		else
-			echo "Dorothy User Configuration will be installed to $DOROTHY_USER_HOME"
+			exit 22 # Invalid argument
+		fi
+		;;
+	esac
+done
+
+# =====================================
+# Helpers
+
+# -------------------------------------
+# DOROTHY, PATH
+
+move_if_necessary() {
+	if test -e "$1" -a "$1" != "$2"; then
+		mv -vf "$1" "$2" >/dev/tty
+	fi
+}
+adjust_dorothy_is_necessary() {
+	# move if necessary
+	if test "$DOROTHY_XDG" = 'yes'; then
+		move_if_necessary "$DOROTHY" "$XDG_DATA_HOME/dorothy"
+	elif test "$DOROTHY_XDG" = 'no'; then
+		move_if_necessary "$XDG_DATA_HOME/dorothy" "$DOROTHY"
+		move_if_necessary "$HOME/.local/share/dorothy" "$DOROTHY"
+	else
+		# invalid DOROTHY_XDG value
+		return 76 # Bad procedure for program
+	fi
+
+	# ensure correct permissions
+	chmod -f +x "$DOROTHY/commands/"*
+}
+adjust_user_if_necessary() {
+	# move if necessary
+	if test "$DOROTHY_XDG" = 'yes'; then
+		move_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
+		# ensure $DOROTHY/user always exists
+		ln -vsfF "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user" >/dev/tty
+	elif test "$DOROTHY_XDG" = 'no'; then
+		move_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
+		move_if_necessary "$HOME/.config/dorothy" "$DOROTHY/user"
+	else
+		# invalid DOROTHY_XDG value
+		return 76 # Bad procedure for program
+	fi
+
+	# ensure correct permissions
+	if test -d "$DOROTHY/user/commands"; then
+		chmod -f +x "$DOROTHY/user/commands/"*
+	fi
+	if test -d "$DOROTHY/user/commands.local"; then
+		chmod -f +x "$DOROTHY/user/commands.local/"*
+	fi
+}
+adjust_zsh_if_necessary() {
+	# https://zsh.sourceforge.io/Intro/intro_3.html
+	# determine ZDOTDIR
+	if test "$DOROTHY_XDG" = 'yes'; then
+		if test -z "$ZDOTDIR"; then
+			ZDOTDIR="$XDG_CONFIG_HOME/zsh"
+		fi
+	elif test "$DOROTHY_XDG" = 'no'; then
+		if test -z "$ZDOTDIR"; then
+			ZDOTDIR="$HOME"
+		fi
+	else
+		# invalid DOROTHY_XDG value
+		return 76 # Bad procedure for program
+	fi
+	# move config files
+	move_if_necessary "$HOME/.zshenv" "$ZDOTDIR/.zshenv"
+	move_if_necessary "$HOME/.zprofile" "$ZDOTDIR/.zprofile"
+	move_if_necessary "$HOME/.zshrc" "$ZDOTDIR/.zshrc"
+	move_if_necessary "$HOME/.zlogin" "$ZDOTDIR/.zlogin"
+	move_if_necessary "$HOME/.zlogout" "$ZDOTDIR/.zlogout"
+}
+prepare_dorothy() {
+	# check for custom initiation, such as curl, or pre-install clone and run
+	if test -z "$DOROTHY"; then
+		# check if dorothy has previously been cloned
+		if test -d "$XDG_DATA_HOME/dorothy"; then
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		elif test -d "$HOME/.local/share/dorothy"; then
+			DOROTHY="$HOME/.local/share/dorothy"
+		elif test -d "$HOME/.dorothy"; then
+			DOROTHY="$HOME/.dorothy"
 		fi
 	fi
-elif test "$DOROTHY_XDG" = 'no'; then
-	# undo dorothy
-	DOROTHY="${XDG_DATA_HOME:-"$HOME/.local/share"}/dorothy"
-	if test -d "$DOROTHY"; then
-		mv -v "$DOROTHY" "$HOME/.dorothy"
-	fi
-	DOROTHY="$HOME/.dorothy"
 
-	# undo dorothy/user
-	if test -L "$DOROTHY/user"; then
-		DOROTHY_USER_HOME="$(fs-realpath "$DOROTHY/user")"
-		rm -v "$DOROTHY/user"
-		mv -v "$DOROTHY_USER_HOME" "$DOROTHY/user"
+	# if not prior configuration, then determine via DOROTHY location
+	if test -z "$DOROTHY_XDG"; then
+		if test -n "$DOROTHY"; then
+			if test "$DOROTHY" = "$HOME/.dorothy"; then
+				DOROTHY_XDG='no'
+			else
+				DOROTHY_XDG='yes'
+			fi
+		elif test -d "$XDG_DATA_HOME"; then
+			DOROTHY_XDG='yes'
+		else
+			DOROTHY_XDG='no'
+		fi
 	fi
-	DOROTHY_USER_HOME=''
-fi
 
-# helpers
-git_init() {
-	mkdir -p "$1"
-	pushd "$1" >/dev/null || exit 1
-	git init
-	popd >/dev/null || exit 1
+	# now that DOROTHY_XDG exists, determine DOROTHY
+	if test -z "$DOROTHY"; then
+		if test "$DOROTHY_XDG" = 'yes'; then
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		else
+			DOROTHY="$HOME/.dorothy"
+		fi
+	fi
+
+	# ensure DOROTHY is in correct location
+	adjust_dorothy_is_necessary
+
+	# ensure user configuration is in correct location
+	adjust_user_if_necessary
+
+	# ensure shell config files are in correct location
+	adjust_zsh_if_necessary
+	# fish uses xdg by default
+	# bash does not support xdg
+
+	# ensure dorothy is accessible for the rest of this script
+	PATH="$DOROTHY/user/commands:$DOROTHY/commands:$PATH"
 }
-install_dorothy() {
-	# check
-	if test -d "$DOROTHY"; then
-		update_dorothy
-		return "$?"
-	fi
 
+# -------------------------------------
+# Setup Dorothy
+
+install_dorothy() {
 	# act
 	echo
 	echo "Installing Dorothy into $DOROTHY"
 	git clone "https://github.com/bevry/dorothy.git" "$DOROTHY"
-
-	# fix permissions
-	chmod -f +x "$DOROTHY/commands/"*
 }
 update_dorothy() {
 	# check
@@ -133,18 +206,30 @@ update_dorothy() {
 	# act
 	echo
 	echo "Updating the Dorothy installation at $DOROTHY"
-	if git-update "$DOROTHY" >/dev/null; then
-		# fix permissions
-		chmod -f +x "$DOROTHY/commands/"*
-	else
+	if ! git-update "$DOROTHY" >/dev/null; then
 		echo "...Dorothy was unable to be updated, you will have to figure this out now."
-		exit 1
+		return 1
 	fi
 }
 setup_dorothy() {
-	install_dorothy # goes to update_dorothy for us
+	# check
+	if test -d "$DOROTHY"; then
+		update_dorothy
+	else
+		install_dorothy
+	fi
+
+	# move if necessary, and fix permissions
+	adjust_dorothy_is_necessary
 }
-setup_hostname() {
+
+# -------------------------------------
+# Setup Machine Adjustments
+
+# configures machine hostname
+setup_machine() {
+	local hostname
+
 	# check
 	if test "$action" != 'install'; then
 		return
@@ -152,9 +237,11 @@ setup_hostname() {
 
 	# act
 	hostname="$(get-hostname)"
-	if test "$hostname" = 'ubuntu'; then
-		if confirm-bool --term=$$ -- "This machine's hostname is currently generic [$hostname], would you like to change it?"; then
-			hostname="$(ask --question="What should the new hostname be?")"
+	if is-generic "$hostname"; then
+		if confirm-bool --ppid=$$ -- "This machine's hostname is currently generic [$hostname], would you like to change it?"; then
+			hostname="$(
+				ask --question="What should the new hostname be?"
+			)"
 			if test -n "$hostname"; then
 				set-hostname "$hostname"
 			else
@@ -163,21 +250,24 @@ setup_hostname() {
 		fi
 	fi
 }
+
+# -------------------------------------
+# Setup User Configuration
+
+git_init() {
+	mkdir -p "$1"
+	pushd "$1" >/dev/null
+	git init
+	popd >/dev/null
+}
 install_user() {
+	local question='' user='' where='' cli='' repo_git='' repo_url='' repo_name repo_description
+	repo_name="dotfiles"
+	repo_description="My user configuration for the Dorothy dotfile ecosystem: ${dorothy_url}"
+
 	# check action
 	if test "$action" = 'trial'; then
 		return
-	fi
-
-	# check custom initiation
-	if test ! -d "$DOROTHY/user"; then
-		if test -n "${DOROTHY_USER_HOME-}" -a -d "${DOROTHY_USER_HOME-}"; then
-			ln -vsfF "$DOROTHY_USER_HOME" "$DOROTHY/user"
-		elif test -n "${XDG_CONFIG_HOME-}" -a -d "${XDG_CONFIG_HOME-}/dorothy"; then
-			ln -vsfF "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
-		elif test -d "$HOME/.config/dorothy"; then
-			ln -vsfF "$HOME/.config/dorothy" "$DOROTHY/user"
-		fi
 	fi
 
 	# check successful initiation
@@ -186,85 +276,117 @@ install_user() {
 		return "$?"
 	fi
 
-	# prepare guided initiation
-	# assign empty values as otherwise unbound variable failures will occur
+	# log
 	echo
-	local status='404' user='' repo='' temp='' init='no'
+	echo "Dorothy houses user configuration inside its own git repository."
 
-	# fetch username for git repo preparation
-	user="$(git config --global github.user || true)"
-	if test -z "$user"; then
-		user="$(whoami)"
-		# clear generic
-		if test "$user" = 'ubuntu'; then
+	# check where they want to store the user config
+	where="$(
+		choose-option --required \
+			--question="Where do you want to store your Dorothy user configuration?" \
+			-- github gitlab custom
+	)"
+	if test "$where" = 'github' && command-exists gh; then
+		cli='gh'
+	elif test "$where" = 'gitlab' && command-exists glab; then
+		cli='glab'
+	fi
+	if test "$where" = 'github' -o "$where" = 'gitlab'; then
+		# prepare username default, and clear generic usernames
+		user="$(get-profile username || :)"
+		if test -n "$user" && is-generic "$user"; then
 			user=''
 		fi
-	fi
+		user="$(
+			ask --required --confirm \
+				--question="Enter your ${where} username." \
+				--default="$user"
+		)"
 
-	# confirm implied user repo
-	echo "Dorothy houses user configuration inside its own git repository."
-	if test -n "$user"; then
-		status="$(http-status "https://github.com/$user/dotfiles")"
-		if test "$status" -eq 200; then
-			# repo exists, confirm it with the user
-			temp="https://github.com/$user/dotfiles.git"
-			if confirm-bool --term=$$ -- "Does this repository house your Dorothy user configuration? $temp"; then
-				repo="$temp"
+		# check what they want to call the repository
+		repo_name="$(
+			ask --required \
+				--question="Enter the ${where} repository name for your Dorothy user configuration." \
+				--default="$repo_name"
+		)"
+		repo_url="https://${where}.com/${user}/${repo_name}"
+
+		# confirm it exists
+		if http-ok "$repo_url"; then
+			if test -n "$cli"; then
+				if "$cli" repo view "$repo_name" | grep --quiet --ignore-case "$dorothy_url" || :; then
+					echo-style --green+bold="$repo_url" --green=" verified as a Dorothy user configuration repository."
+				elif confirm-bool --ppid=$$ -- "$repo_url exists, but does not yet seem to be a Dorothy user configuration repository, would you like to use it anyway (Y), or select an alternative (N)?"; then
+					echo-style --blue="^ manually confirmed to use as the Dorothy user configuration repository."
+				else
+					echo-style --yellow="^ manually elected to use an alternative."
+					repo_url=''
+				fi
+			fi
+		else
+			echo-style --yellow+bold="$repo_url" --yellow=" does not yet exist, let us create it..."
+			if test "$cli" = 'gh'; then
+				if ! gh repo create "${repo_name}" --description "${repo_description}" --homepage "${dorothy_url}" --public --confirm --enable-wiki=false; then
+					repo_url=''
+				fi
+			elif test "$cli" = 'glab'; then
+				# @todo untested
+				if ! glab repo create "${repo_name}" --description "${repo_description}" --public; then
+					repo_url=''
+				fi
 			fi
 		fi
 	fi
 
-	# if no implied user repo, then prompt for user repo
-	if test -z "$repo"; then
-		cat <<-EOF
-			If you don't have a repository for it yet, then create one at https://github.com/new using the following details:
-
-			Repository name:
-			dotfiles
-
-			Description:
-			My user configuration for the Dorothy dotfile ecosystem: https://github.com/bevry/dorothy
-
-			Visibility:
-			Public
-
-			Initialize with:
-			keep everything unchecked
-
-			Once you have created the repository to house your Dorothy user configuration,
-			type its URL below
-		EOF
-		if test -n "$user"; then
-			repo="https://github.com/$user/dotfiles.git"
-			echo ", or press ENTER to confirm its URL as: $repo"
+	# if the repo doesn't exist, get the user to manually create it
+	if test -z "$repo_url"; then
+		if test "$where" = 'github'; then
+			open 'https://github.com/new'
+		elif test "$where" = 'gitlab'; then
+			open 'https://gitlab.com/projects/new#blank_project'
 		fi
-		read -rp "> " temp
-		if test -n "$temp"; then
-			repo="$temp"
-		fi
+		question="$(
+			cat <<-EOF
+				Create a repository for your Dorothy user configuration using the following details.
+
+				Repository name:
+				${repo_name}
+
+				Description:
+				${repo_description}
+
+				Visibility:
+				Public
+
+				Initialize with:
+				keep everything unchecked
+
+				Once you have created the repository to house your Dorothy user configuration, type its URL below.
+			EOF
+		)"
+		repo_url="$(
+			ask --confirm \
+				--question="$question"
+		)"
 	fi
 
-	# clone if repo specified
-	if test -n "$repo"; then
-		echo "Cloning the Dorothy user configuration into $DOROTHY/user"
-		if ! git clone "$repo" "$DOROTHY/user"; then
-			init='yes'
-			echo "The clone of the repository [$repo] to [$DOROTHY/user] failed."
-			echo "Dorothy will initialise the directory as a git repository, and leave it up to you to sync it up with a remote."
-			echo
+	# if we have a repo url, then clone it
+	if test -n "$repo_url"; then
+		repo_git="$(git-protocol-format "$repo_url")"
+		if git clone "$repo_git" "$DOROTHY/user"; then
+			echo-style --green+bold="$repo_git" --green=" successfully cloned to " --green+bold="$DOROTHY/user"
+		else
+			echo-style --yellow+bold="$repo_git" --yellow=" failed to clone to " --yellow+bold="$DOROTHY/user"
+			echo-style --yellow="We will manually initialise instead."
 		fi
 	else
-		init='yes'
+		echo-style --yellow="No git repository URL provided, we will manually initialise instead."
 	fi
 
-	# if skipped, or clone fail, then create the git directory
-	if test "$init" = 'yes'; then
-		git_init "$DOROTHY/user" || exit 1
-	fi
-
-	# fix permissions
-	if test -d "$DOROTHY/user/commands"; then
-		chmod -f +x "$DOROTHY/user/commands/"*
+	# if we haven't initialised, then manually initialise
+	if test ! -d "$DOROTHY/user"; then
+		git_init "$DOROTHY/user"
+		echo-style --yellow="Manually initialised git repository at " --yellow+bold="$DOROTHY/user"
 	fi
 }
 update_user() {
@@ -276,27 +398,30 @@ update_user() {
 	# act
 	echo
 	echo "Updating the Dorothy user configuration at $DOROTHY/user"
-	if git-update "$DOROTHY/user" >/dev/null; then
-		if test -d "$DOROTHY/user/commands"; then
-			chmod -f +x "$DOROTHY/user/commands/"*
-		fi
-	else
-		echo "...Dorothy user configuration was unable to be updated, you will have to figure this out now."
-		exit 1
+	if ! git-update "$DOROTHY/user" >/dev/null; then
+		echo "...Dorothy user configuration was unable to be updated, you will have to figure this out later..."
 	fi
 }
 setup_user() {
-	if test "$action" = 'trial'; then
-		return
-	else
+	if test "$action" != 'trial'; then
+		# update or install
 		if test -d "$DOROTHY/user"; then
 			update_user
 		else
 			install_user
 		fi
+
+		# move if necessary, and fix permissions
+		adjust_user_if_necessary
 	fi
 }
+
+# -------------------------------------
+# Setu Adjustments
+
 setup_adjustments() {
+	local file who name url header content
+
 	# check
 	if test "$action" = 'trial'; then
 		return
@@ -319,7 +444,7 @@ setup_adjustments() {
 		fi
 	done
 	if test -n "$deprecated_configuration_files"; then
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF
 			Dorothy has moved away from one configuration file for everything, into specialised configuration files.
 
 			Migration details can be found here:
@@ -337,23 +462,53 @@ setup_adjustments() {
 		"$DOROTHY/user/config.local" \
 		"$DOROTHY/user/config"
 
+	# ensure README.md mentions dorothy
+	file="$DOROTHY/user/README.md"
+	name="$(get-profile name || get-profile username || :)"
+	url="$(get-profile url || :)"
+	if test -n "$name" -a -n "$url"; then
+		who="[${name}'s](${url})"
+	elif test -n "$name"; then
+		who="${name}'s"
+	else
+		who='my'
+	fi
+	header="$(
+		cat <<-EOF
+			# Dorothy User Configuration
+
+			This is ${who} user configuration for the [Dorothy](${dorothy_url}) dotfile ecosystem.
+		EOF
+	)"
+	if test ! -f "$file"; then
+		echo "$header" >"$file"
+	elif ! grep --quiet --ignore-case 'dorothy' "$file"; then
+		content="$(cat "$file")"
+		printf '%s\n\n%s' "$header" "$content" >"$file"
+	fi
+
 	# gitignore
 	config-helper \
-		--file="$DOROTHY/user/.gitignore" \
-		--find='commands.local/' --replace='commands.local/' \
-		--find='config.local/' --replace='config.local/'
+		--file="$DOROTHY/user/.gitignore" -- \
+		--find='commands.local[/]' --replace='commands.local/' \
+		--find='config.local[/]' --replace='config.local/'
 }
-check() {
+
+# -------------------------------------
+# Setup Dorothy Shell Adjustments
+
+rm_deprecated() {
 	if test -f "$1"; then
 		echo ''
 		echo-element --open="$1"
-		echo-color --dim "$(echo-trim-lines <"$1")"
+		echo-style --dim "$(echo-trim <"$1")"
 		echo-element --close="$1"
-		if confirm-positive --term=$$ -- "The above file is probably deprecated with Dorothy, would you like to replace it?"; then
+		if confirm-positive --ppid=$$ -- "The above file is probably deprecated with Dorothy, would you like to replace it?"; then
 			rm "$1"
 		fi
 	fi
 }
+
 setup_shell() {
 	# check
 	if test "$action" != 'install'; then
@@ -364,56 +519,78 @@ setup_shell() {
 	echo
 	echo 'Dorothy will now confirm the modifications required to have it be loaded by your shell.'
 	echo
-	check "$HOME/.profile"
-	check "$HOME/.bash_profile"
-	check "$HOME/.bashrc"
-	check "$HOME/.zshrc"
-	check "$HOME/.zprofile"
-	check "$HOME/.config/fish/config.fish"
+	rm_deprecated "$HOME/.profile"
+	rm_deprecated "$HOME/.bash_profile"
+	rm_deprecated "$HOME/.bashrc"
+	rm_deprecated "$ZDOTDIR/.zshrc"
+	rm_deprecated "$ZDOTDIR/.zprofile"
+	rm_deprecated "$HOME/.config/fish/config.fish"
 	echo
 
-	if confirm-positive --term=$$ -- "Would you like bash to use Dorothy?"; then
+	if confirm-positive --ppid=$$ -- "Would you like bash to use Dorothy?"; then
 		# mac and raspi ubuntu
 		config-helper \
-			--file="$HOME/.bash_profile" \
+			--file="$HOME/.bash_profile" -- \
 			--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
 
 		# vm ubuntu
 		config-helper \
-			--file="$HOME/.bashrc" \
+			--file="$HOME/.bashrc" -- \
 			--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
 	fi
 
-	if confirm-positive --term=$$ -- "Would you like zsh to use Dorothy?"; then
+	if confirm-positive --ppid=$$ -- "Would you like zsh to use Dorothy?"; then
 		config-helper \
-			--file="$HOME/.zshrc" \
+			--file="$ZDOTDIR/.zshrc" -- \
 			--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
 
 		config-helper \
-			--file="$HOME/.zprofile" \
+			--file="$ZDOTDIR/.zprofile" -- \
 			--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
+
+		config-helper \
+			--file="$HOME/.zshenv" -- \
+			--find='ZDOTDIR=.+' --replace="ZDOTDIR=\"$ZDOTDIR\""
 	fi
 
-	if confirm-positive --term=$$ -- "Would you like fish to use Dorothy?"; then
+	if confirm-positive --ppid=$$ -- "Would you like fish to use Dorothy?"; then
 		mkdir -p "$HOME/.config/fish"
 		config-helper \
-			--file="$HOME/.config/fish/config.fish" \
+			--file="$HOME/.config/fish/config.fish" -- \
 			--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.fish\" # Dorothy"
 	fi
 }
 
+# =====================================
+# Act
+
+# prepre DOROTHY
+prepare_dorothy
+
+# ensure action is valid
+case "$action" in
+'trial' | 'install') ;;
+'update')
+	if test ! -d "$DOROTHY"; then
+		action='install'
+	fi
+	;;
+*)
+	exit 22 # Invalid argument
+	;;
+esac
+
 # perform the actions
 setup_dorothy
-source "$DOROTHY/sources/strict.bash" # it is here, as now we know dorothy does exit
-setup_hostname
+source "$DOROTHY/sources/nullglob.bash"
+setup_machine
 setup_user
 setup_adjustments
 setup_shell
 if test "$action" = 'install'; then
-	echo
-	echo-color --green+bold='Dorothy is now setup. ' --red+bold+underline='Restart your terminal.'
-	echo 'Once you have restarted your terminal, it is highly recommended that you run:'
-	echo
-	echo-color --bold=$'\tsetup-util-bash'
-	echo
+	cat <<-EOF
+		$(echo-style --success='Dorothy is now setup. ' --notice='Restart your terminal.')
+		Once you have restarted your terminal, it is highly recommended that you run:
+		$(echo-style --code='setup-util-bash')
+	EOF
 fi

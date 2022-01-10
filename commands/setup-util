@@ -21,12 +21,12 @@ FORCE="${FORCE:-"$(get-flag-value force --missing=no -- "$@" | echo-affirmative)
 # check if necessary
 if test -n "$CLI"; then
 	if command-missing "$CLI"; then
-		echo-color --h3="The [$NAME] utility does not appear to be installed because [$CLI] is missing. Installing automatically... ⏲"
+		echo-style --h3="The [$NAME] utility does not appear to be installed because [$CLI] is missing. Installing automatically... ⏲"
 	elif test "$FORCE" = 'yes'; then
-		echo-color --h3="The [$NAME] utility is already installed because [$CLI] is present." $'\n' --h3="However, it has been marked for reinstall. Reinstalling... ⏲"
+		echo-style --h3="The [$NAME] utility is already installed because [$CLI] is present." $'\n' --h3="However, it has been marked for reinstall. Reinstalling... ⏲"
 	else
 		if test "$QUIET" != 'yes'; then
-			echo-color --g3="The [$NAME] utility is already installed because [$CLI] is present. All good. ✅"
+			echo-style --g3="The [$NAME] utility is already installed because [$CLI] is present. All good. ✅"
 		fi
 		exit 0
 	fi
@@ -34,7 +34,7 @@ fi
 
 # confirm if necessary
 if test "$CONFIRM" = 'yes'; then
-	if ! confirm-positive "Do you want to install the [$NAME] utility?"; then
+	if ! confirm-positive --ppid=$$ -- "Do you want to install the [$NAME] utility?"; then
 		exit 2 # error exit code so that things that depend on this abort
 	fi
 fi
@@ -42,17 +42,17 @@ fi
 # log helpers
 function won() {
 	local method="$1"
-	echo-color --g3="The [$NAME] utility is now installed via [$method]. ✅"
+	echo-style --g3="The [$NAME] utility is now installed via [$method]. ✅"
 }
 function lost() {
 	local ec=1
-	echo-color --e3="The [$NAME] utility was unable to be installed. ❌"
+	echo-style --e3="The [$NAME] utility was unable to be installed. ❌"
 	if test "$OPTIONAL" != 'no'; then
-		echo-color --e3="However, [$NAME] has been marked as optional, so it is up to you to figure this out later."
+		echo-style --e3="However, [$NAME] has been marked as optional, so it is up to you to figure this out later."
 		ec=0
 	fi
 	if test "$NAME" = 'unnamed'; then
-		if test "$QUIET" != 'yes' && confirm-negative "Do you want to output the environment variables to determine what it was?"; then
+		if test "$QUIET" != 'yes' && confirm-negative --ppid=$$ -- "Do you want to output the environment variables to determine what it was?"; then
 			env | sort
 		fi
 		sleep 5
@@ -361,8 +361,17 @@ function do_yum() {
 
 # apt / Ubuntu / Debian / Linux Mint / elementary OS / etc
 # can also be used for install .deb files
+function do_apt_key_fetch() {
+	if [[ "$APT_KEY" = *'.asc' ]]; then
+		# .asc files
+		fetch "$APT_KEY" | gpg --dearmor
+	else
+		# .key and unknown files
+		fetch "$APT_KEY"
+	fi
+}
 function do_apt() {
-	local args
+	local args keyring='' repo
 
 	# check applicable
 	if test -n "${APT-}" -o -n "${APT_EVAL-}"; then
@@ -385,18 +394,46 @@ function do_apt() {
 
 			# prepare APT with APT_KEY
 			if test -n "${APT_KEY-}"; then
-				# @todo note that APT_KEY needs a rework
+				# attempt to ensure APT_KEY_NAME if not provided
+				if test -z "${APT_KEY_NAME-}"; then
+					if [[ "$APT" = *' '* ]]; then
+						cat <<-EOF >/dev/stderr
+							"$(echo-style --error="If APT has multiple packages, then APT_KEY_NAME must be specified.")
+							APT: $APT
+							APT_KEY: $APT_KEY
+						EOF
+						return 1
+					fi
+					APT_KEY_NAME="$APT"
+				fi
+				# fetch "${APT_KEY}" | sudo apt-key add -
+				# ^ deprecated:
 				# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
 				# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
 				# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
 				# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
-				# https://www.linuxuprising.com/2021/01/apt-key-is-deprecated-how-to-add.html
-				fetch "${APT_KEY}" | sudo apt-key add -
+				keyring="/etc/apt/trusted.gpg.d/${APT_KEY_NAME}.gpg"
+				do_apt_key_fetch "$APT_KEY" | sudo gpg \
+					--import --no-default-keyring \
+					--keyring "gnupg-ring:${keyring}"
+				# ^ new version: https://stackoverflow.com/a/69015383/130638
 			fi
 
 			# prepare APT with APT_REPO
 			if test -n "${APT_REPO-}"; then
-				sudo apt-add-repository -y "$APT_REPO"
+				repo="$APT_REPO"
+				# replae key
+				repo="${repo/"{KEY}"/"$keyring"/}"
+				# replace arch
+				repo="${repo/"{ARCH}"/"$(
+					dpkg --print-architecture
+				)"/}"
+				# replace release
+				repo="${repo/"{RELEASE}"/"$(
+					lsb_release --codename --short
+				)"/}"
+				# add the repo
+				sudo apt-add-repository -y "$repo"
 			fi
 
 			# ensure that the package can be found, and that it will be the latest
@@ -1101,7 +1138,7 @@ fi
 # cycle through the order
 for item in "${order[@]}"; do
 	if test -z "$item"; then
-		echo-color --error="an empty order argument was provided"
+		echo-style --error="an empty order argument was provided"
 		exit 22 # Invalid argument
 	fi
 	pass='y'

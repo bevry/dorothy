@@ -1,29 +1,31 @@
 #!/usr/bin/env fish
 
+# for scripts and sources to load a configuration file
+# <filename...>
 function load_dorothy_config
-	set --local loaded_at_least_one_filename 'no'
+	set --local dorothy_config_loaded 'no'
 
-	# load each provided filename
+	# for each filename, load a single config file
 	for filename in $argv
 		if test -f "$DOROTHY/user/config.local/$filename"
-			# load user/config.local
+			# load user/config.local/*
 			source "$DOROTHY/user/config.local/$filename"
-			set loaded_at_least_one_filename 'yes'
+			set dorothy_config_loaded 'yes'
 		else if test -f "$DOROTHY/user/config/$filename"
-			# otherwise load user/config
+			# otherwise load user/config/*
 			source "$DOROTHY/user/config/$filename"
-			set loaded_at_least_one_filename 'yes'
+			set dorothy_config_loaded 'yes'
 		else if test -f "$DOROTHY/config/$filename"
-			# otherwise load default
+			# otherwise load default configuration
 			source "$DOROTHY/config/$filename"
-			set loaded_at_least_one_filename 'yes'
+			set dorothy_config_loaded 'yes'
 		end
 		# otherwise try next filename
 	end
 
-	# if no filename was loaded, then fail and report
-	if test "$loaded_at_least_one_filename" = 'no'
-		echo "configuration file $filename was not able to be found" >&2  # stderr
+	# if nothing was loaded, then fail
+	if test "$dorothy_config_loaded" = 'no'
+		echo-style --error="Missing the configuration file: $argv" >/dev/stderr
 		return 2  # No such file or directory
 	end
 end

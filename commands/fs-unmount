@@ -1,18 +1,94 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# fs unmount that does not fail if already unmounted
-if is-mounted --target="$1"; then
-	sudo umount --verbose --recursive "$1" || {
-		# https://github.com/rfjakob/gocryptfs/issues/459
-		stderr what-is-using "$1"
-		if confirm-negative "Force unmount?"; then
-			sudo umount --verbose --recursive --force "$1"
-			return "$?"
+# =====================================
+# Arguments
+
+# prepare
+if test "${1-}" = '--'; then
+	shift
+fi
+mount_point="${1-}"
+
+# help
+if is-help "$@" || test -z "$mount_point"; then
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Unmounts a mount point.
+
+		USAGE:
+		fs-unmount [--] <mount-point>
+	EOF
+	exit 22 # Invalid argument
+fi
+
+# =====================================
+# Action
+
+# prepare
+conclusion=''
+
+# helper
+function fs_unmount {
+	local ec
+
+	# is the path missing
+	if test ! -e "$mount_point"; then
+		conclusion="$(
+			echo-style --green="was previously unmounted."
+		)"
+		return
+	fi
+	# path exists
+
+	# is mounted? then unmount
+	while true; do
+		if is-mounted --target="$mount_point"; then
+			sudo umount --verbose --recursive "$mount_point" || {
+				# https://github.com/rfjakob/gocryptfs/issues/459
+				what-is-using "$mount_point" >/dev/tty
+				ec=0 && confirm-positive --ppid=$$ -- "Yes for try again, no for force, ctrl+c for abort" || ec="$?"
+				if test "$ec" -eq 1; then
+					sudo umount --verbose --recursive --force "$mount_point"
+				fi
+			}
 		else
-			return 1
+			break
 		fi
-	}
+	done
+
+	# check if still mounted
+	if is-mounted --target="$mount_point"; then
+		conclusion="$(
+			echo-style --red="failed to unmount."
+		)"
+		return 66 # Directory not empty
+	fi
+	echo-style --success="${mount_point@Q} was unmounted."
+
+	# clean up
+	if test -e "$mount_point"; then
+		fs-rm "$mount_point"
+	fi
+	if test -e "$mount_point"; then
+		conclusion="$(
+			echo-style --red="unmount was successful, but failed to clean up."
+		)"
+		return 66 # Directory not empty
+	fi
+	echo-style --success="${mount_point@Q} was cleaned."
+
+	# success
+	conclusion="$(
+		echo-style --green="unmounted and cleaned up."
+	)"
+}
+
+# act
+title="fs-unmount ${mount_point@Q}"
+echo-segment --h2="$title"
+if fs_unmount; then
+	echo-segment --g2="$title" " $conclusion"
 else
-	sudo umount --verbose --recursive "$1" || :
+	echo-segment --e2="$title" " $conclusion"
 fi

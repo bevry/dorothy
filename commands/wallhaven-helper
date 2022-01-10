@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+source "$(which eval-collapse)"
+
+# ensure deno exists
+env QUIET=yes setup-util-deno
+
+# essentials
+username="$(
+	ask --required \
+		--question="Enter the wallhaven username."
+)"
+apikey="$(
+	ask --required --password \
+		--question="Enter the wallhaven API Key for $username."
+)"
+
+# collections
+mapfile -t collections < <(fetch "https://wallhaven.cc/api/v1/collections?apikey=$apikey" | jq -r '.data[] | (.id, .label)')
+collection="$(
+	choose-option \
+		--question='Which collection to download?' \
+		--label --visual="\$label [\$value]" \
+		-- "${collections[@]}"
+)"
+
+# collection
+deno_script="$(fs-temp --suffix=".walls.ts" "${XDG_CACHE_HOME}/dorothy")"
+cat <<EOF >"$deno_script"
+const url = new URL(Deno.args[0])
+function stderr(text: string) {
+	return Deno.stderr.write(
+		new TextEncoder().encode(text + "\n")
+	);
+}
+function stdout(text: string) {
+	return Deno.stdout.write(
+		new TextEncoder().encode(text + "\n")
+	);
+}
+function wait(ms: number, callback: () => void) {
+	return new Promise((resolve, reject) => {
+		setTimeout(function () {
+			try {
+				resolve(callback())
+			} catch (error) {
+				reject(error)
+			}
+		}, ms)
+	})
+}
+async function fetch_next_page() {
+	await stderr('Fetching: ' + url.toString())
+	const req = await fetch(url)
+	if ( req.status === 429 ) {
+		await stderr('Waiting 45 seconds for rate limiting.')
+		return await wait(45 * 1000, fetch_next_page)
+	}
+	const text = await req.text()
+	const json: any = await Promise.resolve().then(function () {
+		try {
+			return JSON.parse(text)
+		} catch (err) {
+			console.error('Failed to parse JSON:', err, text)
+			return Promise.reject('Failed to download ' + url)
+		}
+	})
+	const urls = json.data.map( (item: any) => item.path )
+	await stdout(urls.join('\n'))
+	if ( json.meta.last_page != json.meta.current_page ) {
+		url.searchParams.set('page', String(json.meta.current_page + 1))
+		fetch_next_page()
+	}
+}
+await fetch_next_page()
+EOF
+
+# urls
+list="$(fs-temp --suffix=".walls.list" "${XDG_CACHE_HOME}/dorothy")"
+deno run --allow-net --quiet "$deno_script" "https://wallhaven.cc/api/v1/collections/$username/$collection?apikey=$apikey" | tee "$list"
+
+# download
+while read -r url; do
+	eval_collapse \
+		--pending="$(echo-style --bold="Downloading $url")" \
+		--success="$(echo-style --success="Downloaded $url")" \
+		--failure="$(echo-style --error="Failed to download $url")" \
+		-- down "$url"
+done <"$list"

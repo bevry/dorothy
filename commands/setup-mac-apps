@@ -3,39 +3,178 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile' 'empty'
 
-if ! confirm-bool $'\nDo you want to be presented with Mac App Store apps to install?'; then
-	exit
-fi
+# =====================================
+# Checks
 
-email=''
-function act() {
-	if is-value "$email"; then
-		mas install "$@"
-	else
-		email="$(ask --question="The installer requires your Apple App Store email, enter it now." --require)"
-		if is-value "$email"; then
-			mas signout
-			mas signin --dialog "$email"
-			mas install "$@"
-		else
-			return 1
-		fi
-	fi
-}
-
-# ask
-fodder="$(choose-option --multi --question="Which Mac App Store apps would you like to install?" --label -- \
-	937984704 "Amphetamine" \
-	430798174 "HazeOver" \
-	441258766 "Magnet" \
-	803453959 "Slack" \
-	931134707 "Wire" \
-	497799835 "XCode")"
-mapfile -t choices <<<"$fodder" # <( destroys stdin
-if is-array-empty "${choices[@]}"; then
-	echo 'No choices selected.'
+# check that an accident has not occured
+if ! is-mac; then
+	echo-style --notice="[$0] is only intended to be run on macOS systems, skipping." >/dev/stderr
 	exit 0
 fi
-for choice in "${choices[@]}"; do
-	act "$choice"
+
+# dependencies
+setup-util-mas
+
+# log
+echo-segment --h1="Install macOS apps"
+
+# =====================================
+# Arguments
+
+# local
+apps=()
+reconfigure='no'
+
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		USAGE:
+		setup-mac-apps
+		# ^ install using [MAS_INSTALL] from your [setup.bash] configuration file
+
+		setup-utils -- <...name/id>
+		# ^ install the specified Mac App Store apps
+
+		setup-utils --configure
+		# ^ Prompts to configure [MAS_INSTALL] with what you currently have installed.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--configure') reconfigure='yes' ;;
+	'--')
+		apps+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) help "An unrecognised argument was provided: $item" ;;
+	esac
 done
+
+# =====================================
+# Configuration
+
+source "$DOROTHY/sources/config.bash"
+
+# setup.bash provides:
+MAS_INSTALL=() # tupe array of id, label
+load_dorothy_config 'setup.bash'
+
+# =====================================
+# Action
+
+# local variables
+prepared='no'
+
+function do_signin() {
+	if test "$prepared" = 'yes'; then
+		return 0
+	fi
+	local email
+	email="$(
+		ask --required \
+			--question="The macOS application installer requires your Apple App Store email, enter it now."
+	)"
+	if is-value "$email"; then
+		mas signout
+		mas signin --dialog "$email"
+		prepared='yes'
+	else
+		return 1
+	fi
+}
+function do_install() {
+	if test "$prepared" = 'no'; then
+		mas install "$@" || {
+			do_signin
+			mas install "$@"
+		}
+	else
+		mas install "$@"
+	fi
+}
+function do_install_bulk() {
+	if test "$#" -ne 0; then
+		do_install "$@"
+	fi
+}
+function mas_config() {
+	local choices
+	if test "$#" -ne 0; then
+		mapfile -t choices < <(
+			choose-option --multi \
+				--question="Which Mac App Store apps would you like to install?" \
+				--label -- "$@"
+		)
+		do_install_bulk "${choices[@]}"
+	fi
+}
+function mas_args() {
+	local options option
+	for arg in "$@"; do
+		if is-number "$arg"; then
+			# if id, install directly
+			do_install "$arg"
+		else
+			# trim superflous padding that will cause confusion to IFS
+			# append the id and name (which are space and tab separated)
+			exact=()
+			options=()
+			while read -r id name; do
+				# trim version from the name, it doesn't work in the `read` arguments, as spaces inside name will be considered the version
+				name="${name%%  *}"
+				if test "${name@L}" = "${arg@L}"; then
+					exact+=("$id" "$name")
+				else
+					options+=("$id" "$name")
+				fi
+			done < <(mas search "$arg" | env TIMEOUT=0 echo-trim-lines | sort --ignore-case -k 2)
+			# ensure exact match is first
+			options=("${exact[@]}" "${options[@]}")
+			# prompt the user to select which one
+			option="$(
+				choose-option \
+					--question="Which Mac App Store app was intended for $arg?" \
+					--label -- "${options[@]}"
+			)"
+			# install it
+			do_install "$option"
+		fi
+	done
+}
+
+# overrides
+if test "${#apps[@]}" -ne 0; then
+	mas_args "${apps[@]}"
+elif test "${#MAS_INSTALL[@]}" -ne 0; then
+	mas_config "${MAS_INSTALL[@]}"
+else
+	reconfigure='yes'
+fi
+
+# reconfigure
+if test "$reconfigure" = 'yes'; then
+	# add installed, which will include config and arg installations
+	while read -r id name; do
+		if ! is-needle "$id" "${MAS_INSTALL[@]}"; then
+			MAS_INSTALL+=("$id" "$name")
+		fi
+	done <<<"$(mas list | cut -w -f1,2 | sort --ignore-case -k 2)"
+
+	# save
+	update_dorothy_user_config 'setup.bash' -- \
+		--field='MAS_INSTALL' --array="$(echo-lines --quoted --columns=2 -- "${MAS_INSTALL[@]}" | sort --ignore-case -k 2)"
+fi
+
+# log
+echo-segment --g1="Install macOS apps"

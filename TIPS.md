@@ -206,6 +206,35 @@ echo "${var/o/O}"
 echo "${var//o/O}"
 ```
 
+### file replacement
+
+```bash
+if rg --multiline --quiet "$pattern" "$file"; then
+	# it was found, do the replacement
+	sd --flags m \
+		"$pattern" "$replace" \
+		"$file"
+else
+	# it wasn't found, so add manually if it's not empty
+	if test -n "$replace"; then
+		echo "$replace" >>"$file"
+	fi
+fi
+```
+
+is the same as:
+
+```bash
+if ! rg --multiline --passthru "$pattern" --replace "$replace" "$file" | sponge "$file"; then
+	# it wasn't found, so add manually if it's not empty
+	if test -n "$replace"; then
+		echo "$replace" >>"$file"
+	fi
+fi
+```
+
+however, due to https://github.com/BurntSushi/ripgrep/issues/2094 and other bugs, --passthru is unreliable.
+
 ## arrays
 
 > - [bash manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
@@ -412,7 +441,7 @@ mapfile -t a <<< "$str"; echo-verbose "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
-mapfile -t a < <(echo-lines 'a b' 'c d'); echo-verbose "${a[@]}"
+mapfile -t a < <(echo-lines -- 'a b' 'c d'); echo-verbose "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
@@ -453,7 +482,7 @@ mapfile -t a <<< "${list[@]}"; echo-verbose "${a[@]}"
 # [2] = [d]
 
 # as such these will always work as expected
-echo-lines ...  # for recursive and non-recursive newlines
+echo-lines -- ...  # for recursive and non-recursive newlines
 echo-split ''    -- ...  # equivalent for recursive and non-recursive newlines
 echo-split $'\n' -- ...  # equivalent for recursive and non-recursive newlines
 echo-split ' '   -- ...  # for custom deliminator
@@ -464,7 +493,7 @@ If you don't meed the result as an array via `mapfile -t lines` which you would 
 ```bash
 # for newlines
 list=('a b' $'c\nd' 'e f')
-echo-lines "${list[@]}" | while read -r line; do
+echo-lines -- "${list[@]}" | while read -r line; do
 	echo "[$line]"
 done
 # output correct by arguments:

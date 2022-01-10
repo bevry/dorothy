@@ -1,6 +1,41 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# =====================================
+# Checks
+
+# check for support
+if ! is-linux; then
+	echo-style --notice="[$0] currently only supports Linux systems, skipping." >/dev/stderr
+	exit 0
+fi
+
+# =====================================
+# Action
+
+# https://help.resilio.com/hc/en-us/articles/206178924
+# https://help.resilio.com/hc/en-us/articles/204762449-Guide-to-Linux
+
+# paths
+resilio_service='/lib/systemd/system/resilio-sync.service'
+resilio_config='/etc/resilio-sync/config.json'
+resilio_data_paths=(
+	'/etc/resilio-sync/'
+	'/var/lib/resilio-sync/'
+	# "$HOME/.config/resilio-sync" - perhaps not necessary, as was commented out
+)
+resilio_paths=(
+	"${resilio_data_paths[@]}"
+	"$resilio_service"
+)
+
+# --paths
+if test "${1-}" = '--paths'; then
+	echo-lines -- "${resilio_paths[@]}"
+	exit
+fi
+
+# install
 env NAME='Resilio Sync' \
 	APT_KEY='http://linux-packages.resilio.com/resilio-sync/key.asc' \
 	APT_REPO='deb http://linux-packages.resilio.com/resilio-sync/deb resilio-sync non-free' \
@@ -13,3 +48,33 @@ env NAME='Resilio Sync' \
 # 	sudo apt-get update
 # 	sudo apt-get install resilio-sync
 # "
+
+# service
+sudo systemctl disable resilio-sync || :
+sudo systemctl stop resilio-sync || :
+
+# configure
+if confirm-negative --ppid=$$ -- "Customise Resilio Sync configuration?"; then
+	source "$DOROTHY/sources/edit.bash"
+	sudo_edit "$resilio_service"
+	sudo_edit "$resilio_config"
+fi
+
+# permissions
+resilio_user="$(
+	config-helper \
+		--file="$resilio_service" -- \
+		--field='User'
+)"
+resilio_group="$(
+	config-helper \
+		--file="$resilio_service" -- \
+		--field='Group'
+)"
+fs-own --user="$resilio_user" --group="$resilio_group" -- "${resilio_data_paths[@]}"
+
+# --group
+mapfile -t groups < <(get-flag-value group --multi -- "$@")
+for group in "${groups[@]}"; do
+	sudo gpasswd -a "$resilio_user" "$group"
+done

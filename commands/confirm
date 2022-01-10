@@ -2,29 +2,75 @@
 source "$DOROTHY/sources/strict.bash"
 
 # =====================================
-# Options
+# Arguments
 
-timeout='3600' # one hour
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		USAGE:
+		confirm --ppid=\$\$ [<...flags>] -- [<question> [<...details>]]
+
+		FLAGS:
+		[--mode=<bool, positive, negative, confirm>]
+		[--timeout=<timeout in seconds>]
+		[--yes=<on positive confirmations, what value to display>]
+		[--no=<on negative confirmations, what value to display>]
+		[--abort=<on aborted confirmations, what value to display>]
+		[--ppid=<on aborted confirmations, terminate this process id>]
+
+		QUIRKS:
+		Why is --ppid=\$\$ necessary?
+		As negative confirmations return a failure exit code, and abortions a different failure exit code, you probably need to use [--ppid=\$\$] so that confirmation abortions actually continue the abortion, and are not just considered a negative confirmation.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
 option_mode='confirm'
+option_timeout='3600' # one hour
 option_yes='OK'
 option_no='CANCEL'
-option_term=''
-while is-needle '--' "$@"; do
-	if [[ "$1" = '--mode='* ]]; then
-		option_mode="${1:7}" # bool/positive/negative/confirm
+option_abort='ABORT'
+option_ppid=''
+question_parts=()
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--mode='*)
+		option_mode="${item:7}" # bool/positive/negative/confirm
 		if test "$option_mode" = 'positive' -o "$option_mode" = 'negative'; then
-			timeout='60' # one minute
+			option_timeout='60' # one minute
 			option_yes='YES'
 			option_no='NO'
 		elif test "$option_mode" = 'bool'; then
 			option_yes='YES'
 			option_no='NO'
 		fi
-	elif [[ "$1" = '--term='* ]]; then
-		option_term="${1:7}"
-	fi
-	shift
+		;;
+	'--timeout='*) option_timeout="${item:10}" ;;
+	'--yes='*) option_yes="${item:6}" ;;
+	'--no='*) option_no="${item:5}" ;;
+	'--abort='*) option_abort="${item:8}" ;;
+	'--ppid='*) option_ppid="${item:7}" ;; # alias for term
+	'--')
+		question_parts+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) help "An unrecognised argument was provided: $item" ;;
+	esac
 done
+
+# requirements
+if test -z "$option_ppid"; then
+	help '--ppid=$$ is necessary'
+fi
 
 # =====================================
 # Helpers
@@ -34,7 +80,7 @@ function confirmer() {
 	local ec answer
 
 	# ask and timeout
-	ec=0 && answer="$(read-arrow --timeout "$timeout")" || ec="$?"
+	ec=0 && answer="$(read-arrow --timeout "$option_timeout")" || ec="$?"
 
 	# process
 	if test "$option_mode" = 'positive'; then
@@ -104,39 +150,49 @@ function confirmer() {
 # Question
 
 # prepare
-question_first_part="${1-} " # this is stored for the finale
-question_parts=("$@")
-question_parts_total="$(($# - 1))"
+question_first_part="${question_parts[0]} " # this is stored for the finale
+question_parts_total="${#question_parts[@]}"
+question_parts_last="$((question_parts_total - 1))"
 header="$(mktemp)"
 lines=0
 ec=0
 
 # update the first question part
 if test "$option_mode" = 'positive'; then
-	question_parts[0]+=" $(echo-color --blink='(' --blink+green+bold='Y' --blink='/n)')"
+	question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
 elif test "$option_mode" = 'negative'; then
-	question_parts[0]+=" $(echo-color --blink='(y/' --blink+red+bold='N' --blink=')')"
+	question_parts[0]+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
 elif test "$option_mode" = 'bool'; then
-	question_parts[0]+=" $(echo-color --blink='(y/n)')"
+	question_parts[0]+=" $(echo-style --blink='(y/n)')"
 fi
-for ((i = 0; i <= "$question_parts_total"; i++)); do
+
+# output the question parts
+# saving the cursor position of the first line
+# and outputting a newline beteen all lines, except the last, which should not have a trailing line
+for ((i = 0; i < "$question_parts_total"; i++)); do
 	echo -n "${question_parts[i]} " | tee -a "$header"
 	if test "$i" -eq 0; then
 		# read cursor x y, discard y, set hx to y
 		IFS='[;' read -srd R -p $'\e[6n' _ _ hx
 	fi
-	if test "$i" -ne "$question_parts_total"; then
+	if test "$i" -ne "$question_parts_last"; then
 		echo | tee -a "$header"
 	fi
 done
 
-# output question, and handle terminations
+# move the cursor
 if test "$question_parts_total" -ne 0; then
 	# reposition the cursor, to after the options in the first part
 	lines="$(echo-count-lines --no-inline <"$header")"
-	# move these lines up, and to the hx column
-	echo -en "\e[${lines}F\e[${hx}G"
+	# move these lines up
+	if test "$lines" -ne 0; then
+		echo -en "\e[${lines}F"
+	fi
+	# move to the hx column
+	echo -en "\e[${hx}G"
 fi
+
+# handle terminations
 function failure() {
 	ec="$?"
 }
@@ -147,12 +203,12 @@ function finish() {
 	echo -n $'\e[G\e[J'
 	# output the finale
 	if test "$ec" -eq 0; then
-		echo-color "$question_first_part" --green+bold="$option_yes"
+		echo-style "$question_first_part" --green+bold="$option_yes"
 	elif test "$ec" -eq 1; then
-		echo-color "$question_first_part" --red+bold="$option_no"
+		echo-style "$question_first_part" --red+bold="$option_no"
 	else
-		echo-color "$question_first_part" --red+bold="ABORT"
-		if test -n "$option_term"; then
+		echo-style "$question_first_part" --red+bold="$option_abort"
+		if test -n "$option_ppid"; then
 			# kill "-$ec" ...
 			# ^ fails because 130 isn't supported
 			# kill -n ... ...
@@ -160,7 +216,7 @@ function finish() {
 			# ^ works but isn't serious enough to cause the termination
 			# "$(ps -p $$ -o ppid=)"
 			# ^ doesn't work, as is different pid than manual
-			kill "$option_term"
+			kill "$option_ppid"
 		fi
 	fi
 }
@@ -174,6 +230,6 @@ exit "$ec" # exit with the result
 
 # @todo
 # an alternative implementation could be a new line like this at the end, with ENTER and ESCAPE and SPACE as the correct outputs
-# echo-color --blink='Press: ' --blink+green+bold='y ' --blink='for ' --blink+green='YES' --blink=', ' --blink+red+bold='n ' --blink='for ' --blink+red='NO' --blink=', ' --blink+bold='ENTER '  --blink='for ' --blink+red='NO'
+# echo-style --blink='Press: ' --blink+green+bold='y ' --blink='for ' --blink+green='YES' --blink=', ' --blink+red+bold='n ' --blink='for ' --blink+red='NO' --blink=', ' --blink+bold='ENTER '  --blink='for ' --blink+red='NO'
 
 # using \e[s (save) and \e[u (restore) for ctrl+c handling did not work

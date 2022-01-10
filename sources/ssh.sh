@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 
+# we are in posix, so can't use bash's &> shortcut
+
 # silent is done to prevent rsync ssh failures
 # https://fixyacloud.wordpress.com/2020/01/26/protocol-version-mismatch-is-your-shell-clean/
 

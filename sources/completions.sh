@@ -1,13 +1,13 @@
 #!/usr/bin/env sh
 
 # bash
-if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
-	if test -f /etc/bash_completion; then
-		. '/etc/bash_completion'
-	elif test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
-		. "$HOMEBREW_PREFIX/etc/bash_completion"
-	fi
-fi
+# if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+# 	if test -f /etc/bash_completion; then
+# 		. '/etc/bash_completion'
+# 	elif test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
+# 		. "$HOMEBREW_PREFIX/etc/bash_completion"
+# 	fi
+# fi
 
 # azure
 if command-exists azure; then
