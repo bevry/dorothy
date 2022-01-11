@@ -4,6 +4,18 @@
 set --global SSH_AUTH_SOCK
 set --global SSH_AGENT_PID
 
+# fix gpg errors, caused by lack of authentication of gpg key, caused by pinentry not being aware of tty
+#   error: gpg failed to sign the data
+#   fatal: failed to write commit object
+# you can test it is working via:
+#   setup-git
+#   echo "test" | gpg --clearsign
+# if you are still getting those errors, check via `key list` that your key has not expired
+# if it has, then run `key extend`
+if command-exists gpg
+	set --export GPG_TTY (tty)
+end
+
 # only work on environments that have an ssh-agent
 if command-exists ssh-agent
 	# start the ssh agent
