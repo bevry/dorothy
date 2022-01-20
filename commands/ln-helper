@@ -1,32 +1,122 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# prompt for configuration if missing
-existing="$(
-	ask --required \
-		--question="What is the existing path that you want to symlink elsewhere?" \
-		--default="${1-}"
-)"
-symlink="$(
-	ask --required \
-		--question="What is the new path that you want to redirect?" \
-		--default="${2-}"
-)"
+# =====================================
+# Arguments
 
-# get their absolute paths, otherwise wierd things will happen
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Create a symlink to a file or directory at a new location.
+
+		USAGE:
+		ln-helper <existing> <symlink>
+		ln-helper --existing=<existing> --symlink=<symlink>
+
+		EXAMPLES:
+		ln-helper "$HOME" ./my-home-folder-symlink
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+existing=''
+symlink=''
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--existing='*) existing="${item:11}" ;;
+	'--symlink='*) symlink="${item:10}" ;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*)
+		if test -z "$item"; then
+			help "Empty path argument provided."
+		elif test -z "$existing"; then
+			existing="$item"
+		elif test -z "$symlink"; then
+			symlink="$item"
+		else
+			help "Extra path argument provided."
+		fi
+		;;
+	esac
+done
+
+# check
+if test -z "$existing"; then
+	existing="$(
+		ask --required \
+			--question="What is the existing path that you want to symlink elsewhere?"
+	)"
+fi
+if test -z "$symlink"; then
+	symlink="$(
+		ask --required \
+			--question="What is the new path that you want to redirect?"
+	)"
+fi
+
+# =====================================
+# Act
+
+# check the existance of the source, if it doesn't exist, there is no point
+if test ! -e "$existing"; then
+	echo-style --error="The existing path to be symlinked doesn't actually exist: $existing" >/dev/stderr
+	exit 2 # ENOENT No such file or directory
+fi
+
+# if the symlink doesn't exist, ensure its parent path at least exists
+if test ! -e "$symlink"; then
+	mkdir -p "$(dirname "$symlink")"
+fi
+
+# ensure both paths are not relative paths, otherwise wierd things will happen
 existing="$(fs-absolute "$existing")"
 symlink="$(fs-absolute "$symlink")"
 
-# ensure their directories actually exist, otherwise wierd things will happen
-mkdir -p "$(dirname "$existing")" "$(dirname "$symlink")"
-
-# ensure the existing file actually exists, otherwise weird things will happen
+# double check the existance of the source, if it doesn't exist, there is no point
 if test ! -e "$existing"; then
-	touch "$existing"
+	cat <<-EOF >/dev/stderr
+		$(echo-style --error="FAILURE:")
+		The path to be symlinked $(echo-style --code="$existing") doesn't actually exist.
+		As such, we cannot create a symlink at $(echo-style --code="$symlink") pointing to it.
+		Create the path at $(echo-style --code="$existing") first, then try again.
+	EOF
+	exit 2 # ENOENT No such file or directory
+fi
+
+# check if the source path is a symlink
+prior=''
+if test -L "$existing"; then
+	prior="$existing"
+	cat <<-EOF >/dev/stderr
+		$(echo-style --notice="NOTE:")
+		The path to be symlinked $(echo-style --code="$prior") was actually a symlink.
+		Its target $(echo-style --code="$existing") will be used for the new symlink.
+	EOF
+fi
+
+# check if the symlink path already exists
+if test -e "$symlink"; then
+	if test -L "$symlink"; then
+		cat <<-EOF >/dev/stderr
+			A symlink already exists at $(echo-style --code="$symlink") $(echo-style --notice="it will be recreated.")
+		EOF
+		rm "$symlink"
+	else
+		fs-rm "$symlink"
+	fi
 fi
 
 # create the symlink
 ln -sfF "$existing" "$symlink"
 
-# log to stderr
-echo-style --dim="$symlink" --bold=" => " --dim="$existing" >/dev/stderr
+# log result to stderr
+cat <<-EOF >/dev/stderr
+	$(echo-style --success="Succesfully created symlink") at $(echo-style --code="$symlink") and points to $(echo-style --code="$existing")
+EOF
