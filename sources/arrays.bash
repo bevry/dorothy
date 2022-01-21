@@ -55,15 +55,16 @@ else
 		fi
 		eval "$1=()"
 		while IFS= read -rd "$delim" item || test -n "$item"; do
-			if [[ "$item" = *'"'* ]]; then
-				if [[ "$item" = *"'"* ]]; then
-					echo "mapfile shim does not eyt support this use case" >/dev/stderr
-					exit 1
-				else
-					eval "$1+=('${item}')"
-				fi
-			else
+			if [[ "$arg" != *"'"* ]]; then
+				# does not contain single quotes
+				eval "$1+=('${item}')"
+			elif [[ "$arg" != *'"'* ]]; then
+				# does not contain double quotes
 				eval "$1+=(\"${item}\")"
+			else
+				# contains both single and double quotes
+				echo "mapfile shim does not yet support this use case" >/dev/stderr
+				exit 1
 			fi
 		done
 	}

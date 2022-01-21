@@ -11,10 +11,19 @@ function help() {
 		Claim ownership of a path, by updating its permissions via chmod and chown.
 
 		USAGE:
-		fs-own [--verbose] [--owner=<owner>] [--user=<user>] [--group=<group>] -- <...paths>
+		fs-own [...flags] [--] <...paths>
 
-		QUIRKS:
-		The user and the group both get +rwx permissions via [chmod g+rwx,u+rwx].
+		FLAGS:
+		[--verbose] if provied, will output the executed commands.
+		[--permissions=<permissions>] will default to 755 for directories, 644 for files.
+		[--admin] if provided, will use the platform specific admin values.
+		[--owner=<owner>] if provided, will set the path owner to this.
+		[--user=<user>] if provided, will set the path owner to this user.
+		[--group=<group>] if provided, will set the path owner to this group.
+		[--sudo] if provided, sudo will be used, automatically enabled when admin/owner/user/group is provided.
+		[--partial] if provided, failures will be ignored.
+		[--no-changes] if provided, changes will not be reported if the operating system supports it.
+		[--no-recursive] if provided, only the exact path will be used, not any child paths.
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
@@ -28,6 +37,12 @@ option_verbose='no'
 option_owner=''
 option_user=''
 option_group=''
+option_admin='no'
+option_permissions=''
+option_sudo='no'
+option_changes='yes'
+option_partial='no'
+option_recursive='yes'
 while test "$#" -ne 0; do
 	item="$1"
 	shift
@@ -36,6 +51,22 @@ while test "$#" -ne 0; do
 	'--no-verbose'* | '--verbose'*) option_verbose="$(
 		get-flag-value verbose --missing="$option_verbose" -- "$item" | echo-affirmative
 	)" ;;
+	'--no-admin'* | '--admin'*) option_admin="$(
+		get-flag-value admin --missing="$option_admin" -- "$item" | echo-affirmative
+	)" ;;
+	'--no-sudo'* | '--sudo'*) option_sudo="$(
+		get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative
+	)" ;;
+	'--no-changes'* | '--changes'*) option_changes="$(
+		get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative
+	)" ;;
+	'--no-partial'* | '--partial'*) option_partial="$(
+		get-flag-value partial --missing="$option_partial" -- "$item" | echo-affirmative
+	)" ;;
+	'--no-recursive'* | '--recursive'*) option_recursive="$(
+		get-flag-value recursive --missing="$option_recursive" -- "$item" | echo-affirmative
+	)" ;;
+	'--permissions='*) option_permissions="${item:14}" ;;
 	'--owner='*) option_owner="${item:8}" ;;
 	'--user='*) option_user="${item:7}" ;;
 	'--group='*) option_group="${item:8}" ;;
@@ -45,7 +76,7 @@ while test "$#" -ne 0; do
 		break
 		;;
 	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
+	*) paths+=("$item") ;;
 	esac
 done
 
@@ -62,74 +93,120 @@ for path in "${paths[@]}"; do
 	fi
 done
 
+# adjustments: admin
+if test "$option_admin" = 'yes'; then
+	if is-mac; then
+		option_user="$(whoami)"
+		option_group='admin'
+		# ^ https://superuser.com/a/20430/32418
+	else
+		option_user='root'
+		option_group='root'
+	fi
+fi
+
+# adjustments: owner
+owner=''
+if test -n "$option_owner"; then
+	owner="$option_owner"
+elif test -n "$option_user" -a -n "$option_group"; then
+	owner="$option_user:$option_group"
+elif test -n "$option_user"; then
+	owner="$option_user"
+elif test -n "$option_group"; then
+	owner=":$option_group"
+fi
+
+# adjustments: recursive, changes
+ch_args=()
+if test "$option_recursive" = 'yes'; then
+	if is-mac; then
+		ch_args+=('-R')
+	else
+		ch_args+=('--recursive')
+	fi
+fi
+if test "$option_changes" = 'yes'; then
+	if ! is-mac; then
+		ch_args+=('--changes')
+	fi
+fi
+
 # =====================================
 # Helpers
 
-if is-mac; then
-	ch_args=('-R')
-else
-	ch_args=(
-		'--recursive'
-		'--changes'
-	)
-fi
+function do_sudo_as_user {
+	local cmd=()
 
-function do_sudo {
+	# verbose if provided
 	if test "$option_verbose" = 'yes'; then
-		echo-eval sudo "$@"
-	else
-		sudo "$@"
+		cmd+=('echo-eval')
 	fi
-}
-function do_user {
-	do_sudo --set-home --user="$option_user" "$@"
-}
-function do_user_then_root {
-	if test -n "$option_user" && do_user "$@"; then
-		return 0
-	elif do_sudo "$@"; then
-		return 0
-	else
-		echo "^ sudo user, and sudo, both failed, giving up."
-		return 1
+
+	# use sudo only if custom owner
+	if test -n "$owner" -o "$option_sudo" = 'yes'; then
+		cmd+=(
+			'sudo'
+			'--set-home'
+		)
+
+		# add the user and group if provided
+		if test -n "$option_user"; then
+			cmd+=("--user=$option_user")
+		fi
+		if test -n "$option_group"; then
+			cmd+=("--group=$option_group")
+		fi
 	fi
+
+	# run
+	"${cmd[@]}" "$@"
 }
-function do_chown {
-	do_sudo chown "${ch_args[@]}" "$@"
-}
-function do_chmod {
-	do_user_then_root chmod "${ch_args[@]}" "$@"
-	# find "$path" -type d -exec chmod 755 {} \; # dirs
-	# find "$path" -type f -exec chmod 644 {} \; # files
+function do_sudo_as_admin {
+	local cmd=()
+
+	# verbose if provided
+	if test "$option_verbose" = 'yes'; then
+		cmd+=('echo-eval')
+	fi
+
+	# use sudo only if custom owner
+	if test -n "$owner" -o "$option_sudo" = 'yes'; then
+		cmd+=(
+			'sudo'
+			'--set-home'
+		)
+	fi
+
+	# run
+	"${cmd[@]}" "$@"
 }
 function fs_own {
 	local path="$1"
-	if test -n "$option_owner"; then
-		do_chown "$option_owner" "$path"
-	elif test -n "$option_user" -a -n "$option_group"; then
-		do_chown "$option_user:$option_group" "$path"
-	elif test -n "$option_user"; then
-		do_chown "$option_user" "$path"
-	elif test -n "$option_group"; then
-		do_chown ":$option_group" "$path"
+
+	# chown
+	if test -n "$owner"; then
+		do_sudo_as_admin chown "${ch_args[@]}" "$owner" "$path"
 	fi
-	do_chmod g+rwx,u+rwx "$path"
+
+	# chmod
+	if test -n "$option_permissions"; then
+		do_sudo_as_user chmod "${ch_args[@]}" "$option_permissions" "$path"
+	else
+		do_sudo_as_user find "$path" -type d -exec chmod "${ch_args[@]}" 755 {} \; # dirs
+		do_sudo_as_user find "$path" -type f -exec chmod "${ch_args[@]}" 644 {} \; # files
+	fi
 }
 
 # =====================================
 # Act
 
-for path in "${paths[@]}"; do
-	title="fs-own ${path@Q}"
-	if test "$option_verbose" = 'yes'; then
-		echo-segment --h2="$title"
-		echo-eval ls -la "$path"
-		if fs_own "$path" && echo-eval ls -la "$path"; then
-			echo-segment --g2="$title"
-		else
-			echo-segment --e2="$title"
-		fi
-	else
+if test "$option_partial" = 'yes'; then
+	for path in "${paths[@]}"; do
+		fs_own "$path" || :
+	done
+else
+	for path in "${paths[@]}"; do
 		fs_own "$path"
-	fi
-done
+	done
+fi
