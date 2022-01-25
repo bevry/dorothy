@@ -3,7 +3,7 @@
 # this should be consistent with:
 # $DOROTHY/init.fish
 # $DOROTHY/init.sh
-# $DOROTHY/commands/setup-dorothy
+# $DOROTHY/commands/dorothy
 if ! set -q DOROTHY
 	set -xg DOROTHY (dirname (status -f))
 end
