@@ -21,7 +21,6 @@ if command-exists ssh-agent
 	# start the ssh agent
 	if test -z "$SSH_AUTH_SOCK"
 		eval (ssh-agent -c | sed -E 's/^setenv /set --global --export /; s/^echo /#echo /')
-		# ssh-add-all
 	end
 
 	# kill it when our cli ends

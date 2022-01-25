@@ -23,7 +23,6 @@ if command-exists ssh-agent; then
 	# start the ssh agent
 	if test -z "${SSH_AUTH_SOCK-}"; then
 		eval "$(ssh-agent -s)" >/dev/null 2>&1
-		# ssh-add-all
 	fi
 
 	# kill it when our cli ends
