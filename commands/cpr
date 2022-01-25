@@ -5,196 +5,291 @@ requires_array_support 'mapfile' 'empty'
 
 # @todo figure out how to make --eval compatible with paths that have spaces
 
-# copy everything from one location to another preserving properties
-if is-help "$@"; then
+# =====================================
+# Arguments
+
+# prepare
+actions=(
+	'copy'
+	'verify'
+)
+verify_tools=()
+copy_tools=()
+if command-exists rsync; then
+	verify_tools+=(rsync)
+	copy_tools+=(rsync)
+fi
+if command-exists gcp; then
+	copy_tools+=(gcp)
+fi
+if command-exists scp; then
+	copy_tools+=(scp)
+fi
+if command-exists cp; then
+	copy_tools+=(cp)
+fi
+if command-exists diff; then
+	verify_tools+=(diff)
+fi
+if command-exists git; then
+	verify_tools+=(git)
+fi
+
+# help
+function help() {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
-		Copy everything from one location to another:
+		Copy everything from one location to another, features:
 		- preserves attributes
 		- progress updates
 		- local and remote sources
 
 		USAGE:
 		cpr [...flags] -- <source> <destination>
-		cpr [...flags] <--source=...> <--destination=...>
+		cpr [...flags] [--source=<source>] [--destination=<destination>]
+
+		<source> and <destination> can be a local path on your current machine, or a remote path.
+
+		If a remote path, it should be in the format of:
+		    [username@hostname:/path] for files
+		    [username@hostname:/path/] for directories
+		The [hostname] is the hostname or IP address of a valid SSH server.
+		If you the remote machine is macOS, you can enable this in System Preferences > Sharing > Remote Login.
 
 		FLAGS:
-		Provide [--tool=...] to skip tool prompt.
-		Provide [--action=...] to skip action prompt.
-		Provide [--[no-]linux] to skip linux prompt.
-		Provide [--checksum] to have rsync compare by checksum instead of by the default of file size and mod time.
-		Provide [--remove] to have rsync remove source files as they are copied over.
-		Provide [--eval] to echo the command that would otherwise run, so that you can call it instead.
-		Provide [--sudo] to have the command run as sudo.
-		Provide [--no-confirm] to continue without trailing slashes if they are missing.
+		[--action=copy|verify] if specified, skips action prompt.
+		[--tool=...] if specified, skips tool prompt. Available tools on this machine are:
+		    for copy: $(echo-join ', ' -- "${copy_tools[@]}")
+		    for verify: $(echo-join ', ' -- "${verify_tools[@]}")
+		[--dry] if enabled, only output the determined command, do not run it.
+		[--sudo] if enabled, runt he determined command as the sudo user.
+
+		RSYNC FLAGS:
+		[--owner=<user>:<group>] if specified, uses this value for the ownership of copied files.
+		[--remove] if enabled, remove source files as they are successfully copied to the target.
+		[--checksum] if enabled, files are compared by their checksums, instead of the default quicker date and size comparison.
+		[--[no-]linux] if enabled, increases compatibility with linux systems.
+		[--slashes=adjust|ignore|exit] if specified, skips guidance prompt regarding trailing slashes in paths.
+		[--spaces=adjust|ignore|exit] if specified, skips guidance prompt regarding spaces in paths.
 	EOF
-	exit 22 # Invalid argument
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+action=''
+tool=''
+option_source=''
+option_destination=''
+option_dry='no'
+option_sudo='no'
+option_checksum='' # ask, as otherwise contrived testing can fail
+option_remove=''   # ask
+option_linux=''    # ask
+option_owner=''    # manual
+option_slashes=''  # ask
+option_spaces=''   # ask
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help' | '-h') help ;;
+	'--action='*) action="${item:9}" ;;
+	'--tool='*) tool="${item:7}" ;;
+	'--source='*) option_source="${item:9}" ;;
+	'--destination='*) option_destination="${item:14}" ;;
+	'--owner='*) option_owner="${item:8}" ;;
+	'--no-dry'* | '--dry'*)
+		option_dry="$(get-flag-value dry --missing="$option_dry" -- "$item" | echo-affirmative)"
+		;;
+	'--no-sudo'* | '--sudo'*)
+		option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative)"
+		;;
+	'--no-checksum'* | '--checksum'*)
+		option_checksum="$(get-flag-value checksum --missing="$option_checksum" -- "$item" | echo-affirmative)"
+		;;
+	'--no-remove'* | '--remove'*)
+		option_remove="$(get-flag-value remove --missing="$option_remove" -- "$item" | echo-affirmative)"
+		;;
+	'--no-linux'* | '--linux'*)
+		option_linux="$(get-flag-value linux --missing="$option_linux" -- "$item" | echo-affirmative)"
+		;;
+	'--slashes='*) option_slashes="${item:10}" ;;
+	'--spaces='*) option_spaces="${item:9}" ;;
+	'--') ;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*)
+		if test -z "$item"; then
+			help "Empty path argument provided."
+		elif test -z "$option_source"; then
+			option_source="$item"
+		elif test -z "$option_destination"; then
+			option_destination="$item"
+		else
+			help "An unrecognised argument was provided: $item"
+		fi
+		;;
+	esac
+done
+
+# ensure valid
+action="$(
+	choose-option --required \
+		--question='What action to perform?' \
+		--filter="$action" -- "${actions[@]}"
+)"
+tools=()
+if test "$action" = 'copy'; then
+	tools=("${copy_tools[@]}")
+else
+	tools=("${verify_tools[@]}")
+fi
+tool="$(
+	choose-option --required \
+		--question='Which tool to use?' \
+		--filter="$tool" -- "${tools[@]}"
+)"
+if test -z "$option_source"; then
+	option_source="$(
+		ask --required \
+			--question="Enter the source path."
+	)"
+fi
+if test -z "$option_destination"; then
+	option_destination="$(
+		ask --required \
+			--question="Enter the destination path."
+	)"
 fi
 
-# options
-mapfile -t options < <(echo-before-separator "$@")
-mapfile -t args < <(echo-after-separator "$@")
-_source="$(
-	ask \
-		--question="Enter the source path." \
-		--default="${args[0]-}" --flag=source -- "${options[@]}"
-)"
-_destination="$(
-	ask \
-		--question="Enter the destination path." \
-		--default="${args[1]-}" --flag=destination -- "${options[@]}"
-)"
-_action="$(get-flag-value action -- "${options[@]}")" # confirmed later
-_tool="$(get-flag-value tool -- "${options[@]}")"     # confirmed later
-_remove="$(get-flag-value remove -- "${options[@]}")"
-_sudo="$(get-flag-value sudo -- "${options[@]}")"
-_linux="$(get-flag-value linux -- "${options[@]}")"
-_eval="$(get-flag-value 'eval' -- "${options[@]}")"
-_checksum="$(get-flag-value checksum -- "${options[@]}")"
-_confirm="$(get-flag-value confirm -- "${options[@]}")"
+# rsync options
+if test "$tool" = 'rsync'; then
+	# ensure checksum, if copy or verify
+	if test -z "$option_checksum"; then
+		if confirm-negative --ppid=$$ -- "Compare files via checksum, instead of the quicker and default date and size comparison?"; then
+			option_checksum='yes'
+		else
+			option_checksum='no'
+		fi
+	fi
+	# ensure remove, if copy or verify
+	if test -z "$option_remove"; then
+		if confirm-negative --ppid=$$ -- "Remove the source files after successful copies?"; then
+			option_remove='yes'
+		else
+			option_remove='no'
+		fi
+	fi
+	# ensure linux, if copy or verify
+	if test -z "$option_linux"; then
+		if confirm-bool --ppid=$$ -- "Are both machines Linux machines?"; then
+			option_linux='yes'
+		else
+			option_linux='no'
+		fi
+	fi
 
-# warn if given paths without trailing slashes
-if test "${_source:(-1)}" != '/' -o "${_destination:(-1)}" != '/'; then
-	if test "$_confirm" != 'no'; then
-		confirm="$(
+	# confirm guidance if given paths that are without trailing slashes
+	if test "${option_source:(-1)}" != '/' -o "${option_destination:(-1)}" != '/'; then
+		option_slashes="$(
 			choose-option \
 				--question="$(
 					cat <<-EOF
 						You have provided paths that do not have trailing slashes:
-						source: ${_source}
-						destination: ${_destination}
+						source: ${option_source}
+						destination: ${option_destination}
 
 						This is fine if they are files, however if they are directories, this means the source directory will go inside the destination directory. Using trailing slashes to ensure that the contents of the source directory go inside the destination directory.
 
 						What do you want to do?
 					EOF
 				)" \
-				-- 'add trailing slashes' 'ignore trailing slashes (they are files)' 'exit and rethink'
+				--filter="$option_slashes" -- 'adjust and add trailing slashes' 'ignore trailing slashes (they are files)' 'exit and rethink'
 		)"
-		if [[ "$confirm" = *'add'* ]]; then
-			echo 'adjusted:' >/dev/tty
-			if test "${_source:(-1)}" != '/'; then
-				_source="${_source}/"
-				echo "source: $_source" >/dev/tty
+		if [[ "$option_slashes" = *'adjust'* ]]; then
+			echo-style --dim='Trailing Slashes: perform adjustments' >/dev/tty
+			if test "${option_source:(-1)}" != '/'; then
+				option_source="${option_source}/"
+				echo-style --dim="source: $option_source" >/dev/tty
 			fi
-			if test "${_destination:(-1)}" != '/'; then
-				_destination="${_destination}/"
-				echo "destination: $_destination" >/dev/tty
+			if test "${option_destination:(-1)}" != '/'; then
+				option_destination="${option_destination}/"
+				echo-style --dim="destination: $option_destination" >/dev/tty
 			fi
-		elif [[ "$confirm" = *'ignore'* ]]; then
-			echo 'ignoring'
+		elif [[ "$option_slashes" = *'ignore'* ]]; then
+			echo-style --dim='Trailing Slashes: ignore and continue' >/dev/tty
 		else
+			echo-style --dim='Trailing Slashes: exit' >/dev/tty
 			exit 1
 		fi
-		sleep 5
 	fi
 fi
 
-# Prepare
-actions=(
-	copy
-	verify
-)
-flags=()
-tools=()
-precmd=()
+# confirm guidance if given paths have unescaped spaces
+# @todo
 
-# Determine sudo
-if test "$_sudo" = 'yes'; then
-	precmd+=(sudo)
-fi
+# guidance on faux remotes
+if test "$tool" = 'rsync'; then
+	function rsync_check_if_path_is_faux_local {
+		suggestion="$(silent-stderr get-local-to-remote "$1" || echo '')"
+		if test -n "$suggestion"; then
+			cat <<-EOF
+				Using rsync with a remote directory that is mounted locally can be slow, you should probably try converting it to a local mount point.
 
-# Determine action
-action="$(
-	choose-option \
-		--question='Which action do you wish to take?' \
-		--filter="${_action}" -- "${actions[@]}"
-)"
+				${suggestion}
 
-# Determine available tools for the action
-if test "$action" = 'verify'; then
-	if command-exists rsync; then
-		tools+=(rsync)
-	fi
-	if command-exists diff; then
-		tools+=(diff)
-	fi
-	if command-exists git; then
-		tools+=(git)
-	fi
-elif test "$action" = 'copy'; then
-	if command-exists rsync; then
-		tools+=(rsync)
-	fi
-	if command-exists gcp; then
-		tools+=(gcp)
-	fi
-	if command-exists scp; then
-		tools+=(scp)
-	fi
-	if command-exists cp; then
-		tools+=(cp)
-	fi
-else
-	stderr echo "unkown action, available actions are:"
-	stderr echo-lines -- "${actions[@]}"
-	exit 1
-fi
+				Alternatively, select copy via a different tool, as they can be faster are more reliable under these circumstances.
 
-# Determine tool
-tool="$(
-	choose-option \
-		--question='Which tool do you wish to use?' \
-		--filter="${_tool}" -- "${tools[@]}"
-)"
-
-function rethink {
-	suggestion="$(silent-stderr get-local-to-remote "$1" || echo '')"
-	if test -n "$suggestion"; then
-		echo 'Using rsync with a remote directory that is mounted locally can be slow, you should probably try converting it to a local mount point.'
-		echo
-		echo "$suggestion"
-		echo
-		echo 'Alternatively, select copy via a different tool, as they can be faster are more reliable under these circumstances.'
-		echo ''
-		tangent="$(
-			choose-option \
-				--question='What would you like to do?' \
-				--label -- \
-				'exit' 'rethink and exit' \
-				'ignore' 'ignore suggestion and continue anyway' \
-				'different' 'try a different tool'
-		)"
-		if test "$tangent" = 'ignore'; then
-			echo 'Continuing as is...'
-			return 0
-		elif test "$tangent" = 'different'; then
-			cpr --action="$action" --source="$_source" --destination="$_destination"
-			return "$?"
-		else
-			# exit / default
-			return 1
+			EOF
+			tangent="$(
+				choose-option \
+					--question='What would you like to do?' \
+					--label -- \
+					'exit' 'rethink and exit' \
+					'ignore' 'ignore suggestion and continue anyway' \
+					'different' 'try a different tool'
+			)"
+			if test "$tangent" = 'ignore'; then
+				echo-style --dim='Faux Remotes: ignore and continue' >/dev/tty
+				return 0
+			elif test "$tangent" = 'different'; then
+				echo-style --dim='Faux Remotes: trying a different tool' >/dev/tty
+				cpr --action="$action" --source="$option_source" --destination="$option_destination"
+				return "$?"
+			else
+				echo-style --dim='Faux Remotes: exit' >/dev/tty
+				# exit / default
+				return 1
+			fi
 		fi
-	fi
-	return 0
-}
+		return 0
+	}
+	rsync_check_if_path_is_faux_local "$option_source"
+	rsync_check_if_path_is_faux_local "$option_destination"
+fi
 
-# action
+# =====================================
+# Action
+
+# prepare
+cmd=()
+
+# adjustments
+if test "$option_sudo" = 'yes'; then
+	cmd+=(sudo)
+fi
+
+# tool
 if test "$tool" = 'rsync'; then
 	# via rsync, file by file progress
+	cmd+=(rsync)
 
-	# verify
-	if test "$action" = 'verify'; then
-		# -i, --itemize-changes       output a change-summary for all updates
-		flags+=('--itemize-changes')
-		# -n, --dry-run               show what would have been transferred
-		flags+=('--dry-run')
-	else
-		# check if remote and destination are locally mounted remote folders
-		rethink "$_source"
-		rethink "$_destination"
-	fi
-
+	# -P: same as --partial --progress
+	# --partial: keep partially transferred files
+	# --progress: show progress during transfer
+	#
 	# --archive, -a: archive mode; equals -rlptgoD (no -H,-A,-X)
 	#   --recursive, -r: recurse into directories
 	#   --links, -l: copy symlinks as symlinks
@@ -205,156 +300,183 @@ if test "$tool" = 'rsync'; then
 	#   -D: same as --devices --specials
 	#   --devices: preserve device files (super-user only)
 	#   --specials: preserve special files
-	flags+=('--archive')
-
+	#
 	# --human-readable, -h: output numbers in a human-readable format
-	flags+=('--human-readable')
+	cmd+=(
+		'-P'
+		'--archive'
+		'--human-readable'
+	)
 
-	# --checksum, -c: skip based on checksum, not mod-time & size
-	if test "$_checksum" = 'yes'; then
-		flags+=('--checksum')
+	# verify
+	if test "$action" = 'verify'; then
+		# -i, --itemize-changes       output a change-summary for all updates
+		# -n, --dry-run               show what would have been transferred
+		cmd+=(
+			'--itemize-changes'
+			'--dry-run'
+		)
 	fi
 
-	# -P: same as --partial --progress
-	# --partial: keep partially transferred files
-	# --progress: show progress during transfer
-	flags+=('-P')
-
 	# linux
-	if test "$_linux" = 'yes' || (test -z "$_linux" && confirm-bool --ppid=$$ -- "Are both machines Linux machines?"); then
+	if test "$option_linux" = 'yes'; then
 		# --acls, -A: preserve ACLs (implies --perms)
-		flags+=('--acls')
-
 		# --xattrs, -X: preserve extended attributes
-		flags+=('--xattrs')
-
 		# --atimes, -U: preserve access (use) times
-		flags+=('--atimes')
+		cmd+=(
+			'--acls'
+			'--xattrs'
+			'--atimes'
+		)
 
 		# --crtimes, -N: preserve create times (newness)
 		# --crtimes not supported on ubuntu server on arm, nor manjero on x86
-		# flags+=('--crtimes')
+		# cmd+=('--crtimes')
+	fi
+
+	# checksum
+	if test "$option_checksum" = 'yes'; then
+		# --checksum, -c: skip based on checksum, not mod-time & size
+		cmd+=('--checksum')
 	fi
 
 	# remove
-	if test "$_remove" = 'yes'; then
-		flags+=('--remove-source-files')
+	if test "$option_remove" = 'yes'; then
+		cmd+=('--remove-source-files')
 	fi
 
-	# run
-	echo "${precmd[@]}" rsync "${flags[@]}" "$_source" "$_destination"
-	if test "$_eval" != 'yes'; then
-		"${precmd[@]}" rsync "${flags[@]}" "$_source" "$_destination"
+	# owner
+	if test -n "$option_owner"; then
+		cmd+=("--copy-as=${option_owner}")
+	fi
+
+	# paths
+	cmd+=(
+		"$option_source"
+		"$option_destination"
+	)
+
+	# workaround for rsync always returning success exit code
+	# https://superuser.com/q/1700581/32418
+	if test "$action" = 'verify'; then
+		echo "${cmd[@]}"
+		if test "$option_dry" = 'no'; then
+			temp="$(mktemp)"
+			"${cmd[@]}" | tee "$temp"
+			if grep -q '^>' "$temp"; then
+				exit 1
+			else
+				exit 0
+			fi
+			# ^ this technique still outputs the full diff, which is probably what the user wants
+		fi
+		exit 0
 	fi
 
 elif test "$tool" = 'gcp'; then
 	# via gcp, overall progress
-
-	# verify
-	if test "$action" = 'verify'; then
-		stderr echo 'verify not supported with gcp'
-		exit 1
-	fi
+	cmd+=('gcp')
 
 	# -a, --archive: same as -dR --preserve=all
 	# -d: same as --no-dereference --preserve=links
 	# -R, -r, --recursive: copy directories recursively
 	# --preserve PRESERVE: preserve specified attributes; accepted values: 'all', or one or more amongst {'ownership', 'timestamps', 'mode'}
-	flags+=('--archive')
-
+	#
 	# -v, --verbose: display what is being done
-	flags+=('--verbose')
+	cmd+=(
+		'--archive'
+		'--verbose'
+	)
 
-	# run
-	echo "${precmd[@]}" gcp "${flags[@]}" "$_source" "$_destination"
-	if test "$_eval" != 'yes'; then
-		"${precmd[@]}" gcp "${flags[@]}" "$_source" "$_destination"
-	fi
+	# paths
+	cmd+=(
+		"$option_source"
+		"$option_destination"
+	)
 
 elif test "$tool" = 'scp'; then
 	# via scp
-
-	# verify
-	if test "$action" = 'verify'; then
-		stderr echo 'verify not supported with scp'
-		exit 1
-	fi
+	cmd+=('scp')
 
 	# -A: Allows forwarding of ssh-agent(1) to the remote system.  The default is not to forward an authentication agent.
-	flags+=('-A')
-
 	# -p: Preserves modification times, access times, and modes from the original file.
-	flags+=('-p')
-
 	# -r: Recursively copy entire directories.  Note that scp follows symbolic links encountered in the tree traversal.
-	flags+=('-r')
+	cmd+=(
+		'-A'
+		'-p'
+		'-r'
+	)
 
-	# run
-	echo "${precmd[@]}" scp "${flags[@]}" "$_source" "$_destination"
-	if test "$_eval" != 'yes'; then
-		"${precmd[@]}" scp "${flags[@]}" "$_source" "$_destination"
-	fi
+	# paths
+	cmd+=(
+		"$option_source"
+		"$option_destination"
+	)
 
 elif test "$tool" = 'cp'; then
 	# via cp
-
-	# verify
-	if test "$action" = 'verify'; then
-		stderr echo 'verify not supported with cp'
-		exit 1
-	fi
+	cmd+=('cp')
 
 	# -a: Same as -pPR options. Preserves structure and attributes of files but not directory structure.
 	# -P; If the -R option is specified, no symbolic links are followed.  This is the default.
 	# -R: If source_file designates a directory, cp copies the directory and the entire subtree connected at that point.  If the source_file ends in a /, the contents of the directory are copied rather than the directory itself.  This option also causes symbolic links to be copied, rather than indirected through, and for cp to create spe- cial files rather than copying them as normal files.  Created directories have the same mode as the corresponding source direc- tory, unmodified by the process' umask.
-	flags+=('-a')
-
+	#
 	# -L: If the -R option is specified, all symbolic links are followed.
-	flags+=('-L')
-
 	# -p: Cause cp to preserve the following attributes of each source file in the copy: modification time, access time, file flags, file mode, user ID, and group ID, as allowed by permissions.  Access Control Lists (ACLs) and Extended Attributes (EAs), including resource forks, will also be preserved.
-	flags+=('-p')
-
 	# -f: If the destination file cannot be opened, remove it and create a new file, without prompting for confirmation regardless of its permissions.
-	flags+=('-f')
-
 	# -v: Cause cp to be verbose, showing files as they are copied.
-	flags+=('-v')
+	cmd+=(
+		'-a'
+		'-L'
+		'-p'
+		'-f'
+		'-v'
+	)
 
-	# run
-	echo "${precmd[@]}" cp "${flags[@]}" "$_source" "$_destination"
-	if test "$_eval" != 'yes'; then
-		"${precmd[@]}" cp "${flags[@]}" "$_source" "$_destination"
-	fi
+	# paths
+	cmd+=(
+		"$option_source"
+		"$option_destination"
+	)
 
 elif test "$tool" = 'diff'; then
+	cmd+=('diff')
 
 	# -q  --brief: Output only whether files differ.
-	flags+=('--brief')
-
 	# -r  --recursive: Recursively compare any subdirectories found.
-	flags+=('--recursive')
+	cmd+=(
+		'--brief'
+		'--recursive'
+	)
 
-	# run
-	echo "${precmd[@]}" diff "${flags[@]}" "$_source" "$_destination"
-	if test "$_eval" != 'yes'; then
-		"${precmd[@]}" diff "${flags[@]}" "$_source" "$_destination"
-	fi
+	# paths
+	cmd+=(
+		"$option_source"
+		"$option_destination"
+	)
 
 elif test "$tool" = 'git'; then
+	cmd+=(
+		'git'
+		'diff'
+	)
 
 	# --no-index: This form is to compare the given two paths on the filesystem. You can omit the --no-index option when running the command in a working tree controlled by Git and at least one of the paths points outside the working tree, or when running the command outside a working tree controlled by Git. This form implies --exit-code.
-	flags+=('--no-index')
+	cmd+=('--no-index')
 
-	# run
-	echo "${precmd[@]}" git diff "${flags[@]}" "$_source" "$_destination"
-	if test "$_eval" != 'yes'; then
-		"${precmd[@]}" git diff "${flags[@]}" "$_source" "$_destination"
-	fi
+	# paths
+	cmd+=(
+		"$option_source"
+		"$option_destination"
+	)
 
 else
+	help "Invalid tool: $tool"
+fi
 
-	stderr echo 'please select a tool'
-	exit 1
-
+# run
+if test "$option_dry" = 'yes'; then
+	echo "${cmd[@]}"
+else
+	echo-eval "${cmd[@]}"
 fi

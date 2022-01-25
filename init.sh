@@ -91,7 +91,7 @@ if test "$DOROTHY_LOAD" = 'yes'; then
 	# this should be consistent with:
 	# $DOROTHY/init.fish
 	# $DOROTHY/init.sh
-	# $DOROTHY/commands/setup-dorothy
+	# $DOROTHY/commands/dorothy
 	if test -z "${DOROTHY-}"; then
 		# https://stackoverflow.com/a/246128
 		# https://stackoverflow.com/a/14728194

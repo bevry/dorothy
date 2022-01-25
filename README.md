@@ -241,11 +241,9 @@ Available `source` configuration:
 - `GIT_DEFAULT_BRANCH` to specify your preferred branch name for new repositories (e.g. `main` or `master`)
 - `GPG_SIGNING_KEY` to specify your preferred GPG key
 
-The [`key` command](https://github.com/bevry/dorothy/tree/master/commands/key) will walk you through the management and creation of your gpg keys.
+The [`gpg-helper` command](https://github.com/bevry/dorothy/tree/master/commands/key) will walk you through the management and creation of your gpg keys.
 
-The [`ssh-add-all` command](https://github.com/bevry/dorothy/tree/master/commands/ssh-add-all) will add new ssh keys to your ssh profile, and correct their permissions, ensuring they are correctly loaded from now on
-
-The [`ssh-new` command](https://github.com/bevry/dorothy/tree/master/commands/ssh-new) will walk you through the creation of new ssh keys.
+The [`ssh-helper` command](https://github.com/bevry/dorothy/tree/master/commands/ssh-add-all) will add new ssh keys to your ssh profile, and correct their permissions, ensuring they are correctly loaded from now on
 
 The [`git-review` command](https://github.com/bevry/dorothy/tree/master/commands/git-review) will open your favorite git review editor (e.g. GitHub Desktop, Gitfox, Tower, etc)
 

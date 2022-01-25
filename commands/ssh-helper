@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/nullglob.bash"
+
+function ssh_test {
+	# options
+	uri="$(
+		ask --required \
+			--question='Which SSH URI to test the connection to?' \
+			--default="${1:-"git@github.com"}"
+	)"
+
+	# test and fetch exit code
+	ec=0 && silent ssh -qT "$uri" || ec="$?"
+
+	# 0 no error
+	# 1 success but error - this is what github does, as is not a real ssh terminal
+	# 255 configuration error - this is what we are after
+	test "$ec" -le 1
+}
+
+function ssh_new {
+	name="${1:?"USAGE: ssh-helper new <key name> [key comment, e.g. your email]"}"
+	comment="${2:-"$name"}"
+
+	path="$HOME/.ssh/$name"
+	for old_public_or_private_key in "$path"*; do
+		rm -v "$old_public_or_private_key"
+	done
+	echo "Creating new ssh-key at $path with comment $comment"
+	ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
+
+	# add it to ssh configuration
+	# http://stackoverflow.com/a/33228296/130638
+	printf '\nIdentityFile ~/.ssh/%s' "$name" >>"$HOME/.ssh/config"
+
+	# output the public key so the user can add it to the service
+	cat <<-EOF
+		Public key that you can share is outputted below
+		------------------------------------------------
+		$(cat "${path}.pub")
+	EOF
+}
+
+function ssh_add {
+	# create .ssh config file if necessary
+	mkdir -p "$HOME/.ssh"
+	if test ! -f "$HOME/.ssh/config"; then
+		touch "$HOME/.ssh/config"
+	fi
+
+	# which command
+	ssh_add_new=()
+	ssh_add_known=()
+	if is-mac; then
+		if test "$(uname -r | cut -d . -f1)" -ge 21; then
+			ssh_add_new=(
+				'/usr/bin/ssh-add'
+				'--apple-use-keychain'
+			)
+			ssh_add_known=(
+				'/usr/bin/ssh-add'
+				'--apple-load-keychain'
+			)
+		else
+			ssh_add_new=(
+				'/usr/bin/ssh-add'
+				'-K'
+			)
+			ssh_add_known=(
+				'/usr/bin/ssh-add'
+				'-A'
+			)
+		fi
+	else
+		ssh_add_new=(
+			'ssh-add'
+			'-K'
+		)
+		ssh_add_known=(
+			'ssh-add'
+			'-A'
+		)
+	fi
+
+	# for found keys, correct permissions, add to keychain, add to agent
+	find "$HOME/.ssh/"*.pub | while read -r public_key; do
+		chmod 600 "$public_key" || :
+		private_key="${public_key%.pub}"
+		if test -f "$private_key"; then
+			chmod 600 "$private_key" || :
+			("${ssh_add_new[@]}" "$private_key") || :
+		fi
+	done
+
+	# add known keys to keychain and agent
+	("${ssh_add_known[@]}") || :
+}
