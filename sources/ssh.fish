@@ -10,8 +10,8 @@ set --global SSH_AGENT_PID
 # you can test it is working via:
 #   setup-git
 #   echo "test" | gpg --clearsign
-# if you are still getting those errors, check via `key list` that your key has not expired
-# if it has, then run `key extend`
+# if you are still getting those errors, check via `gpg-helper list` that your key has not expired
+# if it has, then run `gpg-helper extend`
 if command-exists gpg
 	set --export GPG_TTY (tty)
 end
