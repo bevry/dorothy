@@ -45,7 +45,7 @@ else
 		# if you copy and paste this, please give credit:
 		# written by Benjamin Lupton https://balupton.com
 		# written for Dorothy https://github.com/bevry/dorothy
-		local delim=$'\n'
+		local delim=$'\n' item
 		if test "$1" = '-t'; then
 			shift
 		elif test "$1" = '-td'; then
@@ -55,17 +55,7 @@ else
 		fi
 		eval "$1=()"
 		while IFS= read -rd "$delim" item || test -n "$item"; do
-			if [[ "$arg" != *"'"* ]]; then
-				# does not contain single quotes
-				eval "$1+=('${item}')"
-			elif [[ "$arg" != *'"'* ]]; then
-				# does not contain double quotes
-				eval "$1+=(\"${item}\")"
-			else
-				# contains both single and double quotes
-				echo "mapfile shim does not yet support this use case" >/dev/stderr
-				exit 1
-			fi
+			eval "$1+=($(echo-quote "$item"))"
 		done
 	}
 fi

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2059
+# ^ [echo -en] doesn't work with escape codes on bash v3, [printf ...] does
 
 # -------------------------------------
 # These create a new TTY that can be cleared without affecting the prior TTY.
@@ -62,11 +64,11 @@ tty_set_y_x() {
 		y="${1-}"
 		x="${2-}"
 	fi
-	echo -en "\e[${y};${x}H" >/dev/tty
+	printf "\e[${y};${x}H" >/dev/tty
 }
 
 tty_erase_to_end() {
-	echo -en "\e[J" >/dev/tty
+	printf "\e[J" >/dev/tty
 }
 
 tty_erase_from_y_x() {

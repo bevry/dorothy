@@ -39,7 +39,7 @@ prepare_packages() {
 	# update configuration if necessary
 	if test "$reconfigure" = 'yes'; then
 		update_dorothy_user_config 'setup.bash' -- \
-			--field='SETUP_UTILS' --array="$(echo-lines --quoted -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
+			--field='SETUP_UTILS' --array="$(echo-lines -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
 	fi
 }
 
