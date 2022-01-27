@@ -18,6 +18,11 @@ else
 	# fails if none were loaded (all were missing)
 	load_dorothy_config "shell.$ACTIVE_LOGIN_SHELL" 'shell.sh'
 fi
+
+# dorothy theme override, which is used for trial mode
+DOROTHY_THEME="${DOROTHY_THEME_OVERRIDE-}"
+
+# continue with the shell extras
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/history.sh"

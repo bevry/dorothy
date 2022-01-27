@@ -1,21 +1,60 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-# ^ manual strict mode
+# ^ manual strict mode, as dorothy may not exist yet
 
 # NOTE:
 # This script may be run directly, eval'd, or even sourced
 # DOROTHY may or may not exist exit yet
 # Dorothy clone may or may not exist yet
+# Bash v4 is not guaranteed
 
 # @TODOS:
 # https://github.com/bevry/dorothy/issues/93
+# Is `function name(){}` syntax suitable, or must it be `name(){}`` which is more portable?
+
+# elif is bash, we are in sh
+# >/dev/null 2>&1 works in all shells, use that
+# source is bash, we are in sh
 
 # =====================================
 # Dependencies
 
+# attempt manual install of dependencies
+missing=()
+if ! type git &>/dev/null; then
+	missing+=('git')
+fi
+if ! type bash &>/dev/null; then
+	missing+=('bash')
+fi
+if ! type curl &>/dev/null; then
+	missing+=('curl')
+fi
+if test "${#missing[@]}" -ne 0; then
+	if test -x /usr/bin/apt; then
+		# for ubuntu:
+		apt update && apt install -y "${missing[@]}" &>/dev/stderr
+	elif test -x /sbin/apk; then
+		# for alpine
+		apk add "${missing[@]}" &>/dev/stderr
+	elif test -x /sbin/zypper; then
+		# for opensuse
+		cat <<-EOF >/dev/stderr
+			You are missing dependencies necessary for installation.
+			Please run the following and try again:
+
+				sudo zypper install git-core
+		EOF
+		exit 1
+	elif test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
+		# for macos
+		brew install "${missing[@]}" &>/dev/stderr
+	fi
+fi
+
 # git
 if ! git --version >/dev/null; then
-	cat <<-EOF
+	cat <<-EOF >/dev/stderr
 		git is missing, please recheck the installation instructions:
 		https://github.com/bevry/dorothy
 	EOF
@@ -57,24 +96,129 @@ fi
 
 # script vars (vars local to this script)
 dorothy_url="https://github.com/bevry/dorothy"
-action=''
 
-# arguments
+# =====================================
+# Arguments
+
+# prepare
+actions=(
+	trial
+	install
+	update
+	permissions
+	edit
+	review
+	theme
+)
+
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Helpers for interacting with the Dorothy dotfile ecosystem.
+
+		USAGE:
+
+		dorothy trial
+			[--shell=<bash|zsh|fish|/bin/bash>]
+			[--theme=<theme>]
+			[-- <command> ...]
+
+			Installs Dorothy silently, without any permanent dotfile modifications.
+			If a shell is provided, run the desired shell with Dorothy invoked.
+			If a command is provided, invoke the Dorothy command then exit.
+
+		dorothy install [--[no-]xdg]
+
+			Installs Dorothy interactively, with configuration for dotfile modifications.
+
+			If you are a poweruser and wish to override XDG autodetection to either enforce XDG compliance or non-compliance then provide [--xdg] or [--no-xdg] respectively.
+
+		dorothy update
+
+			Updates Dorothy to the latest version.
+
+		dorothy permissions
+
+			Correct permissions of new Dorothy commands, ensuring they are executable, and that git is aware of them.
+
+		dorothy edit
+
+			Correct permissions, then open Dorothy's installation and user configuration in your desired editor.
+
+		dorothy review
+
+			Correct permissions, then open Dorothy's installation and user configuration in your desired git reviewer.
+
+		dorothy theme
+
+			Interactively configure your desired theme for Dorothy configured shells.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+action="${DOROTHY_ACTION-}" # used by dorothy cloudflare worker
+DOROTHY_TRIAL_SHELL="${DOROTHY_TRIAL_SHELL-}"
+DOROTHY_TRIAL_THEME="${DOROTHY_TRIAL_THEME-}"
+DOROTHY_TRIAL_COMMAND="${DOROTHY_TRIAL_COMMAND-}"
 while test "$#" -ne 0; do
 	item="$1"
 	shift
 	case "$item" in
 	'--xdg') DOROTHY_XDG='yes' ;;
 	'--no-xdg') DOROTHY_XDG='no' ;;
-	*)
-		if test -z "$action"; then
-			action="$item"
-		else
-			exit 22 # Invalid argument
-		fi
+	'trial')
+		action='trial'
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--shell='*) DOROTHY_TRIAL_SHELL="${item:8}" ;;
+			'--theme='*) DOROTHY_TRIAL_THEME="${item:8}" ;;
+			'--')
+				DOROTHY_TRIAL_COMMAND="$*"
+				shift "$#"
+				;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*) help "An unrecognised argument was provided: $item" ;;
+			esac
+		done
 		;;
+	'i' | 'install')
+		action='install'
+		;;
+	'u' | 'up' | 'update')
+		action='update'
+		;;
+	'p' | 'perm' | 'perms' | 'permissions')
+		action='permissions'
+		;;
+	'e' | 'edit')
+		action='edit'
+		;;
+	'r' | 'review')
+		action='review'
+		;;
+	'theme')
+		action='theme'
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) help "An unrecognised argument was provided: $item" ;;
 	esac
 done
+
+# ensure action
+if test -z "$action"; then
+	action="$(
+		choose-option --required \
+			--question='which action to perform?' \
+			--filter="$action" -- "${actions[@]}"
+	)"
+fi
 
 # =====================================
 # Helpers
@@ -203,6 +347,15 @@ prepare_dorothy() {
 
 	# ensure dorothy is accessible for the rest of this script
 	PATH="$DOROTHY/user/commands:$DOROTHY/commands:$PATH"
+}
+assert_dorothy_installed() {
+	if test ! -d "$DOROTHY"; then
+		echo-style \
+			--error="Dorothy is not installed." $'\n' \
+			"Nothing was found at: " --code="$DOROTHY" $'\n' \
+			--notice="Run" --code=" dorothy install " --notice="to install, then you can run" --code=" dorothy $action"
+		return 2 # ENOENT No such file or directory
+	fi
 }
 
 # -------------------------------------
@@ -434,7 +587,7 @@ setup_user() {
 }
 
 # -------------------------------------
-# Setu Adjustments
+# Setup Adjustments
 
 setup_adjustments() {
 	local file who name url header content
@@ -581,7 +734,7 @@ setup_shell() {
 # =====================================
 # Permissions
 
-function adjust_permissions() {
+function act_permissions() {
 	source "$DOROTHY/sources/globstar.bash"
 	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/arrays.bash"
@@ -590,6 +743,7 @@ function adjust_permissions() {
 
 	function correct_permissions() {
 		# directories, files that are commands, must be executable
+		local directories commands
 		commands=(
 			"$DOROTHY/commands/"*
 			"$DOROTHY/user/commands/"*
@@ -641,56 +795,157 @@ function adjust_permissions() {
 }
 
 # =====================================
-# Act
+# Theme
+
+function act_theme() {
+	local themes theme
+	source "$DOROTHY/sources/nullglob.bash"
+	source "$DOROTHY/sources/config.sh"
+	source "$DOROTHY/sources/arrays.bash"
+	requires_array_support 'mapfile'
+
+	# prepare
+	mapfile -t files < <(echo-lines -- "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-filenames | uniq)
+	themes=(
+		system
+		"${files[@]}"
+	)
+
+	# ask
+	theme="$(
+		choose-option --required \
+			--question='Which theme to use?' \
+			-- "${themes[@]}"
+	)"
+
+	# apply
+	update_dorothy_user_config 'shell.sh' -- \
+		--field='DOROTHY_THEME' --value="${theme@Q}"
+
+	# log
+	echo-style --success='Configuration change applied, ' --notice='restart your terminal for the change to take effect.'
+}
+
+# =====================================
+# Install/Update/Trial
+
+function act_generic() {
+	setup_dorothy
+	setup_machine
+	setup_user
+	setup_adjustments
+	setup_shell
+	if test "$action" = 'install'; then
+		cat <<-EOF
+			$(echo-style --success='Dorothy is now setup. ' --notice='Restart your terminal.')
+			Once you have restarted your terminal, it is highly recommended that you run:
+			$(echo-style --code='setup-util-bash')
+		EOF
+	fi
+}
+
+# =====================================
+# Trial
+
+act_trial() {
+	# don't use sh instead of bash as sh is dash on ubuntu,
+	# and ubuntu doesn't support the -- args
+	# bash --rcfile does work, but not inside a --rcfile
+
+	# Run the dorothy installation script
+	# bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
+
+	# option: shell
+	case "$DOROTHY_TRIAL_SHELL" in
+	'bash' | '/bin/bash') ;;
+	'') DOROTHY_TRIAL_SHELL='bash' ;;
+	*)
+		echo "Bash shell will be used for trial mode, as alternative shells [$DOROTHY_TRIAL_SHELL] are not yet been supported." >/dev/stderr
+		DOROTHY_TRIAL_SHELL='bash'
+		;;
+	esac
+
+	# option: theme
+	export DOROTHY_THEME_OVERRIDE="${DOROTHY_TRIAL_THEME:-"trial"}"
+
+	# command or prompt
+	if test -n "$DOROTHY_TRIAL_COMMAND"; then
+		# To run only a specific command, run the following and swap out `what-is-my-ip` with whatever command you wish to run
+		# bash -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
+
+		# command shorthand should work, as PATH should be configured
+
+		# run the command, then exit
+		# theme not important for this
+		"$DOROTHY_TRIAL_SHELL" --noprofile --norc -ic "
+			. '$DOROTHY/sources/environment.sh'
+			${DOROTHY_TRIAL_COMMAND}
+		"
+	else
+		# To run multiple commands in a REPL, run the following then type the commands you wish to execute
+		# eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
+		# aka
+		# bash eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
+
+		# interactive prompt
+		"$DOROTHY_TRIAL_SHELL" --rcfile <(echo "
+			DOROTHY_THEME_OVERRIDE='$DOROTHY_THEME_OVERRIDE'
+			. '$DOROTHY/sources/environment.sh'
+			. '$DOROTHY/sources/shell.sh'
+			")
+	fi
+
+}
+
+# =====================================
+# Action
+
+# helpers
+function assert_dorothy_installed {
+	if test ! -d "$DOROTHY"; then
+		echo-style \
+			--error="Dorothy is not installed." $'\n' \
+			"Nothing was found at: " --code="$DOROTHY" $'\n' \
+			--notice="Run" --code=" dorothy install " --notice="to install, then you can run" --code=" dorothy $action"
+		return 2 # ENOENT No such file or directory
+	fi
+}
 
 # prepre DOROTHY
 prepare_dorothy
 
-# ensure action is valid
+# generic vs specific actions
 case "$action" in
-'trial' | 'install') ;;
-'edit')
-	if test ! -d "$DOROTHY"; then
-		action='install'
-	else
-		adjust_permissions
-		source "$DOROTHY/sources/edit.sh"
-		edit "$DOROTHY"
-		if confirm-negative --ppid=$$ -- 'Open Git Reviewer?'; then
-			git-review "$DOROTHY/user" || :
-			git-review "$DOROTHY" || :
-		fi
-		exit
-	fi
+'trial')
+	act_generic
+	act_trial
 	;;
-'permissions')
-	if test ! -d "$DOROTHY"; then
-		action='install'
-	else
-		adjust_permissions
-		exit "$?"
-	fi
+'install')
+	act_generic
 	;;
 'update')
-	if test ! -d "$DOROTHY"; then
-		action='install'
-	fi
+	assert_dorothy_installed
+	act_generic
 	;;
-*)
-	exit 22 # Invalid argument
+'permissions')
+	assert_dorothy_installed
+	act_permissions
 	;;
+'edit')
+	assert_dorothy_installed
+	act_permissions
+	source "$DOROTHY/sources/edit.sh"
+	edit "$DOROTHY"
+	;;
+'review')
+	assert_dorothy_installed
+	act_permissions
+	git-review "$DOROTHY/user" || :
+	git-review "$DOROTHY" || :
+	;;
+'theme')
+	assert_dorothy_installed
+	act_theme
+	;;
+*) help "Invalid action: $action" ;;
 esac
-
-# perform the actions
-setup_dorothy
-setup_machine
-setup_user
-setup_adjustments
-setup_shell
-if test "$action" = 'install'; then
-	cat <<-EOF
-		$(echo-style --success='Dorothy is now setup. ' --notice='Restart your terminal.')
-		Once you have restarted your terminal, it is highly recommended that you run:
-		$(echo-style --code='setup-util-bash')
-	EOF
-fi
