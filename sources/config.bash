@@ -82,7 +82,7 @@ update_dorothy_user_config() {
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') update_dorothy_user_config_help ;;
+		'help' | '--help' | '-h') update_dorothy_user_config_help ;;
 		'--file='*) dorothy_config_filename="${item:7}" ;;
 		'--prefer=local') dorothy_config_prefer='local' ;;
 		'--no-prefer' | '--prefer=') dorothy_config_prefer='' ;;
