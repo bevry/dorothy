@@ -61,7 +61,7 @@ KRYPTON_GPG=''  # deprecated, use GPG_SIGNING_KEY=krypton
 load_dorothy_config 'git.bash'
 # handle deprecations
 if test "$KRYPTON_GPG" = 'yes'; then
-	GPG_SIGNING_KEY='yes'
+	GPG_SIGNING_KEY='krypton'
 fi
 if test -z "$GIT_PROTOCOL" -a -n "$HUB_PROTOCOL"; then
 	GIT_PROTOCOL="$HUB_PROTOCOL"
@@ -165,7 +165,7 @@ if test "$reconfigure" = 'yes'; then
 		GPG_SIGNING_KEY='krypton'
 	else
 		# 2>/dev/null || : in case there are no gpg keys
-		GPG_SIGNING_KEY="$(key get private 2>/dev/null || :)"
+		GPG_SIGNING_KEY="$(gpg-helper get private 2>/dev/null || :)"
 	fi
 
 	# save
@@ -295,7 +295,8 @@ rm "$HOME/.ssh/known_hosts.old" || :
 # https://gist.github.com/troyfontaine/18c9146295168ee9ca2b30c00bd1b41e
 
 # helpers
-function gpg_enabled {
+function gpg_enable {
+	# Enable GPG for Git
 	git config --global tag.gpgsign true
 	git config --global commit.gpgsign true
 
@@ -304,22 +305,18 @@ function gpg_enabled {
 	#   fatal: receiving end does not support --signed push
 	#   fatal: the receiving end does not support --signed push
 
-	# http://github.com/isaacs/github/issues/675
-	config-helper \
-		--file="$HOME/.gnupg/gpg.conf" -- \
-		--find='no-tty' --replace='no-tty'
-
 	# done
 	echo-style --h2="Git Configuration: GPG: Enabled"
 }
-function gpg_disabled {
+function gpg_disable {
+	# Disable GPG for Git
 	git config --global --unset tag.gpgsign || :
 	git config --global --unset commit.gpgsign || :
 	git config --global --unset user.signingkey || :
 	echo-style --h2="Git Configuration: GPG: Disabled"
 }
 function gpg_krypton {
-	# install krypton
+	# Use Krypton as the GPG Client
 	env NAME='Krypton' CLI='krgpg' CURL='https://krypt.co/kr' setup-util curl
 	kr pair # krgpg and kr are both installed above
 	# configure git for krypton
@@ -327,18 +324,33 @@ function gpg_krypton {
 	git config --global --unset user.signingkey || :
 	echo-style --h2="Git Configuration: Kypton: Enabled"
 }
-function gpg_key {
-	# prepare
-	local agent_file agent_program
-	if test -z "${1-}"; then
-		stderr echo "Git Configuration: No GPG signing key found"
-		return 1
+function gpg_gnu {
+	# Select the GPG Key when using GnuPG
+	local key="${1-}" agent_file agent_program
+	if test -z "$key"; then
+		cat <<-EOF >/dev/stderr
+			$(echo-style --e2="Git Configuration: GPG:")
+			GPG was desired, however there was no GPG key specified.
+			$(echo-style --notice="Run the following to configure it accordingly:")
+
+			    $(echo-style --code="setup-git --configure")
+		EOF
+		return 29 # ESPIPE Illegal seek
 	fi
 
+	# stop
+	silent killall gpg-agent || :
+	silent killall gpg || :
+
+	# http://github.com/isaacs/github/issues/675
+	config-helper \
+		--file="$HOME/.gnupg/gpg.conf" -- \
+		--find='no-tty' --replace='no-tty'
+
 	# key
-	echo-style --h2="Git Configuration: GPG: Key: $1"
+	echo-style --h2="Git Configuration: GPG: Key: $key"
 	git config --global gpg.program "$(command -v gpg)"
-	git config --global user.signingkey "$1"
+	git config --global user.signingkey "$key"
 
 	# pinentry
 	agent_program="$(command -v pinentry)"
@@ -350,24 +362,31 @@ function gpg_key {
 			--file="$agent_file" -- \
 			--find='pinentry-program .+' --replace="pinentry-program $agent_program"
 	fi
+
+	# restart
+	gpg-agent --daemon || :
 }
 function gpg_setup {
 	echo-style --h2="Git Configuration: GPG"
-	silent killall gpg-agent || :
-	silent killall gpg || :
-	if test -n "$GPG_SIGNING_KEY"; then
-		if test "$GPG_SIGNING_KEY" = "krypton"; then
-			gpg_krypton
-		else
-			gpg_key "$GPG_SIGNING_KEY"
-		fi
+
+	# adjust
+	if test "$GPG_SIGNING_KEY" = "krypton"; then
+		gpg_krypton
+	else
+		gpg_gnu "$GPG_SIGNING_KEY"
 	fi
 }
 
 # act
 if command-exists gpg; then
-	(gpg_setup && gpg_enabled) || gpg_disabled
+	(gpg_setup && gpg_enable) || gpg_disable
 fi
+
+# =====================================
+# Security
+
+echo-style --h2="Git Configuration: Permissions"
+fs-own --changes --directory-permissions='700' --file-permissions='600' -- "$HOME/.ssh" "$HOME/.gnupg"
 
 # =====================================
 # Done
