@@ -17,11 +17,23 @@ if is-needle '--test' "$@"; then
 		echo-segment --h1="TEST: $0"
 		echo
 		file="$(mktemp)"
+		missing_file="$(fs-temp)"
 
 		# test invalid arguments fail
-		eval-tester --ec=22 -- config-helper --file="$file"
+		eval-tester --ec=22 -- config-helper
+		eval-tester --ec=22 -- config-helper --file="$missing_file"
+		eval-tester --ec=22 -- config-helper "$missing_file"
+
+		# test an non-existent file
+		eval-tester -- config-helper --file="$missing_file" -- \
+			--find='commands.local[/]' --replace='commands.local/' \
+			--find='config.local[/]' --replace='config.local/'
+		eval-tester --stdout=$'commands.local/\nconfig.local/' -- cat "$missing_file"
+
+		# test invalid find and replace arguments
 		eval-tester --ec=22 -- config-helper --file="$file" -- --replace='one'
 		eval-tester --ec=22 -- config-helper --file="$file" -- --find='a' --replace='one' --replace='two'
+		# ^ first find and replace succeeds, hence "one", second find and replace failed, hence no two
 		eval-tester --stdout='one' -- cat "$file"
 
 		# test an empty file
@@ -54,11 +66,20 @@ if is-needle '--test' "$@"; then
 		# test variable replacements and additions
 		echo $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$file"
 		eval-tester -- config-helper --quiet --file="$file" -- \
-			--field='a' --value='1' \
-			--field='b' --array="$(echo-lines --quoted -- 2 3)" \
-			--field='aa' --value='11' \
-			--field='bb' --array="$(echo-lines --quoted -- 22 33)"
-		eval-tester --stdout=$'a=1\n\tb=(\n\t\t\'2\'\n\t\t\'3\'\n\t)\naa=11\nbb=(\n\t\'22\'\n\t\'33\'\n)' -- cat "$file"
+			--field='a' --no-quote --value='1' \
+			--field='b' --array="$(echo-lines -- 2 3)" \
+			--field='aa' --value='value replacement' \
+			--field='bb' --array="$(echo-lines -- 22 33)"
+		eval-tester --stdout=$'a=1\n\tb=(\n\t\t\'2\'\n\t\t\'3\'\n\t)\naa=\'value replacement\'\nbb=(\n\t\'22\'\n\t\'33\'\n)' -- cat "$file"
+
+		# test complicated valyes
+		echo $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$file"
+		eval-tester -- config-helper --quiet --file="$file" -- \
+			--field='a' --value='double "quote" inside' \
+			--field='b' --columns=2 --array="$(echo-lines -- 'double "quote" inside' "single 'quote' inside" 3 4)" \
+			--field='aa' --value="single 'quote' inside" \
+			--field='bb' --columns=2 --array="$(echo-lines -- 'more double "quote" inside' "more single 'quote' inside" 33 44)"
+		eval-tester --stdout=$'a=\'double "quote" inside\'\n\tb=(\n\t\t\'double "quote" inside\'\t"single \'quote\' inside"\n\t\t\'3\'\t\'4\'\n\t)\naa="single \'quote\' inside"\nbb=(\n\t\'more double "quote" inside\'\t"more single \'quote\' inside"\n\t\'33\'\t\'44\'\n)' -- cat "$file"
 
 		# done
 		echo-segment --g1="TEST: $0"
@@ -103,7 +124,7 @@ while test "$#" -ne 0; do
 	item="$1"
 	shift
 	case "$item" in
-	'--help' | '-h') help ;;
+	'help' | '--help' | '-h') help ;;
 	'--file='*) file="${item:7}" ;;
 	'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*)
 		quiet="$(is-quiet --missing="$quiet" -- "$item")"
@@ -129,6 +150,16 @@ if test "${#args[@]}" -eq 0; then
 	help "Need arguments, otherwise what is the point?"
 fi
 
+# ensure file
+if test -z "$file"; then
+	help "Need a file to work with"
+fi
+
+# ensure file exists
+if test ! -f "$file"; then
+	touch "$file"
+fi
+
 # =====================================
 # Action
 
@@ -137,11 +168,25 @@ updated='no'
 
 # cycle
 function act() {
-	local option_search option_replace search_pattern replace_pattern get_value_pattern sed_excess_pattern excess_value addition find field value
+	local option_search option_columns='1' option_quote='yes' option_replace search_pattern replace_pattern get_value_pattern sed_excess_pattern excess_value addition find field value
 	while test "$#" -ne 0; do
 		# extract arguments
 		option_search="$1"
 		shift
+
+		# extract special cases
+		case "${1-}" in
+		'--columns='*)
+			option_columns="${1:10}"
+			shift
+			;;
+		'--no-quote')
+			option_quote='no'
+			shift
+			;;
+		esac
+
+		# extract next argument, shift is handled later, as could ba another find
 		option_replace="${1-}"
 
 		# reset variables
@@ -202,14 +247,18 @@ function act() {
 
 			# adapt for array
 			mapfile -t lines <<<"$value" # read lines into an array, such that indentation works
+			# echo-verbose "${lines[@]}" >/dev/tty
 
 			# addition
-			value=$'(\n'"$(echo-lines --indent=$'\t' -- "${lines[@]}")"$'\n)'
+			value=$'(\n'"$(echo-lines --indent=$'\t' --quoted --columns="${option_columns:-"1"}" -- "${lines[@]}")"$'\n)'
 			addition="${field}=${value}"
 
 			# replacement
-			value=$'(\n'"$(echo-lines --indent=$'${indent}\t' -- "${lines[@]}")"$'\n${indent})'
+			value=$'(\n'"$(echo-lines --indent=$'${indent}\t' --quoted --columns="${option_columns:-"1"}" -- "${lines[@]}")"$'\n${indent})'
 			replace_pattern="\${indent}${field}=${value}"
+
+			# reset columns
+			option_columns='1'
 		elif [[ "$option_replace" = '--value='* ]]; then
 			value="${option_replace:8}"
 
@@ -219,8 +268,12 @@ function act() {
 			fi
 
 			# addition and replacement
+			if test "$option_quote" = 'yes'; then
+				value="$(echo-quote "$value")"
+			fi
 			addition="${field}=${value}"
 			replace_pattern="\${indent}${field}=${value}"
+			option_quote='yes'
 		else
 			# the replacement field was a find value, do not shift it, as we will use it in the next cycle
 			# instead, fetch the value, then continue to use the field as the next find

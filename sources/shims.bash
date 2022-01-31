@@ -7,10 +7,6 @@ if [[ "$BASH_VERSION" = "4."* || "$BASH_VERSION" = "5."* ]]; then
 	function testv() {
 		test -v "$1"
 	}
-	# quote each argument
-	function quote() {
-		echo "${*@Q}"
-	}
 	# upper case first letter
 	function ucf() {
 		echo "${1@u}"
@@ -23,24 +19,6 @@ else
 	# test variable is defined
 	function testv() {
 		test -n "${!1-}"
-	}
-	# quote each argument
-	function quote() {
-		local items=()
-		for arg in "$@"; do
-			if [[ "$arg" != *"'"* ]]; then
-				# does not contain single quotes
-				items+=("'$arg'")
-			elif [[ "$arg" != *'"'* ]]; then
-				# does not contain double quotes
-				items+=("\"$arg\"")
-			else
-				# contains both single and double quotes
-				# fail passively
-				items+=("'$arg'")
-			fi
-		done
-		echo "${items[*]}"
 	}
 	# upper case first letter
 	function ucf() {
