@@ -2,27 +2,95 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/nullglob.bash"
 
-function ssh_test {
-	# options
-	uri="$(
-		ask --required \
-			--question='Which SSH URI to test the connection to?' \
-			--default="${1:-"git@github.com"}"
-	)"
+# =====================================
+# Arguments
 
-	# test and fetch exit code
-	ec=0 && silent ssh -qT "$uri" || ec="$?"
+# prepare
+actions=(
+	'new'
+	'add'
+	'permissions'
+	'test'
+	'connect'
+)
 
-	# 0 no error
-	# 1 success but error - this is what github does, as is not a real ssh terminal
-	# 255 configuration error - this is what we are after
-	test "$ec" -le 1
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Helpers for interacting with SSH.
+
+		USAGE:
+
+		ssh-helper new
+		  <filename>
+		  <comment, e.g. your email>
+
+		    Generate a new SSH key with appropriate conventions.
+
+		ssh-helper add
+
+		    Make the SSH agent aware of all your SSH keys.
+
+		ssh-helper permissions
+
+		    Correct the permissions for the SSH files.
+
+		ssh-helper test
+		  <server URI>
+
+		    Test whether or not your SSH agent can correctly authenticate to the server.
+
+		ssh-helper connect
+		  <...ssh args, e.g. server URI>
+
+		    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the [ssh] command, as they are passed directly to it.
+
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
 }
 
+# process
+action=''
+action_args=()
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'help' | '--help' | '-h') help ;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*)
+		action="$item"
+		action_args+=("$@")
+		shift $#
+		break
+		;;
+	esac
+done
+
+# ensure valid action
+action="$(
+	choose-option --required \
+		--question='which action to perform?' \
+		--filter="$action" -- "${actions[@]}"
+)"
+
+# =====================================
+# Actions
+
 function ssh_new {
+	local name comment path
 	name="${1:?"USAGE: ssh-helper new <key name> [key comment, e.g. your email]"}"
 	comment="${2:-"$name"}"
 
+	# prepare
+	mkdir -p "$HOME/.ssh"
+	touch "$HOME/.ssh/config"
+
+	# make the new key
 	path="$HOME/.ssh/$name"
 	for old_public_or_private_key in "$path"*; do
 		rm -v "$old_public_or_private_key"
@@ -30,7 +98,7 @@ function ssh_new {
 	echo "Creating new ssh-key at $path with comment $comment"
 	ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
 
-	# add it to ssh configuration
+	# add the new key to ssh configuration
 	# http://stackoverflow.com/a/33228296/130638
 	printf '\nIdentityFile ~/.ssh/%s' "$name" >>"$HOME/.ssh/config"
 
@@ -42,12 +110,11 @@ function ssh_new {
 	EOF
 }
 
-function ssh_add {
-	# create .ssh config file if necessary
-	mkdir -p "$HOME/.ssh"
-	if test ! -f "$HOME/.ssh/config"; then
-		touch "$HOME/.ssh/config"
-	fi
+function act_add {
+	local ssh_add_new ssh_add_known private_key public_key
+
+	# ensure dir and permissions
+	act_permissions
 
 	# which command
 	ssh_add_new=()
@@ -96,3 +163,59 @@ function ssh_add {
 	# add known keys to keychain and agent
 	("${ssh_add_known[@]}") || :
 }
+
+# permissions
+function act_permissions {
+	# create .ssh config file if necessary
+	mkdir -p "$HOME/.ssh"
+	if test ! -f "$HOME/.ssh/config"; then
+		touch "$HOME/.ssh/config"
+	fi
+
+	# ensure correct permissions
+	fs-own --changes --directory-permissions='700' --file-permissions='600' -- "$HOME/.ssh"
+}
+
+function act_test {
+	local uri ec
+
+	# options
+	uri="$(
+		ask --required \
+			--question='Which SSH URI to test the connection to?' \
+			--default="${1:-"git@github.com"}"
+	)"
+
+	# test and fetch exit code
+	ec=0 && silent ssh -qT "$uri" || ec="$?"
+
+	# 0 no error
+	# 1 success but error - this is what github does, as is not a real ssh terminal
+	# 255 configuration error - this is what we are after
+	test "$ec" -le 1
+}
+
+function act_connect {
+	local ec
+
+	# act
+	(ssh "$@") || {
+		ec="$?" # 130 is ssh open then closed
+		if test "$ec" -ne 130; then
+			stderr echo "failed with $ec will try again in 10 seconds..."
+			sleep 5
+			act_connect "$@"
+		fi
+	}
+}
+
+# =====================================
+# Act
+
+if test "$(type -t "act_$action")" = 'function'; then
+	"act_$action" "${action_args[@]}"
+	exit "$?"
+else
+	echo-style --error="Action [$action] not yet implemented." >/dev/stderr
+	exit 78 # Function not implemented
+fi
