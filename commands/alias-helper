@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# =====================================
+# Arguments
+
+# prepare
+actions=(
+	new
+	symlink
+	verify
+	target
+	info
+)
+
+# help
+function help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Wrappers around macOS aliases to make things easier.
+
+		ACTIONS:
+
+		alias-helper new -- <alias-file-path> <target-file-path>
+		# ^ Creates a macOS alias file at <alias-file-path> pointing to <target-file-path>.
+
+		alias-helper symlink -- <alias-file-path>
+		# ^ Replaces the macOS alias file with its UNIX symlink equivalent.
+
+		alias-helper verify -- <alias-file-path>
+		# ^ Verify that the path is actually a macOS alias file.
+
+		alias-helper target -- <alias-file-path>
+		# ^ If the path is a macOS alias file, output its target.
+
+		alias-helper info -- <alias-file-path>
+		# ^ Human friendly details about the macOS alias file.
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+action=''
+action_args=()
+option_path=''
+option_target=''
+while test "$#" -ne 0; do
+	item="${1-"$option_path"}"
+	shift
+	case "$item" in
+	'help' | '--help' | '-h') help ;;
+	'--action='*) action="${item:9}" ;;
+	'--path='*) option_path="${item:7}" ;;
+	'--target='*) option_target="${item:9}" ;;
+	'--')
+		action_args+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*)
+		if test -z "$action"; then
+			action="$item"
+		elif test -z "$option_path"; then
+			option_path="$item"
+		elif test -z "$option_target" -a "$action" = 'new'; then
+			option_target="$item"
+		else
+			help "An unrecognised argument was provided: $item"
+		fi
+		;;
+	esac
+done
+
+# ensure valid action
+action="$(
+	choose-option --required \
+		--question='What action to perform?' \
+		--filter="$action" -- "${actions[@]}"
+)"
+
+# ensure valid paths
+option_path="$(
+	ask --required \
+		--question="Enter the path of the macOS alias file" \
+		--default="$option_path"
+)"
+if test "$action" = 'new'; then
+	option_target="$(
+		ask --required \
+			--question="Enter the path of the target file" \
+			--default="$option_target"
+	)"
+fi
+
+# =====================================
+# Actions
+
+function alias_verify {
+	local path="${1-"$option_path"}"
+	silent-stderr osascript <<-EOF
+		tell application "Finder"
+			set theItem to (POSIX file "$path") as alias
+			if the kind of theItem is "alias" then
+				get the posix path of ((theItem) as text)
+			end if
+		end tell
+	EOF
+}
+
+function alias_target {
+	local path="${1-"$option_path"}"
+	silent-stderr osascript <<-EOF
+		tell application "Finder"
+			set theItem to (POSIX file "$path") as alias
+			if the kind of theItem is "alias" then
+				get the POSIX path of ((original item of theItem) as text)
+			end if
+		end tell
+	EOF
+}
+
+function alias_info {
+	local path="${1-"$option_path"}" src target
+
+	# verify
+	src="$(alias_verify "$path" || :)"
+	if test -z "$src"; then
+		{
+			echo-style \
+				--bold+red="$path" \
+				$'\t' \
+				$'\t' --error='← not an alias'
+			exit 22 # EINVAL Invalid argument
+		} >/dev/stderr
+	fi
+
+	# target
+	target="$(alias_target "$path" || :)"
+	if test -z "$target"; then
+		{
+			stderr echo-style \
+				--bold="$src" \
+				$'\t' \
+				$'\t' --error='← target broken'
+			exit 9 # EBADF Bad file descriptor
+		} >/dev/stderr
+	fi
+	if test ! -e "$target"; then
+		{
+			stderr echo-style \
+				--bold="$src" \
+				--nocolor=$'\t' --color+dim=$'\t→\t' --bold+red="$target" \
+				$'\t' --error='← target missing'
+			exit 2 # ENOENT No such file or directory
+		} >/dev/stderr
+	fi
+
+	# success
+	echo-style \
+		--bold="$src" \
+		--nocolor=$'\t' --color+dim=$'\t→\t' --bold+green="$target"
+}
+
+function alias_new {
+	local path="${1-"$option_path"}" target="${2-"$option_target"}" type
+
+	# prepare
+	targetAbsolute="$(fs-absolute "$target")"
+	pathAbsolute="$(fs-absolute "$path")"
+	pathDirectory="$(dirname "$pathAbsolute")"
+	pathFilename="$(basename "$pathAbsolute")"
+
+	# act
+	if test -d "$targetAbsolute"; then
+		type="folder"
+	elif test -f "$targetAbsolute"; then
+		type="file"
+	else
+		{
+			echo-style --error='Invalid path or unsupported type:' ' ' --code="$path"
+			exit 22 # EINVAL Invalid argument
+		} >/dev/stderr
+	fi
+
+	if test -f "$pathAbsolute"; then
+		fs-rm "$pathAbsolute"
+	fi
+
+	osascript <<-EOF
+		tell application "Finder"
+			make new alias to $type (posix file "$targetAbsolute") at (posix file "$pathDirectory")
+			set name of result to "$pathFilename"
+		end tell
+	EOF
+
+	# make the alias's permissions the same as the target's
+	chmod "$(stat -f '%p' "$targetAbsolute")" "$pathAbsolute"
+	#chmod --reference="$targetPath" "$pathAbsolute"
+}
+
+function alias_symlink {
+	local path="${1-"$option_path"}" src
+
+	# verify alias
+	src="$(alias_verify "$path" || :)"
+	if test -z "$src"; then
+		{
+			echo-style --bold+red="$path" ' ' --error='<- not an alias'
+			exit 22 # EINVAL Invalid argument
+		} >/dev/stderr
+	fi
+
+	# verify target
+	target="$(alias_target "$path" || :)"
+	if test -z "$target"; then
+		{
+			echo-style --bold="$src" --dim=' → ' --bold+red="$target" ' ' --error='← target broken'
+			exit 9 # EBADF Bad file descriptor
+		} >/dev/stderr
+	fi
+	if test ! -e "$target"; then
+		{
+			echo-style --bold="$src" --dim=' → ' --bold+red="$target" ' ' --error='← target missing'
+			exit 2 # ENOENT No such file or directory
+		} >/dev/stderr
+	fi
+
+	# convert
+	if test -f "$target"; then
+		ln -nfs "$target" "$src"
+		echo "converted $path -> $target"
+	elif test -d "$target"; then
+		ln -nfs "$target" "$src"
+		echo "converted $path -> $target"
+	fi
+
+}
+
+# =====================================
+# Act
+
+if test "$(type -t "alias_$action")" = 'function'; then
+	"alias_$action" "${action_args[@]}"
+	exit "$?"
+else
+	echo-style --error="Action [$action] not yet implemented." >/dev/stderr
+	exit 78 # Function not implemented
+fi
