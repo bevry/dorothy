@@ -15,7 +15,7 @@ if test -z "${timeout-}"; then
 fi
 
 # check for help argument
-if is-help "$@"; then
+if test "${1-}" = '--help'; then
 	if test "$(type -t help)" = 'function'; then
 		help >/dev/stderr && exit 22 # Invalid argument
 		exit "$?"
