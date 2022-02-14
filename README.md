@@ -69,7 +69,7 @@ apt install curl git bash
 xcode-select --install
 
 # Run the dorothy installation script
-bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/setup-dorothy)"
+bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/dorothy)"
 ```
 
 If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
