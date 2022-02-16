@@ -1,17 +1,40 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+source "$(which eval-collapse)"
+
+# =====================================
+# Dependencies
+
+# https://github.com/sharkdp/bat
+# cat alternative
+
+env CLI='cairosvg' \
+	PIP='cairosvg' \
+	setup-util pip
 
 # =====================================
 # Arguments
+
+# prepare
+formats=(
+	png
+	pdf
+	svg
+	eps
+	ps
+)
 
 # help
 function help() {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
+		Convert SVGs into PNGs.
 
+		USAGE:
+		svg-export [--dpi=...] [--scale=...] [--background=...] [--format=...] -- *.svg
 
-		    USAGE:
-
+		QUIRKS:
+		Background defaults to [white], to keep transparency, use [--background=].
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
@@ -20,56 +43,83 @@ function help() {
 }
 
 # process
-local args=()
+files=()
+dpi=''
+scale=''
+background='white'
+format=''
 while test "$#" -ne 0; do
 	item="$1"
 	shift
 	case "$item" in
 	'help' | '--help' | '-h') help ;;
+	'--dpi='*) dpi="${item:6}" ;;
+	'--scale='*) scale="${item:8}" ;;
+	'--bg='*) background="${item:5}" ;;
+	'--background='*) background="${item:13}" ;;
+	'--format='*) format="${item:9}" ;;
+	'--')
+		files+=("$@")
+		shift $#
+		break
+		;;
 	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) args+=("$item") ;;
+	*) help "An unrecognised argument was provided: $item" ;;
 	esac
 done
 
-# *)
-# 	if test -z "$item"; then
-# 		help "Empty path argument provided."
-# 	elif test -z "$option_source"; then
-# 		option_source="$item"
-# 	elif test -z "$option_destination"; then
-# 		option_destination="$item"
-# 	else
-# 		help "An unrecognised argument was provided: $item"
-# 	fi
-# 	;;
+# if no files, fail
+if test "${#files[@]}" -eq 0; then
+	help "No files were provided."
+fi
+
+# ensure correct format
+format="$(
+	choose-option --required \
+		--question='Which format to export to?' \
+		--filter="$format" -- "${formats[@]}"
+)"
+
 # =====================================
 # Act
 
-scale=3
-dpi=1200
+# adjustments
+suffix=''
+args=(
+	--format "$format"
+)
+if test -n "$scale"; then
+	suffix+=" [scale=$scale]"
+	args+=(--scale "$scale")
+fi
+if test -n "$dpi"; then
+	suffix+=" [dpi=$dpi]"
+	args+=(--dpi "$dpi")
+fi
+if test -n "$background"; then
+	suffix+=" [bg=$background]"
+	args+=(--background "$background")
+fi
+suffix+=".$format"
 
+# helper
 function convert {
-	local svg png
+	local input output
+	input="$1"
+	output="$(fs-filename "$input")$suffix"
 
-	svg="$1"
-	png="$(fs-filename "$svg").png" # [scale=$scale] [dpi=$dpi].png"
-
-	echo "$svg to $png"
-
-	cairosvg --format "png" --scale "$scale" --dpi "$dpi" --output "$png" "$svg"
+	eval_collapse \
+		--pending="$(echo-style --bold="Converting " --code="$input" --bold=" to " --code="$output")" \
+		--success="$(echo-style --bold+green="Converted " --code="$input" --bold=" to " --code="$output")" \
+		--failure="$(echo-style --bold+red="Failed to convert " --code="$input" --bold=" to " --code="$output")" \
+		-- cairosvg "${args[@]}" --output "$output" "$input" || :
 
 	# svg2png doesn't work well
 	# https://github.com/domenic/svg2png
 	# svg2png --scale="$scale" "$svg" "$png"
 }
 
-if test "$#" -eq 0; then
-	# convert all svg files
-	find-files --extension=svg | while read -r file; do convert "$file"; done
-else
-	# convert a specific set of file(s)
-	for file in "${args[@]}"; do
-		convert "$file"
-	done
-
-fi
+# convert a specific set of file(s)
+for file in "${files[@]}"; do
+	convert "$file"
+done
