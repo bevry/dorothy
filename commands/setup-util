@@ -5,37 +5,212 @@ source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
 source "$(which eval-collapse)"
 
-# prepare
-fallbacks=() # for package systems that could be installed
+# =====================================
+# Arguments
 
-# options
-CLI="${CLI:-"$(get-flag-value cli -- "$@")"}"
-NAME="${NAME:-"$(get-flag-value name --missing="$CLI" -- "$@")"}"
-QUIET="$(is-quiet -- "$@" || :)"
-# ^ quiet='' by default, which outputs useful things
-# ^ quiet=yes means don't output anything non-error
-# ^ quiet=no means output everything
-CONFIRM="${CONFIRM:-"$(get-flag-value confirm --missing=no -- "$@" | echo-affirmative)"}"
-OPTIONAL="${OPTIONAL:-"$(get-flag-value confirm --missing=no -- "$@" | echo-affirmative)"}"
-FORCE="${FORCE:-"$(get-flag-value force --missing=no -- "$@" | echo-affirmative)"}"
+# help
+function eval_collapse_help() {
+	cat <<-EOF >/dev/stderr
+		ABOUT:
+		Install a utility by using environment variables to specify the properties of its installation.
+
+		USAGE:
+		env NAME='bottom' CLI='btm' \
+		    AUR='bottom-bin' \
+		    BREW='bottom' \
+		    CARGO='bottom' \
+		    setup-util [--] aur brew cargo
+
+		QUIRKS:
+		Arguments passed to setup-util are used to specify a custom order of preference for installer methods, in the above example, we are saying prefer aur then brew then cargo. The order of environment variables and flags is inconsequential.
+
+		FLAGS:
+		--cli=<...> | env CLI=<...> setup-util
+
+		    Used to check if the utility is already installed.
+
+		--name=<...> | env NAME=<...> setup-util
+
+		    The name to use for the utility in human readable output, such as log messages.
+
+		--confirm=<...> | env CONFIRM=<...> setup-util
+
+		    Confirm installation of the utility before installing it.
+
+		--optional=<...> | env OPTIONAL=<...> setup-util
+
+		    If truthy, and if the utility is already installed (determined by the CLI flag), then do not proceed with installation and keep the existing installation untouched.
+
+		--quiet=<...> | env QUIET=<...> setup-util
+
+		    If unspecified, outputs only useful things.
+			 If truthy, don't output anything that isn't an error message.
+			 If falsey, output everything.
+
+		INSTALLER FLAGS:
+		For installer flags, refer to the source code of this function, it can be found at:
+		$0
+	EOF
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+# actions=(
+# 	install
+# 	uninstall
+# )
+# action='install'
+option_cli="${CLI-}"
+option_name="${NAME-}"
+option_confirm="${CONFIRM-}"
+option_optional="${OPTIONAL-}"
+option_force="${FORCE-}"
+option_quiet="$(echo-quiet -- "$@")"
+order=()
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'help' | '--help' | '-h') help ;;
+		# '--action='*) action="${item:9}" ;;
+	'--cli='*) option_cli="${item:5}" ;;
+	'--name='*) option_name="${item:6}" ;;
+	'--no-confirm'* | '--confirm'*)
+		option_confirm="$(
+			get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative
+		)"
+		;;
+	'--no-optional'* | '--optional'*)
+		option_optional="$(
+			get-flag-value optional --missing="$option_optional" -- "$item" | echo-affirmative
+		)"
+		;;
+	'--no-force'* | '--force'*)
+		option_force="$(
+			get-flag-value force --missing="$option_force" -- "$item" | echo-affirmative
+		)"
+		;;
+	'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*)
+		option_quiet="$(
+			echo-quiet --missing="$option_quiet" -- "$item"
+		)"
+		;;
+	'--')
+		order+=("$@")
+		shift $#
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) order+=("$item") ;;
+	esac
+done
+
+# ensure valid action
+# action="$(
+# 	choose-option --required \
+# 		--question='What action to perform?' \
+# 		--filter="$action" -- "${actions[@]}"
+# )"
+
+# ensure name fallback
+if test -z "$option_name" -a -n "$option_cli"; then
+	option_name="$option_cli"
+fi
+
+# ensure order
+if test "${#order[@]}" -eq 0; then
+	order=(
+		# intelligent
+		brew
+		cask
+
+		# precompiled
+		pacman
+		apt
+		apk
+		yum # also rpm
+
+		# precompiled containers
+		snap
+
+		# source containers
+		flatpak
+
+		# aur
+		# https://itsfoss.com/paru-aur-helper/
+		# https://itsfoss.com/best-aur-helpers/
+		yay
+		pakku
+		paru
+		aurutils
+		pamac
+
+		# source
+		cargo
+		npm
+		go
+		pip
+		pipx
+		gem
+
+		# unknown
+		cabal
+		choco
+		conda
+		dnf
+		doas
+		dpkg
+		emerge
+		eopkg
+		guix
+		huber
+		nix
+		pkg
+		pkgin
+		pkgman
+		pkgutil
+		port
+		scoop
+		stack
+		winget
+		xbps
+		zypper
+
+		# custom
+		curl
+		zip
+		installer
+		cmd
+	)
+fi
+
+# =====================================
+# Process
+
+# prepare fallbacks, for when the package could be installed, but requires the package system to be installed first
+# which will be used, if none of the package systems were present, as such proceed in order of preference for installation of package systems
+fallbacks=()
 
 # check if necessary
-if test -n "$CLI"; then
-	if command-missing "$CLI"; then
-		echo-style --h3="The [$NAME] utility does not appear to be installed because [$CLI] is missing. Installing automatically... ⏲"
-	elif test "$FORCE" = 'yes'; then
-		echo-style --h3="The [$NAME] utility is already installed because [$CLI] is present." $'\n' --h3="However, it has been marked for reinstall. Reinstalling... ⏲"
+if test -n "$option_cli"; then
+	if command-missing "$option_cli"; then
+		echo-style --h3="The [$option_name] utility does not appear to be installed because [$option_cli] is missing. Installing automatically... ⏲"
+	elif test "$option_force" = 'yes'; then
+		echo-style --h3="The [$option_name] utility is already installed because [$option_cli] is present." $'\n' --h3="However, it has been marked for reinstall. Reinstalling... ⏲"
 	else
-		if test "$QUIET" != 'yes'; then
-			echo-style --g3="The [$NAME] utility is already installed because [$CLI] is present. All good. ✅"
+		if test "$option_quiet" != 'yes'; then
+			echo-style --g3="The [$option_name] utility is already installed because [$option_cli] is present. All good. ✅"
 		fi
 		exit 0
 	fi
 fi
 
 # confirm if necessary
-if test "$CONFIRM" = 'yes'; then
-	if ! confirm-positive --ppid=$$ -- "Do you want to install the [$NAME] utility?"; then
+if test "$option_confirm" = 'yes'; then
+	if ! confirm-positive --ppid=$$ -- "Do you want to install the [$option_name] utility?"; then
 		exit 2 # error exit code so that things that depend on this abort
 	fi
 fi
@@ -43,17 +218,17 @@ fi
 # log helpers
 function won() {
 	local method="$1"
-	echo-style --g3="The [$NAME] utility is now installed via [$method]. ✅"
+	echo-style --g3="The [$option_name] utility is now installed via [$method]. ✅"
 }
 function lost() {
 	local ec=1
-	echo-style --e3="The [$NAME] utility was unable to be installed. ❌"
-	if test "$OPTIONAL" != 'no'; then
-		echo-style --e3="However, [$NAME] has been marked as optional, so it is up to you to figure this out later."
+	echo-style --e3="The [$option_name] utility was unable to be installed. ❌"
+	if test "$option_optional" != 'no'; then
+		echo-style --e3="However, [$option_name] has been marked as optional, so it is up to you to figure this out later."
 		ec=0
 	fi
-	if test "$NAME" = 'unnamed'; then
-		if test "$QUIET" != 'yes' && confirm-negative --ppid=$$ -- "Do you want to output the environment variables to determine what it was?"; then
+	if test "$option_name" = 'unnamed'; then
+		if test "$option_quiet" != 'yes' && confirm-negative --ppid=$$ -- "Do you want to output the environment variables to determine what it was?"; then
 			env | sort
 		fi
 		sleep 5
@@ -80,12 +255,12 @@ function do_brew() {
 		mapfile -t args < <(echo-split ' ' -- "$BREW")
 
 		# quiet mode
-		if test "$QUIET" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			args+=('--quiet')
 		fi
 
 		# optional --force
-		if test "$FORCE" = 'yes'; then
+		if test "$option_force" = 'yes'; then
 			args+=('--force')
 		fi
 
@@ -120,12 +295,12 @@ function do_cask() {
 		mapfile -t args < <(echo-split ' ' -- "$CASK")
 
 		# quiet mode
-		if test "$QUIET" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			args+=('--quiet')
 		fi
 
 		# optional --force
-		if test "$FORCE" = 'yes'; then
+		if test "$option_force" = 'yes'; then
 			args+=('--force')
 		fi
 
@@ -151,7 +326,7 @@ function do_pacman() {
 		# --needed: do not reinstall up to date packages
 		# --noconfirm: do not ask for any confirmation
 		args+=('-S' '--needed' '--noconfirm')
-		if test "$QUIET" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			# -q, --quiet: show less information for query and search
 			args+=('--quiet')
 		fi
@@ -1006,7 +1181,7 @@ function do_cargo() {
 		fi
 
 		# package case
-		if test "$QUIET" != 'yes'; then
+		if test "$option_quiet" != 'yes'; then
 			log-performance
 		fi
 		eval_collapse -- cargo install "${CARGO}"
@@ -1089,77 +1264,8 @@ function do_aur() {
 	do_pamac
 }
 
-# -------------------------------------
-
-# arguments specify the order
-order=(
-	# intelligent
-	brew
-	cask
-
-	# precompiled
-	pacman
-	apt
-	apk
-	yum # also rpm
-
-	# precompiled containers
-	snap
-
-	# source containers
-	flatpak
-
-	# aur
-	# https://itsfoss.com/paru-aur-helper/
-	# https://itsfoss.com/best-aur-helpers/
-	yay
-	pakku
-	paru
-	aurutils
-	pamac
-
-	# source
-	cargo
-	npm
-	go
-	pip
-	pipx
-	gem
-
-	# unknown
-	cabal
-	choco
-	conda
-	dnf
-	doas
-	dpkg
-	emerge
-	eopkg
-	guix
-	huber
-	nix
-	pkg
-	pkgin
-	pkgman
-	pkgutil
-	port
-	scoop
-	stack
-	winget
-	xbps
-	zypper
-
-	# custom
-	curl
-	zip
-	installer
-	cmd
-)
-
-# let user specify custom order
-if test "$#" -ne 0; then
-	order=("$@")
-fi
+# =====================================
+# Action
 
 # cycle through the order
 for item in "${order[@]}"; do
@@ -1177,14 +1283,16 @@ for item in "${order[@]}"; do
 done
 
 # fallback for failed packages which are missing their package system
-test "${#fallbacks[@]}" -ne 0 && for item in "${fallbacks[@]}"; do
-	pass='y'
-	"do_${item}_fallback" || pass='n'
-	if test "${pass}" = 'y'; then
-		won "$item"
-		exit 0
-	fi
-done
+if test "${#fallbacks[@]}" -ne 0; then
+	for item in "${fallbacks[@]}"; do
+		pass='y'
+		"do_${item}_fallback" || pass='n'
+		if test "${pass}" = 'y'; then
+			won "$item"
+			exit 0
+		fi
+	done
+fi
 
 # failure
 lost
