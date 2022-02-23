@@ -1,17 +1,30 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2164
 source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/nullglob.bash"
+
+# Here is a generic version of this script, that does not require Dorothy:
+# https://gist.github.com/balupton/7f15f6627d90426f12b24a12a4ac5975
+
+# ghostpdl releases:
+# https://github.com/ArtifexSoftware/ghostpdl-downloads/releases
+
+# =====================================
+# Arguments
 
 # help
 function help() {
 	cat <<-EOF >/dev/stderr
- 		ABOUT:
- 		Convert from XML Paper Specification format to PDF.
- 		https://gist.github.com/balupton/7f15f6627d90426f12b24a12a4ac5975
+		ABOUT:
+		Convert from XML Paper Specification format to PDF, using GXPS from GhostPDL:
+		https://github.com/ArtifexSoftware/ghostpdl-downloads
 
-        USAGE:
- 		To convert a particular xps file: ./xps2pdf.bash thefile.xps
-        To convert all xps files in the current working directory: ./xps2pdf.bash *.xps
+		USAGE:
+		xps2pdf [--] <...path>
 
+		EXAMPLES:
+		xps2pdf -- *.xps             # all xps files in the current directory
+		xps2pdf -- one.xps two.xps   # specific files
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
@@ -19,36 +32,76 @@ function help() {
 	return 22 # Invalid argument
 }
 
-if is-help-empty "$@" && help
+# process
+option_paths=()
+option_reinstall='no'
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'help' | '--help' | '-h') help ;;
+	'--no-reinstall'* | '--reinstall'*)
+		option_reinstall="$(get-flag-value reinstall --missing="$option_reinstall" -- "$item" | echo-affirmative)"
+		;;
+	'--')
+		option_paths+=("$@")
+		shift "$#"
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) option_paths+=("$item") ;;
+	esac
+done
 
-# XPS to PDF
-# https://gist.github.com/balupton/7f15f6627d90426f12b24a12a4ac5975
-cwd="$(pwd)"
-bin=gxps
-if command-missing "$bin"; then
-	bin="$HOME/bin/ghostpdl-9.20/bin/gxps"
-	if command-missing "$bin"; then
-		echo "downloading and compiling gxps dependency to $bin"
-		mkdir -p "$HOME/bin"
-		cd "$HOME/bin" || exit 1
-		down-zip https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
-		cd ./ghostpdl-9.20 || exit 1
-		./configure
-		make
-		cd "$cwd" || exit 1
-	fi
+# check
+if test "${#option_paths[@]}" -eq 0; then
+	help "No paths were provided"
 fi
 
-echo "converting $# files"
-for xps in "$@"; do
-	# shellcheck disable=2001
-	pdf=$(echo "$xps" | sed 's/...$//')pdf
+# =====================================
+# Dependency
 
-	echo "converting $xps to $pdf"
-	$bin -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
+# prepare
+installer='https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz'
 
-	if command-exists GetFileInfo && command-exists SetFile; then
-		ctime=$(GetFileInfo -m "$xps")
-		SetFile -d "$ctime" "$pdf"
-	fi
-done
+# install or reinstall
+if command-missing gxps || test "$option_reinstall" = 'yes'; then
+	temp="$(mktemp -d)"
+	echo-style --bold="Downloading GXPS dependency to " --code="$temp"
+	pushd "$temp"
+	down-zip "$installer"
+	pushd ./ghostpdl-*/
+	echo-style --bold="Compiling GXPS dependency at " --code="$(pwd)"
+	./configure
+	make
+	mv -v ./bin/* "$XDG_BIN_HOME"
+	pushd
+	echo-style --success="Installed GXPS dependency to " --code="$XDG_BIN_HOME"
+fi
+
+# =====================================
+# Action
+
+function xps_to_pdf {
+	local xps pdf
+
+	echo-style --bold="Converting " --code="$#" --bold=" files"
+	for xps in "$@"; do
+		pdf="${xps%.xps}.pdf"
+
+		echo-style --bold="Converting " --code="$xps" --bold=" to " --code="$pdf"
+		gxps -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
+
+		if command-exists GetFileInfo && command-exists SetFile; then
+			ctime="$(GetFileInfo -m "$xps")"
+			SetFile -d "$ctime" "$pdf"
+		fi
+
+		echo-style --success="Converted " --code="$xps" --success=" to " --code="$pdf"
+	done
+}
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	xps_to_pdf "${option_paths[@]}"
+fi
