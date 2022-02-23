@@ -121,7 +121,7 @@ e3="${h3}${foreground_red}"
 header="${bold}${underline}"
 error="${background_intense_red}${foreground_intense_white}"
 success="${foreground_green}${bold}"
-notice="${foreground_intense_yellow}${bold}${underline}"
+notice="${foreground_yellow}${bold}${underline}" # don't use intense_yellow as it is unreadable on light terminal themes, plain yellow works for light and dark themes
 code="${dim}"
 
 # don't use these in segments, as it prohibits alternative usage
