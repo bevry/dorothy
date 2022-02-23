@@ -1,24 +1,127 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# =====================================
+# Arguments
+
 # help
-if is-help-empty "$@"; then
+function help() {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
-		Output the contents of a URL using whatever tool is available on your system.
+		Fetch the URL, using whichever tool is available on your system.
 
 		USAGE:
-		fetch <...>
+		fetch [...flags] <url>
+
+		FLAGS:
+		--pattern=<...>
+		    Test the contents of the fetched URL against this Rust Regular Expression.
+
+		--[no-]status[=<yes|no>]
+		    If truthy, output only the status code, rather than the entire contents of the fetch URL.
+
+		--[no-]ok[=<yes|no>]
+		    If truthy, skip fetching contents and only test if fetching the URL returned a success status code.
+			 If falsey, skip fetching contents and only test if fetching the URL returned a non-successful status code.
+
+		QUIRKS:
+		If [curl] was required, but not found, it will be installed automatically.
 	EOF
-	exit 22 # Invalid argument
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+option_url=''
+option_status='no'
+option_ok=''
+option_pattern=''
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'help' | '--help' | '-h') help ;;
+	'--pattern='*) option_pattern="${item:10}" ;;
+	'--no-status'* | '--status'*)
+		option_status="$(get-flag-value status --missing="$option_status" -- "$item" | echo-affirmative)"
+		;;
+	'--no-ok'* | '--ok'*)
+		option_ok="$(get-flag-value ok --missing="$option_ok" -- "$item" | echo-affirmative)"
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*)
+		if test -z "$option_url"; then
+			option_url="$item"
+		else
+			help "An unrecognised argument was provided: $item"
+		fi
+		;;
+	esac
+done
+
+# =====================================
+# Helpers
+
+#  -I, --head                        Show document info only
+#  -m, --max-time <seconds>          Maximum time allowed for the transfer
+#  -o, --output <file>               Write to file instead of stdout
+#  -s, --silent                      Silent mode
+#  -A, --user-agent <name>           Send User-Agent <name> to server
+#  -w, --write-out <format>          Use output FORMAT after completion
+function fetch_status {
+	local url="$1" args=(
+		--head
+		--max-time 3
+		--output /dev/null
+		--silent
+		--write-out '%{http_code}'
+	)
+	env QUIET=yes setup-util-curl
+	curl "${args[@]}" --location "$url"
+}
+
+function fetch_ok {
+	local url="$1" status
+	status="$(fetch_status "$url")"
+	test "$status" -ge 200 -a "$status" -le 300
+}
+
+function fetch_contents {
+	local url="$1"
+	if command-exists curl; then
+		curl -fsSL "$url"
+	elif command-exists wget; then
+		wget "$url" -O -
+	else
+		env QUIET=yes setup-util-curl # if curl fails to install, we have bigger problems
+		fetch "$url"
+	fi
+}
+
+function fetch_pattern {
+	local url="$1" pattern="$2"
+	fetch "$url" | grep --quiet --ignore-case "$pattern"
+}
+
+# =====================================
+# Action
+
+# ensure url
+if test -z "$option_url"; then
+	help "No URL was provided"
 fi
 
-# act
-if command-exists curl; then
-	curl -fsSL "$@"
-elif command-exists wget; then
-	wget "$@" -O -
+# perform appropriate action
+if test "$option_status" = 'yes'; then
+	fetch_status "$option_url"
+elif test "$option_ok" = 'yes'; then
+	fetch_ok "$option_url"
+elif test "$option_ok" = 'no'; then
+	! fetch_ok "$option_url"
+elif test -n "$option_pattern"; then
+	fetch_pattern "$option_url" "$option_pattern"
 else
-	stderr echo 'curl and wget are not installed, at least one needs to exist'
-	exit 1
+	fetch_contents "$option_url"
 fi
