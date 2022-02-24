@@ -7,105 +7,6 @@ source "$DOROTHY/sources/shims.bash"
 source "$(which eval-collapse)"
 
 # =====================================
-# Checks
-
-# check that an accident has not occured
-if ! is-mac; then
-	echo-style --notice="[$0] is only intended to be run on macOS systems, skipping." >/dev/stderr
-	exit 0
-fi
-
-# =====================================
-# --clean
-
-function brew_clean() {
-	# environment provides:
-	# HOMEBREW_ARCH, HOMEBREW_PREFIX
-
-	echo-segment --h2='Cleanup homebrew'
-	if is-brew; then
-		# fix common permission errors
-		# Error: Could not cleanup old kegs! Fix your permissions on:
-		# /usr/local/Cellar/go/1.17.2
-		if test -d "$HOMEBREW_CELLAR/go"; then
-			fs-own --permissions='u+rwx,g+rwx' -- "$HOMEBREW_CELLAR/go"
-			# bin, libexec, and many other directories contain executables, so just make it all executable
-		fi
-		# cleanup
-		eval-collapse -- brew cleanup --quiet -s --prune=all
-		# cleanup further
-		rm -rf "$(brew --cache)"
-	fi
-	echo-segment --g2='Cleanup homebrew'
-}
-if test "${1-}" = '--clean'; then
-	brew_clean
-	exit "$?"
-fi
-
-# =====================================
-# --uninstall
-
-function brew_uninstall() {
-	# environment provides:
-	# HOMEBREW_ARCH, HOMEBREW_PREFIX
-
-	# confirm
-	if ! confirm-negative --ppid=$$ -- 'Are you sure you want to uninstall Homebrew?'; then
-		return 1
-	fi
-
-	# prepare
-	source "$DOROTHY/sources/nullglob.bash"
-	removals=(
-		"${NVM_DIR-}"
-		"$HOME/.nvm"
-		"${HOMEBREW_PREFIX}/"*
-		/usr/local/*
-		/opt/homebrew/*
-	)
-
-	# log
-	echo-segment --h1='Uninstall Homebrew'
-
-	# reconfigure shells for the lack of brew, by trimming the brew shells
-	grep -v "$HOMEBREW_PREFIX" /etc/shells | sudo sponge /etc/shells
-
-	# set the default shell to a non-brew shell
-	if command-exists /bin/zsh; then
-		select-shell /bin/zsh
-	elif command-exists /bin/bash; then
-		select-shell /bin/bash
-	elif command-exists /bin/sh; then
-		select-shell /bin/sh
-	fi
-
-	# reset anything that depends on brew
-	setup-dns system || :
-	setup-git || :
-
-	# uninstall brew
-	if is-brew; then
-		arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
-	fi
-
-	# remove any leftover directories
-	for remove in "${removals[@]}"; do
-		if test -n "$remove" -a -e "$remove"; then
-			sudo rm -Rf "$remove" || :
-		fi
-	done
-
-	# log
-	echo-segment --g1='Uninstall Homebrew'
-	echo-style --green+bold='Homebrew uninstalled, ' --red+bold+underline='restart your terminal to avoid errors.'
-}
-if test "${1-}" = '--uninstall'; then
-	brew_uninstall
-	exit "$?"
-fi
-
-# =====================================
 # Configuration
 
 source "$DOROTHY/sources/config.bash"
@@ -217,25 +118,34 @@ done
 # =====================================
 # Arguments
 
-# prepare
-actions=(
-	install
-	update
-)
-
 # help
 function help() {
 	cat <<-EOF >/dev/stderr
-		USAGE:
-		setup-mac-brew [--flags] <action> -- [...args]
+		ABOUT:
+		Setup Homebrew on your macOS machine, with automations for all your preferences.
 
-		FLAGS:
-		--configure            Configuration guide.
-		--encoding             Install encoding tools.
+		USAGE:
+		setup-mac-brew [...options] <action> -- [...args]
+
+		OPTIONS:
+		--configure
+		    When in [install] or [update] mode, reconfigure your Homebrew automations.
+
+		--encoding
+		    When in [install] mode, install encoding tools.
 
 		ACTIONS:
-		install                Installs/updates everything, including prompts for casks.
-		update                 Installs most things, updates everything, excludes prompts for casks.
+		install
+		    Installs/updates everything, including prompts for casks.
+
+		update
+		    Installs most things, updates everything, excludes prompts for casks.
+
+		clean
+		    Cleanup the brew installation, such as removing caches and adjusting permissions.
+
+		uninstall
+		    Completely remove Homebrew from the system. This will require a reload of your terminal once completed.
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
@@ -243,10 +153,17 @@ function help() {
 	return 22 # Invalid argument
 }
 
+# prepare
+actions=(
+	install
+	update
+	clean
+	uninstall
+)
+
 # process
 action=''
 reconfigure='no'
-action_args=()
 while test "$#" -ne 0; do
 	item="$1"
 	shift
@@ -259,11 +176,6 @@ while test "$#" -ne 0; do
 	'--no-configure'* | '--configure'*)
 		reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
 		;;
-	'--')
-		action_args+=("$@")
-		shift $#
-		break
-		;;
 	'--'*) help "An unrecognised flag was provided: $item" ;;
 	*)
 		if test -z "$action"; then
@@ -275,6 +187,11 @@ while test "$#" -ne 0; do
 	esac
 done
 
+# check
+if ! is-mac; then
+	help "This command is only purposeful on macOS, which you are not running."
+fi
+
 # ensure valid action
 action="$(
 	choose-option --required \
@@ -283,6 +200,99 @@ action="$(
 )"
 
 # =====================================
+# Action: clean
+
+function brew_clean() {
+	# environment provides:
+	# HOMEBREW_ARCH, HOMEBREW_PREFIX
+
+	echo-segment --h2='Cleanup homebrew'
+	if is-brew; then
+		# fix common permission errors
+		# Error: Could not cleanup old kegs! Fix your permissions on:
+		# /usr/local/Cellar/go/1.17.2
+		if test -d "$HOMEBREW_CELLAR/go"; then
+			fs-own --permissions='u+rwx,g+rwx' -- "$HOMEBREW_CELLAR/go"
+			# bin, libexec, and many other directories contain executables, so just make it all executable
+		fi
+		# cleanup
+		eval-collapse -- brew cleanup --quiet -s --prune=all
+		# cleanup further
+		rm -rf "$(brew --cache)"
+	fi
+	echo-segment --g2='Cleanup homebrew'
+}
+if test "$action" = 'clean'; then
+	brew_clean
+	exit "$?"
+fi
+
+# =====================================
+# Action: uninstall
+
+function brew_uninstall() {
+	# environment provides:
+	# HOMEBREW_ARCH, HOMEBREW_PREFIX
+
+	# confirm
+	if ! confirm-negative --ppid=$$ -- 'Are you sure you want to uninstall Homebrew?'; then
+		return 1
+	fi
+
+	# prepare
+	source "$DOROTHY/sources/nullglob.bash"
+	removals=(
+		"${NVM_DIR-}"
+		"$HOME/.nvm"
+		"${HOMEBREW_PREFIX}/"*
+		/usr/local/*
+		/opt/homebrew/*
+	)
+
+	# log
+	echo-segment --h1='Uninstall Homebrew'
+
+	# reconfigure shells for the lack of brew, by trimming the brew shells
+	grep -v "$HOMEBREW_PREFIX" /etc/shells | sudo sponge /etc/shells
+
+	# set the default shell to a non-brew shell
+	if command-exists /bin/zsh; then
+		select-shell /bin/zsh
+	elif command-exists /bin/bash; then
+		select-shell /bin/bash
+	elif command-exists /bin/sh; then
+		select-shell /bin/sh
+	fi
+
+	# reset anything that depends on brew
+	setup-dns system || :
+	setup-git || :
+
+	# uninstall brew
+	if is-brew; then
+		arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
+	fi
+
+	# remove any leftover directories
+	for remove in "${removals[@]}"; do
+		if test -n "$remove" -a -e "$remove"; then
+			sudo rm -Rf "$remove" || :
+		fi
+	done
+
+	# log
+	echo-segment --g1='Uninstall Homebrew'
+	echo-style --green+bold='Homebrew uninstalled, ' --red+bold+underline='restart your terminal to avoid errors.'
+}
+if test "$action" = 'uninstall'; then
+	brew_uninstall
+	exit "$?"
+fi
+
+# =====================================
+# Action: install, update
+
+# -------------------------------------
 # Helpers
 
 function brew_install() {
@@ -420,13 +430,13 @@ function brew_repo() {
 	echo-segment --g2="Update $# repositories"
 }
 
-# =====================================
+# -------------------------------------
 # Start
 
 # log
 echo-segment --h1="Setup/$(ucf "$action") Homebrew"
 
-# =====================================
+# -------------------------------------
 # Install
 
 if ! is-brew; then
@@ -456,31 +466,31 @@ source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile' 'empty'
 echo-segment --g2="Install bash dependency"
 
-# =====================================
+# -------------------------------------
 # Deprecations
 
 deprecations=('caskroom/cask' 'caskroom/fonts')
 brew_untap "${deprecations[@]}"
 
-# =====================================
+# -------------------------------------
 # Taps
 
 brew_tap "${HOMEBREW_TAPS[@]}"
 
-# =====================================
+# -------------------------------------
 # Repositories
 
 mapfile -t repos < <(echo-subpaths "$(dirname "$(brew --repo homebrew/core)")")
 brew_repo "${repos[@]}"
 
-# =====================================
+# -------------------------------------
 # Update
 
 echo-segment --h2="Update Homebrew"
 brew update --quiet
 echo-segment --g2="Update Homebrew"
 
-# =====================================
+# -------------------------------------
 # Removals
 
 # Uninstalls
@@ -491,21 +501,21 @@ brew_uninstall "${HOMEBREW_UNINSTALL[@]}"
 source "$DOROTHY/sources/environment.sh"
 brew_clean
 
-# =====================================
+# -------------------------------------
 # Upgrade
 
 echo-segment --h2="Upgrade Homebrew"
 brew upgrade --quiet
 echo-segment --g2="Upgrade Homebrew"
 
-# =====================================
+# -------------------------------------
 # Dependencies
 
 echo-segment --h2="Install build dependencies"
 eval_collapse -- setup-util-devel
 echo-segment --g2="Install build dependencies"
 
-# =====================================
+# -------------------------------------
 # Encoding
 
 if test "$action" = "install"; then
@@ -525,7 +535,7 @@ if test "$action" = "install"; then
 
 	# if yes, then install the linting tools
 	if test "$HOMEBREW_ENCODING_INSTALL" = 'yes'; then
-		echo-segment --h2="Homebrew encoding tools"
+		echo-segment --h1="Homebrew encoding tools"
 		echo-style --notice="This can take a while... ⏲"
 
 		# install dependencies:
@@ -537,10 +547,10 @@ if test "$action" = "install"; then
 		# Installing chromaprint will cause ffmpeg to be installed automatically, as such we need to remove that ffmpeg
 		# so that we can install the one with the build options
 		# Uninstall is necessary to prevent:
-		# Error: ffmpeg is already installed
-		# --ignore-dependencies is necesasry to prevent:
-		# Error: Refusing to uninstall because it is required by chromaprint, which is currently installed.
-		# Error: chromaprint not found
+		#     Error: ffmpeg is already installed
+		# --ignore-dependencies is necessary to prevent:
+		#     Error: Refusing to uninstall because it is required by chromaprint, which is currently installed.
+		#     Error: chromaprint not found
 		# More details:
 		# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/13#issuecomment-647408007
 		brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || :
@@ -550,10 +560,12 @@ if test "$action" = "install"; then
 
 		# fetch all the build options for ffmpeg
 		ffmpeg_opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
-		# Remove decklink, as:
+		# Remove options that break ffmpeg
 		# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
 		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
 		ffmpeg_opts="${ffmpeg_opts/--with-decklink /}"
+		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/37#issuecomment-958018136
+		ffmpeg_opts="${ffmpeg_opts/--with-game-music-emu /}"
 		# space seperated array
 		mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
 
@@ -562,35 +574,41 @@ if test "$action" = "install"; then
 
 		# log
 		echo-segment --g2="Install ffmpeg with options"
-		echo-segment --g2="Homebrew encoding tools"
+		echo-segment --g1="Homebrew encoding tools"
+	else
+		echo-style --notice="Skipped encoding tools installation, due to preference."
 	fi
+elif test "$HOMEBREW_ENCODING_INSTALL" = 'yes'; then
+	echo-style --notice="Skipped encoding tools installation, due to update only."
+else
+	echo-style --notice="Skipped encoding tools installation, due to preference and update only"
 fi
 
-# =====================================
+# -------------------------------------
 # Install (fast/default) formulas
 
 brew_install_fast "${HOMEBREW_FORMULAS[@]}"
 
-# =====================================
+# -------------------------------------
 # Install slow formulas
 
 brew_install_slow "${HOMEBREW_SLOW_FORMULAS[@]}"
 
-# =====================================
+# -------------------------------------
 # Install casks
 
 if test "$action" = "install"; then
 	brew_install_cask "${HOMEBREW_CASKS[@]}"
 fi
 
-# =====================================
+# -------------------------------------
 # Install fonts
 
 if test "$action" = "install"; then
 	brew_install_fonts "${HOMEBREW_FONTS[@]}"
 fi
 
-# =====================================
+# -------------------------------------
 # Reconfigure?
 
 if test "$reconfigure" != 'yes'; then
@@ -658,7 +676,7 @@ if test "$reconfigure" = 'yes'; then
 		--field='HOMEBREW_FONTS' --array="$(echo-lines -- "${HOMEBREW_FONTS[@]}" | sort --ignore-case)"
 fi
 
-# =====================================
+# -------------------------------------
 # Finish
 
 # log
