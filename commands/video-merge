@@ -52,26 +52,69 @@ while test "$#" -ne 0; do
 	esac
 done
 
-# check inputs and write list of absolute existing paths
-list="$(fs-temp --prefix='video-merge' --suffix='.txt')"
+# make inputs absolute, and fetch extension for generating output if not defined
 extension=''
-for input in "${option_inputs[@]}"; do
+for i in "${!option_inputs[@]}"; do
+	# check existence
+	input="${option_inputs[i]}"
 	if test ! -f "$input"; then
+		# fail
 		help "The input file does not exist: $input"
 	else
+		# extract extension
 		if test -z "$extension"; then
 			extension="$(fs-extension "$input")"
 		fi
-		fs-absolute "$input" >>"$list"
+		# convert to absolute path
+		option_inputs[i]="$(fs-absolute "$input")"
 	fi
 done
 
-# check output
+# ensure output
 if test -z "$option_output"; then
 	option_output="$(basename "$(pwd)").$extension"
 fi
 
+# make output absolute
+option_output="$(fs-absolute "$option_output")"
+
+# check if the output file already exists, if it does, prompt for removal otherwise fail
+if test -e "$option_output"; then
+	if confirm-positive --ppid=$$ -- "The output file already exists, remove it?" "$(echo-style --code="$option_output")"; then
+		rm "$option_output"
+	else
+		help "The output file already exists: $option_output"
+	fi
+fi
+
+# confirm the output is not an input
+for i in "${!option_inputs[@]}"; do
+	if test "$option_output" = "${option_inputs[i]}"; then
+		echo-style --notice="The output file has been automatically trimmed from the input files."
+		option_inputs[i]=''
+	fi
+done
+
 # =====================================
 # Action
 
-echo-eval -- ffmpeg -f concat -safe 0 -i "$list" -c copy "$option_output"
+# output the input list
+list="$(fs-temp --prefix='video-merge' --suffix='.txt')"
+for input in "${option_inputs[@]}"; do
+	if test -n "$input"; then
+		echo "file $(echo-quote "$input")" >>"$list"
+	fi
+done
+echo-file "$list"
+
+# concatenate
+eval-collapse \
+	--pending="$(echo-style --bold="Concatenating the video files into: " --code="$option_output")" \
+	--success="$(echo-style --success="Concatenated the video files into: " --code="$option_output")" \
+	--failure="$(echo-style --error="Failed to concatenate the video files into: " --code="$option_output")" \
+	-- ffmpeg -f concat -safe 0 -i "$list" -c copy "$option_output"
+
+# ask if they want to open it
+if is-tty && confirm-positive --ppid=$$ -- "Open the concatenated video file?"; then
+	open "$option_output"
+fi
