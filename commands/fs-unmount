@@ -4,39 +4,64 @@ source "$DOROTHY/sources/strict.bash"
 # =====================================
 # Arguments
 
-# prepare
-if test "${1-}" = '--'; then
-	shift
-fi
-mount_point="${1-}"
-
 # help
-if is-help "$@" || test -z "$mount_point"; then
+function help() {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
 		Unmounts a mount point.
 
 		USAGE:
-		fs-unmount [--] <mount-point>
+		fs-unmount [--] ...<mount-point>
 	EOF
-	exit 22 # Invalid argument
-fi
+	if test "$#" -ne 0; then
+		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	fi
+	return 22 # Invalid argument
+}
+
+# process
+option_paths=()
+while test "$#" -ne 0; do
+	item="$1"
+	shift
+	case "$item" in
+	'help' | '--help' | '-h') help ;;
+	'--')
+		option_paths+=("$@")
+		shift "$#"
+		break
+		;;
+	'--'*) help "An unrecognised flag was provided: $item" ;;
+	*) option_paths+=("$item") ;;
+	esac
+done
 
 # =====================================
 # Action
 
-# prepare
-conclusion=''
+function fs_unmount_single {
+	# prepare
+	local mount_point was_mounted success title ec
+	mount_point="$(fs-realpath "$1")"
+	was_mounted='maybe'
 
-# helper
-function fs_unmount {
-	local ec
+	# wrap in logs
+	title="fs-unmount ${mount_point@Q}"
+	success='no'
+	echo-segment --h2="$title"
+	function fs_unmount_single_return() {
+		if test "$success" = 'yes'; then
+			echo-segment --g2="$title"
+		else
+			echo-segment --e2="$title"
+		fi
+	}
+	trap fs_unmount_single_return RETURN
 
 	# is the path missing
 	if test ! -e "$mount_point"; then
-		conclusion="$(
-			echo-style --green="was previously unmounted."
-		)"
+		echo-style --code="$mount_point" ' ' --success="was previously unmounted"
+		success='yes'
 		return
 	fi
 	# path exists
@@ -44,6 +69,7 @@ function fs_unmount {
 	# is mounted? then unmount
 	while true; do
 		if is-mounted --target="$mount_point"; then
+			was_mounted='yes'
 			sudo umount --verbose --recursive "$mount_point" || {
 				# https://github.com/rfjakob/gocryptfs/issues/459
 				what-is-using "$mount_point" >/dev/tty
@@ -53,42 +79,44 @@ function fs_unmount {
 				fi
 			}
 		else
+			was_mounted='no'
+			echo-style --code="$mount_point" ' ' --notice="was not an active mount"
 			break
 		fi
 	done
 
 	# check if still mounted
 	if is-mounted --target="$mount_point"; then
-		conclusion="$(
-			echo-style --red="failed to unmount."
-		)"
+		echo-style --code="$mount_point" ' ' --error="failed to unmount"
 		return 66 # Directory not empty
 	fi
-	echo-style --success="${mount_point@Q} was unmounted."
+	if test "$was_mounted" = 'yes'; then
+		echo-style --code="$mount_point" ' ' --success="was unmounted successfully"
+	fi
 
 	# clean up
 	if test -e "$mount_point"; then
 		sudo-inherit -- fs-rm "$mount_point"
 	fi
 	if test -e "$mount_point"; then
-		conclusion="$(
-			echo-style --red="unmount was successful, but failed to clean up."
-		)"
+		echo-style --code="$mount_point" ' ' --success="was unmounted successfully" ', ' --error="but failed to clean up"
 		return 66 # Directory not empty
 	fi
-	echo-style --success="${mount_point@Q} was cleaned."
+	echo-style --code="$mount_point" ' ' --success="was cleaned successfully"
 
 	# success
-	conclusion="$(
-		echo-style --green="unmounted and cleaned up."
-	)"
+	echo-style --code="$mount_point" ' ' --success="was unmounted and cleaned successfully"
+}
+function fs_unmount {
+	if test "${#option_paths[@]}" -eq 0; then
+		help "No paths were provided"
+	fi
+	for mount_point in "$@"; do
+		fs_unmount_single "$mount_point"
+	done
 }
 
-# act
-title="fs-unmount ${mount_point@Q}"
-echo-segment --h2="$title"
-if fs_unmount; then
-	echo-segment --g2="$title" " $conclusion"
-else
-	echo-segment --e2="$title" " $conclusion"
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	fs_unmount "${option_paths[@]}"
 fi
