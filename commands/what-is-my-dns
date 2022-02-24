@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# dependencies
-source "$DOROTHY/sources/ripgrep.bash"
-
 # =====================================
 # Arguments
 
@@ -11,10 +8,26 @@ source "$DOROTHY/sources/ripgrep.bash"
 function help() {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
-		    ????
+		Fetches your DNS resolver.
 
 		USAGE:
-		    what-is-my-dns
+		what-is-my-dns [--] ...[type]
+
+		TYPES:
+		system
+		    Returns the resolver of your system configuration, be it a local DNS service or an external DNS service.
+
+		exposed
+		    Returns the exposed resolver of your system configuration, which if using a local DNS service, will convert internal IP ranges (127...) into protected/public IP ranges (192...).
+		    You should use this value for ensuring the DNS service you expose to containers and virtual machines is accessible by them, as local internal ranges of the host will not be.
+
+		authority
+		    Returns the remote resolver that intermediate resolvers may have delegated to.
+		    You should use this to manually identify if your DNS resolutions are being intercepted, which will be if the value of this differs from your intended DNS provider.
+		    If your DNS is being intercepted, you can use [setup-dns] to elect an encrypted DNS service and provider.
+
+		QUIRKS:
+		If no [type] is specified, all types will be returned.
 	EOF
 	if test "$#" -ne 0; then
 		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
@@ -23,17 +36,83 @@ function help() {
 }
 
 # process
+option_types=()
 while test "$#" -ne 0; do
 	item="$1"
 	shift
 	case "$item" in
 	'help' | '--help' | '-h') help ;;
+	'local') option_types+=('system') ;;
+	'remote' | 'network') option_types+=('exposed') ;;
+	'ultimate' | 'external' | 'resolver' | 'resolved') option_types+=('authority') ;;
+	'--')
+		option_types+=("$@")
+		shift "$#"
+		break
+		;;
 	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
+	*) option_types+=("$item") ;;
 	esac
 done
+
+# ensure types
+if test "${#option_types[@]}" -eq 0; then
+	option_types=(
+		'system'
+		'exposed'
+		'authority'
+	)
+fi
+
+# =====================================
+# Helpers
+
+function get_dns_system {
+	# dependencies
+	source "$DOROTHY/sources/ripgrep.bash"
+
+	# fetch
+	dig cloudflare.com | rg -o 'SERVER: .+?[(]([^)]+)' --replace '$1'
+}
+
+function get_dns_exposed {
+	local dnsip
+	dnsip="$(get_dns_system)"
+	if test "$dnsip" = '127.0.0.53'; then
+		# dependencies
+		source "$DOROTHY/sources/ripgrep.bash"
+
+		# resolvctl local dns server
+		(sudo resolvectl dns --no-pager) | rg -o 'Global: (.+)' --replace '$1'
+	elif test "$dnsip" = '0.0.0.0' -o "$dnsip" = '127.0.0.1'; then
+		# local dns server
+		what-is-my-ip 'local'
+	else
+		# remote dns server
+		echo "$dnsip"
+	fi
+}
+
+function get_dns_authority {
+	# dependencies
+	source "$DOROTHY/sources/ripgrep.bash"
+	env QUIET=yes setup-util-httpie
+	env QUIET=yes setup-util-sd
+
+	# note that $1 here refers to a regex match, not a shell argument
+	id="$(http "http://whatismydnsresolver.com" | rg -o "id = '(.+?)'" --replace '$1')"
+	http "http://$id.receiver.whatismydnsresolver.com" >/dev/null
+	http "http://whatismydnsresolver.com/query.php?id=$id" | sd '</p>' $'</p>    ' | sd '<[^>]+>' '' | sd '&nbsp;' '' | grep 'Resolver'
+}
 
 # =====================================
 # Act
 
-dig cloudflare.com | rg -o 'SERVER: .+?[(]([^)]+)' --replace '$1'
+if test "${#option_types[@]}" -eq 1; then
+	"get_dns_${option_types[0]}"
+else
+	for type in "${option_types[@]}"; do
+		printf '%s: ' "${type@u}"
+		"get_dns_${type}"
+	done
+fi
