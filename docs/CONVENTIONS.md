@@ -8,24 +8,28 @@ Each pushed commit should be working, and only change what it needs to. Your com
 
 ## Formatting
 
-All code should be formatted properly before it is pushed, which requires the implementation of automatic formatting.
+All code should be formatted properly before it is pushed.
 
-You should run `setup-util-formatting` to the install dependencies for automatic formatting, then install the required plugins for your favorite editor.
+Use `dorothy format` to format and lint your code.
+
+Use `dorothy test` to format, lint, and test your code.
 
 ## Editors
 
-Visual Studio Code is recommended, as Visual Studio Code when working with Dorothy will automatically configure itself to Dorothy's recommendations.
+### Visual Studio Code
 
-### Plugins
+Visual Studio Code is recommended, as VSCode will detect Dorothy's preferences and adapt accordingly, enabling automatic correct formatting and linting as you go.
 
-Visual Studio Code:
+For formatting, it makes use of the following extensions:
 
 - [shell-format](https://marketplace.visualstudio.com/items?itemName=foxundermoon.shell-format)
 - [shellcheck](https://marketplace.visualstudio.com/items?itemName=timonwong.shellcheck)
 - [editorconfig](https://marketplace.visualstudio.com/items?itemName=editorconfig.editorconfig)
 - [prettier-vscode](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
 
-Others:
+### All other editors
+
+The other editors will require manual configuration, please make sure they are configured for the following:
 
 - [shfmt](https://github.com/mvdan/sh#shfmt)
 - [shellcheck](https://github.com/koalaman/shellcheck)
