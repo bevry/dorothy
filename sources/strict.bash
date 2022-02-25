@@ -7,10 +7,18 @@
 # -o  pipefail    the return value of a pipeline is the status of
 #                 the last command to exit with a non-zero status,
 #                 or zero if no command exited with a non-zero status
+#
 # https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 # http://redsymbol.net/articles/unofficial-bash-strict-mode/
 
 set -Eeuo pipefail
+
+# inherit_errexit: If set, command substitution inherits the value of the errexit option, instead of unsetting it in the subshell environment. This option is enabled when POSIX mode is enabled.
+#
+# https://www.gnu.org/software/bash/manual/html_node/The-Shopt-Builtin.html
+# https://github.com/koalaman/shellcheck/wiki/SC2311
+
+shopt -s inherit_errexit
 
 # the below functions are essential to prevent nested functions that check for exit codes
 # from having their set -e negate a parent set +e, which would cause a return 1 on the function call
