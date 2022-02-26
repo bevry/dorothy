@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 if test -z "${RIPGREP_BIN_PATH-}"; then
 	# install ripgrep

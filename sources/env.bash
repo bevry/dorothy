@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # IMPORTED BY SOURCER
 # $shell - the current shell name, e.g. `fish` or `bash` or `zsh`

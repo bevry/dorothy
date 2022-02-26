@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 source "$DOROTHY/sources/config.sh"
 
 # todo
