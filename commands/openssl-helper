@@ -56,156 +56,357 @@ source "$DOROTHY/sources/strict.bash"
 # openssl enc -in ciphertext -out binarytext -d -a
 # openssl rsautl -decrypt -in binarytext -inkey private.pem
 
-# help
-if is-help "$@"; then
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		??????
-		inspect combine import extract encrypt decrypt
-	EOF
-	# if test "$#" -ne 0; then
-	# 	echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	# fi
-	return 22 # Invalid argument
-fi
+function openssl-helper() (
 
-# Action
-action="$(
-	choose-option \
-		--question='What action would you like to do?' \
-		--filter="$1" -- inspect combine import extract encrypt decrypt
-)"
+	# =====================================
+	# Arguments
 
-# Inspect
-if test "$action" = "inspect"; then
-	if silent-stderr openssl x509 -in "$2" -noout -text; then
-		echo 'is x509 certificate'
-	elif silent-stderr openssl rsa -in "$2" -noout -text; then
-		echo 'is rsa private key'
-	elif silent-stderr openssl rsa -pubin -in "$2" -noout -text; then
-		echo 'is rsa public key'
-	elif silent-stderr openssl req -in "$2" -noout -text; then
-		echo 'is certificate signing request'
-	elif silent-stderr openssl pkcs12 -info -in "$2"; then
-		echo 'is pkcs#12 bundle'
-	fi
-fi
+	# @TODO finish documentation
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
+			openssl-helper <action>
 
-# Encrypt
-if is-either "$action" "combine" "bundle"; then
-	key_file="$(
-		ask --required --confirm \
-			--question="Specify the private key file (.key)" \
-			--default="${2-}"
-	)"
-	cert_file="$(
-		ask --required --confirm \
-			--question="Specify the certificate file (.crt)" \
-			--default="${3-}"
-	)"
-	ca_file="$(
-		ask --required --confirm \
-			--question="Specify the certificate authority file (.ca)" \
-			--default="${4-}"
-	)"
-	bundle_file="$(
-		ask --required --confirm \
-			--question="Specify the output bundle file (.p12)" \
-			--default="${5-}"
-	)"
-	pass="$(
-		ask --required --confirm --password \
-			--question="Specify the password to use" \
-			--default="${6-}"
-	)"
+			ACTIONS:
+			inspect <key>
+			    Given a <key> file, output the type of key that it is.
 
-	if test -f "$bundle_file"; then
-		rm "$bundle_file"
-	fi
+			bundle
+			import
+			extract
+			encrypt
+			decrypt
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
 
-	# -nokeys       don't output private keys.
-	# -nodes        don't encrypt private keys
-	# consul requres private+cert+ca combo
-	openssl pkcs12 -export -CAfile "$ca_file" -inkey "$key_file" -in "$cert_file" -password "pass:$pass" -out "$bundle_file"
-	if confirm-positive --ppid=$$ -- "Would you like to import this bundle?"; then
-		cert import "$bundle_file" "$cert_file" "$ca_file" "$pass"
-	fi
-fi
+	# process
+	local item action='' args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			action="$item"
+			args+=("$@")
+			shift $#
+			break
+			;;
+		esac
+	done
 
-# Import into keychain
-if test "$action" = "import"; then
-	bundle_file="$(
-		ask --required --confirm \
-			--question="Specify the bundle file (.p12)" \
-			--default="${2-}"
-	)"
-	cert_file="$(
-		ask --required --confirm \
-			--question="Specify the certificate file (.crt)" \
-			--default="${3-}"
-	)"
-	ca_file="$(
-		ask --required --confirm \
-			--question="Specify the certificate authority file (.ca)" \
-			--default="${4-}"
-	)"
-	pass="$(
-		ask --required --confirm --password \
-			--question="Specify the password to use" \
-			--default="${5-}"
-	)"
-
-	security import "$bundle_file" -P "$pass"
-	security add-trusted-cert -d -r trustAsRoot "$cert_file"
-	security add-trusted-cert -d -r trustAsRoot "$ca_file"
-fi
-
-# Extract
-if test "$action" = "extract"; then
-	cert_file="$(
-		ask --required --confirm \
-			--question="Specify the certificate file (.crt)" \
-			--default="${2-}"
-	)"
-	openssl x509 -in "$cert_file" -pubkey -noout
-fi
-
-# Encrypt
-if test "$action" = "encrypt"; then
-	key_type=""$(
-		choose-option --required --confirm \
-			--question='Specify the key type' \
-			--filter="${2-}"
+	# ensure
+	local actions=(
+		inspect
+		bundle
+		import
+		extract
+		encrypt
+		decrypt
 	)
-	key_file="$(
-		ask --required --confirm \
-			--question="Specify the key file" \
-			--default="${3-}"
+	action="$(
+		choose-option \
+			--question='What action would you like to do?' \
+			--filter="$action" -- "${actions[@]}"
 	)"
 
-	if test "$key_type" = "public"; then
-		openssl rsautl -encrypt -inkey "$key_file" -pubin
-	elif test "$key_type" = "private"; then
-		openssl rsautl -encrypt -inkey "$key_file"
-	fi
-fi
+	# =====================
+	# Actions
 
-# Decrypt
-if test "$action" = "decrypt"; then
-	key_type=""$(
-		choose-option --required --confirm \
-			--question='Specify the key type' \
-			--filter="${2-}"
-	)
-	key_file="$(
-		ask --required --confirm \
-			--question="Specify the key file" \
-			--default="${3-}"
-	)"
+	function inspect {
+		# process
+		local item key=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$key"; then
+					key="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
 
-	if test "$key_type" = "public"; then
-		openssl rsautl -decrypt -inkey "$key_file" -pubin
-	elif test "$key_type" = "private"; then
-		openssl rsautl -decrypt -inkey "$key_file"
+		# ensure
+		key="$(
+			ask --required \
+				--question="Specify the key file" \
+				--default="$key"
+		)"
+
+		# act
+		if silent-stderr openssl x509 -in "$key" -noout -text; then
+			echo 'is x509 certificate'
+		elif silent-stderr openssl rsa -in "$key" -noout -text; then
+			echo 'is rsa private key'
+		elif silent-stderr openssl rsa -pubin -in "$key" -noout -text; then
+			echo 'is rsa public key'
+		elif silent-stderr openssl req -in "$key" -noout -text; then
+			echo 'is certificate signing request'
+		elif silent-stderr openssl pkcs12 -info -in "$key"; then
+			echo 'is pkcs#12 bundle'
+		fi
+	}
+
+	function bundle {
+		# process
+		local item key='' cert='' ca='' bundle='' password=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$key"; then
+					key="$item"
+				elif test -z "$cert"; then
+					cert="$item"
+				elif test -z "$ca"; then
+					ca="$item"
+				elif test -z "$bundle"; then
+					bundle="$item"
+				elif test -z "$password"; then
+					password="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
+
+		# ensure
+		key="$(
+			ask --required \
+				--question="Specify the private key file (.key)" \
+				--default="$key"
+		)"
+		cert="$(
+			ask --required \
+				--question="Specify the certificate file (.crt)" \
+				--default="$cert"
+		)"
+		ca="$(
+			ask --required \
+				--question="Specify the certificate authority file (.ca)" \
+				--default="$ca"
+		)"
+		bundle="$(
+			ask --required \
+				--question="Specify the output bundle file (.p12)" \
+				--default="$bundle"
+		)"
+		password="$(
+			ask --required --password \
+				--question="Specify the password to use" \
+				--default="$password"
+		)"
+
+		# prepare
+		if test -f "$bundle"; then
+			rm "$bundle"
+		fi
+
+		# -nokeys       don't output private keys.
+		# -nodes        don't encrypt private keys
+		# consul requres private+cert+ca combo
+		openssl pkcs12 -export -CAfile "$ca" -inkey "$key" -in "$cert" -password "pass:$password" -out "$bundle"
+		if confirm-positive --ppid=$$ -- "Would you like to import this bundle?"; then
+			cert import "$bundle" "$cert" "$ca" "$password"
+		fi
+	}
+
+	function import {
+		# process
+		local item bundle='' cert='' ca='' password=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$bundle"; then
+					bundle="$item"
+				elif test -z "$cert"; then
+					cert="$item"
+				elif test -z "$ca"; then
+					ca="$item"
+				elif test -z "$password"; then
+					password="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
+
+		# ensure
+		bundle="$(
+			ask --required \
+				--question="Specify the bundle file (.p12)" \
+				--default="$bundle"
+		)"
+		cert="$(
+			ask --required \
+				--question="Specify the certificate file (.crt)" \
+				--default="$cert"
+		)"
+		ca="$(
+			ask --required \
+				--question="Specify the certificate authority file (.ca)" \
+				--default="$ca"
+		)"
+		password="$(
+			ask --required --password \
+				--question="Specify the password to use" \
+				--default="$password"
+		)"
+
+		# act
+		security import "$bundle" -P "$password"
+		security add-trusted-cert -d -r trustAsRoot "$cert"
+		security add-trusted-cert -d -r trustAsRoot "$ca"
+	}
+
+	function extract {
+		# process
+		local item cert=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$cert"; then
+					cert="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
+
+		# ensure
+		cert="$(
+			ask --required \
+				--question="Specify the certificate file (.crt)" \
+				--default="$cert"
+		)"
+
+		# act
+		openssl x509 -in "$cert" -pubkey -noout
+	}
+
+	function encrypt {
+		# process
+		local item __type='' key=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$__type"; then
+					__type="$item"
+				elif test -z "$key"; then
+					key="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
+
+		# ensure
+		__type="$(
+			choose-option --required \
+				--question='Specify the key type' \
+				--filter="$__type" -- public private
+		)"
+		key="$(
+			ask --required \
+				--question="Specify the key file" \
+				--default="${3-}"
+		)"
+
+		# act
+		if test "$__type" = "public"; then
+			openssl rsautl -encrypt -inkey "$key" -pubin
+		elif test "$__type" = "private"; then
+			openssl rsautl -encrypt -inkey "$key"
+		else
+			help "An unrecognised <type> was provided: $__type"
+		fi
+	}
+
+	function decrypt {
+		# process
+		local item __type='' key=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$__type"; then
+					__type="$item"
+				elif test -z "$key"; then
+					key="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
+
+		# ensure
+		__type="$(
+			choose-option --required \
+				--question='Specify the key type' \
+				--filter="$__type" -- public private
+		)"
+		key="$(
+			ask --required \
+				--question="Specify the key file" \
+				--default="$key"
+		)"
+
+		if test "$__type" = "public"; then
+			openssl rsautl -decrypt -inkey "$key" -pubin
+		elif test "$__type" = "private"; then
+			openssl rsautl -decrypt -inkey "$key"
+		else
+			help "An unrecognised <type> was provided: $__type"
+		fi
+	}
+
+	# =====================================
+	# Act
+
+	if test "$(type -t "$action")" = 'function'; then
+		"$action" "${args[@]}"
+		return "$?"
+	else
+		echo "Action [$action] not yet implemented." >/dev/stderr
+		return 78 # Function not implemented
 	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	openssl-helper "$@"
 fi

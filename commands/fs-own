@@ -1,233 +1,248 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# =====================================
-# Arguments
+function fs-own() (
+	# =====================================
+	# Arguments
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Claim ownership of a path, by updating its permissions via chmod and chown.
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Claim ownership of a path, by updating its permissions via chmod and chown.
 
-		USAGE:
-		fs-own [...flags] [--] <...paths>
+			USAGE:
+			fs-own [...flags] [--] <...paths>
 
-		FLAGS:
-		[--verbose] if provied, will output the executed commands.
-		[--permissions=<permissions>] sets file and directory permissions
-		[--directory-permissions=<permissions>] sets directory permisisons
-		[--file-permissions=<permissions>] set file permissions
-		[--admin] if provided, will use the platform specific admin values.
-		[--owner=<owner>] if provided, will set the path owner to this.
-		[--user=<user>] if provided, will set the path owner to this user.
-		[--group=<group>] if provided, will set the path owner to this group.
-		[--sudo] if provided, sudo will be used, automatically enabled when admin/owner/user/group is provided.
-		[--partial] if provided, failures will be ignored.
-		[--no-changes] if provided, changes will not be reported if the operating system supports it.
-		[--no-recursive] if provided, only the exact path will be used, not any child paths.
+			FLAGS:
+			[--verbose] if provied, will output the executed commands.
+			[--permissions=<permissions>] sets file and directory permissions
+			[--directory-permissions=<permissions>] sets directory permisisons
+			[--file-permissions=<permissions>] set file permissions
+			[--admin] if provided, will use the platform specific admin values.
+			[--owner=<owner>] if provided, will set the path owner to this.
+			[--user=<user>] if provided, will set the path owner to this user.
+			[--group=<group>] if provided, will set the path owner to this group.
+			[--sudo] if provided, sudo will be used, automatically enabled when admin/owner/user/group is provided.
+			[--partial] if provided, failures will be ignored.
+			[--no-changes] if provided, changes will not be reported if the operating system supports it.
+			[--no-recursive] if provided, only the exact path will be used, not any child paths.
 
-		QUIRKS:
-		If [--permissions=...], [--directory-permissions=...], [--file-permissions=...] are all omitted, then the directory permissions will be set to 755 and the file permissions set to 644.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
-
-# process
-paths=()
-option_verbose='no'
-option_owner=''
-option_user=''
-option_group=''
-option_admin='no'
-option_permissions=''
-option_directory_permissions=''
-option_file_permissions=''
-option_sudo='no'
-option_changes='yes'
-option_partial='no'
-option_recursive='yes'
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--no-verbose'* | '--verbose'*) option_verbose="$(
-		get-flag-value verbose --missing="$option_verbose" -- "$item" | echo-affirmative
-	)" ;;
-	'--no-admin'* | '--admin'*) option_admin="$(
-		get-flag-value admin --missing="$option_admin" -- "$item" | echo-affirmative
-	)" ;;
-	'--no-sudo'* | '--sudo'*) option_sudo="$(
-		get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative
-	)" ;;
-	'--no-changes'* | '--changes'*) option_changes="$(
-		get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative
-	)" ;;
-	'--no-partial'* | '--partial'*) option_partial="$(
-		get-flag-value partial --missing="$option_partial" -- "$item" | echo-affirmative
-	)" ;;
-	'--no-recursive'* | '--recursive'*) option_recursive="$(
-		get-flag-value recursive --missing="$option_recursive" -- "$item" | echo-affirmative
-	)" ;;
-	'--permissions='*) option_permissions="${item:14}" ;;
-	'--directory-permissions='*) option_directory_permissions="${item:24}" ;;
-	'--file-permissions='*) option_file_permissions="${item:19}" ;;
-	'--owner='*) option_owner="${item:8}" ;;
-	'--user='*) option_user="${item:7}" ;;
-	'--group='*) option_group="${item:8}" ;;
-	'--')
-		paths+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) paths+=("$item") ;;
-	esac
-done
-
-# check
-if test "${#paths[@]}" -eq 0; then
-	help "No paths were provided."
-fi
-for path in "${paths[@]}"; do
-	if test -z "$path"; then
-		help "An empty path was provided."
-	fi
-	if test ! -e "$path" -a ! -L "$path"; then
-		# symlinks fail -e
-		help "A path was provided, that does not exist:" "$path"
-	fi
-done
-
-# adjustments: permissions
-if test -z "$option_permissions" -a -z "$option_directory_permissions" -a -z "$option_file_permissions"; then
-	option_directory_permissions='755'
-	option_file_permissions='644'
-fi
-
-# adjustments: admin
-if test "$option_admin" = 'yes'; then
-	if is-mac; then
-		option_user="$(whoami)"
-		option_group='admin'
-		# ^ https://superuser.com/a/20430/32418
-	else
-		option_user='root'
-		option_group='root'
-	fi
-fi
-
-# adjustments: owner
-owner=''
-if test -n "$option_owner"; then
-	owner="$option_owner"
-elif test -n "$option_user" -a -n "$option_group"; then
-	owner="$option_user:$option_group"
-elif test -n "$option_user"; then
-	owner="$option_user"
-elif test -n "$option_group"; then
-	owner=":$option_group"
-fi
-
-# adjustments: recursive, changes
-ch_args=()
-if test "$option_recursive" = 'yes'; then
-	if is-mac; then
-		ch_args+=('-R')
-	else
-		ch_args+=('--recursive')
-	fi
-fi
-if test "$option_changes" = 'yes'; then
-	if is-mac; then
-		echo-style --dim='Reporting permission changes is not provided by macOS.' >/dev/stderr
-	else
-		ch_args+=('--changes')
-	fi
-fi
-
-# =====================================
-# Helpers
-
-function do_sudo_as_user {
-	local cmd=()
-
-	# verbose if provided
-	if test "$option_verbose" = 'yes'; then
-		cmd+=('echo-eval' '--')
-	fi
-
-	# use sudo only if custom owner
-	if test -n "$owner" -o "$option_sudo" = 'yes'; then
-		cmd+=(
-			'sudo'
-			'--set-home'
-		)
-
-		# add the user and group if provided
-		if test -n "$option_user"; then
-			cmd+=("--user=$option_user")
+			QUIRKS:
+			If [--permissions=...], [--directory-permissions=...], [--file-permissions=...] are all omitted, then the directory permissions will be set to 755 and the file permissions set to 644.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
 		fi
-		if test -n "$option_group"; then
-			cmd+=("--group=$option_group")
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item paths=()
+	local option_verbose='no'
+	local option_owner=''
+	local option_user=''
+	local option_group=''
+	local option_admin='no'
+	local option_permissions=''
+	local option_directory_permissions=''
+	local option_file_permissions=''
+	local option_sudo='no'
+	local option_changes=''
+	local option_partial='no'
+	local option_recursive='yes'
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) option_verbose="$(
+			get-flag-value verbose --missing="$option_verbose" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-admin'* | '--admin'*) option_admin="$(
+			get-flag-value admin --missing="$option_admin" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-sudo'* | '--sudo'*) option_sudo="$(
+			get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-changes'* | '--changes'*) option_changes="$(
+			get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-partial'* | '--partial'*) option_partial="$(
+			get-flag-value partial --missing="$option_partial" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-recursive'* | '--recursive'*) option_recursive="$(
+			get-flag-value recursive --missing="$option_recursive" -- "$item" | echo-affirmative
+		)" ;;
+		'--permissions='*) option_permissions="${item:14}" ;;
+		'--directory-permissions='*) option_directory_permissions="${item:24}" ;;
+		'--file-permissions='*) option_file_permissions="${item:19}" ;;
+		'--owner='*) option_owner="${item:8}" ;;
+		'--user='*) option_user="${item:7}" ;;
+		'--group='*) option_group="${item:8}" ;;
+		'--')
+			paths+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) paths+=("$item") ;;
+		esac
+	done
+
+	# check
+	if test "${#paths[@]}" -eq 0; then
+		help "No paths were provided."
+	fi
+	for path in "${paths[@]}"; do
+		if test -z "$path"; then
+			help "An empty path was provided."
+		fi
+		if test ! -e "$path" -a ! -L "$path"; then
+			# symlinks fail -e
+			help "A path was provided, that does not exist:" "$path"
+		fi
+	done
+
+	# adjustments: permissions
+	if test -z "$option_permissions" -a -z "$option_directory_permissions" -a -z "$option_file_permissions"; then
+		option_directory_permissions='755'
+		option_file_permissions='644'
+	fi
+
+	# adjustments: admin
+	if test "$option_admin" = 'yes'; then
+		if is-mac; then
+			option_user="$(whoami)"
+			option_group='admin'
+			# ^ https://superuser.com/a/20430/32418
+		else
+			option_user='root'
+			option_group='root'
 		fi
 	fi
 
-	# run
-	"${cmd[@]}" "$@"
-}
-function do_sudo_as_admin {
-	local cmd=()
-
-	# verbose if provided
-	if test "$option_verbose" = 'yes'; then
-		cmd+=('echo-eval' '--')
+	# adjustments: owner
+	local owner=''
+	if test -n "$option_owner"; then
+		owner="$option_owner"
+	elif test -n "$option_user" -a -n "$option_group"; then
+		owner="$option_user:$option_group"
+	elif test -n "$option_user"; then
+		owner="$option_user"
+	elif test -n "$option_group"; then
+		owner=":$option_group"
 	fi
 
-	# use sudo only if custom owner
-	if test -n "$owner" -o "$option_sudo" = 'yes'; then
-		cmd+=(
-			'sudo'
-			'--set-home'
-		)
+	# adjustments: recursive
+	local ch_args=()
+	if test "$option_recursive" = 'yes'; then
+		if is-mac; then
+			ch_args+=('-R')
+		else
+			ch_args+=('--recursive')
+		fi
 	fi
 
-	# run
-	"${cmd[@]}" "$@"
-}
-function fs_own {
-	local path="$1"
-
-	# chown
-	if test -n "$owner"; then
-		do_sudo_as_admin chown "${ch_args[@]}" "$owner" "$path"
+	# adjustments: changes
+	if test -z "$option_changes"; then
+		if is-mac; then
+			option_changes='no'
+		else
+			option_changes='yes'
+		fi
+	fi
+	if test "$option_changes" = 'yes'; then
+		if is-mac; then
+			echo-style --dim='Reporting permission changes is not provided by macOS.' >/dev/stderr
+		else
+			ch_args+=('--changes')
+		fi
 	fi
 
-	# chmod
-	if test -n "$option_permissions"; then
-		do_sudo_as_user chmod "${ch_args[@]}" "$option_permissions" "$path"
-	fi
-	if test -n "$option_directory_permissions"; then
-		do_sudo_as_user find "$path" -type d -exec chmod "${ch_args[@]}" "$option_directory_permissions" {} \;
-	fi
-	if test -n "$option_file_permissions"; then
-		do_sudo_as_user find "$path" -type f -exec chmod "${ch_args[@]}" "$option_file_permissions" {} \;
-	fi
-}
+	# =====================================
+	# Helpers
 
-# =====================================
-# Act
+	function do_sudo_as_user {
+		local cmd=()
 
-if test "$option_partial" = 'yes'; then
-	for path in "${paths[@]}"; do
-		fs_own "$path" || :
-	done
-else
-	for path in "${paths[@]}"; do
-		fs_own "$path"
-	done
+		# verbose if provided
+		if test "$option_verbose" = 'yes'; then
+			cmd+=('echo-eval' '--')
+		fi
+
+		# use sudo only if custom owner
+		if test -n "$owner" -o "$option_sudo" = 'yes'; then
+			cmd+=(
+				'sudo'
+				'--set-home'
+			)
+
+			# add the user and group if provided
+			if test -n "$option_user"; then
+				cmd+=("--user=$option_user")
+			fi
+			if test -n "$option_group"; then
+				cmd+=("--group=$option_group")
+			fi
+		fi
+
+		# run
+		"${cmd[@]}" "$@"
+	}
+	function do_sudo_as_admin {
+		local cmd=()
+
+		# verbose if provided
+		if test "$option_verbose" = 'yes'; then
+			cmd+=('echo-eval' '--')
+		fi
+
+		# use sudo only if custom owner
+		if test -n "$owner" -o "$option_sudo" = 'yes'; then
+			cmd+=(
+				'sudo'
+				'--set-home'
+			)
+		fi
+
+		# run
+		"${cmd[@]}" "$@"
+	}
+	function fs_own {
+		local path="$1"
+
+		# chown
+		if test -n "$owner"; then
+			do_sudo_as_admin chown "${ch_args[@]}" "$owner" "$path"
+		fi
+
+		# chmod
+		if test -n "$option_permissions"; then
+			do_sudo_as_user chmod "${ch_args[@]}" "$option_permissions" "$path"
+		fi
+		if test -n "$option_directory_permissions"; then
+			do_sudo_as_user find "$path" -type d -exec chmod "${ch_args[@]}" "$option_directory_permissions" {} \;
+		fi
+		if test -n "$option_file_permissions"; then
+			do_sudo_as_user find "$path" -type f -exec chmod "${ch_args[@]}" "$option_file_permissions" {} \;
+		fi
+	}
+
+	# =====================================
+	# Act
+
+	if test "$option_partial" = 'yes'; then
+		for path in "${paths[@]}"; do
+			fs_own "$path" || :
+		done
+	else
+		for path in "${paths[@]}"; do
+			fs_own "$path"
+		done
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	fs-own "$@"
 fi

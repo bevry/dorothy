@@ -5,478 +5,490 @@ requires_array_support 'mapfile' 'empty'
 
 # @todo figure out how to make --eval compatible with paths that have spaces
 
-# =====================================
-# Arguments
-
-# prepare
-actions=(
-	'copy'
-	'verify'
-)
-verify_tools=()
-copy_tools=()
-if command-exists rsync; then
-	verify_tools+=(rsync)
-	copy_tools+=(rsync)
-fi
-if command-exists gcp; then
-	copy_tools+=(gcp)
-fi
-if command-exists scp; then
-	copy_tools+=(scp)
-fi
-if command-exists cp; then
-	copy_tools+=(cp)
-fi
-if command-exists diff; then
-	verify_tools+=(diff)
-fi
-if command-exists git; then
-	verify_tools+=(git)
-fi
-
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Copy everything from one location to another, features:
-		- preserves attributes
-		- progress updates
-		- local and remote sources
-
-		USAGE:
-		cpr [...flags] -- <source> <destination>
-		cpr [...flags] [--source=<source>] [--destination=<destination>]
-
-		<source> and <destination> can be a local path on your current machine, or a remote path.
-
-		If a remote path, it should be in the format of:
-		    [username@hostname:/path] for files
-		    [username@hostname:/path/] for directories
-		The [hostname] is the hostname or IP address of a valid SSH server.
-		If you the remote machine is macOS, you can enable this in System Preferences > Sharing > Remote Login.
-
-		FLAGS:
-		[--action=copy|verify] if specified, skips action prompt.
-		[--tool=...] if specified, skips tool prompt. Available tools on this machine are:
-		    for copy: $(echo-join ', ' -- "${copy_tools[@]}")
-		    for verify: $(echo-join ', ' -- "${verify_tools[@]}")
-		[--dry] if enabled, only output the determined command, do not run it.
-		[--sudo] if enabled, runt he determined command as the sudo user.
-
-		RSYNC FLAGS:
-		[--owner=<user>:<group>] if specified, uses this value for the ownership of copied files.
-		[--remove] if enabled, remove source files as they are successfully copied to the target.
-		[--checksum] if enabled, files are compared by their checksums, instead of the default quicker date and size comparison.
-		[--[no-]linux] if enabled, increases compatibility with linux systems.
-		[--slashes=adjust|ignore|exit] if specified, skips guidance prompt regarding trailing slashes in paths.
-		[--spaces=adjust|ignore|exit] if specified, skips guidance prompt regarding spaces in paths.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+function cpr() (
+	# determine tools
+	local verify_tools=()
+	local copy_tools=()
+	if command-exists rsync; then
+		verify_tools+=(rsync)
+		copy_tools+=(rsync)
 	fi
-	return 22 # Invalid argument
-}
-
-# process
-action=''
-tool=''
-option_source=''
-option_destination=''
-option_dry='no'
-option_sudo='no'
-option_checksum='' # ask, as otherwise contrived testing can fail
-option_remove=''   # ask
-option_linux=''    # ask
-option_owner=''    # manual
-option_slashes=''  # ask
-option_spaces=''   # ask
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--action='*) action="${item:9}" ;;
-	'--tool='*) tool="${item:7}" ;;
-	'--source='*) option_source="${item:9}" ;;
-	'--destination='*) option_destination="${item:14}" ;;
-	'--owner='*) option_owner="${item:8}" ;;
-	'--no-dry'* | '--dry'*)
-		option_dry="$(get-flag-value dry --missing="$option_dry" -- "$item" | echo-affirmative)"
-		;;
-	'--no-sudo'* | '--sudo'*)
-		option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative)"
-		;;
-	'--no-checksum'* | '--checksum'*)
-		option_checksum="$(get-flag-value checksum --missing="$option_checksum" -- "$item" | echo-affirmative)"
-		;;
-	'--no-remove'* | '--remove'*)
-		option_remove="$(get-flag-value remove --missing="$option_remove" -- "$item" | echo-affirmative)"
-		;;
-	'--no-linux'* | '--linux'*)
-		option_linux="$(get-flag-value linux --missing="$option_linux" -- "$item" | echo-affirmative)"
-		;;
-	'--slashes='*) option_slashes="${item:10}" ;;
-	'--spaces='*) option_spaces="${item:9}" ;;
-	'--') ;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*)
-		if test -z "$item"; then
-			help "Empty path argument provided."
-		elif test -z "$option_source"; then
-			option_source="$item"
-		elif test -z "$option_destination"; then
-			option_destination="$item"
-		else
-			help "An unrecognised argument was provided: $item"
-		fi
-		;;
-	esac
-done
-
-# ensure valid
-action="$(
-	choose-option --required \
-		--question='What action to perform?' \
-		--filter="$action" -- "${actions[@]}"
-)"
-tools=()
-if test "$action" = 'copy'; then
-	tools=("${copy_tools[@]}")
-else
-	tools=("${verify_tools[@]}")
-fi
-tool="$(
-	choose-option --required \
-		--question='Which tool to use?' \
-		--filter="$tool" -- "${tools[@]}"
-)"
-if test -z "$option_source"; then
-	option_source="$(
-		ask --required \
-			--question="Enter the source path."
-	)"
-fi
-if test -z "$option_destination"; then
-	option_destination="$(
-		ask --required \
-			--question="Enter the destination path."
-	)"
-fi
-
-# rsync options
-if test "$tool" = 'rsync'; then
-	# ensure checksum, if copy or verify
-	if test -z "$option_checksum"; then
-		if confirm-negative --ppid=$$ -- "Compare files via checksum, instead of the quicker and default date and size comparison?"; then
-			option_checksum='yes'
-		else
-			option_checksum='no'
-		fi
+	if command-exists gcp; then
+		copy_tools+=(gcp)
 	fi
-	# ensure remove, if copy or verify
-	if test -z "$option_remove"; then
-		if confirm-negative --ppid=$$ -- "Remove the source files after successful copies?"; then
-			option_remove='yes'
-		else
-			option_remove='no'
-		fi
+	if command-exists scp; then
+		copy_tools+=(scp)
 	fi
-	# ensure linux, if copy or verify
-	if test -z "$option_linux"; then
-		if confirm-bool --ppid=$$ -- "Are both machines Linux machines?"; then
-			option_linux='yes'
-		else
-			option_linux='no'
-		fi
+	if command-exists cp; then
+		copy_tools+=(cp)
+	fi
+	if command-exists diff; then
+		verify_tools+=(diff)
+	fi
+	if command-exists git; then
+		verify_tools+=(git)
 	fi
 
-	# confirm guidance if given paths that are without trailing slashes
-	if test "${option_source:(-1)}" != '/' -o "${option_destination:(-1)}" != '/'; then
-		option_slashes="$(
-			choose-option \
-				--question="$(
-					cat <<-EOF
-						You have provided paths that do not have trailing slashes:
-						source: ${option_source}
-						destination: ${option_destination}
+	# =====================================
+	# Arguments
 
-						This is fine if they are files, however if they are directories, this means the source directory will go inside the destination directory. Using trailing slashes to ensure that the contents of the source directory go inside the destination directory.
+	# help
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Copy everything from one location to another, features:
+			- preserves attributes
+			- progress updates
+			- local and remote sources
 
-						What do you want to do?
-					EOF
-				)" \
-				--filter="$option_slashes" -- 'adjust and add trailing slashes' 'ignore trailing slashes (they are files)' 'exit and rethink'
-		)"
-		if [[ "$option_slashes" = *'adjust'* ]]; then
-			echo-style --dim='Trailing Slashes: perform adjustments' >/dev/tty
-			if test "${option_source:(-1)}" != '/'; then
-				option_source="${option_source}/"
-				echo-style --dim="source: $option_source" >/dev/tty
-			fi
-			if test "${option_destination:(-1)}" != '/'; then
-				option_destination="${option_destination}/"
-				echo-style --dim="destination: $option_destination" >/dev/tty
-			fi
-		elif [[ "$option_slashes" = *'ignore'* ]]; then
-			echo-style --dim='Trailing Slashes: ignore and continue' >/dev/tty
-		else
-			echo-style --dim='Trailing Slashes: exit' >/dev/tty
-			exit 1
+			USAGE:
+			cpr <action> [...options] -- <source> <destination>
+			cpr <action> [...options] [--source=<source>] [--destination=<destination>]
+
+			<source> and <destination> can be a local path on your current machine, or a remote path.
+
+			If a remote path, it should be in the format of:
+			    [username@hostname:/path] for files
+			    [username@hostname:/path/] for directories
+			The [hostname] is the hostname or IP address of a valid SSH server.
+			If you the remote machine is macOS, you can enable this in System Preferences > Sharing > Remote Login.
+
+			ACTIONS:
+			copy
+			    Copies all the data from the source to the destination.
+				If you specify [--remove], it will function as move operation instead.
+
+			verify
+			    Verifies that the target contains all the files from the source.
+
+			OPTIONS:
+			[--tool=...] if specified, skips tool prompt. Available tools on this machine are:
+			    for copy: $(echo-join ', ' -- "${copy_tools[@]}")
+			    for verify: $(echo-join ', ' -- "${verify_tools[@]}")
+			[--dry] if enabled, only output the determined command, do not run it.
+			[--sudo] if enabled, runt he determined command as the sudo user.
+
+			RSYNC FLAGS:
+			[--owner=<user>:<group>] if specified, uses this value for the ownership of copied files.
+			[--remove] if enabled, remove source files as they are successfully copied to the target.
+			[--checksum] if enabled, files are compared by their checksums, instead of the default quicker date and size comparison.
+			[--[no-]linux] if enabled, increases compatibility with linux systems.
+			[--slashes=adjust|ignore|exit] if specified, skips guidance prompt regarding trailing slashes in paths.
+			[--spaces=adjust|ignore|exit] if specified, skips guidance prompt regarding spaces in paths.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
 		fi
-	fi
-fi
-
-# confirm guidance if given paths have unescaped spaces
-# @todo
-
-# guidance on faux remotes
-if test "$tool" = 'rsync'; then
-	function rsync_check_if_path_is_faux_local {
-		suggestion="$(silent-stderr get-local-to-remote "$1" || echo '')"
-		if test -n "$suggestion"; then
-			cat <<-EOF
-				Using rsync with a remote directory that is mounted locally can be slow, you should probably try converting it to a local mount point.
-
-				${suggestion}
-
-				Alternatively, select copy via a different tool, as they can be faster are more reliable under these circumstances.
-
-			EOF
-			tangent="$(
-				choose-option \
-					--question='What would you like to do?' \
-					--label -- \
-					'exit' 'rethink and exit' \
-					'ignore' 'ignore suggestion and continue anyway' \
-					'different' 'try a different tool'
-			)"
-			if test "$tangent" = 'ignore'; then
-				echo-style --dim='Faux Remotes: ignore and continue' >/dev/tty
-				return 0
-			elif test "$tangent" = 'different'; then
-				echo-style --dim='Faux Remotes: trying a different tool' >/dev/tty
-				cpr --action="$action" --source="$option_source" --destination="$option_destination"
-				return "$?"
-			else
-				echo-style --dim='Faux Remotes: exit' >/dev/tty
-				# exit / default
-				return 1
-			fi
-		fi
-		return 0
+		return 22 # Invalid argument
 	}
-	rsync_check_if_path_is_faux_local "$option_source"
-	rsync_check_if_path_is_faux_local "$option_destination"
-fi
 
-# =====================================
-# Action
-
-# prepare
-cmd=()
-
-# adjustments
-if test "$option_sudo" = 'yes'; then
-	cmd+=(sudo)
-fi
-
-# tool
-if test "$tool" = 'rsync'; then
-	# via rsync, file by file progress
-	cmd+=(rsync)
-
-	# -P: same as --partial --progress
-	# --partial: keep partially transferred files
-	# --progress: show progress during transfer
-	#
-	# --archive, -a: archive mode; equals -rlptgoD (no -H,-A,-X)
-	#   --recursive, -r: recurse into directories
-	#   --links, -l: copy symlinks as symlinks
-	#   --perms, -p: preserve permissions
-	#   --times, -t: preserve modification times
-	#   --group, -g: preserve group
-	#   --owner, -o: preserve owner (super-user only)
-	#   -D: same as --devices --specials
-	#   --devices: preserve device files (super-user only)
-	#   --specials: preserve special files
-	#
-	# --human-readable, -h: output numbers in a human-readable format
-	cmd+=(
-		'-P'
-		'--archive'
-		'--human-readable'
-	)
-
-	# verify
-	if test "$action" = 'verify'; then
-		# -i, --itemize-changes       output a change-summary for all updates
-		# -n, --dry-run               show what would have been transferred
-		cmd+=(
-			'--itemize-changes'
-			'--dry-run'
-		)
-	fi
-
-	# linux
-	if test "$option_linux" = 'yes'; then
-		# --acls, -A: preserve ACLs (implies --perms)
-		# --xattrs, -X: preserve extended attributes
-		# --atimes, -U: preserve access (use) times
-		cmd+=(
-			'--acls'
-			'--xattrs'
-			'--atimes'
-		)
-
-		# --crtimes, -N: preserve create times (newness)
-		# --crtimes not supported on ubuntu server on arm, nor manjero on x86
-		# cmd+=('--crtimes')
-	fi
-
-	# checksum
-	if test "$option_checksum" = 'yes'; then
-		# --checksum, -c: skip based on checksum, not mod-time & size
-		cmd+=('--checksum')
-	fi
-
-	# remove
-	if test "$option_remove" = 'yes'; then
-		cmd+=('--remove-source-files')
-	fi
-
-	# owner
-	if test -n "$option_owner"; then
-		cmd+=("--copy-as=${option_owner}")
-	fi
-
-	# paths
-	cmd+=(
-		"$option_source"
-		"$option_destination"
-	)
-
-	# workaround for rsync always returning success exit code
-	# https://superuser.com/q/1700581/32418
-	if test "$action" = 'verify'; then
-		echo "${cmd[@]}"
-		if test "$option_dry" = 'no'; then
-			temp="$(mktemp)"
-			"${cmd[@]}" | tee "$temp"
-			if grep -q '^>' "$temp"; then
-				exit 1
+	# process
+	local item action='' tool='' origin='' destination=''
+	local dry='no' sudo='no'
+	local checksum='' # ask, as otherwise contrived testing can fail
+	local remove=''   # ask
+	local linux=''    # ask
+	local owner=''    # manual
+	local slashes=''  # ask
+	local spaces=''   # ask - @todo this isn't used yet
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--tool='*) tool="${item:7}" ;;
+		'--source='*) origin="${item:9}" ;;
+		'--destination='*) destination="${item:14}" ;;
+		'--owner='*) owner="${item:8}" ;;
+		'--no-dry'* | '--dry'*)
+			dry="$(get-flag-value dry --missing="$dry" -- "$item" | echo-affirmative)"
+			;;
+		'--no-sudo'* | '--sudo'*)
+			sudo="$(get-flag-value sudo --missing="$sudo" -- "$item" | echo-affirmative)"
+			;;
+		'--no-checksum'* | '--checksum'*)
+			checksum="$(get-flag-value checksum --missing="$checksum" -- "$item" | echo-affirmative)"
+			;;
+		'--no-remove'* | '--remove'*)
+			remove="$(get-flag-value remove --missing="$remove" -- "$item" | echo-affirmative)"
+			;;
+		'--no-linux'* | '--linux'*)
+			linux="$(get-flag-value linux --missing="$linux" -- "$item" | echo-affirmative)"
+			;;
+		'--slashes='*) slashes="${item:10}" ;;
+		'--spaces='*) spaces="${item:9}" ;;
+		'--') ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$item"; then
+				help "Empty path argument provided."
+			elif test -z "$origin"; then
+				origin="$item"
+			elif test -z "$destination"; then
+				destination="$item"
 			else
-				exit 0
+				help "An unrecognised argument was provided: $item"
 			fi
-			# ^ this technique still outputs the full diff, which is probably what the user wants
-		fi
-		exit 0
+			;;
+		esac
+	done
+
+	# ensure action
+	local actions=(
+		copy
+		verify
+	)
+	action="$(
+		choose-option --required \
+			--question='What action to perform?' \
+			--filter="$action" -- "${actions[@]}"
+	)"
+
+	# ensure tool
+	local tools=()
+	if test "$action" = 'copy'; then
+		tools=("${copy_tools[@]}")
+	else
+		tools=("${verify_tools[@]}")
+	fi
+	tool="$(
+		choose-option --required \
+			--question='Which tool to use?' \
+			--filter="$tool" -- "${tools[@]}"
+	)"
+	if test -z "$origin"; then
+		origin="$(
+			ask --required \
+				--question="Enter the source path."
+		)"
+	fi
+	if test -z "$destination"; then
+		destination="$(
+			ask --required \
+				--question="Enter the destination path."
+		)"
 	fi
 
-elif test "$tool" = 'gcp'; then
-	# via gcp, overall progress
-	cmd+=('gcp')
+	# rsync options
+	if test "$tool" = 'rsync'; then
+		# ensure checksum, if copy or verify
+		if test -z "$checksum"; then
+			if confirm-negative --ppid=$$ -- "Compare files via checksum, instead of the quicker and default date and size comparison?"; then
+				checksum='yes'
+			else
+				checksum='no'
+			fi
+		fi
+		# ensure remove, if copy or verify
+		if test -z "$remove"; then
+			if confirm-negative --ppid=$$ -- "Remove the source files after successful copies?"; then
+				remove='yes'
+			else
+				remove='no'
+			fi
+		fi
+		# ensure linux, if copy or verify
+		if test -z "$linux"; then
+			if confirm-bool --ppid=$$ -- "Are both machines Linux machines?"; then
+				linux='yes'
+			else
+				linux='no'
+			fi
+		fi
 
-	# -a, --archive: same as -dR --preserve=all
-	# -d: same as --no-dereference --preserve=links
-	# -R, -r, --recursive: copy directories recursively
-	# --preserve PRESERVE: preserve specified attributes; accepted values: 'all', or one or more amongst {'ownership', 'timestamps', 'mode'}
-	#
-	# -v, --verbose: display what is being done
-	cmd+=(
-		'--archive'
-		'--verbose'
-	)
+		# confirm guidance if given paths that are without trailing slashes
+		if test "${origin:-1}" != '/' -o "${destination:-1}" != '/'; then
+			slashes="$(
+				choose-option \
+					--question="$(
+						cat <<-EOF
+							You have provided paths that do not have trailing slashes:
+							source: ${origin}
+							destination: ${destination}
 
-	# paths
-	cmd+=(
-		"$option_source"
-		"$option_destination"
-	)
+							This is fine if they are files, however if they are directories, this means the source directory will go inside the destination directory. Using trailing slashes to ensure that the contents of the source directory go inside the destination directory.
 
-elif test "$tool" = 'scp'; then
-	# via scp
-	cmd+=('scp')
+							What do you want to do?
+						EOF
+					)" \
+					--filter="$slashes" -- 'adjust and add trailing slashes' 'ignore trailing slashes (they are files)' 'exit and rethink'
+			)"
+			if [[ $slashes == *'adjust'* ]]; then
+				echo-style --dim='Trailing Slashes: perform adjustments' >/dev/tty
+				if test "${origin: -1}" != '/'; then
+					origin="${origin}/"
+					echo-style --dim="source: $origin" >/dev/tty
+				fi
+				if test "${destination: -1}" != '/'; then
+					destination="${destination}/"
+					echo-style --dim="destination: $destination" >/dev/tty
+				fi
+			elif [[ $slashes == *'ignore'* ]]; then
+				echo-style --dim='Trailing Slashes: ignore and continue' >/dev/tty
+			else
+				echo-style --dim='Trailing Slashes: exit' >/dev/tty
+				exit 1
+			fi
+		fi
+	fi
 
-	# -A: Allows forwarding of ssh-agent(1) to the remote system.  The default is not to forward an authentication agent.
-	# -p: Preserves modification times, access times, and modes from the original file.
-	# -r: Recursively copy entire directories.  Note that scp follows symbolic links encountered in the tree traversal.
-	cmd+=(
-		'-A'
-		'-p'
-		'-r'
-	)
+	# confirm guidance if given paths have unescaped spaces
+	# @todo
 
-	# paths
-	cmd+=(
-		"$option_source"
-		"$option_destination"
-	)
+	# guidance on faux remotes
+	if test "$tool" = 'rsync'; then
+		function rsync_check_if_path_is_faux_local {
+			local suggestion tangent
+			suggestion="$(silent-stderr get-local-to-remote "$1" || echo '')"
+			if test -n "$suggestion"; then
+				cat <<-EOF
+					Using rsync with a remote directory that is mounted locally can be slow, you should probably try converting it to a local mount point.
 
-elif test "$tool" = 'cp'; then
-	# via cp
-	cmd+=('cp')
+					${suggestion}
 
-	# -a: Same as -pPR options. Preserves structure and attributes of files but not directory structure.
-	# -P; If the -R option is specified, no symbolic links are followed.  This is the default.
-	# -R: If source_file designates a directory, cp copies the directory and the entire subtree connected at that point.  If the source_file ends in a /, the contents of the directory are copied rather than the directory itself.  This option also causes symbolic links to be copied, rather than indirected through, and for cp to create spe- cial files rather than copying them as normal files.  Created directories have the same mode as the corresponding source direc- tory, unmodified by the process' umask.
-	#
-	# -L: If the -R option is specified, all symbolic links are followed.
-	# -p: Cause cp to preserve the following attributes of each source file in the copy: modification time, access time, file flags, file mode, user ID, and group ID, as allowed by permissions.  Access Control Lists (ACLs) and Extended Attributes (EAs), including resource forks, will also be preserved.
-	# -f: If the destination file cannot be opened, remove it and create a new file, without prompting for confirmation regardless of its permissions.
-	# -v: Cause cp to be verbose, showing files as they are copied.
-	cmd+=(
-		'-a'
-		'-L'
-		'-p'
-		'-f'
-		'-v'
-	)
+					Alternatively, select copy via a different tool, as they can be faster are more reliable under these circumstances.
 
-	# paths
-	cmd+=(
-		"$option_source"
-		"$option_destination"
-	)
+				EOF
+				tangent="$(
+					choose-option \
+						--question='What would you like to do?' \
+						--label -- \
+						'exit' 'rethink and exit' \
+						'ignore' 'ignore suggestion and continue anyway' \
+						'different' 'try a different tool'
+				)"
+				if test "$tangent" = 'ignore'; then
+					echo-style --dim='Faux Remotes: ignore and continue' >/dev/tty
+					return 0
+				elif test "$tangent" = 'different'; then
+					echo-style --dim='Faux Remotes: trying a different tool' >/dev/tty
+					cpr "$action" --source="$origin" --destination="$destination"
+					return "$?"
+				else
+					echo-style --dim='Faux Remotes: exit' >/dev/tty
+					# exit / default
+					return 1
+				fi
+			fi
+			return 0
+		}
+		rsync_check_if_path_is_faux_local "$origin"
+		rsync_check_if_path_is_faux_local "$destination"
+	fi
 
-elif test "$tool" = 'diff'; then
-	cmd+=('diff')
+	# =====================================
+	# Action
 
-	# -q  --brief: Output only whether files differ.
-	# -r  --recursive: Recursively compare any subdirectories found.
-	cmd+=(
-		'--brief'
-		'--recursive'
-	)
+	# prepare
+	local cmd=()
 
-	# paths
-	cmd+=(
-		"$option_source"
-		"$option_destination"
-	)
+	# adjustments
+	if test "$sudo" = 'yes'; then
+		cmd+=(sudo)
+	fi
 
-elif test "$tool" = 'git'; then
-	cmd+=(
-		'git'
-		'diff'
-	)
+	# tool
+	if test "$tool" = 'rsync'; then
+		# via rsync, file by file progress
+		cmd+=(rsync)
 
-	# --no-index: This form is to compare the given two paths on the filesystem. You can omit the --no-index option when running the command in a working tree controlled by Git and at least one of the paths points outside the working tree, or when running the command outside a working tree controlled by Git. This form implies --exit-code.
-	cmd+=('--no-index')
+		# -P: same as --partial --progress
+		# --partial: keep partially transferred files
+		# --progress: show progress during transfer
+		#
+		# --archive, -a: archive mode; equals -rlptgoD (no -H,-A,-X)
+		#   --recursive, -r: recurse into directories
+		#   --links, -l: copy symlinks as symlinks
+		#   --perms, -p: preserve permissions
+		#   --times, -t: preserve modification times
+		#   --group, -g: preserve group
+		#   --owner, -o: preserve owner (super-user only)
+		#   -D: same as --devices --specials
+		#   --devices: preserve device files (super-user only)
+		#   --specials: preserve special files
+		#
+		# --human-readable, -h: output numbers in a human-readable format
+		cmd+=(
+			'-P'
+			'--archive'
+			'--human-readable'
+		)
 
-	# paths
-	cmd+=(
-		"$option_source"
-		"$option_destination"
-	)
+		# verify
+		if test "$action" = 'verify'; then
+			# -i, --itemize-changes       output a change-summary for all updates
+			# -n, --dry-run               show what would have been transferred
+			cmd+=(
+				'--itemize-changes'
+				'--dry-run'
+			)
+		fi
 
-else
-	help "Invalid tool: $tool"
-fi
+		# linux
+		if test "$linux" = 'yes'; then
+			# --acls, -A: preserve ACLs (implies --perms)
+			# --xattrs, -X: preserve extended attributes
+			# --atimes, -U: preserve access (use) times
+			cmd+=(
+				'--acls'
+				'--xattrs'
+				'--atimes'
+			)
 
-# run
-if test "$option_dry" = 'yes'; then
-	echo "${cmd[@]}"
-else
-	echo-eval -- "${cmd[@]}"
+			# --crtimes, -N: preserve create times (newness)
+			# --crtimes not supported on ubuntu server on arm, nor manjero on x86
+			# cmd+=('--crtimes')
+		fi
+
+		# checksum
+		if test "$checksum" = 'yes'; then
+			# --checksum, -c: skip based on checksum, not mod-time & size
+			cmd+=('--checksum')
+		fi
+
+		# remove
+		if test "$remove" = 'yes'; then
+			cmd+=('--remove-source-files')
+		fi
+
+		# owner
+		if test -n "$owner"; then
+			cmd+=("--copy-as=${owner}")
+		fi
+
+		# paths
+		cmd+=(
+			"$origin"
+			"$destination"
+		)
+
+		# workaround for rsync always returning success exit code
+		# https://superuser.com/q/1700581/32418
+		if test "$action" = 'verify'; then
+			echo "${cmd[@]}"
+			if test "$dry" = 'no'; then
+				temp="$(mktemp)"
+				"${cmd[@]}" | tee "$temp"
+				if grep -q '^>' "$temp"; then
+					return 1
+				else
+					return 0
+				fi
+				# ^ this technique still outputs the full diff, which is probably what the user wants
+			fi
+			return 0
+		fi
+
+	elif test "$tool" = 'gcp'; then
+		# via gcp, overall progress
+		cmd+=('gcp')
+
+		# -a, --archive: same as -dR --preserve=all
+		# -d: same as --no-dereference --preserve=links
+		# -R, -r, --recursive: copy directories recursively
+		# --preserve PRESERVE: preserve specified attributes; accepted values: 'all', or one or more amongst {'ownership', 'timestamps', 'mode'}
+		#
+		# -v, --verbose: display what is being done
+		cmd+=(
+			'--archive'
+			'--verbose'
+		)
+
+		# paths
+		cmd+=(
+			"$origin"
+			"$destination"
+		)
+
+	elif test "$tool" = 'scp'; then
+		# via scp
+		cmd+=('scp')
+
+		# -A: Allows forwarding of ssh-agent(1) to the remote system.  The default is not to forward an authentication agent.
+		# -p: Preserves modification times, access times, and modes from the original file.
+		# -r: Recursively copy entire directories.  Note that scp follows symbolic links encountered in the tree traversal.
+		cmd+=(
+			'-A'
+			'-p'
+			'-r'
+		)
+
+		# paths
+		cmd+=(
+			"$origin"
+			"$destination"
+		)
+
+	elif test "$tool" = 'cp'; then
+		# via cp
+		cmd+=('cp')
+
+		# -a: Same as -pPR options. Preserves structure and attributes of files but not directory structure.
+		# -P; If the -R option is specified, no symbolic links are followed.  This is the default.
+		# -R: If source_file designates a directory, cp copies the directory and the entire subtree connected at that point.  If the source_file ends in a /, the contents of the directory are copied rather than the directory itself.  This option also causes symbolic links to be copied, rather than indirected through, and for cp to create spe- cial files rather than copying them as normal files.  Created directories have the same mode as the corresponding source direc- tory, unmodified by the process' umask.
+		#
+		# -L: If the -R option is specified, all symbolic links are followed.
+		# -p: Cause cp to preserve the following attributes of each source file in the copy: modification time, access time, file flags, file mode, user ID, and group ID, as allowed by permissions.  Access Control Lists (ACLs) and Extended Attributes (EAs), including resource forks, will also be preserved.
+		# -f: If the destination file cannot be opened, remove it and create a new file, without prompting for confirmation regardless of its permissions.
+		# -v: Cause cp to be verbose, showing files as they are copied.
+		cmd+=(
+			'-a'
+			'-L'
+			'-p'
+			'-f'
+			'-v'
+		)
+
+		# paths
+		cmd+=(
+			"$origin"
+			"$destination"
+		)
+
+	elif test "$tool" = 'diff'; then
+		cmd+=('diff')
+
+		# -q  --brief: Output only whether files differ.
+		# -r  --recursive: Recursively compare any subdirectories found.
+		cmd+=(
+			'--brief'
+			'--recursive'
+		)
+
+		# paths
+		cmd+=(
+			"$origin"
+			"$destination"
+		)
+
+	elif test "$tool" = 'git'; then
+		cmd+=(
+			'git'
+			'diff'
+		)
+
+		# --no-index: This form is to compare the given two paths on the filesystem. You can omit the --no-index option when running the command in a working tree controlled by Git and at least one of the paths points outside the working tree, or when running the command outside a working tree controlled by Git. This form implies --exit-code.
+		cmd+=('--no-index')
+
+		# paths
+		cmd+=(
+			"$origin"
+			"$destination"
+		)
+
+	else
+		help "Invalid tool: $tool"
+	fi
+
+	# run
+	if test "$dry" = 'yes'; then
+		echo "${cmd[@]}"
+	else
+		echo-eval -- "${cmd[@]}"
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	cpr "$@"
 fi

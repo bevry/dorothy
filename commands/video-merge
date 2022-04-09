@@ -1,120 +1,131 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# =====================================
-# Arguments
+function video-merge() (
+	local index input
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Concatenate multiple video files into a single video, without having to transcode.
-		Wrapper around the builtin ffmpeg functionality:
-		https://trac.ffmpeg.org/wiki/Concatenate
+	# =====================================
+	# Arguments
 
-		USAGE:
-		video-merge [<output>] -- ...<input>
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Concatenate multiple video files into a single video, without having to transcode.
+			https://trac.ffmpeg.org/wiki/Concatenate
 
-		EXAMPLE:
-		video-merge 'result.m4v' -- 'input1.m4v' 'input2.m4v'
+			USAGE:
+			video-merge [<output>] -- ...<input>
 
-		QUIRKS:
-		If <output> is not provided, the basename of the current directory will be used.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
+			EXAMPLE:
+			video-merge 'result.m4v' -- 'input1.m4v' 'input2.m4v'
 
-# process
-option_inputs=()
-option_output=''
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--output='*) option_output="${item:9}" ;;
-	'--')
-		option_inputs+=("$@")
-		shift "$#"
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*)
-		if test -z "$option_output"; then
-			option_output="$item"
+			QUIRKS:
+			If <output> is not provided, the basename of the current directory will be used.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item inputs=() output=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--output='*) output="${item:9}" ;;
+		'--')
+			inputs+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$output"; then
+				output="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# make inputs absolute, and fetch extension for generating output if not defined
+	local extension=''
+	for index in "${!inputs[@]}"; do
+		# check existence
+		input="${inputs[index]}"
+		if test ! -f "$input"; then
+			# fail
+			help "The input file does not exist: $input"
 		else
-			help "An unrecognised argument was provided: $item"
+			# extract extension
+			if test -z "$extension"; then
+				extension="$(fs-extension "$input")"
+			fi
+			# convert to absolute path
+			inputs[i]="$(fs-absolute "$input")"
 		fi
-		;;
-	esac
-done
+	done
 
-# make inputs absolute, and fetch extension for generating output if not defined
-extension=''
-for i in "${!option_inputs[@]}"; do
-	# check existence
-	input="${option_inputs[i]}"
-	if test ! -f "$input"; then
-		# fail
-		help "The input file does not exist: $input"
-	else
-		# extract extension
-		if test -z "$extension"; then
-			extension="$(fs-extension "$input")"
+	# ensure output
+	if test -z "$output"; then
+		output="$(basename "$(pwd)").$extension"
+	fi
+
+	# make output absolute
+	output="$(fs-absolute "$output")"
+
+	# check if the output file already exists, if it does, prompt for removal otherwise fail
+	if test -e "$output"; then
+		if confirm-positive --ppid=$$ -- "The output file already exists, remove it?" "$(echo-style --code="$output")"; then
+			rm "$output"
+		else
+			help "The output file already exists: $output"
 		fi
-		# convert to absolute path
-		option_inputs[i]="$(fs-absolute "$input")"
 	fi
-done
 
-# ensure output
-if test -z "$option_output"; then
-	option_output="$(basename "$(pwd)").$extension"
-fi
+	# confirm the output is not an input
+	for index in "${!inputs[@]}"; do
+		if test "$output" = "${inputs[index]}"; then
+			echo-style --notice="The output file has been automatically trimmed from the input files."
+			inputs[index]=''
+		fi
+	done
 
-# make output absolute
-option_output="$(fs-absolute "$option_output")"
+	# =====================================
+	# Action
 
-# check if the output file already exists, if it does, prompt for removal otherwise fail
-if test -e "$option_output"; then
-	if confirm-positive --ppid=$$ -- "The output file already exists, remove it?" "$(echo-style --code="$option_output")"; then
-		rm "$option_output"
-	else
-		help "The output file already exists: $option_output"
+	# output the input list
+	local temp_list
+	temp_list="$(
+		fs-temp \
+			--directory='video-merge' \
+			--file --extension='txt'
+	)"
+	for input in "${inputs[@]}"; do
+		if test -n "$input"; then
+			echo "file $(echo-quote "$input")" >>"$temp_list"
+		fi
+	done
+	echo-file "$temp_list"
+
+	# concatenate
+	eval-collapse \
+		--pending="$(echo-style --bold="Concatenating the video files into: " --code="$output")" \
+		--success="$(echo-style --success="Concatenated the video files into: " --code="$output")" \
+		--failure="$(echo-style --error="Failed to concatenate the video files into: " --code="$output")" \
+		-- ffmpeg -f concat -safe 0 -i "$temp_list" -c copy "$output"
+
+	# ask if they want to open it
+	if is-tty && confirm-positive --ppid=$$ -- "Open the concatenated video file?"; then
+		open "$output"
 	fi
-fi
+)
 
-# confirm the output is not an input
-for i in "${!option_inputs[@]}"; do
-	if test "$option_output" = "${option_inputs[i]}"; then
-		echo-style --notice="The output file has been automatically trimmed from the input files."
-		option_inputs[i]=''
-	fi
-done
-
-# =====================================
-# Action
-
-# output the input list
-list="$(fs-temp --prefix='video-merge' --suffix='.txt')"
-for input in "${option_inputs[@]}"; do
-	if test -n "$input"; then
-		echo "file $(echo-quote "$input")" >>"$list"
-	fi
-done
-echo-file "$list"
-
-# concatenate
-eval-collapse \
-	--pending="$(echo-style --bold="Concatenating the video files into: " --code="$option_output")" \
-	--success="$(echo-style --success="Concatenated the video files into: " --code="$option_output")" \
-	--failure="$(echo-style --error="Failed to concatenate the video files into: " --code="$option_output")" \
-	-- ffmpeg -f concat -safe 0 -i "$list" -c copy "$option_output"
-
-# ask if they want to open it
-if is-tty && confirm-positive --ppid=$$ -- "Open the concatenated video file?"; then
-	open "$option_output"
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	video-merge "$@"
 fi

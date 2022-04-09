@@ -3,1388 +3,1381 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
-source "$(which eval-collapse)"
 
-# =====================================
-# Arguments
+function setup-util() (
+	local installers=(
+		# intelligent
+		brew
+		cask
 
-# prepare
-installers=(
-	# intelligent
-	brew
-	cask
+		# precompiled
+		pacman
+		apt
+		apk
+		yum # also rpm
 
-	# precompiled
-	pacman
-	apt
-	apk
-	yum # also rpm
+		# precompiled containers
+		snap
 
-	# precompiled containers
-	snap
+		# source containers
+		flatpak
 
-	# source containers
-	flatpak
+		# aur
+		# https://itsfoss.com/paru-aur-helper/
+		# https://itsfoss.com/best-aur-helpers/
+		yay
+		pakku
+		paru
+		aurutils
+		pamac
+
+		# source
+		cargo
+		npm
+		go
+		pip
+		pipx
+		gem
+
+		# unknown
+		cabal
+		choco
+		conda
+		dnf
+		doas
+		dpkg
+		emerge
+		eopkg
+		guix
+		huber
+		nix
+		pkg
+		pkgin
+		pkgman
+		pkgutil
+		port
+		scoop
+		stack
+		winget
+		xbps
+		zypper
+
+		# custom
+		installer # local or remote installer
+		download  # remote executable download, supports zip
+	)
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Install a utility by using environment variables to specify the properties of its installation.
+
+			USAGE:
+			env NAME='bottom' CLI='btm' \
+			    AUR='bottom-bin' \
+			    BREW='bottom' \
+			    CARGO='bottom' \
+			    setup-util [--] aur brew cargo
+
+			QUIRKS:
+			Arguments passed to [setup-util] are used to specify a custom order of preference for installer methods, in the above example, we are saying prefer aur then brew then cargo. The order of environment variables and flags is inconsequential.
+
+			OPTIONS:
+			--cli=<...> | env CLI=<...> setup-util
+
+			    Used to check if the utility is already installed.
+
+			--name=<...> | env NAME=<...> setup-util
+
+			    The name to use for the utility in human readable output, such as log messages.
+
+			--confirm=<...> | env CONFIRM=<...> setup-util
+
+			    Confirm installation of the utility before installing it.
+
+			--optional=<...> | env OPTIONAL=<...> setup-util
+
+			    If truthy, do not return a failure code if the utility was unable to be installed.
+
+			--upgrade=<...> | env UPGRADE=<...> setup-util
+
+			    If truthy, if the installer is already installed (determined by the CLI flag), reinstall/upgrade it.
+
+			--force=<...> | env FORCE=<...> setup-util
+
+			    If truthy, use the installer's force mode if supported.
+
+			--quiet=<...> | env QUIET=<...> setup-util
+
+			    If unspecified, outputs only useful things.
+				 If truthy, don't output anything that isn't an error message.
+				 If falsey, output everything.
+
+			INSTALLERS:
+			The following installers are supported, in this default order of preference:
+
+			    ${installers[*]}
+
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item cli="${CLI-}" name="${NAME-}" confirm="${CONFIRM-}" optional="${OPTIONAL-}" upgrade="${UPGRADE-}" force="${FORCE-}" quiet order=()
+	quiet="$(echo-quiet -- "$@")"
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--cli='*) cli="${item:5}" ;;
+		'--name='*) name="${item:6}" ;;
+		'--no-confirm'* | '--confirm'*)
+			confirm="$(
+				get-flag-value confirm --missing="$confirm" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-optional'* | '--optional'*)
+			optional="$(
+				get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-upgrade'* | '--upgrade'*)
+			upgrade="$(
+				get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-force'* | '--force'*)
+			force="$(
+				get-flag-value force --missing="$force" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
+		'--')
+			order+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) order+=("$item") ;;
+		esac
+	done
+
+	# ensure name fallback
+	if test -z "$name" -a -n "$cli"; then
+		name="$cli"
+	fi
+
+	# ensure order
+	local temp_order installer inject_installer
+	if test "${#order[@]}" -eq 0; then
+		order=("${installers[@]}")
+	else
+		# custom order, handle ...
+		# so [snap ...] means snap first, then everything else, whereas [... apt] means everyting then apt
+		# as such, the specified installers need to be trimmed from the ... substitution
+		# @todo this will currently hard fail if there is two ... occurences
+		temp_order=()
+		for installer in "${order[@]}"; do
+			if test "$installer" = '...'; then
+				for inject_installer in "${installers[@]}"; do
+					if is-needle "$inject_installer" "${order[@]}"; then
+						continue
+					else
+						temp_order+=("$inject_installer")
+					fi
+				done
+			else
+				temp_order+=("$installer")
+			fi
+		done
+		order=("${temp_order[@]}")
+	fi
+
+	# =====================================
+	# Process
+
+	# prepare fallbacks, for when the package could be installed, but requires the package system to be installed first
+	# which will be used, if none of the package systems were present, as such proceed in order of preference for installation of package systems
+	local fallbacks=()
+
+	# check if necessary
+	if test -n "$cli"; then
+		if command-missing "$cli"; then
+			echo-style \
+				--h3="The [$name] utility does not appear to be installed because [$cli] is missing. Installing automatically... ⏲"
+		elif test "$upgrade" = 'yes'; then
+			echo-style \
+				--h3="The [$name] utility is already installed because [$cli] is present." $'\n' \
+				--h3="However, it has been marked for upgrade. Upgrading... ⏲"
+		else
+			if test "$quiet" != 'yes'; then
+				echo-style \
+					--g3="The [$name] utility is already installed because [$cli] is present. All good. ✅"
+			fi
+			return 0
+		fi
+	fi
+
+	# confirm if necessary
+	if test "$confirm" = 'yes'; then
+		if ! confirm-positive --ppid=$$ -- "Do you want to install the [$name] utility?"; then
+			return 2 # error exit code so that things that depend on this abort
+		fi
+	fi
+
+	# log helpers
+	function won {
+		local method="$1"
+		echo-style --g3="The [$name] utility is now installed via [$method]. ✅"
+	}
+	function lost {
+		# log the failure
+		echo-style --e3="The [$name] utility was unable to be installed. ❌"
+
+		# debug the failure?
+		if test "$name" = 'unnamed'; then
+			if test "$quiet" != 'yes' && confirm-negative --ppid=$$ -- "Do you want to output the environment variables to determine what it was?"; then
+				env | sort
+			fi
+			sleep 5
+		fi
+
+		# ignore the failure?
+		if test "$optional" != 'no'; then
+			echo-style --e3="Anyway, [$name] has been marked as optional, so it is up to you to figure this out later."
+			return 0
+		fi
+
+		# propagate the failure
+		return 1
+	}
+
+	# brew / Homebrew / macOS
+	function do_brew {
+		local cmd=() args=() pkg="${BREW:-"${HOMEBREW-}"}"
+
+		# check applicabile
+		if test -n "$pkg"; then
+			# check possible
+			if ! is-brew; then
+				# not possible, but can be fallen back to if mac
+				if is-mac; then
+					fallbacks+=('brew')
+				fi
+				return 1
+			fi
+
+			# construct command
+			cmd+=('brew')
+			if test "$upgrade" = 'yes'; then
+				cmd+=('upgrade')
+			else
+				cmd+=('install')
+			fi
+			if test "$force" = 'yes'; then
+				cmd+=('--force')
+			fi
+			if test "$quiet" != 'no'; then
+				cmd+=('--quiet')
+			fi
+
+			# support multiple args inside BREW
+			mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+			# install, the `brew upgrade` in `setup-mac-brew` will handle upgrades
+			eval-collapse -- "${cmd[@]}" "${args[@]}"
+		else
+			return 1
+		fi
+	}
+	function do_brew_fallback {
+		setup-mac-brew
+		source "$DOROTHY/sources/environment.sh"
+		do_brew "$@"
+	}
+
+	# brew / Homebrew Casks / macOS
+	function do_cask {
+		local cmd=() args=() pkg="${CASK-}"
+
+		# check applicable
+		if test -n "$pkg"; then
+			# check possible
+			if ! is-brew; then
+				# not possible, but can be fallen back to if mac
+				if is-mac; then
+					fallbacks+=('cask')
+				fi
+				return 1
+			fi
+
+			# construct command
+			cmd+=('brew')
+			if test "$upgrade" = 'yes'; then
+				cmd+=('upgrade')
+			else
+				cmd+=('install')
+			fi
+			if test "$force" = 'yes'; then
+				cmd+=('--force')
+			fi
+			if test "$quiet" != 'no'; then
+				cmd+=('--quiet')
+			fi
+			cmd+=('--cask')
+
+			# support multiple args inside CASK
+			mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+			# install
+			eval-collapse -- "${cmd[@]}" "${args[@]}"
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_cask_fallback {
+		setup-mac-brew
+		source "$DOROTHY/sources/environment.sh"
+		do_cask "$@"
+	}
+
+	# pacman / Arch Linux / Manjaro
+	function do_pacman {
+		local args=() pkg="${PACMAN-}"
+
+		# check applicabile and possible
+		if test -n "$pkg" && command-exists pacman; then
+			# package case
+			# --needed: do not reinstall up to date packages
+			# --noconfirm: do not ask for any confirmation
+			args+=('-S' '--needed' '--noconfirm')
+			if test "$quiet" != 'no'; then
+				# -q, --quiet: show less information for query and search
+				args+=('--quiet')
+			fi
+			eval-collapse -- sudo pacman "${args[@]}" "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# yay / AUR / Arch Linux
+	# https://github.com/Jguer/yay
+	function do_yay {
+		local pkg="${YAY:-"${AUR:-"${ARCH-}"}"}"
+
+		# check applicabile and possible
+		if test -n "$pkg" && command-exists yay; then
+			# package case
+			eval-collapse -- yay -Sy "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# paru / AUR / Arch Linux
+	# https://itsfoss.com/paru-aur-helper/
+	function do_paru {
+		local pkg="${PARU:-"${AUR:-"${ARCH-}"}"}"
+
+		# check applicabile and possible
+		if test -n "$pkg" && command-exists paru; then
+			# package case
+			eval-collapse -- paru -Sy "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pakku / AUR / Arch Linux
+	# https://itsfoss.com/best-aur-helpers/
+	function do_pakku {
+		local pkg="${PAKKU:-"${AUR:-"${ARCH-}"}"}"
+
+		# check applicabile and possible
+		if test -n "$pkg" && command-exists pakku; then
+			# package case
+			eval-collapse -- pakku -Sy "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# aurutils / AUR / Arch Linux
+	# https://itsfoss.com/best-aur-helpers/
+	function do_aurutils {
+		local pkg="${AURUTILS:-"${AUR:-"${ARCH-}"}"}"
+
+		# check applicabile and possible
+		if test -n "$pkg" && command-exists aurutils; then
+			# package case
+			eval-collapse -- aurutils -Sy "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pamac / AUR / Arch Linux
+	# https://itsfoss.com/best-aur-helpers/
+	function do_pamac {
+		local pkg="${PAMAC:-"${AUR:-"${ARCH-}"}"}"
+
+		# check applicabile
+		if test -n "$pkg"; then
+			# fallback case
+			if command-missing pamac; then
+				fallbacks+=('pamac')
+				return 1
+			fi
+
+			# package case
+			eval-collapse -- pamac install --no-confirm "$pkg"
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_pamac_fallback {
+		setup-util-pamac
+		do_pamac "$@"
+	}
+
+	# flatpak / Arch Linux / Manjaro
+	function do_flatpak {
+		# accomodate flatpak typos
+		local pkg="${FLATPAK:-"${FLATPACK-}"}" repo="${FLATPAK_REPO:-"${FLATPACK_REPO:-"flathub"}"}"
+
+		# check applicabile
+		if test -n "$pkg"; then
+			# fallback case
+			if command-missing flatpak; then
+				fallbacks+=('flatpak')
+				return 1
+			fi
+
+			# package case
+			eval-collapse -- flatpak install "$repo" "$pkg"
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_flatpak_fallback {
+		setup-util-flatpak
+		do_flatpak "$@"
+	}
+
+	# snap / Snap Craft / Ubuntu
+	function do_snap {
+		local args=() pkg="${SNAP-}" channel="${SNAP_CHANNEL-}" classic="${SNAP_CLASSIC-}"
+
+		# check applicabile
+		if test -n "$pkg"; then
+			# fallback case
+			if command-missing snap; then
+				fallbacks+=('snap')
+				return 1
+			fi
+
+			# support multiple args inside SNAP
+			mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+			# optional `--classic` if `SNAP_CLASSIC` affirmative
+			if is-affirmative "$classic"; then
+				args+=('--classic')
+			fi
+
+			# optional `--channel=...` if `SNAP_CHANNEL` is present
+			if test -n "$channel"; then
+				args+=("--channel=$channel")
+			fi
+
+			# package case
+			eval-collapse -- sudo snap install "${args[@]}"
+			# ^ needs sudo, otherwise: error: access denied (try with sudo)
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_snap_fallback {
+		setup-util-snap
+		do_snap "$@"
+	}
+
+	# yum / rpm / RedHat / Fedora / CentOS / etc
+	function do_yum {
+		# accomodate rpm fallback
+		local pkg="${YUM:-"${RPM-}"}" repo="${YUM_REPO-}" __eval="${YUM_EVAL-}"
+
+		# check applicabile
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check relevancy
+			if ! command-exists yum; then
+				# not possible
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				# prepare YUM with YUM_REPO if relevant
+				if test -n "$repo"; then
+					cd /etc/yum.repos.d/ || return 1
+					down "$repo"
+				fi
+
+				# install
+				eval-collapse -- sudo yum install -y "$pkg"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+
+	# apt / Ubuntu / Debian / Linux Mint / elementary OS / etc
+	# can also be used for install .deb files
+	# aptitude is deprecated, apt won
+	# https://wiki.debian.org/Apt
+	function do_apt_key_fetch {
+		local key="$1"
+		if [[ $key == *'.asc' ]]; then
+			# .asc files
+			fetch "$key" | gpg --dearmor
+		else
+			# .key and unknown files
+			fetch "$key"
+		fi
+	}
+	function do_apt {
+		local args=() keyring='' pkg="${APT:-"${DEBIAN-}"}" repo="${APT_REPO-}" key="${APT_KEY-}" key_name="${APT_KEY_NAME-}" __eval="${APT_EVAL-}"
+
+		# check applicable
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check possible
+			if ! is-apt; then
+				# not possible
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				# support multiple args inside APT
+				mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+				# prepare APT with APT_KEY
+				if test -n "$key"; then
+					# attempt to ensure APT_KEY_NAME if not provided
+					if test -z "$key_name"; then
+						if [[ $pkg == *' '* ]]; then
+							cat <<-EOF >/dev/stderr
+								"$(echo-style --error="If APT has multiple packages, then APT_KEY_NAME must be specified.")
+								APT: $pkg
+								APT_KEY: $key
+							EOF
+							return 1
+						fi
+						key_name="$pkg"
+					fi
+
+					# Deprecated technique is: fetch ... | sudo apt-key add -
+					# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
+					# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
+					# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
+					# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
+
+					# Modern technique is below:
+					# https://stackoverflow.com/a/69015383/130638
+					keyring="/etc/apt/trusted.gpg.d/$key_name.gpg"
+					do_apt_key_fetch "$key" | sudo gpg \
+						--import --no-default-keyring \
+						--keyring "gnupg-ring:$keyring"
+				fi
+
+				# prepare APT with APT_REPO
+				if test -n "$repo"; then
+					# replae key
+					repo="${repo/"{KEY}"/"$keyring"/}"
+					# replace arch
+					repo="${repo/"{ARCH}"/"$(
+						dpkg --print-architecture
+					)"/}"
+					# replace release
+					repo="${repo/"{RELEASE}"/"$(
+						lsb_release --codename --short
+					)"/}"
+					# add the repo
+					sudo apt-add-repository -y "$repo"
+				fi
+
+				# ensure that the package can be found, and that it will be the latest
+				# initial installations may not have a package index yet, or it may be outdated
+				eval-collapse -- sudo apt-get update
+
+				# install
+				eval-collapse -- sudo apt-get install -y --fix-broken "${args[@]}"
+				# use `apt-get`, as using `apt` produces this warning on Ubuntu 20.04.3 LTS
+				# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+
+	# apk / Alpine Linux
+	function do_apk {
+		local args=() pkg="${APK:-"${ALPINE-}"}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists apk; then
+			# support multiple args inside APK
+			mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+			# install
+			eval-collapse -- apk add "${args[@]}"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# nix
+	function do_nix {
+		local pkg="${NIX-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists nix-env; then
+			eval-collapse -- nix-env -iA "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# xbps / Void Linux
+	function do_xbps {
+		local pkg="${XBPS:-"${VOID-}"}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists xbps-install; then
+			eval-collapse -- xbps-install -S "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# eopkg / Solus
+	function do_eopkg {
+		local pkg="${EOPKG:-"${SOLUS-}"}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists eopkg; then
+			eval-collapse -- sudo eopkg it "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# emerge / GURU / Gentoo Linux
+	function do_emerge {
+		local pkg="${EMERGE-}" __eval="${EMERGE_EVAL-}"
+
+		# check applicable
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check possible
+			if ! command-exists emerge; then
+				# not possible
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				eval-collapse -- sudo emerge -av "$pkg"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+
+	# dnf / COPR / Fedora / CentOS / RHEL
+	function do_dnf {
+		local pkg="${DNF-}" __eval="${DNF_EVAL-}" copr="${DNF_COPR-}" repo="${DNF_REPO-}"
+
+		# check applicable
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check possible
+			if ! command-exists dnf; then
+				# not possible
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				# prepare DNF with DNF_COPR
+				if test -n "$copr"; then
+					sudo dnf copr enable -y "$copr"
+				fi
+
+				# prepare DNF with DNF_REPO
+				if test -n "$repo"; then
+					sudo dnf config-manager -y --add-repo "$repo"
+				fi
+
+				# install
+				eval-collapse -- sudo dnf install -y "$pkg"
+			fi
+		else
+			return 1
+		fi
+	}
+
+	# zypper / openSUSE / SLES
+	# zypper needs sudo
+	function do_zypper {
+		local pkg="${ZYPPER-}" __eval="${ZYPPER_EVAL-}" repo="${ZYPPER_REPO-}"
+
+		# check applicable
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check possible
+			if ! command-exists zypper; then
+				# not possible
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				# prepare ZYPPER with ZYPPER_REPO
+				if test -n "$__eval"; then
+					sudo zypper addrepo "$__eval"
+					sudo zypper refresh
+				fi
+
+				# install
+				eval-collapse -- sudo zypper install "$pkg"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+
+	# port / MacPorts
+	function do_port {
+		local pkg="${PORT-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists port; then
+			eval-collapse -- sudo port install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# choco / Chocolatey / Windows
+	function do_choco {
+		local pkg="${CHOCO-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists choco; then
+			eval-collapse -- choco install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# scoop / Windows
+	function do_scoop {
+		local pkg="${SCOOP-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists scoop; then
+			eval-collapse -- scoop install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# winget / Windows Package Manager Client
+	function do_winget {
+		local pkg="${WINGET-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists winget; then
+			eval-collapse -- winget install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pkg / FreeBSD / Termux
+	function do_pkg {
+		local pkg="${PKG-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists pkg; then
+			eval-collapse -- pkg install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pkgutil / Solaris 10+, Sparc and x86.
+	function do_pkgutil {
+		local pkg="${PKGUTIL-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists pkgutil; then
+			eval-collapse -- pkgutil -i "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# huber
+	function do_huber {
+		local pkg="${HUBER-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists huber; then
+			eval-collapse -- huber install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# guix
+	function do_guix {
+		local pkg="${GUIX-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists guix; then
+			eval-collapse -- guix package -i "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
+	# used for installing .deb files
+	function do_dpkg {
+		local pkg="${DPKG-}" __eval="${DPKG_EVAL-}"
+
+		# check applicable
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check possible
+			if ! command-exists dpkg; then
+				# not possible
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				eval-collapse -- sudo dpkg --install "$pkg"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+
+	# doas / Solaris
+	function do_doas {
+		local pkg="${DOAS-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists doas; then
+			eval-collapse -- doas pkg_add "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pkg_add / OpenBSD
+	function do_pkg {
+		local pkg="${PKGADD-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists pkg_add; then
+			eval-collapse -- pkg_add "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pkgin/ NetBSD
+	function do_pkgin {
+		local pkg="${PKGIN-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists pkgin; then
+			eval-collapse -- pkgin install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# pkgman / Haiku
+	function do_pkgman {
+		local pkg="${PKGMAN-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists pkgman; then
+			eval-collapse -- pkgman install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# stack
+	function do_stack {
+		local pkg="${STACK-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists stack; then
+			stack update
+			eval-collapse -- stack install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# cabal
+	function do_cabal {
+		local pkg="${CABAL-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists cabal; then
+			cabal update
+			eval-collapse -- cabal install "$pkg"
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# conda
+	function do_conda {
+		local pkg="${CONDA-}" channel="${CONDA_CHANNEL-}"
+
+		# check applicable and possible
+		if test -n "$pkg" && command-exists conda; then
+			# customise CONDA install based on presence of CONDA_CHANNEL
+			if test -n "$channel"; then
+				eval-collapse -- conda install -c "$channel" "$pkg"
+			else
+				eval-collapse -- conda install "$pkg"
+			fi
+		else
+			# not needed
+			return 1
+		fi
+	}
+
+	# npm / Node.js
+	function do_npm {
+		local args=() pkg="${NPM:-"${NODE-}"}" __eval="${NPM_EVAL-}" force="${NPM_FORCE-}"
+
+		if test -n "$pkg" -o -n "$__eval"; then
+			# fallback case
+			if command-missing npm; then
+				fallbacks+=('npm')
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				# support multiple args inside NPM
+				mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+				# optional --force
+				if is-affirmative "$force"; then
+					args+=('--force')
+				fi
+
+				# install
+				eval-collapse -- npm install --global "${args[@]}"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_npm_fallback {
+		setup-node
+		source "$DOROTHY/sources/environment.sh"
+		set +e # nvm prevents strict from working: .nvm/nvm.sh: line 1966: TMPDIR: unbound variable
+		source "$DOROTHY/sources/nvm.sh"
+		do_npm "$@"
+	}
+
+	# go
+	function do_go {
+		local pkg="${GO-}"
+
+		# check applicabile
+		if test -n "$pkg"; then
+			# fallback case
+			if command-missing go; then
+				fallbacks+=('go')
+				return 1
+			fi
+
+			# add version if not there
+			if [[ $pkg != *'@'* ]]; then
+				pkg="${pkg}@latest"
+			fi
+
+			# package case
+			eval-collapse -- go install -v "$pkg"
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_go_fallback {
+		setup-go
+		source "$DOROTHY/sources/environment.sh"
+		do_go "$@"
+	}
+
+	# pip / Python
+	function pip_helper {
+		# Use the correct [pip] executable for the user's environment, as there may be many or multiple installed, such as one for Python v2 and one for Python v3.
+		if command-exists pip; then
+			pip "$@"
+		elif python -m pip --version &>/dev/null; then
+			python -m pip "$@"
+		elif command-exists pip3; then
+			pip3 "$@"
+		elif python3 -m pip --version &>/dev/null; then
+			python -m pip "$@"
+		elif command-exists pip2; then
+			pip2 "$@"
+		elif python2 -m pip --version &>/dev/null; then
+			python -m pip "$@"
+		elif command-exists /usr/local/bin/pip; then
+			/usr/local/bin/pip "$@"
+		elif test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/pip"; then
+			"${HOMEBREW_PREFIX}/bin/pip" "$@"
+		else
+			echo-style --error="[pip] nor its variations were found" >/dev/stderr
+			return 1
+		fi
+	}
+	function do_pip {
+		local args=() pkg="${PIP:-"${PYTHON-}"}" __eval="${PIP_EVAL-}"
+
+		if test -n "$pkg" -o -n "$__eval"; then
+			# fallback case
+			if ! pip_helper --version &>/dev/null; then
+				fallbacks+=('pip')
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				# support multiple args inside PIP
+				mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+				# install
+				eval-collapse -- pip_helper install --user --upgrade --force-reinstall --no-warn-script-location "${args[@]}"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_pip_fallback {
+		setup-python
+		source "$DOROTHY/sources/environment.sh"
+		do_pip "$@"
+	}
+
+	# pipx / Python
+	function do_pipx {
+		local args=() pkg="${PIPX:-"${PYTHON-}"}"
+
+		# check applicablity
+		if test -n "$pkg"; then
+			# fallback case
+			if command-missing pipx; then
+				fallbacks+=('pipx')
+				return 1
+			fi
+
+			# support multiple args inside PIPX
+			mapfile -t args < <(echo-split ' ' -- "$pkg")
+
+			# package case
+			eval-collapse -- pipx install "${args[@]}"
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_pipx_fallback {
+		if ! pip_helper --version &>/dev/null; then
+			setup-python
+		fi
+		setup-util-pipx
+		source "$DOROTHY/sources/environment.sh"
+		do_pipx "$@"
+	}
+
+	# gem / Ruby
+	# we use --user-install because of:
+	# https://github.com/ffi/ffi/issues/631
+	function do_gem {
+		local pkg="${GEM:-"${RUBY-}"}" __eval="${GEM_EVAL-}" version="${GEM_VERSION-}"
+
+		# check relevancy
+		if test -n "$pkg" -o -n "$__eval"; then
+			# check requisites
+			if command-missing gem; then
+				fallbacks+=('gem')
+				return 1
+			fi
+
+			# eval case
+			if test -n "$__eval"; then
+				eval "$__eval"
+				return "$?"
+			fi
+
+			# package case
+			if test -n "$pkg"; then
+				gem uninstall "$pkg" -axI &>/dev/null
+				if test -n "$version"; then
+					eval-collapse -- gem install "$pkg" --version "$version" --user-install --no-document
+				else
+					eval-collapse -- gem install "$pkg" --user-install --no-document
+				fi
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_gem_fallback {
+		setup-ruby
+		source "$DOROTHY/sources/environment.sh"
+		do_gem "$@"
+	}
+
+	# cargo / Crates.io / Rust
+	function do_cargo {
+		local pkg="${CARGO:-"${RUST-}"}"
+
+		# check applicabile
+		if test -n "$pkg"; then
+			# fallback case
+			if command-missing cargo; then
+				fallbacks+=('cargo')
+				return 1
+			fi
+
+			# package case
+			if test "$quiet" != 'yes'; then
+				log-performance
+			fi
+			eval-collapse -- cargo install "$pkg"
+		else
+			# not applicable
+			return 1
+		fi
+	}
+	function do_cargo_fallback {
+		setup-rust
+		source "$DOROTHY/sources/environment.sh"
+		do_cargo "$@"
+	}
+
+	# installer
+	function do_installer {
+		local file file_or_url="${INSTALLER-}" __open="${INSTALLER_OPEN-}"
+
+		# check applicabile
+		if test -n "$file_or_url"; then
+			# check if it is local, or remote
+			if test -e "$file_or_url"; then
+				file="$file_or_url"
+			else
+				# it is remote
+				# download it to a temporary location and use that
+				file="$(
+					fs-temp \
+						--directory='setup-util' \
+						--directory="$name" \
+						--file
+				)"
+				down "$file_or_url" --path="$file"
+			fi
+			# ensure it is executable, then open or run it
+			chmod +x "$file"
+			if test "$__open" = 'yes'; then
+				open "$file"
+			else
+				# SETUP_UTIL=yes so the cmd knows it is running inside SETUP_UTIL
+				# Undo any inherited FORCE/UPGRADE=true, such that the cmd doesn't re-run itself
+				eval-collapse -- env SETUP_UTIL=yes UPGRADE= FORCE= "$file"
+			fi
+		else
+			# not applicable
+			return 1
+		fi
+	}
+
+	# download
+	function do_download {
+		local download="${DOWNLOAD-}" filename="${DOWNLOAD_FILENAME-}" unzip_format="${DOWNLOAD_UNZIP_FORMAT-}" unzip_filter="${DOWNLOAD_UNZIP_FILTER-}"
+
+		# check applicabile
+		if test -n "$download"; then
+			# require filename
+			if test -z "$filename"; then
+				echo-style --error="DOWNLOAD required DOWNLOAD_FILENAME"
+				return 1
+			fi
+
+			# download
+			down "$download" \
+				--unzip-format="$unzip_format" \
+				--unzip-filter="$unzip_filter" \
+				--path="$XDG_BIN_HOME/$filename"
+			fs-own --permissions='+x' "$XDG_BIN_HOME/$filename"
+		else
+			# not applicable
+			return 1
+		fi
+	}
 
 	# aur
-	# https://itsfoss.com/paru-aur-helper/
-	# https://itsfoss.com/best-aur-helpers/
-	yay
-	pakku
-	paru
-	aurutils
-	pamac
+	function do_aur {
+		do_yay
+		do_pakku
+		do_paru
+		do_aurutils
+		do_pamac
+	}
 
-	# source
-	cargo
-	npm
-	go
-	pip
-	pipx
-	gem
+	# =====================================
+	# Action
 
-	# unknown
-	cabal
-	choco
-	conda
-	dnf
-	doas
-	dpkg
-	emerge
-	eopkg
-	guix
-	huber
-	nix
-	pkg
-	pkgin
-	pkgman
-	pkgutil
-	port
-	scoop
-	stack
-	winget
-	xbps
-	zypper
+	local installer
 
-	# custom
-	curl
-	zip
-	installer
-	cmd
+	# cycle through the order
+	for installer in "${order[@]}"; do
+		# sanity check
+		if test -z "$installer"; then
+			echo-style --error="an empty order argument was provided"
+			echo-verbose "${order[@]}"
+			return 22 # Invalid argument
+		fi
+		# # this installer was disabled, ignore
+		# if test -z "$installer"; then
+		# 	continue
+		# fi
+		# attempt installation
+		if "do_${installer}"; then
+			won "$installer"
+			return 0
+		fi
+	done
+
+	# fallback for failed packages which are missing their package system
+	if test "${#fallbacks[@]}" -ne 0; then
+		for installer in "${fallbacks[@]}"; do
+			if "do_${installer}_fallback"; then
+				won "$installer"
+				return 0
+			fi
+		done
+	fi
+
+	# failure
+	lost
+	return "$?"
 )
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Install a utility by using environment variables to specify the properties of its installation.
-
-		USAGE:
-		env NAME='bottom' CLI='btm' \
-		    AUR='bottom-bin' \
-		    BREW='bottom' \
-		    CARGO='bottom' \
-		    setup-util [--] aur brew cargo
-
-		QUIRKS:
-		Arguments passed to [setup-util] are used to specify a custom order of preference for installer methods, in the above example, we are saying prefer aur then brew then cargo. The order of environment variables and flags is inconsequential.
-
-		OPTIONS:
-		--cli=<...> | env CLI=<...> setup-util
-
-		    Used to check if the utility is already installed.
-
-		--name=<...> | env NAME=<...> setup-util
-
-		    The name to use for the utility in human readable output, such as log messages.
-
-		--confirm=<...> | env CONFIRM=<...> setup-util
-
-		    Confirm installation of the utility before installing it.
-
-		--optional=<...> | env OPTIONAL=<...> setup-util
-
-		    If truthy, do not return a failure code if the utility was unable to be installed.
-
-		--upgrade=<...> | env UPGRADE=<...> setup-util
-
-		    If truthy, if the installer is already installed (determined by the CLI flag), reinstall/upgrade it.
-
-		--force=<...> | env FORCE=<...> setup-util
-
-		    If truthy, use the installer's force mode if supported.
-
-		--quiet=<...> | env QUIET=<...> setup-util
-
-		    If unspecified, outputs only useful things.
-			 If truthy, don't output anything that isn't an error message.
-			 If falsey, output everything.
-
-		INSTALLERS:
-		The following installers are supported, in this default order of preference:
-
-		    ${installers[*]}
-
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
-
-# process
-option_cli="${CLI-}"
-option_name="${NAME-}"
-option_confirm="${CONFIRM-}"
-option_optional="${OPTIONAL-}"
-option_upgrade="${UPGRADE-}"
-option_force="${FORCE-}"
-option_quiet="$(echo-quiet -- "$@")"
-order=()
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--cli='*) option_cli="${item:5}" ;;
-	'--name='*) option_name="${item:6}" ;;
-	'--no-confirm'* | '--confirm'*)
-		option_confirm="$(
-			get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative
-		)"
-		;;
-	'--no-optional'* | '--optional'*)
-		option_optional="$(
-			get-flag-value optional --missing="$option_optional" -- "$item" | echo-affirmative
-		)"
-		;;
-	'--no-upgrade'* | '--upgrade'*)
-		option_upgrade="$(
-			get-flag-value upgrade --missing="$option_upgrade" -- "$item" | echo-affirmative
-		)"
-		;;
-	'--no-force'* | '--force'*)
-		option_force="$(
-			get-flag-value force --missing="$option_force" -- "$item" | echo-affirmative
-		)"
-		;;
-	'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*)
-		option_quiet="$(
-			echo-quiet --missing="$option_quiet" -- "$item"
-		)"
-		;;
-	'--')
-		order+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) order+=("$item") ;;
-	esac
-done
-
-# ensure name fallback
-if test -z "$option_name" -a -n "$option_cli"; then
-	option_name="$option_cli"
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	setup-util "$@"
 fi
-
-# ensure order
-if test "${#order[@]}" -eq 0; then
-	order=("${installers[@]}")
-else
-	# custom order, handle ...
-	# so [snap ...] means snap first, then everything else, whereas [... apt] means everyting then apt
-	# as such, the specified installers need to be trimmed from the ... substitution
-	# @todo this will currently hard fail if there is two ... occurences
-	temp_order=()
-	for installer in "${order[@]}"; do
-		if test "$installer" = '...'; then
-			for inject_installer in "${installers[@]}"; do
-				if is-needle "$inject_installer" "${order[@]}"; then
-					continue
-				else
-					temp_order+=("$inject_installer")
-				fi
-			done
-		else
-			temp_order+=("$installer")
-		fi
-	done
-	order=("${temp_order[@]}")
-fi
-
-# =====================================
-# Process
-
-# prepare fallbacks, for when the package could be installed, but requires the package system to be installed first
-# which will be used, if none of the package systems were present, as such proceed in order of preference for installation of package systems
-fallbacks=()
-
-# check if necessary
-if test -n "$option_cli"; then
-	if command-missing "$option_cli"; then
-		echo-style --h3="The [$option_name] utility does not appear to be installed because [$option_cli] is missing. Installing automatically... ⏲"
-	elif test "$option_upgrade" = 'yes'; then
-		echo-style --h3="The [$option_name] utility is already installed because [$option_cli] is present." $'\n' --h3="However, it has been marked for upgrade. Upgrading... ⏲"
-	else
-		if test "$option_quiet" != 'yes'; then
-			echo-style --g3="The [$option_name] utility is already installed because [$option_cli] is present. All good. ✅"
-		fi
-		exit 0
-	fi
-fi
-
-# confirm if necessary
-if test "$option_confirm" = 'yes'; then
-	if ! confirm-positive --ppid=$$ -- "Do you want to install the [$option_name] utility?"; then
-		exit 2 # error exit code so that things that depend on this abort
-	fi
-fi
-
-# log helpers
-function won() {
-	local _method="$1"
-	echo-style --g3="The [$option_name] utility is now installed via [$_method]. ✅"
-}
-function lost() {
-	# log the failure
-	echo-style --e3="The [$option_name] utility was unable to be installed. ❌"
-
-	# debug the failure?
-	if test "$option_name" = 'unnamed'; then
-		if test "$option_quiet" != 'yes' && confirm-negative --ppid=$$ -- "Do you want to output the environment variables to determine what it was?"; then
-			env | sort
-		fi
-		sleep 5
-	fi
-
-	# ignore the failure?
-	if test "$option_optional" != 'no'; then
-		echo-style --e3="Anyway, [$option_name] has been marked as optional, so it is up to you to figure this out later."
-		return 0
-	fi
-
-	# propagate the failure
-	return 1
-}
-
-# brew / Homebrew / macOS
-function do_brew() {
-	local _cmd=() _args=() _brew="${BREW:-"${HOMEBREW-}"}"
-
-	# check applicabile
-	if test -n "$_brew"; then
-		# check possible
-		if ! is-brew; then
-			# not possible, but can be fallen back to if mac
-			if is-mac; then
-				fallbacks+=('brew')
-			fi
-			return 1
-		fi
-
-		# construct command
-		_cmd+=('brew')
-		if test "$option_upgrade" = 'yes'; then
-			_cmd+=('upgrade')
-		else
-			_cmd+=('install')
-		fi
-		if test "$option_force" = 'yes'; then
-			_cmd+=('--force')
-		fi
-		if test "$option_quiet" != 'no'; then
-			_cmd+=('--quiet')
-		fi
-
-		# support multiple args inside BREW
-		mapfile -t _args < <(echo-split ' ' -- "$_brew")
-
-		# install, the `brew upgrade` in `setup-mac-brew` will handle upgrades
-		eval_collapse -- "${_cmd[@]}" "${_args[@]}"
-	else
-		return 1
-	fi
-}
-function do_brew_fallback() {
-	setup-mac-brew
-	source "$DOROTHY/sources/environment.sh"
-	do_brew "$@"
-}
-
-# brew / Homebrew Casks / macOS
-function do_cask() {
-	local _cmd=() _args=() _cask="${CASK-}"
-
-	# check applicable
-	if test -n "$_cask"; then
-		# check possible
-		if ! is-brew; then
-			# not possible, but can be fallen back to if mac
-			if is-mac; then
-				fallbacks+=('cask')
-			fi
-			return 1
-		fi
-
-		# construct command
-		_cmd+=('brew')
-		if test "$option_upgrade" = 'yes'; then
-			_cmd+=('upgrade')
-		else
-			_cmd+=('install')
-		fi
-		if test "$option_force" = 'yes'; then
-			_cmd+=('--force')
-		fi
-		if test "$option_quiet" != 'no'; then
-			_cmd+=('--quiet')
-		fi
-		_cmd+=('--cask')
-
-		# support multiple args inside CASK
-		mapfile -t _args < <(echo-split ' ' -- "$_cask")
-
-		# install
-		eval_collapse -- "${_cmd[@]}" "${_args[@]}"
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_cask_fallback() {
-	setup-mac-brew
-	source "$DOROTHY/sources/environment.sh"
-	do_cask "$@"
-}
-
-# pacman / Arch Linux / Manjaro
-function do_pacman() {
-	local _args=() _pacman="${PACMAN-}"
-
-	# check applicabile and possible
-	if test -n "$_pacman" && command-exists pacman; then
-		# package case
-		# --needed: do not reinstall up to date packages
-		# --noconfirm: do not ask for any confirmation
-		_args+=('-S' '--needed' '--noconfirm')
-		if test "$option_quiet" != 'no'; then
-			# -q, --quiet: show less information for query and search
-			_args+=('--quiet')
-		fi
-		eval_collapse -- sudo pacman "${_args[@]}" "$_pacman"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# yay / AUR / Arch Linux
-# https://github.com/Jguer/yay
-function do_yay() {
-	local _pkg="${YAY:-"${AUR:-"${ARCH-}"}"}"
-
-	# check applicabile and possible
-	if test -n "$_pkg" && command-exists yay; then
-		# package case
-		eval_collapse -- yay -Sy "$_pkg"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# paru / AUR / Arch Linux
-# https://itsfoss.com/paru-aur-helper/
-function do_paru() {
-	local _pkg="${PARU:-"${AUR:-"${ARCH-}"}"}"
-
-	# check applicabile and possible
-	if test -n "$_pkg" && command-exists paru; then
-		# package case
-		eval_collapse -- paru -Sy "$_pkg"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pakku / AUR / Arch Linux
-# https://itsfoss.com/best-aur-helpers/
-function do_pakku() {
-	local _pkg="${PAKKU:-"${AUR:-"${ARCH-}"}"}"
-
-	# check applicabile and possible
-	if test -n "$_pkg" && command-exists pakku; then
-		# package case
-		eval_collapse -- pakku -Sy "$_pkg"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# aurutils / AUR / Arch Linux
-# https://itsfoss.com/best-aur-helpers/
-function do_aurutils() {
-	local _pkg="${AURUTILS:-"${AUR:-"${ARCH-}"}"}"
-
-	# check applicabile and possible
-	if test -n "$_pkg" && command-exists aurutils; then
-		# package case
-		eval_collapse -- aurutils -Sy "$_pkg"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pamac / AUR / Arch Linux
-# https://itsfoss.com/best-aur-helpers/
-function do_pamac() {
-	local _pkg="${PAMAC:-"${AUR:-"${ARCH-}"}"}"
-
-	# check applicabile
-	if test -n "$_pkg"; then
-		# fallback case
-		if command-missing pamac; then
-			fallbacks+=('pamac')
-			return 1
-		fi
-
-		# package case
-		eval_collapse -- pamac install --no-confirm "$_pkg"
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_pamac_fallback() {
-	setup-util-pamac
-	do_pamac "$@"
-}
-
-# flatpak / Arch Linux / Manjaro
-function do_flatpak() {
-	# accomodate flatpak typos
-	local _pkg="${FLATPAK:-"${FLATPACK-}"}" _repo="${FLATPAK_REPO:-"${FLATPACK_REPO:-"flathub"}"}"
-
-	# check applicabile
-	if test -n "$_pkg"; then
-		# fallback case
-		if command-missing flatpak; then
-			fallbacks+=('flatpak')
-			return 1
-		fi
-
-		# package case
-		eval_collapse -- flatpak install "$_repo" "$_pkg"
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_flatpak_fallback() {
-	setup-util-flatpak
-	do_flatpak "$@"
-}
-
-# snap / Snap Craft / Ubuntu
-function do_snap() {
-	local _args=() _snap="${SNAP-}" _channel="${SNAP_CHANNEL-}" _classic="${SNAP_CLASSIC-}"
-
-	# check applicabile
-	if test -n "$_snap"; then
-		# fallback case
-		if command-missing snap; then
-			fallbacks+=('snap')
-			return 1
-		fi
-
-		# support multiple args inside SNAP
-		mapfile -t _args < <(echo-split ' ' -- "$_snap")
-
-		# optional `--classic` if `SNAP_CLASSIC` affirmative
-		if is-affirmative "$_classic"; then
-			_args+=('--classic')
-		fi
-
-		# optional `--channel=...` if `SNAP_CHANNEL` is present
-		if test -n "$_channel"; then
-			_args+=("--channel=$_channel")
-		fi
-
-		# package case
-		eval_collapse -- sudo snap install "${_args[@]}"
-		# ^ needs sudo, otherwise: error: access denied (try with sudo)
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_snap_fallback() {
-	setup-util-snap
-	do_snap "$@"
-}
-
-# yum / rpm / RedHat / Fedora / CentOS / etc
-function do_yum() {
-	# accomodate rpm fallback
-	local _pkg="${YUM:-"${RPM-}"}" _repo="${YUM_REPO-}" _eval="${YUM_EVAL-}"
-
-	# check applicabile
-	if test -n "$_pkg" -o -n "$_eval"; then
-		# check relevancy
-		if ! command-exists yum; then
-			# not possible
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_pkg"; then
-			# prepare YUM with YUM_REPO if relevant
-			if test -n "$_repo"; then
-				cd /etc/yum.repos.d/ || return 1
-				down "$_repo"
-			fi
-
-			# install
-			eval_collapse -- sudo yum install -y "$_pkg"
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# apt / Ubuntu / Debian / Linux Mint / elementary OS / etc
-# can also be used for install .deb files
-# aptitude is deprecated, apt won
-# https://wiki.debian.org/Apt
-function do_apt_key_fetch() {
-	local _key="$1"
-	if [[ "$_key" = *'.asc' ]]; then
-		# .asc files
-		fetch "$_key" | gpg --dearmor
-	else
-		# .key and unknown files
-		fetch "$_key"
-	fi
-}
-function do_apt() {
-	local _args=() _keyring='' _apt="${APT:-"${DEBIAN-}"}" _repo="${APT_REPO-}" _key="${APT_KEY-}" _key_name="${APT_KEY_NAME-}" _eval="${APT_EVAL-}"
-
-	# check applicable
-	if test -n "$_apt" -o -n "$_eval"; then
-		# check possible
-		if ! is-apt; then
-			# not possible
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_apt"; then
-			# support multiple args inside APT
-			mapfile -t _args < <(echo-split ' ' -- "$_apt")
-
-			# prepare APT with APT_KEY
-			if test -n "$_key"; then
-				# attempt to ensure APT_KEY_NAME if not provided
-				if test -z "$_key_name"; then
-					if [[ "$_apt" = *' '* ]]; then
-						cat <<-EOF >/dev/stderr
-							"$(echo-style --error="If APT has multiple packages, then APT_KEY_NAME must be specified.")
-							APT: $_apt
-							APT_KEY: $_key
-						EOF
-						return 1
-					fi
-					_key_name="$_apt"
-				fi
-
-				# Deprecated technique is: fetch ... | sudo apt-key add -
-				# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
-				# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
-				# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
-				# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
-
-				# Modern technique is below:
-				# https://stackoverflow.com/a/69015383/130638
-				_keyring="/etc/apt/trusted.gpg.d/$_key_name.gpg"
-				do_apt_key_fetch "$_key" | sudo gpg \
-					--import --no-default-keyring \
-					--keyring "gnupg-ring:$_keyring"
-			fi
-
-			# prepare APT with APT_REPO
-			if test -n "$_repo"; then
-				# replae key
-				_repo="${_repo/"{KEY}"/"$_keyring"/}"
-				# replace arch
-				_repo="${_repo/"{ARCH}"/"$(
-					dpkg --print-architecture
-				)"/}"
-				# replace release
-				_repo="${_repo/"{RELEASE}"/"$(
-					lsb_release --codename --short
-				)"/}"
-				# add the repo
-				sudo apt-add-repository -y "$_repo"
-			fi
-
-			# ensure that the package can be found, and that it will be the latest
-			# initial installations may not have a package index yet, or it may be outdated
-			eval_collapse -- sudo apt-get update
-
-			# install
-			eval_collapse -- sudo apt-get install -y --fix-broken "${_args[@]}"
-			# use `apt-get`, as using `apt` produces this warning on Ubuntu 20.04.3 LTS
-			# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# apk / Alpine Linux
-function do_apk() {
-	local _args=() _apk="${APK:-"${ALPINE-}"}"
-
-	# check applicable and possible
-	if test -n "$_apk" && command-exists apk; then
-		# support multiple args inside APK
-		mapfile -t _args < <(echo-split ' ' -- "$_apk")
-
-		# install
-		eval_collapse -- apk add "${_args[@]}"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# nix
-function do_nix() {
-	local _nix="${NIX-}"
-
-	# check applicable and possible
-	if test -n "$_nix" && command-exists nix-env; then
-		eval_collapse -- nix-env -iA "$_nix"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# xbps / Void Linux
-function do_xbps() {
-	local _xbps="${XBPS:-"${VOID-}"}"
-
-	# check applicable and possible
-	if test -n "$_xbps" && command-exists xbps-install; then
-		eval_collapse -- xbps-install -S "$_xbps"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# eopkg / Solus
-function do_eopkg() {
-	local _eopkg="${EOPKG:-"${SOLUS-}"}"
-
-	# check applicable and possible
-	if test -n "$_eopkg" && command-exists eopkg; then
-		eval_collapse -- sudo eopkg it "$_eopkg"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# emerge / GURU / Gentoo Linux
-function do_emerge() {
-	local _emerge="${EMERGE-}" _eval="${EMERGE_EVAL-}"
-
-	# check applicable
-	if test -n "$_emerge" -o -n "$_eval"; then
-		# check possible
-		if ! command-exists emerge; then
-			# not possible
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_emerge"; then
-			eval_collapse -- sudo emerge -av "$_emerge"
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# dnf / COPR / Fedora / CentOS / RHEL
-function do_dnf() {
-	local _dnf="${DNF-}" _eval="${DNF_EVAL-}" _copr="${DNF_COPR-}" _repo="${DNF_REPO-}"
-
-	# check applicable
-	if test -n "$_dnf" -o -n "$_eval"; then
-		# check possible
-		if ! command-exists dnf; then
-			# not possible
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_dnf"; then
-			# prepare DNF with DNF_COPR
-			if test -n "$_copr"; then
-				sudo dnf copr enable -y "$_copr"
-			fi
-
-			# prepare DNF with DNF_REPO
-			if test -n "$_repo"; then
-				sudo dnf config-manager -y --add-repo "$_repo"
-			fi
-
-			# install
-			eval_collapse -- sudo dnf install -y "$_dnf"
-		fi
-	else
-		return 1
-	fi
-}
-
-# zypper / openSUSE / SLES
-# zypper needs sudo
-function do_zypper() {
-	local _zypper="${ZYPPER-}" _eval="${ZYPPER_EVAL-}" _repo="${ZYPPER_REPO-}"
-
-	# check applicable
-	if test -n "$_zypper" -o -n "$_eval"; then
-		# check possible
-		if ! command-exists zypper; then
-			# not possible
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_zypper"; then
-			# prepare ZYPPER with ZYPPER_REPO
-			if test -n "$_eval"; then
-				sudo zypper addrepo "$_eval"
-				sudo zypper refresh
-			fi
-
-			# install
-			eval_collapse -- sudo zypper install "$_zypper"
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# port / MacPorts
-function do_port() {
-	local _port="${PORT-}"
-
-	# check applicable and possible
-	if test -n "$_port" && command-exists port; then
-		eval_collapse -- sudo port install "$_port"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# choco / Chocolatey / Windows
-function do_choco() {
-	local _choco="${CHOCO-}"
-
-	# check applicable and possible
-	if test -n "$_choco" && command-exists choco; then
-		eval_collapse -- choco install "$_choco"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# scoop / Windows
-function do_scoop() {
-	local _scoop="${SCOOP-}"
-
-	# check applicable and possible
-	if test -n "$_scoop" && command-exists scoop; then
-		eval_collapse -- scoop install "$_scoop"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# winget / Windows Package Manager Client
-function do_winget() {
-	local _winget="${WINGET-}"
-
-	# check applicable and possible
-	if test -n "$_winget" && command-exists winget; then
-		eval_collapse -- winget install "$_winget"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pkg / FreeBSD / Termux
-function do_pkg() {
-	local _pkg="${PKG-}"
-
-	# check applicable and possible
-	if test -n "$_pkg" && command-exists pkg; then
-		eval_collapse -- pkg install "$_pkg"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pkgutil / Solaris 10+, Sparc and x86.
-function do_pkgutil() {
-	local _pkgutil="${PKGUTIL-}"
-
-	# check applicable and possible
-	if test -n "$_pkgutil" && command-exists pkgutil; then
-		eval_collapse -- pkgutil -i "$_pkgutil"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# huber
-function do_huber() {
-	local _huber="${HUBER-}"
-
-	# check applicable and possible
-	if test -n "$_huber" && command-exists huber; then
-		eval_collapse -- huber install "$_huber"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# guix
-function do_guix() {
-	local _guix="${GUIX-}"
-
-	# check applicable and possible
-	if test -n "$_guix" && command-exists guix; then
-		eval_collapse -- guix package -i "$_guix"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
-# used for installing .deb files
-function do_dpkg() {
-	local _dpkg="${DPKG-}" _eval="${DPKG_EVAL-}"
-
-	# check applicable
-	if test -n "$_dpkg" -o -n "$_eval"; then
-		# check possible
-		if ! command-exists dpkg; then
-			# not possible
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_dpkg"; then
-			eval_collapse -- sudo dpkg --install "$_dpkg"
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# doas / Solaris
-function do_doas() {
-	local _doas="${DOAS-}"
-
-	# check applicable and possible
-	if test -n "$_doas" && command-exists doas; then
-		eval_collapse -- doas pkg_add "$_doas"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pkg_add / OpenBSD
-function do_pkg() {
-	local _pkgadd="${PKGADD-}"
-
-	# check applicable and possible
-	if test -n "$_pkgadd" && command-exists pkg_add; then
-		eval_collapse -- pkg_add "$_pkgadd"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pkgin/ NetBSD
-function do_pkgin() {
-	local _pkgin="${PKGIN-}"
-
-	# check applicable and possible
-	if test -n "$_pkgin" && command-exists pkgin; then
-		eval_collapse -- pkgin install "$_pkgin"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# pkgman / Haiku
-function do_pkgman() {
-	local _pkgman="${PKGMAN-}"
-
-	# check applicable and possible
-	if test -n "$_pkgman" && command-exists pkgman; then
-		eval_collapse -- pkgman install "$_pkgman"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# stack
-function do_stack() {
-	local _stack="${STACK-}"
-
-	# check applicable and possible
-	if test -n "$_stack" && command-exists stack; then
-		stack update
-		eval_collapse -- stack install "$_stack"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# cabal
-function do_cabal() {
-	local _cabal="${CABAL-}"
-
-	# check applicable and possible
-	if test -n "$_cabal" && command-exists cabal; then
-		cabal update
-		eval_collapse -- cabal install "$_cabal"
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# conda
-function do_conda() {
-	local _conda="${CONDA-}" _channel="${CONDA_CHANNEL-}"
-
-	# check applicable and possible
-	if test -n "$_conda" && command-exists conda; then
-		# customise CONDA install based on presence of CONDA_CHANNEL
-		if test -n "$_channel"; then
-			eval_collapse -- conda install -c "$_channel" "$_conda"
-		else
-			eval_collapse -- conda install "$_conda"
-		fi
-	else
-		# not needed
-		return 1
-	fi
-}
-
-# npm / Node.js
-function do_npm() {
-	local _args=() _npm="${NPM:-"${NODE-}"}" _eval="${NPM_EVAL-}" _force="${NPM_FORCE-}"
-
-	if test -n "$_npm" -o -n "$_eval"; then
-		# fallback case
-		if command-missing npm; then
-			fallbacks+=('npm')
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_npm"; then
-			# support multiple args inside NPM
-			mapfile -t _args < <(echo-split ' ' -- "$_npm")
-
-			# optional --force
-			if is-affirmative "$_force"; then
-				_args+=('--force')
-			fi
-
-			# install
-			eval_collapse -- npm install --global "${_args[@]}"
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_npm_fallback() {
-	setup-node
-	source "$DOROTHY/sources/environment.sh"
-	set +e # nvm prevents strict from working: .nvm/nvm.sh: line 1966: TMPDIR: unbound variable
-	source "$DOROTHY/sources/nvm.sh"
-	do_npm "$@"
-}
-
-# go
-function do_go() {
-	local _go="${GO-}"
-
-	# check applicabile
-	if test -n "$_go"; then
-		# fallback case
-		if command-missing go; then
-			fallbacks+=('go')
-			return 1
-		fi
-
-		# add version if not there
-		if [[ "$_go" != *'@'* ]]; then
-			_go="${_go}@latest"
-		fi
-
-		# package case
-		eval_collapse -- go install -v "$_go"
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_go_fallback() {
-	setup-go
-	source "$DOROTHY/sources/environment.sh"
-	do_go "$@"
-}
-
-# pip / Python
-function pip_helper {
-	# Use the correct [pip] executable for the user's environment, as there may be many or multiple installed, such as one for Python v2 and one for Python v3.
-	if command-exists pip; then
-		pip "$@"
-	elif python -m pip --version &>/dev/null; then
-		python -m pip "$@"
-	elif command-exists pip3; then
-		pip3 "$@"
-	elif python3 -m pip --version &>/dev/null; then
-		python -m pip "$@"
-	elif command-exists pip2; then
-		pip2 "$@"
-	elif python2 -m pip --version &>/dev/null; then
-		python -m pip "$@"
-	elif command-exists /usr/local/bin/pip; then
-		/usr/local/bin/pip "$@"
-	elif test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/pip"; then
-		"${HOMEBREW_PREFIX}/bin/pip" "$@"
-	else
-		stderr echo "could not find any pip"
-		exit 1
-	fi
-}
-function do_pip() {
-	local _args=() _pip="${PIP:-"${PYTHON-}"}" _eval="${PIP_EVAL-}"
-
-	if test -n "$_pip" -o -n "$_eval"; then
-		# fallback case
-		if ! pip_helper --version &>/dev/null; then
-			fallbacks+=('pip')
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_pip"; then
-			# support multiple args inside PIP
-			mapfile -t _args < <(echo-split ' ' -- "$_pip")
-
-			# install
-			eval_collapse -- pip_helper install --user --upgrade --force-reinstall --no-warn-script-location "${_args[@]}"
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_pip_fallback() {
-	setup-python
-	source "$DOROTHY/sources/environment.sh"
-	do_pip "$@"
-}
-
-# pipx / Python
-function do_pipx() {
-	local _args=() _pipx="${PIPX:-"${PYTHON-}"}"
-
-	# check applicablity
-	if test -n "$_pipx"; then
-		# fallback case
-		if command-missing pipx; then
-			fallbacks+=('pipx')
-			return 1
-		fi
-
-		# support multiple args inside PIPX
-		mapfile -t _args < <(echo-split ' ' -- "$_pipx")
-
-		# package case
-		eval_collapse -- pipx install "${_args[@]}"
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_pipx_fallback() {
-	if ! pip_helper --version &>/dev/null; then
-		setup-python
-	fi
-	setup-util-pipx
-	source "$DOROTHY/sources/environment.sh"
-	do_pipx "$@"
-}
-
-# gem / Ruby
-# we use --user-install because of:
-# https://github.com/ffi/ffi/issues/631
-function do_gem() {
-	local _gem="${GEM:-"${RUBY-}"}" _eval="${GEM_EVAL-}" _version="${GEM_VERSION-}"
-
-	# check relevancy
-	if test -n "$_gem" -o -n "$_eval"; then
-		# check requisites
-		if command-missing gem; then
-			fallbacks+=('gem')
-			return 1
-		fi
-
-		# eval case
-		if test -n "$_eval"; then
-			eval "$_eval"
-			return "$?"
-		fi
-
-		# package case
-		if test -n "$_gem"; then
-			gem uninstall "$_gem" -axI &>/dev/null
-			if test -n "$_version"; then
-				eval_collapse -- gem install "$_gem" --version "$_version" --user-install --no-document
-			else
-				eval_collapse -- gem install "$_gem" --user-install --no-document
-			fi
-		fi
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_gem_fallback() {
-	setup-ruby
-	source "$DOROTHY/sources/environment.sh"
-	do_gem "$@"
-}
-
-# cargo / Crates.io / Rust
-function do_cargo() {
-	local _cargo="${CARGO:-"${RUST-}"}"
-
-	# check applicabile
-	if test -n "$_cargo"; then
-		# fallback case
-		if command-missing cargo; then
-			fallbacks+=('cargo')
-			return 1
-		fi
-
-		# package case
-		if test "$option_quiet" != 'yes'; then
-			log-performance
-		fi
-		eval_collapse -- cargo install "$_cargo"
-	else
-		# not applicable
-		return 1
-	fi
-}
-function do_cargo_fallback() {
-	setup-rust
-	source "$DOROTHY/sources/environment.sh"
-	do_cargo "$@"
-}
-
-# installer / Manual Installer
-function do_installer() {
-	local _temp _installer="${INSTALLER-}"
-
-	# check applicabile
-	if test -n "$_installer"; then
-		# download the installer to temp, then open it
-		_temp="$(fs-temp --prefix='setup-util--installer-')"
-		down "$_installer" --destination="$_temp"
-		open "$_temp"
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# curl / Manual Installer
-function do_curl() {
-	local _curl="${CURL-}"
-
-	# check applicabile
-	if test -n "$_curl"; then
-		# eval the URL
-		sh -c "$(fetch "$_curl")"
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# zip / Manual Installer
-function do_zip() {
-	local _zip="${ZIP-}" _filter="${ZIP_FILTER-}"
-
-	# check applicabile
-	if test -n "$_zip"; then
-		# download the zip, and optionally filter it, extracting to $XDG_BIN_HOME
-		mkdir -p "$XDG_BIN_HOME"
-		if test -n "$_filter"; then
-			eval_collapse -- down-zip "$_zip" --filter="$_filter" --destination="$XDG_BIN_HOME"
-		else
-			eval_collapse -- down-zip "$_zip" --destination="$XDG_BIN_HOME"
-		fi
-		# @todo is a chmod needed?
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# cmd / Manual Installer
-function do_cmd() {
-	local _cmd="${CMD-}"
-
-	# check applicabile
-	if test -n "$_cmd"; then
-		# SETUP_UTIL=yes so the cmd knows it is running inside SETUP_UTIL
-		# FORCE= so that its own dependencies aren't reinstalled
-		eval_collapse -- env SETUP_UTIL=yes FORCE= "$_cmd"
-	else
-		# not applicable
-		return 1
-	fi
-}
-
-# aur
-function do_aur() {
-	do_yay
-	do_pakku
-	do_paru
-	do_aurutils
-	do_pamac
-}
-
-# =====================================
-# Action
-
-# cycle through the order
-for installer in "${order[@]}"; do
-	# sanity check
-	if test -z "$installer"; then
-		echo-style --error="an empty order argument was provided"
-		echo-verbose "${order[@]}"
-		exit 22 # Invalid argument
-	fi
-	# # this installer was disabled, ignore
-	# if test -z "$installer"; then
-	# 	continue
-	# fi
-	# attempt installation
-	if "do_${installer}"; then
-		won "$installer"
-		exit 0
-	fi
-done
-
-# fallback for failed packages which are missing their package system
-if test "${#fallbacks[@]}" -ne 0; then
-	for installer in "${fallbacks[@]}"; do
-		if "do_${installer}_fallback"; then
-			won "$installer"
-			exit 0
-		fi
-	done
-fi
-
-# failure
-lost
-exit "$?"

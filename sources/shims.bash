@@ -29,26 +29,26 @@ BASH_MINOR_VERSION="${BASH_VERSION:2:1}"
 # lc  = lower case all
 if test "$BASH_MAJOR_VERSION" -eq 5 -a "$BASH_MINOR_VERSION" -ge 1; then
 	# >= bash v5.1
-	function ucf() {
+	function ucf {
 		echo "${1@u}"
 	}
-	function lc() {
+	function lc {
 		echo "${1@L}"
 	}
 elif test "$BASH_MAJOR_VERSION" -eq 4; then
 	# >= bash v4.0
-	function ucf() {
+	function ucf {
 		echo "${1^}"
 	}
-	function lc() {
+	function lc {
 		echo "${1,,}"
 	}
 else
 	# < bash v4.0
-	function ucf() {
+	function ucf {
 		echo "$1" # not important, implement later
 	}
-	function lc() {
+	function lc {
 		echo "$1" # not important, implement later
 	}
 fi
@@ -56,12 +56,12 @@ fi
 # testv = test variable is defined
 if test "$BASH_MAJOR_VERSION" -ge 5 || test "$BASH_MAJOR_VERSION" -eq 4 -a "$BASH_MINOR_VERSION" -ge 2; then
 	# >= bash v4.2
-	function testv() {
+	function testv {
 		test -v "$1"
 	}
 else
 	# < bash v4.2
-	function testv() {
+	function testv {
 		test -n "${!1-}"
 	}
 fi

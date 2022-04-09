@@ -1,66 +1,228 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2164,SC1091
 source "$DOROTHY/sources/strict.bash"
 
-# download a file
-# do not use the continue flags as they will prefer the local file over the remote file if the local exists
+function down() (
+	# supported downloaders
+	local available=() downloaders=(
+		aria2c
+		wget
+		curl
+		http
+	)
 
-# help
-if is-help "$@"; then
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		??????
-	EOF
-	return 22 # Invalid argument
-fi
+	# determine which downloaders are available
+	local downloader
+	for downloader in "${downloaders[@]}"; do
+		if command-exists "$downloader"; then
+			available+=("$downloader")
+		fi
+	done
 
-# options
-url="$(
-	ask --required \
-		--question="Enter the URL of the file to download" \
-		--default="${1-}"
-)"
-destination="$(get-flag-value destination -- "$@")" # custom destination
-if test -n "$destination"; then
-	dir="$(dirname "$destination")"
-	file="$(basename "$destination")"
-fi
+	# if no downloaders are available, install aria2
+	if test "${#available[@]}" -eq 0; then
+		env QUIET=yes setup-util-aria2
+		available+=(aria2c)
+	fi
 
-# https://github.com/aria2/aria2/issues/1137
-if command-exists aria2c; then
-	if test -n "$destination"; then
-		aria2c --allow-overwrite=true --auto-file-renaming=false --dir="$dir" --out="$file" "$url"
-	else
-		aria2c --allow-overwrite=true --auto-file-renaming=false "$url"
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Download a file, using the best available tool, and with the best available options.
+
+			USAGE:
+			down [...options] <url>
+
+			OPTIONS:
+			--downloader=<downloader>
+			    Enforce the usage of <downloader>.
+			    If omitted, the first available preferred downloader will be used.
+
+			--unzip-format=<format>
+			    Treat the download as a zip file, and enforce <format> as the extraction format.
+			    This option is handled by the [unziptar] command.
+
+			--unzip-filter=<filter>
+			    Treat the download as a zip fie, and only extract files that match the glob pattern <filter>.
+			    This option is handled by the [unziptar] command.
+
+			--directory=<path>
+			    Place downloaded file(s) inside <path>.
+			    If ommitted, the current working directory will be used.
+
+			--file=<filename>
+			    If only a single file was downloaded, rename it to <filename>.
+			    If multiple files were downloaded, then fail.
+
+			--path=<path>/<filename>
+			    Set the <path> and <filename> from this value.
+
+			DOWNLOADERS:
+			The following downloaders, sorted by order of preference, were determined to be available on your system:
+
+			    ${available[*]}
+
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item
+	local option_url=''
+	local option_downloader=''
+	local option_unzip_format=''
+	local option_unzip_filter=''
+	local option_directory=''
+	local option_file=''
+	local option_path=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--downloader='*) option_downloader="${item:13}" ;;
+		'--unzip-format='*) option_unzip_format="${item:15}" ;;
+		'--unzip-filter='*) option_unzip_filter="${item:15}" ;;
+		'--directory='*) option_directory="${item:12}" ;;
+		'--filename='*) option_file="${item:11}" ;;
+		'--path='*) option_path="${item:7}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$option_url"; then
+				option_url="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# destination shorthand
+	if test -n "$option_destination"; then
+		option_inside="$(dirname "$option_destination")"
+		option_file="$(basename "$option_destination")"
 	fi
-elif command-exists wget; then
-	#   -O,  --output-document=FILE      write documents to FILE
-	#   -o,  --output-file=FILE          log messages to FILE
-	#   -N,  --timestamping              don't re-retrieve files unless newer than local
-	#   -c,  --continue                  resume getting a partially-downloaded file
-	#   -q,  --quiet                     quiet (no output)
-	#   -v,  --verbose                   be verbose (this is the default)
-	#   -nv, --no-verbose                turn off verboseness, without being quiet
-	#        --show-progress             display the progress bar in any verbosity mode
-	# WARNING: timestamping does nothing in combination with -O. See the manual for details.
-	if test -n "$destination"; then
-		wget --output-document="$destination" "$url"
-	else
-		wget --timestamping "$url"
+
+	# ensure downloader
+	if test -z "$option_downloader"; then
+		option_downloader="${available[0]}"
+	elif ! is-needle "$option_downloader" "${available[@]}"; then
+		help "The specified downloader is not available: $option_downloader"
 	fi
-elif command-exists curl; then
-	if test -n "$destination"; then
-		curl -L "$url" -o "$destination"
+
+	# ensure inside
+	if test -z "$option_inside"; then
+		option_inside="$(pwd)"
 	else
-		curl -OL "$url"
+		# ensure the custom download directory exists
+		mkdir -p "$option_inside"
 	fi
-elif command-exists http; then
-	if test -n "$destination"; then
-		http --output "$destination" -d "$url"
+
+	# assert url
+	if test -z "$option_url"; then
+		help "No URL was provided."
+	fi
+
+	# =====================================
+	# Action
+
+	# if zip, then download to a temporary directory first
+	if test -n "$option_unzip_format" -o -n "$option_unzip_filter"; then
+		download_directory="$(fs-temp --directory='down' --directory)"
+		download_filename="$(fs-temp --root="$download_directory" --file --prefix='archive-file--')"
 	else
-		http -d "$url"
+		download_directory="$option_inside"
+		download_filename="$option_file" # can be empty
 	fi
-else
-	env QUIET=yes setup-util-aria2
-	down --url="$option_url" --destination="$option_destination"
+
+	# downloader helpers
+	function down_aria2c {
+		local args=(
+			--allow-overwrite=true
+			--auto-file-renaming=false
+			--dir="$download_directory"
+		)
+		if test -n "$download_filename"; then
+			args+=(
+				--out="$download_filename"
+			)
+		fi
+		aria2c "${args[@]}" "$option_url"
+	}
+	function down_wget {
+		#   -O,  --output-document=FILE      write documents to FILE
+		#   -o,  --output-file=FILE          log messages to FILE
+		#   -N,  --timestamping              don't re-retrieve files unless newer than local
+		#   -c,  --continue                  resume getting a partially-downloaded file
+		#   -q,  --quiet                     quiet (no output)
+		#   -v,  --verbose                   be verbose (this is the default)
+		#   -nv, --no-verbose                turn off verboseness, without being quiet
+		#        --show-progress             display the progress bar in any verbosity mode
+		# WARNING: timestamping does nothing in combination with -O. See the manual for details.
+		pushd "$download_directory" >/dev/null
+		if test -n "$download_filename"; then
+			wget --output-document="$download_filename" "$option_url"
+		else
+			wget --timestamping "$option_url"
+		fi
+		popd >/dev/null
+	}
+	function down_curl {
+		pushd "$download_directory" >/dev/null
+		if test -n "$download_filename"; then
+			curl -L "$option_url" -o "$download_filename"
+		else
+			curl -OL "$option_url"
+		fi
+		popd >/dev/null
+	}
+	function down_http {
+		pushd "$download_directory" >/dev/null
+		if test -n "$download_filename"; then
+			http --output "$download_filename" -d "$option_url"
+		else
+			http -d "$option_url"
+		fi
+		popd >/dev/null
+	}
+
+	# invoke the downlaoder
+	case "$option_downloader" in
+	'aria2c' | 'wget' | 'curl' | 'http') down_"$option_downloader" ;;
+	*) help "Invalid downloader." ;;
+	esac
+
+	# if desired, perform extraction of the temporary file
+	if test -n "$option_unzip_format" -o -n "$option_unzip_filter"; then
+		unziptar "$download_directory/$download_filename" \
+			--inside="$option_inside" \
+			--format="$option_unzip_format" \
+			--filter="$option_unzip_filter"
+	fi
+
+	# filename handling
+	if test -n "$option_file"; then
+		# assert it was created
+		if test ! -e "$option_inside/$option_file"; then
+			echo-style --error="Failed to download" ' ' --code="$option_url" ' to ' --code="$option_inside/$option_file" >/dev/stderr
+			exit 1
+		fi
+	fi
+
+	# add a nice output if not in verbose mode
+	# eval_collapse \
+	# 		--pending="$(echo-style --bold="Downloading $url")" \
+	# 		--success="$(echo-style --success="Downloaded $url")" \
+	# 		--failure="$(echo-style --error="Failed to download $url")" \
+	# 		--
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	down "$@"
 fi

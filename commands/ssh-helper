@@ -2,220 +2,229 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/nullglob.bash"
 
-# =====================================
-# Arguments
+function ssh-helper() (
+	# =====================================
+	# Arguments
 
-# prepare
-actions=(
-	'new'
-	'add'
-	'permissions'
-	'test'
-	'connect'
-)
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Helpers for interacting with SSH.
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Helpers for interacting with SSH.
+			USAGE:
 
-		USAGE:
+			ssh-helper new
+			  <filename>
+			  <comment, e.g. your email>
 
-		ssh-helper new
-		  <filename>
-		  <comment, e.g. your email>
+			    Generate a new SSH key with appropriate conventions.
 
-		    Generate a new SSH key with appropriate conventions.
+			ssh-helper add
 
-		ssh-helper add
+			    Make the SSH agent aware of all your SSH keys.
 
-		    Make the SSH agent aware of all your SSH keys.
+			ssh-helper permissions
 
-		ssh-helper permissions
+			    Correct the permissions for the SSH files.
 
-		    Correct the permissions for the SSH files.
+			ssh-helper test
+			  <server URI>
 
-		ssh-helper test
-		  <server URI>
+			    Test whether or not your SSH agent can correctly authenticate to the server.
 
-		    Test whether or not your SSH agent can correctly authenticate to the server.
+			ssh-helper connect
+			  <...ssh args, e.g. server URI>
 
-		ssh-helper connect
-		  <...ssh args, e.g. server URI>
+			    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the [ssh] command, as they are passed directly to it.
 
-		    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the [ssh] command, as they are passed directly to it.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
 
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
-
-# process
-action=''
-action_args=()
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*)
-		action="$item"
-		action_args+=("$@")
-		shift $#
-		break
-		;;
-	esac
-done
-
-# ensure valid action
-action="$(
-	choose-option --required \
-		--question='which action to perform?' \
-		--filter="$action" -- "${actions[@]}"
-)"
-
-# =====================================
-# Actions
-
-function ssh_new {
-	local name comment path
-	name="${1:?"USAGE: ssh-helper new <key name> [key comment, e.g. your email]"}"
-	comment="${2:-"$name"}"
-
-	# prepare
-	mkdir -p "$HOME/.ssh"
-	touch "$HOME/.ssh/config"
-
-	# make the new key
-	path="$HOME/.ssh/$name"
-	for old_public_or_private_key in "$path"*; do
-		rm -v "$old_public_or_private_key"
+	# process
+	local item action='' args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			action="$item"
+			args+=("$@")
+			shift $#
+			break
+			;;
+		esac
 	done
-	echo "Creating new ssh-key at $path with comment $comment"
-	ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
 
-	# add the new key to ssh configuration
-	# http://stackoverflow.com/a/33228296/130638
-	printf '\nIdentityFile ~/.ssh/%s' "$name" >>"$HOME/.ssh/config"
+	# ensure valid action
+	local actions=(
+		'new'
+		'add'
+		'permissions'
+		'test'
+		'connect'
+	)
+	action="$(
+		choose-option --required \
+			--question='which action to perform?' \
+			--filter="$action" -- "${actions[@]}"
+	)"
 
-	# output the public key so the user can add it to the service
-	cat <<-EOF
-		Public key that you can share is outputted below
-		------------------------------------------------
-		$(cat "${path}.pub")
-	EOF
-}
+	# =====================================
+	# Actions
 
-function act_add {
-	local ssh_add_new ssh_add_known private_key public_key
+	function ssh_new {
+		local name comment path
+		name="${1-}"
+		comment="${2:-"$name"}"
+		path="$HOME/.ssh/$name"
 
-	# ensure dir and permissions
-	act_permissions
+		# check
+		if test -z "$name"; then
+			help "Missing <filename> in [ssh-helper new <filename>]."
+		fi
 
-	# which command
-	ssh_add_new=()
-	ssh_add_known=()
-	if is-mac; then
-		if test "$(uname -r | cut -d . -f1)" -ge 21; then
-			ssh_add_new=(
-				'/usr/bin/ssh-add'
-				'--apple-use-keychain'
-			)
-			ssh_add_known=(
-				'/usr/bin/ssh-add'
-				'--apple-load-keychain'
-			)
+		# prepare
+		mkdir -p "$HOME/.ssh"
+		touch "$HOME/.ssh/config"
+
+		# remove the old keys
+		rm -v "$path"*
+
+		# make the new key
+		echo "Creating new ssh-key at $path with comment $comment"
+		ssh-keygen -t rsa -b 4096 -C "$comment" -f "$path"
+
+		# add the new key to ssh configuration
+		# http://stackoverflow.com/a/33228296/130638
+		printf '\nIdentityFile ~/.ssh/%s' "$name" >>"$HOME/.ssh/config"
+
+		# output the public key so the user can add it to the service
+		cat <<-EOF
+			Public key that you can share is outputted below
+			------------------------------------------------
+			$(cat "${path}.pub")
+		EOF
+	}
+
+	function ssh_add {
+		local add_new add_known
+
+		# ensure dir and permissions
+		act_permissions
+
+		# which command
+		add_new=()
+		add_known=()
+		if is-mac; then
+			if test "$(uname -r | cut -d . -f1)" -ge 21; then
+				add_new=(
+					'/usr/bin/ssh-add'
+					'--apple-use-keychain'
+				)
+				add_known=(
+					'/usr/bin/ssh-add'
+					'--apple-load-keychain'
+				)
+			else
+				add_new=(
+					'/usr/bin/ssh-add'
+					'-K'
+				)
+				add_known=(
+					'/usr/bin/ssh-add'
+					'-A'
+				)
+			fi
 		else
-			ssh_add_new=(
-				'/usr/bin/ssh-add'
+			add_new=(
+				'ssh-add'
 				'-K'
 			)
-			ssh_add_known=(
-				'/usr/bin/ssh-add'
+			add_known=(
+				'ssh-add'
 				'-A'
 			)
 		fi
-	else
-		ssh_add_new=(
-			'ssh-add'
-			'-K'
-		)
-		ssh_add_known=(
-			'ssh-add'
-			'-A'
-		)
-	fi
 
-	# for found keys, correct permissions, add to keychain, add to agent
-	find "$HOME/.ssh/"*.pub | while read -r public_key; do
-		chmod 600 "$public_key" || :
-		private_key="${public_key%.pub}"
-		if test -f "$private_key"; then
-			chmod 600 "$private_key" || :
-			("${ssh_add_new[@]}" "$private_key") || :
-		fi
-	done
+		# for found keys, correct permissions, add to keychain, add to agent
+		local public_key private_key
+		find "$HOME/.ssh/"*.pub | while read -r public_key; do
+			chmod 600 "$public_key" || :
+			private_key="${public_key%.pub}"
+			if test -f "$private_key"; then
+				chmod 600 "$private_key" || :
+				("${add_new[@]}" "$private_key") || :
+			fi
+		done
 
-	# add known keys to keychain and agent
-	("${ssh_add_known[@]}") || :
-}
-
-# permissions
-function act_permissions {
-	# create .ssh config file if necessary
-	mkdir -p "$HOME/.ssh"
-	if test ! -f "$HOME/.ssh/config"; then
-		touch "$HOME/.ssh/config"
-	fi
-
-	# ensure correct permissions
-	fs-own --changes --directory-permissions='700' --file-permissions='600' -- "$HOME/.ssh"
-}
-
-function act_test {
-	local uri ec
-
-	# options
-	uri="$(
-		ask --required \
-			--question='Which SSH URI to test the connection to?' \
-			--default="${1:-"git@github.com"}"
-	)"
-
-	# test and fetch exit code
-	ec=0 && silent ssh -qT "$uri" || ec="$?"
-
-	# 0 no error
-	# 1 success but error - this is what github does, as is not a real ssh terminal
-	# 255 configuration error - this is what we are after
-	test "$ec" -le 1
-}
-
-function act_connect {
-	local ec
-
-	# act
-	(ssh "$@") || {
-		ec="$?" # 130 is ssh open then closed
-		if test "$ec" -ne 130; then
-			stderr echo "failed with $ec will try again in 10 seconds..."
-			sleep 5
-			act_connect "$@"
-		fi
+		# add known keys to keychain and agent
+		("${add_known[@]}") || :
 	}
-}
 
-# =====================================
-# Act
+	# permissions
+	function ssh_permissions {
+		# create .ssh config file if necessary
+		mkdir -p "$HOME/.ssh"
+		if test ! -f "$HOME/.ssh/config"; then
+			touch "$HOME/.ssh/config"
+		fi
 
-if test "$(type -t "act_$action")" = 'function'; then
-	"act_$action" "${action_args[@]}"
-	exit "$?"
-else
-	echo-style --error="Action [$action] not yet implemented." >/dev/stderr
-	exit 78 # Function not implemented
+		# ensure correct permissions
+		fs-own --changes --directory-permissions='700' --file-permissions='600' -- "$HOME/.ssh"
+	}
+
+	function ssh_test {
+		local uri="${1-}" ec
+
+		# ensure
+		if test -z "$uri"; then
+			uri="$(
+				ask --required \
+					--question='Which SSH URI to test the connection to?' \
+					--default="git@github.com"
+			)"
+		fi
+
+		# test and fetch exit code
+		ec=0 && silent ssh -qT "$uri" || ec="$?"
+
+		# 0 no error
+		# 1 success but error - this is what github does, as is not a real ssh terminal
+		# 255 configuration error - this is what we are after
+		test "$ec" -le 1
+	}
+
+	function ssh_connect {
+		local ec
+		(ssh "$@") || {
+			ec="$?" # 130 is ssh open then closed
+			if test "$ec" -ne 130; then
+				echo-style --notice="Failed with exit code [$ec], will try again in 10 seconds..." >/dev/stderr
+				sleep 5
+				ssh_connect "$@"
+			fi
+		}
+	}
+
+	# =====================================
+	# Act
+
+	if test "$(type -t "ssh_$action")" = 'function'; then
+		"ssh_$action" "${args[@]}"
+		return "$?"
+	else
+		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
+		return 78 # Function not implemented
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	ssh-helper "$@"
 fi

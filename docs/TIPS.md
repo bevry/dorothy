@@ -20,10 +20,6 @@
 # get exit codes
 errno -l | cut -d' ' -f2-
 
-# ignore exit code with Dorothy's `ok` command
-ok the-error-command arg1 arg2
-ok exit 1
-
 # ignore exit code with `|| :` bash builtin, note that this makes exit code always 0
 the-error-command arg1 arg2 || :
 echo $?  # 0
@@ -301,7 +297,7 @@ echo ${a[@]::2}  # get all items until the second index, starting at 0
 source "$DOROTHY/sources/strict.bash"
 
 # mapfile of an empty value will produce an array with 1 value which is empty
-mapfile -t a < <(failure-because-this-method-does-not-exist | fail-on-empty-stdin 'empty stdin')
+mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail)
 # bash: failure-because-this-method-does-not-exist: command not found
 # empty stdin
 echo $? # 0
@@ -310,7 +306,7 @@ echo "${a[@]}" # empty
 
 # when using <() the correct length is returned
 # however even with strict, there is no hard fail
-mapfile -t a < <(stderr echo 'error' | fail-on-empty-stdin 'empty stdin')
+mapfile -t a < <(stderr echo 'error' | echo-or-fail)
 # error
 # empty stdin
 echo $?  # 0

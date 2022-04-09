@@ -11,7 +11,7 @@ if test -z "${RIPGREP_BIN_PATH-}"; then
 
 	# workaround for ripgrep outputting colors in pipes
 	RIPGREP_BIN_PATH="$(which rg)"
-	rg() {
+	function rg {
 		"$RIPGREP_BIN_PATH" --no-line-number --color never "$@"
 	}
 fi

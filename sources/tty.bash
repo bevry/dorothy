@@ -6,37 +6,37 @@
 # These create a new TTY that can be cleared without affecting the prior TTY.
 # https://unix.stackexchange.com/a/668615/50703
 
-tty_start() {
+function tty_start {
 	tput smcup >/dev/tty
 	tput cup 0 0 >/dev/tty
 }
 
-tty_clear() {
+function tty_clear {
 	tput clear >/dev/tty # also resets cursor to top
 }
 
-tty_finish() {
+function tty_finish {
 	# `tput rmcup` does not persist stderr, so for failure/stderr dumps, use `sleep 5` to ensure sterr is visible for long enough to be noticed before wiped.
 	tput rmcup >/dev/tty
 }
 
-tty_auto() {
+function tty_auto {
 	tty_start
 	trap tty_finish EXIT
 }
 
 # if alt tty is disabled however, then disable it
 if is-affirmative "${NO_ALT_TTY-}" || test "$(echo-exit-code is-affirmative "${ALT_TTY-}")" -eq 1; then
-	tty_start() {
+	function tty_start {
 		return
 	}
-	tty_clear() {
+	function tty_clear {
 		return
 	}
-	tty_finish() {
+	function tty_finish {
 		return
 	}
-	tty_auto() {
+	function tty_auto {
 		return
 	}
 fi
@@ -47,14 +47,14 @@ fi
 # As such, these are prone to failure, and you should use the earlier methods instead.
 # https://stackoverflow.com/a/69138082/130638
 
-tty_get_y_x() {
+function tty_get_y_x {
 	local y x
 	IFS='[;' read -srd R -p $'\e[6n' _ y x </dev/tty
 	echo "$y"
 	echo "$x"
 }
 
-tty_set_y_x() {
+function tty_set_y_x {
 	local y x
 	if test "$#" -eq 0; then
 		mapfile -t yx < <(tty_get_y_x)
@@ -67,11 +67,11 @@ tty_set_y_x() {
 	printf "\e[${y};${x}H" >/dev/tty
 }
 
-tty_erase_to_end() {
+function tty_erase_to_end {
 	printf "\e[J" >/dev/tty
 }
 
-tty_erase_from_y_x() {
+function tty_erase_from_y_x {
 	tty_set_y_x "${1-}" "${2-}"
 	tty_erase_to_end
 }

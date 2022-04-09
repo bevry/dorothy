@@ -3,237 +3,262 @@
 # ^ [echo -en] doesn't work with escape codes on bash v3, [printf ...] does
 source "$DOROTHY/sources/strict.bash"
 
-# =====================================
-# Arguments
+function confirm() (
+	# =====================================
+	# Arguments
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		USAGE:
-		confirm --ppid=\$\$ [<...flags>] -- [<question> [<...details>]]
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
+			confirm --ppid=\$\$ [...options] -- <question> ...[detail]
 
-		FLAGS:
-		[--mode=<bool, positive, negative, confirm>]
-		[--timeout=<timeout in seconds>]
-		[--yes=<on positive confirmations, what value to display>]
-		[--no=<on negative confirmations, what value to display>]
-		[--abort=<on aborted confirmations, what value to display>]
-		[--ppid=<on aborted confirmations, terminate this process id>]
+			OPTIONS:
+			--mode=<bool|positive|negative|confirm>
+			    [bool] mode forces a positive or negative confirmation, with no default.
+			    [positive] mode defaults to a positive confirmation.
+			    [negative] mode defaults to a negative confirmation.
+			    [confirm] mode forces a confirmation, with no default.
 
-		QUIRKS:
-		Why is --ppid=\$\$ necessary?
-		As negative confirmations return a failure exit code, and abortions a different failure exit code, you probably need to use [--ppid=\$\$] so that confirmation abortions actually continue the abortion, and are not just considered a negative confirmation.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+			--timeout=<timeout>
+			    Specify the timeout in seconds.
+			    Under <negative> mode, defaults to 60 seconds (one minute) before defaulting to a negative confirmation.
+			    Under <positive> mode, defaults to 60 seconds (one minute) before defaulting to a positive confirmation.
+			    Under other modes, defaults to 3600 seconds (one hour) before abortion occurs.
+
+			--yes=<OK>
+			    What to display to the user for positive confirmations, defaults to "OK".
+
+			--no=<CANCEL>
+			    What to display to the user for negative confirmations, defaults to "CANCEL".
+
+			--abort=<ABORT>
+			    What to display to the user for aborted confirmations, defaults to "ABORT".
+
+			--ppid=<ppid>
+			    Specifies the parent process ID to also terminate upon abortion.
+			    In bourne shells this is specified like so [--ppid=\$\$]
+			    This is necessary because the typical usage of [if confirm ...; then ...; else ...; fi]
+			    will only catch positive and negative confirmations, but not abortion cases,
+			    as such abortions would otherwise be registered as negative cases.
+			    Providing the parent process ID allows the abortion to propagate to the parent,
+			    allowing the intended abortion behaviour to propagate.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# prepare
+	local item question_parts=() mode='confirm' timeout='3600' yes='OK' no='CANCEL' abort='ABORT' ppid=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--mode='*)
+			mode="${item:7}" # bool/positive/negative/confirm
+			if test "$mode" = 'positive' -o "$mode" = 'negative'; then
+				timeout='60' # one minute
+				yes='YES'
+				no='NO'
+			elif test "$mode" = 'bool'; then
+				yes='YES'
+				no='NO'
+			fi
+			;;
+		'--timeout='*) timeout="${item:10}" ;;
+		'--yes='*) yes="${item:6}" ;;
+		'--no='*) no="${item:5}" ;;
+		'--abort='*) abort="${item:8}" ;;
+		'--ppid='*) ppid="${item:7}" ;; # alias for term
+		'--')
+			question_parts+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# requirements
+	if test -z "$ppid"; then
+		help '--ppid=$$ is necessary'
 	fi
-	return 22 # Invalid argument
-}
 
-# prepare
-question_parts=()
+	# =====================================
+	# Helpers
 
-# process
-option_mode='confirm'
-option_timeout='3600' # one hour
-option_yes='OK'
-option_no='CANCEL'
-option_abort='ABORT'
-option_ppid=''
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--mode='*)
-		option_mode="${item:7}" # bool/positive/negative/confirm
-		if test "$option_mode" = 'positive' -o "$option_mode" = 'negative'; then
-			option_timeout='60' # one minute
-			option_yes='YES'
-			option_no='NO'
-		elif test "$option_mode" = 'bool'; then
-			option_yes='YES'
-			option_no='NO'
-		fi
-		;;
-	'--timeout='*) option_timeout="${item:10}" ;;
-	'--yes='*) option_yes="${item:6}" ;;
-	'--no='*) option_no="${item:5}" ;;
-	'--abort='*) option_abort="${item:8}" ;;
-	'--ppid='*) option_ppid="${item:7}" ;; # alias for term
-	'--')
-		question_parts+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
-	esac
-done
+	# used to process the input
+	function confirmer {
+		local ec answer
 
-# requirements
-if test -z "$option_ppid"; then
-	help '--ppid=$$ is necessary'
-fi
+		# ask and timeout
+		ec=0 && answer="$(read-key --timeout="$timeout")" || ec="$?"
 
-# =====================================
-# Helpers
+		# process
+		if test "$mode" = 'positive'; then
+			# positive
+			if test "$ec" -eq 62; then
+				return 0 # timeout
+			elif test "$ec" -ne 0; then
+				return "$ec" # failure
+			fi
+			ec=0 && is-affirmative "$answer" || ec="$?"
+			if test "$ec" -lt 2; then
+				return "$ec"
+			elif test "$answer" = 'enter' -o "$answer" = 'space'; then
+				return 0
+			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+				return 125 # Operation canceled
+			fi
 
-# used to process the input
-function confirmer() {
-	local ec answer
+		elif test "$mode" = 'negative'; then
+			# negative
+			if test "$ec" -eq 62; then
+				return 1 # timeout
+			elif test "$ec" -ne 0; then
+				return "$ec" # failure
+			fi
+			ec=0 && is-affirmative "$answer" || ec="$?"
+			if test "$ec" -lt 2; then
+				return "$ec"
+			elif test "$answer" = 'enter' -o "$answer" = 'space'; then
+				return 1
+			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+				return 125 # Operation canceled
+			fi
 
-	# ask and timeout
-	ec=0 && answer="$(read-arrow --timeout "$option_timeout")" || ec="$?"
+		elif test "$mode" = 'bool'; then
+			# bool
+			if test "$ec" -ne 0; then
+				return "$ec" # timeout and failure
+			fi
+			ec=0 && is-affirmative "$answer" || ec="$?"
+			if test "$ec" -lt 2; then
+				return "$ec"
+			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+				return 125 # Operation canceled
+			fi
 
-	# process
-	if test "$option_mode" = 'positive'; then
-		# positive
-		if test "$ec" -eq 62; then
-			return 0 # timeout
-		elif test "$ec" -ne 0; then
-			return "$ec" # failure
-		fi
-		ec=0 && is-affirmative "$answer" || ec="$?"
-		if test "$ec" -lt 2; then
-			return "$ec"
-		elif test "$answer" = 'enter' -o "$answer" = 'space'; then
-			return 0
-		elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-			return 125 # Operation canceled
-		fi
+		elif test "$mode" = 'confirm'; then
+			# confirm
+			if test "$ec" -ne 0; then
+				return "$ec" # timeout and failure
+			fi
+			ec=0 && is-affirmative "$answer" || ec="$?"
+			if test "$ec" -lt 2; then
+				return "$ec"
+			elif test "$answer" = 'enter' -o "$answer" = 'space'; then
+				return 0
+			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
+				return 125 # Operation canceled
+			fi
 
-	elif test "$option_mode" = 'negative'; then
-		# negative
-		if test "$ec" -eq 62; then
-			return 1 # timeout
-		elif test "$ec" -ne 0; then
-			return "$ec" # failure
-		fi
-		ec=0 && is-affirmative "$answer" || ec="$?"
-		if test "$ec" -lt 2; then
-			return "$ec"
-		elif test "$answer" = 'enter' -o "$answer" = 'space'; then
-			return 1
-		elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-			return 125 # Operation canceled
-		fi
-
-	elif test "$option_mode" = 'bool'; then
-		# bool
-		if test "$ec" -ne 0; then
-			return "$ec" # timeout and failure
-		fi
-		ec=0 && is-affirmative "$answer" || ec="$?"
-		if test "$ec" -lt 2; then
-			return "$ec"
-		elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-			return 125 # Operation canceled
-		fi
-
-	else
-		# confirm
-		if test "$ec" -ne 0; then
-			return "$ec" # timeout and failure
-		fi
-		if test "$answer" = 'escape'; then
-			return 125 # Operation canceled
 		else
-			# @todo what happens here if scrolling on ssh
-			return 0
+			# unknown
+			help "An invalid <mode> was provided: $mode"
 		fi
-	fi
 
-	# try again, and erase any leaked characters
-	printf "\e[${hx}G\e[K"
-	confirmer "$@"
-	return "$?" # return with the above on success and failure
-}
+		# try again, and erase any leaked characters
+		printf "\e[${hx}G\e[K"
+		confirmer "$@"
+		return "$?" # return with the above on success and failure
+	}
 
-# =====================================
-# Question
+	# =====================================
+	# Question
 
-# prepare
-question_first_part="${question_parts[0]} " # this is stored for the finale
-question_parts_total="${#question_parts[@]}"
-question_parts_last="$((question_parts_total - 1))"
-header="$(mktemp)"
-lines=0
-ec=0
+	local question_first_part="${question_parts[0]} " # this is stored for the finale
+	local question_parts_total="${#question_parts[@]}"
+	local question_parts_last="$((question_parts_total - 1))"
+	local index header lines=0 result=0 _hx=''
+	header="$(mktemp)"
 
-# update the first question part
-if test "$option_mode" = 'positive'; then
-	question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
-elif test "$option_mode" = 'negative'; then
-	question_parts[0]+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
-elif test "$option_mode" = 'bool'; then
-	question_parts[0]+=" $(echo-style --blink='(y/n)')"
-fi
-
-# output the question parts
-# saving the cursor position of the first line
-# and outputting a newline beteen all lines, except the last, which should not have a trailing line
-for ((i = 0; i < "$question_parts_total"; i++)); do
-	echo -n "${question_parts[i]} " | tee -a "$header"
-	if test "$i" -eq 0; then
-		# read cursor x y, discard y, set hx to y
-		IFS='[;' read -srd R -p $'\e[6n' _ _ hx
-	fi
-	if test "$i" -ne "$question_parts_last"; then
-		echo | tee -a "$header"
-	fi
-done
-
-# move the cursor
-if test "$question_parts_total" -ne 0; then
-	# reposition the cursor, to after the options in the first part
-	lines="$(echo-count-lines --no-inline <"$header")"
-	# move these lines up
-	if test "$lines" -ne 0; then
-		printf "\e[${lines}F"
-	fi
-	# move to the hx column
-	printf "\e[${hx}G"
-fi
-
-# handle terminations
-function failure() {
-	ec="$?"
-}
-function finish() {
-	# in case we were called naturally, erase the listen
-	trap - EXIT
-	# make sure to erase question, as ctrl+c buggers everything
-	echo -n $'\e[G\e[J'
-	# output the finale
-	if test "$ec" -eq 0; then
-		echo-style "$question_first_part" --green+bold="$option_yes"
-	elif test "$ec" -eq 1; then
-		echo-style "$question_first_part" --red+bold="$option_no"
+	# update the first question part
+	if test "$mode" = 'positive'; then
+		question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
+	elif test "$mode" = 'negative'; then
+		question_parts[0]+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
+	elif test "$mode" = 'bool'; then
+		question_parts[0]+=" $(echo-style --blink='(y/n)')"
+	elif test "$mode" = 'confirm'; then
+		question_parts[0]+=" $(echo-style --blink='(CONFIRM)')"
 	else
-		echo-style "$question_first_part" --red+bold="$option_abort"
-		if test -n "$option_ppid"; then
-			# kill "-$ec" ...
-			# ^ fails because 130 isn't supported
-			# kill -n ... ...
-			# kill "-$(kill -l "$ec")" ...
-			# ^ works but isn't serious enough to cause the termination
-			# "$(ps -p $$ -o ppid=)"
-			# ^ doesn't work, as is different pid than manual
-			kill "$option_ppid"
-		fi
+		help "An invalid <mode> was provided: $mode"
 	fi
-}
-trap failure SIGINT SIGTERM
-trap finish EXIT
 
-# read and handle answer
-confirmer || ec="$?"
-finish
-exit "$ec" # exit with the result
+	# output the question parts
+	# saving the cursor position of the first line
+	# and outputting a newline beteen all lines, except the last, which should not have a trailing line
+	for ((index = 0; index < "$question_parts_total"; index++)); do
+		echo -n "${question_parts[index]} " | tee -a "$header"
+		if test "$index" -eq 0; then
+			# read cursor x y, discard y, set hx to y
+			IFS='[;' read -srd R -p $'\e[6n' _ _ hx
+		fi
+		if test "$index" -ne "$question_parts_last"; then
+			echo | tee -a "$header"
+		fi
+	done
 
-# @todo
-# an alternative implementation could be a new line like this at the end, with ENTER and ESCAPE and SPACE as the correct outputs
-# echo-style --blink='Press: ' --blink+green+bold='y ' --blink='for ' --blink+green='YES' --blink=', ' --blink+red+bold='n ' --blink='for ' --blink+red='NO' --blink=', ' --blink+bold='ENTER '  --blink='for ' --blink+red='NO'
+	# move the cursor
+	if test "$question_parts_total" -ne 0; then
+		# reposition the cursor, to after the options in the first part
+		lines="$(echo-count-lines --no-inline <"$header")"
+		# move these lines up
+		if test "$lines" -ne 0; then
+			printf "\e[${lines}F"
+		fi
+		# move to the hx column
+		printf "\e[${hx}G"
+	fi
 
-# using \e[s (save) and \e[u (restore) for ctrl+c handling did not work
+	# handle terminations
+	function failure {
+		result="$?"
+	}
+	function finish {
+		# in case we were called naturally, erase the listen
+		trap - EXIT
+		# make sure to erase question, as ctrl+c buggers everything
+		printf '\e[G\e[J'
+		# output the finale
+		if test "$result" -eq 0; then
+			echo-style "$question_first_part" --green+bold="$yes"
+		elif test "$result" -eq 1; then
+			echo-style "$question_first_part" --red+bold="$no"
+		else
+			echo-style "$question_first_part" --red+bold="$abort"
+			if test -n "$ppid"; then
+				# kill "-$ppid" ...
+				# ^ fails because 130 isn't supported
+				# kill -n ... ...
+				# kill "-$(kill -l "$ppid")" ...
+				# ^ works but isn't serious enough to cause the termination
+				# "$(ps -p $$ -o ppid=)"
+				# ^ doesn't work, as is different pid than manual
+				kill "$ppid"
+			fi
+		fi
+	}
+	trap failure SIGINT SIGTERM
+	trap finish EXIT
+
+	# read and handle answer
+	confirmer || result="$?"
+	finish
+	exit "$result" # exit with the result
+
+	# @todo
+	# an alternative implementation could be a new line like this at the end, with ENTER and ESCAPE and SPACE as the correct outputs
+	# echo-style --blink='Press: ' --blink+green+bold='y ' --blink='for ' --blink+green='YES' --blink=', ' --blink+red+bold='n ' --blink='for ' --blink+red='NO' --blink=', ' --blink+bold='ENTER '  --blink='for ' --blink+red='NO'
+
+	# using \e[s (save) and \e[u (restore) for ctrl+c handling did not work
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	confirm "$@"
+fi

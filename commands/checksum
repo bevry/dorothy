@@ -3,146 +3,153 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile' 'empty'
 
-# =====================================
-# Arguments
-
-# prepare
-algorithms=()
-for alg in 'md5sum' 'shasum' 'sha256sum'; do
-	if command-exists "$alg"; then
-		algorithms+=("$alg")
-	fi
-done
-
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Get the checksum for a path, with progress updates if it takes a while.
-
-		USAGE:
-		checksum [...options]
-		    Checksums the current directory.
-
-		checksum [...options] -- <...paths>
-		    Checksums each path provided.
-
-		OPTIONS:
-		--summary
-		    Summarises the directory as a single checksum.
-
-		--relative
-		    Use relative paths instead of absolute paths.
-
-		--untitled
-		    Do not display the path that the checksums are for.
-
-		--algorithm=<algorithm>
-		    Forces a specific algorithm to be used.
-
-		ALGORITHMS:
-		We have determined the following algorithms are available on your system:
-		$(echo-lines --indent='    ' "${algorithms[@]}")
-
-		QUIRKS:
-		[--relative] does not respect pwd, as such [--relative] is only useful when in [--no-summary] mode.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
-
-# process
-option_paths=()
-option_relative='no'
-option_untitled='no'
-option_summary='no'
-option_algorithm=''
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--no-relative'* | '--relative'*)
-		option_relative="$(get-flag-value relative --missing="$option_relative" -- "$item" | echo-affirmative)"
-		;;
-	'--no-untitled'* | '--untitled'*)
-		option_untitled="$(get-flag-value untitled --missing="$option_untitled" -- "$item" | echo-affirmative)"
-		;;
-	'--no-summary'* | '--summary'*)
-		option_summary="$(get-flag-value summary --missing="$option_summary" -- "$item" | echo-affirmative)"
-		;;
-	'--algorithm='*) option_algorithm="${item:12}" ;;
-	'--')
-		option_paths+=("$@")
-		shift "$#"
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
-	esac
-done
-
-# adjust algorithm
-option_algorithm="$(
-	choose-option --required \
-		--question='Which checksum algorithm do you wish to use?' \
-		--filter="$option_algorithm" -- "${algorithms[@]}"
-)"
-
-# adjust path
-paths=()
-if test "${#option_paths[@]}" -eq 0; then
-	paths+=("$(pwd)")
-else
-	for arg in "${option_paths[@]}"; do
-		paths+=("$(fs-absolute "$arg")")
-	done
-fi
-
-# =====================================
-# Dependencies
-
-env QUIET=yes setup-util-pv
-
-# =====================================
-# Action
-
-# helpers
-function do_checksum_of_stdin_with_filename {
-	local path="$1" relative="${2:-"$option_relative"}"
-	if test "$relative" = 'yes'; then
-		path="$(basename "$path")"
-	fi
-	"$option_algorithm" | {
-		IFS=' ' read -ra hash_dot
-		if test "$option_untitled" = 'yes'; then
-			echo "${hash_dot[0]}"
-		else
-			echo "${hash_dot[0]}  $path"
+function checksum() (
+	local item algorithms=()
+	for item in 'md5sum' 'shasum' 'sha256sum'; do
+		if command-exists "$item"; then
+			algorithms+=("$item")
 		fi
-	}
-}
-function do_checksum_of_file_or_directory {
-	# shows progress, works on files, and directories, and symlinks, and expands paths
-	# -L show symlinks too
-	local path="$1" relative="${2:-"$option_relative"}" file
-	find -L "$path" -type f | sort | while read -r file; do
-		pv --delay-start 5 "$file" | do_checksum_of_stdin_with_filename "$file" "$relative"
 	done
-}
 
-# act
-for path in "${paths[@]}"; do
-	if test -f "$path" -o "$option_summary" != 'yes'; then
-		# file, or itemise
-		do_checksum_of_file_or_directory "$path"
-	else
-		# directory and summarise
-		# force --relative, as otherwise full paths in checksums will ruin comparison
-		f="$(mktemp)"
-		do_checksum_of_file_or_directory "$path" 'yes' | tee "$f" | do_checksum_of_stdin_with_filename "$path"
-		rm "$f"
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Get the checksum for a path, with progress updates if it takes a while.
+
+			USAGE:
+			checksum [...options]
+			    Checksums the current directory.
+
+			checksum [...options] -- <...paths>
+			    Checksums each path provided.
+
+			OPTIONS:
+			--summary
+			    Summarises the directory as a single checksum.
+
+			--relative
+			    Use relative paths instead of absolute paths.
+
+			--untitled
+			    Do not display the path that the checksums are for.
+
+			--algorithm=<algorithm>
+			    Forces a specific algorithm to be used.
+
+			ALGORITHMS:
+			We have determined the following algorithms are available on your system:
+			$(echo-lines --indent='    ' "${algorithms[@]}")
+
+			QUIRKS:
+			[--relative] does not respect pwd, as such [--relative] is only useful when in [--no-summary] mode.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item path paths=() relative='no' untitled='no' summary='no' algorithm=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-relative'* | '--relative'*)
+			relative="$(get-flag-value relative --missing="$relative" -- "$item" | echo-affirmative)"
+			;;
+		'--no-untitled'* | '--untitled'*)
+			untitled="$(get-flag-value untitled --missing="$untitled" -- "$item" | echo-affirmative)"
+			;;
+		'--no-summary'* | '--summary'*)
+			summary="$(get-flag-value summary --missing="$summary" -- "$item" | echo-affirmative)"
+			;;
+		'--algorithm='*) algorithm="${item:12}" ;;
+		'--')
+			for path in "$@"; do
+				_paths+=("$(fs-absolute "$path")")
+			done
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# ensure algorithm
+	algorithm="$(
+		choose-option --required \
+			--question='Which checksum algorithm do you wish to use?' \
+			--filter="$algorithm" -- "${algorithms[@]}"
+	)"
+
+	# ensure paths
+	if test "${#_paths[@]}" -eq 0; then
+		paths+=("$(pwd)")
 	fi
-done
+
+	# =====================================
+	# Dependencies
+
+	env QUIET=yes setup-util-pv
+
+	# =====================================
+	# Action
+
+	# helpers
+	function do_checksum_of_stdin_with_filename {
+		local path="$1" use_relative="$2" hash_dot
+
+		# relative
+		if test "$use_relative" = 'yes'; then
+			path="$(basename "$path")"
+		fi
+
+		# algorithm
+		"$algorithm" | {
+			IFS=' ' read -ra hash_dot
+			if test "$untitled" = 'yes'; then
+				echo "${hash_dot[0]}"
+			else
+				echo "${hash_dot[0]}  $path"
+			fi
+		}
+	}
+	function do_checksum_of_file_or_directory {
+		local path="$1" use_relative="$2" file
+
+		# shows progress, works on files, and directories, and symlinks, and expands paths
+		# -L show symlinks too
+		find -L "$path" -type f | sort | while read -r file; do
+			pv --delay-start 5 "$file" | do_checksum_of_stdin_with_filename "$file" "$use_relative"
+		done
+	}
+	function do_checksum_of_paths {
+		local path temp_file use_relative="${2:-"$relative"}"
+		for path in "$@"; do
+			if test -f "$path" -o "$summary" != 'yes'; then
+				# file, or itemise
+				do_checksum_of_file_or_directory "$path" "$use_relative"
+			else
+				# directory and summarise
+				# force --relative, as otherwise full paths in checksums will ruin comparison
+				temp_file="$(mktemp)"
+				do_checksum_of_file_or_directory "$path" 'yes' | tee "$temp_file" | do_checksum_of_stdin_with_filename "$path" "$use_relative"
+				rm "$temp_file"
+			fi
+		done
+	}
+
+	# act
+	do_checksum_of_paths "${paths[@]}"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	checksum "$@"
+fi

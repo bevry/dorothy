@@ -3,121 +3,129 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile' 'empty'
 
-# =====================================
-# Arguments
+function is-same() (
+	# =====================================
+	# Arguments
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Compares two paths to determine if their contents are identical, compares:
-		- paths
-		- real paths, via [fs-realpath]
-		- structure, via [fs-structure]
-		- checksum, via [checksum]
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Compares two paths to determine if their contents are identical, compares:
+			- paths
+			- real paths, via [fs-realpath]
+			- structure, via [fs-structure]
+			- checksum, via [checksum]
 
-		USAGE:
-		is-same [...flags] -- <first path> <second path>
+			USAGE:
+			is-same [...flags] -- <first path> <second path>
 
-		FLAGS:
-		--algorithm=<algorithm>
-		    The algorithm to use for checksumming.
-		    See [checksum --help] for details.
+			FLAGS:
+			--algorithm=<algorithm>
+			    The algorithm to use for checksumming.
+			    See [checksum --help] for details.
 
-		RETURNS:
-		Exit code [0] if the same.
-		Exit code [1] if different.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+			RETURNS:
+			Exit code [0] if the same.
+			Exit code [1] if different.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item option_algorithm='' option_paths=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--algorithm='*) option_algorithm="${item:12}" ;;
+		'--')
+			option_paths+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# verify
+	if test "${#option_paths[@]}" -ne 2; then
+		help "Not enough paths were provided."
 	fi
-	return 22 # Invalid argument
-}
 
-# process
-option_algorithm=''
-option_paths=()
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--algorithm='*) option_algorithm="${item:12}" ;;
-	'--')
-		option_paths+=("$@")
-		shift "$#"
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
-	esac
-done
+	# =====================================
+	# Action
 
-# verify
-if test "${#option_paths[@]}" -ne 2; then
-	help "Not enough paths were provided."
+	# extract and absolute the paths
+	local first_path second_path
+	first_path="$(fs-absolute "${option_paths[0]}")"
+	second_path="$(fs-absolute "${option_paths[1]}")"
+
+	# same path
+	if test "$first_path" = "$second_path"; then
+		echo-style \
+			--h1="$first_path" $'\n' \
+			$'\n' \
+			--h1="$second_path" $'\n' \
+			$'\n' \
+			--g1="^ same because they are the same path"
+		return 0
+	fi
+
+	# same target
+	if test "$(fs-realpath "$first_path")" = "$(fs-realpath "$second_path")"; then
+		echo-style \
+			--h1="$first_path" $'\n' \
+			$'\n' \
+			--h1="$second_path" $'\n' \
+			$'\n' \
+			--g1="^ same because they are are symlinked"
+		return 0
+	fi
+
+	# same structure
+	local first_structure second_structure
+	first_structure="$(fs-structure "$first_path")"
+	second_structure="$(fs-structure "$second_path")"
+	if test "$first_structure" != "$second_structure"; then
+		echo-style \
+			--h1="$first_path" $'\n' \
+			--dim="$first_structure" $'\n' \
+			$'\n' \
+			--h1="$second_path" $'\n' \
+			--dim="$second_structure" $'\n' \
+			$'\n' \
+			--e1='^ different because their structures differ'
+		return 1
+	fi
+
+	# checksum
+	local checksums
+	mapfile -t checksums < <(checksum --untitled --summary --algorithm="$option_algorithm" -- "$first_path" "$second_path")
+	echo-lines -- "${checksums[@]}"
+
+	# sanity
+	if test "${#checksums[@]}" -ne 2; then
+		echo-style --error="invalid amount of checksums, there should only be two, a summary checksum for each directory, instead there were: ${#checksums[@]}"
+		return 1
+	fi
+
+	# same checksum
+	if test "${checksums[0]}" = "${checksums[1]}"; then
+		echo-style --g1="^ same because their checksums match"
+		return 0
+	fi
+
+	# otherwise
+	echo-style --e1="^ different"
+	return 1
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	is-same "$@"
 fi
-
-# =====================================
-# Action
-
-# extract and absolute the paths
-first_path="$(fs-absolute "${option_paths[0]}")"
-second_path="$(fs-absolute "${option_paths[1]}")"
-
-# same path
-if test "$first_path" = "$second_path"; then
-	echo-style \
-		--h1="$first_path" $'\n' \
-		$'\n' \
-		--h1="$second_path" $'\n' \
-		$'\n' \
-		--g1="^ same because they are the same path"
-	exit 0
-fi
-
-# same target
-if test "$(fs-realpath "$first_path")" = "$(fs-realpath "$second_path")"; then
-	echo-style \
-		--h1="$first_path" $'\n' \
-		$'\n' \
-		--h1="$second_path" $'\n' \
-		$'\n' \
-		--g1="^ same because they are are symlinked"
-	exit 0
-fi
-
-# same structure
-first_structure="$(fs-structure "$first_path")"
-second_structure="$(fs-structure "$second_path")"
-if test "$first_structure" != "$second_structure"; then
-	echo-style \
-		--h1="$first_path" $'\n' \
-		--dim="$first_structure" $'\n' \
-		$'\n' \
-		--h1="$second_path" $'\n' \
-		--dim="$second_structure" $'\n' \
-		$'\n' \
-		--e1='^ different because their structures differ'
-	exit 1
-fi
-
-# checksum
-mapfile -t checksums < <(checksum --untitled --summary --algorithm="$option_algorithm" -- "$first_path" "$second_path")
-echo-lines -- "${checksums[@]}"
-
-# sanity
-if test "${#checksums[@]}" -ne 2; then
-	echo-style --error="invalid amount of checksums, there should only be two, a summary checksum for each directory, instead there were: ${#checksums[@]}"
-	exit 1
-fi
-
-# same checksum
-if test "${checksums[0]}" = "${checksums[1]}"; then
-	echo-style --g1="^ same because their checksums match"
-	exit 0
-fi
-
-# otherwise
-echo-style --e1="^ different"
-exit 1

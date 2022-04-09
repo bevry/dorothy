@@ -1,30 +1,70 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-p="$(pwd)"
-password="$1"
-outdir="${2:-out}"
-outdir="$(fs-absolute "$outdir")"
-mkdir -p "$outdir"
+function to-png() (
+	# =====================================
+	# Arguments
 
-function decrypt {
-	local input inputdir output
-	input="$(fs-absolute "$1")"
-	inputdir="$(dirname "$input")"
-	output="$outdir/$(basename "$1")"
-	cd "$inputdir" || exit 1
-	echo "$1 to $output"
-	while test -f "$output"; do
-		output="$(fs-filename "$output")!.pdf"
-	done
-	(qpdf -password="$password" -decrypt "$input" "$output" && echo "SUCCESS") || echo "FAILURE"
-	cd "$p" || exit 1
-}
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Save decrypted copies of the PDF inputs.
 
-if test -n "$password"; then
-	find-files --extension=pdf | while read -r file; do
-		decrypt "$file" "$2" "$1"
+			USAGE:
+			pdf-decrypt [--password=<password>] ...<input>
+
+			EXAMPLE:
+			pdf-decrypt *.pdf
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item files=() password=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--password='*) password="${item:11}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) files+=("$item") ;;
+		esac
 	done
-else
-	echo "decrypt <password>"
+
+	# =====================================
+	# Dependencies
+
+	if command-missing qpdf; then
+		echo-style --error="[qpdf] is missing, install it first." >/dev/stderr
+		return 1
+	fi
+
+	# =====================================
+	# Act
+
+	local input output current_password
+	for input in "${files[@]}"; do
+		output="$(fs-filename "$input") [decrypted].pdf"
+		current_password="$(
+			ask --required --password \
+				--question="Enter the password for $input" \
+				--default="$password"
+		)"
+
+		eval-collapse \
+			--pending="$(echo-style --bold="Decrypting " --code="$input" --bold=" to " --code="$output")" \
+			--success="$(echo-style --bold+green="Decrypted " --code="$input" --bold=" to " --code="$output")" \
+			--failure="$(echo-style --bold+red="Failed to decrypt " --code="$input" --bold=" to " --code="$output")" \
+			-- qpdf -password="$current_password" -decrypt "$input" "$output" || :
+	done
+
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	svg-export "$@"
 fi

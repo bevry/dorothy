@@ -1,72 +1,78 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
-source "$(which eval-collapse)"
 
-# ensure deno exists
-env QUIET=yes setup-util-deno
+function wallhaven-helper() (
+	# =====================================
+	# Arguments
 
-# =====================================
-# Arguments
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Enter your wallhaven details, and it'll download your wallpaper collections: https://wallhaven.cc
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Enter your wallhaven details, and it'll download your wallpaper collections: https://wallhaven.cc
+			USAGE:
+			wallhaven-helper [--user=...] [--key=...]
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
 
-		USAGE:
-		wallhaven-helper [--user=...] [--key=...]
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+	# process
+	local item username='' apikey=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--user='*) username="${item:7}" ;;
+		'--key='*) apikey="${item:6}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# essentials
+	if test -z "$username"; then
+		username="$(
+			ask --required \
+				--question="Enter the wallhaven username."
+		)"
 	fi
-	return 22 # Invalid argument
-}
+	if test -z "$apikey"; then
+		apikey="$(
+			ask --required --password \
+				--question="Enter the wallhaven API Key for $username. You can get this from: https://wallhaven.cc/settings/account"
+		)"
+	fi
 
-# process
-username=''
-apikey=''
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--user='*) username="${item:7}" ;;
-	'--key='*) apikey="${item:6}" ;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
-	esac
-done
+	# =====================================
+	# Dependencies
 
-# essentials
-if test -z "$username"; then
-	username="$(
-		ask --required \
-			--question="Enter the wallhaven username."
+	env QUIET=yes setup-util-deno
+
+	# =====================================
+	# Act
+
+	# collections
+	local collections collection
+	mapfile -t collections < <(fetch "https://wallhaven.cc/api/v1/collections?apikey=$apikey" | jq -r '.data[] | (.id, .label)')
+	collection="$(
+		choose-option \
+			--question='Which collection to download?' \
+			--label --visual="\$LABEL [\$VALUE]" \
+			-- "${collections[@]}"
 	)"
-fi
-if test -z "$apikey"; then
-	apikey="$(
-		ask --required --password \
-			--question="Enter the wallhaven API Key for $username. You can get this from: https://wallhaven.cc/settings/account"
+
+	# collection
+	local temp_deno_script
+	temp_deno_script="$(
+		fs-temp \
+			--directory='wallhaven-helper' \
+			--file='deno.ts'
 	)"
-fi
-
-# =====================================
-# Act
-
-# collections
-mapfile -t collections < <(fetch "https://wallhaven.cc/api/v1/collections?apikey=$apikey" | jq -r '.data[] | (.id, .label)')
-collection="$(
-	choose-option \
-		--question='Which collection to download?' \
-		--label --visual="\$label [\$value]" \
-		-- "${collections[@]}"
-)"
-
-# collection
-deno_script="$(fs-temp --filename="wallhaven-helper-deno.ts")"
-cat <<EOF >"$deno_script"
+	cat <<EOF >"$temp_deno_script"
 const url = new URL(Deno.args[0])
 function stderr(text: string) {
 	return Deno.stderr.write(
@@ -115,15 +121,23 @@ async function fetch_next_page() {
 await fetch_next_page()
 EOF
 
-# urls
-list="$(fs-temp --xdg --prefix='wallhaven-helper.' --suffix='.list')"
-deno run --allow-net --quiet "$deno_script" "https://wallhaven.cc/api/v1/collections/$username/$collection?apikey=$apikey" | tee "$list"
+	# run the deno script to fetch the wallpaper urls via the api and store them in a file
+	local temp_list_file
+	temp_list_file="$(
+		fs-temp \
+			--directory='wallhaven-helper' \
+			--file="$username-$collection.txt"
+	)"
+	deno run --allow-net --quiet "$temp_deno_script" "https://wallhaven.cc/api/v1/collections/$username/$collection?apikey=$apikey" | tee "$temp_list_file"
 
-# download
-while read -r url; do
-	eval_collapse \
-		--pending="$(echo-style --bold="Downloading $url")" \
-		--success="$(echo-style --success="Downloaded $url")" \
-		--failure="$(echo-style --error="Failed to download $url")" \
-		-- down "$url"
-done <"$list"
+	# with that file, download each of them
+	local url
+	while read -r url; do
+		down "$url"
+	done <"$temp_list_file"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	wallhaven-helper "$@"
+fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # nofap yes/no/maybe 'hosts file' 'value'
-function nofap() {
+function nofap {
 	# assume config.sh has already been loaded
 	load_dorothy_config 'nofap.bash'
 	if test -n "${NOFAP_DISCORD_WEBHOOK-}"; then
