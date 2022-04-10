@@ -24,11 +24,11 @@ function prepare_packages {
 		if test -n "$installer"; then
 			if [[ $installer == 'setup-util-'* ]]; then
 				util="${installer:11}"
-				echo-style --notice="Moved [$item] from [$name] to [SETUP_UTILS] as [$util]." >/dev/tty
+				echo-style --notice="Moved [$item] from [$name] to [SETUP_UTILS] as [$util]." >/dev/stderr
 				SETUP_UTILS+=("$util")
 				reconfigure='yes'
 			else
-				echo-style --notice="Skipping [$item] from [$name], as it should be installed via [$installer]." >/dev/tty
+				echo-style --notice="Skipping [$item] from [$name], as it should be installed via [$installer]." >/dev/stderr
 			fi
 			continue
 		else

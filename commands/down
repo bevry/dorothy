@@ -20,7 +20,7 @@ function down() (
 	done
 	tool=''
 
-	# if no tools are available, install aria2
+	# if no tools are available, install preference
 	if test "${#available_tools[@]}" -eq 0; then
 		env QUIET=yes setup-util-aria2
 		available_tools+=(aria2c)
@@ -61,6 +61,10 @@ function down() (
 			--path=<directory>/<file>
 			    Set the <directory> and <file> from this value.
 
+			--retry=<retries>
+			    How many times to retry the download.
+			    Defaults to 2.
+
 			--[no-]quiet
 			    Whether or not output should be simplified, defaults to enabled.
 
@@ -77,7 +81,7 @@ function down() (
 	}
 
 	# process
-	local item url='' tool='' unzip_format='' unzip_filter='' directory='' file='' path='' option_quiet
+	local item url='' tool='' unzip_format='' unzip_filter='' directory='' file='' path='' retry='2' option_quiet
 	option_quiet="$(echo-quiet yes -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -91,6 +95,7 @@ function down() (
 		'--directory='*) directory="${item:12}" ;;
 		'--file='*) file="${item:7}" ;;
 		'--path='*) path="${item:7}" ;;
+		'--retry='*) retry="${item:8}" ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			if test -z "$url"; then
@@ -116,30 +121,25 @@ function down() (
 
 	# ensure directory, filename, path
 	if test -n "$path"; then
+		path="$(fs-absolute "$path")"
 		directory="$(dirname "$path")"
 		file="$(basename "$path")"
+		path="$directory/$file"
 	elif test -n "$directory" -a -n "$file"; then
+		directory="$(fs-absolute "$directory")"
+		file="$(basename "$file")"
 		path="$directory/$file"
-	else
-		if test -z "$directory"; then
-			directory="$(pwd)"
-		fi
-		if test -n "$file"; then
-			path="$directory/$file"
-		else
-			path="$directory"
-		fi
-	fi
-
-	# ensure directory and path are absolute
-	directory="$(fs-absolute "$directory")"
-	if test -n "$file"; then
+	elif test -z "$directory" -a -n "$file"; then
+		directory="$(pwd)"
+		file="$(basename "$file")"
 		path="$directory/$file"
+	elif test -n "$directory" -a -z "$file"; then
+		directory="$(fs-absolute "$directory")"
+		path="$directory"
 	else
+		directory="$(pwd)"
 		path="$directory"
 	fi
-
-	# ensure directory exists
 	mkdir -p "$directory"
 
 	# =====================================
@@ -150,15 +150,13 @@ function down() (
 		# if zip, then download to a temporary directory first
 		local download_directory download_file
 		if test -n "$unzip_format" -o -n "$unzip_filter"; then
-			local url_basename url_hash
-			url_basename="$(basename "$url")"
+			local url_hash url_basename
 			url_hash="$(echo-checksum "$url")"
+			url_basename="$(basename "$url" | echo-escape-special)"
 			download_directory="$(
 				fs-temp --directory='down' --directory="$url_hash"
 			)"
-			download_file="$(
-				fs-temp --root="$download_directory" --file="$url_basename"
-			)"
+			download_file="$url_basename"
 		else
 			download_directory="$directory"
 			download_file="$file" # can be empty
@@ -228,26 +226,48 @@ function down() (
 			esac
 		}
 
-		# invoke the download
-		do_download
+		# invoke the download with retry support
+		while test "$retry" -ge 0; do
+			if do_download; then
+				break
+			fi
+			retry=$((retry - 1))
+		done
+
+		# check download
+		if test -n "$download_file"; then
+			# assert it was created
+			if test ! -e "$download_directory/$download_file"; then
+				echo-error 'Failed to download ' --code="$url" ' to ' --code="$download_directory/$download_file" >/dev/stderr
+				return 1
+			fi
+		fi
+
+		# log
+		echo-style --success="Downloaded!"
 
 		# if desired, perform extraction of the temporary file
 		if test -n "$unzip_format" -o -n "$unzip_filter"; then
+			echo-style --notice="Unzipping..."
 			unziptar "$download_directory/$download_file" \
 				--directory="$directory" \
 				--file="$file" \
 				--format="$unzip_format" \
 				--filter="$unzip_filter"
-		fi
 
-		# filename handling
-		if test -n "$file"; then
-			# assert it was created
-			if test ! -e "$directory/$file"; then
-				echo-error 'Failed to download ' --code="$url" ' to ' --code="$directory/$file" >/dev/stderr
-				return 1
+			# check extraction
+			if test -n "$file"; then
+				# assert it was created
+				if test ! -e "$path"; then
+					echo-error 'Failed to extract ' --code="$url" ' to ' --code="$path" >/dev/stderr
+					return 1
+				fi
 			fi
 		fi
+
+		# log
+		echo-style --success="Extracted!"
+
 	}
 
 	# messages
@@ -259,7 +279,9 @@ function down() (
 		success="Downloaded and extracted"
 		failure="Failed to download and extract"
 	fi
-	eval-helper --quiet="$option_quiet" --shapeshifter --no-wrap \
+
+	# act
+	eval-helper --quiet="$option_quiet" --no-wrap \
 		--pending="$(
 			echo-style --bold="$pending " \
 				--code="$url" " to " --code="$path"
