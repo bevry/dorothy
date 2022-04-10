@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
+# uncatched help argument
+if test "${1-}" = '--help'; then
+	if test "$(type -t help)" = 'function'; then
+		help >/dev/stderr && exit 22 # Invalid argument
+		exit "$?"
+	else
+		echo "please update the function you called with a [help] method" >/dev/stderr
+		exit 38 # Function not implemented
+	fi
+fi
+
+# support custom arg handling
+if test -z "${ARGS-}"; then
+	ARGS=("$@")
+fi
+
 # allow sourcer to overide
 if test -z "${REQUIRE_STDIN-}"; then
 	REQUIRE_STDIN='no'
@@ -15,29 +31,18 @@ if test -z "${TIMEOUT-}"; then
 	# as such, this is the best solution: mas search xcode | env TIMEOUT=0 echo-trim-each-line
 fi
 
-# check for help argument
-if test "${1-}" = '--help'; then
-	if test "$(type -t help)" = 'function'; then
-		help >/dev/stderr && exit 22 # Invalid argument
-		exit "$?"
-	else
-		echo "please update the function you called with a [help] method" >/dev/stderr
-		exit 38 # Function not implemented
-	fi
-fi
-
 # prepare
 has_args='maybe'
 has_stdin='maybe'
 
 # attempt arguments first
 # arguments are instantanous and won't mangle stdin for parent processes
-if test "$#" -eq 0; then
+if test "${#ARGS[@]}" -eq 0; then
 	has_args='no'
 else
 	# for each argument, call `on_arg` or `on_input`
 	has_args='yes'
-	for item in "$@"; do
+	for item in "${ARGS[@]}"; do
 		if test "$(type -t on_arg)" = 'function'; then
 			on_arg "$item"
 		else
