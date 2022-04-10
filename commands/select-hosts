@@ -3,129 +3,174 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
-source "$(which eval-collapse)"
+# trunk-ignore(shellcheck/SC1090)
+source "$(which eval-helper)"
 
-# =====================================
-# Start
+function select-hosts() (
+	# =====================================
+	# Arguments
 
-echo-segment --h1="Setup Hosts file"
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Adapt your system's hosts configuration to the desired values.
 
-# =====================================
-# Configuration
+			USAGE:
+			select-hosts
+			# ^ use your prior configuration, or if there is none, prompt for configuration
 
-source "$DOROTHY/sources/config.bash"
+			select-hosts --configure
+			# ^ force reconfiguration
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
 
-# hosts.bash provides:
-# OPTIONS=()
-# CHOICE=''
-# NOFAP='' # yes/no/maybe
-load_dorothy_config 'hosts.bash'
+	# process
+	local item reconfigure='no'
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--configure') reconfigure='yes' ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
 
-# reconfigure?
-reconfigure='no'
-if test "${1-}" = '--configure'; then
-	reconfigure='yes'
-	shift
-fi
+	# =====================================
+	# Start
 
-# adjustments
-if test -z "$CHOICE" -o "$reconfigure" = 'yes'; then
-	if test "${#OPTIONS[@]}" -eq 0; then
-		echo-segment --error="Invalid configuration, there must be valid OPTIONS."
+	echo-segment --h1="Setup Hosts file"
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# hosts.bash provides:
+	local OPTIONS=() CHOICE='' NOFAP='' # yes/no/maybe
+	load_dorothy_config 'hosts.bash'
+
+	# adjustments
+	if test -z "$CHOICE" -o "$reconfigure" = 'yes'; then
+		if test "${#OPTIONS[@]}" -eq 0; then
+			echo-segment --error="Invalid configuration, there must be valid OPTIONS."
+		fi
+		CHOICE="$(
+			choose-option \
+				--question='Which host file do you wish to use?' \
+				--label=first -- "${OPTIONS[@]}"
+		)"
+		# as this is a new selection, recalculate nofap compliance
+		if [[ 'porn' == *"$CHOICE"* ]]; then
+			# if it has porn in it, then it means it blocks porn
+			NOFAP='yes'
+		else
+			NOFAP='no'
+		fi
 	fi
-	CHOICE="$(
-		choose-option \
-			--question='Which host file do you wish to use?' \
-			--label=first -- "${OPTIONS[@]}"
-	)"
-	# as this is a new selection, recalculate nofap compliance
-	if contains-word "$CHOICE" 'porn'; then
-		# if it has porn in it, then it means it blocks porn
-		NOFAP='yes'
-	else
-		NOFAP='no'
-	fi
-fi
-# else, it is a manual selection, so let the user determine NoFap compliance
+	# else, it is a manual selection, so let the user determine NoFap compliance
 
-# =====================================
-# Action
+	# =====================================
+	# Action
 
-# prepare
-hosts_file='/etc/hosts'
-
-# helper
-function hosts {
 	# prepare
-	local url custom_file content_file combined_file
-	url="$1"
-	custom_file="$(mktemp)"
-	content_file="$(mktemp)"
-	combined_file="$(mktemp)"
+	local hosts_file='/etc/hosts'
 
-	# prepare defaults in case of failures
-	cat <<-EOF >"$custom_file"
-		# <custom>
-		# </custom>
-	EOF
-	cat <<-EOF >"$content_file"
-		127.0.0.1 localhost
+	# helper
+	function hosts {
+		# prepare
+		local url custom_file content_file combined_file
+		url="$1"
+		custom_file="$(
+			fs-temp \
+				--directory='select-hosts' \
+				--file='custom_file' --touch
+		)"
+		content_file="$(
+			fs-temp \
+				--directory='select-hosts' \
+				--file='content_file' --touch
+		)"
+		combined_file="$(
+			fs-temp \
+				--directory='select-hosts' \
+				--file='combined_file' --touch
+		)"
 
-		# The following lines are desirable for IPv6 capable hosts
-		::1 ip6-localhost ip6-loopback
-		fe00::0 ip6-localnet
-		ff00::0 ip6-mcastprefix
-		ff02::1 ip6-allnodes
-		ff02::2 ip6-allrouters
-		ff02::3 ip6-allhosts
-	EOF
+		# prepare defaults in case of failures
+		cat <<-EOF >"$custom_file"
+			# <custom>
+			# </custom>
+		EOF
+		cat <<-EOF >"$content_file"
+			127.0.0.1 localhost
 
-	# grab the custom content, and save it temporarily
-	sed -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
+			# The following lines are desirable for IPv6 capable hosts
+			::1 ip6-localhost ip6-loopback
+			fe00::0 ip6-localnet
+			ff00::0 ip6-mcastprefix
+			ff02::1 ip6-allnodes
+			ff02::2 ip6-allrouters
+			ff02::3 ip6-allhosts
+		EOF
 
-	# download the new file to a temporary location
-	down "$url" --destination="$content_file" || :
+		# grab the custom content, and save it temporarily
+		sed -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
 
-	# combine the parts
-	cat "$custom_file" "$content_file" >"$combined_file"
+		# download the new content into an existing file
+		down "$url" --path="$content_file"
 
-	# ensure the hostname exists
-	sed --null-data --in-place --regexp-extended \
-		--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$(get-hostname)\n#" \
-		"$combined_file"
+		# combine the parts
+		cat "$custom_file" "$content_file" >"$combined_file"
 
-	# combine the custom content with the new content, and save it to the destination
-	sudo mv -f "$combined_file" "$hosts_file"
+		# ensure the hostname exists
+		sed --null-data --in-place --regexp-extended \
+			--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$(get-hostname)\n#" \
+			"$combined_file"
 
-	# fix permissions, otherwise `sudo systemctl status systemd-resolved` could fail with:
-	# Failed to open /etc/hosts: Permission denied
-	fs-own --permissions=644 --admin -- /etc/hosts
-}
+		# combine the custom content with the new content, and save it to the destination
+		sudo mv -f "$combined_file" "$hosts_file"
 
-# apply
-eval_collapse \
-	--pending="$(echo-style --bold="Downloading [$CHOICE] to [$hosts_file]...")" \
-	--success="$(echo-style --success="Downloaded [$CHOICE] to [$hosts_file].")" \
-	-- hosts "$CHOICE"
+		# fix permissions, otherwise `sudo systemctl status systemd-resolved` could fail with:
+		# Failed to open /etc/hosts: Permission denied
+		fs-own --permissions=644 --admin -- /etc/hosts
+	}
 
-# =====================================
-# NoFap
+	# apply
+	eval-helper --quiet \
+		--pending="$(echo-style --bold="Downloading [$CHOICE] to [$hosts_file]...")" \
+		--success="$(echo-style --success="Downloaded [$CHOICE] to [$hosts_file].")" \
+		-- hosts "$CHOICE"
 
-source "$DOROTHY/sources/nofap.bash"
-nofap "$NOFAP" 'hosts file' "$CHOICE"
+	# =====================================
+	# NoFap
 
-# =====================================
-# Reconfigure
+	source "$DOROTHY/sources/nofap.bash"
+	nofap "$NOFAP" 'hosts file' "$CHOICE"
 
-# update configuration
-update_dorothy_user_config --prefer=local --no-template 'hosts.bash' -- \
-	--field='NOFAP' --value="$NOFAP" \
-	--field='CHOICE' --value="$CHOICE"
+	# =====================================
+	# Reconfigure
 
-# =====================================
-# Finish
+	# update configuration
+	update_dorothy_user_config --prefer=local --no-template 'hosts.bash' -- \
+		--field='NOFAP' --value="$NOFAP" \
+		--field='CHOICE' --value="$CHOICE"
 
-echo-segment --g1="Setup Hosts file"
+	# =====================================
+	# Finish
 
-# finally, flush dns
-flush-dns
+	echo-segment --g1="Setup Hosts file"
+
+	# finally, flush dns
+	flush-dns
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	select-hosts "$@"
+fi

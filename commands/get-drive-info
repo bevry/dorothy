@@ -1,69 +1,10 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# help
-if is-help "$@"; then
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Fetch as much details about the connected drives as possible.
-
-		USAGE:
-		get-drive-info
-		# ^ gets details on all drives
-
-		get-drive-info <drive>
-		# ^ gets details on the specific drive
-	EOF
-	exit 22 # Invalid argument
-fi
-
 # https://unix.stackexchange.com/a/364496/50703
 # https://unix.stackexchange.com/a/364458/50703
-
 # https://en.wikipedia.org/wiki/Smartmontools
 # https://help.ubuntu.com/community/Smartmontools
-env QUIET=yes setup-util-drive-info
-
-drive="${1-}"
-
-if test -n "$drive"; then
-	# fetch specific drive details
-	if is-linux; then
-		echo-eval sudo hdparm -I "$drive" || :
-		echo-eval sudo sginfo -a "$drive" || : # includes serial
-		echo-eval sudo sdparm -i "$drive" || :
-		echo-eval sudo blkid "$drive" || : # includes filesystem label and type
-	elif is-mac; then
-		echo-eval diskutil info "$drive" || :
-		# ^ generic info, size, device, etc.
-
-	fi
-	if command-exists smartctl; then
-		echo-eval sudo smartctl -i "$drive" || :
-		# ^ -i: model, serial, firmware, pci id, ieee id, controller id, nvme version, etc.
-		# ^ -a: same as -i, but includes SMART specific details that we don't care for
-	fi
-elif is-linux; then
-	# fetch details for all drives
-	echo-eval sudo fdisk -l || :
-	# ^ mac does not support the -l flag
-
-	echo-eval sudo lshw -class disk -class storage || :
-	# ^ Gets all the details for the drives, including the vendor, model, serial, driver capabilities, etc.
-	# UASP unsupported: configuration: driver=usb-storage
-	# UASP supported: configuration: driver=uas maxpower=... speed=...
-
-	echo-eval sudo lsusb -t || :
-	# ^ Gets minimal driver (UASP) details: https://superuser.com/a/930884/32418
-	# UASP unsupported: Driver=usb-storage
-	# UASP supported: Driver=uas
-
-	# fetch filesystems and mounts for all drives
-	echo-eval sudo lsblk -f || :
-elif is-mac; then
-	# fetch details for all drives
-	echo-eval sudo diskutil list || :
-fi
 
 # These support UASP:
 # Seagate Expansion Desktop Drive (STEB4000300)
@@ -77,3 +18,104 @@ fi
 # Despite what Pluggable states: https://support.plugable.com/t/6491/2?u=balupton
 # UASP supported is needed by the USB Hubs for UASP boost, as stated by StarTech in a support chat:
 # > All hubs support the use of UASP enabled devices, but hubs that do not have the feature built in will not operate at the boosted speed that UASP devices can function at. If you require the UASP boosted speed, then look for a hub that has it built in. If the speed is not crucial and the standard 5Gbps that USB 3.0 offers will suffice, it won't matter the hub you use as long as its a USB 3.0 hub.
+
+function get-drive-info() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Fetch as much details about the connected drives as possible.
+
+			USAGE:
+			get-drive-info
+			# ^ gets details on all drives
+
+			get-drive-info [--] ...<drive>
+			# ^ gets details on the specific drive
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item option_drives=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			option_drives+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_drives+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Dependencies
+
+	env QUIET=yes setup-util-drive-info
+
+	# =====================================
+	# Action
+
+	local drive
+	if test "${#option_drives[@]}" -eq 0; then
+		# fetch details for all drives
+		if is-linux; then
+			eval-helper -- sudo fdisk -l || :
+			# ^ mac does not support the -l flag
+
+			eval-helper -- sudo lshw -class disk -class storage || :
+			# ^ Gets all the details for the drives, including the vendor, model, serial, driver capabilities, etc.
+			# UASP unsupported: configuration: driver=usb-storage
+			# UASP supported: configuration: driver=uas maxpower=... speed=...
+
+			eval-helper -- sudo lsusb -t || :
+			# ^ Gets minimal driver (UASP) details: https://superuser.com/a/930884/32418
+			# UASP unsupported: Driver=usb-storage
+			# UASP supported: Driver=uas
+
+			# fetch filesystems and mounts for all drives
+			eval-helper -- sudo lsblk -f || :
+		elif is-mac; then
+			eval-helper -- sudo diskutil list || :
+		else
+			echo-error "Unsupported OS"
+			exit 19 # ENODEV 19 Operation not supported by device
+		fi
+	else
+		# fetch specific drive details
+		for drive in "${option_drives[@]}"; do
+			if is-linux; then
+				eval-helper -- sudo hdparm -I "$drive" || :
+				eval-helper -- sudo sginfo -a "$drive" || : # includes serial
+				eval-helper -- sudo sdparm -i "$drive" || :
+				eval-helper -- sudo blkid "$drive" || : # includes filesystem label and type
+			elif is-mac; then
+				eval-helper -- diskutil info "$drive" || :
+				# ^ generic info, size, device, etc.
+			else
+				echo-error "Unsupported OS"
+				exit 19 # ENODEV 19 Operation not supported by device
+			fi
+			if command-exists smartctl; then
+				eval-helper -- sudo smartctl -i "$drive" || :
+				# ^ -i: model, serial, firmware, pci id, ieee id, controller id, nvme version, etc.
+				# ^ -a: same as -i, but includes SMART specific details that we don't care for
+			fi
+		done
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get-drive-info "$@"
+fi

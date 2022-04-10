@@ -1,34 +1,89 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2164
 source "$DOROTHY/sources/strict.bash"
 
-# XPS to PDF
+# Sample XPS file available at:
+# https://github.com/microsoft/Windows-classic-samples/blob/67a8cddc25880ebc64018e833f0bf51589fd4521/Samples/Win7Samples/xps/XpsLoadModifySave/sample1.xps
+
+# Thanks to [Sriram Thaiyar](https://github.com/sri) for the [original ruby version](https://github.com/sri/xps2pdf/) which figured out [GhostPDL](https://ghostscript.com/download/gpdldnld.html) can be used for the conversion.
+
+# This command is referenced in this gist:
 # https://gist.github.com/balupton/7f15f6627d90426f12b24a12a4ac5975
-cwd="$(pwd)"
-bin=gxps
-if command-missing "$bin"; then
-	bin="$HOME/bin/ghostpdl-9.20/bin/gxps"
-	if command-missing "$bin"; then
-		echo "downloading and compiling gxps dependency to $bin"
-		mkdir -p "$HOME/bin"
-		cd "$HOME/bin" || exit 1
-		down-zip https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs920/ghostpdl-9.20.tar.gz
-		cd ./ghostpdl-9.20 || exit 1
-		./configure
-		make
-		cd "$cwd" || exit 1
+
+function xps2pdf() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Convert from XPS (XML Paper Specification) to PDF, using GXPS from GhostPDL from GhostScript.
+
+			USAGE:
+			xps2pdf [--] <...path>
+
+			EXAMPLES:
+			xps2pdf -- *.xps             # all .xps files in the current directory
+			xps2pdf -- one.xps two.xps   # specific files
+
+			QUIRKS:
+			If supported, the PDF files will be created with the same creation time as the original XPS files.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item paths=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			paths+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) paths+=("$item") ;;
+		esac
+	done
+
+	# check
+	if test "${#paths[@]}" -eq 0; then
+		help "No paths were provided"
 	fi
+
+	# =====================================
+	# Dependency
+
+	setup-util-ghostscript
+
+	# =====================================
+	# Action
+
+	local xps pdf ctime
+	echo-style --bold="Converting " --code="${#paths[@]}" --bold=" files"
+	for xps in "${paths[@]}"; do
+		pdf="${xps%.xps}.pdf"
+
+		echo-style --bold="Converting " --code="$xps" --bold=" to " --code="$pdf"
+		gxps -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
+
+		if command-exists GetFileInfo && command-exists SetFile; then
+			ctime="$(GetFileInfo -m "$xps")"
+			SetFile -d "$ctime" "$pdf"
+		fi
+
+		echo-style --success="Converted " --code="$xps" --success=" to " --code="$pdf"
+	done
+
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	xps_to_pdf "$@"
 fi
-
-echo "converting $# files"
-for xps in "$@"; do
-	# shellcheck disable=2001
-	pdf=$(echo "$xps" | sed 's/...$//')pdf
-
-	echo "converting $xps to $pdf"
-	$bin -sDEVICE=pdfwrite -sOutputFile="$pdf" -dNOPAUSE "$xps"
-
-	if command-exists GetFileInfo && command-exists SetFile; then
-		ctime=$(GetFileInfo -m "$xps")
-		SetFile -d "$ctime" "$pdf"
-	fi
-done

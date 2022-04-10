@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # IMPORTED BY SOURCER
 # $shell - the current shell name, e.g. `fish` or `bash` or `zsh`
@@ -20,7 +20,7 @@ while read -r line; do
 done < <(env)
 
 # final scanning of environment, and echo results
-function finish() {
+function finish {
 	# ignore failure conditions
 	local ec="$?"
 	if test "$ec" -ne 0; then
@@ -42,7 +42,7 @@ function finish() {
 		done
 
 		# adjust
-		if [[ "$name" = *'PATH' ]] || [[ "$name" = *'DIRS' ]]; then
+		if [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
 			# cycle through each item in the path, removing duplicates and empties
 			items_array=()
 			items_string=''
@@ -80,7 +80,7 @@ function finish() {
 		# find it in inherited, and check if it is the same if it is the same as inherited
 		for ((i = 0; i < ${#inherited[@]}; i += 2)); do
 			if test "${inherited[$i]}" = "${name}"; then
-				if test "${inherited[$i + 1]}" = "${value}"; then
+				if test "${inherited[i + 1]}" = "${value}"; then
 					# is inherited, continue to next item
 					continue 2
 				fi
@@ -99,7 +99,7 @@ function finish() {
 			else
 				echo "export $name='';"
 			fi
-		elif [[ "$name" = *'PATH' ]] || [[ "$name" = *'DIRS' ]]; then
+		elif [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
 			# echo var action: set path
 			if test "$shell" = 'fish'; then
 				echo "set --export --path $name '$value';"

@@ -7,10 +7,24 @@
 # -o  pipefail    the return value of a pipeline is the status of
 #                 the last command to exit with a non-zero status,
 #                 or zero if no command exited with a non-zero status
+#
 # https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 # http://redsymbol.net/articles/unofficial-bash-strict-mode/
 
 set -Eeuo pipefail
+
+# inherit_errexit: If set, command substitution inherits the value of the errexit option, instead of unsetting it in the subshell environment. This option is enabled when POSIX mode is enabled.
+#
+# https://www.gnu.org/software/bash/manual/html_node/The-Shopt-Builtin.html
+# https://github.com/koalaman/shellcheck/wiki/SC2311
+
+BASH_MAJOR_VERSION="${BASH_VERSION:0:1}"
+BASH_MINOR_VERSION="${BASH_VERSION:2:1}"
+if test "$BASH_MAJOR_VERSION" -ge 5 || test "$BASH_MAJOR_VERSION" -eq 4 -a "$BASH_MINOR_VERSION" -ge 4; then
+	# https://github.com/bminor/bash/blob/9439ce094c9aa7557a9d53ac7b412a23aa66e36b/CHANGES#L1771-L1773
+	# >= bash v4.4
+	shopt -s inherit_errexit
+fi
 
 # the below functions are essential to prevent nested functions that check for exit codes
 # from having their set -e negate a parent set +e, which would cause a return 1 on the function call
@@ -28,8 +42,8 @@ set -Eeuo pipefail
 #
 # note, don't do ( var= ) or ( read ) because the vars won't escape the subshell
 
-function strict_e_pause() {
-	if [[ "$-" = *e* ]]; then
+function strict_e_pause {
+	if [[ $- == *e* ]]; then
 		set +e
 		return 1
 	else
@@ -38,7 +52,7 @@ function strict_e_pause() {
 	fi
 }
 
-function strict_e_restore() {
+function strict_e_restore {
 	if test "$1" -eq 1; then
 		set -e
 	fi

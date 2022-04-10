@@ -1,34 +1,106 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/shims.bash"
 
-# options
-what="$(
-	choose-option \
-		--question='Which IP do you want?' \
-		--filter="${1-}" -- local remote
-)"
+function what-is-my-ip() (
+	# =====================================
+	# Arguments
 
-if test "$what" = 'remote'; then
-	# does not take into account cloudflare warp
-	# fetch https://ipinfo.io/ip
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Outputs your IP address(es).
 
-	# does take into account cloudflare warp
-	fetch https://whatmyip.bevry.workers.dev
-elif command-exists ip; then
-	# dependencies
+			USAGE:
+			what-is-my-ip [--] ...[local|remote]
+
+			QUIRKS:
+			If no [type] is specified, all types will be returned.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item __types=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			__types+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) __types+=("$item") ;;
+		esac
+	done
+
+	# ensure types
+	if test "${#__types[@]}" -eq 0; then
+		__types=(
+			'local'
+			'remote'
+		)
+	fi
+
+	# =====================================
+	# Dependencies
+
 	source "$DOROTHY/sources/ripgrep.bash"
 
-	# cycle through interfaces
-	# shellcheck disable=SC2016
-	ip -brief address | rg -o 'UP\s+(.+?)[/ ]' --replace '$1'
-elif command-exists ifconfig; then
-	# dependencies
-	source "$DOROTHY/sources/ripgrep.bash"
+	# =====================================
+	# Helpers
 
-	# find
-	# shellcheck disable=SC2016
-	ifconfig | rg -o 'inet ((192\.168\.|10\.0\.)\d+\.\d+)' --replace '$1'
-else
-	stderr echo 'unsupported environment'
-	exit 1
+	function get_ip_local {
+		if command-exists ip; then
+			# only works on eth0
+			# https://stackoverflow.com/a/26694162/130638
+			# ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
+
+			# works on all interfaces
+			# shellcheck disable=SC2016
+			ip -brief address | rg -o 'UP\s+(.+?)[/ ]' --replace '$1'
+
+		elif command-exists ifconfig; then
+			# fetch all 192.168.x and 10.0.x addresses
+			# shellcheck disable=SC2016
+			ifconfig | rg -o 'inet ((192\.168\.|10\.0\.)\d+\.\d+)' --replace '$1'
+		else
+			echo-style --error="$0: Getting the local IP address is unsupported on this platform." >/dev/stderr
+			return 19 # ENODEV 19 Operation not supported by device
+		fi
+	}
+
+	function get_ip_remote {
+		# does not take into account cloudflare warp
+		# fetch http://ipecho.net/plain
+		# fetch https://ipinfo.io/ip
+
+		# does take into account cloudflare warp
+		fetch https://whatmyip.bevry.workers.dev
+	}
+
+	# =====================================
+	# Act
+
+	local __type
+	if test "${#__types[@]}" -eq 1; then
+		"get_ip_${__types[0]}"
+	else
+		for __type in "${__types[@]}"; do
+			printf '%s: ' "$(ucf "$__type")"
+			"get_ip_$__type"
+		done
+	fi
+
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	what-is-my-ip "$@"
 fi

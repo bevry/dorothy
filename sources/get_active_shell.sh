@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-function get_active_shell() {
+function get_active_shell {
 	if test -n "${ZSH_VERSION-}"; then
 		echo 'zsh'
 	elif test -n "${BASH_VERSION-}"; then

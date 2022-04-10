@@ -3,221 +3,243 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/shims.bash"
 
-# =====================================
-# Configuration
-
-source "$DOROTHY/sources/config.bash"
-
-# styles.bash provides:
-# all style variables
-load_dorothy_config 'styles.bash'
-
-# =====================================
-# Arguments
-
 # @todo
 # redo this command to only reset what was necessary, so that this works:
 # echo-style --blink '(' --green+bold='Y' '/n)')
 
-if is-help-empty "$@"; then
-	cat <<-EOF >/dev/stderr
-		USAGE:
+function echo-style() (
+	# =====================================
+	# Arguments
 
-		echo-style [-n] [--!style] [--!style+!style] value [--!style=value] [--!style+!style=value]
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
 
-		EXAMPLES:
+			echo-style [...options] [--!style] [--!style+!style] value [--!style=value] [--!style+!style=value]
 
-		echo-style --bold --blue 'this is bold and blue' 'so is this' --yellow ' but this is bold and yellow'
-		echo-style --bg-red+hi-white='this is very bad' --green+bold=' while this is good'
+			OPTIONS:
+			--no-trail
+			    Disables outputting a trailing newline.
 
-		STYLES:
+			--no-color
+			    Disables styles.
 
-		Colors: black, red, green, yellow, blue, magenta, cyan, white
-		Modifiers: background_*, intense_*, background_intense_*
-		Modifier aliases: bg-*, hi-*, bg-hi-*
-		Modes: reset, bold, dim, underline, blink, invert
-		Targets: nocolor, color
-		Special: h1, e1, g1, header, error
+			EXAMPLES:
 
-		QUIRKS:
+			echo-style --bold --blue 'this is bold and blue' 'so is this' --yellow ' but this is bold and yellow'
+			echo-style --bg-red+hi-white='this is very bad' --green+bold=' while this is good'
 
-		Hyphens (-) in style names are converted to underscores (_).
+			STYLES:
 
-		If [env NO_COLOR=yes] or [env COLOR=no] then styles will be omitted.
+			Colors: black, red, green, yellow, blue, magenta, cyan, white
+			Modifiers: background_*, intense_*, background_intense_*
+			Modifier aliases: bg-*, hi-*, bg-hi-*
+			Modes: reset, bold, dim, underline, blink, invert
+			Targets: nocolor, color
+			Special: h1, e1, g1, header, error
 
-		Use [--color] to indicate the value should only be outputted if colors are.
+			QUIRKS:
 
-		Use [--nocolor] to indicate the value should only be outputted if colors are not.
+			Hyphens (-) in style names are converted to underscores (_).
 
-		value="\$(echo-style --bold="first" --nocolor=' ' --color+dim=' → ' --bold="second")"; echo "\$value"
-		# outputs colorised: first → second
+			If [env NO_COLOR=yes] or [env COLOR=no] then styles will be omitted.
 
-		value="\$(env NO_COLOR=yes echo-style --bold="first" --nocolor=' ' --color+dim=' → ' --bold="second")"; echo "\$value"
-		# outputs no-colors: first second
+			Use [--color] to indicate the value should only be outputted if colors are.
 
-		EXPLANATION:
+			Use [--nocolor] to indicate the value should only be outputted if colors are not.
 
-		[--style=value] will apply the style only to that value.
-		[--style value value] will apply the style to all subsequent values, until [--reset] is provided.
-		[--blue --bold value] will make value be blue and bold.
+			value="\$(echo-style --bold="first" --nocolor=' ' --color+dim=' → ' --bold="second")"; echo "\$value"
+			# outputs colorised: first → second
 
-		TIPS:
+			value="\$(env NO_COLOR=yes echo-style --bold="first" --nocolor=' ' --color+dim=' → ' --bold="second")"; echo "\$value"
+			# outputs no-colors: first second
 
-		[-n] at the start to avoid printing the trailing newline
-		[--h1=value] for segment headers
-		[--e1=value] for segment failure footers
-		[--g1=value] for segment success footers
-		[--error=value] for unexpected errors
-		[--header] for general headers
-		[--dim] for quoting
+			EXPLANATION:
 
-		Remember [\$'\n'] is available to you to place newlines between arguments, e.g.
-		echo-style value \$'\n' value
-	EOF
-	exit 22 # Invalid argument
-fi
+			[--style=value] will apply the style only to that value.
+			[--style value value] will apply the style to all subsequent values, until [--reset] is provided.
+			[--blue --bold value] will make value be blue and bold.
 
-# check if callar wants no trailing newline
-trail='yes'
-if test "$1" = '-n'; then
-	trail='no'
-	shift
-fi
+			TIPS:
 
-# check if no color
-color_target='/dev/stdout'
-if test "${1-}" = '--no-color'; then
-	color_target='/dev/null'
-	shift
-elif is-affirmative "${NO_COLOR-}" || test "$(echo-exit-code is-affirmative "${COLOR-}")" -eq 1; then
-	color_target='/dev/null'
-fi
+			[-n] at the start to avoid printing the trailing newline
+			[--h1=value] for segment headers
+			[--e1=value] for segment failure footers
+			[--g1=value] for segment success footers
+			[--error=value] for unexpected errors
+			[--header] for general headers
+			[--dim] for quoting
 
-# =====================================
-# Action
-
-# shared vars
-disable=''
-
-# helper
-function colorize() {
-	local style="$1" disable_style
-
-	# convert hyphens to underscores
-	style="${style//-/_}"
-
-	# expand shortcuts
-	case "$style" in
-	'bg_hi_'*) style="background_intense_${style:6}" ;;
-	*'_hi_bg') style=style="background_intense_${style:0:-6}" ;;
-
-	'fg_hi_'*) style="foreground_intense_${style:6}" ;;
-	*'_hi_fg') style=style="foreground_intense_${style:0:-6}" ;;
-
-	'fg_'*) style="foreground_${style:3}" ;;
-	*'_fg') style="foreground_${style:0:-3}" ;;
-
-	'bg_'*) style="background_${style:3}" ;;
-	*'_bg') style="background_${style:0:-3}" ;;
-
-	'hi_'*) style="intense_${style:3}" ;;
-	*'_hi') style="intense_${style:0:-3}" ;;
-	esac
-
-	# if it don't exist, it may be a foreground shorthand
-	if ! testv "$style" && testv "foreground_$style"; then
-		style="foreground_$style"
-	fi
-
-	# return the color value
-	if testv "$style"; then
-		echo -n "${!style}"
-
-		# determine the disable style
-		# don't convert to case/esac, too complicated
-		# check earlier echo did not already output the disable
-		if [[ "$style" != 'disable_'* ]]; then
-			if [[ "$style" = 'foreground_'* ]]; then
-				disable+="$disable_foreground"
-			elif [[ "$style" = 'background_'* ]]; then
-				disable+="$disable_background"
-			else
-				# custom disable, check if it exits
-				disable_style="disable_$style"
-				if testv "$disable_style"; then
-					# if it does, use it
-					disable+="${!disable_style}"
-				else
-					# otherwise use a generic reset
-					disable+="$reset"
-				fi
-			fi
-		fi
-
-	elif [[ "$style" != *'_open' ]] && [[ "$style" != *'_close' ]]; then
-		# ^ ignore errors on *_open and *_close, as they are optional
-		echo "Style [$style] is missing." >/dev/stderr
+			Remember [\$'\n'] is available to you to place newlines between arguments, e.g.
+			echo-style value \$'\n' value
+		EOF
 		return 22 # Invalid argument
-	fi
-}
+	}
 
-# act
-for arg in "$@"; do
-	flag=''
-	value=''
-
-	# check flag status
-	if test "${arg:0:2}" != '--'; then
-		# not a flag
-		echo -n "$arg"
-		continue
-	fi
-	flag="${arg:2}"
-
-	# get the flag and value combo
-	for ((i = 0; i < ${#flag}; i++)); do
-		if test "${flag:i:1}" = '='; then
-			value="${flag:i+1}"
-			flag="${flag:0:i}"
-			break
-		fi
+	# process
+	local item trail='yes' items=() use_colors
+	use_colors="$(echo-color yes -- "$@")"
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-trail'* | '--trail'*)
+			trail="$(get-flag-value trail --missing="$trail" -- "$item" | echo-affirmative)"
+			;;
+		'--no-color'* | '--color'*) ;; # handled by echo-color
+		*) items+=("$item") ;;
+		esac
 	done
 
-	# handle style+style combinations
-	value_target='/dev/stdout'
-	last_i=0
-	disable=''
-	for ((i = 0; i <= ${#flag}; i++)); do
-		if test "${flag:i:1}" = '+' -o "$i" -eq "${#flag}"; then
-			style="${flag:last_i:i-last_i}"
-			last_i="$((i + 1))"
-			if test "$style" = 'color'; then
-				value_target="$color_target"
-			elif test "$style" = 'nocolor'; then
-				if test "$color_target" != '/dev/null'; then
-					value_target="/dev/null"
+	# check if no color
+	color_target='/dev/stdout'
+	if test "$use_colors" = 'no'; then
+		color_target='/dev/null'
+	fi
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# styles.bash provides:
+	# all style variables
+	load_dorothy_config 'styles.bash'
+
+	# =====================================
+	# Action
+
+	# shared vars
+	local DISABLE=''
+
+	# helper
+	function colorize {
+		local style="$1" disable_style
+
+		# convert hyphens to underscores
+		style="${style//-/_}"
+
+		# expand shortcuts
+		# trunk-ignore(shellcheck/SC2249)
+		case "$style" in
+		'bg_hi_'*) style="background_intense_${style:6}" ;;
+		*'_hi_bg') style=style="background_intense_${style:0:-6}" ;;
+
+		'fg_hi_'*) style="foreground_intense_${style:6}" ;;
+		*'_hi_fg') style=style="foreground_intense_${style:0:-6}" ;;
+
+		'fg_'*) style="foreground_${style:3}" ;;
+		*'_fg') style="foreground_${style:0:-3}" ;;
+
+		'bg_'*) style="background_${style:3}" ;;
+		*'_bg') style="background_${style:0:-3}" ;;
+
+		'hi_'*) style="intense_${style:3}" ;;
+		*'_hi') style="intense_${style:0:-3}" ;;
+		esac
+
+		# if it don't exist, it may be a foreground shorthand
+		if ! testv "$style" && testv "foreground_$style"; then
+			style="foreground_$style"
+		fi
+
+		# return the color value
+		if testv "$style"; then
+			echo -n "${!style}"
+
+			# determine the disable style
+			# don't convert to case/esac, too complicated
+			# check earlier echo did not already output the disable
+			if [[ $style != 'disable_'* ]]; then
+				if [[ $style == 'foreground_'* ]]; then
+					DISABLE+="$disable_foreground"
+				elif [[ $style == 'background_'* ]]; then
+					DISABLE+="$disable_background"
+				else
+					# custom disable, check if it exits
+					disable_style="disable_$style"
+					if testv "$disable_style"; then
+						# if it does, use it
+						DISABLE+="${!disable_style}"
+					else
+						# otherwise use a generic reset
+						DISABLE+="$reset"
+					fi
 				fi
-			else
-				styles+=("$style")
-				colorize "$style" >"$color_target" || {
-					ec="$?"
-					echo "[$0 $*] FAILED" >/dev/stderr
-					exit "$ec"
-				}
-				# colorize also adjusts `disable` property
 			fi
+
+		elif [[ $style != *'_open' ]] && [[ $style != *'_close' ]]; then
+			# ^ ignore errors on *_open and *_close, as they are optional
+			echo "Style [$style] is missing." >/dev/stderr
+			return 22 # Invalid argument
+		fi
+	}
+
+	# act
+	local item flag value value_target last_i
+	for item in "${items[@]}"; do
+		flag=''
+		value=''
+
+		# check flag status
+		if test "${item:0:2}" != '--'; then
+			# not a flag
+			echo -n "$item"
+			continue
+		fi
+		flag="${item:2}"
+
+		# get the flag and value combo
+		for ((i = 0; i < ${#flag}; i++)); do
+			if test "${flag:i:1}" = '='; then
+				value="${flag:i+1}"
+				flag="${flag:0:i}"
+				break
+			fi
+		done
+
+		# handle style+style combinations
+		value_target='/dev/stdout'
+		last_i=0
+		DISABLE=''
+		for ((i = 0; i <= ${#flag}; i++)); do
+			if test "${flag:i:1}" = '+' -o "$i" -eq "${#flag}"; then
+				style="${flag:last_i:i-last_i}"
+				last_i="$((i + 1))"
+				if test "$style" = 'color'; then
+					value_target="$color_target"
+				elif test "$style" = 'nocolor'; then
+					if test "$color_target" != '/dev/null'; then
+						value_target="/dev/null"
+					fi
+				else
+					styles+=("$style")
+					colorize "$style" >"$color_target" || {
+						ec="$?"
+						echo "[$0 $*] FAILED" >/dev/stderr
+						exit "$ec"
+					}
+					# colorize also adjusts `disable` property
+				fi
+			fi
+		done
+
+		# value
+		if test -n "$value"; then
+			echo -n "$value" >"$value_target"
+			echo -n "$DISABLE" >"$color_target"
 		fi
 	done
 
-	# value
-	if test -n "$value"; then
-		echo -n "$value" >"$value_target"
-		echo -n "$disable" >"$color_target"
+	# finish up
+	# echo -n "$reset" >"$color_target"
+	if test "$trail" = 'yes'; then
+		echo >/dev/stdout
 	fi
-done
+)
 
-# finish up
-# echo -n "$reset" >"$color_target"
-if test "$trail" = 'yes'; then
-	echo >/dev/stdout
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	echo-style "$@"
 fi

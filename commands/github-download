@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+function github-download() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Download a file from a GitHub repository.
+
+			USAGE:
+			github-download [...options]
+
+			OPTIONS:
+			--slug=<org>/<repo>
+			    E.g. 'bevry/dorothy'
+
+			--ref=<branch,commit,tag>
+			    E.g. 'master'
+			    If omitted attempts 'master' then attempts 'main'.
+
+			--pathname=<pathname>
+			    E.g. 'commands/github-download'
+			    Can be used with [--ref] to specify which directory and file within the reference to download.
+			    If [--ref] is provided, but this omitted, the entire reference will be downloaded,
+			        and can be combined with [--unzip-filter].
+
+			--release=<release,tag>
+			    E.g. 'lastest'
+			    Can be used to download from a release, instead of a reference.
+
+			--asset-filter=<regexp>
+			    Can be used with [--release] to select which release asset to download.
+
+			--unzip-format=<format>
+			    If downloading a zip file, use this to enforce an extraction <format>.
+			    This option is handled by the [unziptar] command.
+
+			--unzip-filter=<filter>
+			    If downloading a zip file, use this to only extract files that match the glob pattern <filter>.
+			    This option is handled by the [unziptar] command.
+
+			--directory=<directory>
+			    Place downloaded file(s) inside <directory>.
+			    If ommitted, the current working directory will be used.
+
+			--file=<file>
+			    If only a single file was downloaded, rename it to <file>.
+			    If multiple files were downloaded, then fail.
+
+			--path=<directory>/<file>
+			    Set the <directory> and <file> from this value.
+
+			--[no-]quiet
+			    Whether or not output should be simplified, defaults to enabled.
+
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item slug='' reference='' pathname='' release='' asset_filter='' unzip_format='' unzip_filter='' directory='' file='' path='' option_quiet
+	option_quiet="$(echo-quiet yes -- "$@")"
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
+		'--slug='*) slug="${item:7}" ;;
+		'--ref='*) reference="${item:6}" ;;
+		'--reference='*) reference="${item:12}" ;;
+		'--pathname='*) pathname="${item:11}" ;;
+		'--release='*) release="${item:10}" ;;
+		'--asset-filter='*) asset_filter="${item:15}" ;;
+		'--unzip-format='*) unzip_format="${item:15}" ;;
+		'--unzip-filter='*) unzip_filter="${item:15}" ;;
+		'--directory='*) directory="${item:12}" ;;
+		'--file='*) file="${item:7}" ;;
+		'--path='*) path="${item:7}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# confirm expectations
+	if test -n "$reference" -a -n "$release"; then
+		help "[--ref] and [--release] are mutually exclusive"
+	fi
+	if test -n "$pathname" -a -n "$release"; then
+		help "[--pathname] and [--release] are mutually exclusive"
+	fi
+	if test -n "$asset_filter" -a -z "$release"; then
+		help "[--asset-filter] requires [--release]"
+	fi
+
+	# ensure directory, filename, path
+	if test -n "$path"; then
+		path="$(fs-absolute "$path")"
+		directory="$(dirname "$path")"
+		file="$(basename "$path")"
+		path="$directory/$file"
+	elif test -n "$directory" -a -n "$file"; then
+		directory="$(fs-absolute "$directory")"
+		file="$(basename "$file")"
+		path="$directory/$file"
+	elif test -z "$directory" -a -n "$file"; then
+		directory="$(pwd)"
+		file="$(basename "$file")"
+		path="$directory/$file"
+	elif test -n "$directory" -a -z "$file"; then
+		directory="$(fs-absolute "$directory")"
+		path="$directory"
+	else
+		directory="$(pwd)"
+		path="$directory"
+	fi
+	mkdir -p "$directory"
+
+	# in case they gave a URL
+	# if test -n "$slug"; then
+	# 	slug="${slug/https\:\/\/github.com/}"
+	# 	slug="${slug/.git//}"
+	# fi
+	if test -z "$slug"; then
+		help "A GitHub repository slug is required."
+	fi
+
+	# =====================================
+	# Dependencies
+
+	source "$DOROTHY/sources/ripgrep.bash"
+	env QUIET=yes setup-util-jq
+
+	# =====================================
+	# Action
+
+	# release helpers
+	function get_release_ref {
+		# output the reference for the release
+		local url="https://api.github.com/repos/$slug/releases/$release"
+		fetch "$url" | jq -r '.tag_name'
+	}
+	function get_release_assets_raw {
+		# output the assets [name, url] for the release
+		local url="https://api.github.com/repos/$slug/releases/$release"
+		fetch "$url" | jq -r ".assets[] | (.name, .browser_download_url)"
+	}
+	function get_release_assets {
+		# get the assets [name, url] for the release
+		local assets=()
+		mapfile -t assets < <(get_release_assets_raw)
+		if test "${#assets[@]}" -eq 0; then
+			echo-error "No assets were found."
+			return 1
+		fi
+
+		# now that we have them all, filter them
+		local index name url matches=()
+		for ((index = 0; index < ${#assets[@]}; index = index + 2)); do
+			name="${assets[index]}"
+			url="${assets[index + 1]}"
+			if rg --quiet '.(mini)?sig$' <<<"$name"; then
+				# ignore signature assets
+				continue
+			elif test -z "$asset_filter"; then
+				# no asset filter, add them all
+				matches+=("$url")
+			elif test "$asset_filter" = "$name"; then
+				# exact match, use only that
+				matches=("$url")
+				break
+			elif rg --quiet "$asset_filter" <<<"$name"; then
+				# regexp match, make note
+				matches+=("$url")
+			fi # no match, ignore
+		done
+
+		# assert filter worked
+		if test "${#matches[@]}" -eq 0; then
+			{
+				echo-error "No suitable assets were found."
+				echo-verbose "${assets[@]}"
+			} >/dev/stderr
+			return 1
+		fi
+
+		# output the matches
+		echo-lines "${matches[@]}"
+	}
+
+	# reference helpers
+	function get_ref_pathname_url {
+		# determine branch
+		if test -z "$reference"; then
+			if fetch --ok "https://raw.githubusercontent.com/$slug/master/$pathname"; then
+				reference='master'
+			elif fetch --ok "https://raw.githubusercontent.com/$slug/main/$pathname"; then
+				reference='main'
+			else
+				help "Unable to determine the [--ref] automatically, you must specify it manually."
+			fi
+		fi
+
+		# download
+		echo "https://raw.githubusercontent.com/$slug/$reference/$pathname"
+	}
+
+	# release/reference helpers
+	function download_ref {
+		local ref="$reference" filter
+		if test -z "$ref"; then
+			ref="$(get_release_ref)"
+		fi
+		filter="*-$ref/${unzip_filter:-"*"}"
+		down "https://github.com/$slug/archive/$ref.tar.gz" \
+			--quiet="$option_quiet" \
+			--unzip-format="$unzip_format" \
+			--unzip-filter="$filter" \
+			--directory="$directory" \
+			--file="$file" \
+			--path="$path"
+	}
+	function download_release {
+		local ref="$reference" filter
+		if test -z "$ref"; then
+			ref="$(get_release_ref)"
+		fi
+		filter="*-$reference/${unzip_filter:-"*"}"
+		down "https://github.com/$slug/archive/$ref.tar.gz" \
+			--quiet="$option_quiet" \
+			--unzip-format="$unzip_format" \
+			--unzip-filter="$filter" \
+			--directory="$directory" \
+			--file="$file" \
+			--path="$path"
+	}
+	function download_asset {
+		local asset assets
+		mapfile -t assets < <(get_release_assets)
+		for asset in "${assets[@]}"; do
+			down "$asset" \
+				--quiet="$option_quiet" \
+				--unzip-format="$unzip_format" \
+				--unzip-filter="$unzip_filter" \
+				--directory="$directory" \
+				--file="$file" \
+				--path="$path"
+		done
+	}
+	function download_pathname {
+		local url
+		url="$(get_ref_pathname_url)"
+		down "$url" \
+			--quiet="$option_quiet" \
+			--unzip-format="$unzip_format" \
+			--unzip-filter="$unzip_filter" \
+			--directory="$directory" \
+			--file="$file" \
+			--path="$path"
+	}
+
+	# =====================================
+	# Act
+
+	if test -n "$asset_filter"; then
+		download_asset
+	elif test -n "$pathname"; then
+		download_pathname
+	elif test -n "$release"; then
+		download_release
+	elif test -n "$reference"; then
+		download_ref
+	else
+		help "Invalid combination of options."
+	fi
+
+	# # download a github release file
+	# relase download --slug="$slug" --unzip-filter="$filter" | while read -r url; do
+	# 	if test -z "$url"; then
+	# 		stderr echo "failed to determine the release file for $*"
+	# 		exit 1
+	# 	fi
+
+	# 	if rg -q '.(tar|gz|zip)' <<<"$url"; then
+	# 		# may include arguments for subfile and destination
+	# 		down "$url" --unzip-filter="$extract" --destination="$destination" --inside="$inside"
+	# 	else
+	# 		# may include argument for destination
+	# 		down "$url" --destination="$destination"
+	# 	fi
+	# done
+
+	# function get_reference_clone {
+	# 	# then shallow clone it to the [--inside] directory
+	# 	git clone --quiet --depth 1 --branch "$reference" 'https://github.com/rfjakob/gocryptfs.git' "$inside"
+	# }
+	# function get_release_clone {
+	# 	# get the reference for the release
+	# 	local reference="$(get_release_ref)"
+
+	# 	# then shallow clone it to the [--inside] directory
+	# 	git clone --quiet --depth 1 --branch "$reference" 'https://github.com/rfjakob/gocryptfs.git' "$inside"
+	# }
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	github-download "$@"
+fi

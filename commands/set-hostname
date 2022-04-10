@@ -1,27 +1,98 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-new_hostname="$1"
+function set-hostname() (
+	# =====================================
+	# Arguments
 
-if command-exists setup-hostname; then
-	# https://wiki.alpinelinux.org/wiki/Alpine_setup_scripts#setup-hostname
-	setup-hostname -n "$new_hostname"
-elif command-exists 'hostnamectl'; then
-	# old hostname
-	old_hostname="$(get-hostname)"
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Update the current machine's hostname, with correct support for:
+			- updating dependent services
+			- multiple operating systems and their configurations
+
+			USAGE:
+			set-hostname <hostname>
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item hostname=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$hostname"; then
+				hostname="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+	if test -z "$hostname"; then
+		help "No <hostname> was provided"
+	fi
+
+	# =====================================
+	# Action
+
+	# @todo: investigate macOS support.
+	# https://www.tecmint.com/set-hostname-permanently-in-linux/
+
+	local original
+	original="$(get-hostname)"
 
 	# apply the hostname
-	sudo hostnamectl set-hostname "$new_hostname"
+	if command-exists setup-hostname; then
+		# https://wiki.alpinelinux.org/wiki/Alpine_setup_scripts#setup-hostname
+		setup-hostname -n "$hostname"
+	elif command-exists 'hostname'; then
+		sudo hostname "$hostname"
+	elif command-exists 'hostnamectl'; then
+		sudo hostnamectl set-hostname "$hostname"
+	elif test -f '/etc/hostname'; then
+		echo "$hostname" | sudo tee -a /etc/hostname
+	elif test -f '/proc/sys/kernel/hostname'; then
+		echo "$hostname" | sudo tee -a /proc/sys/kernel/hostname
+	elif command-exists 'sysctl'; then
+		sudo sysctl kernel.hostname="$hostname"
+	else
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
 
 	# write the hostname to the /etc/hosts file, this was necessary for a forgotten reason
 	# instead of two --expression, can also do -e 's//; s//'
 	# don't use sd, as this runs in initial setup
 	sudo sed --null-data --in-place --regexp-extended \
-		--expression="s#127.0.0.1\s+(${old_hostname}|${new_hostname})\n##g" \
-		--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1${new_hostname}\n#" \
+		--expression="s#127.0.0.1\s+($original|$hostname)\n##g" \
+		--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$hostname\n#" \
 		/etc/hosts
 	# cat /etc/hosts
 
 	# restart the name server
-	sudo systemctl restart nmbd
+	if command-exists systemctl; then
+		sudo systemctl restart nmbd
+	elif test -x /etc/init.d/hostname; then
+		/etc/init.d/hostname restart
+	elif test -f /etc/sysconfig/network; then
+		sudo-inherit -- config-helper --file='/etc/sysconfig/network' -- \
+			--field='HOSTNAME' --no-quote --value="$hostname"
+	else
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	set-hostname "$@"
 fi

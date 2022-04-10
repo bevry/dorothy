@@ -1,120 +1,158 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# help
-if is-help "$@"; then
-	cat <<-EOF >/dev/stderr
-		USAGE:
-		get-size
-		^ show the size information for the attached drives and their mounts
+function get-size() (
+	# =====================================
+	# Arguments
 
-		get-size <path>
-		^ if <path> is a btrfs mount, it will show the btrfs information for the mount
-		^ otherwise will show the size information for the path
-	EOF
-	exit 22 # Invalid argument
-fi
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Get the size information of all attached drives and mounts, or of specific paths.
 
-# prepare
-path="${1-}"
-if test -n "$path"; then
-	path="$(fs-absolute "$path")"
-fi
+			USAGE:
+			get-size [...paths]
 
-# act
-if test -n "$path"; then
-	if is-btrfs "$path"; then
-		# Show the structure of a filesystem
-		echo-eval sudo btrfs filesystem show
+			QUIRKS:
+			If no paths are provided, the size of all attached drives and their mounts are returned.
 
-		# Show detailed information about internal allocations in devices.
-		echo-eval sudo btrfs device usage "$path"
+			If the path is a BTRFS mount, it will show the BTRFS information for the mount.
 
-		# Show detailed information about internal filesystem usage .
-		echo-eval sudo btrfs filesystem usage "$path"
-
-		# Show space usage information for a mount point
-		echo-eval sudo btrfs filesystem df "$path"
-
-		# Show space usage via system
-		# -a, --all             include pseudo, duplicate, inaccessible file systems
-		# -h, --human-readable  print sizes in powers of 1024 (e.g., 1023M)
-		echo-eval df -ha "$path"
-
-		# Show status
-		echo-eval sudo btrfs device stats "$path"
-		echo-eval sudo btrfs scrub status "$path" || :   # if still running, exit code 1
-		echo-eval sudo btrfs balance status "$path" || : # if still running, exit code 1
-
-		# Summarize disk usage of every nested file inside the directory
-		# sudo btrfs filesystem du --summarize --human-readable "$path"
-
-		# Rename
-		# sudo btrfs filesystem label "$path" "$name"
-
-		# Change unallocated to free
-		# sudo btrfs filesystem resize max "$path"
-
-		# Defragment (balance also defrags)
-		# sudo btrfs filesystem defragment "$path"
-
-		# Balance as raid1
-		# sudo btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$path"
-
-		# Scrub (check filesystem for errors and auto-heal)
-		# sudo btrfs scrub start "$path"
-
-		# Check devices for errors
-		# WARNING: the repair mode is considered dangerous and should not be used without prior analysis of problems found on the filesystem.
-		# sudo btrfs check --repair --progress /dev/...
-
-		# Logs
-		# tail -n 1000 -f /var/log/syslog | grep "BTRFS"
-
-	elif command-exists dust; then
-		dust -d 1 "$path"
-		#     -s, --apparent-size       Use file length instead of blocks
-		#     -d, --depth <depth>                             Depth to show
-
-	elif
-		test -f "$path"
-	then
-		# path is a file
-		#   -h, --human-readable  print sizes in human readable format (e.g., 1K 234M 2G)
-		echo-eval du -h "$path"
-
-	else
-		# path is a directory
-		opts=()
-		if is-mac; then
-			opts+=(
-				'-hd'
-				1
-			)
-			# -A         Display the apparent size instead of the disk usage.  This can be helpful when operating on compressed volumes or sparse files.
-			# -a         Display an entry for each file in a file hierarchy.
-			# ^ incompatible with -d
-			# -s         Display an entry for each specified file.  (Equivalent to -d 0)
-			# ^ incompatible with -d
-			# -h         Human-readable output.
-			# -d depth   Display an entry for all files and directories depth directories deep.
-		else
-			opts+=(
-				'-aschd'
-				1
-			)
-			#   -a, --all             write counts for all files, not just directories
-			#   -s, --summarize       display only a total for each argument
-			#   -c, --total           produce a grand total
-			#   -h, --human-readable  print sizes in human readable format (e.g., 1K 234M 2G)
-			#   -d, --max-depth=N     print the total for a directory (or file, with --all)
+			If the path is a file or directory and dust is installed (can be installed via setup-util-dust), dust will be used to fetch size information, otherwise du will be used.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
 		fi
-		echo-eval du "${opts[@]}" "$path"
-	fi
-else
-	# size of the drives
-	echo-eval sudo fdisk -l
+		return 22 # Invalid argument
+	}
 
-	# size of the mounts
-	echo-eval sudo lsblk -e7
+	# process
+	local item option_paths=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			option_paths+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_paths+=("$item") ;;
+		esac
+	done
+
+	# allow no paths, as that returns details for attached volumes
+
+	# =====================================
+	# Action
+
+	local path
+	if test "$#" -eq 0; then
+		if is-mac; then
+			# size of the drives
+			eval-helper -- sudo diskutil list
+		else
+			# size of the drives
+			eval-helper -- sudo fdisk -l
+			# size of the mounts
+			eval-helper -- sudo lsblk -e7
+		fi
+	else
+		for path in "${option_paths[@]}"; do
+			path="$(fs-absolute "$path")"
+			if is-btrfs "$path"; then
+				# Show the structure of a filesystem
+				eval-helper -- sudo btrfs filesystem show
+
+				# Show detailed information about internal allocations in devices.
+				eval-helper -- sudo btrfs device usage "$path"
+
+				# Show detailed information about internal filesystem usage .
+				eval-helper -- sudo btrfs filesystem usage "$path"
+
+				# Show space usage information for a mount point
+				eval-helper -- sudo btrfs filesystem df "$path"
+
+				# Show space usage via system
+				# -a, --all             include pseudo, duplicate, inaccessible file systems
+				# -h, --human-readable  print sizes in powers of 1024 (e.g., 1023M)
+				eval-helper -- df -ha "$path"
+
+				# Show status
+				eval-helper -- sudo btrfs device stats "$path"
+				eval-helper -- sudo btrfs scrub status "$path" || :   # if still running, exit code 1
+				eval-helper -- sudo btrfs balance status "$path" || : # if still running, exit code 1
+
+				# Summarize disk usage of every nested file inside the directory
+				# sudo btrfs filesystem du --summarize --human-readable "$path"
+
+				# Rename
+				# sudo btrfs filesystem label "$path" "$name"
+
+				# Change unallocated to free
+				# sudo btrfs filesystem resize max "$path"
+
+				# Defragment (balance also defrags)
+				# sudo btrfs filesystem defragment "$path"
+
+				# Balance as raid1
+				# sudo btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$path"
+
+				# Scrub (check filesystem for errors and auto-heal)
+				# sudo btrfs scrub start "$path"
+
+				# Check devices for errors
+				# WARNING: the repair mode is considered dangerous and should not be used without prior analysis of problems found on the filesystem.
+				# sudo btrfs check --repair --progress /dev/...
+
+				# Logs
+				# tail -n 1000 -f /var/log/syslog | grep "BTRFS"
+
+			elif command-exists dust; then
+				dust -d 1 "$path"
+				#     -s, --apparent-size       Use file length instead of blocks
+				#     -d, --depth <depth>                             Depth to show
+
+			elif test -f "$path"; then
+				# path is a file
+				#   -h, --human-readable  print sizes in human readable format (e.g., 1K 234M 2G)
+				eval-helper -- du -h "$path"
+
+			else
+				# path is a directory
+				opts=()
+				if is-mac; then
+					opts+=(
+						'-hd'
+						1
+					)
+					# -A         Display the apparent size instead of the disk usage.  This can be helpful when operating on compressed volumes or sparse files.
+					# -a         Display an entry for each file in a file hierarchy.
+					# ^ incompatible with -d
+					# -s         Display an entry for each specified file.  (Equivalent to -d 0)
+					# ^ incompatible with -d
+					# -h         Human-readable output.
+					# -d depth   Display an entry for all files and directories depth directories deep.
+				else
+					opts+=(
+						'-aschd'
+						1
+					)
+					#   -a, --all             write counts for all files, not just directories
+					#   -s, --summarize       display only a total for each argument
+					#   -c, --total           produce a grand total
+					#   -h, --human-readable  print sizes in human readable format (e.g., 1K 234M 2G)
+					#   -d, --max-depth=N     print the total for a directory (or file, with --all)
+				fi
+				eval-helper -- du "${opts[@]}" "$path"
+			fi
+		done
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get-size "$@"
 fi

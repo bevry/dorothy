@@ -307,7 +307,7 @@ The [`itunes-owners` command](https://github.com/bevry/dorothy/tree/master/comma
 
 The [`ios-dev` command](https://github.com/bevry/dorothy/tree/master/commands/ios-dev) lets you easily open the iOS simulator from the terminal.
 
-The [`alias-details`](https://github.com/bevry/dorothy/tree/master/commands/alias-details), [`aliases`](https://github.com/bevry/dorothy/tree/master/commands/aliases), [`aliases-to-symlink`](https://github.com/bevry/dorothy/tree/master/commands/aliases-to-symlink), [`alias-path`](https://github.com/bevry/dorothy/tree/master/commands/alias-path), [`alias-verify`](https://github.com/bevry/dorothy/tree/master/commands/alias-details) commands will help you convert MacOS aliases into symlinks.
+The [`alias-helper`](https://github.com/bevry/dorothy/tree/master/commands/alias-helper) will help you manage your macOS aliases, and if desired, convert them into symlinks.
 
 ### Media
 

@@ -1,65 +1,188 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# options
-action="$(choose-option --question='What action would you like to do?' --filter="${1-}" -- create open)"
-if test "$action" = 'open'; then
-	option_path="$(
-		ask \
-			--question='Enter its path.'
-	)"
+function sparse-vault() (
+	# =====================================
+	# Arguments
 
-	echo
-	echo 'Compacting...'
-	(hdiutil compact "$option_path" && echo 'Compacted.') || echo 'Compact failed, not an issue, continuing.'
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Helpers for working with macOS sparse vaults (encrypted DMGs).
 
-	echo
-	echo 'Mounting...'
-	hdiutil mount "$option_path"
-	echo 'Mounted.'
-else
-	option_name="$(
-		ask \
-			--question='Enter its name.'
-	)"
-	option_size="$(
-		ask \
-			--question='Enter its maximum size. E.g. MAXSIZE|100g|1t'
-	)"
-	option_type="$(
-		choose-option \
-			--question='Enter its type.' \
-			-- sparseimage sparsebundle
-	)"
+			USAGE:
+			sparse-vault mount|open <path>
 
-	vol=$(basename "$option_name")
-	version=$(sw_vers -productVersion | awk -F '.' '{print $2}')
-	create_args=(
-		'-encryption' 'AES-256'
-		'-size' "$option_size"
-		'-volname' "$vol"
+			    Mounts an existing sparse vault.
+
+			sparse-vault unmount|eject <path>
+
+			    Unmount an existing sparse vault.
+
+			sparse-vault create|make <path>
+			  [--name=...]  # Volume name
+			  [--size=...]  # Examples: MAXSIZE, 100g, 1t
+			  [--type=<sparseimage|sparsebundle>]
+
+			    Creates a new sparse vault.
+			    Note that the extension of ".<type>" appended onto the <path>.
+
+			    Use [--type=sparseimage] for a single file.
+			    Use [--type=sparsebundle] for a directory style file, made up of dozens of block files.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='' path='' name='' size='' __type=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'create' | 'make') action='create' ;;
+		'mount' | 'open') action='mount' ;;
+		'unmount' | 'eject') action='unmount' ;;
+		'--path='*) path="${item:7}" ;;
+		'--name='*) name="${item:7}" ;;
+		'--size='*) size="${item:7}" ;;
+		'--type='*) __type="${item:7}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$action"; then
+				action="$item"
+			elif test -z "$path"; then
+				path="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# ensure valid action
+	local actions=(
+		'mount'
+		'unmount'
+		'create'
 	)
+	action="$(
+		choose-option --required \
+			--question='which action to perform?' \
+			--filter="$action" -- "${actions[@]}"
+	)"
 
-	if test "$version" -ge "13"; then
-		create_args+=('-fs' 'APFS')
-	else
-		create_args+=('-fs' 'Journaled HFS+')
+	# adjustments: path
+	path="$(
+		ask --required \
+			--question='Enter its path.' \
+			--default="$path"
+	)"
+	path="$(fs-absolute "$path")"
+
+	# adjustments: create
+	if test "$action" = 'create'; then
+		name="$(
+			ask --required --confirm \
+				--question='Enter the volume name.' \
+				--default="$name"
+		)"
+		size="$(
+			ask --required --confirm \
+				--question='Enter its maximum size. E.g. MAXSIZE|100g|1t' \
+				--default="$size"
+		)"
+		__type="$(
+			choose-option \
+				--question='Enter its type.' \
+				--filter="$__type" -- sparseimage sparsebundle
+		)"
 	fi
-	if test "$option_type" = 'sparseimage'; then
-		create_args+=('-type' 'SPARSE')
-		filename="${option_name}.sparseimage"
+
+	# =====================================
+	# Helpers
+
+	function get_macos_version {
+		sw_vers -productVersion | awk -F '.' '{print $2}'
+	}
+
+	# =====================================
+	# Actions
+
+	function act_mount {
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Compacting...")" \
+			--success="$(echo-style --success="Compacted.")" \
+			--failure="$(echo-style --error="Failed to compact.")" \
+			-- hdiutil compact "$path"
+
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Mounting...")" \
+			--success="$(echo-style --success="Mounted.")" \
+			--failure="$(echo-style --error="Failed to mount.")" \
+			-- hdiutil mount "$path"
+	}
+
+	function act_create {
+		local args=(
+			'-encryption' 'AES-256'
+			'-size' "$size"
+			'-volname' "$name"
+		)
+		if test "$(get_macos_version)" -ge 13; then
+			args+=('-fs' 'APFS')
+		else
+			args+=('-fs' 'Journaled HFS+')
+		fi
+		if test "$__type" = 'sparseimage'; then
+			args+=('-type' 'SPARSE')
+			if [[ $path != *'.sparseimage' ]]; then
+				path="${path}.sparseimage"
+			fi
+		else
+			args+=('-type' 'SPARSEBUNDLE')
+			if [[ $path != *'.sparsebundle' ]]; then
+				path="${path}.sparsebundle"
+			fi
+		fi
+
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Creating...")" \
+			--success="$(echo-style --success="Created.")" \
+			--failure="$(echo-style --error="Failed to create.")" \
+			-- hdiutil create "${args[@]}" "$path"
+
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Mounting...")" \
+			--success="$(echo-style --success="Mounted.")" \
+			--failure="$(echo-style --error="Failed to mount.")" \
+			-- hdiutil mount "$path"
+	}
+
+	function act_unmount {
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Unmounting...")" \
+			--success="$(echo-style --success="Unmount.")" \
+			--failure="$(echo-style --error="Failed to unmount.")" \
+			-- hdiutil unmount "$path"
+	}
+
+	# =====================================
+	# Act
+
+	if test "$(type -t "act_$action")" = 'function'; then
+		"act_$action"
+		return "$?"
 	else
-		create_args+=('-type' 'SPARSEBUNDLE')
-		filename="${option_name}.sparsebundle"
+		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
+		return 78 # Function not implemented
 	fi
+)
 
-	echo
-	echo 'Creating...'
-	hdiutil create "${create_args[@]}" "$option_name"
-	echo 'Created.'
-
-	echo
-	echo 'Mounting...'
-	hdiutil mount "$filename"
-	echo 'Mounted.'
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	twitter-helper "$@"
 fi

@@ -5,203 +5,215 @@ source "$DOROTHY/sources/tty.bash"
 source "$DOROTHY/sources/arrays.bash"
 may_require_array_support 'mapfile' 'empty'
 
-# =====================================
-# Arguments
+function ask() (
+	# =====================================
+	# Arguments
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Prompt the user for an input value in a clean and robust way.
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Prompt the user for an input value in a clean and robust way.
 
-		USAGE:
-		ask [...flags] [--flag=... -- ...args]
+			USAGE:
+			ask [...options]
 
-		FLAGS:
-		Provide [--question=...] to specify the question that the prompt will be answering.
-		Provide [--default=...] to specify the default value if no user specified value is entered.
-		Provide [--confirm] to specify that the prompt should confirm the value before continuing.
-		Provide [--password] to specify that the prompt should hide the value when entering by using password mode.
-		Provide [--required] to specify that the prompt should not continue until a value is provided.
-		Provide [--timeout=...] to specify a custom timeout value in seconds.
-		Provide [--flag=... -- ...args] to specify a flag to search the arguments for, to set a default value.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
+			OPTIONS:
+			--question=<string>
+			    Specifies the question that the prompt will be answering.
 
-# process
-args=() # used with option_flag
-option_question=''
-option_default=''
-option_password='no'
-option_required='no'
-option_confirm='no'
-option_timeout=''
-option_flag=''
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--question='*) option_question="${item:11}" ;;
-	'--default='*) option_default="${item:10}" ;;
-	'--timeout='*) option_timeout="${item:10}" ;;
-	'--flag='*) option_flag="${item:7}" ;;
-	'--no-password'* | '--password'*)
-		option_password="$(get-flag-value password --missing="$option_password" -- "$item" | echo-affirmative)"
-		;;
-	'--no-required'* | '--required'*)
-		option_required="$(get-flag-value required --missing="$option_required" -- "$item" | echo-affirmative)"
-		;;
-	'--no-confirm'* | '--confirm'*)
-		option_confirm="$(get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative)"
-		;;
-	'--')
-		args+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
-	esac
-done
+			--default=<value>
+				Specifies the default value if no user specified value is entered.
 
-# prepare flags
-flags=('-r')
-if test -n "$option_default"; then
-	result="$option_default"
-elif test -n "$option_flag"; then
-	result="$(get-flag-value "$option_flag" -- "${args[@]}")"
-else
-	result=''
-fi
+			--confirm
+			    Specifies that the prompt should confirm the value before continuing.
 
-# helpers
-asked='no'
-function handle_timeout() {
-	if is-value "$result"; then
-		echo "Ask timed out, using fallback value: $result" >/dev/stderr
-		sleep 5
-		echo "$result"
-		return 0
-	elif test "$option_required" = 'no'; then
-		echo 'Ask timed out, as the field was optional will use no value.' >/dev/stderr
-		sleep 5
-		return 0
+			--password
+			    Specifies that the prompt should hide the value when entering by using password mode.
+
+			--required
+			    Specifies that the prompt should not continue until a value is provided.
+
+			--timeout=<seconds>
+			    Specifies a custom timeout value in seconds.
+
+			--flag=<string> -- <...args>
+			    Specifies a flag to search the arguments for, to set a default value.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item args=() option_question='' option_default='' option_password='no' option_required='no' option_confirm='no' option_timeout='' option_flag=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--question='*) option_question="${item:11}" ;;
+		'--default='*) option_default="${item:10}" ;;
+		'--timeout='*) option_timeout="${item:10}" ;;
+		'--flag='*) option_flag="${item:7}" ;;
+		'--no-password'* | '--password'*)
+			option_password="$(get-flag-value password --missing="$option_password" -- "$item" | echo-affirmative)"
+			;;
+		'--no-required'* | '--required'*)
+			option_required="$(get-flag-value required --missing="$option_required" -- "$item" | echo-affirmative)"
+			;;
+		'--no-confirm'* | '--confirm'*)
+			option_confirm="$(get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative)"
+			;;
+		'--')
+			args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# prepare flags
+	local result read_flags=('-r')
+	if test -n "$option_default"; then
+		result="$option_default"
+	elif test -n "$option_flag"; then
+		result="$(get-flag-value "$option_flag" -- "${args[@]}")"
 	else
-		echo 'Ask timed out, with no fallback.' >/dev/stderr
-		sleep 5
-		return 62 # Timer expired
+		result=''
 	fi
-}
-function ask() {
-	local ec
-	tty_auto
-	asked='yes' # not lcoal
-	if test -n "${1-}"; then
-		echo "$1" >/dev/tty
-	fi
-	while true; do
-		ec=0 && read "${flags[@]}" -t 300 -r -p "> " result || ec="$?"
-		if test "$ec" -gt 128; then
+
+	# helpers
+	local asked='no'
+	function on_timeout {
+		if is-value "$result"; then
+			echo "Ask timed out, using fallback value: $result" >/dev/stderr
+			sleep 5
+			echo "$result"
+			return 0
+		elif test "$option_required" = 'no'; then
+			echo 'Ask timed out, as the field was optional will use no value.' >/dev/stderr
+			sleep 5
+			return 0
+		else
+			echo 'Ask timed out, with no fallback.' >/dev/stderr
+			sleep 5
 			return 62 # Timer expired
 		fi
+	}
+	function ask {
+		local ec
+		tty_auto
+		asked='yes' # not lcoal
+		if test -n "${1-}"; then
+			echo "$1" >/dev/tty
+		fi
+		while true; do
+			ec=0 && read "${read_flags[@]}" -t 300 -r -p "> " result || ec="$?"
+			if test "$ec" -gt 128; then
+				return 62 # Timer expired
+			fi
+			if is-value "$result"; then
+				break
+			elif test "$option_required" = 'no'; then
+				result=''
+				break
+			fi
+		done
+		validate
+	}
+	function validate {
+		local ec choice choices=()
 		if is-value "$result"; then
-			break
-		elif test "$option_required" = 'no'; then
-			result=''
-			break
+			# we have a value, so go for it
+			if test "$option_confirm" != 'yes'; then
+				echo "$result"
+				return
+			fi
+			# proceed with confirm
+			if test "$asked" = 'yes'; then
+				if test "$option_password" = 'yes'; then
+					choices+=('existing' 'use the entered password')
+				else
+					choices+=('existing' "use the entered value: [$result]")
+				fi
+			else
+				if test "$option_password" = 'yes'; then
+					choices+=('existing' 'use the preconfigured password')
+				else
+					choices+=('existing' "use the preconfigured value: [$result]")
+				fi
+			fi
 		fi
-	done
-	validate
-}
-function validate() {
-	local ec choices=()
-	if is-value "$result"; then
-		# we have a value, so go for it
-		if test "$option_confirm" != 'yes'; then
-			echo "$result"
-			exit
-		fi
-		# proceed with confirm
 		if test "$asked" = 'yes'; then
-			if test "$option_password" = 'yes'; then
-				choices+=('existing' 'use the entered password')
-			else
-				choices+=('existing' "use the entered value: [$result]")
-			fi
+			choices+=('custom' 'redo the entered value')
 		else
-			if test "$option_password" = 'yes'; then
-				choices+=('existing' 'use the preconfigured password')
-			else
-				choices+=('existing' "use the preconfigured value: [$result]")
-			fi
+			choices+=('custom' 'enter a value')
 		fi
-	fi
-	if test "$asked" = 'yes'; then
-		choices+=('custom' 'redo the entered value')
-	else
-		choices+=('custom' 'enter a value')
-	fi
-	if test "$option_required" = 'no'; then
-		choices+=('none' 'use no value')
-	fi
+		if test "$option_required" = 'no'; then
+			choices+=('none' 'use no value')
+		fi
 
-	# as need to confirm, adjust the timeout
-	if test -z "$option_timeout" && (is-value "$result" || test "$option_required" = 'no'); then
-		# timeout of one minute for confirms of existing values, or optional values
-		option_timeout=60
-	fi
+		# as need to confirm, adjust the timeout
+		if test -z "$option_timeout" && (is-value "$result" || test "$option_required" = 'no'); then
+			# timeout of one minute for confirms of existing values, or optional values
+			option_timeout=60
+		fi
 
-	# ask
-	ec=0 && choice="$(choose-option \
-		--timeout="$option_timeout" \
-		--question="$option_question" \
-		--label -- "${choices[@]}")" || ec="$?"
-
-	# check
-	if test "$ec" -eq 62; then
-		echo "Choose timed out [$ec]." >/dev/stderr
-		handle_timeout
-		exit "$?" # exit with the above on success and failure
-	elif test "$ec" -ne 0; then
-		echo "Choose failed [$ec]." >/dev/stderr
-		sleep 5
-		exit "$ec"
-	fi
-
-	# handle
-	if test "$choice" = 'existing'; then
-		# done, sucess
-		echo "$result"
-		exit
-	elif test "$choice" = 'custom'; then
 		# ask
-		ec=0 && ask "$option_question" || ec="$?"
+		ec=0 && choice="$(choose-option \
+			--timeout="$option_timeout" \
+			--question="$option_question" \
+			--label -- "${choices[@]}")" || ec="$?"
 
-		# check for failure
-		if test "$ec" -ne 0; then
-			# timeout probably
-			handle_timeout
-			exit "$?" # exit with the above on success and failure
+		# check
+		if test "$ec" -eq 62; then
+			echo-style --error="Choose timed out: $ec" >/dev/stderr
+			on_timeout
+			return "$?" # exit with the above on success and failure
+		elif test "$ec" -ne 0; then
+			echo-style --error="Choose failed: $ec" >/dev/stderr
+			sleep 5
+			return "$ec"
 		fi
 
-		# done, success
-		exit
-	elif test "$choice" = 'none'; then
-		# done, sucess
-		echo
-		exit
-	else
-		# unknown error
-		echo "invalid choice: [$result]" >/dev/stderr
-		sleep 5
-		exit 1
-	fi
-}
+		# handle
+		if test "$choice" = 'existing'; then
+			# done, sucess
+			echo "$result"
+			return
+		elif test "$choice" = 'custom'; then
+			# ask
+			ec=0 && ask "$option_question" || ec="$?"
 
-# act
-validate
+			# check for failure
+			if test "$ec" -ne 0; then
+				# timeout probably
+				on_timeout
+				return "$?" # exit with the above on success and failure
+			fi
+
+			# done, success
+			return
+		elif test "$choice" = 'none'; then
+			# done, sucess
+			echo
+			return
+		else
+			# unknown error
+			echo-style --error="Invalid choice: $choice" >/dev/stderr
+			sleep 5
+			return 14 # EFAULT 14 Bad address
+		fi
+	}
+
+	# act
+	validate
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	ask "$@"
+fi

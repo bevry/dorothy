@@ -3,44 +3,87 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
 
-# find the installer, and download it if necessary
-function select_installer() {
-	local installers
-	mapfile -t installers < <(echo-lines -- '/Applications/Install macOS'*)
-	if test "${#installers[@]}" -eq 0; then
-		if test "${1-}" = '--downloaded'; then
-			cat <<-EOF >/dev/stderr
-				$(echo-style --error='Even after fetching the installer, we could not find it. This is unexpected.')
-				$(echo-style --error='Report an issue at: https://github.com/bevry/dorothy/issues')
-			EOF
-			return 65 # Package not installed
-		fi
-		if confirm-positive --ppid=$$ -- \
-			'An existing macOS installer was not present on your system.' $'\n' \
-			'We can automatically fetch the latest installer from Apple now if you would like?'; then
-			softwareupdate --fetch-full-installer
-			# ^ --download flag doesn't work, despite documentation
-			select_installer --downloaded # try again
-			return "$?"
-		else
-			return 125 # Operation canceled
-		fi
-	fi
-	# select
-	choose-path --required --question="Which macOS installer to use?" -- "${installers[@]}"
-}
+function macos-drive() (
+	# =====================================
+	# Arguments
 
-# select the installer
-installer="$(select_installer)"
-name="$(basename "$installer")"
-volume="$(
-	choose-option --required \
-		--question="Install $name to which volume?" \
-		-- /Volumes/*
-)"
-if confirm-bool --ppid=$$ -- "Confirm installation of $name to $volume?"; then
-	sudo "$installer/Contents/Resources/createinstallmedia" --volume "$volume"
-	exit "$?"
-else
-	exit 125 # Operation canceled
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Guides you through creating a macOS installation media.
+
+			USAGE:
+			macos-drive
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# find the installer, and download it if necessary
+	function select_installer {
+		local installers=() downloaded
+		if test "${1-}" = '--downloaded'; then
+			downloaded='yes'
+		fi
+		mapfile -t installers < <(echo-lines -- '/Applications/Install macOS'*)
+		if test "${#installers[@]}" -eq 0; then
+			if test "$downloaded" = 'yes'; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --error='Even after fetching the installer, we could not find it. This is unexpected.')
+					$(echo-style --error='Report an issue at: https://github.com/bevry/dorothy/issues')
+				EOF
+				return 65 # Package not installed
+			fi
+			if confirm-positive --ppid=$$ -- \
+				'An existing macOS installer was not present on your system.' $'\n' \
+				'We can automatically fetch the latest installer from Apple now if you would like?'; then
+				softwareupdate --fetch-full-installer
+				# ^ --download flag doesn't work, despite documentation
+				select_installer --downloaded # try again
+				return "$?"
+			else
+				return 125 # Operation canceled
+			fi
+		fi
+		# select
+		choose-path --required --question="Which macOS installer to use?" -- "${installers[@]}"
+	}
+
+	# select the installer
+	local installer name volume
+	installer="$(select_installer)"
+	name="$(basename "$installer")"
+	volume="$(
+		choose-option --required \
+			--question="Install $name to which volume?" \
+			-- /Volumes/*
+	)"
+	if confirm-bool --ppid=$$ -- "Confirm installation of $name to $volume?"; then
+		sudo "$installer/Contents/Resources/createinstallmedia" --volume "$volume"
+		return "$?"
+	else
+		return 125 # Operation canceled
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	macos-drive "$@"
 fi

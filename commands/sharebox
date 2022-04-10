@@ -2,453 +2,453 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile' 'empty'
-source "$(which echo-eval)"
 
-# =====================================
-# Checks
+function sharebox() (
+	# =====================================
+	# Arguments
 
-if ! is-ubuntu; then
-	stderr echo 'only for ubuntu'
-	exit 1
-fi
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
+			sharebox [--configure] <action> -- [...args]
 
-# dependencies
-source "$DOROTHY/sources/ripgrep.bash"
+			FLAGS:
+			--configure            Configuration guide.
 
-# =====================================
-# Arguments
-
-# prepare
-actions=(
-	chown
-	info
-	mount
-	resume
-	pause
-	reboot
-	run
-	setup
-	shutdown
-	size
-	start
-	stop
-	unmount
-	upgrade
-)
-
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		USAGE:
-		sharebox [--configure] <action> -- [...args]
-
-		FLAGS:
-		--configure            Configuration guide.
-
-		ACTIONS:
-		chown -- <path>        Have the sharebox user take ownership of the specified path.
-		info                   Dumps various information about the sharebox.
-		mount                  Mounts the sharebox drive and vault.
-		pause                  Pause the sharebox services.
-		resume                 Resume the sharebox services.
-		reboot                 Stop the sharebox and reboots the machine safely.
-		run -- <command...>    Runs a command as the sharebox user.
-		setup                  Setup the sharebox dependencies, user, and services.
-		shutdown               Stop the sharebox and powers off the machine safely.
-		size                   Gets the size of the sharebox drive.
-		start                  Mounts the sharebox and starts its services.
-		stop                   Stops the sharebox serviecs and unmounts its vault and drive.
-		unmount                Unmounts the sharebox drive and vault.
-		upgrade                Upgrade the services of the sharebox.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
-
-# process
-action=''
-reconfigure='no'
-action_args=()
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--action='*) action="${item:9}" ;;
-	'--no-configure'* | '--configure'*)
-		reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
-		;;
-	'--')
-		action_args+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*)
-		if test -z "$action"; then
-			action="$item"
-		else
-			help "An unrecognised argument was provided: $item"
+			ACTIONS:
+			chown -- <path>        Have the sharebox user take ownership of the specified path.
+			info                   Dumps various information about the sharebox.
+			mount                  Mounts the sharebox drive and vault.
+			pause                  Pause the sharebox services.
+			resume                 Resume the sharebox services.
+			reboot                 Stop the sharebox and reboots the machine safely.
+			run -- <command...>    Runs a command as the sharebox user.
+			setup                  Setup the sharebox dependencies, user, and services.
+			shutdown               Stop the sharebox and powers off the machine safely.
+			size                   Gets the size of the sharebox drive.
+			start                  Mounts the sharebox and starts its services.
+			stop                   Stops the sharebox serviecs and unmounts its vault and drive.
+			unmount                Unmounts the sharebox drive and vault.
+			upgrade                Upgrade the services of the sharebox.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
 		fi
-		;;
-	esac
-done
+		return 22 # Invalid argument
+	}
 
-# ensure valid action
-action="$(
-	choose-option --required \
-		--question='What action to perform?' \
-		--filter="$action" -- "${actions[@]}"
-)"
-
-# =====================================
-# Configuration
-
-source "$DOROTHY/sources/config.bash"
-
-# sharebox.bash provides:
-SHAREBOX_USER=''
-SHAREBOX_GROUP=''
-SHAREBOX_DRIVE_LABEL=''
-SHAREBOX_DRIVE_COUNT=''
-SHAREBOX_DRIVE_MOUNT=''
-SHAREBOX_CIPHER=''
-SHAREBOX_PLAIN=''
-if ! load_dorothy_config 'sharebox.bash'; then
-	reconfigure='yes'
-fi
-
-# =====================================
-# Reconfiguration
-
-# required
-if test -z "$SHAREBOX_USER" -o -z "$SHAREBOX_GROUP" -o -z "$SHAREBOX_DRIVE_LABEL" -o -z "$SHAREBOX_DRIVE_COUNT" -o -z "$SHAREBOX_DRIVE_MOUNT" -o -z "$SHAREBOX_CIPHER" -o -z "$SHAREBOX_PLAIN"; then
-	reconfigure='yes'
-fi
-
-# reconfigure
-if test "$reconfigure" = 'yes'; then
-	SHAREBOX_USER="$(
-		ask --required --confirm \
-			--question='Enter the username to use for the share.' \
-			--default="$SHAREBOX_USER"
-	)"
-	SHAREBOX_GROUP="$(
-		ask --required --confirm \
-			--question='Enter the groupname to use for the share.' \
-			--default="$SHAREBOX_GROUP"
-	)"
-	SHAREBOX_DRIVE_LABEL="$(
-		ask --required --confirm \
-			--question='Enter the drive label to use for the share.' \
-			--default="$SHAREBOX_DRIVE_LABEL"
-	)"
-	SHAREBOX_DRIVE_COUNT="$(
-		ask --required --confirm \
-			--question='Enter how many drives are part of the share.' \
-			--default="$SHAREBOX_DRIVE_COUNT"
-	)"
-	SHAREBOX_DRIVE_MOUNT="$(
-		ask --required --confirm \
-			--question='Enter the path of the drive mount point.' \
-			--default="$SHAREBOX_DRIVE_MOUNT"
-	)"
-	SHAREBOX_CIPHER="$(
-		ask --required --confirm \
-			--question='Enter the path of the cipher directory.' \
-			--default="$SHAREBOX_CIPHER"
-	)"
-	SHAREBOX_PLAIN="$(
-		ask --required --confirm \
-			--question='Enter the path of the decrypted cipher mount point.' \
-			--default="$SHAREBOX_PLAIN"
-	)"
-
-	# save
-	update_dorothy_user_config --prefer=local 'sharebox.bash' -- \
-		--field='SHAREBOX_USER' --value="$SHAREBOX_USER" \
-		--field='SHAREBOX_GROUP' --value="$SHAREBOX_GROUP" \
-		--field='SHAREBOX_DRIVE_LABEL' --value="$SHAREBOX_DRIVE_LABEL" \
-		--field='SHAREBOX_DRIVE_COUNT' --value="$SHAREBOX_DRIVE_COUNT" \
-		--field='SHAREBOX_DRIVE_MOUNT' --value="$SHAREBOX_DRIVE_MOUNT" \
-		--field='SHAREBOX_CIPHER' --value="$SHAREBOX_CIPHER" \
-		--field='SHAREBOX_PLAIN' --value="$SHAREBOX_PLAIN"
-fi
-
-# =====================================
-# Verify
-
-# verify drive
-# /dev/* locations can change, or be missing, so check for that
-btrfs-helper verify -- "$SHAREBOX_DRIVE_LABEL" "$SHAREBOX_DRIVE_COUNT"
-
-# get the drive for the label
-sharebox_device="$(btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL")"
-
-# vault configuration
-sharebox_owner="$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
-
-# =====================================
-# Action Helpers
-
-function is_drive_mounted {
-	is-mounted --source="$sharebox_device" --target="$SHAREBOX_DRIVE_MOUNT"
-}
-function do_disable {
-	# disable services auto-starting
-	echo-segment --h2='Disable Service Autostart'
-	set -x # <debug>
-	sudo systemctl disable smbd || :
-	sudo systemctl disable plexmediaserver || :
-	sudo systemctl disable resilio-sync || :
-	sudo systemctl disable docker || :
-	sudo systemctl disable docker.socket || :
-	set +x # </debug>
-	echo-segment --g2='Disable Service Autostart'
-}
-function do_status {
-	echo-segment --h2='Fetch Service Status'
-	set -x # <debug>
-	sudo systemctl status smbd --no-pager || :
-	sudo systemctl status plexmediaserver --no-pager || :
-	sudo systemctl status resilio-sync --no-pager || :
-	sudo systemctl status docker --no-pager || :
-	sudo systemctl status docker.socket --no-pager || :
-	seedbox status || :
-	set +x # </debug>
-	echo-segment --g2='Fetch Service Status'
-}
-function do_pause {
-	# stop services in a sensible order
-	echo-segment --h2='Stop Services'
-	set -x # <debug>
-	sudo systemctl stop smbd || :
-	sudo systemctl stop plexmediaserver || :
-	sudo systemctl stop resilio-sync || :
-	timeout 120s seedbox stop || :
-	sudo timeout 120s systemctl stop docker || :
-	# sudo systemctl stop docker.socket || :
-	set +x # </debug>
-	echo-segment --g2='Stop Services'
-}
-function do_resume {
-	# start services in a sensible order
-	echo-segment --h2='Start Services'
-	set -x # <debug>
-	sudo systemctl restart docker || :
-	sudo systemctl restart smbd || :
-	sudo systemctl restart plexmediaserver || :
-	sudo systemctl restart resilio-sync || :
-	seedbox start || seedbox upgrade || :
-	set +x # </debug>
-	echo-segment --g2='Start Services'
-}
-function do_reboot {
-	sudo shutdown --reboot
-}
-function do_shutdown {
-	sudo shutdown --poweroff
-}
-function do_mount_drive {
-	echo-eval -- fs-mount "$sharebox_device" "$SHAREBOX_DRIVE_MOUNT" \
-		--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
-}
-function do_mount_vault {
-	echo-eval -- fs-mount "$SHAREBOX_CIPHER" "$SHAREBOX_PLAIN" \
-		--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
-}
-function do_unmount_vault {
-	fs-unmount "$SHAREBOX_PLAIN"
-}
-function do_unmount_drive {
-	fs-unmount "$SHAREBOX_DRIVE_MOUNT"
-}
-
-# =====================================
-# Actions
-
-# @todo reorder these
-
-function act_resume {
-	do_disable
-	do_resume
-	do_status
-}
-function act_start {
-	act_mount
-	act_resume
-}
-function act_pause {
-	do_disable
-	do_pause
-	do_status
-}
-function act_stop {
-	act_pause
-	act_unmount
-}
-function act_shutdown {
-	act_stop
-	do_shutdown
-}
-function act_reboot {
-	act_stop
-	do_reboot
-}
-function act_size {
-	if is_drive_mounted; then
-		get-size "$SHAREBOX_DRIVE_MOUNT"
-	else
-		echo-style --red="Not yet mounted: $SHAREBOX_DRIVE_MOUNT"
-		return 1
-	fi
-}
-function act_info {
-	cat <<-EOF
-		sharebox.bash configuration:
-		SHAREBOX_USER         = $SHAREBOX_USER
-		SHAREBOX_GROUP        = $SHAREBOX_GROUP
-		SHAREBOX_DRIVE_LABEL  = $SHAREBOX_DRIVE_LABEL
-		SHAREBOX_DRIVE_COUNT  = $SHAREBOX_DRIVE_COUNT
-		SHAREBOX_DRIVE_MOUNT  = $SHAREBOX_DRIVE_MOUNT
-		SHAREBOX_CIPHER       = $SHAREBOX_CIPHER
-		SHAREBOX_PLAIN        = $SHAREBOX_PLAIN
-
-		computed configuration:
-		device                = $sharebox_device
-		owner                 = $sharebox_owner
-
-		gocryptfs:
-		$(gocryptfs-helper info -- "$SHAREBOX_CIPHER")
-	EOF
-}
-function do_setup_restore {
-	local __root __source paths path
-	paths=()
-	__root="$(
-		ask --required \
-			--question="Where is root file system to copy from?"
-	)"
-
-	# gocryptfs
-	mapfile -t gocryptfs_paths < <(setup-util-gocryptfs --paths)
-	paths+=("${gocryptfs_paths[@]}")
-
-	# samba
-	mapfile -t samba_paths < <(setup-util-samba --paths)
-	paths+=("${samba_paths[@]}")
-
-	# resilio
-	mapfile -t resilio_paths < <(setup-util-resilio --paths)
-	paths+=("${resilio_paths[@]}")
-
-	# samba
-	mapfile -t plex_paths < <(setup-util-plex --paths)
-	paths+=("${plex_paths[@]}")
-
-	# restore
-	for path in "${paths[@]}"; do
-		__source="$(fs-join "$__root" "$path")"
-		cpr --sudo --tool=rsync --action=copy --source="$__source" --destination="$path"
+	# process
+	local item action='' reconfigure='no' args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-configure'* | '--configure'*)
+			reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
+			;;
+		'--')
+			args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$action"; then
+				action="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
 	done
-}
-function do_setup_owner {
-	# create user if necessary
-	if is-user "$SHAREBOX_USER" && confirm-negative --ppid=$$ -- "The share user exists, redo it?"; then
-		# create user
-		sudo useradd "$SHAREBOX_USER"
 
-		# set a password for the user
-		sudo smbpasswd -a "$SHAREBOX_USER"
+	# ensure valid action
+	local actions=(
+		chown
+		info
+		mount
+		resume
+		pause
+		reboot
+		run
+		setup
+		shutdown
+		size
+		start
+		stop
+		unmount
+		upgrade
+	)
+	action="$(
+		choose-option --required \
+			--question='What action to perform?' \
+			--filter="$action" -- "${actions[@]}"
+	)"
 
-		# make it so the user is only a share user, rather than a login user
-		sudo usermod -L "$SHAREBOX_USER"
+	# =====================================
+	# Dependencies
+
+	if ! is-ubuntu; then
+		echo-style --error="$0: Currently only Ubuntu systems are supported."
+		exit 1
 	fi
 
-	# create group if necessary
-	if is-group "$SHAREBOX_GROUP" && confirm-negative --ppid=$$ -- "The share group exists, redo it?"; then
-		# create group
-		sudo groupadd "$SHAREBOX_GROUP"
+	source "$DOROTHY/sources/ripgrep.bash"
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# sharebox.bash provides:
+	local SHAREBOX_USER=''
+	local SHAREBOX_GROUP=''
+	local SHAREBOX_DRIVE_LABEL=''
+	local SHAREBOX_DRIVE_COUNT=''
+	local SHAREBOX_DRIVE_MOUNT=''
+	local SHAREBOX_CIPHER=''
+	local SHAREBOX_PLAIN=''
+	if ! load_dorothy_config 'sharebox.bash'; then
+		reconfigure='yes'
 	fi
 
-	# add user to group if necessary
-	if ! is-user-in-group "$SHAREBOX_GROUP" "$SHAREBOX_USER"; then
-		sudo gpasswd -a "$SHAREBOX_USER" "$SHAREBOX_GROUP"
+	# =====================================
+	# Reconfiguration
+
+	# required
+	if test -z "$SHAREBOX_USER" -o -z "$SHAREBOX_GROUP" -o -z "$SHAREBOX_DRIVE_LABEL" -o -z "$SHAREBOX_DRIVE_COUNT" -o -z "$SHAREBOX_DRIVE_MOUNT" -o -z "$SHAREBOX_CIPHER" -o -z "$SHAREBOX_PLAIN"; then
+		reconfigure='yes'
 	fi
 
-	# add root to group if necessary
-	if ! is-user-in-group "$SHAREBOX_GROUP" root; then
-		sudo gpasswd -a root "$SHAREBOX_GROUP"
+	# reconfigure
+	if test "$reconfigure" = 'yes'; then
+		SHAREBOX_USER="$(
+			ask --required --confirm \
+				--question='Enter the username to use for the share.' \
+				--default="$SHAREBOX_USER"
+		)"
+		SHAREBOX_GROUP="$(
+			ask --required --confirm \
+				--question='Enter the groupname to use for the share.' \
+				--default="$SHAREBOX_GROUP"
+		)"
+		SHAREBOX_DRIVE_LABEL="$(
+			ask --required --confirm \
+				--question='Enter the drive label to use for the share.' \
+				--default="$SHAREBOX_DRIVE_LABEL"
+		)"
+		SHAREBOX_DRIVE_COUNT="$(
+			ask --required --confirm \
+				--question='Enter how many drives are part of the share.' \
+				--default="$SHAREBOX_DRIVE_COUNT"
+		)"
+		SHAREBOX_DRIVE_MOUNT="$(
+			ask --required --confirm \
+				--question='Enter the path of the drive mount point.' \
+				--default="$SHAREBOX_DRIVE_MOUNT"
+		)"
+		SHAREBOX_CIPHER="$(
+			ask --required --confirm \
+				--question='Enter the path of the cipher directory.' \
+				--default="$SHAREBOX_CIPHER"
+		)"
+		SHAREBOX_PLAIN="$(
+			ask --required --confirm \
+				--question='Enter the path of the decrypted cipher mount point.' \
+				--default="$SHAREBOX_PLAIN"
+		)"
+
+		# save
+		update_dorothy_user_config --prefer=local 'sharebox.bash' -- \
+			--field='SHAREBOX_USER' --value="$SHAREBOX_USER" \
+			--field='SHAREBOX_GROUP' --value="$SHAREBOX_GROUP" \
+			--field='SHAREBOX_DRIVE_LABEL' --value="$SHAREBOX_DRIVE_LABEL" \
+			--field='SHAREBOX_DRIVE_COUNT' --value="$SHAREBOX_DRIVE_COUNT" \
+			--field='SHAREBOX_DRIVE_MOUNT' --value="$SHAREBOX_DRIVE_MOUNT" \
+			--field='SHAREBOX_CIPHER' --value="$SHAREBOX_CIPHER" \
+			--field='SHAREBOX_PLAIN' --value="$SHAREBOX_PLAIN"
 	fi
 
-	# add current user to group if necessary
-	if ! is-user-in-group "$SHAREBOX_GROUP" "$USER"; then
-		sudo gpasswd -a "$USER" "$SHAREBOX_GROUP"
+	# =====================================
+	# Verify
+
+	local sharebox_device sharebox_owner
+
+	# verify drive
+	# /dev/* locations can change, or be missing, so check for that
+	btrfs-helper verify -- "$SHAREBOX_DRIVE_LABEL" "$SHAREBOX_DRIVE_COUNT"
+
+	# get the drive for the label
+	sharebox_device="$(btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL")"
+
+	# vault configuration
+	sharebox_owner="$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
+
+	# =====================================
+	# Action Helpers
+
+	function is_drive_mounted {
+		is-mounted --source="$sharebox_device" --target="$SHAREBOX_DRIVE_MOUNT"
+	}
+	function do_disable {
+		# disable services auto-starting
+		echo-segment --h2='Disable Service Autostart'
+		set -x # <debug>
+		sudo systemctl disable smbd || :
+		sudo systemctl disable plexmediaserver || :
+		sudo systemctl disable resilio-sync || :
+		sudo systemctl disable docker || :
+		sudo systemctl disable docker.socket || :
+		set +x # </debug>
+		echo-segment --g2='Disable Service Autostart'
+	}
+	function do_status {
+		echo-segment --h2='Fetch Service Status'
+		set -x # <debug>
+		sudo systemctl status smbd --no-pager || :
+		sudo systemctl status plexmediaserver --no-pager || :
+		sudo systemctl status resilio-sync --no-pager || :
+		sudo systemctl status docker --no-pager || :
+		sudo systemctl status docker.socket --no-pager || :
+		seedbox status || :
+		set +x # </debug>
+		echo-segment --g2='Fetch Service Status'
+	}
+	function do_pause {
+		# stop services in a sensible order
+		echo-segment --h2='Stop Services'
+		set -x # <debug>
+		sudo systemctl stop smbd || :
+		sudo systemctl stop plexmediaserver || :
+		sudo systemctl stop resilio-sync || :
+		timeout 120s seedbox stop || :
+		sudo timeout 120s systemctl stop docker || :
+		# sudo systemctl stop docker.socket || :
+		set +x # </debug>
+		echo-segment --g2='Stop Services'
+	}
+	function do_resume {
+		# start services in a sensible order
+		echo-segment --h2='Start Services'
+		set -x # <debug>
+		sudo systemctl restart docker || :
+		sudo systemctl restart smbd || :
+		sudo systemctl restart plexmediaserver || :
+		sudo systemctl restart resilio-sync || :
+		seedbox start || seedbox upgrade || :
+		set +x # </debug>
+		echo-segment --g2='Start Services'
+	}
+	function do_reboot {
+		sudo shutdown --reboot
+	}
+	function do_shutdown {
+		sudo shutdown --poweroff
+	}
+	function do_mount_drive {
+		eval-helper -- fs-mount "$sharebox_device" "$SHAREBOX_DRIVE_MOUNT" \
+			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
+	}
+	function do_mount_vault {
+		eval-helper -- fs-mount "$SHAREBOX_CIPHER" "$SHAREBOX_PLAIN" \
+			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
+	}
+	function do_unmount_vault {
+		fs-unmount "$SHAREBOX_PLAIN"
+	}
+	function do_unmount_drive {
+		fs-unmount "$SHAREBOX_DRIVE_MOUNT"
+	}
+
+	# =====================================
+	# Actions
+
+	# @todo reorder these
+
+	function act_resume {
+		do_disable
+		do_resume
+		do_status
+	}
+	function act_start {
+		act_mount
+		act_resume
+	}
+	function act_pause {
+		do_disable
+		do_pause
+		do_status
+	}
+	function act_stop {
+		act_pause
+		act_unmount
+	}
+	function act_shutdown {
+		act_stop
+		do_shutdown
+	}
+	function act_reboot {
+		act_stop
+		do_reboot
+	}
+	function act_size {
+		if is_drive_mounted; then
+			get-size -- "$SHAREBOX_DRIVE_MOUNT"
+		else
+			echo-style --red="Not yet mounted: $SHAREBOX_DRIVE_MOUNT"
+			return 1
+		fi
+	}
+	function act_info {
+		cat <<-EOF
+			sharebox.bash configuration:
+			SHAREBOX_USER         = $SHAREBOX_USER
+			SHAREBOX_GROUP        = $SHAREBOX_GROUP
+			SHAREBOX_DRIVE_LABEL  = $SHAREBOX_DRIVE_LABEL
+			SHAREBOX_DRIVE_COUNT  = $SHAREBOX_DRIVE_COUNT
+			SHAREBOX_DRIVE_MOUNT  = $SHAREBOX_DRIVE_MOUNT
+			SHAREBOX_CIPHER       = $SHAREBOX_CIPHER
+			SHAREBOX_PLAIN        = $SHAREBOX_PLAIN
+
+			computed configuration:
+			device                = $sharebox_device
+			owner                 = $sharebox_owner
+
+			gocryptfs:
+			$(gocryptfs-helper info -- "$SHAREBOX_CIPHER")
+		EOF
+	}
+	function do_setup_restore {
+		local root __source paths=() path
+		root="$(
+			ask --required \
+				--question="Where is root file system to copy from?"
+		)"
+
+		# gocryptfs
+		mapfile -t gocryptfs_paths < <(setup-util-gocryptfs --paths)
+		paths+=("${gocryptfs_paths[@]}")
+
+		# samba
+		mapfile -t samba_paths < <(setup-util-samba --paths)
+		paths+=("${samba_paths[@]}")
+
+		# resilio
+		mapfile -t resilio_paths < <(setup-util-resilio --paths)
+		paths+=("${resilio_paths[@]}")
+
+		# samba
+		mapfile -t plex_paths < <(setup-util-plex --paths)
+		paths+=("${plex_paths[@]}")
+
+		# restore
+		for path in "${paths[@]}"; do
+			__source="$(fs-join "$root" "$path")"
+			cpr copy --sudo --tool=rsync --source="$__source" --destination="$path"
+		done
+	}
+	function do_setup_owner {
+		# create user if necessary
+		if is-user "$SHAREBOX_USER" && confirm-negative --ppid=$$ -- "The share user exists, redo it?"; then
+			# create user
+			sudo useradd "$SHAREBOX_USER"
+
+			# set a password for the user
+			sudo smbpasswd -a "$SHAREBOX_USER"
+
+			# make it so the user is only a share user, rather than a login user
+			sudo usermod -L "$SHAREBOX_USER"
+		fi
+
+		# create group if necessary
+		if is-group "$SHAREBOX_GROUP" && confirm-negative --ppid=$$ -- "The share group exists, redo it?"; then
+			# create group
+			sudo groupadd "$SHAREBOX_GROUP"
+		fi
+
+		# add user to group if necessary
+		if ! is-user-in-group "$SHAREBOX_GROUP" "$SHAREBOX_USER"; then
+			sudo gpasswd -a "$SHAREBOX_USER" "$SHAREBOX_GROUP"
+		fi
+
+		# add root to group if necessary
+		if ! is-user-in-group "$SHAREBOX_GROUP" root; then
+			sudo gpasswd -a root "$SHAREBOX_GROUP"
+		fi
+
+		# add current user to group if necessary
+		if ! is-user-in-group "$SHAREBOX_GROUP" "$USER"; then
+			sudo gpasswd -a "$USER" "$SHAREBOX_GROUP"
+
+			# done
+			cat <<-EOF
+				$(echo-style --success="The current user [$USER] has been added to group [$SHAREBOX_GROUP], " --notice="however you must logout or reboot for the change to apply.")
+				Reboot your computer safely with the following command:
+				$(echo-style --code="sharebox reboot")
+			EOF
+			exit 1
+		fi
+	}
+	function act_setup {
+		# dependencies
+		gocryptfs-helper upgrade
+
+		# restore
+		if confirm-bool --ppid=$$ -- "Restore sharebox configuration from an existing location?"; then
+			do_setup_restore
+		fi
+
+		# setup
+		do_setup_owner
+		setup-util-samba
+		setup-util-plex --group="$SHAREBOX_GROUP"
+		setup-util-resilio --group="$SHAREBOX_GROUP"
 
 		# done
 		cat <<-EOF
-			$(echo-style --success="The current user [$USER] has been added to group [$SHAREBOX_GROUP], " --notice="however you must logout or reboot for the change to apply.")
+			$(echo-style --success="Setup complete. " --notice="You must reboot your computer.")
 			Reboot your computer safely with the following command:
 			$(echo-style --code="sharebox reboot")
 		EOF
-		exit 1
+	}
+	function act_chown {
+		echo_eval -- \
+			fs-own --owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP" -- "$@"
+	}
+	function act_run {
+		#   -E, --preserve-env            preserve user environment when running command
+		#       --preserve-env=list       preserve specific environment variables
+		#   -H, --set-home                set HOME variable to target user's home dir
+		#   -u, --user=user               run command (or edit file) as specified user name or ID
+		#   -g, --group=group             run command as the specified group name or ID
+		echo_eval -- \
+			sudo --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP" \
+			--set-home --preserve-env='DOROTHY,PATH' -- "$@"
+	}
+	function act_unmount {
+		do_unmount_vault
+		do_unmount_drive
+	}
+	function act_mount {
+		act_unmount
+		do_mount_drive
+		do_mount_vault
+	}
+
+	# =====================================
+	# Act
+
+	if test "$(type -t "act_$action")" = 'function'; then
+		"act_$action" "${args[@]}"
+	else
+		echo "Action [$action] not yet implemented." >/dev/stderr
+		return 78 # Function not implemented
 	fi
-}
-function act_setup {
-	# dependencies
-	gocryptfs-helper upgrade
+	return "$?"
+)
 
-	# restore
-	if confirm-bool --ppid=$$ -- "Restore sharebox configuration from an existing location?"; then
-		do_setup_restore
-	fi
-
-	# setup
-	do_setup_owner
-	setup-util-samba
-	setup-util-plex --group="$SHAREBOX_GROUP"
-	setup-util-resilio --group="$SHAREBOX_GROUP"
-
-	# done
-	cat <<-EOF
-		$(echo-style --success="Setup complete. " --notice="You must reboot your computer.")
-		Reboot your computer safely with the following command:
-		$(echo-style --code="sharebox reboot")
-	EOF
-}
-function act_chown {
-	echo_eval \
-		fs-own --owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP" -- "$@"
-}
-function act_run {
-	#   -E, --preserve-env            preserve user environment when running command
-	#       --preserve-env=list       preserve specific environment variables
-	#   -H, --set-home                set HOME variable to target user's home dir
-	#   -u, --user=user               run command (or edit file) as specified user name or ID
-	#   -g, --group=group             run command as the specified group name or ID
-	echo_eval \
-		sudo --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP" \
-		--set-home --preserve-env='DOROTHY,PATH' -- "$@"
-}
-function act_unmount {
-	do_unmount_vault
-	do_unmount_drive
-}
-function act_mount {
-	act_unmount
-	do_mount_drive
-	do_mount_vault
-}
-
-# =====================================
-# Act
-
-if test "$(type -t "act_$action")" = 'function'; then
-	"act_$action" "${action_args[@]}"
-else
-	echo "Action [$action] not yet implemented." >/dev/stderr
-	exit 78 # Function not implemented
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	sharebox "$@"
 fi
-exit "$?"

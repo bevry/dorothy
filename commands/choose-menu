@@ -1,216 +1,238 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/tty.bash"
+source "$DOROTHY/sources/arrays.bash"
+requires_array_support 'mapfile'
 
 # NOTES:
-# - [--default] and [--required] do not make sense here, as those are for high-level handling, this is just menu navigation
+# - [--required] do not make sense here, as those are for high-level handling, this is just menu navigation
 
 # QUIRKS:
 # - if there are more options than [$LINES - header], then this will fall apart
 
 # TODOS:
-# - [ ] adopt modern arg and help and invalid arg handling
 # - [ ] limit the options output to [$LINES - header]
 # - [ ] if one gets to $LINES, and there are truncated values, then "scroll" downwards
 # - [ ] support $COLUMNS - if a menu item is larger than the column, then it will show all of it when active
 
-# validate
-if is-help-separator "$@"; then
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Display a menu that the user can navigate using the keyboard.
+function choose-menu() (
+	# =====================================
+	# Arguments
 
-		USAGE:
-		choose-menu [...flags] -- <...items>
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Display a menu that the user can navigate using the keyboard.
 
-		RETURNS:
-		the index of the result
+			USAGE:
+			choose-menu [...options] -- ...<items>
 
-		FLAGS:
-		Provide [--question=...] to specify the question that the prompt will be answering.
-		Provide [--multi] to specify that multiple menu items should be able to be selected.
-		Provide [--timeout=...] to specify a custom timeout value in seconds.
-	EOF
-	exit 22 # Invalid argument
-fi
+			RETURNS:
+			The index of the result
 
-# now that we have ensured separator exists, we don't need empty, only mapfile
-source "$DOROTHY/sources/arrays.bash"
-requires_array_support 'mapfile'
+			OPTIONS:
+			--question=<question>
+			    Question to display as the prompt.
 
-# fetch options in a way that works with multi-line values
-options=()
-while [ $# -gt 0 ]; do
-	if [ "$1" = '--' ]; then
+			--multi
+			    Multiple menu items can be selected.
+
+			--timeout=<timeout>
+			    Custom timeout value in seconds.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item='' items=() option_question='' option_timeout='' option_multi='no' option_required='no'
+	while test "$#" -ne 0; do
+		item="$1"
 		shift
-		break
-	fi
-	options+=("$1")
-	shift
-done
-option_question="$(get-flag-value question -- "${options[@]}")"
-option_timeout="$(get-flag-value timeout -- "${options[@]}")"
-option_multi="$(get-flag-value multi --missing=no -- "${options[@]}" | echo-affirmative)"
-option_required="$(get-flag-value required --missing=no -- "${options[@]}" | echo-affirmative)"
-
-# prepare choices
-choices=("$@")
-
-# ensure we have items
-if test "${#choices[@]}" -eq 0; then
-	{
-		echo-style --error="No items were provided. See [$0 --help] for usage."
-		sleep 5
-		exit 22 # Invalid argument
-	} >/dev/stderr
-elif is-array-partial "${choices[@]}"; then
-	{
-		echo-style --error="Empty items were provided. See [$0 --help] for usage."
-		echo-verbose "${choices[@]}"
-		sleep 5
-		exit 22 # Invalid argument
-	} >/dev/stderr
-fi
-
-# prepare
-tty_auto
-cursor=0
-count="${#choices[@]}"
-last="$((count - 1))"
-action=''
-mapfile -t selections < <(get-array "$count")
-
-# commence
-while test "$action" != 'done'; do
-	# question
-	if test -n "$option_question"; then
-		echo "$option_question" >/dev/tty
-	fi
-
-	# show the menu
-	for i in "${!choices[@]}"; do
-		if test "$i" -eq "$cursor"; then
-			echo -n ">" >/dev/tty
-		else
-			echo -n ' ' >/dev/tty
-		fi
-		if test "${selections[$i]-}" = 'yes'; then
-			echo -n "*" >/dev/tty
-		else
-			echo -n ' ' >/dev/tty
-		fi
-		choice="${choices[$i]}"
-		echo "$choice" >/dev/tty
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--question='*) option_question="${item:11}" ;;
+		'--timeout='*) option_timeout="${item:10}" ;;
+		'--no-multi'* | '--multi'*) option_multi="$(
+			get-flag-value multi --missing="$option_multi" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-required'* | '--required'*) option_required="$(
+			get-flag-value required --missing="$option_required" -- "$item" | echo-affirmative
+		)" ;;
+		'--')
+			items+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
 	done
 
-	# handle the response
-	ec=0 && action="$(read-arrow --timeout="$option_timeout")" || ec="$?"
-
-	# check
-	if test "$ec" -eq 62; then
-		echo "Input timed out [$ec]." >/dev/stderr
-		sleep 5
-		exit "$ec"
-	elif test "$ec" -ne 0; then
-		echo "Input failed [$ec]." >/dev/stderr
-		# some other failure
-		sleep 5
-		exit "$ec"
+	# ensure we have items
+	if test "${#items[@]}" -eq 0; then
+		{
+			echo-style --error="No options were provided. See [$0 --help] for usage."
+			sleep 5
+			exit 22 # Invalid argument
+		} >/dev/stderr
+	elif is-array-partial "${items[@]}"; then
+		{
+			echo-style --error="Empty options were provided. See [$0 --help] for usage."
+			echo-verbose "${items[@]}"
+			sleep 5
+			exit 22 # Invalid argument
+		} >/dev/stderr
 	fi
 
-	# handle special cases and remaps
-	# such as numbers, wasd, and vim movers
-	if is-digit "$action"; then
-		# number jump
-		if test "$action" -le 1; then
+	# prepare
+	local count last selections=()
+	count="${#items[@]}"
+	last="$((count - 1))"
+	mapfile -t selections < <(get-array "$count")
+
+	# commence
+	tty_auto
+	local index choice='' ec=0 cursor=0 action=''
+	while test "$action" != 'done'; do
+		# question
+		if test -n "$option_question"; then
+			echo "$option_question" >/dev/tty
+		fi
+
+		# show the menu
+		for index in "${!items[@]}"; do
+			if test "$index" -eq "$cursor"; then
+				echo -n ">" >/dev/tty
+			else
+				echo -n ' ' >/dev/tty
+			fi
+			if test "${selections[index]-}" = 'yes'; then
+				echo -n "*" >/dev/tty
+			else
+				echo -n ' ' >/dev/tty
+			fi
+			choice="${items[index]}"
+			echo "$choice" >/dev/tty
+		done
+
+		# handle the response
+		ec=0 && action="$(read-key --timeout="$option_timeout")" || ec="$?"
+
+		# check
+		if test "$ec" -eq 62; then
+			echo "Input timed out [$ec]." >/dev/stderr
+			sleep 5
+			exit "$ec"
+		elif test "$ec" -ne 0; then
+			echo "Input failed [$ec]." >/dev/stderr
+			# some other failure
+			sleep 5
+			exit "$ec"
+		fi
+
+		# handle special cases and remaps
+		# such as numbers, wasd, and vim movers
+		if is-digit "$action"; then
+			# number jump
+			if test "$action" -le 1; then
+				cursor=0
+			elif test "$action" -le "$count"; then
+				cursor="$((action - 1))"
+			else
+				cursor="$last"
+			fi
+			action='space'
+		elif test "$action" = "left" -o "$action" = "h" -o "$action" = "k" -o "$action" = "a" -o "$action" = "w"; then
+			action='up'
+		elif test "$action" = "right" -o "$action" = "l" -o "$action" = "j" -o "$action" = "d" -o "$action" = "s"; then
+			action='down'
+		fi
+
+		# control key
+		if test "$action" = "up"; then
+			if test "$cursor" -ne 0; then
+				cursor="$((cursor - 1))"
+			fi
+		elif test "$action" = "down"; then
+			if test "$cursor" -ne "$last"; then
+				cursor="$((cursor + 1))"
+			fi
+		elif test "$action" = "home"; then
 			cursor=0
-		elif test "$action" -le "$count"; then
-			cursor="$((action - 1))"
-		else
+		elif test "$action" = "end"; then
 			cursor="$last"
-		fi
-		action='space'
-	elif test "$action" = "left" -o "$action" = "h" -o "$action" = "k" -o "$action" = "a" -o "$action" = "w"; then
-		action='up'
-	elif test "$action" = "right" -o "$action" = "l" -o "$action" = "j" -o "$action" = "d" -o "$action" = "s"; then
-		action='down'
-	fi
-
-	# control key
-	if test "$action" = "up"; then
-		if test "$cursor" -ne 0; then
-			cursor="$((cursor - 1))"
-		fi
-	elif test "$action" = "down"; then
-		if test "$cursor" -ne "$last"; then
-			cursor="$((cursor + 1))"
-		fi
-	elif test "$action" = "home"; then
-		cursor=0
-	elif test "$action" = "end"; then
-		cursor="$last"
-	elif test "$action" = "backspace"; then
-		# unselect everything
-		for i in "${!choices[@]}"; do
-			selections[$i]=''
-		done
-	elif test "$action" = "all" -a "$option_multi" = 'yes'; then
-		# select everything
-		for i in "${!choices[@]}"; do
-			selections[$i]='yes'
-		done
-	elif test "$action" = 'tab'; then
-		# select and move to next line
-		selections[$cursor]='yes'
-		if test "$cursor" -eq "$last"; then
-			cursor=0
-		elif test "$cursor" -lt "$last"; then
-			cursor="$((cursor + 1))"
-		fi
-	elif test "$action" = 'space'; then
-		# toggle single
-		if test "${selections[$cursor]}" = 'yes'; then
-			selections[$cursor]=''
-		else
-			selections[$cursor]='yes'
+		elif test "$action" = "backspace"; then
+			# unselect everything
+			for index in "${!items[@]}"; do
+				selections[index]=''
+			done
+		elif test "$action" = "all" -a "$option_multi" = 'yes'; then
+			# select everything
+			for index in "${!items[@]}"; do
+				selections[index]='yes'
+			done
+		elif test "$action" = 'tab'; then
+			# select and move to next line
+			selections[cursor]='yes'
+			if test "$cursor" -eq "$last"; then
+				cursor=0
+			elif test "$cursor" -lt "$last"; then
+				cursor="$((cursor + 1))"
+			fi
+		elif test "$action" = 'space'; then
+			# toggle single
+			if test "${selections[cursor]}" = 'yes'; then
+				selections[cursor]=''
+			else
+				selections[cursor]='yes'
+				if test "$option_multi" != 'yes'; then
+					break
+				fi
+			fi
+		elif test "$action" = "enter"; then
 			if test "$option_multi" != 'yes'; then
+				selections[cursor]='yes'
+			fi
+			break
+		elif test "$action" = "escape"; then
+			# todo implement --required with --multi fallback properly here
+			if test "$option_required" = 'no'; then
 				break
 			fi
 		fi
-	elif test "$action" = "enter"; then
-		if test "$option_multi" != 'yes'; then
-			selections[$cursor]='yes'
+
+		# no break, so repeat the menu
+		tty_clear
+	done
+
+	# if break, then no clear occured, so clear it here
+	tty_clear
+
+	# if multi with no selection then ask for everything
+	# todo implement --required properly here
+	if is-array-empty "${selections[@]}" && test "$option_multi" = 'yes'; then
+		if confirm-positive --ppid=$$ -- "You exited without selecting anything, do you wish to select all?" >/dev/tty; then
+			for index in "${!items[@]}"; do
+				selections[index]='yes'
+			done
 		fi
-		break
-	elif test "$action" = "escape"; then
-		# todo implement --required with --multi fallback properly here
-		if test "$option_required" = 'no'; then
-			break
-		fi
+		tty_clear
 	fi
 
-	# no break, so repeat the menu
-	tty_clear
-done
+	# output the custom selections
+	local index selection
+	for index in "${!selections[@]}"; do
+		selection="${selections[index]}"
+		if test "$selection" = 'yes'; then
+			echo "$index"
+		fi
+	done
+)
 
-# if break, then no clear occured, so clear it here
-tty_clear
-
-# if multi with no selection then ask for everything
-# todo implement --required properly here
-if is-array-empty "${selections[@]}" && test "$option_multi" = 'yes'; then
-	if confirm-positive --ppid=$$ -- "You exited without selecting anything, do you wish to select all?" >/dev/tty; then
-		for i in "${!choices[@]}"; do
-			selections[$i]='yes'
-		done
-	fi
-	tty_clear
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	choose-menu "$@"
 fi
-
-# output the custom selections
-for i in "${!selections[@]}"; do
-	selection="${selections[$i]}"
-	if test "$selection" = 'yes'; then
-		echo "$i"
-	fi
-done

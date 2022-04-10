@@ -4,429 +4,433 @@ source "$DOROTHY/sources/shims.bash"
 source "$DOROTHY/sources/arrays.bash"
 may_require_array_support 'mapfile' 'empty'
 
-# =====================================
-# Arguments
+# TODOS:
+# - [ ] ctrl n/p for navigating up/down.
+# - [ ] `hjkl` vim arrow keys.
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Prompt the user to select a value from a list of values, in a clean and robust way.
+function choose-option() (
+	# =====================================
+	# Arguments
 
-		USAGE:
-		choose-option
-		  [--question=<question>]
-		  [--filter=<filter>]
-		  [--label[=first]]
-		  [--return='\$label']
-		  [--visual='\$label [\$value]']
-		  [--required]
-		  [--multi]
-		  [--confirm]
-		  -- <[value]...> <value> <value>
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Prompt the user to select a value from a list of values, in a clean and robust way.
 
-		If you wish to show a question above the menu:
-		--question=<question> -- <...>
+			USAGE:
+			choose-option
+			  [--question=<question>]
+			  [--filter=<filter>]
+			  [--label[=first]]
+			  [--return='\$LABEL']
+			  [--visual='\$LABEL [\$VALUE]']
+			  [--required]
+			  [--multi]
+			  [--confirm]
+			  -- <[value]...> <value> <value>
 
-		If you wish to filter the value and/or labels, use:
-		--filter=<filter> -- <...>
+			If you wish to show a question above the menu:
+			--question=<question> -- <...>
 
-		If you wish to prevent using the escape key to provide no selection, use:
-		--required -- <...>
+			If you wish to filter the value and/or labels, use:
+			--filter=<filter> -- <...>
 
-		If you wish to allow multiple selections:
-		--multi -- <...>
+			If you wish to prevent using the escape key to provide no selection, use:
+			--required -- <...>
 
-		If you wish to confirm a possibly arbitary selection, use:
-		--confirm -- <...>
+			If you wish to allow multiple selections:
+			--multi -- <...>
 
-		If you wish to pass values and labels, use:
-		--label -- <[value, label]...> <value> <label> <value> <label>
+			If you wish to confirm a possibly arbitary selection, use:
+			--confirm -- <...>
 
-		If you wish to pass label then value, use:
-		--label=first -- <[label, value]...> <label> <value> <label> <value>
+			If you wish to pass values and labels, use:
+			--label -- <[value, label]...> <value> <label> <value> <label>
 
-		By default, if the label and value differ, both will be displayed,
-		  and if they are the same, then only the value will be displayed.
+			If you wish to pass label then value, use:
+			--label=first -- <[label, value]...> <label> <value> <label> <value>
 
-		If you wish to customise what is displayed:
-		--label --visual='\$label [\$value]' -- <[value, label]...>
-		^ the value is eval'd
+			By default, if the label and value differ, both will be displayed,
+			  and if they are the same, then only the value will be displayed.
 
-		If you wish to return the label use:
-		--label --return='\$label' -- <[value, label]...>
-		^ the value is eval'd
+			If you wish to customise what is displayed:
+			--label --visual='\$LABEL [\$VALUE]' -- <[value, label]...>
+			^ the value is eval'd
 
-		If you wish to return the visual use:
-		--label --return='\$visual' -- <[value, label]...>
-		^ the value is eval'd
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+			If you wish to return the label use:
+			--label --return='\$LABEL' -- <[value, label]...>
+			^ the value is eval'd
+
+			If you wish to return the visual use:
+			--label --return='\$VISUAL' -- <[value, label]...>
+			^ the value is eval'd
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local items=() values=() labels=() visuals=()
+	local option_question='' option_filter='' option_timeout=''
+	# trunk-ignore(shellcheck/SC2016)
+	local option_visual='' option_return='$VALUE'
+	# label can be 'yes', 'no', and 'first'
+	local option_label='no'
+	local option_multi='no' option_required='no' option_confirm='no'
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--question='*) option_question="${item:11}" ;;
+		'--default='*) option_filter="${item:10}" ;; # alias for filter
+		'--filter='*) option_filter="${item:9}" ;;
+		'--timeout='*) option_timeout="${item:10}" ;;
+		'--visual='*) option_visual="${item:9}" ;;
+		'--return='*) option_return="${item:9}" ;;
+		'--no-label'* | '--label'*)
+			option_label="$(get-flag-value label --missing="$option_label" -- "$item")"
+			;;
+		'--no-multi'* | '--multi'*)
+			option_multi="$(get-flag-value multi --missing="$option_multi" -- "$item" | echo-affirmative)"
+			;;
+		'--no-required'* | '--required'*)
+			option_required="$(get-flag-value required --missing="$option_required" -- "$item" | echo-affirmative)"
+			;;
+		'--no-confirm'* | '--confirm'*)
+			option_confirm="$(get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative)"
+			;;
+		'--')
+			items+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# calculate item step size
+	local items_step=1
+	if test "$option_label" != 'no'; then
+		items_step=2
 	fi
-	return 22 # Invalid argument
-}
 
-# process
-items=()
-values=()
-labels=()
-visuals=()
-option_question=''
-option_filter=''
-option_timeout=''
-option_visual=''
-option_return="\$value"
-option_label='no' # yes/no, can also be 'first'
-option_multi='no'
-option_required='no'
-option_confirm='no'
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--question='*) option_question="${item:11}" ;;
-	'--default='*) option_filter="${item:10}" ;; # alias for filter
-	'--filter='*) option_filter="${item:9}" ;;
-	'--timeout='*) option_timeout="${item:10}" ;;
-	'--visual='*) option_visual="${item:9}" ;;
-	'--return='*) option_return="${item:9}" ;;
-	'--no-label'* | '--label'*)
-		option_label="$(get-flag-value label --missing="$option_label" -- "$item")"
-		;;
-	'--no-multi'* | '--multi'*)
-		option_multi="$(get-flag-value multi --missing="$option_multi" -- "$item" | echo-affirmative)"
-		;;
-	'--no-required'* | '--required'*)
-		option_required="$(get-flag-value required --missing="$option_required" -- "$item" | echo-affirmative)"
-		;;
-	'--no-confirm'* | '--confirm'*)
-		option_confirm="$(get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative)"
-		;;
-	'--')
-		items+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*) help "An unrecognised argument was provided: $item" ;;
-	esac
-done
-
-# calculate item step size
-items_step=1
-if test "$option_label" != 'no'; then
-	items_step=2
-fi
-
-# check user configuration has no mistakes
-if test "${#items[@]}" -eq 0; then
-	# ^ bash v3 compat
-	{
-		echo-style --error="No options were provided. See [$0 --help] for usage."
-		sleep 5
-		exit 22 # Invalid argument
-	} >/dev/stderr
-elif is-array-partial "${items[@]}"; then
-	{
-		echo-style --error="Empty options were provided. See [$0 --help] for usage."
-		echo-verbose "${items[@]}"
-		sleep 5
-		exit 22 # Invalid argument
-	} >/dev/stderr
-fi
-if test "$option_label" != 'no' && is-odd "${#items[@]}"; then
-	{
-		echo-style --error="The amount of labels must match the amount of options. See [$0 --help] for usage."
-		echo-style --bold="Make the below provide an even amount of items, to ensure there is a label for each option."
-		echo-verbose "${items[@]}"
-		sleep 5
-		exit 22 # Invalid argument
-	} >/dev/stderr
-fi
-
-# iterate our items
-for ((i = 0; i < ${#items[@]}; i = i + items_step)); do
-	# order of
-	if test "$option_label" = 'no'; then
-		value="${items[i]}"
-		label="${items[i]}"
-	elif test "$option_label" = 'yes'; then
-		value="${items[i]}"
-		label="${items[i + 1]}"
-	elif test "$option_label" = 'first'; then
-		value="${items[i + 1]}"
-		label="${items[i]}"
-	else
+	# check user configuration has no mistakes
+	if test "${#items[@]}" -eq 0; then
+		# ^ bash v3 compat
 		{
-			echo-style --error="bad configuration: the --label value is invalid: [$option_label]"
+			echo-style --error="No options were provided. See [$0 --help] for usage."
+			sleep 5
+			exit 22 # Invalid argument
+		} >/dev/stderr
+	elif is-array-partial "${items[@]}"; then
+		{
+			echo-style --error="Empty options were provided. See [$0 --help] for usage."
+			echo-verbose "${items[@]}"
+			sleep 5
+			exit 22 # Invalid argument
+		} >/dev/stderr
+	fi
+	if test "$option_label" != 'no' && is-odd "${#items[@]}"; then
+		{
+			echo-style --error="The amount of labels must match the amount of options. See [$0 --help] for usage."
+			echo-style --bold="Make the below provide an even amount of items, to ensure there is a label for each option."
+			echo-verbose "${items[@]}"
+			sleep 5
+			exit 22 # Invalid argument
+		} >/dev/stderr
+	fi
+
+	# iterate our items
+	local index value label visual
+	for ((index = 0; index < ${#items[@]}; index = index + items_step)); do
+		# order of
+		if test "$option_label" = 'no'; then
+			value="${items[index]}"
+			label="${items[index]}"
+		elif test "$option_label" = 'yes'; then
+			value="${items[index]}"
+			label="${items[index + 1]}"
+		elif test "$option_label" = 'first'; then
+			value="${items[index + 1]}"
+			label="${items[index]}"
+		else
+			{
+				echo-style --error="bad configuration: the --label value is invalid: [$option_label]"
+				sleep 5
+				exit 1
+			} >/dev/stderr
+		fi
+
+		# check both exist
+		if test -z "$label" -o -z "$value"; then
+			{
+				echo-style --error="bad configuration: both label [$label] and value [$value] must exist"
+				sleep 5
+				exit 1
+			} >/dev/stderr
+		fi
+
+		# add to the list
+		if test -n "$option_visual"; then
+			eval "visual=\"$option_visual\""
+		else
+			visual="$label"
+		fi
+
+		# add to the list
+		visuals+=("$visual")
+		labels+=("$label")
+		values+=("$value")
+	done
+
+	# sanity checks
+	if test "${#labels[@]}" -ne "${#values[@]}" -o "${#values[@]}" -ne "${#visuals[@]}"; then
+		{
+			echo-style --error="bad state: there must be the same amount of values, labels, and visuals"
+			echo-style --notice="labels:"
+			echo-verbose "${labels[@]}"
+			echo-style --notice="values:"
+			echo-verbose "${values[@]}"
+			echo-style --notice="visuals:"
+			echo-verbose "${visuals[@]}"
+			sleep 5
+			exit 1
+		} >/dev/stderr
+	fi
+	if is-array-empty-or-partial "${labels[@]}"; then
+		{
+			echo-style --error="bad configuration: empty labels were provided:"
+			echo-verbose "${labels[@]}"
+			sleep 5
+			exit 1
+		} >/dev/stderr
+	fi
+	if is-array-empty-or-partial "${values[@]}"; then
+		{
+			echo-style --error="bad configuration: empty values were provided"
+			echo-verbose "${values[@]}"
+			sleep 5
+		} >/dev/stderr
+		exit 1
+	fi
+	if is-array-empty-or-partial "${visuals[@]}"; then
+		{
+			echo-style --error="bad configuration: empty visuals were provided"
+			echo-verbose "${values[@]}"
 			sleep 5
 			exit 1
 		} >/dev/stderr
 	fi
 
-	# check both exist
-	if test -z "$label" -o -z "$value"; then
-		{
-			echo-style --error="bad configuration: both label [$label] and value [$value] must exist"
-			sleep 5
-			exit 1
-		} >/dev/stderr
-	fi
+	# helpers
+	local saved_results=()
+	function save_result {
+		# trunk-ignore(shellcheck/SC2034)
+		local VALUE="$1" LABEL="$2" VISUAL="$3"
+		local result=''
+		eval "result=\"$option_return\""
+		saved_results+=("$result")
+	}
+	function reset_results {
+		saved_results=()
+	}
+	function act {
+		local i ec value label visual results confirm_value
+		local filtered_values=()
+		local filtered_labels=()
+		local filtered_visuals=()
+		local exact_values=()
+		local exact_labels=()
+		local exact_visuals=()
+		local unfiltered_index=''
+		local action='' # send, confirm, select
+		reset_results
 
-	# add to the list
-	if test -n "$option_visual"; then
-		eval "visual=\"$option_visual\""
-	else
-		visual="$label"
-	fi
-
-	# add to the list
-	visuals+=("$visual")
-	labels+=("$label")
-	values+=("$value")
-done
-
-# sanity checks
-if test "${#labels[@]}" -ne "${#values[@]}" -o "${#values[@]}" -ne "${#visuals[@]}"; then
-	{
-		echo-style --error="bad state: there must be the same amount of values, labels, and visuals"
-		echo-style --notice="labels:"
-		echo-verbose "${labels[@]}"
-		echo-style --notice="values:"
-		echo-verbose "${values[@]}"
-		echo-style --notice="visuals:"
-		echo-verbose "${visuals[@]}"
-		sleep 5
-		exit 1
-	} >/dev/stderr
-fi
-if is-array-empty-or-partial "${labels[@]}"; then
-	{
-		echo-style --error="bad configuration: empty labels were provided:"
-		echo-verbose "${labels[@]}"
-		sleep 5
-		exit 1
-	} >/dev/stderr
-fi
-if is-array-empty-or-partial "${values[@]}"; then
-	{
-		echo-style --error="bad configuration: empty values were provided"
-		echo-verbose "${values[@]}"
-		sleep 5
-	} >/dev/stderr
-	exit 1
-fi
-if is-array-empty-or-partial "${visuals[@]}"; then
-	{
-		echo-style --error="bad configuration: empty visuals were provided"
-		echo-verbose "${values[@]}"
-		sleep 5
-		exit 1
-	} >/dev/stderr
-fi
-
-# helpers
-saved_results=()
-function save_result() {
-	local value="$1"
-	local label="$2"
-	local visual="$3"
-	local result=''
-	eval "result=\"$option_return\""
-	saved_results+=("$result")
-}
-function reset_results() {
-	saved_results=()
-}
-function act() {
-	local ec value label visual results confirm_value
-	local filtered_values=()
-	local filtered_labels=()
-	local filtered_visuals=()
-	local exact_values=()
-	local exact_labels=()
-	local exact_visuals=()
-	local unfiltered_index=''
-	local action='' # send, confirm, select
-	reset_results
-
-	# filter if necessary
-	if test -z "$option_filter"; then
-		# select from everything and continue
-		filtered_values=("${values[@]}")
-		filtered_labels=("${labels[@]}")
-		filtered_visuals=("${visuals[@]}")
-	else
-		for i in "${!values[@]}"; do
-			value="${values[i]}"
-			label="${labels[i]}"
-			visual="${visuals[i]}"
-			# compare their lowercase forms
-			if [[ "$(lc "$label")" = *"$(lc "$option_filter")"* ]] || [[ "$(lc "$value")" = *"$(lc "$option_filter")"* ]]; then
-				# there was a partial match, add it
-				filtered_values+=("$value")
-				filtered_labels+=("$label")
-				filtered_visuals+=("$visual")
-				# check if it was also a complete match
-				if test "$label" = "$option_filter" -o "$value" = "$option_filter"; then
-					exact_values+=("$value")
-					exact_labels+=("$label")
-					exact_visuals+=("$visual")
+		# filter if necessary
+		if test -z "$option_filter"; then
+			# select from everything and continue
+			filtered_values=("${values[@]}")
+			filtered_labels=("${labels[@]}")
+			filtered_visuals=("${visuals[@]}")
+		else
+			for i in "${!values[@]}"; do
+				value="${values[i]}"
+				label="${labels[i]}"
+				visual="${visuals[i]}"
+				# compare their lowercase forms
+				if [[ "$(lc "$label")" == *"$(lc "$option_filter")"* ]] || [[ "$(lc "$value")" == *"$(lc "$option_filter")"* ]]; then
+					# there was a partial match, add it
+					filtered_values+=("$value")
+					filtered_labels+=("$label")
+					filtered_visuals+=("$visual")
+					# check if it was also a complete match
+					if test "$label" = "$option_filter" -o "$value" = "$option_filter"; then
+						exact_values+=("$value")
+						exact_labels+=("$label")
+						exact_visuals+=("$visual")
+					fi
 				fi
-			fi
-			# else no match, so do not add
-		done
-	fi
-
-	# if we have only one exact match, use it, unless requested confirmation
-	if test "${#exact_values[@]}" -eq 1; then
-		reset_results
-		save_result "${exact_values[0]}" "${exact_labels[0]}" "${exact_visuals[0]}"
-		if test "$option_confirm" = 'yes'; then
-			action='confirm'
-		else
-			action='send'
+				# else no match, so do not add
+			done
 		fi
-	# if we have multiple exact matches, require selection of them
-	elif test "${#exact_values[@]}" -gt 1; then
-		if test "$option_multi" = 'yes'; then
-			# allow multiple selections, in which case confirm exact matches
+
+		# if we have only one exact match, use it, unless requested confirmation
+		if test "${#exact_values[@]}" -eq 1; then
 			reset_results
-			save_result "${exact_values[$i]}" "${exact_labels[$i]}" "${exact_visuals[$i]}"
+			save_result "${exact_values[0]}" "${exact_labels[0]}" "${exact_visuals[0]}"
+			if test "$option_confirm" = 'yes'; then
+				action='confirm'
+			else
+				action='send'
+			fi
+		# if we have multiple exact matches, require selection of them
+		elif test "${#exact_values[@]}" -gt 1; then
+			if test "$option_multi" = 'yes'; then
+				# allow multiple selections, in which case confirm exact matches
+				reset_results
+				save_result "${exact_values[$i]}" "${exact_labels[$i]}" "${exact_visuals[$i]}"
+				action='confirm'
+				option_filter=''
+			else
+				# only allow a single selection, yet there were many exact matches
+				# so select which one to use
+				filtered_values=("${exact_values[@]}")
+				filtered_labels=("${exact_labels[@]}")
+				filtered_visuals=("${exact_visuals[@]}")
+				action='select'
+				option_filter=''
+			fi
+		# if we have only one partial match, require confirmation
+		elif test "${#filtered_values[@]}" -eq 1; then
+			reset_results
+			save_result "${filtered_values[0]}" "${filtered_labels[0]}" "${filtered_visuals[0]}"
 			action='confirm'
-			option_filter=''
-		else
-			# only allow a single selection, yet there were many exact matches
-			# so select which one to use
-			filtered_values=("${exact_values[@]}")
-			filtered_labels=("${exact_labels[@]}")
-			filtered_visuals=("${exact_visuals[@]}")
+		# if we have multiple partial matches, require selection
+		elif test "${#filtered_values[@]}" -gt 1; then
 			action='select'
-			option_filter=''
-		fi
-	# if we have only one partial match, require confirmation
-	elif test "${#filtered_values[@]}" -eq 1; then
-		reset_results
-		save_result "${filtered_values[0]}" "${filtered_labels[0]}" "${filtered_visuals[0]}"
-		action='confirm'
-	# if we have multiple partial matches, require selection
-	elif test "${#filtered_values[@]}" -gt 1; then
-		action='select'
-	else
-		# no filtered results were provided
-		if test -n "$option_filter"; then
-			# if there was meant to be results, then prompt a notice
-			echo-style --notice="Filter [$option_filter] returned no results, providing you all the results to select from..." >/dev/tty
-			sleep 5
-		fi
-		# select from everything and continue
-		filtered_values=("${values[@]}")
-		filtered_labels=("${labels[@]}")
-		filtered_visuals=("${visuals[@]}")
-		action='select'
-		option_filter=''
-	fi
-
-	# action: confirm saved results
-	if test "$action" = 'confirm'; then
-		# timeout of one minute for confirms of existing values
-		confirm_value="$(echo -n "${saved_results[@]}")"
-		ec=0 && confirmed="$(
-			choose-option \
-				--timeout=60 \
-				--required="$option_required" \
-				--question="$option_question" \
-				--label -- \
-				yes "Use: $confirm_value" \
-				no "Select something else."
-		)" || ec="$?"
-
-		# check
-		if test "$ec" -ne 0; then
-			echo-style --notice="Timed out, using fallback value: $confirm_value" >/dev/stderr
-			sleep 5
-		fi
-
-		# results
-		if test "$confirmed" = 'no'; then
+		else
+			# no filtered results were provided
+			if test -n "$option_filter"; then
+				# if there was meant to be results, then prompt a notice
+				echo-style --notice="Filter [$option_filter] returned no results, providing you all the results to select from..." >/dev/stderr
+				sleep 5
+			fi
 			# select from everything and continue
 			filtered_values=("${values[@]}")
 			filtered_labels=("${labels[@]}")
 			filtered_visuals=("${visuals[@]}")
 			action='select'
 			option_filter=''
-		else
+		fi
+
+		# action: confirm saved results
+		if test "$action" = 'confirm'; then
+			# timeout of one minute for confirms of existing values
+			confirm_value="$(echo -n "${saved_results[@]}")"
+			ec=0 && confirmed="$(
+				choose-option \
+					--timeout=60 \
+					--required="$option_required" \
+					--question="$option_question" \
+					--label -- \
+					yes "Use: $confirm_value" \
+					no "Select something else."
+			)" || ec="$?"
+
+			# check
+			if test "$ec" -ne 0; then
+				echo-style --notice="Timed out, using fallback value: $confirm_value" >/dev/stderr
+				sleep 5
+			fi
+
+			# results
+			if test "$confirmed" = 'no'; then
+				# select from everything and continue
+				filtered_values=("${values[@]}")
+				filtered_labels=("${labels[@]}")
+				filtered_visuals=("${visuals[@]}")
+				action='select'
+				option_filter=''
+			else
+				action='send'
+			fi
+		fi
+
+		# action: select from filtered results
+		if test "$action" = 'select'; then
+			if test "${#filtered_visuals[@]}" -ne "${#visuals[@]}"; then
+				unfiltered_index="${#filtered_visuals[@]}"
+				filtered_visuals+=('Select from the unfiltered options.')
+			fi
+			ec=0 && results="$(
+				choose-menu \
+					--question="$option_question" \
+					--multi="$option_multi" \
+					--required="$option_required" \
+					--timeout="$option_timeout" \
+					-- "${filtered_visuals[@]}"
+			)" || ec="$?"
+
+			# check unfiltered
+			if test -n "$unfiltered_index" -a "$results" = "$unfiltered_index"; then
+				option_filter=''
+				act
+				return "$?"
+			# check timeout
+			elif test "$ec" -eq 62; then
+				echo-style --notice="Menu timed out [$ec]." >/dev/stderr
+				sleep 5
+				return "$ec"
+			# check failure
+			elif test "$ec" -ne 0; then
+				echo-style --error="Menu failed [$ec]." >/dev/stderr
+				sleep 5
+				return "$ec"
+			# check empty
+			elif test -z "$results"; then
+				# check if empty is permissable
+				if test "$option_required" = 'no'; then
+					return 0
+				else
+					# option was required, fail
+					echo-style --error="No input returned, despite required." >/dev/stderr
+					sleep 5
+					return 5 # Input/output error
+				fi
+			fi
+
+			# results
+			reset_results
+			mapfile -t results <<<"$results"
+			test "${#results[@]}" -ne 0 && for i in "${results[@]}"; do
+				if test -n "$unfiltered_index" -a "$i" = "$unfiltered_index"; then
+					# in case select all was used, then trim the unfiltered option if it was presented
+					continue
+				else
+					save_result "${filtered_values[i]}" "${filtered_labels[i]}" "${filtered_visuals[i]}"
+				fi
+			done
 			action='send'
 		fi
-	fi
 
-	# action: select from filtered results
-	if test "$action" = 'select'; then
-		if test "${#filtered_visuals[@]}" -ne "${#visuals[@]}"; then
-			unfiltered_index="${#filtered_visuals[@]}"
-			filtered_visuals+=('Select from the unfiltered options.')
+		# send the saved results
+		if test "$action" = 'send'; then
+			echo-lines -- "${saved_results[@]}"
+		else
+			echo-style --error="invalid action at this stage: $action"
+			return 1
 		fi
-		ec=0 && results="$(
-			choose-menu \
-				--question="$option_question" \
-				--multi="$option_multi" \
-				--required="$option_required" \
-				--timeout="$option_timeout" \
-				-- "${filtered_visuals[@]}"
-		)" || ec="$?"
+	}
 
-		# check unfiltered
-		if test -n "$unfiltered_index" -a "$results" = "$unfiltered_index"; then
-			option_filter=''
-			act
-			return "$?"
-		# check timeout
-		elif test "$ec" -eq 62; then
-			echo-style --notice="Menu timed out [$ec]." >/dev/stderr
-			sleep 5
-			return "$ec"
-		# check failure
-		elif test "$ec" -ne 0; then
-			echo-style --error="Menu failed [$ec]." >/dev/stderr
-			sleep 5
-			return "$ec"
-		# check empty
-		elif test -z "$results"; then
-			# check if empty is permissable
-			if test "$option_required" = 'no'; then
-				return 0
-			else
-				# option was required, fail
-				echo-style --error="No input returned, despite required." >/dev/stderr
-				sleep 5
-				return 5 # Input/output error
-			fi
-		fi
+	# do the action
+	act
+)
 
-		# results
-		reset_results
-		mapfile -t results <<<"$results"
-		test "${#results[@]}" -ne 0 && for i in "${results[@]}"; do
-			if test -n "$unfiltered_index" -a "$i" = "$unfiltered_index"; then
-				# in case select all was used, then trim the unfiltered option if it was presented
-				continue
-			else
-				save_result "${filtered_values[i]}" "${filtered_labels[i]}" "${filtered_visuals[i]}"
-			fi
-		done
-		action='send'
-	fi
-
-	# send the saved results
-	if test "$action" = 'send'; then
-		echo-lines -- "${saved_results[@]}"
-	else
-		echo-style --error="invalid action at this stage: $action"
-		return 1
-	fi
-}
-
-# do the action
-act
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	choose-option "$@"
+fi

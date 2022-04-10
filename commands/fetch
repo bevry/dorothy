@@ -1,24 +1,132 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# help
-if is-help-empty "$@"; then
-	cat <<-EOF >/dev/stderr
-		ABOUT:
-		Output the contents of a URL using whatever tool is available on your system.
+function fetch() (
+	# =====================================
+	# Arguments
 
-		USAGE:
-		fetch <...>
-	EOF
-	exit 22 # Invalid argument
-fi
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Fetch the URL, using whichever tool is available on your system.
 
-# act
-if command-exists curl; then
-	curl -fsSL "$@"
-elif command-exists wget; then
-	wget "$@" -O -
-else
-	stderr echo 'curl and wget are not installed, at least one needs to exist'
-	exit 1
+			USAGE:
+			fetch [...flags] <url>
+
+			FLAGS:
+			--pattern=<...>
+			    Test the contents of the fetched URL against this Rust Regular Expression.
+
+			--[no-]status[=<yes|no>]
+			    If truthy, output only the status code, rather than the entire contents of the fetch URL.
+
+			--[no-]ok[=<yes|no>]
+			    If truthy, skip fetching contents and only test if fetching the URL returned a success status code.
+			    If falsey, skip fetching contents and only test if fetching the URL returned a non-successful status code.
+
+			QUIRKS:
+			If [curl] was required, but not found, it will be installed automatically.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item option_url='' option_status='no' option_ok='' option_pattern=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--pattern='*) option_pattern="${item:10}" ;;
+		'--no-status'* | '--status'*)
+			option_status="$(get-flag-value status --missing="$option_status" -- "$item" | echo-affirmative)"
+			;;
+		'--no-ok'* | '--ok'*)
+			option_ok="$(get-flag-value ok --missing="$option_ok" -- "$item" | echo-affirmative)"
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$option_url"; then
+				option_url="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# check
+	if test -z "$option_url"; then
+		help "No URL was provided"
+	fi
+
+	# =====================================
+	# Helpers
+
+	#  -I, --head                        Show document info only
+	#  -m, --max-time <seconds>          Maximum time allowed for the transfer
+	#  -o, --output <file>               Write to file instead of stdout
+	#  -s, --silent                      Silent mode
+	#  -A, --user-agent <name>           Send User-Agent <name> to server
+	#  -w, --write-out <format>          Use output FORMAT after completion
+	function fetch_status {
+		local args=(
+			--head
+			--max-time 3
+			--output /dev/null
+			--silent
+			--write-out '%{http_code}'
+		)
+		env QUIET=yes setup-util-curl
+		curl "${args[@]}" --location "$option_url"
+	}
+
+	function fetch_ok {
+		local status
+		status="$(fetch_status "$option_url")"
+		test "$status" -ge 200 -a "$status" -le 300
+	}
+
+	function fetch_contents {
+		if command-exists curl; then
+			curl -fsSL "$option_url"
+		elif command-exists wget; then
+			wget "$option_url" -O -
+		else
+			env QUIET=yes setup-util-curl # if curl fails to install, we have bigger problems
+			fetch "$option_url"
+		fi
+	}
+
+	function fetch_pattern {
+		fetch "$option_url" | grep --quiet --ignore-case "$option_pattern"
+	}
+
+	# =====================================
+	# Action
+
+	# perform appropriate action
+	if test "$option_status" = 'yes'; then
+		fetch_status
+	elif test "$option_ok" = 'yes'; then
+		fetch_ok
+	elif test "$option_ok" = 'no'; then
+		if fetch_ok; then
+			return 1
+		else
+			return 0
+		fi
+	elif test -n "$option_pattern"; then
+		fetch_pattern
+	else
+		fetch_contents
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	fetch "$@"
 fi

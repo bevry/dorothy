@@ -3,406 +3,424 @@ source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile' 'empty'
 
-# =====================================
-# Checks
+function seedbox() (
+	# =====================================
+	# Arguments
 
-# check system
-if ! is-ubuntu; then
-	stderr echo 'only for ubuntu'
-	exit 1
-fi
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
+			seedbox [--configure] <action> -- [...args]
 
-# dependencies
-if ! command-exists docker; then
-	stderr echo "docker was not found, install it first with [setup-docker]"
-	exit 1
-fi
+			OPTIONS:
+			--configure            Configuration guide.
 
-# check docker is working
-silent sudo systemctl status docker --no-pager || {
-	stderr echo 'docker not ready'
-	exit 1
-}
+			ACTIONS:
+			clean                  Removes all containers and images.
+			create                 Creates a new container.
+			debug                  Outputs information helpful for debugging from inside the container.
+			follow                 Follows the logs of the container, following live results.
+			id                     Outputs the container ID.
+			logs                   Outputs the logs of the container.
+			remove                 Removes the container.
+			restart                Restarts the container.
+			start                  Starts the container.
+			status                 Outputs the status of the container, verifying the VPN was successful.
+			stop                   Stops the container.
+			upgrade                Upgrades the container to a new image, rarely necessary.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
 
-# =====================================
-# Prepare
+	# process
+	local item action='' reconfigure='no' args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-configure'* | '--configure'*)
+			reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
+			;;
+		'--')
+			args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$action"; then
+				action="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
 
-image='haugene/transmission-openvpn'
-version='3.7.1' # latest
+	# ensure valid action
+	local actions=(
+		clean
+		create
+		debug
+		follow
+		id
+		logs
+		remove
+		restart
+		start
+		status
+		stop
+		upgrade
+	)
+	action="$(
+		choose-option --required \
+			--question='What action to perform?' \
+			--filter="$action" -- "${actions[@]}"
+	)"
 
-# =====================================
-# Arguments
+	# =====================================
+	# Checks
 
-# prepare
-actions=(
-	clean
-	create
-	debug
-	follow
-	id
-	logs
-	remove
-	restart
-	start
-	status
-	stop
-	upgrade
+	# check system
+	if ! is-ubuntu; then
+		echo-style --error='only for ubuntu' >/dev/stderr
+		return 1
+	fi
+
+	# dependencies
+	if ! command-exists docker; then
+		echo-style --error="docker was not found, install it first with [setup-docker]" >/dev/stderr
+		return 1
+	fi
+
+	# check docker is working
+	silent sudo systemctl status docker --no-pager || {
+		echo-style --error='docker not ready' >/dev/stderr
+		return 1
+	}
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# seedbaox.bash provides:
+	local image='haugene/transmission-openvpn' version='3.7.1' # latest
+	local SEEDBOX_PORT='' VPN_PROVIDER='' VPN_PROTOCOL='' VPN_COUNTRY='' VPN_DNS='' VPN_USER='' VPN_PASS='' DATA_PATH=''
+	if ! load_dorothy_config 'seedbox.bash'; then
+		reconfigure='yes'
+	fi
+
+	# =====================================
+	# Reconfigurations
+
+	# optional
+	if test -z "$SEEDBOX_PORT"; then
+		SEEDBOX_PORT='9091'
+	fi
+	if test -z "$VPN_PROVIDER"; then
+		VPN_PROVIDER='NORDVPN'
+	fi
+	if test -z "$VPN_PROTOCOL"; then
+		VPN_PROTOCOL='udp'
+	fi
+	if test -z "$VPN_COUNTRY"; then
+		VPN_COUNTRY="$(what-is-my-country)"
+	fi
+	if test -z "$VPN_DNS"; then
+		VPN_DNS="$(what-is-my-exposed-dns)"
+	fi
+
+	# required
+	if test -z "$DATA_PATH" -o -z "$VPN_USER" -o -z "$VPN_PASS"; then
+		reconfigure='yes'
+	fi
+
+	# update configuration
+	if test "$reconfigure" = 'yes'; then
+		DATA_PATH="$(
+			ask --required --confirm \
+				--question="Where do you want your seedbox data to exist?" \
+				--default="${DATA_PATH:-"$HOME/Downloads/seedbox"}"
+		)"
+		VPN_USER="$(
+			ask --required --confirm \
+				--question="What is your NordVPN username?" \
+				--default="$VPN_USER"
+		)"
+		VPN_PASS="$(
+			ask --required --confirm --password \
+				--password --question="What is your NordVPN password?" \
+				--default="$VPN_PASS"
+		)"
+
+		# save
+		update_dorothy_user_config --prefer=local 'seedbox.bash' -- \
+			--field='DATA_PATH' --value="$DATA_PATH" \
+			--field='VPN_USER' --value="$VPN_USER" \
+			--field='VPN_PASS' --value="$VPN_PASS"
+	fi
+
+	# =====================================
+	# Action
+
+	# helpers
+	function check_data {
+		if test ! -d "$DATA_PATH"; then
+			echo-style --error="DATA_PATH does not appear mounted: $DATA_PATH" >/dev/stderr
+			return 1
+		fi
+	}
+
+	# actions
+	function seedbox_ip {
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo-style --error='no seedbox present to get ip for' >/dev/stderr
+			return 1
+		fi
+		docker exec -it "$id" curl -fsSL 'http://ipecho.net/plain'
+	}
+	function seedbox_id {
+		local ids
+		# the bellow could hang if there is an issue, hence the timeout
+		mapfile -t ids < <(timeout 60s docker ps -a --filter ancestor="$image:$version" --format '{{ .ID }}' || :)
+		if test "${#ids[@]}" -eq 0; then
+			echo-style --error='no seedbox present to get id for' >/dev/stderr
+			return 1
+		fi
+		choose-option --required \
+			--question='Which container ID to use?' \
+			-- "${ids[@]}"
+	}
+	function seedbox_debug {
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo-style --error='no seedbox present to get debug for' >/dev/stderr
+			return 1
+		fi
+		docker exec -it "$id" sh -c "$(cat "$DOROTHY/commands/debug-network")"
+	}
+	function seedbox_logs {
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo-style --error='no seedbox present to get logs for' >/dev/stderr
+			return 1
+		fi
+		docker logs "$id" "$@"
+	}
+	function seedbox_follow {
+		seedbox_logs --follow
+	}
+	function seedbox_status {
+		local id localip hostip seedboxip details
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo-style --error='no seedbox present to get status for' >/dev/stderr
+			return 1
+		fi
+		localip="$(what-is-my-ip local)"
+		hostip="$(what-is-my-ip remote)"
+		seedboxip="$(seedbox_ip)"
+		details=(
+			"host ip	     =  $hostip"
+			"seedbox ip   =  $seedboxip"
+			"seedbox url  =  http://$localip:$SEEDBOX_PORT"
+		)
+		if test "$hostip" != "$seedboxip"; then
+			echo-style --success='seedbox is running correctly'
+			echo-lines -- "${details[@]}"
+		else
+			{
+				echo-style --error='seedbox did not connect to the vpn it seems'
+				echo-lines -- "${details[@]}"
+				echo
+				if confirm-positive --ppid=$$ -- 'Would you like to debug it?'; then
+					seedbox_debug
+				fi
+			} >/dev/stderr
+			return 1
+		fi
+	}
+	function seedbox_create {
+		echo-segment --h2='seedbox create'
+
+		check_data
+
+		# create
+		set -x # <debug>
+		# https://github.com/haugene/docker-transmission-openvpn/blob/master/docker-compose.yml
+		docker run \
+			--detach \
+			-v "$DATA_PATH":/data \
+			-e OPENVPN_PROVIDER="$VPN_PROVIDER" \
+			-e OPENVPN_USERNAME="$VPN_USER" \
+			-e OPENVPN_PASSWORD="$VPN_PASS" \
+			-e OPENVPN_OPTS='--mute-replay-warnings' \
+			-e NORDVPN_CATEGORY='P2P' \
+			-e NORDVPN_COUNTRY="$VPN_COUNTRY" \
+			-e NORDVPN_PROTOCOL="$VPN_PROTOCOL" \
+			-e LOCAL_NETWORK=192.168.0.0/16 \
+			-e HEALTH_CHECK_HOST='api.nordvpn.com' \
+			-e SELFHEAL=true \
+			-e TRANSMISSION_WEB_UI=flood-for-transmission \
+			-e WEBPROXY_ENABLED=false \
+			--log-driver json-file --log-opt max-size=256kb \
+			--cap-add=NET_ADMIN \
+			--net=bridge --dns="$VPN_DNS" \
+			-p "$SEEDBOX_PORT":"$SEEDBOX_PORT" \
+			"$image:$version"
+
+		#  --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0 --pull-filter ignore ping
+
+		# --log-driver json-file \
+		# doesn't seem to do anything
+
+		# https://docs.docker.com/engine/reference/run/
+		# https://docs.docker.com/engine/reference/run/#restart-policies---restart
+		# --restart=on-failure
+		# ^ Restart only if the container exits with a non-zero exit status. Optionally, limit the number of restart retries the Docker daemon attempts.
+		# --restart=unless-stopped
+		# ^ Always restart the container regardless of the exit status, including on daemon startup, except if the container was put into a stopped state before the Docker daemon was stopped
+		# restart is handled via `docker update` commands before and after start/stop
+
+		# -e OPENVPN_OPTS='-mute-replay-warnings' \
+		# --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+		# Options error: the --route-pre-down directive should have at most 1 parameter.  To pass a list of arguments as one of the parameters, try enclosing them in double quotes ("").
+
+		# https://openvpn.net/community-resources/reference-manual-for-openvpn-2-4/
+		# OPENVPN_OPTS
+		# --mute-replay-warnings
+		# ^ Silence the output of replay warnings, which are a common false alarm on WiFi networks. This option preserves the security of the replay protection code without the verbosity associated with warnings about duplicate packets.
+		# --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0
+		# --inactive 3600 --ping 10 --ping-exit 60
+		# ^ when used on both peers will cause OpenVPN to exit within 60 seconds if its peer disconnects, but will exit after one hour if no actual tunnel data is exchanged.
+		# --pull-filter ignore ping
+
+		# https://haugene.github.io/docker-transmission-openvpn/config-options/#health_check_option
+		# HEALTH_CHECK_HOST
+		# Because your VPN connection can sometimes fail, Docker will run a health check on this container every 5 minutes to see if the container is still connected to the internet. By default, this check is done by pinging google.com once. You change the host that is pinged.
+
+		# https://support.nordvpn.com/Connectivity/Linux/1047409422/How-can-I-connect-to-NordVPN-using-Linux-Terminal.htm
+		# nordvpn recommends disabling ipv6, which the image syntax should be
+		# https://haugene.github.io/docker-transmission-openvpn/provider-specific/
+		# --sysctl net.ipv6.conf.all.disable_ipv6=1
+
+		# -e TZ=UTC
+		# -e NORDVPN_PROTOCOL=tcp
+
+		# continue
+		set +x # </debug>
+
+		echo-segment --g2='seedbox create'
+	}
+	function seedbox_stop {
+		echo-segment --h2="seedbox stop"
+
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo-style --notice='no seedbox present to stop'
+			echo-segment --g2='seedbox stop'
+			return 0
+		fi
+
+		set -x # <debug>
+		docker update --restart=no "$id"
+		#   -t, --time int   Seconds to wait for stop before killing it (default 10)
+		docker stop --time 60 "$id"
+		set +x # </debug>
+
+		echo-segment --g2='seedbox stop'
+	}
+	function seedbox_start {
+		echo-segment --h2="seedbox start"
+
+		check_data
+
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo 'no seedbox present to start'
+			return 1
+		fi
+
+		set -x # <debug>
+		docker update --restart=always "$id"
+		docker start "$id"
+		set +x # </debug>
+
+		echo-segment --g2='seedbox start'
+	}
+	function seedbox_restart {
+		echo-segment --h2='seedbox restart'
+
+		seedbox_stop
+		seedbox_start
+
+		echo-segment --g2='seedbox restart'
+	}
+	function seedbox_remove {
+		echo-segment --h2="seedbox remove"
+
+		seedbox_stop
+
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo 'no seedbox present to remove'
+			return 0
+		fi
+
+		set -x # <debug>
+		docker rm "$id"
+		set +x # </debug>
+
+		echo-segment --g2='seedbox remove'
+	}
+	function seedbox_clean {
+		echo-segment --h2="seedbox clean"
+
+		seedbox_remove
+		docker rmi "$image:$version" || :
+
+		echo-segment --g2="seedbox clean"
+	}
+	function seedbox_upgrade {
+		echo-segment --h2="seedbox upgrade"
+
+		seedbox_clean
+
+		set -x # <debug>
+		docker pull "$image:$version"
+		set +x # </debug>
+
+		seedbox_create
+		seedbox_start
+
+		echo-segment --g2="seedbox upgrade"
+	}
+
+	# =====================================
+	# Act
+
+	if test "$(type -t "seedbox_$action")" = 'function'; then
+		"seedbox_$action" "${args[@]}"
+	else
+		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
+		return 78 # Function not implemented
+	fi
+	return "$?"
 )
 
-# help
-function help() {
-	cat <<-EOF >/dev/stderr
-		USAGE:
-		seedbox [--configure] <action> -- [...args]
-
-		FLAGS:
-		--configure            Configuration guide.
-
-		ACTIONS:
-		clean                  Removes all containers and images.
-		create                 Creates a new container.
-		debug                  Outputs information helpful for debugging from inside the container.
-		follow                 Follows the logs of the container, following live results.
-		id                     Outputs the container ID.
-		logs                   Outputs the logs of the container.
-		remove                 Removes the container.
-		restart                Restarts the container.
-		start                  Starts the container.
-		status                 Outputs the status of the container, verifying the VPN was successful.
-		stop                   Stops the container.
-		upgrade                Upgrades the container to a new image, rarely necessary.
-	EOF
-	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
-	fi
-	return 22 # Invalid argument
-}
-
-# process
-action=''
-reconfigure='no'
-action_args=()
-while test "$#" -ne 0; do
-	item="$1"
-	shift
-	case "$item" in
-	'help' | '--help' | '-h') help ;;
-	'--action='*) action="${item:9}" ;;
-	'--no-configure'* | '--configure'*)
-		reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
-		;;
-	'--')
-		action_args+=("$@")
-		shift $#
-		break
-		;;
-	'--'*) help "An unrecognised flag was provided: $item" ;;
-	*)
-		if test -z "$action"; then
-			action="$item"
-		else
-			help "An unrecognised argument was provided: $item"
-		fi
-		;;
-	esac
-done
-
-# ensure valid action
-action="$(
-	choose-option --required \
-		--question='What action to perform?' \
-		--filter="$action" -- "${actions[@]}"
-)"
-
-# =====================================
-# Configuration
-
-source "$DOROTHY/sources/config.bash"
-
-# seedbaox.bash provides:
-SEEDBOX_PORT=''
-VPN_PROVIDER=''
-VPN_PROTOCOL=''
-VPN_COUNTRY=''
-VPN_DNS=''
-VPN_USER=''
-VPN_PASS=''
-DATA_PATH=''
-if ! load_dorothy_config 'seedbox.bash'; then
-	reconfigure='yes'
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	seedbox "$@"
 fi
-
-# =====================================
-# Reconfigurations
-
-# optional
-if test -z "$SEEDBOX_PORT"; then
-	SEEDBOX_PORT='9091'
-fi
-if test -z "$VPN_PROVIDER"; then
-	VPN_PROVIDER='NORDVPN'
-fi
-if test -z "$VPN_PROTOCOL"; then
-	VPN_PROTOCOL='udp'
-fi
-if test -z "$VPN_COUNTRY"; then
-	VPN_COUNTRY="$(what-is-my-country)"
-fi
-if test -z "$VPN_DNS"; then
-	VPN_DNS="$(what-is-my-exposed-dns)"
-fi
-
-# required
-if test -z "$DATA_PATH" -o -z "$VPN_USER" -o -z "$VPN_PASS"; then
-	reconfigure='yes'
-fi
-
-# update configuration
-if test "$reconfigure" = 'yes'; then
-	DATA_PATH="$(
-		ask --required --confirm \
-			--question="Where do you want your seedbox data to exist?" \
-			--default="${DATA_PATH:-"$HOME/Downloads/seedbox"}"
-	)"
-	VPN_USER="$(
-		ask --required --confirm \
-			--question="What is your NordVPN username?" \
-			--default="$VPN_USER"
-	)"
-	VPN_PASS="$(
-		ask --required --confirm --password \
-			--password --question="What is your NordVPN password?" \
-			--default="$VPN_PASS"
-	)"
-
-	# save
-	update_dorothy_user_config --prefer=local 'seedbox.bash' -- \
-		--field='DATA_PATH' --value="$DATA_PATH" \
-		--field='VPN_USER' --value="$VPN_USER" \
-		--field='VPN_PASS' --value="$VPN_PASS"
-fi
-
-# =====================================
-# Action
-
-# helpers
-function check_data {
-	if test ! -d "$DATA_PATH"; then
-		stderr "DATA_PATH does not appear mounted: $DATA_PATH"
-		exit 1
-	fi
-}
-
-# actions
-function seedbox_ip {
-	local id
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to get ip for'
-		return 1
-	fi
-	docker exec -it "$id" curl -fsSL 'http://ipecho.net/plain'
-}
-function seedbox_id {
-	# the bellow could hang if there is an issue, hence the timeout
-	mapfile -t ids < <(timeout 60s docker ps -a --filter ancestor="$image:$version" --format '{{ .ID }}' || :)
-	if test "${#ids[@]}" -eq 0; then
-		stderr echo 'no seedbox present to get id for'
-		return 1
-	fi
-	choose-option --required \
-		--question='Which container ID to use?' \
-		-- "${ids[@]}"
-}
-function seedbox_debug {
-	local id
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to get debug for'
-		return 1
-	fi
-	docker exec -it "$id" sh -c "$(cat "$DOROTHY/commands/debug-network")"
-}
-function seedbox_logs {
-	local id
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to get logs for'
-		return 1
-	fi
-	docker logs "$id" "$@"
-}
-function seedbox_follow {
-	seedbox_logs --follow
-}
-function seedbox_status {
-	local id localip hostip seedboxip details
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to get status for'
-		return 1
-	fi
-	localip="$(ip-local)"
-	hostip="$(ip-remote)"
-	seedboxip="$(seedbox_ip)"
-	details=(
-		"host ip	     =  $hostip"
-		"seedbox ip   =  $seedboxip"
-		"seedbox url  =  http://$localip:$SEEDBOX_PORT"
-	)
-	if test "$hostip" != "$seedboxip"; then
-		echo 'seedbox is running correctly'
-		echo-lines -- "${details[@]}"
-	else
-		echo 'seedbox did not connect to the vpn it seems'
-		echo-lines -- "${details[@]}"
-		echo
-		if confirm-positive --ppid=$$ -- 'Would you like to debug it?'; then
-			seedbox_debug
-		fi
-		exit 1
-	fi
-}
-function seedbox_create {
-	local id
-
-	check_data
-	echo 'seedbox creating...'
-
-	# create
-	set -x # <debug>
-	# https://github.com/haugene/docker-transmission-openvpn/blob/master/docker-compose.yml
-	docker run \
-		--detach \
-		-v "$DATA_PATH":/data \
-		-e OPENVPN_PROVIDER="$VPN_PROVIDER" \
-		-e OPENVPN_USERNAME="$VPN_USER" \
-		-e OPENVPN_PASSWORD="$VPN_PASS" \
-		-e OPENVPN_OPTS='--mute-replay-warnings' \
-		-e NORDVPN_CATEGORY='P2P' \
-		-e NORDVPN_COUNTRY="$VPN_COUNTRY" \
-		-e NORDVPN_PROTOCOL="$VPN_PROTOCOL" \
-		-e LOCAL_NETWORK=192.168.0.0/16 \
-		-e HEALTH_CHECK_HOST='api.nordvpn.com' \
-		-e SELFHEAL=true \
-		-e TRANSMISSION_WEB_UI=flood-for-transmission \
-		-e WEBPROXY_ENABLED=false \
-		--log-driver json-file --log-opt max-size=256kb \
-		--cap-add=NET_ADMIN \
-		--net=bridge --dns="$VPN_DNS" \
-		-p "$SEEDBOX_PORT":"$SEEDBOX_PORT" \
-		"$image:$version"
-
-	#  --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0 --pull-filter ignore ping
-
-	# --log-driver json-file \
-	# doesn't seem to do anything
-
-	# https://docs.docker.com/engine/reference/run/
-	# https://docs.docker.com/engine/reference/run/#restart-policies---restart
-	# --restart=on-failure
-	# ^ Restart only if the container exits with a non-zero exit status. Optionally, limit the number of restart retries the Docker daemon attempts.
-	# --restart=unless-stopped
-	# ^ Always restart the container regardless of the exit status, including on daemon startup, except if the container was put into a stopped state before the Docker daemon was stopped
-	# restart is handled via `docker update` commands before and after start/stop
-
-	# -e OPENVPN_OPTS='-mute-replay-warnings' \
-	# --sysctl net.ipv6.conf.all.disable_ipv6=1 \
-	# Options error: the --route-pre-down directive should have at most 1 parameter.  To pass a list of arguments as one of the parameters, try enclosing them in double quotes ("").
-
-	# https://openvpn.net/community-resources/reference-manual-for-openvpn-2-4/
-	# OPENVPN_OPTS
-	# --mute-replay-warnings
-	# ^ Silence the output of replay warnings, which are a common false alarm on WiFi networks. This option preserves the security of the replay protection code without the verbosity associated with warnings about duplicate packets.
-	# --inactive 0 --ping 0 --ping-exit 0 --ping-restart 0
-	# --inactive 3600 --ping 10 --ping-exit 60
-	# ^ when used on both peers will cause OpenVPN to exit within 60 seconds if its peer disconnects, but will exit after one hour if no actual tunnel data is exchanged.
-	# --pull-filter ignore ping
-
-	# https://haugene.github.io/docker-transmission-openvpn/config-options/#health_check_option
-	# HEALTH_CHECK_HOST
-	# Because your VPN connection can sometimes fail, Docker will run a health check on this container every 5 minutes to see if the container is still connected to the internet. By default, this check is done by pinging google.com once. You change the host that is pinged.
-
-	# https://support.nordvpn.com/Connectivity/Linux/1047409422/How-can-I-connect-to-NordVPN-using-Linux-Terminal.htm
-	# nordvpn recommends disabling ipv6, which the image syntax should be
-	# https://haugene.github.io/docker-transmission-openvpn/provider-specific/
-	# --sysctl net.ipv6.conf.all.disable_ipv6=1
-
-	# -e TZ=UTC
-	# -e NORDVPN_PROTOCOL=tcp
-
-	# continue
-	set +x # </debug>
-	id="$(seedbox_id)"
-
-	echo 'seedbox created'
-}
-function seedbox_stop {
-	local id
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to stop'
-		return 0
-	fi
-	echo "seedbox stopping... $(date)"
-	set -x # <debug>
-	docker update --restart=no "$id"
-	#   -t, --time int   Seconds to wait for stop before killing it (default 10)
-	docker stop --time 60 "$id"
-	set +x # </debug>
-	echo 'seedbox stopped'
-}
-function seedbox_start {
-	local id
-	check_data
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to start'
-		return 1
-	fi
-	echo 'seedbox starting...'
-	set -x # <debug>
-	docker update --restart=always "$id"
-	docker start "$id"
-	set +x # </debug>
-	echo 'seedbox started'
-}
-function seedbox_restart {
-	seedbox_stop
-	seedbox_start
-}
-function seedbox_remove {
-	local id
-	seedbox_stop
-	id="$(seedbox_id || :)"
-	if test -z "$id"; then
-		echo 'no seedbox present to remove'
-		return 0
-	fi
-	echo 'removing seedbox...'
-	docker rm "$id"
-	echo 'seedbox removed'
-}
-function seedbox_clean {
-	seedbox_remove
-	docker rmi "$image:$version" || :
-}
-function seedbox_upgrade {
-	seedbox_clean
-	echo 'upgrading image...'
-	docker pull "$image:$version"
-	echo 'upgraded image'
-	seedbox_create
-	seedbox_start
-}
-
-# =====================================
-# Act
-
-if test "$(type -t "seedbox_$action")" = 'function'; then
-	"seedbox_$action" "${action_args[@]}"
-else
-	echo "Action [$action] not yet implemented." >/dev/stderr
-	exit 78 # Function not implemented
-fi
-exit "$?"

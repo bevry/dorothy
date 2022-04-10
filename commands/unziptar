@@ -1,45 +1,177 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/nullglob.bash"
+# trunk-ignore(shellcheck/SC1090)
+source "$(which eval-helper)"
 
-# help
-if is-help "$@"; then
-	cat <<-EOF >/dev/stderr
-		USAGE:
-		unziptar [archive file path] [--flags...]
+function unziptar() (
+	# =====================================
+	# Arguments
 
-		FLAGS:
-		Provide [--destination=...] to specify which directory the archive will be extracted to, defaults to the pwd.
-		Provide [--format=...] to manually specify format, for cases where it cannot be determined from the filename.
-	EOF
-	exit 22 # Invalid argument
-fi
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Extract the files from a zip/tar/etc file.
 
-# options
-filename="$(
-	ask --required \
-		--question="Enter the path of the archive to extract." \
-		--default="${1-}"
-)"
-destination="$(get-flag-value destination -- "$@")" # custom destination
-format="$(get-flag-value format -- "$@")"           # zip | tar | original filename, say a URL or so, before archive-file became a tmp file
-if test -z "$format"; then
-	format="$filename"
-fi
+			USAGE:
+			unziptar <archive-file> [...options]
 
-filepath="$(fs-absolute "$filename")"
+			OPTIONS:
+			--format=<format>
+			    Enforce <format> as the extraction format.
+			    If omitted, or "auto", auto-dection will be attempted.
 
-if test "$format" = 'zip' || [[ "$format" = *".zip" ]]; then
-	if test -n "$destination"; then
-		unzip "$filepath" -d "$destination"
+			--filter=<filter>
+			    Only extract files that match the glob pattern <filter>.
+			    If omitted, all files will be extracted.
+
+			--directory=<directory>
+			    Place extracted files inside <path>.
+			    If ommitted, the current working directory will be used.
+
+			--file=<file>
+			    If only a single file was extracted, rename it to <file>.
+			    If multiple files were extracted, then fail.
+
+			--path=<directory>/<file>
+			    Set the <directory> and <file> from this value.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item archive='' format='' filter='' directory='' file='' path=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--format='*) format="${item:9}" ;;
+		'--filter='*) filter="${item:9}" ;;
+		'--directory='*) directory="${item:12}" ;;
+		'--file='*) file="${item:7}" ;;
+		'--path='*) path="${item:7}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$archive"; then
+				archive="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# ensure directory, filename, path
+	if test -n "$path"; then
+		path="$(fs-absolute "$path")"
+		directory="$(dirname "$path")"
+		file="$(basename "$path")"
+		path="$directory/$file"
+	elif test -n "$directory" -a -n "$file"; then
+		directory="$(fs-absolute "$directory")"
+		file="$(basename "$file")"
+		path="$directory/$file"
+	elif test -z "$directory" -a -n "$file"; then
+		directory="$(pwd)"
+		file="$(basename "$file")"
+		path="$directory/$file"
+	elif test -n "$directory" -a -z "$file"; then
+		directory="$(fs-absolute "$directory")"
+		path="$directory"
 	else
-		unzip "$filepath"
+		directory="$(pwd)"
+		path="$directory"
 	fi
-else
-	if test -n "$destination"; then
-		mkdir -p "$destination"
-		cd "$destination" || exit 1
-		tar -xvzf "$filepath"
+	mkdir -p "$directory"
+
+	# ensure archive exists
+	if test -z "$archive"; then
+		help "No <archive-file> was provided."
+	elif test ! -e "$archive"; then
+		help "The <archive-file> does not exist: " --code="$archive"
+	fi
+
+	# ensure archive are absolute
+	archive="$(fs-absolute "$archive")"
+
+	# ensure format
+	if test -z "$format" -o "$format" = 'auto'; then
+		if [[ $archive == *".zip" ]]; then
+			format='zip'
+		else
+			format='tar'
+		fi
+	fi
+
+	# ensure filter
+	if test -z "$filter"; then
+		filter='*'
+	fi
+
+	# =====================================
+	# Action
+
+	# extract into temporary directory
+	local archive_directory
+	archive_directory="$(
+		fs-temp \
+			--directory='unziptar' \
+			--directory="$(echo-checksum "$archive")"
+	)"
+	mkdir -p "$archive_directory"
+
+	# enter the temporary directory
+	pushd "$archive_directory" >/dev/null
+
+	# zip or tar
+	if test "$format" = 'zip'; then
+		unzip "$archive"
+	elif test "$format" = 'tar'; then
+		tar -xvzf "$archive"
 	else
-		tar -xvzf "$filepath"
+		help "Unrecognised format: $format"
 	fi
+
+	# match extracted paths against filter
+	local filtered_paths=() filtered_path
+	mapfile -t filtered_paths < <(
+		expand-path "$archive_directory/$filter"
+	)
+
+	# move extracted files
+	if test "${#filtered_paths[@]}" -eq 0; then
+		echo-error "No files were extracted."
+		return 1
+	elif test "${#filtered_paths[@]}" -eq 1; then
+		# move the single file
+		for filtered_path in "${filtered_paths[@]}"; do
+			mv -fv "$filtered_path" "$path"
+		done
+	else
+		# was only one intended?
+		if test -n "$file"; then
+			{
+				echo-error "<file> was not possible, multiple files were extracted:"
+				echo-verbose "${filtered_paths[@]}"
+			} >/dev/stderr
+			return 1
+		fi
+		# move multiple files
+		for filtered_path in "${filtered_paths[@]}"; do
+			mv -fv "$filtered_path" "$directory"
+		done
+	fi
+
+	# exit the temporary directory then remove it
+	popd >/dev/null
+	rm -rfv "$archive_directory"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	unziptar "$@"
 fi

@@ -2,58 +2,106 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/ripgrep.bash"
 
-# notes
+# NOTES:
 # use /dev/random as on macos /dev/zero is instant
 # |& is because dd writes to something other than stdout
 
-# vars
-if is-mac; then
-	bs="1m" # mac only
-else
-	bs="1M" # linux only
+function fs-speed() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Calculate the speed at a directory path.
+
+			USAGE:
+			fs-speed [--] ...<paths>
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item paths=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			paths+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) paths+=("$item") ;;
+		esac
+	done
+
+	# prepare
+	local megabytes_in_gigabyte=1024 bs
+	if is-mac; then
+		bs="1m" # mac only
+	else
+		bs="1M" # linux only
+	fi
+
+	# =====================================
+	# Action
+
+	local scratchpad log bytes path
+	for path in "${paths[@]}"; do
+		# start
+		echo-segment --h1="Speed Test: $path"
+
+		# prepare a temporary file in the path we wish to speed test
+		scratchpad="$(fs-temp --root="$path" --file)"
+
+		# prepare a temporary file in our temp directory, to store the output
+		# which we use for the speed analysis
+		log="$(fs-temp --directory='fs-speed' --file="$(basename "$scratchpad").log")"
+
+		# ensure they are empty
+		rm -f "$scratchpad" "$log"
+
+		# @todo add some type of DEBUG=yes flag to avoid helpers, so we can still see block and time per block calculations
+
+		# write performance
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Calculating write performance...")" \
+			--success="$(echo-style --success="Calculated write performance.")" \
+			--failure="$(echo-style --error="Failed calculate write.")" \
+			-- dd if=/dev/random of="$scratchpad" bs="$bs" count="$megabytes_in_gigabyte" |& tee "$log"
+		# trunk-ignore(shellcheck/SC2016)
+		bytes="$(rg -o '(\d+) bytes/sec' --replace '$1' <"$log" || :)"
+		if test -n "$bytes"; then
+			echo-style "Writes at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second."
+		fi
+
+		# read performance
+		eval-helper --quiet \
+			--pending="$(echo-style --bold="Calculating read performance...")" \
+			--success="$(echo-style --success="Calculated read performance.")" \
+			--failure="$(echo-style --error="Failed calculate read.")" \
+			-- dd if="$scratchpad" of=/dev/null bs="$bs" |& tee "$log"
+		# trunk-ignore(shellcheck/SC2016)
+		bytes="$(rg -o '(\d+) bytes/sec' --replace '$1' <"$log" || :)"
+		if test -n "$bytes"; then
+			echo-style "Reads at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second."
+		fi
+
+		# cleanup
+		rm -f "$scratchpad" "$log"
+
+		# done
+		echo-segment --g1="Speed Test: $path"
+	done
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	fs-speed "$@"
 fi
-megabytes_in_gigabyte=1024
-
-# options
-path="${1-}"
-if test -z "$path" -o ! -d "$path"; then
-	cat <<-EOF
-		USAGE:
-		fs-speed <directory>
-
-		ABOUT:
-		Performs a speed test of <directory>.
-	EOF
-	exit 1
-fi
-
-# prepare
-scratchpad="$(fs-temp --directory="$path")"
-log="$(mktemp)"
-function finish() {
-	silent rm -rf "$scratchpad" "$log"
-}
-trap finish EXIT
-
-# start
-echo-segment --h1="Speed Test: $path"
-# write performance
-echo-segment --h2="Write Performance"
-echo-eval dd if=/dev/random of="$scratchpad" bs="$bs" count="$megabytes_in_gigabyte" |& tee "$log"
-bytes="$(rg -o '(\d+) bytes/sec' --replace '$1' <"$log" || :)"
-if test -n "$bytes"; then
-	echo-style "Writes at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second"
-fi
-echo-segment --g2="Write Performance"
-
-# read performance
-echo-segment --h2="Read Performance"
-echo-eval dd if="$scratchpad" of=/dev/null bs="$bs" |& tee "$log"
-bytes="$(rg -o '(\d+) bytes/sec' --replace '$1' <"$log" || :)"
-if test -n "$bytes"; then
-	echo-style "Reads at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second"
-fi
-echo-segment --g2="Read Performance"
-
-# done
-echo-segment --g1="Speed Test: $path"

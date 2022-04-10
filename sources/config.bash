@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 source "$DOROTHY/sources/config.sh"
 
 # todo
@@ -9,7 +9,7 @@ source "$DOROTHY/sources/config.sh"
 # ``` bash
 # mapfile -t GEM_INSTALL < <(prepare_packages 'GEM_INSTALL' -- "${GEM_INSTALL[@]}" "${RUBY_INSTALL[@]}")
 # ````
-prepare_packages() {
+function prepare_packages {
 	local reconfigure='no' name="$1" packages=("${@:3}")
 
 	# SETUP_UTILS should have already been loaded, but let's create it if not
@@ -22,13 +22,13 @@ prepare_packages() {
 	for item in "${packages[@]}"; do
 		installer="$(get-installer "$item" || :)"
 		if test -n "$installer"; then
-			if [[ "$installer" = 'setup-util-'* ]]; then
+			if [[ $installer == 'setup-util-'* ]]; then
 				util="${installer:11}"
-				echo-style --notice="Moved [$item] from [$name] to [SETUP_UTILS] as [$util]." >/dev/tty
+				echo-style --notice="Moved [$item] from [$name] to [SETUP_UTILS] as [$util]." >/dev/stderr
 				SETUP_UTILS+=("$util")
 				reconfigure='yes'
 			else
-				echo-style --notice="Skipping [$item] from [$name], as it should be installed via [$installer]." >/dev/tty
+				echo-style --notice="Skipping [$item] from [$name], as it should be installed via [$installer]." >/dev/stderr
 			fi
 			continue
 		else
@@ -44,7 +44,7 @@ prepare_packages() {
 }
 
 # for scripts to update the correct configuration file
-update_dorothy_user_config_help() {
+function update_dorothy_user_config_help {
 	cat <<-EOF >/dev/stderr
 		USAGE:
 		update_dorothy_user_config [--flags]... <filename> -- [arguments for \`config-helper\`]...
@@ -67,11 +67,11 @@ update_dorothy_user_config_help() {
 		If there are multiple config files, prompt the user which one to use.
 	EOF
 	if test "$#" -ne 0; then
-		echo-style $'\n' --error="ERROR:" $'\n' --red="$(echo-lines -- "$@")" >/dev/stderr
+		echo-error "$@"
 	fi
 	return 22 # Invalid argument
 }
-update_dorothy_user_config() {
+function update_dorothy_user_config {
 	local item
 	local dorothy_config_filename=''
 	local config_helper_args=()
@@ -82,7 +82,7 @@ update_dorothy_user_config() {
 		item="$1"
 		shift
 		case "$item" in
-		'help' | '--help' | '-h') update_dorothy_user_config_help ;;
+		'--help' | '-h') update_dorothy_user_config_help ;;
 		'--file='*) dorothy_config_filename="${item:7}" ;;
 		'--prefer=local') dorothy_config_prefer='local' ;;
 		'--no-prefer' | '--prefer=') dorothy_config_prefer='' ;;
@@ -109,7 +109,7 @@ update_dorothy_user_config() {
 	# check extension
 	local dorothy_config_extension # this is used later too
 	dorothy_config_extension="$(fs-extension "$dorothy_config_filename")"
-	if ! [[ "$dorothy_config_extension" =~ bash|zsh|sh|fish ]]; then
+	if ! [[ $dorothy_config_extension =~ bash|zsh|sh|fish ]]; then
 		help "The file extension of [$dorothy_config_filename] is not yet supported."
 	fi
 

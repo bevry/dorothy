@@ -1,38 +1,99 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-interface="$1"
-action="$(
-	choose-option \
-		--question='Which action do you wish to take?' \
-		--filter="${2-}" -- up down restart
-)"
+function network-interface() (
+	# =====================================
+	# Arguments
 
-# recurse if restart
-if test "$action" = 'restart'; then
-	network-interface "$interface" down
-	network-interface "$interface" up
-	exit 0
-fi
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Helpers for dealing with network interfaces.
 
-# https://archlinux.org/news/deprecation-of-net-tools/
-# https://wiki.archlinux.org/title/Network_configuration#net-tools
-if command-exists ip; then
-	sudo ip link set "$interface" "$action"
-	sleep 1
-else
-	# prep
-	env QUIET=yes setup-util-netscript
+			USAGE:
+			network-interface <up|down|restart> <interface>
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
 
-	# act
-	if test "$action" = 'up'; then
-		sudo ifup "$interface"
-		sleep 1
-	elif test "$action" = 'down'; then
-		sudo ifdown "$interface"
-		sleep 1
-	else
-		stderr echo "invalid action [$action]"
-		exit 1
+	# process
+	local item action='' interface=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$action"; then
+				action="$item"
+			elif test -z "$interface"; then
+				interface="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# ensure
+	if test -z "$action" -o -z "$interface"; then
+		help "You must provide both <action> and <interface>"
 	fi
+
+	# =====================================
+	# Dependencies
+
+	env QUIET=yes OPTIONAL=yes setup-util-netscript
+
+	# =====================================
+	# Action
+
+	# https://archlinux.org/news/deprecation-of-net-tools/
+	# https://wiki.archlinux.org/title/Network_configuration#net-tools
+
+	function up {
+		if command-exists ip; then
+			sudo ip link set "$interface" up
+		else
+			sudo ifup "$interface"
+		fi
+		sleep 1
+	}
+	function down {
+		if command-exists ip; then
+			sudo ip link set "$interface" down
+		else
+			sudo ifdown "$interface"
+		fi
+		sleep 1
+	}
+	function restart {
+		if command-exists ip; then
+			sudo ip link set "$interface" restart
+		else
+			down "$interface"
+			up "$interface"
+		fi
+	}
+
+	# =====================================
+	# Act
+
+	case "$action" in
+	'up' | 'down' | 'restart')
+		"$action" "${args[@]}"
+		;;
+	*)
+		help "Unknown action: $action"
+		;;
+	esac
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	network-interface "$@"
 fi
