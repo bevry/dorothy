@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/nullglob.bash"
+# trunk-ignore(shellcheck/SC1090)
+source "$(which eval-helper)"
 
 function unziptar() (
 	# =====================================
@@ -23,16 +25,16 @@ function unziptar() (
 			    Only extract files that match the glob pattern <filter>.
 			    If omitted, all files will be extracted.
 
-			--directory=<path>
+			--directory=<directory>
 			    Place extracted files inside <path>.
 			    If ommitted, the current working directory will be used.
 
-			--file=<filename>
-			    If only a single file was extracted, rename it to <filename>.
+			--file=<file>
+			    If only a single file was extracted, rename it to <file>.
 			    If multiple files were extracted, then fail.
 
-			--path=<path>/<filename>
-			    Set the <path> and <filename> from this value.
+			--path=<directory>/<file>
+			    Set the <directory> and <file> from this value.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -67,22 +69,39 @@ function unziptar() (
 	if test -n "$path"; then
 		directory="$(dirname "$path")"
 		file="$(basename "$path")"
-	elif test -z "$directory"; then
-		directory="$(pwd)"
-		path="$directory"
+	elif test -n "$directory" -a -n "$file"; then
+		path="$directory/$file"
+	else
+		if test -z "$directory"; then
+			directory="$(pwd)"
+		fi
 		if test -n "$file"; then
-			path="$path/$file"
+			path="$directory/$file"
+		else
+			path="$directory"
 		fi
 	fi
 
-	# ensure archive is absolute
+	# ensure directory and path are absolute
+	directory="$(fs-absolute "$directory")"
+	if test -n "$file"; then
+		path="$directory/$file"
+	else
+		path="$directory"
+	fi
+
+	# ensure directory exists
+	mkdir -p "$directory"
+
+	# ensure archive exists
 	if test -z "$archive"; then
 		help "No <archive-file> was provided."
 	elif test ! -e "$archive"; then
 		help "The <archive-file> does not exist."
-	else
-		archive="$(fs-absolute "$archive")"
 	fi
+
+	# ensure archive are absolute
+	archive="$(fs-absolute "$archive")"
 
 	# ensure format
 	if test -z "$format" -o "$format" = 'auto'; then
@@ -93,18 +112,25 @@ function unziptar() (
 		fi
 	fi
 
+	# ensure filter
+	if test -z "$filter"; then
+		filter='*'
+	fi
+
 	# =====================================
 	# Action
 
 	# extract into temporary directory
-	local tempdir
-	tempdir="$(
+	local archive_directory
+	archive_directory="$(
 		fs-temp \
 			--directory='unziptar' \
-			--directory
+			--directory="$(md5 -qs "$archive")"
 	)"
-	mkdir -p "$tempdir"
-	pushd "$tempdir" >/dev/null
+	mkdir -p "$archive_directory"
+
+	# enter the temporary directory
+	pushd "$archive_directory" >/dev/null
 
 	# zip or tar
 	if test "$format" = 'zip'; then
@@ -115,38 +141,42 @@ function unziptar() (
 		help "Unrecognised format: $format"
 	fi
 
-	# read extracted files
-	local subpaths subpath
-	if test -z "$filter"; then
-		filter='*'
-	fi
-	mapfile -t subpaths < <(expand-path "$tempdir/$filter")
+	# match extracted paths against filter
+	local filtered_paths=() filtered_path
+	mapfile -t filtered_paths < <(
+		expand-path "$archive_directory/$filter"
+	)
 
 	# move extracted files
-	if test "${#subpaths[@]}" -eq 0; then
-		{
-			echo-style --error="No files were extracted."
-			exit 1
-		} >/dev/stderr
-	elif test "${#subpaths[@]}" -eq 1; then
-		mv -fv "${subpaths[0]}" "$path"
+	if test "${#filtered_paths[@]}" -eq 0; then
+		echo-error "No files were extracted."
+		return 1
+	elif test "${#filtered_paths[@]}" -eq 1; then
+		# move the single file
+		for filtered_path in "${filtered_paths[@]}"; do
+			mv -fv "$filtered_path" "$path"
+		done
 	else
 		# was only one intended?
 		if test -n "$file"; then
 			{
-				echo-style --error="<filename> was not possible, multiple files were extracted:"
-				echo-verbose "${subpaths[@]}"
-				exit 1
-			}
+				echo-error "<file> was not possible, multiple files were extracted:"
+				echo-verbose "${filtered_paths[@]}"
+			} >/dev/stderr
+			return 1
 		fi
-		# move each
-		for subpath in "${subpaths[@]}"; do
-			mv -fv "$subpath" "$directory"
+		# move multiple files
+		for filtered_path in "${filtered_paths[@]}"; do
+			mv -fv "$filtered_path" "$directory"
 		done
 	fi
 
+	# cleanup
+	rm -rfv "$archive_directory" >/dev/tty
+
 	# exit the temporary directory
 	popd >/dev/null
+
 )
 
 # fire if invoked standalone
