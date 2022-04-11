@@ -46,6 +46,9 @@ function select-hosts() (
 
 	echo-segment --h1="Setup Hosts file"
 
+	# dependencies
+	env QUIET=yes setup-util-gsed
+
 	# =====================================
 	# Configuration
 
@@ -66,7 +69,7 @@ function select-hosts() (
 				--label=first -- "${OPTIONS[@]}"
 		)"
 		# as this is a new selection, recalculate nofap compliance
-		if [[ 'porn' == *"$CHOICE"* ]]; then
+		if [[ "$CHOICE" = *'porn'* ]]; then
 			# if it has porn in it, then it means it blocks porn
 			NOFAP='yes'
 		else
@@ -84,7 +87,7 @@ function select-hosts() (
 	# helper
 	function hosts {
 		# prepare
-		local url custom_file content_file combined_file
+		local url custom_file content_file combined_file hostname
 		url="$1"
 		custom_file="$(
 			fs-temp \
@@ -101,12 +104,9 @@ function select-hosts() (
 				--directory='select-hosts' \
 				--file='combined_file' --touch
 		)"
+		hostname="$(get-hostname)"
 
-		# prepare defaults in case of failures
-		cat <<-EOF >"$custom_file"
-			# <custom>
-			# </custom>
-		EOF
+		# prepare defaults in case of failure
 		cat <<-EOF >"$content_file"
 			127.0.0.1 localhost
 
@@ -120,20 +120,40 @@ function select-hosts() (
 		EOF
 
 		# grab the custom content, and save it temporarily
-		sed -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
+		# @todo test this if there was no match
+		function save_custom_segment {
+			sed -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
+		}
+		if ! save_custom_segment; then
+			cat <<-EOF >"$custom_file"
+				# <custom>
+				# </custom>
+			EOF
+		fi
 
-		# download the new content into an existing file
-		down "$url" --path="$content_file"
+		# if we have a new file
+		if test -n "$url"; then
+			echo-style --dim="Upgrading existing file with data from: $url"
 
-		# combine the parts
-		cat "$custom_file" "$content_file" >"$combined_file"
+			# download the new file to a temporary location
+			down "$url" --destination="$content_file" || :
+
+			# combine the parts
+			cat "$custom_file" "$content_file" >"$combined_file"
+		else
+			echo-style --dim="Upgrading existing file by removing undesired remote data."
+
+			# combine the parts
+			cat "$custom_file" "$content_file" >"$combined_file"
+		fi
 
 		# ensure the hostname exists
-		sed --null-data --in-place --regexp-extended \
-			--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$(get-hostname)\n#" \
+		gsed --null-data --in-place --regexp-extended \
+			--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$hostname\n#" \
 			"$combined_file"
 
 		# combine the custom content with the new content, and save it to the destination
+		echo-style --notice="You may now be prompted for your sudo password to write the changes to the hosts file."
 		sudo mv -f "$combined_file" "$hosts_file"
 
 		# fix permissions, otherwise `sudo systemctl status systemd-resolved` could fail with:
@@ -142,7 +162,7 @@ function select-hosts() (
 	}
 
 	# apply
-	eval-helper --quiet \
+	eval-helper --quiet --no-wrap \
 		--pending="$(echo-style --bold="Downloading [$CHOICE] to [$hosts_file]...")" \
 		--success="$(echo-style --success="Downloaded [$CHOICE] to [$hosts_file].")" \
 		-- hosts "$CHOICE"
