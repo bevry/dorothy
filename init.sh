@@ -82,9 +82,9 @@ fi
 # printf '$DOROTHY_LOAD = %s\n' "$DOROTHY_LOAD"
 # set +x # </debug>
 
-# as a function, to enable false negatives to still load dorothy
-# such as a ubuntu 21.10 virtual machine that I am wrestling with
-load_dorothy() {
+# if your login shell is failing identification,
+# then make sure your terminal preferences has login shell enabled
+if test "$DOROTHY_LOAD" = 'yes'; then
 	# shellcheck disable=SC2034
 	DOROTHY_LOADED='yes'
 	# ^ do not export this, as that will interfere with the case where:
@@ -104,8 +104,4 @@ load_dorothy() {
 
 	. "$DOROTHY/sources/init.sh"
 	. "$DOROTHY/sources/shell.sh"
-}
-
-if test "$DOROTHY_LOAD" = 'yes'; then
-	load_dorothy
 fi
