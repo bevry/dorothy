@@ -82,7 +82,9 @@ fi
 # printf '$DOROTHY_LOAD = %s\n' "$DOROTHY_LOAD"
 # set +x # </debug>
 
-if test "$DOROTHY_LOAD" = 'yes'; then
+# as a function, to enable false negatives to still load dorothy
+# such as a ubuntu 21.10 virtual machine that I am wrestling with
+load_dorothy() {
 	# shellcheck disable=SC2034
 	DOROTHY_LOADED='yes'
 	# ^ do not export this, as that will interfere with the case where:
@@ -102,4 +104,8 @@ if test "$DOROTHY_LOAD" = 'yes'; then
 
 	. "$DOROTHY/sources/init.sh"
 	. "$DOROTHY/sources/shell.sh"
+}
+
+if test "$DOROTHY_LOAD" = 'yes'; then
+	load_dorothy
 fi
