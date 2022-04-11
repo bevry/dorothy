@@ -26,7 +26,7 @@ function nofap {
 		fi
 
 		# let discord know
-		env QUIET=yes setup-util-httpie
+		setup-util-httpie --quiet
 		http -q --check-status \
 			"$NOFAP_DISCORD_WEBHOOK" \
 			Authorization:"${NOFAP_DISCORD_WEBHOOK_AUTH-}" \
