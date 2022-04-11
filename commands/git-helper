@@ -13,7 +13,11 @@ function git-helper() (
 			Helpers for working with git repositories.
 
 			USAGE:
-			git-helper <action> [--] ...<args>
+			git-helper [...options] <action> [--] ...<args>
+
+			OPTIONS:
+			--path=<path>
+			    Instead of the current working directory, use this path as the git repository.
 
 			ACTIONS:
 			authors
@@ -64,12 +68,13 @@ function git-helper() (
 	}
 
 	# process
-	local item action='' args=()
+	local item path='' action='' args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--path='*) path="${item:7}" ;;
 		'--')
 			args+=("$@")
 			shift "$#"
@@ -87,6 +92,14 @@ function git-helper() (
 			;;
 		esac
 	done
+
+	# ensure path, and verify
+	if test -z "$path"; then
+		path="$(pwd)"
+	elif test ! -d "$path"; then
+		echo-error "No directory at $path"
+		return 1
+	fi
 
 	# check
 	if test -z "$action"; then
@@ -112,16 +125,25 @@ function git-helper() (
 	fi
 
 	# =====================================
+	# Adjustments
+
+	# enter path for the remainder of this command's subshell
+	# so that git commands work correctly
+	cd "$path"
+
+	# seed protocols, must be done here, as subshells prevent sharing later
+	local protocols=()
+	if test "${#protocols[@]}" -eq 0; then
+		if ssh-helper test; then
+			protocols+=('ssh')
+		fi
+		protocols+=('https')
+	fi
+
+	# =====================================
 	# Helpers
 
-	local protocols=()
 	function get_protocol {
-		if test "${#protocols[@]}" -eq 0; then
-			if ssh-helper test; then
-				protocols+=('ssh')
-			fi
-			protocols+=('https')
-		fi
 		local protocol="${1:-"$GIT_PROTOCOL"}"
 		choose-option \
 			--question='Which git protocol to use?' \
@@ -141,30 +163,6 @@ function git-helper() (
 	function test_remote {
 		local remote="$1"
 		git fetch "$remote"
-	}
-	function get_path {
-		local path="${1-}"
-		if test -z "$path"; then
-			path="$(pwd)"
-		elif test ! -d "$path"; then
-			echo-error "No directory at $path"
-			return 1
-		fi
-
-		# test
-		local body ec
-		body="$(mktemp)"
-		pushd "$path" >/dev/null
-		ec=0 && git remote >"$body" || ec="$?"
-		popd >/dev/null
-		if test "$ec" -ne 0; then
-			echo-error "No git repository at $path"
-			return 1
-		fi
-		if test -z "$(cat "$body")"; then
-			echo-error "No git remotes found at $path"
-			return 1
-		fi
 	}
 	function get_remote_url {
 		local remote="$1"
@@ -463,23 +461,28 @@ function git-helper() (
 	}
 
 	function git_update {
-		local path="${1-}" remote="${2-}" body=''
-		path="$(get_path "$path")"
+		local remote="${1-}" body=''
 		remote="$(get_remote "$remote")"
 		body="$(mktemp)"
 
-		# update settings
+		# verify path, assumed verified for other actions
+		if ! git remote &>"$body"; then
+			echo-error "No git repository at $path"
+			return 1
+		elif test -z "$(cat "$body")"; then
+			echo-error "No git remotes found at $path"
+			return 1
+		fi
+
+		# helper
 		function do_update {
-			pushd "$path" >/dev/null
 			git_protocol_update "$remote"
 			git config pull.ff only
 			git pull "$remote" "$(git_default_branch)"
-			popd "$path" >/dev/null
 		}
 
-		# update data
-		# write to body so that wwe can determine already updated state [current]
-		# and write to stderr so that the process doesn't weigh down the output
+		# write to body so that already updated can be detected
+		# write to stderr so that [git_update] returns only [failure|current|updated]
 		if ! do_update |& tee "$body" &>/dev/stderr; then
 			# update failed
 			echo 'failure'
@@ -490,7 +493,6 @@ function git-helper() (
 		else
 			# updated successfully
 			echo 'updated'
-			return 0
 		fi
 	}
 
