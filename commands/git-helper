@@ -1,0 +1,527 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+# trunk-ignore(shellcheck/SC1090)
+source "$(which eval-helper)"
+
+function git-helper() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Helpers for working with git repositories.
+
+			USAGE:
+			git-helper <action> [--] ...<args>
+
+			ACTIONS:
+			authors
+			    Output all authors (contributors) within this git repository.
+
+			author-update <old-email> <new-email> <new-name>
+			    Update an author's name and email.
+
+			current-branch
+			    Output the current branch of this repository, including support for HEAD.
+
+			default-branch
+			    Output the default branch for this repository.
+
+			is-shallow
+			    Is the repository a shallow clone?
+
+			protocol-update <remote> [<protocol>]
+			    Set the <remote> to use the <protocol>.
+			    If no <protocol> is specified, the preferred protocol will be selected.
+
+			protocol-format <url> [<protocol>]
+			    Format the <url> to the specified <protocol>.
+			    If no <protocol> is specified, the preferred protocol will be selected.
+
+			review
+			    Open the git repositorty in your desired git reviewer, supported:
+			    Gitfox.app/gf
+			    Tower.app/tower
+
+			unstage [...<files>]
+			    Unstage all staged changes, without deleting or removing anything.
+
+			update [<path>] [<remote>]
+			    Update the git repository inside <path>.
+			    Outputs to stdout either:
+			        failure    exit code 1
+			        current    exit code 0
+			        updated    exit code 0
+
+			wipe
+			    Wipe the current working directory to the state of the last commit.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='' args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			args+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$action"; then
+				action="$item"
+			else
+				args+=("$item" "$@")
+				shift "$#"
+				break
+			fi
+			;;
+		esac
+	done
+
+	# check
+	if test -z "$action"; then
+		help "No <action> was provided."
+	fi
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# git.bash provides:
+	local GIT_DEFAULT_BRANCH='main'
+	local GIT_PROTOCOL='' # 'https', or 'ssh'
+	load_dorothy_config 'git.bash'
+
+	# ensure
+	if test -z "$GIT_DEFAULT_BRANCH"; then
+		# try local first, then global
+		GIT_DEFAULT_BRANCH="$(
+			git config --local init.defaultBranch || git config --global init.defaultBranch || :
+		)"
+	fi
+
+	# =====================================
+	# Helpers
+
+	local protocols=()
+	function get_protocol {
+		if test "${#protocols[@]}" -eq 0; then
+			if ssh-helper test; then
+				protocols+=('ssh')
+			fi
+			protocols+=('https')
+		fi
+		local protocol="${1:-"$GIT_PROTOCOL"}"
+		choose-option \
+			--question='Which git protocol to use?' \
+			--filter="$protocol" -- "${protocols[@]}"
+	}
+	function get_remote {
+		local remote="${1-}" question="${2:-"Which remote to use?"}" remotes
+		if test -n "$remote"; then
+			echo "$remote"
+		else
+			mapfile -t remotes < <(git remote)
+			choose-option --required \
+				--question="$question" \
+				-- "${remotes[@]}"
+		fi
+	}
+	function test_remote {
+		local remote="$1"
+		git fetch "$remote"
+	}
+	function get_path {
+		local path="${1-}"
+		if test -z "$path"; then
+			path="$(pwd)"
+		elif test ! -d "$path"; then
+			echo-error "No directory at $path"
+			return 1
+		fi
+
+		# test
+		local body ec
+		body="$(mktemp)"
+		pushd "$path" >/dev/null
+		ec=0 && git remote >"$body" || ec="$?"
+		popd >/dev/null
+		if test "$ec" -ne 0; then
+			echo-error "No git repository at $path"
+			return 1
+		fi
+		if test -z "$(cat "$body")"; then
+			echo-error "No git remotes found at $path"
+			return 1
+		fi
+	}
+	function get_remote_url {
+		local remote="$1"
+		git remote get-url "$remote"
+	}
+	function set_remote_url {
+		local remote="$1" url="$2" applied_url
+		git remote remove "$remote"
+		git remote add "$remote" "$url"
+
+		# ensure it changed, as git rules may have prevented it
+		applied_url="$(get_remote_url "$remote")"
+		if test "$applied_url" != "$url"; then
+			# it did not change, failure condition
+
+			# output details
+			echo "Failed to update the remote [$remote]:"
+			echo "Applied:    $url"
+			echo "Received:   $applied_url"
+
+			# and check to see if it was git config rewrite rules to blame
+			local global_lines='' local_lines=''
+			global_lines="$(git config --global --list | grep '.insteadof=')"
+			if test -n "$global_lines"; then
+				echo
+				echo 'you have replacement rules in your global git config, remove them if you want this to work:'
+				echo "$global_lines"
+			fi
+			local_lines="$(git config --list | grep '.insteadof=')"
+			if test -n "$local_lines"; then
+				echo
+				echo 'you have replacement rules in your local git config, remove them if you want this to work:'
+				echo "$local_lines"
+			fi
+			if test -n "$local_lines" -o -n "$local_lines"; then
+				echo
+				echo 'try run the following and try again'
+				echo "$local_lines" | sed -E 's#^#git config --global --unset #; s#=.+##'
+				echo "$local_lines" | sed -E 's#^#git config --unset #; s#=.+##'
+			fi
+
+			# nore the failure
+			return 1
+		fi
+	}
+	function does_remote_branch_exist {
+		git rev-parse --verify --quiet "$1" &>/dev/null
+	}
+	function does_local_branch_exist {
+		test -n "$(git branch --list "$1")"
+	}
+
+	# =====================================
+	# Action
+
+	function git_authors {
+		git shortlog --summary --email | cut -f2-
+	}
+
+	function git_author_update {
+		# process
+		local item old_email='' new_email='' new_name=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*)
+				if test -z "$old_email"; then
+					old_email="$item"
+				elif test -z "$new_email"; then
+					new_email="$item"
+				elif test -z "$new_name"; then
+					new_name="$item"
+				else
+					help "An unrecognised argument was provided: $item"
+				fi
+				;;
+			esac
+		done
+
+		# =====================================
+		# Adjustments
+
+		git shortlog --summary --email
+
+		confirm --ppid=$$ --mode=confirm -- "Now that you know the emails, are you ready to select one?"
+
+		old_email="$(
+			ask --required \
+				--question="What is the old email?" \
+				--default="$old_email"
+		)"
+		new_email="$(
+			ask --required \
+				--question="What is the new email?" \
+				--default="$new_email"
+		)"
+		new_name="$(
+			ask --required \
+				--question="What is the new name?" \
+				--default="$new_name"
+		)"
+
+		# =====================================
+		# Act
+
+		rm -Rf .git/refs/original
+
+		git filter-branch --env-filter "
+			OLD_EMAIL=\"$old_email\"
+			CORRECT_EMAIL=\"$new_email\"
+			CORRECT_NAME=\"$new_name\"
+			if [ \"\$GIT_COMMITTER_EMAIL\" = \"\$OLD_EMAIL\" ]; then
+				export GIT_COMMITTER_NAME=\"\$CORRECT_NAME\"
+				export GIT_COMMITTER_EMAIL=\"\$CORRECT_EMAIL\"
+			fi
+			if [ \"\$GIT_AUTHOR_EMAIL\" = \"\$OLD_EMAIL\" ]; then
+				export GIT_AUTHOR_NAME=\"\$CORRECT_NAME\"
+				export GIT_AUTHOR_EMAIL=\"\$CORRECT_EMAIL\"
+			fi
+		" --tag-name-filter cat -- --branches --tags
+	}
+
+	function git_current_branch {
+		silent-stderr git rev-parse --abbrev-ref HEAD || :
+	}
+
+	function git_default_branch {
+		# remote
+		if test -n "$GIT_DEFAULT_BRANCH" && does_remote_branch_exist "$GIT_DEFAULT_BRANCH"; then
+			echo "$GIT_DEFAULT_BRANCH"
+			return 0
+		elif does_remote_branch_exist main; then
+			echo main
+			return 0
+		elif does_remote_branch_exist master; then
+			echo master
+			return 0
+		fi
+
+		# local
+		if test -n "$GIT_DEFAULT_BRANCH" && does_local_branch_exist "$GIT_DEFAULT_BRANCH"; then
+			echo "$GIT_DEFAULT_BRANCH"
+			return 0
+		elif does_local_branch_exist main; then
+			echo main
+			return 0
+		elif does_local_branch_exist master; then
+			echo master
+			return 0
+		fi
+
+		# no branches?
+		if test -z "$(git branch -a)"; then
+			# use default
+			if test -n "$GIT_DEFAULT_BRANCH"; then
+				silent git checkout -b "$GIT_DEFAULT_BRANCH"
+				echo "$GIT_DEFAULT_BRANCH"
+				return 0
+			else
+				cat <<-EOF >/dev/stderr
+					No branches exist locally or remotely and [GIT_DEFAULT_BRANCH] is not specified, so no default branch was created.
+
+					Inside your [git.bash] configuration file, set [GIT_DEFAULT_BRANCH] to your desired default branch, then try again.
+				EOF
+				return 1
+			fi
+		else
+			cat <<-EOF >/dev/stderr
+				No default branch exists within the available branches:
+				$(git branch -a)
+
+				If one of these is a default branch, then
+				inside your [git.bash] configuration file, set [GIT_DEFAULT_BRANCH] to the default branch, then try again.
+
+				Currently, [GIT_DEFAULT_BRANCH] = [$GIT_DEFAULT_BRANCH]
+			EOF
+			return 1
+		fi
+	}
+
+	function git_is_shallow {
+		test "$(git rev-parse --is-shallow-repository || :)" != 'false'
+	}
+
+	function git_protocol_update {
+		local remote="${1-}" protocol="${2-}"
+		remote="$(get_remote "$remote" "Which remote to configure?")"
+		protocol="$(get_protocol "$protocol")"
+
+		# process
+		local original_url https_url ssh_url proposed_url=''
+		original_url="$(get_remote_url "$remote")"
+		https_url="$(git_protocol_format "$original_url" https)"
+		ssh_url="$(git_protocol_format "$original_url" ssh)"
+		proposed_url="$(git_protocol_format "$original_url" "$protocol")"
+
+		# log
+		echo "Git Repository:     $(pwd)"
+		echo "Remote:             $remote"
+		echo "Current URL:        $original_url"
+		echo "SSH URL:            $ssh_url"
+		echo "HTTPS URL:          $https_url"
+		echo "Proposed Protocol:  $protocol"
+		echo "Proposed URL:       $proposed_url"
+
+		# apply difference if necessary
+		if test "$proposed_url" != "$original_url"; then
+			set_remote_url "$remote" "$proposed_url"
+		fi
+
+		# test application
+		function test_with_fallback() {
+			local __protocol="$1"
+			echo "Testing remote=[$remote] protocol=[$__protocol] url=[$proposed_url] ..."
+			if test_remote "$remote"; then
+				return 0
+			else
+				if test "$__protocol" = 'ssh'; then
+					if confirm-positive --ppid=$$ -- "Protocol [$__protocol] failed, try HTTPS?"; then
+						set_remote_url "$remote" "$https_url"
+						test_with_fallback 'https'
+					else
+						return 1
+					fi
+				else
+					if confirm-positive --ppid=$$ -- "Protocol [$__protocol] failed, try SSH?"; then
+						set_remote_url "$remote" "$ssh_url"
+						test_with_fallback 'ssh'
+					else
+						return 1
+					fi
+				fi
+			fi
+		}
+		test_with_fallback "$protocol"
+	}
+
+	function git_protocol_format {
+		local url="$1" protocol="${2-}" domain='' path=''
+		protocol="$(get_protocol "$protocol")"
+
+		# remove ssh prefix
+		url="${url#*git@}"
+		# remove https prefix
+		url="${url#*://}"
+		# remove .git suffix
+		url="${url%.git*}"
+
+		# fetch domain
+		domain="${url%:*}"
+		if test -z "$domain" -o "$domain" = "$url"; then
+			domain="${url%/*}"    # trims repo
+			domain="${domain%/*}" # trims user
+		fi
+		# echo "domain=$domain"
+
+		# fetch path
+		path="${url#*:}"
+		if test -z "$path" -o "$path" = "$url"; then
+			path="${url#*/}"
+		fi
+
+		if test "$protocol" = 'https'; then
+			echo "https://$domain/$path.git"
+		elif test "$protocol" = 'ssh'; then
+			# ssh://git@github.com/balupton/dotfiles.git
+			# and
+			# git@github.com:balupton/dotfiles.git
+			# are both SSH urls
+			echo "git@$domain:$path.git"
+		else
+			return 1
+		fi
+	}
+
+	function git_review {
+		if get-app --quiet 'Gitfox.app'; then
+			open-app 'Gitfox.app' -- "$@"
+		elif get-app --quiet 'Tower.app'; then
+			open-app 'Tower.app' -- "$@"
+		elif command-exists gf; then
+			gf "$@"
+		elif command-exists tower; then
+			tower "$@"
+		else
+			help "No supported git reviewers installed."
+		fi
+	}
+
+	function git_unstage {
+		# https://stackoverflow.com/a/6919257
+		git reset HEAD "$@"
+	}
+
+	function git_update {
+		local path="${1-}" remote="${2-}" body=''
+		path="$(get_path "$path")"
+		remote="$(get_remote "$remote")"
+		body="$(mktemp)"
+
+		# update settings
+		function do_update {
+			pushd "$path" >/dev/null
+			git_protocol_update "$remote"
+			git config pull.ff only
+			git pull "$remote" "$(git_default_branch)"
+			popd "$path" >/dev/null
+		}
+
+		# update data
+		# write to body so that wwe can determine already updated state [current]
+		# and write to stderr so that the process doesn't weigh down the output
+		if ! do_update |& tee "$body" &>/dev/stderr; then
+			# update failed
+			echo 'failure'
+			return 1
+		elif grep -q "Already" <"$body"; then
+			# already up to date
+			echo 'current'
+		else
+			# updated successfully
+			echo 'updated'
+			return 0
+		fi
+	}
+
+	function git_wipe() (
+		if confirm-positive --ppid=$$ -- "Are you sure you want to wipe [$(pwd)] to the last commit state, reverting all uncommitted files and changes?"; then
+			git reset --hard
+			git clean -f
+		fi
+	)
+
+	# =====================================
+	# Act
+
+	case "$action" in
+	'authors') git_authors "${args[@]}" ;;
+	'author-update') git_author_update "${args[@]}" ;;
+	'checkout-fresh') git_checkout_fresh "${args[@]}" ;;
+	'current-branch') git_current_branch "${args[@]}" ;;
+	'default-branch') git_default_branch "${args[@]}" ;;
+	'is-shallow') git_is_shallow "${args[@]}" ;;
+	'protocol-update') get_protocol_update "${args[@]}" ;;
+	'protocol-format') git_protocol_format "${args[@]}" ;;
+	'review') git_review "${args[@]}" ;;
+	'unstage') git_unstage "${args[@]}" ;;
+	'update') git_update "${args[@]}" ;;
+	'wipe') git_wipe "${args[@]}" ;;
+	*) help "Unknown <action>." ;;
+	esac
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	git-helper "$@"
+fi
