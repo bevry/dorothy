@@ -40,6 +40,10 @@ function finish {
 				break
 			fi
 		done
+		if test -z "$name"; then
+			# on fedora, env can output functions, in which case we get garbled data sometimes
+			continue
+		fi
 
 		# adjust
 		if [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
@@ -79,7 +83,7 @@ function finish {
 
 		# find it in inherited, and check if it is the same if it is the same as inherited
 		for ((i = 0; i < ${#inherited[@]}; i += 2)); do
-			if test "${inherited[$i]}" = "${name}"; then
+			if test "${inherited[i]}" = "${name}"; then
 				if test "${inherited[i + 1]}" = "${value}"; then
 					# is inherited, continue to next item
 					continue 2
