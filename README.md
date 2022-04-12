@@ -84,7 +84,7 @@ dorothy theme
 # then open a new terminal
 ```
 
-If you get a command not found error, verify that your terminal application has login shells enabled.
+If you get a command not found error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/discussions/141)
 
 ## Overview
 
