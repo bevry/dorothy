@@ -8,7 +8,8 @@ if test -z "${NVM_DIR-}"; then
 	export NVM_DIR="$HOME/.nvm"
 fi
 if test -s "${NVM_DIR}/nvm.sh"; then
-	. "${NVM_DIR}/nvm.sh"
+	# trunk-ignore(shellcheck/SC1091)
+	. "$NVM_DIR/nvm.sh"
 else
 	rm -Rf "${NVM_DIR:-"$HOME/.nvm"}"
 fi

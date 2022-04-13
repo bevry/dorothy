@@ -9,14 +9,17 @@ load_dorothy_config() {
 	for dorothy_config_filename in "$@"; do
 		if test -f "$DOROTHY/user/config.local/$dorothy_config_filename"; then
 			# load user/config.local/*
+			# trunk-ignore(shellcheck/SC1090)
 			. "$DOROTHY/user/config.local/$dorothy_config_filename"
 			dorothy_config_loaded='yes'
 		elif test -f "$DOROTHY/user/config/$dorothy_config_filename"; then
 			# otherwise load user/config/*
+			# trunk-ignore(shellcheck/SC1090)
 			. "$DOROTHY/user/config/$dorothy_config_filename"
 			dorothy_config_loaded='yes'
 		elif test -f "$DOROTHY/config/$dorothy_config_filename"; then
 			# otherwise load default configuration
+			# trunk-ignore(shellcheck/SC1090)
 			. "$DOROTHY/config/$dorothy_config_filename"
 			dorothy_config_loaded='yes'
 		fi

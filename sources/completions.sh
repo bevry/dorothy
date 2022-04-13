@@ -29,10 +29,14 @@ if test -n "${HOMEBREW_PREFIX-}"; then
 	GDIR="${HOMEBREW_PREFIX}/Caskroom/google-cloud-sdk"
 	if test -d "$GDIR"; then
 		if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
+			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
 		elif test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
+			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
+			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/completion.zsh.inc"
 		fi
 	fi
