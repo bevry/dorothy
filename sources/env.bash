@@ -54,7 +54,8 @@ function finish {
 			# the <= and -o, is to ensure that the last item is processed, as it does not have a trailing :
 			# shellcheck disable=SC2066
 			for ((item_index = 0; item_index <= ${#value}; item_index++)); do
-				if test "${value:item_index:1}" = ':' -o "$item_index" = "${#value}"; then
+				# || is used instead of -o, because of [test '(' = ':' -o 375 -eq 7258] producing [test: `)' expected, found :]
+				if test "${value:item_index:1}" = ':' || test "$item_index" -eq "${#value}"; then
 					item="${value:item_last_index:item_index-item_last_index}"
 					item_last_index="$((item_index + 1))"
 					# check if empty
@@ -83,8 +84,8 @@ function finish {
 
 		# find it in inherited, and check if it is the same if it is the same as inherited
 		for ((i = 0; i < ${#inherited[@]}; i += 2)); do
-			if test "${inherited[i]}" = "${name}"; then
-				if test "${inherited[i + 1]}" = "${value}"; then
+			if test "${inherited[i]}" = "$name"; then
+				if test "${inherited[i + 1]}" = "$value"; then
 					# is inherited, continue to next item
 					continue 2
 				fi
