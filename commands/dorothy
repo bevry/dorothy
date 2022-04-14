@@ -8,6 +8,16 @@ set -Eeuo pipefail
 # DOROTHY may or may not exist exit yet
 # Dorothy clone may or may not exist yet
 # Bash v4 is not guaranteed
+#
+# Once dorothy is asserted to exist, we want to load environment, such that:
+# Environment configuration wouldn't have loaded if:
+#     in trial mode,
+#     or invoked by a shell that was not yet configured for Dorothy.
+# Environment configuration includes:
+#   homebrew path, homebrew architecture, ecosystem paths, etc.
+# Environment configuration is necessary so that:
+#   dependencies can be detected and installed, such as sd for config-helper
+#   test dependencies can correctly infer their environment's capabilities
 
 # @TODOS:
 # https://github.com/bevry/dorothy/issues/93
@@ -102,7 +112,8 @@ function make_executable {
 		chmod -f +x "$@"
 	fi
 }
-function assert_dorothy_installed {
+function assert_dorothy_cloned {
+	# DOROTHY is determined earlier, so this checks it is installed
 	if test ! -d "$DOROTHY"; then
 		echo-style \
 			--error="Dorothy is not installed." $'\n' \
@@ -110,17 +121,7 @@ function assert_dorothy_installed {
 			--notice="Run" --code=" dorothy install " --notice="to install, then you can run" --code=" dorothy $action"
 		return 2 # ENOENT No such file or directory
 	fi
-
-	# Now we know dorothy exists, so ensure environment configuration is loaded.
-	#   Environment configuration wouldn't have loaded if:
-	#     in trial mode,
-	#     or invoked by a shell that was not yet configured for Dorothy.
-	# Environment configuration includes:
-	#   homebrew path, homebrew architecture, ecosystem paths, etc.
-	# Environment configuration is necessary so that:
-	#   dependencies can be detected and installed, such as sd for config-helper
-	#   test dependencies can correctly infer their environment's capabilities
-	source "$DOROTHY/sources/environment.sh"
+	# don't source environment.sh here, as it won't carry over to the other functions
 }
 function move_if_necessary {
 	local __source="$1" destination="$2"
@@ -645,21 +646,36 @@ function setup_shell {
 # =====================================
 # Generic Action: Install, Update, Trial
 
-function act_generic {
+function ensure_minimal_dependencies {
+	if command-missing rg || command-missing gsed || command-missing sd; then
+		echo-style --h2="Installing required dependencies..."
+		# [config-helper] requires [rg], [gsed], [sd]
+		source "$DOROTHY/sources/ripgrep.bash"
+		setup-util-gsed --quiet
+		setup-util-sd --quiet
+		echo-style --g2="Installed required dependencies."
+	fi
+}
+function ensure_development_dependencies {
+	source "$DOROTHY/sources/ripgrep.bash"
+	setup-util-bash "$@"
+	setup-util-prettier "$@"
+	setup-util-ripgrep "$@"
+	setup-util-shellcheck "$@"
+	setup-util-shfmt "$@"
+	setup-util-trunk "$@"
+}
+
+function ensure_dorothy_configured {
 	# ensure dorothy and user configuration exist
 	setup_dorothy
 	setup_machine
 	setup_user
 
-	# now that dorothy exists, assert it as so (includes loading environment configuration)
-	assert_dorothy_installed
-
-	# install minimal dependencies, and reload the environment such that they are detected
-	# as otherwise commands will install dependencies, but because the parent environment is not updated
-	# each invocation of say [config-helper] will install dependencies again
-	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-gsed --quiet
-	setup-util-sd --quiet # on ubuntu, this installs rust: https://github.com/chmln/sd/issues/47
+	# now that dorothy is installed, assert it is so, and ensure depenedencies can be detected and installed
+	assert_dorothy_cloned
+	source "$DOROTHY/sources/environment.sh"
+	ensure_minimal_dependencies
 	source "$DOROTHY/sources/environment.sh"
 
 	# continue with adjustments
@@ -675,16 +691,17 @@ function act_generic {
 }
 
 function act_install {
-	act_generic
+	ensure_dorothy_configured
 }
 
 function act_update {
-	assert_dorothy_installed
-	act_generic
+	assert_dorothy_cloned
+	ensure_dorothy_configured
 }
 
 function act_trial {
-	act_generic
+	ensure_dorothy_configured
+	source "$DOROTHY/sources/environment.sh"
 
 	# don't use sh instead of bash as sh is dash on ubuntu,
 	# and ubuntu doesn't support the -- args
@@ -735,7 +752,11 @@ function act_trial {
 # Specific Actions
 
 function act_permissions {
-	assert_dorothy_installed
+	# environment
+	assert_dorothy_cloned
+	source "$DOROTHY/sources/environment.sh"
+
+	# features
 	source "$DOROTHY/sources/globstar.bash"
 	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/arrays.bash"
@@ -799,18 +820,23 @@ function act_permissions {
 
 function act_edit {
 	act_permissions
+	source "$DOROTHY/sources/environment.sh"
 	source "$DOROTHY/sources/edit.sh"
 	edit "$DOROTHY"
 }
 
 function act_review {
 	act_permissions
+	source "$DOROTHY/sources/environment.sh"
 	git-helper review "$DOROTHY/user" || :
 	git-helper review "$DOROTHY" || :
 }
 
 function act_theme {
-	assert_dorothy_installed
+	assert_dorothy_cloned
+	source "$DOROTHY/sources/environment.sh"
+
+	# features
 	local themes theme files
 	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/config.sh"
@@ -840,21 +866,13 @@ function act_theme {
 	echo-style --success='Configuration change applied, ' --notice='restart your terminal for the change to take effect.'
 }
 
-function prepare_dependencies {
-	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-bash "$@"
-	setup-util-prettier "$@"
-	setup-util-ripgrep "$@"
-	setup-util-shellcheck "$@"
-	setup-util-shfmt "$@"
-	setup-util-trunk "$@"
-}
-
 function act_dev {
-	assert_dorothy_installed
+	assert_dorothy_cloned
+	source "$DOROTHY/sources/environment.sh"
+	ensure_development_dependencies
+	source "$DOROTHY/sources/environment.sh"
 
-	# dependencies and versions
-	prepare_dependencies
+	# versions
 	eval-helper --no-quiet -- bash --version
 	eval-helper --no-quiet -- prettier --version
 	eval-helper --no-quiet -- rg --version
@@ -864,16 +882,18 @@ function act_dev {
 }
 
 function act_lint {
-	assert_dorothy_installed
+	assert_dorothy_cloned
+	source "$DOROTHY/sources/environment.sh"
+	ensure_development_dependencies --quiet
+	source "$DOROTHY/sources/environment.sh"
+
+	# prepare
 	local success='yes'
 
 	# features
 	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/globstar.bash"
 	source "$DOROTHY/sources/arrays.bash"
-
-	# dependencies
-	prepare_dependencies --quiet
 
 	# <ensure config files are detected>
 	pushd "$DOROTHY" >/dev/null
@@ -895,17 +915,19 @@ function act_lint {
 }
 
 function act_test {
-	assert_dorothy_installed
-	local success='yes' filepath
-	pushd "$DOROTHY" >/dev/null
+	assert_dorothy_cloned
+	source "$DOROTHY/sources/environment.sh"
+	ensure_development_dependencies --quiet
+	source "$DOROTHY/sources/environment.sh"
 
 	# features
+	source "$DOROTHY/sources/ripgrep.bash"
 	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/globstar.bash"
 	source "$DOROTHY/sources/arrays.bash"
 
-	# dependencies
-	source "$DOROTHY/sources/ripgrep.bash"
+	# prepare
+	local success='yes' filepath
 
 	# <ensure config files are detected>
 	pushd "$DOROTHY" >/dev/null
