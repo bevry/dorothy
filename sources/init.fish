@@ -17,7 +17,7 @@ source "$DOROTHY/sources/environment.fish"
 if not functions -q fundle
 	eval (fetch 'https://git.io/fundle-install')
 	echo 'fundle had to be installed, reopen your shell'
-	exit
+	return
 else
 	# the install above will run this
 	fundle plugin 'edc/bass'

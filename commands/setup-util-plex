@@ -1,76 +1,86 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# =====================================
-# Checks
+function setup-util-plex() (
+	# =====================================
+	# Checks
 
-# check for support
-if ! is-linux; then
-	echo-style --notice="[$0] currently only supports Linux systems, skipping." >/dev/stderr
-	exit 0
-fi
+	# check for support
+	if ! is-linux; then
+		echo-style --notice="[$0] currently only supports Linux systems, skipping." >/dev/stderr
+		return
+	fi
 
-# =====================================
-# Action
+	# =====================================
+	# Action
 
-# https://support.plex.tv/articles/235974187#enable-repository-updating-for-supported-linux-server-distributions/
-# https://www.plex.tv/media-server-downloads##plex-media-server
+	# https://support.plex.tv/articles/235974187#enable-repository-updating-for-supported-linux-server-distributions/
+	# https://www.plex.tv/media-server-downloads##plex-media-server
 
-# --paths
-plex_service='/lib/systemd/system/plexmediaserver.service'
-plex_data_paths=(
-	'/var/lib/plexmediaserver/'
+	# --paths
+	local plex_service plex_data_paths plex_paths
+	plex_service='/lib/systemd/system/plexmediaserver.service'
+	plex_data_paths=(
+		'/var/lib/plexmediaserver/'
+	)
+	plex_paths=(
+		"$plex_service"
+		"${plex_data_paths[@]}"
+	)
+	if test "${1-}" = '--paths'; then
+		echo-lines -- "${plex_paths[@]}"
+		return
+	fi
+
+	# install
+	setup-util "$@" NAME='Plex Media Server' \
+		APT_KEY_NAME='plexmediaserver' \
+		APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
+		APT_REPO='deb https://downloads.plex.tv/repo/deb public main' \
+		APT='apt-transport-https ca-certificates plexmediaserver' \
+		CASK='plex-media-server'
+
+	# APT_EVAL="
+	# 	sudo apt install apt-transport-https ca-certificates curl
+	# 	fetch https://downloads.plex.tv/plex-keys/PlexSign.key | sudo apt-key add -
+	# 	echo deb https://downloads.plex.tv/repo/deb public main | sudo tee /etc/apt/sources.list.d/plexmediaserver.list
+	# 	sudo apt update
+	# 	sudo apt install plexmediaserver
+	# "
+
+	# service
+	sudo systemctl disable plexmediaserver || :
+	sudo systemctl stop plexmediaserver || :
+
+	# configure
+	if confirm-negative --ppid=$$ -- "Customise Plex Media Server configuration?"; then
+		source "$DOROTHY/sources/edit.sh"
+		sudo_edit "$plex_service"
+	fi
+
+	# permissions
+	local plex_user plex_group
+	plex_user="$(
+		config-helper \
+			--file="$plex_service" -- \
+			--field='User'
+	)"
+	plex_group="$(
+		config-helper \
+			--file="$plex_service" -- \
+			--field='Group'
+	)"
+	fs-own --user="$plex_user" --group="$plex_group" -- "${plex_data_paths[@]}"
+
+	# --group
+	local groups group
+	mapfile -t groups < <(get-flag-value group --multi -- "$@")
+	for group in "${groups[@]}"; do
+		sudo gpasswd -a "$plex_user" "$group"
+	done
 )
-plex_paths=(
-	"$plex_service"
-	"${plex_data_paths[@]}"
-)
-if test "${1-}" = '--paths'; then
-	echo-lines -- "${plex_paths[@]}"
-	exit
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	setup-util-plex "$@"
 fi
-
-# install
-setup-util "$@" NAME='Plex Media Server' \
-	APT_KEY_NAME='plexmediaserver' \
-	APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
-	APT_REPO='deb https://downloads.plex.tv/repo/deb public main' \
-	APT='apt-transport-https ca-certificates plexmediaserver' \
-	CASK='plex-media-server'
-
-# APT_EVAL="
-# 	sudo apt install apt-transport-https ca-certificates curl
-# 	fetch https://downloads.plex.tv/plex-keys/PlexSign.key | sudo apt-key add -
-# 	echo deb https://downloads.plex.tv/repo/deb public main | sudo tee /etc/apt/sources.list.d/plexmediaserver.list
-# 	sudo apt update
-# 	sudo apt install plexmediaserver
-# "
-
-# service
-sudo systemctl disable plexmediaserver || :
-sudo systemctl stop plexmediaserver || :
-
-# configure
-if confirm-negative --ppid=$$ -- "Customise Plex Media Server configuration?"; then
-	source "$DOROTHY/sources/edit.sh"
-	sudo_edit "$plex_service"
-fi
-
-# permissions
-plex_user="$(
-	config-helper \
-		--file="$plex_service" -- \
-		--field='User'
-)"
-plex_group="$(
-	config-helper \
-		--file="$plex_service" -- \
-		--field='Group'
-)"
-fs-own --user="$plex_user" --group="$plex_group" -- "${plex_data_paths[@]}"
-
-# --group
-mapfile -t groups < <(get-flag-value group --multi -- "$@")
-for group in "${groups[@]}"; do
-	sudo gpasswd -a "$plex_user" "$group"
-done

@@ -6,5 +6,5 @@
 } || {
 	echo "Failed to setup environment, failed command was:"
 	echo "$DOROTHY/commands/setup-environment-commands" "$(get_active_shell)"
-	exit 1
+	return 1
 } >/dev/stderr

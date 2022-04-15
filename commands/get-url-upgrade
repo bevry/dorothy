@@ -1,104 +1,111 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# dependencies
-setup-util-sd --quiet
+function get-url-upgrade() (
+	# dependencies
+	setup-util-sd --quiet
 
-# prepare
-url="$1"
+	# prepare
+	local url="$1" protocol result
 
-# remove superflous trailing slash
-# shellcheck disable=SC2016
-url="$(echo "$url" | sd '([.][a-z]+)[/]$' '$1')"
+	# remove superflous trailing slash
+	# shellcheck disable=SC2016
+	url="$(echo "$url" | sd '([.][a-z]+)[/]$' '$1')"
 
-# test the original url
-protocol="$(get-url-protocol "$url" || :)"
-if test -z "$protocol"; then
-	# try http, which tries https first, otherwise fail
-	stderr echo "[$url] missing protocol, will try variations"
-	get-url-upgrade "http://$url"
-	exit "$?" # exit with the above on success and failure
-elif test "$protocol" = 'https'; then
-	# test original url works
-	if ! fetch --ok "$url"; then
-		stderr echo "[$url] failing, will try variations"
+	# test the original url
+	protocol="$(get-url-protocol "$url" || :)"
+	if test -z "$protocol"; then
+		# try http, which tries https first, otherwise fail
+		echo "[$url] missing protocol, will try variations" >/dev/stderr
+		get-url-upgrade "http://$url"
+		return "$?" # return with the above on success and failure
+	elif test "$protocol" = 'https'; then
+		# test original url works
+		if ! fetch --ok "$url"; then
+			echo "[$url] failing, will try variations" >/dev/stderr
+		fi
+	elif test "$protocol" = 'http'; then
+		# try upgrade to https
+		result="${url//http\:/https\:}"
+		result="$(get-url-upgrade "$result")"
+		if test -n "$result"; then
+			echo "$result"
+			return
+		fi
+		result=''
+	else
+		echo "[$url] invalid protocol, unable to upgrade" >/dev/stderr
+		return 1
 	fi
-elif test "$protocol" = 'http'; then
-	# try upgrade to https
-	result="${url//http\:/https\:}"
-	result="$(get-url-upgrade "$result")"
-	if test -n "$result"; then
-		echo "$result"
-		exit
+
+	# try removing www
+	result="${url//www./}"
+	if test "$result" != "$url"; then
+		result="$(get-url-upgrade "$result")"
+		if test -n "$result"; then
+			echo "$result"
+			return
+		fi
 	fi
 	result=''
-else
-	stderr echo "[$url] invalid protocol, unable to upgrade"
-	exit 1
-fi
 
-# try removing www
-result="${url//www./}"
-if test "$result" != "$url"; then
-	result="$(get-url-upgrade "$result")"
-	if test -n "$result"; then
-		echo "$result"
-		exit
+	# test the url
+	if fetch --ok "$url"; then
+		# try removing login items
+		if is-inside "$url" 'reg=' registration verify create signup signing reset token join register logout password forgot invitation invite; then
+			result="$(get-url-domain "$url")"
+			if test "$result" != "$url"; then
+				result="$(get-url-upgrade "$result")"
+				if test -n "$result"; then
+					echo "$result"
+					return
+				fi
+			fi
+			result=''
+		fi
+		echo "$url"
+		return
 	fi
-fi
-result=''
 
-# test the url
-if fetch --ok "$url"; then
-	# try removing login items
-	if is-inside "$url" 'reg=' registration verify create signup signing reset token join register logout password forgot invitation invite; then
+	# try removing path if ? is not present
+	if [[ $url != *'?'* ]]; then
 		result="$(get-url-domain "$url")"
 		if test "$result" != "$url"; then
 			result="$(get-url-upgrade "$result")"
 			if test -n "$result"; then
 				echo "$result"
-				exit
+				return
 			fi
 		fi
 		result=''
 	fi
-	echo "$url"
-	exit
-fi
 
-# try removing path if ? is not present
-if [[ $url != *'?'* ]]; then
+	# try removing path altogether
 	result="$(get-url-domain "$url")"
 	if test "$result" != "$url"; then
 		result="$(get-url-upgrade "$result")"
 		if test -n "$result"; then
 			echo "$result"
-			exit
+			return
 		fi
 	fi
 	result=''
-fi
 
-# try removing path altogether
-result="$(get-url-domain "$url")"
-if test "$result" != "$url"; then
-	result="$(get-url-upgrade "$result")"
-	if test -n "$result"; then
-		echo "$result"
-		exit
+	# check if it is a replaced domain
+	if is-needle "$url" 'https://login.live.com' 'https://account.live.com' 'https://account.microsoft.com'; then
+		echo 'https://account.microsoft.com' # curl fails for this, even though it exists, user agent change does nothing
+		return
+	elif is-needle "$url" 'https://signin.ebay.com.au'; then
+		echo 'https://www.ebay.com.au/signin/'
+		return
 	fi
-fi
-result=''
 
-# check if it is a replaced domain
-if is-needle "$url" 'https://login.live.com' 'https://account.live.com' 'https://account.microsoft.com'; then
-	echo 'https://account.microsoft.com' # curl fails for this, even though it exists, user agent change does nothing
-	exit
-elif is-needle "$url" 'https://signin.ebay.com.au'; then
-	echo 'https://www.ebay.com.au/signin/'
-	exit
-fi
+	# unable to make https
+	echo "[$url] unresponsive" >/dev/stderr
+	return 1
+)
 
-# unable to make https
-stderr echo "[$url] unresponsive"
-exit 1
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get-url-upgrade "$@"
+fi

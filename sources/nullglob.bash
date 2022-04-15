@@ -12,5 +12,5 @@ shopt -s nullglob || {
 		--error="Missing nullglob support." $'\n' \
 		--bold="$0" " is incompatible with " --bold="bash $BASH_VERSION" $'\n' \
 		"Run " --bold="setup-util-bash" " to upgrade capabilities, then run the prior command again." >/dev/stderr
-	exit 95 # Operation not supported
+	return 95 # Operation not supported
 }

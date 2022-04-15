@@ -5,10 +5,10 @@ source "$DOROTHY/sources/strict.bash"
 if test "${1-}" = '--help'; then
 	if test "$(type -t help)" = 'function'; then
 		help >/dev/stderr && exit 22 # Invalid argument
-		exit "$?"
+		return "$?"
 	else
 		echo "please update the function you called with a [help] method" >/dev/stderr
-		exit 38 # Function not implemented
+		return 38 # Function not implemented
 	fi
 fi
 

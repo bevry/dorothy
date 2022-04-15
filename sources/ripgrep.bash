@@ -6,7 +6,7 @@ if test -z "${RIPGREP_BIN_PATH-}"; then
 		ec="$?"
 		echo "setup-util-ripgrep failed with exit code $ec" >/dev/stderr
 		echo "cannot proceed with: $0 $*" >/dev/stderr
-		exit "$ec"
+		return "$ec"
 	}
 
 	# workaround for ripgrep outputting colors in pipes

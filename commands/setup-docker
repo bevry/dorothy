@@ -1,139 +1,146 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/strict.bash"
 
-# warn the user
-if ! is-ubuntu; then
-	echo 'This is designed for Ubuntu Server...'
-	echo
-	if ! confirm-positive --ppid=$$ -- 'Do you still wish to proceed at your own risk?'; then
-		exit
-	fi
-fi
-
-# dependencies
-source "$DOROTHY/sources/ripgrep.bash"
-
-# https://docs.docker.com/engine/install/ubuntu/
-# https://docs.docker.com/engine/install/linux-postinstall/
-# don't go rootless, is too complicated
-
-# for some reason https://docs.docker.com/engine/install/linux-postinstall/ recommends
-#	sudo groupadd docker || :
-#	sudo usermod -aG docker "$USER"
-# yet https://snapcraft.io/docker recommends
-#	sudo addgroup --system docker || :
-#	sudo adduser "$USER" docker || :
-# we will prcoeed with the official instructions
-
-# old ways
-#	sudo service docker restart
-# new ways are what are implemented
-
-# uninstall
-if ! is-needle '--proceed-after-group' "$@"; then
-	if command-exists docker; then
-		echo 'This will wipe your existing docker installation, so it can be reinstalled with the recommended setup from:'
-		echo 'https://docs.docker.com/engine/install/ubuntu/'
-		echo 'https://docs.docker.com/engine/install/linux-postinstall/'
+function setup-docker() (
+	# warn the user
+	if ! is-ubuntu; then
+		echo 'This is designed for Ubuntu Server...'
 		echo
-		if ! confirm-positive --ppid=$$ -- 'Do you still wish to proceed?'; then
-			exit
+		if ! confirm-positive --ppid=$$ -- 'Do you still wish to proceed at your own risk?'; then
+			return
 		fi
-	else
-		echo 'No existing docker installation dectected.'
 	fi
 
+	# dependencies
+	source "$DOROTHY/sources/ripgrep.bash"
+
+	# https://docs.docker.com/engine/install/ubuntu/
+	# https://docs.docker.com/engine/install/linux-postinstall/
+	# don't go rootless, is too complicated
+
+	# for some reason https://docs.docker.com/engine/install/linux-postinstall/ recommends
+	#	sudo groupadd docker || :
+	#	sudo usermod -aG docker "$USER"
+	# yet https://snapcraft.io/docker recommends
+	#	sudo addgroup --system docker || :
+	#	sudo adduser "$USER" docker || :
+	# we will prcoeed with the official instructions
+
+	# old ways
+	#	sudo service docker restart
+	# new ways are what are implemented
+
+	# uninstall
+	if ! is-needle '--proceed-after-group' "$@"; then
+		if command-exists docker; then
+			echo 'This will wipe your existing docker installation, so it can be reinstalled with the recommended setup from:'
+			echo 'https://docs.docker.com/engine/install/ubuntu/'
+			echo 'https://docs.docker.com/engine/install/linux-postinstall/'
+			echo
+			if ! confirm-positive --ppid=$$ -- 'Do you still wish to proceed?'; then
+				return
+			fi
+		else
+			echo 'No existing docker installation dectected.'
+		fi
+
+		echo
+		echo 'Cleaning tooling...'
+		sudo apt purge -y \
+			containerd \
+			docker \
+			docker-ce \
+			docker-ce-cli \
+			docker-ce-rootless-extras \
+			docker-engine \
+			docker.io \
+			runc ||
+			:
+		sudo snap remove --purge docker || :
+		sudo apt autoremove -y --purge || :
+		sudo dpkg --configure -a || :
+		sudo apt-get update || :
+		sudo apt-get -f install || :
+
+		echo
+		echo 'Cleaning files...'
+		sudo umount /var/lib/docker/ || :
+		sudo rm -rf \
+			"$HOME/.docker" \
+			/etc/apparmor.d/docker \
+			/etc/docker \
+			/usr/bin/docker-compose \
+			/var/lib/containerd \
+			/var/lib/docker \
+			/var/run/docker.sock
+
+		echo
+		echo 'Cleaning group...'
+		sudo groupdel docker || :
+		sudo delgroup docker || :
+
+		echo
+		echo 'Adding optional dependencies...'
+		# https://askubuntu.com/a/1236711/22776
+		setup-util NAME='Kernel Virtualisation Helpers' APT='linux-image-extra-virtual'
+
+		echo
+		echo 'Running official installer...'
+		sh -c "$(fetch https://get.docker.com)"
+
+		echo
+		echo 'Configuring group...'
+		sudo groupadd docker || :
+		sudo usermod -aG docker "$USER"
+		echo "[docker] group membership redone for [$USER], you will need to restart your session to proceed"
+		echo 'Once you have restarted your session using [exit] and logging out, proceed with [setup-docker --proceed-after-group]'
+		newgrp docker
+		return
+	fi
+	if groups | rg -qo docker; then
+		echo "[docker] group membership enabled for [$USER]"
+	else
+		stderr echo "you've skipped a step, [docker] group membership was not detected for [$USER]"
+		return 1
+	fi
+
+	# permissions
 	echo
-	echo 'Cleaning tooling...'
-	sudo apt purge -y \
-		containerd \
-		docker \
-		docker-ce \
-		docker-ce-cli \
-		docker-ce-rootless-extras \
-		docker-engine \
-		docker.io \
-		runc ||
-		:
-	sudo snap remove --purge docker || :
-	sudo apt autoremove -y --purge || :
-	sudo dpkg --configure -a || :
-	sudo apt-get update || :
-	sudo apt-get -f install || :
+	echo 'Configuring permissions...'
+	mkdir -p "$HOME/.docker"
+	sudo chown "$USER":"$USER" "$HOME/.docker" -R
+	sudo chmod g+rwx "$HOME/.docker" -R
+
+	# service
+	echo
+	echo 'Configuring service...'
+	sudo systemctl enable docker.service
+	sudo systemctl enable containerd.service
+	sudo systemctl restart docker
+	sudo systemctl status docker --no-pager
+
+	# tests
+	echo
+	echo 'Testing your docker is configured correct, by running check-config...'
+	sh -c "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)" || :
 
 	echo
-	echo 'Cleaning files...'
-	sudo umount /var/lib/docker/ || :
-	sudo rm -rf \
-		"$HOME/.docker" \
-		/etc/apparmor.d/docker \
-		/etc/docker \
-		/usr/bin/docker-compose \
-		/var/lib/containerd \
-		/var/lib/docker \
-		/var/run/docker.sock
+	echo 'Testing your containers work correctly, by running hello-world in a container...'
+	docker run --rm hello-world
 
 	echo
-	echo 'Cleaning group...'
-	sudo groupdel docker || :
-	sudo delgroup docker || :
+	echo 'Testing your networking works correctly, by pinging your gateway...'
+	docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
 
 	echo
-	echo 'Adding optional dependencies...'
-	# https://askubuntu.com/a/1236711/22776
-	setup-util NAME='Kernel Virtualisation Helpers' APT='linux-image-extra-virtual'
+	echo 'Testing your networking works correctly, by pinging cloudflare...'
+	docker run --rm -it alpine ping -c4 cloudflare.com
 
 	echo
-	echo 'Running official installer...'
-	sh -c "$(fetch https://get.docker.com)"
+	echo 'Everything works, docker has been setup.'
+)
 
-	echo
-	echo 'Configuring group...'
-	sudo groupadd docker || :
-	sudo usermod -aG docker "$USER"
-	echo "[docker] group membership redone for [$USER], you will need to restart your session to proceed"
-	echo 'Once you have restarted your session using [exit] and logging out, proceed with [setup-docker --proceed-after-group]'
-	newgrp docker
-	exit
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	setup-docker "$@"
 fi
-if groups | rg -qo docker; then
-	echo "[docker] group membership enabled for [$USER]"
-else
-	stderr echo "you've skipped a step, [docker] group membership was not detected for [$USER]"
-	exit 1
-fi
-
-# permissions
-echo
-echo 'Configuring permissions...'
-mkdir -p "$HOME/.docker"
-sudo chown "$USER":"$USER" "$HOME/.docker" -R
-sudo chmod g+rwx "$HOME/.docker" -R
-
-# service
-echo
-echo 'Configuring service...'
-sudo systemctl enable docker.service
-sudo systemctl enable containerd.service
-sudo systemctl restart docker
-sudo systemctl status docker --no-pager
-
-# tests
-echo
-echo 'Testing your docker is configured correct, by running check-config...'
-sh -c "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)" || :
-
-echo
-echo 'Testing your containers work correctly, by running hello-world in a container...'
-docker run --rm hello-world
-
-echo
-echo 'Testing your networking works correctly, by pinging your gateway...'
-docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
-
-echo
-echo 'Testing your networking works correctly, by pinging cloudflare...'
-docker run --rm -it alpine ping -c4 cloudflare.com
-
-echo
-echo 'Everything works, docker has been setup.'
