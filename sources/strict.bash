@@ -48,7 +48,7 @@ function strict_e_pause {
 		return 1
 	else
 		set +e
-		return
+		return 0
 	fi
 }
 

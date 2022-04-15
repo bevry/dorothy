@@ -28,16 +28,16 @@ function tty_auto {
 # if alt tty is disabled however, then disable it
 if is-affirmative "${NO_ALT_TTY-}" || test "$(echo-exit-code is-affirmative "${ALT_TTY-}")" -eq 1; then
 	function tty_start {
-		return
+		return 0
 	}
 	function tty_clear {
-		return
+		return 0
 	}
 	function tty_finish {
-		return
+		return 0
 	}
 	function tty_auto {
-		return
+		return 0
 	}
 fi
 
