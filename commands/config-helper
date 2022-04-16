@@ -79,8 +79,8 @@ function config-helper() (
 	# Dependencies
 
 	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-gsed --quiet
 	setup-util-sd --quiet
+	setup-util-teip --quiet
 
 	# =====================================
 	# Action
@@ -90,7 +90,7 @@ function config-helper() (
 
 	# cycle
 	function act {
-		local option_search option_columns='1' option_quote='yes' option_replace search_pattern replace_pattern get_value_pattern sed_excess_pattern excess_value addition find field value
+		local option_search option_columns='1' option_quote='yes' option_replace search_pattern replace_pattern get_value_pattern addition find field value content
 		while test "$#" -ne 0; do
 			# extract arguments
 			option_search="$1"
@@ -116,12 +116,11 @@ function config-helper() (
 			search_pattern=''
 			replace_pattern=''
 			get_value_pattern=''
-			sed_excess_pattern=''
-			excess_value=''
 			addition=''
 			find=''  # value of --find=<value>
 			field='' # value of --field=<value>
 			value='' # value of --{replace,array,value}=<value>
+			content=''
 
 			# search
 			# https://docs.rs/regex/latest/regex/
@@ -140,15 +139,11 @@ function config-helper() (
 			elif [[ $option_search == '--find='* ]]; then
 				# indentable, commentable, pattern
 				find="${option_search:7}"
-				sed_excess_pattern="0,/[# 	]*${find}/!{//d}"
-				excess_value="\${indent}${field}=$(get-random-number)"
 				search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)(?P<value>$find)$"
 				get_value_pattern="^(?P<indent>[[:blank:]]*)(?P<value>$find)$" # ignore comments
 			elif [[ $option_search == '--field='* ]]; then
 				# field that can be an array and value
 				field="${option_search:8}"
-				sed_excess_pattern="0,/[# 	]*${field} *= *(.*?)/!{//d}"
-				excess_value="\${indent}${field}=$(get-random-number)"
 				search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)$field *= *(?P<value>[(](?ms:.*?)[)]|[^\n]*)$"
 				get_value_pattern="^(?P<indent>[[:blank:]]*)$field *= *(?P<value>[(](?ms:.*?)[)]|[^\n]*)$" # ignore comments
 			else
@@ -212,22 +207,18 @@ function config-helper() (
 			shift
 
 			# and perform the replace
-			if rg --quiet --multiline "$search_pattern" "$file"; then
-				# trim all but the first occurance, this is complicated because these aren't a thing:
+			content="$(cat "$file")"
+			if printf '%s' "$content" | rg --quiet --multiline "$search_pattern" ; then
+				# trim all but the first occurance
 				# https://github.com/BurntSushi/ripgrep/issues/2094
 				# https://github.com/chmln/sd/issues/105
 				# https://github.com/greymd/teip/issues/27
-				if test -n "$sed_excess_pattern"; then
-					if test -n "$field"; then
-						# make everything a single line, as gsed can't do multiple lines
-						sd "$search_pattern" "$excess_value" "$file"
-					fi
-					# trim everything but the first occurance
-					gsed -i -E "$sed_excess_pattern" "$file"
-				fi
-
-				# it was found, use sd for the replacement
-				sd "$search_pattern" "$replace_pattern" "$file"
+				set -xv
+				printf '%s' "$content" | \
+					teip -szg "$search_pattern" -- teip -l 2- -- printf '\n' | \
+					sd "$search_pattern" "$replace_pattern" \
+					> "$file"
+				set +xv
 			else
 				# it wasn't found, so add manually if it's not empty
 				if test -n "$addition"; then
@@ -315,13 +306,17 @@ if test "$0" = "${BASH_SOURCE[0]}"; then
 				--field='Party'
 
 			# test variable replacements and additions
+			# this is the command it fails on
 			echo $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$file"
+			echo-file "$file"
 			eval-tester --name='tvra1' -- config-helper --quiet --file="$file" -- \
 				--field='a' --no-quote --value='1' \
 				--field='b' --array="$(echo-lines -- 2 3)" \
 				--field='aa' --value='value addition' \
 				--field='bb' --array="$(echo-lines -- 22 33)"
+			echo-file "$file"
 			eval-tester --name='tvra2' --stdout=$'a=1\n\tb=(\n\t\t\'2\'\n\t\t\'3\'\n\t)\naa=\'value addition\'\nbb=(\n\t\'22\'\n\t\'33\'\n)' -- cat "$file"
+			echo-file "$file"
 
 			# test complicated values
 			echo $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$file"
