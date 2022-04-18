@@ -16,6 +16,9 @@ if command-exists gpg
 	set --export GPG_TTY (tty)
 end
 
+# do not use sd instead of sed for this
+# as sd will not be found yet
+
 # only work on environments that have an ssh-agent
 if command-exists ssh-agent
 	# start the ssh agent
