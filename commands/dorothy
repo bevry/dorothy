@@ -28,45 +28,6 @@ set -Eeuo pipefail
 # source is bash, we are in sh
 
 # =====================================
-# Dependencies
-
-# check existing of commands
-missing=()
-if ! type -P git &>/dev/null; then
-	missing+=('git')
-fi
-if ! type -P bash &>/dev/null; then
-	missing+=('bash')
-fi
-if ! type -P curl &>/dev/null; then
-	missing+=('curl')
-fi
-
-# if any are missing, then attempt install
-if test "${#missing[@]}" -ne 0; then
-	if test -x /usr/bin/apt; then
-		# for ubuntu
-		apt update && apt install -y "${missing[@]}" &>/dev/stderr
-	elif test -x /sbin/apk; then
-		# for alpine
-		(sudo apk add "${missing[@]}") &>/dev/stderr
-	elif test -x /sbin/zypper; then
-		# for opensuse
-		(sudo zypper install bash curl git-core) &>/dev/stderr
-	elif test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
-		# for macos
-		"${HOMEBREW_PREFIX-}/bin/brew" install "${missing[@]}" &>/dev/stderr
-	else
-		# for everything else
-		cat <<-EOF >/dev/stderr
-			Dependencies are missing: ${missing[*]}
-			Refer to manual: https://github.com/bevry/dorothy
-		EOF
-		return 19 # Operation not supported by device
-	fi
-fi
-
-# =====================================
 # Variables
 
 # vars that should be exported to subshells
@@ -92,12 +53,75 @@ if test -z "${ZDOTDIR-}"; then
 	ZDOTDIR=''
 fi
 
-# vars that are local to this script
-action="${DOROTHY_ACTION-}" # used by dorothy cloudflare worker
+# vars that are local to this script and shared between functions
 dorothy_url="https://github.com/bevry/dorothy"
+action="${DOROTHY_ACTION-}" # used by dorothy cloudflare worker
 
 # =====================================
 # Helpers
+
+function command-missing {
+	! type -P git &>/dev/null
+}
+
+function ensure_prereq_dependencies {
+	if command-missing bash || command-missing curl || command-missing git; then
+		if test -x /usr/bin/apt; then
+			# for ubuntu
+			sudo apt update
+			sudo apt install -y bash curl git
+		elif test -x /sbin/apk; then
+			# for alpine
+			sudo apk add bash curl git
+		elif test -x /sbin/zypper; then
+			# for opensuse
+			sudo zypper install bash curl git-core
+		elif test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
+			# for macos
+			"${HOMEBREW_PREFIX-}/bin/brew" install bash curl git
+		else
+			# for everything else
+			cat <<-EOF >/dev/stderr
+				One of these installation dependencies are missing:
+				bash:  $(bash --version | head -1 || :)
+				curl:  $(curl --version | head -1 || :)
+				git:   $(git --version | head -1 || :)
+
+				Refer to the manual: https://github.com/bevry/dorothy
+			EOF
+			return 19 # Operation not supported by device
+		fi
+	fi
+}
+
+function ensure_minimal_dependencies {
+	# [github-download] requires [jq]
+	# [set-hostname] requires [sd]
+	# [config-helper] requires [rg], [sd], [teip]
+	if command-missing jq || command-missing rg || command-missing sd || command-missing sd || command-missing teip; then
+		source "$DOROTHY/sources/environment.sh"
+		echo-segment --h2="Install required dependencies"
+		setup-util-jq --quiet
+		setup-util-ripgrep --quiet
+		setup-util-sd --quiet
+		setup-util-teip --quiet
+		echo-segment --g2="Install required dependencies"
+		source "$DOROTHY/sources/environment.sh"
+	fi
+}
+
+function ensure_development_dependencies {
+	source "$DOROTHY/sources/environment.sh"
+	echo-segment --h2="Install development dependencies"
+	setup-util-bash --quiet "$@"
+	setup-util-prettier --quiet "$@"
+	setup-util-ripgrep --quiet "$@"
+	setup-util-shellcheck --quiet "$@"
+	setup-util-shfmt --quiet "$@"
+	setup-util-trunk --quiet "$@"
+	echo-segment --g2="Install development dependencies"
+	source "$DOROTHY/sources/environment.sh"
+}
 
 function load_nullglob {
 	# can't source things, as may not be cloned yet
@@ -106,12 +130,7 @@ function load_nullglob {
 		return 1
 	}
 }
-function make_executable {
-	# makes sure chmod isn't running on nothing, which can happen upon initial user installs
-	if test "$#" -ne 0; then
-		chmod -f +x "$@"
-	fi
-}
+
 function assert_dorothy_configured {
 	# DOROTHY is determined earlier, so this checks it is installed
 	if test ! -d "$DOROTHY"; then
@@ -123,6 +142,7 @@ function assert_dorothy_configured {
 	fi
 	source "$DOROTHY/sources/environment.sh"
 }
+
 function assert_user_cloned {
 	if test ! -d "$DOROTHY/user/commands.local" -o ! -d "$DOROTHY/user/commands" -o ! -d "$DOROTHY/user/config.local" -o ! -d "$DOROTHY/user/config"; then
 		echo-style \
@@ -131,10 +151,37 @@ function assert_user_cloned {
 		return 2 # ENOENT No such file or directory
 	fi
 }
+
 function assert_dorothy_and_user_cloned {
 	assert_dorothy_configured
 	assert_user_cloned
 }
+
+function git_init {
+	local path="$1"
+	mkdir -p "$path"
+	pushd "$path" >/dev/null
+	git init
+	popd >/dev/null
+}
+
+function rm_deprecated {
+	if test -f "$1"; then
+		echo ''
+		echo-file "$1"
+		if confirm-positive --ppid=$$ -- 'The above file is probably deprecated with Dorothy, would you like to replace it?'; then
+			rm "$1"
+		fi
+	fi
+}
+
+function make_executable {
+	# makes sure chmod isn't running on nothing, which can happen upon initial user installs
+	if test "$#" -ne 0; then
+		chmod -f +x "$@"
+	fi
+}
+
 function relocate_if_necessary {
 	local __source="$1" destination="$2"
 	# ensure source exists, and isn't the same as the destination
@@ -153,6 +200,7 @@ function relocate_if_necessary {
 		fi
 	fi
 }
+
 function relocate_dorothy_if_necessary {
 	# move if necessary
 	if test -d "$DOROTHY" -o -d "$XDG_DATA_HOME/dorothy"; then
@@ -171,6 +219,7 @@ function relocate_dorothy_if_necessary {
 		make_executable "$DOROTHY/commands/"*
 	fi # else fresh install and no prior clones exist
 }
+
 function relocate_user_if_necessary {
 	# move if necessary
 	if test -d "$DOROTHY/user" -o -d "$XDG_CONFIG_HOME/dorothy"; then
@@ -197,6 +246,7 @@ function relocate_user_if_necessary {
 		fi
 	fi # else fresh install and no prior clones exist
 }
+
 function relocate_zsh_if_necessary {
 	# https://zsh.sourceforge.io/Intro/intro_3.html
 	# determine ZDOTDIR
@@ -221,6 +271,7 @@ function relocate_zsh_if_necessary {
 	relocate_if_necessary "$HOME/.zlogin" "$ZDOTDIR/.zlogin"
 	relocate_if_necessary "$HOME/.zlogout" "$ZDOTDIR/.zlogout"
 }
+
 function prepare_dorothy {
 	# if DOROTHY or DOROTHY_XDG exist already, it is via env overrides
 
@@ -276,18 +327,71 @@ function prepare_dorothy {
 	# fish uses xdg by default
 	# bash does not support xdg
 }
-function git_init {
-	mkdir -p "$1"
-	pushd "$1" >/dev/null
-	git init
+
+function stage_new_files {
+	source "$DOROTHY/sources/globstar.bash"
+	source "$DOROTHY/sources/nullglob.bash"
+	local path="$1"
+	pushd "$path" >/dev/null
+	# The following paths are ignored by one of your .gitignore files: ...
+	# hint: Use -f if you really want to add them.
+	# hint: Turn this message off by running
+	# hint: "git config advice.addIgnoredFile false"
+	git add --ignore-errors ./** || :
 	popd >/dev/null
 }
 
-# =====================================
-# Action Helpers
+function stage_changed_files {
+	local path="$1"
+	pushd "$path" >/dev/null
+	git add -u || :
+	popd >/dev/null
+}
 
-# -------------------------------------
-# Setup Dorothy
+function correct_permissions {
+	# directories and commands must be executable
+	source "$DOROTHY/sources/nullglob.bash"
+	source "$DOROTHY/sources/arrays.bash"
+	requires_array_support 'mapfile'
+	local directories commands
+	commands=(
+		"$DOROTHY/commands/"*
+		"$DOROTHY/user/commands/"*
+		"$DOROTHY/user/commands.local/"*
+	)
+	mapfile -t directories < <(find-directories "$DOROTHY")
+	fs-own --changes --no-recursive --permissions='+rwx' \
+		-- "${directories[@]}" "${commands[@]}"
+}
+
+function ensure_permissions_configured {
+	# trunk-ignore(shellcheck/SC1090)
+	source "$(which eval-helper)"
+
+	eval-helper --quiet --no-wrap \
+		--pending="$(echo-style --bold="Correcting permissions...")" \
+		--success="$(echo-style --success="Corrected permissions.")" \
+		--failure="$(echo-style --error="Failed to correct permissions.")" \
+		-- correct_permissions
+
+	eval-helper --quiet --no-wrap \
+		--pending="$(echo-style --bold="Staging new files...")" \
+		--success="$(echo-style --success="Staged new files.")" \
+		--failure="$(echo-style --error="Failed to stage new files.")" \
+		-- stage_new_files "$DOROTHY"
+
+	eval-helper --quiet --no-wrap \
+		--pending="$(echo-style --bold="Staging changed files...")" \
+		--success="$(echo-style --success="Staged changed files.")" \
+		--failure="$(echo-style --error="Failed to stage changed files.")" \
+		-- stage_changed_files "$DOROTHY"
+
+	eval-helper --quiet --no-wrap \
+		--pending="$(echo-style --bold="Removing junk files...")" \
+		--success="$(echo-style --success="Removed junk files.")" \
+		--failure="$(echo-style --error="Failed to remove junk files.")" \
+		-- rm-junk "$DOROTHY"
+}
 
 function ensure_dorothy_configured {
 	# sanity check
@@ -328,19 +432,14 @@ function ensure_dorothy_configured {
 	relocate_dorothy_if_necessary
 }
 
-# -------------------------------------
-# Setup Machine Adjustments
-
-# configures machine hostname
 function ensure_machine_configured {
-	local hostname
-
-	# check
-	if test "$action" != 'install'; then
-		return 0
+	# sanity check
+	if ! [[ $action =~ install ]]; then
+		return 29 # ESPIPE 29 Illegal seek
 	fi
 
 	# act
+	local hostname
 	hostname="$(get-hostname)"
 	if is-generic "$hostname"; then
 		if confirm-bool --ppid=$$ -- "This machine's hostname is currently generic [$hostname], would you like to change it?"; then
@@ -355,9 +454,6 @@ function ensure_machine_configured {
 		fi
 	fi
 }
-
-# -------------------------------------
-# Setup User Configuration
 
 function ensure_user_configured {
 	# sanity check
@@ -511,9 +607,6 @@ function ensure_user_configured {
 	adjust_user_configuration
 }
 
-# -------------------------------------
-# Setup Adjustments
-
 function adjust_user_configuration {
 	local file who name url header content deprecated_configuration_files deprecated_configuration_file
 
@@ -587,19 +680,6 @@ function adjust_user_configuration {
 		--find='config.local[/]' --replace='config.local/'
 }
 
-# -------------------------------------
-# Setup Dorothy Shell Adjustments
-
-function rm_deprecated {
-	if test -f "$1"; then
-		echo ''
-		echo-file "$1"
-		if confirm-positive --ppid=$$ -- "The above file is probably deprecated with Dorothy, would you like to replace it?"; then
-			rm "$1"
-		fi
-	fi
-}
-
 function ensure_shell_configured {
 	echo
 	echo 'Dorothy will now confirm the modifications required to have it be loaded by your shell.'
@@ -650,36 +730,7 @@ function ensure_shell_configured {
 }
 
 # =====================================
-# Generic Action: Install, Update, Trial
-
-function ensure_minimal_dependencies {
-	# [github-download] requires [jq]
-	# [set-hostname] requires [sd]
-	# [config-helper] requires [rg], [sd], [teip]
-	if command-missing jq || command-missing rg || command-missing sd || command-missing sd || command-missing teip; then
-		source "$DOROTHY/sources/environment.sh"
-		echo-segment --h2="Install required dependencies"
-		setup-util-jq --quiet
-		setup-util-ripgrep --quiet
-		setup-util-sd --quiet
-		setup-util-teip --quiet
-		echo-segment --g2="Install required dependencies"
-		source "$DOROTHY/sources/environment.sh"
-	fi
-}
-
-function ensure_development_dependencies {
-	source "$DOROTHY/sources/environment.sh"
-	echo-segment --h2="Install development dependencies"
-	setup-util-bash --quiet "$@"
-	setup-util-prettier --quiet "$@"
-	setup-util-ripgrep --quiet "$@"
-	setup-util-shellcheck --quiet "$@"
-	setup-util-shfmt --quiet "$@"
-	setup-util-trunk --quiet "$@"
-	echo-segment --g2="Install development dependencies"
-	source "$DOROTHY/sources/environment.sh"
-}
+# Actions: Install, Update, Trial
 
 function act_install {
 	ensure_dorothy_configured
@@ -764,76 +815,14 @@ function act_trial {
 }
 
 # =====================================
-# Specific Actions
-
-function adjust_permissions {
-	source "$DOROTHY/sources/globstar.bash"
-	source "$DOROTHY/sources/nullglob.bash"
-	source "$DOROTHY/sources/arrays.bash"
-	requires_array_support 'mapfile'
-
-	function correct_permissions {
-		# directories, files that are commands, must be executable
-		local directories commands
-		commands=(
-			"$DOROTHY/commands/"*
-			"$DOROTHY/user/commands/"*
-			"$DOROTHY/user/commands.local/"*
-		)
-		mapfile -t directories < <(find-directories "$DOROTHY")
-		fs-own --changes --no-recursive --permissions='+rwx' -- "${directories[@]}" "${commands[@]}"
-	}
-
-	function stage_new_files {
-		# The following paths are ignored by one of your .gitignore files: ...
-		# hint: Use -f if you really want to add them.
-		# hint: Turn this message off by running
-		# hint: "git config advice.addIgnoredFile false"
-		pushd "$DOROTHY" >/dev/null
-		git add --ignore-errors "$DOROTHY"/** || :
-		popd >/dev/null
-	}
-
-	function stage_changed_files {
-		pushd "$DOROTHY" >/dev/null
-		git add -u || :
-		popd >/dev/null
-	}
-
-	# trunk-ignore(shellcheck/SC1090)
-	source "$(which eval-helper)"
-
-	eval-helper --quiet --no-wrap \
-		--pending="$(echo-style --bold="Correcting permissions...")" \
-		--success="$(echo-style --success="Corrected permissions.")" \
-		--failure="$(echo-style --error="Failed to correct permissions.")" \
-		-- correct_permissions
-
-	eval-helper --quiet --no-wrap \
-		--pending="$(echo-style --bold="Staging new files...")" \
-		--success="$(echo-style --success="Staged new files.")" \
-		--failure="$(echo-style --error="Failed to stage new files.")" \
-		-- stage_new_files
-
-	eval-helper --quiet --no-wrap \
-		--pending="$(echo-style --bold="Staging changed files...")" \
-		--success="$(echo-style --success="Staged changed files.")" \
-		--failure="$(echo-style --error="Failed to stage changed files.")" \
-		-- stage_changed_files
-
-	eval-helper --quiet --no-wrap \
-		--pending="$(echo-style --bold="Removing junk files...")" \
-		--success="$(echo-style --success="Removed junk files.")" \
-		--failure="$(echo-style --error="Failed to remove junk files.")" \
-		-- rm-junk "$DOROTHY"
-}
+# Actions: ...
 
 function act_permissions {
 	assert_dorothy_configured
 	ensure_minimal_dependencies
 
 	echo-segment --h1='Correct Dorothy Permissions'
-	adjust_permissions
+	ensure_permissions_configured
 	echo-segment --g1='Correct Dorothy Permissions'
 }
 
@@ -842,7 +831,7 @@ function act_edit {
 	ensure_minimal_dependencies
 
 	echo-segment --h1='Edit Dorothy'
-	adjust_permissions
+	ensure_permissions_configured
 	source "$DOROTHY/sources/edit.sh"
 	edit "$DOROTHY"
 	echo-segment --g1='Edit Dorothy'
@@ -853,7 +842,7 @@ function act_review {
 	ensure_minimal_dependencies
 
 	echo-segment --h1='Review Dorothy'
-	adjust_permissions
+	ensure_permissions_configured
 	git-helper review "$DOROTHY/user" || :
 	git-helper review "$DOROTHY" || :
 	echo-segment --g1='Review Dorothy'
@@ -950,23 +939,8 @@ function act_test {
 }
 
 # =====================================
-# Action
+# Act
 
-# prepare
-actions=(
-	install
-	trial
-	update
-	permissions
-	edit
-	review
-	theme
-	dev
-	lint
-	test
-)
-
-# help
 function help {
 	cat <<-EOF >/dev/stderr
 		ABOUT:
@@ -1020,14 +994,17 @@ function help {
 		dorothy test
 
 		    Run tests on Dorothy's source code.
+
 	EOF
 	if test "$#" -ne 0; then
-		echo-error "$@"
+		# don't use anything fancy here, as dorothy may not be loaded yet
+		echo "ERROR:" >/dev/stderr
+		echo "$@" >/dev/stderr
 	fi
 	return 22 # Invalid argument
 }
 
-# process, vars declared at the top
+# process action arguments
 while test "$#" -ne 0; do
 	item="$1"
 	shift
@@ -1085,19 +1062,25 @@ while test "$#" -ne 0; do
 	esac
 done
 
+# ensure the prerequisites are installed
+# in case the user skipped them
+ensure_prereq_dependencies &>/dev/stderr
+
 # all helpers are defined, and argument overrides are handled
 # so prepare the local environment context with what is necessary for dorothy
 # such that the following [choose-option] will be found
 prepare_dorothy
 
-# if no action pre-specified, such as via environment vairable (such as trial mode)
+# ensure an action
 if test -z "$action"; then
-	# then choose one if available
+	# if dorothy is configured
 	if type 'choose-option' &>/dev/null; then
+		# ask the user
+		# don't use arrays yet, as may be in bash v3
 		action="$(
 			choose-option --required \
 				--question='which action to perform?' \
-				--filter="$action" -- "${actions[@]}"
+				--filter="$action" -- install trial update permissions edit review theme dev lint test
 		)"
 	else
 		# otherwise install
