@@ -93,7 +93,10 @@ function setup-util() (
 			    If truthy, do not return a failure code if the utility was unable to be installed.
 
 			--upgrade
-			    If truthy, if the installer is already installed (determined by the CLI flag), reinstall/upgrade it.
+			    If truthy, if the utility is already installed then reinstall/upgrade it. Not all installers support this.
+
+			--uninstall
+			    If truthy, if the utility is already installed then uninstall it. Not all installers support this.
 
 			--force
 			    If truthy, use the installer's force mode if supported.
@@ -167,7 +170,7 @@ function setup-util() (
 	local GITHUB_SLUG='' GITHUB_FILENAME='' GITHUB_REF='' GITHUB_RELEASE='' GITHUB_PATHNAME='' GITHUB_ASSET_FILTER='' GITHUB_UNZIP_FORMAT='' GITHUB_UNZIP_FILTER=''
 
 	# process
-	local item cli='' name='' quiet confirm='' optional='' upgrade='' force='' order=()
+	local item cli='' name='' quiet confirm='no' optional='no' upgrade='no' force='no' uninstall='no' order=()
 	quiet="$(echo-quiet -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -192,6 +195,11 @@ function setup-util() (
 		'--no-upgrade'* | '--upgrade'*)
 			upgrade="$(
 				get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-uninstall'* | '--uninstall'*)
+			uninstall="$(
+				get-flag-value uninstall --missing="$uninstall" -- "$item" | echo-affirmative
 			)"
 			;;
 		'--no-force'* | '--force'*)
@@ -331,6 +339,11 @@ function setup-util() (
 		order=("${temp_order[@]}")
 	fi
 
+	# ensure upgrade and uninstall aren't both enabled
+	if test "$upgrade" = 'yes' -a "$uninstall" = 'yes'; then
+		help '--upgrade and --uninstall cannot be used together'
+	fi
+
 	# =====================================
 	# Process
 
@@ -341,17 +354,33 @@ function setup-util() (
 	# check if necessary
 	if test -n "$cli"; then
 		if command-missing "$cli"; then
+			# not installed
+			if test "$uninstall" = 'yes'; then
+				# uninstall, so no need to install
+				# exit
+				echo-style \
+					--g3="The [$name] utility is already uninstalled because [$cli] is missing. All good. ✅"
+				return 0
+			fi
+			# disable upgrade, as only for existing installs
+			upgrade='no'
+			# install
 			echo-style \
 				--h3="The [$name] utility does not appear to be installed because [$cli] is missing. Installing automatically... ⏲"
 		elif test "$upgrade" = 'yes'; then
+			# exists, upgrade enabled
+			# reinstall
 			echo-style \
 				--h3="The [$name] utility is already installed because [$cli] is present." $'\n' \
 				--h3="However, it has been marked for upgrade. Upgrading... ⏲"
-		elif test "$optional" != 'yes' && ! command-working "$cli"; then
-			# only do a working check, if it is required, as otherwise too fragile
+		elif ! command-working "$cli"; then
+			# exists, not working
+			# reinstall
 			echo-style \
 				--h3="The [$name] utility does not appear to be installed correctly because [$cli] is misbehaving. Reinstalling automatically... ⏲"
 		else
+			# exists, no upgrade, is working
+			# all good, exit
 			if test "$quiet" != 'yes'; then
 				echo-style \
 					--g3="The [$name] utility is already installed because [$cli] is present. All good. ✅"
@@ -399,7 +428,7 @@ function setup-util() (
 
 	# brew / Homebrew / macOS
 	function do_brew {
-		local cmd=() pkgs=() pkg="${BREW:-"${HOMEBREW-}"}"
+		local args=() pkgs=() pkg="${BREW:-"${HOMEBREW-}"}"
 
 		# check applicabile
 		if test -n "$pkg"; then
@@ -412,25 +441,28 @@ function setup-util() (
 				return 1
 			fi
 
-			# construct command
-			cmd+=('brew')
-			if test "$upgrade" = 'yes'; then
-				cmd+=('upgrade')
-			else
-				cmd+=('install')
-			fi
-			if test "$force" = 'yes'; then
-				cmd+=('--force')
-			fi
-			if test "$quiet" != 'no'; then
-				cmd+=('--quiet')
-			fi
-
 			# support multiple pkgs inside BREW
 			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
 
-			# install, the `brew upgrade` in `setup-mac-brew` will handle upgrades
-			eval-helper --quiet -- "${cmd[@]}" "${pkgs[@]}"
+			# action args
+			if test "$uninstall" = 'yes'; then
+				args+=('uninstall')
+			elif test "$upgrade" = 'yes'; then
+				args+=('upgrade')
+			else
+				args+=('install')
+			fi
+
+			# universal args
+			if test "$force" = 'yes'; then
+				args+=('--force')
+			fi
+			if test "$quiet" != 'no'; then
+				args+=('--quiet')
+			fi
+
+			# action
+			eval-helper --quiet -- brew "${args[@]}" "${pkgs[@]}"
 		else
 			return 1
 		fi
@@ -443,7 +475,7 @@ function setup-util() (
 
 	# brew / Homebrew Casks / macOS
 	function do_cask {
-		local cmd=() pkgs=() pkg="${CASK-}"
+		local args=() pkgs=() pkg="${CASK-}"
 
 		# check applicable
 		if test -n "$pkg"; then
@@ -456,26 +488,29 @@ function setup-util() (
 				return 1
 			fi
 
-			# construct command
-			cmd+=('brew')
-			if test "$upgrade" = 'yes'; then
-				cmd+=('upgrade')
-			else
-				cmd+=('install')
-			fi
-			if test "$force" = 'yes'; then
-				cmd+=('--force')
-			fi
-			if test "$quiet" != 'no'; then
-				cmd+=('--quiet')
-			fi
-			cmd+=('--cask')
-
 			# support multiple pkgs inside CASK
 			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
 
-			# install
-			eval-helper --quiet -- "${cmd[@]}" "${pkgs[@]}"
+			# action args
+			if test "$uninstall" = 'yes'; then
+				args+=('uninstall')
+			elif test "$upgrade" = 'yes'; then
+				args+=('upgrade')
+			else
+				args+=('install')
+			fi
+
+			# univeral args
+			args+=('--cask')
+			if test "$force" = 'yes'; then
+				args+=('--force')
+			fi
+			if test "$quiet" != 'no'; then
+				args+=('--quiet')
+			fi
+
+			# action
+			eval-helper --quiet -- brew "${args[@]}" "${pkgs[@]}"
 		else
 			# not applicable
 			return 1
@@ -489,19 +524,56 @@ function setup-util() (
 
 	# pacman / Arch Linux / Manjaro
 	function do_pacman {
-		local cmd=() pkg="${PACMAN-}"
+		local args=() pkg="${PACMAN-}"
 
 		# check applicabile and possible
 		if test -n "$pkg" && command-exists pacman; then
-			# package case
-			# --needed: do not reinstall up to date packages
-			# --noconfirm: do not ask for any confirmation
-			cmd+=('sudo' 'pacman' '-S' '--needed' '--noconfirm')
+			# --noconfirm
+			#   Bypass any and all “Are you sure?” messages. It’s not a good idea to do this unless you want to run pacman from a script.
+
+			# -q, --quiet
+			#   Show less information for certain query operations.
+
+			# -y, --refresh
+			#   Download fresh package databases from the server. Use twice to force a refresh even if databases are up to date.
+
+			# -S, --sync
+			#   Synchronize packages. Packages are installed directly from the remote repositories, including all dependencies required to run the packages.
+
+			# -R, --remove
+			#   Either a URL or file path can be specified. This is a “remove-then-add” process.
+
+			# --needed
+			#   Do not reinstall the targets that are already up-to-date.
+
+			#  -U, --upgrade
+			#   Upgrade or add package(s) to the system and install the required dependencies from sync repositories.
+
+			# prepare args
+			args+=('--noconfirm')
 			if test "$quiet" != 'no'; then
-				# -q, --quiet: show less information for query and search
-				cmd+=('--quiet')
+				args+=('--quiet')
 			fi
-			eval-helper --quiet -- "${cmd[@]}" "$pkg"
+
+			# init the local database
+			# this is needed on systems which pacman was installed
+			sudo pacman-key --init
+
+			# refresh the local database
+			sudo pacman "${args[@]}" --refresh --sync
+
+			# package action
+			if test "$uninstall" = 'yes'; then
+				# remove
+				args+=('--remove')
+			elif test "$upgrade" = 'yes'; then
+				# upgrade
+				args+=('--upgrade' '--needed')
+			else
+				# install
+				args+=('--sync' '--needed')
+			fi
+			eval-helper --quiet -- sudo pacman "${args[@]}" "$pkg"
 		else
 			# not needed
 			return 1
@@ -596,7 +668,7 @@ function setup-util() (
 	# flatpak / Arch Linux / Manjaro
 	function do_flatpak {
 		# accomodate flatpak typos
-		local pkg="${FLATPAK:-"${FLATPACK-}"}" repo="${FLATPAK_REPO:-"${FLATPACK_REPO:-"flathub"}"}"
+		local args=() pkg="${FLATPAK:-"${FLATPACK-}"}" repo="${FLATPAK_REPO:-"${FLATPACK_REPO:-"flathub"}"}"
 
 		# check applicabile
 		if test -n "$pkg"; then
@@ -606,8 +678,28 @@ function setup-util() (
 				return 1
 			fi
 
-			# package case
-			eval-helper --quiet -- flatpak install "$repo" "$pkg"
+			# action args
+			if test "$uninstall" = 'yes'; then
+				args+=('uninstall')
+			else
+				if test "$upgrade" = 'yes'; then
+					args+=('update')
+					if test "$force" = 'yes'; then
+						args+=('--force-remove')
+					fi
+				else
+					args+=('install' '--or-update')
+					if test "$force" = 'yes'; then
+						args+=('--reinstall')
+					fi
+				fi
+			fi
+
+			# universal args
+			args+=('-y' '--noninteractive')
+
+			# action
+			eval-helper --quiet -- flatpak install "${args[@]}" "$pkg"
 		else
 			# not applicable
 			return 1
@@ -620,7 +712,7 @@ function setup-util() (
 
 	# snap / Snap Craft / Ubuntu
 	function do_snap {
-		local cmd=() pkgs=() pkg="${SNAP-}" channel="${SNAP_CHANNEL-}" classic="${SNAP_CLASSIC-}"
+		local args=() pkgs=() pkg="${SNAP-}" channel="${SNAP_CHANNEL-}" classic="${SNAP_CLASSIC-}"
 
 		# check applicabile
 		if test -n "$pkg"; then
@@ -631,21 +723,29 @@ function setup-util() (
 			fi
 
 			# support multiple pkgs inside SNAP
-			cmd=('sudo' 'snap' 'install')
 			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
 
-			# optional `--classic` if `SNAP_CLASSIC` affirmative
-			if is-affirmative "$classic"; then
-				cmd+=('--classic')
+			# action args
+			if test "$uninstall" = 'yes'; then
+				# remove
+				args+=('remove')
+			else
+				# upgrade/install
+				args+=('install')
+
+				# optional `--classic` if `SNAP_CLASSIC` affirmative
+				if is-affirmative "$classic"; then
+					args+=('--classic')
+				fi
+
+				# optional `--channel=...` if `SNAP_CHANNEL` is present
+				if test -n "$channel"; then
+					args+=("--channel=$channel")
+				fi
 			fi
 
-			# optional `--channel=...` if `SNAP_CHANNEL` is present
-			if test -n "$channel"; then
-				cmd+=("--channel=$channel")
-			fi
-
-			# package case
-			eval-helper --quiet -- "${cmd[@]}" "${pkgs[@]}"
+			# action
+			eval-helper --quiet -- sudo snap "${args[@]}" "${pkgs[@]}"
 			# ^ needs sudo, otherwise: error: access denied (try with sudo)
 		else
 			# not applicable
@@ -660,7 +760,7 @@ function setup-util() (
 	# yum / rpm / RedHat / Fedora / CentOS / etc
 	function do_yum {
 		# accomodate rpm fallback
-		local pkg="${YUM:-"${RPM-}"}" repo="${YUM_REPO-}" __eval="${YUM_EVAL-}"
+		local args=() pkg="${YUM:-"${RPM-}"}" repo="${YUM_REPO-}" __eval="${YUM_EVAL-}"
 
 		# check applicabile
 		if test -n "$pkg" -o -n "$__eval"; then
@@ -680,12 +780,48 @@ function setup-util() (
 			if test -n "$pkg"; then
 				# prepare YUM with YUM_REPO if relevant
 				if test -n "$repo"; then
-					cd /etc/yum.repos.d/ || return 1
-					down "$repo"
+					down --directory='/etc/yum.repos.d/' "$repo"
 				fi
 
-				# install
-				eval-helper --quiet -- sudo yum install -y "$pkg"
+				# autoremove                remove all unneeded packages that were originally installed as dependencies
+				# check-update              check for available package upgrades
+				# clean                     remove cached data
+				# distro-sync               synchronize installed packages to the latest available versions
+				# install                   install a package or packages on your system
+				# reinstall                 reinstall a package
+				# remove                    remove a package or packages from your system
+				# upgrade                   upgrade a package or packages on your system
+				# upgrade-minimal           upgrade, but only 'newest' package match which fixes a problem that affects your system
+
+				# -b, --best
+				#   try the best available package versions in transactions.
+
+				# -q, --quiet
+				#   quiet operation
+
+				# -y, --assumeyes
+				#   automatically answer yes for all questions
+
+				# action args
+				if test "$uninstall" = 'yes'; then
+					# remove
+					args+=('remove')
+				elif test "$upgrade" = 'yes'; then
+					# upgrade
+					args+=('upgrade')
+				else
+					# install
+					args+=('install')
+				fi
+
+				# univeral args
+				args+=('-y' '--best')
+				if test "$quiet" != 'no'; then
+					args+=('--quiet')
+				fi
+
+				# action
+				eval-helper --quiet -- sudo yum "${args[@]}" "$pkg"
 			fi
 		else
 			# not applicable
@@ -708,7 +844,7 @@ function setup-util() (
 		fi
 	}
 	function do_apt {
-		local pkgs=() keyring='' pkg="${APT:-"${DEBIAN-}"}" repo="${APT_REPO-}" key="${APT_KEY-}" key_name="${APT_KEY_NAME-}" __eval="${APT_EVAL-}"
+		local args=() pkgs=() keyring='' pkg="${APT:-"${DEBIAN-}"}" repo="${APT_REPO-}" key="${APT_KEY-}" key_name="${APT_KEY_NAME-}" __eval="${APT_EVAL-}"
 
 		# check applicable
 		if test -n "$pkg" -o -n "$__eval"; then
@@ -776,10 +912,18 @@ function setup-util() (
 
 				# ensure that the package can be found, and that it will be the latest
 				# initial installations may not have a package index yet, or it may be outdated
-				eval-helper --quiet -- sudo apt-get update
+				eval-helper --quiet -- sudo apt-get update -y
 
-				# install
-				eval-helper --quiet -- sudo apt-get install -y --fix-broken "${pkgs[@]}"
+				# action args
+				if test "$uninstall" = 'yes'; then
+					args+=('remove' '-y' '--purge')
+				else
+					# install/upgrade
+					args+=('install' '-y' '--fix-broken')
+				fi
+
+				# action
+				eval-helper --quiet -- sudo apt-get "${args[@]}" "${pkgs[@]}"
 				# use `apt-get`, as using `apt` produces this warning on Ubuntu 20.04.3 LTS
 				# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
 			fi
@@ -790,16 +934,28 @@ function setup-util() (
 	}
 
 	# apk / Alpine Linux
+	# https://wiki.alpinelinux.org/wiki/Package_management
 	function do_apk {
-		local pkgs=() pkg="${APK:-"${ALPINE-}"}"
+		local args=() pkgs=() pkg="${APK:-"${ALPINE-}"}"
 
 		# check applicable and possible
 		if test -n "$pkg" && command-exists apk; then
 			# support multiple pkgs inside APK
 			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
 
-			# install
-			eval-helper --quiet -- apk add "${pkgs[@]}"
+			# action args
+			if test "$uninstall" = 'yes'; then
+				args+=('del')
+			else
+				# upgrade/install
+				args+=('add')
+			fi
+
+			# univeral args
+			args+=('--update-cache')
+
+			# action
+			eval-helper --quiet -- apk "${args[@]}" "${pkgs[@]}"
 		else
 			# not needed
 			return 1
@@ -913,8 +1069,9 @@ function setup-util() (
 
 	# zypper / openSUSE / SLES
 	# zypper needs sudo
+	# https://documentation.suse.com/smart/linux/single-html/reference-zypper-install/index.html
 	function do_zypper {
-		local pkg="${ZYPPER-}" __eval="${ZYPPER_EVAL-}" repo="${ZYPPER_REPO-}"
+		local args=() pkg="${ZYPPER-}" __eval="${ZYPPER_EVAL-}" repo="${ZYPPER_REPO-}"
 
 		# check applicable
 		if test -n "$pkg" -o -n "$__eval"; then
@@ -938,8 +1095,16 @@ function setup-util() (
 					sudo zypper refresh
 				fi
 
-				# install
-				eval-helper --quiet -- sudo zypper install "$pkg"
+				# action args
+				if test "$uninstall" = 'yes'; then
+					args+=('remove')
+				else
+					# upgrade/install
+					args+=('install')
+				fi
+
+				# action
+				eval-helper --quiet -- sudo zypper "${args[@]}" "$pkg"
 			fi
 		else
 			# not applicable
@@ -1453,6 +1618,12 @@ function setup-util() (
 				return 1
 			fi
 
+			# uninstall?
+			if test "$uninstall" = 'yes'; then
+				rm -f "$XDG_BIN_HOME/$filename"
+				return 0
+			fi
+
 			# prepare
 			mkdir -p "$XDG_BIN_HOME"
 
@@ -1492,6 +1663,12 @@ function setup-util() (
 			if test -z "$filename"; then
 				echo-style --error="DOWNLOAD requires DOWNLOAD_FILENAME"
 				return 1
+			fi
+
+			# uninstall?
+			if test "$uninstall" = 'yes'; then
+				rm -f "$XDG_BIN_HOME/$filename"
+				return 0
 			fi
 
 			# prepare

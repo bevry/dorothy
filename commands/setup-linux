@@ -53,7 +53,132 @@ function setup-linux() (
 	title="$(ucf "$action") Linux"
 
 	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# setup.bash provides:
+	local APT_INSTALL=()
+	local APT_UNINSTALL=()
+	local APT_ADD=()    # deprecated, use APT_INSTALL
+	local APT_REMOVE=() # deprecated, use APT_UNINSTALL
+	local APK_INSTALL=()
+	local SNAP_INSTALL=()
+	load_dorothy_config 'setup.bash'
+
+	# adjustments
+	mapfile -t APT_INSTALL < <(prepare_packages 'APT_INSTALL' -- "${APT_INSTALL[@]}" "${APT_ADD[@]}")
+	mapfile -t APT_UNINSTALL < <(prepare_packages 'APT_UNINSTALL' -- "${APT_UNINSTALL[@]}" "${APT_REMOVE[@]}")
+	mapfile -t APK_INSTALL < <(prepare_packages 'APK_INSTALL' -- "${APK_INSTALL[@]}")
+	mapfile -t SNAP_INSTALL < <(prepare_packages 'SNAP_INSTALL' -- "${SNAP_INSTALL[@]}")
+
+	# =====================================
+	# Helpers
+
+	# updates
+	local updates=('apt' 'apk' 'yum' 'pacman' 'pamac' 'zypper')
+	function do_apt_update {
+		sudo apt-get update -y
+	}
+	function do_apk_update {
+		apk update
+	}
+	function do_yum_update {
+		sudo yum check-update -y
+	}
+	function do_pacman_update {
+		# init the local database
+		# this is needed on systems which pacman was installed
+		sudo pacman-key --init
+		# refresh the local database
+		sudo pacman --refresh --sync --noconfirm
+	}
+	function do_pamac_update {
+		pamac update --no-confirm --aur
+	}
+	function do_zypper_update {
+		sudo zypper refresh
+	}
+	# flatpak does not have update
+
+	# upgrades
+	local upgrades=('apt' 'yum' 'snap' 'flatpak' 'pamac')
+	function do_apt_upgrade {
+		# `full-upgrade` is the same as `dist-upgrade` apparently, which is a more automatic/comprehensive upgrader compared to `apt-get upgrade`
+		sudo apt-get full-upgrade -y
+	}
+	function do_yum_upgrade {
+		sudo yum upgrade -y
+	}
+	function do_snap_upgrade {
+		sudo snap refresh
+	}
+	function do_flatpak_upgrade {
+		flatpak update -y
+	}
+	function do_pamac_upgrade {
+		pamac upgrade --no-confirm --aur
+	}
+
+	# system
+	function do_apt_system {
+		if ! command-exists do-release-upgrade; then
+			return 0
+		fi
+		# check for a new distro release
+		if do-release-upgrade -c; then
+			# if there is one, then ask the user if they want to upgrade to it
+			if confirm-negative --ppid=$$ -- 'Upgrade the distribtion release?'; then
+				sudo do-release-upgrade
+			fi
+		fi
+	}
+
+	# packages
+	local packages=('apt' 'apk' 'snap')
+	function do_apt_packages {
+		# apt uninstall
+		setup-util --uninstall \
+			NAME="apt:${APT_UNINSTALL[*]}" \
+			APT="${APT_UNINSTALL[*]}"
+
+		# apt install
+		setup-util \
+			NAME="apt:${APT_INSTALL[*]}" \
+			APT="${APT_INSTALL[*]}"
+	}
+	function do_apk_packages {
+		setup-util \
+			NAME="apk:${APK_INSTALL[*]}" \
+			APK="${APK_INSTALL[*]}"
+	}
+	function do_snap_packages {
+		setup-util \
+			NAME="snap:${SNAP_INSTALL[*]}" \
+			SNAP="${SNAP_INSTALL[*]}"
+
+		# configure with
+		# snap list --color=never | sed '1d' | cut -d' ' -f1 | grep --invert-match --extended-regexp --regexp='^(core|snapd)'
+	}
+
+	# clean
+	local clean=('apt' 'pacman')
+	function do_apt_clean {
+		sudo apt-get autoremove -y --purge
+		sudo apt-get autoclean -y
+		sudo apt-get clean -y
+	}
+	function do_pacman_clean {
+		# -c, --clean
+        #   Remove packages that are no longer installed from the cache as well as currently unused sync databases to free up disk space.
+		sudo pacman --sync --noconfirm --clean
+	}
+
+	# =====================================
 	# Action
+
+	# prepare
+	local item
 
 	# log
 	echo-segment --h1="$title"
@@ -61,31 +186,71 @@ function setup-linux() (
 	# forward action to dorothy
 	dorothy "$action"
 
-	# system
+	# update references
+	for item in "${updates[@]}"; do
+		if command-exists "$item"; then
+			eval-helper --shapeshifter --no-wrap \
+				--pending="$(echo-style --bold="Updating references of $item...")" \
+				--success="$(echo-style --success="Updated references of $item.")" \
+				--failure="$(echo-style --error="Failed to update references of $item.")" \
+				-- "do_${item}_update"
+		fi
+	done
+
+	# setup essential system utilities
 	setup-linux-raspi
 	setup-linux-recovery
 
-	# package managers and utilities
-	setup-util-apt
-	setup-util-apk
-	setup-util-yum
+	# install package managers
 	if test "$action" = 'install'; then
-		setup-util-gnome-software --confirm || :
-		setup-util-snap --confirm || :
-		setup-util-flatpak --confirm || :
-		setup-util-pamac --confirm || :
-		setup-linux-fonts
-	else
-		setup-util-snap --action=update || :
-		setup-util-flatpak --action=update || :
-		setup-util-pamac --action=update || :
+		# in this order, based on dependency relationships
+		setup-util-pamac --optional --confirm
+		setup-util-snap --optional --confirm
+		setup-util-flatpak --optional --confirm
+		setup-util-gnome-software --optional --confirm
 	fi
+
+	# upgrade all packages
+	for item in "${upgrades[@]}"; do
+		if command-exists "$item"; then
+			eval-helper --shapeshifter --no-wrap \
+				--pending="$(echo-style --bold="Upgrading packages of $item...")" \
+				--success="$(echo-style --success="Upgraded packages of $item.")" \
+				--failure="$(echo-style --error="Failed to upgrade packages of $item.")" \
+				-- "do_${item}_update"
+		fi
+	done
+
+	# upgrade the entire system
+	do_apt_system
+
+	# setup user packages
+	for item in "${packages[@]}"; do
+		if command-exists "$item"; then
+			eval-helper --shapeshifter --no-wrap \
+				--pending="$(echo-style --bold="Installing packages of $item...")" \
+				--success="$(echo-style --success="Installed packages of $item.")" \
+				--failure="$(echo-style --error="Failed to install packages of $item.")" \
+				-- "do_${item}_update"
+		fi
+	done
+
+	# setup final system utilities
+	setup-linux-fonts
 
 	# cross-platform
 	setup-extras "$action"
 
 	# cleanup
-	setup-linux-clean
+	for item in "${clean[@]}"; do
+		if command-exists "$item"; then
+			eval-helper --shapeshifter --no-wrap \
+				--pending="$(echo-style --bold="Tidying $item...")" \
+				--success="$(echo-style --success="Tidied $item.")" \
+				--failure="$(echo-style --error="Failed to tidy $item.")" \
+				-- "do_${item}_update"
+		fi
+	done
 
 	# log
 	echo-segment --g1="$title"
