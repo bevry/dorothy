@@ -36,46 +36,49 @@ function cpr() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
+
 			Copy everything from one location to another, features:
 			- preserves attributes
 			- progress updates
 			- local and remote sources
 
 			USAGE:
-			cpr <action> [...options] -- <source> <destination>
-			cpr <action> [...options] [--source=<source>] [--destination=<destination>]
 
-			<source> and <destination> can be a local path on your current machine, or a remote path.
+			cpr [...options] [--] <origin> <destination>
+			cpr [...options] [--origin=<origin>] [--destination=<destination>]
+
+			<origin> and <destination> can be a local path on your current machine, or a remote path.
 
 			If a remote path, it should be in the format of:
 			    [username@hostname:/path] for files
 			    [username@hostname:/path/] for directories
+
 			The [hostname] is the hostname or IP address of a valid SSH server.
-			If you the remote machine is macOS, you can enable this in System Preferences > Sharing > Remote Login.
 
-			ACTIONS:
-			copy
-			    Copies all the data from the source to the destination.
-				If you specify [--remove], it will function as move operation instead.
+			Enable SSH on macOS via System Preferences > Sharing > Remote Login.
+			Enable SSH on Ubuntu via https://ubuntu.com/server/docs/service-openssh
 
-			verify
-			    Verifies that the target contains all the files from the source.
 
 			OPTIONS:
+
 			--tool=...
 			    if specified, skips tool prompt. Available tools on this machine are:
 			    for copy: $(echo-join ', ' -- "${copy_tools[@]}")
 			    for verify: $(echo-join ', ' -- "${verify_tools[@]}")
 
+			--no-confirm
+			    if enabled, do not confirm anything.
+
 			--dry
 			    if enabled, only output the determined command, do not run it.
 
 			--sudo
-			    if enabled, runt he determined command as the sudo user.
+			    if enabled, run the determined command as the sudo user.
 
-			RSYNC OPTIONS:
-			--owner=<user>:<group>
-			    if specified, uses this value for the ownership of copied files.
+			--verify
+			    if enabled, only verify that the target contains all the files from the source, do not modify anything.
+
+			Additional OPTIONS enabled when [--tool=rsync] is used:
 
 			--remove
 			    if enabled, remove source files as they are successfully copied to the target.
@@ -83,14 +86,11 @@ function cpr() (
 			--checksum
 			    if enabled, files are compared by their checksums, instead of the default quicker date and size comparison.
 
-			--[no-]linux
-			    if enabled, increases compatibility with linux systems.
+			--linux
+			    if enabled, increases compatibility with between linux systems.
 
-			--slashes=adjust|ignore|exit
-			    if specified, skips guidance prompt regarding trailing slashes in paths.
-
-			--spaces=adjust|ignore|exit
-			    if specified, skips guidance prompt regarding spaces in paths.
+			--owner=<user>:<group>
+			    if specified, uses this value for the ownership of copied files.
 
 		EOF
 		if test "$#" -ne 0; then
@@ -100,45 +100,53 @@ function cpr() (
 	}
 
 	# process
-	local item action='' tool='' origin='' destination=''
-	local dry='no' sudo='no'
-	local checksum='' # ask, as otherwise contrived testing can fail
-	local remove=''   # ask
-	local linux=''    # ask
-	local owner=''    # manual
-	local slashes=''  # ask
-	local spaces=''   # ask - @todo this isn't used yet
+	local item tool='' origin='' destination=''
+	local confirm='yes' dry='no' sudo='no' verify='no'
+	local remove='no' checksum='no' linux='no'
+	local owner='' # manual
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--tool='*) tool="${item:7}" ;;
+		'--origin='*) origin="${item:9}" ;;
 		'--source='*) origin="${item:9}" ;;
 		'--destination='*) destination="${item:14}" ;;
 		'--owner='*) owner="${item:8}" ;;
+		'--no-confirm'* | '--confirm'*)
+			confirm="$(get-flag-value confirm --missing="$confirm" -- "$item" | echo-affirmative)"
+			;;
 		'--no-dry'* | '--dry'*)
 			dry="$(get-flag-value dry --missing="$dry" -- "$item" | echo-affirmative)"
 			;;
 		'--no-sudo'* | '--sudo'*)
 			sudo="$(get-flag-value sudo --missing="$sudo" -- "$item" | echo-affirmative)"
 			;;
-		'--no-checksum'* | '--checksum'*)
-			checksum="$(get-flag-value checksum --missing="$checksum" -- "$item" | echo-affirmative)"
+		'--no-verify'* | '--verify'*)
+			verify="$(get-flag-value verify --missing="$verify" -- "$item" | echo-affirmative)"
 			;;
 		'--no-remove'* | '--remove'*)
 			remove="$(get-flag-value remove --missing="$remove" -- "$item" | echo-affirmative)"
 			;;
+		'--no-checksum'* | '--checksum'*)
+			checksum="$(get-flag-value checksum --missing="$checksum" -- "$item" | echo-affirmative)"
+			;;
 		'--no-linux'* | '--linux'*)
 			linux="$(get-flag-value linux --missing="$linux" -- "$item" | echo-affirmative)"
 			;;
-		'--slashes='*) slashes="${item:10}" ;;
-		'--spaces='*) spaces="${item:9}" ;;
-		'--') ;;
+		'--')
+			if test -n "$origin" -o -n "$destination"; then
+				help "[--] can only be used if <origin> and <destination> are not set via other means"
+			fi
+			origin="$1"
+			destination="$2"
+			shift "$#"
+			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			if test -z "$item"; then
-				help "Empty path argument provided."
+				help "Empty <origin> or <destination> argument provided."
 			elif test -z "$origin"; then
 				origin="$item"
 			elif test -z "$destination"; then
@@ -150,46 +158,23 @@ function cpr() (
 		esac
 	done
 
-	# @todo implement spaces
-	if test -n "$spaces"; then
-		echo-style --notice="<spaces> option not yet implemented" >/dev/stderr
+	# check origin and destination
+	if test -z "$orign" -o -z "$destination"; then
+		help "Both <origin> and <destination> must be specified."
 	fi
-
-	# ensure action
-	local actions=(
-		copy
-		verify
-	)
-	action="$(
-		choose-option --required \
-			--question='What action to perform?' \
-			--filter="$action" -- "${actions[@]}"
-	)"
 
 	# ensure tool
 	local tools=()
-	if test "$action" = 'copy'; then
-		tools=("${copy_tools[@]}")
-	else
+	if test "$verify" = 'yes'; then
 		tools=("${verify_tools[@]}")
+	else
+		tools=("${copy_tools[@]}")
 	fi
 	tool="$(
 		choose-option --required \
 			--question='Which tool to use?' \
 			--filter="$tool" -- "${tools[@]}"
 	)"
-	if test -z "$origin"; then
-		origin="$(
-			ask --required \
-				--question="Enter the source path."
-		)"
-	fi
-	if test -z "$destination"; then
-		destination="$(
-			ask --required \
-				--question="Enter the destination path."
-		)"
-	fi
 
 	# rsync options
 	if test "$tool" = 'rsync'; then
@@ -217,85 +202,86 @@ function cpr() (
 				linux='no'
 			fi
 		fi
+	fi
 
-		# confirm guidance if given paths that are without trailing slashes
-		if test "${origin:-1}" != '/' -o "${destination:-1}" != '/'; then
-			slashes="$(
-				choose-option \
-					--question="$(
-						cat <<-EOF
-							You have provided paths that do not have trailing slashes:
-							source: ${origin}
-							destination: ${destination}
+	# adjustments
+	function adjust_format {
+		local thing="$1" value="$2" what
+		if test "${value:-1}" = '/'; then
+			what='directory'
+		else
+			what='file'
+		fi
+		what="$(
+			choose-option --required \
+				--question="Is the $thing a file or a directory? $(echo-style --code="$value")" \
+				--filter="$what" -- file directory
+		)"
+		if test "$what" = 'file' -a "${value:-1}" = '/'; then
+			value="${value:0:-1}"
+			echo-style "Adjusted $thing to " --code="$value" > /dev/stderr
+		elif test "$what" = 'directory' -a "${value:-1}" != '/'; then
+			value="${value}/"
+			echo-style "Adjusted $thing to " --code="$value" > /dev/stderr
+		fi
+		echo "$value"
+	}
+	function adjust_spaces {
+		local thing="$1" value="$2" adjustment
+		adjustment="$(echo-escape-spaces "$value")"
+		if test "$adjustment" != "$value"; then
+			echo-style "Adjusted $thing to " --code="$value" > /dev/stderr
+		fi
+		echo "$adjustment"
+	}
+	function adjust_faux {
+		local question suggestion tangent
+		suggestion="$(get-local-to-remote "$1" 2> /dev/null || echo '')"
+		if test -n "$suggestion"; then
+			question="$(
+				cat <<-EOF
+					What would you like to do?
 
-							This is fine if they are files, however if they are directories, this means the source directory will go inside the destination directory. Using trailing slashes to ensure that the contents of the source directory go inside the destination directory.
+					Using rsync with a remote directory that is mounted locally can be slow.
+					It is recommended to use its remote location instead, which autodetection implies it as:
 
-							What do you want to do?
-						EOF
-					)" \
-					--filter="$slashes" -- 'adjust and add trailing slashes' 'ignore trailing slashes (they are files)' 'exit and rethink'
+						$(echo-style --code="$suggestion")
+
+					Alternatively, attempt a different tool as they can be better under these circumstances.
+				EOF
 			)"
-			if [[ $slashes == *'adjust'* ]]; then
-				echo-style --dim='Trailing Slashes: perform adjustments'
-				if test "${origin: -1}" != '/'; then
-					origin="${origin}/"
-					echo-style --dim="source: $origin"
-				fi
-				if test "${destination: -1}" != '/'; then
-					destination="${destination}/"
-					echo-style --dim="destination: $destination"
-				fi
-			elif [[ $slashes == *'ignore'* ]]; then
-				echo-style --dim='Trailing Slashes: ignore and continue'
+			tangent="$(
+				choose-option \
+					--question="$question" \
+					--label -- \
+					'exit' 'rethink and exit' \
+					'ignore' 'ignore suggestion and continue anyway' \
+					'different' 'attempt a different tool'
+			)"
+			if test "$tangent" = 'ignore'; then
+				echo-style --dim='Faux Remotes: ignore and continue'
+				return 0
+			elif test "$tangent" = 'different'; then
+				echo-style --dim='Faux Remotes: attempting a different tool'
+				cpr --confirm="$confirm" --dry="$dry" --sudo="$sudo" --verify="$verify" -- "$origin" "$destination"
+				return "$?"
 			else
-				echo-style --dim='Trailing Slashes: exit'
+				echo-style --dim='Faux Remotes: exit'
+				# exit / default
 				return 1
 			fi
 		fi
-	fi
-
-	# confirm guidance if given paths have unescaped spaces
-	# @todo
-
-	# guidance on faux remotes
-	if test "$tool" = 'rsync'; then
-		function rsync_check_if_path_is_faux_local {
-			local suggestion tangent
-			suggestion="$(silent-stderr get-local-to-remote "$1" || echo '')"
-			if test -n "$suggestion"; then
-				cat <<-EOF
-					Using rsync with a remote directory that is mounted locally can be slow, you should probably try converting it to a local mount point.
-
-					${suggestion}
-
-					Alternatively, select copy via a different tool, as they can be faster are more reliable under these circumstances.
-
-				EOF
-				tangent="$(
-					choose-option \
-						--question='What would you like to do?' \
-						--label -- \
-						'exit' 'rethink and exit' \
-						'ignore' 'ignore suggestion and continue anyway' \
-						'different' 'try a different tool'
-				)"
-				if test "$tangent" = 'ignore'; then
-					echo-style --dim='Faux Remotes: ignore and continue'
-					return 0
-				elif test "$tangent" = 'different'; then
-					echo-style --dim='Faux Remotes: trying a different tool'
-					cpr "$action" --source="$origin" --destination="$destination"
-					return "$?"
-				else
-					echo-style --dim='Faux Remotes: exit'
-					# exit / default
-					return 1
-				fi
-			fi
-			return 0
-		}
-		rsync_check_if_path_is_faux_local "$origin"
-		rsync_check_if_path_is_faux_local "$destination"
+		return 0
+	}
+	if test "$confirm" != 'no'; then
+		origin="$(adjust_format origin "$origin")"
+		destination="$(adjust_format destination "$destination")"
+		origin="$(adjust_spaces origin "$origin")"
+		destination="$(adjust_spaces destination "$destination")"
+		if test "$tool" = 'rsync'; then
+			adjust_faux "$origin"
+			adjust_faux "$destination"
+		fi
 	fi
 
 	# =====================================
@@ -387,23 +373,23 @@ function cpr() (
 		# workaround for rsync always returning success exit code
 		# https://superuser.com/q/1700581/32418
 		if test "$action" = 'verify'; then
-			echo "${cmd[@]}"
-			if test "$dry" = 'no'; then
-				temp="$(mktemp)"
-				"${cmd[@]}" | tee "$temp"
-				if grep --quiet --regexp='^>' "$temp"; then
+			function on_complete {
+				if grep --quiet --regexp='^>' "$1"; then
 					return 1
 				else
 					return 0
 				fi
-				# ^ this technique still outputs the full diff, which is probably what the user wants
-			fi
-			return 0
+			}
 		fi
 
 	elif test "$tool" = 'gcp'; then
 		# via gcp, overall progress
 		cmd+=('gcp')
+
+		# sanity check
+		if test "$verify" = 'yes'; then
+			help "[--tool=gcp] is incompatible with [--verify]"
+		fi
 
 		# -a, --archive: same as -dR --preserve=all
 		# -d: same as --no-dereference --preserve=links
@@ -426,6 +412,11 @@ function cpr() (
 		# via scp
 		cmd+=('scp')
 
+		# sanity check
+		if test "$verify" = 'yes'; then
+			help "[--tool=scp] is incompatible with [--verify]"
+		fi
+
 		# -A: Allows forwarding of ssh-agent(1) to the remote system.  The default is not to forward an authentication agent.
 		# -p: Preserves modification times, access times, and modes from the original file.
 		# -r: Recursively copy entire directories.  Note that scp follows symbolic links encountered in the tree traversal.
@@ -444,6 +435,11 @@ function cpr() (
 	elif test "$tool" = 'cp'; then
 		# via cp
 		cmd+=('cp')
+
+		# sanity check
+		if test "$verify" = 'yes'; then
+			help "[--tool=cp] is incompatible with [--verify]"
+		fi
 
 		# -a: Same as -pPR options. Preserves structure and attributes of files but not directory structure.
 		# -P; If the -R option is specified, no symbolic links are followed.  This is the default.
@@ -470,6 +466,11 @@ function cpr() (
 	elif test "$tool" = 'diff'; then
 		cmd+=('diff')
 
+		# sanity check
+		if test "$verify" != 'yes'; then
+			help "[--tool=diff] requires [--verify]"
+		fi
+
 		# -q  --brief: Output only whether files differ.
 		# -r  --recursive: Recursively compare any subdirectories found.
 		cmd+=(
@@ -489,6 +490,11 @@ function cpr() (
 			'diff'
 		)
 
+		# sanity check
+		if test "$verify" != 'yes'; then
+			help "[--tool=git] requires [--verify]"
+		fi
+
 		# --no-index: This form is to compare the given two paths on the filesystem. You can omit the --no-index option when running the command in a working tree controlled by Git and at least one of the paths points outside the working tree, or when running the command outside a working tree controlled by Git. This form implies --exit-code.
 		cmd+=('--no-index')
 
@@ -503,8 +509,14 @@ function cpr() (
 	fi
 
 	# run
+	local output
 	if test "$dry" = 'yes'; then
 		echo "${cmd[@]}"
+	elif test "$(type -t 'on_complete')" = 'function'; then
+		echo "${cmd[@]}"
+		output="$(mktemp)"
+		"${cmd[@]}" | tee "$output"
+		on_complete "$output"
 	else
 		eval-helper -- "${cmd[@]}"
 	fi
