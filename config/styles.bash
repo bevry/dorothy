@@ -124,6 +124,9 @@ success="${foreground_green}${bold}"
 notice="${foreground_yellow}${bold}${underline}" # don't use intense_yellow as it is unreadable on light terminal themes, plain yellow works for light and dark themes
 code="${dim}"
 
+# redacted, alternative to conceal, which respects color themes
+redacted="${background_black}${foreground_black}"
+
 # don't use these in segments, as it prohibits alternative usage
 # instead, when things take a long time,
 # output a long time messasge after the segment
