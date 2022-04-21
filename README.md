@@ -16,14 +16,14 @@ Dorothy maintainers are daily driving Dorothy on:
 
 - macOS on Apple Silicon
 - macOS on Intel
-- Ubuntu Server on Raspberry Pi 4 (ARM)
-- Ubuntu Desktop on Raspberry Pi 400 (ARM)
+- Ubuntu Server on Raspberry Pi 4 (ARM64)
+- Ubuntu Desktop on Raspberry Pi 400 (ARM64)
 - Ubuntu Desktop on Intel/AMD (x86_64)
 
 Dorothy users are daily driving Dorothy on:
 
 - Manjaro/Arch on Intel/AMD (x86_64)
-- Windows 11 via Ubuntu WSL2 on Intel/AMD (x86_64)
+- Windows 11 via [Ubuntu](https://ubuntu.com/wsl) [WSL2](https://docs.microsoft.com/en-au/windows/wsl/) on Intel/AMD (x86_64)
 
 Dorothy maintainers and users are occasionally driving Dorothy on:
 
