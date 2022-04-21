@@ -9,7 +9,6 @@ source "$DOROTHY/sources/config.fish"
 # passes if one or more were loaded
 # fails if none were loaded (all were missing)
 load_dorothy_config 'shell.fish' 'shell.sh'
-source "$DOROTHY/sources/edit.fish"
 source "$DOROTHY/sources/history.fish"
 source "$DOROTHY/sources/theme.fish"
 source "$DOROTHY/sources/ssh.fish"

@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+function edit() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Open your preferred editor.
+
+			USAGE:
+			edit [...options] [--] [...everything here is forwarded to the editor]
+
+			OPTIONS:
+			--dry
+			    If enabled, output the editor instead of invoking it.
+
+			--prompt
+			    If enabled, keep the terminal open until the editor is closed.
+			    This is necessary for terminal prompts, such as the case with git editing.
+
+			--sudo
+			    If enabled, the editor will be opened in sudo mode.
+
+			--terminal
+			    If enabled, enforce a terminal editor.
+
+			--gui
+			    If enabled, enforce a gui editor.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item dry='no' prompt='no' sudo='no' terminal='' gui='' args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-dry'* | '--dry'*)
+			dry="$(get-flag-value dry --missing="$dry" -- "$item" | echo-affirmative)"
+			;;
+		'--no-prompt'* | '--prompt'*)
+			prompt="$(get-flag-value prompt --missing="$prompt" -- "$item" | echo-affirmative)"
+			;;
+		'--no-sudo'* | '--sudo'*)
+			sudo="$(get-flag-value sudo --missing="$sudo" -- "$item" | echo-affirmative)"
+			;;
+		'--no-terminal'* | '--terminal'*)
+			terminal="$(get-flag-value terminal --missing="$terminal" -- "$item" | echo-affirmative)"
+			;;
+		'--no-gui'* | '--gui'*)
+			gui="$(get-flag-value gui --missing="$gui" -- "$item" | echo-affirmative)"
+			;;
+		'--')
+			args+=("$@")
+			shift "$#"
+			break
+			;;
+		*)
+			args+=("$item" "$@")
+			shift "$#"
+			break
+			;;
+		esac
+	done
+
+	# check conflicts
+	if test -n "$terminal" -a "$terminal" = "$gui"; then
+		help "[--terminal] and [--gui] must be opposite values."
+	fi
+
+	# default terminal
+	if test -z "$terminal"; then
+		if is-ssh || is-headless; then
+			terminal='yes'
+		fi
+	fi
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.bash"
+
+	# editors.bash provides:
+	local TERMINAL_EDITORS=() GUI_EDITORS=()
+	load_dorothy_config 'editors.bash'
+
+	# check config
+	if test -z "${TERMINAL_EDITORS[*]}"; then
+		echo-style --notice="TERMINAL_EDITORS was undefined" >/dev/stderr
+	fi
+	if test -z "${GUI_EDITORS[*]}"; then
+		echo-style --notice="GUI_EDITORS was undefined" >/dev/stderr
+	fi
+
+	# =====================================
+	# Action
+
+	# grab options
+	local editors=()
+	if test "$terminal" = 'yes'; then
+		editors=("${TERMINAL_EDITORS[@]}")
+	else
+		editors=("${GUI_EDITORS[@]}")
+	fi
+
+	# filter options by available
+	local editor=() __editor __command
+	for __editor in "${editors[@]}"; do
+		__command="${__editor%% *}"
+		if test -n "$__command" && command-exists "$__command"; then
+			mapfile -t editor < <(echo-split ' ' -- "$__editor")
+			# prompt adjustments
+			if test "$prompt" = 'yes'; then
+				if [[ $__command =~ code|atom|subl ]]; then
+					editor+=('-w')
+				fi
+			fi
+		fi
+	done
+
+	# check editor
+	if test "${#editor[@]}" -eq 0; then
+		echo-error "No editor was available:" $'\n' "$(echo-verbose "${editors[@]}")"
+		return 1
+	fi
+
+	# generate command
+	local cmd=()
+	if test "$sudo" = 'yes'; then
+		cmd+=('sudo-inherit' '--')
+	fi
+	cmd+=("${editor[@]}")
+	if test "${#args[@]}" -ne 0; then
+		cmd+=("${args[@]}")
+	fi
+
+	# invoke
+	if test "$dry" = 'yes'; then
+		echo "${cmd[@]}"
+	else
+		"${cmd[@]}"
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	edit "$@"
+fi

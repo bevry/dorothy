@@ -26,7 +26,6 @@ fi
 
 # continue with the shell extras
 . "$DOROTHY/sources/nvm.sh"
-. "$DOROTHY/sources/edit.sh"
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
