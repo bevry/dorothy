@@ -9,7 +9,6 @@
 # initial scanning of environment into a tuple]
 inherited=() # [name, value], [name, value], ...
 while read -r line; do
-	# shellcheck disable=SC2066
 	for ((i = 0; i < ${#line}; i++)); do
 		if test "${line:i:1}" = '='; then
 			inherited+=("${line:0:i}") # name
@@ -32,7 +31,6 @@ function finish {
 	while read -r line; do
 		# parse line
 		name='' value=''
-		# shellcheck disable=SC2066
 		for ((i = 0; i < ${#line}; i++)); do
 			if test "${line:i:1}" = '='; then
 				name="${line:0:i}"  # name
@@ -52,7 +50,6 @@ function finish {
 			items_string=''
 			item_last_index=0
 			# the <= and -o, is to ensure that the last item is processed, as it does not have a trailing :
-			# shellcheck disable=SC2066
 			for ((item_index = 0; item_index <= ${#value}; item_index++)); do
 				# || is used instead of -o, because of [test '(' = ':' -o 375 -eq 7258] producing [test: `)' expected, found :]
 				if test "${value:item_index:1}" = ':' || test "$item_index" -eq "${#value}"; then
@@ -98,7 +95,7 @@ function finish {
 		# fi
 		if test -z "$value"; then
 			# echo var action: delete
-			# shellcheck disable=SC2154
+			# trunk-ignore(shellcheck/SC2154)
 			if test "$shell" = 'fish'; then
 				echo "set --universal --erase $name;"
 			else

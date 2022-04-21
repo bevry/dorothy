@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
+# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-# do not use `export` keyword in this file
 
 # Used by `setup-git`
 # You can use `setup-git --configure` to configure these.

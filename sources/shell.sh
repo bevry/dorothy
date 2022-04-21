@@ -21,7 +21,6 @@ fi
 
 # dorothy theme override, which is used for trial mode
 if test -n "${DOROTHY_THEME_OVERRIDE-}"; then
-	# shellcheck disable=SC2034
 	DOROTHY_THEME="$DOROTHY_THEME_OVERRIDE"
 fi
 

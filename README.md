@@ -1,3 +1,5 @@
+<!-- trunk-ignore-all(markdownlint/MD013) -->
+
 # Dorothy
 
 Dorothy is a dotfile ecosystem featuring:

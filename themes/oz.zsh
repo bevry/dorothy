@@ -2,7 +2,6 @@
 
 source "$DOROTHY/themes/oz"
 precmd() {
-	# shellcheck disable=SC3043
 	local last_command_exit_status="$?"
 	if test ! -d "$DOROTHY"; then
 		echo 'DOROTHY has been moved, please re-open your shell'

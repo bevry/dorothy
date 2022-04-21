@@ -63,12 +63,12 @@ if test -z "${DOROTHY_LOADED-}"; then
 	if test "$0" = '-bash' -o "$0" = '-zsh'; then
 		DOROTHY_LOAD='yes'
 	elif test -n "${BASH_VERSION-}"; then
-		# shellcheck disable=SC3044
+		# trunk-ignore(shellcheck/SC3044)
 		if shopt -qp login_shell; then
 			DOROTHY_LOAD='yes'
 		fi
 	elif test -n "${ZSH_VERSION-}"; then
-		# shellcheck disable=SC3010
+		# trunk-ignore(shellcheck/SC3010)
 		if [[ -o login ]]; then
 			DOROTHY_LOAD='yes'
 		fi
@@ -85,10 +85,10 @@ fi
 # if your login shell is failing identification,
 # then make sure your terminal preferences has login shell enabled
 if test "$DOROTHY_LOAD" = 'yes'; then
-	# shellcheck disable=SC2034
 	DOROTHY_LOADED='yes'
-	# ^ do not export this, as that will interfere with the case where:
-	#   bash_profile loads at login, then bashrc loads on new terminals
+	# ^ DO NOT export DOROTHY_LOADED
+	#   as that will interfere with the case where
+	#   bash_profile loads at login then bashrc loads on new terminals
 
 	# this should be consistent with:
 	# $DOROTHY/init.fish
@@ -98,7 +98,7 @@ if test "$DOROTHY_LOAD" = 'yes'; then
 		# https://stackoverflow.com/a/246128
 		# https://stackoverflow.com/a/14728194
 		export DOROTHY
-		# shellcheck disable=SC3028
+		# trunk-ignore(shellcheck/SC3028)
 		DOROTHY="$(dirname "${BASH_SOURCE:-"$0"}")"
 	fi
 

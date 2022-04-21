@@ -146,8 +146,8 @@ function update_dorothy_user_config {
 			# default missing, make it with the typical header
 			cat <<-EOF >"$dorothy_config_filepath"
 				#!/usr/bin/env $dorothy_config_extension
+				# do not use \`export\` keyword in this file:
 				# shellcheck disable=SC2034
-				# do not use \`export\` keyword in this file
 
 			EOF
 		fi

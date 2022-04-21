@@ -22,7 +22,7 @@ function may_require_array_support {
 	# this is useful for features like `empty`
 	# as they may not be triggered under normal circumstances
 	# when all options and arguments are provided
-	# shellcheck disable=SC2064
+	# trunk-ignore(shellcheck/SC2064)
 	trap "requires_array_support $* || :" ERR
 }
 

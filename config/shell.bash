@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
+# do whatever you want in this file:
 # shellcheck disable=SC2034
-# do whatever you want in this file
 
 # Used by `shell.sh`
 

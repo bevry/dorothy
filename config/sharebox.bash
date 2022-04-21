@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
+# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-# do not use `export` keyword in this file
 
 # Used by `sharebox`
 # You can use `sharebox --configure` to configure these.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
+# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-# do not use `export` keyword in this file
 
 # For details about hosts files, check out these resources:
 # https://en.wikipedia.org/wiki/Hosts_(file)
