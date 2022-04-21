@@ -25,6 +25,7 @@ Dorothy maintainers are daily driving Dorothy on:
 Dorothy users are daily driving Dorothy on:
 
 - Manjaro/Arch on Intel/AMD (x86_64)
+- Windows 11 via Ubuntu WSL2 on Intel/AMD (x86_64)
 
 Dorothy maintainers and users are occasionally driving Dorothy on:
 
