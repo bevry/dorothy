@@ -10,7 +10,7 @@ source "$DOROTHY/sources/config.sh"
 # mapfile -t GEM_INSTALL < <(prepare_packages 'GEM_INSTALL' -- "${GEM_INSTALL[@]}" "${RUBY_INSTALL[@]}")
 # ````
 function prepare_packages {
-	local reconfigure='no' name="$1" packages=("${@:3}")
+	local reconfigure='no' name="$1" inputs=("${@:3}") outputs=() item installer util
 
 	# SETUP_UTILS should have already been loaded, but let's create it if not
 	# we need to do it this way, otherwise we would wipe pre-existing custom configuration
@@ -18,8 +18,8 @@ function prepare_packages {
 		SETUP_UTILS=()
 	fi
 
-	# remove packages with dedicated installers
-	for item in "${packages[@]}"; do
+	# remove inputs with dedicated installers
+	for item in "${inputs[@]}"; do
 		installer="$(get-installer "$item" || :)"
 		if test -n "$installer"; then
 			if [[ $installer == 'setup-util-'* ]]; then
@@ -33,12 +33,14 @@ function prepare_packages {
 			continue
 		else
 			echo "$item"
+			outputs+=("$item")
 		fi
 	done
 
 	# update configuration if necessary
 	if test "$reconfigure" = 'yes'; then
 		update_dorothy_user_config 'setup.bash' -- \
+			--field="$name" --array="$(echo-lines -- "${outputs[@]}" | sort --ignore-case | uniq)" \
 			--field='SETUP_UTILS' --array="$(echo-lines -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
 	fi
 }
