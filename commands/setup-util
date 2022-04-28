@@ -2,6 +2,7 @@
 source "$DOROTHY/sources/strict.bash"
 source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
+source "$(which eval-helper)"
 
 function setup-util() (
 	local installers=(
@@ -138,7 +139,7 @@ function setup-util() (
 	local FLATPAK='' FLATPAK_REPO=''
 	local SNAP='' SNAP_CHANNEL=''
 	local YUM='' RPM='' YUM_REPO='' YUM_EVAL=''
-	local APT='' DEBIAN='' APT_REPO='' APT_KEY='' APT_KEY_NAME='' APT_EVAL=''
+	local APT='' DEBIAN='' APT_REPO='' APT_KEY='' APT_ID='' APT_EVAL=''
 	local ALPINE=''
 	local NIX=''
 	local XBPS='' VOID=''
@@ -240,7 +241,7 @@ function setup-util() (
 		'DEBIAN='*) DEBIAN="${item#*DEBIAN=}" ;;
 		'APT_REPO='*) APT_REPO="${item#*APT_REPO=}" ;;
 		'APT_KEY='*) APT_KEY="${item#*APT_KEY=}" ;;
-		'APT_KEY_NAME='*) APT_KEY_NAME="${item#*APT_KEY_NAME=}" ;;
+		'APT_ID='*) APT_ID="${item#*APT_ID=}" ;;
 		'APT_EVAL='*) APT_EVAL="${item#*APT_EVAL=}" ;;
 		'ALPINE='*) ALPINE="${item#*ALPINE=}" ;;
 		'NIX='*) NIX="${item#*NIX=}" ;;
@@ -907,7 +908,7 @@ function setup-util() (
 		fi
 	}
 	function do_apt {
-		local args=() pkgs=() keyring='' pkg="${APT:-"$DEBIAN"}" repo="$APT_REPO" key="$APT_KEY" key_name="$APT_KEY_NAME" __eval="$APT_EVAL"
+		local args=() pkgs=() keyring='' pkg="${APT:-"$DEBIAN"}" repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" __eval="$APT_EVAL"
 
 		# check applicable
 		if test -n "$pkg" -o -n "$__eval"; then
@@ -929,48 +930,87 @@ function setup-util() (
 				mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
 
 				# prepare APT with APT_KEY
-				if test -n "$key"; then
-					# attempt to ensure APT_KEY_NAME if not provided
-					if test -z "$key_name"; then
+				if test -n "$key" -o -n "$repo"; then
+					# attempt to ensure APT_ID if not provided
+					if test -z "$id"; then
 						if [[ $pkg == *' '* ]]; then
 							cat <<-EOF >/dev/stderr
-								"$(echo-style --error="If APT has multiple packages, then APT_KEY_NAME must be specified.")
+								"$(echo-style --error="If APT has multiple packages, then APT_ID must be specified.")
 								APT: $pkg
 								APT_KEY: $key
 							EOF
 							return 1
 						fi
-						key_name="$pkg"
+						id="$pkg"
 					fi
+				fi
 
-					# Deprecated technique is: fetch ... | sudo apt-key add -
+				# prepare APT with APT_KEY
+				if test -n "$key"; then
+					# Deprecated technique is:
+					# fetch ... | sudo apt-key add -
+					# Modern and working technique is what we do below...
+					# which improves upon these incomplete and non-working suggestions:
 					# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
 					# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
 					# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
 					# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
-
-					# Modern technique is below:
 					# https://stackoverflow.com/a/69015383/130638
-					keyring="/etc/apt/trusted.gpg.d/$key_name.gpg"
-					do_apt_key_fetch "$key" | sudo gpg \
-						--import --no-default-keyring \
-						--keyring "gnupg-ring:$keyring"
+					# https://askubuntu.com/a/1307181
+					# https://askubuntu.com/a/1306494
+
+					# prepare new location
+					sudo mkdir -p /usr/local/share/keyrings/
+					keyring="/usr/local/share/keyrings/$id.gpg"
+
+					# remove old keys
+					sudo rm -f /usr/local/share/keyrings/*"$id"*
+					sudo rm -f /etc/apt/trusted.gpg.d/*"$id"*
+
+					# helper for quiet output
+					function do_apt_key_add {
+						# fetch and convert format, then import with export into correct format
+						do_apt_key_fetch "$key" | sudo gpg \
+							--no-default-keyring \
+							--keyring="gnupg-ring:$keyring" \
+							--import # uses stdin
+						# [gnupg-ring:] prefix creates keyring in apt compatible (legacy) v4 format
+
+						# adjust permission to fix [_apt access error] on ubuntu 21.10
+						sudo chmod a+r "$keyring"
+					}
+					eval-helper --quiet="$quiet" -- do_apt_key_add
 				fi
 
 				# prepare APT with APT_REPO
 				if test -n "$repo"; then
-					# replae key
-					repo="${repo/"{KEY}"/"$keyring"}"
-					# replace arch
-					repo="${repo/"{ARCH}"/"$(
-						dpkg --print-architecture
-					)"}"
-					# replace release
-					repo="${repo/"{RELEASE}"/"$(
-						lsb_release --codename --short
-					)"}"
-					# add the repo
-					sudo apt-add-repository -y --enable-source "$repo"
+					# remove old listings
+					sudo rm -f /etc/apt/sources.list.d/*"$id"*
+
+					# add the repo with appropriate technique for the repo type
+					if [[ "$repo" = 'deb '* ]]; then
+						# adjust key modifier
+						repo="${repo/"{KEY}"/"$keyring"}"
+
+						# adjust arch modifier
+						repo="${repo/"{ARCH}"/"$(
+							dpkg --print-architecture
+						)"}"
+
+						# adjust release modifier
+						repo="${repo/"{RELEASE}"/"$(
+							lsb_release --codename --short
+						)"}"
+
+						# use a non-deprecated technique that supports the deb modifiers
+						echo "$repo" | sudo tee "/etc/apt/sources.list.d/$id.list" >/dev/null
+					else
+						# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
+						# however the alternative for `ppa:` and other syntax is too complicated
+						eval-helper --quiet="$quiet" -- sudo apt-add-repository -y --enable-source "$repo"
+					fi
+
+					# to debug:
 					# sudo apt-add-repository --list
 				fi
 
@@ -989,7 +1029,7 @@ function setup-util() (
 
 				# action
 				eval-helper --quiet="$quiet" -- sudo apt-get "${args[@]}" "${pkgs[@]}"
-				# use `apt-get`, as using `apt` produces this warning on Ubuntu 20.04.3 LTS
+				# use `apt-get`, as `apt` produces this warning on Ubuntu 20.04.3 LTS
 				# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
 			fi
 		else
