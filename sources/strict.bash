@@ -26,34 +26,11 @@ if test "$BASH_MAJOR_VERSION" -ge 5 || test "$BASH_MAJOR_VERSION" -eq 4 -a "$BAS
 	shopt -s inherit_errexit
 fi
 
-# the below functions are essential to prevent nested functions that check for exit codes
-# from having their set -e negate a parent set +e, which would cause a return 1 on the function call
-# to cause to the program to exit immediately, as the parents set +e was negated by the child's set -e
-# as such, the below returns the state of the current e status, and restores to it
+# failglob: If set, patterns which fail to match filenames during filename expansion result in an expansion error.
+# ^ consider this, as without it, failed expansions turning into arrays of length 1 and empty string has caught me offguard
 
-# strict_e_pause; local eo="$?"
-# ... command ...
-# local ec="$?"; strict_e_restore "$eo"
-# if test "$ec" -ne 0; then
+# if you wish to ignore the exit code under strict mode, do:
+# command || :
 
-# alternatively you don't need to do this, you can just do this
-# local ec=0; command || ec="$?"
-# if test "$ec" -ne 0; then
-#
-# note, don't do ( var= ) or ( read ) because the vars won't escape the subshell
-
-function strict_e_pause {
-	if [[ $- == *e* ]]; then
-		set +e
-		return 1
-	else
-		set +e
-		return 0
-	fi
-}
-
-function strict_e_restore {
-	if test "$1" -eq 1; then
-		set -e
-	fi
-}
+# if you wish to fetch the exit code under strict mode, do:
+# ec=0; command || ec="$?"

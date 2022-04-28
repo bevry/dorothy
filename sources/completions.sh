@@ -41,3 +41,14 @@ if test -n "${HOMEBREW_PREFIX-}"; then
 		fi
 	fi
 fi
+
+# 1password
+# https://developer.1password.com/docs/cli/get-started#shell-completion
+if command-exists op; then
+	if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+		eval "$(op completion bash)"
+	elif test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
+		eval "$(op completion zsh)"
+		compdef _op op
+	fi
+fi
