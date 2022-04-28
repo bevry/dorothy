@@ -28,7 +28,7 @@ if command-exists ssh-agent; then
 	# setting [SSH_ASKPASS_REQUIRE] to [prefer] voids TTY responses
 
 	# check if the agent is still running
-	if test -n "${SSH_AGENT_PID-}" && ! silent ps "$SSH_AGENT_PID"; then
+	if test -n "${SSH_AGENT_PID-}" && ! kill -0 "$SSH_AGENT_PID" >/dev/null 2>&1; then
 		SSH_AGENT_PID=''
 	fi
 
