@@ -13,9 +13,7 @@
 #     them, when appropriate) recursively.
 
 shopt -s globstar || {
-	echo-style \
-		--error="Missing globstar support." $'\n' \
-		--bold="$0" " is incompatible with " --bold="bash $BASH_VERSION" $'\n' \
-		"Run " --bold="setup-util-bash" " to upgrade capabilities, then run the prior command again." >/dev/stderr
-	return 95 # Operation not supported
+	echo-style --error="Missing globstar support:"
+	source "$DOROTHY/sources/bash.bash"
+	require_latest_bash
 }

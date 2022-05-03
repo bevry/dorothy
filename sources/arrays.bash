@@ -10,20 +10,10 @@ function has_array_support {
 
 function requires_array_support {
 	if ! has_array_support "$@"; then
-		echo-style \
-			--error="Array support insufficient." $'\n' \
-			--bold="$0" " is incompatible with " --bold="bash $BASH_VERSION" $'\n' \
-			"Run " --bold="setup-util-bash" " to upgrade capabilities, then run the prior command again." >/dev/stderr
-		return 95 # Operation not supported
+		echo-style --error="Array support insufficient, required: " --code="$*"
+		source "$DOROTHY/sources/bash.bash"
+		require_latest_bash
 	fi
-}
-
-function may_require_array_support {
-	# this is useful for features like `empty`
-	# as they may not be triggered under normal circumstances
-	# when all options and arguments are provided
-	# trunk-ignore(shellcheck/SC2064)
-	trap "requires_array_support $* || :" ERR
 }
 
 if [[ $BASH_VERSION == "4."* || $BASH_VERSION == "5."* ]]; then

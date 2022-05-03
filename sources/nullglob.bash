@@ -8,9 +8,7 @@
 # and thus widely supported
 
 shopt -s nullglob || {
-	echo-style \
-		--error="Missing nullglob support." $'\n' \
-		--bold="$0" " is incompatible with " --bold="bash $BASH_VERSION" $'\n' \
-		"Run " --bold="setup-util-bash" " to upgrade capabilities, then run the prior command again." >/dev/stderr
-	return 95 # Operation not supported
+	echo-style --error="Missing nullglob support:"
+	source "$DOROTHY/sources/bash.bash"
+	require_latest_bash
 }
