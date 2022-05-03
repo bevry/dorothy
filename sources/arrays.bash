@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$DOROTHY/sources/bash.bash"
 
 function has_array_support {
 	for arg in "$@"; do
@@ -11,16 +12,28 @@ function has_array_support {
 function requires_array_support {
 	if ! has_array_support "$@"; then
 		echo-style --error="Array support insufficient, required: " --code="$*"
-		source "$DOROTHY/sources/bash.bash"
 		require_latest_bash
 	fi
 }
 
-if [[ $BASH_VERSION == "4."* || $BASH_VERSION == "5."* ]]; then
-	export ARRAYS=' yes mapfile[native] empty associative readarray '
-else
-	export ARRAYS=' partial mapfile[shim] '
-	# https://tldp.org/LDP/abs/html/bashver4.html
+# Bash version compatibility: https://github.com/bevry/dorothy/discussions/151
+ARRAYS=''
+if test "$BASH_VERSION_MAJOR" -ge '5'; then
+	ARRAYS+=' mapfile[native] readarray[native] empty[native]'
+	if "$BASH_VERSION_MINOR" -ge '1'; then
+		ARRAYS+=' associative'
+	fi
+elif test "$BASH_VERSION_MAJOR" -ge '4'; then
+	ARRAYS+=' mapfile[native] readarray[native]'
+	if test "$BASH_VERSION_MINOR" -ge '4'; then
+		ARRAYS+=' empty[native]'
+	else
+		ARRAYS+=' empty[shim]'
+		set +u # disable nounset to prevent crashes on empty arrays
+	fi
+elif test "$BASH_VERSION_MAJOR" -ge '3'; then
+	ARRAYS+=' mapfile[shim] empty[shim]'
+	set +u # disable nounset to prevent crashes on empty arrays
 	# bash v4 features:
 	# - `readarray` and `mapfile`
 	#     - our shim provides a workaround
@@ -49,3 +62,4 @@ else
 		done
 	}
 fi
+ARRAYS+=' '

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$DOROTHY/sources/bash.bash"
 
 # -E  ERR trap is inherited by shell functions.
 #     https://stackoverflow.com/q/25378845/130638
@@ -18,9 +19,7 @@ set -Eeuo pipefail
 # https://www.gnu.org/software/bash/manual/html_node/The-Shopt-Builtin.html
 # https://github.com/koalaman/shellcheck/wiki/SC2311
 
-BASH_MAJOR_VERSION="${BASH_VERSION:0:1}"
-BASH_MINOR_VERSION="${BASH_VERSION:2:1}"
-if test "$BASH_MAJOR_VERSION" -ge 5 || test "$BASH_MAJOR_VERSION" -eq 4 -a "$BASH_MINOR_VERSION" -ge 4; then
+if test "$BASH_VERSION_MAJOR" -ge 5 || test "$BASH_VERSION_MAJOR" -eq 4 -a "$BASH_VERSION_MINOR" -ge 4; then
 	# https://github.com/bminor/bash/blob/9439ce094c9aa7557a9d53ac7b412a23aa66e36b/CHANGES#L1771-L1773
 	# >= bash v4.4
 	shopt -s inherit_errexit
