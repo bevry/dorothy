@@ -30,7 +30,7 @@ Dorothy maintainers and users are occasionally driving Dorothy on:
 - macOS on Apple Silicon with `HOMEBREW_ARCH="x86_64"`
 - Fedora via Intel/AMD (x84_64) virtual machines
 
-[Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk) 
+[Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk)
 
 ## Try
 

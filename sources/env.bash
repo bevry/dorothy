@@ -95,7 +95,6 @@ function finish {
 		# fi
 		if test -z "$value"; then
 			# echo var action: delete
-			# trunk-ignore(shellcheck/SC2154)
 			if test "$shell" = 'fish'; then
 				echo "set --universal --erase $name;"
 			else
