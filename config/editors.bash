@@ -23,7 +23,7 @@ GUI_EDITORS=(
 	'code' # setup-util-vscode
 	'atom'
 	'subl'
-	'gedit' # commonly bundled
+	'gedit'    # commonly bundled
 	'TextEdit' # macos default
 )
 
