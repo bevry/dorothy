@@ -20,7 +20,7 @@ function requires_array_support {
 ARRAYS=''
 if test "$BASH_VERSION_MAJOR" -ge '5'; then
 	ARRAYS+=' mapfile[native] readarray[native] empty[native]'
-	if "$BASH_VERSION_MINOR" -ge '1'; then
+	if test "$BASH_VERSION_MINOR" -ge '1'; then
 		ARRAYS+=' associative'
 	fi
 elif test "$BASH_VERSION_MAJOR" -ge '4'; then
