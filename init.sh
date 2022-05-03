@@ -99,7 +99,7 @@ if test "$DOROTHY_LOAD" = 'yes'; then
 		# https://stackoverflow.com/a/14728194
 		export DOROTHY
 		# trunk-ignore(shellcheck/SC3028)
-		DOROTHY="$(dirname "${BASH_SOURCE:-"$0"}")"
+		DOROTHY="$(cd "$(dirname "${BASH_SOURCE:-"$0"}")" && pwd)" # `cd ... pwd` ensures absolute path
 	fi
 
 	. "$DOROTHY/sources/init.sh"
