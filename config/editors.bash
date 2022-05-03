@@ -24,6 +24,7 @@ GUI_EDITORS=(
 	'atom'
 	'subl'
 	'gedit' # commonly bundled
+	'TextEdit' # macos default
 )
 
 # editors which failed for @balupton
