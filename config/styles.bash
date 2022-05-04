@@ -110,19 +110,23 @@ fi
 # styles
 h1="${invert}"
 e1="${background_red}${foreground_intense_white}"
-#g1="${background_green}${intense_white}"
 g1="${background_intense_green}${foreground_black}"
+n1="${background_intense_yellow}${foreground_black}"
 h2="${bold}${underline}"
 g2="${h2}${foreground_green}"
 e2="${h2}${foreground_red}"
+n2="${h2}${foreground_yellow}"
 h3="${bold}"
 g3="${h3}${foreground_green}"
 e3="${h3}${foreground_red}"
+n3="${h3}${foreground_yellow}"
 header="${bold}${underline}"
 error="${background_intense_red}${foreground_intense_white}"
 success="${foreground_green}${bold}"
-notice="${foreground_yellow}${bold}${underline}" # don't use intense_yellow as it is unreadable on light terminal themes, plain yellow works for light and dark themes
+notice="$e2"
 code="${dim}"
+# don't use intense_yellow as it is unreadable on light terminal themes, plain yellow works for light and dark themes
+# g1="${background_green}${intense_white}"
 
 # redacted, alternative to conceal, which respects color themes
 redacted="${background_black}${foreground_black}"
@@ -141,6 +145,8 @@ g1_open="${reset}${g1}└  ${reset}"
 g1_close="${reset}${g1}  ┘${reset}"
 e1_open="${reset}${e1}└  ${reset}"
 e1_close="${reset}${e1}  ┘${reset}"
+n1_open="${reset}${n1}└  ${reset}"
+n1_close="${reset}${n1}  ┘${reset}"
 
 # level 2 wrappers
 h2_open="${reset}${bold}┌  ${reset}"
@@ -149,6 +155,8 @@ g2_open="${reset}${bold}${foreground_green}└  ${reset}"
 g2_close="${reset}${bold}${foreground_green}  ┘${reset}"
 e2_open="${reset}${bold}${foreground_red}└  ${reset}"
 e2_close="${reset}${bold}${foreground_red}  ┘${reset}"
+n2_open="${reset}${bold}${foreground_yellow}└  ${reset}"
+n2_close="${reset}${bold}${foreground_yellow}  ┘${reset}"
 
 # level 3 wrappers
 h3_open="${reset}┌  ${reset}"
@@ -157,6 +165,8 @@ g3_open="${reset}${foreground_green}└  ${reset}"
 g3_close="${reset}${foreground_green}  ┘${reset}"
 e3_open="${reset}${foreground_red}└  ${reset}"
 e3_close="${reset}${foreground_red}  ┘${reset}"
+n3_open="${reset}${foreground_yellow}└  ${reset}"
+n3_close="${reset}${foreground_yellow}  ┘${reset}"
 
 # element wrappers
 element_open="${reset}${dim}${bold}< ${reset}"
