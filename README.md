@@ -154,6 +154,15 @@ Roadmap:
 - [multi-repo configuration](https://github.com/bevry/dorothy/discussions/32)
 - [choose-menu x1000](https://github.com/bevry/dorothy/issues/97)
 
+## Sponsors
+
+Dorothy is supported by the following [sponsors](https://github.com/sponsors/balupton):
+
+- [Rob Morris](https://github.com/Rob-Morris)
+- [Armen Mkrtchian](https://github.com/Armenm)
+- [Elliott Ditman](https://github.com/elliottditman)
+- [Balsa](https://github.com/balsa)
+
 ## Support
 
 To support the adoption of Dorothy, support tiers are issued in batches of five to active users to provide free realtime support and an hour of free scheduled support a month.
@@ -191,15 +200,6 @@ The fourth batch is for adopters who [sponsor](https://github.com/sponsors/balup
 5. Register yourself
 
 And so on in $25/month increments.
-
-## Sponsors
-
-Dorothy is supported by the following [sponsors](https://github.com/sponsors/balupton):
-
-- [Rob Morris](https://github.com/Rob-Morris)
-- [Armen Mkrtchian](https://github.com/Armenm)
-- [Elliott Ditman](https://github.com/elliottditman)
-- [Balsa](https://github.com/balsa)
 
 ## License
 
