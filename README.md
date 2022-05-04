@@ -160,13 +160,13 @@ To support the adoption of Dorothy, support tiers are issued in batches of five 
 
 The first batch is for early adopters:
 
-1. @balupton
-2. @sumitrai
-3. @molleweide
+1. [@balupton](https://github.com/balupton/dotfiles)
+2. [@sumitrai](https://github.com/sumitrai/dotfiles)
+3. [@molleweide](https://github.com/molleweide/dotfiles)
 4. Register yourself
 5. Register yourself
 
-The second batch is for adopters who are also sponsors of any amount:
+The second batch is for adopters who [sponsor](https://github.com/sponsors/balupton) any amount:
 
 1. Register yourself
 2. Register yourself
@@ -174,7 +174,7 @@ The second batch is for adopters who are also sponsors of any amount:
 4. Register yourself
 5. Register yourself
 
-The third batch is for adopters who sponsor $25/month or more:
+The third batch is for adopters who [sponsor](https://github.com/sponsors/balupton) $25/month or more:
 
 1. Register yourself
 2. Register yourself
@@ -182,7 +182,7 @@ The third batch is for adopters who sponsor $25/month or more:
 4. Register yourself
 5. Register yourself
 
-The fourth batch is for adopters who sponsor $50/month or more:
+The fourth batch is for adopters who [sponsor](https://github.com/sponsors/balupton) $50/month or more:
 
 1. Register yourself
 2. Register yourself
