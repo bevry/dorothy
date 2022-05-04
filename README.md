@@ -172,7 +172,7 @@ The second batch is for adopters who are also sponsors of any amount:
 2. Register yourself
 3. Register yourself
 4. Register yourself
-5. Register yourself 
+5. Register yourself
 
 The third batch is for adopters who sponsor $25/month or more:
 
@@ -184,7 +184,7 @@ The third batch is for adopters who sponsor $25/month or more:
 
 The fourth batch is for adopters who sponsor $50/month or more:
 
-1. Register yourself 
+1. Register yourself
 2. Register yourself
 3. Register yourself
 4. Register yourself
