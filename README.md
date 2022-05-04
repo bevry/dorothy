@@ -192,6 +192,15 @@ The fourth batch is for adopters who [sponsor](https://github.com/sponsors/balup
 
 And so on in $25/month increments.
 
+## Sponsors
+
+Dorothy is supported by the following [sponsors](https://github.com/sponsors/balupton):
+
+- [Rob Morris](https://github.com/Rob-Morris)
+- [Armen Mkrtchian](https://github.com/Armenm)
+- [Elliott Ditman](https://github.com/elliottditman)
+- [Balsa](https://github.com/balsa)
+
 ## License
 
 Public Domain via [The Unlicense](https://choosealicense.com/licenses/unlicense/)
