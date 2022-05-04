@@ -154,6 +154,44 @@ Roadmap:
 - [multi-repo configuration](https://github.com/bevry/dorothy/discussions/32)
 - [choose-menu x1000](https://github.com/bevry/dorothy/issues/97)
 
+## Support
+
+To support the adoption of Dorothy, support tiers are issued in batches of five to active users to provide free realtime support and an hour of free scheduled support a month.
+
+The first batch is for early adopters:
+
+1. @balupton
+2. @sumitrai
+3. @molleweide
+4. Register yourself
+5. Register yourself
+
+The second batch is for adopters who are also sponsors of any amount:
+
+1. Register yourself
+2. Register yourself
+3. Register yourself
+4. Register yourself
+5. Register yourself 
+
+The third batch is for adopters who sponsor $25/month or more:
+
+1. Register yourself
+2. Register yourself
+3. Register yourself
+4. Register yourself
+5. Register yourself
+
+The fourth batch is for adopters who sponsor $50/month or more:
+
+1. Register yourself 
+2. Register yourself
+3. Register yourself
+4. Register yourself
+5. Register yourself
+
+And so on in $25/month increments.
+
 ## License
 
 Public Domain via [The Unlicense](https://choosealicense.com/licenses/unlicense/)
