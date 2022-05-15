@@ -162,6 +162,7 @@ Dorothy is supported by the following [sponsors](https://github.com/sponsors/bal
 - [Armen Mkrtchian](https://github.com/Armenm)
 - [Elliott Ditman](https://github.com/elliottditman)
 - [Balsa](https://github.com/balsa)
+- [dr.dimitru](https://github.com/dr-dimitru)
 
 ## Support
 
