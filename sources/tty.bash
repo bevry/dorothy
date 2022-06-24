@@ -24,8 +24,8 @@ function tty_auto {
 	trap tty_finish EXIT
 }
 
-# if alt tty is disabled however, then disable it
-if is-affirmative "${NO_ALT_TTY-}" || test "$(echo-exit-code is-affirmative "${ALT_TTY-}")" -eq 1; then
+# if alternative ttys are disabled, then do not use them
+if is-affirmative -- "${NO_ALT_TTY-}"; then
 	function tty_start {
 		return 0
 	}
