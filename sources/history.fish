@@ -19,6 +19,7 @@ function secure_history
 		echo 'all' | history delete --contains 'twurl'
 		echo 'all' | history delete --contains 'vault'
 		echo 'all' | history delete --contains 'youtube-dl'
+		echo 'all' | history delete --contains 'coda register'
 		echo 'Erased known risks.'
 	end
 end
