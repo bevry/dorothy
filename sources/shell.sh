@@ -29,3 +29,13 @@ fi
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
+
+# vscode terminal integration
+# https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
+if test "$TERM_PROGRAM" = "vscode"; then
+	if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+		. "$(code --locate-shell-integration-path bash)"
+	elif test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
+		. "$(code --locate-shell-integration-path zsh)"
+	fi
+fi
