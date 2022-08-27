@@ -38,10 +38,10 @@ If you just want to trial [Dorothy commands](https://github.com/bevry/dorothy/tr
 
 ```bash
 # IF you are on alpine, install the dependencies
-sudo apk add curl bash
+sudo apk add bash curl git
 
 # IF you are on ubuntu, install the dependencies
-sudo apt install curl bash
+sudo apt install bash curl git
 
 # IF you are on macOS, install the dependencies
 xcode-select --install
@@ -61,10 +61,10 @@ To install Dorothy run the following in your favorite terminal application:
 
 ```bash
 # IF you are on alpine, install the dependencies
-sudo apk add curl bash
+sudo apk add bash curl git
 
 # IF you are on ubuntu, install the dependencies
-sudo apt install curl bash
+sudo apt install bash curl git
 
 # IF you are on macOS, install the dependencies
 xcode-select --install
