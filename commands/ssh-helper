@@ -13,6 +13,10 @@ function ssh-helper() (
 
 			USAGE:
 
+			ssh-helper configure
+
+			    Ensure SSH is configured correctly. Includes support for the 1Password SSH Agent.
+
 			ssh-helper new
 			  <filename>
 			  <comment, e.g. your email>
@@ -63,6 +67,7 @@ function ssh-helper() (
 
 	# ensure valid action
 	local actions=(
+		'configure'
 		'new'
 		'add'
 		'permissions'
@@ -77,6 +82,143 @@ function ssh-helper() (
 
 	# =====================================
 	# Actions
+
+	function sock_exists {
+		# the = part is some weird convention
+		test -n "${1-}" -a -e "${1-}" -o -e "${1-}="
+	}
+
+	function ssh_configure {
+
+		# ---------------------------------
+		# Configuration
+
+		source "$DOROTHY/sources/config.bash"
+
+		# ssh.bash provides:
+		local SSH_IDENTITY_AGENT=''  # '1password' for 1password ssh agent
+		load_dorothy_config 'ssh.bash'
+
+		# ---------------------------------
+		# 1Password
+
+		local op_socks  op_sock='' __op_sock=''
+
+		# where are the op sockets
+		op_socks=(
+			"$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+			"$HOME/.op/agent.sock"
+		)
+
+		# are they available on this platform?
+		for __op_sock in "${op_socks[@]}"; do
+			if sock_exists "${__op_sock}"; then
+				op_sock="$__op_sock"
+			fi
+		done
+
+		# are we already using it?
+		if test -z "$SSH_IDENTITY_AGENT"; then
+			if test "${SSH_AUTH_SOCK-}" = "$op_sock"; then
+				SSH_IDENTITY_AGENT='op'
+			fi
+		fi
+
+		# confirm availability with the user
+		if test -n "$op_sock"; then
+			if test "$SSH_IDENTITY_AGENT" = '1password'; then
+				if confirm-positive --ppid=$$ -- '1Password SSH Agent is still available, continue to use it?'; then
+					SSH_IDENTITY_AGENT='1password'
+				else
+					SSH_IDENTITY_AGENT=''
+				fi
+			elif test -z "$SSH_IDENTITY_AGENT"; then
+				if confirm-positive --ppid=$$ -- '1Password SSH Agent is available, use it?'; then
+					SSH_IDENTITY_AGENT='1password'
+				else
+					SSH_IDENTITY_AGENT=''
+				fi
+			else
+				if confirm-negative --ppid=$$ -- "1Password SSH agent is available, use it instead of [$SSH_IDENTITY_AGENT]?"; then
+					SSH_IDENTITY_AGENT='1password'
+				else
+					SSH_IDENTITY_AGENT=''
+				fi
+			fi
+		elif test -n "$SSH_IDENTITY_AGENT"; then
+			if test "$SSH_IDENTITY_AGENT" = '1password' -a -z "$op_sock"; then
+				echo-error '1Password SSH Agent is not available.' $'\n' \
+					'If you wish to use it, you must enable it first:' $'\n' \
+					--code='https://developer.op.com/docs/ssh/get-started#step-3-turn-on-the-op-ssh-agent' $'\n' \
+					--notice='Disabling for now...' >/dev/stderr
+				SSH_IDENTITY_AGENT=''
+			elif ! sock_exists "$SSH_IDENTITY_AGENT"; then
+				echo-error "Unable to find the SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT]." $'\n' \
+					--notice='Disabling for now...' >/dev/stderr
+				SSH_IDENTITY_AGENT=''
+			fi
+		fi
+
+		if test "$SSH_IDENTITY_AGENT" = '1password'; then
+			if ! sock_exists "$op_sock"; then
+				echo-style --error="Invalid state, invalid sock: $op_sock" >/dev/stderr
+				return 1
+			fi
+			SSH_IDENTITY_AGENT="$op_sock"
+		fi
+
+		# ---------------------------------
+		# SSH Config
+
+		# this applies to mac and linux
+		# http://apple.stackexchange.com/a/254619/15131
+		# https://stackoverflow.com/a/15578473/130638
+		# don't use $HOME as that isn't portable
+		echo-style --h2="SSH Configuration: .ssh/config"
+		config-helper --file="$HOME/.ssh/config" -- \
+			--find='UserKnownHostsFile .+' --replace='UserKnownHostsFile ~/.ssh/known_hosts' \
+			--find='IgnoreUnknown .+' --replace='IgnoreUnknown UseKeychain,AddKeysToAgent,IdentitiesOnly' \
+			--find='UseKeychain .+' --replace='UseKeychain yes' \
+			--find='AddKeysToAgent .+' --replace='AddKeysToAgent yes'
+
+		# trim the identity segment
+		sd -f mis '# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' '' "$HOME/.ssh/config"
+
+		# and add it back in if desired
+		if test -n "$SSH_IDENTITY_AGENT"; then
+			cat <<-EOF >> "$HOME/.ssh/config"
+
+				# <dorothy:SSH_IDENTITY_AGENT>
+				Host *
+				    IdentitiesOnly yes
+				    IdentityAgent "$SSH_IDENTITY_AGENT"
+				# </dorothy:SSH_IDENTITY_AGENT>
+			EOF
+		fi
+
+		# ---------------------------------
+		# SSH Keys
+
+		echo-style --h3="Add SSH Keys to SSH Agent"
+
+		ssh_add
+
+		# ---------------------------------
+		# Known Hosts
+
+		echo-style --h3="Add GitHub Keys to Known Hosts"
+
+		# ensure it exists, which it may not on new systems
+		touch "$HOME/.ssh/known_hosts"
+
+		# https://serverfault.com/q/856194/63348
+		# normally, this doesn't protect against man in the middle attacks,
+		# however [setup-dns] has already prevented that with its encrypted dns
+		# as such, this is perfect and secure
+		ssh-keygen -R github.com
+		ssh-keyscan github.com >>"$HOME/.ssh/known_hosts"
+		rm "$HOME/.ssh/known_hosts.old" || :
+	}
 
 	function ssh_new {
 		local name comment path
@@ -102,7 +244,7 @@ function ssh-helper() (
 
 		# add the new key to ssh configuration
 		# http://stackoverflow.com/a/33228296/130638
-		printf '\nIdentityFile ~/.ssh/%s' "$name" >>"$HOME/.ssh/config"
+		printf '\nIdentityFile ~/.ssh/%s' "$name" >> "$HOME/.ssh/config"
 
 		# output the public key so the user can add it to the service
 		cat <<-EOF
@@ -200,7 +342,6 @@ function ssh-helper() (
 		fi
 	}
 
-	# permissions
 	function ssh_permissions {
 		# create .ssh config file if necessary
 		mkdir -p "$HOME/.ssh"

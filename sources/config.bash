@@ -73,6 +73,7 @@ function update_dorothy_user_config_help {
 	fi
 	return 22 # Invalid argument
 }
+
 function update_dorothy_user_config {
 	local item
 	local dorothy_config_filename=''
