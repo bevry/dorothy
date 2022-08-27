@@ -89,7 +89,7 @@ If you get a command not found error, [verify that your terminal application has
 
 ## Overview
 
-This will by default install Dorothy to `$HOME/.dorothy`, which consists of the following:
+Dorothy will be installed to `$DOROTHY`, which consists of the following:
 
 - [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands
 - [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
