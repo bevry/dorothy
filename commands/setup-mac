@@ -12,7 +12,7 @@ function setup-mac() (
 			Configure macOS to our expectations.
 
 			USAGE:
-			setup-mac <install|update>
+			setup-mac <install|update|clean|restore|settings|appstore>
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -58,41 +58,75 @@ function setup-mac() (
 	# log
 	echo-segment --h1="$title"
 
-	# xcode
-	if get-app --quiet 'Xcode' || get-app --quiet 'Xcode-beta'; then
-		eval-helper --quiet --wrap \
-			--pending="$(echo-style --bold="Accepting Xcode license...")" \
-			--success="$(echo-style --success="Accepted Xcode license.")" \
-			--failure="$(echo-style --error="Failed to accept Xcode license.")" \
-			-- sudo xcodebuild -license accept
-	fi
+	# action
+	if test "$action" = 'appstore'; then
+		setup-mac-appstore
+	elif test "$action" = 'restore'; then
+		macos-state restore
+	elif test "$action" = 'settings'; then
+		macos-settings
+	elif test "$action" = 'clean'; then
+		local caches=(
+			"$HOME/Library/Application Support/Plex Media Server/Updates"
+			"$HOME/Library/Application Support/Spotify/PersistentCache/Update"
+			"$XDG_CACHE_HOME"
+		)
+		local essentials=(
+			"$XDG_CACHE_HOME"
+			# gems, @todo is this still necessary?
+			"$XDG_CACHE_HOME/gems"
+			# pip, @todo is this still necessary?
+			"$XDG_CACHE_HOME/pip/http"
+			"$HOME/Library/Caches/pip/http"
+		)
 
-	# mac
-	setup-mac-brew "$action"                 # setup-util-devel done as part of this
-	source "$DOROTHY/sources/environment.sh" # ensure the updated bash is available to what comes after
-	if test "$action" = 'install'; then
-		setup-mac-apps
-	fi
+		# Clean brew
+		setup-mac-brew clean
 
-	# cross-platform
-	setup-extras "$action"
+		# Clean caches
+		echo-segment --h2='Cleaning caches'
+		rm -rf "${caches[@]}" || :
+		mkdir -p "${essentials[@]}"
+		echo-segment --g2='Cleaned caches'
 
-	# cleanup
-	setup-mac-clean
-
-	# restore
-	if test "$action" = 'install'; then
-		echo
-		echo-segment --h2="Configure macOS"
-		if confirm-bool --ppid=$$ -- "Would you like to also restore from backup?"; then
-			macos-state restore
+		# npm
+		if command-exists npm; then
+			{
+				echo-segment --h2='Cleaning npm caches'
+				source "$DOROTHY/sources/nvm.sh"
+				{
+					# use `|| :`` as nvm is a function
+					nvm use node || :
+					npm cache clean --force || :
+					nvm use system || :
+					npm cache clean --force || :
+					nvm use default || :
+					npm cache clean --force || :
+				} &>/dev/null
+				echo-segment --g2='Cleaned npm caches'
+			} || {
+				echo-segment --e2='Cleaned npm caches'
+			}
 		fi
-		echo
-		if confirm-bool --ppid=$$ -- "Would you like to also configure macOS settings?"; then
-			macos-settings
+
+	elif test "$action" = 'install' -o "$action" = 'update'; then
+		# xcode
+		if get-app --quiet 'Xcode' || get-app --quiet 'Xcode-beta'; then
+			eval-helper --quiet --wrap \
+				--pending="$(echo-style --bold="Accepting Xcode license...")" \
+				--success="$(echo-style --success="Accepted Xcode license.")" \
+				--failure="$(echo-style --error="Failed to accept Xcode license.")" \
+				-- sudo xcodebuild -license accept
 		fi
-		echo
-		echo-segment --g2="Configure macOS"
+
+		# essentials
+		setup-mac-brew "$action"
+		# ^ setup-util-devel done as part of this
+		source "$DOROTHY/sources/environment.sh"
+		# ^ ensure the updated bash is available to what comes after
+	else
+		# unknown action
+		help "An unrecognised action was provided: $action"
 	fi
 
 	# log
