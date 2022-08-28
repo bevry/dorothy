@@ -59,10 +59,14 @@ function setup-linux() (
 	source "$DOROTHY/sources/config.bash"
 
 	# setup.bash provides:
+	local APK_INSTALL=()
 	local APT_INSTALL=()
 	local APT_UNINSTALL=()
-	local APK_INSTALL=()
+	local AUR_INSTALL=()
+	local FLATPAK_INSTALL=()
+	local RPM_INSTALL=()
 	local SNAP_INSTALL=()
+	local ZYPPER_INSTALL=()
 	local APT_ADD=()    # deprecated, use APT_INSTALL
 	local APT_REMOVE=() # deprecated, use APT_UNINSTALL
 	load_dorothy_config 'setup.bash'
@@ -82,25 +86,65 @@ function setup-linux() (
 	fi
 
 	# adjustments
+	mapfile -t APK_INSTALL < <(prepare_packages 'APK_INSTALL' -- "${APK_INSTALL[@]}")
 	mapfile -t APT_INSTALL < <(prepare_packages 'APT_INSTALL' -- "${APT_INSTALL[@]}")
 	mapfile -t APT_UNINSTALL < <(prepare_packages 'APT_UNINSTALL' -- "${APT_UNINSTALL[@]}")
-	mapfile -t APK_INSTALL < <(prepare_packages 'APK_INSTALL' -- "${APK_INSTALL[@]}")
+	mapfile -t AUR_INSTALL < <(prepare_packages 'AUR_INSTALL' -- "${AUR_INSTALL[@]}")
+	mapfile -t FLATPAK_INSTALL < <(prepare_packages 'FLATPAK_INSTALL' -- "${FLATPAK_INSTALL[@]}")
+	mapfile -t RPM_INSTALL < <(prepare_packages 'RPM_INSTALL' -- "${RPM_INSTALL[@]}")
 	mapfile -t SNAP_INSTALL < <(prepare_packages 'SNAP_INSTALL' -- "${SNAP_INSTALL[@]}")
+	mapfile -t ZYPPER_INSTALL < <(prepare_packages 'ZYPPER_INSTALL' -- "${ZYPPER_INSTALL[@]}")
 
 	# =====================================
 	# Helpers
 
-	# updates
-	local updates=('apt' 'apk' 'yum' 'pacman' 'zypper')
-	function do_apt_update {
-		sudo apt-get update -y
-	}
+	# APK
+	# https://wiki.alpinelinux.org/wiki/Package_management#Upgrade_a_Running_System
+
+	# DNF
+	# https://linuxcommandlibrary.com/man/dnf.html
+
+	# Flatpak
+	# https://manpages.org/flatpak/1
+	# https://manpages.org/flatpak-update
+	# `full-upgrade` is the same as `dist-upgrade` apparently, which is a more automatic/comprehensive upgrader compared to `apt-get upgrade`
+
+	# Pacman
+	# https://archlinux.org/pacman/pacman.8.html
+
+	# Pamac
+	# https://linuxcommandlibrary.com/man/pamac
+
+	# Snap
+	# https://manpages.org/snap
+
+	# Zypper
+	# https://www.mankier.com/8/zypper
+
+	# -------------------------------------
+	# Update References
+
+	# pamac/flatpak do not have update without upgrade
+	local updates=(
+		'apk'
+		'apk'
+		'pacman'
+		'yum'
+		'zypper'
+	)
+
 	function do_apk_update {
 		apk update
 	}
-	function do_yum_update {
-		sudo yum check-update -y || : # it always returns exit code 100
+
+	function do_apt_update {
+		sudo apt-get update -y
 	}
+
+	function do_dnf_update {
+		sudo dnf check-update -y
+	}
+
 	function do_pacman_update {
 		# init the local database
 		# this is needed on systems which pacman was installed
@@ -108,37 +152,197 @@ function setup-linux() (
 		# refresh the local database
 		sudo pacman --refresh --sync --noconfirm
 	}
+
+	function do_yum_update {
+		sudo yum check-update -y || :
+		# ^ it always returns exit code 100
+	}
+
 	function do_zypper_update {
 		sudo zypper refresh
 	}
-	# pamac/flatpak do not have update without upgrade
 
-	# upgrades
-	local upgrades=('apt' 'yum' 'snap' 'flatpak' 'pamac')
+	# -------------------------------------
+	# Upgrade Packages
+
+	local upgrades=(
+		'apk'
+		'apt'
+		'dnf'
+		'flatpak'
+		'pacman'
+		'pamac'
+		'snap'
+		'yum'
+		'zypper'
+	)
+
+	function do_apk_upgrade {
+		apk upgrade
+	}
+
 	function do_apt_upgrade {
-		# `full-upgrade` is the same as `dist-upgrade` apparently, which is a more automatic/comprehensive upgrader compared to `apt-get upgrade`
 		sudo apt-get full-upgrade -y
 	}
-	function do_yum_upgrade {
-		sudo yum upgrade -y
+
+	function do_dnf_upgrade {
+		sudo dnf upgrade -y --best
 	}
+
+	function do_flatpak_upgrade {
+		sudo flatpak update -y
+		# ^ sudo with flatpak avoids gui sudo prompt
+	}
+
+	function do_pacman_update {
+		sudo pacman --upgrade --sync --noconfirm
+	}
+
+	function do_pamac_upgrade {
+		sudo pamac upgrade --no-confirm
+		# ^ sudo with pamac avoids gui sudo prompt
+		# ^ `pamac update` is an alias for `pamac upgrade`
+	}
+
 	function do_snap_upgrade {
 		if ! is-snap; then
 			return 0
 		fi
 		sudo snap refresh
 	}
-	function do_flatpak_upgrade {
-		sudo flatpak update -y
-		# ^ sudo with flatpak avoids gui sudo prompt
+
+	function do_yum_upgrade {
+		sudo yum upgrade -y --best
 	}
-	function do_pamac_upgrade {
-		# pacmac upgrade/update are exactly the same
-		sudo pamac upgrade --no-confirm # --aur
+
+	function do_zypper_upgrade {
+		sudo zypper update
+	}
+
+	# -------------------------------------
+	# Install Packages
+
+	local packages=(
+		'apk'
+		'apt'
+		'aur'
+		'flatpak'
+		'rpm'
+		'snap'
+		'zypper'
+	)
+
+	function do_package {
+		local lower="$1" upper="$2" package="$3"
+		setup-util --name="${lower}:${package}" "${upper}=${package}"
+	}
+
+	function do_apk_packages {
+		local package
+		for package in "${APK_INSTALL[@]}"; do
+			do_package 'apk' 'APK' "$package"
+		done
+	}
+
+	function do_apt_packages {
+		# apt uninstall
+		if test -n "${APT_UNINSTALL[*]}"; then
+			setup-util --uninstall --name="apt:${APT_UNINSTALL[*]}" \
+				APT="${APT_UNINSTALL[*]}"
+		fi
+
+		# apt install
+		local package
+		for package in "${APT_INSTALL[@]}"; do
+			do_package 'apt' 'APT' "$package"
+		done
+	}
+
+	function do_aur_packages {
+		local package
+		for package in "${AUR_INSTALL[@]}"; do
+			do_package 'aur' 'AUR' "$package"
+		done
+	}
+
+	function do_flatpak_packages {
+		local package
+		for package in "${FLATPAK_INSTALL[@]}"; do
+			do_package 'flatpak' 'FLATPAK' "$package"
+		done
+	}
+
+	function do_rpm_packages {
+		local package
+		for package in "${RPM_INSTALL[@]}"; do
+			do_package 'rpm' 'RPM' "$package"
+		done
+	}
+
+	function do_snap_packages {
+		if ! is-snap; then
+			return 0
+		fi
+		local package
+		for package in "${SNAP_INSTALL[@]}"; do
+			do_package 'snap' 'SNAP' "$package"
+		done
+
+		# configure with
+		# snap list --color=never | sed '1d' | cut -d' ' -f1 | grep --invert-match --extended-regexp --regexp='^(core|snapd)'
+	}
+
+	function do_zypper_packages {
+		local package
+		for package in "${ZYPPER_INSTALL[@]}"; do
+			do_package 'zypper' 'ZYPPER' "$package"
+		done
+	}
+
+	# -------------------------------------
+	# Clean System
+
+	local clean=(
+		'apt'
+		'dnf'
+		'pacman'
+		'pamac'
+		'yum'
+		'zypper'
+	)
+
+	function do_apt_clean {
+		sudo apt-get autoremove -y --purge
+		sudo apt-get autoclean -y
+		sudo apt-get clean -y
+	}
+
+	function do_dnf_clean {
+		sudo dnf clean all
+	}
+
+	function do_pamac_clean {
+		sudo pamac clean --no-confirm
 		# ^ sudo with pamac avoids gui sudo prompt
 	}
 
-	# system
+	function do_pacman_clean {
+		# -c, --clean
+		#   Remove packages that are no longer installed from the cache as well as currently unused sync databases to free up disk space.
+		sudo pacman --sync --noconfirm --clean
+	}
+
+	function do_yum_clean {
+		sudo yum clean all
+	}
+
+	function do_zypper_clean {
+		sudo zypper clean --all
+	}
+
+	# -------------------------------------
+	# Upgrade System
+
 	function do_apt_system {
 		if ! command-exists do-release-upgrade; then
 			return 0
@@ -150,57 +354,6 @@ function setup-linux() (
 				sudo do-release-upgrade
 			fi
 		fi
-	}
-
-	# packages
-	local packages=('apt' 'apk' 'snap')
-	function do_apt_packages {
-		# apt uninstall
-		if test -n "${APT_UNINSTALL[*]}"; then
-			setup-util --uninstall --name="apt:${APT_UNINSTALL[*]}" \
-				APT="${APT_UNINSTALL[*]}"
-		fi
-
-		# apt install
-		if test -n "${APT_INSTALL[*]}"; then
-			setup-util --name="apt:${APT_INSTALL[*]}" \
-				APT="${APT_INSTALL[*]}"
-		fi
-	}
-	function do_apk_packages {
-		if test -n "${APK_INSTALL[*]}"; then
-			setup-util --name="apk:${APK_INSTALL[*]}" \
-				APK="${APK_INSTALL[*]}"
-		fi
-	}
-	function do_snap_packages {
-		if ! is-snap; then
-			return 0
-		fi
-		if test -n "${SNAP_INSTALL[*]}"; then
-			setup-util --name="snap:${SNAP_INSTALL[*]}" \
-				SNAP="${SNAP_INSTALL[*]}"
-		fi
-
-		# configure with
-		# snap list --color=never | sed '1d' | cut -d' ' -f1 | grep --invert-match --extended-regexp --regexp='^(core|snapd)'
-	}
-
-	# clean
-	local clean=('apt' 'pamac' 'pacman')
-	function do_apt_clean {
-		sudo apt-get autoremove -y --purge
-		sudo apt-get autoclean -y
-		sudo apt-get clean -y
-	}
-	function do_pamac_clean {
-		sudo pamac clean --no-confirm
-		# ^ sudo with pamac avoids gui sudo prompt
-	}
-	function do_pacman_clean {
-		# -c, --clean
-		#   Remove packages that are no longer installed from the cache as well as currently unused sync databases to free up disk space.
-		sudo pacman --sync --noconfirm --clean
 	}
 
 	# =====================================

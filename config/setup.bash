@@ -3,20 +3,36 @@
 # shellcheck disable=SC2034
 
 # APK
-# Used by `setup-util-apk`
+# Used by `setup-linux`
 # APK_INSTALL=()
 
 # Apt / apt-get
-# Used by `setup-util-apt`
+# Used by `setup-linux`
 # APT_UNINSTALL=()
 # APT_INSTALL=()
 
+# AUR / pamac / pacman / yay / paru / pakku / aurutils
+# Used by `setup-linux`
+# AUR_INSTALL=()
+
+# Flatpak
+# Used by `setup-linux`
+# FLATPAK_INSTALL=()
+
+# RPM / dnf / yum
+# Used by `setup-linux`
+# RPM_INSTALL=()
+
 # Snap
-# Used by `setup-util-snap`
+# Used by `setup-linux`
 # SNAP_INSTALL=()
 
-# macOS apps / mas / https://github.com/mas-cli/mas
-# Used by `setup-mac-apps`
+# Zypper
+# Used by `setup-linux`
+# ZYPPER_INSTALL=()
+
+# macOS App Store / mas / https://github.com/mas-cli/mas
+# Used by `setup-mac-appstore`
 # You can use `mas list` and `mas search` to find apps
 # MAS_INSTALL=() # tupe array of id, label
 
