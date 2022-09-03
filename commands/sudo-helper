@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+
+# sudo a command helpering environment and path
+# https://stackoverflow.com/q/257616/130638
+
+function sudo-helper() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Run a command as root, be it via sudo or doas, or neither if not needed.
+
+			USAGE:
+			sudo-helper [...options] -- <command...>
+
+			OPTIONS:
+
+			--user=<user>
+			    specify a user to run the command as
+
+			--group=<group>
+			    specify a group to run the command as
+
+			--inherit
+			    if enabled, inherit environment variables include PATH.
+
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item cmd=() inherit='no' user='' group=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-inherit'* | '--inherit'*)
+			inherit="$(get-flag-value inherit --missing="$inherit" -- "$item" | echo-affirmative || :)"
+			;;
+		'--user='*) user="${item#*--user=}" ;;
+		'--group='*) group="${item#*--group=}" ;;
+		'--')
+			cmd+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# check
+	if test "${#cmd[@]}" -eq 0; then
+		echo-style --error="No <command> was provided. See [$0 --help] for usage."
+		return 22 # EINVAL 22 Invalid argument
+	fi
+
+	# =====================================
+	# Action
+
+	# https://man.openbsd.org/doas
+	# https://man.archlinux.org/man/doas.1.en
+
+	# sudo
+	# https://manpages.ubuntu.com/manpages/xenial/man8/sudo.8.html
+	# -E, --preserve-env
+	#    preserve user environment when running command
+	# -H, --set-home
+	#    set HOME variable to target user's home dir
+	# -i, --login
+	#    Run the shell specified by the target user's password database entry as a login shell.
+
+	local args=()
+	if command-exists sudo; then
+		args+=('--set-home') # always set home
+		if test -n "$user"; then
+			args+=("--user=$user")
+		fi
+		if test -n "$group"; then
+			args+=("--group=$group")
+		fi
+		if test "$inherit" = 'yes'; then
+			args+=(
+				'--preserve-env'
+				'env'
+				"PATH=$PATH"
+			)
+		fi
+		sudo "${args[@]}" "${cmd[@]}"
+	elif command-exists doas; then
+		if test -n "$user"; then
+			args+=(
+				'-u'
+				"$user"
+			)
+		fi
+		if test -n "$group"; then
+			help "doas does not support --group"
+		fi
+		doas "${args[@]}" "${cmd[@]}"
+	else
+		"${cmd[@]}"
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	sudo-helper "$@"
+fi
