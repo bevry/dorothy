@@ -5,9 +5,12 @@
 # These create a new TTY that can be cleared without affecting the prior TTY.
 # https://unix.stackexchange.com/a/668615/50703
 
+# smcup/rmcup will fail on alpine, so always clear if they fail
+
 function tty_start {
-	tput smcup >/dev/tty
-	tput cup 0 0 >/dev/tty
+	{
+		tput smcup >/dev/tty && tput cup 0 0 >/dev/tty
+	} || tput clear >/dev/tty
 }
 
 function tty_clear {
@@ -16,7 +19,7 @@ function tty_clear {
 
 function tty_finish {
 	# `tput rmcup` does not persist stderr, so for failure/stderr dumps, use `sleep 5` to ensure sterr is visible for long enough to be noticed before wiped.
-	tput rmcup >/dev/tty
+	tput rmcup >/dev/tty || tput clear >/dev/tty
 }
 
 function tty_auto {
