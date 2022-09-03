@@ -23,8 +23,9 @@ GUI_EDITORS=(
 	'code' # setup-util-vscode
 	'atom'
 	'subl'
-	'gedit'    # commonly bundled
-	'TextEdit' # macos default
+	'gedit'             # linux default
+	'gnome-text-editor' # fedora default
+	'TextEdit'          # macos default
 )
 
 # editors which failed for @balupton
