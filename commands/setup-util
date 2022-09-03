@@ -4,6 +4,15 @@ source "$DOROTHY/sources/arrays.bash"
 requires_array_support 'mapfile'
 source "$(which eval-helper)"
 
+# @todo
+# consider something like
+# pkg=($(get-first-array "${PAMAC[@]}" -- "${AUR[@]}" -- "${ARCH[@]}"))
+#
+# check for leftover pkgs[@]
+#
+# APT='apt-transport-https ca-certificates'
+# and all others need to be changed
+
 function setup-util() (
 	# when running via fresh installer environment, ensure that environment gets configured
 	if test -z "${DOROTHY_ENVIRONMENT-}"; then
@@ -41,7 +50,7 @@ function setup-util() (
 		pakku    # CLI, nim, wraps pacman: https://github.com/kitsunyan/pakku
 		aurutils # CLI, shell, wraps pacman: https://github.com/AladW/aurutils
 
-		# precompile that does not autoupdate
+		# precompiled that does not autoupdate
 		dpkg # is available on debian, however apt is preferred
 		rpm  # is available on opensuse, however zypper is preferred
 
@@ -56,28 +65,33 @@ function setup-util() (
 		pipx
 		gem
 
-		# precompiled that autoupdates, but interferes with unix
-		choco # windows package manager
+		# windows
+		scoop
+		winget
+		choco # interferes with unix
+
+		# solaris/bsd
+		pkgin
+		pkgadd
+		pkg
 
 		# unknown
 		cabal
 		conda
-		dnf
-		doas
 		emerge
 		eopkg
 		guix
-		huber
 		nix
-		pkg
-		pkgin
-		pkgman
-		pkgutil
 		port
-		scoop
-		stack
-		winget
 		xbps
+		urpmi
+
+		# disable/removed as no documentation
+		# pkgutil
+		# pkgman
+		# huber
+		# eget
+		# stack
 
 		# custom
 		installer # local or remote installer
@@ -94,9 +108,15 @@ function setup-util() (
 			Install a utility with support for several package managers.
 
 			USAGE:
-			setup-util [...options] -- [order of installers]
+			setup-util [...options]
 
 			OPTIONS:
+			--order=<...installers>
+			    Used to override the preferred order of installers, space separated.
+
+			--installer=<installer> -- <...packages>
+			    Used to override the preferred order of installers.
+
 			--cli=<cli>
 			    Used to check if the utility is already installed.
 
@@ -116,7 +136,7 @@ function setup-util() (
 			    If truthy, do not install a package system in order to install the package.
 
 			--upgrade
-			    If truthy, if the utility is already installed then reinstall/upgrade it. Not all installers support this.
+			    If truthy, if the utility is already installed then reinstall / upgrade it. Not all installers support this.
 
 			--uninstall
 			    If truthy, if the utility is already installed then uninstall it. Not all installers support this.
@@ -139,70 +159,75 @@ function setup-util() (
 
 			EXAMPLE:
 
-			setup-util --name='bottom' --cli='btm' \
+			setup-util --name='bottom' --cli='btm' --order='brew cargo aur' \
 			    AUR='bottom-bin' \
 			    BREW='bottom' \
-			    CARGO='bottom' \
-			   -- aur brew cargo
-
-			        Arguments passed to [setup-util] are used to specify a custom order of preference for installer methods, in the above example, we are saying we prefer aur then brew then cargo. The order of environment variables and flags is inconsequential.
+			    CARGO='bottom'
 
 		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
 		return 22 # Invalid argument
 	}
 
 	# installer options
-	local APK='' ALPINE=''
-	local APT='' DEBIAN='' APT_REPO='' APT_KEY='' APT_ID='' APT_EVAL=''
-	local AUR='' ARCH='' YAY='' PARU='' PAKKU='' AURUTILS='' PAMAC=''
-	local BREW='' BREW_TAP='' CASK='' CASK_TAP=''
-	local CABAL=''
-	local CARGO='' RUST=''
-	local CHOCO=''
-	local CONDA='' CONDA_CHANNEL=''
-	local DNF='' DNF_EVAL='' DNF_COPR='' DNF_REPO=''
-	local DOAS=''
-	local DPKG='' DPKG_EVAL=''
-	local EMERGE='' EMERGE_EVAL=''
-	local EOPKG='' SOLUS=''
-	local FLATPAK='' FLATPAK_REPO=''
-	local GEM='' RUBY='' GEM_EVAL='' GEM_VERSION=''
-	local GO=''
-	local GUIX=''
-	local HUBER=''
-	local NIX=''
-	local NPM='' NODE='' NPM_EVAL='' NPM_FORCE=''
-	local PACMAN=''
-	local PIPX='' PIP='' PYTHON='' PIP_EVAL=''
-	local PKG=''
-	local PKGADD=''
-	local PKGIN=''
-	local PKGMAN=''
-	local PKGUTIL=''
-	local PORT=''
-	local RPM=''
-	local SCOOP=''
-	local SNAP='' SNAP_CHANNEL=''
-	local STACK=''
-	local WINGET=''
-	local XBPS='' VOID=''
-	local YUM='' YUM_REPO='' YUM_EVAL=''
-	local ZYPPER='' ZYPPER_EVAL='' ZYPPER_REPO='' ZYPPER_REPO_ALIAS=''
-	local INSTALLER='' INSTALLER_FILENAME='' INSTALLER_OPEN=''
+	local APK=() ALPINE=()
+	local APT=() DEBIAN=() APT_REPO='' APT_KEY='' APT_ID=''
+	local AUR=() ARCH=()
+	local AURUTILS=()
+	local BREW=() BREW_TAP=()
+	local BSD=()
+	local CABAL=()
+	local CARGO=() RUST=()
+	local CASK=() CASK_TAP=()
+	local CHOCO=()
+	local CONDA=() CONDA_CHANNEL=''
+	local DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
 	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_UNZIP_FORMAT='' DOWNLOAD_UNZIP_FILTER=''
+	local DPKG=()
+	local EMERGE=() EMERGE_REPO=()
+	local EOPKG=() SOLUS=()
+	local FLATPAK=() FLATPAK_REPO=()
+	local GEM=() RUBY=()
 	local GITHUB_SLUG='' GITHUB_FILENAME='' GITHUB_REF='' GITHUB_RELEASE='' GITHUB_PATHNAME='' GITHUB_ASSET_FILTER='' GITHUB_UNZIP_FORMAT='' GITHUB_UNZIP_FILTER=''
+	local GO=()
+	local GUIX=()
+	local INSTALLER='' INSTALLER_FILENAME='' INSTALLER_OPEN=''
+	local NIX=()
+	local NPM=() NODE=()
+	local PACMAN=()
+	local PAKKU=()
+	local PAMAC=()
+	local PARU=()
+	local PIPX=() PIP=() PYTHON=()
+	local PKG=()
+	local PKGADD=()
+	local PKGIN=()
+	local PORT=()
+	local RPM=()
+	local SCOOP=()
+	local SNAP=() SNAP_CHANNEL=''
+	local URPMI=() MAGEIA=()
+	local WINGET=()
+	local XBPS=() VOID=()
+	local YAY=()
+	local YUM=() YUM_REPO=()
+	local ZYPPER=() ZYPPER_REPO='' ZYPPER_REPO_ALIAS=''
 
 	# process
-	local item app='' cli='' name='' quiet confirm='no' optional='no' fallback='yes' upgrade='no' force='no' uninstall='no' order=()
+	local item installer='' app='' cli='' name='' quiet confirm='no' optional='no' fallback='yes' upgrade='no' force='no' uninstall='no' order=()
 	quiet="$(echo-quiet -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--app='*) app="${item:6}" ;;
-		'--cli='*) cli="${item:6}" ;;
-		'--name='*) name="${item:7}" ;;
+		'--order=*') mapfile -t order < <(echo-split ' ' -- "${item#--order=}") ;;
+		'--installer='*) installer="${item#--installer=}" ;;
+		'--app='*) app="${item#--app=}" ;;
+		'--cli='*) cli="${item#--cli=}" ;;
+		'--name='*) name="${item#--name=}" ;;
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
 		'--no-confirm'* | '--confirm'*)
 			confirm="$(
@@ -235,104 +260,108 @@ function setup-util() (
 			)"
 			;;
 		'--')
-			order+=("$@")
-			shift $#
-			break
+			if test -z "$installer"; then
+				help "--installer=<installer> is required when using -- <...packages>"
+			fi
+			if test -z "$name"; then
+				name="$installer:$*"
+			fi
+			if test "$#" -eq 0; then
+				return 0  # no packages to install
+			fi
+			while test "$#" -ne 0; do
+				if [[ $1 = *"="* ]]; then
+					break
+				fi
+				set -- "$@" "$installer=$1"
+				shift
+			done
+			continue
 			;;
 
 			# installer options
-		'APK='*) APK="${item#*APK=}" ;;
-		'ALPINE='*) ALPINE="${item#*ALPINE=}" ;;
-		'APT_EVAL='*) APT_EVAL="${item#*APT_EVAL=}" ;;
+		'ALPINE='*) ALPINE+=("${item#*ALPINE=}") ;;
+		'APK='*) APK+=("${item#*APK=}") ;;
 		'APT_ID='*) APT_ID="${item#*APT_ID=}" ;;
 		'APT_KEY='*) APT_KEY="${item#*APT_KEY=}" ;;
 		'APT_REPO='*) APT_REPO="${item#*APT_REPO=}" ;;
-		'APT='*) APT="${item#*APT=}" ;;
-		'ARCH='*) ARCH="${item#*ARCH=}" ;;
-		'AUR='*) AUR="${item#*AUR=}" ;;
-		'AURUTILS='*) AURUTILS="${item#*AURUTILS=}" ;;
-		'BREW_TAP='*) BREW_TAP="${item#*BREW_TAP=}" ;;
-		'BREW='*) BREW="${item#*BREW=}" ;;
-		'CABAL='*) CABAL="${item#*CABAL=}" ;;
-		'CARGO='*) CARGO="${item#*CARGO=}" ;;
-		'CASK_TAP='*) CASK_TAP="${item#*CASK_TAP=}" ;;
-		'CASK='*) CASK="${item#*CASK=}" ;;
-		'CHOCO='*) CHOCO="${item#*CHOCO=}" ;;
+		'APT='*) APT+=("${item#*APT=}") ;;
+		'ARCH='*) ARCH+=("${item#*ARCH=}") ;;
+		'AUR='*) AUR+=("${item#*AUR=}") ;;
+		'AURUTILS='*) AURUTILS+=("${item#*AURUTILS=}") ;;
+		'BREW_TAP='*) BREW_TAP+=("${item#*BREW_TAP=}") ;;
+		'BREW='*) BREW+=("${item#*BREW=}") ;;
+		'BSD='*) BSD+=("${item#*BSD=}") ;;
+		'CABAL='*) CABAL+=("${item#*CABAL=}") ;;
+		'CARGO='*) CARGO+=("${item#*CARGO=}") ;;
+		'CASK_TAP='*) CASK_TAP+=("${item#*CASK_TAP=}") ;;
+		'CASK='*) CASK+=("${item#*CASK=}") ;;
+		'CHOCO='*) CHOCO+=("${item#*CHOCO=}") ;;
 		'CONDA_CHANNEL='*) CONDA_CHANNEL="${item#*CONDA_CHANNEL=}" ;;
-		'CONDA='*) CONDA="${item#*CONDA=}" ;;
-		'DEBIAN='*) DEBIAN="${item#*DEBIAN=}" ;;
-		'DNF_COPR='*) DNF_COPR="${item#*DNF_COPR=}" ;;
-		'DNF_EVAL='*) DNF_EVAL="${item#*DNF_EVAL=}" ;;
-		'DNF_REPO='*) DNF_REPO="${item#*DNF_REPO=}" ;;
-		'DNF='*) DNF="${item#*DNF=}" ;;
-		'DOAS='*) DOAS="${item#*DOAS=}" ;;
-		'DPKG_EVAL='*) DPKG_EVAL="${item#*DPKG_EVAL=}" ;;
-		'DPKG='*) DPKG="${item#*DPKG=}" ;;
-		'EMERGE_EVAL='*) EMERGE_EVAL="${item#*EMERGE_EVAL=}" ;;
-		'EMERGE='*) EMERGE="${item#*EMERGE=}" ;;
-		'EOPKG='*) EOPKG="${item#*EOPKG=}" ;;
-		'FLATPAK_REPO='*) FLATPAK_REPO="${item#*FLATPAK_REPO=}" ;;
-		'FLATPAK='*) FLATPAK="${item#*FLATPAK=}" ;;
-		'GEM_EVAL='*) GEM_EVAL="${item#*GEM_EVAL=}" ;;
-		'GEM_VERSION='*) GEM_VERSION="${item#*GEM_VERSION=}" ;;
-		'GEM='*) GEM="${item#*GEM=}" ;;
-		'GO='*) GO="${item#*GO=}" ;;
-		'GUIX='*) GUIX="${item#*GUIX=}" ;;
-		'HUBER='*) HUBER="${item#*HUBER=}" ;;
-		'NIX='*) NIX="${item#*NIX=}" ;;
-		'NODE='*) NODE="${item#*NODE=}" ;;
-		'NPM_EVAL='*) NPM_EVAL="${item#*NPM_EVAL=}" ;;
-		'NPM_FORCE='*) NPM_FORCE="${item#*NPM_FORCE=}" ;;
-		'NPM='*) NPM="${item#*NPM=}" ;;
-		'PACMAN='*) PACMAN="${item#*PACMAN=}" ;;
-		'PAKKU='*) PAKKU="${item#*PAKKU=}" ;;
-		'PAMAC='*) PAMAC="${item#*PAMAC=}" ;;
-		'PARU='*) PARU="${item#*PARU=}" ;;
-		'PIP_EVAL='*) PIP_EVAL="${item#*PIP_EVAL=}" ;;
-		'PIP='*) PIP="${item#*PIP=}" ;;
-		'PIPX='*) PIPX="${item#*PIPX=}" ;;
-		'PKG='*) PKG="${item#*PKG=}" ;;
-		'PKGADD='*) PKGADD="${item#*PKGADD=}" ;;
-		'PKGIN='*) PKGIN="${item#*PKGIN=}" ;;
-		'PKGMAN='*) PKGMAN="${item#*PKGMAN=}" ;;
-		'PKGUTIL='*) PKGUTIL="${item#*PKGUTIL=}" ;;
-		'PORT='*) PORT="${item#*PORT=}" ;;
-		'PYTHON='*) PYTHON="${item#*PYTHON=}" ;;
-		'RPM='*) RPM="${item#*RPM=}" ;;
-		'RUBY='*) RUBY="${item#*RUBY=}" ;;
-		'RUST='*) RUST="${item#*RUST=}" ;;
-		'SCOOP='*) SCOOP="${item#*SCOOP=}" ;;
-		'SNAP_CHANNEL='*) SNAP_CHANNEL="${item#*SNAP_CHANNEL=}" ;;
-		'SNAP='*) SNAP="${item#*SNAP=}" ;;
-		'SOLUS='*) SOLUS="${item#*SOLUS=}" ;;
-		'STACK='*) STACK="${item#*STACK=}" ;;
-		'VOID='*) VOID="${item#*VOID=}" ;;
-		'WINGET='*) WINGET="${item#*WINGET=}" ;;
-		'XBPS='*) XBPS="${item#*XBPS=}" ;;
-		'YAY='*) YAY="${item#*YAY=}" ;;
-		'YUM_EVAL='*) YUM_EVAL="${item#*YUM_EVAL=}" ;;
-		'YUM_REPO='*) YUM_REPO="${item#*YUM_REPO=}" ;;
-		'YUM='*) YUM="${item#*YUM=}" ;;
-		'ZYPPER_EVAL='*) ZYPPER_EVAL="${item#*ZYPPER_EVAL=}" ;;
-		'ZYPPER_REPO='*) ZYPPER_REPO="${item#*ZYPPER_REPO=}" ;;
-		'ZYPPER_REPO_ALIAS='*) ZYPPER_REPO_ALIAS="${item#*ZYPPER_REPO_ALIAS=}" ;;
-		'ZYPPER='*) ZYPPER="${item#*ZYPPER=}" ;;
-		'INSTALLER='*) INSTALLER="${item#*INSTALLER=}" ;;
-		'INSTALLER_FILENAME='*) INSTALLER_FILENAME="${item#*INSTALLER_FILENAME=}" ;;
-		'INSTALLER_OPEN='*) INSTALLER_OPEN="${item#*INSTALLER_OPEN=}" ;;
-		'DOWNLOAD='*) DOWNLOAD="${item#*DOWNLOAD=}" ;;
+		'CONDA='*) CONDA+=("${item#*CONDA=}") ;;
+		'DEBIAN='*) DEBIAN+=("${item#*DEBIAN=}") ;;
+		'DNF_COPR='*) DNF_COPR+=("${item#*DNF_COPR=}") ;;
+		'DNF_GROUP='*) DNF_GROUP+=("${item#*DNF_GROUP=}") ;;
+		'DNF_REPO='*) DNF_REPO+=("${item#*DNF_REPO=}") ;;
+		'DNF='*) DNF+=("${item#*DNF=}") ;;
 		'DOWNLOAD_FILENAME='*) DOWNLOAD_FILENAME="${item#*DOWNLOAD_FILENAME=}" ;;
-		'DOWNLOAD_UNZIP_FORMAT='*) DOWNLOAD_UNZIP_FORMAT="${item#*DOWNLOAD_UNZIP_FORMAT=}" ;;
 		'DOWNLOAD_UNZIP_FILTER='*) DOWNLOAD_UNZIP_FILTER="${item#*DOWNLOAD_UNZIP_FILTER=}" ;;
-		'GITHUB_SLUG='*) GITHUB_SLUG="${item#*GITHUB_SLUG=}" ;;
+		'DOWNLOAD_UNZIP_FORMAT='*) DOWNLOAD_UNZIP_FORMAT="${item#*DOWNLOAD_UNZIP_FORMAT=}" ;;
+		'DOWNLOAD='*) DOWNLOAD="${item#*DOWNLOAD=}" ;;
+		'DPKG='*) DPKG+=("${item#*DPKG=}") ;;
+		'EMERGE_REPO='*) EMERGE+=("${item#*EMERGE_REPO=}") ;;
+		'EMERGE='*) EMERGE+=("${item#*EMERGE=}") ;;
+		'EOPKG='*) EOPKG+=("${item#*EOPKG=}") ;;
+		'FLATPAK_REPO='*) FLATPAK_REPO+=("${item#*FLATPAK_REPO=}") ;;
+		'FLATPAK='*) FLATPAK+=("${item#*FLATPAK=}") ;;
+		'GEM='*) GEM+=("${item#*GEM=}") ;;
+		'GITHUB_ASSET_FILTER='*) GITHUB_ASSET_FILTER="${item#*GITHUB_ASSET_FILTER=}" ;;
+		'GITHUB_FILENAME='*) GITHUB_FILENAME="${item#*GITHUB_FILENAME=}" ;;
+		'GITHUB_PATHNAME='*) GITHUB_PATHNAME="${item#*GITHUB_PATHNAME=}" ;;
 		'GITHUB_REF='*) GITHUB_REF="${item#*GITHUB_REF=}" ;;
 		'GITHUB_RELEASE='*) GITHUB_RELEASE="${item#*GITHUB_RELEASE=}" ;;
-		'GITHUB_PATHNAME='*) GITHUB_PATHNAME="${item#*GITHUB_PATHNAME=}" ;;
-		'GITHUB_ASSET_FILTER='*) GITHUB_ASSET_FILTER="${item#*GITHUB_ASSET_FILTER=}" ;;
-		'GITHUB_UNZIP_FORMAT='*) GITHUB_UNZIP_FORMAT="${item#*GITHUB_UNZIP_FORMAT=}" ;;
+		'GITHUB_SLUG='*) GITHUB_SLUG="${item#*GITHUB_SLUG=}" ;;
 		'GITHUB_UNZIP_FILTER='*) GITHUB_UNZIP_FILTER="${item#*GITHUB_UNZIP_FILTER=}" ;;
-		'GITHUB_FILENAME='*) GITHUB_FILENAME="${item#*GITHUB_FILENAME=}" ;;
-		*) ;; # passively ignore, could be custom arg, such as --paths for setup-util-plex
+		'GITHUB_UNZIP_FORMAT='*) GITHUB_UNZIP_FORMAT="${item#*GITHUB_UNZIP_FORMAT=}" ;;
+		'GO='*) GO+=("${item#*GO=}") ;;
+		'GUIX='*) GUIX+=("${item#*GUIX=}") ;;
+		'INSTALLER_FILENAME='*) INSTALLER_FILENAME="${item#*INSTALLER_FILENAME=}" ;;
+		'INSTALLER_OPEN='*) INSTALLER_OPEN="${item#*INSTALLER_OPEN=}" ;;
+		'INSTALLER='*) INSTALLER="${item#*INSTALLER=}" ;;
+		'MAGEIA='*) MAGEIA+=("${item#*MAGEIA=}") ;;
+		'NIX='*) NIX+=("${item#*NIX=}") ;;
+		'NODE='*) NODE+=("${item#*NODE=}") ;;
+		'NPM='*) NPM+=("${item#*NPM=}") ;;
+		'PACMAN='*) PACMAN+=("${item#*PACMAN=}") ;;
+		'PAKKU='*) PAKKU+=("${item#*PAKKU=}") ;;
+		'PAMAC='*) PAMAC+=("${item#*PAMAC=}") ;;
+		'PARU='*) PARU+=("${item#*PARU=}") ;;
+		'PIP='*) PIP+=("${item#*PIP=}") ;;
+		'PIPX='*) PIPX+=("${item#*PIPX=}") ;;
+		'PKG='*) PKG+=("${item#*PKG=}") ;;
+		'PKGADD='*) PKGADD+=("${item#*PKGADD=}") ;;
+		'PKGIN='*) PKGIN+=("${item#*PKGIN=}") ;;
+		'PORT='*) PORT+=("${item#*PORT=}") ;;
+		'PYTHON='*) PYTHON+=("${item#*PYTHON=}") ;;
+		'RPM='*) RPM+=("${item#*RPM=}") ;;
+		'RUBY='*) RUBY+=("${item#*RUBY=}") ;;
+		'RUST='*) RUST+=("${item#*RUST=}") ;;
+		'SCOOP='*) SCOOP+=("${item#*SCOOP=}") ;;
+		'SNAP_CHANNEL='*) SNAP_CHANNEL="${item#*SNAP_CHANNEL=}" ;;
+		'SNAP='*) SNAP+=("${item#*SNAP=}") ;;
+		'SOLUS='*) SOLUS+=("${item#*SOLUS=}") ;;
+		'URPMI='*) URPMI+=("${item#*URPMI=}") ;;
+		'VOID='*) VOID+=("${item#*VOID=}") ;;
+		'WINGET='*) WINGET+=("${item#*WINGET=}") ;;
+		'XBPS='*) XBPS+=("${item#*XBPS=}") ;;
+		'YAY='*) YAY+=("${item#*YAY=}") ;;
+		'YUM_REPO='*) YUM_REPO+=("${item#*YUM_REPO=}") ;;
+		'YUM='*) YUM+=("${item#*YUM=}") ;;
+		'ZYPPER_REPO_ALIAS='*) ZYPPER_REPO_ALIAS="${item#*ZYPPER_REPO_ALIAS=}" ;;
+		'ZYPPER_REPO='*) ZYPPER_REPO="${item#*ZYPPER_REPO=}" ;;
+		'ZYPPER='*) ZYPPER+=("${item#*ZYPPER=}") ;;
+		'--'*) ;; # passively ignore, could be custom arg, such as --paths for setup-util-plex
+		*) help "An unrecognised flag was provided: $item" ;;
 		esac
 	done
 
@@ -342,6 +371,9 @@ function setup-util() (
 	fi
 	if test -z "$name" -a -n "$app"; then
 		name="$app"
+	fi
+	if test -z "$name" -a -n "$installer"; then
+		name="$installer"
 	fi
 	if test -z "$name"; then
 		echo-style --error="Either <name>, <cli>, <app> must be provided. See [$0 --help] for usage." >/dev/stderr
@@ -473,120 +505,188 @@ function setup-util() (
 
 	# brew / Homebrew / macOS
 	function do_brew {
-		local args=() pkgs=() pkg="$BREW" tap="$BREW_TAP"
-
-		# check applicabile
-		if test -n "$pkg"; then
-			# check possible
-			if ! is-brew; then
-				# not possible, but can be fallen back to if mac
-				if is-mac; then
-					fallbacks+=('brew')
-				fi
-				return 1
-			fi
-
-			# univeral args
-			if test "$quiet" != 'no'; then
-				args+=('--quiet')
-			fi
-
-			# perform tap
-			if test -n "$tap"; then
-				eval-helper --quiet="$quiet" -- brew tap "${args[@]}" "$tap"
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# action args
-			if test "$force" = 'yes'; then
-				args+=('--force')
-			fi
-			if test "$uninstall" = 'yes'; then
-				if brew-installed --formula -- "${pkgs[@]}"; then
-					args=('uninstall' "${args[@]}" "${pkgs[@]}")
-				else
-					# already uninstalled
-					return 0
-				fi
-			else
-				# install/upgrade
-				args=('install' "${args[@]}" "${pkgs[@]}")
-			fi
-
-			# perform action
-			eval-helper --quiet="$quiet" -- brew "${args[@]}"
-		else
-			return 1
+		local args=() opts=() packages=() taps=() __tap
+		if test "${#BREW[@]}" -ne 0; then
+			packages+=("${BREW[@]}")
 		fi
+		if test "${#BREW_TAP[@]}" -ne 0; then
+			taps+=("${BREW_TAP[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if ! is-mac; then
+			return 1 # not applicable
+		fi
+		if ! is-brew; then
+			fallbacks+=('brew')
+			return 1 # required fallback
+		fi
+
+		# opts
+		if test "$quiet" != 'no'; then
+			opts+=('--quiet')
+		fi
+
+		# taps
+		for __tap in "${taps[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				brew tap "${opts[@]}" "$__tap"
+		done
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			if brew-installed --formula -- "${pkg[@]}"; then
+				args+=(
+					'brew'
+					'uninstall'
+				)
+			else
+				return 0 # already uninstalled
+			fi
+		else
+			# install / upgrade
+			args+=(
+				'brew'
+				'install'
+			)
+		fi
+		if test "$force" = 'yes'; then
+			args+=('--force')
+		fi
+		args+=("${opts[@]}")
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 	function do_brew_fallback {
+		if ! is-mac; then
+			return 1 # not applicable
+		fi
 		setup-mac-brew install # don't do --configure, as setup-util should be as automated as possible
 		source "$DOROTHY/sources/environment.sh"
 		do_brew "$@"
 	}
 
 	# brew / Homebrew Casks / macOS
+	# some packages are available as both brew, and cask
+	# ... so provide both independently as they are alternatives
 	function do_cask {
-		local args=() pkgs=() pkg="$CASK" tap="$CASK_TAP"
-
-		# check applicable
-		if test -n "$pkg"; then
-			# check possible
-			if ! is-brew; then
-				# not possible, but can be fallen back to if mac
-				if is-mac; then
-					fallbacks+=('cask')
-				fi
-				return 1
-			fi
-
-			# univeral args
-			if test "$quiet" != 'no'; then
-				args+=('--quiet')
-			fi
-
-			# perform tap
-			if test -n "$tap"; then
-				eval-helper --quiet="$quiet" -- brew tap "${args[@]}" "$tap"
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# action args
-			args+=('--cask')
-			if test "$force" = 'yes'; then
-				args+=('--force')
-			fi
-			if test "$uninstall" = 'yes'; then
-				if brew-installed --cask -- "${pkgs[@]}"; then
-					args=('uninstall' "${args[@]}" "${pkgs[@]}")
-				else
-					# already uninstalled
-					return 0
-				fi
-			else
-				# install/upgrade
-				args=('install' "${args[@]}" "${pkgs[@]}")
-			fi
-
-			# perform action
-			eval-helper --quiet="$quiet" -- brew "${args[@]}"
-		else
-			# not applicable
-			return 1
+		local args=() opts=() packages=() taps=() __tap
+		if test "${#BREW[@]}" -ne 0; then
+			packages+=("${BREW[@]}")
 		fi
+		if test "${#BREW_TAP[@]}" -ne 0; then
+			taps+=("${BREW_TAP[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if ! is-mac; then
+			return 1 # not applicable
+		fi
+		if ! is-brew; then
+			fallbacks+=('cask')
+			return 1 # required fallback
+		fi
+
+		# opts
+		if test "$quiet" != 'no'; then
+			opts+=('--quiet')
+		fi
+
+		# taps
+		for __tap in "${taps[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				brew tap "${opts[@]}" "$__tap"
+		done
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			if brew-installed --formula -- "${pkg[@]}"; then
+				args+=(
+					'brew'
+					'uninstall'
+				)
+			else
+				return 0 # already uninstalled
+			fi
+		else
+			# install / upgrade
+			args+=(
+				'brew'
+				'install'
+			)
+		fi
+		if test "$force" = 'yes'; then
+			args+=('--force')
+		fi
+		args+=(
+			'--cask'
+			"${opts[@]}"
+		)
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 	function do_cask_fallback {
+		if ! is-mac; then
+			return 1 # not applicable
+		fi
 		setup-mac-brew install # don't do --configure, as setup-util should be as automated as possible
 		source "$DOROTHY/sources/environment.sh"
 		do_cask "$@"
 	}
 
 	# -------------------------------------
-	# AUR
+	# Alpine
+
+	# apk / Alpine Linux
+	# https://wiki.alpinelinux.org/wiki/Package_management
+	function do_apk {
+		local args=() packages=()
+		if test "${#APK[@]}" -ne 0; then
+			packages+=("${APK[@]}")
+		elif test "${#ALPINE[@]}" -ne 0; then
+			packages+=("${ALPINE[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing apk; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'apk'
+				'del'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'apk'
+				'add'
+			)
+		fi
+		args+=('--update-cache')
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
+	}
+
+	# -------------------------------------
+	# Arch
 
 	# To determine which aur handler to use
 	# Search https://archlinux.org/packages/
@@ -605,50 +705,59 @@ function setup-util() (
 
 	# pamac / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
+	# https://linuxcommandlibrary.com/man/pamac
+	# sudo with pamac avoids gui sudo prompt
 	function do_pamac {
-		local args=() pkgs=() pkg="${PAMAC:-"${AUR:-"$ARCH"}"}"
-
-		# check applicabile
-		if test -n "$pkg"; then
-			# fallback case
-			if command-missing pamac; then
-				fallbacks+=('pamac')
-				return 1
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				# remove
-				args+=('remove')
-			else
-				if test "$force" = 'yes'; then
-					# force
-					args+=('reinstall')
-				else
-					# upgrade/install
-					args+=('install')
-				fi
-				# without [--no-upgrade] pamac upgrades everything on the system, which can be over 40GB on initial upgrades
-				args+=('--no-upgrade')
-			fi
-
-			# universal args
-			args+=('--no-confirm')
-
-			# action
-			eval-helper --quiet="$quiet" -- sudo pamac "${args[@]}" "${pkgs[@]}"
-			# ^ sudo with pamac avoids gui sudo prompt
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#PAMAC[@]}" -ne 0; then
+			packages+=("${PAMAC[@]}")
+		elif test "${#AUR[@]}" -ne 0; then
+			packages+=("${AUR[@]}")
+		elif test "${#ARCH[@]}" -ne 0; then
+			packages+=("${ARCH[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if common-missing pamac; then
+			fallbacks+=('pamac')
+			return 1 # required fallback
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'pamac'
+				'remove'
+			)
+		else
+			# install / reinstall / upgrade
+			if test "$force" = 'yes'; then
+				args+=(
+					'pamac'
+					'reinstall'
+				)
+			else
+				args+=(
+					'pamac'
+					'install'
+				)
+			fi
+
+			# without [--no-upgrade] pamac upgrades everything on the system, which can be over 40GB on initial upgrades
+			args+=('--no-upgrade')
+		fi
+		args+=('--no-confirm')
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 	function do_pamac_fallback {
 		if ! is-manjaro; then
-			return 1
+			return 1 # not applicable
 		fi
 		setup-util-pamac
 		do_pamac "$@"
@@ -656,122 +765,241 @@ function setup-util() (
 
 	# pacman / Arch Linux / Manjaro
 	function do_pacman {
-		local args=() pkg="${PACMAN:-"${AUR:-"$ARCH"}"}"
+		local opts=() args=() packages=()
+		if test "${#PACMAN[@]}" -ne 0; then
+			packages=("${PACMAN[@]}")
+		elif test "${#AUR[@]}" -ne 0; then
+			packages=("${AUR[@]}")
+		elif test "${#ARCH[@]}" -ne 0; then
+			packages=("${ARCH[@]}")
+		fi
 
-		# check applicabile and possible
-		if test -n "$pkg" && command-exists pacman; then
-			# --noconfirm
-			#   Bypass any and all “Are you sure?” messages. It’s not a good idea to do this unless you want to run pacman from a script.
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing pacman; then
+			return 1 # not applicable
+		fi
 
-			# -q, --quiet
-			#   Show less information for certain query operations.
+		# --noconfirm
+		#   Bypass any and all “Are you sure?” messages. It’s not a good idea to do this unless you want to run pacman from a script.
 
-			# -y, --refresh
-			#   Download fresh package databases from the server. Use twice to force a refresh even if databases are up to date.
+		# -q, --quiet
+		#   Show less information for certain query operations.
 
-			# -S, --sync
-			#   Synchronize packages. Packages are installed directly from the remote repositories, including all dependencies required to run the packages.
+		# -y, --refresh
+		#   Download fresh package databases from the server. Use twice to force a refresh even if databases are up to date.
 
-			# -R, --remove
-			#   Either a URL or file path can be specified. This is a “remove-then-add” process.
+		# -S, --sync
+		#   Synchronize packages. Packages are installed directly from the remote repositories, including all dependencies required to run the packages.
 
-			# --needed
-			#   Do not reinstall the targets that are already up-to-date.
+		# -R, --remove
+		#   Either a URL or file path can be specified. This is a “remove-then-add” process.
 
-			#  -U, --upgrade
-			#   Upgrade or add package(s) to the system and install the required dependencies from sync repositories.
+		# --needed
+		#   Do not reinstall the targets that are already up-to-date.
 
-			# prepare args
-			args+=('--noconfirm')
-			if test "$quiet" != 'no'; then
-				args+=('--quiet')
-			fi
+		#  -U, --upgrade
+		#   Upgrade or add package(s) to the system and install the required dependencies from sync repositories.
 
-			# init the local database
-			# this is needed on systems which pacman was installed
+		# init the local database
+		eval-helper --quiet="$quiet" -- \
 			sudo pacman-key --init
 
-			# refresh the local database
-			sudo pacman "${args[@]}" --refresh --sync
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				# remove
-				args+=('--remove')
-			elif test "$upgrade" = 'yes'; then
-				# upgrade
-				args+=('--upgrade' '--needed')
-			else
-				# install
-				args+=('--sync' '--needed')
-			fi
-
-			# action
-			eval-helper --quiet="$quiet" -- sudo pacman "${args[@]}" "$pkg"
-		else
-			# not needed
-			return 1
+		# opts
+		if test "$quiet" != 'no'; then
+			opts+=('--quiet')
 		fi
+		opts+=('--noconfirm')
+
+		# refresh the local database
+		eval-helper --quiet="$quiet" -- \
+			sudo pacman "${opts[@]}" --refresh --sync
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'pacman'
+				'--remove'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'pacman'
+				'--upgrade'
+				'--needed'
+			)
+		else
+			args+=(
+				'pacman'
+				'--sync'
+				'--needed'
+			)
+		fi
+		args+=("${opts[@]}")
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# yay / AUR / Arch Linux
 	# https://github.com/Jguer/yay
 	function do_yay {
-		local pkg="${YAY:-"${AUR:-"$ARCH"}"}"
-
-		# check applicabile and possible
-		if test -n "$pkg" && command-exists yay; then
-			# package case
-			eval-helper --quiet="$quiet" -- yay -Sy "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=() __package
+		if test "${#YAY[@]}" -ne 0; then
+			packages+=("${YAY[@]}")
+		elif test "${#AUR[@]}" -ne 0; then
+			packages+=("${AUR[@]}")
+		elif test "${#ARCH[@]}" -ne 0; then
+			packages+=("${ARCH[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing yay; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		else
+			# install / upgrade
+			args+=(
+				'yay'
+				'-Sy'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 
 	# paru / AUR / Arch Linux
 	# https://itsfoss.com/paru-aur-helper/
+	# https://github.com/Morganamilo/paru
 	function do_paru {
-		local pkg="${PARU:-"${AUR:-"$ARCH"}"}"
-
-		# check applicabile and possible
-		if test -n "$pkg" && command-exists paru; then
-			# package case
-			eval-helper --quiet="$quiet" -- paru -Sy "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=() __package
+		if test "${#PARU[@]}" -ne 0; then
+			packages+=("${PARU[@]}")
+		elif test "${#AUR[@]}" -ne 0; then
+			packages+=("${AUR[@]}")
+		elif test "${#ARCH[@]}" -ne 0; then
+			packages+=("${ARCH[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing paru; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'paru'
+				'-Sua'
+			)
+		else
+			args+=(
+				'paru'
+				'-Sy'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 
 	# pakku / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
+	# https://github.com/kitsunyan/pakku
 	function do_pakku {
-		local pkg="${PAKKU:-"${AUR:-"$ARCH"}"}"
-
-		# check applicabile and possible
-		if test -n "$pkg" && command-exists pakku; then
-			# package case
-			eval-helper --quiet="$quiet" -- pakku -Sy "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=() __package
+		if test "${#PAKKU[@]}" -ne 0; then
+			packages+=("${PAKKU[@]}")
+		elif test "${#AUR[@]}" -ne 0; then
+			packages+=("${AUR[@]}")
+		elif test "${#ARCH[@]}" -ne 0; then
+			packages+=("${ARCH[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing pakku; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		else
+			# install / upgrade
+			args+=(
+				'pakku'
+				'-Sy'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 
 	# aurutils / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
+	# https://github.com/AladW/aurutils
 	function do_aurutils {
-		local pkg="${AURUTILS:-"${AUR:-"$ARCH"}"}"
-
-		# check applicabile and possible
-		if test -n "$pkg" && command-exists aurutils; then
-			# package case
-			eval-helper --quiet="$quiet" -- aurutils -Sy "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=() __package
+		if test "${#AURUTILS[@]}" -ne 0; then
+			packages+=("${AURUTILS[@]}")
+		elif test "${#AUR[@]}" -ne 0; then
+			packages+=("${AUR[@]}")
+		elif test "${#ARCH[@]}" -ne 0; then
+			packages+=("${ARCH[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing aurutils; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		else
+			# install / upgrade
+			args+=(
+				'aurutils'
+				'-Sy'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 
 	# -------------------------------------
@@ -781,71 +1009,68 @@ function setup-util() (
 	# installs RPM files and remote YaST2 and RPM packages
 	# zypper needs sudo
 	# https://www.mankier.com/8/zypper
+	# https://www.mankier.com/8/zypper#Commands-Package_Management_Commands
 	# https://en.opensuse.org/Portal:Zypper
 	# https://documentation.suse.com/smart/linux/single-html/reference-zypper-install/index.html
 	# https://en.opensuse.org/Snap
 	function do_zypper {
-		local args=() pkgs=() pkg="${ZYPPER:-"$RPM"}" __eval="$ZYPPER_EVAL" repo="$ZYPPER_REPO" alias="$ZYPPER_REPO_ALIAS"
+		local opts=() args=() packages=() repo="$ZYPPER_REPO" alias="$ZYPPER_REPO_ALIAS"
 
-		# check applicable
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check possible
-			if ! command-exists zypper; then
-				# not possible
-				return 1
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				# prepare ZYPPER with ZYPPER_REPO
-				if test -n "$repo"; then
-					if test -n "$alias"; then
-						eval-helper --quiet="$quiet" -- \
-							sudo zypper --non-interactive --gpg-auto-import-keys \
-							addrepo --refresh "$repo" "$alias"
-						eval-helper --quiet="$quiet" -- \
-							sudo zypper --non-interactive --gpg-auto-import-keys \
-							dist-upgrade --auto-agree-with-licenses --no-confirm --from "$alias"
-					else
-						eval-helper --quiet="$quiet" -- \
-							sudo zypper --non-interactive --gpg-auto-import-keys \
-							addrepo --refresh "$repo"
-						eval-helper --quiet="$quiet" -- \
-							sudo zypper --non-interactive --gpg-auto-import-keys \
-							refresh
-					fi
-				fi
-
-				# action args
-				if test "$uninstall" = 'yes'; then
-					args+=('remove')
-				else
-					# upgrade/install
-					args+=('install')
-				fi
-
-				# univeral args
-				args+=('--no-confirm')
-
-				# action
-				# https://www.mankier.com/8/zypper#Commands-Package_Management_Commands
-				eval-helper --quiet="$quiet" -- \
-					sudo zypper --non-interactive --gpg-auto-import-keys \
-					"${args[@]}" "${pkgs[@]}"
-			fi
-		else
-			# not applicable
-			return 1
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
 		fi
+		if command-missing zypper; then
+			return 1 # not applicable
+		fi
+
+		# opts
+		opts=(
+			'--non-interactive'
+			'--gpg-auto-import-keys'
+		)
+
+		# repos
+		if test -n "$repo"; then
+			if test -n "$alias"; then
+				eval-helper --quiet="$quiet" -- \
+					sudo zypper "${opts[@]}" \
+					addrepo --refresh "$repo" "$alias"
+
+				eval-helper --quiet="$quiet" -- \
+					sudo zypper "${opts[@]}" \
+					dist-upgrade --auto-agree-with-licenses --no-confirm --from "$alias"
+			else
+				eval-helper --quiet="$quiet" -- \
+					sudo zypper "${opts[@]}" \
+					addrepo --refresh "$repo"
+
+				eval-helper --quiet="$quiet" -- \
+					sudo zypper "${opts[@]}" \
+					refresh
+			fi
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'zypper'
+				"${opts[@]}"
+				'remove'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'zypper'
+				"${opts[@]}"
+				'install'
+			)
+		fi
+		args+=('--no-confirm')
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# dnf / COPR / Fedora / CentOS / RHEL
@@ -856,39 +1081,86 @@ function setup-util() (
 	# https://opensource.com/article/18/8/guide-yum-dnf
 	# https://docs.fedoraproject.org/en-US/quick-docs/dnf/
 	function do_dnf {
-		local pkg="${DNF:-"$RPM"}" __eval="$DNF_EVAL" copr="$DNF_COPR" repo="$DNF_REPO"
+		local opts=() args=() packages=() groups=() copr=() repos=()
+		if test "${#DNF[@]}" -ne 0; then
+			packages+=("${DNF[@]}")
+		elif test "${#RPM[@]}" -ne 0; then
+			packages+=("${RPM[@]}")
+		fi
+		if test "${#DNF_GROUP[@]}" -ne 0; then
+			groups+=("${DNF_GROUP[@]}")
+		fi
+		if test "${#DNF_COPR[@]}" -ne 0; then
+			copr+=("${DNF_COPR[@]}")
+		fi
+		if test "${#DNF_REPO[@]}" -ne 0; then
+			repos+=("${DNF_REPO[@]}")
+		fi
 
-		# check applicable
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check possible
-			if ! command-exists dnf; then
-				# not possible
-				return 1
-			fi
+		# checks
+		if test "${#packages[@]}" -eq 0 -a "${#groups[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing dnf; then
+			return 1 # not applicable
+		fi
 
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
+		# opts
+		opts+=(
+			'-y'
+			'--best'
+			'--refresh'
+		)
+		if test "$quiet" != 'no'; then
+			opts+=('--quiet')
+		fi
 
-			# package case
-			if test -n "$pkg"; then
-				# prepare DNF with DNF_COPR
-				if test -n "$copr"; then
-					sudo dnf copr enable -y "$copr"
-				fi
+		# copr
+		if test -eq "${#copr[@]}" -ne 0; then
+			eval-helper --quiet="$quiet" -- \
+				sudo dnf "${opts[@]}" \
+				copr enable "${copr[@]}"
+		fi
 
-				# prepare DNF with DNF_REPO
-				if test -n "$repo"; then
-					sudo dnf config-manager -y --add-repo "$repo"
-				fi
+		# repos
+		if test -eq "${#repos[@]}" -ne 0; then
+			eval-helper --quiet="$quiet" -- \
+				sudo dnf "${opts[@]}" \
+				config-manager --add-repo "${repos[@]}"
+		fi
 
-				# install
-				eval-helper --quiet="$quiet" -- sudo dnf install -y "$pkg"
-			fi
+		# groups
+		if test -eq "${#groups[@]}" -ne 0; then
+			eval-helper --quiet="$quiet" -- \
+				sudo dnf "${opts[@]}" \
+				groupinstall "${groups[@]}"
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'dnf'
+				"${opts[@]}"
+				'remove'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'dnf'
+				"${opts[@]}"
+				'upgrade'
+			)
 		else
-			return 1
+			args+=(
+				'dnf'
+				"${opts[@]}"
+				'install'
+			)
+		fi
+
+		# packages
+		if test -eq "${#packages[@]}" -ne 0; then
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "${packages[@]}"
 		fi
 	}
 
@@ -896,120 +1168,122 @@ function setup-util() (
 	# installs RPM files and remote RPM packages
 	# predecessor to dnf (same api)
 	# uses rpm behind the scenes
+	# https://man7.org/linux/man-pages/man8/yum.8.html#COMMANDS
+	# autoremove                remove all unneeded packages that were originally installed as dependencies
+	# check-update              check for available package upgrades
+	# clean                     remove cached data
+	# distro-sync               synchronize installed packages to the latest available versions
+	# install                   install a package or packages on your system
+	# reinstall                 reinstall a package
+	# remove                    remove a package or packages from your system
+	# upgrade                   upgrade a package or packages on your system
+	# upgrade-minimal           upgrade, but only 'newest' package match which fixes a problem that affects your system
+	# -b, --best                try the best available package versions in transactions.
+	# -q, --quiet               quiet operation
+	# -y, --assumeyes           automatically answer yes for all questions
 	function do_yum {
-		local args=() pkgs=() pkg="${YUM:-"$RPM"}" repo="$YUM_REPO" __eval="$YUM_EVAL"
-
-		# check applicabile
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check relevancy
-			if ! command-exists yum; then
-				# not possible
-				return 1
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				# prepare YUM with YUM_REPO if relevant
-				if test -n "$repo"; then
-					down --directory='/etc/yum.repos.d/' "$repo"
-				fi
-
-				# autoremove                remove all unneeded packages that were originally installed as dependencies
-				# check-update              check for available package upgrades
-				# clean                     remove cached data
-				# distro-sync               synchronize installed packages to the latest available versions
-				# install                   install a package or packages on your system
-				# reinstall                 reinstall a package
-				# remove                    remove a package or packages from your system
-				# upgrade                   upgrade a package or packages on your system
-				# upgrade-minimal           upgrade, but only 'newest' package match which fixes a problem that affects your system
-
-				# -b, --best
-				#   try the best available package versions in transactions.
-
-				# -q, --quiet
-				#   quiet operation
-
-				# -y, --assumeyes
-				#   automatically answer yes for all questions
-
-				# action args
-				if test "$uninstall" = 'yes'; then
-					# remove
-					args+=('remove')
-				elif test "$upgrade" = 'yes'; then
-					# upgrade
-					args+=('upgrade')
-				else
-					# install
-					args+=('install')
-				fi
-
-				# univeral args
-				args+=('-y' '--best')
-				if test "$quiet" != 'no'; then
-					args+=('--quiet')
-				fi
-
-				# action
-				# https://man7.org/linux/man-pages/man8/yum.8.html#COMMANDS
-				eval-helper --quiet="$quiet" -- sudo yum "${args[@]}" "${pkgs[@]}"
-			fi
-		else
-			# not applicable
-			return 1
+		local opts=() args=() packages=() repos=() __repo
+		if test "${#YUM[@]}" -ne 0; then
+			packages+=("${YUM[@]}")
+		elif test "${#RPM[@]}" -ne 0; then
+			packages+=("${RPM[@]}")
 		fi
+		if test "${#YUM_REPO[@]}" -ne 0; then
+			repos+=("${YUM_REPO[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing yum; then
+			return 1 # not applicable
+		fi
+
+		# opts
+		opts+=(
+			'-y'
+			'--best'
+		)
+		if test "$quiet" != 'no'; then
+			opts+=('--quiet')
+		fi
+
+		# prepare YUM with YUM_REPO
+		for __repo in "${repos[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				down --directory='/etc/yum.repos.d/' "$__repo"
+		done
+
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'yum'
+				"${opts[@]}"
+				'remove'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'yum'
+				"${opts[@]}"
+				'upgrade'
+			)
+		else
+			args+=(
+				'yum'
+				"${opts[@]}"
+				'install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# rpm / RedHat / Fedora / CentOS / etc
 	# installs RPM files
 	function do_rpm {
-		local args=() pkg="$RPM"
-
-		# check applicable
-		if test -n "$pkg"; then
-			# check possible
-			if ! command-exists rpm; then
-				# not possible
-				return 1
-			fi
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				# remove
-				args+=('--erase')
-			elif test "$upgrade" = 'yes'; then
-				# upgrade
-				args+=('--upgrade')
-			else
-				# install
-				args+=('--install')
-			fi
-
-			# univeral args
-			if test "$quiet" != 'no'; then
-				args+=('--quiet')
-			fi
-
-			# package case
-			eval-helper --quiet="$quiet" -- sudo rpm "${args[@]}" "$pkg"
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#RPM[@]}" -ne 0; then
+			packages+=("${RPM[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing rpm; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'rpm'
+				'--erase'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'rpm'
+				'--upgrade'
+			)
+		else
+			args+=(
+				'rpm'
+				'--install'
+			)
+		fi
+		if test "$quiet" != 'no'; then
+			args+=('--quiet')
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# -------------------------------------
-	# DEB
+	# Debian
 
 	# apt / Ubuntu / Debian / Linux Mint / elementary OS / etc
 	# installs remote .deb packages
@@ -1026,385 +1300,493 @@ function setup-util() (
 		fi
 	}
 	function do_apt {
-		local args=() pkgs=() keyring='' pkg="${APT:-"$DEBIAN"}" repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" __eval="$APT_EVAL"
+		local args=() packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" __keyring=''
+		if test "${#APT[@]}" -ne 0; then
+			packages+=("${APT[@]}")
+		elif test "${#DEBIAN[@]}" -ne 0; then
+			packages+=("${DEBIAN[@]}")
+		fi
 
-		# check applicable
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check possible
-			if ! is-apt; then
-				# not possible
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing apt-get; then
+			return 1 # not applicable
+		fi
+
+		# if APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
+		if test -n "$repo" -o -n "$key"; then
+			if test -z "$id"; then
+				if test "${packages[@]}" -gt 1; then
+					cat <<-EOF >/dev/stderr
+						$(echo-style --error="If APT has multiple packages, then APT_ID must be specified.")
+
+						APT: $pkg
+						APT_KEY: $key
+						APT_REPO: $repo
+					EOF
+					return 1
+				fi
+			fi
+		fi
+
+		# ensure key has repo correctly set
+		if test -n "$key"; then
+			if test -z "$repo"; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --error="If APT_KEY is set, APT_REPO must also be set.")
+					APT: $pkg
+					APT_KEY: $key
+				EOF
 				return 1
 			fi
+			if [[ $repo != *'signed-by'* ]]; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --error="If APT_KEY is set, APT_REPO must contain:")
+					$(echo-style --code="deb [signed-by={KEY}] https://...")
 
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
+					APT: $pkg
+					APT_KEY: $key
+					APT_REPO: $repo
+				EOF
+				return 1
 			fi
-
-			# package case
-			if test -n "$pkg"; then
-				# support multiple pkgs
-				mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-				# if APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
-				if test -n "$repo" -o -n "$key"; then
-					if test -z "$id"; then
-						if [[ $pkg == *' '* ]]; then
-							cat <<-EOF >/dev/stderr
-								$(echo-style --error="If APT has multiple packages, then APT_ID must be specified.")
-
-								APT: $pkg
-								APT_KEY: $key
-								APT_REPO: $repo
-							EOF
-							return 1
-						fi
-					fi
-				fi
-
-				# ensure key has repo correctly set
-				if test -n "$key"; then
-					if test -z "$repo"; then
-						cat <<-EOF >/dev/stderr
-							$(echo-style --error="If APT_KEY is set, APT_REPO must also be set.")
-							APT: $pkg
-							APT_KEY: $key
-						EOF
-						return 1
-					fi
-					if [[ $repo != *'signed-by'* ]]; then
-						cat <<-EOF >/dev/stderr
-							$(echo-style --error="If APT_KEY is set, APT_REPO must contain:")
-							$(echo-style --code="deb [signed-by={KEY}] https://...")
-
-							APT: $pkg
-							APT_KEY: $key
-							APT_REPO: $repo
-						EOF
-						return 1
-					fi
-				fi
-
-				# ensure repo is correct
-				if test -n "$repo"; then
-					if [[ $repo != *'arch={ARCH}'* ]]; then
-						cat <<-EOF >/dev/stderr
-							$(echo-style --error="If APT_REPO is set, arch must be set to {ARCH}")
-							$(echo-style --code="deb [arch={ARCH}] https://...")
-
-							APT: $pkg
-							APT: $pkg
-							APT_REPO: $repo
-						EOF
-						return 1
-					fi
-					if [[ $repo != *'signed-by={KEY}'* ]]; then
-						cat <<-EOF >/dev/stderr
-							$(echo-style --error="If APT_REPO is set, signed-by must be set to {KEY}")
-							$(echo-style --code="deb [signed-by={KEY}] https://...")
-
-							APT: $pkg
-							APT_REPO: $repo
-						EOF
-						return 1
-					fi
-					if [[ $repo == *'http:'* ]]; then
-						# warn
-						cat <<-EOF >/dev/stderr
-							$(echo-style --notice="APT_REPO contained " --code="http:" --notice=" instead of " --code="https:" --notice=" this may be an oversight.")
-
-							APT_REPO: $repo
-						EOF
-					fi
-				fi
-
-				# prepare APT with APT_KEY
-				if test -n "$key"; then
-					# Deprecated technique is:
-					# fetch ... | sudo apt-key add -
-					# Modern and working technique is what we do below...
-					# which improves upon these incomplete and non-working suggestions:
-					# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
-					# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
-					# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
-					# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
-					# https://stackoverflow.com/a/69015383/130638
-					# https://askubuntu.com/a/1307181
-					# https://askubuntu.com/a/1306494
-
-					# prepare new location
-					sudo mkdir -p /usr/local/share/keyrings/
-					keyring="/usr/local/share/keyrings/$id.gpg"
-
-					# remove old keys
-					sudo rm -f /usr/local/share/keyrings/*"$id"*
-					sudo rm -f /etc/apt/trusted.gpg.d/*"$id"*
-
-					# helper for quiet output
-					function do_apt_key_add {
-						# fetch and convert format, then import with export into correct format
-						do_apt_key_fetch "$key" | sudo gpg \
-							--no-default-keyring \
-							--keyring="gnupg-ring:$keyring" \
-							--import # uses stdin
-						# [gnupg-ring:] prefix creates keyring in apt compatible (legacy) v4 format
-
-						# adjust permission to fix [_apt access error] on ubuntu 21.10
-						sudo chmod a+r "$keyring"
-					}
-					eval-helper --quiet="$quiet" -- do_apt_key_add
-				fi
-
-				# prepare APT with APT_REPO
-				if test -n "$repo"; then
-					# remove old listings
-					sudo rm -f /etc/apt/sources.list.d/*"$id"*
-
-					# add the repo with appropriate technique for the repo type
-					if [[ $repo == 'deb '* ]]; then
-						# adjust key modifier
-						repo="${repo/"{KEY}"/"$keyring"}"
-
-						# adjust arch modifier
-						repo="${repo/"{ARCH}"/"$(
-							dpkg --print-architecture
-						)"}"
-
-						# adjust release modifier
-						repo="${repo/"{RELEASE}"/"$(
-							lsb_release --codename --short
-						)"}"
-
-						# use a non-deprecated technique that supports the deb modifiers
-						echo "$repo" | sudo tee "/etc/apt/sources.list.d/$id.list" >/dev/null
-					else
-						# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
-						# however the alternative for `ppa:` and other syntax is too complicated
-						eval-helper --quiet="$quiet" -- sudo apt-add-repository -y --enable-source "$repo"
-					fi
-
-					# to debug:
-					# sudo apt-add-repository --list
-				fi
-
-				# if we added a new repo or key, we need to refresh the apt references
-				if test -n "$repo" -o -n "$key"; then
-					eval-helper --quiet="$quiet" -- sudo apt-get update -y
-				fi
-
-				# action args
-				if test "$uninstall" = 'yes'; then
-					args+=('remove' '-y' '--purge')
-				else
-					# install/upgrade
-					args+=('install' '-y' '--fix-broken')
-				fi
-
-				# action
-				eval-helper --quiet="$quiet" -- sudo apt-get "${args[@]}" "${pkgs[@]}"
-				# use `apt-get`, as `apt` produces this warning on Ubuntu 20.04.3 LTS
-				# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
-			fi
-		else
-			# not applicable
-			return 1
 		fi
+
+		# ensure repo is correct
+		if test -n "$repo"; then
+			if [[ $repo != *'arch={ARCH}'* ]]; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --error="If APT_REPO is set, arch must be set to {ARCH}")
+					$(echo-style --code="deb [arch={ARCH}] https://...")
+
+					APT: $pkg
+					APT: $pkg
+					APT_REPO: $repo
+				EOF
+				return 1
+			fi
+			if [[ $repo != *'signed-by={KEY}'* ]]; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --error="If APT_REPO is set, signed-by must be set to {KEY}")
+					$(echo-style --code="deb [signed-by={KEY}] https://...")
+
+					APT: $pkg
+					APT_REPO: $repo
+				EOF
+				return 1
+			fi
+			if [[ $repo == *'http:'* ]]; then
+				# warn
+				cat <<-EOF >/dev/stderr
+					$(echo-style --notice="APT_REPO contained " --code="http:" --notice=" instead of " --code="https:" --notice=" this may be an oversight.")
+
+					APT_REPO: $repo
+				EOF
+			fi
+		fi
+
+		# prepare APT with APT_KEY
+		if test -n "$key"; then
+			# Deprecated technique is:
+			# fetch ... | sudo apt-key add -
+			# Modern and working technique is what we do below...
+			# which improves upon these incomplete and non-working suggestions:
+			# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
+			# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
+			# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
+			# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
+			# https://stackoverflow.com/a/69015383/130638
+			# https://askubuntu.com/a/1307181
+			# https://askubuntu.com/a/1306494
+
+			# prepare new location
+			sudo mkdir -p /usr/local/share/keyrings/
+			keyring="/usr/local/share/keyrings/$id.gpg"
+
+			# remove old keys
+			sudo rm -f /usr/local/share/keyrings/*"$id"*
+			sudo rm -f /etc/apt/trusted.gpg.d/*"$id"*
+
+			# helper for quiet output
+			function do_apt_key_add {
+				# fetch and convert format, then import with export into correct format
+				do_apt_key_fetch "$key" | sudo gpg \
+					--no-default-keyring \
+					--keyring="gnupg-ring:$keyring" \
+					--import # uses stdin
+				# [gnupg-ring:] prefix creates keyring in apt compatible (legacy) v4 format
+
+				# adjust permission to fix [_apt access error] on ubuntu 21.10
+				sudo chmod a+r "$keyring"
+			}
+			eval-helper --quiet="$quiet" -- \
+				do_apt_key_add
+		fi
+
+		# prepare APT with APT_REPO
+		if test -n "$repo"; then
+			# remove old listings
+			sudo rm -f /etc/apt/sources.list.d/*"$id"*
+
+			# add the repo with appropriate technique for the repo type
+			if [[ $repo == 'deb '* ]]; then
+				# adjust key modifier
+				repo="${repo/"{KEY}"/"$keyring"}"
+
+				# adjust arch modifier
+				repo="${repo/"{ARCH}"/"$(
+					dpkg --print-architecture
+				)"}"
+
+				# adjust release modifier
+				repo="${repo/"{RELEASE}"/"$(
+					lsb_release --codename --short
+				)"}"
+
+				# use a non-deprecated technique that supports the deb modifiers
+				echo "$repo" | sudo tee "/etc/apt/sources.list.d/$id.list" >/dev/null
+			else
+				# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
+				# however the alternative for `ppa:` and other syntax is too complicated
+				eval-helper --quiet="$quiet" -- \
+					sudo apt-add-repository -y --enable-source "$repo"
+			fi
+
+			# to debug:
+			# sudo apt-add-repository --list
+		fi
+
+		# if we added a new repo or key, we need to refresh the apt references
+		if test -n "$repo" -o -n "$key"; then
+			eval-helper --quiet="$quiet" -- \
+				sudo apt-get update -y
+		fi
+
+		# action args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'apt-get'
+				'remove'
+				'-y'
+				'--purge'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'apt-get'
+				'install'
+				'-y'
+				'--fix-broken'
+			)
+		fi
+
+		# packages
+		# use `apt-get`, as `apt` produces this warning on Ubuntu 20.04.3 LTS
+		# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
 	# installs .deb files
 	function do_dpkg {
-		local pkg="$DPKG" __eval="$DPKG_EVAL"
-
-		# check applicable
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check possible
-			if ! command-exists dpkg; then
-				# not possible
-				return 1
-			fi
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				eval-helper --quiet="$quiet" -- sudo dpkg --install "$pkg"
-			fi
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#DPKG[@]}" -ne 0; then
+			packages+=("${DPKG[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing dpkg; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		else
+			# install / upgrade
+			args+=(
+				'dpkg'
+				'--install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# -------------------------------------
-	# SYSTEM
+	# Windows
 
-	# apk / Alpine Linux
-	# https://wiki.alpinelinux.org/wiki/Package_management
-	function do_apk {
-		local args=() pkgs=() pkg="${APK:-"$ALPINE"}"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists apk; then
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				args+=('del')
-			else
-				# upgrade/install
-				args+=('add')
-			fi
-
-			# univeral args
-			args+=('--update-cache')
-
-			# action
-			eval-helper --quiet="$quiet" -- apk "${args[@]}" "${pkgs[@]}"
-		else
-			# not needed
-			return 1
+	# scoop / Windows
+	# https://scoop.sh/
+	# https://github.com/ScoopInstaller/Scoop/wiki/Commands
+	# https://github.com/ScoopInstaller/Scoop/wiki/Example-Setup-Scripts
+	function do_scoop {
+		local args=() packages=()
+		if test "${#SCOOP[@]}" -ne 0; then
+			packages+=("${SCOOP[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing scoop; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'scoop'
+				'uninstall'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'scoop'
+				'update'
+			)
+		else
+			args+=(
+				'scoop'
+				'install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
+	}
+
+	# winget / Windows Package Manager Client
+	# https://docs.microsoft.com/en-us/windows/package-manager/winget/
+	# https://docs.microsoft.com/en-us/windows/package-manager/winget/install
+	function do_winget {
+		local args=() packages=()
+		if test "${#WINGET[@]}" -ne 0; then
+			packages+=("${WINGET[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing winget; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'winget'
+				'uninstall'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'winget'
+				'upgrade'
+			)
+		else
+			args+=(
+				'winget'
+				'install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# choco / Chocolatey / Windows
 	# https://docs.chocolatey.org/en-us/choco/setup
 	# https://docs.chocolatey.org/en-us/choco/commands/
 	# https://community.chocolatey.org/packages
+	# https://docs.chocolatey.org/en-us/choco/commands/uninstall
+	# https://docs.chocolatey.org/en-us/choco/commands/upgrade
+	# https://docs.chocolatey.org/en-us/choco/commands/install
 	function do_choco {
-		local args=() pkg="$CHOCO"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists choco; then
-			# univeral args
-			args+=('--accept-license')
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				# https://docs.chocolatey.org/en-us/choco/commands/uninstall
-				args+=('uninstall')
-			elif test "$upgrade" = 'yes'; then
-				# https://docs.chocolatey.org/en-us/choco/commands/upgrade
-				args+=('upgrade')
-			else
-				# https://docs.chocolatey.org/en-us/choco/commands/install
-				args+=('install')
-			fi
-
-			eval-helper --quiet="$quiet" -- choco "${args[@]}" "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=()
+		if test "${#CHOCO[@]}" -ne 0; then
+			packages+=("${CHOCO[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing choco; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'choco'
+				'uninstall'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'choco'
+				'upgrade'
+			)
+		else
+			args+=(
+				'choco'
+				'install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# -------------------------------------
-	# CONTAINERS
+	# Containers: Flatpak
 
 	# flatpak / Arch Linux / Manjaro
+	# https://manpages.org/flatpak-install
+	# https://wiki.debian.org/FlatPak
+	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html
+	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-install
+	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-remote-add
+	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-remote-delete
+	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-uninstall
+	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-update
+	# sudo with flatpak avoids gui sudo prompt
 	function do_flatpak {
-		# accomodate flatpak typos
-		local args=() pkgs=() pkg="$FLATPAK" repo="$FLATPAK_REPO"
-
-		# check applicabile
-		if test -n "$pkg"; then
-			# fallback case
-			if command-missing flatpak; then
-				fallbacks+=('flatpak')
-				return 1
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# ensure repo
-			if test -z "$repo"; then
-				repo='flathub'
-			fi
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				args+=('uninstall')
-			else
-				if test "$upgrade" = 'yes'; then
-					args+=('update')
-					if test "$force" = 'yes'; then
-						args+=('--force-remove')
-					fi
-				else
-					args+=('install' '--or-update')
-					if test "$force" = 'yes'; then
-						args+=('--reinstall')
-					fi
-				fi
-			fi
-
-			# universal args
-			args+=('-y' '--noninteractive')
-
-			# action
-			# https://manpages.org/flatpak-install
-			for pkg in "${pkgs[@]}"; do
-				eval-helper --quiet="$quiet" -- sudo flatpak "${args[@]}" "$pkg"
-				# ^ sudo with flatpak avoids gui sudo prompt
-			done
-		else
-			# not applicable
-			return 1
+		local args=() packages=() repos=() __package __repo
+		if test "${#FLATPAK[@]}" -ne 0; then
+			packages+=("${FLATPAK[@]}")
 		fi
+		if test "${#FLATPAK_REPO[@]}" -ne 0; then
+			repos+=("${FLATPAK_REPO[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing flatpak; then
+			fallbacks+=('flatpak')
+			return 1 # required fallback
+		fi
+
+		# repos
+		args=()
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'flatpak'
+				'remote-delete'
+			)
+			if test "$force" = 'yes'; then
+				args+=('--force')
+			fi
+		else
+			args+=(
+				'flatpak'
+				'remote-add'
+				'--if-not-exists'
+			)
+		fi
+		for __repo in "${repos[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__repo"
+		done
+
+		# args
+		args=()
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'flatpak'
+				'uninstall'
+			)
+			if test "$force" = 'yes'; then
+				args+=('--force-remove')
+			fi
+		else
+			# install / upgrade
+			args+=(
+				'flatpak'
+				'install'
+				'--or-update'
+			)
+			if test "$force" = 'yes'; then
+				args+=('--reinstall')
+			fi
+		fi
+		args+=(
+			'--assumeyes'
+			'--noninteractive'
+		)
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 	function do_flatpak_fallback {
 		setup-util-flatpak
 		do_flatpak "$@"
 	}
 
+	# -------------------------------------
+	# Containers: Snap
+
 	# snap / Snap Craft / Ubuntu
+	# needs sudo, otherwise: error: access denied (try with sudo)
 	function do_snap {
-		local args=() pkg="$SNAP" channel="$SNAP_CHANNEL"
-
-		# check applicabile
-		if test -n "$pkg"; then
-			# fallback case
-			if command-missing snap; then
-				fallbacks+=('snap')
-				return 1
-			fi
-
-			# compatibility check
-			if ! is-snap; then
-				return 1
-			fi
-
-			# support multiple args inside SNAP
-			mapfile -t args < <(echo-split ' ' -- "$pkg")
-
-			# action args
-			if test "$uninstall" = 'yes'; then
-				# remove
-				args=('remove' "${args[@]}")
-			else
-				# upgrade/install
-				args=('install' "${args[@]}")
-
-				# optional `--channel=...` if `SNAP_CHANNEL` is present
-				if test -n "$channel"; then
-					args+=("--channel=$channel")
-				fi
-			fi
-
-			# action
-			eval-helper --quiet="$quiet" -- sudo snap "${args[@]}"
-			# ^ needs sudo, otherwise: error: access denied (try with sudo)
-		else
-			# not applicable
-			return 1
+		local args=() packages=() channel="$SNAP_CHANNEL" __package parts
+		if test "${#SNAP[@]}" -ne 0; then
+			packages+=("${SNAP[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing snap; then
+			fallbacks+=('snap')
+			return 1 # required fallback
+		fi
+		if ! is-snap; then
+			return 1 # not configured correctly
+		fi
+
+		# action args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'snap'
+				'remove'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'snap'
+				'install'
+			)
+			if test -n "$channel"; then
+				args+=("--channel=$channel")
+			fi
+		fi
+
+		# packages
+		# support multiple args inside SNAP
+		for __package in "${packages[@]}"; do
+			mapfile -t parts < <(echo-split ' ' -- "$__package")
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "${parts[@]}"
+		done
+
 	}
 	function do_snap_fallback {
 		setup-util-snap
@@ -1412,29 +1794,54 @@ function setup-util() (
 	}
 
 	# -------------------------------------
-	# COMPILE
+	# Compiled: Cargo
 
 	# cargo / Crates.io / Rust
+	# https://manpages.debian.org/testing/cargo/cargo-install.1.en.html
+	# https://manpages.debian.org/testing/cargo/cargo-uninstall.1.en.html
 	function do_cargo {
-		local pkg="${CARGO:-"$RUST"}"
-
-		# check applicabile
-		if test -n "$pkg"; then
-			# fallback case
-			if command-missing cargo; then
-				fallbacks+=('cargo')
-				return 1
-			fi
-
-			# package case
-			if test "$quiet" != 'yes'; then
-				log-performance
-			fi
-			eval-helper --quiet="$quiet" -- cargo install "$pkg"
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#CARGO[@]}" -ne 0; then
+			packages+=("${CARGO[@]}")
+		elif test "${#RUST[@]}" -ne 0; then
+			packages+=("${RUST[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing cargo; then
+			fallbacks+=('cargo')
+			return 1 # required fallback
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'cargo'
+				'uninstall'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'cargo'
+				'install'
+			)
+			if test "$force" != 'no'; then
+				args+=('--force')
+			fi
+		fi
+		if test "$quiet" != 'no'; then
+			args+=('--quiet')
+		fi
+
+		# packages
+		if test "$quiet" != 'yes'; then
+			log-performance
+		fi
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 	function do_cargo_fallback {
 		setup-rust
@@ -1442,29 +1849,47 @@ function setup-util() (
 		do_cargo "$@"
 	}
 
+	# -------------------------------------
+	# Compiled: Golang
+
 	# go
+	# https://helpmanual.io/man1/go-install/
 	function do_go {
-		local pkg="$GO"
-
-		# check applicabile
-		if test -n "$pkg"; then
-			# fallback case
-			if command-missing go; then
-				fallbacks+=('go')
-				return 1
-			fi
-
-			# add version if not there
-			if [[ $pkg != *'@'* ]]; then
-				pkg="${pkg}@latest"
-			fi
-
-			# package case
-			eval-helper --quiet="$quiet" -- go install -v "$pkg"
-		else
-			# not applicable
-			return 1
+		local args=() packages=() __package
+		if test "${#GO[@]}" -ne 0; then
+			packages+=("${GO[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing go; then
+			fallbacks+=('go')
+			return 1 # required fallback
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		else
+			# install / upgrade
+			args+=(
+				'go'
+				'install'
+				'-v'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			if [[ $__package != *'@'* ]]; then
+				# append version if not there
+				__package="${__package}@latest"
+			fi
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 	function do_go_fallback {
 		setup-go
@@ -1473,41 +1898,56 @@ function setup-util() (
 	}
 
 	# -------------------------------------
-	# JIT
+	# Ruby
 
 	# gem / Ruby
 	# we use --user-install because of:
 	# https://github.com/ffi/ffi/issues/631
 	function do_gem {
-		local pkg="${GEM:-"$RUBY"}" __eval="$GEM_EVAL" version="$GEM_VERSION"
-
-		# check relevancy
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check requisites
-			if command-missing gem; then
-				fallbacks+=('gem')
-				return 1
-			fi
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				gem uninstall "$pkg" -axI &>/dev/null
-				if test -n "$version"; then
-					eval-helper --quiet="$quiet" -- gem install "$pkg" --version "$version" --user-install --no-document
-				else
-					eval-helper --quiet="$quiet" -- gem install "$pkg" --user-install --no-document
-				fi
-			fi
-		else
-			# not applicable
-			return 1
+		local opts=() args=() packages=() parts
+		if test "${#GEM[@]}" -ne 0; then
+			packages+=("${GEM[@]}")
+		elif test "${#RUBY[@]}" -ne 0; then
+			packages+=("${RUBY[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing gem; then
+			fallbacks+=('gem')
+			return 1 # required fallback
+		fi
+
+
+		# always uninstall
+		# support multiple args inside RUBY, such as [--version ...]
+		for __package in "${packages[@]}"; do
+			mapfile -t parts < <(echo-split ' ' -- "$__package")
+			eval-helper --quiet="$quiet" -- \
+				gem uninstall -axI "${parts[0]}"
+		done
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 0 # already uninstalled
+		else
+			# install / upgrade
+			args+=(
+				'gem'
+				'install'
+				"${opts[@]}"
+			)
+		fi
+
+		# packages
+		# support multiple args inside RUBY, such as [--version ...]
+		for __package in "${packages[@]}"; do
+			mapfile -t parts < <(echo-split ' ' -- "$__package")
+			eval-helper --quiet="$quiet" -- \
+				"${args[@]}" "${parts[@]}"
+		done
 	}
 	function do_gem_fallback {
 		setup-ruby
@@ -1515,45 +1955,49 @@ function setup-util() (
 		do_gem "$@"
 	}
 
+	# -------------------------------------
+	# JIT: Node.js
+
 	# npm / Node.js
 	function do_npm {
-		local cmd=() pkgs=() pkg="${NPM:-"$NODE"}" __eval="$NPM_EVAL" force="$NPM_FORCE"
-
-		if test -n "$pkg" -o -n "$__eval"; then
-			# load nvm in case there is no system node
-			# or in case of user-preference to use nvm over system node
-			source "$DOROTHY/sources/nvm.sh"
-
-			# fallback case
-			if command-missing npm; then
-				fallbacks+=('npm')
-				return 1
-			fi
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				# support multiple pkgs
-				cmd=('npm' 'install' '--global')
-				mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-				# optional --force
-				if is-affirmative -- "$force"; then
-					cmd+=('--force')
-				fi
-
-				# install
-				eval-helper --quiet="$quiet" -- "${cmd[@]}" "${pkgs[@]}"
-			fi
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#NPM[@]}" -ne 0; then
+			packages+=("${NPM[@]}")
+		elif test "${#NODE[@]}" -ne 0; then
+			packages+=("${NODE[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing npm; then
+			fallbacks+=('npm')
+			return 1 # required fallback
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'npm'
+				'uninstall'
+				'--global'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'npm'
+				'install'
+				'--global'
+			)
+		fi
+		if test "$force" = 'yes'; then
+			args+=('--force')
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 	function do_npm_fallback {
 		setup-node
@@ -1563,7 +2007,14 @@ function setup-util() (
 		do_npm "$@"
 	}
 
+	# @todo add yarn
+	# https://github.com/yarnpkg/yarn/issues/2993
+
+	# -------------------------------------
+	# JIT: Python
+
 	# pip / Python
+	# https://man.archlinux.org/man/extra/python-pip/pip.1.en
 	function pip_helper {
 		# Use the correct [pip] executable for the user's environment, as there may be many or multiple installed, such as one for Python v2 and one for Python v3.
 		if command-exists pip; then
@@ -1588,33 +2039,47 @@ function setup-util() (
 		fi
 	}
 	function do_pip {
-		local pkgs=() pkg="${PIP:-"$PYTHON"}" __eval="$PIP_EVAL"
-
-		if test -n "$pkg" -o -n "$__eval"; then
-			# fallback case
-			if ! pip_helper --version &>/dev/null; then
-				fallbacks+=('pip')
-				return 1
-			fi
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				# support multiple pkgs
-				mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-				# install
-				eval-helper --quiet="$quiet" -- pip_helper install --user --upgrade --force-reinstall --no-warn-script-location "${pkgs[@]}"
-			fi
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#PIP[@]}" -ne 0; then
+			packages+=("${PIP[@]}")
+		elif test "${#PYTHON[@]}" -ne 0; then
+			packages+=("${PYTHON[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if ! pip_helper --version &>/dev/null; then
+			fallbacks+=('pip')
+			return 1 # required fallback
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'pip_helper'
+				'uninstall')
+		else
+			args+=(
+				'pip_helper'
+				'install'
+			)
+			if test "$upgrade" = 'yes'; then
+				args+=('--upgrade')
+			fi
+			if test "$force" = 'yes'; then
+				args+=('--force-reinstall ')
+			fi
+		fi
+		args+=(
+			'--user'
+			'--no-warn-script-location'
+		)
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 	function do_pip_fallback {
 		setup-python
@@ -1623,26 +2088,56 @@ function setup-util() (
 	}
 
 	# pipx / Python
+	# https://www.mankier.com/1/pipx#COMMAND_'pipx_install'
+	# https://www.mankier.com/1/pipx#COMMAND_'pipx_upgrade'
+	# https://www.mankier.com/1/pipx#COMMAND_'pipx_uninstall'
+	# https://www.mankier.com/1/pipx#COMMAND_'pipx_reinstall'
 	function do_pipx {
-		local pkgs=() pkg="${PIPX:-"$PYTHON"}"
-
-		# check applicablity
-		if test -n "$pkg"; then
-			# fallback case
-			if command-missing pipx; then
-				fallbacks+=('pipx')
-				return 1
-			fi
-
-			# support multiple pkgs
-			mapfile -t pkgs < <(echo-split ' ' -- "$pkg")
-
-			# package case
-			eval-helper --quiet="$quiet" -- pipx install "${pkgs[@]}"
-		else
-			# not applicable
-			return 1
+		local args=() packages=()
+		if test "${#PIPX[@]}" -ne 0; then
+			packages+=("${PIPX[@]}")
+		elif test "${#PYTHON[@]}" -ne 0; then
+			packages+=("${PYTHON[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing pipx; then
+			fallbacks+=('pipx')
+			return 1 # required fallback
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'pipx'
+				'uninstall'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'pipx'
+				'upgrade'
+			)
+			if test "$force" = 'yes'; then
+				args+=('--force')
+			fi
+		else
+			# if test "$force" = 'yes'; then
+			#	args+=('reinstall')
+			args+=(
+				'pipx'
+				'install'
+			)
+			if test "$force" = 'yes'; then
+				args+=('--force')
+			fi
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			"${args[@]}" "${packages[@]}"
 	}
 	function do_pipx_fallback {
 		if ! pip_helper --version &>/dev/null; then
@@ -1654,259 +2149,511 @@ function setup-util() (
 	}
 
 	# -------------------------------------
-	# UNKNOWN
+	# Solaris / BSD
 
-	# nix
-	function do_nix {
-		local pkg="$NIX"
+	# `doas` is a `sudo` replacement for OpenBSD
+	# https://www.openbsdhandbook.com/openbsd_for_linux_users/
 
-		# check applicable and possible
-		if test -n "$pkg" && command-exists nix-env; then
-			eval-helper --quiet="$quiet" -- nix-env -iA "$pkg"
-		else
-			# not needed
-			return 1
+	# pkgin / NetBSD
+	# successor to pkg_in, pkg_add
+	# https://pkgin.net/
+	function do_pkgin {
+		local args=() packages=()
+		if test "${#PKGIN[@]}" -ne 0; then
+			packages+=("${PKGIN[@]}")
+		elif test "${#BSD[@]}" -ne 0; then
+			packages+=("${BSD[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing doas || command-missing pkgin; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'pkgin'
+				'remove'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'pkgin'
+				'upgrade'
+			)
+		else
+			args+=(
+				'pkgin'
+				'install'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				doas "${args[@]}" "$__package"
+		done
 	}
 
-	# xbps / Void Linux
-	function do_xbps {
-		local pkg="${XBPS:-"$VOID"}"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists xbps-install; then
-			eval-helper --quiet="$quiet" -- xbps-install -S "$pkg"
-		else
-			# not needed
-			return 1
+	# pkgadd / pkg_add / OpenBSD
+	# https://docs.oracle.com/cd/E19455-01/806-0625/6j9vfilsu/index.html
+	function do_pkgadd {
+		local packages=()
+		if test "${#PKGADD[@]}" -ne 0; then
+			packages+=("${PKGADD[@]}")
+		elif test "${#BSD[@]}" -ne 0; then
+			packages+=("${BSD[@]}")
 		fi
-	}
 
-	# eopkg / Solus
-	function do_eopkg {
-		local pkg="${EOPKG:-"$SOLUS"}"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists eopkg; then
-			eval-helper --quiet="$quiet" -- sudo eopkg it "$pkg"
-		else
-			# not needed
-			return 1
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
 		fi
-	}
-
-	# emerge / GURU / Gentoo Linux
-	function do_emerge {
-		# @todo add EMERGE_REPO, see zoxide for example
-		local pkg="$EMERGE" __eval="$EMERGE_EVAL"
-
-		# check applicable
-		if test -n "$pkg" -o -n "$__eval"; then
-			# check possible
-			if ! command-exists emerge; then
-				# not possible
-				return 1
-			fi
-
-			# eval case
-			if test -n "$__eval"; then
-				eval "$__eval"
-				return "$?"
-			fi
-
-			# package case
-			if test -n "$pkg"; then
-				eval-helper --quiet="$quiet" -- sudo emerge -av "$pkg"
-			fi
-		else
-			# not applicable
-			return 1
+		if command-missing doas || command-missing pkgadd; then
+			return 1 # not applicable
 		fi
-	}
 
-	# port / MacPorts
-	function do_port {
-		local pkg="$PORT"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists port; then
-			eval-helper --quiet="$quiet" -- sudo port install "$pkg"
-		else
-			# not needed
-			return 1
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
 		fi
-	}
 
-	# scoop / Windows
-	function do_scoop {
-		local pkg="$SCOOP"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists scoop; then
-			eval-helper --quiet="$quiet" -- scoop install "$pkg"
-		else
-			# not needed
-			return 1
-		fi
-	}
-
-	# winget / Windows Package Manager Client
-	function do_winget {
-		local pkg="$WINGET"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists winget; then
-			eval-helper --quiet="$quiet" -- winget install "$pkg"
-		else
-			# not needed
-			return 1
-		fi
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				doas pkgadd "$__package"
+		done
 	}
 
 	# pkg / FreeBSD / Termux
+	# https://www.freebsd.org/cgi/man.cgi?query=pkg&sektion=&n=1
+	# https://www.freebsd.org/cgi/man.cgi?query=pkg-install
 	function do_pkg {
-		local pkg="$PKG"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists pkg; then
-			eval-helper --quiet="$quiet" -- pkg install "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=()
+		if test "${#PKG[@]}" -ne 0; then
+			packages+=("${PKG[@]}")
+		elif test "${#BSD[@]}" -ne 0; then
+			packages+=("${BSD[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing doas || command-missing pkg; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'pkg'
+				'autoremove'
+				'--yes'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'pkg'
+				'install'
+				'--yes'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			doas "${args[@]}" "${packages[@]}"
 	}
 
-	# pkgutil / Solaris 10+, Sparc and x86.
-	function do_pkgutil {
-		local pkg="$PKGUTIL"
+	# -------------------------------------
+	# UNKNOWN
 
-		# check applicable and possible
-		if test -n "$pkg" && command-exists pkgutil; then
-			eval-helper --quiet="$quiet" -- pkgutil -i "$pkg"
-		else
-			# not needed
-			return 1
+	# cabal / Haskell
+	# https://www.haskell.org/cabal/
+	# https://hackage.haskell.org/package/cabal-install
+	# https://cabal.readthedocs.io/en/stable/
+	# https://cabal.readthedocs.io/en/stable/cabal-commands.html
+	# https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-update
+	# https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-install
+	function do_cabal {
+		local args=() packages=()
+		if test "${#CABAL[@]}" -ne 0; then
+			packages+=("${CABAL[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing cabal; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			return 1 # unsupported
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'conda'
+				'update'
+			)
+		else
+			args+=(
+				'conda'
+				'install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
-	# huber
-	function do_huber {
-		local pkg="$HUBER"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists huber; then
-			eval-helper --quiet="$quiet" -- huber install "$pkg"
-		else
-			# not needed
-			return 1
+	# conda / Anaconda
+	# https://docs.anaconda.com/anaconda/install/index.html
+	# https://docs.conda.io/projects/conda/en/latest/commands.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/install.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/remove.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/update.html
+	function do_conda {
+		local args=() packages=() channel="$CONDA_CHANNEL"
+		if test "${#CONDA[@]}" -ne 0; then
+			packages+=("${CONDA[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing conda; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'conda'
+				'remove'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'conda'
+				'update'
+			)
+		else
+			args+=(
+				'conda'
+				'install'
+			)
+		fi
+		if test -n "$channel"; then
+			args+=(
+				'--channel'
+				"$channel"
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
+	}
+
+	# emerge / GURU / Gentoo Linux
+	# https://en.wikipedia.org/wiki/Gentoo_Linux
+	# https://wiki.gentoo.org/wiki/Emerge
+	# https://wiki.gentoo.org/wiki/Portage
+	# https://wiki.gentoo.org/wiki/Gentoo_Cheat_Sheet#Package_installation
+	# https://dev.gentoo.org/~zmedico/portage/doc/man/emerge.1.html
+	# https://packages.gentoo.org/categories
+	function do_emerge {
+		local args=() packages=() repos=() __package __repo
+		if test "${#EMERGE[@]}" -ne 0; then
+			packages+=("${EMERGE[@]}")
+		fi
+		if test "${#EMERGE_REPO[@]}" -ne 0; then
+			repos=("${EMERGE_REPO[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing emerge || command-missing eselect; then
+			return 1 # not applicable
+		fi
+
+		# repos
+		for __repo in "${repos[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo eselect repository enable "$__repo"
+			eval-helper --quiet="$quiet" -- \
+				sudo emerge --sync guru
+		done
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'emerge'
+				'--depclean'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'emerge'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
+	}
+
+	# eopkg / Solus
+	# https://github.com/solus-project/package-management/blob/master/man/eopkg.1.md
+	# @todo support repos
+	function do_eopkg {
+		local args=() packages=()
+		if test "${#EOPKG[@]}" -ne 0; then
+			packages+=("${EOPKG[@]}")
+		elif test "${#SOLUS[@]}" -ne 0; then
+			packages+=("${SOLUS[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing eopkg; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'eopkg'
+				'autoremove'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'eopkg'
+				'upgrade'
+			)
+		else
+			args+=(
+				'eopkg'
+				'install'
+			)
+		fi
+		args+=('--yes-all')
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# guix
+	# https://linuxcommandlibrary.com/man/guix-package
 	function do_guix {
-		local pkg="$GUIX"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists guix; then
-			eval-helper --quiet="$quiet" -- guix package -i "$pkg"
-		else
-			# not needed
-			return 1
+		local args=() packages=()
+		if test "${#GUIX[@]}" -ne 0; then
+			packages+=("${GUIX[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing guix; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'guix'
+				'package'
+				'--remove'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'guix'
+				'package'
+				'--install'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
-	# doas / Solaris
-	function do_doas {
-		local pkg="$DOAS"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists doas; then
-			eval-helper --quiet="$quiet" -- doas pkg_add "$pkg"
-		else
-			# not needed
-			return 1
+	# nix
+	# https://www.mankier.com/1/nix-env
+	# https://nixos.org/manual/nix/stable/command-ref/nix-env.html
+	function do_nix {
+		local args=() packages=()
+		if test "${#NIX[@]}" -ne 0; then
+			packages+=("${NIX[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing nix-env; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'nix-env'
+				'--uninstall'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'nix-env'
+				'--upgrade'
+			)
+		else
+			args+=(
+				'nix-env'
+				'--install'
+				'--attr'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
-	# pkg_add / OpenBSD
-	function do_pkg {
-		local pkg="$PKGADD"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists pkg_add; then
-			eval-helper --quiet="$quiet" -- pkg_add "$pkg"
-		else
-			# not needed
-			return 1
+	# port / MacPorts
+	# https://guide.macports.org/#using.port.install
+	# https://guide.macports.org/#using.port.uninstall
+	# https://guide.macports.org/#using.port.upgrade
+	function do_port {
+		local args=() packages=() __package
+		if test "${#PORT[@]}" -ne 0; then
+			packages+=("${PORT[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing port; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'port'
+				'uninstall'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'port'
+				'upgrade'
+			)
+		else
+			args+=(
+				'port'
+				'install'
+			)
+		fi
+
+		# packages
+		for __package in "${packages[@]}"; do
+			eval-helper --quiet="$quiet" -- \
+				sudo "${args[@]}" "$__package"
+		done
 	}
 
-	# pkgin/ NetBSD
-	function do_pkgin {
-		local pkg="$PKGIN"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists pkgin; then
-			eval-helper --quiet="$quiet" -- pkgin install "$pkg"
-		else
-			# not needed
-			return 1
+	# xbps / Void Linux
+	# https://github.com/void-linux/xbps
+	function do_xbps {
+		local args=() packages=()
+		if test "${#XBPS[@]}" -ne 0; then
+			packages+=("${XBPS[@]}")
+		elif test "${#VOID[@]}" -ne 0; then
+			packages+=("${VOID[@]}")
 		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if command-missing xbps-remove || command-missing xbps-install; then
+			return 1 # not applicable
+		fi
+
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'xbps-remove'
+				'-R'
+				'-O'
+				'-o'
+			)
+		elif test "$upgrade" = 'yes'; then
+			args+=(
+				'xbps-install'
+				'-u'
+			)
+		else
+			args+=(
+				'xbps-install'
+				'--sync'
+			)
+		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
-	# pkgman / Haiku
-	function do_pkgman {
-		local pkg="$PKGMAN"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists pkgman; then
-			eval-helper --quiet="$quiet" -- pkgman install "$pkg"
-		else
-			# not needed
-			return 1
+	# urpmi / Mageia
+	# https://wiki.mageia.org/en/URPMI
+	# https://wiki.mageia.org/en/URPMI#Basic_commands:_Install.2C_remove.2C_update
+	function do_urpmi {
+		local args=() packages=()
+		if test "${#URPMI[@]}" -ne 0; then
+			packages+=("${URPMI[@]}")
+		elif test "${#MAGEIA[@]}" -ne 0; then
+			packages+=("${MAGEIA[@]}")
 		fi
-	}
 
-	# stack
-	function do_stack {
-		local pkg="$STACK"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists stack; then
-			stack update
-			eval-helper --quiet="$quiet" -- stack install "$pkg"
-		else
-			# not needed
-			return 1
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
 		fi
-	}
-
-	# cabal
-	function do_cabal {
-		local pkg="$CABAL"
-
-		# check applicable and possible
-		if test -n "$pkg" && command-exists cabal; then
-			cabal update
-			eval-helper --quiet="$quiet" -- cabal install "$pkg"
-		else
-			# not needed
-			return 1
+		if command-missing urpmi || command-missing urpme; then
+			return 1 # not applicable
 		fi
-	}
 
-	# conda
-	function do_conda {
-		local pkg="$CONDA" channel="$CONDA_CHANNEL"
-
-		# check applicable and possible
-		# require channel to be defined, as CONDA is always present on github CI
-		if test -n "$pkg" -a "$channel" && command-exists conda; then
-			eval-helper --quiet="$quiet" -- conda install -c "$channel" "$pkg"
+		# args
+		if test "$uninstall" = 'yes'; then
+			args+=(
+				'urpme'
+			)
 		else
-			# not needed
-			return 1
+			# install / upgrade
+			args+=(
+				'urpmi'
+			)
 		fi
+
+		# packages
+		eval-helper --quiet="$quiet" -- \
+			sudo "${args[@]}" "${packages[@]}"
 	}
 
 	# ---------------------------------
@@ -1947,7 +2694,8 @@ function setup-util() (
 				# in which case forward the arguments
 				# and note SETUP_UTIL=yes to prevent recursion
 				# but do not forward order, as the installer may have custom arguments
-				eval-helper --quiet="$quiet" -- env SETUP_UTIL=yes "$file" \
+				eval-helper --quiet="$quiet" -- \
+					env SETUP_UTIL=yes "$file" \
 					--confirm="$confirm" \
 					--optional="$optional" \
 					--upgrade="$upgrade" \
@@ -1956,7 +2704,8 @@ function setup-util() (
 					--quiet="$quiet"
 			else
 				# external installer script
-				eval-helper --quiet="$quiet" -- "$file"
+				eval-helper --quiet="$quiet" -- \
+					"$file"
 			fi
 		else
 			# not applicable
