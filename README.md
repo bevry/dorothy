@@ -40,10 +40,10 @@ Dorothy maintainers and users are occasionally driving Dorothy on:
 If you just want to trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell, you can do the following:
 
 ```bash
-# IF you are on alpine, install the dependencies
-sudo apk add bash curl git
+# IF you are on Alpine, install the dependencies
+doas apk add bash curl git
 
-# IF you are on ubuntu, install the dependencies
+# IF you are on Ubuntu, install the dependencies
 sudo apt install bash curl git
 
 # IF you are on macOS, install the dependencies
@@ -56,27 +56,23 @@ bash -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)
 eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
 ```
 
-If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
-
 ## Install
 
 To install Dorothy run the following in your favorite terminal application:
 
 ```bash
-# IF you are on alpine, install the dependencies
-sudo apk add bash curl git
+# IF you are on Alpine, install the dependencies
+doas apk add bash curl git
 
-# IF you are on ubuntu, install the dependencies
+# IF you are on Ubuntu, install the dependencies
 sudo apt install bash curl git
 
 # IF you are on macOS, install the dependencies
 xcode-select --install
 
-# Run the dorothy installation script
+# Run the Dorothy installation script
 bash -ilc "$(curl -fsSL https://raw.githubusercontent.com/bevry/dorothy/master/commands/dorothy)"
 ```
-
-If your shell doesn't recognise the syntax above, run `bash -il` then run the command again.
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
 
@@ -88,7 +84,32 @@ dorothy theme
 # then open a new terminal
 ```
 
-If you get a command not found error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/discussions/141)
+## Troubleshooting
+
+If your shell doesn't recognise the syntax, run `bash -il` then run the command again.
+
+If you get a command not found error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/discussions/141) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
+
+If packages are failing to install, make sure to update your Operating System's package manager is updated with the latest refrences:
+
+```bash
+# Alpine
+doas apk update
+
+# Ubuntu
+sudo apt update
+
+# Fedora
+sudo dnf check-update -y
+sudo yum check-update -y
+
+# Manjaro
+sudo pacman-key --init
+sudo pacman --refresh --sync
+
+# OpenSUSE
+sudo zypper --gpg-auto-import-keys refresh
+```
 
 ## Overview
 
