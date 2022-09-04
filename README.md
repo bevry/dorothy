@@ -88,7 +88,7 @@ dorothy theme
 
 If your shell doesn't recognise the syntax, run `bash -il` then run the command again.
 
-If you get a command not found error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/discussions/141) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
+If you get a command not found error or an undefined/unbound variable error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/discussions/141) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
 
 If packages are failing to install, make sure to update your Operating System's package manager is updated with the latest refrences:
 
