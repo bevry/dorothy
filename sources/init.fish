@@ -22,9 +22,22 @@ else
 	# the install above will run this
 	fundle plugin 'edc/bass'
 	fundle plugin 'arzig/nvm-fish'
-	# /usr/bin/grep is needed, as paths are not setup yet
-	if fundle init | /usr/bin/grep 'fundle install'
+
+	# determine grep locaiton, as paths are not setup yet
+	if test -x /bin/grep
+		set GREP /bin/grep
+	else if test -x /usr/bin/grep
+		set GREP /usr/bin/grep
+	else
+		set GREP (which grep)
+	end
+
+	# initialise
+	if fundle init | "$GREP" 'fundle install'
 		fundle install
 		fundle init
 	end
+
+	# erase our grep temp variable
+	set --erase GREP
 end
