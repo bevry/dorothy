@@ -80,6 +80,104 @@ function setup-node() (
 	fi
 
 	# =====================================
+	# Helpers
+
+	function get_nvm_versions() {
+		source "$DOROTHY/sources/ripgrep.bash"
+		source "$DOROTHY/sources/nvm.sh"
+		nvm ls --no-colors --no-alias | rg -o 'v([^\s]+)' --replace '$1' || :
+	}
+
+	function clean_nvm() (
+		local versions version
+		# run this function as a subshell, so nvm is only loaded for this
+		# can't just do `trap 'nvm unload' RETURN` as `nvm unload` unsets NVM_DIR
+		source "$DOROTHY/sources/nvm.sh"
+		# swap to system
+		nvm use system || :
+		# fetch versions
+		mapfile -t versions < <(get_nvm_versions)
+		if test "${#versions[@]}" -eq 0; then
+			# already clean
+			return 0
+		fi
+		# clean versions
+		setup-util-sd --quiet
+		for version in "${versions[@]}"; do
+			nvm uninstall "$version" | sd 'Uninstalled node ' 'Uninstalled: '
+		done
+		# confirm clean was successful
+		mapfile -t versions < <(get_nvm_versions)
+		test "${#versions[@]}" -eq 0
+	)
+
+	function wipe_nvm() {
+		rm -Rf "$NVM_DIR"
+	}
+
+	function clean_otherwise_wipe_nvm() {
+		# clean only what is necessary
+		echo-segment --h3='Clean Node.js versions and packages'
+		if clean_nvm; then
+			echo-segment --g3='Clean Node.js versions and packages'
+		else
+			# nvm buggered, clean it all
+			echo-segment --e3='Clean Node.js versions and packages'
+			echo-segment --h3='Clean Node.js Version Manager (NVM) instead'
+			wipe_nvm
+			echo-segment --g3='Clean Node.js Version Manager (NVM) instead'
+		fi
+	}
+
+	function install_nvm() {
+		if test -d "$NVM_DIR"; then
+			cd "$NVM_DIR"
+		else
+			mkdir -p "$NVM_DIR"
+			cd "$NVM_DIR"
+			git init
+			git remote add origin 'https://github.com/nvm-sh/nvm.git'
+		fi
+		# ensure git remote is usable
+		git-helper protocol-update origin https
+		# fetch tags
+		git fetch --tags origin
+		# checkout latest stable tag
+		git checkout "$(git describe --abbrev=0 --tags --match "v[0-9]*" "$(git rev-list --tags --max-count=1)")"
+	}
+
+	function install_nvm_node() {
+		source "$DOROTHY/sources/nvm.sh"
+
+		# install
+		nvm install --no-progress node       # latest active
+		nvm-2596 install --no-progress --lts # latest LTS
+
+		# set default node version
+		if is-brew; then
+			nvm alias default system
+		else
+			# use latest lts
+			nvm alias default stable
+			# use current lts: "$(nvm version-remote --lts)"
+		fi
+
+		# default
+		nvm use default
+	}
+
+	function upgrade_npm() {
+		# 2>/dev/null to hide silling warnings
+		echo-segment --h3='Upgrade npm'
+		echo-style --dim="Before: $(npm --version 2>/dev/null)"
+		setup-util --name='npm' --upgrade --force --quiet \
+			NPM='npm'
+		npm cache clean --force 2>/dev/null
+		echo "After:  $(npm --version 2>/dev/null)"
+		echo-segment --g3='Upgrade npm'
+	}
+
+	# =====================================
 	# Start
 
 	echo-segment --h1='Setup Node.js'
@@ -107,7 +205,7 @@ function setup-node() (
 		WINGET='OpenJS.NodeJS' \
 		XBPS='nodejs' \
 		ZYPPER='nodejs'
-	npm cache clean --force
+	upgrade_npm
 	echo "Installed: $(node --version)"
 	echo-segment --g2='Install Node.js via System'
 
@@ -118,92 +216,12 @@ function setup-node() (
 	# the intent of this is to purge unused global Node.js versions and packages
 	# we use a configuration variable to change this, as interuppting the flow and asking the user creates too much confusion
 	# as such a question is only necessary to experienced users
-	function get_nvm_versions() {
-		source "$DOROTHY/sources/ripgrep.bash"
-		source "$DOROTHY/sources/nvm.sh"
-		nvm ls --no-colors --no-alias | rg -o 'v([^\s]+)' --replace '$1' || :
-	}
-	function clean_nvm() (
-		local versions version
-		# run this function as a subshell, so nvm is only loaded for this
-		# can't just do `trap 'nvm unload' RETURN` as `nvm unload` unsets NVM_DIR
-		source "$DOROTHY/sources/nvm.sh"
-		# swap to system
-		nvm use system || :
-		# fetch versions
-		mapfile -t versions < <(get_nvm_versions)
-		if test "${#versions[@]}" -eq 0; then
-			# already clean
-			return 0
-		fi
-		# clean versions
-		setup-util-sd --quiet
-		for version in "${versions[@]}"; do
-			nvm uninstall "$version" | sd 'Uninstalled node ' 'Uninstalled: '
-		done
-		# confirm clean was successful
-		mapfile -t versions < <(get_nvm_versions)
-		test "${#versions[@]}" -eq 0
-	)
-	function wipe_nvm() {
-		rm -Rf "$NVM_DIR"
-	}
-	function clean_otherwise_wipe_nvm() {
-		# clean only what is necessary
-		echo-segment --h3='Clean Node.js versions and packages'
-		if clean_nvm; then
-			echo-segment --g3='Clean Node.js versions and packages'
-		else
-			# nvm buggered, clean it all
-			echo-segment --e3='Clean Node.js versions and packages'
-			echo-segment --h3='Clean Node.js Version Manager (NVM) instead'
-			wipe_nvm
-			echo-segment --g3='Clean Node.js Version Manager (NVM) instead'
-		fi
-	}
 	if test -d "$NVM_DIR"; then
 		clean_otherwise_wipe_nvm
 	fi
 
 	# =====================================
 	# Install via NVM
-
-	# helpers
-	function install_nvm() {
-		if test -d "$NVM_DIR"; then
-			cd "$NVM_DIR"
-		else
-			mkdir -p "$NVM_DIR"
-			cd "$NVM_DIR"
-			git init
-			git remote add origin 'https://github.com/nvm-sh/nvm.git'
-		fi
-		# ensure git remote is usable
-		git-helper protocol-update origin https
-		# fetch tags
-		git fetch --tags origin
-		# checkout latest stable tag
-		git checkout "$(git describe --abbrev=0 --tags --match "v[0-9]*" "$(git rev-list --tags --max-count=1)")"
-	}
-	function install_nvm_node() {
-		source "$DOROTHY/sources/nvm.sh"
-
-		# install
-		nvm install --no-progress node       # latest active
-		nvm-2596 install --no-progress --lts # latest LTS
-
-		# set default node version
-		if is-brew; then
-			nvm alias default system
-		else
-			# use latest lts
-			nvm alias default stable
-			# use current lts: "$(nvm version-remote --lts)"
-		fi
-
-		# default
-		nvm use default
-	}
 
 	# (arm) alpine does not support nvm, fails with:
 	# > mode no such file or directory
@@ -220,24 +238,13 @@ function setup-node() (
 		eval-helper --quiet --no-wrap -- install_nvm_node
 		mapfile -t versions < <(get_nvm_versions)
 		for version in "${versions[@]}"; do
-			echo "Installed: v
-	eval-helper --quiet -- npm install -g npm --force 2>/dev/null$version"
+			echo "Installed: v$version"
 		done
 		echo-segment --g2='Install Node.js via NVM'
 
 		# source nvm
 		source "$DOROTHY/sources/nvm.sh"
 	fi
-
-	# -------------------------------------
-	# Upgrade
-
-	echo-segment --h2='Upgrade npm'
-	echo-style --dim="Before: $(npm --version 2>/dev/null)"
-	setup-util --name='npm' --upgrade --force --quiet \
-		NPM='npm'
-	echo "After:  $(npm --version 2>/dev/null)"
-	echo-segment --g2='Upgrade npm'
 
 	# -------------------------------------
 	# Reconfiguration
