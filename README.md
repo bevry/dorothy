@@ -32,6 +32,7 @@ Dorothy maintainers and users are occasionally driving Dorothy on:
 - OpenSUSE via Intel/AMD (x84_64) virtual machines
 - Alpine via Intel/AMD (x84_64) virtual machines
 - Alpine via Apple Silicon (ARM64) virtual machines
+- [Ubuntu Server on StarFive’s VisionFive](https://ubuntu.com//blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards) (RISC-V)
 
 [Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk)
 
