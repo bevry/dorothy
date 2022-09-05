@@ -68,7 +68,7 @@ function setup-util() (
 		# windows
 		scoop
 		winget
-		choco # interferes with unix
+		choco # aka chocolatey aka cinst, interferes with unix
 
 		# solaris/bsd
 		pkgin
@@ -95,7 +95,7 @@ function setup-util() (
 
 		# custom
 		installer # local or remote installer
-		github    # remote executable download from github, supports zip
+		github    # remote executable download from github, supports zip, appimage
 		download  # remote executable download, supports zip
 	)
 
@@ -181,7 +181,7 @@ function setup-util() (
 	local CABAL=()
 	local CARGO=() RUST=()
 	local CASK=() CASK_TAP=()
-	local CHOCO=()
+	local CHOCO=() CHOCOLATEY=() CINST=()
 	local CONDA=() CONDA_CHANNEL=''
 	local DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
 	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_UNZIP_FORMAT='' DOWNLOAD_UNZIP_FILTER=''
@@ -282,6 +282,7 @@ function setup-util() (
 			# installer options
 		'ALPINE='*) ALPINE+=("${item#*ALPINE=}") ;;
 		'APK='*) APK+=("${item#*APK=}") ;;
+		'APPIMAGE='*) APPIMAGE+=("${item#*APPIMAGE=}") ;;
 		'APT_ID='*) APT_ID="${item#*APT_ID=}" ;;
 		'APT_KEY='*) APT_KEY="${item#*APT_KEY=}" ;;
 		'APT_REPO='*) APT_REPO="${item#*APT_REPO=}" ;;
@@ -297,6 +298,8 @@ function setup-util() (
 		'CASK_TAP='*) CASK_TAP+=("${item#*CASK_TAP=}") ;;
 		'CASK='*) CASK+=("${item#*CASK=}") ;;
 		'CHOCO='*) CHOCO+=("${item#*CHOCO=}") ;;
+		'CHOCOLATEY='*) CHOCOLATEY+=("${item#*CHOCOLATEY=}") ;;
+		'CINST='*) CINST+=("${item#*CINST=}") ;;
 		'CONDA_CHANNEL='*) CONDA_CHANNEL="${item#*CONDA_CHANNEL=}" ;;
 		'CONDA='*) CONDA+=("${item#*CONDA=}") ;;
 		'DEBIAN='*) DEBIAN+=("${item#*DEBIAN=}") ;;
@@ -1329,13 +1332,11 @@ function setup-util() (
 		# if APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
 		if test -n "$repo" -o -n "$key"; then
 			if test -z "$id"; then
-				if test "${packages[@]}" -gt 1; then
+				if test "${#packages[@]}" -gt 1; then
 					cat <<-EOF >/dev/stderr
 						$(echo-style --error="If APT has multiple packages, then APT_ID must be specified.")
 
-						APT: $pkg
-						APT_KEY: $key
-						APT_REPO: $repo
+						APT: ${packages[*]}
 					EOF
 					return 1
 				fi
@@ -1347,8 +1348,8 @@ function setup-util() (
 			if test -z "$repo"; then
 				cat <<-EOF >/dev/stderr
 					$(echo-style --error="If APT_KEY is set, APT_REPO must also be set.")
-					APT: $pkg
-					APT_KEY: $key
+
+					APT: ${packages[*]}
 				EOF
 				return 1
 			fi
@@ -1357,8 +1358,7 @@ function setup-util() (
 					$(echo-style --error="If APT_KEY is set, APT_REPO must contain:")
 					$(echo-style --code="deb [signed-by={KEY}] https://...")
 
-					APT: $pkg
-					APT_KEY: $key
+					APT: ${packages[*]}
 					APT_REPO: $repo
 				EOF
 				return 1
@@ -1372,8 +1372,7 @@ function setup-util() (
 					$(echo-style --error="If APT_REPO is set, arch must be set to {ARCH}")
 					$(echo-style --code="deb [arch={ARCH}] https://...")
 
-					APT: $pkg
-					APT: $pkg
+					APT: ${packages[*]}
 					APT_REPO: $repo
 				EOF
 				return 1
@@ -1383,7 +1382,7 @@ function setup-util() (
 					$(echo-style --error="If APT_REPO is set, signed-by must be set to {KEY}")
 					$(echo-style --code="deb [signed-by={KEY}] https://...")
 
-					APT: $pkg
+					APT: ${packages[*]}
 					APT_REPO: $repo
 				EOF
 				return 1
@@ -1393,6 +1392,7 @@ function setup-util() (
 				cat <<-EOF >/dev/stderr
 					$(echo-style --notice="APT_REPO contained " --code="http:" --notice=" instead of " --code="https:" --notice=" this may be an oversight.")
 
+					APT: ${packages[*]}
 					APT_REPO: $repo
 				EOF
 			fi
@@ -1452,7 +1452,7 @@ function setup-util() (
 				)"}"
 
 				# adjust release modifier
-				repo="${repo/"{RELEASE}"/"$(
+				repo="${repo/"{DISTRO}"/"$(
 					lsb_release --codename --short
 				)"}"
 
@@ -1618,7 +1618,7 @@ function setup-util() (
 			"${args[@]}" "${packages[@]}"
 	}
 
-	# choco / Chocolatey / Windows
+	# choco / cinst / Chocolatey / Windows
 	# https://docs.chocolatey.org/en-us/choco/setup
 	# https://docs.chocolatey.org/en-us/choco/commands/
 	# https://community.chocolatey.org/packages
@@ -1626,7 +1626,7 @@ function setup-util() (
 	# https://docs.chocolatey.org/en-us/choco/commands/upgrade
 	# https://docs.chocolatey.org/en-us/choco/commands/install
 	function do_choco {
-		local args=() packages=()
+		local cmd args=() packages=()
 		if test "${#CHOCO[@]}" -ne 0; then
 			packages+=("${CHOCO[@]}")
 		fi
@@ -1635,24 +1635,28 @@ function setup-util() (
 		if test "${#packages[@]}" -eq 0; then
 			return 1 # not needed
 		fi
-		if command-missing choco; then
+		if command-exists choco; then
+			cmd='choco'
+		elif command-exists cinst; then
+			cmd='cinst'
+		else
 			return 1 # not applicable
 		fi
 
 		# args
 		if test "$uninstall" = 'yes'; then
 			args+=(
-				'choco'
+				"$cmd"
 				'uninstall'
 			)
 		elif test "$upgrade" = 'yes'; then
 			args+=(
-				'choco'
+				"$cmd"
 				'upgrade'
 			)
 		else
 			args+=(
-				'choco'
+				"$cmd"
 				'install'
 			)
 		fi
@@ -2732,7 +2736,7 @@ function setup-util() (
 
 	# github
 	function do_github {
-		local file slug="$GITHUB_SLUG" filename="$GITHUB_FILENAME" ref="$GITHUB_REF" release="$GITHUB_RELEASE" pathname="$GITHUB_PATHNAME" asset_filter="$GITHUB_ASSET_FILTER" unzip_format="$GITHUB_UNZIP_FORMAT" unzip_filter="$GITHUB_UNZIP_FILTER"
+		local path slug="$GITHUB_SLUG" filename="$GITHUB_FILENAME" ref="$GITHUB_REF" release="$GITHUB_RELEASE" pathname="$GITHUB_PATHNAME" asset_filter="$GITHUB_ASSET_FILTER" unzip_format="$GITHUB_UNZIP_FORMAT" unzip_filter="$GITHUB_UNZIP_FILTER"
 
 		# check applicabile
 		if test -n "$slug"; then
@@ -2742,12 +2746,16 @@ function setup-util() (
 				return 1
 			fi
 
-			# prepare
-			file="$XDG_BIN_HOME/$filename"
+			# only place in appimage_home if it keeps the appimage extension
+			if [[ $filename == *'.appimage'* ]]; then
+				path="$APPIMAGE_HOME/$filename"
+			else
+				path="$XDG_BIN_HOME/$filename"
+			fi
 
 			# uninstall?
 			if test "$uninstall" = 'yes'; then
-				rm -f "$file"
+				rm -f "$path"
 				return 0
 			fi
 
@@ -2761,21 +2769,21 @@ function setup-util() (
 				--asset-filter="$asset_filter" \
 				--unzip-format="$unzip_format" \
 				--unzip-filter="$unzip_filter" \
-				--path="$file"
+				--path="$path"
 
 			# verify
-			if test ! -e "$file"; then
-				echo-style --error='Failed to install:' ' ' --code="$file"
+			if test ! -e "$path"; then
+				echo-style --error='Failed to install:' ' ' --code="$path"
 				return 1
 			fi
 
 			# adjust
-			fs-own --permissions='+x' -- "$file"
+			fs-own --permissions='+x' -- "$path"
 
 			# verify
-			if ! command-working "$file"; then
-				echo-style --error='Failed to verify:' ' ' --code="$file"
-				rm -f "$file" # remove so it doesn't interfere with other install methods and other processes
+			if ! command-working "$path"; then
+				echo-style --error='Failed to verify:' ' ' --code="$path"
+				rm -f "$path" # remove so it doesn't interfere with other install methods and other processes
 				return 1
 			fi
 		else
