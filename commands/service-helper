@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/arrays.bash"
+
+function fs-own() (
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Cross-platform service management.
+
+			USAGE:
+			service-helper [...options] -- <...service>
+
+			OPTIONS:
+			--start
+			    Start the <service>.
+
+			--stop
+			    Stop the <service>.
+
+			--restart
+			    Restart the <service>.
+
+			--enable
+			    Enable the <service>.
+
+			--disable
+			    Disable the <service>.
+
+			--reenable
+			    Reenable the <service>.
+
+			--[no-]autostart
+			    Enable or disable auto-start of the service.
+
+			--status
+			    Output the <service> status.
+
+			[--] <...service>
+			    The service(s) to manage.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item services=() supported='' start='' stop='' restart='' enable='' disable='' reenable='' status=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--supported') supported='yes' ;;
+		'--no-start'* | '--start'*) start="$(
+			get-flag-value start --missing="$start" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-stop'* | '--stop'*) stop="$(
+			get-flag-value stop --missing="$stop" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-restart'* | '--restart'*) restart="$(
+			get-flag-value restart --missing="$restart" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-enable'* | '--enable'*) enable="$(
+			get-flag-value enable --missing="$enable" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-disable'* | '--disable'*) disable="$(
+			get-flag-value disable --missing="$disable" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-reenable'* | '--reenable'*) reenable="$(
+			get-flag-value reenable --missing="$reenable" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-status'* | '--status'*) status="$(
+			get-flag-value status --missing="$status" -- "$item" | echo-affirmative
+		)" ;;
+		'--')
+			services+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) services+=("$item") ;;
+		esac
+	done
+
+	# support
+	if test "$supported" = 'yes'; then
+		if command-exists systemctl; then
+			echo 'yes'
+			return 0
+		else
+			echo 'no'
+			return 1
+		fi
+	fi
+
+	# check
+	if test "${#services[@]}" -eq 0; then
+		help "No <service>s were provided."
+	fi
+
+	# =====================================
+	# Act
+
+	# brew services restart syncthing
+	# ^ for brew, not cask
+
+	# https://man.archlinux.org/man/systemctl.1.en
+	function handle() {
+		local this_service="$1" this_start="$start" this_stop="$stop" this_restart="$restart" this_enable="$enable" this_disable="$disable" this_reenable="$reenable" this_status="$status"
+
+		# status
+		if test "$this_status" = 'yes'; then
+			this_status='maybe'
+			sudo-helper -- systemctl status "$this_service" --no-pager
+		fi
+
+		# split restart if autostart is being modified
+		if test "$this_restart" = 'yes' && test "$this_reenable" = 'yes' -o "$this_enable" = 'yes' -o "$this_disable" = 'yes'; then
+			this_restart=''
+			this_stop='yes'
+			this_start='yes'
+		fi
+
+		# stop
+		if test "$this_stop" = 'yes'; then
+			this_stop=''
+			sudo-helper -- systemctl stop "$this_service"
+
+			# renable status
+			if test "$this_status" = 'maybe'; then
+				this_status='yes'
+			fi
+		fi
+
+		# autostart
+		if test "$this_reenable" = 'yes'; then
+			this_reenable=''
+			sudo-helper -- systemctl reenable "$this_service"
+
+			# renable status
+			if test "$this_status" = 'maybe'; then
+				this_status='yes'
+			fi
+		elif test "$this_enable" = 'yes'; then
+			this_enable=''
+			if test "$this_start" = 'yes'; then
+				this_start=''
+				sudo-helper -- systemctl enable --now "$this_service"
+			else
+				sudo-helper -- systemctl enable "$this_service"
+			fi
+
+			# renable status
+			if test "$this_status" = 'maybe'; then
+				this_status='yes'
+			fi
+		elif test "$this_disable" = 'yes'; then
+			this_disable=''
+			if test "$this_stop" = 'yes'; then
+				this_stop=''
+				sudo-helper -- systemctl disable --now "$this_service"
+			else
+				sudo-helper -- systemctl disable "$this_service"
+			fi
+
+			# renable status
+			if test "$this_status" = 'maybe'; then
+				this_status='yes'
+			fi
+		fi
+
+		# start / restart
+		if test "$this_start" = 'yes'; then
+			this_start=''
+			sudo-helper -- systemctl start "$this_service"
+
+			# renable status
+			if test "$this_status" = 'maybe'; then
+				this_status='yes'
+			fi
+		fi
+		if test "$this_restart" = 'yes'; then
+			this_restart=''
+			sudo-helper -- systemctl restart "$this_service"
+
+			# renable status
+			if test "$this_status" = 'maybe'; then
+				this_status='yes'
+			fi
+		fi
+
+		# startus
+		if test "$this_status" = 'yes'; then
+			this_status=''
+			sudo-helper -- systemctl status "$this_service" --no-pager
+		fi
+	}
+
+	# cycle through
+	local service
+	for service in "${services[@]}"; do
+		handle "$service"
+	done
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	fs-own "$@"
+fi

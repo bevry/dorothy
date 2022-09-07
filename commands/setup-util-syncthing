@@ -17,6 +17,95 @@ source "$DOROTHY/sources/strict.bash"
 # syncthing-source-v1.20.0-rc.1.tar.gz
 
 function setup-util-syncthing() (
+	# =====================================
+	# Preparation
+
+	# https://docs.syncthing.net/users/config.html
+	# user: Set to require authentication.
+	# password: Contains the bcrypt hash of the real password.
+	# copyOwnershipFromParent: On Unix systems, tries to copy file/folder ownership from the parent directory (the directory it’s located in). Requires running Syncthing as a privileged user, or granting it additional capabilities (e.g. CAP_CHOWN on Linux).
+
+	local user
+	user="$(whoami)"
+	local service_name="syncthing@$user"
+	local service_path="/lib/systemd/system/$service_name.service"
+	local service_data_paths=(
+		"$XDG_CONFIG_HOME/syncthing"
+		"$HOME/Library/Application Support/Syncthing"
+		# "%LOCALAPPDATA%\Syncthing"
+	)
+	local service_paths=(
+		"$service_path"
+		"${service_data_paths[@]}"
+	)
+
+	# https://docs.syncthing.net/users/autostart.html#linux
+	# https://docs.syncthing.net/users/autostart.html#using-the-desktop-environment-kde-gnome-xfce-cinnamon
+	local service_desktop='/usr/share/applications/syncthing-start.desktop'
+	local service_desktop_autostarter="$XDG_CONFIG_HOME/autostart/syncthing-start.desktop"
+
+	# =====================================
+	# Arguments
+
+	# help
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Sets up Syncthing: https://github.com/syncthing/syncthing
+
+			USAGE:
+			setup-util-syncthing [...options]
+
+			OPTIONS:
+			--paths
+			    If specified, output the paths used by syncthing; useful for restoring backups.
+
+			--service
+			    If specified, output the service name.
+
+			--group=<group>
+			    Groups to attach the service user to.
+
+			...
+			    All other options are forwarded to $(echo-style --code='setup-util').
+		EOF
+		# if test "$#" -ne 0; then
+		# 	echo-error "$@"
+		# fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='' groups=() util=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--paths') action='paths' ;;
+		'--service') action='service' ;;
+		'--install') action='install' ;;
+		'--uninstall') action='uninstall' ;;
+		'--action='*) action="${item#*--action=}" ;;
+		'--group='*) groups+=("${item#*--group=}") ;;
+		*) util+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Simple Actions
+
+	if test "$action" = 'paths'; then
+		echo-lines "${service_paths[@]}"
+		return 0
+	elif test "$action" = 'service'; then
+		echo "$service_name"
+		return 0
+	fi
+
+	# =====================================
+	# Setup Utility
+
 	# determine github args if github is an option on this platform
 	local arch github_asset_filter='' github=()
 	arch="$(get-arch)"
@@ -34,6 +123,8 @@ function setup-util-syncthing() (
 		github_asset_filter='-linux-amd64-'
 	elif test "$arch" = 'x32'; then
 		github_asset_filter='-linux-386-'
+	elif test "$arch" = 'r64'; then
+		github_asset_filter='-linux-riscv64-'
 	fi
 	if test -n "$github_asset_filter"; then
 		github+=(
@@ -46,7 +137,7 @@ function setup-util-syncthing() (
 	fi
 
 	# install, preferring github
-	# despite docs, no syncthing
+	# despite docs, no apk
 	setup-util "$@" --cli='syncthing' --order='cask apt ... github' \
 		"${github[@]}" \
 		APT_KEY='https://syncthing.net/release-key.gpg' \
@@ -65,36 +156,32 @@ function setup-util-syncthing() (
 		XBPS='syncthing' \
 		ZYPPER='syncthing'
 
-	# brew services restart syncthing
-	# ^ for brew, not cask
+	# =====================================
+	# Setup Service
 
-	# https://docs.syncthing.net/users/autostart.html#linux
-	if confirm-positive --ppid=$$ -- 'Do you wish to autostart syncthing?'; then
-		local desktop desktop_autostart
-		desktop=/usr/share/applications/syncthing-start.desktop
-		desktop_autostart="$HOME/.config/autostart/syncthing-start.desktop"
-		if is-headful && test -e "$desktop"; then
-			# https://docs.syncthing.net/users/autostart.html#using-the-desktop-environment-kde-gnome-xfce-cinnamon
+	# stop at uninstall?
+	if test "$action" = 'uninstall'; then
+		sudo-helper --inherit -- fs-rm "${service_paths[@]}"
+		return "$?"
+	fi
+
+	# disable autostart on headless
+	if service-helper --supported; then
+		service-helper --disable --stop -- "$service_name"
+	fi
+
+	# enable autostart on desktop
+	if is-headful && test -e "$service_desktop"; then
+		if confirm-positive --ppid=$$ -- 'Autostart syncthing?'; then
 			symlink-helper \
-				--existing="$desktop" \
-				--symlink="$desktop_autostart"
+				--existing="$service_desktop" \
+				--symlink="$service_desktop_autostarter"
 		else
-			# https://docs.syncthing.net/users/autostart.html#using-systemd
-			# echo 'autostart not yet implemented on headless' > /dev/stderr
-			local user
-			user="$(whoami)"
-			sudo-helper -- systemctl enable "syncthing@$user.service"
-			sudo-helper -- systemctl start "syncthing@$user.service"
+			sudo-helper -- rm -rf "$service_desktop_autostarter"
 		fi
 	fi
 
-	# https://docs.syncthing.net/users/config.html
-	# $HOME/	.config/syncthing
-	# $HOME/Library/Application Support/Syncthing
-	# %LOCALAPPDATA%\Syncthing
-	# copyOwnershipFromParent: On Unix systems, tries to copy file/folder ownership from the parent directory (the directory it’s located in). Requires running Syncthing as a privileged user, or granting it additional capabilities (e.g. CAP_CHOWN on Linux).
-	# user: Set to require authentication.
-	# password: Contains the bcrypt hash of the real password.
+	# @todo handle --group and permissions
 )
 
 # fire if invoked standalone
