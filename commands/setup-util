@@ -135,14 +135,16 @@ function setup-util() (
 			--no-fallback
 			    If truthy, do not install a package system in order to install the package.
 
-			--upgrade
-			    If truthy, if the utility is already installed then reinstall / upgrade it. Not all installers support this.
-
-			--uninstall
-			    If truthy, if the utility is already installed then uninstall it. Not all installers support this.
-
 			--force
 			    If truthy, use the installer's force mode if supported.
+
+			--upgrade
+			    If omitted, do not reinstall if already installed.
+			    Not all installers support this.
+
+			--uninstall | --action=uninstall
+			    If truthy, if the utility is already installed then uninstall it.
+			    Not all installers support this.
 
 			--quiet
 			    If unspecified, outputs only useful things.
@@ -173,7 +175,7 @@ function setup-util() (
 
 	# installer options
 	local APK=() ALPINE=()
-	local APT=() DEBIAN=() APT_REPO='' APT_KEY='' APT_ID=''
+	local APT=() APT_REPO='' APT_KEY='' APT_ID=''
 	local AUR=() ARCH=()
 	local AURUTILS=()
 	local BREW=() BREW_TAP=()
@@ -185,7 +187,7 @@ function setup-util() (
 	local CONDA=() CONDA_CHANNEL=''
 	local DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
 	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_UNZIP_FORMAT='' DOWNLOAD_UNZIP_FILTER=''
-	local DPKG=()
+	local DPKG=() DEB=() DEBIAN=()
 	local EMERGE=() EMERGE_REPO=()
 	local EOPKG=() SOLUS=()
 	local FLATPAK=() FLATPAK_REPO=()
@@ -216,13 +218,16 @@ function setup-util() (
 	local ZYPPER=() ZYPPER_REPO='' ZYPPER_REPO_ALIAS=''
 
 	# process
-	local item installer='' app='' cli='' name='' quiet confirm='no' optional='no' fallback='yes' upgrade='no' force='no' uninstall='no' order=()
+	local item action='install' installer='' app='' cli='' name='' quiet confirm='no' optional='no' fallback='yes' upgrade='no' force='no' order=()
 	quiet="$(echo-quiet -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--install') action='install' ;;
+		'--uninstall') action='uninstall' ;;
+		'--action='*) action="${item#*--action=}" ;;
 		'--order='*) mapfile -t order < <(echo-split ' ' -- "${item#--order=}") ;;
 		'--installer='*) installer="${item#--installer=}" ;;
 		'--app='*) app="${item#--app=}" ;;
@@ -244,19 +249,14 @@ function setup-util() (
 				get-flag-value fallback --missing="$fallback" -- "$item" | echo-affirmative
 			)"
 			;;
-		'--no-upgrade'* | '--upgrade'*)
-			upgrade="$(
-				get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative
-			)"
-			;;
-		'--no-uninstall'* | '--uninstall'*)
-			uninstall="$(
-				get-flag-value uninstall --missing="$uninstall" -- "$item" | echo-affirmative
-			)"
-			;;
 		'--no-force'* | '--force'*)
 			force="$(
 				get-flag-value force --missing="$force" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-upgrade'* | '--upgrade'*)
+			upgrade="$(
+				get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative
 			)"
 			;;
 		'--')
@@ -302,6 +302,7 @@ function setup-util() (
 		'CINST='*) CINST+=("${item#*CINST=}") ;;
 		'CONDA_CHANNEL='*) CONDA_CHANNEL="${item#*CONDA_CHANNEL=}" ;;
 		'CONDA='*) CONDA+=("${item#*CONDA=}") ;;
+		'DEB='*) DEB+=("${item#*DEB=}") ;;
 		'DEBIAN='*) DEBIAN+=("${item#*DEBIAN=}") ;;
 		'DNF_COPR='*) DNF_COPR+=("${item#*DNF_COPR=}") ;;
 		'DNF_GROUP='*) DNF_GROUP+=("${item#*DNF_GROUP=}") ;;
@@ -368,6 +369,19 @@ function setup-util() (
 		esac
 	done
 
+	# ensure action
+	if test -z "$action"; then
+		action='install'
+	fi
+	if ! [[ $action =~ install|uninstall|upgrade ]]; then
+		help 'Invalid <action>, must be [install], [uninstall], or [upgrade].'
+	fi
+
+	# if uninstall, disable upgrade
+	if test "$action" = 'uninstall'; then
+		upgrade='no'
+	fi
+
 	# ensure name fallback
 	if test -z "$name" -a -n "$cli"; then
 		name="$cli"
@@ -409,11 +423,6 @@ function setup-util() (
 		order=("${temp_order[@]}")
 	fi
 
-	# if uninstall is enabled, disable upgrade
-	if test "$uninstall" = 'yes'; then
-		upgrade='no'
-	fi
-
 	# =====================================
 	# Process
 
@@ -425,7 +434,7 @@ function setup-util() (
 	if test -n "$cli" -o -n "$app"; then
 		if (test -n "$app" && ! get-app "$app") || (test -n "$cli" && command-missing "$cli"); then
 			# not installed
-			if test "$uninstall" = 'yes'; then
+			if test "$action" = 'uninstall'; then
 				# uninstall, so no need to install
 				if test "$quiet" != 'yes'; then
 					echo-style --g3="The [$name] utility was not found. Already uninstalled. ✅"
@@ -433,7 +442,7 @@ function setup-util() (
 				# exit
 				return 0
 			fi
-			# disable upgrade, as only for existing installs
+			# note that we aren't upgrading, which is used for logging
 			upgrade='no'
 			# install
 			echo-style --h3="The [$name] utility was not found. Installing automatically... ⏲"
@@ -475,7 +484,7 @@ function setup-util() (
 
 	# log helpers
 	function get_completion_action {
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			echo 'uninstalled'
 		elif test "$upgrade" = 'yes'; then
 			echo 'upgraded'
@@ -540,7 +549,7 @@ function setup-util() (
 		done
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			if brew-installed --formula -- "${pkg[@]}"; then
 				args+=(
 					'brew'
@@ -610,7 +619,7 @@ function setup-util() (
 		done
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			if brew-installed --formula -- "${pkg[@]}"; then
 				args+=(
 					'brew'
@@ -669,7 +678,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'apk'
 				'del'
@@ -730,7 +739,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'pamac'
 				'remove'
@@ -821,7 +830,7 @@ function setup-util() (
 			sudo-helper -- pacman "${opts[@]}" --refresh --sync
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'pacman'
 				'--remove'
@@ -867,7 +876,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -906,7 +915,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		elif test "$upgrade" = 'yes'; then
 			args+=(
@@ -949,7 +958,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -988,7 +997,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -1058,7 +1067,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'zypper'
 				"${opts[@]}"
@@ -1143,7 +1152,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'dnf'
 				"${opts[@]}"
@@ -1221,7 +1230,7 @@ function setup-util() (
 				down --directory='/etc/yum.repos.d/' "$__repo"
 		done
 
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'yum'
 				"${opts[@]}"
@@ -1264,7 +1273,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'rpm'
 				'--erase'
@@ -1317,6 +1326,8 @@ function setup-util() (
 		local args=() packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" __keyring=''
 		if test "${#APT[@]}" -ne 0; then
 			packages+=("${APT[@]}")
+		elif test "${#DEB[@]}" -ne 0; then
+			packages+=("${DEB[@]}")
 		elif test "${#DEBIAN[@]}" -ne 0; then
 			packages+=("${DEBIAN[@]}")
 		fi
@@ -1478,7 +1489,7 @@ function setup-util() (
 		fi
 
 		# action args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'apt-get'
 				'remove'
@@ -1503,11 +1514,16 @@ function setup-util() (
 	}
 
 	# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
-	# installs .deb files
+	# installs local .deb files, and with our helper, remote .deb files
+	# https://man7.org/linux/man-pages/man1/dpkg.1.html
 	function do_dpkg {
-		local args=() packages=()
+		local args=() packages=() i=0 t=''
 		if test "${#DPKG[@]}" -ne 0; then
 			packages+=("${DPKG[@]}")
+		elif test "${#DEB[@]}" -ne 0; then
+			packages+=("${DEB[@]}")
+		elif test "${#DEBIAN[@]}" -ne 0; then
+			packages+=("${DEBIAN[@]}")
 		fi
 
 		# checks
@@ -1519,8 +1535,11 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
-			return 1 # unsupported
+		if test "$action" = 'uninstall'; then
+			args+=(
+				'dpkg'
+				'--remove'
+			)
 		else
 			# install / upgrade
 			args+=(
@@ -1528,6 +1547,19 @@ function setup-util() (
 				'--install'
 			)
 		fi
+
+		# convert urls to local
+		for i in "${!packages[@]}"; do
+			if [[ ${packages[$i]} == 'http'* ]]; then
+				# fetch temp directory
+				if test -z "$t"; then
+					t="$(fs-temp --directory='setup-util')"
+					mkdir -p "$t"
+				fi
+				# download to temp
+				packages[i]="$(down --directory="$t")"
+			fi
+		done
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
@@ -1556,7 +1588,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'scoop'
 				'uninstall'
@@ -1596,7 +1628,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'winget'
 				'uninstall'
@@ -1644,7 +1676,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				"$cmd"
 				'uninstall'
@@ -1699,7 +1731,7 @@ function setup-util() (
 
 		# repos
 		args=()
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'flatpak'
 				'remote-delete'
@@ -1721,7 +1753,7 @@ function setup-util() (
 
 		# args
 		args=()
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'flatpak'
 				'uninstall'
@@ -1780,7 +1812,7 @@ function setup-util() (
 		fi
 
 		# action args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'snap'
 				'remove'
@@ -1834,7 +1866,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'cargo'
 				'uninstall'
@@ -1887,7 +1919,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -1947,7 +1979,7 @@ function setup-util() (
 		done
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 0 # already uninstalled
 		else
 			# install / upgrade
@@ -2000,7 +2032,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'npm'
 				'uninstall'
@@ -2077,7 +2109,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'pip_helper'
 				'uninstall')
@@ -2131,7 +2163,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'pipx'
 				'uninstall'
@@ -2195,7 +2227,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'pkgin'
 				'remove'
@@ -2238,7 +2270,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		fi
 
@@ -2269,7 +2301,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'pkg'
 				'autoremove'
@@ -2314,7 +2346,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			return 1 # unsupported
 		elif test "$upgrade" = 'yes'; then
 			args+=(
@@ -2354,7 +2386,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'conda'
 				'remove'
@@ -2415,7 +2447,7 @@ function setup-util() (
 		done
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'emerge'
 				'--depclean'
@@ -2454,7 +2486,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'eopkg'
 				'autoremove'
@@ -2494,7 +2526,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'guix'
 				'package'
@@ -2532,7 +2564,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'nix-env'
 				'--uninstall'
@@ -2574,7 +2606,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'port'
 				'uninstall'
@@ -2617,7 +2649,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'xbps-remove'
 				'-R'
@@ -2661,7 +2693,7 @@ function setup-util() (
 		fi
 
 		# args
-		if test "$uninstall" = 'yes'; then
+		if test "$action" = 'uninstall'; then
 			args+=(
 				'urpme'
 			)
@@ -2679,6 +2711,46 @@ function setup-util() (
 
 	# ---------------------------------
 	# CUSTOM
+
+	function get_path_from_filename() {
+		local filename="$1"
+		# only place in appimage_home if it keeps the appimage extension
+		if [[ $filename == *'.app' ]]; then
+			# macos /Applications/$filename.app
+			echo "$HOME/Applications/$filename"
+		elif [[ $filename == *'.appimage' ]]; then
+			# macos $HOME/Applications/$filename.appimage
+			mkdir -p "$APPIMAGE_HOME"
+			echo "$APPIMAGE_HOME/$filename"
+		else
+			# macos $HOME/.local/bin/$filename
+			mkdir -p "$XDG_BIN_HOME"
+			echo "$XDG_BIN_HOME/$filename"
+		fi
+	}
+	function verify_saved_path() {
+		local path="$1"
+
+		# verify
+		if test ! -e "$path"; then
+			echo-style --error='Failed to install:' ' ' --code="$path"
+			return 1
+		fi
+
+		# adjust
+		fs-own --permissions='+x' -- "$path"
+
+		# verify
+		if [[ $path == *'.app' ]] && test -d "$path"; then
+			return 0
+		elif command-working "$path"; then
+			return 0
+		else
+			echo-style --error='Failed to verify:' ' ' --code="$path"
+			rm -f "$path" # remove so it doesn't interfere with other install methods and other processes
+			return 1
+		fi
+	}
 
 	# installer
 	function do_installer {
@@ -2706,6 +2778,7 @@ function setup-util() (
 				)"
 				down "$file_or_url" --path="$file"
 			fi
+
 			# ensure it is executable, then open or run it
 			chmod +x "$file"
 			if test "$__open" = 'yes'; then
@@ -2717,12 +2790,12 @@ function setup-util() (
 				# but do not forward order, as the installer may have custom arguments
 				eval-helper --quiet="$quiet" -- \
 					env SETUP_UTIL=yes "$file" \
+					--action="$action" \
 					--confirm="$confirm" \
-					--optional="$optional" \
-					--upgrade="$upgrade" \
-					--uninstall="$uninstall" \
 					--force="$force" \
-					--quiet="$quiet"
+					--optional="$optional" \
+					--quiet="$quiet" \
+					--upgrade="$upgrade"
 			else
 				# external installer script
 				eval-helper --quiet="$quiet" -- \
@@ -2746,16 +2819,11 @@ function setup-util() (
 				return 1
 			fi
 
-			# only place in appimage_home if it keeps the appimage extension
-			if [[ $filename == *'.appimage'* ]]; then
-				mkdir -p "$APPIMAGE_HOME"
-				path="$APPIMAGE_HOME/$filename"
-			else
-				path="$XDG_BIN_HOME/$filename"
-			fi
+			# determine path
+			path="$(get_path_from_filename "$filename")"
 
 			# uninstall?
-			if test "$uninstall" = 'yes'; then
+			if test "$action" = 'uninstall'; then
 				rm -f "$path"
 				return 0
 			fi
@@ -2773,20 +2841,7 @@ function setup-util() (
 				--path="$path"
 
 			# verify
-			if test ! -e "$path"; then
-				echo-style --error='Failed to install:' ' ' --code="$path"
-				return 1
-			fi
-
-			# adjust
-			fs-own --permissions='+x' -- "$path"
-
-			# verify
-			if ! command-working "$path"; then
-				echo-style --error='Failed to verify:' ' ' --code="$path"
-				rm -f "$path" # remove so it doesn't interfere with other install methods and other processes
-				return 1
-			fi
+			verify_saved_path "$path"
 		else
 			# not applicable
 			return 1
@@ -2795,7 +2850,7 @@ function setup-util() (
 
 	# download
 	function do_download {
-		local file download="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" unzip_format="$DOWNLOAD_UNZIP_FORMAT" unzip_filter="$DOWNLOAD_UNZIP_FILTER"
+		local path download="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" unzip_format="$DOWNLOAD_UNZIP_FORMAT" unzip_filter="$DOWNLOAD_UNZIP_FILTER"
 
 		# check applicabile
 		if test -n "$download"; then
@@ -2805,13 +2860,12 @@ function setup-util() (
 				return 1
 			fi
 
-			# prepare
-			file="$XDG_BIN_HOME/$filename"
-			mkdir -p "$XDG_BIN_HOME"
+			# determine path
+			path="$(get_path_from_filename "$filename")"
 
 			# uninstall?
-			if test "$uninstall" = 'yes'; then
-				rm -f "$file"
+			if test "$action" = 'uninstall'; then
+				rm -f "$path"
 				return 0
 			fi
 
@@ -2820,23 +2874,10 @@ function setup-util() (
 				--quiet="$quiet" \
 				--unzip-format="$unzip_format" \
 				--unzip-filter="$unzip_filter" \
-				--path="$file"
+				--path="$path"
 
 			# verify
-			if test ! -e "$file"; then
-				echo-style --error='Failed to install:' ' ' --code="$file"
-				return 1
-			fi
-
-			# adjust
-			fs-own --permissions='+x' -- "$file"
-
-			# verify
-			if ! command-working "$file"; then
-				echo-style --error='Failed to verify:' ' ' --code="$file"
-				rm -f "$file" # remove so it doesn't interfere with other install methods and other processes
-				return 1
-			fi
+			verify_saved_path "$path"
 		else
 			# not applicable
 			return 1

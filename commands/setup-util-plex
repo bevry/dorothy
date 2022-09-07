@@ -2,6 +2,85 @@
 source "$DOROTHY/sources/strict.bash"
 
 function setup-util-plex() (
+	# =====================================
+	# Preparation
+
+	local service_name='plexmediaserver'
+	local service_path="/lib/systemd/system/$service_name.service"
+	local data_paths=(
+		'/var/lib/plexmediaserver/'
+	)
+	local all_paths=(
+		"$service_path"
+		"${data_paths[@]}"
+	)
+
+	# =====================================
+	# Arguments
+
+	# help
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+
+			Sets up a plex media server.
+
+			USAGE:
+
+			setup-util-plex [...options]
+
+			OPTIONS:
+
+			--paths
+			    If specified, output the paths used by plex media server; useful for restoring backups.
+
+			--service
+			    If specified, output the service name.
+
+			--group=<group>
+			    Groups to attach the service user to.
+
+			...
+			    All other options are forwarded to $(echo-style --code='setup-util').
+
+		EOF
+		# if test "$#" -ne 0; then
+		# 	echo-error "$@"
+		# fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='' groups=() util=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--paths') action='paths' ;;
+		'--service') action='service' ;;
+		'--install') action='install' ;;
+		'--uninstall') action='uninstall' ;;
+		'--action='*) action="${item#*--action=}" ;;
+		'--group='*) groups+=("${item#*--group=}") ;;
+		*) util+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Simple Actions
+
+	if test "$action" = 'paths'; then
+		echo-lines "${all_paths[@]}"
+		return 0
+	elif test "$action" = 'service'; then
+		echo "$service_name"
+		return 0
+	fi
+
+	# =====================================
+	# Checks
+
 	# check for support
 	if ! is-ubuntu; then
 		echo-style --error="[$0] is implemented for Ubuntu systems..." >/dev/stderr
@@ -11,61 +90,106 @@ function setup-util-plex() (
 	fi
 
 	# =====================================
-	# Action
+	# Dependencies
 
-	# https://support.plex.tv/articles/235974187#enable-repository-updating-for-supported-linux-server-distributions/
-	# https://www.plex.tv/media-server-downloads##plex-media-server
+	source "$DOROTHY/sources/ripgrep.bash"
 
-	# --paths
-	local plex_service plex_data_paths plex_paths
-	plex_service='/lib/systemd/system/plexmediaserver.service'
-	plex_data_paths=(
-		'/var/lib/plexmediaserver/'
-	)
-	plex_paths=(
-		"$plex_service"
-		"${plex_data_paths[@]}"
-	)
-	if test "${1-}" = '--paths'; then
-		echo-lines -- "${plex_paths[@]}"
-		return 0
+	# =====================================
+	# Setup Utility
+
+	# https://forums.plex.tv/t/809529?u=balupton
+	# fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass' | jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url'
+
+	function get_json() {
+		fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass'
+	}
+	function get_platform_urls() {
+		if is-mac; then
+			get_json | jq -r '.computer.MacOS.releases[].url'
+		elif is-linux; then
+			get_json | jq -r '.computer.Linux.releases[].url'
+		elif is-windows; then
+			get_json | jq -r '.computer.Windows.releases[].url'
+		else
+			get_json | jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url'
+		fi
+	}
+
+	# determin utility options
+	local arch
+	arch="$(get-arch)"
+	if is-mac; then
+		# -e is essential, as without it the '-' is confused as ripgrep flag argument
+		util+=(
+			DOWNLOAD="$(get_platform_urls | rg -e '-universal.zip$')"
+			DOWNLOAD_FILENAME='Plex Media Server.app'
+			DOWNLOAD_UNZIP_FORMAT='zip'
+		)
+	elif is-ubuntu; then
+		if test "$arch" = 'x64'; then
+			util+=("DEB=$(get_platform_urls | rg -e '_amd64.deb$')")
+		elif test "$arch" = 'x32'; then
+			util+=("DEB=$(get_platform_urls | rg -e '_i386.deb$')")
+		elif test "$arch" = 'a64'; then
+			util+=("DEB=$(get_platform_urls | rg -e '_arm64.deb$')")
+		elif test "$arch" = 'a32'; then
+			util+=("DEB=$(get_platform_urls | rg -e '_armhf.deb$')")
+		fi
+	elif command-exists rpm; then
+		if test "$arch" = 'x64'; then
+			util+=("RPM=$(get_platform_urls | rg -e '.x86_64.rpm$')")
+		elif test "$arch" = 'x32'; then
+			util+=("RPM=$(get_platform_urls | rg -e '.i686.rpm$')")
+		fi
 	fi
 
-	# install
-	setup-util "$@" --name='Plex Media Server' \
-		APT='plexmediaserver' \
+	# install utility with forwarded+custom arguments
+	setup-util --name='Plex Media Server' "${util[@]}" \
 		APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
 		APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://downloads.plex.tv/repo/deb public main' \
+		APT='plexmediaserver' \
 		CASK='plex-media-server'
 
-	# service
-	sudo-helper -- systemctl disable plexmediaserver || :
-	sudo-helper -- systemctl stop plexmediaserver || :
+	# =====================================
+	# Setup Service
 
-	# configure
-	if confirm-negative --ppid=$$ -- "Customise Plex Media Server configuration?"; then
-		edit --sudo -- "$plex_service"
+	# stop at uninstall?
+	if test "$action" = 'uninstall'; then
+		sudo-helper --inherit -- fs-rm "${all_paths[@]}"
+		return "$?"
 	fi
 
-	# permissions
-	local plex_user plex_group
-	plex_user="$(
+	# verify the service was initialised
+	if ! test -f "$service_path"; then
+		echo-error "Plex Media Server was installed, however the service was not..." >/dev/stderr
+		return 1
+	fi
+
+	# ensure the service does not autostart and is stopped
+	sudo-helper -- systemctl disable "$service_name" || :
+	sudo-helper -- systemctl stop "$service_name" || :
+
+	# read the defaults
+	local service_user service_group
+	service_user="$(
 		config-helper \
-			--file="$plex_service" -- \
+			--file="$service_path" -- \
 			--field='User'
 	)"
-	plex_group="$(
+	service_group="$(
 		config-helper \
-			--file="$plex_service" -- \
+			--file="$service_path" -- \
 			--field='Group'
 	)"
-	fs-own --user="$plex_user" --group="$plex_group" -- "${plex_data_paths[@]}"
 
-	# --group
-	local groups group
-	mapfile -t groups < <(get-flag-value group --multi -- "$@")
+	# correct the permissions
+	fs-own --user="$service_user" --group="$service_group" -- "${data_paths[@]}"
+
+	# attach groups
+	local group
 	for group in "${groups[@]}"; do
-		sudo-helper -- gpasswd -a "$plex_user" "$group"
+		# sudo-helper -- usermod --append --groups="$group" "$service_user"
+		sudo-helper -- gpasswd -a "$user" "$group"
 	done
 )
 
