@@ -18,33 +18,6 @@ source "$DOROTHY/sources/strict.bash"
 
 function setup-util-syncthing() (
 	# =====================================
-	# Preparation
-
-	# https://docs.syncthing.net/users/config.html
-	# user: Set to require authentication.
-	# password: Contains the bcrypt hash of the real password.
-	# copyOwnershipFromParent: On Unix systems, tries to copy file/folder ownership from the parent directory (the directory it’s located in). Requires running Syncthing as a privileged user, or granting it additional capabilities (e.g. CAP_CHOWN on Linux).
-
-	local user
-	user="$(whoami)"
-	local service_name="syncthing@$user"
-	local service_path="/lib/systemd/system/$service_name.service"
-	local service_data_paths=(
-		"$XDG_CONFIG_HOME/syncthing"
-		"$HOME/Library/Application Support/Syncthing"
-		# "%LOCALAPPDATA%\Syncthing"
-	)
-	local service_paths=(
-		"$service_path"
-		"${service_data_paths[@]}"
-	)
-
-	# https://docs.syncthing.net/users/autostart.html#linux
-	# https://docs.syncthing.net/users/autostart.html#using-the-desktop-environment-kde-gnome-xfce-cinnamon
-	local service_desktop='/usr/share/applications/syncthing-start.desktop'
-	local service_desktop_autostarter="$XDG_CONFIG_HOME/autostart/syncthing-start.desktop"
-
-	# =====================================
 	# Arguments
 
 	# help
@@ -63,6 +36,9 @@ function setup-util-syncthing() (
 			--service
 			    If specified, output the service name.
 
+			--user=<user>
+			    User to establish the service as.
+
 			--group=<group>
 			    Groups to attach the service user to.
 
@@ -76,7 +52,8 @@ function setup-util-syncthing() (
 	}
 
 	# process
-	local item action='' groups=() util=()
+	local item user action='' groups=() util=()
+	user="$(whoami)"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -87,16 +64,45 @@ function setup-util-syncthing() (
 		'--install') action='install' ;;
 		'--uninstall') action='uninstall' ;;
 		'--action='*) action="${item#*--action=}" ;;
+		'--user='*) user="${item#*--user=}" ;;
 		'--group='*) groups+=("${item#*--group=}") ;;
 		*) util+=("$item") ;;
 		esac
 	done
 
 	# =====================================
+	# Preparation
+
+	# https://docs.syncthing.net/users/config.html
+	# user: Set to require authentication.
+	# password: Contains the bcrypt hash of the real password.
+	# copyOwnershipFromParent: On Unix systems, tries to copy file/folder ownership from the parent directory (the directory it’s located in). Requires running Syncthing as a privileged user, or granting it additional capabilities (e.g. CAP_CHOWN on Linux).
+
+	local service_name="syncthing@$user"
+	local service_path="/lib/systemd/system/$service_name.service"
+	local service_data_paths=(
+		"/home/$user/.config/syncthing"
+		"/home/$user/.local/share/syncthing"
+		"$XDG_CONFIG_HOME/syncthing"
+		"$XDG_DATA_HOME/syncthing"
+		"$HOME/Library/Application Support/Syncthing"
+		# "%LOCALAPPDATA%\Syncthing"
+	)
+	local service_all_paths=(
+		"$service_path"
+		"${service_data_paths[@]}"
+	)
+
+	# https://docs.syncthing.net/users/autostart.html#linux
+	# https://docs.syncthing.net/users/autostart.html#using-the-desktop-environment-kde-gnome-xfce-cinnamon
+	local service_desktop='/usr/share/applications/syncthing-start.desktop'
+	local service_desktop_autostarter="$XDG_CONFIG_HOME/autostart/syncthing-start.desktop"
+
+	# =====================================
 	# Simple Actions
 
 	if test "$action" = 'paths'; then
-		echo-lines "${service_paths[@]}"
+		echo-lines "${service_all_paths[@]}"
 		return 0
 	elif test "$action" = 'service'; then
 		echo "$service_name"
@@ -161,17 +167,20 @@ function setup-util-syncthing() (
 
 	# stop at uninstall?
 	if test "$action" = 'uninstall'; then
-		sudo-helper --inherit -- fs-rm "${service_paths[@]}"
+		sudo-helper --inherit -- fs-rm "${service_all_paths[@]}"
 		return "$?"
 	fi
 
 	# disable autostart on headless
-	if service-helper --supported; then
+	if service-helper --supported && test -f "$service_path"; then
 		service-helper --disable --stop -- "$service_name"
 	fi
 
+	# correct the permissions
+	fs-own --user="$user" -- "${service_data_paths[@]}"
+
 	# enable autostart on desktop
-	if is-headful && test -e "$service_desktop"; then
+	if is-headful && test -f "$service_desktop"; then
 		if confirm-positive --ppid=$$ -- 'Autostart syncthing?'; then
 			symlink-helper \
 				--existing="$service_desktop" \
