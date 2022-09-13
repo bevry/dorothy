@@ -65,6 +65,9 @@ function setup-util() (
 		pipx
 		gem
 
+		# mac app store
+		mas
+
 		# windows
 		scoop
 		winget
@@ -195,6 +198,7 @@ function setup-util() (
 	local GO=()
 	local GUIX=()
 	local INSTALLER='' INSTALLER_FILENAME='' INSTALLER_OPEN=''
+	local MAS=()
 	local NIX=()
 	local NPM=() NODE=()
 	local PACMAN=()
@@ -332,6 +336,7 @@ function setup-util() (
 		'INSTALLER_OPEN='*) INSTALLER_OPEN="${item#*INSTALLER_OPEN=}" ;;
 		'INSTALLER='*) INSTALLER="${item#*INSTALLER=}" ;;
 		'MAGEIA='*) MAGEIA+=("${item#*MAGEIA=}") ;;
+		'MAS='*) MAS+=("${item#*MAS=}") ;;
 		'NIX='*) NIX+=("${item#*NIX=}") ;;
 		'NODE='*) NODE+=("${item#*NODE=}") ;;
 		'NPM='*) NPM+=("${item#*NPM=}") ;;
@@ -1054,19 +1059,23 @@ function setup-util() (
 		if test -n "$repo"; then
 			if test -n "$alias"; then
 				eval-helper --quiet="$quiet" -- \
-					sudo-helper -- zypper "${opts[@]}" \
+					sudo-helper -- \
+					zypper "${opts[@]}" \
 					addrepo --refresh "$repo" "$alias"
 
 				eval-helper --quiet="$quiet" -- \
-					sudo-helper -- zypper "${opts[@]}" \
+					sudo-helper -- \
+					zypper "${opts[@]}" \
 					dist-upgrade --auto-agree-with-licenses --no-confirm --from "$alias"
 			else
 				eval-helper --quiet="$quiet" -- \
-					sudo-helper -- zypper "${opts[@]}" \
+					sudo-helper -- \
+					zypper "${opts[@]}" \
 					addrepo --refresh "$repo"
 
 				eval-helper --quiet="$quiet" -- \
-					sudo-helper -- zypper "${opts[@]}" \
+					sudo-helper -- \
+					zypper "${opts[@]}" \
 					refresh
 			fi
 		fi
@@ -1090,7 +1099,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# dnf / COPR / Fedora / CentOS / RHEL
@@ -1180,7 +1190,8 @@ function setup-util() (
 		# packages
 		if test "${#packages[@]}" -ne 0; then
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "${packages[@]}"
+				sudo-helper -- \
+				"${args[@]}" "${packages[@]}"
 		fi
 	}
 
@@ -1257,7 +1268,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# rpm / RedHat / Fedora / CentOS / etc
@@ -1306,7 +1318,8 @@ function setup-util() (
 				return 1
 			fi
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "$__package"
+				sudo-helper -- \
+				"${args[@]}" "$__package"
 		done
 	}
 
@@ -1515,7 +1528,8 @@ function setup-util() (
 		# use `apt-get`, as `apt` produces this warning on Ubuntu 20.04.3 LTS
 		# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
@@ -1568,7 +1582,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# -------------------------------------
@@ -1753,7 +1768,8 @@ function setup-util() (
 		fi
 		for __repo in "${repos[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "$__repo"
+				sudo-helper -- \
+				"${args[@]}" "$__repo"
 		done
 
 		# args
@@ -1785,12 +1801,130 @@ function setup-util() (
 		# packages
 		for __package in "${packages[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "$__package"
+				sudo-helper -- \
+				"${args[@]}" "$__package"
 		done
 	}
 	function do_flatpak_fallback {
 		setup-util-flatpak
 		do_flatpak "$@"
+	}
+
+	# -------------------------------------
+	# Containers: Mac App Store
+
+	# mas / Mac App Store
+	# https://github.com/mas-cli/mas/issues
+	# only use sudo on uninstall
+	function mas_search {
+		local package="$1" exact=() options=() id name
+		while read -r id name; do
+			# trim version from the name, it doesn't work in the `read` arguments, as spaces inside name will be considered the version
+			name="${name%%  *}"
+			if test "$(lc "$name")" = "$(lc "$arg")"; then
+				exact+=("$id" "$name")
+			else
+				options+=("$id" "$name")
+			fi
+			# ^ append the id and name (which are space and tab separated)
+		done < <(mas search "$arg" | env TIMEOUT=0 echo-trim-each-line | sort --ignore-case -k 2)
+		# ^ trim superflous padding that will cause confusion to IFS
+
+		# ensure exact match is first
+		options=("${exact[@]}" "${options[@]}")
+
+		# return the selection
+		choose-option \
+			--question="Which Mac App Store app was intended for $package?" \
+			--label -- "${options[@]}"
+	}
+	function do_mas {
+		local args=() packages=() package
+		if test "${#MAS[@]}" -ne 0; then
+			packages+=("${MAS[@]}")
+		fi
+
+		# checks
+		if test "${#packages[@]}" -eq 0; then
+			return 1 # not needed
+		fi
+		if ! is-mac; then
+			return 1 # not applicable
+		fi
+		if command-missing mas; then
+			fallbacks+=('mas')
+			return 1 # required fallback
+		fi
+
+		# action args
+		if test "$action" = 'uninstall'; then
+			# currently broken
+			# https://github.com/mas-cli/mas/issues/313
+			return 1 # unsupported
+			# args+=(
+			# 	'sudo-helper'
+			# 	'--inherit'
+			# 	'--'
+			# 	'mas'
+			# 	'uninstall'
+			# )
+		else
+			# install / upgrade
+			args+=(
+				'mas'
+				'install'
+			)
+		fi
+
+		# signin, signout, no longer supported
+		# local signed_in='maybe'
+		# function mas_signin {
+		# 	local email
+		# 	if test "$signed_in" = 'yes'; then
+		# 		return 0
+		# 	fi
+		# 	email="$(
+		# 		ask --required \
+		# 			--question="The Mac App Store requires your email, enter it now."
+		# 	)"
+		# 	if is-value "$email"; then
+		# 		# mas signout || :
+		# 		mas signin --dialog "$email" || {
+		# 			echo-style --notice="Failed to signin to the Mac App Store."
+		# 			return 1
+		# 		}
+		# 		signed_in='yes'
+		# 	else
+		# 		signed_in='no'
+		# 		return 1
+		# 	fi
+		# }
+		# function mas_action {
+		# 	eval-helper --quiet="$quiet" -- \
+		# 		"${args[@]}" "${packages[@]}"
+		# }
+		# mas_action || {
+		# 	mas_signin && mas_action
+		# }
+
+		# packages
+		for package in "${packages[@]}"; do
+			# convert labels into ids
+			if ! is-number "$package"; then
+				package="$(mas_search "$package")"
+			fi
+
+			# action
+			eval-helper --quiet="$quiet" -- \
+				"${args[@]}" "$package"
+		done
+	}
+	function do_mas_fallback {
+		if ! is-mac; then
+			return 1 # not applicable
+		fi
+		setup-util-mas
+		do_mas "$@"
 	}
 
 	# -------------------------------------
@@ -1841,7 +1975,8 @@ function setup-util() (
 				parts=("${parts[0]}") # if uninstalling, trim --classic
 			fi
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "${parts[@]}"
+				sudo-helper -- \
+				"${args[@]}" "${parts[@]}"
 		done
 
 	}
@@ -1893,12 +2028,21 @@ function setup-util() (
 			args+=('--quiet')
 		fi
 
-		# packages
-		if test "$quiet" != 'yes'; then
+		# note cargo installs take a while
+		if test "$action" = 'install' -a "$quiet" != 'yes'; then
 			log-performance
 		fi
-		eval-helper --quiet="$quiet" -- \
-			"${args[@]}" "${packages[@]}"
+
+		# packages
+		# support multiple args inside CARGO
+		for __package in "${packages[@]}"; do
+			mapfile -t parts < <(echo-split ' ' -- "$__package")
+			if test "$action" = 'uninstall' -a "${parts[0]}" = '--git'; then
+				parts=("$cli")
+			fi
+			eval-helper --quiet="$quiet" -- \
+				"${args[@]}" "${parts[@]}"
+		done
 	}
 	function do_cargo_fallback {
 		setup-rust
@@ -2255,7 +2399,8 @@ function setup-util() (
 		# packages
 		for __package in "${packages[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "$__package"
+				sudo-helper -- \
+				"${args[@]}" "$__package"
 		done
 	}
 
@@ -2285,7 +2430,8 @@ function setup-util() (
 		# packages
 		for __package in "${packages[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- pkgadd "$__package"
+				sudo-helper -- \
+				pkgadd "$__package"
 		done
 	}
 
@@ -2326,7 +2472,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# -------------------------------------
@@ -2370,7 +2517,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# conda / Anaconda
@@ -2419,7 +2567,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# emerge / GURU / Gentoo Linux
@@ -2449,9 +2598,11 @@ function setup-util() (
 		# repos
 		for __repo in "${repos[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- eselect repository enable "$__repo"
+				sudo-helper -- \
+				eselect repository enable "$__repo"
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- emerge --sync guru
+				sudo-helper -- \
+				emerge --sync guru
 		done
 
 		# args
@@ -2470,7 +2621,8 @@ function setup-util() (
 		# packages
 		for __package in "${packages[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "$__package"
+				sudo-helper -- \
+				"${args[@]}" "$__package"
 		done
 	}
 
@@ -2514,7 +2666,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# guix
@@ -2551,7 +2704,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# nix
@@ -2592,7 +2746,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# port / MacPorts
@@ -2634,7 +2789,8 @@ function setup-util() (
 		# packages
 		for __package in "${packages[@]}"; do
 			eval-helper --quiet="$quiet" -- \
-				sudo-helper -- "${args[@]}" "$__package"
+				sudo-helper -- \
+				"${args[@]}" "$__package"
 		done
 	}
 
@@ -2678,7 +2834,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# urpmi / Mageia
@@ -2714,7 +2871,8 @@ function setup-util() (
 
 		# packages
 		eval-helper --quiet="$quiet" -- \
-			sudo-helper -- "${args[@]}" "${packages[@]}"
+			sudo-helper -- \
+			"${args[@]}" "${packages[@]}"
 	}
 
 	# ---------------------------------

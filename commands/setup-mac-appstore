@@ -27,15 +27,23 @@ function setup-mac-appstore() (
 	}
 
 	# process
-	local item reconfigure='no' apps=()
+	local item install='no' upgrade='no' configure='no' packages=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--configure') reconfigure='yes' ;;
+		'--no-install'* | '--install'*) install="$(
+			get-flag-value install --missing="$install" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-upgrade'* | '--upgrade'*) upgrade="$(
+			get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-configure'* | '--configure'*) configure="$(
+			get-flag-value configure --missing="$configure" -- "$item" | echo-affirmative
+		)" ;;
 		'--')
-			apps+=("$@")
+			packages+=("$@")
 			shift $#
 			break
 			;;
@@ -54,10 +62,7 @@ function setup-mac-appstore() (
 	fi
 
 	# dependencies
-	setup-util-mas
-
-	# log
-	echo-segment --h1="Install macOS App Store"
+	setup-util-mas --quiet
 
 	# =====================================
 	# Configuration
@@ -71,97 +76,35 @@ function setup-mac-appstore() (
 	# =====================================
 	# Action
 
-	local prepared='no'
-	function do_signin {
-		local email
-		if test "$prepared" = 'yes'; then
-			return 0
-		fi
-		email="$(
-			ask --required \
-				--question="The macOS application installer requires your Apple App Store email, enter it now."
-		)"
-		if is-value "$email"; then
-			mas signout
-			mas signin --dialog "$email"
-			prepared='yes'
-		else
-			return 1
-		fi
-	}
-	function do_install {
-		if test "$prepared" = 'no'; then
-			mas install "$@" || {
-				do_signin
-				mas install "$@"
-			}
-		else
-			mas install "$@"
-		fi
-	}
-	function do_install_bulk {
-		if test "$#" -ne 0; then
-			do_install "$@"
-		fi
-	}
-	function mas_config {
+	# action
+	if test "${#packages[@]}" -ne 0; then
+		# use args
+		setup-util --installer=MAS -- "${packages[@]}"
+	elif test "${#MAS_INSTALL[@]}" -ne 0 -a "$install" = 'yes'; then
+		# select packages
 		local choices
-		if test "$#" -ne 0; then
-			mapfile -t choices < <(
-				choose-option --multi \
-					--question="Which Mac App Store apps would you like to install?" \
-					--label -- "$@"
-			)
-			do_install_bulk "${choices[@]}"
-		fi
-	}
-	function mas_args {
-		local options option
-		for arg in "$@"; do
-			if is-number "$arg"; then
-				# if id, install directly
-				do_install "$arg"
-			else
-				# trim superflous padding that will cause confusion to IFS
-				# append the id and name (which are space and tab separated)
-				exact=()
-				options=()
-				while read -r id name; do
-					# trim version from the name, it doesn't work in the `read` arguments, as spaces inside name will be considered the version
-					name="${name%%  *}"
-					if test "$(lc "$name")" = "$(lc "$arg")"; then
-						exact+=("$id" "$name")
-					else
-						options+=("$id" "$name")
-					fi
-				done < <(mas search "$arg" | env TIMEOUT=0 echo-trim-lines | sort --ignore-case -k 2)
-				# ensure exact match is first
-				options=("${exact[@]}" "${options[@]}")
-				# prompt the user to select which one
-				option="$(
-					choose-option \
-						--question="Which Mac App Store app was intended for $arg?" \
-						--label -- "${options[@]}"
-				)"
-				# install it
-				do_install "$option"
-			fi
-		done
-	}
-
-	# overrides
-	if test "${#apps[@]}" -ne 0; then
-		mas_args "${apps[@]}"
-	elif test "${#MAS_INSTALL[@]}" -ne 0; then
-		mas_config "${MAS_INSTALL[@]}"
-	else
-		reconfigure='yes'
+		mapfile -t choices < <(
+			choose-option --multi \
+				--question="Which Mac App Store apps would you like to install?" \
+				--label -- "${MAS_INSTALL[@]}"
+		)
+		setup-util --installer=MAS -- "${choices[@]}"
 	fi
 
-	# reconfigure
-	local id name
-	if test "$reconfigure" = 'yes'; then
-		# add installed, which will include config and arg installations
+	# upgrade
+	if test "$upgrade" = 'yes'; then
+		# upgrade
+		eval-helper --wrap \
+			--pending="$(echo-style --bold="Upgrading Mac App Store applications...")" \
+			--success="$(echo-style --success="Upgraded Mac App Store applications.")" \
+			--failure="$(echo-style --error="Failed to upgrade Mac App Store applications.")" \
+			-- mas upgrade || :
+	fi
+
+	# configure
+	if test "$configure" = 'yes'; then
+		# update MAS_INSTALL with all that are installed
+		local id name
 		while read -r id name; do
 			if ! is-needle "$id" "${MAS_INSTALL[@]}"; then
 				MAS_INSTALL+=("$id" "$name")
@@ -172,9 +115,6 @@ function setup-mac-appstore() (
 		update_dorothy_user_config 'setup.bash' -- \
 			--field='MAS_INSTALL' --columns=2 --array="$(echo-lines -- "${MAS_INSTALL[@]}" | sort --ignore-case -k 2)"
 	fi
-
-	# log
-	echo-segment --g1="Install macOS App Store"
 )
 
 # fire if invoked standalone
