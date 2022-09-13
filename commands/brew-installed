@@ -11,7 +11,7 @@ function brew-installed() (
 			Outputs the names of the installed packages.
 
 			USAGE:
-			brew-installed [...options] -- [...packages]
+			brew-installed [...options] -- [...<package>]
 
 			OPTIONS:
 			--requested
@@ -23,9 +23,18 @@ function brew-installed() (
 			--cask
 			    Output only packages that are casks.
 
-			ARGUMENTS:
-			...packages
+			...<package>
 			    If provided, only get details for these packages. Fail if one of them has not yet been installed.
+
+			QUIRKS:
+			If packages are provided, failure exit code will be returned if any are missing.
+			To check if any are present, use:
+
+			    $(echo-style --code="test -n \"\$(brew-installed -- bash something-missing &> /dev/null || :)\"")
+
+			If you just want the exit code, use:
+
+			    $(echo-style --code="brew-installed -- bash something-missing &> /dev/null")
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -34,8 +43,7 @@ function brew-installed() (
 	}
 
 	# process
-	local item requested='no' packages brew_type brew_list_cmd brew_info_cmd deno_script_args
-	packages=()
+	local item requested='no' packages=() brew_type brew_list_cmd brew_info_cmd deno_script_args
 	brew_type='' # empty, formula, cask
 	brew_list_cmd=(
 		'brew'
@@ -90,20 +98,22 @@ function brew-installed() (
 		)
 	fi
 
-	# helpers
-	function do_brew_list {
+	# =====================================
+	# Helpers
+
+	function do_brew_simple {
+		# handles only --cask and --formula, but not --requested
 		"${brew_list_cmd[@]}" | cut -d' ' -f1 | sort | uniq
-		# returns 1 if one of them was missing
-		# if you want to check if any were present, do
-		# test -n "$(brew-installed -- rustup rust || :)"
 	}
-	function do_brew_info {
-		local temp_deno_script temp_file lines_in_temp_file
+
+	function do_brew_advanced {
+		# handles --requested, --cask, and --formula
 
 		# ensure deno exists
 		setup-util-deno --quiet
 
 		# prepare as the .ts extension is essential
+		local temp_deno_script
 		temp_deno_script="$(fs-temp --directory='brew-installed' --file='deno.ts')"
 		cat <<EOF >"$temp_deno_script"
 // parse stdin
@@ -120,7 +130,7 @@ const names = new Set<string>();
 // add casks if not filtered to only formula
 if ( Deno.args.includes("--formula") === false ) {
 	// all casks are by request, so no need for special --requested handling for casks
-	for (const cask of json.casks) {
+	for (const cask of json.casks.filter((i: any) => i.installed)) {
 		names.add(cask.full_token);
 	}
 }
@@ -136,7 +146,7 @@ if ( Deno.args.includes("--cask") === false ) {
 		}
 	} else {
 		// all formula
-		for (const formula of json.formulae) {
+		for (const formula of json.formulae.filter((i: any) => i.installed)) {
 			names.add(formula.full_name);
 		}
 	}
@@ -156,19 +166,11 @@ EOF
 
 	# get names of requested packages
 	if test "$requested" = 'no'; then
-		do_brew_list
-	else
-		# as brew_info doesn't do the missing exit code like brew_list does, we need to do it ourselves
-		if test "${#packages[@]}" -eq 0; then
-			do_brew_info
-		else
-			temp_file="$(mktemp)"
-			do_brew_info | tee "$temp_file"
-			lines_in_temp_file="$(echo-count-lines --no-inline <"$temp_file")"
-			if test "$lines_in_temp_file" -ne "${#packages[@]}"; then
-				return 1
-			fi
-		fi
+		do_brew_simple
+	elif test "${#packages[@]}" -eq 0; then
+		do_brew_advanced
+	elif test "$(do_brew_advanced | env TIMEOUT=0 echo-count-lines --no-inline)" -ne "${#packages[@]}"; then
+		return 1
 	fi
 )
 
