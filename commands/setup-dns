@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
-source "$DOROTHY/sources/nullglob.bash"
-source "$DOROTHY/sources/shims.bash"
-source "$DOROTHY/sources/arrays.bash"
-requires_array_support 'mapfile' 'empty'
 
 function setup-dns() (
+	source "$DOROTHY/sources/strict.bash"
+	source "$DOROTHY/sources/nullglob.bash"
+	source "$DOROTHY/sources/shims.bash"
+	source "$DOROTHY/sources/arrays.bash"
+	requires_array_support 'mapfile' 'empty'
+
 	# check for support
 	if ! (is-mac || is-ubuntu); then
 		echo-style --notice="[$0] is implemented for macOS and Ubuntu systems..." >/dev/stderr
-		if ! confirm-negative --ppid=$$ -- 'Proceed at your own risk?'; then
+		if ! confirm --negative --ppid=$$ -- 'Proceed at your own risk?'; then
 			return 0
 		fi
 	fi
@@ -122,12 +123,14 @@ function setup-dns() (
 	}
 
 	# process
-	local item option_service=''
+	local item quiet option_service=''
+	quiet="$(echo-quiet -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			if test -z "$option_service"; then
@@ -229,10 +232,10 @@ function setup-dns() (
 		# it does exist
 		if is-mac; then
 			# get its basename which is the service id
-			id="$(fs-filename --basename "$file")"
-			eval-helper -- sudo-helper -- launchctl stop "$id" || :
+			id="$(fs-filename --basename -- "$file")"
+			service-helper --quiet="$quiet" --stop -- "$id" || :
 		else
-			sudo-helper -- systemctl stop "$file" || :
+			service-helper --quiet="$quiet" --stop -- "$file" || :
 		fi
 	}
 
@@ -248,19 +251,19 @@ function setup-dns() (
 
 		# it does exist
 		# get its basename which is the service id
-		id="$(fs-filename --basename "$file")"
+		id="$(fs-filename --basename -- "$file")"
 		if is-mac; then
 			# Usage: launchctl unload <service-path, service-path2, ...>
 			# -w      Additionally disables the service such that future load
 			#         operations will result in a service which launchd tracks but
 			#         cannot be launched or discovered in any way.
-			eval-helper -- sudo-helper -- launchctl disable "system/$id" || :
-			eval-helper -- sudo-helper -- launchctl stop "$id" || :
-			eval-helper -- sudo-helper -- launchctl unload -w "$file" || :
-			do_rm -- /Library/Logs/*"$id"*.log || :
+			service-helper --quiet="$quiet" --disable -- "system/$id" || :
+			service-helper --quiet="$quiet" --stop -- "$id" || :
+			service-helper --quiet="$quiet" --unload -- "$file" || :
+			do_rm -- /Library/Logs/*"$id"*.log
 		else
-			sudo-helper -- systemctl disable --now "$file" || :
-			sudo-helper -- systemctl status "$id" --no-pager || :
+			service-helper --quiet="$quiet" --disable --stop -- "$file" || :
+			service-helper --quiet="$quiet" --status -- "$id" || :
 		fi
 		do_rm -- "$file"
 	}
@@ -268,38 +271,25 @@ function setup-dns() (
 	# loads/installs the service, then enables and starts it
 	function service_enable {
 		local file="$1" id
-		id="$(fs-filename --basename "$file")"
+		id="$(fs-filename --basename -- "$file")"
 		if is-mac; then
 			# ensure correct permissions, not sure why
 			# but [homebrew services] does this, so doing it here
 			sudo-helper -- chown root:admin "$file"
 			sudo-helper -- chmod +t "$file"
-
-			# Usage: launchctl load <service-path, service-path2, ...>
-			# -w      If the service is disabled, it will be enabled. In previous
-			#         versions of launchd, being disabled meant that a service was
-			#         not loaded. Now, services are always loaded. If a service is
-			#         disabled, launchd does not advertise its service endpoints
-			#         (sockets, Mach ports, etc.).
-			# -F      Forcibly load the service. This flag will ignore the service's
-			#         disabled state. In previous versions of launchd, this flag
-			#         would also ignore the ownership and permissions of the
-			#         specified launchd.plist. This is no longer the case. Note that,
-			#         unlike the -w flag, this flag will not  modify the service's
-			#         disabled state; it will instead only ignore it for the load
-			#         operation.
-			eval-helper -- sudo-helper -- launchctl load -w "$file" || :
-			# eval-helper -- sudo-helper -- launchctl enable "system/$id" || :
-			eval-helper -- sudo-helper -- launchctl start "$id" || :
+			service-helper --quiet="$quiet" --load -- "$file" || :
+			# service-helper --quiet="$quiet" --start -- "system/$id" || :
+			service-helper --quiet="$quiet" --start -- "$id" || :
 			sleep 2
-			cat /Library/Logs/*"$id"*.log || :
+			eval-helper --no-quiet -- cat /Library/Logs/*"$id"*.log || :
 		else
-			sudo-helper -- systemctl enable --now "$file" || :
-			sudo-helper -- systemctl status "$id" --no-pager || :
+			service-helper --quiet="$quiet" --enable --start -- "$file" || :
+			service-helper --quiet="$quiet" --status -- "$id" || :
 		fi
 	}
 
 	function do_rm {
+		# never "do_rm ... || :" as that will cause aborts to fail
 		local id rm_paths=() rm_path
 
 		# remove all files associated with an id
@@ -348,7 +338,7 @@ function setup-dns() (
 		# remove them
 		for rm_path in "${rm_paths[@]}"; do
 			if test -e "$rm_path"; then
-				if confirm-positive --ppid=$$ -- "Remove $(echo-style --bold="$rm_path")?" "$(
+				if confirm --positive --ppid=$$ -- "Remove $(echo-style --bold="$rm_path")?" "$(
 					echo-style --dim="$(
 						ls -la "$rm_path"
 					)"
@@ -360,7 +350,7 @@ function setup-dns() (
 
 		# after service additions/removals
 		# systemctl needs to be reloaded apparently
-		if is-linux; then
+		if command-exists systemctl; then
 			sudo-helper -- systemctl daemon-reload
 			sudo-helper -- systemctl reset-failed
 			# ^ use sudo, otherwise prompted via ubuntu user password
@@ -786,8 +776,8 @@ function setup-dns() (
 			echo-segment --h1="Configure and $action_title $systemd_title"
 
 			# apply changes to services
-			sudo-helper -- systemctl stop systemd-networkd || :
-			sudo-helper -- systemctl stop systemd-resolved || :
+			service-helper --quiet="$quiet" --stop -- systemd-networkd || :
+			service-helper --quiet="$quiet" --stop -- systemd-resolved || :
 
 			# make life simple, using only /etc/resolv.conf
 			# https://www.freedesktop.org/software/systemd/man/resolved.conf.html
@@ -834,8 +824,8 @@ function setup-dns() (
 
 			# temporarily start system services, so that changes can be applied to them
 			# sudo-helper -- systemctl daemon-reload
-			# sudo-helper -- systemctl start systemd-networkd
-			sudo-helper -- systemctl start systemd-resolved
+			# service-helper --quiet="$quiet" --start -- systemd-networkd
+			service-helper --quiet="$quiet" --start -- systemd-resolved
 
 			# flush any caches
 			sudo-helper -- resolvectl flush-caches --no-pager || :
@@ -866,12 +856,12 @@ function setup-dns() (
 			# now that it is all done, enable or disable
 			if test "$action" = 'enable'; then
 				# enable
-				sudo-helper -- systemctl enable --now systemd-resolved
+				service-helper --quiet="$quiet" --enable --start -- systemd-resolved
 
 				# verify
 				verify_dns_resolvectl
 			else
-				sudo-helper -- systemctl disable --now systemd-resolved
+				service-helper --quiet="$quiet" --disable --stop -- systemd-resolved
 			fi
 
 			# after significant systemd changes, it may need to be reloaded
@@ -1329,10 +1319,10 @@ function setup-dns() (
 		if test "${#CLOUDFLARED_TUNNELS[@]}" -ne 0; then
 			# only remove the service file
 			# as tunnels uses the same binary
-			do_rm -- "$cloudflared_proxy_service_file" || :
+			do_rm -- "$cloudflared_proxy_service_file"
 		else
 			# ensure everything related to the proxy is removed
-			do_rm "$cloudflared_id" -- "$cloudflared_proxy_service_file" || :
+			do_rm "$cloudflared_id" -- "$cloudflared_proxy_service_file"
 		fi
 
 		# log
@@ -1556,16 +1546,19 @@ EOF
 
 		# cleanup old login details and login again
 		do_rm -- "$tunnel_user_pem"
-		"$cloudflared_bin_file" tunnel login
+		eval-helper --quiet --shapeshifter \
+			-- "$cloudflared_bin_file" tunnel login
 		chmod 600 "$tunnel_user_pem"
 		# creates $tunnel_user_pem no need to move it though
 
 		# cleanup the old tunnel remote connections and registration
-		"$cloudflared_bin_file" tunnel cleanup "$tunnel" || : # cleanup connections
-		"$cloudflared_bin_file" tunnel delete "$tunnel" || :  # delete tunnel
+		eval-helper --quiet \
+			-- "$cloudflared_bin_file" tunnel cleanup "$tunnel" || : # cleanup connections
+		eval-helper --quiet \
+			-- "$cloudflared_bin_file" tunnel delete "$tunnel" || : # delete tunnel
 
 		# cleanup the old tunnel files
-		do_rm "cloudflared-tunnel-$tunnel" -- "$tunnel_conf_file" "$tunnel_cred_file" || :
+		do_rm "cloudflared-tunnel-$tunnel" -- "$tunnel_conf_file" "$tunnel_cred_file"
 
 		# create the new tunnel again
 		temp_cred_file="$(
@@ -1574,7 +1567,8 @@ EOF
 				--directory="cloudflared-tunnel-$tunnel" \
 				--file="$tunnel_service_id-$tunnel.json" --no-touch
 		)"
-		"$cloudflared_bin_file" tunnel create \
+		eval-helper --quiet \
+			-- "$cloudflared_bin_file" tunnel create \
 			--credentials-file "$temp_cred_file" \
 			"$tunnel"
 		chmod 660 "$temp_cred_file"
@@ -1589,7 +1583,8 @@ EOF
 
 		# tunnel route
 		for hostname in "${hostnames[@]}"; do
-			"$cloudflared_bin_file" tunnel route dns \
+			eval-helper --no-quiet \
+				-- "$cloudflared_bin_file" tunnel route dns \
 				--overwrite-dns "$tunnel" "$hostname"
 		done
 
@@ -1671,7 +1666,7 @@ EOF
 				# if no env, call single without args so it pompts
 				tunnel_configure_single
 				# and ask again until the user is done adding tunnels
-				while confirm-negative --ppid=$$ -- "Do you wish to add another tunnel?"; do
+				while confirm --negative --ppid=$$ -- "Do you wish to add another tunnel?"; do
 					tunnel_configure_single
 				done
 			else
@@ -1716,7 +1711,7 @@ EOF
 	cloudflared_tunnels='no'
 	if test "${#CLOUDFLARED_TUNNELS[@]}" -ne 0; then
 		cloudflared_tunnels='yes'
-	elif confirm-negative --ppid=$$ -- "Do you wish to create a Cloudflare tunnel?"; then
+	elif confirm --negative --ppid=$$ -- "Do you wish to create a Cloudflare tunnel?"; then
 		cloudflared_tunnels='yes'
 	fi
 
@@ -1787,7 +1782,7 @@ EOF
 	# echo "DNS service setup succesfully ✅"
 
 	# 7. Configure the tunnel
-	if test "$cloudflared_tunnels" = 'yes' && confirm-positive --ppid=$$ -- "Reinstall cloudflare tunnels?"; then
+	if test "$cloudflared_tunnels" = 'yes' && confirm --positive --ppid=$$ -- "Reinstall cloudflare tunnels?"; then
 		tunnel_configure
 		# verify tunnels works
 	fi

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
 
 # NOTES:
 # [echo -en] doesn't work with escape codes on bash v3, [printf ...] does
@@ -7,6 +6,8 @@ source "$DOROTHY/sources/strict.bash"
 #    why would anyone use confirm in that way? they don't but confirm within a getter does, such as [select_installer] within [macos-drive]
 
 function confirm() (
+	source "$DOROTHY/sources/strict.bash"
+
 	# =====================================
 	# Arguments
 
@@ -16,11 +17,11 @@ function confirm() (
 			confirm --ppid=\$\$ [...options] -- <question> ...[detail]
 
 			OPTIONS:
-			--mode=<bool|positive|negative|confirm>
+			--bool | --positive | --negative | --confirm || --mode=<bool|positive|negative|confirm>
 			    [bool] mode forces a positive or negative confirmation, with no default.
 			    [positive] mode defaults to a positive confirmation.
 			    [negative] mode defaults to a negative confirmation.
-			    [confirm] mode forces a confirmation, with no default.
+			    [confirm] mode forces a confirmation, with no default; it is the default mode.
 
 			--timeout=<timeout>
 			    Specify the timeout in seconds.
@@ -59,17 +60,11 @@ function confirm() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--mode='*)
-			mode="${item:7}" # bool/positive/negative/confirm
-			if test "$mode" = 'positive' -o "$mode" = 'negative'; then
-				timeout='60' # one minute
-				yes='YES'
-				no='NO'
-			elif test "$mode" = 'bool'; then
-				yes='YES'
-				no='NO'
-			fi
-			;;
+		'--bool') mode='bool' ;;
+		'--positive') mode='positive' ;;
+		'--negative') mode='negative' ;;
+		'--confirm') mode='confirm' ;;
+		'--mode='*) mode="${item:7}" ;;
 		'--timeout='*) timeout="${item:10}" ;;
 		'--yes='*) yes="${item:6}" ;;
 		'--no='*) no="${item:5}" ;;
@@ -84,6 +79,16 @@ function confirm() (
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
+
+	# mode
+	if test "$mode" = 'positive' -o "$mode" = 'negative'; then
+		timeout='60' # one minute
+		yes='YES'
+		no='NO'
+	elif test "$mode" = 'bool'; then
+		yes='YES'
+		no='NO'
+	fi
 
 	# requirements
 	if test -z "$ppid"; then
@@ -173,13 +178,51 @@ function confirm() (
 	# =====================================
 	# Question
 
-	local question_first_part="${question_parts[0]} " # this is stored for the finale
-	local question_parts_total="${#question_parts[@]}"
-	local question_parts_last="$((question_parts_total - 1))"
-	local index header lines=0 result=0 hx=''
-	header="$(mktemp)"
+	# handle termination
+	local result=0 question_first_part="${question_parts[0]} " # this is stored for the finale
+	function failure {
+		result="$?"
+		if test -z "$result" -o "$result" -eq 0; then
+			result=100 # EPROTO 100 Protocol error
+		fi
+		finish
+	}
+	function finish {
+		trap - EXIT SIGINT SIGTERM ERR
+		# make sure to erase question, as ctrl+c buggers everything
+		printf '\e[G\e[J' >/dev/tty
+		# output the finale
+		if test "$result" -eq 0; then
+			echo-style "$question_first_part" --green+bold="$yes" >/dev/tty
+		elif test "$result" -eq 1; then
+			echo-style "$question_first_part" --red+bold="$no" >/dev/tty
+		else
+			echo-style "$question_first_part" --red+bold="$abort" >/dev/tty
+			# kill caller's parent
+			if test -n "$ppid"; then
+				# kill "-$ppid" ...
+				# ^ fails because 130 isn't supported
+				# kill -n ... ...
+				# kill "-$(kill -l "$ppid")" ...
+				# ^ works but isn't serious enough to cause the termination
+				# "$(ps -p $$ -o ppid=)"
+				# ^ doesn't work, as is different pid than manual
+				kill "$ppid"
+			fi
+			# kill our parent
+			kill "$$"
+			# kill our subshell
+			kill 0
+			# kill our shell
+			exit "$result"
+		fi
+		# kill this
+		return "$result"
+	}
+	trap failure SIGINT SIGTERM ERR
+	trap finish EXIT
 
-	# update the first question part
+	# add the confirmation to the first question part
 	if test "$mode" = 'positive'; then
 		question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
 	elif test "$mode" = 'negative'; then
@@ -195,6 +238,10 @@ function confirm() (
 	# output the question parts
 	# saving the cursor position of the first line
 	# and outputting a newline beteen all lines, except the last, which should not have a trailing line
+	local question_parts_total="${#question_parts[@]}"
+	local question_parts_last="$((question_parts_total - 1))"
+	local index hx='' header
+	header="$(mktemp)"
 	for ((index = 0; index < "$question_parts_total"; index++)); do
 		echo -n "${question_parts[index]} " | tee -a "$header" >/dev/tty
 		if test "$index" -eq 0; then
@@ -207,6 +254,7 @@ function confirm() (
 	done
 
 	# move the cursor
+	local lines=0
 	if test "$question_parts_total" -ne 0; then
 		# reposition the cursor, to after the options in the first part
 		lines="$(echo-count-lines --no-inline <"$header")"
@@ -217,37 +265,6 @@ function confirm() (
 		# move to the hx column
 		printf '\e[%sG' "$hx" >/dev/tty
 	fi
-
-	# handle terminations
-	function failure {
-		result="$?"
-	}
-	function finish {
-		# in case we were called naturally, erase the listen
-		trap - EXIT
-		# make sure to erase question, as ctrl+c buggers everything
-		printf '\e[G\e[J' >/dev/tty
-		# output the finale
-		if test "$result" -eq 0; then
-			echo-style "$question_first_part" --green+bold="$yes" >/dev/tty
-		elif test "$result" -eq 1; then
-			echo-style "$question_first_part" --red+bold="$no" >/dev/tty
-		else
-			echo-style "$question_first_part" --red+bold="$abort" >/dev/tty
-			if test -n "$ppid"; then
-				# kill "-$ppid" ...
-				# ^ fails because 130 isn't supported
-				# kill -n ... ...
-				# kill "-$(kill -l "$ppid")" ...
-				# ^ works but isn't serious enough to cause the termination
-				# "$(ps -p $$ -o ppid=)"
-				# ^ doesn't work, as is different pid than manual
-				kill "$ppid"
-			fi
-		fi
-	}
-	trap failure SIGINT SIGTERM
-	trap finish EXIT
 
 	# read and handle answer
 	confirmer || result="$?"

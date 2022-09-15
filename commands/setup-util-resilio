@@ -1,42 +1,93 @@
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
 
 function setup-util-resilio() (
-	# check for support
-	if ! is-ubuntu; then
-		echo-style --error="[$0] is implemented for Ubuntu systems..." >/dev/stderr
-		if ! confirm-negative --ppid=$$ -- 'Proceed at your own risk?'; then
-			return 1
-		fi
-	fi
+	source "$DOROTHY/sources/strict.bash"
 
 	# =====================================
-	# Action
+	# Arguments
 
-	# https://help.resilio.com/hc/en-us/articles/206178924
-	# https://help.resilio.com/hc/en-us/articles/204762449-Guide-to-Linux
+	# help
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Sets up Resilio Sync.
 
-	# paths
-	local resilio_service='/lib/systemd/system/resilio-sync.service'
-	local resilio_config='/etc/resilio-sync/config.json'
-	local resilio_data_paths=(
+			USAGE:
+			setup-util-resilio [...options]
+
+			OPTIONS:
+			--paths
+			    If specified, output the paths used by Resilio Sync; useful for restoring backups.
+
+			--service
+			    If specified, output the service name.
+
+			--group=<group>
+			    Groups to attach the service user to.
+
+			...
+			    All other options are forwarded to $(echo-style --code='setup-util').
+		EOF
+		# if test "$#" -ne 0; then
+		# 	echo-error "$@"
+		# fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='' groups=() util=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--paths') action='paths' ;;
+		'--service') action='service' ;;
+		'--install') action='install' ;;
+		'--uninstall') action='uninstall' ;;
+		'--action='*) action="${item#*--action=}" ;;
+		'--group='*) groups+=("${item#*--group=}") ;;
+		*) util+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Preparation
+
+	local service_name='resilio-sync'
+	local service_path="/lib/systemd/system/resilio-sync.service"
+	local service_config='/etc/resilio-sync/config.json'
+	local service_data_paths=(
 		'/etc/resilio-sync/'
 		'/var/lib/resilio-sync/'
-		# "$HOME/.config/resilio-sync" - perhaps not necessary, as was commented out
+		"$service_config"
+		"$XDG_CONFIG_HOME/resilio-sync"
 	)
-	local resilio_paths=(
-		"${resilio_data_paths[@]}"
-		"$resilio_service"
+	local service_all_paths=(
+		"${service_data_paths[@]}"
+		"$service_path"
 	)
 
-	# --paths
-	if test "${1-}" = '--paths'; then
-		echo-lines -- "${resilio_paths[@]}"
+	# =====================================
+	# Simple Actions
+
+	if test "$action" = 'paths'; then
+		echo-lines "${service_all_paths[@]}"
+		return 0
+	elif test "$action" = 'service'; then
+		echo "$service_name"
 		return 0
 	fi
 
+	# =====================================
+	# Setup Utility
+
+	# https://help.resilio.com/hc/en-us/articles/206178924
+	# https://help.resilio.com/hc/en-us/articles/204762449-Guide-to-Linux
+	# https://help.resilio.com/hc/en-us/articles/206178924-Installing-Sync-package-on-Linux
+
 	# install
-	setup-util "$@" --name='Resilio Sync' \
+	setup-util "${util[@]}" --name='Resilio Sync' \
 		APT_KEY='https://linux-packages.resilio.com/resilio-sync/key.asc' \
 		APT_REPO='deb [arch={ARCH} signed-by={KEY}] http://linux-packages.resilio.com/resilio-sync/deb resilio-sync non-free' \
 		APT='resilio-sync'
@@ -45,7 +96,7 @@ function setup-util-resilio() (
 	service-helper --disable --stop -- resilio-sync
 
 	# configure
-	if confirm-negative --ppid=$$ -- "Customise Resilio Sync configuration?"; then
+	if confirm --negative --ppid=$$ -- "Customise Resilio Sync configuration?"; then
 		edit --sudo -- "$resilio_service"
 		edit --sudo -- "$resilio_config"
 	fi
@@ -53,16 +104,15 @@ function setup-util-resilio() (
 	# permissions
 	local resilio_user resilio_group
 	resilio_user="$(
-		config-helper \
-			--file="$resilio_service" -- \
+		config-helper --file="$resilio_service" -- \
 			--field='User'
 	)"
 	resilio_group="$(
-		config-helper \
-			--file="$resilio_service" -- \
+		config-helper --file="$resilio_service" -- \
 			--field='Group'
 	)"
-	fs-own --user="$resilio_user" --group="$resilio_group" -- "${resilio_data_paths[@]}"
+	fs-own --optional --user="$resilio_user" --group="$resilio_group" \
+		-- "${resilio_data_paths[@]}"
 
 	# --group
 	local groups group

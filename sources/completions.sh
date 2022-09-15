@@ -2,10 +2,17 @@
 
 # Bash Completions
 if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+	# trunk-ignore(shellcheck/SC3044)
+	shopt -s progcomp # enable completions
+
+	# default completions
 	if test -f /etc/bash_completion; then
 		# trunk-ignore(shellcheck/SC1091)
 		. '/etc/bash_completion'
-	elif test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
+	fi
+
+	# homebrew completions
+	if test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
 		# trunk-ignore(shellcheck/SC1091)
 		. "$HOMEBREW_PREFIX/etc/bash_completion"
 	fi

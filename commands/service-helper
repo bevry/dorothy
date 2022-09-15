@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
-source "$DOROTHY/sources/arrays.bash"
 
 function fs-own() (
+	source "$DOROTHY/sources/strict.bash"
+	source "$DOROTHY/sources/arrays.bash"
+
 	# =====================================
 	# Arguments
 
@@ -24,6 +25,15 @@ function fs-own() (
 			--restart
 			    Restart the <service>.
 
+			--unmask
+			    Unmask the <service>.
+
+			--load
+			    Load the <service>.
+
+			--unload
+			    Unload the <service>.
+
 			--enable
 			    Enable the <service>.
 
@@ -33,11 +43,17 @@ function fs-own() (
 			--reenable
 			    Reenable the <service>.
 
-			--[no-]autostart
-			    Enable or disable auto-start of the service.
-
 			--status
 			    Output the <service> status.
+
+			--quiet
+			    Whether to output the executed commands.
+
+			--optional
+			    Ignore failures. Always return success status code.
+
+			--supported
+			    Exit immediately with a status code reflecting whether services are supported on this platform.
 
 			[--] <...service>
 			    The service(s) to manage.
@@ -49,13 +65,15 @@ function fs-own() (
 	}
 
 	# process
-	local item services=() supported='' start='' stop='' restart='' enable='' disable='' reenable='' status=''
+	local item services=() quiet='' supported='' start='' stop='' restart='' unmask='' load='' unload='' enable='' disable='' reenable='' status='' optional=''
+	quiet="$(echo-quiet yes -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--supported') supported='yes' ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
 		'--no-start'* | '--start'*) start="$(
 			get-flag-value start --missing="$start" -- "$item" | echo-affirmative
 		)" ;;
@@ -64,6 +82,15 @@ function fs-own() (
 		)" ;;
 		'--no-restart'* | '--restart'*) restart="$(
 			get-flag-value restart --missing="$restart" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-unmask'* | '--unmask'*) unmask="$(
+			get-flag-value unmask --missing="$unmask" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-load'* | '--load'*) load="$(
+			get-flag-value load --missing="$load" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-unload'* | '--unload'*) unload="$(
+			get-flag-value unload --missing="$unload" -- "$item" | echo-affirmative
 		)" ;;
 		'--no-enable'* | '--enable'*) enable="$(
 			get-flag-value enable --missing="$enable" -- "$item" | echo-affirmative
@@ -77,6 +104,9 @@ function fs-own() (
 		'--no-status'* | '--status'*) status="$(
 			get-flag-value status --missing="$status" -- "$item" | echo-affirmative
 		)" ;;
+		'--no-optional'* | '--optional'*) optional="$(
+			get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative
+		)" ;;
 		'--')
 			services+=("$@")
 			shift $#
@@ -87,18 +117,153 @@ function fs-own() (
 		esac
 	done
 
-	# support
-	if test "$supported" = 'yes'; then
-		if command-exists systemctl; then
-			return 0
-		else
+	# =====================================
+	# Services
+
+	# @todo support translation between files and identifiers
+	# SERVICE_DIR='/Library/LaunchDaemons' # macos
+	# SERVICE_DIR='/etc/systemd/system' # linux
+
+	if command-exists launchctl; then
+		function do_unmask {
+			return 0 # not needed
+		}
+		function do_load {
+			# Usage: launchctl load <service-path, service-path2, ...>
+			# -w      If the service is disabled, it will be enabled. In previous
+			# 		versions of launchd, being disabled meant that a service was
+			# 		not loaded. Now, services are always loaded. If a service is
+			# 		disabled, launchd does not advertise its service endpoints
+			# 		(sockets, Mach ports, etc.).
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl load -w "$@"
+		}
+		function do_unload {
+			# Usage: launchctl unload <service-path, service-path2, ...>
+			# -w      Additionally disables the service such that future load
+			# 		operations will result in a service which launchd tracks but
+			# 		cannot be launched or discovered in any way.
+			# ...
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl unload -w "$@"
+		}
+		function do_start {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl start "$@"
+		}
+		function do_stop {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl stop "$@"
+		}
+		function do_restart {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl restart "$@"
+		}
+		function do_enable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$@"
+		}
+		function do_enable_now {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$@"
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl start "$@"
+		}
+		function do_disable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl disable "$@"
+		}
+		function do_disable_now {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl disable "$@"
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl stop "$@"
+		}
+		function do_reenable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl disable "$@"
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$@"
+		}
+		function do_status {
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl print "$@"
+		}
+	elif command-exists systemctl; then
+		function do_unmask {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl unmask "$@"
+		}
+		function do_load {
+			return 0 # not needed
+		}
+		function do_unload {
+			return 0 # not needed
+		}
+		function do_start {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl start "$@"
+		}
+		function do_stop {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl stop "$@"
+		}
+		function do_restart {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl restart "$@"
+		}
+		function do_enable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl enable "$@"
+		}
+		function do_enable_now {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl enable --now "$@"
+		}
+		function do_disable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl disable "$@"
+		}
+		function do_disable_now {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl disable --now "$@"
+		}
+		function do_reenable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl reenable "$@"
+		}
+		function do_status {
+			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl status "$@" --no-pager
+		}
+	elif command-exists rc-service; then
+		function do_unmask {
+			return 0 # not needed
+		}
+		function do_load {
+			return 0 # not needed
+		}
+		function do_unload {
+			return 0 # not needed
+		}
+		function do_start {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" start
+		}
+		function do_stop {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" stop
+		}
+		function do_restart {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" restart
+		}
+		function do_enable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-update add "$@"
+		}
+		function do_enable_now {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-update add "$@"
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" start
+		}
+		function do_disable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-update del "$@"
+		}
+		function do_disable_now {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" stop
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-update del "$@"
+		}
+		function do_reenable {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-update add "$@"
+		}
+		function do_status {
+			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" status
+		}
+	else
+		if test "$supported" = 'yes'; then
+			# if --supported, no error message
 			return 1
+		else
+			echo-error "Services are not supported on this platform."
+			return 19 # ENODEV 19 Operation not supported by device
 		fi
 	fi
 
-	# check
-	if test "${#services[@]}" -eq 0; then
-		help "No <service>s were provided."
+	# if --supported, then we are done
+	if test "$supported" = 'yes'; then
+		return 0
 	fi
 
 	# =====================================
@@ -109,14 +274,30 @@ function fs-own() (
 	# brew services restart syncthing
 	# ^ for brew, not cask
 
+	# @todo can use this to check if it is already running
+	# if ! systemctl status "$this_service" --no-pager >/dev/null; then
+
 	# https://man.archlinux.org/man/systemctl.1.en
+	# https://wiki.gentoo.org/wiki/OpenRC_to_systemd_Cheatsheet
 	function handle() {
-		local this_service="$1" this_start="$start" this_stop="$stop" this_restart="$restart" this_enable="$enable" this_disable="$disable" this_reenable="$reenable" this_status="$status"
+		local this_service="$1" this_unmask="$unmask" this_load="$load" this_unload="$unload" this_start="$start" this_stop="$stop" this_restart="$restart" this_enable="$enable" this_disable="$disable" this_reenable="$reenable" this_status="$status"
 
 		# status
 		if test "$this_status" = 'yes'; then
 			this_status='maybe'
-			sudo-helper -- systemctl status "$this_service" --no-pager
+			do_status "$this_service"
+		fi
+
+		# load
+		if test "$this_load"; then
+			this_load=''
+			do_load "$this_service"
+		fi
+
+		# unmask
+		if test "$this_unmask"; then
+			this_unmask=''
+			do_unmask "$this_service"
 		fi
 
 		# split restart if autostart is being modified
@@ -129,7 +310,7 @@ function fs-own() (
 		# stop
 		if test "$this_stop" = 'yes'; then
 			this_stop=''
-			sudo-helper -- systemctl stop "$this_service"
+			do_stop "$this_service"
 
 			# renable status
 			if test "$this_status" = 'maybe'; then
@@ -140,7 +321,7 @@ function fs-own() (
 		# autostart
 		if test "$this_reenable" = 'yes'; then
 			this_reenable=''
-			sudo-helper -- systemctl reenable "$this_service"
+			do_reenable "$this_service"
 
 			# renable status
 			if test "$this_status" = 'maybe'; then
@@ -150,9 +331,9 @@ function fs-own() (
 			this_enable=''
 			if test "$this_start" = 'yes'; then
 				this_start=''
-				sudo-helper -- systemctl enable --now "$this_service"
+				do_enable_now "$this_service"
 			else
-				sudo-helper -- systemctl enable "$this_service"
+				do_enable "$this_service"
 			fi
 
 			# renable status
@@ -163,9 +344,9 @@ function fs-own() (
 			this_disable=''
 			if test "$this_stop" = 'yes'; then
 				this_stop=''
-				sudo-helper -- systemctl disable --now "$this_service"
+				do_disable_no "$this_service"
 			else
-				sudo-helper -- systemctl disable "$this_service"
+				do_disable "$this_service"
 			fi
 
 			# renable status
@@ -177,7 +358,7 @@ function fs-own() (
 		# start / restart
 		if test "$this_start" = 'yes'; then
 			this_start=''
-			sudo-helper -- systemctl start "$this_service"
+			do_start "$this_service"
 
 			# renable status
 			if test "$this_status" = 'maybe'; then
@@ -186,7 +367,7 @@ function fs-own() (
 		fi
 		if test "$this_restart" = 'yes'; then
 			this_restart=''
-			sudo-helper -- systemctl restart "$this_service"
+			do_restart "$this_service"
 
 			# renable status
 			if test "$this_status" = 'maybe'; then
@@ -194,17 +375,27 @@ function fs-own() (
 			fi
 		fi
 
+		# unload
+		if test "$this_unload"; then
+			this_unload=''
+			do_unload "$this_service"
+		fi
+
 		# startus
 		if test "$this_status" = 'yes'; then
 			this_status=''
-			sudo-helper -- systemctl status "$this_service" --no-pager
+			do_status "$this_service"
 		fi
 	}
 
 	# cycle through
 	local service
 	for service in "${services[@]}"; do
-		handle "$service"
+		if test "$optional" = 'yes'; then
+			handle "$service" || :
+		else
+			handle "$service"
+		fi
 	done
 )
 

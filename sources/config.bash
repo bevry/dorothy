@@ -111,7 +111,7 @@ function update_dorothy_user_config {
 
 	# check extension
 	local dorothy_config_extension # this is used later too
-	dorothy_config_extension="$(fs-extension "$dorothy_config_filename")"
+	dorothy_config_extension="$(fs-extension -- "$dorothy_config_filename")"
 	if ! [[ $dorothy_config_extension =~ bash|zsh|sh|fish ]]; then
 		help "The file extension of [$dorothy_config_filename] is not yet supported."
 	fi

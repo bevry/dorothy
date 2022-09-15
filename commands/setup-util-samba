@@ -1,36 +1,99 @@
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
 
 function setup-util-samba() (
-	# check for support
-	if ! is-ubuntu; then
-		echo-style --error="[$0] is implemented for Ubuntu systems..." >/dev/stderr
-		if ! confirm-negative --ppid=$$ -- 'Proceed at your own risk?'; then
-			return 1
-		fi
-	fi
+	source "$DOROTHY/sources/strict.bash"
 
 	# =====================================
-	# Action
+	# Arguments
 
-	# --paths
-	local samba_config='/etc/samba/smb.conf'
-	local samba_paths=(
-		"$samba_config"
-		'/etc/samba/'
-	)
-	if test "${1-}" = '--paths'; then
-		echo-lines -- "${samba_paths[@]}"
+	# help
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Sets up a plex media server.
+
+			USAGE:
+			setup-util-plex [...options]
+
+			OPTIONS:
+			--paths
+			    If specified, output the paths used by plex media server; useful for restoring backups.
+
+			--service
+			    If specified, output the service name.
+
+			--group=<group>
+			    Groups to attach the service user to.
+
+			...
+			    All other options are forwarded to $(echo-style --code='setup-util').
+		EOF
+		# if test "$#" -ne 0; then
+		# 	echo-error "$@"
+		# fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='' groups=() util=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--paths') action='paths' ;;
+		'--service') action='service' ;;
+		'--install') action='install' ;;
+		'--uninstall') action='uninstall' ;;
+		'--action='*) action="${item#*--action=}" ;;
+		'--group='*) groups+=("${item#*--group=}") ;;
+		*) util+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Preparation
+
+	local service_config='/etc/samba/smb.conf'
+	local service_all_paths=('/etc/samba/')
+
+	# =====================================
+	# Simple Actions
+
+	if test "$action" = 'paths'; then
+		echo-lines "${service_all_paths[@]}"
+		return 0
+	elif test "$action" = 'service'; then
+		echo "$service_name"
 		return 0
 	fi
 
+	# =====================================
+	# Setup Utility
+
 	# install
+	# https://en.opensuse.org/Samba
+	# https://docs.fedoraproject.org/en-US/quick-docs/samba/#install_and_enable_samba
+	# https://wiki.alpinelinux.org/wiki/Setting_up_a_samba-server
+	# https://wiki.archlinux.org/title/samba
 	setup-util "$@" --name='Samba' \
 		APK='samba' \
-		APT='samba' APT='samba-common-bin'
+		APT='samba' APT='samba-common-bin' \
+		RPM='samba' \
+		ZYPPER='samba'
+
+	# stop at uninstall?
+	if test "$action" = 'uninstall'; then
+		fs-rm --sudo -- "${service_all_paths[@]}"
+		return "$?"
+	fi
+
+	# =====================================
+	# Configure Service
 
 	# disable autostart
-	service-helper --disable --stop -- smbd
+	service-helper --optional --disable --stop \
+		-- smbd nmbd smb nmb
 
 	# ensure correct permissions
 	sudo-helper -- mkdir -p /etc/samba/credentials/share
@@ -39,12 +102,19 @@ function setup-util-samba() (
 	sudo-helper -- chmod 600 /etc/samba/credentials/share
 
 	# configure
-	if confirm-negative --ppid=$$ -- "Customise Samba configuration?"; then
-		edit --sudo -- "$samba_config"
+	if confirm --negative --ppid=$$ -- "Customise Samba configuration?"; then
+		edit --sudo -- "$service_config"
 	fi
 
 	# verify configuration
 	testparm --suppress-prompt
+
+	# adapt firewall
+	if command-exists firewall-cmd; then
+		firewall-cmd --get-active-zones
+		sudo firewall-cmd --permanent --zone=FedoraWorkstation --add-service=samba
+		sudo firewall-cmd --reload
+	fi
 )
 
 # fire if invoked standalone
