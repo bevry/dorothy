@@ -235,7 +235,7 @@ function setup-dns() (
 			id="$(fs-filename --basename -- "$file")"
 			service-helper --quiet="$quiet" --stop -- "$id" || :
 		else
-			service-helper --quiet="$quiet" --stop -- "$file" || :
+			service-helper --quiet="$quiet" --stop -- "$id" || :
 		fi
 	}
 
@@ -262,7 +262,7 @@ function setup-dns() (
 			service-helper --quiet="$quiet" --unload -- "$file" || :
 			do_rm -- /Library/Logs/*"$id"*.log
 		else
-			service-helper --quiet="$quiet" --disable --stop -- "$file" || :
+			service-helper --quiet="$quiet" --disable --stop -- "$id" || :
 			service-helper --quiet="$quiet" --status -- "$id" || :
 		fi
 		do_rm -- "$file"
@@ -283,7 +283,7 @@ function setup-dns() (
 			sleep 2
 			eval-helper --no-quiet -- cat /Library/Logs/*"$id"*.log || :
 		else
-			service-helper --quiet="$quiet" --enable --start -- "$file" || :
+			service-helper --quiet="$quiet" --enable --start -- "$id" || :
 			service-helper --quiet="$quiet" --status -- "$id" || :
 		fi
 	}
@@ -384,7 +384,7 @@ function setup-dns() (
 		'adguard-unfiltered'
 		'adguard-family'
 		'cloudflare'
-		'cloudflare-malware'
+		'cloudflare-security'
 		'cloudflare-family'
 		'cloudflare-teams'
 		'quad9'
@@ -589,7 +589,7 @@ function setup-dns() (
 				'cloudflare-ipv6'
 			)
 			;;
-		'cloudflare-security')
+		'cloudflare-security' | 'cloudflare-malware')
 			# https://developers.cloudflare.com/1.1.1.1/1.1.1.1-for-families/setup-instructions/router/
 			ipv4_servers=(
 				'1.1.1.2'
@@ -673,8 +673,14 @@ function setup-dns() (
 				'149.112.112.112'
 			)
 			ipv6_servers=(
-				'2620:fe::fe'
+				# '2620:fe::fe' cloudflared fails
 				'2620:fe::9'
+			)
+			doh_servers=(
+				'https://dns.quad9.net/dns-query'
+			)
+			dot_servers=(
+				'tls://dns.quad9.net'
 			)
 			;;
 		*)
@@ -1354,9 +1360,8 @@ function setup-dns() (
 		# as it doesn't support a configuration file
 		# so we have to configure it via CLI args in the service definition
 		if test "$action" = 'enable'; then
-			# prepare upstreams
+			# prepare upstreams (despite docs, cloudflared doesn't support tls)
 			upstream_servers=(
-				"${dot_servers[@]}"
 				"${doh_servers[@]}"
 				"${quic_servers[@]}"
 			)
@@ -1376,6 +1381,8 @@ function setup-dns() (
 				done
 
 				# create service with custom upstreams
+				# <string>--address</string>
+				# <string>0.0.0.0</string>
 				sudo-helper -- tee "$cloudflared_proxy_service_file" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1413,6 +1420,8 @@ EOF
 
 				# create service with custom upstreams
 				sudo-helper -- tee "$cloudflared_proxy_service_file" >/dev/null <<-EOF
+			<string>--address</string>
+			<string>0.0.0.0</string>
 					[Unit]
 					Description=${cloudflared_proxy_service_id}
 					Wants=network-online.target nss-lookup.target
@@ -1422,7 +1431,7 @@ EOF
 					AmbientCapabilities=CAP_NET_BIND_SERVICE
 					CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 					DynamicUser=yes
-					ExecStart=${cloudflared_bin_file} proxy-dns ${upstream_args}
+					ExecStart=${cloudflared_bin_file} proxy-dns --address 0.0.0.0 ${upstream_args}
 
 					[Install]
 					WantedBy=multi-user.target

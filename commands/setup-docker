@@ -143,12 +143,56 @@ function setup-util-docker() (
 		set +Eeuo # disable strict mode
 		eval "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)"
 	)
+	function reset_firewall {
+		# https://serverfault.com/a/200658/63348
+		sudo-helper -- iptables -P INPUT ACCEPT
+		sudo-helper -- iptables -P FORWARD ACCEPT
+		sudo-helper -- iptables -P OUTPUT ACCEPT
+		sudo-helper -- iptables -t nat -F
+		sudo-helper -- iptables -t mangle -F
+		sudo-helper -- iptables -F
+		sudo-helper -- iptables -X
+		sudo-helper -- ip6tables -P INPUT ACCEPT
+		sudo-helper -- ip6tables -P FORWARD ACCEPT
+		sudo-helper -- ip6tables -P OUTPUT ACCEPT
+		sudo-helper -- ip6tables -t nat -F
+		sudo-helper -- ip6tables -t mangle -F
+		sudo-helper -- ip6tables -F
+		sudo-helper -- ip6tables -X
+		sudo-helper -- iptables -nvL
+		sudo-helper -- ufw disable
+		sudo-helper -- ufw status verbose
+	}
+	function configure_firewall {
+		# https://docs.docker.com/network/bridge/#enable-forwarding-from-docker-containers-to-the-outside-world
+		sudo-helper -- sysctl net.ipv4.conf.all.forwarding=1
+		sudo-helper -- iptables -P FORWARD ACCEPT
+		# https://docs.docker.com/config/daemon/ipv6/
+		# /etc/docker/daemon.json doesn't seem to exist
+	}
+	function restart_docker {
+		service-helper --disable --stop -- docker docker.socket containerd || :
+		sleep 2
+		service-helper --start -- containerd docker.socket docker || :
+		sleep 2
+		service-helper --status -- containerd docker.socket docker
+	}
 	function run_debug {
-		local ec=0
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- restart_docker
+
+		# if failing to connect to your local dns serice
+		# ensure it is listening to 0.0.0.0 instead of 127.0.0.1 or 127.0.0.53
+
 		eval-helper --quiet --no-wrap --shapeshifter \
-			-- docker run --rm -it alpine sh -c "$(cat "$DOROTHY/commands/debug-network")" || ec="$?"
-		echo-style --notice='If failing, try restart your computer, and run:' ' ' --code='setup-util-docker --postinstall'
-		return "$ec"
+			-- docker run --rm -it \
+			--net=host \
+			--dns="$(what-is-my-dns exposed)" \
+			-- alpine sh -c "$(cat "$DOROTHY/commands/debug-network")" || {
+			local ec="$?"
+			echo-style --notice='If failing, try restart your computer, and run:' ' ' --code='setup-util-docker --postinstall'
+			return "$ec"
+		}
 	}
 	function run_checks {
 		eval-helper --quiet --wrap --shapeshifter \
@@ -161,13 +205,13 @@ function setup-util-docker() (
 			--pending="$(echo-style --bold="Testing container gateway networking...")" \
 			--success="$(echo-style --success="Verified container gateway networking.")" \
 			--failure="$(echo-style --error="Failed to verify container gateway networking.")" \
-			-- docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
+			-- docker run --rm --net=host alpine ping -c4 "$(what-is-my-gateway)"
 
 		eval-helper --quiet --wrap --shapeshifter \
 			--pending="$(echo-style --bold="Testing container internet connection...")" \
 			--success="$(echo-style --success="Verified container internet connection.")" \
 			--failure="$(echo-style --error="Failed to verify container internet connection.")" \
-			-- docker run --rm -it alpine ping -c4 cloudflare.com
+			-- docker run --rm --net=host alpine ping -c4 cloudflare.com
 	}
 	function do_checks {
 		eval-helper --quiet --no-wrap --shapeshifter \
@@ -175,14 +219,10 @@ function setup-util-docker() (
 			--success="$(echo-style --success="Docker is working.")" \
 			--failure="$(echo-style --error="Failed to verify docker works.")" \
 			-- run_checks || {
-			run_debug
-			return 1
+			local ec="$?"
+			echo-style --notice='Debug with:' ' ' --code='setup-util-docker --debug'
+			return "$ec"
 		}
-	}
-	function restart_docker {
-		service-helper --restart --reenable -- containerd docker # docker.socket
-		sleep 2
-		service-helper --status -- containerd docker
 	}
 	function run_postinstall {
 		eval-helper --quiet --no-wrap --shapeshifter \
@@ -201,7 +241,7 @@ function setup-util-docker() (
 			eval-helper --quiet --no-wrap --shapeshifter \
 				--pending="$(echo-style --bold="Running verification of Docker...")" \
 				--success="$(echo-style --success="Verified Docker.")" \
-				--failure="$(echo-style --error="Failed to verify Docker, however if the following checks pass, these were just warnings.")" \
+				--failure="$(echo-style --error="Failed to verify Docker, however if the following checks pass, those were just warnings.")" \
 				-- run_official_linux_checks || :
 		fi
 
@@ -324,14 +364,19 @@ function setup-util-docker() (
 				if ! check_user_in_group; then
 					add_service_users_to_service_group
 
-					echo
-					echo-style --notice='You must now restart your computer.'
-					if confirm --positive --ppid=$$ -- "Restart automatically?"; then
-						sudo-helper -- shutdown --reboot
-					fi
-					# not sufficient, a restart is necessary:
-					# echo "$0 --postinstall" | newgrp "$service_group"
-					return 1
+					# echo
+					#
+					# this works, however it fails on tty items
+					echo "$0 --postinstall" | newgrp "$service_group" || {
+						echo-style --notice='Failed to automatically postinstall, you must restart your computer, then run:'
+						echo-style '    ' --code='setup-util-docker --postinstall'
+						if confirm --positive --ppid=$$ -- "Restart now?"; then
+							sudo-helper -- shutdown --reboot
+						else
+							return 1
+						fi
+					}
+					return "$?"
 				fi
 			else
 				echo-error "$0: Invalid state."
@@ -346,3 +391,92 @@ function setup-util-docker() (
 if test "$0" = "${BASH_SOURCE[0]}"; then
 	setup-util-docker "$@"
 fi
+
+
+# =====================================
+# DOCKER NETWORKING
+
+# https://docs.docker.com/network/bridge
+# https://docs.docker.com/network/bridge/#access-the-outside-world-from-a-container
+# by default docker0 bridge is used, which is often invalid
+# you can create a correctly configured bridge network with
+#
+# eval-helper --no-quiet --wrap --shapeshifter \
+# 	-- reset_firewall
+#
+# eval-helper --no-quiet --wrap --shapeshifter \
+# 	-- configure_firewall
+#
+# sudo-helper -- systemctl daemon-reload
+#
+# docker network rm web || :
+# docker network create \
+# 	--driver bridge \
+# 	--subnet "$(what-is-my-subnet)" \
+# 	--gateway "$(what-is-my-gateway)" \
+# 	--opt parent="$(what-is-my-interface)" \
+# 	web
+#
+# however all BRIDGES cannot access the outside internet, only HOST can access the outside world, this is intentional design by docker
+# as such you must use the HOST network
+#
+# firewall changes and these flags have no effect
+#
+# --cap-add=NET_ADMIN --privileged --net=web
+
+
+# =====================================
+# RELOAD DOCKER
+
+# try-sudo systemctl restart docker
+# try-sudo systemctl reload docker
+# try-sudo service docker restart
+
+# network
+# echo 'create docker network'
+# docker network rm web || echo
+# try-sudo systemctl restart docker
+# try-sudo systemctl reload docker
+# try-sudo service docker restart
+
+# docker network create \
+# 	--driver bridge \
+# 	--subnet 192.168.0.0/16 \
+# 	--gateway 192.168.4.1 \
+# 	--opt parent=eth0 \
+# 	web
+# docker network ls
+
+# =====================================
+# DEBUG DOCKER
+
+# https://developer.ibm.com/technologies/linux/tutorials/l-lpic1-109-4/
+
+# NOTE: https://docs.docker.com/network/bridge/#use-the-default-bridge-network
+# The default bridge network is considered a legacy detail of Docker and is not recommended for production use. Configuring it is a manual operation, and it has technical shortcomings.
+
+# works:
+# --net=host
+
+# fails:
+# --net=bridge
+# --net=bridge --dns 9.9.9.9
+# --net=bridge --dns=9.9.9.9 --dns-search=raspi8
+# --dns-opt='DNSSEC=true' --dns-opt='DNSOverTLS=opportunistic'
+# --net=bridge --dns 9.9.9.9
+# try-sudo ... --privileged --net=bridge --dns=9.9.9.9
+#  --dns-opt='edns0 trust-ad'
+#  --dns-search='lan'
+# --network web \
+
+# alpine \
+#	sh -c 'apk add curl bind-tools;
+
+# try-sudo docker run -ti mmoy/ubuntu-netutils bash
+
+# ubuntu \
+# 	sh -c 'apt update -y; apt install -y curl dnsutils;
+
+# set -x
+# try-sudo docker run --rm --cap-add=NET_ADMIN --net=bridge --dns="$(what-is-my-dns exposed)" alpine sh -c "$(cat "$DOROTHY/commands/debug-network")"
+# set +x
