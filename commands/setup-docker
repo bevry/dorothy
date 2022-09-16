@@ -141,7 +141,7 @@ function setup-util-docker() (
 		set +Eeuo # disable strict mode
 		eval "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)"
 	)
-	function run_checks() {
+	function run_checks {
 		echo
 		echo 'Testing if containers work correctly by running hello-world in a container...'
 		docker run --rm hello-world
@@ -153,6 +153,12 @@ function setup-util-docker() (
 		echo
 		echo 'Testing if networking works correctly by pinging cloudflare...'
 		docker run --rm -it alpine ping -c4 cloudflare.com
+	}
+	function check_correct {
+		command-exists docker && check_group && check_user_in_group
+	}
+	function check_fresh {
+		command-missing docker && ! check_group && ! check_user_in_group
 	}
 
 	# macos
@@ -218,64 +224,67 @@ function setup-util-docker() (
 			fi
 
 			echo
-			echo-style --success='Uninstall complete.'
+			echo-style --success='Docker successfully uninstalled.'
 
 		elif test "$action" = 'install'; then
-			# check configuration
-			if command-missing docker || ! check_group || ! check_user_in_group; then
-				echo-error "$0: Docker is misconfigured."
+			# check if groups have failed, if so uninstall first
+			# if docker is missing, then that's fine, we need to install
+			if check_correct; then
+				echo-style --success='Docker already installed.'
+			elif check_fresh; then
+				echo-error "$0: Prior misconfigured docker installation detected."
 				echo-style 'Try uninstall: ' --code='setup-util-docker --uninstall'
 				echo-style 'Then install: ' --code='setup-util-docker'
 				return 1
-			fi
-
-			# https://forums.docker.com/t/installing-docker-on-ubuntu-16-04-lts-throws-error-for-command-linux-image-extra/21546?u=balupton
-			# https://askubuntu.com/a/1236711/22776
-			echo
-			echo 'Installing dependencies...'
-			setup-util-devel
-			setup-util-snap --optional
-			setup-util --optional --name='Kernel Virtualisation Helpers' \
-				APT='linux-image-extra-virtual'
-
-			echo
-			echo 'Install using the official convenience script...'
-			if ! run_official_linux_installer || command-missing docker; then
-				echo-error "$0: Docker installation failed."
-				return 1
-			fi
-
-			echo
-			echo 'Configuring group...'
-			if ! check_group; then
-				# official installer may add the group for us
-				add_service_group
-			fi
-			if ! check_user_in_group; then
-				add_service_users_to_service_group
+			else
+				# https://forums.docker.com/t/installing-docker-on-ubuntu-16-04-lts-throws-error-for-command-linux-image-extra/21546?u=balupton
+				# https://askubuntu.com/a/1236711/22776
+				echo
+				echo 'Installing dependencies...'
+				setup-util-devel
+				setup-util-snap --optional
+				setup-util --optional --name='Kernel Virtualisation Helpers' \
+					APT='linux-image-extra-virtual'
 
 				echo
-				echo 'Continuing installer with desired group permissions.'
-				echo "$0" | newgrp docker
+				echo 'Install using the official convenience script...'
+				if ! run_official_linux_installer || command-missing docker; then
+					echo-error "$0: Docker installation failed."
+					return 1
+				fi
+
+				echo
+				echo 'Configuring group...'
+				if ! check_group; then
+					# official installer may add the group for us
+					add_service_group
+				fi
+				if ! check_user_in_group; then
+					add_service_users_to_service_group
+
+					echo
+					echo 'Continuing installer with desired group permissions.'
+					echo "$0" | newgrp docker
+				fi
+
+				echo
+				echo 'Configuring permissions...'
+				add_permissions_to_config
+
+				echo
+				echo 'Configuring service...'
+				service-helper --restart --reenable -- containerd docker # docker.socket
+				sleep 2
+				service-helper --status -- containerd docker
+
+				echo
+				echo 'Testing if docker is configured correctly by running check-config...'
+				run_official_linux_checks
+
+				echo
+				echo-style --success='Docker successfully installed.'
+				action='check'
 			fi
-
-			echo
-			echo 'Configuring permissions...'
-			add_permissions_to_config
-
-			echo
-			echo 'Configuring service...'
-			service-helper --restart --reenable -- containerd docker # docker.socket
-			sleep 2
-			service-helper --status -- containerd docker
-
-			echo
-			echo 'Testing if docker is configured correctly by running check-config...'
-			run_official_linux_checks
-
-			echo
-			echo-style --success='Docker has been setup.'
-			action='check'
 		fi # end install
 	fi  # end os
 
