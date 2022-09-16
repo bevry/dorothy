@@ -61,6 +61,8 @@ function setup-util-docker() (
 		'--service') action='service' ;;
 		'--install') action='install' ;;
 		'--uninstall') action='uninstall' ;;
+		'--postinstall') action='postinstall' ;;
+		'--debug') action='debug' ;;
 		'--check') action='check' ;;
 		'--action='*) action="${item#*--action=}" ;;
 		*) util+=("$item") ;;
@@ -141,25 +143,85 @@ function setup-util-docker() (
 		set +Eeuo # disable strict mode
 		eval "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)"
 	)
+	function run_debug {
+		local ec=0
+		eval-helper --quiet --no-wrap --shapeshifter \
+			-- docker run --rm -it alpine sh -c "$(cat "$DOROTHY/commands/debug-network")" || ec="$?"
+		echo-style --notice='If failing, try restart your computer, and run:' ' ' --code='setup-util-docker --postinstall'
+		return "$ec"
+	}
 	function run_checks {
-		echo
-		echo 'Testing if containers work correctly by running hello-world in a container...'
-		docker run --rm hello-world
+		eval-helper --quiet --wrap --shapeshifter \
+			--pending="$(echo-style --bold="Testing hello-world container...")" \
+			--success="$(echo-style --success="Verified hello-world.")" \
+			--failure="$(echo-style --error="Failed to verify hello-world.")" \
+			-- docker run --rm hello-world
 
-		echo
-		echo 'Testing if networking works correctly by pinging gateway...'
-		docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
+		eval-helper --quiet --wrap --shapeshifter \
+			--pending="$(echo-style --bold="Testing container gateway networking...")" \
+			--success="$(echo-style --success="Verified container gateway networking.")" \
+			--failure="$(echo-style --error="Failed to verify container gateway networking.")" \
+			-- docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
 
-		echo
-		echo 'Testing if networking works correctly by pinging cloudflare...'
-		docker run --rm -it alpine ping -c4 cloudflare.com
+		eval-helper --quiet --wrap --shapeshifter \
+			--pending="$(echo-style --bold="Testing container internet connection...")" \
+			--success="$(echo-style --success="Verified container internet connection.")" \
+			--failure="$(echo-style --error="Failed to verify container internet connection.")" \
+			-- docker run --rm -it alpine ping -c4 cloudflare.com
 	}
-	function check_correct {
-		command-exists docker && check_group && check_user_in_group
+	function do_checks {
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Testing Docker...")" \
+			--success="$(echo-style --success="Docker is working.")" \
+			--failure="$(echo-style --error="Failed to verify docker works.")" \
+			-- run_checks || {
+			run_debug
+			return 1
+		}
 	}
-	function check_fresh {
-		command-missing docker && ! check_group && ! check_user_in_group
+	function restart_docker {
+		service-helper --restart --reenable -- containerd docker # docker.socket
+		sleep 2
+		service-helper --status -- containerd docker
 	}
+	function run_postinstall {
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Correcting permissions...")" \
+			--success="$(echo-style --success="Corrected permissions.")" \
+			--failure="$(echo-style --error="Failed to correct permissions.")" \
+			-- add_permissions_to_config
+
+		if is-linux; then
+			eval-helper --quiet --no-wrap --shapeshifter \
+				--pending="$(echo-style --bold="Restarting Docker...")" \
+				--success="$(echo-style --success="Restarted Docker.")" \
+				--failure="$(echo-style --error="Failed to restart Docker.")" \
+				-- restart_docker
+
+			eval-helper --quiet --no-wrap --shapeshifter \
+				--pending="$(echo-style --bold="Running verification of Docker...")" \
+				--success="$(echo-style --success="Verified Docker.")" \
+				--failure="$(echo-style --error="Failed to verify Docker, however if the following checks pass, these were just warnings.")" \
+				-- run_official_linux_checks || :
+		fi
+
+		do_checks
+	}
+	function check_docker_exists {
+		command-exists docker
+	}
+
+	# simple actions
+	if test "$action" = 'postinstall'; then
+		run_postinstall
+		return "$?"
+	elif test "$action" = 'check'; then
+		do_checks
+		return "$?"
+	elif test "$action" = 'debug'; then
+		run_debug
+		return "$?"
+	fi
 
 	# macos
 	# https://docs.docker.com/desktop/install/mac-install/
@@ -174,7 +236,7 @@ function setup-util-docker() (
 			echo
 			confirm --ppid=$$ -- 'Press <enter> once Docker has finished installing...'
 		done
-		action='check'
+		do_checks
 		# /Applications/Docker.app/Contents/MacOS/Docker --uninstall
 	elif is-linux; then
 		# uninstall
@@ -229,14 +291,14 @@ function setup-util-docker() (
 		elif test "$action" = 'install'; then
 			# check if groups have failed, if so uninstall first
 			# if docker is missing, then that's fine, we need to install
-			if check_correct; then
+			if check_docker_exists && check_group && check_user_in_group; then
 				echo-style --success='Docker already installed.'
-			elif check_fresh; then
+			elif check_docker_exists && ! check_user_in_group; then
 				echo-error "$0: Prior misconfigured docker installation detected."
 				echo-style 'Try uninstall: ' --code='setup-util-docker --uninstall'
 				echo-style 'Then install: ' --code='setup-util-docker'
 				return 1
-			else
+			elif ! check_docker_exists; then
 				# https://forums.docker.com/t/installing-docker-on-ubuntu-16-04-lts-throws-error-for-command-linux-image-extra/21546?u=balupton
 				# https://askubuntu.com/a/1236711/22776
 				echo
@@ -263,38 +325,15 @@ function setup-util-docker() (
 					add_service_users_to_service_group
 
 					echo
-					echo 'Continuing installer with desired group permissions.'
-					echo "$0" | newgrp docker
+					echo-style 'Continuing installer with desired group permissions.'
+					echo "$0 --postinstall" | newgrp "$service_group"
 				fi
-
-				echo
-				echo 'Configuring permissions...'
-				add_permissions_to_config
-
-				echo
-				echo 'Configuring service...'
-				service-helper --restart --reenable -- containerd docker # docker.socket
-				sleep 2
-				service-helper --status -- containerd docker
-
-				echo
-				echo 'Testing if docker is configured correctly by running check-config...'
-				run_official_linux_checks
-
-				echo
-				echo-style --success='Docker successfully installed.'
-				action='check'
+			else
+				echo-error "$0: Invalid state."
+				return 1
 			fi
 		fi # end install
 	fi  # end os
-
-	if test "$action" = 'check'; then
-		eval-helper --quiet --no-wrap \
-			--pending="$(echo-style --bold="Testing Docker...")" \
-			--success="$(echo-style --success="Docker is working.")" \
-			--failure="$(echo-style --error="Failed to verify docker works.")" \
-			-- run_checks
-	fi
 
 )
 
