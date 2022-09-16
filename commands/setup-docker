@@ -21,6 +21,7 @@
 
 function setup-util-docker() (
 	source "$DOROTHY/sources/strict.bash"
+	source "$(which eval-helper)"
 
 	# =====================================
 	# Arguments
@@ -58,6 +59,7 @@ function setup-util-docker() (
 		'--service') action='service' ;;
 		'--install') action='install' ;;
 		'--uninstall') action='uninstall' ;;
+		'--check') action='check' ;;
 		'--action='*) action="${item#*--action=}" ;;
 		*) util+=("$item") ;;
 		esac
@@ -93,10 +95,6 @@ function setup-util-docker() (
 		echo-lines "${service_config_paths[@]}"
 		return 0
 	elif test "$action" = 'service'; then
-		if ! is-linux; then
-			echo-error "$0: Unsupported OS"
-			return 19 # ENODEV 19 Operation not supported by device
-		fi
 		echo "$service_name"
 		return 0
 	fi
@@ -105,7 +103,7 @@ function setup-util-docker() (
 	# Setup Utility
 
 	function delete_service_group {
-		 # remove the group from all users and the system, better than delgroup which is more focused only on the current user
+		# remove the group from all users and the system, better than delgroup which is more focused only on the current user
 		sudo-helper -- groupdel "$service_group"
 	}
 	function add_service_group {
@@ -125,10 +123,41 @@ function setup-util-docker() (
 			-- "${service_config_paths[@]}"
 	}
 
+	function run_official_linux_installer() (
+		# run inside a subshell
+		eval "$(fetch https://get.docker.com)"
+	)
+	function run_official_linux_checks() (
+		# run inside a subshell
+		eval "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)"
+	)
+	function run_checks() {
+		echo
+		echo 'Testing if containers work correctly by running hello-world in a container...'
+		docker run --rm hello-world
+
+		echo
+		echo 'Testing if networking works correctly by pinging gateway...'
+		docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
+
+		echo
+		echo 'Testing if networking works correctly by pinging cloudflare...'
+		docker run --rm -it alpine ping -c4 cloudflare.com
+	}
+
 	# macos
 	# https://docs.docker.com/desktop/install/mac-install/
 	if is-mac; then
 		setup-util "${util[@]}" --app='Docker' CASK='docker'
+		while command-missing docker; do
+			echo
+			echo-style --code='docker' ' command not found, ' --notice='continue installation via the Docker app...'
+			open "$(get-app 'Docker')"
+
+			echo
+			confirm --ppid=$$ -- 'Press <enter> once Docker has finished installing...'
+		done
+		action='check'
 		# /Applications/Docker.app/Contents/MacOS/Docker --uninstall
 	elif is-linux; then
 		# uninstall
@@ -171,9 +200,11 @@ function setup-util-docker() (
 			sudo-helper -- umount /var/lib/docker/ || :
 			fs-rm --sudo -- "${service_uninstall_paths[@]}"
 
-			echo
-			echo 'Cleaning group...'
-			delete_service_group || :
+			if is-group "$service_group"; then
+				echo
+				echo 'Cleaning group...'
+				delete_service_group
+			fi
 
 			echo
 			echo-style --success='Uninstall complete.'
@@ -186,7 +217,12 @@ function setup-util-docker() (
 			# install docker
 			if is-group "$service_group" && command-missing docker; then
 				# if just docker is missing, then proceed with install, which is what we are doing
-				echo-style --notice='Docker is misconfigured, run ' --code='setup-util-docker --uninstall' ' then try ' --code='setup-util-docker' ' again.'
+				echo-style \
+					--notice='Docker is misconfigured, run ' \
+					--code='setup-util-docker --uninstall' \
+					--notice=' then try ' \
+					--code='setup-util-docker' \
+					--notice=' again.'
 				return 1
 
 			elif ! is-group "$service_group"; then
@@ -210,7 +246,10 @@ function setup-util-docker() (
 
 				echo
 				echo 'Running official installer...'
-				sh -c "$(fetch https://get.docker.com)"
+				if ! run_official_linux_installer || command-missing docker; then
+					echo-error "$0: Docker installation failed."
+					return 1
+				fi
 
 				echo
 				echo 'Configuring group...'
@@ -249,28 +288,26 @@ function setup-util-docker() (
 
 				echo
 				echo 'Testing if docker is configured correctly by running check-config...'
-				sh -c "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)" || :
+				run_official_linux_checks
 
 				echo
-				echo 'Testing if containers work correctly by running hello-world in a container...'
-				docker run --rm hello-world
-
-				echo
-				echo 'Testing if networking works correctly by pinging gateway...'
-				docker run --rm -it alpine ping -c4 "$(what-is-my-gateway)"
-
-				echo
-				echo 'Testing if networking works correctly by pinging cloudflare...'
-				docker run --rm -it alpine ping -c4 cloudflare.com
-
-				echo
-				echo-style --success='Docker has been setup and is working.'
+				echo-style --success='Docker has been setup.'
+				action='check'
 			fi
 		fi # end install
 	fi  # end os
+
+	if test "$action" = 'check'; then
+		eval-helper --quiet --no-wrap \
+			--pending="$(echo-style --bold="Testing Docker...")" \
+			--success="$(echo-style --success="Docker is working.")" \
+			--failure="$(echo-style --error="Failed to verify docker works.")" \
+			-- run_checks
+	fi
+
 )
 
-# fire if invoked standalone
+# fire if invoked stqandalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
 	setup-util-docker "$@"
 fi
