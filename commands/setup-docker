@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 # https://docs.docker.com/engine/install/fedora/
+# https://docs.docker.com/engine/install/fedora/#install-using-the-convenience-script
 # https://docs.docker.com/engine/install/ubuntu/
+# https://docs.docker.com/engine/install/ubuntu/#install-using-the-convenience-script
 # https://docs.docker.com/engine/install/linux-postinstall/
 # don't go rootless, is too complicated
 
@@ -102,6 +104,12 @@ function setup-util-docker() (
 	# =====================================
 	# Setup Utility
 
+	function check_group {
+		is-group "$service_group"
+	}
+	function check_user_in_group {
+		is-user-in-group --user="$service_user" --group="$service_group"
+	}
 	function delete_service_group {
 		# remove the group from all users and the system, better than delgroup which is more focused only on the current user
 		sudo-helper -- groupdel "$service_group"
@@ -213,90 +221,61 @@ function setup-util-docker() (
 			echo-style --success='Uninstall complete.'
 
 		elif test "$action" = 'install'; then
-			# dependencies
-			setup-util-devel
-			setup-util-snap
-
-			# install docker
-			if is-group "$service_group" && command-missing docker; then
-				# if just docker is missing, then proceed with install, which is what we are doing
+			# check configuration
+			if command-missing docker || ! check_group || ! check_user_in_group; then
 				echo-error "$0: Docker is misconfigured."
 				echo-style 'Try uninstall: ' --code='setup-util-docker --uninstall'
 				echo-style 'Then install: ' --code='setup-util-docker'
 				return 1
-
-			elif ! is-group "$service_group"; then
-				# no docker, no group, so install
-				if is-dnf; then
-					# https://docs.docker.com/engine/install/fedora/
-					setup-util --name='Docker' \
-						DNF_REPO='https://download.docker.com/linux/fedora/docker-ce.repo' \
-						DNF='docker-ce' \
-						DNF='docker-ce-cli' \
-						DNF='containerd.io' \
-						DNF='docker-compose-plugin'
-				elif command-exists apt-get snap; then
-					# https://docs.docker.com/engine/install/ubuntu/
-					# https://askubuntu.com/a/1236711/22776
-					echo
-					echo 'Adding optional dependencies...'
-					setup-util --name='Kernel Virtualisation Helpers' \
-						APT='linux-image-extra-virtual'
-				fi
-
-				echo
-				echo 'Running official installer...'
-				if ! run_official_linux_installer || command-missing docker; then
-					echo-error "$0: Docker installation failed."
-					return 1
-				fi
-
-				echo
-				echo 'Configuring group...'
-				if ! is-group "$service_group"; then
-					# official installer may add the group for us
-					add_service_group
-				fi
-				add_service_users_to_service_group
-
-				echo
-				echo-style \
-					--notice='Group reconfigured. Logout and run ' \
-					--code='setup-util-docker' \
-					--notice=' again to continue.'
-				return 1
-
-			elif ! is-user-in-group --group=docker; then
-				# has group, has docker, but user not in group
-				echo
-				echo 'Configuring group...'
-				add_service_users_to_service_group
-
-				echo
-				echo-style \
-					--notice='Group was reconfigured. Logout and run ' \
-					--code='setup-util-docker' \
-					--notice=' again to continue.'
-				return 1
-
-			else
-				# has group, has docker, and user in group
-				echo
-				echo 'Configuring permissions...'
-				add_permissions_to_config
-
-				echo
-				echo 'Configuring service...'
-				service-helper --restart --reenable --status -- containerd docker # docker.socket
-
-				echo
-				echo 'Testing if docker is configured correctly by running check-config...'
-				run_official_linux_checks
-
-				echo
-				echo-style --success='Docker has been setup.'
-				action='check'
 			fi
+
+			# https://forums.docker.com/t/installing-docker-on-ubuntu-16-04-lts-throws-error-for-command-linux-image-extra/21546?u=balupton
+			# https://askubuntu.com/a/1236711/22776
+			echo
+			echo 'Installing dependencies...'
+			setup-util-devel
+			setup-util-snap --optional
+			setup-util --optional --name='Kernel Virtualisation Helpers' \
+				APT='linux-image-extra-virtual'
+
+			echo
+			echo 'Install using the official convenience script...'
+			if ! run_official_linux_installer || command-missing docker; then
+				echo-error "$0: Docker installation failed."
+				return 1
+			fi
+
+			echo
+			echo 'Configuring group...'
+			if ! check_group; then
+				# official installer may add the group for us
+				add_service_group
+			fi
+			if ! check_user_in_group; then
+				add_service_users_to_service_group
+
+				echo
+				echo 'Continuing installer with desired group permissions.'
+				echo "$0" | newgrp docker
+			fi
+
+			echo
+			echo 'Configuring permissions...'
+			add_permissions_to_config
+
+			echo
+			echo 'Configuring service...'
+			service-helper --restart --reenable -- containerd docker # docker.socket
+			sleep 2
+			service-helper --status -- containerd docker
+
+			echo
+			echo 'Testing if docker is configured correctly by running check-config...'
+			run_official_linux_checks
+
+			echo
+			echo-style --success='Docker has been setup.'
+			action='check'
 		fi # end install
 	fi  # end os
 
