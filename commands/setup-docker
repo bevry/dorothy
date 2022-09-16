@@ -83,14 +83,6 @@ function setup-util-docker() (
 	local service_config_paths=(
 		"$HOME/.docker"
 	)
-	local service_uninstall_paths=(
-		/etc/apparmor.d/docker
-		/etc/docker
-		/usr/bin/docker-compose
-		/var/lib/containerd
-		/var/lib/docker
-		/var/run/docker.sock
-	)
 
 	# =====================================
 	# Simple Actions
@@ -113,12 +105,18 @@ function setup-util-docker() (
 		is-user-in-group --user="$service_user" --group="$service_group"
 	}
 	function delete_service_group {
+		if ! check_group; then
+			return 0
+		fi
 		# remove the group from all users and the system, better than delgroup which is more focused only on the current user
 		sudo-helper -- groupdel "$service_group"
 	}
 	function add_service_group {
-		# add a group to the system, better than addgroup which is more focused only on the current user
-		sudo-helper -- groupadd "$service_group"
+		# official installer may already added the group for us
+		if ! check_group; then
+			# add a group to the system, better than addgroup which is more focused only on the current user
+			sudo-helper -- groupadd "$service_group"
+		fi
 	}
 	function add_service_users_to_service_group {
 		local user
@@ -132,44 +130,145 @@ function setup-util-docker() (
 		fs-own --user="$service_user" --group="$service_group" --permissions='g+rwx' \
 			-- "${service_config_paths[@]}"
 	}
+	function check_docker_exists {
+		command-exists docker
+	}
+	function uninstall_tooling {
+		if is-dnf; then
+			# https://docs.docker.com/engine/install/fedora/
+			sudo dnf remove docker \
+				docker-client \
+				docker-client-latest \
+				docker-common \
+				docker-latest \
+				docker-latest-logrotate \
+				docker-logrotate \
+				docker-selinux \
+				docker-engine-selinux \
+				docker-engine || :
+		elif command-exists apt-get snap; then
+			# https://docs.docker.com/engine/install/ubuntu/
+			sudo-helper -- apt-get purge -y \
+				containerd \
+				docker \
+				docker-ce \
+				docker-ce-cli \
+				docker-ce-rootless-extras \
+				docker-engine \
+				docker.io \
+				runc ||
+				:
+			sudo-helper -- snap remove --purge docker || :
+			sudo-helper -- apt-get autoremove -y --purge || :
+			sudo-helper -- dpkg --configure -a || :
+			sudo-helper -- apt-get update || :
+			sudo-helper -- apt-get -f install || :
+		fi
+	}
+	function uninstall_files {
+		fs-unmount -- \
+			/var/lib/docker/
+		fs-rm --sudo -- \
+			/etc/apparmor.d/docker \
+			/etc/docker \
+			/usr/bin/docker-compose \
+			/var/lib/containerd \
+			/var/lib/docker \
+			/var/run/docker.sock
+	}
+	function run_uninstall {
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Removing Docker tooling.")" \
+			--success="$(echo-style --success="Removed Docker tooling.")" \
+			--failure="$(echo-style --error="Failed to remove Docker tooling.")" \
+			-- uninstall_tooling
 
-	function run_official_linux_installer() (
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Removing Docker files.")" \
+			--success="$(echo-style --success="Removed Docker files.")" \
+			--failure="$(echo-style --error="Failed to remove Docker files.")" \
+			-- uninstall_files
+
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Removing Docker group.")" \
+			--success="$(echo-style --success="Removed Docker group.")" \
+			--failure="$(echo-style --error="Failed to remove Docker group.")" \
+			-- delete_service_group
+	}
+	function do_uninstall {
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Uninstalling Docker.")" \
+			--success="$(echo-style --success="Uninstalled Docker.")" \
+			--failure="$(echo-style --error="Failed to uninstall Docker.")" \
+			-- run_uninstall
+	}
+	function install_dependencies {
+		# https://forums.docker.com/t/installing-docker-on-ubuntu-16-04-lts-throws-error-for-command-linux-image-extra/21546?u=balupton
+		# https://askubuntu.com/a/1236711/22776
+		setup-util-devel
+		setup-util-snap --optional
+		setup-util --optional --name='Kernel Virtualisation Helpers' \
+			APT='linux-image-extra-virtual'
+	}
+	function install_tooling() (
 		# run inside a subshell
 		set +Eeuo # disable strict mode
 		eval "$(fetch https://get.docker.com)"
+		command-exists docker
 	)
+	function install_user_group {
+		add_service_group
+		add_service_users_to_service_group
+	}
+	function install_postinstall {
+		# this (newgrp) works, but fails on tty items
+		echo "$0 --postinstall" | newgrp "$service_group" || {
+			echo-style --notice='Failed to postinstall, you must restart your computer, then run:' > /dev/stderr
+			echo-style '    ' --code='setup-util-docker --postinstall' > /dev/stderr
+			if confirm --positive --ppid=$$ -- "Restart now?"; then
+				sudo-helper -- shutdown --reboot > /dev/stderr
+			else
+				return 1
+			fi
+		}
+	}
+	function run_install {
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Installing Docker dependencies.")" \
+			--success="$(echo-style --success="Installed Docker dependencies.")" \
+			--failure="$(echo-style --error="Failed to install Docker dependencies.")" \
+			-- install_dependencies
+
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Installing Docker tooling.")" \
+			--success="$(echo-style --success="Installed Docker tooling.")" \
+			--failure="$(echo-style --error="Failed to install Docker tooling.")" \
+			-- install_tooling
+
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Installing Docker group.")" \
+			--success="$(echo-style --success="Installed Docker group.")" \
+			--failure="$(echo-style --error="Failed to install Docker group.")" \
+			-- install_user_group
+
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Installing Docker setup.")" \
+			--success="$(echo-style --success="Installed Docker setup.")" \
+			--failure="$(echo-style --error="Failed to install Docker setup.")" \
+			-- install_postinstall
+	}
+	function do_install {
+		eval-helper --quiet --no-wrap --shapeshifter \
+			--pending="$(echo-style --bold="Installing Docker.")" \
+			--success="$(echo-style --success="Installed Docker.")" \
+			--failure="$(echo-style --error="Failed to install Docker.")" \
+			-- run_install
+	}
 	function run_official_linux_checks() (
 		# run inside a subshell
 		set +Eeuo # disable strict mode
 		eval "$(fetch https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh)"
 	)
-	function reset_firewall {
-		# https://serverfault.com/a/200658/63348
-		sudo-helper -- iptables -P INPUT ACCEPT
-		sudo-helper -- iptables -P FORWARD ACCEPT
-		sudo-helper -- iptables -P OUTPUT ACCEPT
-		sudo-helper -- iptables -t nat -F
-		sudo-helper -- iptables -t mangle -F
-		sudo-helper -- iptables -F
-		sudo-helper -- iptables -X
-		sudo-helper -- ip6tables -P INPUT ACCEPT
-		sudo-helper -- ip6tables -P FORWARD ACCEPT
-		sudo-helper -- ip6tables -P OUTPUT ACCEPT
-		sudo-helper -- ip6tables -t nat -F
-		sudo-helper -- ip6tables -t mangle -F
-		sudo-helper -- ip6tables -F
-		sudo-helper -- ip6tables -X
-		sudo-helper -- iptables -nvL
-		sudo-helper -- ufw disable
-		sudo-helper -- ufw status verbose
-	}
-	function configure_firewall {
-		# https://docs.docker.com/network/bridge/#enable-forwarding-from-docker-containers-to-the-outside-world
-		sudo-helper -- sysctl net.ipv4.conf.all.forwarding=1
-		sudo-helper -- iptables -P FORWARD ACCEPT
-		# https://docs.docker.com/config/daemon/ipv6/
-		# /etc/docker/daemon.json doesn't seem to exist
-	}
 	function restart_docker {
 		service-helper --disable --stop -- docker docker.socket containerd || :
 		sleep 2
@@ -178,11 +277,11 @@ function setup-util-docker() (
 		service-helper --status -- containerd docker.socket docker
 	}
 	function run_debug {
-		eval-helper --no-quiet --wrap --shapeshifter \
-			-- restart_docker
-
 		# if failing to connect to your local dns serice
 		# ensure it is listening to 0.0.0.0 instead of 127.0.0.1 or 127.0.0.53
+
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- restart_docker
 
 		eval-helper --quiet --no-wrap --shapeshifter \
 			-- docker run --rm -it \
@@ -247,9 +346,6 @@ function setup-util-docker() (
 
 		do_checks
 	}
-	function check_docker_exists {
-		command-exists docker
-	}
 
 	# simple actions
 	if test "$action" = 'postinstall'; then
@@ -281,52 +377,7 @@ function setup-util-docker() (
 	elif is-linux; then
 		# uninstall
 		if test "$action" = 'uninstall'; then
-			echo
-			echo 'Cleaning tooling...'
-			if is-dnf; then
-				# https://docs.docker.com/engine/install/fedora/
-				sudo dnf remove docker \
-					docker-client \
-					docker-client-latest \
-					docker-common \
-					docker-latest \
-					docker-latest-logrotate \
-					docker-logrotate \
-					docker-selinux \
-					docker-engine-selinux \
-					docker-engine || :
-			elif command-exists apt-get snap; then
-				# https://docs.docker.com/engine/install/ubuntu/
-				sudo-helper -- apt-get purge -y \
-					containerd \
-					docker \
-					docker-ce \
-					docker-ce-cli \
-					docker-ce-rootless-extras \
-					docker-engine \
-					docker.io \
-					runc ||
-					:
-				sudo-helper -- snap remove --purge docker || :
-				sudo-helper -- apt-get autoremove -y --purge || :
-				sudo-helper -- dpkg --configure -a || :
-				sudo-helper -- apt-get update || :
-				sudo-helper -- apt-get -f install || :
-			fi
-
-			echo
-			echo 'Cleaning files...'
-			sudo-helper -- umount /var/lib/docker/ || :
-			fs-rm --sudo -- "${service_uninstall_paths[@]}"
-
-			if is-group "$service_group"; then
-				echo
-				echo 'Cleaning group...'
-				delete_service_group
-			fi
-
-			echo
-			echo-style --success='Docker successfully uninstalled.'
+			do_uninstall
 
 		elif test "$action" = 'install'; then
 			# check if groups have failed, if so uninstall first
@@ -339,45 +390,7 @@ function setup-util-docker() (
 				echo-style 'Then install: ' --code='setup-util-docker'
 				return 1
 			elif ! check_docker_exists; then
-				# https://forums.docker.com/t/installing-docker-on-ubuntu-16-04-lts-throws-error-for-command-linux-image-extra/21546?u=balupton
-				# https://askubuntu.com/a/1236711/22776
-				echo
-				echo 'Installing dependencies...'
-				setup-util-devel
-				setup-util-snap --optional
-				setup-util --optional --name='Kernel Virtualisation Helpers' \
-					APT='linux-image-extra-virtual'
-
-				echo
-				echo 'Install using the official convenience script...'
-				if ! run_official_linux_installer || command-missing docker; then
-					echo-error "$0: Docker installation failed."
-					return 1
-				fi
-
-				echo
-				echo 'Configuring group...'
-				if ! check_group; then
-					# official installer may add the group for us
-					add_service_group
-				fi
-				if ! check_user_in_group; then
-					add_service_users_to_service_group
-
-					# echo
-					#
-					# this works, however it fails on tty items
-					echo "$0 --postinstall" | newgrp "$service_group" || {
-						echo-style --notice='Failed to automatically postinstall, you must restart your computer, then run:'
-						echo-style '    ' --code='setup-util-docker --postinstall'
-						if confirm --positive --ppid=$$ -- "Restart now?"; then
-							sudo-helper -- shutdown --reboot
-						else
-							return 1
-						fi
-					}
-					return "$?"
-				fi
+				do_install
 			else
 				echo-error "$0: Invalid state."
 				return 1
@@ -394,6 +407,34 @@ fi
 
 # =====================================
 # DOCKER NETWORKING
+
+# function reset_firewall {
+# 	# https://serverfault.com/a/200658/63348
+# 	sudo-helper -- iptables -P INPUT ACCEPT
+# 	sudo-helper -- iptables -P FORWARD ACCEPT
+# 	sudo-helper -- iptables -P OUTPUT ACCEPT
+# 	sudo-helper -- iptables -t nat -F
+# 	sudo-helper -- iptables -t mangle -F
+# 	sudo-helper -- iptables -F
+# 	sudo-helper -- iptables -X
+# 	sudo-helper -- ip6tables -P INPUT ACCEPT
+# 	sudo-helper -- ip6tables -P FORWARD ACCEPT
+# 	sudo-helper -- ip6tables -P OUTPUT ACCEPT
+# 	sudo-helper -- ip6tables -t nat -F
+# 	sudo-helper -- ip6tables -t mangle -F
+# 	sudo-helper -- ip6tables -F
+# 	sudo-helper -- ip6tables -X
+# 	sudo-helper -- iptables -nvL
+# 	sudo-helper -- ufw disable
+# 	sudo-helper -- ufw status verbose
+# }
+# function configure_firewall {
+# 	# https://docs.docker.com/network/bridge/#enable-forwarding-from-docker-containers-to-the-outside-world
+# 	sudo-helper -- sysctl net.ipv4.conf.all.forwarding=1
+# 	sudo-helper -- iptables -P FORWARD ACCEPT
+# 	# https://docs.docker.com/config/daemon/ipv6/
+# 	# /etc/docker/daemon.json doesn't seem to exist
+# }
 
 # https://docs.docker.com/network/bridge
 # https://docs.docker.com/network/bridge/#access-the-outside-world-from-a-container
@@ -422,6 +463,11 @@ fi
 # firewall changes and these flags have no effect
 #
 # --cap-add=NET_ADMIN --privileged --net=web
+#
+# adding these to the .service file also has no effect
+#
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 # =====================================
 # RELOAD DOCKER
