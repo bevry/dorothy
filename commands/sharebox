@@ -33,6 +33,9 @@ function sharebox() (
 			resume
 			    Resume the sharebox services.
 
+			restore
+			    Restore configuration from one filesystem to another.
+
 			reboot
 			    Stop the sharebox and reboots the machine safely.
 
@@ -67,14 +70,14 @@ function sharebox() (
 	}
 
 	# process
-	local item action='' reconfigure='no' args=()
+	local item action='' configure='no' args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-configure'* | '--configure'*)
-			reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative)"
+			configure="$(get-flag-value configure --missing="$configure" -- "$item" | echo-affirmative)"
 			;;
 		'--')
 			args+=("$@")
@@ -139,25 +142,39 @@ function sharebox() (
 	# sharebox.bash provides:
 	local SHAREBOX_USER=''
 	local SHAREBOX_GROUP=''
+	# sharebox.bash may provide:
 	local SHAREBOX_DRIVE_LABEL=''
 	local SHAREBOX_DRIVE_COUNT=''
 	local SHAREBOX_DRIVE_MOUNT=''
 	local SHAREBOX_CIPHER=''
 	local SHAREBOX_PLAIN=''
 	if ! load_dorothy_config 'sharebox.bash'; then
-		reconfigure='yes'
+		configure='yes'
 	fi
 
 	# =====================================
 	# Reconfiguration
 
-	# required
-	if test -z "$SHAREBOX_USER" -o -z "$SHAREBOX_GROUP" -o -z "$SHAREBOX_DRIVE_LABEL" -o -z "$SHAREBOX_DRIVE_COUNT" -o -z "$SHAREBOX_DRIVE_MOUNT" -o -z "$SHAREBOX_CIPHER" -o -z "$SHAREBOX_PLAIN"; then
-		reconfigure='yes'
-	fi
+	function check_configuration {
+		# required
+		if test -z "$SHAREBOX_USER" -o -z "$SHAREBOX_GROUP"; then
+			configure='yes'
+		fi
+		# all or nothing params
+		if test -n "$SHAREBOX_DRIVE_LABEL" -o -n "$SHAREBOX_DRIVE_COUNT" -o -n "$SHAREBOX_DRIVE_MOUNT"; then
+			if ! test -n "$SHAREBOX_DRIVE_LABEL" -a -n "$SHAREBOX_DRIVE_COUNT" -a -n "$SHAREBOX_DRIVE_MOUNT"; then
+				configure='yes'
+			fi
+		fi
+		if test -n "$SHAREBOX_CIPHER" -o -n "$SHAREBOX_PLAIN"; then
+			if ! test -n "$SHAREBOX_CIPHER" -a -n "$SHAREBOX_PLAIN"; then
+				configure='yes'
+			fi
+		fi
+	}
 
 	# reconfigure
-	if test "$reconfigure" = 'yes'; then
+	while check_configuration && test "$configure" = 'yes'; do
 		SHAREBOX_USER="$(
 			ask --required --confirm \
 				--question='Enter the username to use for the share.' \
@@ -169,27 +186,27 @@ function sharebox() (
 				--default="$SHAREBOX_GROUP"
 		)"
 		SHAREBOX_DRIVE_LABEL="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter the drive label to use for the share.' \
 				--default="$SHAREBOX_DRIVE_LABEL"
 		)"
 		SHAREBOX_DRIVE_COUNT="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter how many drives are part of the share.' \
 				--default="$SHAREBOX_DRIVE_COUNT"
 		)"
 		SHAREBOX_DRIVE_MOUNT="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter the path of the drive mount point.' \
 				--default="$SHAREBOX_DRIVE_MOUNT"
 		)"
 		SHAREBOX_CIPHER="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter the path of the cipher directory.' \
 				--default="$SHAREBOX_CIPHER"
 		)"
 		SHAREBOX_PLAIN="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter the path of the decrypted cipher mount point.' \
 				--default="$SHAREBOX_PLAIN"
 		)"
@@ -203,27 +220,40 @@ function sharebox() (
 			--field='SHAREBOX_DRIVE_MOUNT' --value="$SHAREBOX_DRIVE_MOUNT" \
 			--field='SHAREBOX_CIPHER' --value="$SHAREBOX_CIPHER" \
 			--field='SHAREBOX_PLAIN' --value="$SHAREBOX_PLAIN"
-	fi
+
+		# apply
+		configure='no'
+	done
 
 	# =====================================
 	# Verify
 
-	local sharebox_device sharebox_owner
-
-	# verify drive
-	# /dev/* locations can change, or be missing, so check for that
-	btrfs-helper verify -- "$SHAREBOX_DRIVE_LABEL" "$SHAREBOX_DRIVE_COUNT"
-
-	# get the drive for the label
-	sharebox_device="$(btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL")"
-
 	# vault configuration
+	local sharebox_owner
 	sharebox_owner="$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
 
-	# =====================================
-	# Action Helpers
+	# optional device configuration
+	local sharebox_device=''
+	if test -n "$SHAREBOX_DRIVE_LABEL" -a -n "$SHAREBOX_DRIVE_COUNT" -a -n "$SHAREBOX_DRIVE_MOUNT"; then
+		# verify drive
+		# /dev/* locations can change, or be missing, so check for that
+		btrfs-helper verify -- "$SHAREBOX_DRIVE_LABEL" "$SHAREBOX_DRIVE_COUNT"
 
-	local service_ids service_users config_paths
+		# get the drive for the label
+		sharebox_device="$(btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL")"
+	fi
+
+	# service configurations
+	local config_paths service_ids service_users service_groups
+	mapfile -t config_paths < <(
+		'/usr/local/etc/AdGuardHome/AdGuardHome.yaml'
+		setup-util-gocryptfs --get-config-paths
+		setup-util-samba --get-config-paths
+		setup-docker --get-config-paths
+		setup-util-resilio --get-config-paths
+		setup-util-syncthing --get-config-paths
+		setup-util-plex --get-config-paths
+	)
 	mapfile -t service_ids < <(
 		setup-util-samba --get-service-ids
 		setup-docker --get-service-ids
@@ -245,15 +275,9 @@ function sharebox() (
 		# setup-util-syncthing --get-service-group
 		setup-util-plex --get-service-group
 	)
-	mapfile -t config_paths < <(
-		'/usr/local/etc/AdGuardHome/AdGuardHome.yaml'
-		setup-util-gocryptfs --get-config-paths
-		setup-util-samba --get-config-paths
-		setup-docker --get-config-paths
-		setup-util-resilio --get-config-paths
-		setup-util-syncthing --get-config-paths
-		setup-util-plex --get-config-paths
-	)
+
+	# =====================================
+	# Action Helpers
 
 	function is_drive_mounted {
 		is-mounted --source="$sharebox_device" --target="$SHAREBOX_DRIVE_MOUNT"
@@ -370,27 +394,44 @@ function sharebox() (
 			device                = $sharebox_device
 			owner                 = $sharebox_owner
 
+			paths =
+			$(echo-lines "${config_paths[@]}")
+
+			services =
+			$(echo-lines "${service_ids[@]}")
+
+			users =
+			$(echo-lines "${service_users[@]}")
+
+			groups =
+			$(echo-lines "${service_groups[@]}")
+
 			gocryptfs:
 			$(gocryptfs-helper info -- "$SHAREBOX_CIPHER")
 		EOF
 	}
-	function do_setup_restore {
-		local root
-		root="$(
+	function do_restore {
+		local source_root target_root
+		source_root="$(
 			ask --required \
 				--question="Where is root file system to copy from?"
 		)"
+		target_root="$(
+			ask --required --defualt='/' \
+				--question="Where is root file system to copy to?"
+		)"
 
 		# restore
-		local path __source
+		local path source_path target_path
 		for path in "${config_paths[@]}"; do
 			# just in case mapfile returned empty elements
 			if test -z "$path"; then
 				continue
 			fi
 			# restore the path
-			__source="$(fs-join -- "$root" "$path")"
-			cpr --sudo --tool=rsync -- "$__source" "$path"
+			source_path="$(fs-join -- "$source_root" "$path")"
+			target_path="$(fs-join -- "$target_root" "$path")"
+			cpr --sudo --tool=rsync -- "$source_path" "$target_path"
 		done
 	}
 	function do_setup_owner {
@@ -422,6 +463,39 @@ function sharebox() (
 			sudo-helper -- gpasswd -a root "$SHAREBOX_GROUP"
 		fi
 
+		# add current user to group if necessary
+		if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$USER"; then
+			sudo-helper -- gpasswd -a "$USER" "$SHAREBOX_GROUP"
+
+			# done
+			cat <<-EOF
+				$(echo-style --success="The current user [$USER] has been added to group [$SHAREBOX_GROUP], " --notice="however you must logout or reboot for the change to apply.")
+				Reboot your computer safely with the following command:
+				$(echo-style --code="sharebox reboot")
+			EOF
+			return 1
+		fi
+	}
+	function act_restore {
+		do_restore
+	}
+	function act_setup {
+		# restore
+		if confirm --bool --ppid=$$ -- "Restore sharebox configuration from an existing location?"; then
+			do_restore
+		fi
+
+		# setup
+		do_setup_owner
+
+		# service
+		setup-docker
+		setup-util-gocryptfs --upgrade
+		setup-util-samba
+		setup-util-plex
+		setup-util-syncthing
+		# no more resilio sync, as it was replaced by syncthing
+
 		# add service users to group if necessary
 		local service_user
 		for service_user in "${service_users[@]}"; do
@@ -437,35 +511,6 @@ function sharebox() (
 				sudo-helper -- gpasswd -a "$SHAREBOX_USER" "$service_group"
 			fi
 		done
-
-		# add current user to group if necessary
-		if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$USER"; then
-			sudo-helper -- gpasswd -a "$USER" "$SHAREBOX_GROUP"
-
-			# done
-			cat <<-EOF
-				$(echo-style --success="The current user [$USER] has been added to group [$SHAREBOX_GROUP], " --notice="however you must logout or reboot for the change to apply.")
-				Reboot your computer safely with the following command:
-				$(echo-style --code="sharebox reboot")
-			EOF
-			return 1
-		fi
-	}
-	function act_setup {
-		# dependencies
-		gocryptfs-helper upgrade
-
-		# restore
-		if confirm --bool --ppid=$$ -- "Restore sharebox configuration from an existing location?"; then
-			do_setup_restore
-		fi
-
-		# setup
-		do_setup_owner
-		setup-util-samba
-		setup-util-plex --group="$SHAREBOX_GROUP"
-		setup-util-syncthing --group="$SHAREBOX_GROUP"
-		# no more resilio sync, as it was replaced by syncthing
 
 		# done
 		cat <<-EOF
