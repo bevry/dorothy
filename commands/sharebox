@@ -139,10 +139,9 @@ function sharebox() (
 
 	source "$DOROTHY/sources/config.bash"
 
-	# sharebox.bash provides:
+	# sharebox.bash may provide:
 	local SHAREBOX_USER=''
 	local SHAREBOX_GROUP=''
-	# sharebox.bash may provide:
 	local SHAREBOX_DRIVE_LABEL=''
 	local SHAREBOX_DRIVE_COUNT=''
 	local SHAREBOX_DRIVE_MOUNT=''
@@ -157,10 +156,11 @@ function sharebox() (
 
 	function check_configuration {
 		# required
-		if test -z "$SHAREBOX_USER" -o -z "$SHAREBOX_GROUP"; then
-			configure='yes'
+		if test -n "$SHAREBOX_USER" -o -n "$SHAREBOX_GROUP"; then
+			if ! test -n "$SHAREBOX_USER" -a -n "$SHAREBOX_GROUP"; then
+				configure='yes'
+			fi
 		fi
-		# all or nothing params
 		if test -n "$SHAREBOX_DRIVE_LABEL" -o -n "$SHAREBOX_DRIVE_COUNT" -o -n "$SHAREBOX_DRIVE_MOUNT"; then
 			if ! test -n "$SHAREBOX_DRIVE_LABEL" -a -n "$SHAREBOX_DRIVE_COUNT" -a -n "$SHAREBOX_DRIVE_MOUNT"; then
 				configure='yes'
@@ -176,12 +176,12 @@ function sharebox() (
 	# reconfigure
 	while check_configuration && test "$configure" = 'yes'; do
 		SHAREBOX_USER="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter the username to use for the share.' \
 				--default="$SHAREBOX_USER"
 		)"
 		SHAREBOX_GROUP="$(
-			ask --required --confirm \
+			ask --confirm \
 				--question='Enter the groupname to use for the share.' \
 				--default="$SHAREBOX_GROUP"
 		)"
@@ -229,8 +229,20 @@ function sharebox() (
 	# Verify
 
 	# vault configuration
-	local sharebox_owner
-	sharebox_owner="$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
+	local sharebox_owner=''
+	if test -n "$SHAREBOX_USER" -a -n "$SHAREBOX_GROUP"; then
+		sharebox_owner="$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
+	fi
+	function check_owner {
+		test -n "$sharebox_owner"
+	}
+	function require_owner {
+		if ! check_owner; then
+			echo-error "User/Group not configured, run:"
+			echo-style --code="$0 --configure"
+			return 1
+		fi
+	}
 
 	# optional device configuration
 	local sharebox_device=''
@@ -242,6 +254,28 @@ function sharebox() (
 		# get the drive for the label
 		sharebox_device="$(btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL")"
 	fi
+	function check_device {
+		test -n "$sharebox_device"
+	}
+	function require_device {
+		if ! check_device; then
+			echo-error "Devices not configured, run:"
+			echo-style --code="$0 --configure"
+			return 1
+		fi
+	}
+
+	# vault check
+	function check_vault {
+		test -n "$SHAREBOX_CIPHER" -a -n "$SHAREBOX_PLAIN"
+	}
+	function require_vault {
+		if ! check_vault; then
+			echo-error "Encryption not configured, run:"
+			echo-style --code="$0 --configure"
+			return 1
+		fi
+	}
 
 	# service configurations
 	local config_paths service_ids service_users service_groups
@@ -280,10 +314,10 @@ function sharebox() (
 	# Action Helpers
 
 	function is_drive_mounted {
+		require_device
 		is-mounted --source="$sharebox_device" --target="$SHAREBOX_DRIVE_MOUNT"
 	}
 	function do_disable {
-		# disable services auto-starting
 		echo-segment --h2='Disable Service Autostart'
 		service-helper --ignore-missing --disable \
 			-- "${service_ids[@]}"
@@ -297,15 +331,15 @@ function sharebox() (
 		echo-segment --g2='Fetch Service Status'
 	}
 	function do_pause {
-		# stop services in a sensible order
 		echo-segment --h2='Stop Services'
+		set -x # <debug>
 		timeout 120s seedbox stop
 		service-helper --ignore-missing --stop \
 			-- "${service_ids[@]}"
+		set +x # </debug>
 		echo-segment --g2='Stop Services'
 	}
 	function do_resume {
-		# start services in a sensible order
 		echo-segment --h2='Start Services'
 		set -x # <debug>
 		seedbox stop
@@ -322,21 +356,27 @@ function sharebox() (
 		sudo-helper -- shutdown --poweroff
 	}
 	function do_mount_drive {
+		require_owner
+		require_device
 		eval-helper -- fs-mount \
 			--source="$sharebox_device" \
 			--target="$SHAREBOX_DRIVE_MOUNT" \
 			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
 	}
 	function do_mount_vault {
+		require_owner
+		require_vault
 		eval-helper -- fs-mount \
 			--source="$SHAREBOX_CIPHER" \
 			--target="$SHAREBOX_PLAIN" \
 			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
 	}
 	function do_unmount_vault {
+		require_vault
 		fs-unmount -- "$SHAREBOX_PLAIN"
 	}
 	function do_unmount_drive {
+		require_vault
 		fs-unmount -- "$SHAREBOX_DRIVE_MOUNT"
 	}
 
@@ -435,6 +475,8 @@ function sharebox() (
 		done
 	}
 	function do_setup_owner {
+		require_owner
+
 		# create user if necessary
 		if is-user "$SHAREBOX_USER" && confirm --negative --ppid=$$ -- "The share user exists, redo it?"; then
 			# create user
@@ -480,12 +522,15 @@ function sharebox() (
 		do_restore
 	}
 	function act_setup {
+		# configuration
+		require_owner
+
 		# restore
 		if confirm --bool --ppid=$$ -- "Restore sharebox configuration from an existing location?"; then
 			do_restore
 		fi
 
-		# setup
+		# owner
 		do_setup_owner
 
 		# service
@@ -520,6 +565,7 @@ function sharebox() (
 		EOF
 	}
 	function act_chown {
+		require_owner
 		fs-own --sudo \
 			--owner="$sharebox_owner" \
 			--user="$SHAREBOX_USER" \
@@ -527,6 +573,7 @@ function sharebox() (
 			-- "$@"
 	}
 	function act_run {
+		require_owner
 		eval-helper --quiet=no \
 			-- sudo-helper --inherit \
 			--user="$SHAREBOX_USER" \
@@ -534,13 +581,21 @@ function sharebox() (
 			-- "$@"
 	}
 	function act_unmount {
-		do_unmount_vault
-		do_unmount_drive
+		if check_vault; then
+			do_unmount_vault
+		fi
+		if check_drive; then
+			do_unmount_drive
+		fi
 	}
 	function act_mount {
 		act_unmount
-		do_mount_drive
-		do_mount_vault
+		if check_drive; then
+			do_mount_drive
+		fi
+		if check_vault; then
+			do_mount_vault
+		fi
 	}
 
 	# =====================================
