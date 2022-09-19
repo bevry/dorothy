@@ -16,14 +16,17 @@ function setup-util-resilio() (
 			setup-util-resilio [...options]
 
 			OPTIONS:
-			--paths
-			    If specified, output the paths used by Resilio Sync; useful for restoring backups.
+			--get-config-paths
+			    If specified, output configuration paths, useful for restoring backups.
 
-			--service
-			    If specified, output the service name.
+			--get-service-ids
+			    If specified, output service identifiers, ordered by startup preference.
 
-			--group=<group>
-			    Groups to attach the service user to.
+			--get-service-user
+			    If specified, output service user.
+
+			--get-service-group
+			    If specified, output service group.
 
 			...
 			    All other options are forwarded to $(echo-style --code='setup-util').
@@ -32,47 +35,79 @@ function setup-util-resilio() (
 	}
 
 	# process
-	local item action='' groups=() util=()
+	local item action='install' util=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--paths') action='paths' ;;
-		'--service') action='service' ;;
+		'--get-config-paths') action='get-config-paths' ;;
+		'--get-service-ids') action='get-service-ids' ;;
+		'--get-service-user') action='get-service-user' ;;
+		'--get-service-group') action='get-service-group' ;;
 		'--install') action='install' ;;
 		'--uninstall') action='uninstall' ;;
 		'--action='*) action="${item#*--action=}" ;;
-		'--group='*) groups+=("${item#*--group=}") ;;
 		*) util+=("$item") ;;
 		esac
 	done
 
+	# ensure action inside util
+	util+=("--action=$action")
+
+	# =====================================
+	# Checks
+
+	# check for support
+	if ! is-linux; then
+		echo-style --notice="[$0] is implemented for Linux systems..." >/dev/stderr
+		if ! confirm --negative --ppid=$$ -- 'Proceed at your own risk?'; then
+			return 0
+		fi
+	fi
+
 	# =====================================
 	# Preparation
 
-	local service_name='resilio-sync'
-	local service_path="/lib/systemd/system/resilio-sync.service"
-	local service_config='/etc/resilio-sync/config.json'
-	local service_data_paths=(
-		'/etc/resilio-sync/'
-		'/var/lib/resilio-sync/'
-		"$service_config"
+	local service_title='Resilio Sync'
+	local service_ids=(
+		'resilio-sync'
+	)
+	local service_path='/lib/systemd/system/resilio-sync.service'
+	local service_config_path='/etc/resilio-sync/config.json'
+	local service_config_paths=(
+		"$service_config_path"
 		"$XDG_CONFIG_HOME/resilio-sync"
 	)
-	local service_all_paths=(
-		"${service_data_paths[@]}"
+	local service_uninstall_paths=(
 		"$service_path"
+		'/etc/resilio-sync/'
+		'/var/lib/resilio-sync/'
 	)
+
+	function get_user {
+		config-helper --file="$service_path" -- \
+			--field='User'
+	}
+	function get_group {
+		config-helper --file="$service_path" -- \
+			--field='Group'
+	}
 
 	# =====================================
 	# Simple Actions
 
-	if test "$action" = 'paths'; then
-		echo-lines "${service_all_paths[@]}"
+	if test "$action" = 'get-config-paths'; then
+		echo-lines "${service_config_paths[@]}"
 		return 0
-	elif test "$action" = 'service'; then
-		echo "$service_name"
+	elif test "$action" = 'get-service-ids'; then
+		echo-lines "${service_ids[@]}"
+		return 0
+	elif test "$action" = 'get-service-user'; then
+		get_user
+		return 0
+	elif test "$action" = 'get-service-group'; then
+		get_group
 		return 0
 	fi
 
@@ -89,34 +124,41 @@ function setup-util-resilio() (
 		APT_REPO='deb [arch={ARCH} signed-by={KEY}] http://linux-packages.resilio.com/resilio-sync/deb resilio-sync non-free' \
 		APT='resilio-sync'
 
-	# disable autostart
-	service-helper --disable --stop -- resilio-sync
-
-	# configure
-	if confirm --negative --ppid=$$ -- "Customise Resilio Sync configuration?"; then
-		edit --sudo -- "$resilio_service"
-		edit --sudo -- "$resilio_config"
+	# stop at uninstall?
+	if test "$action" = 'uninstall'; then
+		fs-rm --sudo \
+			-- "${service_uninstall_paths[@]}"
+		return "$?"
 	fi
 
-	# permissions
-	local resilio_user resilio_group
-	resilio_user="$(
-		config-helper --file="$resilio_service" -- \
-			--field='User'
-	)"
-	resilio_group="$(
-		config-helper --file="$resilio_service" -- \
-			--field='Group'
-	)"
-	fs-own --optional --user="$resilio_user" --group="$resilio_group" \
-		-- "${resilio_data_paths[@]}"
+	# =====================================
+	# Setup Service
 
-	# --group
-	local groups group
-	mapfile -t groups < <(get-flag-value group --multi -- "$@")
-	for group in "${groups[@]}"; do
-		sudo-helper -- gpasswd -a "$resilio_user" "$group"
-	done
+	# only manage the service if it is supported
+	if service-helper --supported; then
+		# verify the service was initialised
+		if service-helper --exists -- "${service_ids[@]}"; then
+			# correct the permissions
+			fs-own --optional \
+				--user="$(get_user)" \
+				--group="$(get_group)" \
+				-- "${service_config_paths[@]}" "${service_uninstall_paths[@]}"
+
+			# disable autostart
+			service-helper --disable --stop \
+				-- "${service_ids[@]}"
+
+			# configure
+			if confirm --negative --ppid=$$ -- "Customise $service_title configuration?"; then
+				edit --sudo -- "$service_path"
+				edit --sudo -- "$service_config_path"
+			fi
+		else
+			# headful/headless, no service
+			echo-error "$0: $service_title was installed, however the service was not."
+			return 1
+		fi
+	fi
 )
 
 # fire if invoked standalone

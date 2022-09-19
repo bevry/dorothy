@@ -16,14 +16,11 @@ function setup-util-samba() (
 			setup-util-plex [...options]
 
 			OPTIONS:
-			--paths
-			    If specified, output the paths used by plex media server; useful for restoring backups.
+			--get-config-paths
+			    If specified, output configuration paths, useful for restoring backups.
 
-			--service
-			    If specified, output the service name.
-
-			--group=<group>
-			    Groups to attach the service user to.
+			--get-service-ids
+			    If specified, output service identifiers, ordered by startup preference.
 
 			...
 			    All other options are forwarded to $(echo-style --code='setup-util').
@@ -32,36 +29,56 @@ function setup-util-samba() (
 	}
 
 	# process
-	local item action='' groups=() util=()
+	local item action='install' util=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--paths') action='paths' ;;
-		'--service') action='service' ;;
+		'--get-config-paths') action='get-config-paths' ;;
+		'--get-service-ids') action='get-service-ids' ;;
 		'--install') action='install' ;;
 		'--uninstall') action='uninstall' ;;
 		'--action='*) action="${item#*--action=}" ;;
-		'--group='*) groups+=("${item#*--group=}") ;;
 		*) util+=("$item") ;;
 		esac
 	done
 
+	# ensure action inside util
+	util+=("--action=$action")
+
 	# =====================================
 	# Preparation
 
-	local service_config='/etc/samba/smb.conf'
-	local service_all_paths=('/etc/samba/')
+	local service_title='Samba'
+	local service_ids=()
+	if is-mac; then
+		service_ids+=('system/com.apple.smbd')
+	else
+		# https://www.samba.org/samba/docs/current/man-html/smbd.8.html
+		# https://www.samba.org/samba/docs/current/man-html/nmbd.8.html
+		# https://www.samba.org/samba/docs/current/man-html/winbindd.8.html
+		# daemons: smbd, nmbd (netbios naming), winbindd (windows nt naming)
+		# service names change based on operating system
+		if is-ubuntu; then
+			service_ids+=('nmbd' 'smbd')
+		else
+			service_ids+=('nmb' 'smb')
+		fi
+	fi
+	local service_config_file='/etc/samba/smb.conf'
+	local service_config_paths=(
+		'/etc/samba'
+	)
 
 	# =====================================
 	# Simple Actions
 
-	if test "$action" = 'paths'; then
-		echo-lines "${service_all_paths[@]}"
+	if test "$action" = 'get-config-paths'; then
+		echo-lines "${service_config_paths[@]}"
 		return 0
-	elif test "$action" = 'service'; then
-		echo "$service_name"
+	elif test "$action" = 'get-service-ids'; then
+		echo-lines "${service_ids[@]}"
 		return 0
 	fi
 
@@ -73,7 +90,7 @@ function setup-util-samba() (
 	# https://docs.fedoraproject.org/en-US/quick-docs/samba/#install_and_enable_samba
 	# https://wiki.alpinelinux.org/wiki/Setting_up_a_samba-server
 	# https://wiki.archlinux.org/title/samba
-	setup-util "$@" --name='Samba' \
+	setup-util "${util[@]}" --name='Samba' \
 		APK='samba' \
 		APT='samba' APT='samba-common-bin' \
 		RPM='samba' \
@@ -81,36 +98,49 @@ function setup-util-samba() (
 
 	# stop at uninstall?
 	if test "$action" = 'uninstall'; then
-		fs-rm --sudo -- "${service_all_paths[@]}"
+		# sudo-helper -- mkdir -p /etc/samba
+		# ^ don't wipe this as it is just a configuration directory
+		# and we want to persist configuration
 		return "$?"
 	fi
 
 	# =====================================
-	# Configure Service
+	# Setup Service
 
-	# disable autostart
-	service-helper --optional --disable --stop \
-		-- smbd nmbd smb nmb
+	# only manage the service if it is supported
+	if service-helper --supported; then
+		# verify the service was initialised
+		if service-helper --exists -- "${service_ids[@]}"; then
+			# ensure correct permissions
+			sudo-helper -- mkdir -p /etc/samba/credentials/share
+			fs-own --sudo --admin --permissions=700 \
+				-- /etc/samba/credentials
+			fs-own --sudo --admin --permissions=600 \
+				-- /etc/samba/credentials/share
 
-	# ensure correct permissions
-	sudo-helper -- mkdir -p /etc/samba/credentials/share
-	sudo-helper -- chown root:root /etc/samba/credentials
-	sudo-helper -- chmod 700 /etc/samba/credentials
-	sudo-helper -- chmod 600 /etc/samba/credentials/share
+			# disable autostart
+			service-helper --disable --stop \
+				-- "${service_ids[@]}"
 
-	# configure
-	if confirm --negative --ppid=$$ -- "Customise Samba configuration?"; then
-		edit --sudo -- "$service_config"
-	fi
+			# configure
+			if confirm --negative --ppid=$$ -- "Customise $service_title configuration?"; then
+				edit --sudo -- "$service_config_file"
+			fi
 
-	# verify configuration
-	testparm --suppress-prompt
+			# verify configuration
+			testparm --suppress-prompt
 
-	# adapt firewall
-	if command-exists firewall-cmd; then
-		firewall-cmd --get-active-zones
-		sudo firewall-cmd --permanent --zone=FedoraWorkstation --add-service=samba
-		sudo firewall-cmd --reload
+			# adapt firewall
+			if command-exists firewall-cmd; then
+				sudo-helper -- firewall-cmd --get-active-zones
+				sudo-helper -- firewall-cmd --permanent --zone=FedoraWorkstation --add-service=samba
+				sudo-helper -- firewall-cmd --reload
+			fi
+		else
+			# headful/headless, no service
+			echo-error "$0: $service_title was installed, however the service was not."
+			return 1
+		fi
 	fi
 )
 

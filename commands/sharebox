@@ -223,13 +223,36 @@ function sharebox() (
 	# =====================================
 	# Action Helpers
 
-	local services=()
-	services+=(
-		"$(setup-util-samba --service)"
-		"$(setup-util-plex --service)"
-		"$(setup-util-syncthing --service)"
-		docker
-		# docker.socket
+	local service_ids service_users config_paths
+	mapfile -t service_ids < <(
+		setup-util-samba --get-service-ids
+		setup-docker --get-service-ids
+		setup-util-resilio --get-service-ids
+		setup-util-syncthing --get-service-ids
+		setup-util-plex --get-service-ids
+	)
+	mapfile -t service_users < <(
+		# setup-util-samba --get-service-user
+		setup-docker --get-service-user
+		setup-util-resilio --get-service-user
+		setup-util-syncthing --get-service-user
+		setup-util-plex --get-service-user
+	)
+	mapfile -t service_groups < <(
+		# setup-util-samba --get-service-user
+		setup-docker --get-service-group
+		setup-util-resilio --get-service-group
+		# setup-util-syncthing --get-service-group
+		setup-util-plex --get-service-group
+	)
+	mapfile -t config_paths < <(
+		'/usr/local/etc/AdGuardHome/AdGuardHome.yaml'
+		setup-util-gocryptfs --get-config-paths
+		setup-util-samba --get-config-paths
+		setup-docker --get-config-paths
+		setup-util-resilio --get-config-paths
+		setup-util-syncthing --get-config-paths
+		setup-util-plex --get-config-paths
 	)
 
 	function is_drive_mounted {
@@ -238,20 +261,23 @@ function sharebox() (
 	function do_disable {
 		# disable services auto-starting
 		echo-segment --h2='Disable Service Autostart'
-		service-helper --disable -- "${services[@]}"
+		service-helper --ignore-missing --disable \
+			-- "${service_ids[@]}"
 		echo-segment --g2='Disable Service Autostart'
 	}
 	function do_status {
 		echo-segment --h2='Fetch Service Status'
 		seedbox status
-		service-helper --status -- "${services[@]}"
+		service-helper --ignore-missing --status \
+			-- "${service_ids[@]}"
 		echo-segment --g2='Fetch Service Status'
 	}
 	function do_pause {
 		# stop services in a sensible order
 		echo-segment --h2='Stop Services'
 		timeout 120s seedbox stop
-		service-helper --stop -- "${services[@]}"
+		service-helper --ignore-missing --stop \
+			-- "${service_ids[@]}"
 		echo-segment --g2='Stop Services'
 	}
 	function do_resume {
@@ -259,7 +285,8 @@ function sharebox() (
 		echo-segment --h2='Start Services'
 		set -x # <debug>
 		seedbox stop
-		service-helper --restart -- "${services[@]}"
+		service-helper --ignore-missing --restart \
+			-- "${service_ids[@]}"
 		seedbox start || seedbox upgrade
 		set +x # </debug>
 		echo-segment --g2='Start Services'
@@ -271,11 +298,15 @@ function sharebox() (
 		sudo-helper -- shutdown --poweroff
 	}
 	function do_mount_drive {
-		eval-helper -- fs-mount "$sharebox_device" "$SHAREBOX_DRIVE_MOUNT" \
+		eval-helper -- fs-mount \
+			--source="$sharebox_device" \
+			--target="$SHAREBOX_DRIVE_MOUNT" \
 			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
 	}
 	function do_mount_vault {
-		eval-helper -- fs-mount "$SHAREBOX_CIPHER" "$SHAREBOX_PLAIN" \
+		eval-helper -- fs-mount \
+			--source="$SHAREBOX_CIPHER" \
+			--target="$SHAREBOX_PLAIN" \
 			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
 	}
 	function do_unmount_vault {
@@ -320,7 +351,7 @@ function sharebox() (
 		if is_drive_mounted; then
 			get-size -- "$SHAREBOX_DRIVE_MOUNT"
 		else
-			echo-style --red="Not yet mounted: $SHAREBOX_DRIVE_MOUNT"
+			echo-error "$0: Not yet mounted: $SHAREBOX_DRIVE_MOUNT"
 			return 1
 		fi
 	}
@@ -344,31 +375,21 @@ function sharebox() (
 		EOF
 	}
 	function do_setup_restore {
-		local root paths=() gocryptfs_paths samba_paths syncthing_paths plex_paths path __source
+		local root
 		root="$(
 			ask --required \
 				--question="Where is root file system to copy from?"
 		)"
 
-		# gocryptfs
-		mapfile -t gocryptfs_paths < <(setup-util-gocryptfs --paths)
-		paths+=("${gocryptfs_paths[@]}")
-
-		# samba
-		mapfile -t samba_paths < <(setup-util-samba --paths)
-		paths+=("${samba_paths[@]}")
-
-		# syncthing
-		mapfile -t syncthing_paths < <(setup-util-syncthing --paths)
-		paths+=("${syncthing_paths[@]}")
-
-		# samba
-		mapfile -t plex_paths < <(setup-util-plex --paths)
-		paths+=("${plex_paths[@]}")
-
 		# restore
-		for path in "${paths[@]}"; do
-			__source="$(fs-join "$root" "$path")"
+		local path __source
+		for path in "${config_paths[@]}"; do
+			# just in case mapfile returned empty elements
+			if test -z "$path"; then
+				continue
+			fi
+			# restore the path
+			__source="$(fs-join -- "$root" "$path")"
 			cpr --sudo --tool=rsync -- "$__source" "$path"
 		done
 	}
@@ -401,6 +422,22 @@ function sharebox() (
 			sudo-helper -- gpasswd -a root "$SHAREBOX_GROUP"
 		fi
 
+		# add service users to group if necessary
+		local service_user
+		for service_user in "${service_users[@]}"; do
+			if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$service_user"; then
+				sudo-helper -- gpasswd -a "$service_user" "$SHAREBOX_GROUP"
+			fi
+		done
+
+		# add users to server group if necessary
+		local service_group
+		for service_group in "${service_groups[@]}"; do
+			if ! is-user-in-group --group="$service_group" --user="$SHAREBOX_USER"; then
+				sudo-helper -- gpasswd -a "$SHAREBOX_USER" "$service_group"
+			fi
+		done
+
 		# add current user to group if necessary
 		if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$USER"; then
 			sudo-helper -- gpasswd -a "$USER" "$SHAREBOX_GROUP"
@@ -428,6 +465,7 @@ function sharebox() (
 		setup-util-samba
 		setup-util-plex --group="$SHAREBOX_GROUP"
 		setup-util-syncthing --group="$SHAREBOX_GROUP"
+		# no more resilio sync, as it was replaced by syncthing
 
 		# done
 		cat <<-EOF
@@ -437,12 +475,17 @@ function sharebox() (
 		EOF
 	}
 	function act_chown {
-		fs-own --sudo --owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP" \
+		fs-own --sudo \
+			--owner="$sharebox_owner" \
+			--user="$SHAREBOX_USER" \
+			--group="$SHAREBOX_GROUP" \
 			-- "$@"
 	}
 	function act_run {
 		eval-helper --quiet=no \
-			-- sudo-helper --inherit --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP" \
+			-- sudo-helper --inherit \
+			--user="$SHAREBOX_USER" \
+			--group="$SHAREBOX_GROUP" \
 			-- "$@"
 	}
 	function act_unmount {

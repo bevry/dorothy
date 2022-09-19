@@ -5,46 +5,149 @@ function setup-util-gocryptfs() (
 	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/globstar.bash"
 
-	# --paths
-	if test "${1-}" = '--paths'; then
-		echo '/etc/fuse.conf'
+	# =====================================
+	# Arguments
+
+	# help
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Sets up gocryptfs on your machine.
+			https://github.com/rfjakob/gocryptfs
+
+			USAGE:
+			setup-util-gocryptfs
+
+			OPTIONS:
+			--get-config-paths
+			    If specified, output configuration paths, useful for restoring backups.
+
+			--get-service-ids
+			    If specified, output service identifiers, ordered by startup preference.
+
+			--get-service-user
+			    If specified, output service user.
+
+			--get-service-group
+			    If specified, output service group.
+
+			...
+			    All other options are forwarded to $(echo-style --code='setup-util').
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item action='install' upgrade='no' util=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--get-config-paths') action='get-config-paths' ;;
+		'--get-service-ids') action='get-service-ids' ;;
+		'--get-service-user') action='get-service-user' ;;
+		'--get-service-group') action='get-service-group' ;;
+		'--install') action='install' ;;
+		'--uninstall') action='uninstall' ;;
+		'--no-upgrade'* | '--upgrade'*)
+			upgrade="$(
+				get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--action='*) action="${item#*--action=}" ;;
+		*) util+=("$item") ;;
+		esac
+	done
+
+	# ensure action inside util
+	util+=(
+		"--action=$action"
+		"--upgrade=$upgrade"
+	)
+
+	# =====================================
+	# Preparation
+
+	local service_config_paths=(
+		# https://github.com/rfjakob/gocryptfs/blob/master/Documentation/MANPAGE.md#-allow_other
+		'/etc/fuse.conf'
+	)
+
+	# =====================================
+	# Simple Actions
+
+	if test "$action" = 'get-config-paths'; then
+		echo-lines "${service_config_paths[@]}"
 		return 0
 	fi
 
-	# ensure this command is run via [setup-util]
-	# for consistent detection, quiet/vebose, force mode, optional mode, etc
-	if test -z "${SETUP_UTIL-}"; then
-		setup-util "$@" --cli='gocryptfs' \
-			INSTALLER="${BASH_SOURCE:-"$0"}"
-		return "$?"
-	fi
+	# =====================================
+	# Setup Utility
 
-	# download the release
-	# https://github.com/rfjakob/gocryptfs/releases
-	local temp_directory
-	temp_directory="$(
-		fs-temp \
-			--directory='setup-util-gocryptfs' \
-			--directory
-	)"
-	github-download \
-		--slug='rfjakob/gocryptfs' \
-		--release='latest' \
-		--asset-filter='_src-deps.tar.gz' \
-		--unzip-format='tar' \
-		--directory="$temp_directory"
+	source "$(which setup-util)"
 
-	# build from source
-	chmod +x "$temp_directory/"**"/build.bash"
-	# trunk-ignore(shellcheck/SC2211)
-	("$temp_directory/"**"/build.bash")
-	# this creates the executable locally, and also inside "$GOPATH1/bin"
+	function do_uninstall {
+		setup-util --uninstall --cli='gocryptfs' \
+			GO='github.com/rfjakob/gocryptfs'
+		fs-rm --no-confirm -- "$XDG_BIN_HOME/gocryptfs"
+		fs-rm --no-confirm --sudo -- '/usr/local/bin/gocryptfs'
+	}
+	function do_install_and_build {
+		# dependency
+		setup-util-fuse --optional --quiet
 
-	# make available to sudo, which is necessary for gocryptfs mounts
-	sudo-helper -- mkdir -p '/usr/local/bin'
-	sudo-helper -- cp -fv "$temp_directory/"**"/gocryptfs" '/usr/local/bin/gocryptfs'
-	sudo-helper -- chmod +x '/usr/local/bin/gocryptfs'
-	# XDG is not available to sudo, so don't do XDG
+		# download the release
+		# https://github.com/rfjakob/gocryptfs/releases
+		local temp_directory
+		temp_directory="$(
+			fs-temp \
+				--directory='setup-util-gocryptfs' \
+				--directory
+		)"
+		github-download \
+			--slug='rfjakob/gocryptfs' \
+			--release='latest' \
+			--asset-filter='_src-deps.tar.gz' \
+			--unzip-format='tar' \
+			--directory="$temp_directory"
+
+		# build from source
+		chmod +x "$temp_directory/"**"/build.bash"
+		# trunk-ignore(shellcheck/SC2211)
+		("$temp_directory/"**"/build.bash") # run as subshell in case it changes pwd
+		# this creates the executable locally, and also inside "$GOPATH1/bin"
+
+		# make available to sudo, which is necessary for gocryptfs mounts
+		# XDG is not available to sudo, so don't do XDG
+		sudo-helper -- mkdir -p '/usr/local/bin'
+		sudo-helper -- cp -fv "$temp_directory/"**"/gocryptfs" '/usr/local/bin/gocryptfs'
+		sudo-helper -- chmod +x '/usr/local/bin/gocryptfs'
+
+		# add fuse config
+		# https://github.com/rfjakob/gocryptfs/blob/a55b3cc15a6d9bce116a90f33df4bc99d9dd6a10/.github/workflows/ci.yml#L41
+		sudo-helper --inherit \
+			-- config-helper --file='/etc/fuse.conf' -- \
+			--find='user_allow_other' --replace='user_allow_other'
+	}
+	function setup_gocryptfs {
+		if test "$action" = 'uninstall'; then
+			do_uninstall
+		elif test "$upgrade" = 'yes'; then
+			do_uninstall
+			do_install_and_build
+		elif test "$action" = 'install'; then
+			do_install_and_build
+		else
+			help "Unsupported action."
+		fi
+	}
+
+	setup-util "${util[@]}" --cli='gocryptfs' \
+		EVAL='setup_gocryptfs'
 )
 
 # fire if invoked standalone

@@ -2,6 +2,7 @@
 
 function fs-own() (
 	source "$DOROTHY/sources/strict.bash"
+	source "$DOROTHY/sources/nullglob.bash"
 	source "$DOROTHY/sources/arrays.bash"
 
 	# =====================================
@@ -16,6 +17,19 @@ function fs-own() (
 			service-helper [...options] -- <...service>
 
 			OPTIONS:
+			--quiet
+			    Whether to output the executed commands.
+
+			--ignore-missing | --ignore
+			    Only run on registered services, skipping and ignoring services that aren't yet registered / do not exist.
+
+			--supported
+			    Exit immediately with a status code reflecting whether services are supported on this platform.
+
+			[--] <...service>
+			    The service(s) to manage.
+
+			SERVICE OPTIONS:
 			--start
 			    Start the <service>.
 
@@ -46,17 +60,8 @@ function fs-own() (
 			--status
 			    Output the <service> status.
 
-			--quiet
-			    Whether to output the executed commands.
-
-			--optional
-			    Ignore failures. Always return success status code.
-
-			--supported
-			    Exit immediately with a status code reflecting whether services are supported on this platform.
-
-			[--] <...service>
-			    The service(s) to manage.
+			--exists
+			    Check if the <service> exists.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -65,15 +70,18 @@ function fs-own() (
 	}
 
 	# process
-	local item services=() quiet='' supported='' start='' stop='' restart='' unmask='' load='' unload='' enable='' disable='' reenable='' status='' optional=''
-	quiet="$(echo-quiet no -- "$@")"
+	# don't use empty quiet, as that only outputs wraps
+	local item services=() quiet='no' ignore='no' supported='' start='' stop='' restart='' unmask='' load='' unload='' enable='' disable='' reenable='' status='' exists=''
+	quiet="$(echo-quiet "$quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--supported') supported='yes' ;;
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
+		'--supported') supported='yes' ;;
+		'--ignore-missing' | '--ignore') ignore='yes' ;;
+			# service options
 		'--no-start'* | '--start'*) start="$(
 			get-flag-value start --missing="$start" -- "$item" | echo-affirmative
 		)" ;;
@@ -104,8 +112,8 @@ function fs-own() (
 		'--no-status'* | '--status'*) status="$(
 			get-flag-value status --missing="$status" -- "$item" | echo-affirmative
 		)" ;;
-		'--no-optional'* | '--optional'*) optional="$(
-			get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative
+		'--no-exists'* | '--exists'*) exists="$(
+			get-flag-value exists --missing="$exists" -- "$item" | echo-affirmative
 		)" ;;
 		'--')
 			services+=("$@")
@@ -125,6 +133,9 @@ function fs-own() (
 	# SERVICE_DIR='/etc/systemd/system' # linux
 
 	if command-exists launchctl; then
+		# quirks about macos/launchctl
+		# - service identifiers can have a `system/` prefix, such as `system/com.apple.smbd`
+		# - service identifiers can also have extensions it seems, such as `system/com.apple.smb.preferences`
 		function do_unmask {
 			return 0 # not needed
 		}
@@ -173,7 +184,15 @@ function fs-own() (
 			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$@"
 		}
 		function do_status {
+			# print returns exit code based on service existence
 			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl print "$@"
+		}
+		function do_exists {
+			# /Library/LaunchAgents/*"$id"*   # user
+			# /Library/LaunchDaemons/*"$id"*  # everyone
+
+			# print returns exit code based on service existence
+			sudo-helper -- launchctl print "$@" &>/dev/null
 		}
 	elif command-exists systemctl; then
 		function do_unmask {
@@ -210,7 +229,22 @@ function fs-own() (
 			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl reenable "$@"
 		}
 		function do_status {
+			# status returns exit exit code based on service running
 			eval-helper --quiet="$quiet" -- sudo-helper -- systemctl status "$@" --no-pager
+		}
+		function do_exists {
+			# return status code based on service existence
+			# sudo-helper -- service "$@" | rg ' * Usage:'
+			# sudo-helper -- service --status-all | rg "$1"
+			local id paths
+			for id in "$@"; do
+				paths=(
+					/etc/init.d/*"$id"*
+					/usr/lib/systemd/system/*"$id"*
+					/etc/systemd/system/*"$id"*
+				)
+				test "${#paths[@]}" -ne 0
+			done
 		}
 	elif command-exists rc-service; then
 		function do_unmask {
@@ -249,7 +283,21 @@ function fs-own() (
 			eval-helper --quiet="$quiet" -- sudo-helper -- rc-update add "$@"
 		}
 		function do_status {
+			# status returns exit exit code based on service running
 			eval-helper --quiet="$quiet" -- sudo-helper -- rc-service "$@" status
+		}
+		function do_exists {
+			# return status code based on service existence
+			# sudo-helper -- rc-service --list | grep -i "$1"
+			# https://wiki.alpinelinux.org/wiki/OpenRC
+			# despite docs, it is actually /etc/init.d/ and not /lib/rc/init.d
+			local id paths
+			for id in "$@"; do
+				paths=(
+					/etc/init.d/*"$id"*
+				)
+				test "${#paths[@]}" -ne 0
+			done
 		}
 	else
 		if test "$supported" = 'yes'; then
@@ -280,7 +328,30 @@ function fs-own() (
 	# https://man.archlinux.org/man/systemctl.1.en
 	# https://wiki.gentoo.org/wiki/OpenRC_to_systemd_Cheatsheet
 	function handle {
-		local this_service="$1" this_unmask="$unmask" this_load="$load" this_unload="$unload" this_start="$start" this_stop="$stop" this_restart="$restart" this_enable="$enable" this_disable="$disable" this_reenable="$reenable" this_status="$status"
+		local this_service="$1" this_unmask="$unmask" this_load="$load" this_unload="$unload" this_start="$start" this_stop="$stop" this_restart="$restart" this_enable="$enable" this_disable="$disable" this_reenable="$reenable" this_status="$status" this_exists="$exists"
+
+		# ignore?
+		if test "$ignore" = 'yes' && ! do_exists "$this_service"; then
+			# is missing, and desire to ignore, so skip this one
+			if test "$quiet" = 'no'; then
+				echo-style \
+					--dim="Skipping non-existent service: " \
+					--code="$this_service"
+			fi
+			return 0
+		fi
+
+		# exists?
+		if test "$this_exists" = 'yes'; then
+			this_exists=''
+			do_exists "$this_service"
+		fi
+
+		# status
+		if test "$this_status" = 'yes'; then
+			this_status='maybe'
+			do_status "$this_service"
+		fi
 
 		# status
 		if test "$this_status" = 'yes'; then
@@ -391,11 +462,7 @@ function fs-own() (
 	# cycle through
 	local service
 	for service in "${services[@]}"; do
-		if test "$optional" = 'yes'; then
-			handle "$service" || :
-		else
-			handle "$service"
-		fi
+		handle "$service"
 	done
 )
 
