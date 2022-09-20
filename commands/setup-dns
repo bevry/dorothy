@@ -267,12 +267,12 @@ function setup-dns() (
 			service-helper --quiet="$quiet" --disable -- "system/$id" || :
 			service-helper --quiet="$quiet" --stop -- "$id" || :
 			service-helper --quiet="$quiet" --unload -- "$file" || :
-			do_rm -- /Library/Logs/*"$id"*.log
+			do_remove -- /Library/Logs/*"$id"*.log
 		else
 			service-helper --quiet="$quiet" --disable --stop -- "$id" || :
 			service-helper --quiet="$quiet" --status -- "$id" || :
 		fi
-		do_rm -- "$file"
+		do_remove --reload -- "$file"
 	}
 
 	# loads/installs the service, then enables and starts it
@@ -295,72 +295,93 @@ function setup-dns() (
 		fi
 	}
 
-	function do_rm {
-		# never "do_rm ... || :" as that will cause aborts to fail
-		local id rm_paths=() rm_path
-
-		# remove all files associated with an id
-		if test "$1" != '--'; then
-			id="$1"
-			shift
-
-			# remove common paths (files, and directories)
-			rm_paths=(
-				# custom
-				"$BIN_DIR/$id"
-				"$CONF_DIR/$id"
-				"$DATA_DIR/$id"
-				"$STATE_DIR/$id"
-
-				# xdg
-				"$XDG_BIN_HOME/$id"
-				"$XDG_CONFIG_HOME/$id"
-				"$XDG_DATA_HOME/$id"
-				"$XDG_STATE_HOME/$id"
-
-				# standard
-				"/usr/local/bin/$id"
-				"/usr/local/etc/$id"
-				"/usr/local/share/$id"
-				"/usr/local/lib/$id"
-
-				# services
-				/Library/LaunchAgents/*"$id"*   # user
-				/Library/LaunchDaemons/*"$id"*  # everyone
-				/etc/init.d/*"$id"*             # alt
-				/usr/lib/systemd/system/*"$id"* # alt
-				/etc/systemd/system/*"$id"*     # desired
-
-				# logs
-				/Library/Logs/*"$id"*.log
-			)
-		fi
-
-		# add custom files
-		if test "${1-}" = '--'; then
-			shift
-			rm_paths+=("$@")
-		fi
-
-		# remove them
-		for rm_path in "${rm_paths[@]}"; do
-			if test -e "$rm_path"; then
-				if confirm --positive --ppid=$$ -- "Remove $(echo-style --bold="$rm_path")?" "$(
-					echo-style --dim="$(
-						ls -la "$rm_path"
-					)"
-				)"; then
-					sudo-helper -- rm -rf "$rm_path"
-				fi
-			fi
-		done
-
+	function service_reload {
 		# after service additions/removals
 		# systemctl needs to be reloaded apparently
 		if command-exists systemctl; then
 			sudo-helper -- systemctl daemon-reload
 			sudo-helper -- systemctl reset-failed
 			# ^ use sudo, otherwise prompted via ubuntu user password
+		fi
+	}
+
+	function do_remove {
+		# process
+		local item service='' flags=() reload='no' remove_paths=()
+		quiet="$(echo-quiet "$quiet" -- "$@")"
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--service='*) service="${item#--service=}" ;;
+			'--negative' | '--positive' | '--bool') flags+=("$item") ;;
+			'--no-reload'* | '--reload'*)
+				reload="$(get-flag-value reload --missing="$reload" -- "$item" | echo-affirmative)"
+				;;
+			'--')
+				remove_paths+=("$@")
+				shift $#
+				break
+				;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*) remove_paths+=("$item") ;;
+			esac
+		done
+
+		# service
+		if test -n "$service"; then
+			# remove common paths (files, and directories)
+			remove_paths+=(
+				# custom
+				"$BIN_DIR/$service"
+				"$CONF_DIR/$service"
+				"$DATA_DIR/$service"
+				"$STATE_DIR/$service"
+
+				# xdg
+				"$XDG_BIN_HOME/$service"
+				"$XDG_CONFIG_HOME/$service"
+				"$XDG_DATA_HOME/$service"
+				"$XDG_STATE_HOME/$service"
+
+				# standard
+				"/usr/local/bin/$service"
+				"/usr/local/etc/$service"
+				"/usr/local/share/$service"
+				"/usr/local/lib/$service"
+
+				# services
+				/Library/LaunchAgents/*"$service"*   # user
+				/Library/LaunchDaemons/*"$service"*  # everyone
+				/etc/init.d/*"$service"*             # alt
+				/usr/lib/systemd/system/*"$service"* # alt
+				/etc/systemd/system/*"$service"*     # desired
+
+				# logs
+				/Library/Logs/*"$service"*.log
+			)
+		fi
+
+		# remove files
+		local remove_path question details removed='no'
+		for remove_path in "${remove_paths[@]}"; do
+			if test -e "$remove_path"; then
+				question="Remove $(echo-style --bold="$remove_path")?"
+				details="$(
+					echo-style --dim="$(
+						ls -la "$remove_path"
+					)"
+				)"
+				if confirm "${flags[@]}" --ppid=$$ -- "$question" "$details"; then
+					sudo-helper -- rm -rf "$remove_path"
+					removed='yes'
+				fi
+			fi
+		done
+
+		# reload?
+		if test "$reload" = 'yes' -a "$removed" = 'yes'; then
+			service_reload
 		fi
 	}
 
@@ -986,7 +1007,7 @@ function setup-dns() (
 		killall "$aghome_id" || :
 
 		# clean it all up
-		do_rm "$aghome_id" -- "$aghome_bin_file" "$aghome_conf_dir" "$aghome_data_dir" "$aghome_state_dir" "$aghome_service_file"
+		do_remove --reload --service="$aghome_id" -- "$aghome_bin_file" "$aghome_conf_dir" "$aghome_data_dir" "$aghome_state_dir" "$aghome_service_file"
 
 		# log
 		echo-segment --g1="Uninstall $aghome_title"
@@ -1169,7 +1190,7 @@ function setup-dns() (
 		killall "$dnscrypt_id" || :
 
 		# clean it all up
-		do_rm "$dnscrypt_id" -- "$dnscrypt_bin_file" "$dnscrypt_conf_dir" "$dnscrypt_service_file"
+		do_remove --reload --service="$dnscrypt_id" -- "$dnscrypt_bin_file" "$dnscrypt_conf_dir" "$dnscrypt_service_file"
 
 		# log
 		echo-segment --g1="Uninstall $dnscrypt_title"
@@ -1337,10 +1358,10 @@ function setup-dns() (
 		if test "${#CLOUDFLARED_TUNNELS[@]}" -ne 0; then
 			# only remove the service file
 			# as tunnels uses the same binary
-			do_rm -- "$cloudflared_proxy_service_file"
+			do_remove --reload -- "$cloudflared_proxy_service_file"
 		else
 			# ensure everything related to the proxy is removed
-			do_rm "$cloudflared_id" -- "$cloudflared_proxy_service_file"
+			do_remove --reload --service="$cloudflared_id" -- "$cloudflared_proxy_service_file"
 		fi
 
 		# log
@@ -1486,7 +1507,8 @@ EOF
 		done
 
 		# remove files for all tunnels
-		do_rm 'cloudflared-tunnel' -- "$tunnel_user_dir" "$tunnel_conf_dir"
+		do_remove --service='cloudflared-tunnel' -- "$tunnel_user_dir" "$tunnel_conf_dir"
+		service_reload
 	}
 	function tunnel_configure_single {
 		local item tunnel hostnames url ingress
@@ -1564,7 +1586,7 @@ EOF
 		service_disable "$tunnel_service_file"
 
 		# cleanup old login details and login again
-		do_rm -- "$tunnel_user_pem"
+		do_remove --negative -- "$tunnel_user_pem"
 		eval-helper --quiet --shapeshifter \
 			-- "$cloudflared_bin_file" tunnel login
 		chmod 600 "$tunnel_user_pem"
@@ -1577,7 +1599,7 @@ EOF
 			-- "$cloudflared_bin_file" tunnel delete "$tunnel" || : # delete tunnel
 
 		# cleanup the old tunnel files
-		do_rm "cloudflared-tunnel-$tunnel" -- "$tunnel_conf_file" "$tunnel_cred_file"
+		do_remove --reload --service="cloudflared-tunnel-$tunnel" -- "$tunnel_conf_file" "$tunnel_cred_file"
 
 		# create the new tunnel again
 		temp_cred_file="$(
