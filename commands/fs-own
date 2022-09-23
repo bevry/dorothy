@@ -16,17 +16,17 @@ function fs-own() (
 			fs-own [...options] [--] <...paths>
 
 			OPTIONS:
+			--no-quiet
+			    if provided, will output the executed commands.
+
 			--verbose
-			    if provied, will output the executed commands.
+			    if provied, will use --verbose on executed chmod/chown commands.
+
+			--no-changes
+			    if provided, changes will not be reported if the operating system supports it.
 
 			--permissions=<permissions>
 			    sets file and directory permissions
-
-			--directory-permissions=<permissions>
-			    sets directory permisisons
-
-			--file-permissions=<permissions>
-			    set file permissions
 
 			--admin
 			    if provided, will use the platform specific admin values.
@@ -49,9 +49,6 @@ function fs-own() (
 			--optional
 			    if provided, missing paths will be ignored.
 
-			--no-changes
-			    if provided, changes will not be reported if the operating system supports it.
-
 			--no-recursive
 			    if provided, only the exact path will be used, not any child paths.
 
@@ -66,26 +63,32 @@ function fs-own() (
 
 	# process
 	local item paths=()
+	local option_quiet='yes'
 	local option_verbose='no'
+	local option_changes='' # os support
 	local option_owner=''
 	local option_user=''
 	local option_group=''
 	local option_admin='no'
 	local option_permissions=''
-	local option_directory_permissions=''
-	local option_file_permissions=''
+	local option_directory_permissions='' # deprecated
+	local option_file_permissions='' # deprecated
 	local option_sudo='no'
 	local option_partial='no'
 	local option_optional='no'
-	local option_changes=''
 	local option_recursive='yes'
+	option_quiet="$(echo-quiet "$option_quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
 		'--no-verbose'* | '--verbose'*) option_verbose="$(
 			get-flag-value verbose --missing="$option_verbose" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-changes'* | '--changes'*) option_changes="$(
+			get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative
 		)" ;;
 		'--no-admin'* | '--admin'*) option_admin="$(
 			get-flag-value admin --missing="$option_admin" -- "$item" | echo-affirmative
@@ -98,9 +101,6 @@ function fs-own() (
 		)" ;;
 		'--no-optional'* | '--optional'*) option_optional="$(
 			get-flag-value optional --missing="$option_optional" -- "$item" | echo-affirmative
-		)" ;;
-		'--no-changes'* | '--changes'*) option_changes="$(
-			get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative
 		)" ;;
 		'--no-recursive'* | '--recursive'*) option_recursive="$(
 			get-flag-value recursive --missing="$option_recursive" -- "$item" | echo-affirmative
@@ -144,10 +144,14 @@ function fs-own() (
 		fi
 	done
 
+	# check for deprecation
+	if test -n "$option_directory_permissions" -o -n "$option_file_permissions"; then
+		help "[file|directory]-permissions are deprecated, you probably just wanted to do --permissions=X..., see https://superuser.com/a/91966/32418"
+	fi
+
 	# adjustments: permissions
-	if test -z "$option_permissions" -a -z "$option_directory_permissions" -a -z "$option_file_permissions"; then
-		option_directory_permissions='755'
-		option_file_permissions='644'
+	if test -z "$option_permissions"; then
+		option_permissions='a-xrw,ug+Xrw'
 	fi
 
 	# adjustments: admin
@@ -192,6 +196,8 @@ function fs-own() (
 			option_changes='yes'
 		fi
 	fi
+
+	# apply args
 	if test "$option_changes" = 'yes'; then
 		if is-mac || is-alpine; then
 			echo-style --dim='Reporting permission changes is not provided by this Operating System.' >/dev/stderr
@@ -199,68 +205,62 @@ function fs-own() (
 			ch_args+=('--changes')
 		fi
 	fi
+	if test "$option_verbose" = 'yes'; then
+		ch_args+=('--verbose')
+	fi
+
+	# =====================================
+	# Prepare
+
+	local prefix_args=() sudo_as_user_args=() sudo_as_admin_args=()
+
+	# queit
+	if test "$option_quiet" = 'no'; then
+		prefix_args+=(
+			'eval-helper'
+			'--no-quiet'
+			'--wrap'
+			'--'
+		)
+	fi
+
+	# sudo as the user/group
+	if test -n "$owner" -o "$option_sudo" = 'yes'; then
+		sudo_as_user_args+=('sudo-helper')
+		if test -n "$option_user"; then
+			sudo_as_user_args+=("--user=$option_user")
+		fi
+		if test -n "$option_group"; then
+			sudo_as_user_args+=("--group=$option_group")
+		fi
+		sudo_as_user_args+=('--')
+	fi
+
+	# sudo as the admin
+	if test -n "$owner" -o "$option_sudo" = 'yes'; then
+		sudo_as_admin_args+=(
+			'sudo-helper'
+			'--'
+		)
+	fi
 
 	# =====================================
 	# Helpers
 
-	function do_sudo_as_user {
-		local cmd=()
-
-		# verbose if provided
-		if test "$option_verbose" = 'yes'; then
-			cmd+=('eval-helper' '--')
-		fi
-
-		# sudo as the user/group
-		if test -n "$owner" -o "$option_sudo" = 'yes'; then
-			cmd+=('sudo-helper')
-			if test -n "$option_user"; then
-				cmd+=("--user=$option_user")
-			fi
-			if test -n "$option_group"; then
-				cmd+=("--group=$option_group")
-			fi
-			cmd+=('--')
-		fi
-
-		# add args, then run the command, as this way supports bash v3
-		cmd+=("$@")
-		"${cmd[@]}"
-	}
-	function do_sudo_as_admin {
-		local cmd=()
-
-		# verbose if provided
-		if test "$option_verbose" = 'yes'; then
-			cmd+=('eval-helper' '--')
-		fi
-
-		# sudo as the admin
-		if test -n "$owner" -o "$option_sudo" = 'yes'; then
-			cmd+=('sudo-helper' '--')
-		fi
-
-		# add args, then run the command, as this way supports bash v3
-		cmd+=("$@")
-		"${cmd[@]}"
-	}
 	function do_own {
 		local path="$1"
 
 		# chown
 		if test -n "$owner"; then
-			do_sudo_as_admin chown "${ch_args[@]}" "$owner" "$path"
+			"${prefix_args[@]}" "${sudo_as_admin_args[@]}" \
+				chown "${ch_args[@]}" "$owner" "$path"
 		fi
 
 		# chmod
 		if test -n "$option_permissions"; then
-			do_sudo_as_user chmod "${ch_args[@]}" "$option_permissions" "$path"
-		fi
-		if test -n "$option_directory_permissions"; then
-			do_sudo_as_user find "$path" -type d -exec chmod "${ch_args[@]}" "$option_directory_permissions" {} \;
-		fi
-		if test -n "$option_file_permissions"; then
-			do_sudo_as_user find "$path" -type f -exec chmod "${ch_args[@]}" "$option_file_permissions" {} \;
+			# https://superuser.com/a/91966/32418
+			"${prefix_args[@]}" "${sudo_as_user_args[@]}" \
+				chmod "${ch_args[@]}" "$option_permissions" "$path"
 		fi
 	}
 
@@ -286,3 +286,27 @@ function fs-own() (
 if test "$0" = "${BASH_SOURCE[0]}"; then
 	fs-own "$@"
 fi
+
+
+# # find -exec fails when --user --group is provided as it fails to attach to correct home
+# # so instead xargs needs to be used, but that fails because too many files or so
+# # so instead we do a loop, but that is very slow
+# # and in the end, the only time people ever need this is when they actually inded to do
+# # an uppercase X permission https://superuser.com/a/91966/32418
+
+# if test -n "$option_directory_permissions"; then
+# 	test "$option_quiet" = 'no' && set -x || :
+# 	"${sudo_as_user_args[@]}" find "$path" -type d | while read -r dir; do
+# 		"${sudo_as_user_args[@]}" \
+# 			chmod "${ch_args[@]}" "$option_directory_permissions" "$dir"
+# 	done
+# 	test "$option_quiet" = 'no' && set +x || :
+# fi
+# if test -n "$option_file_permissions"; then
+# 	test "$option_quiet" = 'no' && set -x || :
+# 	"${sudo_as_user_args[@]}" find "$path" -type f | while read -r file; do
+# 		"${sudo_as_user_args[@]}" \
+# 			chmod "${ch_args[@]}" "$option_file_permissions" "$file"
+# 	done
+# 	test "$option_quiet" = 'no' && set +x || :
+# fi

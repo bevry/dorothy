@@ -69,6 +69,7 @@ function seedbox() (
 		debug
 		follow
 		id
+		ip
 		logs
 		remove
 		restart
@@ -101,9 +102,12 @@ function seedbox() (
 	fi
 
 	# check docker is working
-	eval-helper --quiet=yes \
-		-- service-helper --status -- docker || {
-		echo-error "$0: Docker not ready."
+	service-helper --running -- docker || {
+		if test "$action" = 'stop'; then
+			echo 'Docker is not running, so the seedbox is already stopped...'
+			return 0
+		fi
+		echo-error "$0: Docker not running."
 		return 1
 	}
 
@@ -113,9 +117,10 @@ function seedbox() (
 	source "$DOROTHY/sources/config.bash"
 
 	# seedbaox.bash provides:
+	# https://github.com/haugene/docker-transmission-openvpn
 	local image='haugene/transmission-openvpn' version='3.7.1' # latest
-	local SEEDBOX_PORT='' VPN_PROVIDER='' VPN_PROTOCOL='' VPN_COUNTRY='' VPN_DNS='' VPN_USER='' VPN_PASS='' DATA_PATH=''
-	if ! load_dorothy_config 'seedbox.bash'; then
+	local SHAREBOX_USER='' SHAREBOX_GROUP='' SEEDBOX_PORT='' VPN_PROVIDER='' VPN_PROTOCOL='' VPN_COUNTRY='' VPN_DNS='' VPN_USER='' VPN_PASS='' DATA_PATH=''
+	if ! load_dorothy_config 'sharebox.bash'; then
 		reconfigure='yes'
 	fi
 
@@ -136,16 +141,26 @@ function seedbox() (
 		VPN_COUNTRY="$(what-is-my-country)"
 	fi
 	if test -z "$VPN_DNS"; then
-		VPN_DNS="$(what-is-my-exposed-dns)"
+		VPN_DNS="$(what-is-my-dns exposed)"
 	fi
 
 	# required
-	if test -z "$DATA_PATH" -o -z "$VPN_USER" -o -z "$VPN_PASS"; then
+	if test -z "$SHAREBOX_USER" -o -z "$SHAREBOX_GROUP" -o -z "$DATA_PATH" -o -z "$VPN_USER" -o -z "$VPN_PASS"; then
 		reconfigure='yes'
 	fi
 
 	# update configuration
 	if test "$reconfigure" = 'yes'; then
+		SHAREBOX_USER="$(
+			ask --confirm \
+				--question='Enter the username to use for the share.' \
+				--default="$SHAREBOX_USER"
+		)"
+		SHAREBOX_GROUP="$(
+			ask --confirm \
+				--question='Enter the groupname to use for the share.' \
+				--default="$SHAREBOX_GROUP"
+		)"
 		DATA_PATH="$(
 			ask --required --confirm \
 				--question="Where do you want your seedbox data to exist?" \
@@ -164,6 +179,8 @@ function seedbox() (
 
 		# save
 		update_dorothy_user_config --prefer=local 'seedbox.bash' -- \
+			--field='SHAREBOX_USER' --value="$SHAREBOX_USER" \
+			--field='SHAREBOX_GROUP' --value="$SHAREBOX_GROUP" \
 			--field='DATA_PATH' --value="$DATA_PATH" \
 			--field='VPN_USER' --value="$VPN_USER" \
 			--field='VPN_PASS' --value="$VPN_PASS"
@@ -181,15 +198,6 @@ function seedbox() (
 	}
 
 	# actions
-	function seedbox_ip {
-		local id
-		id="$(seedbox_id || :)"
-		if test -z "$id"; then
-			echo-style --error='No seedbox exists to get IP address for.' >/dev/stderr
-			return 1
-		fi
-		docker exec -it "$id" curl -fsSL 'http://ipecho.net/plain'
-	}
 	function seedbox_id {
 		local ids
 		# the bellow could hang if there is an issue, hence the timeout
@@ -222,6 +230,15 @@ function seedbox() (
 	}
 	function seedbox_follow {
 		seedbox_logs --follow
+	}
+	function seedbox_ip {
+		local id
+		id="$(seedbox_id || :)"
+		if test -z "$id"; then
+			echo-style --error='No seedbox exists to get IP address for.' >/dev/stderr
+			return 1
+		fi
+		docker exec -it "$id" curl -fsSL 'http://ipecho.net/plain'
 	}
 	function seedbox_status {
 		local id localip hostip seedboxip details
@@ -261,14 +278,19 @@ function seedbox() (
 		# create
 		set -x # <debug>
 		# https://github.com/haugene/docker-transmission-openvpn/blob/master/docker-compose.yml
-		# --cap-add=NET_ADMIN \
+		# --cap-add=NET_ADMIN
+		# uid/gid are for inside the docker container, and are not related to the host machine
+		# -e PUID="$(uid "$SHAREBOX_USER")" \
+		# -e PGID="$(gid "$SHAREBOX_GROUP")" \
+		# bridge is legacy, I've spend days debugging this
+		# just use host, if you get a failed to create error, restarting or resetting the interfaces can fix it temporarily, however when it does work, it knocks out the host's networking and all dns resolutions will fail despite pings of ips still working, on host and vms
 		docker run \
 			--detach \
 			-v "$DATA_PATH":/data \
 			-e OPENVPN_PROVIDER="$VPN_PROVIDER" \
 			-e OPENVPN_USERNAME="$VPN_USER" \
 			-e OPENVPN_PASSWORD="$VPN_PASS" \
-			-e OPENVPN_OPTS='--mute-replay-warnings' \
+			-e OPENVPN_OPTS='--ping 10' \
 			-e NORDVPN_CATEGORY='P2P' \
 			-e NORDVPN_COUNTRY="$VPN_COUNTRY" \
 			-e NORDVPN_PROTOCOL="$VPN_PROTOCOL" \
@@ -278,7 +300,7 @@ function seedbox() (
 			-e TRANSMISSION_WEB_UI=flood-for-transmission \
 			-e WEBPROXY_ENABLED=false \
 			--log-driver json-file --log-opt max-size=256kb \
-			--net=host --dns="$VPN_DNS" \
+			--cap-add=NET_ADMIN --net=host --dns="$VPN_DNS" \
 			-p "$SEEDBOX_PORT":"$SEEDBOX_PORT" \
 			"$image:$version"
 

@@ -94,7 +94,7 @@ function setup-docker() (
 		'docker.socket'
 		'docker'
 	)
-	local service_user="$USER"
+	local service_user="$(whoami)" # $USER fails inside newgrp
 	local service_group='docker'
 	local service_config_paths=(
 		"$HOME/.docker" # not uninstalled
@@ -133,16 +133,22 @@ function setup-docker() (
 		# remove the group from all users and the system, better than delgroup which is more focused only on the current user
 		sudo-helper -- groupdel "$service_group"
 	}
-	function add_service_group {
+	function install_user_group {
 		# official installer may already added the group for us
 		if ! check_group; then
 			# add a group to the system, better than addgroup which is more focused only on the current user
 			sudo-helper -- groupadd "$service_group"
 		fi
+
+		# official installer may already added the user to the group for us
+		if ! check_user_in_group; then
+			# add the user to the group, better than adduser which is more focused only on the current user
+			sudo-helper -- gpasswd -a "$service_user" "$service_group"
+		fi
 	}
 	function add_permissions_to_config {
 		mkdir -p "${service_config_paths[@]}"
-		fs-own --user="$service_user" --group="$service_group" --permissions='g+rwx' \
+		fs-own --user="$service_user" --group="$service_group" --permissions='g+Xrw' \
 			-- "${service_config_paths[@]}"
 	}
 	function check_docker_exists {
@@ -231,9 +237,6 @@ function setup-docker() (
 		eval "$(fetch https://get.docker.com)"
 		command-exists docker
 	)
-	function install_user_group {
-		add_service_group
-	}
 	function install_postinstall {
 		# this (newgrp) works, but fails on tty items
 		echo "$0 --postinstall" | newgrp "$service_group" || {
@@ -289,20 +292,17 @@ function setup-docker() (
 		sleep 2
 		service-helper --start -- containerd docker.socket docker || :
 		sleep 2
-		service-helper --status -- containerd docker.socket docker
+		service-helper --status --running -- containerd docker.socket docker
 	}
 	function run_debug {
 		# if failing to connect to your local dns serice
 		# ensure it is listening to 0.0.0.0 instead of 127.0.0.1 or 127.0.0.53
 
-		eval-helper --no-quiet --wrap --shapeshifter \
-			-- restart_docker
+		# eval-helper --no-quiet --wrap --shapeshifter \
+		# 	-- restart_docker
 
-		eval-helper --quiet --no-wrap --shapeshifter \
-			-- docker run --rm -it \
-			--net=host \
-			--dns="$(what-is-my-dns exposed)" \
-			-- alpine sh -c "$(cat "$DOROTHY/commands/debug-network")" || {
+		eval-helper --no-quiet --no-wrap \
+			-- docker run --rm -it --cap-add=NET_ADMIN --net=bridge --dns="$(what-is-my-dns exposed)" alpine sh -c "$(cat "$DOROTHY/commands/debug-network")" || {
 			local ec="$?"
 			echo-style --notice='If failing, try restart your computer, and run:' ' ' --code='setup-docker --postinstall'
 			return "$ec"
@@ -422,34 +422,6 @@ fi
 
 # =====================================
 # DOCKER NETWORKING
-
-# function reset_firewall {
-# 	# https://serverfault.com/a/200658/63348
-# 	sudo-helper -- iptables -P INPUT ACCEPT
-# 	sudo-helper -- iptables -P FORWARD ACCEPT
-# 	sudo-helper -- iptables -P OUTPUT ACCEPT
-# 	sudo-helper -- iptables -t nat -F
-# 	sudo-helper -- iptables -t mangle -F
-# 	sudo-helper -- iptables -F
-# 	sudo-helper -- iptables -X
-# 	sudo-helper -- ip6tables -P INPUT ACCEPT
-# 	sudo-helper -- ip6tables -P FORWARD ACCEPT
-# 	sudo-helper -- ip6tables -P OUTPUT ACCEPT
-# 	sudo-helper -- ip6tables -t nat -F
-# 	sudo-helper -- ip6tables -t mangle -F
-# 	sudo-helper -- ip6tables -F
-# 	sudo-helper -- ip6tables -X
-# 	sudo-helper -- iptables -nvL
-# 	sudo-helper -- ufw disable
-# 	sudo-helper -- ufw status verbose
-# }
-# function configure_firewall {
-# 	# https://docs.docker.com/network/bridge/#enable-forwarding-from-docker-containers-to-the-outside-world
-# 	sudo-helper -- sysctl net.ipv4.conf.all.forwarding=1
-# 	sudo-helper -- iptables -P FORWARD ACCEPT
-# 	# https://docs.docker.com/config/daemon/ipv6/
-# 	# /etc/docker/daemon.json doesn't seem to exist
-# }
 
 # https://docs.docker.com/network/bridge
 # https://docs.docker.com/network/bridge/#access-the-outside-world-from-a-container

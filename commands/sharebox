@@ -27,14 +27,14 @@ function sharebox() (
 			mount
 			    Mounts the sharebox drive and vault.
 
+			owner
+				Sets up the owner account if it was not already.
+
 			pause
 			    Pause the sharebox services.
 
 			resume
 			    Resume the sharebox services.
-
-			restore
-			    Restore configuration from one filesystem to another.
 
 			reboot
 			    Stop the sharebox and reboots the machine safely.
@@ -100,9 +100,10 @@ function sharebox() (
 		chown
 		info
 		mount
-		resume
+		owner
 		pause
 		reboot
+		resume
 		run
 		setup
 		shutdown
@@ -133,6 +134,7 @@ function sharebox() (
 	# Dependencies
 
 	source "$DOROTHY/sources/ripgrep.bash"
+	setup-util-gocryptfs --quiet
 
 	# =====================================
 	# Configuration
@@ -229,50 +231,78 @@ function sharebox() (
 	# Verify
 
 	# vault configuration
-	local sharebox_owner=''
-	function check_owner {
+	function check_owner_configured {
 		test -n "$SHAREBOX_USER" -a -n "$SHAREBOX_GROUP"
 	}
-	function require_owner {
-		if ! check_owner; then
+	function require_owner_configured {
+		if ! check_owner_configured; then
 			echo-error "User/Group not configured, run:"
 			echo-style --code="$0 --configure"
 			return 1
 		fi
 	}
-	if check_owner; then
-		sharebox_owner="$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
-	fi
+	function check_owner_setup {
+		check_owner_configured && is-user "$SHAREBOX_USER" && is-group "$SHAREBOX_GROUP"
+	}
+	function require_owner_setup {
+		if ! check_owner_setup; then
+			echo-error "User/Group not setup, run:"
+			echo-style --code="$0 owner"
+			return 1
+		fi
+	}
+	function get_owner {
+		echo "$(uid "$SHAREBOX_USER"):$(gid "$SHAREBOX_GROUP")"
+	}
 
-	# optional device configuration
-	local sharebox_device=''
-	function check_device {
+	# optional drive configuration
+	function check_drive_configured {
 		test -n "$SHAREBOX_DRIVE_LABEL" -a -n "$SHAREBOX_DRIVE_COUNT" -a -n "$SHAREBOX_DRIVE_MOUNT"
 	}
-	function require_device {
-		if ! check_device; then
-			echo-error "Devices not configured, run:"
+	function require_drive_configured {
+		if ! check_drive_configured; then
+			echo-error "Drive not configured, run:"
 			echo-style --code="$0 --configure"
 			return 1
 		fi
 	}
-	if check_device; then
+	function check_drive_mounted {
+		test -d "$SHAREBOX_DRIVE_MOUNT" && is-mounted --source="$(get_drive)" --target="$SHAREBOX_DRIVE_MOUNT"
+	}
+	function require_drive_mounted {
+		if ! check_drive_mounted; then
+			echo-error "Drive not mounted, run:"
+			echo-style --code="$0 mount"
+			return 1
+		fi
+	}
+	function get_drive {
 		# verify drive
 		# /dev/* locations can change, or be missing, so check for that
 		btrfs-helper verify -- "$SHAREBOX_DRIVE_LABEL" "$SHAREBOX_DRIVE_COUNT"
 
-		# get the drive for the label
-		sharebox_device="$(btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL")"
-	fi
+		# get/output the drive for the label
+		btrfs-helper drive -- "$SHAREBOX_DRIVE_LABEL"
+	}
 
 	# vault check
-	function check_vault {
+	function check_vault_configured {
 		test -n "$SHAREBOX_CIPHER" -a -n "$SHAREBOX_PLAIN"
 	}
-	function require_vault {
-		if ! check_vault; then
-			echo-error "Encryption not configured, run:"
+	function require_vault_configured {
+		if ! check_vault_configured; then
+			echo-error "Vault not configured, run:"
 			echo-style --code="$0 --configure"
+			return 1
+		fi
+	}
+	function check_vault_mounted {
+		test -d "$SHAREBOX_PLAIN" && is-mounted --source="$SHAREBOX_CIPHER" --target="$SHAREBOX_PLAIN"
+	}
+	function require_vault_mounted {
+		if ! check_vault_mounted; then
+			echo-error "Vault not mounted, run:"
+			echo-style --code="$0 mount"
 			return 1
 		fi
 	}
@@ -313,10 +343,6 @@ function sharebox() (
 	# =====================================
 	# Action Helpers
 
-	function is_drive_mounted {
-		require_device
-		is-mounted --source="$sharebox_device" --target="$SHAREBOX_DRIVE_MOUNT"
-	}
 	function do_disable {
 		echo-segment --h2='Disable Service Autostart'
 		service-helper --ignore-missing --disable \
@@ -325,15 +351,15 @@ function sharebox() (
 	}
 	function do_status {
 		echo-segment --h2='Fetch Service Status'
-		seedbox status
+		# seedbox status || :
 		service-helper --ignore-missing --status \
-			-- "${service_ids[@]}"
+			-- "${service_ids[@]}" || :
 		echo-segment --g2='Fetch Service Status'
 	}
 	function do_pause {
 		echo-segment --h2='Stop Services'
 		set -x # <debug>
-		timeout 120s seedbox stop
+		# timeout 120s seedbox stop
 		service-helper --ignore-missing --stop \
 			-- "${service_ids[@]}"
 		set +x # </debug>
@@ -342,10 +368,10 @@ function sharebox() (
 	function do_resume {
 		echo-segment --h2='Start Services'
 		set -x # <debug>
-		seedbox stop
+		# seedbox stop
 		service-helper --ignore-missing --restart \
 			-- "${service_ids[@]}"
-		seedbox start || seedbox upgrade
+		# seedbox start || seedbox upgrade
 		set +x # </debug>
 		echo-segment --g2='Start Services'
 	}
@@ -356,28 +382,51 @@ function sharebox() (
 		sudo-helper -- shutdown --poweroff
 	}
 	function do_mount_drive {
-		require_owner
-		require_device
-		eval-helper -- fs-mount \
-			--source="$sharebox_device" \
+		# check configured
+		require_owner_configured
+		require_drive_configured
+
+		# fetch setup
+		local owner device
+		owner="$(get_owner)"
+		device="$(get_drive)"
+
+		# act
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- fs-mount \
+			--source="$device" \
 			--target="$SHAREBOX_DRIVE_MOUNT" \
-			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
+			--owner="$owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
 	}
 	function do_mount_vault {
-		require_owner
-		require_vault
-		eval-helper -- fs-mount \
+		# check configured
+		require_owner_configured
+		require_vault_configured
+
+		# check setup
+		local owner
+		owner="$(get_owner)"
+
+		# apply
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- fs-mount \
 			--source="$SHAREBOX_CIPHER" \
 			--target="$SHAREBOX_PLAIN" \
-			--owner="$sharebox_owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
+			--owner="$owner" --user="$SHAREBOX_USER" --group="$SHAREBOX_GROUP"
 	}
 	function do_unmount_vault {
-		require_vault
-		fs-unmount -- "$SHAREBOX_PLAIN"
+		require_vault_configured
+		# require_vault_mounted || :
+
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- fs-unmount -- "$SHAREBOX_PLAIN"
 	}
 	function do_unmount_drive {
-		require_vault
-		fs-unmount -- "$SHAREBOX_DRIVE_MOUNT"
+		require_drive_configured
+		# require_drive_mounted || :
+
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- fs-unmount -- "$SHAREBOX_DRIVE_MOUNT"
 	}
 
 	# =====================================
@@ -412,12 +461,9 @@ function sharebox() (
 		do_reboot
 	}
 	function act_size {
-		if is_drive_mounted; then
-			get-size -- "$SHAREBOX_DRIVE_MOUNT"
-		else
-			echo-error "$0: Not yet mounted: $SHAREBOX_DRIVE_MOUNT"
-			return 1
-		fi
+		require_drive_mounted
+
+		get-size -- "$SHAREBOX_DRIVE_MOUNT"
 	}
 	function act_info {
 		cat <<-EOF
@@ -431,8 +477,8 @@ function sharebox() (
 			SHAREBOX_PLAIN        = $SHAREBOX_PLAIN
 
 			computed configuration:
-			device                = $sharebox_device
-			owner                 = $sharebox_owner
+			drive                 = $(check_drive && get_drive || :)
+			owner                 = $(check_owner && get_owner || :)
 
 			paths =
 			$(echo-lines "${config_paths[@]}")
@@ -447,155 +493,131 @@ function sharebox() (
 			$(echo-lines "${service_groups[@]}")
 
 			gocryptfs:
-			$(gocryptfs-helper info -- "$SHAREBOX_CIPHER")
 		EOF
+		# this takes a while
+		gocryptfs-helper info -- "$SHAREBOX_CIPHER"
 	}
-	function do_restore {
-		local source_root target_root
-		source_root="$(
-			ask --required \
-				--question="Where is root file system to copy from?"
-		)"
-		target_root="$(
-			ask --required --defualt='/' \
-				--question="Where is root file system to copy to?"
-		)"
-
-		# restore
-		local path source_path target_path
-		for path in "${config_paths[@]}"; do
-			# just in case mapfile returned empty elements
-			if test -z "$path"; then
-				continue
-			fi
-			# restore the path
-			source_path="$(fs-join -- "$source_root" "$path")"
-			target_path="$(fs-join -- "$target_root" "$path")"
-			cpr --sudo --tool=rsync -- "$source_path" "$target_path"
-		done
-	}
-	function do_setup_owner {
-		require_owner
+	function do_owner {
+		require_owner_configured
 
 		# create user if necessary
-		if is-user "$SHAREBOX_USER" && confirm --negative --ppid=$$ -- "The share user exists, redo it?"; then
+		if ! is-user "$SHAREBOX_USER" || confirm --negative --ppid=$$ -- "The share user exists, redo it?"; then
 			# create user
-			sudo-helper -- useradd "$SHAREBOX_USER"
-
-			# set a password for the user
-			sudo-helper -- smbpasswd -a "$SHAREBOX_USER"
+			sudo-helper -- useradd "$SHAREBOX_USER" || :
 
 			# make it so the user is only a share user, rather than a login user
 			sudo-helper -- usermod -L "$SHAREBOX_USER"
+
+			# set a password for the user
+			sudo-helper -- passwd "$SHAREBOX_USER"
+			if command-exists smbpasswd; then
+				sudo-helper -- smbpasswd -a "$SHAREBOX_USER"
+			fi
 		fi
 
 		# create group if necessary
-		if is-group "$SHAREBOX_GROUP" && confirm --negative --ppid=$$ -- "The share group exists, redo it?"; then
+		if ! is-group "$SHAREBOX_GROUP" || confirm --negative --ppid=$$ -- "The share group exists, redo it?"; then
 			# create group
 			sudo-helper -- groupadd "$SHAREBOX_GROUP"
 		fi
 
-		# add user to group if necessary
-		if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$SHAREBOX_USER"; then
-			sudo-helper -- gpasswd -a "$SHAREBOX_USER" "$SHAREBOX_GROUP"
-		fi
+		# add users to groups
+		local user group reload='no'
+		local users=(
+			"$USER"
+			'root'
+			"$SHAREBOX_USER"
+			"${service_users[@]}"
+		)
+		local groups=(
+			"$SHAREBOX_GROUP"
+			"${service_groups[@]}"
+		)
+		for user in "${users[@]}"; do
+			for group in "${groups[@]}"; do
+				if is-user "$user" && ! is-user-in-group --user="$user" --group="$group"; then
+					if test "$user" = "$USER"; then
+						reload='yes'
+					fi
+					sudo-helper -- gpasswd -a "$user" "$group"
+				fi
+			done
+		done
 
-		# add root to group if necessary
-		if ! is-user-in-group --group="$SHAREBOX_GROUP" --user=root; then
-			sudo-helper -- gpasswd -a root "$SHAREBOX_GROUP"
-		fi
-
-		# add current user to group if necessary
-		if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$USER"; then
-			sudo-helper -- gpasswd -a "$USER" "$SHAREBOX_GROUP"
-
-			# done
+		# check if reload is necessary
+		if test "$reload" = 'yes'; then
 			cat <<-EOF
-				$(echo-style --success="The current user [$USER] has been added to group [$SHAREBOX_GROUP], " --notice="however you must logout or reboot for the change to apply.")
+				$(echo-style --success="The current user [$USER] has been added to new groups.")
+				$(echos-tyle --notice="You must logout or reboot for the change to apply.")
 				Reboot your computer safely with the following command:
 				$(echo-style --code="sharebox reboot")
 			EOF
-			return 1
 		fi
-	}
-	function act_restore {
-		do_restore
 	}
 	function act_setup {
-		# configuration
-		require_owner
+		require_owner_configured
 
-		# restore
-		if confirm --bool --ppid=$$ -- "Restore sharebox configuration from an existing location?"; then
-			do_restore
-		fi
-
-		# owner
-		do_setup_owner
+		# initiate owners
+		do_owner
 
 		# service
 		setup-docker
-		setup-util-gocryptfs --upgrade
+		setup-util-gocryptfs
 		setup-util-samba
 		setup-util-plex
 		setup-util-syncthing
 		# no more resilio sync, as it was replaced by syncthing
 
-		# add service users to group if necessary
-		local service_user
-		for service_user in "${service_users[@]}"; do
-			if ! is-user-in-group --group="$SHAREBOX_GROUP" --user="$service_user"; then
-				sudo-helper -- gpasswd -a "$service_user" "$SHAREBOX_GROUP"
-			fi
-		done
-
-		# add users to server group if necessary
-		local service_group
-		for service_group in "${service_groups[@]}"; do
-			if ! is-user-in-group --group="$service_group" --user="$SHAREBOX_USER"; then
-				sudo-helper -- gpasswd -a "$SHAREBOX_USER" "$service_group"
-			fi
-		done
-
-		# done
-		cat <<-EOF
-			$(echo-style --success="Setup complete. " --notice="You must reboot your computer.")
-			Reboot your computer safely with the following command:
-			$(echo-style --code="sharebox reboot")
-		EOF
+		# update owners
+		do_owner
+	}
+	function act_owner {
+		do_owner
 	}
 	function act_chown {
-		require_owner
-		fs-own --sudo \
-			--owner="$sharebox_owner" \
+		require_owner_configured
+		require_owner_setup
+
+		eval-helper --no-quiet --wrap --shapeshifter \
+			-- fs-own --no-quiet --changes \
+			--owner="$(get_owner)" \
 			--user="$SHAREBOX_USER" \
 			--group="$SHAREBOX_GROUP" \
 			-- "$@"
 	}
 	function act_run {
-		require_owner
-		eval-helper --quiet=no \
+		require_owner_configured
+		require_owner_setup
+
+		eval-helper --no-quiet \
 			-- sudo-helper --inherit \
 			--user="$SHAREBOX_USER" \
 			--group="$SHAREBOX_GROUP" \
 			-- "$@"
 	}
 	function act_unmount {
-		if check_vault; then
+		if check_vault_configured && check_vault_mounted; then
 			do_unmount_vault
 		fi
-		if check_drive; then
+		if check_drive_configured && check_drive_mounted; then
 			do_unmount_drive
 		fi
 	}
 	function act_mount {
 		act_unmount
-		if check_drive; then
+
+		if check_drive_configured; then
 			do_mount_drive
 		fi
-		if check_vault; then
+		if check_vault_configured; then
 			do_mount_vault
 		fi
+	}
+	function act_copy {
+		require_owner_configured
+		require_owner_setup
+
+		cpr --tool=rsync --sudo --owner="$(get_owner)" -- "$@"
 	}
 
 	# =====================================

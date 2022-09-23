@@ -62,20 +62,19 @@ function setup-util-plex() (
 	local service_ids=(
 		'plexmediaserver'
 	)
-	local service_path="/lib/systemd/system/plexmediaserver.service"
+	local service_path='/lib/systemd/system/plexmediaserver.service'
 	local service_config_paths=(
+		'/etc/systemd/system/plexmediaserver.service.d/override.conf'
 		'/var/lib/plexmediaserver/'
 	)
-	local service_uninstall_paths=(
-		"$service_path"
-		"${service_config_paths[@]}"
-	)
 	function get_user {
-		config-helper --file="$service_path" -- \
+		sudo-helper --inherit \
+			-- config-helper --file="$service_path" -- \
 			--field='User'
 	}
 	function get_group {
-		config-helper --file="$service_path" -- \
+		sudo-helper --inherit \
+			-- config-helper --file="$service_path" -- \
 			--field='Group'
 	}
 
@@ -89,10 +88,10 @@ function setup-util-plex() (
 		echo-lines "${service_ids[@]}"
 		return 0
 	elif test "$action" = 'get-service-user'; then
-		get_user
+		get_user 2>/dev/null || :
 		return 0
 	elif test "$action" = 'get-service-group'; then
-		get_group
+		get_group 2>/dev/null || :
 		return 0
 	fi
 
@@ -150,33 +149,59 @@ function setup-util-plex() (
 		fi
 	fi
 
+	# apt doesn't seem to work correctly
+	# APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
+	# APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://downloads.plex.tv/repo/deb public main' \
+	# APT='plexmediaserver' \
+
 	# install utility with forwarded+custom arguments
 	setup-util "${util[@]}" --app='Plex Media Server' \
-		APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
-		APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://downloads.plex.tv/repo/deb public main' \
-		APT='plexmediaserver' \
 		CASK='plex-media-server'
 
 	# stop at uninstall?
 	if test "$action" = 'uninstall'; then
-		fs-rm --sudo \
-			-- "${service_uninstall_paths[@]}"
+		fs-rm --sudo -- \
+			"$service_path" \
+			'/usr/lib/plexmediaserver/' \
+			'/var/lib/plexmediaserver/'
+		if is-user plex; then
+			sudo-helper -- userdel plex
+		fi
+		if is-group plex; then
+			sudo-helper -- groupdel plex
+		fi
 		return "$?"
 	fi
 
 	# =====================================
 	# Setup Service
 
+	sudo-helper -- mkdir -p /etc/systemd/system/plexmediaserver.service.d
+	sudo-helper -- touch /etc/systemd/system/plexmediaserver.service.d/override.conf
+
+	# correct the permissions
+	fs-own --optional --sudo --admin --permissions='a-xw,a+Xr,u+w' -- \
+		'/lib/systemd/system/plexmediaserver.service' \
+		'/etc/systemd/system/plexmediaserver.service.d' \
+		'/etc/systemd/system/plexmediaserver.service.d/override.conf'
+
+	fs-own --optional --sudo --permissions='a-xw,a+r,ug+Xrw' --user="$(get_user)" --group="$(get_group)" -- \
+		'/var/lib/plexmediaserver/'
+
+	# don't touch /usr/lib/plexmediaserver/ permissions as they are complicated
+	# '/usr/lib/plexmediaserver/'
+	# fs-own --optional --sudo --permissions='a-xw,a+r,ug+xrw' --user="$(get_user)" --group="$(get_group)" -- \
+	# 	'/usr/lib/plexmediaserver/Plex '*
+
+	# fs-own --optional \
+	# 	--user="$(get_user)" \
+	# 	--group="$(get_group)" \
+	# 	--
+
 	# only manage the service if it is supported
 	if service-helper --supported; then
 		# verify the service was initialised
 		if service-helper --exists -- "${service_ids[@]}"; then
-			# correct the permissions
-			fs-own \
-				--user="$(get_user)" \
-				--group="$(get_group)" \
-				-- "${service_config_paths[@]}" "${service_uninstall_paths[@]}"
-
 			# disable autostart
 			service-helper --disable --stop \
 				-- "${service_ids[@]}"

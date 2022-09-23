@@ -469,8 +469,8 @@ function setup-util() (
 
 	# check if necessary
 	if test -n "$app" -o -n "$cli"; then
-		if test "$app_exists" = 'no' -o "$cli_exists" = 'no'; then
-			# not installed
+		if test "$app_exists" != 'yes' -a "$cli_exists" != 'yes'; then
+			# neither installed
 			if test "$action" = 'uninstall'; then
 				# already uninstalled, so no need to uninstall
 				maybe-echo-style --g3="The [$name] utility was not found. Already uninstalled. ✅"
@@ -1380,7 +1380,7 @@ function setup-util() (
 		fi
 	}
 	function do_apt {
-		local args=() packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" __keyring=''
+		local args=() packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" __keyring='' __temp
 		if test "${#APT[@]}" -ne 0; then
 			packages+=("${APT[@]}")
 		elif test "${#DEB[@]}" -ne 0; then
@@ -1407,6 +1407,8 @@ function setup-util() (
 						APT: ${packages[*]}
 					EOF
 					return 1
+				else
+					id="${packages[*]}" # needed for the rm commands
 				fi
 			fi
 		fi
@@ -1484,9 +1486,9 @@ function setup-util() (
 			sudo-helper -- mkdir -p /usr/local/share/keyrings/
 			keyring="/usr/local/share/keyrings/$id.gpg"
 
-			# remove old keys
-			sudo-helper -- rm -f /usr/local/share/keyrings/*"$id"*
-			sudo-helper -- rm -f /etc/apt/trusted.gpg.d/*"$id"*
+			# remove old keys if they exist
+			sudo-helper -- rm -f /usr/local/share/keyrings/*"$id"* || :
+			sudo-helper -- rm -f /etc/apt/trusted.gpg.d/*"$id"* || :
 
 			# helper for quiet output
 			function do_apt_key_add {
@@ -1500,14 +1502,16 @@ function setup-util() (
 				# adjust permission to fix [_apt access error] on ubuntu 21.10
 				sudo-helper -- chmod a+r "$keyring"
 			}
-			eval-helper --quiet="$quiet" \
-				-- do_apt_key_add
+			if test "$action" != 'uninstall'; then
+				eval-helper --quiet="$quiet" \
+					-- do_apt_key_add
+			fi
 		fi
 
 		# prepare APT with APT_REPO
 		if test -n "$repo"; then
-			# remove old listings
-			sudo-helper -- rm -f /etc/apt/sources.list.d/*"$id"*
+			# remove old listings if they exist
+			sudo-helper -- rm -f /etc/apt/sources.list.d/*"$id"* || :
 
 			# add the repo with appropriate technique for the repo type
 			if [[ $repo == 'deb '* ]]; then
@@ -1525,13 +1529,17 @@ function setup-util() (
 				)"}"
 
 				# use a non-deprecated technique that supports the deb modifiers
-				echo "$repo" | sudo-helper -- tee "/etc/apt/sources.list.d/$id.list" >/dev/null
+				if test "$action" != 'uninstall'; then
+					echo "$repo" | sudo-helper -- tee "/etc/apt/sources.list.d/$id.list" >/dev/null
+				fi
 			else
 				# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
 				# however the alternative for `ppa:` and other syntax is too complicated
-				eval-helper --quiet="$quiet" \
-					-- sudo-helper \
-					-- apt-add-repository -y --enable-source "$repo"
+				if test "$action" != 'uninstall'; then
+					eval-helper --quiet="$quiet" \
+						-- sudo-helper \
+						-- apt-add-repository -y --enable-source "$repo"
+				fi
 			fi
 
 			# to debug:
@@ -1575,7 +1583,7 @@ function setup-util() (
 	# installs local .deb files, and with our helper, remote .deb files
 	# https://man7.org/linux/man-pages/man1/dpkg.1.html
 	function do_dpkg {
-		local args=() packages=() i=0 t=''
+		local args=() packages=() i=0 path='' url=''
 		if test "${#DPKG[@]}" -ne 0; then
 			packages+=("${DPKG[@]}")
 		elif test "${#DEB[@]}" -ne 0; then
@@ -1608,14 +1616,14 @@ function setup-util() (
 
 		# convert urls to local
 		for i in "${!packages[@]}"; do
-			if [[ ${packages[$i]} == 'http'* ]]; then
-				# fetch temp directory
-				if test -z "$t"; then
-					t="$(fs-temp --directory='setup-util')"
-					mkdir -p "$t"
-				fi
-				# download to temp
-				packages[i]="$(down --directory="$t")"
+			url="${packages[i]}"
+			if [[ "$url" == 'http'* ]]; then
+				# fetch temp path
+				path="$(fs-temp --touch --directory='setup-util' --file="$name.deb")"
+				# download to temp path
+				down --path="$path" "$url"
+				# update packge with its download path
+				packages[i]="$path"
 			fi
 		done
 
