@@ -51,10 +51,10 @@ sudo apt install bash curl git
 xcode-select --install
 
 # To run only a specific command, run the following and swap out `what-is-my-ip` with whatever command you wish to run
-bash -ic "$(curl -fsSL https://dorothy.bevry.workers.dev/commands/what-is-my-ip)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/commands/what-is-my-ip)"
 
 # To run multiple commands in a REPL, run the following then type the commands you wish to execute
-eval "$(curl -fsSL https://dorothy.bevry.workers.dev/try)"
+eval "$(curl -fsSL https://dorothy.bevry.me/try)"
 ```
 
 ## Install
@@ -72,7 +72,7 @@ sudo apt install bash curl git
 xcode-select --install
 
 # Run the Dorothy installation script
-bash -ilc "$(curl -fsSL https://dorothy.bevry.workers.dev/install)"
+bash -ilc "$(curl -fsSL https://dorothy.bevry.me/install)"
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
