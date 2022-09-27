@@ -844,7 +844,9 @@ function setup-dns() (
 				sleep 1
 			fi
 
-			# apply changes to services
+			# temporarily disable these services while we redo the configuration files
+			# https://wiki.archlinux.org/title/systemd-networkd
+			# resolved handles dns, networkd handles network interfaces
 			service-helper --quiet="$quiet" --stop -- systemd-networkd || :
 			service-helper --quiet="$quiet" --stop -- systemd-resolved || :
 
@@ -894,16 +896,17 @@ function setup-dns() (
 				EOF
 			fi
 
-			# temporarily start system services, so that changes can be applied to them
-			# sudo-helper -- systemctl daemon-reload
-			# service-helper --quiet="$quiet" --start -- systemd-networkd
-			service-helper --quiet="$quiet" --start -- systemd-resolved
-			
-			# flush any caches
+			# we have redone the configuration files so we must now restart the services
+			# and ensure that are correctly enabled in case they weren't
+			# which could happen via vpns or another dns service
+			service-helper --quiet="$quiet" --enable --start -- systemd-resolved || :
+			service-helper --quiet="$quiet" --enable --start -- systemd-networkd || :
+
+			# flush their caches
 			sudo_wrap -- resolvectl flush-caches --no-pager || :
 			sudo_wrap -- resolvectl reset-server-features --no-pager || :
-			
-			# apply changes to interfaces
+
+			# apply the changes to their interfaces
 			mapfile -t interfaces < <(network-interface list)
 			if is-array-empty "${interfaces[@]}"; then
 				echo-style --error='No interfaces were found.' >/dev/stderr
@@ -942,19 +945,16 @@ function setup-dns() (
 			# dump the status now that we are done
 			resolvectl status || :
 
-		       # if there is nordvpn, we have to reconnect
-                       if command-exists nordvpn && confirm --positive --ppid="$$" -- 'Reconnect to NordVPN?'; then
-                               nordvpn connect || :
-			       nordvpn set autoconnect on || :
-			       nordvpn set killswitch on || :
-			       sleep
-		       fi
+			# if there is nordvpn, we have to reconnect
+			if command-exists nordvpn && confirm --positive --ppid="$$" -- 'Reconnect to NordVPN?'; then
+				nordvpn connect || :
+				nordvpn set autoconnect on || :
+				nordvpn set killswitch on || :
+				sleep 1
+			fi
 
 			# now that it is all done, enable or disable
 			if test "$action" = 'enable'; then
-				# enable
-				service-helper --quiet="$quiet" --enable --start -- systemd-resolved
-
 				# verify
 				verify_dns_resolvectl
 			else
