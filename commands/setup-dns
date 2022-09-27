@@ -833,6 +833,17 @@ function setup-dns() (
 			local systemd_title='Systemd-resolved'
 			echo-segment --h1="Configure and $action_title $systemd_title"
 
+			# dump the data for where we are
+			resolvectl status || :
+
+			# if there is nordvpn, we have to disconnect
+			if command-exists nordvpn; then
+				nordvpn set killswitch off || :
+				nordvpn set autoconnect off || :
+				nordvpn disconnect || :
+				sleep 1
+			fi
+
 			# apply changes to services
 			service-helper --quiet="$quiet" --stop -- systemd-networkd || :
 			service-helper --quiet="$quiet" --stop -- systemd-resolved || :
@@ -887,11 +898,11 @@ function setup-dns() (
 			# sudo-helper -- systemctl daemon-reload
 			# service-helper --quiet="$quiet" --start -- systemd-networkd
 			service-helper --quiet="$quiet" --start -- systemd-resolved
-
+			
 			# flush any caches
 			sudo_wrap -- resolvectl flush-caches --no-pager || :
 			sudo_wrap -- resolvectl reset-server-features --no-pager || :
-
+			
 			# apply changes to interfaces
 			mapfile -t interfaces < <(network-interface list)
 			if is-array-empty "${interfaces[@]}"; then
@@ -900,6 +911,11 @@ function setup-dns() (
 			fi
 			local default_route
 			for interface in "${interfaces[@]}"; do
+				# skip vpn interfaces
+				if is_vpn_interface "$interface"; then
+					continue
+				fi
+
 				# save default route
 				# as nordvpn needs its interface as the default route
 				if resolvectl default-route "$interface" | grep -q yes; then
@@ -918,15 +934,21 @@ function setup-dns() (
 				sudo_wrap -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
 				sudo_wrap -- resolvectl dns "$interface" "${servers[@]}"
 
-				# reboot the interface
+				# reboot the interface if it isn't a vpn
 				sleep 1
 				network-interface restart "$interface"
 			done
 
-			# if there is nordvpn, we have to reconnect
-			if command-exists nordvpn && confirm --positive --ppid="$$" -- 'Reconnect to NordVPN?'; then
-				eval_wrap -- nordvpn connect || :
-			fi
+			# dump the status now that we are done
+			resolvectl status || :
+
+		       # if there is nordvpn, we have to reconnect
+                       if command-exists nordvpn && confirm --positive --ppid="$$" -- 'Reconnect to NordVPN?'; then
+                               nordvpn connect || :
+			       nordvpn set autoconnect on || :
+			       nordvpn set killswitch on || :
+			       sleep
+		       fi
 
 			# now that it is all done, enable or disable
 			if test "$action" = 'enable'; then
@@ -945,6 +967,12 @@ function setup-dns() (
 
 			# log
 			echo-segment --g1="Configure and $action_title $systemd_title"
+		fi
+	}
+	function is_vpn_interface {
+		local interface="$1"
+		if [[ $interface =~ nordlynx ]] || [[ $interface == *vpn* ]] || [[ $interface == *tun* ]] || [[ $interface == *tap* ]]; then
+			return 0
 		fi
 	}
 
