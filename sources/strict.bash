@@ -35,6 +35,8 @@ shopt -u failglob 2>/dev/null || :
 
 # CONSIDER
 # lastpipe If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
+# bash v5 localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
+# shopt -s localvar_inherit 2>/dev/null || :
 
 # TIPS
 # if you wish to ignore the exit code under strict mode, do:
