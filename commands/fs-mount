@@ -65,101 +65,108 @@ function fs-mount() (
 	}
 
 	# =====================================
-	# Act
+	# Logging
 
-	local title conclusion='' mount_cmd=()
+	export title conclusion=''
 	title="fs-mount $(echo-quote "$mount_source")"
-	conclusion=''
-
-	function fs_mount {
-		local chown='no'
-
-		# verify and prep
-		if is_drive "$mount_source"; then
-			# mount drive
-			mount_cmd+=(
-				'sudo-helper'
-				'--'
-				'mount'
-				"$mount_source"
-				"$mount_target"
-			)
-			# instruct to chown
-			chown='yes'
-		elif gocryptfs-helper verify -- "$mount_source" &>/dev/null; then
-			# mount vault
-			mount_cmd+=(
-				'gocryptfs-helper'
-				'mount'
-				'--'
-				"$mount_source"
-				"$mount_target"
-				"--owner=$option_owner"
-				"--user=$option_user"
-				"--group=$option_group"
-			)
+	echo-segment --h2="$title"
+	conclusion="$(
+		echo-style --red="failed to mount."
+	)"
+	function on_return {
+		local ec="$?"
+		if test "$ec" -eq 0; then
+			echo-segment --g2="$title" " $conclusion"
 		else
-			conclusion="$(
-				echo-style --red="invalid mount source."
-			)"
-			echo-style --error="fs-mount doesn't know how to mount ${mount_source@Q}, it is neither a drive nor a gocryptfs vault"
-			return 22 # Invalid argument
+			echo-segment --e2="$title" " $conclusion"
 		fi
+		trap - RETURN EXIT
+		return "$ec"
+	}
+	trap on_return RETURN EXIT # RETURN is success, EXIT is exceptions
 
-		# if already mounted, then only do perms
-		if test -d "$mount_target"; then
-			if is-mounted --source="$mount_source" --target="$mount_target"; then
-				echo-style --bold="${mount_source@Q}" " already mounted to " --bold="${mount_target@Q}"
-				if ! confirm --bool --ppid=$$ -- 'Do you wish to remount?'; then
-					conclusion="$(
-						echo-style --green="was previously mounted."
-					)"
-					return "$?"
-				fi
+	# =====================================
+	# Action
+
+	local chown='no' mount_cmd=()
+
+	# verify and prep
+	if is_drive "$mount_source"; then
+		# mount drive
+		mount_cmd+=(
+			'sudo-helper'
+			'--'
+			'mount'
+			"$mount_source"
+			"$mount_target"
+		)
+		# instruct to chown
+		chown='yes'
+	elif gocryptfs-helper verify -- "$mount_source" "--user=$option_user" "--group=$option_group"; then
+		# mount vault
+		mount_cmd+=(
+			'gocryptfs-helper'
+			'mount'
+			'--'
+			"$mount_source"
+			"$mount_target"
+			"--owner=$option_owner"
+			"--user=$option_user"
+			"--group=$option_group"
+		)
+	else
+		conclusion="$(
+			echo-style --red="invalid mount source."
+		)"
+		echo-style --error="fs-mount doesn't know how to mount ${mount_source@Q}, it is neither a drive nor a gocryptfs vault"
+		return 22 # Invalid argument
+	fi
+
+	# if already mounted, then only do perms
+	if test -d "$mount_target"; then
+		if is-mounted --source="$mount_source" --target="$mount_target"; then
+			echo-style --bold="${mount_source@Q}" " already mounted to " --bold="${mount_target@Q}"
+			if ! confirm --bool --ppid=$$ -- 'Do you wish to remount?'; then
+				conclusion="$(
+					echo-style --green="was previously mounted."
+				)"
+				return 0
 			fi
-
-			# if mount is invalid, then unmount the directory
-			fs-unmount -- "$mount_target"
 		fi
 
-		# if not mounted, go through the process
-		sudo-helper \
-			-- mkdir -p "$mount_target"
+		# if mount is invalid, then unmount the directory
+		fs-unmount -- "$mount_target"
+	fi
+
+	# if not mounted, go through the process
+	sudo-helper \
+		-- mkdir -p "$mount_target"
+	eval-helper --no-quiet --wrap --shapeshifter \
+		-- fs-own --no-quiet --changes \
+		--owner="$option_owner" \
+		--user="$option_user" \
+		--group="$option_group" \
+		-- "$mount_target"
+
+	# mount
+	eval-helper --no-quiet --wrap \
+		-- "${mount_cmd[@]}"
+	echo-style --success="${mount_source@Q} was mounted."
+
+	# chown
+	if test "$chown" = 'yes'; then
 		eval-helper --no-quiet --wrap --shapeshifter \
 			-- fs-own --no-quiet --changes \
 			--owner="$option_owner" \
 			--user="$option_user" \
 			--group="$option_group" \
 			-- "$mount_target"
-
-		# mount
-		eval-helper --no-quiet --wrap \
-			-- "${mount_cmd[@]}"
-		echo-style --success="${mount_source@Q} was mounted."
-		if test "$chown" = 'yes'; then
-			eval-helper --no-quiet --wrap --shapeshifter \
-				-- fs-own --no-quiet --changes \
-				--owner="$option_owner" \
-				--user="$option_user" \
-				--group="$option_group" \
-				-- "$mount_target"
-		fi
-
-		# success
-		conclusion="$(
-			echo-style --green="mounted successfully."
-		)"
-	}
-
-	# act
-	echo-segment --h2="$title"
-	if fs_mount; then
-		echo-segment --g2="$title" " $conclusion"
-	else
-		local result="$?"
-		echo-segment --e2="$title" " $conclusion"
-		return "$result"
 	fi
+
+	# success
+	conclusion="$(
+		echo-style --green="mounted successfully."
+	)"
 )
 
 # fire if invoked standalone
