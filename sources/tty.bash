@@ -27,8 +27,8 @@ function tty_auto {
 	trap tty_finish EXIT
 }
 
-# if alternative ttys are disabled, then do not use them
-if is-affirmative -- "${NO_ALT_TTY-}"; then
+# if alternative ttys are disabled (or not in tty mode), then do not use them
+if is-affirmative -- "${NO_ALT_TTY-}" || ! tty -s; then
 	function tty_start {
 		return 0
 	}
