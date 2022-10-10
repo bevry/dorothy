@@ -57,7 +57,7 @@ function tty_get_y_x {
 }
 
 function tty_set_y_x {
-	local y x
+	local y x yx
 	if test "$#" -eq 0; then
 		mapfile -t yx < <(tty_get_y_x)
 		y="${yx[0]}"
