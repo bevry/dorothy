@@ -102,6 +102,10 @@ if test "$DOROTHY_LOAD" = 'yes'; then
 		DOROTHY="$(cd "$(dirname "${BASH_SOURCE:-"$0"}")" && pwd)" # `cd ... pwd` ensures absolute path
 	fi
 
+	# init dorothy's environment for the login shell
 	. "$DOROTHY/sources/init.sh"
-	. "$DOROTHY/sources/shell.sh"
+
+	# if the login shell is interactive, then init dorothy for the interactive login shell
+	# [test -t 0] and [test -s] are true despite [env -i bash -lc ...]
+	case $- in *i*) . "$DOROTHY/sources/shell.sh" ;; esac
 fi
