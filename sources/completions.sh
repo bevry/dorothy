@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 # Bash Completions
-if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+if test "$ACTIVE_SHELL" = 'bash'; then
 	# trunk-ignore(shellcheck/SC3044)
 	shopt -s progcomp # enable completions
 
@@ -21,9 +21,9 @@ fi
 # 1Password
 # https://developer.1password.com/docs/cli/get-started#shell-completion
 if command-exists op; then
-	if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+	if test "$ACTIVE_SHELL" = 'bash'; then
 		eval "$(op completion bash)"
-	elif test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
+	elif test "$ACTIVE_SHELL" = 'zsh'; then
 		eval "$(op completion zsh)"
 		compdef _op op
 	fi
@@ -42,12 +42,12 @@ fi
 if test -n "${HOMEBREW_PREFIX-}"; then
 	GDIR="${HOMEBREW_PREFIX}/Caskroom/google-cloud-sdk"
 	if test -d "$GDIR"; then
-		if test "$ACTIVE_LOGIN_SHELL" = 'bash'; then
+		if test "$ACTIVE_SHELL" = 'bash'; then
 			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
 			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
-		elif test "$ACTIVE_LOGIN_SHELL" = 'zsh'; then
+		elif test "$ACTIVE_SHELL" = 'zsh'; then
 			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
 			# trunk-ignore(shellcheck/SC1091)

@@ -1,14 +1,15 @@
 #!/usr/bin/env fish
 
-# export the active shell as the active login shell
-set --export ACTIVE_LOGIN_SHELL fish
+# set the active shell as fish
+set ACTIVE_SHELL fish
 
-# additional extras for an interactive shell
+# Source our ability to load configuration files
 source "$DOROTHY/sources/config.fish"
+
 # load each filename
 # passes if one or more were loaded
 # fails if none were loaded (all were missing)
-load_dorothy_config 'shell.fish' 'shell.sh'
+load_dorothy_config 'interactive.fish' 'interactive.sh'
 source "$DOROTHY/sources/history.fish"
 source "$DOROTHY/sources/theme.fish"
 source "$DOROTHY/sources/ssh.fish"

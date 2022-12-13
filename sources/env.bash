@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# This command is another piece of pure magic by @balupton
+# It outputs the differences in environment variables from sourcing to exit
+
 # IMPORTED BY SOURCER
 # $shell - the current shell name, e.g. `fish` or `bash` or `zsh`
 #

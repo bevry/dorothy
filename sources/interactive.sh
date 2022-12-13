@@ -1,22 +1,20 @@
 #!/usr/bin/env sh
+# Imports ACTIVE_SHELL
 
-# scripts in here are especially unnecessary for commands, and are often slow
-# they are generally only useful for user interactive environments
-# if a command does need one of these, then the command can source it directly
+# Scripts in here are generally intended only for interactive login shells, are generally slow, and are generally not useful for commands
+# If a command does need one of them, then it can source it directly
 
-# export the active shell as the active login shell
-export ACTIVE_LOGIN_SHELL
-ACTIVE_LOGIN_SHELL="$(get_active_shell)"
-
-# additional extras for an interactive shell
+# Source our ability to load configuration files
 . "$DOROTHY/sources/config.sh"
-if test "$ACTIVE_LOGIN_SHELL" = 'sh'; then
-	load_dorothy_config 'shell.sh'
+
+# Load the configuration for interactive shells
+if test "$ACTIVE_SHELL" = 'sh'; then
+	load_dorothy_config 'interactive.sh'
 else
 	# load each filename
 	# passes if one or more were loaded
 	# fails if none were loaded (all were missing)
-	load_dorothy_config "shell.$ACTIVE_LOGIN_SHELL" 'shell.sh'
+	load_dorothy_config "interactive.$ACTIVE_SHELL" 'interactive.sh'
 fi
 
 # dorothy theme override, which is used for trial mode

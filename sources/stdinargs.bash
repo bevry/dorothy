@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/bash.bash"
 
 # uncatched help argument
 if test "${1-}" = '--help'; then

@@ -10,6 +10,6 @@ end
 
 # login
 if status --is-login
-	source "$DOROTHY/sources/init.fish"
-	source "$DOROTHY/sources/shell.fish"
+	source "$DOROTHY/sources/login.fish"
+	source "$DOROTHY/sources/interactive.fish"
 end

@@ -1,0 +1,344 @@
+#!/usr/bin/env bash
+
+# https://unix.stackexchange.com/a/364496/50703
+# https://unix.stackexchange.com/a/364458/50703
+# https://en.wikipedia.org/wiki/Smartmontools
+# https://help.ubuntu.com/community/Smartmontools
+
+# These support UASP:
+# Seagate Expansion Desktop Drive (STEB4000300)
+
+# These do not support UASP:
+# Western Digital My Book 12TB (WDBBGB0120HBK-NA,WDBBGB0120HBK-NB)
+
+# What is UASP
+# https://youtu.be/t0kYcM1E5fY
+# https://www.startech.com/en-us/blog/all-you-need-to-know-about-uasp
+# Despite what Pluggable states: https://support.plugable.com/t/6491/2?u=balupton
+# UASP supported is needed by the USB Hubs for UASP boost, as stated by StarTech in a support chat:
+# > All hubs support the use of UASP enabled devices, but hubs that do not have the feature built in will not operate at the boosted speed that UASP devices can function at. If you require the UASP boosted speed, then look for a hub that has it built in. If the speed is not crucial and the standard 5Gbps that USB 3.0 offers will suffice, it won't matter the hub you use as long as its a USB 3.0 hub.
+
+function get-devices() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Get devices and their information.
+
+			USAGE:
+			get-devices [...options] [-- ...<node>]
+
+			OPTIONS:
+			--node
+			    Get device node, e.g. [/dev/sda]
+
+			--size
+			    Get device size, e.g. [10.91 TiB]
+
+			--model
+			    Get device model, e.g. [My Book 25EE]
+
+
+			--label
+			    Get device label, e.g. [writable]
+
+			--uuid
+			    Get device uuid, e.g. [1aa1aa11-1aa1-aa11-1aa1-aa1aa1aa1aa1]
+
+			--block
+			    Get device block size, e.g. [4096]
+
+			--<type|filesystem>
+			    Get device filesystem, e.g. [btrfs|ext4]
+
+
+			--serial
+			    Get device serial number, e.g. [1AA1AA11]
+
+			--vendor
+			    Get device vendor, e.g. [Seagate]
+
+			--product
+			    Get device product, e.g. [Expansion Desk]
+
+			--revision
+			    Get device revision, e.g. [0915]
+
+			--tabbed
+			    Output tab separated values instead of key value pairs.
+
+			<node>
+			    Filter devices, only returning those of <node>.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item details=() nodes=() tabbed='no' debug='no'
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+
+		'--node') details+=('node') ;;
+		'--size') details+=('size') ;;
+		'--model') details+=('model') ;;
+
+		'--serial') details+=('serial') ;;
+		'--vendor') details+=('vendor') ;;
+		'--product') details+=('product') ;;
+		'--revision') details+=('revision') ;;
+
+		'--label') details+=('label') ;;
+		'--uuid') details+=('uuid') ;;
+		'--block') details+=('block') ;;
+		'--type' | '--filesystem') details+=('filesystem') ;;
+
+		'--tabbed') tabbed='yes' ;;
+		'--no-debug'* | '--debug'*)
+			debug="$(
+				get-flag-value debug --missing="$debug" -- "$item" | echo-affirmative
+			)"
+			;;
+
+		'--')
+			nodes+=("$@")
+			shift "$#"
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	if test "${#details[@]}" -eq 0; then
+		details+=(
+			'node'
+			'size'
+			'model'
+
+			'label'
+			'uuid'
+			'block'
+			'filesystem'
+
+			'serial'
+			'vendor'
+			'product'
+			'revision'
+		)
+	fi
+
+	# =====================================
+	# Action
+
+	# dependencies
+	source "$DOROTHY/sources/ripgrep.bash"
+
+	# helpers
+	function get_key {
+		rg -o "$1=\"(.+?)\"" --replace '$1' || :
+	}
+	function get_property {
+		rg -o "$1[: ']+(.+)[']?" --replace '$1' || :
+	}
+	if test "$tabbed" = 'yes'; then
+		function output {
+			printf '%s\t' "$2"
+		}
+	else
+		function output {
+			printf '%s=[%s] ' "$1" "$2"
+
+		}
+	fi
+	if command-exists smartctl; then
+		function smart_debug_one {
+			local node="$1"
+
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- smartctl -a "$node" || :
+			# ^ -i: model, serial, firmware, pci id, ieee id, controller id, nvme version, etc.
+			# ^ -a: same as -i, but includes SMART specific details that we don't care for
+		}
+	else
+		function smart_debug_one {
+			true
+		}
+	fi
+
+	# environment specific helpers
+	if is-mac; then
+		function debug_one {
+			local node="$1"
+
+			# model, serial, uuid, filesystem, size, block, label
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- diskutil info "$node" || :
+
+			# finish
+			smart_debug_one "$node"
+			echo
+		}
+		function get_one {
+			local detail node="$1" __info size='' model='' label='' uuid='' block='' filesystem='' serial='' vendor='' product='' revision=''
+
+			__info="$(sudo-helper -- diskutil info "$node")"
+			model="$(get_property 'Device [/] Media Name' <<<"$__info")"
+			serial="$(get_property 'Content [(]IOContent[)]' <<<"$__info")"
+			uuid="$(get_property 'Disk [/] Partition UUID' <<<"$__info")"
+			filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$__info")"
+			size="$(get_property 'Disk Size' <<<"$__info")"          # 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
+			block="$(get_property 'Device Block Size' <<<"$__info")" # 512 Bytes
+			label="$(get_property 'Volume Name' <<<"$__info")"       # 512 Bytes
+			if test -z "$label" -o "$label" = ' '; then
+				label="$(get_property 'Set Name' <<<"$__info")"
+			fi
+
+			for detail in "${details[@]}"; do
+				output "$detail" "${!detail}"
+			done
+			echo
+
+			if test "$debug" = 'yes'; then
+				debug_one "$node" >/dev/stderr
+			fi
+		}
+		function debug_all {
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- diskutil list || :
+
+			# trail
+			echo
+		}
+		function get_all {
+			sudo-helper -- diskutil list | rg -o '/dev/[^ ]+'
+
+			if test "$debug" = 'yes'; then
+				debug_all >/dev/stderr
+			fi
+		}
+		function act {
+			local node
+			if test "${#nodes[@]}" -ne 0; then
+				for node in "${nodes[@]}"; do
+					get_one "$node"
+				done
+			else
+				while IFS=$'\t' read -rd $'\n' node; do
+					get_one "$node"
+				done < <(get_all)
+			fi
+		}
+	elif is-linux; then
+		function debug_one {
+			local node="$1"
+
+			# label, uuid, block, filesystem
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- blkid "$node" || :
+
+			# serial, vendor, product, revision
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- sginfo -a "$node" || :
+
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- hdparm -I "$node" || :
+
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- sdparm -i "$node" || :
+
+			# finish
+			smart_debug_one "$node"
+			echo
+		}
+		function get_one {
+			# trunk-ignore-all(shellcheck/SC2034)
+			local detail node="$1" size="$2" model="$3" __blkid label='' uuid='' block='' filesystem='' __sginfo serial='' vendor='' product='' revision=''
+
+			__blkid="$(sudo-helper -- blkid "$node")"
+			label="$(get_key 'LABEL' <<<"$__blkid")"
+			uuid="$(get_key 'UUID' <<<"$__blkid")"
+			block="$(get_key 'BLOCK_SIZE' <<<"$__blkid")"
+			filesystem="$(get_key 'TYPE' <<<"$__blkid")"
+
+			__sginfo="$(sudo-helper -- sginfo -a "$node")"
+			serial="$(get_property 'Serial Number' <<<"$__sginfo")"
+			vendor="$(get_property 'Vendor' <<<"$__sginfo")"
+			product="$(get_property 'Product' <<<"$__sginfo")"
+			revision="$(get_property 'Revision level' <<<"$__sginfo")"
+
+			for detail in "${details[@]}"; do
+				output "$detail" "${!detail}"
+			done
+			echo
+
+			if test "$debug" = 'yes'; then
+				debug_one "$node" >/dev/stderr
+			fi
+		}
+		function debug_all {
+			# macos does not support the -l flag
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- fdisk -l || :
+
+			# Gets all the details for the drives, including the vendor, model, serial, driver capabilities, etc.
+			# UASP unsupported: configuration: driver=usb-storage
+			# UASP supported: configuration: driver=uas maxpower=... speed=...
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- lshw -class disk -class storage || :
+
+			# Fetch filesystems and mounts for all drives
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- lsblk -f || :
+
+			# trail
+			echo
+		}
+		function get_all {
+			sudo-helper -- fdisk -l "${devices[@]}" | rg -Uo 'Disk (/dev/.+?): (.+?),.+\nDisk model: (.+)' --replace $'$1\t$2\t$3'
+
+			if test "$debug" = 'yes'; then
+				debug_all >/dev/stderr
+			fi
+		}
+		function act {
+			local node size model
+			while IFS=$'\t' read -rd $'\n' node size model; do
+				if test "${#nodes[@]}" -ne 0 && ! is-needle "$node" "${nodes[@]}"; then
+					continue
+				fi
+				get_one "$node" "$size" "$model"
+			done < <(get_all)
+		}
+	else
+		echo-error "$0: Unsupported OS"
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+
+	# act
+	act
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get-devices "$@"
+fi

@@ -1,8 +1,5 @@
 #!/usr/bin/env fish
 
-# don't check mail
-export MAILCHECK=0
-
 # disable welcome greeting
 set --universal fish_greeting
 

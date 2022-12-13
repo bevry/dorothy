@@ -1,0 +1,705 @@
+#!/usr/bin/env bash
+
+# macos
+# mount:
+# //user-share-liturgy@192.168.5.40/Tank on /Volumes/Tank (smbfs, nodev, nosuid, mounted by balupton)
+# /dev/disk5s1 on /Volumes/Tango (apfs, local, nodev, nosuid, journaled, noowners)
+
+# ubuntu
+# mount:
+# log2ram on /var/log type tmpfs (rw,nosuid,nodev,noexec,noatime,size=51200k,mode=755,inode64)
+# /dev/sdf on /Volumes/Tank type btrfs (rw,relatime,space_cache,subvolid=5,subvol=/)
+# /Volumes/Tank/TankCipher on /Volumes/TankSecure type fuse.gocryptfs (rw,nosuid,nodev,relatime,user_id=1001,group_id=1002,default_permissions,allow_other,max_read=131072)
+
+function mount-helper() (
+	source "$DOROTHY/sources/bash.bash"
+	require_array 'mapfile'
+
+	# dependencies
+	source "$DOROTHY/sources/ripgrep.bash"
+
+	# =====================================
+	# Helpers
+
+	function is_device {
+		[[ $1 =~ device|drive|disk ]]
+	}
+	function is_source_device {
+		[[ $1 == '/dev/'* ]]
+	}
+	function is_samba {
+		[[ $1 =~ samba|smb|smbfs|cifs ]]
+	}
+	function is_gocryptfs {
+		[[ $1 =~ gocryptfs|fuse.gocryptfs ]]
+	}
+
+	# =====================================
+	# Action
+
+	local actions='' remount='' what user group owner username password server share __source target
+	function reset {
+		actions=''
+		remount=''
+		what=''
+		user=''
+		group=''
+		owner=''
+		username=''
+		password=''
+		server=''
+		share=''
+		__source=''
+		target=''
+	}
+	function action {
+		# open is for `open ...` calls
+		# mounted is for results of `mount` command
+		# fstab is for `mount` command and fstab entries
+		local log_source=''
+		local gocryptfs_source=''
+		local open_source='' open_type=''
+		local mounted_source='' mounted_type=''
+		local fstab_type='' fstab_source='' fstab_options=''
+
+		# parse source if provided
+		if test -n "$__source"; then
+			# {type}://{user}:{password}@{server}/{share}
+			if [[ $__source == *'://'* ]]; then
+				what="${__source%%://*}"
+				__source="${__source#*://}"
+			fi
+			if [[ $__source == *'//'* ]]; then
+				# server is probably samba
+				if test -z "$what"; then
+					what='samba'
+				fi
+				__source="${__source#*//}"
+			fi
+			if [[ $__source == *':'*'@'* ]]; then
+				user="${__source%%:*}"
+				__source="${__source#*:}"
+				password="${__source%%@*}"
+				__source="${__source#*@}"
+			elif [[ $__source == *'@'* ]]; then
+				user="${__source%%@*}"
+				__source="${__source#*@}"
+			fi
+			if is_samba "$what"; then
+				# setup server and trim leading /
+				server="${__source%%/*}"
+				__source="${__source#*/}"
+				share="${__source%%/*}"
+				__source=''
+			else
+				# everything goes in sahre
+				share="$__source"
+				__source=''
+			fi
+			# user/password could be samba or btrfs
+			if test -z "$what" && test -n "$user" -o -n "$password"; then
+				if test -n "$server"; then
+					what='samba'
+				else
+					what='btrfs'
+				fi
+			fi
+			# always parse source (done above)
+			# however only output the parse result if action is parse (done below)
+			if [[ "$actions" = *'[parse]'* ]]; then
+				echo "what: $what"
+				echo "user: $user"
+				echo "password: $password"
+				echo "server: $server"
+				echo "share: $share"
+			fi
+		fi
+
+		# everything needs at least a share or a target
+		# so if these aren't there, then we are probably the first --
+		if test -z "$share" -a -z "$target"; then
+			return
+		fi
+
+		# is samba?
+		if is_samba "$what"; then
+			what='samba'
+			open_type='smb'
+			mounted_type='smbfs'
+			fstab_type='cifs'
+			if is-mac && [[ $target != '/Volumes/'* ]]; then
+				if test -z "$target" -a -n "$share"; then
+					target="/Volumes/$share"
+				else
+					echo-error "Samba mounts on macOS must target /Volumes/..."
+					return 22 # Invalid argument
+				fi
+			fi
+		elif is_gocryptfs "$what"; then
+			what='gocryptfs'
+			mounted_type='fuse.gocryptfs'
+			fstab_type='fuse.gocryptfs'
+		else
+			mounted_type="$what"
+			fstab_type="$what"
+		fi
+
+		# construct the fstab options
+		if test -n "$username" -a -n "$password"; then
+			fstab_options+="username=$username,password=$password"
+		elif test -n "$username"; then
+			fstab_options+="username=$username"
+		elif test -n "$password"; then
+			fstab_options+="password=$password"
+		fi
+
+		# construct sources, of which share is optional when doing check
+		if test -n "$share"; then
+			log_source+="$what"
+			if test -n "$fstab_type"; then
+				open_source+="$open_type"
+			fi
+			log_source+='://'
+			open_source+='://'
+			mounted_source+='//'
+			fstab_source+='//'
+			if test -n "$username"; then
+				log_source+="$username"
+				open_source+="$username"
+				mounted_source+="$username"
+				if test -n "$password"; then
+					log_source+=":REDACTED"
+					open_source+=":$password"
+				fi
+				log_source+='@'
+				open_source+='@'
+				mounted_source+='@'
+			fi
+			if test -n "$server"; then
+				log_source+="$server"
+				open_source+="$server"
+				mounted_source+="$server"
+				fstab_source+="$server"
+			fi
+			# always use share
+			if [[ $share != /* ]]; then
+				log_source+='/'
+				open_source+='/'
+				mounted_source+='/'
+				fstab_source+='/'
+			fi
+			log_source+="$share"
+			open_source+="$share"
+			mounted_source+="$share"
+			fstab_source+="$share"
+			gocryptfs_source+="$share"
+		fi
+
+		# helpers
+		function do_automount_add {
+			if test -z "$share" -o -z "$target"; then
+				echo-error "[mount-helper --automount] requires <share> and <target>"
+				return 22 # Invalid argument
+			fi
+
+			# add automount
+			if is-linux; then
+				sudo-helper --inherit \
+					-- config-helper --file='/etc/fstab' -- \
+					--find=".+? $target .+?" --replace="$fstab_source $target $fstab_type $fstab_options 0 0"
+			elif is-mac; then
+				# do it cron style
+				echo-style --bold="You will now be prompted to update your cronfile, please " --bold+green="add" --bold=" the following line:"
+				local cron_args=(
+					"$(which bash | echo-quote)"
+					'-l'
+					'--'
+					"$(which mount-helper | echo-quote)"
+					'--mount'
+					--no-remount
+					--type="${what@Q}"
+					--user="${user@Q}"
+					--group="${group@Q}"
+					--owner="${owner@Q}"
+					--username="${username@Q}"
+					--password="${password@Q}"
+					--server="${server@Q}"
+					--share="${share@Q}"
+					--target="${target@Q}"
+				)
+				echo-style --code="*/15 * * * * ${cron_args[*]}"
+				if confirm --positive --ppid=$$ -- "Ready to continue?"; then
+					env EDITOR="$(edit --dry --terminal)" crontab -e
+				fi
+			else
+				echo-style --warn="Automount changes are only supported on Linux and macOS at this time."
+			fi
+		}
+		function do_automount_remove {
+			if test -z "$share" -o -z "$target"; then
+				echo-error "[mount-helper --no-automount] requires <share> and <target>"
+				return 22 # Invalid argument
+			fi
+
+			# remove automount
+			if is-linux; then
+				sudo-helper --inherit \
+					-- config-helper --file='/etc/fstab' -- \
+					--find=".+? $target .+?" --replace=''
+			elif is-mac; then
+				# do it cron style
+				echo-style --bold="You will now be prompted to update your cronfile, please " --bold+red="remove" --bold=" the following line:"
+				echo-style --code="/15 * * * * open $(echo-quote "$open_source")"
+				if confirm --positive --ppid=$$ -- "Ready to continue?"; then
+					env EDITOR="$(edit --dry --terminal)" crontab -e
+				fi
+			else
+				echo-style --warn="Automount changes are only supported on Linux and macOS at this time."
+			fi
+		}
+		function do_check {
+			local check_source='' check_target='' check_type='' filter=''
+
+			# create the check needle
+			if test -n "$mounted_source"; then
+				check_source="${mounted_source} on "
+			fi
+			if test -n "$target"; then
+				check_target=" on ${target} "
+			fi
+			if test -n "$mounted_type"; then
+				if is-mac; then
+					check_type+=" ($mounted_type"
+				else
+					check_type+=" type $mounted_type "
+				fi
+			fi
+
+			# check if invalid
+			if test -z "$check_source" -a -z "$check_target" -a -z "$check_type"; then
+				echo-error "[mount-helper --check] requires at least <source>, <target>, or <type>"
+				return 22 # Invalid argument
+			fi
+
+			# start filtering
+			filter="$(mount)"
+			if test -n "$check_source"; then
+				filter="$(echo "$filter" | rg --fixed-strings --regexp="$check_source" || :)"
+				if test -z "$filter"; then
+					echo-style --error='mount source is not mounted:' ' ' --code="$mounted_source"
+					return 1
+				fi
+				echo-style --success='mount source is mounted:' ' ' --code="$mounted_source"
+			fi
+			if test -n "$check_target"; then
+				filter="$(echo "$filter" | rg --fixed-strings --regexp="$check_target" || :)"
+				if test -z "$filter"; then
+					echo-style --error='mount target is not mounted:' ' ' --code="$target"
+					return 1
+				fi
+				echo-style --success='mount target is mounted:' ' ' --code="$target"
+			fi
+			if test -n "$check_type"; then
+				filter="$(echo "$filter" | rg --fixed-strings --regexp="$check_type" || :)"
+				if test -z "$filter"; then
+					echo-style --error='mount type is not mounted:' ' ' --code="$mounted_type"
+					return 1
+				fi
+				echo-style --success='mount type is mounted:' ' ' --code="$mounted_type"
+			fi
+		}
+		function do_unmount {
+			local was_mounted='maybe' unmount_confirm_ec
+			if test -z "$target"; then
+				echo-error "[mount-helper --unmount] requires <target>"
+				return 22 # Invalid argument
+			fi
+
+			# is the relative mount point missing
+			if test ! -e "$target"; then
+				echo-style --code="$target" ' ' --success="was previously unmounted"
+				return 0
+			fi
+
+			# is the resolved mount point missing
+			target="$(fs-realpath -- "$path")"
+			was_mounted='maybe'
+			if test ! -e "$target"; then
+				echo-style --code="$target" ' ' --success="was previously unmounted"
+				return 0
+			fi
+
+			# if mounted, then unmount
+			while true; do
+				if do_check; then
+					was_mounted='yes'
+					sudo-helper -- umount --verbose --recursive "$target" || {
+						# https://github.com/rfjakob/gocryptfs/issues/459
+						what-is-using "$target"
+						unmount_confirm_ec=0 && confirm --positive --ppid=$$ -- "Yes for try again, no for force, ctrl+c for abort" || unmount_confirm_ec="$?"
+						if test "$unmount_confirm_ec" -eq 1; then
+							sudo-helper -- umount --verbose --recursive --force "$target"
+						fi
+					}
+				else
+					was_mounted='no'
+					echo-style --code="$target" ' ' --notice="was not an active mount"
+					break
+				fi
+			done
+
+			# check if still mounted
+			if do_check; then
+				echo-style --code="$target" ' ' --error="failed to unmount"
+				return 66 # Directory not empty
+			fi
+			if test "$was_mounted" = 'yes'; then
+				echo-style --code="$target" ' ' --success="was unmounted successfully"
+			fi
+
+			# clean up
+			if test -e "$target"; then
+				fs-rm --sudo -- "$target"
+			fi
+			if test -e "$target"; then
+				echo-style --code="$target" ' ' --success="was unmounted successfully" ', ' --error="but failed to clean up"
+				return 66 # Directory not empty
+			fi
+			echo-style --code="$target" ' ' --success="was cleaned successfully"
+
+			# success
+			echo-style --code="$target" ' ' --success="was unmounted and cleaned successfully"
+			return 0
+		}
+		function do_mount {
+			if test -z "$share" -o -z "$target"; then
+				echo-error "[mount-helper --mount] requires <share> and <target>"
+				return 22 # Invalid argument
+			fi
+
+			# generate the various commands
+			local mount_confirm_ec sudo_cmd ls_cmd open_cmd gocryptfs_cmd device_cmd mount_cmd safety='yes'
+			sudo_cmd=(
+				'sudo-helper'
+				"--user=$user"
+				"--group=$group"
+			)
+			ls_cmd=(
+				'ls'
+				'-la'
+				"$target"
+			)
+
+			# open
+			open_cmd=(
+				'open'
+				'--background'
+				'--hide'
+				"$open_source"
+			)
+
+			# gocryptfs
+			gocryptfs_cmd=(
+				'gocryptfs'
+				'--rw'
+				'--noprealloc'
+				'--allow_other'
+			)
+			if test -n "$owner"; then
+				gocryptfs_cmd+=(
+					'--force_owner'
+					"$owner"
+				)
+			fi
+			gocryptfs_cmd+=(
+				"$gocryptfs_source"
+				"$target"
+			)
+
+			# device
+			device_cmd=('mount')
+			if test -n "$fstab_type"; then
+				device_cmd+=(
+					'-t'
+					"$fstab_type"
+				)
+			fi
+			if test -n "$fstab_options"; then
+				device_cmd+=(
+					'-o'
+					"$fstab_options"
+				)
+			fi
+			device_cmd+=(
+				"$fstab_source"
+				"$target"
+			)
+
+			# mount
+			mount_cmd=()
+			if is_samba "$what"; then
+				safety='no'
+				mount_cmd+=(
+					# not necessary: "${sudo_cmd[@]}" --
+					"${open_cmd[@]}"
+				)
+			elif is_gocryptfs "$what"; then
+				if gocryptfs-helper verify -- "$gocryptfs_source" "--user=$user" "--group=$group"; then
+					mount_cmd+=(
+						"${sudo_cmd[@]}" --
+						"${gocryptfs_cmd[@]}"
+					)
+				else
+					echo-error "Failed to verify gocryptfs mount source: $gocryptfs_source"
+					return 22 # Invalid argument
+				fi
+			elif is_source_device "$fstab_source"; then
+				mount_cmd+=(
+					"${sudo_cmd[@]}" --
+					"${device_cmd[@]}"
+				)
+			else
+				echo-error "Unable to understand how to mount the source:" ' ' --code="$log_source"
+				return 22 # Invalid argument
+			fi
+
+			# if already mounted then ignore
+			if test -d "$target"; then
+				if do_check; then
+					if test "$remount" = 'yes'; then
+						echo-style --code="${fstab_source@Q}" --bold=" already mounted to " --code="$target" ' ' --notice="but remounting."
+					elif test "$remount" = 'no'; then
+						echo-style --code="${fstab_source@Q}" --bold=" already mounted to " --code="$target" ' ' --success="and not remounting."
+						return 0
+					else
+						echo-style --code="${fstab_source@Q}" --bold=" already mounted to " --code="$target"
+						mount_confirm_ec=0 && confirm --negative --ppid=$$ -- 'Do you wish to remount?' || mount_confirm_ec="$?"
+						if test "$mount_confirm_ec" -eq 1; then
+							echo-style --success="was previously mounted."
+							return 0
+						fi
+					fi
+				fi
+				# user wanted to remount, or the check failed to validate that source was at that target
+				do_unmount
+			fi
+
+			# if not mounted, go through the process
+			if test "$safety" = 'yes'; then
+				sudo-helper \
+					-- mkdir -p "$target"
+				eval-helper --no-quiet --wrap --shapeshifter \
+					-- fs-own --no-quiet --changes \
+					--owner="$owner" \
+					--user="$user" \
+					--group="$group" \
+					-- "$target"
+			fi
+
+			# mount
+			eval-helper --no-quiet --wrap \
+				-- "${mount_cmd[@]}"
+
+			# check
+			if test "$safety" = 'yes'; then
+				# ls
+				eval-helper --no-quiet --wrap \
+					-- "${ls_cmd[@]}"
+
+				# chown
+				if test -n "$owner" o -n "$user" -o -n "$group"; then
+					eval-helper --no-quiet --wrap --shapeshifter \
+						-- fs-own --no-quiet --changes \
+						--owner="$owner" \
+						--user="$user" \
+						--group="$group" \
+						-- "$target"
+				fi
+			fi
+
+			# log
+			echo-style --code="$log_source" ' ' --success="sucessfully mounted to" ' ' --code="$target"
+		}
+
+		# logging
+		local title
+		title="mount-helper"
+		if [[ "$actions" = *'[parse]'* ]]; then
+			title+=" --parse"
+		fi
+		if [[ "$actions" = *'[check]'* ]]; then
+			title+=" --check"
+		fi
+		if [[ "$actions" = *'[mount]'* ]]; then
+			title+=" --mount"
+		fi
+		if [[ "$actions" = *'[unmount]'* ]]; then
+			title+=" --unmount"
+		fi
+		if [[ "$actions" = *'[automount]'* ]]; then
+			title+=" --automount"
+		fi
+		if [[ "$actions" = *'[unautomount]'* ]]; then
+			title+=" --unautomount"
+		fi
+		if test "$title" = 'mount-helper'; then
+			echo-error "Require --parse, --check, --mount, --unmount, --automount, --unautomount"
+			return 22 # Invalid argument
+		fi
+		if test -n "$log_source"; then
+			title+=" --source=${log_source@Q}"
+		fi
+		if test -n "$target"; then
+			title+=" --target=${target@Q}"
+		fi
+		echo-segment --h2="$title"
+		function on_return {
+			local on_return_ec="$?"
+			if test "$on_return_ec" -eq 0; then
+				echo-segment --g2="$title"
+			else
+				echo-segment --e2="$title"
+			fi
+			trap - RETURN EXIT
+			return "$on_return_ec"
+		}
+		trap on_return RETURN EXIT # RETURN is success, EXIT is exceptions
+
+		# check
+		if [[ "$actions" = *'[check]'* ]]; then
+			do_check
+		fi
+
+		# automount option for mount
+		if [[ "$actions" = *'[automount]'* ]]; then
+			do_automount_add
+		fi
+		if [[ "$actions" = *'[unautomount]'* ]]; then
+			do_automount_remove
+		fi
+
+		# unmount
+		if [[ "$actions" = *'[unmount]'* ]]; then
+			do_unmount
+		fi
+
+		# mount
+		if [[ "$actions" = *'[mount]'* ]]; then
+			do_mount
+		fi
+	}
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
+			mount-helper ...[-- ...options]
+
+			OPTIONS:
+			--action=<parse|check|mount|unmount|automount|unautomount>
+			[--parse]
+			[--check|--mounted]
+			[--mount]
+			[--unmount]
+			[--automount]
+			[--unautomount|--no-automount]
+
+			--type=<samba|gocryptfs|btrfs|device>
+			[--<samba|smb|smbfs|cifs>]
+			[--<gocryptfs|fuse.gocryptfs>]
+			[--btrfs]
+			[--<device|drive|disk>]
+
+			[--user=<user>]
+			[--group=<group>]
+			[--owner=<owner>]
+			    These are for the permissions for the mount location.
+
+			[--username=<username>]
+			[--password=<password>]
+			[--server=<server>]
+			    These are for the connection of the <samba> type.
+			    Eventually, <password> could be used with <gocryptfs>, but not yet supported.
+
+			--share=<share>
+			    When using type=samba, this is the share name.
+			    When using type=gocryptfs, this is the vault path.
+			    When using type=<btrfs|device>, this is the /dev/... path.
+
+			--target=<target>
+			    This is the mount location.
+
+			USAGE:
+
+			mount-helper \
+				-- --device --share='/dev/...' --target='/Volumes/folder' \
+				-- --btrfs --share='/dev/...' --target='/Volumes/folder' \
+				-- --gocryptfs --share='/path/to/vault' --target='/Volumes/folder' \
+				-- --samba --server='ip' --share='folder' --target='/Volumes/folder' \
+				-- --automount --samba --username='user' --password='pass' --server='ip' --share='folder' --target='/Volumes/folder'
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# process
+	local item
+	reset
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+
+		'--action='*) item="--${item#*--action=}" ;;&
+		'--parse') actions+='[parse]' ;;
+		'--mount') actions+='[mount]' ;;
+		'--unmount') actions='[unmount]' ;;
+		'--check' | '--mounted') actions='[check]' ;;
+		'--automount') actions+='[automount]' ;;
+		'--unautomount') actions+='[unautomount]' ;;
+		'--no-automount') actions+='[unautomount]' ;;
+
+		'--no-remount'* | '--remount'*) remount="$(
+			get-flag-value remount --missing="$remount" -- "$item" | echo-affirmative
+		)" ;;
+
+		'--type='*) what="${item#*--type=}" ;;
+		'--what='*) what="${item#*--what=}" ;;
+		'--samba' | '--smb' | '--smbfs' | '--cifs') what='samba' ;;
+		'--gocryptfs' | '--fuse.gocryptfs') what='gocryptfs' ;;
+		'--btrfs') what='btrfs' ;;
+		'--device' | '--drive' | '--disk') what='device' ;;
+
+		'--user='*) user="${item#*--user=}" ;;
+		'--group='*) group="${item#*--group=}" ;;
+		'--owner='*) owner="${item#*--owner=}" ;;
+
+		'--username='*) username="${item#*--username=}" ;;
+		'--password='*) password="${item#*--password=}" ;;
+		'--server='*) server="${item#*--server=}" ;;
+
+		'--share='*) share="${item#*--share=}" ;;
+		'--source='*) __source="${item#*--source=}" ;;
+		'--target='*) target="${item#*--target=}" ;;
+		'--')
+			# act on prior group
+			action
+			reset
+			;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# act on remaining group
+	action
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	mount-helper "$@"
+fi

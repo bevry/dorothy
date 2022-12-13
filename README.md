@@ -134,7 +134,7 @@ The initialization of Dorothy works as follows:
    1. invoke `setup-environment-commands` which will determine the appropriate environment configuration for the invoking shell
    2. evaluate its output, applying the configuration to the shell, achieving cross-shell environment compatibility
 
-1. `source/shell.(sh|fish)` will load the additional configuration for our interactive login shell, such as:
+1. `source/interactive.(sh|fish)` will load the additional configuration for our interactive login shell, such as:
 
    1. Enabling editor preferences
    1. Enabling aliases and functions
@@ -185,75 +185,22 @@ Dorothy is supported by the following [sponsors](https://github.com/sponsors/bal
 
 - [Rob Morris](https://github.com/Rob-Morris)
 - [Armen Mkrtchian](https://github.com/Armenm)
+- [dr.dimitru](https://github.com/dr-dimitru)
 - [Elliott Ditman](https://github.com/elliottditman)
 - [Balsa](https://github.com/balsa)
-- [dr.dimitru](https://github.com/dr-dimitru)
+- [Octavian](https://github.com/octavian-one)
+- [Timothy H](https://github.com/timmyha)
 
-## Support
+<!-- LICENSE/ -->
 
-To support the adoption of Dorothy, support tiers are issued in batches of five to active users to provide free realtime support and an hour of free scheduled support a month.
+<h2>License</h2>
 
-The first batch is for early adopters:
+Unless stated otherwise all works are:
 
-1. [@balupton](https://github.com/balupton/dotfiles)
-2. [@sumitrai](https://github.com/sumitrai/dotfiles)
-3. [@molleweide](https://github.com/molleweide/dotfiles)
-4. Register yourself
-5. Register yourself
+<ul><li>Copyright &copy; 2013+ <a href="http://balupton.com">Benjamin Lupton</a></li></ul>
 
-The second batch is for adopters who [sponsor](https://github.com/sponsors/balupton) any amount:
+and licensed under:
 
-1. Register yourself
-2. Register yourself
-3. Register yourself
-4. Register yourself
-5. Register yourself
+<ul><li><a href="http://spdx.org/licenses/RPL-1.5.html">Reciprocal Public License 1.5</a></li></ul>
 
-The third batch is for adopters who [sponsor](https://github.com/sponsors/balupton) $25/month or more:
-
-1. Register yourself
-2. Register yourself
-3. Register yourself
-4. Register yourself
-5. Register yourself
-
-The fourth batch is for adopters who [sponsor](https://github.com/sponsors/balupton) $50/month or more:
-
-1. Register yourself
-2. Register yourself
-3. Register yourself
-4. Register yourself
-5. Register yourself
-
-And so on in $25/month increments.
-
-## License
-
-Public Domain via [The Unlicense](https://choosealicense.com/licenses/unlicense/)
-
-```plain
-This is free and unencumbered software released into the public domain.
-
-Anyone is free to copy, modify, publish, use, compile, sell, or
-distribute this software, either in source code form or as a compiled
-binary, for any purpose, commercial or non-commercial, and by any
-means.
-
-In jurisdictions that recognize copyright laws, the author or authors
-of this software dedicate any and all copyright interest in the
-software to the public domain. We make this dedication for the benefit
-of the public at large and to the detriment of our heirs and
-successors. We intend this dedication to be an overt act of
-relinquishment in perpetuity of all present and future rights to this
-software under copyright law.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
-
-For more information, please refer to <http://unlicense.org>
-```
+<!-- /LICENSE -->
