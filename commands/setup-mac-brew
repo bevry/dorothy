@@ -203,9 +203,10 @@ function setup-mac-brew() (
 	title="Setup/$(ucf "$action") Homebrew"
 
 	# =====================================
-	# Action: clean
+	# Action Helpers
 
-	function brew_clean {
+	# clean brew caches
+	function clean_brew {
 		# environment provides:
 		# HOMEBREW_ARCH, HOMEBREW_PREFIX
 		echo-segment --h2='Cleanup homebrew'
@@ -231,15 +232,9 @@ function setup-mac-brew() (
 		fi
 		echo-segment --g2='Cleanup homebrew'
 	}
-	if test "$action" = 'clean'; then
-		brew_clean
-		return "$?"
-	fi
 
-	# =====================================
-	# Action: uninstall
-
-	function brew_uninstall {
+	# uninstall brew, and adapt the system accordingly
+	function uninstall_brew {
 		# environment provides:
 		# HOMEBREW_ARCH, HOMEBREW_PREFIX
 		local remove removals=(
@@ -290,17 +285,95 @@ function setup-mac-brew() (
 		echo-segment --g1='Uninstall Homebrew'
 		echo-style --green+bold='Homebrew uninstalled, ' --red+bold+underline='restart your terminal to avoid errors.'
 	}
-	if test "$action" = 'uninstall'; then
-		brew_uninstall
-		return "$?"
-	fi
 
-	# =====================================
-	# Action: install, update
+	# recomended installation method, it is pretty much the only one that works properly
+	# https://github.com/balupton/dotfiles/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
+	# https://github.com/balupton/dotfiles/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
+	function install_brew {
+		echo-segment --h2='Install Homebrew'
+		env HOMEBREW_NO_AUTO_UPDATE=1 \
+			arch -"${HOMEBREW_ARCH}" /bin/bash -c \
+			"$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+		source "$DOROTHY/sources/environment.sh" # child processes will also inherit these changes
+		echo-style --g2='Install Homebrew'
+	}
 
-	# -------------------------------------
-	# Helpers
+	# update brew
+	function update_brew {
+		brew upgrade --quiet
+	}
 
+	# install encoding tools
+	function install_encoding {
+		# encoding
+		if test "$action" = "install"; then
+			# determine full value for HOMEBREW_ENCODING_INSTALL
+			if test -z "$HOMEBREW_ENCODING_INSTALL" -o "$reconfigure" = 'yes'; then
+				if confirm --negative --ppid=$$ -- 'Do you want to (re-)install encoding tools? This can take a while...'; then
+					HOMEBREW_ENCODING_INSTALL='yes'
+				else
+					HOMEBREW_ENCODING_INSTALL='no'
+				fi
+				# we don't want to trigger a full reconfigure, when just this is missing
+				if test "$reconfigure" = 'no'; then
+					update_dorothy_user_config 'setup.bash' -- \
+						--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL"
+				fi
+			fi
+		fi
+
+		# if yes, then install the linting tools
+		if test "$HOMEBREW_ENCODING_INSTALL" = 'yes'; then
+			echo-segment --h1="Homebrew encoding tools"
+			echo-style --notice="This can take a while... ⏲"
+
+			# install dependencies:
+			# https://github.com/varenc/homebrew-ffmpeg/issues/28
+			# https://trac.ffmpeg.org/wiki/CompilationGuide/macOS
+			# @todo perhaps this entire encoding section can become modifiers to the existing operations
+			brew_install_fast "${HOMEBREW_ENCODING_FORMULAS[@]}"
+
+			# Installing chromaprint will cause ffmpeg to be installed automatically, as such we need to remove that ffmpeg
+			# so that we can install the one with the build options
+			# Uninstall is necessary to prevent:
+			#     Error: ffmpeg is already installed
+			# --ignore-dependencies is necessary to prevent:
+			#     Error: Refusing to uninstall because it is required by chromaprint, which is currently installed.
+			#     Error: chromaprint not found
+			# More details:
+			# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/13#issuecomment-647408007
+			brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || :
+
+			# log
+			echo-segment --h2="Install ffmpeg with options"
+
+			# fetch all the build options for ffmpeg
+			local ffmpeg_opts
+			ffmpeg_opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
+			# Remove options that break ffmpeg
+			# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
+			# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
+			ffmpeg_opts="${ffmpeg_opts/--with-decklink /}"
+			# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/37#issuecomment-958018136
+			ffmpeg_opts="${ffmpeg_opts/--with-game-music-emu /}"
+			# Fails: Error: An exception occurred within a child process: FormulaUnavailableError: No available formula with the name "zvbi".
+			ffmpeg_opts="${ffmpeg_opts/--with-libzvbi /}"
+			# space seperated array
+			mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
+
+			# install with the build options
+			eval-helper --quiet \
+				-- brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts[@]}"
+
+			# log
+			echo-segment --g2="Install ffmpeg with options"
+			echo-segment --g1="Homebrew encoding tools"
+		else
+			echo-style --notice="Skipped encoding tools installation, due to preference."
+		fi
+	}
+
+	# install packages with brew
 	function brew_install {
 		local pkg brew_opts brew_pkgs_bulk brew_pkg_args
 		brew_opts=('--quiet')
@@ -337,11 +410,15 @@ function setup-mac-brew() (
 				-- brew install "${brew_opts[@]}" "${brew_pkgs_bulk[@]}"
 		fi
 	}
+
+	# install packages with brew, that are fast to install
 	function brew_install_fast {
 		echo-segment --h2="Install $# formulas"
 		brew_install --formula -- "$@"
 		echo-segment --g2="Install $# formulas"
 	}
+
+	# install packages with brew, that are slow to install
 	function brew_install_slow {
 		# if we are on an official directory, then we are using bottles which are pre-compiled and fast
 		if test "${HOMEBREW_PREFIX}" = "/usr/local" -o "${HOMEBREW_PREFIX}" = "/opt/homebrew"; then
@@ -358,6 +435,8 @@ function setup-mac-brew() (
 			fi
 		fi
 	}
+
+	# install fonts with brew
 	function brew_install_fonts {
 		echo-segment --h2="Install $# fonts"
 		if test "$#" -ne 0; then
@@ -365,6 +444,8 @@ function setup-mac-brew() (
 		fi
 		echo-segment --g2="Install $# fonts"
 	}
+
+	# install casks with brew
 	function brew_install_cask {
 		local cask_selection=() fodder
 		if test "$#" -eq 1 && confirm --negative --ppid=$$ -- "Would you like to install the cask [$1]?"; then
@@ -383,6 +464,8 @@ function setup-mac-brew() (
 		fi
 		echo-segment --g2="Install $# casks"
 	}
+
+	# uninstall packages with brew
 	function brew_uninstall {
 		local pkg
 		echo-segment --h2="Uninstall $# formulas"
@@ -395,6 +478,8 @@ function setup-mac-brew() (
 		fi
 		echo-segment --g2="Uninstall $# formulas"
 	}
+
+	# untap repositories with brew
 	function brew_untap {
 		local tap
 		echo-segment --h2="Untap $# repositories"
@@ -406,6 +491,8 @@ function setup-mac-brew() (
 		fi
 		echo-segment --g2="Untap $# repositories"
 	}
+
+	# tap repositories with brew
 	function brew_tap {
 		local tap
 		echo-segment --h2="Tap $# repositories"
@@ -417,6 +504,8 @@ function setup-mac-brew() (
 		done
 		echo-segment --g2="Tap $# repositories"
 	}
+
+	# update A repository with brew
 	function brew_update_repo {
 		pushd "$1" >/dev/null
 		if git-helper is-shallow; then
@@ -433,6 +522,8 @@ function setup-mac-brew() (
 		fi
 		popd >/dev/null
 	}
+
+	# update repositories with brew
 	function brew_repo {
 		local repo
 		echo-segment --h2="Update $# repositories"
@@ -445,166 +536,79 @@ function setup-mac-brew() (
 		echo-segment --g2="Update $# repositories"
 	}
 
-	# -------------------------------------
-	# Start
+	# =====================================
+	# Actions
+
+	# action: clean then exit
+	if test "$action" = 'clean'; then
+		clean_brew
+		return "$?"
+	fi
+
+	# action: uninstall then exit
+	if test "$action" = 'uninstall'; then
+		uninstall_brew
+		return "$?"
+	fi
 
 	# log
 	echo-segment --h1="$title"
 
-	# -------------------------------------
-	# Install
-
+	# ensure brew is installed
 	if ! is-brew; then
-		# recomended installation method, it is pretty much the only one that works properly
-		# https://github.com/balupton/dotfiles/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
-		# https://github.com/balupton/dotfiles/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
-		echo-segment --h2='Install Homebrew'
-		env HOMEBREW_NO_AUTO_UPDATE=1 \
-			arch -"${HOMEBREW_ARCH}" /bin/bash -c \
-			"$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-		source "$DOROTHY/sources/environment.sh" # child processes will also inherit these changes
-		echo-style --g2='Install Homebrew'
+		install_brew
 	fi
 
-	# -------------------------------------
-	# Deprecations
-
+	# deprecations
 	brew_untap 'caskroom/cask' 'caskroom/fonts'
 
-	# -------------------------------------
-	# Taps
-
+	# tasps
 	brew_tap "${HOMEBREW_TAPS[@]}"
 
-	# -------------------------------------
-	# Repositories
-
+	# repositories
 	local repos
 	mapfile -t repos < <(echo-subpaths "$(dirname "$(brew --repo homebrew/core)")")
 	brew_repo "${repos[@]}"
 
-	# -------------------------------------
-	# Update
-
+	# update
 	echo-segment --h2="Update Homebrew"
 	brew update --quiet
 	echo-segment --g2="Update Homebrew"
 
-	# -------------------------------------
-	# Removals
-
-	# Uninstalls
+	# uninstall packages
 	brew_uninstall "${HOMEBREW_UNINSTALL[@]}"
 
-	# Cleanup
+	# cleanup
 	# used to fix any breaks after the removals
 	source "$DOROTHY/sources/environment.sh"
-	brew_clean
+	clean_brew
 
-	# -------------------------------------
-	# Upgrade
-
+	# update packages
 	echo-segment --h2="Upgrade Homebrew"
-	brew upgrade --quiet
+	update_brew
 	echo-segment --g2="Upgrade Homebrew"
 
-	# -------------------------------------
-	# Dependencies
-
+	# depedencies
 	echo-segment --h2="Install build dependencies"
 	eval-helper --quiet \
 		-- setup-util-devel
 	echo-segment --g2="Install build dependencies"
 
-	# -------------------------------------
-	# Encoding
+	# install encoding tools
+	install_encoding
 
-	if test "$action" = "install"; then
-		# determine full value for HOMEBREW_ENCODING_INSTALL
-		if test -z "$HOMEBREW_ENCODING_INSTALL" -o "$reconfigure" = 'yes'; then
-			if confirm --negative --ppid=$$ -- 'Do you want to (re-)install encoding tools? This can take a while...'; then
-				HOMEBREW_ENCODING_INSTALL='yes'
-			else
-				HOMEBREW_ENCODING_INSTALL='no'
-			fi
-			# we don't want to trigger a full reconfigure, when just this is missing
-			if test "$reconfigure" = 'no'; then
-				update_dorothy_user_config 'setup.bash' -- \
-					--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL"
-			fi
-		fi
-	fi
-
-	# if yes, then install the linting tools
-	if test "$HOMEBREW_ENCODING_INSTALL" = 'yes'; then
-		echo-segment --h1="Homebrew encoding tools"
-		echo-style --notice="This can take a while... ⏲"
-
-		# install dependencies:
-		# https://github.com/varenc/homebrew-ffmpeg/issues/28
-		# https://trac.ffmpeg.org/wiki/CompilationGuide/macOS
-		# @todo perhaps this entire encoding section can become modifiers to the existing operations
-		brew_install_fast "${HOMEBREW_ENCODING_FORMULAS[@]}"
-
-		# Installing chromaprint will cause ffmpeg to be installed automatically, as such we need to remove that ffmpeg
-		# so that we can install the one with the build options
-		# Uninstall is necessary to prevent:
-		#     Error: ffmpeg is already installed
-		# --ignore-dependencies is necessary to prevent:
-		#     Error: Refusing to uninstall because it is required by chromaprint, which is currently installed.
-		#     Error: chromaprint not found
-		# More details:
-		# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/13#issuecomment-647408007
-		brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || :
-
-		# log
-		echo-segment --h2="Install ffmpeg with options"
-
-		# fetch all the build options for ffmpeg
-		local ffmpeg_opts
-		ffmpeg_opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
-		# Remove options that break ffmpeg
-		# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
-		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
-		ffmpeg_opts="${ffmpeg_opts/--with-decklink /}"
-		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/37#issuecomment-958018136
-		ffmpeg_opts="${ffmpeg_opts/--with-game-music-emu /}"
-		# Fails: Error: An exception occurred within a child process: FormulaUnavailableError: No available formula with the name "zvbi".
-		ffmpeg_opts="${ffmpeg_opts/--with-libzvbi /}"
-		# space seperated array
-		mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
-
-		# install with the build options
-		eval-helper --quiet \
-			-- brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts[@]}"
-
-		# log
-		echo-segment --g2="Install ffmpeg with options"
-		echo-segment --g1="Homebrew encoding tools"
-	else
-		echo-style --notice="Skipped encoding tools installation, due to preference."
-	fi
-
-	# -------------------------------------
-	# Install (fast/default) formulas
-
+	# install (fast/default) formulas
 	brew_install_fast "${HOMEBREW_FORMULAS[@]}"
 
-	# -------------------------------------
-	# Install slow formulas
-
+	# install slow formulas
 	brew_install_slow "${HOMEBREW_SLOW_FORMULAS[@]}"
 
-	# -------------------------------------
-	# Install casks
-
+	# install casks
 	if test "$action" = "install"; then
 		brew_install_cask "${HOMEBREW_CASKS[@]}"
 	fi
 
-	# -------------------------------------
-	# Install fonts
-
+	# install fonts
 	if test "$action" = "install"; then
 		brew_install_fonts "${HOMEBREW_FONTS[@]}"
 	fi
