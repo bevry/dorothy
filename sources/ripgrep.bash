@@ -10,7 +10,7 @@ if test -z "${RIPGREP_BIN_PATH-}"; then
 	}
 
 	# workaround for ripgrep outputting colors in pipes
-	RIPGREP_BIN_PATH="$(which rg)"
+	RIPGREP_BIN_PATH="$(command -v rg)"
 	function rg {
 		"$RIPGREP_BIN_PATH" --no-line-number --color never "$@"
 	}

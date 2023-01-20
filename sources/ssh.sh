@@ -23,7 +23,7 @@ if command-exists ssh-agent; then
 	# ensure ask pass is discoverable by the agent
 	if test -z "${SSH_ASKPASS-}" && command-exists ssh-askpass; then
 		export SSH_ASKPASS
-		SSH_ASKPASS="$(which ssh-askpass)"
+		SSH_ASKPASS="$(command -v ssh-askpass)"
 	fi
 	# setting [SSH_ASKPASS_REQUIRE] to [prefer] voids TTY responses
 
