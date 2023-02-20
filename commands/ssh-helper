@@ -3,6 +3,7 @@
 function ssh-helper() (
 	source "$DOROTHY/sources/bash.bash"
 	require_nullglob
+	require_globstar
 
 	# =====================================
 	# Arguments
@@ -72,6 +73,7 @@ function ssh-helper() (
 		'permissions'
 		'test'
 		'connect'
+		'export'
 	)
 	action="$(
 		choose-option --required \
@@ -80,12 +82,29 @@ function ssh-helper() (
 	)"
 
 	# =====================================
-	# Actions
+	# Helpers
 
+	# 1password helpers, should be somewhat in sync with setup-git
 	function sock_exists {
 		# the = part is some weird convention
 		test -n "${1-}" -a -e "${1-}" -o -e "${1-}="
 	}
+	function get_op_sock {
+		local op_socks __op_sock=''
+		op_socks=(
+			"$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+			"$HOME/.1password/agent.sock"
+		)
+		for __op_sock in "${op_socks[@]}"; do
+			if sock_exists "${__op_sock}"; then
+				echo "$__op_sock"
+				return 0
+			fi
+		done
+	}
+
+	# =====================================
+	# Actions
 
 	function ssh_configure {
 
@@ -101,20 +120,8 @@ function ssh-helper() (
 		# ---------------------------------
 		# 1Password
 
-		local op_socks op_sock='' __op_sock=''
-
-		# where are the op sockets
-		op_socks=(
-			"$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
-			"$HOME/.1password/agent.sock"
-		)
-
-		# are they available on this platform?
-		for __op_sock in "${op_socks[@]}"; do
-			if sock_exists "${__op_sock}"; then
-				op_sock="$__op_sock"
-			fi
-		done
+		local op_sock=''
+		op_sock="$(get_op_sock)"
 
 		# are we already using it?
 		if test -z "$SSH_IDENTITY_AGENT"; then
@@ -370,6 +377,44 @@ function ssh-helper() (
 			cat "$logs" >/dev/stderr
 			return 1
 		fi
+	}
+
+	function ssh_export {
+		# create .ssh folder if necessary
+		mkdir -p "$HOME/.ssh"
+
+		# process
+		local item paths=() raw='no' multi='no'
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--no-raw'* | '--raw'*)
+				raw="$(get-flag-value raw --missing="$raw" -- "$item" | echo-affirmative)"
+				;;
+			'--no-multi'* | '--multi'*)
+				multi="$(get-flag-value multi --missing="$multi" -- "$item" | echo-affirmative)"
+				;;
+			'--')
+				mapfile -t paths < <(fs-absolute -- "$@")
+				shift $#
+				break
+				;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*) help "An unrecognised argument was provided: $item" ;;
+			esac
+		done
+
+		# select one of the public keys if not specified
+		if test "${#paths[@]}" -eq 0; then
+			mapfile -t paths < <(
+				choose-option --required --multi="$multi" --question="Which SSH Public Key to export?" -- "$HOME/.ssh/"*.pub
+			)
+		fi
+
+		# output the paths
+		echo-file --raw="$raw" -- "${paths[@]}"
 	}
 
 	function ssh_connect {

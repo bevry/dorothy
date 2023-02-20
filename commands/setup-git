@@ -162,9 +162,44 @@ function setup-git() (
 				--question='Which branch to use as the default for new repositories?' \
 				--default="$GIT_DEFAULT_BRANCH"
 		)"
-		if (command-exists krgpg || test "$GPG_SIGNING_KEY" = 'krypton') && confirm --positive --ppid=$$ -- 'Use Krypton for GPG?'; then
-			GPG_SIGNING_KEY='krypton'
+
+		# prefer 1password
+		if command-exists op-ssh-sign; then
+			if test "$GPG_SIGNING_KEY" != 'op'; then
+				if confirm --positive --ppid=$$ -- '1Password SSH Signing Agent is available for GPG, use it?'; then
+					GPG_SIGNING_KEY='op'
+				fi
+			fi
 		else
+			if test "$GPG_SIGNING_KEY" = 'op'; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --e2="Git Configuration: GPG: 1Password")
+					GPG using 1Password was desired, however 1Password does not appear to be installed on this system. Install it first via:
+
+					    $(echo-style --code="setup-util-1password")
+					    $(echo-style --code="setup-util-1password-cli")
+
+					Will continue without this.
+				EOF
+				GPG_SIGNING_KEY=''
+			fi
+		fi
+		if command-exists krgpg; then
+			if test "$GPG_SIGNING_KEY" != 'krypton'; then
+				if confirm --positive --ppid=$$ -- 'Krypton is available for GPG, use it?'; then
+					GPG_SIGNING_KEY='krypton'
+				fi
+			fi
+		else
+			if test "$GPG_SIGNING_KEY" = 'krypton'; then
+				cat <<-EOF >/dev/stderr
+					$(echo-style --e2="Git Configuration: GPG: Krypton")
+					GPG using Krypton was desired, however Krypton does not appear to be installed on this system. Install it first. Will continue without this.
+				EOF
+				GPG_SIGNING_KEY=''
+			fi
+		fi
+		if test "$GPG_SIGNING_KEY" != 'op' && "$GPG_SIGNING_KEY" != 'krypton'; then
 			# 2>/dev/null || : in case there are no gpg keys
 			GPG_SIGNING_KEY="$(gpg-helper get private 2>/dev/null || :)"
 		fi
@@ -242,7 +277,6 @@ function setup-git() (
 
 	# https://gist.github.com/troyfontaine/18c9146295168ee9ca2b30c00bd1b41e
 
-	# helpers
 	function gpg_enable {
 		# Enable GPG for Git
 		git config --global tag.gpgsign true
@@ -258,13 +292,16 @@ function setup-git() (
 	}
 	function gpg_disable {
 		# Disable GPG for Git
+		git config --global --unset gpg.format || :
+		git config --global --unset gpg.program || :
+		git config --global --unset gpg.ssh.program || :
 		git config --global --unset tag.gpgsign || :
 		git config --global --unset commit.gpgsign || :
 		git config --global --unset user.signingkey || :
 		echo-style --h2="Git Configuration: GPG: Disabled"
 	}
 	function gpg_krypton {
-		# Use Krypton as the GPG Client
+		# Use Krypton for GPG
 		setup-util-krypton
 		kr pair # krgpg and kr are both installed above
 		# configure git for krypton
@@ -312,11 +349,49 @@ function setup-git() (
 		# restart
 		gpg-agent --daemon || :
 	}
+	function gpg_op {
+		# Use 1Password SSH Signing for GPG
+		local op_pub=''
+		op_pub="$(ssh-helper export --raw || :)"
+		if command-exists op-ssh-sign; then
+			if test -n "$op_pub"; then
+				git config --global gpg.format ssh
+				git config --global user.signingkey "$op_pub"
+				git config --global gpg.ssh.program "$(command -v op-ssh-sign)"
+				cat <<-EOF
+					$(echo-style --e2="Git Configuration: GPG: 1Password")
+					Make sure you add the following public key as your SSH signing key on:
+					https://github.com/settings/ssh/new
+
+					$(echo-style --code="$op_pub")
+
+				EOF
+			else
+				cat <<-EOF >/dev/stderr
+					$(echo-style --e2="Git Configuration: GPG: 1Password")
+					GPG using 1Password was desired, however was unable to find a public key.
+				EOF
+				return 1
+			fi
+		else
+			cat <<-EOF >/dev/stderr
+				$(echo-style --e2="Git Configuration: GPG: 1Password")
+				GPG using 1Password was desired, however 1Password does not appear to be installed on this system. Install it first via:
+
+					$(echo-style --code="setup-util-1password")
+					$(echo-style --code="setup-util-1password-cli")
+
+			EOF
+			return 1
+		fi
+	}
 	function gpg_setup {
 		echo-style --h2="Git Configuration: GPG"
 
 		# adjust
-		if test "$GPG_SIGNING_KEY" = "krypton"; then
+		if test "$GPG_SIGNING_KEY" = "op"; then
+			gpg_op
+		elif test "$GPG_SIGNING_KEY" = "krypton"; then
 			gpg_krypton
 		else
 			gpg_gnu "$GPG_SIGNING_KEY"
