@@ -1,45 +1,65 @@
 #!/usr/bin/env bash
 
 # https://github.com/azlux/log2ram
-# sudo du -hs /var/log/* | sort -h | tail -n 3
+# https://www.freedesktop.org/software/systemd/man/journald.conf.html
+# https://www.digitalocean.com/community/tutorials/how-to-manage-logfiles-with-logrotate-on-ubuntu-20-04
 
 function setup-util-log2ram() (
 	source "$DOROTHY/sources/bash.bash"
 
-	# install
+	# check for compatibility
+	if ! is-linux; then
+		echo-style --notice="[$0] is only intended to be run on Linux systems, skipping." >/dev/stderr
+		return 0
+	fi
+
+	# install log2ram
 	# official docs has two issues (bullseye instead of main, and http instead https)
 	setup-util "$@" --cli='log2ram' \
 		APT_KEY='https://azlux.fr/repo.gpg' \
 		APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://packages.azlux.fr/debian/ stable main' \
 		APT='log2ram'
 
-	# install log rotate as well
-	# https://www.digitalocean.com/community/tutorials/how-to-manage-logfiles-with-logrotate-on-ubuntu-20-04
+	# install log rotate
 	setup-util "$@" --cli='logrotate' \
 		APT='logrotate'
 
-	# sudo vim /etc/logrotate.conf
-	# rotate 0
-	# daily
-	# create
-	# nomail
-	# notifempty
-	# compress
-	# su root adm
-	# # include /etc/logrotate.d
+	# if installed, then apply
+	if command-exists log2ram; then
+		# stop
+		service-helper --disable --stop --ignore -- log2ram logrotate
 
-	# sudo vim /etc/systemd/journald.conf
-	# https://www.freedesktop.org/software/systemd/man/journald.conf.html
-	# SystemMaxUse=10M
-	# RuntimeMaxUse=10M
-	# MaxRetentionSec=6h
-	# MaxFileSec=6h
+		# configure
+		if confirm --positive --ppid=$$ -- "Use sensible defaults?"; then
+			sudo tee /etc/logrotate.conf <<-EOF
+				compress
+				create
+				daily
+				nomail
+				notifempty
+				rotate 0
+				su root adm
+			EOF
+			sudo tee /etc/systemd/journald.conf <<-EOF
+				[Journal]
+				MaxFileSec=6h
+				MaxRetentionSec=6h
+				RuntimeMaxUse=10M
+				Storage=volatile
+				SystemMaxUse=10M
+			EOF
+			sudo tee /etc/log2ram.conf <<-EOF
+				LOG_DISK_SIZE=100M
+				PATH_DISK="/var/log"
+				SIZE=50M
+			EOF
+		fi
 
-	# sudo vim /etc/log2ram.conf
-	# MAIL=false
-	# SIZE=50M
-
-	# sudo reboot
+		# cleanup
+		sudo-helper -- journalctl --vacuum-time=1d
+		service-helper --enable --start --status --logs -- log2ram logrotate
+		sudo-helper -- du -hs /var/log/* | sort -h | tail -n 3
+	fi
 )
 
 # fire if invoked standalone
