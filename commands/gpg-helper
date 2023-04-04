@@ -37,7 +37,6 @@ function gpg-helper() (
 			    Output the identifier of a selected key.
 
 			gpg-helper import
-			  <public|private>
 			  <file>
 
 			    Import the contents of a specific key file.
@@ -222,7 +221,35 @@ function gpg-helper() (
 	# configure
 	function act_configure {
 		act_permissions
-		edit -- "$GNUPGHOME/" "$GNUPGHOME/"*".conf"
+
+		# stop
+		silent killall gpg-agent || :
+		silent killall gpg || :
+
+		# configure
+		if confirm --positive --ppid=$$ -- "Apply sensible defaults?"; then
+			# http://github.com/isaacs/github/issues/675
+			# ^ no longer necessary, and intereferes with gpg edit key
+			config-helper --file="$GNUPGHOME/gpg.conf" -- \
+				--find='no-tty' --replace=''
+
+			# pinentry
+			agent_program="$(command -v pinentry)"
+			if test -n "$agent_program"; then
+				agent_file="$GNUPGHOME/gpg-agent.conf"
+				touch "$agent_file"
+				config-helper --file="$agent_file" -- \
+					--find='pinentry-program .+' --replace="pinentry-program $agent_program"
+			fi
+		fi
+
+		# review
+		if confirm --negative --ppid=$$ -- "Review configuration?"; then
+			edit -- "$GNUPGHOME/" "$GNUPGHOME/"*".conf"
+		fi
+
+		# restart
+		gpg-agent --daemon || :
 	}
 
 	# info
@@ -243,7 +270,7 @@ function gpg-helper() (
 
 	# get [mode] [key]
 	function act_get {
-		local mode="${1-}" flag __type keys=()
+		local mode="${1-}" key="${2-}" flag __type keys=()
 		mode="$(get_mode "$mode")"
 		if test "$mode" = 'private'; then
 			flag="K"
@@ -264,17 +291,28 @@ function gpg-helper() (
 
 		choose-option --required \
 			--question='Which key to select?' \
+			--default="$key" \
 			-- "${keys[@]}"
 	}
 
-	# import [mode] [key]
+	# import [key]
 	function act_import {
-		local mode="${1-}" key="${2-}"
-		mode="$(get_mode "$mode")"
-		if test "$mode" = 'private'; then
-			gpg --import --allow-secret-key-import "$key"
+		# https://unix.stackexchange.com/a/184952
+		# --allow-secret-key-import is deprecated
+		act_permissions
+		local file="${1-}" key # email
+		if contains-line "-----BEGIN PGP PRIVATE KEY BLOCK-----" <"$file"; then
+			key="$(fs-temp --file --extension='gpg')"
+			gpg -o "$key" --dearmor "$file"
+			# email="$(get-profile email || :)"
+			# if test -z "$email"; then
+			# 	email="$(ask --required --question="What is the email associated with this key?")"
+			# fi
+			# printf '\xb4\x06%s' "$email" >>"$key"
+			gpg --debug-level guru --import "$key"
+			rm -f "$key"
 		else
-			gpg --import "$key"
+			gpg --debug-level guru --import "$file"
 		fi
 	}
 
@@ -284,9 +322,9 @@ function gpg-helper() (
 		mode="$(get_mode "$mode")"
 		key="$(act_get "$mode" "$key")"
 		if test "$mode" = 'private'; then
-			gpg --armor --export-secret-keys "$key"
+			gpg --armor --export-options backup --export-secret-keys "$key"
 		else
-			gpg --armor --export "$key"
+			gpg --armor --export-options backup --export "$key"
 		fi
 	}
 
