@@ -2,7 +2,7 @@
 # do whatever you want in this file:
 # shellcheck disable=SC2034
 
-# Used by `shell.sh`
+# Used by `interactive.sh`
 
 # Source the bash/zsh completions if you care for them
 source "$DOROTHY/sources/completions.sh"

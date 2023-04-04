@@ -2,7 +2,7 @@
 # use inline `export VAR=...` statements, for fish compatibility`:
 # shellcheck disable=SC2034
 
-# Loaded by `shell.sh`
+# Loaded by `interactive.sh`
 # Must be compatible with fish, zsh, bash
 
 # Tell Dorothy which theme to load, if any.
