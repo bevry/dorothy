@@ -197,12 +197,12 @@ If you use Dorothy, add yourself below:
 
 Dorothy is supported by the following [sponsors](https://github.com/sponsors/balupton):
 
--   [Rob Morris](https://github.com/Rob-Morris)
--   [Armen Mkrtchian](https://github.com/Armenm)
--   [dr.dimitru](https://github.com/dr-dimitru)
--   [Elliott Ditman](https://github.com/elliottditman)
+-   [Andrew Nesbitt](https://github.com/andrew)
 -   [Balsa](https://github.com/balsa)
+-   [dr.dimitru](https://github.com/dr-dimitru)
 -   [Octavian](https://github.com/octavian-one)
+-   [Poonacha Medappa](https://github.com/km-Poonacha)
+-   [Rob Morris](https://github.com/Rob-Morris)
 -   [Timothy H](https://github.com/timmyha)
 
 <!-- LICENSE/ -->
