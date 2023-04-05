@@ -87,7 +87,7 @@ dorothy theme
 
 ## Troubleshooting
 
-If your shell doesn't recognise the syntax, run `bash -il` then run the command again.
+If your shell doesn't recognize the syntax, run `bash -il` then run the command again.
 
 If you get a command not found error or an undefined/unbound variable error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/dorothy-not-loading.md) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
 
