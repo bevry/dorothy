@@ -218,9 +218,9 @@ Dorothy is supported by the following [sponsors](https://github.com/sponsors/bal
 -   [Balsa](https://github.com/balsa)
 -   [dr.dimitru](https://github.com/dr-dimitru)
 -   [Octavian](https://github.com/octavian-one)
+-   [Pleo](https://github.com/pleo-io)
 -   [Poonacha Medappa](https://github.com/km-Poonacha)
 -   [Rob Morris](https://github.com/Rob-Morris)
--   [Timothy H](https://github.com/timmyha)
 
 <!-- LICENSE/ -->
 
