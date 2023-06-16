@@ -7,13 +7,11 @@ if test "$ACTIVE_SHELL" = 'bash'; then
 
 	# default completions
 	if test -f /etc/bash_completion; then
-		# trunk-ignore(shellcheck/SC1091)
 		. '/etc/bash_completion'
 	fi
 
 	# homebrew completions
 	if test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
-		# trunk-ignore(shellcheck/SC1091)
 		. "$HOMEBREW_PREFIX/etc/bash_completion"
 	fi
 fi
@@ -43,14 +41,10 @@ if test -n "${HOMEBREW_PREFIX-}"; then
 	GDIR="${HOMEBREW_PREFIX}/Caskroom/google-cloud-sdk"
 	if test -d "$GDIR"; then
 		if test "$ACTIVE_SHELL" = 'bash'; then
-			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
-			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
 		elif test "$ACTIVE_SHELL" = 'zsh'; then
-			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
-			# trunk-ignore(shellcheck/SC1091)
 			. "$GDIR/latest/google-cloud-sdk/completion.zsh.inc"
 		fi
 	fi
