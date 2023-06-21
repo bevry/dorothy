@@ -54,3 +54,9 @@ fi
 # https://firebase.google.com/docs/functions/get-started
 # npm install -g firebase-tools
 # firebase init
+
+# GitHub Copilot CLI
+# https://www.npmjs.com/package/@githubnext/github-copilot-cli
+if command-exists github-copilot-cli; then
+	eval "$(github-copilot-cli alias -- "$ACTIVE_SHELL")"
+fi
