@@ -28,17 +28,4 @@ fi
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
 
-# bash adn zsh extensions
-if test "$ACTIVE_SHELL" = 'bash' -o "$ACTIVE_SHELL" = 'zsh'; then
-	# github copilot cli
-	# https://www.npmjs.com/package/@githubnext/github-copilot-cli
-	if command-exists github-copilot-cli; then
-		eval "$(github-copilot-cli alias -- "$ACTIVE_SHELL")"
-	fi
-
-	# vscode terminal integration
-	# https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
-	if test "$TERM_PROGRAM" = "vscode"; then
-		. "$(code --locate-shell-integration-path "$ACTIVE_SHELL")"
-	fi
-fi
+# autocompletions should go inside sources/completions.*

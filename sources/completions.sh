@@ -3,14 +3,14 @@
 # Bash Completions
 if test "$ACTIVE_SHELL" = 'bash'; then
 	# trunk-ignore(shellcheck/SC3044)
-	shopt -s progcomp # enable completions
+	shopt -s progcomp # enable bash completions feature
 
-	# default completions
+	# load bash default completions
 	if test -f /etc/bash_completion; then
 		. '/etc/bash_completion'
 	fi
 
-	# homebrew completions
+	# load homebrew completions
 	if test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
 		. "$HOMEBREW_PREFIX/etc/bash_completion"
 	fi
@@ -59,4 +59,10 @@ fi
 # https://www.npmjs.com/package/@githubnext/github-copilot-cli
 if command-exists github-copilot-cli; then
 	eval "$(github-copilot-cli alias -- "$ACTIVE_SHELL")"
+fi
+
+# Visual Studio Code Terminal Shell Integration
+# https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
+if test "$TERM_PROGRAM" = "vscode"; then
+	. "$(code --locate-shell-integration-path "$ACTIVE_SHELL")"
 fi
