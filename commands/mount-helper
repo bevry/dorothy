@@ -247,6 +247,7 @@ function mount-helper() (
 			'sudo-helper'
 			"--user=$option_user"
 			"--group=$option_group"
+			'--'
 		)
 		local ls_cmd=(
 			'ls'
@@ -606,19 +607,19 @@ function mount-helper() (
 		# coerce commands
 		if is_samba "$option_type" && is-mac && [[ $option_target == '/Volumes/'* ]]; then
 			mounting_cmd+=(
-				# not necessary: "${sudo_cmd[@]}" --
+				# not necessary: "${sudo_cmd[@]}"
 				"${open_cmd[@]}"
 			)
 			mounting_safety='no'
 		elif is_gocryptfs "$option_type"; then
 			mounting_cmd+=(
-				"${sudo_cmd[@]}" --
+				"${sudo_cmd[@]}"
 				"${gocryptfs_cmd[@]}"
 			)
 		else
 			# linux/macos device, linux samba
 			mounting_cmd+=(
-				"${sudo_cmd[@]}" --
+				"${sudo_cmd[@]}"
 				"${mount_cmd[@]}"
 			)
 		fi
@@ -683,79 +684,100 @@ function mount-helper() (
 				mount_cmd "${mount_cmd[*]}" \
 				mounting_cmd "${mounting_cmd[*]}"
 		}
-		function do_automount_remove {
-			local fstab_lines='' cron_lines=''
-			if test -z "$option_share" -o -z "$option_target"; then
-				echo-error "[mount-helper --no-automount] requires <share> and <target>"
-				return 22 # Invalid argument
-			fi
-
-			fstab_lines="$(cat /etc/fstab | rg --fixed-strings --regexp="$(echo-fstab-encode "$option_target")" || :)"
-			cron_lines="$(crontab -l | sponge | rg --fixed-strings --regexp="$option_target" || :)"
-
-			if test -n "$fstab_lines"; then
-				# use fstab
-				echo-style --bold='You will now be prompted to update your ' --invert='fstab' --bold=' configuration, please ensure the following lines are ' --bold+red='removed' --bold=':' $'\n' --code="$fstab_lines"
-				if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-					edit --sudo -- '/etc/fstab'
-				else
-					return 125 # ECANCELED 125 Operation cancelled
-				fi
-			fi
-
-			if test -n "$cron_lines"; then
-				# use cron
-				echo-style --bold='You will now be prompted to update your ' --invert='cron' --bold=' configuration, please ensure the following lines are ' --bold+red='removed' --bold=':' $'\n' --code="$cron_lines"
-				if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-					env EDITOR="$(edit --dry --terminal)" crontab -e
-				else
-					return 125 # ECANCELED 125 Operation cancelled
-				fi
-			fi
-		}
-		function do_automount_add {
+		function do_automount_adjust {
+			local fstab_lines='' cron_lines='' automount_action="$1"
 			if test -z "$option_share" -o -z "$option_target"; then
 				echo-error "[mount-helper --automount] requires <share> and <target>"
 				return 22 # Invalid argument
 			fi
-			# @todo if dorothy run does not work, make it so that cron enforces fstab use
-			local automount_options=()
-			if test -n "$fstab_line"; then
-				automount_options+=('fstab' 'automount on login')
-				if test -n "$cron_line"; then
-					automount_options+=('cron' 'automount every 15 minutes')
-				fi
+
+			# fstab
+			echo
+			if test -z "$fstab_line"; then
+				echo-style 'Automounting via ' --invert='fstab' ' is ' --negative='unsupported' ' for ' --code="$log_source"
+			else
+				echo-style 'Automounting via ' --invert='fstab' ' is ' --positive='supported' ' for ' --code="$log_source"
 			fi
-			if test -z "${automount_options[*]}"; then
-				echo-error "Automounting is not available for this source:" ' ' --code="$log_source"
-				return 22 # Invalid argument
+			if test "$automount_action" = 'remove'; then
+				fstab_line=''
+				echo-style 'Automounting via ' --invert='fstab' ' is ' --negative='undesired.'
+			else
+				echo-style 'Automounting via ' --invert='fstab' ' is ' --positive='desired.'
 			fi
-			mapfile -t automount_options < <(
-				choose-option --multi \
-					--question="Which automount technique to use?" \
-					--label -- "${automount_options[@]}"
-			)
-			if is-needle 'fstab' "${automount_options[@]}"; then
-				# use fstab
-				echo-style --bold='You will now be prompted to update your ' --invert='fstab' --bold=' configuration, please ensure the following lines are ' --bold+green='added' --bold=':' $'\n' --code="$fstab_line"
-				if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-					edit --sudo -- '/etc/fstab'
+			while true; do
+				fstab_lines="$(cat /etc/fstab | rg --fixed-strings --regexp="$(echo-fstab-encode "$option_target")" || :)"
+				if test "$fstab_lines" = "$fstab_line"; then
+					echo-style 'Your ' --invert='fstab' ' configuration is ' --positive='correctly' ' configured.'
+					if test -z "$fstab_line"; then
+						echo-style --positive='No changes necessary.'
+					else
+						echo-style --positive='It already has these lines:' $'\n' --code="$fstab_line"
+					fi
+					echo
+					break
 				else
-					return 125 # ECANCELED 125 Operation cancelled
+					echo-style 'Your ' --invert='fstab' ' configuration is ' --negative='incorrectly' ' configured.'
+					if test -n "$fstab_lines"; then
+						echo-style --negative='You must remove these lines:' $'\n' --code="$fstab_lines"
+					fi
+					if test -n "$fstab_line"; then
+						echo-style --positive='You must add this line:' $'\n' --code="$fstab_line"
+					fi
+					if confirm --positive --ppid=$$ -- "Ready to continue?"; then
+						edit --sudo -- '/etc/fstab' || :
+					else
+						return 125 # ECANCELED 125 Operation cancelled
+					fi
+					echo
 				fi
-				# sudo-helper --inherit \
-				# 	-- config-helper --file='/etc/fstab' -- \
-				# 	--find=".+? $option_target .+?" --replace="$fstab_line"
+			done
+
+			# cron
+			echo
+			if test -z "$cron_line"; then
+				echo-style 'Automounting via ' --invert='cron' ' is ' --negative='unsupported' ' for ' --code="$log_source"
+			else
+				echo-style 'Automounting via ' --invert='cron' ' is ' --positive='supported' ' for ' --code="$log_source"
 			fi
-			if is-needle 'cron' "${automount_options[@]}"; then
-				# use cron
-				echo-style --bold='You will now be prompted to update your ' --invert='cron' --bold=' configuration, please ensure the following lines are ' --bold+green='added' --bold=':' $'\n' --code="$cron_line"
-				if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-					env EDITOR="$(edit --dry --terminal)" crontab -e
+			if test "$automount_action" = 'remove'; then
+				cron_line=''
+				echo-style 'Automounting via ' --invert='cron' ' is ' --negative='undesired.'
+			else
+				echo-style 'Automounting via ' --invert='cron' ' is ' --positive='desired.'
+			fi
+			while true; do
+				cron_lines="$("${sudo_cmd[@]}" crontab -l | sponge | rg --fixed-strings --regexp="$option_target" || :)"
+				if test "$cron_lines" = "$cron_line" || [[ "$automount_action" == 'add' && "$cron_lines" == *cronitor* ]]; then
+					echo-style 'Your ' --invert='cron' ' configuration is ' --positive='correctly' ' configured.'
+					if test -z "$cron_line"; then
+						echo-style --positive='No changes necessary.'
+					else
+						echo-style --positive='It already has these lines:' $'\n' --code="$cron_line"
+					fi
+					echo
+					break
 				else
-					return 125 # ECANCELED 125 Operation cancelled
+					echo-style 'Your ' --invert='cron' ' configuration is ' --negative='incorrectly' ' configured.'
+					if test -n "$cron_lines"; then
+						echo-style --negative='You must remove these lines:' $'\n' --code="$cron_lines"
+					fi
+					if test -n "$cron_line"; then
+						echo-style --positive='You must add this line:' $'\n' --code="$cron_line"
+					fi
+					if confirm --positive --ppid=$$ -- "Ready to continue?"; then
+						"${sudo_cmd[@]}" env EDITOR="$(edit --dry --terminal)" crontab -e || :
+					else
+						return 125 # ECANCELED 125 Operation cancelled
+					fi
+					echo
 				fi
-			fi
+			done
+		}
+		function do_automount_remove {
+			do_automount_adjust 'remove'
+		}
+		function do_automount_add {
+			do_automount_adjust 'add'
 		}
 		function do_check {
 			local filter=''
@@ -1053,8 +1075,7 @@ function mount-helper() (
 		'--unmount') option_actions='[unmount]' ;;
 		'--check' | '--mounted') option_actions='[check]' ;;
 		'--automount') option_actions+='[automount]' ;;
-		'--unautomount') option_actions+='[unautomount]' ;;
-		'--no-automount') option_actions+='[unautomount]' ;;
+		'--unautomount' | '--no-automount' | '--automount=no' | '--automount=false') option_actions+='[unautomount]' ;;
 
 		'--no-remount'* | '--remount'*) option_remount="$(
 			get-flag-value remount --missing="$option_remount" -- "$item" | echo-affirmative

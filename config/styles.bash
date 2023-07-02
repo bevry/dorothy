@@ -123,6 +123,8 @@ n3="${h3}${foreground_yellow}"
 header="${bold}${underline}"
 error="${background_intense_red}${foreground_intense_white}"
 success="${foreground_green}${bold}"
+positive="${foreground_green}${bold}"
+negative="${foreground_red}${bold}"
 notice="$e2"
 code="${dim}"
 # don't use intense_yellow as it is unreadable on light terminal themes, plain yellow works for light and dark themes
