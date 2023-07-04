@@ -17,11 +17,6 @@ else
 	load_dorothy_config "interactive.$ACTIVE_SHELL" 'interactive.sh'
 fi
 
-# dorothy theme override, which is used for trial mode
-if test -n "${DOROTHY_THEME_OVERRIDE-}"; then
-	DOROTHY_THEME="$DOROTHY_THEME_OVERRIDE"
-fi
-
 # continue with the shell extras
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/history.sh"

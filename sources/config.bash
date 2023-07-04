@@ -23,7 +23,7 @@ function prepare_packages {
 		installer="$(get-installer "$item" || :)"
 		if test -n "$installer"; then
 			if [[ $installer == 'setup-util-'* ]]; then
-				util="${installer:11}"
+				util="${installer#*setup-util-}"
 				echo-style --notice="Moved [$item] from [$name] to [SETUP_UTILS] as [$util]." >/dev/stderr
 				SETUP_UTILS+=("$util")
 				reconfigure='yes'
@@ -86,7 +86,7 @@ function update_dorothy_user_config {
 		shift
 		case "$item" in
 		'--help' | '-h') update_dorothy_user_config_help ;;
-		'--file='*) dorothy_config_filename="${item:7}" ;;
+		'--file='*) dorothy_config_filename="${item#*--file=}" ;;
 		'--prefer=local') dorothy_config_prefer='local' ;;
 		'--no-prefer' | '--prefer=') dorothy_config_prefer='' ;;
 		'--template=default') dorothy_config_template='default' ;;
