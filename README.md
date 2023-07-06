@@ -67,8 +67,8 @@ sudo apt install bash curl git
 # IF you are on macOS, install the dependencies
 xcode-select --install
 
-# To run only a specific command, run the following and swap out `what-is-my-ip` with whatever command you wish to run
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/commands/what-is-my-ip)"
+# To run only a specific command, run the following and swap out `echo-verbose` with whatever command you wish to run
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/commands/echo-verbose)" -- a b c
 
 # To run multiple commands in a REPL, run the following then type the commands you wish to execute
 eval "$(curl -fsSL https://dorothy.bevry.me/try)"
