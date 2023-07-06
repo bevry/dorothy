@@ -44,7 +44,7 @@ function dorothy() (
 		# `sudo env -i "$(which dorothy)" run env` <-- whoami returns root, who does not have dorothy installed
 		# @todo consider if this runs on zsh and bash v3
 		self="${BASH_SOURCE:-"$0"}"
-		if [[ "$self" == *'.local/share/dorothy/commands/dorothy' ]] && test -f "$self"; then
+		if [[ $self == *'.local/share/dorothy/commands/dorothy' ]] && test -f "$self"; then
 			DOROTHY="${self%/commands/dorothy*}"
 			if test -z "${HOME-}"; then
 				export HOME
@@ -94,9 +94,23 @@ function dorothy() (
 
 			USAGE:
 
+			dorothy install [--[no-]xdg]
+
+			    Installs Dorothy interactively, with configuration for dotfile modifications.
+			    If you are a poweruser and wish to override XDG autodetection to either enforce XDG compliance or non-compliance then provide [--xdg] or [--no-xdg] respectively.
+
+			dorothy uninstall
+
+			    Removes the Dorothy sourcing from your dotfile configuration files.
+
+			dorothy trial
+			    [--shell=<shell>]
+
+			    Invoke [dorothy shell] with the trial theme.
+
 			dorothy shell
-				[--shell=<shell>]
-				[--theme=<theme>]
+			    [--shell=<shell>]
+			    [--theme=<theme>]
 
 			    Invoke an interactive shell that has Dorothy Available, without the need to install Dorothy to access its commands.
 			    If a shell is provided, invoke dorothy within that shell, otherwise invoke dorothy within bash.
@@ -105,11 +119,6 @@ function dorothy() (
 				-- <command> [...]
 
 				Invoke the <command> within the Dorothy environment, without the need to isntall Dorothy to access the command.
-
-			dorothy install [--[no-]xdg]
-
-			    Installs Dorothy interactively, with configuration for dotfile modifications.
-			    If you are a poweruser and wish to override XDG autodetection to either enforce XDG compliance or non-compliance then provide [--xdg] or [--no-xdg] respectively.
 
 			dorothy update
 
@@ -170,6 +179,11 @@ function dorothy() (
 		'--help' | '-h') help ;;
 		'--xdg') DOROTHY_XDG='yes' ;;
 		'--no-xdg') DOROTHY_XDG='no' ;;
+		'trial')
+			action='trial'
+			args+=("$@")
+			shift $#
+			;;
 		'shell')
 			action='shell'
 			args+=("$@")
@@ -311,7 +325,7 @@ function dorothy() (
 	function ensure_minimal_dependencies {
 		# dorothy is now installed
 		if is-mac; then
-			setup-util-xcode
+			setup-util-xcode --quiet
 		fi
 
 		# [github-download] requires [jq]
@@ -461,7 +475,7 @@ function dorothy() (
 			if test "$DOROTHY_XDG" = 'yes'; then
 				relocate_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 				# ensure $DOROTHY/user always exists
-				symlink-helper --existing="$XDG_CONFIG_HOME/dorothy" --symlink="$DOROTHY/user"
+				symlink-helper --quiet --existing="$XDG_CONFIG_HOME/dorothy" --symlink="$DOROTHY/user"
 			elif test "$DOROTHY_XDG" = 'no'; then
 				relocate_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
 				relocate_if_necessary "$HOME/.config/dorothy" "$DOROTHY/user"
@@ -628,7 +642,7 @@ function dorothy() (
 
 	function ensure_dorothy_configured {
 		# sanity check
-		if ! [[ $action =~ install|update|shell|run ]]; then
+		if ! [[ $action =~ install|update|trial|shell|run ]]; then
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 
@@ -647,7 +661,7 @@ function dorothy() (
 		}
 
 		# check
-		if test "$action" = 'shell' -o "$action" = 'run'; then
+		if [[ $action =~ trial|shell|run ]]; then
 			# in trial mode, only install dorothy if necessary, do not update
 			if test ! -d "$DOROTHY"; then
 				install_dorothy
@@ -1014,28 +1028,16 @@ function dorothy() (
 		echo-segment --g1='Update Dorothy'
 	}
 
+	function act_trial {
+		act_shell --theme=trial "$@"
+	}
+
 	# eval "$(curl -fsSL https://dorothy.bevry.me/try)"
 	# eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
 	# bash eval "$(curl -fsSL https://dorothy.bevry.workers.dev)"
 	#
 	# default to [shell=bash] instead of [sh] as [sh] is [dash] on ubuntu, and [dash] doesn't support the [--...] args
 	# [bash --rcfile] works but not within a [--rcfile]
-	#
-	# fish shell is not supported, as the --init-command is not sourced (sharing a scope), it is executed (discarding the scope)
-	# https://matrix.to/#/!YLTeaulxSDauOOxBoR:matrix.org/$SQhNLZM6SvpKBXlpjusU1aOufl2yLFyYxMBxP6PemQk?via=gitter.im&via=matrix.org&via=tchncs.de
-	# elif [[ "$shell" == *fish ]]; then
-	# 	# @todo theme does not apply, it seems as fish does not respect fish_prompt command
-	# 	local init_script
-	# 	init_script="$(fs-temp --file='init.fish')"
-	# 	cat <<-EOF >"$init_script"
-	# 		#!/usr/bin/env fish
-	# 		set DOROTHY_THEME_OVERRIDE '$theme'
-	# 		. '$DOROTHY/sources/login.fish'
-	# 		. '$DOROTHY/sources/interactive.fish'
-	# 		echo-style 'Your are now using the ' --code='$ACTIVE_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \n 'Use the ' --code='exit' ' command to return to your parent shell.' \n 'Use ' --code='ls $DOROTHY/commands' ' to see available commands.'
-	# 	EOF
-	# 	chmod +x "$init_script"
-	# 	"$shell" --interactive --login --no-config --init-command="$init_script"
 	function act_shell {
 		# process arguments
 		local item shell='bash' theme=''
@@ -1066,14 +1068,25 @@ function dorothy() (
 		# this is not a true login shell, as [$0] is not [-bash], as such loading [init.sh] is incompatible
 		# without [env -i] which would wipe [USER/HOME/DOROTHY], then this shell will inherit exports from the current environment
 		# [environment.sh] is sourced as many variables that are not exported must be loaded
-		if [[ "$shell" == *bash ]]; then
+		if [[ $shell == *bash ]]; then
+			# trunk-ignore(shellcheck/SC2028)
 			"$shell" --rcfile <(echo "
 				#!/usr/bin/env bash
+				DOROTHY_LOAD=yes
+				DOROTHY_LOADED=no
 				DOROTHY_THEME_OVERRIDE='$theme'
-				. '$DOROTHY/sources/login.sh'
-				. '$DOROTHY/sources/interactive.sh'
+				. '$DOROTHY/init.sh'
 				echo-style 'Your are now using the ' --code='$ACTIVE_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \$'\n' 'Use the ' --code='exit' ' command to return to your parent shell.' \$'\n' 'Use ' --code='ls $DOROTHY/commands' ' to see available commands.'
 			")
+		elif [[ $shell == *fish ]]; then
+			"$shell" --interactive --login --no-config --init-command="$(
+				cat <<-EOF
+					#!/usr/bin/env fish
+					set DOROTHY_THEME_OVERRIDE '$theme'
+					source '$DOROTHY/init.fish'
+					echo-style 'Your are now using the ' --code='$ACTIVE_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \n 'Use the ' --code='exit' ' command to return to your parent shell.' \n 'Use ' --code='ls $DOROTHY/commands' ' to see available commands.'
+				EOF
+			)"
 		else
 			echo-error "$shell cannot be trialed by " --code='dorothy shell' ' as it does not support trialling a REPL with a custom configuration'
 			return 93 # EPROTONOSUPPORT 93 Protocol not supported
@@ -1092,8 +1105,6 @@ function dorothy() (
 			item="$1"
 			shift
 			case "$item" in
-			# '--shell='*) shell="${item#*--shell=}" ;;
-			# '--flags='*) flags="${item#*--flags=}" ;;
 			'--')
 				args+=("$@")
 				shift $#
@@ -1287,12 +1298,14 @@ function dorothy() (
 		echo-segment --h2='Running Lint'
 		# on dorothy
 		pushd "$DOROTHY" >/dev/null
+		trunk upgrade # always upgrade as still buggy
 		trunk fmt --all "${args[@]}"
 		trunk check --all "${args[@]}"
 		popd >/dev/null
 		# on user configuration
 		if test -d "$DOROTHY/user/.trunk"; then
 			pushd "$DOROTHY/user" >/dev/null
+			trunk upgrade # always upgrade as still buggy
 			trunk fmt --all "${args[@]}"
 			trunk check --all "${args[@]}"
 			popd >/dev/null
@@ -1343,7 +1356,7 @@ function dorothy() (
 	# all helpers are defined, and argument overrides are handled
 	# so prepare the local environment context with what is necessary for dorothy
 	# such that the following [choose-option] will be found
-	prepare_dorothy
+	prepare_dorothy &>/dev/stderr
 
 	if test "$(type -t "act_$action")" = 'function'; then
 		"act_$action" "${args[@]}"

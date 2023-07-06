@@ -177,7 +177,9 @@ function fs-own() (
 			# 		not loaded. Now, services are always loaded. If a service is
 			# 		disabled, launchd does not advertise its service endpoints
 			# 		(sockets, Mach ports, etc.).
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl load -w "$1"
+			local plist
+			plist="$(do_find "$1")"
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl load -w "$plist"
 		}
 		function do_unload {
 			# Usage: launchctl unload <service-path, service-path2, ...>
@@ -188,33 +190,37 @@ function fs-own() (
 			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl unload -w "$1"
 		}
 		function do_start {
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl start "$1"
+			local id="$1"
+			id="${id#*system/}" # trim system/
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl start "$id"
 		}
 		function do_stop {
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl stop "$1"
+			local id="$1"
+			id="${id#*system/}" # trim system/
+			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl stop "$id"
 		}
 		function do_restart {
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl stop "$1" || :
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl load "$1"
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl start "$1"
+			do_stop "$1" || :
+			do_load "$1"
+			do_start "$1"
 		}
 		function do_enable {
 			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$1"
 		}
 		function do_enable_now {
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$1"
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl start "$1"
+			do_enable "$1"
+			do_start "$1"
 		}
 		function do_disable {
 			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl disable "$1"
 		}
 		function do_disable_now {
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl disable "$1"
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl stop "$1"
+			do_disable "$1"
+			do_stop "$1"
 		}
 		function do_reenable {
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl disable "$1"
-			eval-helper --quiet="$quiet" -- sudo-helper -- launchctl enable "$1"
+			do_disable "$1"
+			do_enable "$1"
 		}
 		function do_status {
 			# return code based on service existence, so ignore, save for running and exists
@@ -236,11 +242,30 @@ function fs-own() (
 			return 78 # ENOSYS 78 Function not implemented
 		}
 		function do_exists {
-			# /Library/LaunchAgents/*"$id"*   # user
-			# /Library/LaunchDaemons/*"$id"*  # everyone
-
 			# return code based on service existence
 			sudo-helper -- launchctl print "$1" &>/dev/null
+		}
+		function do_find {
+			local id="$1"
+			id="${id#*system/}" # trim system/
+			if test -f "$id"; then
+				echo "$id"
+				return 0
+			fi
+			local paths=(
+				# user
+				/Library/LaunchAgents/*"$id"*
+				/System/Library/LaunchDaemons/*"$id"*
+				# everyone
+				/Library/LaunchDaemons/*"$id"*
+				/System/Library/LaunchAgents/*"$id"*
+			)
+			if test "${#paths[@]}" -eq 0; then
+				echo-error 'Service does not exist: ' --code="$id"
+				return 2 # ENOENT 2 No such file or directory
+			else
+				echo-lines -- "${paths[@]}"
+			fi
 		}
 	elif command-exists systemctl; then
 		function do_unmask {
@@ -290,7 +315,7 @@ function fs-own() (
 		function do_remove {
 			local id="$1" paths
 			if [[ $id == *'@'* ]]; then
-				id="${id%@*}@" # `synchting@user` => `synchting@`
+				id="${id%@*}@" # `syncthing@user` => `syncthing@`
 			fi
 			paths=(
 				/etc/init.d/*"$id"*
@@ -309,7 +334,7 @@ function fs-own() (
 			# @todo this fails for virtual ids, e.g. `syncthing@ubuntu`
 			local id="$1" paths
 			if [[ $id == *'@'* ]]; then
-				id="${id%@*}@" # `synchting@user` => `synchting@`
+				id="${id%@*}@" # `syncthing@user` => `syncthing@`
 			fi
 			paths=(
 				/etc/init.d/*"$id"*

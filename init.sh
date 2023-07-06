@@ -58,8 +58,8 @@
 
 # set -x # <debug>
 # printf '$0 = %s\n$- = %s\n' "$0" "$-"
-DOROTHY_LOAD='no'
 if test -z "${DOROTHY_LOADED-}"; then
+	DOROTHY_LOAD='no'
 	if test "$0" = '-bash' -o "$0" = '-zsh'; then
 		DOROTHY_LOAD='yes'
 	elif test -n "${BASH_VERSION-}"; then
@@ -84,7 +84,7 @@ fi
 
 # if your login shell is failing identification,
 # then make sure your terminal preferences has login shell enabled
-if test "$DOROTHY_LOAD" = 'yes'; then
+if test "${DOROTHY_LOAD-}" = 'yes'; then
 	DOROTHY_LOADED='yes'
 	# ^ DO NOT export DOROTHY_LOADED
 	#   as that will interfere with the case where

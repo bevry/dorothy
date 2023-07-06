@@ -9,7 +9,7 @@ function symlink-helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF
 			ABOUT:
 			Create a symlink at a new location that points to an existing location.
 
@@ -24,7 +24,10 @@ function symlink-helper() (
 			    The target of the symlink.
 
 			--symlink=<symlink>
-			     The location of the symlink to modify.
+			    The location of the symlink to modify.
+
+			--[no-]quiet
+			    When quiet, if the symlink is already desired, nothing will be output.
 
 			EXAMPLES:
 			symlink-helper --existing="$HOME" --symlink=./my-home-folder-symlink
@@ -36,16 +39,18 @@ function symlink-helper() (
 	}
 
 	# process
-	local item existing='' symlink='' relative='no'
+	local item option_existing='' option_symlink='' option_relative='no' option_quiet
+	option_quiet="$(echo-quiet -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--existing='*) existing="${item#*--existing=}" ;;
-		'--symlink='*) symlink="${item#*--symlink=}" ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
+		'--existing='*) option_existing="${item#*--existing=}" ;;
+		'--symlink='*) option_symlink="${item#*--symlink=}" ;;
 		'--no-relative'* | '--relative'*)
-			relative="$(get-flag-value relative --missing="$relative" -- "$item" | echo-affirmative)"
+			option_relative="$(get-flag-value relative --missing="$option_relative" -- "$item" | echo-affirmative)"
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
@@ -60,22 +65,22 @@ function symlink-helper() (
 
 	# check
 	function help_missing {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF
 			$(echo-style --error="FAILURE:")
-			The path to be symlinked $(echo-style --code="$existing") doesn't actually exist.
-			As such, we cannot create a symlink at $(echo-style --code="$symlink") pointing to it.
-			Create the path at $(echo-style --code="$existing") first, then try again.
+			The path to be symlinked $(echo-style --code="$option_existing") doesn't actually exist.
+			As such, we cannot create a symlink at $(echo-style --code="$option_symlink") pointing to it.
+			Create the path at $(echo-style --code="$option_existing") first, then try again.
 		EOF
 		return 2 # ENOENT No such file or directory
 	}
-	if test -z "$existing"; then
-		existing="$(
+	if test -z "$option_existing"; then
+		option_existing="$(
 			ask --required \
 				--question="What is the existing path that you want to symlink elsewhere?"
 		)"
 	fi
-	if test -z "$symlink"; then
-		symlink="$(
+	if test -z "$option_symlink"; then
+		option_symlink="$(
 			ask --required \
 				--question="What is the new path that you want to redirect?"
 		)"
@@ -88,33 +93,33 @@ function symlink-helper() (
 	# Act
 
 	# check the existance of the source, if it doesn't exist, there is no point
-	if test ! -e "$existing"; then
+	if test ! -e "$option_existing"; then
 		help_missing
 	fi
 
 	# if the symlink doesn't exist, ensure its parent path at least exists
-	if test ! -e "$symlink"; then
-		mkdir -p "$(fs-dirname -- "$symlink")"
+	if test ! -e "$option_symlink"; then
+		mkdir -p "$(fs-dirname -- "$option_symlink")"
 	fi
 
 	# ensure validity of existing path
 	local original
 	while true; do
 		# ensure both paths are not relative paths, otherwise wierd things will happen
-		existing="$(fs-absolute -- "$existing")"
-		symlink="$(fs-absolute -- "$symlink")"
+		option_existing="$(fs-absolute -- "$option_existing")"
+		option_symlink="$(fs-absolute -- "$option_symlink")"
 
 		# double check the existance of the source, if it doesn't exist, there is no point
-		if test ! -e "$existing"; then
+		if test ! -e "$option_existing"; then
 			help_missing
 		fi
 
 		# check if the existing path is a symlink
 		# if it is, then use its target instead, and repeat the checks
-		if test -L "$existing"; then
-			original="$existing"
-			existing="$(fs-realpath -- "$existing")"
-			echo-style --bold="💁‍♀️ Target " --code="$original" --bold=" redirects to " --code="$existing" --bold=" 👉 using the redirection..." >/dev/stderr
+		if test -L "$option_existing"; then
+			original="$option_existing"
+			option_existing="$(fs-realpath -- "$option_existing")"
+			echo-style --bold="💁‍♀️ Target " --code="$original" --bold=" redirects to " --code="$option_existing" --bold=" 👉 using the redirection..."
 			continue
 		fi
 
@@ -122,24 +127,34 @@ function symlink-helper() (
 		break
 	done
 
-	# check if the symlink path already exists
-	if test -e "$symlink"; then
-		if test -L "$symlink"; then
-			echo-style --bold="💁‍♀️ Symlink already exists at " --code="$symlink" --bold=" 👉 recreating..." >/dev/stderr
-			rm "$symlink"
+	# determine the desired path
+	if test "$option_relative" = 'yes'; then
+		option_existing="$(fs-realpath --relative-to="$(fs-dirname -- "$option_symlink")" -- "$option_existing")"
+	fi
+
+	# check if the symlink is already desired
+	if test -e "$option_symlink"; then
+		if test -L "$option_symlink"; then
+			if test "$(fs-realpath -- "$option_symlink")" = "$option_existing"; then
+				if test "$option_quiet" != 'yes'; then
+					echo-style --bold="👍 Symlink already created at " --code="$option_symlink" --bold=" targetting " --code="$option_existing"
+				fi
+				return
+			fi
+			echo-style --bold="💁‍♀️ Symlink already exists at " --code="$option_symlink" --bold=" 👉 recreating..."
+			# is a symlink but a different target, drop it and recreate
+			rm "$option_symlink"
 		else
-			fs-rm -- "$symlink"
+			# not a symlink, confirm with the user what to do
+			fs-rm -- "$option_symlink"
 		fi
 	fi
 
 	# create the symlink
-	if test "$relative" = 'yes'; then
-		existing="$(fs-realpath --relative-to="$(fs-dirname -- "$symlink")" -- "$existing")"
-	fi
-	ln -sfF "$existing" "$symlink"
+	ln -sfF "$option_existing" "$option_symlink"
 
 	# log result to stderr
-	echo-style --success="👍 Symlink created at " --code="$symlink" --bold=" targetting " --code="$existing"
+	echo-style --success="👍 Symlink created at " --code="$option_symlink" --bold=" targetting " --code="$option_existing"
 )
 
 # fire if invoked standalone

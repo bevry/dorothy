@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+
+function config-edit() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Enforces a specific configuration by editing the configuration.
+
+			USAGE:
+			config-edit [--options]
+			config-edit --fstab --line=<line>
+			config-edit --sudoers --line=<line>
+			config-edit --cron-system --line=<line>
+			config-edit --cron-user --line=<line>
+
+			OPTIONS:
+			--name=<name>
+			    The name of the configuration to edit, e.g. 'sudoers'
+
+			[--action=<add|remove>]
+			[--add]
+			[--remove]
+			    Whether to add or remove the line. Defaults to <add>.
+
+			[--line=<line>]
+			    The line that should be inserted or removed.
+
+			--search=<search>
+			    A command that is called that will fetch relevant lines from the configuration file. Receives the line as the first argument.
+
+			[--compare=<compare>]
+			    A command that is called that will compare the found lines (first argument) with the desired <line> (second argument).
+
+			--edit=<edit>
+			    A command that is called that will edit the configuration file.
+
+			--fstab | --sudoers | --cron-system || --cron-user
+			    Each of these set appropriate defaults for those configurations.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # Invalid argument
+	}
+
+	# helpers
+	function default_compare {
+		test "$1" = "$2"
+	}
+
+	# process
+	local item option_name='' option_action='' option_line='' option_needle='' option_compare='default_compare' option_edit
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--action='*) option_action="${item#*--action=}" ;;
+		'--no-add'* | '--add'*)
+			if test "$(get-flag-value add -- "$item" | echo-affirmative)" = 'yes'; then
+				option_action='add'
+			else
+				option_action='remove'
+			fi
+			;;
+		'--no-remove'* | '--remove'*)
+			if test "$(get-flag-value remove -- "$item" | echo-affirmative)" = 'yes'; then
+				option_action='remove'
+			else
+				option_action='add'
+			fi
+			;;
+		'--name='*) option_name="${item#*--name=}" ;;
+		'--line='*) option_line="${item#*--line=}" ;;
+		'--needle='*) option_needle="${item#*--needle=}" ;;
+		'--search='*) option_search="${item#*--search=}" ;;
+		'--compare='*) option_compare="${item#*--compare=}" ;;
+		'--edit='*) option_edit="${item#*--edit=}" ;;
+		'--fstab')
+			option_name='fstab'
+			option_search='default_fstab_search'
+			option_edit='default_fstab_edit'
+			function default_fstab_search {
+				rg --fixed-strings --regexp="$(echo-fstab-encode "$1")" /etc/fstab
+			}
+			function default_fstab_edit {
+				edit --sudo --wait -- '/etc/fstab'
+			}
+			;;
+		'--sudoers')
+			option_name='sudoers'
+			option_search='default_sudoers_search'
+			option_edit='default_sudoers_edit'
+			function default_sudoers_search {
+				sudo-helper -- cat /etc/sudoers | rg --fixed-strings --regexp="$1"
+			}
+			function default_sudoers_edit {
+				env EDITOR="$(edit --dry --terminal)" sudo visudo
+			}
+			;;
+		'--cron-system')
+			option_name='cron[system]'
+			option_search='default_cron_system_search'
+			option_edit='default_cron_system_edit'
+			function default_cron_system_search {
+				sudo-helper -- crontab -l | sponge | rg --fixed-strings --regexp="$1"
+			}
+			function default_cron_system_edit {
+				sudo-helper -- env EDITOR="$(edit --dry --terminal)" crontab -e || :
+				if is-mac; then
+					service-helper --restart -- system/com.vix.cron
+				else
+					service-helper --restart -- cron
+				fi
+			}
+			;;
+		'--cron-user')
+			option_name="cron[$USER]"
+			option_search='default_cron_user_search'
+			option_edit='default_cron_user_edit'
+			function default_cron_user_search {
+				crontab -l | sponge | rg --fixed-strings --regexp="$1"
+			}
+			function default_cron_user_edit {
+				env EDITOR="$(edit --dry --terminal)" crontab -e || :
+				if is-mac; then
+					service-helper --restart -- system/com.vix.cron
+				else
+					service-helper --restart -- cron
+				fi
+			}
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	if test -z "$option_line" -a -z "$option_action"; then
+		option_action='remove'
+	fi
+
+	if test -z "$option_needle" -a -n "$option_line"; then
+		option_needle="$option_line"
+	fi
+
+	if test -z "$option_name" -o -z "$option_search" -o -z "$option_edit"; then
+		help 'You must provide all of the following arguments: --name, --search, --edit'
+	fi
+
+	if ! command -v "$option_search" >/dev/null; then
+		help 'The provided search command ' --code="$option_search" ' does not exist.'
+	fi
+
+	if ! command -v "$option_compare" >/dev/null; then
+		help 'The provided compare command ' --code="$option_compare" ' does not exist.'
+	fi
+
+	if ! command -v "$option_edit" >/dev/null; then
+		help 'The provided edit command ' --code="$option_edit" ' does not exist.'
+	fi
+
+	# =====================================
+	# Action
+
+	local lines expected
+	if test "$option_action" = 'add'; then
+		expected="$option_line"
+	else
+		expected=''
+	fi
+	while true; do
+		lines="$("$option_search" "$option_needle" || :)"
+		if "$option_compare" "$lines" "$expected"; then
+			echo-style 'Your ' --invert="$option_name" ' configuration is ' --positive='correctly' ' configured.'
+			if test -z "$expected"; then
+				echo-style --positive='It already has the undesired configuration removed.'
+			else
+				echo-style --positive='It already has these lines:' $'\n' --code="$option_line"
+			fi
+			echo
+			break
+		else
+			echo-style 'Your ' --invert="$option_name" ' configuration is ' --negative='incorrectly' ' configured.'
+			if test -n "$lines"; then
+				echo-style --negative='You must remove these lines:' $'\n' --code="$lines"
+			fi
+			if test "$option_action" = 'add'; then
+				echo-style --positive='You must add this line:' $'\n' --code="$option_line"
+			fi
+			if confirm --positive --ppid=$$ -- "Ready to continue?"; then
+				"$option_edit" || :
+			else
+				return 125 # ECANCELED 125 Operation cancelled
+			fi
+			echo
+		fi
+	done
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	config-edit "$@"
+fi

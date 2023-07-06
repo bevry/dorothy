@@ -2,6 +2,7 @@
 
 function setup-util-xcode() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$(command -v eval-helper)"
 
 	# =====================================
 	# Checks
@@ -15,64 +16,79 @@ function setup-util-xcode() (
 	# =====================================
 	# Action
 
+	# arguments
+	local quiet='no'
+	quiet="$(echo-quiet "$quiet" -- "$@")"
+
 	# log
-	echo-segment --h1="Install Xcode"
-
-	# rosetta
-	if is-apple-silicon && test ! -f /Library/Apple/usr/share/rosetta/rosetta; then
-		sudo-helper -- softwareupdate --install-rosetta --agree-to-license
+	if test "$quiet" = 'no'; then
+		echo-segment --h1="Install Xcode"
 	fi
-
-	# xcode cli tools
-	while true; do
-		if ! xcode-select --install &>/dev/null; then
-			break
-		else
-			confirm --ppid=$$ -- 'Press <enter> once the Apple Command Line Tools have been installed...'
-		fi
-	done
 
 	# check if xcode exists
 	local xcode xcodebuild xcodesdk
-	xcode="$(get-app 'Xcode' || get-app 'Xcode-beta' || :)"
-	xcodebuild="$xcode/Contents/Developer/usr/bin/xcodebuild"
-	xcodesdk="$xcode/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
-
-	# xcode cli tools license
-	function xcode_license_accepted {
-		# https://stackoverflow.com/a/60906147/130638
-		local xcode_version accepted_license_version
-		xcode_version="$("$xcodebuild" -version | grep '^Xcode\s' | sed -E 's/^Xcode[[:space:]]+([0-9\.]+)/\1/' || :)"
-		accepted_license_version="$(defaults read /Library/Preferences/com.apple.dt.Xcode 2>/dev/null | grep IDEXcodeVersionForAgreedToGMLicense | cut -d '"' -f 2 || :)"
-		test "$xcode_version" = "$accepted_license_version"
-	}
-	if test -x "$xcodebuild" && ! xcode_license_accepted; then
-		eval-helper --quiet --wrap \
-			--pending="$(echo-style --bold="Accepting Xcode license...")" \
-			--success="$(echo-style --success="Accepted Xcode license.")" \
-			--failure="$(echo-style --error="Failed to accept Xcode license.")" \
-			-- sudo-helper \
-			-- "$xcodebuild" -license accept
-	fi
-
-	# confirm xcode exists
-	if test -z "$xcode"; then
-		if command-missing mas || ! setup-util --name='Xcode' MAS='497799835'; then
-			echo-style --notice='Xcode requires manual installation...'
-			open 'https://apps.apple.com/us/app/xcode/id497799835'
-			confirm --ppid=$$ -- 'Press <enter> once Xcode has been installed...'
+	while true; do
+		# rosetta
+		if is-apple-silicon && test ! -f /Library/Apple/usr/share/rosetta/rosetta; then
+			sudo-helper -- softwareupdate --install-rosetta --agree-to-license
+			continue # try again
 		fi
-	fi
 
-	# confirm it all works
-	if ! "$xcodebuild" -sdk "$xcodesdk" -find clang &>/dev/null; then
-		echo-style --notice="Xcode SDKs require manual installation, opening Xcode..."
-		open "$xcode"
-		confirm --ppid=$$ -- 'Press <enter> once the Xcode Components have been installed...'
-	fi
+		# xcode cli tools
+		if xcode-select --install &>/dev/null; then
+			confirm --ppid=$$ -- 'Press <enter> once the Apple Command Line Tools have been installed...'
+			continue # try again
+		fi
+
+		# determine xcode location
+		xcode="$(get-app 'Xcode' || get-app 'Xcode-beta' || :)"
+		xcodebuild="$xcode/Contents/Developer/usr/bin/xcodebuild"
+		xcodesdk="$xcode/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+
+		# confirm xcode exists
+		if test -z "$xcode"; then
+			if command-missing mas || ! setup-util --name='Xcode' MAS='497799835'; then
+				echo-style --notice='Xcode requires manual installation...'
+				open 'https://apps.apple.com/us/app/xcode/id497799835'
+				confirm --ppid=$$ -- 'Press <enter> once Xcode has been installed...'
+			fi
+			continue # try again
+		fi
+
+		# confirm it all works
+		if test ! -x "$xcodebuild" || ! "$xcodebuild" -sdk "$xcodesdk" -find clang &>/dev/null; then
+			echo-style --notice="Xcode SDKs require manual installation, opening Xcode..."
+			open "$xcode"
+			confirm --ppid=$$ -- 'Press <enter> once the Xcode Components have been installed...'
+			continue # try again
+		fi
+
+		# xcode cli tools license
+		function xcode_license_accepted {
+			# https://stackoverflow.com/a/60906147/130638
+			local xcode_version accepted_license_version
+			xcode_version="$("$xcodebuild" -version | grep '^Xcode\s' | sed -E 's/^Xcode[[:space:]]+([0-9\.]+)/\1/' | cut -d '.' -f 1 || :)"
+			accepted_license_version="$(defaults read /Library/Preferences/com.apple.dt.Xcode 2>/dev/null | grep IDEXcodeVersionForAgreedToGMLicense | cut -d '"' -f 2 | cut -d '.' -f 1 || :)"
+			test "$xcode_version" -eq "$accepted_license_version" || sudo-helper -- "$xcodebuild" -license accept
+		}
+		if test "$quiet" = 'yes'; then
+			xcode_license_accepted || continue # try again
+		else
+			eval-helper --quiet="$quiet" --wrap \
+				--pending="$(echo-style --bold="Accepting Xcode license...")" \
+				--success="$(echo-style --success="Accepted Xcode license.")" \
+				--failure="$(echo-style --error="Failed to accept Xcode license.")" \
+				-- xcode_license_accepted || continue # try again
+		fi
+
+		# success
+		break
+	done
 
 	# log
-	echo-segment --g1="Install Xcode"
+	if test "$quiet" = 'no'; then
+		echo-segment --g1="Install Xcode"
+	fi
 )
 
 # fire if invoked standalone

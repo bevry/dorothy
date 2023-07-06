@@ -133,10 +133,11 @@
 function mount-helper() (
 	source "$DOROTHY/sources/bash.bash"
 	require_array 'mapfile'
+	source "$(command -v config-edit)"
 
 	# dependencies
 	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util --quiet --cli='smbinfo' APT='cifs-utils'
+	# setup-util --quiet --cli='smbinfo' APT='cifs-utils' # <-- doesn't work on macos, what is it used for???
 
 	# =====================================
 	# Helpers
@@ -162,7 +163,7 @@ function mount-helper() (
 	function stringify_args {
 		local result=() arg
 		for arg in "$@"; do
-			if test -n "$arg" && [[ "$arg" != *'=' ]] && [[ "$arg" != *"=''" ]]; then
+			if test -n "$arg" && [[ $arg != *'=' ]] && [[ $arg != *"=''" ]]; then
 				result+=("$arg")
 			fi
 		done
@@ -243,18 +244,7 @@ function mount-helper() (
 		local check_source='' check_target='' check_type=''
 		local fstab_line='' cron_args=() cron_line=''
 		local open_cmd=() gocryptfs_cmd=() mount_cmd=() mounting_cmd=()
-		local sudo_cmd=(
-			'sudo-helper'
-			"--user=$option_user"
-			"--group=$option_group"
-			'--'
-		)
-		local ls_cmd=(
-			'ls'
-			'-la'
-			"$option_target"
-		)
-		local mounting_safety='yes'
+		local ls_cmd=() sudo_cmd=() use_wait='no' use_mkdir='yes' use_sudo='no'
 
 		# skip if first --
 		if test -z "$option_type" -a -z "$option_server" -a -z "$option_share" -a -z "$option_source" -a -z "$option_target"; then
@@ -344,36 +334,46 @@ function mount-helper() (
 		# coerce formats
 		if is_samba "$option_type"; then
 			option_type='samba'
-			mount_source='//'
-			mounted_source='//'
-			fstab_source='//'
+			if test -n "$option_server" -o -n "$option_share"; then # optional under check
+				mount_source='//'
+				mounted_source='//'
+				fstab_source='//'
+			fi
 
 			if is-mac; then
-				open_source="smb://"
 				mount_type='smbfs'
 				mounted_type='smbfs'
 				fstab_type='smbfs'
+				if test -n "$option_server" -o -n "$option_share"; then # optional under check
+					open_source="smb://"
+					# @todo consider using guest as default username
+					if test -n "$option_username" -o "$option_password"; then
+						if test -n "$option_username"; then
+							temp="$(echo-url-encode "$option_username")"
+							open_source+="$temp"
+							mount_source+="$temp"
+							mounted_source+="$temp"
+							fstab_source+="$temp"
+						fi
+						if test -n "$option_password"; then
+							temp=":$(echo-url-encode "$option_password")"
+							open_source+="$temp"
+							mount_source+="$temp"
+							# password is removed from mounted_source
+							fstab_source+="$temp"
+						fi
+						open_source+="@"
+						mount_source+="@"
+						mounted_source+="@"
+						fstab_source+="@"
+					fi
+				fi
 
-				# @todo consider using guest as default username
-				if test -n "$option_username" -o "$option_password"; then
-					if test -n "$option_username"; then
-						temp="$(echo-url-encode "$option_username")"
-						open_source+="$temp"
-						mount_source+="$temp"
-						mounted_source+="$temp"
-						fstab_source+="$temp"
-					fi
-					if test -n "$option_password"; then
-						temp=":$(echo-url-encode "$option_password")"
-						open_source+="$temp"
-						mount_source+="$temp"
-						# password is removed from mounted_source
-						fstab_source+="$temp"
-					fi
-					open_source+="@"
-					mount_source+="@"
-					mounted_source+="@"
-					fstab_source+="@"
+				# this is here to ensure [--samba --target=... --unmount] works
+				if [[ $option_target == '/Volumes/'* ]]; then
+					use_sudo='no'
+				else
+					use_sudo='yes'
 				fi
 
 				if test -n "$option_server" -o -n "$option_share"; then # optional under [check]
@@ -398,13 +398,28 @@ function mount-helper() (
 							'--hide'
 							"$open_source"
 						)
+						# [mount ... /Volumes/*] not possible
+						# sudo not necessary for open command
+						use_mkdir='no'
+						use_wait='yes'
+						mounting_cmd+=("${open_cmd[@]}")
 					else
+						# macos requires source and target to be last
 						mount_cmd=(
 							'mount'
+							'-t' "$mount_type"
+							'-o' 'nodev,noowners,nosuid,quarantine'
+							# despite all of this, always requires sudo
+							# -o dirmode=777,filemode=666
+							# 'mount_smbfs -d 777 -f 666
 							"$mount_source"
 							"$option_target"
-							'-t' "$mount_type"
 						)
+						if is-tty && [[ $option_actions == *'[mount]'* || $option_actions == *'[automount]'* ]] && ! confirm --positive --ppid=$$ -- 'Mounting samba outside /Volumes/* will require sudo for all access, continue?'; then
+							return 1
+						fi
+						use_mkdir='yes'
+						mounting_cmd+=("${mount_cmd[@]}")
 					fi
 				fi
 			else
@@ -433,10 +448,9 @@ function mount-helper() (
 					fstab_source="$(echo-fstab-encode "$option_server/$option_share")"
 
 					if test -n "$option_target"; then # optional under [check]
+						# macos requires source and target to be last
 						mount_cmd=(
 							'mount'
-							"$fstab_source"
-							"$option_target"
 							'-t' "$mount_type"
 						)
 						if test -n "$mount_fstab_options"; then
@@ -444,6 +458,15 @@ function mount-helper() (
 								'-o' "$mount_fstab_options"
 							)
 						fi
+						mount_cmd+=(
+							"$fstab_source"
+							"$option_target"
+						)
+						# requires sudo unless fstab entry exists
+						use_sudo='yes'
+						mounting_cmd+=(
+							"${mount_cmd[@]}"
+						)
 					fi
 				fi
 			fi
@@ -458,12 +481,12 @@ function mount-helper() (
 				mounted_type='fuse.gocryptfs'
 				fstab_type='fuse.gocryptfs'
 
-				mount_fstab_options+="rw,noprealloc,allow_other"
+				mount_fstab_options+="rw,noprealloc"
 				if test -n "$option_password"; then
 					mount_fstab_options+=",extpass=$(echo-fstab-encode "echo $option_password")"
 				fi
 				if test -n "$option_owner"; then
-					mount_fstab_options+=",force_owner=$(echo-fstab-encode "$option_owner")"
+					mount_fstab_options+="allow_other,force_owner=$(echo-fstab-encode "$option_owner")"
 				fi
 			fi
 
@@ -483,23 +506,23 @@ function mount-helper() (
 				fi
 
 				if test -n "$option_target"; then # optional under [check]
+					# mount
 					if is-linux; then
+						# macos requires source and target to be last
 						mount_cmd=(
 							'mount'
-							"$mount_source"
-							"$option_target"
 							'-t' "$mount_type"
 							'-o' "$mount_fstab_options"
+							"$mount_source"
+							"$option_target"
 						)
 					fi
 
+					# gocryptfs
 					gocryptfs_cmd=(
 						'gocryptfs'
-						"$gocryptfs_source"
-						"$option_target"
 						'--rw'
 						'--noprealloc'
-						'--allow_other'
 					)
 					if test -n "$option_password"; then
 						gocryptfs_cmd+=(
@@ -508,10 +531,22 @@ function mount-helper() (
 					fi
 					if test -n "$option_owner"; then
 						gocryptfs_cmd+=(
+							'--allow_other'
 							'--force_owner'
 							"$option_owner"
 						)
 					fi
+					gocryptfs_cmd+=(
+						"$gocryptfs_source"
+						"$option_target"
+					)
+
+					# mounting cmd
+					# @todo determine sudo
+					use_sudo='no'
+					mounting_cmd+=(
+						"${gocryptfs_cmd[@]}"
+					)
 				fi
 			fi
 
@@ -560,11 +595,19 @@ function mount-helper() (
 					echo-error "<target> requires <share> to be defined"
 					return 22 # EINVAL Invalid argument
 				fi
+
+				# macos requires source and target to be last
 				mount_cmd=(
 					'mount'
+					-t "$mount_type"
 					"$mount_source"
 					"$option_target"
-					-t "$mount_type"
+				)
+
+				# linux/macos device
+				use_sudo='yes'
+				mounting_cmd+=(
+					"${mount_cmd[@]}"
 				)
 			fi
 		fi
@@ -583,9 +626,11 @@ function mount-helper() (
 		if test -n "$option_share" -a -n "$option_target"; then
 			# using [which] as [command -v] fails on functions, which [mount-helper] is in this context
 			cron_args=(
+				# trunk-ignore(shellcheck/SC2230)
 				"$(which dorothy | echo-quote)"
 				'run'
 				'--'
+				# trunk-ignore(shellcheck/SC2230)
 				"$(which mount-helper | echo-quote)"
 				'--mount'
 				'--no-remount'
@@ -604,25 +649,25 @@ function mount-helper() (
 			cron_line="*/15 * * * * $(stringify_args "${cron_args[@]}")"
 		fi
 
-		# coerce commands
-		if is_samba "$option_type" && is-mac && [[ $option_target == '/Volumes/'* ]]; then
-			mounting_cmd+=(
-				# not necessary: "${sudo_cmd[@]}"
-				"${open_cmd[@]}"
-			)
-			mounting_safety='no'
-		elif is_gocryptfs "$option_type"; then
-			mounting_cmd+=(
-				"${sudo_cmd[@]}"
-				"${gocryptfs_cmd[@]}"
-			)
-		else
-			# linux/macos device, linux samba
-			mounting_cmd+=(
-				"${sudo_cmd[@]}"
-				"${mount_cmd[@]}"
+		# coerce final commands
+		if test "$use_sudo" = 'yes'; then
+			sudo_cmd=(
+				'sudo-helper'
+				"--user=$option_user"
+				"--group=$option_group"
+				'--'
 			)
 		fi
+		mounting_cmd=(
+			"${sudo_cmd[@]}"
+			"${mounting_cmd[@]}"
+		)
+		ls_cmd=(
+			"${sudo_cmd[@]}"
+			'ls'
+			'-la'
+			"$option_target"
+		)
 
 		# coerce check
 		if test -n "$mounted_source"; then
@@ -685,11 +730,14 @@ function mount-helper() (
 				mounting_cmd "${mounting_cmd[*]}"
 		}
 		function do_automount_adjust {
-			local fstab_lines='' cron_lines='' automount_action="$1"
+			local automount_action="$1"
 			if test -z "$option_share" -o -z "$option_target"; then
 				echo-error "[mount-helper --automount] requires <share> and <target>"
 				return 22 # Invalid argument
 			fi
+
+			# ensure sudo and cron are configured correctly for automounting
+			sudo-helper --local
 
 			# fstab
 			echo
@@ -699,38 +747,11 @@ function mount-helper() (
 				echo-style 'Automounting via ' --invert='fstab' ' is ' --positive='supported' ' for ' --code="$log_source"
 			fi
 			if test "$automount_action" = 'remove'; then
-				fstab_line=''
 				echo-style 'Automounting via ' --invert='fstab' ' is ' --negative='undesired.'
 			else
 				echo-style 'Automounting via ' --invert='fstab' ' is ' --positive='desired.'
 			fi
-			while true; do
-				fstab_lines="$(cat /etc/fstab | rg --fixed-strings --regexp="$(echo-fstab-encode "$option_target")" || :)"
-				if test "$fstab_lines" = "$fstab_line"; then
-					echo-style 'Your ' --invert='fstab' ' configuration is ' --positive='correctly' ' configured.'
-					if test -z "$fstab_line"; then
-						echo-style --positive='No changes necessary.'
-					else
-						echo-style --positive='It already has these lines:' $'\n' --code="$fstab_line"
-					fi
-					echo
-					break
-				else
-					echo-style 'Your ' --invert='fstab' ' configuration is ' --negative='incorrectly' ' configured.'
-					if test -n "$fstab_lines"; then
-						echo-style --negative='You must remove these lines:' $'\n' --code="$fstab_lines"
-					fi
-					if test -n "$fstab_line"; then
-						echo-style --positive='You must add this line:' $'\n' --code="$fstab_line"
-					fi
-					if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-						edit --sudo -- '/etc/fstab' || :
-					else
-						return 125 # ECANCELED 125 Operation cancelled
-					fi
-					echo
-				fi
-			done
+			config-edit --fstab --line="$fstab_line" --needle="$option_target" --action="$automount_action"
 
 			# cron
 			echo
@@ -740,38 +761,18 @@ function mount-helper() (
 				echo-style 'Automounting via ' --invert='cron' ' is ' --positive='supported' ' for ' --code="$log_source"
 			fi
 			if test "$automount_action" = 'remove'; then
-				cron_line=''
 				echo-style 'Automounting via ' --invert='cron' ' is ' --negative='undesired.'
 			else
 				echo-style 'Automounting via ' --invert='cron' ' is ' --positive='desired.'
 			fi
-			while true; do
-				cron_lines="$("${sudo_cmd[@]}" crontab -l | sponge | rg --fixed-strings --regexp="$option_target" || :)"
-				if test "$cron_lines" = "$cron_line" || [[ "$automount_action" == 'add' && "$cron_lines" == *cronitor* ]]; then
-					echo-style 'Your ' --invert='cron' ' configuration is ' --positive='correctly' ' configured.'
-					if test -z "$cron_line"; then
-						echo-style --positive='No changes necessary.'
-					else
-						echo-style --positive='It already has these lines:' $'\n' --code="$cron_line"
-					fi
-					echo
-					break
-				else
-					echo-style 'Your ' --invert='cron' ' configuration is ' --negative='incorrectly' ' configured.'
-					if test -n "$cron_lines"; then
-						echo-style --negative='You must remove these lines:' $'\n' --code="$cron_lines"
-					fi
-					if test -n "$cron_line"; then
-						echo-style --positive='You must add this line:' $'\n' --code="$cron_line"
-					fi
-					if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-						"${sudo_cmd[@]}" env EDITOR="$(edit --dry --terminal)" crontab -e || :
-					else
-						return 125 # ECANCELED 125 Operation cancelled
-					fi
-					echo
-				fi
-			done
+			function cron_compare {
+				test "$1" = "$2" || [[ $1 == *cronitor*"$2"* ]]
+			}
+			if test "$use_sudo" = 'yes'; then
+				config-edit --cron-system --line="$cron_line" --needle="${option_target@Q}" --compare='cron_compare' --action="$automount_action"
+			else
+				config-edit --cron-user --line="$cron_line" --needle="${option_target@Q}" --compare='cron_compare' --action="$automount_action"
+			fi
 		}
 		function do_automount_remove {
 			do_automount_adjust 'remove'
@@ -815,6 +816,21 @@ function mount-helper() (
 				echo-style --success='mount type is mounted:' ' ' --code="$mounted_type"
 			fi
 		}
+		if is-mac; then
+			function umount_noforce {
+				"${sudo_cmd[@]}" umount -v "$@"
+			}
+			function umount_force {
+				"${sudo_cmd[@]}" umount -fv "$@"
+			}
+		else
+			function umount_noforce {
+				"${sudo_cmd[@]}" umount --verbose --recursive "$@"
+			}
+			function umount_force {
+				"${sudo_cmd[@]}" umount --verbose --recursive --force "$@"
+			}
+		fi
 		function do_unmount {
 			local was_mounted='maybe' unmount_confirm_ec
 
@@ -825,30 +841,24 @@ function mount-helper() (
 			fi
 
 			# is the relative mount point missing
-			if test ! -e "$option_target"; then
-				echo-style --code="$option_target" ' ' --success="was previously unmounted"
-				return 0
-			fi
-
-			# is the resolved mount point missing
-			was_mounted='maybe'
-			if test ! -e "$option_target"; then
+			if "${sudo_cmd[@]}" test ! -e "$option_target"; then
 				echo-style --code="$option_target" ' ' --success="was previously unmounted"
 				return 0
 			fi
 
 			# if mounted, then unmount
+			was_mounted='maybe'
 			while true; do
 				if do_check; then
 					was_mounted='yes'
-					if sudo-helper -- umount --verbose --recursive "$option_target"; then
+					if umount_noforce "$option_target"; then
 						echo-style --code="$option_target" ' ' --notice="was unmounted"
 					else
 						# https://github.com/rfjakob/gocryptfs/issues/459
 						what-is-using "$option_target"
 						unmount_confirm_ec=0 && confirm --positive --ppid=$$ -- "Yes for try again, no for force, ctrl+c for abort" || unmount_confirm_ec="$?"
 						if test "$unmount_confirm_ec" -eq 1; then
-							sudo-helper -- umount --verbose --recursive --force "$option_target"
+							umount_force "$option_target"
 							echo-style --code="$option_target" ' ' --notice="was forcefully unmounted"
 						fi
 					fi
@@ -870,7 +880,7 @@ function mount-helper() (
 
 			# clean up
 			if test -e "$option_target"; then
-				fs-rm --sudo -- "$option_target"
+				fs-rm --sudo="$use_sudo" -- "$option_target"
 			fi
 			if test -e "$option_target"; then
 				echo-style --code="$option_target" ' ' --success="was unmounted successfully" ', ' --error="but failed to clean up"
@@ -898,7 +908,7 @@ function mount-helper() (
 			fi
 
 			# if already mounted then ignore
-			if test -d "$option_target"; then
+			if "${sudo_cmd[@]}" test -d "$option_target"; then
 				if do_check; then
 					# is mounted
 					if test "$option_remount" = 'yes'; then
@@ -924,11 +934,13 @@ function mount-helper() (
 			fi
 
 			# if not mounted, go through the process
-			if test "$mounting_safety" = 'yes'; then
+			if test "$use_mkdir" = 'yes'; then
 				# make the directory as the user, otherwise as sudo
-				mkdir -p "$option_target" || sudo-helper -- mkdir -p "$option_target"
+				mkdir -p "$option_target" || "${sudo_cmd[@]}" mkdir -p "$option_target"
+			fi
 
-				# chown
+			# chown
+			if test -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
 				eval-helper --no-quiet --wrap --shapeshifter \
 					-- fs-own --no-quiet --changes \
 					--owner="$option_owner" \
@@ -937,25 +949,31 @@ function mount-helper() (
 					-- "$option_target"
 			fi
 
+			# ls
+			eval-helper --no-quiet --wrap \
+				-- "${ls_cmd[@]}"
+
 			# mount
 			eval-helper --no-quiet --wrap \
 				-- "${mounting_cmd[@]}"
 
-			# check
-			if test "$mounting_safety" = 'yes'; then
-				# ls
-				eval-helper --no-quiet --wrap \
-					-- "${ls_cmd[@]}"
+			# wait
+			if test "$use_wait" = 'yes'; then
+				waiter --timeout=60 --exists="$option_target"
+			fi
 
-				# chown
-				if test -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
-					eval-helper --no-quiet --wrap --shapeshifter \
-						-- fs-own --no-quiet --changes \
-						--owner="$option_owner" \
-						--user="$option_user" \
-						--group="$option_group" \
-						-- "$option_target"
-				fi
+			# ls
+			eval-helper --no-quiet --wrap \
+				-- "${ls_cmd[@]}"
+
+			# chown
+			if ! is_samba "$option_type" && test -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
+				eval-helper --no-quiet --wrap --shapeshifter \
+					-- fs-own --no-quiet --changes \
+					--owner="$option_owner" \
+					--user="$option_user" \
+					--group="$option_group" \
+					-- "$option_target"
 			fi
 
 			# log
