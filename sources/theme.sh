@@ -10,6 +10,6 @@ if test -n "${DOROTHY_THEME-}" -a "$DOROTHY_THEME" != 'system'; then
 	elif test -f "$DOROTHY/themes/${DOROTHY_THEME}.${ACTIVE_SHELL}"; then
 		. "$DOROTHY/themes/${DOROTHY_THEME}.${ACTIVE_SHELL}"
 	else
-		echo-style --notice="Dorothy theme [$DOROTHY_THEME] is not supported by this shell [$ACTIVE_SHELL]" >/dev/stderr
+		echo-style --warning="Dorothy theme [$DOROTHY_THEME] is not supported by this shell [$ACTIVE_SHELL]" >/dev/stderr
 	fi
 fi

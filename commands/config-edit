@@ -13,6 +13,7 @@ function config-edit() (
 
 			USAGE:
 			config-edit [--options]
+			config-edit --fuse --line=<line>
 			config-edit --fstab --line=<line>
 			config-edit --sudoers --line=<line>
 			config-edit --cron-system --line=<line>
@@ -32,16 +33,19 @@ function config-edit() (
 			[--line=<line>]
 			    The line that should be inserted or removed.
 
-			--search=<search-command>
+			--searcher=<search-command>
 			    A command that is called that will fetch relevant lines from the configuration file. Receives the line as the first argument.
 
-			[--compare=<compare-command>]
+			[--comparer=<compare-command>]
 			    A command that is called that will compare the found lines (first argument) with the desired <line> (second argument).
 
-			--edit=<edit-command>
+			--editer=<edit-command>
 			    A command that is called that will edit the configuration file.
 
-			--fstab | --sudoers | --cron-system || --cron-user
+			[--applier=<apply-command>]
+			    A command that is called that will automatically replace the found lines (first argument) with the desired <line> (second argument) and save changes, inserting the desired <line> if no lines were found.
+
+			--fuse | --fstab | --sudoers | --cron-system || --cron-user
 			    Each of these set appropriate defaults for those configurations.
 		EOF
 		if test "$#" -ne 0; then
@@ -51,12 +55,12 @@ function config-edit() (
 	}
 
 	# helpers
-	function default_compare {
+	function default_comparer {
 		test "$1" = "$2"
 	}
 
 	# process
-	local item option_name='' option_action='' option_line='' option_needle='' option_compare='default_compare' option_edit
+	local item option_name='' option_action='' option_line='' option_needle='' option_searcher='' option_comparer='default_comparer' option_editer='' option_applier=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -81,39 +85,69 @@ function config-edit() (
 		'--name='*) option_name="${item#*--name=}" ;;
 		'--line='*) option_line="${item#*--line=}" ;;
 		'--needle='*) option_needle="${item#*--needle=}" ;;
-		'--search='*) option_search="${item#*--search=}" ;;
-		'--compare='*) option_compare="${item#*--compare=}" ;;
-		'--edit='*) option_edit="${item#*--edit=}" ;;
+		'--searcher='*) option_searcher="${item#*--searcher=}" ;;
+		'--comparer='*) option_comparer="${item#*--comparer=}" ;;
+		'--editer='*) option_editer="${item#*--editer=}" ;;
+		'--applier='*) option_applier="${item#*--applier=}" ;;
+		'--fuse')
+			option_name='fuse'
+			option_searcher='default_fuse_searcher'
+			option_editer='default_fuse_editer'
+			option_applier='default_fuse_applier'
+			function default_fuse_searcher {
+				rg --fixed-strings --regexp="$1" --line-regexp '/etc/fuse.conf'
+			}
+			function default_fuse_editer {
+				edit --sudo --wait -- '/etc/fuse.conf'
+			}
+			function default_fuse_applier {
+				sudo-helper --inherit \
+					-- config-helper --file='/etc/fuse.conf' -- \
+					--find="${1:-"$2"}" --replace="$2"
+			}
+			;;
 		'--fstab')
 			option_name='fstab'
-			option_search='default_fstab_search'
-			option_edit='default_fstab_edit'
-			function default_fstab_search {
-				rg --fixed-strings --regexp="$(echo-fstab-encode "$1")" /etc/fstab
+			option_searcher='default_fstab_searcher'
+			option_editer='default_fstab_editer'
+			option_applier='default_fstab_applier'
+			function default_fstab_searcher {
+				rg --fixed-strings --regexp="$1" '/etc/fstab'
 			}
-			function default_fstab_edit {
+			function default_fstab_editer {
 				edit --sudo --wait -- '/etc/fstab'
+				if is-linux; then
+					sudo-helper -- systemctl daemon-reload
+				fi
+			}
+			function default_fstab_applier {
+				sudo-helper --inherit \
+					-- config-helper --file='/etc/fstab' -- \
+					--find="${1:-"$2"}" --replace="$2"
+				if is-linux; then
+					sudo-helper -- systemctl daemon-reload
+				fi
 			}
 			;;
 		'--sudoers')
 			option_name='sudoers'
-			option_search='default_sudoers_search'
-			option_edit='default_sudoers_edit'
-			function default_sudoers_search {
+			option_searcher='default_sudoers_searcher'
+			option_editer='default_sudoers_editer'
+			function default_sudoers_searcher {
 				sudo-helper -- cat /etc/sudoers | rg --fixed-strings --regexp="$1"
 			}
-			function default_sudoers_edit {
+			function default_sudoers_editer {
 				env EDITOR="$(edit --dry --terminal)" sudo visudo
 			}
 			;;
 		'--cron-system')
 			option_name='cron[system]'
-			option_search='default_cron_system_search'
-			option_edit='default_cron_system_edit'
-			function default_cron_system_search {
+			option_searcher='default_cron_system_searcher'
+			option_editer='default_cron_system_editer'
+			function default_cron_system_searcher {
 				sudo-helper -- crontab -l | sponge | rg --fixed-strings --regexp="$1"
 			}
-			function default_cron_system_edit {
+			function default_cron_system_editer {
 				sudo-helper -- env EDITOR="$(edit --dry --terminal)" crontab -e || :
 				if is-mac; then
 					service-helper --restart -- system/com.vix.cron
@@ -124,12 +158,12 @@ function config-edit() (
 			;;
 		'--cron-user')
 			option_name="cron[$USER]"
-			option_search='default_cron_user_search'
-			option_edit='default_cron_user_edit'
-			function default_cron_user_search {
+			option_searcher='default_cron_user_searcher'
+			option_editer='default_cron_user_editer'
+			function default_cron_user_searcher {
 				crontab -l | sponge | rg --fixed-strings --regexp="$1"
 			}
-			function default_cron_user_edit {
+			function default_cron_user_editer {
 				env EDITOR="$(edit --dry --terminal)" crontab -e || :
 				if is-mac; then
 					service-helper --restart -- system/com.vix.cron
@@ -165,28 +199,32 @@ function config-edit() (
 	fi
 
 	if test "$option_action" = 'edit'; then
-		if test -z "$option_edit" || ! command -v "$option_edit" >/dev/null; then
-			help 'The edit command ' --code="$option_edit" ' does not exist.'
+		if test -z "$option_editer" || ! command -v "$option_editer" >/dev/null; then
+			help 'The editer command ' --code="$option_editer" ' does not exist.'
 		else
-			"$option_edit"
+			"$option_editer"
 			return "$?"
 		fi
 	fi
 
-	if test -z "$option_name" -o -z "$option_search" -o -z "$option_edit"; then
+	if test -z "$option_name" -o -z "$option_searcher" -o -z "$option_editer"; then
 		help 'You must provide all of the following arguments: --name, --search, --edit'
 	fi
 
-	if ! command -v "$option_search" >/dev/null; then
-		help 'The provided search command ' --code="$option_search" ' does not exist.'
+	if ! command -v "$option_searcher" >/dev/null; then
+		help 'The provided searcher command ' --code="$option_searcher" ' does not exist.'
 	fi
 
-	if ! command -v "$option_compare" >/dev/null; then
-		help 'The provided compare command ' --code="$option_compare" ' does not exist.'
+	if ! command -v "$option_comparer" >/dev/null; then
+		help 'The provided comparer command ' --code="$option_comparer" ' does not exist.'
 	fi
 
-	if ! command -v "$option_edit" >/dev/null; then
-		help 'The provided edit command ' --code="$option_edit" ' does not exist.'
+	if ! command -v "$option_editer" >/dev/null; then
+		help 'The provided editer command ' --code="$option_editer" ' does not exist.'
+	fi
+
+	if test -n "$option_applier" && ! command -v "$option_applier" >/dev/null; then
+		help 'The provided applier command ' --code="$option_applier" ' does not exist.'
 	fi
 
 	# =====================================
@@ -199,8 +237,8 @@ function config-edit() (
 		expected=''
 	fi
 	while true; do
-		lines="$("$option_search" "$option_needle" || :)"
-		if "$option_compare" "$lines" "$expected"; then
+		lines="$("$option_searcher" "$option_needle" || :)"
+		if "$option_comparer" "$lines" "$expected"; then
 			echo-style 'Your ' --invert="$option_name" ' configuration is ' --positive='correctly' ' configured.'
 			if test -z "$expected"; then
 				echo-style --positive='It already has the undesired configuration removed.'
@@ -212,13 +250,15 @@ function config-edit() (
 		else
 			echo-style 'Your ' --invert="$option_name" ' configuration is ' --negative='incorrectly' ' configured.'
 			if test -n "$lines"; then
-				echo-style --negative='You must remove these lines:' $'\n' --code="$lines"
+				echo-style --negative='These lines must be removed:' $'\n' --code="$lines"
 			fi
-			if test "$option_action" = 'add'; then
-				echo-style --positive='You must add this line:' $'\n' --code="$option_line"
+			if test -n "$expected"; then
+				echo-style --positive='These lines must be added:' $'\n' --code="$expected"
 			fi
-			if confirm --positive --ppid=$$ -- "Ready to continue?"; then
-				"$option_edit"
+			if test -n "$option_applier" && confirm --positive --ppid=$$ -- "$(echo-style --bold='Apply these changes ' --positive='automatically' --bold=', or ' --negative='manually' --bold='?')"; then
+				"$option_applier" "$lines" "$expected"
+			elif confirm --positive --ppid=$$ -- "Ready to apply the changes manually?"; then
+				"$option_editer"
 			else
 				return 125 # ECANCELED 125 Operation cancelled
 			fi
