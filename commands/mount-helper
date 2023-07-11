@@ -632,12 +632,12 @@ function mount-helper() (
 		local temp=''
 		local mount_source='' mounted_source='' fstab_source='' open_source='' gocryptfs_source=''
 		local mount_type='' mounted_type='' fstab_type=''
-		local mount_fstab_options=() gocryptfs_options=()
+		local fstab_options=() gocryptfs_options=()
 		local check_source='' check_target='' check_type=''
 		local fstab_line='' cron_args=() cron_line=''
 		local open_cmd=() gocryptfs_cmd=() mount_cmd=()
 		local exists_cmd=() ls_cmd=() mkdir_cmd=() sudo_cmd=() mounting_cmd=() unmount_cmd=() unmount_force_cmd=()
-		local uses_automount='' uses_wait='no' uses_mkdir='yes' uses_sudo='no'
+		local uses_fstab='' uses_wait='no' uses_mkdir='yes' uses_sudo='no' uses_sudo_for_unmount='no'
 
 		# skip if first --
 		if test -z "$option_type" -a -z "$option_server" -a -z "$option_share" -a -z "$option_source" -a -z "$option_target"; then
@@ -660,11 +660,11 @@ function mount-helper() (
 		fi
 		if [[ $option_actions == *'[automount]'* ]]; then
 			title+=' --automount'
-			uses_automount='yes'
+			uses_fstab='yes'
 		fi
 		if [[ $option_actions == *'[unautomount]'* ]]; then
 			title+=' --unautomount'
-			uses_automount='no'
+			uses_fstab='no'
 		fi
 		if test "$title" = 'mount-helper'; then
 			echo-error "Require --parse, --check, --mount, --unmount, --automount, --unautomount"
@@ -744,8 +744,8 @@ function mount-helper() (
 				mounted_type='smbfs'
 				fstab_type='smbfs'
 
-				mount_fstab_options+=(
-					noatime    # ubuntu mount, macos mount
+				fstab_options+=(
+					noatime    # ubuntu mount, macos mount, (not supported by gofscryptfs)
 					nodev      # ubuntu mount, macos mount, gocryptfs mount
 					noexec     # ubuntu mount, macos mount, gocryptfs mount
 					noowners   # macos mount
@@ -754,12 +754,9 @@ function mount-helper() (
 				)
 				# this is here to ensure [--samba --target=... --unmount] works
 				if [[ $option_target == '/Volumes/'* ]]; then
-					uses_sudo='no'
-					uses_mkdir='no'
 					uses_wait='yes'
 				else
-					uses_automount='yes'
-					uses_sudo='no'
+					uses_fstab='yes'
 					uses_mkdir='yes'
 				fi
 
@@ -820,26 +817,25 @@ function mount-helper() (
 				mounted_type='cifs'
 				fstab_type='cifs'
 
-				uses_automount='yes'
-				uses_sudo='no'
+				uses_fstab='yes'
 				uses_mkdir='yes'
 
-				mount_fstab_options+=(
+				fstab_options+=(
 					noexec    # ubuntu mount, macos mount
 					noatime   # ubuntu mount, macos mount
 					nodev     # ubuntu mount, macos mount
-					nosetuids # ubuntu mount cifs
+					nosetuids # ubuntu mount cifs, (not supported by gofscryptfs)
 					rw        # ubuntu mount, macos mount has [rdonly], gocryptfs mount
-					user      # ubuntu mount
+					user      # ubuntu mount, (not supported by gofscryptfs)
 					# X-mount.mkdir # ubuntu mount (doesn't work)
 				)
 				if test -n "$option_username"; then
-					mount_fstab_options+=(
+					fstab_options+=(
 						"username=$(echo-fstab-encode "$option_username")"
 					)
 				fi
 				if test -n "$option_password"; then
-					mount_fstab_options+=(
+					fstab_options+=(
 						"password=$(echo-fstab-encode "$option_password")"
 					)
 				fi
@@ -850,11 +846,10 @@ function mount-helper() (
 					mounted_source='//'
 					fstab_source='//'
 
-					# @todo should all of these be url encoded?
 					temp="$(echo-url-encode "$option_server/$option_share")"
-					mount_source="$temp"
-					mounted_source="$temp"
-					fstab_source="$(echo-fstab-encode "//$option_server/$option_share")"
+					mount_source+="$temp"
+					mounted_source+="$temp"
+					fstab_source+="$temp"
 				fi
 			fi
 
@@ -865,38 +860,25 @@ function mount-helper() (
 				# macos gocryptfs
 				# direct gocryptfs [mount] and [fstab] not available for macos
 				mounted_type='macfuse'
-
-				mount_fstab_options+=(
-					noatime    # ubuntu mount, macos mount
-					nodev      # ubuntu mount, macos mount, gocryptfs mount
-					noexec     # ubuntu mount, macos mount, gocryptfs mount
-					noowners   # macos mount
-					noprealloc # gocryptfs mount (for btrfs peformance)
-					nosuid     # macos mount, gocryptfs mount
-					quarantine # macos mount (undocumented)
-				)
 			else
 				# ubuntu gocryptfs
 				mount_type='fuse.gocryptfs'
 				mounted_type='fuse.gocryptfs'
 				fstab_type='fuse.gocryptfs'
-
-				mount_fstab_options+=(
-					noatime    # ubuntu mount, macos mount
+				fstab_options+=(
 					nodev      # ubuntu mount, macos mount, gocryptfs mount
 					noexec     # ubuntu mount, macos mount, gocryptfs mount
 					noprealloc # gocryptfs mount (for btrfs peformance)
-					nosetuids  # ubuntu mount cifs
 					nosuid     # macos mount, gocryptfs mount
 					rw         # ubuntu mount, macos mount has [rdonly], gocryptfs mount
-					user       # ubuntu mount
-					# X-mount.mkdir # ubuntu mount (doesn't work)
 				)
+				uses_sudo_for_unmount='yes'
 			fi
 			gocryptfs_options+=(
 				'--nodev'      # ubuntu mount, macos mount, gocryptfs mount
 				'--noexec'     # ubuntu mount, macos mount, gocryptfs mount
 				'--noprealloc' # gocryptfs mount (for btrfs peformance)
+				'--nosuid'     # macos mount, gocryptfs mount
 				'--rw'         # ubuntu mount, macos mount has [rdonly], gocryptfs mount
 			)
 			if test -n "$option_password"; then
@@ -904,22 +886,25 @@ function mount-helper() (
 				gocryptfs_options+=(
 					"--extpass=echo $option_password"
 				)
-				mount_fstab_options+=(
+				fstab_options+=(
 					"extpass=$(echo-fstab-encode "echo $option_password")"
 				)
 			fi
 			if test -n "$option_owner"; then
+				if is-mac; then
+					echo-error "<owner> with <gocryptfs> is not supported on macOS"
+					return 19 # ENODEV 19 Operation not supported by device
+				fi
+				# neither of these require sudo
 				# --allow_other                    Allow other users to access the filesystem. Only works if user_allow_other is set in /etc/fuse.conf.
 				# --force_owner string             uid:gid pair to coerce ownership
 				gocryptfs_options+=(
 					'--allow_other'
 					'--force_owner' "$option_owner"
 				)
-				mount_fstab_options+=(
-					# --allow_other                    Allow other users to access the filesystem. Only works if user_allow_other is set in /etc/fuse.conf.
-					"allow_other" # unsure if this requires sudo
-					# # --force_owner string             uid:gid pair to coerce ownership
-					"force_owner=$(echo-fstab-encode "$option_owner")" # this def requires sudo
+				fstab_options+=(
+					"allow_other"
+					"force_owner=$(echo-fstab-encode "$option_owner")"
 				)
 			fi
 
@@ -928,9 +913,9 @@ function mount-helper() (
 				option_share="$(fs-realpath -- "$option_share")"
 				gocryptfs_source="$option_share"
 				if ! is-mac; then
-					mount_source="$option_share" # @todo is this escaped?
+					mount_source="$option_share"
 				fi
-				mounted_source="$option_share" # @todo is this escaped?
+				mounted_source="$option_share"
 				if test -n "$fstab_type"; then
 					fstab_source="$(echo-fstab-encode "$option_share")"
 				fi
@@ -949,19 +934,10 @@ function mount-helper() (
 					if test "${#gocryptfs_options[@]}" -ne 0; then
 						gocryptfs_cmd+=("${gocryptfs_options[@]}")
 					fi
-					if test "${#mount_fstab_options[@]}" -ne 0; then
-						gocryptfs_cmd+=(
-							'-o' "$(join "${mount_fstab_options[@]}")"
-						)
-					fi
 					gocryptfs_cmd+=(
 						"$gocryptfs_source"
 						"$option_target"
 					)
-
-					# mounting cmd
-					# @todo determine sudo and experiment with fstab
-					uses_sudo='no'
 				fi
 			fi
 
@@ -972,8 +948,8 @@ function mount-helper() (
 			fstab_type="$option_type"
 
 			if is-mac; then
-				mount_fstab_options+=(
-					noatime    # ubuntu mount, macos mount
+				fstab_options+=(
+					noatime    # ubuntu mount, macos mount, (not supported by gofscryptfs)
 					nodev      # ubuntu mount, macos mount, gocryptfs mount
 					noexec     # ubuntu mount, macos mount, gocryptfs mount
 					noowners   # macos mount
@@ -981,7 +957,7 @@ function mount-helper() (
 					quarantine # macos mount (undocumented)
 				)
 			else
-				mount_fstab_options+=(
+				fstab_options+=(
 					noatime   # ubuntu mount, macos mount
 					nodev     # ubuntu mount, macos mount, gocryptfs mount
 					noexec    # ubuntu mount, macos mount, gocryptfs mount
@@ -1062,28 +1038,28 @@ function mount-helper() (
 			fi
 			# fstab
 			if test -n "$fstab_source" -a -n "$fstab_type"; then
-				if test "$uses_automount" = 'yes'; then
-					mount_fstab_options=(
+				if test "$uses_fstab" = 'yes'; then
+					fstab_options=(
 						'auto'
-						"${mount_fstab_options[@]}"
+						"${fstab_options[@]}"
 					)
-					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${mount_fstab_options[@]}") 0 0"
-				elif test "$uses_automount" = 'no'; then
-					mount_fstab_options=(
+					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${fstab_options[@]}") 0 0"
+				elif test "$uses_fstab" = 'no'; then
+					fstab_options=(
 						'noauto'
-						"${mount_fstab_options[@]}"
+						"${fstab_options[@]}"
 					)
-					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${mount_fstab_options[@]}") 0 0"
-				else # elif test -z "$uses_automount"; then
-					mount_fstab_options=(
+					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${fstab_options[@]}") 0 0"
+				else # elif test -z "$uses_fstab"; then
+					fstab_options=(
 						auto
-						"${mount_fstab_options[@]}"
+						"${fstab_options[@]}"
 					)
-					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${mount_fstab_options[@]}") 0 0"
-					if config-edit --fstab --has "$fstab_line"; then
-						uses_automount='yes'
+					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${fstab_options[@]}") 0 0"
+					if config-edit --fstab --has --line="$fstab_line"; then
+						uses_fstab='yes'
 					else
-						uses_automount='no'
+						uses_fstab='no'
 					fi
 				fi
 			fi
@@ -1111,7 +1087,7 @@ function mount-helper() (
 					--verbose
 				)
 			fi
-			if test "$uses_automount" = 'yes'; then
+			if test "$uses_fstab" = 'yes'; then
 				mount_cmd+=("$option_target")
 			else
 				mount_cmd+=(
@@ -1122,9 +1098,9 @@ function mount-helper() (
 				else
 					mount_cmd+=('--verbose')
 				fi
-				if test "${#mount_fstab_options[@]}" -ne 0; then
+				if test "${#fstab_options[@]}" -ne 0; then
 					mount_cmd+=(
-						'-o' "$(join "${mount_fstab_options[@]}")"
+						'-o' "$(join "${fstab_options[@]}")"
 					)
 				fi
 				mount_cmd+=(
@@ -1133,30 +1109,25 @@ function mount-helper() (
 				)
 			fi
 		fi
-		if test "${#mounting_cmd[@]}" -eq 0; then
-			if test "${#open_cmd[@]}" -ne 0; then
-				mounting_cmd+=("${open_cmd[@]}")
-			elif test "${#gocryptfs_cmd[@]}" -ne 0; then
-				mounting_cmd+=("${gocryptfs_cmd[@]}")
-			elif test "${#mount_cmd[@]}" -ne 0; then
-				mounting_cmd+=("${mount_cmd[@]}")
-			fi
-		fi
-		if test "${#mounting_cmd[@]}" -ne 0; then
-			mounting_cmd=(
-				"${sudo_cmd[@]}"
-				"${mounting_cmd[@]}"
-			)
-		fi
 		if test -n "$option_target"; then
 			if test "$uses_sudo" = 'yes'; then
 				exists_cmd+=("${sudo_cmd[@]}")
 				ls_cmd+=("${sudo_cmd[@]}")
 				mkdir_cmd+=("${sudo_cmd[@]}")
+				mounting_cmd+=("${sudo_cmd[@]}")
 			fi
-			if test "$uses_sudo" = 'yes' -o "$uses_automount" = 'yes'; then
+			if test "$uses_sudo" = 'yes' -o "$uses_fstab" = 'yes' -o "$uses_sudo_for_unmount" = 'yes'; then
 				unmount_cmd+=("${sudo_cmd[@]}")
 				unmount_force_cmd+=("${sudo_cmd[@]}")
+			fi
+			if test "$uses_fstab" = 'yes'; then
+				mounting_cmd+=("${mount_cmd[@]}")
+			elif test "${#open_cmd[@]}" -ne 0; then
+				mounting_cmd+=("${open_cmd[@]}")
+			elif test "${#gocryptfs_cmd[@]}" -ne 0; then
+				mounting_cmd+=("${gocryptfs_cmd[@]}")
+			elif test "${#mount_cmd[@]}" -ne 0; then
+				mounting_cmd+=("${mount_cmd[@]}")
 			fi
 			exists_cmd+=(
 				test
@@ -1252,7 +1223,7 @@ function mount-helper() (
 			string_dump \
 				log_source option_actions option_remount option_source option_target '' \
 				mount_source mounted_source fstab_source open_source gocryptfs_source '' \
-				mount_type mounted_type fstab_type mount_fstab_options '' \
+				mount_type mounted_type fstab_type fstab_options '' \
 				check_source check_target check_type '' \
 				fstab_line cron_line
 			value_dump \
@@ -1527,9 +1498,10 @@ function mount-helper() (
 				echo-style --warning='Failed to clean...'
 				return 66 # Directory not empty
 			fi
-			echo-style --positive='Cleaned succesfully.'
+			echo-style --positive='Cleaned.'
 
 			# success
+			echo-style --success='Successfully unmounted and cleaned' ' ' --invert="$option_target"
 			echo-segment --g2='unmount'
 			return 0
 		}
@@ -1561,7 +1533,7 @@ function mount-helper() (
 			echo-segment --h2='mount'
 
 			# verify fstab
-			if test "$uses_automount" = 'yes'; then
+			if test "$uses_fstab" = 'yes'; then
 				do_automount_requirement
 			fi
 
@@ -1618,7 +1590,7 @@ function mount-helper() (
 			fi
 
 			# log
-			echo-style --code="$log_source" ' ' --success="successfully mounted to" ' ' --code="$option_target"
+			echo-style --success='Successfully mounted' ' ' --invert="$log_source" ' ' --success='to' ' ' --invert="$option_target"
 			echo-segment --g2='mount'
 		}
 
