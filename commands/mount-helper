@@ -530,23 +530,11 @@ function mount-helper() (
 	# =====================================
 	# Helpers
 
-	function is_device {
-		[[ $1 =~ device|drive|disk ]]
-	}
-	# function is_source_device {
-	# 	[[ $1 == '/dev/'* ]]
-	# }
-	# function is_source_server {
-	# 	[[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
-	# }
 	function is_samba {
 		[[ $1 =~ samba|smb|smbfs|cifs ]]
 	}
 	function is_gocryptfs {
 		[[ $1 =~ gocryptfs|fuse.gocryptfs ]]
-	}
-	function is_btrfs {
-		test "$1" = 'btrfs'
 	}
 	function join {
 		echo-join ',' -- "$@"
@@ -607,11 +595,12 @@ function mount-helper() (
 	# =====================================
 	# Action
 
-	local option_actions option_remount option_type option_user option_group option_owner option_username option_password option_server option_label option_count option_share option_source option_target
+	local option_actions option_remount option_type option_own option_user option_group option_owner option_username option_password option_server option_label option_count option_share option_source option_target
 	function reset {
 		option_actions=''
 		option_remount=''
 		option_type=''
+		option_own=''
 		option_user=''
 		option_group=''
 		option_owner=''
@@ -636,12 +625,17 @@ function mount-helper() (
 		local check_source='' check_target='' check_type=''
 		local fstab_line='' cron_args=() cron_line=''
 		local open_cmd=() gocryptfs_cmd=() mount_cmd=()
-		local exists_cmd=() ls_cmd=() mkdir_cmd=() sudo_cmd=() mounting_cmd=() unmount_cmd=() unmount_force_cmd=()
-		local uses_fstab='' uses_wait='no' uses_mkdir='yes' uses_sudo='no' uses_sudo_for_unmount='no'
+		local owner_cmd=() root_cmd=() exists_cmd=() ls_cmd=() mkdir_cmd=() rm_cmd=() mounting_cmd=() unmount_cmd=() unmount_force_cmd=()
+		local uses_ownership='no' uses_fstab='' uses_wait='no' uses_mkdir='yes' uses_root_for_mount='no' uses_root_for_unmount='no'
 
 		# skip if first --
 		if test -z "$option_type" -a -z "$option_server" -a -z "$option_share" -a -z "$option_source" -a -z "$option_target"; then
 			return
+		fi
+
+		# prepare ownership
+		if test "$option_own" = 'yes' -o -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
+			uses_ownership='yes'
 		fi
 
 		# logging
@@ -824,7 +818,7 @@ function mount-helper() (
 					noexec    # ubuntu mount, macos mount
 					noatime   # ubuntu mount, macos mount
 					nodev     # ubuntu mount, macos mount
-					nosetuids # ubuntu mount cifs, (not supported by gofscryptfs)
+					nosetuids # ubuntu mount (only samba), (not supported by gofscryptfs)
 					rw        # ubuntu mount, macos mount has [rdonly], gocryptfs mount
 					user      # ubuntu mount, (not supported by gofscryptfs)
 					# X-mount.mkdir # ubuntu mount (doesn't work)
@@ -872,7 +866,7 @@ function mount-helper() (
 					nosuid     # macos mount, gocryptfs mount
 					rw         # ubuntu mount, macos mount has [rdonly], gocryptfs mount
 				)
-				uses_sudo_for_unmount='yes'
+				uses_root_for_unmount='yes'
 			fi
 			gocryptfs_options+=(
 				'--nodev'      # ubuntu mount, macos mount, gocryptfs mount
@@ -942,10 +936,12 @@ function mount-helper() (
 			fi
 
 		elif test -n "$option_type"; then
-			# btrfs, device, etc
+			# btrfs, filesystem, etc
 			mount_type="$option_type"
 			mounted_type="$option_type"
 			fstab_type="$option_type"
+			uses_root_for_mount='yes'
+			uses_root_for_unmount='yes'
 
 			if is-mac; then
 				fstab_options+=(
@@ -958,53 +954,27 @@ function mount-helper() (
 				)
 			else
 				fstab_options+=(
-					noatime   # ubuntu mount, macos mount
-					nodev     # ubuntu mount, macos mount, gocryptfs mount
-					noexec    # ubuntu mount, macos mount, gocryptfs mount
-					nosetuids # ubuntu mount cifs
-					rw        # ubuntu mount, macos mount has [rdonly], gocryptfs mount
-					user      # ubuntu mount
+					noatime # ubuntu mount, macos mount
+					nodev   # ubuntu mount, macos mount, gocryptfs mount
+					noexec  # ubuntu mount, macos mount, gocryptfs mount
+					rw      # ubuntu mount, macos mount has [rdonly], gocryptfs mount
+					user    # ubuntu mount
 					# X-mount.mkdir # ubuntu mount (doesn't work)
 				)
 			fi
 
-			# verify label
+			# verify
+			temp="$(get-devices --result=node --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count")"
 			if test -n "$option_label"; then
-				if ! is_btrfs "$option_type"; then
-					echo-error "<label> only supported for <btrfs>"
-					return 22 # EINVAL Invalid argument
-				fi
-
-				temp="$(btrfs-helper drive -- "$option_label")"
-				if test -n "$option_share"; then
-					if test "$option_share" != "$temp"; then
-						echo-error "label [$option_label] returned [$temp] which was not the expected share [$option_share]"
-						return 22 # EINVAL Invalid argument
-					fi
-				elif test -n "$temp"; then
-					option_share="$temp"
-				else
-					echo-error "invalid label [$option_label]"
-					return 22 # EINVAL Invalid argument
-				fi
-
-				# verify count
-				if test -n "$option_count"; then
-					btrfs-helper verify -- "$option_label" "$option_count"
-				fi
-			elif test -n "$option_count"; then
-				echo-error "<count> requires <label> to be defined"
-				return 22 # EINVAL Invalid argument
+				option_share="$temp"
 			fi
+			echo-style --success='Validated' ' ' --invert="$option_share" ' ' --invert="$mount_type" ' ' --invert="$option_label" ' ' --invert="$option_count"
 
 			# coerce source
 			if test -n "$option_share"; then # option under [check]
 				mount_source="$option_share"
 				mounted_source="$option_share"
 				fstab_source="$(echo-fstab-encode "$option_share")"
-
-				# linux/macos device
-				uses_sudo='yes'
 			fi
 		fi
 
@@ -1023,6 +993,7 @@ function mount-helper() (
 					'--mount'
 					'--no-remount'
 					"--type=${option_type@Q}"
+					"--own=${option_own@Q}"
 					"--user=${option_user@Q}"
 					"--group=${option_group@Q}"
 					"--owner=${option_owner@Q}"
@@ -1066,14 +1037,24 @@ function mount-helper() (
 		fi
 
 		# coerce commands
-		sudo_cmd=('sudo-helper')
-		if test -n "$option_user"; then
-			sudo_cmd+=("--user=$option_user")
+		root_cmd=(
+			'sudo-helper'
+			'--inherit'
+			'--'
+		)
+		if test -n "$option_user" -o -n "$option_group"; then
+			owner_cmd=(
+				'sudo-helper'
+				'--inherit'
+			)
+			if test -n "$option_user"; then
+				owner_cmd+=("--user=$option_user")
+			fi
+			if test -n "$option_group"; then
+				owner_cmd+=("--group=$option_group")
+			fi
+			owner_cmd+=('--')
 		fi
-		if test -n "$option_group"; then
-			sudo_cmd+=("--group=$option_group")
-		fi
-		sudo_cmd+=('--')
 		if test -n "$mount_source" -a -n "$mount_type" -a -n "$option_target"; then
 			# here for --parse debugging
 			if is-mac; then
@@ -1093,11 +1074,6 @@ function mount-helper() (
 				mount_cmd+=(
 					'-t' "$mount_type"
 				)
-				if is-mac; then
-					mount_cmd+=('-v')
-				else
-					mount_cmd+=('--verbose')
-				fi
 				if test "${#fstab_options[@]}" -ne 0; then
 					mount_cmd+=(
 						'-o' "$(join "${fstab_options[@]}")"
@@ -1110,15 +1086,22 @@ function mount-helper() (
 			fi
 		fi
 		if test -n "$option_target"; then
-			if test "$uses_sudo" = 'yes'; then
-				exists_cmd+=("${sudo_cmd[@]}")
-				ls_cmd+=("${sudo_cmd[@]}")
-				mkdir_cmd+=("${sudo_cmd[@]}")
-				mounting_cmd+=("${sudo_cmd[@]}")
+			if test "$uses_root_for_mount" = 'yes'; then
+				mounting_cmd+=("${root_cmd[@]}")
+				mkdir_cmd+=("${root_cmd[@]}")
+				rm_cmd+=("${root_cmd[@]}")
+			elif test "$uses_ownership" = 'yes'; then
+				mounting_cmd+=("${owner_cmd[@]}")
+				mkdir_cmd+=("${owner_cmd[@]}")
+				rm_cmd+=("${owner_cmd[@]}")
 			fi
-			if test "$uses_sudo" = 'yes' -o "$uses_fstab" = 'yes' -o "$uses_sudo_for_unmount" = 'yes'; then
-				unmount_cmd+=("${sudo_cmd[@]}")
-				unmount_force_cmd+=("${sudo_cmd[@]}")
+			if test "$uses_ownership" = 'yes'; then
+				exists_cmd+=("${owner_cmd[@]}")
+				ls_cmd+=("${owner_cmd[@]}")
+			fi
+			if test "$uses_fstab" = 'yes' -o "$uses_root_for_unmount" = 'yes'; then
+				unmount_cmd+=("${root_cmd[@]}")
+				unmount_force_cmd+=("${root_cmd[@]}")
 			fi
 			if test "$uses_fstab" = 'yes'; then
 				mounting_cmd+=("${mount_cmd[@]}")
@@ -1142,6 +1125,11 @@ function mount-helper() (
 			mkdir_cmd+=(
 				mkdir
 				-p
+				"$option_target"
+			)
+			rm_cmd+=(
+				fs-rm
+				--
 				"$option_target"
 			)
 			if is-mac; then
@@ -1189,6 +1177,9 @@ function mount-helper() (
 
 		# coerce log
 		log_source="$option_type"
+		if test -n "$option_own"; then
+			log_source+="[own=$option_own]"
+		fi
 		if test -n "$option_user"; then
 			log_source+="[user=$option_user]"
 		fi
@@ -1223,16 +1214,21 @@ function mount-helper() (
 			string_dump \
 				log_source option_actions option_remount option_source option_target '' \
 				mount_source mounted_source fstab_source open_source gocryptfs_source '' \
-				mount_type mounted_type fstab_type fstab_options '' \
+				mount_type mounted_type fstab_type '' \
 				check_source check_target check_type '' \
-				fstab_line cron_line
+				fstab_line cron_line '' \
+				uses_ownership uses_fstab uses_wait uses_mkdir uses_root_for_mount uses_root_for_unmount
 			value_dump \
 				open_cmd "${open_cmd[*]}" \
 				gocryptfs_cmd "${gocryptfs_cmd[*]}" \
 				mount_cmd "${mount_cmd[*]}" \
 				mounting_cmd "${mounting_cmd[*]}" \
-				unmount_cmd "${mounting_cmd[*]}" \
-				unmount_force_cmd "${mounting_cmd[*]}"
+				unmount_cmd "${unmount_cmd[*]}" \
+				unmount_force_cmd "${unmount_force_cmd[*]}" \
+				exists_cmd "${exists_cmd[*]}" \
+				ls_cmd "${ls_cmd[*]}" \
+				mkdir_cmd "${mkdir_cmd[*]}" \
+				rm_cmd "${rm_cmd[*]}"
 		}
 		function do_configure {
 			# add fuse config
@@ -1283,7 +1279,7 @@ function mount-helper() (
 			function cron_comparer {
 				test "$1" = "$2" || [[ $1 == *cronitor*"$2"* ]]
 			}
-			if test "$uses_sudo" = 'yes'; then
+			if test "$uses_root_for_mount" = 'yes'; then
 				config-edit --cron-system --line="$cron_line" --needle="${option_target@Q}" --comparer='cron_comparer' --action="$automount_action"
 			else
 				config-edit --cron-user --line="$cron_line" --needle="${option_target@Q}" --comparer='cron_comparer' --action="$automount_action"
@@ -1405,7 +1401,7 @@ function mount-helper() (
 
 				# process check
 				if [[ "$local_check_status" = *'[source-missing]'* && "$local_check_status" = *'[target-missing]'* ]]; then
-					echo-style --positive="Source not mounted.' --positive='Target not mounted."
+					echo-style --positive='Source not mounted.' --positive='Target not mounted.'
 					# echo-style --notice="will prepare..."
 					break
 				elif [[ "$local_check_status" = *'[source-found][target-found][valid]'* ]]; then # needs both as unmounting with only --target and no source information is still [valid]
@@ -1492,7 +1488,7 @@ function mount-helper() (
 			# cleaning
 			echo-style --notice='Cleaning target...' ' ' --invert="$option_target"
 			if "${exists_cmd[@]}"; then
-				fs-rm --sudo="$uses_sudo" -- "$option_target"
+				"${rm_cmd[@]}"
 			fi
 			if "${exists_cmd[@]}"; then
 				echo-style --warning='Failed to clean...'
@@ -1543,9 +1539,10 @@ function mount-helper() (
 			fi
 
 			# chown
-			if test -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
+			if test "$uses_ownership" = 'yes'; then
 				eval-helper --no-quiet --wrap --shapeshifter \
 					-- fs-own --no-quiet --changes \
+					--sudo \
 					--owner="$option_owner" \
 					--user="$option_user" \
 					--group="$option_group" \
@@ -1580,9 +1577,10 @@ function mount-helper() (
 			fi
 
 			# chown
-			if ! is_samba "$option_type" && test -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
+			if ! is_samba "$option_type" && test "$uses_ownership" = 'yes'; then
 				eval-helper --no-quiet --wrap --shapeshifter \
 					-- fs-own --no-quiet --changes \
+					--sudo \
 					--owner="$option_owner" \
 					--user="$option_user" \
 					--group="$option_group" \
@@ -1650,11 +1648,10 @@ function mount-helper() (
 			[--unautomount|--no-automount]
 
 			Only one type can be specified:
-			--type=<samba|gocryptfs|btrfs|device>
-			[--<samba|smb|smbfs|cifs>]
-			[--<gocryptfs|fuse.gocryptfs>]
-			[--btrfs]
-			[--<device|drive|disk>]
+			--type=samba|gocryptfs|btrfs|<filesystem>
+			[--samba|smb|smbfs|cifs]
+			[--gocryptfs|fuse.gocryptfs]
+			[--btrfs|<filesystem>]
 
 			Mount target permissions:
 			[--user=<user>]
@@ -1670,15 +1667,15 @@ function mount-helper() (
 			    Aplicable to <samba>.
 
 			[--label=<label>]
-			    When using btrfs, this is the label of the source device, can infer the <share> from it.
-			    If both <share> and <label> are provided, we will validate they are equivalent.
+			    When using <filesystem>, this is the <label> of the source device.
+			    Can infer the <share> from it.
 			[--count=<count>]
-			    When using btrfs, this is the amount of devices that comprise the mount.
+			    When using <filesystem>, this is the amount of devices that comprise the filesystem.
 
 			--share=<share>
 			    When using <samba>, this is the share name.
 			    When using <gocryptfs>, this is the vault path.
-			    When using <btrfs|device>, this is the /dev/... path.
+			    When using <filesystem>, this is the /dev/... path.
 
 			--target=<target>
 			    This is the mount location.
@@ -1687,7 +1684,7 @@ function mount-helper() (
 			USAGE:
 
 			mount-helper \
-				-- --action=... --device --share='/dev/...' --target='/Volumes/folder' \
+				-- --action=... --type=btrfs --share='/dev/...' --target='/Volumes/folder' \
 				-- --action=... --btrfs [--label='...'] [--count=...] [--share='/dev/...'] --target='/Volumes/folder' \
 				-- --action=... --gocryptfs --share='/path/to/vault' --target='/Volumes/folder' \
 				-- --action=... --samba --server='ip' --share='folder' --target='/Volumes/folder' \
@@ -1728,6 +1725,9 @@ function mount-helper() (
 		'--user='*) option_user="${item#*--user=}" ;;
 		'--group='*) option_group="${item#*--group=}" ;;
 		'--owner='*) option_owner="${item#*--owner=}" ;;
+		'--no-own'* | '--own'*) option_own="$(
+			get-flag-value own --missing="$option_own" -- "$item" | echo-affirmative
+		)" ;;
 
 		'--username='*) option_username="${item#*--username=}" ;;
 		'--password='*) option_password="${item#*--password=}" ;;

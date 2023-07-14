@@ -5,6 +5,299 @@ function btrfs-helper() (
 	require_array 'mapfile'
 
 	# =====================================
+	# Actions
+
+	function act_devices {
+		get-devices --filesystem=btrfs "$@"
+	}
+	function act_info {
+		# @todo have [get-size] use this perhaps
+		# Get details about a btrfs device / filesystem
+		local temp existing_node existing_mount path
+
+		# fetch existing
+		temp="$(
+			get-devices --result=node,mount --node --uuid --filesystem=btrfs \
+				--select="$(echo-style --positive='Which btrfs device / filesystem to get information about?')"
+		)"
+		IFS=$'\t' read -rd $'\n' existing_node existing_mount <<<"$temp"
+		path="${existing_mount:-"$existing_node"}"
+
+		# Show the structure of a filesystem
+		# usage: btrfs filesystem show [options] [<path>|<uuid>|<device>|label]
+		eval-helper --no-quiet \
+			-- sudo-helper \
+			-- btrfs filesystem show "$path"
+
+		if test -n "$existing_mount"; then
+			# Show detailed information about internal allocations in devices.
+			# usage: btrfs device usage [options] <path> [<path>..]
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- btrfs device usage "$existing_mount"
+
+			# Show detailed information about internal filesystem usage .
+			# usage: btrfs filesystem usage [options] <path> [<path>..]
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- btrfs filesystem usage "$existing_mount"
+
+			# Show space usage information for a mount point
+			# usage: btrfs filesystem df [options] <path>
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- btrfs filesystem df "$existing_mount"
+
+			# Show space usage via system
+			# -a, --all             include pseudo, duplicate, inaccessible file systems
+			# -h, --human-readable  print sizes in powers of 1024 (e.g., 1023M)
+			eval-helper --no-quiet \
+				-- sudo-helper \
+				-- df -ah "$existing_mount"
+		fi
+
+		# Show status
+		eval-helper --no-quiet \
+			-- sudo-helper \
+			-- btrfs device stats "$path"
+		eval-helper --no-quiet \
+			-- sudo-helper \
+			-- btrfs scrub status "$path" || : # if still running, exit code 1
+		eval-helper --no-quiet \
+			-- sudo-helper \
+			-- btrfs balance status "$path" || : # if still running, exit code 1
+
+		# Summarize disk usage of every nested file inside the directory
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs filesystem du --summarize --human-readable "$path"
+
+		# Rename
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs filesystem label "$path" "$name"
+
+		# Change unallocated to free
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs filesystem resize max "$path"
+
+		# Defragment (balance also defrags)
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs filesystem defragment "$path"
+
+		# Balance as raid1
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$path"
+
+		# Scrub (check filesystem for errors and auto-heal)
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs scrub start "$path"
+
+		# Check devices for errors
+		# WARNING: the repair mode is considered dangerous and should not be used without prior analysis of problems found on the filesystem.
+		# eval-helper --no-quiet \
+		#	-- sudo-helper \
+		#	-- btrfs check --repair --progress /dev/...
+
+		# Logs
+		# tail -n 1000 -f /var/log/syslog | grep --fixed-strings --regexp='BTRFS'
+	}
+	function act_new {
+		# Reformat a device as btrfs
+		local node label
+		node="$(
+			get-devices --result=node --no-mount \
+				--select="$(echo-style --negative='Which device to erase and format as btrfs?')" \
+				--missing='Did not find any non-mounted devices.'
+		)"
+		label="$(
+			ask --required \
+				--question="What label to use for the new btrfs filesystem that will be attached to the device $(echo-style --invert="$node") ?"
+		)"
+
+		# format
+		eval-helper --no-quiet --wrap --confirm \
+			-- sudo-helper \
+			-- mkfs.btrfs -f -L "$label" "$node"
+	}
+	function act_mount {
+		# Mount a btrfs device
+		local node target
+		node="$(
+			get-devices --result=node --no-mount --filesystem=btrfs \
+				--select="$(echo-style --positive='Which btrfs device to mount?')" \
+				--missing='Did not find any non-mounted btrfs devices.'
+		)"
+		target="$(
+			ask --required \
+				--question="Which target path to mount $(echo-style --invert="$node") ?"
+		)"
+
+		# mount
+		mount-helper --btrfs --share="$node" --target="$target" --mount
+	}
+	function act_unmount {
+		# Unmount a btrfs device
+		local existing_mount
+		existing_mount="$(
+			get-devices --result=mount --mount --filesystem=btrfs \
+				--select="$(echo-style --positive='Which btrfs filesystem to unmount?')" \
+				--missing='Did not find any mounted btrfs devices.'
+		)"
+
+		# mount
+		mount-helper --btrfs --target="$existing_mount" --unmount
+	}
+	function act_add {
+		# Add a device to a btrfs filesystem
+		local temp existing_node existing_uuid existing_mount extra_node extra_uuid
+
+		# fetch existing
+		temp="$(
+			get-devices --result=node,uuid,mount --node --uuid --mount --count --filesystem=btrfs \
+				--select="$(echo-style --positive='Which btrfs filesystem to add the new device to?')" \
+				--missing='You must mount the btrfs filesystem first before you can add to it.'
+		)"
+		IFS=$'\t' read -rd $'\n' existing_node existing_uuid existing_mount <<<"$temp"
+
+		# fetch addition
+		temp="$(
+			get-devices --result=node,uuid --no-mount \
+				--select="$(echo-style --negative='WHICH DEVICE TO ERASE AND ADD TO THE BTRFS FILESYSTEM?')" \
+				--missing='Did not find any non-mounted devices.'
+		)"
+		IFS=$'\t' read -rd $'\n' extra_node extra_uuid <<<"$temp"
+
+		# validate
+		if test "$existing_node" = "$extra_node"; then
+			echo-style --error='You cannot add the same device to itself.'
+			return 22 # Invalid argument
+		fi
+		if test "$existing_uuid" = "$extra_uuid"; then
+			echo-style --error='The device is already part of the intended filesystem.'
+			return 22 # Invalid argument
+		fi
+
+		# usage: btrfs device add [options] <device> [<device>...] <path>
+		# Add one or more devices to a mounted filesystem.
+		# -K|--nodiscard            do not perform whole device TRIM on devices that report such capability
+		# -f|--force                force overwrite existing filesystem on the disk
+		# --enqueue                 wait if there's another exclusive operation running, otherwise continue
+		eval-helper --no-quiet --wrap --confirm \
+			-- sudo-helper \
+			-- btrfs device add --force --enqueue "$extra_node" "$existing_mount"
+
+		# run a balance
+		echo-style --notice='Once you a done with adding devices, you should run a balance now on the mount.'
+	}
+	function act_remove {
+		# Remove a device from a btrfs cluster
+		local temp existing_node existing_uuid existing_mount existing_count extra_node
+
+		# fetch existing
+		temp="$(
+			get-devices --result=node,uuid,mount,count --node --uuid --mount --count --filesystem=btrfs \
+				--select="$(echo-style --notice='Which btrfs filesystem to remove the old device from?')" \
+				--missing='You must mount the btrfs filesystem first before you can remove from it.'
+		)"
+		IFS=$'\t' read -rd $'\n' existing_node existing_uuid existing_mount existing_count <<<"$temp"
+
+		# fetch extra
+		extra_node="$(
+			get-devices --result=node --no-mount --uuid="$existing_uuid" --count="$existing_count" --filesystem=btrfs \
+				--select="$(echo-style --negative='WHICH DEVICE TO ERASE AND REMOVE FROM THE BTRFS FILESYSTEM?')" \
+				--missing='Did not find any additional btrfs devices.'
+		)"
+
+		# check count
+		if test "$existing_count" -eq 2; then
+			if confirm --positive --ppid=$$ -- "$(echo-style --notice="Removing a device from a btrfs filesystem with only 2 devices, requires the balance to be set to single rather than raid1. Do you wish to continue?")"; then
+				act_balance "$existing_mount" 'single'
+			else
+				return 1
+			fi
+		fi
+
+		# wait until balance completes
+		while ! eval-helper --no-quiet --wrap \
+			-- sudo-helper \
+			-- btrfs balance status --verbose "$existing_mount"; do
+			waiter
+		done
+
+		# usage: btrfs device remove <device>|<devid> [<device>|<devid>...] <path>
+		# Remove a device from a filesystem, specified by a path to the device or as a device id in the filesystem. The btrfs signature is removed from the device.
+		# --enqueue                 wait if there's another exclusive operation running, otherwise continue
+		eval-helper --no-quiet --wrap --confirm \
+			-- sudo-helper \
+			-- btrfs device remove --enqueue "$extra_node" "$existing_mount"
+
+		# run a balance
+		echo-style --notice='Once you a done with removing devices, you should run a balance now on the mount.'
+	}
+	function act_balance {
+		# Resume a balance
+		local temp existing_mount="${1-}" existing_count='' strategy="${2:-"raid1"}" action='start' args=()
+		if test -z "$existing_mount"; then
+			temp="$(
+				get-devices --result=mount,count --mount --count --filesystem=btrfs \
+					--select="$(echo-style --notice="Which btrfs filesystem to balance as $strategy?")" \
+					--missing='You must mount the btrfs filesystem first before you can balance it.'
+			)"
+			IFS=$'\t' read -rd $'\n' existing_mount existing_count <<<"$temp"
+		fi
+
+		# validate
+		if test -n "$existing_count" && test "$existing_count" -eq 1 -a "$strategy" = 'raid1'; then
+			echo-style --error='You cannot balance a btrfs filesystem with only 1 device as raid1.'
+			return 22 # Invalid argument
+		fi
+
+		# usage: btrfs balance status [-v] <path>
+		# Show status of running or paused balance
+		# -v|--verbose              increase output verbosity
+		if ! eval-helper --no-quiet --wrap \
+			-- sudo-helper \
+			-- btrfs balance status --verbose "$existing_mount"; then
+
+			# balance is running, ask what to do
+			if test "$(choose-option --required --label --question="Do you wish to?" -- 'resume' "Resume the existing balance, and abort a new $strategy balance." 'start' "Cancel the existing balance and resume, and start a new $strategy balance.")" = 'resume'; then
+				# usage: btrfs balance resume <path>
+				# Resume interrupted balance
+				eval-helper --no-quiet --wrap --confirm \
+					-- sudo-helper \
+					-- btrfs balance resume "$existing_mount"
+				return "$?"
+			else
+				# usage: btrfs balance cancel <path>
+				# Cancel running or paused balance
+				eval-helper --no-quiet --wrap --confirm \
+					-- sudo-helper \
+					-- btrfs balance cancel "$existing_mount"
+			fi
+		fi
+
+		# usage: btrfs balance start [options] <path>
+		# -v|--verbose              increase output verbosity
+		# -f|--force                force a reduction of metadata integrity, or skip timeout when converting to RAID56 profiles
+		# --background|--bg         run the balance as a background process
+		# --enqueue                 wait if there's another exclusive operation running, otherwise continue
+		# -d[filters]               act on data chunks with optional filters (no space in between)
+		# -m[filters]               act on metadata chunks with optinal filters (no space in between)
+		# -s[filters]               act on system chunks (only under -f) with optional filters (no space in between)
+		if test "$strategy" = 'single'; then
+			args+=('--force')
+		fi
+		eval-helper --no-quiet --wrap --confirm \
+			-- sudo-helper \
+			-- btrfs balance start --verbose --background --enqueue "${args[@]}" -dconvert="$strategy" -mconvert="$strategy" "$existing_mount"
+	}
+
+	# =====================================
 	# Arguments
 
 	function help {
@@ -16,29 +309,29 @@ function btrfs-helper() (
 			btrfs-helper <action>
 
 			ACTIONS:
-			<devices|drives>
-			    Lists all btrfs formatted devices.
+			devices [<...args>]
+			    Forwards to [get-devices <...args>] to fetch all devices with a btrfs filesystem.
 
-			<device|drive> -- <btrfs-filesystem-label>
-			    Gets the primary device for a btrfs filesystem label.
-
-			mounts
-			    Lists all mount points of btrfs formatted devices.
+			info
+			    Gets information about a btrfs device / filesystem.
 
 			new
 			    Formats a selected device to btrfs.
 
+			mount
+			    Mount a selected btrfs device.
+
+			unmount
+			    Unmount a selected btrfs device.
+
 			add
-			    Adds a selected device to an selected btrfs mount point.
+			    Adds a selected device to a selected btrfs filesystem.
+
+			remove
+			    Removes a selected device from a selected btrfs filesystem.
 
 			balance
-			    Runs a btrfs raid1 balance on a selected btrfs mount point.
-
-			verify -- <btrfs-filesystem-label> <expected-count-of-btrfs-filesystem-devices>
-			    Verifies that the device count for a btrfs filesystem label is correct.
-
-			mounted -- <btrfs-filesystem-label> <expected-mount-point>
-			    Verifies that the btrfs filesystem label is mounted to the expected mount point.
+			    Runs a btrfs raid1 balance on a selected btrfs filesystem.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -53,213 +346,25 @@ function btrfs-helper() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--')
+		'devices')
+			action="$item"
+			if test "${1-}" = '--'; then
+				shift
+			fi
 			args+=("$@")
 			shift $#
 			break
 			;;
+		'info' | 'new' | 'mount' | 'unmount' | 'add' | 'remove' | 'balance') action="$item" ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*)
-			if test -z "$action"; then
-				action="$item"
-			else
-				help "An unrecognised argument was provided: $item"
-			fi
-			;;
+		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	# convert
-	if test "$action" = 'drives'; then
-		action='devices'
-	elif test "$action" = 'drive'; then
-		action='device'
-	fi
-
-	# ensure valid action
-	local actions=(
-		devices
-		device
-		mounts
-		new
-		add
-		balance
-		verify
-		mounted
-	)
-	action="$(
-		choose-option --required \
-			--question='What action to perform?' \
-			--filter="$action" -- "${actions[@]}"
-	)"
-
-	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
-
-	# =====================================
-	# Helpers
-
-	# Get all the mount points which btrfs devices are mounted to
-	function get_btrfs_mounts {
-		if is-mac; then
-			df -T btrfs
-		else
-			df --type=btrfs
-			# df -Th | awk '($2 == "btrfs") {print $7}'
-			# lsblk -f | awk '($2 == "btrfs" && $7) {print $7}'
-		fi
-	}
-
-	# Prompt for a specific btrfs mount point
-	function get_btrfs_mount {
-		local question="$1" mounts
-		mapfile -t mounts < <(btrfs_mounts)
-		choose-option --required \
-			--question="$question" \
-			-- "${mounts[@]}"
-	}
-
-	# Prompt for a specific device
-	function get_any_device {
-		local question="$1" devices=()
-		mapfile -t devices < <(get-devices)
-		choose-option --required \
-			--question="$question" \
-			-- "${devices[@]}"
-	}
-
-	# Get all the devices which are formatted to btrfs
-	function get_btrfs_devices {
-		lsblk -f | awk '/btrfs/ {print "/dev/"$1}'
-	}
-
-	# Prompt for a specific btrfs device
-	function get_btrfs_device {
-		local question="$1" devices=()
-		mapfile -t devices < <(get_btrfs_devices)
-		choose-option --required \
-			--question="$question" \
-			-- "${devices[@]}"
-	}
-
-	# Get the primary device of a btrfs filesystem label
-	function get_btrfs_device_for_label {
-		local label="$1"
-		blkid -L "$label"
-	}
-
-	# Get the devices of a btrfs filesystem label
-	function get_btrfs_devices_for_label {
-		local label="$1"
-		sudo-helper \
-			-- btrfs filesystem show "$label" | rg -o 'path ([a-z0-9/]+)' --replace '$1'
-	}
-
-	# Count the devices of a btrfs filesystem label
-	function get_btrfs_count_for_label {
-		local label="$1"
-		sudo-helper \
-			-- btrfs filesystem show "$label" | rg -o 'Total devices ([0-9]+)' --replace '$1'
-	}
-
-	# =====================================
-	# Actions
-
-	function act_mounts {
-		get_btrfs_mounts
-	}
-
-	function act_devices {
-		get_btrfs_devices
-	}
-
-	function act_new {
-		local device label
-		device="$(
-			get_any_device "Which device to erase and format as btrfs?"
-		)"
-		label="$(
-			ask --required \
-				--question="What label to use for the new btrfs filesystem that will be attached to the device [$device]?"
-		)"
-		eval-helper --no-quiet --wrap --confirm \
-			-- sudo-helper \
-			-- mkfs.btrfs -f -L "$label" "$device"
-	}
-
-	# Add a device to a btrfs cluster
-	function act_add {
-		local device mount
-		echo 'You will now specify a mount point of an existing btrfs cluster, and a device that you wish to be erased and added to it.'
-		mount="$(get_btrfs_mount "Which mount point is the btrfs cluster that will house the new device?")"
-		device="$(get_any_device "Which device is the one to be erased then added into the btrfs cluster?")"
-
-		# add the device to the mount point
-		eval-helper --no-quiet --wrap --confirm \
-			-- sudo-helper \
-			-- btrfs device add -f "$device" "$mount"
-
-		# balance the devices of the mount point
-		eval-helper --no-quiet --wrap --confirm \
-			-- sudo-helper \
-			-- btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$mount"
-	}
-
-	# Resume a balance
-	function act_balance {
-		local mount
-		mount="$(get_btrfs_mount "Which btrfs mount point should we resume/start a btrfs raid1 balance operation on?")"
-
-		if eval-helper --no-quiet --wrap \
-			-- sudo-helper \
-			-- btrfs balance status -v "$mount"; then
-
-			# finished
-			eval-helper --no-quiet --wrap \
-				-- sudo-helper \
-				-- btrfs balance start --background -dconvert=raid1 -mconvert=raid1 "$mount"
-		else
-			# in progress
-			eval-helper --no-quiet --wrap \
-				-- sudo-helper \
-				-- btrfs balance resume "$mount"
-		fi
-	}
-
-	# Verify the amount of btrfs devices matches the expected ount
-	function act_verify {
-		local label="$1" expected="$2" actual
-		actual="$(get_btrfs_count_for_label "$label")"
-		if test "$actual" -ne "$expected"; then
-			{
-				echo-style --error="$actual out of $expected devices available"
-				echo-style --warning="Try again when all devices are available."
-			} >/dev/stderr
-			return 1
-		fi
-	}
-
-	function act_mounted {
-		local label="$1" mount="$2" device
-		device="$(get_btrfs_device_for_label "$label")"
-		mount-helper --mounted --source="$device" --target="$mount"
-	}
-
-	function act_device {
-		local label="${1-}"
-		if test -n "$label"; then
-			get_btrfs_device_for_label "$label"
-		else
-			get_btrfs_device 'Which btrfs device to select?'
-		fi
-	}
-
-	# =====================================
-	# Act
-
-	if test "$(type -t "act_$action")" = 'function'; then
+	# act
+	if test -z "$action"; then
+		help 'No <action> specified.'
+	elif test "$(type -t "act_$action")" = 'function'; then
 		"act_$action" "${args[@]}"
 		return "$?"
 	else

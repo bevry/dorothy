@@ -18,6 +18,12 @@
 # UASP supported is needed by the USB Hubs for UASP boost, as stated by StarTech in a support chat:
 # > All hubs support the use of UASP enabled devices, but hubs that do not have the feature built in will not operate at the boosted speed that UASP devices can function at. If you require the UASP boosted speed, then look for a hub that has it built in. If the speed is not crucial and the standard 5Gbps that USB 3.0 offers will suffice, it won't matter the hub you use as long as its a USB 3.0 hub.
 
+# Other useful commands that we didn't use:
+# df -T "$filesystem" # macos
+# df --type="$filesystem" # linux
+# blkid -L "$label"
+# lsblk -f | awk "/$filesystem/" {print "/dev/"$1}'
+
 function get-devices() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -33,46 +39,85 @@ function get-devices() (
 			get-devices [...options] [-- ...<node>]
 
 			OPTIONS:
-			--node
+			--result=<detail>
+			    What to output as the result. If CSV values provided, they will be tabbed separated.
+
+			--details=<detail>
+			    What to output as the label (accepts CSV values).
+			    Defaults to all details.
+
+			--select=<question>
+			    If provided, prompts the user to select one of the matched devices with the <question>.
+			    Defaults <result> to <node>.
+
+			--missing=<missing>
+			    If provided, and no results were found, then output this <missing> message instead of the default one.
+
+			--debug
+			    Output debug information.
+
+			FILTERS:
+			--node=<node>
+			    Filter devices, only returning those of <node>.
+
+			--uuid=<uuid>
+			    Filter devices, only returning those of <uuid>.
+
+			--label=<label>
+			    Filter devices, only returning those of <label>.
+
+			--filesystem=<filesystem>
+			    Filter devices, only returning those of <filesystem>.
+
+			--mount=<mount>
+			    Filter devices, only returning those mounted to <mount>.
+
+			--mounted
+			    Filter devices, only returning those that are mounted.
+
+			--count=<count>
+			    Filter devices, only returning those of <count>.
+			    Currently only supports btrfs.
+
+			DETAILS:
+			node
 			    Get device node, e.g. [/dev/sda]
 
-			--size
+			size
 			    Get device size, e.g. [10.91 TiB]
 
-			--model
-			    Get device model, e.g. [My Book 25EE]
+			label
+			    Get device label, e.g. [TANKER]
 
+			filesystem
+			    Get device filesystem/type, e.g. [btrfs|ext4]
 
-			--label
-			    Get device label, e.g. [writable]
+			mount
+			    Get device mount point, e.g. [/boot/firmware]
 
-			--uuid
-			    Get device uuid, e.g. [1aa1aa11-1aa1-aa11-1aa1-aa1aa1aa1aa1]
+			count
+				Get how many devices are attached to the filesystem (btrfs only), e.g. [1]
 
-			--block
-			    Get device block size, e.g. [4096]
-
-			--<type|filesystem>
-			    Get device filesystem, e.g. [btrfs|ext4]
-
-
-			--serial
-			    Get device serial number, e.g. [1AA1AA11]
-
-			--vendor
+			vendor
 			    Get device vendor, e.g. [Seagate]
 
-			--product
+			model
+			    Get device model, e.g. [My Book 25EE]
+
+			product
 			    Get device product, e.g. [Expansion Desk]
 
-			--revision
+			revision
 			    Get device revision, e.g. [0915]
 
-			--tabbed
-			    Output tab separated values instead of key value pairs.
+			serial
+			    Get device serial number, e.g. [1AA1AA11]
 
-			<node>
-			    Filter devices, only returning those of <node>.
+			uuid
+			    Get device uuid, e.g. [1aa1aa11-1aa1-aa11-1aa1-aa1aa1aa1aa1]
+
+			block
+			    Get device block size, e.g. [4096]
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -81,60 +126,116 @@ function get-devices() (
 	}
 
 	# process
-	local item details=() nodes=() tabbed='no' debug='no'
+	local item option_results=() option_select='' option_missing='' option_debug='no'
+	local option_has_node='' option_node=''
+	local option_has_label='' option_label=''
+	local option_has_filesystem='' option_filesystem=''
+	local option_has_mount='' option_mount=''
+	local option_has_count='' option_count=''
+	local option_has_uuid='' option_uuid=''
+	local option_details=(
+		node
+		size
+		label
+		filesystem
+		mount
+		count
+		vendor
+		model
+		product
+		revision
+		serial
+		uuid
+		block
+	)
+	local filters=(
+		node
+		label
+		filesystem
+		mount
+		count
+		uuid
+	)
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 
-		'--node') details+=('node') ;;
-		'--size') details+=('size') ;;
-		'--model') details+=('model') ;;
-
-		'--serial') details+=('serial') ;;
-		'--vendor') details+=('vendor') ;;
-		'--product') details+=('product') ;;
-		'--revision') details+=('revision') ;;
-
-		'--label') details+=('label') ;;
-		'--uuid') details+=('uuid') ;;
-		'--block') details+=('block') ;;
-		'--type' | '--filesystem') details+=('filesystem') ;;
-
-		'--tabbed') tabbed='yes' ;;
+		'--result='*)
+			mapfile -t option_results < <(echo-split ',' -- "${item#*--result=}")
+			;;
+		'--detail='*)
+			mapfile -t option_details < <(echo-split ',' -- "${item#*--detail=}")
+			;;
+		'--select='*) option_select="${item#*--select=}" ;;
+		'--missing='*) option_missing="${item#*--missing=}" ;;
 		'--no-debug'* | '--debug'*)
-			debug="$(
-				get-flag-value debug --missing="$debug" -- "$item" | echo-affirmative
+			option_debug="$(
+				get-flag-value debug --missing="$option_debug" -- "$item" | echo-affirmative
 			)"
 			;;
 
-		'--')
-			nodes+=("$@")
-			shift "$#"
-			break
+		'--node='*) option_node="${item#*--node=}" ;;
+		'--no-node' | '--node')
+			option_has_node="$(
+				get-flag-value node --missing="$option_has_node" -- "$item" | echo-affirmative
+			)"
 			;;
+		'--label='*) option_label="${item#*--label=}" ;;
+		'--no-label' | '--label')
+			option_has_label="$(
+				get-flag-value label --missing="$option_has_label" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--filesystem='*) option_filesystem="${item#*--filesystem=}" ;;
+		'--no-filesystem' | '--filesystem')
+			option_has_filesystem="$(
+				get-flag-value filesystem --missing="$option_has_filesystem" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--mount='*) option_mount="${item#*--mount=}" ;;
+		'--no-mount' | '--mount')
+			option_has_mount="$(
+				get-flag-value mount --missing="$option_has_mount" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--no-mounted'* | '--mounted'*)
+			option_has_mount="$(
+				get-flag-value mounted --missing="$option_has_mount" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--count='*) option_count="${item#*--count=}" ;;
+		'--no-count' | '--count')
+			option_has_count="$(
+				get-flag-value count --missing="$option_has_count" -- "$item" | echo-affirmative
+			)"
+			;;
+		'--uuid='*) option_uuid="${item#*--uuid=}" ;;
+		'--no-uuid' | '--uuid')
+			option_has_uuid="$(
+				get-flag-value uuid --missing="$option_has_uuid" -- "$item" | echo-affirmative
+			)"
+			;;
+
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	if test "${#details[@]}" -eq 0; then
-		details+=(
-			'node'
-			'size'
-			'model'
+	# if select is provided, yet no results are provided, then default to node
+	if test -n "$option_select" -a "${#option_results[@]}" -eq 0; then
+		option_results=('node')
+	fi
 
-			'label'
-			'uuid'
-			'block'
-			'filesystem'
+	# if no select is provided, yet results are provided, then ignore display
+	if test -z "$option_select" -a "${#option_results[@]}" -ne 0; then
+		option_details=()
+	fi
 
-			'serial'
-			'vendor'
-			'product'
-			'revision'
-		)
+	# if no missing, default to a generic message
+	if test -z "$option_missing"; then
+		option_missing='No matching devices found.'
 	fi
 
 	# =====================================
@@ -142,203 +243,221 @@ function get-devices() (
 
 	# dependencies
 	source "$DOROTHY/sources/ripgrep.bash"
+	if is-linux; then
+		setup-util --quiet --cli='sginfo' \
+			APT='sg3-utils'
+	fi
 
 	# helpers
 	function get_key {
-		rg -o "$1=\"(.+?)\"" --replace '$1' || :
+		rg -o "$1=\"([^\"]+)" --replace '$1' || :
 	}
 	function get_property {
-		rg -o "$1[: ']+(.+)[']?" --replace '$1' || :
+		rg -o "$1[: '\"]+([^'\"]+)" --replace '$1' || :
 	}
-	if test "$tabbed" = 'yes'; then
-		function output {
-			printf '%s\t' "$2"
-		}
-	else
-		function output {
-			printf '%s=[%s] ' "$1" "$2"
-
-		}
-	fi
-	if command-exists smartctl; then
-		function smart_debug_one {
-			local node="$1"
-
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- smartctl -a "$node" || :
-			# ^ -i: model, serial, firmware, pci id, ieee id, controller id, nvme version, etc.
-			# ^ -a: same as -i, but includes SMART specific details that we don't care for
-		}
-	else
-		function smart_debug_one {
-			true
-		}
-	fi
-
-	# environment specific helpers
-	if is-mac; then
-		function debug_one {
-			local node="$1"
-
-			# model, serial, uuid, filesystem, size, block, label
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- diskutil info "$node" || :
-
-			# finish
-			smart_debug_one "$node"
-			echo
-		}
-		function get_one {
-			local detail node="$1" __info size='' model='' label='' uuid='' block='' filesystem='' serial='' vendor='' product='' revision=''
-
-			__info="$(sudo-helper -- diskutil info "$node")"
-			model="$(get_property 'Device [/] Media Name' <<<"$__info")"
-			serial="$(get_property 'Content [(]IOContent[)]' <<<"$__info")"
-			uuid="$(get_property 'Disk [/] Partition UUID' <<<"$__info")"
-			filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$__info")"
-			size="$(get_property 'Disk Size' <<<"$__info")"          # 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
-			block="$(get_property 'Device Block Size' <<<"$__info")" # 512 Bytes
-			label="$(get_property 'Volume Name' <<<"$__info")"       # 512 Bytes
-			if test -z "$label" -o "$label" = ' '; then
-				label="$(get_property 'Set Name' <<<"$__info")"
+	function check_exclude {
+		local name="$1" value="$2"
+		local option="option_$name"
+		option="${!option}"
+		local has="option_has_$name"
+		has="${!has}"
+		if test -n "$option" -a "$option" != "$value"; then
+			return
+		fi
+		if test -n "$has"; then
+			if test "$has" = 'yes' -a -z "$value" || test "$has" = 'no' -a -n "$value"; then
+				return
 			fi
+		fi
+		return 1
+	}
 
-			for detail in "${details[@]}"; do
-				output "$detail" "${!detail}"
-			done
-			echo
+	# debug
+	if test "$option_debug" = 'yes'; then
+		{
+			if test -n "$option_node"; then
+				# model, serial, uuid, filesystem, size, block, label
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- diskutil info "$option_node" || :
 
-			if test "$debug" = 'yes'; then
-				debug_one "$node" >/dev/stderr
-			fi
-		}
-		function debug_all {
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- diskutil list || :
+				# label, uuid, block, filesystem
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- blkid "$option_node" || :
 
-			# trail
-			echo
-		}
-		function get_all {
-			sudo-helper -- diskutil list | rg -o '/dev/[^ ]+'
+				# serial, vendor, product, revision
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- sginfo -a "$option_node" || :
 
-			if test "$debug" = 'yes'; then
-				debug_all >/dev/stderr
-			fi
-		}
-		function act {
-			local node
-			if test "${#nodes[@]}" -ne 0; then
-				for node in "${nodes[@]}"; do
-					get_one "$node"
-				done
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- hdparm -I "$option_node" || :
+
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- sdparm -i "$option_node" || :
+
+				# -i: model, serial, firmware, pci id, ieee id, controller id, nvme version, etc.
+				# -a: same as -i, but includes SMART specific details that we don't care for
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- smartctl -a "$option_node" || :''
+
+				#  btrfs filesystem show [options] [<path>|<uuid>|<device>|label]
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- btrfs filesystem show "$option_node"
 			else
-				while IFS=$'\t' read -rd $'\n' node; do
-					get_one "$node"
-				done < <(get_all)
-			fi
-		}
-	elif is-linux; then
-		setup-util --quiet --cli='sginfo' \
-			APT='sg3-utils'
+				if is-linux; then
+					# macos doesn't support fdisk for listing
+					eval-helper --no-quiet \
+						-- sudo-helper \
+						-- fdisk -l || :
 
-		function debug_one {
-			local node="$1"
+					# Gets all the details for the drives, including the vendor, model, serial, driver capabilities, etc.
+					# UASP unsupported: configuration: driver=usb-storage
+					# UASP supported: configuration: driver=uas maxpower=... speed=...
+					eval-helper --no-quiet \
+						-- sudo-helper \
+						-- lshw -class disk -class storage || :
 
-			# label, uuid, block, filesystem
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- blkid "$node" || :
-
-			# serial, vendor, product, revision
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- sginfo -a "$node" || :
-
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- hdparm -I "$node" || :
-
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- sdparm -i "$node" || :
-
-			# finish
-			smart_debug_one "$node"
-			echo
-		}
-		function get_one {
-			# trunk-ignore-all(shellcheck/SC2034)
-			local detail node="$1" size="$2" model="$3" __blkid label='' uuid='' block='' filesystem='' __sginfo serial='' vendor='' product='' revision=''
-
-			__blkid="$(sudo-helper -- blkid "$node")"
-			label="$(get_key 'LABEL' <<<"$__blkid")"
-			uuid="$(get_key 'UUID' <<<"$__blkid")"
-			block="$(get_key 'BLOCK_SIZE' <<<"$__blkid")"
-			filesystem="$(get_key 'TYPE' <<<"$__blkid")"
-
-			__sginfo="$(sudo-helper -- sginfo -a "$node")"
-			serial="$(get_property 'Serial Number' <<<"$__sginfo")"
-			vendor="$(get_property 'Vendor' <<<"$__sginfo")"
-			product="$(get_property 'Product' <<<"$__sginfo")"
-			revision="$(get_property 'Revision level' <<<"$__sginfo")"
-
-			for detail in "${details[@]}"; do
-				output "$detail" "${!detail}"
-			done
-			echo
-
-			if test "$debug" = 'yes'; then
-				debug_one "$node" >/dev/stderr
-			fi
-		}
-		function debug_all {
-			# macos does not support the -l flag
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- fdisk -l || :
-
-			# Gets all the details for the drives, including the vendor, model, serial, driver capabilities, etc.
-			# UASP unsupported: configuration: driver=usb-storage
-			# UASP supported: configuration: driver=uas maxpower=... speed=...
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- lshw -class disk -class storage || :
-
-			# Fetch filesystems and mounts for all drives
-			eval-helper --no-quiet \
-				-- sudo-helper \
-				-- lsblk -f || :
-
-			# trail
-			echo
-		}
-		function get_all {
-			sudo-helper -- fdisk -l "${devices[@]}" | rg -Uo 'Disk (/dev/.+?): (.+?),.+\nDisk model: (.+?)\s' --replace $'$1\t$2\t$3'
-
-			if test "$debug" = 'yes'; then
-				debug_all >/dev/stderr
-			fi
-		}
-		function act {
-			local node size model
-			while IFS=$'\t' read -rd $'\n' node size model; do
-				if test "${#nodes[@]}" -ne 0 && ! is-needle "$node" "${nodes[@]}"; then
-					continue
+					# Fetch filesystems and mounts for all drives
+					eval-helper --no-quiet \
+						-- sudo-helper \
+						-- lsblk -f || :
+				else
+					eval-helper --no-quiet \
+						-- sudo-helper \
+						-- diskutil list || :
 				fi
-				get_one "$node" "$size" "$model"
-			done < <(get_all)
-		}
-	else
-		echo-error "$0: Unsupported OS"
-		return 19 # ENODEV 19 Operation not supported by device
+
+				#  btrfs filesystem show [options]
+				eval-helper --no-quiet \
+					-- sudo-helper \
+					-- btrfs filesystem show
+
+				# trail
+				echo
+			fi
+		} >/dev/stderr
 	fi
+
+	# action
+	local mount_haystack results=()
+	mount_haystack="$(mount)"
+	function get_one {
+		# trunk-ignore-all(shellcheck/SC2034)
+		local temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' serial='' vendor='' product='' revision=''
+
+		# check node quickly
+		if check_exclude 'node' "$node"; then
+			return
+		fi
+
+		# fetch properties
+		if is-mac; then
+			# fetch diskutil properties
+			temp="$(sudo-helper -- diskutil info "$node")"
+			filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
+			label="$(get_property 'Volume Name' <<<"$temp")" # 512 Bytes
+			if test -z "$label" -o "$label" = ' '; then      # label fallback
+				label="$(get_property 'Set Name' <<<"$temp")"
+			fi
+			uuid="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
+			model="$(get_property 'Device [/] Media Name' <<<"$temp")"
+			serial="$(get_property 'Content [(]IOContent[)]' <<<"$temp")"
+			size="$(get_property 'Disk Size' <<<"$temp")"          # 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
+			block="$(get_property 'Device Block Size' <<<"$temp")" # 512 Bytes
+
+			# fetch mount
+			mount="$(rg -o "$node on (.+?) \($filesystem" --replace '$1' <<<"$mount_haystack" || :)"
+		else
+			# fetch blkid properties
+			temp="$(sudo-helper -- blkid "$node" || :)" # can fail if recently removed from a btrfs cluster
+			if test -n "$temp"; then
+				filesystem="$(get_key 'TYPE' <<<"$temp")"
+				label="$(get_key 'LABEL' <<<"$temp")"
+				uuid="$(get_key 'UUID' <<<"$temp")"
+				block="$(get_key 'BLOCK_SIZE' <<<"$temp")"
+			fi
+
+			# fetch sginfo properties
+			temp="$(sudo-helper -- sginfo -a "$node")"
+			serial="$(get_property 'Serial Number' <<<"$temp")"
+			vendor="$(get_property 'Vendor' <<<"$temp")"
+			product="$(get_property 'Product' <<<"$temp")"
+			revision="$(get_property 'Revision level' <<<"$temp")"
+
+			# fetch mount
+			mount="$(rg -o "$node on (.+?) type $filesystem" --replace '$1' <<<"$mount_haystack" || :)"
+		fi
+
+		# fetch count
+		if test "$filesystem" = 'btrfs'; then
+			count="$(sudo-helper -- btrfs filesystem show "$node" | rg -o 'Total devices ([0-9]+)' --replace '$1' || :)"
+		fi
+
+		# check filters
+		local filter
+		for filter in "${filters[@]}"; do
+			if check_exclude "$filter" "${!filter}"; then
+				return
+			fi
+		done
+
+		# output
+		local result
+		if test "${#option_results[@]}" -ne 0; then
+			if test "${#option_results[@]}" -eq 1; then
+				printf '%s' "${!option_results[0]}"
+			else
+				for temp in "${option_results[@]}"; do
+					printf '%s\t' "${!temp}"
+				done
+			fi
+			printf '\n'
+		fi
+		if test "${#option_details[@]}" -ne 0; then
+			if test "${#option_details[@]}" -eq 1; then
+				printf '%s=[%s]' "${option_details[0]}" "${!option_details[0]}"
+			else
+				for temp in "${option_details[@]}"; do
+					printf '%s=[%s] ' "$temp" "${!temp}"
+				done
+			fi
+			printf '\n'
+		fi
+	}
+	function get_all {
+		if is-mac; then
+			sudo-helper -- diskutil list | rg -o '/dev/[^ ]+'
+		else
+			sudo-helper -- fdisk -l | rg -Uo 'Disk (/dev/.+?): (.+?),.+\nDisk model: (.+?)\s' --replace $'$1\t$2\t$3'
+		fi
+	}
+	function action {
+		local node size='' model='' result
+		while IFS=$'\t' read -rd $'\n' node size model; do
+			get_one "$node" "$size" "$model"
+		done < <(get_all)
+	}
 
 	# act
-	act
+	local results
+	mapfile -t results < <(action)
+	if test "${#results[@]}" -eq 0; then
+		echo-style --error="$option_missing" >/dev/stderr
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+	if test -n "$option_select"; then
+		choose-option --required --confirm --label \
+			--question="$option_select" \
+			-- "${results[@]}"
+	else
+		echo-lines "${results[@]}"
+	fi
 )
 
 # fire if invoked standalone
