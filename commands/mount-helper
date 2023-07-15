@@ -595,9 +595,12 @@ function mount-helper() (
 	# =====================================
 	# Action
 
-	local option_actions option_remount option_type option_own option_user option_group option_owner option_username option_password option_server option_label option_count option_share option_source option_target
+	local option_actions option_automount option_fstab option_cron option_remount option_type option_own option_user option_group option_owner option_username option_password option_server option_label option_count option_share option_source option_target
 	function reset {
 		option_actions=''
+		option_automount=''
+		option_fstab=''
+		option_cron=''
 		option_remount=''
 		option_type=''
 		option_own=''
@@ -626,7 +629,7 @@ function mount-helper() (
 		local fstab_line='' cron_args=() cron_line=''
 		local open_cmd=() gocryptfs_cmd=() mount_cmd=()
 		local owner_cmd=() root_cmd=() exists_cmd=() ls_cmd=() mkdir_cmd=() rm_cmd=() mounting_cmd=() unmount_cmd=() unmount_force_cmd=()
-		local uses_ownership='no' uses_fstab='' uses_wait='no' uses_mkdir='yes' uses_root_for_mount='no' uses_root_for_unmount='no'
+		local uses_ownership='no' uses_fstab='' uses_cron='' uses_wait='no' uses_mkdir='yes' uses_root_for_mount='no' uses_root_for_unmount='no'
 
 		# skip if first --
 		if test -z "$option_type" -a -z "$option_server" -a -z "$option_share" -a -z "$option_source" -a -z "$option_target"; then
@@ -637,6 +640,19 @@ function mount-helper() (
 		if test "$option_own" = 'yes' -o -n "$option_owner" -o -n "$option_user" -o -n "$option_group"; then
 			uses_ownership='yes'
 		fi
+
+		# prepare automount
+		# don't infer automount from fstab/cron, as [--fstab] can or cannot be automount, and [--fstab] is not [--cron]
+		if test -n "$option_automount"; then
+			# default both if not specified
+			if test -z "$option_cron"; then
+				option_cron="$option_automount"
+			fi
+			if test -z "$option_fstab"; then
+				option_fstab="$option_automount"
+			fi
+		fi
+		# option_{automount,fstab,cron} could still be empty string, as intended, which allows autodetection
 
 		# logging
 		local title='mount-helper'
@@ -652,16 +668,17 @@ function mount-helper() (
 		if [[ $option_actions == *'[unmount]'* ]]; then
 			title+=' --unmount'
 		fi
-		if [[ $option_actions == *'[automount]'* ]]; then
-			title+=' --automount'
-			uses_fstab='yes'
+		if test -n "$option_automount"; then
+			title+=" --automount=$option_automount"
 		fi
-		if [[ $option_actions == *'[unautomount]'* ]]; then
-			title+=' --unautomount'
-			uses_fstab='no'
+		if test -n "$option_cron"; then
+			title+=" --cron=$option_cron"
+		fi
+		if test -n "$option_fstab"; then
+			title+=" --fstab=$option_fstab"
 		fi
 		if test "$title" = 'mount-helper'; then
-			echo-error "Require --parse, --check, --mount, --unmount, --automount, --unautomount"
+			echo-error "Require --parse, --check, --mount, --unmount, --automount, --noautomount"
 			return 22 # Invalid argument
 		fi
 		echo-segment --h2="$title"
@@ -979,6 +996,11 @@ function mount-helper() (
 		fi
 
 		# coerce automount lines
+		if test -z "$fstab_source" -o -z "$fstab_type"; then
+			fstab_source=''
+			fstab_type=''
+			uses_fstab='no'
+		fi
 		if test -n "$option_target"; then
 			# cron
 			if test -n "$option_share"; then
@@ -1006,31 +1028,47 @@ function mount-helper() (
 					"--target=${option_target@Q}"
 				)
 				cron_line="*/15 * * * * $(stringify_args "${cron_args[@]}")"
+				# autodetect uses_cron
+				if test -z "$option_cron"; then
+					temp="${option_target@Q}"
+					if config-edit --cron-system --has --line="$temp" || config-edit --cron-user --has --line="$temp"; then
+						uses_cron='yes'
+					else
+						uses_cron='no'
+					fi
+				else
+					uses_cron="$option_cron"
+				fi
 			fi
 			# fstab
 			if test -n "$fstab_source" -a -n "$fstab_type"; then
-				if test "$uses_fstab" = 'yes'; then
-					fstab_options=(
-						'auto'
-						"${fstab_options[@]}"
-					)
-					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${fstab_options[@]}") 0 0"
-				elif test "$uses_fstab" = 'no'; then
-					fstab_options=(
-						'noauto'
-						"${fstab_options[@]}"
-					)
-					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${fstab_options[@]}") 0 0"
-				else # elif test -z "$uses_fstab"; then
-					fstab_options=(
-						auto
-						"${fstab_options[@]}"
-					)
-					fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join "${fstab_options[@]}") 0 0"
-					if config-edit --fstab --has --line="$fstab_line"; then
+				# autodetect uses_fstab
+				if test -z "$uses_fstab"; then
+					uses_fstab="$option_fstab"
+				fi
+				if test -z "$uses_fstab"; then
+					temp="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type"
+					if config-edit --fstab --has --line="$temp"; then
 						uses_fstab='yes'
 					else
 						uses_fstab='no'
+					fi
+				fi
+				# autodetect option_fstab, here as we still want autodetection even if uses_fstab is no (change their mind)
+				if test -z "$option_automount"; then
+					temp="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join auto "${fstab_options[@]}") 0 0"
+					if config-edit --fstab --has --line="$temp"; then
+						option_automount='yes'
+					else
+						option_automount='no'
+					fi
+				fi
+				# generate the appropriate
+				if test "$uses_fstab" = 'yes'; then
+					if test "$option_automount" = 'yes'; then
+						fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join auto "${fstab_options[@]}") 0 0"
+					else
+						fstab_line="$fstab_source $(echo-fstab-encode "$option_target") $fstab_type $(join noauto "${fstab_options[@]}") 0 0"
 					fi
 				fi
 			fi
@@ -1217,7 +1255,7 @@ function mount-helper() (
 				mount_type mounted_type fstab_type '' \
 				check_source check_target check_type '' \
 				fstab_line cron_line '' \
-				uses_ownership uses_fstab uses_wait uses_mkdir uses_root_for_mount uses_root_for_unmount
+				uses_ownership uses_fstab uses_cron uses_wait uses_mkdir uses_root_for_mount uses_root_for_unmount
 			value_dump \
 				open_cmd "${open_cmd[*]}" \
 				gocryptfs_cmd "${gocryptfs_cmd[*]}" \
@@ -1231,65 +1269,79 @@ function mount-helper() (
 				rm_cmd "${rm_cmd[*]}"
 		}
 		function do_configure {
+			echo-segment --h2='configure'
+
 			# add fuse config
 			# https://github.com/rfjakob/gocryptfs/blob/master/Documentation/MANPAGE.md#-allow_other
 			# https://github.com/rfjakob/gocryptfs/blob/a55b3cc15a6d9bce116a90f33df4bc99d9dd6a10/.github/workflows/ci.yml#L41
 			config-edit --fuse --line='user_allow_other'
+			echo
 
 			# ensure sudo and cron are configured correctly for automounting
 			sudo-helper --local
+
+			echo-segment --g2='configure'
 		}
-		function do_automount_requirement {
-			echo-style 'Configuration via ' --invert='fstab' ' is ' --positive='required' ' for ' --code="$log_source"
-			config-edit --fstab --line="$fstab_line" --needle="$(echo-fstab-encode "$option_target")" --add
-		}
-		function do_automount_adjust {
-			local automount_action="$1"
+		function do_automount {
 			if test -z "$option_target"; then
 				echo-error "[mount-helper --automount] requires <target>"
 				return 22 # Invalid argument
 			fi
 
+			# prepare
+			echo-segment --h2='automount'
+			local add_fstab_line add_cron_line
+			if test -n "$fstab_line" -a "$uses_fstab" = 'yes' -a "${1-}" != 'remove'; then
+				add_fstab_line='yes'
+			else
+				add_fstab_line='no'
+			fi
+			if test -n "$cron_line" -a "$uses_cron" = 'yes' -a "${1-}" != 'remove'; then
+				add_cron_line='yes'
+			else
+				add_cron_line='no'
+			fi
+
 			# fstab
-			echo
-			if test -z "$fstab_line"; then
-				echo-style 'Automounting via ' --invert='fstab' ' is ' --negative='unsupported' ' for ' --code="$log_source"
+			echo-segment --h3='fstab'
+			if test -n "$fstab_source"; then
+				echo-style --invert='fstab' ' is ' --positive='supported' ' for ' --code="$log_source"
 			else
-				echo-style 'Automounting via ' --invert='fstab' ' is ' --positive='supported' ' for ' --code="$log_source"
+				echo-style --invert='fstab' ' is ' --negative='unsupported' ' for ' --code="$log_source"
 			fi
-			if test "$automount_action" = 'remove'; then
-				echo-style 'Automounting via ' --invert='fstab' ' is ' --negative='undesired.'
+			if test "$add_fstab_line" = 'yes'; then
+				echo-style --invert='fstab' ' is ' --positive='desired.'
 			else
-				echo-style 'Automounting via ' --invert='fstab' ' is ' --positive='desired.'
+				echo-style --invert='fstab' ' is ' --negative='undesired.'
 			fi
-			config-edit --fstab --line="$fstab_line" --needle="$(echo-fstab-encode "$option_target")" --action="$automount_action"
+			config-edit --fstab --line="$fstab_line" --needle="$(echo-fstab-encode "$option_target")" --add="$add_fstab_line"
+			echo-segment --g3='fstab'
 
 			# cron
-			echo
-			if test -z "$cron_line"; then
-				echo-style 'Automounting via ' --invert='cron' ' is ' --negative='unsupported' ' for ' --code="$log_source"
+			echo-segment --h3='cron'
+			if test -n "$cron_line"; then
+				echo-style --invert='cron' ' is ' --positive='supported' ' for ' --code="$log_source"
 			else
-				echo-style 'Automounting via ' --invert='cron' ' is ' --positive='supported' ' for ' --code="$log_source"
+				echo-style --invert='cron' ' is ' --negative='unsupported' ' for ' --code="$log_source"
 			fi
-			if test "$automount_action" = 'remove'; then
-				echo-style 'Automounting via ' --invert='cron' ' is ' --negative='undesired.'
+			if test "$add_cron_line" = 'yes'; then
+				echo-style --invert='cron' ' is ' --positive='desired.'
 			else
-				echo-style 'Automounting via ' --invert='cron' ' is ' --positive='desired.'
+				echo-style --invert='cron' ' is ' --negative='undesired.'
 			fi
 			function cron_comparer {
 				test "$1" = "$2" || [[ $1 == *cronitor*"$2"* ]]
 			}
 			if test "$uses_root_for_mount" = 'yes'; then
-				config-edit --cron-system --line="$cron_line" --needle="${option_target@Q}" --comparer='cron_comparer' --action="$automount_action"
+				config-edit --cron-user --needle="${option_target@Q}" --remove
+				config-edit --cron-system --line="$cron_line" --needle="${option_target@Q}" --comparer='cron_comparer' --add="$add_cron_line"
 			else
-				config-edit --cron-user --line="$cron_line" --needle="${option_target@Q}" --comparer='cron_comparer' --action="$automount_action"
+				config-edit --cron-system --needle="${option_target@Q}" --remove
+				config-edit --cron-user --line="$cron_line" --needle="${option_target@Q}" --comparer='cron_comparer' --add="$add_cron_line"
 			fi
-		}
-		function do_automount_remove {
-			do_automount_adjust 'remove'
-		}
-		function do_automount_add {
-			do_automount_adjust 'add'
+			echo-segment --g3='cron'
+
+			echo-segment --g2='automount'
 		}
 		local shared_check_status=''
 		function do_check {
@@ -1302,7 +1354,7 @@ function mount-helper() (
 			fi
 
 			# check
-			echo-segment --h2="check mount entries"
+			echo-segment --h2='check mount entries'
 			local haystack found
 			haystack="$(mount)"
 			function scan {
@@ -1352,11 +1404,11 @@ function mount-helper() (
 			if test -n "$found"; then
 				shared_check_status+='[valid]'
 				echo-style --positive='matching expectation:' $'\n' --code="$found"
-				echo-segment --g2="check mount entries"
+				echo-segment --g2='check mount entries'
 				return 0
 			else
 				echo-style --warning='matching expectation:' ' ' --invert="$check_target" $'\n' --code='[[ expectation not mounted ]]'
-				echo-segment --e2="check mount entries"
+				echo-segment --e2='check mount entries'
 				return 1
 			fi
 		}
@@ -1380,7 +1432,7 @@ function mount-helper() (
 
 			# remove from automount
 			if test "$goal" = 'unmount'; then
-				do_automount_remove
+				do_automount 'remove'
 			fi
 
 			# it exists, check if mounted
@@ -1530,7 +1582,7 @@ function mount-helper() (
 
 			# verify fstab
 			if test "$uses_fstab" = 'yes'; then
-				do_automount_requirement
+				do_automount
 			fi
 
 			# if not mounted, go through the process
@@ -1604,21 +1656,18 @@ function mount-helper() (
 
 		# config
 		# done here to prevent double running on --automount --mount dual use
-		if [[ $option_actions == *'[automount]'* || $option_actions == *'[mount]'* ]]; then
+		if test "$option_fstab" = 'yes' -o "$option_cron" = 'yes'; then
 			do_configure
-		fi
-
-		# automount option for mount
-		if [[ $option_actions == *'[automount]'* ]]; then
-			do_automount_add
-		fi
-		if [[ $option_actions == *'[unautomount]'* ]]; then
-			do_automount_remove
 		fi
 
 		# unmount
 		if [[ $option_actions == *'[unmount]'* ]]; then
 			do_unmount
+		fi
+
+		# automount
+		if test -n $option_automount; then
+			do_automount
 		fi
 
 		# mount
@@ -1638,14 +1687,19 @@ function mount-helper() (
 			OPTIONS:
 
 			Actions can be combined, however at least one is required:
-			--action=<parse|check|mount|unmount|automount|unautomount>
+			--action=<parse|check|mount|unmount|automount|noautomount>
 			[--parse]
 			    Outputs the parsed formats.
 			[--check|--mounted]
 			[--mount]
 			[--unmount]
-			[--automount]
-			[--unautomount|--no-automount]
+
+			[--[no-]automount]
+			    Enable/disable fstab and cron if supported.
+			[--[no-]fstab]
+			    Enable/disable fstab if supported.
+			[--[no-]cron]
+			    Enable/disable cron if supported.
 
 			Only one type can be specified:
 			--type=samba|gocryptfs|btrfs|<filesystem>
@@ -1709,8 +1763,16 @@ function mount-helper() (
 		'--mount') option_actions+='[mount]' ;;
 		'--unmount') option_actions+='[unmount]' ;;
 		'--check' | '--mounted') option_actions+='[check]' ;;
-		'--automount') option_actions+='[automount]' ;;
-		'--unautomount' | '--no-automount' | '--automount=no' | '--automount=false') option_actions+='[unautomount]' ;;
+
+		'--no-automount'* | '--automount'*) option_automount="$(
+			get-flag-value automount --missing="$option_automount" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-cron'* | '--cron'*) option_cron="$(
+			get-flag-value cron --missing="$option_cron" -- "$item" | echo-affirmative
+		)" ;;
+		'--no-fstab'* | '--fstab'*) option_fstab="$(
+			get-flag-value fstab --missing="$option_fstab" -- "$item" | echo-affirmative
+		)" ;;
 
 		'--no-remount'* | '--remount'*) option_remount="$(
 			get-flag-value remount --missing="$option_remount" -- "$item" | echo-affirmative
@@ -1720,7 +1782,6 @@ function mount-helper() (
 		'--samba' | '--smb' | '--smbfs' | '--cifs') option_type='samba' ;;
 		'--gocryptfs' | '--fuse.gocryptfs') option_type='gocryptfs' ;;
 		'--btrfs') option_type='btrfs' ;;
-		'--device' | '--drive' | '--disk') option_type='device' ;;
 
 		'--user='*) option_user="${item#*--user=}" ;;
 		'--group='*) option_group="${item#*--group=}" ;;
