@@ -981,7 +981,8 @@ function mount-helper() (
 			fi
 
 			# verify
-			temp="$(get-devices --result=node --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count")"
+			# use [echo-first] as when multiple devices are on a btrfs filesystem, they all share the same UUID and LABEL
+			temp="$(get-devices --result=node --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count" | echo-first)"
 			if test -n "$option_label"; then
 				option_share="$temp"
 			fi
@@ -1379,6 +1380,8 @@ function mount-helper() (
 					shared_check_status+='[type-missing]'
 					echo-style --negative='matching type:' ' ' --invert="$check_type" $'\n' --code='[[ type not mounted ]]'
 				fi
+			else
+				shared_check_status+='[type-unknown]'
 			fi
 			if test -n "$check_source"; then
 				if test -n "$found"; then
@@ -1388,6 +1391,8 @@ function mount-helper() (
 					shared_check_status+='[source-missing]'
 					echo-style --negative="matching source: " --invert="$check_source" $'\n' --code='[[ source not mounted ]]'
 				fi
+			else
+				shared_check_status+='[source-unknown]'
 			fi
 			if test -n "$check_target"; then
 				found="$(scan "$haystack" "$check_target")"
@@ -1398,6 +1403,8 @@ function mount-helper() (
 					shared_check_status+='[target-missing]'
 					echo-style --negative='matching target:' ' ' --invert="$check_target" $'\n' --code='[[ target not mounted ]]'
 				fi
+			else
+				shared_check_status+='[target-unknown]'
 			fi
 			# @todo a nicety would be output extra matches, in case there is a perfect match but there are also other matches...
 			found="$(scan "$haystack" "$check_type" "$check_source" "$check_target")"
@@ -1452,7 +1459,11 @@ function mount-helper() (
 				fi
 
 				# process check
-				if [[ $local_check_status == *'[source-missing]'* && $local_check_status == *'[target-missing]'* ]]; then
+				if [[ $local_check_status == *'[source-unknown]'* && $local_check_status == *'[target-missing]'* ]]; then
+					echo-style --positive='Target not mounted.'
+					# echo-style --notice="will prepare..."
+					break
+				elif [[ $local_check_status == *'[source-missing]'* && $local_check_status == *'[target-missing]'* ]]; then
 					echo-style --positive='Source not mounted.' --positive='Target not mounted.'
 					# echo-style --notice="will prepare..."
 					break
@@ -1522,7 +1533,7 @@ function mount-helper() (
 				fi
 				# unmount
 				echo-style --notice='Unmounting target...' ' ' --invert="$option_target"
-				if "${unmount_cmd[@]}"; then
+				if eval-helper --no-quiet --wrap -- "${unmount_cmd[@]}"; then
 					echo-style --positive='Unmounted.'
 					break
 				else
@@ -1531,7 +1542,7 @@ function mount-helper() (
 					what-is-using "$option_target"
 					confirm_ec=0 && confirm --positive --ppid=$$ -- "Yes for try again, no for force, ctrl+c for abort" || confirm_ec="$?"
 					if test "$confirm_ec" -eq 1; then
-						"${unmount_force_cmd[@]}"
+						eval-helper --no-quiet --wrap -- "${unmount_force_cmd[@]}"
 						echo-style --positive="Unmounted forcefully."
 					fi
 				fi
@@ -1614,6 +1625,17 @@ function mount-helper() (
 				waiter --timeout=60 --exists="$option_target"
 			fi
 
+			# chown
+			if ! is_samba "$option_type" && test "$uses_ownership" = 'yes'; then
+				eval-helper --no-quiet --wrap --shapeshifter \
+					-- fs-own --no-quiet --changes \
+					--sudo \
+					--owner="$option_owner" \
+					--user="$option_user" \
+					--group="$option_group" \
+					-- "$option_target"
+			fi
+
 			# ls
 			# 0 = ok
 			# 1 = minor problem (e.g., cannot access subdirectory)
@@ -1626,17 +1648,6 @@ function mount-helper() (
 			elif test "$ls_ec" -ne 0; then
 				echo-style --warning='Failed to list the target.'
 				return "$ls_ec"
-			fi
-
-			# chown
-			if ! is_samba "$option_type" && test "$uses_ownership" = 'yes'; then
-				eval-helper --no-quiet --wrap --shapeshifter \
-					-- fs-own --no-quiet --changes \
-					--sudo \
-					--owner="$option_owner" \
-					--user="$option_user" \
-					--group="$option_group" \
-					-- "$option_target"
 			fi
 
 			# log
