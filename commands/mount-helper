@@ -931,12 +931,6 @@ function mount-helper() (
 					fstab_source="$(echo-fstab-encode "$option_share")"
 				fi
 
-				# validate
-				if ! gocryptfs-helper verify -- "$gocryptfs_source" "--user=$option_user" "--group=$option_group"; then
-					echo-error "Failed to verify gocryptfs mount source: $gocryptfs_source"
-					return 22 # Invalid argument
-				fi
-
 				if test -n "$option_target"; then # optional under [check]
 					# gocryptfs
 					gocryptfs_cmd=(
@@ -1128,11 +1122,33 @@ function mount-helper() (
 			if test "$uses_root_for_mount" = 'yes'; then
 				mounting_cmd+=("${root_cmd[@]}")
 				mkdir_cmd+=("${root_cmd[@]}")
-				rm_cmd+=("${root_cmd[@]}")
+				rm_cmd+=(
+					fs-rm
+					--sudo
+					--
+					"$option_target"
+				)
 			elif test "$uses_ownership" = 'yes'; then
 				mounting_cmd+=("${owner_cmd[@]}")
 				mkdir_cmd+=("${owner_cmd[@]}")
-				rm_cmd+=("${owner_cmd[@]}")
+
+				rm_cmd+=('fs-rm')
+				if test -n "$option_user"; then
+					rm_cmd+=("--user=$option_user")
+				fi
+				if test -n "$option_group"; then
+					rm_cmd+=("--group=$option_group")
+				fi
+				rm_cmd+=(
+					--
+					"$option_target"
+				)
+			else
+				rm_cmd+=(
+					fs-rm
+					--
+					"$option_target"
+				)
 			fi
 			if test "$uses_ownership" = 'yes'; then
 				exists_cmd+=("${owner_cmd[@]}")
@@ -1164,11 +1180,6 @@ function mount-helper() (
 			mkdir_cmd+=(
 				mkdir
 				-p
-				"$option_target"
-			)
-			rm_cmd+=(
-				fs-rm
-				--
 				"$option_target"
 			)
 			if is-mac; then
@@ -1384,6 +1395,7 @@ function mount-helper() (
 				shared_check_status+='[type-unknown]'
 			fi
 			if test -n "$check_source"; then
+				found="$(scan "$haystack" "$check_source")"
 				if test -n "$found"; then
 					shared_check_status+='[source-found]'
 					echo-style --positive="matching source: " --invert="$check_source" $'\n' --code="$found"
@@ -1468,7 +1480,7 @@ function mount-helper() (
 					# echo-style --notice="will prepare..."
 					break
 				elif [[ $local_check_status == *'[source-found][target-found][valid]'* ]]; then # needs both as unmounting with only --target and no source information is still [valid]
-					echo-style --positive="Source already mounted to target."
+					echo-style --positive="Correct source is mounted to correct target."
 					# if the goal is mounting, then check if they want to remount
 					if test "$option_remount" = 'yes'; then
 						# remount
@@ -1482,6 +1494,9 @@ function mount-helper() (
 							echo-style --warning="will exit..."
 							return 98 # EADDRINUSE 98 Address already in use
 						fi
+					elif test "$goal" = 'unmount'; then
+						# goal is to unmount, so continue with unmount
+						true
 					else
 						# already mounted, remount?
 						confirm_ec=0 && confirm --negative --ppid=$$ -- 'Do you wish to unmount to enable remounting?' || confirm_ec="$?"
@@ -1551,7 +1566,7 @@ function mount-helper() (
 			# cleaning
 			echo-style --notice='Cleaning target...' ' ' --invert="$option_target"
 			if "${exists_cmd[@]}"; then
-				"${rm_cmd[@]}"
+				eval-helper --no-quiet --wrap -- "${rm_cmd[@]}"
 			fi
 			if "${exists_cmd[@]}"; then
 				echo-style --warning='Failed to clean...'
@@ -1586,6 +1601,14 @@ function mount-helper() (
 			elif test "$unmount_ec" -ne 0; then
 				echo-style --warning='Failed to unmount the target.'
 				return "$unmount_ec"
+			fi
+
+			# validate here, as validating earlier can fail if the gocryptfs vault is inside a nested mount that is not moutned yet, and we just want to make sure that it is unmounted
+			if test -n "$gocryptfs_source"; then
+				if ! gocryptfs-helper verify -- "$gocryptfs_source" --user="$option_user" --group="$option_group"; then
+					echo-error "Failed to verify gocryptfs mount source: $gocryptfs_source"
+					return 22 # Invalid argument
+				fi
 			fi
 
 			# segment

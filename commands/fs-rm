@@ -6,8 +6,6 @@ function fs-rm() (
 	# =====================================
 	# Arguments
 
-	# @todo add user,group,owner settings
-
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
@@ -22,6 +20,10 @@ function fs-rm() (
 
 			--sudo
 			    If specified, use sudo when removing the files.
+
+			--user=<user>
+			--group=<group>
+			    If specified run the removal commands as this <user> and <group>.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -30,8 +32,8 @@ function fs-rm() (
 	}
 
 	# process
-	local item paths=() quiet='no' confirm='yes' sudo='no'
-	quiet="$(echo-quiet "$quiet" -- "$@")"
+	local item option_paths=() option_quiet='no' option_confirm='yes' option_sudo='no' option_user='' option_group=''
+	option_quiet="$(echo-quiet "$option_quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -39,23 +41,25 @@ function fs-rm() (
 		'--help' | '-h') help ;;
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
 		'--no-confirm'* | '--confirm'*)
-			confirm="$(get-flag-value confirm --missing="$confirm" -- "$item" | echo-affirmative)"
+			option_confirm="$(get-flag-value confirm --missing="$option_confirm" -- "$item" | echo-affirmative)"
 			;;
 		'--no-sudo'* | '--sudo'*)
-			sudo="$(get-flag-value sudo --missing="$sudo" -- "$item" | echo-affirmative)"
+			option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative)"
 			;;
+		'--user='*) option_user="${item#*--user=}" ;;
+		'--group='*) option_group="${item#*--group=}" ;;
 		'--')
-			paths+=("$@")
+			option_paths+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		*) option_paths+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#paths[@]}" -eq 0; then
+	if test "${#option_paths[@]}" -eq 0; then
 		help "No <paths> were provided."
 	fi
 
@@ -67,11 +71,13 @@ function fs-rm() (
 	# =====================================
 	# Action
 
-	function maybe_sudo {
-		if test "$sudo" = 'yes'; then
-			sudo-helper --inherit -- "$@"
+	function eval_wrapper {
+		if test "$option_sudo" = 'yes' -o -n "$option_user" -o -n "$option_group"; then
+			eval-helper --no-quiet --wrap \
+				-- sudo-helper --inherit --user="$option_user" --group="$option_group" \
+				-- "$@"
 		else
-			"$@"
+			eval-helper --no-quiet --wrap -- "$@"
 		fi
 	}
 
@@ -80,7 +86,7 @@ function fs-rm() (
 
 		# note its structure and size
 		echo
-		maybe_sudo eval-helper --no-quiet --wrap -- ls -la "$path"
+		eval_wrapper ls -la "$path"
 		echo
 
 		# confirm their removal
@@ -93,11 +99,11 @@ function fs-rm() (
 
 		# note its structure and size
 		echo
-		maybe_sudo eval-helper --no-quiet --wrap -- ls -la "$path"
+		eval_wrapper ls -la "$path"
 		echo
-		maybe_sudo eval-helper --no-quiet --wrap -- dust --no-percent-bars "$path"
+		eval_wrapper dust --no-percent-bars "$path"
 		echo
-		maybe_sudo eval-helper --no-quiet --wrap -- dust --no-percent-bars --filecount "$path"
+		eval_wrapper dust --no-percent-bars --filecount "$path"
 		echo
 
 		# confirm their removal
@@ -111,7 +117,7 @@ function fs-rm() (
 		export title conclusion=''
 		path="$(fs-absolute -- "$path" || echo-quote "$path")"
 		title="fs-rm $path"
-		if test "$quiet" != 'yes'; then
+		if test "$option_quiet" != 'yes'; then
 			echo-segment --h2="$title"
 			conclusion="$(
 				echo-style --red="failed to remove."
@@ -139,8 +145,8 @@ function fs-rm() (
 		# path exists
 
 		# delete empty directories
-		if test "$confirm" = 'no' || do_confirm_trim "$path"; then
-			maybe_sudo find "$path" -empty -type d -delete || :
+		if test "$option_confirm" = 'no' || do_confirm_trim "$path"; then
+			eval_wrapper find "$path" -empty -type d -delete || :
 			if test ! -e "$path"; then
 				conclusion="$(
 					echo-style --green="was only empty directories, it has been removed."
@@ -151,8 +157,8 @@ function fs-rm() (
 		# there are leftovers
 
 		# confirm and remove, or no confirm and remove
-		if test "$confirm" = 'no' || do_confirm_removal "$path"; then
-			maybe_sudo rm -rfv "$path" || :
+		if test "$option_confirm" = 'no' || do_confirm_removal "$path"; then
+			eval_wrapper rm -rfv "$path" || :
 			# || : as we detect successful removal below
 		fi
 
@@ -172,7 +178,7 @@ function fs-rm() (
 
 	# act with wrapping of success
 	local path
-	for path in "${paths[@]}"; do
+	for path in "${option_paths[@]}"; do
 		act "$path"
 	done
 )
