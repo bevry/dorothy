@@ -58,7 +58,7 @@ Advice:
 
 ```bash
 # get first line, via pipe, tried and tested
-echo -e 'a\nb' | echo-first
+echo -e 'a\nb' | echo-first-line
 
 # get first line, via variable
 var=$'one\ntwo'; echo "${var%$'\n'*}" # one
