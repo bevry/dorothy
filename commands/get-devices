@@ -345,8 +345,11 @@ function get-devices() (
 	fi
 
 	# action
-	local mount_haystack results=()
+	local mount_haystack mount_raid results=()
 	mount_haystack="$(mount)"
+	if is-mac; then
+		mount_raid="$(sudo-helper -- diskutil appleRAID list)"
+	fi
 	function get_one {
 		# trunk-ignore-all(shellcheck/SC2034)
 		local temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' serial='' vendor='' product='' revision=''
@@ -363,21 +366,65 @@ function get-devices() (
 
 		# fetch properties
 		if is-mac; then
+			# macos doesn't seem to provide a way to find out if a node is actually mountable
+
 			# fetch diskutil properties
 			temp="$(sudo-helper -- diskutil info "$node")"
-			filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
-			label="$(get_property 'Volume Name' <<<"$temp")" # 512 Bytes
-			if test -z "$label" -o "$label" = ' '; then      # label fallback
-				label="$(get_property 'Set Name' <<<"$temp")"
-			fi
 			uuid="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
 			model="$(get_property 'Device [/] Media Name' <<<"$temp")"
-			serial="$(get_property 'Content [(]IOContent[)]' <<<"$temp")"
-			size="$(get_property 'Disk Size' <<<"$temp")"          # 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
-			block="$(get_property 'Device Block Size' <<<"$temp")" # 512 Bytes
+			serial="$(get_property 'Disk [/] Partition UUID' <<<"$temp")" # IOContent is the type of device, not a uuid
+			size="$(get_property 'Disk Size' <<<"$temp")"                 # 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
+			if test -n "$size"; then
+				size="${size%% (*}" # 5.0 TB
+			fi
+			block="$(get_property 'Device Block Size' <<<"$temp")" # 512 Byte
+
+			# fetch label last, as it is complicated, and overwrites temp
+			label="$(get_property 'Volume Name' <<<"$temp")" # volume device
+			if test -n "$label" -a "$label" != 'Not applicable (no file system)'; then
+				# if volume device, also has a filesystem
+				filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
+			elif test "$(get_property 'Content [(]IOContent[)]' <<<"$temp")" = 'GUID_partition_scheme'; then
+				# child raid device
+				serial=''
+				label=''
+				temp="${node##*/}" # /dev/disk7 => disk7
+				temp="$(rg -o "${temp}s\d+" <<<"$mount_raid" || :)"
+				if test -n "$temp"; then
+					temp="$(sudo-helper -- diskutil info "$temp")"
+					uuid="$(get_property 'Parent RAID Set UUID' <<<"$temp")"
+					label="$(get_property 'Parent Set Name' <<<"$temp")"
+					serial="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
+					# count="$(rg --multiline --multiline-dotall --regexp='DevNode.+---+.+?disk7s2.+?====+' <<<"$mount_raid" | rg --regexp='^\d' | echo-count-lines)"
+				fi
+			else
+				# root device of volume
+				label="$(get_property 'Set Name' <<<"$temp")"
+				if test -z "$label"; then
+					# probably child device of label
+					temp="$(get_property 'APFS Physical Store' <<<"$temp")"
+					if test -n "$temp"; then
+						temp="$(sudo-helper -- diskutil info "$temp")"
+						uuid="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
+						label="$(get_property 'Set Name' <<<"$temp")"
+						filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
+					fi
+				else
+					# raid device
+					filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
+				fi
+			fi
+
+			# uuid
+			if test -n "$label" -a -n "$uuid"; then
+				count="$(rg --multiline --multiline-dotall --regexp="$uuid.+?====+" <<<"$mount_raid" | rg --regexp='^\d' | echo-count-lines || :)"
+			fi
 
 			# fetch mount
 			mount="$(rg -o "$node on (.+?) \($filesystem" --replace '$1' <<<"$mount_haystack" || :)"
+			if test -n "$filesystem" -a -z "$mount"; then
+				mount="$(rg -o "${node}s1 on (.+?) \($filesystem" --replace '$1' <<<"$mount_haystack" || :)"
+			fi
 		else
 			# fetch blkid properties
 			temp="$(sudo-helper -- blkid "$node" || :)" # can fail if recently removed from a btrfs cluster
