@@ -7,7 +7,7 @@ if test "${1-}" = '--help'; then
 		help >/dev/stderr && exit 22 # Invalid argument
 		return "$?"
 	else
-		echo "please update the function you called with a [help] method" >/dev/stderr
+		echo-error 'A [help] function is required.'
 		return 38 # Function not implemented
 	fi
 fi
