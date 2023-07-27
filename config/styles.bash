@@ -125,14 +125,16 @@ error="${background_intense_red}${foreground_intense_white}"
 success="${foreground_green}${bold}"
 positive="${foreground_green}${bold}"
 negative="${foreground_red}${bold}"
-if test "$(get-os-theme 2>/dev/null || :)" = 'light'; then
-	notice="${h2}${foreground_intense_magenta}"
-else
-	notice="${h2}${foreground_intense_yellow}"
-fi
+notice="${h2}${foreground_intense_yellow}"
 warning="${e2}"
 code="${dim}"
-# don't use intense_yellow as it is unreadable on light terminal themes, plain yellow works for light and dark themes
+code_dim="${dim}${foreground_gray}"
+code_notice="${dim}${foreground_intense_yellow}"
+if test "$(get-os-theme 2>/dev/null || :)" = 'light'; then
+	# trim foreground_intense_yellow as it is unreadable on light theme
+	code_notice="${foreground_yellow}"
+	notice="${h2}${foreground_yellow}"
+fi
 # g1="${background_green}${intense_white}"
 
 # redacted, alternative to conceal, which respects color themes

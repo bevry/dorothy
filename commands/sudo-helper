@@ -32,6 +32,9 @@ function sudo-helper() (
 
 			--local
 			    update sudo configuration to enable access to /usr/local variables
+
+			--reason=<reason>
+			    if a prompt is required for your sudo/root/login password, this reason will be used to explain why sudo was required.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -40,7 +43,7 @@ function sudo-helper() (
 	}
 
 	# process
-	local item cmd=() inherit='no' user='' group='' option_local=''
+	local item cmd=() inherit='no' user='' group='' reason='' option_local=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -54,6 +57,7 @@ function sudo-helper() (
 			;;
 		'--user='*) user="${item#*--user=}" ;;
 		'--group='*) group="${item#*--group=}" ;;
+		'--reason='*) reason="${item#*--reason=}" ;;
 		'--')
 			cmd+=("$@")
 			shift "$#"
@@ -109,10 +113,12 @@ function sudo-helper() (
 	# -i, --login
 	#    Run the shell specified by the target user's password database entry as a login shell.
 
-	local args=() home=''
+	local run=() home=''
 	if command-exists sudo; then
+		run+=('sudo')
+
 		if test -n "$user"; then
-			args+=("--user=$user")
+			run+=("--user=$user")
 			# should coincide with setup-environment-commands
 			if test -d /Users; then
 				home="/Users/$user"
@@ -126,7 +132,7 @@ function sudo-helper() (
 		fi
 
 		if test -n "$group"; then
-			args+=("--group=$group")
+			run+=("--group=$group")
 		fi
 
 		if test -n "$home"; then
@@ -134,22 +140,40 @@ function sudo-helper() (
 				sudo mkdir -p "$home"
 				fs-own --quiet --user="$user" --group="$group" -- "$home"
 			fi
-			args+=('--set-home')
+			run+=('--set-home')
 		fi
 
 		if test "$inherit" = 'yes'; then
-			args+=(
+			run+=(
 				'--preserve-env'
 				'env'
 				"PATH=$PATH"
 			)
 		fi
 
-		sudo "${args[@]}" "${cmd[@]}"
+		# check if password is required
+		if ! sudo --validate --non-interactive &>/dev/null; then
+			# password is required, let the user know what they are being prompted for
+			# [--code=*] better than [echo-element --openclose="$(echo-quote "${run[@]}" | echo-join ' ')"] as that is too verbose
+			# use [--tty] to ensure the prompt is not hidden when otherwise hiding sudo output, such as in [command-working]
+			# while it would be nice to clear lines, we cannot know how many lines to clear as they could require multiple attempts to enter the password
+			# there would be a way of doing this with [tty.bash] however that is too complicated for this
+			if test -n "$reason"; then
+				echo-style --tty+notice="$reason"
+				if [[ "$reason" == *':' ]]; then
+					echo-style --tty+code="${run[*]}"
+				fi
+			else
+				echo-style --tty+notice='Your sudo/root/login password is required to execute the command:' --tty= $'\n' --tty+code_dim="${run[*]}" ' ' --tty+code="${cmd[*]}"
+			fi
+		fi
+
+		run+=("${cmd[@]}")
 	elif command-exists doas; then
 		# https://man.archlinux.org/man/doas.1.en
+		run+=('doas')
 		if test -n "$user"; then
-			args+=(
+			run+=(
 				'-u'
 				"$user"
 			)
@@ -158,16 +182,20 @@ function sudo-helper() (
 			help "doas does not support --group"
 		fi
 		if test "$inherit" = 'yes'; then
-			args+=(
+			run+=(
 				'env'
 				"DOROTHY=$DOROTHY"
 				"PATH=$PATH"
 			)
 		fi
-		doas "${args[@]}" "${cmd[@]}"
+		run+=("${cmd[@]}")
 	else
-		"${cmd[@]}"
+		# sudo/doas does not exist, probably not needed
+		run+=("${cmd[@]}")
 	fi
+
+	# execute
+	"${run[@]}"
 )
 
 # fire if invoked standalone
