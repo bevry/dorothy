@@ -22,5 +22,6 @@ fi
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
+. "$DOROTHY/sources/autocomplete.sh"
 
 # autocompletions should go inside sources/completions.*

@@ -4,9 +4,6 @@
 
 # Used by `interactive.sh`
 
-# Source the bash/zsh completions if you care for them
-source "$DOROTHY/sources/completions.sh"
-
 # Load oh-my-zsh if it exists on the system
 if test -d "$HOME/.oh-my-zsh"; then
 	export DISABLE_UPDATE_PROMPT=true
