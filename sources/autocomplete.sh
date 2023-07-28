@@ -46,9 +46,11 @@ if test "${AUTOCOMPLETE_BASH-}" != 'no' -a "$ACTIVE_SHELL" = 'bash'; then
 		. '/etc/bash_completion'
 	fi
 
-	# load homebrew completions
+	# load installed bash-completions
 	if test -n "${HOMEBREW_PREFIX-}" -a -f "${HOMEBREW_PREFIX-}/etc/bash_completion"; then
 		. "$HOMEBREW_PREFIX/etc/bash_completion"
+	elif test -f '/etc/profile.d/bash_completion.sh'; then
+		. '/etc/profile.d/bash_completion.sh'
 	fi
 fi
 
