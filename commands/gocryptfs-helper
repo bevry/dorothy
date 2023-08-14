@@ -2,7 +2,7 @@
 
 # https://github.com/rfjakob/gocryptfs/blob/master/Documentation/MANPAGE.md
 
-function gocryptfs-helper() (
+function gocryptfs_helper() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
@@ -50,7 +50,7 @@ function gocryptfs-helper() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
@@ -140,7 +140,7 @@ function gocryptfs-helper() (
 			esac
 		done
 
-		local cmd=()
+		local cmd=() ec
 		if test -n "$user" -o -n "$group"; then
 			cmd+=(
 				'sudo-helper'
@@ -154,9 +154,8 @@ function gocryptfs-helper() (
 			'-f'
 			"$vault/gocryptfs.conf"
 		)
-
-		# act
-		if "${cmd[@]}"; then
+		eval_capture --statusvar=ec -- "${cmd[@]}"
+		if test "$ec" -eq 0; then
 			echo-style --success="${vault@Q} is a gocryptfs vault"
 		else
 			echo-style --error="${vault@Q} is not a gocryptfs vault"
@@ -168,7 +167,7 @@ function gocryptfs-helper() (
 		gocryptfs --info "$vault" | grep FeatureFlags
 	}
 	function act_compare {
-		local old_vault="$1" new_vault="$2" ec=0
+		local old_vault="$1" new_vault="$2" result=0
 		local old_vault_features new_vault_features
 		old_vault_features="$(
 			act_features "$old_vault"
@@ -180,10 +179,10 @@ function gocryptfs-helper() (
 		# compare the features
 		if test "$old_vault_features" = "$new_vault_features"; then
 			echo-style --success="Vaults have the same features."
-			ec=0
+			result=0
 		else
 			echo-style --warning="Vaults have different features."
-			ec=1
+			result=1
 		fi
 		echo-element --open="$old_vault"
 		echo "$old_vault_features"
@@ -191,7 +190,7 @@ function gocryptfs-helper() (
 		echo-element --open="$new_vault"
 		echo "$new_vault_features"
 		echo-element --close="$new_vault"
-		return "$ec"
+		return "$result"
 	}
 	function act_upgrade {
 		setup-util-gocryptfs --upgrade
@@ -321,8 +320,7 @@ function gocryptfs-helper() (
 	# Migrate Action
 
 	function act_migrate {
-		local old_vault="$1"
-		local temp_dir new_vault old_plain new_plain algorithm
+		local old_vault="$1" ec temp_dir new_vault old_plain new_plain algorithm
 
 		# optional
 		if is-raspi; then
@@ -339,16 +337,23 @@ function gocryptfs-helper() (
 		new_vault="$(fs-temp --root="$temp_dir" --directory='new_vault')"
 		old_plain="$(fs-temp --root="$temp_dir" --directory='old_plain')"
 		new_plain="$(fs-temp --root="$temp_dir" --directory='new_plain')"
-		function ensure_clean_exit {
+
+		# ensure clean exit
+		if test "$0" != "${BASH_SOURCE[0]}"; then
+			echo-error 'gocryptfs-helper: migrate: requires being run as a command, not a function, such that cleanup always occurs, even on failures.'
+			return 1 # EPERM 1 Operation not permitted
+		fi
+		function on_gocryptfs_finish {
 			mount-helper --unmount --target="$old_plain" || :
 			mount-helper --unmount --target="$new_plain" || :
 			fs-rm -- "$temp_dir" || :
 		}
-		trap ensure_clean_exit RETURN
+		trap on_gocryptfs_finish EXIT
 
 		# create
 		echo
-		if act_verify "$new_vault"; then
+		eval_capture --statusvar=ec -- act_verify "$new_vault"
+		if test "$ec" -eq 0; then
 			cat <<-EOF
 				$(echo-style --notice="The new vault [$new_vault] already exists...")
 				This means a vault upgrade was started but not finished.
@@ -371,7 +376,8 @@ function gocryptfs-helper() (
 		# gocryptfs --info "$new_vault"
 
 		# verify there is a difference
-		if act_compare "$old_vault" "$new_vault"; then
+		eval_capture --statusvar=ec -- act_compare "$old_vault" "$new_vault"
+		if test "$ec" -eq 0; then
 			echo-style --error="Vault migration is nonsensical, as both vaults have the same features."
 			return 1
 		fi
@@ -428,14 +434,13 @@ function gocryptfs-helper() (
 
 	if test "$(type -t "act_$action")" = 'function'; then
 		"act_$action" "${args[@]}"
-		return "$?"
 	else
 		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
-		return 78 # Function not implemented
+		return 78 # ENOSYS 78 Function not implemented
 	fi
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	gocryptfs-helper "$@"
+	gocryptfs_helper "$@"
 fi

@@ -20,7 +20,7 @@ If your bash command requires arrays, use:
 ```bash
 source "$DOROTHY/sources/arrays.bash"
 if test "$ARRAYS" = 'no'; then
-	exit 95 # Operation not supported
+	exit 45 # ENOTSUP 45 Operation not supported
 fi
 ```
 

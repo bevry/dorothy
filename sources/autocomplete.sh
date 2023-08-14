@@ -52,6 +52,10 @@ if test "${AUTOCOMPLETE_BASH-}" != 'no' -a "$ACTIVE_SHELL" = 'bash'; then
 	elif test -f '/etc/profile.d/bash_completion.sh'; then
 		. '/etc/profile.d/bash_completion.sh'
 	fi
+
+	# apt utility completions go to /usr/share, e.g.
+	# /usr/share/bash-completion/completions/fd.bash
+	# @todo add support for all of these somehow
 fi
 
 # Google Cloud SDK

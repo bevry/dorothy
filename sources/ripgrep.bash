@@ -2,12 +2,7 @@
 
 if test -z "${RIPGREP_BIN_PATH-}"; then
 	# install ripgrep
-	setup-util-ripgrep --quiet || {
-		ec="$?"
-		echo "setup-util-ripgrep failed with exit code $ec" >/dev/stderr
-		echo "cannot proceed with: $0 $*" >/dev/stderr
-		return "$ec"
-	}
+	setup-util-ripgrep --quiet
 
 	# workaround for ripgrep outputting colors in pipes
 	RIPGREP_BIN_PATH="$(command -v rg)"

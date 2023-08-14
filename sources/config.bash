@@ -71,7 +71,7 @@ function update_dorothy_user_config_help {
 	if test "$#" -ne 0; then
 		echo-error "$@"
 	fi
-	return 22 # Invalid argument
+	return 22 # EINVAL 22 Invalid argument
 }
 
 function update_dorothy_user_config {

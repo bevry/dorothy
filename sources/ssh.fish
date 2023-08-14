@@ -27,12 +27,11 @@ if command-exists ssh-agent
 	end
 
 	# kill it when our cli ends
-	function finish
+	function on_ssh_finish
 		# killall ssh-agent
 		eval (ssh-agent -k | sed -E 's/^unset /set --erase /; s/^echo /#echo /')
 	end
-	trap finish EXIT
+	trap on_ssh_finish EXIT
 end
 
 # set --erase fish_trace
-

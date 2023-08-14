@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-function setup-dns() (
+function setup_dns() (
 	source "$DOROTHY/sources/bash.bash"
-	require_nullglob
 	require_array 'mapfile' 'empty'
 
 	# check for support
@@ -19,7 +18,7 @@ function setup-dns() (
 	# helper
 	function die_unknown_os {
 		echo-style --error='Unknown Operating System'
-		return 19 # Operation not supported by device
+		return 19 # ENODEV 19 Operation not supported by device
 	}
 
 	# prepare the paths
@@ -98,7 +97,7 @@ function setup-dns() (
 			--error="This platform [$arch] does not yet support: $service_title" $'\n' \
 			--notice='Supported DNS services for this platform are:' $'\n' \
 			"${services[*]}"
-		return 19 # Operation not supported by device
+		return 19 # ENODEV 19 Operation not supported by device
 	}
 
 	# =====================================
@@ -121,7 +120,7 @@ function setup-dns() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
@@ -200,14 +199,14 @@ function setup-dns() (
 
 	function verify_dns_generic {
 		local attempt="${1:-1}" ec=0
-		eval_wrap -- nslookup cloudflare.com || ec="$?"
+		nslookup cloudflare.com || ec=$?
 		if test "$ec" -ne 0; then
 			echo-style --notice="DNS service failed to verify, trying again in 10 seconds."
 			sleep 10
 			attempt="$((attempt + 1))"
 			echo-style --notice="Attempt $attempt..."
 			verify_dns_generic "$attempt"
-			return "$?"
+			return
 		fi
 		return 0
 		# `dig -x cloudflare.com` times out for some reason, nslookup works though
@@ -218,16 +217,16 @@ function setup-dns() (
 
 	function verify_dns_resolvectl {
 		local attempt="${1:-1}" ec=0
-		eval_wrap -- resolvectl query cloudflare.com --no-pager || ec="$?"
-		eval_wrap -- resolvectl status --no-pager || ec="$?"
-		eval_wrap -- resolvectl statistics --no-pager || ec="$?"
+		resolvectl query cloudflare.com --no-pager || ec=$?
+		resolvectl status --no-pager || ec=$?
+		resolvectl statistics --no-pager || ec=$?
 		if test "$ec" -ne 0; then
 			echo-style --notice="DNS service failed to verify, trying again in 10 seconds."
 			sleep 10
 			attempt="$((attempt + 1))"
 			echo-style --notice="Attempt $attempt..."
 			verify_dns_resolvectl "$attempt"
-			return "$?"
+			return
 		fi
 		return 0
 	}
@@ -239,7 +238,7 @@ function setup-dns() (
 			echo-style --error="There is a non-standard installation at:"
 			command -v "$id"
 			echo-style --warning="Remove it and try again..."
-			return 75 # Program version wrong
+			return 75 # EPROGMISMATCH 75 Program version wrong
 		fi
 	}
 
@@ -472,7 +471,7 @@ function setup-dns() (
 		if test "$provider" = 'backup'; then
 			if test -n "${DNS_BACKUP_PROVIDER}"; then
 				fetch_provider "$DNS_BACKUP_PROVIDER"
-				return "$?"
+				return
 			else
 				echo-style --warning="Backup DNS Provider Missing"
 				echo "The backup DNS provider was requested, however it has not yet been configured. Set DNS_BACKUP_PROVIDER in your dns.bash configuration file to your desired backup provider of these: ${providers[*]}"
@@ -746,24 +745,24 @@ function setup-dns() (
 	# =====================================
 	# DNS Service: System: macOS
 
-	function system_exists {
+	function system_exists { # 👍 /docs/bash/errors: robust exit status
 		if is-mac; then
-			command-exists networksetup
+			command-exists networksetup || return
 		elif is-linux; then
-			command-exists systemctl resolvectl
+			command-exists systemctl resolvectl || return
 		else
-			die_unknown_os
+			die_unknown_os || return
 		fi
 	}
-	function system_install {
+	function system_install { # 👍 /docs/bash/errors: robust exit status
 		if ! system_exists; then
-			die_unknown_os || : # use this message, but keep the custom return code
-			return 29           # Illegal seek
+			eval_capture -- die_unknown_os # use this message, but keep the custom return code
+			return 29                      # Illegal seek
 		fi
 	}
-	function system_uninstall {
-		die_unknown_os || : # use this message, but keep the custom return code
-		return 29           # Illegal seek
+	function system_uninstall {     # 👍 /docs/bash/errors: robust exit status
+		eval_capture -- die_unknown_os # use this message, but keep the custom return code
+		return 29                      # Illegal seek
 	}
 	function system_configure {
 		# determine servers and action
@@ -852,7 +851,8 @@ function setup-dns() (
 			service-helper --quiet="$quiet" --stop -- systemd-networkd systemd-resolved || :
 
 			# allow modifications in case something has locked it
-			sudo-helper -- chattr -i /etc/resolv.conf || : # for some reason this can fail
+			# for some reason this can fail
+			sudo-helper -- chattr -i /etc/resolv.conf || :
 
 			# make life simple, using only /etc/resolv.conf
 			# https://www.freedesktop.org/software/systemd/man/resolved.conf.html
@@ -929,7 +929,11 @@ function setup-dns() (
 				fi
 
 				# remove other changes
-				sudo_wrap -- resolvectl revert "$interface" || continue
+				local ec
+				eval_capture --statusvar=ec -- sudo_wrap -- resolvectl revert "$interface"
+				if test "$ec" -ne 0; then
+					continue
+				fi
 
 				# apply intended changes
 				sudo_wrap -- resolvectl default-route "$interface" "$default_route"
@@ -1007,7 +1011,7 @@ function setup-dns() (
 		'--pidfile' "$aghome_state_pid_file"
 		'--logfile' "$aghome_state_log_file"
 	)
-	function aghome_exists {
+	function aghome_exists { # 👍 /docs/bash/errors: robust exit status
 		test -x "$aghome_bin_file"
 	}
 	function aghome_install {
@@ -1171,7 +1175,7 @@ function setup-dns() (
 		dnscrypt_service_id="$dnscrypt_id"
 		dnscrypt_service_file="$SERVICE_DIR/$dnscrypt_service_id.service"
 	fi
-	function dnscrypt_exists {
+	function dnscrypt_exists { # 👍 /docs/bash/errors: robust exit status
 		test -x "$dnscrypt_bin_file"
 	}
 	function dnscrypt_install {
@@ -1360,7 +1364,7 @@ function setup-dns() (
 		cloudflared_proxy_service_file="$SERVICE_DIR/$cloudflared_proxy_service_id.service"
 	fi
 
-	function cloudflared_exists {
+	function cloudflared_exists { # 👍 /docs/bash/errors: robust exit status
 		test -x "$cloudflared_bin_file"
 	}
 	function cloudflared_install {
@@ -1786,7 +1790,7 @@ EOF
 			else
 				# use env
 				tunnel_configure "${CLOUDFLARED_TUNNELS[@]}"
-				return "$?"
+				return
 			fi
 		fi
 
@@ -1959,5 +1963,5 @@ EOF
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup-dns "$@"
+	setup_dns "$@"
 fi

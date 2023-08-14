@@ -490,21 +490,19 @@
 # nosymfollow
 # Do not follow symlinks when resolving paths. Symlinks can still be created, and readlink(1), readlink(2), realpath(1), and realpath(3) all still work properly.
 
-function mount-helper() (
+function mount_helper() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(command -v config-edit)"
 
 	# dependencies
 	source "$DOROTHY/sources/ripgrep.bash"
-	# setup-util --quiet --cli='smbinfo' APT='cifs-utils' # <-- doesn't work on macos, what is it used for???
 
 	# =====================================
 	# Helpers
 
-	function is_samba {
+	function is_samba { # 👍 /docs/bash/errors: robust exit status
 		[[ $1 =~ samba|smb|smbfs|cifs ]]
 	}
-	function is_gocryptfs {
+	function is_gocryptfs { # 👍 /docs/bash/errors: robust exit status
 		[[ $1 =~ gocryptfs|fuse.gocryptfs ]]
 	}
 	function join {
@@ -604,7 +602,7 @@ function mount-helper() (
 
 		# skip if first --
 		if test -z "$option_type" -a -z "$option_server" -a -z "$option_share" -a -z "$option_source" -a -z "$option_target"; then
-			return
+			return 0
 		fi
 
 		# prepare ownership
@@ -625,7 +623,7 @@ function mount-helper() (
 		fi
 		# option_{automount,fstab,cron} could still be empty string, as intended, which allows autodetection
 
-		# logging
+		# generat the title, and use it to check we have a valid action
 		local title='mount-helper'
 		if [[ $option_actions == *'[parse]'* ]]; then
 			title+=' --parse'
@@ -642,28 +640,18 @@ function mount-helper() (
 		if test -n "$option_automount"; then
 			title+=" --automount=$option_automount"
 		fi
+		if test "$title" = 'mount-helper'; then
+			echo-error "Require --parse, --check, --mount, --unmount, --automount, --noautomount"
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# now that the title is checked for a valid action, add important options to the title
 		if test -n "$option_cron"; then
 			title+=" --cron=$option_cron"
 		fi
 		if test -n "$option_fstab"; then
 			title+=" --fstab=$option_fstab"
 		fi
-		if test "$title" = 'mount-helper'; then
-			echo-error "Require --parse, --check, --mount, --unmount, --automount, --noautomount"
-			return 22 # Invalid argument
-		fi
-		echo-segment --h2="$title"
-		function on_return {
-			local on_return_ec="$?"
-			if test "$on_return_ec" -eq 0; then
-				echo-segment --g2="$title"
-			else
-				echo-segment --e2="$title"
-			fi
-			trap - RETURN EXIT
-			return "$on_return_ec"
-		}
-		trap on_return RETURN EXIT # RETURN is success, EXIT is exceptions
 
 		# coerce target
 		if test -n "$option_target"; then
@@ -716,7 +704,7 @@ function mount-helper() (
 			if test -n "$option_server" -o -n "$option_share"; then # optional under [check]
 				if test -z "$option_server" -o -z "$option_share"; then
 					echo-error "When using <samba>, <server> and <share> must be used together"
-					return 22 # EINVAL Invalid argument
+					return 22 # EINVAL 22 Invalid argument
 				fi
 			fi
 
@@ -1278,7 +1266,7 @@ function mount-helper() (
 		function do_automount {
 			if test -z "$option_target"; then
 				echo-error "[mount-helper --automount] requires <target>"
-				return 22 # Invalid argument
+				return 22 # EINVAL 22 Invalid argument
 			fi
 
 			# prepare
@@ -1336,73 +1324,73 @@ function mount-helper() (
 
 			echo-segment --g2='automount'
 		}
-		local shared_check_status=''
+		local SHARED_CHECK_STATUS=''
+		function scan_haystack_for_regexp_needles {
+			local filter="$1" args=()
+			shift
+			for arg in "$@"; do
+				if test -n "$arg"; then
+					args+=("--regexp=$arg")
+					filter="$(echo "$filter" | rg --fixed-strings --regexp="$arg" || :)"
+				fi
+			done
+			if test -n "$filter"; then
+				echo "$filter"
+			fi
+		}
 		function do_check {
-			shared_check_status='' # shared
+			SHARED_CHECK_STATUS='' # shared
 
 			# check if invalid
 			if test -z "$check_source" -a -z "$check_target" -a -z "$check_type"; then
 				echo-error "[mount-helper --check] requires at least <source>, <target>, or <type>"
-				return 22 # Invalid argument
+				return 22 # EINVAL 22 Invalid argument
 			fi
 
 			# check
 			echo-segment --h2='check mount entries'
 			local haystack found
 			haystack="$(mount)"
-			function scan {
-				local filter="$1" args=()
-				shift
-				for arg in "$@"; do
-					if test -n "$arg"; then
-						args+=("--regexp=$arg")
-						filter="$(echo "$filter" | rg --fixed-strings --regexp="$arg" || :)"
-					fi
-				done
-				if test -n "$filter"; then
-					echo "$filter"
-				fi
-			}
 			if test -n "$check_type"; then
-				found="$(scan "$haystack" "$check_type")"
+				found="$(scan_haystack_for_regexp_needles "$haystack" "$check_type")"
 				if test -n "$found"; then
-					shared_check_status+='[type-found]'
+					SHARED_CHECK_STATUS+='[type-found]'
 					echo-style --positive='matching type:' ' ' --invert="$check_type" $'\n' --code="$found"
 				else
-					shared_check_status+='[type-missing]'
+					SHARED_CHECK_STATUS+='[type-missing]'
 					echo-style --negative='matching type:' ' ' --invert="$check_type" $'\n' --code='[[ type not mounted ]]'
 				fi
 			else
-				shared_check_status+='[type-unknown]'
+				SHARED_CHECK_STATUS+='[type-unknown]'
 			fi
 			if test -n "$check_source"; then
-				found="$(scan "$haystack" "$check_source")"
+				found="$(scan_haystack_for_regexp_needles "$haystack" "$check_source")"
 				if test -n "$found"; then
-					shared_check_status+='[source-found]'
+					SHARED_CHECK_STATUS+='[source-found]'
 					echo-style --positive="matching source: " --invert="$check_source" $'\n' --code="$found"
 				else
-					shared_check_status+='[source-missing]'
+					SHARED_CHECK_STATUS+='[source-missing]'
 					echo-style --negative="matching source: " --invert="$check_source" $'\n' --code='[[ source not mounted ]]'
 				fi
 			else
-				shared_check_status+='[source-unknown]'
+				SHARED_CHECK_STATUS+='[source-unknown]'
 			fi
 			if test -n "$check_target"; then
-				found="$(scan "$haystack" "$check_target")"
+				found="$(scan_haystack_for_regexp_needles "$haystack" "$check_target")"
 				if test -n "$found"; then
-					shared_check_status+='[target-found]'
+					SHARED_CHECK_STATUS+='[target-found]'
 					echo-style --positive='matching target:' ' ' --invert="$check_target" $'\n' --code="$found"
 				else
-					shared_check_status+='[target-missing]'
+					SHARED_CHECK_STATUS+='[target-missing]'
 					echo-style --negative='matching target:' ' ' --invert="$check_target" $'\n' --code='[[ target not mounted ]]'
 				fi
 			else
-				shared_check_status+='[target-unknown]'
+				SHARED_CHECK_STATUS+='[target-unknown]'
 			fi
 			# @todo a nicety would be output extra matches, in case there is a perfect match but there are also other matches...
-			found="$(scan "$haystack" "$check_type" "$check_source" "$check_target")"
+			found="$(scan_haystack_for_regexp_needles "$haystack" "$check_type" "$check_source" "$check_target")"
 			if test -n "$found"; then
-				shared_check_status+='[valid]'
+				SHARED_CHECK_STATUS+='[valid]'
 				echo-style --positive='matching expectation:' $'\n' --code="$found"
 				echo-segment --g2='check mount entries'
 				return 0
@@ -1412,8 +1400,9 @@ function mount-helper() (
 				return 1
 			fi
 		}
+		# trunk-ignore(shellcheck/SC2120)
 		function do_unmount {
-			local goal='unmount'
+			local goal='unmount' ec
 			if test "${1-}" = '--goal=mount'; then
 				goal='mount'
 			fi
@@ -1421,11 +1410,12 @@ function mount-helper() (
 			# check if invalid
 			if test -z "$option_target"; then
 				echo-error "[mount-helper --unmount] requires <target>"
-				return 22 # Invalid argument
+				return 22 # EINVAL 22 Invalid argument
 			fi
 
 			# check if already unmounted
-			if ! "${exists_cmd[@]}"; then
+			eval_capture --statusvar=ec -- "${exists_cmd[@]}"
+			if test "$ec" -ne 0; then
 				echo-style --positive='Already unmounted and cleaned.'
 				return 0
 			fi
@@ -1436,11 +1426,11 @@ function mount-helper() (
 			fi
 
 			# it exists, check if mounted
-			local local_check_status='' confirm_ec
+			local local_check_status=''
 			while true; do
 				# update check
-				do_check || :
-				local_check_status="$shared_check_status"
+				eval_capture -- do_check
+				local_check_status="$SHARED_CHECK_STATUS"
 				echo-segment --h2='unmount'
 
 				# reminder
@@ -1470,7 +1460,7 @@ function mount-helper() (
 						# user changed their mind and doesn't want to ummount
 						if test "$goal" = 'mount'; then
 							echo-style --positive="will skip..."
-							return 200 # XCUSTOM 200 Already as expected
+							return 200 # ECUSTOM 200 Not applicable as already unmounted as desired
 						else
 							echo-style --warning="will exit..."
 							return 98 # EADDRINUSE 98 Address already in use
@@ -1480,64 +1470,70 @@ function mount-helper() (
 						true
 					else
 						# already mounted, remount?
-						confirm_ec=0 && confirm --negative --ppid=$$ -- 'Do you wish to unmount to enable remounting?' || confirm_ec="$?"
-						if test "$confirm_ec" -eq 0; then
+						eval_capture --statusvar=ec -- \
+							confirm --negative --ppid=$$ -- 'Do you wish to unmount to enable remounting?'
+						if test "$ec" -eq 0; then
 							# user wants to remount, so continue with unmount
 							# echo-style --notice="will remount..."
 							true
-						elif test "$confirm_ec" -eq 1; then
+						elif test "$ec" -eq 1; then
 							# user changed their mind and doesn't want to ummount
 							if test "$goal" = 'mount'; then
 								echo-style --positive="will skip..."
-								return 200 # XCUSTOM 200 Already as expected
+								return 200 # ECUSTOM 200 Not applicable as already unmounted as desired
 							else
 								echo-style --warning="will exit..."
 								return 98 # EADDRINUSE 98 Address already in use
 							fi
 						else
 							# failure
-							return "$confirm_ec"
+							return "$ec"
 						fi
 					fi
 				elif [[ $local_check_status == *'[source-missing]'* && $local_check_status == *'[target-found]'* ]]; then
 					echo-style --positive='Source not mounted.' ' ' --negative='Target mounted to an unexpected source.'
-					confirm_ec=0 && confirm --positive --ppid=$$ -- 'Unmount the target to mount to the correct source?' || confirm_ec="$?"
-					if test "$confirm_ec" -eq 0; then
+					eval_capture --statusvar=ec -- \
+						confirm --positive --ppid=$$ -- 'Unmount the target to mount to the correct source?'
+					if test "$ec" -eq 0; then
 						# echo-style --notice="will unmount..."
 						true
-					elif test "$confirm_ec" -eq 1; then
+					elif test "$ec" -eq 1; then
 						echo-style --warning="will exit..."
 						return 98 # EADDRINUSE 98 Address already in use
 					else
 						# failure
-						return "$confirm_ec"
+						return "$ec"
 					fi
 				elif [[ $local_check_status == *'[source-found]'* && $local_check_status == *'[target-missing]'* ]]; then
 					echo-style --notice='Source mounted to another target.' ' ' --positive='Target not mounted to any source.'
-					confirm_ec=0 && confirm --positive --ppid=$$ -- 'Prepare the target to be an additional mount for the source?' || confirm_ec="$?"
-					if test "$confirm_ec" -eq 0; then
+					eval_capture --statusvar=ec -- \
+						confirm --positive --ppid=$$ -- 'Prepare the target to be an additional mount for the source?'
+					if test "$ec" -eq 0; then
 						# echo-style --notice="will prepare..."
 						true
 						break
-					elif test "$confirm_ec" -eq 1; then
+					elif test "$ec" -eq 1; then
 						echo-style --warning="will exit..."
 						return 98 # EADDRINUSE 98 Address already in use
 					else
 						# failure
-						return "$confirm_ec"
+						return "$ec"
 					fi
 				fi
 				# unmount
 				echo-style --notice='Unmounting target...' ' ' --invert="$option_target"
-				if eval-helper --no-quiet --wrap -- "${unmount_cmd[@]}"; then
+				eval_capture --statusvar=ec -- \
+					eval-helper --no-quiet --wrap -- "${unmount_cmd[@]}"
+				if test "$ec" -eq 0; then
 					echo-style --positive='Unmounted.'
 					break
 				else
 					# unmount failed, give debug information
 					# https://github.com/rfjakob/gocryptfs/issues/459
 					what-is-using "$option_target"
-					confirm_ec=0 && confirm --positive --ppid=$$ -- "Yes for try again, no for force, ctrl+c for abort" || confirm_ec="$?"
-					if test "$confirm_ec" -eq 1; then
+					eval_capture --statusvar=ec -- \
+						confirm --positive --ppid=$$ -- "Yes for try again, no for force, ctrl+c for abort"
+					if test "$ec" -eq 1; then
 						eval-helper --no-quiet --wrap -- "${unmount_force_cmd[@]}"
 						echo-style --positive="Unmounted forcefully."
 					fi
@@ -1546,12 +1542,14 @@ function mount-helper() (
 
 			# cleaning
 			echo-style --notice='Cleaning target...' ' ' --invert="$option_target"
-			if "${exists_cmd[@]}"; then
+			eval_capture --statusvar=ec -- "${exists_cmd[@]}"
+			if test "$ec" -eq 0; then
 				eval-helper --no-quiet --wrap -- "${rm_cmd[@]}"
 			fi
-			if "${exists_cmd[@]}"; then
+			eval_capture --statusvar=ec -- "${exists_cmd[@]}"
+			if test "$ec" -eq 0; then
 				echo-style --warning='Failed to clean...'
-				return 66 # Directory not empty
+				return 66 # ENOTEMPTY 66 Directory not empty
 			fi
 			echo-style --positive='Cleaned.'
 
@@ -1561,27 +1559,28 @@ function mount-helper() (
 			return 0
 		}
 		function do_mount {
+			local ec
+
 			# check if invalid
 			if test -z "$option_share" -o -z "$option_target"; then
 				echo-error "[mount-helper --mount] requires <share> and <target>"
-				return 22 # Invalid argument
+				return 22 # EINVAL 22 Invalid argument
 			fi
 
 			# verify mounting
 			if test "${#mounting_cmd[@]}" -eq 0; then
 				echo-error "Unable to understand how to mount the source:" ' ' --code="$log_source"
-				return 22 # Invalid argument
+				return 22 # EINVAL 22 Invalid argument
 			fi
 
 			# unmount with appropriate handling for remounting
-			local unmount_ec
-			unmount_ec=0 && do_unmount --goal=mount || unmount_ec="$?"
-			if test "$unmount_ec" -eq 200; then
+			eval_capture --statusvar=ec -- do_unmount --goal=mount
+			if test "$ec" -eq 200; then
 				echo-style --notice='Skipped remount.'
 				return 0
-			elif test "$unmount_ec" -ne 0; then
+			elif test "$ec" -ne 0; then
 				echo-style --warning='Failed to unmount the target.'
-				return "$unmount_ec"
+				return "$ec"
 			fi
 
 			# segment
@@ -1591,7 +1590,7 @@ function mount-helper() (
 			if test -n "$gocryptfs_source"; then
 				if ! gocryptfs-helper verify -- "$gocryptfs_source" --user="$option_user" --group="$option_group"; then
 					echo-error "Failed to verify gocryptfs mount source: $gocryptfs_source"
-					return 22 # Invalid argument
+					return 22 # EINVAL 22 Invalid argument
 				fi
 			fi
 
@@ -1656,14 +1655,12 @@ function mount-helper() (
 			# 0 = ok
 			# 1 = minor problem (e.g., cannot access subdirectory)
 			# 2 = serious trouble (e.g., cannot access command-line argument)
-			local ls_ec
-			ls_ec=0 && eval-helper --no-quiet --wrap \
-				-- "${ls_cmd[@]}" || ls_ec="$?"
-			if test "$ls_ec" -eq 1; then
+			eval_capture --statusvar=ec -- eval-helper --no-quiet --wrap -- "${ls_cmd[@]}"
+			if test "$ec" -eq 1; then
 				echo-style --notice='Listing failed to access a subdirectory, but that is okay.'
-			elif test "$ls_ec" -ne 0; then
+			elif test "$ec" -ne 0; then
 				echo-style --warning='Failed to list the target.'
-				return "$ls_ec"
+				return "$ec"
 			fi
 
 			# log
@@ -1671,35 +1668,51 @@ function mount-helper() (
 			echo-segment --g2='mount'
 		}
 
-		# parse
-		if [[ $option_actions == *'[parse]'* ]]; then
-			do_parse
-		fi
+		# =====================================
+		# Action
 
-		# check
-		if [[ $option_actions == *'[check]'* ]]; then
-			do_check
-		fi
+		function do_action {
+			# parse
+			if [[ $option_actions == *'[parse]'* ]]; then
+				do_parse
+			fi
 
-		# config
-		# done here to prevent double running on --automount --mount dual use
-		if test "$option_fstab" = 'yes' -o "$option_cron" = 'yes'; then
-			do_configure
-		fi
+			# check
+			if [[ $option_actions == *'[check]'* ]]; then
+				do_check
+			fi
 
-		# unmount
-		if [[ $option_actions == *'[unmount]'* ]]; then
-			do_unmount
-		fi
+			# config
+			# done here to prevent double running on --automount --mount dual use
+			if test "$option_fstab" = 'yes' -o "$option_cron" = 'yes'; then
+				do_configure
+			fi
 
-		# automount
-		if test -n "$option_automount"; then
-			do_automount
-		fi
+			# unmount
+			if [[ $option_actions == *'[unmount]'* ]]; then
+				# trunk-ignore(shellcheck/SC2119)
+				do_unmount
+			fi
 
-		# mount
-		if [[ $option_actions == *'[mount]'* ]]; then
-			do_mount
+			# automount
+			if test -n "$option_automount"; then
+				do_automount
+			fi
+
+			# mount
+			if [[ $option_actions == *'[mount]'* ]]; then
+				do_mount
+			fi
+		}
+
+		# do the action with correct logging
+		echo-segment --h2="$title"
+		eval_capture --statusvar=ec -- do_action
+		if test "$ec" -eq 0; then
+			echo-segment --g2="$title"
+		else
+			echo-segment --e2="$title"
+			return "$ec"
 		fi
 	}
 
@@ -1774,7 +1787,7 @@ function mount-helper() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
@@ -1842,5 +1855,5 @@ function mount-helper() (
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	mount-helper "$@"
+	mount_helper "$@"
 fi

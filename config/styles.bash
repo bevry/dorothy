@@ -134,6 +134,12 @@ if test "$(get-os-theme 2>/dev/null || :)" = 'light'; then
 	# trim foreground_intense_yellow as it is unreadable on light theme
 	code_notice="${foreground_yellow}"
 	notice="${h2}${foreground_yellow}"
+else
+	# on dark theme on vscode
+	# background_intense_red forces black foreground, which black on red is unreadable, so adjust
+	if test "${TERM_PROGRAM-}" = vscode; then
+		error="${background_red}${foreground_intense_white}"
+	fi
 fi
 # g1="${background_green}${intense_white}"
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-function fs-rm() (
+function fs_rm() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
@@ -21,6 +21,9 @@ function fs-rm() (
 			--sudo
 			    If specified, use sudo when removing the files.
 
+			--trash
+			    If specified, move the file to trash instead of deleting it immediately.
+
 			--user=<user>
 			--group=<group>
 			    If specified run the removal commands as this <user> and <group>.
@@ -28,11 +31,11 @@ function fs-rm() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_paths=() option_quiet='no' option_confirm='yes' option_sudo='no' option_user='' option_group=''
+	local item option_paths=() option_quiet='no' option_confirm='yes' option_sudo='no' option_trash='no' option_user='' option_group=''
 	option_quiet="$(echo-quiet "$option_quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -45,6 +48,9 @@ function fs-rm() (
 			;;
 		'--no-sudo'* | '--sudo'*)
 			option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative)"
+			;;
+		'--no-trash'* | '--trash'*)
+			option_trash="$(get-flag-value trash --missing="$option_trash" -- "$item" | echo-affirmative)"
 			;;
 		'--user='*) option_user="${item#*--user=}" ;;
 		'--group='*) option_group="${item#*--group=}" ;;
@@ -67,29 +73,48 @@ function fs-rm() (
 	# Dependencies
 
 	setup-util-dust --quiet
+	if test "$option_trash" = 'yes'; then
+		setup-util-trash --quiet --optional
+	fi
 
 	# =====================================
 	# Action
 
 	function eval_wrapper {
+		while test "$1" = '--'; do
+			shift
+		done
 		if test "$option_sudo" = 'yes' -o -n "$option_user" -o -n "$option_group"; then
-			eval-helper --no-quiet --wrap \
+			eval-helper --quiet="$option_quiet" --wrap \
 				-- sudo-helper --inherit --user="$option_user" --group="$option_group" \
 				-- "$@"
 		else
-			eval-helper --no-quiet --wrap -- "$@"
+			eval-helper --quiet="$option_quiet" --wrap \
+				-- "$@"
 		fi
 	}
 
 	function do_confirm_trim {
 		local path="$1"
 
+		# if not a directory, we don't want to trim
+		if test ! -d "$path"; then
+			return 200 # ECUSTOM 200 Not applicable
+		fi
+
+		# if preconfirmed, we don't need the pprompt
+		if test "$option_confirm" = 'no'; then
+			return 0
+		fi
+
+		# we want to prompt
+
 		# note its structure and size
 		echo
-		eval_wrapper ls -la "$path"
+		eval_wrapper -- ls -la "$path"
 		echo
 
-		# confirm their removal
+		# confirm removal
 		confirm --positive --ppid=$$ -- "$(
 			echo-style --notice='Trim empty directories?' --bold=" $path " --notice="?"
 		)"
@@ -97,47 +122,37 @@ function fs-rm() (
 	function do_confirm_removal {
 		local path="$1"
 
-		# note its structure and size
+		# if preconfirmed, we don't need the pprompt
+		if test "$option_confirm" = 'no'; then
+			return 0
+		fi
+
+		# we want to prompt
 		echo
-		eval_wrapper ls -la "$path"
-		echo
-		eval_wrapper dust --no-percent-bars "$path"
-		echo
-		eval_wrapper dust --no-percent-bars --filecount "$path"
+		eval_wrapper -- ls -la "$path"
 		echo
 
-		# confirm their removal
+		# is a directory, so output extra information
+		if test -d "$path"; then
+			eval_wrapper -- dust --no-percent-bars "$path"
+			echo
+			eval_wrapper -- dust --no-percent-bars --filecount "$path"
+			echo
+		fi
+
+		# confirm removal
 		confirm --positive --ppid=$$ -- "$(
 			echo-style --warning='Confirm removal of non-empty' --bold=" $path " --warning="?"
 		)"
 	}
 
-	function act {
-		local path="$1"
-		export title conclusion=''
-		path="$(fs-absolute -- "$path" || echo-quote "$path")"
-		title="fs-rm $path"
-		if test "$option_quiet" != 'yes'; then
-			echo-segment --h2="$title"
-			conclusion="$(
-				echo-style --red="failed to remove."
-			)"
-			function on_return {
-				local ec="$?"
-				if test "$ec" -eq 0; then
-					echo-segment --g2="$title" " $conclusion"
-				else
-					echo-segment --e2="$title" " $conclusion"
-				fi
-				trap - RETURN EXIT
-				return "$ec"
-			}
-			trap on_return RETURN EXIT # RETURN is success, EXIT is exceptions
-		fi
+	local CONCLUSION=''
+	function do_rm {
+		local path="$1" ec
 
 		# is the path missing
 		if test ! -e "$path"; then
-			conclusion="$(
+			CONCLUSION="$(
 				echo-style --green="was previously removed."
 			)"
 			return 0
@@ -145,10 +160,11 @@ function fs-rm() (
 		# path exists
 
 		# delete empty directories
-		if test "$option_confirm" = 'no' || do_confirm_trim "$path"; then
-			eval_wrapper find "$path" -empty -type d -delete || :
+		eval_capture --statusvar=ec -- do_confirm_trim "$path"
+		if test "$ec" -eq 0; then
+			eval_capture -- eval_wrapper -- find "$path" -empty -type d -delete
 			if test ! -e "$path"; then
-				conclusion="$(
+				CONCLUSION="$(
 					echo-style --green="was only empty directories, it has been removed."
 				)"
 				return 0
@@ -157,26 +173,48 @@ function fs-rm() (
 		# there are leftovers
 
 		# confirm and remove, or no confirm and remove
-		if test "$option_confirm" = 'no' || do_confirm_removal "$path"; then
-			eval_wrapper rm -rfv "$path" || :
-			# || : as we detect successful removal below
+		eval_capture --statusvar=ec -- do_confirm_removal "$path"
+		if test "$ec" -eq 0; then
+			if test "$option_trash" = 'yes'; then
+				eval_capture -- eval_wrapper -- trash "$path"
+			else
+				eval_capture -- eval_wrapper -- rm -rfv "$path"
+			fi
 		fi
 
-		# fail if not removed
+		# detect successful removal
 		if test -e "$path"; then
-			conclusion="$(
-				echo-style --red="has non-empty files, it has been kept."
+			CONCLUSION="$(
+				echo-style --red="is non-empty, it has been kept."
 			)"
-			return 66 # Directory not empty
+			return 66 # ENOTEMPTY 66 Directory not empty
 		fi
 
 		# success if removed
-		conclusion="$(
-			echo-style --green="had non-empty files, it was manually removed."
+		CONCLUSION="$(
+			echo-style --green="was non-empty, it was manually removed."
 		)"
 	}
 
-	# act with wrapping of success
+	function act {
+		local path="$1" title ec
+		path="$(fs-absolute -- "$path" || echo-quote "$path")"
+		if test "$option_quiet" = 'yes'; then
+			do_rm "$path"
+			return
+		else
+			title="fs-rm $path"
+			echo-segment --h2="$title"
+			eval_capture --statusvar=ec -- do_rm "$path"
+			if test "$ec" -eq 0; then
+				echo-segment --g2="$title" " $CONCLUSION"
+			else
+				echo-segment --e2="$title" " $CONCLUSION"
+				return "$ec"
+			fi
+		fi
+	}
+
 	local path
 	for path in "${option_paths[@]}"; do
 		act "$path"
@@ -185,5 +223,5 @@ function fs-rm() (
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs-rm "$@"
+	fs_rm "$@"
 fi

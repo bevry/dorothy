@@ -2,9 +2,7 @@
 
 function unziptar() (
 	source "$DOROTHY/sources/bash.bash"
-	require_nullglob
 	require_array 'mapfile'
-	source "$(command -v eval-helper)"
 
 	# =====================================
 	# Arguments
@@ -12,7 +10,7 @@ function unziptar() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Extract the files from a zip/tar/etc file.
+			Extract the files from a zip/tar/dmg/etc file.
 
 			USAGE:
 			unziptar <archive-file> [...options]
@@ -43,7 +41,7 @@ function unziptar() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
@@ -110,7 +108,9 @@ function unziptar() (
 
 	# ensure format
 	if test -z "$format" -o "$format" = 'auto'; then
-		if [[ $archive == *".zip" ]]; then
+		if [[ $archive == *".dmg" ]]; then
+			format='dmg'
+		elif [[ $archive == *".zip" ]]; then
 			format='zip'
 		else
 			format='tar'
@@ -137,8 +137,33 @@ function unziptar() (
 	# enter the temporary directory
 	pushd "$archive_directory" >/dev/null
 
-	# zip or tar
-	if test "$format" = 'zip'; then
+	# unzip to that temporary directory
+	local dmg_device=''
+	function relocate {
+		mv -fv "$@"
+	}
+	function dmg_unmount {
+		# unmount the DMG device if it exists
+		if test -n "$dmg_device"; then
+			hdiutil detach "$dmg_device"
+			dmg_device=''
+		fi
+	}
+	if test "$format" = 'dmg'; then
+		if test "$0" != "${BASH_SOURCE[0]}"; then
+			echo-error 'unziptar: requires being run as a command, not a function, such that DMG cleanup always occurs, even on failures.'
+			return 1 # EPERM 1 Operation not permitted
+		fi
+		trap dmg_unmount EXIT
+		# install what is necessary for identifying the DMG volume
+		setup-util-ripgrep --quiet
+		setup-util-moreutils --quiet # sponge
+		# attach the DMG to a volume
+		dmg_device="$(hdiutil attach -readonly -nobrowse -mountroot "$archive_directory" "$archive" | sponge | rg --max-count=1 --only-matching --regexp='(/dev/.+?)\s' --replace='$1')"
+		function relocate {
+			cp -Rfv "$@"
+		}
+	elif test "$format" = 'zip'; then
 		setup-util-unzip --quiet
 		unzip -u "$archive"
 	elif test "$format" = 'tar'; then
@@ -155,24 +180,30 @@ function unziptar() (
 		expand-path "$archive_directory/$filter"
 	)
 
-	# move extracted files
+	# relocate extracted files
 	if test "${#filtered_paths[@]}" -eq 0; then
 		echo-error "$0: No files were extracted."
 		return 1
 	elif test "${#filtered_paths[@]}" -eq 1; then
-		# move the single file
+		# relocate the single path
 		for filtered_path in "${filtered_paths[@]}"; do
 			if test -n "$file"; then
-				mv -fv "$filtered_path" "$directory/$file"
+				if test -d "$filtered_path" -a -d "$directory/$file"; then
+					# the path is a directory, and its destination exists
+					# as the path is intended to be a file, this means we want to behave as a file, which is to replace the directory, not to place the directory inside the directory
+					# e.g. OBS.app should not go to /Applications/OBS.app/OBS.app if /Applications/OBS.app already existed
+					rm -rfv "$directory/${file:?}"
+				fi
+				relocate "$filtered_path" "$directory/$file"
 			else
-				mv -fv "$filtered_path" "$directory"
+				relocate "$filtered_path" "$directory"
 			fi
 		done
 	else
 		# was only one intended?
 		if test -n "$file"; then
 			{
-				echo-error "$0: <file> was not possible, multiple files were extracted:"
+				echo-error "$0: <file> was not possible, multiple files would have been relocated:"
 				echo-verbose "${filtered_paths[@]}"
 				echo "directory=[$directory]"
 				echo "file=[$file]"
@@ -180,15 +211,16 @@ function unziptar() (
 			} >/dev/stderr
 			return 1
 		fi
-		# move multiple files
+		# relocate multiple files
 		for filtered_path in "${filtered_paths[@]}"; do
-			mv -fv "$filtered_path" "$directory"
+			relocate "$filtered_path" "$directory"
 		done
 	fi
 
 	# exit the temporary directory then remove it
 	popd >/dev/null
-	rm -rfv "$archive_directory"
+	dmg_unmount
+	rm -rf "$archive_directory"
 
 	# prune archive if desired
 	if test "$prune" = 'yes'; then

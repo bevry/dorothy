@@ -6,10 +6,11 @@ function down() (
 
 	# supported tools
 	local tool available_tools=() all_tools=(
-		aria2c
-		wget
-		curl
-		http
+		got    # nice progress bar
+		wget   # nice progress bar
+		httpie # progress bar is too sporadic
+		aria2c # progress bar doesn't play well with eval-helper
+		curl   # complex progress bar
 	)
 
 	# determine which tools are available
@@ -22,8 +23,9 @@ function down() (
 
 	# if no tools are available, install preference
 	if test "${#available_tools[@]}" -eq 0; then
-		setup-util-aria2 --quiet
-		available_tools+=(aria2c)
+		get-installer --first-success --invoke --quiet -- "${all_tools[@]}"
+		down "$@"
+		return
 	fi
 
 	# =====================================
@@ -83,7 +85,7 @@ function down() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
@@ -155,7 +157,6 @@ function down() (
 	# Action
 
 	function act {
-
 		# if zip, then download to a temporary directory first
 		local download_directory download_file
 		if test -n "$unzip_format" -o -n "$unzip_filter"; then
@@ -174,22 +175,55 @@ function down() (
 
 		# tool helpers
 		function do_aria2c {
+			local aria2c_options=()
 			if test -n "$download_file"; then
-				aria2c \
-					--out="$download_file" \
-					--dir="$download_directory" \
-					--allow-overwrite=true \
-					--auto-file-renaming=false \
-					"$url"
-			else
-				aria2c \
-					--dir="$download_directory" \
-					--allow-overwrite=true \
-					--auto-file-renaming=false \
-					"$url"
+				aria2c_options+=(
+					--out="$download_file"
+				)
 			fi
+			aria2c_options+=(
+				--dir="$download_directory"
+				--file-allocation=none
+				--allow-overwrite=true
+				--always-resume=true
+				--auto-file-renaming=false
+				--show-console-readout=false
+				--summary-interval=1
+				--no-conf
+				"$url"
+			)
+			aria2c "${aria2c_options[@]}"
 		}
-		function do_wget {
+		function do_curl {
+			pushd "$download_directory" >/dev/null
+			if test -n "$download_file"; then
+				curl -L "$url" -o "$download_file"
+			else
+				curl -OL "$url"
+			fi
+			popd >/dev/null
+		}
+		function do_got {
+			# https://github.com/melbahja/got#command-line-tool-usage
+			pushd "$download_directory" >/dev/null
+			if test -n "$download_file"; then
+				got -o "$download_file" "$url"
+			else
+				got "$url"
+			fi
+			popd >/dev/null
+		}
+		function do_httpie {
+			# https://httpie.io/docs/cli/download-mode
+			pushd "$download_directory" >/dev/null
+			if test -n "$download_file"; then
+				http -dco "$download_file" "$url"
+			else
+				http -dc "$url"
+			fi
+			popd >/dev/null
+		}
+		function do_wget() (
 			#   -O,  --output-document=FILE      write documents to FILE
 			#   -o,  --output-file=FILE          log messages to FILE
 			#   -N,  --timestamping              don't re-retrieve files unless newer than local
@@ -206,46 +240,27 @@ function down() (
 				wget --timestamping "$url"
 			fi
 			popd >/dev/null
-		}
-		function do_curl {
-			pushd "$download_directory" >/dev/null
-			if test -n "$download_file"; then
-				curl -L "$url" -o "$download_file"
-			else
-				curl -OL "$url"
-			fi
-			popd >/dev/null
-		}
-		function do_http {
-			pushd "$download_directory" >/dev/null
-			if test -n "$download_file"; then
-				http --output "$download_file" -d "$url"
-			else
-				http -d "$url"
-			fi
-			popd >/dev/null
-		}
+		)
 		function do_download {
-			case "$tool" in
-			'aria2c') do_aria2c ;;
-			'wget') do_wget ;;
-			'curl') do_curl ;;
-			'http') do_http ;;
-			*) help "Unrecognised tool: $tool" ;;
-			esac
+			if test "$(type -t "do_$tool")" = 'function'; then
+				"do_$tool"
+			else
+				help "Unrecognised tool: $tool"
+			fi
 		}
 
-		# invoke the download with retry support
+		# invoke the download with retry support, capturing exit codes
+		local ec
 		while test "$retry" -ge 0; do
-			if do_download; then
+			eval_capture --statusvar=ec -- do_download
+			if test "$ec" -eq 0; then
 				break
 			fi
 			retry=$((retry - 1))
 		done
 
-		# check download
+		# double confirm it was created, in case exit code passed but it still was not created
 		if test -n "$download_file"; then
-			# assert it was created
 			if test ! -e "$download_directory/$download_file"; then
 				echo-error "$0: Failed to download " --code="$url" ' to ' --code="$download_directory/$download_file"
 				return 1
@@ -291,7 +306,7 @@ function down() (
 	fi
 
 	# act
-	eval-helper --quiet="$quiet" --no-wrap \
+	eval_helper --quiet="$quiet" --no-wrap \
 		--pending="$(
 			echo-style --bold="$pending " \
 				--code="$url" " to " --code="$directory/$file"

@@ -22,9 +22,9 @@ while read -r line; do
 done < <(env)
 
 # final scanning of environment, and echo results
-function finish {
+function on_env_finish {
 	# ignore failure conditions
-	local ec="$?"
+	local ec=$?
 	if test "$ec" -ne 0; then
 		return "$ec"
 	fi
@@ -120,4 +120,4 @@ function finish {
 		fi
 	done < <(env)
 }
-trap finish EXIT
+trap on_env_finish EXIT

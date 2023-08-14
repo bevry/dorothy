@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-function get-url-upgrade() (
+function get_url_upgrade() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
@@ -17,11 +17,11 @@ function get-url-upgrade() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item url=''
+	local item option_url=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -29,8 +29,8 @@ function get-url-upgrade() (
 		'--help' | '-h') help ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
-			if test -z "$url"; then
-				url="$item"
+			if test -z "$option_url"; then
+				option_url="$item"
 			else
 				help "An unrecognised argument was provided: $item"
 			fi
@@ -39,7 +39,7 @@ function get-url-upgrade() (
 	done
 
 	# check
-	if test -z "$url"; then
+	if test -z "$option_url"; then
 		help "<url> is required"
 	fi
 
@@ -51,57 +51,73 @@ function get-url-upgrade() (
 	# =====================================
 	# Action
 
-	# prepare
-	local protocol result
+	function do_url_upgrade {
+		local url="$1" protocol result
 
-	# remove superflous trailing slash
-	# trunk-ignore(shellcheck/SC2016)
-	url="$(echo "$url" | sd '([.][a-z]+)[/]$' '$1')"
+		# remove superflous trailing slash
+		# trunk-ignore(shellcheck/SC2016)
+		url="$(echo "$url" | sd '([.][a-z]+)[/]$' '$1')"
 
-	# test the original url
-	protocol="$(get-url-protocol "$url" || :)"
-	if test -z "$protocol"; then
-		# try http, which tries https first, otherwise fail
-		echo "[$url] missing protocol, will try variations" >/dev/stderr
-		get-url-upgrade "http://$url"
-		return "$?" # return with the above on success and failure
-	elif test "$protocol" = 'https'; then
-		# test original url works
-		if ! fetch --ok "$url"; then
-			echo "[$url] failing, will try variations" >/dev/stderr
+		# test the original url
+		protocol="$(get-url-protocol "$url" || :)"
+		if test -z "$protocol"; then
+			# try http, which tries https first, otherwise fail
+			echo "[$url] missing protocol, will try variations" >/dev/stderr
+			do_url_upgrade "http://$url"
+			return
+		elif test "$protocol" = 'https'; then
+			# test original url works
+			if ! fetch --ok "$url"; then
+				echo "[$url] failing, will try variations" >/dev/stderr
+			fi
+		elif test "$protocol" = 'http'; then
+			# try upgrade to https
+			result="${url//http\:/https\:}"
+			result="$(do_url_upgrade "$result")"
+			if test -n "$result"; then
+				echo "$result"
+				return 0
+			fi
+			result=''
+		else
+			echo "[$url] invalid protocol, unable to upgrade" >/dev/stderr
+			return 1
 		fi
-	elif test "$protocol" = 'http'; then
-		# try upgrade to https
-		result="${url//http\:/https\:}"
-		result="$(get-url-upgrade "$result")"
-		if test -n "$result"; then
-			echo "$result"
-			return 0
+
+		# try removing www
+		result="${url//www./}"
+		if test "$result" != "$url"; then
+			result="$(do_url_upgrade "$result")"
+			if test -n "$result"; then
+				echo "$result"
+				return 0
+			fi
 		fi
 		result=''
-	else
-		echo "[$url] invalid protocol, unable to upgrade" >/dev/stderr
-		return 1
-	fi
 
-	# try removing www
-	result="${url//www./}"
-	if test "$result" != "$url"; then
-		result="$(get-url-upgrade "$result")"
-		if test -n "$result"; then
-			echo "$result"
+		# test the url
+		if fetch --ok "$url"; then
+			# try removing login items
+			if is-inside "$url" 'reg=' registration verify create signup signing reset token join register logout password forgot invitation invite; then
+				result="$(get-url-domain "$url")"
+				if test "$result" != "$url"; then
+					result="$(do_url_upgrade "$result")"
+					if test -n "$result"; then
+						echo "$result"
+						return 0
+					fi
+				fi
+				result=''
+			fi
+			echo "$url"
 			return 0
 		fi
-	fi
-	result=''
 
-	# test the url
-	if fetch --ok "$url"; then
-		# try removing login items
-		if is-inside "$url" 'reg=' registration verify create signup signing reset token join register logout password forgot invitation invite; then
+		# try removing path if ? is not present
+		if [[ $url != *'?'* ]]; then
 			result="$(get-url-domain "$url")"
 			if test "$result" != "$url"; then
-				result="$(get-url-upgrade "$result")"
+				result="$(do_url_upgrade "$result")"
 				if test -n "$result"; then
 					echo "$result"
 					return 0
@@ -109,49 +125,36 @@ function get-url-upgrade() (
 			fi
 			result=''
 		fi
-		echo "$url"
-		return 0
-	fi
 
-	# try removing path if ? is not present
-	if [[ $url != *'?'* ]]; then
+		# try removing path altogether
 		result="$(get-url-domain "$url")"
 		if test "$result" != "$url"; then
-			result="$(get-url-upgrade "$result")"
+			result="$(do_url_upgrade"$result")"
 			if test -n "$result"; then
 				echo "$result"
 				return 0
 			fi
 		fi
 		result=''
-	fi
 
-	# try removing path altogether
-	result="$(get-url-domain "$url")"
-	if test "$result" != "$url"; then
-		result="$(get-url-upgrade "$result")"
-		if test -n "$result"; then
-			echo "$result"
+		# check if it is a replaced domain
+		if is-needle "$url" 'https://login.live.com' 'https://account.live.com' 'https://account.microsoft.com'; then
+			echo 'https://account.microsoft.com' # curl fails for this, even though it exists, user agent change does nothing
+			return 0
+		elif is-needle "$url" 'https://signin.ebay.com.au'; then
+			echo 'https://www.ebay.com.au/signin/'
 			return 0
 		fi
-	fi
-	result=''
 
-	# check if it is a replaced domain
-	if is-needle "$url" 'https://login.live.com' 'https://account.live.com' 'https://account.microsoft.com'; then
-		echo 'https://account.microsoft.com' # curl fails for this, even though it exists, user agent change does nothing
-		return 0
-	elif is-needle "$url" 'https://signin.ebay.com.au'; then
-		echo 'https://www.ebay.com.au/signin/'
-		return 0
-	fi
+		# unable to make https
+		echo "[$url] unresponsive" >/dev/stderr
+		return 1
+	}
 
-	# unable to make https
-	echo "[$url] unresponsive" >/dev/stderr
-	return 1
+	do_url_upgrade "$option_url"
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	get-url-upgrade "$@"
+	get_url_upgrade "$@"
 fi

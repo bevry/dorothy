@@ -28,9 +28,6 @@ GUI_EDITORS=(
 	'TextEdit'          # macos default
 )
 
-# editors which failed for @balupton
-# 'slap' # setup-util-slap
-
 # editors with complicated install instructions:
 # https://github.com/syl20bnr/spacemacs#install
 
@@ -38,3 +35,11 @@ GUI_EDITORS=(
 # https://github.com/gphalkes/tilde
 # https://github.com/gchp/iota
 # https://github.com/curlpipe/ox
+# https://github.com/slap-editor/slap/issues/413
+
+# @todo add support for these:
+# https://github.com/lapce/lapce
+# https://github.com/helix-editor/helix
+# https://github.com/syl20bnr/spacemacs
+# https://github.com/xi-editor/xi-editor
+# https://github.com/NvChad/NvChad

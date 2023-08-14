@@ -50,7 +50,7 @@ function confirm() (
 		if test "$#" -ne 0; then
 			echo-error "$@"
 		fi
-		return 22 # Invalid argument
+		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# prepare
@@ -90,78 +90,81 @@ function confirm() (
 		no='NO'
 	fi
 
-	# requirements
+	# checks
 	if test -z "$ppid"; then
 		help '<ppid> is necessary'
+	fi
+	if test -z "${question_parts[*]}"; then
+		help '<question> is necessary'
 	fi
 
 	# =====================================
 	# Helpers
 
 	# used to process the input
-	function confirmer {
-		local ec answer
+	function do_read {
+		local read_status answer
 
 		# ask and timeout
-		ec=0 && answer="$(read-key --timeout="$timeout")" || ec="$?"
+		eval_capture --statusvar=read_status --stdoutvar=answer -- read-key --timeout="$timeout"
 
 		# process
 		if test "$mode" = 'positive'; then
 			# positive
-			if test "$ec" -eq 62; then
+			if test "$read_status" -eq 60; then
 				return 0 # timeout
-			elif test "$ec" -ne 0; then
-				return "$ec" # failure
+			elif test "$read_status" -ne 0; then
+				return "$read_status" # failure
 			fi
-			ec=0 && is-affirmative -- "$answer" || ec="$?"
-			if test "$ec" -lt 2; then
-				return "$ec"
+			eval_capture --statusvar=read_status -- is-affirmative -- "$answer"
+			if test "$read_status" -lt 2; then
+				return "$read_status"
 			elif test "$answer" = 'enter' -o "$answer" = 'space'; then
 				return 0
 			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-				return 125 # Operation canceled
+				return 125 # ECANCELED 125 Operation cancelled
 			fi
 
 		elif test "$mode" = 'negative'; then
 			# negative
-			if test "$ec" -eq 62; then
+			if test "$read_status" -eq 60; then
 				return 1 # timeout
-			elif test "$ec" -ne 0; then
-				return "$ec" # failure
+			elif test "$read_status" -ne 0; then
+				return "$read_status" # failure
 			fi
-			ec=0 && is-affirmative -- "$answer" || ec="$?"
-			if test "$ec" -lt 2; then
-				return "$ec"
+			eval_capture --statusvar=read_status -- is-affirmative -- "$answer"
+			if test "$read_status" -lt 2; then
+				return "$read_status"
 			elif test "$answer" = 'enter' -o "$answer" = 'space'; then
 				return 1
 			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-				return 125 # Operation canceled
+				return 125 # ECANCELED 125 Operation cancelled
 			fi
 
 		elif test "$mode" = 'bool'; then
 			# bool
-			if test "$ec" -ne 0; then
-				return "$ec" # timeout and failure
+			if test "$read_status" -ne 0; then
+				return "$read_status" # timeout and failure
 			fi
-			ec=0 && is-affirmative -- "$answer" || ec="$?"
-			if test "$ec" -lt 2; then
-				return "$ec"
+			eval_capture --statusvar=read_status -- is-affirmative -- "$answer"
+			if test "$read_status" -lt 2; then
+				return "$read_status"
 			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-				return 125 # Operation canceled
+				return 125 # ECANCELED 125 Operation cancelled
 			fi
 
 		elif test "$mode" = 'confirm'; then
 			# confirm
-			if test "$ec" -ne 0; then
-				return "$ec" # timeout and failure
+			if test "$read_status" -ne 0; then
+				return "$read_status" # timeout and failure
 			fi
-			ec=0 && is-affirmative -- "$answer" || ec="$?"
-			if test "$ec" -lt 2; then
-				return "$ec"
+			eval_capture --statusvar=read_status -- is-affirmative -- "$answer"
+			if test "$read_status" -lt 2; then
+				return "$read_status"
 			elif test "$answer" = 'enter' -o "$answer" = 'space'; then
 				return 0
 			elif test "$answer" = 'escape' -o "$answer" = 'q'; then
-				return 125 # Operation canceled
+				return 125 # ECANCELED 125 Operation cancelled
 			fi
 
 		else
@@ -169,34 +172,87 @@ function confirm() (
 			help "An invalid <mode> was provided: $mode"
 		fi
 
-		# try again, and erase any leaked characters
+		# try reading again, and erase any leaked characters
 		printf '\e[%sG\e[K' "$hx" >/dev/tty
-		confirmer "$@"
-		return "$?" # return with the above on success and failure
+		do_read
+	}
+
+	function do_question {
+		# add the confirmation to the first question part
+		if test "$mode" = 'positive'; then
+			question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
+		elif test "$mode" = 'negative'; then
+			question_parts[0]+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
+		elif test "$mode" = 'bool'; then
+			question_parts[0]+=" $(echo-style --blink='(y/n)')"
+		elif test "$mode" = 'confirm'; then
+			question_parts[0]+=" $(echo-style --blink='(CONFIRM)')"
+		else
+			help "An invalid <mode> was provided: $mode"
+		fi
+
+		# output the question parts
+		# saving the cursor position of the first line
+		# and outputting a newline beteen all lines, except the last, which should not have a trailing line
+		local question_parts_total="${#question_parts[@]}"
+		local question_parts_last="$((question_parts_total - 1))"
+		local index hx='' header
+		header="$(mktemp)"
+		for ((index = 0; index < "$question_parts_total"; index++)); do
+			echo -n "${question_parts[index]} " | tee -a "$header" >/dev/tty
+			if test "$index" -eq 0; then
+				# read cursor x y, discard y, set hx to y
+				IFS='[;' read -srd R -p $'\e[6n' _ _ hx
+			fi
+			if test "$index" -ne "$question_parts_last"; then
+				echo | tee -a "$header" >/dev/tty
+			fi
+		done
+
+		# move the cursor
+		local lines=0
+		if test "$question_parts_total" -ne 0; then
+			# reposition the cursor, to after the options in the first part
+			lines="$(echo-count-lines --no-inline <"$header")"
+			# move these lines up
+			if test "$lines" -ne 0; then
+				printf '\e[%sF' "$lines" >/dev/tty
+			fi
+			# move to the hx column
+			printf '\e[%sG' "$hx" >/dev/tty
+		fi
+
+		# read
+		do_read
 	}
 
 	# =====================================
-	# Question
+	# Action
 
 	# handle termination
-	local result=0 question_first_part="${question_parts[0]} " # this is stored for the finale
-	function failure {
-		result="$?"
-		if test -z "$result" -o "$result" -eq 0; then
-			result=100 # EPROTO 100 Protocol error
+	local RESULT=0 question_first_part="${question_parts[0]} " # this is stored for the finale
+	function on_confirm_terminate {
+		RESULT=$?
+		if test -z "$RESULT" -o "$RESULT" -eq 0; then
+			RESULT=100 # EPROTO 100 Protocol error
 		fi
-		finish
+		on_finish
 	}
-	function finish {
-		trap - EXIT SIGINT SIGTERM ERR
+	function on_finish {
+		trap - SIGINT SIGTERM
+
 		# make sure to erase question, as ctrl+c buggers everything
 		printf '\e[G\e[J' >/dev/tty
+
 		# output the finale
-		if test "$result" -eq 0; then
+		if test "$RESULT" -eq 0; then
+			# positive response
 			echo-style "$question_first_part" --green+bold="$yes" >/dev/tty
-		elif test "$result" -eq 1; then
+		elif test "$RESULT" -eq 1; then
+			# negative response
 			echo-style "$question_first_part" --red+bold="$no" >/dev/tty
 		else
+			# crash response
 			echo-style "$question_first_part" --red+bold="$abort" >/dev/tty
 			# kill caller's parent
 			if test -n "$ppid"; then
@@ -214,62 +270,21 @@ function confirm() (
 			# kill our subshell
 			kill 0
 			# kill our shell
-			exit "$result"
+			exit "$RESULT"
 		fi
 		# kill this
-		return "$result"
+		return "$RESULT"
 	}
-	trap failure SIGINT SIGTERM ERR
-	trap finish EXIT
-
-	# add the confirmation to the first question part
-	if test "$mode" = 'positive'; then
-		question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
-	elif test "$mode" = 'negative'; then
-		question_parts[0]+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
-	elif test "$mode" = 'bool'; then
-		question_parts[0]+=" $(echo-style --blink='(y/n)')"
-	elif test "$mode" = 'confirm'; then
-		question_parts[0]+=" $(echo-style --blink='(CONFIRM)')"
-	else
-		help "An invalid <mode> was provided: $mode"
-	fi
-
-	# output the question parts
-	# saving the cursor position of the first line
-	# and outputting a newline beteen all lines, except the last, which should not have a trailing line
-	local question_parts_total="${#question_parts[@]}"
-	local question_parts_last="$((question_parts_total - 1))"
-	local index hx='' header
-	header="$(mktemp)"
-	for ((index = 0; index < "$question_parts_total"; index++)); do
-		echo -n "${question_parts[index]} " | tee -a "$header" >/dev/tty
-		if test "$index" -eq 0; then
-			# read cursor x y, discard y, set hx to y
-			IFS='[;' read -srd R -p $'\e[6n' _ _ hx
-		fi
-		if test "$index" -ne "$question_parts_last"; then
-			echo | tee -a "$header" >/dev/tty
-		fi
-	done
-
-	# move the cursor
-	local lines=0
-	if test "$question_parts_total" -ne 0; then
-		# reposition the cursor, to after the options in the first part
-		lines="$(echo-count-lines --no-inline <"$header")"
-		# move these lines up
-		if test "$lines" -ne 0; then
-			printf '\e[%sF' "$lines" >/dev/tty
-		fi
-		# move to the hx column
-		printf '\e[%sG' "$hx" >/dev/tty
-	fi
+	trap on_confirm_terminate SIGINT SIGTERM # this is necessary to always show ABORT message
 
 	# read and handle answer
-	confirmer || result="$?"
-	finish
-	return "$result"
+	local result_status
+	eval_capture --statusvar=result_status -- do_question
+	if test "$result_status" -ne 0; then
+		RESULT="$result_status"
+	fi
+	on_finish
+	return "$RESULT"
 
 	# @todo
 	# an alternative implementation could be a new line like this at the end, with ENTER and ESCAPE and SPACE as the correct outputs

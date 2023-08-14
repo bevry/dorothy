@@ -4,11 +4,11 @@ source "$DOROTHY/sources/bash.bash"
 # uncatched help argument
 if test "${1-}" = '--help'; then
 	if test "$(type -t help)" = 'function'; then
-		help >/dev/stderr && exit 22 # Invalid argument
-		return "$?"
+		help >/dev/stderr && exit 22 # EINVAL 22 Invalid argument
+		return
 	else
 		echo-error 'A [help] function is required.'
-		return 38 # Function not implemented
+		return 78 # ENOSYS 78 Function not implemented
 	fi
 fi
 
