@@ -153,20 +153,18 @@ function github_download() (
 	# Action
 
 	# release helpers
-	function get_release_ref {
-		# output the reference for the release
-		local url="$GITHUB_API_URL/repos/$slug/releases/$release"
-		if command-missing jq; then
-			# don't use jq, rg, or sd to accomplish this, as none of them would be installed
-			# sed fixes minified json such as `},{` and `","`
-			fetch "$url" | sed -E $'s/,/,\\\n/g' | grep --fixed-strings --regexp='"tag_name":' | sed -E 's/.+: *"(.+)".*/\1/'
-		else
-			fetch "$url" | jq -r '.tag_name'
-		fi
-	}
-	function get_release_assets_raw {
+	function get_assets_for_release {
 		# output the assets [name, url] for the release
-		local url="$GITHUB_API_URL/repos/$slug/releases/$release"
+		# github urls always return 200, even if msising
+		# when [release=latest], then [/releases/latest] works but [/releases/latest/assets] does not work
+		# as [/releases/$release] returns asset information, use that with .assets[] instead of .[]
+		local url
+		url="$GITHUB_API_URL/repos/$slug/releases/$release"
+		if fetch "$url" | grep --quiet --fixed-strings --regexp='Not Found'; then
+			url="$(
+				fetch "$GITHUB_API_URL/repos/$slug/releases" | jq -r ".[] | select(.tag_name==\"$release\") | .url"
+			)"
+		fi
 		if command-missing jq; then
 			# don't use jq, rg, or sd to accomplish this, as none of them would be installed
 			# [tail -n+2] excludes the first line, which is the name of the repo
@@ -174,13 +172,13 @@ function github_download() (
 			# sed fixes minified json such as `},{` and `","`
 			fetch "$url" | sed -E $'s/,/,\\\n/g' | grep --extended-regexp --regexp='"(name|browser_download_url)":' | tail -n+2 | sed -E 's/.+: *"(.+)".*/\1/'
 		else
-			fetch "$url" | jq -r ".assets[] | (.name, .browser_download_url)"
+			fetch "$url" | jq -r '.assets[] | (.name, .browser_download_url)'
 		fi
 	}
-	function get_release_assets {
+	function get_matched_assets_for_release {
 		# get the assets [name, url] for the release
 		local assets=()
-		mapfile -t assets < <(get_release_assets_raw)
+		mapfile -t assets < <(get_assets_for_release)
 		if test "${#assets[@]}" -eq 0; then
 			echo-style --error='No release assets were found.'
 			return 1
@@ -242,26 +240,9 @@ function github_download() (
 	}
 
 	# release/reference helpers
-	function download_ref {
-		local url ref="$reference" filter
-		url="https://github.com/$slug/archive/$ref.tar.gz"
-		filter="*-$ref/${unzip_filter:-"*"}"
-		if test "$dry" = 'yes'; then
-			echo "$url"
-			return 0
-		fi
-		down "$url" \
-			--quiet="$quiet" \
-			--unzip-format="$unzip_format" \
-			--unzip-filter="$filter" \
-			--directory="$directory" \
-			--file="$file" \
-			--path="$path"
-	}
-	function download_release {
-		local url ref filter
-		ref="$(get_release_ref)"
-		url="https://github.com/$slug/archive/$ref.tar.gz"
+	function download_reference {
+		local url filter
+		url="https://github.com/$slug/archive/$reference.tar.gz"
 		filter="*-$reference/${unzip_filter:-"*"}"
 		if test "$dry" = 'yes'; then
 			echo "$url"
@@ -277,7 +258,7 @@ function github_download() (
 	}
 	function download_asset {
 		local asset assets
-		mapfile -t assets < <(get_release_assets)
+		mapfile -t assets < <(get_matched_assets_for_release)
 		if test "${#assets[@]}" -eq 0; then
 			echo-style --error='No download assets were found.'
 			return 1
@@ -319,10 +300,8 @@ function github_download() (
 		download_asset
 	elif test -n "$pathname"; then
 		download_pathname
-	elif test -n "$release"; then
-		download_release
 	elif test -n "$reference"; then
-		download_ref
+		download_reference
 	else
 		help "Invalid combination of options."
 	fi
@@ -343,13 +322,24 @@ function github_download() (
 	# 	fi
 	# done
 
+	# function get_reference_for_release {
+	# 	# output the reference for the release
+	# 	local url="$GITHUB_API_URL/repos/$slug/releases/$release"
+	# 	if command-missing jq; then
+	# 		# don't use jq, rg, or sd to accomplish this, as none of them would be installed
+	# 		# sed fixes minified json such as `},{` and `","`
+	# 		fetch "$url" | sed -E $'s/,/,\\\n/g' | grep --fixed-strings --regexp='"id":' | sed -E 's/.+: *"?(.+)"?,.*/\1/'
+	# 	else
+	# 		fetch "$url" | jq -r '.id'
+	# 	fi
+	# }
 	# function get_reference_clone {
 	# 	# then shallow clone it to the [--inside] directory
 	# 	git clone --quiet --depth 1 --branch "$reference" 'https://github.com/rfjakob/gocryptfs.git' "$inside"
 	# }
 	# function get_release_clone {
 	# 	# get the reference for the release
-	# 	local reference="$(get_release_ref)"
+	# 	local reference="$(get_reference_for_release)"
 
 	# 	# then shallow clone it to the [--inside] directory
 	# 	git clone --quiet --depth 1 --branch "$reference" 'https://github.com/rfjakob/gocryptfs.git' "$inside"
