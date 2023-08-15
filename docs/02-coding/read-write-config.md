@@ -9,7 +9,7 @@ If your command will make use of user configuration, you can use the following t
 source "$DOROTHY/sources/config.bash"
 
 # environment may provide:
-# TERMINAL_EDITOR_PROMPT, TERMINAL_EDITOR, EDITOR
+# EDITOR
 
 # git.bash provides:
 local GPG_SIGNING_KEY='' # use 'krypton' for Krypt.co

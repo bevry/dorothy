@@ -11,13 +11,13 @@ TERMINAL_EDITORS=(
 	# editors with an extremely obtuse UX,
 	# that is, requires more than 5 seconds for a newb to save and quit a file
 	# sorted by popularity of conventions, then by modernness of the tool of that convention
-	'nvim'                     # setup-util-neovim (49k stars)
-	'vim'                      # setup-util-vim
-	'vi'                       # commonly bundled, only worthwhile if vim is missing
-	'micro'                    # setup-util-micro (18k stars)
-	'emacs --no-window-system' # setup-util-emacs (3k stars)
-	'amp'                      # setup-util-amp (3k stars)
-	'ne'                       # setup-util-ne (300 stars)
+	'nvim'  # setup-util-neovim (49k stars)
+	'vim'   # setup-util-vim
+	'vi'    # commonly bundled, only worthwhile if vim is missing
+	'micro' # setup-util-micro (18k stars)
+	'emacs' # setup-util-emacs (3k stars)
+	'amp'   # setup-util-amp (3k stars)
+	'ne'    # setup-util-ne (300 stars)
 )
 GUI_EDITORS=(
 	'code' # setup-util-vscode
