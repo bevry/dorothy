@@ -3,41 +3,8 @@
 function setup_util_plex() (
 	source "$DOROTHY/sources/bash.bash"
 
-	# =====================================
-	# Arguments
-
-	# help
-	function help {
-		cat <<-EOF >/dev/stderr
-			ABOUT:
-			Sets up a Plex Media Server.
-
-			USAGE:
-			setup-util-plex [...options]
-
-			OPTIONS:
-			...
-			    All other options are forwarded to $(echo-style --code='setup-util').
-		EOF
-		return 22 # EINVAL 22 Invalid argument
-	}
-
-	# process
-	local item action='install' util=()
-	while test "$#" -ne 0; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--install') action='install' ;;
-		'--uninstall') action='uninstall' ;;
-		'--action='*) action="${item#*--action=}" ;;
-		*) util+=("$item") ;;
-		esac
-	done
-
-	# ensure action inside util
-	util+=("--action=$action")
+	# dependencies
+	source "$DOROTHY/sources/ripgrep.bash"
 
 	# =====================================
 	# Preparation
@@ -55,16 +22,23 @@ function setup_util_plex() (
 	)
 
 	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
-
-	# =====================================
 	# Setup Utility
 
 	# https://forums.plex.tv/t/809529?u=balupton
 	# fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass' | jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url'
 
+	# apt doesn't seem to work correctly
+	# APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
+	# APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://downloads.plex.tv/repo/deb public main' \
+	# APT='plexmediaserver' \
+
+	# setup
+	local arch options=(
+		--cli='plex-media-server'
+		--app='Plex Media Server'
+		"$@"
+		CASK='plex-media-server'
+	)
 	function get_json {
 		fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass'
 	}
@@ -79,79 +53,60 @@ function setup_util_plex() (
 			get_json | jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url'
 		fi
 	}
-
-	# determine utility options
-	local arch
 	arch="$(get-arch)"
-	util+=(
-		--app='Plex Media Server' # cross-of compatible
-	)
 	if is-mac; then
-		# -e is essential, as without it the '-' is confused as ripgrep flag argument
-		util+=(
-			CASK='plex-media-server'
-			DOWNLOAD="$(get_platform_urls | rg -e '-universal.zip$')"
+		options+=(
+			DOWNLOAD="$(get_platform_urls | rg --regexp='-universal.zip$')"
 			DOWNLOAD_FILENAME='Plex Media Server.app' # maco
 			DOWNLOAD_UNZIP_FORMAT='zip'
 		)
 	elif is-ubuntu; then
 		if test "$arch" = 'x64'; then
-			util+=("DEB=$(get_platform_urls | rg -e '_amd64.deb$')")
+			options+=("DEB=$(get_platform_urls | rg --regexp='_amd64.deb$')")
 		elif test "$arch" = 'x32'; then
-			util+=("DEB=$(get_platform_urls | rg -e '_i386.deb$')")
+			options+=("DEB=$(get_platform_urls | rg --regexp='_i386.deb$')")
 		elif test "$arch" = 'a64'; then
-			util+=("DEB=$(get_platform_urls | rg -e '_arm64.deb$')")
+			options+=("DEB=$(get_platform_urls | rg --regexp='_arm64.deb$')")
 		elif test "$arch" = 'a32'; then
-			util+=("DEB=$(get_platform_urls | rg -e '_armhf.deb$')")
+			options+=("DEB=$(get_platform_urls | rg --regexp='_armhf.deb$')")
 		fi
 	elif command-exists rpm; then
 		if test "$arch" = 'x64'; then
-			util+=("RPM=$(get_platform_urls | rg -e '.x86_64.rpm$')")
+			options+=("RPM=$(get_platform_urls | rg --regexp='.x86_64.rpm$')")
 		elif test "$arch" = 'x32'; then
-			util+=("RPM=$(get_platform_urls | rg -e '.i686.rpm$')")
+			options+=("RPM=$(get_platform_urls | rg --regexp='.i686.rpm$')")
 		fi
 	fi
+	setup-util "${options[@]}"
 
-	# apt doesn't seem to work correctly
-	# APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
-	# APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://downloads.plex.tv/repo/deb public main' \
-	# APT='plexmediaserver' \
-
-	# install utility with forwarded+custom arguments
-	setup-util "${util[@]}"
-
-	# stop at uninstall?
-	if test "$action" = 'uninstall'; then
+	# if missing, complete uninstall and exit
+	if command-missing plex-media-server && ! get-app --quiet 'Plex Media Server'; then
 		# remove services
 		service-helper --remove -- \
 			-- "${service_ids[@]}"
+
 		# remove paths
-		fs-rm --sudo --confirm \
+		fs-rm --sudo --confirm --optional \
 			-- "${service_uninstall_paths[@]}"
+
 		# remove user
 		if is-user plex; then
 			sudo-helper -- userdel plex
 		fi
+
 		# remove group
 		if is-group plex; then
 			sudo-helper -- groupdel --force plex
 		fi
+
 		# all done for uninstall
 		return 0
 	fi
 
-	# =====================================
-	# Setup Service
-
-	# only manage the service if it is supported
+	# if installed, configure service if supported
 	if service-helper --supported; then
 		# verify the service was initialised
-		if service-helper --exists -- "${service_ids[@]}"; then
-			# disable autostart
-			service-helper --disable --stop \
-				-- "${service_ids[@]}"
-		else
-			# headful/headless, no service
+		if ! service-helper --exists -- "${service_ids[@]}"; then
 			echo-error "$0: $service_title was installed, however the service was not."
 			return 1
 		fi
