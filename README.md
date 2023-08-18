@@ -51,6 +51,8 @@ Dorothy maintainers and users are occasionally driving Dorothy on:
 
 [Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk)
 
+[![Screenshot of the 2022 April Presentation](https://raw.githubusercontent.com/bevry/dorothy/master/docs/assets/presentation.gif)](https://www.youtube.com/watch?v=gWLana1JmNk)
+
 ## Try
 
 If you just want to trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell, you can do the following:
