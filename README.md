@@ -2,8 +2,6 @@
 
 <!-- BADGES/ -->
 
-<span class="badge-githubworkflow"><a href="https://github.com/bevry/dorothy/actions?query=workflow%3Abevry" title="View the status of this project's GitHub Workflow: bevry"><img src="https://github.com/bevry/dorothy/workflows/bevry/badge.svg" alt="Status of the GitHub Workflow: bevry" /></a></span>
-<br class="badge-separator" />
 <span class="badge-githubsponsors"><a href="https://github.com/sponsors/balupton" title="Donate to this project using GitHub Sponsors"><img src="https://img.shields.io/badge/github-donate-yellow.svg" alt="GitHub Sponsors donate button" /></a></span>
 <span class="badge-thanksdev"><a href="https://thanks.dev/u/gh/balupton" title="Donate to this project using ThanksDev"><img src="https://img.shields.io/badge/thanksdev-donate-yellow.svg" alt="ThanksDev donate button" /></a></span>
 <span class="badge-patreon"><a href="https://patreon.com/bevry" title="Donate to this project using Patreon"><img src="https://img.shields.io/badge/patreon-donate-yellow.svg" alt="Patreon donate button" /></a></span>
@@ -168,34 +166,34 @@ This is the foundation enables Dorothy's hundreds of commands, to work across hu
 
 Staring with Dorothy:
 
--   [XDG](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/xdg.md)
--   [Assisted Installations](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/manual-to-assisted.md)
--   [Configuring Editors](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/editors.md)
--   [Private Configurations](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/private-configuration.md)
--   [Encrypted Configurations](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/encrypted-configuration.md)
+-   [XDG](https://github.com/bevry/dorothy/blob/master/docs/dorothy/xdg.md)
+-   [Assisted Installations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/manual-to-assisted.md)
+-   [Configuring Editors](https://github.com/bevry/dorothy/blob/master/docs/dorothy/editors.md)
+-   [Private Configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/private-configuration.md)
+-   [Encrypted Configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/encrypted-configuration.md)
 
 Coding with Dorothy:
 
--   [Commands](https://github.com/bevry/dorothy/blob/master/docs/02-coding/commands.md)
--   [Strict Mode](https://github.com/bevry/dorothy/blob/master/docs/02-coding/strict.md)
--   [Exit and Return codes](https://github.com/bevry/dorothy/blob/master/docs/02-coding/exit-return-codes.md)
--   [Styling your Command Output](https://github.com/bevry/dorothy/blob/master/docs/02-coding/styling.md)
--   [Working with Prompts](https://github.com/bevry/dorothy/blob/master/docs/02-coding/prompts.md)
--   [Writing a Utility Installer](https://github.com/bevry/dorothy/blob/master/docs/02-coding/util.md)
--   [Reading and Writing Configuration](https://github.com/bevry/dorothy/blob/master/docs/02-coding/read-write-config.md)
+-   [Commands](https://github.com/bevry/dorothy/blob/master/docs/coding/commands.md)
+-   [Strict Mode](https://github.com/bevry/dorothy/blob/master/docs/coding/strict.md)
+-   [Exit and Return codes](https://github.com/bevry/dorothy/blob/master/docs/coding/exit-return-codes.md)
+-   [Styling your Command Output](https://github.com/bevry/dorothy/blob/master/docs/coding/styling.md)
+-   [Working with Prompts](https://github.com/bevry/dorothy/blob/master/docs/coding/prompts.md)
+-   [Writing a Utility Installer](https://github.com/bevry/dorothy/blob/master/docs/coding/util.md)
+-   [Reading and Writing Configuration](https://github.com/bevry/dorothy/blob/master/docs/coding/read-write-config.md)
 
 Coding with Bash:
 
--   [Arrays](https://github.com/bevry/dorothy/blob/master/docs/03-bash/arrays.md)
--   [Builtins](https://github.com/bevry/dorothy/blob/master/docs/03-bash/builtins.md)
--   [Conditionals](https://github.com/bevry/dorothy/blob/master/docs/03-bash/conditionals.md)
--   [Foreach Line](https://github.com/bevry/dorothy/blob/master/docs/03-bash/foreach-line.md)
--   [Parameter Expansion](https://github.com/bevry/dorothy/blob/master/docs/03-bash/parameter-expansions.md)
--   [Replace Inline](https://github.com/bevry/dorothy/blob/master/docs/03-bash/replace-inline.md)
--   [Resources](https://github.com/bevry/dorothy/blob/master/docs/03-bash/resources.md)
--   [Subshells](https://github.com/bevry/dorothy/blob/master/docs/03-bash/subshells.md)
--   [Trailing Lines](https://github.com/bevry/dorothy/blob/master/docs/03-bash/trailing-lines.md)
--   [Versions](https://github.com/bevry/dorothy/blob/master/docs/03-bash/versions.md)
+-   [Arrays](https://github.com/bevry/dorothy/blob/master/docs/bash/arrays.md)
+-   [Builtins](https://github.com/bevry/dorothy/blob/master/docs/bash/builtins.md)
+-   [Conditionals](https://github.com/bevry/dorothy/blob/master/docs/bash/conditionals.md)
+-   [Foreach Line](https://github.com/bevry/dorothy/blob/master/docs/bash/foreach-line.md)
+-   [Parameter Expansion](https://github.com/bevry/dorothy/blob/master/docs/bash/parameter-expansions.md)
+-   [Replace Inline](https://github.com/bevry/dorothy/blob/master/docs/bash/replace-inline.md)
+-   [Resources](https://github.com/bevry/dorothy/blob/master/docs/bash/resources.md)
+-   [Subshells](https://github.com/bevry/dorothy/blob/master/docs/bash/subshells.md)
+-   [Trailing Lines](https://github.com/bevry/dorothy/blob/master/docs/bash/trailing-lines.md)
+-   [Versions](https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md)
 
 Roadmap:
 
