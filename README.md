@@ -51,7 +51,7 @@ Dorothy maintainers and users are occasionally driving Dorothy on:
 
 [Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk)
 
-[![Screenshot of the 2022 April Presentation](https://raw.githubusercontent.com/bevry/dorothy/master/docs/assets/presentation.gif)](https://www.youtube.com/watch?v=gWLana1JmNk)
+[![Screenshot of the 2022 April Presentation](https://github.com/bevry/dorothy/blob/master/docs/assets/presentation.gif?raw=true)](https://www.youtube.com/watch?v=gWLana1JmNk)
 
 ## Try
 
