@@ -102,6 +102,8 @@ dorothy theme
 # then open a new terminal
 ```
 
+To select your login shell, run `select-shell`.
+
 ## Troubleshooting
 
 If your shell doesn't recognize the syntax, run `bash -il` then run the command again.
