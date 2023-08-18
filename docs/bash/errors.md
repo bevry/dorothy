@@ -125,7 +125,7 @@ EQFULL 106 Interface output queue is full
 ELAST 106 Interface output queue is full
 ```
 
-### gnu
+### Signals
 
 For exit statuses 128-199 these are signals sent by the `kill` command, which may or may not cause an exit status. If an exit status is returned, then it uses the formula 128 + signal number. Why 128? 128 is the signal used by `kill` to check if a process is with a given PID exists.
 
