@@ -104,7 +104,7 @@ dorothy theme
 
 If your shell doesn't recognize the syntax, run `bash -il` then run the command again.
 
-If you get a command not found error or an undefined/unbound variable error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/blob/master/docs/01-dorothy/dorothy-not-loading.md) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
+If you get a command not found error or an undefined/unbound variable error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
 
 If packages are failing to install, update your Operating System's package manager so that it is using the latest references:
 
@@ -129,11 +129,14 @@ sudo zypper --gpg-auto-import-keys refresh
 
 ## Overview
 
-Dorothy installs itself to `$DOROTHY`, which defaults to the XDG location of `~/.local/share/dorothy`, and consists of the following:
+### Dorothy Core
+
+Dorothy installs itself to `$DOROTHY`, which defaults to the [XDG](https://wiki.archlinux.org/title/XDG_Base_Directory) location of `~/.local/share/dorothy`, and consists of the following:
 
 -   [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands
+-   [`config` directory](https://github.com/bevry/dorothy/tree/master/config) contains default configuration
 -   [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
--   [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `THEME` environment variable
+-   [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `DOROTHY_THEME` environment variable
 -   [`user` directory](https://github.com/balupton/dotfiles) is your own github repository for your custom configuration
 
 For each shell that you configured during the Dorothy installation (`dorothy install`), it perform the following steps when you open a new shell instance via your terminal:
@@ -158,12 +161,28 @@ For each shell that you configured during the Dorothy installation (`dorothy ins
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu)`, which will:
 
         1. Load your own `user/config(.local)/interactive.(sh|fish|nu)` configuration script for your own interactive login shell configuration.
+            - Nushell will only load `interactive.nu` and it must exist.
+            - Fish shell will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
+            - POSIX shells will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
         1. Load any common alias and function utilities.
         1. Load our theme configuration.
         1. Load our ssh configuration.
         1. Load our autocomplete configuration.
 
 This is the foundation enables Dorothy's hundreds of commands, to work across hundreds of machines, across dozens of operating system and shell combinations, seamlessly.
+
+### Dorothy User Configuration
+
+Your user configuration goes to the XDG location of `~/.local/config/dorothy` which Dorothy symlinks to `~/.local/share/dorothy/user`, your user configuration consists of the following:
+
+-   `commands` directory, for public commands
+-   `commands.local` directory, for private commands (git ignored by default)
+-   `config` directory, for public configuration
+-   `config.local` directory, for private configuration (git ignored by default)
+
+The order of preference within Dorothy is `(commands|config).local` first, then `(commands|config)`, then Dorothy's own `(commands|config)` then everything else.
+
+You can find the various configuration files that are available to you by browsing Dorothy's default [`config` directory](https://github.com/bevry/dorothy/tree/master/config).
 
 ## Documentation
 
@@ -186,24 +205,6 @@ Coding with Dorothy:
 -   [Working with Prompts](https://github.com/bevry/dorothy/blob/master/docs/coding/prompts.md)
 -   [Writing a Utility Installer](https://github.com/bevry/dorothy/blob/master/docs/coding/util.md)
 -   [Reading and Writing Configuration](https://github.com/bevry/dorothy/blob/master/docs/coding/read-write-config.md)
-
-Coding with Bash:
-
--   [Arrays](https://github.com/bevry/dorothy/blob/master/docs/bash/arrays.md)
--   [Builtins](https://github.com/bevry/dorothy/blob/master/docs/bash/builtins.md)
--   [Conditionals](https://github.com/bevry/dorothy/blob/master/docs/bash/conditionals.md)
--   [Foreach Line](https://github.com/bevry/dorothy/blob/master/docs/bash/foreach-line.md)
--   [Parameter Expansion](https://github.com/bevry/dorothy/blob/master/docs/bash/parameter-expansions.md)
--   [Replace Inline](https://github.com/bevry/dorothy/blob/master/docs/bash/replace-inline.md)
--   [Resources](https://github.com/bevry/dorothy/blob/master/docs/bash/resources.md)
--   [Subshells](https://github.com/bevry/dorothy/blob/master/docs/bash/subshells.md)
--   [Trailing Lines](https://github.com/bevry/dorothy/blob/master/docs/bash/trailing-lines.md)
--   [Versions](https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md)
-
-Roadmap:
-
--   [Multi-Repo Configuration](https://github.com/bevry/dorothy/discussions/32)
--   [choose-menu x1000](https://github.com/bevry/dorothy/issues/97)
 
 ## Showcase
 
