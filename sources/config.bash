@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/config.sh"
 
+# @todo this should be moved into [commands/dorothy] or at last be its own command
+# as [config-edit], [config-helper], are all doubling up on this
+
 # todo
 # if test \"\$(get-hostname)\" = '$(get-hostname)'; then
 
@@ -112,7 +115,7 @@ function update_dorothy_user_config {
 	# check extension
 	local dorothy_config_extension # this is used later too
 	dorothy_config_extension="$(fs-extension -- "$dorothy_config_filename")"
-	if ! [[ $dorothy_config_extension =~ bash|zsh|sh|fish ]]; then
+	if ! [[ $dorothy_config_extension =~ bash|zsh|sh|fish|nu ]]; then
 		help "The file extension of [$dorothy_config_filename] is not yet supported."
 	fi
 
@@ -139,30 +142,36 @@ function update_dorothy_user_config {
 		local dorothy_config_default="$DOROTHY/config/$dorothy_config_filename"
 		if test -f "$dorothy_config_default"; then
 			if test "$dorothy_config_template" = 'default'; then
-				#  copy the entire template
+				# copy the entire template
 				cp "$dorothy_config_default" "$dorothy_config_filepath"
 			else
 				# copy only the header
 				echo-before-blank --append=$'\n' "$dorothy_config_default" >"$dorothy_config_filepath"
 			fi
 		else
-			# default missing, make it with the typical header
+			# even the dorothy default is missing
 			cat <<-EOF >"$dorothy_config_filepath"
 				#!/usr/bin/env $dorothy_config_extension
-				# do not use \`export\` keyword in this file:
-				# shellcheck disable=SC2034
 
 			EOF
 		fi
 
 		# add the source of the default file
 		if test "$dorothy_config_source" = 'default'; then
-			# use `.` over `source` as must be posix, in case we are saving a .sh file
-			cat <<-EOF >>"$dorothy_config_filepath"
-				# Load the default configuration file
-				. "\$DOROTHY/config/${dorothy_config_filename}"
+			if test "$dorothy_config_extension" = 'nu'; then
+				cat <<-EOF >>"$dorothy_config_filepath"
+					# load the dorothy defaults
+					source ~/.local/share/dorothy/config/${dorothy_config_filename}
 
-			EOF
+				EOF
+			else
+				# use `.` over `source` as must be posix, in case we are saving a .sh file
+				cat <<-EOF >>"$dorothy_config_filepath"
+					# load the dorothy defaults
+					. "\$DOROTHY/config/${dorothy_config_filename}"
+
+				EOF
+			fi
 		fi
 
 		# add the new file to the paths
