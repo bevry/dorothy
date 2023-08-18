@@ -17,7 +17,7 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   seamless support for [bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), and [zsh](https://en.wikipedia.org/wiki/Z_shell)
+-   seamless support for [bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), and [nushell](https://www.nushell.sh)
 -   seamless support for multiple operating systems and architectures
 -   seamless support for your favorite terminal and GUI editors
 -   automatic configuration of your environment variables for what you have installed on your system

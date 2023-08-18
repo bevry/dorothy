@@ -31,5 +31,5 @@ end
 # Visual Studio Code Terminal Shell Integration
 # https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
 if test "$AUTOCOMPLETE_VSCODE" != 'no' -a "$TERM_PROGRAM" = "vscode"
-	. (code --locate-shell-integration-path "$ACTIVE_SHELL")
+	. (code --locate-shell-integration-path fish)
 end

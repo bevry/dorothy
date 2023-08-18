@@ -37,7 +37,7 @@ if command-exists ssh-agent; then
 		eval "$(ssh-agent -s)" >/dev/null 2>&1
 	fi
 
-	# kill it when our cli ends
+	# shutdown the ssh-agent when our shell exits
 	on_ssh_finish() {
 		# killall ssh-agent
 		eval "$(ssh-agent -k)" >/dev/null 2>&1

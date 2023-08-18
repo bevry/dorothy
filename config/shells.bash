@@ -9,6 +9,7 @@ USER_SHELLS=(
 	fish # fish shell
 	zsh  # Z shell
 	bash # bourne again shell
+	nu   # nushell
 	sh   # bourne shell
 	ash  # almquist shell
 	dash # debian almquist shell

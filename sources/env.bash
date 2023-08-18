@@ -100,6 +100,8 @@ function on_env_finish {
 			# echo var action: delete
 			if test "$shell" = 'fish'; then
 				echo "set --universal --erase $name;"
+			elif test "$shell" = 'nu'; then
+				echo "setenv $name"
 			else
 				echo "export $name='';"
 			fi
@@ -107,6 +109,8 @@ function on_env_finish {
 			# echo var action: set path
 			if test "$shell" = 'fish'; then
 				echo "set --export --path $name '$value';"
+			elif test "$shell" = 'nu'; then
+				echo "setenv $name $value"
 			else
 				echo "export $name='$value';"
 			fi
@@ -114,6 +118,8 @@ function on_env_finish {
 			# echo var action: set
 			if test "$shell" = 'fish'; then
 				echo "set --export $name '$value';"
+			elif test "$shell" = 'nu'; then
+				echo "setenv $name $value"
 			else
 				echo "export $name='$value';"
 			fi

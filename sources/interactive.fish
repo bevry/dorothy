@@ -1,9 +1,6 @@
 #!/usr/bin/env fish
 
-# set the active shell as fish
-set ACTIVE_SHELL fish
-
-# Source our ability to load configuration files
+# source our ability to load configuration files
 source "$DOROTHY/sources/config.fish"
 
 # load each filename

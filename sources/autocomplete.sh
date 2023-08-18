@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
-# Imports ACTIVE_SHELL
+# Imports ACTIVE_POSIX_SHELL
 
 # Load the configuration for interactive shells
-if test "$ACTIVE_SHELL" = 'sh'; then
+if test "$ACTIVE_POSIX_SHELL" = 'sh'; then
 	load_dorothy_config 'autocomplete.sh'
 else
 	# load each filename
@@ -16,15 +16,15 @@ else
 	# AUTOCOMPLETE_GITHUB_COPILOT_CLI
 	# AUTOCOMPLETE_TEA
 	# AUTOCOMPLETE_VSCODE
-	load_dorothy_config "autocomplete.$ACTIVE_SHELL" 'autocomplete.sh'
+	load_dorothy_config "autocomplete.$ACTIVE_POSIX_SHELL" 'autocomplete.sh'
 fi
 
 # 1Password CLI
 # https://developer.1password.com/docs/cli/get-started#shell-completion
 if test "${AUTOCOMPLETE_1PASSWORD_CLI-}" != 'no' && command-exists op; then
-	if test "$ACTIVE_SHELL" = 'bash'; then
+	if test "$ACTIVE_POSIX_SHELL" = 'bash'; then
 		eval "$(op completion bash)"
-	elif test "$ACTIVE_SHELL" = 'zsh'; then
+	elif test "$ACTIVE_POSIX_SHELL" = 'zsh'; then
 		eval "$(op completion zsh)"
 		compdef _op op
 	fi
@@ -36,7 +36,7 @@ if test "${AUTOCOMPLETE_AZURE-}" != 'no' && command-exists azure; then
 fi
 
 # Bash Completions
-if test "${AUTOCOMPLETE_BASH-}" != 'no' -a "$ACTIVE_SHELL" = 'bash'; then
+if test "${AUTOCOMPLETE_BASH-}" != 'no' -a "$ACTIVE_POSIX_SHELL" = 'bash'; then
 	# enable completions
 	# trunk-ignore(shellcheck/SC3044)
 	shopt -s progcomp # enable bash completions feature
@@ -66,10 +66,10 @@ fi
 if test "${AUTOCOMPLETE_GCLOUD-}" != 'no' -a -n "${HOMEBREW_PREFIX-}"; then
 	GDIR="${HOMEBREW_PREFIX}/Caskroom/google-cloud-sdk"
 	if test -d "$GDIR"; then
-		if test "$ACTIVE_SHELL" = 'bash'; then
+		if test "$ACTIVE_POSIX_SHELL" = 'bash'; then
 			. "$GDIR/latest/google-cloud-sdk/path.bash.inc"
 			. "$GDIR/latest/google-cloud-sdk/completion.bash.inc"
-		elif test "$ACTIVE_SHELL" = 'zsh'; then
+		elif test "$ACTIVE_POSIX_SHELL" = 'zsh'; then
 			. "$GDIR/latest/google-cloud-sdk/path.zsh.inc"
 			. "$GDIR/latest/google-cloud-sdk/completion.zsh.inc"
 		fi
@@ -79,20 +79,20 @@ fi
 # GitHub Copilot CLI
 # https://www.npmjs.com/package/@githubnext/github-copilot-cli
 if test "${AUTOCOMPLETE_GITHUB_COPILOT_CLI-}" != 'no' && command-exists github-copilot-cli; then
-	eval "$(github-copilot-cli alias -- "$ACTIVE_SHELL")"
+	eval "$(github-copilot-cli alias -- "$ACTIVE_POSIX_SHELL")"
 fi
 
 # Tea
 # https://docs.tea.xyz/features/magic#using-magic-in-shell-scripts
 # https://github.com/teaxyz/setup/blob/034d006136f423357f17eab90a51c04696582f4a/install.sh#L423-L451
 if test "${AUTOCOMPLETE_TEA-}" != 'no' && command-exists tea; then
-	if test "$ACTIVE_SHELL" = 'zsh' -o "$ACTIVE_SHELL" = 'bash'; then
-		eval "$(tea --magic="$ACTIVE_SHELL" --silent)"
+	if test "$ACTIVE_POSIX_SHELL" = 'zsh' -o "$ACTIVE_POSIX_SHELL" = 'bash'; then
+		eval "$(tea --magic="$ACTIVE_POSIX_SHELL" --silent)"
 	fi
 fi
 
 # Visual Studio Code Terminal Shell Integration
 # https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
 if test "${AUTOCOMPLETE_VSCODE-}" != 'no' -a "$TERM_PROGRAM" = "vscode"; then
-	. "$(code --locate-shell-integration-path "$ACTIVE_SHELL")"
+	. "$(code --locate-shell-integration-path "$ACTIVE_POSIX_SHELL")"
 fi
