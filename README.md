@@ -129,34 +129,39 @@ sudo zypper --gpg-auto-import-keys refresh
 
 ## Overview
 
-Dorothy will be installed to `$DOROTHY`, which consists of the following:
+Dorothy installs itself to `$DOROTHY`, which defaults to the XDG location of `~/.local/share/dorothy`, and consists of the following:
 
 -   [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands
 -   [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
 -   [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `THEME` environment variable
 -   [`user` directory](https://github.com/balupton/dotfiles) is your own github repository for your custom configuration
--   [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) the initialization script for the fish shell
--   [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) the initialization script for other shells
 
-The initialization of Dorothy works as follows:
+For each shell that you configured during the Dorothy installation (`dorothy install`), it perform the following steps when you open a new shell instance via your terminal:
 
-1. Fish shell will be instructed to load Dorothy's `init.fish` file, and the other shell's will be instructed to load Dorothy's `init.sh` file.
+1.  The shell loads Dorothy's initialization script:
 
-1. The initialization file will set the `DOROTHY` environment variable to the location of the Dorothy installation, and load the appropriate `sources/*` files.
+    -   For [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) this loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
+    -   For [Nushell](https://www.nushell.sh) this loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.nu) script
+    -   For POSIX shells ([bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), etc) this loads our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
-1. `source/init.(sh|fish)` will load `sources/environment.(sh|fish)` which will:
+1.  The initialization script will:
 
-    1. invoke `setup-environment-commands` which will determine the appropriate environment configuration for the invoking shell
-    2. evaluate its output, applying the configuration to the shell, achieving cross-shell environment compatibility
+    1. Ensure the `DOROTHY` environment variable is set to the location of the Dorothy installation.
 
-1. `source/interactive.(sh|fish)` will load the additional configuration for our interactive login shell, such as:
+    1. If a login shell, it loads our login script `sources/login.(sh|fish|nu)`, which will:
 
-    1. Enabling editor preferences
-    1. Enabling aliases and functions
-    1. Enabling the ssh agent
-    1. Enabling zsh and its ecosystem
-    1. Enabling shell auto-completions
-    1. Enabling prompt theme
+        1. Apply any configuration changes necessary for that login shell
+        1. Load our environment script `sources/environment.(sh|fish|nu)`, which will:
+
+            1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
+
+    1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu)`, which will:
+
+        1. Load your own `user/config(.local)/interactive.(sh|fish|nu)` configuration script for your own interactive login shell configuration.
+        1. Load any common alias and function utilities.
+        1. Load our theme configuration.
+        1. Load our ssh configuration.
+        1. Load our autocomplete configuration.
 
 This is the foundation enables Dorothy's hundreds of commands, to work across hundreds of machines, across dozens of operating system and shell combinations, seamlessly.
 
