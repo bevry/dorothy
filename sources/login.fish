@@ -1,12 +1,5 @@
 #!/usr/bin/env fish
 
-# disable welcome greeting
-set --universal fish_greeting
-
-# bugfix
-function fish_user_key_bindings
-end
-
 # install fundle
 if not functions -q fundle
 	if not test -f "$XDG_CONFIG_HOME/fish/functions/fundle.fish"
