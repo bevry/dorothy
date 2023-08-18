@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 # trunk-ignore-all(shellcheck/SC2034)
 
-# Thread that discusses and tracks bash version compatibility:
-# https://github.com/bevry/dorothy/discussions/151
+# For bash version compatibility and changes, see:
+# See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about signficant changes between bash versions.
+# See <https://github.com/bminor/bash/blob/master/CHANGES> for documentation on changes from bash v2 and above.
 
-# -------------------------------------
-# Version Extraction
+# For bash configuration options, see:
+# https://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# https://www.gnu.org/software/bash/manual/bash.html#The-Shopt-Builtin
+
+# =============================================================================
+# Determine the bash version information, which is used to determine if we can use certain features or not.
+#
+# require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
+# BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
+# BASH_VERSION_MAJOR -- 5
+# BASH_VERSION_MINOR -- 2
+# BASH_VERSION_PATCH -- 15
+# BASH_VERSION_LATEST -- 5.2.15
+# IS_BASH_VERSION_OUTDATED -- yes/no
 
 if test -z "${BASH_VERSION_CURRENT-}"; then
 	# 5.2.15(1)-release => 5.2.15
@@ -29,12 +42,13 @@ if test -z "${BASH_VERSION_CURRENT-}"; then
 	fi
 fi
 
-# -------------------------------------
-# SHELL OPTIONS
-
-# https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
-# https://www.gnu.org/software/bash/manual/html_node/The-Shopt-Builtin.html
-# https://github.com/bminor/bash/blob/master/CHANGES
+# =============================================================================
+# Configure bash for Dorothy best practices.
+#
+# require_lastpipe -- if lastpipe not supported, fail.
+# eval_capture -- capture or ignore exit status, without disabling errexit, and without a subshell.
+# require_globstar -- if globstar not supported, fail.
+# require_extglob -- if extglob not supported, fail.
 
 # Disable completion (not needed in scripts)
 # bash v2: progcomp: If set, the programmable completion facilities (see Programmable Completion) are enabled. This option is enabled by default.
@@ -88,8 +102,9 @@ function eval_capture {
 		'--help')
 			cat <<-EOF >/dev/stderr
 				ABOUT:
-				Capture or ignore exit codes and outputs, without disabling errexit.
+				Capture or ignore exit status, without disabling errexit, and without a subshell.
 				Copyright 2023+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
+				Written for Dorothy (https://github.com/bevry/dorothy)
 				Licensed under the CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
 				For more information: https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
 
@@ -292,103 +307,112 @@ fi
 # basg v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
 # shopt -s localvar_unset 2>/dev/null || :
 
-# -------------------------------------
-# Shell Paramater Expansions
+# =============================================================================
+# Shim bash functionality that is inconsistent between bash versions.
 
+# Shim Paramater Expansions
 # https://www.gnu.org/software/bash/manual/bash.html#Shell-Parameter-Expansion
-# ucf = upper case first letter
-# lc  = lower case all
+#
+# uppercase_first_letter
+# lowercase_string
+
 if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 	# >= bash v5.1
-	function ucf {
+	function uppercase_first_letter {
 		echo "${1@u}"
 	}
-	function lc {
+	function lowercase_string {
 		echo "${1@L}"
 	}
 elif test "$BASH_VERSION_MAJOR" -eq 4; then
 	# >= bash v4.0
-	function ucf {
+	function uppercase_first_letter {
 		echo "${1^}"
 	}
-	function lc {
+	function lowercase_string {
 		echo "${1,,}"
 	}
 else
 	# < bash v4.0
-	function ucf {
+	function uppercase_first_letter {
 		echo "$1" # not important, implement later
 	}
-	function lc {
+	function lowercase_string {
 		echo "$1" # not important, implement later
 	}
 fi
 
-# -------------------------------------
-# test a variable is defined: test -v
+# Shim Conditional Expressions
+# -v varname: True if the shell variable varname is set (has been assigned a value).
+# https://www.gnu.org/software/bash/manual/bash.html#Bash-Conditional-Expressions
+#
+# is_var_set
 
 if test "$BASH_VERSION_MAJOR" -ge 5 || test "$BASH_VERSION_MAJOR" -eq 4 -a "$BASH_VERSION_MINOR" -ge 2; then
 	# >= bash v4.2
-	function testv {
+	function is_var_set {
 		test -v "$1"
 	}
 else
 	# < bash v4.2
-	function testv {
+	function is_var_set {
 		test -n "${!1-}"
 	}
 fi
 
-# -------------------------------------
-# Arrays
-# This was some amazing work by balupton, if you extract it, be sure to thank him
+# Shim Array Support
+# Bash v4 has the following capabilities, which must be shimmed in earlier versions:
+# - `readarray` and `mapfile`
+#     - our shim provides a workaround
+# - associative arrays
+#     - no workaround, you are out of luck
+# - iterating empty arrays:
+#     - broken: `arr=(); for item in "${arr[@]}"; do ...`
+#     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
+#     - use: `test "${#array[@]}" -ne 0 && for ...`
+#     - or if you don't care for empty elements, use: `test -n "$arr" && for ...`
+#
+# BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
+# has_array_capability -- check if a capability is provided by the current bash version
+# require_array -- require a capability to be provided by the current bash version, otherwise fail
+# mapfile -- shim [mapfile] for bash versions that do not have it
 
-function has_array_support {
+function has_array_capability {
 	for arg in "$@"; do
-		if [[ $ARRAYS != *" $arg"* ]]; then
+		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
 			return 1
 		fi
 	done
 }
 
 function require_array {
-	if ! has_array_support "$@"; then
+	if ! has_array_capability "$@"; then
 		echo-style --error='Array support insufficient, required:' ' ' --code="$*"
 		require_upgraded_bash
 	fi
 }
 
-ARRAYS=''
+BASH_ARRAY_CAPABILITIES=''
 if test "$BASH_VERSION_MAJOR" -ge '5'; then
-	ARRAYS+=' mapfile[native] readarray[native] empty[native]'
+	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native] empty[native]'
 	if test "$BASH_VERSION_MINOR" -ge '1'; then
-		ARRAYS+=' associative'
+		BASH_ARRAY_CAPABILITIES+=' associative'
 	fi
 elif test "$BASH_VERSION_MAJOR" -ge '4'; then
-	ARRAYS+=' mapfile[native] readarray[native]'
+	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
 	if test "$BASH_VERSION_MINOR" -ge '4'; then
-		ARRAYS+=' empty[native]'
+		BASH_ARRAY_CAPABILITIES+=' empty[native]'
 	else
-		ARRAYS+=' empty[shim]'
+		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
 		set +u # disable nounset to prevent crashes on empty arrays
 	fi
 elif test "$BASH_VERSION_MAJOR" -ge '3'; then
-	ARRAYS+=' mapfile[shim] empty[shim]'
+	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
 	set +u # disable nounset to prevent crashes on empty arrays
-	# bash v4 features:
-	# - `readarray` and `mapfile`
-	#     - our shim provides a workaround
-	# - associative arrays
-	#     - no workaround, you are out of luck
-	# - iterating empty arrays:
-	#     - broken: `arr=(); for item in "${arr[@]}"; do ...`
-	#     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
-	#     - use: `test "${#array[@]}" -ne 0 && for ...`
-	#     - or if you don't care for empty elements, use: `test -n "$arr" && for ...`
 	function mapfile {
-		# if you copy and paste this, please give credit:
-		# written by Benjamin Lupton https://balupton.com
-		# written for Dorothy https://github.com/bevry/dorothy
+		# Copyright 2021+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
+		# Written for Dorothy (https://github.com/bevry/dorothy)
+		# Licensed under the CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
 		local delim=$'\n' item
 		if test "$1" = '-t'; then
 			shift
@@ -403,4 +427,12 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 		done
 	}
 fi
-ARRAYS+=' '
+BASH_ARRAY_CAPABILITIES+=' '
+
+# =============================================================================
+# Additional helpers to work around bash pecularities.
+#
+# print -- echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
+function print {
+	printf '%s\n' "$*"
+}
