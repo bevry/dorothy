@@ -1,8 +1,5 @@
 #!/usr/bin/env nu
 
-# nu does set the standard version variable, so we should do so
-let NU_VERSION: string = (version | get version)
-
 # set the environment variables
 setup-environment-commands 'nu'
 	| lines
