@@ -188,28 +188,6 @@ The order of preference within Dorothy is `(commands|config).local` first, then 
 
 You can find the various configuration files that are available to you by browsing Dorothy's default [`config` directory](https://github.com/bevry/dorothy/tree/master/config).
 
-## Documentation
-
-[Discussions.](https://github.com/bevry/dorothy/discussions)
-
-Staring with Dorothy:
-
--   [XDG](https://github.com/bevry/dorothy/blob/master/docs/dorothy/xdg.md)
--   [Assisted Installations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/manual-to-assisted.md)
--   [Configuring Editors](https://github.com/bevry/dorothy/blob/master/docs/dorothy/editors.md)
--   [Private Configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/private-configuration.md)
--   [Encrypted Configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/encrypted-configuration.md)
-
-Coding with Dorothy:
-
--   [Commands](https://github.com/bevry/dorothy/blob/master/docs/coding/commands.md)
--   [Strict Mode](https://github.com/bevry/dorothy/blob/master/docs/coding/strict.md)
--   [Exit and Return codes](https://github.com/bevry/dorothy/blob/master/docs/coding/exit-return-codes.md)
--   [Styling your Command Output](https://github.com/bevry/dorothy/blob/master/docs/coding/styling.md)
--   [Working with Prompts](https://github.com/bevry/dorothy/blob/master/docs/coding/prompts.md)
--   [Writing a Utility Installer](https://github.com/bevry/dorothy/blob/master/docs/coding/util.md)
--   [Reading and Writing Configuration](https://github.com/bevry/dorothy/blob/master/docs/coding/read-write-config.md)
-
 ## Showcase
 
 If you use Dorothy, add yourself below:
