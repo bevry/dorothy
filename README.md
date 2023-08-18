@@ -143,7 +143,7 @@ Dorothy installs itself to `$DOROTHY`, which defaults to the [XDG](https://wiki.
 -   [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `DOROTHY_THEME` environment variable
 -   [`user` directory](https://github.com/balupton/dotfiles) is your own github repository for your custom configuration
 
-For each shell that you configured during the Dorothy installation (`dorothy install`), it perform the following steps when you open a new shell instance via your terminal:
+For each shell that you configured during the Dorothy installation (can be reconfigured via the `dorothy install` command), the configured shell performs the following steps when you open a new shell instance via your terminal:
 
 1.  The shell loads Dorothy's initialization script:
 
