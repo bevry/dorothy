@@ -143,9 +143,9 @@ For each shell that you configured during the Dorothy installation (`dorothy ins
 
 1.  The shell loads Dorothy's initialization script:
 
-    -   For [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) this loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
-    -   For [Nushell](https://www.nushell.sh) this loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.nu) script
-    -   For POSIX shells ([bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), etc) this loads our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+    -   [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
+    -   [Nushell](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
+    -   POSIX shells ([bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
 1.  The initialization script will:
 
