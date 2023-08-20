@@ -52,8 +52,8 @@ fi
 function tty_get_y_x {
 	local y x
 	IFS='[;' read -srd R -p $'\e[6n' _ y x </dev/tty
-	echo "$y"
-	echo "$x"
+	printf '%s\n' "$y"
+	printf '%s\n' "$x"
 }
 
 function tty_set_y_x {

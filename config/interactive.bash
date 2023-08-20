@@ -5,4 +5,4 @@
 # Used by `interactive.sh`
 
 # Enable fancier bash options, sorted by rarest last
-shopt -s nullglob extglob globstar &>/dev/null || true
+shopt -s nullglob extglob globstar &>/dev/null || :

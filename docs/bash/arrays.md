@@ -75,7 +75,7 @@ echo "${a[@]}" # empty
 
 # when using <() the correct length is returned
 # however even with strict, there is no hard fail
-mapfile -t a < <(stderr echo 'error' | echo-or-fail)
+mapfile -t a < <(echo 'error' > /dev/stderr | echo-or-fail)
 # error
 # empty stdin
 echo $?  # 0
@@ -83,7 +83,7 @@ echo "${#a[@]}" # 0
 
 # in both cases this sanity check is necessary
 if is-array-empty "${a[@]}"; then
-	stderr echo 'failure'
+	echo 'failure' > /dev/stderr
 	exit 1
 fi
 

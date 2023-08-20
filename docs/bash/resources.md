@@ -25,4 +25,3 @@
 
 -   [Bash Manual: Redirections](https://www.gnu.org/software/bash/manual/bash.html#Redirections)
     -   [Stack Exchange: Difference between `2>&-`, `2>/dev/null`, `|&`, `&>/dev/null` and `>/dev/null 2>&1`](http://unix.stackexchange.com/q/70963/50703)
--   [Fish Manual: Redirections](http://fishshell.com/docs/current/tutorial.html#tut_pipes_and_redirections)

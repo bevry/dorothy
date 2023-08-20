@@ -17,28 +17,94 @@
 #   dependencies can be detected and installed, such as sd for config-helper
 #   test dependencies can correctly infer their environment's capabilities
 
-# @TODOS:
-# https://github.com/bevry/dorothy/issues/93
-# Is `function name(){}` syntax suitable, or must it be `name(){}`` which is more portable?
-
-# elif is bash, we are in sh
-# >/dev/null 2>&1 works in all shells, use that
-# source is bash, we are in sh
-
 # =====================================
 # Command
 
 function dorothy() (
-	# sensible defaults from [bash.bash]
-	shopt -u progcomp
-	shopt -s huponexit
-	set +T
-	shopt -s lastpipe 2>/dev/null || :
-	set -Eeuo pipefail
-	shopt -s inherit_errexit 2>/dev/null || :
-	trap 'EXIT_STATUS=$?; if test "${FUNCNAME-}" = 'eval_capture_wrapper'; then return 0; elif test -n "${FUNCNAME-}"; then return "$EXIT_STATUS"; else exit "$EXIT_STATUS"; fi' ERR
-	shopt -u failglob
-	shopt -s nullglob
+	# sanity check that we are running in bash
+	# sanity check, as [function .. () (], [elif], [&>], [local] are all bashisms, so other shells should have failed by now
+	if test -z "${BASH_VERSION-}"; then
+		printf '%s\n' 'Dorothy requires bash to run. Refer to the installation instructions: https://github.com/bevry/dorothy#install' >/dev/stderr
+		exit 6 # ENXIO 6 Device not configured
+	fi
+
+	# source [bash.bash] for sensible defaults if it exists
+	if test -n "${DOROTHY-}" -a -f "${DOROTHY-}/sources/bash.bash"; then
+		source "$DOROTHY/sources/bash.bash"
+	else
+		# otherwise apply them manually
+		shopt -u progcomp
+		shopt -s huponexit
+		set +T
+		shopt -s lastpipe 2>/dev/null || :
+		set -Eeuo pipefail
+		shopt -s inherit_errexit 2>/dev/null || :
+		trap 'EXIT_STATUS=$?; if test "${FUNCNAME-}" = 'eval_capture_wrapper'; then return 0; elif test -n "${FUNCNAME-}"; then return "$EXIT_STATUS"; else exit "$EXIT_STATUS"; fi' ERR
+		shopt -u failglob
+		shopt -s nullglob
+		function echo_string {
+			if test "$#" -ne 0; then
+				printf '%s' "$*"
+			fi
+		}
+		function echo_line {
+			echo_string "$@"
+			printf '\n'
+		}
+	fi
+
+	# see commands/command-exists for details
+	function command_exists { # 👍 /docs/bash/errors: robust exit status
+		local command commands=("$@")
+		for command in "${commands[@]}"; do
+			if type -P "$command" &>/dev/null; then
+				continue
+			else
+				return 1 # command missing
+			fi
+		done
+		return 0 # all commands are present
+	}
+
+	# see commands/command-missing for details
+	function command_missing { # 👍 /docs/bash/errors: robust exit status
+		local command commands=("$@")
+		for command in "${commands[@]}"; do
+			if type -P "$command" &>/dev/null; then
+				continue
+			else
+				return 0 # command missing
+			fi
+		done
+		return 1 # all commands are present
+	}
+
+	# see commands/sudo-helper for details
+	function try_sudo { # 👍 /docs/bash/errors: robust exit status
+		if command_exists sudo; then
+			# check if password is required
+			if sudo --validate --non-interactive &>/dev/null; then
+				# session still active, password not required
+				sudo "$@" || return
+			else
+				# password is required, let the user know what they are being prompted for
+				echo_line 'Your sudo/root/login password is required to execute the command:'
+				echo_line "sudo $*"
+				sudo "$@" || return
+			fi
+		elif command_exists doas; then
+			set -x # <inform the user of why they are being prompted for a doas password>
+			doas "$@" || return
+			set +x # </inform>
+		else
+			"$@" || return
+		fi
+	}
+
+	# see commands/is-mac for details
+	function is_mac() { # 👍 /docs/bash/errors: robust exit status
+		test "$(uname -s)" = "Darwin"
+	}
 
 	# =====================================
 	# Environment
@@ -171,8 +237,7 @@ function dorothy() (
 		EOF
 		if test "$#" -ne 0; then
 			# don't use anything fancy here, as dorothy may not be loaded yet
-			echo "ERROR:" >/dev/stderr
-			echo "$@" >/dev/stderr
+			echo_line "ERROR: $*" >/dev/stderr
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -244,59 +309,6 @@ function dorothy() (
 
 	# =====================================
 	# Helpers
-
-	# see commands/command-exists for details
-	function command_exists { # 👍 /docs/bash/errors: robust exit status
-		local command commands=("$@")
-		for command in "${commands[@]}"; do
-			if type -P "$command" &>/dev/null; then
-				continue
-			else
-				return 1 # command missing
-			fi
-		done
-		return 0 # all commands are present
-	}
-
-	# see commands/command-missing for details
-	function command_missing { # 👍 /docs/bash/errors: robust exit status
-		local command commands=("$@")
-		for command in "${commands[@]}"; do
-			if type -P "$command" &>/dev/null; then
-				continue
-			else
-				return 0 # command missing
-			fi
-		done
-		return 1 # all commands are present
-	}
-
-	# see commands/sudo-helper for details
-	function try_sudo { # 👍 /docs/bash/errors: robust exit status
-		if command_exists sudo; then
-			# check if password is required
-			if sudo --validate --non-interactive &>/dev/null; then
-				# session still active, password not required
-				sudo "$@" || return
-			else
-				# password is required, let the user know what they are being prompted for
-				echo 'Your sudo/root/login password is required to execute the command:'
-				echo "sudo $*"
-				sudo "$@" || return
-			fi
-		elif command_exists doas; then
-			set -x # <inform the user of why they are being prompted for a doas password>
-			doas "$@" || return
-			set +x # </inform>
-		else
-			"$@" || return
-		fi
-	}
-
-	# see commands/is-mac for details
-	function is_mac() { # 👍 /docs/bash/errors: robust exit status
-		test "$(uname -s)" = "Darwin"
-	}
 
 	function ensure_prereq_dependencies {
 		# dorothy has yet to be installed
@@ -384,7 +396,7 @@ function dorothy() (
 	function require_globstar {
 		# can't source things, as may not be cloned yet
 		shopt -s globstar || {
-			echo "Missing globstar support." >/dev/stderr
+			echo_line "Missing globstar support." >/dev/stderr
 			return 1
 		}
 	}
@@ -426,7 +438,7 @@ function dorothy() (
 
 	function rm_deprecated {
 		if test -f "$1"; then
-			echo ''
+			echo
 			echo-file "$1"
 			if confirm --positive --ppid=$$ -- 'The above file is probably deprecated with Dorothy, would you like to replace it?'; then
 				rm "$1"
@@ -653,13 +665,13 @@ function dorothy() (
 
 		# helpers
 		function install_dorothy {
-			echo "Installing Dorothy into $DOROTHY"
+			echo_line "Installing Dorothy into $DOROTHY"
 			git clone "https://github.com/bevry/dorothy.git" "$DOROTHY"
 		}
 		function update_dorothy {
 			echo-segment --h2="Updating the Dorothy installation at $DOROTHY"
 			if ! git-helper --path="$DOROTHY" update; then
-				echo "...Dorothy was unable to be updated, you will have to figure this out now."
+				echo_line "...Dorothy was unable to be updated, you will have to figure this out now."
 				return 1
 			fi
 			echo-segment --g2="Updating the Dorothy installation at $DOROTHY"
@@ -701,7 +713,7 @@ function dorothy() (
 				if test -n "$hostname"; then
 					set-hostname "$hostname"
 				else
-					echo "Proceeding with the existing hostname: $hostname"
+					echo_line "Proceeding with the existing hostname: $hostname"
 				fi
 			fi
 		fi
@@ -877,7 +889,7 @@ function dorothy() (
 		function update_user {
 			echo-segment --h2="Updating the Dorothy user configuration at $DOROTHY/user"
 			if ! git-helper --path="$DOROTHY/user" update; then
-				echo "...Dorothy user configuration was unable to be updated, you will have to figure this out later..."
+				echo_line "...Dorothy user configuration was unable to be updated, you will have to figure this out later..."
 			fi
 			echo-segment --g2="Updating the Dorothy user configuration at $DOROTHY/user"
 		}
@@ -929,7 +941,7 @@ function dorothy() (
 				EOF
 			)"
 			if test ! -f "$file"; then
-				echo "$header" >"$file"
+				echo_line "$header" >"$file"
 			else
 				content="$(cat "$file")"
 				printf '%s\n\n%s' "$header" "$content" >"$file"
@@ -944,7 +956,7 @@ function dorothy() (
 
 	function ensure_shell_configured {
 		echo
-		echo 'Dorothy will now confirm the modifications required to have it be loaded by your shell.'
+		echo_line 'Dorothy will now confirm the modifications required to have it be loaded by your shell.'
 		echo
 		rm_deprecated "$HOME/.profile"
 		rm_deprecated "$HOME/.bash_profile"
@@ -1059,7 +1071,7 @@ function dorothy() (
 			paths+=("$(fs-realpath -- "$DOROTHY/user")")
 		fi
 		if test "${#paths[@]}" -ne 0; then
-			echo 'Once you have restarted your terminal, you can delete Dorothy by removing the following paths:'
+			echo_line 'Once you have restarted your terminal, you can delete Dorothy by removing the following paths:'
 			echo-lines "${paths[@]}"
 		fi
 	}

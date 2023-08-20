@@ -9,6 +9,22 @@
 # https://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
 # https://www.gnu.org/software/bash/manual/bash.html#The-Shopt-Builtin
 
+# Note that [&>] is available to all bash versions, however [&>>] is not, they are different.
+
+# =============================================================================
+# Helpers to work around bash pecularities.
+#
+# echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
+function echo_string {
+	if test "$#" -ne 0; then
+		printf '%s' "$*"
+	fi
+}
+function echo_line {
+	echo_string "$@"
+	printf '\n'
+}
+
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
@@ -110,7 +126,7 @@ function eval_capture {
 
 				USAGE:
 				local status=0 stdout='' stderr='' output=''
-				eval_capture [--statusvar=status] [--stdoutvar=stdout] [--stderrvar=stderr] [--outputvar=output] [--stdoutpipe=/dev/stdout] [--stderrpipe=/dev/stderr] [--] cmd ...
+				eval_capture [--statusvar=status] [--stdoutvar=stdout] [--stderrvar=stderr] [--outputvar=output] [--stdoutpipe=/dev/stdout] [--stderrpipe=/dev/stderr] [--outputpipe=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...
 
 				EXAMPLE:
 				status=0
@@ -153,7 +169,9 @@ function eval_capture {
 			EOF
 			return 22 # EINVAL 22 Invalid argument
 			;;
-		'--statusvar='*) exit_status_variable="${item#*--statusvar=}" ;;
+		'--statusvar='*)
+			exit_status_variable="${item#*--statusvar=}"
+			;;
 		'--stdoutvar='*)
 			stdout_variable="${item#*--stdoutvar=}"
 			stdout_pipe='/dev/null'
@@ -167,15 +185,33 @@ function eval_capture {
 			stdout_pipe='/dev/null'
 			stderr_pipe='/dev/null'
 			;;
-		'--stdoutpipe='*) stdout_pipe="${item#*--stdoutpipe=}" ;;
-		'--stderrpipe='*) stderr_pipe="${item#*--stderrpipe=}" ;;
+		'--no-stdout')
+			stdout_pipe='/dev/null'
+			;;
+		'--no-stderr')
+			stderr_pipe='/dev/null'
+			;;
+		'--no-output')
+			stdout_pipe='/dev/null'
+			stderr_pipe='/dev/null'
+			;;
+		'--stdoutpipe='*)
+			stdout_pipe="${item#*--stdoutpipe=}"
+			;;
+		'--stderrpipe='*)
+			stderr_pipe="${item#*--stderrpipe=}"
+			;;
+		'--outputpipe='*)
+			stdout_pipe="${item#*--outputpipe=}"
+			stderr_pipe="$stdout_pipe"
+			;;
 		'--')
 			cmd+=("$@")
 			shift $#
 			break
 			;;
 		'-'*)
-			echo "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
+			echo_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -211,7 +247,7 @@ function eval_capture {
 		# set +e
 		# EXIT_STATUS=0
 		"${cmd[@]}"
-		# echo "${cmd[*]} => $EXIT_STATUS" >/dev/tty
+		# echo_line "${cmd[*]} => $EXIT_STATUS" >/dev/tty
 		# set -e
 	}
 	if test -n "$output_variable"; then
@@ -315,30 +351,29 @@ fi
 #
 # uppercase_first_letter
 # lowercase_string
-
 if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 	# >= bash v5.1
 	function uppercase_first_letter {
-		echo "${1@u}"
+		echo_line "${1@u}"
 	}
 	function lowercase_string {
-		echo "${1@L}"
+		echo_line "${1@L}"
 	}
 elif test "$BASH_VERSION_MAJOR" -eq 4; then
 	# >= bash v4.0
 	function uppercase_first_letter {
-		echo "${1^}"
+		echo_line "${1^}"
 	}
 	function lowercase_string {
-		echo "${1,,}"
+		echo_line "${1,,}"
 	}
 else
 	# < bash v4.0
 	function uppercase_first_letter {
-		echo "$1" # not important, implement later
+		echo_line "$1" # not important, implement later
 	}
 	function lowercase_string {
-		echo "$1" # not important, implement later
+		echo_line "$1" # not important, implement later
 	}
 fi
 
@@ -347,7 +382,6 @@ fi
 # https://www.gnu.org/software/bash/manual/bash.html#Bash-Conditional-Expressions
 #
 # is_var_set
-
 if test "$BASH_VERSION_MAJOR" -ge 5 || test "$BASH_VERSION_MAJOR" -eq 4 -a "$BASH_VERSION_MINOR" -ge 2; then
 	# >= bash v4.2
 	function is_var_set {
@@ -428,11 +462,3 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 	}
 fi
 BASH_ARRAY_CAPABILITIES+=' '
-
-# =============================================================================
-# Additional helpers to work around bash pecularities.
-#
-# print -- echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
-function print {
-	printf '%s\n' "$*"
-}
