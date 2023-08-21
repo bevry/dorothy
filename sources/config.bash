@@ -145,8 +145,8 @@ function update_dorothy_user_config {
 				# copy the entire template
 				cp "$dorothy_config_default_filepath" "$dorothy_config_filepath"
 			else
-				# copy only the header
-				echo-before-blank --append=$'\n' <"$dorothy_config_default_filepath" >"$dorothy_config_filepath"
+				# copy only the header, and append a newline
+				cat <(sed -e '/^$/,$d' "$dorothy_config_default_filepath") <(echo) >"$dorothy_config_filepath"
 			fi
 		else
 			# even the dorothy default is missing
