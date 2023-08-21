@@ -139,14 +139,14 @@ function update_dorothy_user_config {
 		fi
 
 		# are we okay with using a template, if so, does a default config file exist?
-		local dorothy_config_default="$DOROTHY/config/$dorothy_config_filename"
-		if test -f "$dorothy_config_default"; then
+		local dorothy_config_default_filepath="$DOROTHY/config/$dorothy_config_filename"
+		if test -f "$dorothy_config_default_filepath"; then
 			if test "$dorothy_config_template" = 'default'; then
 				# copy the entire template
-				cp "$dorothy_config_default" "$dorothy_config_filepath"
+				cp "$dorothy_config_default_filepath" "$dorothy_config_filepath"
 			else
 				# copy only the header
-				echo-before-blank --append=$'\n' "$dorothy_config_default" >"$dorothy_config_filepath"
+				echo-before-blank --append=$'\n' <"$dorothy_config_default_filepath" >"$dorothy_config_filepath"
 			fi
 		else
 			# even the dorothy default is missing

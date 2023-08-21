@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
 
+BREAK='no'
+
 # uncatched help argument
 if test "${1-}" = '--help'; then
 	if test "$(type -t help)" = 'function'; then
@@ -48,6 +50,9 @@ else
 	# for each argument, call `on_arg` or `on_input`
 	has_args='yes'
 	for item in "${ARGS[@]}"; do
+		if test "$BREAK" = 'yes'; then
+			break
+		fi
 		if test "$(type -t on_arg)" = 'function'; then
 			on_arg "$item"
 		else
@@ -70,6 +75,9 @@ if test "$has_args" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 	fi
 	while read -r "${read_args[@]}" item; do
 		has_stdin='yes'
+		if test "$BREAK" = 'yes'; then
+			break
+		fi
 		if test "$(type -t on_line)" = 'function'; then
 			on_line "$item"
 		else
@@ -78,7 +86,9 @@ if test "$has_args" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 	done </dev/stdin
 	if test -n "$item"; then
 		has_stdin='yes'
-		if test "$(type -t on_inline)" = 'function'; then
+		if test "$BREAK" = 'yes'; then
+			:
+		elif test "$(type -t on_inline)" = 'function'; then
 			on_inline "$item"
 		elif test "$(type -t on_line)" = 'function'; then
 			on_line "$item"
