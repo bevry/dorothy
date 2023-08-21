@@ -12,6 +12,11 @@ if test "${1-}" = '--help'; then
 	fi
 fi
 
+# start
+if test "$(type -t on_start)" = 'function'; then
+	on_start
+fi
+
 # support custom arg handling
 if test -z "${ARGS-}"; then
 	ARGS=("$@")
