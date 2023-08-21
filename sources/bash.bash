@@ -15,13 +15,13 @@
 # Helpers to work around bash pecularities.
 #
 # echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
-function echo_string {
+function print_string {
 	if test "$#" -ne 0; then
 		printf '%s' "$*"
 	fi
 }
-function echo_line {
-	echo_string "$@"
+function print_line {
+	print_string "$@"
 	printf '\n'
 }
 
@@ -211,7 +211,7 @@ function eval_capture {
 			break
 			;;
 		'-'*)
-			echo_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
+			print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -247,7 +247,7 @@ function eval_capture {
 		# set +e
 		# EXIT_STATUS=0
 		"${cmd[@]}"
-		# echo_line "${cmd[*]} => $EXIT_STATUS" >/dev/tty
+		# print_line "${cmd[*]} => $EXIT_STATUS" >/dev/tty
 		# set -e
 	}
 	if test -n "$output_variable"; then
@@ -354,26 +354,26 @@ fi
 if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 	# >= bash v5.1
 	function uppercase_first_letter {
-		echo_line "${1@u}"
+		print_line "${1@u}"
 	}
 	function lowercase_string {
-		echo_line "${1@L}"
+		print_line "${1@L}"
 	}
 elif test "$BASH_VERSION_MAJOR" -eq 4; then
 	# >= bash v4.0
 	function uppercase_first_letter {
-		echo_line "${1^}"
+		print_line "${1^}"
 	}
 	function lowercase_string {
-		echo_line "${1,,}"
+		print_line "${1,,}"
 	}
 else
 	# < bash v4.0
 	function uppercase_first_letter {
-		echo_line "$1" # not important, implement later
+		print_line "$1" # not important, implement later
 	}
 	function lowercase_string {
-		echo_line "$1" # not important, implement later
+		print_line "$1" # not important, implement later
 	}
 fi
 

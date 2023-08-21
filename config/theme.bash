@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # do not use `export` keyword in this file:
 # shellcheck disable=SC2034
+# @BETA @TODO this file and its associated commands should be split into `set-wallpaper`, `set-vscode-theme`, etc.
 
 # Used by `macos-theme`
 

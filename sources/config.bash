@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/config.sh"
 
+# @BETA
 # @todo this should be moved into [commands/dorothy] or at last be its own command
 # as [config-edit], [config-helper], are all doubling up on this
 
@@ -60,12 +61,6 @@ function update_dorothy_user_config_help {
 		[--prefer=local]                 If we need to create a file, make it inside user/config.local/
 		[--no-prefer] / [--prefer=]      DEFAULT: If we need to create a file, make it inside user/config/
 
-		[--template=default]             DEFAULT: If we have to create a file, copy the default config.
-		[--no-template] / [--template=]  If we have to create a file, only copy the headers from the default config.
-
-		[--source=default]               DEFAULT: If we have to create a file, copy the default config.
-		[--no-source] / [--source=]      If we have to create a file, only copy the headers from the default config.
-
 		All arguments after -- are passed to \`config-helper\`.
 
 		QUIRKS:
@@ -82,8 +77,6 @@ function update_dorothy_user_config {
 	local dorothy_config_filename=''
 	local config_helper_args=()
 	local dorothy_config_prefer=''
-	local dorothy_config_template='default'
-	local dorothy_config_source='default'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -92,10 +85,6 @@ function update_dorothy_user_config {
 		'--file='*) dorothy_config_filename="${item#*--file=}" ;;
 		'--prefer=local') dorothy_config_prefer='local' ;;
 		'--no-prefer' | '--prefer=') dorothy_config_prefer='' ;;
-		'--template=default') dorothy_config_template='default' ;;
-		'--no-template' | '--template=') dorothy_config_template='' ;;
-		'--source=default') dorothy_config_source='default' ;;
-		'--no-source' | '--source=') dorothy_config_source='' ;;
 		'--')
 			config_helper_args+=("$@")
 			shift $#
@@ -139,39 +128,50 @@ function update_dorothy_user_config {
 		fi
 
 		# are we okay with using a template, if so, does a default config file exist?
-		local dorothy_config_default_filepath="$DOROTHY/config/$dorothy_config_filename"
-		if test -f "$dorothy_config_default_filepath"; then
-			if test "$dorothy_config_template" = 'default'; then
-				# copy the entire template
-				cp "$dorothy_config_default_filepath" "$dorothy_config_filepath"
+		local dorothy_config_default_filepath=''
+		if test -f "$DOROTHY/config/$dorothy_config_filename"; then
+			dorothy_config_default_filepath="$DOROTHY/config/$dorothy_config_filename"
+		fi
+		if test -n "$dorothy_config_default_filepath"; then
+			# start witht he header of the default configuration file
+			echo-lines-before --line='' <"$dorothy_config_default_filepath" >"$dorothy_config_filepath"
+			echo >>"$dorothy_config_filepath"
+
+			# inject the sourcing of the default configuration file
+			if test "$dorothy_config_extension" = 'nu'; then
+				# nu doesn't support dynamic sourcing
+				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/"~/.local/share/dorothy"}"
+				cat <<-EOF >>"$dorothy_config_filepath"
+					# load the default configuration
+					source '$dorothy_config_default_filepath'
+
+				EOF
+			elif test "$dorothy_config_extension" = 'sh'; then
+				# sh uses [.] instead of [source]
+				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/"\$DOROTHY"}"
+				cat <<-EOF >>"$dorothy_config_filepath"
+					# load the default configuration
+					. "$dorothy_config_default_filepath"
+
+				EOF
 			else
-				# copy only the header, and append a newline
-				cat <(sed -e '/^$/,$d' "$dorothy_config_default_filepath") <(echo) >"$dorothy_config_filepath"
+				# fish, zsh, bash
+				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/"\$DOROTHY"}"
+				cat <<-EOF >>"$dorothy_config_filepath"
+					# load the default configuration
+					source "$dorothy_config_default_filepath"
+
+				EOF
 			fi
+
+			# append the body of the default configuration file
+			echo-lines-after --line='' <"$dorothy_config_default_filepath" >>"$dorothy_config_filepath"
 		else
 			# even the dorothy default is missing
 			cat <<-EOF >"$dorothy_config_filepath"
 				#!/usr/bin/env $dorothy_config_extension
 
 			EOF
-		fi
-
-		# add the source of the default file
-		if test "$dorothy_config_source" = 'default'; then
-			if test "$dorothy_config_extension" = 'nu'; then
-				cat <<-EOF >>"$dorothy_config_filepath"
-					# load the dorothy defaults
-					source ~/.local/share/dorothy/config/${dorothy_config_filename}
-
-				EOF
-			else
-				# use `.` over `source` as must be posix, in case we are saving a .sh file
-				cat <<-EOF >>"$dorothy_config_filepath"
-					# load the dorothy defaults
-					. "\$DOROTHY/config/${dorothy_config_filename}"
-
-				EOF
-			fi
 		fi
 
 		# add the new file to the paths

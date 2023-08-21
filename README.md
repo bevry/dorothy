@@ -137,7 +137,8 @@ sudo zypper --gpg-auto-import-keys refresh
 
 Dorothy installs itself to `$DOROTHY`, which defaults to the [XDG](https://wiki.archlinux.org/title/XDG_Base_Directory) location of `~/.local/share/dorothy`, and consists of the following:
 
--   [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands
+-   [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands of super-stable quality, they are actively used within the Dorothy core and by the users of Dorothy.
+-   [`commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) contains executable commands of beta quality, these are commands that require more usage or possible breaking changes before promotion to `commands`.
 -   [`config` directory](https://github.com/bevry/dorothy/tree/master/config) contains default configuration
 -   [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
 -   [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `DOROTHY_THEME` environment variable
@@ -190,11 +191,15 @@ You can find the various configuration files that are available to you by browsi
 
 ## Showcase
 
-If you use Dorothy, add yourself below:
+Use these sources to find inspiration for your own user commands and configuration.
 
--   @balupton: https://github.com/balupton/dotfiles
--   @molleweide: https://github.com/molleweide/dotfiles
--   @sumitrai: https://github.com/sumitrai/dotfiles
+-   [Dorothy's `commands` directory](https://github.com/bevry/dorothy/tree/master/commands) for super-stable commands with up to date conventions.
+-   [Dorothy's `commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) for beta-quality commands with possibly outdated conventions.
+-   Dorothy User Configurations:
+    -   [@balupton](https://github.com/balupton): <https://github.com/balupton/dotfiles>
+    -   [@molleweide](https://github.com/molleweide): <https://github.com/molleweide/dotfiles>
+    -   [@sumitrai](https://github.com/sumitrai): <https://github.com/sumitrai/dotfiles>
+    -   if you use Dorothy, send a pull request to add your own user configuration to this list.
 
 ## Sponsors
 

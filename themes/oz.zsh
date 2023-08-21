@@ -4,7 +4,7 @@ source "$DOROTHY/themes/oz"
 precmd() {
 	local last_command_exit_status=$?
 	if test ! -d "$DOROTHY"; then
-		echo_line 'DOROTHY has been moved, please re-open your shell'
+		printf '%s\n' 'DOROTHY has been moved, please re-open your shell'
 		return 1
 	fi
 	# export DISABLE_AUTO_TITLE="true"
