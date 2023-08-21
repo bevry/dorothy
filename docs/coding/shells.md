@@ -1,5 +1,51 @@
 # Comparison between Shells
 
+## test
+
+### get the path of a command
+
+includes builtins, echo => echo
+
+```plain
+# bash, zsh
+command -v CMD
+
+# zsh
+whence CMD
+
+# fish
+# no equivalent
+
+# nu
+which -a echo | first | get path
+```
+
+## get the path of an executable (excludes builtins, echo => /bin/echo)
+
+```plain
+# bash, fish
+type -P CMD
+
+# zsh
+whence -p CMD
+
+# nu
+which -a echo | where type == 'external' | first | get path
+```
+
+### check if an executable exists
+
+```plain
+# bash, fish
+type -P CMD &>/dev/null
+
+# fish
+type -qf CMD
+
+# zsh
+whence -p CMD &>/dev/null
+```
+
 ## pipe redirections
 
 -   <https://unix.stackexchange.com/q/70963/50703>
@@ -10,38 +56,38 @@
 
 ```plain
 # sh, bash, zsh, fish
-cmd > /dev/null
+CMD > /dev/null
 
 # nu
-cmd out> /dev/null
-cmd | ignore
+CMD out> /dev/null
+CMD | ignore
 ```
 
 ### silencing stderr
 
 ```plain
 # sh, bash, zsh
-cmd 2>/dev/null
+CMD 2>/dev/null
 
 # fish
-cmd ^ /dev/null
+CMD ^ /dev/null
 
 # nu
-cmd err> /dev/null
+CMD err> /dev/null
 ```
 
 ### silencing output
 
 ```plain
 # sh, bash, zsh, fish
-cmd >/dev/null 2>&1
+CMD >/dev/null 2>&1
 
 # bash, zsh, fish
-cmd &> /dev/null
+CMD &> /dev/null
 
 # fish
-cmd > /dev/null ^ /dev/null
+CMD > /dev/null ^ /dev/null
 
 # nu
-cmd out+err> /dev/null
+CMD out+err> /dev/null
 ```
