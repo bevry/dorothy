@@ -148,7 +148,8 @@ function update_dorothy_user_config {
 				EOF
 			elif test "$dorothy_config_extension" = 'sh'; then
 				# sh uses [.] instead of [source]
-				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/"\$DOROTHY"}"
+				# trunk-ignore(shellcheck/SC2016)
+				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/'$DOROTHY'}"
 				cat <<-EOF >>"$dorothy_config_filepath"
 					# load the default configuration
 					. "$dorothy_config_default_filepath"
@@ -156,7 +157,8 @@ function update_dorothy_user_config {
 				EOF
 			else
 				# fish, zsh, bash
-				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/"\$DOROTHY"}"
+				# trunk-ignore(shellcheck/SC2016)
+				dorothy_config_default_filepath="${dorothy_config_default_filepath/"$DOROTHY"/'$DOROTHY'}"
 				cat <<-EOF >>"$dorothy_config_filepath"
 					# load the default configuration
 					source "$dorothy_config_default_filepath"
