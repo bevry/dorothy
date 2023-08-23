@@ -125,11 +125,11 @@ error="${background_intense_red}${foreground_intense_white}"
 success="${foreground_green}${bold}"
 positive="${foreground_green}${bold}"
 negative="${foreground_red}${bold}"
-notice="${h2}${foreground_intense_yellow}"
+notice="${h2}${foreground_intense_yellow}" # on dark theme, this is your eyes that need help
 warning="${e2}"
 code="${dim}"
 code_dim="${dim}${foreground_gray}"
-code_notice="${dim}${foreground_intense_yellow}"
+code_notice="${dim}${foreground_intense_yellow}" # on dark theme, this is your eyes that need help
 if test "$(get-os-theme 2>/dev/null || :)" = 'light'; then
 	# trim foreground_intense_yellow as it is unreadable on light theme
 	code_notice="${foreground_yellow}"
