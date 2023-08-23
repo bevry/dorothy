@@ -21,4 +21,19 @@ done
 # [a]
 # [b]
 # [c]
+
+# note that <<< works as expected
+while read -r line; do
+	echo "[$line]"
+done <<< $'a\nb\nc'
+# [a]
+# [b]
+# [c]
+
+# but < <( does not
+while read -r line; do
+	echo "[$line]"
+done < <(printf $'a\nb\nc')
+# [a]
+# [b]
 ```
