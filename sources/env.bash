@@ -24,9 +24,9 @@ done < <(env)
 # final scanning of environment, and echo results
 function on_env_finish {
 	# ignore failure conditions
-	local ec=$?
-	if test "$ec" -ne 0; then
-		return "$ec"
+	local last_status=$?
+	if test "$last_status" -ne 0; then
+		return "$last_status"
 	fi
 
 	# success condition, echo var actions
