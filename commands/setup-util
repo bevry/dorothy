@@ -1324,7 +1324,7 @@ function setup_util() (
 	# installs local .deb files, and with our helper, remote .deb files
 	# https://man7.org/linux/man-pages/man1/dpkg.1.html
 	function do_dpkg {
-		local args=() packages=() i=0 path='' url=''
+		local args=() packages=() i=0 download_filepath='' url=''
 		if test "${#DPKG[@]}" -ne 0; then
 			packages+=("${DPKG[@]}")
 		elif test "${#DEB[@]}" -ne 0; then
@@ -1358,11 +1358,11 @@ function setup_util() (
 			url="${packages[i]}"
 			if [[ $url == 'http'* ]]; then
 				# fetch temp path
-				path="$(fs-temp --touch --directory='setup-util' --file="$name.deb")"
+				download_filepath="$(fs-temp --touch --directory='setup-util' --file="$name.deb")"
 				# download to temp path
-				down --path="$path" "$url"
+				down --filepath="$download_filepath" "$url"
 				# update packge with its download path
-				packages[i]="$path"
+				packages[i]="$download_filepath"
 			fi
 		done
 
@@ -1981,10 +1981,6 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 
-		# source nvm if it exists
-		set +e # nvm prevents strict from working: .nvm/nvm.sh: line 1966: TMPDIR: unbound variable
-		source "$DOROTHY/sources/nvm.sh"
-
 		# checks
 		if command-missing npm; then
 			fallbacks+=('npm')
@@ -2014,7 +2010,11 @@ function setup_util() (
 		fi
 
 		# packages
-		"${args[@]}" "${packages[@]}"
+		(
+			set +Eeu # disable strict mode inside this subshell
+			source "$DOROTHY/sources/nvm.sh"
+			"${args[@]}" "${packages[@]}"
+		)
 	}
 	function do_npm_fallback {
 		setup-node
@@ -3086,7 +3086,7 @@ function setup_util() (
 
 	# download
 	function do_download {
-		local bin_path download_path download="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" unzip_format="$DOWNLOAD_UNZIP_FORMAT" unzip_filter="$DOWNLOAD_UNZIP_FILTER" build_eval="$DOWNLOAD_BUILD_EVAL" build_filter="$DOWNLOAD_BUILD_FILTER"
+		local bin_path download_directory='' download_filepath='' download="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" unzip_format="$DOWNLOAD_UNZIP_FORMAT" unzip_filter="$DOWNLOAD_UNZIP_FILTER" build_eval="$DOWNLOAD_BUILD_EVAL" build_filter="$DOWNLOAD_BUILD_FILTER"
 
 		# checks
 		if test -z "$download"; then
@@ -3106,13 +3106,13 @@ function setup_util() (
 		# determine path
 		bin_path="$(get_path_from_filename "$filename")"
 		if test -n "$build_eval"; then
-			download_path="$(
+			download_directory="$(
 				fs-temp \
 					--directory='setup-util' \
 					--directory
 			)"
 		else
-			download_path="$bin_path"
+			download_filepath="$bin_path"
 		fi
 		# uninstall?
 		if test "$action" = 'uninstall'; then
@@ -3129,13 +3129,14 @@ function setup_util() (
 			--quiet="$quiet" \
 			--unzip-format="$unzip_format" \
 			--unzip-filter="$unzip_filter" \
-			--path="$download_path"
+			--directory="$download_directory" \
+			--filepath="$download_filepath"
 
 		# build
 		if test -n "$build_eval"; then
 			(
 				local build_status
-				cd "$download_path"
+				cd "$download_directory"
 				echo-style --bold='Building...'
 				eval_capture --statusvar=build_status -- "$build_eval"
 				if test "$build_status" -eq 0; then
@@ -3149,10 +3150,11 @@ function setup_util() (
 				# match extracted paths against filter
 				local filtered_paths=() filtered_path
 				mapfile -t filtered_paths < <(
-					expand-path "$download_path/$build_filter"
+					expand-path "$download_directory/$build_filter"
 				)
 				if test "${#filtered_paths[@]}" -eq 0; then
-					echo-error "$0: No files matched the build filter extracted."
+					echo-error "$0: No files matched the build filter [$build_filter] within [$download_directory]."
+					ls -la "$download_directory" >/dev/stderr
 					return 1
 				elif test "${#filtered_paths[@]}" -eq 1; then
 					# move the single file
@@ -3172,7 +3174,7 @@ function setup_util() (
 
 	# installer
 	function do_installer {
-		local args=() file file_or_url="$INSTALLER" filename="$INSTALLER_FILENAME" __open="$INSTALLER_OPEN"
+		local args=() filepath file_or_url="$INSTALLER" filename="$INSTALLER_FILENAME" __open="$INSTALLER_OPEN"
 
 		# checks
 		if test -z "$file_or_url"; then
@@ -3194,26 +3196,26 @@ function setup_util() (
 
 		# check if it is local, or remote
 		if test -e "$file_or_url"; then
-			file="$file_or_url"
+			filepath="$file_or_url"
 		else
 			# it is remote
 			# download it to a temporary location and use that
-			file="$(
+			filepath="$(
 				fs-temp \
 					--directory='setup-util' \
 					--directory="$name" \
 					--file="$filename"
 			)"
-			down "$file_or_url" --path="$file"
+			down "$file_or_url" --filepath="$filepath"
 		fi
 
 		# ensure it is executable, then open or run it
-		chmod +x "$file"
+		chmod +x "$filepath"
 		if test "$__open" = 'yes'; then
-			open "$file"
+			open "$filepath"
 		else
 			# external installer script
-			"$file"
+			"$filepath"
 		fi
 	}
 
@@ -3271,7 +3273,7 @@ function setup_util() (
 		eval_capture --statusvar=run_status --outputvar=run_output --outputpipe=/dev/stderr -- "$fn"
 		if test "$run_status" -eq 0; then
 			# if is to fix: [is-internet-working; setup-util-bash --quiet] from clearning extra lines
-			if test -n "$run_output"; then
+			if test -n "$run_output" -a "$quiet" != 'no'; then
 				echo-clear-lines <<<"$run_output" >/dev/stderr # if the output is longer than $LINES then output beyond $LINES will not be cleared, the only way around that is to use tty_start and tty_finish however that incurs a signficant performance penalty, perhaps doing [2> (echo-revolving-door > /dev/stderr)] or something akin to this would work, however it had too many artifacts with [setup-util-warp --uninstall; setup-util-warp --install] with cask usage that uses sudo
 			fi
 			had_success='yes'
