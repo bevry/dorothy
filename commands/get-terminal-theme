@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# trunk-ignore-all(shellcheck/SC2162)
+
+function get_terminal_theme() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Get whether the terminal is light or dark.
+
+			USAGE:
+			get-terminal-theme [...options]
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) paths+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# on macos, one can do this:
+	# osascript -e 'tell application "Terminal" to get the background color of the current settings of the selected tab of front window'
+	# to get back:
+	# 5310, 8279, 11815
+	# however that prompts the user if they want to allow terminal to access system events
+
+	# Using ANSI escape codes, query the terminal for its background color without any output
+	local _ color='' r g b l
+	IFS=: read -s -t 0.1 -d $'\a' -p $'\e]11;?\a' _ color || : # 1a2b3c => 1a74/2b98/3cb6
+	if test -z "$color"; then
+		if test -n "${COLORFGBG-}"; then
+			# COLORFGBG contains segments of ANSI colors:
+			# 12;8 — Foreground color code 12 and background color code 8.
+			# 1;15;10 — Foreground color code 1, background color code 15, and alternate background color code 10.
+			# 7;0 — Foreground color code 7 and background color code 0.
+			# 15;default;0 — Foreground color code 15, background color code default, and alternate background color code 0.
+			# default;default — Foreground color code default and background color code default.
+			# ANSI colors are 0-15, in which 7 and 15 are light grey, and 9-15 are light colors.
+			local bg="$COLORFGBG"
+			if test -n "$bg"; then
+				bg="${bg##*;}" # trim everything prior to the last ;
+				if test "$bg" = 'default' || test "$bg" -le 6 -o "$bg" -eq 8; then
+					print_line 'light'
+				else
+					print_line 'dark'
+				fi
+				return
+			fi
+		fi
+		# don't use echo-style here, as echo-style uses this
+		print_line 'Unable to determine if the terminal theme is light or dark.' >/dev/stderr
+		return 1
+	fi
+
+	# Fetch the first two characters of [1a]74/[2b]98/[3c]b6 which is our color, and convert from hexadecimal to decimal
+	# For what the latter two characters are, no one seems to know: https://unix.stackexchange.com/q/754952/50703
+	r=$((16#${color:0:2}))  # 1a => 26
+	g=$((16#${color:5:2}))  # 2b => 43
+	b=$((16#${color:10:2})) # 3c => 60
+
+	# Figure out the lightness from HSL
+	max=$((r > g ? (r > b ? r : b) : (g > b ? g : b)))
+	min=$((r < g ? (r < b ? r : b) : (g < b ? g : b)))
+	l=$(((max + min) * 50 / 255))
+
+	# Is the lightness dark or light?
+	if ((l < 50)); then
+		print_line 'dark'
+	else
+		print_line 'light'
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get_terminal_theme "$@"
+fi
