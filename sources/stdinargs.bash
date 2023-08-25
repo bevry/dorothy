@@ -39,16 +39,16 @@ if test -z "${TIMEOUT-}"; then
 fi
 
 # prepare
-has_args='maybe'
-has_stdin='maybe'
+HAD_ARGS='maybe'
+HAD_STDIN='maybe'
 
 # attempt arguments first
 # arguments are instantanous and won't mangle stdin for parent processes
 if test "${#ARGS[@]}" -eq 0; then
-	has_args='no'
+	HAD_ARGS='no'
 else
 	# for each argument, call `on_arg` or `on_input`
-	has_args='yes'
+	HAD_ARGS='yes'
 	for item in "${ARGS[@]}"; do
 		if test "$BREAK" = 'yes'; then
 			break
@@ -62,8 +62,8 @@ else
 fi
 
 # if no arguments, or stdin required, then do stdin
-if test "$has_args" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
-	has_stdin='no'
+if test "$HAD_ARGS" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
+	HAD_STDIN='no'
 
 	# read stdin
 	# if stdin works, then mark it as so
@@ -74,7 +74,7 @@ if test "$has_args" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 		read_args+=("-t" "$TIMEOUT")
 	fi
 	while read -r "${read_args[@]}" item; do
-		has_stdin='yes'
+		HAD_STDIN='yes'
 		if test "$BREAK" = 'yes'; then
 			break
 		fi
@@ -85,7 +85,7 @@ if test "$has_args" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 		fi
 	done </dev/stdin
 	if test -n "$item"; then
-		has_stdin='yes'
+		HAD_STDIN='yes'
 		if test "$BREAK" = 'yes'; then
 			:
 		elif test "$(type -t on_inline)" = 'function'; then
@@ -99,16 +99,16 @@ if test "$has_args" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 fi
 
 # verify
-if test "$has_args" = 'no' -a "$has_stdin" = 'no'; then
+if test "$HAD_ARGS" = 'no' -a "$HAD_STDIN" = 'no'; then
 	# no stdin, no argument
 	if test "$(type -t on_no_input)" = 'function'; then
 		on_no_input
 	fi
 fi
-if test "$has_args" = 'no' -a "$(type -t on_no_args)" = 'function'; then
+if test "$HAD_ARGS" = 'no' -a "$(type -t on_no_args)" = 'function'; then
 	on_no_args
 fi
-if test "$has_stdin" = 'no' -a "$(type -t on_no_stdin)" = 'function'; then
+if test "$HAD_STDIN" = 'no' -a "$(type -t on_no_stdin)" = 'function'; then
 	on_no_stdin
 fi
 
