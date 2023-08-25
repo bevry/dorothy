@@ -82,7 +82,7 @@ if shopt -s lastpipe 2>/dev/null; then
 	}
 else
 	function require_lastpipe {
-		echo-style --error='Missing lastpipe support:'
+		echo-style --error='Missing lastpipe support:' >/dev/stderr
 		require_upgraded_bash
 	}
 fi
@@ -319,7 +319,7 @@ if shopt -s globstar 2>/dev/null; then
 	}
 else
 	function require_globstar {
-		echo-style --error='Missing globstar support:'
+		echo-style --error='Missing globstar support:' >/dev/stderr
 		require_upgraded_bash
 	}
 fi
@@ -331,7 +331,7 @@ if shopt -s extglob 2>/dev/null; then
 	}
 else
 	function require_extglob {
-		echo-style --error='Missing extglob support:'
+		echo-style --error='Missing extglob support:' >/dev/stderr
 		require_upgraded_bash
 	}
 fi
@@ -421,7 +421,7 @@ function has_array_capability {
 
 function require_array {
 	if ! has_array_capability "$@"; then
-		echo-style --error='Array support insufficient, required:' ' ' --code="$*"
+		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr
 		require_upgraded_bash
 	fi
 }
