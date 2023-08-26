@@ -7,28 +7,24 @@
 
 # smcup/rmcup will fail on alpine, so always clear if they fail
 
-function tty_start {
-	{
-		tput smcup >/dev/tty && tput cup 0 0 >/dev/tty
-	} || tput clear >/dev/tty
-}
-
-function tty_clear {
-	tput clear >/dev/tty # also resets cursor to top
-}
-
-function tty_finish {
-	# `tput rmcup` does not persist stderr, so for failure/stderr dumps, use `sleep 5` to ensure sterr is visible for long enough to be noticed before wiped.
-	tput rmcup >/dev/tty || tput clear >/dev/tty
-}
-
-function tty_auto {
-	tty_start
-	trap tty_finish EXIT
-}
-
-# if alternative ttys are disabled (or not in tty mode), then do not use them
-if is-affirmative -- "${NO_ALT_TTY-}" || ! tty -s; then
+if is-tty; then
+	function tty_start {
+		{
+			tput smcup >/dev/tty && tput cup 0 0 >/dev/tty
+		} || tput clear >/dev/tty
+	}
+	function tty_clear {
+		tput clear >/dev/tty # also resets cursor to top
+	}
+	function tty_finish {
+		# `tput rmcup` does not persist stderr, so for failure/stderr dumps, use `sleep 5` to ensure sterr is visible for long enough to be noticed before wiped.
+		tput rmcup >/dev/tty || tput clear >/dev/tty
+	}
+	function tty_auto {
+		tty_start
+		trap tty_finish EXIT
+	}
+else
 	function tty_start {
 		return 0
 	}
