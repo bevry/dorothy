@@ -346,6 +346,18 @@ fi
 # =============================================================================
 # Shim bash functionality that is inconsistent between bash versions.
 
+# Shim Read Timeout
+# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
+if test "$BASH_VERSION_MAJOR" -ge 4; then
+	function get_read_decimal_timeout {
+		print_line "$1"
+	}
+else
+	function get_read_decimal_timeout {
+		print_line 1
+	}
+fi
+
 # Shim Paramater Expansions
 # https://www.gnu.org/software/bash/manual/bash.html#Shell-Parameter-Expansion
 #
