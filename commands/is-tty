@@ -44,18 +44,25 @@ function is_tty() (
 
 	if test "$option_quiet" = 'no'; then
 		set -x
+		(tty -s && echo "success status = $?") || echo "failure status = $?"
 		(test -t 0 && echo "success status = $?") || echo "failure status = $?"
 		(test -t 1 && echo "success status = $?") || echo "failure status = $?"
 		(test -t 2 && echo "success status = $?") || echo "failure status = $?"
+		(test -c '/dev/stdin' && echo "success status = $?") || echo "failure status = $?"
+		(test -c '/dev/stdout' && echo "success status = $?") || echo "failure status = $?"
+		(test -c '/dev/stderr' && echo "success status = $?") || echo "failure status = $?"
 		(test -c '/dev/tty' && echo "success status = $?") || echo "failure status = $?"
 		echo "NO_TTY = ${NO_TTY-}"
 		echo "TTY = ${TTY-}"
-		(ps -p "$$" -o tty= && echo "success status = $?") || echo "failure status = $?"
-		(exec </dev/tty && echo "success status = $?") || echo "failure status = $?"
+		(ps -p "$$" -o tty= 2>/dev/null && echo "success status = $?") || echo "failure status = $?"
+		(exec </dev/tty 2>/dev/null && echo "success status = $?") || echo "failure status = $?"
 		set +x
 
 		# RUNNING ON MACOS
 		# > is-tty --verbose
+		# + tty -s
+		# + echo 'success status = 0'
+		# success status = 0
 		# + test -t 0
 		# + echo 'success status = 0'
 		# success status = 0
@@ -65,6 +72,15 @@ function is_tty() (
 		# + test -t 2
 		# + echo 'success status = 0'
 		# success status = 0
+		# + test -c /dev/stdin
+		# + echo 'success status = 0'
+		# success status = 0
+		# + test -c /dev/stdout
+		# + echo 'success status = 0'
+		# success status = 0
+		# + test -c /dev/stderr
+		# + echo 'success status = 0'
+		# success status = 0
 		# + test -c /dev/tty
 		# + echo 'success status = 0'
 		# success status = 0
@@ -72,12 +88,11 @@ function is_tty() (
 		# NO_TTY =
 		# + echo 'TTY = '
 		# TTY =
-		# + ps -p 99183 -o tty=
-		# ttys002
+		# + ps -p 25372 -o tty=
+		# ttys006
 		# + echo 'success status = 0'
 		# success status = 0
 		# + exec
-		# + echo 'success status = 0'
 		# success status = 0
 		# + set +x
 
@@ -105,12 +120,17 @@ function is_tty() (
 		# ++ return 1
 	fi
 
-	# [-t 0] check stdin exists, [tty -s] is deprecated in favour of this
-	# [-t 1] check stdout exists <-- don't check this, as [eval_capture --stdoutvar=...] causes false negative
-	# [-t 2] check stderr exists <-- don't check this, as [eval_capture --stdoutvar=...] causes false negative
-	# [-c '/dev/tty'] check tty exists, however it lies: crons still produce [line 228: /dev/tty: Device not configured]
-	# [ps -p] check as that actually works
-	test -t 0 -a -c '/dev/tty' -a "${NO_TTY-}" != 'yes' -a "${TTY-}" != 'no'
+	# So...
+	# [-t {0,1,2}] checks if {0,1,2} is attached to a terminal
+	# e.g. [echo | eval 'test -t 0 || echo no'] returns [no], as it fails [-t 0]
+	# e.g. [eval_capture --stdoutvar=...] fails [-t 1]
+	# e.g. [eval_capture --stderrvar=...] fails [-t 2]
+	# [-c /dev/{stdin,stdout,stderr,tty}] checks if it is available, regardless of termiinal attachment
+	# e.g. [(exec 0<&-; test -c /dev/stdin || echo no)] returns [no], as it fails [-c /dev/stdin]
+	# e.g. [(exec 2>&-; test -c /dev/stderr || echo no)] returns [no], as it fails [-c /dev/stderr]
+	# Cron jobs still pass [-c /dev/tty] even though /dev/tty is inaccessible [/dev/tty: Device not configured], as such [/dev/tty] would fail a [-t] check if TTY had a FD
+	# As such, we run a [ps -p] check to see if the process [/dev/tty] is actually attached to a terminal, as unlike {stdin,stdout,stderr} the /dev/tty must be attached to a terminal to be open/accessible.
+	test -c '/dev/tty' -a "${NO_TTY-}" != 'yes' -a "${TTY-}" != 'no'
 
 	# inside an [apk] check as alpine returns the following:
 	# ps: unrecognized option: p
@@ -119,19 +139,10 @@ function is_tty() (
 	# Show list of processes
 	# -o COL1,COL2=HEADER	Select columns for display
 	if command-missing apk; then
-		[[ "$(ps -p "$$" -o tty=)" != '?'* ]]
+		[[ "$(ps -p "$$" -o tty= 2>/dev/null)" != '?'* ]]
 	fi
 
-	# @todo handle NO_TTY=yes and TTY=no properly we need is-affirmative or echo-affirmative to not be as silly as they are
-	# is-affirmative fails if given only an empty string, and echo-affirmative outputs to stderr that must be silenced
-	#  -a "$(echo-affirmative "${NO_TTY-}" || :)" != 'yes' -a "$(echo-non-affirmative "${TTY-}" || :)" != 'yes'
-	# if test -n "${NO_TTY-}"; then
-	# 	! is-affirmative "$NO_TTY"
-	# fi
-	# if test -n "${TTY-}"; then
-	# 	! is-affirmative "$TTY"
-	# fi
-
+	# if we got here, no exception, so success
 	return 0
 )
 
