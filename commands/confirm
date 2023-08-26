@@ -5,6 +5,30 @@
 # [/dev/tty] is used as otherwise "$(confirm ...)" will not output anything to the user, as stdout gets captured in those situations
 #    why would anyone use confirm in that way? they don't but confirm within a getter does, such as [select_installer] within [macos-drive]
 
+function confirm_test() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-tester)"
+	echo-segment --h1="TEST: $0"
+
+	eval_tester --name='positive response was timed out' --status=0 \
+		-- confirm --ppid=$$ --positive --timeout=1 -- 'What is your response?'
+
+	eval_tester --name='negative response was timed out' --status=1 \
+		-- confirm --ppid=$$ --negative --timeout=1 -- 'What is your response?'
+
+	eval_tester --name='neither response was timed out' --status=60 \
+		-- confirm --ppid=-1 --bool --timeout=1 -- 'What is your response?'
+
+	{
+		# press escape key
+		sleep 1
+		printf $'\x1b'
+	} | eval_tester --name='cancel response was entered' --status=125 \
+		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
+
+	echo-segment --g1="TEST: $0"
+	return 0
+)
 function confirm() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -82,12 +106,22 @@ function confirm() (
 
 	# mode
 	if test "$option_mode" = 'positive' -o "$option_mode" = 'negative'; then
-		option_timeout='60' # one minute
-		option_yes='YES'
-		option_no='NO'
+		if test -z "$option_timeout"; then
+			option_timeout='60' # one minute
+		fi
+		if test -z "$option_yes"; then
+			option_yes='YES'
+		fi
+		if test -z "$option_no"; then
+			option_no='NO'
+		fi
 	elif test "$option_mode" = 'bool'; then
-		option_yes='YES'
-		option_no='NO'
+		if test -z "$option_yes"; then
+			option_yes='YES'
+		fi
+		if test -z "$option_no"; then
+			option_no='NO'
+		fi
 	fi
 
 	# checks
@@ -182,7 +216,7 @@ function confirm() (
 	}
 
 	function do_question {
-		local question_parts_total question_parts_last header hx question_index lines
+		local question_parts_total question_parts_last header _ hx question_index lines
 
 		# add the confirmation to the first question part
 		if test "$option_mode" = 'positive'; then
@@ -208,7 +242,7 @@ function confirm() (
 			print_string "${option_question_parts[question_index]} " | tee -a "$header" >/dev/tty
 			if test "$question_index" -eq 0; then
 				# read cursor x y, discard y, set hx to y
-				IFS='[;' read -srd R -p $'\e[6n' _ _ hx
+				IFS='[;' read -t "$(get_read_decimal_timeout 0.01)" -srd R -p $'\e[6n' _ _ hx </dev/tty || :
 			fi
 			if test "$question_index" -ne "$question_parts_last"; then
 				echo | tee -a "$header" >/dev/tty
@@ -225,7 +259,9 @@ function confirm() (
 				printf '\e[%sF' "$lines" >/dev/tty
 			fi
 			# move to the hx column
-			printf '\e[%sG' "$hx" >/dev/tty
+			if test -n "$hx"; then
+				printf '\e[%sG' "$hx" >/dev/tty
+			fi
 		fi
 
 		# read
@@ -261,22 +297,24 @@ function confirm() (
 			# crash response
 			echo-style "$question_first_part" --red+bold="$option_abort" >/dev/tty
 			# kill caller's parent
-			if test -n "$option_ppid"; then
-				# kill "-$option_ppid" ...
-				# ^ fails because 130 isn't supported
-				# kill -n ... ...
-				# kill "-$(kill -l "$option_ppid")" ...
-				# ^ works but isn't serious enough to cause the termination
-				# "$(ps -p $$ -o ppid=)"
-				# ^ doesn't work, as is different pid than manual
-				kill "$option_ppid"
+			if test "$option_ppid" -ge 0; then
+				if test "$option_ppid" -ge 1; then
+					# kill "-$option_ppid" ...
+					# ^ fails because 130 isn't supported
+					# kill -n ... ...
+					# kill "-$(kill -l "$option_ppid")" ...
+					# ^ works but isn't serious enough to cause the termination
+					# "$(ps -p $$ -o ppid=)"
+					# ^ doesn't work, as is different pid than manual
+					kill "$option_ppid"
+				fi
+				# kill our parent
+				kill "$$"
+				# kill our subshell
+				kill 0
+				# kill our shell
+				exit "$RESULT"
 			fi
-			# kill our parent
-			kill "$$"
-			# kill our subshell
-			kill 0
-			# kill our shell
-			exit "$RESULT"
 		fi
 		# kill this
 		return "$RESULT"
@@ -301,5 +339,9 @@ function confirm() (
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	confirm "$@"
+	if test "$*" = '--test'; then
+		confirm_test
+	else
+		confirm "$@"
+	fi
 fi
