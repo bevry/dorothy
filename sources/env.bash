@@ -63,13 +63,14 @@ function on_env_finish {
 						continue
 					fi
 					# check if duplicate
-					# bash v3 compat: `test ... && for ...`
-					test "${#items_array[@]}" -ne 0 && for item_existing in "${items_array[@]}"; do
-						if test "$item" = "$item_existing"; then
-							# is duplicate, skip
-							continue 2
-						fi
-					done
+					if test "${#items_array[@]}" -ne 0; then # bash v3 compat
+						for item_existing in "${items_array[@]}"; do
+							if test "$item" = "$item_existing"; then
+								# is duplicate, skip
+								continue 2
+							fi
+						done
+					fi
 					# add
 					items_array+=("$item")
 					if test -z "$items_string"; then
