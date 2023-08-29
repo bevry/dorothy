@@ -13,7 +13,7 @@
 
 # =============================================================================
 # Helpers to work around bash pecularities.
-#
+
 # echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
 function print_string {
 	if test "$#" -ne 0; then
