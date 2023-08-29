@@ -14,10 +14,13 @@ function eval_tester() (
 
 			OPTIONS:
 			--name=<test name>
-			--status=<expected exit code>
-			--stdout=<expected stdout>
-			--stderr=<expected stderr>
-			--debug
+			--status=<expected exit code> (defaults to 0)
+			--ignore-status
+			--stdout=<expected stdout> (defaults to empty)
+			--ignore-stdout
+			--stderr=<expected stderr> (defaults to empty)
+			--ignore-stderr
+			--debug (implies --ignore-stderr)
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -26,21 +29,25 @@ function eval_tester() (
 	}
 
 	# process
-	local item args=() option_name='' option_status='0' option_stdout='!nope!' option_stderr='!nope!' option_debug='no'
+	local item cmd=() ignore_option=$'\e' option_name='' option_status='0' option_stdout='' option_stderr='' option_debug='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--name='*) option_name="${item#*--name=}" ;;
+		'--ignore-status') option_status="$ignore_option" ;;
+		'--ignore-stdout') option_stdout="$ignore_option" ;;
+		'--ignore-stderr') option_stderr="$ignore_option" ;;
 		'--status='*) option_status="${item#*--status=}" ;;
 		'--stdout='*) option_stdout="${item#*--stdout=}" ;;
 		'--stderr='*) option_stderr="${item#*--stderr=}" ;;
 		'--no-debug'* | '--debug'*)
+			option_stderr="$ignore_option"
 			option_debug="$(get-flag-value debug --missing="$option_debug" -- "$item" | echo-affirmative)"
 			;;
 		'--')
-			args+=("$@")
+			cmd+=("$@")
 			shift $#
 			break
 			;;
@@ -51,59 +58,76 @@ function eval_tester() (
 
 	# overrides
 	if test "$option_debug" = 'yes'; then
-		args=('debug-bash' "${args[@]}")
+		cmd=(
+			'debug-bash'
+			"${cmd[@]}"
+		)
 	fi
 
 	# =====================================
 	# Action
 
 	# run the command
-	local cmd_status stdout stderr cmd fail='no' title=''
-	cmd="$(echo-quote "${args[@]}" | echo-join ' ')"
+	local args=() cmd_status stdout stderr cmd_string fail='no' title=''
+	cmd_string="$(echo-quote "${cmd[@]}" | echo-join ' ')"
 	if test -n "$option_name"; then
-		title="$option_name: $cmd"
+		title="$option_name: $cmd_string"
 	else
-		title="$cmd"
+		title="$cmd_string"
+	fi
+	if test -n "$option_status" -a "$option_status" != "$ignore_option"; then
+		args+=('--statusvar=cmd_status')
+	fi
+	if test "$option_stdout" != "$ignore_option"; then
+		args+=('--stdoutvar=stdout')
+	else
+		args+=('--no-stdout')
+	fi
+	if test "$option_stderr" != "$ignore_option"; then
+		args+=('--stderrvar=stderr')
+	else
+		args+=('--no-stderr')
 	fi
 	echo-segment --h3="$title"
-	eval_capture --statusvar=cmd_status --stdoutvar=stdout --stderrvar=stderr -- \
-		"${args[@]}"
+	eval_capture "${args[@]}" -- "${cmd[@]}"
 
 	# test exit code
-	if test "$option_status" -ne "$cmd_status"; then
-		echo-style --red="Actual Exit Code [$cmd_status]  !=  Expected Exit Code [$option_status]"
-		fail='yes'
-	else
-		echo-style --green="Actual Exit Code [$cmd_status]  ==  Expected Exit Code [$option_status]"
+	if test -n "$option_status" -a "$option_status" != "$ignore_option"; then
+		if test "$option_status" -ne "$cmd_status"; then
+			fail='yes'
+			echo-style --red="Actual Exit Code [$cmd_status]  !=  Expected Exit Code [$option_status]"
+		else
+			echo-style --green="Actual Exit Code [$cmd_status]  ==  Expected Exit Code [$option_status]"
+		fi
 	fi
 
 	# test stdout
-	if test "$option_stdout" != '!nope!'; then
+	if test "$option_stdout" != "$ignore_option"; then
 		if test "$option_stdout" != "$stdout"; then
+			fail='yes'
 			echo-style --red="Actual Stdout  !=  Expected Stdout" $'\n' \
 				--h3='< actual stdout>' $'\n' \
 				"$stdout" $'\n' \
 				--h3='</ actual stdout>' $'\n' \
 				--h3='< expected stdout>' $'\n' \
 				"$option_stdout" $'\n' \
-				--h3='</ expected stdout>' $'\n' \
-				fail='yes'
+				--h3='</ expected stdout>'
 		else
 			echo-style --green="Actual Stdout  ==  Expected Stdout"
 		fi
 	fi
 
 	# test stderr
-	if test "$option_stderr" != '!nope!'; then
+	if test "$option_stderr" != "$ignore_option"; then
 		if test "$option_stderr" != "$stderr"; then
+			fail='yes'
 			echo-style --red="Actual Stderr  !=  Expected Stderr" $'\n' \
 				--h3='< actual stderr>' $'\n' \
 				"$stderr" $'\n' \
 				--h3='</ actual stderr>' $'\n' \
 				--h3='< expected stderr>' $'\n' \
 				"$option_stderr" $'\n' \
-				--h3='</ expected stderr>' $'\n' \
-				fail='yes'
+				--h3='</ expected stderr>'
 		else
 			echo-style --green="Actual Stderr  ==  Expected Stderr"
 		fi
