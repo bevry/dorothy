@@ -470,9 +470,10 @@ function dorothy() (
 	function git_init {
 		local path="$1"
 		mkdir -p "$path"
-		pushd "$path" >/dev/null
-		git init
-		popd >/dev/null
+		(
+			cd "$path"
+			git init
+		)
 	}
 
 	function rm_deprecated {
@@ -638,20 +639,22 @@ function dorothy() (
 	function stage_new_files {
 		require_globstar
 		local path="$1"
-		pushd "$path" >/dev/null
 		# The following paths are ignored by one of your .gitignore files: ...
 		# hint: Use -f if you really want to add them.
 		# hint: Turn this message off by running
 		# hint: "git config advice.addIgnoredFile false"
-		git add --ignore-errors ./** || :
-		popd >/dev/null
+		(
+			cd "$path"
+			git add --ignore-errors ./** || :
+		)
 	}
 
 	function stage_changed_files {
 		local path="$1"
-		pushd "$path" >/dev/null
-		git add -u || :
-		popd >/dev/null
+		(
+			cd "$path"
+			git add -u || :
+		)
 	}
 
 	function correct_permissions {
@@ -1451,7 +1454,6 @@ function dorothy() (
 	}
 
 	function act_test {
-		local filepath filename
 		assert_dorothy_configured
 		# ^ no need for user config for tests
 
@@ -1467,31 +1469,6 @@ function dorothy() (
 
 		# log
 		echo-segment --h1='Dorothy Tests'
-		pushd "$DOROTHY" >/dev/null
-
-		# check recursion
-		# local commands
-		# commands=("$DOROTHY/commands/"*)
-		# for filepath in "${commands[@]}"; do
-		# 	filename="$(basename "$filepath")"
-
-		# 	# skip tests on these
-		# 	if test "$filename" = 'dorothy'; then
-		# 		continue
-		# 	fi
-
-		# 	echo-segment --h2="$filename"
-		# 	rg --only-matching --regexp=".*$filename.*" "$filepath" || :
-		# 	echo-segment --g2="$filename"
-		# done
-
-		# run important tests first
-		eval-helper --no-quiet --wrap -- "$bash" "$(type -P is-tty)" --test || :
-		eval-helper --no-quiet --wrap -- "$bash" "$(type -P read-key)" --test || :
-		eval-helper --no-quiet --wrap -- "$bash" "$(type -P confirm)" --test || :
-		eval-helper --no-quiet --wrap -- "$bash" "$(type -P choose-menu)" --test || :
-		eval-helper --no-quiet --wrap -- "$bash" "$(type -P choose-option)" --test || :
-		eval-helper --no-quiet --wrap -- "$bash" "$(type -P ask)" --test || :
 
 		# prepre scan paths
 		local scan_paths=("$DOROTHY")
@@ -1499,8 +1476,37 @@ function dorothy() (
 			scan_paths+=("$DOROTHY/user")
 		fi
 
-		# check for usage
-		local commands matches file_good file_bad file_status
+		# run tests on commands that have them
+		local commands filepath filename had_failure='no'
+		mapfile -t commands < <(rg --files-with-matches --fixed-strings --regexp='--test' "${scan_paths[@]}" | sort)
+		for filepath in "${commands[@]}"; do
+			filename="$(basename "$filepath")"
+
+			# skip tests on these
+			if test "$filename" = 'dorothy' -o "$filename" = 'bash.bash'; then
+				continue
+			fi
+
+			# run the bash test
+			eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
+				had_failure='yes'
+			}
+
+			# skip bash v3 test on these
+			if test "$filename" = 'get-installer'; then
+				continue
+			fi
+
+			# run the bash v3 test
+			if test -n "$bashv3"; then
+				eval-helper --no-quiet --wrap -- "$bashv3" "$filepath" --test || {
+					had_failure='yes'
+				}
+			fi
+		done
+
+		# verbose about command conventions and support
+		local matches file_good file_bad file_status
 		commands=("$DOROTHY/commands/"*)
 		for filepath in "${commands[@]}"; do
 			filename="$(basename "$filepath")"
@@ -1553,33 +1559,14 @@ function dorothy() (
 			echo-element --openclose="$filename" --status="$file_status" "${file_good[@]}" "${file_bad[@]}"
 		done
 
-		# run tests on commands that have them
-		while read -r filepath; do
-			filename="$(basename "$filepath")"
-
-			# skip tests on these
-			if test "$filename" = 'dorothy'; then
-				continue
-			fi
-
-			# run the bash test
-			eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
-
-			# skip bash v3 test on these
-			if test "$filename" = 'get-installer'; then
-				continue
-			fi
-
-			# run the bash v3 test
-			if test -n "$bashv3"; then
-				eval-helper --no-quiet --wrap -- "$bashv3" "$filepath" --test
-			fi
-		done < <(rg --files-with-matches --fixed-strings --regexp='--test' "${scan_paths[@]}" | sort)
-
 		# log
-		popd >/dev/null
-		echo-segment --g1='Dorothy Tests'
-
+		if test "$had_failure" = 'no'; then
+			echo-segment --g1='Dorothy Tests'
+			return 0
+		else
+			echo-segment --e1='Dorothy Tests'
+			return 1
+		fi
 	}
 
 	# =====================================
