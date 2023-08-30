@@ -28,14 +28,21 @@ fi
 if test -z "${REQUIRE_STDIN-}"; then
 	REQUIRE_STDIN='no'
 fi
-if test -z "${TIMEOUT-}"; then
-	TIMEOUT=1 # one second
-	# don't use a value less than 1 (unless 0, which means infinite timeout)
-	# as too many commands take longer than a second to generate output (`mas search xcode` especially)
-	# and decimal timeouts will fail in bash v3
-	# also can't use something like: mas search xcode | echo-wait | echo-trim-each-line
-	# as `echo-trim-each-line` will wait even longer in this case
-	# as such, this is the best solution: mas search xcode | env TIMEOUT=0 echo-trim-each-line
+# -t timeout: time out and return failure if a complete line of input is not read within TIMEOUT seconds. The value of the TMOUT variable is the default timeout. TIMEOUT may be a fractional number. If TIMEOUT is 0, read returns immediately, without trying to read any data, returning success only if input is available on the specified file descriptor. The exit status is greater than 128 if the timeout is exceeded.
+if test -n "${TIMEOUT-}"; then
+	if test "$TIMEOUT" = 'no'; then
+		TIMEOUT='' # unlimiited
+	else
+		# ensure timeout is compatible across bash versions
+		TIMEOUT="$(get_read_decimal_timeout "$TIMEOUT")"
+	fi
+else
+	TIMEOUT=1 # default to 1 second, don't use 0 by default as too many commands aren't immediate, e.g.
+	# echo-lines a b c | echo-quote <-- this will output nothing if the above line is TIMEOUT=0
+	# for commands that take a long time, e.g. `mas search xcode`, you can use:
+	# mas search xcode | sponge | echo-trim-each-line <-- however this will wait until all input is read before operating
+	# or
+	# mas search xcode | env TIMEOUT=no echo-trim-each-line <-- this will allow each line to be processed as it comes
 fi
 
 # prepare
@@ -69,11 +76,12 @@ if test "$HAD_ARGS" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 	# if stdin works, then mark it as so
 	# for each line, call `on_line` or `on_input`
 	# for each inline, call `on_inline` or `on_line` or `on_input`
-	read_args=()
+	# [read -t 0 item] will not read anything, so it must be done seperately
 	if test -n "$TIMEOUT" -a "$TIMEOUT" -ne 0; then
 		read_args+=("-t" "$TIMEOUT")
 	fi
-	while read -r "${read_args[@]}" item; do
+	item=''
+	while (test -z "$TIMEOUT" -o "$TIMEOUT" -ne 0 || read -t 0) && read -r "${read_args[@]}" item; do
 		HAD_STDIN='yes'
 		if test "$BREAK" = 'yes'; then
 			break
