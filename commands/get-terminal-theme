@@ -14,6 +14,11 @@ function get_terminal_theme() (
 
 			USAGE:
 			get-terminal-theme [...options]
+
+			OPTIONS:
+			--fallback=<fallback>
+			    If a theme cannot be determined, output this instead.
+			    If no fallback, a failure (no output, failure status) will occur.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -22,12 +27,13 @@ function get_terminal_theme() (
 	}
 
 	# process
-	local item
+	local item option_fallback=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--fallback='*) option_fallback="${item#*--fallback=}" ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) paths+=("$item") ;;
 		esac
@@ -42,16 +48,8 @@ function get_terminal_theme() (
 	# 5310, 8279, 11815
 	# however that prompts the user if they want to allow terminal to access system events
 
-	# workaround for ci
-	if is-ci; then
-		print_line 'dark'
-		return 0
-	fi
-
-	# Using ANSI escape codes, query the terminal for its background color without any output
-	local _ color='' r g b l
-	IFS=: read -s -t "$(get_read_decimal_timeout 0.01)" -d $'\a' -p $'\e]11;?\a' _ color || : # 1a2b3c => 1a74/2b98/3cb6
-	if test -z "$color"; then
+	# methods
+	function get_theme_via_colorfgbg {
 		if test -n "${COLORFGBG-}"; then
 			# COLORFGBG contains segments of ANSI colors:
 			# 12;8 — Foreground color code 12 and background color code 8.
@@ -68,31 +66,68 @@ function get_terminal_theme() (
 				else
 					print_line 'dark'
 				fi
-				return
+				return 0
 			fi
 		fi
-		# don't use echo-style here, as echo-style uses this
-		print_line 'Unable to determine if the terminal theme is light or dark.' >/dev/stderr
-		return 1
+		return 200 # ECUSTOM 200 Not applicable
+	}
+	function get_theme_via_ansi_query {
+		# If the background color is `ba1a2b3c` the read will return `1a74/2b98/3cb6`
+		local _ color='' r g b l
+		# stdin+stderr must be readable+writable for the read to work
+		if (: </dev/stdin >/dev/stdin) && (: </dev/stderr >/dev//stderr); then
+			IFS=: read -s -t "$(get_read_decimal_timeout 0.01)" -d $'\a' -p $'\e]11;?\a' _ color || :
+			if test -n "$color"; then
+				# Fetch the first two characters of [1a]74/[2b]98/[3c]b6 which is our color, and convert from hexadecimal to decimal
+				# For what the latter two characters are, no one seems to know: https://unix.stackexchange.com/q/754952/50703
+				r=$((16#${color:0:2}))  # 1a => 26
+				g=$((16#${color:5:2}))  # 2b => 43
+				b=$((16#${color:10:2})) # 3c => 60
+
+				# Figure out the lightness from HSL
+				max=$((r > g ? (r > b ? r : b) : (g > b ? g : b)))
+				min=$((r < g ? (r < b ? r : b) : (g < b ? g : b)))
+				l=$(((max + min) * 50 / 255))
+
+				# Is the lightness dark or light?
+				if ((l < 50)); then
+					print_line 'dark'
+				else
+					print_line 'light'
+				fi
+				return 0
+			fi
+		fi
+		return 200 # ECUSTOM 200 Not applicable
+	}
+
+	# run
+	local status
+
+	# workaround for ci <-- commented out as we now implemented fallback, and I want to see what happens on CI
+	# if is-ci; then
+	# 	print_line "$option_fallback"
+	# 	return 0
+	# fi
+
+	# try via environment variable first, it is quickest and less prone to error, but rarely available
+	eval_capture --statusvar=status -- get_theme_via_colorfgbg
+	if test "$status" -eq 0; then
+		return 0
 	fi
 
-	# Fetch the first two characters of [1a]74/[2b]98/[3c]b6 which is our color, and convert from hexadecimal to decimal
-	# For what the latter two characters are, no one seems to know: https://unix.stackexchange.com/q/754952/50703
-	r=$((16#${color:0:2}))  # 1a => 26
-	g=$((16#${color:5:2}))  # 2b => 43
-	b=$((16#${color:10:2})) # 3c => 60
-
-	# Figure out the lightness from HSL
-	max=$((r > g ? (r > b ? r : b) : (g > b ? g : b)))
-	min=$((r < g ? (r < b ? r : b) : (g < b ? g : b)))
-	l=$(((max + min) * 50 / 255))
-
-	# Is the lightness dark or light?
-	if ((l < 50)); then
-		print_line 'dark'
-	else
-		print_line 'light'
+	# this is usually available by most TTYs, but not available
+	eval_capture --statusvar=status -- get_theme_via_ansi_query
+	if test "$status" -eq 0; then
+		return 0
 	fi
+
+	if test -n "$option_fallback"; then
+		print_line "$option_fallback"
+		return 0
+	fi
+
+	return 1
 )
 
 # fire if invoked standalone
