@@ -136,8 +136,12 @@ function confirm_() (
 	# =====================================
 	# Helpers
 
-	local tty_target
+	local tty_target using_tty_stderr_fallback='no'
 	tty_target="$(is-tty --fallback)"
+	if test "$tty_target" = '/dev/stderr'; then
+		# fix [/dev/stderr: Permission denied] errors when reading cursor position on CI
+		using_tty_stderr_fallback=yes
+	fi
 
 	# used to process the input
 	function do_read {
@@ -215,7 +219,9 @@ function confirm_() (
 		fi
 
 		# try reading again, and erase any leaked characters
-		printf '\e[%sG\e[K' "$hx" >"$tty_target"
+		if test "$using_tty_stderr_fallback" = 'no'; then
+			printf '\e[%sG\e[K' "$hx" >"$tty_target"
+		fi
 		do_read
 	}
 
@@ -235,36 +241,41 @@ function confirm_() (
 			help "An invalid <mode> was provided: $option_mode"
 		fi
 
-		# output the question parts
-		# saving the cursor position of the first line
-		# and outputting a newline between all lines, except the last, which should not have a trailing line
-		question_parts_total="${#option_question_parts[@]}"
-		question_parts_last="$((question_parts_total - 1))"
-		header="$(mktemp)"
-		hx=''
-		for ((question_index = 0; question_index < "$question_parts_total"; question_index++)); do
-			print_string "${option_question_parts[question_index]} " | tee -a "$header" >"$tty_target"
-			if test "$question_index" -eq 0; then
-				# read cursor x y, discard y, set hx to y
-				IFS='[;' read -t "$(get_read_decimal_timeout 0.01)" -srd R -p $'\e[6n' _ _ hx <"$tty_target" || :
-			fi
-			if test "$question_index" -ne "$question_parts_last"; then
-				echo | tee -a "$header" >"$tty_target"
-			fi
-		done
+		# if not a tty, just output the question
+		if test "$using_tty_stderr_fallback" = 'yes'; then
+			echo-lines -- "${option_question_parts[@]}" >"$tty_target"
+		else
+			# output the question parts
+			# saving the cursor position of the first line
+			# and outputting a newline between all lines, except the last, which should not have a trailing line
+			question_parts_total="${#option_question_parts[@]}"
+			question_parts_last="$((question_parts_total - 1))"
+			header="$(mktemp)"
+			hx=''
+			for ((question_index = 0; question_index < "$question_parts_total"; question_index++)); do
+				print_string "${option_question_parts[question_index]} " | tee -a "$header" >"$tty_target"
+				if test "$question_index" -eq 0; then
+					# read cursor x y, discard y, set hx to y
+					IFS='[;' read -t "$(get_read_decimal_timeout 0.01)" -srd R -p $'\e[6n' _ _ hx <"$tty_target" || :
+				fi
+				if test "$question_index" -ne "$question_parts_last"; then
+					echo | tee -a "$header" >"$tty_target"
+				fi
+			done
 
-		# move the cursor
-		lines=0
-		if test "$question_parts_total" -ne 0; then
-			# reposition the cursor, to after the options in the first part
-			lines="$(echo-count-lines --no-inline <"$header")"
-			# move these lines up
-			if test "$lines" -ne 0; then
-				printf '\e[%sF' "$lines" >"$tty_target"
-			fi
-			# move to the hx column
-			if test -n "$hx"; then
-				printf '\e[%sG' "$hx" >"$tty_target"
+			# move the cursor
+			lines=0
+			if test "$question_parts_total" -ne 0; then
+				# reposition the cursor, to after the options in the first part
+				lines="$(echo-count-lines --no-inline <"$header")"
+				# move these lines up
+				if test "$lines" -ne 0; then
+					printf '\e[%sF' "$lines" >"$tty_target"
+				fi
+				# move to the hx column
+				if test -n "$hx"; then
+					printf '\e[%sG' "$hx" >"$tty_target"
+				fi
 			fi
 		fi
 
