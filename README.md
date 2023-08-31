@@ -152,26 +152,7 @@ If your shell doesn't recognize the syntax, run `bash -il` then run the command 
 
 If you get a command not found error or an undefined/unbound variable error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
 
-If packages are failing to install, update your Operating System's package manager so that it is using the latest references:
-
-```bash
-# Alpine
-doas apk update
-
-# Ubuntu
-sudo apt update
-
-# Fedora
-sudo dnf check-update -y
-sudo yum check-update -y
-
-# Manjaro
-sudo pacman-key --init
-sudo pacman --refresh --sync
-
-# OpenSUSE
-sudo zypper --gpg-auto-import-keys refresh
-```
+If packages are failing to install, [go back to the "Prerequisites" section](https://github.com/bevry/dorothy#prerequisites).
 
 ## Overview
 
