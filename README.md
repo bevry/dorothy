@@ -113,8 +113,7 @@ emerge app-shells/bash net-misc/curl
 Mageia:
 
 ```bash
-urpmi --auto-update --auto
-dnf check-update
+urpmi.update -a
 urpmi --auto bash curl
 ```
 
