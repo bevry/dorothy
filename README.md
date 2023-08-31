@@ -104,24 +104,14 @@ pacman-key --init
 pacman --refresh --sync --needed bash curl
 ```
 
-Gentoo:
-
-```bash
-emerge app-shells/bash net-misc/curl
-```
-
-Nix:
-
-```bash
-nix-env --install --attr nixpkgs.bash nixpkgs.curl
-```
-
 Void:
 
 ```bash
 xbps-install --sync --update xbps
 xbps-install --sync bash curl
 ```
+
+Mageia, Nix, and Gentoo are [currently unsupported.](https://github.com/bevry/dorothy/issues/162)
 
 ### Try
 
