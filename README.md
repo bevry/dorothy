@@ -110,13 +110,6 @@ Gentoo:
 emerge app-shells/bash net-misc/curl
 ```
 
-Mageia:
-
-```bash
-urpmi.update -a
-urpmi --auto bash curl
-```
-
 Nix:
 
 ```bash
