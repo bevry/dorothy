@@ -146,7 +146,7 @@ dorothy theme
 
 To select your login shell, run `select-shell`.
 
-## Troubleshooting
+### Troubleshooting
 
 If your shell doesn't recognize the syntax, run `bash -il` then run the command again.
 
@@ -197,7 +197,7 @@ For each shell that you configured during the Dorothy installation (can be recon
         1. Load our ssh configuration.
         1. Load our autocomplete configuration.
 
-This is the foundation enables Dorothy's hundreds of commands, to work across hundreds of machines, across dozens of operating system and shell combinations, seamlessly.
+This is the foundation that enables Dorothy's hundreds of commands to work across hundreds of machines, across dozens of operating system and shell combinations, seamlessly.
 
 ### Dorothy User Configuration
 
