@@ -53,20 +53,89 @@ Dorothy maintainers and users are occasionally driving Dorothy on:
 
 [![Screenshot of the 2022 April Presentation](https://github.com/bevry/dorothy/blob/master/docs/assets/presentation.gif?raw=true)](https://www.youtube.com/watch?v=gWLana1JmNk)
 
-## Try
+## Setup
+
+### Prerequisites
+
+macOS:
+
+```bash
+xcode-select --install
+```
+
+Ubuntu / Debian / Kali:
+
+```bash
+sudo apt-get update
+sudo apt-get install bash curl
+```
+
+Fedora:
+
+```bash
+dnf check-update
+dnf --refresh --best install bash curl
+```
+
+OpenSUSE / SUSE:
+
+```bash
+zypper --gpg-auto-import-keys refresh
+zypper install bash curl
+```
+
+Alpine:
+
+```bash
+doas apk update
+doas apk add bash curl grep
+```
+
+Manjaro:
+
+```bash
+pamac install bash curl
+```
+
+Arch:
+
+```bash
+pacman-key --init
+pacman --refresh --sync --needed bash curl
+```
+
+Gentoo:
+
+```bash
+emerge app-shells/bash net-misc/curl
+```
+
+Mageia:
+
+```bash
+urpmi --auto-update --auto
+dnf check-update
+urpmi bash curl
+```
+
+Nix:
+
+```bash
+nix-env --install --attr nixpkgs.bash nixpkgs.curl
+```
+
+Void:
+
+```bash
+xbps-install --sync --update xbps
+xbps-install --sync bash curl
+```
+
+### Try
 
 If you just want to trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell, you can do the following:
 
 ```bash
-# IF you are on Alpine, install the dependencies
-doas apk add bash curl git
-
-# IF you are on Ubuntu, install the dependencies
-sudo apt install bash curl git
-
-# IF you are on macOS, install the dependencies
-xcode-select --install
-
 # To run only a specific command, run the following and swap out `echo-verbose` with whatever command you wish to run
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/commands/echo-verbose)" -- a b c
 
@@ -74,20 +143,11 @@ bash -ic "$(curl -fsSL https://dorothy.bevry.me/commands/echo-verbose)" -- a b c
 eval "$(curl -fsSL https://dorothy.bevry.me/try)"
 ```
 
-## Install
+### Install
 
 To install Dorothy run the following in your favorite terminal application:
 
 ```bash
-# IF you are on Alpine, install the dependencies
-doas apk add bash curl git
-
-# IF you are on Ubuntu, install the dependencies
-sudo apt install bash curl git
-
-# IF you are on macOS, install the dependencies
-xcode-select --install
-
 # Run the Dorothy installation script
 bash -ilc "$(curl -fsSL https://dorothy.bevry.me/install)"
 ```
