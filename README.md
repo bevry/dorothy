@@ -115,7 +115,7 @@ Mageia:
 ```bash
 urpmi --auto-update --auto
 dnf check-update
-urpmi bash curl
+urpmi --auto bash curl
 ```
 
 Nix:
