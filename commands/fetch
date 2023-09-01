@@ -15,6 +15,9 @@ function fetch() (
 			fetch [...options] <url>
 
 			OPTIONS:
+			--bearer-token=<token>
+			    If provided, include this in a bearer token header.
+
 			--[no-]status[=<yes|no>]
 			    If truthy, output only the status code, rather than the entire contents of the fetch URL.
 
@@ -32,12 +35,13 @@ function fetch() (
 	}
 
 	# process
-	local item option_url='' option_status='no' option_ok=''
+	local item option_bearer_token='' option_url='' option_status='no' option_ok=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--bearer-token='*) option_bearer_token="${item#*--bearer-token=}" ;;
 		'--no-status'* | '--status'*)
 			option_status="$(get-flag-value status --missing="$option_status" -- "$item" | echo-affirmative)"
 			;;
@@ -69,36 +73,72 @@ function fetch() (
 		return "$status"
 	}
 
-	#  -I, --head                        Show document info only
-	#  -m, --max-time <seconds>          Maximum time allowed for the transfer
-	#  -o, --output <file>               Write to file instead of stdout
-	#  -s, --silent                      Silent mode
-	#  -A, --user-agent <name>           Send User-Agent <name> to server
-	#  -w, --write-out <format>          Use output FORMAT after completion
+	# -I, --head                        Show document info only
+	# -m, --max-time <seconds>          Maximum time allowed for the transfer
+	# -o, --output <file>               Write to file instead of stdout
+	# -s, --silent                      No curl output, only content output.
+	# -w, --write-out <format>          Use output FORMAT after completion
+	# -L, --location                    Follow redirects
+	# -f, --fail                        Fail on server errors.
+	# -A, --user-agent <name>           Send User-Agent <name> to server
+	# -S, --show-error                  When used with -s, --silent, it makes curl show an error message if it fails.
+	function do_curl {
+		local options=("$@")
+		if test "$option_bearer_token"; then
+			options+=(
+				'--header'
+				"Authorization: Bearer $option_bearer_token"
+			)
+		fi
+		# use echo-wait to fix [curl: (23) Failure writing output to destination] when piping to ripgrep
+		curl "${options[@]}" "$option_url" | echo-wait || log_failure
+	}
+	function do_wget {
+		local options=("$@")
+		if test "$option_bearer_token"; then
+			options+=(
+				"--header=Authorization: Bearer $option_bearer_token"
+			)
+		fi
+		wget "${options[@]}" "$option_url" || log_failure
+	}
+
 	function fetch_status {
-		local args=(
-			--head
-			--max-time 3
-			--output /dev/null
-			--silent
-			--write-out '%{http_code}'
+		local options=(
+			--head                     # only fetch head
+			--max-time 3               # wait three seconds
+			--output /dev/null         # no content output
+			--silent                   # no curl output
+			--write-out '%{http_code}' # output the http code
+			--location                 # follow redirects
 		)
 		setup-util-curl --quiet
-		curl "${args[@]}" --location "$option_url" || log_failure
+		do_curl "${options[@]}"
 	}
 
 	function fetch_ok {
+		# no wget equivalent
 		local status
 		status="$(fetch_status "$option_url")"
 		test "$status" -ge 200 -a "$status" -le 300
 	}
 
 	function fetch_contents {
+		local options
 		if command-exists curl; then
-			# use echo-wait to fix [curl: (23) Failure writing output to destination] when piping to ripgrep
-			curl -fsSL "$option_url" | echo-wait || log_failure
+			options=(
+				--fail       # fail if server fails
+				--silent     # only output content
+				--show-error # output errors
+				--location   # follow redirects
+			)
+			do_curl "${options[@]}"
 		elif command-exists wget; then
-			wget "$option_url" -O - || log_failure
+			options=(
+				-quiet # only output content
+				-O-    # output to stdout
+			)
+			do_wget "${options[@]}"
 		else
 			get-installer --first-success --invoke --quiet -- curl wget
 			fetch_contents
