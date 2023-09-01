@@ -57,6 +57,9 @@ function down() (
 			    Treat the download as a zip fie, and only extract files that match the glob pattern <filter>.
 			    This option is handled by the [unziptar] command.
 
+			--bearer-token=<token>
+			    If provided, include this in a bearer token header.
+
 			--directory=<directory>
 			    Place downloaded file(s) inside <directory>.
 			    If ommitted, the current working directory will be used.
@@ -89,13 +92,14 @@ function down() (
 	}
 
 	# process
-	local item url='' tool='' unzip_format='' unzip_filter='' directory='' file='' filepath='' retry='2' quiet='yes'
+	local item url='' tool='' unzip_format='' unzip_filter='' directory='' file='' filepath='' retry='2' quiet='yes' option_bearer_token=''
 	quiet="$(echo-quiet "$quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--bearer-token='*) option_bearer_token="${item#*--bearer-token=}" ;;
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet
 		'--tool='*) tool="${item#*--tool=}" ;;
 		'--unzip-format='*) unzip_format="${item#*--unzip-format=}" ;;
@@ -172,13 +176,7 @@ function down() (
 
 		# tool helpers
 		function do_aria2c {
-			local aria2c_options=()
-			if test -n "$download_file"; then
-				aria2c_options+=(
-					--out="$download_file"
-				)
-			fi
-			aria2c_options+=(
+			local aria2c_options=(
 				--dir="$download_directory"
 				--file-allocation=none
 				--allow-overwrite=true
@@ -187,38 +185,76 @@ function down() (
 				--show-console-readout=false
 				--summary-interval=1
 				--no-conf
-				"$url"
 			)
+			if test -n "$option_bearer_token"; then
+				aria2c_options+=(
+					"--header=Authorization: Bearer $option_bearer_token"
+				)
+			fi
+			if test -n "$download_file"; then
+				aria2c_options+=(
+					--out="$download_file"
+				)
+			fi
+			aria2c_options+=("$url")
 			aria2c "${aria2c_options[@]}"
 		}
 		function do_curl {
-			pushd "$download_directory" >/dev/null
-			if test -n "$download_file"; then
-				curl -L "$url" -o "$download_file"
-			else
-				curl -OL "$url"
+			local curl_options=('-L')
+			if test -n "$option_bearer_token"; then
+				curl_options+=(
+					'--header'
+					"Authorization: Bearer $option_bearer_token"
+				)
 			fi
-			popd >/dev/null
+			if test -n "$download_file"; then
+				curl_options+=(-o "$download_file")
+			else
+				curl_options+=(-O)
+			fi
+			curl_options+=("$url")
+			(
+				cd "$download_directory"
+				curl "${curl_options[@]}"
+			)
 		}
 		function do_got {
 			# https://github.com/melbahja/got#command-line-tool-usage
-			pushd "$download_directory" >/dev/null
-			if test -n "$download_file"; then
-				got -o "$download_file" "$url"
-			else
-				got "$url"
+			local got_options=()
+			if test -n "$option_bearer_token"; then
+				got_options+=(
+					'--header'
+					"Authorization: Bearer $option_bearer_token"
+				)
 			fi
-			popd >/dev/null
+			if test -n "$download_file"; then
+				got_options+=(-o "$download_file")
+			fi
+			got_options+=("$url")
+			(
+				cd "$download_directory"
+				got "${got_options[@]}"
+			)
 		}
 		function do_httpie {
 			# https://httpie.io/docs/cli/download-mode
-			pushd "$download_directory" >/dev/null
-			if test -n "$download_file"; then
-				http -dco "$download_file" "$url"
-			else
-				http -dc "$url"
+			local http_options=('-dc')
+			if test -n "$option_bearer_token"; then
+				got_options+=(
+					'--auth'
+					"Bearer $option_bearer_token"
+				)
 			fi
-			popd >/dev/null
+			if test -n "$download_file"; then
+				http_options+=(
+					-o "$download_file"
+				)
+			fi
+			http_options+=("$url")
+			(
+				cd "$download_directory"
+				http "${http_options[@]}"
+			)
 		}
 		function do_wget() (
 			#   -O,  --output-document=FILE      write documents to FILE
@@ -230,13 +266,26 @@ function down() (
 			#   -nv, --no-verbose                turn off verboseness, without being quiet
 			#        --show-progress             display the progress bar in any verbosity mode
 			# WARNING: timestamping does nothing in combination with -O. See the manual for details.
-			pushd "$download_directory" >/dev/null
-			if test -n "$download_file"; then
-				wget --output-document="$download_file" "$url"
-			else
-				wget --timestamping "$url"
+			local wget_options=()
+			if test "$option_bearer_token"; then
+				options+=(
+					"--header=Authorization: Bearer $option_bearer_token"
+				)
 			fi
-			popd >/dev/null
+			if test -n "$download_file"; then
+				wget_options+=(
+					"--output-document=$download_file"
+				)
+			else
+				wget_options+=(
+					--timestamping
+				)
+			fi
+			wget_options+=("$url")
+			(
+				cd "$download_directory"
+				wget "${wget_options[@]}"
+			)
 		)
 		function do_download {
 			if test "$(type -t "do_$tool")" = 'function'; then
