@@ -1,5 +1,40 @@
 #!/usr/bin/env bash
 
+function fs_own_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-segment --h1="TEST: $0"
+
+	local dir file
+	dir="$(fs-temp --directory)"
+	file="$(fs-temp --directory="$dir" --file --touch)"
+
+	eval-tester --name='can own a file +quiet' \
+		-- fs-own --quiet -- "$file"
+
+	eval-tester --name='can own a durectory +quiet' \
+		-- fs-own --quiet -- "$dir"
+
+	eval-tester --name='can own a file -quiet' --ignore-stdout \
+		-- fs-own --no-quiet -- "$file"
+
+	eval-tester --name='can own a durectory -quiet' --ignore-stdout \
+		-- fs-own --no-quiet -- "$dir"
+
+	eval-tester --name='can own a file +verbose' --ignore-stdout --ignore-stderr \
+		-- fs-own --verbose -- "$file"
+
+	eval-tester --name='can own a durectory +verbose' --ignore-stdout --ignore-stderr \
+		-- fs-own --verbose -- "$dir"
+
+	eval-tester --name='can own a durectory +quiet +admin' --ignore-stdout --ignore-stderr \
+		-- fs-own --quiet --admin -- "$dir"
+
+	eval-tester --name='can own a durectory -quiet +admin' --ignore-stdout --ignore-stderr \
+		-- fs-own --no-quiet --admin -- "$dir"
+
+	echo-segment --g1="TEST: $0"
+	return 0
+)
 function fs_own() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -19,7 +54,7 @@ function fs_own() (
 			    if provided, will output the executed commands.
 
 			--verbose
-			    if provied, will use --verbose on executed chmod/chown commands.
+			    if provied, will use --no-quiet for this command, and use --verbose on executed chmod/chown commands.
 
 			--no-changes
 			    if provided, changes will not be reported if the operating system supports it.
@@ -194,22 +229,33 @@ function fs_own() (
 		fi
 	fi
 	if test "$option_verbose" = 'yes'; then
-		ch_args+=('--verbose')
+		if is-mac; then
+			echo-style --dim='Verbose permission changes is not provided by this Operating System.' >/dev/stderr
+		else
+			ch_args+=('--verbose')
+		fi
 	fi
 
 	# =====================================
 	# Prepare
 
-	local prefix_args=() sudo_as_user_args=() sudo_as_admin_args=() sudo_reason
+	# the argument handling is complex for bash v3 compat
+	local sudo_as_user_args=() sudo_as_admin_args=() sudo_reason
 
 	# prepare, don't put each path on a new line, as that can make a lot of lines!
 	sudo_reason="Correcting permissions for the following paths requires your sudo/root/login password:$(
 		echo-style $'\n' --reset --code="${paths[*]}"
 	)"
 
-	# quiet
+	# if not quiet, then wrap the sudo commands
 	if test "$option_quiet" = 'no'; then
-		prefix_args+=(
+		sudo_as_user_args+=(
+			'eval-helper'
+			'--no-quiet'
+			'--wrap'
+			'--'
+		)
+		sudo_as_admin_args+=(
 			'eval-helper'
 			'--no-quiet'
 			'--wrap'
@@ -246,14 +292,18 @@ function fs_own() (
 
 	# symlinks fail [test -e]
 	function is_available {
-		local path="$1"
+		local path="$1" cmd=()
 		if test -n "$owner"; then
-			"${prefix_args[@]}" "${sudo_as_admin_args[@]}" \
-				test -e "$path" -o -L "$path"
+			if test "${#sudo_as_admin_args[@]}" -ne 0; then
+				cmd+=("${sudo_as_admin_args[@]}")
+			fi
 		else
-			"${prefix_args[@]}" "${sudo_as_user_args[@]}" \
-				test -e "$path" -o -L "$path"
+			if test "${#sudo_as_user_args[@]}" -ne 0; then
+				cmd+=("${sudo_as_user_args[@]}")
+			fi
 		fi
+		cmd+=(test -e "$path" -o -L "$path")
+		"${cmd[@]}"
 	}
 	function check_exists {
 		local path="$1" available_status
@@ -266,19 +316,27 @@ function fs_own() (
 		fi
 	}
 	function do_own {
-		local path="$1"
+		local path="$1" cmd
 
 		# chown
 		if test -n "$owner"; then
-			"${prefix_args[@]}" "${sudo_as_admin_args[@]}" \
-				chown "${ch_args[@]}" "$owner" "$path"
+			cmd=()
+			if test "${#sudo_as_admin_args[@]}" -ne 0; then
+				cmd+=("${sudo_as_admin_args[@]}")
+			fi
+			cmd+=(chown "${ch_args[@]}" "$owner" "$path")
+			"${cmd[@]}"
 		fi
 
 		# chmod
 		if test -n "$option_permissions"; then
+			cmd=()
 			# https://superuser.com/a/91966/32418
-			"${prefix_args[@]}" "${sudo_as_user_args[@]}" \
-				chmod "${ch_args[@]}" "$option_permissions" "$path"
+			if test "${#sudo_as_user_args[@]}" -ne 0; then
+				cmd+=("${sudo_as_user_args[@]}")
+			fi
+			cmd+=(chmod "${ch_args[@]}" "$option_permissions" "$path")
+			"${cmd[@]}"
 		fi
 	}
 
@@ -309,7 +367,11 @@ function fs_own() (
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_own "$@"
+	if test "$*" = '--test'; then
+		fs_own_test
+	else
+		fs_own "$@"
+	fi
 fi
 
 # # find -exec fails when --user --group is provided as it fails to attach to correct home
