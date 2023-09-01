@@ -77,11 +77,12 @@ if test "$HAD_ARGS" != 'yes' -o "$REQUIRE_STDIN" = 'yes'; then
 	# for each line, call `on_line` or `on_input`
 	# for each inline, call `on_inline` or `on_line` or `on_input`
 	# [read -t 0 item] will not read anything, so it must be done seperately
+	# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
 	if test -n "$TIMEOUT" -a "$TIMEOUT" -ne 0; then
 		read_args+=("-t" "$TIMEOUT")
 	fi
 	item=''
-	while (test -z "$TIMEOUT" -o "$TIMEOUT" -ne 0 || read -t 0) && read -r "${read_args[@]}" item; do
+	while (test -z "$TIMEOUT" -o "$TIMEOUT" -ne 0 || read -t 0) && IFS='' read -r "${read_args[@]}" item; do
 		HAD_STDIN='yes'
 		if test "$BREAK" = 'yes'; then
 			break
