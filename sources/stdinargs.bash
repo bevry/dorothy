@@ -40,7 +40,7 @@ else
 	TIMEOUT=1 # default to 1 second, don't use 0 by default as too many commands aren't immediate, e.g.
 	# echo-lines a b c | echo-quote <-- this will output nothing if the above line is TIMEOUT=0
 	# for commands that take a long time, e.g. `mas search xcode`, you can use:
-	# mas search xcode | sponge | echo-trim-each-line <-- however this will wait until all input is read before operating
+	# mas search xcode | echo-wait | echo-trim-each-line <-- however this will wait until all input is read before operating
 	# or
 	# mas search xcode | env TIMEOUT=no echo-trim-each-line <-- this will allow each line to be processed as it comes
 fi

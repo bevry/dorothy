@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+function echo_wait_test() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-tester)"
+	echo-segment --h1="TEST: $0"
+
+	# dependencies
+	setup-util-moreutils --quiet # sponge
+
+	# prepare
+	function broken_pipe {
+		# the curl will fail because of the progress bar
+		print_line 'before broken pipe'
+		curl --fail-early --head --write-out '%{http_code}' --location 'https://www.google.com' | "$@" | tail -n 1
+		print_line 'after broken pipe'
+	}
+	function broken_pipe_to_control {
+		broken_pipe 'echo'
+	}
+	function broken_pipe_to_sponge {
+		broken_pipe 'sponge'
+	}
+	function broken_pipe_to_echo_wait {
+		broken_pipe echo-wait "$@"
+	}
+
+	# test
+	eval_tester --name='broken pipe is broken' --status=23 --stdout=$'before broken pipe' --ignore-stderr \
+		-- broken_pipe_to_control
+	eval_tester --name='broken pipe to sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
+		-- broken_pipe_to_sponge
+	eval_tester --name='broken pipe to echo-wait --no-sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
+		-- broken_pipe_to_echo_wait --no-sponge
+	eval_tester --name='broken pipe to echo-wait --sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
+		-- broken_pipe_to_echo_wait --sponge
+	eval_tester --name='broken pipe to echo-wait' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
+		-- broken_pipe_to_echo_wait
+
+	echo-segment --g1="TEST: $0"
+	return 0
+)
+function echo_wait() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Prompt the user for an input value in a clean and robust way.
+
+			USAGE:
+			curl -I -fail https://www.google.com | echo-wait [...options] | echo
+
+			OPTIONS:
+			--sponge
+			    Enforce usage of sponge for output buffering.
+
+			--no-sponge
+			    Disable usage of sponge for output buffering.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_sponge=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-sponge'* | '--sponge'*)
+			option_sponge="$(get-flag-value sponge --missing="$option_sponge" -- "$item" | echo-affirmative)"
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	if test "$option_sponge" = 'yes'; then
+		setup-util-moreutils --quiet # sponge
+	fi
+	if test "$option_sponge" != 'no' && command-exists sponge; then
+		sponge </dev/stdin
+	else
+		output=''
+		while read -r item; do
+			output+="$item"$'\n'
+		done </dev/stdin
+		if test -n "$item"; then
+			output+="$item"
+		fi
+		printf '%s' "$output"
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	if test "$*" = '--test'; then
+		echo_wait_test
+	else
+		echo_wait "$@"
+	fi
+fi
