@@ -17,7 +17,7 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   seamless support for [bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), and [nushell](https://www.nushell.sh)
+-   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [ZSH](https://en.wikipedia.org/wiki/Z_shell), and [Nu](https://www.nushell.sh)
 -   seamless support for multiple operating systems and architectures
 -   seamless support for your favorite terminal and GUI editors
 -   automatic configuration of your environment variables for what you have installed on your system
@@ -185,7 +185,7 @@ For each shell that you configured during the Dorothy installation (can be recon
 1.  The shell loads Dorothy's initialization script:
 
     -   [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
-    -   [Nushell](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
+    -   [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
     -   POSIX shells ([bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
 1.  The initialization script will:
@@ -202,7 +202,7 @@ For each shell that you configured during the Dorothy installation (can be recon
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu)`, which will:
 
         1. Load your own `user/config(.local)/interactive.(sh|fish|nu)` configuration script for your own interactive login shell configuration.
-            - Nushell will only load `interactive.nu` and it must exist.
+            - Nu will only load `interactive.nu` and it must exist.
             - Fish shell will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
             - POSIX shells will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
         1. Load any common alias and function utilities.

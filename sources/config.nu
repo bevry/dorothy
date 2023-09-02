@@ -12,6 +12,6 @@
 # is useless, as if [path] doesn't exist, [source 'path'] will still fail
 
 def load_dorothy_config [...filenames: string] {
-	echo-style --error='Nushell does not support dynamic loading of configuration files.' >/dev/stderr
+	echo-style --error='Nu does not support dynamic loading of configuration files.' >/dev/stderr
 	return 2  # No such file or directory
 }
