@@ -118,16 +118,20 @@ Mageia, Nix, and Gentoo are [currently unsupported.](https://github.com/bevry/do
 If you just want to trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell, you can do the following:
 
 ```bash
-# To run only a specific command, run the following and swap out `echo-verbose` with whatever command you wish to run
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/commands/echo-verbose)" -- a b c
+# To run a specific command in/from the Dorothy environment, enter the following, swapping out eveything after the double-dash (`--`) with whatever command to run
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose a b c
 
-# To run multiple commands in a REPL, run the following then type the commands you wish to execute
+# To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line
+bash -il
 eval "$(curl -fsSL https://dorothy.bevry.me/try)"
+# now you can enter multiple commands, such as:
+echo-verbose a b c
+echo-style --success=awesome
 ```
 
 ### Install
 
-To install Dorothy run the following in your favorite terminal application:
+To install Dorothy enter the following in your favorite terminal application:
 
 ```bash
 # Run the Dorothy installation script
