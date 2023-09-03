@@ -237,6 +237,10 @@ Use these sources to find inspiration for your own user commands and configurati
     -   [@sumitrai](https://github.com/sumitrai): <https://github.com/sumitrai/dotfiles>
     -   if you use Dorothy, send a pull request to add your own user configuration to this list.
 
+## Community
+
+Join the [Bevry Softrware community](https://discord.gg/nQuXddV7VP) to stay up-to-date on the latest Dorothy developments and to get in touch with the rest of the community.
+
 ## Sponsors
 
 Dorothy is supported by the following [sponsors](https://github.com/sponsors/balupton):
