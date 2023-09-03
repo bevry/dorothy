@@ -239,7 +239,7 @@ Use these sources to find inspiration for your own user commands and configurati
 
 ## Community
 
-Join the [Bevry Softrware community](https://discord.gg/nQuXddV7VP) to stay up-to-date on the latest Dorothy developments and to get in touch with the rest of the community.
+Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to-date on the latest Dorothy developments and to get in touch with the rest of the community.
 
 ## Sponsors
 
