@@ -24,7 +24,7 @@ function prepare_packages {
 
 	# remove inputs with dedicated installers
 	for item in "${inputs[@]}"; do
-		installer="$(get-installer --first-success --quiet -- "$item" || :)"
+		installer="$(get-installer --quiet -- "$item" || :)"
 		if test -n "$installer"; then
 			if [[ $installer == 'setup-util-'* ]]; then
 				util="${installer#*setup-util-}"
