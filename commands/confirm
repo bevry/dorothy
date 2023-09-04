@@ -165,6 +165,7 @@ function confirm_() (
 	fi
 
 	# used to process the input
+	local CURSOR_COLUMN='' # used by do_read and do_question
 	function do_read {
 		local answer read_status
 
@@ -241,23 +242,26 @@ function confirm_() (
 
 		# try reading again, and erase any leaked characters
 		if test "$using_tty_stderr_fallback" = 'no'; then
-			printf '\e[%sG\e[K' "$hx" >"$tty_target"
+			# set the cursor back to CURSOR_COLUMN and erase everything after it
+			if test -n "$CURSOR_COLUMN"; then
+				printf '\e[%sG\e[K' "$CURSOR_COLUMN" >"$tty_target"
+			fi
 		fi
 		do_read
 	}
-
 	function do_question {
-		local _ hx
-
 		# if not a tty, just output the question
 		if test "$using_tty_stderr_fallback" = 'yes'; then
 			echo-lines -- "${option_question[@]}" >"$tty_target"
 		else
 			# output the prompt, saving the cursor position
-			hx=''
+			CURSOR_COLUMN=''
 			print_string "$prompt " >"$tty_target"
-			# read cursor x y, discard y, set hx to y
-			IFS='[;' read -t "$(get_read_decimal_timeout 0.01)" -srd R -p $'\e[6n' _ _ hx <"$tty_target" || :
+			# send an ansi query to fetch the cursor row and column, returns [^[[24;80R] where 24 is row, 80 is column
+			# use _ to discard, the first read var is garbage, the second read var is the column, the final read var is the column
+			# don't use a timeout, as we already in a TTY so can guarantee an answer, and the read will complete immediately upon a response thanks to [-d R] which completes reading when the R is read, which is the final character of the response query
+			local _
+			IFS='[;' read -srd R -p $'\e[6n' _ _ CURSOR_COLUMN <"$tty_target" || :
 
 			# output the body if it exists
 			if test -n "$body"; then
@@ -270,9 +274,9 @@ function confirm_() (
 				fi
 			fi
 
-			# move to the hx column
-			if test -n "$hx"; then
-				printf '\e[%sG' "$hx" >"$tty_target"
+			# move to the CURSOR_COLUMN column
+			if test -n "$CURSOR_COLUMN"; then
+				printf '\e[%sG' "$CURSOR_COLUMN" >"$tty_target"
 			fi
 		fi
 
@@ -350,7 +354,8 @@ function confirm_() (
 	return "$RESULT"
 
 	# @todo
-	# an alternative implementation could be a new line like this at the end, with ENTER and ESCAPE and SPACE as the correct outputs
+	# if the above read cursor position issue is a problem (e.g. press a keypress before the cursor position answer is fetched, so keypress goes into the cursor position read), then one could use `print_line question | echo-trim-special | wc -c` however that is unreliable as doesn't take into account terminal size and wrapping, etc.
+	# the better solution would be to just append a newline like this below, with ENTER and ESCAPE and SPACE as the correct outputs:
 	# echo-style --blink='Press: ' --blink+green+bold='y ' --blink='for ' --blink+green='YES' --blink=', ' --blink+red+bold='n ' --blink='for ' --blink+red='NO' --blink=', ' --blink+bold='ENTER '  --blink='for ' --blink+red='NO'
 
 	# using \e[s (save) and \e[u (restore) for ctrl+c handling did not work
