@@ -16,31 +16,61 @@ function get_terminal_theme() (
 			get-terminal-theme [...options]
 
 			OPTIONS:
-			--fallback=<fallback>
-			    If a theme cannot be determined, output this instead.
-			    If no fallback, a failure (no output, failure status) will occur.
+			--refresh-cache
+			    Clear the cache, and fetch the terminal theme.
+
+			--clear-cache
+			    Only clear the cache, do not fetch the terminal theme.
+
+			--fallback=<light|dark|>
+			    If a theme cannot be determined, use this instead.
+			    Defaults to [dark]
 		EOF
 		if test "$#" -ne 0; then
-			echo-error "$@"
+			printf '%s\n' '' 'ERROR:' "$@" # don't get echo-style, as echo-style uses this
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_fallback=''
+	local item option_fallback='dark' option_clear_cache='no' option_refresh_cache='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--refresh-cache') option_refresh_cache='yes' ;;
+		'--clear-cache') option_clear_cache='yes' ;;
 		'--fallback='*) option_fallback="${item#*--fallback=}" ;;
+		'--no-fallback') option_fallback='' ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) paths+=("$item") ;;
 		esac
 	done
 
+	if test "$option_fallback" != 'dark' -a "$option_fallback" != 'light' -a -n "$option_fallback"; then
+		help "Invalid fallback theme [$option_fallback] must either be empty, light, or dark"
+	fi
+
 	# =====================================
 	# Action
+
+	# prepare cache
+	local cache_file
+	cache_file="$(fs-temp --file='terminal-theme')"
+
+	# if clearing cache, only clear cache
+	if test "$option_clear_cache" = 'yes' -o "$option_refresh_cache" = 'yes'; then
+		if test -f "$cache_file"; then
+			rm "$cache_file"
+		fi
+		if test "$option_clear_cache" = 'yes'; then
+			return 0
+		fi
+	elif test -f "$cache_file"; then
+		cat "$cache_file"
+		return 0
+	fi
 
 	# on macos, one can do this:
 	# osascript -e 'tell application "Terminal" to get the background color of the current settings of the selected tab of front window'
@@ -49,7 +79,24 @@ function get_terminal_theme() (
 	# however that prompts the user if they want to allow terminal to access system events
 
 	# methods
-	function get_theme_via_colorfgbg {
+	local theme=''
+	function get_theme_via_fallback {
+		if test -n "$option_fallback"; then
+			theme="$option_fallback"
+		fi
+	}
+	function get_theme_via_theme_env_var {
+		if [[ ${THEME-} =~ light|dark ]]; then
+			theme="$THEME"
+		fi
+	}
+	function get_theme_via_uname {
+		# if there are linux distros that don't have a dark theme, then this will need to be updated
+		if is-linux; then
+			theme='dark'
+		fi
+	}
+	function get_theme_via_colorfgbg_env_var {
 		if test -n "${COLORFGBG-}"; then
 			# COLORFGBG contains segments of ANSI colors:
 			# 12;8 — Foreground color code 12 and background color code 8.
@@ -62,72 +109,63 @@ function get_terminal_theme() (
 			if test -n "$bg"; then
 				bg="${bg##*;}" # trim everything prior to the last ;
 				if test "$bg" = 'default' || test "$bg" -le 6 -o "$bg" -eq 8; then
-					print_line 'light'
+					theme='light'
 				else
-					print_line 'dark'
+					theme='dark'
 				fi
-				return 0
 			fi
 		fi
-		return 200 # ECUSTOM 200 Not applicable
 	}
-	function get_theme_via_ansi_query {
+	function get_theme_via_ansi_tty_query {
 		# If the background color is `ba1a2b3c` the read will return `1a74/2b98/3cb6`
 		local _ color='' r g b l
 		# stdin+stderr must be readable+writable for the read to work, but we can't check silently, as failures are noisey, and silencing the failures causes them to close: https://gist.github.com/balupton/6eee015345c663d7d7baf83d8e20ce1f so just note in this comment
 		# as terminal theme is really only important for TTY use cases, use is-tty, this also solves vscode unable to ssh session into a machine
 		if is-tty; then
 			IFS=: read -s -t "$(get_read_decimal_timeout 0.01)" -d $'\a' -p $'\e]11;?\a' _ color || :
-		fi
-		if test -n "$color"; then
-			# Fetch the first two characters of [1a]74/[2b]98/[3c]b6 which is our color, and convert from hexadecimal to decimal
-			# For what the latter two characters are, no one seems to know: https://unix.stackexchange.com/q/754952/50703
-			r=$((16#${color:0:2}))  # 1a => 26
-			g=$((16#${color:5:2}))  # 2b => 43
-			b=$((16#${color:10:2})) # 3c => 60
+			if test -n "$color"; then
+				# Fetch the first two characters of [1a]74/[2b]98/[3c]b6 which is our color, and convert from hexadecimal to decimal
+				# For what the latter two characters are, no one seems to know: https://unix.stackexchange.com/q/754952/50703
+				r=$((16#${color:0:2}))  # 1a => 26
+				g=$((16#${color:5:2}))  # 2b => 43
+				b=$((16#${color:10:2})) # 3c => 60
 
-			# Figure out the lightness from HSL
-			max=$((r > g ? (r > b ? r : b) : (g > b ? g : b)))
-			min=$((r < g ? (r < b ? r : b) : (g < b ? g : b)))
-			l=$(((max + min) * 50 / 255))
+				# Figure out the lightness from HSL
+				max=$((r > g ? (r > b ? r : b) : (g > b ? g : b)))
+				min=$((r < g ? (r < b ? r : b) : (g < b ? g : b)))
+				l=$(((max + min) * 50 / 255))
 
-			# Is the lightness dark or light?
-			if ((l < 50)); then
-				print_line 'dark'
-			else
-				print_line 'light'
+				# Is the lightness dark or light?
+				if ((l < 50)); then
+					theme='dark'
+				else
+					theme='light'
+				fi
 			fi
-			return 0
 		fi
-		return 200 # ECUSTOM 200 Not applicable
 	}
 
-	# run
-	local status
+	local method methods=(
+		# this is intentionally set, will be accurate if it exists
+		get_theme_via_theme_env_var
+		# if this does exist, then it should be accurate if we parse it correctly
+		get_theme_via_colorfgbg_env_var
+		# try the ANSI TTY Query, has the side effect of reading the TTY (which could trim some input from something that did desire to actually read input)
+		get_theme_via_ansi_tty_query
+		# this may not be accurate, but is better than nothing
+		get_theme_via_uname
+		# the fallback
+		get_theme_via_fallback
+	)
+	for method in "${methods[@]}"; do
+		"$method"
+		if test -n "$theme"; then
+			tee "$cache_file" <<<"$theme"
+			return 0
+		fi
+	done
 
-	# workaround for ci <-- commented out as we now implemented fallback, and I want to see what happens on CI
-	# if is-ci; then
-	# 	print_line "$option_fallback"
-	# 	return 0
-	# fi
-
-	# try via environment variable first, it is quickest and less prone to error, but rarely available
-	eval_capture --statusvar=status -- get_theme_via_colorfgbg
-	if test "$status" -eq 0; then
-		return 0
-	fi
-
-	# this is usually available by most TTYs, but not available
-	eval_capture --statusvar=status -- get_theme_via_ansi_query
-	if test "$status" -eq 0; then
-		return 0
-	fi
-
-	if test -n "$option_fallback"; then
-		print_line "$option_fallback"
-		return 0
-	fi
-
+	# no successful method
 	return 1
 )
 

@@ -130,8 +130,7 @@ warning="${e2}"
 code="${dim}"
 code_dim="${dim}${foreground_gray}"
 code_notice="${dim}${foreground_intense_yellow}" # on dark theme, this is your eyes that need help
-# don't use [get-terminal-theme] THEME fallback, as no need, if [get-terminal-theme] is working correctly, then THEME is defined
-if test "${THEME-}" = 'light'; then
+if test "$(get-terminal-theme || :)" = 'light'; then
 	# trim foreground_intense_yellow as it is unreadable on light theme
 	code_notice="${foreground_yellow}"
 	notice="${h2}${foreground_yellow}"
