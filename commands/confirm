@@ -12,17 +12,17 @@ function confirm_test() (
 	# --ignore-stderr otherwise ^[[58;1R is output
 
 	eval-tester --name='positive response was timed out' --ignore-stderr \
-		-- confirm --ppid=$$ --positive --timeout=1 -- 'What is your response?'
+		-- confirm --ppid=$$ --positive --timeout=10 -- 'What is your response?'
 
 	eval-tester --name='negative response was timed out' --status=1 --ignore-stderr \
-		-- confirm --ppid=$$ --negative --timeout=1 -- 'What is your response?'
+		-- confirm --ppid=$$ --negative --timeout=10 -- 'What is your response?'
 
 	eval-tester --name='neither response was timed out' --status=60 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=1 -- 'What is your response?'
+		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
 
 	{
 		# press escape key
-		sleep 1
+		sleep 3
 		printf $'\x1b'
 	} | eval-tester --name='cancel response was entered' --status=125 --ignore-stderr \
 		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
@@ -79,7 +79,7 @@ function confirm_() (
 	}
 
 	# prepare
-	local item option_question_parts=() option_mode='confirm' option_timeout='3600' option_yes='OK' option_no='CANCEL' option_abort='ABORT' option_ppid=''
+	local item option_question=() option_mode='confirm' option_timeout='3600' option_yes='OK' option_no='CANCEL' option_abort='ABORT' option_ppid=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -96,7 +96,7 @@ function confirm_() (
 		'--abort='*) option_abort="${item#*--abort=}" ;;
 		'--ppid='*) option_ppid="${item#*--ppid=}" ;;
 		'--')
-			option_question_parts+=("$@")
+			option_question+=("$@")
 			shift $#
 			break
 			;;
@@ -129,13 +129,34 @@ function confirm_() (
 	if test -z "$option_ppid"; then
 		help '<ppid> is necessary'
 	fi
-	if test -z "${option_question_parts[*]}"; then
+	if test -z "${option_question[*]}"; then
 		help '<question> is necessary'
 	fi
 
 	# =====================================
 	# Helpers
 
+	# cache the first part for the finale
+	local question="${option_question[0]}"
+
+	# generate the promot, the body, and body line count
+	local prompt body body_lines
+	prompt="$question"
+	body="$(echo-lines -- "${option_question[@]:1}")"
+	body_lines="$(echo-count-lines <<<"$body")"
+	if test "$option_mode" = 'positive'; then
+		prompt+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
+	elif test "$option_mode" = 'negative'; then
+		prompt+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
+	elif test "$option_mode" = 'bool'; then
+		prompt+=" $(echo-style --blink='(y/n)')"
+	elif test "$option_mode" = 'confirm'; then
+		prompt+=" $(echo-style --blink='(CONFIRM)')"
+	else
+		help "An invalid <mode> was provided: $option_mode"
+	fi
+
+	# fetch the targets
 	local tty_target using_tty_stderr_fallback='no'
 	tty_target="$(is-tty --fallback)"
 	if test "$tty_target" = '/dev/stderr'; then
@@ -226,56 +247,32 @@ function confirm_() (
 	}
 
 	function do_question {
-		local question_parts_total question_parts_last header _ hx question_index lines
-
-		# add the confirmation to the first question part
-		if test "$option_mode" = 'positive'; then
-			option_question_parts[0]+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
-		elif test "$option_mode" = 'negative'; then
-			option_question_parts[0]+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
-		elif test "$option_mode" = 'bool'; then
-			option_question_parts[0]+=" $(echo-style --blink='(y/n)')"
-		elif test "$option_mode" = 'confirm'; then
-			option_question_parts[0]+=" $(echo-style --blink='(CONFIRM)')"
-		else
-			help "An invalid <mode> was provided: $option_mode"
-		fi
+		local _ hx
 
 		# if not a tty, just output the question
 		if test "$using_tty_stderr_fallback" = 'yes'; then
-			echo-lines -- "${option_question_parts[@]}" >"$tty_target"
+			echo-lines -- "${option_question[@]}" >"$tty_target"
 		else
-			# output the question parts
-			# saving the cursor position of the first line
-			# and outputting a newline between all lines, except the last, which should not have a trailing line
-			question_parts_total="${#option_question_parts[@]}"
-			question_parts_last="$((question_parts_total - 1))"
-			header="$(mktemp)"
+			# output the prompt, saving the cursor position
 			hx=''
-			for ((question_index = 0; question_index < "$question_parts_total"; question_index++)); do
-				print_string "${option_question_parts[question_index]} " | tee -a "$header" >"$tty_target"
-				if test "$question_index" -eq 0; then
-					# read cursor x y, discard y, set hx to y
-					IFS='[;' read -t "$(get_read_decimal_timeout 0.01)" -srd R -p $'\e[6n' _ _ hx <"$tty_target" || :
-				fi
-				if test "$question_index" -ne "$question_parts_last"; then
-					echo | tee -a "$header" >"$tty_target"
-				fi
-			done
+			print_string "$prompt " >"$tty_target"
+			# read cursor x y, discard y, set hx to y
+			IFS='[;' read -t "$(get_read_decimal_timeout 0.01)" -srd R -p $'\e[6n' _ _ hx <"$tty_target" || :
 
-			# move the cursor
-			lines=0
-			if test "$question_parts_total" -ne 0; then
-				# reposition the cursor, to after the options in the first part
-				lines="$(echo-count-lines --no-inline <"$header")"
+			# output the body if it exists
+			if test -n "$body"; then
+				echo >"$tty_target"
+				print_string "$body" >"$tty_target"
+
 				# move these lines up
-				if test "$lines" -ne 0; then
-					printf '\e[%sF' "$lines" >"$tty_target"
+				if test "$body_lines" -ne 0; then
+					printf '\e[%sF' "$body_lines" >"$tty_target"
 				fi
-				# move to the hx column
-				if test -n "$hx"; then
-					printf '\e[%sG' "$hx" >"$tty_target"
-				fi
+			fi
+
+			# move to the hx column
+			if test -n "$hx"; then
+				printf '\e[%sG' "$hx" >"$tty_target"
 			fi
 		fi
 
@@ -287,7 +284,8 @@ function confirm_() (
 	# Action
 
 	# handle termination
-	local RESULT=0 finished=no question_first_part="${option_question_parts[0]} " # this is cached for the finale, as it gets modified
+	local RESULT=0 finished=no
+
 	function on_confirm_terminate {
 		RESULT=$?
 		if test -z "$RESULT" -o "$RESULT" -eq 0; then
@@ -310,13 +308,13 @@ function confirm_() (
 		# output the finale
 		if test "$RESULT" -eq 0; then
 			# positive response
-			echo-style "$question_first_part" --green+bold="$option_yes" >"$tty_target"
+			echo-style "$question " --green+bold="$option_yes" >"$tty_target"
 		elif test "$RESULT" -eq 1; then
 			# negative response
-			echo-style "$question_first_part" --red+bold="$option_no" >"$tty_target"
+			echo-style "$question " --red+bold="$option_no" >"$tty_target"
 		else
 			# crash response
-			echo-style "$question_first_part" --red+bold="$option_abort" >"$tty_target"
+			echo-style "$question " --red+bold="$option_abort" >"$tty_target"
 			# kill caller's parent
 			if test "$option_ppid" -ge 0; then
 				if test "$option_ppid" -ge 1; then
