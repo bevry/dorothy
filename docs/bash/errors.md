@@ -500,3 +500,7 @@ For more information on this, refer to:
 
 -   https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
 -   https://github.com/bevry/dorothy/blob/master/sources/bash.bash
+
+### a final gotcha
+
+https://github.com/koalaman/shellcheck/wiki/SC2251
