@@ -120,17 +120,16 @@ You can trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/co
 To run a specific command in/from the Dorothy environment, enter the following, swapping out eveything after the double-dash (`--`) with whatever command to run:
 
 ```bash
-# run Dorothy's echo-verbose command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose a b c
+# if your shell doesn't recognize the above syntax, enter `bash -i` then try again
 ```
 
 To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line:
 
 ```bash
-# make sure you are inside an interactive bash shell
-bash -i
-# load the Dorothy shell environment with the trial theme
-eval "$(curl -fsSL https://dorothy.bevry.me/try)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial)"
+# if your shell doesn't recognize the above syntax, enter `bash -i` then try again
+
 # enter whatever and how many commands as you'd like, such as:
 echo-verbose a b c
 echo-style --success=awesome
@@ -143,8 +142,8 @@ exit
 To install Dorothy enter the following in your favorite terminal application:
 
 ```bash
-# Run the Dorothy installation script
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
+# if your shell doesn't recognize the above syntax, enter `bash -i` then try again
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
@@ -161,11 +160,12 @@ To select your login shell, run `select-shell`.
 
 ### Troubleshooting
 
-If your shell doesn't recognize the syntax, run `bash -il` then run the command again.
-
-If you get a command not found error or an undefined/unbound variable error, [verify that your terminal application has login shells enabled.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md) If you are running in a login shell, then you may be running in an unsupported shell, run `bash -il` to open bash, if it still doesn't work, then run the installer again, and make sure to confirm the setup for Dorothy for each shell when prompted.
-
 If packages are failing to install, [go back to the "Prerequisites" section](https://github.com/bevry/dorothy#prerequisites).
+
+If your shell doesn't recognise any of the Dorothy commands (you get a command not found error, or an undefined/unbound variable error), then it could be that:
+- Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md).
+- Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
+- Your login shell is not one of the Dorothy supported shells (Bash, Zsh, Fish, Nu). [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
 
 ## Overview
 
