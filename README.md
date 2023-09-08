@@ -127,7 +127,7 @@ bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose a b c
 To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line:
 
 ```bash
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/shell)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/repl)"
 # if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
 # now you can run whatever and how many commands as you'd like, such as:
