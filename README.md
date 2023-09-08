@@ -117,7 +117,7 @@ Mageia, Nix, and Gentoo are [currently unsupported.](https://github.com/bevry/do
 
 You can trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell.
 
-To run a specific command in/from the Dorothy environment, enter the following, swapping out eveything after the double-dash (`--`) with whatever command to run:
+To run a specific command in/from the Dorothy environment, enter the following, swapping out everything after the double-dash (`--`) with whatever command to run:
 
 ```bash
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose a b c
@@ -163,7 +163,7 @@ To select your login shell, run `select-shell`.
 
 If packages are failing to install, [go back to the "Prerequisites" section](https://github.com/bevry/dorothy#prerequisites).
 
-If your shell doesn't recognise any of the Dorothy commands (you get a command not found error, or an undefined/unbound variable error), then it could be that:
+If your shell doesn't recognize any of the Dorothy commands (you get a command not found error, or an undefined/unbound variable error), then it could be that:
 
 -   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md).
 -   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
@@ -188,7 +188,7 @@ For each shell that you configured during the Dorothy installation (can be recon
 
     -   [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
     -   [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
-    -   POSIX shells ([bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [zsh](https://en.wikipedia.org/wiki/Z_shell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+    -   POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
 1.  The initialization script will:
 
