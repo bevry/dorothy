@@ -121,16 +121,21 @@ To run a specific command in/from the Dorothy environment, enter the following, 
 
 ```bash
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose a b c
-# if your shell doesn't recognize the above syntax, enter `bash -i` then try again
+# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line:
 
 ```bash
+# to invoke a configured bash shell, use:
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial)"
-# if your shell doesn't recognize the above syntax, enter `bash -i` then try again
+# to invoke a configured fish shell, use:
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial?shell=fish)"
+# to invoke a configured nu shell, use:
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial?shell=nu)"
+# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
-# enter whatever and how many commands as you'd like, such as:
+# now you can whatever and how many commands as you'd like, such as:
 echo-verbose a b c
 echo-style --success=awesome
 # exit this environment
@@ -143,7 +148,7 @@ To install Dorothy enter the following in your favorite terminal application:
 
 ```bash
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
-# if your shell doesn't recognize the above syntax, enter `bash -i` then try again
+# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
