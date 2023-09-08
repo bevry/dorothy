@@ -17,11 +17,11 @@
 	# }
 	# instead do it manually
 
-if 'DOROTHY_THEME_OVERRIDE' in $env {
+if 'DOROTHY_THEME_OVERRIDE' in $env and $env.DOROTHY_THEME_OVERRIDE != '' {
 	$env.DOROTHY_THEME = $env.DOROTHY_THEME_OVERRIDE
 }
 
-if 'DOROTHY_THEME' in $env {
+if 'DOROTHY_THEME' in $env and $env.DOROTHY_THEME != '' {
 	if $env.DOROTHY_THEME == 'oz' {
 		source ../themes/oz.nu
 	} else if $env.DOROTHY_THEME == 'starship' {
