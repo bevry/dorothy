@@ -128,17 +128,18 @@ To run multiple commands in/from a Dorothy-configured REPL, enter the following 
 
 ```bash
 # to invoke a configured bash shell, use:
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/shell)"
 # to invoke a configured fish shell, use:
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial?shell=fish)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/shell?shell=fish)"
 # to invoke a configured nu shell, use:
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/trial?shell=nu)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/shell?shell=nu)"
 # if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
 # now you can whatever and how many commands as you'd like, such as:
 echo-verbose a b c
 echo-style --success=awesome
-# exit this environment
+
+# once you are done, exit the trial environment
 exit
 ```
 
