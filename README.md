@@ -130,7 +130,7 @@ To run multiple commands in/from a Dorothy-configured REPL, enter the following 
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/shell)"
 # if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
-# now you can whatever and how many commands as you'd like, such as:
+# now you can run whatever and how many commands as you'd like, such as:
 echo-verbose a b c
 echo-style --success=awesome
 
