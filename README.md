@@ -144,7 +144,7 @@ To install Dorothy enter the following in your favorite terminal application:
 
 ```bash
 # Run the Dorothy installation script
-bash -ilc "$(curl -fsSL https://dorothy.bevry.me/install)"
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
