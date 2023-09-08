@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+
+function setup_util_ruby() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P setup-util)"
+
+	# improve performance
+	if is-needle --quiet "$@" && ! is-needle --upgrade "$@" && ! is-needle --uninstall "$@" && command-exists ruby; then
+		return 0
+	fi
+
+	# helpers
+	function ruby_install {
+		# install a specific ruby version via homebrew if supported
+		local brew_ruby='ruby'
+		if test -n "${HOMEBREW_RUBY_VERSION-}" -a "${HOMEBREW_RUBY_VERSION-}" != 'default'; then
+			brew_ruby="ruby@${HOMEBREW_RUBY_VERSION}"
+		fi
+
+		# perform the installation
+		setup-util --cli='ruby' "$@" \
+			APK='ruby-full' \
+			APT='ruby-full' \
+			AUR='ruby' \
+			BREW="$brew_ruby" \
+			RPM='ruby-devel' \
+			ZYPPER='ruby-devel' # 'ruby' is also available
+		set +x
+
+		# =====================================
+		# Selection
+
+		# upgrade configuration to use a single specific ruby version (if multiple exist)
+		local __version_options __bin_directory __executable __directory __directory_version __full_version __version_options
+		if test -n "${HOMEBREW_PREFIX-}"; then
+			if test -z "${HOMEBREW_RUBY_VERSION-}" || test "$HOMEBREW_RUBY_VERSION" = 'default' -a ! -d "$HOMEBREW_PREFIX/opt/ruby" || test -d "$HOMEBREW_PREFIX/opt/ruby@$HOMEBREW_RUBY_VERSION"; then
+				# discover
+				__version_options=()
+				mapfile -t rubyBinDirectories < <(expand-path "$HOMEBREW_PREFIX/opt/ruby*/bin")
+				for __bin_directory in "${rubyBinDirectories[@]}"; do
+					__executable="$__bin_directory/ruby"
+					__directory="$(basename "$(fs-dirname -- "$__bin_directory")")"
+					__directory_version="${__directory#*@}"
+					__full_version="$("$__executable" --version)"
+					if test "$__directory_version" = "$__directory"; then
+						__directory_version='default'
+					fi
+					__version_options+=(
+						"$__directory_version"
+						"$(
+							echo-style \
+								--bold="$__directory_version" \
+								$'\n  ' --dim="$__full_version" \
+								$'\n  ' --dim="$__executable"
+						)"
+					)
+				done
+
+				# select
+				HOMEBREW_RUBY_VERSION="$(
+					choose-option \
+						--question='There are multiple homebrew ruby versions installed, which version do you wish to prefer?' \
+						--label -- "${__version_options[@]}"
+				)"
+
+				# apply
+				config-helper --file="$DOROTHY/user/config/environment.bash" -- \
+					--field='HOMEBREW_RUBY_VERSION' --value="$HOMEBREW_RUBY_VERSION"
+			fi
+
+			echo-style --dim="Homebrew Ruby Version: $HOMEBREW_RUBY_VERSION"
+		fi
+
+		# .ruby is an deprecated cache location, clear it
+		if test -d "$HOME/.ruby"; then
+			fs-rm --no-confirm --quiet -- "$HOME/.ruby"
+		fi
+		# clear .gem is if it is not GEM_HOME
+		if test -n "${GEM_HOME-}"; then
+			if test "$GEM_HOME" != "$HOME/.gem"; then
+				fs-rm --no-confirm --quiet -- "$HOME/.gem"
+			fi
+			mkdir -p "$GEM_HOME"
+		else
+			mkdir -p "$HOME/.gem"
+		fi
+	}
+	function ruby_upgrade {
+		rust_install --upgrade "$@"
+	}
+	function ruby_uninstall {
+		# perform the uninstallation
+		setup-util --uninstall --cli='ruby' "$@" \
+			APK='ruby-full' \
+			APT='ruby-full' \
+			AUR='ruby' \
+			BREW="$brew_ruby" \
+			RPM='ruby-devel' \
+			ZYPPER='ruby-devel' # 'ruby' is also available
+	}
+
+	# setup
+	local options=(
+		--cli='ruby'
+		"$@"
+		EVAL_INSTALL='ruby_install'
+		EVAL_UPGRADE='ruby_upgrade'
+		EVAL_UNINSTALL='ruby_uninstall'
+	)
+	setup_util "${options[@]}"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	setup_util_ruby "$@"
+fi

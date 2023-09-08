@@ -13,11 +13,12 @@ function select_shell() (
 			Set your user's login shell to become the first available shell of your preferences.
 
 			USAGE:
-			select-shell [--] ...<preference>
+			select-shell [...options] [--] ...<preference>
+			If no <preference>s are provided, then [USER_SHELLS] from your [shell.bash] user configuration file will be used.
 
 			OPTIONS:
-			If no preferences are provided,
-			then [USER_SHELLS] from your [shell.bash] user configuration file will be used.
+			--no-brew
+			    Do not use any shell installed via brew.
 
 			QUIRKS:
 			You can use a command name, such as [bash] to select the preferred variation of the shell.
@@ -30,12 +31,15 @@ function select_shell() (
 	}
 
 	# process
-	local item shells=()
+	local item option_brew='' option_shells=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-brew'* | '--brew'*)
+			option_brew="$(get-flag-value brew --missing="$option_brew" -- "$item" | echo-affirmative)"
+			;;
 		'--')
 			shells+=("$@")
 			shift "$#"
@@ -51,16 +55,16 @@ function select_shell() (
 
 	function none_available {
 		# no shell was selected, error
-		echo-style --error="No preferred shell was currently installed, as such none were able to be selected." >/dev/stderr
+		echo-style --error='No preferred shell was currently installed, as such none were able to be selected.' >/dev/stderr
 		return 3 # ESRCH 3 No such process
 	}
 	function use_shell {
 		# use this specific shell
-		local shell="$1" path
-
+		local shell path
 		# if name, expand the name into a path
 		# if path, validate the path exists
-		path="$(type -P "$shell" || :)"
+		shell="$(basename "$1")"
+		path="$(type -P "$1" || :)"
 		if test -z "$path"; then
 			echo-segment --error="Failed to verify that shell [$shell] exists and is executable." >/dev/stderr
 			return 8 # ENOEXEC 8 Exec format error
@@ -70,20 +74,20 @@ function select_shell() (
 		echo-segment --h1="Selected [$shell] at [$path]"
 
 		# update system whitelist
-		echo-segment --h2="Update system whitelist"
+		echo-segment --h2='Update system whitelist'
 		if contains-line "$path" </etc/shells; then
-			echo-segment --green="Already within the system whitelist [/etc/shells]"
+			echo-segment --green='Already within the system whitelist [/etc/shells]'
 		else
-			echo-segment --h3="Add to system whitelist [/etc/shells]"
+			echo-segment --h3='Add to system whitelist [/etc/shells]'
 			print_line "$path" | sudo-helper -- tee -a /etc/shells
-			echo-segment --g3="Add to system whitelist [/etc/shells]"
+			echo-segment --g3='Add to system whitelist [/etc/shells]'
 		fi
-		echo-segment --g2="Update system whitelist"
+		echo-segment --g2='Update system whitelist'
 
 		# update system selection
 		echo-segment --h2="Update login shell for [$USER]"
 		if command-exists chpass; then
-			echo-style --dim="You can ignore [chpass: no changes made] warnings."
+			echo-style --dim='You can ignore [chpass: no changes made] warnings.'
 			# mac
 			chpass -s "$path" -u "$USER"
 		elif command-exists chsh; then
@@ -118,33 +122,30 @@ function select_shell() (
 	}
 	function use_first_available {
 		# use the first available preference passed to us
-		local shell use_shell_status
+		local shell path paths=() use_shell_status
+
+		# convert shells into each of their paths
 		for shell in "$@"; do
 			if test -z "$shell"; then
 				help "Invalid configuration was received, there was an empty item:" "$(echo-verbose "$@")"
 			fi
-			if command-exists "$shell"; then
-				echo-style --success="Preference available on this system:" ' ' --code="$shell"
-				eval_capture --statusvar=use_shell_status -- use_shell "$shell"
+			mapfile -t paths < <(type -pa "$shell" 2>/dev/null || :)
+			for path in "${paths[@]}"; do
+				if test -z "$path"; then
+					continue
+				fi
+				if test "$option_brew" = 'no' && [[ $path == "$HOMEBREW_PREFIX"* ]]; then
+					continue
+				fi
+				echo-style --success='Preference available on this system:' ' ' --code="$path"
+				eval_capture --statusvar=use_shell_status -- use_shell "$path"
 				if test "$use_shell_status" -eq 0; then
 					return 0
 				fi # else continue
-			else
-				echo-style --warning="Preference not yet installed on this system:" ' ' --code="$shell" >/dev/stderr
-			fi
+			done
+			echo-style --error='Preference unavailable on this system:' ' ' --code="$shell"
 		done
 		none_available
-	}
-	function use_selection {
-		# prompt the user which available shell to use
-		if test "$#" -eq 0; then
-			none_available
-		fi
-		use_shell "$(
-			choose-option --required \
-				--question="Which shell to use as your login shell?" \
-				-- "$@"
-		)"
 	}
 
 	# =====================================
@@ -152,22 +153,22 @@ function select_shell() (
 
 	# trim the startup message (alpine)
 	if test -f /etc/motd; then
-		if confirm --negative --ppid=$$ -- "Would you like to remove the startup message?" "$(echo-style --code="$(cat /etc/motd)")"; then
+		if confirm --negative --ppid=$$ -- 'Would you like to remove the startup message?' "$(echo-style --code="$(cat /etc/motd)")"; then
 			sudo-helper -- rm -v /etc/motd
 		fi
 	fi
 
 	# arguments
-	if test "${#shells[@]}" -ne 0; then
-		use_first_available "${shells[@]}"
+	if test "${#option_shells[@]}" -ne 0; then
+		use_first_available "${option_shells[@]}"
 	else
 		# configuration
 		source "$DOROTHY/sources/config.sh"
 		USER_SHELLS=()
 		load_dorothy_config 'shells.bash'
-		shells=("${USER_SHELLS[@]}")
-		if test "${#shells[@]}" -ne 0; then
-			echo-style --notice="No argument configuration found, using user configuration."
+		option_shells=("${USER_SHELLS[@]}")
+		if test "${#option_shells[@]}" -ne 0; then
+			echo-style --notice='No argument configuration found, using user configuration.'
 			use_first_available "${USER_SHELLS[@]}"
 		else
 			# invalid
