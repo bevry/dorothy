@@ -40,6 +40,7 @@
 # Homebrew / brew / https://brew.sh
 # Used by `setup-mac-brew`
 # You can use `setup-mac-brew --configure` to configure some of these.
+# HOMEBREW_UNTAPS=()
 # HOMEBREW_TAPS=()
 # HOMEBREW_FORMULAS=()
 # HOMEBREW_SLOW_FORMULAS=()
