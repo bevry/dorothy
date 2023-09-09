@@ -5,12 +5,16 @@ function down() (
 	source "$(type -P eval-helper)"
 
 	# supported tools
+	# @todo probably won't require shapeshifter if [eval-helper] is wrote to make more use of [eval_capture]
 	local tool available_tools=() all_tools=(
-		got    # nice progress bar
-		wget   # nice progress bar
-		httpie # progress bar is too sporadic
-		aria2c # progress bar doesn't play well with eval-helper
-		curl   # complex progress bar
+		wget   # nice progress bar without shapeshifter
+		curl   # nice progress bar with shapeshifter
+		got    # nice progress bar with shapeshifter
+		aria2c # no useful progress bar
+		# httpie # writes to stdout with [eval-helper], shapeshifter doesn't fix it, [eval-helper --no-quiet] solves it, but isn't what we want
+	) shapeshifter_tools=(
+		curl
+		got
 	)
 
 	# determine which tools are available
@@ -27,6 +31,7 @@ function down() (
 		down "$@"
 		return
 	fi
+
 
 	# =====================================
 	# Arguments
@@ -131,7 +136,13 @@ function down() (
 		help "The specified tool is not available: $tool"
 	fi
 
-	# ensure directory, filename, path
+	# some tools need shapeshifter
+	local shapeshifter='no'
+	if is-needle "$tool" "${shapeshifter_tools[@]}"; then
+		shapeshifter='yes'
+	fi
+
+	# ensure filepath, directory, file
 	if test -n "$filepath"; then
 		# filepath is a directory + file combination
 		filepath="$(fs-absolute -- "$filepath")"
@@ -183,7 +194,7 @@ function down() (
 				--always-resume=true
 				--auto-file-renaming=false
 				--show-console-readout=false
-				--summary-interval=1
+				--quiet # its multiline bar doesn't reset itself, just dumps more bars to stdout
 				--no-conf
 			)
 			if test -n "$option_bearer_token"; then
@@ -200,7 +211,10 @@ function down() (
 			aria2c "${aria2c_options[@]}"
 		}
 		function do_curl {
-			local curl_options=('-L')
+			# [--progress-bar] not as nice as default table
+			local curl_options=(
+				'-L'
+			)
 			if test -n "$option_bearer_token"; then
 				curl_options+=(
 					'--header'
@@ -238,16 +252,19 @@ function down() (
 		}
 		function do_httpie {
 			# https://httpie.io/docs/cli/download-mode
-			local http_options=('-dc')
+			local http_options=(
+				'--download'
+			)
 			if test -n "$option_bearer_token"; then
-				got_options+=(
+				http_options+=(
 					'--auth'
 					"Bearer $option_bearer_token"
 				)
 			fi
 			if test -n "$download_file"; then
 				http_options+=(
-					-o "$download_file"
+					'--continue' # --continue only works with --output
+					'--output' "$download_file"
 				)
 			fi
 			http_options+=("$url")
@@ -266,9 +283,12 @@ function down() (
 			#   -nv, --no-verbose                turn off verboseness, without being quiet
 			#        --show-progress             display the progress bar in any verbosity mode
 			# WARNING: timestamping does nothing in combination with -O. See the manual for details.
-			local wget_options=()
+			local wget_options=(
+				# nicer than dot, and noscroll prevents issues with our clearing
+				'--progress=bar:noscroll'
+			)
 			if test "$option_bearer_token"; then
-				options+=(
+				wget_options+=(
 					"--header=Authorization: Bearer $option_bearer_token"
 				)
 			fi
@@ -352,7 +372,7 @@ function down() (
 	fi
 
 	# act
-	eval_helper --quiet="$quiet" --no-wrap \
+	eval_helper --quiet="$quiet" --no-wrap --shapeshifter="$shapeshifter" \
 		--pending="$(
 			echo-style --bold="$pending " \
 				--code="$url" " to " --code="$directory/$file"
