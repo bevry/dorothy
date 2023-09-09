@@ -1,5 +1,23 @@
 # Manual to Assisted Installations
 
+## Commands
+
+If you are wanting to migrate your existing dotfiles configuration to Dorothy, you will probably have a legacy setup where instead of commands, you have functions, and instead of being cross-shell compatible, all your functions are written for one particular shell. To level-up your setup dramatically you will want to:
+
+Turn each of these functions into their own command, such that they can be cross-compatible with any shell that calls it, do this by:
+
+1. Moving the body of each function into their own command file at `$DOROTHY/user/commands/the-command-name`
+
+1. Make the first line of the command file either `#!/usr/bin/env bash` for bash, `#!/usr/bin/env zsh` for zsh, `#!/usr/bin/env fish` for fish, and so on.
+
+For functions that you want to keep in your shell environment rather than becoming commands:
+
+1. Create a `$DOROTHY/user/sources/` directory, and store them in there with the appropriate extension prefix, e.g. `$DOROTHY/user/sources/my-function.bash`
+
+1. Source the function file via your `$DOROTHY/user/config(.local)/interactive.*` configuration file, e.g. `source "$DOROTHY/user/sources/my-function.bash"`
+
+For anything that modifies paths, or configures ecosystems, check the [`setup-paths-commands` command](https://github.com/bevry/dorothy/tree/master/commands/setup-paths-commands) to see if Dorothy already handles it for you, if so you can remove it, otherwise read on.
+
 ## Environment
 
 Prior to Dorothy, when installing a utility, you would often have to manually modify your environment variables accordingly. This can get very complicated after a dozen or so utilities, and can be a matter of lock-in of which login shells you use.
