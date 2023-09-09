@@ -55,7 +55,7 @@ Use the [`secret` command](https://github.com/bevry/dorothy/tree/master/commands
 -   secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
 -   secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
 
-## DMS
+## DNS
 
 One of the biggest security concerns these days with using the internet, is the leaking, and potential of modification of your DNS queries. A DNS query is what turns `google.com` to say `172.217.167.110`. With un-encrypted DNS (the default), your ISP, or say that public Wifi provider, can intercept these queries to find out what websites you are visiting, and they can even rewrite these queries, to direct you elsewhere. This is how many public Wifi providers offer their service for free, by selling the data they collect on you, or worse.
 
