@@ -120,7 +120,7 @@ You can trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/co
 To run a specific command in/from the Dorothy environment, enter the following, swapping out everything after the double-dash (`--`) with whatever command to run:
 
 ```bash
-bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose a b c
+bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- echo-verbose -- a b c
 # if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
@@ -131,7 +131,7 @@ bash -ic "$(curl -fsSL https://dorothy.bevry.me/repl)"
 # if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
 # now you can run whatever and how many commands as you'd like, such as:
-echo-verbose a b c
+echo-verbose -- a b c
 echo-style --success=awesome
 
 # once you are done, exit the trial environment

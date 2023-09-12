@@ -282,6 +282,8 @@ For exit statuses 200-255, these are non-conventional as such they permit our ow
 ```plain
 ECUSTOM 200 Not applicable <for reason>
 Used to signal the caller that the action was not performed, and might be fine because the action wasn't applicable.
+
+ECUSTOM 210 Processing complete, exit early
 ```
 
 ## Capturing

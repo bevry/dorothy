@@ -51,13 +51,13 @@ EOF
 # open the element
 echo-element --open="$file"
 # output its contents
-echo-style --code="$(echo-trim-stdin <"$file")"
+echo-style --code="$(echo-trim-stdin --stdin <"$file")"
 # close the element
 echo-element --close="$file"
 
 # note that this example is contrived,
 # when outputting file content, use:
-echo-file "$file"
+echo-file -- "$file"
 ```
 
 For complete details, refer to `echo-element --help`.
@@ -73,7 +73,7 @@ arguments=(
 	'This string has "double quotes", but no single quotes.'
 	"This string has 'single quotes', and \"double quotes\"."
 )
-echo-quote "${arguments[@]}"
+echo-quote -- "${arguments[@]}"
 ```
 
 For complete details, refer to `echo-quote --help`.

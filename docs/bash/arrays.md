@@ -66,7 +66,7 @@ echo ${a[@]::2}  # get all items until the second index, starting at 0
 source "$DOROTHY/sources/strict.bash"
 
 # mapfile of an empty value will produce an array with 1 value which is empty
-mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail)
+mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
 # bash: failure-because-this-method-does-not-exist: command not found
 # empty stdin
 echo $? # 0
@@ -75,7 +75,7 @@ echo "${a[@]}" # empty
 
 # when using <() the correct length is returned
 # however even with strict, there is no hard fail
-mapfile -t a < <(echo 'error' > /dev/stderr | echo-or-fail)
+mapfile -t a < <(echo 'error' > /dev/stderr | echo-or-fail --stdin)
 # error
 # empty stdin
 echo $?  # 0
@@ -109,21 +109,21 @@ is-array-count-ge 1 "${a[@]}"
 str=$'a b\nc d'
 
 # these `read -ra` all fail to output the second line [c d]
-read -ra a <<< "$str"; echo-verbose "${a[@]}"
+read -ra a <<< "$str"; echo-verbose -- "${a[@]}"
 # outputs:
 # [0] = [a]
 # [1] = [b]
-read -ra a -d $'\n' <<< "$str"; echo-verbose "${a[@]}"
+read -ra a -d $'\n' <<< "$str"; echo-verbose -- "${a[@]}"
 # outputs:
 # [0] = [a]
 # [1] = [b]
-IFS=$'\n' read -ra a <<< "$str"; echo-verbose "${a[@]}"
+IFS=$'\n' read -ra a <<< "$str"; echo-verbose -- "${a[@]}"
 # outputs:
 # [0] = [a b]
 
 # these `mapfile -t` solutions are equivalent, and work
-mapfile -t a <<< "$str"; echo-verbose "${a[@]}"
-mapfile -td $'\n' a <<< "$str"; echo-verbose "${a[@]}"
+mapfile -t a <<< "$str"; echo-verbose -- "${a[@]}"
+mapfile -td $'\n' a <<< "$str"; echo-verbose -- "${a[@]}"
 # both output:
 # [0] = [a b]
 # [1] = [c d]
@@ -135,28 +135,28 @@ mapfile -td $'\n' a <<< "$str"; echo-verbose "${a[@]}"
 str=$'a b\nc d'
 
 # these `read -ra` solutions are equivalent, and have issues, both skipping the second line
-read -ra a -d ' ' <<< "$str"; echo-verbose "${a[@]}"
+read -ra a -d ' ' <<< "$str"; echo-verbose -- "${a[@]}"
 # outputs:
 # [0] = [a]
-IFS=' ' read -ra a <<< "$str"; echo-verbose "${a[@]}"
+IFS=' ' read -ra a <<< "$str"; echo-verbose -- "${a[@]}"
 # outputs:
 # [0] = [a]
 # [1] = [b]
 
 # these `mapfile -t` solutions are equivalent, and have issues
-mapfile -td ' ' a <<< "$str"; echo-verbose "${a[@]}"
+mapfile -td ' ' a <<< "$str"; echo-verbose -- "${a[@]}"
 # outputs mangled newlines:
 # [0] = [a]
 # [1] = [b
 # c]
 # [2] = [d
 # ]
-mapfile -td ' ' a <<< 'a b'; echo-verbose "${a[@]}"
+mapfile -td ' ' a <<< 'a b'; echo-verbose -- "${a[@]}"
 # outputs mangled trailing item:
 # [0] = [a]
 # [1] = [b
 # ]
-mapfile -td ' ' a <<< 'a b '; echo-verbose "${a[@]}"
+mapfile -td ' ' a <<< 'a b '; echo-verbose -- "${a[@]}"
 # outputs trailing item, but adds a dummy item
 # [0] = [a]
 # [1] = [b]
@@ -175,7 +175,7 @@ str=$'a b\nc d'
 
 # for a custom deliminator for input that may span multiple lines
 fodder="$(echo-split ' ' -- "$str")"
-mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
+mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -184,7 +184,7 @@ mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
 
 # or even multiple arguments
 fodder="$(echo-split ' ' -- "$str" "$str")"
-mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
+mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 # outputs correct:
 # [0] = [a]
 # [1] = [b]
@@ -196,34 +196,34 @@ mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
 # [7] = [d]
 
 # for a custom deliminator for input that is guaranteed to only span a single line
-IFS=' ' read -ra a <<< 'a b'; echo-verbose "${a[@]}"
+IFS=' ' read -ra a <<< 'a b'; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
 
 # for a newline deliminator that is not recursive between elements
-mapfile -t a <<< "$str"; echo-verbose "${a[@]}"
+mapfile -t a <<< "$str"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
-mapfile -t a < <(echo-lines -- 'a b' 'c d'); echo-verbose "${a[@]}"
+mapfile -t a < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
 
 # be careful of arguments being jumbled into a single line when parsing to mapfile
 list=('a b' 'c d')
-mapfile -t a <<< "${list[@]}"; echo-verbose "${a[@]}"
+mapfile -t a <<< "${list[@]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a b c d]
-mapfile -t a <<< "${list[*]}"; echo-verbose "${a[@]}"
+mapfile -t a <<< "${list[*]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a b c d]
 
 # such jumbled compression is not a problem with echo-split
 list=('a b' 'c d')
 fodder="$(echo-split '' -- "${list[@]}")"
-mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
+mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
@@ -231,7 +231,7 @@ mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
 # you can even use echo-split to split on recursive newlines
 list=($'a\nb' $'c\nd')
 fodder="$(echo-split $'\n' -- "${list[@]}")"
-mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
+mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -240,7 +240,7 @@ mapfile -t a <<< "$fodder"; echo-verbose "${a[@]}"
 
 # which the typical mapfile won't do
 list=($'a\nb' $'c\nd')
-mapfile -t a <<< "${list[@]}"; echo-verbose "${a[@]}"
+mapfile -t a <<< "${list[@]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a]
 # [1] = [b c]
@@ -289,7 +289,7 @@ You can even have the following benefits with `mapfile` too:
 # same context throughout:
 a=()
 mapfile -t a < <(echo-split $'\n' -- $'a\nb' $'c\nd')
-echo-verbose "${a[@]}"
+echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -300,9 +300,9 @@ echo-verbose "${a[@]}"
 a=()
 {
 	mapfile -t a
-	echo-verbose "${a[@]}"
+	echo-verbose -- "${a[@]}"
 } < <(echo-split $'\n' -- $'a\nb' $'c\nd')
-echo-verbose "${a[@]}"
+echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -317,9 +317,9 @@ echo-verbose "${a[@]}"
 a=()
 echo-split $'\n' -- $'a\nb' $'c\nd' | {
 	mapfile -t a
-	echo-verbose "${a[@]}"
+	echo-verbose -- "${a[@]}"
 }
-echo-verbose "${a[@]}"
+echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]

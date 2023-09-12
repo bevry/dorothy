@@ -134,7 +134,7 @@ function update_dorothy_user_config {
 		fi
 		if test -n "$dorothy_config_default_filepath"; then
 			# start witht he header of the default configuration file
-			echo-lines-before --line='' <"$dorothy_config_default_filepath" >"$dorothy_config_filepath"
+			echo-lines-before '' --stdin <"$dorothy_config_default_filepath" >"$dorothy_config_filepath"
 			echo >>"$dorothy_config_filepath"
 
 			# inject the sourcing of the default configuration file
@@ -167,7 +167,7 @@ function update_dorothy_user_config {
 			fi
 
 			# append the body of the default configuration file
-			echo-lines-after --line='' <"$dorothy_config_default_filepath" >>"$dorothy_config_filepath"
+			echo-lines-after '' --stdin <"$dorothy_config_default_filepath" >>"$dorothy_config_filepath"
 		else
 			# even the dorothy default is missing
 			cat <<-EOF >"$dorothy_config_filepath"

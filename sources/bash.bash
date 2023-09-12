@@ -469,7 +469,7 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 		fi
 		eval "$1=()"
 		while IFS= read -rd "$delim" item || test -n "$item"; do
-			eval "$1+=($(echo-quote "$item"))"
+			eval "$1+=($(echo-quote -- "$item"))"
 		done
 	}
 fi
