@@ -161,7 +161,7 @@ function stdinargs {
 		# [read -t 0 item] will not read anything, so it must be done seperately
 		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
 		if test "$timeout_max" = 'no' -a "$timeout_immediate" = 'no'; then
-			read_args+=("-t" "$timeout_seconds")
+			read_args+=('-t' "$timeout_seconds")
 		fi
 		item=''
 		while (test "$timeout_immediate" = 'no' || read -t 0) && IFS='' read -r "${read_args[@]}" item; do

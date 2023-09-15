@@ -6,7 +6,7 @@
 
 #  if "$DOROTHY_THEME" in (scope variables | get name) {
 	# can't do this as nushell doesn't support dynamic sources
-	# if $DOROTHY_THEME != "system" {
+	# if $DOROTHY_THEME != 'system' {
 	# 	if $"../user/themes/($DOROTHY_THEME).nu" {
 	# 		source $"../user/themes/($DOROTHY_THEME).nu"
 	# 	} else if test -f $"../themes/($DOROTHY_THEME).nu" {

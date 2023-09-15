@@ -35,7 +35,7 @@ echo "${#a[@]}"
 # see the note at the end of this chapter for details
 
 # contains
-if test "${a[@]}" = *"c"*; then
+if test "${a[@]}" = *'c'*; then
 	echo 'with c'
 else
 	echo 'without c'

@@ -14,10 +14,10 @@ function nofap {
 		new="$3"
 
 		# prepare message for socials and terminal
-		if test "$nofap" = "yes"; then
+		if test "$nofap" = 'yes'; then
 			socials="$user changed $their $thing to $new which is NoFap compliant ✅"
 			terminal="$(echo-style --green="$socials")"
-		elif test "$nofap" = "no"; then
+		elif test "$nofap" = 'no'; then
 			socials="$user changed $their $thing to $new which VIOLATES NoFap ❌"
 			terminal="$(echo-style --red="$socials")"
 		else
