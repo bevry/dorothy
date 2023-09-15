@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 # for scripts and sources to load a configuration file
-# <filename...>
+# load_dorothy_config ...<filename>
 function load_dorothy_config
 	set --local dorothy_config_loaded 'no'
 

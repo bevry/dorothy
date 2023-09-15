@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 # for scripts and sources to load a configuration file
-# load_dorothy_config <filename>...
+# load_dorothy_config ...<filename>
 load_dorothy_config() {
 	dorothy_config_loaded='no'
 

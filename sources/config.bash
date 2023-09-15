@@ -53,7 +53,7 @@ function prepare_packages {
 function update_dorothy_user_config_help {
 	cat <<-EOF >/dev/stderr
 		USAGE:
-		update_dorothy_user_config [--flags]... <filename> -- [arguments for \`config-helper\`]...
+		update_dorothy_user_config [...options] -- [...arguments for \`config-helper\`]
 
 		OPTIONS:
 		<filename>                       The filename of the configuratio file to find or create, then update.
