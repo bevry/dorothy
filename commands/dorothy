@@ -182,7 +182,7 @@ function dorothy() (
 
 	# vars that should be exported to subshells, which may or may not be inherited, as setup-environment-commands has not run yet
 	local self
-	export DOROTHY DOROTHY_XDG ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME
+	export DOROTHY ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME
 	if test -z "${DOROTHY-}"; then
 		# handle cron situation (dorothy is installed, however environment is empty)
 		# `env -i "$(which dorothy)" run env` <-- whoami returns user who has dorothy installed:
@@ -208,9 +208,6 @@ function dorothy() (
 			# handle fresh install situation
 			DOROTHY=''
 		fi
-	fi
-	if test -z "${DOROTHY_XDG-}"; then
-		DOROTHY_XDG=''
 	fi
 	if test -z "${ZDOTDIR-}"; then
 		ZDOTDIR=''
@@ -259,20 +256,29 @@ function dorothy() (
 			--commit=<commit>
 			    If Dorothy needs to be installed, checkout this commit.
 
+			--xdg | --no-xdg
+
+			    If [--xdg] is used, DOROTHY will be relocated to the XDG location.
+			    If [--no-xdg] is used, a custom DOROTHY will be permitted.
+			    If neither is provided, autodetection is used. This is the default.
+
 			ACTIONS:
 
-			dorothy install [--[no-]xdg]
+			dorothy install
+			  [--clean]
 
 			    Installs Dorothy interactively, with configuration for dotfile modifications.
-			    If you are a poweruser and wish to override XDG autodetection to either enforce XDG compliance or non-compliance then provide [--xdg] or [--no-xdg] respectively.
+
+			    Unless [--clean] is provided, Dorothy will only extend your shell configuration.
+			    If [--clean] is provided, Dorothy will prompt you if you would like to remove your default shell configuration for a lighter installation experience.
 
 			dorothy uninstall
 
 			    Removes the Dorothy sourcing from your dotfile configuration files.
 
 			dorothy repl
-			    [--shell=<shell>]
-			    [--theme=<theme>]
+			  [--shell=<shell>]
+			  [--theme=<theme>]
 
 			    Invoke a Dorothy-configured REPL, where you can run as many commands within the Dorothy environment as you'd like.
 			    If a shell is provided, invoke Dorothy within that shell, otherwise prompt for which REPL-supported shell to use.
@@ -336,14 +342,14 @@ function dorothy() (
 
 	# process action arguments
 	# @todo prevent double-action overwrite
-	local item action='' option_branch='' option_commit='' args=()
+	local item action='' option_xdg='' option_branch='' option_commit='' args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--xdg') DOROTHY_XDG='yes' ;;
-		'--no-xdg') DOROTHY_XDG='no' ;;
+		'--xdg' | '--xdg=yes') option_xdg='yes' ;;
+		'--no-xdg' | '--xdg=no') option_xdg='no' ;;
 		'--branch='*) option_branch="${item#*--branch=}" ;;
 		'--commit='*) option_commit="${item#*--commit=}" ;;
 		'repl')
@@ -358,6 +364,8 @@ function dorothy() (
 			;;
 		'i' | 'install')
 			action='install'
+			args+=("$@")
+			shift $#
 			;;
 		'u' | 'up' | 'update')
 			action='update'
@@ -478,7 +486,7 @@ function dorothy() (
 		# [set-hostname] requires [sd]
 		# [config-helper] requires [rg], [sd], [teip]
 		if command_missing jq rg sd sd teip; then
-			echo-segment --h2="Install required dependencies"
+			echo-segment --h2='Install required dependencies'
 			if command_exists apt-get; then
 				try_sudo apt-get update
 			fi
@@ -487,7 +495,7 @@ function dorothy() (
 			setup-util-sd --quiet
 			setup-util-teip --quiet
 			setup-util-bash --quiet # install last (as depends on above)
-			echo-segment --g2="Install required dependencies"
+			echo-segment --g2='Install required dependencies'
 		elif is_mac; then
 			setup-util-bash --quiet
 		fi
@@ -497,14 +505,14 @@ function dorothy() (
 	}
 
 	function ensure_development_dependencies {
-		echo-segment --h2="Install development dependencies"
+		echo-segment --h2='Install development dependencies'
 		setup-util-bash --quiet "$@"
 		setup-util-prettier --quiet "$@"
 		setup-util-ripgrep --quiet "$@"
 		setup-util-shellcheck --quiet "$@"
 		setup-util-shfmt --quiet "$@"
 		setup-util-trunk --quiet "$@"
-		echo-segment --g2="Install development dependencies"
+		echo-segment --g2='Install development dependencies'
 
 		# make sure our path can detect them
 		source "$DOROTHY/sources/environment.sh"
@@ -555,23 +563,17 @@ function dorothy() (
 	}
 
 	function rm_deprecated {
-		if test -f "$1"; then
-			echo
-			echo-file -- "$1"
-			if confirm --positive --ppid=$$ -- 'The above file is probably deprecated with Dorothy, would you like to replace it?'; then
-				rm "$1"
+		local file
+		for file in "$@"; do
+			# -s (file exists and is not empty)
+			if test -s "$file"; then
+				echo-file -- "$file"
+				if confirm --positive --ppid=$$ -- 'Unless you are an experienced user who has already made modifications to this shell configuration file, it can be safely removed for a lighter installation. Remove this file?'; then
+					rm "$file"
+				fi
+				echo
 			fi
-		fi
-	}
-
-	function checksum_deprecated {
-		if test -f "$1"; then
-			echo
-			echo-file -- "$1"
-			print_line "$1 checksum = "
-			echo-checksum --algorithm=md5 -- "$1"
-			echo
-		fi
+		done
 	}
 
 	function make_executable {
@@ -602,13 +604,13 @@ function dorothy() (
 	function relocate_dorothy_if_necessary {
 		# move if necessary
 		if test -d "$DOROTHY" -o -d "$XDG_DATA_HOME/dorothy"; then
-			if test "$DOROTHY_XDG" = 'yes'; then
+			if test "$option_xdg" = 'yes'; then
 				relocate_if_necessary "$DOROTHY" "$XDG_DATA_HOME/dorothy"
-			elif test "$DOROTHY_XDG" = 'no'; then
+			elif test "$option_xdg" = 'no'; then
 				relocate_if_necessary "$XDG_DATA_HOME/dorothy" "$DOROTHY"
 				relocate_if_necessary "$HOME/.local/share/dorothy" "$DOROTHY"
 			else
-				# invalid DOROTHY_XDG value
+				# invalid option_xdg value
 				return 76 # EPROCUNAVAIL 76 Bad procedure for program
 			fi
 
@@ -620,15 +622,15 @@ function dorothy() (
 	function relocate_user_if_necessary {
 		# move if necessary
 		if test -d "$DOROTHY/user" -o -d "$XDG_CONFIG_HOME/dorothy"; then
-			if test "$DOROTHY_XDG" = 'yes'; then
+			if test "$option_xdg" = 'yes'; then
 				relocate_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 				# ensure $DOROTHY/user always exists
 				symlink-helper --quiet --existing="$XDG_CONFIG_HOME/dorothy" --symlink="$DOROTHY/user"
-			elif test "$DOROTHY_XDG" = 'no'; then
+			elif test "$option_xdg" = 'no'; then
 				relocate_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
 				relocate_if_necessary "$HOME/.config/dorothy" "$DOROTHY/user"
 			else
-				# invalid DOROTHY_XDG value
+				# invalid option_xdg value
 				return 76 # EPROCUNAVAIL 76 Bad procedure for program
 			fi
 
@@ -645,16 +647,16 @@ function dorothy() (
 	function relocate_zsh_if_necessary {
 		# https://zsh.sourceforge.io/Intro/intro_3.html
 		# determine ZDOTDIR
-		if test "$DOROTHY_XDG" = 'yes'; then
+		if test "$option_xdg" = 'yes'; then
 			if test -z "$ZDOTDIR"; then
 				ZDOTDIR="$XDG_CONFIG_HOME/zsh"
 			fi
-		elif test "$DOROTHY_XDG" = 'no'; then
+		elif test "$option_xdg" = 'no'; then
 			if test -z "$ZDOTDIR"; then
 				ZDOTDIR="$HOME"
 			fi
 		else
-			# invalid DOROTHY_XDG value
+			# invalid option_xdg value
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
 		fi
 		# move config files
@@ -668,44 +670,27 @@ function dorothy() (
 	}
 
 	function prepare_dorothy {
-		# if DOROTHY or DOROTHY_XDG exist already, it is via env overrides
-
 		# if no DOROTHY env override, attempt DOROTHY from possible existing installations
 		if test -z "$DOROTHY"; then
 			if test -d "$XDG_DATA_HOME/dorothy"; then
 				DOROTHY="$XDG_DATA_HOME/dorothy"
 			elif test -d "$HOME/.local/share/dorothy"; then
 				DOROTHY="$HOME/.local/share/dorothy"
-			elif test -d "$HOME/.dorothy"; then
-				DOROTHY="$HOME/.dorothy"
 			elif test -x ./commands/dorothy; then
-				DOROTHY="$(pwd)" # GitHub Actions
-			fi
-		fi
-
-		# if no DOROTHY_XDG env override, enforce DOROTHY_XDG from DOROTHY
-		if test -z "$DOROTHY_XDG"; then
-			if test -n "$DOROTHY"; then
-				if test "$DOROTHY" = "$XDG_DATA_HOME/dorothy"; then
-					DOROTHY_XDG='yes'
-				else
-					DOROTHY_XDG='no'
-				fi
-			elif test -d "$XDG_DATA_HOME"; then
-				DOROTHY_XDG='yes'
+				DOROTHY="$(pwd)" # github actions, cron, etc
 			else
-				DOROTHY_XDG='no'
-			fi
-		fi
-
-		# if DOROTHY is still not defined, then there is no env override, and no existing installation
-		# so enforce DOROTHY based on DOROTHY_XDG determination
-		if test -z "$DOROTHY"; then
-			if test "$DOROTHY_XDG" = 'yes'; then
+				# no existing installation
+				# no custom $DOROTHY
+				# so use XDG
 				DOROTHY="$XDG_DATA_HOME/dorothy"
-			else
-				DOROTHY="$HOME/.dorothy"
 			fi
+		fi
+
+		# adjust XDG based on determination above
+		if test "$DOROTHY" = "$XDG_DATA_HOME/dorothy"; then
+			option_xdg='yes'
+		else
+			option_xdg='no'
 		fi
 
 		# adjust path for determined (including user defined) DOROTHY, as well as standard DOROTHY XDG location (in case user ever changes DOROTHY location)
@@ -1099,20 +1084,31 @@ function dorothy() (
 	}
 
 	function ensure_shell_configured {
-		echo
-		print_line 'Dorothy will now confirm the modifications required to have it be loaded by your shell.'
-		echo
-		rm_deprecated "$HOME/.profile"
-		rm_deprecated "$HOME/.bash_profile"
-		rm_deprecated "$HOME/.bashrc"
-		rm_deprecated "$ZDOTDIR/.zshrc"
-		rm_deprecated "$ZDOTDIR/.zprofile"
-		rm_deprecated "$HOME/.config/fish/config.fish"
-		echo
+		# process arguments
+		local item option_clean='no' option_uninstall='no'
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--clean' | '--clean=yes') option_clean='yes' ;;
+			'--no-clean' | '--clean=no') option_clean='no' ;;
+			'--uninstall') option_uninstall='yes' ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*) help "An unrecognised argument was provided: $item" ;;
+			esac
+		done
 
-		# bash always exists, so always positive
-		if confirm --positive --ppid=$$ -- "Would you like Bash to use Dorothy?"; then
+		echo-segment --h2='Dorothy Shell Configuration'
+
+		# bash
+		# bash always exists, so always default to positive
+		if test "$option_uninstall" = 'yes' || confirm --positive --ppid=$$ -- "Would you like $(echo-style --bold=Bash) to use Dorothy?"; then
 			setup-util-bash --quiet
+
+			# cleanup
+			if test "$option_clean" = 'yes'; then
+				rm_deprecated "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc"
+			fi
 
 			# mac and raspi ubuntu
 			config-helper --file="$HOME/.bash_profile" -- \
@@ -1121,13 +1117,25 @@ function dorothy() (
 			# vm ubuntu
 			config-helper --file="$HOME/.bashrc" -- \
 				--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
+		else
+			config-helper --file="$HOME/.bash_profile" -- \
+				--find='source ".+?" # Dorothy' --replace=''
+			config-helper --file="$HOME/.bashrc" -- \
+				--find='source ".+?" # Dorothy' --replace=''
 		fi
 
+		# zsh
 		# https://zsh.sourceforge.io/Intro/intro_3.html
-		if confirm --positive="$(echo-exit-affirmative -- command-exists zsh)" --ppid=$$ -- "Would you like Zsh to use Dorothy?"; then
+		if test "$option_uninstall" = 'yes' || confirm --positive="$(echo-exit-affirmative -- command-exists zsh)" --ppid=$$ -- "Would you like $(echo-style --bold=Zsh) to use Dorothy?"; then
 			setup-util-zsh --quiet
 			mkdir -p "$ZDOTDIR"
 
+			# cleanup
+			if test "$option_clean" = 'yes'; then
+				rm_deprecated "$ZDOTDIR/.zshrc" "$ZDOTDIR/.zprofile"
+			fi
+
+			# configure
 			config-helper --file="$ZDOTDIR/.zshrc" -- \
 				--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
 
@@ -1136,75 +1144,96 @@ function dorothy() (
 
 			config-helper --file="$HOME/.zshenv" -- \
 				--find='ZDOTDIR=.+' --replace="ZDOTDIR=\"$ZDOTDIR\""
+		else
+			mkdir -p "$ZDOTDIR"
+			config-helper --file="$ZDOTDIR/.zshrc" -- \
+				--find='source ".+?" # Dorothy' --replace=''
+			config-helper --file="$ZDOTDIR/.zprofile" -- \
+				--find='source ".+?" # Dorothy' --replace=''
+			config-helper --file="$HOME/.zshenv" -- \
+				--find='ZDOTDIR=.+' --replace="ZDOTDIR=\"$ZDOTDIR\""
 		fi
 
-		if confirm --positive="$(echo-exit-affirmative -- command-exists fish)" --ppid=$$ -- "Would you like Fish to use Dorothy?"; then
+		# fish
+		if test "$option_uninstall" = 'yes' || confirm --positive="$(echo-exit-affirmative -- command-exists fish)" --ppid=$$ -- "Would you like $(echo-style --bold=Fish) to use Dorothy?"; then
 			setup-util-fish --quiet
 			mkdir -p "$HOME/.config/fish"
 
+			# cleanup
+			if test "$option_clean" = 'yes'; then
+				rm_deprecated "$HOME/.config/fish/config.fish"
+			fi
+
+			# configure
 			config-helper --file="$HOME/.config/fish/config.fish" -- \
 				--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.fish\" # Dorothy"
+		else
+			mkdir -p "$HOME/.config/fish"
+			config-helper --file="$HOME/.config/fish/config.fish" -- \
+				--find='source ".+?" # Dorothy' --replace=''
 		fi
 
-		if confirm --positive="$(echo-exit-affirmative -- command-exists nu)" --ppid=$$ -- "Would you like Nu to use Dorothy?"; then
+		# nu
+		if test "$option_uninstall" = 'yes' || confirm --positive="$(echo-exit-affirmative -- command-exists nu)" --ppid=$$ -- "Would you like $(echo-style --bold=Nu) to use Dorothy?"; then
 			setup-util-nu --quiet
 
 			# trunk-ignore(shellcheck/SC2016)
 			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
 				--find='source ".+?" # Dorothy' --replace="source \"$DOROTHY/init.nu\" # Dorothy"
+		elif command-exists nu; then
+			# trunk-ignore(shellcheck/SC2016)
+			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
+				--find='source ".+?" # Dorothy' --replace=''
 		fi
-	}
 
-	function remove_shell_configuration {
-		# bash
-		config-helper --file="$HOME/.bash_profile" -- \
-			--find='source ".+?" # Dorothy' --replace=''
-		config-helper --file="$HOME/.bashrc" -- \
-			--find='source ".+?" # Dorothy' --replace=''
-
-		# zsh
-		mkdir -p "$ZDOTDIR"
-		config-helper --file="$ZDOTDIR/.zshrc" -- \
-			--find='source ".+?" # Dorothy' --replace=''
-		config-helper --file="$ZDOTDIR/.zprofile" -- \
-			--find='source ".+?" # Dorothy' --replace=''
-		config-helper --file="$HOME/.zshenv" -- \
-			--find='ZDOTDIR=.+' --replace="ZDOTDIR=\"$ZDOTDIR\""
-
-		# fish
-		mkdir -p "$HOME/.config/fish"
-		config-helper --file="$HOME/.config/fish/config.fish" -- \
-			--find='source ".+?" # Dorothy' --replace=''
+		echo-segment --g2='Dorothy Shell Configuration'
 	}
 
 	# =====================================
 	# Actions: Install, Update, Trial
 
 	function act_install {
+		# process arguments
+		local item option_clean='no'
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--clean' | '--clean=yes') option_clean='yes' ;;
+			'--no-clean' | '--clean=no') option_clean='no' ;;
+			'--'*) help "An unrecognised flag was provided: $item" ;;
+			*) help "An unrecognised argument was provided: $item" ;;
+			esac
+		done
+
+		# pre-requisites
 		ensure_dorothy_configured
 		assert_dorothy_configured
-		ensure_minimal_dependencies
 
+		# action
 		echo-segment --h1='Install Dorothy'
+		ensure_minimal_dependencies
 		ensure_machine_configured
 		ensure_user_configured
-		ensure_shell_configured
-		echo-segment --g1='Install Dorothy'
+		ensure_shell_configured --clean="$option_clean"
 
 		# log success
+		echo-segment --g1='Install Dorothy'
 		echo-style --success='Dorothy is now setup.' ' ' --notice='Restart your terminal.'
 	}
 
 	function act_uninstall {
+		# pre-requisites
 		ensure_dorothy_configured
 		assert_dorothy_configured
-		ensure_minimal_dependencies
 
+		# action
 		echo-segment --h1='Uninstall Dorothy'
-		remove_shell_configuration
-		echo-segment --g1='Uninstall Dorothy'
+		ensure_minimal_dependencies
+		ensure_shell_configured --uninstall
 
 		# log success and instructions for removal
+		echo-segment --g1='Uninstall Dorothy'
 		echo-style --success='Dorothy is now uninstalled.' ' ' --notice='Restart your terminal.'
 		local paths=()
 		if test -d "$DOROTHY"; then
@@ -1220,10 +1249,12 @@ function dorothy() (
 	}
 
 	function act_update {
+		# pre-requisites
 		assert_dorothy_configured
-		ensure_minimal_dependencies
 
+		# action
 		echo-segment --h1='Update Dorothy'
+		ensure_minimal_dependencies
 		ensure_dorothy_configured
 		ensure_user_configured
 		echo-segment --g1='Update Dorothy'
@@ -1244,9 +1275,11 @@ function dorothy() (
 			esac
 		done
 
-		# prepare
+		# pre-requisites
 		ensure_dorothy_configured
 		assert_dorothy_configured
+
+		# action
 		ensure_minimal_dependencies
 
 		# ask
@@ -1318,7 +1351,7 @@ function dorothy() (
 			esac
 		done
 
-		# prepare
+		# pre-requisites
 		{
 			ensure_dorothy_configured
 			assert_dorothy_configured
@@ -1333,20 +1366,23 @@ function dorothy() (
 	# Actions: ...
 
 	function act_permissions {
+		# pre-requisites
 		assert_dorothy_configured
-		ensure_minimal_dependencies
 
+		# action
 		echo-segment --h1='Correct Dorothy Permissions'
+		ensure_minimal_dependencies
 		ensure_permissions_configured
 		echo-segment --g1='Correct Dorothy Permissions'
 	}
 
 	function act_edit {
+		# pre-requisites
 		assert_dorothy_and_user_cloned
-		# ensure_minimal_dependencies
-		# ^ if they are editing, then we assume they are already setup
 
+		# action
 		echo-segment --h1='Edit Dorothy'
+		# ensure_minimal_dependencies <-- if they are editing, then we assume they are already setup
 		ensure_permissions_configured
 		if test "$(edit --dry --only-editor)" == 'code'; then
 			code -- "$DOROTHY/.vscode/workspace.code-workspace"
@@ -1357,10 +1393,12 @@ function dorothy() (
 	}
 
 	function act_review {
+		# pre-requisites
 		assert_dorothy_and_user_cloned
-		ensure_minimal_dependencies
 
+		# action
 		echo-segment --h1='Review Dorothy'
+		ensure_minimal_dependencies
 		ensure_permissions_configured
 		git-helper review "$DOROTHY/user" || :
 		git-helper review "$DOROTHY" || :
@@ -1368,11 +1406,14 @@ function dorothy() (
 	}
 
 	function act_theme {
+		# pre-requisites
 		assert_dorothy_and_user_cloned
+
+		# action
+		echo-segment --h1='Select Dorothy Theme'
 		ensure_minimal_dependencies
 
 		# features
-		echo-segment --h1='Select Dorothy Theme'
 		local themes theme files
 		source "$DOROTHY/sources/config.sh"
 		require_array 'mapfile'
@@ -1408,12 +1449,11 @@ function dorothy() (
 	}
 
 	function act_dev {
+		# pre-requisites
 		assert_dorothy_configured
 
-		# log
+		# action
 		echo-segment --h1='Dorothy Development'
-
-		# install
 		if is-ci; then
 			ensure_development_dependencies --no-quiet
 		else
@@ -1435,8 +1475,10 @@ function dorothy() (
 	}
 
 	function act_format {
+		# pre-requisites
 		assert_dorothy_configured
 
+		# action
 		echo-segment --h1='Dorothy Format'
 		ensure_development_dependencies
 
@@ -1468,8 +1510,10 @@ function dorothy() (
 	}
 
 	function act_check {
+		# pre-requisites
 		assert_dorothy_configured
 
+		# action
 		echo-segment --h1='Dorothy Checks'
 		ensure_development_dependencies
 
@@ -1501,8 +1545,10 @@ function dorothy() (
 	}
 
 	function act_lint {
+		# pre-requisites
 		assert_dorothy_configured
 
+		# action
 		echo-segment --h1='Dorothy Lint'
 		ensure_development_dependencies
 
@@ -1538,8 +1584,13 @@ function dorothy() (
 	}
 
 	function act_test {
+		# pre-requisites
 		assert_dorothy_configured
 		# ^ no need for user config for tests
+
+		# action
+		echo-segment --h1='Dorothy Tests'
+		source "$DOROTHY/sources/ripgrep.bash"
 
 		# able to test on bash v3?
 		local bash bashv3=''
@@ -1547,22 +1598,6 @@ function dorothy() (
 		if is_mac && test "$bash" != '/bin/bash' && [[ "$(/bin/bash --version || :)" == 'GNU bash, version 3.'* ]]; then
 			bashv3='/bin/bash'
 		fi
-
-		# dependencies
-		source "$DOROTHY/sources/ripgrep.bash"
-
-		# if ci, note the checksums of the dotfiles
-		echo-segment --h1='Dorothy Checksums'
-		checksum_deprecated "$HOME/.profile"
-		checksum_deprecated "$HOME/.bash_profile"
-		checksum_deprecated "$HOME/.bashrc"
-		checksum_deprecated "$ZDOTDIR/.zshrc"
-		checksum_deprecated "$ZDOTDIR/.zprofile"
-		checksum_deprecated "$HOME/.config/fish/config.fish"
-		echo-segment --g1='Dorothy Checksums'
-
-		# log
-		echo-segment --h1='Dorothy Tests'
 
 		# prepre scan paths
 		local scan_paths=("$DOROTHY")
@@ -1612,14 +1647,13 @@ function dorothy() (
 	}
 
 	function act_todos {
+		# pre-requisites
 		assert_dorothy_configured
 		# ^ no need for user config for todos
 
-		# dependencies
-		source "$DOROTHY/sources/ripgrep.bash"
-
-		# log
+		# action
 		echo-segment --h1='Dorothy Todos'
+		source "$DOROTHY/sources/ripgrep.bash"
 
 		# verbose about command conventions and support
 		local matches file_good file_bad file_status
