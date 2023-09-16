@@ -160,11 +160,13 @@ function stdinargs {
 		# for each inline, call `on_inline` or `on_line` or `on_input`
 		# [read -t 0 item] will not read anything, so it must be done seperately
 		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
+		local read_args=('-r') # bash v3 compat
 		if test "$timeout_max" = 'no' -a "$timeout_immediate" = 'no'; then
 			read_args+=('-t' "$timeout_seconds")
 		fi
 		item=''
-		while (test "$timeout_immediate" = 'no' || read -t 0) && IFS='' read -r "${read_args[@]}" item; do
+		# trunk-ignore(shellcheck/SC2162)
+		while (test "$timeout_immediate" = 'no' || read -t 0) && IFS='' read "${read_args[@]}" item; do
 			had_stdin='yes'
 			if test "$complete" = 'yes'; then
 				break
