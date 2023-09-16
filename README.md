@@ -165,7 +165,7 @@ If packages are failing to install, [go back to the "Prerequisites" section](htt
 
 If your shell doesn't recognize any of the Dorothy commands (you get a command not found error, or an undefined/unbound variable error), then it could be that:
 
--   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md).
+-   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md)
 -   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
 -   Your login shell is not one of the Dorothy supported shells (Bash, Zsh, Fish, Nu). [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
 
