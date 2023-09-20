@@ -26,8 +26,8 @@ if 'DOROTHY_THEME' in $env and $env.DOROTHY_THEME != '' {
 		source ../themes/oz.nu
 	} else if $env.DOROTHY_THEME == 'starship' {
 		source ../themes/starship.nu
-	} else if $env.DOROTHY_THEME == 'trial' {
-		source ../themes/trial.nu
+	} else if $env.DOROTHY_THEME == 'demo' {
+		source ../themes/demo.nu
 	} else {
 		echo-style $'--warning=Dorothy theme [($env.DOROTHY_THEME)] is not supported by this shell [nu]' >/dev/stderr
 	}
