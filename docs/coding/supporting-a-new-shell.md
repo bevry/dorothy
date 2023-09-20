@@ -24,8 +24,5 @@ The following files need addition or modification.
 -   `sources/history.*` the ability to clear sensitive information from the shell (optional)
 -   `sources/login.*` configuration for the login shell
 -   `sources/ssh.*` support for the ssh agent
--   `sources/theme.*` support for cross-shell theming
-    -   `themes/{oz}` and `oz.*` support the oz theme in the shell
-    -   `themes/starship.*` support the starship theme in the shell
-    -   `themes/trial.*` support the trial theme in the shell
+-   `sources/theme.*` and `themes/*.*` support for cross-shell theming
 -   `config/shells.bash` to add `select-shell` support for the shell
