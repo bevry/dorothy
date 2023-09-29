@@ -17,7 +17,7 @@ else
 	load_dorothy_config "interactive.$ACTIVE_POSIX_SHELL" 'interactive.sh'
 fi
 
-# continue with the shell extras
+# Continue with the shell extras
 . "$DOROTHY/sources/nvm.sh"
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"

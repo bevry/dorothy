@@ -103,6 +103,8 @@ function on_env_finish {
 				echo "set --universal --erase $name;"
 			elif test "$shell" = 'nu'; then
 				echo "setenv $name"
+			elif test "$shell" = 'xonsh'; then
+				echo 'del $'"$name"
 			else
 				echo "export $name='';"
 			fi
@@ -112,6 +114,8 @@ function on_env_finish {
 				echo "set --export --path $name '$value';"
 			elif test "$shell" = 'nu'; then
 				echo "setenv $name $value"
+			elif test "$shell" = 'xonsh'; then
+				echo '$'"$name = '$value'.split(':')"
 			else
 				echo "export $name='$value';"
 			fi
@@ -121,6 +125,8 @@ function on_env_finish {
 				echo "set --export $name '$value';"
 			elif test "$shell" = 'nu'; then
 				echo "setenv $name $value"
+			elif test "$shell" = 'xonsh'; then
+				echo '$'"$name = '$value'"
 			else
 				echo "export $name='$value';"
 			fi

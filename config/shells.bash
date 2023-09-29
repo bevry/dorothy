@@ -6,13 +6,14 @@
 
 # Our shells in order of preference
 USER_SHELLS=(
-	fish # fish shell
-	zsh  # Z shell
-	bash # bourne again shell
-	nu   # nushell
-	sh   # bourne shell
-	ash  # almquist shell
-	dash # debian almquist shell
-	ksh  # korn shell
-	hush # hush, an independent implementation of a Bourne shell for BusyBox
+	fish  # fish shell
+	zsh   # Z shell
+	bash  # bourne again shell
+	nu    # nushell
+	xonsh # python-powered	 shell
+	sh    # bourne shell
+	ash   # almquist shell
+	dash  # debian almquist shell
+	ksh   # korn shell
+	hush  # hush, an independent implementation of a Bourne shell for BusyBox
 )

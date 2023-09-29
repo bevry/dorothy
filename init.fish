@@ -1,8 +1,7 @@
 #!/usr/bin/env fish
 
 # this should be consistent with:
-# $DOROTHY/init.fish
-# $DOROTHY/init.sh
+# $DOROTHY/init.*
 # $DOROTHY/commands/dorothy
 if ! set -q DOROTHY
 	set -xg DOROTHY (dirname (status -f))
