@@ -105,7 +105,7 @@ if test "${DOROTHY_LOAD-}" = 'yes'; then
 	# init dorothy's environment for the login shell
 	. "$DOROTHY/sources/login.sh"
 
-	# if the login shell is interactive, then init dorothy for the interactive login shell
+	# if the login shell is also interactive, then init dorothy for the interactive login shell
 	# [test -t 0] and [test -s] are true despite [env -i bash -lc ...]
 	case $- in *i*) . "$DOROTHY/sources/interactive.sh" ;; esac
 fi

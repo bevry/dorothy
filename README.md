@@ -17,7 +17,7 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh)
+-   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh)
 -   seamless support for multiple operating systems and architectures
 -   seamless support for your favorite terminal and GUI editors
 -   automatic configuration of your environment variables for what you have installed on your system
@@ -189,24 +189,26 @@ For each shell that you configured during the Dorothy installation (can be recon
     -   [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
     -   [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
     -   [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
+    -   [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
     -   POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
 1.  The initialization script will:
 
     1. Ensure the `DOROTHY` environment variable is set to the location of the Dorothy installation.
 
-    1. If a login shell, it loads our login script `sources/login.(sh|fish|nu|xsh)`, which will:
+    1. If a login shell, it loads our login script `sources/login.(sh|fish|nu|xsh|elv)`, which will:
 
         1. Apply any configuration changes necessary for that login shell
-        1. Load our environment script `sources/environment.(sh|fish|nu|xsh)`, which will:
+        1. Load our environment script `sources/environment.(sh|fish|nu|xsh|elv)`, which will:
 
             1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
 
-    1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu|xsh)`, which will:
+    1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu|xsh|elv)`, which will:
 
         1. Load your own `user/config(.local)/interactive.(sh|fish|nu|xsh)` configuration script for your own interactive login shell configuration.
             - Nu will only load `interactive.nu` and it must exist.
             - Xonsh will only load `interactive.xsh` if it exists.
+            - Elvish will only load `interactive.elv` if it exists.
             - Fish shell will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
             - POSIX shells will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
         1. Load any common alias and function utilities.

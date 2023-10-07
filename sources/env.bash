@@ -105,6 +105,9 @@ function on_env_finish {
 				echo "setenv $name"
 			elif test "$shell" = 'xonsh'; then
 				echo 'del $'"$name"
+			elif test "$shell" = 'elvish'; then
+				# https://elv.sh/ref/builtin.html#unset-env
+				echo "unset-env $name"
 			else
 				echo "export $name='';"
 			fi
@@ -116,6 +119,9 @@ function on_env_finish {
 				echo "setenv $name $value"
 			elif test "$shell" = 'xonsh'; then
 				echo '$'"$name = '$value'.split(':')"
+			elif test "$shell" = 'elvish'; then
+				# https://elv.sh/ref/builtin.html#set-env
+				echo "set-env $name $value"
 			else
 				echo "export $name='$value';"
 			fi
@@ -127,6 +133,9 @@ function on_env_finish {
 				echo "setenv $name $value"
 			elif test "$shell" = 'xonsh'; then
 				echo '$'"$name = '$value'"
+			elif test "$shell" = 'elvish'; then
+				# https://elv.sh/ref/builtin.html#set-env
+				echo "set-env $name = $value"
 			else
 				echo "export $name='$value';"
 			fi

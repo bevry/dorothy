@@ -11,6 +11,5 @@ if ${...}.get('DOROTHY') == None:
 
 if $XONSH_LOGIN == True:
 	execx(compilex(open($DOROTHY + '/sources/login.xsh').read()))
-
-if $XONSH_INTERACTIVE == True:
-	execx(compilex(open($DOROTHY + '/sources/interactive.xsh').read()))
+	if $XONSH_INTERACTIVE == True:
+		execx(compilex(open($DOROTHY + '/sources/interactive.xsh').read()))

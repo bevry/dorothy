@@ -6,5 +6,7 @@ $env.PATH = ($env.PATH | split row (char esep) | prepend $'($env.HOME)/.local/sh
 
 if $nu.is-login {
 	source ./sources/login.nu
-	source ./sources/interactive.nu
+	if $nu.is-interactive {
+		source ./sources/interactive.nu
+	}
 }

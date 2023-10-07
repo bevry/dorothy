@@ -7,8 +7,9 @@ if ! set -q DOROTHY
 	set -xg DOROTHY (dirname (status -f))
 end
 
-# login
 if status --is-login
 	source "$DOROTHY/sources/login.fish"
-	source "$DOROTHY/sources/interactive.fish"
+	if status --is-interactive
+		source "$DOROTHY/sources/interactive.fish"
+	end
 end

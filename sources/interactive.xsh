@@ -1,10 +1,21 @@
 #!/usr/bin/env xonsh
 
+# @todo figure out why this doesn't work:
 # Source our ability to load configuration files
-evalx(compilex(open($DOROTHY + '/sources/config.xsh').read()))
+# evalx(compilex(open($DOROTHY + '/sources/config.xsh').read()))
+# Load the configuration for interactive shells
+# load_dorothy_config('interactive.xsh')
 
 # Load the configuration for interactive shells
-# load_dorothy_config('interactive.xsh') # <-- this isn't availiable for some reason
+if path.exists($DOROTHY + '/user/config.local/interactive.xsh'):
+	# load user/config.local/*
+	execx(compilex(open($DOROTHY + '/user/config.local/interactive.xsh').read()))
+elif path.exists($DOROTHY + '/user/config/interactive.xsh'):
+	# otherwise load user/config/*
+	execx(compilex(open($DOROTHY + '/user/config/interactive.xsh').read()))
+elif path.exists($DOROTHY + '/config/interactive.xsh'):
+	# otherwise load default configuration
+	execx(compilex(open($DOROTHY + '/config/interactive.xsh').read()))
 
 # Continue with the shell extras
 # execx(compilex(open($DOROTHY + '/sources/history.xsh').read()))
