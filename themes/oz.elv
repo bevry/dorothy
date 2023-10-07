@@ -19,7 +19,7 @@ set edit:after-command = [ $@edit:after-command $starship-after-command-hook~ ]
 
 # our customisation
 set edit:prompt = {
-	if ?(test -d &follow-symlink=$true $E:DOROTHY) {
+	if ?(test ! -d $E:DOROTHY) {
 		printf '%s\n' 'DOROTHY has been moved, please re-open your shell'
 		return 1
 	}
