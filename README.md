@@ -17,7 +17,7 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh)
+-   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh)
 -   seamless support for multiple operating systems and architectures
 -   seamless support for your favorite terminal and GUI editors
 -   automatic configuration of your environment variables for what you have installed on your system
@@ -167,7 +167,7 @@ If your shell doesn't recognize any of the Dorothy commands (you get a command n
 
 -   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md)
 -   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
--   Your login shell is not one of the Dorothy supported shells (Bash, Zsh, Fish, Nu). [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
+-   Your login shell is not one of the Dorothy supported shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh)). [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
 
 ## Overview
 
@@ -205,12 +205,12 @@ For each shell that you configured during the Dorothy installation (can be recon
 
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu|xsh|elv)`, which will:
 
-        1. Load your own `user/config(.local)/interactive.(sh|fish|nu|xsh)` configuration script for your own interactive login shell configuration.
-            - Nu will only load `interactive.nu` and it must exist.
-            - Xonsh will only load `interactive.xsh` if it exists.
-            - Elvish will only load `interactive.elv` if it exists.
-            - Fish shell will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
-            - POSIX shells will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
+        1. Load your own `user/config(.local)/interactive.(sh|fish|nu|xsh|elv)` configuration script for your own interactive login shell configuration.
+            - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) shell will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
+            - [Nu](https://www.nushell.sh) will only load `interactive.nu` and it must exist.
+            - [Xonsh](https://xon.sh) will only load `interactive.xsh` if it exists.
+            - [Elvish](https://elv.sh) will only load `interactive.elv` if it exists.
+            - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), etc) will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
         1. Load any common alias and function utilities.
         1. Load our theme configuration.
         1. Load our ssh configuration.
