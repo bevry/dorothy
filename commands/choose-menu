@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# NOTES:
-# - [--required] do not make sense here, as those are for high-level handling, this is just menu navigation
-
 # QUIRKS:
 # - if there are more options than [$LINES - header], then this will fall apart
 
@@ -15,16 +12,55 @@ function choose_menu_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-segment --h1="TEST: $0"
 
-	# timout response
-	eval-tester --name='timeout response was detected' --status='60' --stderr='Read timed out [60].' \
-		-- choose-menu --question='What is your response?' --timeout=10 -- a b c
+	# timeout response not required
+	eval-tester --name='timeout response not required' --status='60' --stderr='Read timed out [60], without selection.' \
+		-- env NO_COLOR=yes choose-menu --question='timeout response not required' --timeout=5 -- a b c
+
+	# timeout response is required
+	eval-tester --name='timeout response is required' --status='60' --stderr='Read timed out [60], without selection.' \
+		-- env NO_COLOR=yes choose-menu --question='timeout response is required' --timeout=5 --required -- a b c
+
+	# default response
+	{
+		sleep 3
+	} | eval-tester --name='default response' --stdout='1' --ignore-stderr \
+		-- choose-menu --question='default response' --timeout=2 --default=b -- a b c
+
+	# default response should clear on movement
+	{
+		# move down and select second response
+		sleep 3
+		printf $'\eOB'
+		sleep 3
+	} | eval-tester --name='default response should clear on movement' --status='60' --stdout='' --ignore-stderr \
+		-- choose-menu --question='default response should clear on movement' --timeout=10 --default=b -- a b c
+
+	# default multi response
+	{
+		sleep 3
+	} | eval-tester --name='default multi response' --stdout=$'1\n2' --ignore-stderr \
+		-- choose-menu --question='default multi response' --timeout=2 --multi --default=b --default=c -- a b c
+
+	# default multi response should not clear on movement
+	{
+		sleep 3
+		printf $'\eOB'
+		sleep 3
+	} | eval-tester --name='default multi response should not clear on movement' --stdout=$'1\n2' --ignore-stderr \
+		-- choose-menu --question='default multi response should not clear on movement' --timeout=10 --multi --default=b --default=c -- a b c
+
+	# multiline defaults
+	{
+		sleep 3
+	} | eval-tester --name='default multiline response' --stdout=$'1\n2\n3' --ignore-stderr \
+		-- choose-menu --question='default multiline response' --timeout=2 --multi --default=$'b\nB' --defaults=$'c\nd' -- a $'b\nB' c d
 
 	# first selection
 	{
 		sleep 3
 		echo
-	} | eval-tester --name='first response was detected' --stdout='0' \
-		-- choose-menu --question='What is your response?' -- a b c
+	} | eval-tester --name='first response' --stdout='0' \
+		-- choose-menu --question='first selection' -- a b c
 
 	# second selection
 	{
@@ -33,16 +69,16 @@ function choose_menu_test() (
 		printf $'\eOB'
 		sleep 3
 		echo
-	} | eval-tester --name='second response was detected' --stdout='1' \
-		-- choose-menu --question='What is your response?' -- a b c
+	} | eval-tester --name='second response' --stdout='1' \
+		-- choose-menu --question='second selection' -- a b c
 
-	# abort selection
+	# abort response via escape
 	{
 		# press escape key
 		sleep 3
 		printf $'\x1b'
-	} | eval-tester --name='abort via escape key was detect' \
-		-- choose-menu --question='What is your response?' -- a b c
+	} | eval-tester --name='abort response via escape' \
+		-- choose-menu --question='abort response via escape' -- a b c
 
 	echo-segment --g1="TEST: $0"
 	return 0
@@ -67,14 +103,24 @@ function choose_menu() (
 			The index of the result
 
 			OPTIONS:
+			--default=<value>
+			--defaults=<newline separated values>
+			    Pre-selected <item>s.
+
 			--question=<question>
 			    Question to display as the prompt.
 
-			--multi
-			    Multiple menu items can be selected.
-
 			--timeout=<timeout>
 			    Custom timeout value in seconds.
+
+			--[no-]multi=[yes|NO]
+			    Multiple items can be selected.
+
+			--[no-]hints=[YES|no]
+			    Display interaction hint line.
+
+			--[no-]required=[yes|NO]
+			    If required, aborting the menu will not be possible.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -83,7 +129,7 @@ function choose_menu() (
 	}
 
 	# process
-	local item='' items=() option_question='' option_timeout='' option_multi='no' option_required='no' use_colors
+	local item='' items=() defaults=() tmp=() option_question='' option_timeout='' option_multi='no' option_required='no' option_hints='yes' use_colors
 	use_colors="$(echo-color yes -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -91,8 +137,16 @@ function choose_menu() (
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-color'* | '--color'*) ;; # handled by echo-color
+		'--default='*) defaults+=("${item#*--default=}") ;;
+		'--defaults='*)
+			mapfile -t tmp <<<"${item#*--defaults=}"
+			defaults+=("${tmp[@]}")
+			;;
 		'--question='*) option_question="${item#*--question=}" ;;
 		'--timeout='*) option_timeout="${item#*--timeout=}" ;;
+		'--no-hints'* | '--hints'*)
+			option_hints="$(get-flag-value hints --missing="$option_hints" -- "$item" | echo-affirmative --stdin)"
+			;;
 		'--no-multi'* | '--multi'*)
 			option_multi="$(get-flag-value multi --missing="$option_multi" -- "$item" | echo-affirmative --stdin)"
 			;;
@@ -122,54 +176,145 @@ function choose_menu() (
 	last="$((count - 1))"
 	mapfile -t selections < <(get-array "$count")
 
+	# default selection
+	local cursor=0
+	local index _default
+	if test "${#defaults[@]}" -ne 0; then # bash v3 compat
+		if test "${#defaults[@]}" -gt 1 -a "$option_multi" = 'no'; then
+			help 'Multiple defaults were provided, but --multi was not set.'
+		fi
+		for _default in "${defaults[@]}"; do
+			for index in "${!items[@]}"; do
+				item="${items[index]}"
+				if test "$_default" = "$item"; then
+					selections[index]='yes'
+					if test "$option_multi" = 'no'; then
+						cursor="$index"
+						break
+					fi
+				fi
+			done
+		done
+	fi
+
 	# commence
-	tty_auto
-	local index read_status cursor=0 action='' tty_target
-	tty_target="$(is-tty --fallback)"
+	tty_start
+	local read_status menu_status=0 menu='' action='' tty_target
+	local magenta=$'\e[35m' bold=$'\e[1m' dim=$'\e[2m' reset=$'\e[0m'
+	local help_begin="$dim" help_end="$reset" key_begin key_end=" $reset" indent='  '
+	if test "$use_colors" = 'no'; then
+		magenta=''
+		bold=''
+		dim=''
+		reset=''
+		help_begin=''
+		help_end=''
+		key_begin='['
+		key_end=']'
+	elif test "$(get-terminal-theme || :)" = 'dark'; then
+		key_begin=$'\e[30m\e[47m ' # foreground black, background white
+	else
+		key_begin=$'\e[107m ' # foreground default black, background intense white
+	fi
+	tty_target="$(is-tty --fallback)" had_selected='no'
 	while test "$action" != 'done'; do
+		menu=''
+
 		# question
 		if test -n "$option_question"; then
-			print_line "$option_question" >"$tty_target"
+			menu+="${bold}${option_question}${reset}"$'\n'
 		fi
 
 		# show the menu
+		had_selected='no'
 		for index in "${!items[@]}"; do
 			if test "$index" -eq "$cursor"; then
-				if test "$use_colors" = 'yes'; then
-					print_string $'\e[35m' >"$tty_target"
-				fi
-				print_string '>' >"$tty_target"
+				menu+="$magenta>"
 			else
-				if test "$use_colors" = 'yes' -a "${selections[index]-}" = 'yes'; then
-					print_string $'\e[35m' >"$tty_target"
+				if test "${selections[index]-}" = 'yes'; then
+					menu+=" $magenta"
+				else
+					menu+=' '
 				fi
-				print_string ' ' >"$tty_target"
 			fi
-			if test "${selections[index]-}" = 'yes'; then
-				print_string ' ◉ ' >"$tty_target"
-			elif test "$option_multi" = 'yes'; then
-				print_string ' ○ ' >"$tty_target"
+			if test "$option_multi" = 'yes'; then
+				# one hollow circle: ⚬ ○ ◯ ❍
+				# two hollow circles: ◎ ⦾ ⊚
+				# one hollow, one full: ☉ ⦿ ◉
+				# one full: ●
+				# ▣ ▢ □ ⊡
+				# ☑ ☒
+				# ✓ ✔ ✖  ✗  ✘
+				if test "${selections[index]-}" = 'yes'; then
+					had_selected='yes'
+					menu+=" ⦿ "
+				else
+					menu+=' ○ '
+				fi
 			else
-				print_string ' ' >"$tty_target"
+				if test "${selections[index]-}" = 'yes'; then
+					had_selected='yes'
+					menu+=" $bold"
+				else
+					menu+=' '
+				fi
 			fi
-			print_string "${items[index]}" >"$tty_target"
-			if test "$use_colors" = 'yes'; then
-				print_string $'\e[0m' >"$tty_target"
-			fi
-			print_line >"$tty_target"
+			menu+="${items[index]}${reset}"$'\n'
 		done
+
+		# hints
+		if test "$option_hints" = 'yes'; then
+			if test "$option_multi" = 'no'; then
+				menu+="${help_begin}SELECT${help_end} ${key_begin}ENTER${key_end} ${key_begin}SPACE${key_end}"
+			else
+				menu+="${help_begin}SELECT${help_end} ${key_begin}SPACE${key_end}"
+			fi
+			if test "$count" -ne 1; then
+				# [⬆⬇⇧] have alignment issues, use [↑↓]
+				menu+="${indent}${help_begin}UP${help_end} ${key_begin}↑${key_end} ${key_begin}W${key_end} ${key_begin}K${key_end}"
+				menu+="${indent}${help_begin}DOWN${help_end} ${key_begin}↓${key_end} ${key_begin}S${key_end} ${key_begin}J${key_end}"
+				if test "$option_multi" = 'yes'; then
+					menu+="${indent}${help_begin}ALL${help_end} ${key_begin}A${key_end}"
+					menu+="${indent}${help_begin}NONE${help_end} ${key_begin}D${key_end}"
+				fi
+			fi
+			if test "$option_required" = 'no'; then
+				menu+="${indent}${help_begin}CANCEL${help_end} ${key_begin}ESC${key_end}"
+			fi
+		fi
+
+		# output menu
+		printf '%s' "$menu" >"$tty_target"
 
 		# handle the response
 		eval_capture --statusvar=read_status --stdoutvar=action -- read-key --timeout="$option_timeout"
 		if test "$read_status" -eq 60; then
-			print_line "Read timed out [$read_status]." >/dev/stderr
-			sleep 3
-			return "$read_status"
+			if test "$had_selected" = 'yes'; then
+				tty_clear
+				echo-style --colors="$use_colors" --notice="Read timed out [$read_status], using selection." >/dev/stderr
+				sleep 3
+				break # out of the while loop
+			else
+				tty_clear
+				echo-style --colors="$use_colors" --warning="Read timed out [$read_status], without selection." >/dev/stderr
+				sleep 3
+				menu_status="$read_status"
+				break # out of the while loop
+			fi
 		elif test "$read_status" -ne 0; then
-			print_line "Read failed [$read_status]." >/dev/stderr
 			# some other failure
+			tty_clear
+			echo-style --colors="$use_colors" --error="Read failed [$read_status]." >/dev/stderr
 			sleep 3
-			return "$read_status"
+			menu_status="$read_status"
+			break # out of the while loop
+		fi
+
+		# reset selection if not multi
+		if test "$had_selected" = 'yes' -a "$option_multi" = 'no'; then
+			for index in "${!selections[@]}"; do
+				selections[index]=''
+			done
 		fi
 
 		# handle special cases and remaps
@@ -184,35 +329,47 @@ function choose_menu() (
 				cursor="$last"
 			fi
 			action='space'
-		elif test "$action" = 'left' -o "$action" = 'h' -o "$action" = 'k' -o "$action" = 'a' -o "$action" = 'w'; then
+		elif test "$action" = 'left' -o "$action" = 'h' -o "$action" = 'k' -o "$action" = 'w'; then
 			action='up'
-		elif test "$action" = 'right' -o "$action" = 'l' -o "$action" = 'j' -o "$action" = 'd' -o "$action" = 's'; then
+		elif test "$action" = 'right' -o "$action" = 'l' -o "$action" = 'j' -o "$action" = 's'; then
 			action='down'
+		elif test "$action" = 'd' -o "$action" = 'backspace'; then
+			action='none'
+		elif test "$action" = 'a'; then
+			action='all'
 		fi
 
 		# control key
 		if test "$action" = 'up'; then
-			if test "$cursor" -ne 0; then
+			if test "$cursor" -eq 0; then
+				cursor="$last"
+			elif test "$cursor" -ne 0; then
 				cursor="$((cursor - 1))"
 			fi
 		elif test "$action" = 'down'; then
-			if test "$cursor" -ne "$last"; then
+			if test "$cursor" -eq "$last"; then
+				cursor=0
+			elif test "$cursor" -ne "$last"; then
 				cursor="$((cursor + 1))"
 			fi
 		elif test "$action" = 'home'; then
 			cursor=0
 		elif test "$action" = 'end'; then
 			cursor="$last"
-		elif test "$action" = 'backspace'; then
-			# unselect everything
-			for index in "${!items[@]}"; do
-				selections[index]=''
-			done
-		elif test "$action" = 'all' -a "$option_multi" = 'yes'; then
-			# select everything
-			for index in "${!items[@]}"; do
-				selections[index]='yes'
-			done
+		elif test "$action" = 'none'; then
+			# if multi then unselect everything, other no-op (as any keypress by now would have cleared the non-multi selection)
+			if test "$option_multi" = 'yes'; then
+				for index in "${!items[@]}"; do
+					selections[index]=''
+				done
+			fi
+		elif test "$action" = 'all'; then
+			# if multi then select everything, other no-op (as any keypress by now would have cleared the non-multi selection)
+			if test "$option_multi" = 'yes'; then
+				for index in "${!items[@]}"; do
+					selections[index]='yes'
+				done
+			fi
 		elif test "$action" = 'tab'; then
 			# select and move to next line
 			selections[cursor]='yes'
@@ -247,28 +404,21 @@ function choose_menu() (
 		tty_clear
 	done
 
-	# if break, then no clear occured, so clear it here
-	tty_clear
-
-	# if multi with no selection then ask for everything
-	# todo implement --required properly here
-	if is-array-empty "${selections[@]}" && test "$option_multi" = 'yes'; then
-		if confirm --positive --ppid=$$ -- 'You exited without selecting anything, do you wish to select all?' >"$tty_target"; then
-			for index in "${!items[@]}"; do
-				selections[index]='yes'
-			done
-		fi
-		tty_clear
-	fi
+	# terminate our tty
+	tty_finish
 
 	# output the custom selections
-	local index selection
-	for index in "${!selections[@]}"; do
-		selection="${selections[index]}"
-		if test "$selection" = 'yes'; then
-			print_line "$index"
-		fi
-	done
+	if test "$menu_status" -eq 0; then
+		local index selection
+		for index in "${!selections[@]}"; do
+			selection="${selections[index]}"
+			if test "$selection" = 'yes'; then
+				print_line "$index"
+			fi
+		done
+	else
+		return "$menu_status"
+	fi
 )
 
 # fire if invoked standalone
