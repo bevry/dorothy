@@ -30,58 +30,61 @@ echo "$#"
 
 # array length
 echo "${#a[@]}"
-# ^^^ this has issues
-# you probably want to use `is-array-empty`, `is-array-full`, `get-array-count`, `is-array-count`
-# see the note at the end of this chapter for details
+# ^ this is usually okay, but has a gotcha with `mapfile ... <<< ...` usage, see the later chapter about array lengths
 
 # contains
-if test "${a[@]}" = *'c'*; then
-	echo 'with c'
+if is-needle ' ' "${a[@]}"; then
+	echo 'with [ ]'
 else
-	echo 'without c'
+	echo 'without [ ]'
 fi
-if test "${a[@]}" = *"c d"*; then
-	echo 'with c d'
+if is-needle 'c d' "${a[@]}"; then
+	echo 'with [c d]'
 else
-	echo 'without c d'
+	echo 'without [c d]'
 fi
 
 # subsets
-echo "${a[@]:2:1}" # get one item, from the second index starting at 0
-# 'c d'
+echo-verbose "${a[@]:2:1}" # get one item, from the second index starting at 0
+# [0] = [c d]
 
-echo "${a[@]:2:3}" # get three items, from the second index starting at 0
-# 'c d', e, f
+echo-verbose "${a[@]:2:3}" # get three items, from the second index starting at 0
+# [0] = [c d]
+# [1] = [e]
+# [2] = [f]
 
-echo "${a[@]:1}"  # get all items, from the first index starting at 0
-# b, 'c d', e, f, g, 'h i', j
+echo-verbose "${a[@]:1}"  # get all items, from the first index starting at 0
+# [0] = [b]
+# [1] = [c d]
+# [2] = [e]
+# [3] = [f]
+# [4] = [g]
+# [5] = [h i]
+# [6] = [j]
 
-echo ${a[@]::2}  # get all items until the second index, starting at 0
-# a, b
+echo-verbose ${a[@]::2}  # get all items until the second index, starting at 0
+# [0] = [a]
+# [1] = [b]
 ```
 
-## array lengths
+## mapfile array length gotcha
 
 ```bash
-source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/bash.bash"
 
-# mapfile of an empty value will produce an array with 1 value which is empty
-mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
-# bash: failure-because-this-method-does-not-exist: command not found
-# empty stdin
-echo $? # 0
+# don't do this
+mapfile -t a <<< "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
+echo $? # 0 -- success exit code, despite failure
 echo "${#a[@]}" # 1
-echo "${a[@]}" # empty
+echo-verbose "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
 
-# when using <() the correct length is returned
-# however even with strict, there is no hard fail
-mapfile -t a < <(echo 'error' > /dev/stderr | echo-or-fail --stdin)
-# error
-# empty stdin
-echo $?  # 0
+# do this instead
+mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
+echo $? # 0 -- success exit code, despite failure
 echo "${#a[@]}" # 0
+echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
 
-# in both cases this sanity check is necessary
+# you can use this to ensure that the array is not empty
 if is-array-empty "${a[@]}"; then
 	echo 'failure' > /dev/stderr
 	exit 1
