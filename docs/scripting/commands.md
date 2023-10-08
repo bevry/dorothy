@@ -12,7 +12,7 @@ If it is a bash command, it should always start with:
 
 ```bash
 #!/usr/bin/env bash
-source "$DOROTHY/sources/strict.bash"
+source "$DOROTHY/sources/bash.bash"
 ```
 
 If your bash command requires arrays, use:
