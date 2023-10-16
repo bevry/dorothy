@@ -382,10 +382,10 @@ elif test "$BASH_VERSION_MAJOR" -eq 4; then
 else
 	# < bash v4.0
 	function uppercase_first_letter {
-		print_line "$1" # not important, implement later
+		print_line "$1" # @todo not important, implement later
 	}
 	function lowercase_string {
-		print_line "$1" # not important, implement later
+		print_line "$1" # @todo not important, implement later
 	}
 fi
 
