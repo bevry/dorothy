@@ -19,7 +19,7 @@ A few different tools exist in Dorothy for doing fancy TTY stuff:
 
 -   For colors:
 
-    -   `echo-color` does the magic
+    -   `echo-style` does the magic
 
 For learning how these actually work behind the scenes:
 

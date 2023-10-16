@@ -1,28 +1,46 @@
 # Conventions for Commands
 
+## Location
+
 There are several places commands are located, [ordered by least preferred to most preferred](https://github.com/bevry/dorothy/discussions/28).
 
--   `$DOROTHY/commands/*` for Dorothy's commands
+-   `$DOROTHY/commands/*` for Dorothy's stable commands
+-   `$DOROTHY/commands.beta/*` for Dorothy's beta commands
 -   `$DOROTHY/user/commands/*` for your public commands
 -   `$DOROTHY/user/commands.local/*` for your local/private commands
 
 Commands that have demand by the wider community will be promoted to exist directly within Dorothy, but should always start within your own user configuration first.
 
-If it is a bash command, it should always start with:
+## Structure
+
+If it is a bash command, it's most basic template should be:
 
 ```bash
 #!/usr/bin/env bash
-source "$DOROTHY/sources/bash.bash"
-```
 
-If your bash command requires arrays, use:
+function the_name_of_my_command() (
+	source "$DOROTHY/sources/bash.bash"
 
-```bash
-source "$DOROTHY/sources/arrays.bash"
-if test "$ARRAYS" = 'no'; then
-	exit 45 # ENOTSUP 45 Operation not supported
+	# ... the contents of my command ...
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	the_name_of_my_command "$@"
 fi
 ```
+
+Filenames should have dashes, whereas function names should have underscores. If a function name is a single word, an underscore should be added to the end, such as `ask_`. This is because functions can behave differently to file invocations, so the distinction is important (see the notes on `eval_capture` for details).
+
+The `function ... () (` creates a subshell, such that changes to our shell environment do not affect other commands.
+
+The `source ...` sources our [`sources/bash.bash` file](https://github.com/bevry/dorothy/blob/master/sources/bash.bash) which sets sensible defaults, treats uncaught errors as exceptions, and provides some standard utilities, shims, and feature detection.
+
+For instance:
+
+-   if your command needs to capture the exit status and/or output of a command, you can use `eval_capture ...`
+-   if your command requires `globstar` you can use `require_globstar` to fail if globstar is unsupported.
+-   if your command uses `mapfile` you can use `require_array 'mapfile'` to fail if mapfile is unsupported.
 
 If your bash command makes use of `ripgrep`, then use the following to ensure it is installed and that it won't output something silly.
 
@@ -34,30 +52,57 @@ source "$DOROTHY/sources/ripgrep.bash"
 
 Dorothy prefers user commands to its own commands, allowing users to extend the functionality of the built in Dorothy commands.
 
-For instance, to display a whisper emote before silencing output with `silent`, we'd create our own `silent` command:
+For instance, if we want to have the user affirm honesty before any call to the the `ask` command, we can create our own `commands/ask` command in our user configuration:
 
 ```bash
-touch "$DOROTHY/user/commands/silent"
-chmod +x "$DOROTHY/user/commands/silent"
-edit "$DOROTHY/user/commands/silent"
+touch "$DOROTHY/user/commands/ask"
+chmod +x "$DOROTHY/user/commands/ask"
+edit "$DOROTHY/user/commands/ask"
 ```
 
-Save it with the content:
+And set its contents to:
 
 ```bash
 #!/usr/bin/env bash
-echo '🤫' > /dev/tty
-"$DOROTHY/commands/silent" "$@"
+
+function ask_() (
+    source "$DOROTHY/sources/bash.bash"
+    if confirm --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
+        "$DOROTHY/commands/ask" "$@"
+    else
+        echo-style --error='If we cannot trust your answers, we cannot act reliably. Exiting...'
+        return 1
+    fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	ask_ "$@"
+fi
 ```
 
-And running it just like before:
+Now, when we call `ask` we will get our overlay:
 
 ```bash
-silent echo 'do you hear me?'
+ask --question='What is your name?'
 ```
 
-As this is not the best example, remember to remove it:
+As this is not a useful example, remember to remove it:
 
 ```bash
 rm "$DOROTHY/user/commands/silent"
 ```
+
+## Utilities
+
+If there is a utility that you wish to install in an automated and cross-platform way, you can write a `setup-util-*` script for it.
+
+The one for CURL is a good place to start: <https://github.com/bevry/dorothy/blob/master/commands/setup-util-curl>
+
+You'd want to replace all references of `curl` with your utility CLI name. If the utility has a different name to its CLI, you can also provide `--name="..."`. Add or remove as many methods (the uppercase options) as needed, by determining which methods (package systems) are available for the utility via its documentation or via repology.
+
+## Echos
+
+Most of the `echo-*` commands in Dorothy transform an input, be it an argument or a line of stdin, and do so easily via our [`sources/stdinargs.bash` helper](https://github.com/bevry/dorothy/blob/master/sources/stdinargs.bash).
+
+The one for transforming inputs to lowercase is a good place to start: <https://github.com/bevry/dorothy/blob/master/commands/echo-lowercase>
