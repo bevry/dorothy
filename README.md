@@ -157,7 +157,7 @@ dorothy theme
 # then open a new terminal
 ```
 
-To select your login shell, run `select-shell`.
+To select your login shell, run `setup-shell`.
 
 ### Troubleshooting
 

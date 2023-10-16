@@ -53,7 +53,3 @@
 # CLOUDFLARED_TUNNELS=(
 # 	--tunnel="$name" --hostname="$name.example.com" --url='ssh://localhost:22'
 # )
-
-# If you are using the `nofap.bash` configuration file for social accountability,
-# then you can set `NOFAP=yes/no/maybe` to whether or not your custom configuration is nofap compliant.
-# NOFAP=''  # yes/no/maybe, for use when DNS_PROVIDER=local/env

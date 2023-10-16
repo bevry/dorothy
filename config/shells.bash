@@ -2,7 +2,7 @@
 # do not use `export` keyword in this file:
 # shellcheck disable=SC2034
 
-# Used by `select-shell`
+# Used by `setup-shell`
 
 # Our shells in order of preference
 USER_SHELLS=(

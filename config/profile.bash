@@ -2,7 +2,7 @@
 # do not use `export` keyword in this file:
 # shellcheck disable=SC2034
 
-# Used by `get-profile`, which is used by `setup-git`, `setup-node`, `nofap.bash`
+# Used by `get-profile`, which is used by `setup-git`, `setup-node`
 
 # NAME=''
 # EMAIL=''

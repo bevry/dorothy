@@ -11,7 +11,7 @@
 # And here are references for posterity that are inferior to the above:
 # https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt
 
-# Used by `select-hosts` to select one of these as your preference
+# Used by `setup-hosts` to select one of these as your preference
 # Label first, then url
 OPTIONS=(
 	'Unified hosts = (adware + malware)' # =>
@@ -50,6 +50,3 @@ OPTIONS=(
 
 # If we have a preference, we can set CHOICE to the URL value of our desired hosts file
 CHOICE='' # 'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn-social/hosts'
-
-# If you are using `nofap.bash`, you can set `NOFAP=yes/no/maybe` to whether or not your custom configuration is nofap compliant.
-NOFAP='' # yes/no/maybe
