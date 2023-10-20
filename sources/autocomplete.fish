@@ -4,22 +4,9 @@
 # passes if one or more were loaded
 # fails if none were loaded (all were missing)
 # autocomplete... provides:
-# AUTOCOMPLETE_1PASSWORD_CLI
-# AUTOCOMPLETE_AZURE
 # AUTOCOMPLETE_TEA
 # AUTOCOMPLETE_VSCODE
 load_dorothy_config 'autocomplete.fish' 'autocomplete.sh'
-
-# 1Password CLI
-# https://developer.1password.com/docs/cli/get-started#shell-completion
-if test "$AUTOCOMPLETE_1PASSWORD_CLI" != 'no' && command-exists op
-	op completion fish | source
-end
-
-# Microsoft Azure
-if test "$AUTOCOMPLETE_AZURE" != 'no' && command-exists azure
-	azure --completion-fish | source
-end
 
 # Tea
 # https://docs.tea.xyz/features/magic#using-magic-in-shell-scripts
@@ -32,4 +19,9 @@ end
 # https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
 if test "$AUTOCOMPLETE_VSCODE" != 'no' -a "$TERM_PROGRAM" = 'vscode' && command-exists code
 	. (code --locate-shell-integration-path fish)
+end
+
+# https://rsteube.github.io/carapace-bin/setup.html#fish
+if command-exists carapace
+	carapace _carapace | source
 end

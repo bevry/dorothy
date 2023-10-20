@@ -15,4 +15,4 @@ if ?(test -f $E:DOROTHY'/user/config.local/interactive.elv') {
 # use ./history.elv
 eval (cat $E:DOROTHY'/sources/theme.elv' | slurp)
 # use ./ssh.elv
-# use ./autocomplete.elv
+eval (cat $E:DOROTHY'/sources/autocomplete.elv' | slurp)

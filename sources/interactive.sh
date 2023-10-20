@@ -22,6 +22,8 @@ fi
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
-. "$DOROTHY/sources/autocomplete.sh"
+if test "$ACTIVE_POSIX_SHELL" = 'bash' -o "$ACTIVE_POSIX_SHELL" = 'zsh'; then
+	. "$DOROTHY/sources/autocomplete.$ACTIVE_POSIX_SHELL"
+fi
 
 # autocompletions should go inside sources/completions.*

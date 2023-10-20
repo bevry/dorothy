@@ -21,6 +21,6 @@ elif path.exists($DOROTHY + '/config/interactive.xsh'):
 # execx(compilex(open($DOROTHY + '/sources/history.xsh').read()))
 execx(compilex(open($DOROTHY + '/sources/theme.xsh').read()))
 # execx(compilex(open($DOROTHY + '/sources/ssh.xsh').read()))
-# execx(compilex(open($DOROTHY + '/sources/autocomplete.xsh').read()))
+execx(compilex(open($DOROTHY + '/sources/autocomplete.xsh').read()))
 
 # @todo someone more experienced with xonsh should get config files loading, and get history, ssh, and autocomplete going
