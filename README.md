@@ -22,7 +22,7 @@ Dorothy is a dotfile ecosystem featuring:
 -   seamless support for your favorite terminal and GUI editors
 -   automatic configuration of your environment variables for what you have installed on your system
 -   automatic installation and updating of your specified packages
--   automatic git ssh and gpg configuration based on what your system supports and your configuration
+-   automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
 -   hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
 -   completely extensible and configurable with your own user repository
 -   all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
