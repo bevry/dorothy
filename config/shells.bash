@@ -4,16 +4,20 @@
 
 # Used by `setup-shell`
 
-# Our shells in order of preference
+# Shells that Dorothy supports, reorder them with most preferred first
 USER_SHELLS=(
-	fish  # fish shell
-	zsh   # Z shell
-	bash  # bourne again shell
-	nu    # nushell
-	xonsh # python-powered	 shell
-	sh    # bourne shell
-	ash   # almquist shell
-	dash  # debian almquist shell
-	ksh   # korn shell
-	hush  # hush, an independent implementation of a Bourne shell for BusyBox
+	# officially supported shells
+	bash # bourne again shell
+	dash # debian almquist shell
+	fish # fish shell
+	nu   # nushell
+	zsh  # Z shell
+	# officially supported shells (alpha/beta quality integrations)
+	elvish # elvish shell
+	ksh    # korn shell
+	xonsh  # python-powered shell
+	# unofficially supported shells
+	ash  # almquist shell
+	hush # hush, an independent implementation of a Bourne shell for BusyBox
+	sh   # the operating-system symlinks this to any POSIX compliant shell
 )

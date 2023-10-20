@@ -17,7 +17,7 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh)
+-   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
 -   seamless support for multiple operating systems and architectures
 -   seamless support for your favorite terminal and GUI editors
 -   automatic configuration of your environment variables for what you have installed on your system
@@ -167,7 +167,7 @@ If your shell doesn't recognize any of the Dorothy commands (you get a command n
 
 -   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md)
 -   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
--   Your login shell is not one of the Dorothy supported shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh)). [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
+-   Your login shell is not one of the Dorothy supported shells. [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
 
 ## Overview
 
@@ -186,31 +186,31 @@ For each shell that you configured during the Dorothy installation (can be recon
 
 1.  The shell loads Dorothy's initialization script:
 
+    -   [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
     -   [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
     -   [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
     -   [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
-    -   [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
-    -   POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+    -   POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
 1.  The initialization script will:
 
     1. Ensure the `DOROTHY` environment variable is set to the location of the Dorothy installation.
 
-    1. If a login shell, it loads our login script `sources/login.(sh|fish|nu|xsh|elv)`, which will:
+    1. If a login shell, it loads our login script `sources/login.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
 
         1. Apply any configuration changes necessary for that login shell
-        1. Load our environment script `sources/environment.(sh|fish|nu|xsh|elv)`, which will:
+        1. Load our environment script `sources/environment.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
 
             1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
 
-    1. If a login and interactive shell, it loads our interactive script `sources/interactive.(sh|fish|nu|xsh|elv)`, which will:
+    1. If a login and interactive shell, it loads our interactive script `sources/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
 
-        1. Load your own `user/config(.local)/interactive.(sh|fish|nu|xsh|elv)` configuration script for your own interactive login shell configuration.
-            - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) shell will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
+        1. Load your own `user/config(.local)/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)` configuration script for your own interactive login shell configuration.
+            - [Elvish](https://elv.sh) will only load `interactive.elv` if it exists.
+            - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
             - [Nu](https://www.nushell.sh) will only load `interactive.nu` and it must exist.
             - [Xonsh](https://xon.sh) will only load `interactive.xsh` if it exists.
-            - [Elvish](https://elv.sh) will only load `interactive.elv` if it exists.
-            - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), etc) will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
+            - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) will load their `interactive.(bash|zsh|...etc)` file if it exists, otherwise they will load `interactive.sh` if exists.
         1. Load any common alias and function utilities.
         1. Load our theme configuration.
         1. Load our ssh configuration.

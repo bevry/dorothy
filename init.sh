@@ -56,11 +56,10 @@
 # - `$-` is `569XZim` via this script, then `569XZims` manually
 # - `[[ -o login ]]` returns `0`
 
-# set -x # <debug>
-# printf '$0 = %s\n$- = %s\n' "$0" "$-"
+DOROTHY_LOAD='no' # this must be outside the below if, to ensure DOROTHY_LOAD is reset, and DOROTHY_LOADED is respected, otherwise posix shells may double load due to cross-compat between dotfiles (.profile along with whatever they support)
 if test -z "${DOROTHY_LOADED-}"; then
-	DOROTHY_LOAD='no'
-	if test "$0" = '-bash' -o "$0" = '-zsh'; then
+	# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
+	if test "$0" = '-bash' -o "$0" = '-zsh' -o "$0" = '-dash' -o "$0" = 'dash'; then
 		DOROTHY_LOAD='yes'
 	elif test -n "${BASH_VERSION-}"; then
 		# trunk-ignore(shellcheck/SC3044)
@@ -72,15 +71,15 @@ if test -z "${DOROTHY_LOADED-}"; then
 		if [[ -o login ]]; then
 			DOROTHY_LOAD='yes'
 		fi
+	elif test -z "$-" -a -z "$*" -a "${CI-}" = 'true'; then
+		DOROTHY_LOAD='yes' # dash on github ci, in which [$-] and [$*] are empty, and $0 = /home/runner....
 	else
-		# bash v3 does not set l in $-
+		# bash v3 and dash do not set l in $-
 		# zsh does, however zsh we have a definite option earlier
 		# so this is for the alternative posix shells
 		case $- in *l*) DOROTHY_LOAD='yes' ;; esac
 	fi
 fi
-# printf '$DOROTHY_LOAD = %s\n' "$DOROTHY_LOAD"
-# set +x # </debug>
 
 # if your login shell is failing identification,
 # then make sure your terminal preferences has login shell enabled
@@ -97,9 +96,13 @@ if test "${DOROTHY_LOAD-}" = 'yes'; then
 	if test -z "${DOROTHY-}"; then
 		# https://stackoverflow.com/a/246128
 		# https://stackoverflow.com/a/14728194
+		# if true login shell on macos, then $0 is [-bash], [-zsh], [-dash], etc.
 		export DOROTHY
-		# trunk-ignore(shellcheck/SC3028)
-		DOROTHY="$(cd "$(dirname "${BASH_SOURCE:-"$0"}")" && pwd)" # `cd ... pwd` ensures absolute path
+		if test -n "${XDG_DATA_HOME-}" -a -n "${XDG_DATA_HOME-}/dorothy"; then
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		else
+			DOROTHY="$HOME/.local/share/dorothy"
+		fi
 	fi
 
 	# init dorothy's environment for the login shell

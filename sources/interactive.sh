@@ -18,7 +18,10 @@ else
 fi
 
 # Continue with the shell extras
-. "$DOROTHY/sources/nvm.sh"
+if test "$ACTIVE_POSIX_SHELL" != 'ksh'; then
+	# nvm.sh is not compatible with ksh
+	. "$DOROTHY/sources/nvm.sh"
+fi
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
