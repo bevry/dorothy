@@ -35,5 +35,5 @@ fi
 # Carapace
 if command-exists carapace; then
 	# https://rsteube.github.io/carapace-bin/setup.html#bash
-	. <(carapace _carapace)
+	. <(carapace _carapace bash)
 fi

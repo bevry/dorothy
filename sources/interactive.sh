@@ -29,4 +29,7 @@ if test "$ACTIVE_POSIX_SHELL" = 'bash' -o "$ACTIVE_POSIX_SHELL" = 'zsh'; then
 	. "$DOROTHY/sources/autocomplete.$ACTIVE_POSIX_SHELL"
 fi
 
-# autocompletions should go inside sources/completions.*
+# Shoutouts
+if command-exists shuf; then
+	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
+fi

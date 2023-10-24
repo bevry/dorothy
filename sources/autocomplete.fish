@@ -23,5 +23,5 @@ end
 
 # https://rsteube.github.io/carapace-bin/setup.html#fish
 if command-exists carapace
-	carapace _carapace | source
+	carapace _carapace fish | source
 end

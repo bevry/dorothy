@@ -37,5 +37,5 @@ fi
 if command-exists carapace; then
 	# https://rsteube.github.io/carapace-bin/setup.html#zsh
 	zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
-	source <(carapace _carapace)
+	source <(carapace _carapace zsh)
 fi

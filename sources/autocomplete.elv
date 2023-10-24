@@ -2,5 +2,5 @@
 
 # https://rsteube.github.io/carapace-bin/setup.html#elvish
 if ?( command-exists carapace ) {
-	eval (carapace _carapace | slurp)
+	eval (carapace _carapace elvish | slurp)
 }

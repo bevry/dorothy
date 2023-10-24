@@ -10,4 +10,4 @@
 
 -   `if ! something; then ... fi` => `if not something { ... }`
 
--   `if command; then ... fi` => `command | complete; if $env.LAST_EXIT_CODE == 0 { ... }`
+-   `if command; then ... fi` => `command | complete; if $env.LAST_EXIT_CODE == 0 { ... }` - don't use `(command | complete).LAST_EXIT_CODE` as that isn't supported across nu versions
