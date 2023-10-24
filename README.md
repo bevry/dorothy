@@ -253,10 +253,11 @@ Dorothy is supported by the following [sponsors](https://github.com/sponsors/bal
 
 -   [Andrew Nesbitt](https://github.com/andrew)
 -   [Balsa](https://github.com/balsa)
--   [dr.dimitru](https://github.com/dr-dimitru)
--   [Nermal](https://github.com/nermalcat69)
+-   [Codecov](https://github.com/codecov)
 -   [Poonacha Medappa](https://github.com/km-Poonacha)
 -   [Rob Morris](https://github.com/Rob-Morris)
+-   [Sentry](https://github.com/getsentry)
+-   [Syntax](https://github.com/syntaxfm)
 
 <!-- LICENSE/ -->
 
