@@ -354,7 +354,11 @@ if test "$BASH_VERSION_MAJOR" -ge 4; then
 	}
 else
 	function get_read_decimal_timeout {
-		print_line 1
+		if test -n "$1" && test "$1" -lt 1; then
+			print_line 1
+		else
+			print_line "$1"
+		fi
 	}
 fi
 
@@ -382,10 +386,13 @@ elif test "$BASH_VERSION_MAJOR" -eq 4; then
 else
 	# < bash v4.0
 	function uppercase_first_letter {
-		print_line "$1" # @todo not important, implement later
+		local input="$1"
+		local first_char="${input:0:1}"
+		local rest="${input:1}"
+		print_line "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
 	}
 	function lowercase_string {
-		print_line "$1" # @todo not important, implement later
+		tr '[:upper:]' '[:lower:]' <<<"$1"
 	}
 fi
 

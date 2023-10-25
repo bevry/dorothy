@@ -161,7 +161,7 @@ function stdinargs {
 		# [read -t 0 item] will not read anything, so it must be done seperately
 		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
 		local read_args=('-r') # bash v3 compat
-		if test "$timeout_max" = 'no' -a "$timeout_immediate" = 'no'; then
+		if test "$timeout_max" = 'no' -a "$timeout_immediate" = 'no' -a -n "$timeout_seconds"; then
 			read_args+=('-t' "$timeout_seconds")
 		fi
 		item=''

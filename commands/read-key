@@ -10,6 +10,8 @@ function read_key_test() (
 	# do a test without any capturing
 	local book status
 
+	printf '%s\n' "read-key bash version [$BASH_VERSION] [$BASH_VERSION_MAJOR] "
+
 	status=0
 	read -t 0 || status=$?
 	printf '%s\n' "read-key check status [$status] "
@@ -26,11 +28,13 @@ function read_key_test() (
 	read -t 0 < <(printf '%s\n' 'abc') || status=$?
 	printf '%s\n' "read-key < <(...) check status [$status] "
 
-	status=0
-	date
-	read -sN1 -t 5 book || status=$?
-	date
-	printf '%s\n' "read-key v4 status [$status] and read [$book]"
+	if test "$BASH_VERSION_MAJOR" -ge '4'; then
+		status=0
+		date
+		read -sN1 -t 5 book || status=$?
+		date
+		printf '%s\n' "read-key v4 status [$status] and read [$book]"
+	fi
 
 	status=0
 	date
@@ -38,9 +42,11 @@ function read_key_test() (
 	date
 	printf '%s\n' "read-key v3 status [$status] and read [$book]"
 
-	status=0
-	printf '%s\n' 'abc' | read -sN1 -t 5 book || status=$?
-	printf '%s\n' "read-key v4 status [$status] and read [$book]"
+	if test "$BASH_VERSION_MAJOR" -ge '4'; then
+		status=0
+		printf '%s\n' 'abc' | read -sN1 -t 5 book || status=$?
+		printf '%s\n' "read-key v4 status [$status] and read [$book]"
+	fi
 
 	status=0
 	printf '%s\n' 'def' | IFS= read -sn1 -t 5 book || status=$?
@@ -61,7 +67,7 @@ function read_key_test() (
 	) | read -t 60 book || status=$?
 	printf '%s\n' "read-key manual timeout [$status] and read [$book]"
 
-	eval-tester --debug --name='timeout was detected' --status='60' \
+	eval-tester --name='timeout was detected' --status='60' \
 		-- read-key --timeout=10
 
 	{
@@ -146,53 +152,43 @@ function read_key() (
 	# -N nchars	return only after reading exactly NCHARS characters, unless
 	# 	EOF is encountered or read times out, ignoring any
 	# 	delimiter
-	function read_key_bash_v4 {
-		local k0='' k1='' k2='' k3=''
-		read -sN1 -t "$timeout" k0 || return
+	local key='' k0='' k1='' k2='' k3='' status=0
+	if test "$BASH_VERSION_MAJOR" -ge '4'; then
+		# bash v4+ technique
+		read -sN1 -t "$timeout" k0 || status=$?
 		read -sN1 -t 0.0001 k1 || :
 		read -sN1 -t 0.0001 k2 || :
 		read -sN1 -t 0.0001 k3 || :
-		print_line "${k0}${k1}${k2}${k3}"
-	}
-	function read_key_bash_v3 {
-		local k0='' k1='' k2=''
+		key="${k0}${k1}${k2}${k3}"
+	else
+		# bash v3 technique
 		# IFS= is necessary to separate space from enter
-		IFS= read -sn1 -t "$timeout" k0 || return
+		IFS= read -sn1 -t "$timeout" k0 || status=$?
 		# printf 'k0 = %q \n' "$k0" >/dev/stderr
 		if test "$k0" = $'\e'; then
 			IFS= read -sn1 -t1 k1 || :
 			# printf 'k1 = %q \n' "$k1" >/dev/stderr
-			if test "$k1" = '['; then
-				IFS= read -sn1 -t1 k2 || :
-				# printf 'k2 = %q \n' "$k2" >/dev/stderr
-			elif test "$k1" = $'\e'; then
-				k1='' # duplicate escape press
+			if test "$k1" = $'\e'; then
+				print_line 'escape' # duplicate escape press
+				return 0
 			fi
+			IFS= read -sn1 -t1 k2 || :
+			# printf 'k2 = %q \n' "$k2" >/dev/stderr
 		fi
-		print_line "${k0}${k1}${k2}"
-	}
-	function read_key_bash_compat {
-		local status=0
-		if test "$BASH_VERSION_MAJOR" -ge '4'; then
-			read_key_bash_v4 || status=$? # 👍 /docs/bash/errors: robust exit status
-		else
-			read_key_bash_v3 || status=$? # 👍 /docs/bash/errors: robust exit status
-		fi
-		if test "$status" -eq 142; then
-			return 60 # ETIMEDOUT 60 Operation timed out
-		elif test "$status" -eq 1 && (! test -t 0 || ! read -t 0); then
-			# this can happen on CI environments, and other environments with stdin and TTY trickery
-			# the read isn't wrapped in this, as those check are immediate, whereas read-key supports non-immediate timeouts
-			# return a timeout, read-key always functions with a timeout, so no input = is the same result as a timeout
-			return 60 # ETIMEDOUT 60 Operation timed out
-		elif test "$status" -ne 0; then
-			return "$status" # some other issue, let the caller figure it out
-		fi
-	}
+		key="${k0}${k1}${k2}"
+	fi
+	if test "$status" -eq 142; then
+		return 60 # ETIMEDOUT 60 Operation timed out
+	elif test "$status" -eq 1 && (! test -t 0 || ! read -t 0); then
+		# this can happen on CI environments, and other environments with stdin and TTY trickery
+		# the read isn't wrapped in this, as those check are immediate, whereas read-key supports non-immediate timeouts
+		# return a timeout, read-key always functions with a timeout, so no input = is the same result as a timeout
+		return 60 # ETIMEDOUT 60 Operation timed out
+	elif test "$status" -ne 0; then
+		return "$status" # some other issue, let the caller figure it out
+	fi
 
-	# expand
-	local key
-	key="$(read_key_bash_compat)"
+	# expand the key
 	case "$key" in
 	# vt100
 	$'\eOB') print_line 'down' ;;
