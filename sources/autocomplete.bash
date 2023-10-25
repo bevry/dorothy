@@ -28,7 +28,7 @@ fi
 
 # Visual Studio Code Terminal Shell Integration
 # https://code.visualstudio.com/docs/terminal/shell-integration#_manual-installation
-if test "${AUTOCOMPLETE_VSCODE-}" != 'no' -a "$TERM_PROGRAM" = 'vscode' && command-exists code; then
+if test "${AUTOCOMPLETE_VSCODE-}" != 'no' -a "${TERM_PROGRAM-}" = 'vscode' && command-exists code; then
 	. "$(code --locate-shell-integration-path "$ACTIVE_POSIX_SHELL")"
 fi
 
