@@ -238,9 +238,9 @@ Use these sources to find inspiration for your own user commands and configurati
 -   [Dorothy's `commands` directory](https://github.com/bevry/dorothy/tree/master/commands) for super-stable commands with up to date conventions.
 -   [Dorothy's `commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) for beta-quality commands with possibly outdated conventions.
 -   Dorothy User Configurations:
-    -   [@balupton](https://github.com/balupton): <https://github.com/balupton/dotfiles>
-    -   [@molleweide](https://github.com/molleweide): <https://github.com/molleweide/dotfiles>
-    -   [@sumitrai](https://github.com/sumitrai): <https://github.com/sumitrai/dotfiles>
+    -   [@balupton](https://github.com/balupton): <https://github.com/balupton/dotfiles> — uses Fish as login shell, plenty of Bash commands
+    -   [@molleweide](https://github.com/molleweide): <https://github.com/molleweide/dotfiles> — uses Zsh as login shell, plenty of Bash commands, kmonad user
+    -   [@jondpenton](https://github.com/jondpenton): <https://github.com/jondpenton/dotfiles> — uses Nu as login shell, plenty of Nu commands
     -   if you use Dorothy, send a pull request to add your own user configuration to this list.
 
 ## Community
