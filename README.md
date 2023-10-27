@@ -38,6 +38,7 @@ Dorothy maintainers are daily driving Dorothy on:
 Dorothy users are daily driving Dorothy on:
 
 -   Manjaro/Arch on Intel/AMD (x86_64)
+-   Windows 10 via [Ubuntu](https://ubuntu.com/wsl) [WSL2](https://docs.microsoft.com/en-au/windows/wsl/) on Intel/AMD (x86_64)
 -   Windows 11 via [Ubuntu](https://ubuntu.com/wsl) [WSL2](https://docs.microsoft.com/en-au/windows/wsl/) on Intel/AMD (x86_64)
 
 Dorothy maintainers and users are occasionally driving Dorothy on:
@@ -61,6 +62,15 @@ macOS:
 
 ```bash
 xcode-select --install
+```
+
+Windows 10/11:
+
+```bash
+# [Install WSL.](https://learn.microsoft.com/en-au/windows/wsl/install)
+wsl --install
+wsl --set-default-version 2
+# note that [wsl --version] does not report WSL2, you need to do [wsl -l -v]
 ```
 
 Ubuntu / Debian / Kali:
