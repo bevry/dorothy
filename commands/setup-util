@@ -74,7 +74,7 @@ function setup_util() (
 		mas
 
 		# windows, unknown features
-		scoop
+		scoop  # installs exes to consistent path location
 		winget # installs apps to windows, installs exes to windows, paths inherited but custom
 		choco  # choco/chocolatey/cinst, interferes with WSL, so should be last preference on windows
 
@@ -3055,9 +3055,24 @@ function setup_util() (
 	}
 
 	# scoop / Windows
+	# installs [.exe]s (via names) to a consistent path location
 	# https://scoop.sh/
 	# https://github.com/ScoopInstaller/Scoop/wiki/Commands
 	# https://github.com/ScoopInstaller/Scoop/wiki/Example-Setup-Scripts
+	function is_this_scoop_package_installed {
+		# check for the header of the table of results
+		scoop list "$package" | echo-wait | grep --quiet --fixed-strings --regexp='----'
+	}
+	function are_any_of_these_scoop_packages_installed { # 👍 /docs/bash/errors: robust exit status
+		local package packages=("$@")
+		for package in "${packages[@]}"; do
+			# only supports one package at a time
+			if is_this_scoop_package_installed "$package"; then
+				return 0
+			fi
+		done
+		return 1
+	}
 	function do_scoop {
 		local args=() packages=()
 		if test "${#SCOOP[@]}" -ne 0; then
@@ -3071,8 +3086,12 @@ function setup_util() (
 		if command-missing scoop; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
+		if test "$action" = 'uninstall' && ! are_any_of_these_scoop_packages_installed "${packages[@]}"; then
+			return 200 # ECUSTOM 200 Not applicable to this uninstallation
+		fi
 
 		# args
+		# supports multiple packages, doesn't fail if already uninstalled/installed
 		if test "$action" = 'uninstall'; then
 			args+=(
 				'scoop'
@@ -3092,9 +3111,16 @@ function setup_util() (
 
 		# packages
 		"${args[@]}" "${packages[@]}"
+
+		# make alias available
+		if test -n "$cli" -a "$action" = 'install' && command-missing "$cli" && command-working "$cli.exe"; then
+			mkdir -p "$XDG_BIN_HOME"
+			symlink-helper --quiet="$quiet" --existing="$(type -P "$cli.exe")" --symlink="$XDG_BIN_HOME/$cli"
+		fi
 	}
 
 	# winget / Windows Package Manager Client
+	# installs applications (via ids) to various locations
 	# https://docs.microsoft.com/en-us/windows/package-manager/winget/
 	# https://docs.microsoft.com/en-us/windows/package-manager/winget/install
 	function is_this_winget_package_installed {
@@ -3104,7 +3130,9 @@ function setup_util() (
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
 			# only supports one package at a time
-			is_this_winget_package_installed "$package"
+			if is_this_winget_package_installed "$package"; then
+				return 0
+			fi
 		done
 		return 1
 	}
@@ -3126,9 +3154,11 @@ function setup_util() (
 		fi
 
 		# args
+		# supports one package at a time
 		for package in "${packages[@]}"; do
 			args=()
 			if test "$action" = 'uninstall'; then
+				# fails if already uninstalled, so check beforehand
 				if ! is_this_winget_package_installed "${packages[@]}"; then
 					continue
 				fi
