@@ -1,0 +1,368 @@
+#!/usr/bin/env bash
+
+function dorothy_new() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Scaffold dorothy commands with a few prompts.
+
+			USAGE:
+			dorothy-new [...options] <cmd>
+
+			OPTIONS:
+			[-u | --user] | [-l | --local] | [-c | --core]
+			    Where to place the command.
+
+			[-b | --bash] | [--shell=<shell>]
+				Which shell it will be.
+
+			--cli=<cli>
+			--app=<app>
+			--name=<name>
+			-- [...setup util ecosystem arguments]
+			    Details for setup-util-* commands.
+
+			--args
+			--stdin
+				Details for echo-* commands.
+
+			--vargs
+			--sargs=<args>
+			--bflags=<flags>
+			--sflags=<flags>
+				Details for standard commands.
+
+			QUIRKS:
+			Configuration handling not yet scaffolded.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item type='' cmd='' where='' path='' tmp=''
+	local cli='' app='' name='' setup_util_args=()
+	local args='' stdin='' distinct='' finish=''
+	local vargs='' sargs=() bflags=() sflags=() # @todo add parsing
+	local invocation='' about='' input='' output='' # @todo add parsing
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+
+		# generic
+		'--command') type='command' ;;
+		'--transform' | '--transformer') type='transform' ;;
+		'--install' | '--installer') type='install' ;;
+		'--where='*) where="${item#*--where=}" ;;
+
+		# transformer
+		'--no-args'* | '--args'*)
+			args="$(get-flag-value args --missing="$args" -- "$item" | echo-affirmative --stdin)"
+			;;
+		'--no-stdin'* | '--stdin'*)
+			stdin="$(get-flag-value stdin --missing="$stdin" -- "$item" | echo-affirmative --stdin)"
+			;;
+		'--no-distinct'* | '--distinct'*)
+			distinct="$(get-flag-value distinct --missing="$distinct" -- "$item" | echo-affirmative --distinct)"
+			;;
+		'--no-finish'* | '--finish'*)
+			finish="$(get-flag-value finish --missing="$finish" -- "$item" | echo-affirmative --finish)"
+			;;
+
+		# installer
+		'--app='*) app="${item#*--app=}" ;;
+		'--cli='*) cli="${item#*--cli=}" ;;
+		'--name='*) name="${item#*--name=}" ;;
+		'--')
+			setup_util_args+=("$@")
+			shift $#
+			break
+			;;
+
+		# generic
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$cmd"; then
+				cmd="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# -------------------------------------
+	# Prompt
+
+	while ! [[ $type =~ command|transform|update ]]; do
+		if test -n "$cmd"; then
+			case "$cmd" in
+			'echo-'*) type='transform' ;;
+			'setup-util-'*) type='install' ;;
+			esac
+		else
+			type="$(
+				choose-option --no-title --required \
+				--question="What type of command is this?" \
+				--label -- \
+				command "$(echo-style --bold="command")"$'\nprocess arguments, execute something' \
+				transform "$(echo-style --bold="echo-*")"$'\ntransform input (args/stdin) into modified output' \
+				install "$(echo-style --bold="setup-util-*")"$'\ncross-platform installer for a package or application' \
+			)"
+		fi
+	done
+
+	function ask_cmd {
+		local value
+		value="$(ask --required "$@")"
+		cmd="$(echo-trim-filename -- "$value")"
+		if test "$value" != "$cmd"; then
+			# confirm the change
+			ask_cmd --confirm --default="$cmd" "$@"
+		fi
+	}
+	function ask_where {
+		where="$(
+			choose-option --no-title --required \
+			--question="Where should the $1 go?" \
+			--label --default="$where" -- \
+			user "$(echo-style --bold="user/commands")"$'\nyour public configuration' \
+			local "$(echo-style --bold="user/commands.local")"$'\nyour private configuration' \
+			core "$(echo-style --bold="dorothy/commands")"$'\nthe dorothy core'  \
+			beta "$(echo-style --bold="dorothy/commands.beta")"$'\nthe dorothy beta core'
+		)"
+		case "$where" in
+		user) path="$DOROTHY/user/commands/$cmd" ;;
+		local) path="$DOROTHY/user/commands.local/$cmd" ;;
+		core) path="$DOROTHY/commands/$cmd" ;;
+		beta) path="$DOROTHY/commands.beta/$cmd" ;;
+		esac
+		if test -e "$path"; then
+			echo-style --error="There is already a $1 at: $where"
+			echo-file -- "$where"
+			return 1
+		fi
+	}
+	function ask_about {
+		if test -z "$about"; then
+			about="$(ask --question="Describe what the $1 should do briefly:")"
+		fi
+	}
+	function ask_input {
+		if test -z "$input"; then
+			input="$(ask "$@")"
+		fi
+	}
+	function ask_output {
+		if test -n "$input" -a -z "$output"; then
+			input="$(ask "$@")"
+		fi
+	}
+
+	case "$type" in
+	command)
+		ask_cmd --question='What to name the command?' # this should be ai generated
+		ask_where 'command'
+		;;
+	transform)
+		ask_cmd --question="What to name the transformer? It should start with $(echo-style --code='echo-')"  # once ai generations done, this should be last
+		ask_where 'transformer'
+		if test -z "$args"; then
+			if confirm --positive --ppid=$$ -- 'Should it transform arguments?'; then
+				args='yes'
+			else
+				args='no'
+			fi
+		fi
+		if test -z "$stdin"; then
+			if confirm --positive --ppid=$$ -- 'Should it transform stdin?'; then
+				stdin='yes'
+			else
+				stdin='no'
+			fi
+		fi
+		if test -z "$distinct"; then
+			if confirm --negative --ppid=$$ -- 'Should it distinguish between arguments and stdin?'; then
+				distinct='yes'
+			else
+				distinct='no'
+			fi
+		fi
+		if test -z "$finish"; then
+			if confirm --negative --ppid=$$ -- 'Should it do something custom upon finishing?'; then
+				finish='yes'
+			else
+				finish='no'
+			fi
+		fi
+		;;
+	install)
+		cli="$(ask --question='Does the utility have a CLI? If so, what is its name?')"
+		if test -z "$cmd" -a -n "$cli"; then
+			cmd="setup-util-$cli"
+		fi
+		app="$(ask --question='Does the utility have an Application? If so, what is its name?')"
+		if test -z "$cmd" -a -n "$app"; then
+			cmd="setup-util-$(echo-trim-filename -- "$app")"
+		fi
+		if test -z "$app" -a -z "$cli"; then
+			echo-style --error='No CLI, no APP, then what are you installing???'
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		ask_where 'installer'
+		if test -z "$name"; then
+			name="$(ask --required --confirm --default="${app:-"$cli"}" --question='Does the utility have a user friendly name? If so, what is its name?')"
+		fi
+
+		local ecos_options ecos_selection eco
+		declare -A ecos
+		ecos['APK']='APK: Alpine'
+		ecos['APT']='APT: Ubuntu'
+		ecos['AUR']='AUR: Arch'
+		ecos['BREW']='BREW: MacOS'
+		ecos['EMERGE']='EMERGE: Gentoo'
+		ecos['NIX']='NIX: Nix'
+		ecos['RPM']='RPM: Fedora'
+		ecos['URPMI']='URPMI: Mageia'
+		ecos['WINGET']='WINGET: Windows'
+		ecos['XBPS']='XBPS: Void'
+		ecos['ZYPPER']='ZYPPER: Suse'
+		for eco in "${!ecos[@]}"; do
+			ecos_options+=(
+				"$eco" "${ecos["$eco"]}"
+			)
+		done
+		mapfile -t ecos_selection < <(
+			choose-option --no-title --required \
+				--question="Which ecosystems does $name have a package on" \
+				--label -- "${eco_options[@]}"
+		)
+		for eco in "${ecosystems[@]}"; do
+			ecos["$eco"]="$(ask --question="What is the $eco package name?")"
+		done
+		;;
+	esac
+
+	# each modification to invocation should update the title
+	function refresh_title {
+		printf '%s' $'\e]0;'"$invocation"$'\a'
+	}
+	invocation="$cmd"
+	refresh_title
+	local custom_args=''
+	if test "$vargs" = 'yes' -o "${#sargs[@]}" -ne 0 -o "${#bflags[@]}" -ne 0 -o "${#sflags[@]}" -ne 0; then
+		custom_args='yes'
+	else
+		if test "$type" = 'command'; then
+			custom_args='yes'
+		else
+			custom_args='no'
+		fi
+		if confirm --positive="$custom_args" --ppid=$$ -- 'Will it need to process its own arguments and/or flags?'; then
+			custom_args='yes'
+		fi
+	fi
+	if test "${#bflags[@]}" -eq 0; then
+		while true; do
+			tmp='a'
+			if test "${#bflags[@]}" -ne 0; then
+				tmp='another'
+			fi
+			tmp="$(ask --question="If it accepts $tmp boolean flag, enter it now. The $(echo-style --code='--flag | --no-flag') convention.")"
+			if test -z "$tmp"; then
+				break
+			else
+				bflags+=("$tmp")
+				invocation+=" --$tmp"
+				refresh_title
+			fi
+		done
+	else
+		for tmp in "${bflags[@]}]"; do
+			invocation+=" --$tmp"
+			refresh_title
+		done
+	fi
+	if test "${#sflags[@]}" -eq 0; then
+		while true; do
+			tmp='a'
+			if test "${#sflags[@]}" -ne 0; then
+				tmp='another'
+			fi
+			tmp="$(ask --question="If it accepts $tmp string flag, enter it now. The $(echo-style --code='--flag=value') convention.")"
+			if test -z "$tmp"; then
+				break
+			else
+				sflags+=("$tmp")
+				invocation+=" --$tmp=value"
+				refresh_title
+			fi
+		done
+	else
+		for tmp in "${sflags[@]}]"; do
+			invocation+=" --$tmp=value"
+			refresh_title
+		done
+	fi
+	if test "${#sargs[@]}" -eq 0; then
+		while true; do
+			tmp='a'
+			if test "${#sargs[@]}" -ne 0; then
+				tmp='another'
+			fi
+			tmp="$(ask --question="If it accepts $tmp standard argument, enter it now. The $(echo-style --code='<flag> <arg> <flag>') convention.")"
+			if test -z "$tmp"; then
+				break
+			else
+				sargs+=("$tmp")
+			fi
+		done
+	else
+		for tmp in "${sargs[@]}]"; do
+			invocation+=" $tmp"
+			refresh_title
+		done
+	fi
+	if test -z "$vargs"; then
+		if confirm --positive --ppid=$$ -- "Will it accept an unlimited amount of arguments? The $(echo-style --code='-- <...args>') convention."; then
+			vargs='yes'
+		else
+			vargs='no'
+		fi
+	fi
+	if test "$vargs" = 'yes'; then
+		invocation+=' -- ...'
+		refresh_title
+	fi
+
+	# used for test generation and help, ai can assist
+	if test "$type" = 'command'; then
+		ask_about 'command'
+		ask_input --question='What is an example invocation?' --default="$invocation" --confirm
+		ask_output --question='What is an example stdout result output?'
+	elif test "$type" = 'transform'; then
+		ask_about 'transformer'
+		ask_input --question='What is an example input?'
+		ask_output --question='What is an example stdout result output?'
+	fi
+
+	# ---------------------------------
+	# Generate
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	dorothy_new "$@"
+fi
