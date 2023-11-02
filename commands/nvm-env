@@ -1,15 +1,81 @@
 #!/usr/bin/env bash
 
-# execute a command inside a nvm context without strict mode
+function nvm_env() (
+	source "$DOROTHY/sources/bash.bash"
 
-if test "${1-}" = '--2596'; then
-	shift
-	# workaround nvm trying to compile from source old builds on apple silicon
-	# https://github.com/nvm-sh/nvm/issues/2596
-	if is-apple-silicon; then
-		arch -x86_64 /bin/bash -c "source $DOROTHY/sources/nvm.sh; $*"
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Execute a command inside a NVM context without inheriting the shell's strict mode (if any).
+
+			USAGE:
+			nvm-env [...options] [--] ...<command>
+
+			OPTIONS:
+			--[no-]rosetta=[yes|no]
+			    If empty, auto-detection is used to determine if Rosetta should be used to install Node.js versions that do not support ARM:
+			    https://github.com/nvm-sh/nvm/issues/2596
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_rosetta='' cmd=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-rosetta'* | '--rosetta'*)
+			option_rosetta="$(get-flag-value rosetta --missing="$option_rosetta" -- "$item" | echo-affirmative --stdin)"
+			;;
+		'--')
+			cmd+=("$@")
+			shift $#
+			break
+			;;
+		*)
+			cmd+=("$item" "$@")
+			shift $#
+			;;
+		esac
+	done
+
+	# ensure
+	if test "${#cmd[@]}" -eq 0; then
+		help "You must provide a <cmd>"
 	fi
-else
-	source "$DOROTHY/sources/nvm.sh"
-	"$@"
+	if ! is-apple-silicon; then
+		option_rosetta='no'
+	elif test -z "$option_rosetta"; then
+		local bin="${cmd[0]}" action="${cmd[1]-}" version="${cmd[2]-}"
+		if test "$bin" = 'nvm' -a "$action" = 'install' && is-number "$version" && test "$(version-compare "$version" 16)" = -1; then
+			option_rosetta='yes'
+		else
+			option_rosetta='no'
+		fi
+	fi
+
+	# =====================================
+	# Action
+
+	# execute the command in new bash environemnt that doesn't inherit our strict mode
+	if test "$option_rosetta" = 'yes'; then
+		# only /bin/bash allows rosetta
+		echo-style --dim="Executing via Rosetta: ${cmd[*]}" >/dev/tty
+		arch -x86_64 /bin/bash -c "source $DOROTHY/sources/nvm.sh; ${cmd[*]}"
+	else
+		bash -c "source $DOROTHY/sources/nvm.sh; ${cmd[*]}"
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	nvm_env "$@"
 fi
