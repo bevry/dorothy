@@ -93,16 +93,30 @@ As this is not a useful example, remember to remove it:
 rm "$DOROTHY/user/commands/silent"
 ```
 
-## Utilities
+## Types
 
-If there is a utility that you wish to install in an automated and cross-platform way, you can write a `setup-util-*` script for it.
+There are three types of commands:
+
+1. generic: process arguments, execute something
+1. installer: cross-platform installer for a package or application
+1. transformer: transform input (args/stdin) into modified output
+
+## Generics
+
+These are your generic commands, they process arguments and execution something.
+
+The example command is a good place to start: <https://github.com/bevry/dorothy/blob/master/commands.beta/example-generic-command>
+
+## Installers
+
+These are `setup-util-*` commands that install a utility (a CLI tool, or Application) in an automated and cross-platform way.
 
 The one for CURL is a good place to start: <https://github.com/bevry/dorothy/blob/master/commands/setup-util-curl>
 
-You'd want to replace all references of `curl` with your utility CLI name. If the utility has a different name to its CLI, you can also provide `--name="..."`. Add or remove as many methods (the uppercase options) as needed, by determining which methods (package systems) are available for the utility via its documentation or via repology.
+You want to replace all references of `curl` with your utility CLI name. If the utility has a different name to its CLI, you can also provide `--name="..."`. Add or remove as many methods (the uppercase options) as needed, by determining which methods (package systems) are available for the utility via its documentation or via [repology](https://repology.org/projects/).
 
-## Echos
+## Transformers
 
-Most of the `echo-*` commands in Dorothy transform an input, be it an argument or a line of stdin, and do so easily via our [`sources/stdinargs.bash` helper](https://github.com/bevry/dorothy/blob/master/sources/stdinargs.bash).
+These are most of the `echo-*` commands, they transform an input, be it an argument or a line of stdin, and do so easily via our [`sources/stdinargs.bash` helper](https://github.com/bevry/dorothy/blob/master/sources/stdinargs.bash).
 
 The one for transforming inputs to lowercase is a good place to start: <https://github.com/bevry/dorothy/blob/master/commands/echo-lowercase>
