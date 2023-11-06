@@ -1,5 +1,43 @@
 #!/usr/bin/env bash
 
+# GITHUB_API_URL
+if test -z "${GITHUB_API_URL-}"; then
+	# https://docs.github.com/en/actions/learn-github-actions/environment-variables#default-environment-variables
+	GITHUB_API_URL='https://api.github.com' #'https://bevry.me/api/github'
+	# encounters rate limits 'https://api.github.com'
+fi
+
+function get_github_release_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-segment --h1="TEST: $0"
+
+	# prepare
+	local expected
+	local slug='jqlang/jq' alias='latest' tag_name='jq-1.7rc2' release_id='118848514'
+	# elves/elvish (v0.19.2)
+
+	is-internet-working
+
+	expected="$(get-github-release --jq --api-url --slug="$slug" --release="$alias")"
+	eval-tester --name='url via alias via diy was same as jq' --stdout="$expected" \
+		-- get-github-release --no-jq --api-url --slug="$slug" --release="$alias"
+
+	expected="$(get-github-release --jq --api-url --slug="$slug" --release="$tag_name")"
+	eval-tester --name='url via tag_name via diy was same as jq' --stdout="$expected" \
+		-- get-github-release --no-jq --api-url --slug="$slug" --release="$tag_name"
+
+	expected="$(get-github-release --jq --assets --slug="$slug" --release="$alias")"
+	eval-tester --name='assets via alias via diy was same as jq' --stdout="$expected" \
+		-- get-github-release --no-jq --assets --slug="$slug" --release="$alias"
+
+	expected="$(get-github-release --jq --assets --slug="$slug" --release="$tag_name")"
+	eval-tester --name='assets via tag_name via diy was same as jq' --stdout="$expected" \
+		-- get-github-release --no-jq --assets --slug="$slug" --release="$tag_name"
+
+	expected="$(get-github-release --jq --assets --slug="$slug" --release="$release_id")"
+	eval-tester --name='assets via release-id via diy was same as jq' --stdout="$expected" \
+		-- get-github-release --no-jq --assets --slug="$slug" --release="$release_id"
+)
 function get_github_release() (
 	source "$DOROTHY/sources/bash.bash"
 	require_array 'mapfile'
@@ -26,13 +64,19 @@ function get_github_release() (
 	}
 
 	# process
-	local item slug=''
+	local item slug='' release='' action='latest-tag-name' use_jq=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--slug='*) slug="${item#*--slug=}" ;;
+		'--release='*) release="${item#*--release=}" ;;
+		'--latest-tag-name') action='latest-tag-name' ;;
+		'--assets') action='assets' ;;
+		'--api-url') action='api-url' ;;
+		'--no-jq') use_jq='no' ;;
+		'--jq') use_jq='yes' ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			if test -z "$slug"; then
@@ -48,20 +92,99 @@ function get_github_release() (
 		help "A GitHub repository slug is required."
 	fi
 
-	# GITHUB_API_URL
-	if test -z "${GITHUB_API_URL-}"; then
-		# https://docs.github.com/en/actions/learn-github-actions/environment-variables#default-environment-variables
-		GITHUB_API_URL='https://bevry.me/api/github'
-		# encounters rate limits 'https://api.github.com'
-	fi
-
 	# =====================================
 	# Act
 
-	fetch --bearer-token="${GITHUB_TOKEN-}" "$GITHUB_API_URL/repos/$slug/releases" | jq -r ".[0] | select(.draft==false) | .tag_name"
+	function fetch_releases {
+		fetch --bearer-token="${GITHUB_TOKEN-}" "$GITHUB_API_URL/repos/$slug/releases"
+	}
+	function fetch_tag_name_from_latest_release_with_jq {
+		fetch_releases | jq -r '.[0] | select(.draft==false) | .tag_name'
+	}
+	function fetch_url_from_tag_name_without_jq {
+		fetch_releases | tr -d '\n' | awk -v release="$release" '
+			{
+				while ( match($0,/"[^"]*"/) ) {
+					inner = substr($0,RSTART+1,RLENGTH-2)
+					if ( inner == release ) {
+						tag = inner
+					} else if ( inner ~ /\/releases\/[0-9]+$/ ) {
+						url = inner
+					}
+					if ( tag && url ) {
+						print url
+						exit
+					}
+					$0 = substr($0,RSTART+RLENGTH)
+				}
+			}'
+	}
+	function fetch_url_from_tag_name_with_jq {
+		fetch_releases | jq -r ".[] | select(.tag_name==\"$release\") | .url"
+	}
+	function fetch_assets_from_url_without_jq {
+		local url="$1"
+		# don't use jq, rg, or sd to accomplish this, as none of them would be installed
+		# [tail -n+2] excludes the first line, which is the name of the repo
+		# this is fragile as if the order of arguments change, it is all over
+		# sed fixes minified json such as `},{` and `","`
+		fetch --bearer-token="${GITHUB_TOKEN-}" "$url" | sed -E $'s/,/,\\\n/g' | grep --extended-regexp --regexp='"(name|browser_download_url)":' | tail -n+2 | sed -E 's/.+: *"(.+)".*/\1/'
+	}
+	function fetch_assets_from_url_with_jq {
+		local url="$1"
+		fetch --bearer-token="${GITHUB_TOKEN-}" "$url" | jq -r '.assets[] | (.name, .browser_download_url)'
+	}
+	function fetch_url_from_tag_name {
+		if test "$use_jq" = 'no' || command-missing jq; then
+			fetch_url_from_tag_name_without_jq
+		else
+			fetch_url_from_tag_name_with_jq
+		fi
+	}
+	function fetch_url_from_alias_or_id {
+		local url="$GITHUB_API_URL/repos/$slug/releases/$release"
+		if fetch --ok --bearer-token="${GITHUB_TOKEN-}" "$url"; then
+			print_line "$url"
+		fi
+	}
+	function fetch_url_from_release {
+		local url
+		url="$(fetch_url_from_alias_or_id)"
+		if test -z "$url"; then
+			url="$(fetch_url_from_tag_name)"
+			if test -z "$url"; then
+				echo-error "failed to determine the release api url for: $slug $release"
+				return 1
+			fi
+		fi
+		print_line "$url"
+	}
+	function fetch_assets_from_release {
+		local url
+		url="$(fetch_url_from_release)"
+		if test "$use_jq" = 'no' || command-missing jq; then
+			fetch_assets_from_url_without_jq "$url"
+		else
+			fetch_assets_from_url_with_jq "$url"
+		fi
+	}
+
+	if test "$action" = 'latest-tag-name'; then
+		fetch_tag_name_from_latest_release_with_jq
+	elif test "$action" = 'assets'; then
+		fetch_assets_from_release
+	elif test "$action" = 'api-url'; then
+		fetch_url_from_release
+	else
+		help "invald action: $action"
+	fi
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	get_github_release "$@"
+	if test "$*" = '--test'; then
+		get_github_release_test
+	else
+		get_github_release "$@"
+	fi
 fi
