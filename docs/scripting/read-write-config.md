@@ -6,7 +6,7 @@ If your command will make use of user configuration, you can use the following t
 # =====================================
 # Configuration
 
-source "$DOROTHY/sources/config.bash"
+source "$DOROTHY/sources/config.sh"
 
 # environment may provide:
 # EDITOR
@@ -37,7 +37,7 @@ fi
 And the following to write it:
 
 ```bash
-update_dorothy_user_config --prefer=local 'git.bash' -- \
+dorothy-config 'git.bash' --prefer=local -- \
 	--field='GIT_DEFAULT_BRANCH' --value="$GIT_DEFAULT_BRANCH" \
 	--field='GIT_EMAIL' --value="$GIT_EMAIL" \
 	--field='GIT_NAME' --value="$GIT_NAME" \

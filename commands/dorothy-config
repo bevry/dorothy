@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+
+# @todo merge with [config-edit], [config-helper], are all doubling up on this
+
+function dorothy_config_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-segment --h1="TEST: $0"
+
+	# remove
+	rm -f "$DOROTHY/user/config/dorothy-config-testing.bash"
+
+	local invented_packages util_packages expected_stdout expected_stderr
+	invented_packages=(
+		"dorothy-config-testing-$(get-random-number)"
+		"dorothy-config-testing-$(get-random-number)"
+	)
+	util_packages=(
+		curl
+		ripgrep
+		sd
+		teip
+	)
+	expected_stdout="$(echo-lines -- "${invented_packages[@]}")"
+	expected_stderr="$(
+		cat <<-EOF
+			Moved [curl] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [curl].
+			Moved [ripgrep] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [ripgrep].
+			Moved [sd] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [sd].
+			Moved [teip] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [teip].
+		EOF
+	)"
+	eval-tester --name='util packages were removed from custom config' --stdout="$expected_stdout" --stderr="$expected_stderr" \
+		-- eval-no-color -- dorothy-config --packages-var='DOROTHY_CONFIG_TESTING' --prefer=public -- "${invented_packages[@]}" "${util_packages[@]}"
+
+	# remove DOROTHY_CONFIG_TESTING
+	expected_stdout=''
+	expected_stderr=''
+	eval-tester --name='custom config was removed' --stdout="$expected_stdout" --stderr="$expected_stderr" \
+		-- eval-no-color -- dorothy-config 'setup.bash' --prefer=public -- --field='DOROTHY_CONFIG_TESTING' --replace=
+
+	echo-segment --g1="TEST: $0"
+	return 0
+)
+function dorothy_config() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/config.sh"
+
+	# =================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			USAGE:
+			dorothy-config [...options] --packages-var=<variable> -- ...<package>
+
+			    # removes all setup-util-... packages from APK_INSTALL in <setup.bash>
+			    mapfile -t APK_INSTALL < <(dorothy-config  --packages-var='APK_INSTALL' -- "\${APK_INSTALL[@]}")
+
+			dorothy-config [...options] -- ...[options passed to config-helper]
+
+			    dorothy-config 'git.bash' --prefer=local  -- \
+			        --field='GIT_DEFAULT_BRANCH' --value="\$GIT_DEFAULT_BRANCH"
+
+			OPTIONS:
+			<filename>
+			    The filename of the configuration file to find or create, then update.
+
+			--prefer=<local|public>
+			    If <local> prefer <user/config.local>, if <public> prefer <user/config>.
+			    If there are multiple config files, prompt the user which one to use.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_packages_var='' option_filename='' option_prefer='' option_args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--packages-var='*) option_packages_var="${item#*--packages-var=}" ;;
+		'--file='*) option_filename="${item#*--file=}" ;;
+		'--prefer=local' | '--prefer=public' | '--prefer=') option_prefer="${item#*--prefer=}" ;;
+		'--')
+			option_args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$option_filename"; then
+				option_filename="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# ensure filename
+	if test -z "$option_filename"; then
+		if test -n "$option_packages_var"; then
+			option_filename='setup.bash'
+		else
+			help "A filename must be provided."
+		fi
+	fi
+
+	# check extension
+	local extension # this is used later too
+	extension="$(fs-extension -- "$option_filename")"
+	if ! [[ $extension =~ bash|zsh|sh|fish|nu ]]; then
+		help "The file extension of [$option_filename] is not yet supported."
+	fi
+
+	# =================================
+	# Action
+
+	function prune_utilities_from_packages {
+		local item reconfigure='no' outputs=() installer util
+
+		# SETUP_UTILS should have already been loaded, but let's create and load it if it hasn't
+		# we need to do it this way, otherwise we would wipe pre-existing custom configuration
+		if test -z "${SETUP_UTILS-}"; then
+			SETUP_UTILS=()
+			load_dorothy_config 'setup.bash'
+		fi
+		if test -z "$option_filename"; then
+			option_filename='setup.bash'
+		fi
+
+		# remove inputs with dedicated installers
+		for item in "${option_args[@]}"; do
+			installer="$(get-installer --quiet -- "$item" || :)"
+			if test -n "$installer"; then
+				if [[ $installer == 'setup-util-'* ]]; then
+					util="${installer#*setup-util-}"
+					echo-style --notice="Moved [$item] from [$option_packages_var] to [SETUP_UTILS] as [$util]." >/dev/stderr
+					SETUP_UTILS+=("$util")
+					reconfigure='yes'
+				else
+					echo-style --notice="Skipping [$item] from [$option_packages_var], as it should be installed via [$installer]." >/dev/stderr
+				fi
+				continue
+			else
+				echo "$item"
+				outputs+=("$item")
+			fi
+		done
+
+		# update configuration if necessary
+		if test "$reconfigure" = 'yes'; then
+			dorothy-config "$option_filename" --prefer="$option_prefer" -- \
+				--field="$option_packages_var" --array="$(echo-lines -- "${outputs[@]}" | sort --ignore-case | uniq)" \
+				--field='SETUP_UTILS' --array="$(echo-lines -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
+		fi
+	}
+
+	function update_configuration {
+		# check for existing
+		local user_filepath='' temp_filepath='' source_filepath='' default_filepath="$DOROTHY/config/$option_filename" local_filepath="$DOROTHY/user/config.local/$option_filename" public_filepath="$DOROTHY/user/config/$option_filename"
+
+		# reset default filepath if it doesn't exist
+		if test ! -f "$default_filepath"; then
+			default_filepath=''
+		fi
+
+		# which location is preferred (the default option)
+		if test "$option_prefer" = 'local'; then
+			user_filepath="$local_filepath"
+		elif test "$option_prefer" = 'public'; then
+			user_filepath="$public_filepath"
+		fi
+
+		# enforece location to verified preference
+		if test -f "$local_filepath" -a -f "$public_filepath"; then
+			user_filepath="$(
+				choose-option --required \
+					--question="The [$option_filename] configuration file is pending updates, which one do you wish to update?" \
+					--default="$user_filepath" -- "$public_filepath" "$local_filepath"
+			)"
+		elif test -f "$local_filepath"; then
+			user_filepath="$local_filepath"
+		elif test -f "$public_filepath"; then
+			user_filepath="$public_filepath"
+		else
+			user_filepath="$public_filepath"
+		fi
+
+		# ensure filepath can be written
+		mkdir -p "$(dirname "$user_filepath")"
+
+		# check if we have to make the filepath
+		if test ! -f "$user_filepath"; then
+			temp_filepath="$(
+				fs-temp \
+					--directory='config-helper' \
+					--file --touch
+			)"
+			if test -n "$default_filepath"; then
+				# start with the header of the default configuration file
+				echo-lines-before '' --stdin <"$default_filepath" >"$temp_filepath"
+				echo >>"$temp_filepath"
+
+				# inject the sourcing of the default configuration file
+				if test "$extension" = 'nu'; then
+					# nu doesn't support dynamic sourcing
+					source_filepath="${default_filepath/"$DOROTHY"/"~/.local/share/dorothy"}"
+					cat <<-EOF >>"$temp_filepath"
+						# load the default configuration
+						source '$source_filepath'
+
+					EOF
+				elif test "$extension" = 'sh'; then
+					# sh uses [.] instead of [source]
+					# trunk-ignore(shellcheck/SC2016)
+					source_filepath="${default_filepath/"$DOROTHY"/'$DOROTHY'}"
+					cat <<-EOF >>"$temp_filepath"
+						# load the default configuration
+						. "$source_filepath"
+
+					EOF
+				else
+					# fish, zsh, bash
+					# trunk-ignore(shellcheck/SC2016)
+					source_filepath="${default_filepath/"$DOROTHY"/'$DOROTHY'}"
+					cat <<-EOF >>"$temp_filepath"
+						# load the default configuration
+						source "$source_filepath"
+
+					EOF
+				fi
+
+				# append the body of the default configuration file
+				echo-lines-after '' --stdin <"$default_filepath" >>"$temp_filepath"
+			else
+				# even the dorothy default is missing
+				cat <<-EOF >"$temp_filepath"
+					#!/usr/bin/env $extension
+
+				EOF
+			fi
+
+			# add the new file to the paths
+			mv "$temp_filepath" "$user_filepath"
+		fi
+
+		# now that the file definitely exists, update it if we have values to update it
+		if test "${#option_args[@]}" -ne 0; then
+			config-helper --file="$user_filepath" \
+				-- "${option_args[@]}"
+		fi
+	}
+
+	# perform the correct action
+	if test -z "$option_packages_var"; then
+		update_configuration
+	else
+		prune_utilities_from_packages
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	if test "$*" = '--test'; then
+		dorothy_config_test
+	else
+		dorothy_config "$@"
+	fi
+fi

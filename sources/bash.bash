@@ -3,7 +3,7 @@
 
 # For bash version compatibility and changes, see:
 # See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about signficant changes between bash versions.
-# See <https://github.com/bminor/bash/blob/master/CHANGES> for documentation on changes from bash v2 and above.
+# See <https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES> <https://tiswww.case.edu/php/chet/bash/CHANGES> <https://github.com/bminor/bash/blob/master/CHANGES> for documentation on changes from bash v2 and above.
 
 # For bash configuration options, see:
 # https://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
@@ -40,7 +40,7 @@ if test -z "${BASH_VERSION_CURRENT-}"; then
 	# 5.2.15(1)-release => 5.2.15
 	IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
-	BASH_VERSION_LATEST='5.2.15'
+	BASH_VERSION_LATEST='5.2.21' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
 	# any v5 version is supported by dorothy
 	if test "$BASH_VERSION_MAJOR" -eq 5; then
 		IS_BASH_VERSION_OUTDATED='no'
