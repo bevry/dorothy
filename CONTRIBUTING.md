@@ -20,7 +20,7 @@ Update Dorothy to use your fork, and create a branch for your development:
 cd "$DOROTHY"
 git remote add fork 'the git url of your fork'
 git fetch fork
-git checkout -b username-dev # or issue-1337
+git checkout -b dev-username # or issue-1337
 ```
 
 ## Developing your changes
@@ -31,9 +31,9 @@ Install all development dependencies:
 dorothy dev
 ```
 
-Visual Studio Code is recommended, as VSCode will detect Dorothy's preferences and adapt accordingly, enabling automatic correct formatting and linting as you go. When you open the Dorothy directory inside Visual Studio Code, you will get a prompt to install is recommended extensions, you should do so.
+[Visual Studio Code](https://code.visualstudio.com) is recommended, as VSCode will detect Dorothy's preferences and adapt accordingly, enabling automatic correct formatting and linting as you go. When you open the Dorothy directory inside Visual Studio Code, you will get a prompt to install is recommended extensions, you should do so.
 
-For other editors, we use [Trunk Check](https://docs.trunk.io/check) for linting and formatting.
+For other editors, we use [Trunk Check](https://docs.trunk.io/check) for linting and formatting. If Trunk is not available for your setup, use [shfmt](https://github.com/mvdan/sh#shfmt) and [ShellCheck](https://github.com/koalaman/shellcheck).
 
 You can auto-format your changes via `dorothy format`, check them via `dorothy check`, and format and check via `dorothy lint`.
 
