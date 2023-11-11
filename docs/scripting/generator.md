@@ -2,7 +2,7 @@
 
 The following is a proposal for a new command generator:
 
-```
+```plain
 What type of command is this?
 normal: process arguments, execute something
 echo-*: transform input (args/stdin) into modified output
