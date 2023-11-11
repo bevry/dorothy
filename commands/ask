@@ -146,15 +146,23 @@ function ask_() (
 	# Action
 
 	# prepare
-	local RESULT ASKED='no' tty_target
+	local tty_target
 	tty_target="$(is-tty --fallback)"
+
+	# adjust result
+	local RESULT
 	if test -n "$option_default"; then
 		RESULT="$option_default"
 	else
 		RESULT=''
 	fi
+	# adjust timeout to one minute if we have a default value, or if optional
+	if test -z "$option_timeout" && (is-value "$RESULT" || test "$option_required" = 'no'); then
+		option_timeout=60
+	fi
 
 	# helpers
+	local ASKED='no'
 	function on_timeout {
 		if is-value -- "$RESULT"; then
 			echo-style --notice="Ask timed out. Using the fallback value: " --code="$RESULT" >/dev/stderr
@@ -171,7 +179,7 @@ function ask_() (
 			return 60 # ETIMEDOUT 60 Operation timed out
 		fi
 	}
-	function do_ask { # has sideffects: RESULT, ASKED
+	function do_prompt { # has sideffects: RESULT, ASKED
 		local __read_status
 		tty_auto
 		ASKED='yes' # not local
@@ -180,13 +188,18 @@ function ask_() (
 		fi
 		while true; do
 			# -i requires -e
-			__read_status=0 && read -r -t 300 -ei "$RESULT" -p '> ' RESULT || __read_status=$?
+			____read_status=0 && read -r -t 300 -ei "$RESULT" -p '> ' RESULT || __read_status=$?
 			if test "$__read_status" -eq 142; then
 				return 60 # ETIMEDOUT 60 Operation timed out
 			fi
 			if is-value -- "$RESULT"; then
+				# we have a value, proceed
 				break
-			elif test "$option_required" = 'no'; then
+			elif test "$option_required" = 'yes'; then
+				# ask again
+				continue
+			else
+				# no result, optional, set value to empty, and proceed
 				RESULT=''
 				break
 			fi
@@ -194,94 +207,82 @@ function ask_() (
 		do_validate
 	}
 	function do_validate {
-		local choose_status ask_status choice choices=()
-		if is-value -- "$RESULT"; then
-			# we have an input
-			if test "$ASKED" = 'yes'; then
-				# do we want to confirm the input value
-				if test "$option_confirm_input" = 'no'; then
-					print_line "$RESULT"
-					return 0
-				fi
-				if test "$option_password" = 'yes'; then
-					choices+=('existing' 'use the entered password')
-				else
-					choices+=('existing' "use the entered value: [$RESULT]")
-				fi
-			else
-				# do we want to confirm the default value
-				if test "$option_confirm_default" = 'no'; then
-					print_line "$RESULT"
-					return 0
-				fi
-				if test "$option_password" = 'yes'; then
-					choices+=('existing' 'use the preconfigured password')
-				else
-					choices+=('existing' "use the preconfigured value: [$RESULT]")
-				fi
+		local choose_status prompt_status choice choices=()
+
+		# have we prompted?
+		if test "$ASKED" = 'no'; then
+			# do we want to confirm the default value
+			if is-value -- "$RESULT" && test "$option_confirm_default" = 'no'; then
+				print_line "$RESULT"
+				return 0
 			fi
-		fi
-		if test "$ASKED" = 'yes'; then
-			choices+=('custom' 'redo the entered value')
 		else
-			choices+=('custom' 'enter a value')
-		fi
-		if test "$option_required" = 'no'; then
-			choices+=('none' 'use no value')
-		fi
+			# we have asked, do we want to confirm the input value
+			if test "$option_confirm_input" = 'no'; then
+				print_line "$RESULT"
+				return 0
+			fi
 
-		# as need to confirm, adjust the timeout
-		if test -z "$option_timeout" && (is-value -- "$RESULT" || test "$option_required" = 'no'); then
-			# timeout of one minute for confirms of existing values, or optional values
-			option_timeout=60
-		fi
+			# redo choices, has to be redone each time due to result
+			if test "$option_password" = 'yes'; then
+				choices+=('existing' 'use the entered password')
+			else
+				choices+=('existing' "use the entered value: [$RESULT]")
+			fi
+			choices+=('custom' 'redo the entered value')
+			if test "$option_required" = 'no'; then
+				choices+=('none' 'use no value')
+			fi
 
-		# ask
-		eval_capture --statusvar=choose_status --stdoutvar=choice -- \
-			choose-option \
-			--timeout="$option_timeout" \
-			--question="$option_question" \
-			--label -- "${choices[@]}"
+			# we want to confirm
+			eval_capture --statusvar=choose_status --stdoutvar=choice -- \
+				choose-option \
+				--timeout="$option_timeout" \
+				--question="$option_question" \
+				--label -- "${choices[@]}"
 
-		# check
-		if test "$choose_status" -eq 60; then
-			echo-style --error="Choose timed out: $choose_status" >/dev/stderr
-			on_timeout
-			return
-		elif test "$choose_status" -ne 0; then
-			echo-style --error="Choose failed: $choose_status" >/dev/stderr
-			sleep 3
-			return "$choose_status"
-		fi
-
-		# handle
-		if test "$choice" = 'existing'; then
-			# done, sucess
-			print_line "$RESULT"
-			return 0
-		elif test "$choice" = 'custom'; then
-			# ask
-			eval_capture --statusvar=ask_status -- do_ask "$option_question"
-
-			# check for failure
-			if test "$ask_status" -ne 0; then
-				# timeout probably
+			# check the confirmation
+			if test "$choose_status" -eq 60; then
+				echo-style --error="Choose timed out: $choose_status" >/dev/stderr
 				on_timeout
 				return
+			elif test "$choose_status" -ne 0; then
+				echo-style --error="Choose failed: $choose_status" >/dev/stderr
+				sleep 3
+				return "$choose_status"
 			fi
 
-			# done, success
-			return 0
-		elif test "$choice" = 'none'; then
-			# done, sucess
-			echo
-			return 0
-		else
-			# unknown error
-			echo-style --error="Invalid choice: $choice" >/dev/stderr
-			sleep 3
-			return 14 # EFAULT 14 Bad address
+			# proceess the confirmation
+			if test "$choice" = 'existing'; then
+				# done, sucess
+				print_line "$RESULT"
+				return 0
+			elif test "$choice" = 'custom'; then
+				: # proceed with prompt
+			elif test "$choice" = 'none'; then
+				# done, sucess
+				echo
+				return 0
+			else
+				# unknown error
+				echo-style --error="Invalid choice: $choice" >/dev/stderr
+				sleep 3
+				return 14 # EFAULT 14 Bad address
+			fi
 		fi
+
+		# prompt
+		eval_capture --statusvar=prompt_status -- do_prompt "$option_question"
+
+		# check for failure
+		if test "$prompt_status" -ne 0; then
+			# timeout probably
+			on_timeout
+			return
+		fi
+
+		# done, success
+		return 0
 	}
 
 	# act
