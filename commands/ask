@@ -107,7 +107,7 @@ function ask_() (
 	}
 
 	# process
-	local item args=() option_question='' option_default='' option_password='no' option_required='no' option_confirm_default='yes' option_confirm_input='no' option_timeout=''
+	local item args=() option_question='' option_default='' option_timeout='' option_password='no' option_required='no' option_linger='no' option_confirm_default='yes' option_confirm_input='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -121,6 +121,9 @@ function ask_() (
 			;;
 		'--no-required'* | '--required'*)
 			option_required="$(get-flag-value --affirmative --fallback="$option_required" -- "$item")"
+			;;
+		'--no-linger'* | '--linger'*)
+			option_linger="$(get-flag-value linger --missing="$option_linger" -- "$item" | echo-affirmative --stdin)"
 			;;
 		'--no-confirm-default'* | '--confirm-default'*)
 			option_confirm_default="$(get-flag-value --affirmative --fallback="$option_confirm_default" -- "$item")"
@@ -146,6 +149,7 @@ function ask_() (
 	# Action
 
 	# prepare
+	# @todo implement cursor move fallback
 	local tty_target
 	tty_target="$(is-tty --fallback)"
 
@@ -156,18 +160,41 @@ function ask_() (
 	else
 		RESULT=''
 	fi
+
 	# adjust timeout to one minute if we have a default value, or if optional
 	if test -z "$option_timeout" && (is-value "$RESULT" || test "$option_required" = 'no'); then
 		option_timeout=60
 	fi
 
+	# adjust question
+	local question_render prompt
+	prompt='> '
+	question_render="$(echo-style --bold="$option_question")"
+
+	# adjust tty
+	local size_columns bin_gfold bin_gwc
+	size_columns="$(tput cols)"
+	if is-mac; then
+		bin_gfold="$(type -P 'gfold' 2>/dev/null || :)"
+		bin_gwc="$(type -P 'gwc' 2>/dev/null || :)"
+	else
+		bin_gfold="$(type -P 'fold' 2>/dev/null || :)"
+		bin_gwc="$(type -P 'wc' 2>/dev/null || :)"
+	fi
+
 	# helpers
 	local ASKED='no'
+	function send_result {
+		if test "$option_linger" = 'yes'; then
+			print_line "$question_render"$'\n'"$RESULT" >"$tty_target"
+		fi
+		print_line "$RESULT"
+	}
 	function on_timeout {
 		if is-value -- "$RESULT"; then
 			echo-style --notice="Ask timed out. Using the fallback value: " --code="$RESULT" >/dev/stderr
 			sleep 5
-			print_line "$RESULT"
+			send_result
 			return 0
 		elif test "$option_required" = 'no'; then
 			echo-style --notice='Ask timed out. Had no fallback value, this is fine as the field was optional.' >/dev/stderr
@@ -180,15 +207,25 @@ function ask_() (
 		fi
 	}
 	function do_prompt { # has sideffects: RESULT, ASKED
-		local __read_status
-		tty_auto
+		local __read_status render render_rows
+
+		# tty_auto
 		ASKED='yes' # not local
-		if test -n "${1-}"; then
-			echo-style --bold="$1" >"$tty_target"
+		if test -n "$question_render"; then
+			print_line "$question_render" >"$tty_target"
 		fi
 		while true; do
 			# -i requires -e
-			____read_status=0 && read -r -t 300 -ei "$RESULT" -p '> ' RESULT || __read_status=$?
+			__read_status=0 && read -r -t 300 -ei "$RESULT" -p "$prompt" RESULT || __read_status=$?
+
+			# \n at the end to factor in the enter key
+			render="$(echo-trim-colors -- "$question_render"$'\n'"$prompt$RESULT")"
+			render="$("$bin_gfold" -w "$size_columns" <<<"$render")"
+			render_rows="$("$bin_gwc" -l <<<"$render")"
+
+			# move these lines up and erase
+			printf '\e[%sF\e[G\e[J' "$render_rows" >"$tty_target"
+
 			if test "$__read_status" -eq 142; then
 				return 60 # ETIMEDOUT 60 Operation timed out
 			fi
@@ -213,13 +250,13 @@ function ask_() (
 		if test "$ASKED" = 'no'; then
 			# do we want to confirm the default value
 			if is-value -- "$RESULT" && test "$option_confirm_default" = 'no'; then
-				print_line "$RESULT"
+				send_result
 				return 0
 			fi
 		else
 			# we have asked, do we want to confirm the input value
 			if test "$option_confirm_input" = 'no'; then
-				print_line "$RESULT"
+				send_result
 				return 0
 			fi
 
@@ -255,7 +292,7 @@ function ask_() (
 			# proceess the confirmation
 			if test "$choice" = 'existing'; then
 				# done, sucess
-				print_line "$RESULT"
+				send_result
 				return 0
 			elif test "$choice" = 'custom'; then
 				: # proceed with prompt
@@ -272,7 +309,7 @@ function ask_() (
 		fi
 
 		# prompt
-		eval_capture --statusvar=prompt_status -- do_prompt "$option_question"
+		eval_capture --statusvar=prompt_status -- do_prompt
 
 		# check for failure
 		if test "$prompt_status" -ne 0; then
