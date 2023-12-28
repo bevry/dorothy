@@ -17,6 +17,7 @@
 
 <!-- /BADGES -->
 
+
 Dorothy is a dotfile ecosystem featuring:
 
 -   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
@@ -273,15 +274,15 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 #### Maintainers
 
--   [Benjamin Lupton](https://github.com/balupton) — Accelerating collaborative wisdom.
+-   [Benjamin Lupton](https://balupton.com) — Accelerating collaborative wisdom.
 
 #### Contributors
 
--   [Benjamin Lupton](https://github.com/balupton) — [view contributions](https://github.com/bevry/dorothy/commits?author=balupton 'View the GitHub contributions of Benjamin Lupton on repository bevry/dorothy')
--   [Bevry Team](https://github.com/BevryMe) — [view contributions](https://github.com/bevry/dorothy/commits?author=BevryMe 'View the GitHub contributions of Bevry Team on repository bevry/dorothy')
--   [BJReplay](https://github.com/BJReplay) — [view contributions](https://github.com/bevry/dorothy/commits?author=BJReplay 'View the GitHub contributions of BJReplay on repository bevry/dorothy')
--   [molleweide](https://github.com/molleweide) — [view contributions](https://github.com/bevry/dorothy/commits?author=molleweide 'View the GitHub contributions of molleweide on repository bevry/dorothy')
--   [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai 'View the GitHub contributions of Sumit Rai on repository bevry/dorothy')
+-   [Benjamin Lupton](https://github.com/balupton) — [view contributions](https://github.com/bevry/dorothy/commits?author=balupton "View the GitHub contributions of Benjamin Lupton on repository bevry/dorothy")
+-   [Bevry Team](https://github.com/BevryMe) — [view contributions](https://github.com/bevry/dorothy/commits?author=BevryMe "View the GitHub contributions of Bevry Team on repository bevry/dorothy")
+-   [BJReplay](https://github.com/BJReplay) — [view contributions](https://github.com/bevry/dorothy/commits?author=BJReplay "View the GitHub contributions of BJReplay on repository bevry/dorothy")
+-   [molleweide](https://github.com/molleweide) — [view contributions](https://github.com/bevry/dorothy/commits?author=molleweide "View the GitHub contributions of molleweide on repository bevry/dorothy")
+-   [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai "View the GitHub contributions of Sumit Rai on repository bevry/dorothy")
 
 ### Finances
 
@@ -300,7 +301,7 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 -   [Andrew Nesbitt](https://nesbitt.io) — Software engineer and researcher
 -   [Balsa](https://balsa.com) — We're Balsa, and we're building tools for builders.
--   [Codecov](https://codecov.io/) — Empower developers with tools to improve code quality and testing.
+-   [Codecov](https://codecov.io) — Empower developers with tools to improve code quality and testing.
 -   [Poonacha Medappa](https://poonachamedappa.com)
 -   [Rob Morris](https://github.com/Rob-Morris)
 -   [Sentry](https://sentry.io) — Real-time crash reporting for your web apps, mobile apps, and games.
@@ -311,7 +312,7 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 -   [Andrew Nesbitt](https://nesbitt.io)
 -   [Balsa](https://balsa.com)
 -   [Chad](https://opencollective.com/chad8)
--   [Codecov](https://codecov.io/)
+-   [Codecov](https://codecov.io)
 -   [Jean-Luc Geering](https://github.com/jlgeering)
 -   [Michael Duane Mooring](https://mdm.cc)
 -   [Poonacha Medappa](https://poonachamedappa.com)
