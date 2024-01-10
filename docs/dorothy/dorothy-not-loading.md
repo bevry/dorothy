@@ -28,23 +28,48 @@ Close the preferences and open a new terminal tab, now Dorothy should be loaded 
 
     ```javascript
     {
-      // dorothy loads the vscode integration itself, so vscode's auto-detection should be disabled
+      // dorothy auto-enables the vscode integration, no need for messy auto-detection
       "terminal.integrated.shellIntegration.enabled": false,
-      // specify our default shell, as the bash one from below
+      // specify your default shell preference from below, ie. if you prefer nu, then use "nu (login)"
+      "terminal.integrated.defaultProfile.osx": "bash (login)",
       "terminal.integrated.defaultProfile.linux": "bash (login)",
-      // specify our shell configurations, add for as many shells you wish to use
-      "terminal.integrated.profiles.linux": {
-        // for bash:
+      // specify our login shell configurations
+      "terminal.integrated.profiles.osx": {
         "bash (login)": {
-          "args": ["-l"],
-          "path": "bash"
+          "path": "bash",
+          "args": ["-l"]
         },
-        // for nushell:
+        "zsh (login)": {
+          "path": "zsh",
+          "args": ["-l"]
+        },
+        "fish (login)": {
+          "path": "fish",
+          "args": ["-l"]
+        },
         "nu (login)": {
           "args": ["-l"],
           "path": "nu"
-        }
-      }
+        },
+      },
+      "terminal.integrated.profiles.linux": {
+        "bash (login)": {
+          "path": "bash",
+          "args": ["-l"]
+        },
+        "zsh (login)": {
+          "path": "zsh",
+          "args": ["-l"]
+        },
+        "fish (login)": {
+          "path": "fish",
+          "args": ["-l"]
+        },
+        "nu (login)": {
+          "args": ["-l"],
+          "path": "nu"
+        },
+      },
     }
     ```
 
