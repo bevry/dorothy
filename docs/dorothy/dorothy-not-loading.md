@@ -18,41 +18,36 @@ Navigate to the active profile, select command, and ensure that login shell is e
 
 Close the preferences and open a new terminal tab, now Dorothy should be loaded which you can verify by running `dorothy theme` to select a theme.
 
+## Visual Studio Code
 
+1. Open the Visual Studio Code Command Palette (`Ctrl + Shift + P` on Windows, `Command + Shift + P` on macOS).
 
-## Windows - Visual Studio Code, Remote Connection to WSL2
+2. Open `Preferences: User Settings (JSON)` via typing and enter.
 
-To ensure Dorothy loads correctly in Visual Studio Code when using a Remote Connection to WSL2, it's necessary to configure your terminal settings to open as a login shell(especially for nushell). Here's how to set this up:
-
-1. Open Visual Studio Code settings. You can do this by pressing `Ctrl + ,` or selecting `Settings` from the Command Palette (`Ctrl + Shift + P`).
-
-2. Navigate to the terminal settings by searching for "terminal integrated profiles Linux."
-
-3. Under "Profiles: Linux," find your preferred shell (e.g., bash, zsh, or another). If it's not listed, you might need to add a new profile.
-
-4. For your selected shell profile, set the `args` property to include `-l` and `-i`. The `-l` argument ensures the shell operates as a login shell, while `-i` makes it interactive, which is necessary for Dorothy to load correctly.
-
-Here's a JSON snippet as an example for bash:
-
-```json
-"terminal.integrated.profiles.linux": {
-    "bash": {
-        "path": "bash",
-        "args": ["-l", "-i"],
-        "icon": "terminal-bash"
-    },
-    NuShell": {
-        "path": "/home/linuxbrew/.linuxbrew/bin/nu",
-        "args": ["-l", "-i"],
-        "icon": "fold"
+3. Merge the following JSON with your own JSON:
+    
+    ```javascript
+    {
+      // dorothy loads the vscode integration itself, so vscode's auto-detection should be disabled
+      "terminal.integrated.shellIntegration.enabled": false,
+      // specify our default shell, as the bash one from below
+      "terminal.integrated.defaultProfile.linux": "bash (login)",
+      // specify our shell configurations, add for as many shells you wish to use
+      "terminal.integrated.profiles.linux": {
+        // for bash:
+        "bash (login)": {
+          "args": ["-l"],
+          "path": "bash"
+        },
+        // for nushell:
+        "nu (login)": {
+          "args": ["-l"],
+          "path": "nu"
+        }
+      }
     }
-    // Include other shells if necessary
-},
-```
+    ```
 
-5. Save the settings and restart Visual Studio Code.
+5. Save the settings.
 
-6. Open a new terminal session. It should now start as a login shell, loading Dorothy as expected. Validate this by running a Dorothy command, like `dorothy theme`, to ensure everything is functioning as intended.
-
-This configuration ensures a smooth integration of Dorothy with your development environment in Visual Studio Code when connected to WSL2, providing a seamless experience.
-
+6. Use the menu bar `Termina: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal. It should now start as a login shell, loading Dorothy as expected. Validate this by running a Dorothy command, like `dorothy theme`, to ensure everything is functioning as intended.
