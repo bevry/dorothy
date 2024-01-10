@@ -25,7 +25,7 @@ Close the preferences and open a new terminal tab, now Dorothy should be loaded 
 2. Open `Preferences: User Settings (JSON)` via typing and enter.
 
 3. Merge the following JSON with your own JSON:
-    
+
     ```javascript
     {
       // dorothy loads the vscode integration itself, so vscode's auto-detection should be disabled
@@ -48,6 +48,6 @@ Close the preferences and open a new terminal tab, now Dorothy should be loaded 
     }
     ```
 
-5. Save the settings.
+4. Save the settings.
 
-6. Use the menu bar `Termina: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal. It should now start as a login shell, loading Dorothy as expected. Validate this by running a Dorothy command, like `dorothy theme`, to ensure everything is functioning as intended.
+5. Use the menu bar `Termina: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal. It should now start as a login shell, loading Dorothy as expected. Validate this by running a Dorothy command, like `dorothy theme`, to ensure everything is functioning as intended.
