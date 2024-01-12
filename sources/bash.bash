@@ -21,8 +21,15 @@ function print_string {
 	fi
 }
 function print_line {
-	print_string "$@"
+	if test "$#" -ne 0; then
+		printf '%s' "$*"
+	fi
 	printf '\n'
+}
+function print_lines {
+	if test "$#" -ne 0; then
+		printf '%s\n' "$@"
+	fi
 }
 
 # =============================================================================
