@@ -314,7 +314,7 @@ case "$example" in
 1)
 	set +e # disable errors returning immediately, the default bash mode, desirable for the login shell
 	a_function_which_failure_is_not_the_last_command
-    # outputs:
+	# outputs:
 	# before faliure
 	# after failure
 	;;
@@ -329,7 +329,7 @@ case "$example" in
 3)
 	set -e
 	a_function_which_failure_is_not_the_last_command && echo 'success'
-    # outputs:
+	# outputs:
 	# before faliure
 	# after failure
 	# success
@@ -348,7 +348,7 @@ case "$example" in
 	else
 		echo 'failure'
 	fi
-    # outputs:
+	# outputs:
 	# before faliure
 	# after failure
 	# success
@@ -358,8 +358,8 @@ case "$example" in
 6)
 	set -e
 	a_function_which_failure_is_the_last_command && echo 'success' || echo 'failure'
-    echo 'ok'
-    # outputs:
+	echo 'ok'
+	# outputs:
 	# before faliure without after
 	# failure
 	# ok
@@ -471,18 +471,18 @@ eval_capture --statusvar=status some_function
 ```bash
 # before
 if some_function; then
-    # ...
+	# ...
 else
-    # ...
+	# ...
 fi
 
 # after
 local status
 eval_capture --statusvar=status some_function
 if test "$status" -eq 0; then
-    # ...
+	# ...
 else
-    # ...
+	# ...
 fi
 ```
 

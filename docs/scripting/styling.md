@@ -10,7 +10,7 @@ Use `echo-style` to style the lines of your output.
 echo-style \
 	--error='This is an error message, use it for when things went poorly.' $'\n' \
 	--success='This is a success message, use it for when things went well.' $'\n' \
-    --warning='This is a warning message, use it when acceptable failures occurred.' $'\n' \
+	--warning='This is a warning message, use it when acceptable failures occurred.' $'\n' \
 	--notice='This is a notice message, use it for say instructions.' $'\n' \
 	--code='This is is a code message, use it for say variable values.' $'\n' \
 	--blue+bold+bg-yellow='You can also combine styles, such as this.'

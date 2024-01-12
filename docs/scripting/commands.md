@@ -66,13 +66,13 @@ And set its contents to:
 #!/usr/bin/env bash
 
 function ask_() (
-    source "$DOROTHY/sources/bash.bash"
-    if confirm --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
-        "$DOROTHY/commands/ask" "$@"
-    else
-        echo-style --error='If we cannot trust your answers, we cannot act reliably. Exiting...'
-        return 1
-    fi
+	source "$DOROTHY/sources/bash.bash"
+	if confirm --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
+		"$DOROTHY/commands/ask" "$@"
+	else
+		echo-style --error='If we cannot trust your answers, we cannot act reliably. Exiting...'
+		return 1
+	fi
 )
 
 # fire if invoked standalone
