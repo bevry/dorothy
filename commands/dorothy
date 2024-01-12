@@ -545,9 +545,7 @@ function dorothy() (
 
 		# ensure state exists
 		mkdir -p "$XDG_STATE_HOME/dorothy"
-		if test ! -L "$DOROTHY/state"; then
-			symlink-helper --quiet --existing="$XDG_STATE_HOME/dorothy" --symlink="$DOROTHY/state"
-		fi
+		relocate_then_symlink_if_necessary "$DOROTHY/state" "$XDG_STATE_HOME/dorothy"
 		mkdir -p "$DOROTHY/state/config.local"
 		mkdir -p "$DOROTHY/state/config"
 		mkdir -p "$DOROTHY/state/sources"
@@ -599,20 +597,53 @@ function dorothy() (
 
 	function relocate_if_necessary {
 		local source="$1" destination="$2"
-		# ensure source exists, and isn't the same as the destination
+		# if source actually exists (is a dir, or a resolvable symlink), we need to merge it with the destination
 		if test -e "$source"; then
-			# ensure we aren't moving to the same location, especially with handling for symlinks, prevents:
-			# mv: /Users/redacted/.local/share/dorothy/user and /Users/redacted/.config/dorothy/user are identical
+			# we are a directory, or a resolvable symlink
+
+			# if a symlink, resolve it
 			if test -L "$source"; then
-				source="$(fs_realpath -- "$source")"
+				source="$(fs_realpath -- "$source")" # only works on resolvable symlinks
 			fi
+
+			# if the destination is a symlink, resolve it or remove it
 			if test -L "$destination"; then
-				destination="$(fs_realpath -- "$destination")"
+				if test ! -e "$destination"; then
+					# not resolvable, remove it
+					rm -f "$destination"
+				else
+					# resolvable, resolve it
+					destination="$(fs_realpath -- "$destination")"
+				fi
 			fi
+
+			# ensure our resolved locations aren't identical
+			# as there is no point moving itself to itself
+			# this prevents this error:
+			# mv: /Users/redacted/.local/share/dorothy/user and /Users/redacted/.config/dorothy/user are identical
 			if test "$source" != "$destination"; then
+				if test -n "$symlink"; then
+					ln -sfF "$destination" "$symlink"
+				fi
 				mv -vf "$source" "$destination"
 			fi
+
+			# all done, skip the rest
+			return 0
+		elif test -L "$source"; then
+			# source is a broken symlink, remove it
+			rm -f "$source"
 		fi
+		# check if destination is a broken symlink, if so remove it
+		if test -L "$destination" -a ! -e "$destination"; then
+			rm -f "$destination"
+		fi
+	}
+
+	function relocate_then_symlink_if_necessary {
+		local symlink="$1" existing="$2"
+		relocate_if_necessary "$symlink" "$existing"
+		ln -sfF "$existing" "$symlink"
 	}
 
 	function relocate_dorothy_if_necessary {
@@ -637,9 +668,8 @@ function dorothy() (
 		# move if necessary
 		if test -d "$DOROTHY/user" -o -d "$XDG_CONFIG_HOME/dorothy"; then
 			if test "$option_xdg" = 'yes'; then
-				relocate_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 				# ensure $DOROTHY/user always exists
-				symlink-helper --quiet --existing="$XDG_CONFIG_HOME/dorothy" --symlink="$DOROTHY/user"
+				relocate_then_symlink_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 			elif test "$option_xdg" = 'no'; then
 				relocate_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
 				relocate_if_necessary "$HOME/.config/dorothy" "$DOROTHY/user"
