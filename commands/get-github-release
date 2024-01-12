@@ -205,6 +205,8 @@ function get_github_release() (
 			    Fetch the json of the release.
 			--releases
 			    Fetch the releases of the repository.
+			--rate-limit
+				Fetch the current rate limits.
 			> If no specific action is provided, then --tag is used.
 
 			--gh
@@ -243,6 +245,7 @@ function get_github_release() (
 		'--api-url') action='api-url' ;;
 		'--release') action='release' ;;
 		'--releases') action='releases' ;;
+		'--rate-limit') action='rate-limit' ;;
 		# technique
 		'--gh') techniques+=('gh') ;;
 		'--jq') techniques+=('jq') ;;
@@ -275,6 +278,55 @@ function get_github_release() (
 		if command-exists gh; then
 			GITHUB_TOKEN="$(gh auth token --hostname "$GITHUB_API_URL" 2>/dev/null || :)"
 		fi
+	fi
+
+	# essential helpers
+	function fetch_json {
+		fetch --bearer-token="$GITHUB_TOKEN" "$1"
+	}
+	function fetch_json_of_rate_limit {
+		fetch_json "$GITHUB_API_URL/rate_limit"
+	}
+	function extract_value_from_json_property_from_stdin {
+		local property="$1"
+		tr -d '\n' | awk -v property="$property" '
+			{
+				while ( match($0,/"[^"]*"|: false|: true|: [0-9]+/) ) {
+					inner = substr($0,RSTART,RLENGTH)
+					if ( inner ~ /^: / ) {
+						inner = substr(inner,3)
+					} else if ( inner ~ /^"/ ) {
+						inner = substr(inner,2,length(inner)-2)
+					}
+					if ( inner == property ) {
+						found = 1
+					} else if ( found ) {
+						print inner
+						exit
+					}
+					$0 = substr($0,RSTART+RLENGTH)
+				}
+			}'
+	}
+	function wait_on_rate_limit {
+		local json
+		local now remaining reset seconds
+		json="$(fetch_json_of_rate_limit)"
+		# limit="$(extract_value_from_json_property_from_stdin 'limit' <<<"$json")"
+		remaining="$(extract_value_from_json_property_from_stdin 'remaining' <<<"$json")"
+		if test "$remaining" -gt 5; then # we need at least a few requests to do anything, so 5 seems a reasonable limit
+			return 0
+		fi
+		now="$(date-helper --unix)"
+		reset="$(extract_value_from_json_property_from_stdin 'reset' <<<"$json")"
+		seconds="$((reset - now))"
+		waiter "$seconds" --message="$(echo-style --notice='Waiting for the GitHub API Rate Limit to reset...' ' ' --code_notice+blink="%s remaining")"
+	}
+
+	# rate-limit action is here, to avoid the slug check for everything else
+	if test "$action" = 'rate-limit'; then
+		fetch_json_of_rate_limit
+		return
 	fi
 
 	# enforcements
@@ -342,33 +394,10 @@ function get_github_release() (
 	# =====================================
 	# Helpers
 
-	function extract_value_from_json_property_from_stdin {
-		local property="$1"
-		tr -d '\n' | awk -v property="$property" '
-			{
-				while ( match($0,/"[^"]*"|false|true/) ) {
-					inner = substr($0,RSTART,RLENGTH)
-					if ( inner ~ /^"/ ) {
-						inner = substr(inner,2,length(inner)-2)
-					}
-					if ( inner == property ) {
-						found = 1
-					} else if ( found ) {
-						print inner
-						exit
-					}
-					$0 = substr($0,RSTART+RLENGTH)
-				}
-			}'
-	}
-
 	# fetch releases
 	local RELEASES_API_URL="$GITHUB_API_URL/repos/$slug/releases"
 	local RELEASE_API_URL_FROM_ALIAS="$GITHUB_API_URL/repos/$slug/releases/$alias"
 	local RELEASE_API_URL_FROM_ID="$GITHUB_API_URL/repos/$slug/releases/$id"
-	function fetch_json {
-		fetch --bearer-token="$GITHUB_TOKEN" "$1"
-	}
 	function fetch_json_of_releases {
 		fetch_json "$RELEASES_API_URL"
 	}
@@ -511,6 +540,10 @@ function get_github_release() (
 	# =====================================
 	# Action
 
+	# wait on rate limits if necessary
+	wait_on_rate_limit
+
+	# continue with the action
 	if test "$action" = 'releases'; then
 		for technique in "${techniques[@]}"; do
 			if test "$technique" = 'gh'; then

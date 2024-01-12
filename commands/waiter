@@ -15,16 +15,20 @@ function waiter_() (
 			waiter [...options]
 
 			OPTIONS:
-			--timeout=<timeout> | <timeout>
-			    How many seconds to wait for before timing out.
-			    Defaults to 5 seconds.
+			<timeout> | --timeout=<timeout>
+			    If provided, will wait for this amount of secons, and count down.
+			    If not provided, will wait indefinitely, and count up.
+
+			--message=<message>
+			    A message where %s will be replaced with the time remaining or the time waited.
+			    Defaults to "Waiting %s..." (if counting down / timeout provide) and "Waited %s..." (if counting up / no timeout provided).
 
 			--exists=<path>
-			    If the path exists, then skip waiting.
+			    If the path exists, skip any more waiting, and return success exit status (0).
 
 			--status=<exit-status>
-			    If provided, once done waiting, return this status code.
-			    Defaults to 0.
+			    If timed out, return this exit status.
+			    Defaults to 0, however if --exists is provided, this will default to [ETIMEDOUT 60 Operation timed out] instead.
 
 			--stdout=<stdout>
 			    If provided, once done waiting, output this to stdout.
@@ -45,13 +49,14 @@ function waiter_() (
 	}
 
 	# process
-	local item option_timeout='' option_exists='' option_status=0 option_stdout='' option_stderr='' option_tty='' option_magic='yes'
+	local item option_timeout='' option_message='' option_exists='' option_status='' option_stdout='' option_stderr='' option_tty='' option_magic='yes'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--timeout='*) option_timeout="${item#*--timeout=}" ;;
+		'--message='*) option_message="${item#*--message=}" ;;
 		'--exists='*) option_exists="${item#*--exists=}" ;;
 		'--status='*) option_status="${item#*--status=}" ;;
 		'--stdout='*) option_stdout="${item#*--stdout=}" ;;
@@ -69,9 +74,27 @@ function waiter_() (
 		esac
 	done
 
-	# default timeout here, to allow [waiter <timeout>] usage
-	if test -z "$option_timeout"; then
-		option_timeout=5
+	# validate
+	if test -n "$option_timeout" && ! is-integer "$option_timeout"; then
+		help "If <timeout> is provided, it must be an integer, this is not an integer: $option_timeout"
+	fi
+
+	# status
+	if test -z "$option_status"; then
+		if test -n "$option_exists"; then
+			option_status=60 # ETIMEDOUT 60 Operation timed out
+		else
+			option_status=0
+		fi
+	fi
+
+	# message
+	if test -z "$option_message"; then
+		if test -n "$option_timeout"; then
+			option_message="$(echo-style --dim='Waiting %s...')"
+		else
+			option_message="$(echo-style --dim='Waited %s...')"
+		fi
 	fi
 
 	# =====================================
@@ -82,13 +105,44 @@ function waiter_() (
 		tty_target="$(is-tty --fallback)"
 	fi
 
-	local count
-	for ((count = option_timeout; count > 0; count--)); do
+	# wait
+	# trunk-ignore-all(shellcheck/SC2059)
+	local -i delta waited=0
+	while true; do
 		if test -n "$option_exists" -a -e "$option_exists"; then
+			option_status=0
 			break
 		fi
-		echo-style --dim="Waiting $count seconds..." >"$tty_target"
-		sleep 1
+		if test -n "$option_timeout"; then
+			if test "$option_timeout" -eq 0; then
+				break
+			fi
+			if test "$option_timeout" -gt 120; then
+				delta="$((option_timeout / 60))"
+				printf "$option_message"$'\n' "$delta minutes" >"$tty_target"
+				if test "$option_timeout" -gt 130; then
+					option_timeout="$((option_timeout - 10))"
+					sleep 10
+				else
+					delta="$((option_timeout - 120))"
+					option_timeout="$((option_timeout - delta))"
+					sleep "$delta"
+				fi
+			else
+				printf "$option_message"$'\n' "$option_timeout seconds" >"$tty_target"
+				option_timeout="$((option_timeout - 1))"
+				sleep 1
+			fi
+		elif test "$waited" -gt 120; then
+			delta="$((waited / 60))"
+			printf "$option_message"$'\n' "$delta minutes" >"$tty_target"
+			waited="$((waited + 10))"
+			sleep 1
+		else
+			printf "$option_message"$'\n' "$waited seconds" >"$tty_target"
+			waited="$((waited + 1))"
+			sleep 1
+		fi
 		if test "$option_magic" = 'yes'; then
 			echo-clear-line >"$tty_target"
 		fi
