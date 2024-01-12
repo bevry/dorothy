@@ -20,8 +20,7 @@ function waiter_() (
 			    If not provided, will wait indefinitely, and count up.
 
 			--message=<message>
-			    A message where %s will be replaced with the time remaining or the time waited.
-			    Defaults to "Waiting %s..." (if counting down / timeout provide) and "Waited %s..." (if counting up / no timeout provided).
+			    A custom message where %s will be replaced with the time remaining or the time waited.
 
 			--exists=<path>
 			    If the path exists, skip any more waiting, and return success exit status (0).
@@ -90,10 +89,18 @@ function waiter_() (
 
 	# message
 	if test -z "$option_message"; then
-		if test -n "$option_timeout"; then
-			option_message="$(echo-style --dim='Waiting %s...')"
+		if test -n "$option_exists"; then
+			if test -n "$option_timeout"; then
+				option_message="$(echo-style --dim='Waiting for path ' --code_notice="$option_exists" --dim=' to become available... %s remaining')"
+			else
+				option_message="$(echo-style --dim='Waiting for path ' --code_notice="$option_exists" --dim=' to become available... %s elapsed')"
+			fi
 		else
-			option_message="$(echo-style --dim='Waited %s...')"
+			if test -n "$option_timeout"; then
+				option_message="$(echo-style --dim='Waiting... %s remaining')"
+			else
+				option_message="$(echo-style --dim='Waiting... %s elapsed')"
+			fi
 		fi
 	fi
 
@@ -105,9 +112,34 @@ function waiter_() (
 		tty_target="$(is-tty --fallback)"
 	fi
 
+	# print helpers
+	function print_plural {
+		if test "$1" -gt 1; then
+			printf '%s' 's'
+		fi
+	}
+	function print_minutes {
+		local plural
+		plural="$(print_plural "$1")"
+		# trunk-ignore(shellcheck/SC2059)
+		printf "$option_message"$'\n' "$1 minute$plural" >"$tty_target"
+	}
+	function print_seconds {
+		local plural
+		plural="$(print_plural "$1")"
+		# trunk-ignore(shellcheck/SC2059)
+		printf "$option_message"$'\n' "$1 second$plural" >"$tty_target"
+	}
+	function print_minutes_and_seconds {
+		local plural_minutes plural_seconds
+		plural_minutes="$(print_plural "$1")"
+		plural_seconds="$(print_plural "$2")"
+		# trunk-ignore(shellcheck/SC2059)
+		printf "$option_message"$'\n' "$1 minute$plural_minutes and $2 second$plural_seconds" >"$tty_target"
+	}
+
 	# wait
-	# trunk-ignore-all(shellcheck/SC2059)
-	local -i delta waited=0
+	local -i minutes delta waited=0
 	while true; do
 		if test -n "$option_exists" -a -e "$option_exists"; then
 			option_status=0
@@ -117,29 +149,33 @@ function waiter_() (
 			if test "$option_timeout" -eq 0; then
 				break
 			fi
-			if test "$option_timeout" -gt 120; then
-				delta="$((option_timeout / 60))"
-				printf "$option_message"$'\n' "$delta minutes" >"$tty_target"
-				if test "$option_timeout" -gt 130; then
-					option_timeout="$((option_timeout - 10))"
-					sleep 10
+			if test "$option_timeout" -gt 60; then
+				minutes="$((option_timeout / 60))"
+				delta="$((option_timeout % 60))"
+				if test "$delta" -eq 0; then
+					print_minutes "$minutes"
+					delta=60
 				else
-					delta="$((option_timeout - 120))"
-					option_timeout="$((option_timeout - delta))"
-					sleep "$delta"
+					print_minutes_and_seconds "$minutes" "$delta"
 				fi
+				option_timeout="$((option_timeout - delta))"
+				sleep "$delta"
 			else
-				printf "$option_message"$'\n' "$option_timeout seconds" >"$tty_target"
+				print_seconds "$option_timeout"
 				option_timeout="$((option_timeout - 1))"
 				sleep 1
 			fi
-		elif test "$waited" -gt 120; then
-			delta="$((waited / 60))"
-			printf "$option_message"$'\n' "$delta minutes" >"$tty_target"
-			waited="$((waited + 10))"
-			sleep 1
+		elif test "$waited" -gt 60; then
+			minutes="$((waited / 60))"
+			delta="$((option_timeout % 60))"
+			print_minutes "$minutes"
+			if test "$delta" -eq 0; then
+				delta=60
+			fi
+			waited="$((waited + delta))"
+			sleep "$delta"
 		else
-			printf "$option_message"$'\n' "$waited seconds" >"$tty_target"
+			print_seconds "$waited"
 			waited="$((waited + 1))"
 			sleep 1
 		fi
