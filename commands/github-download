@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-function github_download_() (
+function github_download() (
 	source "$DOROTHY/sources/bash.bash"
 	require_array 'mapfile'
 
@@ -17,31 +17,42 @@ function github_download_() (
 
 			OPTIONS:
 			--slug=<org>/<repo>
-			    E.g. 'bevry/dorothy'
+			    Use this repository, e.g. 'jqlang/jq'
 
-			--ref=<branch,commit,tag>
-			    E.g. 'master'
-			    If omitted attempts 'master' then attempts 'main'.
+			--head | --HEAD
+			    Get the latest commit on the default branch, typically 'main' or 'master'
+			--branch=<branch>
+			    Use this branch, e.g. 'main', 'master', etc.
+			--tag=<tag>
+			    Use this reference or release tag name, e.g. 'jq-1.7rc2'
+			--commit=<commit>
+			    Use this commit, e.g. '94d6971fac4033b2f06e1d9793053a89f52d3ffd
+			--reference=<branch,commit,tag> | --ref=<branch,commit,tag>
+			    Deprecated alias for --branch=<branch>, --commit=<commit>, and --tag=<tag>
+
+			--latest
+			    Use the latest release. Alias for ---alias=latest
+			--alias=<alias>
+			    Use this release alias, e.g. 'latest'
+			--tag=<tag>
+			    Use this reference or release tag name, e.g. 'jq-1.7rc2'
+			--id=<id>
+			    Use this release id, e.g. '118848514'
+			--release=<alias,tag,id>
+			    Deprecated alias for either --alias=<alias>, --tag=<tag>, --id=<id>
 
 			--pathname=<pathname>
-			    E.g. 'commands/github-download'
-			    Can be used with [--ref] to specify which directory and file within the reference to download.
-			    If [--ref] is provided, but this omitted, the entire reference will be downloaded,
-			        and can be combined with [--unzip-filter].
-
-			--release=<release,tag>
-			    E.g. 'latest'
-			    Can be used to download from a release, instead of a reference.
+			    If downloading a reference, filter by this pathname, e.g. 'commands/github-download'
 
 			--asset-filter=<regexp>
-			    Can be used with [--release] to select which release asset to download.
+			    If downloading a release, filter assets by this.
 
-			--unzip-format=<format>
-			    If downloading a zip file, use this to enforce an extraction <format>.
+			--archive-format=<format> | --archive-format=<format>
+			    If downloading an archive file, use this to enforce an extraction <format>.
 			    This option is handled by the [unziptar] command.
 
-			--unzip-filter=<filter>
-			    If downloading a zip file, use this to only extract files that match the glob pattern <filter>.
+			--archive-filter=<filter> | --archive-filter=<filter>
+			    If downloading an archive file, use this to only extract files that match the glob pattern <filter>.
 			    This option is handled by the [unziptar] command.
 
 			--directory=<directory>
@@ -73,7 +84,7 @@ function github_download_() (
 	}
 
 	# process
-	local item slug='' reference='' pathname='' release='' asset_filter='' unzip_format='' unzip_filter='' directory='' file='' filepath='' quiet='yes' dry='no'
+	local item slug='' branch='' commit='' reference='' alias='' tag='' id='' release='' pathname='' asset_filter='' archive_format='' archive_filter='' directory='' file='' filepath='' quiet='yes' dry='no'
 	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -81,14 +92,27 @@ function github_download_() (
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
+		# repo
 		'--slug='*) slug="${item#*--slug=}" ;;
-		'--ref='*) reference="${item#*--ref=}" ;;
+		# reference
+		'--head' | '--HEAD') reference='HEAD' ;;
+		'--branch='*) branch="${item#*--branch=}" ;;
+		'--commit='*) commit="${item#*--commit=}" ;;
 		'--reference='*) reference="${item#*--reference=}" ;;
+		'--ref='*) reference="${item#*--ref=}" ;;
 		'--pathname='*) pathname="${item#*--pathname=}" ;;
+		# release
+		'--latest') alias='latest' ;;
+		'--alias='*) alias="${item#*--alias=}" ;;
+		'--tag='*) tag="${item#*--tag=}" ;;
+		'--id='*) id="${item#*--id=}" ;;
 		'--release='*) release="${item#*--release=}" ;;
+		# asset
 		'--asset-filter='*) asset_filter="${item#*--asset-filter=}" ;;
-		'--unzip-format='*) unzip_format="${item#*--unzip-format=}" ;;
-		'--unzip-filter='*) unzip_filter="${item#*--unzip-filter=}" ;;
+		'--unzip-format='*) archive_format="${item#*--unzip-format=}" ;; # deprecated
+		'--unzip-filter='*) archive_filter="${item#*--unzip-filter=}" ;; # deprecated
+		'--archive-format='*) archive_format="${item#*--archive-format=}" ;;
+		'--archive-filter='*) archive_filter="${item#*--archive-filter=}" ;;
 		'--directory='*) directory="${item#*--directory=}" ;;
 		'--file='*) file="${item#*--file=}" ;;
 		'--filepath='*) filepath="${item#*--filepath=}" ;;
@@ -100,15 +124,86 @@ function github_download_() (
 		esac
 	done
 
-	# confirm expectations
-	if test -n "$reference" -a -n "$release"; then
-		help "[--ref] and [--release] are mutually exclusive"
+	# enforcements
+	if test -z "$slug"; then
+		help 'A GitHub repository slug is required.'
 	fi
-	if test -n "$pathname" -a -n "$release"; then
-		help "[--pathname] and [--release] are mutually exclusive"
+	if test -n "$release"; then
+		# convert release into its modern format
+		if test "$release" = 'latest'; then
+			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --latest" >/dev/tty
+			if test -n "$alias"; then
+				help "[--release=latest] and [--alias=$alias] are mutually exclusive, you should only use: --alias=$alias"
+			fi
+			alias='latest'
+		elif is-integer "$release"; then
+			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --id=$release" >/dev/tty
+			if test -n "$id"; then
+				help "[--release=$release] and [--id=$id] are mutually exclusive, you should only use: --id=$id"
+			fi
+			id="$release"
+		else
+			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --tag=$release" >/dev/tty
+			if test -n "$tag"; then
+				help "[--release=$release] and [--tag=$tag] are mutually exclusive, you should only use: --tag=$tag"
+			fi
+			tag="$release"
+		fi
 	fi
-	if test -n "$asset_filter" -a -z "$release"; then
-		help "[--asset-filter] requires [--release]"
+	if test -n "$alias" -a "$alias" != 'latest'; then
+		help '<alias> can only be ' --code='latest'
+	fi
+	if test -z "$release"; then
+		# convert release properties into release, to make figuring out what we are doing easier
+		if test -n "$alias"; then
+			release="$alias"
+		elif test -n "$tag"; then
+			release="$tag"
+		elif test -n "$id"; then
+			release="$id"
+		fi
+	fi
+	if test -z "$reference"; then
+		# convert references into references, as we actually juse use them as a reference
+		if test -n "$branch"; then
+			reference="$branch"
+		elif test -n "$tag"; then
+			reference="$tag"
+		elif test -n "$commit"; then
+			reference="$commit"
+		fi
+	fi
+
+	# check for incompatibilities
+	if test -n "$release"; then
+		# don't check pathname, as tha tcan work for tag
+		if test -n "$branch" -o -n "$commit"; then
+			help "[--reference/head/branch/commit] and [--release/latest/alias/id] are mutually exclusive"
+		fi
+	fi
+	if test -n "$reference"; then
+		# don't check asset-filter, as that can work for tag
+		if test -n "$alias" -o -n "$id"; then
+			help "[--release/latest/alias/id] and [--reference/head/branch/commit] are mutually exclusive"
+		fi
+	fi
+	if test -n "$asset_filter" -a "$pathname"; then
+		help "[--asset-filter] and [--pathname] are mutually exclusive, did you intend to use: --archive-filter=$pathname"
+	elif test -n "$asset_filter"; then
+		reference=''
+	elif test -n "$pathname"; then
+		release=''
+	fi
+	if test -z "$reference" -a -z "$release"; then
+		if test -n "$asset_filter"; then
+			release='latest'
+			alias='latest'
+		elif test -n "$pathname"; then
+			reference='HEAD'
+		else
+			release='latest'
+			alias='latest'
+		fi
 	fi
 
 	# ensure directory, filename, filepath
@@ -137,28 +232,25 @@ function github_download_() (
 	fi
 	mkdir -p "$directory"
 
-	# in case they gave a URL
-	# if test -n "$slug"; then
-	# 	slug="${slug/https\:\/\/github.com/}"
-	# 	slug="${slug/.git//}"
-	# fi
-	if test -z "$slug"; then
-		help "A GitHub repository slug is required."
-	fi
-
 	# =====================================
 	# Action
 
-	function get_matched_assets_for_release {
+	function get_assets {
+		# we don't care for all assets, just the release in it's entirety
+		if test -z "$asset_filter"; then
+			get-github-release --slug="$slug" --tar --alias="$alias" --tag="$tag" --id="$id"
+			return
+		fi
+
 		# get the assets [name, url] for the release
 		local assets=()
-		mapfile -t assets < <(get-github-release --assets --slug="$slug" --release="$release")
+		mapfile -t assets < <(get-github-release --slug="$slug" --assets --alias="$alias" --tag="$tag" --id="$id")
 		if test "${#assets[@]}" -eq 0; then
-			echo-error 'No release assets were found for repository ' --code="$slug" ' release ' --code="$release"
+			echo-error 'No release assets were found for repository ' --code="$slug"
 			return 1
 		fi
 
-		# now that we have them all, filter them
+		# filter out junk, and filter names according to the asset-filter, keeping only urls
 		local index name url matches=()
 		for ((index = 0; index < ${#assets[@]}; index = index + 2)); do
 			name="${assets[index]}"
@@ -183,7 +275,7 @@ function github_download_() (
 			fi # no match, ignore
 		done
 
-		# assert filter worked
+		# filtering worked
 		if test "${#matches[@]}" -eq 0; then
 			{
 				echo-style --error='No assets matched the filter:' ' ' --code="$asset_filter"
@@ -192,11 +284,9 @@ function github_download_() (
 			return 1
 		fi
 
-		# output the matches
+		# output only the matching urls
 		echo-lines -- "${matches[@]}"
 	}
-
-	# reference helpers
 	function get_ref_pathname_url {
 		# determine branch
 		if test -z "$reference"; then
@@ -212,27 +302,30 @@ function github_download_() (
 		# download
 		print_line "https://raw.githubusercontent.com/$slug/$reference/$pathname"
 	}
-
-	# release/reference helpers
 	function download_reference {
 		local url filter
-		url="https://github.com/$slug/archive/$reference.tar.gz"
-		filter="*-$reference/${unzip_filter:-"*"}"
+		if test -n "$pathname"; then
+			url="$(get_ref_pathname_url)"
+			filter="$archive_filter"
+		else
+			url="https://github.com/$slug/archive/$reference.tar.gz"
+			filter="*-$reference/${archive_filter:-"*"}"
+		fi
 		if test "$dry" = 'yes'; then
 			print_line "$url"
 			return 0
 		fi
 		down "$url" \
 			--quiet="$quiet" \
-			--unzip-format="$unzip_format" \
-			--unzip-filter="$filter" \
+			--archive-format="$archive_format" \
+			--archive-filter="$filter" \
 			--directory="$directory" \
 			--file="$file" \
 			--filepath="$filepath"
 	}
-	function download_asset {
+	function download_release {
 		local asset assets
-		mapfile -t assets < <(get_matched_assets_for_release)
+		mapfile -t assets < <(get_assets)
 		if test "${#assets[@]}" -eq 0; then
 			echo-error 'No download assets were found for repository ' --code="$slug"
 			return 1
@@ -244,44 +337,27 @@ function github_download_() (
 			fi
 			down "$asset" \
 				--quiet="$quiet" \
-				--unzip-format="$unzip_format" \
-				--unzip-filter="$unzip_filter" \
+				--archive-format="$archive_format" \
+				--archive-filter="$archive_filter" \
 				--directory="$directory" \
 				--file="$file" \
 				--filepath="$filepath"
 		done
 	}
-	function download_pathname {
-		local url
-		url="$(get_ref_pathname_url)"
-		if test "$dry" = 'yes'; then
-			print_line "$url"
-			return 0
-		fi
-		down "$url" \
-			--quiet="$quiet" \
-			--unzip-format="$unzip_format" \
-			--unzip-filter="$unzip_filter" \
-			--directory="$directory" \
-			--file="$file" \
-			--filepath="$filepath"
-	}
 
 	# =====================================
-	# Act
+	# Action
 
-	if test -n "$asset_filter"; then
-		download_asset
-	elif test -n "$pathname"; then
-		download_pathname
-	elif test -n "$reference"; then
-		download_reference
+	if test -n "$reference"; then
+		download_reference # prefer tag via reference, as is quicker than via release
+	elif test -n "$release"; then
+		download_release
 	else
-		help "Invalid combination of options."
+		help 'Invalid combination of options.'
 	fi
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	github_download_ "$@"
+	github_download "$@"
 fi
