@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/bash.bash"
+set +u # consistency for bash 3
+
+if test "$*" = '--test --'; then
+	: # continue
+elif test "$*" = '--test'; then
+	expected="$(
+		cat <<-EOF
+			first ehBE
+			second hBE
+			third ehBE
+			trap -- 'EVAL_CAPTURE_RETURN=\$?; if [[ \$- = *e* ]]; then eval_capture_wrapper_trap "\$EVAL_CAPTURE_RETURN" "\${FUNCNAME-}" "\${cmd[*]}" "\${BASH_SUBSHELL-}" "\$EVAL_CAPTURE_CONTEXT"; return \$?; fi' ERR
+			middle failure 1
+			trap -- 'EVAL_CAPTURE_RETURN=\$?; if [[ \$- = *e* ]]; then eval_capture_wrapper_trap "\$EVAL_CAPTURE_RETURN" "\${FUNCNAME-}" "\${cmd[*]}" "\${BASH_SUBSHELL-}" "\$EVAL_CAPTURE_CONTEXT"; return \$?; fi' ERR
+			root failure 1
+			core failure 1
+			first ehBE
+			second hBE
+			third ehBE
+			trap -- 'EVAL_CAPTURE_RETURN=\$?; if [[ \$- = *e* ]]; then eval_capture_wrapper_trap "\$EVAL_CAPTURE_RETURN" "\${FUNCNAME-}" "\${cmd[*]}" "\${BASH_SUBSHELL-}" "\$EVAL_CAPTURE_CONTEXT"; return \$?; fi' ERR
+			middle failure 1
+			root failure 1
+		EOF
+	)"
+	eval-tester --name='as expected' --status='1' --stdout="$expected" \
+		-- eval-capture --test --
+	exit $?
+else
+	echo-error 'eval-capture only exists for testing, you actually want eval_capture which is provided by sourcing bash.bash'
+	exit 22 # EINVAL 22 Invalid argument
+fi
+
+function testing_failure() (
+	echo "first $-"
+	set +e
+	echo "second $-"
+	false
+	set -e
+	echo "third $-"
+	false
+	echo "fourth $- YOU SHOULD NOT SEE THIS"
+)
+function testing_middle {
+	local middle_status
+	eval_capture --statusvar=middle_status -- testing_failure
+	trap -p | grep --regexp='ERR$' || : # use grep as CI has SIGPIPE traps
+	if test "$middle_status" -eq 0; then
+		echo "middle ok $middle_status"
+	else
+		echo "middle failure $middle_status"
+	fi
+	return "$middle_status"
+}
+function testing_root {
+	local root_status
+	eval_capture --statusvar=root_status -- testing_middle
+	trap -p | grep --regexp='ERR$' || : # use grep as CI has SIGPIPE traps
+	if test "$root_status" -eq 0; then
+		echo "root ok $root_status"
+	else
+		echo "root failure $root_status"
+	fi
+	return "$root_status"
+}
+
+core_status=
+eval_capture --statusvar=core_status -- testing_root
+trap -p | grep --regexp='ERR$' || : # use grep as CI has SIGPIPE traps
+if test "$core_status" -eq 0; then
+	echo "core ok $core_status"
+else
+	echo "core failure $core_status"
+fi
+
+# trigger a lingering trap
+testing_root
+
+echo 'sup'

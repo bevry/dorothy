@@ -29,4 +29,4 @@ execx(compilex(open($DOROTHY + '/sources/autocomplete.xsh').read()))
 
 # Shoutouts
 if !(command-exists shuf).returncode == 0:
-	shuf -n1 ($DOROTHY + '/sources/shoutouts.txt')
+	shuf -n1 @($DOROTHY + '/sources/shoutouts.txt')

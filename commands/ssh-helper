@@ -85,7 +85,7 @@ function ssh_helper() (
 	# Helpers
 
 	# 1password helpers, should be somewhat in sync with setup-git
-	function sock_exists { # 👍 /docs/bash/errors: robust exit status
+	function __sock_exists {
 		# the = part is some weird convention
 		test -n "${1-}" -a -e "${1-}" -o -e "${1-}="
 	}
@@ -95,7 +95,7 @@ function ssh_helper() (
 			"$HOME/.1password/agent.sock"
 		)
 		for op_sock in "${op_socks[@]}"; do
-			if sock_exists "${op_sock}"; then
+			if __sock_exists "${op_sock}"; then
 				print_line "$op_sock"
 				return 0
 			fi
@@ -157,7 +157,7 @@ function ssh_helper() (
 					--code='https://developer.op.com/docs/ssh/get-started#step-3-turn-on-the-op-ssh-agent' $'\n' \
 					--notice='Disabling for now...' >/dev/stderr
 				SSH_IDENTITY_AGENT=''
-			elif ! sock_exists "$SSH_IDENTITY_AGENT"; then
+			elif ! __sock_exists "$SSH_IDENTITY_AGENT"; then
 				echo-style --warning="$0: Unable to find the SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT]." $'\n' \
 					--notice='Disabling for now...' >/dev/stderr
 				SSH_IDENTITY_AGENT=''
@@ -165,7 +165,7 @@ function ssh_helper() (
 		fi
 
 		if test "$SSH_IDENTITY_AGENT" = '1password'; then
-			if ! sock_exists "$op_sock"; then
+			if ! __sock_exists "$op_sock"; then
 				echo-error "Invalid SSH Socket: $op_sock"
 				return 1
 			fi
@@ -235,7 +235,9 @@ function ssh_helper() (
 		setup-util-sd --quiet --optional
 		# fetch and extract keys, prepend [github.com ] to non-empty-lines (non-empty necessary for sd), append to known_hosts
 		# trunk-ignore(shellcheck/SC2016)
-		(command-exists curl jq sd && fetch 'https://api.github.com/meta' | jq -r '.ssh_keys | .[]' | sd '^(.+)$' 'github.com $1' >>"$HOME/.ssh/known_hosts") || {
+		if command-exists curl jq sd && fetch 'https://api.github.com/meta' | jq -r '.ssh_keys | .[]' | sd '^(.+)$' 'github.com $1' >>"$HOME/.ssh/known_hosts"; then
+			: # success
+		else
 			# fallback to ssh-keyscan method, which requires encrypted dns to be secure, which can be done via [setup-dns]
 			# use [-t rsa] to prevent key type conflicts:
 			# Warning: the ECDSA host key for 'github.com' differs from the key for the IP address '140.82.121.3'
@@ -243,7 +245,7 @@ function ssh_helper() (
 			# Matching host key in /root/.ssh/known_hosts:9
 			# Are you sure you want to continue connecting (yes/no)? yes
 			ssh-keyscan -t rsa github.com >>"$HOME/.ssh/known_hosts"
-		}
+		fi
 	}
 
 	function ssh_new {
@@ -359,14 +361,14 @@ function ssh_helper() (
 			private_key="${public_key%.pub}"
 			if test -f "$private_key"; then
 				chmod 600 "$private_key" || :
-				("${add_new[@]}" -v "$private_key") || :
+				"${add_new[@]}" -v "$private_key" || : # eval
 				# ^ -T option returned [agent refused operation] on Ubuntu 22.04
 			fi
 		done
 
 		# add known keys to keychain and agent if supported
 		if test "${#add_known[@]}" -ne 0; then
-			("${add_known[@]}") || :
+			"${add_known[@]}" || : # eval
 		fi
 	}
 
@@ -383,16 +385,16 @@ function ssh_helper() (
 	}
 
 	function ssh_test {
-		local uri="${1:-"git@github.com"}" logs test_status
+		local uri="${1:-"git@github.com"}" logs __test_status
 		logs="$(mktemp)"
 
 		# test and fetch exit code
-		test_status=0 && ssh -qT "$uri" &>"$logs" || test_status=$?
+		__test_status=0 && ssh -qT "$uri" &>"$logs" || __test_status=$?
 
 		# 0 no error
 		# 1 success but error - this is what github does, as is not a real ssh terminal
 		# 255 configuration error - this is what we are after
-		if test "$test_status" -le 1; then
+		if test "$__test_status" -le 1; then
 			return 0
 		else
 			cat "$logs" >/dev/stderr

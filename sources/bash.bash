@@ -31,6 +31,9 @@ function print_lines {
 		printf '%s\n' "$@"
 	fi
 }
+alias __print_string='print_string'
+alias __print_line='print_line'
+alias __print_lines='print_lines'
 
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
@@ -107,17 +110,9 @@ set +T
 # Ensure subshells also get the settings
 set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || :
-# Ensure subshells that source this also get the trap
-trap 'EXIT_STATUS=$?; if test "${FUNCNAME-}" = 'eval_capture_wrapper'; then return 0; elif test -n "${FUNCNAME-}"; then return "$EXIT_STATUS"; else exit "$EXIT_STATUS"; fi' ERR
 function eval_capture {
-	# Ensure subshells also get the settings
-	set -Eeuo pipefail
-	shopt -s inherit_errexit 2>/dev/null || :
-	# Ensure subshells that call eval_capture also get the trap
-	trap 'EXIT_STATUS=$?; if test "${FUNCNAME-}" = 'eval_capture_wrapper'; then return 0; elif test -n "${FUNCNAME-}"; then return "$EXIT_STATUS"; else exit "$EXIT_STATUS"; fi' ERR
-
-	# fetch (if supplied) the variables that will store the command exit status, the stdout output, the stderr output, and/or the stdout+stderr output
-	local item cmd=() exit_status_local exit_status_variable='exit_status_local' stdout_variable='' stdout_temp_file='' stderr_variable='' stderr_temp_file='' output_variable='' output_temp_file='' stdout_pipe='/dev/stdout' stderr_pipe='/dev/stderr'
+	# Fetch (if supplied) the variables that will store the command exit status, the stdout output, the stderr output, and/or the stdout+stderr output
+	local item cmd=() exit_status_local exit_status_variable='exit_status_local' stdout_variable='' stderr_variable='' output_variable='' stdout_pipe='/dev/stdout' stderr_pipe='/dev/stderr'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -129,33 +124,11 @@ function eval_capture {
 				Copyright 2023+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
 				Written for Dorothy (https://github.com/bevry/dorothy)
 				Licensed under the CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
-				For more information: https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
+				For more information: https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md
 
 				USAGE:
 				local status=0 stdout='' stderr='' output=''
 				eval_capture [--statusvar=status] [--stdoutvar=stdout] [--stderrvar=stderr] [--outputvar=output] [--stdoutpipe=/dev/stdout] [--stderrpipe=/dev/stderr] [--outputpipe=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...
-
-				EXAMPLE:
-				status=0
-				function testing_failure {
-					echo 'start'
-					false
-					echo 'an undesired line should not be reached if errexit is still enabled'
-				}
-
-				# before
-				status=0 && testing_failure || status=\$? # the undesired line will be output
-				echo \$status # incorrectly outputs 0
-
-				# after
-				eval_capture --statusvar=status -- testing_failure # the undesired line is not output
-				echo \$status # correctly outputs 1
-				# correctly allows us to act upon the exit status
-				if test \$status -eq 0; then
-					echo ok
-				else
-					echo failure > /dev/stderr
-				fi
 
 				QUIRKS:
 				Using --stdoutvar will set --stdoutpipe=/dev/null
@@ -163,16 +136,9 @@ function eval_capture {
 				Using --outputvar will set --stdoutpipe=/dev/null --stderrpipe=/dev/null
 
 				WARNING:
-				If [eval_capture] triggers something that still does an [if fn ...] or [... && fn || ...] or [! fn] then errexit will still be disabled for [fn]...
-				...there exists no workaround for that unmodified code, as such you should always:
-				* ensure that [fn] in such a case always has [... || return] on every line
-				* never ever call functions under such conditions
-				* rewrite such conditions with [eval_capture] as seen in the above example
-
-				TODOS:
-				Under bash v3, there is a failure when [config-helper --test] calls [config_helper] instead of [config-helper].
-				EXIT_STATUS is being set correctly by the trap, but it is still zero when read to save to the variable.
-				Changing [config_helper] to a squigly function instead of a subshell function fixes the issue.
+				If [eval_capture] triggers something that still does function invocation via [if], [&&], [||], or [!], then errexit will still be disabled for that invocation.
+				This is a limitation of bash, with no workaround (at least at the time of bash v5.2).
+				Refer to https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md for guidance.
 			EOF
 			return 22 # EINVAL 22 Invalid argument
 			;;
@@ -232,18 +198,46 @@ function eval_capture {
 		esac
 	done
 
+	# prepare
+	EVAL_CAPTURE_COUNT="${EVAL_CAPTURE_COUNT:-0}"
+	local EVAL_CAPTURE_STATUS=
+	local EVAL_CAPTURE_CONTEXT="$RANDOM"
+	local EVAL_CAPTURE_COMMAND="${cmd[*]}"
+	local EVAL_CAPTURE_SUBSHELL="${BASH_SUBSHELL-}"
+	local temp_directory="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/eval-capture" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
+	local status_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.status" stderr_temp_file='' stdout_temp_file='' output_temp_file=''
+	mkdir -p "$temp_directory"
+	function eval_capture_wrapper_trap {
+		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
+		# echo "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
+		# echo "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
+		if test "$EVAL_CAPTURE_CONTEXT" = "$trap_context"; then
+			if test "$EVAL_CAPTURE_SUBSHELL" = "$trap_subshell" -o "$trap_fn" = 'eval_capture_wrapper'; then
+				# echo "STORE" >/dev/tty
+				EVAL_CAPTURE_STATUS="$trap_status"
+				return 0
+			elif test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
+				# echo "SAVE" >/dev/tty
+				print_line "$trap_status" >"$status_temp_file"
+				return "$trap_status"
+			fi
+		fi
+		# echo "ERR" >/dev/tty
+		return "$trap_status"
+	}
+
 	# store preliminary values, and prep the temporary files
 	if test -n "$stdout_variable"; then
 		eval "${stdout_variable}=''"
-		stdout_temp_file="$(mktemp)"
+		stdout_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.stdout"
 	fi
 	if test -n "$stderr_variable"; then
 		eval "${stderr_variable}=''"
-		stderr_temp_file="$(mktemp)"
+		stderr_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.stderr"
 	fi
 	if test -n "$output_variable"; then
 		eval "${output_variable}=''"
-		output_temp_file="$(mktemp)"
+		output_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.output"
 	fi
 
 	# run the command and capture its exit status, and if applicable, capture its stdout
@@ -251,11 +245,25 @@ function eval_capture {
 	# - if trapped an error inside a nested execution, it will run the trap inside that, allowing this function to continue
 	# as such, we must cleanup inside the trap and after the trap, and cleanup must work in both contexts
 	function eval_capture_wrapper {
-		# set +e
-		# EXIT_STATUS=0
+		# echo "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
+		# wrap if the $- check, as always returning causes +e to return when it shouldn't
+		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
+		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
+		if test "$IS_BASH_VERSION_OUTDATED" = 'yes' && [[ $- == *e* ]] && [[ "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
+			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
+			# echo "SUBSHELL $-" >/dev/tty
+			set +e
+			(
+				set -e
+				"${cmd[@]}"
+			)
+			set -e
+			# set "-$opts"
+			return 0
+		fi
 		"${cmd[@]}"
-		# print_line "${cmd[*]} => $EXIT_STATUS" >/dev/tty
-		# set -e
+		return 0
 	}
 	if test -n "$output_variable"; then
 		if test -n "$stdout_variable"; then
@@ -287,9 +295,22 @@ function eval_capture {
 		fi
 	fi
 
+	# remove the lingering trap
+	EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT - 1))"
+	# echo "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
+	if test "$EVAL_CAPTURE_COUNT" -eq 0; then
+		trap - ERR
+	fi
+
 	# save the exit status, and reset the global value
-	eval "${exit_status_variable}=${EXIT_STATUS:-0}"
-	unset -v EXIT_STATUS
+	# echo "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+	if test "$IS_BASH_VERSION_OUTDATED" = 'yes' -a -f "$status_temp_file"; then # mktemp always creates the file, so need to use -s instead of -f
+		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
+		rm "$status_temp_file"
+		# echo "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+	fi
+	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
+	# unset -v EXIT_STATUS
 
 	# save the stdout/stderr/output, and remove their temporary files
 	if test -n "$stdout_temp_file" -a -f "$stdout_temp_file"; then
@@ -410,12 +431,12 @@ fi
 # is_var_set
 if test "$BASH_VERSION_MAJOR" -ge 5 || test "$BASH_VERSION_MAJOR" -eq 4 -a "$BASH_VERSION_MINOR" -ge 2; then
 	# >= bash v4.2
-	function is_var_set {
+	function __is_var_set {
 		test -v "$1"
 	}
 else
 	# < bash v4.2
-	function is_var_set {
+	function __is_var_set {
 		test -n "${!1-}"
 	}
 fi
@@ -437,7 +458,7 @@ fi
 # require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it
 
-function has_array_capability {
+function __has_array_capability {
 	for arg in "$@"; do
 		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
 			return 1
@@ -446,7 +467,7 @@ function has_array_capability {
 }
 
 function require_array {
-	if ! has_array_capability "$@"; then
+	if ! __has_array_capability "$@"; then
 		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr
 		require_upgraded_bash
 	fi
