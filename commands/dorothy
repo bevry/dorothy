@@ -29,6 +29,9 @@ function dorothy_() (
 		exit 6 # ENXIO 6 Device not configured
 	fi
 
+	# set only -e, as -u and pipefail not necessary right now, later we will load bash.bash
+	set -e
+
 	# vars that should be exported to subshells, which may or may not be inherited, as setup-environment-commands has not run yet
 	local self
 	export DOROTHY ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME
@@ -73,159 +76,11 @@ function dorothy_() (
 	fi
 	mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_BIN_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
-	# source [bash.bash] for sensible defaults if it exists
-	if test -n "$DOROTHY" -a -f "$DOROTHY/sources/bash.bash"; then
-		source "$DOROTHY/sources/bash.bash"
-	else
-		# otherwise apply them manually
-		shopt -u progcomp
-		shopt -s huponexit
-		set +T
-		shopt -s lastpipe 2>/dev/null || :
-		set -Eeuo pipefail
-		shopt -s inherit_errexit 2>/dev/null || :
-		trap 'EXIT_STATUS=$?; if test "${FUNCNAME-}" = 'eval_capture_wrapper'; then return 0; elif test -n "${FUNCNAME-}"; then return "$EXIT_STATUS"; else exit "$EXIT_STATUS"; fi' ERR
-		shopt -u failglob
-		shopt -s nullglob
-		function print_string {
-			if test "$#" -ne 0; then
-				printf '%s' "$*"
-			fi
-		}
-		function print_line {
-			print_string "$@"
-			printf '\n'
-		}
-	fi
-
-	# see commands/command_exists for details
-	function __command_exists {
-		local command commands=("$@")
-		for command in "${commands[@]}"; do
-			if type -P "$command" &>/dev/null; then
-				continue
-			else
-				return 1 # command missing
-			fi
-		done
-		return 0 # all commands are present
-	}
-
-	# see commands/command-missing for details
-	function __command_missing {
-		local command commands=("$@")
-		for command in "${commands[@]}"; do
-			if type -P "$command" &>/dev/null; then
-				continue
-			else
-				return 0 # command missing
-			fi
-		done
-		return 1 # all commands are present
-	}
-
-	# see commands/sudo-helper for details
-	function __try_sudo {
-		if __command_exists sudo; then
-			# check if password is required
-			if ! sudo --non-interactive true &>/dev/null; then
-				# password is required, let the user know what they are being prompted for
-				print_line 'Your sudo/root/login password is required to execute the command:' >/dev/stderr
-				print_line "sudo $*" >/dev/stderr
-				sudo "$@" || return
-			else
-				# session still active, password not required
-				sudo "$@" || return
-			fi
-		elif __command_exists doas; then
-			set -x # <inform the user of why they are being prompted for a doas password>
-			doas "$@" || return
-			set +x # </inform>
-		else
-			"$@" || return
-		fi
-	}
-
-	# see commands/is-mac for details
-	function __is_mac {
-		test "$(uname -s)" = 'Darwin'
-	}
-
-	# see commands/is-linux for details
-	function __is_linux {
-		test "$(uname -s)" = 'Linux'
-	}
-
-	# see commands/fs-realpath for details
-	function __fs_realpath {
-		# options
-		local item paths=()
-		while test "$#" -ne 0; do
-			item="$1"
-			shift
-			case "$item" in
-			'--help' | '-h') help ;;
-			'--')
-				paths+=("$@")
-				shift $#
-				break
-				;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) paths+=("$item") ;;
-			esac
-		done
-
-		local gnu_realpath=''
-		if __command_exists grealpath; then
-			gnu_realpath='grealpath'
-		elif __command_exists realpath && __is_linux; then
-			gnu_realpath='realpath'
-		fi
-
-		local gnu_readlink=''
-		if __command_exists greadlink; then
-			gnu_readlink='greadlink'
-		elif __command_exists readlink && __is_linux; then
-			gnu_readlink='readlink'
-		fi
-
-		local macos_readlink=''
-		if __command_exists readlink && __is_mac; then
-			macos_readlink='readlink'
-		fi
-
-		local macos_realpath=''
-		if __command_exists realpath && __is_mac; then
-			macos_realpath='realpath'
-		fi
-
-		# --resolve=yes --validate=yes --relative=no
-		local path
-		for path in "${paths[@]}"; do
-			if test -n "$gnu_realpath"; then
-				"$gnu_realpath" --canonicalize-existing "$path" || return
-			elif test -n "$gnu_readlink"; then
-				"$gnu_readlink" --canonicalize-existing "$path" || return
-			elif test -n "$macos_readlink"; then
-				"$macos_readlink" -f "$path" || return
-			elif test -n "$macos_realpath"; then
-				"$macos_realpath" "$path" || return
-			elif __command_exists fish; then
-				# this isn't --validate, but it is a last resort
-				# trunk-ignore(shellcheck/SC2016)
-				fish -c 'builtin realpath "$argv[1]"' -- "$path" || return
-			else
-				print_line 'Dorothy requires readlink or realpath to be installed. https://github.com/bevry/dorothy#install' >/dev/stderr
-				return 6 # ENXIO 6 Device not configured
-			fi
-		done
-	}
-
 	# =====================================
 	# Variables
 
 	# vars that are local to this script and shared between functions
-	local dorothy_url="https://github.com/bevry/dorothy"
+	local dorothy_homepage="https://github.com/bevry/dorothy"
 
 	# =====================================
 	# Arguments
@@ -327,15 +182,15 @@ function dorothy_() (
 
 		EOF
 		if test "$#" -ne 0; then
-			# don't use anything fancy here, as dorothy may not be loaded yet
-			print_line "ERROR: $*" >/dev/stderr
+			# use printf, as print_line not loaded yet
+			printf '%s' "ERROR: $*" >/dev/stderr
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process action arguments
 	# @todo prevent double-action overwrite
-	local item action='' option_xdg='' option_branch='' option_commit='' args=()
+	local item action='' option_xdg='' option_branch='' option_commit='' option_reference='HEAD' args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -343,8 +198,15 @@ function dorothy_() (
 		'--help' | '-h') help ;;
 		'--xdg' | '--xdg=yes') option_xdg='yes' ;;
 		'--no-xdg' | '--xdg=no') option_xdg='no' ;;
-		'--branch='*) option_branch="${item#*--branch=}" ;;
-		'--commit='*) option_commit="${item#*--commit=}" ;;
+		'--branch='*)
+			option_branch="${item#*--branch=}"
+			option_reference="$option_branch"
+			;;
+		'--commit='*)
+			option_commit="${item#*--commit=}"
+			option_reference="$option_commit"
+			;;
+		'--reference='*) option_reference="${item#*--reference=}" ;;
 		'repl')
 			action='repl'
 			args+=("$@")
@@ -406,6 +268,153 @@ function dorothy_() (
 	if test -z "$action"; then
 		help "<action> must be provided."
 	fi
+
+	# =====================================
+	# Sourcing
+
+	# source [bash.bash] for sensible defaults if it exists
+	if test -n "$DOROTHY" -a -f "$DOROTHY/sources/bash.bash"; then
+		source "$DOROTHY/sources/bash.bash"
+	else
+		eval "$(curl -fsSL "https://raw.githubusercontent.com/bevry/dorothy/$option_reference/sources/bash.bash")"
+	fi
+
+	# =====================================
+	# Substitutions
+
+	# see commands/command-missing for details
+	function __command_missing {
+		local command commands=("$@")
+		for command in "${commands[@]}"; do
+			if type -P "$command" &>/dev/null; then
+				continue
+			else
+				return 0 # command missing
+			fi
+		done
+		return 1 # all commands are present
+	}
+
+	# see commands/command_exists for details
+	function __command_exists {
+		local command commands=("$@")
+		for command in "${commands[@]}"; do
+			if type -P "$command" &>/dev/null; then
+				continue
+			else
+				return 1 # command missing
+			fi
+		done
+		return 0 # all commands are present
+	}
+
+	# see commands/is-mac for details
+	function __is_mac {
+		test "$(uname -s)" = 'Darwin'
+	}
+
+	# see commands/is-linux for details
+	function __is_linux {
+		test "$(uname -s)" = 'Linux'
+	}
+
+	# see commands/fs-realpath for details
+	function __fs_realpath {
+		# options
+		local item paths=()
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h')
+				help
+				return
+				;;
+			'--')
+				paths+=("$@")
+				shift $#
+				break
+				;;
+			'--'*)
+				help "An unrecognised flag was provided: $item"
+				return
+				;;
+			*) paths+=("$item") ;;
+			esac
+		done
+
+		local gnu_realpath=''
+		if __command_exists grealpath; then
+			gnu_realpath='grealpath'
+		elif __command_exists realpath && __is_linux; then
+			gnu_realpath='realpath'
+		fi
+
+		local gnu_readlink=''
+		if __command_exists greadlink; then
+			gnu_readlink='greadlink'
+		elif __command_exists readlink && __is_linux; then
+			gnu_readlink='readlink'
+		fi
+
+		local macos_readlink=''
+		if __command_exists readlink && __is_mac; then
+			macos_readlink='readlink'
+		fi
+
+		local macos_realpath=''
+		if __command_exists realpath && __is_mac; then
+			macos_realpath='realpath'
+		fi
+
+		# --resolve=yes --validate=yes --relative=no
+		local path
+		for path in "${paths[@]}"; do
+			if test -n "$gnu_realpath"; then
+				"$gnu_realpath" --canonicalize-existing "$path"
+				return
+			elif test -n "$gnu_readlink"; then
+				"$gnu_readlink" --canonicalize-existing "$path"
+				return
+			elif test -n "$macos_readlink"; then
+				"$macos_readlink" -f "$path"
+				return
+			elif test -n "$macos_realpath"; then
+				"$macos_realpath" "$path"
+				return
+			elif __command_exists fish; then
+				# this isn't --validate, but it is a last resort
+				# trunk-ignore(shellcheck/SC2016)
+				fish -c 'builtin realpath "$argv[1]"' -- "$path"
+				return
+			else
+				__print_line 'Dorothy requires readlink or realpath to be installed. https://github.com/bevry/dorothy#install' >/dev/stderr
+				return 6 # ENXIO 6 Device not configured
+			fi
+		done
+	}
+
+	# see commands/sudo-helper for details
+	function __try_sudo {
+		if __command_exists sudo; then
+			# check if password is required
+			if ! sudo --non-interactive true &>/dev/null; then
+				# password is required, let the user know what they are being prompted for
+				__print_line 'Your sudo/root/login password is required to execute the command:' >/dev/stderr
+				__print_line "sudo $*" >/dev/stderr
+				sudo "$@"
+			else
+				# session still active, password not required
+				sudo "$@"
+			fi
+		elif __command_exists doas; then
+			set -x # <inform the user of why they are being prompted for a doas password>
+			doas "$@"
+			set +x # </inform>
+		else
+			"$@"
+		fi
+	}
 
 	# =====================================
 	# Helpers
@@ -539,7 +548,7 @@ function dorothy_() (
 				--warning='Run' --code=' dorothy install ' --warning='to install, then you can run' --code=" dorothy $action"
 			return 2 # ENOENT 2 No such file or directory
 		fi
-		source "$DOROTHY/sources/bash.bash"
+		# no need to source bash.bash here, as we did it earlier via source and curl
 		source "$DOROTHY/sources/environment.sh"
 
 		# ensure state exists
@@ -904,7 +913,7 @@ function dorothy_() (
 			# prepare
 			local question='' user='' where='' cli='' repo_git='' repo_url='' repo_name repo_description local_ip
 			repo_name='dotfiles'
-			repo_description="My user configuration for the Dorothy dotfile ecosystem: $dorothy_url"
+			repo_description="My user configuration for the Dorothy dotfile ecosystem: $dorothy_homepage"
 
 			# check where they want to store the user config
 			if is-interactive; then
@@ -952,7 +961,7 @@ function dorothy_() (
 				# confirm it exists
 				if fetch --ok "$repo_url"; then
 					if test -n "$cli"; then
-						if "$cli" repo view "$repo_name" | grep --quiet --ignore-case --fixed-strings --regexp="$dorothy_url" || :; then
+						if "$cli" repo view "$repo_name" | grep --quiet --ignore-case --fixed-strings --regexp="$dorothy_homepage" || :; then
 							echo-style --green+bold="$repo_url" --green=' verified as a Dorothy user configuration repository.'
 						elif confirm --bool --ppid=$$ -- "$repo_url exists, but does not yet seem to be a Dorothy user configuration repository, would you like to use it anyway (Y), or select an alternative (N)?"; then
 							echo-style --blue='^ manually confirmed to use as the Dorothy user configuration repository.'
@@ -964,7 +973,7 @@ function dorothy_() (
 				else
 					echo-style --yellow+bold="$repo_url" --yellow=' does not yet exist, let us create it...'
 					if test "$cli" = 'gh'; then
-						if ! gh repo create "$repo_name" --description "$repo_description" --homepage "$dorothy_url" --public --confirm --enable-wiki=false; then
+						if ! gh repo create "$repo_name" --description "$repo_description" --homepage "$dorothy_homepage" --public --confirm --enable-wiki=false; then
 							repo_url=''
 						fi
 					elif test "$cli" = 'glab'; then
@@ -1011,7 +1020,7 @@ function dorothy_() (
 			# if we have a repo url, then clone it
 			if test -n "$repo_url"; then
 				# check if it is strongbox
-				if fetch --ok "$(git-helper protocol-format "$repo_url" https | sed -E 's#.git$#/raw/master/.strongbox-keyid#')"; then
+				if fetch --ok "$(git-helper protocol-format "$repo_url" https | sed -E 's#.git$#/raw/HEAD/.strongbox-keyid#')"; then
 					echo-style --notice='Strongbox repository detected.'
 					setup-util-strongbox
 					local_ip="$(what-is-my-ip local | echo-first-line || :)"
@@ -1094,7 +1103,7 @@ function dorothy_() (
 
 		# ensure README.md mentions dorothy
 		file="$DOROTHY/user/README.md"
-		if ! (test -f "$file" && grep --quiet --ignore-case --fixed-strings --regexp="$dorothy_url" "$file"); then
+		if ! (test -f "$file" && grep --quiet --ignore-case --fixed-strings --regexp="$dorothy_homepage" "$file"); then
 			# README.md does not mention dorothy, time to add it
 			name="$(get-profile name || get-profile username || :)"
 			url="$(get-profile url || :)"
@@ -1109,7 +1118,7 @@ function dorothy_() (
 				cat <<-EOF
 					# Dorothy User Configuration
 
-					This is ${who} user configuration for the [Dorothy](${dorothy_url}) dotfile ecosystem.
+					This is ${who} user configuration for the [Dorothy](${dorothy_homepage}) dotfile ecosystem.
 				EOF
 			)"
 			if test ! -f "$file"; then
@@ -1287,7 +1296,7 @@ function dorothy_() (
 				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.nu' # Dorothy"
 
 			echo-segment --g3='Configuring Nu'
-		elif command-exists nu; then
+		elif __command_exists nu; then
 			# trunk-ignore(shellcheck/SC2016)
 			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
 				--find='.+? # Dorothy' --replace=''
@@ -1814,9 +1823,10 @@ function dorothy_() (
 		# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
 
 		# check for unsafe function calls
+		# todo, improve upon this by checking if the function also calls function, as any calling of a function must also be safe
 		mapfile -t commands < <(rg --files-with-matches --regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' "${scan_paths[@]}" | sort)
 		if test "${#commands[@]}" -ne 0; then
-			echo-style --error='The following commands had unsafe function calls:'
+			echo-style --error='The following commands have unsafe function calls:'
 			echo-lines -- "${commands[@]}"
 			echo-segment --e1='Dorothy Tests'
 			return 1

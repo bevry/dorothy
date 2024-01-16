@@ -31,9 +31,15 @@ function print_lines {
 		printf '%s\n' "$@"
 	fi
 }
-alias __print_string='print_string'
-alias __print_line='print_line'
-alias __print_lines='print_lines'
+function __print_string {
+	print_string "$@"
+}
+function __print_line {
+	print_line "$@"
+}
+function __print_lines {
+	print_lines "$@"
+}
 
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
@@ -111,6 +117,9 @@ set +T
 set -Eeuo pipefail
 shopt -s inherit_errexit 2>/dev/null || :
 function eval_capture {
+	# @todo consider supporting this:
+	# eval_capture --if command_exists grealpath --then gnu_realpath=grealpath --elif command_exists realpath --and is_linux --then gnu_realpath=realpath
+
 	# Fetch (if supplied) the variables that will store the command exit status, the stdout output, the stderr output, and/or the stdout+stderr output
 	local item cmd=() exit_status_local exit_status_variable='exit_status_local' stdout_variable='' stderr_variable='' output_variable='' stdout_pipe='/dev/stdout' stderr_pipe='/dev/stderr'
 	while test "$#" -ne 0; do
@@ -184,7 +193,7 @@ function eval_capture {
 			break
 			;;
 		'-'*)
-			print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
+			# print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -209,20 +218,20 @@ function eval_capture {
 	mkdir -p "$temp_directory"
 	function eval_capture_wrapper_trap {
 		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
-		# echo "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
-		# echo "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
+		# print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
+		# print_line "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
 		if test "$EVAL_CAPTURE_CONTEXT" = "$trap_context"; then
 			if test "$EVAL_CAPTURE_SUBSHELL" = "$trap_subshell" -o "$trap_fn" = 'eval_capture_wrapper'; then
-				# echo "STORE" >/dev/tty
+				# print_line "STORE" >/dev/tty
 				EVAL_CAPTURE_STATUS="$trap_status"
 				return 0
 			elif test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
-				# echo "SAVE" >/dev/tty
-				print_line "$trap_status" >"$status_temp_file"
+				# print_line "SAVE" >/dev/tty
+				# print_line "$trap_status" >"$status_temp_file"
 				return "$trap_status"
 			fi
 		fi
-		# echo "ERR" >/dev/tty
+		# print_line "ERR" >/dev/tty
 		return "$trap_status"
 	}
 
@@ -245,24 +254,31 @@ function eval_capture {
 	# - if trapped an error inside a nested execution, it will run the trap inside that, allowing this function to continue
 	# as such, we must cleanup inside the trap and after the trap, and cleanup must work in both contexts
 	function eval_capture_wrapper {
-		# echo "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		local subshell_status
+		# print_line "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
 		# wrap if the $- check, as always returning causes +e to return when it shouldn't
 		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
 		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
 		if test "$IS_BASH_VERSION_OUTDATED" = 'yes' && [[ $- == *e* ]] && [[ "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
 			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
-			# echo "SUBSHELL $-" >/dev/tty
+			# print_line "SUBSHELL $-" >/dev/tty
 			set +e
 			(
 				set -e
 				"${cmd[@]}"
 			)
+			subshell_status=$?
 			set -e
-			# set "-$opts"
-			return 0
+		else
+			"${cmd[@]}"
+			subshell_status=$?
 		fi
-		"${cmd[@]}"
+		# capture status in case of set +e
+		if test "$subshell_status" -ne 0; then
+			EVAL_CAPTURE_STATUS="$subshell_status"
+		fi
+		# we've stored the status, we return success
 		return 0
 	}
 	if test -n "$output_variable"; then
@@ -297,17 +313,17 @@ function eval_capture {
 
 	# remove the lingering trap
 	EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT - 1))"
-	# echo "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
+	# print_line "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
 	if test "$EVAL_CAPTURE_COUNT" -eq 0; then
 		trap - ERR
 	fi
 
 	# save the exit status, and reset the global value
-	# echo "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+	# print_line "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	if test "$IS_BASH_VERSION_OUTDATED" = 'yes' -a -f "$status_temp_file"; then # mktemp always creates the file, so need to use -s instead of -f
 		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
 		rm "$status_temp_file"
-		# echo "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# print_line "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	fi
 	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
 	# unset -v EXIT_STATUS

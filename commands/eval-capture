@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
-set +u # consistency for bash 3
 
-if test "$*" = '--test --'; then
-	: # continue
-elif test "$*" = '--test'; then
+# disable strict mode so that we can test it specifically
+set +eu
+
+if test "$*" = '--test'; then
 	expected="$(
 		cat <<-EOF
-			first ehBE
+			root start
+			middle start
+			first hBE
 			second hBE
 			third ehBE
 			trap -- 'EVAL_CAPTURE_RETURN=\$?; if [[ \$- = *e* ]]; then eval_capture_wrapper_trap "\$EVAL_CAPTURE_RETURN" "\${FUNCNAME-}" "\${cmd[*]}" "\${BASH_SUBSHELL-}" "\$EVAL_CAPTURE_CONTEXT"; return \$?; fi' ERR
@@ -15,51 +17,56 @@ elif test "$*" = '--test'; then
 			trap -- 'EVAL_CAPTURE_RETURN=\$?; if [[ \$- = *e* ]]; then eval_capture_wrapper_trap "\$EVAL_CAPTURE_RETURN" "\${FUNCNAME-}" "\${cmd[*]}" "\${BASH_SUBSHELL-}" "\$EVAL_CAPTURE_CONTEXT"; return \$?; fi' ERR
 			root failure 1
 			core failure 1
+			root start
+			middle start
 			first ehBE
-			second hBE
-			third ehBE
 			trap -- 'EVAL_CAPTURE_RETURN=\$?; if [[ \$- = *e* ]]; then eval_capture_wrapper_trap "\$EVAL_CAPTURE_RETURN" "\${FUNCNAME-}" "\${cmd[*]}" "\${BASH_SUBSHELL-}" "\$EVAL_CAPTURE_CONTEXT"; return \$?; fi' ERR
 			middle failure 1
 			root failure 1
 		EOF
 	)"
 	eval-tester --name='as expected' --status='1' --stdout="$expected" \
-		-- eval-capture --test --
+		-- eval-capture --
 	exit $?
+elif test "$*" = '--'; then
+	: # all good, run
 else
 	echo-error 'eval-capture only exists for testing, you actually want eval_capture which is provided by sourcing bash.bash'
 	exit 22 # EINVAL 22 Invalid argument
 fi
 
 function testing_failure() (
-	echo "first $-"
+	print_line "first $-"
+	false
 	set +e
-	echo "second $-"
+	print_line "second $-"
 	false
 	set -e
-	echo "third $-"
+	print_line "third $-"
 	false
-	echo "fourth $- YOU SHOULD NOT SEE THIS"
+	print_line "fourth $- YOU SHOULD NOT SEE THIS"
 )
 function testing_middle {
 	local middle_status
+	print_line 'middle start'
 	eval_capture --statusvar=middle_status -- testing_failure
 	trap -p | grep --regexp='ERR$' || : # use grep as CI has SIGPIPE traps
 	if test "$middle_status" -eq 0; then
-		echo "middle ok $middle_status"
+		print_line "middle ok $middle_status"
 	else
-		echo "middle failure $middle_status"
+		print_line "middle failure $middle_status"
 	fi
 	return "$middle_status"
 }
 function testing_root {
 	local root_status
+	print_line 'root start'
 	eval_capture --statusvar=root_status -- testing_middle
 	trap -p | grep --regexp='ERR$' || : # use grep as CI has SIGPIPE traps
 	if test "$root_status" -eq 0; then
-		echo "root ok $root_status"
+		print_line "root ok $root_status"
 	else
-		echo "root failure $root_status"
+		print_line "root failure $root_status"
 	fi
 	return "$root_status"
 }
@@ -68,12 +75,18 @@ core_status=
 eval_capture --statusvar=core_status -- testing_root
 trap -p | grep --regexp='ERR$' || : # use grep as CI has SIGPIPE traps
 if test "$core_status" -eq 0; then
-	echo "core ok $core_status"
+	print_line "core ok $core_status"
 else
-	echo "core failure $core_status"
+	print_line "core failure $core_status"
 fi
 
-# trigger a lingering trap
-testing_root
+# test that trap was removed
+trap -p | grep --regexp='ERR$' && {
+	print_line 'trap was not removed'
+	exit 1
+}
 
-echo 'sup'
+# test that root-level failures fail
+set -e
+testing_root
+print_line "finale $- YOU SHOULD NOT SEE THIS"
