@@ -78,11 +78,8 @@ function fs_own() (
 			--sudo
 			    if provided, sudo will be used, automatically enabled when admin/owner/user/group is provided.
 
-			--partial
-			    if provided, failures will be ignored.
-
 			--optional
-			    if provided, missing paths will be ignored.
+			    if provided, ignore missing paths and failures.
 
 			--no-recursive
 			    if provided, only the exact path will be used, not any child paths.
@@ -97,8 +94,9 @@ function fs_own() (
 	}
 
 	# process
-	local item paths=()
-	local option_quiet=''
+	local item option_quiet
+	option_quiet="$(echo-quiet-enabled -- "$@")"
+	local option_paths=()
 	local option_verbose='no'
 	local option_changes='' # os support
 	local option_owner=''
@@ -109,36 +107,31 @@ function fs_own() (
 	local option_directory_permissions='' # deprecated
 	local option_file_permissions=''      # deprecated
 	local option_sudo='no'
-	local option_partial='no'
 	local option_optional='no'
 	local option_recursive='yes'
-	option_quiet="$(is-quiet-enabled "$option_quiet" -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'*) ;; # handled by is-quiet-enabled
+		'--no-quiet'* | '--quiet'*) ;; # handled by echo-quiet-enabled
 		'--no-verbose'* | '--verbose'*)
-			option_verbose="$(get-flag-value verbose --missing="$option_verbose" -- "$item" | echo-affirmative --stdin)"
+			option_verbose="$(get-flag-value --affirmative --fallback="$option_verbose" -- "$item")"
 			;;
 		'--no-changes'* | '--changes'*)
-			option_changes="$(get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative --stdin)"
+			option_changes="$(get-flag-value --affirmative --fallback="$option_changes" -- "$item")"
 			;;
 		'--no-admin'* | '--admin'*)
-			option_admin="$(get-flag-value admin --missing="$option_admin" -- "$item" | echo-affirmative --stdin)"
+			option_admin="$(get-flag-value --affirmative --fallback="$option_admin" -- "$item")"
 			;;
 		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-partial'* | '--partial'*)
-			option_partial="$(get-flag-value partial --missing="$option_partial" -- "$item" | echo-affirmative --stdin)"
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
 			;;
 		'--no-optional'* | '--optional'*)
-			option_optional="$(get-flag-value optional --missing="$option_optional" -- "$item" | echo-affirmative --stdin)"
+			option_optional="$(get-flag-value --affirmative --fallback="$option_optional" -- "$item")"
 			;;
 		'--no-recursive'* | '--recursive'*)
-			option_recursive="$(get-flag-value recursive --missing="$option_recursive" -- "$item" | echo-affirmative --stdin)"
+			option_recursive="$(get-flag-value --affirmative --fallback="$option_recursive" -- "$item")"
 			;;
 		'--permissions='*) option_permissions="${item#*--permissions=}" ;;
 		'--directory-permissions='*) option_directory_permissions="${item#*--directory-permissions=}" ;;
@@ -146,24 +139,25 @@ function fs_own() (
 		'--owner='*) option_owner="${item#*--owner=}" ;;
 		'--user='*) option_user="${item#*--user=}" ;;
 		'--group='*) option_group="${item#*--group=}" ;;
+		'--path='*) option_paths+=("${item#--path=}") ;;
 		'--')
-			paths+=("$@")
+			option_paths+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		*) option_paths+=("$item") ;;
 		esac
 	done
 
 	# check
 	local index
-	if test "${#paths[@]}" -eq 0; then
-		help "No paths were provided."
+	if test "${#option_paths[@]}" -eq 0; then
+		help "No <path>s provided."
 	fi
-	for index in "${!paths[@]}"; do
-		if test -z "${paths[index]}"; then
-			echo-error 'Cannot claim ownership of an empty path:' $'\n' "$(echo-verbose -- "${paths[@]}")"
+	for index in "${!option_paths[@]}"; do
+		if test -z "${option_paths[index]}"; then
+			echo-error 'Cannot claim ownership of an empty path:' $'\n' "$(echo-verbose -- "${option_paths[@]}")"
 			return 1
 		fi
 	done
@@ -203,6 +197,9 @@ function fs_own() (
 	fi
 
 	# adjustments: recursive
+	# -f: Do not display a diagnostic message when chmod could not modify the mode for file, nor modify the exit status to reflect such (macos)
+	# -f, --silent, --quiet: suppress most error messages (ubuntu)
+	# -R/--recursive: self-explanatory
 	local ch_args=()
 	if test "$option_recursive" = 'yes'; then
 		if is-mac || is-alpine; then
@@ -210,6 +207,9 @@ function fs_own() (
 		else
 			ch_args+=('--recursive')
 		fi
+	fi
+	if test "$option_optional" = 'yes'; then
+		ch_args+=('-f')
 	fi
 
 	# adjustments: changes
@@ -250,24 +250,8 @@ function fs_own() (
 
 	# prepare, don't put each path on a new line, as that can make a lot of lines!
 	sudo_reason="Correcting permissions for the following paths requires your sudo/root/login password:$(
-		echo-style $'\n' --reset --code="${paths[*]}"
+		echo-style $'\n' --reset --code="${option_paths[*]}"
 	)"
-
-	# if not quiet, then wrap the sudo commands
-	if test "$option_quiet" = 'no'; then
-		sudo_as_user_args+=(
-			'eval-helper'
-			'--no-quiet'
-			'--wrap'
-			'--'
-		)
-		sudo_as_admin_args+=(
-			'eval-helper'
-			'--no-quiet'
-			'--wrap'
-			'--'
-		)
-	fi
 
 	# sudo as the user/group
 	if test -n "$owner" -o "$option_sudo" = 'yes'; then
@@ -294,8 +278,9 @@ function fs_own() (
 	fi
 
 	# =====================================
-	# Helpers
+	# Action
 
+	local paths=()
 	function is_available {
 		local path="$1" cmd=()
 		if test -n "$owner"; then
@@ -309,7 +294,7 @@ function fs_own() (
 		fi
 		# can't use is-present, because sudo doesn't have access, and it is too complicated to add access for it
 		cmd+=(test -e "$path" -o -L "$path")
-		"${cmd[@]}"
+		"${cmd[@]}" # eval
 	}
 	function check_exists {
 		local path="$1" available_status
@@ -322,7 +307,7 @@ function fs_own() (
 		fi
 	}
 	function do_own {
-		local path="$1" cmd
+		local cmd
 
 		# chown
 		if test -n "$owner"; then
@@ -330,8 +315,8 @@ function fs_own() (
 			if test "${#sudo_as_admin_args[@]}" -ne 0; then
 				cmd+=("${sudo_as_admin_args[@]}")
 			fi
-			cmd+=(chown "${ch_args[@]}" "$owner" "$path")
-			"${cmd[@]}"
+			cmd+=(chown "${ch_args[@]}" "$owner" "${paths[@]}")
+			"${cmd[@]}" # eval
 		fi
 
 		# chmod
@@ -341,34 +326,35 @@ function fs_own() (
 			if test "${#sudo_as_user_args[@]}" -ne 0; then
 				cmd+=("${sudo_as_user_args[@]}")
 			fi
-			cmd+=(chmod "${ch_args[@]}" "$option_permissions" "$path")
-			"${cmd[@]}"
+			cmd+=(chmod "${ch_args[@]}" "$option_permissions" "${paths[@]}")
+			"${cmd[@]}" # eval
 		fi
 	}
 
-	# =====================================
-	# Act
-
-	local path exists_status
-	if test "$option_partial" = 'yes'; then
-		for path in "${paths[@]}"; do
-			# ignore exists and own failures in partial mode
+	local path exists_status exit_status=0
+	if test "$option_optional" = 'yes'; then
+		for path in "${option_paths[@]}"; do
+			# ignore exist failures
 			eval_capture --statusvar=exists_status -- check_exists "$path"
 			if test "$exists_status" -eq 0; then
-				eval_capture -- do_own "$path"
+				paths+=("$path")
 			fi
 		done
 	else
-		for path in "${paths[@]}"; do
-			# respect exists and own failures in non-partial mode (this also allows capturing ctrl+c on sudo)
+		for path in "${option_paths[@]}"; do
+			# respect exist failures
 			eval_capture --statusvar=exists_status -- check_exists "$path"
 			if test "$exists_status" -eq 0; then
-				do_own "$path"
+				paths+=("$path")
 			else
-				return "$exists_status"
+				exit_status="$exists_status"
 			fi
 		done
 	fi
+	if test "${#paths[@]}" -ne 0; then
+		do_own
+	fi
+	return "$exit_status"
 )
 
 # fire if invoked standalone

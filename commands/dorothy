@@ -190,7 +190,7 @@ function dorothy_() (
 
 	# process action arguments
 	# @todo prevent double-action overwrite
-	local item action='' option_xdg='' option_branch='' option_commit='' option_reference='HEAD' args=()
+	local item action='' option_xdg='' option_branch='' option_commit='' option_reference='HEAD' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -209,17 +209,17 @@ function dorothy_() (
 		'--reference='*) option_reference="${item#*--reference=}" ;;
 		'repl')
 			action='repl'
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			;;
 		'run')
 			action='run'
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			;;
 		'i' | 'install')
 			action='install'
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			;;
 		'uninstall')
@@ -233,7 +233,7 @@ function dorothy_() (
 			;;
 		'e' | 'edit')
 			action='edit'
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			;;
 		'r' | 'review')
@@ -256,6 +256,8 @@ function dorothy_() (
 			;;
 		't' | 'test')
 			action='test'
+			option_args+=("$@")
+			shift $#
 			;;
 		'todo' | 'todos')
 			action='todos'
@@ -603,65 +605,66 @@ function dorothy_() (
 		fi
 	}
 
+	# relocate and remove symlinks
 	function relocate_if_necessary {
-		local source="$1" destination="$2"
-		# if source actually exists (is a dir, or a resolvable symlink), we need to merge it with the destination
-		if test -e "$source"; then
-			# we are a directory, or a resolvable symlink
+		local source="$1" destination="$2" temp
 
-			# if a symlink, resolve it
-			if test -L "$source"; then
-				source="$(__fs_realpath -- "$source")" # only works on resolvable symlinks
+		# if source is a symlink, resolve it and remove it
+		if test -L "$source"; then
+			temp="$source"
+			# resolve where the source actually is
+			if test -e "$destination"; then
+				source="$(__fs_realpath -- "$source")"
+			else
+				source=''
 			fi
-
-			# if the destination is a symlink, resolve it or remove it
-			if test -L "$destination"; then
-				if test ! -e "$destination"; then
-					# not resolvable, remove it
-					rm -f "$destination"
-				else
-					# resolvable, resolve it
-					destination="$(__fs_realpath -- "$destination")"
-				fi
-			fi
-
-			# ensure our resolved locations aren't identical
-			# as there is no point moving itself to itself
-			# this prevents this error:
-			# mv: /Users/redacted/.local/share/dorothy/user and /Users/redacted/.config/dorothy/user are identical
-			if test "$source" != "$destination"; then
-				if test -n "$symlink"; then
-					ln -sfF "$destination" "$symlink"
-				fi
-				mv -vf "$source" "$destination"
-			fi
-
-			# all done, skip the rest
-			return 0
-		elif test -L "$source"; then
-			# source is a broken symlink, remove it
-			rm -f "$source"
+			# remove the source symlink
+			rm -f "$temp"
 		fi
-		# check if destination is a broken symlink, if so remove it
-		if test -L "$destination" -a ! -e "$destination"; then
-			rm -f "$destination"
+
+		# if destination is a symlink, resolve it, move it, and remove it
+		if test -L "$destination"; then
+			if test -e "$destination"; then
+				temp2="$(__fs_realpath -- "$destination")"
+				# remove the destination symlink
+				rm -f "$destination"
+				# relocate the target to the destination
+				mv -fv "$temp2" "$destination"
+			else
+				# remove the destination symlink
+				rm -f "$destination"
+			fi
 		fi
+
+		# do we need to move and merge the source with the destination?
+		if test -n "$source" -a -n "$destination" -a "$source" != "$destination" -a -e "$source"; then
+			mv -fv "$source" "$destination"
+		fi
+
+		# all done
+		return 0
 	}
 
+	# relocate and recreate symlink
 	function relocate_then_symlink_if_necessary {
-		local symlink="$1" existing="$2"
-		relocate_if_necessary "$symlink" "$existing"
-		ln -sfF "$existing" "$symlink"
+		local symlink="$1" destination="$2"
+		relocate_if_necessary "$symlink" "$destination"
+		ln -sfF "$destination" "$symlink"
+		# cleanup accidents
+		symlink="$destination/$(basename "$symlink")"
+		if test -L "$symlink"; then
+			rm -f "$symlink"
+		fi
 	}
 
 	function relocate_dorothy_if_necessary {
 		# move if necessary
 		if test -d "$DOROTHY" -o -d "$XDG_DATA_HOME/dorothy"; then
 			if test "$option_xdg" = 'yes'; then
-				relocate_if_necessary "$DOROTHY" "$XDG_DATA_HOME/dorothy"
+				relocate_then_symlink_if_necessary "$DOROTHY" "$XDG_DATA_HOME/dorothy"
 			elif test "$option_xdg" = 'no'; then
-				relocate_if_necessary "$XDG_DATA_HOME/dorothy" "$DOROTHY"
-				relocate_if_necessary "$HOME/.local/share/dorothy" "$DOROTHY"
+				relocate_then_symlink_if_necessary "$XDG_DATA_HOME/dorothy" "$DOROTHY"
+				relocate_then_symlink_if_necessary "$HOME/.local/share/dorothy" "$DOROTHY"
 			else
 				# invalid option_xdg value
 				return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -679,8 +682,7 @@ function dorothy_() (
 				# ensure $DOROTHY/user always exists
 				relocate_then_symlink_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 			elif test "$option_xdg" = 'no'; then
-				relocate_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
-				relocate_if_necessary "$HOME/.config/dorothy" "$DOROTHY/user"
+				relocate_then_symlink_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
 			else
 				# invalid option_xdg value
 				return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -782,18 +784,20 @@ function dorothy_() (
 	}
 
 	function correct_permissions {
-		# directories and commands must be executable
-		require_array 'mapfile'
-		local directories commands
+		# make everything readable and writable, make directories accessible
+		fs-own --changes --optional --permissions='+rwX' \
+			-- "$DOROTHY"
+		# make commands executable
+		local commands
 		commands=(
 			"$DOROTHY/commands/"*
 			"$DOROTHY/commands.beta/"*
 			"$DOROTHY/user/commands/"*
 			"$DOROTHY/user/commands.local/"*
+			"$DOROTHY/themes/oz"
 		)
-		mapfile -t directories < <(find-directories "$DOROTHY")
-		fs-own --changes --no-recursive --permissions='+rwx' \
-			-- "${directories[@]}" "${commands[@]}"
+		fs-own --changes --no-recursive --permissions='+x' \
+			-- "${commands[@]}"
 	}
 
 	function ensure_permissions_configured {
@@ -826,7 +830,7 @@ function dorothy_() (
 
 	function ensure_dorothy_configured {
 		# sanity check
-		if ! [[ $action =~ install|update|repl|run ]]; then
+		if ! [[ $action =~ ^(install|update|repl|run)$ ]]; then
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 
@@ -855,7 +859,7 @@ function dorothy_() (
 		}
 
 		# check
-		if [[ $action =~ repl|run ]]; then
+		if [[ $action =~ ^(repl|run)$ ]]; then
 			# in trial mode, only install dorothy if necessary, do not update
 			if test ! -d "$DOROTHY"; then
 				install_dorothy
@@ -875,14 +879,14 @@ function dorothy_() (
 
 	function ensure_machine_configured {
 		# sanity check
-		if ! [[ $action =~ install ]]; then
+		if ! [[ $action =~ ^(install)$ ]]; then
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 
 		# act
 		local hostname
 		hostname="$(get-hostname)"
-		if is-interactive && is-generic "$hostname"; then
+		if is-interactive && is-generic -- "$hostname"; then
 			if confirm --bool --ppid=$$ -- "This machine's hostname is currently generic [$hostname], would you like to change it?"; then
 				hostname="$(
 					ask --question="What should the new hostname be?"
@@ -898,7 +902,7 @@ function dorothy_() (
 
 	function ensure_user_configured {
 		# sanity check
-		if ! [[ $action =~ install|update ]]; then
+		if ! [[ $action =~ ^(install|update)$ ]]; then
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 
@@ -941,7 +945,7 @@ function dorothy_() (
 			if test "$where" = 'github' -o "$where" = 'gitlab'; then
 				# prepare username default, and clear generic usernames
 				user="$(get-profile username || :)"
-				if test -n "$user" && is-generic "$user"; then
+				if test -n "$user" && is-generic -- "$user"; then
 					user=''
 				fi
 				user="$(
@@ -1195,11 +1199,11 @@ function dorothy_() (
 
 		# cleanup
 		if test "$option_clean" = 'yes'; then
-			rm_deprecated "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.config/fish/config.fish" "$ZDOTDIR/.zshrc" "$ZDOTDIR/.zprofile"
+			rm_deprecated "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$XDG_CONFIG_HOME/fish/config.fish" "$ZDOTDIR/.zshrc" "$ZDOTDIR/.zprofile"
 		fi
 
 		# bash
-		if is-needle bash "${use_shells[@]}"; then
+		if is-needle --needle=bash -- "${use_shells[@]}"; then
 			echo-segment --h3='Configuring Bash'
 			setup-util-bash
 
@@ -1220,7 +1224,7 @@ function dorothy_() (
 		fi
 
 		# dash
-		if is-needle dash "${use_shells[@]}"; then
+		if is-needle --needle=dash -- "${use_shells[@]}"; then
 			echo-segment --h3='Configuring Dash'
 			setup-util-dash
 
@@ -1229,50 +1233,50 @@ function dorothy_() (
 				--find='.+? # Dorothy' --replace=". \"$DOROTHY/init.sh\" # Dorothy"
 
 			echo-segment --g3='Configuring Dash'
-		elif ! is-needle bash "${use_shells[@]}" && ! is-needle ksh "${use_shells[@]}"; then
+		elif ! is-needle --needle=bash -- "${use_shells[@]}" && ! is-needle --needle=ksh -- "${use_shells[@]}"; then
 			config-helper --file="$HOME/.profile" -- \
 				--find='.+? # Dorothy' --replace=''
 		fi
 
 		# elvish
-		if is-needle elvish "${use_shells[@]}"; then
+		if is-needle --needle=elvish -- "${use_shells[@]}"; then
 			# https://elv.sh/ref/command.html#rc-file
 			# https://elv.sh/ref/runtime.html
 			# https://github.com/elves/elvish/issues/1726
 			echo-segment --h3='Configuring Elvish'
 			setup-util-elvish
-			mkdir -p "$HOME/.config/elvish"
+			mkdir -p "$XDG_CONFIG_HOME/elvish"
 
 			# configure
-			config-helper --file="$HOME/.config/elvish/rc.elv" -- \
+			config-helper --file="$XDG_CONFIG_HOME/elvish/rc.elv" -- \
 				--find='.+? # Dorothy' --replace="eval (cat '$DOROTHY/init.elv' | slurp) # Dorothy"
 
 			echo-segment --h3='Configuring Elvish'
 		else
-			mkdir -p "$HOME/.config/elvish"
-			config-helper --file="$HOME/.config/elvish/rc.elv" -- \
+			mkdir -p "$XDG_CONFIG_HOME/elvish"
+			config-helper --file="$XDG_CONFIG_HOME/elvish/rc.elv" -- \
 				--find='.+? # Dorothy' --replace=''
 		fi
 
 		# fish
-		if is-needle fish "${use_shells[@]}"; then
+		if is-needle --needle=fish -- "${use_shells[@]}"; then
 			echo-segment --h3='Configuring Fish'
 			setup-util-fish
-			mkdir -p "$HOME/.config/fish"
+			mkdir -p "$XDG_CONFIG_HOME/fish"
 
 			# configure
-			config-helper --file="$HOME/.config/fish/config.fish" -- \
+			config-helper --file="$XDG_CONFIG_HOME/fish/config.fish" -- \
 				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.fish' # Dorothy"
 
 			echo-segment --g3='Configuring Zsh'
 		else
-			mkdir -p "$HOME/.config/fish"
-			config-helper --file="$HOME/.config/fish/config.fish" -- \
+			mkdir -p "$XDG_CONFIG_HOME/fish"
+			config-helper --file="$XDG_CONFIG_HOME/fish/config.fish" -- \
 				--find='.+? # Dorothy' --replace=''
 		fi
 
 		# ksh
-		if is-needle ksh "${use_shells[@]}"; then
+		if is-needle --needle=ksh -- "${use_shells[@]}"; then
 			echo-segment --h3='Configuring KSH'
 			setup-util-ksh
 
@@ -1281,13 +1285,13 @@ function dorothy_() (
 				--find='.+? # Dorothy' --replace=". '$DOROTHY/init.sh' # Dorothy"
 
 			echo-segment --g3='Configuring KSH'
-		elif ! is-needle bash "${use_shells[@]}" && ! is-needle dash "${use_shells[@]}"; then
+		elif ! is-needle --needle=bash -- "${use_shells[@]}" && ! is-needle --needle=dash -- "${use_shells[@]}"; then
 			config-helper --file="$HOME/.profile" -- \
 				--find='.+? # Dorothy' --replace=''
 		fi
 
 		# nu
-		if is-needle nu "${use_shells[@]}"; then
+		if is-needle --needle=nu -- "${use_shells[@]}"; then
 			echo-segment --h3='Configuring Nu'
 			setup-util-nu
 
@@ -1303,26 +1307,26 @@ function dorothy_() (
 		fi
 
 		# xonsh
-		if is-needle xonsh "${use_shells[@]}"; then
+		if is-needle --needle=xonsh -- "${use_shells[@]}"; then
 			# https://xon.sh/xonshrc.html
 			echo-segment --h3='Configuring Xonsh'
 			setup-util-xonsh
-			mkdir -p "$HOME/.config/xonsh/rc.d"
+			mkdir -p "$XDG_CONFIG_HOME/xonsh/rc.d"
 
 			# configure
-			config-helper --file="$HOME/.config/xonsh/rc.xsh" -- \
+			config-helper --file="$XDG_CONFIG_HOME/xonsh/rc.xsh" -- \
 				--find='.+? # Dorothy' --replace="execx(compilex(open('$DOROTHY/init.xsh').read())) # Dorothy"
 
 			echo-segment --g3='Configuring Xonsh'
 		else
-			mkdir -p "$HOME/.config/xonsh/rc.d"
-			config-helper --file="$HOME/.config/xonsh/rc.xsh" -- \
+			mkdir -p "$XDG_CONFIG_HOME/xonsh/rc.d"
+			config-helper --file="$XDG_CONFIG_HOME/xonsh/rc.xsh" -- \
 				--find='.+? # Dorothy' --replace=''
 		fi
 
 		# zsh
 		# https://zsh.sourceforge.io/Intro/intro_3.html
-		if is-needle zsh "${use_shells[@]}"; then
+		if is-needle --needle=zsh -- "${use_shells[@]}"; then
 			echo-segment --h3='Configuring Zsh'
 			setup-util-zsh
 			mkdir -p "$ZDOTDIR"
@@ -1672,7 +1676,18 @@ function dorothy_() (
 		echo-segment --h3="$DOROTHY"
 		(
 			cd "$DOROTHY"
+			# format
 			trunk fmt --all "${args[@]}"
+			# update meta
+			if __command_exists npm; then
+				if test "$USER" = 'balupton'; then
+					# if balupton, update meta with auth
+					github-auth -- npm run our:meta
+				else
+					# otherwise update meta with environment (CI) auth or no auth
+					npm run our:meta
+				fi
+			fi
 		)
 		echo-segment --g3="$DOROTHY"
 
@@ -1681,6 +1696,7 @@ function dorothy_() (
 			echo-segment --h3="$DOROTHY/user"
 			(
 				cd "$DOROTHY/user"
+				# format
 				trunk fmt --all "${args[@]}"
 			)
 			echo-segment --g3="$DOROTHY/user"
@@ -1707,6 +1723,7 @@ function dorothy_() (
 		echo-segment --h3="$DOROTHY"
 		(
 			cd "$DOROTHY"
+			# check
 			trunk check --all "${args[@]}"
 		)
 		echo-segment --g3="$DOROTHY"
@@ -1716,6 +1733,7 @@ function dorothy_() (
 			echo-segment --h3="$DOROTHY/user"
 			(
 				cd "$DOROTHY/user"
+				# check
 				trunk check --all "${args[@]}"
 			)
 			echo-segment --g3="$DOROTHY/user"
@@ -1748,6 +1766,7 @@ function dorothy_() (
 		echo-segment --h3="$DOROTHY"
 		(
 			cd "$DOROTHY"
+			# upgrade
 			if test "$upgrade_linting" = 'yes'; then
 				if __command_exists npx npm; then
 					npx npm-check-updates -u
@@ -1755,14 +1774,14 @@ function dorothy_() (
 				fi
 				trunk upgrade
 			fi
+			# format and check
 			trunk fmt --all "${args[@]}"
 			trunk check --all "${args[@]}"
-			if test "$USER" = 'balupton'; then
+			# update meta, only do this for balupton, as we can't guarantee up to date Node.js, as this requires Node.js 20
+			# https://github.com/bevry/dorothy/actions/runs/7636822585/job/20804540714#step:13:14
+			if __command_exists npm && test "$USER" = 'balupton'; then
 				# if balupton, update meta with auth
 				github-auth -- npm run our:meta
-			else
-				# otherwise update meta with environment (CI) auth or no auth
-				npm run our:meta
 			fi
 		)
 		echo-segment --g3="$DOROTHY"
@@ -1772,6 +1791,7 @@ function dorothy_() (
 			echo-segment --h3="$DOROTHY/user"
 			(
 				cd "$DOROTHY/user"
+				# upgrade
 				if test "$upgrade_linting" = 'yes'; then
 					if __command_exists npx npm; then
 						npx npm-check-updates -u
@@ -1779,6 +1799,7 @@ function dorothy_() (
 					fi
 					trunk upgrade
 				fi
+				# format and check
 				trunk fmt --all "${args[@]}"
 				trunk check --all "${args[@]}"
 			)
@@ -1824,10 +1845,15 @@ function dorothy_() (
 
 		# check for unsafe function calls
 		# todo, improve upon this by checking if the function also calls function, as any calling of a function must also be safe
-		mapfile -t commands < <(rg --files-with-matches --regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' "${scan_paths[@]}" | sort)
+		local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))'
+		mapfile -t commands < <(rg --files-with-matches --regexp="$unsafe_regexp" "${scan_paths[@]}" | sort)
 		if test "${#commands[@]}" -ne 0; then
 			echo-style --error='The following commands have unsafe function calls:'
-			echo-lines -- "${commands[@]}"
+			for filepath in "${commands[@]}"; do
+				echo-element --open="$filepath"
+				rg --regexp="$unsafe_regexp" "$filepath"
+				echo-element --close="$filepath"
+			done
 			echo-segment --e1='Dorothy Tests'
 			return 1
 		fi
@@ -1842,20 +1868,27 @@ function dorothy_() (
 				continue
 			fi
 
+			# run only specific tests
+			if test "$#" -ne 0; then
+				if ! is-needle --needle="$filename" -- "$@"; then
+					continue
+				fi
+			fi
+
 			# run the bash test
 			eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
 				failures+=("$bash $filepath --test")
 			}
 
 			# skip bash v3 test on these
-			if [[ $filename =~ 'get-installer'|'dorothy-config' ]]; then
+			if [[ $filename =~ ^(get-installer|dorothy-config)$ ]]; then
 				continue
 			fi
 
 			# run the bash v3 test
 			if test "$has_macos_bashv3" = 'yes'; then
-				eval-helper --no-quiet --wrap -- env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" /bin/bash "$filepath" --test || {
-					failures+=("env EVAL_TESTER_BASH=/bin/bash PATH='/bin:$PATH' /bin/bash '$filepath' --test")
+				env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
+					failures+=("/bin/bash '$filepath' --test")
 				}
 			fi
 		done
@@ -1959,11 +1992,11 @@ function dorothy_() (
 	prepare_dorothy >/dev/stderr # don't conflate stdout, don't use /dev/tty as tty doesn't exist on CI
 
 	if test "$(type -t "act_$action")" = 'function'; then
-		if test "${#args[@]}" -eq 0; then # bash v3 compat
+		if test "${#option_args[@]}" -eq 0; then # bash v3 compat
 			"act_$action"
 			return
 		else
-			"act_$action" "${args[@]}"
+			"act_$action" "${option_args[@]}"
 			return
 		fi
 	else

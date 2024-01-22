@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
 
+# @todo use [declare -f help] to verify help supports arguments, otherwise our failure messages won't be seen
+
 # the reason we disable timeout with --stdin is so that:
-# [waiter --no-magic | echo-wait | echo-count-lines --stdin] provides 5 instead of 0
+# [waiter --no-magic 5 | echo-wait | echo-count-lines --stdin] provides 5 instead of 0
 function stdinargs_options_help {
 	cat <<-EOF
 		--timeout | --timeout=yes
@@ -16,10 +18,10 @@ function stdinargs_options_help {
 		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to 1 second on earlier bash versions.
 
 		--inline | --inline=yes
-		    When processing STDIN, always include the last line.
+		    When processing STDIN or lines from arguments, process non-empty trailing lines.
 		    This is the default behaviour.
 		--no-inline | --inline=no
-		    When processing STDIN, ignore the last line if it does not have a trailing line.
+		    When processing STDIN or lines from arguments, ignore non-empty trailing lines.
 
 		--stdin=
 		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.
@@ -43,28 +45,16 @@ function stdinargs_options_help {
 
 function stdinargs {
 	# prepare
-	local had_args='maybe' had_stdin='maybe' complete='no'
 	local timeout_immediate='no' timeout_max='no' timeout_seconds=1
-	function stdinargs_eval {
-		local status
-		eval_capture --statusvar=status -- "$@"
-		if test "$status" = 210; then
-			complete='yes'
-			return 0
-		fi
-		return "$status"
-	}
-
-	# process
-	local item option_stdin='' option_inline='yes' args=()
+	local item option_stdin='' option_inline='yes' option_max_args='' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h')
 			if test "$(type -t help)" = 'function'; then
-				help >/dev/stderr && exit 22 # EINVAL 22 Invalid argument
-				return
+				help >/dev/stderr
+				return 22 # EINVAL 22 Invalid argument
 			else
 				echo-error 'A [help] function is required.'
 				return 78 # ENOSYS 78 Function not implemented
@@ -99,6 +89,8 @@ function stdinargs {
 			option_stdin='yes'
 			timeout_max='yes'
 			;;
+		# max args
+		'--max-args='*) option_max_args="${item#*--max-args=}" ;;
 		# arguments, stdin
 		'-')
 			if test "$#" -eq 0; then
@@ -106,7 +98,7 @@ function stdinargs {
 				option_stdin='yes'
 				timeout_max='yes'
 			else
-				args+=("$item")
+				option_args+=("$item")
 			fi
 			;;
 		'--')
@@ -114,15 +106,70 @@ function stdinargs {
 				# if -- was the last argument, this is a convention for skipping stdin
 				option_stdin='no'
 			else
-				args+=("$@")
+				option_args+=("$@")
 				shift "$#"
 				break
 			fi
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) args+=("$item") ;;
+		'--'*)
+			help "An unrecognised flag was provided: $item" >/dev/stderr
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		*) option_args+=("$item") ;;
 		esac
 	done
+
+	# process
+	local had_args='maybe' had_stdin='maybe' had_lines='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r') # bash v3 compat
+	if test "$timeout_max" = 'no' -a "$timeout_immediate" = 'no' -a -n "$timeout_seconds"; then
+		read_args+=('-t' "$timeout_seconds")
+	fi
+	function stdinargs_eval {
+		local status
+		eval_capture --statusvar=status -- "$@"
+		if test "$status" = 210; then
+			complete='yes'
+			return 0
+		fi
+		return "$status"
+	}
+	function stdinargs_read {
+		local line='' what="$1" had_line='no'
+		# for each line, call `on_line` or `on_input`
+		# for each inline, call `on_inline` or `on_line` or `on_input`
+		# [read -t 0 line] will not read anything, so it must be done seperately
+		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
+		# trunk-ignore(shellcheck/SC2162)
+		while (test "$timeout_immediate" = 'no' || read -t 0) && IFS='' read "${read_args[@]}" line; do
+			had_line='yes'
+			if test "$complete" = 'yes'; then
+				break
+			fi
+			if test "$(type -t on_line)" = 'function'; then
+				stdinargs_eval on_line "$line"
+			else
+				stdinargs_eval on_input "$line"
+			fi
+		done
+		if test -n "$line" -a "$option_inline" != 'no'; then
+			had_line='yes'
+			if test "$complete" = 'yes'; then
+				:
+			elif test "$(type -t on_inline)" = 'function'; then
+				stdinargs_eval on_inline "$line"
+			elif test "$(type -t on_line)" = 'function'; then
+				stdinargs_eval on_line "$line"
+			else
+				stdinargs_eval on_input "$line"
+			fi
+		fi
+		if test "$had_line" = 'yes'; then
+			had_lines='yes'
+			if test "$what" = 'stdin'; then
+				had_stdin='yes'
+			fi
+		fi
+	}
 
 	# start
 	if test "$(type -t on_start)" = 'function'; then
@@ -131,19 +178,33 @@ function stdinargs {
 
 	# attempt arguments first
 	# arguments are instantanous and won't mangle stdin for parent processes
-	if test "${#args[@]}" -eq 0; then
+	if test "$args_count" -eq 0; then
 		had_args='no'
 	else
-		# for each argument, call `on_arg` or `on_input`
+		# for each argument, call `on_(arg|input)` for each argument, otherwise call `on_(inline|line|input)` on each line of the argument
 		had_args='yes'
-		for item in "${args[@]}"; do
+		if test -n "$option_max_args" && test "$args_count" -gt "$option_max_args"; then
+			help 'This command only supports a maximum of ' --code="$option_max_args" ' arguments, yet ' --code="$args_count" ' were provided:' $'\n' "$(echo-verbose -- "${option_args[@]}")" >/dev/stderr
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		for item in "${option_args[@]}"; do
 			if test "$complete" = 'yes'; then
 				break
 			fi
 			if test "$(type -t on_arg)" = 'function'; then
 				stdinargs_eval on_arg "$item"
-			else
+			elif test "$(type -t on_input)" = 'function'; then
 				stdinargs_eval on_input "$item"
+			# this is against what [printf '%s' '' | wc -l] does, and doesn't make sense when you really think about it:
+			# elif test -z "$item" -a "$option_inline" = 'yes'; then
+			# 	if test "$(type -t on_inline)" = 'function'; then
+			# 		stdinargs_eval on_inline "$item"
+			# 	elif test "$(type -t on_line)" = 'function'; then
+			# 		stdinargs_eval on_line "$item"
+			# 	fi
+			else
+				had_lines='no'
+				stdinargs_read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
 			fi
 		done
 	fi
@@ -153,42 +214,11 @@ function stdinargs {
 	# if we autodetect stdin, then skip stdin if arguments were provided
 	if test "$option_stdin" != 'no' && test "$option_stdin" = 'yes' -o "$had_args" != 'yes'; then
 		had_stdin='no'
-
-		# read stdin
-		# if stdin works, then mark it as so
-		# for each line, call `on_line` or `on_input`
-		# for each inline, call `on_inline` or `on_line` or `on_input`
-		# [read -t 0 item] will not read anything, so it must be done seperately
-		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
-		local read_args=('-r') # bash v3 compat
-		if test "$timeout_max" = 'no' -a "$timeout_immediate" = 'no' -a -n "$timeout_seconds"; then
-			read_args+=('-t' "$timeout_seconds")
+		if test "$had_lines" != 'yes'; then
+			had_lines='no'
 		fi
-		item=''
-		# trunk-ignore(shellcheck/SC2162)
-		while (test "$timeout_immediate" = 'no' || read -t 0) && IFS='' read "${read_args[@]}" item; do
-			had_stdin='yes'
-			if test "$complete" = 'yes'; then
-				break
-			fi
-			if test "$(type -t on_line)" = 'function'; then
-				stdinargs_eval on_line "$item"
-			else
-				stdinargs_eval on_input "$item"
-			fi
-		done </dev/stdin
-		if test -n "$item" -a "$option_inline" != 'no'; then
-			had_stdin='yes'
-			if test "$complete" = 'yes'; then
-				:
-			elif test "$(type -t on_inline)" = 'function'; then
-				stdinargs_eval on_inline "$item"
-			elif test "$(type -t on_line)" = 'function'; then
-				stdinargs_eval on_line "$item"
-			else
-				stdinargs_eval on_input "$item"
-			fi
-		fi
+		# for each line of stdin, call `on_(inline|line|input)`
+		stdinargs_read stdin </dev/stdin
 	fi
 
 	# verify (note that values can be yes/no/maybe)
@@ -203,6 +233,9 @@ function stdinargs {
 	fi
 	if test "$had_stdin" != 'yes' -a "$(type -t on_no_stdin)" = 'function'; then
 		on_no_stdin
+	fi
+	if test "$had_lines" != 'yes' -a "$(type -t on_no_lines)" = 'function'; then
+		on_no_lines
 	fi
 
 	# if `finish` exists, call it

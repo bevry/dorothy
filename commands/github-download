@@ -44,15 +44,15 @@ function github_download() (
 			--pathname=<pathname>
 			    If downloading a reference, filter by this pathname, e.g. 'commands/github-download'
 
-			--asset-filter=<regexp>
+			--asset-regexp=<regexp>
 			    If downloading a release, filter assets by this.
 
-			--archive-format=<format> | --archive-format=<format>
+			--archive-format=<format>
 			    If downloading an archive file, use this to enforce an extraction <format>.
 			    This option is handled by the [unziptar] command.
 
-			--archive-filter=<filter> | --archive-filter=<filter>
-			    If downloading an archive file, use this to only extract files that match the glob pattern <filter>.
+			--archive-glob=<glob>
+			    If downloading an archive file, use this to only extract files that match the glob pattern <glob>.
 			    This option is handled by the [unziptar] command.
 
 			--directory=<directory>
@@ -83,15 +83,15 @@ function github_download() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process
-	local item slug='' branch='' commit='' reference='' alias='' tag='' id='' release='' pathname='' asset_filter='' archive_format='' archive_filter='' directory='' file='' filepath='' quiet='yes' dry='no'
-	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
+	# process, @todo rewrite with option_
+	local item option_quiet slug='' branch='' commit='' reference='' alias='' tag='' id='' release='' pathname='' asset_regexp='' archive_format='' archive_glob='' directory='' file='' filepath='' dry='no'
+	option_quiet="$(echo-quiet-enabled --fallback=yes -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
 		# repo
 		'--slug='*) slug="${item#*--slug=}" ;;
 		# reference
@@ -108,16 +108,19 @@ function github_download() (
 		'--id='*) id="${item#*--id=}" ;;
 		'--release='*) release="${item#*--release=}" ;;
 		# asset
-		'--asset-filter='*) asset_filter="${item#*--asset-filter=}" ;;
-		'--unzip-format='*) archive_format="${item#*--unzip-format=}" ;; # deprecated
-		'--unzip-filter='*) archive_filter="${item#*--unzip-filter=}" ;; # deprecated
+		'--asset-filter='*) asset_regexp="${item#*--asset-filter=}" ;; # deprecated
+		'--asset-regexp='*) asset_regexp="${item#*--asset-regexp=}" ;;
+		'--archive-filter='*) archive_glob="${item#*--archive-filter=}" ;; # deprecated
 		'--archive-format='*) archive_format="${item#*--archive-format=}" ;;
-		'--archive-filter='*) archive_filter="${item#*--archive-filter=}" ;;
+		'--archive-glob='*) archive_glob="${item#*--archive-glob=}" ;;
+		'--unzip-filter='*) archive_glob="${item#*--unzip-filter=}" ;;   # deprecated
+		'--unzip-format='*) archive_format="${item#*--unzip-format=}" ;; # deprecated
+		'--unzip-glob='*) archive_glob="${item#*--unzip-glob=}" ;;       # deprecated
 		'--directory='*) directory="${item#*--directory=}" ;;
 		'--file='*) file="${item#*--file=}" ;;
 		'--filepath='*) filepath="${item#*--filepath=}" ;;
 		'--no-dry'* | '--dry'*)
-			dry="$(get-flag-value dry --missing="$dry" -- "$item" | echo-affirmative --stdin)"
+			dry="$(get-flag-value --affirmative --fallback="$dry" -- "$item")"
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
@@ -136,7 +139,7 @@ function github_download() (
 				help "[--release=latest] and [--alias=$alias] are mutually exclusive, you should only use: --alias=$alias"
 			fi
 			alias='latest'
-		elif is-integer "$release"; then
+		elif is-integer -- "$release"; then
 			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --id=$release" >/dev/tty
 			if test -n "$id"; then
 				help "[--release=$release] and [--id=$id] are mutually exclusive, you should only use: --id=$id"
@@ -182,21 +185,21 @@ function github_download() (
 		fi
 	fi
 	if test -n "$reference"; then
-		# don't check asset-filter, as that can work for tag
+		# don't check asset-regexp, as that can work for tag
 		if test -n "$alias" -o -n "$id"; then
 			help "[--release/latest/alias/id] and [--reference/head/branch/commit] are mutually exclusive"
 		fi
 	fi
-	if test -n "$asset_filter" -a "$pathname"; then
-		help "[--asset-filter] and [--pathname] are mutually exclusive, did you intend to use: --archive-filter=$pathname"
-	elif test -n "$asset_filter"; then
+	if test -n "$asset_regexp" -a "$pathname"; then
+		help "[--asset-regexp] and [--pathname] are mutually exclusive, did you intend to use: --archive-glob=$pathname"
+	elif test -n "$asset_regexp"; then
 		reference=''
 	elif test -n "$pathname"; then
 		release=''
 	fi
 	if test -z "$reference" -a -z "$release"; then
 		# set defaults
-		if test -n "$asset_filter"; then
+		if test -n "$asset_regexp"; then
 			release='latest'
 			alias='latest'
 		elif test -n "$pathname"; then
@@ -238,7 +241,7 @@ function github_download() (
 
 	function get_assets {
 		# we don't care for all assets, just the release in it's entirety
-		if test -z "$asset_filter"; then
+		if test -z "$asset_regexp"; then
 			get-github-release --slug="$slug" --tar --alias="$alias" --tag="$tag" --id="$id"
 			return
 		fi
@@ -251,7 +254,7 @@ function github_download() (
 			return 1
 		fi
 
-		# filter out junk, and filter names according to the asset-filter, keeping only urls
+		# filter out junk, and filter names according to the asset-regexp, keeping only urls
 		local index name url matches=()
 		for ((index = 0; index < ${#assets[@]}; index = index + 2)); do
 			name="${assets[index]}"
@@ -263,14 +266,14 @@ function github_download() (
 			if grep --quiet --extended-regexp --regexp='[.](asc|mini|sbom|sha256sum|sha256|sha|sig|zsync)$' <<<"$name"; then
 				# ignore signature assets
 				continue
-			elif test -z "$asset_filter"; then
+			elif test -z "$asset_regexp"; then
 				# no asset filter, add them all
 				matches+=("$url")
-			elif test "$asset_filter" = "$name"; then
+			elif test "$asset_regexp" = "$name"; then
 				# exact match, use only that
 				matches=("$url")
 				break
-			elif grep --quiet --extended-regexp --regexp="$asset_filter" <<<"$name"; then
+			elif grep --quiet --extended-regexp --regexp="$asset_regexp" <<<"$name"; then
 				# regexp match, make note
 				matches+=("$url")
 			fi # no match, ignore
@@ -279,7 +282,7 @@ function github_download() (
 		# filtering worked
 		if test "${#matches[@]}" -eq 0; then
 			{
-				echo-style --error='No assets matched the filter:' ' ' --code="$asset_filter"
+				echo-style --error='No assets matched the filter:' ' ' --code="$asset_regexp"
 				echo-verbose -- "${assets[@]}"
 			} >/dev/stderr
 			return 1
@@ -304,22 +307,22 @@ function github_download() (
 		print_line "https://raw.githubusercontent.com/$slug/$reference/$pathname"
 	}
 	function download_reference {
-		local url filter
+		local url glob
 		if test -n "$pathname"; then
 			url="$(get_ref_pathname_url)"
-			filter="$archive_filter"
+			glob="$archive_glob"
 		else
 			url="https://github.com/$slug/archive/$reference.tar.gz"
-			filter="*-$reference/${archive_filter:-"*"}"
+			glob="*-$reference/${archive_glob:-"*"}"
 		fi
 		if test "$dry" = 'yes'; then
 			print_line "$url"
 			return 0
 		fi
 		down "$url" \
-			--quiet="$quiet" \
+			--quiet="$option_quiet" \
 			--archive-format="$archive_format" \
-			--archive-filter="$filter" \
+			--archive-glob="$glob" \
 			--directory="$directory" \
 			--file="$file" \
 			--filepath="$filepath"
@@ -337,9 +340,9 @@ function github_download() (
 				continue
 			fi
 			down "$asset" \
-				--quiet="$quiet" \
+				--quiet="$option_quiet" \
 				--archive-format="$archive_format" \
-				--archive-filter="$archive_filter" \
+				--archive-glob="$archive_glob" \
 				--directory="$directory" \
 				--file="$file" \
 				--filepath="$filepath"

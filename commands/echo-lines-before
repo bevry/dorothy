@@ -8,25 +8,25 @@ function echo_lines_before_test() (
 	echo-segment --h1="TEST: $0"
 
 	eval-tester --name='using arguments' --stdout=$'a\nb' \
-		-- echo-lines-before '' -- a b '' c d
+		-- echo-lines-before --needle='' -- $'a\nb\n\nc\nd'
 
 	{
 		echo-lines -- a b '' c d
 	} | eval-tester --name='using stdin' --stdout=$'a\nb' \
-		-- echo-lines-before ''
+		-- echo-lines-before --needle=''
 
 	{
 		echo-lines -- a b '' c d
 	} | eval-tester --name='using --stdin' --stdout=$'a\nb' \
-		-- echo-lines-before '' --stdin
+		-- echo-lines-before --needle='' --stdin
 
 	{
 		echo-lines -- a b '' c d
 	} | eval-tester --name='using -' --stdout=$'a\nb' \
-		-- echo-lines-before '' -
+		-- echo-lines-before --needle='' -
 
 	eval-tester --name='using <<<' --stdout=$'a\nb' \
-		-- echo-lines-before '' - <<<"$(echo-lines -- a b '' c d)"
+		-- echo-lines-before --needle='' - <<<"$(echo-lines -- a b '' c d)"
 
 	echo-segment --g1="TEST: $0"
 	return 0
@@ -40,57 +40,84 @@ function echo_lines_before() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Get everything before the first occurence of <line>.
+			Get everything before the first occurrence of <line>.
 
 			USAGE:
 			echo-lines-before <needle> [...options] [--] ...<input>
 			echo-lines ...<input> | echo-lines-before <needle> [...options]
 
 			OPTIONS:
-			<needle>
-			    Output output the <input> that is before this line.
+			<needle> | --needle=<needle>
+			    Only output the <input> that occurs before one of these <needle> lines.
+			    Use [--needle=<needle>] to provide multiple needles.
 
 			$(stdinargs_options_help --)
 
 			EXAMPLE:
 
-			echo-lines-before '' -- a b '' c d
+			echo-lines-before --needle='b' -- a b b c b
 
 			    a
-			    b
 			    # exit status: 0
 
-			echo-lines -- a b '' c d | echo-lines-before '' --stdin
+			echo-lines -- a b b c b | echo-lines-before --needle='' --stdin
 
 			    a
-			    b
 			    # exit status: 0
 
-			echo-lines-before '' --stdin <<< "\$(echo-lines -- a b '' c d)"
+			echo-lines-before --needle='' --stdin <<< "\$(echo-lines -- a b b c b)"
 
 			    a
-			    b
 			    # exit status: 0
 		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process <needle>
-	local option_needle="$1"
-	shift
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_needles=() option_args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--needle='*) option_needles+=("${item#*--needle=}") ;;
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*)
+			if test "${#option_needles[@]}" -eq 0; then
+				option_needles+=("$item")
+			else
+				option_args+=("$item")
+			fi
+			;;
+		esac
+	done
+
+	# check
+	if test "${#option_needles[@]}" -eq 0; then
+		help 'No <needle>s provided.'
+	fi
 
 	# =====================================
 	# Action
 
-	function on_input {
-		if test "$1" = "$option_needle"; then
-			return 210 # ECUSTOM 210 Processing complete, exit early
-		else
-			print_line "$1"
-		fi
+	function on_line {
+		local line="$1" needle
+		for needle in "${option_needles[@]}"; do
+			if test "$line" = "$needle"; then
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
+		print_line "$line"
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone

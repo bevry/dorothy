@@ -51,7 +51,7 @@ EOF
 # open the element
 echo-element --open="$file"
 # output its contents
-echo-style --code="$(echo-trim-stdin --stdin <"$file")"
+echo-style --code="$(echo-trim-padding --stdin <"$file")"
 # close the element
 echo-element --close="$file"
 
