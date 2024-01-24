@@ -132,7 +132,8 @@ code_dim="${dim}${foreground_gray}"
 code_notice="${dim}${foreground_intense_yellow}" # on dark theme, this is your eyes that need help
 if test -n "${GITHUB_ACTIONS-}"; then
 	h1="${background_intense_white}${foreground_black}"
-	e1="${background_intense_red}${foreground_intense_white}"
+	e1="${background_red}${foreground_black}"
+	error="${background_red}${foreground_black}"
 elif test "$(get-terminal-theme || :)" = 'light'; then
 	# trim foreground_intense_yellow as it is unreadable on light theme
 	code_notice="${foreground_yellow}"
