@@ -2,7 +2,7 @@
 
 <!-- BADGES/ -->
 
-<span class="badge-githubworkflow"><a href="https://github.com/bevry/dorothy/actions?query=workflow%3Abevry" title="View the status of this project's GitHub Workflow: bevry"><img src="https://github.com/bevry/dorothy/workflows/bevry/badge.svg" alt="Status of the GitHub Workflow: bevry" /></a></span>
+<span class="badge-githubworkflow"><a href="https://github.com/bevry/dorothy/actions?query=workflow%3Adorothy-workflow" title="View the status of this project's GitHub Workflow: dorothy-workflow"><img src="https://github.com/bevry/dorothy/workflows/dorothy-workflow/badge.svg" alt="Status of the GitHub Workflow: dorothy-workflow" /></a></span>
 <br class="badge-separator" />
 <span class="badge-githubsponsors"><a href="https://github.com/sponsors/balupton" title="Donate to this project using GitHub Sponsors"><img src="https://img.shields.io/badge/github-donate-yellow.svg" alt="GitHub Sponsors donate button" /></a></span>
 <span class="badge-thanksdev"><a href="https://thanks.dev/u/gh/bevry" title="Donate to this project using ThanksDev"><img src="https://img.shields.io/badge/thanksdev-donate-yellow.svg" alt="ThanksDev donate button" /></a></span>
