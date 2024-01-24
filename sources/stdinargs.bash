@@ -71,7 +71,7 @@ function stdinargs {
 			timeout_seconds=0
 			;;
 		'--timeout='*)
-			timeout_seconds="${item#*--timeout=}"
+			timeout_seconds="${item#*=}"
 			timeout_seconds="$(get_read_decimal_timeout "$timeout_seconds")"
 			;;
 		# inline
@@ -90,7 +90,7 @@ function stdinargs {
 			timeout_max='yes'
 			;;
 		# max args
-		'--max-args='*) option_max_args="${item#*--max-args=}" ;;
+		'--max-args='*) option_max_args="${item#*=}" ;;
 		# arguments, stdin
 		'-')
 			if test "$#" -eq 0; then
