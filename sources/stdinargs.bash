@@ -115,7 +115,11 @@ function stdinargs {
 			help "An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
-		*) option_args+=("$item") ;;
+		*)
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
 		esac
 	done
 
