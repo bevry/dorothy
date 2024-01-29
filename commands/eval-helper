@@ -40,6 +40,13 @@ function eval_helper() (
 
 			--failure=<failure>
 			    Message to display if the command failed.
+
+			--title=<title>
+			    If provided, uses this as the title inside the wrappers, instead of the escaped command.
+			    Intended only for use by [sudo-helper].
+
+			QUIRKS:
+			Unless [--quiet=no] is used, then stdout+stderr will be merged into stderr.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -56,6 +63,7 @@ function eval_helper() (
 	option_pending=''
 	option_success=''
 	option_failure=''
+	option_title=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -65,6 +73,7 @@ function eval_helper() (
 		'--pending='*) option_pending="${item#*=}" ;;
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
+		'--title='*) option_title="${item#*=}" ;;
 		'--no-confirm'* | '--confirm'*)
 			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
 			;;
@@ -88,12 +97,20 @@ function eval_helper() (
 	# Action
 
 	# prepare
-	local title
-	title="$(echo-escape-command -- "${option_cmd[@]}")"
+	local element_open tty_target
+	if test -z "$option_title"; then
+		option_title="$(echo-escape-command -- "${option_cmd[@]}")"
+	fi
+	if test "$option_wrap" = 'yes'; then
+		element_open="$(echo-element --open="$option_title")"
+	else
+		element_open="$(echo-style --code="$option_title")"
+	fi
+	tty_target="$(is-tty --fallback)"
 
 	# confirm
-	if test "$option_confirm" = 'yes' && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command that is below:' "$(echo-style --code="$title")"; then
-		echo-style --notice='Skipped execution of:' ' ' --code="$title"
+	if test "$option_confirm" = 'yes' && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command that is below:' "$element_open"; then
+		echo-style --notice='Skipped execution of:' ' ' "$element_open"
 		return 0
 	fi
 
@@ -102,10 +119,10 @@ function eval_helper() (
 	if test "${INSIDE_REVOLVING_DOOR-}" = 'yes' -o "$option_quiet" = 'no'; then
 		# headers
 		if test -n "$option_pending"; then
-			print_line "$option_pending"
+			print_line "$option_pending" >"$tty_target"
 		fi
 		if test "$option_wrap" = 'yes'; then
-			echo-element --open="$title"
+			print_line "$element_open" >"$tty_target"
 		fi
 
 		# body
@@ -113,15 +130,15 @@ function eval_helper() (
 
 		# footers
 		if test "$option_wrap" = 'yes'; then
-			echo-element --close="$title" --status="$cmd_status"
+			echo-element --close="$option_title" --status="$cmd_status" >"$tty_target"
 		fi
 		if test "$cmd_status" -eq 0; then
 			if test -n "$option_success"; then
-				print_line "$option_success"
+				print_line "$option_success" >"$tty_target"
 			fi
 		else
 			if test -n "$option_failure"; then
-				print_line "$option_failure"
+				print_line "$option_failure" >"$tty_target"
 			fi
 		fi
 	else
@@ -134,10 +151,10 @@ function eval_helper() (
 
 		# headers
 		if test -n "$option_pending"; then
-			print_line "$option_pending" | tee -a "$headers"
+			print_line "$option_pending" | tee -a "$headers" >"$tty_target"
 		fi
 		if test "$option_wrap" = 'yes'; then
-			echo-element --open="$title" | tee -a "$headers"
+			print_line "$element_open" | tee -a "$headers" >"$tty_target"
 		fi
 
 		# body
@@ -149,16 +166,17 @@ function eval_helper() (
 			# this is used if the command writes to TTY
 			# in which case echo-revolving-door fails to clear
 			tty_start
-			cat "$headers" # redo headers inside alt tty while its active
+			cat "$headers" >"$tty_target" # redo headers inside alt tty while its active
 			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" > >(tee -a "$body") 2> >(tee -a "$body" >/dev/stderr)
 			tty_finish
 		else
 			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" > >(tee -a "$body" | echo-revolving-door --columns="$columns") 2> >(tee -a "$body" | echo-revolving-door --columns="$columns" >/dev/stderr)
+			# we cannot detect shapeshifting after the fact, as it occurs in the TTY, not stdout, nor stderr
 		fi
 		export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR_original"
 
 		# clear headers, we can re-add them later if needed
-		echo-clear-lines --stdin <"$headers"
+		echo-clear-lines --stdin <"$headers" >"$tty_target"
 
 		# generate footer
 		if test "$cmd_status" -eq 0; then
@@ -174,16 +192,16 @@ function eval_helper() (
 		# if quiet and successful, dump footer and exit
 		if test "$option_quiet" = 'yes' -a "$cmd_status" -eq 0; then
 			if test -n "$footer"; then
-				print_string "$footer"
+				print_string "$footer" >"$tty_target"
 			fi
 			return "$cmd_status"
 		fi
 
 		# if it didn't output anything, output self closing wrap, then footer, then exit
 		if test -z "$(cat "$body")"; then
-			echo-element --openclose="$title" --status="$cmd_status"
+			echo-element --openclose="$option_title" --status="$cmd_status" >"$tty_target"
 			if test -n "$footer"; then
-				print_string "$footer"
+				print_string "$footer" >"$tty_target"
 			fi
 			return "$cmd_status"
 		fi
@@ -191,19 +209,19 @@ function eval_helper() (
 
 		# output wrap header
 		if test "$option_wrap" = 'yes'; then
-			echo-element --open="$title"
+			print_line "$element_open" >"$tty_target"
 		fi
 		# if verbose, or failure, output body
 		if test "$option_quiet" = 'no' -o "$cmd_status" -ne 0; then
-			cat "$body"
+			cat "$body" >/dev/stderr
 		fi
 		# outpout wrap footer
 		if test "$option_wrap" = 'yes'; then
-			echo-element --close="$title" --status="$cmd_status"
+			echo-element --close="$option_title" --status="$cmd_status" >"$tty_target"
 		fi
 		# output footer
 		if test -n "$footer"; then
-			print_string "$footer"
+			print_string "$footer" >"$tty_target"
 		fi
 	fi
 

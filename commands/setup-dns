@@ -125,8 +125,7 @@ function setup_dns() (
 	}
 
 	# process
-	local item action='' option_quiet option_service='' option_vpn_reconnect=''
-	option_quiet="$(echo-quiet-enabled -- "$@")"
+	local item action='' option_service='' option_vpn_reconnect=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -174,32 +173,9 @@ function setup_dns() (
 	# =====================================
 	# Helpers
 
-	function sudo_wrap {
-		if test "$1" = '--'; then
-			shift
-		fi
-		eval-helper --quiet="$option_quiet" --wrap \
-			-- sudo-helper \
-			-- "$@"
-	}
-	function eval_wrap {
-		if test "$1" = '--'; then
-			shift
-		fi
-		eval-helper --quiet="$option_quiet" --wrap \
-			-- "$@"
-	}
-	function eval_wrap_verbose {
-		if test "$1" = '--'; then
-			shift
-		fi
-		eval-helper --no-quiet --wrap \
-			-- "$@"
-	}
-
 	function verify_dns_generic {
 		local attempt="${1:-1}" status=0
-		nslookup cloudflare.com || status=$?
+		nslookup cloudflare.com | echo-trim-padding --stdin || status=$?
 		if test "$status" -ne 0; then
 			echo-style --notice="DNS service failed to verify, trying again in 10 seconds."
 			sleep 10
@@ -260,9 +236,9 @@ function setup_dns() (
 		if is-mac; then
 			# get its basename which is the service id
 			id="$(fs-filename --basename -- "$file")"
-			service-helper --quiet="$option_quiet" --stop -- "$id" || :
+			service-helper --stop -- "$id" || :
 		else
-			service-helper --quiet="$option_quiet" --stop -- "$id" || :
+			service-helper --stop -- "$id" || :
 		fi
 	}
 
@@ -284,13 +260,13 @@ function setup_dns() (
 			# -w      Additionally disables the service such that future load
 			#         operations will result in a service which launchd tracks but
 			#         cannot be launched or discovered in any way.
-			service-helper --quiet="$option_quiet" --disable -- "system/$id" || :
-			service-helper --quiet="$option_quiet" --stop -- "$id" || :
-			service-helper --quiet="$option_quiet" --unload -- "$file" || :
+			service-helper --disable -- "system/$id" || :
+			service-helper --stop -- "$id" || :
+			service-helper --unload -- "$file" || :
 			do_remove -- /Library/Logs/*"$id"*.log
 		else
-			service-helper --quiet="$option_quiet" --disable --stop -- "$id" || :
-			service-helper --quiet="$option_quiet" --status -- "$id" || :
+			service-helper --disable --stop -- "$id" || :
+			service-helper --status -- "$id" || :
 		fi
 		do_remove --reload -- "$file"
 	}
@@ -304,14 +280,14 @@ function setup_dns() (
 			# but [homebrew services] does this, so doing it here
 			sudo-helper -- chown root:admin "$file"
 			sudo-helper -- chmod +t "$file"
-			service-helper --quiet="$option_quiet" --load -- "$file" || :
-			# service-helper --quiet="$option_quiet" --start -- "system/$id" || :
-			service-helper --quiet="$option_quiet" --start -- "$id" || :
+			service-helper --load -- "$file" || :
+			# service-helper  --start -- "system/$id" || :
+			service-helper --start -- "$id" || :
 			sleep 3
 			eval-helper --no-quiet -- cat /Library/Logs/*"$id"*.log || :
 		else
-			service-helper --quiet="$option_quiet" --enable --start -- "$id" || :
-			service-helper --quiet="$option_quiet" --status -- "$id" || :
+			service-helper --enable --start -- "$id" || :
+			service-helper --status -- "$id" || :
 		fi
 	}
 
@@ -827,7 +803,7 @@ function setup_dns() (
 			echo-segment --h1="Configure and $action_title $systemd_title"
 
 			# dump the data for where we are
-			eval_wrap_verbose -- resolvectl status --no-pager || :
+			sudo-helper -- resolvectl status --no-pager || :
 
 			# if there is nordvpn, we have to disconnect
 			if command-exists nordvpn; then
@@ -841,7 +817,7 @@ function setup_dns() (
 			# temporarily disable these services while we redo the configuration files
 			# https://wiki.archlinux.org/title/systemd-networkd
 			# resolved handles dns, networkd handles network interfaces
-			service-helper --quiet="$option_quiet" --stop -- systemd-networkd systemd-resolved || :
+			service-helper --stop -- systemd-networkd systemd-resolved || :
 
 			# allow modifications in case something has locked it
 			# for some reason this can fail
@@ -893,11 +869,11 @@ function setup_dns() (
 			# we have redone the configuration files so we must now restart the services
 			# and ensure that are correctly enabled in case they weren't
 			# which could happen via vpns or another dns service
-			service-helper --quiet="$option_quiet" --enable --start -- systemd-resolved systemd-networkd || :
+			service-helper --enable --start -- systemd-resolved systemd-networkd || :
 
 			# flush their caches
-			sudo_wrap -- resolvectl flush-caches --no-pager || :
-			sudo_wrap -- resolvectl reset-server-features --no-pager || :
+			sudo-helper -- resolvectl flush-caches --no-pager || :
+			sudo-helper -- resolvectl reset-server-features --no-pager || :
 
 			# apply the changes to their interfaces
 			mapfile -t interfaces < <(network-interface list)
@@ -922,18 +898,14 @@ function setup_dns() (
 				fi
 
 				# remove other changes
-				local status
-				eval_capture --statusvar=status -- sudo_wrap -- resolvectl revert "$interface"
-				if test "$status" -ne 0; then
-					continue
-				fi
+				sudo-helper -- resolvectl revert "$interface" || continue
 
 				# apply intended changes
-				sudo_wrap -- resolvectl default-route "$interface" "$default_route"
-				sudo_wrap -- resolvectl domain "$interface" "$Domains"
-				sudo_wrap -- resolvectl dnssec "$interface" "$DNSSEC"
-				sudo_wrap -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
-				sudo_wrap -- resolvectl dns "$interface" "${servers[@]}"
+				sudo-helper -- resolvectl default-route "$interface" "$default_route"
+				sudo-helper -- resolvectl domain "$interface" "$Domains"
+				sudo-helper -- resolvectl dnssec "$interface" "$DNSSEC"
+				sudo-helper -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
+				sudo-helper -- resolvectl dns "$interface" "${servers[@]}"
 
 				# reboot the interface if it isn't a vpn
 				sleep 3
@@ -941,7 +913,7 @@ function setup_dns() (
 			done
 
 			# dump the status now that we are done
-			eval_wrap_verbose -- resolvectl status --no-pager || :
+			sudo-helper -- resolvectl status --no-pager || :
 
 			# if there is nordvpn, we have to reconnect
 			if command-exists nordvpn; then
@@ -959,7 +931,7 @@ function setup_dns() (
 				# verify
 				verify_dns_resolvectl
 			else
-				service-helper --quiet="$option_quiet" --disable --stop -- systemd-resolved
+				service-helper --disable --stop -- systemd-resolved
 			fi
 
 			# after significant systemd changes, it may need to be reloaded
