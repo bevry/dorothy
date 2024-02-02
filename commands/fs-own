@@ -151,14 +151,18 @@ function fs_own() (
 	done
 
 	# check
-	local index
 	if test "${#option_paths[@]}" -eq 0; then
-		help "No <path>s provided."
+		if test "$option_optional" = 'yes'; then
+			return 0
+		fi
+		echo-error 'No <path>s provided.'
+		return 22 # EINVAL 22 Invalid argument
 	fi
-	for index in "${!option_paths[@]}"; do
-		if test -z "${option_paths[index]}"; then
+	local path
+	for path in "${option_paths[@]}"; do
+		if test -z "$path"; then
 			echo-error 'Cannot claim ownership of an empty path:' $'\n' "$(echo-verbose -- "${option_paths[@]}")"
-			return 1
+			return 22 # EINVAL 22 Invalid argument
 		fi
 	done
 
@@ -302,7 +306,7 @@ function fs_own() (
 		if test "$available_status" -ne 0; then
 			if test "$option_optional" != 'yes'; then
 				echo-error 'Cannot claim ownership a path that does exist or is inaccessible:' $'\n' --code="$path"
-				return "$available_status"
+				return 2 # ENOENT 2 No such file or directory
 			fi
 		fi
 	}
@@ -331,30 +335,30 @@ function fs_own() (
 		fi
 	}
 
-	local path exists_status exit_status=0
-	if test "$option_optional" = 'yes'; then
-		for path in "${option_paths[@]}"; do
-			# ignore exist failures
-			eval_capture --statusvar=exists_status -- check_exists "$path"
-			if test "$exists_status" -eq 0; then
-				paths+=("$path")
-			fi
-		done
-	else
-		for path in "${option_paths[@]}"; do
-			# respect exist failures
-			eval_capture --statusvar=exists_status -- check_exists "$path"
-			if test "$exists_status" -eq 0; then
-				paths+=("$path")
-			else
-				exit_status="$exists_status"
-			fi
-		done
-	fi
+	# determine paths
+	local exists_status own_status
+	for path in "${option_paths[@]}"; do
+		eval_capture --statusvar=exists_status -- check_exists "$path"
+		# check existence
+		if test "$exists_status" -eq 0; then
+			paths+=("$path") # it exists, update ownership for it
+		fi
+	done
+	# perform the ownership
 	if test "${#paths[@]}" -ne 0; then
-		do_own
+		eval_capture --statusvar=own_status -- do_own
+		# check ownership failures
+		if test "$own_status" -ne 0 -a "$option_optional" = 'no'; then
+			return "$own_status"
+		fi
 	fi
-	return "$exit_status"
+	# check if we had missing paths
+	if test "${#paths[@]}" -ne "${#option_paths[@]}"; then
+		if test "$option_optional" = 'yes'; then
+			return 0
+		fi
+		return 2 # ENOENT 2 No such file or directory
+	fi
 )
 
 # fire if invoked standalone

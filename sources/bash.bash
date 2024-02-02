@@ -151,39 +151,39 @@ function eval_capture {
 			EOF
 			return 22 # EINVAL 22 Invalid argument
 			;;
-		'--statusvar='*)
+		'--statusvar='* | '--status-var='*)
 			exit_status_variable="${item#*=}"
 			;;
-		'--stdoutvar='*)
+		'--stdoutvar='* | '--stdout-var='*)
 			stdout_variable="${item#*=}"
 			stdout_pipe='/dev/null'
 			;;
-		'--stderrvar='*)
+		'--stderrvar='* | '--stderr-var='*)
 			stderr_variable="${item#*=}"
 			stderr_pipe='/dev/null'
 			;;
-		'--outputvar='*)
+		'--outputvar='* | '--output-var='*)
 			output_variable="${item#*=}"
 			stdout_pipe='/dev/null'
 			stderr_pipe='/dev/null'
 			;;
-		'--no-stdout')
+		'--no-stdout' | '--ignore-stdout' | '--stdout=no')
 			stdout_pipe='/dev/null'
 			;;
-		'--no-stderr')
+		'--no-stderr' | '--ignore-stderr' | '--stderr=no')
 			stderr_pipe='/dev/null'
 			;;
-		'--no-output')
+		'--no-output' | '--ignore-output' | '--output=no')
 			stdout_pipe='/dev/null'
 			stderr_pipe='/dev/null'
 			;;
-		'--stdoutpipe='*)
+		'--stdoutpipe='* | '--stdout-pipe='*)
 			stdout_pipe="${item#*=}"
 			;;
-		'--stderrpipe='*)
+		'--stderrpipe='* | '--stderr-pipe='*)
 			stderr_pipe="${item#*=}"
 			;;
-		'--outputpipe='*)
+		'--outputpipe='* | '--output-pipe='*)
 			stdout_pipe="${item#*=}"
 			stderr_pipe="$stdout_pipe"
 			;;
