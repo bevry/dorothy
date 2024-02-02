@@ -333,7 +333,7 @@ function get_devices() (
 	fi
 	function get_one {
 		# trunk-ignore-all(shellcheck/SC2034)
-		local exclude_status temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' serial='' vendor='' product='' revision=''
+		local exclude_status temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' count_available='' count_info='' serial='' vendor='' product='' revision=''
 
 		# check node quickly
 		eval_capture --statusvar=exclude_status -- check_exclude 'node' "$node"
@@ -396,6 +396,7 @@ function get_devices() (
 
 			# uuid
 			if test -n "$label" -a -n "$uuid"; then
+				# apfs count
 				count="$(rg --multiline --multiline-dotall --regexp="$uuid.+?====+" <<<"$mount_raid" | rg --regexp='^\d' | echo-count-lines --stdin || :)"
 			fi
 
@@ -427,7 +428,9 @@ function get_devices() (
 
 		# fetch count
 		if test "$filesystem" = 'btrfs'; then
-			count="$(sudo-helper -- btrfs filesystem show "$node" | rg --only-matching --regexp='Total devices ([0-9]+)' --replace='$1' || :)"
+			count_info="$(sudo-helper -- btrfs filesystem show "$node")"
+			count="$(rg --only-matching --regexp='Total devices ([0-9]+)' --replace='$1' <<< "$count_info" || :)"
+			count_available="$(grep --fixed-strings --regexp='devid' <<< "$count_info" | echo-count-lines --stdin || :)"
 		fi
 
 		# check filters
@@ -438,6 +441,19 @@ function get_devices() (
 				return 0
 			fi
 		done
+
+		# validate
+		local result_status=0
+		if test -n "$count"; then
+			if test "$count" != "$count_available" || rg --quiet --ignore-case --regexp='(warning|error|missing)'; then
+				echo-style --error="$node: $count_available/$count devices found" $'\n' "$(echo-lines --indent=$'\t' --stdin <<< "$count_info")" > /dev/stderr
+				result_status=5 # EIO 5 Input/output error
+			fi
+			if test -n "$option_count" -a "$option_label" = "$label" -a "$option_count" != "$count"; then
+				echo-style --error="$node: $count_available/$count devices found, however we expected $option_count devices" $'\n' "$(echo-lines --indent=$'\t' --stdin <<< "$count_info")" > /dev/stderr
+				result_status=5 # EIO 5 Input/output error
+			fi
+		fi
 
 		# output
 		local result
@@ -461,6 +477,9 @@ function get_devices() (
 			fi
 			printf '\n'
 		fi
+
+		# return failure
+		return "$result_status"
 	}
 	function get_all {
 		echo-style --bold='Getting devices...' >"$tty_target"
@@ -472,9 +491,15 @@ function get_devices() (
 		echo-clear-line >"$tty_target"
 	}
 	function action {
-		local node size='' model='' result message
+		local message all_status all_stdout
+		local node size='' model=''
+		local one_status result_status=0
 		message="$(echo-style --bold='Getting device: ' --code='%s' ' | ' --code='%s' ' | ' --code='%s')"
-		while IFS=$'\t' read -rd $'\n' node size model; do
+		eval_capture --statusvar=all_status --stdoutvar=all_stdout -- get_all
+		if test "$all_status" -ne 0; then
+			return "$all_status"
+		fi
+		print_line "$all_stdout" | while IFS=$'\t' read -rd $'\n' node size model; do
 			# trim trailing whitespace from model
 			if test -n "$model"; then
 				model="$(echo-trim-each-line -- "$model")"
@@ -482,26 +507,39 @@ function get_devices() (
 			# Processing: node, size, model
 			# trunk-ignore(shellcheck/SC2059)
 			printf "$message\n" "$node" "$size" "$model" >"$tty_target"
-			get_one "$node" "$size" "$model"
-			echo-clear-line >"$tty_target"
-		done < <(get_all)
+			eval_capture --statusvar=one_status -- get_one "$node" "$size" "$model"
+			if test "$one_status" -ne 0; then
+				result_status="$one_status"
+			else
+				echo-clear-line >"$tty_target"
+			fi
+		done
+		return "$result_status"
 	}
 
 	# act
-	local results
-	mapfile -t results < <(action)
+	local action_status action_stdout results
+	eval_capture --statusvar=action_status --stdoutvar=action_stdout -- action
+	mapfile -t results < <(print_line "$action_stdout")
 	if test "${#results[@]}" -eq 0; then
 		if test "$option_quiet" != 'yes'; then
 			echo-style --error="$option_missing" >/dev/stderr
 		fi
-		return 19 # ENODEV 19 Operation not supported by device
+		if test "$action_status" -ne 0; then
+			return "$action_status"
+		else
+			return 6 # ENXIO 6 Device not configured
+		fi
 	fi
 	if test -n "$option_select"; then
 		choose-option --required --confirm --label \
 			--question="$option_select" \
 			-- "${results[@]}"
 	else
-		echo-lines -- "${results[@]}"
+		print_lines "${results[@]}"
+	fi
+	if test "$action_status" -ne 0; then
+		return "$action_status"
 	fi
 )
 
