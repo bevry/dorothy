@@ -242,10 +242,12 @@ function get_devices() (
 
 	# helpers
 	function get_key {
-		rg --only-matching --regexp="$1=\"([^\"]+)" --replace='$1' || :
+		local key="$1" haystack="$2"
+		rg --only-matching --regexp="$key=\"([^\"]+)" --replace='$1' <<< "$haystack" || :
 	}
 	function get_property {
-		rg --only-matching --regexp="$1[: '\"]+([^'\"]+)" --replace='$1' | echo-trim-each-line --stdin || :
+		local key="$1" haystack="$2"
+		rg --only-matching --regexp="$key[: '\"]+([^'\"]+)" --replace='$1' <<< "$haystack" | echo-trim-each-line --stdin || :
 	}
 	function check_exclude {
 		local name="$1" value="$2"
@@ -325,12 +327,22 @@ function get_devices() (
 	fi
 
 	# action
-	local tty_target mount_haystack mount_raid results=()
-	tty_target="$(is-tty --fallback)"
-	mount_haystack="$(mount)"
-	if is-mac; then
-		mount_raid="$(sudo-helper -- diskutil appleRAID list)"
-	fi
+	local MOUNT_HAYSTACK='' MOUNT_RAID=''
+	function get_all {
+		MOUNT_HAYSTACK="$(mount)"
+		if test "$option_filesystem" = 'btrfs'; then
+			# if you attach a btrfs cluster to a new machine
+			# it may not be completely discovered until the btrfs agent scans for the devices
+			# and btrfs supports mounting partial filesystems, which cause inumerable errors
+			eval-helper --quiet -- btrfs-helper discover > "$tty_target"
+		fi
+		if is-mac; then
+			MOUNT_RAID="$(sudo-helper -- diskutil appleRAID list)"
+			sudo-helper -- diskutil list | rg --only-matching --regexp='/dev/[^ ]+'
+		else
+			sudo-helper -- fdisk -l | rg --multiline --only-matching --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
+		fi
+	}
 	function get_one {
 		# trunk-ignore-all(shellcheck/SC2034)
 		local exclude_status temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' count_available='' count_info='' serial='' vendor='' product='' revision=''
@@ -347,83 +359,83 @@ function get_devices() (
 
 			# fetch diskutil properties
 			temp="$(sudo-helper -- diskutil info "$node")"
-			uuid="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
-			model="$(get_property 'Device [/] Media Name' <<<"$temp")"
-			serial="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
+			uuid="$(get_property 'Disk [/] Partition UUID' "$temp")"
+			model="$(get_property 'Device [/] Media Name' "$temp")"
+			serial="$(get_property 'Disk [/] Partition UUID' "$temp")"
 			# IOContent is the type of device, not a UUID
-			size="$(get_property 'Disk Size' <<<"$temp")"
+			size="$(get_property 'Disk Size' "$temp")"
 			# 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
 			if test -n "$size"; then
 				size="${size%% (*}" # 5.0 TB
 			fi
-			block="$(get_property 'Device Block Size' <<<"$temp")" # 512 Byte
+			block="$(get_property 'Device Block Size' "$temp")" # 512 Byte
 
 			# fetch label last, as it is complicated, and overwrites temp
-			label="$(get_property 'Volume Name' <<<"$temp")" # volume device
+			label="$(get_property 'Volume Name' "$temp")" # volume device
 			if test -n "$label" -a "$label" != 'Not applicable (no file system)'; then
 				# if volume device, also has a filesystem
-				filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
-			elif test "$(get_property 'Content [(]IOContent[)]' <<<"$temp")" = 'GUID_partition_scheme'; then
+				filesystem="$(get_property 'Type [(]Bundle[)]' "$temp")"
+			elif test "$(get_property 'Content [(]IOContent[)]' "$temp")" = 'GUID_partition_scheme'; then
 				# child raid device
 				serial=''
 				label=''
 				temp="${node##*/}" # /dev/disk7 => disk7
-				temp="$(rg --only-matching --regexp="${temp}s\d+" <<<"$mount_raid" || :)"
+				temp="$(rg --only-matching --regexp="${temp}s\d+" <<<"$MOUNT_RAID" || :)"
 				if test -n "$temp"; then
 					temp="$(sudo-helper -- diskutil info "$temp")"
-					uuid="$(get_property 'Parent RAID Set UUID' <<<"$temp")"
-					label="$(get_property 'Parent Set Name' <<<"$temp")"
-					serial="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
-					# count="$(rg --multiline --multiline-dotall --regexp='DevNode.+---+.+?disk7s2.+?====+' <<<"$mount_raid" | rg --regexp='^\d' | echo-count-lines --stdin)"
+					uuid="$(get_property 'Parent RAID Set UUID' "$temp")"
+					label="$(get_property 'Parent Set Name' "$temp")"
+					serial="$(get_property 'Disk [/] Partition UUID' "$temp")"
+					# count="$(rg --multiline --multiline-dotall --regexp='DevNode.+---+.+?disk7s2.+?====+' <<<"$MOUNT_RAID" | rg --regexp='^\d' | echo-count-lines --stdin)"
 				fi
 			else
 				# root device of volume
-				label="$(get_property 'Set Name' <<<"$temp")"
+				label="$(get_property 'Set Name' "$temp")"
 				if test -z "$label"; then
 					# probably child device of label
-					temp="$(get_property 'APFS Physical Store' <<<"$temp")"
+					temp="$(get_property 'APFS Physical Store' "$temp")"
 					if test -n "$temp"; then
 						temp="$(sudo-helper -- diskutil info "$temp")"
-						uuid="$(get_property 'Disk [/] Partition UUID' <<<"$temp")"
-						label="$(get_property 'Set Name' <<<"$temp")"
-						filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
+						uuid="$(get_property 'Disk [/] Partition UUID' "$temp")"
+						label="$(get_property 'Set Name' "$temp")"
+						filesystem="$(get_property 'Type [(]Bundle[)]' "$temp")"
 					fi
 				else
 					# raid device
-					filesystem="$(get_property 'Type [(]Bundle[)]' <<<"$temp")"
+					filesystem="$(get_property 'Type [(]Bundle[)]' "$temp")"
 				fi
 			fi
 
 			# uuid
 			if test -n "$label" -a -n "$uuid"; then
 				# apfs count
-				count="$(rg --multiline --multiline-dotall --regexp="$uuid.+?====+" <<<"$mount_raid" | rg --regexp='^\d' | echo-count-lines --stdin || :)"
+				count="$(rg --multiline --multiline-dotall --regexp="$uuid.+?====+" <<<"$MOUNT_RAID" | rg --regexp='^\d' | echo-count-lines --stdin || :)"
 			fi
 
 			# fetch mount
-			mount="$(rg --only-matching --regexp="$node on (.+?) \($filesystem" --replace='$1' <<<"$mount_haystack" || :)"
+			mount="$(rg --only-matching --regexp="$node on (.+?) \($filesystem" --replace='$1' <<<"$MOUNT_HAYSTACK" || :)"
 			if test -n "$filesystem" -a -z "$mount"; then
-				mount="$(rg --only-matching --regexp="${node}s1 on (.+?) \($filesystem" --replace='$1' <<<"$mount_haystack" || :)"
+				mount="$(rg --only-matching --regexp="${node}s1 on (.+?) \($filesystem" --replace='$1' <<<"$MOUNT_HAYSTACK" || :)"
 			fi
 		else
 			# fetch blkid properties
 			temp="$(sudo-helper -- blkid "$node" || :)" # can fail if recently removed from a btrfs cluster
 			if test -n "$temp"; then
-				filesystem="$(get_key 'TYPE' <<<"$temp")"
-				label="$(get_key 'LABEL' <<<"$temp")"
-				uuid="$(get_key 'UUID' <<<"$temp")"
-				block="$(get_key 'BLOCK_SIZE' <<<"$temp")"
+				filesystem="$(get_key 'TYPE' "$temp")"
+				label="$(get_key 'LABEL' "$temp")"
+				uuid="$(get_key 'UUID' "$temp")"
+				block="$(get_key 'BLOCK_SIZE' "$temp")"
 			fi
 
 			# fetch sginfo properties
 			temp="$(sudo-helper -- sginfo -a "$node")"
-			serial="$(get_property 'Serial Number' <<<"$temp")"
-			vendor="$(get_property 'Vendor' <<<"$temp")"
-			product="$(get_property 'Product' <<<"$temp")"
-			revision="$(get_property 'Revision level' <<<"$temp")"
+			serial="$(get_property 'Serial Number' "$temp")"
+			vendor="$(get_property 'Vendor' "$temp")"
+			product="$(get_property 'Product' "$temp")"
+			revision="$(get_property 'Revision level' "$temp")"
 
 			# fetch mount
-			mount="$(rg --only-matching --regexp="$node on (.+?) type $filesystem" --replace='$1' <<<"$mount_haystack" || :)"
+			mount="$(rg --only-matching --regexp="$node on (.+?) type $filesystem" --replace='$1' <<<"$MOUNT_HAYSTACK" || :)"
 		fi
 
 		# fetch count
@@ -445,8 +457,8 @@ function get_devices() (
 		# validate
 		local result_status=0
 		if test -n "$count"; then
-			if test "$count" != "$count_available" || rg --quiet --ignore-case --regexp='(warning|error|missing)'; then
-				echo-style --error="$node: $count_available/$count devices found" $'\n' "$(echo-lines --indent=$'\t' --stdin <<<"$count_info")" >/dev/stderr
+			if test "$count" != "$count_available" || rg --quiet --ignore-case --regexp='(warning|error|missing)' <<<"$count_info"; then
+				echo-style --error="$node: $count_available/$count devices found" $'\n' "$(echo-lines --indent=$'\t' --stdin <<<"$count_info")" > /dev/stderr
 				result_status=5 # EIO 5 Input/output error
 			fi
 			if test -n "$option_count" -a "$option_label" = "$label" -a "$option_count" != "$count"; then
@@ -481,65 +493,68 @@ function get_devices() (
 		# return failure
 		return "$result_status"
 	}
-	function get_all {
-		echo-style --bold='Getting devices...' >"$tty_target"
-		if is-mac; then
-			sudo-helper -- diskutil list | rg --only-matching --regexp='/dev/[^ ]+'
-		else
-			sudo-helper -- fdisk -l | rg --multiline --only-matching --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
-		fi
-		echo-clear-line >"$tty_target"
-	}
-	function action {
-		local message all_status all_stdout
-		local node size='' model=''
-		local one_status result_status=0
-		message="$(echo-style --bold='Getting device: ' --code='%s' ' | ' --code='%s' ' | ' --code='%s')"
-		eval_capture --statusvar=all_status --stdoutvar=all_stdout -- get_all
-		if test "$all_status" -ne 0; then
-			return "$all_status"
-		fi
-		print_line "$all_stdout" | while IFS=$'\t' read -rd $'\n' node size model; do
-			# trim trailing whitespace from model
-			if test -n "$model"; then
-				model="$(echo-trim-each-line -- "$model")"
-			fi
-			# Processing: node, size, model
-			# trunk-ignore(shellcheck/SC2059)
-			printf "$message\n" "$node" "$size" "$model" >"$tty_target"
-			eval_capture --statusvar=one_status -- get_one "$node" "$size" "$model"
-			if test "$one_status" -ne 0; then
-				result_status="$one_status"
-			else
-				echo-clear-line >"$tty_target"
-			fi
-		done
-		return "$result_status"
-	}
 
-	# act
-	local action_status action_stdout results
-	eval_capture --statusvar=action_status --stdoutvar=action_stdout -- action
-	mapfile -t results < <(print_line "$action_stdout")
+	# fetch all
+	local tty_target status result
+	tty_target="$(is-tty --fallback)"
+	echo-style --bold='Getting devices...' >"$tty_target"
+	eval_capture --statusvar=status --stdoutvar=result -- get_all
+	if test "$status" -ne 0; then
+		return "$status"
+	fi
+	echo-clear-line >"$tty_target"
+
+	# iterate through all
+	local message items=() node size model results=() result_status=0
+	message="$(echo-style --bold='Getting device: ' --code='%s' ' | ' --code='%s' ' | ' --code='%s')"
+	mapfile -t items <<< "$result"
+	for item in "${items[@]}"; do
+		if test -z "$item"; then
+			continue
+		fi
+		# reset
+		node='' size='' model=''
+		# read
+		IFS=$'\t' read -r node size model <<< "$item"
+		# trim trailing whitespace from model
+		if test -n "$model"; then
+			model="$(echo-trim-each-line -- "$model")"
+		fi
+		# trunk-ignore(shellcheck/SC2059)
+		printf "$message\n" "$node" "$size" "$model" >"$tty_target"
+		# process
+		eval_capture --statusvar=status --stdoutvar=result -- get_one "$node" "$size" "$model"
+		# handle
+		if test -n "$result"; then
+			results+=("$result")
+		fi
+		if test "$status" -ne 0; then
+			result_status="$status"
+		else
+			echo-clear-line >"$tty_target"
+		fi
+	done
+
+	# check for failure
+	if test "$result_status" -ne 0; then
+		return "$result_status"
+	fi
+
+	# check for missing failure
 	if test "${#results[@]}" -eq 0; then
 		if test "$option_quiet" != 'yes'; then
 			echo-style --error="$option_missing" >/dev/stderr
 		fi
-		if test "$action_status" -ne 0; then
-			return "$action_status"
-		else
-			return 6 # ENXIO 6 Device not configured
-		fi
+		return 6 # ENXIO 6 Device not configured
 	fi
+
+	# all good, select one
 	if test -n "$option_select"; then
 		choose-option --required --confirm --label \
 			--question="$option_select" \
 			-- "${results[@]}"
 	else
 		print_lines "${results[@]}"
-	fi
-	if test "$action_status" -ne 0; then
-		return "$action_status"
 	fi
 )
 
