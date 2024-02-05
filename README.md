@@ -299,7 +299,6 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 -   [Andrew Nesbitt](https://nesbitt.io) — Software engineer and researcher
 -   [Codecov](https://codecov.io) — Empower developers with tools to improve code quality and testing.
 -   [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
--   [Mr. Henry](https://mrhenry.be)
 -   [Poonacha Medappa](https://poonachamedappa.com)
 -   [Rob Morris](https://github.com/Rob-Morris)
 -   [Sentry](https://sentry.io) — Real-time crash reporting for your web apps, mobile apps, and games.
