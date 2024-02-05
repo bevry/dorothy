@@ -24,6 +24,9 @@ function echo_wait_test() (
 	function broken_pipe_to_echo_wait {
 		broken_pipe echo-wait "$@"
 	}
+	function binary_test {
+		curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | echo-wait | gpg --import
+	}
 
 	# prepare
 	local file rand
@@ -39,6 +42,13 @@ function echo_wait_test() (
 	eval_tester --name='broken pipe to echo-wait' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
 		-- broken_pipe_to_echo_wait
 
+	# binary tests
+	if command-exists gpg; then
+		eval_tester --name='binary data is binary data' --ignore-stdout --ignore-stderr \
+			-- binary_test
+	fi
+
+	# generic tests
 	rand="$RANDOM"
 	eval_tester --name='write to file with padding, without sponge' \
 		-- echo-wait --no-sponge "$file" <<<" $rand "
@@ -83,14 +93,14 @@ function echo_wait() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Prompt the user for an input value in a clean and robust way.
+			Process STDIN ignoring pipe failures.
 
 			USAGE:
 			curl -I -fail https://www.google.com | echo-wait [...options] [--] [...<file>] | echo
 
 			OPTIONS:
 			--sponge
-			    Enforce usage of sponge for output buffering.
+			    Enforce usage of sponge for output buffering. This is required for binary data.
 
 			--no-sponge
 			    Disable usage of sponge for output buffering.
@@ -183,19 +193,19 @@ function echo_wait() (
 			sponge </dev/stdin
 		fi
 	else
-		local entire_read_contents=''
-		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
-		while IFS='' read -r item; do
-			entire_read_contents+="$item"$'\n'
-		done </dev/stdin
-		if test -n "$item"; then
-			entire_read_contents+="$item"
-		fi
+		function read_everything {
+			# support binary: https://unix.stackexchange.com/a/62642/50703
+			# REPLY is the untruncated line: https://unix.stackexchange.com/a/474797/50703
+			while read -r -d '' ; do
+				printf %s'\0' "$REPLY"
+			done </dev/stdin
+			printf %s "$REPLY"
+		}
 		if test "${#option_files[@]}" -ne 0; then # bash v3 compat
-			printf '%s' "$entire_read_contents" | "${tee_output_command[@]}" >/dev/null
+			read_everything | "${tee_output_command[@]}" >/dev/null
 			# ^ /dev/null to be consistent with sponge
 		else
-			printf '%s' "$entire_read_contents"
+			read_everything
 		fi
 	fi
 )
