@@ -16,7 +16,12 @@ function fs_speed() (
 			Calculate the speed at a directory path.
 
 			USAGE:
-			fs-speed [--] ...<path>
+			fs-speed [...options] [--] ...<path>
+
+			OPTIONS:
+			--user=<user>
+			--group=<group>
+			    If specified run the removal commands as this <user> and <group>.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -25,13 +30,17 @@ function fs_speed() (
 	}
 
 	# process
-	local item option_paths=()
+	local item option_quiet option_paths=() option_user='' option_group=''
+	option_quiet="$(echo-quiet-enabled -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
 		'--path='*) option_paths+=("${item#*=}") ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
 		'--')
 			option_paths+=("$@")
 			shift $#
@@ -48,62 +57,32 @@ function fs_speed() (
 	fi
 
 	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
-
-	# =====================================
 	# Action
 
-	# prepare
-	local bs megabytes_in_gigabyte=1024
-	if is-mac; then
-		bs="1m" # mac only
-	else
-		bs="1M" # linux only
-	fi
+	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-read.fio
+	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-write.fio
 
-	local scratchpad log bytes path
+	function eval_wrapper {
+		while test "$1" = '--'; do
+			shift
+		done
+		if test -n "$option_user" -o -n "$option_group"; then
+			sudo-helper --inherit --user="$option_user" --group="$option_group" -- "$@"
+		else
+			eval-helper --no-quiet -- "$@"
+		fi
+	}
+
+	local scratchpad log bytes megabytes speed path
 	for path in "${option_paths[@]}"; do
 		# start
 		echo-segment --h1="Speed Test: $path"
 
-		# prepare a temporary file in the path we wish to speed test
-		scratchpad="$(fs-temp --root="$path" --file)"
-
-		# prepare a temporary file in our temp directory, to store the output
-		# which we use for the speed analysis
-		log="$(fs-temp --directory='fs-speed' --file="$(basename "$scratchpad").log")"
-
-		# ensure they are empty
-		fs-rm --quiet --no-confirm -- "$scratchpad" "$log"
-
-		# @todo add some type of DEBUG=yes flag to avoid helpers, so we can still see block and time per block calculations
-
-		# write performance
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Calculating write performance...")" \
-			--success="$(echo-style --success="Calculated write performance.")" \
-			--failure="$(echo-style --error="Failed calculate write.")" \
-			-- dd if=/dev/random of="$scratchpad" bs="$bs" count="$megabytes_in_gigabyte" |& tee "$log"
-		bytes="$(rg --only-matching --regexp='(\d+) bytes/sec' --replace='$1' <"$log" || :)"
-		if test -n "$bytes"; then
-			echo-style "Writes at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second."
-		fi
-
-		# read performance
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Calculating read performance...")" \
-			--success="$(echo-style --success="Calculated read performance.")" \
-			--failure="$(echo-style --error="Failed calculate read.")" \
-			-- dd if="$scratchpad" of=/dev/null bs="$bs" |& tee "$log"
-		bytes="$(rg --only-matching --regexp='(\d+) bytes/sec' --replace='$1' <"$log" || :)"
-		if test -n "$bytes"; then
-			echo-style "Reads at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second."
-		fi
-
-		# cleanup
-		fs-rm --quiet --no-confirm -- "$scratchpad" "$log"
+		# https://raw.githubusercontent.com/axboe/fio/master/examples/fio-seq-RW.fio
+		cd "$path"
+		fs-rm --quiet --no-confirm --user="$option_user" --group="$option_group" -- ./fio-seq-RW
+		eval_wrapper -- fio --name=fio-seq-RW --filename=fio-seq-RW --rw=rw --rwmixread=60 --rwmixwrite=40 --bs=256K --direct=0 --numjobs=2 --time_based=1 --runtime=90 --size=1G --ioengine=libaio --iodepth=16
+		fs-rm --quiet --no-confirm --user="$option_user" --group="$option_group" -- ./fio-seq-RW
 
 		# done
 		echo-segment --g1="Speed Test: $path"
@@ -114,3 +93,80 @@ function fs_speed() (
 if test "$0" = "${BASH_SOURCE[0]}"; then
 	fs_speed "$@"
 fi
+
+
+# # prepare
+# # https://unix.stackexchange.com/a/121888/50703 <-- DO NOT USE DD
+# # https://stackoverflow.com/a/50882704/130638
+# # https://unix.stackexchange.com/a/324210/50703
+# # https://stackoverflow.com/a/29935167/130638 <--- DO NOT USE dd
+# local bs size=2 count=5
+# if is-mac; then
+# 	bs="${size}g" # mac only
+# else
+# 	bs="${size}G" # linux only
+# fi
+
+
+# local scratchpad log bytes megabytes speed path
+# for path in "${option_paths[@]}"; do
+# 	# start
+# 	echo-segment --h1="Speed Test: $path"
+
+# 	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-read.fio
+# 	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-write.fio
+# 	# works but doesn't allow over-rides: https://raw.githubusercontent.com/axboe/fio/master/examples/fio-seq-RW.fio
+# 	# cd "$path"
+# 	# fio --name=fio-seq-RW --filename=fio-seq-RW --rw=rw --rwmixread=60 --rwmixwrite=40 --bs=256K --direct=0 --numjobs=4 --time_based=1 --runtime=90 --size=10G --ioengine=libaio --iodepth=16
+# 	# fs-rm --quiet --no-confirm -- './fio-seq-RW'
+
+# 	# prepare a temporary file in the path we wish to speed test
+# 	scratchpad="$(fs-temp --root="$path" --file)"
+
+# 	# prepare a temporary file in our temp directory, to store the output
+# 	# which we use for the speed analysis
+# 	log="$(fs-temp --directory='fs-speed' --file="$(basename "$scratchpad").log")"
+
+# 	# ensure they are empty
+# 	fs-rm --quiet --no-confirm -- "$scratchpad" "$log"
+
+# 	# write performance
+# 	eval-helper --quiet="$option_quiet" \
+# 		--pending="$(echo-style --bold='Calculating write performance...')" \
+# 		--success="$(echo-style --success='Calculated write performance.')" \
+# 		--failure="$(echo-style --error='Failed calculate write.')" \
+# 		-- dd if=/dev/urandom of="$scratchpad" bs="$bs" count="$count" |& tee "$log"
+# 	bytes="$(rg --only-matching --regexp='(\d+) bytes/sec' --replace='$1' <"$log" || :)"
+# 	if test -n "$bytes"; then
+# 		megabytes="$(echo-math --precision=0 -- "$bytes / 1024 / 1024")"
+# 		echo-style 'Writes at ' --bold="$megabytes megabytes" ' a second.'
+# 	else
+# 		speed="$(rg --only-matching --regexp='(\d+ [a-zA-Z]+)/s' --replace='$1' <"$log" || :)"
+# 		if test -n "$speed"; then
+# 			echo-style 'Writes at ' --bold="$speed" ' a second.'
+# 		fi
+# 	fi
+
+# 	# read performance
+# 	eval-helper --quiet="$option_quiet" \
+# 		--pending="$(echo-style --bold='Calculating read performance...')" \
+# 		--success="$(echo-style --success='Calculated read performance.')" \
+# 		--failure="$(echo-style --error='Failed calculate read.')" \
+# 		-- dd if="$scratchpad" of=/dev/zero bs="$bs" |& tee "$log"
+# 	bytes="$(rg --only-matching --regexp='(\d+) bytes/sec' --replace='$1' <"$log" || :)"
+# 	if test -n "$bytes"; then
+# 		megabytes="$(echo-math --precision=0 -- "$bytes / 1024 / 1024")"
+# 		echo-style 'Reads at ' --bold="$megabytes megabytes" ' a second.'
+# 	else
+# 		speed="$(rg --only-matching --regexp='(\d+ [a-zA-Z]+)/s' --replace='$1' <"$log" || :)"
+# 		if test -n "$speed"; then
+# 			echo-style 'Reads at ' --bold="$speed" ' a second.'
+# 		fi
+# 	fi
+
+# 	# cleanup
+# 	fs-rm --quiet --no-confirm -- "$scratchpad" "$log"
+
+# 	# done
+# 	echo-segment --g1="Speed Test: $path"
+# done

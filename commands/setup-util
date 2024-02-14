@@ -146,6 +146,9 @@ function setup_util() (
 			--no-xdg
 			    If truthy, place the binary in /usr/local/bin and symlink the XDG binary to it.
 
+			--sudo
+			    When testing the <cli>, use sudo.
+
 			--confirm
 			    Confirm installation of the utility before installing it.
 
@@ -251,7 +254,7 @@ function setup_util() (
 	# </installer-options>
 
 	# process
-	local item option_quiet check='' action='install' installer='' app='' cli='' name='' xdg='yes' confirm='no' optional='no' fallback='yes' upgrade='no' force='no' order=()
+	local item option_quiet check='' action='install' installer='' app='' cli='' name='' xdg='yes' sudo='no' confirm='no' optional='no' fallback='yes' upgrade='no' force='no' order=()
 	option_quiet="$(echo-quiet-enabled -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -271,6 +274,9 @@ function setup_util() (
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
 		'--no-xdg'* | '--xdg'*)
 			xdg="$(get-flag-value --affirmative --fallback="$xdg" -- "$item")"
+			;;
+		'--no-sudo'* | '--sudo'*)
+			sudo="$(get-flag-value --affirmative --fallback="$sudo" -- "$item")"
 			;;
 		'--no-confirm'* | '--confirm'*)
 			confirm="$(get-flag-value --affirmative --fallback="$confirm" -- "$item")"
@@ -481,6 +487,9 @@ function setup_util() (
 			# macos $HOME/Applications/$filename.appimage
 			mkdir -p "$APPIMAGE_HOME"
 			print_line "$APPIMAGE_HOME/$filename"
+		elif test "$xdg" = 'no'; then
+			sudo mkdir -p '/usr/local/bin'
+			print_line "/usr/local/bin/$filename"
 		else
 			# macos $HOME/.local/bin/$filename
 			mkdir -p "$XDG_BIN_HOME"
@@ -503,34 +512,27 @@ function setup_util() (
 		# verify
 		if [[ $path == *'.app' ]] && test -d "$path"; then
 			return 0
-		elif command-working -- "$path"; then
-			# adjust
-			local xdg_path="$path"
-			if test "$xdg" = 'no' && [[ $path == "$XDG_BIN_HOME"* ]]; then
-				if test ! -e '/usr/local/bin'; then
-					sudo-helper -- mkdir -p '/usr/local/bin'
-				fi
-				path="/usr/local/bin/$filename"
-				sudo-helper -- mv "$xdg_path" "$path"
-				symlink-helper --quiet="$option_quiet" --existing="$path" --symlink="$xdg_path"
-				command-working -- "$path"
-			fi
+		elif command-working --sudo="$sudo" -- "$path"; then
 			return 0
-		else
-			echo-style --error='Failed to verify:' ' ' --code="$path" >/dev/stderr
-			rm_helper "$path" # remove so it doesn't interfere with other install methods and other processes
-			return 1
 		fi
+
+		# failure
+		echo-style --error='Failed to verify:' ' ' --code="$path" >/dev/stderr
+		# remove so it doesn't interfere with other install methods and other processes
+		rm_helper "$path"
+		# return failure
+		return 1
 	}
 	function rm_helper {
-		local path="$1"
-
-		# prefer moving to trash
-		# because trash allows invocations to continue
-		# otherwise active invocations will crash (such as setup-util-bash unisntlling the bash it was invoked with)
-		if is-present -- "$path"; then
-			fs-rm --quiet --no-confirm --trash -- "$path"
-		fi
+		local path
+		for path in "$@"; do
+			# prefer moving to trash
+			# because trash allows invocations to continue
+			# otherwise active invocations will crash (such as setup-util-bash unisntlling the bash it was invoked with)
+			if is-present -- "$path"; then
+				fs-rm --quiet --no-confirm --trash --sudo="$sudo" -- "$path"
+			fi
+		done
 	}
 
 	# prepare fallbacks, for when the package could be installed, but requires the package system to sshe installed first
@@ -549,7 +551,7 @@ function setup_util() (
 	if test -n "$cli"; then
 		if command-exists -- "$cli"; then
 			cli_exists='yes'
-			if command-working -- "$cli"; then
+			if command-working --sudo="$sudo" -- "$cli"; then
 				cli_working='yes'
 			else
 				cli_working='no'
@@ -594,11 +596,11 @@ function setup_util() (
 		fi
 	fi
 
-	# for upgrade only, remove xdg bin if it exists, as we don't want conflicts if it is deprecated
-	# do not do this for uninstall, as we want the actuall methods to handle that
+	# for upgrade only, remove existing bin if it exists, as we don't want conflicts if it is deprecated
+	# do not do this for uninstall, as we want the actual methods to handle that
 	if test "$upgrade" = 'yes'; then
-		if test -n "$cli" -a -e "$XDG_BIN_HOME/$cli"; then
-			rm_helper "$XDG_BIN_HOME/$cli"
+		if test -n "$cli"; then
+			rm_helper "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"
 		fi
 	fi
 
@@ -1165,6 +1167,18 @@ function setup_util() (
 	# supports installing/uninstalling downloaded .deb files
 	# sucessor to aptitude
 	# https://wiki.debian.org/Apt
+	function __are_all_of_these_apt_packages_installed {
+		local packages=("$@") package
+		# returns 1 only if all are missing, returns 0 if any are installed
+		for package in "${packages[@]}"; do
+			if apt list --installed 2> /dev/null | grep --quiet --fixed-strings --regexp="$package/" &>/dev/null; then
+				continue
+			else
+				return 1
+			fi
+		done
+		return 0
+	}
 	function do_apt_key_fetch {
 		local key="$1"
 		if [[ $key == *'.asc' ]]; then
@@ -1353,6 +1367,10 @@ function setup_util() (
 
 		# action args
 		if test "$action" = 'uninstall'; then
+			if ! __are_all_of_these_apt_packages_installed "${packages[@]}"; then
+				return 200 # ECUSTOM 200 Not applicable to this uninstallation
+			fi
+
 			# don't use `apt remove --purge` as it is equivalent to `apt purge`
 			# and purge removing python will also remove ufw and samba and a whole bunch of other things that depend on python
 			# as such, only use `--auto-remove` as that is safer
@@ -3123,7 +3141,7 @@ function setup_util() (
 		"${args[@]}" "${packages[@]}"
 
 		# make alias available
-		if test -n "$cli" -a "$action" = 'install' && command-missing -- "$cli" && command-working -- "$cli.exe"; then
+		if test -n "$cli" -a "$action" = 'install' && command-missing -- "$cli" && command-working --sudo="$sudo" -- "$cli.exe"; then
 			mkdir -p "$XDG_BIN_HOME"
 			symlink-helper --quiet="$option_quiet" --existing="$(type -P "$cli.exe")" --symlink="$XDG_BIN_HOME/$cli"
 		fi
@@ -3313,15 +3331,21 @@ function setup_util() (
 					--directory='setup-util' \
 					--directory
 			)"
+		elif test "$xdg" = 'no'; then
+			download_filepath="$(
+				fs-temp \
+					--directory='setup-util' \
+					--file="$filename"
+			)"
 		else
 			download_filepath="$bin_path"
 		fi
 		# uninstall?
 		if test "$action" = 'uninstall'; then
-			if is-missing -- "$bin_path"; then
+			if is-missing -- "$bin_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"; then
 				return 200 # ECUSTOM 200 Not applicable for this package system
 			fi
-			rm_helper "$bin_path"
+			rm_helper "$bin_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"
 			return 0
 		fi
 
@@ -3333,6 +3357,14 @@ function setup_util() (
 			--directory="$download_directory" \
 			--filepath="$download_filepath" \
 			--bearer-token="$bearer_token"
+		# move to bin path
+		if test -n "$download_filepath" -a "$download_filepath" != "$bin_path"; then
+			if test "$xdg" = 'no'; then
+				sudo-helper -- mv -fv "$download_filepath" "$bin_path"
+			else
+				mv -fv "$download_filepath" "$bin_path"
+			fi
+		fi
 
 		# build
 		if test -n "$build_eval"; then
