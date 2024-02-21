@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+function get_font() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# @todo support linux systems, so [setup-util-1passsword] can detect successful install
+	local dirs=()
+	if is-mac; then
+		dirs+=(
+			"$HOME/Library/Fonts"
+		)
+	else
+		dirs+=(
+			"$XDG_DATA_HOME/fonts"
+		)
+	fi
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Get the full path of an installed font.
+
+			USAGE:
+			get-font [...options] [--] <font>
+
+			OPTIONS:
+			<font> | --font=<font>
+			    The font naem to get the full path of. Can be a glob pattern.
+
+			--dirs
+			    Only output the font directories that will be searched.
+
+			--no-quiet | --quiet
+			    If enabled, do not output the path of the font, and do not output any error messages.
+
+			QUIRKS:
+			Searches the following paths for the font:
+			$(echo-lines -- "${dirs[@]}")
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_fonts=() option_dirs='no' option_quiet
+	option_quiet="$(echo-quiet-enabled -- "$@")"
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--font='*) option_fonts+=("${item#*=}") ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--no-dirs'* | '--dirs'*)
+			option_dirs="$(get-flag-value --affirmative --fallback="$option_dirs" -- "$item")"
+			;;
+		'--')
+			option_fonts+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test "${#option_fonts[@]}" -eq 0; then
+				option_fonts+=("$item")
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# ensure the most desired font directory exists, and that undesired directories are trimmed
+	# aka enforce xdg fonts directory on linux so that flatpak can detect the fonts
+	if test -d "$HOME/.fonts"; then
+		if is-missing -- "${dirs[0]}"; then
+			mv -v "$HOME/.fonts" "${dirs[0]}" > /dev/stderr
+		else
+			mkdir -p "${dirs[0]}"
+			mv -v "$HOME/.fonts/"* "${dirs[0]}" > /dev/stderr
+			fs-rm --no-confirm --quiet -- "$HOME/.fonts"
+		fi
+	else
+		mkdir -p "${dirs[0]}"
+	fi
+
+	# if only dirs
+	if test "$option_dirs" = 'yes'; then
+		print_lines "${dirs[@]}"
+		return 0
+	fi
+
+
+	# get the font paths
+	local font paths path
+	if test "${#option_fonts[@]}" -eq 0; then
+		help 'No <font>s provided.'
+	fi
+	for font in "${option_fonts[@]}"; do
+		if test -z "$font"; then
+			return 1
+		fi
+		# if no extension or glob, add it
+		if ! [[ "$font" =~ [.*] ]]; then
+			# instead of doing .* directly, just do *, as Monoid.* doesn't capture Monoid-Regular.* which is typical
+			font="$font*"
+		fi
+		# iterate through the font directories
+		was_found='no'
+		for dir in "${dirs[@]}"; do
+			# find fonts that match the pattern
+			mapfile -t paths < <(
+				expand-path -- "$dir/$font"
+			)
+			for path in "${paths[@]}"; do
+				if test -f "$path"; then
+					was_found='yes'
+					if test "$option_quiet" != 'yes'; then
+						print_line "$path"
+					fi
+				fi
+			done
+		done
+
+		# check if found
+		if test "$was_found" = 'yes'; then
+			continue
+		fi
+		# wasn't found
+		return 1
+	done
+	return 0
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get_font "$@"
+fi

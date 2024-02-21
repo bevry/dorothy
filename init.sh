@@ -56,38 +56,45 @@
 # - `$-` is `569XZim` via this script, then `569XZims` manually
 # - `[[ -o login ]]` returns `0`
 
-DOROTHY_LOAD='no' # this must be outside the below if, to ensure DOROTHY_LOAD is reset, and DOROTHY_LOADED is respected, otherwise posix shells may double load due to cross-compat between dotfiles (.profile along with whatever they support)
-if test -z "${DOROTHY_LOADED-}"; then
-	# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
-	if test "$0" = '-bash' -o "$0" = '-zsh' -o "$0" = '-dash' -o "$0" = 'dash'; then
-		DOROTHY_LOAD='yes'
-	elif test -n "${BASH_VERSION-}"; then
-		# trunk-ignore(shellcheck/SC3044)
-		if shopt -qp login_shell; then
+if test -n "${DOROTHY_FORCE_LOAD-}"; then
+	DOROTHY_LOAD="$DOROTHY_FORCE_LOAD"
+else
+	DOROTHY_LOAD='no' # this must be outside the below if, to ensure DOROTHY_LOAD is reset, and DOROTHY_LOADED is respected, otherwise posix shells may double load due to cross-compat between dotfiles (.profile along with whatever they support)
+	if test -z "${DOROTHY_LOADED_SHARED_SCOPE-}"; then
+		# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
+		if test "$0" = '-bash' -o "$0" = '-zsh' -o "$0" = '-dash' -o "$0" = 'dash'; then
 			DOROTHY_LOAD='yes'
+		elif test -n "${BASH_VERSION-}"; then
+			# trunk-ignore(shellcheck/SC3044)
+			if shopt -qp login_shell; then
+				DOROTHY_LOAD='yes'
+			elif test "$-" = 'himBH' -a "${DOROTHY_LOADED_EXPORT_SCOPE-}" != 'yes'; then
+				case "${GIO_LAUNCHED_DESKTOP_FILE-}" in *lxterminal*) DOROTHY_LOAD='yes' ;; esac
+			fi
+		elif test -n "${ZSH_VERSION-}"; then
+			# trunk-ignore(shellcheck/SC3010)
+			if [[ -o login ]]; then
+				DOROTHY_LOAD='yes'
+			fi
+		elif test -z "$-" -a -z "$*" -a "${CI-}" = 'true'; then
+			DOROTHY_LOAD='yes' # dash on github ci, in which [$-] and [$*] are empty, and $0 = /home/runner....
+		else
+			# bash v3 and dash do not set l in $-
+			# zsh does, however zsh we have a definite option earlier
+			# so this is for the alternative posix shells
+			case $- in *l*) DOROTHY_LOAD='yes' ;; esac
 		fi
-	elif test -n "${ZSH_VERSION-}"; then
-		# trunk-ignore(shellcheck/SC3010)
-		if [[ -o login ]]; then
-			DOROTHY_LOAD='yes'
-		fi
-	elif test -z "$-" -a -z "$*" -a "${CI-}" = 'true'; then
-		DOROTHY_LOAD='yes' # dash on github ci, in which [$-] and [$*] are empty, and $0 = /home/runner....
-	else
-		# bash v3 and dash do not set l in $-
-		# zsh does, however zsh we have a definite option earlier
-		# so this is for the alternative posix shells
-		case $- in *l*) DOROTHY_LOAD='yes' ;; esac
 	fi
 fi
 
 # if your login shell is failing identification,
 # then make sure your terminal preferences has login shell enabled
 if test "${DOROTHY_LOAD-}" = 'yes'; then
-	DOROTHY_LOADED='yes'
-	# ^ DO NOT export DOROTHY_LOADED
-	#   as that will interfere with the case where
-	#   bash_profile loads at login then bashrc loads on new terminals
+	# non-exported scope, used to prevent case where bash_profile loads at login then bashrc loads on new terminsl
+	DOROTHY_LOADED_SHARED_SCOPE='yes'
+	# exported scope, used to prevent our workaround for non-login-terminal-applications from loading dorothy in manual non-login bash invocations
+	export DOROTHY_LOADED_EXPORT_SCOPE
+	DOROTHY_LOADED_EXPORT_SCOPE='yes'
 
 	# this should be consistent with:
 	# $DOROTHY/init.fish

@@ -29,34 +29,53 @@ Dorothy is a dotfile ecosystem featuring:
 -   completely extensible and configurable with your own user repository
 -   all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
 
-Dorothy maintainers are daily driving Dorothy on:
-
--   macOS on Apple Silicon (ARM64)
--   macOS on Intel (x86_64)
--   Ubuntu Server on Raspberry Pi 4 (ARM64)
--   Ubuntu Desktop on Raspberry Pi 400 (ARM64)
--   Ubuntu Desktop on Intel/AMD (x86_64)
-
-Dorothy users are daily driving Dorothy on:
-
--   Manjaro/Arch on Intel/AMD (x86_64)
--   Windows 10 via [Ubuntu](https://ubuntu.com/wsl) [WSL2](https://docs.microsoft.com/en-au/windows/wsl/) on Intel/AMD (x86_64)
--   Windows 11 via [Ubuntu](https://ubuntu.com/wsl) [WSL2](https://docs.microsoft.com/en-au/windows/wsl/) on Intel/AMD (x86_64)
-
-Dorothy maintainers and users are occasionally driving Dorothy on:
-
--   macOS on Apple Silicon with `HOMEBREW_ARCH="x86_64"`
--   Fedora via Intel/AMD (x84_64) virtual machines
--   OpenSUSE via Intel/AMD (x84_64) virtual machines
--   Alpine via Intel/AMD (x84_64) virtual machines
--   Alpine via Apple Silicon (ARM64) virtual machines
--   [Ubuntu Server on StarFive’s VisionFive](https://ubuntu.com//blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards) (RISC-V)
+## Introduction
 
 [Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk)
 
 [![Screenshot of the 2022 April Presentation](https://github.com/bevry/dorothy/blob/master/docs/assets/presentation.gif?raw=true)](https://www.youtube.com/watch?v=gWLana1JmNk)
 
 ## Setup
+
+### Supported Platforms
+
+| Operating System                                  | Architecture                                   | Support                  |
+| ------------------------------------------------- | ---------------------------------------------- | ------------------------ |
+| 🍏 macOS                                          | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver          |
+| 🍏 macOS                                          | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                          | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
+| 🪟 Windows 10/11 [WSL2][WSL2] [Ubuntu][UWSL]      | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| 🍓 [Raspberry Pi OS with Desktop][RPIOS]          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| 🍓 [Raspberry Pi OS Lite][RPIOS]                  | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| ⭕️ [Ubuntu Desktop][URPI]                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Desktop][UD]                           | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Server][URPI]                          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Server][US]                            | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
+| ▲ [Manjaro][M]/[Arch][A]                          | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ∞ [Fedora Workstation][FW]                        | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🦎 [OpenSUSE][OS] [Leap][OSL] & [Tumbleweed][OST] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ⛰ [Alpine][AL]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ⛰ [Alpine][AL]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
+| 🐉 [Kali][K]                                      | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+
+[WSL2]: https://docs.microsoft.com/en-au/windows/wsl/
+[UWSL]: https://ubuntu.com/wsl
+[RPIOS]: https://www.raspberrypi.com/software/operating-systems/
+[URPI]: https://ubuntu.com/download/raspberry-pi
+[UD]: https://ubuntu.com/download/desktop
+[US]: https://ubuntu.com/download/server
+[UV5]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
+[M]: https://manjaro.org/download/
+[A]: https://wiki.archlinux.org/title/Installation_guide
+[FW]: https://fedoraproject.org/workstation/
+[OS]: https://www.opensuse.org
+[OSL]: https://get.opensuse.org/leap/
+[OST]: https://get.opensuse.org/tumbleweed/
+[AL]: https://www.alpinelinux.org/downloads/
+[K]: https://www.kali.org/get-kali/#kali-platforms
+
+Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
 ### Prerequisites
 
@@ -123,8 +142,6 @@ xbps-install --sync --update xbps
 xbps-install --sync bash curl
 ```
 
-Mageia, Nix, and Gentoo are [currently unsupported.](https://github.com/bevry/dorothy/issues/162)
-
 ### Try
 
 You can trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell.
@@ -180,6 +197,8 @@ If your shell doesn't recognize any of the Dorothy commands (you get a command n
 -   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md)
 -   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
 -   Your login shell is not one of the Dorothy supported shells. [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
+
+If you see unrecognised symbols, you probably require fonts. Once Dorothy is loaded, run `setup-util-noto-emoji` which installed [Noto Emoji](https://github.com/googlefonts/noto-emoji), a font for enabling emojis inside your terminal. For rendering glyphs, run `setup-util-nerd-fonts` which will prompt you for which [Nerd Font](https://www.nerdfonts.com/font-downloads) to install. You may need to update your terminal preferences the installed fonts.
 
 ## Overview
 
@@ -249,11 +268,121 @@ Use these sources to find inspiration for your own user commands and configurati
 
 -   [Dorothy's `commands` directory](https://github.com/bevry/dorothy/tree/master/commands) for super-stable commands with up to date conventions.
 -   [Dorothy's `commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) for beta-quality commands with possibly outdated conventions.
+-   [Dorothy's `docs` directory](https://github.com/bevry/dorothy/tree/master/docs) containing tips and tricks for Dorothy, and various shells, such as [enabling private user configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/private-configuration.md), and the [manual to assisted](https://github.com/bevry/dorothy/blob/master/docs/dorothy/manual-to-assisted.md) philosophy of Dorothy
 -   Dorothy User Configurations:
     -   [@balupton](https://github.com/balupton) / [dotfiles](https://github.com/balupton/dotfiles): uses Fish as login shell, plenty of Bash commands
     -   [@molleweide](https://github.com/molleweide) / [dotfiles](https://github.com/molleweide/dotfiles): uses Zsh as login shell, plenty of Bash commands, kmonad user
     -   [@jondpenton](https://github.com/jondpenton) / [dotfiles](https://github.com/jondpenton/dotfiles): uses Nu as login shell, plenty of Nu commands
     -   if you use Dorothy, send a pull request to add your own user configuration to this list.
+
+After installing Dorothy, there will now a plethora of commands available to you. You can invoke any stable command with `--help` to learn more about it. The most prominent commands are noted below.
+
+Stable commands:
+
+-   [`setup-system`](https://github.com/bevry/dorothy/tree/master/commands/setup-system)
+
+    -   `setup-system install` correctly setup your system to your prompted preferences
+    -   `setup-system update` correctly update your system to your existing preferences
+
+    This is done via these commands:
+
+    -   [`setup-linux`](https://github.com/bevry/dorothy/tree/master/commands/setup-linux): correctly setup your Linux system, and its various packaging systems, as desired
+    -   [`setup-mac`](https://github.com/bevry/dorothy/tree/master/commands/setup-mac) correctly setup your macOS system, including its homebrew and Mac App Store installations, as desired
+    -   [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin): correctly setup available CLI utilities from installed GUI Applications
+    -   [`setup-git`](https://github.com/bevry/dorothy/tree/master/commands/setup-git): correctly setup Git on your system, including your profile, SSH, GPG, and 1Password configurations, as desired.
+
+        Related commands:
+
+        -   [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
+        -   [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
+
+    -   [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go): correctly setup GoLang on your system if desired or if required for your desired packages
+    -   [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node): correctly setup Node.js on your system if desired or if required for your desired packages
+    -   [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python): correctly setup Python on your system if desired or if required for your desired packages
+    -   [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby): correctly setup Ruby on your system if desired or if required for your desired packages
+    -   [`setup-rust`](https://github.com/bevry/dorothy/tree/master/commands/setup-rust): correctly setup Rust on your system if desired or if required for your desired packages
+    -   [`setup-utils`](https://github.com/bevry/dorothy/tree/master/commands/setup-utils): correctly setup your selected `setup-util-*` utilities as desired
+
+-   [`setup-util`](https://github.com/bevry/dorothy/tree/master/commands/setup-util) is an intelligent wrapper around every package system, allowing a cross-compatible way to install, upgrade, and uninstall utilities.
+
+    It is used by the hundreds of `setup-util-*` commands, which enable installing a utility as easy as invoking `setup-util-<utility>`
+
+    If you don't know which command you need to call, you can use [`get-installer`](https://github.com/bevry/dorothy/tree/master/commands/get-installer) to get which command you will need to invoke to install a utility/binary/application.
+
+-   [`setup-shell`](https://github.com/bevry/dorothy/tree/master/commands/setup-shell) correctly configure your desired shell to be your default shell.
+
+    By default, your terminal application will use the login shell configured for the system, as well as maintain a whitelist of available shells that can function as login shells.
+
+-   [`edit`](https://github.com/bevry/dorothy/tree/master/commands/edit) quickly open a file in your preferred editor, respecting terminal, SSH, and desktop environments.
+
+-   [`down`](https://github.com/bevry/dorothy/tree/master/commands/down) download a file with the best available utility on your computer.
+
+-   [`github-download`](https://github.com/bevry/dorothy/tree/master/commands/github-download) download files from GitHub without the tedium.
+
+-   [`secret`](https://github.com/bevry/dorothy/tree/master/commands/secret) stops you from leaking your env secrets to the world when a malicious program sends your shell environment variables to a remote server. Instead, `secret` will use 1Password to securely expose your secrets to just the command that needs them. Specifically:
+
+    -   secrets are fetched directly from 1Password, with a short lived session
+    -   secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
+    -   secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
+
+-   [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) correctly configures your systems DNS to your preferences
+
+    A large security concern these days of using the internet, is the leaking, and potential of modification of your DNS queries. A DNS query is what turns `google.com` to say `172.217.167.110`. With un-encrypted DNS (the default), your ISP, or say that public Wifi provider, can intercept these queries to find out what websites you are visiting, and they can even rewrite these queries, to direct you elsewhere. This is how many public Wifi providers offer their service for free, by selling the data they collect on you, or worse.
+
+    The solution to this is encrypted DNS. Some VPN providers already include it within their service, however most don't. And if you have encrypted DNS, then you get the benefits of preventing eavesdropping without the need for expensive VPN, and the risk of your VPN provider eavesdropping on you.
+
+    Dorothy supports configuring your DNS to encrypted DNS via the [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) command, which includes installation and configuration for any of these:
+
+    -   AdGuard Home
+    -   Cloudflared
+    -   DNSCrypt
+
+    Related commands:
+
+    -   [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
+    -   [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
+
+Beta commands:
+
+-   [`mail-sync`](https://github.com/bevry/dorothy/tree/master/commands.beta/mail-sync) helps you migrate all your emails from one cloud provider to another.
+
+### macOS
+
+Stable commands:
+
+-   [`alias-helper`](https://github.com/bevry/dorothy/tree/master/commands/alias-helper) helps you manage your macOS aliases, and if desired, convert them into symlinks.
+-   [`macos-drive`](https://github.com/bevry/dorothy/tree/master/commands/macos-drive) helps you turn a macOS installer into a bootable USB drive.
+-   [`macos-installer`](https://github.com/bevry/dorothy/tree/master/commands/macos-installer) fetches the latest macOS installer.
+-   [`sparse-vault`](https://github.com/bevry/dorothy/tree/master/commands/sparse-vault) lets you easily, and for free, create secure encrypted password-protected vaults on your mac, for securing those super secret data.
+
+Beta commands:
+
+-   [`eject-all`](https://github.com/bevry/dorothy/tree/master/commands.beta/eject-all) eject all removable drives safely.
+-   [`icloud-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/icloud-helper) can free up space for time machine by evicting local iCloud caches.
+-   [`itunes-owners`](https://github.com/bevry/dorothy/tree/master/commands.beta/itunes-owners) generates a table of who legally owns what inside your iTunes Media Library — which is useful for debugging certain iTunes Store authorization issues, which can occur upon backup restorations.
+-   [`macos-settings`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-settings) helps configure macOS to your preferred system preferences.
+-   [`macos-state`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-state) helps you backup and restore your various application and system preferences, from time machine backups, local directories, and sftp locations. This makes setting up clean installs easy, as even the configuration is automated. And it also helps you never forget an important file, like your env secrets ever again.
+-   [`macos-theme`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-theme) helps you change your macOS theme to your preference, including your wallpaper and editor.
+-   [`tmutil-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/tmutil-helper) can free up space for bootcamp by evicting local Time Machine caches.
+
+### media:
+
+Beta commands:
+
+-   [`get-codec`](https://github.com/bevry/dorothy/tree/master/commands.beta/get-codec) gets the codec of a media file
+-   [`is-audio-mono`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-mono) checks if an audio file is mono
+-   [`is-audio-stereo`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-stereo) checks if an audio file is stereo
+-   [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-decrypt) will mass decrypt encrypted PDFs.
+-   [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-encrypt) decrypts a PDF file
+-   [`podcast`](https://github.com/bevry/dorothy/tree/master/commands.beta/podcast) will convert an audio file to a new file with Apple's recommended podcast encoding and settings `aac-he`, which is super optimized for podcast use cases with tiny file sizes and the same quality.
+-   [`podvideo`](https://github.com/bevry/dorothy/tree/master/commands.beta/podvideo) will convert a video file to a new file with h264+aac encoding.
+-   [`svg-export`](https://github.com/bevry/dorothy/tree/master/commands.beta/svg-export) converts an SVG image into a desired image format
+-   [`to-png`](https://github.com/bevry/dorothy/tree/master/commands.beta/to-png) coverts various image formats to PNG
+-   [`trim-audio`](https://github.com/bevry/dorothy/tree/master/commands.beta/trim-audio) trims superfluous audio-streams from a video file
+-   [`video-merge`](https://github.com/bevry/dorothy/tree/master/commands.beta/video-merge) will merge multiple video files in a directory together into a single video file.
+-   [`wallhaven-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/wallhaven-helper) download your wallpaper collections from [Wallhaven](https://wallhaven.cc)
+-   [`xps2pdf`](https://github.com/bevry/dorothy/tree/master/commands.beta/xps2pdf) will convert a legacy XPS document into a modern PDF document.
+-   [`ytd-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/ytd-helper) helps you download videos from the internet with simplified options.
 
 ## Community
 
