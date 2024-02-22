@@ -1,14 +1,18 @@
-# Exit Status and Bash
+# Errors
 
-Dorothy handles exit status with several practices.
+## Naming and Numbering
 
-## Naming
+In Bash, functions can return a number, commands can exit with a number, and processes can receive numbers.
+These numbers represent an exit status, also known as exit codes, return codes, error codes, etc.
+When scripting, an exit status of 0 is considered a success, in which execution will continue, and a non-zero exist status is considered a failure which will cause execution to stop unless manually discarded.
 
-We use exit status, as that is what the bash manual uses. Exit status is also known as: exit code, return code, error code, etc.
+When returning any non-zero exit status, you should attempt to use a meaningful exit status, and note it's meaning like so:
 
-## Selection
+```bash
+return 2 # ENOENT 2 No such file or directory
+```
 
-The exit status should be selected from one of these standards.
+To select an exit status, refer to the following sources:
 
 ### moreutil/errno
 
@@ -286,23 +290,23 @@ Used to signal the caller that the action was not performed, and might be fine b
 ECUSTOM 210 Processing complete, exit early
 ```
 
-## Capturing
+## Invocation and Capturing
 
-Capturing exit statuses in bash is unfortunately complex, however Dorothy has made it simple and reliable, providing you are aware of the following.
-
-### gotcha
+In Bash, any invocation of a function within a conditional (`!`, `if`, `&&`, `||`) will invoke the function with `errexit` (aka `set -e`) disabled.
+This unfortunately cannot be disabled, and is a legacy decision from bash's prior primary use as a login shell, rather than a scripting language.
+It causes the following unexpected behaviour:
 
 ```bash
 #!/usr/bin/env bash
 
 # our standard failure functions, these will be used by our examples
-function a_function_which_failure_is_not_the_last_command {
-	echo 'before faliure'
+function a_function_which_failure_IS_NOT_the_last_command {
+	echo 'before failure'
 	false # emit an error to this function, as this returns a non-zero exit status
 	echo 'after failure'
 }
-function a_function_which_failure_is_the_last_command {
-	echo 'before faliure without after'
+function a_function_which_failure_IS_the_last_command {
+	echo 'before failure without after'
 	false # emit an error to this function, as this returns a non-zero exit status
 }
 
@@ -310,199 +314,181 @@ function a_function_which_failure_is_the_last_command {
 # select an example, either by modifying "1", or by saving this a script and using the first argument
 example="${1:-"1"}"
 case "$example" in
-# these examples as expected
+# these examples are as expected
 1)
 	set +e # disable errors returning immediately, the default bash mode, desirable for the login shell
-	a_function_which_failure_is_not_the_last_command
-    # outputs:
-	# before faliure
+	a_function_which_failure_IS_NOT_the_last_command
+	# outputs:
+	# before failure
 	# after failure
 	;;
 2)
 	set -e # enable errors to return immediately, the default bash mode in dorothy enabled when we `source "$DOROTHY/sources/bash.bash"`, desirable for scripting
-	a_function_which_failure_is_not_the_last_command
+	a_function_which_failure_IS_NOT_the_last_command
     # outputs:
-	# before faliure
+	# before failure
 	;;
 
 # however these don't
 3)
 	set -e
-	a_function_which_failure_is_not_the_last_command && echo 'success'
-    # outputs:
-	# before faliure
+	! a_function_which_failure_IS_NOT_the_last_command
+	echo 'failure'
+	# outputs:
+	# before failure
 	# after failure
-	# success
 	;;
 4)
 	set -e
-	a_function_which_failure_is_not_the_last_command || echo 'failure'
-    # outputs:
-	# before faliure
+	a_function_which_failure_IS_NOT_the_last_command && echo 'success'
+	# outputs:
+	# before failure
 	# after failure
+	# success
 	;;
 5)
 	set -e
-	if a_function_which_failure_is_not_the_last_command; then
+	a_function_which_failure_IS_NOT_the_last_command || echo 'failure'
+    # outputs:
+	# before failure
+	# after failure
+	;;
+6)
+	set -e
+	if a_function_which_failure_IS_NOT_the_last_command; then
 		echo 'success'
 	else
 		echo 'failure'
 	fi
-    # outputs:
-	# before faliure
+	# outputs:
+	# before failure
+	# after failure
+	# success
+	;;
+7)
+	set -e
+	if ! a_function_which_failure_IS_NOT_the_last_command; then
+		echo 'failure'
+	else
+		echo 'success'
+	fi
+	# outputs:
+	# before failure
 	# after failure
 	# success
 	;;
 
-# even stranger, this one does work
-6)
+# if the failure is the last command, then such works as expected, as the exit status of any function is always the exit status of the last executed command, regardless of errexit
+8)
 	set -e
-	a_function_which_failure_is_the_last_command && echo 'success' || echo 'failure'
-    echo 'ok'
-    # outputs:
-	# before faliure without after
+	a_function_which_failure_IS_the_last_command && echo 'success' || echo 'failure'
+	echo 'ok'
+	# outputs:
+	# before failure without after
 	# failure
 	# ok
 	;;
+
+# this behaviour also impacts how we fetch exit codes
+9)
+    # without errexit
+    set +e
+    a_function_which_failure_IS_NOT_the_last_command
+    echo "status=$?"
+    # outputs:
+    # before failure
+    # after failure
+    # status=0
+    a_function_which_failure_IS_the_last_command
+    echo "status=$?"
+    # outputs:
+    # before failure without after
+    # status=1
+    ;;
+10)
+    # with errexit
+    set -e
+    status=0 && a_function_which_failure_IS_NOT_the_last_command || status=$?
+    echo "status=$status"
+    # outputs:
+    # before failure
+    # after failure
+    # status=0
+    status=0 && a_function_which_failure_IS_the_last_command || status=$?
+    echo "status=$status"
+    # outputs:
+    # before failure without after
+    # status=1
+    ;;
 esac
-```
-
-Why did the latter middle failure examples not fail? Why did the last which error is the last command of the function perform as expected?
-
-The reason is because conditional invocation of a function disables `errexit` (aka `set -e`) for the duration of the function.
-
-The reason the last example where the failure was the last command still failed correctly, is that with and without `errexit` enabled, a function will always return the last command's exit status, in which case as the last command of that function failed, the exit status of tha function will be the faliure exit status of the failing command.
-
-The problem is that with errexit, conditional invocation is how we determine the exit status of a function, which unfortunately disabled errexit for the function.
-
-```bash
-#!/usr/bin/env bash
-
-function a_function_which_failure_is_not_the_last_command {
-	echo 'before faliure'
-	false # emit an error to this function, as this returns a non-zero exit status
-	echo 'after failure'
-}
-function a_function_which_failure_is_the_last_command {
-	echo 'before faliure without after'
-	false # emit an error to this function, as this returns a non-zero exit status
-}
-
-# without errexit
-set +e
-a_function_which_failure_is_not_the_last_command
-echo "status=$?"
-# outputs:
-# before faliure
-# after failure
-# status=0
-a_function_which_failure_is_the_last_command
-echo "status=$?"
-# outputs:
-# before faliure without after
-# status=1
-
-# with errexit
-set -e
-status=0 && a_function_which_failure_is_not_the_last_command || status=$?
-echo "status=$status"
-# outputs:
-# before faliure
-# after failure
-# status=0
-status=0 && a_function_which_failure_is_the_last_command || status=$?
-echo "status=$status"
-# outputs:
-# before faliure without after
-# status=1
 ```
 
 Official guidance from the bash community is to either abandon `errexit` and place `|| return` on every single line, or use `errexit` and implement a workaround for when invoking functions.
 
-Dorothy has such a workaround, which is `eval_capture` and is provided to you when you `source "$DOROTHY/sources/bash.bash"` at the beginning of your command, and is used like so:
+Dorothy has such a workaround, which is `eval_capture` and is provided by placing `source "$DOROTHY/sources/bash.bash"` at the beginning of your command, and is used like so:
 
 ```bash
 local status=0 stdout='' stderr='' output=''
 eval_capture [--statusvar=status] [--stdoutvar=stdout] [--stderrvar=stderr] [--outputvar=output] [--] cmd ...
 ```
 
-Which we can use in our previous example like so:
+Which is implemented like so:
 
 ```bash
 #!/usr/bin/env bash
+source "$DOROTHY/sources/bash.bash" # enables errexit and provides eval_capture
 
-source "$DOROTHY/sources/bash.bash"
-
-function a_function_which_failure_is_not_the_last_command {
-	echo 'before faliure'
-	false # emit an error to this function, as this returns a non-zero exit status
-	echo 'after failure'
-}
-
-# errexit is already enabled and eval_capture is already provided by sourcing bash.bash
+# capturing exit status
+# before
+status=0 && some_function || status=$?
+# after
 status=0
-eval_capture --statusvar=status a_function_which_failure_is_not_the_last_command
-echo "status=$status"
-# outputs:
-# before failure
-# status=1
-```
+eval_capture --statusvar=status a_function_which_failure_IS_NOT_the_last_command
 
-And apply it throughout our Dorothy code like so:
-
-```bash
+# ignoring exit status
 # before
 some_function || :
-
 # after
 eval_capture some_function
-```
 
-```bash
-# before
-local status
-status=0 && some_function || status=$?
-
-# after
-local status
-eval_capture --statusvar=status some_function
-```
-
-```bash
+# acting upon success or failure
 # before
 if some_function; then
-    # ...
+	# ...
 else
-    # ...
+	# ...
 fi
-
 # after
 local status
 eval_capture --statusvar=status some_function
 if test "$status" -eq 0; then
-    # ...
+	# ...
 else
+	# ...
+fi
+
+# negating exit status
+# before
+! some_function
+# after
+local status
+eval_capture --statusvar=status some_function
+if test "$status" -ne 0; then
     # ...
 fi
-```
 
-```bash
+# ignoring exit status inside interpolation
 # before
 local result
 result="$(some_function || :)"
-
 # after
 local result
 eval_capture --stdoutvar=result some_function
 ```
 
-That's it, the power is yours!
+If for whatever reason you do decide to not use eval_capture, then prefix the function with two underscores (`__`) to indicate it is safe for `if`, `and`, `or`, `not` operations, and make sure every invocation statement is suffixed with `|| return`.
 
 For more information on this, refer to:
 
 -   https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
 -   https://github.com/bevry/dorothy/blob/master/sources/bash.bash
-
-### a final gotcha
-
-https://github.com/koalaman/shellcheck/wiki/SC2251

@@ -5,8 +5,8 @@ function echo_wait_test() (
 	source "$(type -P eval-tester)"
 	echo-segment --h1="TEST: $0"
 
-	# dependencies
-	setup-util-moreutils --quiet --optional # sponge
+	# optional dependencies
+	setup-util-moreutils --quiet --optional --no-fallback # sponge
 
 	# prepare
 	function broken_pipe {
@@ -24,51 +24,63 @@ function echo_wait_test() (
 	function broken_pipe_to_echo_wait {
 		broken_pipe echo-wait "$@"
 	}
+	function binary_test {
+		curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | echo-wait | gpg --import
+	}
+
+	# prepare
+	local file rand
+	file="$(fs-temp --file --extension='txt')"
 
 	# broken pipe tests
 	eval_tester --name='broken pipe is broken' --status=23 --stdout=$'before broken pipe' --ignore-stderr \
 		-- broken_pipe_to_control
 
-	if command-exists sponge; then # on fresh macos ci, it won't exist
-		eval_tester --name='broken pipe to sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
-			-- broken_pipe_to_sponge
-	fi
-
 	eval_tester --name='broken pipe to echo-wait --no-sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
 		-- broken_pipe_to_echo_wait --no-sponge
-
-	if command-exists sponge; then # on fresh macos ci, it won't exist
-		eval_tester --name='broken pipe to echo-wait --sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
-			-- broken_pipe_to_echo_wait --sponge
-	fi
 
 	eval_tester --name='broken pipe to echo-wait' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
 		-- broken_pipe_to_echo_wait
 
-	# write to file tests
-	local file
-	file="$(fs-temp --file --extension='txt')"
+	# binary tests
+	if command-exists gpg; then
+		setup-util-gpg --quiet # ensure gpg is configured correctly: https://github.com/bevry/dorothy/actions/runs/7790951085/job/21245946464#step:4:1644
+		eval_tester --name='binary data is binary data' --ignore-stdout --ignore-stderr \
+			-- binary_test
+	fi
 
-	# ensure whitespace padding to ensure we aren't accidentally trimming it
-	eval_tester --name='write to file with sponge' \
-		-- echo-wait --sponge "$file" <<<' write test 1 '
-	eval_tester --name='write to file with sponge: assertion' --stdout=' write test 1 ' \
+	# generic tests
+	rand="$RANDOM"
+	eval_tester --name='write to file with padding, without sponge' \
+		-- echo-wait --no-sponge "$file" <<<" $rand "
+	eval_tester --name='write to file with padding, without sponge: assertion' --stdout=" $rand " \
 		-- cat "$file"
 
-	eval_tester --name='write to file without sponge' \
-		-- echo-wait --no-sponge "$file" <<<' write test 2 '
-	eval_tester --name='write to file without sponge: assertion' --stdout=' write test 2 ' \
-		-- cat "$file"
-
-	eval_tester --name='write to file with sudo and sponge' \
-		-- echo-wait --sudo --sponge "$file" <<<' write test 3 '
-	eval_tester --name='write to file with sudo and sponge: assertion' --stdout=' write test 3 ' \
+	rand="$RANDOM"
+	eval_tester --name='write to file with padding, with sudo and without sponge' \
+		-- echo-wait --sudo --no-sponge "$file" <<<" $rand "
+	eval_tester --name='write to file with padding, with sudo and without sponge: assertion' --stdout=" $rand " \
 		-- sudo-helper -- cat "$file"
 
-	eval_tester --name='write to file with sudo and without sponge' \
-		-- echo-wait --sudo --no-sponge "$file" <<<' write test 4 '
-	eval_tester --name='write to file with sudo and without sponge: assertion' --stdout=' write test 4 ' \
-		-- sudo-helper -- cat "$file"
+	if command-exists sponge; then # on fresh macos ci, it won't exist
+		eval_tester --name='broken pipe to sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
+			-- broken_pipe_to_sponge
+
+		eval_tester --name='broken pipe to echo-wait --sponge' --stdout=$'before broken pipe\n200after broken pipe' --ignore-stderr \
+			-- broken_pipe_to_echo_wait --sponge
+
+		rand="$RANDOM"
+		eval_tester --name='write to file with padding, with sponge' \
+			-- echo-wait --sponge "$file" <<<" $rand "
+		eval_tester --name='write to file with padding, with sponge: assertion' --stdout=" $rand " \
+			-- cat "$file"
+
+		rand="$RANDOM"
+		eval_tester --name='write to file with padding, with sudo and sponge' \
+			-- echo-wait --sudo --sponge "$file" <<<" $rand "
+		eval_tester --name='write to file with padding, with sudo and sponge: assertion' --stdout=" $rand " \
+			-- sudo-helper -- cat "$file"
+	fi
 
 	echo-segment --g1="TEST: $0"
 	return 0
@@ -82,14 +94,14 @@ function echo_wait() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Prompt the user for an input value in a clean and robust way.
+			Process STDIN ignoring pipe failures.
 
 			USAGE:
 			curl -I -fail https://www.google.com | echo-wait [...options] [--] [...<file>] | echo
 
 			OPTIONS:
 			--sponge
-			    Enforce usage of sponge for output buffering.
+			    Enforce usage of sponge for output buffering. This is required for binary data.
 
 			--no-sponge
 			    Disable usage of sponge for output buffering.
@@ -114,10 +126,10 @@ function echo_wait() (
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-sponge'* | '--sponge'*)
-			option_sponge="$(get-flag-value sponge --missing="$option_sponge" -- "$item" | echo-affirmative --stdin)"
+			option_sponge="$(get-flag-value --affirmative --fallback="$option_sponge" -- "$item")"
 			;;
 		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative --stdin)"
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
 			;;
 		'--')
 			option_files+=("$@")
@@ -182,19 +194,19 @@ function echo_wait() (
 			sponge </dev/stdin
 		fi
 	else
-		local entire_read_contents=''
-		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
-		while IFS='' read -r item; do
-			entire_read_contents+="$item"$'\n'
-		done </dev/stdin
-		if test -n "$item"; then
-			entire_read_contents+="$item"
-		fi
+		function read_everything {
+			# support binary: https://unix.stackexchange.com/a/62642/50703
+			# REPLY is the untruncated line: https://unix.stackexchange.com/a/474797/50703
+			while read -r -d ''; do
+				printf %s'\0' "$REPLY"
+			done </dev/stdin
+			printf %s "$REPLY"
+		}
 		if test "${#option_files[@]}" -ne 0; then # bash v3 compat
-			printf '%s' "$entire_read_contents" | "${tee_output_command[@]}" >/dev/null
+			read_everything | "${tee_output_command[@]}" >/dev/null
 			# ^ /dev/null to be consistent with sponge
 		else
-			printf '%s' "$entire_read_contents"
+			read_everything
 		fi
 	fi
 )

@@ -12,7 +12,18 @@ function until_success() (
 			Run a command until it succeeds.
 
 			USAGE:
-			until-success [--timeout=10] [--] ...<command> [...args]
+			until-success [...options] [--] <...command>
+
+			OPTIONS:
+			--interval=<seconds>
+			    specify the interval between attempts, defaults to 10
+
+			--forever
+			    if not provided, the command will be repeated until a successful exit status
+			    if provided, the command will be repeated indefinitely
+
+			--clear
+			    if provided, the output of the command will be cleared between attempts
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -21,42 +32,59 @@ function until_success() (
 	}
 
 	# process
-	local item command=() timeout=10
+	local item option_cmd=() option_interval=10 option_forever='no' option_clear='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--timeout='*) timeout="${item#*--timeout=}" ;;
+		'--interval='*) option_interval="${item#*=}" ;;
+		'--no-forever'* | '--forever'*)
+			option_forever="$(get-flag-value --affirmative --fallback="$option_forever" -- "$item")"
+			;;
+		'--no-clear'* | '--clear'*)
+			option_clear="$(get-flag-value --affirmative --fallback="$option_clear" -- "$item")"
+			;;
 		'--')
-			command+=("$@")
+			option_cmd+=("$@")
 			shift "$#"
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) command+=("$item") ;;
+		*) option_cmd+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#command[@]}" -eq 0; then
-		help 'No <command> was provided.'
+	if test "${#option_cmd[@]}" -eq 0; then
+		help 'No <option_cmd> was provided.'
 	fi
 
 	# =====================================
 	# Action
 
+	local title
+	title="$(echo-escape-newlines -- "${option_cmd[@]}" | echo-quote --stdin | echo-join ' ' --stdin)"
+
 	function attempt {
-		local attempt_status
-		eval_capture --statusvar=attempt_status -- "$@"
-		if test "$attempt_status" -ne 0; then
-			echo-style --warning="FAILURE"
-			echo-style --code="$*" --notice=" failed with exit code " --code="$attempt_status" --notice=", trying again in " --code="$timeout" --notice=" seconds..."
-			sleep "$timeout"
+		local attempt_status attempt_output=''
+		echo-element --open="$title"
+		if test "$option_clear" = 'yes'; then
+			eval_capture --statusvar=attempt_status --outputvar=attempt_output -- "$@"
+			print_line "$attempt_output"
+		else
+			eval_capture --statusvar=attempt_status -- "$@"
+		fi
+		echo-element --close="$title" --status="$attempt_status"
+		if test "$option_forever" = 'yes' -o "$attempt_status" -ne 0; then
+			waiter "$option_interval" --message="$(echo-style --notice='Next attempt in %s...')"
+			if test "$option_clear" = 'yes'; then
+				echo-clear-lines --stdin <<<$'\n'"$attempt_output"$'\n'
+			fi
 			attempt "$@"
 		fi
 	}
-	attempt "${command[@]}"
+	attempt "${option_cmd[@]}"
 )
 
 # fire if invoked standalone

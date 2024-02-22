@@ -32,6 +32,18 @@ function git_helper() (
 			default-branch
 			    Output the default branch for this repository.
 
+			first-commit | first-commit-entry
+			    Output the first commit entry of this repository.
+
+			first-commit-hash
+			    Output the first commit hash of this repository.
+
+			first-commit-url
+			    Output the first commit url of this repository.
+
+			github-slug
+			    Output the github slug for this repository.
+
 			is-shallow
 			    Is the repository a shallow clone?
 
@@ -68,15 +80,15 @@ function git_helper() (
 	}
 
 	# process
-	local item path='' action='' args=()
+	local item action='' option_path='' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--path='*) path="${item#*--path=}" ;;
+		'--path='*) option_path="${item#*=}" ;;
 		'--')
-			args+=("$@")
+			option_args+=("$@")
 			shift "$#"
 			break
 			;;
@@ -85,7 +97,7 @@ function git_helper() (
 			if test -z "$action"; then
 				action="$item"
 			else
-				args+=("$item" "$@")
+				option_args+=("$item" "$@")
 				shift "$#"
 				break
 			fi
@@ -94,10 +106,10 @@ function git_helper() (
 	done
 
 	# ensure path, and verify
-	if test -z "$path"; then
-		path="$(pwd)"
-	elif test ! -d "$path"; then
-		echo-error "$0: No directory at $path"
+	if test -z "$option_path"; then
+		option_path="$(pwd)"
+	elif test ! -d "$option_path"; then
+		echo-error "$0: No directory at $option_path"
 		return 1
 	fi
 
@@ -134,7 +146,7 @@ function git_helper() (
 
 	# enter path for the remainder of this command's subshell
 	# so that git commands work correctly
-	cd "$path"
+	cd "$option_path"
 
 	# seed protocols, must be done here, as subshells prevent sharing later
 	local protocols=()
@@ -169,11 +181,11 @@ function git_helper() (
 				-- "${remotes[@]}"
 		fi
 	}
-	function test_remote { # 👍 /docs/bash/errors: robust exit status
+	function __test_remote {
 		local remote="$1"
 		git fetch "$remote"
 	}
-	function get_remote_url { # 👍 /docs/bash/errors: robust exit status
+	function get_remote_url {
 		local remote="$1"
 		git remote get-url "$remote"
 	}
@@ -227,21 +239,48 @@ function git_helper() (
 			return 1
 		fi
 	}
-	function does_remote_branch_exist { # 👍 /docs/bash/errors: robust exit status
+	function __does_remote_branch_exist {
 		git rev-parse --verify --quiet "$1" &>/dev/null
 	}
-	function does_local_branch_exist { # 👍 /docs/bash/errors: robust exit status
+	function __does_local_branch_exist {
 		test -n "$(git branch --list "$1")"
 	}
 
 	# =====================================
 	# Action
 
-	function git_authors {
+	function get_authors {
 		git shortlog --summary --email | cut -f2-
 	}
 
-	function git_author_update {
+	function get_github_slug {
+		# dependencies
+		source "$DOROTHY/sources/ripgrep.bash"
+
+		# process
+		git remote -v | echo-first-line | rg --regexp='.+?github[.]com[:/](.+?)[.]git.+' --replace='$1'
+	}
+
+	function get_first_commit_entry {
+		git log --reverse --oneline | echo-first-line || : # || : to avoid exit code 141
+	}
+
+	function get_first_commit_hash {
+		# dependencies
+		source "$DOROTHY/sources/ripgrep.bash"
+
+		# process
+		get_first_commit_entry | rg --regexp='(.+?) .+' --replace='$1'
+	}
+
+	function get_first_commit_url {
+		local hash slug
+		hash="$(get_first_commit_hash)"
+		slug="$(get_github_slug)"
+		print_line "https://github.com/$slug/commit/$hash"
+	}
+
+	function author_update {
 		# dependencies
 		source "$DOROTHY/sources/ripgrep.bash"
 
@@ -271,7 +310,7 @@ function git_helper() (
 		# Adjustments
 
 		local emails
-		mapfile -t emails < <(git shortlog --summary --email | rg -o '<(.+?)>' --replace '$1')
+		mapfile -t emails < <(git shortlog --summary --email | rg --only-matching --regexp='<(.+?)>' --replace='$1')
 
 		old_email="$(
 			choose-option --required \
@@ -293,7 +332,7 @@ function git_helper() (
 		# =====================================
 		# Act
 
-		rm -Rf .git/refs/original
+		fs-rm --quiet --no-confirm -- ./.git/refs/original
 
 		git filter-branch --env-filter "
 			OLD_EMAIL=\"$old_email\"
@@ -310,31 +349,31 @@ function git_helper() (
 		" --tag-name-filter cat -- --branches --tags
 	}
 
-	function git_current_branch {
+	function get_current_branch {
 		git rev-parse --abbrev-ref HEAD 2>/dev/null || :
 	}
 
-	function git_default_branch {
+	function get_default_branch {
 		# remote
-		if test -n "$GIT_DEFAULT_BRANCH" && does_remote_branch_exist "$GIT_DEFAULT_BRANCH"; then
+		if test -n "$GIT_DEFAULT_BRANCH" && __does_remote_branch_exist "$GIT_DEFAULT_BRANCH"; then
 			print_line "$GIT_DEFAULT_BRANCH"
 			return 0
-		elif does_remote_branch_exist main; then
+		elif __does_remote_branch_exist main; then
 			echo main
 			return 0
-		elif does_remote_branch_exist master; then
+		elif __does_remote_branch_exist master; then
 			echo master
 			return 0
 		fi
 
 		# local
-		if test -n "$GIT_DEFAULT_BRANCH" && does_local_branch_exist "$GIT_DEFAULT_BRANCH"; then
+		if test -n "$GIT_DEFAULT_BRANCH" && __does_local_branch_exist "$GIT_DEFAULT_BRANCH"; then
 			print_line "$GIT_DEFAULT_BRANCH"
 			return 0
-		elif does_local_branch_exist main; then
+		elif __does_local_branch_exist main; then
 			echo main
 			return 0
-		elif does_local_branch_exist master; then
+		elif __does_local_branch_exist master; then
 			echo master
 			return 0
 		fi
@@ -368,11 +407,11 @@ function git_helper() (
 		fi
 	}
 
-	function git_is_shallow {
+	function is_shallow_clone {
 		test "$(git rev-parse --is-shallow-repository || :)" != 'false'
 	}
 
-	function git_protocol_update {
+	function update_protocol {
 		local remote="${1-}" protocol="${2-}"
 		remote="$(get_remote "$remote" "Which remote to configure?")"
 		protocol="$(get_protocol "$protocol")"
@@ -380,9 +419,9 @@ function git_helper() (
 		# process
 		local original_url https_url ssh_url proposed_url=''
 		original_url="$(get_remote_url "$remote")"
-		https_url="$(git_protocol_format "$original_url" https)"
-		ssh_url="$(git_protocol_format "$original_url" ssh)"
-		proposed_url="$(git_protocol_format "$original_url" "$protocol")"
+		https_url="$(format_protocol "$original_url" https)"
+		ssh_url="$(format_protocol "$original_url" ssh)"
+		proposed_url="$(format_protocol "$original_url" "$protocol")"
 
 		# log
 		cat <<-EOF
@@ -404,7 +443,7 @@ function git_helper() (
 		function test_with_fallback {
 			local protocol="$1"
 			print_line "Testing remote=[$remote] protocol=[$protocol] url=[$proposed_url] ..."
-			if test_remote "$remote"; then
+			if __test_remote "$remote"; then
 				return 0
 			else
 				if test "$protocol" = 'ssh'; then
@@ -427,7 +466,7 @@ function git_helper() (
 		test_with_fallback "$protocol"
 	}
 
-	function git_protocol_format {
+	function format_protocol {
 		local url="$1" protocol="${2-}" domain='' path=''
 		protocol="$(get_protocol "$protocol")"
 
@@ -466,14 +505,14 @@ function git_helper() (
 	}
 
 	function git_review {
-		if get-app --quiet 'Gitfox.app'; then
-			open-app 'Gitfox.app' -- "$@"
-		elif get-app --quiet 'Tower.app'; then
-			open-app 'Tower.app' -- "$@"
-		elif command-exists gf; then
+		if command-exists gf; then
 			gf "$@"
+		elif get-app --quiet -- 'Gitfox'; then
+			open-app 'Gitfox' -- "$@"
 		elif command-exists tower; then
 			tower "$@"
+		elif get-app --quiet -- 'Tower'; then
+			open-app 'Tower' -- "$@"
 		else
 			help "No supported git reviewers installed."
 		fi
@@ -489,10 +528,10 @@ function git_helper() (
 		local BODY=''
 		BODY="$(mktemp)"
 		if ! git remote &>"$BODY"; then
-			echo-error "$0: No git repository at $path"
+			echo-error "$0: No git repository at $option_path"
 			return 1
 		elif test -z "$(cat "$BODY")"; then
-			echo-error "$0: No git remotes found at $path"
+			echo-error "$0: No git remotes found at $option_path"
 			return 1
 		fi
 
@@ -502,9 +541,9 @@ function git_helper() (
 
 		# helper
 		function do_update {
-			git_protocol_update "$remote"
+			update_protocol "$remote"
 			git config pull.ff only
-			git pull "$remote" "$(git_default_branch)" | tee "$BODY"
+			git pull "$remote" "$(get_default_branch)" | tee "$BODY"
 		}
 
 		# write to BODY so that already updated can be detected
@@ -524,28 +563,33 @@ function git_helper() (
 		fi
 	}
 
-	function git_wipe() (
+	function git_wipe {
 		if confirm --positive --ppid=$$ -- "Are you sure you want to wipe [$(pwd)] to the last commit state, reverting all uncommitted files and changes?"; then
 			git reset --hard
 			git clean -f
 		fi
-	)
+	}
 
 	# =====================================
 	# Act
 
 	case "$action" in
-	'authors') git_authors "${args[@]}" ;;
-	'author-update') git_author_update "${args[@]}" ;;
-	'current-branch') git_current_branch "${args[@]}" ;;
-	'default-branch') git_default_branch "${args[@]}" ;;
-	'is-shallow') git_is_shallow "${args[@]}" ;;
-	'protocol-update') git_protocol_update "${args[@]}" ;;
-	'protocol-format') git_protocol_format "${args[@]}" ;;
-	'review') git_review "${args[@]}" ;;
-	'unstage') git_unstage "${args[@]}" ;;
-	'update') git_update "${args[@]}" ;;
-	'wipe') git_wipe "${args[@]}" ;;
+	'authors') get_authors "${option_args[@]}" ;;
+	'author-update') author_update "${option_args[@]}" ;;
+	'current-branch') get_current_branch "${option_args[@]}" ;;
+	'default-branch') get_default_branch "${option_args[@]}" ;;
+	'github-slug') get_github_slug "${option_args[@]}" ;;
+	'first-commit') get_first_commit_entry "${option_args[@]}" ;;
+	'first-commit-entry') get_first_commit_entry "${option_args[@]}" ;;
+	'first-commit-hash') get_first_commit_hash "${option_args[@]}" ;;
+	'first-commit-url') get_first_commit_url "${option_args[@]}" ;;
+	'is-shallow') is_shallow_clone "${option_args[@]}" ;;
+	'protocol-update') update_protocol "${option_args[@]}" ;;
+	'protocol-format') format_protocol "${option_args[@]}" ;;
+	'review') git_review "${option_args[@]}" ;;
+	'unstage') git_unstage "${option_args[@]}" ;;
+	'update') git_update "${option_args[@]}" ;;
+	'wipe') git_wipe "${option_args[@]}" ;;
 	*) help "Unknown <action>." ;;
 	esac
 )

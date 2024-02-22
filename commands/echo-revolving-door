@@ -3,47 +3,58 @@
 function echo_revolving_door() (
 	source "$DOROTHY/sources/bash.bash"
 
-	local cols queue line
+	# =====================================
+	# Arguments
 
-	# the `|| test -n` trick is from https://unix.stackexchange.com/a/418067/50703
-	# and allows trailing lines that do not have a trealing newline to still work
-	# as is the case with:
-	# sudo-helper -- pacman -S --needed --noconfirm --quiet bash-completion |& echo-revolving-door
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Continously clear the output of a command, showing only the latest output, then clearing it upon completion.
 
-	# see echo-clear-line, and echo-clear-lines for similar commands
+			USAGE:
+			(echo-lines -- 1 2; sleep 2; echo-lines -- 3 4; sleep 2) | echo-revolving-door
+			# outputs 2, then waits, then outputs 4, then waits, then clears
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
 
-	# cols is essential, as lines larger than the window will wrap and become two cusor lines
-	#    and we can't have that
-	# macos terminal will always have cols=80 (or whatever the terminal preferences set),
-	#    and it does not adjust to resizes
-	cols="$(tput cols 2>/dev/null || :)"
+	# process
+	local item option_columns=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--columns='*) option_columns="${item#*=}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
 
-	# if we are not running in a TTY, [tput cols] will fail, so just dump stdin if that is the case
-	# tput: No value for $TERM and no -T specified
-	if test -z "$cols"; then
+	# determine columns
+	if test -z "$option_columns"; then
+		# trunk-ignore(shellcheck/SC2015)
+		option_columns="$(is-tty && tput cols || :)"
+	fi
+
+	# =====================================
+	# Action
+
+	if test -z "$option_columns"; then
 		cat
 	else
-		# we are in a TTY, so proceed with revolving door
-		queue=0
-
-		# timeout will cause read to emit a failure exit code, which causes the while loop to fail, which causes everything to fail
-		while read -r -n "$cols" line || test -n "$line"; do
-			if test -z "$line"; then
-				# don't output empty lines, as that is confusing in a revolving-door context
-				continue
-			fi
-			while test "$queue" -ne 0; do
-				printf '\e[F\e[J'
-				queue=$((queue - 1))
-			done
-			print_line "$line"
-			queue=$((queue + 1))
-		done </dev/stdin
-
-		while test "$queue" -ne 0; do
-			printf '\e[F\e[J'
-			queue=$((queue - 1))
+		local input
+		while IFS='' read -r input || test -n "$input"; do
+			# trim everything prior to the last newline, using bash param expansion
+			input="${input##*$'\n'}"
+			# trim everything exceeding size_columns
+			input="${input:0:option_columns}"
+			printf '\e[G\e[2K%s' "$input"
 		done
+		printf '\e[G\e[2K'
 	fi
 )
 
@@ -51,3 +62,33 @@ function echo_revolving_door() (
 if test "$0" = "${BASH_SOURCE[0]}"; then
 	echo_revolving_door "$@"
 fi
+
+# if is-mac; then
+# 	bin_gfold="$(type -P 'gfold' 2>/dev/null || :)"
+# else
+# 	# we could support these on macos, however fmt does not support -t on macos (it is something different, so we'd have to manually do that)
+# 	bin_gfold="$(type -P 'fold' 2>/dev/null || :)"
+# fi
+# if test -z "$bin_gfold"; then
+# 	use_cat='yes'
+# fi
+
+# local input last_input=''
+# function clear_last_input {
+# 	if test -z "$last_input"; then
+# 		: # do nothing
+# 	elif [[ $last_input =~ $'\e\[[0-9]*[AKGFJ]' ]]; then
+# 		printf '\e[G\e[2K' # set cursor to start of line, and clear from there
+# 	else
+# 		local count
+# 		count="$(print_string "$last_input" | echo-count-lines --stdin)"
+# 		printf "\e[${count}A\e[G\e[J" # move cursor up count, set cursor to start of line, and delete everything from there
+# 	fi
+# }
+# while IFS='' read  -r input || test -n "$input"; do
+# 	clear_last_input
+# 	input="$(print_string "$input" | "$bin_gfold" -w "$size_columns")"
+# 	print_line "$input"
+# 	last_input="$input"
+# done
+# clear_last_input

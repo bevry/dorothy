@@ -96,7 +96,7 @@ disable_overlined=$'\e[55m'       #
 # Values of TERM_PROGRAM that are known to not support italics:
 # - Apple_Terminal
 # As italics support is rare, do the swap if not in a known terminal that supports italics....
-if ! [[ ${TERM_PROGRAM-} =~ Hyper|tmux|vscode ]]; then
+if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
 	# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
 	# italic="$dim"
 	# disable_italic="$disable_dim"
@@ -127,13 +127,19 @@ positive="${foreground_green}${bold}"
 negative="${foreground_red}${bold}"
 notice="${h2}${foreground_intense_yellow}" # on dark theme, this is your eyes that need help
 warning="${e2}"
+sudo="${foreground_intense_yellow}"
 code="${dim}"
 code_dim="${dim}${foreground_gray}"
 code_notice="${dim}${foreground_intense_yellow}" # on dark theme, this is your eyes that need help
-if test "$(get-terminal-theme || :)" = 'light'; then
+if test -n "${GITHUB_ACTIONS-}"; then
+	h1="${background_intense_white}${foreground_black}"
+	e1="${background_red}${foreground_black}"
+	error="${background_red}${foreground_black}"
+elif test "$(get-terminal-theme || :)" = 'light'; then
 	# trim foreground_intense_yellow as it is unreadable on light theme
 	code_notice="${foreground_yellow}"
 	notice="${h2}${foreground_yellow}"
+	sudo="${foreground_yellow}"
 else
 	# on dark theme on vscode
 	# background_intense_red forces black foreground, which black on red is unreadable, so adjust

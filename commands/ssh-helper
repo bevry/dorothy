@@ -49,7 +49,7 @@ function ssh_helper() (
 	}
 
 	# process
-	local item action='' args=()
+	local item action='' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -58,7 +58,7 @@ function ssh_helper() (
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			action="$item"
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			break
 			;;
@@ -85,7 +85,7 @@ function ssh_helper() (
 	# Helpers
 
 	# 1password helpers, should be somewhat in sync with setup-git
-	function sock_exists { # 👍 /docs/bash/errors: robust exit status
+	function __sock_exists {
 		# the = part is some weird convention
 		test -n "${1-}" -a -e "${1-}" -o -e "${1-}="
 	}
@@ -95,7 +95,7 @@ function ssh_helper() (
 			"$HOME/.1password/agent.sock"
 		)
 		for op_sock in "${op_socks[@]}"; do
-			if sock_exists "${op_sock}"; then
+			if __sock_exists "${op_sock}"; then
 				print_line "$op_sock"
 				return 0
 			fi
@@ -157,7 +157,7 @@ function ssh_helper() (
 					--code='https://developer.op.com/docs/ssh/get-started#step-3-turn-on-the-op-ssh-agent' $'\n' \
 					--notice='Disabling for now...' >/dev/stderr
 				SSH_IDENTITY_AGENT=''
-			elif ! sock_exists "$SSH_IDENTITY_AGENT"; then
+			elif ! __sock_exists "$SSH_IDENTITY_AGENT"; then
 				echo-style --warning="$0: Unable to find the SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT]." $'\n' \
 					--notice='Disabling for now...' >/dev/stderr
 				SSH_IDENTITY_AGENT=''
@@ -165,7 +165,7 @@ function ssh_helper() (
 		fi
 
 		if test "$SSH_IDENTITY_AGENT" = '1password'; then
-			if ! sock_exists "$op_sock"; then
+			if ! __sock_exists "$op_sock"; then
 				echo-error "Invalid SSH Socket: $op_sock"
 				return 1
 			fi
@@ -187,10 +187,11 @@ function ssh_helper() (
 			--find='AddKeysToAgent .+' --replace='AddKeysToAgent yes'
 
 		# trim the identity segment
-		sd -f mis '# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' '' "$HOME/.ssh/config"
+		sd --flags mis '# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' '' "$HOME/.ssh/config"
 
 		# and add it back in if desired
 		if test -n "$SSH_IDENTITY_AGENT"; then
+			# Match exec "~/.ssh/is-linux.sh"
 			cat <<-EOF >>"$HOME/.ssh/config"
 
 				# <dorothy:SSH_IDENTITY_AGENT>
@@ -210,20 +211,41 @@ function ssh_helper() (
 		fi
 
 		# ---------------------------------
-		# Known Hosts
+		# GitHub Known Hosts
 
+		# https://serverfault.com/q/856194/63348
+		# https://stackoverflow.com/a/69425174/130638
+		# https://stackoverflow.com/a/47708298/130638
+		# https://stackoverflow.com/questions/47707922/error-the-authenticity-of-host-github-com-cant-be-established-rsa-key-finge/47708298#comment133767856_75834450
+		# https://github.com/orgs/community/discussions/50878#discussioncomment-5419030
+		# https://github.blog/2023-03-23-we-updated-our-rsa-ssh-host-key/
+
+		# log
 		echo-style --h3="Add GitHub Keys to Known Hosts"
 
 		# ensure it exists, which it may not on new systems
 		touch "$HOME/.ssh/known_hosts"
 
-		# https://serverfault.com/q/856194/63348
-		# normally, this doesn't protect against man in the middle attacks,
-		# however [setup-dns] has already prevented that with its encrypted dns
-		# as such, this is perfect and secure
-		ssh-keygen -R github.com
-		ssh-keyscan github.com >>"$HOME/.ssh/known_hosts"
-		rm "$HOME/.ssh/known_hosts.old" || :
+		# remove old github keys
+		echo-style --code="$(ssh-keygen -R github.com)"
+
+		# add new key, using the gihtub recommended method
+		setup-util-curl --quiet --optional
+		setup-util-jq --quiet --optional
+		setup-util-sd --quiet --optional
+		# fetch and extract keys, prepend [github.com ] to non-empty-lines (non-empty necessary for sd), append to known_hosts
+		# trunk-ignore(shellcheck/SC2016)
+		if command-exists curl jq sd && fetch 'https://api.github.com/meta' | jq -r '.ssh_keys | .[]' | sd '^(.+)$' 'github.com $1' >>"$HOME/.ssh/known_hosts"; then
+			: # success
+		else
+			# fallback to ssh-keyscan method, which requires encrypted dns to be secure, which can be done via [setup-dns]
+			# use [-t rsa] to prevent key type conflicts:
+			# Warning: the ECDSA host key for 'github.com' differs from the key for the IP address '140.82.121.3'
+			# Offending key for IP in /root/.ssh/known_hosts:6
+			# Matching host key in /root/.ssh/known_hosts:9
+			# Are you sure you want to continue connecting (yes/no)? yes
+			ssh-keyscan -t rsa github.com >>"$HOME/.ssh/known_hosts"
+		fi
 	}
 
 	function ssh_new {
@@ -242,7 +264,11 @@ function ssh_helper() (
 		touch "$HOME/.ssh/config"
 
 		# remove the old keys
-		rm -v "$path"*
+		local paths=("$path"*)
+		if test "${#paths[@]}" -ne 0; then
+			echo-style --notice='Keys already exist with that filename...'
+			fs-rm --confirm -- "${paths[@]}"
+		fi
 
 		# make the new key
 		print_line "Creating new ssh-key at $path with comment $comment"
@@ -339,14 +365,14 @@ function ssh_helper() (
 			private_key="${public_key%.pub}"
 			if test -f "$private_key"; then
 				chmod 600 "$private_key" || :
-				("${add_new[@]}" -v "$private_key") || :
+				"${add_new[@]}" -v "$private_key" || : # eval
 				# ^ -T option returned [agent refused operation] on Ubuntu 22.04
 			fi
 		done
 
 		# add known keys to keychain and agent if supported
 		if test "${#add_known[@]}" -ne 0; then
-			("${add_known[@]}") || :
+			"${add_known[@]}" || : # eval
 		fi
 	}
 
@@ -363,16 +389,16 @@ function ssh_helper() (
 	}
 
 	function ssh_test {
-		local uri="${1:-"git@github.com"}" logs test_status
+		local uri="${1:-"git@github.com"}" logs __test_status
 		logs="$(mktemp)"
 
 		# test and fetch exit code
-		test_status=0 && ssh -qT "$uri" &>"$logs" || test_status=$?
+		__test_status=0 && ssh -qT "$uri" &>"$logs" || __test_status=$?
 
 		# 0 no error
 		# 1 success but error - this is what github does, as is not a real ssh terminal
 		# 255 configuration error - this is what we are after
-		if test "$test_status" -le 1; then
+		if test "$__test_status" -le 1; then
 			return 0
 		else
 			cat "$logs" >/dev/stderr
@@ -392,10 +418,10 @@ function ssh_helper() (
 			case "$item" in
 			'--help' | '-h') help ;;
 			'--no-raw'* | '--raw'*)
-				raw="$(get-flag-value raw --missing="$raw" -- "$item" | echo-affirmative --stdin)"
+				raw="$(get-flag-value --affirmative --fallback="$raw" -- "$item")"
 				;;
 			'--no-multi'* | '--multi'*)
-				multi="$(get-flag-value multi --missing="$multi" -- "$item" | echo-affirmative --stdin)"
+				multi="$(get-flag-value --affirmative --fallback="$multi" -- "$item")"
 				;;
 			'--')
 				mapfile -t paths < <(fs-absolute -- "$@")
@@ -423,7 +449,7 @@ function ssh_helper() (
 		# 130 = success then closed eventually
 		local connect_status
 		eval_capture --statusvar=connect_status -- ssh "$@"
-		if test "$connect_status" -ne 0 -a "$connect_status" -ne 130; then
+		if test "$connect_status" -ne 0 && ! is-abort -- "$connect_status"; then
 			echo-style --warning="Failed with exit code [$connect_status], will try again in 10 seconds..." >/dev/stderr
 			sleep 10
 			ssh_connect "$@"
@@ -434,7 +460,7 @@ function ssh_helper() (
 	# Act
 
 	if test "$(type -t "ssh_$action")" = 'function'; then
-		"ssh_$action" "${args[@]}"
+		"ssh_$action" "${option_args[@]}"
 	else
 		help "<action> unsupported or yet implemented: $action" || :
 		return 78 # ENOSYS 78 Function not implemented

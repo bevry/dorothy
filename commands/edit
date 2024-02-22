@@ -22,6 +22,9 @@ function edit_() (
 			--[no-]prompt
 			    If enabled (the default), support editors that require additional arguments to edit the file.
 
+			--[no-]wait
+			    If disabled (the default), edit the file but skip waiting for the editor to close the file.
+
 			--only-editor
 			    If enabled, only output the editor command, and not any arguments.
 			    Enforces --dry.
@@ -41,30 +44,33 @@ function edit_() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process
-	local item dry='no' prompt='yes' only_editor='no' sudo='no' terminal='' gui='' args=()
+	# process, @todo rewrite with option_ prefix
+	local item dry='no' prompt='yes' wait='no' only_editor='no' sudo='no' terminal='' gui='' args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-dry'* | '--dry'*)
-			dry="$(get-flag-value dry --missing="$dry" -- "$item" | echo-affirmative --stdin)"
+			dry="$(get-flag-value --affirmative --fallback="$dry" -- "$item")"
 			;;
 		'--no-prompt'* | '--prompt'*)
-			prompt="$(get-flag-value prompt --missing="$prompt" -- "$item" | echo-affirmative --stdin)"
+			prompt="$(get-flag-value --affirmative --fallback="$prompt" -- "$item")"
+			;;
+		'--no-wait'* | '--wait'*)
+			wait="$(get-flag-value --affirmative --fallback="$wait" -- "$item")"
 			;;
 		'--no-only-editor'* | '--only-editor'*)
-			only_editor="$(get-flag-value only-editor --missing="$only_editor" -- "$item" | echo-affirmative --stdin)"
+			only_editor="$(get-flag-value --affirmative --fallback="$only_editor" -- "$item")"
 			;;
 		'--no-sudo'* | '--sudo'*)
-			sudo="$(get-flag-value sudo --missing="$sudo" -- "$item" | echo-affirmative --stdin)"
+			sudo="$(get-flag-value --affirmative --fallback="$sudo" -- "$item")"
 			;;
 		'--no-terminal'* | '--terminal'*)
-			terminal="$(get-flag-value terminal --missing="$terminal" -- "$item" | echo-affirmative --stdin)"
+			terminal="$(get-flag-value --affirmative --fallback="$terminal" -- "$item")"
 			;;
 		'--no-gui'* | '--gui'*)
-			gui="$(get-flag-value gui --missing="$gui" -- "$item" | echo-affirmative --stdin)"
+			gui="$(get-flag-value --affirmative --fallback="$gui" -- "$item")"
 			;;
 		'--')
 			args+=("$@")
@@ -79,16 +85,9 @@ function edit_() (
 		esac
 	done
 
-	# check conflicts
-	if test -n "$terminal" -a "$terminal" = "$gui"; then
-		help "[--terminal] and [--gui] must be opposite values."
-	fi
-
-	# default terminal
-	if test -z "$terminal"; then
-		if is-ssh || is-headless; then
-			terminal='yes'
-		fi
+	# check that terminal and gui are not both no
+	if test "$terminal" = 'no' -a "$gui" = 'no'; then
+		help "either [--terminal] or [--gui] must be enabled."
 	fi
 
 	# =====================================
@@ -111,58 +110,93 @@ function edit_() (
 	# =====================================
 	# Action
 
-	# grab options
+	# determine the editors
 	local editors=()
-	if test "$terminal" = 'yes' -o "$sudo" = 'yes'; then
-		editors=("${TERMINAL_EDITORS[@]}")
-	else
-		editors=("${GUI_EDITORS[@]}")
+	if test -z "$terminal" -a -z "$gui"; then
+		# no terminal or gui preference, determine sensible defaults
+		if is-vscode; then
+			# if running within vscode, add vscode as first preference
+			editors+=(code)
+			gui='yes'
+			terminal='yes'
+		elif is-ssh || is-headless; then
+			# if terminal, only use terminal editors
+			gui='no'
+			terminal='yes'
+		else
+			# if desktop, enable terminal and gui editors
+			gui='yes'
+			terminal='yes'
+		fi
+	fi
+	if test "$gui" = 'yes'; then
+		# add the gui editors if desired
+		editors+=("${GUI_EDITORS[@]}")
+	fi
+	if test "$terminal" = 'yes'; then
+		# add the terminal editors if desired
+		editors+=("${TERMINAL_EDITORS[@]}")
 	fi
 
 	# filter options by available
-	local array=() string command
-	for string in "${editors[@]}"; do
+	local array=() needle command
+	for needle in "${editors[@]}"; do
 		array=()
-		command="${string%% *}"
+		command="${needle%% *}"
 		if test -n "$command"; then
-			if command-exists "$command"; then
-				mapfile -t array < <(echo-split ' ' -- "$string")
+			if command-exists -- "$command"; then
+				mapfile -t array < <(echo-split ' ' -- "$needle")
 
 				# absolute path so sudo has availability: may not actually be necessary
 				# array[0]="$(fs-absolute -- "${array[0]}")"
 
-				# editors that require prompts
-				if [[ $command =~ code|atom|subl ]]; then
-					if test "$prompt" = 'yes'; then
-						array+=('-w') # wait
-						if [[ $command =~ code ]]; then
-							array+=('-n') # new window
-						fi
-					else
+				# handle fancy editors fancifully
+				case "$command" in
+				'code')
+					if test "$prompt" = 'no' -o "$sudo" = 'yes'; then
 						continue
 					fi
-				elif [[ $command =~ emacs ]]; then
-					if test "$prompt" = 'yes'; then
-						array+=('--no-window-system')
+					if test "$wait" = 'yes'; then
+						array+=('-w')
+					fi
+					if is-wsl; then
+						array+=('--reuse-window')
 					else
+						# on wsl, --new-window causes git to wait forever to close the file
+						array+=('--new-window')
+					fi
+					;;
+				'atom' | 'subl' | 'zed')
+					if test "$prompt" = 'no' -o "$sudo" = 'yes'; then
 						continue
 					fi
-				fi
+					if test "$sudo" = 'yes'; then
+						continue
+					fi
+					if test "$wait" = 'yes'; then
+						array+=('-w')
+					fi
+					;;
+				'emacs')
+					if test "$prompt" = 'no'; then
+						continue
+					fi
+					array+=('--no-window-system')
+					;;
+				esac
 
-				# it exists, use it
+				# we have a suitable editor, leave the search
 				break
-			elif get-app "$command" >/dev/null; then
+			elif test "$gui" = 'yes' && is-needle --needle="$needle" -- "${GUI_EDITORS[@]}" && get-app --quiet -- "$command"; then
 				# apps require prompts
 				if test "$prompt" = 'yes'; then
-					mapfile -t array < <(echo-split ' ' -- "$string")
+					mapfile -t array < <(echo-split ' ' -- "$needle")
 					array=('open' '-a' "${array[@]}")
-				else
-					continue
+					# we have a suitable editor, leave the search
+					break
 				fi
 			fi
-
-			# we have a suitable editor, leave the search
-			break
+			# continue to the next editor
 		fi
 	done
 

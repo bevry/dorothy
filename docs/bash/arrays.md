@@ -33,12 +33,12 @@ echo "${#a[@]}"
 # ^ this is usually okay, but has a gotcha with `mapfile ... <<< ...` usage, see the later chapter about array lengths
 
 # contains
-if is-needle ' ' "${a[@]}"; then
+if is-needle --needle=' ' -- "${a[@]}"; then
 	echo 'with [ ]'
 else
 	echo 'without [ ]'
 fi
-if is-needle 'c d' "${a[@]}"; then
+if is-needle --needle='c d' -- "${a[@]}"; then
 	echo 'with [c d]'
 else
 	echo 'without [c d]'
@@ -85,19 +85,19 @@ echo "${#a[@]}" # 0
 echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
 
 # you can use this to ensure that the array is not empty
-if is-array-empty "${a[@]}"; then
+if is-array-empty -- "${a[@]}"; then
 	echo 'failure' > /dev/stderr
 	exit 1
 fi
 
 # depending on your use case, you may also find these useful
-is-array-partial "${a[@]}"
-is-array-empty "${a[@]}"
-is-array-empty-or-partial "${a[@]}"
-is-array-full "${a[@]}"
-is-array-full-or-partial "${a[@]}"
-is-array-count 1 "${a[@]}"
-is-array-count-ge 1 "${a[@]}"
+is-array-partial -- "${a[@]}"
+is-array-empty -- "${a[@]}"
+is-array-empty-or-partial -- "${a[@]}"
+is-array-full -- "${a[@]}"
+is-array-full-or-partial -- "${a[@]}"
+is-array-count -size=1 -- "${a[@]}"
+is-array-count-ge --size=1 -- "${a[@]}"
 ```
 
 ## strings to arrays

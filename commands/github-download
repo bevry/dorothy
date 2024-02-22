@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-function github_download_() (
+function github_download() (
 	source "$DOROTHY/sources/bash.bash"
 	require_array 'mapfile'
 
@@ -17,31 +17,42 @@ function github_download_() (
 
 			OPTIONS:
 			--slug=<org>/<repo>
-			    E.g. 'bevry/dorothy'
+			    Use this repository, e.g. 'jqlang/jq'
 
-			--ref=<branch,commit,tag>
-			    E.g. 'master'
-			    If omitted attempts 'master' then attempts 'main'.
+			--head | --HEAD
+			    Get the latest commit on the default branch, typically 'main' or 'master'
+			--branch=<branch>
+			    Use this branch, e.g. 'main', 'master', etc.
+			--tag=<tag>
+			    Use this reference or release tag name, e.g. 'jq-1.7rc2'
+			--commit=<commit>
+			    Use this commit, e.g. '94d6971fac4033b2f06e1d9793053a89f52d3ffd
+			--reference=<branch,commit,tag> | --ref=<branch,commit,tag>
+			    Deprecated alias for --branch=<branch>, --commit=<commit>, and --tag=<tag>
+
+			--latest
+			    Use the latest release. Alias for ---alias=latest
+			--alias=<alias>
+			    Use this release alias, e.g. 'latest'
+			--tag=<tag>
+			    Use this reference or release tag name, e.g. 'jq-1.7rc2'
+			--id=<id>
+			    Use this release id, e.g. '118848514'
+			--release=<alias,tag,id>
+			    Deprecated alias for either --alias=<alias>, --tag=<tag>, --id=<id>
 
 			--pathname=<pathname>
-			    E.g. 'commands/github-download'
-			    Can be used with [--ref] to specify which directory and file within the reference to download.
-			    If [--ref] is provided, but this omitted, the entire reference will be downloaded,
-			        and can be combined with [--unzip-filter].
+			    If downloading a reference, filter by this pathname, e.g. 'commands/github-download'
 
-			--release=<release,tag>
-			    E.g. 'latest'
-			    Can be used to download from a release, instead of a reference.
+			--asset-regexp=<regexp>
+			    If downloading a release, filter assets by this.
 
-			--asset-filter=<regexp>
-			    Can be used with [--release] to select which release asset to download.
-
-			--unzip-format=<format>
-			    If downloading a zip file, use this to enforce an extraction <format>.
+			--archive-format=<format>
+			    If downloading an archive file, use this to enforce an extraction <format>.
 			    This option is handled by the [unziptar] command.
 
-			--unzip-filter=<filter>
-			    If downloading a zip file, use this to only extract files that match the glob pattern <filter>.
+			--archive-glob=<glob>
+			    If downloading an archive file, use this to only extract files that match the glob pattern <glob>.
 			    This option is handled by the [unziptar] command.
 
 			--directory=<directory>
@@ -72,43 +83,125 @@ function github_download_() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process
-	local item slug='' reference='' pathname='' release='' asset_filter='' unzip_format='' unzip_filter='' directory='' file='' filepath='' quiet='yes' dry='no'
-	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
+	# process, @todo rewrite with option_
+	local item option_quiet slug='' branch='' commit='' reference='' alias='' tag='' id='' release='' pathname='' asset_regexp='' archive_format='' archive_glob='' directory='' file='' filepath='' dry='no'
+	option_quiet="$(echo-quiet-enabled --fallback=yes -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
-		'--slug='*) slug="${item#*--slug=}" ;;
-		'--ref='*) reference="${item#*--ref=}" ;;
-		'--reference='*) reference="${item#*--reference=}" ;;
-		'--pathname='*) pathname="${item#*--pathname=}" ;;
-		'--release='*) release="${item#*--release=}" ;;
-		'--asset-filter='*) asset_filter="${item#*--asset-filter=}" ;;
-		'--unzip-format='*) unzip_format="${item#*--unzip-format=}" ;;
-		'--unzip-filter='*) unzip_filter="${item#*--unzip-filter=}" ;;
-		'--directory='*) directory="${item#*--directory=}" ;;
-		'--file='*) file="${item#*--file=}" ;;
-		'--filepath='*) filepath="${item#*--filepath=}" ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		# repo
+		'--slug='*) slug="${item#*=}" ;;
+		# reference
+		'--head' | '--HEAD') reference='HEAD' ;;
+		'--branch='*) branch="${item#*=}" ;;
+		'--commit='*) commit="${item#*=}" ;;
+		'--reference='* | '--ref='*) reference="${item#*=}" ;;
+		'--pathname='*) pathname="${item#*=}" ;;
+		# release
+		'--latest') alias='latest' ;;
+		'--alias='*) alias="${item#*=}" ;;
+		'--tag='*) tag="${item#*=}" ;;
+		'--id='*) id="${item#*=}" ;;
+		'--release='*) release="${item#*=}" ;;
+		# asset
+		'--asset-regexp='* | '--asset-filter='*) asset_regexp="${item#*=}" ;;
+		'--archive-format='* | '--unzip-format='*) archive_format="${item#*=}" ;;
+		'--archive-glob='* | '--archive-filter='* | '--unzip-glob='* | '--unzip-filter='*) archive_glob="${item#*=}" ;;
+		'--directory='*) directory="${item#*=}" ;;
+		'--file='*) file="${item#*=}" ;;
+		'--filepath='*) filepath="${item#*=}" ;;
 		'--no-dry'* | '--dry'*)
-			dry="$(get-flag-value dry --missing="$dry" -- "$item" | echo-affirmative --stdin)"
+			dry="$(get-flag-value --affirmative --fallback="$dry" -- "$item")"
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	# confirm expectations
-	if test -n "$reference" -a -n "$release"; then
-		help "[--ref] and [--release] are mutually exclusive"
+	# enforcements
+	if test -z "$slug"; then
+		help 'A GitHub repository slug is required.'
 	fi
-	if test -n "$pathname" -a -n "$release"; then
-		help "[--pathname] and [--release] are mutually exclusive"
+	if test -n "$release"; then
+		# convert release into its modern format
+		if test "$release" = 'latest'; then
+			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --latest" >/dev/tty
+			if test -n "$alias"; then
+				help "[--release=latest] and [--alias=$alias] are mutually exclusive, you should only use: --alias=$alias"
+			fi
+			alias='latest'
+		elif is-integer -- "$release"; then
+			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --id=$release" >/dev/tty
+			if test -n "$id"; then
+				help "[--release=$release] and [--id=$id] are mutually exclusive, you should only use: --id=$id"
+			fi
+			id="$release"
+		else
+			echo-style --notice='deprecation warning:' ' ' --code_notice="--release=$release → --tag=$release" >/dev/tty
+			if test -n "$tag"; then
+				help "[--release=$release] and [--tag=$tag] are mutually exclusive, you should only use: --tag=$tag"
+			fi
+			tag="$release"
+		fi
 	fi
-	if test -n "$asset_filter" -a -z "$release"; then
-		help "[--asset-filter] requires [--release]"
+	if test -n "$alias" -a "$alias" != 'latest'; then
+		help '<alias> can only be ' --code='latest'
+	fi
+	if test -z "$release"; then
+		# convert release properties into release, to make figuring out what we are doing easier
+		if test -n "$alias"; then
+			release="$alias"
+		elif test -n "$tag"; then
+			release="$tag"
+		elif test -n "$id"; then
+			release="$id"
+		fi
+	fi
+	if test -z "$reference"; then
+		# convert references into references, as we actually juse use them as a reference
+		if test -n "$branch"; then
+			reference="$branch"
+		elif test -n "$tag"; then
+			reference="$tag"
+		elif test -n "$commit"; then
+			reference="$commit"
+		fi
+	fi
+
+	# check for incompatibilities
+	if test -n "$release"; then
+		# don't check pathname, as tha tcan work for tag
+		if test -n "$branch" -o -n "$commit"; then
+			help "[--reference/head/branch/commit] and [--release/latest/alias/id] are mutually exclusive"
+		fi
+	fi
+	if test -n "$reference"; then
+		# don't check asset-regexp, as that can work for tag
+		if test -n "$alias" -o -n "$id"; then
+			help "[--release/latest/alias/id] and [--reference/head/branch/commit] are mutually exclusive"
+		fi
+	fi
+	if test -n "$asset_regexp" -a "$pathname"; then
+		help "[--asset-regexp] and [--pathname] are mutually exclusive, did you intend to use: --archive-glob=$pathname"
+	elif test -n "$asset_regexp"; then
+		reference=''
+	elif test -n "$pathname"; then
+		release=''
+	fi
+	if test -z "$reference" -a -z "$release"; then
+		# set defaults
+		if test -n "$asset_regexp"; then
+			release='latest'
+			alias='latest'
+		elif test -n "$pathname"; then
+			reference='HEAD'
+		else
+			release='latest'
+			alias='latest'
+		fi
 	fi
 
 	# ensure directory, filename, filepath
@@ -137,35 +230,25 @@ function github_download_() (
 	fi
 	mkdir -p "$directory"
 
-	# in case they gave a URL
-	# if test -n "$slug"; then
-	# 	slug="${slug/https\:\/\/github.com/}"
-	# 	slug="${slug/.git//}"
-	# fi
-	if test -z "$slug"; then
-		help "A GitHub repository slug is required."
-	fi
-
-	# GITHUB_API_URL
-	if test -z "${GITHUB_API_URL-}"; then
-		# https://docs.github.com/en/actions/learn-github-actions/environment-variables#default-environment-variables
-		GITHUB_API_URL='https://bevry.me/api/github'
-		# encounters rate limits 'https://api.github.com'
-	fi
-
 	# =====================================
 	# Action
 
-	function get_matched_assets_for_release {
+	function get_assets {
+		# we don't care for all assets, just the release in it's entirety
+		if test -z "$asset_regexp"; then
+			get-github-release --slug="$slug" --tar --alias="$alias" --tag="$tag" --id="$id"
+			return
+		fi
+
 		# get the assets [name, url] for the release
 		local assets=()
-		mapfile -t assets < <(get-github-release --assets --slug="$slug" --release="$release")
+		mapfile -t assets < <(get-github-release --slug="$slug" --assets --alias="$alias" --tag="$tag" --id="$id")
 		if test "${#assets[@]}" -eq 0; then
-			echo-error 'No release assets were found for repository ' --code="$slug" ' release ' --code="$release"
+			echo-error 'No release assets were found for repository ' --code="$slug"
 			return 1
 		fi
 
-		# now that we have them all, filter them
+		# filter out junk, and filter names according to the asset-regexp, keeping only urls
 		local index name url matches=()
 		for ((index = 0; index < ${#assets[@]}; index = index + 2)); do
 			name="${assets[index]}"
@@ -177,33 +260,31 @@ function github_download_() (
 			if grep --quiet --extended-regexp --regexp='[.](asc|mini|sbom|sha256sum|sha256|sha|sig|zsync)$' <<<"$name"; then
 				# ignore signature assets
 				continue
-			elif test -z "$asset_filter"; then
+			elif test -z "$asset_regexp"; then
 				# no asset filter, add them all
 				matches+=("$url")
-			elif test "$asset_filter" = "$name"; then
+			elif test "$asset_regexp" = "$name"; then
 				# exact match, use only that
 				matches=("$url")
 				break
-			elif grep --quiet --extended-regexp --regexp="$asset_filter" <<<"$name"; then
+			elif grep --quiet --extended-regexp --regexp="$asset_regexp" <<<"$name"; then
 				# regexp match, make note
 				matches+=("$url")
 			fi # no match, ignore
 		done
 
-		# assert filter worked
+		# filtering worked
 		if test "${#matches[@]}" -eq 0; then
 			{
-				echo-style --error='No assets matched the filter:' ' ' --code="$asset_filter"
+				echo-style --error='No assets matched the filter:' ' ' --code="$asset_regexp"
 				echo-verbose -- "${assets[@]}"
 			} >/dev/stderr
 			return 1
 		fi
 
-		# output the matches
+		# output only the matching urls
 		echo-lines -- "${matches[@]}"
 	}
-
-	# reference helpers
 	function get_ref_pathname_url {
 		# determine branch
 		if test -z "$reference"; then
@@ -219,27 +300,30 @@ function github_download_() (
 		# download
 		print_line "https://raw.githubusercontent.com/$slug/$reference/$pathname"
 	}
-
-	# release/reference helpers
 	function download_reference {
-		local url filter
-		url="https://github.com/$slug/archive/$reference.tar.gz"
-		filter="*-$reference/${unzip_filter:-"*"}"
+		local url glob
+		if test -n "$pathname"; then
+			url="$(get_ref_pathname_url)"
+			glob="$archive_glob"
+		else
+			url="https://github.com/$slug/archive/$reference.tar.gz"
+			glob="*-$reference/${archive_glob:-"*"}"
+		fi
 		if test "$dry" = 'yes'; then
 			print_line "$url"
 			return 0
 		fi
 		down "$url" \
-			--quiet="$quiet" \
-			--unzip-format="$unzip_format" \
-			--unzip-filter="$filter" \
+			--quiet="$option_quiet" \
+			--archive-format="$archive_format" \
+			--archive-glob="$glob" \
 			--directory="$directory" \
 			--file="$file" \
 			--filepath="$filepath"
 	}
-	function download_asset {
+	function download_release {
 		local asset assets
-		mapfile -t assets < <(get_matched_assets_for_release)
+		mapfile -t assets < <(get_assets)
 		if test "${#assets[@]}" -eq 0; then
 			echo-error 'No download assets were found for repository ' --code="$slug"
 			return 1
@@ -250,84 +334,28 @@ function github_download_() (
 				continue
 			fi
 			down "$asset" \
-				--quiet="$quiet" \
-				--unzip-format="$unzip_format" \
-				--unzip-filter="$unzip_filter" \
+				--quiet="$option_quiet" \
+				--archive-format="$archive_format" \
+				--archive-glob="$archive_glob" \
 				--directory="$directory" \
 				--file="$file" \
 				--filepath="$filepath"
 		done
 	}
-	function download_pathname {
-		local url
-		url="$(get_ref_pathname_url)"
-		if test "$dry" = 'yes'; then
-			print_line "$url"
-			return 0
-		fi
-		down "$url" \
-			--quiet="$quiet" \
-			--unzip-format="$unzip_format" \
-			--unzip-filter="$unzip_filter" \
-			--directory="$directory" \
-			--file="$file" \
-			--filepath="$filepath"
-	}
 
 	# =====================================
-	# Act
+	# Action
 
-	if test -n "$asset_filter"; then
-		download_asset
-	elif test -n "$pathname"; then
-		download_pathname
-	elif test -n "$reference"; then
-		download_reference
+	if test -n "$reference"; then
+		download_reference # prefer tag via reference, as is quicker than via release
+	elif test -n "$release"; then
+		download_release
 	else
-		help "Invalid combination of options."
+		help 'Invalid combination of options.'
 	fi
-
-	# # download a github release file
-	# relase download --slug="$slug" --unzip-filter="$filter" | while read -r url; do
-	# 	if test -z "$url"; then
-	# 		print_line "failed to determine the release file for $*" > /dev/stderr
-	# 		return 1
-	# 	fi
-
-	# 	if rg -q '.(tar|gz|zip)' <<<"$url"; then
-	# 		# may include arguments for subfile and destination
-	# 		down "$url" --unzip-filter="$extract" --destination="$destination" --inside="$inside"
-	# 	else
-	# 		# may include argument for destination
-	# 		down "$url" --destination="$destination"
-	# 	fi
-	# done
-
-	# function get_reference_for_release {
-	# 	# output the reference for the release
-	# 	local url="$GITHUB_API_URL/repos/$slug/releases/$release"
-	# 	if command-missing jq; then
-	# 		# don't use jq, rg, or sd to accomplish this, as none of them would be installed
-	# 		# sed fixes minified json such as `},{` and `","`
-	# 		fetch "$url" | sed -E $'s/,/,\\\n/g' | grep --fixed-strings --regexp='"id":' | sed -E 's/.+: *"?(.+)"?,.*/\1/'
-	# 	else
-	# 		fetch "$url" | jq -r '.id'
-	# 	fi
-	# }
-	# function get_reference_clone {
-	# 	# then shallow clone it to the [--inside] directory
-	# 	git clone --quiet --depth 1 --branch "$reference" 'https://github.com/rfjakob/gocryptfs.git' "$inside"
-	# }
-	# function get_release_clone {
-	# 	# get the reference for the release
-	# 	local reference="$(get_reference_for_release)"
-
-	# 	# then shallow clone it to the [--inside] directory
-	# 	git clone --quiet --depth 1 --branch "$reference" 'https://github.com/rfjakob/gocryptfs.git' "$inside"
-	# }
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	github_download_ "$@"
+	github_download "$@"
 fi

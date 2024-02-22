@@ -20,6 +20,13 @@ function setup_util() (
 		source "$DOROTHY/sources/environment.sh"
 	fi
 
+	# helpers
+	function maybe_echo_style {
+		if test "$option_quiet" != 'yes'; then
+			echo-style "$@"
+		fi
+	}
+
 	# prefer precompiled with autoupdate with extras
 	# extras = man pagages, autocompletes, etc
 	local installers=(
@@ -106,12 +113,21 @@ function setup_util() (
 		tea       # +precompiled -autoupdate -extras +experimental
 		installer # local or remote installer
 		'eval'    # run a function or another script
+		generic   # generic uninstaller, for cleaning up leftovers
 	)
 
 	# =====================================
 	# Arguments
 
 	function help {
+		# get content of this file between <installer-options> and </installer-options>
+		if command-exists sd; then
+			installer_options="$(sd --flags=s '.+# <installer-options>\s+|\s+# </installer-options>.+|\t|local ' '' <"${BASH_SOURCE[0]}")"
+		else
+			installer_options="$(echo-style --error='[sd] required to see the installer options, install with [setup-util-sd]')"
+		fi
+
+		# output the help
 		cat <<-EOF >/dev/stderr
 			ABOUT:
 			Install a utility with support for several package managers.
@@ -127,13 +143,22 @@ function setup_util() (
 			    Install all packages with this installer.
 
 			--cli=<cli>
-			    Used to check if the utility is already installed.
+			    Used to check if the utility  is already installed, in this case, a CLI executable.
 
 			--app=<app>
-			    Used to check if the utility is already installed.
+			    Used to check if the utility  is already installed, in this case, an application.
+
+			--font=<font>
+			    Used to check if the utility  is already installed, in this case, a font.
 
 			--name=<name>
 			    The name to use for the utility in human readable output, such as log messages.
+
+			--no-xdg
+			    If truthy, place the binary in /usr/local/bin and symlink the XDG binary to it.
+
+			--sudo
+			    When testing the <cli>, use sudo.
 
 			--confirm
 			    Confirm installation of the utility before installing it.
@@ -160,6 +185,11 @@ function setup_util() (
 			    If truthy, don't output anything that isn't an error message.
 			    If falsey, output everything.
 
+			--check | --check=<command>
+			    If used, then just check if an action is requried to be performed.
+			    Returns [0] if quiet and no action is necessary.
+			    Returns [1] if an action is necessary.
+
 			... uppercase arguments are options for our installers.
 
 			INSTALLERS:
@@ -171,57 +201,15 @@ function setup_util() (
 			[=()] indicates the option can be specified multiple times, e.g. [APT=one APT=two].
 			[=''] indicates the option can be specified only once.
 
-			    APK=()
-			    APT=() APT_REPO='' APT_KEY='' APT_ID=''
-			    AUR=()
-			    AURUTILS=()
-			    BREW=() BREW_TAP=()
-			    BSD=()
-			    CABAL=()
-			    CARGO=() RUST=()
-			    CASK=() CASK_TAP=()
-			    CHOCO=() CHOCOLATEY=() CINST=()
-			    CONDA=() CONDA_CHANNEL=''
-			    DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
-			    DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_UNZIP_FORMAT='' DOWNLOAD_UNZIP_FILTER='' DOWNLOAD_BUILD_EVAL='' DOWNLOAD_BUILD_FILTER='' DOWNLOAD_BEARER_TOKEN=''
-			    DPKG=() DEB=()
-			    EMERGE=() EMERGE_REPO=()
-			    EOPKG=()
-			    EVAL=() EVAL_INSTALL=() EVAL_UNINSTALL=() EVAL_UPGRADE=()
-			    FLATPAK=() FLATPAK_REPO=()
-			    GEM=() RUBY=()
-			    GO=()
-			    GUIX=()
-			    INSTALLER='' INSTALLER_FILENAME='' INSTALLER_OPEN=''
-			    MAS=()
-			    NIX=() NIX_PROFILE=()
-			    NPM=() NODE=()
-			    PACMAN=()
-			    PAKKU=()
-			    PAMAC=()
-			    PARU=()
-			    PIPX=() PIP=() PYTHON=()
-			    PKG=()
-			    PKGADD=()
-			    PKGIN=()
-			    PORT=()
-			    RPM=()
-			    SCOOP=()
-			    SNAP=() SNAP_CHANNEL=''
-			    TEA=()
-			    URPMI=()
-			    WINGET=()
-			    XBPS=()
-			    YAY=()
-			    YUM=() YUM_REPO=()
-			    ZYPPER=() ZYPPER_TYPE='' ZYPPER_REPO='' ZYPPER_REPO_ALIAS=''
+			$(echo-lines --indent='    ' <<<"$installer_options")
 
 			EXAMPLE:
 
-			setup-util --name='bottom' --cli='btm' --order='brew cargo aur' \
-			    AUR='bottom-bin' \
-			    BREW='bottom' \
-			    CARGO='bottom'
+			    setup-util --name='bottom' --cli='btm' --order='brew cargo aur' \\
+			        AUR='bottom-bin' \\
+			        BREW='bottom' \\
+			        CARGO='bottom'
+
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -229,8 +217,8 @@ function setup_util() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# installer options
-	local APK=()
+	# <installer-options>
+	local APK=() APK_REPO=''
 	local APT=() APT_REPO='' APT_KEY='' APT_ID=''
 	local AUR=()
 	local AURUTILS=()
@@ -242,7 +230,7 @@ function setup_util() (
 	local CHOCO=() CHOCOLATEY=() CINST=()
 	local CONDA=() CONDA_CHANNEL=''
 	local DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
-	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_UNZIP_FORMAT='' DOWNLOAD_UNZIP_FILTER='' DOWNLOAD_BUILD_EVAL='' DOWNLOAD_BUILD_FILTER='' DOWNLOAD_BEARER_TOKEN=''
+	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_ARCHIVE_FORMAT='' DOWNLOAD_ARCHIVE_GLOB='' DOWNLOAD_BUILD_EVAL='' DOWNLOAD_BUILD_GLOB='' DOWNLOAD_BEARER_TOKEN=''
 	local DPKG=() DEB=()
 	local EMERGE=() EMERGE_REPO=()
 	local EOPKG=()
@@ -274,45 +262,56 @@ function setup_util() (
 	local YAY=()
 	local YUM=() YUM_REPO=()
 	local ZYPPER=() ZYPPER_TYPE='' ZYPPER_REPO='' ZYPPER_REPO_ALIAS=''
+	# </installer-options>
 
 	# process
-	local item action='install' installer='' app='' cli='' name='' quiet confirm='no' optional='no' fallback='yes' upgrade='no' force='no' order=()
-	quiet="$(is-quiet-enabled -- "$@")"
+	local item option_quiet option_action='install' option_check='' option_installer='' option_app='' option_cli='' option_font='' option_name='' option_xdg='yes' option_sudo='no' option_confirm='no' option_optional='no' option_fallback='yes' option_upgrade='no' option_force='no' option_order=()
+	option_quiet="$(echo-quiet-enabled -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--install') action='install' ;;
-		'--uninstall') action='uninstall' ;;
-		'--action='*) action="${item#*--action=}" ;;
-		'--order='*) mapfile -t order < <(echo-split ' ' -- "${item#--order=}") ;;
-		'--installer='*) installer="${item#--installer=}" ;;
-		'--app='*) app="${item#--app=}" ;;
-		'--cli='*) cli="${item#--cli=}" ;;
-		'--name='*) name="${item#--name=}" ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
+		'--install') option_action='install' ;;
+		'--uninstall') option_action='uninstall' ;;
+		'--check='*) option_check="${item#*=}" ;;
+		'--check') option_check='yes' ;;
+		'--no-check') option_check='no' ;;
+		'--action='*) option_action="${item#*=}" ;;
+		'--order='*) mapfile -t option_order < <(echo-split ' ' -- "${item#*=}") ;;
+		'--installer='*) option_installer="${item#*=}" ;;
+		'--app='*) option_app="${item#*=}" ;;
+		'--cli='*) option_cli="${item#*=}" ;;
+		'--font='*) option_font="${item#*=}" ;;
+		'--name='*) option_name="${item#*=}" ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--no-xdg'* | '--xdg'*)
+			option_xdg="$(get-flag-value --affirmative --fallback="$option_xdg" -- "$item")"
+			;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
 		'--no-confirm'* | '--confirm'*)
-			confirm="$(get-flag-value confirm --missing="$confirm" -- "$item" | echo-affirmative --stdin)"
+			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
 			;;
 		'--no-optional'* | '--optional'*)
-			optional="$(get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative --stdin)"
+			option_optional="$(get-flag-value --affirmative --fallback="$option_optional" -- "$item")"
 			;;
 		'--no-fallback'* | '--fallback'*)
-			fallback="$(get-flag-value fallback --missing="$fallback" -- "$item" | echo-affirmative --stdin)"
+			option_fallback="$(get-flag-value --affirmative --fallback="$option_fallback" -- "$item")"
 			;;
 		'--no-force'* | '--force'*)
-			force="$(get-flag-value force --missing="$force" -- "$item" | echo-affirmative --stdin)"
+			option_force="$(get-flag-value --affirmative --fallback="$option_force" -- "$item")"
 			;;
 		'--no-upgrade'* | '--upgrade'*)
-			upgrade="$(get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative --stdin)"
+			option_upgrade="$(get-flag-value --affirmative --fallback="$option_upgrade" -- "$item")"
 			;;
 		'--')
-			if test -z "$installer"; then
+			if test -z "$option_installer"; then
 				help "--installer=<installer> is required when using: -- [...packages]"
 			fi
-			if test -z "$name"; then
-				name="$installer:$*"
+			if test -z "$option_name"; then
+				option_name="${option_installer}:$*"
 			fi
 			if test "$#" -eq 0; then
 				return 0 # no packages to install
@@ -320,152 +319,230 @@ function setup_util() (
 			# convert each argument into its X=Y equivalent
 			local new_args=()
 			for item in "$@"; do
-				new_args+=("$installer=$item")
+				new_args+=("${option_installer}=${option_item}")
 			done
 			set -- "${new_args[@]}"
 			continue
 			;;
 
 			# installer options
-		'ALPINE='*) APK+=("${item#*ALPINE=}") ;; # alias for APK
-		'APK='*) APK+=("${item#*APK=}") ;;
-		'APPIMAGE='*) APPIMAGE+=("${item#*APPIMAGE=}") ;;
-		'APT_ID='*) APT_ID="${item#*APT_ID=}" ;;
-		'APT_KEY='*) APT_KEY="${item#*APT_KEY=}" ;;
-		'APT_REPO='*) APT_REPO="${item#*APT_REPO=}" ;;
-		'APT='*) APT+=("${item#*APT=}") ;;
-		'ARCH='*) AUR+=("${item#*ARCH=}") ;; # alias for AUR
-		'AUR='*) AUR+=("${item#*AUR=}") ;;
-		'AURUTILS='*) AURUTILS+=("${item#*AURUTILS=}") ;;
-		'BREW_TAP='*) BREW_TAP+=("${item#*BREW_TAP=}") ;;
-		'BREW='*) BREW+=("${item#*BREW=}") ;;
-		'BSD='*) BSD+=("${item#*BSD=}") ;;
-		'CABAL='*) CABAL+=("${item#*CABAL=}") ;;
-		'CARGO='*) CARGO+=("${item#*CARGO=}") ;;
-		'CASK_TAP='*) CASK_TAP+=("${item#*CASK_TAP=}") ;;
-		'CASK='*) CASK+=("${item#*CASK=}") ;;
-		'CHOCO='*) CHOCO+=("${item#*CHOCO=}") ;;
-		'CHOCOLATEY='*) CHOCOLATEY+=("${item#*CHOCOLATEY=}") ;;
-		'CINST='*) CINST+=("${item#*CINST=}") ;;
-		'CONDA_CHANNEL='*) CONDA_CHANNEL="${item#*CONDA_CHANNEL=}" ;;
-		'CONDA='*) CONDA+=("${item#*CONDA=}") ;;
-		'DEB='*) DEB+=("${item#*DEB=}") ;;
-		'DEBIAN='*) DEB+=("${item#*DEBIAN=}") ;; # alias for DEB
-		'DNF_COPR='*) DNF_COPR+=("${item#*DNF_COPR=}") ;;
-		'DNF_GROUP='*) DNF_GROUP+=("${item#*DNF_GROUP=}") ;;
-		'DNF_REPO='*) DNF_REPO+=("${item#*DNF_REPO=}") ;;
-		'DNF='*) DNF+=("${item#*DNF=}") ;;
-		'DOWNLOAD_BEARER_TOKEN='*) DOWNLOAD_BEARER_TOKEN="${item#*DOWNLOAD_BEARER_TOKEN=}" ;;
-		'DOWNLOAD_BUILD_EVAL='*) DOWNLOAD_BUILD_EVAL="${item#*DOWNLOAD_BUILD_EVAL=}" ;;
-		'DOWNLOAD_BUILD_FILTER='*) DOWNLOAD_BUILD_FILTER="${item#*DOWNLOAD_BUILD_FILTER=}" ;;
-		'DOWNLOAD_FILENAME='*) DOWNLOAD_FILENAME="${item#*DOWNLOAD_FILENAME=}" ;;
-		'DOWNLOAD_UNZIP_FILTER='*) DOWNLOAD_UNZIP_FILTER="${item#*DOWNLOAD_UNZIP_FILTER=}" ;;
-		'DOWNLOAD_UNZIP_FORMAT='*) DOWNLOAD_UNZIP_FORMAT="${item#*DOWNLOAD_UNZIP_FORMAT=}" ;;
-		'DOWNLOAD='*) DOWNLOAD="${item#*DOWNLOAD=}" ;;
-		'DPKG='*) DPKG+=("${item#*DPKG=}") ;;
-		'EMERGE_REPO='*) EMERGE+=("${item#*EMERGE_REPO=}") ;;
-		'EMERGE='*) EMERGE+=("${item#*EMERGE=}") ;;
-		'EOPKG='*) EOPKG+=("${item#*EOPKG=}") ;;
-		'EVAL='*) EVAL+=("${item#*EVAL=}") ;;
-		'EVAL_INSTALL='*) EVAL_INSTALL+=("${item#*EVAL_INSTALL=}") ;;
-		'EVAL_UPGRADE='*) EVAL_UPGRADE+=("${item#*EVAL_UPGRADE=}") ;;
-		'EVAL_UNINSTALL='*) EVAL_UNINSTALL+=("${item#*EVAL_UNINSTALL=}") ;;
-		'FEDORA='*) DNF+=("${item#*FEDORA=}") ;; # alias for DNF
-		'FLATPAK_REPO='*) FLATPAK_REPO+=("${item#*FLATPAK_REPO=}") ;;
-		'FLATPAK='*) FLATPAK+=("${item#*FLATPAK=}") ;;
-		'GEM='*) GEM+=("${item#*GEM=}") ;;
-		'GENTOO='*) EMERGE+=("${item#*GENTOO=}") ;; # alias for EMERGE
-		'GO='*) GO+=("${item#*GO=}") ;;
-		'GUIX='*) GUIX+=("${item#*GUIX=}") ;;
-		'INSTALLER_FILENAME='*) INSTALLER_FILENAME="${item#*INSTALLER_FILENAME=}" ;;
-		'INSTALLER_OPEN='*) INSTALLER_OPEN="${item#*INSTALLER_OPEN=}" ;;
-		'INSTALLER='*) INSTALLER="${item#*INSTALLER=}" ;;
-		'MACPORTS='*) PORT+=("${item#*MACPORTS=}") ;; # alias for PORT
-		'MAGEIA='*) URPMI+=("${item#*MAGEIA=}") ;;    # alias for URPMI
-		'MAS='*) MAS+=("${item#*MAS=}") ;;
-		'NIX_PROFILE='*) NIX_PROFILE+=("${item#*NIX_PROFILE=}") ;;
-		'NIX='*) NIX+=("${item#*NIX=}") ;;
-		'NODE='*) NODE+=("${item#*NODE=}") ;;
-		'NPM='*) NPM+=("${item#*NPM=}") ;;
-		'OPENSUSE='*) ZYPPER+=("${item#*OPENSUSE=}") ;; # alias for ZYPPER
-		'PACMAN='*) PACMAN+=("${item#*PACMAN=}") ;;
-		'PAKKU='*) PAKKU+=("${item#*PAKKU=}") ;;
-		'PAMAC='*) PAMAC+=("${item#*PAMAC=}") ;;
-		'PARU='*) PARU+=("${item#*PARU=}") ;;
-		'PIP='*) PIP+=("${item#*PIP=}") ;;
-		'PIPX='*) PIPX+=("${item#*PIPX=}") ;;
-		'PKG='*) PKG+=("${item#*PKG=}") ;;
-		'PKGADD='*) PKGADD+=("${item#*PKGADD=}") ;;
-		'PKGIN='*) PKGIN+=("${item#*PKGIN=}") ;;
-		'PORT='*) PORT+=("${item#*PORT=}") ;;
-		'PYTHON='*) PYTHON+=("${item#*PYTHON=}") ;;
-		'RPM='*) RPM+=("${item#*RPM=}") ;;
-		'RUBY='*) RUBY+=("${item#*RUBY=}") ;;
-		'RUST='*) RUST+=("${item#*RUST=}") ;;
-		'SCOOP='*) SCOOP+=("${item#*SCOOP=}") ;;
-		'SNAP_CHANNEL='*) SNAP_CHANNEL="${item#*SNAP_CHANNEL=}" ;;
-		'SNAP='*) SNAP+=("${item#*SNAP=}") ;;
-		'SOLUS='*) EOPKG+=("${item#*SOLUS=}") ;; # alias for EOPKG
-		'SUSE='*) ZYPPER+=("${item#*SUSE=}") ;;  # alias for ZYPPER
-		'TEA='*) TEA+=("${item#*TEA=}") ;;
-		'UBUNTU='*) APT+=("${item#*UBUNTU=}") ;; # alias for APT
-		'URPMI='*) URPMI+=("${item#*URPMI=}") ;;
-		'VOID='*) XBPS+=("${item#*VOID=}") ;; # alias for XBPS
-		'WINGET='*) WINGET+=("${item#*WINGET=}") ;;
-		'XBPS='*) XBPS+=("${item#*XBPS=}") ;;
-		'YAY='*) YAY+=("${item#*YAY=}") ;;
-		'YUM_REPO='*) YUM_REPO+=("${item#*YUM_REPO=}") ;;
-		'YUM='*) YUM+=("${item#*YUM=}") ;;
-		'ZYPPER_REPO_ALIAS='*) ZYPPER_REPO_ALIAS="${item#*ZYPPER_REPO_ALIAS=}" ;;
-		'ZYPPER_REPO='*) ZYPPER_REPO="${item#*ZYPPER_REPO=}" ;;
-		'ZYPPER_TYPE='*) ZYPPER_TYPE="${item#*ZYPPER_TYPE=}" ;;
-		'ZYPPER='*) ZYPPER+=("${item#*ZYPPER=}") ;;
+		'APK_REPO='*) APK_REPO="${item#*=}" ;;
+		'APK='* | 'ALPINE='*) APK+=("${item#*=}") ;;
+		'APPIMAGE='*) APPIMAGE+=("${item#*=}") ;;
+		'APT_ID='*) APT_ID="${item#*=}" ;;
+		'APT_KEY='*) APT_KEY="${item#*=}" ;;
+		'APT_REPO='*) APT_REPO="${item#*=}" ;;
+		'APT='* | 'UBUNTU='*) APT+=("${item#*=}") ;;
+		'AUR='* | 'ARCH='*) AUR+=("${item#*=}") ;;
+		'AURUTILS='*) AURUTILS+=("${item#*=}") ;;
+		'BREW_TAP='*) BREW_TAP+=("${item#*=}") ;;
+		'BREW='*) BREW+=("${item#*=}") ;;
+		'BSD='*) BSD+=("${item#*=}") ;;
+		'CABAL='*) CABAL+=("${item#*=}") ;;
+		'CARGO='*) CARGO+=("${item#*=}") ;;
+		'CASK_TAP='*) CASK_TAP+=("${item#*=}") ;;
+		'CASK='*) CASK+=("${item#*=}") ;;
+		'CHOCO='*) CHOCO+=("${item#*=}") ;;
+		'CHOCOLATEY='*) CHOCOLATEY+=("${item#*=}") ;;
+		'CINST='*) CINST+=("${item#*=}") ;;
+		'CONDA_CHANNEL='*) CONDA_CHANNEL="${item#*=}" ;;
+		'CONDA='*) CONDA+=("${item#*=}") ;;
+		'DEB='* | 'DEBIAN='*) DEB+=("${item#*=}") ;;
+		'DNF_COPR='*) DNF_COPR+=("${item#*=}") ;;
+		'DNF_GROUP='*) DNF_GROUP+=("${item#*=}") ;;
+		'DNF_REPO='*) DNF_REPO+=("${item#*=}") ;;
+		'DNF='* | 'FEDORA='*) DNF+=("${item#*=}") ;;
+		'DOWNLOAD_ARCHIVE_FORMAT='* | 'DOWNLOAD_UNZIP_FORMAT='*) DOWNLOAD_ARCHIVE_FORMAT="${item#*=}" ;;
+		'DOWNLOAD_ARCHIVE_GLOB='* | 'DOWNLOAD_ARCHIVE_FILTER='* | 'DOWNLOAD_UNZIP_GLOB='* | 'DOWNLOAD_UNZIP_FILTER='*) DOWNLOAD_ARCHIVE_GLOB="${item#*=}" ;;
+		'DOWNLOAD_BEARER_TOKEN='*) DOWNLOAD_BEARER_TOKEN="${item#*=}" ;;
+		'DOWNLOAD_BUILD_EVAL='*) DOWNLOAD_BUILD_EVAL="${item#*=}" ;;
+		'DOWNLOAD_BUILD_GLOB='* | 'DOWNLOAD_BUILD_FILTER='*) DOWNLOAD_BUILD_GLOB="${item#*=}" ;;
+		'DOWNLOAD_FILENAME='*) DOWNLOAD_FILENAME="${item#*=}" ;;
+		'DOWNLOAD='*) DOWNLOAD="${item#*=}" ;;
+		'DPKG='*) DPKG+=("${item#*=}") ;;
+		'EMERGE_REPO='*) EMERGE+=("${item#*=}") ;;
+		'EMERGE='* | 'GENTOO='*) EMERGE+=("${item#*=}") ;;
+		'EOPKG='* | 'SOLUS='*) EOPKG+=("${item#*=}") ;;
+		'EVAL_INSTALL='*) EVAL_INSTALL+=("${item#*=}") ;;
+		'EVAL_UNINSTALL='*) EVAL_UNINSTALL+=("${item#*=}") ;;
+		'EVAL_UPGRADE='*) EVAL_UPGRADE+=("${item#*=}") ;;
+		'EVAL='*) EVAL+=("${item#*=}") ;;
+		'FLATPAK_REPO='*) FLATPAK_REPO+=("${item#*=}") ;;
+		'FLATPAK='*) FLATPAK+=("${item#*=}") ;;
+		'GEM='*) GEM+=("${item#*=}") ;;
+		'GO='*) GO+=("${item#*=}") ;;
+		'GUIX='*) GUIX+=("${item#*=}") ;;
+		'INSTALLER_FILENAME='*) INSTALLER_FILENAME="${item#*=}" ;;
+		'INSTALLER_OPEN='*) INSTALLER_OPEN="${item#*=}" ;;
+		'INSTALLER='*) INSTALLER="${item#*=}" ;;
+		'MAS='*) MAS+=("${item#*=}") ;;
+		'NIX_PROFILE='*) NIX_PROFILE+=("${item#*=}") ;;
+		'NIX='*) NIX+=("${item#*=}") ;;
+		'NODE='*) NODE+=("${item#*=}") ;;
+		'NPM='*) NPM+=("${item#*=}") ;;
+		'PACMAN='*) PACMAN+=("${item#*=}") ;;
+		'PAKKU='*) PAKKU+=("${item#*=}") ;;
+		'PAMAC='*) PAMAC+=("${item#*=}") ;;
+		'PARU='*) PARU+=("${item#*=}") ;;
+		'PIP='*) PIP+=("${item#*=}") ;;
+		'PIPX='*) PIPX+=("${item#*=}") ;;
+		'PKG='*) PKG+=("${item#*=}") ;;
+		'PKGADD='*) PKGADD+=("${item#*=}") ;;
+		'PKGIN='*) PKGIN+=("${item#*=}") ;;
+		'PORT='* | 'MACPORTS='*) PORT+=("${item#*=}") ;;
+		'PYTHON='*) PYTHON+=("${item#*=}") ;;
+		'RPM='*) RPM+=("${item#*=}") ;;
+		'RUBY='*) RUBY+=("${item#*=}") ;;
+		'RUST='*) RUST+=("${item#*=}") ;;
+		'SCOOP='*) SCOOP+=("${item#*=}") ;;
+		'SNAP_CHANNEL='*) SNAP_CHANNEL="${item#*=}" ;;
+		'SNAP='*) SNAP+=("${item#*=}") ;;
+		'TEA='*) TEA+=("${item#*=}") ;;
+		'URPMI='* | 'MAGEIA='*) URPMI+=("${item#*=}") ;;
+		'WINGET='*) WINGET+=("${item#*=}") ;;
+		'XBPS='* | 'VOID='*) XBPS+=("${item#*=}") ;;
+		'YAY='*) YAY+=("${item#*=}") ;;
+		'YUM_REPO='*) YUM_REPO+=("${item#*=}") ;;
+		'YUM='*) YUM+=("${item#*=}") ;;
+		'ZYPPER_REPO_ALIAS='*) ZYPPER_REPO_ALIAS="${item#*=}" ;;
+		'ZYPPER_REPO='*) ZYPPER_REPO="${item#*=}" ;;
+		'ZYPPER_TYPE='*) ZYPPER_TYPE="${item#*=}" ;;
+		'ZYPPER='* | 'OPENSUSE='* | 'SUSE='*) ZYPPER+=("${item#*=}") ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised flag was provided: $item" ;;
 		esac
 	done
 
 	# ensure action
-	if test -z "$action"; then
-		action='install'
+	if test -z "$option_action"; then
+		option_action='install'
 	fi
-	if ! [[ $action =~ install|uninstall|upgrade ]]; then
+	if ! [[ $option_action =~ ^(install|uninstall|upgrade)$ ]]; then
 		help 'Invalid <action>, must be [install], [uninstall], or [upgrade].'
 	fi
 
 	# if uninstall, disable upgrade
-	if test "$action" = 'uninstall'; then
-		upgrade='no'
+	if test "$option_action" = 'uninstall'; then
+		option_upgrade='no'
 	fi
 
 	# ensure name fallback
-	if test -z "$name" -a -n "$app"; then
-		name="$app"
+	if test -z "$option_name" -a -n "$option_app"; then
+		option_name="$option_app"
 	fi
-	if test -z "$name" -a -n "$cli"; then
-		name="$cli"
+	if test -z "$option_name" -a -n "$option_cli"; then
+		option_name="$option_cli"
 	fi
-	if test -z "$name" -a -n "$installer"; then
-		name="$installer"
+	if test -z "$option_name" -a -n "$option_font"; then
+		option_name="$option_font"
 	fi
-	if test -z "$name"; then
-		help 'Either <name>, <cli>, <app> must be provided.'
+	if test -z "$option_name" -a -n "$option_installer"; then
+		option_name="$option_installer"
+	fi
+	if test -z "$option_name"; then
+		help 'Either <name>, <cli>, <app>, <font>, <installer> must be provided.'
+	fi
+
+	# check if exists
+	local check_works='' app_exists='' cli_exists='' cli_working='' font_exists=''
+	if test -n "$option_check" -a "$option_check" != 'yes' -a "$option_check" != 'no'; then
+		if command "$option_check"; then
+			check_works='yes'
+		else
+			check_works='no'
+		fi
+	else
+		if test -n "$option_app"; then
+			if get-app --quiet -- "$option_app"; then
+				app_exists='yes'
+			else
+				app_exists='no'
+			fi
+		fi
+		if test -n "$option_cli"; then
+			if command-exists -- "$option_cli"; then
+				cli_exists='yes'
+				if command-working --sudo="$option_sudo" -- "$option_cli"; then
+					cli_working='yes'
+				else
+					cli_working='no'
+				fi
+			else
+				cli_exists='no'
+				cli_working='no'
+			fi
+		fi
+		if test -n "$option_font"; then
+			if get-font --quiet -- "$option_font"; then
+				font_exists='yes'
+			else
+				font_exists='no'
+			fi
+		fi
+	fi
+
+	# check only
+	if test -n "$option_check" -a "$option_check" != 'no'; then
+		if test "$option_quiet" = 'yes' -a "$option_action" = 'install'; then
+			if test "$check_works" = 'yes' -o "$app_exists" = 'yes' -o "$cli_working" = 'yes' -o "$font_exists" = 'yes'; then
+				return 0
+			fi
+		fi
+		return 1
+	fi
+
+	# check for action (--check=yes/command would have already exited, as it would have above)
+	if test -n "$option_app" -o -n "$option_cli" -o -n "$option_font"; then
+		if test "$app_exists" != 'yes' -a "$cli_exists" != 'yes' -a "$font_exists" != 'yes'; then
+			# nothing installed
+			if test "$option_action" = 'uninstall'; then
+				# already uninstalled, so no need to uninstall
+				maybe_echo_style --g3="The [$option_name] utility was not found. Already uninstalled. ✅" >/dev/stderr
+				# exit
+				return 0
+			fi
+			option_upgrade='no' # note that we aren't upgrading, which is used for logging
+			# perform install
+			maybe_echo_style --h3="The [$option_name] utility was not found. Installing automatically... ⏲" >/dev/stderr
+		elif test "$option_action" = 'uninstall'; then
+			# exists, uninstall enabled
+			option_upgrade='no' # note that we aren't upgrading, which is used for logging
+			# perform uninstall
+			maybe_echo_style --h3="The [$option_name] utility is marked for uninstall. Uninstalling... ⏲" >/dev/stderr
+		elif test "$option_upgrade" = 'yes'; then
+			# exists, upgrade enabled
+			# perform upgrade
+			maybe_echo_style --h3="The [$option_name] utility is marked for upgrade. Upgrading... ⏲" >/dev/stderr
+		elif test "$cli_working" = 'fail'; then
+			# exists, not working
+			# perform reinstall
+			maybe_echo_style --h3="The [$option_name] utility via [$option_cli] is misbehaving. Reinstalling automatically... ⏲" >/dev/stderr
+		elif test "$option_check" = 'no'; then
+			# exists, don't care, proceed anyway
+			# used by setup-util-nerd-fonts to ensure we check for the correct font
+			: # do nothing
+		else
+			# exists, no upgrade, is working
+			# already installed, so no need to install again
+			maybe_echo_style --g3="The [$option_name] utility is already installed. ✅" >/dev/stderr
+			return 0
+		fi
 	fi
 
 	# ensure order
-	local temp_order installer inject_installer
-	if test "${#order[@]}" -eq 0; then
-		order=("${installers[@]}")
+	if test "${#option_order[@]}" -eq 0; then
+		option_order=("${installers[@]}")
 	else
 		# custom order, handle ...
 		# so [snap ...] means snap first, then everything else, whereas [... apt] means everyting then apt
 		# as such, the specified installers need to be trimmed from the ... substitution
 		# @todo this will currently hard fail if there is two ... occurences
+		local temp_order installer inject_installer
 		temp_order=()
-		for installer in "${order[@]}"; do
+		for installer in "${option_order[@]}"; do
 			if test "$installer" = '...'; then
 				for inject_installer in "${installers[@]}"; do
-					if is-needle "$inject_installer" "${order[@]}"; then
+					if is-needle --needle="$inject_installer" -- "${option_order[@]}"; then
 						continue
 					else
 						temp_order+=("$inject_installer")
@@ -475,27 +552,30 @@ function setup_util() (
 				temp_order+=("$installer")
 			fi
 		done
-		order=("${temp_order[@]}")
+		option_order=("${temp_order[@]}")
 	fi
 
 	# =====================================
 	# Process
 
-	function maybe_echo_style {
-		if test "$quiet" != 'yes'; then
-			echo-style "$@"
-		fi
-	}
+	# helpers
 	function get_path_from_filename {
 		local filename="$1"
 		# only place in appimage_home if it keeps the appimage extension
-		if [[ $filename == *'.app' ]]; then
+		if [[ $filename =~ \.(ttf|otf)$ ]]; then
+			local font_dir
+			font_dir="$(get-font --dirs | echo-first-line)"
+			print_line "$font_dir/$filename"
+		elif [[ $filename == *'.app' ]]; then
 			# macos /Applications/$filename.app
 			print_line "$HOME/Applications/$filename"
 		elif [[ $filename == *'.appimage' ]]; then
 			# macos $HOME/Applications/$filename.appimage
 			mkdir -p "$APPIMAGE_HOME"
 			print_line "$APPIMAGE_HOME/$filename"
+		elif test "$option_xdg" = 'no'; then
+			sudo mkdir -p '/usr/local/bin'
+			print_line "/usr/local/bin/$filename"
 		else
 			# macos $HOME/.local/bin/$filename
 			mkdir -p "$XDG_BIN_HOME"
@@ -503,37 +583,52 @@ function setup_util() (
 		fi
 	}
 	function verify_saved_path {
-		local path="$1"
+		local filename="$1" path="$2"
 
 		# verify
-		if is-missing "$path"; then
+		if is-missing -- "$path"; then
 			echo-style --error='Failed to install:' ' ' --code="$path" >/dev/stderr
 			return 1
 		fi
 
-		# adjust
-		fs-own --permissions='+x' -- "$path"
-		fs-dequarantine -- "$path"
-
-		# verify
-		if [[ $path == *'.app' ]] && test -d "$path"; then
-			return 0
-		elif command-working "$path"; then
+		# check font
+		if [[ $path =~ \.(ttf|otf)$ ]] && test -f "$path"; then
 			return 0
 		else
-			echo-style --error='Failed to verify:' ' ' --code="$path" >/dev/stderr
-			rm_helper "$path" # remove so it doesn't interfere with other install methods and other processes
-			return 1
+			# adjust
+			fs-own --permissions='+x' -- "$path"
+			fs-dequarantine -- "$path"
+
+			# check app or cli
+			if [[ $path == *'.app' ]] && test -d "$path"; then
+				return 0
+			elif command-working --sudo="$option_sudo" -- "$path"; then
+				return 0
+			fi
 		fi
+
+		# failure
+		echo-style --error='Failed to verify:' ' ' --code="$path" >/dev/stderr
+		# remove so it doesn't interfere with other install methods and other processes
+		rm_helper "$path"
+		# return failure
+		return 1
 	}
 	function rm_helper {
-		local path="$1"
-
 		# prefer moving to trash
 		# because trash allows invocations to continue
-		# otherwise active invocations will crash (such as setup-util-bash unisntlling the bash it was invoked with)
-		if is-present "$path"; then
-			fs-rm --no-confirm --quiet --trash -- "$path"
+		# otherwise active invocations will crash (such as setup-util-bash uninstalling the bash it was invoked with)
+		if test "$#" -ne 0; then
+			fs-rm --quiet --no-confirm --trash --sudo="$option_sudo" -- "$@"
+		fi
+	}
+	function rm_helper_confirm {
+		local selection=()
+		mapfile -t selection < <(
+			choose-option --multi --question='Which files to remove?' -- "$@"
+		)
+		if test "$#" -ne 0; then
+			rm_helper -- "${selection[@]}"
 		fi
 	}
 
@@ -541,76 +636,19 @@ function setup_util() (
 	# which will be used, if none of the package systems were present, as such proceed in order of preference for installation of package systems
 	local fallbacks=()
 
-	# check if exists
-	local app_exists='' cli_exists='' cli_working=''
-	if test -n "$app"; then
-		if get-app --quiet "$app"; then
-			app_exists='yes'
-		else
-			app_exists='no'
-		fi
-	fi
-	if test -n "$cli"; then
-		if command-exists "$cli"; then
-			cli_exists='yes'
-			if command-working "$cli"; then
-				cli_working='yes'
-			else
-				cli_working='no'
-			fi
-		else
-			cli_exists='no'
-			cli_working='no'
-		fi
-	fi
-
-	# check if necessary
-	if test -n "$app" -o -n "$cli"; then
-		if test "$app_exists" != 'yes' -a "$cli_exists" != 'yes'; then
-			# neither installed
-			if test "$action" = 'uninstall'; then
-				# already uninstalled, so no need to uninstall
-				maybe_echo_style --g3="The [$name] utility was not found. Already uninstalled. ✅" >/dev/stderr
-				# exit
-				return 0
-			fi
-			upgrade='no' # note that we aren't upgrading, which is used for logging
-			# perform install
-			maybe_echo_style --h3="The [$name] utility was not found. Installing automatically... ⏲" >/dev/stderr
-		elif test "$action" = 'uninstall'; then
-			# exists, uninstall enabled
-			upgrade='no' # note that we aren't upgrading, which is used for logging
-			# perform uninstall
-			maybe_echo_style --h3="The [$name] utility is marked for uninstall. Uninstalling... ⏲" >/dev/stderr
-		elif test "$upgrade" = 'yes'; then
-			# exists, upgrade enabled
-			# perform upgrade
-			maybe_echo_style --h3="The [$name] utility is marked for upgrade. Upgrading... ⏲" >/dev/stderr
-		elif test "$cli_working" = 'fail'; then
-			# exists, not working
-			# perform reinstall
-			maybe_echo_style --h3="The [$name] utility via [$cli] is misbehaving. Reinstalling automatically... ⏲" >/dev/stderr
-		else
-			# exists, no upgrade, is working
-			# already installed, so no need to install again
-			maybe_echo_style --g3="The [$name] utility is already installed. ✅" >/dev/stderr
-			return 0
-		fi
-	fi
-
-	# for upgrade only, remove xdg bin if it exists, as we don't want conflicts if it is deprecated
-	# do not do this for uninstall, as we want the actuall methods to handle that
-	if test "$upgrade" = 'yes'; then
-		if test -n "$cli" -a -e "$XDG_BIN_HOME/$cli"; then
-			rm_helper "$XDG_BIN_HOME/$cli"
+	# for upgrade only, remove existing bin if it exists, as we don't want conflicts if it is deprecated
+	# do not do this for uninstall, as we want the actual methods to handle that
+	if test "$option_upgrade" = 'yes'; then
+		if test -n "$option_cli"; then
+			rm_helper "$XDG_BIN_HOME/$option_cli" "/usr/local/bin/$option_cli"
 		fi
 	fi
 
 	# confirm if necessary
-	if test "$confirm" = 'yes'; then
-		if ! confirm --positive --ppid=$$ -- "Do you want to setup the [$name] utility?"; then
+	if test "$option_confirm" = 'yes'; then
+		if ! confirm --positive --ppid=$$ -- "Do you want to setup the [$option_name] utility?"; then
 			# we don't want to modify it
-			if test "$optional" = 'yes'; then
+			if test "$option_optional" = 'yes'; then
 				# it was optional, so success case
 				return 0
 			else
@@ -629,7 +667,7 @@ function setup_util() (
 	# apk / Alpine Linux
 	# https://wiki.alpinelinux.org/wiki/Package_management
 	# https://pkgs.alpinelinux.org/packages
-	function are_any_of_these_apk_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_apk_packages_installed {
 		local package packages=("$@")
 		# returns 1 if any are missin
 		for package in "${packages[@]}"; do
@@ -640,7 +678,7 @@ function setup_util() (
 		return 1
 	}
 	function do_apk {
-		local args=() packages=()
+		local args=() packages=() repo="$APK_REPO"
 		if test "${#APK[@]}" -ne 0; then
 			packages+=("${APK[@]}")
 		fi
@@ -654,8 +692,8 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_apk_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_apk_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
@@ -670,6 +708,12 @@ function setup_util() (
 			)
 		fi
 		args+=('--update-cache')
+		if test -n "$repo"; then
+			args+=(
+				'--repository'
+				"$repo"
+			)
+		fi
 
 		# packages
 		sudo-helper -- "${args[@]}" "${packages[@]}"
@@ -699,13 +743,13 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			# @todo figure out installed check
 			args+=(
 				'conda'
 				'remove'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'conda'
 				'update'
@@ -755,7 +799,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -772,7 +816,7 @@ function setup_util() (
 	}
 
 	# pacman / Arch Linux / Manjaro
-	function are_any_of_these_pacman_packages_installed {
+	function __are_any_of_these_pacman_packages_installed {
 		local package packages=("$@")
 		# returns 1 if any are missing
 		for package in "${packages[@]}"; do
@@ -828,8 +872,8 @@ function setup_util() (
 		sudo-helper -- pacman-key --init
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_pacman_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_pacman_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
@@ -839,7 +883,7 @@ function setup_util() (
 				'--sync'
 				'--remove'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'pacman'
 				'--noconfirm'
@@ -857,7 +901,7 @@ function setup_util() (
 				'--needed'
 			)
 		fi
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			args+=('--quiet')
 		fi
 
@@ -885,7 +929,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -926,7 +970,7 @@ function setup_util() (
 		# bypass any and all confirmation messages
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'pamac'
 				'remove'
@@ -934,7 +978,7 @@ function setup_util() (
 			)
 		else
 			# install / reinstall / upgrade
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=(
 					'pamac'
 					'reinstall'
@@ -959,7 +1003,7 @@ function setup_util() (
 		if ! is-manjaro; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		setup-util-pamac --quiet="$quiet"
+		setup-util-pamac --quiet="$option_quiet"
 		do_pamac "$@"
 	}
 
@@ -983,9 +1027,9 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 1 # unsupported
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'paru'
 				'-Sua'
@@ -1022,7 +1066,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 1 # unsupported
 		else
 			# install / upgrade
@@ -1064,7 +1108,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'pkg'
 				'autoremove'
@@ -1102,7 +1146,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 1 # unsupported
 		fi
 
@@ -1132,12 +1176,12 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'pkgin'
 				'remove'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'pkgin'
 				'upgrade'
@@ -1163,6 +1207,18 @@ function setup_util() (
 	# supports installing/uninstalling downloaded .deb files
 	# sucessor to aptitude
 	# https://wiki.debian.org/Apt
+	function __are_all_of_these_apt_packages_installed {
+		local packages=("$@") package
+		# returns 1 only if all are missing, returns 0 if any are installed
+		for package in "${packages[@]}"; do
+			if apt list --installed 2>/dev/null | grep --quiet --fixed-strings --regexp="$package/" &>/dev/null; then
+				continue
+			else
+				return 1
+			fi
+		done
+		return 0
+	}
 	function do_apt_key_fetch {
 		local key="$1"
 		if [[ $key == *'.asc' ]]; then
@@ -1189,8 +1245,12 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 
-		# if APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
+		# when APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
 		if test -n "$repo" -o -n "$key"; then
+			# ensure apt is setup
+			setup-util-apt --quiet
+			setup-util-gpg --quiet
+			# determine APT_ID
 			if test -z "$id"; then
 				if test "${#packages[@]}" -gt 1; then
 					cat <<-EOF >/dev/stderr
@@ -1209,7 +1269,7 @@ function setup_util() (
 		if test -n "$key"; then
 			if test -z "$repo"; then
 				cat <<-EOF >/dev/stderr
-					$(echo-style --error="If APT_KEY is set, APT_REPO must also be set.")
+					$(echo-style --error="When APT_KEY is set, APT_REPO must also be set.")
 
 					APT: ${packages[*]}
 				EOF
@@ -1217,7 +1277,7 @@ function setup_util() (
 			fi
 			if [[ $repo != *'signed-by'* ]]; then
 				cat <<-EOF >/dev/stderr
-					$(echo-style --error="If APT_KEY is set, APT_REPO must contain:")
+					$(echo-style --error="When APT_KEY is set, APT_REPO must contain:")
 					$(echo-style --code="deb [signed-by={KEY}] https://...")
 
 					APT: ${packages[*]}
@@ -1231,7 +1291,7 @@ function setup_util() (
 		if test -n "$repo" && [[ $repo == 'deb '* ]]; then
 			if [[ $repo != *'arch={ARCH}'* ]]; then
 				cat <<-EOF >/dev/stderr
-					$(echo-style --error="If APT_REPO is set, arch must be set to {ARCH}")
+					$(echo-style --error="When APT_REPO is set, arch must be set to {ARCH}")
 					$(echo-style --code="deb [arch={ARCH}] https://...")
 
 					APT: ${packages[*]}
@@ -1241,7 +1301,7 @@ function setup_util() (
 			fi
 			if test -n "$key" && [[ $repo != *'signed-by={KEY}'* ]]; then
 				cat <<-EOF >/dev/stderr
-					$(echo-style --error="If APT_REPO and APT_KEY is set, signed-by must be set to {KEY}")
+					$(echo-style --error="When APT_REPO and APT_KEY is set, signed-by must be set to {KEY}")
 					$(echo-style --code="deb [signed-by={KEY}] https://...")
 
 					APT: ${packages[*]}
@@ -1275,12 +1335,13 @@ function setup_util() (
 			# https://askubuntu.com/a/1306494
 
 			# prepare new location
-			sudo-helper -- mkdir -p /usr/local/share/keyrings/
+			# /usr/share/keyrings - system packagers
+			# /usr/local/share/keyrings - system operator
+			sudo-helper -- mkdir -p --mode=0755 /usr/share/keyrings /usr/local/share/keyrings
 			keyring="/usr/local/share/keyrings/$id.gpg"
 
 			# remove old keys if they exist
-			sudo-helper -- rm -f /usr/local/share/keyrings/*"$id"* || :
-			sudo-helper -- rm -f /etc/apt/trusted.gpg.d/*"$id"* || :
+			fs-rm --quiet --sudo --no-confirm --optional -- /usr/local/share/keyrings/*"$id"* /etc/apt/trusted.gpg.d/*"$id"*
 
 			# helper for quiet output
 			function do_apt_key_add {
@@ -1294,7 +1355,7 @@ function setup_util() (
 				# adjust permission to fix [_apt access error] on ubuntu 21.10
 				sudo-helper -- chmod a+r "$keyring"
 			}
-			if test "$action" != 'uninstall'; then
+			if test "$option_action" != 'uninstall'; then
 				do_apt_key_add
 			fi
 		fi
@@ -1302,7 +1363,7 @@ function setup_util() (
 		# prepare APT with APT_REPO
 		if test -n "$repo"; then
 			# remove old listings if they exist
-			sudo-helper -- rm -f /etc/apt/sources.list.d/*"$id"* || :
+			fs-rm --quiet --sudo --no-confirm --optional -- /etc/apt/sources.list.d/*"$id"* || :
 
 			# add the repo with appropriate technique for the repo type
 			if [[ $repo == 'deb '* ]]; then
@@ -1320,7 +1381,7 @@ function setup_util() (
 				)"}"
 
 				# use a non-deprecated technique that supports the deb modifiers
-				if test "$action" != 'uninstall'; then
+				if test "$option_action" != 'uninstall'; then
 					print_line "$repo" | sudo-helper -- tee "/etc/apt/sources.list.d/$id.list" >/dev/null
 				fi
 			else
@@ -1330,7 +1391,7 @@ function setup_util() (
 
 				# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
 				# however the alternative for `ppa:` and other syntax is too complicated
-				if test "$action" != 'uninstall'; then
+				if test "$option_action" != 'uninstall'; then
 					sudo-helper -- apt-add-repository -y --enable-source "$repo"
 				fi
 			fi
@@ -1345,7 +1406,11 @@ function setup_util() (
 		fi
 
 		# action args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_all_of_these_apt_packages_installed "${packages[@]}"; then
+				return 200 # ECUSTOM 200 Not applicable to this uninstallation
+			fi
+
 			# don't use `apt remove --purge` as it is equivalent to `apt purge`
 			# and purge removing python will also remove ufw and samba and a whole bunch of other things that depend on python
 			# as such, only use `--auto-remove` as that is safer
@@ -1370,7 +1435,7 @@ function setup_util() (
 			download_url="${packages[download_index]}"
 			if [[ $download_url == 'http'* ]]; then
 				# fetch temp path
-				download_filepath="$(fs-temp --touch --directory='setup-util' --file="$name.deb")"
+				download_filepath="$(fs-temp --touch --directory='setup-util' --file="$option_name.deb")"
 				# download to temp path
 				down --filepath="$download_filepath" "$download_url"
 				# apt supports .deb packages for install and uninstall
@@ -1404,7 +1469,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'dpkg'
 				'--remove'
@@ -1418,7 +1483,7 @@ function setup_util() (
 		fi
 
 		# dependencies
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			source "$DOROTHY/sources/ripgrep.bash"
 		fi
 
@@ -1427,14 +1492,14 @@ function setup_util() (
 			download_url="${packages[download_index]}"
 			if [[ $download_url == 'http'* ]]; then
 				# fetch temp path
-				download_filepath="$(fs-temp --touch --directory='setup-util' --file="$name.deb")"
+				download_filepath="$(fs-temp --touch --directory='setup-util' --file="$option_name.deb")"
 				# download to temp path
 				down --filepath="$download_filepath" "$download_url"
 				# adjust the cmd
-				if test "$action" = 'uninstall'; then
+				if test "$option_action" = 'uninstall'; then
 					# if uninstalling, use the package name
 					packages[download_index]="$(
-						dpkg -I "$download_filepath" | rg -o --regexp='Package:\s+(.+)' --replace='$1'
+						dpkg -I "$download_filepath" | rg --only-matching --regexp='Package:\s+(.+)' --replace='$1'
 					)"
 				else
 					# update packge with its download path if installing
@@ -1480,12 +1545,12 @@ function setup_util() (
 
 		# repos
 		args=()
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'flatpak'
 				'remote-delete'
 			)
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=('--force')
 			fi
 		else
@@ -1501,12 +1566,12 @@ function setup_util() (
 
 		# args
 		args=()
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'flatpak'
 				'uninstall'
 			)
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=('--force-remove')
 			fi
 		else
@@ -1516,7 +1581,7 @@ function setup_util() (
 				'install'
 				'--or-update'
 			)
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=('--reinstall')
 			fi
 		fi
@@ -1531,7 +1596,7 @@ function setup_util() (
 		done
 	}
 	function do_flatpak_fallback {
-		setup-util-flatpak --quiet="$quiet"
+		setup-util-flatpak --quiet="$option_quiet"
 		do_flatpak "$@"
 	}
 
@@ -1555,7 +1620,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'guix'
 				'package'
@@ -1605,13 +1670,13 @@ function setup_util() (
 		# done
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			# go install installs a single binary file
-			if test -n "$cli" -a -n "${GOPATH-}"; then
-				if is-missing "$GOPATH/bin/$cli"; then
+			if test -n "$option_cli" -a -n "${GOPATH-}"; then
+				if is-missing -- "$GOPATH/bin/$option_cli"; then
 					return 200 # ECUSTOM 200 Not applicable for this package system
 				fi
-				rm_helper "$GOPATH/bin/$cli"
+				rm_helper "$GOPATH/bin/$option_cli"
 				return
 			else
 				return 1 # unsupported, as the package is not a CLI
@@ -1637,7 +1702,7 @@ function setup_util() (
 		done
 	}
 	function do_go_fallback {
-		setup-util-go --quiet="$quiet"
+		setup-util-go --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_go "$@"
 	}
@@ -1667,9 +1732,9 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 1 # unsupported
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'conda'
 				'update'
@@ -1689,7 +1754,7 @@ function setup_util() (
 	# MacOS
 
 	# brew / Homebrew / macOS
-	function are_all_of_these_brew_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_all_of_these_brew_packages_installed {
 		local packages=("$@")
 		brew-installed --formula -- "${packages[@]}" &>/dev/null
 	}
@@ -1715,7 +1780,7 @@ function setup_util() (
 		fi
 
 		# opts
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			opts+=('--quiet')
 		fi
 
@@ -1727,8 +1792,8 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_all_of_these_brew_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_all_of_these_brew_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable for this package system
 			fi
 			args+=(
@@ -1742,7 +1807,7 @@ function setup_util() (
 				'install'
 			)
 		fi
-		if test "$force" = 'yes'; then
+		if test "$option_force" = 'yes'; then
 			args+=('--force')
 		fi
 		if test "${#opts[@]}" -ne 0; then # bash v3 compat
@@ -1756,7 +1821,7 @@ function setup_util() (
 		if ! is-mac; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		setup-util-brew --quiet="$quiet"
+		setup-util-brew --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_brew "$@"
 	}
@@ -1764,7 +1829,7 @@ function setup_util() (
 	# brew / Homebrew Casks / macOS
 	# some packages are available as both brew, and cask
 	# ... so provide both independently as they are alternatives
-	function are_all_of_these_cask_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_all_of_these_cask_packages_installed {
 		local packages=("$@")
 		brew-installed --cask -- "${packages[@]}" &>/dev/null
 	}
@@ -1790,7 +1855,7 @@ function setup_util() (
 		fi
 
 		# opts
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			opts+=('--quiet')
 		fi
 
@@ -1802,15 +1867,15 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_all_of_these_cask_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_all_of_these_cask_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable for this package system
 			fi
 			args+=(
 				'brew'
 				'uninstall'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			# upgrade
 			args+=(
 				'brew'
@@ -1823,7 +1888,7 @@ function setup_util() (
 				'install'
 			)
 		fi
-		if test "$force" = 'yes'; then
+		if test "$option_force" = 'yes'; then
 			args+=('--force')
 		fi
 		args+=('--cask')
@@ -1839,7 +1904,7 @@ function setup_util() (
 		if ! is-mac; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		setup-util-brew --quiet="$quiet"
+		setup-util-brew --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_cask "$@"
 	}
@@ -1852,10 +1917,10 @@ function setup_util() (
 		while read -r id name; do
 			# trim version from the name, it doesn't work in the `read` arguments, as spaces inside name will be considered the version
 			name="${name%%  *}"
-			if test "$(lowercase_string "$name")" = "$(lowercase_string "$arg")"; then
-				exact+=("$id" "$name")
+			if test "$(lowercase_string "$option_name")" = "$(lowercase_string "$arg")"; then
+				exact+=("$id" "$option_name")
 			else
-				options+=("$id" "$name")
+				options+=("$id" "$option_name")
 			fi
 			# ^ append the id and name (which are space and tab separated)
 		done < <(mas search "$arg" | echo-trim-each-line --stdin | sort --ignore-case -k 2)
@@ -1888,7 +1953,7 @@ function setup_util() (
 		fi
 
 		# action args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			# currently broken
 			# https://github.com/mas-cli/mas/issues/313
 			return 1 # unsupported
@@ -1909,7 +1974,7 @@ function setup_util() (
 
 		# signin, signout, no longer supported
 		# local signed_in='maybe'
-		# function mas_signin {
+		# function __mas_signin {
 		# 	local email
 		# 	if test "$signed_in" = 'yes'; then
 		# 		return 0
@@ -1918,7 +1983,7 @@ function setup_util() (
 		# 		ask --required \
 		# 			--question="The Mac App Store requires your email, enter it now."
 		# 	)"
-		# 	if is-value "$email"; then
+		# 	if is-value -- "$email"; then
 		# 		# mas signout || :
 		# 		mas signin --dialog "$email" || {
 		# 			echo-style --notice="Failed to signin to the Mac App Store."
@@ -1930,17 +1995,17 @@ function setup_util() (
 		# 		return 1
 		# 	fi
 		# }
-		# function mas_action {
+		# function __mas_action {
 		# 	"${args[@]}" "${packages[@]}"
 		# }
-		# mas_action || {
-		# 	mas_signin && mas_action
+		# __mas_action || {
+		# 	__mas_signin && __mas_action
 		# }
 
 		# packages
 		for package in "${packages[@]}"; do
 			# convert labels into ids
-			if ! is-number "$package"; then
+			if ! is-number -- "$package"; then
 				package="$(mas_search "$package")"
 			fi
 
@@ -1952,7 +2017,7 @@ function setup_util() (
 		if ! is-mac; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		setup-util-mas --quiet="$quiet"
+		setup-util-mas --quiet="$option_quiet"
 		do_mas "$@"
 	}
 
@@ -1975,12 +2040,12 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'port'
 				'uninstall'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'port'
 				'upgrade'
@@ -2023,12 +2088,12 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'nix-env'
 				'--uninstall'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'nix-env'
 				'--upgrade'
@@ -2056,10 +2121,10 @@ function setup_util() (
 	# Node.js
 
 	# npm / Node.js
-	function are_any_of_these_npm_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_npm_packages_installed {
 		local packages=("$@")
 		# returns 1 only if all are missing, returns 0 if any are installed
-		nvm-env npm list --global --depth 0 "${packages[@]}" &>/dev/null
+		nvm-env -- npm list --global --depth 0 "${packages[@]}" &>/dev/null
 	}
 	function do_npm {
 		local args=() packages=()
@@ -2075,14 +2140,14 @@ function setup_util() (
 		fi
 
 		# checks
-		if nvm-env command-missing npm; then
+		if nvm-env -- command-missing npm; then
 			fallbacks+=('npm')
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_npm_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_npm_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
@@ -2096,15 +2161,15 @@ function setup_util() (
 				'--global'
 			)
 		fi
-		if test "$force" = 'yes'; then
+		if test "$option_force" = 'yes'; then
 			args+=('--force')
 		fi
 
 		# packages
-		nvm-env npm "${args[@]}" "${packages[@]}"
+		nvm-env -- npm "${args[@]}" "${packages[@]}"
 	}
 	function do_npm_fallback {
-		setup-util-node --quiet="$quiet"
+		setup-util-node --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_npm "$@"
 	}
@@ -2117,7 +2182,7 @@ function setup_util() (
 
 	# pip / Python
 	# https://man.archlinux.org/man/extra/python-pip/pip.1.en
-	function pip_helper { # 👍 /docs/bash/errors: robust exit status
+	function __pip_helper {
 		# Use the correct [pip] executable for the user's environment, as there may be many or multiple installed, such as one for Python v2 and one for Python v3.
 		if command-exists pip; then
 			pip "$@" || return
@@ -2132,18 +2197,18 @@ function setup_util() (
 		elif python2 -m pip --version &>/dev/null; then
 			python -m pip "$@" || return
 		elif command-exists /usr/local/bin/pip; then
-			/usr/local/bin/pip "$@"
+			/usr/local/bin/pip "$@" || return
 		elif test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/pip"; then
 			"${HOMEBREW_PREFIX}/bin/pip" "$@" || return
 		else
-			echo-style --error="[pip] nor its variations were found" >/dev/stderr
+			echo-style --error="[pip] nor its variations were found" >/dev/stderr || return
 			return 1
 		fi
 	}
-	function are_any_of_these_pip_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_pip_packages_installed {
 		local packages=("$@")
 		# returns 1 only if all are missing, returns 0 if any are installed
-		pip_helper show -q "${packages[@]}" &>/dev/null
+		__pip_helper show -q "${packages[@]}" &>/dev/null
 	}
 	function do_pip {
 		local args=() packages=() pip_status
@@ -2157,33 +2222,33 @@ function setup_util() (
 		if test "${#packages[@]}" -eq 0; then
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
-		eval_capture --statusvar=pip_status --no-output -- pip_helper --version
+		eval_capture --statusvar=pip_status --no-output -- __pip_helper --version
 		if test "$pip_status" -ne 0; then
 			fallbacks+=('pip')
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_pip_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_pip_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
-				'pip_helper'
+				'__pip_helper'
 				'uninstall'
 				'--yes'
 			)
 		else
 			args+=(
-				'pip_helper'
+				'__pip_helper'
 				'install'
 				'--user'
 				'--no-warn-script-location'
 			)
-			if test "$upgrade" = 'yes'; then
+			if test "$option_upgrade" = 'yes'; then
 				args+=('--upgrade')
 			fi
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=('--force-reinstall ')
 			fi
 		fi
@@ -2192,7 +2257,7 @@ function setup_util() (
 		"${args[@]}" "${packages[@]}"
 	}
 	function do_pip_fallback {
-		setup-util-python --quiet="$quiet"
+		setup-util-python --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_pip "$@"
 	}
@@ -2202,7 +2267,7 @@ function setup_util() (
 	# https://www.mankier.com/1/pipx#COMMAND_'pipx_upgrade'
 	# https://www.mankier.com/1/pipx#COMMAND_'pipx_uninstall'
 	# https://www.mankier.com/1/pipx#COMMAND_'pipx_reinstall'
-	function are_any_of_these_pipx_packages_installed {
+	function __are_any_of_these_pipx_packages_installed {
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
 			# only supports one package at a time
@@ -2230,30 +2295,30 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_pipx_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_pipx_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
 				'pipx'
 				'uninstall-all'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'pipx'
 				'upgrade-all'
 			)
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=('--force')
 			fi
 		else
-			# if test "$force" = 'yes'; then
+			# if test "$option_force" = 'yes'; then
 			#	args+=('reinstall')
 			args+=(
 				'pipx'
 				'install' # install-all does not exist
 			)
-			if test "$force" = 'yes'; then
+			if test "$option_force" = 'yes'; then
 				args+=('--force')
 			fi
 		fi
@@ -2262,10 +2327,10 @@ function setup_util() (
 		"${args[@]}" "${packages[@]}"
 	}
 	function do_pipx_fallback {
-		if ! pip_helper --version &>/dev/null; then
+		if ! __pip_helper --version &>/dev/null; then
 			setup-python
 		fi
-		setup-util-pipx --quiet="$quiet"
+		setup-util-pipx --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_pipx "$@"
 	}
@@ -2311,7 +2376,7 @@ function setup_util() (
 			'--best'
 			'--refresh'
 		)
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			opts+=('--quiet')
 		fi
 
@@ -2322,6 +2387,8 @@ function setup_util() (
 
 		# repos
 		if test "${#repos[@]}" -ne 0; then
+			# fix https://github.com/bevry/dorothy/actions/runs/7622089094/job/20759534693#step:4:1514
+			sudo-helper -- dnf "${opts[@]}" install 'dnf-command(config-manager)'
 			sudo-helper -- dnf "${opts[@]}" config-manager --add-repo "${repos[@]}"
 		fi
 
@@ -2331,13 +2398,13 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'dnf'
 				"${opts[@]}"
 				'remove'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'dnf'
 				"${opts[@]}"
@@ -2375,12 +2442,12 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'rpm'
 				'--erase'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'rpm'
 				'--upgrade'
@@ -2391,7 +2458,7 @@ function setup_util() (
 				'--install'
 			)
 		fi
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			args+=('--quiet')
 		fi
 
@@ -2430,7 +2497,7 @@ function setup_util() (
 		# --auto: Install all required dependencies without asking.
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'urpme'
 			)
@@ -2487,7 +2554,7 @@ function setup_util() (
 			'-y'
 			'--best'
 		)
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			opts+=('--quiet')
 		fi
 
@@ -2496,13 +2563,13 @@ function setup_util() (
 			down --directory='/etc/yum.repos.d/' "$repo"
 		done
 
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'yum'
 				"${opts[@]}"
 				'remove'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'yum'
 				"${opts[@]}"
@@ -2589,7 +2656,7 @@ function setup_util() (
 		)
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			cmd+=(
 				'zypper'
 				"${cmd_opts[@]}"
@@ -2616,7 +2683,7 @@ function setup_util() (
 	# gem / Ruby
 	# we use --user-install because of:
 	# https://github.com/ffi/ffi/issues/631
-	function are_any_of_these_gem_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_gem_packages_installed {
 		local packages=("$@")
 		for package in "${packages[@]}"; do
 			# only supports one package at a time
@@ -2644,8 +2711,8 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_gem_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_gem_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			for package in "${packages[@]}"; do
@@ -2670,7 +2737,7 @@ function setup_util() (
 		done
 	}
 	function do_gem_fallback {
-		setup-util-ruby --quiet="$quiet"
+		setup-util-ruby --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_gem "$@"
 	}
@@ -2681,7 +2748,7 @@ function setup_util() (
 	# cargo / Crates.io / Rust
 	# https://manpages.debian.org/testing/cargo/cargo-install.1.en.html
 	# https://manpages.debian.org/testing/cargo/cargo-uninstall.1.en.html
-	function are_any_of_these_cargo_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_cargo_packages_installed {
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
 			# only supports one package at a time
@@ -2709,8 +2776,8 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_cargo_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_cargo_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
@@ -2723,16 +2790,16 @@ function setup_util() (
 				'cargo'
 				'install'
 			)
-			if test "$force" != 'no'; then
+			if test "$option_force" != 'no'; then
 				args+=('--force')
 			fi
 		fi
-		if test "$quiet" != 'no'; then
+		if test "$option_quiet" != 'no'; then
 			args+=('--quiet')
 		fi
 
 		# note cargo installs take a while on the raspberry pi
-		if test "$action" = 'install' -a "$quiet" != 'yes'; then
+		if test "$option_action" = 'install' -a "$option_quiet" != 'yes'; then
 			if is-raspi; then
 				print_line '🚸 As you are on a low-powered device (Raspberry Pi), this may take longer than anticipated, and may appear as if the system has locked up. If you suspect this has occurred, then wait 10 minutes, if nothing occurs, then try holding [Fn OR Alt] + [SysReq] then [R then E then I then S then U then B] 🚸'
 			fi
@@ -2742,14 +2809,14 @@ function setup_util() (
 		# support multiple args inside CARGO
 		for package in "${packages[@]}"; do
 			mapfile -t parts < <(echo-split ' ' -- "$package")
-			if test "$action" = 'uninstall' -a "${parts[0]}" = '--git'; then
-				parts=("$cli")
+			if test "$option_action" = 'uninstall' -a "${parts[0]}" = '--git'; then
+				parts=("$option_cli")
 			fi
 			"${args[@]}" "${parts[@]}"
 		done
 	}
 	function do_cargo_fallback {
-		setup-util-rust --quiet="$quiet"
+		setup-util-rust --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_cargo "$@"
 	}
@@ -2759,7 +2826,7 @@ function setup_util() (
 
 	# snap / Snap Craft / Ubuntu
 	# needs sudo, otherwise: error: access denied (try with sudo)
-	function are_any_of_these_snap_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_snap_packages_installed {
 		local packages=("$@")
 		# returns 1 only if all are missing, returns 0 if any are installed
 		snap list "${packages[@]}" &>/dev/null
@@ -2780,8 +2847,8 @@ function setup_util() (
 		fi
 
 		# action args
-		if test "$action" = 'uninstall'; then
-			if ! are_any_of_these_snap_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall'; then
+			if ! __are_any_of_these_snap_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable to this uninstallation
 			fi
 			args+=(
@@ -2803,7 +2870,7 @@ function setup_util() (
 		# support multiple args inside SNAP
 		for package in "${packages[@]}"; do
 			mapfile -t parts < <(echo-split ' ' -- "$package")
-			if test "$action" = 'uninstall'; then
+			if test "$option_action" = 'uninstall'; then
 				parts=("${parts[0]}") # if uninstalling, trim --classic
 			fi
 			sudo-helper -- "${args[@]}" "${parts[@]}"
@@ -2811,7 +2878,7 @@ function setup_util() (
 
 	}
 	function do_snap_fallback {
-		setup-util-snap --quiet="$quiet"
+		setup-util-snap --quiet="$option_quiet"
 		do_snap "$@"
 	}
 
@@ -2836,13 +2903,13 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'eopkg'
 				'autoremove'
 				'--yes-all'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'eopkg'
 				'upgrade'
@@ -2866,7 +2933,7 @@ function setup_util() (
 	# note that tea doesn't provide man pages, even via [tea man bat]
 	function remove_tea_cache {
 		local package="$1" subpath path
-		# this entire cache of the package must be removed, not just [tea -n "$cli"]
+		# this entire cache of the package must be removed, not just [tea -n "$option_cli"]
 		# see https://discord.com/channels/906608167901876256/906608288026734622/1134327807544135770
 		subpath="${package:1}" # get everything after the +
 		path="$HOME/.tea/$subpath"
@@ -2878,9 +2945,9 @@ function setup_util() (
 		return 200 # ECUSTOM 200 Not applicable to this package system
 	}
 	function remove_tea_xdg_bin_alias {
-		if test -L "$XDG_BIN_HOME/$cli"; then
-			if test "$(fs-realpath -- "$XDG_BIN_HOME/$cli")" = "$(type -P tea)"; then
-				rm_helper "$XDG_BIN_HOME/$cli"
+		if test -L "$XDG_BIN_HOME/$option_cli"; then
+			if test "$(fs-realpath -- "$XDG_BIN_HOME/$option_cli")" = "$(type -P tea)"; then
+				rm_helper "$XDG_BIN_HOME/$option_cli"
 				return 0 # is applicable
 			fi
 		fi
@@ -2914,11 +2981,11 @@ function setup_util() (
 			fallbacks+=('tea')
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
-		if test -z "$cli"; then
+		if test -z "$option_cli"; then
 			echo-style --error="TEA requires <cli>" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 		fi
-		if test -z "$cli"; then
+		if test -z "$option_cli"; then
 			echo-style --error="TEA requires <cli>" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 		fi
@@ -2933,7 +3000,7 @@ function setup_util() (
 			fi
 
 			# uninstall
-			if test "$action" = 'uninstall'; then
+			if test "$option_action" = 'uninstall'; then
 				eval_capture --statusvar=tea_status -- remove_tea_package "$package"
 				if test "$tea_status" -eq 0; then
 					result=0
@@ -2944,17 +3011,17 @@ function setup_util() (
 
 				# install it by doing [tea $package --version]
 				# it would be nice to use [command-working] however [command-working] currently expects multiple commands as arguments so it would become [command-working tea, command-working $package, command-working --version]
-				tea "$package" "$cli" --version
+				tea "$package" "$option_cli" --version
 
 				# make tea alias available
 				mkdir -p "$XDG_BIN_HOME"
-				symlink-helper --quiet="$quiet" --existing="$(type -P tea)" --symlink="$XDG_BIN_HOME/$cli"
+				symlink-helper --quiet="$option_quiet" --existing="$(type -P tea)" --symlink="$XDG_BIN_HOME/$option_cli"
 			fi
 		done
 		return "$result"
 	}
 	function do_tea_fallback {
-		setup-util-tea --quiet="$quiet"
+		setup-util-tea --quiet="$option_quiet"
 		source "$DOROTHY/sources/environment.sh"
 		do_tea "$@"
 	}
@@ -2979,7 +3046,7 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'xbps-remove'
 				'--yes'
@@ -2987,7 +3054,7 @@ function setup_util() (
 				'-O'
 				'-o'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'xbps-install'
 				'--yes'
@@ -3034,12 +3101,12 @@ function setup_util() (
 		fi
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				"$cmd"
 				'uninstall'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				"$cmd"
 				'upgrade'
@@ -3060,15 +3127,15 @@ function setup_util() (
 	# https://scoop.sh/
 	# https://github.com/ScoopInstaller/Scoop/wiki/Commands
 	# https://github.com/ScoopInstaller/Scoop/wiki/Example-Setup-Scripts
-	function is_this_scoop_package_installed {
+	function __is_this_scoop_package_installed {
 		# check for the header of the table of results
 		scoop list "$package" | echo-wait | grep --quiet --fixed-strings --regexp='----'
 	}
-	function are_any_of_these_scoop_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_scoop_packages_installed {
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
 			# only supports one package at a time
-			if is_this_scoop_package_installed "$package"; then
+			if __is_this_scoop_package_installed "$package"; then
 				return 0
 			fi
 		done
@@ -3087,18 +3154,18 @@ function setup_util() (
 		if command-missing scoop; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		if test "$action" = 'uninstall' && ! are_any_of_these_scoop_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall' && ! __are_any_of_these_scoop_packages_installed "${packages[@]}"; then
 			return 200 # ECUSTOM 200 Not applicable to this uninstallation
 		fi
 
 		# args
 		# supports multiple packages, doesn't fail if already uninstalled/installed
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'scoop'
 				'uninstall'
 			)
-		elif test "$upgrade" = 'yes'; then
+		elif test "$option_upgrade" = 'yes'; then
 			args+=(
 				'scoop'
 				'update'
@@ -3114,9 +3181,9 @@ function setup_util() (
 		"${args[@]}" "${packages[@]}"
 
 		# make alias available
-		if test -n "$cli" -a "$action" = 'install' && command-missing "$cli" && command-working "$cli.exe"; then
+		if test -n "$option_cli" -a "$option_action" = 'install' && command-missing -- "$option_cli" && command-working --sudo="$option_sudo" -- "$option_cli.exe"; then
 			mkdir -p "$XDG_BIN_HOME"
-			symlink-helper --quiet="$quiet" --existing="$(type -P "$cli.exe")" --symlink="$XDG_BIN_HOME/$cli"
+			symlink-helper --quiet="$option_quiet" --existing="$(type -P "$option_cli.exe")" --symlink="$XDG_BIN_HOME/$option_cli"
 		fi
 	}
 
@@ -3124,14 +3191,14 @@ function setup_util() (
 	# installs applications (via ids) to various locations
 	# https://docs.microsoft.com/en-us/windows/package-manager/winget/
 	# https://docs.microsoft.com/en-us/windows/package-manager/winget/install
-	function is_this_winget_package_installed {
+	function __is_this_winget_package_installed {
 		winget.exe list --disable-interactivity --id="$package" &>/dev/null
 	}
-	function are_any_of_these_winget_packages_installed { # 👍 /docs/bash/errors: robust exit status
+	function __are_any_of_these_winget_packages_installed {
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
 			# only supports one package at a time
-			if is_this_winget_package_installed "$package"; then
+			if __is_this_winget_package_installed "$package"; then
 				return 0
 			fi
 		done
@@ -3150,7 +3217,7 @@ function setup_util() (
 		if command-missing 'winget.exe'; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		if test "$action" = 'uninstall' && ! are_any_of_these_winget_packages_installed "${packages[@]}"; then
+		if test "$option_action" = 'uninstall' && ! __are_any_of_these_winget_packages_installed "${packages[@]}"; then
 			return 200 # ECUSTOM 200 Not applicable to this uninstallation
 		fi
 
@@ -3158,22 +3225,22 @@ function setup_util() (
 		# supports one package at a time
 		for package in "${packages[@]}"; do
 			args=()
-			if test "$action" = 'uninstall'; then
+			if test "$option_action" = 'uninstall'; then
 				# fails if already uninstalled, so check beforehand
-				if ! is_this_winget_package_installed "${packages[@]}"; then
+				if ! __is_this_winget_package_installed "${packages[@]}"; then
 					continue
 				fi
 				args+=(
 					'winget.exe'
 					'uninstall'
 				)
-			elif test "$upgrade" = 'yes'; then
+			elif test "$option_upgrade" = 'yes'; then
 				args+=(
 					'winget.exe'
 					'upgrade'
 				)
 			else
-				if is_this_winget_package_installed "${packages[@]}"; then
+				if __is_this_winget_package_installed "${packages[@]}"; then
 					continue
 				fi
 				args+=(
@@ -3187,7 +3254,7 @@ function setup_util() (
 				# as such isn't available to VSCode Terminal
 				# the .exe suffix also means it isn't easily discoverable either
 			fi
-			if test "$quiet" = 'yes'; then
+			if test "$option_quiet" = 'yes'; then
 				args+=(
 					'--disable-interactivity'
 					'--silent'
@@ -3228,7 +3295,7 @@ function setup_util() (
 		done
 
 		# args
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			args+=(
 				'emerge'
 				'--depclean'
@@ -3255,13 +3322,13 @@ function setup_util() (
 		if test "${#EVAL[@]}" -ne 0; then
 			scripts+=("${EVAL[@]}")
 		fi
-		if test "${#EVAL_INSTALL[@]}" -ne 0 -a "$action" = 'install'; then
+		if test "${#EVAL_INSTALL[@]}" -ne 0 -a "$option_action" = 'install'; then
 			scripts+=("${EVAL_INSTALL[@]}")
 		fi
-		if test "${#EVAL_UPGRADE[@]}" -ne 0 -a "$action" = 'upgrade'; then
+		if test "${#EVAL_UPGRADE[@]}" -ne 0 -a "$option_action" = 'upgrade'; then
 			scripts+=("${EVAL_UPGRADE[@]}")
 		fi
-		if test "${#EVAL_UNINSTALL[@]}" -ne 0 -a "$action" = 'uninstall'; then
+		if test "${#EVAL_UNINSTALL[@]}" -ne 0 -a "$option_action" = 'uninstall'; then
 			scripts+=("${EVAL_UNINSTALL[@]}")
 		fi
 
@@ -3273,89 +3340,118 @@ function setup_util() (
 		# action
 		for script in "${scripts[@]}"; do
 			# this should always be a function, otherwise use INSTALLER
-			"$script" --quiet="$quiet"
+			"$script" --quiet="$option_quiet"
 		done
 	}
 
 	# download
 	function do_download {
-		local bin_path download_directory='' download_filepath='' download="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" unzip_format="$DOWNLOAD_UNZIP_FORMAT" unzip_filter="$DOWNLOAD_UNZIP_FILTER" build_eval="$DOWNLOAD_BUILD_EVAL" build_filter="$DOWNLOAD_BUILD_FILTER" bearer_token="$DOWNLOAD_BEARER_TOKEN"
+		local target_path='' download_directory='' download_filepath='' downloads="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" archive_format="$DOWNLOAD_ARCHIVE_FORMAT" archive_glob="$DOWNLOAD_ARCHIVE_GLOB" build_eval="$DOWNLOAD_BUILD_EVAL" build_glob="$DOWNLOAD_BUILD_GLOB" bearer_token="$DOWNLOAD_BEARER_TOKEN"
 
 		# checks
-		if test -z "$download"; then
+		if test -z "$downloads"; then
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
-		if test -z "$filename"; then
-			filename="$cli"
+		if test -z "$filename" -a -z "$option_font"; then
+			filename="$option_cli"
 			if test -z "$filename"; then
 				echo-style --error="DOWNLOAD requires DOWNLOAD_FILENAME or <cli>" >/dev/stderr
 				return 22 # EINVAL 22 Invalid argument
 			fi
 		fi
-		if test -n "$build_eval" -a -z "$build_filter"; then
-			build_filter="$filename"
+		if test -n "$build_eval" -a -z "$build_glob"; then
+			build_glob="$filename"
 		fi
 
 		# determine path
-		bin_path="$(get_path_from_filename "$filename")"
-		if test -n "$build_eval"; then
-			download_directory="$(
-				fs-temp \
-					--directory='setup-util' \
-					--directory
-			)"
-		else
-			download_filepath="$bin_path"
-		fi
-		# uninstall?
-		if test "$action" = 'uninstall'; then
-			if is-missing "$bin_path"; then
-				return 200 # ECUSTOM 200 Not applicable for this package system
+		if test -z "$filename" -a -n "$option_font"; then
+			# uninstall?
+			if test "$option_action" = 'uninstall'; then
+				# continue to generic uninstall
+				return 200 # ECUSTOM 200 Not applicable to this utility
 			fi
-			rm_helper "$bin_path"
-			return 0
+			# continue with install of fonts
+			download_directory="$(get-font --dirs | echo-first-line)"
+		else
+			target_path="$(get_path_from_filename "$filename")"
+			if test -n "$build_eval"; then
+				download_directory="$(
+					fs-temp \
+						--directory='setup-util' \
+						--directory
+				)"
+			elif test "$option_xdg" = 'no'; then
+				download_filepath="$(
+					fs-temp \
+						--directory='setup-util' \
+						--file="$filename"
+				)"
+			else
+				download_filepath="$target_path"
+			fi
+			# uninstall?
+			if test "$option_action" = 'uninstall'; then
+				if is-missing -- "$target_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"; then
+					return 200 # ECUSTOM 200 Not applicable for this package system
+				fi
+				rm_helper "$target_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"
+				# continue to generic uninstall
+				return 0
+			fi
 		fi
 
-		# download
-		down "$download" \
-			--quiet="$quiet" \
-			--unzip-format="$unzip_format" \
-			--unzip-filter="$unzip_filter" \
-			--directory="$download_directory" \
-			--filepath="$download_filepath" \
-			--bearer-token="$bearer_token"
+		# perform each download, supportling line-separated values to support [setup-util-source-code-pro] which is extracting both an archive for otf fonts and an archive for ttf fonts
+		local downloads_array download
+		mapfile -t downloads_array <<<"$downloads"
+		for download in "${downloads_array[@]}"; do
+			down "$download" \
+				--quiet="$option_quiet" \
+				--archive-format="$archive_format" \
+				--archive-glob="$archive_glob" \
+				--directory="$download_directory" \
+				--filepath="$download_filepath" \
+				--bearer-token="$bearer_token"
+		done
+
+		# move to bin path
+		if test -n "$download_filepath" -a "$download_filepath" != "$target_path"; then
+			if test "$option_xdg" = 'no'; then
+				sudo-helper -- mv -fv "$download_filepath" "$target_path"
+			else
+				mv -fv "$download_filepath" "$target_path"
+			fi
+		fi
 
 		# build
 		if test -n "$build_eval"; then
-			(
-				local build_status
-				cd "$download_directory"
-				echo-style --bold="Building $name..."
-				eval_capture --statusvar=build_status -- "$build_eval"
-				if test "$build_status" -eq 0; then
-					echo-style --success="Built $name."
-				else
-					echo-style --error="Failed to build $name." >/dev/stderr
-					return "$build_status"
-				fi
-			)
-			if test -n "$build_filter"; then
+			local build_status
+			echo-style --bold="Building $option_name..."
+			pushd "$download_directory" &>/dev/null
+			eval_capture --statusvar=build_status -- "$build_eval"
+			popd &>/dev/null
+			if test "$build_status" -eq 0; then
+				echo-style --success="Built $option_name."
+			else
+				echo-style --error="Failed to build $option_name." >/dev/stderr
+				return "$build_status"
+			fi
+			if test -n "$build_glob"; then
 				# match extracted paths against filter
 				local filtered_paths=() filtered_path
 				mapfile -t filtered_paths < <(
-					expand-path "$download_directory/$build_filter"
+					expand-path -- "$download_directory/$build_glob"
 				)
 				if test "${#filtered_paths[@]}" -eq 0; then
-					echo-error "No files matched the build filter [$build_filter] within [$download_directory]."
+					echo-error "No files matched the build filter [$build_glob] within [$download_directory]."
 					ls -la "$download_directory" >/dev/stderr
 					return 1
 				elif test "${#filtered_paths[@]}" -eq 1; then
 					# move the single file
 					for filtered_path in "${filtered_paths[@]}"; do
-						mv -fv "$filtered_path" "$bin_path"
+						mv -fv "$filtered_path" "$target_path"
 					done
 				else
-					echo-error "Multiple files matched the build filter [$build_filter] within [$download_directory]."
+					echo-error "Multiple files matched the build filter [$build_glob] within [$download_directory]."
 					ls -la "$download_directory" >/dev/stderr
 					return 1
 				fi
@@ -3363,7 +3459,19 @@ function setup_util() (
 		fi
 
 		# verify
-		verify_saved_path "$bin_path"
+		if test -z "$filename"; then
+			if test -n "$option_font"; then
+				if ! get-font --quiet -- "$option_font"; then
+					echo-style --error='Failed to verify:' ' ' --code="$path" >/dev/stderr
+					return 1
+				fi
+			else
+				echo-error 'Invalid state, filename should have already been verified.'
+				return 3 # ESRCH 3 No such process
+			fi
+		else
+			verify_saved_path "$filename" "$target_path"
+		fi
 	}
 
 	# installer
@@ -3374,11 +3482,11 @@ function setup_util() (
 		if test -z "$file_or_url"; then
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
-		if test "$action" = 'uninstall'; then
+		if test "$option_action" = 'uninstall'; then
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 		if [[ $file_or_url == *'/setup-util-'* ]]; then
-			echo-error "Using INSTALLER=setup-util-* is deprecated, use an alternative: $name"
+			echo-error "Using INSTALLER=setup-util-* is deprecated, use an alternative: $option_name"
 			return 43 # EPROTONOSUPPORT 43 Protocol not supported
 		fi
 
@@ -3389,7 +3497,7 @@ function setup_util() (
 		fi
 
 		# check if it is local, or remote
-		if is-present "$file_or_url"; then
+		if is-present -- "$file_or_url"; then
 			filepath="$file_or_url"
 		else
 			# it is remote
@@ -3397,7 +3505,7 @@ function setup_util() (
 			filepath="$(
 				fs-temp \
 					--directory='setup-util' \
-					--directory="$name" \
+					--directory="$option_name" \
 					--file="$filename"
 			)"
 			down "$file_or_url" --filepath="$filepath"
@@ -3418,6 +3526,57 @@ function setup_util() (
 		fi
 	}
 
+	function do_generic {
+		local status=200
+		if test "$option_action" = 'uninstall'; then
+			if test -n "$option_cli"; then
+				local cli_path
+				cli_path="$(get_path_from_filename "$option_cli")"
+				if ! is-missing -- "$cli_path" "$XDG_BIN_HOME/$option_cli" "/usr/local/bin/$option_cli"; then
+					rm_helper_confirm "$cli_path" "$XDG_BIN_HOME/$option_cli" "/usr/local/bin/$option_cli"
+					status=0
+				fi
+			fi
+			if test -n "$option_app"; then
+				local app_path
+				app_path="$(get_path_from_filename "$option_app")"
+				if ! is-missing -- "$app_path" "$XDG_BIN_HOME/$option_app" "/usr/local/bin/$option_app"; then
+					rm_helper_confirm "$app_path" "$XDG_BIN_HOME/$option_app" "/usr/local/bin/$option_app"
+					status=0
+				fi
+			fi
+			if test -n "$option_font"; then
+				local fonts count
+				mapfile -t fonts < <(get-font -- "$option_font" || :)
+				count="${#fonts[@]}"
+				if test "$count" -ne 0; then
+					# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose-option, so use to gum
+					if test "$count" -gt 100; then
+						setup-util-gum --quiet
+						local selection=()
+						mapfile -t selection < <(
+							gum choose --no-limit --header='Which fonts to remove?' -- "${fonts[@]}"
+						)
+						if test "${#selection[@]}" -gt 100; then
+							# it'll also be too much for rm_helper/fs-rm
+							rm "${selection[@]}"
+						else
+							rm_helper "${selection[@]}"
+						fi
+					else
+						local selection=()
+						mapfile -t selection < <(
+							choose-option --multi --question='Which fonts to remove?' -- "${fonts[@]}"
+						)
+						rm_helper "${selection[@]}"
+					fi
+				fi
+				status=0
+			fi
+		fi
+		return "$status"
+	}
+
 	# =====================================
 	# Action
 
@@ -3434,9 +3593,9 @@ function setup_util() (
 	# 200 = not applicable ...
 
 	local had_success='no' had_failure='no' had_finish='no' action_log
-	if test "$action" = 'uninstall'; then
+	if test "$option_action" = 'uninstall'; then
 		action_log='uninstalled'
-	elif test "$upgrade" = 'yes'; then
+	elif test "$option_upgrade" = 'yes'; then
 		action_log='upgraded'
 	else
 		action_log='installed'
@@ -3448,21 +3607,21 @@ function setup_util() (
 		else
 			suffix+='. ✅'
 		fi
-		maybe_echo_style --g3="The [$name] utility was ${action_log}${suffix}" >/dev/stderr
+		maybe_echo_style --g3="The [$option_name] utility was ${action_log}${suffix}" >/dev/stderr
 	}
 	function log_failure {
 		local suffix='' method="${1-}"
 		if test -n "$method"; then
 			suffix+=" via [$method]"
-		elif test "$optional" = 'yes'; then
+		elif test "$option_optional" = 'yes'; then
 			suffix='. ⚠️'
 		else
 			suffix='. ❌'
 		fi
-		if test "$optional" = 'yes'; then
-			maybe_echo_style --n3="The [$name] optional utility was not ${action_log}${suffix}" >/dev/stderr
+		if test "$option_optional" = 'yes'; then
+			maybe_echo_style --n3="The [$option_name] optional utility was not ${action_log}${suffix}" >/dev/stderr
 		else
-			echo-style --e3="The [$name] required utility was not ${action_log}${suffix}" >/dev/stderr
+			echo-style --e3="The [$option_name] required utility was not ${action_log}${suffix}" >/dev/stderr
 		fi
 		return 0
 	}
@@ -3472,17 +3631,19 @@ function setup_util() (
 		eval_capture --statusvar=run_status --outputvar=run_output --outputpipe=/dev/stderr -- "$fn"
 		if test "$run_status" -eq 0; then
 			# if is to fix: [is-internet-working; setup-util-bash --quiet] from clearning extra lines
-			if test -n "$run_output" -a "$quiet" != 'no'; then
-				echo-clear-lines <<<"$run_output" >/dev/stderr # if the output is longer than $LINES then output beyond $LINES will not be cleared, the only way around that is to use tty_start and tty_finish however that incurs a signficant performance penalty, perhaps doing [2> (echo-revolving-door > /dev/stderr)] or something akin to this would work, however it had too many artifacts with [setup-util-warp --uninstall; setup-util-warp --install] with cask usage that uses sudo
+			if test -n "$run_output" -a "$option_quiet" != 'no'; then
+				# don't use arguments, as can result in: Argument list too long
+				# https://github.com/bevry/dorothy/actions/runs/7622089094/job/20759535555#step:4:3259
+				echo-clear-lines --stdin <<<"$run_output" >/dev/stderr # if the output is longer than $LINES then output beyond $LINES will not be cleared, the only way around that is to use tty_start and tty_finish however that incurs a signficant performance penalty, perhaps doing [2> (echo-revolving-door > /dev/stderr)] or something akin to this would work, however it had too many artifacts with [setup-util-warp --uninstall; setup-util-warp --install] with cask usage that uses sudo
 			fi
 			had_success='yes'
 			log_success "$method"
-			if test "$action" != 'uninstall'; then
+			if test "$option_action" != 'uninstall'; then
 				had_finish='yes'
 			fi
 		elif test "$run_status" -ne 200; then
 			log_failure "$method"
-			if test "$action" = 'uninstall'; then
+			if test "$option_action" = 'uninstall'; then
 				had_failure='yes' # an uninstall failed
 			fi
 		fi
@@ -3490,10 +3651,10 @@ function setup_util() (
 	function run_installers {
 		local installer
 		# cycle through the installers according to the order
-		for installer in "${order[@]}"; do
+		for installer in "${option_order[@]}"; do
 			# sanity check
 			if test -z "$installer"; then
-				help 'An empty order argument was provided:' $'\n' "$(echo-verbose -- "${order[@]}")"
+				help 'An empty order argument was provided:' $'\n' "$(echo-verbose -- "${option_order[@]}")"
 			fi
 			run_installer "$installer" "do_$installer"
 			if test "$had_finish" = 'yes'; then
@@ -3501,7 +3662,7 @@ function setup_util() (
 			fi
 		done
 		# if nothing was successful, if we are not uninstall, if we allow fallbacks, and if we have fallbacks, then use the fallbacks (install the utility by installing the ecosystem of the utility)
-		if test "$had_success" = 'no' -a "$action" != 'uninstall' -a "$fallback" = 'yes' -a "${#fallbacks[@]}" -ne 0; then
+		if test "$had_success" = 'no' -a "$option_action" != 'uninstall' -a "$option_fallback" = 'yes' -a "${#fallbacks[@]}" -ne 0; then
 			for installer in "${fallbacks[@]}"; do
 				run_installer "$installer" "do_${installer}_fallback"
 				if test "$had_finish" = 'yes'; then
@@ -3513,15 +3674,26 @@ function setup_util() (
 		return 0
 	}
 	run_installers
+	# if font, refresh the cache
+	if test -n "$option_font" && command-exists -- fc-cache; then
+		if test "$option_quiet" = 'yes'; then
+			fc-cache -f -v
+		else
+			eval_helper --no-wrap --quiet \
+				--pending="$(echo-style --bold="Refreshing font cache...")" \
+				--failure="$(echo-style --error="Failed to refresh font cache.")" \
+				-- fc-cache -f -v
+		fi
+	fi
 	# determine failure
-	if test "$action" = 'uninstall'; then
+	if test "$option_action" = 'uninstall'; then
 		# @todo detect if cli is still present, if so, perhaps prompt the user what to do
 		if test "$had_failure" = 'no'; then
 			log_success
 		else
 			# still some that aren't uninstalled
 			log_failure
-			if test "$optional" != 'yes'; then
+			if test "$option_optional" != 'yes'; then
 				return 1
 			fi
 		fi
@@ -3530,7 +3702,7 @@ function setup_util() (
 		log_success
 	else
 		log_failure
-		if test "$optional" != 'yes'; then
+		if test "$option_optional" != 'yes'; then
 			return 1
 		fi
 	fi

@@ -16,8 +16,8 @@ function setup_dns() (
 	# Detection
 
 	# helper
-	function die_unknown_os {
-		echo-style --error='Unknown Operating System' >/dev/stderr
+	function __die_unknown_os {
+		echo-style --error='Unknown Operating System' >/dev/stderr || return
 		return 19 # ENODEV 19 Operation not supported by device
 	}
 
@@ -35,17 +35,17 @@ function setup_dns() (
 	elif is-linux; then
 		SERVICE_DIR='/etc/systemd/system'
 	else
-		die_unknown_os
+		__die_unknown_os
 	fi
 
 	# prepare the installers
 	# https://github.com/AdguardTeam/AdGuardHome/releases
 	# https://github.com/cloudflare/cloudflared/releases
 	# https://github.com/DNSCrypt/dnscrypt-proxy/releases
-	local arch aghome_installer='' cloudflared_installer='' dnscrypt_installer='' cloudflared_unzip_filter=''
+	local arch aghome_installer='' cloudflared_installer='' dnscrypt_installer='' cloudflared_archive_filter=''
 	arch="$(get-arch)"
 	if is-mac; then
-		cloudflared_unzip_filter='cloudflared'
+		cloudflared_archive_filter='cloudflared'
 		if test "$arch" = 'a64'; then
 			aghome_installer='AdGuardHome_darwin_arm64.zip'
 			cloudflared_installer='cloudflared-darwin-amd64.tgz' # rosetta
@@ -70,7 +70,7 @@ function setup_dns() (
 			dnscrypt_installer='dnscrypt-proxy-linux_i386' # ...
 		fi
 	else
-		die_unknown_os
+		__die_unknown_os
 	fi
 
 	# determine available services
@@ -113,7 +113,7 @@ function setup_dns() (
 			setup-dns [...options] <service>
 
 			SERVICES:
-			$(echo-lines -- "${services[@]}")
+			$(print_lines "${services[@]}")
 
 			CONFIGURATION:
 			dns.bash
@@ -125,17 +125,16 @@ function setup_dns() (
 	}
 
 	# process
-	local item quiet='' action='' option_service='' option_vpn_reconnect=''
-	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
+	local item action='' option_service='' option_vpn_reconnect=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-vpn-reconnect'* | '--vpn-reconnect'*)
-			option_vpn_reconnect="$(get-flag-value vpn-reconnect --missing="$option_vpn_reconnect" -- "$item" | echo-affirmative --stdin)"
+			option_vpn_reconnect="$(get-flag-value --affirmative --fallback="$option_vpn_reconnect" -- "$item")"
 			;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			if test -z "$option_service"; then
@@ -174,32 +173,9 @@ function setup_dns() (
 	# =====================================
 	# Helpers
 
-	function sudo_wrap {
-		if test "$1" = '--'; then
-			shift
-		fi
-		eval-helper --quiet="$quiet" --wrap \
-			-- sudo-helper \
-			-- "$@"
-	}
-	function eval_wrap {
-		if test "$1" = '--'; then
-			shift
-		fi
-		eval-helper --quiet="$quiet" --wrap \
-			-- "$@"
-	}
-	function eval_wrap_verbose {
-		if test "$1" = '--'; then
-			shift
-		fi
-		eval-helper --no-quiet --wrap \
-			-- "$@"
-	}
-
 	function verify_dns_generic {
 		local attempt="${1:-1}" status=0
-		nslookup cloudflare.com || status=$?
+		nslookup cloudflare.com | echo-trim-padding --stdin || status=$?
 		if test "$status" -ne 0; then
 			echo-style --notice="DNS service failed to verify, trying again in 10 seconds."
 			sleep 10
@@ -260,9 +236,9 @@ function setup_dns() (
 		if is-mac; then
 			# get its basename which is the service id
 			id="$(fs-filename --basename -- "$file")"
-			service-helper --quiet="$quiet" --stop -- "$id" || :
+			service-helper --stop -- "$id" || :
 		else
-			service-helper --quiet="$quiet" --stop -- "$id" || :
+			service-helper --stop -- "$id" || :
 		fi
 	}
 
@@ -284,13 +260,13 @@ function setup_dns() (
 			# -w      Additionally disables the service such that future load
 			#         operations will result in a service which launchd tracks but
 			#         cannot be launched or discovered in any way.
-			service-helper --quiet="$quiet" --disable -- "system/$id" || :
-			service-helper --quiet="$quiet" --stop -- "$id" || :
-			service-helper --quiet="$quiet" --unload -- "$file" || :
+			service-helper --disable -- "system/$id" || :
+			service-helper --stop -- "$id" || :
+			service-helper --unload -- "$file" || :
 			do_remove -- /Library/Logs/*"$id"*.log
 		else
-			service-helper --quiet="$quiet" --disable --stop -- "$id" || :
-			service-helper --quiet="$quiet" --status -- "$id" || :
+			service-helper --disable --stop -- "$id" || :
+			service-helper --status -- "$id" || :
 		fi
 		do_remove --reload -- "$file"
 	}
@@ -304,14 +280,14 @@ function setup_dns() (
 			# but [homebrew services] does this, so doing it here
 			sudo-helper -- chown root:admin "$file"
 			sudo-helper -- chmod +t "$file"
-			service-helper --quiet="$quiet" --load -- "$file" || :
-			# service-helper --quiet="$quiet" --start -- "system/$id" || :
-			service-helper --quiet="$quiet" --start -- "$id" || :
+			service-helper --load -- "$file" || :
+			# service-helper  --start -- "system/$id" || :
+			service-helper --start -- "$id" || :
 			sleep 3
 			eval-helper --no-quiet -- cat /Library/Logs/*"$id"*.log || :
 		else
-			service-helper --quiet="$quiet" --enable --start -- "$id" || :
-			service-helper --quiet="$quiet" --status -- "$id" || :
+			service-helper --enable --start -- "$id" || :
+			service-helper --status -- "$id" || :
 		fi
 	}
 
@@ -328,15 +304,14 @@ function setup_dns() (
 	function do_remove {
 		# process
 		local item service='' flags=() reload='no' remove_paths=()
-		quiet="$(is-quiet-enabled "$quiet" -- "$@")"
 		while test "$#" -ne 0; do
 			item="$1"
 			shift
 			case "$item" in
-			'--service='*) service="${item#--service=}" ;;
+			'--service='*) service="${item#*=}" ;;
 			'--negative' | '--positive' | '--bool') flags+=("$item") ;;
 			'--no-reload'* | '--reload'*)
-				reload="$(get-flag-value reload --missing="$reload" -- "$item" | echo-affirmative --stdin)"
+				reload="$(get-flag-value --affirmative --fallback="$reload" -- "$item")"
 				;;
 			'--')
 				remove_paths+=("$@")
@@ -390,7 +365,7 @@ function setup_dns() (
 		# remove files
 		local remove_path question details removed='no'
 		for remove_path in "${remove_paths[@]}"; do
-			if is-present "$remove_path"; then
+			if is-present -- "$remove_path"; then
 				question="Remove $(echo-style --bold="$remove_path")?"
 				details="$(
 					echo-style --dim="$(
@@ -398,7 +373,7 @@ function setup_dns() (
 					)"
 				)"
 				if confirm "${flags[@]}" --ppid=$$ -- "$question" "$details"; then
-					sudo-helper -- rm -rf "$remove_path"
+					fs-rm --quiet --no-confirm --sudo -- "$remove_path"
 					removed='yes'
 				fi
 			fi
@@ -739,24 +714,24 @@ function setup_dns() (
 	# =====================================
 	# DNS Service: System: macOS
 
-	function system_exists { # 👍 /docs/bash/errors: robust exit status
+	function __system_exists {
 		if is-mac; then
 			command-exists networksetup || return
 		elif is-linux; then
 			command-exists systemctl resolvectl || return
 		else
-			die_unknown_os || return
+			__die_unknown_os || return
 		fi
 	}
-	function system_install { # 👍 /docs/bash/errors: robust exit status
-		if ! system_exists; then
-			eval_capture -- die_unknown_os # use this message, but keep the custom return code
-			return 29                      # Illegal seek
+	function system_install {
+		if ! __system_exists; then
+			eval_capture -- __die_unknown_os # use this message, but keep the custom return code
+			return 29                        # Illegal seek
 		fi
 	}
-	function system_uninstall {     # 👍 /docs/bash/errors: robust exit status
-		eval_capture -- die_unknown_os # use this message, but keep the custom return code
-		return 29                      # Illegal seek
+	function system_uninstall {
+		eval_capture -- __die_unknown_os # use this message, but keep the custom return code
+		return 29                        # Illegal seek
 	}
 	function system_configure {
 		# determine servers and action
@@ -828,7 +803,7 @@ function setup_dns() (
 			echo-segment --h1="Configure and $action_title $systemd_title"
 
 			# dump the data for where we are
-			eval_wrap_verbose -- resolvectl status --no-pager || :
+			sudo-helper -- resolvectl status --no-pager || :
 
 			# if there is nordvpn, we have to disconnect
 			if command-exists nordvpn; then
@@ -842,7 +817,7 @@ function setup_dns() (
 			# temporarily disable these services while we redo the configuration files
 			# https://wiki.archlinux.org/title/systemd-networkd
 			# resolved handles dns, networkd handles network interfaces
-			service-helper --quiet="$quiet" --stop -- systemd-networkd systemd-resolved || :
+			service-helper --stop -- systemd-networkd systemd-resolved || :
 
 			# allow modifications in case something has locked it
 			# for some reason this can fail
@@ -850,7 +825,7 @@ function setup_dns() (
 
 			# make life simple, using only /etc/resolv.conf
 			# https://www.freedesktop.org/software/systemd/man/resolved.conf.html
-			sudo-helper -- rm -rf \
+			fs-rm --quiet --no-confirm --sudo -- \
 				/run/systemd/resolve/stub-resolv.conf \
 				/usr/lib/systemd/resolv.conf \
 				/run/systemd/resolve/resolv.conf \
@@ -894,47 +869,43 @@ function setup_dns() (
 			# we have redone the configuration files so we must now restart the services
 			# and ensure that are correctly enabled in case they weren't
 			# which could happen via vpns or another dns service
-			service-helper --quiet="$quiet" --enable --start -- systemd-resolved systemd-networkd || :
+			service-helper --enable --start -- systemd-resolved systemd-networkd || :
 
 			# flush their caches
-			sudo_wrap -- resolvectl flush-caches --no-pager || :
-			sudo_wrap -- resolvectl reset-server-features --no-pager || :
+			sudo-helper -- resolvectl flush-caches --no-pager || :
+			sudo-helper -- resolvectl reset-server-features --no-pager || :
 
 			# apply the changes to their interfaces
 			mapfile -t interfaces < <(network-interface list)
-			if is-array-empty "${interfaces[@]}"; then
+			if is-array-empty -- "${interfaces[@]}"; then
 				echo-style --error='No interfaces were found.' >/dev/stderr
 				return 1
 			fi
 			local default_route
 			for interface in "${interfaces[@]}"; do
 				# skip vpn interfaces
-				if is_vpn_interface "$interface"; then
+				if __is_vpn_interface "$interface"; then
 					echo-style --dim="Skipping VPN interface: $interface"
 					continue
 				fi
 
 				# save default route
 				# as nordvpn needs its interface as the default route
-				if resolvectl default-route "$interface" | grep -q yes; then
+				if resolvectl default-route "$interface" | grep --quiet --fixed-strings --regexp=yes; then
 					default_route='yes'
 				else
 					default_route='no'
 				fi
 
 				# remove other changes
-				local status
-				eval_capture --statusvar=status -- sudo_wrap -- resolvectl revert "$interface"
-				if test "$status" -ne 0; then
-					continue
-				fi
+				sudo-helper -- resolvectl revert "$interface" || continue
 
 				# apply intended changes
-				sudo_wrap -- resolvectl default-route "$interface" "$default_route"
-				sudo_wrap -- resolvectl domain "$interface" "$Domains"
-				sudo_wrap -- resolvectl dnssec "$interface" "$DNSSEC"
-				sudo_wrap -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
-				sudo_wrap -- resolvectl dns "$interface" "${servers[@]}"
+				sudo-helper -- resolvectl default-route "$interface" "$default_route"
+				sudo-helper -- resolvectl domain "$interface" "$Domains"
+				sudo-helper -- resolvectl dnssec "$interface" "$DNSSEC"
+				sudo-helper -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
+				sudo-helper -- resolvectl dns "$interface" "${servers[@]}"
 
 				# reboot the interface if it isn't a vpn
 				sleep 3
@@ -942,7 +913,7 @@ function setup_dns() (
 			done
 
 			# dump the status now that we are done
-			eval_wrap_verbose -- resolvectl status --no-pager || :
+			sudo-helper -- resolvectl status --no-pager || :
 
 			# if there is nordvpn, we have to reconnect
 			if command-exists nordvpn; then
@@ -960,7 +931,7 @@ function setup_dns() (
 				# verify
 				verify_dns_resolvectl
 			else
-				service-helper --quiet="$quiet" --disable --stop -- systemd-resolved
+				service-helper --disable --stop -- systemd-resolved
 			fi
 
 			# after significant systemd changes, it may need to be reloaded
@@ -971,9 +942,9 @@ function setup_dns() (
 			echo-segment --g1="Configure and $action_title $systemd_title"
 		fi
 	}
-	function is_vpn_interface {
+	function __is_vpn_interface {
 		local interface="$1"
-		if [[ $interface =~ nordlynx ]] || [[ $interface == *vpn* ]] || [[ $interface == *tun* ]] || [[ $interface == *tap* ]]; then
+		if [[ $interface =~ (nordlynx|vpn|tun|tap) ]]; then # regex fuzzy match
 			return 0
 		fi
 		return 1
@@ -1005,13 +976,13 @@ function setup_dns() (
 		'--pidfile' "$aghome_state_pid_file"
 		'--logfile' "$aghome_state_log_file"
 	)
-	function aghome_exists { # 👍 /docs/bash/errors: robust exit status
+	function __aghome_exists {
 		test -x "$aghome_bin_file"
 	}
 	function aghome_install {
 		local action action_title temp_bin_file
 		action='install'
-		if aghome_exists; then
+		if __aghome_exists; then
 			action='upgrade'
 		fi
 		action_title="$(uppercase_first_letter "$action")"
@@ -1037,7 +1008,7 @@ function setup_dns() (
 				--file='AdGuardHome'
 		)"
 		down "https://static.adguard.com/adguardhome/release/${aghome_installer}" \
-			--unzip-filter="AdGuardHome/AdGuardHome" \
+			--archive-glob="AdGuardHome/AdGuardHome" \
 			--filepath="$temp_bin_file" || :
 		# ^ allow failures, in case dns is botched
 
@@ -1063,7 +1034,7 @@ function setup_dns() (
 	}
 	function aghome_uninstall {
 		# check
-		if ! aghome_exists; then
+		if ! __aghome_exists; then
 			return 0
 		fi
 
@@ -1089,7 +1060,7 @@ function setup_dns() (
 		action_title="$(uppercase_first_letter "$action")"
 
 		# check
-		if ! aghome_exists; then
+		if ! __aghome_exists; then
 			return 0
 		fi
 
@@ -1169,13 +1140,13 @@ function setup_dns() (
 		dnscrypt_service_id="$dnscrypt_id"
 		dnscrypt_service_file="$SERVICE_DIR/$dnscrypt_service_id.service"
 	fi
-	function dnscrypt_exists { # 👍 /docs/bash/errors: robust exit status
+	function __dnscrypt_exists {
 		test -x "$dnscrypt_bin_file"
 	}
 	function dnscrypt_install {
 		local action action_title temp_bin_file
 		action='install'
-		if dnscrypt_exists; then
+		if __dnscrypt_exists; then
 			action='upgrade'
 		fi
 		action_title="$(uppercase_first_letter "$action")"
@@ -1196,9 +1167,9 @@ function setup_dns() (
 		)"
 		github-download \
 			--slug='DNSCrypt/dnscrypt-proxy' \
-			--release='latest' \
-			--asset-filter="$dnscrypt_installer" \
-			--unzip-filter='**/dnscrypt-proxy' \
+			--latest \
+			--asset-regexp="$dnscrypt_installer" \
+			--archive-glob='**/dnscrypt-proxy' \
 			--filepath="$temp_bin_file"
 
 		# don't use brew for this, as we want complete control
@@ -1229,7 +1200,7 @@ function setup_dns() (
 			)"
 			github-download \
 				--slug='DNSCrypt/dnscrypt-proxy' \
-				--ref='master' \
+				--head \
 				--pathname='dnscrypt-proxy/example-dnscrypt-proxy.toml' \
 				--filepath="$temp_conf_file"
 			sudo-helper -- mv "$temp_conf_file" "$dnscrypt_conf_file"
@@ -1246,7 +1217,7 @@ function setup_dns() (
 	}
 	function dnscrypt_uninstall {
 		# check
-		if ! dnscrypt_exists; then
+		if ! __dnscrypt_exists; then
 			return 0
 		fi
 
@@ -1272,7 +1243,7 @@ function setup_dns() (
 		action_title="$(uppercase_first_letter "$action")"
 
 		# check
-		if ! dnscrypt_exists; then
+		if ! __dnscrypt_exists; then
 			return 0
 		fi
 
@@ -1293,7 +1264,7 @@ function setup_dns() (
 		# to use dns-crypt
 		if test "${#dnscrypt_names[@]}" -eq 0 -a "$action" = 'enable'; then
 			mapfile -t dnscrypt_options < <(
-				fetch 'https://download.dnscrypt.info/resolvers-list/v2/public-resolvers.md' | rg '^## (.+)$' --replace '$1'
+				fetch 'https://download.dnscrypt.info/resolvers-list/v2/public-resolvers.md' | rg --regexp='^## (.+)$' --replace='$1'
 			)
 			mapfile -t dnscrypt_names < <(
 				choose-option --required --multi --question="Which DNSCrypt Server names do you wish to use?" --
@@ -1358,13 +1329,13 @@ function setup_dns() (
 		cloudflared_proxy_service_file="$SERVICE_DIR/$cloudflared_proxy_service_id.service"
 	fi
 
-	function cloudflared_exists { # 👍 /docs/bash/errors: robust exit status
+	function __cloudflared_exists {
 		test -x "$cloudflared_bin_file"
 	}
 	function cloudflared_install {
 		local action action_title temp_bin_file
 		action='install' # install/upgrade
-		if cloudflared_exists; then
+		if __cloudflared_exists; then
 			action='upgrade'
 		fi
 		action_title="$(uppercase_first_letter "$action")"
@@ -1378,6 +1349,8 @@ function setup_dns() (
 		echo-segment --h1="$action_title $cloudflared_title"
 
 		# download the upgrade, prior to disabling
+		# setup-util --cli=cloudflared APT_KEY='https://pkg.cloudflare.com/cloudflare-main.gpg' APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://pkg.cloudflare.com/cloudflared jammy main' APT='cloudflared'
+		# setup-util --cli=cloudflared APT_KEY='https://pkg.cloudflare.com/cloudflare-main.gpg' APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://pkg.cloudflare.com/cloudflared {RELEASE} main' APT='cloudflared'
 		temp_bin_file="$(
 			fs-temp \
 				--directory='setup-dns' \
@@ -1385,9 +1358,9 @@ function setup_dns() (
 		)"
 		github-download \
 			--slug='cloudflare/cloudflared' \
-			--release='latest' \
-			--asset-filter="$cloudflared_installer" \
-			--unzip-filter="$cloudflared_unzip_filter" \
+			--latest \
+			--asset-regexp="$cloudflared_installer" \
+			--archive-glob="$cloudflared_archive_filter" \
 			--filepath="$temp_bin_file"
 
 		# disable/uninstall the service if it exists
@@ -1415,7 +1388,7 @@ function setup_dns() (
 	}
 	function cloudflared_uninstall {
 		# check
-		if ! cloudflared_exists; then
+		if ! __cloudflared_exists; then
 			return 0
 		fi
 
@@ -1446,7 +1419,7 @@ function setup_dns() (
 		upstream_args=''
 
 		# check
-		if ! cloudflared_exists; then
+		if ! __cloudflared_exists; then
 			return 0
 		fi
 
@@ -1561,7 +1534,7 @@ EOF
 
 	function tunnel_install {
 		# ensure cloudflared is installed
-		if ! cloudflared_exists; then
+		if ! __cloudflared_exists; then
 			cloudflared_install
 		fi
 
@@ -1591,7 +1564,7 @@ EOF
 		ingress=''
 
 		# check
-		if ! cloudflared_exists; then
+		if ! __cloudflared_exists; then
 			return 0
 		fi
 
@@ -1603,10 +1576,10 @@ EOF
 			item="$1"
 			shift
 			case "$item" in
-			'--tunnel='*) tunnel="${item#*--tunnel=}" ;;
-			'--hostname='*) hostnames+=("${item#*--hostname=}") ;;
-			'--url='*) url="${item#*--url=}" ;;
-			'--ingress='*) ingress="${item#*--ingress=}" ;;
+			'--tunnel='*) tunnel="${item#*=}" ;;
+			'--hostname='*) hostnames+=("${item#*=}") ;;
+			'--url='*) url="${item#*=}" ;;
+			'--ingress='*) ingress="${item#*=}" ;;
 			--) break ;;
 			*)
 				echo-style --error="Unknown tunnel argument: $item" >/dev/stderr
@@ -1766,7 +1739,7 @@ EOF
 		args=()
 
 		# check
-		if ! cloudflared_exists; then
+		if ! __cloudflared_exists; then
 			return 0
 		fi
 
@@ -1793,10 +1766,9 @@ EOF
 			arg="$1"
 			args+=("$arg")
 			shift
-			if test "$arg" = '--' -o "$#" -eq 0; then
-				# run the configure
+			# if we have args and are a new tunnel or are at the end, then run configure and reset
+			if test "$arg" = '--' -o "$#" -eq 0 && test "${#args[@]}" -ne 0; then
 				tunnel_configure_single "${args[@]}"
-				# reset for next
 				args=()
 			fi
 		done
@@ -1857,26 +1829,26 @@ EOF
 	# Detect installed custom services
 	local installed_custom_services
 	installed_custom_services=()
-	if aghome_exists; then
+	if __aghome_exists; then
 		installed_custom_services+=(aghome)
 	fi
-	if cloudflared_exists; then
+	if __cloudflared_exists; then
 		installed_custom_services+=(cloudflared)
 	fi
-	if dnscrypt_exists; then
+	if __dnscrypt_exists; then
 		installed_custom_services+=(dnscrypt)
 	fi
 
 	# Disable all custom services, reconfigure the system (system on linux must be temporarily enabled to be configured), and then enable the chosen service
 	local installed_custom_service
 	for installed_custom_service in "${installed_custom_services[@]}"; do
-		("$installed_custom_service"_configure disable)
+		"$installed_custom_service"_configure disable # eval
 	done
 	if test "$service" = 'system'; then
 		system_configure enable
 	else
 		system_configure disable
-		("$service"_configure enable)
+		"$service"_configure enable # eval
 	fi
 
 	# -------------------------------------
@@ -1893,7 +1865,7 @@ EOF
 
 	# echo
 	# print_line 'Testing that the system is now using the custom DNS service...'
-	# if ! (dig -x cloudflare.com | rg -q ';; SERVER: 127.0.0.1'); then
+	# if ! (dig -x cloudflare.com | grep --quiet --fixed-strings --regexp=';; SERVER: 127.0.0.1'); then
 	# 	cat <<-EOF >/dev/stderr
 	# 		FAILURE
 	# 		Custom DNS configuration has failed.

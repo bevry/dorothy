@@ -11,7 +11,7 @@ function setup_mac_brew() (
 	source "$DOROTHY/sources/config.sh"
 
 	# environment provides:
-	# HOMEBREW_ARCH, HOMEBREW_PREFIX, HOMEBREW_CELLAR
+	# HOMEBREW_ARCH (macos), HOMEBREW_PREFIX (macos, linux), HOMEBREW_CELLAR (macos)
 
 	# setup.bash provides:
 	local HOMEBREW_UNTAPS+=(
@@ -37,6 +37,22 @@ function setup_mac_brew() (
 		amiaopensource/amiaos/decklinksdk
 		chromaprint
 		lescanauxdiscrets/tap/zvbi
+	)
+	local HOMEBREW_ENCODING_REMOVE_OPTIONS=(
+		# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
+		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/96#issuecomment-1398315717
+		--with-librsvg
+		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
+		--with-decklink
+		# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/37#issuecomment-958018136
+		--with-game-music-emu
+		# Fails: Error: An exception occurred within a child process: FormulaUnavailableError: No available formula with the name "zvbi".
+		--with-libzvbi
+		# Fails: ERROR: libflite not found
+		--with-libflite
+		# Fails: Unknown option "--enable-openvino".
+		--enable-openvino
+		--with-openvino
 	)
 	# Deprecated configurations:
 	local SETUP_UTILS=()               # for configuration adjustments
@@ -109,9 +125,7 @@ function setup_mac_brew() (
 	# 	python
 	# 	ruby
 	# )
-	# rm -rf "/Users/$(whoami)/Library/Python/"* || :
-	# rm -rf "${HOMEBREW_CELLAR}/python"* || :
-	# rm -rf "${HOMEBREW_PREFIX}/opt/python"* || :
+	# fs-rm --quiet --no-confirm --optional -- "/Users/$(whoami)/Library/Python/"* "${HOMEBREW_CELLAR}/python"* "${HOMEBREW_PREFIX}/opt/python"*
 	# brew install python # reinstall python now that it has been cleaned
 
 	# =====================================
@@ -152,17 +166,17 @@ function setup_mac_brew() (
 	}
 
 	# process
-	local item action='' reconfigure='no'
+	local item action='' option_configure='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--no-encoding'* | '--encoding'*)
-			HOMEBREW_ENCODING_INSTALL="$(get-flag-value encoding --missing="$HOMEBREW_ENCODING_INSTALL" -- "$item" | echo-affirmative --stdin)"
+			HOMEBREW_ENCODING_INSTALL="$(get-flag-value --affirmative --fallback="$HOMEBREW_ENCODING_INSTALL" -- "$item")"
 			;;
 		'--no-configure'* | '--configure'*)
-			reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative --stdin)"
+			option_configure="$(get-flag-value --affirmative --fallback="$option_configure" -- "$item")"
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
@@ -175,9 +189,9 @@ function setup_mac_brew() (
 		esac
 	done
 
-	# assert operating system
+	# assert compatibility
 	if ! is-mac; then
-		help "This command is only purposeful on macOS, which you are not running."
+		help 'This command is only purposeful on macOS, which you are not running.'
 	fi
 
 	# ensure valid action
@@ -199,10 +213,12 @@ function setup_mac_brew() (
 			# fix common permission errors
 			# Error: Could not cleanup old kegs! Fix your permissions on:
 			# /usr/local/Cellar/go/1.17.2
-			if test -d "$HOMEBREW_CELLAR/go"; then
-				fs-own --permissions='u+rwx,g+rwx' \
-					-- "$HOMEBREW_CELLAR/go"
-				# bin, libexec, and many other directories contain executables, so just make it all executable
+			if test -n "${HOMEBREW_CELLAR-}"; then
+				if test -d "$HOMEBREW_CELLAR/go"; then
+					fs-own --permissions='u+rwx,g+rwx' \
+						-- "$HOMEBREW_CELLAR/go"
+					# bin, libexec, and many other directories contain executables, so just make it all executable
+				fi
 			fi
 			if test -d "$HOME/Library/Caches/go-build"; then
 				fs-own --sudo --permissions='u+rwx,g+rwx' \
@@ -213,7 +229,7 @@ function setup_mac_brew() (
 			eval_helper --quiet \
 				-- brew cleanup --quiet -s --prune=all
 			# cleanup further
-			fs-rm --no-confirm --quiet --sudo -- "$(brew --cache)"
+			fs-rm --quiet --no-confirm --sudo -- "$(brew --cache)"
 		fi
 		echo-segment --g2='Cleanup homebrew'
 	}
@@ -231,14 +247,14 @@ function setup_mac_brew() (
 		# encoding
 		if test "$action" = 'install'; then
 			# determine full value for HOMEBREW_ENCODING_INSTALL
-			if test -z "$HOMEBREW_ENCODING_INSTALL" -o "$reconfigure" = 'yes'; then
+			if test -z "$HOMEBREW_ENCODING_INSTALL" -o "$option_configure" = 'yes'; then
 				if confirm --negative --ppid=$$ -- 'Do you want to (re-)install encoding tools? This can take a while...'; then
 					HOMEBREW_ENCODING_INSTALL='yes'
 				else
 					HOMEBREW_ENCODING_INSTALL='no'
 				fi
-				# we don't want to trigger a full reconfigure, when just this is missing
-				if test "$reconfigure" = 'no'; then
+				# we don't want to trigger a full configure, when just this is missing
+				if test "$option_configure" = 'no'; then
 					dorothy-config 'setup.bash' -- \
 						--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL"
 				fi
@@ -271,21 +287,13 @@ function setup_mac_brew() (
 			echo-segment --h2="Install ffmpeg with options"
 
 			# fetch all the build options for ffmpeg
-			local ffmpeg_opts
+			local ffmpeg_opts bad_option
 			ffmpeg_opts="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
-			# Remove options that break ffmpeg
-			# Resolved: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/81#issuecomment-828722622
-			# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/96#issuecomment-1398315717
-			ffmpeg_opts="${ffmpeg_opts/--with-librsvg /}"
-			# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/92
-			ffmpeg_opts="${ffmpeg_opts/--with-decklink /}"
-			# Fails: https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/37#issuecomment-958018136
-			ffmpeg_opts="${ffmpeg_opts/--with-game-music-emu /}"
-			# Fails: Error: An exception occurred within a child process: FormulaUnavailableError: No available formula with the name "zvbi".
-			ffmpeg_opts="${ffmpeg_opts/--with-libzvbi /}"
-			# Fails: ERROR: libflite not found
-			ffmpeg_opts="${ffmpeg_opts/--with-libflite /}"
-			# space seperated array
+			# remove options that break ffmpeg
+			for bad_option in "${HOMEBREW_ENCODING_REMOVE_OPTIONS[@]}"; do
+				ffmpeg_opts="${ffmpeg_opts/$bad_option /}"
+			done
+			# parse the space seperated options into an array
 			mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
 
 			# install with the build options
@@ -348,7 +356,7 @@ function setup_mac_brew() (
 	# install packages with brew, that are slow to install
 	function brew_install_slow {
 		# if we are on an official directory, then we are using bottles which are pre-compiled and fast
-		if test "${HOMEBREW_PREFIX}" = "/usr/local" -o "${HOMEBREW_PREFIX}" = "/opt/homebrew"; then
+		if test "$HOMEBREW_PREFIX" = '/usr/local' -o "$HOMEBREW_PREFIX" = '/opt/homebrew'; then
 			echo-segment --h2="Install $# extra formulas"
 			brew_install --formula -- "$@"
 			echo-segment --g2="Install $# extra formulas"
@@ -553,15 +561,15 @@ function setup_mac_brew() (
 	# -------------------------------------
 	# Reconfigure?
 
-	if test "$reconfigure" != 'yes'; then
+	if test "$option_configure" != 'yes'; then
 		if test "${#HOMEBREW_FORMULAS[@]}" -eq 0; then
 			if confirm --positive --ppid=$$ -- "You currently have no formula listed in your user configuration, do you want to update the configuration to reflect what you have installed?"; then
-				reconfigure='yes'
+				option_configure='yes'
 			fi
 		fi
 	fi
 
-	if test "$reconfigure" = 'yes'; then
+	if test "$option_configure" = 'yes'; then
 		# fetch what was installed by request
 		mapfile -t requested_formulas < <(brew-installed --requested --formula)
 		mapfile -t requested_cask < <(brew-installed --requested --cask)
@@ -583,10 +591,10 @@ function setup_mac_brew() (
 				fi
 				continue
 			fi
-			if is-needle "$item" "${HOMEBREW_SLOW_FORMULAS[@]}"; then
+			if is-needle --needle="$item" -- "${HOMEBREW_SLOW_FORMULAS[@]}"; then
 				continue
 			fi
-			if is-needle "$item" "${HOMEBREW_ENCODING_FORMULAS[@]}"; then
+			if is-needle --needle="$item" -- "${HOMEBREW_ENCODING_FORMULAS[@]}"; then
 				continue
 			fi
 			if [[ $item == *'ffmpeg'* ]]; then
@@ -612,11 +620,11 @@ function setup_mac_brew() (
 
 		# save
 		dorothy-config 'setup.bash' -- \
-			--field='SETUP_UTILS' --array="$(echo-lines -- "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)" \
+			--field='SETUP_UTILS' --array="$(print_lines "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)" \
 			--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL" \
-			--field='HOMEBREW_FORMULAS' --array="$(echo-lines -- "${HOMEBREW_FORMULAS[@]}" | sort --ignore-case)" \
-			--field='HOMEBREW_CASKS' --array="$(echo-lines -- "${HOMEBREW_CASKS[@]}" | sort --ignore-case)" \
-			--field='HOMEBREW_FONTS' --array="$(echo-lines -- "${HOMEBREW_FONTS[@]}" | sort --ignore-case)"
+			--field='HOMEBREW_FORMULAS' --array="$(print_lines "${HOMEBREW_FORMULAS[@]}" | sort --ignore-case)" \
+			--field='HOMEBREW_CASKS' --array="$(print_lines "${HOMEBREW_CASKS[@]}" | sort --ignore-case)" \
+			--field='HOMEBREW_FONTS' --array="$(print_lines "${HOMEBREW_FONTS[@]}" | sort --ignore-case)"
 	fi
 
 	# -------------------------------------

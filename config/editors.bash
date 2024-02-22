@@ -21,6 +21,7 @@ TERMINAL_EDITORS=(
 )
 GUI_EDITORS=(
 	'code' # setup-util-vscode
+	'zed'  # https://zed.dev
 	'atom'
 	'subl'
 	'gedit'             # linux default

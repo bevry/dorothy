@@ -10,5 +10,5 @@ fi
 if test -s "${NVM_DIR}/nvm.sh"; then
 	. "$NVM_DIR/nvm.sh"
 else
-	rm -Rf "${NVM_DIR:-"$HOME/.nvm"}"
+	fs-rm --quiet --no-confirm --optional -- "${NVM_DIR:-"$HOME/.nvm"}"
 fi

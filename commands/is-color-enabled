@@ -9,10 +9,22 @@ function is_color_enabled() (
 			Outputs [yes] or [no] based on comprehensive COLOR mode detection.
 
 			USAGE:
-			use_color="\$(is-color-enabled <default> -- "\$@")"
+			use_color="\$(echo-color-enabled --fallback=<fallback> -- "\$@")"
+
+			OPTIONS:
+			--fallback=<fallback>
+			    If provided, use this value if color support could not be determined.
+
+			"\$@"
+			    All arguments passed to your command, so we can scan them for relevant flags.
 
 			QUIRKS:
 			Checks for [--[no-]color[s]=[yes|no]] values, as well as [[NO[_]]COLOR] and [CRON], [CRONITOR_EXEC], and [TERM] environment variables.
+
+			RETURNS:
+			[0] if enabled
+			[1] if disabled
+			[91] if not determined
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -21,12 +33,13 @@ function is_color_enabled() (
 	}
 
 	# process
-	local item default=''
+	local item option_fallback='' status
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--fallback='*) option_fallback="${item#*=}" ;;
 		--)
 			# process
 			local color=''
@@ -35,37 +48,70 @@ function is_color_enabled() (
 				shift
 				case "$item" in
 				'--no-colors'* | '--colors'*)
-					color="$(get-flag-value colors -- "$item" | echo-affirmative --stdin)"
+					color="$(get-flag-value --affirmative -- "$item")"
 					;;
 				'--no-color'* | '--color'*)
-					color="$(get-flag-value color -- "$item" | echo-affirmative --stdin)"
+					color="$(get-flag-value --affirmative -- "$item")"
 					;;
 				*) ;; # ignore
 				esac
 			done
 			# action
 			if test -n "$color"; then
-				echo-affirmative -- "$color"
-			elif test -n "${COLOR-}"; then
-				echo-affirmative -- "$COLOR"
-			elif test -n "${NO_COLOR-}"; then
-				echo-non-affirmative -- "$NO_COLOR"
-			elif test -n "${NOCOLOR-}"; then
-				echo-non-affirmative -- "$NOCOLOR"
-			elif test -n "${CRON-}" -o -n "${CRONITOR_EXEC-}" -o -z "${TERM-}" -o "${TERM-}" = 'dumb'; then
-				# cron strips most env vars, except that defined in [crontab -e], bash however does itself set TERM=dumb
-				# https://unix.stackexchange.com/a/411097
-				print_line 'no'
-			else
-				print_line "$default"
+				eval_capture --statusvar=status -- is-affirmative -- "$color"
+				if test "$status" -eq 0 -o "$status" -eq 1; then
+					return "$status"
+				fi
 			fi
-			# done
-			return 0
+			if test -n "${COLOR-}"; then
+				eval_capture --statusvar=status -- is-affirmative -- "$COLOR"
+				if test "$status" -eq 0 -o "$status" -eq 1; then
+					return "$status"
+				fi
+			fi
+			if test -n "${NO_COLOR-}"; then
+				eval_capture --statusvar=status -- is-non-affirmative -- "$NO_COLOR"
+				if test "$status" -eq 0 -o "$status" -eq 1; then
+					return "$status"
+				fi
+			fi
+			if test -n "${NOCOLOR-}"; then
+				eval_capture --statusvar=status -- is-non-affirmative -- "$NOCOLOR"
+				if test "$status" -eq 0 -o "$status" -eq 1; then
+					return "$status"
+				fi
+			fi
+			if test -n "${CRON-}" -o -n "${CRONITOR_EXEC-}"; then
+				# cron strips nearly all env vars, these must be defined manually in [crontab -e]
+				return 1
+			fi
+			if test -n "${TERM-}"; then
+				# cron strips TERM, however bash resets it to TERM=dumb
+				# https://unix.stackexchange.com/a/411097
+				if test "$TERM" = 'xterm-256color'; then
+					# Visual Studio Code's integrated terminal reports TERM=xterm-256color
+					return 0
+				elif test "$TERM" = 'dumb'; then
+					if test -n "${GITHUB_ACTIONS-}"; then
+						: # continue to fallback
+					else
+						return 1
+					fi
+				fi
+				# continue to fallback
+			fi
+			if test -n "$option_fallback"; then
+				eval_capture --statusvar=status -- is-affirmative -- "$option_fallback"
+				if test "$status" -eq 0 -o "$status" -eq 1; then
+					return "$status"
+				fi
+			fi
+			return 91 # ENOMSG 91 No message of desired type
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
-			if test -z "$default"; then
-				default="$item"
+			if test -z "$option_fallback"; then
+				option_fallback="$item"
 			else
 				help "An unrecognised argument was provided: $item"
 			fi

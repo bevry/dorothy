@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+function echo_math_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-segment --h1="TEST: $0"
+
+	local inputs=('1 - 1/2' '1 - 1/3' '1 - 1/4')
+	local expected=$'0.50\n0.67\n0.75'
+
+	if command-exists bc; then
+		eval-tester --stdout="$expected" \
+			-- echo-math --precision=2 --tool=bc -- "${inputs[@]}"
+
+		{
+			print_lines "${inputs[@]}"
+		} | eval-tester --stdout="$expected" \
+			-- echo-math --precision=2 --tool=bc --stdin
+	fi
+
+	if command-exists awk; then
+		eval-tester --stdout="$expected" \
+			-- echo-math --precision=2 --tool=awk -- "${inputs[@]}"
+
+		{
+			print_lines "${inputs[@]}"
+		} | eval-tester --stdout="$expected" \
+			-- echo-math --precision=2 --tool=awk --stdin
+	fi
+
+	echo-segment --g1="TEST: $0"
+	return 0
+)
+function echo_math() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Compute a mathmatical expression.
+
+			USAGE:
+			echo-math [...options] [--] ...<input>
+			echo-lines ...<input> | echo-math [...options]
+
+			OPTIONS:
+			--precision=<precision>
+			    The number of decimals to round to.
+			    Defaults to [6] which is the default for awk for consistency.
+
+			--tool=<tool>
+			    The math engine to use.
+			    Defaults to [bc] if available, otherwise [awk] if available, otherwise failure.
+
+			$(stdinargs_options_help --)
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_precision=6 option_tool=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--precision='*) option_precision="${item#*=}" ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinarg options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		esac
+	done
+
+	if test -z "$option_tool"; then
+		if command-exists bc; then
+			option_tool='bc'
+		elif command-exists awk; then
+			option_tool='awk'
+		fi
+	elif ! command-exists -- "$option_tool"; then
+		help "Missing math <tool>: $option_tool"
+	fi
+
+	# =====================================
+	# Action
+
+	if test "$option_tool" = 'bc'; then
+		function on_line {
+			# bc: 0 decimals by default, bc -l: 20 decimals by default
+			# 0. becomes ., hence need for printf
+			printf "%.${option_precision}f\n" "$(bc -l <<<"$1")"
+		}
+	elif test "$option_tool" = 'awk'; then
+		function on_line {
+			# 6 decimals by default
+			awk "BEGIN {printf \"%.${option_precision}f\n\", $1}"
+		}
+	else
+		help 'No math engine found.'
+		return 1
+	fi
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	if test "$*" = '--test'; then
+		echo_math_test
+	else
+		echo_math "$@"
+	fi
+fi

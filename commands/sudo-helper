@@ -5,6 +5,7 @@
 
 function sudo_helper() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-helper)" # enable eval_helper
 
 	# =====================================
 	# Arguments
@@ -19,21 +20,27 @@ function sudo_helper() (
 			sudo-helper --local
 
 			OPTIONS:
+			--reason=<reason>
+			    if a prompt is required for your sudo/root/login password, this reason will be used to explain why sudo was required.
 
 			--user=<user>
 			    specify a user to run the command as
-
 			--group=<group>
 			    specify a group to run the command as
 
 			--inherit
 			    if enabled, inherit environment variables include PATH.
 
+			--wrap
+			    if enabled, [eval-helper] will be used to wrap the output of the command
+			--quiet
+			    if enabled, [eval-helper] will be used to silence the output of the command
+			--confirm
+			    if enabled, [eval-helper] will be used to confirm the execution of the command
+
 			--local
 			    update sudo configuration to enable access to /usr/local variables
 
-			--reason=<reason>
-			    if a prompt is required for your sudo/root/login password, this reason will be used to explain why sudo was required.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -42,23 +49,31 @@ function sudo_helper() (
 	}
 
 	# process
-	local item cmd=() inherit='no' user='' group='' reason='' option_local=''
+	local item option_cmd=() option_quiet option_reason='' option_user='' option_group='' option_quiet option_confirm='no' option_wrap='no' option_inherit='no' option_local=''
+	option_quiet="$(echo-quiet-enabled --fallback=no -- "$@")" # no is an important default to ensure our call to eval-helper can still be interpolated
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
 		'--no-inherit'* | '--inherit'*)
-			inherit="$(get-flag-value inherit --missing="$inherit" -- "$item" | echo-affirmative --stdin)"
+			option_inherit="$(get-flag-value --affirmative --fallback="$option_inherit" -- "$item")"
+			;;
+		'--no-wrap'* | '--wrap'*)
+			option_wrap="$(get-flag-value --affirmative --fallback="$option_wrap" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--no-confirm'* | '--confirm'*)
+			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
 			;;
 		'--no-local'* | '--local'*)
-			option_local="$(get-flag-value local --missing="$option_local" -- "$item" | echo-affirmative --stdin)"
+			option_local="$(get-flag-value --affirmative --fallback="$option_local" -- "$item")"
 			;;
-		'--user='*) user="${item#*--user=}" ;;
-		'--group='*) group="${item#*--group=}" ;;
-		'--reason='*) reason="${item#*--reason=}" ;;
 		'--')
-			cmd+=("$@")
+			option_cmd+=("$@")
 			shift "$#"
 			break
 			;;
@@ -72,16 +87,29 @@ function sudo_helper() (
 		# dependencies
 		setup-util-sd --quiet
 
-		# paths
-		local system_paths sudoers_line cron_system_line cron_user_line
-		system_paths="$(print_line "$PATH" | sd "$HOME/.+?:" '')"
+		# trim problematic paths
+		local system_paths sudoers_line cron_system_line cron_user_line ignore_args=(
+			# these are not needed for [dorothy run] to bootstrap itself
+			--regexp="$HOME"
+			--regexp='/Applications/'
+		)
+		if test -n "${HOMEBREW_PREFIX-}"; then
+			# these are not needed for [dorothy run] to bootstrap itself
+			# and they confuse cron as it thinks they have minutes due to version numbers
+			ignore_args+=(
+				--regexp="$HOMEBREW_PREFIX/Cellar"
+				--regexp="$HOMEBREW_PREFIX/lib"
+				--regexp="$HOMEBREW_PREFIX/opt"
+			)
+		fi
+		system_paths="$(echo-split ':' --stdin <<<"$PATH" | grep --invert-match --fixed-strings "${ignore_args[@]}" | echo-join ':' --stdin)"
+
 		sudoers_line="Defaults	secure_path=\"$system_paths\"" # $HOME paths do not make sense for root operation
 		cron_system_line="PATH=\"$system_paths\""             # $HOME paths do not make sense for root operation
 		cron_user_line="PATH=\"$system_paths\""               # $HOME paths fails to apply
 
 		# sudoers
 		config-edit --sudoers --line="$sudoers_line" --needle='secure_path' --add="$option_local"
-		echo
 
 		# cron
 		config-edit --cron-system --line="$cron_system_line" --needle='PATH=' --add="$option_local"
@@ -92,7 +120,7 @@ function sudo_helper() (
 	fi
 
 	# check
-	if test "${#cmd[@]}" -eq 0; then
+	if test "${#option_cmd[@]}" -eq 0; then
 		help 'No <command> was provided.'
 	fi
 
@@ -115,33 +143,33 @@ function sudo_helper() (
 	if command-exists sudo; then
 		run+=('sudo')
 
-		if test -n "$user"; then
-			run+=("--user=$user")
+		if test -n "$option_user"; then
+			run+=("--user=$option_user")
 			# should coincide with setup-environment-commands
 			if test -d /Users; then
-				home="/Users/$user"
+				home="/Users/$option_user"
 			elif test -d '/home'; then
-				home="/home/$user"
-			elif test -d "/$user"; then
-				HOME="/$user"
+				home="/home/$option_user"
+			elif test -d "/$option_user"; then
+				HOME="/$option_user"
 			fi
 		elif test -n "$HOME"; then
 			home="$HOME"
 		fi
 
-		if test -n "$group"; then
-			run+=("--group=$group")
+		if test -n "$option_group"; then
+			run+=("--group=$option_group")
 		fi
 
 		if test -n "$home"; then
-			if is-missing "$home"; then
+			if is-missing -- "$home"; then
 				sudo mkdir -p "$home"
-				fs-own --quiet --user="$user" --group="$group" -- "$home"
+				fs-own --quiet --user="$option_user" --group="$option_group" -- "$home"
 			fi
 			run+=('--set-home')
 		fi
 
-		if test "$inherit" = 'yes'; then
+		if test "$option_inherit" = 'yes'; then
 			run+=(
 				'--preserve-env'
 				'env'
@@ -157,44 +185,49 @@ function sudo_helper() (
 			# use [--tty] to ensure the prompt is not hidden when otherwise hiding sudo output, such as in [command-working]
 			# while it would be nice to clear lines, we cannot know how many lines to clear as they could require multiple attempts to enter the password
 			# there would be a way of doing this with [tty.bash] however that is too complicated for this
-			if test -n "$reason"; then
-				echo-style --tty+notice="$reason"
-				if [[ $reason == *':' ]]; then
-					echo-style --tty+code="${run[*]}"
-				fi
+			if test -n "$option_reason"; then
+				echo-style --tty+notice="$option_reason"
 			else
-				echo-style --tty+notice='Your sudo/root/login password is required to execute the command:' --tty=$'\n' --tty+code_dim="${run[*]}" --tty=' ' --tty+code="${cmd[*]}"
+				echo-style --tty+notice='Your sudo/root/login password is required to execute the command:'
 			fi
+			option_wrap='yes'
 		fi
 
-		run+=("${cmd[@]}")
+		run+=("${option_cmd[@]}")
 	elif command-exists doas; then
 		# https://man.archlinux.org/man/doas.1.en
 		run+=('doas')
-		if test -n "$user"; then
+		if test -n "$option_user"; then
 			run+=(
 				'-u'
-				"$user"
+				"$option_user"
 			)
 		fi
-		if test -n "$group"; then
+		if test -n "$option_group"; then
 			help "doas does not support --group"
 		fi
-		if test "$inherit" = 'yes'; then
+		if test "$option_inherit" = 'yes'; then
 			run+=(
 				'env'
 				"DOROTHY=$DOROTHY"
 				"PATH=$PATH"
 			)
 		fi
-		run+=("${cmd[@]}")
+		run+=("${option_cmd[@]}")
 	else
 		# sudo/doas does not exist, probably not needed
-		run+=("${cmd[@]}")
+		run+=("${option_cmd[@]}")
 	fi
 
 	# execute
-	"${run[@]}"
+	# @note that piping to cat, allows ctrl+c (SIGTERM) to be correctly reported, otherwise exit status 1 is returned
+	# the main thing here though, is that any failure should be detected and cancel in the caller
+	# perhaps requiring --ppid=$$ to be passed to sudo-helper is the way to go, as we do for [confirm]
+	if test "$option_wrap" = 'yes' -o "$option_confirm" = 'yes' -o "$option_quiet" = 'yes'; then
+		eval-helper --title="$(echo-style --sudo="$(echo-escape-command -- "${option_cmd[@]}")")" --wrap="$option_wrap" --quiet="$option_quiet" --confirm="$option_confirm" -- "${run[@]}"
+	else
+		"${run[@]}" # eval
+	fi
 )
 
 # fire if invoked standalone

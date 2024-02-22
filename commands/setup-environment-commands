@@ -71,7 +71,7 @@ export LANG LC_CTYPE EDITOR
 # Fresh install of Dorothy on Ubuntu 21.04 on a Raspberry Pi 400
 if test -z "${USER-}"; then
 	export USER
-	USER="$(whoami 2>/dev/null || users 2>/dev/null || print_line 'unknown')"
+	USER="$(whoami 2>/dev/null || users 2>/dev/null || __print_line 'unknown')"
 fi
 if test -z "${HOME-}"; then
 	export HOME
@@ -103,8 +103,9 @@ mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_BIN_HOME" "$XDG_DATA_HOME" "
 export APPIMAGE_HOME="${APPIMAGE_HOME:-"$HOME/Applications"}"
 
 # reset paths and flags
-export PATH="$DOROTHY/commands:$XDG_BIN_HOME:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" # $PATH last to make sure we inherit operating-system specific paths, such as WSL paths, and let the deduplicator later trim out duplicates in preferred order
-export MANPATH='/usr/share/man' INFOPATH='/usr/share/info' CLASSPATH='' LDFLAGS='' CPPFLAGS='' PKG_CONFIG_PATH=''
+export PATH="$DOROTHY/commands:$XDG_BIN_HOME:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"                                    # $PATH last to make sure we inherit operating-system specific paths, such as WSL paths, and let the deduplicator later trim out duplicates in preferred order
+export MANPATH="${MANPATH-}" INFOPATH="${INFOPATH-}" CLASSPATH="${CLASSPATH-}" PKG_CONFIG_PATH="${PKG_CONFIG_PATH-}" # don't wipe, as we want to inherit
+export LDFLAGS='' CPPFLAGS='' CC='' CXX=''                                                                           # do wipe as don't have duplicate prevention
 
 # local vars
 p=''
@@ -156,7 +157,7 @@ if test -z "${GNUPGHOME-}"; then
 	elif test -d "$HOME/.gnupg"; then
 		GNUPGHOME="$HOME/.gnupg"
 	else
-		# no existing, create from preference
+		# none existing, seed preference
 		if test "$PREFER_XDG" = 'yes'; then
 			GNUPGHOME="$XDG_DATA_HOME/gnupg"
 		else
@@ -165,14 +166,38 @@ if test -z "${GNUPGHOME-}"; then
 	fi
 fi
 
-# Apple Command Line Tools
-if test -d '/Library/Developer/CommandLineTools/usr/bin'; then
-	PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
-fi
-
 # Xcode
-if test -d '/Applications/Xcode.app/Contents/Developer/usr/bin'; then
-	PATH="/Applications/Xcode.app/Contents/Developer/usr/bin:$PATH"
+if test -d '/Applications/Xcode.app'; then
+	# Apple Command Line Tools
+	if test -d '/Library/Developer/CommandLineTools/usr/bin'; then
+		PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
+	fi
+
+	# Xcode Command Line Tools
+	if test -d '/Applications/Xcode.app/Contents/Developer/usr/bin'; then
+		PATH="/Applications/Xcode.app/Contents/Developer/usr/bin:$PATH"
+	fi
+
+	# Xcode Toolchain
+	if test -d '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/'; then
+		PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/:$PATH"
+		CC='/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang'    # xcrun --find clang
+		CXX='/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++' # xcrun --find clang++
+	fi
+
+	# Xcode LLVM
+	# /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk => /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk => xcrun --sdk macosx --show-sdk-pa
+	p='/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
+	if test -d "$p/usr/lib"; then
+		LDFLAGS="-L$p/usr/lib $LDFLAGS"
+	fi
+	if test -d "$p/usr/include"; then
+		CPPFLAGS="-I$p/usr/include $CPPFLAGS"
+	fi
+	if test -d "$p/System/Library/Frameworks"; then
+		# https://stackoverflow.com/a/68766210
+		LDFLAGS="-F$p/System/Library/Frameworks/ $LDFLAGS"
+	fi
 fi
 
 # Snap
@@ -219,13 +244,26 @@ fi
 if test -d '/usr/local/sbin'; then
 	PATH="/usr/local/sbin:$PATH"
 fi
+if test -d '/usr/share/man'; then
+	MANPATH="/usr/share/man:$MANPATH"
+fi
 if test -d '/usr/local/man'; then
 	MANPATH="/usr/local/man:$MANPATH"
+fi
+if test -d '/usr/share/info'; then
+	INFOPATH="/usr/share/info:$INFOPATH"
+fi
+if test -d '/usr/lib'; then
+	LDFLAGS="-L/usr/lib $LDFLAGS"
+fi
+if test -d '/usr/lib/pkgconfig'; then
+	PKG_CONFIG_PATH="/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
 fi
 
 # Homebrew
 if is-mac; then
-	export HOMEBREW_ARCH HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY HOMEBREW_SHELLENV_PREFIX
+	# macos
+	export HOMEBREW_ARCH HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY HOMEBREW_SHELLENV_PREFIX HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 	if test -z "${HOMEBREW_ARCH-}"; then
 		if test "$(uname -p)" = 'arm' -o "$(uname -m)" = 'arm64'; then
 			HOMEBREW_ARCH='arm64e'
@@ -257,13 +295,13 @@ if is-mac; then
 	if test -z "${HOMEBREW_SHELLENV_PREFIX-}"; then
 		HOMEBREW_SHELLENV_PREFIX="$HOMEBREW_PREFIX"
 	fi
+elif is-linux; then
+	# https://docs.brew.sh/Homebrew-on-Linux
+	export HOMEBREW_PREFIX="${HOMEBREW_PREFIX:-"$HOME/.linuxbrew"}" HOMEBREW_NO_ENV_HINTS=1
 fi
 
 # if homebrew is installed, then add its paths
-if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
-	# linux
-	export HOMEBREW_PREFIX="${HOMEBREW_PREFIX:-"/usr/local"}"
-
+if test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 	# /usr/local already added to PATH, so only add these if different
 	if test "$HOMEBREW_PREFIX" != '/usr/local'; then
 		if test -d "$HOMEBREW_PREFIX/bin"; then
@@ -282,7 +320,7 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 		INFOPATH="$HOMEBREW_PREFIX/share/info:$INFOPATH"
 	fi
 
-	# for compilers to find homebrew
+	# for compilers to find llvm
 	if test -d "$HOMEBREW_PREFIX/lib"; then
 		LDFLAGS="-L$HOMEBREW_PREFIX/lib $LDFLAGS"
 	fi
@@ -357,7 +395,7 @@ if test -x "${HOMEBREW_PREFIX-}/bin/brew"; then
 			p="$HOMEBREW_PREFIX/opt/ruby@$HOMEBREW_RUBY_VERSION"
 		fi
 		if test ! -d "$p/bin"; then
-			print_line "# specified HOMEBREW_RUBY_VERSION was not found at $p" >/dev/stderr
+			__print_line "# specified HOMEBREW_RUBY_VERSION was not found at $p" >/dev/stderr
 		else
 			PATH="$p/bin:$PATH"
 			rubygems "$p/bin/gem"
@@ -577,13 +615,21 @@ if test -d "$HOME/bin"; then
 	PATH="$HOME/bin:$PATH"
 fi
 
-# Generics: if XDG_BIN_HOME is customised, ensure the default XDG_BIN_HOME is still added, for anything that expects it
+# Generics: when XDG_BIN_HOME is customised, ensure the default XDG_BIN_HOME is still added, for anything that expects it
 if test "$XDG_BIN_HOME" != "$HOME/.local/bin"; then
 	PATH="$HOME/.local/bin:$PATH"
 fi
 
 # Generics: XDG, always add, even if not existent, in case it is created later
 PATH="$XDG_BIN_HOME:$PATH"
+
+# GO LLVM
+# https://stackoverflow.com/a/58488820
+if test -n "${GOPATH-}"; then
+	export CGO_CPPFLAGS CGO_LDFLAGS
+	CGO_CPPFLAGS="$CPPFLAGS -O2 -g -Wno-nullability-completeness"
+	CGO_LDFLAGS="$LDFLAGS -O2 -g"
+fi
 
 # Scripts
 before_dorothy_paths

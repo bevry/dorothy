@@ -20,7 +20,14 @@ function get_app() (
 			Get the full path of a GUI application.
 
 			USAGE:
-			get-app [--quiet] <app path or name>
+			get-app [...options] [--] <app>
+
+			OPTIONS:
+			<app> | --app=<app> | --name=<app>
+			    The application name or path to get the full path of.
+
+			--no-quiet | --quiet
+			    If enabled, do not output the path of the application, and do not output any error messages.
 
 			QUIRKS:
 			Searches the following paths for the application:
@@ -33,19 +40,25 @@ function get_app() (
 	}
 
 	# process
-	local item name='' quiet
-	quiet="$(is-quiet-enabled -- "$@")"
+	local item option_apps=() option_quiet
+	option_quiet="$(echo-quiet-enabled -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--name='*) name="${item#*--name=}" ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
+		'--app='*) option_apps+=("${item#*=}") ;;
+		'--name='*) option_apps+=("${item#*=}") ;;
+		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--')
+			option_apps+=("$@")
+			shift $#
+			break
+			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
-			if test -z "$name"; then
-				name="$item"
+			if test "${#option_apps[@]}" -eq 0; then
+				option_apps+=("$item")
 			else
 				help "An unrecognised argument was provided: $item"
 			fi
@@ -54,67 +67,88 @@ function get_app() (
 	done
 
 	# check
-	if test -z "$name"; then
-		help "No application name or path was provided"
+	if test "${#option_apps[@]}" -eq 0; then
+		help 'No <app>s provided.'
 	fi
 
 	# =====================================
-	# Act
+	# Action
 
-	if is-mac; then
-		# ensure the name has .app appended
-		local app="${name%.app}.app"
+	local name app dir path can_find was_found
+	for name in "${option_apps[@]}"; do
+		if test -z "$name"; then
+			return 1
+		fi
+		if is-mac; then
+			# ensure the name has .app appended
+			app="${name%.app}.app"
 
-		# iterate through a few options
-		local dir path
-		for dir in "${dirs[@]}"; do
-			path="$dir/$app"
-			if test -d "$path"; then
-				if test "$quiet" != 'yes'; then
-					print_line "$path"
+			# iterate through the various locations
+			was_found='no'
+			for dir in "${dirs[@]}"; do
+				path="$dir/$app"
+				if test -d "$path"; then
+					was_found='yes'
+					if test "$option_quiet" != 'yes'; then
+						print_line "$path"
+					fi
+					continue
 				fi
-				return 0
-			fi
-		done
+			done
 
-		# wasn't found
-		return 1
-	elif is-wsl; then
-		local can_find='no'
-		if command-exists winget.exe; then
-			can_find='yes'
-			# only output if found
-			local winget_status winget_stdout
-			eval_capture --statusvar=winget_status --stdoutvar=winget_stdout -- winget.exe list --disable-interactivity "$name"
-			if test "$winget_status" -eq 0; then
-				if test "$quiet" != 'yes'; then
-					echo-last-line --stdin <<<"$winget_stdout"
-				fi
-				return 0
+			# check if found
+			if test "$was_found" = 'yes'; then
+				continue
 			fi
-		fi
-		if command-exists scoop; then
-			can_find='yes'
-			# check for the header of the table of results
-			local scoop_stdout
-			scoop_stdout="$(scoop list "$name")"
-			if grep --quiet --fixed-strings --regexp='----' <<<"$scoop_stdout"; then
-				if test "$quiet" != 'yes'; then
-					echo-trim-stdin --stdin <<<"$scoop_stdout" | echo-last-line --stdin
+			# wasn't found
+			return 1
+		elif is-wsl; then
+			can_find='no'
+			if command-exists winget.exe; then
+				can_find='yes'
+				# only output if found
+				local winget_status winget_stdout
+				eval_capture --statusvar=winget_status --stdoutvar=winget_stdout -- winget.exe list --disable-interactivity "$name"
+				if test "$winget_status" -eq 0; then
+					if test "$option_quiet" != 'yes'; then
+						echo-last-line --stdin <<<"$winget_stdout"
+					fi
+					continue
 				fi
-				return 0
 			fi
+			if command-exists scoop; then
+				can_find='yes'
+				# check for the header of the table of results
+				local scoop_stdout
+				scoop_stdout="$(scoop list "$name")"
+				if grep --quiet --fixed-strings --regexp='----' <<<"$scoop_stdout"; then
+					if test "$option_quiet" != 'yes'; then
+						echo-trim-padding -- "$scoop_stdout" | echo-last-line --stdin
+					fi
+					continue
+				fi
+			fi
+			if test "$can_find" = 'no'; then
+				if test "$option_quiet" != 'yes'; then
+					echo-error "Unable to detect application [$name] on WSL. Install Winget or Scoop."
+				fi
+				return 6 # ENXIO 6 Device not configured
+			fi
+			# wasn't found
+			return 1
+		elif is-headless; then
+			if test "$option_quiet" != 'yes'; then
+				echo-style --notice="Skipping detection of application [$name] on headless system." >/dev/stderr
+			fi
+			return 19 # ENODEV 19 Operation not supported by device
+		else
+			if test "$option_quiet" != 'yes'; then
+				echo-error "Unable to detect application [$name] on Linux. Submit a PR to support it."
+			fi
+			return 19 # ENODEV 19 Operation not supported by device
 		fi
-		if test "$can_find" = 'no'; then
-			echo-error 'Install Winget or Scoop to be able to detect applications on WSL'
-			return 6 # ENXIO 6 Device not configured
-		fi
-		# wasn't found
-		return 1
-	else
-		echo-error 'Support for Applications not added yet for this platform.'
-		return 19 # ENODEV 19 Operation not supported by device
-	fi
+	done
+	return 0
 )
 
 # fire if invoked standalone

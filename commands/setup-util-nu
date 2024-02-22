@@ -22,6 +22,22 @@ function setup_util_nu() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# nushell requires all sources files to exist ahead of time
+	function write_state_config {
+		local file="$1" method="$2" target="$3"
+		# if the target exist and is a non-em,pty file, then source it
+		if test -n "$target" -a -s "$target"; then
+			# source it
+			cat <<-EOF >"$file"
+				#!/usr/bin/env nu
+				$method $(echo-quote -- "$target")
+			EOF
+		else
+			# otherwise just be empty
+			cat <<-EOF >"$file"
+				#!/usr/bin/env nu
+			EOF
+		fi
+	}
 	function do_configure {
 		# ensure nushell configuration directory exists (needed for [dorothy install])
 		# trunk-ignore(shellcheck/SC2016)
@@ -32,38 +48,61 @@ function setup_util_nu() (
 		if command-exists starship; then
 			starship init nu >"$XDG_STATE_HOME/starship/init.nu"
 		else
-			touch "$XDG_STATE_HOME/starship/init.nu"
+			fs-rm --quiet --no-confirm -- "$XDG_STATE_HOME/starship/init.nu"
 		fi
+		write_state_config "$DOROTHY/state/sources/starship.nu" 'use' "$XDG_STATE_HOME/starship/init.nu"
 
 		# ensure [sources/autocomplete.nu] works
 		mkdir -p "$XDG_STATE_HOME/carapace"
 		if command-exists carapace; then
 			carapace _carapace nushell >"$XDG_STATE_HOME/carapace/init.nu"
 		else
-			touch "$XDG_STATE_HOME/carapace/init.nu"
+			fs-rm --quiet --no-confirm -- "$XDG_STATE_HOME/carapace/init.nu"
 		fi
+		write_state_config "$DOROTHY/state/sources/carapace.nu" 'source' "$XDG_STATE_HOME/carapace/init.nu"
 
-		# ensure [sources/interactive.nu] works
-		if test ! -f "$DOROTHY/user/config.local/interactive.nu"; then
-			cat <<-EOF >"$DOROTHY/user/config.local/interactive.nu"
-				#!/usr/bin/env nu
+		# ensure [(config|config.local)/interactive.nu] works
+		local file files=(
+			'interactive.nu'
+		)
+		local dir dirs=(
+			'config.local'
+			'config'
+		)
+		for file in "${files[@]}"; do
+			# scaffold configuration files if the user is setup and has configuration directories
+			if test -d "$DOROTHY/user/config"; then
+				# user configuration exists, scaffold the config.local file
+				if test -d "$DOROTHY/user/config.local" -a ! -f "$DOROTHY/user/config.local/$file"; then
+					cat <<-EOF >"$DOROTHY/user/config.local/$file"
+						#!/usr/bin/env nu
 
-				# load my public configuration
-				source ../config/interactive.nu
-			EOF
-		fi
-		if test ! -f "$DOROTHY/user/config/interactive.nu"; then
-			cat <<-EOF >"$DOROTHY/user/config/interactive.nu"
-				#!/usr/bin/env nu
+						# load my public configuration
+						source ../config/$file
+					EOF
+				fi
+				# user configuration exists, scaffold the config file
+				if test ! -f "$DOROTHY/user/config/$file"; then
+					cat <<-EOF >"$DOROTHY/user/config/$file"
+						#!/usr/bin/env nu
 
-				# load the dorothy defaults
-				source ~/.local/share/dorothy/config/interactive.nu
-			EOF
-		fi
+						# load the dorothy defaults
+						source ~/.local/share/dorothy/config/$file
+					EOF
+					# ^ this should load in a way that is cross-os compatible, hence [source ~/...] instead of interpolating [source $DOROTHY/...]
+				fi
+			fi
+
+			# enable or disable the configuration files, based on their existence
+			for dir in "${dirs[@]}"; do
+				write_state_config "$DOROTHY/state/$dir/$file" 'source' "$DOROTHY/user/$dir/$file"
+				# ^ as this is local to the machine, it doesn't need to be cross-os comaptible
+			done
+		done
 	}
 
-	# improve performance
-	if is-needle --quiet "$@" && ! is-needle --upgrade "$@" && ! is-needle --uninstall "$@" && command-exists nu; then
+	# improve performance for detectable utilities with conditional assets
+	if setup-util "$@" --check --cli=nu; then
 		do_configure
 		return 0
 	fi
@@ -88,32 +127,32 @@ function setup_util_nu() (
 		github-download \
 			--dry \
 			--slug='nushell/nushell' \
-			--release='latest' \
-			--asset-filter="$(echo-escape-regex -- "$1")$" | echo-first-line || :
+			--latest \
+			--asset-regexp="$(echo-escape-regexp -- "$1")$" | echo-first-line || :
 	}
 	function add_download_option {
 		options+=(
 			DOWNLOAD="$(get_github_asset_url "$1")"
-			DOWNLOAD_UNZIP_FILTER="$2"
+			DOWNLOAD_ARCHIVE_GLOB="*/$2"
 		)
 	}
 	arch="$(get-arch)"
 	if is-mac; then
 		if test "$arch" = 'a64'; then
-			add_download_option '-aarch64-apple-darwin.tar.gz' '*/nu'
+			add_download_option '-aarch64-apple-darwin.tar.gz' 'nu'
 		else
-			add_download_option '-x86_64-apple-darwin.tar.gz' '*/nu'
+			add_download_option '-x86_64-apple-darwin.tar.gz' 'nu'
 		fi
 	elif is-linux; then # includes wsl
 		if test "$arch" = 'r64'; then
-			add_download_option '-riscv64gc-unknown-linux-gnu.tar.gz' '*/nu'
+			add_download_option '-riscv64gc-unknown-linux-gnu.tar.gz' 'nu'
 		elif test "$arch" = 'a64'; then
-			add_download_option '-aarch64-unknown-linux-gnu.tar.gz' '*/nu'
+			add_download_option '-aarch64-unknown-linux-gnu.tar.gz' 'nu'
 		elif test "$arch" = 'a32'; then
-			add_download_option '-armv7-unknown-linux-gnueabihf.tar.gz' '*/nu'
+			add_download_option '-armv7-unknown-linux-gnueabihf.tar.gz' 'nu'
 		elif test "$arch" = 'x64'; then
-			# add_download_option '-x86_64-unknown-linux-gnu.tar.gz' '*/nu'
-			add_download_option '-x86_64-unknown-linux-musl.tar.gz' '*/nu'
+			# add_download_option '-x86_64-unknown-linux-gnu.tar.gz' 'nu'
+			add_download_option '-x86_64-unknown-linux-musl.tar.gz' 'nu'
 		fi
 	elif is-wsl; then
 		if test "$arch" = 'a64'; then

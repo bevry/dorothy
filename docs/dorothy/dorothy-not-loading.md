@@ -17,3 +17,62 @@ Navigate to the active profile, select command, and ensure that login shell is e
 ![Screenshot of the Ubuntu Terminal Preferences](https://github.com/bevry/dorothy/blob/master/docs/assets/login-shell-ubuntu-preferences.png?raw=true)
 
 Close the preferences and open a new terminal tab, now Dorothy should be loaded which you can verify by running `dorothy theme` to select a theme.
+
+## Visual Studio Code
+
+1. Open the Visual Studio Code Command Palette (`Ctrl + Shift + P` on Windows, `Command + Shift + P` on macOS).
+
+2. Open `Preferences: User Settings (JSON)` via typing and enter.
+
+3. Merge the following JSON with your own JSON:
+
+    ```javascript
+    {
+      // dorothy auto-enables the vscode integration, no need for messy auto-detection
+      "terminal.integrated.shellIntegration.enabled": false,
+      // specify your default shell preference from below, ie. if you prefer nu, then use "nu (login)"
+      "terminal.integrated.defaultProfile.osx": "bash (login)",
+      "terminal.integrated.defaultProfile.linux": "bash (login)",
+      // specify our login shell configurations
+      "terminal.integrated.profiles.osx": {
+        "bash (login)": {
+          "path": "bash",
+          "args": ["-l"]
+        },
+        "zsh (login)": {
+          "path": "zsh",
+          "args": ["-l"]
+        },
+        "fish (login)": {
+          "path": "fish",
+          "args": ["-l"]
+        },
+        "nu (login)": {
+          "args": ["-l"],
+          "path": "nu"
+        },
+      },
+      "terminal.integrated.profiles.linux": {
+        "bash (login)": {
+          "path": "bash",
+          "args": ["-l"]
+        },
+        "zsh (login)": {
+          "path": "zsh",
+          "args": ["-l"]
+        },
+        "fish (login)": {
+          "path": "fish",
+          "args": ["-l"]
+        },
+        "nu (login)": {
+          "args": ["-l"],
+          "path": "nu"
+        },
+      },
+    }
+    ```
+
+4. Save the settings.
+
+5. Use the menu bar `Termina: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal. It should now start as a login shell, loading Dorothy as expected. Validate this by running a Dorothy command, like `dorothy theme`, to ensure everything is functioning as intended.

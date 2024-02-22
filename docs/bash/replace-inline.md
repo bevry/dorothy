@@ -17,7 +17,7 @@ fi
 is the same as:
 
 ```bash
-if ! rg --multiline --passthru "$pattern" --replace "$replace" "$file" | echo-wait "$file"; then
+if ! rg --multiline --passthru --regexp="$pattern" --replace="$replace" "$file" | echo-wait "$file"; then
 	# it wasn't found, so add manually if it's not empty
 	if test -n "$replace"; then
 		echo "$replace" >>"$file"

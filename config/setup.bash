@@ -82,6 +82,7 @@ HOMEBREW_FONTS=(
 # Node.js
 # Used by `setup-node`
 # NPM_INSTALL=()
+# NODE_VERSIONS=()
 
 # Python
 # Used by `setup-python`

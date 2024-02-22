@@ -4,26 +4,26 @@ function echo_lines_after_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-segment --h1="TEST: $0"
 
-	eval-tester --name='using arguments' --stdout=$'c\nd' \
-		-- echo-lines-after '' -- a b '' c d
+	eval-tester --name='using arguments' --stdout=$'c\n\nb' \
+		-- echo-lines-after '' --needle='b' -- $'a\nb\n\nb\n\nc\n\nb'
 
 	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using stdin' --stdout=$'c\nd' \
-		-- echo-lines-after ''
+		print_lines a b '' b '' c '' b
+	} | eval-tester --name='using stdin' --stdout=$'c\n\nb' \
+		-- echo-lines-after '' --needle='b'
 
 	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using --stdin' --stdout=$'c\nd' \
-		-- echo-lines-after '' --stdin
+		print_lines a b '' b '' c '' b
+	} | eval-tester --name='using --stdin' --stdout=$'c\n\nb' \
+		-- echo-lines-after '' --needle='b' --stdin
 
 	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using -' --stdout=$'c\nd' \
-		-- echo-lines-after '' -
+		print_lines a b '' b '' c '' b
+	} | eval-tester --name='using -' --stdout=$'c\n\nb' \
+		-- echo-lines-after '' --needle='b' -
 
-	eval-tester --name='using <<<' --stdout=$'c\nd' \
-		-- echo-lines-after '' - <<<"$(echo-lines -- a b '' c d)"
+	eval-tester --name='using <<<' --stdout=$'c\n\nb' \
+		-- echo-lines-after '' --needle='b' - <<<"$(print_lines a b '' b '' c '' b)"
 
 	echo-segment --g1="TEST: $0"
 	return 0
@@ -44,51 +44,97 @@ function echo_lines_after() (
 			echo-lines ...<input> | echo-lines-after <needle> [...options]
 
 			OPTIONS:
-			<needle>
-			    Only output the <input> that is after this line.
+			<needle> | --needle=<needle>
+			    Only output the <input> that occurs after one of these <needle> lines.
+			    Use [--needle=<needle>] to provide multiple needles.
 
 			$(stdinargs_options_help --)
 
 			EXAMPLE:
 
-			echo-lines-after '' -- a b '' '' c d
+			echo-lines-after --needle='b' -- a b b c b
 
 			    c
-			    d
+			    b
 			    # exit status: 0
 
-			echo-lines -- a b '' '' c d | echo-lines-after '' --stdin
+			echo-lines -- a b b c b | echo-lines-after --needle='' --stdin
 
 			    c
-			    d
+			    b
 			    # exit status: 0
 
-			echo-lines-after '' --stdin <<< "\$(echo-lines -- a b '' c d)"
+			echo-lines-after --needle='' --stdin <<< "\$(echo-lines -- a b b c b)"
 
 			    c
-			    d
+			    b
 			    # exit status: 0
 		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process <needle>
-	local option_needle="$1"
-	shift
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_needles=() option_args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--needle='*) option_needles+=("${item#*=}") ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinarg options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		*)
+			if test "${#option_needles[@]}" -eq 0; then
+				option_needles+=("$item")
+			else
+				option_args+=("$item")
+			fi
+			;;
+		esac
+	done
+
+	# check
+	if test "${#option_needles[@]}" -eq 0; then
+		help 'No <needle>s provided.'
+	fi
 
 	# =====================================
 	# Action
 
-	local found='no'
-	function on_input {
-		if test "$1" = "$option_needle"; then
-			found='yes'
-		elif test "$found" = 'yes'; then
-			print_line "$1"
+	local output='no' found='no'
+	function on_line {
+		local line="$1" match='no' needle
+		if test "$output" = 'no'; then
+			for needle in "${option_needles[@]}"; do
+				if test "$line" = "$needle"; then
+					match='yes'
+					break
+				fi
+			done
+			if test "$match" = 'yes'; then
+				# found, but not yet stopped finding, continue to next line
+				found='yes'
+				return 0
+			elif test "$found" = 'yes'; then
+				# found, and stopped matching, start outputting
+				output='yes'
+			else
+				# not yet found, continue to try and find a match
+				return 0
+			fi
 		fi
+		print_line "$line"
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
