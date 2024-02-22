@@ -52,7 +52,7 @@ Dorothy is a dotfile ecosystem featuring:
 | ⭕️ [Ubuntu Server][URPI]                          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
 | ⭕️ [Ubuntu Server][US]                            | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
 | ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
-| ▲ [Manjaro][M]/[Arch][A]                          | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ▲ [Manjaro][M] / [Arch][A]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
 | ∞ [Fedora Workstation][FW]                        | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE][OS] [Leap][OSL] & [Tumbleweed][OST] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ⛰ [Alpine][AL]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
