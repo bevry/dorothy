@@ -5,56 +5,63 @@ function ask_test() (
 	echo-segment --h1="TEST: $0"
 
 	eval-tester --name='default response -confirm' --stdout='a default response' \
+		-- ask --question='What is your response?' --default='a default response' --no-confirm-default
+
+	{
+		# confirm the default value
+		sleep 3
+		echo
+	} | eval-tester --name='default response' --stdout='a default response' \
 		-- ask --question='What is your response?' --default='a default response'
 
 	{
-		# confirm to enter a value
-		sleep 3
-		echo
-	} | eval-tester --name='default response +confirm' --stdout='a default response' \
-		-- ask --question='What is your response?' --default='a default response' --confirm
-
-	{
-		# confirm to enter a value
-		sleep 3
-		echo
-
-		# enter the custom response
+		# provide the custom response
 		sleep 3
 		print_line 'a custom response'
-	} | eval-tester --name='custom response -default -confirm' --stdout='a custom response' \
+	} | eval-tester --name='custom response' --stdout='a custom response' \
 		-- ask --question='What is your response?'
 
 	{
-		# confirm to enter a value
-		sleep 3
-		echo
-
-		# enter the custom response
+		# provide the custom response
 		sleep 3
 		print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
 		echo
-	} | eval-tester --name='custom response -default +confirm' --stdout='a custom response' \
+	} | eval-tester --name='custom response +confirm' --stdout='a custom response' \
 		-- ask --question='What is your response?' --confirm
 
 	{
-		# move down and select custom response
+		# confirm the default value
+		sleep 3
+		echo
+
+		# move down and change to custom response
 		sleep 3
 		printf $'\eOB'
 		sleep 3
 		echo
 
-		# enter the custom response
+		# provide the custom response
 		sleep 3
 		print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
 		echo
-	} | eval-tester --name='custom response +default +confirm' --stdout='a custom response' \
+	} | eval-tester --name='custom response manual +default +confirm' --stdout='a custom response' \
+		-- ask --question='What is your response?' --default='a default response' --confirm
+
+	{
+		# override the default response with the custom response
+		sleep 3
+		print_line 'a custom response'
+
+		# confirm the provided value
+		sleep 3
+		echo
+	} | eval-tester --name='custom response auto +default +confirm' --stdout='a custom response' \
 		-- ask --question='What is your response?' --default='a default response' --confirm
 
 	echo-segment --g1="TEST: $0"
@@ -101,7 +108,7 @@ function ask_() (
 	}
 
 	# process
-	local item args=() option_question='' option_default='' option_timeout='' option_password='no' option_required='no' option_linger='no' option_confirm_default='yes' option_confirm_input='no'
+	local item args=() option_question='' option_default='' option_timeout='' option_password='no' option_required='no' option_linger='yes' option_confirm_default='yes' option_confirm_input='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -124,6 +131,10 @@ function ask_() (
 			;;
 		'--no-confirm-input'* | '--confirm-input'*)
 			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
+			;;
+		'--no-confirm'* | '--confirm'*)
+			option_confirm_default="$(get-flag-value --affirmative --fallback="$option_confirm_default" -- "$item")"
+			option_confirm_input="$option_confirm_default"
 			;;
 		'--')
 			args+=("$@")
@@ -175,10 +186,22 @@ function ask_() (
 	# helpers
 	local ASKED='no'
 	function send_result {
-		if test "$option_linger" = 'yes'; then
-			print_line "$question_render"$'\n'"$RESULT" >"$tty_target"
+		local human_result="$RESULT"
+		if test -z "$human_result"; then
+			human_result="$(echo-style --dim='[ nothing provided ]')"
 		fi
-		print_line "$RESULT"
+		if test "$option_linger" = 'yes'; then
+			print_line "$question_render" >"$tty_target"
+			if test ! -t 1 -o -z "$RESULT"; then
+				# only output result to tty, if stdout isn't going to tty
+				print_line "$human_result" >"$tty_target"
+			fi
+		fi
+		if test -z "$RESULT"; then
+			print_string "$RESULT" # empty string
+		else
+			print_line "$RESULT"
+		fi
 	}
 	function on_timeout {
 		if is-value -- "$RESULT"; then
@@ -197,24 +220,47 @@ function ask_() (
 		fi
 	}
 	function do_prompt { # has sideffects: RESULT, ASKED
-		local __read_status render render_rows
-
-		# tty_auto
+		local __read_status=0 input render render_rows
 		ASKED='yes' # not local
-		if test -n "$question_render"; then
-			print_line "$question_render" >"$tty_target"
-		fi
 		while true; do
-			# -i requires -e
-			__read_status=0 && read -r -t 300 -ei "$RESULT" -p "$prompt" RESULT || __read_status=$?
+			# reset render
+			if test -n "$question_render"; then
+				render="$question_render"$'\n'
+			fi
+			render+="$prompt"
 
-			# \n at the end to factor in the enter key
-			render="$(echo-trim-colors -- "$question_render"$'\n'"$prompt$RESULT")"
-			render="$("$bin_gfold" -w "$size_columns" <<<"$render")"
-			render_rows="$("$bin_gwc" -l <<<"$render")"
+			# test for stdin technique, as [read -i] does not support programatic stdin
+			if test ! -t 0; then
+				# we have a programatic stdin, so manually read the line without a tty prompt
+				# don't read multiple lines, as other lines are for subequent prompts, such as confirmations or the next program
+				print_string "$render" >"$tty_target"
+				IFS='' read -r -t 300 input || __read_status=$?
+				if test -z "$input" -o "$input" = $'\n'; then
+					# treat empty string and newline as default
+					:
+				elif [[ $input =~ ^[\s]*$ ]]; then
+					# treat only whitespace as empty value
+					RESULT=''
+				else
+					# treat everything else as manual input
+					RESULT="$input"
+				fi
+			else
+				# we have tty stdin, can do a prompt
+				# -i requires -e
+				IFS= read -r -t 300 -ei "$RESULT" -p "$render" RESULT || __read_status=$?
+				render+="$RESULT"
+				if test "$__read_status" -eq 0; then
+					render+=$'\n ' # add the enter key, and a space so that it doesn't get trimmed
+				fi
+			fi
 
+			# use <<< to ensure no inline on any of these
+			render="$(echo-trim-colors < <(print_string "$render"))"
+			render="$("$bin_gfold" -w "$size_columns" < <(print_string "$render"))"
+			render_rows="$("$bin_gwc" -l < <(print_string "$render"))"
 			# move these lines up and erase
-			printf '\e[%sF\e[G\e[J' "$render_rows" >"$tty_target"
+			printf '\e[%sF\e[G\e[J' "$((render_rows))" >"$tty_target"
 
 			if test "$__read_status" -eq 142; then
 				return 60 # ETIMEDOUT 60 Operation timed out
