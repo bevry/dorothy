@@ -47,8 +47,8 @@ function git_helper() (
 			is-shallow
 			    Is the repository a shallow clone?
 
-			protocol-update <remote> [<protocol>]
-			    Set the <remote> to use the <protocol>.
+			protocol-update <remote-name> [<protocol>]
+			    Set the <remote-name> to use the <protocol>.
 			    If no <protocol> is specified, the preferred protocol will be selected.
 
 			protocol-format <url> [<protocol>]
@@ -63,7 +63,7 @@ function git_helper() (
 			unstage [...<file>]
 			    Unstage all staged changes, without deleting or removing anything.
 
-			update [<path>] [<remote>]
+			update -- [[--remote-name=]<remote-name>] [[--remote-url=]<remote-url>]
 			    Update the git repository inside <path>.
 			    Outputs to stdout either:
 			        failure    exit code 1
@@ -170,7 +170,7 @@ function git_helper() (
 				--filter="$protocol" -- "${protocols[@]}"
 		fi
 	}
-	function get_remote {
+	function get_remote_name {
 		local remote="${1-}" question="${2:-"Which remote to use?"}" remotes
 		if test -n "$remote"; then
 			print_line "$remote"
@@ -181,28 +181,28 @@ function git_helper() (
 				-- "${remotes[@]}"
 		fi
 	}
-	function __test_remote {
-		local remote="$1"
-		git fetch "$remote"
+	function __test_remote_name {
+		local remote_name="$1"
+		git fetch "$remote_name"
 	}
 	function get_remote_url {
-		local remote="$1"
-		git remote get-url "$remote"
+		local remote_name="$1"
+		git remote get-url "$remote_name"
 	}
 	function set_remote_url {
-		local remote="$1" url="$2" applied_url
-		git remote remove "$remote"
-		git remote add "$remote" "$url"
+		local remote_name="$1" remote_url="$2" applied_url
+		git remote remove "$remote_name"
+		git remote add "$remote_name" "$remote_url"
 
 		# ensure it changed, as git rules may have prevented it
-		applied_url="$(get_remote_url "$remote")"
-		if test "$applied_url" != "$url"; then
+		applied_url="$(get_remote_url "$remote_name")"
+		if test "$applied_url" != "$remote_url"; then
 			# it did not change, failure condition
 
 			# output details
 			cat <<-EOF
-				Failed to update the remote [$remote]:
-				Applied:    $url
+				Failed to update the remote [$remote_name]:
+				Applied:    $remote_url
 				Received:   $applied_url
 			EOF
 
@@ -413,7 +413,7 @@ function git_helper() (
 
 	function update_protocol {
 		local remote="${1-}" protocol="${2-}"
-		remote="$(get_remote "$remote" "Which remote to configure?")"
+		remote="$(get_remote_name "$remote" "Which remote to configure?")"
 		protocol="$(get_protocol "$protocol")"
 
 		# process
@@ -443,7 +443,7 @@ function git_helper() (
 		function test_with_fallback {
 			local protocol="$1"
 			print_line "Testing remote=[$remote] protocol=[$protocol] url=[$proposed_url] ..."
-			if __test_remote "$remote"; then
+			if __test_remote_name "$remote"; then
 				return 0
 			else
 				if test "$protocol" = 'ssh'; then
@@ -524,6 +524,26 @@ function git_helper() (
 	}
 
 	function git_update {
+		local item option_remote_name='origin' option_remote_url=''
+		while test "$#" -ne 0; do
+			item="$1"
+			shift
+			case "$item" in
+			'--help' | '-h') help ;;
+			'--remote='* | '--remote-name='*) option_remote_name="${item#*=}" ;;
+			'--remote-url='*) option_remote_url="${item#*=}" ;;
+			*)
+				if test -z "$option_remote_name"; then
+					option_remote_name="$item"
+				elif test -z "$option_remote_url"; then
+					option_args+=("$item" "$@")
+					shift "$#"
+					break
+				fi
+				;;
+			esac
+		done
+
 		# verify path, assumed verified for other actions
 		local BODY=''
 		BODY="$(mktemp)"
@@ -535,15 +555,17 @@ function git_helper() (
 			return 1
 		fi
 
-		# continue with the actual command
-		local remote="${1-}"
-		remote="$(get_remote "$remote")"
+		# ensure remote in case it was empty
+		option_remote_name="$(get_remote_name "$option_remote_name")"
 
 		# helper
 		function do_update {
-			update_protocol "$remote"
+			update_protocol "$option_remote_name"
 			git config pull.ff only
-			git pull "$remote" "$(get_default_branch)" | tee "$BODY"
+			if test -n "$option_remote_url"; then
+				set_remote_url "$option_remote_name" "$option_remote_url"
+			fi
+			git pull "$option_remote_name" "$(get_default_branch)" | tee "$BODY"
 		}
 
 		# write to BODY so that already updated can be detected
