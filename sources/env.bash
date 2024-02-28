@@ -45,6 +45,10 @@ function on_env_finish {
 			# on fedora, env can output functions, in which case we get garbled data sometimes
 			continue
 		fi
+		if test "$name" = 'SHLVL'; then
+			# ignore shell level, fixes: [set: Tried to change the read-only variable 'SHLVL'] on fish shell
+			continue
+		fi
 
 		# adjust
 		if [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
