@@ -342,6 +342,14 @@ Stable commands:
     -   [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
     -   [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
 
+-   [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, sand safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
+
+    Related commands:
+
+    -   [`get-devices`](https://github.com/bevry/dorothy/tree/master/commands/get-devices) cross-platform fetching and filtering of select and complete device information
+    -   [`gocryptfs-helper`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) helpers for [GoCryptFS](https://github.com/rfjakob/gocryptfs)
+    -   [`what-is-using`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) find out what is using a path so that you can unmount it safely
+
 Beta commands:
 
 -   [`mail-sync`](https://github.com/bevry/dorothy/tree/master/commands.beta/mail-sync) helps you migrate all your emails from one cloud provider to another.
