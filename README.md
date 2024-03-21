@@ -369,16 +369,13 @@ Beta commands:
 
 Beta commands:
 
+-   [`covert-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/convert-helper) convert one media format to another
 -   [`get-codec`](https://github.com/bevry/dorothy/tree/master/commands.beta/get-codec) gets the codec of a media file
 -   [`is-audio-mono`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-mono) checks if an audio file is mono
 -   [`is-audio-stereo`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-stereo) checks if an audio file is stereo
 -   [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-decrypt) will mass decrypt encrypted PDFs.
 -   [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-encrypt) decrypts a PDF file
--   [`podcast`](https://github.com/bevry/dorothy/tree/master/commands.beta/podcast) will convert an audio file to a new file with Apple's recommended podcast encoding and settings `aac-he`, which is super optimized for podcast use cases with tiny file sizes and the same quality.
--   [`podvideo`](https://github.com/bevry/dorothy/tree/master/commands.beta/podvideo) will convert a video file to a new file with h264+aac encoding.
 -   [`svg-export`](https://github.com/bevry/dorothy/tree/master/commands.beta/svg-export) converts an SVG image into a desired image format
--   [`to-png`](https://github.com/bevry/dorothy/tree/master/commands.beta/to-png) coverts various image formats to PNG
--   [`trim-audio`](https://github.com/bevry/dorothy/tree/master/commands.beta/trim-audio) trims superfluous audio-streams from a video file
 -   [`video-merge`](https://github.com/bevry/dorothy/tree/master/commands.beta/video-merge) will merge multiple video files in a directory together into a single video file.
 -   [`wallhaven-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/wallhaven-helper) download your wallpaper collections from [Wallhaven](https://wallhaven.cc)
 -   [`xps2pdf`](https://github.com/bevry/dorothy/tree/master/commands.beta/xps2pdf) will convert a legacy XPS document into a modern PDF document.
