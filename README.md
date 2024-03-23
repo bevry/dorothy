@@ -342,7 +342,7 @@ Stable commands:
     -   [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
     -   [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
 
--   [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, sand safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
+-   [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, and safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
 
     Related commands:
 
@@ -377,7 +377,7 @@ Beta commands:
 
 Beta commands:
 
--   [`covert-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/convert-helper) convert one media format to another
+-   [`convert-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/convert-helper) convert one media format to another
 -   [`get-codec`](https://github.com/bevry/dorothy/tree/master/commands.beta/get-codec) gets the codec of a media file
 -   [`is-audio-mono`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-mono) checks if an audio file is mono
 -   [`is-audio-stereo`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-stereo) checks if an audio file is stereo
