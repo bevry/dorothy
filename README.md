@@ -31,9 +31,9 @@ Dorothy is a dotfile ecosystem featuring:
 
 ## Introduction
 
-[Watch the 2022 April Presentation to see what Dorothy can do!](https://www.youtube.com/watch?v=gWLana1JmNk)
+[Watch the 2023 November Presentation to see what Dorothy can do!](https://youtu.be/EdoN9rQ2S4w)
 
-[![Screenshot of the 2022 April Presentation](https://github.com/bevry/dorothy/blob/master/docs/assets/presentation.gif?raw=true)](https://www.youtube.com/watch?v=gWLana1JmNk)
+[![Screenshot of the 2022 April Presentation](https://github.com/bevry/dorothy/blob/master/docs/assets/presentation.gif?raw=true)](https://youtu.be/EdoN9rQ2S4w)
 
 ## Setup
 
