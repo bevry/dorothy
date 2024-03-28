@@ -1112,7 +1112,7 @@ function mount_helper() (
 			fi
 		fi
 		if test -n "$option_target"; then
-			rm_root_cmd+=(
+			rm_root_cmd=(
 				fs-rm
 				--sudo
 				--
@@ -1694,10 +1694,7 @@ function mount_helper() (
 					if test "$status" -eq 0; then
 						# log
 						echo-style --notice='Cleaning unmounted target as root...' ' ' --invert="$option_target"
-						# it exists as our intended user, so we can remove it as our intended user
-						if test "$status" -eq 0; then
-							"${rm_root_cmd[@]}" # eval, no need to eval wrap as it is noisey enough
-						fi
+						"${rm_root_cmd[@]}" # eval, no need to eval wrap as it is noisey enough
 						# check
 						eval_capture --statusvar=status -- "${exists_root_cmd[@]}"
 						if test "$status" -eq 0; then
@@ -1705,7 +1702,7 @@ function mount_helper() (
 							return 66 # ENOTEMPTY 66 Directory not empty
 						fi
 						echo-style --positive='Cleaned unmounted target.'
-					fi
+					fi # else it doesn't exist
 				fi
 			fi
 
@@ -1714,7 +1711,7 @@ function mount_helper() (
 			return 0
 		}
 		function do_mount {
-			local unmount_status ls_status
+			local unmount_status ls_status fix_perms=()
 
 			# check if invalid
 			if test -z "$option_share" -o -z "$option_target"; then
@@ -1768,6 +1765,7 @@ function mount_helper() (
 			if test "$uses_mkdir" = 'yes'; then
 				# make the directory
 				"${mkdir_cmd[@]}"
+				# @todo instead of the fix_perms workaround always being needed when saying making /Volumes/TARGET for the first time (as /Volumes will be root beccause / is root, despite /Volumes/TARGET being desired), we should make a [fs-mkdir] helper that accepts the desired ownership arguments, uses sudo to create and own each missing parent before moving on to create and own each missing child
 
 				# then chown it
 				if test "$uses_ownership" = 'yes'; then
@@ -1778,11 +1776,32 @@ function mount_helper() (
 						--user="$option_user" \
 						--group="$option_group" \
 						-- "$option_target"
+					fix_perms=(
+						fs-own
+						--parents
+						--sudo
+						--owner="$option_owner"
+						--user="$option_user"
+						--group="$option_group"
+						-- "${option_target@Q}"
+					)
+				else
+					fix_perms=(
+						fs-own
+						--parents
+						--me
+						-- "${option_target@Q}"
+					)
 				fi
 
 				# then ls it
-				eval-helper --no-quiet --wrap \
-					-- "${ls_cmd[@]}"
+				eval_capture --statusvar=ls_status -- eval-helper --no-quiet --wrap -- "${ls_cmd[@]}"
+				if test "$ls_status" -ne 0; then
+					echo-style --warning="Failed to access the mount target:" ' ' --code="$option_target" $'\n' \
+						--notice='This is likely due to incorrect permissions on the target or its parent directories, and probably requires running the following to resolve:' $'\n' \
+						--code_notice="${fix_perms[*]}"
+					return "$ls_status"
+				fi
 			fi
 
 			# mount

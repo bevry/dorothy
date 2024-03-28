@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-function fs_absolute() (
+function fs_parents() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
@@ -9,23 +9,22 @@ function fs_absolute() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Output the absolute path of a relative path.
+			Output all parent paths of a <path>.
 
 			USAGE:
-			fs-absolute [...options] [--] ...<path>
+			fs-parents [...options] [--] ...<path>
 
 			OPTIONS:
+			--self
+			    If specified, incude the <path> in the output.
+			--root
+			    If specified, include the root directory in the output.
+
 			--sudo
 			    If specified, use sudo on filesystem interactions.
 			--user=<user>
 			--group=<group>
 			    If specified use this user and/or group for filesystem interactions.
-
-			EXAMPLES:
-			fs-absolute -- ..
-			fs-absolute -- .
-			fs-absolute -- ./*
-			fs-absolute -- /
 
 			QUIRKS:
 			Use [fs-realpath] if you want symlinks resolved.
@@ -37,12 +36,18 @@ function fs_absolute() (
 	}
 
 	# process
-	local item option_paths=() option_sudo='no' option_user='' option_group=''
+	local item option_paths=() option_self='no' option_root='no' option_sudo='no' option_user='' option_group=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-self'* | '--self'*)
+			option_self="$(get-flag-value --affirmative --fallback="$option_self" -- "$item")"
+			;;
+		'--no-root'* | '--root'*)
+			option_root="$(get-flag-value --affirmative --fallback="$option_root" -- "$item")"
+			;;
 		'--no-sudo'* | '--sudo'*)
 			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
 			;;
@@ -66,44 +71,29 @@ function fs_absolute() (
 	# =====================================
 	# Act
 
-	# call this again, but inside sudo
-	if test "$option_sudo" = 'yes' -o -n "$option_user" -o -n "$option_group"; then
-		sudo-helper --inherit --user="$option_user" --group="$option_group" \
-			-- fs-absolute -- "${option_paths[@]}"
-		return
-	fi
-
-	local path filename
+	local path temp paths i
 	for path in "${option_paths[@]}"; do
-		# don't use [pwd -P] as -P resolves symlinks
-		# and resolving symlinks is what [fs-realpath] is for
-		filename="$(basename "$path")"
-		if test "$filename" = '/'; then
-			# handles root
-			print_line '/'
-		elif test "$filename" = '..'; then
-			# handles parent
-			(
-				cd "$(dirname "$path")/.."
-				pwd
-			)
-		elif test "$filename" = '.'; then
-			# handles cwd
-			(
-				cd "$(dirname "$path")"
-				pwd
-			)
-		else
-			# handles files and directories
-			(
-				cd "$(dirname "$path")"
-				print_line "$(pwd)/$filename"
-			)
+		paths=()
+		path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path")"
+		if test "$option_self" = 'yes'; then
+			paths+=("$path")
 		fi
+		while test "$path" != '/'; do
+			temp="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path/..")"
+			if test "$temp" = "$path" || test "$temp" = '/' -a "$option_root" = 'no'; then
+				break
+			fi
+			paths+=("$temp")
+			path="$temp"
+		done
+		# out paths in reverse order, so topmost first
+		for ((i = "${#paths[@]}" - 1; i >= 0; i--)); do
+			print_line "${paths[i]}"
+		done
 	done
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_absolute "$@"
+	fs_parents "$@"
 fi
