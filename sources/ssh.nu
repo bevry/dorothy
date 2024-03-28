@@ -8,7 +8,7 @@
 # ssh-agent handling
 command-exists 'ssh-agent' | complete; if $env.LAST_EXIT_CODE == 0 {
 	# start ssh-agent and export SSH_AUTH_SOCK and SSH_AGENT_PID
-	if not 'SSH_AUTH_SOCK' in $env {
+	if 'SSH_AUTH_SOCK' not-in $env {
 		ssh-agent -c
 			| lines
 			| first 2
