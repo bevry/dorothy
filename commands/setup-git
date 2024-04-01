@@ -102,20 +102,34 @@ function setup_git() (
 	local MERGE_TOOL=''
 	local GITHUB_USERNAME=''
 	local GITLAB_USERNAME=''
-	local GPG_SIGNING_KEY='' # use 'krypton' for Krypt.co
-	local KRYPTON_GPG=''     # deprecated, use GPG_SIGNING_KEY=krypton
-	local HUB_PROTOCOL=''    # deprecated, replaced by GIT_PROTOCOL
+	local GPG_SIGNING_KEY=''
+	local GPG_SIGNING_AGENT='' # 'op' for 1password, 'krypton' for Krypt.co, 'default' for system default
+	local KRYPTON_GPG=''       # deprecated, use GPG_SIGNING_KEY=krypton
+	local HUB_PROTOCOL=''      # deprecated, replaced by GIT_PROTOCOL
 	load_dorothy_config 'git.bash'
 	if test "$GPG_SIGNING_KEY" = '1password'; then
 		GPG_SIGNING_KEY='op'
 	fi
 
 	# handle deprecations
-	if test "$KRYPTON_GPG" = 'yes'; then
-		GPG_SIGNING_KEY='krypton'
+	if test "$GPG_SIGNING_KEY" = 'op' -o "$GPG_SIGNING_KEY" = '1password'; then
+		GPG_SIGNING_AGENT='op'
+		dorothy-config 'git.bash' -- \
+			--field='GPG_SIGNING_KEY' --replace= \
+			--field='GPG_SIGNING_AGENT' --value='op'
+	fi
+	if test "$GPG_SIGNING_KEY" = 'krypton'; then
+		GPG_SIGNING_AGENT='krypton'
 		dorothy-config 'git.bash' -- \
 			--field='KRYPTON_GPG' --replace= \
-			--field='GPG_SIGNING_KEY' --value='krypton'
+			--field='GPG_SIGNING_KEY' --replace= \
+			--field='GPG_SIGNING_AGENT' --value='krypton'
+	fi
+	if test "$KRYPTON_GPG" = 'yes'; then
+		GPG_SIGNING_AGENT='krypton'
+		dorothy-config 'git.bash' -- \
+			--field='KRYPTON_GPG' --replace= \
+			--field='GPG_SIGNING_AGENT' --value='krypton'
 	fi
 	if test -z "$GIT_PROTOCOL" -a -n "$HUB_PROTOCOL"; then
 		GIT_PROTOCOL="$HUB_PROTOCOL"
@@ -185,39 +199,16 @@ function setup_git() (
 
 		# prefer 1password
 		if command-exists op-ssh-sign; then
-			if test "$GPG_SIGNING_KEY" != 'op'; then
-				if confirm --positive --ppid=$$ -- '1Password SSH Signing Agent is available for GPG, use it?'; then
-					GPG_SIGNING_KEY='op'
-				fi
-			fi
-		else
-			if test "$GPG_SIGNING_KEY" = 'op'; then
-				cat <<-EOF >/dev/stderr
-					$(echo-style --e2="Git Configuration: Signing: 1Password")
-					GPG using 1Password was desired, however 1Password does not appear to be installed on this system. Install it first via:
-					$(echo-style --code_notice='setup-util-1password')
-					$(echo-style --code_notice='setup-util-1password-cli')
-					Will continue without this.
-				EOF
-				GPG_SIGNING_KEY=''
+			if test -z "$GPG_SIGNING_AGENT" && confirm --positive --ppid=$$ -- '1Password SSH Signing Agent is available for GPG, use it?'; then
+				GPG_SIGNING_AGENT='op'
 			fi
 		fi
 		if command-exists krgpg; then
-			if test "$GPG_SIGNING_KEY" != 'krypton'; then
-				if confirm --positive --ppid=$$ -- 'Krypton is available for GPG, use it?'; then
-					GPG_SIGNING_KEY='krypton'
-				fi
-			fi
-		else
-			if test "$GPG_SIGNING_KEY" = 'krypton'; then
-				cat <<-EOF >/dev/stderr
-					$(echo-style --e2="Git Configuration: Signing: Krypton")
-					GPG using Krypton was desired, however Krypton does not appear to be installed on this system. Install it first. Will continue without this.
-				EOF
-				GPG_SIGNING_KEY=''
+			if test -z "$GPG_SIGNING_AGENT" && confirm --positive --ppid=$$ -- 'Krypton is available for GPG, use it?'; then
+				GPG_SIGNING_AGENT='krypton'
 			fi
 		fi
-		if test "$GPG_SIGNING_KEY" != 'op' && "$GPG_SIGNING_KEY" != 'krypton'; then
+		if test "$GPG_SIGNING_AGENT" != 'op' && "$GPG_SIGNING_AGENT" != 'krypton'; then
 			# 2>/dev/null || : in case there are no gpg keys
 			GPG_SIGNING_KEY="$(gpg-helper get private 2>/dev/null || :)"
 		fi
@@ -231,6 +222,7 @@ function setup_git() (
 			--field='GITHUB_USERNAME' --value="$GITHUB_USERNAME" \
 			--field='GITLAB_USERNAME' --value="$GITLAB_USERNAME" \
 			--field='GPG_SIGNING_KEY' --value="$GPG_SIGNING_KEY" \
+			--field='GPG_SIGNING_AGENT' --value="$GPG_SIGNING_AGENT" \
 			--field='MERGE_TOOL' --value="$MERGE_TOOL"
 	fi
 
@@ -373,8 +365,20 @@ function setup_git() (
 	}
 	function sign_op {
 		# Use 1Password SSH Signing for GPG
-		local op_pub=''
-		op_pub="$(ssh-helper export --raw || :)"
+		local op_pub="$GPG_SIGNING_KEY"
+		if test -n "$op_pub"; then
+			if test -f "$op_pub.pub"; then
+				op_pub="$op_pub.pub"
+			elif test -f "$op_pub"; then
+				:
+			else
+				op_pub=''
+			fi
+		fi
+		if test -z "$op_pub"; then
+			op_pub="$(ssh-helper export --raw || :)"
+			GPG_SIGNING_KEY="$op_pub"
+		fi
 		if command-exists op-ssh-sign; then
 			if test -n "$op_pub"; then
 				git config --global gpg.format ssh
@@ -410,9 +414,9 @@ function setup_git() (
 		echo-style --h2="Git Configuration: Signing"
 
 		# adjust
-		if test "$GPG_SIGNING_KEY" = 'op'; then
+		if test "$GPG_SIGNING_AGENT" = 'op'; then
 			sign_op
-		elif test "$GPG_SIGNING_KEY" = 'krypton'; then
+		elif test "$GPG_SIGNING_AGENT" = 'krypton'; then
 			sign_krypton
 		elif [[ $GPG_SIGNING_KEY == *".ssh"* ]]; then
 			sign_ssh "$GPG_SIGNING_KEY"
