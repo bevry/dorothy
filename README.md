@@ -236,7 +236,7 @@ For each shell that you configured during the Dorothy installation (can be recon
 
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
 
-        1. Load your own `user/config(.local)/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)` configuration script for your own interactive login shell configuration.
+        1. Load your own `user/config(.local)/interactive.(sh|bash|dash|elv|fish|ksh|nu|xsh|zsh)` configuration script for your own interactive login shell configuration.
             - [Elvish](https://elv.sh) will only load `interactive.elv` if it exists.
             - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
             - [Nu](https://www.nushell.sh) will only load `interactive.nu` and it must exist.
@@ -349,6 +349,13 @@ Stable commands:
     -   [`get-devices`](https://github.com/bevry/dorothy/tree/master/commands/get-devices) cross-platform fetching and filtering of select and complete device information
     -   [`gocryptfs-helper`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) helpers for [GoCryptFS](https://github.com/rfjakob/gocryptfs)
     -   [`what-is-using`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) find out what is using a path so that you can unmount it safely
+
+-   Dorothy also provides commands for writing commands, such as:
+
+    -   [`bash.bash`](https://github.com/bevry/dorothy/tree/master/sourcces/bash.bash) for a Bash strict mode that actually works, and various shims/polyfills
+    -   [`ask`](https://github.com/bevry/dorothy/tree/master/commands/ask), [`confirm`](https://github.com/bevry/dorothy/tree/master/commands/confirm), and [`choose`](https://github.com/bevry/dorothy/tree/master/commands/choose) for prompting the user for input
+    -   [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-segment`](https://github.com/bevry/dorothy/tree/master/commands/echo-segment), [`echo-element`](https://github.com/bevry/dorothy/tree/master/commands/echo-element), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
+    -   Dozens of `echo-*`, `fs-*`, `get-*`, and `is-*` helpers
 
 Beta commands:
 

@@ -13,5 +13,5 @@
 
 def load_dorothy_config [...filenames: string] {
 	echo-style --error='Nu does not support dynamic loading of configuration files.' >/dev/stderr
-	return 2  # No such file or directory
+	return 1 # EPERM 1 Operation not permitted
 }
