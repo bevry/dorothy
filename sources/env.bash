@@ -30,7 +30,7 @@ function on_env_finish {
 	fi
 
 	# success condition, echo var actions
-	local name value i items_array items_string item item_last_index item_index item_existing
+	local name value i items_array items_string item item_last_index item_index item_existing split_char is_path
 	while read -r line; do
 		# parse line
 		name='' value=''
@@ -51,7 +51,15 @@ function on_env_finish {
 		fi
 
 		# adjust
+		split_char=''
+		is_path='no'
 		if [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
+			split_char=':'
+			is_path='yes'
+		elif [[ $name == *'FLAGS' ]]; then
+			split_char=' '
+		fi
+		if test -n "$split_char"; then
 			# cycle through each item in the path, removing duplicates and empties
 			items_array=()
 			items_string=''
@@ -59,7 +67,7 @@ function on_env_finish {
 			# the <= and -o, is to ensure that the last item is processed, as it does not have a trailing :
 			for ((item_index = 0; item_index <= ${#value}; item_index++)); do
 				# || is used instead of -o, because of [test '(' = ':' -o 375 -eq 7258] producing [test: `)' expected, found :]
-				if test "${value:item_index:1}" = ':' || test "$item_index" -eq "${#value}"; then
+				if test "${value:item_index:1}" = "$split_char" || test "$item_index" -eq "${#value}"; then
 					item="${value:item_last_index:item_index-item_last_index}"
 					item_last_index="$((item_index + 1))"
 					# check if empty
@@ -80,7 +88,7 @@ function on_env_finish {
 					if test -z "$items_string"; then
 						items_string="$item"
 					else
-						items_string="$items_string:$item"
+						items_string="$items_string$split_char$item"
 					fi
 				fi
 			done
@@ -113,9 +121,9 @@ function on_env_finish {
 				# https://elv.sh/ref/builtin.html#unset-env
 				echo "unset-env $name"
 			else
-				echo "export $name='';"
+				echo "unset -v $name;"
 			fi
-		elif [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
+		elif test "$is_path" = 'yes'; then
 			# echo var action: set path
 			if test "$shell" = 'fish'; then
 				echo "set --export --path $name '$value';"
