@@ -15,36 +15,39 @@
 # Helpers to work around bash pecularities.
 
 # echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
-function print_string {
+function __print_string {
+	# print each argument as space seperated, without a trailing line
 	if test "$#" -ne 0; then
 		printf '%s' "$*"
 	fi
 }
-function print_line {
+function __print_line {
+	# print each argument as space separated, followed by a trailing line
 	if test "$#" -ne 0; then
 		printf '%s' "$*"
 	fi
 	printf '\n'
 }
-function print_lines {
+function __print_lines {
+	# print each argument as a complete line
 	if test "$#" -ne 0; then
 		printf '%s\n' "$@"
 	fi
 }
-function __print_string {
-	print_string "$@"
-}
-function __print_line {
-	print_line "$@"
-}
-function __print_lines {
-	print_lines "$@"
+function __print_lines_no_trail {
+	# print each argument, except the last, as a complete line
+	while test "$#" -gt 1; do
+		printf '%s\n' "$1"
+	done
+	if test "$#" -eq 1; then
+		printf '%s' "$1"
+	fi
 }
 
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
-# require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
+# __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
 # BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
 # BASH_VERSION_MAJOR -- 5
 # BASH_VERSION_MINOR -- 2
@@ -60,15 +63,15 @@ if test -z "${BASH_VERSION_CURRENT-}"; then
 	# any v5 version is supported by dorothy
 	if test "$BASH_VERSION_MAJOR" -eq 5; then
 		IS_BASH_VERSION_OUTDATED='no'
-		function require_upgraded_bash {
+		function __require_upgraded_bash {
 			true
 		}
 	else
 		IS_BASH_VERSION_OUTDATED='yes'
-		function require_upgraded_bash {
+		function __require_upgraded_bash {
 			echo-style \
 				--code="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" $'\n' \
-				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >/dev/stderr
+				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >/dev/stderr || return $?
 			return 45 # ENOTSUP 45 Operation not supported
 		}
 	fi
@@ -93,13 +96,13 @@ shopt -s huponexit
 # Enable [cmd | read -r var] usage.
 # bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
 if shopt -s lastpipe 2>/dev/null; then
-	function require_lastpipe {
+	function __require_lastpipe {
 		true
 	}
 else
-	function require_lastpipe {
-		echo-style --error='Missing lastpipe support:' >/dev/stderr
-		require_upgraded_bash
+	function __require_lastpipe {
+		echo-style --error='Missing lastpipe support:' >/dev/stderr || return $?
+		__require_upgraded_bash
 	}
 fi
 
@@ -358,25 +361,25 @@ shopt -s nullglob
 
 # bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
 if shopt -s globstar 2>/dev/null; then
-	function require_globstar {
+	function __require_globstar {
 		true
 	}
 else
-	function require_globstar {
-		echo-style --error='Missing globstar support:' >/dev/stderr
-		require_upgraded_bash
+	function __require_globstar {
+		echo-style --error='Missing globstar support:' >/dev/stderr || return $?
+		__require_upgraded_bash
 	}
 fi
 
 # bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
 if shopt -s extglob 2>/dev/null; then
-	function require_extglob {
+	function __require_extglob {
 		true
 	}
 else
-	function require_extglob {
-		echo-style --error='Missing extglob support:' >/dev/stderr
-		require_upgraded_bash
+	function __require_extglob {
+		echo-style --error='Missing extglob support:' >/dev/stderr || return $?
+		__require_upgraded_bash
 	}
 fi
 
@@ -393,15 +396,15 @@ fi
 # Shim Read Timeout
 # Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
 if test "$BASH_VERSION_MAJOR" -ge 4; then
-	function get_read_decimal_timeout {
-		print_line "$1"
+	function __get_read_decimal_timeout {
+		__print_line "$1"
 	}
 else
-	function get_read_decimal_timeout {
+	function __get_read_decimal_timeout {
 		if test -n "$1" && test "$1" -lt 1; then
-			print_line 1
+			__print_line 1
 		else
-			print_line "$1"
+			__print_line "$1"
 		fi
 	}
 fi
@@ -413,29 +416,29 @@ fi
 # lowercase_string
 if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 	# >= bash v5.1
-	function uppercase_first_letter {
-		print_line "${1@u}"
+	function __uppercase_first_letter {
+		__print_line "${1@u}"
 	}
-	function lowercase_string {
-		print_line "${1@L}"
+	function __lowercase_string {
+		__print_line "${1@L}"
 	}
 elif test "$BASH_VERSION_MAJOR" -eq 4; then
 	# >= bash v4.0
-	function uppercase_first_letter {
-		print_line "${1^}"
+	function __uppercase_first_letter {
+		__print_line "${1^}"
 	}
-	function lowercase_string {
-		print_line "${1,,}"
+	function __lowercase_string {
+		__print_line "${1,,}"
 	}
 else
 	# < bash v4.0
-	function uppercase_first_letter {
+	function __uppercase_first_letter {
 		local input="$1"
 		local first_char="${input:0:1}"
 		local rest="${input:1}"
-		print_line "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
+		__print_line "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
 	}
-	function lowercase_string {
+	function __lowercase_string {
 		tr '[:upper:]' '[:lower:]' <<<"$1"
 	}
 fi
@@ -482,10 +485,10 @@ function __has_array_capability {
 	done
 }
 
-function require_array {
+function __require_array {
 	if ! __has_array_capability "$@"; then
-		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr
-		require_upgraded_bash
+		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr || return $?
+		__require_upgraded_bash
 	fi
 }
 
@@ -525,3 +528,41 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 	}
 fi
 BASH_ARRAY_CAPABILITIES+=' '
+
+# b/c aliases
+function print_string {
+	__print_string "$@"
+}
+function print_line {
+	__print_line "$@"
+}
+function print_lines {
+	__print_lines "$@"
+}
+function require_upgraded_bash {
+	__require_upgraded_bash "$@"
+}
+function require_globstar {
+	__require_globstar "$@"
+}
+function require_extglob {
+	__require_extglob "$@"
+}
+function require_lastpipe {
+	__require_lastpipe "$@"
+}
+function require_array {
+	__require_array "$@"
+}
+function get_read_decimal_timeout {
+	__get_read_decimal_timeout "$@"
+}
+function uppercase_first_letter {
+	__uppercase_first_letter "$@"
+}
+function lowercase_string {
+	__lowercase_string "$@"
+}
+function is_var_set {
+	__is_var_set "$@"
+}

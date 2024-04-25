@@ -1,11 +1,10 @@
 # Prompts
 
-A few different tools exist in Dorothy for doing fancy TTY stuff:
+Dorothy provides tooling for advanced terminal interactions.
 
--   For creating alternative TTYs (which is necessary for when the content to be "erased" may span the terminal window's height):
+-   For managing alternative TTYs (which is necessary for when the content to be "erased" may span the terminal window's height):
 
-    -   `sources/tty.bash` which is what `ask` and `choose-menu` uses
-        -   `choose-option` uses `choose-menu`, and `ask` also uses `choose-option` for confirmations
+    -   `sources/tty.bash` which is what `ask` and `choose` uses
 
 -   For erasing only certain lines (which only works when the content to be "erased" is within the terminal widow's height):
 
