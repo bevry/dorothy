@@ -65,13 +65,13 @@ function test_dorothy_scopes() (
 	source "$DOROTHY/sources/bash.bash"
 
 	local var='a'
-	print_line "$var"
+	__print_line "$var"
 	function nested_function {
 		local var='b'
-		print_line "$var"
+		__print_line "$var"
 	}
 	nested_function
-	print_line "$var"
+	__print_line "$var"
 	# a
 	# b
 	# a

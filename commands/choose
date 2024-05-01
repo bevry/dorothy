@@ -137,7 +137,7 @@ function choose_test() (
 function choose_() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$DOROTHY/sources/tty.bash"
-	require_array 'mapfile'
+	__require_array 'mapfile'
 
 	# =====================================
 	# Arguments
@@ -269,7 +269,7 @@ function choose_() (
 			option_hints="$(get-flag-value --affirmative --fallback="$option_hints" -- "$item")"
 			;;
 		'--no-linger'* | '--linger'*)
-			option_linger="$(get-flag-value linger --missing="$option_linger" -- "$item" | echo-affirmative --stdin)"
+			option_linger="$(get-flag-value --affirmative --fallback="$option_linger" -- "$item")"
 			;;
 		'--timeout='*) option_timeout="${item#*=}" ;;
 		'--')
@@ -278,13 +278,34 @@ function choose_() (
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_question+=("$@") ;;
+		*) option_question+=("$item") ;;
 		esac
 	done
 
 	# ensure items were provided
 	if test "${#inputs[@]}" -eq 0; then
 		help 'No <item>s provided.'
+	fi
+
+	# styles
+	local style_dim=$'\e[2m' style_bold=$'\e[1m' style_reset=$'\e[0m'
+
+	# adjust question
+	local question_title question_with_body
+	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
+		if test -n "${option_question[0]}"; then
+			question_title="$style_bold${option_question[0]}$style_reset"
+			question_with_body="$(__print_lines "$question_title" "${option_question[@]:1}")"
+		else
+			question_title="$(__print_lines "${option_question[@]:1}")"
+			question_with_body="$question_title"
+		fi
+	else
+		question_title=''
+		question_with_body=''
+	fi
+	if test "$option_linger" = 'yes' -a -z "$question_title"; then
+		help 'A <question> is required when using --linger'
 	fi
 
 	# generic helpers
@@ -381,7 +402,7 @@ function choose_() (
 
 	# handle default options
 	local can_revert_to_defaults can_cancel
-	if test "${#default_indexes[@]}" -ne 0; then # bash v3 compat
+	if test "${#default_indexes[@]}" -ne 0; then
 		can_revert_to_defaults='yes'
 		can_cancel='yes'
 		if test "${#default_indexes[@]}" -gt 1 -a "$option_multi" = 'no'; then
@@ -405,21 +426,11 @@ function choose_() (
 	# ▣ ▢ □ ⊡
 	# ☑ ☒ ⌧
 	# ✓ ✔ ✖  ✗  ✘
-	local style_dim=$'\e[2m' style_reset=$'\e[0m'
 	local \
-		action='' \
 		bin_gfmt='' \
 		bin_gfold='' \
 		bin_gwc='' \
 		cursor=0 \
-		default \
-		index \
-		item_original \
-		item_prefix \
-		item_rendered \
-		item_size \
-		items_bundled \
-		items_bundled_size=0 \
 		items_last_index \
 		items_total="${#items[@]}" \
 		menu_header_shrunk='' \
@@ -429,19 +440,14 @@ function choose_() (
 		menu_hint_shrunk='' \
 		menu_hint_size \
 		menu_hint_standard='' \
+		menu_hint_confirm='' \
 		menu_hint='' \
-		menu_size \
-		menu_skip_remainder \
-		menu_skip_render='no' \
 		menu_status=0 \
-		menu_title='' \
 		page_last_index=0 \
 		page_start_index=0 \
 		paging_needed \
 		paging_supported='yes' \
-		read_status \
 		renders=() \
-		selected_count=0 \
 		selections=() \
 		size_columns_prior=0 \
 		size_columns=80 \
@@ -449,7 +455,6 @@ function choose_() (
 		size_rows_prior=0 \
 		size_rows=10 \
 		sizes=() \
-		style_bold=$'\e[1m' \
 		style_checked \
 		style_help_begin="$style_dim" \
 		style_help_end="$style_reset" \
@@ -531,6 +536,9 @@ function choose_() (
 		fi
 		style_unchecked='○'
 	fi
+	if test "$option_confirm_input" = 'yes'; then
+		menu_hint_confirm="${style_help_begin}CONFIRM${style_help_end}  ${style_key_begin}ENTER${style_key_end}"
+	fi
 	if test "$option_hints" = 'yes'; then
 		if test "$option_multi" = 'no'; then
 			menu_hint_standard+="${style_help_begin}SELECT${style_help_end}  ${style_key_begin}SPACE${style_key_end} ${style_key_begin}ENTER${style_key_end} ${style_key_begin}E${style_key_end}"
@@ -557,11 +565,11 @@ function choose_() (
 		fi
 		# tab and backspace undocumented
 	fi
-	if test -n "${option_question[*]}"; then
+	if test -n "$question_with_body"; then
 		# @todo only bold the first question line
-		menu_header="${style_bold}$(__print_lines_no_trail "${option_question[@]}")${style_reset}"$'\n'
+		menu_header="$question_with_body"$'\n'
 	fi
-	# TOGGLE [F] FILTER [asd] SHOWING [2] HIDING [19] TOTAL [21]
+	# @todo: FILTER [asd] SHOWING [2] HIDING [19] TOTAL [21] TOGGLE [F]
 
 	# this is too slow to recalculate on each interaction
 	function refresh_terminal_size {
@@ -600,23 +608,16 @@ function choose_() (
 		fi
 	}
 	function action_jump {
+		local index="$1"
 		# jump to number and select
-		if test "$action" -le 1; then
+		if test "$index" -le 1; then
 			cursor=0
-		elif test "$action" -ge "$items_total"; then
+		elif test "$index" -ge "$items_total"; then
 			cursor="$items_last_index"
 		else
-			cursor="$((action - 1))"
+			cursor="$((index - 1))"
 		fi
 		action_select
-	}
-	function action_select {
-		# toggle single
-		if test "${selections[cursor]}" = 'yes'; then
-			selections[cursor]=''
-		else
-			selections[cursor]='yes'
-		fi
 	}
 	function action_up {
 		if test "$cursor" -eq 0; then
@@ -652,7 +653,7 @@ function choose_() (
 		fi
 		cursor="$items_last_index"
 	}
-	function action_select_and_confirm {
+	function action_select {
 		selections[cursor]='yes'
 	}
 	function action_toggle {
@@ -688,191 +689,293 @@ function choose_() (
 		action_none
 		select_defaults
 	}
-
-	# commence
-	tty_start
-	while test "$action" != 'done'; do
-		if test "$menu_skip_render" = 'no'; then
-			refresh_terminal_size
-			items_bundled_size=0
-			items_bundled=''
+	function render_menu {
+		local \
+			action='' \
+			index \
+			item_original \
+			item_prefix \
+			item_rendered \
+			item_size \
+			items_bundled \
+			items_bundled_size=0 \
+			menu_confirm \
+			menu_size \
+			menu_skip_remainder \
+			menu_skip_render='no' \
+			menu_title='' \
+			read_status \
 			selected_count=0
-			menu_skip_remainder='no'
-			for index in "${!items[@]}"; do
-				if test "${selections[index]-}" = 'yes'; then
-					selected_count=$((selected_count + 1))
-				fi
-				if test "$index" -lt "$page_start_index" -o "$menu_skip_remainder" = 'yes'; then
-					continue
-				fi
-				# determine prefix
-				item_prefix=''
-				if test "$index" -eq "$cursor" -a "${selections[index]-}" = 'yes'; then
-					item_prefix+="$style_magenta>  $style_checked "
-				elif test "${selections[index]-}" = 'yes'; then
-					item_prefix+="$style_magenta   $style_checked "
-				elif test "$index" -eq "$cursor"; then
-					item_prefix+="$style_magenta>  $style_selected "
-				else
-					item_prefix+="   $style_unchecked "
-				fi
-				# determine paging
-				if test "$paging_needed" = 'no'; then
-					# paging is no longer needed, no recalculations needed
-					if test -n "${renders[index]}"; then
-						# use rendered item (in case it needed to be formatted if it exists)
-						items_bundled+="${item_prefix}${renders[index]}${style_reset}"$'\n'
-					else
-						# otehrwise use original item
-						items_bundled+="${item_prefix}${items[index]}${style_reset}"$'\n'
+		# action
+		tty_start
+		while test "$action" != 'done'; do
+			menu_confirm='no'
+			if test "$menu_skip_render" = 'no'; then
+				refresh_terminal_size
+				items_bundled_size=0
+				items_bundled=''
+				selected_count=0
+				menu_skip_remainder='no'
+				for index in "${!items[@]}"; do
+					if test "${selections[index]-}" = 'yes'; then
+						selected_count=$((selected_count + 1))
 					fi
-				else
-					# paging is needed, so we must recalculate bundled size
-					if test -n "${renders[index]}"; then
-						item_rendered="${renders[index]}"
-						item_size="${sizes[index]}"
+					if test "$index" -lt "$page_start_index" -o "$menu_skip_remainder" = 'yes'; then
+						continue
+					fi
+					# determine prefix
+					item_prefix=''
+					if test "$index" -eq "$cursor" -a "${selections[index]-}" = 'yes'; then
+						item_prefix+="$style_magenta>  $style_checked "
+					elif test "${selections[index]-}" = 'yes'; then
+						item_prefix+="$style_magenta   $style_checked "
+					elif test "$index" -eq "$cursor"; then
+						item_prefix+="$style_magenta>  $style_selected "
 					else
-						item_original="${items[index]}"
-						if test "${#item_original}" -lt "$size_content" && [[ $item_original != *$'\n'* && $item_original != *$'\t'* ]]; then
-							# no need to format item, as it is small enough
-							item_rendered="$item_original"
-							item_size=1
-							renders[index]="$item_rendered"
-							sizes[index]="$item_size"
+						item_prefix+="   $style_unchecked "
+					fi
+					# determine paging
+					if test "$paging_needed" = 'no'; then
+						# paging is no longer needed, no recalculations needed
+						if test -n "${renders[index]}"; then
+							# use rendered item (in case it needed to be formatted if it exists)
+							items_bundled+="${item_prefix}${renders[index]}${style_reset}"$'\n'
 						else
-							# need to format item, as it is too big
-							item_rendered="$("$bin_gfmt" -t -w "$size_content" <<<"$item_original")"
-							item_rendered="${item_rendered//$'\n'/$'\n     '}"
-							item_size="$("$bin_gwc" -l <<<"${item_rendered}")"
-							renders[index]="$item_rendered"
-							sizes[index]="$item_size"
+							# otherwise use original item
+							items_bundled+="${item_prefix}${items[index]}${style_reset}"$'\n'
+						fi
+					else
+						# paging is needed, so we must recalculate bundled size
+						if test -n "${renders[index]}"; then
+							item_rendered="${renders[index]}"
+							item_size="${sizes[index]}"
+						else
+							item_original="${items[index]}"
+							if test "${#item_original}" -lt "$size_content" && [[ $item_original != *$'\n'* && $item_original != *$'\t'* ]]; then
+								# no need to format item, as it is small enough
+								item_rendered="$item_original"
+								item_size=1
+								renders[index]="$item_rendered"
+								sizes[index]="$item_size"
+							else
+								# need to format item, as it is too big
+								item_rendered="$("$bin_gfmt" -t -w "$size_content" <<<"$item_original")"
+								item_rendered="${item_rendered//$'\n'/$'\n     '}"
+								item_size="$("$bin_gwc" -l <<<"${item_rendered}")"
+								renders[index]="$item_rendered"
+								sizes[index]="$item_size"
+							fi
+						fi
+						# calculate total menu size
+						menu_size="$((menu_header_size + items_bundled_size + item_size + menu_hint_size))"
+						if test "$menu_size" -gt "$size_rows"; then
+							# the menu would now be too large, so skip the rest
+							menu_skip_remainder='yes'
+						else
+							items_bundled+="${item_prefix}${item_rendered}${style_reset}"$'\n'
+							items_bundled_size="$((items_bundled_size + item_size))"
+							page_last_index="$index"
 						fi
 					fi
-					# calculate total menu size
-					menu_size="$((menu_header_size + items_bundled_size + item_size + menu_hint_size))"
-					if test "$menu_size" -gt "$size_rows"; then
-						# the menu would now be too large, so skip the rest
-						menu_skip_remainder='yes'
+				done
+
+				# output menu
+				if test "$paging_supported" = 'yes'; then
+					if test "$page_start_index" -ne 0 -o "$page_last_index" -ne "$items_last_index"; then
+						paging_needed='yes'
+						menu_title=$'\e]0;'"👉 Selected $selected_count of $items_total items 💁‍♀️ Viewing $((page_last_index - page_start_index + 1)) of $items_total items [$((page_start_index + 1))…$((page_last_index + 1))] 👈"$'\a'
 					else
-						items_bundled+="${item_prefix}${item_rendered}${style_reset}"$'\n'
-						items_bundled_size="$((items_bundled_size + item_size))"
-						page_last_index="$index"
+						menu_title=$'\e]0;'"👉 Selected $selected_count of $items_total items 👈"$'\a'
+						paging_needed='no'
 					fi
 				fi
-			done
-
-			# output menu
-			if test "$paging_supported" = 'yes'; then
-				if test "$page_start_index" -ne 0 -o "$page_last_index" -ne "$items_last_index"; then
-					paging_needed='yes'
-					menu_title=$'\e]0;'"👋 $items_total items 🙌 showing $page_start_index to $page_last_index 💁‍♀️ hiding $((items_total - (page_last_index - page_start_index))) 🫣 selected $selected_count ✅"$'\a'
-				else
-					menu_title=$'\e]0;'"👋 $items_total items 🙌 selected $selected_count ✅"$'\a'
-					paging_needed='no'
-				fi
+				printf '%s' "${menu_title}${menu_header}${items_bundled}${menu_hint}" >"$tty_target"
 			fi
-			printf '%s' "${menu_title}${menu_header}${items_bundled}${menu_hint}" >"$tty_target"
-		fi
 
-		# handle the response
-		eval_capture --statusvar=read_status --stdoutvar=action -- read-key --timeout="$option_timeout"
-		if test "$read_status" -eq 60; then
-			if test "$selected_count" -ne 0; then
+			# handle the response
+			eval_capture --statusvar=read_status --stdoutvar=action -- read-key --timeout="$option_timeout"
+			if test "$read_status" -eq 60; then
+				if test "$selected_count" -ne 0; then
+					tty_clear
+					echo-style --colors="$use_colors" --notice="Read timed out [$read_status], using selection." >/dev/stderr
+					sleep 3
+					break # exit the while loop
+				else
+					tty_clear
+					echo-style --colors="$use_colors" --warning="Read timed out [$read_status], without selection." >/dev/stderr
+					sleep 3
+					menu_status="$read_status"
+					break # exit the while loop
+				fi
+			elif test "$read_status" -ne 0; then
+				# some other failure
 				tty_clear
-				echo-style --colors="$use_colors" --notice="Read timed out [$read_status], using selection." >/dev/stderr
-				sleep 3
-				break # out of the while loop
-			else
-				tty_clear
-				echo-style --colors="$use_colors" --warning="Read timed out [$read_status], without selection." >/dev/stderr
+				echo-style --colors="$use_colors" --error="Read failed [$read_status]." >/dev/stderr
 				sleep 3
 				menu_status="$read_status"
-				break # out of the while loop
+				break # exit the while loop
 			fi
-		elif test "$read_status" -ne 0; then
-			# some other failure
-			tty_clear
-			echo-style --colors="$use_colors" --error="Read failed [$read_status]." >/dev/stderr
-			sleep 3
-			menu_status="$read_status"
-			break # out of the while loop
-		fi
 
-		# style_reset selection if not multi
-		if test "$selected_count" -ne 0 -a "$option_multi" = 'no'; then
-			# erase all selects
-			for index in "${!selections[@]}"; do
-				selections[index]=''
-			done
-		fi
+			# style_reset selection if not multi
+			if test "$selected_count" -ne 0 -a "$option_multi" = 'no'; then
+				# erase all selects
+				for index in "${!selections[@]}"; do
+					selections[index]=''
+				done
+			fi
 
-		# perform action
-		if is-digit -- "$action"; then
-			if is-ci; then
-				print_string "DIGIT=[$action]" >/dev/stderr
-			fi
-			action_jump
-		elif test "$action" = 'up' -o "$action" = 'left' -o "$action" = 'h' -o "$action" = 'k' -o "$action" = 'w'; then
-			action_up
-		elif test "$action" = 'down' -o "$action" = 'right' -o "$action" = 'l' -o "$action" = 'j' -o "$action" = 's'; then
-			action_down
-		elif test "$action" = 'space'; then
-			if test "$option_multi" = 'yes'; then
-				action_toggle
-			else
-				action_select_and_confirm
-				break
-			fi
-		elif test "$action" = 'enter' -o "$action" = 'e'; then
-			if test "$option_multi" = 'no'; then
-				action_select_and_confirm
-			fi
-			break
-		elif test "$action" = 'escape' -o "$action" = 'q'; then
-			if test "$option_multi" = 'no' -a "$option_required" = 'no'; then
-				: # don't revert
-			else
-				action_revert
-			fi
-			break
-		elif test "$action" = 'home' -o "$action" = 'a'; then
-			action_first
-		elif test "$action" = 'end' -o "$action" = 'd'; then
-			action_last
-		elif test "$action" = 'z'; then
-			action_revert
-		elif test "$option_multi" = 'yes'; then
-			if test "$action" = 't'; then
-				if test "$selected_count" -eq "$items_total"; then
-					action_none
-				else
-					action_all
+			# perform action
+			if is-digit -- "$action"; then
+				if is-ci; then
+					__print_string "DIGIT=[$action]" >/dev/stderr
 				fi
-			elif test "$action" = 'tab'; then
-				action_next
-			elif test "$action" = 'backspace'; then
-				action_previous
+				action_jump "$action"
+			elif test "$action" = 'up' -o "$action" = 'left' -o "$action" = 'h' -o "$action" = 'k' -o "$action" = 'w'; then
+				action_up
+			elif test "$action" = 'down' -o "$action" = 'right' -o "$action" = 'l' -o "$action" = 'j' -o "$action" = 's'; then
+				action_down
+			elif test "$action" = 'space'; then
+				if test "$option_multi" = 'yes'; then
+					action_toggle
+				else
+					action_select
+					menu_confirm='yes'
+				fi
+			elif test "$action" = 'enter' -o "$action" = 'e'; then
+				if test "$option_multi" = 'no'; then
+					action_select
+				fi
+				menu_confirm='yes'
+			elif test "$action" = 'escape' -o "$action" = 'q'; then
+				if test "$option_multi" = 'no' -a "$option_required" = 'no'; then
+					: # don't revert
+				else
+					action_revert
+				fi
+				menu_confirm='yes'
+			elif test "$action" = 'home' -o "$action" = 'a'; then
+				action_first
+			elif test "$action" = 'end' -o "$action" = 'd'; then
+				action_last
+			elif test "$action" = 'z'; then
+				action_revert
+			elif test "$option_multi" = 'yes'; then
+				if test "$action" = 't'; then
+					if test "$selected_count" -eq "$items_total"; then
+						action_none
+					else
+						action_all
+					fi
+				elif test "$action" = 'tab'; then
+					action_next
+				elif test "$action" = 'backspace'; then
+					action_previous
+				else
+					# nothing done, no need to repeat, just need to read again
+					menu_skip_render='yes'
+					continue
+				fi
 			else
 				# nothing done, no need to repeat, just need to read again
 				menu_skip_render='yes'
 				continue
 			fi
-		else
-			# nothing done, no need to repeat, just need to read again
-			menu_skip_render='yes'
-			continue
-		fi
-		# repeat the menu
-		menu_skip_render='no'
-		tty_clear
-	done
-	tty_finish
+
+			# confirm
+			if test "$menu_confirm" = 'yes'; then
+				if test "$option_confirm_input" = 'no'; then
+					# no desire to confirm
+					break # exit the while loop
+				fi
+
+				# confirm selection with the user
+				items_bundled=''
+				selected_count=0
+				for index in "${!selections[@]}"; do
+					if test "${selections[index]}" = 'yes'; then
+						selected_count=$((selected_count + 1))
+						items_bundled+="$style_magenta$style_checked ${items[index]}${style_reset}"$'\n'
+					fi
+				done
+				if test "$selected_count" -eq 0; then
+					if test "$option_required" = 'yes'; then
+						# nothing done, no need to repeat, just need to read again
+						menu_skip_render='yes'
+						continue
+					fi
+					items_bundled="${style_dim}[ nothing provided ]"$'\n'
+				fi
+				items_bundled+=$'\n'
+
+				# render the confirmation
+				tty_clear
+				menu_title=$'\e]0;'"👉 Confirm $selected_count of $items_total items 👈"$'\a'
+				printf '%s' "${menu_title}${menu_header}${items_bundled}${menu_hint_confirm}" >"$tty_target"
+
+				# handle the response
+				eval_capture --statusvar=read_status --stdoutvar=action -- read-key --timeout="$option_timeout"
+				if test "$read_status" -eq 60; then
+					if test "$selected_count" -ne 0; then
+						tty_clear
+						echo-style --colors="$use_colors" --notice="Read timed out [$read_status], using selection." >/dev/stderr
+						sleep 3
+						break # exit the while loop
+					else
+						tty_clear
+						echo-style --colors="$use_colors" --warning="Read timed out [$read_status], without selection." >/dev/stderr
+						sleep 3
+						menu_status="$read_status"
+						break # exit the while loop
+					fi
+				elif test "$read_status" -ne 0; then
+					# some other failure
+					tty_clear
+					echo-style --colors="$use_colors" --error="Read failed [$read_status]." >/dev/stderr
+					sleep 3
+					menu_status="$read_status"
+					break # exit the while loop
+				fi
+				if test "$action" = 'enter' -o "$action" = 'e'; then
+					break # exit the while loop
+				fi
+			fi
+
+			# repeat the menu
+			menu_skip_render='no'
+			tty_clear
+		done
+		tty_finish
+	}
+
+	# render if not skipping
+	if test "$option_confirm_default" = 'no' -a "$can_revert_to_defaults" = 'yes'; then
+		: # we have defaults, and want to skip defaults
+	else
+		render_menu
+	fi
 
 	# output the custom selections
 	if test "$menu_status" -eq 0; then
+		if test "$option_linger" = 'yes'; then
+			# show selection to the user
+			local menu_header='' items_bundled='' selected_count=0 index
+			if test -n "$question_title"; then
+				menu_header="$question_title"$'\n'
+			fi
+			for index in "${!selections[@]}"; do
+				if test "${selections[index]}" = 'yes'; then
+					selected_count=$((selected_count + 1))
+					items_bundled+="$style_dim$style_checked ${items[index]}${style_reset}"$'\n'
+				fi
+			done
+			if test "$selected_count" -eq 0; then
+				items_bundled="${style_dim}[ nothing provided ]"$'\n'
+			fi
+			printf '%s' "${menu_header}${items_bundled}" >"$tty_target"
+		fi
 		for index in "${!selections[@]}"; do
 			if test "${selections[index]}" = 'yes'; then
-				print_line "${returns[index]}"
+				__print_line "${returns[index]}"
 			fi
 		done
 	else

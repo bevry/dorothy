@@ -5,14 +5,14 @@ function ask_test() (
 	echo-segment --h1="TEST: $0"
 
 	eval-tester --name='default response -confirm' --stdout='a default response' \
-		-- ask --question='What is your response?' --default='a default response'
+		-- ask --skip-default --question='What is your response?' --default='a default response'
 
 	{
 		# confirm to enter a value
 		sleep 3
 		echo
 	} | eval-tester --name='default response +confirm' --stdout='a default response' \
-		-- ask --question='What is your response?' --default='a default response' --confirm
+		-- ask --question='What is your response?' --default='a default response'
 
 	{
 		# confirm to enter a value
@@ -21,7 +21,7 @@ function ask_test() (
 
 		# enter the custom response
 		sleep 3
-		print_line 'a custom response'
+		__print_line 'a custom response'
 	} | eval-tester --name='custom response -default -confirm' --stdout='a custom response' \
 		-- ask --question='What is your response?'
 
@@ -32,7 +32,7 @@ function ask_test() (
 
 		# enter the custom response
 		sleep 3
-		print_line 'a custom response'
+		__print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
@@ -49,7 +49,7 @@ function ask_test() (
 
 		# enter the custom response
 		sleep 3
-		print_line 'a custom response'
+		__print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
@@ -113,7 +113,7 @@ function ask_() (
 	# process
 	local item args=() option_question=()
 	local option_default='' option_confirm_default='yes' option_confirm_input='no'
-	local  option_required='no' option_password='no'
+	local option_required='no' option_password='no'
 	local option_linger='no' option_timeout=''
 	while test "$#" -ne 0; do
 		item="$1"
@@ -142,7 +142,7 @@ function ask_() (
 			option_password="$(get-flag-value --affirmative --fallback="$option_password" -- "$item")"
 			;;
 		'--no-linger'* | '--linger'*)
-			option_linger="$(get-flag-value linger --missing="$option_linger" -- "$item" | echo-affirmative --stdin)"
+			option_linger="$(get-flag-value --affirmative --fallback="$option_linger" -- "$item")"
 			;;
 		'--timeout='*) option_timeout="${item#*=}" ;;
 		'--')
@@ -151,7 +151,7 @@ function ask_() (
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_question+=("$@") ;;
+		*) option_question+=("$item") ;;
 		esac
 	done
 
@@ -162,6 +162,9 @@ function ask_() (
 	# @todo implement cursor move fallback
 	local tty_target
 	tty_target="$(is-tty --fallback)"
+
+	# styles
+	local style_dim=$'\e[2m' style_bold=$'\e[1m' style_reset=$'\e[0m'
 
 	# adjust result
 	local RESULT
@@ -177,9 +180,22 @@ function ask_() (
 	fi
 
 	# adjust question
-	local question_render prompt
-	prompt='> '
-	question_render="$(echo-style --bold="$option_question")"
+	local question_title question_with_body
+	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
+		if test -n "${option_question[0]}"; then
+			question_title="$style_bold${option_question[0]}$style_reset"
+			question_with_body="$(__print_lines "$question_title" "${option_question[@]:1}")"
+		else
+			question_title="$(__print_lines "${option_question[@]:1}")"
+			question_with_body="$question_title"
+		fi
+	else
+		question_title=''
+		question_with_body=''
+	fi
+	if test "$option_linger" = 'yes' -a -z "$question_title"; then
+		help 'A <question> is required when using --linger'
+	fi
 
 	# adjust tty
 	local size_columns bin_gfold bin_gwc
@@ -193,16 +209,22 @@ function ask_() (
 	fi
 
 	# helpers
-	local ASKED='no'
+	local ASKED='no' prompt='> '
 	function send_result {
 		if test "$option_linger" = 'yes'; then
-			print_line "$question_render"$'\n'"$RESULT" >"$tty_target"
+			local output="$question_title"$'\n'
+			if test "$option_password" = 'yes'; then
+				output+="${style_dim}[ using the entered password ]${style_reset}"
+			else
+				output+="$style_dim$RESULT$style_reset"
+			fi
+			__print_line "$output" >"$tty_target"
 		fi
-		print_line "$RESULT"
+		__print_line "$RESULT"
 	}
 	function on_timeout {
 		if is-value -- "$RESULT"; then
-			echo-style --notice="Ask timed out. Using the fallback value: " --code="$RESULT" >/dev/stderr
+			echo-style --notice='Ask timed out. Using the fallback value: ' --code="$RESULT" >/dev/stderr
 			sleep 5
 			send_result
 			return 0
@@ -221,15 +243,15 @@ function ask_() (
 
 		# tty_auto
 		ASKED='yes' # not local
-		if test -n "$question_render"; then
-			print_line "$question_render" >"$tty_target"
+		if test -n "$question_with_body"; then
+			__print_line "$question_with_body" >"$tty_target"
 		fi
 		while true; do
 			# -i requires -e
 			__read_status=0 && read -r -t 300 -ei "$RESULT" -p "$prompt" RESULT || __read_status=$?
 
 			# \n at the end to factor in the enter key
-			render="$(echo-trim-colors -- "$question_render"$'\n'"$prompt$RESULT")"
+			render="$(echo-trim-colors -- "$question_with_body"$'\n'"$prompt$RESULT")"
 			render="$("$bin_gfold" -w "$size_columns" <<<"$render")"
 			render_rows="$("$bin_gwc" -l <<<"$render")"
 
@@ -254,7 +276,7 @@ function ask_() (
 		do_validate
 	}
 	function do_validate {
-		local choose_status prompt_status choice choices=()
+		local choose_args=() choose_status prompt_status choice choices=()
 
 		# have we prompted?
 		if test "$ASKED" = 'no'; then
@@ -282,11 +304,17 @@ function ask_() (
 			fi
 
 			# we want to confirm
-			eval_capture --statusvar=choose_status --stdoutvar=choice -- \
-				choose \
-				--timeout="$option_timeout" \
-				--question="$option_question" \
+			if test "${#option_question[@]}" -ne 0; then
+				choose_args+=(
+					"${option_question[@]}"
+				)
+			fi
+			choose_args+=(
+				--timeout="$option_timeout"
 				--label -- "${choices[@]}"
+			)
+			eval_capture --statusvar=choose_status --stdoutvar=choice -- \
+				choose "${choose_args[@]}"
 
 			# check the confirmation
 			if test "$choose_status" -eq 60; then

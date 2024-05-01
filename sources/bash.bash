@@ -34,15 +34,6 @@ function __print_lines {
 		printf '%s\n' "$@"
 	fi
 }
-function __print_lines_no_trail {
-	# print each argument, except the last, as a complete line
-	while test "$#" -gt 1; do
-		printf '%s\n' "$1"
-	done
-	if test "$#" -eq 1; then
-		printf '%s' "$1"
-	fi
-}
 
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
@@ -80,10 +71,10 @@ fi
 # =============================================================================
 # Configure bash for Dorothy best practices.
 #
-# require_lastpipe -- if lastpipe not supported, fail.
+# __require_lastpipe -- if lastpipe not supported, fail.
 # eval_capture -- capture or ignore exit status, without disabling errexit, and without a subshell.
-# require_globstar -- if globstar not supported, fail.
-# require_extglob -- if extglob not supported, fail.
+# __require_globstar -- if globstar not supported, fail.
+# __require_extglob -- if extglob not supported, fail.
 
 # Disable completion (not needed in scripts)
 # bash v2: progcomp: If set, the programmable completion facilities (see Programmable Completion) are enabled. This option is enabled by default.
@@ -196,7 +187,7 @@ function eval_capture {
 			break
 			;;
 		'-'*)
-			# print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
+			# __print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -221,20 +212,20 @@ function eval_capture {
 	mkdir -p "$temp_directory"
 	function eval_capture_wrapper_trap {
 		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
-		# print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
-		# print_line "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
+		# __print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
+		# __print_line "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
 		if test "$EVAL_CAPTURE_CONTEXT" = "$trap_context"; then
 			if test "$EVAL_CAPTURE_SUBSHELL" = "$trap_subshell" -o "$trap_fn" = 'eval_capture_wrapper'; then
-				# print_line "STORE" >/dev/tty
+				# __print_line "STORE" >/dev/tty
 				EVAL_CAPTURE_STATUS="$trap_status"
 				return 0
 			elif test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
-				# print_line "SAVE" >/dev/tty
-				# print_line "$trap_status" >"$status_temp_file"
+				# __print_line "SAVE" >/dev/tty
+				# __print_line "$trap_status" >"$status_temp_file"
 				return "$trap_status"
 			fi
 		fi
-		# print_line "ERR" >/dev/tty
+		# __print_line "ERR" >/dev/tty
 		return "$trap_status"
 	}
 
@@ -258,14 +249,14 @@ function eval_capture {
 	# as such, we must cleanup inside the trap and after the trap, and cleanup must work in both contexts
 	function eval_capture_wrapper {
 		local subshell_status
-		# print_line "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __print_line "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
 		# wrap if the $- check, as always returning causes +e to return when it shouldn't
 		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
 		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
 		if test "$IS_BASH_VERSION_OUTDATED" = 'yes' && [[ $- == *e* ]] && [[ "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
 			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
-			# print_line "SUBSHELL $-" >/dev/tty
+			# __print_line "SUBSHELL $-" >/dev/tty
 			set +e
 			(
 				set -e
@@ -316,17 +307,17 @@ function eval_capture {
 
 	# remove the lingering trap
 	EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT - 1))"
-	# print_line "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
+	# __print_line "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
 	if test "$EVAL_CAPTURE_COUNT" -eq 0; then
 		trap - ERR
 	fi
 
 	# save the exit status, and reset the global value
-	# print_line "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+	# __print_line "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	if test "$IS_BASH_VERSION_OUTDATED" = 'yes' -a -f "$status_temp_file"; then # mktemp always creates the file, so need to use -s instead of -f
 		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
 		rm "$status_temp_file"
-		# print_line "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __print_line "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	fi
 	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
 	# unset -v EXIT_STATUS
@@ -474,7 +465,7 @@ fi
 #
 # BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
 # has_array_capability -- check if a capability is provided by the current bash version
-# require_array -- require a capability to be provided by the current bash version, otherwise fail
+# __require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it
 
 function __has_array_capability {

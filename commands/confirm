@@ -85,7 +85,7 @@ function confirm_() (
 	}
 
 	# prepare
-	local item option_question=() option_mode='confirm' option_timeout='3600' option_yes='OK' option_no='CANCEL' option_abort='ABORT' option_ppid=''
+	local item option_question=() option_mode='confirm' option_timeout='3600' option_yes='OK' option_no='CANCEL' option_abort='ABORT' option_ppid='' option_linger='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -102,13 +102,16 @@ function confirm_() (
 		'--no='*) option_no="${item#*=}" ;;
 		'--abort='*) option_abort="${item#*=}" ;;
 		'--ppid='*) option_ppid="${item#*=}" ;;
+		'--no-linger'* | '--linger'*)
+			option_linger="$(get-flag-value --affirmative --fallback="$option_linger" -- "$item")"
+			;;
 		'--')
 			option_question+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_question+=("$@") ;;
+		*) option_question+=("$item") ;;
 		esac
 	done
 
@@ -136,32 +139,47 @@ function confirm_() (
 	if test -z "$option_ppid"; then
 		help '<ppid> is necessary'
 	fi
-	if test -z "${option_question[*]}"; then
-		help '<question> is necessary'
+
+	# styles
+	local style_bold=$'\e[1m' style_reset=$'\e[0m'
+
+	# adjust question
+	local question_title question_body
+	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
+		if test -n "${option_question[0]}"; then
+			question_title="$style_bold${option_question[0]}$style_reset"
+			question_body="$(__print_lines "${option_question[@]:1}")"
+		else
+			question_title="$(__print_lines "${option_question[@]:1}")"
+			question_body=''
+		fi
+	else
+		question_title=''
+		question_body=''
+	fi
+	if test -z "$question_title"; then
+		help 'A <question> is required'
 	fi
 
 	# =====================================
 	# Helpers
 
-	# cache the first part for the finale
-	local question="${option_question[0]}"
-
-	# generate the prompt, the body, and body line count
-	local prompt body body_lines
-	prompt="$question"
-	body="$(print_lines "${option_question[@]:1}")"
-	body_lines="$(echo-count-lines -- "$body")"
+	# generate the prompt
+	local question_prompt
+	question_prompt="$question_title"
 	if test "$option_mode" = 'positive'; then
-		prompt+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
+		question_prompt+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
 	elif test "$option_mode" = 'negative'; then
-		prompt+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
+		question_prompt+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
 	elif test "$option_mode" = 'bool'; then
-		prompt+=" $(echo-style --blink='(y/n)')"
+		question_prompt+=" $(echo-style --blink='(y/n)')"
 	elif test "$option_mode" = 'confirm'; then
-		prompt+=" $(echo-style --blink='(CONFIRM)')"
+		question_prompt+=" $(echo-style --blink='(CONFIRM)')"
 	else
 		help "An invalid <mode> was provided: $option_mode"
 	fi
+	local question_body_lines
+	question_body_lines="$(echo-count-lines -- "$question_body")"
 
 	# fetch the targets
 	local tty_target using_tty_stderr_fallback='no'
@@ -259,11 +277,11 @@ function confirm_() (
 	function do_question {
 		# if not a tty, just output the question
 		if test "$using_tty_stderr_fallback" = 'yes'; then
-			print_lines "${option_question[@]}" >"$tty_target"
+			__print_lines "${option_question[@]}" >"$tty_target"
 		else
 			# output the prompt, saving the cursor position
 			CURSOR_COLUMN=''
-			print_string "$prompt " >"$tty_target"
+			__print_string "$question_prompt " >"$tty_target"
 			# send an ansi query to fetch the cursor row and column, returns [^[[24;80R] where 24 is row, 80 is column
 			# use _ to discard, the first read var is garbage, the second read var is the row, the final read var is the column
 			# use a 2 second timeout, as otherwise [confirm --test] on macos sonoma will wait forever
@@ -273,12 +291,12 @@ function confirm_() (
 			IFS='[;' read -t 2 -srd R -p $'\e[6n' _ _ CURSOR_COLUMN <"$tty_target" || :
 
 			# output the body on a newline if it exists
-			if test -n "$body"; then
-				print_string $'\n'"$body" >"$tty_target"
+			if test -n "$question_body"; then
+				__print_string $'\n'"$question_body" >"$tty_target"
 
 				# move these lines up
-				if test "$body_lines" -ne 0; then
-					printf '\e[%sF' "$body_lines" >"$tty_target"
+				if test "$question_body_lines" -ne 0; then
+					printf '\e[%sF' "$question_body_lines" >"$tty_target"
 				fi
 			fi
 
@@ -312,7 +330,7 @@ function confirm_() (
 		if test "$finished" = 'yes'; then
 			return "$RESULT"
 		fi
-		finished=yes
+		finished='yes'
 
 		# erase from start of current row to end of screen, as ctrl+c buggers everything
 		printf '\e[G\e[J' >"$tty_target"
@@ -320,13 +338,19 @@ function confirm_() (
 		# output the finale
 		if test "$RESULT" -eq 0; then
 			# positive response
-			echo-style "$question " --green+bold="$option_yes" >"$tty_target"
+			if test "$option_linger" = 'yes'; then
+				echo-style "$question_title " --green+bold="$option_yes" >"$tty_target"
+			fi
 		elif test "$RESULT" -eq 1; then
 			# negative response
-			echo-style "$question " --red+bold="$option_no" >"$tty_target"
+			if test "$option_linger" = 'yes'; then
+				echo-style "$question_title " --red+bold="$option_no" >"$tty_target"
+			fi
 		else
 			# crash response
-			echo-style "$question " --red+bold="$option_abort" >"$tty_target"
+			if test "$option_linger" = 'yes'; then
+				echo-style "$question_title " --red+bold="$option_abort" >"$tty_target"
+			fi
 			# kill caller's parent
 			if test "$option_ppid" -ge 0; then
 				if test "$option_ppid" -ge 1; then
