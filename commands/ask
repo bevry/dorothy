@@ -8,53 +8,76 @@ function ask_test() (
 		-- ask --skip-default --question='What is your response?' --default='a default response'
 
 	{
-		# confirm to enter a value
+		# confirm the default value
 		sleep 3
 		echo
 	} | eval-tester --name='default response +confirm' --stdout='a default response' \
 		-- ask --question='What is your response?' --default='a default response'
 
 	{
-		# confirm to enter a value
-		sleep 3
-		echo
-
-		# enter the custom response
+		# provide a custom response
 		sleep 3
 		__print_line 'a custom response'
-	} | eval-tester --name='custom response -default -confirm' --stdout='a custom response' \
+	} | eval-tester --name='custom response' --stdout='a custom response' \
 		-- ask --question='What is your response?'
 
 	{
-		# confirm to enter a value
+		# provide a custom response that overwrites default
 		sleep 3
-		echo
+		__print_line 'a custom response'
+	} | eval-tester --name='custom response overwrite default' --stdout='a custom response' \
+		-- ask --question='What is your response?' --default='a default response'
 
-		# enter the custom response
+	{
+		# provide a custom response that overwrites default, but it is ignored because of skip
+		__print_line 'overwrite' | {
+			ask --question='Q1' --default='D1' --skip-default
+			ask --question='Q2' --default='D2'
+		}
+	} | eval-tester --name='custom response overwrite default even with skip' --stdout=$'D1\noverwrite' \
+		-- cat
+
+	{
+		# provide a custom response
 		sleep 3
 		__print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
 		echo
-	} | eval-tester --name='custom response -default +confirm' --stdout='a custom response' \
+	} | eval-tester --name='custom response +confirm' --stdout='a custom response' \
 		-- ask --question='What is your response?' --confirm
 
 	{
-		# move down and select custom response
+		# confirm the default value
+		sleep 3
+		echo
+
+		# move down and change to custom response
 		sleep 3
 		printf $'\eOB'
 		sleep 3
 		echo
 
-		# enter the custom response
+		# provide the custom response
 		sleep 3
 		__print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
 		echo
-	} | eval-tester --name='custom response +default +confirm' --stdout='a custom response' \
+	} | eval-tester --name='custom response manual +default +confirm' --stdout='a custom response' \
+		-- ask --question='What is your response?' --default='a default response' --confirm
+
+	{
+		# override the default response with the custom response
+		sleep 3
+		__print_line 'a custom response'
+
+		# confirm the provided value
+		sleep 3
+		echo
+	} | eval-tester --name='custom response auto +default +confirm' --stdout='a custom response' \
 		-- ask --question='What is your response?' --default='a default response' --confirm
 
 	echo-segment --g1="TEST: $0"
@@ -163,10 +186,10 @@ function ask_() (
 	local tty_target
 	tty_target="$(is-tty --fallback)"
 
-	# styles
+	# prepare styles
 	local style_dim=$'\e[2m' style_bold=$'\e[1m' style_reset=$'\e[0m'
 
-	# adjust result
+	# prepare result
 	local RESULT
 	if test -n "$option_default"; then
 		RESULT="$option_default"
@@ -175,7 +198,7 @@ function ask_() (
 	fi
 
 	# adjust timeout to one minute if we have a default value, or if optional
-	if test -z "$option_timeout" && (is-value "$RESULT" || test "$option_required" = 'no'); then
+	if test -z "$option_timeout" && (is-value -- "$RESULT" || test "$option_required" = 'no'); then
 		option_timeout=60
 	fi
 
@@ -193,6 +216,8 @@ function ask_() (
 		question_title=''
 		question_with_body=''
 	fi
+
+	# enforce question if lingering
 	if test "$option_linger" = 'yes' -a -z "$question_title"; then
 		help 'A <question> is required when using --linger'
 	fi
@@ -209,55 +234,68 @@ function ask_() (
 	fi
 
 	# helpers
-	local ASKED='no' prompt='> '
-	function send_result {
-		if test "$option_linger" = 'yes'; then
-			local output="$question_title"$'\n'
-			if test "$option_password" = 'yes'; then
-				output+="${style_dim}[ using the entered password ]${style_reset}"
-			else
-				output+="$style_dim$RESULT$style_reset"
-			fi
-			__print_line "$output" >"$tty_target"
-		fi
-		__print_line "$RESULT"
-	}
+	local ASKED='no' prompt='> ' commentary=''
 	function on_timeout {
 		if is-value -- "$RESULT"; then
-			echo-style --notice='Ask timed out. Using the fallback value: ' --code="$RESULT" >/dev/stderr
-			sleep 5
-			send_result
+			commentary="$(echo-style --yellow='[timed out: using fallback]')"
 			return 0
 		elif test "$option_required" = 'no'; then
-			echo-style --notice='Ask timed out. Had no fallback value, this is fine as the field was optional.' >/dev/stderr
-			sleep 5
+			commentary="$(echo-style --yellow='[timed out: optional]')"
 			return 0
 		else
-			echo-style --warning='Ask timed out. Had no fallback value... the field was required.' >/dev/stderr
-			sleep 5
+			commentary="$(echo-style --red='[input failure: timed out: required]')"
 			return 60 # ETIMEDOUT 60 Operation timed out
 		fi
 	}
 	function do_prompt { # has sideffects: RESULT, ASKED
-		local __read_status render render_rows
+		local __read_status=0 render='' input='' render_rows
 
 		# tty_auto
 		ASKED='yes' # not local
-		if test -n "$question_with_body"; then
-			__print_line "$question_with_body" >"$tty_target"
-		fi
 		while true; do
-			# -i requires -e
-			__read_status=0 && read -r -t 300 -ei "$RESULT" -p "$prompt" RESULT || __read_status=$?
+			# test for stdin technique, as [read -i] does not support programatic stdin
+			if test ! -t 0; then
+				# we have programatic stdin, so manually read the line without a tty prompt
+				# don't read multiple lines, as other lines are for subequent prompts, such as confirmations or the next program
+				IFS='' read -r -t "$option_timeout" input || __read_status=$?
+				if test -z "$input" -o "$input" = $'\n'; then
+					# treat empty string and newline as default
+					:
+				elif [[ $input =~ ^[\s]*$ ]]; then
+					# treat only whitespace as empty value
+					RESULT=''
+				else
+					# treat everything else as manual input
+					RESULT="$input"
+				fi
+			else
+				# reset render
+				if test -n "$question_with_body"; then
+					render="$question_with_body"$'\n'
+				fi
+				render+="$prompt"
 
-			# \n at the end to factor in the enter key
-			render="$(echo-trim-colors -- "$question_with_body"$'\n'"$prompt$RESULT")"
-			render="$("$bin_gfold" -w "$size_columns" <<<"$render")"
-			render_rows="$("$bin_gwc" -l <<<"$render")"
+				# we have tty stdin, can do a prompt
+				# -i requires -e
+				IFS= read -r -t "$option_timeout" -ei "$RESULT" -p "$render" input || __read_status=$?
+				# note if there was a default value, pressing enter will set [input] to it
+				if test "$__read_status" -eq 0; then
+					# only update RESULT on successful read status, as [input] will be empty on timeout
+					RESULT="$input"
+					# the user has pressed enter, so note that an enter was rendered to the TTY so that it can be erased, and append a space so that it is not trimmed by "$(...)" usage
+					render+="$RESULT"$'\n '
+				fi # otherwise it has timed out. ctrl+c is not caught as we are not trapping it
 
-			# move these lines up and erase
-			printf '\e[%sF\e[G\e[J' "$render_rows" >"$tty_target"
+				# use <( to ensure lines and inlines are rendered accurately
+				render="$(echo-trim-colors --stdin < <(print_string "$render"))"
+				render="$("$bin_gfold" -w "$size_columns" < <(print_string "$render"))"
+				render_rows="$("$bin_gwc" -l < <(print_string "$render"))"
 
+				# move these lines up and erase
+				printf '\e[%sF\e[G\e[J' "$render_rows" >"$tty_target"
+			fi
+
+			# handle the result
 			if test "$__read_status" -eq 142; then
 				return 60 # ETIMEDOUT 60 Operation timed out
 			fi
@@ -281,14 +319,15 @@ function ask_() (
 		# have we prompted?
 		if test "$ASKED" = 'no'; then
 			# do we want to confirm the default value
+			# adding a [&& test -t 0] will cause stdin input to always be respected, which is inconsistent with expecations, e.g.
+			#     echo 'overwrite' | { ask --linger --default='d1' --skip-default --question='q1'; ask --linger --default='d2' --skip-default --question='q2' )
+			# should output 'd1' and 'overwrite', not 'overwrite' and 'd2', as the goal of skip-default is to use the default preference for performance and intuition reasons
 			if is-value -- "$RESULT" && test "$option_confirm_default" = 'no'; then
-				send_result
 				return 0
 			fi
 		else
 			# we have asked, do we want to confirm the input value
 			if test "$option_confirm_input" = 'no'; then
-				send_result
 				return 0
 			fi
 
@@ -318,30 +357,26 @@ function ask_() (
 
 			# check the confirmation
 			if test "$choose_status" -eq 60; then
-				echo-style --error="Choose timed out: $choose_status" >/dev/stderr
 				on_timeout
 				return
 			elif test "$choose_status" -ne 0; then
-				echo-style --error="Choose failed: $choose_status" >/dev/stderr
-				sleep 3
+				commentary="$(echo-style --red="[input failure: choose failure: $choose_status]")"
 				return "$choose_status"
 			fi
 
 			# proceess the confirmation
 			if test "$choice" = 'existing'; then
 				# done, sucess
-				send_result
 				return 0
 			elif test "$choice" = 'custom'; then
 				: # proceed with prompt
 			elif test "$choice" = 'none'; then
 				# done, sucess
-				echo
+				RESULT=''
 				return 0
 			else
 				# unknown error
-				echo-style --error="Invalid choice: $choice" >/dev/stderr
-				sleep 3
+				commentary="$(echo-style --red="[input failure: invalid choice: $choice]")"
 				return 14 # EFAULT 14 Bad address
 			fi
 		fi
@@ -361,7 +396,53 @@ function ask_() (
 	}
 
 	# act
-	do_validate
+	eval_capture --statusvar=result_status -- do_validate
+	local render="$question_title"
+	if test -n "$commentary"; then
+		if test -n "$render"; then
+			render+=" $commentary"
+		else
+			render="$commentary"
+		fi
+	fi
+	if test -n "$render"; then
+		render+=$'\n'
+	fi
+	if test "$result_status" -eq 0; then
+		# add the results only if lingering
+		if test "$option_linger" = 'yes'; then
+			if test -z "$RESULT"; then
+				render+="${style_dim}[ nothing provided ]${style_reset}"$'\n'
+			elif test "$option_password" = 'yes'; then
+				render+="${style_dim}[ using the entered password ]${style_reset}"$'\n'
+			else
+				render+="${style_dim}${RESULT}${style_reset}"$'\n'
+			fi
+			# inform
+			__print_string "$render" >"$tty_target"
+		elif test -n "$commentary"; then
+			# inform temporarily
+			__print_string "$render" >/dev/stderr
+			sleep 3
+			echo-clear-lines --stdin < <(__print_string "$render") >/dev/stderr
+		fi
+		# stdout
+		if test -z "$RESULT"; then
+			__print_string "$RESULT" # empty string
+		else
+			__print_line "$RESULT"
+		fi
+	else
+		# inform
+		if test -n "$commentary"; then
+			if test "$option_linger" = 'yes'; then
+				__print_string "$render" >"$tty_target"
+			else
+				__print_string "$render" >/dev/stderr
+			fi
+		fi
+		return "$result_status"
+	fi
 )
 
 # fire if invoked standalone

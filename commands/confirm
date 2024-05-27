@@ -9,23 +9,53 @@ function confirm_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-segment --h1="TEST: $0"
 
-	# --ignore-stderr otherwise ^[[58;1R is output
+	# --ignore-stderr otherwise only \n^[[68;1R is output
+
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='positive response' --ignore-stderr \
+		-- confirm --ppid=$$ --positive --timeout=5 -- 'What is your response?'
+
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='negative response' --status=1 --ignore-stderr \
+		-- confirm --ppid=$$ --negative --timeout=5 -- 'What is your response?'
+
+	{
+		sleep 3
+		__print_line 'y'
+	} | eval-tester --name='positive response on confirm' --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+
+	{
+		sleep 3
+		__print_line 'n'
+	} | eval-tester --name='negative response on confirm' --status=1 --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='invalid response on confirm' --status=60 --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
 
 	eval-tester --name='positive response was timed out' --ignore-stderr \
-		-- confirm --ppid=$$ --positive --timeout=10 -- 'What is your response?'
+		-- confirm --ppid=$$ --positive --timeout=5 -- 'What is your response?'
 
 	eval-tester --name='negative response was timed out' --status=1 --ignore-stderr \
-		-- confirm --ppid=$$ --negative --timeout=10 -- 'What is your response?'
+		-- confirm --ppid=$$ --negative --timeout=5 -- 'What is your response?'
 
 	eval-tester --name='neither response was timed out' --status=60 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
 
 	{
 		# press escape key
 		sleep 3
 		printf $'\x1b'
 	} | eval-tester --name='cancel response was entered' --status=125 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
 
 	echo-segment --g1="TEST: $0"
 	return 0
@@ -157,6 +187,8 @@ function confirm_() (
 		question_title=''
 		question_body=''
 	fi
+
+	# ensure question
 	if test -z "$question_title"; then
 		help 'A <question> is required'
 	fi
@@ -190,7 +222,7 @@ function confirm_() (
 	fi
 
 	# used to process the input
-	local CURSOR_COLUMN='' # used by do_read and do_question
+	local CURSOR_COLUMN='' commentary='' # used by do_read and do_question
 	function do_read {
 		local answer read_status
 
@@ -202,8 +234,10 @@ function confirm_() (
 		if test "$option_mode" = 'positive'; then
 			# positive
 			if test "$read_status" -eq 60; then
+				commentary="$(echo-style --yellow='[timed out: used default]')"
 				return 0 # timeout
 			elif test "$read_status" -ne 0; then
+				commentary="$(echo-style --yellow="[input failure: $read_status]")"
 				return "$read_status" # failure
 			fi
 			eval_capture --statusvar=read_status -- is-affirmative -- "$answer"
@@ -218,8 +252,10 @@ function confirm_() (
 		elif test "$option_mode" = 'negative'; then
 			# negative
 			if test "$read_status" -eq 60; then
+				commentary="$(echo-style --yellow='[timed out: used default]')"
 				return 1 # timeout
 			elif test "$read_status" -ne 0; then
+				commentary="$(echo-style --yellow="[input failure: $read_status]")"
 				return "$read_status" # failure
 			fi
 			eval_capture --statusvar=read_status -- \
@@ -234,8 +270,12 @@ function confirm_() (
 
 		elif test "$option_mode" = 'bool'; then
 			# bool
-			if test "$read_status" -ne 0; then
-				return "$read_status" # timeout and failure
+			if test "$read_status" -eq 60; then
+				commentary="$(echo-style --red='[input failure: timed out: required]')"
+				return "$read_status" # timeout
+			elif test "$read_status" -ne 0; then
+				commentary="$(echo-style --red="[input failure: $read_status]")"
+				return "$read_status" # failure
 			fi
 			eval_capture --statusvar=read_status -- \
 				is-affirmative -- "$answer"
@@ -247,8 +287,12 @@ function confirm_() (
 
 		elif test "$option_mode" = 'confirm'; then
 			# confirm
-			if test "$read_status" -ne 0; then
-				return "$read_status" # timeout and failure
+			if test "$read_status" -eq 60; then
+				commentary="$(echo-style --red='[input failure: timed out: required]')"
+				return "$read_status" # timeout
+			elif test "$read_status" -ne 0; then
+				commentary="$(echo-style --red="[input failure: $read_status]")"
+				return "$read_status" # failure
 			fi
 			eval_capture --statusvar=read_status -- \
 				is-affirmative -- "$answer"
@@ -339,17 +383,19 @@ function confirm_() (
 		if test "$RESULT" -eq 0; then
 			# positive response
 			if test "$option_linger" = 'yes'; then
-				echo-style "$question_title " --green+bold="$option_yes" >"$tty_target"
+				echo-style "$question_title " --green+bold="$option_yes" " $commentary" >"$tty_target"
 			fi
 		elif test "$RESULT" -eq 1; then
 			# negative response
 			if test "$option_linger" = 'yes'; then
-				echo-style "$question_title " --red+bold="$option_no" >"$tty_target"
+				echo-style "$question_title " --red+bold="$option_no" " $commentary" >"$tty_target"
 			fi
 		else
 			# crash response
 			if test "$option_linger" = 'yes'; then
-				echo-style "$question_title " --red+bold="$option_abort" >"$tty_target"
+				echo-style "$question_title " --red+bold="$option_abort" " $commentary" >"$tty_target"
+			else
+				echo-style "$question_title " --red+bold="$option_abort" " $commentary" >/dev/stderr
 			fi
 			# kill caller's parent
 			if test "$option_ppid" -ge 0; then
