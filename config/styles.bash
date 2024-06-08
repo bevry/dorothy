@@ -63,15 +63,16 @@ background_intense_grey="$background_intense_white"
 
 # modes
 # https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
+# echo-style --bold=bold --dim=dim --italic=italic 'standard' --underline=underline --blink=blink --invert=invert --conceal=conceal --strike=strike --framed=framed --circled=circled --overlined=overlined standard
 reset=$'\e[0m'                    # tput sgr0
-bold=$'\e[1m'                     # tput bold
-dim=$'\e[2m'                      # tput dim
-italic=$'\e[3m'                   # not widely supported
-underline=$'\e[4m'                # tput sgr 0 1
-blink=$'\e[5m'                    # tput blink
-invert=$'\e[7m'                   # tput rev
-conceal=$'\e[8m'                  #
-strike=$'\e[9m'                   # not widely supported
+bold=$'\e[1m'                     # tput bold [supported: Terminal, VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Kitty] [buggy support: Rio] [unsupported: cool-retro-term, Wez, Extratern, Contour]
+dim=$'\e[2m'                      # tput dim [supported: Terminal, VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
+italic=$'\e[3m'                   # [supported: VScode, Hyper] [colored support: Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Terminal, Warp, cool-retro-term, Rio]
+underline=$'\e[4m'                # tput sgr 0 1 [supported: Terminal, VSCode, Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+blink=$'\e[5m'                    # tput blink [supported: Terminal, VSCode, Alacritty, Hyper, Contour] [fade-in-out support: Wez, cool-retro-term] [unsupported: Wave, Warp, iTerm2, Tabby, Extraterm, Rio, Kitty]
+invert=$'\e[7m'                   # tput rev [supported: Terminal, VSCode, Alacritty, Hyper, cool-retro-arm, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+conceal=$'\e[8m'                  # [supported: Terminal, VSCode, Alacritty, Hyper, iTerm2, Tabby, Wez, Rio, Contour] [unsupported: cool-retro-term, Wave, Warp, Extraterm, Kitty]
+strike=$'\e[9m'                   # [supported: VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: cool-retro-term]
 double_underline=$'\e[21m'        #
 disable_intensity=$'\e[22m'       #
 disable_bold="$disable_intensity" #
@@ -85,9 +86,9 @@ reveal="$disable_conceal"         #
 disable_strike=$'\e[29m'          #
 disable_foreground=$'\e[39m'      #
 disable_background=$'\e[49m'      #
-framed=$'\e[51m'                  # not widely supported
-circled=$'\e[52m'                 # not widely supported
-overlined=$'\e[53m'               # not widely supported
+framed=$'\e[51m'                  # [frames each character: Contour] [unsupported: everything else]
+circled=$'\e[52m'                 # [supported: none known]
+overlined=$'\e[53m'               # [supported: Tabby, Wez, Extratern, Contour] [unsupported: everything else]
 disable_framed=$'\e[54m'          #
 disable_circled="$disable_framed" #
 disable_overlined=$'\e[55m'       #
