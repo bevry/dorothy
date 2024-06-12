@@ -464,7 +464,7 @@ function choose_() (
 
 	# generate the items
 	# @todo add support for option_default_indexes if a user requests it
-	local index item INDEX=-1 VALUE LABEL VISUAL RETURN items=() returns=() defaults=() default_indexes=() defaults_count=0
+	local index item INDEX=-1 VALUE LABEL VISUAL RETURN items=() returns=() defaults=() default_indexes=() defaults_count=0 defaults_last_index=-1
 	for ((index = 0; index < ${#inputs[@]}; index = index + inputs_step)); do
 		# index considers inputs_step, INDEX is only each item (label/value combo)
 		INDEX=$((INDEX + 1))
@@ -537,6 +537,7 @@ function choose_() (
 	# handle default options
 	local can_revert_to_defaults can_cancel
 	if test "$defaults_count" -ne 0; then
+		defaults_last_index="$((defaults_count - 1))"
 		can_revert_to_defaults='yes'
 		can_cancel='yes'
 	else
@@ -565,12 +566,15 @@ function choose_() (
 		menu_header_size \
 		menu_header='' \
 		menu_skip_render='no' \
+		menu_hint_extras_cancel='' \
 		menu_hint_extras_choose='' \
 		menu_hint_extras_confirm='' \
 		menu_hint_main_choose='' \
 		menu_hint_main_confirm='' \
+		menu_hint_render_cancel='' \
 		menu_hint_render_choose='' \
 		menu_hint_render_confirm='' \
+		menu_hint_size_cancel \
 		menu_hint_size_choose \
 		menu_hint_size_confirm \
 		menu_mode='choose' \
@@ -617,25 +621,30 @@ function choose_() (
 	# prepare hints
 	# prefer key names if possible, as people don't know the symbols
 	if test "$option_multi" = 'yes'; then
-		menu_hint_main_confirm+="$(render_key 'CONFIRM SELECTION' 'ENTER' 'E')"
+		menu_hint_main_cancel+="$(render_key 'CONFIRM CANCELATION' 'ENTER' 'E')"
 		menu_hint_main_choose+="$(render_key 'SELECT' 'SPACE')"
 		menu_hint_main_choose+="$(indent_key 'CONFIRM' 'ENTER' 'E')"
+		menu_hint_main_confirm+="$(render_key 'CONFIRM SELECTION' 'ENTER' 'E')"
 	else
-		menu_hint_main_confirm+="$(render_key 'CONFIRM SELECTION' 'SPACE' 'ENTER' 'E')"
+		menu_hint_main_cancel+="$(render_key 'CONFIRM CANCELATION' 'SPACE' 'ENTER' 'E')"
 		menu_hint_main_choose+="$(render_key 'SELECT' 'SPACE' 'ENTER' 'E')"
+		menu_hint_main_confirm+="$(render_key 'CONFIRM SELECTION' 'SPACE' 'ENTER' 'E')"
 	fi
+	menu_hint_main_cancel+="$(indent_key 'ABORT CANCELATION' 'ESC' 'Q')"
 	menu_hint_main_confirm+="$(indent_key 'CHANGE SELECTION' 'ESC' 'Q')"
-	menu_hint_extras_confirm+="$(indent_key 'ABORT' 'CTRL C')"
+	_temp="$(indent_key 'ABORT' 'CTRL C')"
+	menu_hint_extras_cancel+="$_temp"
+	menu_hint_extras_confirm+="$_temp"
 	if test "$can_cancel" = 'yes'; then
 		# cancel restores defaults (if multi) or selects none (if non-multi) and leaves
 		menu_hint_main_choose+="$(indent_key 'CANCEL' 'ESC' 'Q')"
 	fi
 	if test "$items_count" -ne 1; then
 		# [⬆⬇⇧] have alignment issues, use [↑↓]
-		_temp=''
-		_temp+="$(indent_key 'UP' '↑' 'W' 'K')"
+		_temp="$(indent_key 'UP' '↑' 'W' 'K')"
 		_temp+="$(indent_key 'DOWN' '↓' 'S' 'J')"
 		menu_hint_main_choose+="$_temp"
+		menu_hint_extras_cancel+="$_temp"
 		menu_hint_extras_confirm+="$_temp"
 		# comment out self-explanatory keys
 		# menu_hint_extras_choose+="$(indent_key 'FIRST' 'HOME', 'fn ⇧ ↑')"
@@ -669,6 +678,9 @@ function choose_() (
 		if test "$which" = 'choose'; then
 			main="$menu_hint_main_choose"
 			extras="$menu_hint_extras_choose"
+		elif test "$which" = 'cancel'; then
+			main="$menu_hint_main_cancel"
+			extras="$menu_hint_extras_cancel"
 		else
 			main="$menu_hint_main_confirm"
 			extras="$menu_hint_extras_confirm"
@@ -687,6 +699,9 @@ function choose_() (
 		if test "$which" = 'choose'; then
 			menu_hint_render_choose="$render"
 			menu_hint_size_choose="$size"
+		elif test "$which" = 'cancel'; then
+			menu_hint_render_cancel="$render"
+			menu_hint_size_cancel="$size"
 		else
 			menu_hint_render_confirm="$render"
 			menu_hint_size_confirm="$size"
@@ -695,8 +710,10 @@ function choose_() (
 	function refresh_terminal_size {
 		if test "$paging_supported" = 'no'; then
 			paging_used='no'
+			menu_hint_render_cancel="$menu_hint_main_cancel"
 			menu_hint_render_choose="$menu_hint_main_confirm"
 			menu_hint_render_confirm="$menu_hint_main_confirm"
+			menu_hint_size_cancel=0
 			menu_hint_size_choose=0
 			menu_hint_size_confirm=0
 		else
@@ -709,6 +726,7 @@ function choose_() (
 				menu_header_shrunk="$(echo-trim-colors -- "$menu_header" | "$bin_gfold" -w "$size_columns")"
 				menu_header_size="$("$bin_gwc" -l <<<"${menu_header_shrunk}")"
 				# see if the hint supports exctras
+				refresh_menu_hint 'cancel'
 				refresh_menu_hint 'choose'
 				refresh_menu_hint 'confirm'
 				# move start index to current item, as otherwise it could be out of range
@@ -785,8 +803,16 @@ function choose_() (
 		function action_toggle_cursor {
 			if test "$menu_mode" = 'choose'; then
 				toggle_index "$menu_cursor_choose"
+				if test "$menu_cursor_choose" -eq "$menu_bottom_index_choose"; then
+					# don't cause a new page, instead keep rendering it as the bottom item
+					menu_direction=-1
+				fi
 			else
 				toggle_index "$menu_cursor_confirm"
+				if test "$menu_cursor_confirm" -eq "$menu_bottom_index_confirm"; then
+					# don't cause a new page, instead keep rendering it as the bottom item
+					menu_direction=-1
+				fi
 			fi
 		}
 		function action_select_and_next {
@@ -824,10 +850,6 @@ function choose_() (
 		function action_all {
 			select_all
 		}
-		function action_revert {
-			select_none
-			select_defaults
-		}
 	else
 		function select_only_index {
 			if test "$#" -ne 0; then
@@ -841,9 +863,9 @@ function choose_() (
 			fi
 		}
 		function select_defaults {
-			# select first preference
-			if test "${#defaults[@]}" -ne 0; then
-				select_only_index "${default_indexes[@]}"
+			# select only first preference
+			if test "$defaults_count" -ne 0; then
+				select_only_index "${default_indexes[0]}"
 			fi
 		}
 		function action_select_cursor {
@@ -853,19 +875,21 @@ function choose_() (
 				select_only_index "$menu_cursor_confirm"
 			fi
 		}
-		function action_select_default {
-			select_defaults
-		}
-		function action_revert {
-			# jump to first preference
-			if test "$defaults_count" -ne 0; then
-				menu_cursor_choose="${default_indexes[0]}"
-				menu_cursor_confirm=0
-			fi
-		}
 	fi
+	function select_only_defaults {
+		select_none # needed in case there are no defaults, we still want to erase selection
+		select_defaults
+	}
 	function action_none {
 		select_none
+	}
+	# function action_enable_defaults { # this isn't actually an action....
+	# 	select_defaults
+	# }
+	function action_revert {
+		# if no defaults, removes selection
+		select_none
+		select_defaults
 	}
 	function action_jump {
 		local index="$1"
@@ -978,7 +1002,7 @@ function choose_() (
 		test "${selected[index]-}" = 'yes' -o "${defaults[index]-}" = 'yes'
 	}
 	function action_next_preference {
-		if test "$menu_mode" = 'confirm'; then
+		if test "$menu_mode" != 'choose'; then
 			action_down
 			return
 		fi
@@ -1001,7 +1025,7 @@ function choose_() (
 		return 0
 	}
 	function action_prior_preference {
-		if test "$menu_mode" = 'confirm'; then
+		if test "$menu_mode" != 'choose'; then
 			action_up
 			return
 		fi
@@ -1075,13 +1099,22 @@ function choose_() (
 			menu_last_index="$items_last_index"
 			menu_top_index="$menu_top_index_choose"
 		else
-			verb='Confirm'
+			if test "$menu_mode" = 'cancel'; then
+				verb='Cancel to'
+				menu_total="$defaults_count"
+				menu_last_index="$defaults_last_index"
+				menu_hint_render="$menu_hint_render_cancel"
+				menu_hint_size="$menu_hint_size_cancel"
+			else
+				verb='Confirm'
+				menu_total="$selected_count"
+				menu_last_index="$selected_last_index"
+				menu_hint_render="$menu_hint_render_confirm"
+				menu_hint_size="$menu_hint_size_confirm"
+			fi
+			# @todo, consider having these and cursors for cancel as well, instead of sharing with confirm
 			menu_bottom_index="$menu_bottom_index_confirm"
 			menu_cursor="$menu_cursor_confirm"
-			menu_hint_render="$menu_hint_render_confirm"
-			menu_hint_size="$menu_hint_size_confirm"
-			menu_total="$selected_count"
-			menu_last_index="$selected_last_index"
 			menu_top_index="$menu_top_index_confirm"
 		fi
 		# adjust page direction
@@ -1116,6 +1149,8 @@ function choose_() (
 		for (( ; menu_index >= 0 && menu_index <= menu_last_index; menu_index += menu_direction)); do
 			if test "$menu_mode" = 'choose'; then
 				item_index="$menu_index"
+			elif test "$menu_mode" = 'cancel'; then
+				item_index="${default_indexes[menu_index]}"
 			else
 				item_index="${selected_indexes[menu_index]}"
 			fi
@@ -1128,7 +1163,7 @@ function choose_() (
 			else
 				line_prefix+='   '
 			fi
-			if test "${selected[item_index]-}" = 'yes'; then
+			if test "${selected[item_index]-}" = 'yes' -a "$menu_mode" != 'cancel'; then
 				line_style+="$color_foreground_intense_green"
 				line_prefix+="$icon_selected "
 			elif test "${defaults[item_index]-}" = 'yes'; then
@@ -1251,9 +1286,9 @@ function choose_() (
 			# [ no above ]
 			local index \
 				page_header_selected_count=0 \
-				page_header_prefs_count=0 \
+				page_header_defaults_count=0 \
 				page_footer_selected_count=0 \
-				page_footer_prefs_count=0 \
+				page_footer_defaults_count=0 \
 				header_footer_indent='   ' \
 				color_symbol_start="$color_foreground_intense_black" color_symbol_end="$color_disable_foreground"
 			local below_open_symbol="${color_symbol_start}┌${color_symbol_end}" below_close_symbol="${color_symbol_start}┐${color_symbol_end}" \
@@ -1275,8 +1310,10 @@ function choose_() (
 						if test "${selected[index]-}" = 'yes'; then
 							continue
 						fi
-						page_header_prefs_count="$((page_header_prefs_count + 1))"
+						page_header_defaults_count="$((page_header_defaults_count + 1))"
 					done
+				elif test "$menu_mode" = 'cancel'; then
+					page_header+="${header_footer_indent}${below_open_symbol} ${color_foreground_yellow}cancel to all $menu_total defaults below${color_disable_foreground}"
 				else
 					page_header+="${header_footer_indent}${below_open_symbol} ${color_foreground_green}confirm all $menu_total selected below${color_disable_foreground}"
 				fi
@@ -1298,8 +1335,10 @@ function choose_() (
 						if test "${selected[index]-}" = 'yes'; then
 							continue
 						fi
-						page_header_prefs_count="$((page_header_prefs_count + 1))"
+						page_header_defaults_count="$((page_header_defaults_count + 1))"
 					done
+				elif test "$menu_mode" = 'cancel'; then
+					page_header+="${header_footer_indent}${continue_open_symbol} ${color_foreground_yellow}cancel to $menu_top_index more defaults above${color_disable_foreground}"
 				else
 					page_header+="${header_footer_indent}${continue_open_symbol} ${color_foreground_green}confirm $menu_top_index more selected above${color_disable_foreground}"
 				fi
@@ -1314,8 +1353,10 @@ function choose_() (
 						if test "${selected[index]-}" = 'yes'; then
 							continue
 						fi
-						page_footer_prefs_count="$((page_footer_prefs_count + 1))"
+						page_footer_defaults_count="$((page_footer_defaults_count + 1))"
 					done
+				elif test "$menu_mode" = 'cancel'; then
+					page_footer+="${header_footer_indent}${above_open_symbol} ${color_foreground_yellow}cancel to all $menu_total defaults above${color_disable_foreground}"
 				else
 					page_footer+="${header_footer_indent}${above_open_symbol} ${color_foreground_green}confirm all $menu_total selected above${color_disable_foreground}"
 				fi
@@ -1335,8 +1376,10 @@ function choose_() (
 						if test "$index" -le "$menu_bottom_index" -o "${selected[index]-}" = 'yes'; then
 							continue
 						fi
-						page_footer_prefs_count="$((page_footer_prefs_count + 1))"
+						page_footer_defaults_count="$((page_footer_defaults_count + 1))"
 					done
+				elif test "$menu_mode" = 'cancel'; then
+					page_footer+="${header_footer_indent}${continue_open_symbol} ${color_foreground_yellow}cancel to $index more defaults below${color_disable_foreground}"
 				else
 					page_footer+="${header_footer_indent}${continue_open_symbol} ${color_foreground_green}confirm $index more selected below${color_disable_foreground}"
 				fi
@@ -1347,16 +1390,17 @@ function choose_() (
 				if test "$page_header_selected_count" -ne 0; then
 					page_header+=" ${sep_symbol} ${color_foreground_green}${page_header_selected_count} selected${color_disable_foreground}"
 				fi
-				if test "$page_header_prefs_count" -ne 0; then
-					page_header+=" ${sep_symbol} ${color_foreground_yellow}${page_header_prefs_count} unselected preferences${color_disable_foreground}"
+				if test "$page_header_defaults_count" -ne 0; then
+					page_header+=" ${sep_symbol} ${color_foreground_yellow}${page_header_defaults_count} unselected defaults${color_disable_foreground}"
 				fi
 				if test "$page_footer_selected_count" -ne 0; then
 					page_footer+=" ${sep_symbol} ${color_foreground_green}${page_footer_selected_count} selected${color_disable_foreground}"
 				fi
-				if test "$page_footer_prefs_count" -ne 0; then
-					page_footer+=" ${sep_symbol} ${color_foreground_yellow}${page_footer_prefs_count} unselected preferences${color_disable_foreground}"
+				if test "$page_footer_defaults_count" -ne 0; then
+					page_footer+=" ${sep_symbol} ${color_foreground_yellow}${page_footer_defaults_count} unselected defaults${color_disable_foreground}"
 				fi
 			fi
+
 			page_header+=" ${header_close_symbol}"$'\n'
 			page_footer+=" ${footer_close_symbol}"$'\n'
 		fi
@@ -1371,9 +1415,9 @@ function choose_() (
 			items_bundled="${color_dim}[ nothing provided ]"$'\n'
 		fi
 		if test "$paging_used" = 'yes'; then
-			menu_title=$'\e]0;'"👉 $verb $selected_count of $items_count items 💁‍♀️ Viewing $((menu_bottom_index - menu_top_index + 1)) of $items_count items [$((menu_top_index + 1))…$((menu_cursor + 1))…$((menu_bottom_index + 1))] 👈"$'\a'
+			menu_title=$'\e]0;'"👉 $verb $menu_total of $items_count items 💁‍♀️ Viewing $((menu_bottom_index - menu_top_index + 1)) of $items_count items [$((menu_top_index + 1))…$((menu_cursor + 1))…$((menu_bottom_index + 1))] 👈"$'\a'
 		else
-			menu_title=$'\e]0;'"👉 $verb $selected_count of $items_count items 👈"$'\a'
+			menu_title=$'\e]0;'"👉 $verb $menu_total of $items_count items 👈"$'\a'
 		fi
 		printf '%s' "${menu_title}${menu_header}${page_header}${items_bundled}${page_footer}${menu_hint_render}" >"$tty_target"
 	}
@@ -1442,20 +1486,22 @@ function choose_() (
 			eval_capture --statusvar=read_status --stdoutvar=input -- read-key --timeout="$option_timeout"
 			if test "$read_status" -eq 60; then
 				if test "$selected_count" -ne 0; then
-					commentary="$(echo-style --yellow='[timed out: using selection]')"
+					commentary="$(echo-style --yellow='[timed out: using defaults]')"
+					action_revert
 					set_menu_mode 'finished'
 				elif test "$option_required" = 'no'; then
 					commentary="$(echo-style --yellow='[timed out: not required]')"
+					action_none
 					set_menu_mode 'finished'
 				else
 					commentary="$(echo-style --red='[input failure: timed out: required]')"
-					menu_status="$read_status"
+					menu_status="$read_status" # error cases no seleciotn
 					set_menu_mode 'finished'
 				fi
 			elif test "$read_status" -ne 0; then
 				# some other failure
 				commentary="$(echo-style --red="[input failure: $read_status]")"
-				menu_status="$read_status"
+				menu_status="$read_status" # error causes no selection
 				set_menu_mode 'finished'
 			elif is-digit -- "$input"; then
 				action_jump "$input"
@@ -1472,21 +1518,22 @@ function choose_() (
 				action_first
 			elif test "$input" = 'end'; then
 				action_last
-			elif test "$input" = 'z'; then
-				action_revert
+			elif test "$input" = 'tab'; then
+				action_next_preference
+			elif test "$input" = 'backtab'; then
+				action_prior_preference
+			elif test "$menu_mode" = 'cancel'; then
+				# CANCEL MENU
+				if test "$input" = 'enter' -o "$input" = 'e' || test "$input" = 'space' -a "$option_multi" = 'no'; then
+					set_menu_mode 'finished'
+				elif test "$input" = 'escape' -o "$input" = 'q'; then
+					set_menu_mode 'choose'
+				fi
 			elif test "$menu_mode" = 'confirm'; then
 				# CONFIRM MENU
 				if test "$input" = 'enter' -o "$input" = 'e' || test "$input" = 'space' -a "$option_multi" = 'no'; then
 					set_menu_mode 'finished'
 				elif test "$input" = 'escape' -o "$input" = 'q'; then
-					# @todo should this undo selection on non-multi? so that a subsequent timeout does not use it, as an aborted confirm on A, then navigating to B, and will select A - so yeah, it should undo selection
-					if test "$option_multi" = 'no'; then
-						if test "$option_required" = 'yes'; then
-							action_select_default
-						else
-							action_none
-						fi
-					fi
 					set_menu_mode 'choose'
 				fi
 			elif test "$input" = 'space'; then
@@ -1500,17 +1547,11 @@ function choose_() (
 						set_menu_mode 'finished'
 					fi
 				fi
-			elif test "$input" = 'escape' -o "$input" = 'q'; then
-				if test "$option_multi" = 'yes'; then
-					action_revert
-				elif test "$option_required" = 'yes'; then
-					action_select_default
-				else
-					action_none
-				fi
+			elif test "$input" = 'escape' -o "$input" = 'q' -a "$can_cancel" = 'yes'; then
 				if test "$option_confirm_input" = 'yes'; then
-					set_menu_mode 'confirm'
+					set_menu_mode 'cancel'
 				else
+					action_revert
 					set_menu_mode 'finished'
 				fi
 			elif test "$input" = 'enter' -o "$input" = 'e'; then
@@ -1522,10 +1563,8 @@ function choose_() (
 				else
 					set_menu_mode 'finished'
 				fi
-			elif test "$input" = 'tab'; then
-				action_next_preference
-			elif test "$input" = 'backtab'; then
-				action_prior_preference
+			elif test "$input" = 'z'; then
+				action_revert
 			elif test "$input" = 't'; then
 				if test "$selected_count" -eq "$items_count"; then
 					action_none
