@@ -564,6 +564,7 @@ function choose_() (
 		menu_header_shrunk='' \
 		menu_header_size \
 		menu_header='' \
+		menu_skip_render='no' \
 		menu_hint_extras_choose='' \
 		menu_hint_extras_confirm='' \
 		menu_hint_main_choose='' \
@@ -1022,6 +1023,22 @@ function choose_() (
 		# no selection
 		return 0
 	}
+	function set_menu_mode {
+		local new="$1"
+		# sanity check if confirm is appropriate
+		if test "$new" = 'confirm' -a "$option_required" = 'yes' -a "$selected_count" -eq 0; then
+			menu_skip_render='yes'
+			menu_mode='choose'
+			return 0
+		fi
+		# check if we need to recalculate paging and update the mode
+		if test "$new" != "$menu_mode"; then
+			paging_used='maybe'
+			menu_mode="$new"
+		fi
+		# all done
+		return 0
+	}
 	local debug_counter=0
 	function render_menu {
 		local \
@@ -1411,56 +1428,35 @@ function choose_() (
 		fi
 	}
 	function handle_menu {
-		local action='choose' input read_status menu_skip_render='no'
+		local input read_status
 		# action
 		tty_start
 		while true; do
 			# (re-)render the menu?
 			if test "$menu_skip_render" = 'no'; then
-				# we want to render the menu, which one?
-				if test "$action" = 'confirm'; then
-					# check if confirm is appropriate
-					if test "$selected_count" -eq 0 -a "$option_required" = 'yes'; then
-						# confirm is not appropriate, as we require a selection, and there is no selection
-						action='choose'
-						menu_skip_render='yes'
-						continue
-					fi
-					# render the confirmation menu
-					if test "$menu_mode" != 'confirm'; then
-						menu_mode='confirm'
-						paging_used='maybe'
-					fi
-					render_menu
-				else
-					# the choose menu
-					if test "$menu_mode" != 'choose'; then
-						menu_mode='choose'
-						paging_used='maybe'
-					fi
-					render_menu
-				fi
+				render_menu
 			fi
+			menu_skip_render='no'
 
 			# handle the response
 			eval_capture --statusvar=read_status --stdoutvar=input -- read-key --timeout="$option_timeout"
 			if test "$read_status" -eq 60; then
 				if test "$selected_count" -ne 0; then
 					commentary="$(echo-style --yellow='[timed out: using selection]')"
-					action='done'
+					set_menu_mode 'finished'
 				elif test "$option_required" = 'no'; then
 					commentary="$(echo-style --yellow='[timed out: not required]')"
-					action='done'
+					set_menu_mode 'finished'
 				else
 					commentary="$(echo-style --red='[input failure: timed out: required]')"
 					menu_status="$read_status"
-					action='done'
+					set_menu_mode 'finished'
 				fi
 			elif test "$read_status" -ne 0; then
 				# some other failure
 				commentary="$(echo-style --red="[input failure: $read_status]")"
 				menu_status="$read_status"
-				action='done'
+				set_menu_mode 'finished'
 			elif is-digit -- "$input"; then
 				action_jump "$input"
 				# it may be tempting to make these (this action and below) non-multi selections, however that is not desired for timeouts, as timeouts should be empty if non-required, or the default if required, rather than whatever the user had their menu on, as timeout = escape/cancel
@@ -1478,10 +1474,10 @@ function choose_() (
 				action_last
 			elif test "$input" = 'z'; then
 				action_revert
-			elif test "$action" = 'confirm'; then
+			elif test "$menu_mode" = 'confirm'; then
 				# CONFIRM MENU
 				if test "$input" = 'enter' -o "$input" = 'e' || test "$input" = 'space' -a "$option_multi" = 'no'; then
-					action='done'
+					set_menu_mode 'finished'
 				elif test "$input" = 'escape' -o "$input" = 'q'; then
 					# @todo should this undo selection on non-multi? so that a subsequent timeout does not use it, as an aborted confirm on A, then navigating to B, and will select A - so yeah, it should undo selection
 					if test "$option_multi" = 'no'; then
@@ -1491,7 +1487,7 @@ function choose_() (
 							action_none
 						fi
 					fi
-					action='choose'
+					set_menu_mode 'choose'
 				fi
 			elif test "$input" = 'space'; then
 				if test "$option_multi" = 'yes'; then
@@ -1499,9 +1495,9 @@ function choose_() (
 				else
 					action_select_cursor
 					if test "$option_confirm_input" = 'yes'; then
-						action='confirm'
+						set_menu_mode 'confirm'
 					else
-						action='done'
+						set_menu_mode 'finished'
 					fi
 				fi
 			elif test "$input" = 'escape' -o "$input" = 'q'; then
@@ -1513,18 +1509,18 @@ function choose_() (
 					action_none
 				fi
 				if test "$option_confirm_input" = 'yes'; then
-					action='confirm'
+					set_menu_mode 'confirm'
 				else
-					action='done'
+					set_menu_mode 'finished'
 				fi
 			elif test "$input" = 'enter' -o "$input" = 'e'; then
 				if test "$option_multi" = 'no'; then
 					action_select_cursor
 				fi
 				if test "$option_confirm_input" = 'yes'; then
-					action='confirm'
+					set_menu_mode 'confirm'
 				else
-					action='done'
+					set_menu_mode 'finished'
 				fi
 			elif test "$input" = 'tab'; then
 				action_next_preference
@@ -1551,7 +1547,7 @@ function choose_() (
 			fi
 
 			# do a re-render
-			if test "$action" = 'done'; then
+			if test "$menu_mode" = 'finished'; then
 				break
 			else
 				menu_skip_render='no'
