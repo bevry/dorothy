@@ -354,7 +354,7 @@ Stable commands:
 
     -   [`bash.bash`](https://github.com/bevry/dorothy/tree/master/sourcces/bash.bash) for a Bash strict mode that actually works, and various shims/polyfills
     -   [`ask`](https://github.com/bevry/dorothy/tree/master/commands/ask), [`confirm`](https://github.com/bevry/dorothy/tree/master/commands/confirm), and [`choose`](https://github.com/bevry/dorothy/tree/master/commands/choose) for prompting the user for input
-    -   [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-segment`](https://github.com/bevry/dorothy/tree/master/commands/echo-segment), [`echo-element`](https://github.com/bevry/dorothy/tree/master/commands/echo-element), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
+    -   [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
     -   Dozens of `echo-*`, `fs-*`, `get-*`, and `is-*` helpers
 
 Beta commands:

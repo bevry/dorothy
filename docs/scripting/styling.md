@@ -18,30 +18,30 @@ echo-style \
 
 For complete details, refer to `echo-style --help`.
 
-## [echo-segment](https://github.com/bevry/dorothy/blob/master/commands/echo-segment)
+## [echo-style](https://github.com/bevry/dorothy/blob/master/commands/echo-style)
 
-Use `echo-segment` to segment your output, such that sections of output are clearly visible, with their result clearly identified.
+Use `echo-style` to segment your output, such that sections of output are clearly visible, with their result clearly identified.
 
 ```bash
-echo-segment --h1='Birth of the human spirit'
+echo-style --h1='Birth of the human spirit'
 echo-style --success='Woohoo, the human spirit was born!' ' ' --notice='Although... it was at the cost of the eviction, or rather the liberation, from eden.'
-echo-segment --g1='Birth of the human spirit'
-echo-segment --h1='Meaning of life calculator'
+echo-style --g1='Birth of the human spirit'
+echo-style --h1='Meaning of life calculator'
 echo-style --error='Uh, oh, 42 was rejected by the people.'
-echo-segment --e1='Meaning of life calculator'
+echo-style --e1='Meaning of life calculator'
 ```
 
-For complete details, refer to `echo-segment --help`.
+For complete details, refer to `echo-style --help`.
 
-## [echo-element](https://github.com/bevry/dorothy/blob/master/commands/echo-element)
+## [echo-style](https://github.com/bevry/dorothy/blob/master/commands/echo-style)
 
-Use `echo-element` as an alternative to `echo-segment`, when you wish to output a segment for say a command output, or a file's contents.
+Use `echo-style` as an alternative to `echo-style`, when you wish to output a segment for say a command output, or a file's contents.
 
 ```bash
 file="$(fs-temp --file)"
 
 # self closing element
-echo-element --openclose="$file" --status=2
+echo-style --element/="$file" --status=2
 
 # write the file data
 cat <<-EOF > "$file"
@@ -49,18 +49,18 @@ Lorem ipsum.
 EOF
 
 # open the element
-echo-element --open="$file"
+echo-style --element="$file"
 # output its contents
 echo-style --code="$(echo-trim-padding --stdin <"$file")"
 # close the element
-echo-element --close="$file"
+echo-style --/element="$file"
 
 # note that this example is contrived,
 # when outputting file content, use:
 echo-file -- "$file"
 ```
 
-For complete details, refer to `echo-element --help`.
+For complete details, refer to `echo-style --help`.
 
 ## [echo-quote](https://github.com/bevry/dorothy/blob/master/commands/echo-quote)
 

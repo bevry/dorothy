@@ -67,7 +67,7 @@ And set its contents to:
 
 function ask_() (
 	source "$DOROTHY/sources/bash.bash"
-	if confirm --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
+	if confirm --linger --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
 		"$DOROTHY/commands/ask" "$@"
 	else
 		echo-style --error='If we cannot trust your answers, we cannot act reliably. Exiting...'

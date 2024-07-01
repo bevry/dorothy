@@ -2,9 +2,9 @@
 
 secure_history() {
 	action="$(
-		choose-option \
+		choose \
 			--question='What do you want to delete?' \
-			--filter="${1-}" --label \
+			--default="${1-}" --label \
 			-- 'some' 'delete only the known risks' 'all' 'erase your entire history'
 	)"
 	if test "$action" = 'erase your entire history'; then
