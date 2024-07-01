@@ -16,6 +16,7 @@ style__delete_line=$'\e[F\e[J'
 style__erase_screen=$'\e[H\e[2J'
 style__hide_cursor=$'\e[?25l'
 style__show_cursor=$'\e[?25h'
+style__bell=$'\a'
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
