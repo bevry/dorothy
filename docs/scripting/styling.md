@@ -4,7 +4,9 @@ Dorothy provides the following commands for styling your command's output:
 
 ## [echo-style](https://github.com/bevry/dorothy/blob/master/commands/echo-style)
 
-Use `echo-style` to style the lines of your output.
+Use `echo-style` to style your output, for complete details, refer to `echo-style --help`.
+
+Generic styles:
 
 ```bash
 echo-style \
@@ -16,26 +18,19 @@ echo-style \
 	--blue+bold+bg-yellow='You can also combine styles, such as this.'
 ```
 
-For complete details, refer to `echo-style --help`.
-
-## [echo-style](https://github.com/bevry/dorothy/blob/master/commands/echo-style)
-
-Use `echo-style` to segment your output, such that sections of output are clearly visible, with their result clearly identified.
+Header styles, for outputting content in clearly defined blocks:
 
 ```bash
 echo-style --h1='Birth of the human spirit'
 echo-style --success='Woohoo, the human spirit was born!' ' ' --notice='Although... it was at the cost of the eviction, or rather the liberation, from eden.'
-echo-style --g1='Birth of the human spirit'
-echo-style --h1='Meaning of life calculator'
+echo-style --g1='Birth of the human spirit' # close h1 with a success style
+
+echo-style --h2='Meaning of life calculator'
 echo-style --error='Uh, oh, 42 was rejected by the people.'
-echo-style --e1='Meaning of life calculator'
+echo-style --e2='Meaning of life calculator' # close h1 with an error style
 ```
 
-For complete details, refer to `echo-style --help`.
-
-## [echo-style](https://github.com/bevry/dorothy/blob/master/commands/echo-style)
-
-Use `echo-style` as an alternative to `echo-style`, when you wish to output a segment for say a command output, or a file's contents.
+Element styles, for outputting say command output, or a file's contents.
 
 ```bash
 file="$(fs-temp --file)"
@@ -59,8 +54,6 @@ echo-style --/element="$file"
 # when outputting file content, use:
 echo-file -- "$file"
 ```
-
-For complete details, refer to `echo-style --help`.
 
 ## [echo-quote](https://github.com/bevry/dorothy/blob/master/commands/echo-quote)
 
