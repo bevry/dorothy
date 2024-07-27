@@ -447,7 +447,7 @@ if test "$(get-terminal-theme || :)" = 'light'; then
 	# keys
 	style__color__legend="$style__color__foreground_intense_black"
 	style__color_end__legend="$style__color_end__foreground"
-	style__color__key="${style__background_intense_white} "
+	style__color__key="${style__color__background_intense_white} "
 	style__color_end__key="$style__color_end__background"
 	# lines
 	style__color__selected_line="$style__color__foreground_green"
