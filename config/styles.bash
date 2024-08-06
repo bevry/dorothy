@@ -29,7 +29,7 @@ style__color__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Alacritty
 style__color_end__bold="$style__color_end__intensity"
 style__color__dim=$'\e[2m' # tput dim [supported: Terminal, VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
 style__color_end__dim="$style__color_end__intensity"
-style__color__italic=$'\e[3m' # [supported: VScode, Hyper] [colored support: Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Terminal, Warp, cool-retro-term, Rio]
+style__color__italic=$'\e[3m' # [supported: VScode, Hyper, Terminal] [colored support: Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
 style__color_end__italic=$'\e[23m'
 style__color__underline=$'\e[4m' # tput sgr 0 1 [supported: Terminal, VSCode, Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
 style__color_end__underline=$'\e[24m'
@@ -374,6 +374,72 @@ style__color_end__element_slash="${style__color__dim}${style__color__bold} />${s
 # ⌌	⌍	⌎	⌏
 # ╭	╮	╯ ╰
 
+# confirm/choose/ask questions
+style__color__question_title_prompt="${style__color__bold}${style__color__underline}"
+style__color_end__question_title_prompt="${style__color_end__bold}${style__color_end__underline}"
+
+style__color__question_title_result="${style__color__bold}"
+style__color_end__question_title_result="${style__color_end__bold}"
+
+style__color__question_body="${style__color__dim}"
+style__color_end__question_body="${style__color_end__dim}"
+
+# confirm/choose/ask failures
+style__color__input_warning="${style__color__bold}${style__color__foreground_yellow}"
+style__color_end__input_warning="${style__color_end__bold}${style__color_end__foreground_yellow}"
+# notice and warning too much emphasis on something with fallback
+
+# style__color__input_error="${style__color__bold}${style__color__foreground_red}"
+# style__color_end__input_error="${style__color_end__bold}${style__color_end__foreground_red}"
+style__color__input_error="${style__color__error1}"
+style__color_end__input_error="${style__color_end__error1}"
+
+# confirm/choose/ask text
+style__icon_nothing_provided='[ nothing provided ]'
+style__icon_no_selection='[ no selection ]' # used while choosing
+style__icon_nothing_selected='[ nothing selected ]' # used in result
+style__icon_using_password='[ using the entered password ]'
+
+# ask icons
+style__icon_prompt='> '
+
+# confirm icons
+style__color__icon_question_positive="${style__color__blink}(${style__color__bold}${style__color__foreground_green}Y${style__color_end__foreground}${style__color_end__bold}/n)${style__color_end__blink}"
+style__nocolor__icon_question_positive='(Y/n)'
+
+style__color__icon_question_negative="${style__color__blink}(y/${style__color__bold}${style__color__foreground_red}N${style__color_end__foreground}${style__color_end__bold})${style__color_end__blink}"
+style__nocolor__icon_question_negative='(y/N)'
+
+style__color__icon_question_bool="${style__color__blink}(y/n)${style__color_end__blink}"
+style__nocolor__icon_question_bool='(y/n)'
+
+style__color__icon_question_confirm="${style__color__blink}(CONFIRM)${style__color_end__blink}"
+style__nocolor__icon_question_confirm='(CONFIRM)'
+
+# confirm results
+style__color__result_positive="${style__color__bold}${style__color__foreground_green}"
+style__color_end__result_positive="${style__color_end__foreground}${style__color_end__bold}"
+
+style__color__result_negative="${style__color__bold}${style__color__foreground_red}"
+style__color_end__result_negative="${style__color_end__foreground}${style__color_end__bold}"
+
+style__color__result_abort="${style__color__bold}${style__color__foreground_red}"
+style__color_end__result_abort="${style__color_end__foreground}${style__color_end__bold}"
+
+# ask resuktls
+style__color__result_value="${style__color__dim}"
+style__color_end__result_value="${style__color_end__dim}"
+
+# for input result indentation, it doesn't make sense:
+# https://en.wikipedia.org/wiki/List_of_Unicode_characters#Box_Drawing
+# │ seamless, but too much of a gap on the left. cam look like an I if only single line result
+# ┃ seamless, good option
+# ║ seamless, confusing
+# ▏ not seamless, but better spacing on the left
+# not seamless on macos terminal with varying fonts: ┊ ┆ ╎ ╏ ▏ █
+# > looks like an input
+# after a lot of experimentation, it does not make sense to prefix it: https://gist.github.com/balupton/5160f1ee8581ffe9d1d67963824f86d0
+
 # lines
 style__icon_multi_selected='▣ '
 style__icon_multi_default='⊡ '
@@ -392,8 +458,8 @@ style__color__selected_line="$style__color__foreground_intense_green"
 style__color_end__selected_line="$style__color_end__foreground"
 style__color__default_line="$style__color__foreground_intense_yellow"
 style__color_end__default_line="$style__color_end__foreground"
-style__color__empty_line="$style__color__foreground_magenta"
-style__color_end__empty_line="$style__color_end__foreground"
+style__color__empty_line="${style__color__foreground_magenta}${style__color__background_intense_white}" # this is inverted
+style__color_end__empty_line="${style__color_end__foreground}${style__color_end__background}"
 style__color__inactive_line=''
 style__color_end__inactive_line=''
 
@@ -455,3 +521,115 @@ if test "$(get-terminal-theme || :)" = 'light'; then
 	style__color__default_line="$style__color__foreground_yellow"
 	style__color_end__default_line="$style__color_end__foreground"
 fi
+
+# helpers
+function refresh_style_cache {
+	# this should be similar to append_style in echo-style
+	# side effect: USE_COLOR
+	local item use_color=''
+	while test $# -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+			--color=yes|--color) use_color='yes' ;;
+			--color=no|--nocolor) use_color='no' ;;
+			--) break ;;
+		esac
+	done
+	if test -z "$use_color"; then
+		if test -n "${USE_COLOR-}"; then
+			use_color="$USE_COLOR"
+		elif is-color-enabled --; then
+			USE_COLOR='yes'
+			use_color='yes'
+		else
+			USE_COLOR='no'
+			use_color='no'
+		fi
+	fi
+	local style var
+	for style in "$@"; do
+		found='no'
+		if test "$use_color" = 'yes'; then
+			# begin
+			var="style__color__${style}"
+			if __is_var_set "$var"; then
+				eval "style__${style}=\"\${!var}\""
+				found='yes'
+			else
+				var="style__${style}"
+				if __is_var_set "$var"; then
+					# no need to update it
+					found='yes'
+				else
+					var="style__nocolor__${style}"
+					if __is_var_set "$var"; then
+						eval "style__${style}=''"
+						found='yes'
+					fi
+				fi
+			fi
+
+			# end
+			var="style__color_end__${style}"
+			if __is_var_set "$var"; then
+				eval "style__end__${style}=\"\${!var}\""
+				found='yes'
+			else
+				var="style__end__${style}"
+				if __is_var_set "$var"; then
+					# no need to updat eit
+					found='yes'
+				else
+					var="style__nocolor_end__${style}"
+					if __is_var_set "$var"; then
+						eval "style__end__${style}=''"
+						found='yes'
+					fi
+				fi
+			fi
+		else
+			# begin
+			var="style__nocolor__${style}"
+			if __is_var_set "$var"; then
+				eval "style__${style}=\"\${!var}\""
+				found='yes'
+			else
+				var="style__${style}"
+				if __is_var_set "$var"; then
+					# no need to update it
+					found='yes'
+				else
+					var="style__color__${style}"
+					if __is_var_set "$var"; then
+						eval "style__${style}=''"
+						found='yes'
+					fi
+				fi
+			fi
+
+			# end
+			var="style__nocolor_end__${style}"
+			if __is_var_set "$var"; then
+				eval "style__end__${style}=\"\${!var}\""
+				found='yes'
+			else
+				var="style__${style}"
+				if __is_var_set "$var"; then
+					# no need to update it
+					found='yes'
+				else
+					var="style__color_end__${style}"
+					if __is_var_set "$var"; then
+						eval "style__end__${style}=''"
+						found='yes'
+					fi
+				fi
+			fi
+		fi
+		if test "$found" = 'no'; then
+			echo-error "Style not found: $style"
+			return 1
+		fi
+	done
+}

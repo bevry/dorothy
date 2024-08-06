@@ -180,6 +180,48 @@ function ask_() (
 		esac
 	done
 
+	# question
+	local question_title question_body
+	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
+		if test -n "${option_question[0]}"; then
+			question_title="${option_question[0]}"
+			question_body="$(__print_lines "${option_question[@]:1}")"
+		else
+			question_title="$(__print_lines "${option_question[@]:1}")"
+			question_body=''
+		fi
+	else
+		question_title=''
+		question_body=''
+	fi
+
+	# enforce question if lingering
+	if test "$option_linger" = 'yes' -a -z "$question_title"; then
+		help 'A <question> is required when using --linger'
+	fi
+
+	# =====================================
+	# Styles
+
+	source "$DOROTHY/sources/config.sh"
+
+	# styles.bash provides:
+	# all style variables
+	load_dorothy_config 'styles.bash'
+
+	# refresh the styles
+	refresh_style_cache -- 'question_title_prompt' 'question_title_result' 'question_body' 'input_warning' 'input_error' 'icon_prompt' 'result_value' 'icon_nothing_provided' 'icon_using_password'
+
+	# style the question
+	local question_title_prompt='' question_title_result='' question_body_prompt=''
+	if test -n "$question_title"; then
+		question_title_prompt="${style__question_title_prompt}${question_title}${style__end__question_title_prompt}"
+		question_title_result="${style__question_title_result}${question_title}${style__end__question_title_result}"
+	fi
+	if test -n "$question_body"; then
+		question_body_prompt="${style__question_body}${question_body}${style__end__question_body}"
+	fi
+
 	# =====================================
 	# Action
 
@@ -187,9 +229,6 @@ function ask_() (
 	# @todo implement cursor move fallback
 	local tty_target
 	tty_target="$(is-tty --fallback)"
-
-	# prepare styles
-	local style_dim=$'\e[2m' style_bold=$'\e[1m' style_reset=$'\e[0m'
 
 	# prepare result
 	local RESULT
@@ -204,26 +243,6 @@ function ask_() (
 		option_timeout=60
 	fi
 
-	# adjust question
-	local question_title question_with_body
-	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
-		if test -n "${option_question[0]}"; then
-			question_title="$style_bold${option_question[0]}$style_reset"
-			question_with_body="$(__print_lines "$question_title" "${option_question[@]:1}")"
-		else
-			question_title="$(__print_lines "${option_question[@]:1}")"
-			question_with_body="$question_title"
-		fi
-	else
-		question_title=''
-		question_with_body=''
-	fi
-
-	# enforce question if lingering
-	if test "$option_linger" = 'yes' -a -z "$question_title"; then
-		help 'A <question> is required when using --linger'
-	fi
-
 	# adjust tty
 	local size_columns bin_gfold bin_gwc
 	size_columns="$(tput cols)"
@@ -236,16 +255,16 @@ function ask_() (
 	fi
 
 	# helpers
-	local ASKED='no' prompt='> ' commentary=''
+	local ASKED='no' commentary=''
 	function on_timeout {
 		if is-value -- "$RESULT"; then
-			commentary="$(echo-style --yellow='[timed out: using fallback]')"
+			commentary="${style__input_warning}[timed out: using fallback]${style__end__input_warning}"
 			return 0
 		elif test "$option_required" = 'no'; then
-			commentary="$(echo-style --yellow='[timed out: optional]')"
+			commentary="${style__input_warning}[timed out: optional]${style__end__input_warning}"
 			return 0
 		else
-			commentary="$(echo-style --red='[input failure: timed out: required]')"
+			commentary="${style__input_error}[input failure: timed out: required]${style__end__input_error}"
 			return 60 # ETIMEDOUT 60 Operation timed out
 		fi
 	}
@@ -272,10 +291,13 @@ function ask_() (
 				fi
 			else
 				# reset render
-				if test -n "$question_with_body"; then
-					render="$question_with_body"$'\n'
+				if test -n "$question_title_prompt"; then
+					render+="$question_title_prompt"$'\n'
 				fi
-				render+="$prompt"
+				if test -n "$question_body_prompt"; then
+					render+="$question_body_prompt"$'\n'
+				fi
+				render+="$style__icon_prompt"
 
 				# we have tty stdin, can do a prompt
 				# -i requires -e
@@ -362,7 +384,7 @@ function ask_() (
 				on_timeout
 				return
 			elif test "$choose_status" -ne 0; then
-				commentary="$(echo-style --red="[input failure: choose failure: $choose_status]")"
+				commentary="${style__input_error}[input failure: choose failure: $choose_status]${style__end__input_error}"
 				return "$choose_status"
 			fi
 
@@ -378,7 +400,7 @@ function ask_() (
 				return 0
 			else
 				# unknown error
-				commentary="$(echo-style --red="[input failure: invalid choice: $choice]")"
+				commentary="${style__input_error}[input failure: invalid choice: $choice]${style__end__input_error}"
 				return 14 # EFAULT 14 Bad address
 			fi
 		fi
@@ -399,7 +421,7 @@ function ask_() (
 
 	# act
 	eval_capture --statusvar=result_status -- do_validate
-	local render="$question_title"
+	local render="$question_title_result"
 	if test -n "$commentary"; then
 		if test -n "$render"; then
 			render+=" $commentary"
@@ -414,19 +436,17 @@ function ask_() (
 		# add the results only if lingering
 		if test "$option_linger" = 'yes'; then
 			if test -z "$RESULT"; then
-				render+="${style_dim}[ nothing provided ]${style_reset}"$'\n'
+				render+="${style__result_value}${style__icon_nothing_provided}${style__end__result_value}"$'\n'
 			elif test "$option_password" = 'yes'; then
-				render+="${style_dim}[ using the entered password ]${style_reset}"$'\n'
+				render+="${style__result_value}${style__icon_using_password}${style__end__result_value}"$'\n'
 			else
-				render+="${style_dim}${RESULT}${style_reset}"$'\n'
+				render+="${style__result_value}${RESULT}${style__end__result_value}"$'\n'
 			fi
 			# inform
 			__print_string "$render" >"$tty_target"
 		elif test -n "$commentary"; then
 			# inform to stderr, consistent with ask, choose, confirm
 			__print_string "$render" >/dev/stderr
-			# sleep 3
-			# echo-clear-lines --stdin < <(__print_string "$render") >/dev/stderr
 		fi
 		# stdout
 		if test -z "$RESULT"; then
