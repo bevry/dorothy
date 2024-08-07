@@ -396,7 +396,7 @@ style__color_end__input_error="${style__color_end__error1}"
 
 # confirm/choose/ask text
 style__icon_nothing_provided='[ nothing provided ]'
-style__icon_no_selection='[ no selection ]' # used while choosing
+style__icon_no_selection='[ no selection ]'         # used while choosing
 style__icon_nothing_selected='[ nothing selected ]' # used in result
 style__icon_using_password='[ using the entered password ]'
 
@@ -486,8 +486,8 @@ style__color__count_more="$style__color__foreground_white"
 style__color_end__count_more="$style__color_end__foreground"
 style__color__count_selected="$style__color__foreground_green"
 style__color_end__count_selected="$style__color_end__foreground"
-style__color__count_default="$style__color__foreground_yellow"
-style__color_end__count_default="$style__color_end__foreground"
+style__color__count_defaults="$style__color__foreground_yellow"
+style__color_end__count_defaults="$style__color_end__foreground"
 style__color__count_empty="$style__color__foreground_magenta"
 style__color_end__count_empty="$style__color_end__foreground"
 
@@ -531,9 +531,9 @@ function refresh_style_cache {
 		item="$1"
 		shift
 		case "$item" in
-			--color=yes|--color) use_color='yes' ;;
-			--color=no|--nocolor) use_color='no' ;;
-			--) break ;;
+		--color=yes | --color) use_color='yes' ;;
+		--color=no | --nocolor) use_color='no' ;;
+		--) break ;;
 		esac
 	done
 	if test -z "$use_color"; then
