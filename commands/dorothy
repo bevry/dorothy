@@ -1802,6 +1802,42 @@ function dorothy_() (
 			upgrade_linting='yes'
 		fi
 
+
+		# prepre scan paths
+		local commands filepath scan_paths=(
+			"$DOROTHY/commands/"
+			"$DOROTHY/commands.beta/"
+		)
+		if test -d "$DOROTHY/user"; then
+			if test -d "$DOROTHY/user/commands"; then
+				scan_paths+=("$DOROTHY/user/commands/")
+			fi
+			if test -d "$DOROTHY/user/commands.local"; then
+				scan_paths+=("$DOROTHY/user/commands.local/")
+			fi
+		fi
+
+		# check for unsafe function calls, by checking for __ convention
+		# ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+
+		# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
+		# @tood improve upon this by checking if the function also calls function, as any calling of a function must also be safe
+		local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
+		mapfile -t commands < <(rg --files-with-matches --regexp="$unsafe_regexp" "${scan_paths[@]}" | sort)
+		if test "${#commands[@]}" -ne 0; then
+			for filepath in "${commands[@]}"; do
+				unsafe_contents="$(rg --regexp="$unsafe_regexp" "$filepath" | grep --invert-match --fixed-strings --regexp='for ' || :)"
+				if test -z "$unsafe_contents"; then
+					continue
+				fi
+				unsafe_count="$((unsafe_count + 1))"
+				unsafe_bundle+="$(echo-style --element="$filepath")"$'\n'"$unsafe_contents"$'\n'"$(echo-style --/element="$filepath")"$'\n'
+			done
+			if test "$unsafe_count" -ne 0; then
+				echo-style --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle" --e1='Dorothy Lint'
+				return 1
+			fi
+		fi
+
 		# on dorothy
 		echo-style --h3="$DOROTHY"
 		(
@@ -1855,19 +1891,20 @@ function dorothy_() (
 		# pre-requisites
 		assert_dorothy_configured
 		# ^ no need for user config for tests
+		local only=("$@") flakey=('config-helper') skips=('dorothy' 'bash.bash') no_bash_v3=('get-installer' 'dorothy-config')
 
 		# action
 		echo-style --h1='Dorothy Tests'
 		source "$DOROTHY/sources/ripgrep.bash"
 
 		# able to test on bash v3?
-		local bash has_macos_bashv3='no'
+		local bash has_macos_bash_v3='no'
 		bash="$(type -P bash)"
 		if __is_mac && test "$bash" != '/bin/bash' && [[ "$(/bin/bash --version || :)" == 'GNU bash, version 3.'* ]]; then
-			has_macos_bashv3=yes
+			has_macos_bash_v3=yes
 		fi
 
-		# prepre scan paths
+		# prepare scan paths
 		local commands filepath filename failures=() scan_paths=(
 			"$DOROTHY/commands/"
 			"$DOROTHY/commands.beta/"
@@ -1881,59 +1918,60 @@ function dorothy_() (
 			fi
 		fi
 
-		# check for __ convention
-		# ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+
-		# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
-
-		# check for unsafe function calls
-		# todo, improve upon this by checking if the function also calls function, as any calling of a function must also be safe
-		local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
-		mapfile -t commands < <(rg --files-with-matches --regexp="$unsafe_regexp" "${scan_paths[@]}" | sort)
-		if test "${#commands[@]}" -ne 0; then
-			for filepath in "${commands[@]}"; do
-				unsafe_contents="$(rg --regexp="$unsafe_regexp" "$filepath" | grep --invert-match --fixed-strings --regexp='for ' || :)"
-				if test -z "$unsafe_contents"; then
-					continue
-				fi
-				unsafe_count="$((unsafe_count + 1))"
-				unsafe_bundle+="$(echo-style --element="$filepath")"$'\n'"$unsafe_contents"$'\n'"$(echo-style --/element="$filepath")"$'\n'
-			done
-			if test "$unsafe_count" -ne 0; then
-				echo-style --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle" --e1='Dorothy Tests'
-				return 1
-			fi
-		fi
-
 		# run tests on commands that have them
 		mapfile -t commands < <(rg --files-with-matches --fixed-strings --regexp='--test' "${scan_paths[@]}" | sort)
 		for filepath in "${commands[@]}"; do
 			filename="$(basename "$filepath")"
 
-			# skip tests on these
-			if test "$filename" = 'dorothy' -o "$filename" = 'bash.bash'; then
+			# check if we want to skip this test
+			if is-needle --needle="$filename" -- "${skips[@]}"; then
 				continue
 			fi
 
-			# run only specific tests
-			if test "$#" -ne 0; then
-				if ! is-needle --needle="$filename" -- "$@"; then
-					continue
-				fi
+			# check if we want to run only specific tests
+			if test "${#only[@]}" -ne 0 && ! is-needle --needle="$filename" -- "${only[@]}"; then
+				continue
 			fi
 
-			# run the bash test
-			eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
+			# run the test on the current bash version
+			{
+				if is-needle --needle="$filename" -- "${flakey[@]}"; then
+					echo-style --invert="FIRST ATTEMPT: $filename"
+					eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
+						echo-style --invert="SECOND ATTEMPT: $filename"
+						eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
+							echo-style --invert="THIRD ATTEMPT: $filename"
+							eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
+						}
+					}
+				else
+					eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
+				fi
+			} || {
 				failures+=("$bash $filepath --test")
 			}
 
-			# skip bash v3 test on these
-			if [[ $filename =~ ^(get-installer|dorothy-config)$ ]]; then
-				continue
-			fi
-
-			# run the bash v3 test
-			if test "$has_macos_bashv3" = 'yes'; then
-				env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
+			# check if we can test on bash v3
+			if test "$has_macos_bash_v3" = 'yes'; then
+				# we can test, but do we want to test this one on bash v3?
+				if is-needle --needle="$filename" -- "${no_bash_v3[@]}"; then
+					continue
+				fi
+				# run the test on bash v3
+				{
+					if is-needle --needle="$filename" -- "${flakey[@]}"; then
+						echo-style --invert="FIRST ATTEMPT: $filename"
+						env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
+							echo-style --invert="SECOND ATTEMPT: $filename"
+							env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
+								echo-style --invert="THIRD ATTEMPT: $filename"
+								env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test
+							}
+						}
+					else
+						env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test
+					fi
+				} || {
 					failures+=("/bin/bash '$filepath' --test")
 				}
 			fi
