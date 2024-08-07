@@ -38,6 +38,7 @@ function __print_lines {
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
+# for example:
 # __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
 # BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
 # BASH_VERSION_MAJOR -- 5
@@ -47,10 +48,10 @@ function __print_lines {
 # IS_BASH_VERSION_OUTDATED -- yes/no
 
 if test -z "${BASH_VERSION_CURRENT-}"; then
-	# 5.2.15(1)-release => 5.2.15
+	# e.g. 5.2.15(1)-release => 5.2.15
 	IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
-	BASH_VERSION_LATEST='5.2.21' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
+	BASH_VERSION_LATEST='5.2.32' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
 	# any v5 version is supported by dorothy
 	if test "$BASH_VERSION_MAJOR" -eq 5; then
 		IS_BASH_VERSION_OUTDATED='no'

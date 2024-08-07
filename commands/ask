@@ -221,11 +221,6 @@ function ask_() (
 	# =====================================
 	# Action
 
-	# prepare
-	# @todo implement cursor move fallback
-	local tty_target
-	tty_target="$(is-tty --fallback)"
-
 	# prepare result
 	local RESULT
 	if test -n "$option_default"; then
@@ -240,8 +235,13 @@ function ask_() (
 	fi
 
 	# adjust tty
-	local size_columns bin_gfold bin_gwc
-	size_columns="$(tput cols)"
+	local tty_target terminal_columns bin_gfold bin_gwc
+	tty_target="$(is-tty --fallback)"
+	if test "$tty_target" = '/dev/stderr' || command-missing tput; then
+		terminal_columns=80
+	else
+		terminal_columns="$(tput cols)"
+	fi
 	if is-mac; then
 		bin_gfold="$(type -P 'gfold' 2>/dev/null || :)"
 		bin_gwc="$(type -P 'gwc' 2>/dev/null || :)"
@@ -265,54 +265,67 @@ function ask_() (
 		fi
 	}
 	function do_prompt { # has sideffects: RESULT, ASKED
-		local __read_status=0 render='' input='' render_rows
+		local programmatic_stdin input_prompt __read_status __input_result result_prompt result_prompt_row_count
+		if test ! -t 0; then
+			programmatic_stdin='yes'
+		else
+			programmatic_stdin='no'
+			input_prompt=''
+			if test -n "$question_title_prompt"; then
+				input_prompt+="$question_title_prompt"$'\n'
+			fi
+			if test -n "$question_body_prompt"; then
+				input_prompt+="$question_body_prompt"$'\n'
+			fi
+			input_prompt+="$style__icon_prompt"
+		fi
 
-		# tty_auto
 		ASKED='yes' # not local
 		while true; do
+			# reset
+			__read_status=0
+			__input_result=''
+
 			# test for stdin technique, as [read -i] does not support programatic stdin
-			if test ! -t 0; then
+			if test "$programmatic_stdin" = 'yes'; then
 				# we have programatic stdin, so manually read the line without a tty prompt
 				# don't read multiple lines, as other lines are for subequent prompts, such as confirmations or the next program
-				IFS='' read -r -t "$option_timeout" input || __read_status=$?
-				if test -z "$input" -o "$input" = $'\n'; then
+				IFS='' read -r -t "$option_timeout" __input_result || __read_status=$?
+				if test -z "$__input_result" -o "$__input_result" = $'\n'; then
 					# treat empty string and newline as default
 					:
-				elif [[ $input =~ ^[\s]*$ ]]; then
+				elif [[ $__input_result =~ ^[\s]*$ ]]; then
 					# treat only whitespace as empty value
 					RESULT=''
 				else
-					# treat everything else as manual input
-					RESULT="$input"
+					# treat everything else as manual __input_result
+					RESULT="$__input_result"
 				fi
 			else
-				# reset render
-				if test -n "$question_title_prompt"; then
-					render+="$question_title_prompt"$'\n'
-				fi
-				if test -n "$question_body_prompt"; then
-					render+="$question_body_prompt"$'\n'
-				fi
-				render+="$style__icon_prompt"
+				# reset
+				result_prompt="$input_prompt"
 
 				# we have tty stdin, can do a prompt
 				# -i requires -e
-				IFS= read -r -t "$option_timeout" -ei "$RESULT" -p "$render" input || __read_status=$?
-				# note if there was a default value, pressing enter will set [input] to it
+				IFS= read -r -t "$option_timeout" -ei "$RESULT" -p "$input_prompt" __input_result || __read_status=$?
+
+				# now that the prompt is done, erase the prompt
+
+				# note if there was a default value, pressing enter will set [__input_result] to it
 				if test "$__read_status" -eq 0; then
-					# only update RESULT on successful read status, as [input] will be empty on timeout
-					RESULT="$input"
+					# only update RESULT on successful read status, as [__input_result] will be empty on timeout
+					RESULT="$__input_result"
 					# the user has pressed enter, so note that an enter was rendered to the TTY so that it can be erased, and append a space so that it is not trimmed by "$(...)" usage
-					render+="$RESULT"$'\n '
+					result_prompt+="$RESULT"$'\n '
 				fi # otherwise it has timed out. ctrl+c is not caught as we are not trapping it
 
 				# use <( to ensure lines and inlines are rendered accurately
-				render="$(echo-trim-colors --stdin < <(print_string "$render"))"
-				render="$("$bin_gfold" -w "$size_columns" < <(print_string "$render"))"
-				render_rows="$("$bin_gwc" -l < <(print_string "$render"))"
+				result_prompt="$(echo-trim-colors --stdin < <(print_string "$result_prompt"))"
+				result_prompt="$("$bin_gfold" -w "$terminal_columns" < <(print_string "$result_prompt"))"
+				result_prompt_row_count="$("$bin_gwc" -l < <(print_string "$result_prompt"))"
 
 				# move these lines up and erase
-				printf '\e[%sF\e[G\e[J' "$render_rows" >"$tty_target"
+				printf '\e[%sF\e[G\e[J' "$result_prompt_row_count" >"$tty_target"
 			fi
 
 			# handle the result
