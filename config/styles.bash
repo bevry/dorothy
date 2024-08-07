@@ -627,7 +627,8 @@ function refresh_style_cache {
 				fi
 			fi
 		fi
-		if test "$found" = 'no'; then
+		# only respect found on versions of bash that can detect accurately detect it, as otherwise empty values will be confused as not found
+		if test "$found" = 'no' -a "$IS_BASH_VERSION_OUTDATED" = 'no'; then
 			echo-error "Style not found: $style"
 			return 1
 		fi
