@@ -614,7 +614,7 @@ function refresh_style_cache {
 				eval "style__end__${style}=\"\${!var}\""
 				found='yes'
 			else
-				var="style__${style}"
+				var="style__end__${style}"
 				if __is_var_set "$var"; then
 					# no need to update it
 					found='yes'
