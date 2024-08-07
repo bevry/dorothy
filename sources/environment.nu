@@ -7,3 +7,4 @@ setup-environment-commands 'nu'
 	| transpose -r
 	| into record
 	| load-env
+# @todo: someone experienced with nu should send a PR to add detection (like fish and bash have) on failures of the above command
