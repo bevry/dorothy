@@ -2,62 +2,83 @@
 
 function ask_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-segment --h1="TEST: $0"
+	echo-style --h1="TEST: $0"
 
-	eval-tester --name='default response -confirm' --stdout='a default response' \
+	eval-tester --name='receive default response by timeout and no input' --stdout='a default response' \
+		-- ask --skip-default --question='What is your response?' --default='a default response'
+
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='receive default response by enter key' --stdout='a default response' \
 		-- ask --question='What is your response?' --default='a default response'
 
 	{
-		# confirm to enter a value
 		sleep 3
-		echo
-	} | eval-tester --name='default response +confirm' --stdout='a default response' \
-		-- ask --question='What is your response?' --default='a default response' --confirm
-
-	{
-		# confirm to enter a value
-		sleep 3
-		echo
-
-		# enter the custom response
-		sleep 3
-		print_line 'a custom response'
-	} | eval-tester --name='custom response -default -confirm' --stdout='a custom response' \
+		__print_line 'a custom response'
+	} | eval-tester --name='receive custom response by sending custom response' --stdout='a custom response' \
 		-- ask --question='What is your response?'
 
 	{
-		# confirm to enter a value
 		sleep 3
-		echo
+		__print_line 'a custom response'
+	} | eval-tester --name='receive custom response that overwrites the default, by sending custom response' --stdout='a custom response' \
+		-- ask --question='What is your response?' --default='a default response'
 
-		# enter the custom response
+	{
+		__print_line 'overwrite' | {
+			ask --question='Q1' --default='D1' --skip-default
+			ask --question='Q2' --default='D2'
+		}
+	} | eval-tester --name='receive a custom response that overwrites the default, but the custom response is ignored because of --skip-default, so it is absorbed by a subsequent consumer' --stdout=$'D1\noverwrite' \
+		-- cat
+
+	{
+		# provide a custom response
 		sleep 3
-		print_line 'a custom response'
+		__print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
-		echo
-	} | eval-tester --name='custom response -default +confirm' --stdout='a custom response' \
+		__print_line
+	} | eval-tester --name='receive a custom response that is also confirmed due to required confirmation' --stdout='a custom response' \
 		-- ask --question='What is your response?' --confirm
 
 	{
-		# move down and select custom response
+		# select the default value
+		sleep 3
+		__print_line
+
+		# move down and change to custom response
 		sleep 3
 		printf $'\eOB'
 		sleep 3
-		echo
+		__print_line
 
-		# enter the custom response
+		# provide the custom response
 		sleep 3
-		print_line 'a custom response'
+		__print_line 'a custom response'
 
 		# confirm the custom response
 		sleep 3
-		echo
-	} | eval-tester --name='custom response +default +confirm' --stdout='a custom response' \
+		__print_line
+	} | eval-tester --name='receive a custom response, by first selecting default, then changing mind, sending custom response, and confirming custom response' --stdout='a custom response' \
 		-- ask --question='What is your response?' --default='a default response' --confirm
 
-	echo-segment --g1="TEST: $0"
+	{
+		# override the default response with the custom response
+		sleep 3
+		__print_line 'a custom response'
+
+		# confirm the provided value
+		sleep 3
+		__print_line
+	} | eval-tester --name='receuve a custom response, by sending the custon response to overwrite the default, and then confirming the custom response' --stdout='a custom response' \
+		-- ask --question='What is your response?' --default='a default response' --confirm
+
+	# @todo add tests for timout
+
+	echo-style --g1="TEST: $0"
 	return 0
 )
 function ask_() (
@@ -76,23 +97,33 @@ function ask_() (
 			ask [...options]
 
 			OPTIONS:
-			--question=<string>
-			    Specifies the question that the prompt will be answering.
+			<question> | --question=<question>
+			    Display this question in the prompt. If specified multiple times, they will be joined by newline, and only the first will be lingered.
 
 			--default=<value>
-				Specifies the default value if no user specified value is entered.
+			    Default value if no user specified value is entered.
 
-			--confirm
-			    Specifies that the prompt should confirm the value before continuing.
+			--[no-]confirm=[yes|no]
+			    Confirm the (default/entered) value before continuing.
 
-			--password
-			    Specifies that the prompt should hide the value when entering by using password mode.
+			--[no-]confirm-default=[YES|no] | --[no-]skip-default=[yes|NO]
+			    Confirm the default value (if provided) before continuing. Defaults to enabled.
 
-			--required
-			    Specifies that the prompt should not continue until a value is provided.
+			--[no-]confirm-input=[yes|NO]
+			    Confirm the entered value before continuing. Defaults to disabled.
+
+			--[no-]password=[yes|NO]
+			    Hide the value when entering by using password mode.
+
+			--[no-]required=[yes|NO]
+			    Do not continue until a value is provided. Disable aborting the prompt.
+
+			--[no-]linger=[yes|NO]
+			    Whether the prompt should persist afterwards.
 
 			--timeout=<seconds>
-			    Specifies a custom timeout value in seconds.
+			    Custom timeout value in seconds.
+
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -101,78 +132,214 @@ function ask_() (
 	}
 
 	# process
-	local item args=() option_question='' option_default='' option_password='no' option_required='no' option_confirm='no' option_timeout=''
+	local item args=() option_question=()
+	local option_default='' option_confirm_default='yes' option_confirm_input='no'
+	local option_required='no' option_password='no'
+	local option_linger='no' option_timeout=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--question='*) option_question="${item#*=}" ;;
+		'--question='*) option_question+=("${item#*=}") ;;
 		'--default='*) option_default="${item#*=}" ;;
-		'--timeout='*) option_timeout="${item#*=}" ;;
-		'--no-password'* | '--password'*)
-			option_password="$(get-flag-value --affirmative --fallback="$option_password" -- "$item")"
+		'--no-skip-default'* | '--skip-default'*)
+			option_confirm_default="$(get-flag-value --non-affirmative --fallback="$option_confirm_default" -- "$item")"
+			;;
+		'--no-confirm-default'* | '--confirm-default'*)
+			option_confirm_default="$(get-flag-value --affirmative --fallback="$option_confirm_default" -- "$item")"
+			;;
+		'--no-confirm-input'* | '--confirm-input'*)
+			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
+			;;
+		'--no-confirm'* | '--confirm'*)
+			option_confirm_default="$(get-flag-value --affirmative --fallback="$option_confirm_default" -- "$item")"
+			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
 			;;
 		'--no-required'* | '--required'*)
 			option_required="$(get-flag-value --affirmative --fallback="$option_required" -- "$item")"
 			;;
-		'--no-confirm'* | '--confirm'*)
-			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
+		'--no-password'* | '--password'*)
+			option_password="$(get-flag-value --affirmative --fallback="$option_password" -- "$item")"
 			;;
+		'--no-linger'* | '--linger'*)
+			option_linger="$(get-flag-value --affirmative --fallback="$option_linger" -- "$item")"
+			;;
+		'--timeout='*) option_timeout="${item#*=}" ;;
 		'--')
 			args+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		*) option_question+=("$item") ;;
 		esac
 	done
+
+	# question
+	local question_title question_body
+	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
+		if test -n "${option_question[0]}"; then
+			question_title="${option_question[0]}"
+			question_body="$(__print_lines "${option_question[@]:1}")"
+		else
+			question_title="$(__print_lines "${option_question[@]:1}")"
+			question_body=''
+		fi
+	else
+		question_title=''
+		question_body=''
+	fi
+
+	# enforce question if lingering
+	if test "$option_linger" = 'yes' -a -z "$question_title"; then
+		help 'A <question> is required when using --linger'
+	fi
+
+	# =====================================
+	# Styles
+
+	source "$DOROTHY/sources/config.sh"
+
+	# styles.bash provides:
+	# all style variables
+	load_dorothy_config 'styles.bash'
+
+	# refresh the styles
+	refresh_style_cache -- 'question_title_prompt' 'question_title_result' 'question_body' 'input_warning' 'input_error' 'icon_prompt' 'result_value' 'icon_nothing_provided' 'icon_using_password'
+
+	# style the question
+	local question_title_prompt='' question_title_result='' question_body_prompt=''
+	if test -n "$question_title"; then
+		question_title_prompt="${style__question_title_prompt}${question_title}${style__end__question_title_prompt}"
+		question_title_result="${style__question_title_result}${question_title}${style__end__question_title_result}"
+	fi
+	if test -n "$question_body"; then
+		question_body_prompt="${style__question_body}${question_body}${style__end__question_body}"
+	fi
 
 	# =====================================
 	# Action
 
-	# prepare
-	local RESULT ASKED='no' tty_target
-	tty_target="$(is-tty --fallback)"
+	# prepare result
+	local RESULT
 	if test -n "$option_default"; then
 		RESULT="$option_default"
 	else
 		RESULT=''
 	fi
 
+	# adjust timeout to one minute if we have a default value, or if optional
+	if test -z "$option_timeout" && (is-value -- "$RESULT" || test "$option_required" = 'no'); then
+		option_timeout=60
+	fi
+
+	# adjust tty
+	local tty_target terminal_columns bin_gfold bin_gwc
+	tty_target="$(is-tty --fallback)"
+	if test "$tty_target" = '/dev/stderr' || command-missing tput; then
+		terminal_columns=80
+	else
+		terminal_columns="$(tput cols)"
+	fi
+	if is-mac; then
+		bin_gfold="$(type -P 'gfold' 2>/dev/null || :)"
+		bin_gwc="$(type -P 'gwc' 2>/dev/null || :)"
+	else
+		bin_gfold="$(type -P 'fold' 2>/dev/null || :)"
+		bin_gwc="$(type -P 'wc' 2>/dev/null || :)"
+	fi
+
 	# helpers
+	local ASKED='no' commentary=''
 	function on_timeout {
 		if is-value -- "$RESULT"; then
-			echo-style --notice="Ask timed out, using fallback value: " --code="$RESULT" >/dev/stderr
-			sleep 5
-			print_line "$RESULT"
+			commentary="${style__input_warning}[timed out: using fallback]${style__end__input_warning}"
 			return 0
 		elif test "$option_required" = 'no'; then
-			echo-style --notice='Ask timed out, as the field was optional will use no value.' >/dev/stderr
-			sleep 5
+			commentary="${style__input_warning}[timed out: optional]${style__end__input_warning}"
 			return 0
 		else
-			echo-style --warning='Ask timed out, with no fallback.' >/dev/stderr
-			sleep 5
+			commentary="${style__input_error}[input failure: timed out: required]${style__end__input_error}"
 			return 60 # ETIMEDOUT 60 Operation timed out
 		fi
 	}
-	function do_ask { # has sideffects: RESULT, ASKED
-		local __read_status
-		tty_auto
-		ASKED='yes' # not local
-		if test -n "${1-}"; then
-			print_line "$1" >"$tty_target"
+	function do_prompt { # has sideffects: RESULT, ASKED
+		local programmatic_stdin input_prompt __read_status __input_result result_prompt result_prompt_row_count
+		if test ! -t 0; then
+			programmatic_stdin='yes'
+		else
+			programmatic_stdin='no'
+			input_prompt=''
+			if test -n "$question_title_prompt"; then
+				input_prompt+="$question_title_prompt"$'\n'
+			fi
+			if test -n "$question_body_prompt"; then
+				input_prompt+="$question_body_prompt"$'\n'
+			fi
+			input_prompt+="$style__icon_prompt"
 		fi
+
+		ASKED='yes' # not local
 		while true; do
-			__read_status=0 && read -r -t 300 -r -p '> ' RESULT || __read_status=$?
+			# reset
+			__read_status=0
+			__input_result=''
+
+			# test for stdin technique, as [read -i] does not support programatic stdin
+			if test "$programmatic_stdin" = 'yes'; then
+				# we have programatic stdin, so manually read the line without a tty prompt
+				# don't read multiple lines, as other lines are for subequent prompts, such as confirmations or the next program
+				IFS='' read -r -t "$option_timeout" __input_result || __read_status=$?
+				if test -z "$__input_result" -o "$__input_result" = $'\n'; then
+					# treat empty string and newline as default
+					:
+				elif [[ $__input_result =~ ^[\s]*$ ]]; then
+					# treat only whitespace as empty value
+					RESULT=''
+				else
+					# treat everything else as manual __input_result
+					RESULT="$__input_result"
+				fi
+			else
+				# reset
+				result_prompt="$input_prompt"
+
+				# we have tty stdin, can do a prompt
+				# -i requires -e
+				IFS= read -r -t "$option_timeout" -ei "$RESULT" -p "$input_prompt" __input_result || __read_status=$?
+
+				# now that the prompt is done, erase the prompt
+
+				# note if there was a default value, pressing enter will set [__input_result] to it
+				if test "$__read_status" -eq 0; then
+					# only update RESULT on successful read status, as [__input_result] will be empty on timeout
+					RESULT="$__input_result"
+					# the user has pressed enter, so note that an enter was rendered to the TTY so that it can be erased, and append a space so that it is not trimmed by "$(...)" usage
+					result_prompt+="$RESULT"$'\n '
+				fi # otherwise it has timed out. ctrl+c is not caught as we are not trapping it
+
+				# use <( to ensure lines and inlines are rendered accurately
+				result_prompt="$(echo-trim-colors --stdin < <(print_string "$result_prompt"))"
+				result_prompt="$("$bin_gfold" -w "$terminal_columns" < <(print_string "$result_prompt"))"
+				result_prompt_row_count="$("$bin_gwc" -l < <(print_string "$result_prompt"))"
+
+				# move these lines up and erase
+				printf '\e[%sF\e[G\e[J' "$result_prompt_row_count" >"$tty_target"
+			fi
+
+			# handle the result
 			if test "$__read_status" -eq 142; then
 				return 60 # ETIMEDOUT 60 Operation timed out
 			fi
 			if is-value -- "$RESULT"; then
+				# we have a value, proceed
 				break
-			elif test "$option_required" = 'no'; then
+			elif test "$option_required" = 'yes'; then
+				# ask again
+				continue
+			else
+				# no result, optional, set value to empty, and proceed
 				RESULT=''
 				break
 			fi
@@ -180,93 +347,133 @@ function ask_() (
 		do_validate
 	}
 	function do_validate {
-		local choose_status ask_status choice choices=()
-		if is-value -- "$RESULT"; then
-			# we have a value, so go for it
-			if test "$option_confirm" != 'yes'; then
-				print_line "$RESULT"
+		local choose_args=() choose_status prompt_status choice choices=()
+
+		# have we prompted?
+		if test "$ASKED" = 'no'; then
+			# do we want to confirm the default value
+			# adding a [&& test -t 0] will cause stdin input to always be respected, which is inconsistent with expecations, e.g.
+			#     echo 'overwrite' | { ask --linger --default='d1' --skip-default --question='q1'; ask --linger --default='d2' --skip-default --question='q2' )
+			# should output 'd1' and 'overwrite', not 'overwrite' and 'd2', as the goal of skip-default is to use the default preference for performance and intuition reasons
+			if is-value -- "$RESULT" && test "$option_confirm_default" = 'no'; then
 				return 0
 			fi
-			# proceed with confirm
-			if test "$ASKED" = 'yes'; then
-				if test "$option_password" = 'yes'; then
-					choices+=('existing' 'use the entered password')
-				else
-					choices+=('existing' "use the entered value: [$RESULT]")
-				fi
-			else
-				if test "$option_password" = 'yes'; then
-					choices+=('existing' 'use the preconfigured password')
-				else
-					choices+=('existing' "use the preconfigured value: [$RESULT]")
-				fi
-			fi
-		fi
-		if test "$ASKED" = 'yes'; then
-			choices+=('custom' 'redo the entered value')
 		else
-			choices+=('custom' 'enter a value')
-		fi
-		if test "$option_required" = 'no'; then
-			choices+=('none' 'use no value')
-		fi
+			# we have asked, do we want to confirm the input value
+			if test "$option_confirm_input" = 'no'; then
+				return 0
+			fi
 
-		# as need to confirm, adjust the timeout
-		if test -z "$option_timeout" && (is-value -- "$RESULT" || test "$option_required" = 'no'); then
-			# timeout of one minute for confirms of existing values, or optional values
-			option_timeout=60
-		fi
+			# redo choices, has to be redone each time due to result
+			if test "$option_password" = 'yes'; then
+				choices+=('existing' 'use the entered password')
+			else
+				choices+=('existing' "use the entered value: [$RESULT]")
+			fi
+			choices+=('custom' 'redo the entered value')
+			if test "$option_required" = 'no'; then
+				choices+=('none' 'use no value')
+			fi
 
-		# ask
-		eval_capture --statusvar=choose_status --stdoutvar=choice -- \
-			choose-option \
-			--timeout="$option_timeout" \
-			--question="$option_question" \
-			--label -- "${choices[@]}"
+			# we want to confirm
+			if test "${#option_question[@]}" -ne 0; then
+				choose_args+=(
+					"${option_question[@]}"
+				)
+			fi
+			choose_args+=(
+				--timeout="$option_timeout"
+				--label -- "${choices[@]}"
+			)
+			eval_capture --statusvar=choose_status --stdoutvar=choice -- \
+				choose "${choose_args[@]}"
 
-		# check
-		if test "$choose_status" -eq 60; then
-			echo-style --error="Choose timed out: $choose_status" >/dev/stderr
-			on_timeout
-			return
-		elif test "$choose_status" -ne 0; then
-			echo-style --error="Choose failed: $choose_status" >/dev/stderr
-			sleep 3
-			return "$choose_status"
-		fi
-
-		# handle
-		if test "$choice" = 'existing'; then
-			# done, sucess
-			print_line "$RESULT"
-			return 0
-		elif test "$choice" = 'custom'; then
-			# ask
-			eval_capture --statusvar=ask_status -- do_ask "$option_question"
-
-			# check for failure
-			if test "$ask_status" -ne 0; then
-				# timeout probably
+			# check the confirmation
+			if test "$choose_status" -eq 60; then
 				on_timeout
 				return
+			elif test "$choose_status" -ne 0; then
+				commentary="${style__input_error}[input failure: choose failure: $choose_status]${style__end__input_error}"
+				return "$choose_status"
 			fi
 
-			# done, success
-			return 0
-		elif test "$choice" = 'none'; then
-			# done, sucess
-			echo
-			return 0
-		else
-			# unknown error
-			echo-style --error="Invalid choice: $choice" >/dev/stderr
-			sleep 3
-			return 14 # EFAULT 14 Bad address
+			# proceess the confirmation
+			if test "$choice" = 'existing'; then
+				# done, sucess
+				return 0
+			elif test "$choice" = 'custom'; then
+				: # proceed with prompt
+			elif test "$choice" = 'none'; then
+				# done, sucess
+				RESULT=''
+				return 0
+			else
+				# unknown error
+				commentary="${style__input_error}[input failure: invalid choice: $choice]${style__end__input_error}"
+				return 14 # EFAULT 14 Bad address
+			fi
 		fi
+
+		# prompt
+		eval_capture --statusvar=prompt_status -- do_prompt
+
+		# check for failure
+		if test "$prompt_status" -ne 0; then
+			# timeout probably
+			on_timeout
+			return
+		fi
+
+		# done, success
+		return 0
 	}
 
 	# act
-	do_validate
+	eval_capture --statusvar=result_status -- do_validate
+	local render="$question_title_result"
+	if test -n "$commentary"; then
+		if test -n "$render"; then
+			render+=" $commentary"
+		else
+			render="$commentary"
+		fi
+	fi
+	if test -n "$render"; then
+		render+=$'\n'
+	fi
+	if test "$result_status" -eq 0; then
+		# add the results only if lingering
+		if test "$option_linger" = 'yes'; then
+			if test -z "$RESULT"; then
+				render+="${style__result_value}${style__icon_nothing_provided}${style__end__result_value}"$'\n'
+			elif test "$option_password" = 'yes'; then
+				render+="${style__result_value}${style__icon_using_password}${style__end__result_value}"$'\n'
+			else
+				render+="${style__result_value}${RESULT}${style__end__result_value}"$'\n'
+			fi
+			# inform
+			__print_string "$render" >"$tty_target"
+		elif test -n "$commentary"; then
+			# inform to stderr, consistent with ask, choose, confirm
+			__print_string "$render" >/dev/stderr
+		fi
+		# stdout
+		if test -z "$RESULT"; then
+			__print_string "$RESULT" # empty string
+		else
+			__print_line "$RESULT"
+		fi
+	else
+		# inform
+		if test -n "$commentary"; then
+			if test "$option_linger" = 'yes'; then
+				__print_string "$render" >"$tty_target"
+			else
+				__print_string "$render" >/dev/stderr
+			fi
+		fi
+		return "$result_status"
+	fi
 )
 
 # fire if invoked standalone

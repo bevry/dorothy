@@ -7,27 +7,57 @@
 
 function confirm_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-segment --h1="TEST: $0"
+	echo-style --h1="TEST: $0"
 
-	# --ignore-stderr otherwise ^[[58;1R is output
+	# --ignore-stderr otherwise only \n^[[68;1R is output
 
-	eval-tester --name='positive response was timed out' --ignore-stderr \
-		-- confirm --ppid=$$ --positive --timeout=10 -- 'What is your response?'
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='receive positive response by enter key' --ignore-stderr \
+		-- confirm --ppid=$$ --positive --timeout=5 -- 'What is your response?'
 
-	eval-tester --name='negative response was timed out' --status=1 --ignore-stderr \
-		-- confirm --ppid=$$ --negative --timeout=10 -- 'What is your response?'
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='receive negative response by enter key' --status=1 --ignore-stderr \
+		-- confirm --ppid=$$ --negative --timeout=5 -- 'What is your response?'
 
-	eval-tester --name='neither response was timed out' --status=60 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
+	{
+		sleep 3
+		__print_line 'y'
+	} | eval-tester --name='receive positive response by y key' --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+
+	{
+		sleep 3
+		__print_line 'n'
+	} | eval-tester --name='receive negative response by n key' --status=1 --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+
+	{
+		sleep 3
+		__print_line
+	} | eval-tester --name='receive timeout response by timeout and enter key rejected by require' --status=60 --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+
+	eval-tester --name='receive positive response by timeout and no input' --ignore-stderr \
+		-- confirm --ppid=$$ --positive --timeout=5 -- 'What is your response?'
+
+	eval-tester --name='receive negative response by timeout and no input' --status=1 --ignore-stderr \
+		-- confirm --ppid=$$ --negative --timeout=5 -- 'What is your response?'
+
+	eval-tester --name='receive timeout response by timeout and no input' --status=60 --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
 
 	{
 		# press escape key
 		sleep 3
 		printf $'\x1b'
-	} | eval-tester --name='cancel response was entered' --status=125 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=10 -- 'What is your response?'
+	} | eval-tester --name='receive abort response by escape key' --status=125 --ignore-stderr \
+		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
 
-	echo-segment --g1="TEST: $0"
+	echo-style --g1="TEST: $0"
 	return 0
 )
 function confirm_() (
@@ -39,20 +69,18 @@ function confirm_() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			USAGE:
-			confirm --ppid=\$\$ [...options] -- <question> ...[detail]
+			confirm --ppid=\$\$ [...options]
 
 			OPTIONS:
-			--bool | --positive | --negative | --confirm || --mode=<bool|positive|negative|confirm>
+			<question> | --question=<question>
+			    Display this question in the prompt. If specified multiple times, they will be joined by newline, and only the first will be lingered.
+
+			--bool | --positive | --negative | --confirm
+			--mode=<bool|positive|negative|confirm>
 			    [bool] mode forces a positive or negative confirmation, with no default.
 			    [positive] mode defaults to a positive confirmation.
 			    [negative] mode defaults to a negative confirmation.
 			    [confirm] mode forces a confirmation, with no default; it is the default mode.
-
-			--timeout=<timeout>
-			    Specify the timeout in seconds.
-			    Under <negative> mode, defaults to 60 seconds (one minute) before defaulting to a negative confirmation.
-			    Under <positive> mode, defaults to 60 seconds (one minute) before defaulting to a positive confirmation.
-			    Under other modes, defaults to 3600 seconds (one hour) before abortion occurs.
 
 			--yes=<OK>
 			    What to display to the user for positive confirmations, defaults to "OK".
@@ -64,13 +92,21 @@ function confirm_() (
 			    What to display to the user for aborted confirmations, defaults to "ABORT".
 
 			--ppid=<ppid>
-			    Specifies the parent process ID to also terminate upon abortion.
+			    The parent process ID to also terminate upon abortion.
 			    In bourne shells this is specified like so [--ppid=\$\$]
 			    This is necessary because the typical usage of [if confirm ...; then ...; else ...; fi]
-			    will only catch positive and negative confirmations, but not abortion cases,
-			    as such abortions would otherwise be registered as negative cases.
-			    Providing the parent process ID allows the abortion to propagate to the parent,
-			    allowing the intended abortion behaviour to propagate.
+			    will only catch positive and negative confirmations, but not abortion cases, as such abortions would otherwise be registered as negative cases.
+			    Providing the parent process ID allows the abortion to propagate to the parent, allowing the intended abortion behaviour to propagate.
+
+			--timeout=<timeout>
+			    Timeout in seconds.
+			    Under <negative> mode, defaults to 60 seconds (one minute) before defaulting to a negative confirmation.
+			    Under <positive> mode, defaults to 60 seconds (one minute) before defaulting to a positive confirmation.
+			    Under other modes, defaults to 3600 seconds (one hour) before abortion occurs.
+
+			--[no-]linger=[yes|NO]
+			    Whether the prompt should persist afterwards.
+
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -79,12 +115,13 @@ function confirm_() (
 	}
 
 	# prepare
-	local item option_question=() option_mode='confirm' option_timeout='3600' option_yes='OK' option_no='CANCEL' option_abort='ABORT' option_ppid=''
+	local item option_question=() option_mode='confirm' option_timeout='3600' option_yes='OK' option_no='CANCEL' option_abort='ABORT' option_ppid='' option_linger='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--question='*) option_question+=("${item#*=}") ;;
 		'--bool') option_mode='bool' ;;
 		'--positive' | '--positive=yes' | '--negative=no' | '--no-negative') option_mode='positive' ;;
 		'--negative' | '--negative=yes' | '--positive=no' | '--no-positive') option_mode='negative' ;;
@@ -95,13 +132,16 @@ function confirm_() (
 		'--no='*) option_no="${item#*=}" ;;
 		'--abort='*) option_abort="${item#*=}" ;;
 		'--ppid='*) option_ppid="${item#*=}" ;;
+		'--no-linger'* | '--linger'*)
+			option_linger="$(get-flag-value --affirmative --fallback="$option_linger" -- "$item")"
+			;;
 		'--')
 			option_question+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		*) option_question+=("$item") ;;
 		esac
 	done
 
@@ -129,32 +169,61 @@ function confirm_() (
 	if test -z "$option_ppid"; then
 		help '<ppid> is necessary'
 	fi
-	if test -z "${option_question[*]}"; then
-		help '<question> is necessary'
+
+	# question
+	local question_title question_body
+	if test "${#option_question[@]}" -ne 0; then # bash v3 compat
+		if test -n "${option_question[0]}"; then
+			question_title="${option_question[0]}"
+			question_body="$(__print_lines "${option_question[@]:1}")"
+		else
+			question_title="$(__print_lines "${option_question[@]:1}")"
+			question_body=''
+		fi
+	else
+		question_title=''
+		question_body=''
+	fi
+
+	# ensure question
+	if test -z "$question_title"; then
+		help 'A <question> is required'
+	fi
+
+	# =====================================
+	# Styles
+
+	source "$DOROTHY/sources/config.sh"
+
+	# styles.bash provides:
+	# all style variables
+	load_dorothy_config 'styles.bash'
+
+	# refresh the styles
+	refresh_style_cache -- 'question_title_prompt' 'question_title_result' 'question_body' 'input_warning' 'input_error' 'icon_question_positive' 'icon_question_negative' 'icon_question_bool' 'icon_question_confirm' 'result_positive' 'result_negative' 'result_abort'
+
+	# style the question
+	local question_title_prompt question_title_result question_body_prompt='' question_body_line_count=0
+	question_title_prompt="${style__question_title_prompt}${question_title}${style__end__question_title_prompt}"
+	question_title_result="${style__question_title_result}${question_title}${style__end__question_title_result}"
+	if test "$option_mode" = 'positive'; then
+		question_title_prompt+=" ${style__icon_question_positive}"
+	elif test "$option_mode" = 'negative'; then
+		question_title_prompt+=" ${style__icon_question_negative}"
+	elif test "$option_mode" = 'bool'; then
+		question_title_prompt+=" ${style__icon_question_bool}"
+	elif test "$option_mode" = 'confirm'; then
+		question_title_prompt+=" ${style__icon_question_confirm}"
+	else
+		help "An invalid <mode> was provided: $option_mode"
+	fi
+	if test -n "$question_body"; then
+		question_body_prompt="${style__question_body}${question_body}${style__end__question_body}"
+		question_body_line_count="$(echo-count-lines -- "$question_body")"
 	fi
 
 	# =====================================
 	# Helpers
-
-	# cache the first part for the finale
-	local question="${option_question[0]}"
-
-	# generate the prompt, the body, and body line count
-	local prompt body body_lines
-	prompt="$question"
-	body="$(print_lines "${option_question[@]:1}")"
-	body_lines="$(echo-count-lines -- "$body")"
-	if test "$option_mode" = 'positive'; then
-		prompt+=" $(echo-style --blink='(' --blink+green+bold='Y' --blink='/n)')"
-	elif test "$option_mode" = 'negative'; then
-		prompt+=" $(echo-style --blink='(y/' --blink+red+bold='N' --blink=')')"
-	elif test "$option_mode" = 'bool'; then
-		prompt+=" $(echo-style --blink='(y/n)')"
-	elif test "$option_mode" = 'confirm'; then
-		prompt+=" $(echo-style --blink='(CONFIRM)')"
-	else
-		help "An invalid <mode> was provided: $option_mode"
-	fi
 
 	# fetch the targets
 	local tty_target using_tty_stderr_fallback='no'
@@ -165,7 +234,7 @@ function confirm_() (
 	fi
 
 	# used to process the input
-	local CURSOR_COLUMN='' # used by do_read and do_question
+	local CURSOR_COLUMN='' commentary='' # used by do_read and do_question
 	function do_read {
 		local answer read_status
 
@@ -174,13 +243,23 @@ function confirm_() (
 			read-key --timeout="$option_timeout"
 
 		# process
-		if test "$option_mode" = 'positive'; then
-			# positive
-			if test "$read_status" -eq 60; then
-				return 0 # timeout
-			elif test "$read_status" -ne 0; then
-				return "$read_status" # failure
+		if test "$read_status" -eq 60; then
+			# timeout
+			commentary="${style__input_warning}[timed out: used default]${style__end__input_warning}"
+			if test "$option_mode" = 'positive'; then
+				return 0
+			elif test "$option_mode" = 'negative'; then
+				return 1
+			else # bool, confirm
+				commentary="${style__input_error}[input failure: timed out: required]${style__end__input_error}"
+				return "$read_status" # timeout
 			fi
+		elif test "$read_status" -ne 0; then
+			# failure
+			commentary="${style__input_error}[input failure: $read_status]${style__end__input_error}"
+			return "$read_status"
+		elif test "$option_mode" = 'positive'; then
+			# positive
 			eval_capture --statusvar=read_status -- is-affirmative -- "$answer"
 			if test "$read_status" -lt 2; then
 				return "$read_status"
@@ -192,11 +271,6 @@ function confirm_() (
 
 		elif test "$option_mode" = 'negative'; then
 			# negative
-			if test "$read_status" -eq 60; then
-				return 1 # timeout
-			elif test "$read_status" -ne 0; then
-				return "$read_status" # failure
-			fi
 			eval_capture --statusvar=read_status -- \
 				is-affirmative -- "$answer"
 			if test "$read_status" -lt 2; then
@@ -209,9 +283,6 @@ function confirm_() (
 
 		elif test "$option_mode" = 'bool'; then
 			# bool
-			if test "$read_status" -ne 0; then
-				return "$read_status" # timeout and failure
-			fi
 			eval_capture --statusvar=read_status -- \
 				is-affirmative -- "$answer"
 			if test "$read_status" -lt 2; then
@@ -222,9 +293,6 @@ function confirm_() (
 
 		elif test "$option_mode" = 'confirm'; then
 			# confirm
-			if test "$read_status" -ne 0; then
-				return "$read_status" # timeout and failure
-			fi
 			eval_capture --statusvar=read_status -- \
 				is-affirmative -- "$answer"
 			if test "$read_status" -lt 2; then
@@ -252,27 +320,27 @@ function confirm_() (
 	function do_question {
 		# if not a tty, just output the question
 		if test "$using_tty_stderr_fallback" = 'yes'; then
-			print_lines "${option_question[@]}" >"$tty_target"
+			__print_line "$question_title_prompt" >"$tty_target" # 2todo, it isn't styled
 		else
 			# output the prompt, saving the cursor position
 			CURSOR_COLUMN=''
-			print_string "$prompt " >"$tty_target"
+			__print_string "$question_title_prompt " >"$tty_target"
 			# send an ansi query to fetch the cursor row and column, returns [^[[24;80R] where 24 is row, 80 is column
-			# use _ to discard, the first read var is garbage, the second read var is the column, the final read var is the column
+			# use _ to discard, the first read var is garbage, the second read var is the row, the final read var is the column
 			# use a 2 second timeout, as otherwise [confirm --test] on macos sonoma will wait forever
 			# shorter timeouts aren't suitable as slower machines take a while for the response
 			# we are already in a TTY, so can usually guarantee an answer, and the read will complete immediately upon a response thanks to [-d R] which completes reading when the R is read, which is the final character of the response query
 			local _
 			IFS='[;' read -t 2 -srd R -p $'\e[6n' _ _ CURSOR_COLUMN <"$tty_target" || :
+			# @todo insdtead of doing the above, we could count the characters int the title prompt perhaps?
 
-			# output the body if it exists
-			if test -n "$body"; then
-				echo >"$tty_target"
-				print_string "$body" >"$tty_target"
+			# output the body on a newline if it exists
+			if test -n "$question_body_prompt"; then
+				__print_string $'\n'"$question_body_prompt" >"$tty_target"
 
 				# move these lines up
-				if test "$body_lines" -ne 0; then
-					printf '\e[%sF' "$body_lines" >"$tty_target"
+				if test "$question_body_line_count" -ne 0; then
+					printf '\e[%sF' "$question_body_line_count" >"$tty_target"
 				fi
 			fi
 
@@ -306,21 +374,30 @@ function confirm_() (
 		if test "$finished" = 'yes'; then
 			return "$RESULT"
 		fi
-		finished=yes
+		finished='yes'
 
-		# make sure to erase question, as ctrl+c buggers everything
+		# erase from start of current row to end of screen, as ctrl+c buggers everything
 		printf '\e[G\e[J' >"$tty_target"
 
 		# output the finale
 		if test "$RESULT" -eq 0; then
 			# positive response
-			echo-style "$question " --green+bold="$option_yes" >"$tty_target"
+			if test "$option_linger" = 'yes'; then
+				__print_line "$question_title_result ${style__result_positive}${option_yes}${style__end__result_positive} $commentary" >"$tty_target"
+			fi
 		elif test "$RESULT" -eq 1; then
 			# negative response
-			echo-style "$question " --red+bold="$option_no" >"$tty_target"
+			if test "$option_linger" = 'yes'; then
+				__print_line "$question_title_result ${style__result_negative}${option_no}${style__end__result_negative} $commentary" >"$tty_target"
+			fi
 		else
 			# crash response
-			echo-style "$question " --red+bold="$option_abort" >"$tty_target"
+			if test "$option_linger" = 'yes'; then
+				__print_line "$question_title_result ${style__result_abort}${option_abort}${style__end__result_abort} $commentary" >"$tty_target"
+			else
+				# inform to stderr, consistent with ask, choose, confirm
+				__print_line "$question_title_result ${style__result_abort}${option_abort}${style__end__result_abort} $commentary" >/dev/stderr
+			fi
 			# kill caller's parent
 			if test "$option_ppid" -ge 0; then
 				if test "$option_ppid" -ge 1; then

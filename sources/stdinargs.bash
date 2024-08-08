@@ -72,7 +72,7 @@ function stdinargs {
 			;;
 		'--timeout='*)
 			timeout_seconds="${item#*=}"
-			timeout_seconds="$(get_read_decimal_timeout "$timeout_seconds")"
+			timeout_seconds="$(__get_read_decimal_timeout "$timeout_seconds")"
 			;;
 		# inline
 		'--no-inline' | '--inline=no')

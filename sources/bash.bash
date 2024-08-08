@@ -15,36 +15,31 @@
 # Helpers to work around bash pecularities.
 
 # echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
-function print_string {
+function __print_string {
+	# print each argument as space seperated, without a trailing line
 	if test "$#" -ne 0; then
 		printf '%s' "$*"
 	fi
 }
-function print_line {
+function __print_line {
+	# print each argument as space separated, followed by a trailing line
 	if test "$#" -ne 0; then
 		printf '%s' "$*"
 	fi
 	printf '\n'
 }
-function print_lines {
+function __print_lines {
+	# print each argument as a complete line
 	if test "$#" -ne 0; then
 		printf '%s\n' "$@"
 	fi
-}
-function __print_string {
-	print_string "$@"
-}
-function __print_line {
-	print_line "$@"
-}
-function __print_lines {
-	print_lines "$@"
 }
 
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
-# require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
+# for example:
+# __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
 # BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
 # BASH_VERSION_MAJOR -- 5
 # BASH_VERSION_MINOR -- 2
@@ -53,22 +48,22 @@ function __print_lines {
 # IS_BASH_VERSION_OUTDATED -- yes/no
 
 if test -z "${BASH_VERSION_CURRENT-}"; then
-	# 5.2.15(1)-release => 5.2.15
+	# e.g. 5.2.15(1)-release => 5.2.15
 	IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
-	BASH_VERSION_LATEST='5.2.21' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
+	BASH_VERSION_LATEST='5.2.32' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
 	# any v5 version is supported by dorothy
 	if test "$BASH_VERSION_MAJOR" -eq 5; then
 		IS_BASH_VERSION_OUTDATED='no'
-		function require_upgraded_bash {
+		function __require_upgraded_bash {
 			true
 		}
 	else
 		IS_BASH_VERSION_OUTDATED='yes'
-		function require_upgraded_bash {
+		function __require_upgraded_bash {
 			echo-style \
 				--code="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" $'\n' \
-				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >/dev/stderr
+				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >/dev/stderr || return $?
 			return 45 # ENOTSUP 45 Operation not supported
 		}
 	fi
@@ -77,10 +72,10 @@ fi
 # =============================================================================
 # Configure bash for Dorothy best practices.
 #
-# require_lastpipe -- if lastpipe not supported, fail.
+# __require_lastpipe -- if lastpipe not supported, fail.
 # eval_capture -- capture or ignore exit status, without disabling errexit, and without a subshell.
-# require_globstar -- if globstar not supported, fail.
-# require_extglob -- if extglob not supported, fail.
+# __require_globstar -- if globstar not supported, fail.
+# __require_extglob -- if extglob not supported, fail.
 
 # Disable completion (not needed in scripts)
 # bash v2: progcomp: If set, the programmable completion facilities (see Programmable Completion) are enabled. This option is enabled by default.
@@ -93,13 +88,13 @@ shopt -s huponexit
 # Enable [cmd | read -r var] usage.
 # bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
 if shopt -s lastpipe 2>/dev/null; then
-	function require_lastpipe {
+	function __require_lastpipe {
 		true
 	}
 else
-	function require_lastpipe {
-		echo-style --error='Missing lastpipe support:' >/dev/stderr
-		require_upgraded_bash
+	function __require_lastpipe {
+		echo-style --error='Missing lastpipe support:' >/dev/stderr || return $?
+		__require_upgraded_bash
 	}
 fi
 
@@ -193,7 +188,7 @@ function eval_capture {
 			break
 			;;
 		'-'*)
-			# print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
+			# __print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -218,20 +213,20 @@ function eval_capture {
 	mkdir -p "$temp_directory"
 	function eval_capture_wrapper_trap {
 		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
-		# print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
-		# print_line "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
+		# __print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
+		# __print_line "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
 		if test "$EVAL_CAPTURE_CONTEXT" = "$trap_context"; then
 			if test "$EVAL_CAPTURE_SUBSHELL" = "$trap_subshell" -o "$trap_fn" = 'eval_capture_wrapper'; then
-				# print_line "STORE" >/dev/tty
+				# __print_line "STORE" >/dev/tty
 				EVAL_CAPTURE_STATUS="$trap_status"
 				return 0
 			elif test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
-				# print_line "SAVE" >/dev/tty
-				# print_line "$trap_status" >"$status_temp_file"
+				# __print_line "SAVE" >/dev/tty
+				# __print_line "$trap_status" >"$status_temp_file"
 				return "$trap_status"
 			fi
 		fi
-		# print_line "ERR" >/dev/tty
+		# __print_line "ERR" >/dev/tty
 		return "$trap_status"
 	}
 
@@ -255,14 +250,14 @@ function eval_capture {
 	# as such, we must cleanup inside the trap and after the trap, and cleanup must work in both contexts
 	function eval_capture_wrapper {
 		local subshell_status
-		# print_line "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __print_line "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
 		# wrap if the $- check, as always returning causes +e to return when it shouldn't
 		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
 		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
 		if test "$IS_BASH_VERSION_OUTDATED" = 'yes' && [[ $- == *e* ]] && [[ "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
 			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
-			# print_line "SUBSHELL $-" >/dev/tty
+			# __print_line "SUBSHELL $-" >/dev/tty
 			set +e
 			(
 				set -e
@@ -313,17 +308,17 @@ function eval_capture {
 
 	# remove the lingering trap
 	EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT - 1))"
-	# print_line "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
+	# __print_line "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
 	if test "$EVAL_CAPTURE_COUNT" -eq 0; then
 		trap - ERR
 	fi
 
 	# save the exit status, and reset the global value
-	# print_line "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+	# __print_line "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	if test "$IS_BASH_VERSION_OUTDATED" = 'yes' -a -f "$status_temp_file"; then # mktemp always creates the file, so need to use -s instead of -f
 		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
 		rm "$status_temp_file"
-		# print_line "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __print_line "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	fi
 	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
 	# unset -v EXIT_STATUS
@@ -358,25 +353,25 @@ shopt -s nullglob
 
 # bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
 if shopt -s globstar 2>/dev/null; then
-	function require_globstar {
+	function __require_globstar {
 		true
 	}
 else
-	function require_globstar {
-		echo-style --error='Missing globstar support:' >/dev/stderr
-		require_upgraded_bash
+	function __require_globstar {
+		echo-style --error='Missing globstar support:' >/dev/stderr || return $?
+		__require_upgraded_bash
 	}
 fi
 
 # bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
 if shopt -s extglob 2>/dev/null; then
-	function require_extglob {
+	function __require_extglob {
 		true
 	}
 else
-	function require_extglob {
-		echo-style --error='Missing extglob support:' >/dev/stderr
-		require_upgraded_bash
+	function __require_extglob {
+		echo-style --error='Missing extglob support:' >/dev/stderr || return $?
+		__require_upgraded_bash
 	}
 fi
 
@@ -393,15 +388,15 @@ fi
 # Shim Read Timeout
 # Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
 if test "$BASH_VERSION_MAJOR" -ge 4; then
-	function get_read_decimal_timeout {
-		print_line "$1"
+	function __get_read_decimal_timeout {
+		__print_line "$1"
 	}
 else
-	function get_read_decimal_timeout {
+	function __get_read_decimal_timeout {
 		if test -n "$1" && test "$1" -lt 1; then
-			print_line 1
+			__print_line 1
 		else
-			print_line "$1"
+			__print_line "$1"
 		fi
 	}
 fi
@@ -413,29 +408,29 @@ fi
 # lowercase_string
 if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 	# >= bash v5.1
-	function uppercase_first_letter {
-		print_line "${1@u}"
+	function __uppercase_first_letter {
+		__print_line "${1@u}"
 	}
-	function lowercase_string {
-		print_line "${1@L}"
+	function __lowercase_string {
+		__print_line "${1@L}"
 	}
 elif test "$BASH_VERSION_MAJOR" -eq 4; then
 	# >= bash v4.0
-	function uppercase_first_letter {
-		print_line "${1^}"
+	function __uppercase_first_letter {
+		__print_line "${1^}"
 	}
-	function lowercase_string {
-		print_line "${1,,}"
+	function __lowercase_string {
+		__print_line "${1,,}"
 	}
 else
 	# < bash v4.0
-	function uppercase_first_letter {
+	function __uppercase_first_letter {
 		local input="$1"
 		local first_char="${input:0:1}"
 		local rest="${input:1}"
-		print_line "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
+		__print_line "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
 	}
-	function lowercase_string {
+	function __lowercase_string {
 		tr '[:upper:]' '[:lower:]' <<<"$1"
 	}
 fi
@@ -471,7 +466,7 @@ fi
 #
 # BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
 # has_array_capability -- check if a capability is provided by the current bash version
-# require_array -- require a capability to be provided by the current bash version, otherwise fail
+# __require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it
 
 function __has_array_capability {
@@ -482,10 +477,10 @@ function __has_array_capability {
 	done
 }
 
-function require_array {
+function __require_array {
 	if ! __has_array_capability "$@"; then
-		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr
-		require_upgraded_bash
+		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr || return $?
+		__require_upgraded_bash
 	fi
 }
 
@@ -525,3 +520,41 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 	}
 fi
 BASH_ARRAY_CAPABILITIES+=' '
+
+# b/c aliases
+function print_string {
+	__print_string "$@"
+}
+function print_line {
+	__print_line "$@"
+}
+function print_lines {
+	__print_lines "$@"
+}
+function require_upgraded_bash {
+	__require_upgraded_bash "$@"
+}
+function require_globstar {
+	__require_globstar "$@"
+}
+function require_extglob {
+	__require_extglob "$@"
+}
+function require_lastpipe {
+	__require_lastpipe "$@"
+}
+function require_array {
+	__require_array "$@"
+}
+function get_read_decimal_timeout {
+	__get_read_decimal_timeout "$@"
+}
+function uppercase_first_letter {
+	__uppercase_first_letter "$@"
+}
+function lowercase_string {
+	__lowercase_string "$@"
+}
+function is_var_set {
+	__is_var_set "$@"
+}
