@@ -261,6 +261,16 @@ function get_github_release() (
 		esac
 	done
 
+	# =====================================
+	# Dependencies
+
+	local bin_gsed bin_gawk
+	bin_gsed="$(echo-gnu-command --install -- gsed)"
+	bin_gawk="$(echo-gnu-command --install -- gawk)"
+
+	# =====================================
+	# Adjustments
+
 	# GITHUB_API_URL
 	# https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
 	# default to the default
@@ -299,24 +309,27 @@ function get_github_release() (
 	}
 	function extract_value_from_json_property_from_stdin {
 		local property="$1"
-		tr -d '\n' | awk -v property="$property" '
-			{
-				while ( match($0,/"[^"]*"|: false|: true|: [0-9]+/) ) {
-					inner = substr($0,RSTART,RLENGTH)
-					if ( inner ~ /^: / ) {
-						inner = substr(inner,3)
-					} else if ( inner ~ /^"/ ) {
-						inner = substr(inner,2,length(inner)-2)
+		tr -d '\n' | "$bin_gawk" -v property="$property" "$(
+			cat <<-AWK
+				{
+					while ( match(\$0, /"[^"]*"|: false|: true|: [0-9]+/) ) {
+						inner = substr(\$0, RSTART, RLENGTH)
+						if ( inner ~ /^: / ) {
+							inner = substr(inner, 3)
+						} else if ( inner ~ /^"/ ) {
+							inner = substr(inner, 2, length(inner) - 2)
+						}
+						if ( inner == property ) {
+							found = 1
+						} else if ( found ) {
+							print inner
+							exit
+						}
+						\$0 = substr(\$0, RSTART + RLENGTH)
 					}
-					if ( inner == property ) {
-						found = 1
-					} else if ( found ) {
-						print inner
-						exit
-					}
-					$0 = substr($0,RSTART+RLENGTH)
 				}
-			}'
+			AWK
+		)"
 	}
 	function wait_on_rate_limit {
 		local json
@@ -444,22 +457,25 @@ function get_github_release() (
 	}
 	function fetch_api_url_of_release_from_tag_via_diy {
 		# this depends on tag_name being after url
-		fetch_json_of_releases | tr -d '\n' | awk -v tag="$tag" '
-			{
-				last_innner = ""
-				url = ""
-				while ( match($0,/"[^"]*"/) ) {
-					inner = substr($0,RSTART+1,RLENGTH-2)
-					if ( last_inner == "url" && inner ~ /\/releases\/[0-9]+$/ ) {
-						url = inner
-					} else if ( last_inner == "tag_name" && inner == tag ) {
-						print url
-						exit
+		fetch_json_of_releases | tr -d '\n' | awk -v tag="$tag" "$(
+			cat <<-AWK
+				{
+					last_innner = ""
+					url = ""
+					while ( match(\$0, /"[^"]*"/) ) {
+						inner = substr(\$0, RSTART + 1, RLENGTH - 2)
+						if ( last_inner == "url" && inner ~ /\/releases\/[0-9]+$/ ) {
+							url = inner
+						} else if ( last_inner == "tag_name" && inner == tag ) {
+							print url
+							exit
+						}
+						last_inner = inner
+						\$0 = substr(\$0, RSTART + RLENGTH)
 					}
-					last_inner = inner
-					$0 = substr($0,RSTART+RLENGTH)
 				}
-			}'
+			AWK
+		)"
 	}
 
 	# fetch tag name
@@ -488,7 +504,7 @@ function get_github_release() (
 		# [tail -n+2] excludes the first line, which is the name of the repo
 		# this is fragile as if the order of arguments change, it is all over
 		# sed fixes minified json such as `},{` and `","`
-		fetch_json "$1" | sed -E $'s/,/,\\\n/g' | grep --extended-regexp --regexp='"(name|browser_download_url)":' | tail -n+2 | sed -E 's/.+: *"(.+)".*/\1/'
+		fetch_json "$1" | "$bin_gsed" -E $'s/,/,\\\n/g' | grep --extended-regexp --regexp='"(name|browser_download_url)":' | tail -n+2 | "$bin_gsed" -E 's/.+: *"(.+)".*/\1/'
 	}
 	function fetch_assets_of_release_from_alias_via_gh {
 		gh release view --repo "$slug" --json assets --jq '.assets[] | (.name, .url)'

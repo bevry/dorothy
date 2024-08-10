@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+function echo_wrap_test() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-tester)"
+	echo-style --h1="TEST: $0"
+
+	local input expected
+	input=$'123456123456 123456 \n1 2 3\t4 5 6 7\t8 9\n\n 1 2 3\t4 5 7\n\t8\t\n9\n'
+	expected="$(
+		cat <<-EOF
+			123456
+			123456
+			123456
+			1 2 3
+			4 5 6
+			7    8
+			9
+
+			 1 2 3
+			4 5 7
+			    8
+			9
+
+		EOF
+	)"
+	eval_tester --name='echo-wrap is working as expected' --stdout="$expected" \
+		-- echo-wrap --width=6 <<<"$input"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
+function echo_wrap() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Process the input wrapping it to a specified width, respecting ansi escape codes / colors.
+
+			USAGE:
+			cat "$DOROTHY/README.md" | echo-wrap [...options]
+
+			OPTIONS:
+			--width=<width>
+			    The column width to wrap to. Default is the terminal width.
+
+			$(stdinargs_options_help --)
+
+			QUIRKS:
+			Tabs are converted into 4 spaces. Broken spacing (spacing at the end or start of a segment) is trimmed. Spacing is preserved at the start and end of input lines.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_width='' option_args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--width='*) option_width="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinarg options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	if test -z "$option_width" && is-tty && command-exists tput; then
+		option_width="$(tput cols || :)"
+	fi
+	if test -z "$option_width"; then
+		option_width=80
+	fi
+
+	# =====================================
+	# Dependencies
+
+	local bin_gawk
+	bin_gawk="$(echo-gnu-command --install --no-fallback -- gawk)"
+
+	# =====================================
+	# Action
+
+	# https://stackoverflow.com/a/72278299/130638
+	# Modified to include all the ANSI escape codes that Dorothy is aware of
+	awk_script="$(
+		cat <<-AWK
+			BEGIN {
+				line_regex="�"
+				ansi_regex="[[:cntrl:]][0-9;[?]*[ABCDEFGHJKSTfhlmnsu]"
+			}
+			{
+				file=\$0
+				output=""
+				split(file, lines, line_regex)
+				for (i=1; i<=length(lines); i++) {
+					line=lines[i]
+					gsub(/\t/, "����", line)
+					# repeatedly strip off "wrap_width" characters until we have processed the entire line
+					do {
+						columns=wrap_width
+						segment=""
+						# repeatedly strip off color control codes and characters until we have stripped of "n" characters
+						while (columns > 0) {
+							match(line, ansi_regex)
+							if (RSTART && RSTART <= columns) {
+								segment=segment substr(line, 1, RSTART + RLENGTH - 1)
+								line=substr(line, RSTART + RLENGTH)
+								columns=columns - (RSTART > 1 ? RSTART - 1 : 0)
+							}
+							else {
+								segment=segment substr(line, 1, columns)
+								line=substr(line, columns + 1)
+								columns=0
+							}
+						}
+						# remove breaks (tabs, spaces)
+						gsub(/[� ]+$/, "", segment)
+						gsub(/^[� ]+/, "", line)
+						# save the processed line
+						output=output segment "\n"
+						# if ( line != "" ) {
+						#  line="   │ " line
+						# }
+						# ^^ @todo for @octavian-one to do word-split and character-split indentation options ^^
+					} while ( line != "" )
+				}
+				# remove the final newline from the concat above
+				gsub(/\n$/, "", output)
+				# remove intermediate tabs
+				gsub(/�/, " ", output)
+				# done
+				printf("%s", output)
+			}
+		AWK
+	)"
+	local buffer=''
+	function on_line {
+		buffer+="${1}�"
+	}
+	function on_inline {
+		buffer+="$1"
+	}
+	function on_finish {
+		print_string "$buffer" | "$bin_gawk" -v wrap_width="$option_width" "$awk_script"
+	}
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	if test "$*" = '--test'; then
+		echo_wrap_test
+	else
+		echo_wrap "$@"
+	fi
+fi

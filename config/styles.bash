@@ -470,6 +470,8 @@ style__key_key_spacer=' '
 style__indent_bar='   '
 style__indent_active='⏵  '
 style__indent_inactive='   '
+style__nocolor__indent_subsequent='   │ '
+style__color__indent_subsequent="   ${style__color__dim}│ ${style__color_end__dim}"
 style__nocolor__count_spacer=' ∙ '
 style__color__count_spacer=" ${style__color__foreground_intense_black}∙${style__color_end__foreground} "
 

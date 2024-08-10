@@ -235,20 +235,8 @@ function ask_() (
 	fi
 
 	# adjust tty
-	local tty_target terminal_columns bin_gfold bin_gwc
+	local tty_target
 	tty_target="$(is-tty --fallback)"
-	if test "$tty_target" = '/dev/stderr' || command-missing tput; then
-		terminal_columns=80
-	else
-		terminal_columns="$(tput cols)"
-	fi
-	if is-mac; then
-		bin_gfold="$(type -P 'gfold' 2>/dev/null || :)"
-		bin_gwc="$(type -P 'gwc' 2>/dev/null || :)"
-	else
-		bin_gfold="$(type -P 'fold' 2>/dev/null || :)"
-		bin_gwc="$(type -P 'wc' 2>/dev/null || :)"
-	fi
 
 	# helpers
 	local ASKED='no' commentary=''
@@ -280,6 +268,7 @@ function ask_() (
 			input_prompt+="$style__icon_prompt"
 		fi
 
+		local clear='' p=''
 		ASKED='yes' # not local
 		while true; do
 			# reset
@@ -302,30 +291,30 @@ function ask_() (
 					RESULT="$__input_result"
 				fi
 			else
-				# reset
-				result_prompt="$input_prompt"
-
 				# we have tty stdin, can do a prompt
 				# -i requires -e
-				IFS= read -r -t "$option_timeout" -ei "$RESULT" -p "$input_prompt" __input_result || __read_status=$?
 
-				# now that the prompt is done, erase the prompt
+				# reset
+				result_prompt="$input_prompt"
+				p="${clear}${result_prompt}"
+				clear=''
 
+				# clear and prompt
+				IFS= read -r -t "$option_timeout" -ei "$RESULT" -p "$p" __input_result || __read_status=$?
+
+				# update the value on successful read, and prepare the clear
 				# note if there was a default value, pressing enter will set [__input_result] to it
 				if test "$__read_status" -eq 0; then
 					# only update RESULT on successful read status, as [__input_result] will be empty on timeout
 					RESULT="$__input_result"
 					# the user has pressed enter, so note that an enter was rendered to the TTY so that it can be erased, and append a space so that it is not trimmed by "$(...)" usage
-					result_prompt+="$RESULT"$'\n '
+					result_prompt+="$RESULT"$'\n'
 				fi # otherwise it has timed out. ctrl+c is not caught as we are not trapping it
 
-				# use <( to ensure lines and inlines are rendered accurately
-				result_prompt="$(echo-trim-colors --stdin < <(print_string "$result_prompt"))"
-				result_prompt="$("$bin_gfold" -w "$terminal_columns" < <(print_string "$result_prompt"))"
-				result_prompt_row_count="$("$bin_gwc" -l < <(print_string "$result_prompt"))"
-
-				# move these lines up and erase
-				printf '\e[%sF\e[G\e[J' "$result_prompt_row_count" >"$tty_target"
+				# generate our erasure
+				result_prompt="$(__print_string "$result_prompt" | echo-wrap)"$'\n' # "$()" trims the trailing newline, so add it back
+				result_prompt_row_count="$(echo-count-lines -- "$result_prompt")"
+				clear=$'\e['"$result_prompt_row_count"$'F\e[G\e[J'
 			fi
 
 			# handle the result
@@ -344,6 +333,11 @@ function ask_() (
 				break
 			fi
 		done
+		# do the final erasure if necessary
+		if test "$programmatic_stdin" = 'no' -a -n "$clear"; then
+			__print_string "$clear" >"$tty_target"
+		fi
+		# done
 		do_validate
 	}
 	function do_validate {
