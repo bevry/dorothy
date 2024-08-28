@@ -231,7 +231,7 @@ function setup_util() (
 	local CHOCO=() CHOCOLATEY=() CINST=()
 	local CONDA=() CONDA_CHANNEL=''
 	local DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
-	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_ARCHIVE_FORMAT='' DOWNLOAD_ARCHIVE_GLOB='' DOWNLOAD_BUILD_EVAL='' DOWNLOAD_BUILD_GLOB='' DOWNLOAD_BEARER_TOKEN=''
+	local DOWNLOAD='' DOWNLOAD_FILENAME='' DOWNLOAD_ARCHIVE_FORMAT='' DOWNLOAD_ARCHIVE_GLOB='' DOWNLOAD_BUILD_INSTALL='' DOWNLOAD_BUILD_UNINSTALL='' DOWNLOAD_BUILD_GLOB='' DOWNLOAD_BEARER_TOKEN='' DOWNLOAD_TARGET_PATH=''
 	local DPKG=() DEB=()
 	local EMERGE=() EMERGE_REPO=()
 	local EOPKG=()
@@ -356,9 +356,11 @@ function setup_util() (
 		'DOWNLOAD_ARCHIVE_FORMAT='* | 'DOWNLOAD_UNZIP_FORMAT='*) DOWNLOAD_ARCHIVE_FORMAT="${item#*=}" ;;
 		'DOWNLOAD_ARCHIVE_GLOB='* | 'DOWNLOAD_ARCHIVE_FILTER='* | 'DOWNLOAD_UNZIP_GLOB='* | 'DOWNLOAD_UNZIP_FILTER='*) DOWNLOAD_ARCHIVE_GLOB="${item#*=}" ;;
 		'DOWNLOAD_BEARER_TOKEN='*) DOWNLOAD_BEARER_TOKEN="${item#*=}" ;;
-		'DOWNLOAD_BUILD_EVAL='*) DOWNLOAD_BUILD_EVAL="${item#*=}" ;;
+		'DOWNLOAD_BUILD_INSTALL='* | 'DOWNLOAD_BUILD_EVAL='*) DOWNLOAD_BUILD_INSTALL="${item#*=}" ;;
+		'DOWNLOAD_BUILD_UNINSTALL='*) DOWNLOAD_BUILD_UNINSTALL="${item#*=}" ;;
 		'DOWNLOAD_BUILD_GLOB='* | 'DOWNLOAD_BUILD_FILTER='*) DOWNLOAD_BUILD_GLOB="${item#*=}" ;;
 		'DOWNLOAD_FILENAME='*) DOWNLOAD_FILENAME="${item#*=}" ;;
+		'DOWNLOAD_TARGET_PATH='*) DOWNLOAD_TARGET_PATH="${item#*=}" ;;
 		'DOWNLOAD='*) DOWNLOAD="${item#*=}" ;;
 		'DPKG='*) DPKG+=("${item#*=}") ;;
 		'EMERGE_REPO='*) EMERGE+=("${item#*=}") ;;
@@ -593,7 +595,7 @@ function setup_util() (
 		fi
 	}
 	function verify_saved_path {
-		local filename="$1" path="$2"
+		local path="$1"
 
 		# verify
 		if is-missing -- "$path"; then
@@ -3367,7 +3369,7 @@ function setup_util() (
 
 	# download
 	function do_download {
-		local target_path='' download_directory='' download_filepath='' downloads="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" archive_format="$DOWNLOAD_ARCHIVE_FORMAT" archive_glob="$DOWNLOAD_ARCHIVE_GLOB" build_eval="$DOWNLOAD_BUILD_EVAL" build_glob="$DOWNLOAD_BUILD_GLOB" bearer_token="$DOWNLOAD_BEARER_TOKEN"
+		local target_path="$DOWNLOAD_TARGET_PATH" download_directory='' download_filepath='' downloads="$DOWNLOAD" filename="$DOWNLOAD_FILENAME" archive_format="$DOWNLOAD_ARCHIVE_FORMAT" archive_glob="$DOWNLOAD_ARCHIVE_GLOB" build_install="$DOWNLOAD_BUILD_INSTALL" build_uninstall="$DOWNLOAD_BUILD_UNINSTALL" build_glob="$DOWNLOAD_BUILD_GLOB" bearer_token="$DOWNLOAD_BEARER_TOKEN"
 
 		# checks
 		if test -z "$downloads"; then
@@ -3380,9 +3382,34 @@ function setup_util() (
 				return 22 # EINVAL 22 Invalid argument
 			fi
 		fi
-		if test -n "$build_eval" -a -z "$build_glob"; then
-			build_glob="$filename"
+		if test -n "$build_install" -a -z "$target_path" -a -z "$build_glob"; then
+			echo-style --error="DOWNLOAD_BUILD_INSTALL requires DOWNLOAD_TARGET_PATH or DOWNLOAD_BUILD_GLOB" >/dev/stderr
+			return 22 # EINVAL 22 Invalid argument
 		fi
+		if test -n "$build_uninstall" -a -z "$target_path"; then
+			echo-style --error="DOWNLOAD_BUILD_UNINSTALL requires DOWNLOAD_TARGET_PATH" >/dev/stderr
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		if test -n "$build_glob" && test -z "$build_install" -o -z "$build_uninstall"; then
+			echo-style --error="DOWNLOAD_BUILD_GLOB requires DOWNLOAD_BUILD_INSTALL or DOWNLOAD_BUILD_UNINSTALL" >/dev/stderr
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# helpers
+		function do_the_download {
+			# perform each download, supportling line-separated values to support [setup-util-source-code-pro] which is extracting both an archive for otf fonts and an archive for ttf fonts
+			local downloads_array download
+			mapfile -t downloads_array <<<"$downloads"
+			for download in "${downloads_array[@]}"; do
+				down "$download" \
+					--quiet="$option_quiet" \
+					--archive-format="$archive_format" \
+					--archive-glob="$archive_glob" \
+					--directory="$download_directory" \
+					--filepath="$download_filepath" \
+					--bearer-token="$bearer_token"
+			done
+		}
 
 		# determine path
 		if test -z "$filename" -a -n "$option_font"; then
@@ -3394,8 +3421,10 @@ function setup_util() (
 			# continue with install of fonts
 			download_directory="$(get-font --dirs | echo-first-line)"
 		else
-			target_path="$(get_path_from_filename "$filename")"
-			if test -n "$build_eval"; then
+			if test -z "$target_path"; then
+				target_path="$(get_path_from_filename "$filename")"
+			fi
+			if test -n "$build_install" -o -n "$build_uninstall" -o -n "$build_glob"; then
 				download_directory="$(
 					fs-temp \
 						--directory='setup-util' \
@@ -3412,43 +3441,48 @@ function setup_util() (
 			fi
 			# uninstall?
 			if test "$option_action" = 'uninstall'; then
-				if is-missing -- "$target_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"; then
-					return 200 # ECUSTOM 200 Not applicable for this package system
+				if test -n "$build_uninstall"; then
+					# check if a build download uninstall is relevant
+					if is-missing -- "$target_path"; then
+						return 200 # ECUSTOM 200 Not applicable for this package system
+					fi
+					# do the download for uninstall
+					do_the_download
+					# build uninstall
+					local build_status
+					echo-style --bold="Uninstalling built $option_name..."
+					pushd "$download_directory" &>/dev/null
+					eval_capture --statusvar=build_status -- "$build_uninstall"
+					popd &>/dev/null
+					if test "$build_status" -eq 0; then
+						echo-style --success="Uninstalled built $option_name."
+					else
+						echo-style --error="Failed to uninstall built $option_name." >/dev/stderr
+						return "$build_status"
+					fi
+				else
+					# check if a standard download uninstall is relevant
+					if is-missing -- "$target_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"; then
+						return 200 # ECUSTOM 200 Not applicable for this package system
+					fi
 				fi
+				# cleanup
 				rm_helper "$target_path" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"
 				# continue to generic uninstall
 				return 0
 			fi
 		fi
 
-		# perform each download, supportling line-separated values to support [setup-util-source-code-pro] which is extracting both an archive for otf fonts and an archive for ttf fonts
-		local downloads_array download
-		mapfile -t downloads_array <<<"$downloads"
-		for download in "${downloads_array[@]}"; do
-			down "$download" \
-				--quiet="$option_quiet" \
-				--archive-format="$archive_format" \
-				--archive-glob="$archive_glob" \
-				--directory="$download_directory" \
-				--filepath="$download_filepath" \
-				--bearer-token="$bearer_token"
-		done
-
-		# move to bin path
-		if test -n "$download_filepath" -a "$download_filepath" != "$target_path"; then
-			if test "$option_xdg" = 'no'; then
-				sudo-helper -- mv -fv "$download_filepath" "$target_path"
-			else
-				mv -fv "$download_filepath" "$target_path"
-			fi
-		fi
+		# do the download for install
+		do_the_download
 
 		# build
-		if test -n "$build_eval"; then
+		if test -n "$build_install"; then
+			# biuld install
 			local build_status
 			echo-style --bold="Building $option_name..."
 			pushd "$download_directory" &>/dev/null
-			eval_capture --statusvar=build_status -- "$build_eval"
+			eval_capture --statusvar=build_status -- "$build_install"
 			popd &>/dev/null
 			if test "$build_status" -eq 0; then
 				echo-style --success="Built $option_name."
@@ -3456,6 +3490,7 @@ function setup_util() (
 				echo-style --error="Failed to build $option_name." >/dev/stderr
 				return "$build_status"
 			fi
+			# move to target path if have pattern
 			if test -n "$build_glob"; then
 				# match extracted paths against filter
 				local filtered_paths=() filtered_path
@@ -3477,6 +3512,15 @@ function setup_util() (
 					return 1
 				fi
 			fi
+		else
+			# move to target path
+			if test -n "$download_filepath" -a "$download_filepath" != "$target_path"; then
+				if test "$option_xdg" = 'no'; then
+					sudo-helper -- mv -fv "$download_filepath" "$target_path"
+				else
+					mv -fv "$download_filepath" "$target_path"
+				fi
+			fi
 		fi
 
 		# verify
@@ -3491,7 +3535,7 @@ function setup_util() (
 				return 3 # ESRCH 3 No such process
 			fi
 		else
-			verify_saved_path "$filename" "$target_path"
+			verify_saved_path "$target_path"
 		fi
 	}
 
