@@ -34,6 +34,30 @@ function __print_lines {
 		printf '%s\n' "$@"
 	fi
 }
+function __print_values {
+	# print each non-empty value as a complete line
+	while test "$#" -ne 0; do
+		if test -n "$1"; then
+			printf '%s\n' "$1"
+		fi
+		shift
+	done
+}
+function __print_values_print {
+	# print each non-empty value as a complete line
+	# if no non-empty values, then print nothing, to ensure stdin consumers are not waiting forever
+	local printed=''
+	while test "$#" -ne 0; do
+		if test -n "$1"; then
+			printf '%s\n' "$1"
+			printed='yes'
+		fi
+		shift
+	done
+	if test -z "$printed"; then
+		printf ''
+	fi
+}
 
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.

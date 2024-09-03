@@ -18,7 +18,6 @@ function dorothy_config_test() (
 		curl
 		ripgrep
 		sd
-		teip
 	)
 	expected_stdout="$(__print_lines "${invented_packages[@]}")"
 	expected_stderr="$(
@@ -26,7 +25,6 @@ function dorothy_config_test() (
 			Moved [curl] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [curl].
 			Moved [ripgrep] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [ripgrep].
 			Moved [sd] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [sd].
-			Moved [teip] from [DOROTHY_CONFIG_TESTING] to [SETUP_UTILS] as [teip].
 			Updated configuration file: $DOROTHY/user/config/setup.bash
 		EOF
 	)"
@@ -69,6 +67,9 @@ function dorothy_config() (
 			--prefer=<local|public>
 			    If <local> prefer <user/config.local>, if <public> prefer <user/config>.
 			    If there are multiple config files, prompt the user which one to use.
+
+			--reason=<reason>
+			    The reason for the change, displays in prompts and whatnot.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -77,7 +78,7 @@ function dorothy_config() (
 	}
 
 	# process
-	local item option_packages_var='' option_filename='' option_prefer='' option_args=()
+	local item option_packages_var='' option_filename='' option_reason='' option_prefer='' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -85,6 +86,7 @@ function dorothy_config() (
 		'--help' | '-h') help ;;
 		'--packages-var='*) option_packages_var="${item#*=}" ;;
 		'--file='*) option_filename="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
 		'--prefer=local' | '--prefer=public' | '--prefer=') option_prefer="${item#*=}" ;;
 		'--')
 			option_args+=("$@")
@@ -122,7 +124,7 @@ function dorothy_config() (
 	# Action
 
 	function prune_utilities_from_packages {
-		local item reconfigure='no' outputs=() installer util
+		local item reconfigure='no' revised_items=() installer util reason
 
 		# SETUP_UTILS should have already been loaded, but let's create and load it if it hasn't
 		# we need to do it this way, otherwise we would wipe pre-existing custom configuration
@@ -140,30 +142,34 @@ function dorothy_config() (
 			if test -n "$installer"; then
 				if [[ $installer == 'setup-util-'* ]]; then
 					util="${installer#*setup-util-}"
-					echo-style --notice="Moved [$item] from [$option_packages_var] to [SETUP_UTILS] as [$util]." >/dev/stderr
+					reason+="$(
+						echo-style --reset --notice1='Relocate ' --code-notice1="$item" --notice1=' from ' --code-notice1="$option_packages_var" --notice1=' to ' --code-notice1="$util" --notice1=' in ' --code-notice1='SETUP_UTILS' $'\n'
+					)"
 					SETUP_UTILS+=("$util")
 					reconfigure='yes'
 				else
-					echo-style --notice="Skipping [$item] from [$option_packages_var], as it should be installed via [$installer]." >/dev/stderr
+					reason+="$(
+						echo-style --reset --notice1='Remove ' --code-notice1="$item" --notice1=' from ' --code-notice1="$option_packages_var" --notice1=' as it should be installed via ' --code-notice1="$installer" $'\n'
+					)"
+					reconfigure='yes'
 				fi
 				continue
 			else
-				echo "$item"
-				outputs+=("$item")
+				revised_items+=("$item")
 			fi
 		done
 
 		# update configuration if necessary
 		if test "$reconfigure" = 'yes'; then
-			dorothy-config "$option_filename" --prefer="$option_prefer" -- \
-				--field="$option_packages_var" --array="$(__print_lines "${outputs[@]}" | sort --ignore-case | uniq)" \
+			dorothy-config "$option_filename" --prefer="$option_prefer" --reason="$reason" -- \
+				--field="$option_packages_var" --array="$(__print_lines "${revised_items[@]}" | sort --ignore-case | uniq)" \
 				--field='SETUP_UTILS' --array="$(__print_lines "${SETUP_UTILS[@]}" | sort --ignore-case | uniq)"
 		fi
 	}
 
 	function update_configuration {
 		# check for existing
-		local user_filepath='' temp_filepath='' source_filepath='' default_filepath="$DOROTHY/config/$option_filename" local_filepath="$DOROTHY/user/config.local/$option_filename" public_filepath="$DOROTHY/user/config/$option_filename"
+		local user_filepath='' temp_filepath='' source_filepath='' default_filepath="$DOROTHY/config/$option_filename" local_filepath="$DOROTHY/user/config.local/$option_filename" public_filepath="$DOROTHY/user/config/$option_filename" displayed_reason='no'
 
 		# reset default filepath if it doesn't exist
 		if test ! -f "$default_filepath"; then
@@ -181,15 +187,21 @@ function dorothy_config() (
 		if test -f "$local_filepath" -a -f "$public_filepath"; then
 			user_filepath="$(
 				choose --linger --required \
-					--question="The [$option_filename] configuration file is pending updates, which one do you wish to update?" \
+					--question="$(echo-style --notice1='The configuration file ' --code-notice1="$option_filename" --notice1=' is pending updates. Select the specific configuration file to update.')"$'\n'"$option_reason" \
 					--default="$user_filepath" -- "$public_filepath" "$local_filepath"
 			)"
+			displayed_reason='yes'
 		elif test -f "$local_filepath"; then
 			user_filepath="$local_filepath"
 		elif test -f "$public_filepath"; then
 			user_filepath="$public_filepath"
 		else
 			user_filepath="$public_filepath"
+		fi
+
+		# show the reason
+		if test -n "$option_reason" -a "$displayed_reason" = 'no'; then
+			echo-style --notice1='The configuration file ' --code-notice1="$user_filepath" --notice1=' will be updated to:' $'\n' "$reason"
 		fi
 
 		# ensure filepath can be written
@@ -252,7 +264,7 @@ function dorothy_config() (
 
 		# now that the file definitely exists, update it if we have values to update it
 		if test "${#option_args[@]}" -ne 0; then
-			config-helper --file="$user_filepath" \
+			config-helper --file="$user_filepath" --multiple=warn-skip \
 				-- "${option_args[@]}"
 		fi
 	}
