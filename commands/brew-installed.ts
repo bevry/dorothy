@@ -1,3 +1,4 @@
+#!/usr/bin/env -S deno run --quiet --no-config
 // deno-lint-ignore-file no-explicit-any
 
 // parse stdin
