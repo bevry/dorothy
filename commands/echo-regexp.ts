@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --quiet --no-config
-const flags = new Set((Deno.args[0] || '').split(''))
+const flags = new Set((Deno.args[0] || '').replace(/^-/, '').split(''))
 const counting = flags.has('c')
 const onlyMatching = flags.has('o')
 const newlines = flags.has('n')
