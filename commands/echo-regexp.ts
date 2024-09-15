@@ -115,5 +115,8 @@ if (quiet || (counting && !verbose)) {
 }
 if (counting) await write(`${countSep}${count}\n`)
 if ((fail || quiet) && count === 0) {
-	Deno.exitCode = 1
+	Deno.exit(1)
+	// Deno.exitCode is Deno 1.44: https://github.com/denoland/deno/pull/23609
+	// However Alpine APK is only Deno 1.43: https://pkgs.alpinelinux.org/packages?name=deno
+	// So use Deno.exit instead
 }
