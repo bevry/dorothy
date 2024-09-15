@@ -7,12 +7,12 @@ set --global SSH_AUTH_SOCK
 set --global SSH_AGENT_PID
 
 # gpg
-if command-exists gpg
+if command-exists -- gpg
 	set --export GPG_TTY (tty)
 end
 
 # ssh-agent
-if command-exists ssh-agent
+if command-exists -- ssh-agent
 	# start ssh-agent and export SSH_AUTH_SOCK and SSH_AGENT_PID
 	if test -z "$SSH_AUTH_SOCK"
 		eval (ssh-agent -c | sed -E 's/^setenv /set --global --export /; s/^echo /#echo /')

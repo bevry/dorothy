@@ -6,7 +6,7 @@
 # https://www.nushell.sh/commands/docs/load-env.html#frontmatter-title-for-filesystem
 
 # ssh-agent handling
-command-exists 'ssh-agent' | complete; if $env.LAST_EXIT_CODE == 0 {
+command-exists -- 'ssh-agent' | complete; if $env.LAST_EXIT_CODE == 0 {
 	# start ssh-agent and export SSH_AUTH_SOCK and SSH_AGENT_PID
 	if 'SSH_AUTH_SOCK' not-in $env {
 		ssh-agent -c

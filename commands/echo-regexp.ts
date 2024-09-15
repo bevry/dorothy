@@ -1,11 +1,22 @@
 #!/usr/bin/env -S deno run --quiet --no-config
 const flags = new Set((Deno.args[0] || '').replace(/^-/, '').split(''))
+const fail = flags.has('f')
 const counting = flags.has('c')
 const onlyMatching = flags.has('o')
 const newlines = flags.has('n')
+const quiet = flags.has('q')
+const verbose = flags.has('v')
+if (fail) {
+	flags.delete('f')
+}
+if (verbose) {
+	flags.delete('v')
+}
+if (quiet) {
+	flags.delete('q')
+}
 if (counting) {
 	flags.delete('c')
-	flags.add('g')
 }
 if (onlyMatching) {
 	flags.delete('o')
@@ -14,9 +25,6 @@ if (newlines) {
 	flags.delete('n')
 }
 const sep = newlines ? '\n' : ''
-if (counting && onlyMatching) {
-	throw new Error('Cannot use both -c and -o')
-}
 const global = flags.has('g')
 const globalFlags = new Set([...Array.from(flags), 'g'])
 // rust regex to js regex
@@ -41,47 +49,71 @@ const replacements = Deno.args.slice(2).map(function (replacement) {
 })
 const regexp = new RegExp(find, Array.from(flags).join(''))
 const globalRegexp = new RegExp(find, Array.from(globalFlags).join(''))
-const input = await new Response(Deno.stdin.readable).text()
+const input = (await new Response(Deno.stdin.readable).text()).replace(
+	/\n$/,
+	'',
+) // Deno adds trailing line
 async function write(output: string) {
 	return await Deno.stdout.write(new TextEncoder().encode(output))
 }
-if (replacements.length === 0) {
-	let count = 0
-	for (const match of input.matchAll(globalRegexp)) {
-		if (counting === false) await write(`${match[0]}${sep}`)
-		if (global === false) break
+let count = 0,
+	countSep = ''
+if (quiet || (counting && !verbose)) {
+	// no replacements is same as onlyMatching
+	for (const _ of input.matchAll(globalRegexp)) {
 		++count
+		if (global === false) break
 	}
-	if (counting) await write(`${count}${sep}`)
+} else if (replacements.length === 0) {
+	// no replacements is same as onlyMatching
+	for (const match of input.matchAll(globalRegexp)) {
+		await write(`${match[0]}${sep}`)
+		++count
+		if (global === false) break
+	}
+	if (counting && count !== 0 && sep !== '\n') countSep = '\n'
 } else if (onlyMatching) {
-	let count = 0
-	if (global === false) replacements.push('$&')
 	const last = replacements.length - 1
+	const beyondValue = global ? replacements[last] : '$&'
 	for (const match of input.matchAll(globalRegexp)) {
-		if (counting === false)
-			await write(
-				match[0].replace(
-					regexp,
-					count >= last ? replacements[last] : replacements[count],
-				) + sep,
-			)
-		if (global === false) break
+		const replace = count > last ? beyondValue : replacements[count]
+		const replacement = match[0].replace(regexp, replace)
+		// console.error({ count, match, replace, replacement })
+		await write(`${replacement}${sep}`)
 		++count
+		if (global === false && count > last) break
 	}
-} else if (replacements.length === 1) {
-	await write(input.replace(regexp, replacements[0]))
+	if (counting && count !== 0 && sep !== '\n') countSep = '\n'
 } else {
-	let count = 0
-	if (global === false) replacements.push('$&')
+	let shouldBreak = false
 	const last = replacements.length - 1
-	await write(
-		input.replace(globalRegexp, function (match) {
-			const result = match.replace(
-				regexp,
-				count >= last ? replacements[last] : replacements[count],
-			)
-			++count
-			return result
-		}),
-	)
+	const beyondValue = global ? replacements[last] : '$&'
+	// console.error({
+	// 	last,
+	// 	beyondValue,
+	// 	global,
+	// 	globalRegexp,
+	// 	input,
+	// 	replacements,
+	// })
+	const result = input.replaceAll(globalRegexp, function (match) {
+		// console.error({ shouldBreak })
+		if (shouldBreak) return match
+		const replace = count > last ? beyondValue : replacements[count]
+		const replacement = match.replace(regexp, replace)
+		// console.error({ count, match, replace, replacement })
+		++count
+		if (global === false && count > last) shouldBreak = true
+		return replacement
+	})
+	if (fail && count === 0) {
+		// don't write
+	} else {
+		await write(`${result}${sep}`)
+	}
+	if (counting && sep !== '\n') countSep = '\n'
+}
+if (counting) await write(`${countSep}${count}\n`)
+if ((fail || quiet) && count === 0) {
+	Deno.exitCode = 1
 }

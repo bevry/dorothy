@@ -231,11 +231,9 @@ style__color__redacted="${style__color__background_black}${style__color__foregro
 style__color_end__redacted="${style__color_end__background}${style__color_end__foreground}"
 style__color__sudo="${style__color__foreground_intense_yellow}"
 style__color_end__sudo="${style__color_end__foreground}"
-style__color__code="${style__color__dim}"
-style__color_end__code="${style__color_end__intensity}"
+style__color__code="${style__color__foreground_intense_black}"
+style__color_end__code="${style__color_end__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
-style__color__code_dim="${style__color__dim}${style__color__foreground_gray}"
-style__color_end__code_dim="${style__color_end__intensity}${style__color_end__foreground}"
 if test -n "${GITHUB_ACTIONS-}"; then
 	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
 	style__color_end__header1="${style__color_end__background}${style__color_end__foreground}"

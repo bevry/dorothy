@@ -13,15 +13,15 @@
 #   echo 'test' | gpg --clearsign
 # if you are still getting those errors, check via `gpg-helper list` that your key has not expired
 # if it has, then run `gpg-helper extend`
-if command-exists gpg; then
+if command-exists -- gpg; then
 	export GPG_TTY
 	GPG_TTY="$(tty)"
 fi
 
 # only work on environments that have an ssh-agent
-if command-exists ssh-agent; then
+if command-exists -- ssh-agent; then
 	# ensure ask pass is discoverable by the agent
-	if test -z "${SSH_ASKPASS-}" && command-exists ssh-askpass; then
+	if test -z "${SSH_ASKPASS-}" && command-exists -- ssh-askpass; then
 		export SSH_ASKPASS
 		SSH_ASKPASS="$(command -v ssh-askpass)" # as this is sh instead bash, use [command -v ...] not [type -P ...]
 	fi

@@ -27,6 +27,6 @@ if test "$ACTIVE_POSIX_SHELL" = 'bash' -o "$ACTIVE_POSIX_SHELL" = 'zsh'; then
 fi
 
 # Shoutouts
-if command-exists shuf; then
+if command-exists -- shuf; then
 	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
 fi
