@@ -28,6 +28,10 @@ const sep = newlines ? '\n' : ''
 const global = flags.has('g')
 const globalFlags = new Set([...Array.from(flags), 'g'])
 // rust regex to js regex
+// > sd '[:blank:]' '_' <<< 'hello world'
+// he__o wor_d
+// > sd '[[:blank:]]' '_' <<< 'hello world'
+// hello_world
 const find = (Deno.args[1] || '')
 	.replaceAll('(?P<', '(?<')
 	.replaceAll('[[:alnum:]]', '[0-9A-Za-z]')
