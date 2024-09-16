@@ -390,17 +390,17 @@ function eval_capture {
 
 	# save the stdout/stderr/output, and remove their temporary files
 	if test -n "$stdout_temp_file" -a -f "$stdout_temp_file"; then
-		eval "${stdout_variable}=\"\$(cat $stdout_temp_file)\""
+		eval "$stdout_variable"'="$(cat "$stdout_temp_file")"'
 		rm "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
 	if test -n "$stderr_temp_file" -a -f "$stderr_temp_file"; then
-		eval "${stderr_variable}=\"\$(cat $stderr_temp_file)\""
+		eval "$stderr_variable"'="$(cat "$stderr_temp_file")"'
 		rm "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
 	if test -n "$output_temp_file" -a -f "$output_temp_file"; then
-		eval "${output_variable}=\"\$(cat $output_temp_file)\""
+		eval "$output_variable"'="$(cat "$output_temp_file")"'
 		rm "$output_temp_file"
 		output_temp_file=''
 	fi
