@@ -1,5 +1,4 @@
 #!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
-// trunk-ignore-all(eslint/no-eval)
 const precision = Number(Deno.args[0])
 const formula = Deno.args[1]
 const result = Number(eval(formula))
