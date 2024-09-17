@@ -15,23 +15,88 @@
 # Helpers to work around bash pecularities.
 
 # echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
-function __print_string {
-	# print each argument as space seperated, without a trailing line
+# note that in UNIX there is no difference between an empty string and no input, e.g. empty stdin (printf ` | ...; ... < <(printf '')` and no stdin `: | ...; ... < <(:)` -- if there is way to tell the difference in bash, let me know
+
+# print each argument concatenated together with no spacing, if no arguments, do nothing
+function __print_string { # b/c alias for __print_strings_or_nothing
 	if test "$#" -ne 0; then
-		printf '%s' "$*"
+		printf '%s' "$@"
 	fi
 }
-function __print_line {
-	# print each argument as space separated, followed by a trailing line
+function __print_strings { # b/c alias for __print_strings_or_nothing
 	if test "$#" -ne 0; then
-		printf '%s' "$*"
+		printf '%s' "$@"
 	fi
-	printf '\n'
 }
-function __print_lines {
-	# print each argument as a complete line
+function __print_strings_or_nothing {
+	if test "$#" -ne 0; then
+		printf '%s' "$@"
+	fi
+}
+
+# print each argument on its own line, if no arguments, print a line
+function __print_line { # b/c alias, please only use if your intention is merely [printf '\n'], as argument usage may disappear in the future, so use [__print_lines_or_line] or [__print_lines_or_nothing] instead
+	# equivalent to [printf '\n'] if no arguments
+	printf '%s\n' "$@"
+}
+function __print_lines_or_line {
+	# equivalent to [printf '\n'] if no arguments
+	printf '%s\n' "$@"
+}
+
+# print each argument on its own line, if no arguments, do nothing
+function __print_lines { # b/c alias for __print_lines_or_nothing
 	if test "$#" -ne 0; then
 		printf '%s\n' "$@"
+	fi
+}
+function __print_lines_or_nothing {
+	if test "$#" -ne 0; then
+		printf '%s\n' "$@"
+	fi
+}
+
+# print only arguments that are non-empty, concatenated together with no spacing, if no arguments, do nothing
+function __print_value_strings_or_nothing {
+	local args=()
+	while test "$#" -ne 0; do
+		if test -n "$1"; then
+			args+=("$1")
+		fi
+		shift
+	done
+	if test "${#args[@]}" -ne 0; then
+		printf '%s' "${args[@]}"
+	fi
+}
+
+# print only arguments that are non-empty on their own line, if no arguments, do nothing
+function __print_value_lines_or_nothing {
+	local args=()
+	while test "$#" -ne 0; do
+		if test -n "$1"; then
+			args+=("$1")
+		fi
+		shift
+	done
+	if test "${#args[@]}" -ne 0; then
+		printf '%s\n' "${args[@]}"
+	fi
+}
+
+# print only arguments that are non-empty on their own line, if no arguments, print a line
+function __print_value_lines_or_line {
+	local args=()
+	while test "$#" -ne 0; do
+		if test -n "$1"; then
+			args+=("$1")
+		fi
+		shift
+	done
+	if test "${#args[@]}" -eq 0; then
+		printf '\m'
+	else
+		printf '%s\n' "${args[@]}"
 	fi
 }
 
@@ -325,17 +390,17 @@ function eval_capture {
 
 	# save the stdout/stderr/output, and remove their temporary files
 	if test -n "$stdout_temp_file" -a -f "$stdout_temp_file"; then
-		eval "${stdout_variable}=\"\$(cat $stdout_temp_file)\""
+		eval "$stdout_variable"'="$(cat "$stdout_temp_file")"'
 		rm "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
 	if test -n "$stderr_temp_file" -a -f "$stderr_temp_file"; then
-		eval "${stderr_variable}=\"\$(cat $stderr_temp_file)\""
+		eval "$stderr_variable"'="$(cat "$stderr_temp_file")"'
 		rm "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
 	if test -n "$output_temp_file" -a -f "$output_temp_file"; then
-		eval "${output_variable}=\"\$(cat $output_temp_file)\""
+		eval "$output_variable"'="$(cat "$output_temp_file")"'
 		rm "$output_temp_file"
 		output_temp_file=''
 	fi
@@ -520,41 +585,3 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 	}
 fi
 BASH_ARRAY_CAPABILITIES+=' '
-
-# b/c aliases
-function print_string {
-	__print_string "$@"
-}
-function print_line {
-	__print_line "$@"
-}
-function print_lines {
-	__print_lines "$@"
-}
-function require_upgraded_bash {
-	__require_upgraded_bash "$@"
-}
-function require_globstar {
-	__require_globstar "$@"
-}
-function require_extglob {
-	__require_extglob "$@"
-}
-function require_lastpipe {
-	__require_lastpipe "$@"
-}
-function require_array {
-	__require_array "$@"
-}
-function get_read_decimal_timeout {
-	__get_read_decimal_timeout "$@"
-}
-function uppercase_first_letter {
-	__uppercase_first_letter "$@"
-}
-function lowercase_string {
-	__lowercase_string "$@"
-}
-function is_var_set {
-	__is_var_set "$@"
-}

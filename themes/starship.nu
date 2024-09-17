@@ -2,7 +2,7 @@
 
 # ensure starship
 mut reload_required_for_starship = false
-command-exists 'starship' | complete; if $env.LAST_EXIT_CODE != 0 {
+command-exists -- 'starship' | complete; if $env.LAST_EXIT_CODE != 0 {
 	# starship is missing, install it
 	setup-util-starship --quiet
 	# must reload the shell to ensure starship is loaded

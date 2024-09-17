@@ -59,7 +59,8 @@ function command_working() (
 
 	# https://github.com/greymd/teip/issues/29
 	# https://trunkcommunity.slack.com/archives/C0205B6KK8X/p1661601215325159
-	local exceptions=(
+	local failures=() exceptions=(
+		dash
 		ksh
 		rpi-update
 		ssh-askpass
@@ -68,7 +69,7 @@ function command_working() (
 		trunk
 	)
 	function check_status {
-		local cmd=() command_exit_status
+		local cmd=() cmd_string cmd_exit_status cmd_output
 		# ensure sbin commands work
 		if [[ $* == *sbin* ]] || test "$option_sudo" = 'yes'; then
 			cmd+=(
@@ -80,21 +81,33 @@ function command_working() (
 		# continue with the comand
 		cmd+=("$@")
 		# run the command hiding the output
-		eval_capture --statusvar=command_exit_status --no-output -- "${cmd[@]}"
+		eval_capture --statusvar=cmd_exit_status --outputvar=cmd_output -- "${cmd[@]}"
 		# check for correct failure codes
-		if test "$command_exit_status" -eq 22 -o "$command_exit_status" -eq 200; then
+		if test "$cmd_exit_status" -eq 22 -o "$cmd_exit_status" -eq 200; then
 			return 0
 		else
 			# otherwise return success or failure code
-			return "$command_exit_status"
+			cmd_string="$(echo-escape-command -- "${cmd[@]}")"
+			if test -n "$cmd_output"; then
+				cmd_output+=$'\n'
+			fi
+			failures+=("$(
+				echo-style --element+red="$cmd_string" $'\n' "$cmd_output" --/element+red="$cmd_string" --status="$cmd_exit_status"
+			)")
+			return "$cmd_exit_status"
 		fi
 	}
 	function check_working {
+		# reset debug
+		failures=()
+
 		# check it exists first
-		local cmd
+		local cmd cmd_string
+		cmd_string="$(echo-escape-command -- "$1")"
 		cmd="$(type -P "$1" 2>/dev/null || :)"
 		if test -z "$cmd"; then
 			# we must at least find it
+			echo-style --element/+red="$cmd_string" --status=404 ' ' --error='not working because it is missing' >/dev/stderr
 			return 1
 		fi
 
@@ -110,7 +123,14 @@ function command_working() (
 		check_status "$cmd" --version ||
 			check_status "$cmd" version ||
 			check_status "$cmd" --help ||
-			check_status "$cmd" -h
+			check_status "$cmd" -h || {
+			{
+				echo-style --element+red="$cmd_string"
+				__print_lines "${failures[@]}"
+				echo-style --/element+red="$cmd_string" --status=1 ' ' --error='not working because it is failing'
+			} >/dev/stderr
+			return 1 # command not working
+		}
 	}
 
 	# =====================================

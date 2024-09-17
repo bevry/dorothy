@@ -264,9 +264,9 @@ function get_github_release() (
 	# =====================================
 	# Dependencies
 
-	local bin_gsed bin_gawk
-	bin_gsed="$(echo-gnu-command --install -- gsed)"
-	bin_gawk="$(echo-gnu-command --install -- gawk)"
+	local bin_gsed_or_sed bin_gawk_or_awk
+	bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
+	bin_gawk_or_awk="$(echo-gnu-command --install -- gawk)"
 
 	# =====================================
 	# Adjustments
@@ -290,7 +290,7 @@ function get_github_release() (
 	# GITHUB_TOKEN
 	if test -z "${GITHUB_TOKEN-}"; then
 		GITHUB_TOKEN=''
-		if command-exists gh; then
+		if command-exists -- gh; then
 
 			GITHUB_TOKEN="$(gh auth token --hostname "$GITHUB_HOSTNAME" 2>/dev/null || :)"
 		fi
@@ -308,28 +308,9 @@ function get_github_release() (
 		}
 	}
 	function extract_value_from_json_property_from_stdin {
-		local property="$1"
-		tr -d '\n' | "$bin_gawk" -v property="$property" "$(
-			cat <<-AWK
-				{
-					while ( match(\$0, /"[^"]*"|: false|: true|: [0-9]+/) ) {
-						inner = substr(\$0, RSTART, RLENGTH)
-						if ( inner ~ /^: / ) {
-							inner = substr(inner, 3)
-						} else if ( inner ~ /^"/ ) {
-							inner = substr(inner, 2, length(inner) - 2)
-						}
-						if ( inner == property ) {
-							found = 1
-						} else if ( found ) {
-							print inner
-							exit
-						}
-						\$0 = substr(\$0, RSTART + RLENGTH)
-					}
-				}
-			AWK
-		)"
+		local property="$1" awk_script
+		awk_script="$(type -P get-json-property-value.awk)"
+		tr -d '\n' | "$bin_gawk_or_awk" -v option_property="$property" -f "$awk_script" # use -f instead of cat for bash v3 compat
 	}
 	function wait_on_rate_limit {
 		local json
@@ -391,22 +372,22 @@ function get_github_release() (
 		action='tag'
 	fi
 	if test "${#techniques[@]}" -eq 0; then
-		if command-exists gh; then
+		if command-exists -- gh; then
 			techniques+=('gh')
 		fi
-		if command-exists jq; then
+		if command-exists -- jq; then
 			techniques+=('jq')
 		fi
 		techniques+=('diy')
 	else
 		for technique in "${techniques[@]}"; do
 			if test "$technique" = 'gh'; then
-				if command-missing gh; then
+				if command-missing -- gh; then
 					echo-error 'The GitHub CLI is required for the gh technique.'
 					return 1
 				fi
 			elif test "$technique" = 'jq'; then
-				if command-missing jq; then
+				if command-missing -- jq; then
 					echo-error 'The jq utility is required for the jq technique.'
 					return 1
 				fi
@@ -457,25 +438,9 @@ function get_github_release() (
 	}
 	function fetch_api_url_of_release_from_tag_via_diy {
 		# this depends on tag_name being after url
-		fetch_json_of_releases | tr -d '\n' | awk -v tag="$tag" "$(
-			cat <<-AWK
-				{
-					last_innner = ""
-					url = ""
-					while ( match(\$0, /"[^"]*"/) ) {
-						inner = substr(\$0, RSTART + 1, RLENGTH - 2)
-						if ( last_inner == "url" && inner ~ /\/releases\/[0-9]+$/ ) {
-							url = inner
-						} else if ( last_inner == "tag_name" && inner == tag ) {
-							print url
-							exit
-						}
-						last_inner = inner
-						\$0 = substr(\$0, RSTART + RLENGTH)
-					}
-				}
-			AWK
-		)"
+		local awk_script
+		awk_script="$(type -P get-json-api-url.awk)"
+		fetch_json_of_releases | tr -d '\n' | "$bin_gawk_or_awk" -v option_tag="$tag" -f "$awk_script"
 	}
 
 	# fetch tag name
@@ -500,11 +465,11 @@ function get_github_release() (
 		fetch_json "$1" | jq -r '.assets[] | (.name, .browser_download_url)'
 	}
 	function fetch_assets_of_release_from_api_url_via_diy {
-		# don't use jq, rg, or sd to accomplish this, as none of them would be installed
+		# don't use jq, rg, sd, echo-regexp to accomplish this, as none of them would be installed
 		# [tail -n+2] excludes the first line, which is the name of the repo
 		# this is fragile as if the order of arguments change, it is all over
 		# sed fixes minified json such as `},{` and `","`
-		fetch_json "$1" | "$bin_gsed" -E $'s/,/,\\\n/g' | grep --extended-regexp --regexp='"(name|browser_download_url)":' | tail -n+2 | "$bin_gsed" -E 's/.+: *"(.+)".*/\1/'
+		fetch_json "$1" | "$bin_gsed_or_sed" -E $'s/,/,\\\n/g' | grep --extended-regexp --regexp='"(name|browser_download_url)":' | tail -n+2 | "$bin_gsed_or_sed" -E 's/.+: *"(.+)".*/\1/'
 	}
 	function fetch_assets_of_release_from_alias_via_gh {
 		gh release view --repo "$slug" --json assets --jq '.assets[] | (.name, .url)'
@@ -609,7 +574,7 @@ function get_github_release() (
 	elif test "$action" = 'api-url'; then
 		# used to debug the other actions
 		if test -n "$id"; then
-			__print_line "$RELEASE_API_URL_FROM_ID"
+			__print_lines "$RELEASE_API_URL_FROM_ID"
 			return
 		fi
 		if test -n "$alias"; then
@@ -644,7 +609,7 @@ function get_github_release() (
 	elif test "$action" = 'tag'; then
 		# used by setup-util-elvish to fetch the latest tag name to then do a download from its website
 		if test -n "$tag"; then
-			__print_line "$tag"
+			__print_lines "$tag"
 			return
 		fi
 		if test -n "$id"; then

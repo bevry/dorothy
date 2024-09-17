@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# trunk-ignore-all(shellcheck/SC2016)
 
 # https://unix.stackexchange.com/a/364496/50703
 # https://unix.stackexchange.com/a/364458/50703
@@ -22,7 +23,6 @@
 # df -T "$filesystem" # macos
 # df --type="$filesystem" # linux
 # blkid -L "$label"
-# lsblk -f | "$bin_gawk" "/$filesystem/" {print "/dev/"$1}'
 
 function get_devices() (
 	source "$DOROTHY/sources/bash.bash"
@@ -237,17 +237,16 @@ function get_devices() (
 	# Action
 
 	# dependencies
-	source "$DOROTHY/sources/ripgrep.bash"
 	setup-util-devices --quiet
 
 	# helpers
 	function get_key {
 		local key="$1" haystack="$2"
-		rg --only-matching --regexp="${key}=\"([^\"]+)" --replace='$1' <<<"$haystack" || :
+		echo-regexp -o --regexp="${key}=\"([^\"\n]+)" --replace='$1' -- "$haystack"
 	}
 	function get_property {
 		local key="$1" haystack="$2"
-		rg --only-matching --regexp="${key}[: '\"]+([^'\"]+)" --replace='$1' <<<"$haystack" | echo-trim-each-line --stdin || :
+		echo-regexp -o --regexp="${key}[: '\"]+([^'\"\n]+)" --replace='$1' -- "$haystack" | echo-trim-each-line --stdin
 	}
 	function check_exclude {
 		local name="$1" value="$2"
@@ -330,7 +329,7 @@ function get_devices() (
 	local MOUNT_HAYSTACK='' MOUNT_RAID=''
 	function get_all {
 		MOUNT_HAYSTACK="$(mount)"
-		if test "$option_filesystem" = 'btrfs' || grep --quiet --fixed-strings --regexp='btrfs' <<<"$MOUNT_HAYSTACK"; then
+		if test "$option_filesystem" = 'btrfs' || echo-regexp -q --regexp='btrfs' -- "$MOUNT_HAYSTACK"; then
 			# if you attach a btrfs cluster to a new machine
 			# it may not be completely discovered until the btrfs agent scans for the devices
 			# and btrfs supports mounting partial filesystems, which cause inumerable errors
@@ -339,9 +338,9 @@ function get_devices() (
 		fi
 		if is-mac; then
 			MOUNT_RAID="$(sudo-helper -- diskutil appleRAID list)"
-			sudo-helper -- diskutil list | rg --only-matching --regexp='/dev/[^ ]+'
+			sudo-helper -- diskutil list | echo-regexp -fong --regexp='/dev/[^ ]+'
 		else
-			sudo-helper -- fdisk -l | rg --multiline --only-matching --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
+			sudo-helper -- fdisk -l | echo-regexp -fongm --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
 		fi
 	}
 	function get_one {
@@ -381,13 +380,12 @@ function get_devices() (
 				serial=''
 				label=''
 				temp="${node##*/}" # /dev/disk7 => disk7
-				temp="$(rg --only-matching --regexp="${temp}s\d+" <<<"$MOUNT_RAID" || :)"
+				temp="$(echo-regexp -o --regexp="${temp}s\d+" -- "$MOUNT_RAID")"
 				if test -n "$temp"; then
 					temp="$(sudo-helper -- diskutil info "$temp")"
 					uuid="$(get_property 'Parent RAID Set UUID' "$temp")"
 					label="$(get_property 'Parent Set Name' "$temp")"
 					serial="$(get_property 'Disk [/] Partition UUID' "$temp")"
-					# count="$(rg --multiline --multiline-dotall --regexp='DevNode.+---+.+?disk7s2.+?====+' <<<"$MOUNT_RAID" | rg --regexp='^\d' | echo-count-lines --stdin)"
 				fi
 			else
 				# root device of volume
@@ -410,15 +408,15 @@ function get_devices() (
 			# uuid
 			if test -n "$label" -a -n "$uuid"; then
 				# apfs count
-				count_info="$(rg --multiline --multiline-dotall --regexp="$uuid.+?====+" <<<"$MOUNT_RAID")"
-				count="$(rg --regexp='^[\d-] ' <<<"$count_info" | echo-count-lines --stdin || :)"
-				count_available="$(rg --regexp='^\d ' <<<"$count_info" | echo-count-lines --stdin || :)"
+				count_info="$(echo-regexp -sm --regexp="$uuid.+?====+" -- "$MOUNT_RAID")"
+				count="$(echo-regexp -c --regexp='^[\d-] ' -- "$count_info")"
+				count_available="$(echo-regexp -c --regexp='^\d ' -- "$count_info")"
 			fi
 
 			# fetch mount
-			mount="$(rg --only-matching --regexp="$node on (.+?) \($filesystem" --replace='$1' <<<"$MOUNT_HAYSTACK" || :)"
+			mount="$(echo-regexp -o --regexp="$node on (.+?) \($filesystem" --replace='$1' -- "$MOUNT_HAYSTACK")"
 			if test -n "$filesystem" -a -z "$mount"; then
-				mount="$(rg --only-matching --regexp="${node}s1 on (.+?) \($filesystem" --replace='$1' <<<"$MOUNT_HAYSTACK" || :)"
+				mount="$(echo-regexp -o --regexp="${node}s1 on (.+?) \($filesystem" --replace='$1' -- "$MOUNT_HAYSTACK")"
 			fi
 		else
 			# fetch blkid properties
@@ -438,14 +436,14 @@ function get_devices() (
 			revision="$(get_property 'Revision level' "$temp")"
 
 			# fetch mount
-			mount="$(rg --only-matching --regexp="$node on (.+?) type $filesystem" --replace='$1' <<<"$MOUNT_HAYSTACK" || :)"
+			mount="$(echo-regexp -o --regexp="$node on (.+?) type $filesystem" --replace='$1' -- "$MOUNT_HAYSTACK")"
 		fi
 
 		# fetch count
 		if test "$filesystem" = 'btrfs'; then
 			count_info="$(sudo-helper -- btrfs filesystem show "$node")"
-			count="$(rg --only-matching --regexp='Total devices ([0-9]+)' --replace='$1' <<<"$count_info" || :)"
-			count_available="$(grep --fixed-strings --regexp='devid' <<<"$count_info" | echo-count-lines --stdin || :)"
+			count="$(echo-regexp -o --regexp='Total devices ([0-9]+)' --replace='$1' -- "$count_info")"
+			count_available="$(echo-regexp -c --regexp='devid' -- "$count_info")"
 		fi
 
 		# check filters
@@ -460,7 +458,7 @@ function get_devices() (
 		# validate
 		local result_status=0
 		if test -n "$count"; then
-			if test "$count" != "$count_available" || rg --quiet --ignore-case --regexp='(warning|error|missing)' <<<"$count_info"; then
+			if test "$count" != "$count_available" || echo-regexp -qi --regexp='(warning|error|missing)' -- "$count_info"; then
 				echo-style --error="$node: $count_available/$count devices found" $'\n' "$(echo-lines --indent=$'\t' --stdin <<<"$count_info")" >/dev/stderr
 				result_status=5 # EIO 5 Input/output error
 			fi

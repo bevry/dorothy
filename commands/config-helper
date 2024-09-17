@@ -39,10 +39,11 @@ function config_helper_test() (
 	sleep "$delay"
 	eval-tester --name='test-invalid-find-and-replace-arguments-01' --status=22 --ignore-stderr \
 		-- eval-no-color -- config-helper --no-quiet --file="$test_file" -- --replace='one'
+	# ^ fails completely
 	sleep "$delay"
 	eval-tester --name='test-invalid-find-and-replace-arguments-02' --status=22 --ignore-stderr \
 		-- eval-no-color -- config-helper --no-quiet --file="$test_file" -- --find='a' --replace='one' --replace='two'
-	# ^ first find and replace succeeds, hence [one], second find and replace failed, hence no two
+	# ^ first find and replace succeeds on the empty test_file, hence [one], second find and replace failed, hence no two
 	sleep "$delay"
 	eval-tester --name='test-invalid-find-and-replace-arguments-03' --stdout='one' \
 		-- cat "$test_file"
@@ -131,7 +132,7 @@ function config_helper_test() (
 
 	# test values with dollar signs and backslashes
 	sleep "$delay"
-	__print_line '$env.VALUE="hello\world"' >"$test_file"
+	__print_lines '$env.VALUE="hello\world"' >"$test_file"
 	sleep "$delay"
 	# trunk-ignore-all(shellcheck/SC2016)
 	eval-tester --name='test-dollar-signs-01' --stderr="$expected_stderr" \
@@ -181,7 +182,7 @@ function config_helper() (
 	}
 
 	# process
-	local item option_args=() option_file='' option_quiet
+	local item option_args=() option_file='' option_multiple='ok' option_quiet
 	option_quiet="$(echo-quiet-enabled -- "$@")"
 	while test "$#" -ne 0; do
 		item="$1"
@@ -190,6 +191,7 @@ function config_helper() (
 		'--help' | '-h') help ;;
 		'--file='*) option_file="${item#*=}" ;;
 		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--multiple=ok' | '--multiple=warn-skip' | '--multiple=warn-apply') option_multiple="${item#*=}" ;;
 		'--')
 			option_args+=("$@")
 			shift $#
@@ -222,16 +224,6 @@ function config_helper() (
 	fi
 
 	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-sd --quiet
-	setup-util-teip --quiet
-
-	local bin_gsed
-	bin_gsed="$(echo-gnu-command --install -- gsed)"
-
-	# =====================================
 	# Action
 
 	# prepare
@@ -239,7 +231,7 @@ function config_helper() (
 
 	# cycle
 	function act {
-		local option_search option_columns='1' option_quote='yes' option_replace search_pattern replace_pattern get_value_pattern addition find field value content
+		local option_search option_columns='1' option_quote='yes' option_replace search_pattern replace_pattern remove_pattern get_value_pattern addition find field value content count temp_file
 		while test "$#" -ne 0; do
 			# extract arguments
 			option_search="$1"
@@ -263,6 +255,7 @@ function config_helper() (
 			# reset variables
 			search_pattern=''
 			replace_pattern=''
+			remove_pattern=''
 			get_value_pattern=''
 			addition=''
 			find=''  # value of --find=<value>
@@ -278,6 +271,8 @@ function config_helper() (
 			# x     ignore whitespace and allow line comments (starting with `#`)
 			# ^ x doesn't seem to work
 			# the (?m) prefix turns out not be necessary, for sed, nor ripgrep
+
+			# named capture groups:  rust: (?P<  javascript: (?<
 			if [[ $option_search == '--string-find='* ]]; then
 				# raw string
 				find="${option_search#*=}"
@@ -292,13 +287,16 @@ function config_helper() (
 			elif [[ $option_search == '--find='* ]]; then
 				# indentable, commentable, pattern
 				find="${option_search#*=}"
-				search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)(?P<value>$find)$"
-				get_value_pattern="^(?P<indent>[[:blank:]]*)(?P<value>$find)$" # ignore comments
+				search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)(?P<value>$find)(?P<trail>\n|$)"
+				get_value_pattern="^(?P<indent>[[:blank:]]*)(?P<value>$find)(?P<trail>\n|$)" # ignore comments
+				#remove_pattern='${indent}'
 			elif [[ $option_search == '--field='* ]]; then
 				# field that can be an array and value
 				field="${option_search#*=}"
-				search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)$field *= *(?P<value>[(](?ms:.*?)[)]|[^\n]*)$"
-				get_value_pattern="^(?P<indent>[[:blank:]]*)$field *= *(?P<value>[(](?ms:.*?)[)]|[^\n]*)$" # ignore comments
+				search_pattern="^(?P<indent>[[:blank:]]*)(?P<comment>(?:#|[[:blank:]])*)$field *= *(?P<value>[(][\s\S]*?[)]|[^\n]*)(?P<trail>\n|$)"
+				get_value_pattern="^(?P<indent>[[:blank:]]*)$field *= *(?P<value>[(][\s\S]*?[)]|[^\n]*)(?P<trail>\n|$)" # ignore comments
+				#remove_pattern='${indent}'
+				# use [\s\S] instead of (?s:.) as [\s\S] supports old Deno versions
 			else
 				help "Invalid search argument [$option_search] it must be either --find=<pattern> or --field=<field>"
 			fi
@@ -332,7 +330,6 @@ function config_helper() (
 				# replacement, use spaces as the filler, as without echo-lines being aware of the content of ${indent}, there is no way for it to correctly align tabs, also use spaces as editors show tabs at variable widths
 				value=$'(\n'"$(echo-lines --indent=$'${indent}\t' --quoted --columns="${option_columns:-"1"}" --width=inputs --filler=space -- "${lines[@]}")"$'\n${indent})'
 				replace_pattern="\${indent}$field=$value"
-				set +x
 
 				# reset columns
 				option_columns='1'
@@ -355,7 +352,7 @@ function config_helper() (
 				# the replacement field was a find value, do not shift it, as we will use it in the next cycle
 				# instead, fetch the value, then continue to use the field as the next find
 				# --max-count=1 is to workaround: https://github.com/BurntSushi/ripgrep/issues/2095
-				rg --max-count=1 --multiline --only-matching --regexp="$get_value_pattern" --replace='${value}' "$option_file" || :
+				echo-regexp -omn --find="$get_value_pattern" --replace='${value}' <"$option_file" || :
 				continue
 			fi
 
@@ -364,48 +361,60 @@ function config_helper() (
 			shift
 			# then perform the replace
 
-			# ensure a trailing line, as otherwise the regexes get confused
+			# ensure if there is a value, it only has a single trailing line, and if there isn't a value, it is empty
 			content="$(cat "$option_file")"
-			content="${content%$'\n'}"$'\n'
-			# do the replacement or addition
-			if printf '%s' "$content" | rg --quiet --multiline "$search_pattern"; then
-				# trim all but the first occurance
-				# https://github.com/BurntSushi/ripgrep/issues/2094
-				# https://github.com/chmln/sd/issues/105
-				# https://github.com/greymd/teip/issues/27
-				# https://github.com/greymd/teip/issues/27#issuecomment-1101065549
-
-				# we want to remove all secondary occurances
-				# keeping only the first occurance
-				#
-				# as teip lacks the ability to delete lines
-				# and as it requires line output
-				# we need to use sed and sd to do it
-				#
-				# we can't just do teip to sd, as teip to sd occassionally causes
-				# Error: Broken pipe (os error 32)
-				#
-				# as such, we need to use teip to sed to sd
-				# for the removal of the secondary occurances
-				#
-				# this will then leave the first occurance in the whole
-				# which we can use sd to perform our final intended replacement
-				# of the primary occurance
-				# printf '%s' "$content" | sd -n 1 "$search_pattern" 'REPLACE_THIS_LINE' | sd "$search_pattern" '' | sd $'(REPLACE_THIS_LINE\n)+' "$replace_pattern" >"$option_file" <-- this fails to handle replacement groups
-				printf '%s' "$content" |
-					teip -g "$search_pattern" -- teip -l 2- -- "$bin_gsed" 's/.*/REMOVE_THIS_LINE/' |
-					sd $'(REMOVE_THIS_LINE\n)+' '' |
-					sd "$search_pattern" "$replace_pattern" \
-						>"$option_file"
-			else
-				# it wasn't found, so add manually if it's not empty
-				if test -n "$addition"; then
-					__print_line "$addition" >>"$option_file"
-				fi
+			content="${content%$'\n'}"
+			if test -n "$content"; then
+				content+=$'\n'
+			fi
+			addition="${addition%$'\n'}"
+			if test -n "$addition"; then
+				addition+=$'\n'
+			fi
+			replace_pattern="${replace_pattern%$'\n'}"
+			if test -n "$replace_pattern"; then
+				replace_pattern+=$'\n'
 			fi
 
-			# a valid update occured, note for logging
-			UPDATED='yes'
+			# do the replacement or addition
+			count="$(__print_value_strings_or_nothing "$content" | echo-regexp -cm --find="$search_pattern" || :)"
+			if test -z "$count" || test "$count" -eq 0; then
+				# it wasn't found, so add manually if it's not empty
+				if test -n "$addition"; then
+					__print_value_strings_or_nothing "$content" "$addition" >"$option_file"
+					UPDATED='yes' # a valid update occured, note for logging
+				fi
+			elif test "$count" -eq 1 -o "$option_multiple" = 'ok'; then
+				# first match replaced, subsequent matches removed
+				__print_value_strings_or_nothing "$content" | echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" >"$option_file"
+				UPDATED='yes' # a valid update occured, note for logging
+			else
+				temp_file="$(
+					fs-temp \
+						--directory='config-helper' \
+						--directory="$(basename "$option_file")" \
+						--file --no-touch
+				)"
+				if test "$option_multiple" = 'warn-skip'; then
+					# write update to temp file (for diff), do not update intended file
+					__print_value_strings_or_nothing "$content" | echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" >"$temp_file"
+					{
+						echo-style --notice1='The configuration file ' --code-error1="$option_file" --error1=' was not saved' --notice1=' as multiple value instances exist within the configuration file, which may be computational conditions that our automation would be fraught to update.' $'\n' --info1='When you can' --notice1=' manually apply the requested changes to your configuration such that this automated update will not be attempted again.' $'\n' --notice1='Below is our unapplied automated attempt, saved to ' --code-notice1="$temp_file"
+						fs-diff -- "$option_file" "$temp_file" || :
+						echo-style --notice1=$'\n'
+					} >/dev/stderr
+				elif test "$option_multiple" = 'warn-apply'; then
+					# write backup to temp file, write update to intended file
+					__print_value_strings_or_nothing "$content" >"$temp_file"
+					echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" <"$temp_file" >"$option_file"
+					UPDATED='yes' # a valid update occured, note for logging
+					{
+						echo-style --notice1='The configuration file ' --code-notice1="$option_file" --notice1=' ' --good1='was updated successfully.' $'\n' --info1='However,' --notice1=' only a single replacement is supported but multiple were performed. The changes that were made are a best effort upon evaluated values and may be incorrect if conditional values were used.' $'\n' --info1='Review the changes for correctness.' --notice1=' A backup has been made to ' --code-notice1="$temp_file"
+						fs-diff -- "$temp_file" "$option_file" || :
+						echo-style --notice1=$'\n'
+					} >/dev/stderr
+				fi
+			fi
 		done
 	}
 
@@ -413,7 +422,7 @@ function config_helper() (
 	act "${option_args[@]}"
 
 	# we do our own processing, as we need to support multiline matches
-	if test "$UPDATED" = 'yes' -a "$option_quiet" = 'no'; then
+	if test "$UPDATED" = 'yes' -a "$option_quiet" != 'yes'; then
 		echo-style --success="Updated configuration file: $option_file" >/dev/stderr
 	fi
 )

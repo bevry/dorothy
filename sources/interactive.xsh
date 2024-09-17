@@ -28,5 +28,5 @@ execx(compilex(open($DOROTHY + '/sources/autocomplete.xsh').read()))
 # @todo someone more experienced with xonsh should get config files loading, and get history, ssh, and autocomplete going
 
 # Shoutouts
-if !(command-exists shuf).returncode == 0:
+if !(command-exists -- shuf).returncode == 0:
 	shuf -n1 @($DOROTHY + '/sources/shoutouts.txt')

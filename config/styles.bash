@@ -189,8 +189,12 @@ style__color__negative="${style__color__foreground_red}${style__color__bold}"
 style__color_end__negative="${style__color_end__foreground}${style__color_end__intensity}"
 style__color__error="${style__color__background_intense_red}${style__color__foreground_intense_white}"
 style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
+
 style__color__error1="${style__color__background_red}${style__color__foreground_intense_white}"
 style__color_end__error1="${style__color_end__background}${style__color_end__foreground}"
+style__color__code_error1="${style__color__background_red}${style__color__foreground_intense_yellow}"
+style__color_end__code_error1="${style__color_end__background}${style__color_end__foreground}"
+
 style__color__error2="${style__color__bold}${style__color__underline}${style__color__foreground_red}"
 style__color_end__error2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 style__color__error3="${style__color__bold}${style__color__foreground_red}"
@@ -200,23 +204,36 @@ style__color__notice="${style__color__bold}${style__color__underline}${style__co
 style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 style__color__warning="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 style__color_end__warning="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
+style__color__info="${style__color__bold}${style__color__underline}${style__color__foreground_intense_blue}" # on dark theme, this is your eyes that need help
+style__color_end__info="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
+
 style__color__notice1="${style__color__background_intense_yellow}${style__color__foreground_black}"
 style__color_end__notice1="${style__color_end__background}${style__color_end__foreground}"
+style__color__code_notice1="${style__color__background_intense_yellow}${style__color__foreground_blue}"
+style__color_end__code_notice1="${style__color_end__background}${style__color_end__foreground}"
+
 style__color__notice2="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 style__color_end__notice2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 style__color__notice3="${style__color__bold}${style__color__foreground_yellow}"
 style__color_end__notice3="${style__color_end__intensity}${style__color_end__foreground}"
 
+style__color__info1="${style__color__background_blue}${style__color__foreground_intense_white}"
+style__color_end__info1="${style__color_end__background}${style__color_end__foreground}"
+style__color__code_info1="${style__color__background_blue}${style__color__foreground_intense_green}"
+style__color_end__code_info1="${style__color_end__background}${style__color_end__foreground}"
+
+style__color__info2="${style__color__bold}${style__color__underline}${style__color__foreground_blue}"
+style__color_end__info2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
+style__color__info3="${style__color__bold}${style__color__foreground_blue}"
+style__color_end__info3="${style__color_end__intensity}${style__color_end__foreground}"
+
 style__color__redacted="${style__color__background_black}${style__color__foreground_black}" # alternative to conceal, which respects color themes
 style__color_end__redacted="${style__color_end__background}${style__color_end__foreground}"
 style__color__sudo="${style__color__foreground_intense_yellow}"
 style__color_end__sudo="${style__color_end__foreground}"
-style__color__code="${style__color__dim}"
-style__color_end__code="${style__color_end__intensity}"
-style__color__code_dim="${style__color__dim}${style__color__foreground_gray}"
-style__color_end__code_dim="${style__color_end__intensity}${style__color_end__foreground}"
-style__color__code_notice="${style__color__dim}${style__color__foreground_intense_yellow}" # on dark theme, this is your eyes that need help
-style__color_end__code_notice="${style__color_end__intensity}${style__color_end__foreground}"
+style__color__code="${style__color__foreground_intense_black}"
+style__color_end__code="${style__color_end__foreground}"
+# do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
 if test -n "${GITHUB_ACTIONS-}"; then
 	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
 	style__color_end__header1="${style__color_end__background}${style__color_end__foreground}"
@@ -226,8 +243,6 @@ if test -n "${GITHUB_ACTIONS-}"; then
 	style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
 elif test "$(get-terminal-theme || :)" = 'light'; then
 	# trim style__color__foreground_intense_yellow as it is unreadable on light theme
-	style__color__code_notice="${style__color__foreground_yellow}"
-	style__color_end__code_notice="${style__color_end__foreground}"
 	style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 	style__color__sudo="${style__color__foreground_yellow}"

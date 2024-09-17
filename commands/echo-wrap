@@ -6,7 +6,7 @@ function echo_wrap_test() (
 	echo-style --h1="TEST: $0"
 
 	local input expected
-	input=$'123456123456 123456 \n1 2 3\t4 5 6 7\t8 9\n\n 1 2 3\t4 5 7\n\t8\t\n9\n'
+	input=$'123456123456 123456 \n1 2 3\t4 5 6 7\t8 9\n\n 1 2 3\t4 5 7\n\t8\t\n9\n\n'"$(echo-style --green='1' --red='2' --blue='3' --yellow='4' --magenta='5' --cyan='6' --white='7' --black='8' --reset='9')"
 	expected="$(
 		cat <<-EOF
 			123456
@@ -22,10 +22,13 @@ function echo_wrap_test() (
 			    8
 			9
 
+			$(echo-style --green='1' --red='2' --blue='3' --yellow='4' --magenta='5' --cyan=$'6\n' --white='7' --black='8' --reset='9')
 		EOF
 	)"
-	eval_tester --name='echo-wrap is working as expected' --stdout="$expected" \
+	eval_tester --name='echo-wrap is working as expected with stdin' --stdout="$expected" \
 		-- echo-wrap --width=6 <<<"$input"
+	eval_tester --name='echo-wrap is working as expected with args' --stdout="$expected" \
+		-- echo-wrap --width=6 -- "$input"
 
 	echo-style --g1="TEST: $0"
 	return 0
@@ -51,7 +54,8 @@ function echo_wrap() (
 			$(stdinargs_options_help --)
 
 			QUIRKS:
-			Tabs are converted into 4 spaces. Broken spacing (spacing at the end or start of a segment) is trimmed. Spacing is preserved at the start and end of input lines.
+			Tabs are converted into 4 spaces. Broken spacing (spacing at the end or start of a segment) is trimmed. Spacing is preserved at the start and end of input lines. Backticks are trimmed as they are used internally as a delimiter.
+
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -75,7 +79,7 @@ function echo_wrap() (
 		esac
 	done
 
-	if test -z "$option_width" && is-tty && command-exists tput; then
+	if test -z "$option_width" && is-tty && command-exists -- tput; then
 		option_width="$(tput cols || :)"
 	fi
 	if test -z "$option_width"; then
@@ -85,74 +89,22 @@ function echo_wrap() (
 	# =====================================
 	# Dependencies
 
-	local bin_gawk
-	bin_gawk="$(echo-gnu-command --install --no-fallback -- gawk)"
+	local bin_gawk_or_awk awk_script
+	bin_gawk_or_awk="$(echo-gnu-command --install -- gawk)"
+	awk_script="$(type -P echo-wrap.awk)"
 
 	# =====================================
 	# Action
 
-	# https://stackoverflow.com/a/72278299/130638
-	# Modified to include all the ANSI escape codes that Dorothy is aware of
-	awk_script="$(
-		cat <<-AWK
-			BEGIN {
-				line_regex="�"
-				ansi_regex="[[:cntrl:]][0-9;[?]*[ABCDEFGHJKSTfhlmnsu]"
-			}
-			{
-				file=\$0
-				output=""
-				split(file, lines, line_regex)
-				for (i=1; i<=length(lines); i++) {
-					line=lines[i]
-					gsub(/\t/, "����", line)
-					# repeatedly strip off "wrap_width" characters until we have processed the entire line
-					do {
-						columns=wrap_width
-						segment=""
-						# repeatedly strip off color control codes and characters until we have stripped of "n" characters
-						while (columns > 0) {
-							match(line, ansi_regex)
-							if (RSTART && RSTART <= columns) {
-								segment=segment substr(line, 1, RSTART + RLENGTH - 1)
-								line=substr(line, RSTART + RLENGTH)
-								columns=columns - (RSTART > 1 ? RSTART - 1 : 0)
-							}
-							else {
-								segment=segment substr(line, 1, columns)
-								line=substr(line, columns + 1)
-								columns=0
-							}
-						}
-						# remove breaks (tabs, spaces)
-						gsub(/[� ]+$/, "", segment)
-						gsub(/^[� ]+/, "", line)
-						# save the processed line
-						output=output segment "\n"
-						# if ( line != "" ) {
-						#  line="   │ " line
-						# }
-						# ^^ @todo for @octavian-one to do word-split and character-split indentation options ^^
-					} while ( line != "" )
-				}
-				# remove the final newline from the concat above
-				gsub(/\n$/, "", output)
-				# remove intermediate tabs
-				gsub(/�/, " ", output)
-				# done
-				printf("%s", output)
-			}
-		AWK
-	)"
 	local buffer=''
 	function on_line {
-		buffer+="${1}�"
+		buffer+="${1}\`"
 	}
 	function on_inline {
 		buffer+="$1"
 	}
 	function on_finish {
-		print_string "$buffer" | "$bin_gawk" -v wrap_width="$option_width" "$awk_script"
+		__print_string "$buffer" | "$bin_gawk_or_awk" -v option_wrap_width="$option_width" -f "$awk_script"
 	}
 	stdinargs "${option_args[@]}"
 )

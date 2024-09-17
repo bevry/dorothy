@@ -18,6 +18,6 @@ eval (cat $E:DOROTHY'/sources/theme.elv' | slurp)
 eval (cat $E:DOROTHY'/sources/autocomplete.elv' | slurp)
 
 # Shoutouts
-if ?(command-exists shuf) {
+if ?(command-exists -- shuf) {
 	shuf -n1 $E:DOROTHY'/sources/shoutouts.txt'
 }
