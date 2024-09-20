@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+
+# https://github.com/cloudflare/cloudflared/releases
+# cloudflared-amd64.pkg
+# cloudflared-arm64.pkg
+# cloudflared-darwin-amd64.tgz
+# cloudflared-darwin-arm64.tgz
+# cloudflared-fips-linux-amd64
+# cloudflared-fips-linux-amd64.deb
+# cloudflared-fips-linux-x86_64.rpm
+# cloudflared-linux-386
+# cloudflared-linux-386.deb
+# cloudflared-linux-386.rpm
+# cloudflared-linux-aarch64.rpm
+# cloudflared-linux-amd64
+# cloudflared-linux-amd64.deb
+# cloudflared-linux-arm
+# cloudflared-linux-arm.deb
+# cloudflared-linux-arm.rpm
+# cloudflared-linux-arm64
+# cloudflared-linux-arm64.deb
+# cloudflared-linux-armhf
+# cloudflared-linux-armhf.deb
+# cloudflared-linux-armhf.rpm
+# cloudflared-linux-x86_64.rpm
+# cloudflared-windows-386.exe
+# cloudflared-windows-386.msi
+# cloudflared-windows-amd64.exe
+# cloudflared-windows-amd64.msi
+
+function setup_util_cloudflared() (
+	source "$DOROTHY/sources/bash.bash"
+
+	local arch cloudflared_installer='' cloudflared_archive_filter=''
+	arch="$(get-arch)"
+	if is-mac; then
+		cloudflared_archive_filter='cloudflared'
+		if test "$arch" = 'a64'; then
+			cloudflared_installer='cloudflared-darwin-arm64.tgz'
+		elif test "$arch" = 'x64'; then
+			cloudflared_installer='cloudflared-darwin-amd64.tgz'
+		fi
+	elif is-linux; then
+		if test "$arch" = 'a64'; then
+			cloudflared_installer='cloudflared-linux-arm64'
+		elif test "$arch" = 'x64'; then
+			cloudflared_installer='cloudflared-linux-amd64'
+		elif test "$arch" = 'x32'; then
+			cloudflared_installer='cloudflared-linux-386'
+		fi
+	else
+		__die_unknown_os
+	fi
+
+	# =====================================
+	# DNS Service: Custom: Cloudflare Warp
+
+	# doesn't yet support any of the platforms I use, so no support in here yet
+
+	# =====================================
+	# DNS Service: Custom: Cloudflared Proxy
+
+	local cloudflared_title='Cloudflared'
+	local cloudflared_id='cloudflared'
+	local cloudflared_brew_id='cloudflared'
+	local cloudflared_bin_file="$BIN_DIR/$cloudflared_id"
+	local cloudflared_proxy_service_id
+	local cloudflared_proxy_service_file
+	if is-mac; then
+		# launchctl
+		cloudflared_proxy_service_id='com.cloudflare.cloudflared-proxy'
+		cloudflared_proxy_service_file="$SERVICE_DIR/$cloudflared_proxy_service_id.plist"
+	else
+		# systemctl
+		cloudflared_proxy_service_id='cloudflared-proxy'
+		cloudflared_proxy_service_file="$SERVICE_DIR/$cloudflared_proxy_service_id.service"
+	fi
+
+	function __cloudflared_exists {
+		test -x "$cloudflared_bin_file"
+	}
+	function cloudflared_install {
+		local action action_title temp_bin_file
+		action='install' # install/upgrade
+		if __cloudflared_exists; then
+			action='upgrade'
+		fi
+		action_title="$(__uppercase_first_letter "$action")"
+
+		# check
+		if test -z "$cloudflared_installer"; then
+			die_incompatible_service "$cloudflared_title"
+		fi
+
+		# log
+		echo-style --h1="$action_title $cloudflared_title"
+
+		# download the upgrade, prior to disabling
+		# setup-util --cli=cloudflared APT_KEY='https://pkg.cloudflare.com/cloudflare-main.gpg' APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://pkg.cloudflare.com/cloudflared jammy main' APT='cloudflared'
+		# setup-util --cli=cloudflared APT_KEY='https://pkg.cloudflare.com/cloudflare-main.gpg' APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://pkg.cloudflare.com/cloudflared {RELEASE} main' APT='cloudflared'
+		temp_bin_file="$(
+			fs-temp \
+				--directory='setup-dns' \
+				--file='cloudflared'
+		)"
+		github-download \
+			--slug='cloudflare/cloudflared' \
+			--latest \
+			--asset-regexp="$cloudflared_installer" \
+			--archive-glob="$cloudflared_archive_filter" \
+			--filepath="$temp_bin_file"
+
+		# disable/uninstall the service if it exists
+		service_disable "$cloudflared_proxy_service_file"
+
+		# don't use brew for this, as we want complete control
+		if is-brew; then
+			brew uninstall "$cloudflared_brew_id" &>/dev/null || :
+		fi
+		check_installation "$cloudflared_id" "$cloudflared_bin_file"
+
+		# if downloaded, stop and install
+		if test -f "$temp_bin_file"; then
+			service_stop "$cloudflared_proxy_service_file"
+			sudo-helper -- mv "$temp_bin_file" "$cloudflared_bin_file"
+			sudo-helper -- chmod +x "$cloudflared_bin_file"
+		fi
+
+		# confirm success
+		if test -x "$cloudflared_bin_file"; then
+			echo-style --g1="$action_title $cloudflared_title"
+		else
+			echo-style --error="Unable to make executable: $cloudflared_bin_file" >/dev/stderr
+			echo-style --e1="$action_title $cloudflared_title"
+			return 1
+		fi
+	}
+	function cloudflared_uninstall {
+		# check
+		if ! __cloudflared_exists; then
+			return 0
+		fi
+
+		# log
+		echo-style --h1="Uninstall $cloudflared_title"
+
+		# stop, disable, uninstall the service if it exists
+		service_disable "$cloudflared_proxy_service_file"
+
+		# if we are using tunnels
+		if test "${#CLOUDFLARED_TUNNELS[@]}" -ne 0; then
+			# only remove the service file
+			# as tunnels uses the same binary
+			do_remove --reload -- "$cloudflared_proxy_service_file"
+		else
+			# ensure everything related to the proxy is removed
+			do_remove --reload --service="$cloudflared_id" -- "$cloudflared_proxy_service_file"
+		fi
+
+		# log
+		echo-style --g1="Uninstall $cloudflared_title"
+	}
+	function cloudflared_configure {
+		local action action_title upstream_servers upstream_section upstream_args server
+		action="$1" # enable/disable
+		action_title="$(__uppercase_first_letter "$action")"
+		upstream_section=''
+		upstream_args=''
+
+		# check
+		if ! __cloudflared_exists; then
+			return 0
+		fi
+
+		# log
+		echo-style --h1="Configure and $action_title $cloudflared_title"
+
+		# check
+		check_installation "$cloudflared_id" "$cloudflared_bin_file"
+
+		# stop, disable, uninstall the old service if it exists
+		service_disable "$cloudflared_proxy_service_file"
+
+		# only update the configuration, if we are [enable] action
+		# as the SERVICE IS THE CONFIGURATION for [cloudflared proxy-dns]
+		# as it doesn't support a configuration file
+		# so we have to configure it via CLI args in the service definition
+		if test "$action" = 'enable'; then
+			# prepare upstreams (despite docs, cloudflared doesn't support tls)
+			upstream_servers=(
+				"${doh_servers[@]}"
+				"${quic_servers[@]}"
+			)
+			if test "${#upstream_servers[@]}" -eq 0; then
+				upstream_servers=(
+					"${ipv4_servers[@]}"
+					"${ipv6_servers[@]}"
+				)
+			fi
+
+			# configure service with the upstreams
+			if is-mac; then
+				# generate upstreams
+				for server in "${upstream_servers[@]}"; do
+					upstream_section+=$'\n'"			<string>--upstream</string>"
+					upstream_section+=$'\n'"			<string>$server</string>"
+				done
+
+				# create service with custom upstreams
+				# <string>--address</string>
+				# <string>0.0.0.0</string>
+				sudo-helper -- tee "$cloudflared_proxy_service_file" >/dev/null <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>Label</key>
+		<string>${cloudflared_proxy_service_id}</string>
+		<key>ProgramArguments</key>
+		<array>
+			<string>${cloudflared_bin_file}</string>
+			<string>proxy-dns</string>${upstream_section}
+		</array>
+		<key>RunAtLoad</key>
+		<true/>
+		<key>StandardOutPath</key>
+		<string>${LOGS_DIR}/${cloudflared_proxy_service_id}.out.log</string>
+		<key>StandardErrorPath</key>
+		<string>${LOGS_DIR}/${cloudflared_proxy_service_id}.err.log</string>
+		<key>KeepAlive</key>
+		<dict>
+			<key>SuccessfulExit</key>
+			<false/>
+		</dict>
+		<key>ThrottleInterval</key>
+		<integer>5</integer>
+	</dict>
+</plist>
+EOF
+
+			else
+				# generate upstreams
+				for server in "${upstream_servers[@]}"; do
+					upstream_args+=" --upstream $(echo-quote -- "$server")"
+				done
+
+				# create service with custom upstreams
+				sudo-helper -- tee "$cloudflared_proxy_service_file" >/dev/null <<-EOF
+					[Unit]
+					Description=${cloudflared_proxy_service_id}
+					Wants=network-online.target nss-lookup.target
+					Before=nss-lookup.target
+
+					[Service]
+					AmbientCapabilities=CAP_NET_BIND_SERVICE
+					CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+					DynamicUser=yes
+					ExecStart=${cloudflared_bin_file} proxy-dns --address 0.0.0.0 ${upstream_args}
+
+					[Install]
+					WantedBy=multi-user.target
+				EOF
+			fi
+
+			# enable the service
+			service_enable "$cloudflared_proxy_service_file"
+		fi
+
+		# log
+		echo-style --g1="Configure and $action_title $cloudflared_title"
+	}
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	setup_util_cloudflared "$@"
+fi
