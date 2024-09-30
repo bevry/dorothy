@@ -25,11 +25,16 @@ function eval_helper() (
 			    Disabled by default.
 
 			--[no-]quiet
-			    If enabled, only latest message will be kept, and command output will be cleared if successful.
-			    If disabled, all messages and command output will be kept.
+			    If empty, if successful only the pending message, command status, and success message will be kept. If failure, the pending message, command output and status, and failure message will be kept.
+			    If enabled, if successful only the success message will be kept. If failure, the pending message, command output and status, and failure message will be kept.
+			    If disabled, the pending message, command output and status, and success or failure message will be kept. The command stdout will also be available to stdout.
 
 			--[no-]shapeshifter
 			    Workaround for commands that clear themselves.
+			    Disabled by default.
+
+			--[no-]trim
+			    Trim output of the command.
 			    Disabled by default.
 
 			--pending=<pending>
@@ -41,12 +46,14 @@ function eval_helper() (
 			--failure=<failure>
 			    Message to display if the command failed.
 
-			--title=<title>
-			    If provided, uses this as the title inside the wrappers, instead of the escaped command.
+			--command=<command-string>
+			    By default when wrapping the command status and/or output, the escaped <command> is used.
+				Providing a <command-string> will use the <command-string> instead of the escaped <command>.
 			    Intended only for use by [sudo-helper].
 
 			QUIRKS:
-			Unless [--quiet=no] is used, then stdout+stderr will be merged into stderr.
+			Unless [--no-quiet] is used, then stdout+stderr will be merged into stderr.
+			Messages are output to TTY if available, otherwise stderr.
 		EOF
 		if test "$#" -ne 0; then
 			echo-error "$@"
@@ -55,15 +62,8 @@ function eval_helper() (
 	}
 
 	# process
-	local item option_cmd=() option_wrap option_confirm option_quiet option_pending option_success option_failure
-	option_wrap='yes'
-	option_confirm='no'
+	local item option_quiet option_cmd=() option_wrap='yes' option_trim='no' option_confirm='no' option_shapeshifter='no' option_pending='' option_success='' option_failure='' option_command_string=''
 	option_quiet="$(echo-quiet-enabled -- "$@")"
-	option_shapeshifter='no'
-	option_pending=''
-	option_success=''
-	option_failure=''
-	option_title=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
@@ -73,7 +73,10 @@ function eval_helper() (
 		'--pending='*) option_pending="${item#*=}" ;;
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
-		'--title='*) option_title="${item#*=}" ;;
+		'--command='*) option_command_string="${item#*=}" ;;
+		'--no-trim'* | '--trim'*)
+			option_trim="$(get-flag-value --affirmative --fallback="$option_trim" -- "$item")"
+			;;
 		'--no-confirm'* | '--confirm'*)
 			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
 			;;
@@ -96,17 +99,20 @@ function eval_helper() (
 	# =====================================
 	# Action
 
-	# prepare
-	local element_open tty_target
-	if test -z "$option_title"; then
-		option_title="$(echo-escape-command -- "${option_cmd[@]}")"
+	# tty
+	local tty_target
+	tty_target="$(is-tty --fallback)"
+
+	# element
+	local element_open=''
+	if test -z "$option_command_string"; then
+		option_command_string="$(echo-escape-command -- "${option_cmd[@]}")"
 	fi
 	if test "$option_wrap" = 'yes'; then
-		element_open="$(echo-style --element="$option_title")"
+		element_open="$(echo-style --element="$option_command_string")"
 	else
-		element_open="$(echo-style --code="$option_title")"
+		element_open="$(echo-style --code="$option_command_string")"
 	fi
-	tty_target="$(is-tty --fallback)"
 
 	# confirm
 	if test "$option_confirm" = 'yes' && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command that is below:' "$element_open"; then
@@ -114,48 +120,63 @@ function eval_helper() (
 		return 0
 	fi
 
+	# headers
+	local header=''
+	if test -n "$option_pending"; then
+		header+="$option_pending"$'\n'
+	fi
+	if test "$option_wrap" = 'yes'; then
+		header+="$element_open"$'\n'
+	fi
+	if test -n "$header"; then
+		__print_string "$header" >"$tty_target"
+	fi
+
+	# output
+	local output=''
+	function flush_output {
+		if test -n "$output"; then
+			__print_string "$output" >"$tty_target"
+			output=''
+		fi
+	}
+
 	# output everything if already inside a revolving door, or if in verbose mode
 	local cmd_status=0
-	if test "${INSIDE_REVOLVING_DOOR-}" = 'yes' -o "$option_quiet" = 'no'; then
-		# headers
-		if test -n "$option_pending"; then
-			__print_lines "$option_pending" >"$tty_target"
-		fi
-		if test "$option_wrap" = 'yes'; then
-			__print_lines "$element_open" >"$tty_target"
-		fi
-
+	if test "${INSIDE_REVOLVING_DOOR-}" = 'yes' || test "$option_quiet" = 'no'; then
 		# body
-		eval_capture --statusvar=cmd_status -- "${option_cmd[@]}"
-
-		# footers
-		if test "$option_wrap" = 'yes'; then
-			echo-style --/element="$option_title" --status="$cmd_status" >"$tty_target"
+		if test "$option_trim" = 'yes'; then
+			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
+				> >(echo-trim-padding --stdin) \
+				2> >(echo-trim-padding --stdin >/dev/stderr)
+		else
+			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}"
 		fi
+
+		# add close
+		if test "$option_wrap" = 'yes'; then
+			output+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
+		fi
+
+		# add success or failure
 		if test "$cmd_status" -eq 0; then
 			if test -n "$option_success"; then
-				__print_lines "$option_success" >"$tty_target"
+				output+="$option_success"$'\n'
 			fi
 		else
 			if test -n "$option_failure"; then
-				__print_lines "$option_failure" >"$tty_target"
+				output+="$option_failure"$'\n'
 			fi
 		fi
+
+		# output
+		flush_output
 	else
 		# not inside a revolving door, and not in verbose mode
-		local columns headers body footer=''
+		local columns body_file
 		# trunk-ignore(shellcheck/SC2015)
 		columns="$(is-tty && tput cols || :)"
-		headers="$(mktemp)"
-		body="$(mktemp)"
-
-		# headers
-		if test -n "$option_pending"; then
-			__print_lines "$option_pending" | tee -a "$headers" >"$tty_target"
-		fi
-		if test "$option_wrap" = 'yes'; then
-			__print_lines "$element_open" | tee -a "$headers" >"$tty_target"
-		fi
+		body_file="$(mktemp)"
 
 		# body
 		# NOTE |& is bash v4 only, and this script must work on Bash v3, which uses 2>&1 |
@@ -166,63 +187,113 @@ function eval_helper() (
 			# this is used if the command writes to TTY
 			# in which case echo-revolving-door fails to clear
 			tty_start
-			cat "$headers" >"$tty_target" # redo headers inside alt tty while its active
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" > >(tee -a "$body") 2> >(tee -a "$body" >/dev/stderr)
+			__print_string "$header" >"$tty_target" # redo header inside alt tty while its active
+			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
+				> >(tee -a "$body_file") \
+				2> >(tee -a "$body_file" >/dev/stderr)
 			tty_finish
 		else
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" > >(tee -a "$body" | echo-revolving-door --columns="$columns") 2> >(tee -a "$body" | echo-revolving-door --columns="$columns" >/dev/stderr)
+			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
+				> >(tee -a "$body_file" | echo-revolving-door --columns="$columns") \
+				2> >(tee -a "$body_file" | echo-revolving-door --columns="$columns" >/dev/stderr)
 			# we cannot detect shapeshifting after the fact, as it occurs in the TTY, not stdout, nor stderr
 		fi
 		export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR_original"
 
-		# clear headers, we can re-add them later if needed
-		echo-clear-lines --stdin <"$headers" >"$tty_target"
+		# clear header, we can re-add them later if needed
+		echo-clear-lines -- "$header" >"$tty_target"
 
-		# generate footer
-		if test "$cmd_status" -eq 0; then
-			if test -n "$option_success"; then
-				footer+="$option_success"$'\n'
-			fi
-		else
-			if test -n "$option_failure"; then
-				footer+="$option_failure"$'\n'
-			fi
-		fi
-
-		# if quiet and successful, dump footer and exit
-		if test "$option_quiet" = 'yes' -a "$cmd_status" -eq 0; then
-			if test -n "$footer"; then
-				__print_string "$footer" >"$tty_target"
-			fi
-			return "$cmd_status"
-		fi
-
-		# if it didn't output anything, output self closing wrap, then footer, then exit
-		if test -z "$(cat "$body")"; then
-			echo-style --element/="$option_title" --status="$cmd_status" >"$tty_target"
-			if test -n "$footer"; then
-				__print_string "$footer" >"$tty_target"
-			fi
-			return "$cmd_status"
-		fi
-		# the command outputted things
-
-		# output wrap header
-		if test "$option_wrap" = 'yes'; then
-			__print_lines "$element_open" >"$tty_target"
-		fi
-		# if verbose, or failure, output body
+		# generate output
 		if test "$option_quiet" = 'no' -o "$cmd_status" -ne 0; then
-			cat "$body" >/dev/stderr
+			# pending message, command output and status, and success or failure message
+
+			# add pending
+			if test -n "$option_pending"; then
+				output+="$option_pending"$'\n'
+			fi
+
+			# add body
+			local body
+			if test -s "$body_file"; then
+				if test "$option_trim" = 'yes'; then
+					body="$(echo-trim-padding --stdin <"$body_file")"
+				else
+					body="$(cat "$body_file")"
+				fi
+			else
+				body=''
+			fi
+			if test "$option_wrap" = 'no'; then
+				if test -n "$body"; then
+					flush_output
+					__print_lines "$body" >/dev/stderr
+				fi
+			else
+				if test -n "$body"; then
+					output+="$(echo-style --element="$option_command_string")"$'\n'
+					flush_output
+					__print_lines "$body" >/dev/stderr
+					output+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
+				else
+					output+="$(echo-style --element="$option_command_string" --/fragment='' --status="$cmd_status")"$'\n'
+				fi
+			fi
+
+			# add success or failure
+			if test "$cmd_status" -eq 0; then
+				if test -n "$option_success"; then
+					output+="$option_success"$'\n'
+				fi
+			else
+				if test -n "$option_failure"; then
+					output+="$option_failure"$'\n'
+				fi
+			fi
+
+		elif test -z "$option_quiet"; then
+			# pending message, command status, and success message
+
+			# add pending
+			if test -n "$option_pending"; then
+				output+="$option_pending"$'\n'
+			fi
+
+			# truncate body if wrapping
+			if test "$option_wrap" = 'yes'; then
+				local body
+				if test -s "$body_file"; then
+					if test "$option_trim" = 'yes'; then
+						body="$(echo-trim-padding --stdin <"$body_file")"
+					else
+						body="$(cat "$body_file")"
+					fi
+				else
+					body=''
+				fi
+				if test -n "$body"; then
+					# self close as we are truncating
+					output+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
+				else
+					# close fragment as there is no data
+					output+="$(echo-style --element="$option_command_string" --/fragment --status="$cmd_status")"$'\n'
+				fi
+			fi
+
+			# add success
+			if test -n "$option_success"; then
+				output+="$option_success"$'\n'
+			fi
+		elif test "$option_quiet" = 'yes'; then
+			# only success message
+
+			# add success
+			if test -n "$option_success"; then
+				output+="$option_success"$'\n'
+			fi
 		fi
-		# outpout wrap footer
-		if test "$option_wrap" = 'yes'; then
-			echo-style --/element="$option_title" --status="$cmd_status" >"$tty_target"
-		fi
-		# output footer
-		if test -n "$footer"; then
-			__print_string "$footer" >"$tty_target"
-		fi
+
+		# output
+		flush_output
 	fi
 
 	# done

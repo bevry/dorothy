@@ -178,8 +178,12 @@ style__color__success="${style__color__foreground_green}${style__color__bold}"
 style__color_end__success="${style__color_end__foreground}${style__color_end__intensity}"
 style__color__positive="${style__color__foreground_green}${style__color__bold}"
 style__color_end__positive="${style__color_end__foreground}${style__color_end__intensity}"
+
 style__color__good1="${style__color__background_intense_green}${style__color__foreground_black}"
 style__color_end__good1="${style__color_end__background}${style__color_end__foreground}"
+style__color__code_good1="${style__color__background_intense_green}${style__color__foreground_intense_blue}"
+style__color_end__code_good1="${style__color_end__background}${style__color_end__foreground}"
+
 style__color__good2="${style__color__bold}${style__color__underline}${style__color__foreground_green}"
 style__color_end__good2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 style__color__good3="${style__color__bold}${style__color__foreground_green}"
@@ -346,6 +350,13 @@ style__nocolor_end__element_slash=' />'
 style__color__element_slash="${style__color__dim}${style__color__bold}< ${style__color_end__intensity}"
 style__color_end__element_slash="${style__color__dim}${style__color__bold} />${style__color_end__intensity}"
 
+# fragment
+style__nocolor__fragment='<>'
+style__color__fragment="${style__color__dim}${style__color__bold}<>${style__color_end__intensity}"
+
+style__nocolor__slash_fragment='</>'
+style__color__slash_fragment="${style__color__dim}${style__color__bold}</>${style__color_end__intensity}"
+
 # the style__color__resets allow these to work:
 # echo-style --h1_begin --h1='Setup Python' --h1_end $'\n' --g1_begin --g1='Setup Python' --g1_end
 # echo-style --element_slash_begin --h3="this should not be dim" --element_slash_end "$status"
@@ -485,8 +496,8 @@ style__key_key_spacer=' '
 style__indent_bar='   '
 style__indent_active='⏵  '
 style__indent_inactive='   '
-style__nocolor__indent_subsequent='   │ '
-style__color__indent_subsequent="   ${style__color__dim}│ ${style__color_end__dim}"
+style__nocolor__blockquote='│ '
+style__color__blockquote="${style__color__dim}│ ${style__color_end__dim}"
 style__nocolor__count_spacer=' ∙ '
 style__color__count_spacer=" ${style__color__foreground_intense_black}∙${style__color_end__foreground} "
 
