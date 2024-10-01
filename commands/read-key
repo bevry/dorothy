@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # trunk-ignore-all(shellcheck/SC2162)
 
 function read_key_test() (
@@ -118,12 +118,15 @@ function read_key() (
 	}
 
 	# process
-	local item option_timeout=''
+	local item option_escaped='no' option_timeout=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-escaped'* | '--escaped'*)
+			option_escaped="$(get-flag-value --affirmative --fallback="$option_escaped" -- "$item")"
+			;;
 		'--timeout='*) option_timeout="${item#*=}" ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
@@ -155,122 +158,198 @@ function read_key() (
 	# -N nchars	return only after reading exactly NCHARS characters, unless
 	# 	EOF is encountered or read times out, ignoring any
 	# 	delimiter
-	local key='' k0='' k1='' k2='' k3='' status=0
-	if test "$BASH_VERSION_MAJOR" -ge '4'; then
-		# bash v4+ technique
-		read -sN1 -t "$option_timeout" k0 || status=$?
-		read -sN1 -t 0.0001 k1 || :
-		read -sN1 -t 0.0001 k2 || :
-		read -sN1 -t 0.0001 k3 || :
-		key="${k0}${k1}${k2}${k3}"
+	local last_key='' key='' parse_key
+	if (: </dev/tty >/dev/tty) &>/dev/null; then # is-tty but copied for performance
+		function ignore_key_as_it_to_send_a_line_buffer {
+			return 1
+		}
 	else
-		# bash v3 technique
-		# IFS= is necessary to separate space from enter
-		IFS= read -sn1 -t "$option_timeout" k0 || status=$?
-		# printf 'k0 = %q \n' "$k0" >/dev/stderr
-		if test "$k0" = $'\e'; then
-			IFS= read -sn1 -t1 k1 || :
-			# printf 'k1 = %q \n' "$k1" >/dev/stderr
-			if test "$k1" = $'\e'; then
-				__print_lines 'escape' # duplicate escape press
+		function ignore_key_as_it_to_send_a_line_buffer {
+			test "$key" = $'\n' -a -n "$last_key" -a "$last_key" != $'\n'
+		}
+	fi
+	function buffer_or_flush_char_into_key {
+		local char="$1"
+		#printf 'BUFFER char = %q\tkey = %q\n' "$char" "$key"
+		if test "$char" = $'\e' -o "$char" = $'\n'; then
+			# this is the start of a new key
+			flush_key
+			key="$char"
+		else
+			# add char to current key
+			key+="$char"
+		fi
+	}
+	function flush_key {
+		# check we have a key, which may not be the case due to timeout of follow-up keys
+		#printf 'FLUSH char = %q\tkey = %q\n' "$char" "$key"
+		if test -n "$key"; then
+			if ignore_key_as_it_to_send_a_line_buffer; then
+				: # ignore as this enter as it was to send a line buffer
+			else
+				parse_key="$key"
+				parse_key
+			fi
+		fi
+		last_key="$key"
+		key=''
+	}
+	function read_chars_into_keys {
+		local char status=0
+		if test "$BASH_VERSION_MAJOR" -ge '4'; then
+			# bash v4+ technique
+			char=''
+			read -sN1 -t "$option_timeout" char || status=$?
+			if test "$status" -eq 0; then
+				buffer_or_flush_char_into_key "$char"
+				while :; do
+					if ! read -sN1 -t 0.0001 char; then
+						break
+					fi
+					buffer_or_flush_char_into_key "$char"
+				done
+				flush_key
 				return 0
 			fi
-			IFS= read -sn1 -t1 k2 || :
-			# printf 'k2 = %q \n' "$k2" >/dev/stderr
+		else
+			# bash v3 technique, @Todo requires double-escape handling
+			# IFS= is necessary to separate space from enter
+			char=''
+			IFS= read -sn1 -t "$option_timeout" char || status=$?
+			if test "$status" -eq 0; then
+				if test -z "$char"; then
+					char=$'\n'
+				fi
+				buffer_or_flush_char_into_key "$char"
+				while :; do
+					char=''
+					if ! IFS= read -sn1 -t1 char; then
+						break
+					fi
+					if test -z "$char"; then
+						char=$'\n'
+					fi
+					buffer_or_flush_char_into_key "$char"
+				done
+				flush_key
+				return 0
+			fi
 		fi
-		key="${k0}${k1}${k2}"
-	fi
-	if test "$status" -eq 142; then
-		return 60 # ETIMEDOUT 60 Operation timed out
-	elif test "$status" -eq 1 && (! test -t 0 || ! read -t 0); then
-		# this can happen on CI environments, and other environments with stdin and TTY trickery
-		# the read isn't wrapped in this, as those check are immediate, whereas read-key supports non-immediate timeouts
-		# return a timeout, read-key always functions with a timeout, so no input = is the same result as a timeout
-		return 60 # ETIMEDOUT 60 Operation timed out
-	elif test "$status" -ne 0; then
-		return "$status" # some other issue, let the caller figure it out
-	fi
+		if test "$status" -eq 142; then
+			return 60 # ETIMEDOUT 60 Operation timed out
+		elif test "$status" -eq 1 && (! test -t 0 || ! read -t 0); then
+			# this can happen on CI environments, and other environments with stdin and TTY trickery
+			# the read isn't wrapped in this, as those check are immediate, whereas read-key supports non-immediate timeouts
+			# return a timeout, read-key always functions with a timeout, so no input = is the same result as a timeout
+			return 60 # ETIMEDOUT 60 Operation timed out
+		elif test "$status" -ne 0; then
+			return "$status" # some other issue, let the caller figure it out
+		fi
+	}
+	function match_and_trim {
+		local name="$1" value
+		for value in "$@"; do
+			if [[ $parse_key == "$value"* ]]; then
+				printf '%s\n' "$name"
+				# the key starts with value, so remove value from key
+				parse_key="${parse_key#"$value"}"
+				# if anything trailing, then parse it
+				if test -n "$parse_key"; then
+					parse_key
+				fi
+			fi
+		done
+	}
+	function parse_key {
+		# special keys for common environments (manually verified)
+		# don't do fn+key on ubuntu, as that is probably invoking a media key instead
+		# https://en.wikipedia.org/wiki/Alt_key
+		# https://en.wikipedia.org/wiki/Caps_Lock
+		# https://en.wikipedia.org/wiki/Control_key
+		# https://en.wikipedia.org/wiki/Command_key
+		# https://en.wikipedia.org/wiki/Backspace
+		# https://en.wikipedia.org/wiki/Delete_key
+		# https://en.wikipedia.org/wiki/End_key
+		# https://en.wikipedia.org/wiki/Enter_key
+		# https://en.wikipedia.org/wiki/Esc_key
+		# https://en.wikipedia.org/wiki/Home_key
+		# https://en.wikipedia.org/wiki/Insert_key
+		# https://en.wikipedia.org/wiki/List_of_Unicode_characters
+		# https://en.wikipedia.org/wiki/Option_key
+		# https://en.wikipedia.org/wiki/Page_Up_and_Page_Down_keys
+		# https://en.wikipedia.org/wiki/Shift_key
+		# https://en.wikipedia.org/wiki/Super_key_(keyboard_button)
+		# https://en.wikipedia.org/wiki/Tab_key
+		# https://stackoverflow.com/a/29243081/130638
+		# https://www.acrobatfaq.com/atbref95/index/Keyboard_Shortcuts/Unicode_Codes_for_Keyboard_symbols.html
+		# ⌅, ⌤ = enter key: [return enter] old macos keyboards, [return] new macos keyboards, [Enter ↵] raspberry keyboards
+		# ↵ = return key, alias for enter
+		# ↑ = up arrow key
+		# ↓ = down arrow key
+		# → = right arrow key
+		# ⎋ = escape key: [esc] macos keyboards, [Esc] raspberry keyboard
+		# ⌦ = delete key, aka delete forward key: [not present] macos keyboards, [Delete] raspberry keyboard
+		# ⌫ = backspace key, aka delete backward key: [Backspace ⬸] raspberry keyboard
+		# ← = left arrow key
+		# ⇧ = shift key
+		# ⎇ = alt key: [not present] macos keyboards, [Alt] raspberry keyboards
+		# ⌥ = option key: [option alt] old macos keybaords, [option ⌥] new macos keyboards, [not present] raspberry keyboard
+		# ⌃, ⎈ = control key: [control] old macos keyboards, [control ⌃] new macos keyboards, [Ctrl] raspberry keyboards, [⎈] rarely used official symbol
+		# ⌘ = command key: [command ⌘] macos keyboards, [raspberry symbol] raspberry keyboards
+		# ❖ = super key, alias for command key
+		# 🌐 = function key: [fn] old macos keybaords, [🌐 fn] new macos keyboards, [Fn] raspberry keyboards
+		# ⇪ = caps lock key: [caps lock] macos and raspberry keyboards
+		# ⇥ = tab key: [tab] on macos keyboard, [tab ⇤ ⇥] raspberry keyboards
+		# ⇤ = backtab key: [visible as the alt] raspberry keyboards
+		# ⇱ = home key: [Home] raspberry keyboards
+		# ⇲ = end key: [End] raspberry keyboards
+		# ⇞ = page up key: [PgUp] raspberry keyboards
+		# ⇟ = page down key: [PgDn] raspberry keyboards
+		# Insert key does not have an official symbol: [not present] macos keyboards, [Ins] raspberry keyboards
 
-	# expand the key
-	case "$key" in
+		case "$parse_key" in
+		$'\e[A'*) match_and_trim 'up' $'\e[A' ;;                                    # [↑] ubuntu, macos   [k] vim
+		$'\e[B'*) match_and_trim 'down' $'\e[B' ;;                                  # [↓] ubuntu, macos   [j] vim
+		$'\e[C'*) match_and_trim 'right' $'\e[C' ;;                                 # [→] ubuntu, macos   [l] vim
+		$'\e[D'*) match_and_trim 'left' $'\e[D' ;;                                  # [←] ubuntu, macos   [h] vim
+		$'\e[H'*) match_and_trim 'home' $'\e[H' ;;                                  # [⇱] ubuntu, macos   [numlock 7] ubuntu       [🌐 ⇧ ←] macos
+		$'\e[F'*) match_and_trim 'end' $'\e[F' ;;                                   # [⇲] ubuntu, macos   [numlock 1] ubuntu       [🌐 ⇧ →] macos
+		$'\e[2'*) match_and_trim 'insert' $'\e[2~' $'\e[2' ;;                       # $'\e[2~' bash v4    $'\e[2' bash v3          [INSERT] [numlock 0] ubuntu
+		$'\e[3'*) match_and_trim 'delete' $'\e[3~' $'\e[3' ;;                       # $'\e[3~' bash v4    $'\e[3' bash v3     [⌦] [numlock .] ubuntu   [🌐 ⌫] macos
+		$'\e[5'* | $'\006'*) match_and_trim 'page-up' $'\e[5~' $'\e[5' $'\006' ;;   # $'\e[5~' bash v4    $'\e[5' bash v3     [⇞] [numlock 9] ubuntu   [$'\006'] [⌃ f] vim      [🌐 ⇧ ↑] macos
+		$'\e[6'* | $'\002'*) match_and_trim 'page-down' $'\e[6~' $'\e[6' $'\002' ;; # $'\e[6~' bash v4    $'\e[6' bash v3     [⇟] [numlock 3] ubuntu   [$'\002'] [⌃ b] vim      [🌐 ⇧ ↓] macos
+		$'\177'*) match_and_trim 'backspace' $'\177' ;;                             # $'\177' = $'\x7f'   [⌫] ubuntu, macos
+		$'\x0a'*) match_and_trim 'enter' $'\x0a' ;;                                 # $'\x0a' =  $'\n'
+		$'\t'*) match_and_trim 'tab' $'\t' ;;                                       # universal, ⇥
+		$'\e[Z'*) match_and_trim 'backtab' $'\e[Z' ;;                               # shift+tab on macos, ⇤
+		' '*) match_and_trim 'space' ;;                                             # universal
 
-	# special keys for common environments (manually verified)
-	# don't do fn+key on ubuntu, as that is probably invoking a media key instead
-	# https://en.wikipedia.org/wiki/Alt_key
-	# https://en.wikipedia.org/wiki/Caps_Lock
-	# https://en.wikipedia.org/wiki/Control_key
-	# https://en.wikipedia.org/wiki/Command_key
-	# https://en.wikipedia.org/wiki/Backspace
-	# https://en.wikipedia.org/wiki/Delete_key
-	# https://en.wikipedia.org/wiki/End_key
-	# https://en.wikipedia.org/wiki/Enter_key
-	# https://en.wikipedia.org/wiki/Esc_key
-	# https://en.wikipedia.org/wiki/Home_key
-	# https://en.wikipedia.org/wiki/Insert_key
-	# https://en.wikipedia.org/wiki/List_of_Unicode_characters
-	# https://en.wikipedia.org/wiki/Option_key
-	# https://en.wikipedia.org/wiki/Page_Up_and_Page_Down_keys
-	# https://en.wikipedia.org/wiki/Shift_key
-	# https://en.wikipedia.org/wiki/Super_key_(keyboard_button)
-	# https://en.wikipedia.org/wiki/Tab_key
-	# https://stackoverflow.com/a/29243081/130638
-	# https://www.acrobatfaq.com/atbref95/index/Keyboard_Shortcuts/Unicode_Codes_for_Keyboard_symbols.html
-	# ⌅, ⌤ = enter key: [return enter] old macos keyboards, [return] new macos keyboards, [Enter ↵] raspberry keyboards
-	# ↵ = return key, alias for enter
-	# ↑ = up arrow key
-	# ↓ = down arrow key
-	# → = right arrow key
-	# ⎋ = escape key: [esc] macos keyboards, [Esc] raspberry keyboard
-	# ⌦ = delete key, aka delete forward key: [not present] macos keyboards, [Delete] raspberry keyboard
-	# ⌫ = backspace key, aka delete backward key: [Backspace ⬸] raspberry keyboard
-	# ← = left arrow key
-	# ⇧ = shift key
-	# ⎇ = alt key: [not present] macos keyboards, [Alt] raspberry keyboards
-	# ⌥ = option key: [option alt] old macos keybaords, [option ⌥] new macos keyboards, [not present] raspberry keyboard
-	# ⌃, ⎈ = control key: [control] old macos keyboards, [control ⌃] new macos keyboards, [Ctrl] raspberry keyboards, [⎈] rarely used official symbol
-	# ⌘ = command key: [command ⌘] macos keyboards, [raspberry symbol] raspberry keyboards
-	# ❖ = super key, alias for command key
-	# 🌐 = function key: [fn] old macos keybaords, [🌐 fn] new macos keyboards, [Fn] raspberry keyboards
-	# ⇪ = caps lock key: [caps lock] macos and raspberry keyboards
-	# ⇥ = tab key: [tab] on macos keyboard, [tab ⇤ ⇥] raspberry keyboards
-	# ⇤ = backtab key: [visible as the alt] raspberry keyboards
-	# ⇱ = home key: [Home] raspberry keyboards
-	# ⇲ = end key: [End] raspberry keyboards
-	# ⇞ = page up key: [PgUp] raspberry keyboards
-	# ⇟ = page down key: [PgDn] raspberry keyboards
-	# Insert key does not have an official symbol: [not present] macos keyboards, [Ins] raspberry keyboards
-	$'\e[A') __print_lines 'up' ;;                             # [↑] ubuntu, macos   [k] vim
-	$'\e[B') __print_lines 'down' ;;                           # [↓] ubuntu, macos   [j] vim
-	$'\e[C') __print_lines 'right' ;;                          # [→] ubuntu, macos   [l] vim
-	$'\e[D') __print_lines 'left' ;;                           # [←] ubuntu, macos   [h] vim
-	$'\e[H') __print_lines 'home' ;;                           # [⇱] ubuntu, macos   [numlock 7] ubuntu       [🌐 ⇧ ←] macos
-	$'\e[F') __print_lines 'end' ;;                            # [⇲] ubuntu, macos   [numlock 1] ubuntu       [🌐 ⇧ →] macos
-	$'\e[2~' | $'\e[2') __print_lines 'insert' ;;              # $'\e[2' bash v3     [INSERT] [numlock 0] ubuntu
-	$'\e[3~' | $'\e[3') __print_lines 'delete' ;;              # $'\e[3' bash v3     [⌦] [numlock .] ubuntu   [🌐 ⌫] macos
-	$'\e[5~' | $'\e[5' | $'\006') __print_lines 'page-up' ;;   # $'\e[5' bash v3     [⇞] [numlock 9] ubuntu   [$'\006'] [⌃ f] vim      [🌐 ⇧ ↑] macos
-	$'\e[6~' | $'\e[6' | $'\002') __print_lines 'page-down' ;; # $'\e[6' bash v3     [⇟] [numlock 3] ubuntu   [$'\002'] [⌃ b] vim      [🌐 ⇧ ↓] macos
-	$'\177') __print_lines 'backspace' ;;                      # $'\177' = $'\x7f'   [⌫] ubuntu, macos
-	$'\e') __print_lines 'escape' ;;                           # $'\e' = $'\x1b'
-	$'\x0a' | '') __print_lines 'enter' ;;                     # '' bash v3, $'\x0a' =  $'\n'
-	$'\t') __print_lines 'tab' ;;                              # universal, ⇥
-	$'\e[Z') __print_lines 'backtab' ;;                        # shift+tab on macos, ⇤
-	' ') __print_lines 'space' ;;                              # universal
+		# special keys for other environments (tried to verify, haven't been able to)
+		$'\eOA'*) match_and_trim 'up' $'\eOA' ;;     # v100, screen, xterm
+		$'\eOB'*) match_and_trim 'down' $'\eOB' ;;   # v100, screen, xterm
+		$'\eOC'*) match_and_trim 'right' $'\eOC' ;;  # v100, screen, xterm
+		$'\eOD'*) match_and_trim 'left' $'\eOD' ;;   # v100, screen, xterm
+		$'\eOH'*) match_and_trim 'home' $'\eOH' ;;   # xterm
+		$'\eOF'*) match_and_trim 'end' $'\eOF' ;;    # xterm
+		$'\e[1~'*) match_and_trim 'home' $'\e[1~' ;; # linux, screen
+		$'\e[4~'*) match_and_trim 'end' $'\e[4~' ;;  # linux, screen
+		$'\x01'*) match_and_trim 'all' $'\x01' ;;    # what type of key is this?
+		# G = end, g = home
 
-	# special keys for other environments (tried to verify, haven't been able to)
-	$'\eOA') __print_lines 'up' ;;    # v100, screen, xterm
-	$'\eOB') __print_lines 'down' ;;  # v100, screen, xterm
-	$'\eOC') __print_lines 'right' ;; # v100, screen, xterm
-	$'\eOD') __print_lines 'left' ;;  # v100, screen, xterm
-	$'\eOH') __print_lines 'home' ;;  # xterm
-	$'\eOF') __print_lines 'end' ;;   # xterm
-	$'\e[1~') __print_lines 'home' ;; # linux, screen
-	$'\e[4~') __print_lines 'end' ;;  # linux, screen
-	$'\x01') __print_lines 'all' ;;   # what type of key is this?
-	# G = end, g = home
+		# final
+		$'\e'*) match_and_trim 'escape' $'\e' ;; # $'\e' = $'\x1b'
 
-	# standard key or unknown special key
-	*) __print_lines "$key" ;;
-	esac
+		# standard key or unknown special key
+		*)
+			if test "$option_escaped" = 'yes'; then
+				printf '%q\n' "$parse_key"
+			else
+				printf '%s\n' "$parse_key"
+			fi
+			;;
+		esac
+	}
+	read_chars_into_keys
 )
 
 # fire if invoked standalone
