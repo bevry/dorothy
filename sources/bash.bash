@@ -458,7 +458,8 @@ if test "$BASH_VERSION_MAJOR" -ge 4; then
 	}
 else
 	function __get_read_decimal_timeout {
-		if test -n "$1" && test "$1" -lt 1; then
+		# -lt requires integers, so we need to use regexp instead
+		if test -n "$1" && [[ $1 =~ ^0[.] ]]; then
 			__print_line 1
 		else
 			__print_line "$1"

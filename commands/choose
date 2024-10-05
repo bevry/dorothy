@@ -887,7 +887,7 @@ function choose_() (
 		eval "${name}_content=\"\$content\""
 		if test "$paging_supported" = 'yes'; then
 			rows="$(echo-wrap --width="$content_columns" -- "$content" | echo-count-lines --stdin)"
-			eval "${name}_rows=\"\$rows\""
+			eval "${name}_rows=\"$rows\""
 		fi
 	}
 	function render_lengends {
@@ -1336,7 +1336,9 @@ function choose_() (
 		fi
 		# check if we need to recalculate paging and update the mode
 		if test "$new" != "$menu_mode"; then
-			paging_used='maybe'
+			if test "$paging_supported" = 'yes'; then
+				paging_used='maybe'
+			fi
 			menu_mode="$new"
 			if test "$new" != 'choose'; then
 				# reset cursor
@@ -1436,6 +1438,10 @@ function choose_() (
 			fi
 		fi
 		# @TODO HANDLE NO SELECTED OPTIONS BETTER, PERHAPS AN IF HERE
+		if test "$paging_supported" = 'no'; then
+			menu_index=0
+			menu_direction=1
+		fi
 		menu_top_index="$menu_index"
 		menu_bottom_index="$menu_index"
 		menu_resized_to=''
@@ -1482,17 +1488,20 @@ function choose_() (
 
 			# determine paging
 			if test "$paging_used" = 'no'; then
-				# paging is no longer needed, no recalculations needed
+				# paging is no longer needed, now row calculations needed, only need to blockquote the multiline item
 				if test -n "${items_renders[item_index]}"; then
-					# use rendered item (in case it needed to be formatted if it exists)
-					item_line="${line_prefix}${items_renders[item_index]}${line_end}"$'\n'
+					item_rendered="${items_renders[item_index]}"
 				else
-					# otherwise use original item
-					item_line="${line_prefix}${items[item_index]}${line_end}"$'\n'
+					item_original="${items[item_index]}"
+					item_rendered="$item_original"
+					item_rendered="${item_rendered//$'\n'/$'\n'"${style__indent_bar}${style__blockquote}"}" # re-add the necessary indentation
+					items_renders[item_index]="$item_rendered"
 				fi
+				# use rendered item
+				item_line="${line_prefix}${item_rendered}${line_end}"$'\n'
 			else
 				# paging is needed, so we must recalculate bundled size
-				if test -n "${items_renders[item_index]}"; then
+				if test -n "${items_rows[item_index]}"; then
 					item_rendered="${items_renders[item_index]}"
 					item_rows="${items_rows[item_index]}"
 				else
@@ -1755,13 +1764,13 @@ function choose_() (
 		else
 			menu_title+=$'\e]0;'"👉 ${verb} ${verb_total} of ${items_count} items 👈"$'\a'
 		fi
-		printf '%s' "${style__erase_screen}${style__hide_cursor}${menu_title}${menu_header}${bar_top_content}${bar_middle_content}${items_bundled}${bar_bottom_content}${menu_legend_content}" >"$tty_target"
+		printf '%s' "${style__clear_screen}${style__hide_cursor}${menu_title}${menu_header}${bar_top_content}${bar_middle_content}${items_bundled}${bar_bottom_content}${menu_legend_content}" >"$tty_target"
 		if test -n "$menu_resized_to"; then
 			refresh_terminal_size
 			if test "$terminal_too_short" = 'yes'; then
 				menu_title=$'\e]0;'"‼️ TERMINAL TOO SHORT ‼️"$'\a'
 				local additional_rows="$((menu_resized_to - terminal_rows))"
-				printf '%s' "${style__erase_screen}${style__hide_cursor}${menu_title}${style__error}You have been prompted to make a menu selection, however the terminal does not have enough vertical height to make that selection.${style__end__error}"$'\n'"${style__notice}Increase the terminal height or reduce font size to proceed, then press any key.${style__end__notice}"$'\n'"Terminal rows = ${terminal_rows}, Needed rows = ${menu_resized_to}, Additional rows = ${additional_rows}"$'\n' >"$tty_target"
+				printf '%s' "${style__clear_screen}${style__hide_cursor}${menu_title}${style__error}You have been prompted to make a menu selection, however the terminal does not have enough vertical height to make that selection.${style__end__error}"$'\n'"${style__notice}Increase the terminal height or reduce font size to proceed, then press any key.${style__end__notice}"$'\n'"Terminal rows = ${terminal_rows}, Needed rows = ${menu_resized_to}, Additional rows = ${additional_rows}"$'\n' >"$tty_target"
 			fi
 		fi
 	}
@@ -1816,7 +1825,7 @@ function choose_() (
 		fi
 	}
 	function handle_menu {
-		local input read_status
+		local input read_status keys skips
 		# action
 		function show_cursor {
 			__print_string "$style__show_cursor" >"$tty_target"
@@ -1838,126 +1847,148 @@ function choose_() (
 					commentary="${style__input_warning}[timed out: using defaults]${style__end__input_warning}"
 					action_revert
 					set_menu_mode 'finished'
+					break
 				elif test "$option_required" = 'no'; then
 					commentary="${style__input_warning}[timed out: not required]${style__end__input_warning}"
 					action_none
 					set_menu_mode 'finished'
+					break
 				else
 					commentary="${style__input_error}[input failure: timed out: required]${style__end__input_error}"
 					menu_status="$read_status" # error cases no seleciotn
 					set_menu_mode 'finished'
+					break
 				fi
 			elif test "$read_status" -ne 0; then
 				# some other failure
 				commentary="${style__input_error}[input failure: $read_status]${style__end__input_error}"
 				menu_status="$read_status" # error causes no selection
 				set_menu_mode 'finished'
+				break
 			elif test "$terminal_too_short" = 'yes'; then
-				: # continue
-			elif is-digit -- "$input"; then
-				action_jump "$input"
-				# it may be tempting to make these (this action and below) non-multi selections, however that is not desired for timeouts, as timeouts should be empty if non-required, or the default if required, rather than whatever the user had their menu on, as timeout = escape/cancel
-			elif test "$input" = 'up' -o "$input" = 'w' -o "$input" = 'k'; then
-				action_up
-			elif test "$input" = 'down' -o "$input" = 's' -o "$input" = 'j'; then
-				action_down
-			elif test "$input" = 'left' -o "$input" = 'a' -o "$input" = 'h' -o "$input" = 'page-up'; then
-				if test "$paging_supported" = 'yes'; then
-					action_page_up
-				else
-					action_first
-				fi
-			elif test "$input" = 'right' -o "$input" = 'd' -o "$input" = 'l' -o "$input" = 'page-down'; then
-				if test "$paging_supported" = 'yes'; then
-					action_page_down
-				else
-					action_last
-				fi
-			elif test "$input" = 'home'; then
-				action_first
-			elif test "$input" = 'end'; then
-				action_last
-			elif test "$input" = 'tab'; then
-				action_next_preference
-			elif test "$input" = 'backtab'; then
-				action_prior_preference
-			elif test "$menu_mode" = 'cancel'; then
-				# CANCEL MENU
-				if test "$input" = 'enter' -o "$input" = 'e' || test "$input" = 'space' -a "$option_multi" = 'no'; then
-					action_revert
-					set_menu_mode 'finished'
-				elif test "$input" = 'escape' -o "$input" = 'q'; then
-					set_menu_mode 'choose'
-				fi
-			elif test "$menu_mode" = 'confirm'; then
-				# CONFIRM MENU
-				if test "$input" = 'enter' -o "$input" = 'e' || test "$input" = 'space' -a "$option_multi" = 'no'; then
-					set_menu_mode 'finished'
-				elif test "$input" = 'escape' -o "$input" = 'q'; then
-					set_menu_mode 'choose'
-				fi
-			elif test "$input" = 'space'; then
-				if test "$option_multi" = 'yes'; then
-					action_toggle_cursor
-				else
-					action_select_cursor
-					if test "$option_confirm_input" = 'yes'; then
-						set_menu_mode 'confirm'
-					else
-						set_menu_mode 'finished'
-					fi
-				fi
-			elif test "$can_cancel" = 'yes' && test "$input" = 'escape' -o "$input" = 'q'; then
-				if test "$option_confirm_input" = 'yes'; then
-					set_menu_mode 'cancel'
-				else
-					action_revert
-					set_menu_mode 'finished'
-				fi
-			elif test "$input" = 'enter' -o "$input" = 'e'; then
-				if test "$option_multi" = 'no'; then
-					action_select_cursor
-				fi
-				if test "$option_confirm_input" = 'yes'; then
-					set_menu_mode 'confirm'
-				else
-					set_menu_mode 'finished'
-				fi
-			elif test "$input" = 'z'; then
-				action_revert
-			elif test "$option_multi" = 'yes'; then
-				if test "$input" = 't'; then
-					if test "$selected_count" -eq "$items_count"; then
-						action_none
-					else
-						action_all
-					fi
-				elif test "$input" = 'insert' -o "$input" = '+'; then
-					action_select_and_next
-				elif test "$input" = '-'; then
-					action_select_and_prior
-				elif test "$input" = 'backspace'; then
-					action_unselect_and_prior
-				elif test "$input" = 'delete'; then
-					action_unselect_and_next
-				elif test "$input" = 'all'; then
-					action_all
-				else
-					# nothing done, no need to repeat, just need to read again
-					menu_skip_render='yes'
-					continue
-				fi
-			else
-				# nothing done, no need to repeat, just need to read again
+				continue
+			elif test -z "$input"; then
 				menu_skip_render='yes'
 				continue
 			fi
 
-			# do a re-render
+			# input => keys => key
+			keys=()
+			skips=()
+			mapfile -t keys <<<"$input"
+			for key in "${keys[@]}"; do
+				if is-digit -- "$key"; then
+					action_jump "$key"
+					# it may be tempting to make these (this action and below) non-multi selections, however that is not desired for timeouts, as timeouts should be empty if non-required, or the default if required, rather than whatever the user had their menu on, as timeout = escape/cancel
+				elif test "$key" = 'up' -o "$key" = 'w' -o "$key" = 'k'; then
+					action_up
+				elif test "$key" = 'down' -o "$key" = 's' -o "$key" = 'j'; then
+					action_down
+				elif test "$key" = 'left' -o "$key" = 'a' -o "$key" = 'h' -o "$key" = 'page-up'; then
+					if test "$paging_supported" = 'yes'; then
+						action_page_up
+					else
+						action_first
+					fi
+				elif test "$key" = 'right' -o "$key" = 'd' -o "$key" = 'l' -o "$key" = 'page-down'; then
+					if test "$paging_supported" = 'yes'; then
+						action_page_down
+					else
+						action_last
+					fi
+				elif test "$key" = 'home'; then
+					action_first
+				elif test "$key" = 'end'; then
+					action_last
+				elif test "$key" = 'tab'; then
+					action_next_preference
+				elif test "$key" = 'backtab'; then
+					action_prior_preference
+				elif test "$menu_mode" = 'cancel'; then
+					# CANCEL MENU
+					if test "$key" = 'enter' -o "$key" = 'e' || test "$key" = 'space' -a "$option_multi" = 'no'; then
+						action_revert
+						set_menu_mode 'finished'
+						break
+					elif test "$key" = 'escape' -o "$key" = 'q'; then
+						set_menu_mode 'choose'
+					fi
+				elif test "$menu_mode" = 'confirm'; then
+					# CONFIRM MENU
+					if test "$key" = 'enter' -o "$key" = 'e' || test "$key" = 'space' -a "$option_multi" = 'no'; then
+						set_menu_mode 'finished'
+						break
+					elif test "$key" = 'escape' -o "$key" = 'q'; then
+						set_menu_mode 'choose'
+					fi
+				elif test "$key" = 'space'; then
+					if test "$option_multi" = 'yes'; then
+						action_toggle_cursor
+					else
+						action_select_cursor
+						if test "$option_confirm_input" = 'yes'; then
+							set_menu_mode 'confirm'
+						else
+							set_menu_mode 'finished'
+							break
+						fi
+					fi
+				elif test "$can_cancel" = 'yes' && test "$key" = 'escape' -o "$key" = 'q'; then
+					if test "$option_confirm_input" = 'yes'; then
+						set_menu_mode 'cancel'
+					else
+						action_revert
+						set_menu_mode 'finished'
+						break
+					fi
+				elif test "$key" = 'enter' -o "$key" = 'e'; then
+					if test "$option_multi" = 'no'; then
+						action_select_cursor
+					fi
+					if test "$option_confirm_input" = 'yes'; then
+						set_menu_mode 'confirm'
+					else
+						set_menu_mode 'finished'
+						break
+					fi
+				elif test "$key" = 'z'; then
+					action_revert
+				elif test "$option_multi" = 'yes'; then
+					if test "$key" = 't'; then
+						if test "$selected_count" -eq "$items_count"; then
+							action_none
+						else
+							action_all
+						fi
+					elif test "$key" = 'insert' -o "$key" = '+'; then
+						action_select_and_next
+					elif test "$key" = '-'; then
+						action_select_and_prior
+					elif test "$key" = 'backspace'; then
+						action_unselect_and_prior
+					elif test "$key" = 'delete'; then
+						action_unselect_and_next
+					elif test "$key" = 'all'; then
+						action_all
+					else
+						# nothing done, no need to repeat, just need to read again
+						skips+=("$key")
+						continue
+					fi
+				else
+					# nothing done, no need to repeat, just need to read again
+					skips+=("$key")
+					continue
+				fi
+			done
+			if test "${#skips[@]}" -eq "${#keys[@]}"; then
+				menu_skip_render='yes'
+				continue
+			fi
+
+			# finish if finished
 			if test "$menu_mode" = 'finished'; then
 				break
-			else
-				menu_skip_render='no'
 			fi
 		done
 		show_cursor
