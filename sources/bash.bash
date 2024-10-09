@@ -101,6 +101,147 @@ function __print_value_lines_or_line {
 }
 
 # =============================================================================
+# Helpers for common tasks
+
+# see [commands/is-brew] for details
+# workaround for Dorothy's [brew] helper
+function __is_brew {
+	if test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/brew"; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+# see [commands/command-missing] for details
+# returns [0] if ANY command is missing
+# returns [1] if ALL commands were present
+function __command_missing {
+	# trim -- prefix
+	if test "${1-}" = '--'; then
+		shift
+	fi
+	# proceed
+	local command
+	for command in "${commands[@]}"; do
+		if test "$command" = 'brew'; then
+			# workaround for our [brew] wrapper
+			if __is_brew; then
+				continue
+			else
+				return 0 # a command is missing
+			fi
+		elif type -P "$command" &>/dev/null; then
+			continue
+		else
+			return 0 # a command is missing
+		fi
+	done
+	return 1 # all commands are present
+
+}
+
+# see [commands/command-exists] for details
+# returns [0] if all commands are available
+# returns [1] if any command was not available
+function __command_exists {
+	# trim -- prefix
+	if test "${1-}" = '--'; then
+		shift
+	fi
+	# proceed
+	local command
+	for command in "${option_commands[@]}"; do
+		if test "$command" = 'brew'; then
+			# workaround for our [brew] wrapper
+			if __is_brew; then
+				continue
+			else
+				return 1 # a command is missing
+			fi
+		elif type -P "$command" &>/dev/null; then
+			continue
+		else
+			return 1 # a command is missing
+		fi
+	done
+	return 0 # all commands are present
+}
+
+# see [commands/sudo-helper] for details
+function __try_sudo {
+	# trim -- prefix
+	if test "${1-}" = '--'; then
+		shift
+	fi
+	# forward to sudo-helper if it exists, as it is more detailed
+	if __command_exists -- sudo-helper; then
+		sudo-helper -- "$@"
+		return
+	elif __command_exists -- sudo; then
+		# check if password is required
+		if ! sudo --non-interactive true &>/dev/null; then
+			# password is required, let the user know what they are being prompted for
+			__print_lines 'Your sudo/root/login password is required to execute the command:' >/dev/stderr
+			__print_lines "sudo $*" >/dev/stderr
+			sudo "$@"
+			return
+		else
+			# session still active, password not required
+			sudo "$@"
+			return
+		fi
+	elif __command_exists -- doas; then
+		local status=0
+		set -x # <inform the user of why they are being prompted for a doas password>
+		doas "$@" || status=$?
+		set +x # </inform>
+		return "$status"
+	else
+		"$@"
+		return
+	fi
+}
+
+# performantly make directories as many directories as possible without sudo
+function __mkdirp {
+	# trim -- prefix
+	if test "${1-}" = '--'; then
+		shift
+	fi
+	# proceed
+	local status=0 dir missing=()
+	for dir in "$@"; do
+		if test -n "$dir" -a ! -d "$dir"; then
+			missing+=("$dir")
+		fi
+	done
+	if test "${#missing[@]}" -ne 0; then
+		mkdir -p "${missing[@]}" || status=$?
+	fi
+	return "$status"
+}
+
+# performantly make directories with sudo
+function __sudo_mkdirp {
+	# trim -- prefix
+	if test "${1-}" = '--'; then
+		shift
+	fi
+	# proceed
+	local status=0 dir missing=()
+	for dir in "$@"; do
+		if test -n "$dir" -a ! -d "$dir"; then
+			missing+=("$dir")
+		fi
+	done
+	if test "${#missing[@]}" -ne 0; then
+		__try_sudo -- mkdir -p "${missing[@]}" || status=$?
+	fi
+	return "$status"
+}
+
+# =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
 # for example:
@@ -275,7 +416,7 @@ function eval_capture {
 	local EVAL_CAPTURE_SUBSHELL="${BASH_SUBSHELL-}"
 	local temp_directory="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/eval-capture" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
 	local status_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.status" stderr_temp_file='' stdout_temp_file='' output_temp_file=''
-	mkdir -p "$temp_directory"
+	__mkdirp "$temp_directory"
 	function eval_capture_wrapper_trap {
 		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
 		# __print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
@@ -453,10 +594,16 @@ fi
 # Shim Read Timeout
 # Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
 if test "$BASH_VERSION_MAJOR" -ge 4; then
+	function __can_read_decimal_timeout {
+		return 0
+	}
 	function __get_read_decimal_timeout {
 		__print_line "$1"
 	}
 else
+	function __can_read_decimal_timeout {
+		return 1
+	}
 	function __get_read_decimal_timeout {
 		# -lt requires integers, so we need to use regexp instead
 		if test -n "$1" && [[ $1 =~ ^0[.] ]]; then
