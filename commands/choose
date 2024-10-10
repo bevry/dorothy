@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# @todo tests for solo item, tests for fuzzy and exact defaults
+# @todo see if the [ nothing selected ] is blockquote in ask, and if so, make it blockquote here too
+
 function choose_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
@@ -501,14 +504,17 @@ function choose_() (
 			--defaults-fuzzy=<newline separated values>
 			    Pre-select <value>s by fuzzy matching.
 
-			--[no-]confirm=[yes|no]
-			    Confirm the (default/entered) value(s) before continuing.
+			--[no-]skip-solo=[YES|no] | --[no-]confirm-solo=[NO|yes]
+			    If a selection is required, and there is only a single item, the solo item will be selected. This option skips the prompt for the required solo item, sending it without doing the prompt. Defaults to disabled.
 
-			--[no-]confirm-default=[YES|no] | --[no-]skip-default=[yes|NO]
-			    Confirm the default value(s) (if provided) before continuing. Defaults to enabled.
+			--[no-]skip-default=[yes|NO] | --[no-]confirm-default=[YES|no]
+			    If there are defaults, skip the prompt and send the defaults. Defaults to disabled.
 
 			--[no-]confirm-input=[yes|NO]
-			    Confirm the entered value(s) before continuing. Defaults to disabled.
+			    Have the choose menu confirm the user's input (their selection or lack of selection). Defaults to disabled.
+
+			--[no-]confirm=[yes|no]
+			    HAve the prompt not skip any step, requiring solo values to be prompted, default values to be prompted, and selections or their lack of to be confirmed.
 
 			--[no-]required=[yes|NO]
 			    Do not continue until a selection is made. Disable aborting the prompt.
@@ -539,7 +545,7 @@ function choose_() (
 	local option_question=()
 	# trunk-ignore(shellcheck/SC2016)
 	local option_label='no' option_visual='' option_return='$VALUE'
-	local defaults_exact=() defaults_fuzzy=() option_confirm_default='yes' option_confirm_input='no'
+	local defaults_exact=() defaults_fuzzy=() option_confirm_solo='yes' option_confirm_default='yes' option_confirm_input='no'
 	local option_required='no' option_multi='no'
 	local option_linger='no' option_timeout=''
 	while test "$#" -ne 0; do
@@ -566,6 +572,12 @@ function choose_() (
 			mapfile -t tmp <<<"${item#*=}"
 			defaults_fuzzy+=("${tmp[@]}")
 			;;
+		'--no-skip-solo'* | '--skip-solo'*)
+			option_confirm_solo="$(get-flag-value --non-affirmative --fallback="$option_confirm_solo" -- "$item")"
+			;;
+		'--no-confirm-solo'* | '--confirm-solo'*)
+			option_confirm_solo="$(get-flag-value --affirmative --fallback="$option_confirm_solo" -- "$item")"
+			;;
 		'--no-skip-default'* | '--skip-default'*)
 			option_confirm_default="$(get-flag-value --non-affirmative --fallback="$option_confirm_default" -- "$item")"
 			;;
@@ -576,6 +588,7 @@ function choose_() (
 			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
 			;;
 		'--no-confirm'* | '--confirm'*)
+			option_confirm_solo="$(get-flag-value --affirmative --fallback="$option_confirm_solo" -- "$item")"
 			option_confirm_default="$(get-flag-value --affirmative --fallback="$option_confirm_default" -- "$item")"
 			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
 			;;
@@ -667,9 +680,9 @@ function choose_() (
 	fi
 
 	# generic helpers
-	function __fuzzy_haystack_needle {
-		local haystack="$1" needle="$2"
-		[[ "$(__lowercase_string "$haystack")" == *"$(__lowercase_string "$needle")"* ]]
+	function __string_has_case_insensitive_substring {
+		local string="$1" substring="$2"
+		[[ "$(__lowercase_string "$string")" == *"$(__lowercase_string "$substring")"* ]]
 		return
 	}
 
@@ -693,7 +706,7 @@ function choose_() (
 
 	# generate the items
 	# @todo add support for option_defaults_indexes if a user requests it
-	local index item INDEX=-1 VALUE LABEL VISUAL RETURN items=() returns=() defaults=() defaults_indexes=() defaults_count=0 defaults_last=-1 fallbacks_indexes=() fallbacks_count=0 fallbacks_last=-1
+	local index item INDEX=-1 VALUE LABEL VISUAL RETURN items=() returns=() defaults=() items_count can_skip_prompt='no' defaults_indexes=() defaults_count=0 defaults_last=-1 fallbacks_indexes=() fallbacks_count=0 fallbacks_last=-1
 	for ((index = 0; index < ${#inputs[@]}; index = index + inputs_step)); do
 		# index considers inputs_step, INDEX is only each item (label/value combo)
 		INDEX=$((INDEX + 1))
@@ -730,9 +743,10 @@ function choose_() (
 					defaults[INDEX]='yes'
 				fi
 			done
-		elif test "${#defaults_fuzzy[@]}" -ne 0; then # bash v3 compat
+		fi
+		if test "${#defaults_fuzzy[@]}" -ne 0; then # bash v3 compat
 			for item in "${defaults_fuzzy[@]}"; do
-				if __fuzzy_haystack_needle "$VALUE" "$item"; then
+				if __string_has_case_insensitive_substring "$VALUE" "$item"; then
 					defaults[INDEX]='yes'
 				fi
 			done
@@ -760,6 +774,13 @@ function choose_() (
 		items+=("$VISUAL")
 		returns+=("$RETURN")
 	done
+	items_count="${#items[@]}"
+	if test "$items_count" -eq 1 -a "$option_required" = 'yes'; then
+		defaults[0]='yes'
+		if test "$option_confirm_solo" = 'no'; then
+			can_skip_prompt='yes'
+		fi
+	fi
 	defaults_count="${#defaults[@]}"
 	defaults_indexes=("${!defaults[@]}")
 
@@ -769,6 +790,9 @@ function choose_() (
 		defaults_last="$((defaults_count - 1))"
 		can_revert_to_defaults='yes'
 		can_cancel='yes'
+		if test "$option_confirm_default" = 'no'; then
+			can_skip_prompt='yes'
+		fi
 	else
 		can_revert_to_defaults='no'
 		if test "$option_required" = 'no'; then
@@ -794,7 +818,6 @@ function choose_() (
 	local \
 		commentary='' \
 		content_columns \
-		items_count="${#items[@]}" \
 		items_last \
 		items_renders \
 		items_rows \
@@ -837,7 +860,11 @@ function choose_() (
 	text__pick_nothing_cancel='cancel with nothing'
 	text__pick_nothing_choose='choose from nothing'
 	text__pick_nothing_confirm='confirm with nothing'
-	if test "$option_multi" = 'yes'; then
+	if test "$items_count" -eq 1 -a "$option_required" = 'yes'; then
+		text__pick_cancel='cancel to the'
+		text__pick_choose='choose the'
+		text__pick_confirm='confirm the'
+	elif test "$option_multi" = 'yes'; then
 		text__pick_cancel='cancel to the'
 		text__pick_choose='choose any of'
 		text__pick_confirm='confirm the'
@@ -1316,22 +1343,17 @@ function choose_() (
 	}
 	function set_menu_mode {
 		local new="$1"
-		# sanity check if confirm is appropriate
+		# sanity check if new menu is appropriate
 		if test "$option_required" = 'yes'; then
-			if test "$new" = 'confirm'; then
-				if test "$selected_count" -eq 0; then
-					menu_skip_render='yes'
-					menu_mode='choose'
-					__print_string "$style__bell" >"$tty_target"
-					return 0
-				fi
-			elif test "$new" = 'cancel'; then
-				if test "$fallbacks_count" -eq 0; then
-					menu_skip_render='yes'
-					menu_mode='choose'
-					__print_string "$style__bell" >"$tty_target"
-					return 0
-				fi
+			# if required, and trying to do proceed without items, then go back to choose and send a bell
+			if
+				test "$selected_count" -eq 0 && test "$new" = 'confirm' -o "$new" = 'confirmed' ||
+					test "$fallbacks_count" -eq 0 -a "$new" = 'cancel'
+			then
+				menu_skip_render='yes'
+				menu_mode='choose'
+				__print_string "$style__bell" >"$tty_target"
+				return 0
 			fi
 		fi
 		# check if we need to recalculate paging and update the mode
@@ -1846,24 +1868,24 @@ function choose_() (
 				if test "$selected_count" -ne 0; then
 					commentary="${style__input_warning}[timed out: using defaults]${style__end__input_warning}"
 					action_revert
-					set_menu_mode 'finished'
+					set_menu_mode 'exit'
 					break
 				elif test "$option_required" = 'no'; then
 					commentary="${style__input_warning}[timed out: not required]${style__end__input_warning}"
 					action_none
-					set_menu_mode 'finished'
+					set_menu_mode 'exit'
 					break
 				else
 					commentary="${style__input_error}[input failure: timed out: required]${style__end__input_error}"
 					menu_status="$read_status" # error cases no seleciotn
-					set_menu_mode 'finished'
+					set_menu_mode 'exit'
 					break
 				fi
 			elif test "$read_status" -ne 0; then
 				# some other failure
 				commentary="${style__input_error}[input failure: $read_status]${style__end__input_error}"
 				menu_status="$read_status" # error causes no selection
-				set_menu_mode 'finished'
+				set_menu_mode 'exit'
 				break
 			elif test "$terminal_too_short" = 'yes'; then
 				continue
@@ -1908,7 +1930,7 @@ function choose_() (
 					# CANCEL MENU
 					if test "$key" = 'enter' -o "$key" = 'e' || test "$key" = 'space' -a "$option_multi" = 'no'; then
 						action_revert
-						set_menu_mode 'finished'
+						set_menu_mode 'confirmed'
 						break
 					elif test "$key" = 'escape' -o "$key" = 'q'; then
 						set_menu_mode 'choose'
@@ -1916,7 +1938,7 @@ function choose_() (
 				elif test "$menu_mode" = 'confirm'; then
 					# CONFIRM MENU
 					if test "$key" = 'enter' -o "$key" = 'e' || test "$key" = 'space' -a "$option_multi" = 'no'; then
-						set_menu_mode 'finished'
+						set_menu_mode 'confirmed'
 						break
 					elif test "$key" = 'escape' -o "$key" = 'q'; then
 						set_menu_mode 'choose'
@@ -1929,7 +1951,7 @@ function choose_() (
 						if test "$option_confirm_input" = 'yes'; then
 							set_menu_mode 'confirm'
 						else
-							set_menu_mode 'finished'
+							set_menu_mode 'confirmed'
 							break
 						fi
 					fi
@@ -1938,7 +1960,7 @@ function choose_() (
 						set_menu_mode 'cancel'
 					else
 						action_revert
-						set_menu_mode 'finished'
+						set_menu_mode 'confirmed'
 						break
 					fi
 				elif test "$key" = 'enter' -o "$key" = 'e'; then
@@ -1948,7 +1970,7 @@ function choose_() (
 					if test "$option_confirm_input" = 'yes'; then
 						set_menu_mode 'confirm'
 					else
-						set_menu_mode 'finished'
+						set_menu_mode 'confirmed'
 						break
 					fi
 				elif test "$key" = 'z'; then
@@ -1987,7 +2009,7 @@ function choose_() (
 			fi
 
 			# finish if finished
-			if test "$menu_mode" = 'finished'; then
+			if test "$menu_mode" = 'confirmed' -o "$menu_mode" = 'exit'; then
 				break
 			fi
 		done
@@ -1999,7 +2021,7 @@ function choose_() (
 	select_defaults
 
 	# render if not skipping
-	if test "$option_confirm_default" = 'no' -a "$can_revert_to_defaults" = 'yes'; then
+	if test "$can_skip_prompt" = 'yes'; then
 		: # we have defaults, and want to skip defaults
 	else
 		handle_menu
