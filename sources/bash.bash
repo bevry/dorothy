@@ -123,7 +123,7 @@ function __command_missing {
 	fi
 	# proceed
 	local command
-	for command in "${commands[@]}"; do
+	for command in "$@"; do
 		if test "$command" = 'brew'; then
 			# workaround for our [brew] wrapper
 			if __is_brew; then
@@ -151,7 +151,7 @@ function __command_exists {
 	fi
 	# proceed
 	local command
-	for command in "${option_commands[@]}"; do
+	for command in "$@"; do
 		if test "$command" = 'brew'; then
 			# workaround for our [brew] wrapper
 			if __is_brew; then
