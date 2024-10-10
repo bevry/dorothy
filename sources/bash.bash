@@ -241,6 +241,81 @@ function __sudo_mkdirp {
 	return "$status"
 }
 
+# has needles
+# returns [0] if all needles are within the haystack
+# returns [1] if any needle is missing from the haystack
+function __has_needles {
+	local needles=() haystack
+	while test "$#" -ne 0; do
+		if test "$1" = '--'; then
+			shift
+			break
+		fi
+		needles+=("$1")
+		shift
+	done
+	haystack=("$@")
+	if test "${#needles[@]}" -eq 0; then
+		return 0
+	fi
+	if test "${#haystack[@]}" -eq 0; then
+		return 1
+	fi
+	local needle item found='no'
+	for needle in "${needles[@]}"; do
+		found='no'
+		for item in "${haystack[@]}"; do
+			if test "$needle" = "$item"; then
+				found='yes'
+				break
+			fi
+		done
+		if test "$found" = 'no'; then
+			break
+		fi
+	done
+	if test "$found" = 'yes'; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+# remove needles from an array
+# this is not currently used yet in Dorothy core, so do not depend on it, as it may be removed
+function __remove_needles {
+	local needles=() haystack result=()
+	while test "$#" -ne 0; do
+		if test "$1" = '--'; then
+			shift
+			break
+		fi
+		needles+=("$1")
+		shift
+	done
+	haystack=("$@")
+	if test "${#needles[@]}" -eq 0 -o "${#haystack[@]}" -eq 0; then
+		return 0
+	fi
+	local needle item found
+	for item in "${haystack[@]}"; do
+		found='no'
+		for needle in "${needles[@]}"; do
+			if test "$needle" = "$item"; then
+				found='yes'
+				break
+			fi
+		done
+		if test "$found" = 'no'; then
+			result+=("$item")
+		fi
+	done
+	if test "${#result[@]}" -ne 0; then
+		__print_lines "${result[@]}"
+	fi
+	return 0
+}
+
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
