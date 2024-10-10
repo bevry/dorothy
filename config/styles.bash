@@ -8,15 +8,33 @@
 # https://gist.github.com/Prakasaka/219fe5695beeb4d6311583e79933a009
 # https://mywiki.wooledge.org/BashFAQ/037
 
+# https://en.wikipedia.org/wiki/List_of_Unicode_characters
+# https://en.wikipedia.org/wiki/List_of_Unicode_characters#Unicode_symbols
+
 #######################################
 # ANSI STYLES #########################
 
 # erasure
+style__clear_line=$'\e[G\e[2K'
 style__delete_line=$'\e[F\e[J'
-style__erase_screen=$'\e[H\e[2J'
-style__hide_cursor=$'\e[?25l'
+style__clear_screen=$'\e[H\e[2J'
+style__enable_cursor_blinking=$'\e[?12h'
+style__disable_cursor_blinking=$'\e[?12l'
 style__show_cursor=$'\e[?25h'
+style__hide_cursor=$'\e[?25l'
+style__reset_cursor=$'\e[0 q'
+style__cursor_blinking_block=$'\e[1 q'
+style__cursor_steady_block=$'\e[2 q'
+style__cursor_blinking_underline=$'\e[3 q'
+style__cursor_steady_underline=$'\e[4 q'
+style__cursor_blinking_bar=$'\e[5 q'
+style__cursor_steady_bar=$'\e[6 q'
+
 style__bell=$'\a'
+style__terminal_title=$'\e]0;'
+style__termianl_title_end=$'\a'
+style__terminal_resize=$'\e[8;'
+style__termianl_resize_end=';t'
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
@@ -267,6 +285,17 @@ fi
 # ✅
 # ❌
 
+# useful symbols:
+# ⁇	⁈ ⁉ ‼ ‽ ℹ ⓘ ¡ ¿ ⚠
+# ⏰ ⏱ ⏲ ⏳
+# ⎷ ☐ ☑ ☉ ☒ ⚀ ☓ ⛌ ⛝
+# ☹ ☺ ☻ ☝ ☞ ☟ ☠ ☢ ☣ ☮
+# ⚠️ 🛑 ⛔ ✅ ✊ ✋ 👍 🏆 ❌ ❓ ❔ ❕ ❗
+# ✓ ✔ ✕ ✖ ✗ ✘ ★ ☆
+# ❢ ❣ ♡ ❤ ❥ ♥
+style__icon_good='☺'
+style__icon_error='!'
+
 # level 1 wrappers
 # hN = header level N
 # gN = good level N (use to close a header element)
@@ -277,13 +306,13 @@ style__nocolor_end__h1='  ┐'
 style__color__h1=$'\n'"${style__color__header1}┌  "
 style__color_end__h1="  ┐${style__color_end__header1}"
 
-style__nocolor__g1='└  '
-style__nocolor_end__g1='  ┘'
+style__nocolor__g1="└${style__icon_good} "
+style__nocolor_end__g1=" ${style__icon_good}┘"
 style__color__g1="${style__color__good1}└  "
 style__color_end__g1="  ┘${style__color_end__good1}"
 
-style__nocolor__e1='└  '
-style__nocolor_end__e1='  ┘'
+style__nocolor__e1="└${style__icon_error} "
+style__nocolor_end__e1=" ${style__icon_error}┘"
 style__color__e1="${style__color__error1}└  "
 style__color_end__e1="  ┘${style__color_end__error1}"
 
@@ -298,13 +327,13 @@ style__nocolor_end__h2='  ┐'
 style__color__h2="${style__color__reset}${style__color__bold}┌  "
 style__color_end__h2="  ┐${style__color__reset}"
 
-style__nocolor__g2='└  '
-style__nocolor_end__g2='  ┘'
+style__nocolor__g2="└${style__icon_good} "
+style__nocolor_end__g2=" ${style__icon_good}┘"
 style__color__g2="${style__color__reset}${style__color__bold}${style__color__foreground_green}└  "
 style__color_end__g2="  ┘${style__color__reset}"
 
-style__nocolor__e2='└  '
-style__nocolor_end__e2='  ┘'
+style__nocolor__e2="└${style__icon_error} "
+style__nocolor_end__e2=" ${style__icon_error}┘"
 style__color__e2="${style__color__reset}${style__color__bold}${style__color__foreground_red}└  "
 style__color_end__e2="  ┘${style__color__reset}"
 
@@ -319,13 +348,13 @@ style__nocolor_end__h3='  ┐'
 style__color__h3="${style__color__reset}┌  "
 style__color_end__h3="  ┐${style__color__reset}"
 
-style__nocolor__g3='└  '
-style__nocolor_end__g3='  ┘'
+style__nocolor__g3="└${style__icon_good} "
+style__nocolor_end__g3=" ${style__icon_good}┘"
 style__color__g3="${style__color__reset}${style__color__foreground_green}└  "
 style__color_end__g3="  ┘${style__color__reset}"
 
-style__nocolor__e3='└  '
-style__nocolor_end__e3='  ┘'
+style__nocolor__e3="└${style__icon_error} "
+style__nocolor_end__e3=" ${style__icon_error}┘"
 style__color__e3="${style__color__reset}${style__color__foreground_red}└  "
 style__color_end__e3="  ┘${style__color__reset}"
 
@@ -541,8 +570,8 @@ if test "$(get-terminal-theme || :)" = 'light'; then
 	# keys
 	style__color__legend="$style__color__foreground_intense_black"
 	style__color_end__legend="$style__color_end__foreground"
-	style__color__key="${style__color__background_intense_white} "
-	style__color_end__key="$style__color_end__background"
+	style__color__key="$style__color__background_intense_white "
+	style__color_end__key=" $style__color_end__background"
 	# lines
 	style__color__selected_line="$style__color__foreground_green"
 	style__color_end__selected_line="$style__color_end__foreground"
