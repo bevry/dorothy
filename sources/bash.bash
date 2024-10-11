@@ -245,7 +245,7 @@ function __sudo_mkdirp {
 # returns [0] if all needles are within the haystack
 # returns [1] if any needle is missing from the haystack
 function __has_needles {
-	local needles=() haystack
+	local needles=() elements
 	while test "$#" -ne 0; do
 		if test "$1" = '--'; then
 			shift
@@ -254,18 +254,18 @@ function __has_needles {
 		needles+=("$1")
 		shift
 	done
-	haystack=("$@")
+	elements=("$@")
 	if test "${#needles[@]}" -eq 0; then
 		return 0
 	fi
-	if test "${#haystack[@]}" -eq 0; then
+	if test "${#elements[@]}" -eq 0; then
 		return 1
 	fi
-	local needle item found='no'
+	local needle element found='no'
 	for needle in "${needles[@]}"; do
 		found='no'
-		for item in "${haystack[@]}"; do
-			if test "$needle" = "$item"; then
+		for element in "${elements[@]}"; do
+			if test "$needle" = "$element"; then
 				found='yes'
 				break
 			fi
@@ -284,7 +284,7 @@ function __has_needles {
 # remove needles from an array
 # this is not currently used yet in Dorothy core, so do not depend on it, as it may be removed
 function __remove_needles {
-	local needles=() haystack result=()
+	local needles=() elements kept_elements=()
 	while test "$#" -ne 0; do
 		if test "$1" = '--'; then
 			shift
@@ -293,25 +293,25 @@ function __remove_needles {
 		needles+=("$1")
 		shift
 	done
-	haystack=("$@")
-	if test "${#needles[@]}" -eq 0 -o "${#haystack[@]}" -eq 0; then
+	elements=("$@")
+	if test "${#needles[@]}" -eq 0 -o "${#elements[@]}" -eq 0; then
 		return 0
 	fi
-	local needle item found
-	for item in "${haystack[@]}"; do
+	local needle element found
+	for element in "${elements[@]}"; do
 		found='no'
 		for needle in "${needles[@]}"; do
-			if test "$needle" = "$item"; then
+			if test "$needle" = "$element"; then
 				found='yes'
 				break
 			fi
 		done
 		if test "$found" = 'no'; then
-			result+=("$item")
+			kept_elements+=("$element")
 		fi
 	done
-	if test "${#result[@]}" -ne 0; then
-		__print_lines "${result[@]}"
+	if test "${#kept_elements[@]}" -ne 0; then
+		__print_lines "${kept_elements[@]}"
 	fi
 	return 0
 }
