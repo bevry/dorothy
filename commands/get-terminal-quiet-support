@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+function get_terminal_quiet_support() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P is-affirmative)"
+	source "$(type -P is-non-affirmative)"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Outputs [yes], [no], or empty string [], based on comprehensive QUIET mode detection.
+
+			USAGE:
+			get-terminal-quiet-support [...options] [-- "\$@"]
+
+			OPTIONS:
+			--fallback=<fallback>
+			    If provided, use this value if quiet mode could not be determined.
+
+			--no-env
+			    If provided, don't test the environment variables.
+
+			--quiet
+			    If enabled, do not output anything, instead return the exit status [0] if quiet, [1] if not. [91] is returned if not determined (no fallback).
+
+			-- "\$@"
+			    All arguments passed to your command, so we can scan them for relevant flags.
+
+			QUIRKS:
+			Checks for [--[no-][verbose|quiet]=[yes|no]] values, as well as [QUIET|VERBOSE] environment variables.
+
+			RETURNS:
+			[0] if enabled
+			[1] if disabled
+			[91] if not determined (no fallback).
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_fallback='' option_quiet='' option_env='yes' option_args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--fallback='*) option_fallback="${item#*=}" ;;
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-env'* | '--env'*)
+			option_env="$(get-flag-value --affirmative --fallback="$option_env" -- "$item")"
+			;;
+		'--')
+			option_args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*)
+			if test -z "$option_fallback"; then
+				option_fallback="$item"
+			else
+				help "An unrecognised argument was provided: $item"
+			fi
+			;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# prepare
+	local status verbose='' quiet=''
+
+	# process arguments
+	if test "${#option_args[@]}" -ne 0; then
+		for item in "${option_args[@]}"; do
+			case "$item" in
+			'--no-verbose'* | '--verbose'*)
+				verbose="$(get-flag-value --affirmative -- "$item")"
+				;;
+			'--no-quiet'* | '--quiet'*)
+				quiet="$(get-flag-value --affirmative -- "$item")"
+				;;
+			*) ;; # ignore
+			esac
+		done
+	fi
+
+	# handle quiet and verbose modes
+	if test "$option_quiet" = 'yes'; then
+		function process_status {
+			:
+		}
+	else
+		function process_status {
+			if test "$status" -eq 0; then
+				__print_lines 'yes'
+			elif test "$status" -eq 1; then
+				__print_lines 'no'
+				status=0
+			fi
+		}
+	fi
+
+	# process arguments against env
+	if test -n "$verbose"; then
+		eval_capture --statusvar=status -- __is_non_affirmative -- "$verbose"
+		if test "$status" -eq 0 -o "$status" -eq 1; then
+			process_status
+			return "$status"
+		fi
+	fi
+	if test -n "$quiet"; then
+		eval_capture --statusvar=status -- __is_affirmative -- "$quiet"
+		if test "$status" -eq 0 -o "$status" -eq 1; then
+			process_status
+			return "$status"
+		fi
+	fi
+	if test "$option_env" = 'yes' -a -n "${VERBOSE-}"; then
+		eval_capture --statusvar=status -- __is_non_affirmative -- "$VERBOSE"
+		if test "$status" -eq 0 -o "$status" -eq 1; then
+			process_status
+			return "$status"
+		fi
+	fi
+	if test "$option_env" = 'yes' -a -n "${QUIET-}"; then
+		eval_capture --statusvar=status -- __is_affirmative -- "$QUIET"
+		if test "$status" -eq 0 -o "$status" -eq 1; then
+			process_status
+			return "$status"
+		fi
+	fi
+
+	# fallback
+	if test -n "$option_fallback"; then
+		eval_capture --statusvar=status -- __is_affirmative -- "$option_fallback"
+		if test "$status" -eq 0 -o "$status" -eq 1; then
+			process_status
+			return "$status"
+		fi
+	fi
+
+	# nothing
+	return 91 # ENOMSG 91 No message of desired type
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	get_terminal_quiet_support "$@"
+fi

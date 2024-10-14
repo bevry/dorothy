@@ -14,10 +14,18 @@
 #######################################
 # ANSI STYLES #########################
 
-# erasure
-style__clear_line=$'\e[G\e[2K'
-style__delete_line=$'\e[F\e[J'
-style__clear_screen=$'\e[H\e[2J'
+# terminal
+# $`\e[?47h' save screen but not cursor
+# $`\e[?47l' restore screen but not cursor
+# `tput sc` = $'\e7' save cursor, $'\e[s' is meant to work but from testing it doesn't
+# `tput rc` = $'\e8' restore cursor, $'\e[u' is meant to work but from testing it doesn't
+# `tput smcup` = $'\e[?1049h', save screen and cursor
+# `tput rmcup` = $'\e[?1049l', restore screen and cursor
+# `tput clear` = $'\e[H\e[2J', put cursor at top left and clear the screen
+# `tput cup 0 0` = $'\e[1;1H', functionally same as $'\e[H', put cursor at top left
+style__clear_line=$'\e[G\e[2K'   # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line
+style__delete_line=$'\e[F\e[J'   # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
+style__clear_screen=$'\e[H\e[2J' # move cursor to the beginning of the screen buffer and erase/clear/overwrite-with-whitespace from there - note that non-visible lines are not altered
 style__enable_cursor_blinking=$'\e[?12h'
 style__disable_cursor_blinking=$'\e[?12l'
 style__show_cursor=$'\e[?25h'
@@ -29,6 +37,8 @@ style__cursor_blinking_underline=$'\e[3 q'
 style__cursor_steady_underline=$'\e[4 q'
 style__cursor_blinking_bar=$'\e[5 q'
 style__cursor_steady_bar=$'\e[6 q'
+style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
+style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 
 style__bell=$'\a'
 style__terminal_title=$'\e]0;'
@@ -164,18 +174,6 @@ style__color_end__background_intense_gray="$style__color_end__background"
 style__color__background_intense_grey="$style__color__background_intense_white"
 style__color_end__background_intense_grey="$style__color_end__background"
 
-# If italics is not supported, swap it with something else...
-# Values of TERM_PROGRAM that are known to not support italics:
-# - Apple_Terminal
-# As italics support is rare, do the swap if not in a known terminal that supports italics....
-if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
-	# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
-	# style__color__italic="$style__color__dim"
-	# style__color_end__italic="$style__color_end__dim"
-	style__color__italic="$style__color__foreground_intense_white"
-	style__color_end__italic="$style__color_end__foreground"
-fi
-
 # modes that aren't implemented by operating systems
 # blink_fast=$'\e[6m'
 
@@ -269,12 +267,36 @@ elif test "$(get-terminal-theme || :)" = 'light'; then
 	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 	style__color__sudo="${style__color__foreground_yellow}"
 	style__color_end__sudo="${style__color_end__foreground}"
+
+	# If italics is not supported, swap it with something else...
+	# Values of TERM_PROGRAM that are known to not support italics:
+	# - Apple_Terminal
+	# As italics support is rare, do the swap if not in a known terminal that supports italics....
+	if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
+		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
+		# style__color__italic="$style__color__dim"
+		# style__color_end__italic="$style__color_end__dim"
+		style__color__italic="$style__color__foreground_intense_black"
+		style__color_end__italic="$style__color_end__foreground"
+	fi
 else
 	# on dark theme on vscode
 	# style__color__background_intense_red forces black foreground, which black on red is unreadable, so adjust
 	if test "${TERM_PROGRAM-}" = vscode; then
 		style__color__error="${style__color__background_red}${style__color__foreground_intense_white}"
 		style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
+	fi
+
+	# If italics is not supported, swap it with something else...
+	# Values of TERM_PROGRAM that are known to not support italics:
+	# - Apple_Terminal
+	# As italics support is rare, do the swap if not in a known terminal that supports italics....
+	if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
+		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
+		# style__color__italic="$style__color__dim"
+		# style__color_end__italic="$style__color_end__dim"
+		style__color__italic="$style__color__foreground_intense_white"
+		style__color_end__italic="$style__color_end__foreground"
 	fi
 fi
 
@@ -596,7 +618,7 @@ function refresh_style_cache {
 	if test -z "$use_color"; then
 		if test -n "${USE_COLOR-}"; then
 			use_color="$USE_COLOR"
-		elif is-color-enabled --; then
+		elif get-terminal-color-support --quiet --fallback=yes; then
 			USE_COLOR='yes'
 			use_color='yes'
 		else

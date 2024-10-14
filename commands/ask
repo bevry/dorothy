@@ -83,7 +83,6 @@ function ask_test() (
 )
 function ask_() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$DOROTHY/sources/tty.bash"
 
 	# =====================================
 	# Arguments
@@ -206,7 +205,7 @@ function ask_() (
 	load_dorothy_config 'styles.bash'
 
 	# refresh the styles
-	refresh_style_cache -- 'question_title_prompt' 'question_title_result' 'question_body' 'input_warning' 'input_error' 'icon_prompt' 'result_value' 'icon_nothing_provided' 'icon_using_password'
+	refresh_style_cache -- 'question_title_prompt' 'question_title_result' 'question_body' 'input_warning' 'input_error' 'icon_prompt' 'result_value' 'icon_nothing_provided' 'icon_using_password' 'blockquote'
 
 	# style the question
 	local question_title_prompt='' question_title_result='' question_body_prompt=''
@@ -230,8 +229,12 @@ function ask_() (
 	fi
 
 	# adjust tty
-	local tty_target
-	tty_target="$(is-tty --fallback)"
+	local terminal_device_file is_interactive='yes'
+	terminal_device_file="$(get-terminal-device-file)"
+	if ! is-interactive; then
+		# [is-interactive] checks [get-terminal-stdin-tty-support --quiet] which correlates whether [read] supports native default handling
+		is_interactive='no'
+	fi
 
 	# helpers
 	local ASKED='no' commentary=''
@@ -248,60 +251,57 @@ function ask_() (
 		fi
 	}
 	function do_prompt { # has sideffects: RESULT, ASKED
-		local programmatic_stdin input_prompt __read_status __input_result result_prompt result_prompt_row_count clear='' p='' read_args=('-r')
-		if test ! -t 0; then
-			programmatic_stdin='yes'
-		else
-			programmatic_stdin='no'
-			input_prompt=''
-			if test -n "$question_title_prompt"; then
-				input_prompt+="$question_title_prompt"$'\n'
-			fi
-			if test -n "$question_body_prompt"; then
-				input_prompt+="$question_body_prompt"$'\n'
-			fi
-			input_prompt+="$style__icon_prompt"
-		fi
+		local input_prompt='' __read_status __input_result result_prompt result_prompt_row_count clear='' p='' read_args=('-r')
 		if test -n "$option_timeout"; then
 			read_args+=(
 				-t "$option_timeout"
 			)
 		fi
 
+		if test -n "$question_title_prompt"; then
+			input_prompt+="$question_title_prompt"$'\n'
+		fi
+		if test -n "$question_body_prompt"; then
+			input_prompt+="$question_body_prompt"$'\n'
+		fi
+		input_prompt+="$style__icon_prompt"
+
 		ASKED='yes' # not local
 		while true; do
 			# reset
 			__read_status=0
 			__input_result=''
+			result_prompt="$input_prompt"
+			p="${clear}${result_prompt}"
+			clear=''
 
 			# adapt according to read mode
-			if test "$programmatic_stdin" = 'yes'; then
-				# read in programmatic stdin mode behaves differently, so we have to account for that:
+			if test "$is_interactive" = 'no'; then
+				# under these circumstances, read behaves differently:
 				# [-p <prompt>] is discarded, no prompt is shown
 				# [-i <default>] is discarded, no default value is handled
-				# as such, do not pass such to read, do not manually bother with a prompt, and handle the default value ourself
+				# as such, do not pass such to read, do the prompt and handling of the default value ourself
+				__print_string "$p" >"$terminal_device_file"
 				# trunk-ignore(shellcheck/SC2162)
 				IFS='' read "${read_args[@]}" __input_result || __read_status=$?
-				if test -z "$__input_result" -o "$__input_result" = $'\n'; then
-					# treat empty string and newline as default
-					:
-				elif [[ $__input_result =~ ^[\s]*$ ]]; then
-					# treat only whitespace as empty value
-					RESULT=''
-				else
-					# treat everything else as manual __input_result
-					RESULT="$__input_result"
+				if test "$__read_status" -eq 0; then
+					# the user has pressed enter, so trim it
+					result_prompt+="$RESULT"$'\n'
+
+					if test -z "$__input_result" -o "$__input_result" = $'\n'; then
+						# treat empty string and newline as default
+						:
+					elif [[ $__input_result =~ ^[\s]*$ ]]; then
+						# treat only whitespace as empty value
+						RESULT=''
+					else
+						# treat everything else as manual __input_result
+						RESULT="$__input_result"
+					fi
 				fi
 			else
-				# we have tty stdin, can do a prompt
-				# -i requires -e
-
-				# reset
-				result_prompt="$input_prompt"
-				p="${clear}${result_prompt}"
-				clear=''
-
 				# clear and prompt
+				# -i requires -e
 				# trunk-ignore(shellcheck/SC2162)
 				IFS= read "${read_args[@]}" -ei "$RESULT" -p "$p" __input_result || __read_status=$?
 
@@ -313,12 +313,11 @@ function ask_() (
 					# the user has pressed enter, so note that an enter was rendered to the TTY so that it can be erased, and append a space so that it is not trimmed by "$(...)" usage
 					result_prompt+="$RESULT"$'\n'
 				fi # otherwise it has timed out. ctrl+c is not caught as we are not trapping it
-
-				# generate our erasure
-				result_prompt="$(echo-wrap -- "$result_prompt")"$'\n' # "$()" trims the trailing newline, so add it back
-				result_prompt_row_count="$(echo-count-lines -- "$result_prompt")"
-				clear=$'\e['"$result_prompt_row_count"$'F\e[G\e[J'
 			fi
+
+			# generate our erasure
+			result_prompt_row_count="$(echo-wrap -- "$result_prompt" | echo-count-lines --stdin)"
+			clear=$'\e['"$result_prompt_row_count"$'F\e[G\e[J'
 
 			# handle the result
 			if test "$__read_status" -eq 142; then
@@ -338,8 +337,8 @@ function ask_() (
 			fi
 		done
 		# do the final erasure if necessary
-		if test "$programmatic_stdin" = 'no' -a -n "$clear"; then
-			__print_string "$clear" >"$tty_target"
+		if test -n "$clear"; then
+			__print_string "$clear" >"$terminal_device_file"
 		fi
 		# done
 		do_validate
@@ -442,15 +441,18 @@ function ask_() (
 	if test "$result_status" -eq 0; then
 		# add the results only if lingering
 		if test "$option_linger" = 'yes'; then
+			local content
 			if test -z "$RESULT"; then
-				render+="${style__result_value}${style__icon_nothing_provided}${style__end__result_value}"$'\n'
+				content="$style__icon_nothing_provided"
 			elif test "$option_password" = 'yes'; then
-				render+="${style__result_value}${style__icon_using_password}${style__end__result_value}"$'\n'
+				content="$style__icon_using_password"
 			else
-				render+="${style__result_value}${RESULT}${style__end__result_value}"$'\n'
+				content="$RESULT"
 			fi
+			content="${content//$'\n'/$'\n'"${style__blockquote}"}" # add the necessary indentation
+			render+="${style__result_value}${style__blockquote}${content}${style__end__result_value}"$'\n'
 			# inform
-			__print_string "$render" >"$tty_target"
+			__print_string "$render" >"$terminal_device_file"
 		elif test -n "$commentary"; then
 			# inform to stderr, consistent with ask, choose, confirm
 			__print_string "$render" >/dev/stderr
@@ -465,7 +467,7 @@ function ask_() (
 		# inform
 		if test -n "$commentary"; then
 			if test "$option_linger" = 'yes'; then
-				__print_string "$render" >"$tty_target"
+				__print_string "$render" >"$terminal_device_file"
 			else
 				__print_string "$render" >/dev/stderr
 			fi

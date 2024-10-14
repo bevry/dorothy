@@ -241,81 +241,6 @@ function __sudo_mkdirp {
 	return "$status"
 }
 
-# has needles
-# returns [0] if all needles are within the haystack
-# returns [1] if any needle is missing from the haystack
-function __has_needles {
-	local needles=() elements
-	while test "$#" -ne 0; do
-		if test "$1" = '--'; then
-			shift
-			break
-		fi
-		needles+=("$1")
-		shift
-	done
-	elements=("$@")
-	if test "${#needles[@]}" -eq 0; then
-		return 0
-	fi
-	if test "${#elements[@]}" -eq 0; then
-		return 1
-	fi
-	local needle element found='no'
-	for needle in "${needles[@]}"; do
-		found='no'
-		for element in "${elements[@]}"; do
-			if test "$needle" = "$element"; then
-				found='yes'
-				break
-			fi
-		done
-		if test "$found" = 'no'; then
-			break
-		fi
-	done
-	if test "$found" = 'yes'; then
-		return 0
-	else
-		return 1
-	fi
-}
-
-# remove needles from an array
-# this is not currently used yet in Dorothy core, so do not depend on it, as it may be removed
-function __remove_needles {
-	local needles=() elements kept_elements=()
-	while test "$#" -ne 0; do
-		if test "$1" = '--'; then
-			shift
-			break
-		fi
-		needles+=("$1")
-		shift
-	done
-	elements=("$@")
-	if test "${#needles[@]}" -eq 0 -o "${#elements[@]}" -eq 0; then
-		return 0
-	fi
-	local needle element found
-	for element in "${elements[@]}"; do
-		found='no'
-		for needle in "${needles[@]}"; do
-			if test "$needle" = "$element"; then
-				found='yes'
-				break
-			fi
-		done
-		if test "$found" = 'no'; then
-			kept_elements+=("$element")
-		fi
-	done
-	if test "${#kept_elements[@]}" -ne 0; then
-		__print_lines "${kept_elements[@]}"
-	fi
-	return 0
-}
-
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
@@ -750,7 +675,7 @@ fi
 #     - broken: `arr=(); for item in "${arr[@]}"; do ...`
 #     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
 #     - use: `test "${#array[@]}" -ne 0 && for ...`
-#     - or if you don't care for empty elements, use: `test -n "$arr" && for ...`
+#     - or if you don't care for empty option_inputs, use: `test -n "$arr" && for ...`
 #
 # BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
 # has_array_capability -- check if a capability is provided by the current bash version

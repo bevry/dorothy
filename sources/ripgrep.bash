@@ -9,7 +9,7 @@ if test -z "${RIPGREP_BIN_PATH-}"; then
 		local ripgrep_bin_path
 		ripgrep_bin_path="$(type -P rg)"
 		if test -z "$ripgrep_bin_path"; then
-			echo-style --error='ripgrep is required to continue, and was not able to be auto-installed.' ' ' --notice='Install it with:' ' ' --code='setup-util-ripgrep' >/dev/stderr
+			echo-style --error1='ripgrep is required to continue, and was not able to be auto-installed.' --notice1=' Install it with: ' --code-notice1='setup-util-ripgrep' >/dev/stderr
 			return 74 # EPROGUNAVAIL 74 RPC prog. not avail
 		fi
 		"$ripgrep_bin_path" --no-line-number --color never "$@"
