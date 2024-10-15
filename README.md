@@ -119,7 +119,7 @@ Alpine:
 
 ```bash
 doas apk update
-doas apk add bash curl grep
+doas apk add bash curl
 ```
 
 Manjaro:
