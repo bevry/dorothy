@@ -41,6 +41,12 @@ style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternativ
 style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 
 style__bell=$'\a'
+style__newline=$'\n'
+style__tab=$'\t'
+style__backspace=$'\b'
+style__carriage_return=$'\r'
+style__escape=$'\e'
+style__home=$'\e[H'
 style__terminal_title=$'\e]0;'
 style__termianl_title_end=$'\a'
 style__terminal_resize=$'\e[8;'
