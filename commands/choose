@@ -894,32 +894,61 @@ function choose_() (
 	fi
 	function add_legend_keys {
 		# extract the current state
-		local name="$1" legend="$2" keys=("${@:3}") var content total last index key rows
+		local name="$1" legend="$2" keys=("${@:3}") var content rows inject='' total last index key # shrunk lines
 		var="${name}_content"
 		content="${!var}"
+		var="${name}_rows"
+		rows="${!var}"
 		total="${#keys[@]}"
 		last="$((total - 1))"
 
 		# render the legend keys
 		# this could be cached, but no need, this operation is rare enough it doesn't matter
-		if test -n "$content" && [[ $content != *$'\n' ]]; then
-			content+="$style__legend_legend_spacer"
-		fi
-		content+="${style__legend}${legend}${style__end__legend}${style__legend_key_spacer}"
+		inject+="${style__legend}${legend}${style__end__legend}${style__legend_key_spacer}"
 		for ((index = 0; index < total; index++)); do
 			key="${keys[index]}"
-			content+="${style__key}${key}${style__end__key}"
+			inject+="${style__key}${key}${style__end__key}"
 			if test "$index" -ne "$last"; then
-				content+="${style__key_key_spacer}"
+				inject+="${style__key_key_spacer}"
 			fi
 		done
 
-		# save the content
-		eval "${name}_content=\"\$content\""
-		if test "$paging_supported" = 'yes'; then
-			rows="$(echo-wrap --width="$content_columns" -- "$content" | echo-count-lines --stdin)"
-			eval "${name}_rows=\"$rows\""
+		# apply the change performantly
+		if test -n "$content" && [[ $content != *$'\n' ]]; then # the trailing newline check is for [SEND LINE BUFFER] edge case
+			content+="${style__legend_legend_spacer}${inject}"
+		else
+			content+="$inject"
 		fi
+		eval "${name}_content=\"\$content\""
+
+		# append the content, not splitting legend keys across lines - this is disabled because it is not performant and in practice is not ideal
+		# if test "$rows" -eq 0; then
+		# 	content+="$inject"
+		# 	eval "${name}_content=\"\$content\""
+		# 	lines="$(echo-count-lines -- "$content")"
+		# 	eval "${name}_rows=\"\$lines\""
+		# elif test "$paging_supported" = 'yes'; then
+		# 	shrunk="$(echo-wrap --width="$content_columns" -- "${content}${style__legend_legend_spacer}${inject}")"
+		# 	lines="$(echo-count-lines -- "$shrunk")"
+		# 	# if same rows as before, then append on same line, otherwise, append on new line
+		# 	if test "$rows" -eq "$lines"; then
+		# 		content+="${style__legend_legend_spacer}${inject}"
+		# 	else
+		# 		content+=$'\n'"$inject"
+		# 	fi
+		# 	eval "${name}_content=\"\$content\""
+		# 	eval "${name}_rows=\"\$lines\""
+		# else
+		# 	content+="${style__legend_legend_spacer}${inject}"
+		# 	eval "${name}_content=\"\$content\""
+		# fi
+	}
+	function legends_rows {
+		local name="$1" var content rows
+		var="${name}_content"
+		content="${!var}"
+		rows="$(echo-wrap --width="$content_columns" -- "$content" | echo-count-lines --stdin)"
+		eval "${name}_rows=\"$rows\""
 	}
 	function render_lengends {
 		# reset legends
@@ -977,7 +1006,11 @@ function choose_() (
 				add_legend_keys 'legend_choose' 'UNSELECT & PREV' 'BACKSPACE'
 			fi
 		fi
-		if test "$paging_supported" = 'no'; then
+		if test "$paging_supported" = 'yes'; then
+			legends_rows 'legend_cancel'
+			legends_rows 'legend_choose'
+			legends_rows 'legend_confirm'
+		else
 			legend_cancel_content+=$'\n'
 			legend_choose_content+=$'\n'
 			legend_confirm_content+=$'\n'
@@ -1006,10 +1039,23 @@ function choose_() (
 		mapfile -t items_renders < <(get-array "$items_count")
 		mapfile -t items_rows < <(get-array "$items_count")
 		# paging support is eternal, so no need for future updates if disabled
+		function show_cursor {
+			:
+		}
+		function show_cursor_on_exit {
+			:
+		}
 		function refresh_terminal_size {
 			:
 		}
 	else
+		function show_cursor {
+			__print_string "$style__show_cursor" >"$terminal_device_file"
+			trap - EXIT
+		}
+		function show_cursor_on_exit {
+			trap show_cursor EXIT
+		}
 		# paging support is eternal, so we need to refresh if enabled
 		function refresh_terminal_size {
 			# refresh
@@ -1857,11 +1903,7 @@ function choose_() (
 	function handle_menu {
 		local input read_status keys skips
 		# action
-		function show_cursor {
-			__print_string "$style__show_cursor" >"$terminal_device_file"
-			trap - EXIT
-		}
-		trap show_cursor EXIT
+		show_cursor_on_exit
 		__print_string "$style__alternative_screen_buffer" >"$terminal_device_file"
 		while true; do
 			# (re-)render the menu?
@@ -1889,6 +1931,11 @@ function choose_() (
 					set_menu_mode 'exit'
 					break
 				fi
+			elif test "$read_status" -eq 94; then
+				# unknown character, send bell and continue
+				menu_skip_render='yes'
+				__print_string "$style__bell" >"$terminal_device_file"
+				continue
 			elif test "$read_status" -ne 0; then
 				# some other failure
 				commentary="${style__input_error}[input failure: $read_status]${style__end__input_error}"
@@ -2012,7 +2059,9 @@ function choose_() (
 				fi
 			done
 			if test "${#skips[@]}" -eq "${#keys[@]}"; then
+				# all were unknown characters, send bell and continue
 				menu_skip_render='yes'
+				__print_string "$style__bell" >"$terminal_device_file"
 				continue
 			fi
 

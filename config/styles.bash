@@ -12,6 +12,19 @@
 # https://en.wikipedia.org/wiki/List_of_Unicode_characters#Unicode_symbols
 
 #######################################
+# STYLE SUPPORT #######################
+
+GITHUB_ACTIONS="${GITHUB_ACTIONS-}"
+THEME="$(get-terminal-theme || :)"
+TERM_PROGRAM="${TERM_PROGRAM-}"
+USE_COLOR="$(get-terminal-color-support --fallback=yes)"
+if [[ $TERM_PROGRAM =~ ^(Hyper|tmux|vscode)$ ]]; then
+	ITALICS_SUPPORTED='yes'
+else
+	ITALICS_SUPPORTED='no'
+fi
+
+#######################################
 # ANSI STYLES #########################
 
 # terminal
@@ -260,14 +273,14 @@ style__color_end__sudo="${style__color_end__foreground}"
 style__color__code="${style__color__foreground_intense_black}"
 style__color_end__code="${style__color_end__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
-if test -n "${GITHUB_ACTIONS-}"; then
+if test -n "$GITHUB_ACTIONS"; then
 	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
 	style__color_end__header1="${style__color_end__background}${style__color_end__foreground}"
 	style__color__error1="${style__color__background_red}${style__color__foreground_black}"
 	style__color_end__error1="${style__color_end__background}${style__color_end__foreground}"
 	style__color__error="${style__color__background_red}${style__color__foreground_black}"
 	style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
-elif test "$(get-terminal-theme || :)" = 'light'; then
+elif test "$THEME" = 'light'; then
 	# trim style__color__foreground_intense_yellow as it is unreadable on light theme
 	style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
@@ -278,7 +291,7 @@ elif test "$(get-terminal-theme || :)" = 'light'; then
 	# Values of TERM_PROGRAM that are known to not support italics:
 	# - Apple_Terminal
 	# As italics support is rare, do the swap if not in a known terminal that supports italics....
-	if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
+	if test "$ITALICS_SUPPORTED" = 'no'; then
 		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
 		# style__color__italic="$style__color__dim"
 		# style__color_end__italic="$style__color_end__dim"
@@ -288,7 +301,7 @@ elif test "$(get-terminal-theme || :)" = 'light'; then
 else
 	# on dark theme on vscode
 	# style__color__background_intense_red forces black foreground, which black on red is unreadable, so adjust
-	if test "${TERM_PROGRAM-}" = vscode; then
+	if test "$TERM_PROGRAM" = vscode; then
 		style__color__error="${style__color__background_red}${style__color__foreground_intense_white}"
 		style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
 	fi
@@ -297,7 +310,7 @@ else
 	# Values of TERM_PROGRAM that are known to not support italics:
 	# - Apple_Terminal
 	# As italics support is rare, do the swap if not in a known terminal that supports italics....
-	if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
+	if test "$ITALICS_SUPPORTED" = 'no'; then
 		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
 		# style__color__italic="$style__color__dim"
 		# style__color_end__italic="$style__color_end__dim"
@@ -591,7 +604,7 @@ style__color__bar_bottom="${style__color__foreground_intense_black}└${style__c
 style__color_end__bar_bottom=" ${style__color__foreground_intense_black}┘${style__color_end__foreground}"
 
 # adjustments
-if test "$(get-terminal-theme || :)" = 'light'; then
+if test "$THEME" = 'light'; then
 	# counts
 	style__color__count_more="$style__color__foreground_intense_black"
 	style__color_end__count_more="$style__color_end__foreground"

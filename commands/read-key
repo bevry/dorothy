@@ -67,8 +67,6 @@ function read_key_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
 
-	# refer to [is-tty --test] for more comprehensive testing
-
 	# do a test without any capturing
 	local book status
 
@@ -161,15 +159,15 @@ function read_key_test() (
 	} | eval-tester --name='end was detected' --stdout='end' \
 		-- read-key --timeout=10
 
-	local maybe_enter
-	if is-tty; then
-		maybe_enter=$'enter\n'
+	local enter_if_not_ignored
+	if get-terminal-tty-support --quiet; then
+		enter_if_not_ignored=$'enter\n'
 	else
-		maybe_enter=''
+		enter_if_not_ignored=''
 	fi
 	{
 		printf '%s' $'\e\e\n\e[Hab\e[1~cd'
-	} | eval-tester --name='a series of characters were detected' --stdout=$'escape\nescape\n'"$maybe_enter"$'home\na\nb\nhome\nc\nd' \
+	} | eval-tester --name='a series of characters were detected' --stdout=$'escape\nescape\n'"$enter_if_not_ignored"$'home\na\nb\nhome\nc\nd' \
 		-- read-key --timeout=10
 
 	{
@@ -192,11 +190,14 @@ function read_key() (
 			Reads the immediately received characters and outputs which keys they are.
 
 			USAGE:
-			read-key [--keep-line-buffer-newlines] [--timeout=600]
+			read-key [...options]
 
 			OPTIONS:
+			--verbose | --no-quiet
+			    If an unknown key is encountered, output a warning about it.
+
 			--timeout=<timeout>
-			    Custom timeout value in seconds.
+			    Custom timeout value in seconds. Defaults to 600.
 
 			--keep-line-buffer-newlines
 			    By default, when in non-TTY environments, characters are line buffered and require an [enter] key to be sent, of which we will discard such [enter] keys. Enabling this flag will send [line-buffer] on such [enter] keys.
@@ -221,12 +222,18 @@ function read_key() (
 	}
 
 	# process
-	local item option_timeout='' subsequent_timeout='0.0001' option_keep_line_buffer_newlines='no'
+	local item option_quiet='yes' option_timeout='' subsequent_timeout='0.0001' option_keep_line_buffer_newlines='no'
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
 		'--timeout='*) option_timeout="${item#*=}" ;;
 		'--no-keep-line-buffer-newlines'* | '--keep-line-buffer-newlines'*)
 			option_keep_line_buffer_newlines="$(get-flag-value --affirmative --fallback="$option_keep_line_buffer_newlines" -- "$item")"
@@ -335,95 +342,83 @@ function read_key() (
 			case "$inputs" in
 			# ansi_regex="[[:cntrl:]][[0-9;?]*[ABCDEFGHJKSTfhlmnsu]"
 
-			# cursor up one
-			# [↑] ubuntu, macos
+			# up
+			# [$'\e[A'] is [↑] ubuntu, macos, [cursor up one] ansi escape code
 			# [$'\eM'] ansi escape code to cursor up a line and scroll if necessary, note that scrolling moves visible content down but content from above is empty/erased
 			$'\e[A'* | $'\eM'*) __match_special_and_trim_once 'up' $'\e[A' $'\eM'* ;;
 
-			# cursor down one
-			# [↓] ubuntu, macos
+			# down
+			# [$'\e[B'] is [↓] ubuntu, macos, [cursor down one] ansi escape code
 			$'\e[B'*) __match_special_and_trim_once 'down' $'\e[B' ;;
 
-			# cursor right one
-			# [→] ubuntu, macos
+			# right
+			# [$'\e[C'] is [→] ubuntu, macos, [cursor right one] ansi escape code
 			$'\e[C'*) __match_special_and_trim_once 'right' $'\e[C' ;;
 
-			# cursor left one
-			# [←] ubuntu, macos
+			# left
+			# [$'\e[D'] is [←] ubuntu, macos, [cursor left one] ansi escape code
 			$'\e[D'*) __match_special_and_trim_once 'left' $'\e[D' ;;
 
-			# cursor to top left
-			# [⇱] ubuntu, macos
-			# [numlock 7] ubuntu
-			# [🌐 ⇧ ←] macos
-			# [$'\e[H'] pressable key on the above systems
-			# [$'\e[1~'] screen/vt on [🌐 ←] macos
-			$'\e[H'* | $'\e[1~'*) __match_special_and_trim_once 'home' $'\e[H' $'\e[1~' ;;
+			# home
+			# [$'\e[H'] is [⇱] ubuntu, macos, [numlock 7] ubuntu, [🌐 ⇧ ←] macos, [cursor to top left] ansi escape code
+			# [$'\e[1~'] is [🌐 ←] screen/vt macos
+			# [$'\e[1;2D'] is [⇧ ←] macos, [cursor left twice: the `1;` prefix is not supported on macos] ansi escape code
+			$'\e[H'* | $'\e[1~'* | $'\e[1;2D'*) __match_special_and_trim_once 'home' $'\e[H' $'\e[1~' $'\e[1;2D' ;;
 
-			# cursor to start of current line
-			# [$'\e[G'] ansi escape code
-			# [0x0D = $'\x0d' = $'\r'] ansi escape code
+			# carriage-return
+			# [$'\e[G'] is [cursor to start of current line] ansi escape code
+			# [0x0D = $'\x0d' = $'\r'] is ansi escape code
 			$'\e[G'* | $'\r'*) __match_special_and_trim_once 'carriage-return' $'\e[G' $'\r' ;;
 
-			# cursor to start of prior line
-			# [⇲] ubuntu, macos
-			# [numlock 1] ubuntu
-			# [🌐 ⇧ →] macos
-			# [$'\e[F'] pressable key on the above systems
-			# [$'\e[4~'] screen/vt on [🌐 →] macos
-			$'\e[F'* | $'\e[4~'*) __match_special_and_trim_once 'end' $'\e[F' $'\e[4~' ;;
+			# end
+			# [$'\e[F'] is [⇲] ubuntu, macos, [numlock 1] ubuntu, [🌐 ⇧ →] macos, [cursor to start of prior line] ansi escape code
+			# [$'\e[4~'] is [🌐 →] screen/vt macos
+			# [$'\e[1;2C'] is [⇧ ←] macos, [cursor right twice: the `1;` prefix is not supported on macos] ansi escape code
+			$'\e[F'* | $'\e[4~'* | $'\e[1;2C'*) __match_special_and_trim_once 'end' $'\e[F' $'\e[4~' $'\e[1;2C' ;;
 
 			# insert
-			# [INSERT] [numlock 0] ubuntu
+			# [$'\e[2~'] is [INSERT] [numlock 0] ubuntu
 			$'\e[2~'*) __match_special_and_trim_once 'insert' $'\e[2~' ;;
 
 			# delete
-			# [⌦] [numlock .] ubuntu
-			# [🌐 ⌫] macos
+			# [$'\e[3~'] is [⌦] [numlock .] ubuntu, [🌐 ⌫] macos
 			$'\e[3~'*) __match_special_and_trim_once 'delete' $'\e[3~' ;;
 
 			# page up
-			# [⇞] [numlock 9] ubuntu
-			# [🌐 ⇧ ↑] macos
-			# screen/vt on [🌐 ↑] macos
+			# [$'\e[5~'] is [⇞] [numlock 9] ubuntu, [🌐 ⇧ ↑] macos, [🌐 ↑] screen/vt macos
 			$'\e[5~'*) __match_special_and_trim_once 'page-up' $'\e[5~' ;;
 
 			# page down
-			# [⇟] [numlock 3] ubuntu
-			# [🌐 ⇧ ↓] macos
-			# screen/vt on [🌐 ↑] macos
+			# [$'\e[6~'] is [⇟] [numlock 3] ubuntu, [🌐 ⇧ ↓] macos, [🌐 ↑] screen/vt macos
 			$'\e[6~'*) __match_special_and_trim_once 'page-down' $'\e[6~' ;;
 
 			# backspace
-			# [⌫] ubuntu, macos
-			# [$'\x7f' = $'\177'] pressable key on the above systems
-			# [0x08 = $'\x08' = $'\b'] ansi escape code
+			# [$'\x7f' = $'\177'] is [⌫] ubuntu, macos
+			# [0x08 = $'\x08' = $'\b'] is ansi escape code
 			$'\177'* | $'\b'*) __match_special_and_trim_once 'backspace' $'\177' $'\b' ;;
 
 			# enter
-			# [0x0A = $'\x0a' =  $'\n'] pressable key and ansi escape code
+			# [0x0A = $'\x0a' =  $'\n'] is ubuntu, macos
 			$'\n'*) __match_special_and_trim_once 'enter' $'\n' ;;
 
 			# tab
-			# [⇥] ubuntu, macos
-			# [0x09 = $'\x09' = $'\t'] pressable key and ansi escape code
+			# [0x09 = $'\x09' = $'\t'] is [⇥] ubuntu, macos
 			$'\t'*) __match_special_and_trim_once 'tab' $'\t' ;;
 
 			# backtab
-			# [shift ⇥] macos, ⇤
+			# [$'\e[Z'] is [⇤] [shift ⇥] macos
 			$'\e[Z'*) __match_special_and_trim_once 'backtab' $'\e[Z' ;;
 
 			# select all
-			# [ctrl a] on macos, unicode symbol
-			# [$'\x01' = $'\001'] pressable key and ansi escape code
+			# [$'\x01' = $'\001'] is [ctrl a] macos
 			$'\x01'*) __match_special_and_trim_once 'all' $'\x01' ;;
 
 			# space
-			# [0x20 = $'\x20 = ' '] pressable key and ansi escape code
+			# [0x20 = $'\x20 = ' '] is [ ] ubuntu, macos
 			' '*) __match_special_and_trim_once 'space' ' ' ;;
 
 			# bell or end terminal title
-			# [0x07 = $'\x07' = $'\007' = $'\a'] ansi escape code
+			# [0x07 = $'\x07' = $'\007' = $'\a'] is ansi escape code
 			$'\a'*) __match_special_and_trim_once 'bell' $'\a' ;;
 
 			# app-specific hotkeys that should be interpreted by the caller instead
@@ -444,13 +439,15 @@ function read_key() (
 			# up: [$'\eOA'] v100, screen, xterm
 
 			# escape
-			# 0x1B = $'\x1b' = $'\033' = $'\u001B' = $'\e'
+			# [0x1B = $'\x1b' = $'\033' = $'\u001B' = $'\e'] is [⎋] ubuntu, macos
 			$'\e' | $'\e\n'* | $'\e\e'*) __match_special_and_trim_once 'escape' $'\e' ;;
 
 			# standard key or unknown special key
 			*)
 				if ! __match_print_and_trim; then
-					printf 'unknown input: %q\n' "$inputs" >/dev/stderr
+					if test "$option_quiet" = 'no'; then
+						printf 'unknown input: %q\n' "$inputs" >/dev/stderr
+					fi
 					return 94 # EBADMSG 94 Bad message
 				fi
 				;;
