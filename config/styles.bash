@@ -55,8 +55,11 @@ if test "$ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
 	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
 	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 else
-	style__alternative_screen_buffer=''
-	style__default_screen_buffer=''
+	# if unable to tap into alterantive screen buffer, than just use clear screen, to prevent following output from being on the same line as prior output
+	# alternatively, we could try just a newline
+	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
+	style__alternative_screen_buffer="$style__clear_screen"
+	style__default_screen_buffer="$style__clear_screen"
 fi
 
 style__bell=$'\a'
