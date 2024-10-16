@@ -55,11 +55,11 @@ if test "$ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
 	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
 	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 else
-	# if unable to tap into alterantive screen buffer, than just use clear screen, to prevent following output from being on the same line as prior output
-	# alternatively, we could try just a newline
+	# if unable to tap into alterantive screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
 	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
-	style__alternative_screen_buffer="$style__clear_screen"
-	style__default_screen_buffer="$style__clear_screen"
+	# https://github.com/bevry/dorothy/actions/runs/11358441972/job/31592966478#step:2:2805
+	style__alternative_screen_buffer=$'\n'"$style__clear_screen"
+	style__default_screen_buffer=$'\n'"$style__clear_screen"
 fi
 
 style__bell=$'\a'
