@@ -37,7 +37,7 @@ ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
 # `tput rmcup` = $'\e[?1049l', restore screen and cursor
 # `tput clear` = $'\e[H\e[2J', put cursor at top left and clear the screen
 # `tput cup 0 0` = $'\e[1;1H', functionally same as $'\e[H', put cursor at top left
-style__clear_line=$'\e[G\e[2K'   # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line
+style__clear_line=$'\e[G\e[2K'   # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
 style__delete_line=$'\e[F\e[J'   # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
 style__clear_screen=$'\e[H\e[2J' # move cursor to the beginning of the screen buffer and erase/clear/overwrite-with-whitespace from there - note that non-visible lines are not altered
 style__enable_cursor_blinking=$'\e[?12h'
@@ -58,8 +58,11 @@ else
 	# if unable to tap into alterantive screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
 	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
 	# https://github.com/bevry/dorothy/actions/runs/11358441972/job/31592966478#step:2:2805
-	style__alternative_screen_buffer=$'\n'"$style__clear_screen"
+	# even though practically multiple calls to alternative screen buffer will clear the screen, the newline on the initial call is unintuitive — https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2439 — so only do the newline
+	style__alternative_screen_buffer="$style__clear_screen"
 	style__default_screen_buffer=$'\n'"$style__clear_screen"
+	# ensure clears are also moved to next line: https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2449
+	style__clear_screen=$'\n'$'\e[H\e[2J'
 fi
 
 style__bell=$'\a'
