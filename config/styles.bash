@@ -23,6 +23,7 @@ if [[ $TERM_PROGRAM =~ ^(Hyper|tmux|vscode)$ ]]; then
 else
 	ITALICS_SUPPORTED='no'
 fi
+ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
 
 #######################################
 # ANSI STYLES #########################
@@ -50,8 +51,13 @@ style__cursor_blinking_underline=$'\e[3 q'
 style__cursor_steady_underline=$'\e[4 q'
 style__cursor_blinking_bar=$'\e[5 q'
 style__cursor_steady_bar=$'\e[6 q'
-style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
-style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
+if test "$ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
+	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
+	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
+else
+	style__alternative_screen_buffer=''
+	style__default_screen_buffer=''
+fi
 
 style__bell=$'\a'
 style__newline=$'\n'
