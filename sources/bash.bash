@@ -591,9 +591,9 @@ fi
 # =============================================================================
 # Shim bash functionality that is inconsistent between bash versions.
 
-# Shim Read Timeout
-# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
+# Bash >= 4, < 4
 if test "$BASH_VERSION_MAJOR" -ge 4; then
+	# >= bash v4
 	function __can_read_decimal_timeout {
 		return 0
 	}
@@ -601,6 +601,8 @@ if test "$BASH_VERSION_MAJOR" -ge 4; then
 		__print_line "$1"
 	}
 else
+	# < bash v4
+	# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
 	function __can_read_decimal_timeout {
 		return 1
 	}
@@ -614,11 +616,7 @@ else
 	}
 fi
 
-# Shim Paramater Expansions
-# https://www.gnu.org/software/bash/manual/bash.html#Shell-Parameter-Expansion
-#
-# uppercase_first_letter
-# lowercase_string
+# Bash >= 5.1, >= 4, < 4
 if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 	# >= bash v5.1
 	function __uppercase_first_letter {
@@ -628,7 +626,7 @@ if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
 		__print_line "${1@L}"
 	}
 elif test "$BASH_VERSION_MAJOR" -eq 4; then
-	# >= bash v4.0
+	# >= bash v4
 	function __uppercase_first_letter {
 		__print_line "${1^}"
 	}
@@ -636,7 +634,7 @@ elif test "$BASH_VERSION_MAJOR" -eq 4; then
 		__print_line "${1,,}"
 	}
 else
-	# < bash v4.0
+	# < bash v4
 	function __uppercase_first_letter {
 		local input="$1"
 		local first_char="${input:0:1}"
@@ -648,18 +646,45 @@ else
 	}
 fi
 
-# Shim Conditional Expressions
-# -v varname: True if the shell variable varname is set (has been assigned a value).
-# https://www.gnu.org/software/bash/manual/bash.html#Bash-Conditional-Expressions
-#
-# is_var_set
+# Bash >= 4.2, < 4.2
 if test "$BASH_VERSION_MAJOR" -ge 5 || test "$BASH_VERSION_MAJOR" -eq 4 -a "$BASH_VERSION_MINOR" -ge 2; then
 	# >= bash v4.2
+	# p.  Negative subscripts to indexed arrays, previously errors, now are treated
+	#     as offsets from the maximum assigned index + 1.
+	# q.  Negative length specifications in the ${var:offset:length} expansion,
+	#     previously errors, are now treated as offsets from the end of the variable.
+	function __substr {
+		local string="$1" start="${2:-0}" length="${3-}" size
+		size="${#string}"
+		if test "$start" -lt 0; then
+			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
+			start="$((size + start))"
+		fi
+		if test -z "$length"; then
+			length="$((size - start))"
+		fi
+		__print_line "${string:start:length}"
+	}
 	function __is_var_set {
+		# -v varname: True if the shell variable varname is set (has been assigned a value).
 		test -v "$1"
 	}
 else
 	# < bash v4.2
+	function __substr {
+		local string="$1" start="${2:-0}" length="${3-}" size
+		size="${#string}"
+		if test "$start" -lt 0; then
+			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
+			start="$((size + start))"
+		fi
+		if test -z "$length"; then
+			length="$((size - start))"
+		elif test "$length" -lt 0; then
+			length="$(((size - start) + length))"
+		fi
+		__print_line "${string:start:length}"
+	}
 	function __is_var_set {
 		test -n "${!1-}"
 	}
@@ -699,19 +724,25 @@ function __require_array {
 
 BASH_ARRAY_CAPABILITIES=''
 if test "$BASH_VERSION_MAJOR" -ge '5'; then
+	# bash >= v5
 	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native] empty[native]'
 	if test "$BASH_VERSION_MINOR" -ge '1'; then
+		# bash >= v5.1
 		BASH_ARRAY_CAPABILITIES+=' associative'
 	fi
 elif test "$BASH_VERSION_MAJOR" -ge '4'; then
+	# bash >= v4
 	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
 	if test "$BASH_VERSION_MINOR" -ge '4'; then
+		# bash >= v4.4
 		BASH_ARRAY_CAPABILITIES+=' empty[native]'
 	else
+		# bash v4.0, v4.1, v4.2, v4.3
 		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
 		set +u # disable nounset to prevent crashes on empty arrays
 	fi
 elif test "$BASH_VERSION_MAJOR" -ge '3'; then
+	# bash >= v3
 	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
 	set +u # disable nounset to prevent crashes on empty arrays
 	function mapfile {
