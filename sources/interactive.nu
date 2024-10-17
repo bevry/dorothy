@@ -16,3 +16,4 @@ source ./autocomplete.nu
 command-exists -- 'shuf' | complete; if $env.LAST_EXIT_CODE == 0 {
 	shuf -n1 $'($env.DOROTHY)/sources/shoutouts.txt'
 }
+dorothy-warnings
