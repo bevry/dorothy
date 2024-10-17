@@ -62,7 +62,7 @@ else
 	DOROTHY_LOAD='no' # this must be outside the below if, to ensure DOROTHY_LOAD is reset, and DOROTHY_LOADED is respected, otherwise posix shells may double load due to cross-compat between dotfiles (.profile along with whatever they support)
 	if test -z "${DOROTHY_LOADED_SHARED_SCOPE-}"; then
 		# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
-		if test "$0" = '-bash' -o "$0" = '-zsh' -o "$0" = '-dash' -o "$0" = 'dash'; then
+		if test "$0" = '-bash' -o "$0" = '-zsh' -o "$0" = '-dash' -o "$0" = 'dash' -o -n "${NVIM-}"; then
 			DOROTHY_LOAD='yes'
 		elif test -n "${BASH_VERSION-}"; then
 			# trunk-ignore(shellcheck/SC3044)
