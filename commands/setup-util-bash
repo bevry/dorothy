@@ -3,14 +3,6 @@
 
 # https://repology.org/project/bash/versions
 
-# @note that if they have installed bash via homebrew, and that is what is invoking this script, and then that is what is being uninstalled, the script will crash once bash has been removed. Other methods shouldn't have this issue, as they move the bash executable to a 'trash' equiavlent directory, which allows the invoked script to continue. This is such an edge case, it's not worth doing more on, unless a user actually reports a valid need for a warning or workaround. A workaround being ensuring this script invokes with the system bash instead of the installed bash.
-
-# @todo instead of compiling from source with DOWNLOAD, consider using homebrew bottles
-# can use [get-macos-release-name] to figure it out programatically
-# https://github.com/Homebrew/homebrew-core/pkgs/container/core%2Fbash
-# > brew info --json bash | jq -r ".[].bottle.stable.files"
-# ^ this command above is how you find the bottle url for the current system
-
 function setup_util_bash() (
 	source "$DOROTHY/sources/bash.bash"
 	# imports:
@@ -18,18 +10,37 @@ function setup_util_bash() (
 	# BASH_VERSION_CURRENT
 	# BASH_VERSION_LATEST
 
+	# check if we are macos, in which we need special handling
+	if test "${RELOADED_IN_SYSTEM_BASH-}" != 'yes'; then
+		if is-needle --upgrade -- "$@" || is-needle --uninstall -- "$@"; then
+			# upgrading or uninstalling
+			if is-mac && test -x /bin/bash && brew-installed --formula --quiet -- bash; then
+				# reload in system bash to pevent brew's upgrade/uninstall from crashing us
+				env RELOADED_IN_SYSTEM_BASH=yes /bin/bash "${BASH_SOURCE[0]}" "$@"
+				return
+			fi
+		else
+			# not upgrading or uninstalling
+			if test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
+				# bash is terrible outdated
+				if is-mac && test -x /bin/bash; then
+					# run in system bash to prevent possible upgrade crash
+					env RELOADED_IN_SYSTEM_BASH=yes /bin/bash "${BASH_SOURCE[0]}" --upgrade "$@"
+					return
+				else
+					# run ourself again with upgrade
+					env RELOADED_IN_SYSTEM_BASH=yes "${BASH_SOURCE[0]}" --upgrade "$@"
+					return
+				fi
+			fi
+		fi
+	fi
+
 	# enable DOWNLOAD_BUILD_INSTALL
 	source "$(type -P setup-util)"
 
-	# if outdated bash, then enable upgrade option
-	local extras=()
-	if test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
-		extras+=('--upgrade')
-	fi
-
 	# setup bash
 	local bottle_url='' macos_release arch options=(
-		"${extras[@]}"
 		--cli='bash'
 		"$@"
 		APK='bash' # ALPINE
@@ -108,7 +119,8 @@ function setup_util_bash() (
 	fi
 	setup_util "${options[@]}"
 
-	# check if still outdated, if so, install via building instead
+	# check if the updated bash outdated, if so, install via building instead
+	# this works as it is new invocation so has refreshed env vars inside it
 	if is-bash-version-outdated --quiet; then
 		options+=(
 			--upgrade
@@ -147,10 +159,10 @@ function setup_util_bash() (
 				login_shell_version="$("$login_shell" -c -- 'echo $BASH_VERSION')"
 				bash_shell_version="$("$bash_shell" -c -- 'echo $BASH_VERSION')"
 				if test "$login_shell_version" != "$bash_shell_version"; then
-					echo-style --header2="Your login shell is an outdated version of bash."
-					echo-style --header2="You will now be prompted now to change it to a more modern shell."
+					echo-style --header2='Your login shell is an outdated version of bash.'
+					echo-style --header2='You will now be prompted now to change it to a more modern shell.'
 					setup-shell
-					echo-style --header2="Close this terminal, open a new one, then run the command you ran again."
+					echo-style --header2='Close this terminal, open a new one, then run the command you ran again.'
 					return 0
 				fi
 			fi
