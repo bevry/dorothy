@@ -515,32 +515,45 @@ function setup_util() (
 		help 'Either <name>, <cli>, <app>, <font>, <installer>, <check> must be provided.'
 	fi
 
+	# prep terminal vars
+	local terminal_device_file use_alt_screen_buffer alternative_screen_buffer default_screen_buffer
+	terminal_device_file="$(get-terminal-device-file)"
+	if get-terminal-alternative-support --quiet && test "$option_quiet" != 'no'; then
+		use_alt_screen_buffer='yes'
+		alternative_screen_buffer="$(echo-style --no-trail --alternative-screen-buffer)"
+		default_screen_buffer="$(echo-style --no-trail --default-screen-buffer)"
+	else
+		use_alt_screen_buffer='no'
+		alternative_screen_buffer=''
+		default_screen_buffer=''
+	fi
+
 	# check for action (--check=yes/command would have already exited, as it would have above)
 	if test -n "$option_app" -o -n "$option_cli" -o -n "$option_font"; then
 		if test "$app_exists" != 'yes' -a "$cli_exists" != 'yes' -a "$font_exists" != 'yes'; then
 			# nothing installed
 			if test "$option_action" = 'uninstall'; then
 				# already uninstalled, so no need to uninstall
-				maybe_echo_style --good3="The [$option_name] utility was not found. Already uninstalled. ✅" >/dev/stderr
+				maybe_echo_style --good3="The [$option_name] utility was not found. Already uninstalled. ✅" >"$terminal_device_file"
 				# exit
 				return 0
 			fi
 			option_upgrade='no' # note that we aren't upgrading, which is used for logging
 			# perform install
-			maybe_echo_style --header3="The [$option_name] utility was not found. Installing automatically... ⏲" >/dev/stderr
+			maybe_echo_style --header3="The [$option_name] utility was not found. Installing automatically... ⏲" >"$terminal_device_file"
 		elif test "$option_action" = 'uninstall'; then
 			# exists, uninstall enabled
 			option_upgrade='no' # note that we aren't upgrading, which is used for logging
 			# perform uninstall
-			maybe_echo_style --header3="The [$option_name] utility is marked for uninstall. Uninstalling... ⏲" >/dev/stderr
+			maybe_echo_style --header3="The [$option_name] utility is marked for uninstall. Uninstalling... ⏲" >"$terminal_device_file"
 		elif test "$option_upgrade" = 'yes'; then
 			# exists, upgrade enabled
 			# perform upgrade
-			maybe_echo_style --header3="The [$option_name] utility is marked for upgrade. Upgrading... ⏲" >/dev/stderr
+			maybe_echo_style --header3="The [$option_name] utility is marked for upgrade. Upgrading... ⏲" >"$terminal_device_file"
 		elif test "$cli_working" = 'fail'; then
 			# exists, not working
 			# perform reinstall
-			maybe_echo_style --header3="The [$option_name] utility via [$option_cli] is misbehaving. Reinstalling automatically... ⏲" >/dev/stderr
+			maybe_echo_style --header3="The [$option_name] utility via [$option_cli] is misbehaving. Reinstalling automatically... ⏲" >"$terminal_device_file"
 		elif test "$option_check" = 'no'; then
 			# exists, don't care, proceed anyway
 			# used by setup-util-nerd-fonts to ensure we check for the correct font
@@ -548,7 +561,7 @@ function setup_util() (
 		else
 			# exists, no upgrade, is working
 			# already installed, so no need to install again
-			maybe_echo_style --good3="The [$option_name] utility is already installed. ✅" >/dev/stderr
+			maybe_echo_style --good3="The [$option_name] utility is already installed. ✅" >"$terminal_device_file"
 			return 0
 		fi
 	fi
@@ -668,7 +681,7 @@ function setup_util() (
 	# do not do this for uninstall, as we want the actual methods to handle that
 	if test "$option_upgrade" = 'yes'; then
 		if test -n "$option_cli"; then
-			rm_helper "$XDG_BIN_HOME/$option_cli" "/usr/local/bin/$option_cli"
+			rm_helper "$XDG_BIN_HOME/$option_cli" # "/usr/local/bin/$option_cli"
 		fi
 	fi
 
@@ -1817,16 +1830,28 @@ function setup_util() (
 		fi
 
 		# args
+		local brew_removal_operation='no'
 		if test "$option_action" = 'uninstall'; then
 			if ! __are_all_of_these_brew_packages_installed "${packages[@]}"; then
 				return 200 # ECUSTOM 200 Not applicable for this package system
 			fi
+			# uninstall
+			brew_removal_operation='yes'
 			args+=(
 				'brew'
 				'uninstall'
 			)
+			# note that if this is uninstalling the version of bash that is currently running, then the script will crash with exit status 137
+		elif test "$option_upgrade" = 'yes'; then
+			# upgrade
+			brew_removal_operation='yes'
+			args+=(
+				'brew'
+				'reinstall'
+			)
+			# note that if this is reinstalling the version of bash that is currently running, then the script will crash with exit status 137
 		else
-			# install / upgrade
+			# install
 			args+=(
 				'brew'
 				'install'
@@ -1837,6 +1862,19 @@ function setup_util() (
 		fi
 		if test "${#opts[@]}" -ne 0; then # bash v3 compat
 			args+=("${opts[@]}")
+		fi
+
+		# note if brew will cause us to crash
+		if test "$brew_removal_operation" = 'yes' && is-needle bash -- "${packages[@]}" && test -x "$HOMEBREW_PREFIX/bin/bash" && test "$BASH_VERSION" = "$("$HOMEBREW_PREFIX/bin/bash" -c 'printf %s $BASH_VERSION')"; then
+			# moving the homebrew bash to trash, or a temp directory does not work
+			# as it seems bash requires the invoked bash path to exist, and if it doesn't, it crashes
+			# it is our own script crashing with 137 and not homebrew
+			# trapping 137 doesn't work either, one gets [bash: trap: 137: invalid signal specification]
+			# the only thing that works is invoking such a script with system bash, however there is no way to do that comprehensively, so we just warn
+			__print_string "$default_screen_buffer" >"$terminal_device_file"
+			echo-style --stderr \
+				--notice1='Homebrew is about to delete the currently running bash executable, which will cause this sript to crash with exit status ' --code-notice1='137' --newline \
+				--notice1='Once crashed, please manually continue by re-running the prior script that you executed.'
 		fi
 
 		# packages
@@ -1881,7 +1919,8 @@ function setup_util() (
 		fi
 
 		# opts
-		if test "$option_quiet" != 'no'; then
+		if test "$option_quiet" = 'yes'; then
+			# --quiet for casks is too quiet
 			opts+=('--quiet')
 		fi
 
@@ -3669,14 +3708,26 @@ function setup_util() (
 	# So we're using our own, note that return codes can't go higher than 232
 	# 200 = not applicable ...
 
-	local had_success='no' had_failure='no' had_finish='no' action_log
+	local had_success='no' had_failure='no' had_finish='no' action_current action_past
 	if test "$option_action" = 'uninstall'; then
-		action_log='uninstalled'
+		action_current='uninstalling'
+		action_past='uninstalled'
 	elif test "$option_upgrade" = 'yes'; then
-		action_log='upgraded'
+		action_current='upgrading'
+		action_past='upgraded'
 	else
-		action_log='installed'
+		action_current='installing'
+		action_past='installed'
 	fi
+	function log_pending {
+		local suffix='' method="${1-}"
+		if test -n "$method"; then
+			suffix+=" via [$method]... ⏲"
+		else
+			suffix+='... ⏲'
+		fi
+		maybe_echo_style --good3="The [$option_name] utility is ${action_current}${suffix}"
+	}
 	function log_success {
 		local suffix='' method="${1-}"
 		if test -n "$method"; then
@@ -3684,7 +3735,7 @@ function setup_util() (
 		else
 			suffix+='. ✅'
 		fi
-		maybe_echo_style --good3="The [$option_name] utility was ${action_log}${suffix}" >/dev/stderr
+		maybe_echo_style --good3="The [$option_name] utility was ${action_past}${suffix}"
 	}
 	function log_failure {
 		local suffix='' method="${1-}"
@@ -3696,29 +3747,41 @@ function setup_util() (
 			suffix='. ❌'
 		fi
 		if test "$option_optional" = 'yes'; then
-			maybe_echo_style --notice3="The [$option_name] optional utility was not ${action_log}${suffix}" >/dev/stderr
+			maybe_echo_style --notice3="The [$option_name] optional utility was not ${action_past}${suffix}"
 		else
-			echo-style --error3="The [$option_name] required utility was not ${action_log}${suffix}" >/dev/stderr
+			echo-style --error3="The [$option_name] required utility was not ${action_past}${suffix}"
 		fi
 		return 0
 	}
 	function run_installer {
 		# install/upgrade until successful, uninstall for all
-		local run_status method="$1" fn="$2" run_output
-		eval_capture --statusvar=run_status --outputvar=run_output --outputpipe=/dev/stderr -- "$fn"
+		local run_status method="$1" fn="$2" # run_output
+
+		#eval_capture --statusvar=run_status -- "$fn"
+
+		# don't always do log_pending, as that will cause all the 200 not applicable ones to be dumped
+
+		if test "$use_alt_screen_buffer" = 'yes'; then
+			__print_string "$alternative_screen_buffer" "$(log_pending "$method")" $'\n' >"$terminal_device_file"
+			eval_capture --statusvar=run_status --outputvar=run_output --outputpipe="$terminal_device_file" -- "$fn"
+			__print_string "$default_screen_buffer" >"$terminal_device_file"
+		else
+			eval_capture --statusvar=run_status -- "$fn"
+		fi
+
+		# eval_helper is compatible with setup-util-warp, however it becomes incredibly slow to cycle through all the installers
+		# eval_capture --statusvar=run_status -- eval_helper --shapeshifter --no-wrap --quiet="$option_quiet" -- "$fn"
 		if test "$run_status" -eq 0; then
-			# if is to fix: [is-internet-working; setup-util-bash --quiet] from clearning extra lines
-			if test -n "$run_output" -a "$option_quiet" != 'no'; then
-				# if the output is longer than $LINES then output beyond $LINES will not be cleared, the only way around that is to use tty_start and tty_finish however that incurs a signficant performance penalty, perhaps doing [2> (echo-revolving-door > /dev/stderr)] or something akin to this would work, however it had too many artifacts with [setup-util-warp --uninstall; setup-util-warp --install] with cask usage that uses sudo
-				echo-clear-lines --stdin < <(__print_string "$run_output") >/dev/stderr
-			fi
 			had_success='yes'
-			log_success "$method"
+			log_success "$method" >"$terminal_device_file"
 			if test "$option_action" != 'uninstall'; then
 				had_finish='yes'
 			fi
 		elif test "$run_status" -ne 200; then
-			log_failure "$method"
+			if test "$use_alt_screen_buffer" = 'yes'; then
+				__print_lines "$run_output" >/dev/stderr # needs to be print lines
+			fi
+			log_failure "$method" >/dev/stderr
 			if test "$option_action" = 'uninstall'; then
 				had_failure='yes' # an uninstall failed
 			fi
@@ -3765,19 +3828,19 @@ function setup_util() (
 	if test "$option_action" = 'uninstall'; then
 		# @todo detect if cli is still present, if so, perhaps prompt the user what to do
 		if test "$had_failure" = 'no'; then
-			log_success
+			log_success >"$terminal_device_file"
 		else
 			# still some that aren't uninstalled
-			log_failure
+			log_failure >/dev/stderr
 			if test "$option_optional" != 'yes'; then
 				return 1
 			fi
 		fi
 	elif test "$had_success" = 'yes'; then
 		# at least one installed
-		log_success
+		log_success >"$terminal_device_file"
 	else
-		log_failure
+		log_failure >/dev/stderr
 		if test "$option_optional" != 'yes'; then
 			return 1
 		fi
