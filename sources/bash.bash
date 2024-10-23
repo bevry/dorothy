@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# trunk-ignore-all(shellcheck/SC2034)
 
 # For bash version compatibility and changes, see:
 # See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about signficant changes between bash versions.
@@ -12,32 +11,36 @@
 # Note that [&>] is available to all bash versions, however [&>>] is not, they are different.
 
 # =============================================================================
-# Helpers to work around bash pecularities.
+# Print Helpers
 
-# echo has a few flaws, notably if the string argument is actually a echo argument, then it will not be output, e.g. [echo '-n'] will not output [-n]
-# note that in UNIX there is no difference between an empty string and no input, e.g. empty stdin (printf ` | ...; ... < <(printf '')` and no stdin `: | ...; ... < <(:)` -- if there is way to tell the difference in bash, let me know
+# These should be the same in [bash.bash] and [zsh.zsh].
+# They exist because [echo] has flaws, notably [v='-n'; echo "$v"] will not output [-n].
+# In UNIX there is no difference between an empty string and no input:
+# empty stdin:  printf '' | wc
+#               wc < <(printf '')
+#    no stdin:  : | wc
+#               wc < <(:)
 
 # print each argument concatenated together with no spacing, if no arguments, do nothing
 function __print_string { # b/c alias for __print_strings_or_nothing
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		printf '%s' "$@"
 	fi
 }
 function __print_strings { # b/c alias for __print_strings_or_nothing
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		printf '%s' "$@"
 	fi
 }
 function __print_strings_or_nothing {
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		printf '%s' "$@"
 	fi
 }
 
 # print each argument on its own line, if no arguments, print a line
-function __print_line { # b/c alias, please only use if your intention is merely [printf '\n'], as argument usage may disappear in the future, so use [__print_lines_or_line] or [__print_lines_or_nothing] instead
-	# equivalent to [printf '\n'] if no arguments
-	printf '%s\n' "$@"
+function __print_line {
+	printf '\n'
 }
 function __print_lines_or_line {
 	# equivalent to [printf '\n'] if no arguments
@@ -46,57 +49,57 @@ function __print_lines_or_line {
 
 # print each argument on its own line, if no arguments, do nothing
 function __print_lines { # b/c alias for __print_lines_or_nothing
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		printf '%s\n' "$@"
 	fi
 }
 function __print_lines_or_nothing {
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		printf '%s\n' "$@"
 	fi
 }
 
 # print only arguments that are non-empty, concatenated together with no spacing, if no arguments, do nothing
 function __print_value_strings_or_nothing {
-	local args=()
-	while test "$#" -ne 0; do
-		if test -n "$1"; then
-			args+=("$1")
+	local values=()
+	while [[ $# -ne 0 ]]; do
+		if [[ -n $1 ]]; then
+			values+=("$1")
 		fi
 		shift
 	done
-	if test "${#args[@]}" -ne 0; then
-		printf '%s' "${args[@]}"
+	if [[ ${#values[@]} -ne 0 ]]; then
+		printf '%s' "${values[@]}"
 	fi
 }
 
 # print only arguments that are non-empty on their own line, if no arguments, do nothing
 function __print_value_lines_or_nothing {
-	local args=()
-	while test "$#" -ne 0; do
-		if test -n "$1"; then
-			args+=("$1")
+	local values=()
+	while [[ $# -ne 0 ]]; do
+		if [[ -n $1 ]]; then
+			values+=("$1")
 		fi
 		shift
 	done
-	if test "${#args[@]}" -ne 0; then
-		printf '%s\n' "${args[@]}"
+	if [[ ${#values[@]} -ne 0 ]]; then
+		printf '%s\n' "${values[@]}"
 	fi
 }
 
 # print only arguments that are non-empty on their own line, if no arguments, print a line
 function __print_value_lines_or_line {
-	local args=()
-	while test "$#" -ne 0; do
-		if test -n "$1"; then
-			args+=("$1")
+	local values=()
+	while [[ $# -ne 0 ]]; do
+		if [[ -n $1 ]]; then
+			values+=("$1")
 		fi
 		shift
 	done
-	if test "${#args[@]}" -eq 0; then
+	if [[ ${#values[@]} -eq 0 ]]; then
 		printf '\m'
 	else
-		printf '%s\n' "${args[@]}"
+		printf '%s\n' "${values[@]}"
 	fi
 }
 
@@ -106,11 +109,8 @@ function __print_value_lines_or_line {
 # see [commands/is-brew] for details
 # workaround for Dorothy's [brew] helper
 function __is_brew {
-	if test -n "${HOMEBREW_PREFIX-}" -a -x "${HOMEBREW_PREFIX-}/bin/brew"; then
-		return 0
-	else
-		return 1
-	fi
+	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]
+	return
 }
 
 # see [commands/command-missing] for details
@@ -118,13 +118,13 @@ function __is_brew {
 # returns [1] if ALL commands were present
 function __command_missing {
 	# trim -- prefix
-	if test "${1-}" = '--'; then
+	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
 	# proceed
 	local command
 	for command in "$@"; do
-		if test "$command" = 'brew'; then
+		if [[ $command == 'brew' ]]; then
 			# workaround for our [brew] wrapper
 			if __is_brew; then
 				continue
@@ -146,13 +146,13 @@ function __command_missing {
 # returns [1] if any command was not available
 function __command_exists {
 	# trim -- prefix
-	if test "${1-}" = '--'; then
+	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
 	# proceed
 	local command
 	for command in "$@"; do
-		if test "$command" = 'brew'; then
+		if [[ $command == 'brew' ]]; then
 			# workaround for our [brew] wrapper
 			if __is_brew; then
 				continue
@@ -171,7 +171,7 @@ function __command_exists {
 # see [commands/sudo-helper] for details
 function __try_sudo {
 	# trim -- prefix
-	if test "${1-}" = '--'; then
+	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
 	# forward to sudo-helper if it exists, as it is more detailed
@@ -206,17 +206,17 @@ function __try_sudo {
 # performantly make directories as many directories as possible without sudo
 function __mkdirp {
 	# trim -- prefix
-	if test "${1-}" = '--'; then
+	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
 	# proceed
 	local status=0 dir missing=()
 	for dir in "$@"; do
-		if test -n "$dir" -a ! -d "$dir"; then
+		if [[ -n $dir && ! -d $dir ]]; then
 			missing+=("$dir")
 		fi
 	done
-	if test "${#missing[@]}" -ne 0; then
+	if [[ ${#missing[@]} -ne 0 ]]; then
 		mkdir -p "${missing[@]}" || status=$?
 	fi
 	return "$status"
@@ -225,20 +225,101 @@ function __mkdirp {
 # performantly make directories with sudo
 function __sudo_mkdirp {
 	# trim -- prefix
-	if test "${1-}" = '--'; then
+	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
 	# proceed
 	local status=0 dir missing=()
 	for dir in "$@"; do
-		if test -n "$dir" -a ! -d "$dir"; then
+		if [[ -n $dir && ! -d $dir ]]; then
 			missing+=("$dir")
 		fi
 	done
-	if test "${#missing[@]}" -ne 0; then
+	if [[ ${#missing[@]} -ne 0 ]]; then
 		__try_sudo -- mkdir -p "${missing[@]}" || status=$?
 	fi
 	return "$status"
+}
+
+# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceeding space if done directly: ${var: -1}
+# the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; echo "${v:s}"
+# function __substr_native {
+# 	local string="$1" start="${2:-0}" length="${3-}"
+# 	if [[ -n "$length" ]]; then
+# 		__print_lines "${string:start:length}"
+# 	elif [[ -n "$start" ]]; then
+# 		__print_lines "${string:start}"
+# 	else
+# 		__print_lines "$string"
+# 	fi
+# }
+function __substr {
+	local string="$1"
+	local -i start="${2:-0}" length size remaining
+	size="${#string}"
+	if [[ $start -lt 0 ]]; then
+		# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
+		if [[ $start*-1 -ge $size ]]; then
+			start=0
+		else
+			start+=size
+		fi
+	elif [[ $start -ge $size ]]; then
+		return 0
+	fi
+	# trunk-ignore(shellcheck/SC2100)
+	remaining=size-start
+	if [[ -z ${3-} ]]; then
+		length=remaining
+	else
+		length=$3
+		if [[ $length -gt $remaining ]]; then
+			length=remaining
+		elif [[ $length -lt 0 ]]; then
+			if [[ $length -le $remaining*-1 ]]; then
+				return 0
+			else
+				# trunk-ignore(shellcheck/SC2100)
+				length+=size-start
+			fi
+		fi
+	fi
+	__print_lines "${string:start:length}"
+}
+
+# replace shapeshifting ANSI Escape Codes with newlines
+function __escape_shapeshifting {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# proceed
+	# regexp should match [echo-clear-lines] [echo-revolving-door] [is-shapeshifter]
+	# https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
+	local input
+	for input in "$@"; do
+		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}"
+		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}"
+		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
+		__print_lines "$input"
+	done
+}
+
+# determine if the input contains shapeshifting ANSI Escape Codes
+function __is_shapeshifter {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# proceed
+	local input trimmed
+	for input in "$@"; do
+		trimmed="$(__escape_shapeshifting -- "$input")"
+		if [[ $input != "$trimmed" ]]; then
+			return 0
+		fi
+	done
+	return 1
 }
 
 # =============================================================================
@@ -247,19 +328,20 @@ function __sudo_mkdirp {
 # for example:
 # __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
 # BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
-# BASH_VERSION_MAJOR -- 5
+# $BASH_VERSION_MAJOR -- 5
 # BASH_VERSION_MINOR -- 2
 # BASH_VERSION_PATCH -- 15
 # BASH_VERSION_LATEST -- 5.2.15
 # IS_BASH_VERSION_OUTDATED -- yes/no
 
-if test -z "${BASH_VERSION_CURRENT-}"; then
+if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	# e.g. 5.2.15(1)-release => 5.2.15
 	IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_VERSION_LATEST='5.2.37' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
 	# any v5 version is supported by dorothy
-	if test "$BASH_VERSION_MAJOR" -eq 5; then
+	if [[ $BASH_VERSION_MAJOR -eq 5 ]]; then
 		IS_BASH_VERSION_OUTDATED='no'
 		function __require_upgraded_bash {
 			true
@@ -322,8 +404,9 @@ function eval_capture {
 	# eval_capture --if command_exists grealpath --then gnu_realpath=grealpath --elif command_exists realpath --and is_linux --then gnu_realpath=realpath
 
 	# Fetch (if supplied) the variables that will store the command exit status, the stdout output, the stderr output, and/or the stdout+stderr output
+	# trunk-ignore(shellcheck/SC2034)
 	local item cmd=() exit_status_local exit_status_variable='exit_status_local' stdout_variable='' stderr_variable='' output_variable='' stdout_pipe='/dev/stdout' stderr_pipe='/dev/stderr'
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
@@ -412,40 +495,41 @@ function eval_capture {
 	EVAL_CAPTURE_COUNT="${EVAL_CAPTURE_COUNT:-0}"
 	local EVAL_CAPTURE_STATUS=
 	local EVAL_CAPTURE_CONTEXT="$RANDOM"
-	local EVAL_CAPTURE_COMMAND="${cmd[*]}"
+	# local EVAL_CAPTURE_COMMAND="${cmd[*]}"
 	local EVAL_CAPTURE_SUBSHELL="${BASH_SUBSHELL-}"
 	local temp_directory="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/eval-capture" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
 	local status_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.status" stderr_temp_file='' stdout_temp_file='' output_temp_file=''
 	__mkdirp "$temp_directory"
 	function eval_capture_wrapper_trap {
+		# trunk-ignore(shellcheck/SC2034)
 		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
-		# __print_line "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
-		# __print_line "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
-		if test "$EVAL_CAPTURE_CONTEXT" = "$trap_context"; then
-			if test "$EVAL_CAPTURE_SUBSHELL" = "$trap_subshell" -o "$trap_fn" = 'eval_capture_wrapper'; then
-				# __print_line "STORE" >/dev/tty
+		# __print_lines "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
+		# __print_lines "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
+		if [[ $EVAL_CAPTURE_CONTEXT == "$trap_context" ]]; then
+			if [[ $EVAL_CAPTURE_SUBSHELL == "$trap_subshell" || $trap_fn == 'eval_capture_wrapper' ]]; then
+				# __print_lines "STORE" >/dev/tty
 				EVAL_CAPTURE_STATUS="$trap_status"
 				return 0
-			elif test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
-				# __print_line "SAVE" >/dev/tty
-				# __print_line "$trap_status" >"$status_temp_file"
+			elif [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]]; then
+				# __print_lines "SAVE" >/dev/tty
+				# __print_lines "$trap_status" >"$status_temp_file"
 				return "$trap_status"
 			fi
 		fi
-		# __print_line "ERR" >/dev/tty
+		# __print_lines "ERR" >/dev/tty
 		return "$trap_status"
 	}
 
 	# store preliminary values, and prep the temporary files
-	if test -n "$stdout_variable"; then
+	if [[ -n $stdout_variable ]]; then
 		eval "${stdout_variable}=''"
 		stdout_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.stdout"
 	fi
-	if test -n "$stderr_variable"; then
+	if [[ -n $stderr_variable ]]; then
 		eval "${stderr_variable}=''"
 		stderr_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.stderr"
 	fi
-	if test -n "$output_variable"; then
+	if [[ -n $output_variable ]]; then
 		eval "${output_variable}=''"
 		output_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.output"
 	fi
@@ -456,14 +540,14 @@ function eval_capture {
 	# as such, we must cleanup inside the trap and after the trap, and cleanup must work in both contexts
 	function eval_capture_wrapper {
 		local subshell_status
-		# __print_line "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __print_lines "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
 		# wrap if the $- check, as always returning causes +e to return when it shouldn't
 		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
 		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
-		if test "$IS_BASH_VERSION_OUTDATED" = 'yes' && [[ $- == *e* ]] && [[ "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
+		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && $- == *e* && "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
 			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
-			# __print_line "SUBSHELL $-" >/dev/tty
+			# __print_lines "SUBSHELL $-" >/dev/tty
 			set +e
 			(
 				set -e
@@ -476,35 +560,35 @@ function eval_capture {
 			subshell_status=$?
 		fi
 		# capture status in case of set +e
-		if test "$subshell_status" -ne 0; then
+		if [[ $subshell_status -ne 0 ]]; then
 			EVAL_CAPTURE_STATUS="$subshell_status"
 		fi
 		# we've stored the status, we return success
 		return 0
 	}
-	if test -n "$output_variable"; then
-		if test -n "$stdout_variable"; then
-			if test -n "$stderr_variable"; then
+	if [[ -n $output_variable ]]; then
+		if [[ -n $stdout_variable ]]; then
+			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper > >(tee -a "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
 			else
 				eval_capture_wrapper > >(tee -a "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$output_temp_file" >"$stderr_pipe")
 			fi
 		else
-			if test -n "$stderr_variable"; then
+			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper > >(tee -a "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
 			else
 				eval_capture_wrapper > >(tee -a "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$output_temp_file" >"$stderr_pipe")
 			fi
 		fi
 	else
-		if test -n "$stdout_variable"; then
-			if test -n "$stderr_variable"; then
+		if [[ -n $stdout_variable ]]; then
+			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper > >(tee -a "$stdout_temp_file" >"$stdout_pipe") 2> >(tee -a "$stderr_temp_file" >"$stderr_pipe")
 			else
 				eval_capture_wrapper > >(tee -a "$stdout_temp_file" >"$stdout_pipe") 2>"$stderr_pipe"
 			fi
 		else
-			if test -n "$stderr_variable"; then
+			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper >"$stdout_pipe" 2> >(tee -a "$stderr_temp_file" >"$stderr_pipe")
 			else
 				eval_capture_wrapper >"$stdout_pipe" 2>"$stderr_pipe"
@@ -514,33 +598,33 @@ function eval_capture {
 
 	# remove the lingering trap
 	EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT - 1))"
-	# __print_line "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
-	if test "$EVAL_CAPTURE_COUNT" -eq 0; then
+	# __print_lines "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
+	if [[ $EVAL_CAPTURE_COUNT -eq 0 ]]; then
 		trap - ERR
 	fi
 
 	# save the exit status, and reset the global value
-	# __print_line "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
-	if test "$IS_BASH_VERSION_OUTDATED" = 'yes' -a -f "$status_temp_file"; then # mktemp always creates the file, so need to use -s instead of -f
+	# __print_lines "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+	if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && -f $status_temp_file ]]; then # mktemp always creates the file, so need to use -s instead of -f
 		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
 		rm "$status_temp_file"
-		# __print_line "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __print_lines "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	fi
 	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
 	# unset -v EXIT_STATUS
 
 	# save the stdout/stderr/output, and remove their temporary files
-	if test -n "$stdout_temp_file" -a -f "$stdout_temp_file"; then
+	if [[ -n $stdout_temp_file && -f $stdout_temp_file ]]; then
 		eval "$stdout_variable"'="$(cat "$stdout_temp_file")"'
 		rm "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
-	if test -n "$stderr_temp_file" -a -f "$stderr_temp_file"; then
+	if [[ -n $stderr_temp_file && -f $stderr_temp_file ]]; then
 		eval "$stderr_variable"'="$(cat "$stderr_temp_file")"'
 		rm "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
-	if test -n "$output_temp_file" -a -f "$output_temp_file"; then
+	if [[ -n $output_temp_file && -f $output_temp_file ]]; then
 		eval "$output_variable"'="$(cat "$output_temp_file")"'
 		rm "$output_temp_file"
 		output_temp_file=''
@@ -592,99 +676,122 @@ fi
 # Shim bash functionality that is inconsistent between bash versions.
 
 # Bash >= 4, < 4
-if test "$BASH_VERSION_MAJOR" -ge 4; then
-	# >= bash v4
+if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
+	# bash >= 4
 	function __can_read_decimal_timeout {
 		return 0
 	}
 	function __get_read_decimal_timeout {
-		__print_line "$1"
+		__print_lines "$1"
 	}
 else
-	# < bash v4
+	# bash < 4
 	# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
 	function __can_read_decimal_timeout {
 		return 1
 	}
 	function __get_read_decimal_timeout {
 		# -lt requires integers, so we need to use regexp instead
-		if test -n "$1" && [[ $1 =~ ^0[.] ]]; then
-			__print_line 1
+		if [[ -n $1 && $1 =~ ^0[.] ]]; then
+			__print_lines 1
 		else
-			__print_line "$1"
+			__print_lines "$1"
 		fi
 	}
 fi
 
 # Bash >= 5.1, >= 4, < 4
-if test "$BASH_VERSION_MAJOR" -eq 5 -a "$BASH_VERSION_MINOR" -ge 1; then
-	# >= bash v5.1
+if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
+	# bash >= 5.1
 	function __uppercase_first_letter {
-		__print_line "${1@u}"
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		__print_lines "${1@u}"
 	}
 	function __lowercase_string {
-		__print_line "${1@L}"
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		__print_lines "${1@L}"
 	}
-elif test "$BASH_VERSION_MAJOR" -eq 4; then
-	# >= bash v4
-	function __uppercase_first_letter {
-		__print_line "${1^}"
-	}
-	function __lowercase_string {
-		__print_line "${1,,}"
+	function __quote {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		__print_lines "${@@Q}"
 	}
 else
-	# < bash v4
-	function __uppercase_first_letter {
-		local input="$1"
-		local first_char="${input:0:1}"
-		local rest="${input:1}"
-		__print_line "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
+	# bash < 5.1
+	function __quote {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		printf '%q\n' "$@"
 	}
-	function __lowercase_string {
-		tr '[:upper:]' '[:lower:]' <<<"$1"
-	}
+	if [[ $BASH_VERSION_MAJOR -eq 4 ]]; then
+		# bash >= 4
+		function __uppercase_first_letter {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			__print_lines "${1^}"
+		}
+		function __lowercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			__print_lines "${1,,}"
+		}
+	else
+		# bash < 4
+		function __uppercase_first_letter {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			local input="$1"
+			local first_char="${input:0:1}"
+			local rest="${input:1}"
+			__print_lines "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
+		}
+		function __lowercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			tr '[:upper:]' '[:lower:]' <<<"$1"
+		}
+	fi
 fi
 
 # Bash >= 4.2, < 4.2
-if test "$BASH_VERSION_MAJOR" -ge 5 || test "$BASH_VERSION_MAJOR" -eq 4 -a "$BASH_VERSION_MINOR" -ge 2; then
-	# >= bash v4.2
+if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
+	# bash >= 4.2
 	# p.  Negative subscripts to indexed arrays, previously errors, now are treated
 	#     as offsets from the maximum assigned index + 1.
 	# q.  Negative length specifications in the ${var:offset:length} expansion,
 	#     previously errors, are now treated as offsets from the end of the variable.
-	function __substr {
-		local string="$1" start="${2:-0}" length="${3-}" size
-		size="${#string}"
-		if test "$start" -lt 0; then
-			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
-			start="$((size + start))"
-		fi
-		if test -z "$length"; then
-			length="$((size - start))"
-		fi
-		__print_line "${string:start:length}"
-	}
 	function __is_var_set {
 		# -v varname: True if the shell variable varname is set (has been assigned a value).
 		test -v "$1"
 	}
 else
-	# < bash v4.2
-	function __substr {
-		local string="$1" start="${2:-0}" length="${3-}" size
-		size="${#string}"
-		if test "$start" -lt 0; then
-			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
-			start="$((size + start))"
-		fi
-		if test -z "$length"; then
-			length="$((size - start))"
-		elif test "$length" -lt 0; then
-			length="$(((size - start) + length))"
-		fi
-		__print_line "${string:start:length}"
-	}
+	# bash < 4.2
 	function __is_var_set {
 		test -n "${!1-}"
 	}
@@ -723,26 +830,26 @@ function __require_array {
 }
 
 BASH_ARRAY_CAPABILITIES=''
-if test "$BASH_VERSION_MAJOR" -ge '5'; then
-	# bash >= v5
+if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
+	# bash >= 5
 	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native] empty[native]'
-	if test "$BASH_VERSION_MINOR" -ge '1'; then
-		# bash >= v5.1
+	if [[ $BASH_VERSION_MINOR -ge 1 ]]; then
+		# bash >= 5.1
 		BASH_ARRAY_CAPABILITIES+=' associative'
 	fi
-elif test "$BASH_VERSION_MAJOR" -ge '4'; then
-	# bash >= v4
+elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
+	# bash >= 4
 	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
-	if test "$BASH_VERSION_MINOR" -ge '4'; then
-		# bash >= v4.4
+	if [[ $BASH_VERSION_MINOR -ge 4 ]]; then
+		# bash >= 4.4
 		BASH_ARRAY_CAPABILITIES+=' empty[native]'
 	else
-		# bash v4.0, v4.1, v4.2, v4.3
+		# bash 4.0, 4.1, 4.2, 4.3
 		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
 		set +u # disable nounset to prevent crashes on empty arrays
 	fi
-elif test "$BASH_VERSION_MAJOR" -ge '3'; then
-	# bash >= v3
+elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
+	# bash >= 3
 	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
 	set +u # disable nounset to prevent crashes on empty arrays
 	function mapfile {
@@ -750,15 +857,15 @@ elif test "$BASH_VERSION_MAJOR" -ge '3'; then
 		# Written for Dorothy (https://github.com/bevry/dorothy)
 		# Licensed under the CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
 		local delim=$'\n' item
-		if test "$1" = '-t'; then
+		if [[ $1 == '-t' ]]; then
 			shift
-		elif test "$1" = '-td'; then
+		elif [[ $1 == '-td' ]]; then
 			shift
 			delim="$1"
 			shift
 		fi
 		eval "$1=()"
-		while IFS= read -rd "$delim" item || test -n "$item"; do
+		while IFS= read -rd "$delim" item || [[ -n $item ]]; do
 			eval "$1+=($(echo-quote -- "$item"))"
 		done
 	}

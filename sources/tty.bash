@@ -65,7 +65,6 @@ function tty_set_y_x {
 		y="${1-}"
 		x="${2-}"
 	fi
-	# trunk-ignore(shellcheck/SC2059)
 	printf "\e[${y};${x}H" >/dev/tty
 }
 

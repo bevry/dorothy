@@ -2,6 +2,7 @@
 
 ## Documentation on ANSI Escape Codes
 
+-   <https://terminals-wiki.org/wiki/index.php/CodeChart:ANSI/ESC/CSI>
 -   <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences>
 -   <https://www.gnu.org/software/screen/manual/html_node/Control-Sequences.html>
 -   <https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797> and <https://gist.github.com/ConnerWill/d4b6c776b509add763e17f9f113fd25b> they look the ame but have different commit histories
@@ -18,46 +19,8 @@
 -   <https://gist.github.com/Prakasaka/219fe5695beeb4d6311583e79933a009>
 -   <https://mywiki.wooledge.org/BashFAQ/037>
 
-## Documentation on ANSI Escape Codes for cursor and screen manipulation
+## tput aliases
 
-```text
-ESC [ = 0x9B = CSI (Control Sequence Introducer)
-Starts most of the useful sequences, terminated by a byte in the range 0x40 through 0x7E.[5]: 5.4
-```
-
-```text
-CSI n A = CUU (Cursor Up)
-Moves the cursor n (default 1) cells in the given direction. If the cursor is already at the edge of the screen, this has no effect.
-```
-
-```text
-CSI n J = ED (Erase in Display
-Clears part of the screen. If n is 0 (or missing), clear from cursor to end of screen. If n is 1, clear from cursor to beginning of the screen. If n is 2, clear entire screen (and moves cursor to upper left on DOS ANSI.SYS). If n is 3, clear entire screen and delete all lines saved in the scrollback buffer (this feature was added for xterm and is supported by other terminal applications).
-```
-
-```text
-CSI n K = EL (Erase in Line)
-Erases part of the line. If n is 0 (or missing), clear from cursor to the end of the line. If n is 1, clear from cursor to beginning of the line. If n is 2, clear entire line. Cursor position does not change.
-```
-
-```text
-CSI n F = CPL (Cursor Previous Line)
-Moves cursor to beginning of the line n (default 1) lines up. (not ANSI.SYS)
-```
-
-```text
-CSI n G = CHA (Cursor Horizontal Absolute)
-Moves the cursor to column n (default 1). (not ANSI.SYS)
-```
-
--   `\e[A` = move the cursor up 1 line
--   `\e[1K` = clear from cursor to beginning of the line
--   `\e[2K` = clear entire line
--   `\e[G` = moves the cursor to column 1
--   `\e[F` = Moves cursor to beginning of 1 lines up
--   `\e[J` = clear from cursor to end of screen
--   `$'\e[?47h'` = save screen but not cursor
--   `$'\e[?47l'` = restore screen but not cursor
 -   `tput sc` = `$'\e7'` = save cursor, `$'\e[s'` is meant to work but from testing it doesn't
 -   `tput rc` = `$'\e8'` = restore cursor, `$'\e[u'` is meant to work but from testing it doesn't
 -   `tput smcup` = `$'\e[?1049h'` = save screen and cursor

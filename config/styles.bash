@@ -16,15 +16,15 @@ if [[ $TERM_PROGRAM =~ ^(Hyper|tmux|vscode)$ ]]; then
 else
 	ITALICS_SUPPORTED='no'
 fi
-ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
+ALTERNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
 
 #######################################
 # ANSI STYLES #########################
 
 # terminal
-style__clear_line=$'\e[G\e[2K' # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
-style__delete_line=$'\e[F\e[J' # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
-
+style__clear_line=$'\e[G\e[2K'  # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
+style__delete_line=$'\e[F\e[J'  # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
+style__clear_screen=$'\e[H\e[J' # # \e[H\e[J moves cursor to the top and erases the screen (so no effect to the scroll buffer), unfortunately \e[2J moves the cursor to the bottom, then prints a screen worth of blank lines, then moves the cursor to the top (keeping what was on the screen in the scroll buffer, padded then by a screen of white space); tldr \e[H\e[J wipes the screen, \e[2J pads the screen
 style__enable_cursor_blinking=$'\e[?12h'
 style__disable_cursor_blinking=$'\e[?12l'
 style__show_cursor=$'\e[?25h'
@@ -36,10 +36,9 @@ style__cursor_blinking_underline=$'\e[3 q'
 style__cursor_steady_underline=$'\e[4 q'
 style__cursor_blinking_bar=$'\e[5 q'
 style__cursor_steady_bar=$'\e[6 q'
-if test "$ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
+if test "$ALTERNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
 	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
 	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
-	style__clear_screen=$'\e[H\e[J'               # # \e[H\e[J moves cursor to the top and erases the screen (so no effect to the scroll buffer), unfortunately \e[2J moves the cursor to the bottom, then prints a screen worth of blank lines, then moves the cursor to the top (keeping what was on the screen in the scroll buffer, padded then by a screen of white space); tldr \e[H\e[J wipes the screen, \e[2J pads the screen
 else
 	# if unable to tap into alterantive screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
 	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
@@ -478,53 +477,10 @@ style__color_end__question_title_result="${style__color_end__bold}"
 style__color__question_body="${style__color__dim}"
 style__color_end__question_body="${style__color_end__dim}"
 
-# confirm/choose/ask failures
-style__color__input_warning="${style__color__bold}${style__color__foreground_yellow}"
-style__color_end__input_warning="${style__color_end__bold}${style__color_end__foreground_yellow}"
-# notice and warning too much emphasis on something with fallback
-
-# style__color__input_error="${style__color__bold}${style__color__foreground_red}"
-# style__color_end__input_error="${style__color_end__bold}${style__color_end__foreground_red}"
-style__color__input_error="${style__color__error1}"
-style__color_end__input_error="${style__color_end__error1}"
-
-# confirm/choose/ask text
-style__icon_nothing_provided='[ nothing provided ]'
-style__icon_no_selection='[ no selection ]'         # used while choosing
-style__icon_nothing_selected='[ nothing selected ]' # used in result
-style__icon_using_password='[ using the entered password ]'
-
 # ask icons
 style__icon_prompt='> '
 
-# confirm icons
-style__color__icon_question_positive="${style__color__blink}(${style__color__bold}${style__color__foreground_green}Y${style__color_end__foreground}${style__color_end__bold}/n)${style__color_end__blink}"
-style__nocolor__icon_question_positive='(Y/n)'
-
-style__color__icon_question_negative="${style__color__blink}(y/${style__color__bold}${style__color__foreground_red}N${style__color_end__foreground}${style__color_end__bold})${style__color_end__blink}"
-style__nocolor__icon_question_negative='(y/N)'
-
-style__color__icon_question_bool="${style__color__blink}(y/n)${style__color_end__blink}"
-style__nocolor__icon_question_bool='(y/n)'
-
-style__color__icon_question_confirm="${style__color__blink}(CONFIRM)${style__color_end__blink}"
-style__nocolor__icon_question_confirm='(CONFIRM)'
-
-# confirm results
-style__color__result_positive="${style__color__bold}${style__color__foreground_green}"
-style__color_end__result_positive="${style__color_end__foreground}${style__color_end__bold}"
-
-style__color__result_negative="${style__color__bold}${style__color__foreground_red}"
-style__color_end__result_negative="${style__color_end__foreground}${style__color_end__bold}"
-
-style__color__result_abort="${style__color__bold}${style__color__foreground_red}"
-style__color_end__result_abort="${style__color_end__foreground}${style__color_end__bold}"
-
-# ask resuktls
-style__color__result_value="${style__color__dim}"
-style__color_end__result_value="${style__color_end__dim}"
-
-# for input result indentation, it doesn't make sense:
+# for input result indentation, it doesn't sense:
 # https://en.wikipedia.org/wiki/List_of_Unicode_characters#Box_Drawing
 # │ seamless, but too much of a gap on the left. cam look like an I if only single line result
 # ┃ seamless, good option
@@ -557,20 +513,55 @@ style__color_end__empty_line="${style__color_end__foreground}${style__color_end_
 style__color__inactive_line=''
 style__color_end__inactive_line=''
 
+# notice and warning too much emphasis on something with fallback
+# confirm/choose/ask failures
+style__color__input_warning="${style__color__bold}${style__color__foreground_yellow}"
+style__color_end__input_warning="${style__color_end__bold}${style__color_end__foreground_yellow}"
+style__color__input_error="${style__color__error1}"
+style__color_end__input_error="${style__color_end__error1}"
+
+# confirm/choose/ask text
+style__commentary='[ '
+style__commentary_end=' ]'
+style__icon_nothing_provided="${style__commentary}nothing provided${style__commentary_end}"
+style__icon_no_selection="${style__commentary}no selection${style__commentary_end}"
+style__icon_nothing_selected="${style__commentary}nothing selected${style__commentary_end}"
+style__icon_using_password="${style__commentary}using the entered password${style__commentary_end}"
+style__icon_timeout_default="${style__commentary}timed out: used default${style__commentary_end}"
+style__icon_timeout_optional="${style__commentary}timed out: not required${style__commentary_end}"
+style__icon_timeout_required="${style__commentary}input failure: timed out: required${style__commentary_end}"
+style__icon_input_failure="${style__commentary}input failure: %s${style__commentary_end}"
+style__nocolor__commentary_nothing_provided="${style__icon_nothing_provided}"
+style__nocolor__commentary_no_selection="${style__icon_no_selection}"
+style__nocolor__commentary_nothing_selected="${style__icon_nothing_selected}"
+style__nocolor__commentary_using_password="${style__icon_using_password}"
+style__nocolor__commentary_timeout_default="${style__icon_timeout_default}"
+style__nocolor__commentary_timeout_optional="${style__icon_timeout_optional}"
+style__nocolor__commentary_timeout_required="${style__icon_timeout_required}"
+style__nocolor__commentary_input_failure="${style__icon_input_failure}"
+style__color__commentary_nothing_provided="${style__color__empty_line}${style__icon_nothing_provided}${style__color_end__empty_line}"
+style__color__commentary_no_selection="${style__color__empty_line}${style__icon_no_selection}${style__color_end__empty_line}"
+style__color__commentary_nothing_selected="${style__color__empty_line}${style__icon_nothing_selected}${style__color_end__empty_line}"
+style__color__commentary_using_password="${style__color__empty_line}${style__icon_using_password}${style__color_end__empty_line}"
+style__color__commentary_timeout_default="${style__color__input_warning}${style__icon_timeout_default}${style__color_end__input_warning}"
+style__color__commentary_timeout_optional="${style__color__input_warning}${style__icon_timeout_optional}${style__color_end__input_warning}"
+style__color__commentary_timeout_required="${style__color__input_error}${style__icon_timeout_required}${style__color_end__input_error}"
+style__color__commentary_input_failure="${style__color__input_error}${style__icon_input_failure}${style__color_end__input_error}"
+
 # spacers
+style__result_commentary_spacer=' '
 style__legend_legend_spacer='  '
 style__legend_key_spacer=' '
 style__key_key_spacer=' '
 style__indent_bar='   '
 style__indent_active='⏵  '
 style__indent_inactive='   '
-style__nocolor__blockquote='│ '
-style__color__blockquote="${style__color__dim}│ ${style__color_end__dim}"
+style__indent_blockquote='│ '
+
+# style__count_spacer=' ∙ '
 style__nocolor__count_spacer=' ∙ '
 style__color__count_spacer=" ${style__color__foreground_intense_black}∙${style__color_end__foreground} "
 
-# legend
-style__color__legend="$style__color__dim" # dim is better than white, nice separation
 style__color_end__legend="$style__color_end__intensity"
 style__color__key="${style__color__foreground_black}${style__color__background_white} "
 style__color_end__key=" ${style__color_end__foreground}${style__color_end__background}"
@@ -578,8 +569,9 @@ style__nocolor__key='['
 style__nocolor_end__key=']'
 
 # paging counts
-style__color__count_more="$style__color__foreground_white"
-style__color_end__count_more="$style__color_end__foreground"
+# style__count_more=''
+style__color__count_more="$style__color__dim"
+style__color_end__count_more="$style__color_end__dim"
 style__color__count_selected="$style__color__foreground_green"
 style__color_end__count_selected="$style__color_end__foreground"
 style__color__count_defaults="$style__color__foreground_yellow"
@@ -588,24 +580,60 @@ style__color__count_empty="$style__color__foreground_magenta"
 style__color_end__count_empty="$style__color_end__foreground"
 
 # paging headers
+# style__bar_top='┌ '
+# style__end__bar_top=' ┐'
+# style__bar_middle='├ '
+# style__end__bar_middle=' ┤'
+# style__bar_bottom='└ '
+# style__end__bar_bottom=' ┘'
+# style__bar_line='│ '
 style__nocolor__bar_top='┌ '
 style__nocolor_end__bar_top=' ┐'
 style__nocolor__bar_middle='├ '
 style__nocolor_end__bar_middle=' ┤'
 style__nocolor__bar_bottom='└ '
 style__nocolor_end__bar_bottom=' ┘'
-style__color__bar_top="${style__color__foreground_intense_black}┌${style__color_end__foreground} "
-style__color_end__bar_top=" ${style__color__foreground_intense_black}┐${style__color_end__foreground}"
-style__color__bar_middle="${style__color__foreground_intense_black}├${style__color_end__foreground} "
-style__color_end__bar_middle=" ${style__color__foreground_intense_black}┤${style__color_end__foreground}"
-style__color__bar_bottom="${style__color__foreground_intense_black}└${style__color_end__foreground} "
-style__color_end__bar_bottom=" ${style__color__foreground_intense_black}┘${style__color_end__foreground}"
+style__nocolor__bar_line='│ '
+style__color__bar_top="${style__color__dim}┌${style__color_end__dim} "
+style__color_end__bar_top=" ${style__color__dim}┐${style__color_end__dim}"
+style__color__bar_middle="${style__color__dim}├${style__color_end__dim} "
+style__color_end__bar_middle=" ${style__color__dim}┤${style__color_end__dim}"
+style__color__bar_bottom="${style__color__dim}└${style__color_end__dim} "
+style__color_end__bar_bottom=" ${style__color__dim}┘${style__color_end__dim}"
+style__color__bar_line="${style__color__dim}│${style__color_end__dim} "
+
+# if confirm appears dim, it is because your terminal theme has changed and you haven't opened a new terminal tab
+
+# confirm color
+style__color__confirm_positive_active="${style__color__bold}${style__color__invert}${style__color__foreground_green} YES  ${style__color_end__invert}${style__color_end__bold}${style__color__key} Y ${style__color_end__key}"
+style__color__confirm_negative_active="${style__color__bold}${style__color__invert}${style__color__foreground_red} NO  ${style__color_end__invert}${style__color_end__bold}${style__color__key} N ${style__color_end__key}"
+style__color__confirm_proceed_active="${style__color__bold}${style__color__invert}${style__color__foreground_green} PROCEED  ${style__color_end__invert}${style__color_end__bold}${style__color__key} ENTER ${style__color_end__key} ${style__color__key} SPACE ${style__color_end__key} ${style__color__key} Y ${style__color_end__key}"
+
+style__color__confirm_positive_inactive="${style__color__foreground_green} YES  ${style__color__key} Y ${style__color_end__key}"
+style__color__confirm_negative_inactive="${style__color__foreground_red} NO  ${style__color__key} N ${style__color_end__key}"
+style__color__confirm_abort_inactive="${style__color__foreground_red}${style__color__dim} ABORT  ${style__color__key} ESC ${style__color_end__key}${style__color_end__dim}"
+
+style__color__confirm_positive_result="${style__color__bold}${style__color__invert}${style__color__foreground_green} YES ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+style__color__confirm_negative_result="${style__color__bold}${style__color__invert}${style__color__foreground_red} NO ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+style__color__confirm_abort_result="${style__color__bold}${style__color__invert}${style__color__foreground_red} ABORT ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+style__color__confirm_proceed_result="${style__color__bold}${style__color__invert}${style__color__foreground_green} PROCEED ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+
+# confirm nocolor
+style__nocolor__confirm_positive_active='*YES* [Y]'
+style__nocolor__confirm_negative_active='*NO* [N]'
+style__nocolor__confirm_proceed_active='*PROCEED* [ENTER] [SPACE] [Y]'
+
+style__nocolor__confirm_positive_inactive=' YES  [Y]'
+style__nocolor__confirm_negative_inactive=' NO  [N]'
+style__nocolor__confirm_abort_inactive=' ABORT  [ESC] [Q]'
+
+style__nocolor__confirm_positive_result='[YES]'
+style__nocolor__confirm_negative_result='[NO]'
+style__nocolor__confirm_abort_result='[ABORT]'
+style__nocolor__confirm_proceed_result='[PROCEED]'
 
 # adjustments
 if test "$THEME" = 'light'; then
-	# counts
-	style__color__count_more="$style__color__foreground_intense_black"
-	style__color_end__count_more="$style__color_end__foreground"
 	# keys
 	style__color__legend="$style__color__foreground_intense_black"
 	style__color_end__legend="$style__color_end__foreground"
@@ -659,8 +687,8 @@ function refresh_style_cache {
 					found='yes'
 				else
 					var="style__nocolor__${style}"
+					eval "style__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__${style}=''"
 						found='yes'
 					fi
 				fi
@@ -674,12 +702,12 @@ function refresh_style_cache {
 			else
 				var="style__end__${style}"
 				if __is_var_set "$var"; then
-					# no need to updat eit
+					# no need to update it
 					found='yes'
 				else
 					var="style__nocolor_end__${style}"
+					eval "style__end__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__end__${style}=''"
 						found='yes'
 					fi
 				fi
@@ -697,8 +725,8 @@ function refresh_style_cache {
 					found='yes'
 				else
 					var="style__color__${style}"
+					eval "style__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__${style}=''"
 						found='yes'
 					fi
 				fi
@@ -716,8 +744,8 @@ function refresh_style_cache {
 					found='yes'
 				else
 					var="style__color_end__${style}"
+					eval "style__end__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__end__${style}=''"
 						found='yes'
 					fi
 				fi

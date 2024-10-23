@@ -16,8 +16,8 @@ function echo_clear_lines() (
 			echo-lines ...<input> | echo-clear-lines [...options]
 
 			OPTIONS:
-			--piped
-			    If piping, provide this, otherwise don't.
+			--here-string | --herestring | '--<<<'
+			    If using a here string, provide this option to discard the trailing newline that here strings add.
 
 			--count=<count>
 			    If provided, use this many lines rather than erasing lines as they happen.
@@ -40,12 +40,14 @@ function echo_clear_lines() (
 			# ^ Use this instead of the arguments otpion, and do not use <<< as it prints a trailing newline, which would erase 'sup'.
 
 			echo 'sup'
-			printf 'a\nb\nc' | echo-clear-lines --piped
+			printf 'a\nb\nc'
+			printf 'a\nb\nc' | echo-clear-lines
 			# ^ retains: sup
 
 			file="\$(mktemp)"
 			echo 'sup'
-			printf 'a\nb\nc' | tee "\$file"; echo-clear-lines < "\$file"
+			printf 'a\nb\nc' | tee "\$file
+			echo-clear-lines < "\$file"
 			# ^ retains: sup
 		EOF
 		if test "$#" -ne 0; then
@@ -55,16 +57,21 @@ function echo_clear_lines() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_piped='no' option_count='' option_args=()
+	local item option_here_string='no' option_columns='' option_count='' option_count_only='no' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-piped'* | '--piped'*)
-			option_piped="$(get-flag-value --affirmative --fallback="$option_piped" -- "$item")"
-			;;
 		'--count='*) option_count="${item#*=}" ;;
+		'--no-count-only'* | '--count-only'*)
+			option_count_only="$(get-flag-value --affirmative --fallback="$option_count_only" -- "$item")"
+			;;
+		'--columns='*) option_columns="${item#*=}" ;;
+		'--here-string' | '--herestring' | '--<<<')
+			option_here_string='yes'
+			option_args+=('--stdin')
+			;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinarg options
 		'--')
 			option_args+=("$item" "$@")
@@ -78,25 +85,56 @@ function echo_clear_lines() (
 	# =====================================
 	# Action
 
-	# test cases:
-	# confirm --ppid=$$ -- "Press <enter> once you are ready to continue..."
-	# ^ without \e[J it will have an indentation at the start
+	# heredocs don't appear as inline, they always appear as complete lines
+	# so a here-string without a trailing line will appear as a complete line
+	# and a here-string with a trailing line, will appear as a complete line and another complete empty line
 
-	function on_line {
-		local line="$1"
-		# if we are piping (there is newline we want to keep from pressing return in the terminal), or if the input is deleting rather than clearing lines, then we can only safely clear the current line
-		# regexp should match [echo-clear-lines] [echo-revolving-door] [is-shapeshifter]
-		if [[ $option_piped == 'yes' || $line =~ $'\e\[[0-9]*[AKGFJ]' ]]; then
-			printf '\e[G\e[2K' # set cursor to start of line, and clear from there
+	local count=0 had_inline='no'
+	function clear_lines {
+		# adapt
+		if test "$option_here_string" = 'yes' -o "$had_inline" = 'yes'; then
+			if test "$count" -ne 0; then
+				count="$((count - 1))"
+			fi
+		fi
+		# clear
+		if test "$option_count_only" = 'yes'; then
+			__print_lines "$count"
+		elif test "$count" -eq 0; then
+			printf '\e[G\e[J'
 		else
-			printf '\e[F\e[J' # set cursor to the start of the prior line, and delete everything from there (aka echo-clear-line)
+			printf '\e[%dF\e[J' "$count"
+		fi
+	}
+	function on_line {
+		local input="$1" lines
+		if test -z "$input"; then
+			# it is a complete line, so add 1 to count
+			# we don't send empty input to echo-wrap/echo-count-lines as empty input will appear as 0
+			count="$((count + 1))"
+		elif __is_shapeshifter -- "$input"; then
+			# if shapeshifter, reset count
+			count=0
+		else
+			# if not shapeshifter, wrap and count
+			lines="$(echo-wrap --columns="$option_columns" -- "$input" | echo-count-lines --stdin)"
+			count="$((count + lines))"
 		fi
 	}
 	function on_inline {
-		printf '\e[G\e[2K' # set cursor to start of line, and clear from there
+		# if inline, proceed as normal but remove a line
+		on_line "$1"
+		had_inline='yes'
 	}
-
-	stdinargs "${option_args[@]}"
+	function on_finish {
+		clear_lines
+	}
+	if test -n "$option_count"; then
+		count="$option_count"
+		clear_lines
+	else
+		stdinargs "${option_args[@]}"
+	fi
 )
 
 # fire if invoked standalone
