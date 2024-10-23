@@ -4,13 +4,6 @@
 
 # Used by `echo-style`
 
-# https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
-# https://gist.github.com/Prakasaka/219fe5695beeb4d6311583e79933a009
-# https://mywiki.wooledge.org/BashFAQ/037
-
-# https://en.wikipedia.org/wiki/List_of_Unicode_characters
-# https://en.wikipedia.org/wiki/List_of_Unicode_characters#Unicode_symbols
-
 #######################################
 # STYLE SUPPORT #######################
 
@@ -29,14 +22,6 @@ ALTERNNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
 # ANSI STYLES #########################
 
 # terminal
-# $`\e[?47h' save screen but not cursor
-# $`\e[?47l' restore screen but not cursor
-# `tput sc` = $'\e7' save cursor, $'\e[s' is meant to work but from testing it doesn't
-# `tput rc` = $'\e8' restore cursor, $'\e[u' is meant to work but from testing it doesn't
-# `tput smcup` = $'\e[?1049h', save screen and cursor
-# `tput rmcup` = $'\e[?1049l', restore screen and cursor
-# `tput clear` = $'\e[H\e[2J', put cursor at top left and clear the screen
-# `tput cup 0 0` = $'\e[1;1H', functionally same as $'\e[H', put cursor at top left
 style__clear_line=$'\e[G\e[2K'   # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
 style__delete_line=$'\e[F\e[J'   # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
 style__clear_screen=$'\e[H\e[2J' # move cursor to the beginning of the screen buffer and erase/clear/overwrite-with-whitespace from there - note that non-visible lines are not altered
