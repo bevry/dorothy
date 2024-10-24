@@ -4,7 +4,7 @@
 
 In Bash, functions can return a number, commands can exit with a number, and processes can receive numbers.
 These numbers represent an exit status, also known as exit codes, return codes, error codes, etc.
-When scripting, an exit status of 0 is considered a success, in which execution will continue, and a non-zero exist status is considered a failure which will cause execution to stop unless manually discarded.
+When scripting, an exit status of 0 is considered a success, in which execution will continue, and a non-zero exit status is considered a failure which will cause execution to stop unless manually discarded.
 
 When returning any non-zero exit status, you should attempt to use a meaningful exit status, and note it's meaning like so:
 

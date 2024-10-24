@@ -2,7 +2,6 @@
 
 function eval_helper() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$DOROTHY/sources/tty.bash"
 
 	# =====================================
 	# Arguments
@@ -62,18 +61,24 @@ function eval_helper() (
 	}
 
 	# process
-	local item option_quiet option_cmd=() option_wrap='yes' option_trim='no' option_confirm='no' option_shapeshifter='no' option_pending='' option_success='' option_failure='' option_command_string=''
-	option_quiet="$(echo-quiet-enabled -- "$@")"
+	local item option_quiet option_cmd=() option_wrap='yes' option_trim='no' option_confirm='no' option_shapeshifter='no' option_pending='' option_success='' option_failure='' option_command_string='' option_terminal_device_file=''
+	option_quiet="$(get-terminal-quiet-support || :)"
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
 		'--pending='*) option_pending="${item#*=}" ;;
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
 		'--command='*) option_command_string="${item#*=}" ;;
+		'--terminal-device-file='*) option_terminal_device_file="${item#*=}" ;;
 		'--no-trim'* | '--trim'*)
 			option_trim="$(get-flag-value --affirmative --fallback="$option_trim" -- "$item")"
 			;;
@@ -99,9 +104,11 @@ function eval_helper() (
 	# =====================================
 	# Action
 
-	# tty
-	local tty_target
-	tty_target="$(is-tty --fallback)"
+	# terminal
+	local terminal_device_file="$option_terminal_device_file"
+	if test -z "$terminal_device_file"; then
+		terminal_device_file="$(get-terminal-device-file)"
+	fi
 
 	# element
 	local element_open=''
@@ -129,14 +136,14 @@ function eval_helper() (
 		header+="$element_open"$'\n'
 	fi
 	if test -n "$header"; then
-		__print_string "$header" >"$tty_target"
+		__print_string "$header" >"$terminal_device_file"
 	fi
 
 	# output
 	local output=''
 	function flush_output {
 		if test -n "$output"; then
-			__print_string "$output" >"$tty_target"
+			__print_string "$output" >"$terminal_device_file"
 			output=''
 		fi
 	}
@@ -173,9 +180,11 @@ function eval_helper() (
 		flush_output
 	else
 		# not inside a revolving door, and not in verbose mode
-		local columns body_file
-		# trunk-ignore(shellcheck/SC2015)
-		columns="$(is-tty && tput cols || :)"
+		local terminal_size terminal_columns=0 body_file
+		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
+		if test "${#terminal_size[@]}" -eq 2; then
+			terminal_columns="${terminal_size[1]}"
+		fi
 		body_file="$(mktemp)"
 
 		# body
@@ -186,22 +195,21 @@ function eval_helper() (
 		if test "$option_shapeshifter" = 'yes'; then
 			# this is used if the command writes to TTY
 			# in which case echo-revolving-door fails to clear
-			tty_start
-			__print_string "$header" >"$tty_target" # redo header inside alt tty while its active
+			echo-style --no-trail --alternative-screen-buffer --="$header" >"$terminal_device_file" # redo header inside alt tty while its active
 			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
 				> >(tee -a "$body_file") \
 				2> >(tee -a "$body_file" >/dev/stderr)
-			tty_finish
+			echo-style --no-trail --default-screen-buffer >"$terminal_device_file"
 		else
 			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				> >(tee -a "$body_file" | echo-revolving-door --columns="$columns") \
-				2> >(tee -a "$body_file" | echo-revolving-door --columns="$columns" >/dev/stderr)
+				> >(tee -a "$body_file" | echo-revolving-door --columns="$terminal_columns") \
+				2> >(tee -a "$body_file" | echo-revolving-door --columns="$terminal_columns" >/dev/stderr)
 			# we cannot detect shapeshifting after the fact, as it occurs in the TTY, not stdout, nor stderr
 		fi
 		export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR_original"
 
 		# clear header, we can re-add them later if needed
-		echo-clear-lines -- "$header" >"$tty_target"
+		echo-clear-lines --here-string <<<"$header" >"$terminal_device_file"
 
 		# generate output
 		if test "$option_quiet" = 'no' -o "$cmd_status" -ne 0; then
