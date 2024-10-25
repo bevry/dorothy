@@ -142,9 +142,9 @@ function stdinargs {
 		# for each line, call `on_line` or `on_input`
 		# for each inline, call `on_inline` or `on_line` or `on_input`
 		# [read -t 0 line] will not read anything, so it must be done seperately
-		# IFS='' to not trim whitespace lines (e.g. ' ' would otherwise become '')
+		# IFS= to not trim whitespace lines (e.g. ' ' would otherwise become '')
 		# trunk-ignore(shellcheck/SC2162)
-		while ([[ $timeout_immediate == 'no' ]] || read -t 0) && IFS='' read "${read_args[@]}" line; do
+		while ([[ $timeout_immediate == 'no' ]] || read -t 0) && IFS= read "${read_args[@]}" line; do
 			had_line='yes'
 			if [[ $complete == 'yes' ]]; then
 				break
