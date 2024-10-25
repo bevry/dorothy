@@ -719,24 +719,10 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 		# proceed
 		__print_lines "${1@L}"
 	}
-	function __quote {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
-		__print_lines "${@@Q}"
-	}
+	# @Q is available, however it is strange, so don't shim
 else
 	# bash < 5.1
-	function __quote {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
-		printf '%q\n' "$@"
-	}
+	# @Q is no longer available, however it is strange, so don't shim
 	if [[ $BASH_VERSION_MAJOR -eq 4 ]]; then
 		# bash >= 4
 		function __uppercase_first_letter {
@@ -866,7 +852,7 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 		fi
 		eval "$1=()"
 		while IFS= read -rd "$delim" item || [[ -n $item ]]; do
-			eval "$1+=($(echo-quote -- "$item"))"
+			eval "$1+=($(printf '%q\n' "$item"))"
 		done
 	}
 fi
