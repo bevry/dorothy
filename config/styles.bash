@@ -4,19 +4,63 @@
 
 # Used by `echo-style`
 
-# https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
-# https://gist.github.com/Prakasaka/219fe5695beeb4d6311583e79933a009
-# https://mywiki.wooledge.org/BashFAQ/037
+#######################################
+# STYLE SUPPORT #######################
+
+GITHUB_ACTIONS="${GITHUB_ACTIONS-}"
+THEME="$(get-terminal-theme || :)"
+TERM_PROGRAM="${TERM_PROGRAM-}"
+USE_COLOR="$(get-terminal-color-support --fallback=yes)"
+if [[ $TERM_PROGRAM =~ ^(Hyper|tmux|vscode)$ ]]; then
+	ITALICS_SUPPORTED='yes'
+else
+	ITALICS_SUPPORTED='no'
+fi
+ALTERNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
 
 #######################################
 # ANSI STYLES #########################
 
-# erasure
-style__delete_line=$'\e[F\e[J'
-style__erase_screen=$'\e[H\e[2J'
-style__hide_cursor=$'\e[?25l'
+# terminal
+style__clear_line=$'\e[G\e[2K'  # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
+style__delete_line=$'\e[F\e[J'  # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
+style__clear_screen=$'\e[H\e[J' # # \e[H\e[J moves cursor to the top and erases the screen (so no effect to the scroll buffer), unfortunately \e[2J moves the cursor to the bottom, then prints a screen worth of blank lines, then moves the cursor to the top (keeping what was on the screen in the scroll buffer, padded then by a screen of white space); tldr \e[H\e[J wipes the screen, \e[2J pads the screen
+style__enable_cursor_blinking=$'\e[?12h'
+style__disable_cursor_blinking=$'\e[?12l'
 style__show_cursor=$'\e[?25h'
+style__hide_cursor=$'\e[?25l'
+style__reset_cursor=$'\e[0 q'
+style__cursor_blinking_block=$'\e[1 q'
+style__cursor_steady_block=$'\e[2 q'
+style__cursor_blinking_underline=$'\e[3 q'
+style__cursor_steady_underline=$'\e[4 q'
+style__cursor_blinking_bar=$'\e[5 q'
+style__cursor_steady_bar=$'\e[6 q'
+if test "$ALTERNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
+	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
+	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
+else
+	# if unable to tap into alterantive screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
+	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
+	# https://github.com/bevry/dorothy/actions/runs/11358441972/job/31592966478#step:2:2805
+	# even though practically multiple calls to alternative screen buffer will clear the screen, the newline on the initial call is unintuitive — https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2439 — so only do the newline
+	style__alternative_screen_buffer="$style__clear_screen"
+	style__default_screen_buffer=$'\n'"$style__clear_screen"
+	# ensure clears are also moved to next line: https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2449
+	style__clear_screen=$'\n'$'\e[H\e[J'
+fi
+
 style__bell=$'\a'
+style__newline=$'\n'
+style__tab=$'\t'
+style__backspace=$'\b'
+style__carriage_return=$'\r'
+style__escape=$'\e'
+style__home=$'\e[H'
+style__terminal_title=$'\e]0;'
+style__termianl_title_end=$'\a'
+style__terminal_resize=$'\e[8;'
+style__termianl_resize_end=';t'
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
@@ -146,18 +190,6 @@ style__color_end__background_intense_gray="$style__color_end__background"
 style__color__background_intense_grey="$style__color__background_intense_white"
 style__color_end__background_intense_grey="$style__color_end__background"
 
-# If italics is not supported, swap it with something else...
-# Values of TERM_PROGRAM that are known to not support italics:
-# - Apple_Terminal
-# As italics support is rare, do the swap if not in a known terminal that supports italics....
-if ! [[ ${TERM_PROGRAM-} =~ ^(Hyper|tmux|vscode)$ ]]; then
-	# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
-	# style__color__italic="$style__color__dim"
-	# style__color_end__italic="$style__color_end__dim"
-	style__color__italic="$style__color__foreground_intense_white"
-	style__color_end__italic="$style__color_end__foreground"
-fi
-
 # modes that aren't implemented by operating systems
 # blink_fast=$'\e[6m'
 
@@ -238,25 +270,49 @@ style__color_end__sudo="${style__color_end__foreground}"
 style__color__code="${style__color__foreground_intense_black}"
 style__color_end__code="${style__color_end__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
-if test -n "${GITHUB_ACTIONS-}"; then
+if test -n "$GITHUB_ACTIONS"; then
 	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
 	style__color_end__header1="${style__color_end__background}${style__color_end__foreground}"
 	style__color__error1="${style__color__background_red}${style__color__foreground_black}"
 	style__color_end__error1="${style__color_end__background}${style__color_end__foreground}"
 	style__color__error="${style__color__background_red}${style__color__foreground_black}"
 	style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
-elif test "$(get-terminal-theme || :)" = 'light'; then
+elif test "$THEME" = 'light'; then
 	# trim style__color__foreground_intense_yellow as it is unreadable on light theme
 	style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
 	style__color__sudo="${style__color__foreground_yellow}"
 	style__color_end__sudo="${style__color_end__foreground}"
+
+	# If italics is not supported, swap it with something else...
+	# Values of TERM_PROGRAM that are known to not support italics:
+	# - Apple_Terminal
+	# As italics support is rare, do the swap if not in a known terminal that supports italics....
+	if test "$ITALICS_SUPPORTED" = 'no'; then
+		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
+		# style__color__italic="$style__color__dim"
+		# style__color_end__italic="$style__color_end__dim"
+		style__color__italic="$style__color__foreground_intense_black"
+		style__color_end__italic="$style__color_end__foreground"
+	fi
 else
 	# on dark theme on vscode
 	# style__color__background_intense_red forces black foreground, which black on red is unreadable, so adjust
-	if test "${TERM_PROGRAM-}" = vscode; then
+	if test "$TERM_PROGRAM" = vscode; then
 		style__color__error="${style__color__background_red}${style__color__foreground_intense_white}"
 		style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
+	fi
+
+	# If italics is not supported, swap it with something else...
+	# Values of TERM_PROGRAM that are known to not support italics:
+	# - Apple_Terminal
+	# As italics support is rare, do the swap if not in a known terminal that supports italics....
+	if test "$ITALICS_SUPPORTED" = 'no'; then
+		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
+		# style__color__italic="$style__color__dim"
+		# style__color_end__italic="$style__color_end__dim"
+		style__color__italic="$style__color__foreground_intense_white"
+		style__color_end__italic="$style__color_end__foreground"
 	fi
 fi
 
@@ -266,6 +322,17 @@ fi
 # ⏲
 # ✅
 # ❌
+
+# useful symbols:
+# ⁇	⁈ ⁉ ‼ ‽ ℹ ⓘ ¡ ¿ ⚠
+# ⏰ ⏱ ⏲ ⏳
+# ⎷ ☐ ☑ ☉ ☒ ⚀ ☓ ⛌ ⛝
+# ☹ ☺ ☻ ☝ ☞ ☟ ☠ ☢ ☣ ☮
+# ⚠️ 🛑 ⛔ ✅ ✊ ✋ 👍 🏆 ❌ ❓ ❔ ❕ ❗
+# ✓ ✔ ✕ ✖ ✗ ✘ ★ ☆
+# ❢ ❣ ♡ ❤ ❥ ♥
+style__icon_good='☺'
+style__icon_error='!'
 
 # level 1 wrappers
 # hN = header level N
@@ -277,13 +344,13 @@ style__nocolor_end__h1='  ┐'
 style__color__h1=$'\n'"${style__color__header1}┌  "
 style__color_end__h1="  ┐${style__color_end__header1}"
 
-style__nocolor__g1='└  '
-style__nocolor_end__g1='  ┘'
+style__nocolor__g1="└${style__icon_good} "
+style__nocolor_end__g1=" ${style__icon_good}┘"
 style__color__g1="${style__color__good1}└  "
 style__color_end__g1="  ┘${style__color_end__good1}"
 
-style__nocolor__e1='└  '
-style__nocolor_end__e1='  ┘'
+style__nocolor__e1="└${style__icon_error} "
+style__nocolor_end__e1=" ${style__icon_error}┘"
 style__color__e1="${style__color__error1}└  "
 style__color_end__e1="  ┘${style__color_end__error1}"
 
@@ -298,13 +365,13 @@ style__nocolor_end__h2='  ┐'
 style__color__h2="${style__color__reset}${style__color__bold}┌  "
 style__color_end__h2="  ┐${style__color__reset}"
 
-style__nocolor__g2='└  '
-style__nocolor_end__g2='  ┘'
+style__nocolor__g2="└${style__icon_good} "
+style__nocolor_end__g2=" ${style__icon_good}┘"
 style__color__g2="${style__color__reset}${style__color__bold}${style__color__foreground_green}└  "
 style__color_end__g2="  ┘${style__color__reset}"
 
-style__nocolor__e2='└  '
-style__nocolor_end__e2='  ┘'
+style__nocolor__e2="└${style__icon_error} "
+style__nocolor_end__e2=" ${style__icon_error}┘"
 style__color__e2="${style__color__reset}${style__color__bold}${style__color__foreground_red}└  "
 style__color_end__e2="  ┘${style__color__reset}"
 
@@ -319,13 +386,13 @@ style__nocolor_end__h3='  ┐'
 style__color__h3="${style__color__reset}┌  "
 style__color_end__h3="  ┐${style__color__reset}"
 
-style__nocolor__g3='└  '
-style__nocolor_end__g3='  ┘'
+style__nocolor__g3="└${style__icon_good} "
+style__nocolor_end__g3=" ${style__icon_good}┘"
 style__color__g3="${style__color__reset}${style__color__foreground_green}└  "
 style__color_end__g3="  ┘${style__color__reset}"
 
-style__nocolor__e3='└  '
-style__nocolor_end__e3='  ┘'
+style__nocolor__e3="└${style__icon_error} "
+style__nocolor_end__e3=" ${style__icon_error}┘"
 style__color__e3="${style__color__reset}${style__color__foreground_red}└  "
 style__color_end__e3="  ┘${style__color__reset}"
 
@@ -410,53 +477,10 @@ style__color_end__question_title_result="${style__color_end__bold}"
 style__color__question_body="${style__color__dim}"
 style__color_end__question_body="${style__color_end__dim}"
 
-# confirm/choose/ask failures
-style__color__input_warning="${style__color__bold}${style__color__foreground_yellow}"
-style__color_end__input_warning="${style__color_end__bold}${style__color_end__foreground_yellow}"
-# notice and warning too much emphasis on something with fallback
-
-# style__color__input_error="${style__color__bold}${style__color__foreground_red}"
-# style__color_end__input_error="${style__color_end__bold}${style__color_end__foreground_red}"
-style__color__input_error="${style__color__error1}"
-style__color_end__input_error="${style__color_end__error1}"
-
-# confirm/choose/ask text
-style__icon_nothing_provided='[ nothing provided ]'
-style__icon_no_selection='[ no selection ]'         # used while choosing
-style__icon_nothing_selected='[ nothing selected ]' # used in result
-style__icon_using_password='[ using the entered password ]'
-
 # ask icons
 style__icon_prompt='> '
 
-# confirm icons
-style__color__icon_question_positive="${style__color__blink}(${style__color__bold}${style__color__foreground_green}Y${style__color_end__foreground}${style__color_end__bold}/n)${style__color_end__blink}"
-style__nocolor__icon_question_positive='(Y/n)'
-
-style__color__icon_question_negative="${style__color__blink}(y/${style__color__bold}${style__color__foreground_red}N${style__color_end__foreground}${style__color_end__bold})${style__color_end__blink}"
-style__nocolor__icon_question_negative='(y/N)'
-
-style__color__icon_question_bool="${style__color__blink}(y/n)${style__color_end__blink}"
-style__nocolor__icon_question_bool='(y/n)'
-
-style__color__icon_question_confirm="${style__color__blink}(CONFIRM)${style__color_end__blink}"
-style__nocolor__icon_question_confirm='(CONFIRM)'
-
-# confirm results
-style__color__result_positive="${style__color__bold}${style__color__foreground_green}"
-style__color_end__result_positive="${style__color_end__foreground}${style__color_end__bold}"
-
-style__color__result_negative="${style__color__bold}${style__color__foreground_red}"
-style__color_end__result_negative="${style__color_end__foreground}${style__color_end__bold}"
-
-style__color__result_abort="${style__color__bold}${style__color__foreground_red}"
-style__color_end__result_abort="${style__color_end__foreground}${style__color_end__bold}"
-
-# ask resuktls
-style__color__result_value="${style__color__dim}"
-style__color_end__result_value="${style__color_end__dim}"
-
-# for input result indentation, it doesn't make sense:
+# for input result indentation, it doesn't sense:
 # https://en.wikipedia.org/wiki/List_of_Unicode_characters#Box_Drawing
 # │ seamless, but too much of a gap on the left. cam look like an I if only single line result
 # ┃ seamless, good option
@@ -489,20 +513,55 @@ style__color_end__empty_line="${style__color_end__foreground}${style__color_end_
 style__color__inactive_line=''
 style__color_end__inactive_line=''
 
+# notice and warning too much emphasis on something with fallback
+# confirm/choose/ask failures
+style__color__input_warning="${style__color__bold}${style__color__foreground_yellow}"
+style__color_end__input_warning="${style__color_end__bold}${style__color_end__foreground_yellow}"
+style__color__input_error="${style__color__error1}"
+style__color_end__input_error="${style__color_end__error1}"
+
+# confirm/choose/ask text
+style__commentary='[ '
+style__commentary_end=' ]'
+style__icon_nothing_provided="${style__commentary}nothing provided${style__commentary_end}"
+style__icon_no_selection="${style__commentary}no selection${style__commentary_end}"
+style__icon_nothing_selected="${style__commentary}nothing selected${style__commentary_end}"
+style__icon_using_password="${style__commentary}using the entered password${style__commentary_end}"
+style__icon_timeout_default="${style__commentary}timed out: used default${style__commentary_end}"
+style__icon_timeout_optional="${style__commentary}timed out: not required${style__commentary_end}"
+style__icon_timeout_required="${style__commentary}input failure: timed out: required${style__commentary_end}"
+style__icon_input_failure="${style__commentary}input failure: %s${style__commentary_end}"
+style__nocolor__commentary_nothing_provided="${style__icon_nothing_provided}"
+style__nocolor__commentary_no_selection="${style__icon_no_selection}"
+style__nocolor__commentary_nothing_selected="${style__icon_nothing_selected}"
+style__nocolor__commentary_using_password="${style__icon_using_password}"
+style__nocolor__commentary_timeout_default="${style__icon_timeout_default}"
+style__nocolor__commentary_timeout_optional="${style__icon_timeout_optional}"
+style__nocolor__commentary_timeout_required="${style__icon_timeout_required}"
+style__nocolor__commentary_input_failure="${style__icon_input_failure}"
+style__color__commentary_nothing_provided="${style__color__empty_line}${style__icon_nothing_provided}${style__color_end__empty_line}"
+style__color__commentary_no_selection="${style__color__empty_line}${style__icon_no_selection}${style__color_end__empty_line}"
+style__color__commentary_nothing_selected="${style__color__empty_line}${style__icon_nothing_selected}${style__color_end__empty_line}"
+style__color__commentary_using_password="${style__color__empty_line}${style__icon_using_password}${style__color_end__empty_line}"
+style__color__commentary_timeout_default="${style__color__input_warning}${style__icon_timeout_default}${style__color_end__input_warning}"
+style__color__commentary_timeout_optional="${style__color__input_warning}${style__icon_timeout_optional}${style__color_end__input_warning}"
+style__color__commentary_timeout_required="${style__color__input_error}${style__icon_timeout_required}${style__color_end__input_error}"
+style__color__commentary_input_failure="${style__color__input_error}${style__icon_input_failure}${style__color_end__input_error}"
+
 # spacers
+style__result_commentary_spacer=' '
 style__legend_legend_spacer='  '
 style__legend_key_spacer=' '
 style__key_key_spacer=' '
 style__indent_bar='   '
 style__indent_active='⏵  '
 style__indent_inactive='   '
-style__nocolor__blockquote='│ '
-style__color__blockquote="${style__color__dim}│ ${style__color_end__dim}"
+style__indent_blockquote='│ '
+
+# style__count_spacer=' ∙ '
 style__nocolor__count_spacer=' ∙ '
 style__color__count_spacer=" ${style__color__foreground_intense_black}∙${style__color_end__foreground} "
 
-# legend
-style__color__legend="$style__color__dim" # dim is better than white, nice separation
 style__color_end__legend="$style__color_end__intensity"
 style__color__key="${style__color__foreground_black}${style__color__background_white} "
 style__color_end__key=" ${style__color_end__foreground}${style__color_end__background}"
@@ -510,8 +569,9 @@ style__nocolor__key='['
 style__nocolor_end__key=']'
 
 # paging counts
-style__color__count_more="$style__color__foreground_white"
-style__color_end__count_more="$style__color_end__foreground"
+# style__count_more=''
+style__color__count_more="$style__color__dim"
+style__color_end__count_more="$style__color_end__dim"
 style__color__count_selected="$style__color__foreground_green"
 style__color_end__count_selected="$style__color_end__foreground"
 style__color__count_defaults="$style__color__foreground_yellow"
@@ -520,29 +580,65 @@ style__color__count_empty="$style__color__foreground_magenta"
 style__color_end__count_empty="$style__color_end__foreground"
 
 # paging headers
+# style__bar_top='┌ '
+# style__end__bar_top=' ┐'
+# style__bar_middle='├ '
+# style__end__bar_middle=' ┤'
+# style__bar_bottom='└ '
+# style__end__bar_bottom=' ┘'
+# style__bar_line='│ '
 style__nocolor__bar_top='┌ '
 style__nocolor_end__bar_top=' ┐'
 style__nocolor__bar_middle='├ '
 style__nocolor_end__bar_middle=' ┤'
 style__nocolor__bar_bottom='└ '
 style__nocolor_end__bar_bottom=' ┘'
-style__color__bar_top="${style__color__foreground_intense_black}┌${style__color_end__foreground} "
-style__color_end__bar_top=" ${style__color__foreground_intense_black}┐${style__color_end__foreground}"
-style__color__bar_middle="${style__color__foreground_intense_black}├${style__color_end__foreground} "
-style__color_end__bar_middle=" ${style__color__foreground_intense_black}┤${style__color_end__foreground}"
-style__color__bar_bottom="${style__color__foreground_intense_black}└${style__color_end__foreground} "
-style__color_end__bar_bottom=" ${style__color__foreground_intense_black}┘${style__color_end__foreground}"
+style__nocolor__bar_line='│ '
+style__color__bar_top="${style__color__dim}┌${style__color_end__dim} "
+style__color_end__bar_top=" ${style__color__dim}┐${style__color_end__dim}"
+style__color__bar_middle="${style__color__dim}├${style__color_end__dim} "
+style__color_end__bar_middle=" ${style__color__dim}┤${style__color_end__dim}"
+style__color__bar_bottom="${style__color__dim}└${style__color_end__dim} "
+style__color_end__bar_bottom=" ${style__color__dim}┘${style__color_end__dim}"
+style__color__bar_line="${style__color__dim}│${style__color_end__dim} "
+
+# if confirm appears dim, it is because your terminal theme has changed and you haven't opened a new terminal tab
+
+# confirm color
+style__color__confirm_positive_active="${style__color__bold}${style__color__invert}${style__color__foreground_green} YES  ${style__color_end__invert}${style__color_end__bold}${style__color__key} Y ${style__color_end__key}"
+style__color__confirm_negative_active="${style__color__bold}${style__color__invert}${style__color__foreground_red} NO  ${style__color_end__invert}${style__color_end__bold}${style__color__key} N ${style__color_end__key}"
+style__color__confirm_proceed_active="${style__color__bold}${style__color__invert}${style__color__foreground_green} PROCEED  ${style__color_end__invert}${style__color_end__bold}${style__color__key} ENTER ${style__color_end__key} ${style__color__key} SPACE ${style__color_end__key} ${style__color__key} Y ${style__color_end__key}"
+
+style__color__confirm_positive_inactive="${style__color__foreground_green} YES  ${style__color__key} Y ${style__color_end__key}"
+style__color__confirm_negative_inactive="${style__color__foreground_red} NO  ${style__color__key} N ${style__color_end__key}"
+style__color__confirm_abort_inactive="${style__color__foreground_red}${style__color__dim} ABORT  ${style__color__key} ESC ${style__color_end__key}${style__color_end__dim}"
+
+style__color__confirm_positive_result="${style__color__bold}${style__color__invert}${style__color__foreground_green} YES ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+style__color__confirm_negative_result="${style__color__bold}${style__color__invert}${style__color__foreground_red} NO ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+style__color__confirm_abort_result="${style__color__bold}${style__color__invert}${style__color__foreground_red} ABORT ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+style__color__confirm_proceed_result="${style__color__bold}${style__color__invert}${style__color__foreground_green} PROCEED ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
+
+# confirm nocolor
+style__nocolor__confirm_positive_active='*YES* [Y]'
+style__nocolor__confirm_negative_active='*NO* [N]'
+style__nocolor__confirm_proceed_active='*PROCEED* [ENTER] [SPACE] [Y]'
+
+style__nocolor__confirm_positive_inactive=' YES  [Y]'
+style__nocolor__confirm_negative_inactive=' NO  [N]'
+style__nocolor__confirm_abort_inactive=' ABORT  [ESC] [Q]'
+
+style__nocolor__confirm_positive_result='[YES]'
+style__nocolor__confirm_negative_result='[NO]'
+style__nocolor__confirm_abort_result='[ABORT]'
+style__nocolor__confirm_proceed_result='[PROCEED]'
 
 # adjustments
-if test "$(get-terminal-theme || :)" = 'light'; then
-	# counts
-	style__color__count_more="$style__color__foreground_intense_black"
-	style__color_end__count_more="$style__color_end__foreground"
+if test "$THEME" = 'light'; then
 	# keys
 	style__color__legend="$style__color__foreground_intense_black"
 	style__color_end__legend="$style__color_end__foreground"
-	style__color__key="${style__color__background_intense_white} "
-	style__color_end__key="$style__color_end__background"
+	style__color__key="$style__color__background_intense_white "
+	style__color_end__key=" $style__color_end__background"
 	# lines
 	style__color__selected_line="$style__color__foreground_green"
 	style__color_end__selected_line="$style__color_end__foreground"
@@ -567,7 +663,7 @@ function refresh_style_cache {
 	if test -z "$use_color"; then
 		if test -n "${USE_COLOR-}"; then
 			use_color="$USE_COLOR"
-		elif is-color-enabled --; then
+		elif get-terminal-color-support --quiet --fallback=yes; then
 			USE_COLOR='yes'
 			use_color='yes'
 		else
@@ -591,8 +687,8 @@ function refresh_style_cache {
 					found='yes'
 				else
 					var="style__nocolor__${style}"
+					eval "style__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__${style}=''"
 						found='yes'
 					fi
 				fi
@@ -606,12 +702,12 @@ function refresh_style_cache {
 			else
 				var="style__end__${style}"
 				if __is_var_set "$var"; then
-					# no need to updat eit
+					# no need to update it
 					found='yes'
 				else
 					var="style__nocolor_end__${style}"
+					eval "style__end__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__end__${style}=''"
 						found='yes'
 					fi
 				fi
@@ -629,8 +725,8 @@ function refresh_style_cache {
 					found='yes'
 				else
 					var="style__color__${style}"
+					eval "style__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__${style}=''"
 						found='yes'
 					fi
 				fi
@@ -648,8 +744,8 @@ function refresh_style_cache {
 					found='yes'
 				else
 					var="style__color_end__${style}"
+					eval "style__end__${style}=''" # set to nothing regardless
 					if __is_var_set "$var"; then
-						eval "style__end__${style}=''"
 						found='yes'
 					fi
 				fi

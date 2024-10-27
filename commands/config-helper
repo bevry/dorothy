@@ -82,7 +82,7 @@ function config_helper_test() (
 
 	# redo test file
 	sleep "$delay"
-	__print_line $'User=uu\n\tGroup=gg\n\t# Party=pp' >"$test_file"
+	__print_lines $'User=uu\n\tGroup=gg\n\t# Party=pp' >"$test_file"
 
 	# test find only, used by <sharebox> command
 	sleep "$delay"
@@ -105,7 +105,7 @@ function config_helper_test() (
 	# test variable replacements and additions
 	# this is the command it fails on
 	sleep "$delay"
-	__print_line $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$test_file"
+	__print_lines $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$test_file"
 	sleep "$delay"
 	eval-tester --name='test-variable-replacement-and-addition-01' --stderr="$expected_stderr" \
 		-- eval-no-color -- config-helper --no-quiet --file="$test_file" -- \
@@ -118,7 +118,7 @@ function config_helper_test() (
 
 	# test complicated values
 	sleep "$delay"
-	__print_line $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$test_file"
+	__print_lines $'a=one\n\tb=(two three)\n\ta=three\n\tb=(four five)' >"$test_file"
 	sleep "$delay"
 	eval-tester --name='test-complicated-values-01' --stderr="$expected_stderr" \
 		-- eval-no-color -- config-helper --no-quiet --file="$test_file" -- \
@@ -134,7 +134,6 @@ function config_helper_test() (
 	sleep "$delay"
 	__print_lines '$env.VALUE="hello\world"' >"$test_file"
 	sleep "$delay"
-	# trunk-ignore-all(shellcheck/SC2016)
 	eval-tester --name='test-dollar-signs-01' --stderr="$expected_stderr" \
 		-- eval-no-color -- config-helper --no-quiet --file="$test_file" -- \
 		--string-find='$env.VALUE' --string-replace='$env.VALUE="HELLO\WORLD"'
@@ -182,15 +181,19 @@ function config_helper() (
 	}
 
 	# process
-	local item option_args=() option_file='' option_multiple='ok' option_quiet
-	option_quiet="$(echo-quiet-enabled -- "$@")"
+	local item option_args=() option_file='' option_multiple='ok' option_quiet=''
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--file='*) option_file="${item#*=}" ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by echo-quiet-enabled
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
 		'--multiple=ok' | '--multiple=warn-skip' | '--multiple=warn-apply') option_multiple="${item#*=}" ;;
 		'--')
 			option_args+=("$@")
@@ -243,11 +246,32 @@ function config_helper() (
 				option_columns="${1#*=}"
 				shift
 				;;
-			'--no-quote')
-				option_quote='no'
+			'--quote=bash')
+				option_quote='bash'
+				shift
+				;;
+			'--quote=command')
+				option_quote='command'
+				shift
+				;;
+			'--quote=generic')
+				option_quote='generic'
+				shift
+				;;
+			'--no-quote'* | '--quote'*) # will also support quoted
+				option_quote="$(get-flag-value --affirmative --fallback="$option_quote" -- "$1")"
 				shift
 				;;
 			esac
+
+			# adjust quote based on file
+			if [[ $option_quote == 'generic' || $option_quote == 'yes' ]]; then
+				if [[ $option_file == *'.bash' || $option_file == *'.sh' ]]; then
+					option_quote='bash'
+				else
+					option_quote='generic'
+				fi
+			fi
 
 			# extract next argument, shift is handled later, as could ba another find
 			option_replace="${1-}"
@@ -324,11 +348,11 @@ function config_helper() (
 				mapfile -t lines <<<"$value" # read lines into an array, such that indentation works
 
 				# addition, use spaces for consistency with replacements, also use spaces as editors show tabs at variable widths
-				value=$'(\n'"$(echo-lines --indent=$'\t' --quoted --columns="${option_columns:-"1"}" --width=inputs --filler=space -- "${lines[@]}")"$'\n)'
+				value=$'(\n'"$(echo-lines --indent=$'\t' --quote="$option_quote" --columns="${option_columns:-"1"}" --width=inputs --filler=space -- "${lines[@]}")"$'\n)'
 				addition="$field=$value"
 
 				# replacement, use spaces as the filler, as without echo-lines being aware of the content of ${indent}, there is no way for it to correctly align tabs, also use spaces as editors show tabs at variable widths
-				value=$'(\n'"$(echo-lines --indent=$'${indent}\t' --quoted --columns="${option_columns:-"1"}" --width=inputs --filler=space -- "${lines[@]}")"$'\n${indent})'
+				value=$'(\n'"$(echo-lines --indent=$'${indent}\t' --quote="$option_quote" --columns="${option_columns:-"1"}" --width=inputs --filler=space -- "${lines[@]}")"$'\n${indent})'
 				replace_pattern="\${indent}$field=$value"
 
 				# reset columns
@@ -342,12 +366,16 @@ function config_helper() (
 				fi
 
 				# addition and replacement
-				if test "$option_quote" = 'yes'; then
+				if [[ $option_quote == 'bash' ]]; then
+					value="$(echo-escape-bash -- "$value")"
+				elif [[ $option_quote == 'command' ]]; then
+					value="$(echo-escape-command -- "$value")"
+				elif [[ $option_quote == 'generic' || $option_quote == 'yes' ]]; then
 					value="$(echo-quote -- "$value")"
 				fi
 				addition="$field=$value"
 				replace_pattern="\${indent}$field=$value"
-				option_quote='yes'
+				option_quote='yes' # reset it for next time
 			else
 				# the replacement field was a find value, do not shift it, as we will use it in the next cycle
 				# instead, fetch the value, then continue to use the field as the next find

@@ -32,22 +32,34 @@ const globalFlags = new Set([...Array.from(flags), 'g'])
 // he__o wor_d
 // > sd '[[:blank:]]' '_' <<< 'hello world'
 // hello_world
-const find = (Deno.args[1] || '')
-	.replaceAll('(?P<', '(?<')
-	.replaceAll('[[:alnum:]]', '[0-9A-Za-z]')
-	.replaceAll('[[:alpha:]]', '[A-Za-z]')
-	.replaceAll('[[:ascii:]]', '[\x00-\x7F]')
-	.replaceAll('[[:blank:]]', '[\t ]')
-	.replaceAll('[[:cntrl:]]', '[\x00-\x1F\x7F]')
-	.replaceAll('[[:digit:]]', '[0-9]')
-	.replaceAll('[[:graph:]]', '[!-~]')
-	.replaceAll('[[:lower:]]', '[a-z]')
-	.replaceAll('[[:print:]]', '[ -~]')
-	.replaceAll('[[:punct:]]', '[!-/:-@[-`{-~]')
-	.replaceAll('[[:space:]]', '[\t\n\v\f\r ]')
-	.replaceAll('[[:upper:]]', '[A-Z]')
-	.replaceAll('[[:word:]]', '[0-9A-Za-z_]')
-	.replaceAll('[[:xdigit:]]', '[0-9A-Fa-f]')
+const characterClasses: {
+	[name: string]: string
+} = {
+	alnum: '0-9A-Za-z',
+	alpha: 'A-Za-z',
+	ascii: '\x00-\x7F',
+	blank: '\t ',
+	cntrl: '\x00-\x1F\x7F',
+	digit: '0-9',
+	graph: '!-~',
+	lower: 'a-z',
+	print: ' -~',
+	punct: '!-/:-@[-`{-~',
+	space: '\t\n\v\f\r ',
+	upper: 'A-Z',
+	word: '0-9A-Za-z_',
+	xdigit: '0-9A-Fa-f',
+}
+function compatRegexpString(input: string): string {
+	let wip = input.replaceAll('(?P<', '(?<')
+	// convert [[:digit:][:lower:]] to [0-9a-z]
+	// this also happens to convert [[:digit:]] to [0-9]
+	for (const [name, value] of Object.entries(characterClasses)) {
+		wip = wip.replaceAll(`[:${name}:]`, value)
+	}
+	return wip
+}
+const find = compatRegexpString(Deno.args[1] || '')
 const replacements = Deno.args.slice(2).map(function (replacement) {
 	return replacement.replaceAll(/\$\{([^}]+)\}/g, '$<$1>')
 })

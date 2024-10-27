@@ -83,10 +83,20 @@ function fs_realpath() (
 
 	function do_gnu_realpath {
 		local gnu_realpath
-		if command-exists -- grealpath; then
+		if __command_exists -- grealpath; then
 			gnu_realpath='grealpath'
-		elif command-exists -- realpath && is-linux; then
-			gnu_realpath='realpath'
+		elif __command_exists -- realpath; then
+			if is-mac; then
+				# usage: realpath [-q] [path ...]
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-alpine && test "$(realpath "$(type -P 'realpath')" || :)" = "$(type -P busybox || :)"; then
+				# Usage: realpath FILE...
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-linux; then
+				gnu_realpath='realpath'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -140,10 +150,20 @@ function fs_realpath() (
 		fi
 
 		local gnu_readlink
-		if command-exists -- greadlink; then
+		if __command_exists -- greadlink; then
 			gnu_readlink='greadlink'
-		elif command-exists -- readlink && is-linux; then
-			gnu_readlink='readlink'
+		elif __command_exists -- readlink; then
+			if is-mac; then
+				# usage: readlink [-fn] [file ...]
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-alpine && test "$(readlink -f "$(type -P 'readlink')" || :)" = "$(type -P busybox || :)"; then
+				# Usage: readlink [-fnv] FILE
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-linux; then
+				gnu_readlink='readlink'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -184,15 +204,23 @@ function fs_realpath() (
 			fi
 		fi
 	}
-	function do_macos_readlink {
+	function do_fallback_readlink {
 		# don't support unsupported args
 		if test -n "$option_relative_to" -o -n "$option_relative_to"; then
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
 
-		local macos_readlink
-		if command-exists -- readlink && is-mac; then
-			macos_readlink='readlink'
+		local fallback_readlink
+		if __command_exists -- readlink; then
+			if is-mac; then
+				# usage: readlink [-fn] [file ...]
+				fallback_readlink='readlink'
+			elif is-alpine && test "$(readlink -f "$(type -P 'readlink')" || :)" = "$(type -P busybox || :)"; then
+				# Usage: readlink [-fnv] FILE
+				fallback_readlink='readlink'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -206,27 +234,35 @@ function fs_realpath() (
 
 		if test "$option_resolve" = 'yes' -a "$option_relative" = 'yes' -a "$option_validate" = 'no'; then
 			if test -L "$path"; then
-				"$macos_readlink" "$path"
+				"$fallback_readlink" "$path"
 			else
 				return 45 # ENOTSUP 45 Operation not supported
 			fi
 		elif test "$option_resolve" = 'yes' -a "$option_relative" = 'no' -a "$option_validate" = 'yes'; then
 			# readlink will return correct output when valid
 			# if invalid, will output nothing and have a failure exit code
-			"$macos_readlink" -f "$path"
+			"$fallback_readlink" -f "$path"
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
 	}
-	function do_macos_realpath {
+	function do_fallback_realpath {
 		# don't support unsupported args
 		if test -n "$option_relative_to" -o -n "$option_relative_to"; then
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
 
-		local macos_realpath
-		if command-exists -- realpath && is-mac; then
-			macos_realpath='realpath'
+		local fallback_realpath
+		if __command_exists -- realpath; then
+			if is-mac; then
+				# usage: realpath [-q] [path ...]
+				fallback_realpath='realpath'
+			elif is-alpine && test "$(realpath "$(type -P 'realpath')" || :)" = "$(type -P busybox || :)"; then
+				# Usage: realpath FILE...
+				fallback_realpath='realpath'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -238,15 +274,14 @@ function fs_realpath() (
 		if test "$option_resolve" = 'yes' -a "$option_relative" = 'no' -a "$option_validate" = 'yes'; then
 			# realpath will return correct output when valid
 			# if invalid, will output error (unless -q) and have failure exit code
-			"$macos_realpath" "$path"
+			"$fallback_realpath" "$path"
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
 	}
-	function fish_capable {
-		command-exists -- fish
-		# trunk-ignore(shellcheck/SC2016)
-		test "$(version-compare "$(fish -c 'echo $FISH_VERSION')" 3.3.0)" -ge 0
+	function __fish_capable {
+		__command_exists -- fish && test "$(version-compare "$(fish -c 'echo $FISH_VERSION')" 3.3.0)" -ge 0
+		return
 	}
 	function do_fish_realpath {
 		# don't support unsupported args
@@ -255,7 +290,7 @@ function fs_realpath() (
 		fi
 
 		local fish_status
-		eval_capture --statusvar=fish_status -- fish_capable
+		eval_capture --statusvar=fish_status -- __fish_capable
 		if test "$fish_status" -ne 0; then
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -276,10 +311,8 @@ function fs_realpath() (
 
 		if test "$option_relative" = 'no' -a "$option_validate" = 'no'; then
 			if test "$option_resolve" = 'no'; then
-				# trunk-ignore(shellcheck/SC2016)
 				fish -c 'builtin realpath --no-symlinks "$argv[1]"' -- "$path"
 			else
-				# trunk-ignore(shellcheck/SC2016)
 				fish -c 'builtin realpath "$argv[1]"' -- "$path"
 			fi
 		else
@@ -291,8 +324,8 @@ function fs_realpath() (
 	local methods=(
 		do_gnu_realpath
 		do_gnu_readlink
-		do_macos_readlink
-		do_macos_realpath
+		do_fallback_readlink
+		do_fallback_realpath
 		do_fish_realpath
 	)
 	function resolve_symlink {
@@ -309,9 +342,8 @@ function fs_realpath() (
 		# if no option was supported, then install utilities and try again
 		if test "$FALLBACK" = 'no'; then
 			# greadlink + macos-readlink support [--relative=yes] but require [--resolve=yes --validate=no] and for the symlink to exist
-			# use echo-quote instead of @Q here, as @Q isn't in bash v3
 			echo-error 'fs-realpath depends on installed helper utilities, non of which support this combination of options:' $'\n' \
-				--code="fs-realpath --resolve=$option_resolve --validate=$option_validate --relative=$option_relative -- $(echo-quote -- "$path")"
+				--code="fs-realpath --resolve=$option_resolve --validate=$option_validate --relative=$option_relative -- $(echo-escape-command -- "$path")"
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
 		FALLBACK='no'

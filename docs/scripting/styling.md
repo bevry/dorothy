@@ -21,13 +21,13 @@ echo-style \
 Header styles, for outputting content in clearly defined blocks:
 
 ```bash
-echo-style --h1='Birth of the human spirit'
-echo-style --success='Woohoo, the human spirit was born!' ' ' --notice='Although... it was at the cost of the eviction, or rather the liberation, from eden.'
-echo-style --g1='Birth of the human spirit' # close h1 with a success style
+echo-style --h1='Birth of the human spirit' --newline \
+    --success='Woohoo, the human spirit was born!' ' ' --notice='Although... it was at the cost of the eviction, or rather the liberation, from eden.' --newline \
+    --g1='Birth of the human spirit' # close h1 with a success style
 
-echo-style --h2='Meaning of life calculator'
-echo-style --error='Uh, oh, 42 was rejected by the people.'
-echo-style --e2='Meaning of life calculator' # close h1 with an error style
+echo-style --h2='Meaning of life calculator' --newline \
+    --error='Uh, oh, 42 was rejected by the people.' --newline \
+    --e2='Meaning of life calculator' # close h1 with an error style
 ```
 
 Element styles, for outputting say command output, or a file's contents.
