@@ -13,6 +13,7 @@ source "$DOROTHY/sources/ssh.fish"
 source "$DOROTHY/sources/autocomplete.fish"
 
 # Shoutouts
-if command-exists shuf
+if command-exists -- shuf
 	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
 end
+dorothy-warnings

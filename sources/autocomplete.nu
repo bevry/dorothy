@@ -4,6 +4,6 @@
 # https://rsteube.github.io/carapace-bin/setup.html#nushell
 
 # if carapace, then load carapace
-command-exists 'carapace' | complete; if $env.LAST_EXIT_CODE == 0 {
+command-exists -- 'carapace' | complete; if $env.LAST_EXIT_CODE == 0 {
 	source ~/.local/state/dorothy/sources/carapace.nu
 }

@@ -1,5 +1,77 @@
 #!/usr/bin/env bash
 
+function echo_quote_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	eval-tester --stdout="'this string does not have any quotes'" \
+		-- echo-quote -- 'this string does not have any quotes'
+
+	eval-tester --stdout="'this string does not have any quotes'" \
+		-- echo-quote --single -- 'this string does not have any quotes'
+
+	eval-tester --stdout="\"this string does not have any quotes\"" \
+		-- echo-quote --double -- 'this string does not have any quotes'
+
+	eval-tester --stdout="\"this string has a single quote ' in it\"" \
+		-- echo-quote -- "this string has a single quote ' in it"
+
+	eval-tester --stdout="'this string has a single quote \' in it'" \
+		-- echo-quote --single -- "this string has a single quote ' in it"
+
+	eval-tester --stdout="\"this string has a single quote ' in it\"" \
+		-- echo-quote --double -- "this string has a single quote ' in it"
+
+	eval-tester --stdout="'this string has a double quote \" in it'" \
+		-- echo-quote -- 'this string has a double quote " in it'
+
+	eval-tester --stdout="'this string has a double quote \" in it'" \
+		-- echo-quote --single -- 'this string has a double quote " in it'
+
+	eval-tester --stdout="\"this string has a double quote \\\" in it\"" \
+		-- echo-quote --double -- 'this string has a double quote " in it'
+
+	eval-tester --stdout="'this string has a single \' and double quote \" in it'" \
+		-- echo-quote -- "this string has a single ' and double quote \" in it"
+
+	eval-tester --stdout="'this string has a single \' and double quote \" in it'" \
+		-- echo-quote --single -- "this string has a single ' and double quote \" in it"
+
+	eval-tester --stdout="\"this string has a single ' and double quote \\\" in it\"" \
+		-- echo-quote --double -- "this string has a single ' and double quote \" in it"
+
+	eval-tester --stdout="\"this string has an escaped single \' and non-escaped double quote \\\" in it\"" \
+		-- echo-quote -- "this string has an escaped single \' and non-escaped double quote \" in it"
+
+	eval-tester --status=5 --ignore-stderr \
+		-- echo-quote --single -- "this string has an escaped single \' and non-escaped double quote \" in it"
+
+	eval-tester --stdout="\"this string has an escaped single \' and non-escaped double quote \\\" in it\"" \
+		-- echo-quote --double -- "this string has an escaped single \' and non-escaped double quote \" in it"
+
+	eval-tester --stdout="'this string has a non-escaped single \' and an escaped double quote \\\" in it'" \
+		-- echo-quote -- "this string has a non-escaped single ' and an escaped double quote \\\" in it"
+
+	eval-tester --stdout="'this string has a non-escaped single \' and an escaped double quote \\\" in it'" \
+		-- echo-quote --single -- "this string has a non-escaped single ' and an escaped double quote \\\" in it"
+
+	eval-tester --status=5 --ignore-stderr \
+		-- echo-quote --double -- "this string has a non-escaped single ' and an escaped double quote \\\" in it"
+
+	# can't test these, as eval-tester itself fails, as it uses echo-quote
+
+	# eval-tester --status=5 --ignore-stderr \
+	# 	-- echo-quote -- "this string has an escaped single \' and an escaped double quote \\\" in it"
+
+	# eval-tester --status=5 --ignore-stderr \
+	# 	-- echo-quote --single -- "this string has an escaped single \' and an escaped double quote \\\" in it"
+
+	# eval-tester --status=5 --ignore-stderr \
+	# 	-- echo-quote --double -- "this string has an escaped single \' and an escaped double quote \\\" in it"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
 function echo_quote() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
@@ -9,13 +81,19 @@ function echo_quote() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			For each <input>, output it as a quoted string.
+			For each <input>, output it as a quoted string, with escaping using backslashes, which is not compatible with bash.
 
 			USAGE:
 			echo-quote [...options] [--] ...<input>
 			echo-lines ...<input> | echo-quote [...options]
 
 			OPTIONS:
+			--double
+			    If specified, output the <input> as a double quoted string.
+
+			--single
+			    If specified, output the <input> as a single quoted string.
+
 			$(stdinargs_options_help --)
 		EOF
 		if test "$#" -ne 0; then
@@ -24,37 +102,99 @@ function echo_quote() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_quote_desired=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--double') option_quote_desired='double' ;;
+		'--single') option_quote_desired='single' ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinarg options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
 	# =====================================
 	# Action
 
 	# this is not the same as ${var@Q}, which handles single quotes differently
+	# trunk-ignore(shellcheck/SC1003)
+	local s="'" d='"' e='\'
 	function on_input {
 		local item="$1"
-		if [[ $item != *"'"* ]]; then
-			# does not contain single quotes
-			__print_line "'$item'"
-		elif [[ $item != *'"'* ]]; then
-			# does not contain double quotes
-			__print_line "\"$item\""
-		elif [[ $item != *"\\'"* ]]; then
-			# does not contain escaped single quotes
-			__print_line "'${item//\'/\\\'}'"
-		elif [[ $item != *"\\\""* ]]; then
-			# does not contain escaped double quotes
-			__print_line "\"${item//\"/\\\"}\""
-		else
-			# contains both escaped single and escaped double quotes
-			# echo-quote -- "a\\'s\\\"a\\\"a\\'d"
-			echo-style --error='echo-quote is unable to handle single and double quotes in the same string:' >/dev/stderr
-			__print_line "$item" >/dev/stderr
-			return 5 # EIO 5 Input/output error
+
+		# check preference
+		# there is a simpler way of doing this, however it is more difficult to follow
+		if [[ -z $option_quote_desired ]]; then
+			# we have no preference, be simple
+			if [[ $item != *"$s"* ]]; then
+				# it does not contain single quotes, so wrap in single quotes
+				__print_lines "$s$item$s"
+				return 0
+			elif [[ $item != *"$d"* ]]; then
+				# it contains single quotes, but it does not contain double quotes, so wrap in double quotes
+				__print_lines "$d$item$d"
+				return 0
+			elif [[ $item != *"$e$s"* ]]; then
+				# it contains both single and double quotes, but it does not contain escaped single quotes, so escape the single quotes and wrap in single quotes
+				__print_lines "$s${item//$s/$e$s}$s"
+				return 0
+			elif [[ $item != *"$e$d"* ]]; then
+				# it contains single quotes, double quotes, and escaped double quotes, but it does not contain escaped double quotes, so escape the double quotes and wrap in double quotes
+				__print_lines "$d${item//$d/$e$d}$d"
+				return 0
+			fi
+		elif [[ $option_quote_desired == 'double' ]]; then
+			# we want double quotes
+			if [[ $item != *"$d"* ]]; then
+				# it does not contain double quotes, so wrap in double quotes
+				__print_lines "$d$item$d"
+				return 0
+			elif [[ $item != *"$e$d"* ]]; then
+				# it contains double quotes, but it does not contain escaped double quotes, so escape the double quotes and wrap in double quotes
+				__print_lines "$d${item//$d/$e$d}$d"
+				return 0
+			fi
+		elif [[ $option_quote_desired == 'single' ]]; then
+			# we want single quotes
+			if [[ $item != *"$s"* ]]; then
+				# it does not contain single quotes, so wrap in single quotes
+				printf '%s\n' "$s$item$s"
+				return 0
+			elif [[ $item != *"$e$s"* ]]; then
+				# it contains single quotes, but it does not contain escaped single quotes, so escape the single quotes and wrap in single quotes
+				printf '%s\n' "$s${item//$s/$e$s}$s"
+				return 0
+			fi
 		fi
+
+		# handle failure case, where it contains both escaped single and escaped double quotes: echo-quote -- "a\\'s\\\"a\\\"a\\'d"
+
+		# using the bash builtin quote mechanism does not work, as it escapes special characters, AND escaped quotes, and sometimes injects leading $
+
+		# using deno does not work, as it wraps in backtick
+		# deno eval 'console.log(Deno.inspect(Deno.args[0]))' -- "a\\'s\\\"a\\\"a\\'d"
+
+		echo-style --error='echo-quote is unable to handle single and double quotes in the same string:' >/dev/stderr
+		__print_lines "$item" >/dev/stderr
+		return 5 # EIO 5 Input/output error
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-	echo_quote "$@"
+	if test "$*" = '--test'; then
+		echo_quote_test
+	else
+		echo_quote "$@"
+	fi
 fi

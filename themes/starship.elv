@@ -1,6 +1,6 @@
 #!/usr/bin/env elvish
 
-if ?( command-missing starship ) {
+if ?( command-missing -- starship ) {
 	setup-util-starship --quiet
 }
 

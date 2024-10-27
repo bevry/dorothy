@@ -94,7 +94,7 @@ function unziptar_() (
 		directory="$(pwd)"
 		filepath='' # it is for dir+file combos only
 	fi
-	mkdir -p "$directory"
+	__mkdirp "$directory"
 
 	# ensure archive exists
 	if test -z "$archive"; then
@@ -128,7 +128,7 @@ function unziptar_() (
 	# extract into temporary/random directory
 	local archive_directory
 	archive_directory="$(fs-temp --directory='unziptar' --directory)"
-	mkdir -p "$archive_directory"
+	__mkdirp "$archive_directory"
 
 	# enter the temporary directory
 	cd "$archive_directory"
@@ -145,41 +145,60 @@ function unziptar_() (
 			dmg_device=''
 		fi
 	}
+	if is-alpine; then
+		function __unzip {
+			unzip "$@"
+		}
+	else
+		function __unzip {
+			unzip -u "$@"
+		}
+	fi
+	function __tar {
+		tar -xvf "$@"
+	}
 	if test "$format" = 'dmg'; then
 		if test "$0" != "${BASH_SOURCE[0]}"; then
 			help 'Must be run as a command, not a function, such that DMG cleanup always occurs, even on failures.'
 		fi
 		trap dmg_unmount EXIT
 		# install what is necessary for identifying the DMG volume
-		setup-util-ripgrep --quiet
 		# attach the DMG to a volume
-		dmg_device="$(hdiutil attach -readonly -nobrowse -mountroot "$archive_directory" "$archive" | echo-wait | rg --max-count=1 --only-matching --regexp='(/dev/.+?)\s' --replace='$1')"
+		dmg_device="$(hdiutil attach -readonly -nobrowse -mountroot "$archive_directory" "$archive" | echo-wait | echo-regexp -fo --regexp='(/dev/.+?)\s' --replace='$1')"
 		function relocate {
 			cp -Rfv "$@"
 		}
 	elif test "$format" = 'zip'; then
 		# be cautious with unziptar dependency, as is challenging on fresh macos
-		if command-missing unzip; then
+		if __command_missing -- unzip; then
 			setup-util-unziptar --quiet
 		fi
-		unzip -u "$archive" 2>/dev/null || {
+		__unzip "$archive" 2>/dev/null || {
 			setup-util-unziptar --quiet
-			unzip -u "$archive" || {
-				echo-error 'Failed to extract the archive:' $'\n' "Archive: $(file "$archive")"
+			__unzip "$archive" || {
+				{
+					echo-error 'Failed to extract the archive:'
+					get-file -- "$archive"
+					unzip --help
+				} >/dev/stderr
 				return 1
 			}
 		}
 	elif test "$format" = 'tar'; then
 		# be cautious with unziptar dependency, as is challenging on fresh macos
-		if command-missing tar; then
+		if __command_missing -- tar; then
 			setup-util-unziptar --quiet
 		fi
 		# don't use -z flag, as that enforces gzip (tar.xy) which is not valid for (.tar.xz)
 		# without -z, auto-detection is used
-		tar -xvf "$archive" 2>/dev/null || {
+		__tar "$archive" 2>/dev/null || {
 			setup-util-unziptar --quiet
-			tar -xvf "$archive" || {
-				echo-error 'Failed to extract the archive:' $'\n' "Archive: $(file "$archive")"
+			__tar "$archive" || {
+				{
+					echo-error 'Failed to extract the archive:'
+					get-file -- "$archive"
+					tar --help
+				} >/dev/stderr
 				return 1
 			}
 		}
@@ -196,14 +215,15 @@ function unziptar_() (
 	# relocate extracted files
 	function log_extraction_failure {
 		{
-			echo-error "$1"
-			echo-style --bold='Archive:' ' ' "$(file "$archive")"
-			echo-style --bold='Glob:' ' ' "$glob"
-			echo-style --bold='File:' ' ' "$file"
-			echo-style --bold='Expansion:' ' ' "$archive_directory/$glob"
-			echo-style --bold='-- matched paths --'
-			echo-verbose -- "${glob_paths[@]}"
-			echo-style --bold='-- available paths --'
+			# @todo style with var_dump or something
+			echo-error "$1" --newline \
+				--bold='Archive:' ' ' "$(get-file -- "$archive")" --newline \
+				--bold='Glob:' ' ' "$glob" --newline \
+				--bold='File:' ' ' "$file" --newline \
+				--bold='Expansion:' ' ' "$archive_directory/$glob" --newline \
+				--bold='-- matched paths --' --newline \
+				--="$(echo-verbose -- "${glob_paths[@]}")" --newline \
+				--bold='-- available paths --'
 			setup-util-tree --quiet
 			tree "$archive_directory"
 		} >/dev/stderr

@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+function echo_revolving_screen() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Continously clear the output of a command, showing only the latest output, then clearing it upon completion.
+
+			USAGE:
+			(echo-lines -- 1 2; sleep 2; echo-lines -- 3 4; sleep 2) | echo-revolving-door [...options]
+			# outputs 2, then waits, then outputs 4, then waits, then clears
+
+			OPTIONS:
+			--columns=<columns>
+			    The number of columns to display. If not provided, the terminal's columns will be used. If the terminal's columns cannot be determined, or if <= 0, then the full line will be displayed.
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_lines='' option_columns=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--lines='*) option_lines="${item#*=}" ;;
+		'--columns='*) option_columns="${item#*=}" ;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# determine columns
+	if test -z "$option_lines" -o -z "$option_columns"; then
+		local terminal_size=()
+		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
+		if test "${#terminal_size[@]}" -eq 2; then
+			if test -z "$option_lines"; then
+				option_lines="${terminal_size[0]}"
+			fi
+			if test -z "$option_columns"; then
+				option_columns="${terminal_size[1]}"
+			fi
+		fi
+	fi
+
+	# =====================================
+	# Action
+
+	if test -z "$option_lines" -o -z "$option_columns" || test "$option_lines" -le 0 -o "$option_columns" -le 0; then
+		cat
+	else
+		local terminal_device_file clear_screen
+		terminal_device_file="$(get-terminal-device-file)"
+		clear_screen=$'\e[H\e[J'
+
+		local input total_lines=0 status wrapped lines=0
+		while IFS= read -r input || test -n "$input"; do
+			eval_capture --statusvar=status --outputvar=wrapped \
+				-- gfold --width="$option_columns" <<<"$input"
+			#-- echo-wrap --width="$option_columns" -- "$input"
+			if test "$status" -ne 0; then
+				echo-error "$wrapped"
+				return "$status"
+			fi
+			# count lines
+			lines="$(echo-count-lines -- "$wrapped")"
+			total_lines="$((total_lines + lines))"
+			if test "$total_lines" -ge "$option_lines"; then
+				if test "$lines" -ge "$option_lines"; then
+					# this line is very long and wraps across all lines of our screen, this is an edge case
+					# use a coreutil to trim the excess lines
+					__print_lines "${clear_screen}${wrapped}" | head -n "$option_lines"
+				else
+					# clear the screen
+					__print_lines "${clear_screen}${wrapped}" >"$terminal_device_file"
+				fi
+				total_lines="$lines"
+			else
+				# print the wrapped output
+				__print_lines "$wrapped" >"$terminal_device_file"
+			fi
+		done
+		# we are now done, so clear wrapped
+		__print_string "${clear_screen}" >"$terminal_device_file"
+	fi
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	echo_revolving_screen "$@"
+fi

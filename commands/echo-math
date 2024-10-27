@@ -5,26 +5,43 @@ function echo_math_test() (
 	echo-style --h1="TEST: $0"
 
 	local inputs=('1 - 1/2' '1 - 1/3' '1 - 1/4')
-	local expected=$'0.50\n0.67\n0.75'
+	local expected_six=$'0.500000\n0.666667\n0.750000'
+	local expected_two=$'0.50\n0.67\n0.75'
 
-	if command-exists bc; then
-		eval-tester --stdout="$expected" \
+	if __command_exists -- bc; then
+		eval-tester --stdout="$expected_six" \
+			-- echo-math --tool=bc -- "${inputs[@]}"
+
+		{
+			__print_lines "${inputs[@]}"
+		} | eval-tester --stdout="$expected_six" \
+			-- echo-math --tool=bc --stdin
+
+		eval-tester --stdout="$expected_two" \
 			-- echo-math --precision=2 --tool=bc -- "${inputs[@]}"
 
 		{
 			__print_lines "${inputs[@]}"
-		} | eval-tester --stdout="$expected" \
+		} | eval-tester --stdout="$expected_two" \
 			-- echo-math --precision=2 --tool=bc --stdin
 	fi
 
-	if command-exists awk; then
-		eval-tester --stdout="$expected" \
-			-- echo-math --precision=2 --tool=awk -- "${inputs[@]}"
+	if __command_exists -- deno; then
+		eval-tester --stdout="$expected_six" \
+			-- echo-math --tool=deno -- "${inputs[@]}"
 
 		{
 			__print_lines "${inputs[@]}"
-		} | eval-tester --stdout="$expected" \
-			-- echo-math --precision=2 --tool=awk --stdin
+		} | eval-tester --stdout="$expected_six" \
+			-- echo-math --tool=deno --stdin
+
+		eval-tester --stdout="$expected_two" \
+			-- echo-math --precision=2 --tool=deno -- "${inputs[@]}"
+
+		{
+			__print_lines "${inputs[@]}"
+		} | eval-tester --stdout="$expected_two" \
+			-- echo-math --precision=2 --tool=deno --stdin
 	fi
 
 	echo-style --g1="TEST: $0"
@@ -32,6 +49,8 @@ function echo_math_test() (
 )
 function echo_math() (
 	source "$DOROTHY/sources/stdinargs.bash"
+
+	local all_tools=(bc perl deno)
 
 	# =====================================
 	# Arguments
@@ -48,11 +67,11 @@ function echo_math() (
 			OPTIONS:
 			--precision=<precision>
 			    The number of decimals to round to.
-			    Defaults to [6] which is the default for [awk] for consistency.
+			    Defaults to [6].
 
 			--tool=<tool>
 			    The math engine to use.
-			    Defaults to [bc] if available, otherwise [awk] if available, otherwise failure.
+			    Available tools in order of preference: ${all_tools[*]}
 
 			$(stdinargs_options_help --)
 		EOF
@@ -77,42 +96,53 @@ function echo_math() (
 			shift $#
 			break
 			;;
-		'--'*) option_args+=("$item") ;;
+		*) option_args+=("$item") ;;
 		esac
 	done
 
-	if test -z "$option_tool"; then
-		if command-exists bc; then
-			option_tool='bc'
-		elif command-exists awk; then
-			option_tool='awk'
+	# ensure tool
+	if test "$option_tool" = '?'; then
+		option_tool="$(choose --required 'Which math engine to use?' -- "${all_tools[@]}")"
+		if __command_missing -- "$option_tool"; then
+			get-installer --first-success --invoke --quiet -- "$option_tool"
 		fi
-	elif ! command-exists -- "$option_tool"; then
-		help "Missing math <tool>: $option_tool"
+	elif test -z "$option_tool"; then
+		local item
+		for item in "${all_tools[@]}"; do
+			if __command_exists -- "$item"; then
+				option_tool="$item"
+				break
+			fi
+		done
 	fi
-
-	# =====================================
-	# Dependencies
 
 	# =====================================
 	# Action
 
+	# bc: 0 decimals by default
+	# bc -l: 20 decimals by default
+	# 0. becomes ., hence need for printf
+	# awk: 6 decimals by default
+
 	if test "$option_tool" = 'bc'; then
 		function on_line {
-			# bc: 0 decimals by default, bc -l: 20 decimals by default
-			# 0. becomes ., hence need for printf
-			printf "%.${option_precision}f\n" "$(bc -l <<<"$1")"
+			local formula="$1"
+			printf "%.${option_precision}f\n" "$(bc -l <<<"$formula")"
 		}
-	elif test "$option_tool" = 'awk'; then
-		local bin_gawk
-		bin_gawk="$(echo-gnu-command --install -- gawk)"
+	elif test "$option_tool" = 'deno'; then
+		local deno_script
+		deno_script="$(type -P echo-math.ts)"
 		function on_line {
-			# 6 decimals by default
-			"$bin_gawk" "BEGIN {printf \"%.${option_precision}f\n\", $1}"
+			local formula="$1"
+			"$deno_script" "$option_precision" "$formula"
+		}
+	elif test "$option_tool" = 'perl'; then
+		function on_line {
+			local formula="$1"
+			perl -E "say sprintf '%.${option_precision}f', $formula"
 		}
 	else
-		help 'No math engine found.'
-		return 1
+		help "The tool [$option_tool] is not yet supported."
 	fi
 
 	stdinargs "${option_args[@]}"

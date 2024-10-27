@@ -78,6 +78,8 @@ else
 			fi
 		elif test -z "$-" -a -z "$*" -a "${CI-}" = 'true'; then
 			DOROTHY_LOAD='yes' # dash on github ci, in which [$-] and [$*] are empty, and $0 = /home/runner....
+		elif test -n "${NVIM-}"; then
+			DOROTHY_LOAD='yes' # neovim: $0 = init.sh, and BASH_SOURCE[*] is undefined
 		else
 			# bash v3 and dash do not set l in $-
 			# zsh does, however zsh we have a definite option earlier

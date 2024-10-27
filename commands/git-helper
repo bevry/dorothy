@@ -19,6 +19,9 @@ function git_helper() (
 			--path=<path>
 			    Instead of the current working directory, use this path as the git repository.
 
+			--verify
+			    Verify the <path> contains an initialised git repository before proceeding with the <action>.
+
 			ACTIONS:
 			authors
 			    Output all authors (contributors) within this git repository.
@@ -70,6 +73,9 @@ function git_helper() (
 			        current    exit code 0
 			        updated    exit code 0
 
+			verify
+			    Verify the <path> contains an initialised git repository.
+
 			wipe
 			    Wipe the current working directory to the state of the last commit.
 		EOF
@@ -80,13 +86,16 @@ function git_helper() (
 	}
 
 	# process
-	local item action='' option_path='' option_args=()
+	local item action='' option_path='' option_verify='no' option_args=()
 	while test "$#" -ne 0; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--path='*) option_path="${item#*=}" ;;
+		'--no-verify'* | '--verify'*)
+			option_verify="$(get-flag-value --affirmative --fallback="$option_verify" -- "$item")"
+			;;
 		'--')
 			option_args+=("$@")
 			shift "$#"
@@ -109,19 +118,14 @@ function git_helper() (
 	if test -z "$option_path"; then
 		option_path="$(pwd)"
 	elif test ! -d "$option_path"; then
-		echo-error "$0: No directory at $option_path"
-		return 1
+		echo-style --error1='Unable to use git-helper on a non-existent directory: ' --code-error1="$option_path" >/dev/stderr
+		return 2 # ENOENT 2 No such file or directory
 	fi
 
 	# check
 	if test -z "$action"; then
 		help "No <action> was provided."
 	fi
-
-	# =====================================
-	# Dependencies
-
-	setup-util-sd --quiet
 
 	# =====================================
 	# Configuration
@@ -142,40 +146,79 @@ function git_helper() (
 	fi
 
 	# =====================================
-	# Adjustments
-
-	# enter path for the remainder of this command's subshell
-	# so that git commands work correctly
-	cd "$option_path"
-
-	# seed protocols, must be done here, as subshells prevent sharing later
-	local protocols=()
-	if test "${#protocols[@]}" -eq 0; then
-		if ssh-helper test &>/dev/null; then
-			protocols+=('ssh')
-		fi
-		protocols+=('https')
-	fi
-
-	# =====================================
 	# Helpers
 
+	local protocols=()
+	function verify_repository {
+		# verify repository
+		local git_status git_output
+		eval_capture --statusvar=git_status --outputvar=git_output -- git status
+		if test "$git_status" -eq 128; then
+			echo-style --error1='The directory is not a git repository: ' --code-error1="$option_path" >/dev/stderr
+			if test -n "$git_output"; then
+				__print_lines "$git_output" >/dev/stderr
+			fi
+			return "$git_status" # makes more sense to continue inheriting the git exit status 128 than converting it to EFTYPE 79 Inappropriate file type or format
+		elif test "$git_status" -ne 0; then
+			echo-style --error1='Encountered an unknown git exit status ' --code-error1="$git_status" --error1=' when fetching the git status of the directory:' --code-error1="$option_path" >/dev/stderr
+			if test -n "$git_output"; then
+				__print_lines "$git_output" >/dev/stderr
+			fi
+			return "$git_status"
+		fi
+
+		# done
+		return 0
+	}
+	function load_protocols {
+		if test "${#protocols[@]}" -eq 0; then
+			if ssh-helper test &>/dev/null; then
+				protocols+=('ssh')
+			fi
+			protocols+=('https')
+		fi
+	}
 	function get_protocol {
 		local protocol="${1:-"$GIT_PROTOCOL"}"
 		if test -n "$protocol"; then
-			__print_line "$protocol"
+			__print_lines "$protocol"
 		else
-			choose \
+			load_protocols
+			choose --required \
 				--question='Which git protocol to use?' \
 				--default="$protocol" -- "${protocols[@]}"
+		fi
+	}
+	function get_remotes {
+		# verify path, assumed verified for other actions
+		local remote_status remote_output
+		eval_capture --statusvar=remote_status --outputvar=remote_output -- git remote
+		if test "$remote_status" -eq 128; then
+			echo-style --error1='The directory is not a git repository: ' --code-error1="$option_path" >/dev/stderr
+			if test -n "$remote_output"; then
+				__print_lines "$remote_output" >/dev/stderr
+			fi
+			return "$status" # makes more sense to continue inheriting the git exit status 128 than converting it to EFTYPE 79 Inappropriate file type or format
+		elif test -z "$remote_output"; then
+			echo-style --error1='The directory is a git repository without any remotes: ' --code-error1="$option_path" >/dev/stderr
+			return 91 # ENOMSG 91 No message of desired type
+		elif test "$remote_status" -ne 0; then
+			echo-style --error1='Encountered an unknown git exit status ' --code-error1="$remote_status" --error1=' when fetching the remotes of the directory:' --code-error1="$option_path" >/dev/stderr
+			if test -n "$remote_output"; then
+				__print_lines "$remote_output" >/dev/stderr
+			fi
+			return "$remote_status"
+		else
+			__print_lines "$remote_output"
 		fi
 	}
 	function get_remote_name {
 		local remote="${1-}" question="${2:-"Which remote to use?"}" remotes
 		if test -n "$remote"; then
-			__print_line "$remote"
+			__print_lines "$remote"
 		else
-			mapfile -t remotes < <(git remote)
+			# assume verified
+			mapfile -t remotes < <(get_remotes)
 			choose --required \
 				--question="$question" \
 				-- "${remotes[@]}"
@@ -200,6 +243,7 @@ function git_helper() (
 			# it did not change, failure condition
 
 			# output details
+			# @todo style with var_dump or something
 			cat <<-EOF
 				Failed to update the remote [$remote_name]:
 				Applied:    $remote_url
@@ -229,10 +273,8 @@ function git_helper() (
 
 					try run the following and try again:
 				EOF
-				# trunk-ignore(shellcheck/SC2016)
-				__print_line "$local_lines" | sd '^(.+)=.*$' 'git config --global --unset $1'
-				# trunk-ignore(shellcheck/SC2016)
-				__print_line "$local_lines" | sd '^(.+)=.*$' 'git config --unset $1'
+				echo-regexp -gomn '^(.+)=.*$' 'git config --global --unset $1' -- "$local_lines"
+				echo-regexp -gomn '^(.+)=.*$' 'git config --unset $1' -- "$local_lines"
 			fi
 
 			# nore the failure
@@ -254,11 +296,7 @@ function git_helper() (
 	}
 
 	function get_github_slug {
-		# dependencies
-		source "$DOROTHY/sources/ripgrep.bash"
-
-		# process
-		git remote -v | echo-first-line | rg --regexp='.+?github[.]com[:/](.+?)[.]git.+' --replace='$1'
+		git remote -v | echo-regexp -o --regexp='.+?github[.]com[:/](.+?)[.]git.+' --replace='$1'
 	}
 
 	function get_first_commit_entry {
@@ -266,24 +304,17 @@ function git_helper() (
 	}
 
 	function get_first_commit_hash {
-		# dependencies
-		source "$DOROTHY/sources/ripgrep.bash"
-
-		# process
-		get_first_commit_entry | rg --regexp='(.+?) .+' --replace='$1'
+		get_first_commit_entry | echo-regexp -o --regexp='(.+?) .+' --replace='$1'
 	}
 
 	function get_first_commit_url {
 		local hash slug
 		hash="$(get_first_commit_hash)"
 		slug="$(get_github_slug)"
-		__print_line "https://github.com/$slug/commit/$hash"
+		__print_lines "https://github.com/$slug/commit/$hash"
 	}
 
 	function author_update {
-		# dependencies
-		source "$DOROTHY/sources/ripgrep.bash"
-
 		# process
 		local item old_email='' new_email='' new_name=''
 		while test "$#" -ne 0; do
@@ -310,7 +341,7 @@ function git_helper() (
 		# Adjustments
 
 		local emails
-		mapfile -t emails < <(git shortlog --summary --email | rg --only-matching --regexp='<(.+?)>' --replace='$1')
+		mapfile -t emails < <(git shortlog --summary --email | echo-regexp -ong --regexp='<(.+?)>' --replace='$1')
 
 		old_email="$(
 			choose --linger --required \
@@ -356,7 +387,7 @@ function git_helper() (
 	function get_default_branch {
 		# remote
 		if test -n "$GIT_DEFAULT_BRANCH" && __does_remote_branch_exist "$GIT_DEFAULT_BRANCH"; then
-			__print_line "$GIT_DEFAULT_BRANCH"
+			__print_lines "$GIT_DEFAULT_BRANCH"
 			return 0
 		elif __does_remote_branch_exist main; then
 			echo main
@@ -368,7 +399,7 @@ function git_helper() (
 
 		# local
 		if test -n "$GIT_DEFAULT_BRANCH" && __does_local_branch_exist "$GIT_DEFAULT_BRANCH"; then
-			__print_line "$GIT_DEFAULT_BRANCH"
+			__print_lines "$GIT_DEFAULT_BRANCH"
 			return 0
 		elif __does_local_branch_exist main; then
 			echo main
@@ -383,7 +414,7 @@ function git_helper() (
 			# use default
 			if test -n "$GIT_DEFAULT_BRANCH"; then
 				git checkout -b "$GIT_DEFAULT_BRANCH" &>/dev/null
-				__print_line "$GIT_DEFAULT_BRANCH"
+				__print_lines "$GIT_DEFAULT_BRANCH"
 				return 0
 			else
 				cat <<-EOF >/dev/stderr
@@ -418,12 +449,12 @@ function git_helper() (
 
 		# process
 		local original_url https_url ssh_url proposed_url=''
-		original_url="$(get_remote_url "$remote")"
+		original_url="$(get_remote_url "$remote" || :)"
 		https_url="$(format_protocol "$original_url" https)"
 		ssh_url="$(format_protocol "$original_url" ssh)"
 		proposed_url="$(format_protocol "$original_url" "$protocol")"
 
-		# log
+		# @todo style with var_dump or something
 		cat <<-EOF
 			Git Repository:     $(pwd)
 			Remote:             $remote
@@ -436,13 +467,15 @@ function git_helper() (
 
 		# apply difference if necessary
 		if test "$proposed_url" != "$original_url"; then
-			set_remote_url "$remote" "$proposed_url"
+			set_remote_url "$remote" "$proposed_url" # this will set a non-existent remote
 		fi
+		# @todo there is an [else] edge case here where the remote does not exist, in which the below will fail
 
 		# test application
 		function test_with_fallback {
 			local protocol="$1"
-			__print_line "Testing remote=[$remote] protocol=[$protocol] url=[$proposed_url] ..."
+			# @todo style this with eval-helper pending/success/failure
+			__print_lines "Testing remote=[$remote] protocol=[$protocol] url=[$proposed_url] ..."
 			if __test_remote_name "$remote"; then
 				return 0
 			else
@@ -483,7 +516,7 @@ function git_helper() (
 			domain="${url%/*}"    # trims repo
 			domain="${domain%/*}" # trims user
 		fi
-		# __print_line "domain=$domain"
+		# __print_lines "domain=$domain"
 
 		# fetch path
 		path="${url#*:}"
@@ -492,29 +525,30 @@ function git_helper() (
 		fi
 
 		if test "$protocol" = 'https'; then
-			__print_line "https://$domain/$path.git"
+			__print_lines "https://$domain/$path.git"
 		elif test "$protocol" = 'ssh'; then
 			# ssh://git@github.com/balupton/dotfiles.git
 			# and
 			# git@github.com:balupton/dotfiles.git
 			# are both SSH urls
-			__print_line "git@$domain:$path.git"
+			__print_lines "git@$domain:$path.git"
 		else
 			return 1
 		fi
 	}
 
 	function git_review {
-		if command-exists gf; then
-			gf "$@"
+		# @todo make this configurable
+		if __command_exists -- gf; then
+			gf "$option_path" "$@"
 		elif get-app --quiet -- 'Gitfox'; then
-			open-app 'Gitfox' -- "$@"
-		elif command-exists tower; then
-			tower "$@"
+			open-app 'Gitfox' -- "$option_path" "$@"
+		elif __command_exists -- tower; then
+			tower "$option_path" "$@"
 		elif get-app --quiet -- 'Tower'; then
-			open-app 'Tower' -- "$@"
+			open-app 'Tower' -- "$option_path" "$@"
 		else
-			help "No supported git reviewers installed."
+			help 'No supported git reviewers installed.'
 		fi
 	}
 
@@ -524,7 +558,7 @@ function git_helper() (
 	}
 
 	function git_update {
-		local item option_remote_name='origin' option_remote_url=''
+		local item option_remote_name='' option_remote_url=''
 		while test "$#" -ne 0; do
 			item="$1"
 			shift
@@ -544,21 +578,12 @@ function git_helper() (
 			esac
 		done
 
-		# verify path, assumed verified for other actions
-		local BODY=''
-		BODY="$(mktemp)"
-		if ! git remote &>"$BODY"; then
-			echo-error "$0: No git repository at $option_path"
-			return 1
-		elif test -z "$(cat "$BODY")"; then
-			echo-error "$0: No git remotes found at $option_path"
-			return 1
-		fi
-
 		# ensure remote in case it was empty
-		option_remote_name="$(get_remote_name "$option_remote_name")"
+		option_remote_name="$(get_remote_name "$option_remote_name" 'Which remote to pull?')"
 
 		# helper
+		local PULL_OUTPUT_FILE
+		PULL_OUTPUT_FILE="$(mktemp)"
 		function do_update {
 			# avoid merge conflicts
 			git config pull.ff only
@@ -568,24 +593,28 @@ function git_helper() (
 			fi
 			# now that we know the remote name should exist, ensure it is the preferred protocol
 			update_protocol "$option_remote_name"
-			# not that we have the preferred protocol, do the pull
-			git pull "$option_remote_name" "$(get_default_branch)" | tee "$BODY"
+			# update all origins, branches, and prune remote deleted branches
+			git fetch --all --prune
+			# apply the remote changes to the local branch
+			git pull "$option_remote_name" "$(get_default_branch)" | tee "$PULL_OUTPUT_FILE"
 		}
 
-		# write to BODY so that already updated can be detected
+		# write to PULL_OUTPUT_FILE so that already updated can be detected
 		# write to stderr so that [git_update] returns only [failure|current|updated]
+		# @todo style this with eval-helper pending/success/failure
 		local update_status
 		eval_capture --statusvar=update_status --outputpipe=/dev/stderr -- do_update
 		if test "$update_status" -ne 0; then
 			# update failed
-			__print_line 'failure'
+			echo-style --error1='git failed with exit status: ' --code-erro1="$update_status" >/dev/stderr
+			__print_lines 'failure'
 			return 1
-		elif grep --quiet --fixed-strings --regexp='Already' <"$BODY"; then
+		elif grep --quiet --fixed-strings --regexp='Already' <"$PULL_OUTPUT_FILE"; then
 			# already up to date
-			__print_line 'current'
+			__print_lines 'current'
 		else
 			# updated successfully
-			__print_line 'updated'
+			__print_lines 'updated'
 		fi
 	}
 
@@ -599,6 +628,15 @@ function git_helper() (
 	# =====================================
 	# Act
 
+	# enter the path so that git commands work correctly
+	cd "$option_path"
+
+	# verify?
+	if test "$option_verify" = 'yes'; then
+		verify_repository
+	fi
+
+	# perform the action
 	case "$action" in
 	'authors') get_authors "${option_args[@]}" ;;
 	'author-update') author_update "${option_args[@]}" ;;
@@ -615,6 +653,7 @@ function git_helper() (
 	'review') git_review "${option_args[@]}" ;;
 	'unstage') git_unstage "${option_args[@]}" ;;
 	'update') git_update "${option_args[@]}" ;;
+	'verify') verify_repository "${option_args[@]}" ;;
 	'wipe') git_wipe "${option_args[@]}" ;;
 	*) help "Unknown <action>." ;;
 	esac

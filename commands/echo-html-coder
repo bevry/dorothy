@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+
+function echo_html_coder_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	local inputs=(
+		'Jack & Jill'
+		'Jack &amp; Jill'
+	)
+	# don't test &nbsp; as it gets converted into a special character
+	local expected_encode=$'Jack &amp; Jill\nJack &amp;amp; Jill'
+	local expected_decode=$'Jack & Jill\nJack & Jill'
+	local action actions=('encode' 'decode')
+	local tool all_tools=(deno php python3)
+	local expected
+
+	for action in "${actions[@]}"; do
+		if test "$action" = 'encode'; then
+			expected="$expected_encode"
+		else
+			expected="$expected_decode"
+		fi
+		for tool in "${all_tools[@]}"; do
+			if __command_exists -- "$tool"; then
+				eval-tester --stdout="$expected" \
+					-- echo-html-coder --action="$action" --tool="$tool" -- "${inputs[@]}"
+
+				{
+					__print_lines "${inputs[@]}"
+				} | eval-tester --stdout="$expected" \
+					-- echo-html-coder --action="$action" --tool="$tool" --stdin
+			fi
+		done
+	done
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
+function echo_html_coder() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# textutil doesn't work
+	# xmlstarlet is too old, last update 9 August 2014; 10 years ago
+	local all_tools=(deno php python3)
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			For each input, encode or decode it's HTML entities.
+
+			USAGE:
+			echo-html-coder [...options] [--] ...<input>
+			echo-lines ...<input> | echo-html-coder [...options]
+
+			OPTIONS:
+			$(stdinargs_options_help --)
+
+			EXAMPLE:
+
+			echo-html-coder --encode -- 'Jack & Jill'
+
+			    Jack &amp; Jill
+			    # exit status: 0
+
+			echo-html-coder --decode -- 'Jack &amp; Jill
+
+			    Jack & Jill
+			    # exit status: 0
+
+		EOF
+		if test "$#" -ne 0; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_action='' option_tool=''
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--encode' | '--decode') option_action="${item#--}" ;;
+		'--action='*) option_action="${item#*=}" ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinarg options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# ensure tool
+	if test "$option_tool" = '?'; then
+		option_tool="$(choose --required 'Which tool to use?' -- "${all_tools[@]}")"
+		if __command_missing -- "$option_tool"; then
+			get-installer --first-success --invoke --quiet -- "$option_tool"
+		fi
+	elif test -z "$option_tool"; then
+		local item
+		for item in "${all_tools[@]}"; do
+			if __command_exists -- "$item"; then
+				option_tool="$item"
+				break
+			fi
+		done
+	fi
+
+	# ensure action
+	if test "$option_action" = '?'; then
+		option_action="$(choose --required 'Which action to perform?' -- 'encode' 'decode')"
+	elif ! [[ $option_action =~ ^(encode|decode)$ ]]; then
+		help "You must provide a valid <action>"
+	fi
+
+	# =====================================
+	# Action
+
+	local script
+	# if test "$option_tool" = 'recode'; then
+	# 	script="$(type -P echo-html-coder.recode)"
+	# elif test "$option_tool" = 'textutil'; then
+	# 	script="$(type -P echo-html-coder.textutil)"
+	# elif test "$option_tool" = 'xmlstarlet'; then
+	# 	script="$(type -P echo-html-coder.xmlstarlet)"
+	if test "$option_tool" = 'deno'; then
+		script="$(type -P echo-html-coder.ts)"
+	elif test "$option_tool" = 'php'; then
+		script="$(type -P echo-html-coder.php)"
+	elif test "$option_tool" = 'python3'; then
+		script="$(type -P echo-html-coder.py)"
+	else
+		help "The tool [$option_tool] is not yet supported."
+	fi
+	function on_line {
+		"$script" "$option_action" "$1"
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if test "$0" = "${BASH_SOURCE[0]}"; then
+	if test "$*" = '--test'; then
+		echo_html_coder_test
+	else
+		echo_html_coder "$@"
+	fi
+fi
