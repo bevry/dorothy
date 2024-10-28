@@ -51,7 +51,7 @@ If you wish to install different things on different machines, you can configure
 
 # based on hostname
 hostname="$(get-hostname)"
-if test "$hostname" = '...'; then
+if [[ "$hostname" = '...' ]]; then
 	# ...
 else
 	# ...
@@ -67,7 +67,7 @@ fi
 # based on architecture
 # https://github.com/bevry/dorothy/blob/master/commands/get-arch
 arch="$(get-arch)"
-if test "$arch" = 'a64'; then
+if [[ "$arch" = 'a64' ]]; then
    # arm 64
 else
    # not arm 64

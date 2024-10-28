@@ -37,7 +37,7 @@ function help() {
 		--question=<string>
 		    Specifies the question that the prompt will be answering.
 	EOF
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		echo-error "$@"
 	fi
 	return 22 # Invalid argument
@@ -78,7 +78,7 @@ function test_dorothy_scopes() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	test_dorothy_scopes "$@"
 fi
 ```

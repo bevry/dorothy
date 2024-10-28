@@ -7,7 +7,7 @@ secure_history() {
 			--default="${1-}" --label \
 			-- 'some' 'delete only the known risks' 'all' 'erase your entire history'
 	)"
-	if test "$action" = 'erase your entire history'; then
+	if [ "$action" = 'erase your entire history' ]; then
 		history -c
 		echo 'Erased everything.'
 	else

@@ -2,14 +2,14 @@
 
 # set the active shell as the detectected POSIX (.sh) shell
 # do not export
-if test -n "${BASH_VERSION-}"; then
+if [ -n "${BASH_VERSION-}" ]; then
 	ACTIVE_POSIX_SHELL='bash'
-elif test -n "${ZSH_VERSION-}"; then
+elif [ -n "${ZSH_VERSION-}" ]; then
 	ACTIVE_POSIX_SHELL='zsh'
-elif test "$0" = '-dash' -o "$0" = 'dash'; then
+elif [ "$0" = '-dash' ] || [ "$0" = 'dash' ]; then
 	# dash does not define DASH_VERSION
 	ACTIVE_POSIX_SHELL='dash'
-elif test -n "${KSH_VERSION-}"; then
+elif [ -n "${KSH_VERSION-}" ]; then
 	ACTIVE_POSIX_SHELL='ksh'
 else
 	ACTIVE_POSIX_SHELL='sh'

@@ -25,7 +25,7 @@ function the_name_of_my_command() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	the_name_of_my_command "$@"
 fi
 ```
@@ -76,7 +76,7 @@ function ask_() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	ask_ "$@"
 fi
 ```

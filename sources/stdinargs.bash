@@ -30,7 +30,7 @@ function stdinargs_options_help {
 		--no-stdin | --stdin=no | --
 		    Require arguments for processing inputs, and ignore STDIN.
 	EOF
-	if test "$*" = '--stdin'; then
+	if [[ $* == '--stdin' ]]; then
 		cat <<-EOF
 
 			[--stdin] is the default for this command.
@@ -200,10 +200,10 @@ function stdinargs {
 			elif [[ "$(type -t on_input)" == 'function' ]]; then
 				stdinargs_eval on_input "$item"
 			# this is against what [printf '%s' '' | wc -l] does, and doesn't make sense when you really think about it:
-			# elif test -z "$item" -a "$option_inline" = 'yes'; then
-			# 	if test "$(type -t on_inline)" = 'function'; then
+			# elif [[ -z "$item" && "$option_inline" = 'yes' ]]; then
+			# 	if [[ "$(type -t on_inline)" = 'function' ]]; then
 			# 		stdinargs_eval on_inline "$item"
-			# 	elif test "$(type -t on_line)" = 'function'; then
+			# 	elif [[ "$(type -t on_line)" = 'function' ]]; then
 			# 		stdinargs_eval on_line "$item"
 			# 	fi
 			else

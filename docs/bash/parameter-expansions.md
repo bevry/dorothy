@@ -25,10 +25,10 @@ Advice:
 -   `${var-value}`
     -   if var is bound, use `var`
     -   if var is unbound, use `value`
--   `test -n "${var-}"` and `test -n "${var-}"`
+-   `[[ -n "${var-}" ]]` and `[[ -n "${var-}" ]]`
     -   if var is truthy, pass
     -   as both empty string values have 0 characters length
--   `test -z "${var-}"` and `test -z "${var-}"`
+-   `[[ -z "${var-}" ]]` and `[[ -z "${var-}" ]]`
     -   if var is falsey, pass
     -   as both empty string values have 0 characters length
 -   `test -v a`

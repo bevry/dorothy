@@ -15,7 +15,7 @@ done
 # [b]
 
 # outputs correctly, including the trailing line:
-printf $'a\nb\nc' | while read -r line || test -n "$line"; do
+printf $'a\nb\nc' | while read -r line || [[ -n "$line" ]]; do
 	echo "[$line]"
 done
 # [a]

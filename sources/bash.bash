@@ -774,12 +774,15 @@ if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 	#     previously errors, are now treated as offsets from the end of the variable.
 	function __is_var_set {
 		# -v varname: True if the shell variable varname is set (has been assigned a value).
+		# for some reason [[ -v $1 ]] has a syntax error, and shellcheck doesn't like [ -v "$1" ]
 		test -v "$1"
+		return
 	}
 else
 	# bash < 4.2
 	function __is_var_set {
-		test -n "${!1-}"
+		[[ -n "${!1-}" ]]
+		return
 	}
 fi
 
@@ -792,8 +795,8 @@ fi
 # - iterating empty arrays:
 #     - broken: `arr=(); for item in "${arr[@]}"; do ...`
 #     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
-#     - use: `test "${#array[@]}" -ne 0 && for ...`
-#     - or if you don't care for empty option_inputs, use: `test -n "$arr" && for ...`
+#     - use: `[[ "${#array[@]}" -ne 0 ]] && for ...`
+#     - or if you don't care for empty option_inputs, use: `[[ -n "$arr" ]] && for ...`
 #
 # BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
 # has_array_capability -- check if a capability is provided by the current bash version

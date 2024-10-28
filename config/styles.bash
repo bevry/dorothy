@@ -36,7 +36,7 @@ style__cursor_blinking_underline=$'\e[3 q'
 style__cursor_steady_underline=$'\e[4 q'
 style__cursor_blinking_bar=$'\e[5 q'
 style__cursor_steady_bar=$'\e[6 q'
-if test "$ALTERNATIVE_SCREEN_BUFFER_SUPPORTED" = 'yes'; then
+if [[ $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
 	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
 	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 else
@@ -270,14 +270,14 @@ style__color_end__sudo="${style__color_end__foreground}"
 style__color__code="${style__color__foreground_intense_black}"
 style__color_end__code="${style__color_end__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
-if test -n "$GITHUB_ACTIONS"; then
+if [[ -n $GITHUB_ACTIONS ]]; then
 	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
 	style__color_end__header1="${style__color_end__background}${style__color_end__foreground}"
 	style__color__error1="${style__color__background_red}${style__color__foreground_black}"
 	style__color_end__error1="${style__color_end__background}${style__color_end__foreground}"
 	style__color__error="${style__color__background_red}${style__color__foreground_black}"
 	style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
-elif test "$THEME" = 'light'; then
+elif [[ $THEME == 'light' ]]; then
 	# trim style__color__foreground_intense_yellow as it is unreadable on light theme
 	style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
@@ -288,7 +288,7 @@ elif test "$THEME" = 'light'; then
 	# Values of TERM_PROGRAM that are known to not support italics:
 	# - Apple_Terminal
 	# As italics support is rare, do the swap if not in a known terminal that supports italics....
-	if test "$ITALICS_SUPPORTED" = 'no'; then
+	if [[ $ITALICS_SUPPORTED == 'no' ]]; then
 		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
 		# style__color__italic="$style__color__dim"
 		# style__color_end__italic="$style__color_end__dim"
@@ -298,7 +298,7 @@ elif test "$THEME" = 'light'; then
 else
 	# on dark theme on vscode
 	# style__color__background_intense_red forces black foreground, which black on red is unreadable, so adjust
-	if test "$TERM_PROGRAM" = vscode; then
+	if [[ $TERM_PROGRAM == vscode ]]; then
 		style__color__error="${style__color__background_red}${style__color__foreground_intense_white}"
 		style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
 	fi
@@ -307,7 +307,7 @@ else
 	# Values of TERM_PROGRAM that are known to not support italics:
 	# - Apple_Terminal
 	# As italics support is rare, do the swap if not in a known terminal that supports italics....
-	if test "$ITALICS_SUPPORTED" = 'no'; then
+	if [[ $ITALICS_SUPPORTED == 'no' ]]; then
 		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
 		# style__color__italic="$style__color__dim"
 		# style__color_end__italic="$style__color_end__dim"
@@ -633,7 +633,7 @@ style__nocolor__confirm_abort_result='[ABORT]'
 style__nocolor__confirm_proceed_result='[PROCEED]'
 
 # adjustments
-if test "$THEME" = 'light'; then
+if [[ $THEME == 'light' ]]; then
 	# keys
 	style__color__legend="$style__color__foreground_intense_black"
 	style__color_end__legend="$style__color_end__foreground"
@@ -651,7 +651,7 @@ function refresh_style_cache {
 	# this should be similar to append_style in echo-style
 	# side effect: USE_COLOR
 	local item use_color=''
-	while test $# -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
@@ -660,8 +660,8 @@ function refresh_style_cache {
 		--) break ;;
 		esac
 	done
-	if test -z "$use_color"; then
-		if test -n "${USE_COLOR-}"; then
+	if [[ -z $use_color ]]; then
+		if [[ -n ${USE_COLOR-} ]]; then
 			use_color="$USE_COLOR"
 		elif get-terminal-color-support --quiet --fallback=yes; then
 			USE_COLOR='yes'
@@ -674,7 +674,7 @@ function refresh_style_cache {
 	local style var
 	for style in "$@"; do
 		found='no'
-		if test "$use_color" = 'yes'; then
+		if [[ $use_color == 'yes' ]]; then
 			# begin
 			var="style__color__${style}"
 			if __is_var_set "$var"; then
@@ -752,7 +752,7 @@ function refresh_style_cache {
 			fi
 		fi
 		# only respect found on versions of bash that can detect accurately detect it, as otherwise empty values will be confused as not found
-		if test "$found" = 'no' -a "$IS_BASH_VERSION_OUTDATED" = 'no'; then
+		if [[ $found == 'no' && $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
 			echo-error "Style not found: $style"
 			return 1
 		fi

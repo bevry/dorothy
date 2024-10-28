@@ -45,7 +45,7 @@ Changelog:
 
 From changelog:
 
--   Introduces `test ${arr:0:-N}` for getting the last N items or characters of an array or string.
+-   Introduces `${arr:0:-N}` for getting the last N items or characters of an array or string.
 
 Changelog:
 
@@ -69,7 +69,7 @@ Changelog:
 
 From changelog:
 
--   No longer crashes if accessing an empty array. Previously must do `test "${#arr[@]}" -ne 0 && for item in "${arr[@]}"; do`.
+-   No longer crashes if accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
 
 Changelog:
 

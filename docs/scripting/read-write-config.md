@@ -25,10 +25,10 @@ local HUB_PROTOCOL='' # deprecated, replaced by GIT_PROTOCOL
 local KRYPTON_GPG=''  # deprecated, use GPG_SIGNING_KEY=krypton
 load_dorothy_config 'git.bash'
 # handle deprecations
-if test "$KRYPTON_GPG" = 'yes'; then
+if [[ "$KRYPTON_GPG" = 'yes' ]]; then
 	GPG_SIGNING_KEY='krypton'
 fi
-if test -z "$GIT_PROTOCOL" -a -n "$HUB_PROTOCOL"; then
+if [[ -z "$GIT_PROTOCOL" && -n "$HUB_PROTOCOL" ]]; then
 	GIT_PROTOCOL="$HUB_PROTOCOL"
 fi
 
