@@ -241,7 +241,7 @@ function __sudo_mkdirp {
 	return "$status"
 }
 
-# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceeding space if done directly: ${var: -1}
+# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceeding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
 # the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; echo "${v:s}"
 # function __substr_native {
 # 	local string="$1" start="${2:-0}" length="${3-}"
@@ -344,7 +344,7 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	if [[ $BASH_VERSION_MAJOR -eq 5 ]]; then
 		IS_BASH_VERSION_OUTDATED='no'
 		function __require_upgraded_bash {
-			true
+			:
 		}
 	else
 		IS_BASH_VERSION_OUTDATED='yes'
@@ -377,7 +377,7 @@ shopt -s huponexit
 # bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
 if shopt -s lastpipe 2>/dev/null; then
 	function __require_lastpipe {
-		true
+		:
 	}
 else
 	function __require_lastpipe {
@@ -644,7 +644,7 @@ shopt -s nullglob
 # bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
 if shopt -s globstar 2>/dev/null; then
 	function __require_globstar {
-		true
+		:
 	}
 else
 	function __require_globstar {
@@ -656,7 +656,7 @@ fi
 # bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
 if shopt -s extglob 2>/dev/null; then
 	function __require_extglob {
-		true
+		:
 	}
 else
 	function __require_extglob {
