@@ -781,7 +781,7 @@ if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 else
 	# bash < 4.2
 	function __is_var_set {
-		[[ -n "${!1-}" ]]
+		[[ -n ${!1-} ]]
 		return
 	}
 fi
