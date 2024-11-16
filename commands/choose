@@ -516,8 +516,11 @@ function choose_() (
 			--[no-]confirm-input=[yes|NO]
 			    Have the choose menu confirm the user's input (their selection or lack of selection). Defaults to disabled.
 
+			--[no-]confirm-cancel=[YES|no]
+			    Have the cancel menu confirm the user's cancellation (whether it will revert to nothing when not required, or to the default if provided and required). Defaults to enabled.
+
 			--[no-]confirm=[yes|no]
-			    HAve the prompt not skip any step, requiring solo values to be prompted, default values to be prompted, and selections or their lack of to be confirmed.
+			    Have the prompt not skip any step, requiring solo values to be prompted, default values to be prompted, cancellations to be prompted, and selections or their lack of to be confirmed.
 
 			--[no-]required=[yes|NO]
 			    Do not continue until a selection is made. Disable aborting the prompt.
@@ -535,7 +538,7 @@ function choose_() (
 			    Custom timeout value in seconds.
 
 			QUIRKS:
-			If you wish to return the index, which is desirable in the case of when multiple values can be identical, use --index or --return='\$INDEX'.
+			If you wish to return the index, which is desirable in the case of when multiple values can be identical, use [--index].
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -547,7 +550,7 @@ function choose_() (
 	local item='' inputs=() tmp=()
 	local option_question=()
 	local option_label='no' option_visual='' option_return='$VALUE'
-	local defaults_exact=() defaults_fuzzy=() option_confirm_solo='yes' option_confirm_default='yes' option_confirm_input='no'
+	local defaults_exact=() defaults_fuzzy=() option_confirm_solo='yes' option_confirm_default='yes' option_confirm_input='no' option_confirm_cancel='yes'
 	local option_required='no' option_multi='no'
 	local option_linger='no' option_timeout=''
 	while [[ $# -ne 0 ]]; do
@@ -588,10 +591,14 @@ function choose_() (
 		'--no-confirm-input'* | '--confirm-input'*)
 			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
 			;;
+		'--no-confirm-cancel'* | '--confirm-cancel'*)
+			option_confirm_cancel="$(get-flag-value --affirmative --fallback="$option_confirm_cancel" -- "$item")"
+			;;
 		'--no-confirm'* | '--confirm'*)
 			option_confirm_solo="$(get-flag-value --affirmative --fallback="$option_confirm_solo" -- "$item")"
 			option_confirm_default="$(get-flag-value --affirmative --fallback="$option_confirm_default" -- "$item")"
 			option_confirm_input="$(get-flag-value --affirmative --fallback="$option_confirm_input" -- "$item")"
+			option_confirm_cancel="$(get-flag-value --affirmative --fallback="$option_confirm_cancel" -- "$item")"
 			;;
 		'--no-required'* | '--required'*)
 			option_required="$(get-flag-value --affirmative --fallback="$option_required" -- "$item")"
@@ -794,6 +801,19 @@ function choose_() (
 		if [[ $option_confirm_default == 'no' ]]; then
 			can_skip_prompt='yes'
 		fi
+		# adjust fallbacks for single vs multi mode
+		# fallbacks=(...) not actually needed, as never used
+		if [[ $option_required == 'yes' ]]; then
+			if [[ $option_multi == 'no' ]]; then
+				fallbacks_count=1
+				fallbacks_indexes=("${defaults_indexes[0]}")
+				fallbacks_last=0
+			else
+				fallbacks_count="$defaults_count"
+				fallbacks_indexes=("${defaults_indexes[@]}")
+				fallbacks_last="$defaults_last"
+			fi
+		fi
 	else
 		can_revert_to_defaults='no'
 		if [[ $option_required == 'no' ]]; then
@@ -801,18 +821,6 @@ function choose_() (
 		else
 			can_cancel='no'
 		fi
-	fi
-
-	# adjust fallbacks for single vs multi mode
-	# fallbacks=(...) not actually needed, as never used
-	if [[ $option_multi == 'no' && $defaults_count -gt 1 ]]; then
-		fallbacks_count=1
-		fallbacks_indexes=("${defaults_indexes[0]}")
-		fallbacks_last=0
-	else
-		fallbacks_count="$defaults_count"
-		fallbacks_indexes=("${defaults_indexes[@]}")
-		fallbacks_last="$defaults_last"
 	fi
 
 	# prepare menu vars
@@ -987,7 +995,7 @@ function choose_() (
 			if [[ $can_revert_to_defaults == 'yes' ]]; then
 				add_legend_keys 'legend_choose' 'NEXT PREF' 'TAB'   # next preference
 				add_legend_keys 'legend_choose' 'PREV PREF' '⇧ TAB' # prior preference
-				add_legend_keys 'legend_choose' 'RESET' 'Z'         # reset preferences
+				add_legend_keys 'legend_choose' 'RESET' 'Z' 'R'     # reset preferences
 				if [[ $option_multi == 'yes' ]]; then
 					add_legend_keys 'legend_choose' 'ALL/NONE' 'T'
 				fi
@@ -1211,6 +1219,9 @@ function choose_() (
 				menu_cursor_confirm_and_cancel=0
 			fi
 		}
+		function select_index {
+			select_only_index "$1"
+		}
 		function select_defaults {
 			# select only first preference
 			if [[ $defaults_count -ne 0 ]]; then
@@ -1236,6 +1247,14 @@ function choose_() (
 		# if no defaults, removes selection
 		select_none
 		select_defaults
+	}
+	function action_fallbacks {
+		if [[ $fallbacks_count -eq 0 ]]; then
+			select_none
+		else
+			select_none
+			select_index "${fallbacks_indexes[@]}"
+		fi
 	}
 	function action_jump {
 		local index="$1"
@@ -1983,10 +2002,13 @@ function choose_() (
 				elif [[ $menu_mode == 'cancel' ]]; then
 					# CANCEL MENU
 					if [[ $key =~ ^(enter|e)$ || ($key == 'space' && $option_multi == 'no') ]]; then
-						action_revert
+						action_fallbacks
 						set_menu_mode 'confirmed'
 						break
 					elif [[ $key =~ ^(escape|q)$ ]]; then
+						if [[ $option_multi == 'no' ]]; then
+							action_revert
+						fi
 						set_menu_mode 'choose'
 					fi
 				elif [[ $menu_mode == 'confirm' ]]; then
@@ -2009,11 +2031,12 @@ function choose_() (
 							break
 						fi
 					fi
-				elif [[ $can_cancel == 'yes' && $key =~ ^(escape|q)^ ]]; then
-					if [[ $option_confirm_input == 'yes' ]]; then
+				elif [[ $can_cancel == 'yes' && $key =~ ^(escape|q)$ ]]; then
+					if [[ $option_confirm_cancel == 'yes' ]]; then
+						# note that selection has no impact on cancel, as cancel's behaviour for rendering is hard coded
 						set_menu_mode 'cancel'
 					else
-						action_revert
+						action_fallbacks
 						set_menu_mode 'confirmed'
 						break
 					fi
@@ -2027,7 +2050,7 @@ function choose_() (
 						set_menu_mode 'confirmed'
 						break
 					fi
-				elif [[ $key == 'z' ]]; then
+				elif [[ $key =~ ^(z|r)$ ]]; then
 					action_revert
 				elif [[ $option_multi == 'yes' ]]; then
 					if [[ $key == 't' ]]; then

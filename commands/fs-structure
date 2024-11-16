@@ -15,8 +15,21 @@ function fs_structure() (
 			fs-structure [...options] [--] ...<path>
 
 			OPTIONS:
+			--no-perms
+			    If specified, don't display permission and ownerships information.
+			    Only applicable when [eza] is used.
+			--no-time
+			    If specified, don't display time information.
+			--no-eza
+			    If specified, don't try to use [eza].
+			--no-color
+			    If specified, don't use colors.
+
 			--sudo
-			    If specified, use sudo when removing the files.
+			    If specified, use sudo on filesystem interactions.
+			--user=<user>
+			--group=<group>
+			    If specified use this user and/or group for filesystem interactions.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -25,7 +38,8 @@ function fs_structure() (
 	}
 
 	# process
-	local item option_paths=() option_sudo='no'
+	local item option_inputs=() option_sudo='no' option_user='' option_group='' option_perms='' option_time='' option_eza='' option_color
+	option_color="$(get-terminal-color-support --fallback=yes -- "$@")"
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -34,59 +48,141 @@ function fs_structure() (
 		'--no-sudo'* | '--sudo'*)
 			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
 			;;
-		'--path='*) paths+=("${item#*=}") ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--no-perms'* | '--perms'* | '--no-permissions'* | '--permissions'*)
+			option_perms="$(get-flag-value --affirmative --fallback="$option_perms" -- "$item")"
+			;;
+		'--no-time'* | '--time'*)
+			option_time="$(get-flag-value --affirmative --fallback="$option_time" -- "$item")"
+			;;
+		'--no-eza'* | '--eza'*)
+			option_eza="$(get-flag-value --affirmative --fallback="$option_eza" -- "$item")"
+			;;
+		'--no-color'* | '--color'*) : ;; # handled by get-terminal-color-support
 		'--')
-			option_paths+=("$@")
+			option_inputs+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_paths+=("$item") ;;
+		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# check
-	if [[ ${#option_paths[@]} -eq 0 ]]; then
-		help 'No <path>s provided.'
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		option_inputs+=('.')
 	fi
 
 	# =====================================
 	# Action
 
+	# dependencies
+	if [[ $option_eza != 'no' ]]; then
+		setup-util-eza --quiet --optional
+	fi
+	# another alternative is lsd:
+	# lsd -lA  --total-size --header
+	# however it doesn't support removing time, and removing owner/permissions
+
 	# prepare
-	local cmd=()
-	if [[ $option_sudo == 'yes' ]]; then
-		cmd+=(
-			'sudo-helper'
-			'--'
-		)
-	fi
-	cmd+=(
-		'ls'
-		'-lA'
-	)
-	# -A, --almost-all: do not list implied . and ..
-	# -l: use a long listing format
+	local eza_cmd=() ls_cmd=() # dust_sizes_cmd=() dust_counts_cmd=() du_cmd=()
+	if [[ $option_eza != 'no' ]] && __command_exists -- eza; then
+		# -h, --header: Add a header row to each column.
+		# -l, --long: Display extended file metadata as a table.
+		# -A, --almost-all: Equivalent to –all; included for compatibility with ls -A.
+		# -M, --mounts: how mount details (Linux and Mac only)
+		# --total-size: show the size of a directory as the size of all  files and directories inside (unix only)
+		eza_cmd+=(eza -hlAM --total-size)
 
-	# hide the time
-	if is-mac; then
-		# -D format: When printing in the long (-l) format, use format to format the date and time output.  The argument format is a string used by trftime(3).  Depending on the choice of format string, this may result in a different number of columns in the output.  This option overrides the -T option.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
-		cmd+=('-D' '')
+		# hide the permissions?
+		if [[ $option_perms == 'no' ]]; then
+			eza_cmd+=(--no-permissions --no-user)
+		fi
+
+		# hide the time?
+		if [[ $option_time == 'no' ]]; then
+			eza_cmd+=(--no-time)
+		fi
+
+		# disable colors?
+		if [[ $option_color == 'no' ]]; then
+			eza_cmd+=('--color=never')
+		elif [[ $option_color == 'yes' ]]; then
+			eza_cmd+=('--color=always')
+		fi
 	else
-		# --time-style=TIME_STYLE: time/date format with -l; see TIME_STYLE below
-		cmd+=("--time-style=+''")
+		# -A, --almost-all: do not list implied . and ..
+		# -l: use a long listing format
+		# -h: When used with the -l option, use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte,  Terabyte and Petabyte in order to reduce the number of digits to four or fewer using base 2 for sizes.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
+		ls_cmd+=(ls -lAh)
+
+		# hide the time?
+		if [[ $option_time == 'no' ]]; then
+			if is-mac; then
+				# -D format: When printing in the long (-l) format, use format to format the date and time output.  The argument format is a string used by trftime(3).  Depending on the choice of format string, this may result in a different number of columns in the output.  This option overrides the -T option.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
+				ls_cmd+=('-D' '')
+			else
+				# --time-style=TIME_STYLE: time/date format with -l; see TIME_STYLE below
+				ls_cmd+=("--time-style=+''")
+			fi
+		fi
+
+		# counts
+		# if __command_exists -- dust; then
+		# 	dust_sizes_cmd+=(dust --no-percent-bars)
+		# 	dust_counts_cmd+=(dust --no-percent-bars --filecount)
+		# elif __command_exists -- du; then
+		# 	du_cmd+=(du -hd1)
+		# fi
+
+		# disable colors?
+		if [[ $option_color == 'no' ]]; then
+			ls_cmd+=('--color=never')
+			# dust_sizes_cmd+=('--no-colors')
+			# dust_counts_cmd+=('--no-colors')
+		elif [[ $option_color == 'yes' ]]; then
+			ls_cmd+=('--color=always')
+			# dust_sizes_cmd+=('--force-colors')
+			# dust_counts_cmd+=('--force-colors')
+		fi
 	fi
 
-	local path
-	for path in "${option_paths[@]}"; do
+	# helpers
+	function __wrap {
+		sudo-helper --inherit --no-wrap --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$@"
+	}
+	function __act() (
+		# subshell to prevent multiple cds conflicting with each other
+		local path="$1" basename
 		if [[ -d $path ]]; then
 			cd "$path"
-			"${cmd[@]}"
+			basename='.'
 		else
 			cd "$(dirname "$path")"
 			basename="$(basename "$path")"
-			"${cmd[@]}" "$basename" | sd --fixed-strings "$basename" ''
 		fi
+		if [[ ${#eza_cmd[@]} -ne 0 ]]; then
+			__wrap "${eza_cmd[@]}" "$basename"
+		fi
+		if [[ ${#ls_cmd[@]} -ne 0 ]]; then
+			__wrap "${ls_cmd[@]}" "$basename"
+		fi
+		# if [[ ${#dust_sizes_cmd[@]} -ne 0 ]]; then
+		# 	__wrap "${dust_sizes_cmd[@]}" "$basename"
+		# fi
+		# if [[ ${#dust_counts_cmd[@]} -ne 0 ]]; then
+		# 	__wrap "${dust_counts_cmd[@]}" "$basename"
+		# fi
+		# if [[ ${#du_cmd[@]} -ne 0 ]]; then
+		# 	__wrap "${du_cmd[@]}" "$basename"
+		# fi
+	)
+
+	local input
+	for input in "${option_inputs[@]}"; do
+		__act "$input"
 	done
 )
 

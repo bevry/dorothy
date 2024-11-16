@@ -7,7 +7,12 @@ if [[ $# -eq 0 ]]; then
 	exit 22 # EINVAL 22 Invalid argument
 fi
 while [[ $# -ne 0 ]]; do
-	[[ -f $1 && ! -L $1 ]] || exit
+	if [[ -z $1 ]]; then
+		exit 22 # EINVAL 22 Invalid argument
+	fi
+	if [[ ! -f $1 ]]; then
+		exit 1
+	fi
 	shift
 done
 exit 0

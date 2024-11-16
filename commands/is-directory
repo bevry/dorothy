@@ -1,5 +1,63 @@
 #!/usr/bin/env bash
 
+function is_directory_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- is-directory --
+
+	eval-tester --name='empty args' --status=22 \
+		-- is-directory -- '' ''
+
+	eval-tester --name='missing' --status=1 \
+		-- is-directory -- "$DOROTHY/this-doesnt-exist"
+
+	eval-tester --name='directory' \
+		-- is-directory -- "$DOROTHY"
+
+	eval-tester --name='file' --status=1 \
+		-- is-directory -- "$DOROTHY/README.md"
+
+	eval-tester --name='file then dir' --status=1 \
+		-- is-directory -- "$DOROTHY/README.md" "$DOROTHY"
+
+	eval-tester --name='dir then file' --status=1 \
+		-- is-directory -- "$DOROTHY" "$DOROTHY/README.md"
+
+	eval-tester --name='dir then file then invalid' --status=1 \
+		-- is-directory -- "$DOROTHY" "$DOROTHY/README.md" ''
+
+	eval-tester --name='dir then invalid then file' --status=22 \
+		-- is-directory -- "$DOROTHY" '' "$DOROTHY/README.md"
+
+	# test working symlinks
+	local dir_target dir_symlink file_target file_symlink
+	dir_target="$(fs-temp --directory='is-directory' --directory='dir_target' --touch)"
+	file_target="$(fs-temp --directory='is-directory' --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --directory='is-directory' --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --directory='is-directory' --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	eval-tester --name='symlink dir' \
+		-- is-directory -- "$dir_symlink"
+
+	eval-tester --name='symlink file' --status=1 \
+		-- is-directory -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' --status=1 \
+		-- is-directory -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' --status=1 \
+		-- is-directory -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
 function is_directory() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -9,21 +67,23 @@ function is_directory() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Check if all <path>s are a directory (and not a symlink).
+			Check if all <path>s are a file, or an unbroken symlink to a file.
+			Companion to [is-not-directory], [echo-if-directory], [is-empty-directory].
 
 			USAGE:
 			is-directory [...options] [--] ...<path>
 
 			OPTIONS:
 			--sudo
-			    If specified, use sudo on directorysystem interactions.
+			    If specified, use sudo on filesystem interactions.
 			--user=<user>
 			--group=<group>
-			    If specified use this user and/or group for directorysystem interactions.
+			    If specified use this user and/or group for filesystem interactions.
 
 			RETURNS:
-			[0] if all <path>s were a directory
-			[1] if any <path>s were not a directory
+			[0] if all <path>s are a directory, or an unbroken symlink to a directory
+			[1] if any <path>s are neither a directory, nor an unbroken symlink to a directory
+			[22] if empty arguments are provided
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -61,20 +121,15 @@ function is_directory() (
 	# =====================================
 	# Action
 
-	local input
-	if [[ $option_sudo == 'yes' || -n $option_user || -n $option_group ]]; then
-		for input in "${option_inputs[@]}"; do
-			sudo-helper --inherit --user="$option_user" --group="$option_group" -- is-directory.bash -- "$input" || return
-		done
-	else
-		for input in "${option_inputs[@]}"; do
-			is-directory.bash -- "$input" || return
-		done
-	fi
-	return 0
+	sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-directory.bash -- "${option_inputs[@]}"
+	return
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	is_directory "$@"
+	if [[ $* == '--test' ]]; then
+		is_directory_test
+	else
+		is_directory "$@"
+	fi
 fi

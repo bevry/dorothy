@@ -7,8 +7,13 @@ if [[ $# -eq 0 ]]; then
 	exit 22 # EINVAL 22 Invalid argument
 fi
 while [[ $# -ne 0 ]]; do
+	if [[ -z $1 ]]; then
+		exit 22 # EINVAL 22 Invalid argument
+	fi
 	# just -e is faulty, as -e fails on broken symlinks
-	[[ ! -e $1 && ! -L $1 ]] || exit
+	if [[ -e $1 || -L $1 ]]; then
+		exit 1
+	fi
 	shift
 done
 exit 0

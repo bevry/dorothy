@@ -1,5 +1,62 @@
 #!/usr/bin/env bash
 
+function is_missing_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- is-missing --
+
+	eval-tester --name='empty args' --status=22 \
+		-- is-missing -- '' ''
+
+	eval-tester --name='directory' --status=1 \
+		-- is-missing -- "$DOROTHY"
+
+	eval-tester --name='missing' \
+		-- is-missing -- "$DOROTHY/this-doesnt-exist"
+
+	eval-tester --name='file' --status=1 \
+		-- is-missing -- "$DOROTHY/README.md"
+
+	eval-tester --name='file then dir' --status=1 \
+		-- is-missing -- "$DOROTHY/README.md" "$DOROTHY"
+
+	eval-tester --name='missing then file' --status=1 \
+		-- is-missing -- "$DOROTHY/this-doesnt-exist" "$DOROTHY/README.md"
+
+	eval-tester --name='missing then file then invalid' --status=1 \
+		-- is-missing -- "$DOROTHY/this-doesnt-exist" "$DOROTHY/README.md" ''
+
+	eval-tester --name='missing then invalid then file' --status=22 \
+		-- is-missing -- "$DOROTHY/this-doesnt-exist" '' "$DOROTHY/README.md"
+
+	# test working symlinks
+	local dir_target dir_symlink file_target file_symlink
+	dir_target="$(fs-temp --directory='is-missing' --directory='dir_target' --touch)"
+	file_target="$(fs-temp --directory='is-missing' --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --directory='is-missing' --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --directory='is-missing' --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	eval-tester --name='symlink dir' --status=1 \
+		-- is-missing -- "$dir_symlink"
+
+	eval-tester --name='symlink file' --status=1 \
+		-- is-missing -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' --status=1 \
+		-- is-missing -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' --status=1 \
+		-- is-missing -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
 function is_missing() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -9,8 +66,8 @@ function is_missing() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Check if all <path>s are missing (not a file/directory/symlink).
-			Opposite of [is-present].
+			Check if all <path>s are missing (not a file/directory/symlink/broken-symlink).
+			Companion to [is-present]. Equivalent to a [is-missing-path], [is-path-missing].
 
 			USAGE:
 			is-missing [...options] [--] ...<path>
@@ -23,8 +80,9 @@ function is_missing() (
 			    If specified use this user and/or group for filesystem interactions.
 
 			RETURNS:
-			[0] if all <path>s were missing
-			[1] if any <path>s were not missing
+			[0] if all <path>s are missing (not even a broken symlink)
+			[1] if any <path>s are not missing
+			[22] if empty arguments are provided
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -62,20 +120,15 @@ function is_missing() (
 	# =====================================
 	# Action
 
-	local input
-	if [[ $option_sudo == 'yes' || -n $option_user || -n $option_group ]]; then
-		for input in "${option_inputs[@]}"; do
-			sudo-helper --inherit --user="$option_user" --group="$option_group" -- is-missing.bash -- "$input" || return
-		done
-	else
-		for input in "${option_inputs[@]}"; do
-			is-missing.bash -- "$input" || return
-		done
-	fi
-	return 0
+	sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-missing.bash -- "${option_inputs[@]}"
+	return
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	is_missing "$@"
+	if [[ $* == '--test' ]]; then
+		is_missing_test
+	else
+		is_missing "$@"
+	fi
 fi

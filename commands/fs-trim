@@ -1,0 +1,347 @@
+#!/usr/bin/env bash
+
+function fs_trim_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- fs-trim --
+
+	eval-tester --name='empty args' --status=22 \
+		-- fs-trim -- '' ''
+
+	eval-tester --name='missing'  \
+		-- fs-trim -- "$DOROTHY/this-doesnt-exist"
+
+	# test working symlinks
+	local root dir_target dir_symlink file_in_dir_target file_target file_symlink file_in_dir_symlink
+	root="$(fs-temp --directory='fs-trim' --touch)"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	file_in_dir_target="$(fs-temp --root="$dir_target" --file='file_in_dir_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	file_in_dir_symlink="$(fs-temp --root="$dir_target" --file='file_in_dir_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+	symlink-helper --existing="$file_in_dir_target" --symlink="$file_in_dir_symlink" --quiet
+
+	# add data and test no-op trim
+	__print_line 'sup' >"$file_in_dir_target"
+	eval-tester --name='trim non-empty dir target should be no-op' \
+		-- fs-trim -- "$dir_target"
+	eval-tester --name='trim non-empty dir symlink should be no-op' \
+		-- fs-trim -- "$dir_symlink"
+	eval-tester --name='trim non-empty dir should be no-op (check)' \
+		-- is-present -- "$root" "$dir_target" "$file_target" "$file_in_dir_target" "$dir_symlink" "$file_symlink" "$file_in_dir_symlink"
+
+	# test symlinks
+	eval-tester --name='trim file symlink should remove its empty target and itself' \
+		-- fs-trim -- "$file_symlink"
+	eval-tester --name='trim file symlink should remove its empty target and itself (check)' \
+		-- is-missing -- "$file_target" "$file_symlink"
+
+	# make it empty and test again
+	printf '' >"$file_in_dir_target"
+	eval-tester --name='trim root without --all should be no-op' \
+		-- fs-trim -- "$root"
+	eval-tester --name='trim root without --all should be no-op (check)' \
+		-- is-present -- "$root" "$dir_target" "$file_in_dir_target" "$dir_symlink" "$file_in_dir_symlink"
+	eval-tester --name='trim root with --all should trim everything' \
+		-- fs-trim --all -- "$root"
+	eval-tester --name='trim root with --all should trim everything (check)' \
+		-- is-missing -- "$root"
+
+	# recreate empty dirs and files
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	file_in_dir_target="$(fs-temp --root="$dir_target" --file='file_in_dir_target' --touch)"
+	eval-tester --name='trim root that has empty files and empty dirs, with --empty-files, should trim everything' \
+		-- fs-trim --empty-files -- "$root"
+	eval-tester --name='trim root that has empty files and empty dirs, with --empty-files, should trim everything (check)' \
+		-- is-missing -- "$root"
+
+	# recreate empty dirs
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	eval-tester --name='trim root that has only empty dirs, should trim everything' \
+		-- fs-trim -- "$root"
+	eval-tester --name='trim root that has only empty dirs, should trim everything (check)' \
+		-- is-missing -- "$root"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
+function fs_trim() (
+	source "$DOROTHY/sources/bash.bash"
+	local junk_filenames=(
+		'.DS_Store'
+		'._.DS_Store'
+		'Desktop.ini'
+		'Thumbs.db'
+		'node_modules'
+		'pnp'
+		'package-lock.json'
+		'yarn.lock'
+		'.pnp.js'
+		'.log'
+	)
+	local junk_find=() remove_filenames=() item
+	for item in "${junk_filenames[@]}"; do
+		item="$(__lowercase_string -- "$item")"
+		remove_filenames+=("$item")
+		junk_find+=(-iname "$item" -or)
+	done
+	junk_find=("${junk_find[@]:0:${#junk_find[@]}-1}")
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Trim <path>s of empty files and directories, including itself it also became empty.
+
+			USAGE:
+			fs-trim [...options] [--] ...<path>
+
+			OPTIONS:
+			--quiet | --no-verbose
+			    If specified, do not confirm for action if none provided.
+			--confirm
+			    If specified, confirm for action if none provided.
+
+			--sudo
+			    If specified, use sudo on filesystem interactions.
+			--user=<user>
+			--group=<group>
+			    If specified use this user and/or group for filesystem interactions.
+
+			--junk
+			    If provided, paths of these case-insensitive filenames will be removed: ${junk_filenames[*]}
+			--empty-files
+			    If provided, empty files will be removed.
+			--broken-symlinks
+			    If provided, broken symlinks will be removed.
+			--empty-directories
+			    If provided, empty directories will be removed.
+
+			RETURNS:
+			[0] if all <path>s were trimmed of empty files/directories
+			[22] if empty arguments are provided
+		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_inputs=() option_sudo='no' option_user='' option_group='' option_confirm='' option_all='' option_junk='' option_empty_files='' option_broken_symlinks=''  option_empty_directories=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--no-confirm'* | '--confirm'*)
+			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
+			;;
+		'--no-all'* | '--all'*)
+			option_all="$(get-flag-value --affirmative --fallback="$option_all" -- "$item")"
+			if [[ $option_all == 'yes' ]]; then
+				option_junk='yes'
+				option_empty_files='yes'
+				option_broken_symlinks='yes'
+				option_empty_directories='yes'
+			fi
+			;;
+		'--no-junk'* | '--junk'*)
+			option_junk="$(get-flag-value --affirmative --fallback="$option_junk" -- "$item")"
+			;;
+		'--no-empty-files'* | '--empty-files'*)
+			option_empty_files="$(get-flag-value --affirmative --fallback="$option_empty_files" -- "$item")"
+			;;
+		'--no-broken-symlinks'* | '--broken-symlinks'*)
+			option_broken_symlinks="$(get-flag-value --affirmative --fallback="$option_broken_symlinks" -- "$item")"
+			;;
+		'--no-empty-directories'* | '--empty-directories'*)
+			option_empty_directories="$(get-flag-value --affirmative --fallback="$option_empty_directories" -- "$item")"
+			;;
+		'--')
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+
+	# verify
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		option_inputs+=("$(pwd)")
+	fi
+
+	# =====================================
+	# Action
+
+	local selection=()
+	if [[ $option_junk == 'yes' ]]; then
+		selection+=('junk')
+	fi
+	if [[ $option_empty_files == 'yes' ]]; then
+		selection+=('files')
+	fi
+	if [[ $option_broken_symlinks == 'yes' ]]; then
+		selection+=('broken')
+	fi
+	if [[ $option_empty_directories == 'yes' ]]; then
+		selection+=('directories')
+	fi
+	if [[ ${#selection[@]} -eq 0 ]]; then
+		selection+=('directories')
+		option_confirm='yes'
+	fi
+
+	# helpers
+	local confirmed='no'
+	function __confirm {
+		local title
+		if [[ $confirmed = 'yes' ]]; then
+			return 0
+		fi
+		confirmed='yes'
+		if [[ $option_confirm = 'yes' ]]; then
+			title="$(
+				echo-style --notice1='What items do you wish to trim for:' --newline \
+					--code-notice1="$(fs-absolute -- "${option_inputs[@]}")"
+			)"
+			mapfile -t selection < <(
+				choose "$title" --multiple --defaults-exact="$(__print_lines "${selection[@]}")" --label -- \
+					junk "Junk files: $(echo-style --newline --dim="${junk_filenames[*]}")"  \
+					files 'Empty files'  \
+					broken 'Broken symlinks' \
+					directories 'Empty directories'
+			)
+		fi
+		# still apply defaults in no-confirm mode
+		for item in "${selection[@]}"; do
+			case "$item" in
+			'junk') option_junk='yes' ;;
+			'files') option_empty_files='yes' ;;
+			'broken') option_broken_symlinks='yes' ;;
+			'directories') option_empty_directories='yes' ;;
+			esac
+		done
+	}
+	function __wrap {
+		sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$@"
+	}
+	function do_find {
+		local path="$1" refresh='yes'
+		while [[ $refresh = 'yes' ]]; do
+			refresh='no'
+			if is-not-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+				break
+			fi
+			if  [[ $option_junk == 'yes' ]] && __wrap find "$path" \( "${junk_find[@]}" \) -delete -print | ifne -n false >/dev/null; then
+				refresh='yes'
+			fi
+			if [[ $option_empty_files == 'yes' ]] && __wrap find "$path" -type f -empty -delete -print | ifne -n false >/dev/null; then
+				refresh='yes'
+			fi
+			if [[ $option_broken_symlinks == 'yes' ]] && __wrap find "$path" -type l -exec fs-trim-symlinks.bash -- {} + | ifne -n false >/dev/null; then
+				refresh='yes'
+			fi
+			if [[ $option_empty_directories == 'yes' ]] && __wrap find "$path" -type d -empty -delete -print | ifne -n false >/dev/null; then
+				refresh='yes'
+			fi
+		done
+	}
+
+	# action
+	local input target input_lowercase_filename target_lowercase_filename
+	for input in "${option_inputs[@]}"; do
+		# check is invalid
+		if [[ -z $input ]]; then
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		# just -e is faulty, as -e fails on broken symlinks
+		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+			# already missing on the filesystem
+			continue
+		fi
+		# confirm the user for action if still ambiguous
+		__confirm
+		# check we have something to do
+		if [[ $option_junk != 'yes' && $option_empty_files != 'yes' && $option_broken_symlinks != 'yes' && $option_empty_directories != 'yes' ]]; then
+			# no-op, user is aborting essentially
+			return 0
+		fi
+		# continue
+		if is-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+			# it is a symlink
+			if is-broken-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+				# it is broken, remove it if desired
+				 if [[ $option_broken_symlinks == 'yes' ]]; then
+					__wrap rm -f "$input"
+				fi
+				continue
+			fi
+
+			# get the target
+			target="$(fs-realpath -- "$input")"
+
+			# check if it is a junk file
+			if [[ $option_junk == 'yes' ]]; then
+				target_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$target")")"
+				input_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$input")")"
+				if is-needle --needle="$input_lowercase_filename" -- "${remove_filenames[@]}" || is-needle --needle="$target_lowercase_filename" -- "${remove_filenames[@]}"; then
+					__wrap rm -f "$target" "$input"
+					continue
+				fi
+			fi
+
+			# trim target and symlink
+			if is-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
+				# it is a directory or symlink to a directory on the filesystem
+				do_find "$target"
+				# remove the symlink if its target was just removed
+				if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
+					__wrap rm -f "$input"
+				fi
+			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
+				__wrap rm -f "$target" "$input"
+			fi
+		else
+			# check if it is a junk file
+			if [[ $option_junk == 'yes' ]]; then
+				input_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$input")")"
+				if is-needle --needle="$input_lowercase_filename" -- "${remove_filenames[@]}"; then
+					__wrap rm -f "$input"
+					continue
+				fi
+			fi
+
+			# trim input target
+			if is-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+				# it is a directory or symlink to a directory on the filesystem
+				do_find "$input"
+			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+				__wrap rm -f "$input"
+			fi
+		fi
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_trim_test
+	else
+		fs_trim "$@"
+	fi
+fi

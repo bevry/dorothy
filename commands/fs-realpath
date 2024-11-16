@@ -33,6 +33,12 @@ function fs_realpath() (
 			--relative-base=<relative_base>
 			    If provided, print absolute paths unless paths below DIR
 
+			--sudo
+			    If specified, use sudo on filesystem interactions.
+			--user=<user>
+			--group=<group>
+			    If specified use this user and/or group for filesystem interactions.
+
 			QUIRKS:
 			If you don't care about symlinks, you should prefer to use [fs-absolute] instead as it is simpler.
 			Use [--resolve --broken --relative] to help you repair broken relative symlinks.
@@ -44,7 +50,7 @@ function fs_realpath() (
 	}
 
 	# options
-	local item option_paths=() option_resolve='yes' option_validate='yes' option_relative='no' option_relative_to='' option_relative_base=''
+	local item option_paths=() option_resolve='yes' option_validate='yes' option_relative='no' option_relative_to='' option_relative_base='' option_sudo='no' option_user='' option_group=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -63,6 +69,11 @@ function fs_realpath() (
 			option_relative="$(get-flag-value --affirmative --fallback="$option_relative" -- "$item")"
 			;;
 		'--path='*) option_paths+=("${item#*=}") ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
 		'--')
 			option_paths+=("$@")
 			shift $#
@@ -80,6 +91,10 @@ function fs_realpath() (
 
 	# =====================================
 	# Action
+
+	function __sudo {
+		sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" "$@"
+	}
 
 	function do_gnu_realpath {
 		local gnu_realpath
@@ -141,7 +156,8 @@ function fs_realpath() (
 		fi
 
 		# execute
-		"$gnu_realpath" "${args[@]}" "$path"
+		__sudo -- \
+			"$gnu_realpath" "${args[@]}" "$path"
 	}
 	function do_gnu_readlink {
 		# don't support unsupported args
@@ -194,13 +210,13 @@ function fs_realpath() (
 				# unless canoniclizing, then symlinks are required
 				return 45 # ENOTSUP 45 Operation not supported
 			else
-				"$gnu_readlink" "$path"
+				__sudo -- "$gnu_readlink" "$path"
 			fi
 		else
 			if [[ $option_validate == 'yes' ]]; then
-				"$gnu_readlink" --canonicalize-existing "$path"
+				__sudo -- "$gnu_readlink" --canonicalize-existing "$path"
 			else
-				"$gnu_readlink" --canonicalize-missing "$path"
+				__sudo -- "$gnu_readlink" --canonicalize-missing "$path"
 			fi
 		fi
 	}
@@ -233,15 +249,15 @@ function fs_realpath() (
 		# -f fetches the absolutely resolved path
 
 		if [[ $option_resolve == 'yes' && $option_relative == 'yes' && $option_validate == 'no' ]]; then
-			if [[ -L $path ]]; then
-				"$fallback_readlink" "$path"
+			if is-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+				__sudo -- "$fallback_readlink" "$path"
 			else
 				return 45 # ENOTSUP 45 Operation not supported
 			fi
 		elif [[ $option_resolve == 'yes' && $option_relative == 'no' && $option_validate == 'yes' ]]; then
 			# readlink will return correct output when valid
 			# if invalid, will output nothing and have a failure exit code
-			"$fallback_readlink" -f "$path"
+			__sudo -- "$fallback_readlink" -f "$path"
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -274,7 +290,7 @@ function fs_realpath() (
 		if [[ $option_resolve == 'yes' && $option_relative == 'no' && $option_validate == 'yes' ]]; then
 			# realpath will return correct output when valid
 			# if invalid, will output error (unless -q) and have failure exit code
-			"$fallback_realpath" "$path"
+			__sudo -- "$fallback_realpath" "$path"
 		else
 			return 45 # ENOTSUP 45 Operation not supported
 		fi
@@ -311,9 +327,9 @@ function fs_realpath() (
 
 		if [[ $option_relative == 'no' && $option_validate == 'no' ]]; then
 			if [[ $option_resolve == 'no' ]]; then
-				fish -c 'builtin realpath --no-symlinks "$argv[1]"' -- "$path"
+				__sudo -- fish -c 'builtin realpath --no-symlinks "$argv[1]"' -- "$path"
 			else
-				fish -c 'builtin realpath "$argv[1]"' -- "$path"
+				__sudo -- fish -c 'builtin realpath "$argv[1]"' -- "$path"
 			fi
 		else
 			return 45 # ENOTSUP 45 Operation not supported
