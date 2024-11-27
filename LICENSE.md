@@ -4,11 +4,11 @@
 
 Unless stated otherwise all works are:
 
--   Copyright &copy; [Benjamin Lupton](https://balupton.com)
+- Copyright &copy; [Benjamin Lupton](https://balupton.com)
 
 and licensed under:
 
--   [Reciprocal Public License 1.5](http://spdx.org/licenses/RPL-1.5.html)
+- [Reciprocal Public License 1.5](http://spdx.org/licenses/RPL-1.5.html)
 
 ## Reciprocal Public License 1.5 (RPL1.5)
 

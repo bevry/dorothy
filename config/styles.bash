@@ -40,7 +40,7 @@ if [[ $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
 	style__alternative_screen_buffer=$'\e[?1049h' # switch-to/enable/open alternative screen buffer (of which there is only one)
 	style__default_screen_buffer=$'\e[?1049l'     # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 else
-	# if unable to tap into alterantive screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
+	# if unable to tap into alternative screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
 	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
 	# https://github.com/bevry/dorothy/actions/runs/11358441972/job/31592966478#step:2:2805
 	# even though practically multiple calls to alternative screen buffer will clear the screen, the newline on the initial call is unintuitive — https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2439 — so only do the newline
@@ -58,9 +58,9 @@ style__carriage_return=$'\r'
 style__escape=$'\e'
 style__home=$'\e[H'
 style__terminal_title=$'\e]0;'
-style__termianl_title_end=$'\a'
+style__terminal_title_end=$'\a'
 style__terminal_resize=$'\e[8;'
-style__termianl_resize_end=';t'
+style__terminal_resize_end=';t'
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
@@ -318,7 +318,7 @@ fi
 
 # don't use these in segments, as it prohibits alternative usage
 # instead, when things take a long time,
-# output a long time messasge after the segment
+# output a long time message after the segment
 # ⏲
 # ✅
 # ❌

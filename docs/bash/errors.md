@@ -490,5 +490,5 @@ If for whatever reason you do decide to not use eval_capture, then prefix the fu
 
 For more information on this, refer to:
 
--   https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
--   https://github.com/bevry/dorothy/blob/master/sources/bash.bash
+- https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
+- https://github.com/bevry/dorothy/blob/master/sources/bash.bash

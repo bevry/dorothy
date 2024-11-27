@@ -28,7 +28,7 @@
 #
 # A true bash login shell (v3):
 # - `$0` is `-bash`
-# - `$-` is `himBH` via this script and manully, or if v5 then `himBHs` manually
+# - `$-` is `himBH` via this script and manually, or if v5 then `himBHs` manually
 # - `shopt -qp login_shell` returns `0`
 #
 # Manual invocation `bash -il` (v5):
@@ -92,7 +92,7 @@ fi
 # if your login shell is failing identification,
 # then make sure your terminal preferences has login shell enabled
 if [ "${DOROTHY_LOAD-}" = 'yes' ]; then
-	# non-exported scope, used to prevent case where bash_profile loads at login then bashrc loads on new terminsl
+	# non-exported scope, used to prevent case where bash_profile loads at login then bashrc loads on new terminal
 	DOROTHY_LOADED_SHARED_SCOPE='yes'
 	# exported scope, used to prevent our workaround for non-login-terminal-applications from loading dorothy in manual non-login bash invocations
 	export DOROTHY_LOADED_EXPORT_SCOPE
@@ -107,7 +107,7 @@ if [ "${DOROTHY_LOAD-}" = 'yes' ]; then
 		# https://stackoverflow.com/a/14728194
 		# if true login shell on macos, then $0 is [-bash], [-zsh], [-dash], etc.
 		export DOROTHY
-		# this should somewhat cooincide with [prepare_dorothy] in [dorothy]
+		# this should somewhat coincide with [prepare_dorothy] in [dorothy]
 		if [ -n "${XDG_DATA_HOME-}" ] && [ -d "$XDG_DATA_HOME/dorothy" ]; then
 			DOROTHY="$XDG_DATA_HOME/dorothy"
 		else

@@ -2,7 +2,7 @@
 
 Sources:
 
--   [Stack Exchange: Read a line-oriented file which may not end with a newline](https://unix.stackexchange.com/a/418067/50703)
+- [Stack Exchange: Read a line-oriented file which may not end with a newline](https://unix.stackexchange.com/a/418067/50703)
 
 Advice:
 

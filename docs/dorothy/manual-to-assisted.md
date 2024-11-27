@@ -38,8 +38,8 @@ This works by transforming statements like `brew install git bash` into the conf
 
 ### Example Setups
 
--   [Dorothy's `config/setup.bash`](https://github.com/bevry/dorothy/blob/master/config/setup.bash)
--   [@balupton's `config/setup.bash`](https://github.com/balupton/dotfiles/blob/master/config/setup.bash)
+- [Dorothy's `config/setup.bash`](https://github.com/bevry/dorothy/blob/master/config/setup.bash)
+- [@balupton's `config/setup.bash`](https://github.com/balupton/dotfiles/blob/master/config/setup.bash)
 
 ### Custom Setups
 

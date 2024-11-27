@@ -4,23 +4,23 @@ This topic will discuss incompatibilities between bash versions.
 
 Sources:
 
--   [Bash Changelog](https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES)
+- [Bash Changelog](https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES)
 
 ## bash v4.0
 
 From changelog:
 
--   Introduces `|&` as shorthand for `2>&1 |`.
--   Introduces `shopt -s globstar`.
--   Introduces `mapfile`, and `readarray` alias for `mapfile`.
--   Introduces support for decimal timeouts on `read -t TIMEOUT`.
--   Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
+- Introduces `|&` as shorthand for `2>&1 |`.
+- Introduces `shopt -s globstar`.
+- Introduces `mapfile`, and `readarray` alias for `mapfile`.
+- Introduces support for decimal timeouts on `read -t TIMEOUT`.
+- Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
 
 From manual discovery:
 
--   Introduces `l` inside `$-` if login shell.
--   Introduces escape code support inside `echo -en`, prior to that `printf` must be used.
--   No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS
+- Introduces `l` inside `$-` if login shell.
+- Introduces escape code support inside `echo -en`, prior to that `printf` must be used.
+- No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS
 
 Changelog:
 
@@ -45,7 +45,7 @@ Changelog:
 
 From changelog:
 
--   Introduces `${arr:0:-N}` for getting the last N items or characters of an array or string.
+- Introduces `${arr:0:-N}` for getting the last N items or characters of an array or string.
 
 Changelog:
 
@@ -57,7 +57,7 @@ Changelog:
 
 From changelog:
 
--   Introduces `test -v VAR` for testing variable declaration
+- Introduces `test -v VAR` for testing variable declaration
 
 Changelog:
 
@@ -69,7 +69,7 @@ Changelog:
 
 From changelog:
 
--   No longer crashes if accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
+- No longer crashes if accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
 
 Changelog:
 
@@ -81,9 +81,9 @@ Changelog:
 
 From changelog:
 
--   Introduces `${var@U}`, `${var@u}`, `${var@L}`
--   Introduces `test -v INDEX` for testing positional declaration
--   Introduces fixed support for associative arrays
+- Introduces `${var@U}`, `${var@u}`, `${var@L}`
+- Introduces `test -v INDEX` for testing positional declaration
+- Introduces fixed support for associative arrays
 
 Changelog:
 

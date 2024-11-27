@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-# set the active shell as the detectected POSIX (.sh) shell
+# set the active shell as the detected POSIX (.sh) shell
 # do not export
 if [ -n "${BASH_VERSION-}" ]; then
 	ACTIVE_POSIX_SHELL='bash'

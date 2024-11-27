@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # For bash version compatibility and changes, see:
-# See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about signficant changes between bash versions.
+# See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about significant changes between bash versions.
 # See <https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES> <https://tiswww.case.edu/php/chet/bash/CHANGES> <https://github.com/bminor/bash/blob/master/CHANGES> for documentation on changes from bash v2 and above.
 
 # For bash configuration options, see:
@@ -241,7 +241,7 @@ function __sudo_mkdirp {
 	return "$status"
 }
 
-# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceeding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
+# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
 # the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; echo "${v:s}"
 # function __substr_native {
 # 	local string="$1" start="${2:-0}" length="${3-}"
@@ -669,7 +669,7 @@ fi
 # bash v5: localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
 # shopt -s localvar_inherit 2>/dev/null || :
 
-# basg v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
+# bash v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
 # shopt -s localvar_unset 2>/dev/null || :
 
 # =============================================================================
@@ -798,7 +798,7 @@ fi
 #     - use: `[[ "${#array[@]}" -ne 0 ]] && for ...`
 #     - or if you don't care for empty option_inputs, use: `[[ -n "$arr" ]] && for ...`
 #
-# BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
+# BASH_ARRAY_CAPABILITIES -- string that stores the various capabilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
 # has_array_capability -- check if a capability is provided by the current bash version
 # __require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it

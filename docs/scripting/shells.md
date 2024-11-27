@@ -48,9 +48,9 @@ whence -p CMD &>/dev/null
 
 ## pipe redirections
 
--   <https://unix.stackexchange.com/q/70963/50703>
--   <https://www.gnu.org/software/bash/manual/bash.html#Redirections>
--   <https://fishshell.com/docs/current/tutorial.html#pipes-and-redirections>
+- <https://unix.stackexchange.com/q/70963/50703>
+- <https://www.gnu.org/software/bash/manual/bash.html#Redirections>
+- <https://fishshell.com/docs/current/tutorial.html#pipes-and-redirections>
 
 ### silencing stdout
 

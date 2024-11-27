@@ -141,7 +141,7 @@ function stdinargs {
 		local line='' what="$1" had_line='no'
 		# for each line, call `on_line` or `on_input`
 		# for each inline, call `on_inline` or `on_line` or `on_input`
-		# [read -t 0 line] will not read anything, so it must be done seperately
+		# [read -t 0 line] will not read anything, so it must be done separately
 		# IFS= to not trim whitespace lines (e.g. ' ' would otherwise become '')
 		# trunk-ignore(shellcheck/SC2162)
 		while ([[ $timeout_immediate == 'no' ]] || read -t 0) && IFS= read "${read_args[@]}" line; do
@@ -181,7 +181,7 @@ function stdinargs {
 	fi
 
 	# attempt arguments first
-	# arguments are instantanous and won't mangle stdin for parent processes
+	# arguments are instantaneous and won't mangle stdin for parent processes
 	if [[ $args_count -eq 0 ]]; then
 		had_args='no'
 	else
