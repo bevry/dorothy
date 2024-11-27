@@ -22,7 +22,7 @@
 # 'Dark+'
 # 'GitHub Dark Default' - highlights complex code blocks, but sometimes not others
 # 'Monokai Night' - fails to highlight complex code blocks, otherwise great
-# 'Save My Eyes' - fails to highight complex code blocks, uninstalled
+# 'Save My Eyes' - fails to highlight complex code blocks, uninstalled
 # 'An Old Hope' - uninstalled
 # 'Adapta Nokto' - uninstalled
 # 'An Old Hope' - uninstalled
