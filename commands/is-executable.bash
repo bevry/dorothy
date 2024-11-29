@@ -14,7 +14,7 @@ while [[ $# -ne 0 ]]; do
 	if ! [[ -e $1 || -L $1 ]]; then
 		exit 2 # ENOENT 2 No such file or directory
 	fi
-	if [[ ! -r $1 ]]; then
+	if [[ ! -x $1 ]]; then
 		exit 1
 	fi
 	shift

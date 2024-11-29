@@ -72,6 +72,8 @@ function fs_trim_test() (
 )
 function fs_trim() (
 	source "$DOROTHY/sources/bash.bash"
+
+	# prepare filenames
 	local cache_filenames=(
 		'.DS_Store'
 		'._.DS_Store'
@@ -86,6 +88,15 @@ function fs_trim() (
 		'yarn.lock'
 		'.pnp.js'
 	)
+	local item cache_find=() module_find=()
+	for item in "${cache_filenames[@]}"; do
+		cache_find+=(-iname "$item" -or)
+	done
+	for item in "${module_filenames[@]}"; do
+		module_find+=(-iname "$item" -or)
+	done
+	cache_find=("${cache_find[@]:0:${#cache_find[@]}-1}")
+	module_find=("${module_find[@]:0:${#module_find[@]}-1}")
 
 	# =====================================
 	# Arguments
@@ -186,19 +197,6 @@ function fs_trim() (
 		option_inputs+=("$(pwd)")
 	fi
 
-	# convert filenames to lowercase, and prepare find arguments
-	local cache_find=() module_find=()
-	for item in "${!cache_filenames[@]}"; do
-		cache_filenames[item]="$(__lowercase_string -- "${cache_filenames[item]}")"
-		cache_find+=(-iname "$item" -or)
-	done
-	for item in "${!module_filenames[@]}"; do
-		module_filenames[item]="$(__lowercase_string -- "${module_filenames[item]}")"
-		module_find+=(-iname "$item" -or)
-	done
-	cache_find=("${cache_find[@]:0:${#cache_find[@]}-1}")
-	module_find=("${module_find[@]:0:${#module_find[@]}-1}")
-
 	# =====================================
 	# Action
 
@@ -224,32 +222,26 @@ function fs_trim() (
 	fi
 
 	# helpers
-	local confirmed='no'
 	function __confirm {
-		local title body
-		if [[ $confirmed == 'yes' ]]; then
-			return 0
-		fi
-		confirmed='yes'
+		local input="$1" title body
 		if [[ $option_confirm == 'yes' ]]; then
 			title="$(
 				echo-style --notice1='What items do you wish to trim for:' --newline \
-					--code-notice1="$(fs-absolute -- "${option_inputs[@]}")"
+					--code-notice1="$(fs-absolute -- "$input")"
 			)"
-			# refresh body
-			if [[ ${#option_inputs[@]} -eq 1 ]]; then
-				body="$(echo-style --reset)$(fs-structure --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "${option_inputs[0]}")"
-			else
-				body=''
-			fi
+			body="$(echo-style --reset)$(fs-structure --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input")"
 			mapfile -t selection < <(
 				choose "$title" "$body" --truncate-body --multiple --defaults-exact="$(__print_lines "${selection[@]}")" --label -- \
 					cache "Caches: $(echo-style --newline --dim="${cache_filenames[*]}")" \
-					module "Modules: $(echo-style --newline --dim="${module_filenames[*]}")" \
+					module "Module Caches: $(echo-style --newline --dim="${module_filenames[*]}")" \
 					files 'Empty files' \
 					broken 'Broken symlinks' \
 					directories 'Empty directories'
 			)
+		fi
+		# bash v3 compat
+		if [[ ${#selection[@]} -eq 0 ]]; then
+			return 0
 		fi
 		# still apply defaults in no-confirm mode
 		for item in "${selection[@]}"; do
@@ -272,26 +264,26 @@ function fs_trim() (
 			if is-not-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
 				break
 			fi
-			if [[ $option_cache == 'yes' ]] && __wrap find "$path" \( "${cache_find[@]}" \) -delete -print | ifne -n false >/dev/null; then
+			if [[ $option_cache == 'yes' ]] && __wrap find "$path" \( "${cache_find[@]}" \) -delete -print | eval-on-empty-stdin -- false >/dev/null; then
 				refresh='yes'
 			fi
-			if [[ $option_module == 'yes' ]] && __wrap find "$path" \( "${module_find[@]}" \) -delete -print | ifne -n false >/dev/null; then
+			if [[ $option_module == 'yes' ]] && __wrap find "$path" \( "${module_find[@]}" \) -delete -print | eval-on-empty-stdin -- false >/dev/null; then
 				refresh='yes'
 			fi
-			if [[ $option_empty_files == 'yes' ]] && __wrap find "$path" -type f -empty -delete -print | ifne -n false >/dev/null; then
+			if [[ $option_empty_files == 'yes' ]] && __wrap find "$path" -type f -empty -delete -print | eval-on-empty-stdin -- false >/dev/null; then
 				refresh='yes'
 			fi
-			if [[ $option_broken_symlinks == 'yes' ]] && __wrap find "$path" -type l -exec fs-trim-symlinks.bash -- {} + | ifne -n false >/dev/null; then
+			if [[ $option_broken_symlinks == 'yes' ]] && __wrap find "$path" -type l -exec fs-trim-symlinks.bash -- {} + | eval-on-empty-stdin -- false >/dev/null; then
 				refresh='yes'
 			fi
-			if [[ $option_empty_directories == 'yes' ]] && __wrap find "$path" -type d -empty -delete -print | ifne -n false >/dev/null; then
+			if [[ $option_empty_directories == 'yes' ]] && __wrap find "$path" -type d -empty -delete -print | eval-on-empty-stdin -- false >/dev/null; then
 				refresh='yes'
 			fi
 		done
 	}
 
 	# action
-	local input target input_lowercase_filename target_lowercase_filename
+	local input target input_filename target_filename filenames
 	for input in "${option_inputs[@]}"; do
 		# check is invalid
 		if [[ -z $input ]]; then
@@ -303,7 +295,7 @@ function fs_trim() (
 			continue
 		fi
 		# confirm the user for action if still ambiguous
-		__confirm
+		__confirm "$input"
 		# check we have something to do
 		if [[ $option_cache != 'yes' && $option_module != 'yes' && $option_empty_files != 'yes' && $option_broken_symlinks != 'yes' && $option_empty_directories != 'yes' ]]; then
 			# no-op, user is aborting essentially
@@ -323,21 +315,18 @@ function fs_trim() (
 			# get the target
 			target="$(fs-realpath -- "$input")"
 
-			# check if it is a cache file
+			# check if it is a cache/module file
+			filenames=()
 			if [[ $option_cache == 'yes' ]]; then
-				target_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$target")")"
-				input_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$input")")"
-				if is-needle --needle="$input_lowercase_filename" -- "${cache_filenames[@]}" || is-needle --needle="$target_lowercase_filename" -- "${cache_filenames[@]}"; then
-					__wrap rm -f "$target" "$input"
-					continue
-				fi
+				filenames+=("${cache_filenames[@]}")
 			fi
-
-			# check if it is a module file
 			if [[ $option_module == 'yes' ]]; then
-				target_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$target")")"
-				input_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$input")")"
-				if is-needle --needle="$input_lowercase_filename" -- "${module_filenames[@]}" || is-needle --needle="$target_lowercase_filename" -- "${module_filenames[@]}"; then
+				filenames+=("${module_filenames[@]}")
+			fi
+			if [[ ${#filenames[@]} -ne 0 ]]; then
+				target_filename="$(fs-filename -- "$target")"
+				input_filename="$(fs-filename -- "$input")"
+				if is-needle --ignore-case --any --needle="$target_filename" --needle="$input_filename" -- "${filenames[@]}"; then
 					__wrap rm -f "$target" "$input"
 					continue
 				fi
@@ -355,19 +344,17 @@ function fs_trim() (
 				__wrap rm -f "$target" "$input"
 			fi
 		else
-			# check if it is a cache file
+			# check if it is a cache/module file
+			filenames=()
 			if [[ $option_cache == 'yes' ]]; then
-				input_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$input")")"
-				if is-needle --needle="$input_lowercase_filename" -- "${cache_filenames[@]}"; then
-					__wrap rm -f "$input"
-					continue
-				fi
+				filenames+=("${cache_filenames[@]}")
 			fi
-
-			# check if it is a module file
 			if [[ $option_module == 'yes' ]]; then
-				input_lowercase_filename="$(__lowercase_string -- "$(fs-filename -- "$input")")"
-				if is-needle --needle="$input_lowercase_filename" -- "${module_filenames[@]}"; then
+				filenames+=("${module_filenames[@]}")
+			fi
+			if [[ ${#filenames[@]} -ne 0 ]]; then
+				input_filename="$(fs-filename -- "$input")"
+				if is-needle --ignore-case --needle="$input_filename" -- "${filenames[@]}"; then
 					__wrap rm -f "$input"
 					continue
 				fi

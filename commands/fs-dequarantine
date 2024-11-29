@@ -13,6 +13,12 @@ function fs_dequarantine() (
 
 			USAGE:
 			fs-dequarantine [--] ...<path>
+
+			RETURNS:
+			[0] if all <path>s were not quarantined or successfully dequarantined
+			[1] if any <path>s were quarantined but could not be dequarantined
+			[2] if any <path>s were not accessible
+			[22] if empty arguments are provided
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -21,25 +27,29 @@ function fs_dequarantine() (
 	}
 
 	# process
-	local item option_paths=()
+	local item option_inputs=() option_sudo='yes' option_user='' option_group=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--path='*) option_paths+=("${item#*=}") ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
 		'--')
-			option_paths+=("$@")
+			option_inputs+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_paths+=("$item") ;;
+		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# check
-	if [[ ${#option_paths[@]} -eq 0 ]]; then
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
 		help 'No <path>s provided.'
 	fi
 
@@ -50,29 +60,9 @@ function fs_dequarantine() (
 		return 0 # not needed
 	fi
 
-	function disable_quarantine_on_path {
-		# https://apple.stackexchange.com/a/436677/15131
-		# note that the -r option doesn't exist, will return [option -r not recognized] on Ventura and Sonoma
-		# cannot just -d directly, as will get a [No such xattr: com.apple.quarantine] error, so check for it first, this induces no errors
-		local path="$1"
-		if [[ -r $path ]]; then
-			if xattr -l "$path" | grep --quiet --fixed-strings --regexp='com.apple.quarantine'; then
-				xattr -d com.apple.quarantine "$path" >/dev/stderr
-				return
-			fi
-		elif sudo-helper --inherit -- is-readable.bash -- "$path"; then
-			if sudo-helper -- xattr -l "$path" | grep --quiet --fixed-strings --regexp='com.apple.quarantine'; then
-				sudo-helper -- xattr -d com.apple.quarantine "$path" >/dev/stderr
-				return
-			fi
-		fi
-		return 0
-	}
-
-	local path
-	for path in "${option_paths[@]}"; do
-		disable_quarantine_on_path "$path"
-	done
+	# invoke with sudo escalation enabled by default
+	sudo-helper --inherit --optional --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- fs-dequarantine.bash -- "${option_inputs[@]}"
+	return
 )
 
 # fire if invoked standalone

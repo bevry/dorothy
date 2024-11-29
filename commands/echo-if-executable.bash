@@ -10,12 +10,8 @@ while [[ $# -ne 0 ]]; do
 	if [[ -z $1 ]]; then
 		exit 22 # EINVAL 22 Invalid argument
 	fi
-	# just -e is faulty, as -e fails on broken symlinks
-	if ! [[ -e $1 || -L $1 ]]; then
-		exit 2 # ENOENT 2 No such file or directory
-	fi
-	if [[ ! -r $1 ]]; then
-		exit 1
+	if [[ -x $1 ]]; then
+		printf '%s\n' "$1"
 	fi
 	shift
 done
