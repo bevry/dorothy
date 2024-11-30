@@ -14,7 +14,11 @@ function fs_trim_test() (
 
 	# test working symlinks
 	local root dir_target dir_symlink file_in_dir_target file_target file_symlink file_in_dir_symlink
-	root="$(fs-temp --directory='fs-trim' --touch)"
+	root="$(fs-temp --directory='fs-trim-test')"
+	# ensure anything left over from prior runs is removed
+	fs-rm --no-confirm -- "$root"
+	__mkdirp "$root"
+	# create a structure
 	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
 	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
 	file_in_dir_target="$(fs-temp --root="$dir_target" --file='file_in_dir_target' --touch)"
@@ -28,42 +32,48 @@ function fs_trim_test() (
 	# add data and test no-op trim
 	__print_line 'sup' >"$file_in_dir_target"
 	eval-tester --name='trim non-empty dir target should be no-op' \
-		-- fs-trim -- "$dir_target"
+		-- fs-trim --no-confirm -- "$dir_target"
 	eval-tester --name='trim non-empty dir symlink should be no-op' \
-		-- fs-trim -- "$dir_symlink"
+		-- fs-trim --no-confirm -- "$dir_symlink"
 	eval-tester --name='trim non-empty dir should be no-op (check)' \
 		-- is-present -- "$root" "$dir_target" "$file_target" "$file_in_dir_target" "$dir_symlink" "$file_symlink" "$file_in_dir_symlink"
 
 	# test symlinks
-	eval-tester --name='trim file symlink should remove its empty target and itself' \
-		-- fs-trim -- "$file_symlink"
-	eval-tester --name='trim file symlink should remove its empty target and itself (check)' \
+	eval-tester --name='trim empty file symlink should NOT remove its empty target and itself' \
+		-- fs-trim --no-confirm -- "$file_symlink"
+	eval-tester --name='trim empty file symlink should NOT remove its empty target and itself (check)' \
+		-- is-present -- "$file_target" "$file_symlink"
+	eval-tester --name='trim empty file symlink WITH --empty-files should remove its empty target and itself' --stdout="The following items were trimmed from $file_symlink"$'\n'"$file_target"$'\n'"$file_symlink" \
+		-- env COLOR=no fs-trim --no-confirm --empty-files -- "$file_symlink"
+	eval-tester --name='trim empty file symlink WITH --empty-files should remove its empty target and itself (check)' \
 		-- is-missing -- "$file_target" "$file_symlink"
 
 	# make it empty and test again
 	printf '' >"$file_in_dir_target"
 	eval-tester --name='trim root without --all should be no-op' \
-		-- fs-trim -- "$root"
+		-- fs-trim --no-confirm -- "$root"
 	eval-tester --name='trim root without --all should be no-op (check)' \
 		-- is-present -- "$root" "$dir_target" "$file_in_dir_target" "$dir_symlink" "$file_in_dir_symlink"
-	eval-tester --name='trim root with --all should trim everything' \
-		-- fs-trim --all -- "$root"
+	eval-tester --name='trim root with --all should trim everything' --stdout="The following items were trimmed from $root"$'\n'"$file_in_dir_target"$'\n'"$file_in_dir_symlink"$'\n'"$dir_target"$'\n'"$dir_symlink"$'\n'"$root" \
+		-- env COLOR=no fs-trim --all --no-confirm -- "$root"
 	eval-tester --name='trim root with --all should trim everything (check)' \
 		-- is-missing -- "$root"
 
 	# recreate empty dirs and files
-	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
-	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
-	file_in_dir_target="$(fs-temp --root="$dir_target" --file='file_in_dir_target' --touch)"
-	eval-tester --name='trim root that has empty files and empty dirs, with --empty-files, should trim everything' \
-		-- fs-trim --empty-files -- "$root"
-	eval-tester --name='trim root that has empty files and empty dirs, with --empty-files, should trim everything (check)' \
+	__mkdirp "$dir_target"
+	touch "$file_target"
+	touch "$file_in_dir_target"
+	symlink-helper --existing="$file_in_dir_target" --symlink="$file_in_dir_symlink" --quiet
+	rm -f "$file_in_dir_target"
+	eval-tester --name='trim root that has empty file, dir, and broken symlink, with --empty, should trim everything' --stdout="The following items were trimmed from $root"$'\n'"$file_target"$'\n'"$file_in_dir_symlink"$'\n'"$dir_target"$'\n'"$root" \
+		-- env COLOR=no fs-trim --no-confirm --empty -- "$root"
+	eval-tester --name='trim root that has empty file, dir, and broken symlink, with --empty, should trim everything (check)' \
 		-- is-missing -- "$root"
 
 	# recreate empty dirs
-	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
-	eval-tester --name='trim root that has only empty dirs, should trim everything' \
-		-- fs-trim -- "$root"
+	__mkdirp "$dir_target"
+	eval-tester --name='trim root that has only empty dirs, should trim everything' --stdout="The following items were trimmed from $root"$'\n'"$dir_target"$'\n'"$root" \
+		-- env COLOR=no fs-trim --no-confirm -- "$root"
 	eval-tester --name='trim root that has only empty dirs, should trim everything (check)' \
 		-- is-missing -- "$root"
 
@@ -111,9 +121,11 @@ function fs_trim() (
 
 			OPTIONS:
 			--quiet | --no-verbose
-			    If specified, do not confirm for action if none provided.
-			--confirm
-			    If specified, confirm for action if none provided.
+			    If quiet, do not output trimmed paths.
+			--confirm | --no-confirm
+			    If enabled, confirm the actions.
+			    If disabled, do not confirm the actions.
+			    If empty, confirm only the default action.
 
 			--sudo
 			    If specified, use sudo on filesystem interactions.
@@ -132,6 +144,9 @@ function fs_trim() (
 			--empty-directories
 			    If provided, empty directories will be removed.
 
+			--empty
+			    Alias for --empty-files --broken-symlinks --empty-directories
+
 			RETURNS:
 			[0] if all <path>s were trimmed of empty files/directories
 			[22] if empty arguments are provided
@@ -143,12 +158,18 @@ function fs_trim() (
 	}
 
 	# process
-	local item option_inputs=() option_sudo='no' option_user='' option_group='' option_confirm='' option_all='' option_cache='' option_module='' option_empty_files='' option_broken_symlinks='' option_empty_directories=''
+	local item option_quiet='' option_inputs=() option_sudo='no' option_user='' option_group='' option_confirm='' option_all='' option_cache='' option_module='' option_empty_files='' option_broken_symlinks='' option_empty_directories=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
 		'--no-sudo'* | '--sudo'*)
 			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
 			;;
@@ -181,6 +202,11 @@ function fs_trim() (
 			;;
 		'--no-empty-directories'* | '--empty-directories'*)
 			option_empty_directories="$(get-flag-value --affirmative --fallback="$option_empty_directories" -- "$item")"
+			;;
+		'--empty')
+			option_empty_files='yes'
+			option_broken_symlinks='yes'
+			option_empty_directories='yes'
 			;;
 		'--')
 			option_inputs+=("$@")
@@ -218,7 +244,9 @@ function fs_trim() (
 	fi
 	if [[ ${#selection[@]} -eq 0 ]]; then
 		selection+=('directories')
-		option_confirm='yes'
+		if [[ -z $option_confirm ]]; then
+			option_confirm='yes'
+		fi
 	fi
 
 	# helpers
@@ -259,43 +287,43 @@ function fs_trim() (
 		return
 	}
 	function do_find {
-		local path="$1" modifications
-		modifications="$(fs-temp --directory='fs-trim' --file)"
+		local path="$1" find_modifications
+		find_modifications="$(fs-temp --directory='fs-trim' --file)"
 		while :; do
 			if is-not-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 				break
 			fi
-			: >"$modifications" # clear
+			: >"$find_modifications" # clear
 			if [[ $option_cache == 'yes' ]]; then
-				__wrap find "$path" \( "${cache_find[@]}" \) -delete -print >>"$modifications"
+				__wrap find "$path" \( "${cache_find[@]}" \) -delete -print >>"$find_modifications"
 			fi
 			if [[ $option_module == 'yes' ]]; then
-				__wrap find "$path" \( "${module_find[@]}" \) -delete -print >>"$modifications"
+				__wrap find "$path" \( "${module_find[@]}" \) -delete -print >>"$find_modifications"
 			fi
 			if [[ $option_empty_files == 'yes' ]]; then
-				__wrap find "$path" -type f -empty -delete -print >>"$modifications"
+				__wrap find "$path" -type f -empty -delete -print >>"$find_modifications"
 			fi
 			if [[ $option_broken_symlinks == 'yes' ]]; then
-				__wrap find "$path" -type l -exec fs-trim-symlinks.bash -- {} + >>"$modifications"
+				__wrap find "$path" -type l -exec fs-trim-symlinks.bash -- {} + >>"$find_modifications"
 			fi
 			if [[ $option_empty_directories == 'yes' ]]; then
-				__wrap find "$path" -type d -empty -delete -print >>"$modifications"
+				__wrap find "$path" -type d -empty -delete -print >>"$find_modifications"
 			fi
-			if [[ ! -s $modifications ]]; then
-				# nothing was trimmed, modifications is empty
+			if [[ ! -s $find_modifications ]]; then
+				# nothing was trimmed, find_modifications is empty
+				rm -f "$find_modifications"
 				break
 			else
-				{
-					echo-style --notice1='The following items were trimmed from ' --code-notice1="$path"
-					echo-file -- "$modifications"
-				} >/dev/stderr
+				cat "$find_modifications"
+				rm -f "$find_modifications"
 			fi
 		done
 	}
 
 	# action
-	local input path target path_filename target_filename filenames selves
+	local input path target path_filename target_filename filenames selves trim_modifications
 	mapfile -t selves < <(fs-parents --self --root -- .)
+	trim_modifications="$(fs-temp --directory='fs-trim' --file)"
 	for input in "${option_inputs[@]}"; do
 		# check is invalid
 		if [[ -z $input ]]; then
@@ -315,6 +343,9 @@ function fs_trim() (
 			return 1
 		fi
 
+		# reset modifications
+		: >"$trim_modifications"
+
 		# confirm the user for action if still ambiguous
 		__confirm "$path"
 
@@ -330,7 +361,7 @@ function fs_trim() (
 			if is-broken-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 				# it is broken, remove it if desired
 				if [[ $option_broken_symlinks == 'yes' ]]; then
-					__wrap rm -f "$path"
+					__wrap rm -fv "$path" >>"$trim_modifications"
 				fi
 				continue
 			fi
@@ -350,7 +381,7 @@ function fs_trim() (
 				target_filename="$(fs-filename -- "$target")"
 				path_filename="$(fs-filename -- "$path")"
 				if is-needle --ignore-case --any --needle="$target_filename" --needle="$path_filename" -- "${filenames[@]}"; then
-					__wrap rm -f "$target" "$path"
+					__wrap rm -fv "$target" "$path" >>"$trim_modifications"
 					continue
 				fi
 			fi
@@ -358,13 +389,13 @@ function fs_trim() (
 			# trim target and symlink
 			if is-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
 				# it is a directory or symlink to a directory on the filesystem
-				do_find "$target"
+				do_find "$target" >>"$trim_modifications"
 				# remove the symlink if its target was just removed
 				if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
-					__wrap rm -f "$path"
+					__wrap rm -fv "$path" >>"$trim_modifications"
 				fi
 			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
-				__wrap rm -f "$target" "$path"
+				__wrap rm -fv "$target" "$path" >>"$trim_modifications"
 			fi
 		else
 			# check if it is a cache/module file
@@ -378,7 +409,7 @@ function fs_trim() (
 			if [[ ${#filenames[@]} -ne 0 ]]; then
 				path_filename="$(fs-filename -- "$path")"
 				if is-needle --ignore-case --needle="$path_filename" -- "${filenames[@]}"; then
-					__wrap rm -f "$path"
+					__wrap rm -fv "$path" >>"$trim_modifications"
 					continue
 				fi
 			fi
@@ -386,11 +417,18 @@ function fs_trim() (
 			# trim path
 			if is-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 				# it is a directory or symlink to a directory on the filesystem
-				do_find "$path"
+				do_find "$path" >>"$trim_modifications"
 			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
-				__wrap rm -f "$path"
+				__wrap rm -fv "$path" >>"$trim_modifications"
 			fi
 		fi
+
+		# output modifications
+		if [[ $option_quiet != 'yes' && -s $trim_modifications ]]; then
+			echo-style --notice1='The following items were trimmed from ' --code-notice1="$path"
+			cat "$trim_modifications"
+		fi
+		rm -f "$trim_modifications"
 	done
 )
 
