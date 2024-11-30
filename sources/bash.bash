@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # For bash version compatibility and changes, see:
-# See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about signficant changes between bash versions.
+# See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about significant changes between bash versions.
 # See <https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES> <https://tiswww.case.edu/php/chet/bash/CHANGES> <https://github.com/bminor/bash/blob/master/CHANGES> for documentation on changes from bash v2 and above.
 
 # For bash configuration options, see:
@@ -241,7 +241,7 @@ function __sudo_mkdirp {
 	return "$status"
 }
 
-# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceeding space if done directly: ${var: -1}
+# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
 # the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; echo "${v:s}"
 # function __substr_native {
 # 	local string="$1" start="${2:-0}" length="${3-}"
@@ -344,7 +344,7 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	if [[ $BASH_VERSION_MAJOR -eq 5 ]]; then
 		IS_BASH_VERSION_OUTDATED='no'
 		function __require_upgraded_bash {
-			true
+			:
 		}
 	else
 		IS_BASH_VERSION_OUTDATED='yes'
@@ -377,7 +377,7 @@ shopt -s huponexit
 # bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
 if shopt -s lastpipe 2>/dev/null; then
 	function __require_lastpipe {
-		true
+		:
 	}
 else
 	function __require_lastpipe {
@@ -644,7 +644,7 @@ shopt -s nullglob
 # bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
 if shopt -s globstar 2>/dev/null; then
 	function __require_globstar {
-		true
+		:
 	}
 else
 	function __require_globstar {
@@ -656,7 +656,7 @@ fi
 # bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
 if shopt -s extglob 2>/dev/null; then
 	function __require_extglob {
-		true
+		:
 	}
 else
 	function __require_extglob {
@@ -669,7 +669,7 @@ fi
 # bash v5: localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
 # shopt -s localvar_inherit 2>/dev/null || :
 
-# basg v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
+# bash v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
 # shopt -s localvar_unset 2>/dev/null || :
 
 # =============================================================================
@@ -774,12 +774,15 @@ if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 	#     previously errors, are now treated as offsets from the end of the variable.
 	function __is_var_set {
 		# -v varname: True if the shell variable varname is set (has been assigned a value).
+		# for some reason [[ -v $1 ]] has a syntax error, and shellcheck doesn't like [ -v "$1" ]
 		test -v "$1"
+		return
 	}
 else
 	# bash < 4.2
 	function __is_var_set {
-		test -n "${!1-}"
+		[[ -n ${!1-} ]]
+		return
 	}
 fi
 
@@ -792,10 +795,10 @@ fi
 # - iterating empty arrays:
 #     - broken: `arr=(); for item in "${arr[@]}"; do ...`
 #     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
-#     - use: `test "${#array[@]}" -ne 0 && for ...`
-#     - or if you don't care for empty option_inputs, use: `test -n "$arr" && for ...`
+#     - use: `[[ "${#array[@]}" -ne 0 ]] && for ...`
+#     - or if you don't care for empty option_inputs, use: `[[ -n "$arr" ]] && for ...`
 #
-# BASH_ARRAY_CAPABILITIES -- string that stores the various capaibilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
+# BASH_ARRAY_CAPABILITIES -- string that stores the various capabilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
 # has_array_capability -- check if a capability is provided by the current bash version
 # __require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it

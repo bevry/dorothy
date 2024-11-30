@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+function echo_if_executable_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- echo-if-executable --
+
+	eval-tester --name='empty args' --status=22 \
+		-- echo-if-executable -- '' ''
+
+	eval-tester --name='missing' \
+		-- echo-if-executable -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' --stdout="$DOROTHY" \
+		-- echo-if-executable -- "$DOROTHY"
+
+	eval-tester --name='file' --stdout="$DOROTHY/commands/dorothy" \
+		-- echo-if-executable -- "$DOROTHY/commands/dorothy"
+
+	eval-tester --name='file then missing then dir' --stdout="$DOROTHY/commands/dorothy"$'\n'"$DOROTHY" \
+		-- echo-if-executable -- "$DOROTHY/commands/dorothy" "$DOROTHY/this-does-not-exist" "$DOROTHY"
+
+	eval-tester --name='dir then missing then file' --stdout="$DOROTHY"$'\n'"$DOROTHY/commands/dorothy" \
+		-- echo-if-executable -- "$DOROTHY" "$DOROTHY/this-does-not-exist" "$DOROTHY/commands/dorothy"
+
+	eval-tester --name='dir then file then invalid' --stdout="$DOROTHY"$'\n'"$DOROTHY/commands/dorothy" --status=22 \
+		-- echo-if-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy" ''
+
+	eval-tester --name='dir then invalid then file' --stdout="$DOROTHY" --status=22 \
+		-- echo-if-executable -- "$DOROTHY" '' "$DOROTHY/commands/dorothy"
+
+	# test working symlinks
+	local dir_target dir_symlink file_target file_symlink
+	dir_target="$(fs-temp --directory='echo-if-executable' --directory='dir_target' --touch)"
+	file_target="$(fs-temp --directory='echo-if-executable' --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --directory='echo-if-executable' --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --directory='echo-if-executable' --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	eval-tester --name='symlink dir' --stdout="$dir_symlink" \
+		-- echo-if-executable -- "$dir_symlink"
+
+	eval-tester --name='symlink file' \
+		-- echo-if-executable -- "$file_symlink"
+	fs-own --quiet --permissions='+x' -- "$file_target"
+	eval-tester --name='symlink file' --stdout="$file_symlink" \
+		-- echo-if-executable -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' \
+		-- echo-if-executable -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' \
+		-- echo-if-executable -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
+function echo_if_executable() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Output <input>s that are paths that are executable (including that of symlinks, broken or otherwise).
+			Companion to [is-executable].
+
+			USAGE:
+			echo-if-executable [...options] [--] ...<input>
+			echo-lines ...<input> | echo-if-executable [...options]
+
+			OPTIONS:
+			--sudo
+			    If specified, use sudo on filesystem interactions.
+			--user=<user>
+			--group=<group>
+			    If specified use this user and/or group for filesystem interactions.
+
+			$(stdinargs_options_help --)
+
+			EXAMPLES:
+
+			echo-if-executable -- "$HOME"
+
+			    $HOME
+			    # exit status: 0
+
+			echo-lines -- "$HOME" | echo-if-executable --stdin
+
+			    $HOME
+			    # exit status: 0
+
+		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_args=() option_sudo='no' option_user='' option_group=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	local inputs=()
+	function on_input {
+		inputs+=("$1")
+	}
+	function on_finish {
+		sudo-helper --inherit --optional --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- echo-if-executable.bash -- "${inputs[@]}"
+		return
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_if_executable_test
+	else
+		echo_if_executable "$@"
+	fi
+fi

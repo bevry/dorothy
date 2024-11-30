@@ -1,5 +1,62 @@
 #!/usr/bin/env bash
 
+function is_present_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- is-present --
+
+	eval-tester --name='empty args' --status=22 \
+		-- is-present -- '' ''
+
+	eval-tester --name='missing' --status=1 \
+		-- is-present -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' \
+		-- is-present -- "$DOROTHY"
+
+	eval-tester --name='file' \
+		-- is-present -- "$DOROTHY/README.md"
+
+	eval-tester --name='file then dir' \
+		-- is-present -- "$DOROTHY/README.md" "$DOROTHY"
+
+	eval-tester --name='dir then file' \
+		-- is-present -- "$DOROTHY" "$DOROTHY/README.md"
+
+	eval-tester --name='dir then file then invalid' --status=22 \
+		-- is-present -- "$DOROTHY" "$DOROTHY/README.md" ''
+
+	eval-tester --name='dir then invalid then file' --status=22 \
+		-- is-present -- "$DOROTHY" '' "$DOROTHY/README.md"
+
+	# test working symlinks
+	local dir_target dir_symlink file_target file_symlink
+	dir_target="$(fs-temp --directory='is-present' --directory='dir_target' --touch)"
+	file_target="$(fs-temp --directory='is-present' --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --directory='is-present' --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --directory='is-present' --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	eval-tester --name='symlink dir' \
+		-- is-present -- "$dir_symlink"
+
+	eval-tester --name='symlink file' \
+		-- is-present -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir is present' \
+		-- is-present -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file is present' \
+		-- is-present -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
 function is_present() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -9,11 +66,12 @@ function is_present() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Check if all <path>s are present (file/directory/symlink).
-			Opposite of [is-missing].
+			Check if all <path>s are present (including that of symlinks, broken or otherwise).
+			Companion to [is-missing], [echo-if-present].
+			Similar to a [is-resolvable] which would exclude broken symlinks.
 
 			USAGE:
-			is-presen [...options] [--] ...<path>
+			is-present [...options] [--] ...<path>
 
 			OPTIONS:
 			--sudo
@@ -23,10 +81,11 @@ function is_present() (
 			    If specified use this user and/or group for filesystem interactions.
 
 			RETURNS:
-			[0] if all <path>s were present
+			[0] if all <path>s were present (even if it is a broken symlink).
 			[1] if any <path>s were not present
+			[22] if empty arguments are provided
 		EOF
-		if test "$#" -ne 0; then
+		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
@@ -34,7 +93,7 @@ function is_present() (
 
 	# process
 	local item option_inputs=() option_sudo='no' option_user='' option_group=''
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
@@ -55,37 +114,22 @@ function is_present() (
 	done
 
 	# verify
-	if test "${#option_inputs[@]}" -eq 0; then
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
 		help 'No <input>s provided.'
 	fi
 
 	# =====================================
 	# Action
 
-	function __sudo_wrapper {
-		while test "$1" = '--'; do
-			shift
-		done
-		if test "$option_sudo" = 'yes' -o -n "$option_user" -o -n "$option_group"; then
-			sudo-helper --inherit --user="$option_user" --group="$option_group" -- "$@"
-			return
-		else
-			"$@"
-			return
-		fi
-	}
-
-	local input
-	for input in "${option_inputs[@]}"; do
-		# just -e is faulty, as -e fails on broken symlinks
-		if __sudo_wrapper -- test ! -e "$input" -a ! -L "$input"; then
-			return 1
-		fi
-	done
-	return 0
+	sudo-helper --inherit --optional --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-present.bash -- "${option_inputs[@]}"
+	return
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	is_present "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		is_present_test
+	else
+		is_present "$@"
+	fi
 fi

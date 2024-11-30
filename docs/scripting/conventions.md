@@ -37,7 +37,7 @@ function help() {
 		--question=<string>
 		    Specifies the question that the prompt will be answering.
 	EOF
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		echo-error "$@"
 	fi
 	return 22 # Invalid argument
@@ -78,7 +78,7 @@ function test_dorothy_scopes() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	test_dorothy_scopes "$@"
 fi
 ```
@@ -217,9 +217,9 @@ Always use `if [condition] then [action]` statements over, implicit `condition &
 
 Magic makes refactoring later more difficult, such as when eventually:
 
--   conditions become more complicated, such as `if ... elif ... elif ... fi` statements
--   adding more conditions, such as `condition && other-condition && action` or `(condition || else-condition) && action`
--   adding more actions, such as: `condition && { action; other-action; }`
+- conditions become more complicated, such as `if ... elif ... elif ... fi` statements
+- adding more conditions, such as `condition && other-condition && action` or `(condition || else-condition) && action`
+- adding more actions, such as: `condition && { action; other-action; }`
 
 Magic is complex because it mixes and matches conditional statements with action statements, requiring grokking to understand the explicit intent of each statement, whether it is working as a condition, an action, or both as a condition and an action. `If ... then` statements make this explicit.
 

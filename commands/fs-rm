@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# @todo write tests, use fs-trim for reference
+
 function fs_rm() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -34,15 +36,15 @@ function fs_rm() (
 			--group=<group>
 			    If specified run the removal commands as this <user> and <group>.
 		EOF
-		if test "$#" -ne 0; then
+		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_quiet='no' option_paths=() option_optional='no' option_confirm='yes' option_sudo='no' option_trash='no' option_user='' option_group=''
-	while test "$#" -ne 0; do
+	local item option_quiet='no' option_inputs=() option_optional='no' option_confirm='yes' option_sudo='no' option_trash='' option_user='' option_group=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
@@ -67,20 +69,20 @@ function fs_rm() (
 			;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
-		'--path='*) option_paths+=("${item#*=}") ;;
+		'--path='*) option_inputs+=("${item#*=}") ;;
 		'--')
-			option_paths+=("$@")
+			option_inputs+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_paths+=("$item") ;;
+		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#option_paths[@]}" -eq 0; then
-		if test "$option_optional" = 'yes'; then
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		if [[ $option_optional == 'yes' ]]; then
 			return 0
 		else
 			help 'No <path>s provided.'
@@ -90,162 +92,184 @@ function fs_rm() (
 	# =====================================
 	# Dependencies
 
-	if test "$option_trash" = 'yes'; then
+	local trash_and_delete_options=() trash_or_delete_default
+	if [[ $option_sudo == 'yes' || -n $option_user || -n $option_group ]]; then
+		if [[ $option_trash == 'yes' ]]; then
+			echo-style --dim='Moving to trash is not supported for sudo, falling back to immediate deletion for: ' --code="${option_inputs[*]}" >/dev/stderr
+		fi
+		option_trash='no'
+	fi
+	if [[ $option_trash != 'no' ]]; then
 		setup-util-trash --quiet --optional --no-fallback
-		if __command_missing -- trash; then
-			echo-style --dim='Moving to trash is not available, falling back to immediate deletion for: ' --code="${option_paths[*]}" >/dev/stderr
-			option_trash='no'
+	fi
+	if __command_missing -- trash; then
+		if [[ $option_trash == 'yes' ]]; then
+			echo-style --dim='Moving to trash is not available, falling back to immediate deletion for: ' --code="${option_inputs[*]}" >/dev/stderr
+		fi
+		option_trash='no'
+	fi
+	if [[ $option_trash == 'no' ]]; then
+		trash_or_delete_default='delete'
+		trash_and_delete_options+=(
+			delete 'Delete it'
+		)
+	else
+		trash_and_delete_options+=(
+			trash 'Move it to trash'
+			delete 'Delete it'
+		)
+		if [[ $option_trash == 'yes' ]]; then
+			trash_or_delete_default='trash'
+		else
+			trash_or_delete_default=$'trash\ndelete'
 		fi
 	fi
 
 	# =====================================
 	# Action
 
-	function eval_wrapper {
-		while test "$1" = '--'; do
-			shift
-		done
-		if test "$option_sudo" = 'yes' -o -n "$option_user" -o -n "$option_group"; then
-			sudo-helper --no-wrap="$option_quiet" --quiet="$option_quiet" --inherit --user="$option_user" --group="$option_group" \
-				-- "$@"
+	function __wrap {
+		sudo-helper --no-wrap="$option_quiet" --quiet="$option_quiet" --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$@"
+	}
+	function __rm {
+		if [[ $option_trash == 'yes' ]]; then
+			__wrap trash "$path" || :
 		else
-			eval-helper --no-wrap="$option_quiet" --quiet="$option_quiet" \
-				-- "$@"
+			__wrap rm -rf "$path" || :
 		fi
 	}
 
-	function do_confirm_trim {
-		local path="$1"
-
-		# if not a directory, we don't want to trim
-		if is-not-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
-			return 200 # ECUSTOM 200 Not applicable
-		fi
-
-		# if preconfirmed, skip the prompt
-		if test "$option_confirm" = 'no'; then
-			return 0
-		fi
-
-		# if it is purely empty, skip the prompt
-		if is-empty-ls --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
-			return 0
-		fi
-
-		# note its structure and size
-		eval_wrapper -- ls -la "$path"
-
-		# confirm removal
-		confirm --positive --ppid=$$ -- "$(
-			echo-style --notice='Trim empty directories?' --bold=" $path " --notice="?"
-		)"
-	}
-	function do_confirm_removal {
-		local path="$1"
-
-		# if preconfirmed, skip the prompt
-		if test "$option_confirm" = 'no'; then
-			return 0
-		fi
-
-		# we want to prompt
-		eval_wrapper -- ls -la "$path"
-
-		# is a directory, so output extra information
-		if test -d "$path"; then
-			if __command_exists -- dust; then
-				eval_wrapper -- dust --no-percent-bars "$path"
-				eval_wrapper -- dust --no-percent-bars --filecount "$path"
-			elif __command_exists -- du; then
-				eval_wrapper -- du -ahd1 "$path"
-			fi
-		fi
-
-		# confirm removal
-		confirm --positive --ppid=$$ -- "$(
-			echo-style --warning='Confirm removal of non-empty' --bold=" $path " --warning="?"
-		)"
-	}
-
-	local CONCLUSION=''
+	local CONCLUSION selves
+	mapfile -t selves < <(fs-parents --self --root -- .)
 	function do_rm {
-		local path="$1" confirm_trim_status confirm_removal_status
+		local input="$1" title='' body choice
 
-		# is the path missing
-		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+		# is the input already removed?
+		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
 			CONCLUSION="$(
-				echo-style --green="was previously removed."
+				echo-style --green='was previously removed.'
 			)"
 			return 0
 		fi
-		# path exists
 
-		# delete empty directories
-		eval_capture --statusvar=confirm_trim_status -- do_confirm_trim "$path"
-		if test "$confirm_trim_status" -eq 0; then
-			# ignore stderr and do not wrap to prevent illogical cannot restore directory errors
-			eval_capture --ignore-stderr -- eval_wrapper -- find "$path" -empty -type d -delete
-			if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+		# prevent deleting ourself which causes: shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+		path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input")"
+		if is-needle --needle="$path" -- "${selves[@]}"; then
+			CONCLUSION="$(
+				echo-style --red='contains the CWD, denied.'
+			)"
+			echo-style --error1='Denied removing a lineage of the current working directory, change the working directory to elsewhere and try again: ' --code-error1="$path" >/dev/stderr
+			return 1
+		fi
+
+		# it is remaining, so prompt on what to do
+		choice='trim' # this is outside the loop to inherit the last preference within the loop
+		while :; do
+			# is the path is empty or a broken symlink, skip any confirm and remove it
+			if is-not-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+				if is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path" || is-empty-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+					__rm "$path"
+					if is-present --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+						CONCLUSION="$(
+							echo-style --red='is empty, however it failed to remove.'
+						)"
+						return 66 # ENOTEMPTY 66 Directory not empty
+					fi
+					CONCLUSION="$(
+						echo-style --green='was empty, it was removed.'
+					)"
+					return 0
+				fi
+			elif is-broken-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+				__rm "$path"
+				if is-present --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+					CONCLUSION="$(
+						echo-style --red='is a broken-symlink, however it failed to remove.'
+					)"
+					return 66 # ENOTEMPTY 66 Directory not empty
+				fi
 				CONCLUSION="$(
-					echo-style --green="was only empty directories, it has been removed."
+					echo-style --green='was a broken-symlink, it was removed.'
 				)"
 				return 0
 			fi
-		fi
-		# there are leftovers
 
-		# confirm and remove, or no confirm and remove
-		eval_capture --statusvar=confirm_removal_status -- do_confirm_removal "$path"
-		if test "$confirm_removal_status" -eq 0; then
-			if test "$option_trash" = 'yes'; then
-				eval_capture -- eval_wrapper -- trash "$path"
-			elif test "$option_quiet" = 'yes'; then
-				eval_capture -- eval_wrapper -- rm -rf "$path"
-			else
-				eval_capture -- eval_wrapper -- rm -rfv "$path"
+			# confirm
+			if [[ -z $title ]]; then
+				title="$(
+					echo-style --notice1='The path is non-empty and queued for removal, what should be done?' --newline \
+						--code-notice1="$path"
+				)"
 			fi
-		fi
+			body="$(echo-style --reset)$(fs-structure --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path")"
+			choice="$(
+				choose "$title" "$body" --truncate-body --confirm-default="$option_confirm" --defaults-exact="$choice" --label -- \
+					trim 'Trim its redundant content and re-evaluate' \
+					"${trash_and_delete_options[@]}" \
+					abort 'Keep it, and abort the requested removal'
+			)"
 
-		# detect successful removal
+			# handle
+			if [[ $choice == 'trim' ]]; then
+				fs-trim --confirm="$option_confirm" --no-all="$option_confirm" --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"
+				if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+					CONCLUSION="$(
+						echo-style --green='was removed by trimming.'
+					)"
+					return 0
+				fi
+				choice="$trash_or_delete_default"
+			elif [[ $choice == 'abort' || -z $choice ]]; then
+				CONCLUSION="$(
+					echo-style --yellow='was kept.'
+				)"
+				return 66 # ENOTEMPTY 66 Directory not empty
+			elif [[ $choice == 'trash' ]]; then
+				__wrap trash "$path" || :
+				break
+			elif [[ $choice == 'delete' ]]; then
+				__wrap rm -rf "$path" || :
+				break
+			fi
+		done
+
+		# check after trash/delete
 		if is-present --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 			CONCLUSION="$(
-				echo-style --red="is non-empty, it has been kept."
+				echo-style --red='is non-empty, it failed to remove.'
 			)"
 			return 66 # ENOTEMPTY 66 Directory not empty
 		fi
-
-		# success if removed
 		CONCLUSION="$(
-			echo-style --green="was non-empty, it was manually removed."
+			echo-style --green='was non-empty, it was manually removed.'
 		)"
+		return 0
 	}
 
 	function act {
-		local path="$1" title rm_status
-		if is-present --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
-			path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path")"
-		fi
-		if test "$option_quiet" = 'yes'; then
-			do_rm "$path"
+		local input="$1" title rm_status
+		CONCLUSION=''
+		if [[ $option_quiet == 'yes' ]]; then
+			do_rm "$input"
 			return
 		else
 			title='fs-rm'
-			if test "$option_trash" = 'yes'; then
+			if [[ $option_trash == 'yes' ]]; then
 				title+=' --trash'
 			fi
-			if test "$option_sudo" = 'yes'; then
+			if [[ $option_sudo == 'yes' ]]; then
 				title+=' --sudo'
 			fi
-			if test "$option_user" = 'yes'; then
+			if [[ -n $option_user ]]; then
 				title+=" --user=$option_user"
 			fi
-			if test "$option_group" = 'yes'; then
+			if [[ -n $option_group ]]; then
 				title+=" --group=$option_group"
 			fi
-			title+=" $path"
+			title+=" $(echo-escape-command -- "$input")"
 			echo-style --h2="$title"
-			eval_capture --statusvar=rm_status -- do_rm "$path"
-			if test "$rm_status" -eq 0; then
+			eval_capture --statusvar=rm_status -- do_rm "$input"
+			if [[ $rm_status -eq 0 ]]; then
 				echo-style --g2="$title" " $CONCLUSION"
 			else
 				echo-style --e2="$title" " $CONCLUSION"
@@ -254,13 +278,13 @@ function fs_rm() (
 		fi
 	}
 
-	local path
-	for path in "${option_paths[@]}"; do
-		act "$path"
+	local input
+	for input in "${option_inputs[@]}"; do
+		act "$input"
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	fs_rm "$@"
 fi

@@ -21,19 +21,19 @@ fi
 # only work on environments that have an ssh-agent
 if command-exists -- ssh-agent; then
 	# ensure ask pass is discoverable by the agent
-	if test -z "${SSH_ASKPASS-}" && command-exists -- ssh-askpass; then
+	if [ -z "${SSH_ASKPASS-}" ] && command-exists -- ssh-askpass; then
 		export SSH_ASKPASS
 		SSH_ASKPASS="$(command -v ssh-askpass)" # as this is sh instead bash, use [command -v ...] not [type -P ...]
 	fi
 	# setting [SSH_ASKPASS_REQUIRE] to [prefer] voids TTY responses
 
 	# check if the agent is still running
-	if test -n "${SSH_AGENT_PID-}" && ! kill -0 "$SSH_AGENT_PID" >/dev/null 2>&1; then
+	if [ -n "${SSH_AGENT_PID-}" ] && ! kill -0 "$SSH_AGENT_PID" >/dev/null 2>&1; then
 		SSH_AGENT_PID=''
 	fi
 
 	# (re)start the ssh agent if the inherited one crashed
-	if test -z "${SSH_AUTH_SOCK-}" -o -z "${SSH_AGENT_PID-}"; then
+	if [ -z "${SSH_AUTH_SOCK-}" ] || [ -z "${SSH_AGENT_PID-}" ]; then
 		eval "$(ssh-agent -s)" >/dev/null 2>&1
 	fi
 

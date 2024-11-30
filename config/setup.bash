@@ -34,7 +34,7 @@
 # macOS App Store / mas / https://github.com/mas-cli/mas
 # Used by `setup-mac-appstore`
 # You can use `mas list` and `mas search` to find apps
-# MAS_INSTALL=() # tupe array of id, label
+# MAS_INSTALL=() # tuple array of id, label
 # MAS_UPGRADE='no'
 
 # Homebrew / brew / https://brew.sh

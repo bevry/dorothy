@@ -30,7 +30,7 @@ function stdinargs_options_help {
 		--no-stdin | --stdin=no | --
 		    Require arguments for processing inputs, and ignore STDIN.
 	EOF
-	if test "$*" = '--stdin'; then
+	if [[ $* == '--stdin' ]]; then
 		cat <<-EOF
 
 			[--stdin] is the default for this command.
@@ -141,7 +141,7 @@ function stdinargs {
 		local line='' what="$1" had_line='no'
 		# for each line, call `on_line` or `on_input`
 		# for each inline, call `on_inline` or `on_line` or `on_input`
-		# [read -t 0 line] will not read anything, so it must be done seperately
+		# [read -t 0 line] will not read anything, so it must be done separately
 		# IFS= to not trim whitespace lines (e.g. ' ' would otherwise become '')
 		# trunk-ignore(shellcheck/SC2162)
 		while ([[ $timeout_immediate == 'no' ]] || read -t 0) && IFS= read "${read_args[@]}" line; do
@@ -181,7 +181,7 @@ function stdinargs {
 	fi
 
 	# attempt arguments first
-	# arguments are instantanous and won't mangle stdin for parent processes
+	# arguments are instantaneous and won't mangle stdin for parent processes
 	if [[ $args_count -eq 0 ]]; then
 		had_args='no'
 	else
@@ -200,10 +200,10 @@ function stdinargs {
 			elif [[ "$(type -t on_input)" == 'function' ]]; then
 				stdinargs_eval on_input "$item"
 			# this is against what [printf '%s' '' | wc -l] does, and doesn't make sense when you really think about it:
-			# elif test -z "$item" -a "$option_inline" = 'yes'; then
-			# 	if test "$(type -t on_inline)" = 'function'; then
+			# elif [[ -z "$item" && "$option_inline" = 'yes' ]]; then
+			# 	if [[ "$(type -t on_inline)" = 'function' ]]; then
 			# 		stdinargs_eval on_inline "$item"
-			# 	elif test "$(type -t on_line)" = 'function'; then
+			# 	elif [[ "$(type -t on_line)" = 'function' ]]; then
 			# 		stdinargs_eval on_line "$item"
 			# 	fi
 			else

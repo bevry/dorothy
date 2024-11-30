@@ -1,5 +1,5 @@
 # https://stackoverflow.com/a/72278299/130638
-# Signficantly modified to:
+# Significantly modified to:
 # - include all the ANSI escape codes that Dorothy is aware of
 # - support tabs
 # don't use l as that results in: awk: towc: multibyte conversion failure on
