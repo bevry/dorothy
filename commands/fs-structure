@@ -109,9 +109,12 @@ function fs_structure() (
 	if [[ $option_eza != 'no' ]] && __command_exists -- eza; then
 		# -h, --header: Add a header row to each column.
 		# -l, --long: Display extended file metadata as a table.
+		# -a, --all: show hidden and 'dot' files. Use this twice to also show the '.' and '..' directories
 		# -A, --almost-all: Equivalent to –all; included for compatibility with ls -A.
 		# -M, --mounts: how mount details (Linux and Mac only)
+		# --absolute: display entries with their absolute path (on, follow, off)
 		# --total-size: show the size of a directory as the size of all  files and directories inside (unix only)
+		# don't do absolute for now, as not sure if it is better with or without it
 		eza_cmd+=(eza -hlAM --total-size)
 
 		# hide the permissions?
@@ -171,36 +174,40 @@ function fs_structure() (
 	function __wrap {
 		sudo-helper --inherit --no-wrap --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$@"
 	}
-	function __act() (
-		# subshell to prevent multiple cds conflicting with each other
-		local path="$1" basename
-		if [[ -d $path ]]; then
-			cd "$path"
-			basename='.'
-		else
-			cd "$(dirname "$path")"
-			basename="$(basename "$path")"
-		fi
+	function __list {
+		local path="$1"
 		if [[ ${#eza_cmd[@]} -ne 0 ]]; then
-			__wrap "${eza_cmd[@]}" "$basename"
+			__wrap "${eza_cmd[@]}" "$path"
 		fi
 		if [[ ${#ls_cmd[@]} -ne 0 ]]; then
-			__wrap "${ls_cmd[@]}" "$basename"
+			__wrap "${ls_cmd[@]}" "$path"
 		fi
-		# if [[ ${#dust_sizes_cmd[@]} -ne 0 ]]; then
-		# 	__wrap "${dust_sizes_cmd[@]}" "$basename"
-		# fi
-		# if [[ ${#dust_counts_cmd[@]} -ne 0 ]]; then
-		# 	__wrap "${dust_counts_cmd[@]}" "$basename"
-		# fi
-		# if [[ ${#du_cmd[@]} -ne 0 ]]; then
-		# 	__wrap "${du_cmd[@]}" "$basename"
-		# fi
-	)
+	}
 
-	local input
+	local input path
 	for input in "${option_inputs[@]}"; do
-		__act "$input"
+		# check is invalid
+		if [[ -z $input ]]; then
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# just -e is faulty, as -e fails on broken symlinks
+		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+			echo-style --error1='The path is missing: ' --code-error1="$input" >/dev/stderr
+			return 2 # ENOENT 2 No such file or directory
+		fi
+
+		# now that we know it exists, get its path
+		path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input")"
+
+		# if it is empty, note it, as otherwise the output of eza and ls is unintuitive
+		if is-empty-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+			echo-style --notice1='The directory is empty: ' --code-notice1="$path"
+			continue
+		fi
+
+		# it exists and isn't an empty directory, list its contents
+		__list "$path"
 	done
 )
 
