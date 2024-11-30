@@ -41,7 +41,7 @@ function fs_rm() (
 	}
 
 	# process
-	local item option_quiet='no' option_paths=() option_optional='no' option_confirm='yes' option_sudo='no' option_trash='' option_user='' option_group=''
+	local item option_quiet='no' option_inputs=() option_optional='no' option_confirm='yes' option_sudo='no' option_trash='' option_user='' option_group=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -67,19 +67,19 @@ function fs_rm() (
 			;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
-		'--path='*) option_paths+=("${item#*=}") ;;
+		'--path='*) option_inputs+=("${item#*=}") ;;
 		'--')
-			option_paths+=("$@")
+			option_inputs+=("$@")
 			shift $#
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_paths+=("$item") ;;
+		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# check
-	if [[ ${#option_paths[@]} -eq 0 ]]; then
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
 		if [[ $option_optional == 'yes' ]]; then
 			return 0
 		else
@@ -93,7 +93,7 @@ function fs_rm() (
 	local trash_and_delete_options=() trash_or_delete_default
 	if [[ $option_sudo == 'yes' || -n $option_user || -n $option_group ]]; then
 		if [[ $option_trash == 'yes' ]]; then
-			echo-style --dim='Moving to trash is not supported for sudo, falling back to immediate deletion for: ' --code="${option_paths[*]}" >/dev/stderr
+			echo-style --dim='Moving to trash is not supported for sudo, falling back to immediate deletion for: ' --code="${option_inputs[*]}" >/dev/stderr
 		fi
 		option_trash='no'
 	fi
@@ -102,7 +102,7 @@ function fs_rm() (
 	fi
 	if __command_missing -- trash; then
 		if [[ $option_trash == 'yes' ]]; then
-			echo-style --dim='Moving to trash is not available, falling back to immediate deletion for: ' --code="${option_paths[*]}" >/dev/stderr
+			echo-style --dim='Moving to trash is not available, falling back to immediate deletion for: ' --code="${option_inputs[*]}" >/dev/stderr
 		fi
 		option_trash='no'
 	fi
@@ -137,16 +137,27 @@ function fs_rm() (
 		fi
 	}
 
-	local CONCLUSION
+	local CONCLUSION selves
+	mapfile -t selves < <(fs-parents --self --root -- .)
 	function do_rm {
-		local path="$1" title='' body choice
+		local input="$1" title='' body choice
 
-		# is the path already removed?
-		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+		# is the input already removed?
+		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
 			CONCLUSION="$(
 				echo-style --green='was previously removed.'
 			)"
 			return 0
+		fi
+
+		# prevent deleting ourself which causes: shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+		path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input")"
+		if is-needle --needle="$path" -- "${selves[@]}"; then
+			CONCLUSION="$(
+				echo-style --red='contains the CWD, denied.'
+			)"
+			echo-style --error1='Denied removing a lineage of the current working directory, change the working directory to elsewhere and try again: ' --code-error1="$path" >/dev/stderr
+			return 1
 		fi
 
 		# it is remaining, so prompt on what to do
@@ -234,11 +245,10 @@ function fs_rm() (
 	}
 
 	function act {
-		local path="$1" title rm_status
-		path="$(fs-absolute -- "$path")"
+		local input="$1" title rm_status
 		CONCLUSION=''
 		if [[ $option_quiet == 'yes' ]]; then
-			do_rm "$path"
+			do_rm "$input"
 			return
 		else
 			title='fs-rm'
@@ -254,9 +264,9 @@ function fs_rm() (
 			if [[ -n $option_group ]]; then
 				title+=" --group=$option_group"
 			fi
-			title+=" $(echo-escape-command -- "$path")"
+			title+=" $(echo-escape-command -- "$input")"
 			echo-style --h2="$title"
-			eval_capture --statusvar=rm_status -- do_rm "$path"
+			eval_capture --statusvar=rm_status -- do_rm "$input"
 			if [[ $rm_status -eq 0 ]]; then
 				echo-style --g2="$title" " $CONCLUSION"
 			else
@@ -266,9 +276,9 @@ function fs_rm() (
 		fi
 	}
 
-	local path
-	for path in "${option_paths[@]}"; do
-		act "$path"
+	local input
+	for input in "${option_inputs[@]}"; do
+		act "$input"
 	done
 )
 

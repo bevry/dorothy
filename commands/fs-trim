@@ -193,10 +193,8 @@ function fs_trim() (
 	done
 
 	# check
-	set -x
 	if [[ ${#option_inputs[@]} -eq 0 ]]; then
-		# help 'No <path>s provided.'
-		option_inputs+=('.')
+		help 'No <path>s provided.' # don't set to CWD, as trimming CWD is dangerous
 	fi
 
 	# =====================================
@@ -229,7 +227,7 @@ function fs_trim() (
 		if [[ $option_confirm == 'yes' ]]; then
 			title="$(
 				echo-style --notice1='What items do you wish to trim for:' --newline \
-					--code-notice1="$(fs-absolute -- "$path")"
+					--code-notice1="$path"
 			)"
 			body="$(echo-style --reset)$(fs-structure --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path")"
 			mapfile -t selection < <(
@@ -296,37 +294,49 @@ function fs_trim() (
 	}
 
 	# action
-	local input target input_filename target_filename filenames
+	local input path target path_filename target_filename filenames selves
+	mapfile -t selves < <(fs-parents --self --root -- .)
 	for input in "${option_inputs[@]}"; do
 		# check is invalid
 		if [[ -z $input ]]; then
 			return 22 # EINVAL 22 Invalid argument
 		fi
+
 		# just -e is faulty, as -e fails on broken symlinks
 		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
 			# already missing on the filesystem
 			continue
 		fi
+
+		# prevent deleting ourself which causes: shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+		path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input")"
+		if is-needle --needle="$path" -- "${selves[@]}"; then
+			echo-style --error1='Denied trimming a lineage of the current working directory, change the working directory to elsewhere and try again: ' --code-error1="$path" >/dev/stderr
+			return 1
+		fi
+
 		# confirm the user for action if still ambiguous
-		__confirm "$input"
+		__confirm "$path"
+
 		# check we have something to do
 		if [[ $option_cache != 'yes' && $option_module != 'yes' && $option_empty_files != 'yes' && $option_broken_symlinks != 'yes' && $option_empty_directories != 'yes' ]]; then
 			# no-op, user is aborting essentially
 			return 0
 		fi
+
 		# continue
-		if is-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+		if is-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 			# it is a symlink
-			if is-broken-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+			if is-broken-symlink --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 				# it is broken, remove it if desired
 				if [[ $option_broken_symlinks == 'yes' ]]; then
-					__wrap rm -f "$input"
+					__wrap rm -f "$path"
 				fi
 				continue
 			fi
 
 			# get the target
-			target="$(fs-realpath -- "$input")"
+			target="$(fs-realpath -- "$path")"
 
 			# check if it is a cache/module file
 			filenames=()
@@ -338,9 +348,9 @@ function fs_trim() (
 			fi
 			if [[ ${#filenames[@]} -ne 0 ]]; then
 				target_filename="$(fs-filename -- "$target")"
-				input_filename="$(fs-filename -- "$input")"
-				if is-needle --ignore-case --any --needle="$target_filename" --needle="$input_filename" -- "${filenames[@]}"; then
-					__wrap rm -f "$target" "$input"
+				path_filename="$(fs-filename -- "$path")"
+				if is-needle --ignore-case --any --needle="$target_filename" --needle="$path_filename" -- "${filenames[@]}"; then
+					__wrap rm -f "$target" "$path"
 					continue
 				fi
 			fi
@@ -351,10 +361,10 @@ function fs_trim() (
 				do_find "$target"
 				# remove the symlink if its target was just removed
 				if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
-					__wrap rm -f "$input"
+					__wrap rm -f "$path"
 				fi
 			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$target"; then
-				__wrap rm -f "$target" "$input"
+				__wrap rm -f "$target" "$path"
 			fi
 		else
 			# check if it is a cache/module file
@@ -366,19 +376,19 @@ function fs_trim() (
 				filenames+=("${module_filenames[@]}")
 			fi
 			if [[ ${#filenames[@]} -ne 0 ]]; then
-				input_filename="$(fs-filename -- "$input")"
-				if is-needle --ignore-case --needle="$input_filename" -- "${filenames[@]}"; then
-					__wrap rm -f "$input"
+				path_filename="$(fs-filename -- "$path")"
+				if is-needle --ignore-case --needle="$path_filename" -- "${filenames[@]}"; then
+					__wrap rm -f "$path"
 					continue
 				fi
 			fi
 
-			# trim input target
-			if is-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
+			# trim path
+			if is-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
 				# it is a directory or symlink to a directory on the filesystem
-				do_find "$input"
-			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
-				__wrap rm -f "$input"
+				do_find "$path"
+			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+				__wrap rm -f "$path"
 			fi
 		fi
 	done
