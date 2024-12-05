@@ -76,3 +76,50 @@ Close the preferences and open a new terminal tab, now Dorothy should be loaded 
 4. Save the settings.
 
 5. Use the menu bar `Termina: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal. It should now start as a login shell, loading Dorothy as expected. Validate this by running a Dorothy command, like `dorothy theme`, to ensure everything is functioning as intended.
+
+## Debian Gnome
+
+1. Select Edit ▸ Preferences.
+
+2. In the sidebar, click on the + button next to the Profiles label.
+
+3. Enter a name for the new profile. You can change this name later.
+
+4. Click Create to create the new profile.
+
+5. Navigate to command and select 'Run a custom command instead of my shell.'
+
+6. Type in 'bash -l' to use bash as your command (or another shell of your choosing with the login shell mode enabled).
+
+7. Click on the arrow next to the profile name (in the left hand sidebar).
+
+9. Select 'Set as default.'
+
+10. Save the profile and restart your terminal.
+
+Source: https://help.gnome.org/users/gnome-terminal/stable/pref-profiles.html.en
+
+## Debian Konsole (KDE)
+
+Note: 'Konsole doesn’t provide convenience for running login shell, because developers don’t like
+the idea of running login shell in a terminal emulator.
+Of course, users still can run login shell in Konsole if they really need to. Edit the profile in use and modify its command to the form of starting a login shell explicitly, such as "bash -l" and
+"zsh -l" Source: https://docs.kde.org/stable5/en/konsole/konsole/konsole.pdf
+
+If the benefits of configuring Konsole in this manner outweighs the cons, proceed with the following steps:
+
+1. Navigate to Settings -> Console.
+
+2. Click Profiles.
+
+3. Set a name for your profile.
+
+4. Click 'Default profile'
+
+5. Type /bin/bash -l in the command textbox (or another shell of your choosing with the login shell mode enabled).
+
+## Manual Execution of Dorothy in Debian/Ubuntu
+
+If you prefer to open a bash shell directly, you can do so via the command 'bash -l' without having to configure a Terminal profile.
+
+However, this means that upon restarting your terminal you will also have to open a bash shell again.
