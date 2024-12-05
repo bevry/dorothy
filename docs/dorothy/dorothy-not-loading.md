@@ -101,8 +101,11 @@ Source: https://help.gnome.org/users/gnome-terminal/stable/pref-profiles.html.en
 
 ## Debian Konsole (KDE)
 
-Note: 'Konsole doesn’t provide convenience for running login shell, because developers don’t like
+Note from KDE.org:
+
+Konsole doesn’t provide convenience for running login shell, because developers don’t like
 the idea of running login shell in a terminal emulator.
+
 Of course, users still can run login shell in Konsole if they really need to. Edit the profile in use and modify its command to the form of starting a login shell explicitly, such as "bash -l" and "zsh -l" Source: https://docs.kde.org/stable5/en/konsole/konsole/konsole.pdf
 
 If the benefits of configuring Konsole in this manner outweighs the cons, proceed with the following steps:
