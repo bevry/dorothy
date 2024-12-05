@@ -122,6 +122,4 @@ If the benefits of configuring Konsole in this manner outweighs the cons for you
 
 ## Manual Execution of Dorothy in Debian/Ubuntu
 
-If you prefer to open a bash login shell directly, you can do so via the command 'bash -l' without having to configure a Terminal profile.
-
-However, this means that upon restarting your terminal you will also have to open a bash shell again.
+If you prefer to open a bash login shell directly, you can do so via the command 'bash -l' without having to configure a Terminal profile. This will not persist across Terminal restarts.
