@@ -10,14 +10,14 @@ So what to do when your terminal isn't opening a login shell?
 
 You can manually invoke a login shell by executing any of these commands:
 
-- Bash: `bash -l`
-- ZSH: `zsh -l`
-- Fish: `fish -l`
-- Nu: `nu -l`
-- Xonsh: `xonsh -l`
-- Elvish: elvish doesn't have the concept of login shells, so this does not apply.
-- Dash: `dash -l`
-- KSH: `ksh -l`
+-   Bash: `bash -l`
+-   ZSH: `zsh -l`
+-   Fish: `fish -l`
+-   Nu: `nu -l`
+-   Xonsh: `xonsh -l`
+-   Elvish: elvish doesn't have the concept of login shells, so this does not apply.
+-   Dash: `dash -l`
+-   KSH: `ksh -l`
 
 ## Gnome Terminal (Ubuntu, Debian, etc.)
 
