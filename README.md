@@ -163,7 +163,6 @@ Now that the prerequisites are installed, Dorothy's intelligent dependency manag
 
 If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p ~/.local/bin`, move the binary there with `mv <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
-
 ### Try
 
 > [!TIP]
