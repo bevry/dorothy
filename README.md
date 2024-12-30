@@ -146,9 +146,9 @@ xbps-install --sync bash curl
 
 Dorothy's full list of requisites are:
 
-- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
-- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
-- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): commonly required by Dorothy commands to enable the best experience
+-   [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
+-   [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
+-   [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): commonly required by Dorothy commands to enable the best experience
 
 If you have any issue with the automated installation of any, [post an issue](https://github.com/bevry/dorothy/issues) and refer to their links for alternative installation methods. If you are downloading their binaries straight from github, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory at `mkdir -p ~/.local/bin`, move the binary to there `mv <bin> ~/.local/bin` and make them all executable via `chmod +x ~/.local/bin/*`.
 
