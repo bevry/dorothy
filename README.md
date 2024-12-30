@@ -19,15 +19,15 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
--   seamless support for multiple operating systems and architectures
--   seamless support for your favorite terminal and GUI editors
--   automatic configuration of your environment variables for what you have installed on your system
--   automatic installation and updating of your specified packages
--   automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
--   hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
--   completely extensible and configurable with your own user repository
--   all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
+-   🐚 seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
+-   🩻 seamless support for multiple operating systems and architectures
+-   👩‍💻 seamless support for your favorite terminal and GUI editors
+-   🦾 automatic configuration of your environment variables for what you have installed on your system
+-   📦 automatic installation and updating of your specified packages
+-   🌳 automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
+-   ☄️ hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
+-   ⚙️ completely extensible and configurable with your own user repository
+-   🦸‍♀️ all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
 
 ## Introduction
 
