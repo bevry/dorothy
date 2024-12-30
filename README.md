@@ -77,7 +77,18 @@ Dorothy is a dotfile ecosystem featuring:
 
 Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
+### Dependencies
+
+Dorothy has intelligent dependency management with its own [`setup-util`](https://github.com/bevry/dorothy/blob/master/commands/setup-util) command and `setup-util-*` ecosystem, that automates and assists dependency and package availability across platforms, architectures, and package systems.
+
+Dependencies that are required to achieve your intended goal, will have their installations initiated correctly. Dependencies that are not required, but provide a superior experience, will have their installations attempted but if an installation fails or is unavailable, the command will not dazzle but will still execute successfully to satisfaction. Sometimes commands can go an extra mile if a dependency is detected, such as for performance or gathering additional optional information, however, if an already suitable dependency is already available then the suitable installed dependency will be used. This enables Dorothy to provide extreme robustness and superiority of its experience.
+
+For instance, installing [curl](https://en.wikipedia.org/wiki/Curl) with Dorothy is as easy as executing [`setup-util-curl`](https://github.com/bevry/dorothy/blob/master/commands/setup-util-curl), or directly by `setup-util --cli=curl APK=curl APT=curl AUR=curl RPM=curl WINGET=cURL ZYPPER=curl`. If you want to make it optional, add `--optional`. If you want to write a command that prefers `curl` but also supports `wget` if curl isn't present, see Dorothy's [`fetch`](https://github.com/bevry/dorothy/blob/master/commands/fetch) command, or for something even more powerful, see Dorothy's [`down`](https://github.com/bevry/dorothy/blob/master/commands/down) command.
+
 ### Prerequisites
+
+> [!IMPORTANT]  
+> To even initiate Dorothy, some prerequisite dependencies are required:
 
 macOS:
 
@@ -142,19 +153,21 @@ xbps-install --sync --update xbps
 xbps-install --sync bash curl
 ```
 
-#### Dependencies
+#### Requisites
 
-Dorothy's full list of requisites are:
+Now that the prerequisites are installed, Dorothy's intelligent dependency management will be enabled, so you can skip this section. Dorothy's complete requisites for its core experience are as follows:
 
 -   [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
 -   [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
--   [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): commonly required by Dorothy commands to enable the best experience
+-   [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
 
-If you have any issue with the automated installation of any, [post an issue](https://github.com/bevry/dorothy/issues) and refer to their links for alternative installation methods. If you are downloading their binaries straight from github, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory at `mkdir -p ~/.local/bin`, move the binary to there `mv <bin> ~/.local/bin` and make them all executable via `chmod +x ~/.local/bin/*`.
+If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p ~/.local/bin`, move the binary there with `mv <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
+
 
 ### Try
 
-You can trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell.
+> [!TIP]
+> You can trial [Dorothy commands](https://github.com/bevry/dorothy/tree/master/commands) without configuring your shell:
 
 To run a specific command in/from the Dorothy environment, enter the following, swapping out everything after the double-dash (`--`) with whatever command to run:
 
@@ -179,7 +192,8 @@ exit
 
 ### Install
 
-To install Dorothy enter the following in your favorite terminal application:
+> [!IMPORTANT]  
+> To install Dorothy enter the following into your favorite terminal application:
 
 ```bash
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
@@ -208,7 +222,7 @@ If your shell doesn't recognize any of the Dorothy commands (you get a command n
 -   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
 -   Your login shell is not one of the Dorothy supported shells. [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
 
-If you see unrecognised symbols, you probably require fonts. Once Dorothy is loaded, run `setup-util-noto-emoji` which installed [Noto Emoji](https://github.com/googlefonts/noto-emoji), a font for enabling emojis inside your terminal. For rendering glyphs, run `setup-util-nerd-fonts` which will prompt you for which [Nerd Font](https://www.nerdfonts.com/font-downloads) to install. You may need to update your terminal preferences the installed fonts.
+If you see unrecognised symbols, you probably require fonts. Once Dorothy is loaded, run `setup-util-noto-emoji` which installs [Noto Emoji](https://github.com/googlefonts/noto-emoji), a font for enabling emojis inside your terminal. For rendering glyphs, run `setup-util-nerd-fonts` which will prompt you for which [Nerd Font](https://www.nerdfonts.com/font-downloads) to install. You may need to update your terminal preferences to leverage these installed fonts.
 
 ## Overview
 
