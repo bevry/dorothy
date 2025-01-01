@@ -19,15 +19,15 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
--   🐚 seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
--   🩻 seamless support for multiple operating systems and architectures
--   👩‍💻 seamless support for your favorite terminal and GUI editors
--   🦾 automatic configuration of your environment variables for what you have installed on your system
--   📦 automatic installation and updating of your specified packages
--   🌳 automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
--   ☄️ hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
--   ⚙️ completely extensible and configurable with your own user repository
--   🦸‍♀️ all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
+- 🐚 seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
+- 🩻 seamless support for multiple operating systems and architectures
+- 👩‍💻 seamless support for your favorite terminal and GUI editors
+- 🦾 automatic configuration of your environment variables for what you have installed on your system
+- 📦 automatic installation and updating of your specified packages
+- 🌳 automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
+- ☄️ hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
+- ⚙️ completely extensible and configurable with your own user repository
+- 🦸‍♀️ all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
 
 ## Introduction
 
@@ -157,9 +157,9 @@ xbps-install --sync bash curl
 
 Now that the prerequisites are installed, Dorothy's intelligent dependency management will be enabled, so you can skip this section. Dorothy's complete requisites for its core experience are as follows:
 
--   [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
--   [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
--   [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
+- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
+- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
+- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
 
 If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p ~/.local/bin`, move the binary there with `mv <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
