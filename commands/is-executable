@@ -3,6 +3,8 @@
 function is_executable_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
+
+	# test standard paths
 	eval-tester --name='no args' --status=22 --ignore-stderr \
 		-- is-executable --
 
@@ -15,46 +17,78 @@ function is_executable_test() (
 	eval-tester --name='directory' \
 		-- is-executable -- "$DOROTHY"
 
-	eval-tester --name='file' \
+	eval-tester --name='file' --status=93 \
+		-- is-executable -- "$DOROTHY/README.md"
+
+	eval-tester --name='command' \
 		-- is-executable -- "$DOROTHY/commands/dorothy"
 
-	eval-tester --name='file then dir' \
+	eval-tester --name='command then dir' \
 		-- is-executable -- "$DOROTHY/commands/dorothy" "$DOROTHY"
 
-	eval-tester --name='dir then file' \
+	eval-tester --name='dir then command' \
 		-- is-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy"
 
-	eval-tester --name='dir then file then missing then invalid' --status=2 \
+	eval-tester --name='dir then command then missing then invalid' --status=2 \
 		-- is-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy" "$DOROTHY/this-does-not-exist" ''
 
-	eval-tester --name='dir then invalid then missing then file' --status=22 \
+	eval-tester --name='dir then command then file then missing then invalid' --status=93 \
+		-- is-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy" "$DOROTHY/README.md" "$DOROTHY/this-does-not-exist" ''
+
+	eval-tester --name='dir then invalid then missing then command' --status=22 \
 		-- is-executable -- "$DOROTHY" '' "$DOROTHY/this-does-not-exist" "$DOROTHY/commands/dorothy"
 
-	# test working symlinks
-	local dir_target dir_symlink file_target file_symlink
-	dir_target="$(fs-temp --directory='is-executable' --directory='dir_target' --touch)"
-	file_target="$(fs-temp --directory='is-executable' --file='file_target' --touch)"
-	dir_symlink="$(fs-temp --directory='is-executable' --directory='dir_symlink' --no-touch)"
-	file_symlink="$(fs-temp --directory='is-executable' --file='file_symlink' --no-touch)"
+	# prep
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='is-executable-test')"
+	fs-rm --quiet --no-confirm -- "$root"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
 	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
 	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
 
-	eval-tester --name='symlink dir' \
+	# test working symlinks
+	eval-tester --name='target dir' \
+		-- is-executable -- "$dir_target"
+	eval-tester --name='target file' --status=93 \
+		-- is-executable -- "$file_target"
+	eval-tester --name='symlink dir with executable target' \
 		-- is-executable -- "$dir_symlink"
-
-	eval-tester --name='symlink file' --status=1 \
+	eval-tester --name='symlink file with executable target' --status=93 \
 		-- is-executable -- "$file_symlink"
-	fs-own --quiet --permissions='+x' -- "$file_target"
-	eval-tester --name='symlink file' \
+
+	# test no longer executable
+	fs-own --quiet --permissions='-x' -- "$dir_target" "$file_target"
+	eval-tester --name='non-executable target dir' --status=93 \
+		-- is-executable -- "$dir_target"
+	eval-tester --name='non-executable target file' --status=93 \
+		-- is-executable -- "$file_target"
+	eval-tester --name='non-executable symlink dir with non-executable target' --status=93 \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='non-executable symlink file with non-executable target' --status=93 \
 		-- is-executable -- "$file_symlink"
 
 	# test broken symlinks
 	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
-
-	eval-tester --name='broken symlink dir' --status=1 \
+	eval-tester --name='broken symlink dir with previously non-executable target (permissions discarded apparently)' --status=93 \
 		-- is-executable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously non-executable target (permissions discarded apparently)' --status=93 \
+		-- is-executable -- "$file_symlink"
 
-	eval-tester --name='broken symlink file' --status=1 \
+	# recreate targets, make them executable
+	__mkdirp "$dir_target"
+	touch "$file_target"
+	fs-own --quiet --permissions='+x' -- "$dir_target" "$file_target"
+	eval-tester --name='symlink dir with executable target' \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='symlink file with executable target' \
+		-- is-executable -- "$file_symlink"
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously executable target (permissions discarded apparently)' --status=93 \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously executable target (permissions discarded apparently)' --status=93 \
 		-- is-executable -- "$file_symlink"
 
 	echo-style --g1="TEST: $0"
@@ -84,8 +118,8 @@ function is_executable() (
 
 			RETURNS:
 			[0] if all <path>s are executable
-			[1] if any <path>s are not executable
-			[2] if any <path>s do not exist (even as a broken symlink)
+			[2] if a <path> was not found
+			[93] if a <path> was not executable
 			[22] if empty arguments are provided
 		EOF
 		if [[ $# -ne 0 ]]; then

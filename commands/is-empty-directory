@@ -4,16 +4,27 @@ function is_empty_directory_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
 
-	local dir
-	dir="$(fs-temp --directory='is-empty-directory' --directory --touch)"
+	# prep
+	local root dir dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='is-empty-directory-test')"
+	dir="$(fs-temp --root="$root" --directory='dir')"
+	fs-rm --quiet --no-confirm -- "$dir" "$root" # remove dir first, as it may not be readable from last run, and fs-rm has workarounds for that
+	__mkdirp "$dir"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
 
+	# test standard paths
 	eval-tester --name='no args' --status=22 --ignore-stderr \
 		-- is-empty-directory --
 
 	eval-tester --name='empty args' --status=22 \
 		-- is-empty-directory -- '' ''
 
-	eval-tester --name='missing' --status=1 \
+	eval-tester --name='missing' --status=2 \
 		-- is-empty-directory -- "$DOROTHY/this-does-not-exist"
 
 	eval-tester --name='empty dir is empty' \
@@ -22,23 +33,62 @@ function is_empty_directory_test() (
 	eval-tester --name='empty dirs are empty' \
 		-- is-empty-directory -- "$dir" "$dir"
 
-	eval-tester --name='non-empty dir is not empty' --status=1 \
+	eval-tester --name='non-empty dir is not empty' --status=66 \
 		-- is-empty-directory -- "$DOROTHY"
 
-	eval-tester --name='file is special failure' --status=20 \
+	eval-tester --name='file' --status=20 \
 		-- is-empty-directory -- "$DOROTHY/README.md"
 
-	eval-tester --name='file then non-empty dir is special failure' --status=20 \
+	eval-tester --name='file then non-empty dir' --status=20 \
 		-- is-empty-directory -- "$DOROTHY/README.md" "$DOROTHY"
 
-	eval-tester --name='non-empty dir then file standard failure' --status=1 \
+	eval-tester --name='non-empty dir then file' --status=66 \
 		-- is-empty-directory -- "$DOROTHY" "$DOROTHY/README.md"
 
-	eval-tester --name='empty then file then non-empty dir is special failure' --status=20 \
+	eval-tester --name='empty dir then file then non-empty dir' --status=20 \
 		-- is-empty-directory -- "$dir" "$DOROTHY/README.md" "$DOROTHY"
 
-	eval-tester --name='empty then non-empty dir then file standard failure' --status=1 \
+	eval-tester --name='empty dir then non-empty dir then file' --status=66 \
 		-- is-empty-directory -- "$dir" "$DOROTHY" "$DOROTHY/README.md"
+
+	# make dir not readable, so detection fails
+	fs-own --quiet --no-recurse --permissions='-r' -- "$dir"
+	eval-tester --name='non-readable empty dir fails' --status=13 \
+		-- is-empty-directory -- "$dir"
+
+	# test working symlinks
+	eval-tester --name='symlink dir' \
+		-- is-empty-directory -- "$dir_symlink"
+
+	eval-tester --name='symlink file' --status=20 \
+		-- is-empty-directory -- "$file_symlink"
+
+	eval-tester --name='symlink dir then non-empty dir' --status=66 \
+		-- is-empty-directory -- "$dir_symlink" "$DOROTHY"
+
+	eval-tester --name='symlink dir then file' --status=20 \
+		-- is-empty-directory -- "$dir_symlink" "$DOROTHY/README.md"
+
+	eval-tester --name='symlink dir then missing' --status=2 \
+		-- is-empty-directory -- "$dir_symlink" "$DOROTHY/this-does-not-exist"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' --status=9 \
+		-- is-empty-directory -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' --status=9 \
+		-- is-empty-directory -- "$file_symlink"
+
+	eval-tester --name='broken symlink dir then non-empty dir' --status=9 \
+		-- is-empty-directory -- "$dir_symlink" "$DOROTHY"
+
+	eval-tester --name='broken symlink dir then file' --status=9 \
+		-- is-empty-directory -- "$dir_symlink" "$DOROTHY/README.md"
+
+	eval-tester --name='broken symlink dir then missing' --status=9 \
+		-- is-empty-directory -- "$dir_symlink" "$DOROTHY/this-does-not-exist"
 
 	echo-style --g1="TEST: $0"
 	return 0
@@ -65,9 +115,12 @@ function is_empty_directory() (
 			    If specified use this user and/or group for filesystem interactions.
 
 			RETURNS:
-			[0] if all <path>s are empty
-			[1] if any <path>s are not empty
-			[20] if any <path>s is not a directory.
+			[0] if all <path>s were an empty directory
+			[2] if a <path> was not found
+			[9] if a <path> was a broken symlink
+			[20] if a <path> existed, but was not a directory nor an unbroken symlink to a directory
+			[13] if a <path> existed and was a directory, but was not readable, so unable to determine if empty or not
+			[66] if a <path> was a directory, or an unbroken symlink to a directory, but was not empty
 			[22] if empty arguments are provided
 		EOF
 		if [[ $# -ne 0 ]]; then

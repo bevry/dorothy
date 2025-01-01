@@ -12,7 +12,7 @@ while [[ $# -ne 0 ]]; do
 	fi
 	# just -e is faulty, as -e fails on broken symlinks
 	if ! [[ -e $1 || -L $1 ]]; then
-		exit 1
+		exit 2 # ENOENT 2 No such file or directory
 	fi
 	shift
 done

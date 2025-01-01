@@ -10,9 +10,21 @@ while [[ $# -ne 0 ]]; do
 	if [[ -z $1 ]]; then
 		exit 22 # EINVAL 22 Invalid argument
 	fi
-	if [[ ! -f $1 ]]; then
-		exit 1
+	# just -e is faulty, as -e fails on broken symlinks
+	if [[ -L $1 ]]; then
+		if [[ ! -e $1 ]]; then
+			# does exist: is a broken symlink
+			exit 9 # EBADF 9 Bad file descriptor
+		fi
+	elif [[ ! -e $1 ]]; then
+		# doesn't exist: not a symlink, file, nor directory
+		exit 2 # ENOENT 2 No such file or directory
 	fi
+	if [[ ! -f $1 ]]; then
+		# does exist: not a symlink to a file, nor a file
+		exit 79 # EFTYPE 79 Inappropriate file type or format
+	fi
+	# does exist: is a symlink to a file, or a file
 	shift
 done
 exit 0

@@ -12,11 +12,14 @@ while [[ $# -ne 0 ]]; do
 	fi
 	# just -e is faulty, as -e fails on broken symlinks
 	if ! [[ -e $1 || -L $1 ]]; then
+		# doesn't exist: not a symlink, file, nor directory
 		exit 2 # ENOENT 2 No such file or directory
 	fi
 	if [[ ! -x $1 ]]; then
-		exit 1
+		# does exist: is not executable
+		exit 93 # ENOATTR 93 Attribute not found
 	fi
+	# does exist: is executable
 	shift
 done
 exit 0

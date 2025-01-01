@@ -12,8 +12,10 @@ while [[ $# -ne 0 ]]; do
 	fi
 	# just -e is faulty, as -e fails on broken symlinks
 	if [[ -e $1 || -L $1 ]]; then
-		exit 1
+		# does exist: is a symlink, file, or directory
+		exit 17 # EEXIST 17 File exists
 	fi
+	# doesn't exist: not a symlink, file, nor directory
 	shift
 done
 exit 0

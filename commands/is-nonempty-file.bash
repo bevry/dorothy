@@ -20,11 +20,15 @@ while [[ $# -ne 0 ]]; do
 		# doesn't exist: not a symlink, file, nor directory
 		exit 2 # ENOENT 2 No such file or directory
 	fi
-	if [[ ! -d $1 ]]; then
-		# does exist: not a symlink to a directory, nor a directory
-		exit 20 # ENOTDIR 20 Not a directory
+	if [[ ! -f $1 ]]; then
+		# does exist: not a symlink to a file, nor a file
+		exit 79 # EFTYPE 79 Inappropriate file type or format
 	fi
-	# does exist: is a symlink to a directory, or a directory
+	if [[ ! -s $1 ]]; then
+		# does exist: is a symlink to an empty file, or an empty file
+		exit 66 # ENOTEMPTY 66 Directory not empty
+	fi
+	# does exist: is a symlink to a non-empty file, or a non-empty file
 	shift
 done
 exit 0

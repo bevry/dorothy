@@ -3,6 +3,8 @@
 function is_readable_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
+
+	# test standard paths
 	eval-tester --name='no args' --status=22 --ignore-stderr \
 		-- is-readable --
 
@@ -30,33 +32,59 @@ function is_readable_test() (
 	eval-tester --name='dir then invalid then missing then file' --status=22 \
 		-- is-readable -- "$DOROTHY" '' "$DOROTHY/this-does-not-exist" "$DOROTHY/README.md"
 
-	# test working symlinks
-	local dir_target dir_symlink file_target file_symlink
-	dir_target="$(fs-temp --directory='is-readable' --directory='dir_target' --touch)"
-	file_target="$(fs-temp --directory='is-readable' --file='file_target' --touch)"
-	dir_symlink="$(fs-temp --directory='is-readable' --directory='dir_symlink' --no-touch)"
-	file_symlink="$(fs-temp --directory='is-readable' --file='file_symlink' --no-touch)"
+	# prep
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='is-readable-test')"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target')"
+	file_target="$(fs-temp --root="$root" --file='file_target')"
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target" "$root" # remove dir_target, file_target first as they may not be readable from last run, and fs-rm has workarounds for that
+	__mkdirp "$dir_target"
+	touch "$file_target"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
 	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
 	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
 
-	eval-tester --name='symlink dir' \
+	# test working symlinks
+	eval-tester --name='target dir' \
+		-- is-readable -- "$dir_target"
+	eval-tester --name='target file' \
+		-- is-readable -- "$file_target"
+	eval-tester --name='symlink dir with readable target' \
 		-- is-readable -- "$dir_symlink"
-
-	eval-tester --name='symlink file' \
+	eval-tester --name='symlink file with readable target' \
 		-- is-readable -- "$file_symlink"
 
 	# test no longer readable
-	fs-own --quiet --permissions='-r' -- "$file_target"
-	eval-tester --name='no longer readable' --status=1 \
+	fs-own --quiet --permissions='-r' --no-recursion -- "$dir_target" "$file_target"
+	eval-tester --name='non-readable target dir' --status=93 \
+		-- is-readable -- "$dir_target"
+	eval-tester --name='non-readable target file' --status=93 \
 		-- is-readable -- "$file_target"
+	eval-tester --name='non-readable symlink dir with non-readable target' --status=93 \
+		-- is-readable -- "$dir_symlink"
+	eval-tester --name='non-readable symlink file with non-readable target' --status=93 \
+		-- is-readable -- "$file_symlink"
 
 	# test broken symlinks
-	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
-
-	eval-tester --name='broken symlink dir' --status=1 \
+	fs-rm --quiet --no-confirm --readable --delete -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously non-readable target (permissions discarded apparently)' --status=93 \
 		-- is-readable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously non-readable target (permissions discarded apparently)' --status=93 \
+		-- is-readable -- "$file_symlink"
 
-	eval-tester --name='broken symlink file' --status=1 \
+	# recreate targets, make them readable
+	__mkdirp "$dir_target"
+	touch "$file_target"
+	fs-own --quiet --permissions='+r' -- "$dir_target" "$file_target"
+	eval-tester --name='symlink dir with readable target' \
+		-- is-readable -- "$dir_symlink"
+	eval-tester --name='symlink file with readable target' \
+		-- is-readable -- "$file_symlink"
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously readable target (permissions discarded apparently)' --status=93 \
+		-- is-readable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously readable target (permissions discarded apparently)' --status=93 \
 		-- is-readable -- "$file_symlink"
 
 	echo-style --g1="TEST: $0"
@@ -85,8 +113,8 @@ function is_readable() (
 
 			RETURNS:
 			[0] if all <path>s are readable
-			[1] if any <path>s are not readable
-			[2] if any <path>s do not exist (even as a broken symlink)
+			[2] if a <path> was not found
+			[93] if a <path> was not readable
 			[22] if empty arguments are provided
 		EOF
 		if [[ $# -ne 0 ]]; then
