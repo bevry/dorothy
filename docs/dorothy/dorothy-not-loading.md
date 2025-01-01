@@ -88,7 +88,7 @@ Close the Preferences and open a new terminal tab.
 
 1. Save the settings.
 
-1. Use the menu bar `Termina: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal.
+1. Use the menu bar `Terminal: New Terminal` or the Command Palette `Terminal: Create New Terminal` to open a new terminal.
 
 ## Konsole (KDE)
 
