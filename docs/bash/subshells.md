@@ -4,7 +4,7 @@ Pipes will create accidental subshells, which will fail to apply changes to the 
 
 Sources:
 
--   [Explanation](https://mywiki.wooledge.org/BashFAQ/024)
+- [Explanation](https://mywiki.wooledge.org/BashFAQ/024)
 
 Advice:
 

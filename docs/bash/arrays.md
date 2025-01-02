@@ -2,8 +2,8 @@
 
 Sources:
 
--   [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
--   [Tutorial](https://www.shell-tips.com/bash/arrays/)
+- [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
+- [Tutorial](https://www.shell-tips.com/bash/arrays/)
 
 Advice:
 
@@ -102,9 +102,9 @@ is-array-count-ge --size=1 -- "${a[@]}"
 
 ## strings to arrays
 
--   [Bash Manual: Word Splitting](https://www.gnu.org/software/bash/manual/bash.html#Word-Splitting)
--   [Stack Exchange: In bash, what is the difference between IFS= and IFS=$'\n'](https://unix.stackexchange.com/a/676876/50703)
--   [`readarray`](https://www.gnu.org/software/bash/manual/bash.html#index-readarray) is an alias for [`mapfile`](https://www.gnu.org/software/bash/manual/bash.html#index-mapfile)
+- [Bash Manual: Word Splitting](https://www.gnu.org/software/bash/manual/bash.html#Word-Splitting)
+- [Stack Exchange: In bash, what is the difference between IFS= and IFS=$'\n'](https://unix.stackexchange.com/a/676876/50703)
+- [`readarray`](https://www.gnu.org/software/bash/manual/bash.html#index-readarray) is an alias for [`mapfile`](https://www.gnu.org/software/bash/manual/bash.html#index-mapfile)
 
 ### newline deliminator
 

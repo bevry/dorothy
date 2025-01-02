@@ -4,10 +4,10 @@
 
 Your user configuration goes to the XDG location of `~/.local/config/dorothy` which Dorothy symlinks to `~/.local/share/dorothy/user`, your user configuration consists of the following:
 
--   `commands` directory, for public commands
--   `commands.local` directory, for private commands (git ignored by default)
--   `config` directory, for public configuration
--   `config.local` directory, for private configuration (git ignored by default)
+- `commands` directory, for public commands
+- `commands.local` directory, for private commands (git ignored by default)
+- `config` directory, for public configuration
+- `config.local` directory, for private configuration (git ignored by default)
 
 The order of preference within Dorothy is `(commands|config).local` first, then `(commands|config)`, then Dorothy's own `(commands|config)` then everything else.
 

@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+
+function is_writable_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	# test standard paths
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- is-writable --
+
+	eval-tester --name='empty args' --status=22 \
+		-- is-writable -- '' ''
+
+	eval-tester --name='missing' --status=2 \
+		-- is-writable -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' \
+		-- is-writable -- "$DOROTHY"
+
+	eval-tester --name='file' \
+		-- is-writable -- "$DOROTHY/README.md"
+
+	eval-tester --name='file then dir' \
+		-- is-writable -- "$DOROTHY/README.md" "$DOROTHY"
+
+	eval-tester --name='dir then file' \
+		-- is-writable -- "$DOROTHY" "$DOROTHY/README.md"
+
+	eval-tester --name='dir then file then missing then invalid' --status=2 \
+		-- is-writable -- "$DOROTHY" "$DOROTHY/README.md" "$DOROTHY/this-does-not-exist" ''
+
+	eval-tester --name='dir then invalid then missing then file' --status=22 \
+		-- is-writable -- "$DOROTHY" '' "$DOROTHY/this-does-not-exist" "$DOROTHY/README.md"
+
+	# prep
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='is-writable-test')"
+	fs-rm --quiet --no-confirm -- "$root"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	# test working symlinks
+	eval-tester --name='target dir' \
+		-- is-writable -- "$dir_target"
+	eval-tester --name='target file' \
+		-- is-writable -- "$file_target"
+	eval-tester --name='symlink dir with writable target' \
+		-- is-writable -- "$dir_symlink"
+	eval-tester --name='symlink file with writable target' \
+		-- is-writable -- "$file_symlink"
+
+	# test no longer writable
+	fs-own --quiet --permissions='-w' -- "$dir_target" "$file_target"
+	eval-tester --name='non-writable target dir' --status=93 \
+		-- is-writable -- "$dir_target"
+	eval-tester --name='non-writable target file' --status=93 \
+		-- is-writable -- "$file_target"
+	eval-tester --name='non-writable symlink dir with non-writable target' --status=93 \
+		-- is-writable -- "$dir_symlink"
+	eval-tester --name='non-writable symlink file with non-writable target' --status=93 \
+		-- is-writable -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously non-writable target (permissions discarded apparently)' --status=93 \
+		-- is-writable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously non-writable target (permissions discarded apparently)' --status=93 \
+		-- is-writable -- "$file_symlink"
+
+	# recreate targets, make them writable
+	__mkdirp "$dir_target"
+	touch "$file_target"
+	fs-own --quiet --permissions='+w' -- "$dir_target" "$file_target"
+	eval-tester --name='symlink dir with writable target' \
+		-- is-writable -- "$dir_symlink"
+	eval-tester --name='symlink file with writable target' \
+		-- is-writable -- "$file_symlink"
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously writable target (permissions discarded apparently)' --status=93 \
+		-- is-writable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously writable target (permissions discarded apparently)' --status=93 \
+		-- is-writable -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
+function is_writable() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Check if all <path>s are writable.
+
+			USAGE:
+			is-writable [...options] [--] ...<path>
+
+			OPTIONS:
+			--sudo
+			    If specified, use sudo on filesystem interactions.
+			--user=<user>
+			--group=<group>
+			    If specified use this user and/or group for filesystem interactions.
+
+			RETURNS:
+			[0] if all <path>s are writable
+			[2] if a <path> was not found
+			[93] if a <path> was not writable
+			[22] if empty arguments are provided
+		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_inputs=() option_sudo='no' option_user='' option_group=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--')
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+
+	# verify
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		help 'No <input>s provided.'
+	fi
+
+	# =====================================
+	# Action
+
+	sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-writable.bash -- "${option_inputs[@]}"
+	return
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		is_writable_test
+	else
+		is_writable "$@"
+	fi
+fi

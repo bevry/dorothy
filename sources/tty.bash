@@ -57,7 +57,7 @@ function tty_get_y_x {
 function tty_set_y_x {
 	dorothy-warnings add --code='tty_get_y_x' --bold=' has been been removed, use the ansi escape code directly.'
 	local y x yx
-	if test "$#" -eq 0; then
+	if [[ $# -eq 0 ]]; then
 		mapfile -t yx < <(tty_get_y_x)
 		y="${yx[0]}"
 		x="${yx[1]}"

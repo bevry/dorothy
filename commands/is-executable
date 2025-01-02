@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+
+function is_executable_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	# test standard paths
+	eval-tester --name='no args' --status=22 --ignore-stderr \
+		-- is-executable --
+
+	eval-tester --name='empty args' --status=22 \
+		-- is-executable -- '' ''
+
+	eval-tester --name='missing' --status=2 \
+		-- is-executable -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' \
+		-- is-executable -- "$DOROTHY"
+
+	eval-tester --name='file' --status=93 \
+		-- is-executable -- "$DOROTHY/README.md"
+
+	eval-tester --name='command' \
+		-- is-executable -- "$DOROTHY/commands/dorothy"
+
+	eval-tester --name='command then dir' \
+		-- is-executable -- "$DOROTHY/commands/dorothy" "$DOROTHY"
+
+	eval-tester --name='dir then command' \
+		-- is-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy"
+
+	eval-tester --name='dir then command then missing then invalid' --status=2 \
+		-- is-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy" "$DOROTHY/this-does-not-exist" ''
+
+	eval-tester --name='dir then command then file then missing then invalid' --status=93 \
+		-- is-executable -- "$DOROTHY" "$DOROTHY/commands/dorothy" "$DOROTHY/README.md" "$DOROTHY/this-does-not-exist" ''
+
+	eval-tester --name='dir then invalid then missing then command' --status=22 \
+		-- is-executable -- "$DOROTHY" '' "$DOROTHY/this-does-not-exist" "$DOROTHY/commands/dorothy"
+
+	# prep
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='is-executable-test')"
+	fs-rm --quiet --no-confirm -- "$root"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	# test working symlinks
+	eval-tester --name='target dir' \
+		-- is-executable -- "$dir_target"
+	eval-tester --name='target file' --status=93 \
+		-- is-executable -- "$file_target"
+	eval-tester --name='symlink dir with executable target' \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='symlink file with executable target' --status=93 \
+		-- is-executable -- "$file_symlink"
+
+	# test no longer executable
+	fs-own --quiet --permissions='-x' -- "$dir_target" "$file_target"
+	eval-tester --name='non-executable target dir' --status=93 \
+		-- is-executable -- "$dir_target"
+	eval-tester --name='non-executable target file' --status=93 \
+		-- is-executable -- "$file_target"
+	eval-tester --name='non-executable symlink dir with non-executable target' --status=93 \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='non-executable symlink file with non-executable target' --status=93 \
+		-- is-executable -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously non-executable target (permissions discarded apparently)' --status=93 \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously non-executable target (permissions discarded apparently)' --status=93 \
+		-- is-executable -- "$file_symlink"
+
+	# recreate targets, make them executable
+	__mkdirp "$dir_target"
+	touch "$file_target"
+	fs-own --quiet --permissions='+x' -- "$dir_target" "$file_target"
+	eval-tester --name='symlink dir with executable target' \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='symlink file with executable target' \
+		-- is-executable -- "$file_symlink"
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+	eval-tester --name='broken symlink dir with previously executable target (permissions discarded apparently)' --status=93 \
+		-- is-executable -- "$dir_symlink"
+	eval-tester --name='broken symlink file with previously executable target (permissions discarded apparently)' --status=93 \
+		-- is-executable -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
+function is_executable() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Check if all <path>s are executable.
+			Companion to [echo-if-executable].
+
+			USAGE:
+			is-executable [...options] [--] ...<path>
+
+			OPTIONS:
+			--sudo
+			    If specified, use sudo on filesystem interactions.
+			--user=<user>
+			--group=<group>
+			    If specified use this user and/or group for filesystem interactions.
+
+			RETURNS:
+			[0] if all <path>s are executable
+			[2] if a <path> was not found
+			[93] if a <path> was not executable
+			[22] if empty arguments are provided
+		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_inputs=() option_sudo='no' option_user='' option_group=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--')
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+
+	# verify
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		help 'No <input>s provided.'
+	fi
+
+	# =====================================
+	# Action
+
+	sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-executable.bash -- "${option_inputs[@]}"
+	return
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		is_executable_test
+	else
+		is_executable "$@"
+	fi
+fi

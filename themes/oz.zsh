@@ -3,7 +3,7 @@
 source "$DOROTHY/themes/oz"
 precmd() {
 	local last_command_exit_status=$?
-	if test ! -d "$DOROTHY"; then
+	if [[ ! -d "$DOROTHY" ]]; then
 		printf '%s\n' 'DOROTHY has been moved, please re-open your shell'
 		return 1
 	fi
