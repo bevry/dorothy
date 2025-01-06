@@ -52,7 +52,9 @@ Dorothy is a dotfile ecosystem featuring:
 | ⭕️ [Ubuntu Server][URPI]                          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
 | ⭕️ [Ubuntu Server][US]                            | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
 | ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
-| ▲ [Manjaro][M] / [Arch][A]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ꩜ [Debian][D]                                    | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver         |
+| ꩜ [Debian][D]                                    | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI    |
+| ▲ [Manjaro][M] / [Arch][A]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver           |
 | ∞ [Fedora Workstation][FW]                        | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE][OS] [Leap][OSL] & [Tumbleweed][OST] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ⛰ [Alpine][AL]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
@@ -66,6 +68,7 @@ Dorothy is a dotfile ecosystem featuring:
 [UD]: https://ubuntu.com/download/desktop
 [US]: https://ubuntu.com/download/server
 [UV5]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
+[D]: https://www.debian.org
 [M]: https://manjaro.org/download/
 [A]: https://wiki.archlinux.org/title/Installation_guide
 [FW]: https://fedoraproject.org/workstation/
@@ -75,7 +78,7 @@ Dorothy is a dotfile ecosystem featuring:
 [AL]: https://www.alpinelinux.org/downloads/
 [K]: https://www.kali.org/get-kali/#kali-platforms
 
-Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
+Table reflects usage by Dorothy users and Dorothy CI support. Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
 ### Dependencies
 
