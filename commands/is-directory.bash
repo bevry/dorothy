@@ -18,7 +18,7 @@ while [[ $# -ne 0 ]]; do
 		continue
 	elif [[ -e $path ]]; then
 		# accessible and exists, but not an unbroken symlink to a directory, nor a directory
-		return 20 # NOTDIR 20 Not a directory
+		exit 20 # NOTDIR 20 Not a directory
 	else
 		# discern if inaccessible, broken, missing
 		is-accessible.bash -- "$path" || exit $?
