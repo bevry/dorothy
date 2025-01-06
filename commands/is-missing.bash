@@ -10,12 +10,17 @@ while [[ $# -ne 0 ]]; do
 	if [[ -z $1 ]]; then
 		exit 22 # EINVAL 22 Invalid argument
 	fi
-	# just -e is faulty, as -e fails on broken symlinks
-	if [[ -e $1 || -L $1 ]]; then
-		# does exist: is a symlink, file, or directory
-		exit 17 # EEXIST 17 File exists
-	fi
-	# doesn't exist: not a symlink, file, nor directory
+	path="$1"
 	shift
+
+	# checks
+	if [[ -e $path || -L $path ]]; then
+		# exists: is a symlink (broken or otherwise, accessible or otherwise), file, or directory
+		exit 17 # EEXIST 17 File exists
+	else
+		# discern if inaccessible, missing
+		is-accessible.bash -- "$path" || exit $?
+		continue # missing, which is what we want
+	fi
 done
 exit 0

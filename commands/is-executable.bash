@@ -10,16 +10,24 @@ while [[ $# -ne 0 ]]; do
 	if [[ -z $1 ]]; then
 		exit 22 # EINVAL 22 Invalid argument
 	fi
-	# just -e is faulty, as -e fails on broken symlinks
-	if ! [[ -e $1 || -L $1 ]]; then
-		# doesn't exist: not a symlink, file, nor directory
-		exit 2 # ENOENT 2 No such file or directory
-	fi
-	if [[ ! -x $1 ]]; then
+	path="$1"
+	shift
+
+	# checks
+	if [[ -x $path ]]; then
+		# does exist: is executable
+		continue
+	elif [[ -e $path ]]; then
 		# does exist: is not executable
 		exit 93 # ENOATTR 93 Attribute not found
+	else
+		# discern if inaccessible, broken, missing
+		is-accessible.bash -- "$path" || exit $?
+		if [[ -L $path ]]; then
+			# broken symlink
+			exit 9 # EBADF 9 Bad file descriptor
+		fi
+		exit 2 # ENOENT 2 No such file or directory
 	fi
-	# does exist: is executable
-	shift
 done
 exit 0

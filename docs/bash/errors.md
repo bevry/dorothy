@@ -14,6 +14,102 @@ return 2 # ENOENT 2 No such file or directory
 
 To select an exit status, refer to the following sources:
 
+### Dorothy
+
+Dorothy commonly uses the following, sometimes with additional utility. Exit statuses 200-255 are non-conventional as such they permit our own usage:
+
+```plain
+EPERM 1 Operation not permitted
+Includes usage of invalid conditions for the action.
+
+ENOENT 2 No such file or directory
+
+ESRCH 3 No such process
+Includes usage for missing required dependency.
+
+ENXIO 6 Device not configured
+Includes usage for missing required dependency.
+
+ENOEXEC 8 Exec format error
+Includes usage for malfunctioning required dependency.
+
+EBADF 9 Bad file descriptor
+Includes usage for broken symlinks.
+
+EACCES 13 Permission denied
+Includes usage of access denied, where elevated access would resolve the issue.
+
+EFAULT 14 Bad address
+Includes usage for unknown/unexpected logic path.
+
+EEXIST 17 File exists
+Includes usage for when a path (file, directory, symlink) exists.
+Includes usage for when a non-empty file was sought, but an empty file was found.
+
+ENODEV 19 Operation not supported by device
+Includes usage for missing required dependency.
+
+NOTDIR 20 Not a directory
+
+EISDIR 21 Is a directory
+
+EINVAL 22 Invalid argument
+Includes usage for help messages.
+
+EFBIG 27 File too large
+Includes usage for when a file is not empty.
+
+ESPIPE 29 Illegal seek
+Includes usage for unknown/unexpected logic path.
+
+ENOPROTOOPT 42 Protocol not available
+Includes usage for missing required dependency.
+
+EPROTONOSUPPORT 43 Protocol not supported
+Includes usage for a dependency not supporting a specific action.
+
+ENOTSUP 45 Operation not supported
+
+EPFNOSUPPORT 46 Protocol family not supported
+Includes usage for system incompatibility.
+
+ETIMEDOUT 60 Operation timed out
+
+ENOTEMPTY 66 Directory not empty
+
+EPROGUNAVAIL 74 RPC prog. not avail
+Includes usage for missing required dependency.
+
+EPROGMISMATCH 75 Program version wrong
+Includes usage for when a dependency is installed with an unsupported configuration.
+
+EPROCUNAVAIL 76 Bad procedure for program
+Includes usage for unknown/unexpected logic path.
+
+NOSYS 78 Function not implemented
+Includes usage for unimplemented actions.
+
+EFTYPE 79 Inappropriate file type or format
+Includes usage for when a path is not of the sought format, such as wanting an empty file but found a directory.
+
+ENOMSG 91 No message of desired type
+
+ENOATTR 93 Attribute not found
+Includes usage when a <path> is missing a required attribute, such as missing readable/writable/executable permissions when that specific attribute is sought.
+
+EADDRINUSE 98 Address already in use
+Incudes usage when trying to use an already existing path.
+
+ECANCELED 125 Operation cancelled
+
+ECUSTOM 200 Not applicable <for reason>
+Used to signal the caller that the action was not performed, and might be fine because the action wasn't applicable, such as:
+- Doing an operation on a utility, that is unnecessary, as the utility is already in the desired state.
+- Doing an operation on a path, such a mount path, that is already in the desired state.
+
+ECUSTOM 210 Processing complete, exit early
+```
+
 ### moreutil/errno
 
 For exit statuses 1-106, `errno -l` from the `moreutil` package defines the following:
@@ -277,17 +373,6 @@ On Ubuntu 22.04, Bash Shell `trap -l` defines the following (with descriptions a
 62. SIGRTMAX-2 (Real-Time signal 62.) [Exit Status: N/A]
 63. SIGRTMAX-1 (Real-Time signal 63.) [Exit Status: N/A]
 64. SIGRTMAX (Real-Time signal 64.) [Exit Status: N/A]
-```
-
-### dorothy
-
-For exit statuses 200-255, these are non-conventional as such they permit our own usage, in which Dorothy has used the following:
-
-```plain
-ECUSTOM 200 Not applicable <for reason>
-Used to signal the caller that the action was not performed, and might be fine because the action wasn't applicable.
-
-ECUSTOM 210 Processing complete, exit early
 ```
 
 ## Invocation and Capturing
