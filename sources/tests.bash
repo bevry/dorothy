@@ -98,7 +98,7 @@ function fs_tests__prep {
 
 function fs_tests__root_status {
 	local status="$1"
-	if is-root; then
+	if is-root --quiet; then
 		__print_lines "$status"
 	else
 		__print_lines '13'
@@ -133,14 +133,18 @@ function fs_tests__tuples {
 	root="$(fs-temp --directory="$command")"
 
 	# tests
-	local index status path total="${#tuples[@]}"
+	local index status path total="${#tuples[@]}" result=0
 	for ((index = 0; index < total; index += 2)); do
 		status="${tuples[index]}"
 		path="${tuples[index + 1]}"
 		if [[ ${#args[@]} -eq 0 ]]; then
-			eval-tester --name="$index / $total" --status="$status" -- "$command" -- "$path"
+			eval-tester --name="$index / $total" --status="$status" -- "$command" -- "$path" || result=$?
 		else
-			eval-tester --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path"
+			eval-tester --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path" || result=$?
 		fi
 	done
+	if [[ $result -ne 0 ]]; then
+		return 1
+	fi
+	return 0
 }
