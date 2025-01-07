@@ -1,13 +1,13 @@
 source "$DOROTHY/sources/bash.bash"
 
-function fs_tests_prep {
-	local root="$1"
-	root="$(fs-temp --directory="$root")"
+function fs_tests__prep {
+	local command="$1" root
+	root="$(fs-temp --directory="$command")"
 	# if [[ -d $root ]]; then
 	# 	__print_lines "$root"
 	# 	return 0
 	# fi
-	sudo rm -rf "$root"
+	sudo-helper -- rm -rf "$root"
 
 	__mkdirp \
 		"$root/symlinks" \
@@ -87,11 +87,60 @@ function fs_tests_prep {
 
 	# adjust
 	chmod +rwx "$root/targets/subdir" "$root/targets/subdir/empty-dir" "$root/targets/subdir/file" "$root/targets/subdir/empty-file"
-	chmod -r "$root/targets/non-readable-dir" "$root/targets/non-readable-file" "$root/targets/non-readable-empty-file"
-	chmod -x "$root/targets/non-executable-dir" "$root/targets/non-executable-file" "$root/targets/non-executable-empty-file"
-	chmod -w "$root/targets/non-writable-dir" "$root/targets/non-writable-file" "$root/targets/non-executable-empty-file"
+	chmod a-r "$root/targets/non-readable-dir" "$root/targets/non-readable-file" "$root/targets/non-readable-empty-file"
+	chmod a-x "$root/targets/non-executable-dir" "$root/targets/non-executable-file" "$root/targets/non-executable-empty-file"
+	chmod a-w "$root/targets/non-writable-dir" "$root/targets/non-writable-file" "$root/targets/non-executable-empty-file"
 	sudo-helper -- chown 'root:' "$root/targets/non-accessible-dir" "$root/targets/non-accessible-file" "$root/targets/non-accessible-empty-file"
 	sudo-helper -- chmod a-xrw,u+xrw "$root/targets/non-accessible-dir" "$root/targets/non-accessible-file" "$root/targets/non-accessible-empty-file"
 
 	__print_lines "$root"
+}
+
+function fs_tests__root_status {
+	local status="$1"
+	if is-root; then
+		__print_lines "$status"
+	else
+		__print_lines '13'
+	fi
+}
+function fs_tests__tuples {
+	local command args=() tuples=()
+
+	# process
+	local item
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--command='*) command="${item#*=}" ;;
+		'--')
+			tuples+=("$@")
+			shift $#
+			break
+			;;
+		*)
+			if [[ -z ${command-} ]]; then
+				command="$item"
+			else
+				args+=("$item")
+			fi
+			;;
+		esac
+	done
+
+	# process
+	root="$(fs-temp --directory="$command")"
+
+	# tests
+	local index status path total="${#tuples[@]}"
+	for ((index = 0; index < total; index += 2)); do
+		status="${tuples[index]}"
+		path="${tuples[index + 1]}"
+		if [[ ${#args[@]} -eq 0 ]]; then
+			eval-tester --name="$index / $total" --status="$status" -- "$command" -- "$path"
+		else
+			eval-tester --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path"
+		fi
+	done
 }
