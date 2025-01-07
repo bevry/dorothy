@@ -105,7 +105,7 @@ function fs_tests__root_status {
 	fi
 }
 function fs_tests__tuples {
-	local command args=() tuples=()
+	local group='' command args=() tuples=()
 
 	# process
 	local item
@@ -113,6 +113,7 @@ function fs_tests__tuples {
 		item="$1"
 		shift
 		case "$item" in
+		'--group='*) group="${item#*=}" ;;
 		'--command='*) command="${item#*=}" ;;
 		'--')
 			tuples+=("$@")
@@ -133,6 +134,9 @@ function fs_tests__tuples {
 	root="$(fs-temp --directory="$command")"
 
 	# tests
+	if [[ -n "$group" ]]; then
+		echo-style --h2="$group"
+	fi
 	local index status path total="${#tuples[@]}" result=0
 	for ((index = 0; index < total; index += 2)); do
 		status="${tuples[index]}"
@@ -144,7 +148,13 @@ function fs_tests__tuples {
 		fi
 	done
 	if [[ $result -ne 0 ]]; then
+		if [[ -n "$group" ]]; then
+			echo-style --e2="$group"
+		fi
 		return 1
+	fi
+	if [[ -n "$group" ]]; then
+		echo-style --g2="$group"
 	fi
 	return 0
 }
