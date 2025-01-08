@@ -14,7 +14,11 @@ while [[ $# -ne 0 ]]; do
 	shift
 
 	# check accessibility, regardless of existence, by checking the stderr and discarding stdout of stat -L which -L checks the source and target of symlinks
-	if stat -L "$path" 2>&1 >/dev/null | grep --quiet --regexp='stat: Permission denied$'; then
+	# LINUX
+	# stat: cannot statx '/home/runner/.cache/dorothy/5350/dir/subfile': Permission denied
+	# MACOS
+	# stat: /Users/balupton/.cache/dorothy/12776/dir/subfile: stat: Permission denied
+	if stat -L "$path" 2>&1 >/dev/null | grep --quiet --regexp=': Permission denied$'; then
 		exit 13 # EACCES 13 Permission denied
 	fi
 done
