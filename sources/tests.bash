@@ -134,7 +134,7 @@ function fs_tests__tuples {
 	root="$(fs-temp --directory="$command")"
 
 	# tests
-	if [[ -n "$group" ]]; then
+	if [[ -n $group ]]; then
 		echo-style --h2="$group"
 	fi
 	local index status path total="${#tuples[@]}" result=0
@@ -148,12 +148,12 @@ function fs_tests__tuples {
 		fi
 	done
 	if [[ $result -ne 0 ]]; then
-		if [[ -n "$group" ]]; then
+		if [[ -n $group ]]; then
 			echo-style --e2="$group"
 		fi
 		return 1
 	fi
-	if [[ -n "$group" ]]; then
+	if [[ -n $group ]]; then
 		echo-style --g2="$group"
 	fi
 	return 0

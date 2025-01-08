@@ -10,7 +10,7 @@ function sudo_helper() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Run a command as root, be it via sudo or doas, or neither if not needed.
+			Run the command with escalation to root, be it via sudo or doas, or neither if not needed.
 
 			USAGE:
 			sudo-helper [...options] -- <command> [...args]
@@ -18,16 +18,17 @@ function sudo_helper() (
 
 			OPTIONS:
 			--reason=<reason>
-			    If a prompt is required for your sudo/root/login password, this reason will be used to explain why sudo was required.
+			    If a prompt is required for your sudo/root/login password, this reason will be used to explain why escalation was required.
 
+			--sudo=<YES|no|''|failure|<exit-status>>
+			    If specified as yes, the default, then the command will be escalated to root.
+			    If specified as no or empty string, then the command will be run without escalation.
+			    If specified as failure, then the command will be run without escalation, and if it fails, it will be run with escalation.
+			    If specified as an integer, then the command will be run without escalation, and if it fails with that exit status, it will be run with escalation.
 			--user=<user>
-			    Specify a user to run the command as.
+			    Specify a user to run the command as. Forces --sudo=yes
 			--group=<group>
-			    Specify a group to run the command as.
-			--sudo=no | --required=no
-			    If specified, and no <user> nor <group> is provided, then sudo will not be used, and the command will be run normally.
-			--optional
-			    If specified, and no <user> nor <group> is provided, then try the command first without sudo, and if it fails, try again with sudo.
+			    Specify a group to run the command as. Forces --sudo=yes
 
 			--inherit
 			    If enabled, inherit environment variables include PATH.
@@ -51,7 +52,7 @@ function sudo_helper() (
 
 	# process
 	# option_quiet='no' is an important default to ensure our call to eval-helper can still be interpolated
-	local item option_cmd=() option_quiet='no' option_reason='' option_user='' option_group='' option_required='yes' option_optional='no' option_confirm='no' option_wrap='no' option_inherit='no' option_local=''
+	local item option_cmd=() option_quiet='no' option_reason='' option_user='' option_group='' option_sudo='yes' option_optional='no' option_confirm='no' option_wrap='no' option_inherit='no' option_local=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -64,14 +65,11 @@ function sudo_helper() (
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
 		'--reason='*) option_reason="${item#*=}" ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
-		'--no-sudo'* | '--sudo'* | '--no-required'* | '--required'*)
-			option_required="$(get-flag-value --affirmative --fallback="$option_required" -- "$item")"
-			;;
-		'--no-optional'* | '--optional'*)
-			option_optional="$(get-flag-value --affirmative --fallback="$option_optional" -- "$item")"
-			;;
 		'--no-inherit'* | '--inherit'*)
 			option_inherit="$(get-flag-value --affirmative --fallback="$option_inherit" -- "$item")"
 			;;
@@ -133,10 +131,11 @@ function sudo_helper() (
 		help 'No <command> was provided.'
 	fi
 
-	# adjust
+	# ensure sudo is a valid value
 	if [[ -n $option_user || -n $option_user ]]; then
-		option_required='yes'
-		option_optional='no'
+		option_sudo='yes'
+	elif [[ -z $option_sudo ]]; then
+		option_sudo='no'
 	fi
 
 	# =====================================
@@ -176,17 +175,17 @@ function sudo_helper() (
 	fi
 
 	# try without sudo
-	if [[ $option_required == 'no' || $technique == 'none' ]]; then
+	if [[ $option_sudo == 'no' || $technique == 'none' ]]; then
 		__wrap "${option_cmd[@]}"
 		return
-	elif [[ $option_optional == 'yes' ]]; then
+	elif [[ $option_sudo == 'failure' ]]; then
 		if __wrap "${option_cmd[@]}"; then
 			return 0
 		fi
-	elif is-integer -- "$option_optional"; then
+	elif is-integer -- "$option_sudo"; then
 		local status=0
 		__wrap "${option_cmd[@]}" || status=$?
-		if [[ $status -eq 0 || $status -ne $option_optional ]]; then
+		if [[ $status -eq 0 || $status -ne $option_sudo ]]; then
 			return "$status"
 		fi
 	fi
