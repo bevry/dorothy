@@ -129,7 +129,7 @@ function fs_tests__prep {
 		"$root/targets/unaccessible-filled-dir" \
 		"$root/targets/unaccessible-filled-file"
 
-	fs-structure -- "$root"
+	fs-structure -- "$root/targets" >/dev/stderr
 
 	__print_lines "$root"
 }
