@@ -117,7 +117,7 @@ function fs_tests__prep {
 		"$root/targets/unwritable-empty-file" \
 		"$root/targets/unwritable-filled-dir" \
 		"$root/targets/unwritable-filled-file"
-	sudo-helper -- chown 'root:root' \
+	sudo-helper -- chown '0:0' \
 		"$root/targets/unaccessible-empty-dir" \
 		"$root/targets/unaccessible-empty-file" \
 		"$root/targets/unaccessible-filled-dir" \
