@@ -19,6 +19,8 @@ while [[ $# -ne 0 ]]; do
 		continue
 	elif [[ -e $path ]]; then
 		# does exist: is not executable
+		# discern if unable to detect executable status because it was inaccessible
+		is-accessible.bash -- "$path" || exit $?
 		exit 93 # ENOATTR 93 Attribute not found
 	else
 		# discern if inaccessible, broken, missing

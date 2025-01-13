@@ -60,9 +60,9 @@ function fs_tests__prep {
 	symlink-helper --quiet --target="$root/targets/empty-file" --symlink="$root/symlinks/empty-file"
 	symlink-helper --quiet --target="$root/targets/filled-dir/empty-subfile" --symlink="$root/symlinks/filled-dir--empty-subfile"
 	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subdir" --symlink="$root/symlinks/filled-dir--filled-subdir"
-	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks--filled-dir--filled-subdir--empty-subdir"
-	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subfile" --symlink="$root/symlinks--filled-dir--filled-subfile"
-	symlink-helper --quiet --target="$root/targets/filled-file" --symlink="$root/symlinks--filled-file"
+	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/filled-dir--filled-subdir--empty-subdir"
+	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subfile" --symlink="$root/symlinks/filled-dir--filled-subfile"
+	symlink-helper --quiet --target="$root/targets/filled-file" --symlink="$root/symlinks/filled-file"
 	symlink-helper --quiet --target="$root/targets/unaccessible-empty-dir" --symlink="$root/symlinks/unaccessible-empty-dir"
 	symlink-helper --quiet --target="$root/targets/unaccessible-empty-file" --symlink="$root/symlinks/unaccessible-empty-file"
 	symlink-helper --quiet --target="$root/targets/unaccessible-filled-dir" --symlink="$root/symlinks/unaccessible-filled-dir"
@@ -97,11 +97,17 @@ function fs_tests__prep {
 	symlink-helper --quiet --target="$root/targets/unwritable-filled-file" --symlink="$root/symlinks/unwritable-filled-file"
 
 	# adjust
-	chmod +rwx \
-		"$root/targets/empty-dir" \
-		"$root/targets/empty-file" \
-		"$root/targets/filled-dir" \
-		"$root/targets/filled-file"
+	if is-mac || is-alpine; then
+		function __chmod_recursive {
+			chmod -R "$@"
+		}
+	else
+		function __chmod_recursive {
+			chmod --recursive "$@"
+		}
+	fi
+	__chmod_recursive +rwx \
+		"$root/targets"
 	chmod a-r \
 		"$root/targets/unreadable-empty-dir" \
 		"$root/targets/unreadable-empty-file" \
@@ -133,13 +139,11 @@ function fs_tests__prep {
 
 	__print_lines "$root"
 }
-
-function fs_tests__root_status {
-	local status="$1"
+function __status__root_or_nonroot {
 	if is-root --quiet; then
-		__print_lines "$status"
+		__print_lines "$1"
 	else
-		__print_lines '13'
+		__print_lines "$2"
 	fi
 }
 function fs_tests__tuples {

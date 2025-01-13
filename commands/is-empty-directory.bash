@@ -15,8 +15,8 @@ while [[ $# -ne 0 ]]; do
 
 	# checks
 	if [[ -d $path ]]; then
-		if [[ ! -r $path ]]; then
-			# does exist: not readable however, so no ability to check contents, as would get:
+		if [[ ! -r $path || ! -x $path ]]; then
+			# does exist: not readable/executable however, so no ability to check contents, as would get:
 			# ls: $path: Permission denied
 			exit 13 # EACCES 13 Permission denied
 		fi
