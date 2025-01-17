@@ -46,8 +46,5 @@ while [[ $# -ne 0 ]]; do
 			printf '%s\n' "$(pwd)/$filename"
 		)
 	fi
-
-	# shift to next argument
-	shift
 done
 exit 0
