@@ -219,6 +219,7 @@ function __mkdirp {
 	if [[ ${#missing[@]} -ne 0 ]]; then
 		mkdir -p "${missing[@]}" || status=$?
 		# none of this actually works, as there are more major issues if this happens, and needs to be worked around manually
+		# see: https://github.com/orgs/community/discussions/148648#discussioncomment-11862303
 		# if [[ $status -ne 0 ]]; then
 		# 	local sudo_missing=()
 		# 	status=0
