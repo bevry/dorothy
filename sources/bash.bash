@@ -218,6 +218,25 @@ function __mkdirp {
 	done
 	if [[ ${#missing[@]} -ne 0 ]]; then
 		mkdir -p "${missing[@]}" || status=$?
+		# none of this actually works, as there are more major issues if this happens, and needs to be worked around manually
+		# if [[ $status -ne 0 ]]; then
+		# 	local sudo_missing=()
+		# 	status=0
+		# 	for dir in "${missing[@]}"; do
+		# 		if [[ ! -d $dir ]]; then
+		# 			sudo_missing+=("$dir")
+		# 			# for some reason, this detection doesn't work:
+		# 			# if mkdir -p "$dir" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+		# 			# 	sudo_missing+=("$dir")
+		# 			# else
+		# 			# 	mkdir -p "$dir" || return
+		# 			# fi
+		# 		fi
+		# 	done
+		# 	if [[ ${#sudo_missing[@]} -ne 0 ]]; then
+		# 		__sudo_mkdirp -- "${sudo_missing[@]}" || status=$?
+		# 	fi
+		# fi
 	fi
 	return "$status"
 }
