@@ -371,7 +371,7 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 		function __require_upgraded_bash {
 			echo-style \
 				--code="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" $'\n' \
-				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >/dev/stderr || return $?
+				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >/dev/stderr || return
 			return 45 # ENOTSUP 45 Operation not supported
 		}
 	fi
@@ -401,7 +401,7 @@ if shopt -s lastpipe 2>/dev/null; then
 	}
 else
 	function __require_lastpipe {
-		echo-style --error='Missing lastpipe support:' >/dev/stderr || return $?
+		echo-style --error='Missing lastpipe support:' >/dev/stderr || return
 		__require_upgraded_bash
 	}
 fi
@@ -668,7 +668,7 @@ if shopt -s globstar 2>/dev/null; then
 	}
 else
 	function __require_globstar {
-		echo-style --error='Missing globstar support:' >/dev/stderr || return $?
+		echo-style --error='Missing globstar support:' >/dev/stderr || return
 		__require_upgraded_bash
 	}
 fi
@@ -680,7 +680,7 @@ if shopt -s extglob 2>/dev/null; then
 	}
 else
 	function __require_extglob {
-		echo-style --error='Missing extglob support:' >/dev/stderr || return $?
+		echo-style --error='Missing extglob support:' >/dev/stderr || return
 		__require_upgraded_bash
 	}
 fi
@@ -833,7 +833,7 @@ function __has_array_capability {
 
 function __require_array {
 	if ! __has_array_capability "$@"; then
-		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr || return $?
+		echo-style --error='Array support insufficient, required:' ' ' --code="$*" >/dev/stderr || return
 		__require_upgraded_bash
 	fi
 }

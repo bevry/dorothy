@@ -16,7 +16,7 @@ while [[ $# -ne 0 ]]; do
 	# Affirm accessibility
 	if [[ ! -e $path ]]; then
 		# discern if inaccessible
-		is-accessible.bash -- "$path" || exit $?
+		is-accessible.bash -- "$path" || exit
 		# if missing, then it only matters if the parent is missing, which the following will deal with
 	fi
 

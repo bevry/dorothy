@@ -21,7 +21,7 @@ while [[ $# -ne 0 ]]; do
 		exit 20 # NOTDIR 20 Not a directory
 	else
 		# discern if inaccessible, broken, missing
-		is-accessible.bash -- "$path" || exit $?
+		is-accessible.bash -- "$path" || exit
 		if [[ -L $path ]]; then
 			# broken symlink
 			exit 9 # EBADF 9 Bad file descriptor

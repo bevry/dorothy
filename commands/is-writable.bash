@@ -22,7 +22,7 @@ while [[ $# -ne 0 ]]; do
 		exit 93 # ENOATTR 93 Attribute not found
 	else
 		# discern if inaccessible, broken, missing
-		is-accessible.bash -- "$path" || exit $?
+		is-accessible.bash -- "$path" || exit
 		if [[ -L $path ]]; then
 			# broken symlink
 			exit 9 # EBADF 9 Bad file descriptor

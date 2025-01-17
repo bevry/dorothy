@@ -22,7 +22,7 @@ while [[ $# -ne 0 ]]; do
 		# note that the -r option doesn't exist, will return [option -r not recognized] on Ventura and Sonoma
 		# cannot just -d directly, as will get a [No such xattr: com.apple.quarantine] error, so check for it first, this induces no errors
 		if /usr/bin/xattr -l "$path" | grep --quiet --fixed-strings --regexp='com.apple.quarantine'; then
-			/usr/bin/xattr -d com.apple.quarantine "$path" >/dev/stderr || exit $?
+			/usr/bin/xattr -d com.apple.quarantine "$path" >/dev/stderr || exit
 		fi
 		continue
 	elif [[ -e $path ]]; then
@@ -30,7 +30,7 @@ while [[ $# -ne 0 ]]; do
 		exit 13 # EACCES 13 Permission denied
 	else
 		# discern if inaccessible, broken, missing
-		is-accessible.bash -- "$path" || exit $?
+		is-accessible.bash -- "$path" || exit
 		if [[ -L $path ]]; then
 			# broken symlink
 			exit 9 # EBADF 9 Bad file descriptor

@@ -22,7 +22,7 @@ while [[ $# -ne 0 ]]; do
 		continue
 	else
 		# discern if inaccessible, missing
-		is-accessible.bash -- "$path" || exit $?
+		is-accessible.bash -- "$path" || exit
 		exit 2 # ENOENT 2 No such file or directory
 	fi
 done
