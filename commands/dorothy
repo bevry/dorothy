@@ -2047,69 +2047,101 @@ function dorothy_() (
 		source "$DOROTHY/sources/ripgrep.bash"
 
 		# verbose about command conventions and support
-		local matches file_good file_bad file_status
-		commands=("$DOROTHY/commands/"*)
-		for filepath in "${commands[@]}"; do
-			filename="$(basename "$filepath")"
-			file_good=()
-			file_bad=()
-			file_status=0
+		local scan_paths=(
+			"$DOROTHY/commands/"
+			"$DOROTHY/commands.beta/"
+			"$DOROTHY/sources/"
+		)
+		function __todos_scan {
+			local filepath filename messages file_status success_count=0 fail_count=0 matches
+			echo-style --h2="$1" || return
+			for filepath in "$DOROTHY/$1/"*; do
+				filename="$(basename "$filepath")"
+				messages=()
+				file_status=0
 
-			# skip tests on these
-			if [[ $filename == 'dorothy' ]]; then
-				continue
-			fi
+				# skip tests on these
+				if [[ $filename == 'dorothy' || $filename == *.* ]]; then
+					continue
+				fi
 
-			# does the file have tests
-			if rg --quiet --fixed-strings --regexp='--test' "$filepath"; then
-				file_good+=(
-					' '
-					--success='has tests.'
-				)
-			fi
+				# does the file have tests
+				if rg --quiet --fixed-strings --regexp='--test' "$filepath"; then
+					messages+=(
+						' '
+						--success='has tests.'
+					)
+				elif [[ $filename != *setup-* ]]; then # ignore missing tests on setup- files
+					file_status=1
+					messages+=(
+						' '
+						--red='missing tests.'
+					)
+				fi
 
-			# does the file use a subshell
-			if ! rg --quiet --regexp="${filename//-/_}[_]?[(][)] [(]" "$filepath"; then
-				file_bad+=(
-					' '
-					--cyan='no subshell wrapper.'
-				)
-			fi
+				# does the file use a subshell
+				if ! rg --quiet --regexp="${filename//-/_}[_]?[(][)] [(]" "$filepath"; then
+					file_status=1
+					messages+=(
+						' '
+						--cyan='no subshell wrapper.'
+					)
+				fi
 
-			# does the file have help
-			if ! rg --quiet --fixed-strings --regexp='function help {' "$filepath"; then
-				file_bad+=(
-					' '
-					--blue='no help.'
-				)
-			fi
+				# does the file have help
+				if rg --quiet --fixed-strings --regexp='function help {' "$filepath"; then
+					:
+				elif [[ $filename != *setup-util-* ]]; then # ignore missing help on setup-util- files
+					file_status=1
+					messages+=(
+						' '
+						--blue='no help.'
+					)
+				fi
 
-			# is the file used by other commands?
-			matches="$(rg --files-with-matches --fixed-strings --regexp="$filename" "${scan_paths[@]}" || :)"
-			if [[ $matches == "$filepath" || -z $matches ]]; then
-				file_bad+=(
-					' '
-					--magenta='is not used anywhere besides itself.'
-				)
-			fi
+				# is the file used by other commands?
+				matches="$(rg --files-with-matches --regexp="[^\[]${filename}" "${scan_paths[@]}" || :)"
+				if [[ -z $matches || $matches == "$filepath" ]]; then
+					messages+=(
+						' '
+						--magenta='is not used anywhere besides itself.'
+					)
+				fi
 
-			# does the file have todos?
-			if rg --quiet --fixed-strings --regexp='@todo' "$filepath"; then
-				file_bad+=(
-					' '
-					--yellow='has todos.'
-				)
-			fi
+				# does the file have todos?
+				if rg --quiet --fixed-strings --regexp='@todo' "$filepath"; then
+					messages+=(
+						' '
+						--yellow='has todos.'
+					)
+				fi
 
-			# log
-			if [[ ${#file_bad[@]} -ne 0 ]]; then
-				file_status=1
+				# log
+				if [[ $file_status -eq 0 ]]; then
+					success_count="$((success_count + 1))"
+				else
+					fail_count="$((fail_count + 1))"
+				fi
+				echo-style --element/="$filename" --status="$file_status" "${messages[@]}"
+			done
+			if [[ $fail_count -eq 0 ]]; then
+				echo-style --g2="$1" ' ' --code-good1="$success_count" --good1=' successes' || return
+			else
+				echo-style --e2="$1" ' ' --code-good1="$success_count" --good1=' successes' ' ' --code-error1="$fail_count" --error1=' failures' || return
+				return 1
 			fi
-			echo-style --element/="$filename" --status="$file_status" "${file_good[@]}" "${file_bad[@]}"
-		done
+		}
+		local commands_status=0
+		__todos_scan 'commands' || commands_status=1
+		__todos_scan 'commands.beta' || :
 
 		# log
-		echo-style --g1='Dorothy Todos'
+		if [[ $commands_status -eq 0 ]]; then
+			echo-style --g1='Dorothy Todos'
+		else
+			echo-style --e1='Dorothy Todos'
+			return "$commands_status"
+		fi
 	}
 
 	# =====================================
