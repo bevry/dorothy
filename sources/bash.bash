@@ -110,7 +110,7 @@ function __print_value_lines_or_line {
 # workaround for Dorothy's [brew] helper
 function __is_brew {
 	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]
-	return
+	return # explicit return with [[ required for bash v3
 }
 
 # see [commands/command-missing] for details
@@ -802,7 +802,7 @@ else
 	# bash < 4.2
 	function __is_var_set {
 		[[ -n ${!1-} ]]
-		return
+		return # explicit return with [[ required for bash v3
 	}
 fi
 
