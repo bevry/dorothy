@@ -53,10 +53,10 @@ function on_env_finish {
 		# adjust
 		split_char=''
 		is_path='no'
-		if [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
+		if [[ $name =~ (PATH|DIRS)$ ]]; then
 			split_char=':'
 			is_path='yes'
-		elif [[ $name == *'FLAGS' ]]; then
+		elif [[ $name =~ FLAGS$ ]]; then
 			split_char=' '
 		fi
 		if [[ -n $split_char ]]; then
