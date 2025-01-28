@@ -19,15 +19,15 @@
 
 Dorothy is a dotfile ecosystem featuring:
 
-- 🐚 seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
-- 🩻 seamless support for multiple operating systems and architectures
-- 👩‍💻 seamless support for your favorite terminal and GUI editors
-- 🦾 automatic configuration of your environment variables for what you have installed on your system
-- 📦 automatic installation and updating of your specified packages
-- 🌳 automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
-- ☄️ hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
-- ⚙️ completely extensible and configurable with your own user repository
-- 🦸‍♀️ all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
+-   🐚 seamless support for [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>), [Nu](https://www.nushell.sh), [Xonsh](https://xon.sh), [Elvish](https://elv.sh), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell)
+-   🩻 seamless support for multiple operating systems and architectures
+-   👩‍💻 seamless support for your favorite terminal and GUI editors
+-   🦾 automatic configuration of your environment variables for what you have installed on your system
+-   📦 automatic installation and updating of your specified packages
+-   🌳 automatic Git, SSH, and GPG configuration based on what your system supports and your configuration
+-   ☄️ hundreds of [commands](https://github.com/bevry/dorothy/tree/master/commands) to improve your productivity
+-   ⚙️ completely extensible and configurable with your own user repository
+-   🦸‍♀️ all this together, allows you to go from zero to hero within minutes, instead of days, on a brand new machine
 
 ## Introduction
 
@@ -160,9 +160,9 @@ xbps-install --sync bash curl
 
 Now that the prerequisites are installed, Dorothy's intelligent dependency management will be enabled, so you can skip this section. Dorothy's complete requisites for its core experience are as follows:
 
-- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
-- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
-- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
+-   [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
+-   [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
+-   [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
 
 If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p ~/.local/bin`, move the binary there with `mv <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
@@ -220,9 +220,9 @@ If packages are failing to install, [go back to the "Prerequisites" section](htt
 
 If your shell doesn't recognize any of the Dorothy commands (you get a command not found error, or an undefined/unbound variable error), then it could be that:
 
-- Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md)
-- Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
-- Your login shell is not one of the Dorothy supported shells. [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
+-   Your shell is not running as a login shell. [Verify that your Terminal is running the shell as a login shell.](https://github.com/bevry/dorothy/blob/master/docs/dorothy/dorothy-not-loading.md)
+-   Dorothy did not configure itself for the shell you use. Re-run the Dorothy installation process, and be sure to configure Dorothy for your shell.
+-   Your login shell is not one of the Dorothy supported shells. [Create an issue requesting support for your shell.](https://github.com/bevry/dorothy/issues)
 
 If you see unrecognised symbols, you probably require fonts. Once Dorothy is loaded, run `setup-util-noto-emoji` which installs [Noto Emoji](https://github.com/googlefonts/noto-emoji), a font for enabling emojis inside your terminal. For rendering glyphs, run `setup-util-nerd-fonts` which will prompt you for which [Nerd Font](https://www.nerdfonts.com/font-downloads) to install. You may need to update your terminal preferences to leverage these installed fonts.
 
@@ -232,22 +232,22 @@ If you see unrecognised symbols, you probably require fonts. Once Dorothy is loa
 
 Dorothy installs itself to `$DOROTHY`, which defaults to the [XDG](https://wiki.archlinux.org/title/XDG_Base_Directory) location of `~/.local/share/dorothy`, and consists of the following:
 
-- [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands of super-stable quality, they are actively used within the Dorothy core and by the users of Dorothy.
-- [`commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) contains executable commands of beta quality, these are commands that require more usage or possible breaking changes before promotion to `commands`.
-- [`config` directory](https://github.com/bevry/dorothy/tree/master/config) contains default configuration
-- [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
-- [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `DOROTHY_THEME` environment variable
-- [`user` directory](https://github.com/balupton/dotfiles) is your own github repository for your custom configuration
+-   [`commands` directory](https://github.com/bevry/dorothy/tree/master/commands) contains executable commands of super-stable quality, they are actively used within the Dorothy core and by the users of Dorothy.
+-   [`commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) contains executable commands of beta quality, these are commands that require more usage or possible breaking changes before promotion to `commands`.
+-   [`config` directory](https://github.com/bevry/dorothy/tree/master/config) contains default configuration
+-   [`sources` directory](https://github.com/bevry/dorothy/tree/master/sources) contains scripts that are loaded into the shell environment
+-   [`themes` directory](https://github.com/bevry/dorothy/tree/master/themes) contains themes that you can select via the `DOROTHY_THEME` environment variable
+-   [`user` directory](https://github.com/balupton/dotfiles) is your own github repository for your custom configuration
 
 For each shell that you configured during the Dorothy installation (can be reconfigured via the `dorothy install` command), the configured shell performs the following steps when you open a new shell instance via your terminal:
 
 1.  The shell loads Dorothy's initialization script:
 
-    - [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
-    - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
-    - [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
-    - [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
-    - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+    -   [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
+    -   [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
+    -   [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
+    -   [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
+    -   POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
 
 1.  The initialization script will:
 
@@ -279,10 +279,10 @@ This is the foundation that enables Dorothy's hundreds of commands to work acros
 
 Your user configuration goes to the XDG location of `~/.local/config/dorothy` which Dorothy symlinks to `~/.local/share/dorothy/user`, your user configuration consists of the following:
 
-- `commands` directory, for public commands
-- `commands.local` directory, for private commands (git ignored by default)
-- `config` directory, for public configuration
-- `config.local` directory, for private configuration (git ignored by default)
+-   `commands` directory, for public commands
+-   `commands.local` directory, for private commands (git ignored by default)
+-   `config` directory, for public configuration
+-   `config.local` directory, for private configuration (git ignored by default)
 
 The order of preference within Dorothy is `(commands|config).local` first, then `(commands|config)`, then Dorothy's own `(commands|config)` then everything else.
 
@@ -292,67 +292,67 @@ You can find the various configuration files that are available to you by browsi
 
 Use these sources to find inspiration for your own user commands and configuration.
 
-- [Dorothy's `commands` directory](https://github.com/bevry/dorothy/tree/master/commands) for super-stable commands with up to date conventions.
-- [Dorothy's `commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) for beta-quality commands with possibly outdated conventions.
-- [Dorothy's `docs` directory](https://github.com/bevry/dorothy/tree/master/docs) containing tips and tricks for Dorothy, and various shells, such as [enabling private user configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/private-configuration.md), and the [manual to assisted](https://github.com/bevry/dorothy/blob/master/docs/dorothy/manual-to-assisted.md) philosophy of Dorothy
-- Dorothy User Configurations:
-    - [@balupton](https://github.com/balupton) / [dotfiles](https://github.com/balupton/dotfiles): uses Fish as login shell, plenty of Bash commands
-    - [@molleweide](https://github.com/molleweide) / [dotfiles](https://github.com/molleweide/dotfiles): uses Zsh as login shell, plenty of Bash commands, kmonad user
-    - [@jondpenton](https://github.com/jondpenton) / [dotfiles](https://github.com/jondpenton/dotfiles): uses Nu as login shell, plenty of Nu commands
-    - [See more Dorothy User Configurations](https://github.com/stars/balupton/lists/dorothy-user-configurations)
-    - To feature your own Dorothy User Configuration, send a pull request.
+-   [Dorothy's `commands` directory](https://github.com/bevry/dorothy/tree/master/commands) for super-stable commands with up to date conventions.
+-   [Dorothy's `commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) for beta-quality commands with possibly outdated conventions.
+-   [Dorothy's `docs` directory](https://github.com/bevry/dorothy/tree/master/docs) containing tips and tricks for Dorothy, and various shells, such as [enabling private user configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/private-configuration.md), and the [manual to assisted](https://github.com/bevry/dorothy/blob/master/docs/dorothy/manual-to-assisted.md) philosophy of Dorothy
+-   Dorothy User Configurations:
+    -   [@balupton](https://github.com/balupton) / [dotfiles](https://github.com/balupton/dotfiles): uses Fish as login shell, plenty of Bash commands
+    -   [@molleweide](https://github.com/molleweide) / [dotfiles](https://github.com/molleweide/dotfiles): uses Zsh as login shell, plenty of Bash commands, kmonad user
+    -   [@jondpenton](https://github.com/jondpenton) / [dotfiles](https://github.com/jondpenton/dotfiles): uses Nu as login shell, plenty of Nu commands
+    -   [See more Dorothy User Configurations](https://github.com/stars/balupton/lists/dorothy-user-configurations)
+    -   To feature your own Dorothy User Configuration, send a pull request.
 
 After installing Dorothy, there will now a plethora of commands available to you. You can invoke any stable command with `--help` to learn more about it. The most prominent commands are noted below.
 
 Stable commands:
 
-- [`setup-system`](https://github.com/bevry/dorothy/tree/master/commands/setup-system)
+-   [`setup-system`](https://github.com/bevry/dorothy/tree/master/commands/setup-system)
 
-    - `setup-system install` correctly setup your system to your prompted preferences
-    - `setup-system update` correctly update your system to your existing preferences
+    -   `setup-system install` correctly setup your system to your prompted preferences
+    -   `setup-system update` correctly update your system to your existing preferences
 
     This is done via these commands:
 
-    - [`setup-linux`](https://github.com/bevry/dorothy/tree/master/commands/setup-linux) correctly setup your Linux system, and its various packaging systems, as desired
-    - [`setup-mac`](https://github.com/bevry/dorothy/tree/master/commands/setup-mac) correctly setup your macOS system, including its homebrew and Mac App Store installations, as desired
-    - [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin) correctly setup available CLI utilities from installed GUI Applications
-    - [`setup-git`](https://github.com/bevry/dorothy/tree/master/commands/setup-git) correctly setup Git on your system, including your profile, SSH, GPG, and 1Password configurations, as desired.
+    -   [`setup-linux`](https://github.com/bevry/dorothy/tree/master/commands/setup-linux) correctly setup your Linux system, and its various packaging systems, as desired
+    -   [`setup-mac`](https://github.com/bevry/dorothy/tree/master/commands/setup-mac) correctly setup your macOS system, including its homebrew and Mac App Store installations, as desired
+    -   [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin) correctly setup available CLI utilities from installed GUI Applications
+    -   [`setup-git`](https://github.com/bevry/dorothy/tree/master/commands/setup-git) correctly setup Git on your system, including your profile, SSH, GPG, and 1Password configurations, as desired.
 
         Related commands:
 
-        - [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
-        - [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
+        -   [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
+        -   [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
 
-    - [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go) correctly setup GoLang on your system if desired or if required for your desired packages
-    - [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node) correctly setup Node.js on your system if desired or if required for your desired packages
-    - [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python) correctly setup Python on your system if desired or if required for your desired packages
-    - [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby) correctly setup Ruby on your system if desired or if required for your desired packages
-    - [`setup-rust`](https://github.com/bevry/dorothy/tree/master/commands/setup-rust) correctly setup Rust on your system if desired or if required for your desired packages
-    - [`setup-utils`](https://github.com/bevry/dorothy/tree/master/commands/setup-utils) correctly setup your selected `setup-util-*` utilities as desired
+    -   [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go) correctly setup GoLang on your system if desired or if required for your desired packages
+    -   [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node) correctly setup Node.js on your system if desired or if required for your desired packages
+    -   [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python) correctly setup Python on your system if desired or if required for your desired packages
+    -   [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby) correctly setup Ruby on your system if desired or if required for your desired packages
+    -   [`setup-rust`](https://github.com/bevry/dorothy/tree/master/commands/setup-rust) correctly setup Rust on your system if desired or if required for your desired packages
+    -   [`setup-utils`](https://github.com/bevry/dorothy/tree/master/commands/setup-utils) correctly setup your selected `setup-util-*` utilities as desired
 
-- [`setup-util`](https://github.com/bevry/dorothy/tree/master/commands/setup-util) is an intelligent wrapper around every package system, allowing a cross-compatible way to install, upgrade, and uninstall utilities.
+-   [`setup-util`](https://github.com/bevry/dorothy/tree/master/commands/setup-util) is an intelligent wrapper around every package system, allowing a cross-compatible way to install, upgrade, and uninstall utilities.
 
     It is used by the hundreds of `setup-util-*` commands, which enable installing a utility as easy as invoking `setup-util-<utility>`
 
     If you don't know which command you need to call, you can use [`get-installer`](https://github.com/bevry/dorothy/tree/master/commands/get-installer) to get which command you will need to invoke to install a utility/binary/application.
 
-- [`setup-shell`](https://github.com/bevry/dorothy/tree/master/commands/setup-shell) correctly configure your desired shell to be your default shell.
+-   [`setup-shell`](https://github.com/bevry/dorothy/tree/master/commands/setup-shell) correctly configure your desired shell to be your default shell.
 
     By default, your terminal application will use the login shell configured for the system, as well as maintain a whitelist of available shells that can function as login shells.
 
-- [`edit`](https://github.com/bevry/dorothy/tree/master/commands/edit) quickly open a file in your preferred editor, respecting terminal, SSH, and desktop environments.
+-   [`edit`](https://github.com/bevry/dorothy/tree/master/commands/edit) quickly open a file in your preferred editor, respecting terminal, SSH, and desktop environments.
 
-- [`down`](https://github.com/bevry/dorothy/tree/master/commands/down) download a file with the best available utility on your computer.
+-   [`down`](https://github.com/bevry/dorothy/tree/master/commands/down) download a file with the best available utility on your computer.
 
-- [`github-download`](https://github.com/bevry/dorothy/tree/master/commands/github-download) download files from GitHub without the tedium.
+-   [`github-download`](https://github.com/bevry/dorothy/tree/master/commands/github-download) download files from GitHub without the tedium.
 
-- [`secret`](https://github.com/bevry/dorothy/tree/master/commands/secret) stops you from leaking your env secrets to the world when a malicious program sends your shell environment variables to a remote server. Instead, `secret` will use 1Password to securely expose your secrets to just the command that needs them. Specifically:
+-   [`secret`](https://github.com/bevry/dorothy/tree/master/commands/secret) stops you from leaking your env secrets to the world when a malicious program sends your shell environment variables to a remote server. Instead, `secret` will use 1Password to securely expose your secrets to just the command that needs them. Specifically:
 
-    - secrets are fetched directly from 1Password, with a short lived session
-    - secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
-    - secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
+    -   secrets are fetched directly from 1Password, with a short lived session
+    -   secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
+    -   secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
 
-- [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) correctly configures your systems DNS to your preferences
+-   [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) correctly configures your systems DNS to your preferences
 
     A large security concern these days of using the internet, is the leaking, and potential of modification of your DNS queries. A DNS query is what turns `google.com` to say `172.217.167.110`. With un-encrypted DNS (the default), your ISP, or say that public Wifi provider, can intercept these queries to find out what websites you are visiting, and they can even rewrite these queries, to direct you elsewhere. This is how many public Wifi providers offer their service for free, by selling the data they collect on you, or worse.
 
@@ -360,68 +360,68 @@ Stable commands:
 
     Dorothy supports configuring your DNS to encrypted DNS via the [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) command, which includes installation and configuration for any of these:
 
-    - AdGuard Home
-    - Cloudflared
-    - DNSCrypt
+    -   AdGuard Home
+    -   Cloudflared
+    -   DNSCrypt
 
     Related commands:
 
-    - [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
-    - [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
+    -   [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
+    -   [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
 
-- [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, and safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
+-   [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, and safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
 
     Related commands:
 
-    - [`get-devices`](https://github.com/bevry/dorothy/tree/master/commands/get-devices) cross-platform fetching and filtering of select and complete device information
-    - [`gocryptfs-helper`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) helpers for [GoCryptFS](https://github.com/rfjakob/gocryptfs)
-    - [`what-is-using`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) find out what is using a path so that you can unmount it safely
+    -   [`get-devices`](https://github.com/bevry/dorothy/tree/master/commands/get-devices) cross-platform fetching and filtering of select and complete device information
+    -   [`gocryptfs-helper`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) helpers for [GoCryptFS](https://github.com/rfjakob/gocryptfs)
+    -   [`what-is-using`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) find out what is using a path so that you can unmount it safely
 
-- Dorothy also provides commands for writing commands, such as:
+-   Dorothy also provides commands for writing commands, such as:
 
-    - [`bash.bash`](https://github.com/bevry/dorothy/tree/master/sourcces/bash.bash) for a Bash strict mode that actually works, and various shims/polyfills
-    - [`ask`](https://github.com/bevry/dorothy/tree/master/commands/ask), [`confirm`](https://github.com/bevry/dorothy/tree/master/commands/confirm), and [`choose`](https://github.com/bevry/dorothy/tree/master/commands/choose) for prompting the user for input
-    - [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
-    - Dozens of `echo-*`, `fs-*`, `get-*`, and `is-*` helpers
+    -   [`bash.bash`](https://github.com/bevry/dorothy/tree/master/sourcces/bash.bash) for a Bash strict mode that actually works, and various shims/polyfills
+    -   [`ask`](https://github.com/bevry/dorothy/tree/master/commands/ask), [`confirm`](https://github.com/bevry/dorothy/tree/master/commands/confirm), and [`choose`](https://github.com/bevry/dorothy/tree/master/commands/choose) for prompting the user for input
+    -   [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
+    -   Dozens of `echo-*`, `fs-*`, `get-*`, and `is-*` helpers
 
 Beta commands:
 
-- [`mail-sync`](https://github.com/bevry/dorothy/tree/master/commands.beta/mail-sync) helps you migrate all your emails from one cloud provider to another.
+-   [`mail-sync`](https://github.com/bevry/dorothy/tree/master/commands.beta/mail-sync) helps you migrate all your emails from one cloud provider to another.
 
 ### macOS
 
 Stable commands:
 
-- [`alias-helper`](https://github.com/bevry/dorothy/tree/master/commands/alias-helper) helps you manage your macOS aliases, and if desired, convert them into symlinks.
-- [`macos-drive`](https://github.com/bevry/dorothy/tree/master/commands/macos-drive) helps you turn a macOS installer into a bootable USB drive.
-- [`macos-installer`](https://github.com/bevry/dorothy/tree/master/commands/macos-installer) fetches the latest macOS installer.
-- [`sparse-vault`](https://github.com/bevry/dorothy/tree/master/commands/sparse-vault) lets you easily, and for free, create secure encrypted password-protected vaults on your mac, for securing those super secret data.
+-   [`alias-helper`](https://github.com/bevry/dorothy/tree/master/commands/alias-helper) helps you manage your macOS aliases, and if desired, convert them into symlinks.
+-   [`macos-drive`](https://github.com/bevry/dorothy/tree/master/commands/macos-drive) helps you turn a macOS installer into a bootable USB drive.
+-   [`macos-installer`](https://github.com/bevry/dorothy/tree/master/commands/macos-installer) fetches the latest macOS installer.
+-   [`sparse-vault`](https://github.com/bevry/dorothy/tree/master/commands/sparse-vault) lets you easily, and for free, create secure encrypted password-protected vaults on your mac, for securing those super secret data.
 
 Beta commands:
 
-- [`eject-all`](https://github.com/bevry/dorothy/tree/master/commands.beta/eject-all) eject all removable drives safely.
-- [`icloud-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/icloud-helper) can free up space for time machine by evicting local iCloud caches.
-- [`itunes-owners`](https://github.com/bevry/dorothy/tree/master/commands.beta/itunes-owners) generates a table of who legally owns what inside your iTunes Media Library — which is useful for debugging certain iTunes Store authorization issues, which can occur upon backup restorations.
-- [`macos-settings`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-settings) helps configure macOS to your preferred system preferences.
-- [`macos-state`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-state) helps you backup and restore your various application and system preferences, from time machine backups, local directories, and sftp locations. This makes setting up clean installs easy, as even the configuration is automated. And it also helps you never forget an important file, like your env secrets ever again.
-- [`macos-theme`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-theme) helps you change your macOS theme to your preference, including your wallpaper and editor.
-- [`tmutil-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/tmutil-helper) can free up space for bootcamp by evicting local Time Machine caches.
+-   [`eject-all`](https://github.com/bevry/dorothy/tree/master/commands.beta/eject-all) eject all removable drives safely.
+-   [`icloud-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/icloud-helper) can free up space for time machine by evicting local iCloud caches.
+-   [`itunes-owners`](https://github.com/bevry/dorothy/tree/master/commands.beta/itunes-owners) generates a table of who legally owns what inside your iTunes Media Library — which is useful for debugging certain iTunes Store authorization issues, which can occur upon backup restorations.
+-   [`macos-settings`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-settings) helps configure macOS to your preferred system preferences.
+-   [`macos-state`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-state) helps you backup and restore your various application and system preferences, from time machine backups, local directories, and sftp locations. This makes setting up clean installs easy, as even the configuration is automated. And it also helps you never forget an important file, like your env secrets ever again.
+-   [`macos-theme`](https://github.com/bevry/dorothy/tree/master/commands.beta/macos-theme) helps you change your macOS theme to your preference, including your wallpaper and editor.
+-   [`tmutil-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/tmutil-helper) can free up space for bootcamp by evicting local Time Machine caches.
 
 ### media
 
 Beta commands:
 
-- [`convert-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/convert-helper) convert one media format to another
-- [`get-codec`](https://github.com/bevry/dorothy/tree/master/commands.beta/get-codec) gets the codec of a media file
-- [`is-audio-mono`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-mono) checks if an audio file is mono
-- [`is-audio-stereo`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-stereo) checks if an audio file is stereo
-- [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-decrypt) will mass decrypt encrypted PDFs.
-- [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-encrypt) decrypts a PDF file
-- [`svg-export`](https://github.com/bevry/dorothy/tree/master/commands.beta/svg-export) converts an SVG image into a desired image format
-- [`video-merge`](https://github.com/bevry/dorothy/tree/master/commands.beta/video-merge) will merge multiple video files in a directory together into a single video file.
-- [`wallhaven-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/wallhaven-helper) download your wallpaper collections from [Wallhaven](https://wallhaven.cc)
-- [`xps2pdf`](https://github.com/bevry/dorothy/tree/master/commands.beta/xps2pdf) will convert a legacy XPS document into a modern PDF document.
-- [`ytd-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/ytd-helper) helps you download videos from the internet with simplified options.
+-   [`convert-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/convert-helper) convert one media format to another
+-   [`get-codec`](https://github.com/bevry/dorothy/tree/master/commands.beta/get-codec) gets the codec of a media file
+-   [`is-audio-mono`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-mono) checks if an audio file is mono
+-   [`is-audio-stereo`](https://github.com/bevry/dorothy/tree/master/commands.beta/is-audio-stereo) checks if an audio file is stereo
+-   [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-decrypt) will mass decrypt encrypted PDFs.
+-   [`pdf-decrypt`](https://github.com/bevry/dorothy/tree/master/commands.beta/pdf-encrypt) decrypts a PDF file
+-   [`svg-export`](https://github.com/bevry/dorothy/tree/master/commands.beta/svg-export) converts an SVG image into a desired image format
+-   [`video-merge`](https://github.com/bevry/dorothy/tree/master/commands.beta/video-merge) will merge multiple video files in a directory together into a single video file.
+-   [`wallhaven-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/wallhaven-helper) download your wallpaper collections from [Wallhaven](https://wallhaven.cc)
+-   [`xps2pdf`](https://github.com/bevry/dorothy/tree/master/commands.beta/xps2pdf) will convert a legacy XPS document into a modern PDF document.
+-   [`ytd-helper`](https://github.com/bevry/dorothy/tree/master/commands.beta/ytd-helper) helps you download videos from the internet with simplified options.
 
 ## Community
 
@@ -437,20 +437,20 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 #### Authors
 
-- [Benjamin Lupton](https://balupton.com) — Accelerating collaborative wisdom.
+-   [Benjamin Lupton](https://balupton.com) — Accelerating collaborative wisdom.
 
 #### Maintainers
 
-- [Benjamin Lupton](https://balupton.com) — Accelerating collaborative wisdom.
+-   [Benjamin Lupton](https://balupton.com) — Accelerating collaborative wisdom.
 
 #### Contributors
 
-- [Benjamin Lupton](https://github.com/balupton) — [view contributions](https://github.com/bevry/dorothy/commits?author=balupton 'View the GitHub contributions of Benjamin Lupton on repository bevry/dorothy')
-- [Bevry Team](https://github.com/BevryMe) — [view contributions](https://github.com/bevry/dorothy/commits?author=BevryMe 'View the GitHub contributions of Bevry Team on repository bevry/dorothy')
-- [BJReplay](https://github.com/BJReplay) — [view contributions](https://github.com/bevry/dorothy/commits?author=BJReplay 'View the GitHub contributions of BJReplay on repository bevry/dorothy')
-- [molleweide](https://github.com/molleweide) — [view contributions](https://github.com/bevry/dorothy/commits?author=molleweide 'View the GitHub contributions of molleweide on repository bevry/dorothy')
-- [Nutchanon Ninyawee](https://github.com/wasdee) — [view contributions](https://github.com/bevry/dorothy/commits?author=wasdee 'View the GitHub contributions of Nutchanon Ninyawee on repository bevry/dorothy')
-- [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai 'View the GitHub contributions of Sumit Rai on repository bevry/dorothy')
+-   [Benjamin Lupton](https://github.com/balupton) — [view contributions](https://github.com/bevry/dorothy/commits?author=balupton 'View the GitHub contributions of Benjamin Lupton on repository bevry/dorothy')
+-   [Bevry Team](https://github.com/BevryMe) — [view contributions](https://github.com/bevry/dorothy/commits?author=BevryMe 'View the GitHub contributions of Bevry Team on repository bevry/dorothy')
+-   [BJReplay](https://github.com/BJReplay) — [view contributions](https://github.com/bevry/dorothy/commits?author=BJReplay 'View the GitHub contributions of BJReplay on repository bevry/dorothy')
+-   [molleweide](https://github.com/molleweide) — [view contributions](https://github.com/bevry/dorothy/commits?author=molleweide 'View the GitHub contributions of molleweide on repository bevry/dorothy')
+-   [Nutchanon Ninyawee](https://github.com/wasdee) — [view contributions](https://github.com/bevry/dorothy/commits?author=wasdee 'View the GitHub contributions of Nutchanon Ninyawee on repository bevry/dorothy')
+-   [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai 'View the GitHub contributions of Sumit Rai on repository bevry/dorothy')
 
 ### Finances
 
@@ -464,31 +464,31 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 #### Sponsors
 
-- [Andrew Nesbitt](https://nesbitt.io) — Software engineer and researcher
-- [Codecov](https://codecov.io) — Empower developers with tools to improve code quality and testing.
-- [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
-- [Poonacha Medappa](https://poonachamedappa.com)
-- [Rob Morris](https://github.com/Rob-Morris)
-- [Sentry](https://sentry.io) — Real-time crash reporting for your web apps, mobile apps, and games.
-- [Syntax](https://syntax.fm) — Syntax Podcast
+-   [Andrew Nesbitt](https://nesbitt.io) — Software engineer and researcher
+-   [Codecov](https://codecov.io) — Empower developers with tools to improve code quality and testing.
+-   [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
+-   [Poonacha Medappa](https://poonachamedappa.com)
+-   [Rob Morris](https://github.com/Rob-Morris)
+-   [Sentry](https://sentry.io) — Real-time crash reporting for your web apps, mobile apps, and games.
+-   [Syntax](https://syntax.fm) — Syntax Podcast
 
 #### Donors
 
-- [Andrew Nesbitt](https://nesbitt.io)
-- [Balsa](https://balsa.com)
-- [Chad](https://opencollective.com/chad8)
-- [Codecov](https://codecov.io)
-- [entroniq](https://gitlab.com/entroniq)
-- [Frontend Masters](https://FrontendMasters.com)
-- [Jean-Luc Geering](https://github.com/jlgeering)
-- [Michael Duane Mooring](https://mdm.cc)
-- [Mohammed Shah](https://github.com/smashah)
-- [Mr. Henry](https://mrhenry.be)
-- [Poonacha Medappa](https://poonachamedappa.com)
-- [Rob Morris](https://github.com/Rob-Morris)
-- [Sentry](https://sentry.io)
-- [ServieJS](https://github.com/serviejs)
-- [Syntax](https://syntax.fm)
+-   [Andrew Nesbitt](https://nesbitt.io)
+-   [Balsa](https://balsa.com)
+-   [Chad](https://opencollective.com/chad8)
+-   [Codecov](https://codecov.io)
+-   [entroniq](https://gitlab.com/entroniq)
+-   [Frontend Masters](https://FrontendMasters.com)
+-   [Jean-Luc Geering](https://github.com/jlgeering)
+-   [Michael Duane Mooring](https://mdm.cc)
+-   [Mohammed Shah](https://github.com/smashah)
+-   [Mr. Henry](https://mrhenry.be)
+-   [Poonacha Medappa](https://poonachamedappa.com)
+-   [Rob Morris](https://github.com/Rob-Morris)
+-   [Sentry](https://sentry.io)
+-   [ServieJS](https://github.com/serviejs)
+-   [Syntax](https://syntax.fm)
 
 <!-- /BACKERS -->
 
@@ -498,10 +498,10 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 Unless stated otherwise all works are:
 
-- Copyright &copy; [Benjamin Lupton](https://balupton.com)
+-   Copyright &copy; [Benjamin Lupton](https://balupton.com)
 
 and licensed under:
 
-- [Reciprocal Public License 1.5](http://spdx.org/licenses/RPL-1.5.html)
+-   [Reciprocal Public License 1.5](http://spdx.org/licenses/RPL-1.5.html)
 
 <!-- /LICENSE -->
