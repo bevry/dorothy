@@ -201,15 +201,11 @@ require_globstar
 
 ## Conditionals
 
-### Prefer `test`
+### Use `[[` with bash, `[` with sh, instead of `test`
 
-Always use `test ...` instead of `[` or `[[` unless doing bash special comparisons such as `[[ "$var" = *suffix ]]`.
+Avoid `test` at all costs, as `test -n "$a" -a "$b" = "$c"` fails when `a='>'`, which Dorothy encountered in practice with it's `echo-*` commands.
 
-`test` is easy to get help for `help test`, and works consistently across shells for the vast majority of cases.
-
-### Use `=`, not `==`
-
-Always use a single `=`, as `==` does not matter.
+If you are needing to do a privileged invocation of such a comparison, move the comparison into its own file and execute the file instead.
 
 ### Use `if`, not magic
 
