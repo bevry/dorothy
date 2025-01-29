@@ -132,22 +132,15 @@ echo-verbose "$a"
 
 ## Interpolation
 
-Prefer `$var` rather than `${var}` to interpolate variables, unless doing so would otherwise complicate matters.
+Prefer `$var` rather than `${var}` for simple interpolations, for advanced interpolations it is up to you.
 
 ```bash
-# don't
+# recommended
 local indent='  ' world='Earth'
-echo "${indent}Hello, ${world}."
-cat <<-EOF
-Hello, ${world}.
-EOF
-
-# do
-local indent='  ' world='Earth'
-echo "${indent}Hello, $world."
-cat <<-EOF
-${indent}Hello, $world.
-EOF
+echo "$world" # good
+echo "${world}" # bad, unnecessary complexity
+echo "${indent}Hello, $world." # fine
+echo "${indent}Hello, ${world}." # also fine
 ```
 
 Always use `"$HOME"` instead of `~`, as `~` doesn't work if it is inside a string, which becomes a common mistake when refactoring.
@@ -176,7 +169,8 @@ echo $"hello\n$name"
 # which is is still not desire
 
 # so let's use this, which is the right technique for the right bits
-echo 'hello'$'\n'"$name"
+echo 'hello'$'\n'"$name" # fine
+echo $'hello\n'"$name" # also fine
 # which outputs:
 # hello
 # dorothy
