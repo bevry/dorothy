@@ -17,7 +17,25 @@ function is_needle_test() (
 	eval-tester --status=22 --ignore-stderr \
 		-- is-needle -- a b c
 
-	# capture what [test " ${items[*]} " =~ " $item "] cannot
+	eval-tester --status=22 --ignore-stderr \
+		-- is-needle a b -- a b c
+
+	eval-tester --status=22 --ignore-stderr \
+		-- is-needle a b --
+
+	eval-tester --status=22 --ignore-stderr \
+		-- is-needle a b
+
+	eval-tester --status=1 \
+		-- is-needle a --
+
+	eval-tester --status=1 \
+		-- is-needle --any a b --
+
+	eval-tester --status=1 \
+		-- is-needle --all a b --
+
+	# capture what [[ " ${items[*]} " =~ " $item " ]] cannot
 	eval-tester --status=1 \
 		-- is-needle b -- a 'b b b'
 
@@ -25,19 +43,40 @@ function is_needle_test() (
 		-- is-needle c -- a 'b b b'
 
 	eval-tester --status=1 \
-		-- is-needle b c -- a 'b b b'
-
-	eval-tester --status=0 \
-		-- is-needle a 'b b b' -- a 'b b b'
-
-	eval-tester --status=0 \
-		-- is-needle --needle=a --needle='b b b' -- a 'b b b'
-
-	eval-tester --status=0 \
-		-- is-needle a a -- a 'b b b'
+		-- is-needle --any b c -- a 'b b b'
 
 	eval-tester --status=1 \
-		-- is-needle a --
+		-- is-needle --all b c -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --any a 'b b b' -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --all a 'b b b' -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --any --needle=a --needle='b b b' -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --all --needle=a --needle='b b b' -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --any a a -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --all a a -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --any a c -- a 'b b b'
+
+	eval-tester --status=1 \
+		-- is-needle --all a c -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --any a c -- a 'b b b'
+
+	eval-tester \
+		-- is-needle --all --ignore-case a C -- A 'b b b' c
 
 	echo-style --g1="TEST: $0"
 	return 0
@@ -52,81 +91,127 @@ function is_needle() (
 		cat <<-EOF >/dev/stderr
 			ABOUT:
 			Check if the <needle> exists within the <element>s
+			Equivalent to a [is-either], [is-neither].
 
 			USAGE:
-			is-needle  [...options] <needle> [--] ...<element>
+			is-needle  [...options] <needle> -- ...<element>
 
 			OPTIONS:
+			--all | --any
+			    Required if multiple needles are provided: which technique to use for comparisons.
+
+			--ignore-case
+			    If provided, ignore case when comparing needle to elements.
+
 			--needle=<needle> | <needle>
 			    Verify this <needle> exists within the <element>s
 			    Note that you should always use [--needle=<needle>] as just doing <needle> will fail if the <needle> looks like a flag.
 
 			RETURNS:
-			[0] if all <needle>s were found within the <element>s
-			[1] if any <needle> was not found
+			[0] if the <needle> is found within the <element>s
+			[1] if the <needle> is not found
 		EOF
-		if test "$#" -ne 0; then
+		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process our arguments
-	local item option_needles=() option_elements=()
-	while test "$#" -ne 0; do
+	local item option_all_or_any='' option_ignore_case='no' option_needles=() option_elements=() defined_needles='no'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--needle='*) option_needles+=("${item#*=}") ;;
+		'--all')
+			option_all_or_any='all'
+			;;
+		'--any')
+			option_all_or_any='any'
+			;;
+		'--no-ignore-case'* | '--ignore-case'*)
+			option_ignore_case="$(get-flag-value --affirmative --fallback="$option_ignore_case" -- "$item")"
+			;;
 		--)
+			defined_needles='yes'
 			option_elements+=("$@")
 			shift $#
 			;;
-		# don't check for invalid flags, as flags could be a needle
-		*)
-			if test "${#option_needles[@]}" -eq 0; then
-				option_needles+=("$item")
-			else
-				option_elements+=("$item" "$@")
-				shift "$#"
-				break
-			fi
-			;;
+		# enforce needle flag for items that look like flags
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_needles+=("$item") ;;
 		esac
 	done
 
-	# check
-	if test "${#option_needles[@]}" -eq 0; then
+	# checks
+	if [[ ${#option_needles[@]} -eq 0 ]]; then
 		help 'No <needle>s was provided.'
+	fi
+	if [[ $defined_needles == 'no' ]]; then
+		help 'The -- flag was not provided to separate <needle>s from <element>s, even if there are no <element>s it is required.'
+	fi
+	if [[ ${#option_needles[@]} -gt 1 && -z $option_all_or_any ]]; then
+		help 'Multiple <needle>s were provided, but no --all or --any flag was provided.'
+	fi
+	if [[ ${#option_elements[@]} -eq 0 ]]; then
+		return 1
 	fi
 
 	# =====================================
 	# Action
 
-	# checks
-	if test "${#option_needles[@]}" -eq 0; then
-		return 0
-	fi
-	if test "${#option_elements[@]}" -eq 0; then
-		return 1
+	# if ignore case, convert them to lowercase
+	local index
+	if [[ $option_ignore_case == 'yes' ]]; then
+		for index in "${!option_needles[@]}"; do
+			item="$(__lowercase_string -- "${option_needles[index]}")"
+			option_needles[index]="$item"
+		done
+		for index in "${!option_elements[@]}"; do
+			item="$(__lowercase_string -- "${option_elements[index]}")"
+			option_elements[index]="$item"
+		done
 	fi
 
 	# process
 	local needle element found='no'
-	for needle in "${option_needles[@]}"; do
-		found='no'
+	if [[ $option_all_or_any == 'all' ]]; then
+		for needle in "${option_needles[@]}"; do
+			found='no'
+			for element in "${option_elements[@]}"; do
+				if [[ $needle == "$element" ]]; then
+					found='yes'
+					break
+				fi
+			done
+			if [[ $found == 'no' ]]; then
+				break
+			fi
+		done
+	elif [[ $option_all_or_any == 'any' ]]; then
+		for needle in "${option_needles[@]}"; do
+			for element in "${option_elements[@]}"; do
+				if [[ $needle == "$element" ]]; then
+					found='yes'
+					break
+				fi
+			done
+			if [[ $found == 'yes' ]]; then
+				break
+			fi
+		done
+	else
+		needle="${option_needles[0]}"
 		for element in "${option_elements[@]}"; do
-			if test "$needle" = "$element"; then
+			if [[ $needle == "$element" ]]; then
 				found='yes'
 				break
 			fi
 		done
-		if test "$found" = 'no'; then
-			break
-		fi
-	done
-	if test "$found" = 'yes'; then
+	fi
+	if [[ $found == 'yes' ]]; then
 		return 0
 	else
 		return 1
@@ -134,8 +219,8 @@ function is_needle() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	if test "$*" = '--test'; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
 		is_needle_test
 	else
 		is_needle "$@"

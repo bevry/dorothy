@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# sudo a command helpering environment and path
-# https://stackoverflow.com/q/257616/130638
-
 function sudo_helper() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$(type -P eval-helper)" # enable eval_helper
@@ -13,7 +10,7 @@ function sudo_helper() (
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Run a command as root, be it via sudo or doas, or neither if not needed.
+			Run the command with escalation to root, be it via sudo or doas, or neither if not needed.
 
 			USAGE:
 			sudo-helper [...options] -- <command> [...args]
@@ -21,28 +18,33 @@ function sudo_helper() (
 
 			OPTIONS:
 			--reason=<reason>
-			    if a prompt is required for your sudo/root/login password, this reason will be used to explain why sudo was required.
+			    If a prompt is required for your sudo/root/login password, this reason will be used to explain why escalation was required.
 
+			--sudo=<YES|no|''|failure|<exit-status>>
+			    If specified as yes, the default, then the command will be escalated to root.
+			    If specified as no or empty string, then the command will be run without escalation.
+			    If specified as failure, then the command will be run without escalation, and if it fails, it will be run with escalation.
+			    If specified as an integer, then the command will be run without escalation, and if it fails with that exit status, it will be run with escalation.
 			--user=<user>
-			    specify a user to run the command as
+			    Specify a user to run the command as. Forces --sudo=yes
 			--group=<group>
-			    specify a group to run the command as
+			    Specify a group to run the command as. Forces --sudo=yes
 
 			--inherit
-			    if enabled, inherit environment variables include PATH.
+			    If enabled, inherit environment variables include PATH.
 
 			--wrap
-			    if enabled, [eval-helper] will be used to wrap the output of the command
+			    If enabled, [eval-helper] will be used to wrap the output of the command
 			--quiet
-			    if enabled, [eval-helper] will be used to silence the output of the command
+			    If enabled, [eval-helper] will be used to silence the output of the command
 			--confirm
-			    if enabled, [eval-helper] will be used to confirm the execution of the command
+			    If enabled, [eval-helper] will be used to confirm the execution of the command
 
 			--local
-			    update sudo configuration to enable access to /usr/local variables
+			    Update sudo configuration to enable access to /usr/local paths
 
 		EOF
-		if test "$#" -ne 0; then
+		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
@@ -50,8 +52,8 @@ function sudo_helper() (
 
 	# process
 	# option_quiet='no' is an important default to ensure our call to eval-helper can still be interpolated
-	local item option_cmd=() option_quiet='no' option_reason='' option_user='' option_group='' option_confirm='no' option_wrap='no' option_inherit='no' option_local=''
-	while test "$#" -ne 0; do
+	local item option_cmd=() option_quiet='no' option_reason='' option_user='' option_group='' option_sudo='yes' option_confirm='no' option_wrap='no' option_inherit='no' option_local=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
@@ -63,6 +65,9 @@ function sudo_helper() (
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
 		'--reason='*) option_reason="${item#*=}" ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
 		'--no-inherit'* | '--inherit'*)
@@ -88,17 +93,14 @@ function sudo_helper() (
 	done
 
 	# local
-	if test -n "$option_local"; then
-		# dependencies
-		setup-util-sd --quiet
-
+	if [[ -n $option_local ]]; then
 		# trim problematic paths
 		local system_paths sudoers_line cron_system_line cron_user_line ignore_args=(
 			# these are not needed for [dorothy run] to bootstrap itself
 			--regexp="$HOME"
 			--regexp='/Applications/'
 		)
-		if test -n "${HOMEBREW_PREFIX-}"; then
+		if [[ -n ${HOMEBREW_PREFIX-} ]]; then
 			# these are not needed for [dorothy run] to bootstrap itself
 			# and they confuse cron as it thinks they have minutes due to version numbers
 			ignore_args+=(
@@ -125,8 +127,15 @@ function sudo_helper() (
 	fi
 
 	# check
-	if test "${#option_cmd[@]}" -eq 0; then
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
 		help 'No <command> was provided.'
+	fi
+
+	# ensure sudo is a valid value
+	if [[ -n $option_user || -n $option_user ]]; then
+		option_sudo='yes'
+	elif [[ -z $option_sudo ]]; then
+		option_sudo='no'
 	fi
 
 	# =====================================
@@ -144,38 +153,77 @@ function sudo_helper() (
 	# -i, --login
 	#    Run the shell specified by the target user's password database entry as a login shell.
 
-	local run=() home=''
-	if __command_exists -- sudo; then
-		run+=('sudo')
+	local command_style='code'
+	function __wrap {
+		if [[ $option_wrap == 'yes' || $option_confirm == 'yes' || $option_quiet == 'yes' ]]; then
+			eval-helper --command="$(echo-style --"$command_style"="$(echo-escape-command -- "${option_cmd[@]}")")" --wrap="$option_wrap" --quiet="$option_quiet" --confirm="$option_confirm" -- "$@"
+			return
+		else
+			"$@" # eval
+			return
+		fi
+	}
 
-		if test -n "$option_user"; then
-			run+=("--user=$option_user")
+	# determine technique
+	local technique
+	if __command_exists -- sudo; then
+		technique='sudo'
+	elif __command_exists -- doas; then
+		technique='doas'
+	else
+		technique='none'
+	fi
+
+	# try without sudo
+	if [[ $option_sudo == 'no' || $technique == 'none' ]]; then
+		__wrap "${option_cmd[@]}"
+		return
+	elif [[ $option_sudo == 'failure' ]]; then
+		if __wrap "${option_cmd[@]}"; then
+			return 0
+		fi
+	elif is-integer -- "$option_sudo"; then
+		local status=0
+		__wrap "${option_cmd[@]}" || status=$?
+		if [[ $status -eq 0 || $status -ne $option_sudo ]]; then
+			return "$status"
+		fi
+	fi
+
+	# prep sudo execution
+	command_style='sudo'
+	local sudo_cmd=() home=''
+	if [[ $technique == 'sudo' ]]; then
+		sudo_cmd+=('sudo')
+		# don't use is-directory, is-missing, __sudo_mkdirp, as they will cause infinite recursion
+		if [[ -n $option_user ]]; then
+			sudo_cmd+=("--user=$option_user")
 			# should coincide with setup-environment-commands
-			if test -d /Users; then
+			if [[ -d /Users ]]; then
 				home="/Users/$option_user"
-			elif test -d '/home'; then
+			elif [[ -d '/home' ]]; then
 				home="/home/$option_user"
-			elif test -d "/$option_user"; then
+			elif [[ -d "/$option_user" ]]; then
 				HOME="/$option_user"
 			fi
-		elif test -n "$HOME"; then
+		elif [[ -n $HOME ]]; then
 			home="$HOME"
 		fi
 
-		if test -n "$option_group"; then
-			run+=("--group=$option_group")
+		if [[ -n $option_group ]]; then
+			sudo_cmd+=("--group=$option_group")
 		fi
 
-		if test -n "$home"; then
-			if is-missing -- "$home"; then
-				sudo mkdir -p "$home" # don't use __sudo_mkdirp as that will forever recurse
+		if [[ -n $home ]]; then
+			if [[ ! -e $home && ! -L $home ]]; then
+				sudo mkdir -p "$home"
 				fs-own --quiet --user="$option_user" --group="$option_group" -- "$home"
 			fi
-			run+=('--set-home')
+			sudo_cmd+=('--set-home')
 		fi
 
-		if test "$option_inherit" = 'yes'; then
-			run+=(
+		if [[ $option_inherit == 'yes' ]]; then
+			sudo_cmd+=(
 				'--preserve-env'
 				'env'
 				"PATH=$PATH"
@@ -186,55 +234,43 @@ function sudo_helper() (
 		# [sudo --validate] doesn't work on multipass, so just use [true] as a no-op
 		if ! sudo --non-interactive true &>/dev/null; then
 			# password is required, let the user know what they are being prompted for
-			# [--code=*] better than [echo-style --element/="$(echo-escape-command -- "${run[@]}" | echo-join ' ' --stdin)"] as that is too verbose
+			# [--code=*] better than [echo-style --element/="$(echo-escape-command -- "${sudo_cmd[@]}" | echo-join ' ' --stdin)"] as that is too verbose
 			# use [--tty] to ensure the prompt is not hidden when otherwise hiding sudo output, such as in [command-working]
 			# while it would be nice to clear lines, we cannot know how many lines to clear as they could require multiple attempts to enter the password
-			if test -n "$option_reason"; then
+			if [[ -n $option_reason ]]; then
 				echo-style --tty --notice="$option_reason"
 			else
 				echo-style --tty --notice='Your sudo/root/login password is required to execute the command:'
 			fi
 			option_wrap='yes'
 		fi
-
-		run+=("${option_cmd[@]}")
-	elif __command_exists -- doas; then
+	elif [[ $technique == 'doas' ]]; then
 		# https://man.archlinux.org/man/doas.1.en
-		run+=('doas')
-		if test -n "$option_user"; then
-			run+=(
+		sudo_cmd+=('doas')
+		if [[ -n $option_user ]]; then
+			sudo_cmd+=(
 				'-u'
 				"$option_user"
 			)
 		fi
-		if test -n "$option_group"; then
+		if [[ -n $option_group ]]; then
 			help 'doas does not support --group'
 		fi
-		if test "$option_inherit" = 'yes'; then
-			run+=(
+		if [[ $option_inherit == 'yes' ]]; then
+			sudo_cmd+=(
 				'env'
 				"DOROTHY=$DOROTHY"
 				"PATH=$PATH"
 			)
 		fi
-		run+=("${option_cmd[@]}")
-	else
-		# sudo/doas does not exist, probably not needed
-		run+=("${option_cmd[@]}")
 	fi
 
-	# execute
-	# @note that piping to cat, allows ctrl+c (SIGTERM) to be correctly reported, otherwise exit status 1 is returned
-	# the main thing here though, is that any failure should be detected and cancel in the caller
-	# perhaps requiring --ppid=$$ to be passed to sudo-helper is the way to go, as we do for [confirm]
-	if test "$option_wrap" = 'yes' -o "$option_confirm" = 'yes' -o "$option_quiet" = 'yes'; then
-		eval-helper --command="$(echo-style --sudo="$(echo-escape-command -- "${option_cmd[@]}")")" --wrap="$option_wrap" --quiet="$option_quiet" --confirm="$option_confirm" -- "${run[@]}"
-	else
-		"${run[@]}" # eval
-	fi
+	# run with sudo
+	__wrap "${sudo_cmd[@]}" "${option_cmd[@]}"
+	return
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	sudo_helper "$@"
 fi

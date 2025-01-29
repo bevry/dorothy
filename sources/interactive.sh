@@ -8,21 +8,21 @@
 . "$DOROTHY/sources/config.sh"
 
 # Load the configuration for interactive shells
-if test "$ACTIVE_POSIX_SHELL" = 'sh'; then
+if [ "$ACTIVE_POSIX_SHELL" = 'sh' ]; then
 	load_dorothy_config --first --optional -- 'interactive.sh'
 else
 	load_dorothy_config --first --optional -- "interactive.$ACTIVE_POSIX_SHELL" 'interactive.sh'
 fi
 
 # Continue with the shell extras
-if test "$ACTIVE_POSIX_SHELL" != 'ksh'; then
+if [ "$ACTIVE_POSIX_SHELL" != 'ksh' ]; then
 	# nvm.sh is not compatible with ksh
 	. "$DOROTHY/sources/nvm.sh"
 fi
 . "$DOROTHY/sources/history.sh"
 . "$DOROTHY/sources/theme.sh"
 . "$DOROTHY/sources/ssh.sh"
-if test "$ACTIVE_POSIX_SHELL" = 'bash' -o "$ACTIVE_POSIX_SHELL" = 'zsh'; then
+if [ "$ACTIVE_POSIX_SHELL" = 'bash' ] || [ "$ACTIVE_POSIX_SHELL" = 'zsh' ]; then
 	. "$DOROTHY/sources/autocomplete.$ACTIVE_POSIX_SHELL"
 fi
 

@@ -3,7 +3,7 @@
 # This command is another piece of pure magic by @balupton
 # It outputs the differences in environment variables from sourcing to exit
 
-# IMPORTED BY SOURCER
+# IMPORTED BY SOURCE STATEMENT
 # $shell - the current shell name, e.g. `fish` or `bash` or `zsh`
 #
 # NOTES
@@ -13,7 +13,7 @@
 inherited=() # [name, value], [name, value], ...
 while read -r line; do
 	for ((i = 0; i < ${#line}; i++)); do
-		if test "${line:i:1}" = '='; then
+		if [[ ${line:i:1} == '=' ]]; then
 			inherited+=("${line:0:i}") # name
 			inherited+=("${line:i+1}") # value
 			break
@@ -25,7 +25,7 @@ done < <(env)
 function on_env_finish {
 	# ignore failure conditions
 	local last_status=$?
-	if test "$last_status" -ne 0; then
+	if [[ $last_status -ne 0 ]]; then
 		return "$last_status"
 	fi
 
@@ -35,17 +35,17 @@ function on_env_finish {
 		# parse line
 		name='' value=''
 		for ((i = 0; i < ${#line}; i++)); do
-			if test "${line:i:1}" = '='; then
+			if [[ ${line:i:1} == '=' ]]; then
 				name="${line:0:i}"  # name
 				value="${line:i+1}" # value
 				break
 			fi
 		done
-		if test -z "$name"; then
+		if [[ -z $name ]]; then
 			# on fedora, env can output functions, in which case we get garbled data sometimes
 			continue
 		fi
-		if test "$name" = 'SHLVL'; then
+		if [[ $name == 'SHLVL' ]]; then
 			# ignore shell level, fixes: [set: Tried to change the read-only variable 'SHLVL'] on fish shell
 			continue
 		fi
@@ -53,31 +53,31 @@ function on_env_finish {
 		# adjust
 		split_char=''
 		is_path='no'
-		if [[ $name == *'PATH' ]] || [[ $name == *'DIRS' ]]; then
+		if [[ $name =~ (PATH|DIRS)$ ]]; then
 			split_char=':'
 			is_path='yes'
-		elif [[ $name == *'FLAGS' ]]; then
+		elif [[ $name =~ FLAGS$ ]]; then
 			split_char=' '
 		fi
-		if test -n "$split_char"; then
+		if [[ -n $split_char ]]; then
 			# cycle through each item in the path, removing duplicates and empties
 			items_array=()
 			items_string=''
 			item_last_index=0
 			# the <= and -o, is to ensure that the last item is processed, as it does not have a trailing :
 			for ((item_index = 0; item_index <= ${#value}; item_index++)); do
-				# || is used instead of -o, because of [test '(' = ':' -o 375 -eq 7258] producing [test: `)' expected, found :]
-				if test "${value:item_index:1}" = "$split_char" || test "$item_index" -eq "${#value}"; then
+				# || is used instead of -o, because of `[[ '(' = ':' -o 375 -eq 7258 ]]` producing `test: `)' expected, found :`
+				if [[ ${value:item_index:1} == "$split_char" || $item_index -eq ${#value} ]]; then
 					item="${value:item_last_index:item_index-item_last_index}"
 					item_last_index="$((item_index + 1))"
 					# check if empty
-					if test -z "$item"; then
+					if [[ -z $item ]]; then
 						continue
 					fi
 					# check if duplicate
-					if test "${#items_array[@]}" -ne 0; then # bash v3 compat
+					if [[ ${#items_array[@]} -ne 0 ]]; then # bash v3 compat
 						for item_existing in "${items_array[@]}"; do
-							if test "$item" = "$item_existing"; then
+							if [[ $item == "$item_existing" ]]; then
 								# is duplicate, skip
 								continue 2
 							fi
@@ -85,7 +85,7 @@ function on_env_finish {
 					fi
 					# add
 					items_array+=("$item")
-					if test -z "$items_string"; then
+					if [[ -z $items_string ]]; then
 						items_string="$item"
 					else
 						items_string="$items_string$split_char$item"
@@ -97,8 +97,8 @@ function on_env_finish {
 
 		# find it in inherited, and check if it is the same if it is the same as inherited
 		for ((i = 0; i < ${#inherited[@]}; i += 2)); do
-			if test "${inherited[i]}" = "$name"; then
-				if test "${inherited[i + 1]}" = "$value"; then
+			if [[ ${inherited[i]} == "$name" ]]; then
+				if [[ ${inherited[i + 1]} == "$value" ]]; then
 					# is inherited, continue to next item
 					continue 2
 				fi
@@ -106,32 +106,32 @@ function on_env_finish {
 		done
 
 		# echo the variable action based on type
-		# if test "$shell" = 'fish'; then
+		# if [[ "$shell" = 'fish' ]]; then
 		# 	echo "set --universal --erase $name;"
 		# fi
-		if test -z "$value"; then
+		if [[ -z $value ]]; then
 			# echo var action: delete
-			if test "$shell" = 'fish'; then
+			if [[ $shell == 'fish' ]]; then
 				echo "set --universal --erase $name;"
-			elif test "$shell" = 'nu'; then
+			elif [[ $shell == 'nu' ]]; then
 				echo "setenv $name"
-			elif test "$shell" = 'xonsh'; then
+			elif [[ $shell == 'xonsh' ]]; then
 				echo 'del $'"$name"
-			elif test "$shell" = 'elvish'; then
+			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#unset-env
 				echo "unset-env $name"
 			else
 				echo "unset -v $name;"
 			fi
-		elif test "$is_path" = 'yes'; then
+		elif [[ $is_path == 'yes' ]]; then
 			# echo var action: set path
-			if test "$shell" = 'fish'; then
+			if [[ $shell == 'fish' ]]; then
 				echo "set --export --path $name '$value';"
-			elif test "$shell" = 'nu'; then
+			elif [[ $shell == 'nu' ]]; then
 				echo "setenv $name $value"
-			elif test "$shell" = 'xonsh'; then
+			elif [[ $shell == 'xonsh' ]]; then
 				echo '$'"$name = '$value'.split(':')"
-			elif test "$shell" = 'elvish'; then
+			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
 				echo "set-env $name '$value'"
 			else
@@ -139,13 +139,13 @@ function on_env_finish {
 			fi
 		else
 			# echo var action: set
-			if test "$shell" = 'fish'; then
+			if [[ $shell == 'fish' ]]; then
 				echo "set --export $name '$value';"
-			elif test "$shell" = 'nu'; then
+			elif [[ $shell == 'nu' ]]; then
 				echo "setenv $name $value"
-			elif test "$shell" = 'xonsh'; then
+			elif [[ $shell == 'xonsh' ]]; then
 				echo '$'"$name = '$value'"
-			elif test "$shell" = 'elvish'; then
+			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
 				echo "set-env $name '$value'"
 			else

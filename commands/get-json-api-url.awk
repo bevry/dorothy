@@ -1,5 +1,5 @@
 {
-	last_innner = ""
+	last_inner = ""
 	url = ""
 	while ( match($0, /"[^"]*"/) ) {
 		inner = substr($0, RSTART + 1, RLENGTH - 2)

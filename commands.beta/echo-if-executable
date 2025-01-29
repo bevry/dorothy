@@ -1,53 +1,146 @@
 #!/usr/bin/env bash
 
+function echo_if_executable_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	eval-tester --name='no args' \
+		-- echo-if-executable --
+
+	eval-tester --name='empty args' \
+		-- echo-if-executable -- '' ''
+
+	eval-tester --name='missing' \
+		-- echo-if-executable -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' --stdout="$DOROTHY" \
+		-- echo-if-executable -- "$DOROTHY"
+
+	eval-tester --name='file' --stdout="$DOROTHY/commands/dorothy" \
+		-- echo-if-executable -- "$DOROTHY/commands/dorothy"
+
+	eval-tester --name='file then missing then dir' --stdout="$DOROTHY/commands/dorothy"$'\n'"$DOROTHY" \
+		-- echo-if-executable -- "$DOROTHY/commands/dorothy" "$DOROTHY/this-does-not-exist" "$DOROTHY"
+
+	eval-tester --name='dir then missing then file' --stdout="$DOROTHY"$'\n'"$DOROTHY/commands/dorothy" \
+		-- echo-if-executable -- "$DOROTHY" "$DOROTHY/this-does-not-exist" "$DOROTHY/commands/dorothy"
+
+	# test working symlinks
+	local dir_target dir_symlink file_target file_symlink
+	dir_target="$(fs-temp --directory='echo-if-executable' --directory='dir_target' --touch)"
+	file_target="$(fs-temp --directory='echo-if-executable' --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --directory='echo-if-executable' --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --directory='echo-if-executable' --file='file_symlink' --no-touch)"
+	symlink-helper --existing="$dir_target" --symlink="$dir_symlink" --quiet
+	symlink-helper --existing="$file_target" --symlink="$file_symlink" --quiet
+
+	eval-tester --name='symlink dir' --stdout="$dir_symlink" \
+		-- echo-if-executable -- "$dir_symlink"
+
+	eval-tester --name='symlink file' \
+		-- echo-if-executable -- "$file_symlink"
+	fs-own --quiet --permissions='+x' -- "$file_target"
+	eval-tester --name='symlink file' --stdout="$file_symlink" \
+		-- echo-if-executable -- "$file_symlink"
+
+	# test broken symlinks
+	fs-rm --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' \
+		-- echo-if-executable -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' \
+		-- echo-if-executable -- "$file_symlink"
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
 function echo_if_executable() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
 	function help {
 		cat <<-EOF >/dev/stderr
 			ABOUT:
-			Output inputs that are executable paths.
+			Output <input>s that are paths that are executable (including that of symlinks, broken or otherwise).
+			Companion to [is-executable].
 
 			USAGE:
-			echo-if-file [...options] [--] ...<input>
-			echo-lines ...<input> | echo-if-file [...options]
+			echo-if-executable [...options] [--] ...<input>
+			echo-lines ...<input> | echo-if-executable [...options]
 
 			OPTIONS:
+			--sudo=<sudo>
+			--user=<user>
+			--group=<group>
+			    Forwarded to [is-executable].
+
 			$(stdinargs_options_help --)
 
-			EXAMPLE:
+			EXAMPLES:
 
-			touch executable
-			chmod +x executable
-			touch file
+			echo-if-executable -- "$HOME"
 
-			echo-if-file -- executable file missing
-
-			    executable
+			    $HOME
 			    # exit status: 0
 
-			echo-lines -- executable file missing | echo-if-file --stdin
+			echo-lines -- "$HOME" | echo-if-executable --stdin
 
-			    executable
+			    $HOME
 			    # exit status: 0
 
 		EOF
-		if test "$#" -ne 0; then
+		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
+	# process
+	local item option_args=() option_sudo='' option_user='' option_group=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	local paths=()
 	function on_input {
-		if test -n "$1" -a -x "$1"; then
-			__print_lines "$1"
+		local path="$1"
+		if is-executable --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
+			paths+=("$path")
+		fi
+	}
+	function on_finish {
+		if [[ ${#paths[@]} -ne 0 ]]; then
+			__print_lines "${paths[@]}"
 		fi
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	echo_if_executable "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_if_executable_test
+	else
+		echo_if_executable "$@"
+	fi
 fi

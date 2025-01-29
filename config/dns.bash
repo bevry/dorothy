@@ -6,38 +6,15 @@
 # Which can configure these with the `--configure` flag.
 
 # Which DNS service to use to communicate with your DNS provider?
-# 'system'       # system's internal dns service
-# 'aghome'       # adguard-home
-# 'cloudflared'  # cloudflared proxy-dns
-# 'dnscrypt'     # dnscrypt-proxy
-#
+# Refer to dns.json for the available options.
 # DNS_SERVICE=''
 
-# Your primary DNS provider, can be any of these:
-# 'env'
-# 'quad9'
-# 'adguard'
-# 'adguard-family'
-# 'cloudflare'
-# 'cloudflare-malware'
-# 'cloudflare-family'
-# 'cloudflare-teams'
-# 'google'
-# 'opendns'
-#
+# Your primary DNS provider?
+# Refer to dns.json for the available options.
 # DNS_PROVIDER=''
 
-# Your backup DNS provider, can be any of these:
-# 'quad9'
-# 'adguard'
-# 'adguard-family'
-# 'cloudflare'
-# 'cloudflare-malware'
-# 'cloudflare-family'
-# 'cloudflare-teams'
-# 'google'
-# 'opendns'
-#
+# Your backup DNS provider?
+# Refer to dns.json for the available options.
 # DNS_BACKUP_PROVIDER=''
 
 # If using DNS_PROVIDER=env, set these to your desired servers
@@ -48,8 +25,3 @@
 # DNS_QUIC_SERVERS=()
 # DNS_SDNS_SERVERS=()
 # DNS_DNSCRYPT_NAMES=()
-
-# If you wish to use Cloudflared tunnels, set this accordingly:
-# CLOUDFLARED_TUNNELS=(
-# 	--tunnel="$name" --hostname="$name.example.com" --url='ssh://localhost:22'
-# )

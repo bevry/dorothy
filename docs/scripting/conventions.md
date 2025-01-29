@@ -37,7 +37,7 @@ function help() {
 		--question=<string>
 		    Specifies the question that the prompt will be answering.
 	EOF
-	if test "$#" -ne 0; then
+	if [[ $# -ne 0 ]]; then
 		echo-error "$@"
 	fi
 	return 22 # Invalid argument
@@ -78,7 +78,7 @@ function test_dorothy_scopes() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	test_dorothy_scopes "$@"
 fi
 ```
@@ -132,22 +132,15 @@ echo-verbose "$a"
 
 ## Interpolation
 
-Prefer `$var` rather than `${var}` to interpolate variables, unless doing so would otherwise complicate matters.
+Prefer `$var` rather than `${var}` for simple interpolations, for advanced interpolations it is up to you.
 
 ```bash
-# don't
+# recommended
 local indent='  ' world='Earth'
-echo "${indent}Hello, ${world}."
-cat <<-EOF
-Hello, ${world}.
-EOF
-
-# do
-local indent='  ' world='Earth'
-echo "${indent}Hello, $world."
-cat <<-EOF
-${indent}Hello, $world.
-EOF
+echo "$world" # good
+echo "${world}" # bad, unnecessary complexity
+echo "${indent}Hello, $world." # fine
+echo "${indent}Hello, ${world}." # also fine
 ```
 
 Always use `"$HOME"` instead of `~`, as `~` doesn't work if it is inside a string, which becomes a common mistake when refactoring.
@@ -176,7 +169,8 @@ echo $"hello\n$name"
 # which is is still not desire
 
 # so let's use this, which is the right technique for the right bits
-echo 'hello'$'\n'"$name"
+echo 'hello'$'\n'"$name" # fine
+echo $'hello\n'"$name" # also fine
 # which outputs:
 # hello
 # dorothy
@@ -201,15 +195,11 @@ require_globstar
 
 ## Conditionals
 
-### Prefer `test`
+### Use `[[` with bash, `[` with sh, instead of `test`
 
-Always use `test ...` instead of `[` or `[[` unless doing bash special comparisons such as `[[ "$var" = *suffix ]]`.
+Avoid `test` at all costs, as `test -n "$a" -a "$b" = "$c"` fails when `a='>'`, which Dorothy encountered in practice with it's `echo-*` commands.
 
-`test` is easy to get help for `help test`, and works consistently across shells for the vast majority of cases.
-
-### Use `=`, not `==`
-
-Always use a single `=`, as `==` does not matter.
+If you are needing to do a privileged invocation of such a comparison, move the comparison into its own file and execute the file instead.
 
 ### Use `if`, not magic
 
@@ -217,9 +207,9 @@ Always use `if [condition] then [action]` statements over, implicit `condition &
 
 Magic makes refactoring later more difficult, such as when eventually:
 
--   conditions become more complicated, such as `if ... elif ... elif ... fi` statements
--   adding more conditions, such as `condition && other-condition && action` or `(condition || else-condition) && action`
--   adding more actions, such as: `condition && { action; other-action; }`
+- conditions become more complicated, such as `if ... elif ... elif ... fi` statements
+- adding more conditions, such as `condition && other-condition && action` or `(condition || else-condition) && action`
+- adding more actions, such as: `condition && { action; other-action; }`
 
 Magic is complex because it mixes and matches conditional statements with action statements, requiring grokking to understand the explicit intent of each statement, whether it is working as a condition, an action, or both as a condition and an action. `If ... then` statements make this explicit.
 
