@@ -514,7 +514,11 @@ function eval_capture {
 	# prepare
 	EVAL_CAPTURE_COUNT="${EVAL_CAPTURE_COUNT:-0}"
 	local EVAL_CAPTURE_STATUS=
-	local EVAL_CAPTURE_CONTEXT="$RANDOM"
+	local EVAL_CAPTURE_CONTEXT="$RANDOM$RANDOM$RANDOM"
+	# ^ three randoms, as maybe, a single random is not enough entropy and caused this failure, where a echo-trim-colors test result was being detected in a is-empty-directory test:
+	# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
+	# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
+
 	# local EVAL_CAPTURE_COMMAND="${cmd[*]}"
 	local EVAL_CAPTURE_SUBSHELL="${BASH_SUBSHELL-}"
 	local temp_directory="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/eval-capture" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
@@ -635,17 +639,17 @@ function eval_capture {
 
 	# save the stdout/stderr/output, and remove their temporary files
 	if [[ -n $stdout_temp_file && -f $stdout_temp_file ]]; then
-		eval "$stdout_variable"'="$(cat "$stdout_temp_file")"'
+		eval "$stdout_variable=\"\$(cat \"\$stdout_temp_file\")\""
 		rm -f -- "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
 	if [[ -n $stderr_temp_file && -f $stderr_temp_file ]]; then
-		eval "$stderr_variable"'="$(cat "$stderr_temp_file")"'
+		eval "$stderr_variable=\"\$(cat \"\$stderr_temp_file\")\""
 		rm -f -- "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
 	if [[ -n $output_temp_file && -f $output_temp_file ]]; then
-		eval "$output_variable"'="$(cat "$output_temp_file")"'
+		eval "$output_variable=\"\$(cat \"\$output_temp_file\")\""
 		rm -f -- "$output_temp_file"
 		output_temp_file=''
 	fi
