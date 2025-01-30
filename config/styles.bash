@@ -57,10 +57,17 @@ style__backspace=$'\b'
 style__carriage_return=$'\r'
 style__escape=$'\e'
 style__home=$'\e[H'
+
+# terminal
 style__terminal_title=$'\e]0;'
-style__terminal_title_end=$'\a'
+style__end__terminal_title=$'\a'
+
+# echo-style --terminal-resize='100;80' # height and width
+# echo-style --terminal-resize='100;'   # width only
+# echo-style --terminal-resize=';80'    # width only
 style__terminal_resize=$'\e[8;'
-style__terminal_resize_end=';t'
+style__end__terminal_resize='t' 
+
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
