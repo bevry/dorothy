@@ -66,7 +66,7 @@ style__end__terminal_title=$'\a'
 # echo-style --terminal-resize='100;'   # width only
 # echo-style --terminal-resize=';80'    # width only
 style__terminal_resize=$'\e[8;'
-style__end__terminal_resize='t' 
+style__end__terminal_resize='t'
 
 # echo-style --base64+terminal-clipboard='Hello World' # not yet implemented, but would be great, have a base64 style function
 # echo-style --terminal-clipboard="$(printf '%s' 'Hello World' | base64)"
@@ -79,7 +79,6 @@ style__end__terminal_clipboard=$'\a'
 # echo-style --sleep+down+sleep+enter+sleep+escape+sleep+escape+sleep+escape+sleep+enter+sleep+enter | eval-tester ...
 # echo-style --pre-print-delay=$delay --down --enter --escape --escape --escape --enter --enter | eval-tester ...
 # echo-style --pre-print-delay=$delay --down+enter+escape+escape+escape+enter+enter | eval-tester ...
-
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
