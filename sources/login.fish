@@ -14,7 +14,7 @@
 # # install fundle
 # if not functions -q fundle
 # 	if not test -f "$XDG_CONFIG_HOME/fish/functions/fundle.fish"
-# 		mkdir -p "$XDG_CONFIG_HOME/fish/functions"
+# 		mkdir -p -- "$XDG_CONFIG_HOME/fish/functions"
 # 		curl -sfL https://git.io/fundle > "$XDG_CONFIG_HOME/fish/functions/fundle.fish"
 # 	end
 # 	source "$XDG_CONFIG_HOME/fish/functions/fundle.fish"

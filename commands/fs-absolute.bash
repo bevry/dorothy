@@ -23,26 +23,26 @@ while [[ $# -ne 0 ]]; do
 	# It is accessible and exists
 	# don't use [pwd -P] as -P resolves symlinks
 	# and resolving symlinks is what [fs-realpath] is for
-	filename="$(basename "$path")"
+	filename="$(basename -- "$path")"
 	if [[ $filename == '/' ]]; then
 		# handles root
 		printf '%s\n' '/'
 	elif [[ $filename == '..' ]]; then
 		# handles parent
 		(
-			cd "$(dirname "$path")/.."
+			cd "$(dirname -- "$path")/.."
 			pwd
 		)
 	elif [[ $filename == '.' ]]; then
 		# handles cwd
 		(
-			cd "$(dirname "$path")"
+			cd "$(dirname -- "$path")"
 			pwd
 		)
 	else
 		# handles files and directories
 		(
-			cd "$(dirname "$path")"
+			cd "$(dirname -- "$path")"
 			printf '%s\n' "$(pwd)/$filename"
 		)
 	fi

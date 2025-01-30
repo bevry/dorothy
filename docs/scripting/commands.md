@@ -90,7 +90,7 @@ ask --question='What is your name?'
 As this is not a useful example, remember to remove it:
 
 ```bash
-rm "$DOROTHY/user/commands/silent"
+rm -f -- "$DOROTHY/user/commands/silent"
 ```
 
 ## Types

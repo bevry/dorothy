@@ -17,6 +17,6 @@ while [[ $# -ne 0 ]]; do
 	shift
 done
 if [[ ${#remove[@]} -ne 0 ]]; then
-	rm -fv "${remove[@]}"
+	rm -fv -- "${remove[@]}"
 fi
 exit 0

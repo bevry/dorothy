@@ -217,7 +217,7 @@ function __mkdirp {
 		fi
 	done
 	if [[ ${#missing[@]} -ne 0 ]]; then
-		mkdir -p "${missing[@]}" || status=$?
+		mkdir -p -- "${missing[@]}" || status=$?
 		# none of this actually works, as there are more major issues if this happens, and needs to be worked around manually
 		# see: https://github.com/orgs/community/discussions/148648#discussioncomment-11862303
 		# if [[ $status -ne 0 ]]; then
@@ -227,10 +227,10 @@ function __mkdirp {
 		# 		if [[ ! -d $dir ]]; then
 		# 			sudo_missing+=("$dir")
 		# 			# for some reason, this detection doesn't work:
-		# 			# if mkdir -p "$dir" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+		# 			# if mkdir -p -- "$dir" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
 		# 			# 	sudo_missing+=("$dir")
 		# 			# else
-		# 			# 	mkdir -p "$dir" || return
+		# 			# 	mkdir -p -- "$dir" || return
 		# 			# fi
 		# 		fi
 		# 	done
@@ -256,7 +256,7 @@ function __sudo_mkdirp {
 		fi
 	done
 	if [[ ${#missing[@]} -ne 0 ]]; then
-		__try_sudo -- mkdir -p "${missing[@]}" || status=$?
+		__try_sudo -- mkdir -p -- "${missing[@]}" || status=$?
 	fi
 	return "$status"
 }
@@ -627,7 +627,7 @@ function eval_capture {
 	# __print_lines "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && -f $status_temp_file ]]; then # mktemp always creates the file, so need to use -s instead of -f
 		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
-		rm "$status_temp_file"
+		rm -f -- "$status_temp_file"
 		# __print_lines "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	fi
 	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
@@ -636,17 +636,17 @@ function eval_capture {
 	# save the stdout/stderr/output, and remove their temporary files
 	if [[ -n $stdout_temp_file && -f $stdout_temp_file ]]; then
 		eval "$stdout_variable"'="$(cat "$stdout_temp_file")"'
-		rm "$stdout_temp_file"
+		rm -f -- "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
 	if [[ -n $stderr_temp_file && -f $stderr_temp_file ]]; then
 		eval "$stderr_variable"'="$(cat "$stderr_temp_file")"'
-		rm "$stderr_temp_file"
+		rm -f -- "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
 	if [[ -n $output_temp_file && -f $output_temp_file ]]; then
 		eval "$output_variable"'="$(cat "$output_temp_file")"'
-		rm "$output_temp_file"
+		rm -f -- "$output_temp_file"
 		output_temp_file=''
 	fi
 

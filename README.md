@@ -164,7 +164,7 @@ Now that the prerequisites are installed, Dorothy's intelligent dependency manag
 - [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
 - [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
 
-If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p ~/.local/bin`, move the binary there with `mv <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
+If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p -- ~/.local/bin`, move the binary there with `mv <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
 ### Try
 
