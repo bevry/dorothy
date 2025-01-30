@@ -68,6 +68,18 @@ style__end__terminal_title=$'\a'
 style__terminal_resize=$'\e[8;'
 style__end__terminal_resize='t' 
 
+# echo-style --base64+terminal-clipboard='Hello World' # not yet implemented, but would be great, have a base64 style function
+# echo-style --terminal-clipboard="$(printf '%s' 'Hello World' | base64)"
+style__terminal_clipboard=$'\e]52;c;'
+style__end__terminal_clipboard=$'\a'
+
+# not yet implemented, add styles for meta keys, such as up, down, enter, escape, etc
+# not yet implemented, but would dramatically simplify testing, could be done via a sleep style function
+# echo-style --sleep+down --sleep+enter --sleep+escape --sleep+escape --sleep+escape --sleep+enter --sleep+enter | eval-tester ...
+# echo-style --sleep+down+sleep+enter+sleep+escape+sleep+escape+sleep+escape+sleep+enter+sleep+enter | eval-tester ...
+# echo-style --pre-print-delay=$delay --down --enter --escape --escape --escape --enter --enter | eval-tester ...
+# echo-style --pre-print-delay=$delay --down+enter+escape+escape+escape+enter+enter | eval-tester ...
+
 
 # modes
 style__color_end__intensity=$'\e[22m'  #
