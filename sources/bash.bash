@@ -593,27 +593,27 @@ function eval_capture {
 	if [[ -n $output_variable ]]; then
 		if [[ -n $stdout_variable ]]; then
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper > >(tee -a "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
 			else
-				eval_capture_wrapper > >(tee -a "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$output_temp_file" >"$stderr_pipe")
 			fi
 		else
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper > >(tee -a "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(tee -a -- "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
 			else
-				eval_capture_wrapper > >(tee -a "$output_temp_file" >"$stdout_pipe") 2> >(tee -a "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(tee -a -- "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$output_temp_file" >"$stderr_pipe")
 			fi
 		fi
 	else
 		if [[ -n $stdout_variable ]]; then
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper > >(tee -a "$stdout_temp_file" >"$stdout_pipe") 2> >(tee -a "$stderr_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$stderr_temp_file" >"$stderr_pipe")
 			else
-				eval_capture_wrapper > >(tee -a "$stdout_temp_file" >"$stdout_pipe") 2>"$stderr_pipe"
+				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" >"$stdout_pipe") 2>"$stderr_pipe"
 			fi
 		else
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper >"$stdout_pipe" 2> >(tee -a "$stderr_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper >"$stdout_pipe" 2> >(tee -a -- "$stderr_temp_file" >"$stderr_pipe")
 			else
 				eval_capture_wrapper >"$stdout_pipe" 2>"$stderr_pipe"
 			fi
@@ -639,17 +639,17 @@ function eval_capture {
 
 	# save the stdout/stderr/output, and remove their temporary files
 	if [[ -n $stdout_temp_file && -f $stdout_temp_file ]]; then
-		eval "$stdout_variable=\"\$(cat \"\$stdout_temp_file\")\""
+		eval "$stdout_variable=\"\$(cat -- \"\$stdout_temp_file\")\""
 		rm -f -- "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
 	if [[ -n $stderr_temp_file && -f $stderr_temp_file ]]; then
-		eval "$stderr_variable=\"\$(cat \"\$stderr_temp_file\")\""
+		eval "$stderr_variable=\"\$(cat -- \"\$stderr_temp_file\")\""
 		rm -f -- "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
 	if [[ -n $output_temp_file && -f $output_temp_file ]]; then
-		eval "$output_variable=\"\$(cat \"\$output_temp_file\")\""
+		eval "$output_variable=\"\$(cat -- \"\$output_temp_file\")\""
 		rm -f -- "$output_temp_file"
 		output_temp_file=''
 	fi
