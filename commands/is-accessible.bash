@@ -18,7 +18,7 @@ while [[ $# -ne 0 ]]; do
 	# stat: cannot statx '/home/runner/.cache/dorothy/5350/dir/subfile': Permission denied
 	# MACOS
 	# stat: /Users/balupton/.cache/dorothy/12776/dir/subfile: stat: Permission denied
-	if stat -L "$path" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+	if stat -L -- "$path" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
 		exit 13 # EACCES 13 Permission denied
 	fi
 done

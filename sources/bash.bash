@@ -630,7 +630,7 @@ function eval_capture {
 	# save the exit status, and reset the global value
 	# __print_lines "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && -f $status_temp_file ]]; then # mktemp always creates the file, so need to use -s instead of -f
-		EVAL_CAPTURE_STATUS="$(cat "$status_temp_file")"
+		EVAL_CAPTURE_STATUS="$(cat -- "$status_temp_file")"
 		rm -f -- "$status_temp_file"
 		# __print_lines "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 	fi
