@@ -106,30 +106,30 @@ function fs_tests__prep {
 			chmod --recursive "$@"
 		}
 	fi
-	__chmod_recursive +rwx \
+	__chmod_recursive +rwx -- \
 		"$root/targets"
-	chmod a-r \
+	chmod a-r -- \
 		"$root/targets/unreadable-empty-dir" \
 		"$root/targets/unreadable-empty-file" \
 		"$root/targets/unreadable-filled-dir" \
 		"$root/targets/unreadable-filled-file"
-	chmod a-x \
+	chmod a-x -- \
 		"$root/targets/unexecutable-empty-dir" \
 		"$root/targets/unexecutable-empty-file" \
 		"$root/targets/unexecutable-filled-dir" \
 		"$root/targets/unexecutable-filled-file"
-	chmod a-w \
+	chmod a-w -- \
 		"$root/targets/unwritable-empty-dir" \
 		"$root/targets/unwritable-empty-file" \
 		"$root/targets/unwritable-filled-dir" \
 		"$root/targets/unwritable-filled-file"
 	# [-n] doesn't exist on linux chown
-	sudo-helper -- chown '0:0' \
+	sudo-helper -- chown '0:0' -- \
 		"$root/targets/unaccessible-empty-dir" \
 		"$root/targets/unaccessible-empty-file" \
 		"$root/targets/unaccessible-filled-dir" \
 		"$root/targets/unaccessible-filled-file"
-	sudo-helper -- chmod a-xrw,u+xrw \
+	sudo-helper -- chmod a-xrw,u+xrw -- \
 		"$root/targets/unaccessible-empty-dir" \
 		"$root/targets/unaccessible-empty-file" \
 		"$root/targets/unaccessible-filled-dir" \

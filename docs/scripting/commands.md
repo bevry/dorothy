@@ -55,9 +55,9 @@ Dorothy prefers user commands to its own commands, allowing users to extend the 
 For instance, if we want to have the user affirm honesty before any call to the the `ask` command, we can create our own `commands/ask` command in our user configuration:
 
 ```bash
-touch "$DOROTHY/user/commands/ask"
-chmod +x "$DOROTHY/user/commands/ask"
-edit "$DOROTHY/user/commands/ask"
+touch -- "$DOROTHY/user/commands/ask"
+chmod +x -- "$DOROTHY/user/commands/ask"
+edit -- "$DOROTHY/user/commands/ask"
 ```
 
 And set its contents to:
