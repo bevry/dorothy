@@ -103,7 +103,8 @@ function ssh_helper() (
 	# 1password helpers, should be somewhat in sync with setup-git
 	function __sock_exists {
 		# the = part is some weird convention
-		[[ -n ${1-} && -e ${1-} || -e "${1-}=" ]]
+		local sock="$1"
+		[[ -n $sock && (-e $sock || -e "${sock}=") ]]
 		return # explicit return with [[ required for bash v3
 	}
 	function get_op_sock {
@@ -112,7 +113,7 @@ function ssh_helper() (
 			"$HOME/.1password/agent.sock"
 		)
 		for op_sock in "${op_socks[@]}"; do
-			if __sock_exists "${op_sock}"; then
+			if __sock_exists "$op_sock"; then
 				__print_lines "$op_sock"
 				return 0
 			fi
@@ -132,27 +133,29 @@ function ssh_helper() (
 		# ssh.bash provides:
 		local SSH_IDENTITY_AGENT=''               # 'op' for 1password, 'krypton' for Krypt.co, 'default' for system default
 		load_dorothy_config 'ssh.bash' 'git.bash' # ssh.bash deprecated, git.bash is extant
+
+		# detect and check 1password availability
+		local op_sock=''
+		op_sock="$(get_op_sock)"
+
+		# configure if empty or desired
 		if [[ -z $SSH_IDENTITY_AGENT && -z $option_configure ]]; then
 			option_configure='yes'
 		fi
+
+		# 1password alias to op
 		if [[ $SSH_IDENTITY_AGENT == '1password' ]]; then
 			SSH_IDENTITY_AGENT='op'
 		fi
 
-		# ---------------------------------
-		# 1Password
-
-		local op_sock=''
-		op_sock="$(get_op_sock)"
-
-		# are we already using it?
+		# if no SSH_IDENTITY_AGENT configuration, fallback to SSH_AUTH_SOCK configuration
 		if [[ -z $SSH_IDENTITY_AGENT ]]; then
 			if [[ ${SSH_AUTH_SOCK-} == "$op_sock" ]]; then
 				SSH_IDENTITY_AGENT='op'
 			fi
 		fi
 
-		# confirm availability with the user
+		# confirm the configuration is actually available
 		if [[ -n $op_sock ]]; then
 			if [[ $SSH_IDENTITY_AGENT == 'op' ]]; then
 				if [[ $option_configure == 'no' ]] || confirm --linger --positive --ppid=$$ -- '1Password SSH Agent is still available, continue to use it?'; then
@@ -180,10 +183,6 @@ function ssh_helper() (
 					--code='https://developer.op.com/docs/ssh/get-started#step-3-turn-on-the-op-ssh-agent' $'\n' \
 					--notice='Disabling for now...' >/dev/stderr
 				SSH_IDENTITY_AGENT=''
-			elif ! __sock_exists "$SSH_IDENTITY_AGENT"; then
-				echo-style --warning="$0: Unable to find the SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT]." $'\n' \
-					--notice='Disabling for now...' >/dev/stderr
-				SSH_IDENTITY_AGENT=''
 			fi
 		fi
 
@@ -193,15 +192,18 @@ function ssh_helper() (
 				--field='SSH_IDENTITY_AGENT' --value="$SSH_IDENTITY_AGENT"
 		fi
 
-		# Replace ssh agent alias with actual ssh agent value
+		# replace ssh agent alias with actual ssh agent value
 		if [[ $SSH_IDENTITY_AGENT == 'default' ]]; then
 			SSH_IDENTITY_AGENT=''
 		elif [[ $SSH_IDENTITY_AGENT == 'op' ]]; then
-			if ! __sock_exists "$op_sock"; then
-				echo-error "Invalid SSH Socket: $op_sock"
-				return 1
-			fi
 			SSH_IDENTITY_AGENT="$op_sock"
+		fi
+
+		# confirm the ssh agent is a working socket
+		if [[ -n $SSH_IDENTITY_AGENT ]] && ! __sock_exists "$SSH_IDENTITY_AGENT"; then
+			echo-style --warning="$0: The SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT] does not exist as a valid socket." $'\n' \
+				--notice='Disabling for now...' >/dev/stderr
+			SSH_IDENTITY_AGENT=''
 		fi
 
 		# ---------------------------------
