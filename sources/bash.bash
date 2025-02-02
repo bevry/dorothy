@@ -567,7 +567,7 @@ function eval_capture {
 		# __print_lines "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
 		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
 		# wrap if the $- check, as always returning causes +e to return when it shouldn't
-		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
+		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return; fi' ERR
 		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
 		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && $- == *e* && "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
 			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
