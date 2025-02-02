@@ -56,7 +56,7 @@ For instance, if we want to have the user affirm honesty before any call to the 
 
 ```bash
 touch -- "$DOROTHY/user/commands/ask"
-chmod +x -- "$DOROTHY/user/commands/ask"
+fs-own --permissions=+x -- "$DOROTHY/user/commands/ask"
 edit -- "$DOROTHY/user/commands/ask"
 ```
 
