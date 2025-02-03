@@ -33,6 +33,28 @@ function choose_test() (
 	eval-tester --name='receive default --index responses with --skip-default' --stdout=$'1\n2' \
 		-- env COLOR=no choose 'q' 'd' --multi --index --skip-default --default=b --default=c -- a b c
 
+	# custom match tests
+	eval-tester --name='receive default first response with --skip-default and custom --match prep' --stdout=b-value \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default=b-value --label -- a-value a-label b-value b-label
+
+	eval-tester --name='receive default first response with --skip-default and custom --match label' --stdout=b-value \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default=b-label --match="\$LABEL" --label -- a-value a-label b-value b-label
+
+	eval-tester --name='receive default first response with --skip-default and custom --match index' --stdout=b-value \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default=1 --match="\$INDEX" --label -- a-value a-label b-value b-label
+
+	eval-tester --name='receive default first response with --skip-default and custom --match visual' --stdout=b-value \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default='1 b-value b-label' --visual="\$INDEX \$VALUE \$LABEL" --match="\$VISUAL" --label -- a-value a-label b-value b-label
+
+	eval-tester --name='receive default first response with --skip-default and custom --match return' --stdout='1 b-value b-label' \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default='1 b-value b-label' --return="\$INDEX \$VALUE \$LABEL" --match="\$RETURN" --label -- a-value a-label b-value b-label
+
+	eval-tester --name='receive default first response with --skip-default and custom --match index and label (part 1)' --stdout='b-value' \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default=1 --match="\$INDEX" --match="\$LABEL" --label -- a-value a-label b-value b-label
+
+	eval-tester --name='receive default first response with --skip-default and custom --match index and label (part 2)' --stdout='b-value' \
+		-- env COLOR=no choose 'q' 'd' --skip-default --default='b-label' --match="\$INDEX" --match="\$LABEL" --label -- a-value a-label b-value b-label
+
 	# timeout optional
 	eval-tester --name='receive no response by timeout with no input and optional' --stderr="q $timeout_optional" \
 		-- env COLOR=no choose 'q' 'd' --timeout=5 -- a b c
@@ -630,9 +652,15 @@ function choose_() (
 			    If empty LABEL, then will equal VALUE.
 
 			--return='\$VALUE' -- ...[<value> <label>]
-			    Customise how the value is returned to the program. It is eval'd. E.g.
+			    Customise what is returned to the caller. It is eval'd. E.g.
 			    To return the visual, use: --return='\$VISUAL'
-			    Tto return the index, use: --return='\$INDEX' or --index
+			    To return the index, use: --return='\$INDEX' or --index
+
+			--match='\$VALUE' -- ...[<value> <label>]
+			    Customise what is matched to a default, can be specified multiple times. It is eval'd. E.g.
+			    To match the label, use: --match='\$LABEL'
+			    To match the index, use: --match='\$INDEX'
+			    To match either the value or the label, use: --match='\$VALUE' --match='\$LABEL'
 
 			--default-exact=<value>
 			--defaults-exact=<newline separated values>
@@ -690,7 +718,7 @@ function choose_() (
 	# process
 	local item='' inputs=() tmp=()
 	local option_question=()
-	local option_label='no' option_visual='' option_return='$VALUE'
+	local option_label='no' option_visual='' option_return='$VALUE' option_matches=()
 	local defaults_exact=() defaults_fuzzy=() option_default_all='' option_confirm_solo='yes' option_confirm_default='yes' option_confirm_input='no' option_confirm_cancel='yes'
 	local option_required='no' option_multi='no'
 	local option_linger='no' option_timeout='' option_truncate_body='no'
@@ -707,6 +735,7 @@ function choose_() (
 		'--visual='*) option_visual="${item#*=}" ;;
 		'--return='*) option_return="${item#*=}" ;;
 		'--index') option_return='$INDEX' ;;
+		'--match='*) option_matches+=("${item#*=}") ;;
 		'--default-exact='* | '--default='*) defaults_exact+=("${item#*=}") ;;
 		'--defaults-exact='* | '--defaults='*)
 			mapfile -t tmp <<<"${item#*=}"
@@ -770,6 +799,9 @@ function choose_() (
 	# ensure items were provided
 	if [[ ${#inputs[@]} -eq 0 ]]; then
 		help 'No <item>s provided.'
+	fi
+	if [[ ${#option_matches[@]} -eq 0 ]]; then
+		option_matches=('$VALUE')
 	fi
 
 	# question
@@ -851,7 +883,7 @@ function choose_() (
 
 	# generate the items
 	# @todo add support for option_defaults_indexes if a user requests it
-	local index item INDEX=-1 VALUE LABEL VISUAL RETURN items=() returns=() defaults=() items_count can_skip_prompt='no' defaults_indexes=() defaults_count=0 defaults_last=-1 fallbacks_indexes=() fallbacks_count=0 fallbacks_last=-1
+	local index item INDEX=-1 VALUE LABEL VISUAL RETURN MATCH items=() returns=() defaults=() items_count can_skip_prompt='no' defaults_indexes=() defaults_count=0 defaults_last=-1 fallbacks_indexes=() fallbacks_count=0 fallbacks_last=-1
 	for ((index = 0; index < ${#inputs[@]}; index = index + inputs_step)); do
 		# index considers inputs_step, INDEX is only each item (label/value combo)
 		INDEX=$((INDEX + 1))
@@ -881,26 +913,6 @@ function choose_() (
 			fi
 		fi
 
-		# enable if default
-		if [[ $option_default_all == 'yes' ]]; then
-			defaults[INDEX]='yes'
-		else
-			if [[ ${#defaults_exact[@]} -ne 0 ]]; then # bash v3 compat
-				for item in "${defaults_exact[@]}"; do
-					if [[ $VALUE == "$item" ]]; then
-						defaults[INDEX]='yes'
-					fi
-				done
-			fi
-			if [[ ${#defaults_fuzzy[@]} -ne 0 ]]; then # bash v3 compat
-				for item in "${defaults_fuzzy[@]}"; do
-					if __string_has_case_insensitive_substring "$VALUE" "$item"; then
-						defaults[INDEX]='yes'
-					fi
-				done
-			fi
-		fi
-
 		# generate what is used
 		if [[ -n $option_visual ]]; then
 			eval "VISUAL=\"$option_visual\""
@@ -911,17 +923,45 @@ function choose_() (
 			__print_lines "${style__error}Invalid visual=[$VISUAL] for label=[$LABEL] value=[$VALUE], all must be non-empty.${style__end__error}" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 		fi
+		items+=("$VISUAL")
 		if [[ -n $option_return ]]; then
 			eval "RETURN=\"$option_return\""
 		else
 			RETURN="$VALUE"
 		fi
 		if [[ -z $RETURN ]]; then
-			__print_lines "${style__error}Invalid return=[$RETURN] for label=[$LABEL] value=[$VALUE], all must be non-empty.${style__end__error}" >/dev/stderr
+			__print_lines "${style__error}Invalid return=[$RETURN] for label=[$LABEL] value=[$VALUE] visual=[$VISUAL], all must be non-empty.${style__end__error}" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 		fi
-		items+=("$VISUAL")
 		returns+=("$RETURN")
+
+		# enable if default
+		if [[ $option_default_all == 'yes' ]]; then
+			defaults[INDEX]='yes'
+		else
+			for MATCH in "${option_matches[@]}"; do
+				eval "MATCH=\"$MATCH\""
+				if [[ -z $MATCH ]]; then
+					__print_lines "${style__error}Invalid match=[$MATCH] for label=[$LABEL] value=[$VALUE] visual=[$VISUAL] return=[$RETURN], all must be non-empty.${style__end__error}" >/dev/stderr
+					return 22 # EINVAL 22 Invalid argument
+				fi
+
+				if [[ ${#defaults_exact[@]} -ne 0 ]]; then # bash v3 compat
+					for item in "${defaults_exact[@]}"; do
+						if [[ $MATCH == "$item" ]]; then
+							defaults[INDEX]='yes'
+						fi
+					done
+				fi
+				if [[ ${#defaults_fuzzy[@]} -ne 0 ]]; then # bash v3 compat
+					for item in "${defaults_fuzzy[@]}"; do
+						if __string_has_case_insensitive_substring "$MATCH" "$item"; then
+							defaults[INDEX]='yes'
+						fi
+					done
+				fi
+			done
+		fi
 	done
 	items_count="${#items[@]}"
 	if [[ $items_count -eq 1 && $option_required == 'yes' ]]; then
