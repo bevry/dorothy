@@ -103,7 +103,7 @@ Incudes usage when trying to use an already existing path.
 ECANCELED 125 Operation cancelled
 
 ECUSTOM 200 Not applicable <for reason>
-Used to signal the caller that the action was not performed, and might be fine because the action wasn't applicable, such as:
+Used to signal to the caller that the action was not performed, and might be fine because the action wasn't applicable, such as:
 - Doing an operation on a utility, that is unnecessary, as the utility is already in the desired state.
 - Doing an operation on a path, such a mount path, that is already in the desired state.
 
