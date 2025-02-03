@@ -320,6 +320,7 @@ function __escape_shapeshifting {
 	for input in "$@"; do
 		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}"
 		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}"
+		input="${input//[[:cntrl:]][bf]/$'\n'}"
 		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
 		__print_lines "$input"
 	done
