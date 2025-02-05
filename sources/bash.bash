@@ -97,7 +97,7 @@ function __print_value_lines_or_line {
 		shift
 	done
 	if [[ ${#values[@]} -eq 0 ]]; then
-		printf '\m'
+		printf '\n'
 	else
 		printf '%s\n' "${values[@]}"
 	fi
@@ -397,10 +397,12 @@ shopt -s huponexit
 # Enable [cmd | read -r var] usage.
 # bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
 if shopt -s lastpipe 2>/dev/null; then
+	BASH_CAN_LASTPIPE='yes'
 	function __require_lastpipe {
 		:
 	}
 else
+	BASH_CAN_LASTPIPE='no'
 	function __require_lastpipe {
 		echo-style --error='Missing lastpipe support:' >/dev/stderr || return
 		__require_upgraded_bash
@@ -668,10 +670,12 @@ shopt -s nullglob
 
 # bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
 if shopt -s globstar 2>/dev/null; then
+	BASH_CAN_GLOBSTAR='yes'
 	function __require_globstar {
 		:
 	}
 else
+	BASH_CAN_GLOBSTAR='no'
 	function __require_globstar {
 		echo-style --error='Missing globstar support:' >/dev/stderr || return
 		__require_upgraded_bash
@@ -680,10 +684,12 @@ fi
 
 # bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
 if shopt -s extglob 2>/dev/null; then
+	BASH_CAN_EXTGLOB='yes'
 	function __require_extglob {
 		:
 	}
 else
+	BASH_CAN_EXTGLOB='no'
 	function __require_extglob {
 		echo-style --error='Missing extglob support:' >/dev/stderr || return
 		__require_upgraded_bash
@@ -700,21 +706,26 @@ fi
 # =============================================================================
 # Shim bash functionality that is inconsistent between bash versions.
 
+# This document details the changes between this version, bash-4.0-alpha, and the previous version, bash-3.2-release.
+# p.  The `read' builtin has a new -i option which inserts text into the reply buffer when using readline.
+# y.  The `-t' option to the `read' builtin now supports fractional timeout values.
+# dd. The parser now understands `|&' as a synonym for `2>&1 |', which redirects the standard error for a command through a pipe.
+
 # Bash >= 4, < 4
 if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 	# bash >= 4
-	function __can_read_decimal_timeout {
-		return 0
-	}
+	BASH_CAN_READ_I='yes'
+	BASH_CAN_READ_DECIMAL_TIMEOUT='yes'
+	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='yes'
 	function __get_read_decimal_timeout {
 		__print_lines "$1"
 	}
 else
 	# bash < 4
 	# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
-	function __can_read_decimal_timeout {
-		return 1
-	}
+	BASH_CAN_READ_I='no'
+	BASH_CAN_READ_DECIMAL_TIMEOUT='no'
+	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='no'
 	function __get_read_decimal_timeout {
 		# -lt requires integers, so we need to use regexp instead
 		if [[ -n $1 && $1 =~ ^0[.] ]]; then

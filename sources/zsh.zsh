@@ -89,7 +89,7 @@ function __print_value_lines_or_line {
 		shift
 	done
 	if [[ "${#values[@]}" -eq 0 ]] then
-		printf '\m'
+		printf '\n'
 	else
 		printf '%s\n' "${values[@]}"
 	fi
