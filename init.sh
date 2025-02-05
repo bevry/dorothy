@@ -62,7 +62,7 @@ else
 	DOROTHY_LOAD='no' # this must be outside the below if, to ensure DOROTHY_LOAD is reset, and DOROTHY_LOADED is respected, otherwise posix shells may double load due to cross-compat between dotfiles (.profile along with whatever they support)
 	if [ -z "${DOROTHY_LOADED_SHARED_SCOPE-}" ]; then
 		# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
-		if [ "$0" = '-bash' ] || [ "$0" = '-zsh' ] || [ "$0" = '-dash' ] || [ "$0" = 'dash' ]; then
+		if [ "$0" = '-bash' ] || [ "$0" = '-zsh' ] || [ "$0" = '-dash' ] || [ "$0" = 'dash' ] || [ -n "${NVIM-}" ]; then
 			DOROTHY_LOAD='yes'
 		elif [ -n "${BASH_VERSION-}" ]; then
 			# trunk-ignore(shellcheck/SC3044)
@@ -78,8 +78,6 @@ else
 			fi
 		elif [ -z "$-" ] && [ -z "$*" ] && [ "${CI-}" = 'true' ]; then
 			DOROTHY_LOAD='yes' # dash on github ci, in which [$-] and [$*] are empty, and $0 = /home/runner....
-		elif [ -n "${NVIM-}" ]; then
-			DOROTHY_LOAD='yes' # neovim: $0 = init.sh, and BASH_SOURCE[*] is undefined
 		else
 			# bash v3 and dash do not set l in $-
 			# zsh does, however zsh we have a definite option earlier
