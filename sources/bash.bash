@@ -839,6 +839,8 @@ fi
 # __require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it
 
+# note that there is no need to do [__require_array 'mapfile'] as [mapfile] is always available, it is just the native version that is not available
+
 function __has_array_capability {
 	for arg in "$@"; do
 		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
