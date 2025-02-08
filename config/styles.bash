@@ -85,31 +85,31 @@ style__color_end__intensity=$'\e[22m'  #
 style__color_end__foreground=$'\e[39m' #
 style__color_end__background=$'\e[49m' #
 # https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
-# echo-style --bold=bold --dim=dim --italic=italic 'standard' --underline=underline --blink=blink --invert=invert --conceal=conceal --strike=strike --framed=framed --circled=circled --overlined=overlined standard
+# echo-style 'standard' --bold='bold' --dim='dim' --italic='italic' --underline='underline' --blink='blink' --invert='invert' --conceal='conceal' --strike='strike' --framed='framed' --circled='circled' --overlined='overlined'
 style__color__reset=$'\e[0m' # tput sgr0
-style__color__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Kitty] [buggy support: Rio] [unsupported: cool-retro-term, Wez, Extratern, Contour]
+style__color__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Kitty] [buggy support: Rio] [unsupported: cool-retro-term, Wez, Extratern, Contour]
 style__color_end__bold="$style__color_end__intensity"
-style__color__dim=$'\e[2m' # tput dim [supported: Terminal, VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
+style__color__dim=$'\e[2m' # tput dim [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
 style__color_end__dim="$style__color_end__intensity"
-style__color__italic=$'\e[3m' # [supported: VScode, Hyper, Terminal] [colored support: Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
+style__color__italic=$'\e[3m' # [supported: VScode, Hyper, Terminal] [colored support: Ghostty, Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
 style__color_end__italic=$'\e[23m'
-style__color__underline=$'\e[4m' # tput sgr 0 1 [supported: Terminal, VSCode, Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+style__color__underline=$'\e[4m' # tput sgr 0 1 [supported: Terminal, VSCode,Ghostty,  Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
 style__color_end__underline=$'\e[24m'
 style__color__double_underline=$'\e[21m' # [supported: Tabby]
 style__color_end__double_underline=$'\e[24m'
-style__color__blink=$'\e[5m' # tput blink [supported: Terminal, VSCode, Alacritty, Hyper, Contour] [fade-in-out support: Wez, cool-retro-term] [unsupported: Wave, Warp, iTerm2, Tabby, Extraterm, Rio, Kitty]
+style__color__blink=$'\e[5m' # tput blink [supported: Terminal, VSCode, Alacritty, Hyper, Contour] [fade-in-out support: Wez, cool-retro-term] [unsupported: Ghostty, Wave, Warp, iTerm2, Tabby, Extraterm, Rio, Kitty]
 style__color_end__blink=$'\e[25m'
-style__color__invert=$'\e[7m' # tput rev [supported: Terminal, VSCode, Alacritty, Hyper, cool-retro-arm, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+style__color__invert=$'\e[7m' # tput rev [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, cool-retro-arm, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
 style__color_end__invert=$'\e[27m'
-style__color__conceal=$'\e[8m' # [supported: Terminal, VSCode, Alacritty, Hyper, iTerm2, Tabby, Wez, Rio, Contour] [unsupported: cool-retro-term, Wave, Warp, Extraterm, Kitty]
+style__color__conceal=$'\e[8m' # [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, iTerm2, Tabby, Wez, Rio, Contour] [unsupported: cool-retro-term, Wave, Warp, Extraterm, Kitty]
 style__color_end__conceal=$'\e[28m'
-style__color__strike=$'\e[9m' # [supported: VSCode, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: cool-retro-term]
+style__color__strike=$'\e[9m' # [supported: VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: cool-retro-term]
 style__color_end__strike=$'\e[29m'
 style__color__framed=$'\e[51m' # [frames each character: Contour] [unsupported: everything else]
 style__color_end__framed=$'\e[54m'
 style__color__circled=$'\e[52m' # [supported: none known]
 style__color_end__circled="$style__color_end__framed"
-style__color__overlined=$'\e[53m' # [supported: Tabby, Wez, Extratern, Contour] [unsupported: everything else]
+style__color__overlined=$'\e[53m' # [supported: Ghostty, Tabby, Wez, Extratern, Contour] [unsupported: everything else]
 style__color_end__overlined=$'\e[55m'
 
 # foreground
