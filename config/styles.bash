@@ -37,8 +37,8 @@ style__cursor_steady_underline=$'\e[4 q'
 style__cursor_blinking_bar=$'\e[5 q'
 style__cursor_steady_bar=$'\e[6 q'
 if [[ $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
-	style__alternative_screen_buffer=$'\e[?1049h\e[H' # switch-to/enable/open alternative screen buffer (of which there is only one), the \e[H is necessary to put the cursor at the top on wsl ubuntu otherwise it stays in the same place
-	style__default_screen_buffer=$'\e[?1049l'         # restore/enable/open/switch-to the default/primary/main/normal screen buffer
+	style__alternative_screen_buffer=$'\e[?1049h\e[H\e[J' # switch-to/enable/open alternative screen buffer (of which there is only one), the \e[H is necessary to put the cursor at the top on wsl ubuntu otherwise it stays in the same place, and unfortunately the clear is sometimes necessary for vscode
+	style__default_screen_buffer=$'\e[?1049l'             # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 else
 	# if unable to tap into alternative screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
 	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
