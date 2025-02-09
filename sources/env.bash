@@ -112,46 +112,54 @@ function on_env_finish {
 		if [[ -z $value ]]; then
 			# echo var action: delete
 			if [[ $shell == 'fish' ]]; then
-				echo "set --universal --erase $name;"
+				printf '%s\n' "set --universal --erase $name;"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name"
+				printf '%s\n' "setenv $name"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo 'del $'"$name"
+				printf '%s\n' "if \${...}.get('$name') != None:"$'\n\t'"del \$$name"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#unset-env
-				echo "unset-env $name"
+				printf '%s\n' "unset-env $name"
 			else
-				echo "unset -v $name;"
+				printf '%s\n' "unset -v $name;"
 			fi
 		elif [[ $is_path == 'yes' ]]; then
 			# echo var action: set path
 			if [[ $shell == 'fish' ]]; then
-				echo "set --export --path $name '$value';"
+				printf '%s\n' "set --export --path $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
+				printf '%s\n' "setenv $name $value"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'.split(':')"
+				printf '%s\n' '$'"$name = '$value'.split(':')"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+				printf '%s\n' "set-env $name '$value'"
 			else
-				echo "export $name='$value';"
+				printf '%s\n' "export $name='$value';"
 			fi
 		else
 			# echo var action: set
 			if [[ $shell == 'fish' ]]; then
-				echo "set --export $name '$value';"
+				printf '%s\n' "set --export $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
+				printf '%s\n' "setenv $name $value"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'"
+				printf '%s\n' '$'"$name = '$value'"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+				printf '%s\n' "set-env $name '$value'"
 			else
-				echo "export $name='$value';"
+				printf '%s\n' "export $name='$value';"
 			fi
 		fi
 	done < <(env)
+	# xonsh needs a trailing newline, because xonsh, fixes:
+	# > xonsh
+	# xonsh: For full traceback set: $XONSH_SHOW_TRACEBACK = True
+	# SyntaxError: None: no further code
+	# syntax error in xonsh run control file '/Users/balupton/.config/xonsh/rc.xsh': None: no further code
+	if [[ $shell == 'xonsh' ]]; then
+		printf '\n'
+	fi
 }
 trap on_env_finish EXIT
