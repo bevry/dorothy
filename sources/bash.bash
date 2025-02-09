@@ -402,6 +402,7 @@ if shopt -s lastpipe 2>/dev/null; then
 		:
 	}
 else
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_LASTPIPE='no'
 	function __require_lastpipe {
 		echo-style --error='Missing lastpipe support:' >/dev/stderr || return
@@ -675,6 +676,7 @@ if shopt -s globstar 2>/dev/null; then
 		:
 	}
 else
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_GLOBSTAR='no'
 	function __require_globstar {
 		echo-style --error='Missing globstar support:' >/dev/stderr || return
@@ -689,6 +691,7 @@ if shopt -s extglob 2>/dev/null; then
 		:
 	}
 else
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_EXTGLOB='no'
 	function __require_extglob {
 		echo-style --error='Missing extglob support:' >/dev/stderr || return
@@ -723,8 +726,11 @@ if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 else
 	# bash < 4
 	# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_READ_I='no'
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_READ_DECIMAL_TIMEOUT='no'
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='no'
 	function __get_read_decimal_timeout {
 		# -lt requires integers, so we need to use regexp instead
@@ -842,6 +848,7 @@ fi
 # note that there is no need to do [__require_array 'mapfile'] as [mapfile] is always available, it is just the native version that is not available
 
 function __has_array_capability {
+	local arg
 	for arg in "$@"; do
 		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
 			return 1
