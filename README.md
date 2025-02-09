@@ -174,15 +174,15 @@ If the automated installation of any failed, [post an issue](https://github.com/
 To run a specific command in/from the Dorothy environment, enter the following, swapping out everything after the double-dash (`--`) with whatever command to run:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- dorothy commands
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/repl)"
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
 # now you can run whatever and how many commands as you'd like, such as:
 dorothy commands
@@ -198,8 +198,8 @@ exit
 > To install Dorothy enter the following into your favorite terminal application:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
