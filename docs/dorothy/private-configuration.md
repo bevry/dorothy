@@ -23,6 +23,8 @@ To share this git ignored configuration between your machines, you would have to
 
 ### Strongbox
 
+#### Initial Setup
+
 To work around the sharing difficulty of git ignored configuration, Dorothy also supports [Strongbox](https://github.com/uw-labs/strongbox) encryption, which allows you to encrypt your `*.local` directories, sync them with git, and keep them private from everyone who doesn't have your Strongbox key.
 
 To start using Strongbox for your `*.local` configuration:
@@ -54,6 +56,10 @@ git diff-index -p master
 ```
 
 When Dorothy checks out a Strongbox configured repository it will prompt you to copy of the Strongbox key to the machine beforehand, to ensure decryption works correctly.
+
+#### Subsequent Setup
+
+If you are setting up a new machine with your Strongbox encrypted Dorothy User Configuration, Dorothy will walk you through the setup.
 
 ## Examples of Private Configuration
 
