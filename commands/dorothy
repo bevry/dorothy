@@ -184,9 +184,16 @@ function dorothy_() (
 			    Files are processed by most recently modified first.
 
 			dorothy test
+			  ...[--bash=<version>]
+			    Only test against this bash version or binary.
+			  ...[--skip=<test>]
+			    Skip this test.
+			  ...[--only=<test> | [-- ...<test>]
+			    Run only these tests
 
 			    Run tests on Dorothy's source code.
 			    Files are processed by most recently modified first.
+			    Tests against all available bash versions on the machine [bash], and [bash-*].
 
 			dorothy todos
 
@@ -1843,12 +1850,12 @@ function dorothy_() (
 		fi
 
 		# versions
-		eval-helper --no-quiet -- bash --version || :
-		eval-helper --no-quiet -- prettier --version || :
-		eval-helper --no-quiet -- rg --version || :
-		eval-helper --no-quiet -- shellcheck --version || :
-		eval-helper --no-quiet -- shfmt --version || :
-		eval-helper --no-quiet -- trunk --version || :
+		eval-helper --verbose -- bash --version || :
+		eval-helper --verbose -- prettier --version || :
+		eval-helper --verbose -- rg --version || :
+		eval-helper --verbose -- shellcheck --version || :
+		eval-helper --verbose -- shfmt --version || :
+		eval-helper --verbose -- trunk --version || :
 
 		# log
 		echo-style --g1='Dorothy Development'
@@ -2038,12 +2045,40 @@ function dorothy_() (
 	function act_test {
 		# pre-requisites
 		assert_dorothy_configured
-		# ^ no need for user config for tests
-		local only=("$@") flakey=('config-helper' 'echo-wait') skips=('dorothy' 'bash.bash') no_bash_v3=('get-installer' 'dorothy-config')
+
+		# options
+		local item only=() flakey=() skips=('dorothy' 'bash.bash') only_current_bash_version=('get-installer' 'dorothy-config') bash_binaries=() bash_custom='no'
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			'--bash='*)
+				bash_binaries+=("${item#*=}")
+				bash_custom='yes'
+				;;
+			'--skip='*) skips+=("${item#*=}") ;;
+			'--only='*) only+=("${item#*=}") ;;
+			'--')
+				only+=("$@")
+				shift $#
+				break
+				;;
+			'--'*)
+				help "An unrecognised flag was provided: $item"
+				return
+				;;
+			*) only+=("$item") ;;
+			esac
+		done
 
 		# action
 		echo-style --h1='Dorothy Tests'
 		source "$DOROTHY/sources/ripgrep.bash"
+
+		# before we begin, trim the bash.bash:eval_capture cache, and our own cache
+		export DEBUG=yes DEBUG_TTY="$XDG_CACHE_HOME/dorothy/debug-tty"
+		__mkdirp "$XDG_CACHE_HOME/dorothy"
+		rm -rf -- "$XDG_CACHE_HOME/dorothy/eval-capture" "$XDG_CACHE_HOME/dorothy/debug-tty"
 
 		# on CI set the modification times to reflect those from the git repository, rather than from clone
 		if is-ci; then
@@ -2057,15 +2092,18 @@ function dorothy_() (
 		# debug-terminal-tty || :
 		# __print_lines ''
 
-		# able to test on bash v3?
-		local bash has_macos_bash_v3='no'
-		bash="$(type -P bash)"
-		if __is_mac && [[ $bash != '/bin/bash' && "$(/bin/bash --version || :)" == 'GNU bash, version 3.'* ]]; then
-			has_macos_bash_v3=yes
+		# fetch the other bash locations to test against
+		if [[ ${#bash_binaries[@]} -eq 0 ]]; then
+			mapfile -t bash_binaries < <(
+				{
+					type -pa bash
+					expand-path -- "$XDG_BIN_HOME/bash-*"
+				} | uniq
+			)
 		fi
 
 		# prepare scan paths
-		local commands filepath filename failures=() scan_paths=(
+		local commands filepath filename bash_binary failed failures=() warnings=() scan_paths=(
 			"$DOROTHY/commands/"
 			"$DOROTHY/commands.beta/"
 			# "$DOROTHY/commands.deprecated/" <-- don't run deprecated tests, as that will cause deprecated warnings, which cases dorothy-warnings test to fail
@@ -2080,61 +2118,77 @@ function dorothy_() (
 		fi
 
 		# run tests on commands that have them
-		mapfile -t commands < <(rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}")
+		if [[ ${#only[@]} -ne 0 ]]; then
+			local scan_path only_command
+			for scan_path in "${scan_paths[@]}"; do
+				if [[ -d $scan_path ]]; then
+					for only_command in "${only[@]}"; do
+						only_command="$scan_path$only_command"
+						# slash is included in the var
+						if [[ -f $only_command ]]; then
+							commands+=("$only_command")
+						fi
+					done
+				fi
+			done
+		else
+			mapfile -t commands < <(rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}")
+		fi
 		for filepath in "${commands[@]}"; do
 			filename="$(basename -- "$filepath")"
+			failed='no'
 
 			# check if we want to skip this test
 			if is-needle --needle="$filename" -- "${skips[@]}"; then
 				continue
 			fi
 
-			# check if we want to run only specific tests
-			if [[ ${#only[@]} -ne 0 ]] && ! is-needle --needle="$filename" -- "${only[@]}"; then
-				continue
-			fi
-
 			# run the test on the current bash version
-			{
-				if is-needle --needle="$filename" -- "${flakey[@]}"; then
-					echo-style --invert="FIRST ATTEMPT: $filename"
-					eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
-						echo-style --invert="SECOND ATTEMPT: $filename"
-						eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
-							echo-style --invert="THIRD ATTEMPT: $filename"
-							eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
-						}
-					}
-				else
-					eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
-				fi
-			} || {
-				failures+=("$bash $filepath --test")
-			}
-
-			# check if we can test on bash v3
-			if [[ $has_macos_bash_v3 == 'yes' ]]; then
-				# we can test, but do we want to test this one on bash v3?
-				if is-needle --needle="$filename" -- "${no_bash_v3[@]}"; then
-					continue
-				fi
-				# run the test on bash v3
+			if [[ $bash_custom == 'no' ]]; then
 				{
 					if is-needle --needle="$filename" -- "${flakey[@]}"; then
 						echo-style --invert="FIRST ATTEMPT: $filename"
-						env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
+						eval-helper --verbose --wrap -- "$filepath" --test || {
 							echo-style --invert="SECOND ATTEMPT: $filename"
-							env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
+							eval-helper --verbose --wrap -- "$filepath" --test || {
 								echo-style --invert="THIRD ATTEMPT: $filename"
-								env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test
+								eval-helper --verbose --wrap -- "$filepath" --test
 							}
 						}
 					else
-						env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test
+						eval-helper --verbose --wrap -- "$filepath" --test
 					fi
 				} || {
-					failures+=("/bin/bash '$filepath' --test")
+					failures+=("$filepath --test")
+					failed='yes'
 				}
+			fi
+
+			# run again, ensuring this specific bash version is preferred
+			if [[ $failed == 'no' ]]; then
+				for bash_binary in "${bash_binaries[@]}"; do
+					{
+						if is-needle --needle="$filename" -- "${flakey[@]}"; then
+							echo-style --invert="FIRST ATTEMPT: $filename"
+							eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test || {
+								echo-style --invert="SECOND ATTEMPT: $filename"
+								eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test || {
+									echo-style --invert="THIRD ATTEMPT: $filename"
+									eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test
+								}
+							}
+						else
+							eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test
+						fi
+					} || {
+						if [[ $bash_custom == 'no' ]] && is-needle --needle="$filename" -- "${only_current_bash_version[@]}"; then
+							echo-style --warning='This test was expected to fail on other bash versions, marking as only warning instead of failure.'
+							warnings+=("$bash_binary $filepath --test")
+						else
+							failures+=("$bash_binary $filepath --test")
+						fi
+					}
+				done
 			fi
 		done
 
@@ -2142,6 +2196,22 @@ function dorothy_() (
 		if dorothy-warnings check; then
 			dorothy-warnings list
 			failures+=('dorothy-warnings')
+		fi
+
+		# check for eval-capture failed cleaning
+		if ! is-empty-directory -- "$XDG_CACHE_HOME/dorothy/eval-capture"; then
+			failures+=($'bash.bash:eval_capture had leftovers: \n'"$(fs-structure -- "$XDG_CACHE_HOME/dorothy/eval-capture")")
+		fi
+
+		# check for debug lines
+		if [[ -n ${DEBUG_TTY-} && -f $DEBUG_TTY ]]; then
+			failures+=($'bash.bash:__debug_lines had output: \n'"$(echo-file -- "$DEBUG_TTY")")
+		fi
+
+		# check for warnings
+		if [[ ${#warnings[@]} -ne 0 ]]; then
+			echo-style --warning='The following tests were warnings:'
+			__print_lines "${warnings[@]}"
 		fi
 
 		# check for failures
