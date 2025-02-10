@@ -10,6 +10,8 @@
 
 # Note that [&>] is available to all bash versions, however [&>>] is not, they are different.
 
+# bash <= 3.2 is not supported by Dorothy for reasons stated in [versions.md], however it is also too incompetent of a version to even bother checking for it
+
 # =============================================================================
 # Print Helpers
 
@@ -343,6 +345,21 @@ function __is_shapeshifter {
 	return 1
 }
 
+# debug
+if [[ -n ${DEBUG-} ]]; then
+	DEBUG_TTY=''
+	function __debug_lines {
+		if [[ -z $DEBUG_TTY ]]; then
+			DEBUG_TTY="$(get-terminal-device-file)"
+		fi
+		__print_lines "$@" >>"$DEBUG_TTY"
+	}
+else
+	function __debug_lines {
+		:
+	}
+fi
+
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #
@@ -377,6 +394,18 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 		}
 	fi
 fi
+
+function __is_errexit {
+	[[ $- == *e* ]]
+	return # explicit return with [[ required for bash v3
+}
+
+function __is_subshell_function {
+	local cmd="$1"
+	# test "$(declare -f "$cmd")" == "$cmd"$' () \n{ \n    ('
+	[[ "$(declare -f "$cmd")" == "$cmd"$' () \n{ \n    ('* ]]
+	return # explicit return with [[ required for bash v3
+}
 
 # =============================================================================
 # Configure bash for Dorothy best practices.
@@ -415,10 +444,10 @@ fi
 set +T
 
 # Ensure errors can be captured.
-# bash v3:  -E  errtrace    ERR traps get inherited to nested commands.us of the last command to exit with a non-zero status, or zero if no command exited with a non-zero status
+# bash v3:  -E  errtrace    Any trap on ERR is inherited by shell functions, command substitutions, and commands executed in a subshell environment.
 # bash v1:  -e  errexit     Return failure immediately upon non-conditional commands.
 # bash v1:  -u  nounset     Return failure immediately when accessing an unset variable.
-# bash v3:  -o  pipefail    The return value of a pipeline is the stat
+# bash v3:  -o  pipefail    The return value of a pipeline is the status of the last command to exit with a non-zero status, or zero if no command exited with a non-zero status.
 # bash v4.4: inherit_errexit: Subshells inherit errexit.
 # Ensure subshells also get the settings
 set -Eeuo pipefail
@@ -440,7 +469,7 @@ function eval_capture {
 				Capture or ignore exit status, without disabling errexit, and without a subshell.
 				Copyright 2023+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
 				Written for Dorothy (https://github.com/bevry/dorothy)
-				Licensed under the CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+				Licensed under the Reciprocal Public License 1.5 (http://spdx.org/licenses/RPL-1.5.html)
 				For more information: https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md
 
 				USAGE:
@@ -501,7 +530,7 @@ function eval_capture {
 			break
 			;;
 		'-'*)
-			# __print_line "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
+			# __print_lines "ERROR: $0: ${FUNCNAME[0]}: $LINENO: An unrecognised flag was provided: $item" >/dev/stderr
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -518,12 +547,12 @@ function eval_capture {
 	# prepare
 	EVAL_CAPTURE_COUNT="${EVAL_CAPTURE_COUNT:-0}"
 	local EVAL_CAPTURE_STATUS=
-	local EVAL_CAPTURE_CONTEXT="$RANDOM$RANDOM$RANDOM"
-	# ^ three randoms, as maybe, a single random is not enough entropy and caused this failure, where a echo-trim-colors test result was being detected in a is-empty-directory test:
+	local EVAL_CAPTURE_CONTEXT="$RANDOM$RANDOM"
+	# ^ two randoms, as before [eval_capture_wait] solved the race condition, it could be that the temp files were not detected in the tail of this script and as such were not removed, and could persist, which would cause the below failures, now that [eval_capture_wait] is used, a single random should be sufficient, however we won't know until later
 	# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
 	# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
 
-	# local EVAL_CAPTURE_COMMAND="${cmd[*]}"
+	local EVAL_CAPTURE_COMMAND="${cmd[*]}"
 	local EVAL_CAPTURE_SUBSHELL="${BASH_SUBSHELL-}"
 	local temp_directory="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/eval-capture" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
 	local status_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.status" stderr_temp_file='' stdout_temp_file='' output_temp_file=''
@@ -531,34 +560,36 @@ function eval_capture {
 	function eval_capture_wrapper_trap {
 		# trunk-ignore(shellcheck/SC2034)
 		local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
-		# __print_lines "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]" >/dev/tty
-		# __print_lines "TRAP: [$EVAL_CAPTURE_STATUS]/[$trap_status] -=[$-] fn=[$trap_fn] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context]" >/dev/tty
+		# __debug_lines "TRAP: [$trap_status] fn=[$trap_fn] cmd=[$trap_cmd] subshell=[$trap_subshell] context=[$trap_context]"
+		# __debug_lines "TRAP: fn=[$trap_fn] [$EVAL_CAPTURE_STATUS]/[$trap_status] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context] \$-=[$-]"
 		if [[ $EVAL_CAPTURE_CONTEXT == "$trap_context" ]]; then
 			if [[ $EVAL_CAPTURE_SUBSHELL == "$trap_subshell" || $trap_fn == 'eval_capture_wrapper' ]]; then
-				# __print_lines "STORE" >/dev/tty
+				# __debug_lines '>--STORE--<'
 				EVAL_CAPTURE_STATUS="$trap_status"
 				return 0
 			elif [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]]; then
-				# __print_lines "SAVE" >/dev/tty
-				# __print_lines "$trap_status" >"$status_temp_file"
+				# __debug_lines '>--SAVE--<'
+				# https://github.com/bevry/dorothy/commit/5c44792a6c46950cb74dee03383efdbe8018ebec#diff-fdce5cb2b4ffb7374573ddbe18177d5d871da104db96cce483934d4a0dc50ea6R230
+				# https://github.com/bevry/dorothy/commit/c1fe25b4a2382fc979dace2d23ee15efd60d8c28#diff-fdce5cb2b4ffb7374573ddbe18177d5d871da104db96cce483934d4a0dc50ea6R221
+				__print_lines "$trap_status" >"$status_temp_file"
 				return "$trap_status"
 			fi
 		fi
-		# __print_lines "ERR" >/dev/tty
+		# __debug_lines 'ERR'
 		return "$trap_status"
 	}
 
 	# store preliminary values, and prep the temporary files
 	if [[ -n $stdout_variable ]]; then
-		eval "${stdout_variable}=''"
+		eval "$stdout_variable="
 		stdout_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.stdout"
 	fi
 	if [[ -n $stderr_variable ]]; then
-		eval "${stderr_variable}=''"
+		eval "$stderr_variable="
 		stderr_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.stderr"
 	fi
 	if [[ -n $output_variable ]]; then
-		eval "${output_variable}=''"
+		eval "$output_variable="
 		output_temp_file="$temp_directory/$EVAL_CAPTURE_CONTEXT.output"
 	fi
 
@@ -568,14 +599,19 @@ function eval_capture {
 	# as such, we must cleanup inside the trap and after the trap, and cleanup must work in both contexts
 	function eval_capture_wrapper {
 		local subshell_status
-		# __print_lines "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __debug_lines "PRE: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT] \$-=[$-] outdated=[$IS_BASH_VERSION_OUTDATED] cmd[0]=[${cmd[0]}]"
 		EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT + 1))"
-		# wrap if the $- check, as always returning causes +e to return when it shouldn't
-		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR # the [$?] in [return $?] is necessary: https://github.com/bevry/dorothy/actions/runs/13102792036
-		# can't delegate this to a function (e.g. is_subshell_function), as the trap will go to the function
-		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && $- == *e* && "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
+
+		# wrap the $- check, as always returning causes +e to return when it shouldn't
+		# the [$?] in [return $?] in the trap is necessary: https://github.com/bevry/dorothy/actions/runs/13102792036
+		trap 'EVAL_CAPTURE_RETURN=$?; if [[ $- = *e* ]]; then eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?; fi' ERR
+		# trap 'EVAL_CAPTURE_RETURN=$?; eval_capture_wrapper_trap "$EVAL_CAPTURE_RETURN" "${FUNCNAME-}" "${cmd[*]}" "${BASH_SUBSHELL-}" "$EVAL_CAPTURE_CONTEXT"; return $?' ERR
+
+		# if [__is_subshell_function] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function] will cause ERR to fire within the context of ${cmd[0]} and will skip everything bel
+		# if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && $- == *e* && "$(declare -f "${cmd[0]}")" == "${cmd[0]}"$' () \n{ \n    ('* ]]; then
+		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function "${cmd[0]}"; then
 			# ALL SUBSHELLS SHOULD RE-ENABLE [set -e]
-			# __print_lines "SUBSHELL $-" >/dev/tty
+			# __debug_lines "SUBSHELL $-"
 			set +e
 			(
 				set -e
@@ -587,6 +623,7 @@ function eval_capture {
 			"${cmd[@]}"
 			subshell_status=$?
 		fi
+		# __debug_lines "DUR: [$EVAL_CAPTURE_STATUS]/[$subshell_status] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT] \$-=[$-]"
 		# capture status in case of set +e
 		if [[ $subshell_status -ne 0 ]]; then
 			EVAL_CAPTURE_STATUS="$subshell_status"
@@ -594,30 +631,85 @@ function eval_capture {
 		# we've stored the status, we return success
 		return 0
 	}
+	# >( ... ) happens asynchronously, however the commands within >(...) happen synchronously, as such we can use this technique to know when they are done, otherwise on the very rare occasion the files may not exist or be incomplete by the time we get to to reading them: https://github.com/bevry/dorothy/issues/277
+	# note that this waits forever on bash 4.1.0, as the [touch] commands only execute after a [ctrl+c], other older and newer versions are fine
+	function eval_capture_wait {
+		local file
+		for file in "$@"; do
+			while [[ ! -f $file ]]; do
+				# __debug_lines "waiting for:" "$file" "$(basename -- "$file")" "has:" "$(ls -l1 "$temp_directory")"
+				sleep 0.01
+			done
+		done
+		rm -f -- "$@"
+	}
 	if [[ -n $output_variable ]]; then
 		if [[ -n $stdout_variable ]]; then
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(
+					tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe"
+					touch -- "$stdout_temp_file.stdout" "$output_temp_file.stdout"
+				) 2> >(
+					tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe"
+					touch -- "$stderr_temp_file.stderr" "$output_temp_file.stderr"
+				)
+				eval_capture_wait "$stdout_temp_file.stdout" "$output_temp_file.stdout" "$stderr_temp_file.stderr" "$output_temp_file.stderr"
 			else
-				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(
+					tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe"
+					touch -- "$stdout_temp_file.stdout" "$output_temp_file.stdout"
+				) 2> >(
+					tee -a -- "$output_temp_file" >"$stderr_pipe"
+					touch -- "$output_temp_file.stderr"
+				)
+				eval_capture_wait "$stdout_temp_file.stdout" "$output_temp_file.stdout" "$output_temp_file.stderr"
 			fi
 		else
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper > >(tee -a -- "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(
+					tee -a -- "$output_temp_file" >"$stdout_pipe"
+					touch -- "$output_temp_file.stdout"
+				) 2> >(
+					tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe"
+					touch -- "$stderr_temp_file.stderr" "$output_temp_file.stderr"
+				)
+				eval_capture_wait "$output_temp_file.stdout" "$stderr_temp_file.stderr" "$output_temp_file.stderr"
 			else
-				eval_capture_wrapper > >(tee -a -- "$output_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$output_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(
+					tee -a -- "$output_temp_file" >"$stdout_pipe"
+					touch -- "$output_temp_file.stdout"
+				) 2> >(
+					tee -a -- "$output_temp_file" >"$stderr_pipe"
+					touch -- "$output_temp_file.stderr"
+				)
+				eval_capture_wait "$output_temp_file.stdout" "$output_temp_file.stderr"
 			fi
 		fi
 	else
 		if [[ -n $stdout_variable ]]; then
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" >"$stdout_pipe") 2> >(tee -a -- "$stderr_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper > >(
+					tee -- "$stdout_temp_file" >"$stdout_pipe"
+					touch -- "$stdout_temp_file.stdout"
+				) 2> >(
+					tee -- "$stderr_temp_file" >"$stderr_pipe"
+					touch -- "$stderr_temp_file.stderr"
+				)
+				eval_capture_wait "$stdout_temp_file.stdout" "$stderr_temp_file.stderr"
 			else
-				eval_capture_wrapper > >(tee -a -- "$stdout_temp_file" >"$stdout_pipe") 2>"$stderr_pipe"
+				eval_capture_wrapper > >(
+					tee -- "$stdout_temp_file" >"$stdout_pipe"
+					touch -- "$stdout_temp_file.stdout"
+				) 2>"$stderr_pipe"
+				eval_capture_wait "$stdout_temp_file.stdout"
 			fi
 		else
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper >"$stdout_pipe" 2> >(tee -a -- "$stderr_temp_file" >"$stderr_pipe")
+				eval_capture_wrapper >"$stdout_pipe" 2> >(
+					tee -- "$stderr_temp_file" >"$stderr_pipe"
+					touch -- "$stderr_temp_file.stderr"
+				)
+				eval_capture_wait "$stderr_temp_file.stderr"
 			else
 				eval_capture_wrapper >"$stdout_pipe" 2>"$stderr_pipe"
 			fi
@@ -626,33 +718,38 @@ function eval_capture {
 
 	# remove the lingering trap
 	EVAL_CAPTURE_COUNT="$((EVAL_CAPTURE_COUNT - 1))"
-	# __print_lines "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]" >/dev/tty
+	# __debug_lines "EVAL_CAPTURE_COUNT=[$EVAL_CAPTURE_COUNT]"
 	if [[ $EVAL_CAPTURE_COUNT -eq 0 ]]; then
 		trap - ERR
 	fi
 
 	# save the exit status, and reset the global value
-	# __print_lines "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
-	if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && -f $status_temp_file ]]; then # mktemp always creates the file, so need to use -s instead of -f
-		EVAL_CAPTURE_STATUS="$(cat -- "$status_temp_file")"
+	# __debug_lines "POST: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT] \$-=[$-] outdated=[$IS_BASH_VERSION_OUTDATED]"
+	if [[ $IS_BASH_VERSION_OUTDATED == 'yes' && -f $status_temp_file ]]; then
+		local temp_status
+		temp_status="$(cat -- "$status_temp_file")"
+		if [[ $temp_status != "$EVAL_CAPTURE_STATUS" ]]; then
+			__debug_lines "SAVE AND LOAD WAS NEEDED: loaded=[$temp_status] returned=[$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]"
+		fi
+		EVAL_CAPTURE_STATUS="$temp_status"
 		rm -f -- "$status_temp_file"
-		# __print_lines "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]" >/dev/tty
+		# __debug_lines "LOAD: [$EVAL_CAPTURE_STATUS] cmd=[$EVAL_CAPTURE_COMMAND] subshell=[$EVAL_CAPTURE_SUBSHELL] context=[$EVAL_CAPTURE_CONTEXT]"
 	fi
 	eval "${exit_status_variable}=${EVAL_CAPTURE_STATUS:-0}"
 	# unset -v EXIT_STATUS
 
 	# save the stdout/stderr/output, and remove their temporary files
-	if [[ -n $stdout_temp_file && -f $stdout_temp_file ]]; then
+	if [[ -n $stdout_temp_file ]]; then
 		eval "$stdout_variable=\"\$(cat -- \"\$stdout_temp_file\")\""
 		rm -f -- "$stdout_temp_file"
 		stdout_temp_file=''
 	fi
-	if [[ -n $stderr_temp_file && -f $stderr_temp_file ]]; then
+	if [[ -n $stderr_temp_file ]]; then
 		eval "$stderr_variable=\"\$(cat -- \"\$stderr_temp_file\")\""
 		rm -f -- "$stderr_temp_file"
 		stderr_temp_file=''
 	fi
-	if [[ -n $output_temp_file && -f $output_temp_file ]]; then
+	if [[ -n $output_temp_file ]]; then
 		eval "$output_variable=\"\$(cat -- \"\$output_temp_file\")\""
 		rm -f -- "$output_temp_file"
 		output_temp_file=''
@@ -709,10 +806,7 @@ fi
 # =============================================================================
 # Shim bash functionality that is inconsistent between bash versions.
 
-# This document details the changes between this version, bash-4.0-alpha, and the previous version, bash-3.2-release.
-# p.  The `read' builtin has a new -i option which inserts text into the reply buffer when using readline.
-# y.  The `-t' option to the `read' builtin now supports fractional timeout values.
-# dd. The parser now understands `|&' as a synonym for `2>&1 |', which redirects the standard error for a command through a pipe.
+# put changelog entries in [versions.md]
 
 # Bash >= 4, < 4
 if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then

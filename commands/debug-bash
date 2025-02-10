@@ -12,65 +12,145 @@ function debug_bash() (
 			Run a bash script with [-x] applied: Print a trace of simple commands.
 
 			USAGE:
-			debug-bash [...options] -- <command> [...args]
+			debug-bash [...options] [--] <command> [...args]
 
 			OPTIONS:
 			--bash=<bash-path>
 			    If you want to invoke the command through a custom bash binary, then provide it here.
+			    The PATH will be modified to enforce it.
+			--all
+			    Use all available bash binaries on the system.
+			--continue
+			    Continue on failure to the next bash version.
 
-			-v
-			    Pass the -v flag to bash: Print shell input lines as they are read.
+			--wrap
+			    Wrap the command so we can see what we are executing.
+
+			-v | -x | -xv | -vx
+			    Pass these flags to bash.
+
+			[--] <command> [...args]
+			    The command to run.
 		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_bash='' bash_args=('-x') cmd=()
+	local item option_bash_binaries=() option_args=() option_wrap='no' option_continue='no' option_cmd=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--bash='*) option_bash="${item#*=}" ;;
-		'-v') bash_args+=('-v') ;;
+		'--no-wrap'* | '--wrap'*)
+			option_wrap="$(get-flag-value --affirmative --fallback="$option_wrap" -- "$item")"
+			;;
+		'--no-continue'* | '--continue'*)
+			option_continue="$(get-flag-value --affirmative --fallback="$option_continue" -- "$item")"
+			;;
+		'--bash='*) option_bash_binaries+=("${item#*=}") ;;
+		'--all')
+			local bash_binaries=()
+			mapfile -t bash_binaries < <(
+				type -pa bash
+				expand-path -- "$XDG_BIN_HOME/bash-*"
+			)
+			option_bash_binaries+=("${bash_binaries[@]}")
+			;;
+		'-x') option_args+=('-x') ;;
+		'-v') option_args+=('-v') ;;
+		'-xv' | '-vx') option_args+=('-xv') ;;
 		'--')
-			cmd+=("$@")
+			option_cmd+=("$@")
 			shift "$#"
 			break
 			;;
 		*)
-			cmd+=("$item" "$@")
+			option_cmd+=("$item" "$@")
 			shift $#
 			;;
 		esac
 	done
 
 	# check
-	if [[ ${#cmd[@]} -eq 0 ]]; then
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
 		help 'No <command> was provided.'
 	fi
 
-	# fallback
-	if [[ -z $option_bash ]]; then
-		option_bash="$(type -P bash)"
-	fi
-
-	# =====================================
-	# Act
-
-	# invoke the command or function
-	local cmd_path
-	cmd_path="$(type -P "${cmd[0]}" 2>/dev/null || :)"
-	if [[ -n $cmd_path && $cmd_path == "$DOROTHY"* ]]; then
-		# command
-		cmd[0]="$cmd_path"
-		"$option_bash" "${bash_args[@]}" "${cmd[@]}"
-		return
-	else
+	# check if we have a function, in which case only support the args
+	local cmd_first="${option_cmd[0]}"
+	if [[ "$(type -t "$cmd_first")" == 'function' ]]; then
+		if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
+			help 'Cannot invoke a function through a custom bash binary.'
+		fi
+		if [[ ${#option_args[@]} -eq 0 ]]; then
+			help 'There is no point invoking debug-bash without options.'
+		fi
 		# function/builtin
-		set "${bash_args[@]}"
-		"${cmd[@]}"
+		set "${option_args[@]}"
+		"${option_cmd[@]}" # eval
 		return
+	fi
+	# update the command with the resolved path so that bash can execute it
+	if [[ $cmd_first == 'bash' ]]; then
+		help "Use --bash=$cmd_first to invoke bash through a custom binary."
+	fi
+	option_cmd[0]="$(type -P "$cmd_first")"
+
+	# resolve bash path
+	local cmd=() exit_status=0
+	if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
+		local bash_input bash_path bash_binary bash_version
+		for bash_input in "${option_bash_binaries[@]}"; do
+			if is-digit -- "$(__substr "$bash_input" 0 1)"; then
+				# convert version number to executable
+				bash_input="bash-$bash_input"
+			fi
+			bash_binary="$(type -P "$bash_input" || :)"
+			if [[ -z $bash_binary ]]; then
+				echo-style --error="The bash binary [$bash_input] does not exist."
+				exit_status=2 # ENOENT 2 No such file or directory
+				continue
+			fi
+			bash_version="$("$bash_binary" -c 'IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"; printf '%s' "${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"')"
+			# check bash version
+			if [[ $bash_version == '4.1'* || $bash_version == '3.1'* || $bash_version == '3.0'* || $bash_version == '2.'* || $bash_version == '1.'* || $bash_version == '0.'* ]]; then
+				echo-style --error="The bash binary [$bash_input] is version [$bash_version], which is not supported."
+				exit_status=75 # EPROGMISMATCH 75 Program version wrong
+				continue
+			fi
+			bash_path="$(fs-temp --directory='debug-bash' --directory="custom-path-for-bash-$bash_version" --directory --touch)"
+			ln -sf -- "$bash_binary" "$bash_path/bash"
+			cmd=(env PATH="$bash_path:$PATH" "$bash_binary") # bash_binary to make it obvious which bash is being used
+			if [[ ${#option_args[@]} -ne 0 ]]; then
+				cmd+=("${option_args[@]}")
+			fi
+			cmd+=("${option_cmd[@]}")
+			if [[ $option_wrap == 'yes' ]]; then
+				cmd=(eval-helper --verbose --wrap --command="${cmd[*]/$PATH/\"\$PATH\"}" -- "${cmd[@]}")
+			fi
+			if [[ $option_continue == 'yes' ]]; then
+				"${cmd[@]}" || exit_status=$?
+			else
+				"${cmd[@]}"
+			fi
+		done
+	else
+		cmd=()
+		if [[ ${#option_args[@]} -ne 0 ]]; then
+			cmd+=(bash "${option_args[@]}")
+		fi
+		cmd+=("${option_cmd[@]}")
+		if [[ $option_wrap == 'yes' ]]; then
+			cmd=(eval-helper --verbose --wrap -- "${cmd[@]}")
+		fi
+		"${cmd[@]}" # eval
+	fi
+	if [[ $exit_status -ne 0 ]]; then
+		return "$exit_status"
 	fi
 )
 
