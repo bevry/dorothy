@@ -10,7 +10,7 @@
 #   fatal: failed to write commit object
 # you can test it is working via:
 #   setup-git
-#   echo 'test' | gpg --clearsign
+#   printf '%s\n' 'test' | gpg --clearsign
 # if you are still getting those errors, check via `gpg-helper list` that your key has not expired
 # if it has, then run `gpg-helper extend`
 if command-exists -- gpg; then

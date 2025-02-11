@@ -21,7 +21,7 @@ while read -r line; do
 	done
 done < <(env)
 
-# final scanning of environment, and echo results
+# final scanning of environment, and output results
 function on_env_finish {
 	# ignore failure conditions
 	local last_status=$?
@@ -29,7 +29,7 @@ function on_env_finish {
 		return "$last_status"
 	fi
 
-	# success condition, echo var actions
+	# success condition, output var actions
 	local name value i items_array items_string item item_last_index item_index item_existing split_char is_path
 	while read -r line; do
 		# parse line
@@ -105,12 +105,12 @@ function on_env_finish {
 			fi
 		done
 
-		# echo the variable action based on type
+		# output the variable action based on type
 		# if [[ "$shell" = 'fish' ]]; then
-		# 	echo "set --universal --erase $name;"
+		# 	output "set --universal --erase $name;"
 		# fi
 		if [[ -z $value ]]; then
-			# echo var action: delete
+			# output var action: delete
 			if [[ $shell == 'fish' ]]; then
 				printf '%s\n' "set --universal --erase $name;"
 			elif [[ $shell == 'nu' ]]; then
@@ -124,7 +124,7 @@ function on_env_finish {
 				printf '%s\n' "unset -v $name;"
 			fi
 		elif [[ $is_path == 'yes' ]]; then
-			# echo var action: set path
+			# output var action: set path
 			if [[ $shell == 'fish' ]]; then
 				printf '%s\n' "set --export --path $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
@@ -138,7 +138,7 @@ function on_env_finish {
 				printf '%s\n' "export $name='$value';"
 			fi
 		else
-			# echo var action: set
+			# output var action: set
 			if [[ $shell == 'fish' ]]; then
 				printf '%s\n' "set --export $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
