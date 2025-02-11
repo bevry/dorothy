@@ -4,22 +4,22 @@ function secure_history
 	set action (choose --question='What do you want to delete?' --default=$argv[1] --label -- 'some' 'delete only the known risks' 'all' 'erase your entire history')
 	if test "$action" = 'all'; then
 		history -c
-		echo 'Erased everything.'
+		printf '%s\n' 'Erased everything.'
 	else
-		echo 'all' | history delete --contains 'auth'
-		echo 'all' | history delete --contains 'cookie'
-		echo 'all' | history delete --contains 'env'
-		echo 'all' | history delete --contains 'http -f POST'
-		echo 'all' | history delete --contains 'http POST'
-		echo 'all' | history delete --contains 'key'
-		echo 'all' | history delete --contains 'op '
-		echo 'all' | history delete --contains 'secret'
-		echo 'all' | history delete --contains 'session'
-		echo 'all' | history delete --contains 'token'
-		echo 'all' | history delete --contains 'twurl'
-		echo 'all' | history delete --contains 'vault'
-		echo 'all' | history delete --contains 'youtube-dl'
-		echo 'all' | history delete --contains 'coda register'
-		echo 'Erased known risks.'
+		printf '%s\n' 'all' | history delete --contains 'auth'
+		printf '%s\n' 'all' | history delete --contains 'cookie'
+		printf '%s\n' 'all' | history delete --contains 'env'
+		printf '%s\n' 'all' | history delete --contains 'http -f POST'
+		printf '%s\n' 'all' | history delete --contains 'http POST'
+		printf '%s\n' 'all' | history delete --contains 'key'
+		printf '%s\n' 'all' | history delete --contains 'op '
+		printf '%s\n' 'all' | history delete --contains 'secret'
+		printf '%s\n' 'all' | history delete --contains 'session'
+		printf '%s\n' 'all' | history delete --contains 'token'
+		printf '%s\n' 'all' | history delete --contains 'twurl'
+		printf '%s\n' 'all' | history delete --contains 'vault'
+		printf '%s\n' 'all' | history delete --contains 'youtube-dl'
+		printf '%s\n' 'all' | history delete --contains 'coda register'
+		printf '%s\n' 'Erased known risks.'
 	end
 end

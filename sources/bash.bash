@@ -264,7 +264,7 @@ function __sudo_mkdirp {
 }
 
 # bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
-# the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; echo "${v:s}"
+# the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; __print_lines "${v:s}"
 # function __substr_native {
 # 	local string="$1" start="${2:-0}" length="${3-}"
 # 	if [[ -n "$length" ]]; then

@@ -40,7 +40,7 @@ setup-util-strongbox
 strongbox -git-config
 
 # add the .local directories to your user repository's .gitattributes file
-echo '*.local/* filter=strongbox diff=strongbox' >> .gitattributes
+printf '%s\n' '*.local/* filter=strongbox diff=strongbox' >> .gitattributes
 
 # generate your strongbox key
 strongbox -gen-key 'username/repository'

@@ -9,9 +9,9 @@ secure_history() {
 	)"
 	if [ "$action" = 'erase your entire history' ]; then
 		history -c
-		echo 'Erased everything.'
+		printf '%s\n' 'Erased everything.'
 	else
-		echo 'Erasing only known risks is not supported in shells that are not Fish.' >/dev/stderr
+		printf '%s\n' 'Erasing only known risks is not supported in shells that are not Fish.' >/dev/stderr
 		return 1
 	fi
 }

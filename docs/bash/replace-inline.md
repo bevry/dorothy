@@ -9,7 +9,7 @@ if rg --multiline --quiet "$pattern" "$file"; then
 else
 	# it wasn't found, so add manually if it's not empty
 	if [[ -n "$replace" ]]; then
-		echo "$replace" >>"$file"
+		printf '%s\n' "$replace" >>"$file"
 	fi
 fi
 ```
@@ -20,7 +20,7 @@ is the same as:
 if ! rg --multiline --passthru --regexp="$pattern" --replace="$replace" "$file" | echo-wait -- "$file"; then
 	# it wasn't found, so add manually if it's not empty
 	if [[ -n "$replace" ]]; then
-		echo "$replace" >>"$file"
+		printf '%s\n' "$replace" >>"$file"
 	fi
 fi
 ```
