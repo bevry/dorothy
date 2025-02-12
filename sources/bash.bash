@@ -564,11 +564,11 @@ function eval_capture {
 		# __debug_lines "TRAP: fn=[$trap_fn] [$EVAL_CAPTURE_STATUS]/[$trap_status] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context] \$-=[$-]"
 		if [[ $EVAL_CAPTURE_CONTEXT == "$trap_context" ]]; then
 			if [[ $EVAL_CAPTURE_SUBSHELL == "$trap_subshell" || $trap_fn == 'eval_capture_wrapper' ]]; then
-				# __debug_lines '>--STORE--<'
+				# __debug_lines "STORE: fn=[$trap_fn] [$EVAL_CAPTURE_STATUS]/[$trap_status] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context] \$-=[$-]"
 				EVAL_CAPTURE_STATUS="$trap_status"
 				return 0
 			elif [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]]; then
-				# __debug_lines '>--SAVE--<'
+				# __debug_lines "SAVE: fn=[$trap_fn] [$EVAL_CAPTURE_STATUS]/[$trap_status] cmd=[$EVAL_CAPTURE_COMMAND]/[$trap_cmd] subshell=[$EVAL_CAPTURE_SUBSHELL]/[$trap_subshell] context=[$EVAL_CAPTURE_CONTEXT]/[$trap_context] \$-=[$-]"
 				# https://github.com/bevry/dorothy/commit/5c44792a6c46950cb74dee03383efdbe8018ebec#diff-fdce5cb2b4ffb7374573ddbe18177d5d871da104db96cce483934d4a0dc50ea6R230
 				# https://github.com/bevry/dorothy/commit/c1fe25b4a2382fc979dace2d23ee15efd60d8c28#diff-fdce5cb2b4ffb7374573ddbe18177d5d871da104db96cce483934d4a0dc50ea6R221
 				__print_lines "$trap_status" >"$status_temp_file"
@@ -647,19 +647,19 @@ function eval_capture {
 		if [[ -n $stdout_variable ]]; then
 			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper > >(
-					tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe"
+					tee -a -- "$stdout_temp_file" "$output_temp_file" >>"$stdout_pipe"
 					touch -- "$stdout_temp_file.stdout" "$output_temp_file.stdout"
 				) 2> >(
-					tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe"
+					tee -a -- "$stderr_temp_file" "$output_temp_file" >>"$stderr_pipe"
 					touch -- "$stderr_temp_file.stderr" "$output_temp_file.stderr"
 				)
 				eval_capture_wait "$stdout_temp_file.stdout" "$output_temp_file.stdout" "$stderr_temp_file.stderr" "$output_temp_file.stderr"
 			else
 				eval_capture_wrapper > >(
-					tee -a -- "$stdout_temp_file" "$output_temp_file" >"$stdout_pipe"
+					tee -a -- "$stdout_temp_file" "$output_temp_file" >>"$stdout_pipe"
 					touch -- "$stdout_temp_file.stdout" "$output_temp_file.stdout"
 				) 2> >(
-					tee -a -- "$output_temp_file" >"$stderr_pipe"
+					tee -a -- "$output_temp_file" >>"$stderr_pipe"
 					touch -- "$output_temp_file.stderr"
 				)
 				eval_capture_wait "$stdout_temp_file.stdout" "$output_temp_file.stdout" "$output_temp_file.stderr"
@@ -667,19 +667,19 @@ function eval_capture {
 		else
 			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper > >(
-					tee -a -- "$output_temp_file" >"$stdout_pipe"
+					tee -a -- "$output_temp_file" >>"$stdout_pipe"
 					touch -- "$output_temp_file.stdout"
 				) 2> >(
-					tee -a -- "$stderr_temp_file" "$output_temp_file" >"$stderr_pipe"
+					tee -a -- "$stderr_temp_file" "$output_temp_file" >>"$stderr_pipe"
 					touch -- "$stderr_temp_file.stderr" "$output_temp_file.stderr"
 				)
 				eval_capture_wait "$output_temp_file.stdout" "$stderr_temp_file.stderr" "$output_temp_file.stderr"
 			else
 				eval_capture_wrapper > >(
-					tee -a -- "$output_temp_file" >"$stdout_pipe"
+					tee -a -- "$output_temp_file" >>"$stdout_pipe"
 					touch -- "$output_temp_file.stdout"
 				) 2> >(
-					tee -a -- "$output_temp_file" >"$stderr_pipe"
+					tee -a -- "$output_temp_file" >>"$stderr_pipe"
 					touch -- "$output_temp_file.stderr"
 				)
 				eval_capture_wait "$output_temp_file.stdout" "$output_temp_file.stderr"
@@ -689,29 +689,35 @@ function eval_capture {
 		if [[ -n $stdout_variable ]]; then
 			if [[ -n $stderr_variable ]]; then
 				eval_capture_wrapper > >(
-					tee -- "$stdout_temp_file" >"$stdout_pipe"
+					tee -- "$stdout_temp_file" >>"$stdout_pipe"
 					touch -- "$stdout_temp_file.stdout"
 				) 2> >(
-					tee -- "$stderr_temp_file" >"$stderr_pipe"
+					tee -- "$stderr_temp_file" >>"$stderr_pipe"
 					touch -- "$stderr_temp_file.stderr"
 				)
 				eval_capture_wait "$stdout_temp_file.stdout" "$stderr_temp_file.stderr"
 			else
 				eval_capture_wrapper > >(
-					tee -- "$stdout_temp_file" >"$stdout_pipe"
+					tee -- "$stdout_temp_file" >>"$stdout_pipe"
 					touch -- "$stdout_temp_file.stdout"
-				) 2>"$stderr_pipe"
+				) 2>>"$stderr_pipe"
 				eval_capture_wait "$stdout_temp_file.stdout"
 			fi
 		else
 			if [[ -n $stderr_variable ]]; then
-				eval_capture_wrapper >"$stdout_pipe" 2> >(
-					tee -- "$stderr_temp_file" >"$stderr_pipe"
+				eval_capture_wrapper >>"$stdout_pipe" 2> >(
+					tee -- "$stderr_temp_file" >>"$stderr_pipe"
 					touch -- "$stderr_temp_file.stderr"
 				)
 				eval_capture_wait "$stderr_temp_file.stderr"
 			else
-				eval_capture_wrapper >"$stdout_pipe" 2>"$stderr_pipe"
+				# @note on linux (non-bsd/macos) then using [>"$stdout_pipe"] will only keep the last write
+				# even if the caller uses [>>"$file"]
+				# the only solution is to drop [>"$stdout_pipe"] or do [>>"$stdout_pipe"]
+				# or to ensure all [>/dev/stdout] and [>/dev/stderr] operations are actually [>>/dev/stdout] and [>>/dev/stderr]
+				# of which the latter is what [shopt -o noclobber] is intended to enforce
+				# this applies all the above redirections too, not just here, it's just here is what is exploited by [stdinargs.bash] and [echo-lines-(before|after)]
+				eval_capture_wrapper >>"$stdout_pipe" 2>>"$stderr_pipe"
 			fi
 		fi
 	fi
