@@ -60,9 +60,6 @@ function dorothy_() (
 			DOROTHY=''
 		fi
 	fi
-	if [[ -z ${ZDOTDIR-} ]]; then
-		ZDOTDIR=''
-	fi
 	if [[ -z ${XDG_CONFIG_HOME-} ]]; then
 		XDG_CONFIG_HOME="$HOME/.config"
 	fi
@@ -438,6 +435,94 @@ function dorothy_() (
 		done
 	}
 
+	# see [commands/fs-relocate] for details
+	function relocate_then_symlink_if_necessary {
+		local source="$1" destination="$2" redirected_destination original_source symlink_accident
+		function __fail {
+			echo-style --stderr --notice='Something went wrong when relocating paths to their correct location. Please remove one of these to try again:' --newline --code="$source" --newline --code="$destination"
+			return 17 # EEXIST 17 File exists
+		}
+
+		# if destination is a symlink, resolve it, move it, and remove it
+		if [[ -L $destination ]]; then
+			if [[ -e $destination ]]; then
+				redirected_destination="$(__fs_realpath -- "$destination")"
+				# remove the destination symlink
+				rm -f -- "$destination"
+				# relocate the resolved destination to the destination
+				mv -fv -- "$redirected_destination" "$destination"
+			else
+				# remove the broken destination symlink
+				rm -f -- "$destination"
+			fi
+		fi
+
+		# if source is a symlink, resolve it and remove it
+		if [[ -L $source ]]; then
+			# store the source symlink
+			original_source="$source"
+			# update the source with the resolved source target
+			if [[ -e $source ]]; then
+				source="$(__fs_realpath -- "$source")"
+			fi
+			# if the source target is the the destination, and we want to make a symlink, we are done
+			if [[ $source == "$destination" ]]; then
+				return 0
+			fi
+			# the source target is not the destination, so remove the source symlink
+			rm -f -- "$original_source"
+		elif [[ $source == "$destination" ]]; then
+			# sanity check, if the source is the same as the destination, nothing to do
+			return 0
+		fi
+
+		# sanity check
+		if [[ -L $source ]]; then
+			__fail
+		fi
+
+		# if the source exists, prep for merging it with the destination
+		if [[ -e $source ]]; then
+			# if the destination exists, trim the source and destination to avoid merge failures
+			if __command_exists -- fs-trim && [[ -e $destination ]]; then
+				fs-trim --no-confirm --quiet --empty --cache -- "$source" "$destination"
+				# if source doesn't exist anymore, we are done
+				if [[ ! -e $source ]]; then
+					return 0
+				fi
+			fi
+
+			# merge the source into the destination
+			mv -fv -- "$source" "$destination" || __fail
+		fi
+
+		# sanity check
+		if [[ -e $source ]]; then
+			__fail
+		fi
+
+		# now that source definitely doesn't exist, symlink the source to the destination
+		# ln <target> <symlink>
+		if __is_alpine; then
+			# alpine doesn't support -F, however the removals earlier should make it unnecessary
+			ln -sf -- "$destination" "$source"
+		else
+			# -F: replace symlink if directory if needed
+			# -f: unlink symlink path if needed
+			# -s: symbolic link
+			ln -sfF -- "$destination" "$source"
+		fi
+
+		# cleanup accidents
+		symlink_accident="$source/$(basename -- "$destination")"
+		if [[ -L $symlink_accident ]]; then
+			rm -f -- "$symlink_accident"
+		fi
+
+		# all done
+		return 0
+	}
+
 	# =====================================
 	# Helpers
 
@@ -642,86 +727,12 @@ function dorothy_() (
 		return
 	}
 
-	function rm_deprecated {
-		local file
-		for file in "$@"; do
-			# -s (file exists and is not empty)
-			if [[ -s $file ]]; then
-				echo-file -- "$file"
-				if confirm --positive --ppid=$$ -- 'Unless you are an experienced user who has already made modifications to this shell configuration file, it can be safely removed for a lighter installation. Remove this file?'; then
-					rm -f -- "$file"
-				fi
-				__print_line
-			fi
-		done
-	}
-
 	function make_executable {
 		# makes sure chmod isn't running on nothing, which can happen upon initial user installs
 		# dorothy may not have been loaded yet
 		if [[ $# -ne 0 ]]; then
 			# macos chmod doesn't support [--] as such don't both with it for linux either
 			chmod -f +x "$@"
-		fi
-	}
-
-	# relocate and remove symlinks
-	function relocate_if_necessary {
-		local source="$1" destination="$2" temp
-
-		# if source is a symlink, resolve it and remove it
-		if [[ -L $source ]]; then
-			temp="$source"
-			# resolve where the source actually is
-			if [[ -e $destination ]]; then
-				source="$(__fs_realpath -- "$source")"
-			else
-				source=''
-			fi
-			# remove the source symlink
-			rm -f -- "$temp"
-		fi
-
-		# if destination is a symlink, resolve it, move it, and remove it
-		if [[ -L $destination ]]; then
-			if [[ -e $destination ]]; then
-				temp="$(__fs_realpath -- "$destination")"
-				# remove the destination symlink
-				rm -f -- "$destination"
-				# relocate the target to the destination
-				mv -fv -- "$temp" "$destination"
-			else
-				# remove the destination symlink
-				rm -f -- "$destination"
-			fi
-		fi
-
-		# do we need to move and merge the source with the destination?
-		if [[ -n $source && -n $destination && $source != "$destination" && -e $source ]]; then
-			mv -fv -- "$source" "$destination"
-		fi
-
-		# all done
-		return 0
-	}
-
-	# relocate and recreate symlink
-	function relocate_then_symlink_if_necessary {
-		local symlink="$1" destination="$2"
-		relocate_if_necessary "$symlink" "$destination"
-		if __is_alpine; then
-			# alpine doesn't support -F, however the removals of relocate_if_necessary should make it unnecessary
-			ln -sf -- "$destination" "$symlink"
-		else
-			# -F: replace symlink if directory if needed
-			# -f: unlink symlink path if needed
-			# -s: symbolic link
-			ln -sfF -- "$destination" "$symlink"
-		fi
-		# cleanup accidents
-		symlink="$symlink/$(basename -- "$destination")"
-		if [[ -L $symlink ]]; then
-			rm -f -- "$symlink"
 		fi
 	}
 
@@ -766,31 +777,6 @@ function dorothy_() (
 		fi # else fresh install and no prior clones exist
 	}
 
-	function relocate_zsh_if_necessary {
-		# https://zsh.sourceforge.io/Intro/intro_3.html
-		# determine ZDOTDIR
-		if [[ $option_xdg == 'yes' ]]; then
-			if [[ -z $ZDOTDIR ]]; then
-				ZDOTDIR="$XDG_CONFIG_HOME/zsh"
-			fi
-		elif [[ $option_xdg == 'no' ]]; then
-			if [[ -z $ZDOTDIR ]]; then
-				ZDOTDIR="$HOME"
-			fi
-		else
-			# invalid option_xdg value
-			return 76 # EPROCUNAVAIL 76 Bad procedure for program
-		fi
-		# move config files
-		# zshenv needs to be in $HOME - all other goes in ZDOT.
-		__mkdirp "$ZDOTDIR" # required for opensuse
-		relocate_if_necessary "$ZDOTDIR/.zshenv" "$HOME/.zshenv"
-		relocate_if_necessary "$HOME/.zprofile" "$ZDOTDIR/.zprofile"
-		relocate_if_necessary "$HOME/.zshrc" "$ZDOTDIR/.zshrc"
-		relocate_if_necessary "$HOME/.zlogin" "$ZDOTDIR/.zlogin"
-		relocate_if_necessary "$HOME/.zlogout" "$ZDOTDIR/.zlogout"
-	}
-
 	function prepare_dorothy {
 		# if no DOROTHY env override, attempt DOROTHY from possible existing installations
 		if [[ -z $DOROTHY ]]; then
@@ -823,11 +809,6 @@ function dorothy_() (
 
 		# if user configuration exists, ensure user configuration is in correct location
 		relocate_user_if_necessary
-
-		# ensure shell config files are in correct location
-		relocate_zsh_if_necessary
-		# fish uses xdg by default
-		# bash does not support xdg
 	}
 
 	function stage_new_files {
@@ -1329,221 +1310,6 @@ function dorothy_() (
 			--find='config.local[/]' --replace='config.local/'
 	}
 
-	function ensure_shell_configured {
-		# process arguments
-		local item option_clean='no' option_uninstall='no' default_shells=() use_shells=() fodder=''
-		local supported_shells=(
-			bash
-			dash
-			elvish
-			fish
-			ksh
-			nu
-			xonsh
-			zsh
-		)
-		local supported_shells_with_labels=(
-			bash Bash
-			dash Dash
-			elvish Elvish
-			fish Fish
-			ksh KSH
-			nu Nu
-			xonsh Xonsh
-			zsh Zsh
-		)
-		while [[ $# -ne 0 ]]; do
-			item="$1"
-			shift
-			case "$item" in
-			'--clean' | '--clean=yes') option_clean='yes' ;;
-			'--no-clean' | '--clean=no') option_clean='no' ;;
-			'--uninstall') option_uninstall='yes' ;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
-			esac
-		done
-
-		echo-style --h2='Dorothy Shell Configuration'
-
-		# if not uninstalling
-		if [[ $option_uninstall == 'no' ]]; then
-			# configure default selected shells by checking for their existence
-			local cmd
-			for cmd in "${supported_shells[@]}"; do
-				if __command_exists -- "$cmd"; then
-					default_shells+=("$cmd")
-				fi
-			done
-
-			eval_capture --stdoutvar=fodder -- \
-				choose \
-				--defaults="$(__print_lines "${default_shells[@]}")" \
-				--question="Which shells to use Dorothy?" \
-				--multi \
-				--label \
-				-- "${supported_shells_with_labels[@]}"
-			mapfile -t use_shells <<<"$fodder"
-		fi
-		use_shells+=('bash v3 compat workaround')
-
-		# cleanup
-		if [[ $option_clean == 'yes' ]]; then
-			rm_deprecated "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$XDG_CONFIG_HOME/fish/config.fish" "$ZDOTDIR/.zshrc" "$ZDOTDIR/.zprofile"
-		fi
-
-		# bash
-		if is-needle --needle='bash' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Bash'
-			setup-util-bash
-
-			# mac and raspi ubuntu
-			config-helper --file="$HOME/.bash_profile" -- \
-				--find='.+? # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
-
-			# vm ubuntu
-			config-helper --file="$HOME/.bashrc" -- \
-				--find='.+? # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
-
-			echo-style --g3='Configuring Bash'
-		else
-			config-helper --file="$HOME/.bash_profile" -- \
-				--find='.+? # Dorothy' --replace=''
-			config-helper --file="$HOME/.bashrc" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# dash
-		if is-needle --needle='dash' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Dash'
-			setup-util-dash
-
-			# configure
-			config-helper --file="$HOME/.profile" -- \
-				--find='.+? # Dorothy' --replace=". \"$DOROTHY/init.sh\" # Dorothy"
-
-			echo-style --g3='Configuring Dash'
-		fi
-
-		# elvish
-		if is-needle --needle='elvish' -- "${use_shells[@]}"; then
-			# https://elv.sh/ref/command.html#rc-file
-			# https://elv.sh/ref/runtime.html
-			# https://github.com/elves/elvish/issues/1726
-			echo-style --h3='Configuring Elvish'
-			setup-util-elvish
-			__mkdirp "$XDG_CONFIG_HOME/elvish"
-
-			# configure
-			config-helper --file="$XDG_CONFIG_HOME/elvish/rc.elv" -- \
-				--find='.+? # Dorothy' --replace="eval (cat -- '$DOROTHY/init.elv' | slurp) # Dorothy"
-
-			echo-style --h3='Configuring Elvish'
-		else
-			__mkdirp "$XDG_CONFIG_HOME/elvish"
-			config-helper --file="$XDG_CONFIG_HOME/elvish/rc.elv" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# fish
-		if is-needle --needle='fish' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Fish'
-			setup-util-fish
-			__mkdirp "$XDG_CONFIG_HOME/fish"
-
-			# configure
-			config-helper --file="$XDG_CONFIG_HOME/fish/config.fish" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.fish' # Dorothy"
-
-			echo-style --g3='Configuring Zsh'
-		else
-			__mkdirp "$XDG_CONFIG_HOME/fish"
-			config-helper --file="$XDG_CONFIG_HOME/fish/config.fish" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# ksh
-		if is-needle --needle='ksh' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring KSH'
-			setup-util-ksh
-
-			# configure
-			config-helper --file="$HOME/.profile" -- \
-				--find='.+? # Dorothy' --replace=". '$DOROTHY/init.sh' # Dorothy"
-
-			echo-style --g3='Configuring KSH'
-		fi
-
-		# nu
-		if is-needle --needle='nu' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Nu'
-			setup-util-nu
-
-			# configure
-			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.nu' # Dorothy"
-
-			echo-style --g3='Configuring Nu'
-		elif __command_exists -- nu; then
-			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# xonsh
-		if is-needle --needle='xonsh' -- "${use_shells[@]}"; then
-			# https://xon.sh/xonshrc.html
-			echo-style --h3='Configuring Xonsh'
-			setup-util-xonsh
-			__mkdirp "$XDG_CONFIG_HOME/xonsh/rc.d"
-
-			# configure
-			config-helper --file="$XDG_CONFIG_HOME/xonsh/rc.xsh" -- \
-				--find='.+? # Dorothy' --replace="execx(compilex(open('$DOROTHY/init.xsh').read())) # Dorothy"
-
-			echo-style --g3='Configuring Xonsh'
-		else
-			__mkdirp "$XDG_CONFIG_HOME/xonsh/rc.d"
-			config-helper --file="$XDG_CONFIG_HOME/xonsh/rc.xsh" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# zsh
-		# https://zsh.sourceforge.io/Intro/intro_3.html
-		if is-needle --needle='zsh' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Zsh'
-			setup-util-zsh
-			__mkdirp "$ZDOTDIR"
-
-			# configure
-			config-helper --file="$ZDOTDIR/.zshrc" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.sh' # Dorothy"
-
-			config-helper --file="$ZDOTDIR/.zprofile" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.sh' # Dorothy"
-
-			config-helper --file="$HOME/.zshenv" -- \
-				--find='ZDOTDIR=.+' --replace="ZDOTDIR='$ZDOTDIR'"
-
-			echo-style --g3='Configuring Zsh'
-		else
-			__mkdirp "$ZDOTDIR"
-			config-helper --file="$ZDOTDIR/.zshrc" -- \
-				--find='.+? # Dorothy' --replace=''
-			config-helper --file="$ZDOTDIR/.zprofile" -- \
-				--find='.+? # Dorothy' --replace=''
-			config-helper --file="$HOME/.zshenv" -- \
-				--find='ZDOTDIR=.+' --replace="ZDOTDIR='$ZDOTDIR'"
-		fi
-
-		# no bash, dash, ksh
-		if ! is-needle --any --needle='bash' --needle='dash' --needle='ksh' -- "${use_shells[@]}"; then
-			config-helper --file="$HOME/.profile" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		echo-style --g2='Dorothy Shell Configuration'
-	}
-
 	# =====================================
 	# Actions: Install, Update, Trial
 
@@ -1576,7 +1342,7 @@ function dorothy_() (
 			ensure_machine_configured
 			ensure_user_configured "$option_user"
 		fi
-		ensure_shell_configured --clean="$option_clean"
+		setup-shell --setup --clean="$option_clean"
 
 		# log success
 		echo-style --g1='Install Dorothy'
@@ -1591,7 +1357,7 @@ function dorothy_() (
 		# action
 		echo-style --h1='Uninstall Dorothy'
 		ensure_minimal_dependencies
-		ensure_shell_configured --uninstall
+		setup-shell --deconfigure
 
 		# log success and instructions for removal
 		echo-style --g1='Uninstall Dorothy'
@@ -1663,6 +1429,7 @@ function dorothy_() (
 			# [--login] ignores [--rcfile]
 			# this is not a true login shell, as [$0] is not [-bash], as such loading [init.sh] is incompatible
 			# without [env -i] which would wipe [USER/HOME/DOROTHY], then this shell will inherit exports from the current environment
+			export DOROTHY_RUN=yes
 			"$shell" --rcfile <(
 				cat <<-EOF
 					#!/usr/bin/env bash
@@ -1675,6 +1442,7 @@ function dorothy_() (
 			return
 		elif [[ $shell == 'nu' ]]; then
 			setup-util-nu --quiet
+			export DOROTHY_RUN=yes
 			"$shell" --interactive --login --no-config-file --execute "$(
 				cat <<-EOF
 					#!/usr/bin/env nu
@@ -1686,6 +1454,7 @@ function dorothy_() (
 			return
 		elif [[ $shell == 'fish' ]]; then
 			setup-util-fish --quiet
+			export DOROTHY_RUN=yes
 			"$shell" --interactive --login --no-config --init-command="$(
 				cat <<-EOF
 					#!/usr/bin/env fish
@@ -1726,6 +1495,7 @@ function dorothy_() (
 		} >/dev/stderr # don't conflate stdout, don't use /dev/tty as tty doesn't exist on CI
 
 		# now that our environment is setup, run the command
+		export DOROTHY_RUN=yes
 		command "${args[@]}" # eval builtins and commands, but not functions
 		return
 	}
@@ -1800,7 +1570,7 @@ function dorothy_() (
 		source "$DOROTHY/sources/config.sh"
 
 		# prepare
-		mapfile -t files < <(__print_lines "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-filenames --stdin | uniq)
+		mapfile -t files < <(echo-filenames -- "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-unique --stdin)
 		themes=(
 			system
 			"${files[@]}"
@@ -2098,7 +1868,7 @@ function dorothy_() (
 				{
 					type -pa bash
 					expand-path -- "$XDG_BIN_HOME/bash-*"
-				} | uniq
+				} | echo-unique --stdin
 			)
 		fi
 

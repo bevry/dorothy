@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# @todo support --tool=<curl|wget|?>
+
 function fetch_() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -82,6 +84,16 @@ function fetch_() (
 	# =====================================
 	# Helpers
 
+	function __to_sigpipe {
+		local status="$?" item
+		for item in "$@"; do
+			if [[ $status -eq $item ]]; then
+				return 141
+			fi
+		done
+		return "$status"
+	}
+
 	function __log_failure {
 		local status="$?"
 		echo-style --error1='Failed to fetch the URL: ' --code-error1="$option_url" >/dev/stderr || return
@@ -117,10 +129,17 @@ function fetch_() (
 				"$option_body"
 			)
 		fi
-		# use echo-wait to fix [curl: (23) Failure writing output to destination] when piping to ripgrep
-		{
-			curl "${options[@]}" "$option_url" || __log_failure
-		} | echo-wait
+
+		# > set -o pipefail
+		# > curl --silent --show-error 'https://www.google.com' | :
+		# curl: Failed writing body
+		# [23]
+		#
+		# > set -o pipefail
+		# > curl --silent --show-error --write-out '%{http_code}' 'https://www.google.com' | :
+		# curl: (56) Failure writing output to destination, passed 1378 returned 0
+		# [56]
+		{ curl "${options[@]}" "$option_url" || __to_sigpipe 23 56; } || __log_failure
 	}
 	function do_wget {
 		local options=("$@")
@@ -129,7 +148,11 @@ function fetch_() (
 				"--header=Authorization: $option_auth_token"
 			)
 		fi
-		wget "${options[@]}" "$option_url" || __log_failure
+		# > set -o pipefail
+		# > wget -nv -O- 'https://www.google.com' | :te to ‘-’ (Success).
+		# Cannot write to ‘-’ (Success).
+		# [3]
+		{ wget "${options[@]}" "$option_url" || __to_sigpipe 3; } || __log_failure
 	}
 
 	function fetch_status {

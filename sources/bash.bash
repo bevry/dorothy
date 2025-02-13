@@ -360,6 +360,25 @@ else
 	}
 fi
 
+# ignore an exit status
+function __ignore_exit_status {
+	local status="$?" item
+	for item in "$@"; do
+		if [[ $status -eq $item ]]; then
+			return 0
+		fi
+	done
+	return "$status"
+}
+
+# ignore a sigpipe exit status
+function __ignore_sigpipe {
+	__ignore_exit_status 141
+}
+
+# ^ the above enable the following, note that the curl pipefail 56 occurs because we pipe [curl] to [:], similar to how we cause another pipefail later by piping [yes] to [head -n 1], this is a contrived example to demonstrate the point
+# { curl --silent --show-error 'https://www.google.com' | : || __ignore_exit_status 56; } | { { cat; yes; } | head -n 1 || __ignore_sigpipe; } | cat
+
 # =============================================================================
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 #

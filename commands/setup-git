@@ -30,6 +30,12 @@ function setup_git() (
 			OPTIONS:
 			--configure
 			    Whether to prompt, confirm, or save configuration changes.
+			--no-fallback
+			    Disables installation of fallbacks to install extras.
+			--no-extras
+			    Disables installation of extras, such as gpg etc.
+			--slim
+			    Disables configuration, fallbacks, and extras.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -38,7 +44,7 @@ function setup_git() (
 	}
 
 	# process
-	local item option_configure=''
+	local item option_configure='' option_fallback='' option_extras=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -55,6 +61,17 @@ function setup_git() (
 		'--no-configure'* | '--configure'*)
 			option_configure="$(get-flag-value --affirmative --fallback="$option_configure" -- "$item")"
 			;;
+		'--no-fallback'* | '--fallback'*)
+			option_fallback="$(get-flag-value --affirmative --fallback="$option_fallback" -- "$item")"
+			;;
+		'--no-extras'* | '--extras'*)
+			option_extras="$(get-flag-value --affirmative --fallback="$option_extras" -- "$item")"
+			;;
+		'--slim')
+			option_configure='no'
+			option_fallback='no'
+			option_extras='no'
+			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
@@ -66,9 +83,11 @@ function setup_git() (
 	echo-style --h1='Setup Git'
 
 	# dependencies
-	echo-style --h2='Install Git'
-	setup-util-git
-	echo-style --g2='Install Git'
+	if [[ $option_extras != 'no' ]] || __command_missing -- git; then
+		echo-style --h2='Install Git'
+		setup-util-git --fallback="$option_fallback"
+		echo-style --g2='Install Git'
+	fi
 
 	# vars
 	local protocol_options=(
@@ -146,14 +165,12 @@ function setup_git() (
 	# GITLAB_USERNAME
 
 	# required
-	if [[ -z $GIT_NAME || -z $GIT_EMAIL || -z $GIT_DEFAULT_BRANCH ]]; then
-		option_configure='yes'
-	fi
-	if ! is-needle --needle="$GIT_PROTOCOL" -- "${protocol_options[@]}"; then
-		option_configure='yes'
-	fi
-	if ! is-needle --needle="$MERGE_TOOL" -- "${merge_tools[@]}"; then
-		option_configure='yes'
+	if [[ -z $option_configure ]]; then
+		if [[ -z $GIT_NAME || -z $GIT_EMAIL || -z $GIT_DEFAULT_BRANCH ]] ||
+			! is-needle --needle="$GIT_PROTOCOL" -- "${protocol_options[@]}" ||
+			! is-needle --needle="$MERGE_TOOL" -- "${merge_tools[@]}"; then
+			option_configure='yes'
+		fi
 	fi
 
 	# configure
@@ -241,9 +258,15 @@ function setup_git() (
 
 	# Profile
 	echo-style --header2='Git Configuration: Profile'
-	git config --global user.name "$GIT_NAME"
-	git config --global user.email "$GIT_EMAIL"
-	git config --global git.protocol "$GIT_PROTOCOL"
+	if [[ -n $GIT_NAME ]]; then
+		git config --global user.name "$GIT_NAME"
+	fi
+	if [[ -n $GIT_EMAIL ]]; then
+		git config --global user.email "$GIT_EMAIL"
+	fi
+	if [[ -n $GIT_PROTOCOL ]]; then
+		git config --global git.protocol "$GIT_PROTOCOL"
+	fi
 
 	# Authorizations
 	echo-style --header2='Git Configuration: Auth'
@@ -260,8 +283,10 @@ function setup_git() (
 
 	# Merge Tool
 	echo-style --header2="Git Configuration: Merge/Diff Tool: $MERGE_TOOL"
-	git config --global diff.tool "$MERGE_TOOL"
-	git config --global merge.tool "$MERGE_TOOL"
+	if [[ -n $MERGE_TOOL ]]; then
+		git config --global diff.tool "$MERGE_TOOL"
+		git config --global merge.tool "$MERGE_TOOL"
+	fi
 
 	# Editor
 	local editor
@@ -446,38 +471,43 @@ function setup_git() (
 	# Security
 
 	echo-style --header2='Git Configuration: Permissions'
-	ssh-helper permissions
-	gpg-helper permissions
+	ssh-helper --install="$option_extras" permissions
+	gpg-helper --install="$option_extras" permissions
+	# @todo apply the above --install flag
+	# @todo github-download caching
+	# @todo read -i version added and bash.bash update
 
 	# =====================================
 	# SSH
 
-	ssh-helper setup --configure="$option_configure"
+	ssh-helper --install="$option_extras" --configure="$option_configure" setup
 
 	# =====================================
 	# Authenticate with CLIs
 
 	# Must be done here, as they depend on git and ssh being correctly configured
-	if [[ -n $GITHUB_USERNAME ]]; then
-		setup-util-gh --optional
+	if [[ -n $GITHUB_USERNAME && $option_extras != 'no' ]]; then
+		setup-util-gh --optional --fallback="$option_fallback"
 	fi
 
 	# =====================================
 	# Configure protocols now that ssh is setup
 
 	echo-style --header2="Git Configuration: Protocol: $GIT_PROTOCOL"
-	if [[ $GIT_PROTOCOL == 'ssh' ]] && ! ssh-helper test; then
-		echo-style --notice='SSH failed, temporarily configuring for HTTPS'
-		GIT_PROTOCOL='https'
-	fi
-	git config --global git.protocol "$GIT_PROTOCOL"
-	if __command_exists -- hub; then
-		git config --global hub.protocol "$GIT_PROTOCOL"
-	else
-		git config --global --unset hub.protocol || :
-	fi
-	if __command_exists -- gh; then
-		gh config set git_protocol "$GIT_PROTOCOL" || : # can fail
+	if [[ -n $GIT_PROTOCOL ]]; then
+		if [[ $GIT_PROTOCOL == 'ssh' ]] && ! ssh-helper test; then
+			echo-style --notice='SSH failed, temporarily configuring for HTTPS'
+			GIT_PROTOCOL='https'
+		fi
+		git config --global git.protocol "$GIT_PROTOCOL"
+		if __command_exists -- hub; then
+			git config --global hub.protocol "$GIT_PROTOCOL"
+		else
+			git config --global --unset hub.protocol || :
+		fi
+		if __command_exists -- gh; then
+			gh config set git_protocol "$GIT_PROTOCOL" || : # can fail
+		fi
 	fi
 
 	# if [[ -n "$GITLAB_USERNAME" ]]; then
