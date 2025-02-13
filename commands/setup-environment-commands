@@ -106,11 +106,12 @@ STATE_DIR='/var/local/state'
 # https://wiki.archlinux.org/title/XDG_Base_Directory
 # https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 # XDG_RUNTIME_DIR is a special directory and variable created by the system
+export XDG_PREFIX="${XDG_PREFIX:-"$HOME/.local"}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-"$HOME/.cache"}"
-export XDG_BIN_HOME="${XDG_BIN_HOME:-"$HOME/.local/bin"}"
-export XDG_DATA_HOME="${XDG_DATA_HOME:-"$HOME/.local/share"}"
-export XDG_STATE_HOME="${XDG_STATE_HOME:-"$HOME/.local/state"}"
+export XDG_BIN_HOME="${XDG_BIN_HOME:-"$XDG_PREFIX/bin"}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-"$XDG_PREFIX/share"}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-"$XDG_PREFIX/state"}"
 # ^ if these are already defined, not to worry, `env.bash` will tidy up duplicates
 __mkdirp "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_BIN_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
@@ -125,6 +126,47 @@ export MANPATH="${MANPATH-}" INFOPATH="${INFOPATH-}" CLASSPATH="${CLASSPATH-}" P
 
 # local vars
 p=''
+
+# =====================================
+# Helpers
+
+# PATH, LDFLAGS, CPPFLAGS, PKG_CONFIG_PATH
+function add_prefix_dir {
+	local p="$1"
+	if [[ -n $p && -d $p ]]; then
+		# for invokers to discover it
+		if [[ -d "$p/bin" ]]; then
+			PATH="$p/bin:$PATH"
+		fi
+		# for invokers under root to discover it
+		if [[ $USER == 'root' && -d "$p/sbin" ]]; then
+			PATH="$p/sbin:$PATH"
+		fi
+		# for compilers to discover it
+		if [[ -d "$p/lib" ]]; then
+			LDFLAGS="-L$p/lib $LDFLAGS"
+			# for pkg-config to discover it
+			if [[ -d "$p/lib/pkgconfig" ]]; then
+				PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
+			fi
+		fi
+		if [[ -d "$p/include" ]]; then
+			CPPFLAGS="-I$p/include $CPPFLAGS"
+		fi
+		# man and share/man
+		if [[ -d "$p/man" ]]; then
+			MANPATH="$p/man:$MANPATH"
+		fi
+		if [[ -d "$p/share" ]]; then
+			if [[ -d "$p/share/man" ]]; then
+				MANPATH="$p/share/man:$MANPATH"
+			fi
+			if [[ -d "$p/share/info" ]]; then
+				INFOPATH="$p/share/info:$INFOPATH"
+			fi
+		fi
+	fi
+}
 
 # =====================================
 # Configuration
@@ -144,6 +186,14 @@ load_dorothy_config 'environment.bash'
 # =====================================
 # Environment
 
+# Should we prefer XDG?
+export PREFER_XDG
+if [[ $DOROTHY == "$HOME/.dorothy" ]]; then
+	PREFER_XDG='no'
+else
+	PREFER_XDG='yes'
+fi
+
 # XDG compiled properties
 export XDG_DATA_DIRS="${XDG_DATA_DIRS:-"$XDG_DATA_HOME:/usr/local/share:/usr/share"}"
 export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-"$XDG_CONFIG_HOME:/etc/xdg"}"
@@ -156,12 +206,19 @@ if [[ -d "$XDG_DATA_HOME/flatpak/exports/share" ]]; then
 	XDG_DATA_DIRS="$XDG_DATA_HOME/flatpak/exports/share:$XDG_DATA_DIRS"
 fi
 
-# Should we prefer XDG?
-export PREFER_XDG
-if [[ $DOROTHY == "$HOME/.dorothy" ]]; then
-	PREFER_XDG='no'
-else
-	PREFER_XDG='yes'
+# Homebrew, UNIX
+add_prefix_dir /usr
+add_prefix_dir /usr/local
+
+# Zsh
+# https://zsh.sourceforge.io/Intro/intro_3.html
+export ZDOTDIR
+if [[ -z ${ZDOTDIR-} ]]; then
+	if [[ $PREFER_XDG == 'yes' ]]; then
+			ZDOTDIR="$XDG_CONFIG_HOME/zsh"
+	elif [[ $PREFER_XDG == 'no' ]]; then
+			ZDOTDIR="$HOME"
+	fi
 fi
 
 # GnuPG
@@ -185,25 +242,20 @@ fi
 # Xcode
 # if [[ -x '/usr/bin/xcode-select' && -x '/usr/bin/xcrun' ]]; then
 if __command_exists -- 'xcode-select' 'xcrun'; then
-	#p='/Applications/Xcode.app/Contents/Developer'
-	p="$(xcode-select --print-path 2>/dev/null || :)"
-
 	# Apple Command Line Tools
-	if [[ -d '/Library/Developer/CommandLineTools/usr/bin' ]]; then
-		PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
-	fi
+	add_prefix_dir '/Library/Developer/CommandLineTools/usr'
 
 	# Xcode Command Line Tools
-	if [[ -d "$p/usr/bin" ]]; then
-		PATH="$p/usr/bin:$PATH"
-	fi
+	#p='/Applications/Xcode.app/Contents/Developer'
+	p="$(xcode-select --print-path 2>/dev/null || :)"
+	add_prefix_dir "$p/usr"
 
 	# Xcode Toolchain
-	p="$p/Toolchains/XcodeDefault.xctoolchain/usr/bin"
-	if [[ -d $p ]]; then
-		PATH="$p:$PATH"
-		#CC="$p/clang"
-		#CXX="$p/clang++"
+	p="$p/Toolchains/XcodeDefault.xctoolchain"
+	add_prefix_dir "$p/usr"
+	if [[ -d "$p/usr/bin" ]]; then
+		#CC="$p/usr/bin/clang"
+		#CXX="$p/usr/bin/clang++"
 		CC="$(xcrun --find clang 2>/dev/null || :)"
 		CXX="$(xcrun --find clang++ 2>/dev/null || :)"
 	fi
@@ -212,12 +264,9 @@ if __command_exists -- 'xcode-select' 'xcrun'; then
 	# /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk => $p/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk => xcrun --sdk macosx --show-sdk-path
 	#p='/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
 	p="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || :)"
+	add_prefix_dir "$p/usr"
 	if [[ -d "$p/usr/lib" ]]; then
-		LDFLAGS="-L$p/usr/lib $LDFLAGS"
 		LIBRARY_PATH="$p/usr/lib:$LIBRARY_PATH"
-	fi
-	if [[ -d "$p/usr/include" ]]; then
-		CPPFLAGS="-I$p/usr/include $CPPFLAGS"
 	fi
 	if [[ -d "$p/System/Library/Frameworks" ]]; then
 		# https://stackoverflow.com/a/68766210
@@ -263,27 +312,7 @@ if is-wsl; then
 fi
 
 # Homebrew, UNIX
-if [[ -d '/usr/local/bin' ]]; then
-	PATH="/usr/local/bin:$PATH"
-fi
-if [[ -d '/usr/local/sbin' ]]; then
-	PATH="/usr/local/sbin:$PATH"
-fi
-if [[ -d '/usr/share/man' ]]; then
-	MANPATH="/usr/share/man:$MANPATH"
-fi
-if [[ -d '/usr/local/man' ]]; then
-	MANPATH="/usr/local/man:$MANPATH"
-fi
-if [[ -d '/usr/share/info' ]]; then
-	INFOPATH="/usr/share/info:$INFOPATH"
-fi
-if [[ -d '/usr/lib' ]]; then
-	LDFLAGS="-L/usr/lib $LDFLAGS"
-fi
-if [[ -d '/usr/lib/pkgconfig' ]]; then
-	PKG_CONFIG_PATH="/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
-fi
+add_prefix_dir /user/local
 
 # macOS
 if is-mac; then
@@ -352,45 +381,15 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	fi
 
 	# for compilers to find llvm
-	if [[ -d "$HOMEBREW_PREFIX/lib" ]]; then
-		LDFLAGS="-L$HOMEBREW_PREFIX/lib $LDFLAGS"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/include" ]]; then
-		CPPFLAGS="-I$HOMEBREW_PREFIX/include $CPPFLAGS"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/lib/pkgconfig" ]]; then
-		PKG_CONFIG_PATH="$HOMEBREW_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
+	if [[ $HOMEBREW_PREFIX != '/user/local' ]]; then
+		add_prefix_dir "$HOMEBREW_PREFIX"
 	fi
 
 	# llvm
-	if [[ -d "$HOMEBREW_PREFIX/opt/llvm/bin" ]]; then
-		p="$HOMEBREW_PREFIX/opt/llvm"
-		PATH="$p/bin:$PATH"
-		# for compilers to find llvm
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-	fi
+	add_prefix_dir "$HOMEBREW_PREFIX/opt/llvm"
 
 	# SQLite (dependency of python)
-	if [[ -d "$HOMEBREW_PREFIX/opt/sqlite/bin" ]]; then
-		p="$HOMEBREW_PREFIX/opt/sqlite"
-		PATH="$p/bin:$PATH"
-		# for compilers to find sqlite
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-		# for pkg-config to find sqlite
-		if [[ -d "$p/lib/pkgconfig" ]]; then
-			PKG_CONFIG_PATH="$p/lib/pkgconfig $PKG_CONFIG_PATH"
-		fi
-	fi
+	add_prefix_dir "$HOMEBREW_PREFIX/opt/sqlite"
 
 	# guile (dependency of something)
 	if [[ -d "$HOMEBREW_PREFIX/share/guile" ]]; then
@@ -438,19 +437,7 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 			fi
 		fi
 		if [[ -n $p ]]; then
-			PATH="$p/bin:$PATH"
-			rubygems "$p/bin/gem"
-			# for compilers to find ruby
-			if [[ -d "$p/lib" ]]; then
-				LDFLAGS="-L$p/lib $LDFLAGS"
-			fi
-			if [[ -d "$p/include" ]]; then
-				CPPFLAGS="-I$p/include $CPPFLAGS"
-			fi
-			# for pkg-config to find ruby
-			if [[ -d "$p/lib/pkgconfig" ]]; then
-				PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
-			fi
+			add_prefix_dir "$p"
 		fi
 	else
 		# add them all, excluding special paths
@@ -481,32 +468,20 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 
 	# OpenSSL (dependency of python, gpg, and node)
 	# openssl is a symlink to whatever directory has the latest version
-	if [[ -d "$HOMEBREW_PREFIX/opt/openssl/bin" ]]; then
-		p="$HOMEBREW_PREFIX/opt/openssl"
-		PATH="$p/bin:$PATH"
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-		if [[ -d "$p/lib/pkgconfig" ]]; then
-			PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
-		fi
-		# ^^ setup-util-gocryptfs needs this on macos big sur
-		# ```
-		# Package libcrypto was not found in the pkg-config search path.
-		# Perhaps you should add the directory containing `libcrypto.pc'
-		# to the PKG_CONFIG_PATH environment variable
-		# No package 'libcrypto' found
-		# pkg-config: exit status 1
-		# ```
-		# and
-		# ```
-		# ld: library not found for -lcrypto
-		# clang: error: linker command failed with exit code 1 (use -v to see invocation)
-		# ````
-	fi
+	add_prefix_dir "$HOMEBREW_PREFIX/opt/openssl"
+	# ^^ setup-util-gocryptfs needs this on macos big sur
+	# ```
+	# Package libcrypto was not found in the pkg-config search path.
+	# Perhaps you should add the directory containing `libcrypto.pc'
+	# to the PKG_CONFIG_PATH environment variable
+	# No package 'libcrypto' found
+	# pkg-config: exit status 1
+	# ```
+	# and
+	# ```
+	# ld: library not found for -lcrypto
+	# clang: error: linker command failed with exit code 1 (use -v to see invocation)
+	# ````
 
 	# NSS
 	if [[ -d "$HOMEBREW_PREFIX/opt/nss/bin" ]]; then
@@ -667,9 +642,9 @@ fi
 if [[ $XDG_BIN_HOME != "$HOME/.local/bin" ]]; then
 	PATH="$HOME/.local/bin:$PATH"
 fi
-
 # Generics: XDG, always add, even if not existent, in case it is created later
 PATH="$XDG_BIN_HOME:$PATH"
+add_prefix_dir "$XDG_PREFIX" # only adds directories that exist
 
 # GO LLVM
 # https://stackoverflow.com/a/58488820

@@ -27,6 +27,8 @@ function echo_file() (
 
 			--raw
 			    No line numbers or filename, only file contents.
+			--trim
+			    Trim the padding at the start and end of the file. Requires --raw.
 
 			--plain
 			    No line numbers.
@@ -40,7 +42,7 @@ function echo_file() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_bat='' option_raw='no' option_plain='no' option_args=()
+	local item option_bat='' option_raw='no' option_plain='no' option_trim='' option_sudo='' option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -54,6 +56,12 @@ function echo_file() (
 			;;
 		'--no-plain'* | '--plain'*)
 			option_plain="$(get-flag-value --affirmative --fallback="$option_plain" -- "$item")"
+			;;
+		'--no-trim'* | '--trim'*)
+			option_trim="$(get-flag-value --affirmative --fallback="$option_trim" -- "$item")"
+			;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
 			;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
@@ -76,32 +84,79 @@ function echo_file() (
 		fi
 	fi
 
+	if [[ $option_trim == 'yes' && $option_raw != 'yes' ]]; then
+		help "The --trim option requires --raw."
+	fi
+
 	# =====================================
 	# Action
 
+	function eval_file {
+		local file="$1" status=0 sudo="$option_sudo" eval=("${@:2}") reason
+		if [[ -z $file ]]; then
+			echo-style --error1='The file is an empty path: ' --code-error1="$file" >/dev/stderr
+			return "$status"
+		fi
+		if [[ -z $sudo ]]; then
+			eval_capture --statusvar=status -- is-readable --no-sudo -- "$file"
+			if [[ $status -eq 93 ]]; then
+				# sudo can write to anything
+				sudo='yes'
+				status=0
+			elif [[ $status -eq 13 ]]; then
+				eval_capture --statusvar=status -- is-readable --sudo -- "$file"
+			fi
+		elif [[ $sudo == 'yes' ]]; then
+			eval_capture --statusvar=status -- is-readable --sudo -- "$file"
+		else
+			eval_capture --statusvar=status -- is-readable --no-sudo -- "$file"
+		fi
+		if [[ $status -eq 13 ]]; then
+			echo-style --error1='The file is not accessible: ' --code-error1="$file" >/dev/stderr
+			return "$status"
+		elif [[ $status -eq 93 ]]; then
+			echo-style --error1='The file is not readable: ' --code-error1="$file" >/dev/stderr
+			return "$status"
+		elif [[ $status -eq 2 ]]; then
+			echo-style --error1='The file does not exist: ' --code-error1="$file" >/dev/stderr
+			return "$status"
+		elif [[ $status -eq 9 ]]; then
+			echo-style --error1='The file is a broken symlink: ' --code-error1="$file" >/dev/stderr
+			return "$status"
+		elif [[ $status -ne 0 ]]; then
+			echo-style --error1='The file encountered an error: ' --code-error1="$file" --error1=' ' --code-error="$status" >/dev/stderr
+		fi
+		if [[ $sudo == 'yes' ]]; then
+			reason="Your sudo/root/login password is required to read the file: $file"
+			if [[ ${eval[0]} == 'cat' ]]; then
+				sudo-helper --reason="$reason" -- "${eval[@]}"
+			else
+				sudo-helper --reason="$reason" --inherit -- "${eval[@]}"
+			fi
+		else
+			"${eval[@]}" # eval
+		fi
+	}
+
+	function raw_file {
+		local file="$1"
+		if [[ $option_trim == 'yes' ]]; then
+			eval_file "$file" cat "$file" | echo-trim-padding --stdin
+		else
+			eval_file "$file" cat "$file"
+		fi
+	}
+
+
 	if [[ $option_raw == 'yes' ]]; then
-		# raw
-		function echo_files {
-			local file result=0
-			while [[ $# -ne 0 ]]; do
-				file="$1"
-				shift
-				if [[ -f $file ]]; then
-					echo-trim-padding --stdin <"$file"
-				else
-					echo-style --error="The file does not exist." >/dev/stderr
-					result=2 # ENOENT No such file or directory
-					# ^ dont like this, so that all files are noted before crash
-				fi
-				if [[ $# -ne 0 ]]; then
-					__print_lines '' ''
-				fi
-			done
-			return "$result"
+		function echo_file {
+			local file="$1"
+			raw_file "$file"
 		}
-	else
+	elif [[ $option_bat == 'yes' ]]; then
 		# plain/bat
-		local terminal_theme='' bat_cmd=(
+		local terminal_theme='' bat_cmd=()
+		bat_cmd+=(
 			bat
 			--paging=never
 		)
@@ -127,47 +182,38 @@ function echo_file() (
 				)
 			fi # else bat is installed, but without knowing the terminal theme, we cannot be sure that the bat theme is readable
 		fi
-
-		function echo_file_bat {
+		function echo_file {
 			local file="$1"
 			if [[ $option_plain == 'yes' ]]; then
-				echo-style --element="$file"
-				"${bat_cmd[@]}" "$file" # eval
-				echo-style --/element="$file"
+				content="$(eval_file "$file" "${bat_cmd[@]}" "$file")"
+				echo-style --element="$file" --newline --="$content" --newline --/element="$file"
 			else
-				"${bat_cmd[@]}" "$file"
+				eval_file "$file" "${bat_cmd[@]}" "$file"
 			fi
 		}
-		function echo_files {
-			local file result=0 bat_status=1
-			while [[ $# -ne 0 ]]; do
-				file="$1"
-				shift
-				if [[ -f $file ]]; then
-					if [[ $option_bat == 'yes' ]]; then
-						eval_capture --statusvar=bat_status -- echo_file_bat "$file"
-					fi
-					if [[ $bat_status -ne 0 ]]; then
-						echo-style \
-							--element="$file" --newline \
-							--code="$(echo-trim-padding --stdin <"$file")" --newline \
-							--/element="$file"
-					fi
-				else
-					echo-style --stderr \
-						--element="$file" --newline \
-						--error="The file does not exist." --newline \
-						--/element="$file" --status=2
-					result=2 # ENOENT No such file or directory
-					# ^ dont like this, so that all files are noted before crash
-				fi
-				if [[ $# -ne 0 ]]; then
-					__print_lines '' ''
-				fi
-			done
-			return "$result"
+	elif [[ $option_plain == 'yes' ]]; then
+		function echo_file {
+			local file="$1"
+			content="$(raw_file "$file")"
+			echo-style --element="$file" --newline --="$content" --newline --/element="$file"
+		}
+	else
+		function echo_file {
+			raw_file "$file"
 		}
 	fi
+
+	function echo_files {
+		local file
+		while [[ $# -ne 0 ]]; do
+			file="$1"
+			shift
+			echo_file "$file"
+			if [[ $# -ne 0 ]]; then
+				__print_lines '' ''
+			fi
+		done
+	}
 
 	local files=()
 	function on_line {

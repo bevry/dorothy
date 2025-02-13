@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+
+function fs_relocate() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >/dev/stderr
+			ABOUT:
+			Relocate all <source>s into the <destination>.
+
+			USAGE:
+			fs-relocate [...options] [--] [...<source>] <destination>
+
+			OPTIONS:
+			--symlink
+			    If provided, the <source> will be persisted afterwards as a symlink to the <destination>.
+
+			--sudo=<sudo>
+			--user=<user>
+			--group=<group>
+			    Forwarded to [fs-absolute].
+
+			QUIRKS:
+			If any <source> or the <destination> is a symlink, its symlink will be removed and its target will be relocated to the <destination>.
+		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_paths=() option_symlink='no' option_sudo='' option_user='' option_group=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-symlink'* | '--symlink'*)
+			option_symlink="$(get-flag-value --affirmative --fallback="$option_symlink" -- "$item")"
+			;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--')
+			option_paths+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) option_paths+=("$item") ;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		help 'No <destination> provided.'
+	fi
+
+	# split sources and destination
+	local sources destination
+	local -i count
+	# this does not work in bash v3
+	# destination="${option_paths[-1]}"
+	# sources=("${option_paths[@]:0:${#option_paths[@]}-1}")
+	# this does work in bash v3
+	count=${#option_paths[@]}
+	destination="${option_paths[count - 1]}"
+	sources=("${option_paths[@]:0:count-1}")
+
+	# =====================================
+	# Action
+
+	# if destination is a symlink, resolve it, move it, and remove it
+	local redirected_destination
+	# if destination is a symlink, resolve it, move it, and remove it
+	if [[ -L $destination ]]; then
+		if [[ -e $destination ]]; then
+			redirected_destination="$(fs-realpath --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$destination")"
+			# remove the destination symlink
+			rm -f -- "$destination"
+			# relocate the resolved destination to the destination
+			mv -fv -- "$redirected_destination" "$destination"
+		else
+			# remove the broken destination symlink
+			rm -f -- "$destination"
+		fi
+	fi
+
+	# move all sources to the destination
+	if [[ ${#sources[@]} -ne 0 ]]; then
+		local source original_source symlink_accident
+		function __fail {
+			echo-style --stderr --notice='Something went wrong when relocating paths to their correct location. Please remove one of these to try again:' --newline --code="$source" --newline --code="$destination"
+			return 17 # EEXIST 17 File exists
+		}
+		for source in "${sources[@]}"; do
+			# if source is a symlink, resolve it and remove it
+			if [[ -L $source ]]; then
+				# store the source symlink
+				original_source="$source"
+				# update the source with the resolved source target
+				if [[ -e $source ]]; then
+					source="$(fs-realpath --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$source")"
+				fi
+				# if the source target is the the destination, and we want to make a symlink, we are done
+				if [[ $option_symlink == 'yes' && $source == "$destination" ]]; then
+					return 0
+				fi
+				# the source target is not the destination, so remove the source symlink
+				rm -f -- "$original_source"
+			elif [[ $source == "$destination" ]]; then
+				# sanity check, if the source is the same as the destination, nothing to do
+				return 0
+			fi
+
+			# sanity check
+			if [[ -L $source ]]; then
+				__fail
+			fi
+
+			# if the source exists, prep for merging it with the destination
+			if [[ -e $source ]]; then
+				# if the destination exists, trim the source and destination to avoid merge failures
+				if [[ -e $destination ]]; then
+					fs-trim --no-confirm --quiet --empty --cache -- "$source" "$destination"
+					# if source doesn't exist anymore, we are done
+					if [[ ! -e $source ]]; then
+						return 0
+					fi
+				fi
+
+				# merge the source into the destination
+				mv -fv -- "$source" "$destination" || __fail
+			fi
+
+			# sanity check
+			if [[ -e $source ]]; then
+				__fail
+			fi
+
+			# do we want to persist a symlink?
+			if [[ $option_symlink == 'yes' ]]; then
+				# now that source definitely doesn't exist, symlink the source to the destination
+				# ln <target> <symlink>
+				if __is_alpine; then
+					# alpine doesn't support -F, however the removals earlier should make it unnecessary
+					ln -sf -- "$destination" "$source"
+				else
+					# -F: replace symlink if directory if needed
+					# -f: unlink symlink path if needed
+					# -s: symbolic link
+					ln -sfF -- "$destination" "$source"
+				fi
+
+				# cleanup accidents
+				symlink_accident="$source/$(basename -- "$destination")"
+				if [[ -L $symlink_accident ]]; then
+					rm -f -- "$symlink_accident"
+				fi
+			fi
+		done
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	fs_relocate "$@"
+fi

@@ -100,17 +100,19 @@ function echo_wait() (
 			Process STDIN ignoring pipe failures.
 
 			USAGE:
-			curl -I -fail https://www.google.com | echo-wait [...options] [--] [...<file>] | echo
+			curl -I -fail https://www.google.com | echo-wait [...options] [--] [...<file>] | cat
 
 			OPTIONS:
-			--sponge
-			    Enforce usage of sponge for output buffering. This is required for binary data.
-
-			--no-sponge
-			    Disable usage of sponge for output buffering.
+			--sponge | --no-tee
+			    Enforce usage of [sponge] for output buffering. This is required for binary data.
+			--no-sponge | --tee
+			    Disable usage of [sponge] for output buffering, use [tee] instead. This does not support binary data.
 
 			--sudo
 			    Use sudo to write to the <file>.
+
+			--append
+			    Append to the <file> instead of overwriting it.
 
 			[...<file>]
 			    A file to write to.
@@ -122,7 +124,7 @@ function echo_wait() (
 	}
 
 	# process
-	local item option_sponge='' option_sudo='no' option_files=()
+	local item option_sponge='' option_sudo='no' option_append='no' option_files=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -131,8 +133,14 @@ function echo_wait() (
 		'--no-sponge'* | '--sponge'*)
 			option_sponge="$(get-flag-value --affirmative --fallback="$option_sponge" -- "$item")"
 			;;
+		'--no-tee'* | '--tee'*)
+			option_sponge="$(get-flag-value --non-affirmative --fallback="$option_sponge" -- "$item")"
+			;;
 		'--no-sudo'* | '--sudo'*)
 			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--no-append'* | '--append'*)
+			option_append="$(get-flag-value --affirmative --fallback="$option_append" -- "$item")"
 			;;
 		'--')
 			option_files+=("$@")
@@ -144,69 +152,126 @@ function echo_wait() (
 		esac
 	done
 
-	# install sponge if needed
+	# install sponge if required
 	if [[ $option_sponge == 'yes' ]]; then
 		setup-util-moreutils --quiet # sponge
 	fi
+	# unless sponge is missing, or undesired, use it, this is because sponge supports binary data
 	if [[ $option_sponge == 'no' ]] || __command_missing -- sponge; then
 		option_sponge='no'
 	else
 		option_sponge='yes'
 	fi
 
-	# check sudo
+	# check file arguments
 	if [[ $option_sudo == 'yes' && ${#option_files[@]} -eq 0 ]]; then
-		help "<sudo> requires <file>s"
+		help '<sudo> requires <file>s'
+	fi
+	if [[ $option_append == 'yes' && ${#option_files[@]} -eq 0 ]]; then
+		help '<append> requires <file>s'
 	fi
 
 	# adapt commands for sudo and files, and check sudo
-	local sponge_output_command=() tee_output_command=()
+	local output_command=()
 	if [[ ${#option_files[@]} -ne 0 ]]; then
 		if [[ $option_sudo == 'yes' ]]; then
-			sponge_output_command+=(
-				sudo-helper
-				--reason="Your sudo/root/login password is required to update the files: ${option_files[*]}"
-				--
-			)
-			tee_output_command+=(
+			output_command+=(
 				sudo-helper
 				--reason="Your sudo/root/login password is required to update the files: ${option_files[*]}"
 				--
 			)
 		fi
 		if [[ $option_sponge == 'yes' ]]; then
-			sponge_output_command+=(
-				"$(type -P sponge)"
-				"${option_files[@]}"
-			)
+			output_command+=("$(type -P sponge)")
 		else
-			tee_output_command+=(
-				"$(type -P tee)"
-				"${option_files[@]}"
-			)
+			output_command+=("$(type -P tee)")
 		fi
+		if [[ $option_append == 'yes' ]]; then
+			output_command+=(-a)
+		fi
+		output_command+=(-- "${option_files[@]}")
 	fi
 
 	# =====================================
 	# Action
 
+	# echo-wait does three things
+
+	# wait without a timeout for reading data, this means no timeout for first read nor subsequent read, this means it waits until EOF is reached
+	# this is what prevents this issue:
+	#
+	# > set -o pipefail
+	#
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | echo-count-lines --timeout=1
+	# 1
+	# [141] sigpipe
+	#
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | echo-count-lines --no-timeout
+	# 3
+	# [0] success
+
+	# read all data to write all data at once, this means it waits until EOF is reached before writing anything
+	# this is what prevents this issue:
+	#
+	# notes:
+	# [head -n1] has same functionality on macos and ubuntu, on ubuntu [sed 1q] doesn't cause sigpipe but on macos it does
+	# [tee -p] does not exist on macos but does exist on ubuntu, it has no effect
+	# [read -r -d ''] does not support binary data as that can contain null characters which are then dropped, and [IFS= read -r] is even worse
+	#
+	# > set -o pipefail
+	#
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | head -n1
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | cat | head -n1
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | tee | head -n1
+	# 1
+	# [141] sigpipe
+	#
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | sponge | head -n1
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | dd status=none | head -n1
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | { read -r -d ''; printf '%s' "$REPLY"; } | head -n1
+	# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | ( cat > tempfile; cat tempfile; rm tempfile; ) | sed 1q
+	# 1
+	# [0] success
+
+	# other notable commands:
+	# > echo-style --stdout=my-stdout --stderr=my-stderr > >(flock 1 waiter 5 --stdout=stdout) 2> >(flock 2 waiter 5 --stderr=stderr >/dev/stderr); flock 1 echo stdout-done; flock 2 echo stderr-done; flock -u 1; flock -u 2
+	# stderr
+	# stdout
+	# stdout-done
+	# stderr-done
+
+	# write the data to output files, with support for sudo and appending
+
 	if [[ $option_sponge == 'yes' ]]; then
 		if [[ ${#option_files[@]} -ne 0 ]]; then # bash v3 compat
-			"${sponge_output_command[@]}" </dev/stdin
+			"${output_command[@]}" </dev/stdin
 		else
 			sponge </dev/stdin
 		fi
 	else
 		function read_everything {
-			# support binary: https://unix.stackexchange.com/a/62642/50703
-			# REPLY is the untruncated line: https://unix.stackexchange.com/a/474797/50703
+			# note, that despite this meant to support binary, it doesn't seem to, it results in lost data when using --no-sponge, and results in a hang when using --sponge, using [sponge] instead of [echo-wait] works fine
+			# binary_file='...'; delta <(echo-escape-special --stdin <"$binary_file") <(cat "$binary_file" | echo-wait --no-sponge | echo-escape-special --stdin)
+			#
+
+			# local counter=0
+			# while read -r -d ''; do
+			# 	counter=$((counter + 1))
+			# 	__print_lines "inner read - $counter"
+			# 	# printf %s'\0' "$REPLY"
+			# done </dev/stdin
+			# __print_lines 'outer read'
+			# printf %s "$REPLY"
+
+			# [-d ''] and [-d $'\0'] are equivalent
+			# the problem with binary data is that it may have the null byte within it, so multiple inner reads occurs
 			while read -r -d ''; do
 				printf %s'\0' "$REPLY"
 			done </dev/stdin
 			printf %s "$REPLY"
 		}
 		if [[ ${#option_files[@]} -ne 0 ]]; then # bash v3 compat
-			read_everything | "${tee_output_command[@]}" >/dev/null
+			read_everything | "${output_command[@]}" >/dev/null
 			# ^ /dev/null to be consistent with sponge
 		else
 			read_everything

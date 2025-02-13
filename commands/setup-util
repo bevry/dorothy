@@ -137,13 +137,16 @@ function setup_util() (
 			    Install all packages with this installer.
 
 			--cli=<cli>
-			    Used to check if the utility  is already installed, in this case, a CLI executable.
+			    Used to check if the utility is already installed, in this case, a CLI executable.
 
 			--app=<app>
-			    Used to check if the utility  is already installed, in this case, an application.
+			    Used to check if the utility is already installed, in this case, an application.
 
 			--font=<font>
-			    Used to check if the utility  is already installed, in this case, a font.
+			    Used to check if the utility is already installed, in this case, a font.
+
+			--checker=<command>
+			    The <command> is invoked to check if the utility is already installed. It should return [0] if installed, [1] if not installed.
 
 			--name=<name>
 			    The name to use for the utility in human readable output, such as log messages.
@@ -179,7 +182,7 @@ function setup_util() (
 			    If truthy, don't output anything that isn't an error message.
 			    If falsey, output everything.
 
-			--check | --check=<command>
+			--check | --check
 			    If used, then just check if an action is required to be performed.
 			    Returns [0] if quiet and no action is necessary.
 			    Returns [1] if an action is necessary.
@@ -188,6 +191,11 @@ function setup_util() (
 			    If used, just check if an installation or uninstallation is necessary.
 			    Returns [0] if quiet and no action is necessary.
 			    Returns [1] if an action is necessary.
+
+			--configure | --action=configure
+			    If used, then skip installation and uninstallation, and just do any [setup-util-*] configuration.
+			    Requires the [setup-util-*] command to have a [setup-util --check] call.
+			    Refer to [setup-shell], [setup-util-nu], [setup-util-zsh] for usage.
 
 			... uppercase arguments are options for our installers.
 
@@ -264,7 +272,7 @@ function setup_util() (
 	# </installer-options>
 
 	# process
-	local item option_quiet='' option_action='install' option_check='' option_installer='' option_app='' option_cli='' option_font='' option_name='' option_xdg='yes' option_sudo='no' option_confirm='no' option_optional='no' option_fallback='yes' option_upgrade='no' option_force='no' option_order=()
+	local item option_quiet='' option_action='install' option_check='' option_checker='' option_installer='' option_app='' option_cli='' option_font='' option_name='' option_xdg='yes' option_sudo='no' option_confirm='no' option_optional='no' option_fallback='yes' option_upgrade='no' option_force='no' option_order=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -276,10 +284,12 @@ function setup_util() (
 		'--no-quiet'* | '--quiet'*)
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
+		'--no-check'* | '--check'*)
+			option_check="$(get-flag-value --affirmative --fallback="$option_check" -- "$item")"
+			;;
 		'--install') option_action='install' ;;
 		'--uninstall') option_action='uninstall' ;;
-		'--check='*) option_check="${item#*=}" ;;
-		'--check') option_check='yes' ;;
+		'--configure') option_action='configure' ;;
 		'--installed')
 			option_check='yes'
 			option_action='install'
@@ -292,6 +302,7 @@ function setup_util() (
 		'--action='*) option_action="${item#*=}" ;;
 		'--order='*) mapfile -t option_order < <(echo-split ' ' -- "${item#*=}") ;;
 		'--installer='*) option_installer="${item#*=}" ;;
+		'--checker='*) option_checker="${item#*=}" ;;
 		'--app='*) option_app="${item#*=}" ;;
 		'--cli='*) option_cli="${item#*=}" ;;
 		'--font='*) option_font="${item#*=}" ;;
@@ -430,8 +441,13 @@ function setup_util() (
 	if [[ -z $option_action ]]; then
 		option_action='install'
 	fi
-	if ! [[ $option_action =~ ^(install|uninstall|upgrade)$ ]]; then
-		help 'Invalid <action>, must be [install], [uninstall], or [upgrade].'
+	if ! [[ $option_action =~ ^(install|uninstall|upgrade|configure)$ ]]; then
+		help 'Invalid <action>, must be [install], [uninstall], [upgrade], [configure].'
+	fi
+
+	# if configure, then we don't actually need to do anything, as any action is handled by the [setup-util-*] caller
+	if [[ $option_action == 'configure' ]]; then
+		return 0
 	fi
 
 	# if uninstall, disable upgrade
@@ -440,63 +456,21 @@ function setup_util() (
 	fi
 
 	# ensure name fallback
-	if [[ -z $option_name && -n $option_app ]]; then
-		option_name="$option_app"
-	fi
-	if [[ -z $option_name && -n $option_cli ]]; then
-		option_name="$option_cli"
-	fi
-	if [[ -z $option_name && -n $option_font ]]; then
-		option_name="$option_font"
-	fi
-	if [[ -z $option_name && -n $option_installer ]]; then
-		option_name="$option_installer"
-	fi
-
-	# check if exists
-	local check_works='' app_exists='' cli_exists='' cli_working='' font_exists=''
-	if [[ -n $option_check && $option_check != 'yes' && $option_check != 'no' ]]; then
-		if command "$option_check"; then
-			if [[ -z $option_name ]]; then
-				option_name="$option_check"
-			fi
-			check_works='yes'
-		else
-			check_works='no'
-		fi
-	else
-		if [[ -n $option_app ]]; then
-			if get-app --quiet -- "$option_app"; then
-				app_exists='yes'
-			else
-				app_exists='no'
-			fi
-		fi
-		if [[ -n $option_cli ]]; then
-			if __command_exists -- "$option_cli"; then
-				cli_exists='yes'
-				if command-working --sudo="$option_sudo" -- "$option_cli"; then
-					cli_working='yes'
-				else
-					cli_working='no'
-				fi
-			else
-				cli_exists='no'
-				cli_working='no'
-			fi
-		fi
-		if [[ -n $option_font ]]; then
-			if get-font --quiet -- "$option_font"; then
-				font_exists='yes'
-			else
-				font_exists='no'
-			fi
-		fi
-	fi
-
-	# ensure name
 	if [[ -z $option_name ]]; then
-		help 'Either <name>, <cli>, <app>, <font>, <installer>, <check> must be provided.'
+		if [[ -n $option_app ]]; then
+			option_name="$option_app"
+		elif [[ -n $option_cli ]]; then
+			option_name="$option_cli"
+		elif [[ -n $option_font ]]; then
+			option_name="$option_font"
+		elif [[ -n $option_installer ]]; then
+			option_name="$option_installer"
+		elif [[ -n $option_checker ]]; then
+			option_name="$option_checker"
+		fi
+	fi
+	if [[ -z $option_name ]]; then
+		help 'Either <name>, <cli>, <app>, <font>, <installer>, <checker> must be provided.'
 	fi
 
 	# prep terminal vars
@@ -515,54 +489,106 @@ function setup_util() (
 		default_screen_buffer=''
 	fi
 
-	# check only
-	if [[ -n $option_check && $option_check != 'no' ]]; then
-		# @todo support --check for uninstall
-		if [[ $option_action == 'install' ]]; then
-			if [[ $check_works == 'yes' || $app_exists == 'yes' || $cli_working == 'yes' || $font_exists == 'yes' ]]; then
-				maybe_echo_style --good3="The [$option_name] utility is already installed. ✅" >"$terminal_device_file"
-				return 0
+	# check if exists
+	local can_validate='' is_working='' is_missing=''
+	if [[ -n $option_cli || -n $option_app || -n $option_checker || -n $option_font ]]; then
+		can_validate='yes'
+		is_working='yes'
+		is_missing='yes'
+		is_broken='no'
+		if [[ -n $option_checker ]]; then
+			if command "$option_checker"; then
+				is_missing='no'
+			else
+				is_working='no'
 			fi
 		fi
-		return 1
+		if [[ -n $option_app ]]; then
+			if get-app --quiet -- "$option_app"; then
+				is_missing='no'
+			else
+				is_working='no'
+			fi
+		fi
+		if [[ -n $option_cli ]]; then
+			if __command_exists -- "$option_cli"; then
+				is_missing='no'
+				if ! command-working --sudo="$option_sudo" -- "$option_cli"; then
+					is_working='no'
+				fi
+			else
+				is_working='no'
+			fi
+		fi
+		if [[ -n $option_font ]]; then
+			if get-font --quiet -- "$option_font"; then
+				is_missing='no'
+			else
+				is_working='no'
+			fi
+		fi
 	fi
 
-	# check for action (--check=yes/command would have already exited, as it would have above)
-	if [[ -n $option_app || -n $option_cli || -n $option_font ]]; then
-		if [[ $app_exists != 'yes' && $cli_exists != 'yes' && $font_exists != 'yes' ]]; then
-			# nothing installed
+	# check if already in desired state
+	if [[ $can_validate == 'yes' ]]; then
+		if [[ $is_missing == 'yes' ]]; then
+			# missing, nothing installed
 			if [[ $option_action == 'uninstall' ]]; then
-				# already uninstalled, so no need to uninstall
+				# nothing installed, so no need to uninstall
 				maybe_echo_style --good3="The [$option_name] utility was not found. Already uninstalled. ✅" >"$terminal_device_file"
 				# exit
 				return 0
 			fi
-			option_upgrade='no' # note that we aren't upgrading, which is used for logging
+			# nothing installed, want to install
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# note that we aren't upgrading, which is used for logging
+			option_upgrade='no'
 			# perform install
 			maybe_echo_style --header3="The [$option_name] utility was not found. Installing automatically... ⏲" >"$terminal_device_file"
 		elif [[ $option_action == 'uninstall' ]]; then
-			# exists, uninstall enabled
-			option_upgrade='no' # note that we aren't upgrading, which is used for logging
+			# exists, uninstall enabled, want to uninstall
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# note that we aren't upgrading, which is used for logging
+			option_upgrade='no'
 			# perform uninstall
 			maybe_echo_style --header3="The [$option_name] utility is marked for uninstall. Uninstalling... ⏲" >"$terminal_device_file"
 		elif [[ $option_upgrade == 'yes' ]]; then
-			# exists, upgrade enabled
+			# exists, upgrade enabled, want to upgrade
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
 			# perform upgrade
 			maybe_echo_style --header3="The [$option_name] utility is marked for upgrade. Upgrading... ⏲" >"$terminal_device_file"
-		elif [[ $cli_working == 'fail' ]]; then
-			# exists, not working
+		elif [[ $is_working == 'no' ]]; then
+			# exists, not working, want to fix
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
 			# perform reinstall
 			maybe_echo_style --header3="The [$option_name] utility via [$option_cli] is misbehaving. Reinstalling automatically... ⏲" >"$terminal_device_file"
-		elif [[ $option_check == 'no' ]]; then
-			# exists, don't care, proceed anyway
-			# used by setup-util-nerd-fonts to ensure we check for the correct font
-			: # do nothing
-		else
-			# exists, no upgrade, is working
-			# already installed, so no need to install again
+		elif [[ $is_working == 'yes' ]]; then
+			# exists, no upgrade, is working, no action necessary
 			maybe_echo_style --good3="The [$option_name] utility is already installed. ✅" >"$terminal_device_file"
 			return 0
+		else
+			# exists, don't care, proceed anyway
+			# used by setup-util-nerd-fonts to ensure we check for the correct font
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
 		fi
+	elif [[ $option_check == 'yes' ]]; then
+		# we are just checking if we need to act, no action is necessary
+		return 1
 	fi
 
 	# ensure order
@@ -3803,14 +3829,14 @@ function setup_util() (
 					do_the_download
 					# build uninstall
 					local build_status
-					echo-style --bold="Uninstalling built $option_name..."
+					echo-style --info1='Uninstalling the built ' --code-info1="$option_name" --info1=' in ' --code-info1="$download_directory" --info1=' ...'
 					pushd "$download_directory" &>/dev/null
 					eval_capture --statusvar=build_status -- "$build_uninstall"
 					popd &>/dev/null
 					if [[ $build_status -eq 0 ]]; then
-						echo-style --success="Uninstalled built $option_name."
+						echo-style --good1='Uninstalled the built ' --code-good1="$option_name" --good1=' in ' --code-good1="$download_directory"
 					else
-						echo-style --error="Failed to uninstall built $option_name." >/dev/stderr
+						echo-style --error1='Failed to uninstall the built ' --code-error1="$option_name" --error1=' in ' --code-error1="$download_directory" >/dev/stderr
 						return "$build_status"
 					fi
 				else
@@ -3833,13 +3859,13 @@ function setup_util() (
 		if [[ -n $build_install ]]; then
 			# build install
 			local build_status
-			echo-style --bold="Building $option_name..."
+			echo-style --info1='Building ' --code-info1="$option_name" --info1=' in ' --code-info1="$download_directory" --info1=' ...'
 			# can't do cd in a subshell as we want to capture the status
 			pushd "$download_directory" &>/dev/null
 			eval_capture --statusvar=build_status -- "$build_install"
 			popd &>/dev/null
 			if [[ $build_status -eq 0 ]]; then
-				echo-style --success="Built $option_name."
+				echo-style --good1='Built ' --code-good1="$option_name" --good1=' in ' --code-good1="$download_directory"
 			else
 				echo-style --error1='Failed to build ' --code-error1="$option_name" --error1=' in ' --code-error1="$download_directory" >/dev/stderr
 				return "$build_status"
@@ -3852,7 +3878,7 @@ function setup_util() (
 					expand-path -- "$download_directory/$build_glob"
 				)
 				if [[ ${#filtered_paths[@]} -eq 0 ]]; then
-					echo-error "No files matched the build filter [$build_glob] within [$download_directory]."
+					echo-style --error1='No files matched the build filter ' --code-error1="$build_glob" --error1=' within ' --code-error1="$download_directory" >/dev/stderr
 					fs-structure -- "$download_directory" >/dev/stderr
 					return 1
 				elif [[ ${#filtered_paths[@]} -eq 1 ]]; then
@@ -3863,7 +3889,7 @@ function setup_util() (
 						mv -fv -- "${filtered_paths[@]}" "$target_path"
 					fi
 				else
-					echo-error "Multiple files matched the build filter [$build_glob] within [$download_directory]."
+					echo-style --error1='Multiple files matched the build filter ' --code-error1="$build_glob" --error1=' within ' --code-error1="$download_directory" >/dev/stderr
 					fs-structure -- "$download_directory" >/dev/stderr
 					return 1
 				fi
