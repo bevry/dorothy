@@ -103,3 +103,11 @@ Close the Preferences and open a new terminal tab.
 1. Type one of the [Manual Invocation] commands in the command textbox, e.g. for Bash type `bash -l`.
 
 1. Close the Preferences and open a new terminal tab.
+
+## Emacs (vterm.el)
+
+Set the variable `vterm-shell` to include a `--login` flag, e.g. add this to your init file:
+```
+(setq vterm-shell "/bin/zsh --login")
+```
+YMMV for other emacs terminal emulators and/or shells.
