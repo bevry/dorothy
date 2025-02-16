@@ -16,7 +16,7 @@ USER_SHELLS=(
 	elvish # elvish shell
 	ksh    # korn shell
 	xonsh  # python-powered shell
-	# unofficially supported shells
+	# potentially supported shells
 	ash  # almquist shell
 	hush # hush, an independent implementation of a Bourne shell for BusyBox
 	sh   # the operating-system symlinks this to any POSIX compliant shell
