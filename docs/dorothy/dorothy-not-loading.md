@@ -100,13 +100,13 @@ Close the Preferences and open a new terminal tab.
 
 1. Click `Default profile`
 
-1. Type one of the [Manual Invocation](#Manual Invocation) commands in the command textbox, e.g. for Bash type `bash -l`.
+1. Type one of the [Manual Invocation](#manual-invocation) commands in the command textbox, e.g. for Bash type `bash -l`.
 
 1. Close the Preferences and open a new terminal tab.
 
 ## Emacs (vterm.el)
 
-Set the variable `vterm-shell` to be one of the [Manual Invocation](#Manual Invocation) commands, e.g. for Zsh you can use:
+Set the variable `vterm-shell` to be one of the [Manual Invocation](#manual-invocation) commands, e.g. for Zsh you can use:
 
 ```
 (setq vterm-shell "/bin/zsh -l")
