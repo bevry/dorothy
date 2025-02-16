@@ -240,6 +240,7 @@ For each shell that you configured during the Dorothy installation (can be recon
     - [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
     - [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
     - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+        - KSH and Dash first load their respective `init.ksh` and `init.dash` scripts before loading `init.sh`. This is because KSH, Dash, and Bash all share the same `.profile` configuration file, so different initialization scripts allow us to configure each of them independently.
 
 1.  The initialization script will:
 
