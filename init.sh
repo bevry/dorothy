@@ -114,10 +114,42 @@ if [ "${DOROTHY_LOAD-}" = 'yes' ]; then
 		fi
 	fi
 
-	# init dorothy's environment for the login shell
+	# set the active shell as the detected POSIX (.sh) shell
+	# do not export
+	if [ -n "${BASH_VERSION-}" ]; then
+		ACTIVE_POSIX_SHELL='bash'
+	elif [ -n "${ZSH_VERSION-}" ]; then
+		ACTIVE_POSIX_SHELL='zsh'
+	elif [ "$0" = '-dash' ] || [ "$0" = 'dash' ]; then
+		# dash does not define DASH_VERSION
+		ACTIVE_POSIX_SHELL='dash'
+	elif [ -n "${KSH_VERSION-}" ]; then
+		ACTIVE_POSIX_SHELL='ksh'
+	else
+		ACTIVE_POSIX_SHELL='sh'
+	fi
+
+	PATH_ENV_CACHE=~/.cache/dorothy/env_cache
+	DISABLE_CACHE="yes"
+	LOAD_EXISTING_CACHE_SUCCESS='no'
+
+	if [ "$DISABLE_CACHE" = 'no' ] && [ -f "$PATH_ENV_CACHE" ]; then
+		PREV_ENV_KEY_VALUES="$(env)"
+		if eval "$(cat "$PATH_ENV_CACHE")"; then
+			LOAD_EXISTING_CACHE_SUCCESS='yes'
+			echo "Env loaded successfully via cache."
+			case $- in *i*) . "$DOROTHY/sources/interactive.sh" ;; esac
+		fi
+	fi
+
+	# Init dorothy's environment for the login shell
+	# Needs to be loaded in order to compare loaded cache with prev env.
 	. "$DOROTHY/sources/login.sh"
 
-	# if the login shell is also interactive, then init dorothy for the interactive login shell
-	# [-t 0] and [-s] are true despite [env -i bash -lc ...]
-	case $- in *i*) . "$DOROTHY/sources/interactive.sh" ;; esac
+	if [ "$DISABLE_CACHE" = 'yes' ] || [ "$LOAD_EXISTING_CACHE_SUCCESS" = 'no' ]; then
+		echo "Load interactive LAST"
+		# if the login shell is also interactive, then init dorothy for the interactive login shell
+		# [-t 0] and [-s] are true despite [env -i bash -lc ...]
+		case $- in *i*) . "$DOROTHY/sources/interactive.sh" ;; esac
+	fi
 fi
