@@ -4,7 +4,7 @@ function setup_util_brew() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# improve performance for detectable utilities with conditional assets
-	if setup-util "$@" --check=is-brew; then
+	if setup-util --check --checker=is-brew "$@"; then
 		return 0
 	fi
 
@@ -18,26 +18,39 @@ function setup_util_brew() (
 		return 6 # ENXIO 6 Device not configured
 	fi
 
+	# ensure we are running inside the system bash, such that after homebrew install this continues
+	local system_bash_invoker
+	if [[ ${DOROTHY_RUN-} == 'yes' ]]; then
+		system_bash_invoker="env BASH_CHECKED=yes /bin/bash '$(type -P 'dorothy')' run -- /bin/bash '$(type -P 'setup-util-brew')' --uninstall --verbose"
+	else
+		system_bash_invoker="env BASH_CHECKED=yes /bin/bash '$(type -P 'setup-util-brew')' --uninstall --verbose"
+	fi
+	if [[ $* == *'--uninstall'* && ${BASH_CHECKED-} != 'yes' ]]; then
+		echo-error --bold='cannot uninstall homebrew while running inside a homebrew shell, continue the uninstallation by running:' --newline \
+			--code="$system_bash_invoker"
+		return 6 # ENXIO 6 Device not configured
+	fi
+
 	# enable EVAL_INSTALL, etc
 	source "$(type -P setup-util)"
 
 	# uninstall brew, and adapt the system accordingly
 	function brew_uninstall {
-		local remove removals=(
-			"$HOMEBREW_PREFIX"/*
-			/usr/local/*
-			/opt/homebrew/*
-		)
-
 		# reconfigure shells for the lack of brew, by trimming the brew shells
 		grep --invert-match --fixed-strings --regexp="$HOMEBREW_PREFIX" -- /etc/shells | echo-wait --sudo -- /etc/shells
 
 		# set the default shell to a non-brew shell
 		setup-shell --no-brew
 
+		# ensure that the login shell is not brew
+		if [[ $SHELL == "$HOMEBREW_PREFIX/"* ]]; then
+			echo-error --bold='cannot uninstall homebrew while running inside a homebrew login shell, continue the uninstallation by running:' --newline \
+				--code="$system_bash_invoker"
+			return 6 # ENXIO 6 Device not configured
+		fi
+
 		# reset anything that depends on brew
-		setup-dns system || :
-		setup-git || :
+		setup-dns --service='system' || :
 
 		# uninstall brew
 		if __is_brew; then
@@ -48,13 +61,14 @@ function setup_util_brew() (
 				/bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
 			fi
 		fi
+		source "$DOROTHY/sources/environment.sh"
 
 		# remove any leftover directories
-		for remove in "${removals[@]}"; do
-			if [[ -n $remove && -e $remove ]]; then
-				fs-rm --quiet --no-confirm --sudo -- "$remove" || :
-			fi
-		done
+		# use /* as the actual homebrew location can be a read-only filesystem
+		fs-rm --optional --quiet --no-confirm --sudo -- "$HOMEBREW_PREFIX"/* /usr/local/* /opt/homebrew/* || :
+
+		# reconfigure git after the uninstallation of brew
+		setup-git --slim || :
 	}
 
 	# recommended installation method, it is pretty much the only one that works properly
@@ -81,7 +95,8 @@ function setup_util_brew() (
 
 	# setup
 	local options=(
-		--cli='brew'
+		--name='Homebrew'
+		--checker='is-brew'
 		"$@"
 		EVAL_INSTALL='brew_install'
 		EVAL_UPGRADE='brew_upgrade'

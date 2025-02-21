@@ -105,6 +105,5 @@ HOMEBREW_FONTS=(
 # You can use `setup-utils --configure` to configure these.
 SETUP_UTILS=(
 	'nano'
-	'neovim'
 	'vim'
 )

@@ -4,7 +4,14 @@ source "$DOROTHY/sources/bash.bash"
 # @todo use [declare -f help] to verify help supports arguments, otherwise our failure messages won't be seen
 
 # the reason we disable timeout with --stdin is so that:
-# [waiter --no-magic 5 | echo-wait | echo-count-lines --stdin] provides 5 instead of 0
+# > set -o pipefail
+# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | echo-count-lines --timeout=1
+# 1
+# [141] sigpipe
+#
+# > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | echo-count-lines --no-timeout
+# 3
+# [0] success
 function stdinargs_options_help {
 	cat <<-EOF
 		--timeout | --timeout=yes

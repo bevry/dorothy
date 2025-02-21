@@ -17,6 +17,6 @@ fi
 
 # set the environment variables
 eval "$("$DOROTHY/commands/setup-environment-commands" "$ACTIVE_POSIX_SHELL" || {
-	echo "DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG: bash -x '$DOROTHY/commands/setup-environment-commands' '$ACTIVE_POSIX_SHELL'" >/dev/stderr
+	printf '%s\n' "DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG: bash -x '$DOROTHY/commands/setup-environment-commands' '$ACTIVE_POSIX_SHELL'" >/dev/stderr
 	return 1
 })"

@@ -6,14 +6,32 @@ Sources:
 
 - [Bash Changelog](https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES)
 
+## bash v3.1
+
+From manual discovery:
+
+- Introduces `array+=(...)` for appending to an array.
+
+## bash v3.2
+
+From manual discovery:
+
+- Introduces the ability to initialize multiple arrays at once, e.g. `local a=() b=()`
+- Introduces the ability to define a subshell `function subshell () ( ... )`
+- Introduces the ability to do grouped conditions `[[ ... && ( ... || ... ) ]]`
+
+> [!CAUTION]
+> This is this is the minimum required version for Dorothy.
+
 ## bash v4.0
 
 From changelog:
 
+- Introduces `read -i <default>` for setting a default value.
+- Introduces `read -t <decimal-timeout>` for setting a decimal/fractional timeout.
 - Introduces `|&` as shorthand for `2>&1 |`.
 - Introduces `shopt -s globstar`.
 - Introduces `mapfile`, and `readarray` alias for `mapfile`.
-- Introduces support for decimal timeouts on `read -t TIMEOUT`.
 - Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
 
 From manual discovery:
@@ -30,6 +48,8 @@ Changelog:
 > a. `readarray` is now a synonym for `mapfile`.
 
 > This document details the changes between this version, bash-4.0-alpha, and the previous version, bash-3.2-release.
+>
+> p. The `read' builtin has a new -i option which inserts text into the reply buffer when using readline.
 >
 > u. There is a new `mapfile` builtin to populate an array with lines from a given file.
 >

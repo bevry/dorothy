@@ -22,26 +22,26 @@ a+=(
 )
 
 for r in "${a[@]}"; do
-    echo "[$r]"
+    printf '%s\n' "[$r]"
 done
 
 # args length
-echo "$#"
+printf '%s\n' "$#"
 
 # array length
-echo "${#a[@]}"
+printf '%s\n' "${#a[@]}"
 # ^ this is usually okay, but has a gotcha with `mapfile ... <<< ...` usage, see the later chapter about array lengths
 
 # contains
 if is-needle --needle=' ' -- "${a[@]}"; then
-	echo 'with [ ]'
+	printf '%s\n' 'with [ ]'
 else
-	echo 'without [ ]'
+	printf '%s\n' 'without [ ]'
 fi
 if is-needle --needle='c d' -- "${a[@]}"; then
-	echo 'with [c d]'
+	printf '%s\n' 'with [c d]'
 else
-	echo 'without [c d]'
+	printf '%s\n' 'without [c d]'
 fi
 
 # subsets
@@ -74,19 +74,19 @@ source "$DOROTHY/sources/bash.bash"
 
 # don't do this
 mapfile -t a <<< "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
-echo $? # 0 -- success exit code, despite failure
-echo "${#a[@]}" # 1
+printf '%s\n' $? # 0 -- success exit code, despite failure
+printf '%s\n' "${#a[@]}" # 1
 echo-verbose "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
 
 # do this instead
 mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
-echo $? # 0 -- success exit code, despite failure
-echo "${#a[@]}" # 0
+printf '%s\n' $? # 0 -- success exit code, despite failure
+printf '%s\n' "${#a[@]}" # 0
 echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
 
 # you can use this to ensure that the array is not empty
 if is-array-empty -- "${a[@]}"; then
-	echo 'failure' > /dev/stderr
+	printf '%s\n' 'failure' > /dev/stderr
 	exit 1
 fi
 
@@ -262,7 +262,7 @@ If you don't meed the result as an array via `mapfile -t lines` which you would 
 # for newlines
 list=('a b' $'c\nd' 'e f')
 echo-lines -- "${list[@]}" | while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done
 # output correct by arguments:
 # [a b]
@@ -273,7 +273,7 @@ done
 # for custom deliminator
 list=('a b' $'c\nd' 'e f')
 echo-split ' ' -- "${list[@]}" | while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done
 # output correct by newline:
 # [a]

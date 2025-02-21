@@ -2,7 +2,6 @@
 
 function git_helper() (
 	source "$DOROTHY/sources/bash.bash"
-	__require_array 'mapfile'
 
 	# =====================================
 	# Arguments
@@ -27,7 +26,7 @@ function git_helper() (
 			authors
 			    Output all authors (contributors) within this git repository.
 
-			author-update [old-email] [new-email] [new-name]
+			author-update -- [old-email] [new-email] [new-name]
 			    Update an author's name and email.
 
 			current-branch
@@ -45,17 +44,29 @@ function git_helper() (
 			first-commit-url
 			    Output the first commit url of this repository.
 
+			get-remote-file -- [<remote-name>] <file>
+			    Output the contents of a file from a remote repository.
+
 			github-slug
 			    Output the github slug for this repository.
+
+			has-remote-file -- [<remote-name>] <file>
+			    Check if the remote repository has a file.
+
+			is-dorothy -- [--no-remote] [<remote-name>]
+			    Is the repository a Dorothy repository?
 
 			is-shallow
 			    Is the repository a shallow clone?
 
-			protocol-update <remote-name> [<protocol>]
+			is-strongbox -- [--no-remote] [<remote-name>]
+			    Does the repository contain configuration to encrypt files with Strongbox?
+
+			protocol-update -- <remote-name> [<protocol>]
 			    Set the <remote-name> to use the <protocol>.
 			    If no <protocol> is specified, the preferred protocol will be selected.
 
-			protocol-format <url> [<protocol>]
+			protocol-format -- <url> [<protocol>]
 			    Format the <url> to the specified <protocol>.
 			    If no <protocol> is specified, the preferred protocol will be selected.
 
@@ -67,7 +78,7 @@ function git_helper() (
 			    Gitfox.app/gf
 			    Tower.app/tower
 
-			unstage [...<file>]
+			unstage -- [...<file>]
 			    Unstage all staged changes, without deleting or removing anything.
 
 			update -- [[--remote-name=]<remote-name>] [[--remote-url=]<remote-url>]
@@ -192,8 +203,8 @@ function git_helper() (
 			__print_lines "$protocol"
 		else
 			load_protocols
-			choose --required \
-				--question='Which git protocol to use?' \
+			choose --required --no-confirm-solo \
+				--question'Which git protocol to use on the repository?' --question="$option_path" \
 				--default="$protocol" -- "${protocols[@]}"
 		fi
 	}
@@ -221,14 +232,14 @@ function git_helper() (
 		fi
 	}
 	function get_remote_name {
-		local remote="${1-}" question="${2:-"Which remote to use?"}" remotes
+		local remote="${1-}" question="${2:-"Which remote to use on the repository?"}" remotes
 		if [[ -n $remote ]]; then
 			__print_lines "$remote"
 		else
 			# assume verified
 			mapfile -t remotes < <(get_remotes)
-			choose --required \
-				--question="$question" \
+			choose --required --no-confirm-solo \
+				--question="$question" --question="$option_path" \
 				-- "${remotes[@]}"
 		fi
 	}
@@ -306,6 +317,80 @@ function git_helper() (
 		return
 	}
 
+	function has_remote_file {
+		local remote file
+		if [[ $# -eq 1 ]]; then
+			remote=''
+			file="$1"
+		elif [[ $# -eq 2 ]]; then
+			remote="$1"
+			file="$2"
+		else
+			help "has-remote-file: invalid arguments: $*"
+		fi
+		if [[ -z $file ]]; then
+			help 'has-remote-file: requires <file>'
+		fi
+		remote="$(get_remote_name "$remote" "Which remote on the repository to check for $file?")"
+		git cat-file -e "$remote:$file" 2>/dev/null
+		return
+	}
+
+	function get_remote_file {
+		local remote file
+		if [[ $# -eq 1 ]]; then
+			remote=''
+			file="$1"
+		elif [[ $# -eq 2 ]]; then
+			remote="$1"
+			file="$2"
+		else
+			help "get-remote-file: invalid arguments: $*"
+		fi
+		if [[ -z $file ]]; then
+			help 'get-remote-file: requires <file>'
+		fi
+		remote="$(get_remote_name "$remote" "Which remote on the repository to get $file?")"
+		git cat-file -p "$remote:$file" 2>/dev/null
+		return
+	}
+
+	function __dorothy_grep {
+		grep --quiet --fixed-strings \
+			--regexp='Dorothy User Configuration' \
+			--regexp='https://github.com/bevry/dorothy' \
+			--regexp='https://dorothy.bevry.me'
+		return
+	}
+
+	function is_dorothy {
+		# check local
+		if [[ -f 'README.md' ]]; then
+			if __dorothy_grep 2>/dev/null <'README.md'; then
+				return 0
+			fi
+		fi
+		# check remote if desired
+		if [[ ${1-} == '--no-remote' ]]; then
+			return 1
+		fi
+		get_remote_file "$@" 'README.md' 2>/dev/null | __dorothy_grep
+		return
+	}
+
+	function is_strongbox {
+		# check local
+		if [[ -f '.strongbox-keyid' ]]; then
+			return 0
+		fi
+		# check remote if desired
+		if [[ ${1-} == '--no-remote' ]]; then
+			return 1
+		fi
+		has_remote_file "$@" '.strongbox-keyid'
+		return
+	}
+
 	function get_github_slug {
 		git remote -v | echo-regexp -o --regexp='.+?github[.]com[:/](.+?)[.]git.+' --replace='$1'
 		return
@@ -358,8 +443,8 @@ function git_helper() (
 		mapfile -t emails < <(git shortlog --summary --email | echo-regexp -ong --regexp='<(.+?)>' --replace='$1')
 
 		old_email="$(
-			choose --linger --required \
-				--question='Which email to update?' \
+			choose --linger --required --no-confirm-solo \
+				--question='Which email to update from the repository?' --question="$option_path" \
 				--default="$old_email" \
 				-- "${emails[@]}"
 		)"
@@ -405,10 +490,10 @@ function git_helper() (
 			__print_lines "$GIT_DEFAULT_BRANCH"
 			return 0
 		elif __does_remote_branch_exist main; then
-			echo main
+			__print_lines main
 			return 0
 		elif __does_remote_branch_exist master; then
-			echo master
+			__print_lines master
 			return 0
 		fi
 
@@ -417,10 +502,10 @@ function git_helper() (
 			__print_lines "$GIT_DEFAULT_BRANCH"
 			return 0
 		elif __does_local_branch_exist main; then
-			echo main
+			__print_lines main
 			return 0
 		elif __does_local_branch_exist master; then
-			echo master
+			__print_lines master
 			return 0
 		fi
 
@@ -460,7 +545,7 @@ function git_helper() (
 
 	function update_protocol {
 		local remote="${1-}" protocol="${2-}"
-		remote="$(get_remote_name "$remote" 'Which remote to configure?')"
+		remote="$(get_remote_name "$remote" 'Which remote to configure on the repository?')"
 		protocol="$(get_protocol "$protocol")"
 
 		# process
@@ -595,7 +680,7 @@ function git_helper() (
 		done
 
 		# ensure remote in case it was empty
-		option_remote_name="$(get_remote_name "$option_remote_name" 'Which remote to pull?')"
+		option_remote_name="$(get_remote_name "$option_remote_name" 'Which remote to pull on the repository?')"
 
 		# helper
 		local PULL_OUTPUT_FILE
@@ -677,12 +762,16 @@ function git_helper() (
 	'author-update') author_update "${option_args[@]}" ;;
 	'current-branch') get_current_branch "${option_args[@]}" ;;
 	'default-branch') get_default_branch "${option_args[@]}" ;;
+	'has-remote-file') has_remote_file "${option_args[@]}" ;;
+	'get-remote-file') get_remote_file "${option_args[@]}" ;;
 	'github-slug') get_github_slug "${option_args[@]}" ;;
 	'first-commit') get_first_commit_entry "${option_args[@]}" ;;
 	'first-commit-entry') get_first_commit_entry "${option_args[@]}" ;;
 	'first-commit-hash') get_first_commit_hash "${option_args[@]}" ;;
 	'first-commit-url') get_first_commit_url "${option_args[@]}" ;;
+	'is-dorothy') is_dorothy "${option_args[@]}" ;;
 	'is-shallow') is_shallow_clone "${option_args[@]}" ;;
+	'is-strongbox') is_strongbox "${option_args[@]}" ;;
 	'protocol-update') update_protocol "${option_args[@]}" ;;
 	'protocol-format') format_protocol "${option_args[@]}" ;;
 	'remotes') get_remotes "${option_args[@]}" ;;
