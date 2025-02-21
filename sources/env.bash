@@ -21,10 +21,33 @@ while read -r line; do
 	done
 done < <(env)
 
+if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+	{
+		__print_lines "==============================="
+		__print_lines "======= INHERITED START ======="
+		__print_lines "Captured environment before dorothy loads anything."
+		__print_lines "$(env)"
+		__print_lines "======= INHERITED END ========="
+	} >/dev/tty
+fi
+
 # final scanning of environment, and echo results
 function on_env_finish {
 	# ignore failure conditions
 	local last_status=$?
+	local output=''
+
+	function add {
+		output+=$'\n'"$1"
+	}
+
+	if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+		{
+			__print_lines "==============================="
+			__print_lines "== TRAP START ================="
+		} >/dev/tty
+	fi
+
 	if [[ $last_status -ne 0 ]]; then
 		return "$last_status"
 	fi
@@ -79,6 +102,9 @@ function on_env_finish {
 						for item_existing in "${items_array[@]}"; do
 							if [[ $item == "$item_existing" ]]; then
 								# is duplicate, skip
+								if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+									__print_lines "TRAP: found dup in -> $name ($item)" >/dev/tty
+								fi
 								continue 2
 							fi
 						done
@@ -100,10 +126,23 @@ function on_env_finish {
 			if [[ ${inherited[i]} == "$name" ]]; then
 				if [[ ${inherited[i + 1]} == "$value" ]]; then
 					# is inherited, continue to next item
+					if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+						__print_lines "TRAP: untouched/same -> $name" >/dev/tty
+					fi
 					continue 2
 				fi
 			fi
 		done
+
+		if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+			__print_lines "TRAP: modified -> $name ($value)" >/dev/tty
+		fi
+
+		# TODO: concatenate the string so that you can print it at the end.
+		# As this
+		# ============================
+		# === compiled difference ====
+		# print [@]
 
 		# echo the variable action based on type
 		# if [[ "$shell" = 'fish' ]]; then
@@ -112,46 +151,64 @@ function on_env_finish {
 		if [[ -z $value ]]; then
 			# echo var action: delete
 			if [[ $shell == 'fish' ]]; then
-				echo "set --universal --erase $name;"
+				add "set --universal --erase $name;"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name"
+				add "setenv $name"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo 'del $'"$name"
+				add 'del $'"$name"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#unset-env
-				echo "unset-env $name"
+				add "unset-env $name"
 			else
-				echo "unset -v $name;"
+				add "unset -v $name;"
 			fi
 		elif [[ $is_path == 'yes' ]]; then
 			# echo var action: set path
 			if [[ $shell == 'fish' ]]; then
-				echo "set --export --path $name '$value';"
+				add "set --export --path $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
+				add "setenv $name $value"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'.split(':')"
+				add '$'"$name = '$value'.split(':')"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+				add "set-env $name '$value'"
 			else
-				echo "export $name='$value';"
+				add "export $name='$value';"
 			fi
 		else
 			# echo var action: set
 			if [[ $shell == 'fish' ]]; then
-				echo "set --export $name '$value';"
+				add "set --export $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
+				add "setenv $name $value"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'"
+				add '$'"$name = '$value'"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+				add "set-env $name '$value'"
 			else
-				echo "export $name='$value';"
+				add "export $name='$value';"
 			fi
 		fi
 	done < <(env)
+
+	if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+		{
+			__print_lines "== TRAP END ==================="
+			__print_lines "==============================="
+			__print_lines "== FINAL TRAP OUTPUT START ===="
+		} >/dev/tty
+	fi
+
+	echo -e "$output"
+
+	if [[ "$DEBUG_ENVIRONMENT" == 'yes' ]]; then
+		{
+			__print_lines "== FINAL TRAP OUTPUT END ======"
+			__print_lines "==============================="
+		} >/dev/tty
+	fi
+
 }
 trap on_env_finish EXIT
