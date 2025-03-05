@@ -160,9 +160,9 @@ xbps-install --sync bash curl
 
 Now that the prerequisites are installed, Dorothy's intelligent dependency management will be enabled, so you can skip this section. Dorothy's complete requisites for its core experience are as follows:
 
-- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
-- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
-- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
+- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required prior to initiation of the Dorothy installer
+- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): guaranteed by the Dorothy installer, and used to to install Dorothy
+- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): guaranteed by Dorothy, for robust regular expressions and configuration management
 
 If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p -- ~/.local/bin`, move the binary there with `mv -- <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
