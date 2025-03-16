@@ -86,7 +86,7 @@ echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully
 
 # you can use this to ensure that the array is not empty
 if is-array-empty -- "${a[@]}"; then
-	printf '%s\n' 'failure' > /dev/stderr
+	printf '%s\n' 'failure' >/dev/stderr
 	exit 1
 fi
 

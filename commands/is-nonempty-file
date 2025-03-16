@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 function is_nonempty_file_test() (
-	source "$DOROTHY/sources/tests.bash"
+	source "$DOROTHY/sources/is-fs-tests.bash"
 	echo-style --h1="TEST: $0"
 
 	local root command='is-nonempty-file'
-	root="$(fs_tests__prep "$command")"
+	root="$(is_fs_tests__prep "$command")"
 
 	eval-tester --name='no args' --status=22 --ignore-stderr \
 		-- "$command" --
@@ -97,7 +97,7 @@ function is_nonempty_file_test() (
 		0 "$root/symlinks/unwritable-filled-dir--filled-subfile"
 		0 "$root/symlinks/unwritable-filled-file"
 	)
-	fs_tests__tuples --group='test no escalation' "$command" --no-sudo -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test no escalation' "$command" --no-sudo -- "${tuples[@]}"
 
 	# test default escalation
 	tuples=(
@@ -127,7 +127,7 @@ function is_nonempty_file_test() (
 		17 "$root/symlinks/unreadable-empty-file"
 		0 "$root/symlinks/unreadable-filled-file"
 	)
-	fs_tests__tuples --group='test default escalation' "$command" -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test default escalation' "$command" -- "${tuples[@]}"
 
 	# test with escalation
 	tuples=(
@@ -157,7 +157,7 @@ function is_nonempty_file_test() (
 		17 "$root/symlinks/unreadable-empty-file"
 		0 "$root/symlinks/unreadable-filled-file"
 	)
-	fs_tests__tuples --group='test with escalation' "$command" --sudo -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test with escalation' "$command" --sudo -- "${tuples[@]}"
 
 	# break the symlinks
 	sudo-helper -- rm -rf -- "$root/targets"
@@ -202,41 +202,37 @@ function is_nonempty_file_test() (
 		9 "$root/symlinks/unwritable-filled-dir--filled-subfile"
 		9 "$root/symlinks/unwritable-filled-file"
 	)
-	fs_tests__tuples --group='test broken symlinks' "$command" -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test broken symlinks' "$command" -- "${tuples[@]}"
 
 	echo-style --g1="TEST: $0"
 	return 0
 )
 function is_nonempty_file() (
-	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/is-fs.bash"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
-			Checks if a <path> is a file that has contents, aka a file that is not zero-length.
-			Companion to [is-empty-file].
+			Checks if all <path>s are a file that has contents, aka a file that is not zero-length.
+			Companion to [is-empty-file]. Equivalent to a [is-filled-file].
 
 			USAGE:
 			is-nonempty-file [...options] [--] ...<path>
 
 			OPTIONS:
-			--sudo=<sudo>
-			    Defaults to [13], escalating to root if permission would otherwise be denied.
-			--user=<user>
-			--group=<group>
-			    Forwarded to [sudo-helper].
+			$(is_fs_options '13')
 
 			RETURNS:
 			[0] if all <path>s were a readable non-zero-length file
-			[2] if a <path> was not found
+			[2] if a <path> was missing
 			[9] if a <path> was a broken symlink
-			[13] if a <path> was a non-readable file, as such the length could not be determined, or if a <path> was not accessible: unless [--no-sudo] was provided a sudo request will be made to prevent this failure.
+			[13] if a <path> was a non-readable file, as such the length could not be determined, or if a <path> was not accessible
 			[17] if a <path> was a zero-length file
-			[22] if empty arguments are provided
-			[79] if a <path> was found but was not a file, nor an unbroken symlink to a file
+			[22] if empty arguments were provided
+			[79] if a <path> was present, but was not a file, nor an unbroken symlink to a file
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -245,37 +241,28 @@ function is_nonempty_file() (
 	}
 
 	# process
-	local item option_inputs=() option_sudo='13' option_user='' option_group=''
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_sudo" -- "$item")"
-			;;
-		'--user='*) option_user="${item#*=}" ;;
-		'--group='*) option_group="${item#*=}" ;;
-		'--')
-			option_inputs+=("$@")
-			shift "$#"
-			break
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_inputs+=("$item") ;;
-		esac
-	done
+	local item option_inputs=() option_quiet='' option_elevated='' option_elevate='13' option_user='' option_group='' option_reason=''
+	is_fs_args "$@"
 
-	# check
-	if [[ ${#option_inputs[@]} -eq 0 ]]; then
-		help "No <path>s provided."
+	# invoke
+	local fs_status fs_failed_path
+	is_fs_invoke 'is-nonempty-file.bash'
+
+	# if verbose and failure, output contextual failure
+	if [[ $option_quiet == 'no' && $fs_status -ne 0 ]]; then
+		case "$fs_status" in
+		2) echo-style --stderr --error1='The path was missing: ' --code-error1="$fs_failed_path" ;;
+		9) echo-style --stderr --error1='The path was a broken symlink: ' --code-error1="$fs_failed_path" ;;
+		13) echo-style --stderr --error1='The path was not accessible or readable: ' --code-error1="$fs_failed_path" ;;
+		17) echo-style --stderr --error1='The path was a file, or an unbroken symlink to a file, but was empty: ' --code-error1="$fs_failed_path" ;;
+		22) echo-style --stderr --error1='The path was not a valid argument: ' --code-error1="$fs_failed_path" ;;
+		79) echo-style --stderr --error1='The path was present, but was not a file nor an unbroken symlink to file: ' --code-error1="$fs_failed_path" ;;
+		*) is_fs_unknown_error ;;
+		esac
 	fi
 
-	# =====================================
-	# Action
-
-	sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-nonempty-file.bash -- "${option_inputs[@]}"
-	return
+	# done
+	return "$fs_status"
 )
 
 # fire if invoked standalone

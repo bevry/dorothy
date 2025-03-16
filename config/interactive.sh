@@ -1,11 +1,8 @@
 #!/usr/bin/env sh
-# use inline `export VAR=...` statements, for fish compatibility`:
 # shellcheck disable=SC2034
+# Used by `interactive.sh`
+# Should be compatible with fish, zsh, bash, dash, ksh
+# Use inline `export VAR=...` statements for fish compatibility
 
-# Loaded by `interactive.sh`
-# Must be compatible with fish, zsh, bash
-
-# Tell Dorothy which theme to load, if any.
-# Used by `theme.sh` and `theme.fish`
-# You can use `select-theme` to configure this.
+# Inherited into `theme.sh` and `theme.fish` to load the desired theme, use `dorothy theme` to (re)configure this
 # export DOROTHY_THEME=''

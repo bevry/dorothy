@@ -8,7 +8,7 @@ function eval_tester() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			USAGE:
 			eval-tester [...options] -- <command> [...args]
 
@@ -21,6 +21,7 @@ function eval_tester() (
 			--stderr=<expected stderr> (defaults to empty)
 			--ignore-stderr
 			--debug (implies --ignore-stderr)
+			    Will run the command with debugging enabled.
 			--bash=<bash path>
 			    Used to ensure that the command is invoked through a specific bash binary.
 		EOF
@@ -31,7 +32,7 @@ function eval_tester() (
 	}
 
 	# process
-	local item option_cmd=() ignore_option=$'\e' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_debug='no'
+	local item option_cmd=() ignore_option=$'\e' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_debug=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -70,91 +71,103 @@ function eval_tester() (
 	# =====================================
 	# Action
 
+	local FAIL='no'
+	function __compare {
+		local name="$1" actual="$2" expected="$3" actual_escaped expected_escaped actual_file expected_file
+		if [[ $actual == "$expected" ]]; then
+			echo-style --success="actual $name  ==  expected $name"
+		else
+			FAIL='yes'
+			if [[ $actual =~ [[:cntrl:]] || $expected =~ [[:cntrl:]] ]]; then
+				actual_escaped="$(printf '%q' "$actual")"
+				expected_escaped="$(printf '%q' "$expected")"
+				echo-style --header3+red="<actual escaped $name>" --newline \
+					"$actual_escaped" --newline \
+					--header3+red="</actual escaped $name>" --newline \
+					--header3+red="<expected escaped $name>" --newline \
+					"$expected_escaped" --newline \
+					--header3+red="</expected escaped $name>"
+			else
+				echo-style --error="actual $name  !=  expected $name" --newline \
+					--header3+red="<actual $name>" --newline \
+					"$actual" --newline \
+					--header3+red="</actual $name>" --newline \
+					--header3+red="<expected $name>" --newline \
+					"$expected" --newline \
+					--header3+red="</expected $name>"
+			fi
+			actual_file="$(fs-temp --directory='eval-tester' --file)"
+			expected_file="$actual_file.expected"
+			actual_file="$actual_file.actual"
+			__print_string "$actual" >"$actual_file"
+			__print_string "$expected" >"$expected_file"
+			fs-diff --before="$expected_file" --after="$actual_file" || :
+		fi
+	}
+	function __dump {
+		local name="$1" actual="$2"
+		echo-style \
+			--header3="<actual $name>" --newline \
+			"$actual" --newline \
+			--header3="</actual $name>"
+		if [[ $actual =~ [[:cntrl:]] ]]; then
+			echo-style --header3="<actual escaped $name>" --newline \
+				"$(printf '%q' "$actual")" --newline \
+				--header3="</actual escaped $name>"
+		fi
+	}
+
 	# run the command
-	local args=() cmd_status stdout stderr cmd_string fail='no' title='' using_tty_stderr_fallback='no'
+	local args=() actual_exit_status actual_stdout actual_stderr cmd_string title='' can_test_stderr='yes'
 	cmd_string="$(echo-escape-command -- "${option_cmd[@]}")"
 	if [[ -n $option_name ]]; then
 		title="$option_name: $cmd_string"
 	else
 		title="$cmd_string"
 	fi
-	if ! get-terminal-tty-support --quiet; then
-		using_tty_stderr_fallback='yes'
+	if ! __has_tty_support; then
+		can_test_stderr='no'
 	fi
-	if [[ -n $option_status && $option_status != "$ignore_option" ]]; then
-		args+=('--statusvar=cmd_status')
-	fi
-	if [[ $option_stdout != "$ignore_option" ]]; then
-		args+=('--stdoutvar=stdout')
-	else
-		args+=('--no-stdout')
-	fi
-	if [[ $option_debug == 'yes' || $using_tty_stderr_fallback == 'yes' ]]; then
-		: # allow stderr to go directly to stderr
-	elif [[ $option_stderr != "$ignore_option" ]]; then
-		args+=('--stderrvar=stderr')
-	else
-		args+=('--no-stderr')
-	fi
+
+	# capture
+	args+=('--redirect-status={actual_exit_status}')
+	args+=('--redirect-stdout={actual_stdout}')
+	args+=('--redirect-stderr={actual_stderr}')
+
+	# run
 	echo-style --h3="$title"
-	eval_capture "${args[@]}" -- "${option_cmd[@]}"
+	__do "${args[@]}" -- "${option_cmd[@]}"
 
 	# check exit code
 	if [[ -n $option_status && $option_status != "$ignore_option" ]]; then
-		if [[ $option_status -ne $cmd_status ]]; then
-			fail='yes'
-			echo-style --red="Actual Exit Code [$cmd_status]  !=  Expected Exit Code [$option_status]"
+		if [[ $option_status -ne $actual_exit_status ]]; then
+			FAIL='yes'
+			echo-style --error="actual exit status [$actual_exit_status]  !=  expected exit status [$option_status]"
 		else
-			echo-style --green="Actual Exit Code [$cmd_status]  ==  Expected Exit Code [$option_status]"
+			echo-style --success="actual exit status [$actual_exit_status]  ==  expected exit status [$option_status]"
 		fi
 	fi
 
 	# check stdout
 	if [[ $option_stdout != "$ignore_option" ]]; then
-		if [[ $option_stdout != "$stdout" ]]; then
-			fail='yes'
-			echo-style --red="Actual Stdout  !=  Expected Stdout" $'\n' \
-				--header3='<actual stdout>' $'\n' \
-				"$stdout" $'\n' \
-				--header3='</actual stdout>' $'\n' \
-				--header3='<expected stdout>' $'\n' \
-				"$option_stdout" $'\n' \
-				--header3='</expected stdout>'
-			if [[ $option_stdout =~ [[:cntrl:]] || $stdout =~ [[:cntrl:]] ]]; then
-				echo-style --header3='<actual escaped stdout>' $'\n' \
-					"$(printf '%q' "$stdout")" $'\n' \
-					--header3='</actual escaped stdout>' $'\n' \
-					--header3='<expected escaped stdout>' $'\n' \
-					"$(printf '%q' "$option_stdout")" $'\n' \
-					--header3='</expected escaped stdout>'
-			fi
-		else
-			echo-style --green="Actual Stdout  ==  Expected Stdout"
-		fi
+		__compare 'stdout' "$actual_stdout" "$option_stdout"
+	elif [[ $FAIL == 'yes' ]]; then
+		__dump 'stdout' "$actual_stdout"
 	fi
 
-	# check stderr
+	# not ignored
 	if [[ $option_stderr != "$ignore_option" ]]; then
-		if [[ $option_debug == 'yes' ]]; then
-			echo-style --notice='Unable to test stderr, as debugging.'
-		elif [[ $using_tty_stderr_fallback == 'yes' ]]; then
-			echo-style --notice='Unable to test stderr, as it will be filled with TTY output.'
-		elif [[ $option_stderr != "$stderr" ]]; then
-			fail='yes'
-			echo-style --red="Actual Stderr  !=  Expected Stderr" $'\n' \
-				--header3='<actual stderr>' $'\n' \
-				"$stderr" $'\n' \
-				--header3='</actual stderr>' $'\n' \
-				--header3='<expected stderr>' $'\n' \
-				"$option_stderr" $'\n' \
-				--header3='</expected stderr>'
+		if [[ $can_test_stderr == 'yes' || $actual_stderr == "$option_stderr" ]]; then
+			__compare 'stderr' "$actual_stderr" "$option_stderr"
 		else
-			echo-style --green="Actual Stderr  ==  Expected Stderr"
+			echo-style --stderr --notice='Unable to validate stderr, as it will be filled with TTY output.'
 		fi
+	elif [[ $FAIL == 'yes' ]]; then
+		__dump 'stderr' "$actual_stderr"
 	fi
 
 	# pass or fail
-	if [[ $fail == 'yes' ]]; then
+	if [[ $FAIL == 'yes' ]]; then
 		echo-style --e3="$title" $'\n'
 		return 1
 	else

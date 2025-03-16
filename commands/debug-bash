@@ -7,7 +7,7 @@ function debug_bash() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Run a bash script with [-x] applied: Print a trace of simple commands.
 
@@ -51,8 +51,17 @@ function debug_bash() (
 		'--no-continue'* | '--continue'*)
 			option_continue="$(get-flag-value --affirmative --fallback="$option_continue" -- "$item")"
 			;;
-		'--bash='*) option_bash_binaries+=("${item#*=}") ;;
-		'--all')
+		'--versions='*)
+			item="${item#*=}"
+			if [[ -n $item ]]; then
+				mapfile -t option_bash_binaries <<<"${item#*=}"
+			fi
+			;;
+		'--bash='* | '--version='*) option_bash_binaries+=("${item#*=}") ;;
+		'--all' | '--all='*)
+			if [[ ${item#*=} == 'no' ]]; then
+				continue
+			fi
 			local bash_binaries=()
 			mapfile -t bash_binaries < <(
 				type -pa bash
@@ -60,14 +69,24 @@ function debug_bash() (
 			)
 			option_bash_binaries+=("${bash_binaries[@]}")
 			;;
-		'-x') option_args+=('-x') ;;
-		'-v') option_args+=('-v') ;;
-		'-xv' | '-vx') option_args+=('-xv') ;;
+		'-x')
+			option_args+=('-x')
+			export PS4="$DEBUG_FORMAT"
+			;;
+		'-v')
+			option_args+=('-v')
+			export PS4="$DEBUG_FORMAT"
+			;;
+		'-xv' | '-vx')
+			option_args+=('-xv')
+			export PS4="$DEBUG_FORMAT"
+			;;
 		'--')
 			option_cmd+=("$@")
 			shift "$#"
 			break
 			;;
+		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
 			option_cmd+=("$item" "$@")
 			shift $#
@@ -82,32 +101,34 @@ function debug_bash() (
 
 	# check if we have a function, in which case only support the args
 	local cmd_first="${option_cmd[0]}"
-	if [[ "$(type -t "$cmd_first")" == 'function' ]]; then
-		if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
-			help 'Cannot invoke a function through a custom bash binary.'
+	if [[ $cmd_first != '-c' ]]; then
+		if [[ "$(type -t "$cmd_first")" == 'function' ]]; then
+			if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
+				help 'Cannot invoke a function through a custom bash binary.'
+			fi
+			if [[ ${#option_args[@]} -eq 0 ]]; then
+				help 'There is no point invoking debug-bash without options.'
+			fi
+			# function/builtin
+			set "${option_args[@]}"
+			"${option_cmd[@]}" # eval
+			return
 		fi
-		if [[ ${#option_args[@]} -eq 0 ]]; then
-			help 'There is no point invoking debug-bash without options.'
+		# update the command with the resolved path so that bash can execute it
+		if [[ $cmd_first == 'bash' ]]; then
+			help "Use --bash=$cmd_first to invoke bash through a custom binary."
 		fi
-		# function/builtin
-		set "${option_args[@]}"
-		"${option_cmd[@]}" # eval
-		return
+		option_cmd[0]="$(type -P "$cmd_first")"
 	fi
-	# update the command with the resolved path so that bash can execute it
-	if [[ $cmd_first == 'bash' ]]; then
-		help "Use --bash=$cmd_first to invoke bash through a custom binary."
-	fi
-	option_cmd[0]="$(type -P "$cmd_first")"
 
 	# resolve bash path
 	local cmd=() __exit_status=0
 	if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
 		local bash_input bash_path bash_binary bash_version
 		for bash_input in "${option_bash_binaries[@]}"; do
-			if is-digit -- "$(__substr "$bash_input" 0 1)"; then
+			if is-digit -- "$(__get_substring "$bash_input" 0 1)"; then
 				# convert version number to executable
-				bash_input="bash-$bash_input"
+				bash_input="$(expand-path -- "$XDG_BIN_HOME/bash-$bash_input*" | echo-first-line --stdin)"
 			fi
 			bash_binary="$(type -P "$bash_input" || :)"
 			if [[ -z $bash_binary ]]; then
@@ -142,6 +163,8 @@ function debug_bash() (
 		cmd=()
 		if [[ ${#option_args[@]} -ne 0 ]]; then
 			cmd+=(bash "${option_args[@]}")
+		elif [[ $cmd_first == '-c' ]]; then
+			cmd+=(bash)
 		fi
 		cmd+=("${option_cmd[@]}")
 		if [[ $option_wrap == 'yes' ]]; then
