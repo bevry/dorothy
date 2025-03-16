@@ -4,10 +4,10 @@ function command_working_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
 
-	eval-tester --status=3 --stderr="< 'this-is-a-non-existent-command' />[3] not working because it is missing" \
+	eval-tester --status=3 --stderr="< this-is-a-non-existent-command />[3] not working because it is missing" \
 		-- env COLOR=no command-working -- this-is-a-non-existent-command
 
-	eval-tester --status=3 --stderr="< 'this-is-a-non-existent-command' />[3] not working because it is missing" \
+	eval-tester --status=3 --stderr="< this-is-a-non-existent-command />[3] not working because it is missing" \
 		-- env COLOR=no command-working -- this-is-a-non-existent-command command-missing
 
 	eval-tester \
@@ -26,7 +26,7 @@ function command_working() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Check if <command>s are available and working.
 			Working check is done via [<command> --help] and [<command> --version] checks.
@@ -97,26 +97,28 @@ function command_working() (
 		trash
 		trunk
 	)
-	function check_status {
+	function __check_status {
 		local cmd=() cmd_string cmd_exit_status cmd_output
 		# ensure sbin commands work
 		if [[ $* == *sbin* || $option_sudo == 'yes' ]]; then
 			cmd+=(
-				'sudo-helper'
-				'--reason=Your sudo/root/login password is required to verify this command is available and working:'
-				'--'
+				sudo-helper
+				--reason='Your password is required to momentarily grant privileges to validate that this command is available and working:'
+				--
 			)
 		fi
 		# continue with the command
 		cmd+=("$@")
 		# run the command hiding the output
-		eval_capture --statusvar=cmd_exit_status --outputvar=cmd_output -- "${cmd[@]}"
+		__do --redirect-status={cmd_exit_status} --redirect-output={cmd_output} -- command "${cmd[@]}" # eval
+		__return $? || return
 		# check for correct failure codes
 		if [[ $cmd_exit_status -eq 22 || $cmd_exit_status -eq 200 ]]; then
 			return 0
 		else
 			# otherwise return success or failure code
 			cmd_string="$(echo-escape-command -- "${cmd[@]}")"
+			__return $? || return
 			if [[ -n $cmd_output ]]; then
 				cmd_output+=$'\n'
 			fi
@@ -126,17 +128,18 @@ function command_working() (
 			return "$cmd_exit_status"
 		fi
 	}
-	function check_working {
+	function __check_working {
 		# reset debug
 		failures=()
 
 		# check it exists first
 		local cmd cmd_string
 		cmd_string="$(echo-escape-command -- "$1")"
+		__return $? || return
 		cmd="$(type -P "$1" 2>/dev/null || :)"
 		if [[ -z $cmd ]]; then
 			# we must at least find it
-			echo-style --element/+red="$cmd_string" --status=3 ' ' --error='not working because it is missing' >/dev/stderr
+			echo-style --stderr --element/+red="$cmd_string" --status=3 ' ' --error='not working because it is missing' || return
 			return 3 # ESRCH 3 No such process
 		fi
 
@@ -149,30 +152,25 @@ function command_working() (
 		done
 
 		# it does exist, now check its return code
-		check_status "$cmd" --version ||
-			check_status "$cmd" version ||
-			check_status "$cmd" --help ||
-			check_status "$cmd" -h || {
+		__check_status "$cmd" --version ||
+			__check_status "$cmd" version ||
+			__check_status "$cmd" --help ||
+			__check_status "$cmd" -h ||
 			{
-				echo-style --element+red="$cmd_string"
-				__print_lines "${failures[@]}"
-				echo-style --/element+red="$cmd_string" --status=1 ' ' --error='not working because it is failing'
-			} >/dev/stderr
-			return 1 # command not working
-		}
+				echo-style --stderr \
+					--element+red="$cmd_string" --newline \
+					--="$(__print_lines "${failures[@]}")" --newline \
+					--/element+red="$cmd_string" --status=1 ' ' --error='not working because it is failing' || return
+				return 1 # command not working
+			}
 	}
 
 	# =====================================
 	# Action
 
-	local command action_exit_status
+	local command
 	for command in "${option_commands[@]}"; do
-		eval_capture --statusvar=action_exit_status -- check_working "$command"
-		if [[ $action_exit_status -eq 0 ]]; then
-			continue
-		else
-			return "$action_exit_status"
-		fi
+		__check_working "$command" || return
 	done
 	return 0 # all commands are working
 )

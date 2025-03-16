@@ -15,8 +15,8 @@ else
 	ACTIVE_POSIX_SHELL='sh'
 fi
 
-# set the environment variables
-eval "$("$DOROTHY/commands/setup-environment-commands" "$ACTIVE_POSIX_SHELL" || {
-	printf '%s\n' "DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG: bash -x '$DOROTHY/commands/setup-environment-commands' '$ACTIVE_POSIX_SHELL'" >/dev/stderr
+# set the environment variables, passing over $$ such that a trap could be hooked that automatically refreshes on invalidation (not yet implemented)
+eval "$("$DOROTHY/commands/setup-environment-commands" --shell="$ACTIVE_POSIX_SHELL" --ppid=$$ || {
+	printf '%s\n' "DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG: bash -x '$DOROTHY/commands/setup-environment-commands' --shell='$ACTIVE_POSIX_SHELL'" >>/dev/stderr
 	return 1
 })"

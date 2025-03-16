@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-
-# Used by `select-dns` and `setup-dns`
-# Which can configure these with the `--configure` flag.
+# Used by `select-dns` and `setup-dns`, use `--configure` to (re)configure this
+# Do not use `export` keyword in this file
 
 # Which DNS service to use to communicate with your DNS provider?
 # Refer to dns.json for the available options.

@@ -3,7 +3,7 @@
 function fish_prompt
 	set last_command_exit_status "$status"
 	if test ! -d "$DOROTHY"
-		printf '%s\n' 'DOROTHY has been moved, please re-open your shell' >/dev/stderr
+		printf '%s\n' 'DOROTHY has been moved, please re-open your shell' >>/dev/stderr
 		return 1
 	end
 	"$DOROTHY/themes/oz" fish "$last_command_exit_status"

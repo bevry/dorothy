@@ -60,7 +60,7 @@ function stdinargs {
 		case "$item" in
 		'--help' | '-h')
 			if [[ "$(type -t help)" == 'function' ]]; then
-				help >/dev/stderr
+				help >&2
 				return 22 # EINVAL 22 Invalid argument
 			else
 				echo-error 'A [help] function is required.'
@@ -119,7 +119,7 @@ function stdinargs {
 			fi
 			;;
 		'--'*)
-			help "An unrecognised flag was provided: $item" >/dev/stderr
+			help "An unrecognised flag was provided: $item" >&2
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -136,13 +136,13 @@ function stdinargs {
 		read_args+=('-t' "$timeout_seconds")
 	fi
 	function stdinargs_eval {
-		local status
-		eval_capture --statusvar=status -- "$@"
-		if [[ $status == 210 ]]; then
+		local stdinargs_status
+		__try {stdinargs_status} -- "$@"
+		if [[ $stdinargs_status == 210 ]]; then
 			complete='yes'
 			return 0
 		fi
-		return "$status"
+		return "$stdinargs_status"
 	}
 	function stdinargs_read {
 		local line='' what="$1" had_line='no'
@@ -195,7 +195,9 @@ function stdinargs {
 		# for each argument, call `on_(arg|input)` for each argument, otherwise call `on_(inline|line|input)` on each line of the argument
 		had_args='yes'
 		if [[ -n $option_max_args && $args_count -gt $option_max_args ]]; then
-			help 'This command only supports a maximum of ' --code="$option_max_args" ' arguments, yet ' --code="$args_count" ' were provided:' $'\n' "$(echo-verbose -- "${option_args[@]}")" >/dev/stderr
+			help \
+				'This command only supports a maximum of ' --code="$option_max_args" ' arguments, yet ' --code="$args_count" ' were provided:' --newline \
+				--"$(echo-verbose -- "${option_args[@]}")" >&2
 			return 22 # EINVAL 22 Invalid argument
 		fi
 		for item in "${option_args[@]}"; do
@@ -229,7 +231,7 @@ function stdinargs {
 			had_lines='no'
 		fi
 		# for each line of stdin, call `on_(inline|line|input)`
-		stdinargs_read stdin </dev/stdin
+		stdinargs_read stdin # </dev/stdin
 	fi
 
 	# verify (note that values can be yes/no/maybe)

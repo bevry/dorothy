@@ -7,7 +7,7 @@ function eval_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Helpers for working with commands.
 
@@ -61,7 +61,7 @@ function eval_helper() (
 	}
 
 	# process
-	local item option_quiet option_cmd=() option_wrap='yes' option_trim='no' option_confirm='no' option_shapeshifter='' option_pending='' option_success='' option_failure='' option_command_string='' option_terminal_device_file=''
+	local item option_quiet option_cmd=() option_wrap='yes' option_trim='no' option_confirm='no' option_shapeshifter='' option_pending='' option_success='' option_failure='' option_command_string=''
 	option_quiet="$(get-terminal-quiet-support || :)"
 	while [[ $# -ne 0 ]]; do
 		item="$1"
@@ -78,7 +78,7 @@ function eval_helper() (
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
 		'--command='*) option_command_string="${item#*=}" ;;
-		'--terminal-device-file='*) option_terminal_device_file="${item#*=}" ;;
+		'--terminal-device-file='*) TERMINAL_DEVICE_FILE="${item#*=}" ;;
 		'--no-trim'* | '--trim'*)
 			option_trim="$(get-flag-value --affirmative --fallback="$option_trim" -- "$item")"
 			;;
@@ -114,11 +114,7 @@ function eval_helper() (
 	# Action
 
 	# terminal
-	local terminal_device_file="$option_terminal_device_file" messages_device_file
-	if [[ -z $terminal_device_file ]]; then
-		terminal_device_file="$(get-terminal-device-file)"
-	fi
-	messages_device_file="$terminal_device_file"
+	local messages_device_file="$TERMINAL_DEVICE_FILE"
 
 	# element
 	local element_open=''
@@ -133,7 +129,7 @@ function eval_helper() (
 
 	# confirm
 	if [[ $option_confirm == 'yes' ]] && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command that is below:' "$element_open"; then
-		echo-style --notice1='Skipped execution of:' --code-notice1="$element_open" >"$terminal_device_file"
+		echo-style --tty --notice1='Skipped execution of:' --code-notice1="$element_open"
 		return 0
 	fi
 
@@ -141,7 +137,7 @@ function eval_helper() (
 	local messages=''
 	function flush_messages {
 		if [[ -n $messages ]]; then
-			__print_string "$messages" >"$messages_device_file"
+			__do --redirect-stdout="$messages_device_file" -- __print_string "$messages"
 			messages=''
 		fi
 	}
@@ -164,11 +160,9 @@ function eval_helper() (
 	if [[ ${INSIDE_REVOLVING_DOOR-} == 'yes' || $option_quiet == 'no' ]]; then
 		# body
 		if [[ $option_trim == 'yes' ]]; then
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				> >(echo-trim-padding --stdin) \
-				2> >(echo-trim-padding --stdin >/dev/stderr)
+			__do --redirect-status={cmd_status} --redirect-stdout='(echo-trim-padding --stdin)' --redirect-stderr='(echo-trim-padding --stdin >&2)' -- "${option_cmd[@]}"
 		else
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}"
+			__try {cmd_status} -- "${option_cmd[@]}"
 		fi
 
 		# add close
@@ -191,36 +185,33 @@ function eval_helper() (
 		flush_messages
 	else
 		# not inside a revolving door, and not in verbose mode
-		local terminal_size terminal_columns=0 body_file
+		local terminal_size terminal_columns=0
 		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
 		if [[ ${#terminal_size[@]} -eq 2 ]]; then
 			terminal_columns="${terminal_size[1]}"
 		fi
-		body_file="$(mktemp)"
 
 		# body
 		# NOTE |& is bash v4 only, and this script must work on Bash v3, which uses 2>&1 |
 		# https://github.com/bevry/dorothy/discussions/151
+		local body
 		local INSIDE_REVOLVING_DOOR_original="${INSIDE_REVOLVING_DOOR:-"no"}"
 		export INSIDE_REVOLVING_DOOR='yes' # use export, as env doesn't work when option_cmd[0] was a function
 		if [[ $option_shapeshifter == 'yes' ]]; then
-			# this is used if the command writes to TTY
+			# this is used if the command writes to TTY, instead of stdout/stderr, or outputs ANSI escape codes that modify the cursor
 			# in which case echo-revolving-door fails to clear
-			echo-style --no-trail --alternative-screen-buffer --="$header" >"$terminal_device_file" # redo header inside alt tty while its active
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				> >(tee -a -- "$body_file") \
-				2> >(tee -a -- "$body_file" >/dev/stderr)
-			echo-style --no-trail --default-screen-buffer >"$terminal_device_file"
+			echo-style --no-trail --tty --alternative-screen-buffer --="$header" # redo header inside alt tty while its active
+			__do --redirect-status={cmd_status} --redirect-output=stderr --copy-stderr={body} --redirect-output=tty -- "${option_cmd[@]}"
+			echo-style --no-trail --tty --default-screen-buffer
 		else
-			# direct stdout and stderr to terminal_device_file, as they will be truncated and will be outputting clear ansi codes, which will confuse anything that is expecting legit TTY output
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				&> >(tee -a -- "$body_file" | echo-revolving-door --columns="$terminal_columns" >"$terminal_device_file")
+			# direct stdout and stderr to TTY, as they will be truncated and will be outputting clear ansi codes, which will confuse anything that is expecting legit TTY output
+			__do --redirect-status={cmd_status} --redirect-output=stderr --copy-stderr={body} --redirect-output="(echo-revolving-door --columns=$terminal_columns)" --redirect-output=tty -- "${option_cmd[@]}"
 			# we cannot detect shapeshifting after the fact, as it occurs in the TTY, not stdout, nor stderr
 		fi
 		export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR_original"
 
 		# clear header, we can re-add them later if needed
-		echo-clear-lines --here-string <<<"$header" >"$terminal_device_file"
+		__do --redirect-stdout=tty -- echo-clear-lines --here-string <<<"$header"
 
 		# generate output
 		if [[ $option_quiet == 'no' || $cmd_status -ne 0 ]]; then
@@ -232,26 +223,19 @@ function eval_helper() (
 			fi
 
 			# add body
-			local body
-			if [[ -s $body_file ]]; then
-				if [[ $option_trim == 'yes' ]]; then
-					body="$(echo-trim-padding --stdin <"$body_file")"
-				else
-					body="$(cat -- "$body_file")"
-				fi
-			else
-				body=''
+			if [[ -n $body && $option_trim == 'yes' ]]; then
+				body="$(echo-trim-padding -- "$body")"
 			fi
 			if [[ $option_wrap == 'no' ]]; then
 				if [[ -n $body ]]; then
 					flush_messages
-					__print_lines "$body" >/dev/stderr
+					__print_lines "$body" >&2
 				fi
 			else
 				if [[ -n $body ]]; then
 					messages+="$(echo-style --element="$option_command_string")"$'\n'
 					flush_messages
-					__print_lines "$body" >/dev/stderr
+					__print_lines "$body" >&2
 					messages+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
 				else
 					messages+="$(echo-style --element="$option_command_string" --/fragment='' --status="$cmd_status")"$'\n'
@@ -279,16 +263,11 @@ function eval_helper() (
 
 			# truncate body if wrapping
 			if [[ $option_wrap == 'yes' ]]; then
-				local body
-				if [[ -s $body_file ]]; then
-					if [[ $option_trim == 'yes' ]]; then
-						body="$(echo-trim-padding --stdin <"$body_file")"
-					else
-						body="$(cat -- "$body_file")"
-					fi
-				else
-					body=''
+				# trim
+				if [[ -n $body && $option_trim == 'yes' ]]; then
+					body="$(echo-trim-padding -- "$body")"
 				fi
+				# check if still has data after trim
 				if [[ -n $body ]]; then
 					# self close as we are truncating
 					messages+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'

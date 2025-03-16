@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-
 # Used by `echo-style`
+# Do not use `export` keyword in this file
 
 #######################################
 # STYLE SUPPORT #######################
 
 GITHUB_ACTIONS="${GITHUB_ACTIONS-}"
 THEME="$(get-terminal-theme || :)"
+USE_COLOR="$(get-terminal-color-support --fallback=yes)" # USE_COLOR is actually only used here, not in get-terminal-color-support
 TERM_PROGRAM="${TERM_PROGRAM-}"
-USE_COLOR="$(get-terminal-color-support --fallback=yes)"
 if [[ $TERM_PROGRAM =~ ^(Hyper|tmux|vscode)$ ]]; then
 	ITALICS_SUPPORTED='yes'
 else
