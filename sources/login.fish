@@ -32,6 +32,3 @@
 
 # essential
 source "$DOROTHY/sources/environment.fish"
-
-# clear the theme cache
-get-terminal-theme --clear-cache

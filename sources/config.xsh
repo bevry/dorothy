@@ -49,6 +49,6 @@ def load_dorothy_config(*args):
 	# if nothing was loaded, then fail
 	if loaded == False:
 		if optional == False:
-			echo-style --error=@('Missing the configuration file: ' + args.join(' ')) >/dev/stderr
+			echo-style --stderr --error=@('Missing the configuration file: ' + args.join(' '))
 			return 2  # ENOENT 2 No such file or directory
 	return 0

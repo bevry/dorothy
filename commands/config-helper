@@ -152,7 +152,7 @@ function config_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			USAGE:
 			config-helper [...options] <file> -- ...
 				[--find=<pattern>] # outputs the found result
@@ -168,6 +168,12 @@ function config_helper() (
 			        interactive.sh
 			        .gitignore
 
+			--sudo=<sudo>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to [sudo-helper].
+
 			QUIRKS:
 			If a commented --find=<pattern> or --field=<field> is found, the replacement will be placed there.
 			If multiple results are found, the replacement will only leave the replacement.
@@ -181,7 +187,7 @@ function config_helper() (
 	}
 
 	# process
-	local item option_args=() option_file='' option_multiple='ok' option_quiet=''
+	local item option_args=() option_quiet='' option_file='' option_multiple='ok' option_sudo='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -195,6 +201,12 @@ function config_helper() (
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
 		'--multiple=ok' | '--multiple=warn-skip' | '--multiple=warn-apply') option_multiple="${item#*=}" ;;
+		'--no-sudo'* | '--sudo'*)
+			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#--reason=}" ;;
 		'--')
 			option_args+=("$@")
 			shift $#
@@ -223,7 +235,7 @@ function config_helper() (
 
 	# ensure file exists
 	if [[ ! -f $option_file ]]; then
-		touch -- "$option_file"
+		printf '' | echo-wait --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_file"
 	fi
 
 	# =====================================
@@ -380,7 +392,8 @@ function config_helper() (
 				# the replacement field was a find value, do not shift it, as we will use it in the next cycle
 				# instead, fetch the value, then continue to use the field as the next find
 				# --max-count=1 is to workaround: https://github.com/BurntSushi/ripgrep/issues/2095
-				echo-regexp -omn --find="$get_value_pattern" --replace='${value}' <"$option_file" || :
+				echo-file --raw --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_file" |
+					echo-regexp -omn --find="$get_value_pattern" --replace='${value}' || :
 				continue
 			fi
 
@@ -390,7 +403,7 @@ function config_helper() (
 			# then perform the replace
 
 			# ensure if there is a value, it only has a single trailing line, and if there isn't a value, it is empty
-			content="$(cat -- "$option_file")"
+			content="$(echo-file --raw --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_file")"
 			content="${content%$'\n'}"
 			if [[ -n $content ]]; then
 				content+=$'\n'
@@ -409,12 +422,14 @@ function config_helper() (
 			if [[ -z $count || $count -eq 0 ]]; then
 				# it wasn't found, so add manually if it's not empty
 				if [[ -n $addition ]]; then
-					__print_value_strings_or_nothing "$content" "$addition" >"$option_file"
+					__print_value_strings_or_nothing "$content" "$addition" | echo-wait --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_file"
 					UPDATED='yes' # a valid update occurred, note for logging
 				fi
 			elif [[ $count -eq 1 || $option_multiple == 'ok' ]]; then
 				# first match replaced, subsequent matches removed
-				__print_value_strings_or_nothing "$content" | echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" >"$option_file"
+				__print_value_strings_or_nothing "$content" |
+					echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" |
+					echo-wait --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_file"
 				UPDATED='yes' # a valid update occurred, note for logging
 			else
 				temp_file="$(
@@ -425,22 +440,27 @@ function config_helper() (
 				)"
 				if [[ $option_multiple == 'warn-skip' ]]; then
 					# write update to temp file (for diff), do not update intended file
-					__print_value_strings_or_nothing "$content" | echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" >"$temp_file"
-					{
-						echo-style --notice1='The configuration file ' --code-error1="$option_file" --error1=' was not saved' --notice1=' as multiple value instances exist within the configuration file, which may be computational conditions that our automation would be fraught to update.' $'\n' --info1='When you can' --notice1=' manually apply the requested changes to your configuration such that this automated update will not be attempted again.' $'\n' --notice1='Below is our unapplied automated attempt, saved to ' --code-notice1="$temp_file"
-						fs-diff -- "$option_file" "$temp_file" || :
-						echo-style --notice1=$'\n'
-					} >/dev/stderr
+					__print_value_strings_or_nothing "$content" |
+						echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" |
+						echo-wait --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$temp_file"
+					echo-style --stderr \
+						--notice1='The configuration file ' --code-error1="$option_file" --error1=' was not saved' --notice1=' as multiple value instances exist within the configuration file, which may be computational conditions that our automation would be fraught to update.' --newline \
+						--info1='When you can' --notice1=' manually apply the requested changes to your configuration such that this automated update will not be attempted again.' --newline \
+						--notice1='Below is our unapplied automated attempt, saved to ' --code-notice1="$temp_file" --newline \
+						--="$(fs-diff -- "$option_file" "$temp_file" || :)" --newline \
+						--stderr --notice1=$'\n'
 				elif [[ $option_multiple == 'warn-apply' ]]; then
 					# write backup to temp file, write update to intended file
 					__print_value_strings_or_nothing "$content" >"$temp_file"
-					echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" <"$temp_file" >"$option_file"
+					echo-regexp -gm --find="$search_pattern" --replace="$replace_pattern" --replace="$remove_pattern" <"$temp_file" |
+						echo-wait --sudo="$option_sudo" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_file"
 					UPDATED='yes' # a valid update occurred, note for logging
-					{
-						echo-style --notice1='The configuration file ' --code-notice1="$option_file" --notice1=' ' --good1='was updated successfully.' $'\n' --info1='However,' --notice1=' only a single replacement is supported but multiple were performed. The changes that were made are a best effort upon evaluated values and may be incorrect if conditional values were used.' $'\n' --info1='Review the changes for correctness.' --notice1=' A backup has been made to ' --code-notice1="$temp_file"
-						fs-diff -- "$temp_file" "$option_file" || :
-						echo-style --notice1=$'\n'
-					} >/dev/stderr
+					echo-style --stderr \
+						--notice1='The configuration file ' --code-notice1="$option_file" --notice1=' ' --good1='was updated successfully.' --newline \
+						--info1='However,' --notice1=' only a single replacement is supported but multiple were performed. The changes that were made are a best effort upon evaluated values and may be incorrect if conditional values were used.' --newline \
+						--info1='Review the changes for correctness.' --notice1=' A backup has been made to ' --code-notice1="$temp_file" --newline \
+						--="$(fs-diff -- "$temp_file" "$option_file" || :)" --newline \
+						--stderr --notice1=$'\n'
 				fi
 			fi
 		done
@@ -451,7 +471,7 @@ function config_helper() (
 
 	# we do our own processing, as we need to support multiline matches
 	if [[ $UPDATED == 'yes' && $option_quiet != 'yes' ]]; then
-		echo-style --success="Updated configuration file: $option_file" >/dev/stderr
+		echo-style --stderr --success="Updated configuration file: $option_file"
 	fi
 )
 

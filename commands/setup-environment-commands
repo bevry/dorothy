@@ -1,68 +1,84 @@
 #!/usr/bin/env bash
+
+# =====================================
+# IMPORTANT NOTES
+
+# Don't use `is-admin` here, as sudo does not necessarily load this, as such sudo should inherit standard config.
+
+# Right to left is the preference for paths.
+
+# =====================================
+# Requisites
+
+# DOROTHY for sourcing
 export DOROTHY
 if [[ -z ${DOROTHY-} ]]; then
 	self="${BASH_SOURCE:-"$0"}"
 	DOROTHY="${self%/commands/setup-environment-commands*}"
 fi
 
+# sources
 source "$DOROTHY/sources/bash.bash"
-
-# =====================================
-# Notes
-
-# This is an internal command, no need for help handling.
-
-# Don't use `is-admin` here, as sudo does not necessarily load this
-# so sudo should inherit standard config.
-
-# Right to left is the preference for paths.
-
-# Always use terminal editor for prompts as GUI editors are too slow.
-
-# =====================================
-# Helpers
-
-function rubygems {
-	local gem="$1" gemdirs_string gemdirs_array gemdir
-	export GEM_HOME="$HOME/.gem"
-	if [[ -x $gem ]]; then
-		# fetch gempaths and replace colons with newlines
-		gemdirs_string="$("$gem" environment gempath)"
-		gemdirs_string="${gemdirs_string//:/$'\n'}"
-		mapfile -t gemdirs_array <<<"$gemdirs_string" # <("$gem" environment gempath | tr ':' '\n')
-		for gemdir in "${gemdirs_array[@]}"; do
-			PATH="$gemdir/bin:$PATH"
-		done
-	fi
-}
-
-# =====================================
-# Configuration
-
 source "$DOROTHY/sources/config.sh"
 
-# arguments provides:
-export shell="${1-}"
+# help
+function help {
+	cat <<-EOF >&2
+		ABOUT:
+		Outputs commands to be evaluated by the caller to setup the environment for a given shell.
 
-# testing
-if [[ $* == *'--refresh'* ]]; then
-	env -i DOROTHY="$DOROTHY" "$DOROTHY/commands/setup-environment-commands" "$shell"
+		USAGE:
+		setup-environment-commands [...options] --shell=<shell>
+
+		OPTIONS:
+		--shell=<shell> | <shell>
+		    The shell to export the environment for.
+
+		--empty
+		    If provided, don't load any environment variables, useful for debugging and demonstration.
+
+	EOF
+	if [[ $# -ne 0 ]]; then
+		__print_lines 'ERROR:' "$*" >&2
+	fi
+	return 22 # EINVAL 22 Invalid argument
+}
+
+# arguments
+shell='' # shared by env.bash, as it is handled by a trap, we cannot pass arguments to it. SHELL is taken, it is the login shell
+option_empty=''
+while [[ $# -ne 0 ]]; do
+	item="$1"
+	shift
+	case "$item" in
+	'--help') help ;;
+	'--shell='*) shell="${item#*=}" ;;
+	'--empty' | '--refresh') option_empty='yes' ;;
+	'--ppid='*) : ;; # ignore for now
+	'--') break ;;
+	*)
+		if [[ -z $shell ]]; then
+			shell="$item"
+		else
+			help "An unrecognised argument was provided: $item"
+		fi
+		;;
+	esac
+done
+if [[ $option_empty == 'yes' ]]; then
+	env -i DOROTHY="$DOROTHY" "$DOROTHY/commands/setup-environment-commands" --shell="$shell"
 	exit
 fi
-
-# environment provides:
-# DOROTHY
-
-# environment.bash provides:
-# NVM_DIR, HOMEBREW_ARCH, PYENV_VERSION, RUBY_VERSION
-# and other overrides
+if [[ -z $shell ]]; then
+	help 'Missing required argument: --shell=<shell>'
+fi
 
 # load env.bash now, so that
 # any exported variables changed from now on are echo'd at finish
 source "$DOROTHY/sources/env.bash"
 
 # =====================================
-# Prepare
+# Requisites
 
 # PATH vars contain multiple paths
 # _DIR vars contain a single universal path
@@ -93,39 +109,73 @@ if [[ -z ${HOME-} ]]; then
 	fi
 fi
 
+# =====================================
+# More Requisites
+# While these seem optional, if the environment is entirely cleared, which can happen under cron, these are still essential
+
 # Local directories
 # https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch04s09.html
-export BIN_DIR CONF_DIR DATA_DIR LIB_DIR STATE_DIR SERVICE_DIR LOGS_DIR
-BIN_DIR='/usr/local/bin'
-CONF_DIR='/usr/local/etc'
-DATA_DIR='/usr/local/share'
-LIB_DIR='/usr/local/lib'
-STATE_DIR='/var/local/state'
+# always override for now, as it is seems unlikely that these will ever change, so allowing override is not necessary
+export \
+	BIN_DIR='/usr/local/bin' \
+	CONF_DIR='/usr/local/etc' \
+	DATA_DIR='/usr/local/share' \
+	LIB_DIR='/usr/local/lib' \
+	STATE_DIR='/var/local/state' \
+	SERVICE_DIR LOGS_DIR # set later
 
 # XDG
 # https://wiki.archlinux.org/title/XDG_Base_Directory
 # https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 # XDG_RUNTIME_DIR is a special directory and variable created by the system
 export XDG_PREFIX="${XDG_PREFIX:-"$HOME/.local"}"
-export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-"$HOME/.config"}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-"$HOME/.cache"}"
-export XDG_BIN_HOME="${XDG_BIN_HOME:-"$XDG_PREFIX/bin"}"
-export XDG_DATA_HOME="${XDG_DATA_HOME:-"$XDG_PREFIX/share"}"
-export XDG_STATE_HOME="${XDG_STATE_HOME:-"$XDG_PREFIX/state"}"
+export \
+	XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-"$HOME/.config"}" \
+	XDG_CACHE_HOME="${XDG_CACHE_HOME:-"$HOME/.cache"}" \
+	XDG_BIN_HOME="${XDG_BIN_HOME:-"$XDG_PREFIX/bin"}" \
+	XDG_DATA_HOME="${XDG_DATA_HOME:-"$XDG_PREFIX/share"}" \
+	XDG_STATE_HOME="${XDG_STATE_HOME:-"$XDG_PREFIX/state"}"
 # ^ if these are already defined, not to worry, `env.bash` will tidy up duplicates
 __mkdirp "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_BIN_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
-# Appimage
-export APPIMAGE_HOME="${APPIMAGE_HOME:-"$HOME/Applications"}"
-
 # reset paths and flags
 # $PATH last to make sure we inherit operating-system specific paths, such as WSL paths, and let the deduplicator later trim out duplicates in preferred order
-export PATH="$DOROTHY/commands:$XDG_BIN_HOME:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+export \
+	PATH="$DOROTHY/commands:$XDG_BIN_HOME:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" \
+	MANPATH="${MANPATH-}" \
+	INFOPATH="${INFOPATH-}" \
+	CLASSPATH="${CLASSPATH-}" \
+	PKG_CONFIG_PATH="${PKG_CONFIG_PATH-}" \
+	LDFLAGS="${LDFLAGS-}" \
+	CPPFLAGS="${CPPFLAGS-}" \
+	CC CXX \
+	LIBRARY_PATH="${LIBRARY_PATH-}"
 
-export MANPATH="${MANPATH-}" INFOPATH="${INFOPATH-}" CLASSPATH="${CLASSPATH-}" PKG_CONFIG_PATH="${PKG_CONFIG_PATH-}" LDFLAGS="${LDFLAGS-}" CPPFLAGS="${CPPFLAGS-}" CC CXX LIBRARY_PATH="${LIBRARY_PATH-}"
+# theme and terminal essentials
+export TERM_PROGRAM="${TERM_PROGRAM-}" THEME COLOR
+THEME="$(get-terminal-theme || :)"
+COLOR="$(get-terminal-color-support --fallback=yes)"
 
-# local vars
+# helpful local vars
 p=''
+
+# =====================================
+# Configuration
+
+# prepare hooks, and load user overrides
+function before_dorothy_paths {
+	return 0
+}
+function after_dorothy_paths {
+	return 0
+}
+function after_everything {
+	return 0
+}
+load_dorothy_config 'environment.bash'
+# environment.bash provides:
+# NVM_DIR, HOMEBREW_ARCH, PYENV_VERSION, RUBY_VERSION
+# and other overrides
 
 # =====================================
 # Helpers
@@ -168,20 +218,20 @@ function add_prefix_dir {
 	fi
 }
 
-# =====================================
-# Configuration
-
-# prepare hooks, and load user overrides
-function before_dorothy_paths {
-	return 0
+# add gems
+function rubygems {
+	local gem="$1" gemdirs_string gemdirs_array gemdir
+	export GEM_HOME="$HOME/.gem"
+	if [[ -x $gem ]]; then
+		# fetch gempaths and replace colons with newlines
+		gemdirs_string="$("$gem" environment gempath)"
+		gemdirs_string="${gemdirs_string//:/$'\n'}"
+		mapfile -t gemdirs_array <<<"$gemdirs_string" # <("$gem" environment gempath | tr ':' '\n')
+		for gemdir in "${gemdirs_array[@]}"; do
+			PATH="$gemdir/bin:$PATH"
+		done
+	fi
 }
-function after_dorothy_paths {
-	return 0
-}
-function after_everything {
-	return 0
-}
-load_dorothy_config 'environment.bash'
 
 # =====================================
 # Environment
@@ -205,6 +255,9 @@ fi
 if [[ -d "$XDG_DATA_HOME/flatpak/exports/share" ]]; then
 	XDG_DATA_DIRS="$XDG_DATA_HOME/flatpak/exports/share:$XDG_DATA_DIRS"
 fi
+
+# Appimage
+export APPIMAGE_HOME="${APPIMAGE_HOME:-"$HOME/Applications"}"
 
 # Homebrew, UNIX
 add_prefix_dir /usr
@@ -432,7 +485,7 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 		else
 			p="$HOMEBREW_PREFIX/opt/ruby@$HOMEBREW_RUBY_VERSION"
 			if [[ ! -d $p ]]; then
-				__print_lines "# specified [HOMEBREW_RUBY_VERSION = $HOMEBREW_RUBY_VERSION] was not found at $p" >/dev/stderr
+				__print_lines "# specified [HOMEBREW_RUBY_VERSION = $HOMEBREW_RUBY_VERSION] was not found at $p" >&2
 				p=''
 			fi
 		fi
@@ -689,6 +742,7 @@ fi
 
 # EDITOR, SUDO_EDITOR doesn't do anything so ignore
 if [[ -z ${EDITOR-} ]]; then
+	# Always use terminal editor for prompts as GUI editors are too slow.
 	EDITOR="$(edit --dry --no-prompt --terminal || :)"
 fi
 

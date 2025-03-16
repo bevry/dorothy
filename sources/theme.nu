@@ -12,7 +12,7 @@
 	# 	} else if test -f $"../themes/($DOROTHY_THEME).nu" {
 	# 		source $"../themes/($DOROTHY_THEME).nu"
 	# 	} else {
-	# 		echo-style $"--warning=Dorothy theme [($DOROTHY_THEME)] is not supported by this shell [nu]" >/dev/stderr
+	# 		echo-style --stderr $"--warning=Dorothy theme [($DOROTHY_THEME)] is not supported by this shell [nu]"
 	# 	}
 	# }
 	# instead do it manually
@@ -29,6 +29,6 @@ if 'DOROTHY_THEME' in $env and $env.DOROTHY_THEME != '' {
 	} else if $env.DOROTHY_THEME == 'demo' {
 		source ../themes/demo.nu
 	} else {
-		echo-style $'--warning=Dorothy theme [($env.DOROTHY_THEME)] is not supported by this shell [nu]' >/dev/stderr
+		echo-style --stderr $'--warning=Dorothy theme [($env.DOROTHY_THEME)] is not supported by this shell [nu]'
 	}
 }

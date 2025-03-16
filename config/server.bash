@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-
 # Used by `setup-server`
+# Do not use `export` keyword in this file
 
 # The utilities (if any) to be installed and configured for this server:
 # local SHARE_UTILS=(

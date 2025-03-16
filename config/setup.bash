@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
+# Do not use `export` keyword in this file
 
 # APK
 # Used by `setup-linux`

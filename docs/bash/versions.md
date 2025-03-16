@@ -14,14 +14,14 @@ From manual discovery:
 
 ## bash v3.2
 
+> [!CAUTION]
+> This is this is the minimum required version for Dorothy.
+
 From manual discovery:
 
 - Introduces the ability to initialize multiple arrays at once, e.g. `local a=() b=()`
 - Introduces the ability to define a subshell `function subshell () ( ... )`
 - Introduces the ability to do grouped conditions `[[ ... && ( ... || ... ) ]]`
-
-> [!CAUTION]
-> This is this is the minimum required version for Dorothy.
 
 ## bash v4.0
 
@@ -87,15 +87,54 @@ Changelog:
 
 ## bash v4.4
 
+> [!CAUTION]
+> This is this is the recommended minimum version for Dorothy.
+
 From changelog:
 
-- No longer crashes if accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
+- No longer throws upon accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
 
 Changelog:
 
 > This document details the changes between this version, bash-4.4-rc2, and the previous version, bash-4.4-beta2.
 >
 > a. Using `${a[@]}` or `${a[*]}` with an array without any assigned elements when the nounset option is enabled no longer throws an unbound variable error.
+
+## bash v5.0
+
+Nothing notable to Dorothy in this release.
+
+Changelog:
+
+> This document details the changes between this version, bash-5.0-beta, and the previous version, bash-5.0-alpha.
+>
+> q. Fixed a bug that caused `lastpipe' and `pipefail' to return an incorrect status for the pipeline if there was more than one external command in a loop body appearing in the last pipeline element.
+
+> This document details the changes between this version, bash-5.0-alpha, and the previous version, bash-4.4-release.
+>
+> f. Fixed a bug that caused SHLVL to be incremented one too many times when creating subshells.
+>
+> i. The shell no longer runs traps if a signal arrives while reading command substitution output.
+>
+> o. Changes to make sure that $* and ${array[*]} (and $@/${array[@]}) expand the same way after the recent changes for POSIX interpretation 888.
+>
+> u. Fixed a bug that could result in command substitution, when executed in a context where word splitting is not performed, to leave a stray '\001' character in the string.
+>
+> ee. The ERR trap now reports line numbers more reliably.
+>
+> ss. Fixed a bug that allowed some redirections to stay in place if a later redirection failed.
+>
+> ww. Fixed a bug that could cause `read -N' to fail to read complete multibyte characters, even when the sequences are incomplete or invalid, with or without readline.
+>
+> mmm. `read -n 0' and `read -N 0' now try a zero-length read in an attempt to detect file descriptor errors.
+>
+> yyy. `wait' without arguments attempts to wait for all active process substitution processes.
+>
+> a. The `wait' builtin can now wait for the last process substitution created.
+>
+> o. A new shopt option: localvar_inherit; if set, a local variable inherits the value of a variable with the same name at the nearest preceding scope.
+>
+> x. The shell only sets up BASH_ARGV and BASH_ARGC at startup if extended debugging mode is active. The old behavior of unconditionally setting them is available as part of the shell compatibility options.
 
 ## bash v5.1
 
@@ -112,4 +151,5 @@ Changelog:
 > x. `test -v N` can now test whether or not positional parameter N is set.
 >
 > dd. New `U`, `u`, and `L` parameter transformations to convert to uppercase, convert first character to uppercase, and convert to lowercase, respectively.
+>
 > oo. Fixed several issues with assigning an associative array variable using a compound assignment that expands the value of the same variable.

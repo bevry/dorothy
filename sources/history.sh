@@ -11,7 +11,7 @@ secure_history() {
 		history -c
 		printf '%s\n' 'Erased everything.'
 	else
-		printf '%s\n' 'Erasing only known risks is not supported in shells that are not Fish.' >/dev/stderr
+		printf '%s\n' 'Erasing only known risks is not supported in shells that are not Fish.' >>/dev/stderr
 		return 1
 	fi
 }
