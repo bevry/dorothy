@@ -2,5 +2,5 @@
 
 def secure_history [] {
 	history -c
-	echo 'Erased everything.'
+	printf '%s\n' 'Erased everything.'
 }

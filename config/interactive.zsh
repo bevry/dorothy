@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# do whatever you want in this file:
 # shellcheck disable=SC2034
-
 # Used by `interactive.sh`
+# Do whatever you want in this file
 
 # Load oh-my-zsh if it exists on the system
 if [[ -d "$HOME/.oh-my-zsh" ]]; then
@@ -14,3 +13,6 @@ if [[ -d "$HOME/.oh-my-zsh" ]]; then
 		source "$ZSH/oh-my-zsh.sh"
 	fi
 fi
+
+# Inherited into `theme.zsh` to load the desired theme, use `dorothy theme` to (re)configure this
+# export DOROTHY_THEME=''

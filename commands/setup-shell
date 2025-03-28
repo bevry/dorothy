@@ -1,24 +1,530 @@
 #!/usr/bin/env bash
 
+# @todos
+# - [ ] config-helper sudo escalation
+# - [ ] find out why xonsh is not getting installed
+# - [ ] find out why all the shells aren't be configured correctly
+# - [ ] save configuration updates
+
 function setup_shell() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$DOROTHY/sources/environment.sh" # ensure new installations are detected
 
+	# used by these helpers
+	local option_brew='' option_exclusions=()
+	local all_installable_basenames_of_shells=(
+		# in order of usage
+		bash
+		zsh
+		fish
+		nu
+		xonsh
+		elvish
+		dash
+		ksh
+	)
+	local all_configurable_basenames_of_shells=("${all_installable_basenames_of_shells[@]}") # maybe one day this will be different
+	local all_allowable_basenames_of_shells=("${all_installable_basenames_of_shells[@]}")    # maybe one day this will be different, and note that this needs to be merged with active system login shells
+
+	function get_name_of_basename_of_shell {
+		local shell="$1"
+		case "$shell" in
+		'bash') __print_lines 'Bash' ;;
+		'zsh') __print_lines 'Zsh' ;;
+		'fish') __print_lines 'Fish' ;;
+		'nu') __print_lines 'Nu' ;;
+		'xonsh') __print_lines 'Xonsh' ;;
+		'elvish') __print_lines 'Elvish' ;;
+		'dash') __print_lines 'Dash' ;;
+		'ksh') __print_lines 'KSH' ;; # http://kornshell.com/doc/faq.html KornShell is the language, KSH-93 is the most recent version of the language, ksh is the program, so do KSH as a middle-ground
+		*) __print_lines "$shell" ;;
+		esac
+	}
+
+	function get_url_of_basename_of_shell {
+		local shell="$1"
+		case "$shell" in
+		'bash') __print_lines 'https://en.wikipedia.org/wiki/Bash_(Unix_shell)' ;;
+		'zsh') __print_lines 'https://en.wikipedia.org/wiki/Z_shell' ;;
+		'fish') __print_lines 'https://en.wikipedia.org/wiki/Fish_(Unix_shell)' ;;
+		'nu') __print_lines 'https://www.nushell.sh' ;;
+		'xonsh') __print_lines 'https://xon.sh' ;;
+		'elvish') __print_lines 'https://en.wikipedia.org/wiki/Fish_(Unix_shell)' ;;
+		'dash') __print_lines 'https://en.wikipedia.org/wiki/Z_shell' ;;
+		'ksh') __print_lines 'https://en.wikipedia.org/wiki/KornShell' ;;
+		esac
+	}
+
+	function get_url_label_of_basename_of_shell {
+		local shell="$1" name url
+		name="$(get_name_of_basename_of_shell "$shell")"
+		url="$(get_url_of_basename_of_shell "$shell")"
+		if [[ -n $url ]]; then
+			echo-style --bold="$name: " --dim="$url"
+		else
+			echo-style --bold="$name"
+		fi
+	}
+
+	function gets_url_label_of_basenames_of_shells {
+		local shells=("$@") shell
+		for shell in "${shells[@]}"; do
+			get_url_label_of_basename_of_shell "$shell"
+		done
+	}
+
+	function get_version_of_path_of_shell {
+		local path="$1" shell
+		shell="$(basename -- "$path")"
+		case "$shell" in
+		'bash') command "$path" -c "printf '%s\n' \"\$BASH_VERSION\"" ;; # eval
+		'zsh') command "$path" -c "printf '%s\n' \"\$ZSH_VERSION\"" ;;   # eval
+		'fish') command "$path" -c "printf '%s\n' \"\$FISH_VERSION\"" ;; # eval
+		'nu') command "$path" -c "printf '%s\n' \$env.NU_VERSION" ;;     # eval
+		'elvish') command "$path" --version ;;                           # eval
+		*) : ;;
+		# go on the safe side, any don't do versions for anything we can't guarantee handling of
+		#'dash' | 'ksh') : ;;  # these don't support [<shell> --version]
+		# the bellow works for everything so far except nu, which [nu --version] just outputs the version
+		#*) command "$path" --version | echo-regexp -on --search='version ([^( ]+)' --replace="\$1" ;;
+		esac
+	}
+
+	function get_path_label_of_path_of_shell {
+		local path="$1" shell name version args=()
+		shell="$(basename -- "$path")"
+		name="$(get_name_of_basename_of_shell "$shell")"
+		version="$(get_version_of_path_of_shell "$path")"
+		if [[ -n $version ]]; then
+			args=(--bold="$name" ' ' --blue="$version" ' ' --dim="$path")
+		else
+			args=(--bold="$name" ' ' --dim="$path")
+		fi
+		echo-style "${args[@]}"
+	}
+
+	function __is_permitted_shell {
+		local shell="$1" basename
+		if [[ $option_brew != 'no' && ${#option_exclusions[@]} -eq 0 ]]; then
+			return 0
+		fi
+		basename="$(basename -- "$shell")"
+		if [[ $shell == "$basename" ]]; then
+			# shell is basename, just check basename
+			if is-needle --needle="$shell" -- "${option_exclusions[@]}"; then
+				return 1
+			fi
+		else
+			# shell is path, check both path and basename, and brew
+			if [[ $option_brew == 'no' && -n ${HOMEBREW_PREFIX-} && $shell == "$HOMEBREW_PREFIX"* ]] || is-needle --any --needle="$shell" --needle="$basename" -- "${option_exclusions[@]}"; then
+				return 1
+			fi
+		fi
+		return 0
+	}
+
+	function get_unique_and_permitted_shells {
+		local shell permitted_shells=()
+		for shell in "$@"; do
+			if __is_permitted_shell "$shell"; then
+				permitted_shells+=("$shell")
+			fi
+		done
+		if [[ ${#permitted_shells[@]} -eq 0 ]]; then
+			return
+		fi
+		echo-unique -- "${permitted_shells[@]}"
+	}
+
+	function get_unique_and_permitted_paths_of_shells {
+		local shell paths=() path all=()
+		for shell in "$@"; do
+			# returns all matching paths, or no paths, of the shell path or basename
+			# which -a "$basename_or_path"
+			# type -pa "$basename_or_path"
+			# type -Pa "$basename_or_path" || : # suppress failure status if no results
+			mapfile -t paths < <(type -Pa "$shell" || :)
+			if [[ ${#paths[@]} -ne 0 ]]; then
+				mapfile -t paths < <(get_unique_and_permitted_shells "${paths[@]}")
+				if [[ ${#paths[@]} -ne 0 ]]; then
+					all+=("${paths[@]}")
+				fi
+			fi
+		done
+		if [[ ${#all[@]} -ne 0 ]]; then
+			echo-unique -- "${all[@]}"
+		fi
+	}
+
+	function get_unique_and_permitted_paths_of_allowed_shells {
+		local paths=()
+		mapfile -t paths < <(echo-regexp -onm '^(/[^#]+).*$' '$1' </etc/shells)
+		if [[ ${#paths[@]} -ne 0 ]]; then
+			get_unique_and_permitted_shells "${paths[@]}"
+		fi
+	}
+
+	function get_unique_and_permitted_basenames_of_shells {
+		local shell basenames=()
+		for shell in "$@"; do
+			if __is_permitted_shell "$shell"; then
+				basenames+=("$(basename -- "$shell")")
+			fi
+		done
+		# de-dup
+		echo-unique -- "${basenames[@]}"
+	}
+
+	function get_unique_and_permitted_basenames_of_shells_with_labels {
+		local basenames=() basename shell results=()
+		mapfile -t basenames < <(get_unique_and_permitted_basenames_of_shells "$@")
+		if [[ ${#basenames[@]} -eq 0 ]]; then
+			return
+		fi
+		for basename in "${basenames[@]}"; do
+			results+=("$basename" "$(get_url_label_of_basename_of_shell "$basename")")
+		done
+		__print_lines "${results[@]}"
+	}
+
+	function get_unique_and_permitted_paths_of_shells_with_labels {
+		local paths=() results=()
+		mapfile -t paths < <(get_unique_and_permitted_paths_of_shells "$@")
+		if [[ ${#paths[@]} -eq 0 ]]; then
+			return
+		fi
+		for path in "${paths[@]}"; do
+			results+=("$path" "$(get_path_label_of_path_of_shell "$path")")
+		done
+		__print_lines "${results[@]}"
+	}
+
+	function get_unique_and_permitted_installed_shells {
+		local shells=() shell results=()
+		mapfile -t shells < <(get_unique_and_permitted_shells "$@")
+		if [[ ${#shells[@]} -eq 0 ]]; then
+			return
+		fi
+		for shell in "${shells[@]}"; do
+			if __command_exists -- "$shell"; then
+				results+=("$shell")
+			fi
+		done
+		if [[ ${#results[@]} -eq 0 ]]; then
+			return
+		fi
+		__print_lines "${results[@]}"
+	}
+
+	function get_unique_and_permitted_configured_basenames_of_shells {
+		local basenames basename fn results=()
+		mapfile -t basenames < <(get_unique_and_permitted_basenames_of_shells "$@")
+		if [[ ${#basenames[@]} -eq 0 ]]; then
+			return
+		fi
+		for basename in "${basenames[@]}"; do
+			fn="__is_configured_$basename"
+			if "$fn"; then
+				results+=("$basename")
+			fi
+		done
+		__print_lines "${results[@]}"
+	}
+
+	function get_unique_and_permitted_configured_paths_of_shells {
+		local basenames=()
+		mapfile -t basenames < <(get_unique_and_permitted_configured_basenames_of_shells "$@")
+		if [[ ${#basenames[@]} -eq 0 ]]; then
+			return
+		fi
+		get_unique_and_permitted_paths_of_shells "${basenames[@]}"
+	}
+
+	function allow_login_shell_path {
+		local login_shell_path="$1"
+		config-helper --file=/etc/shells -- \
+			--string-find="$login_shell_path" --replace="$login_shell_path"
+	}
+	function disallow_login_shell_path {
+		local login_shell_path="$1"
+		config-helper --file=/etc/shells -- \
+			--string-find="$login_shell_path" --replace=''
+	}
+
+	local can_apply_login_shell='yes'
+	if __command_exists -- chpass; then
+		function apply_login_shell_path {
+			local login_shell_path="$1" __chpass_status
+			# [chpass] only give you one password attempt, so do it in a loop
+			while :; do
+				__chpass_status=0
+				chpass -s "$login_shell_path" -u "$USER" || __chpass_status=$?
+				if [[ $__chpass_status -eq 0 ]]; then
+					# successfully updated
+					echo-style --tty --dim='You can ignore [chpass: no changes made] warnings.' || return
+					break
+				elif [[ $__chpass_status -eq 1 ]]; then
+					# incorrect password
+					continue # try again
+				elif [[ $__chpass_status -eq 130 ]]; then
+					# 130 = SIGINT = ctrl+c = abort
+					echo-style --stderr --error="Updating the login shell failed because [chpass] was aborted with exit status [$__chpass_status]." || return
+					return 125 # ECANCELED 125 Operation cancelled
+				else
+					echo-style --stderr --error="Updating the login shell failed because [chpass] failed with exit status [$__chpass_status]." || return
+					return "$__chpass_status"
+				fi
+			done
+		}
+	elif __command_exists -- chsh; then
+		# ubuntu
+		function apply_login_shell_path {
+			local login_shell_path="$1"
+			chsh -s "$login_shell_path" "$USER"
+			return
+		}
+	elif __command_exists -- usermod; then
+		# fedora
+		function apply_login_shell_path {
+			local login_shell_path="$1"
+			sudo-helper -- usermod --shell "$login_shell_path" "$USER"
+			return
+		}
+	elif __command_exists -- lchsh; then
+		# fedora
+		function apply_login_shell_path {
+			local login_shell_path="$1"
+			__print_lines "$login_shell_path" | sudo-helper -- lchsh "$USER" >/dev/null # output is confusing
+			return
+		}
+	elif [[ -f /etc/passwd ]]; then
+		# everything else, including alpine
+		function apply_login_shell_path {
+			local login_shell_path="$1" bin_gsed_or_sed
+			# @todo rewrite this with config-helper
+			bin_gsed_or_sed="$(echo-gnu-command --install -- gsed || :)"
+			if [[ -z $bin_gsed_or_sed ]]; then
+				return 1
+			fi
+			sudo-helper --inherit \
+				-- "$bin_gsed_or_sed" --in-place --regexp-extended --expression="s#^($USER:.+:).+?\$#\1$login_shell_path#" /etc/passwd
+			return
+		}
+	else
+		can_apply_login_shell='no'
+	fi
+
+	# bash
+	function __is_configured_bash {
+		# @todo don't implement these potential alternatives, as the implemented one is the best
+		# echo-regexp --quiet --search='.+? # Dorothy' --any --file="$HOME/.bash_profile" --file="$HOME/.bashrc"
+		# echo-regexp -q '.+? # Dorothy' --any -- "$HOME/.bash_profile" "$HOME/.bashrc"
+		# echo-file --raw --optional -- "$HOME/.bash_profile" "$HOME/.bashrc" | echo-regexp -q '.+? # Dorothy'
+		echo-if-present -- "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile" | echo-file --raw --stdin | echo-regexp -q '.+?(init.sh).*? # Dorothy'
+		return
+	}
+	function configure_bash {
+		# mac and raspi ubuntu
+		config-helper --file="$HOME/.bash_profile" -- \
+			--find='.+? # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
+
+		# vm ubuntu
+		config-helper --file="$HOME/.bashrc" -- \
+			--find='.+? # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
+	}
+	function deconfigure_bash {
+		config-helper --file="$HOME/.bash_profile" -- \
+			--find='.+? # Dorothy' --replace=''
+		config-helper --file="$HOME/.bashrc" -- \
+			--find='.+? # Dorothy' --replace=''
+		config-helper --file="$HOME/.profile" -- \
+			--find='.+?(init.sh).*? # Dorothy' --replace=''
+	}
+
+	# dash
+	function __is_configured_dash {
+		echo-if-present -- "$HOME/.profile" | echo-file --raw --stdin | echo-regexp -q '.+?(init.sh|init.dash).*? # Dorothy'
+		return
+	}
+	function configure_dash {
+		config-helper --file="$HOME/.profile" -- \
+			--find='.+?(init.sh|init.dash).*? # Dorothy' --replace=". \"$DOROTHY/init.dash\" # Dorothy"
+	}
+	function deconfigure_dash {
+		config-helper --file="$HOME/.profile" -- \
+			--find='.+?(init.sh|init.dash).*? # Dorothy' --replace=''
+	}
+
+	# ksh
+	function __is_configured_ksh {
+		echo-if-present -- "$HOME/.profile" | echo-file --raw --stdin | echo-regexp -q '.+?(init.sh|init.ksh).*? # Dorothy'
+		return
+	}
+	function configure_ksh {
+		config-helper --file="$HOME/.profile" -- \
+			--find='.+?(init.sh|init.ksh).*? # Dorothy' --replace=". \"$DOROTHY/init.ksh\" # Dorothy"
+	}
+	function deconfigure_ksh {
+		config-helper --file="$HOME/.profile" -- \
+			--find='.+?(init.sh|init.ksh).*? # Dorothy' --replace=''
+	}
+
+	# zsh
+	function __is_configured_zsh {
+		echo-if-present -- "$HOME/.zshrc" "$ZDOTDIR/.zprofile" | echo-file --raw --stdin | echo-regexp -q '.+? # Dorothy'
+		return
+	}
+	function configure_zsh {
+		setup-util-zsh --configure
+		config-helper --file="$ZDOTDIR/.zshrc" -- \
+			--find='.+? # Dorothy' --replace="source '$DOROTHY/init.sh' # Dorothy"
+		config-helper --file="$ZDOTDIR/.zprofile" -- \
+			--find='.+? # Dorothy' --replace="source '$DOROTHY/init.sh' # Dorothy"
+	}
+	function deconfigure_zsh {
+		if [[ -d $ZDOTDIR ]]; then
+			config-helper --file="$ZDOTDIR/.zshrc" -- \
+				--find='.+? # Dorothy' --replace=''
+			config-helper --file="$ZDOTDIR/.zprofile" -- \
+				--find='.+? # Dorothy' --replace=''
+		fi
+	}
+
+	# fish
+	local fish_config_home="$XDG_CONFIG_HOME/fish"
+	function __is_configured_fish {
+		echo-if-present -- "$fish_config_home/config.fish" | echo-file --raw --stdin | echo-regexp -q '.+? # Dorothy'
+	}
+	function configure_fish {
+		__mkdirp "$fish_config_home"
+		config-helper --file="$fish_config_home/config.fish" -- \
+			--find='.+? # Dorothy' --replace="source '$DOROTHY/init.fish' # Dorothy"
+	}
+	function deconfigure_fish {
+		if [[ -d $fish_config_home ]]; then
+			config-helper --file="$fish_config_home/config.fish" -- \
+				--find='.+? # Dorothy' --replace=''
+		fi
+	}
+
+	# nu
+	function __is_configured_nu {
+		local nu_config_path
+		if __command_exists -- nu; then
+			nu_config_path="$(nu -c 'echo $nu.loginshell-path')"
+			echo-if-present -- "$nu_config_path" | echo-file --raw --stdin | echo-regexp -q '.+? # Dorothy'
+			return
+		else
+			return 1
+		fi
+	}
+	function configure_nu {
+		local nu_config_path
+		if __command_exists -- nu; then
+			setup-util-nu --configure
+			nu_config_path="$(nu -c 'echo $nu.loginshell-path')"
+			config-helper --file="$nu_config_path" -- \
+				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.nu' # Dorothy"
+		fi
+	}
+	function deconfigure_nu {
+		local nu_config_path
+		if __command_exists -- nu; then
+			nu_config_path="$(nu -c 'echo $nu.loginshell-path')"
+			config-helper --file="$nu_config_path" -- \
+				--find='.+? # Dorothy' --replace=''
+		fi
+	}
+
+	# xonsh
+	local xonsh_config_home="$XDG_CONFIG_HOME/xonsh"
+	function __is_configured_xonsh {
+		echo-if-present -- "$xonsh_config_home/rc.xsh" | echo-file --raw --stdin | echo-regexp -q '.+? # Dorothy'
+		return
+	}
+	function configure_xonsh {
+		__mkdirp "$xonsh_config_home/rc.d"
+		config-helper --file="$xonsh_config_home/rc.xsh" -- \
+			--find='.+? # Dorothy' --replace="execx(compilex(open('$DOROTHY/init.xsh').read())) # Dorothy"
+	}
+	function deconfigure_xonsh {
+		if [[ -d $xonsh_config_home ]]; then
+			config-helper --file="$xonsh_config_home/rc.xsh" -- \
+				--find='.+? # Dorothy' --replace=''
+		fi
+	}
+
+	# elvish
+	# https://elv.sh/ref/command.html#rc-file
+	# https://elv.sh/ref/runtime.html
+	# https://github.com/elves/elvish/issues/1726
+	local elvish_config_home="$XDG_CONFIG_HOME/elvish"
+	function __is_configured_elvish {
+		echo-if-present -- "$elvish_config_home/rc.elv" | echo-file --raw --stdin | echo-regexp -q '.+? # Dorothy'
+		return
+	}
+	function configure_elvish {
+		__mkdirp "$elvish_config_home"
+		config-helper --file="$elvish_config_home/rc.elv" -- \
+			--find='.+? # Dorothy' --replace="eval (cat -- '$DOROTHY/init.elv' | slurp) # Dorothy"
+	}
+	function deconfigure_elvish {
+		if [[ -d $elvish_config_home ]]; then
+			config-helper --file="$elvish_config_home/rc.elv" -- \
+				--find='.+? # Dorothy' --replace=''
+		fi
+	}
+
 	# =====================================
 	# Arguments
 
+	# deprecate USER_SHELLS shells.bash
+	# INSTALL_SHELLS not needed as that is just SETUP_UTILS
+	# DOROTHY_SHELLS setup.bash
+	# LOGIN_SHELLS setup.bash
+	# if [setup-shells --configure] then do uninstalls and deconfigures
+	# if [setup-shells bash zsh] install bash and zsh, configure bash and zsh, selects bash, but do not uninstall or deconfigure others
+	# ^ problem with that, is where it should update configuration, in which others will be trimmed for next run if so
+	# ^ if args provided, it does not reconfigure, unless --configure is provided
+	# ^ if config provided, it does not reconfigure, unless --configure is provided
+
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
-			Set your user's login shell to become the first available shell of your preferences.
+			Setup your desired shells. Installs/uninstalls them. Configures/deconfigures them for Dorothy. allows and applies your login shell.
 
 			USAGE:
-			setup-shell [...options] [--] ...<preference>
-			If no <preference>s are provided, then [USER_SHELLS] from your [shell.bash] user configuration file will be used.
+			setup-shell [...options] [--] ...<shell>
+			If no <shell> preferences are provided, then [USER_SHELLS] from your [shell.bash] user configuration file will be used.
+
+			SHELLS CONFIGURABLE FOR DOROTHY:
+			$(gets_url_label_of_basenames_of_shells "${all_configurable_basenames_of_shells[@]}")
 
 			OPTIONS:
+			--setup
+			    Reconfigure everything.
+
+			[--] ...<shell>
+			    A <shell> to perform one of the below actions on. If no action is provided, defaults to install, configure, allow, and login.
+			--install
+			    Install the specified <shell>s.
+			--uninstall
+			    Uninstall the specified <shell>s.
+			--configure
+			    Configure the specified <shell>s for dorothy.
+			--deconfigure
+			    Deconfigure the specified <shell>s for dorothy.
+			--allow
+			    Enable the specified <shell>s to be used as login shells.
+			--disallow
+			    Disable the specified <shell>s from being used as login shells.
+			--login
+			    Set the specified <shell>s as your login shell.
+
+			--clean
+			    Remove the current shell configuration files, leaving only the configurations that load Dorothy. Useful if you have already migrated to Dorothy.
 			--no-brew
-			    Do not use any shell installed via homebrew.
+			    Exclude <shell> paths that were installed via Homebrew. Useful when uninstalling Homebrew.
 
 			QUIRKS:
 			You can use a command name, such as [bash] to select the preferred variation of the shell.
@@ -31,15 +537,44 @@ function setup_shell() (
 	}
 
 	# process
-	local item option_brew='' option_shells=()
+	local item option_setup='' option_install='' option_uninstall='' option_configure='' option_deconfigure='' option_allow='' option_disallow='' option_login='' option_clean='' option_shells=()
+	# option_brew='' option_exclusions=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-setup'* | '--setup'*)
+			option_setup="$(get-flag-value --affirmative --fallback="$option_setup" -- "$item")"
+			;;
+		'--no-install'* | '--install'*)
+			option_install="$(get-flag-value --affirmative --fallback="$option_install" -- "$item")"
+			;;
+		'--no-uninstall'* | '--uninstall'*)
+			option_uninstall="$(get-flag-value --affirmative --fallback="$option_uninstall" -- "$item")"
+			;;
+		'--no-configure'* | '--configure'*)
+			option_configure="$(get-flag-value --affirmative --fallback="$option_configure" -- "$item")"
+			;;
+		'--no-deconfigure'* | '--deconfigure'*)
+			option_deconfigure="$(get-flag-value --affirmative --fallback="$option_deconfigure" -- "$item")"
+			;;
+		'--no-allow'* | '--allow'*)
+			option_allow="$(get-flag-value --affirmative --fallback="$option_allow" -- "$item")"
+			;;
+		'--no-disallow'* | '--disallow'*)
+			option_disallow="$(get-flag-value --affirmative --fallback="$option_disallow" -- "$item")"
+			;;
+		'--no-login'* | '--login'*)
+			option_login="$(get-flag-value --affirmative --fallback="$option_login" -- "$item")"
+			;;
+		'--no-clean'* | '--clean'*)
+			option_clean="$(get-flag-value --affirmative --fallback="$option_clean" -- "$item")"
+			;;
 		'--no-brew'* | '--brew'*)
 			option_brew="$(get-flag-value --affirmative --fallback="$option_brew" -- "$item")"
 			;;
+		'--exclude='*) option_exclusions+=("${item#*=}") ;;
 		'--')
 			option_shells+=("$@")
 			shift "$#"
@@ -50,135 +585,379 @@ function setup_shell() (
 		esac
 	done
 
+	# load configuration if argument shells provided
+	local only_args='no'
+	if [[ ${#option_shells[@]} -ne 0 ]]; then
+		only_args='yes'
+		if [[ -z $option_install && -z $option_uninstall && -z $option_configure && -z $option_deconfigure && -z $option_allow && -z $option_disallow && -z $option_login && -z $option_clean ]]; then
+			option_install='yes'
+			option_configure='yes'
+			option_allow='yes'
+			option_login='yes'
+		fi
+	else
+		# load configuration
+		source "$DOROTHY/sources/config.sh"
+		USER_SHELLS=()
+		load_dorothy_config 'shells.bash'
+		option_shells=("${USER_SHELLS[@]}")
+	fi
+
 	# =====================================
 	# Helpers
 
-	function none_available {
-		# no shell was selected, error
-		echo-style --error='No preferred shell was currently installed, as such none were able to be selected.' >/dev/stderr
-		return 3 # ESRCH 3 No such process
-	}
-	function use_shell {
-		# use this specific shell
-		local shell path
-		# if name, expand the name into a path
-		# if path, validate the path exists
-		shell="$(basename -- "$1")"
-		path="$(type -P "$1" || :)"
-		if [[ -z $path ]]; then
-			echo-style --error="Failed to verify that shell [$shell] exists and is executable." >/dev/stderr
-			return 8 # ENOEXEC 8 Exec format error
+	function select_shells_for_install_or_uninstall {
+		# check
+		if [[ $option_install == 'no' && $option_uninstall == 'no' ]]; then
+			return 0
 		fi
 
-		# log
-		echo-style --h1="Selected [$shell] at [$path]"
-
-		# update system whitelist
-		echo-style --h2='Update system whitelist'
-		if contains-line --stdin --needle="$path" </etc/shells; then
-			echo-style --green='Already within the system whitelist [/etc/shells]'
-		else
-			echo-style --h3='Add to system whitelist [/etc/shells]'
-			__print_lines "$path" | sudo-helper -- tee -a -- /etc/shells
-			echo-style --g3='Add to system whitelist [/etc/shells]'
-		fi
-		echo-style --g2='Update system whitelist'
-
-		# update system selection
-		echo-style --h2="Update login shell for [$USER]"
-		if __command_exists -- chpass; then
-			echo-style --dim='You can ignore [chpass: no changes made] warnings.'
-			# mac
-			chpass -s "$path" -u "$USER"
-		elif __command_exists -- chsh; then
-			# ubuntu
-			chsh -s "$path" "$USER"
-		elif __command_exists -- usermod; then
-			# fedora
-			sudo-helper -- usermod --shell "$path" "$USER"
-		elif __command_exists -- lchsh; then
-			# fedora
-			__print_lines "$path" | sudo-helper -- lchsh "$USER" >/dev/null # output is confusing
-		elif [[ -f '/etc/passwd' ]]; then
-			# dependencies
-			local bin_gsed_or_sed
-			bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
-
-			# everything else, including alpine
-			sudo-helper --inherit \
-				-- "$bin_gsed_or_sed" --in-place --regexp-extended \
-				--expression="s#^($USER:.+:).+?\$#\1$path#" \
-				/etc/passwd
-		else
-			# unknown fail
-			echo-style --error="Dorothy doesn't know how to set the login shell on this Operating System." >/dev/stderr
-			echo-style --e2="Update login shell for [$USER]"
-			return 19 # ENODEV 19 Operation not supported by device
-		fi
-		echo-style --g2="Update login shell for [$USER]"
-
-		# success case
-		echo-style --g1="Selected [$shell] at [$path]"
-		echo-style --notice="Restart your terminal, or open a new one, for the change to take effect."
-	}
-	function use_first_available {
-		# use the first available preference passed to us
-		local shell path paths=() use_shell_status
-
-		# convert shells into each of their paths
-		for shell in "$@"; do
-			if [[ -z $shell ]]; then
-				help "Invalid configuration was received, there was an empty item:" "$(echo-verbose -- "$@")"
-			fi
-			mapfile -t paths < <(type -pa "$shell" 2>/dev/null || :)
-			for path in "${paths[@]}"; do
-				if [[ -z $path ]]; then
-					continue
-				fi
-				if [[ -n ${HOMEBREW_PREFIX-} ]]; then
-					if [[ $option_brew == 'no' && $path == "$HOMEBREW_PREFIX"* ]]; then
-						continue
+		# handle args
+		if [[ $only_args == 'yes' ]]; then
+			if [[ $option_uninstall == 'yes' || $option_install == 'yes' ]]; then
+				local arg_shells=() shell
+				mapfile -t arg_shells < <(get_unique_and_permitted_basenames_of_shells "${option_shells[@]}")
+				for shell in "${arg_shells[@]}"; do
+					if [[ $option_uninstall == 'yes' ]]; then
+						command "setup-util-$shell" --uninstall --optional # eval
 					fi
+					if [[ $option_install == 'yes' ]]; then
+						command "setup-util-$shell" --install --optional # eval
+					fi
+				done
+			fi
+			return
+		fi
+
+		# prepare
+		local shell question details
+		question='Which shells should be installed this system?'
+		details='Shells will be installed or uninstalled automatically using the appropriate methods on this system.'
+		details+=$'\nUnselected shells will be uninstalled.'
+
+		# handle defaults
+		# there will always be already installed shells, as bash is always installed, however continue with the logic, because of exclusions
+		local installed_shells=() user_shells=() defaults=() defaults_string=''
+		mapfile -t installed_shells < <(get_unique_and_permitted_installed_shells "${all_installable_basenames_of_shells[@]}")
+		if [[ ${#option_shells[@]} -ne 0 ]]; then
+			mapfile -t user_shells < <(get_unique_and_permitted_basenames_of_shells "${option_shells[@]}")
+		fi
+		if [[ ${#user_shells[@]} -ne 0 && ${#installed_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}" "${installed_shells[@]}")
+			details+=$'\nPreselected shells are your preferences, as well as the shells that are already installed on this system.'
+		elif [[ ${#user_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}")
+			details+=$'\nPreselected shells are your preferences.'
+		elif [[ ${#installed_shells[@]} -ne 0 ]]; then
+			defaults=("${installed_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already installed on this system.'
+		fi
+		if [[ ${#defaults[@]} -ne 0 ]]; then
+			defaults_string="$(__print_lines "${defaults[@]}")"
+		fi
+
+		# select which shells to install and consequently which to also uninstall
+		local choices=() selected_shells=() result status
+		mapfile -t choices < <(get_unique_and_permitted_basenames_of_shells_with_labels "${all_installable_basenames_of_shells[@]}")
+		__do --redirect-stdout=tty -- __print_line
+		__do --redirect-status={status} --redirect-stdout={result} -- \
+			choose --linger --multi "$question" "$details" --defaults="$defaults_string" --label -- "${choices[@]}"
+		if [[ $status -eq 130 ]]; then
+			echo-style --tty --notice='No changes to installed shells were desired.'
+			return 0
+		elif [[ $status -ne 0 ]]; then
+			return "$status"
+		fi
+		if [[ -n $result ]]; then
+			mapfile -t selected_shells <<<"$result"
+		fi
+
+		# install or uninstall
+		if [[ ${#selected_shells[@]} -eq 0 ]]; then
+			# uninstall everything
+			if [[ $option_uninstall != 'no' ]]; then
+				for shell in "${all_installable_basenames_of_shells[@]}"; do
+					command "setup-util-$shell" --uninstall --optional # eval
+				done
+			fi
+		else
+			local shell
+			for shell in "${all_installable_basenames_of_shells[@]}"; do
+				if is-needle --needle="$shell" -- "${selected_shells[@]}"; then
+					if [[ $option_install != 'no' ]]; then
+						command "setup-util-$shell" --install --optional # eval
+					fi
+				elif [[ $option_uninstall != 'no' ]]; then
+					command "setup-util-$shell" --uninstall --optional # eval
 				fi
-				echo-style --success='Preference available on this system:' ' ' --code="$path"
-				eval_capture --statusvar=use_shell_status -- use_shell "$path"
-				if [[ $use_shell_status -eq 0 ]]; then
-					return 0
-				fi # else continue
 			done
-			echo-style --error1='Preference unavailable on this system: ' --code-error1="$shell"
-		done
-		none_available
+		fi
+	}
+
+	function select_shells_for_configure_or_deconfigure {
+		# check
+		if [[ $option_configure == 'no' && $option_deconfigure == 'no' ]]; then
+			return 0
+		fi
+
+		# handle args
+		if [[ $only_args == 'yes' ]]; then
+			if [[ $option_deconfigure == 'yes' || $option_configure == 'yes' ]]; then
+				local arg_shells=() shell
+				mapfile -t arg_shells < <(get_unique_and_permitted_basenames_of_shells "${option_shells[@]}")
+				for shell in "${arg_shells[@]}"; do
+					if [[ $option_deconfigure == 'yes' ]]; then
+						"deconfigure_$shell" # eval
+					fi
+					if [[ $option_configure == 'yes' ]]; then
+						"configure_$shell" # eval
+					fi
+				done
+			fi
+			return
+		fi
+
+		# prepare
+		local shell question details
+		question='Which shells should load Dorothy when they are used as login shells?'
+		details='Shells that load Dorothy will gain automated configuration for what is available on your system, access the hundreds of Dorothy commands, and leverage your Dorothy User Configuration, empowering you with a cross-shell, cross-os, and cross-arch ecosystem.'
+		details+=$'\nUnselected shells will be configured to not load Dorothy.'
+
+		# handle defaults
+		local configured_shells=() user_shells=() defaults=() defaults_string=''
+		mapfile -t configured_shells < <(get_unique_and_permitted_configured_basenames_of_shells "${all_configurable_basenames_of_shells[@]}")
+		if [[ ${#option_shells[@]} -ne 0 ]]; then
+			mapfile -t user_shells < <(get_unique_and_permitted_basenames_of_shells "${option_shells[@]}")
+		fi
+		if [[ ${#user_shells[@]} -ne 0 && ${#configured_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}" "${configured_shells[@]}")
+			details+=$'\nPreselected shells are your preferences, as well as the shells that are already configured for Dorothy on this system.'
+		elif [[ ${#user_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}")
+			details+=$'\nPreselected shells are your preferences.'
+		elif [[ ${#configured_shells[@]} -ne 0 ]]; then
+			defaults=("${configured_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already configured for Dorothy on this system.'
+		fi
+		if [[ ${#defaults[@]} -ne 0 ]]; then
+			defaults_string="$(__print_lines "${defaults[@]}")"
+		fi
+
+		# select which shells to configure and consequently which to also deconfigure
+		local choices=() selected_shells=() result status
+		mapfile -t choices < <(get_unique_and_permitted_basenames_of_shells_with_labels "${all_configurable_basenames_of_shells[@]}")
+		__do --redirect-stdout=tty -- __print_line
+		__do --redirect-status={status} --redirect-stdout={result} -- \
+			choose --linger --multi "$question" "$details" --defaults="$defaults_string" --label -- "${choices[@]}"
+		if [[ $status -eq 130 ]]; then
+			echo-style --tty --notice='No changes to configured shells were desired.'
+			return 0
+		elif [[ $status -ne 0 ]]; then
+			return "$status"
+		fi
+		if [[ -n $result ]]; then
+			mapfile -t selected_shells <<<"$result"
+		fi
+
+		# cleanup, @todo this should be a user configuration hook or something
+		if [[ $option_clean == 'yes' ]]; then
+			# note that for WSL, they include useful configurations that Dorothy does reimplement
+			fs-rm --confirm --no-confirm-if-empty --reason='Once you have migrated all your configuration to Dorothy, these files can usually be safely removed.' \
+				-- "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$XDG_CONFIG_HOME/fish/config.fish" "$ZDOTDIR/.zshrc" "$ZDOTDIR/.zprofile"
+		fi
+
+		# configure or deconfigure
+		if [[ ${#selected_shells[@]} -eq 0 ]]; then
+			# deconfigure everything
+			if [[ $option_deconfigure != 'no' ]]; then
+				for shell in "${all_configurable_basenames_of_shells[@]}"; do
+					"deconfigure_$shell" # eval
+				done
+			fi
+		else
+			local shell
+			for shell in "${all_configurable_basenames_of_shells[@]}"; do
+				if is-needle --needle="$shell" -- "${selected_shells[@]}"; then
+					if [[ $option_configure != 'no' ]]; then
+						"configure_$shell" # eval
+					fi
+				elif [[ $option_deconfigure != 'no' ]]; then
+					"deconfigure_$shell" # eval
+				fi
+			done
+		fi
+	}
+
+	function get_login_choices_defaults_details {
+		local allowed_shells=() user_shells=() configured_shells=() installed_shells=() # apply choices, defaults, and details to caller
+		if [[ ${#option_shells[@]} -ne 0 ]]; then
+			mapfile -t user_shells < <(get_unique_and_permitted_paths_of_shells "${option_shells[@]}")
+			choices+=("${user_shells[@]}")
+		fi
+		mapfile -t allowed_shells < <(get_unique_and_permitted_paths_of_allowed_shells)
+		if [[ ${#allowed_shells[@]} -ne 0 ]]; then
+			choices+=("${allowed_shells[@]}")
+		fi
+		mapfile -t configured_shells < <(get_unique_and_permitted_configured_paths_of_shells "${all_configurable_basenames_of_shells[@]}")
+		if [[ ${#configured_shells[@]} -ne 0 ]]; then
+			choices+=("${configured_shells[@]}")
+		fi
+		mapfile -t installed_shells < <(get_unique_and_permitted_installed_shells "${all_allowable_basenames_of_shells[@]}")
+		if [[ ${#installed_shells[@]} -ne 0 ]]; then
+			mapfile -t installed_shells < <(get_unique_and_permitted_paths_of_shells "${installed_shells[@]}")
+			if [[ ${#installed_shells[@]} -ne 0 ]]; then
+				choices+=("${installed_shells[@]}")
+			fi
+		fi
+		if [[ ${#user_shells[@]} -ne 0 && ${#allowed_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}" "${allowed_shells[@]}")
+			details+=$'\nPreselected shells are your preferences, as well as the shells that are already allowed as a login shell on this system.'
+		elif [[ ${#user_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}")
+			details+=$'\nPreselected shells are your preferences.'
+		elif [[ ${#configured_shells[@]} -ne 0 && ${#allowed_shells[@]} -ne 0 ]]; then
+			defaults=("${user_shells[@]}" "${allowed_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already configured for Dorothy on this system, as well as the shells that are already allowed as a login shell on this system.'
+		elif [[ ${#configured_shells[@]} -ne 0 ]]; then
+			defaults=("${configured_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already configured for Dorothy on this system.'
+		elif [[ ${#installed_shells[@]} -ne 0 && ${#allowed_shells[@]} -ne 0 ]]; then
+			defaults=("${installed_shells[@]}" "${allowed_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already installed on this system, as well as the shells that are already allowed as a login shell on this system.'
+		elif [[ ${#installed_shells[@]} -ne 0 ]]; then
+			defaults=("${installed_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already installed on this system.'
+		elif [[ ${#allowed_shells[@]} -ne 0 ]]; then
+			defaults=("${allowed_shells[@]}")
+			details+=$'\nPreselected shells are the shells that are already allowed as a login shell on this system.'
+		fi
+		if [[ ${#defaults[@]} -ne 0 ]]; then
+			defaults_string="$(__print_lines "${defaults[@]}")"
+		fi
+	}
+
+	function select_shells_for_allow_or_disallow {
+		# check
+		if [[ $option_allow == 'no' && $option_disallow == 'no' ]]; then
+			return 0
+		fi
+
+		# handle args
+		if [[ $only_args == 'yes' ]]; then
+			if [[ $option_disallow == 'yes' || $option_allow == 'yes' ]]; then
+				local arg_shells=() shell
+				mapfile -t arg_shells < <(get_unique_and_permitted_paths_of_shells "${option_shells[@]}")
+				for shell in "${arg_shells[@]}"; do
+					if [[ $option_disallow == 'yes' ]]; then
+						disallow_login_shell_path "$shell"
+					fi
+					if [[ $option_allow == 'yes' ]]; then
+						allow_login_shell_path "$shell"
+					fi
+				done
+			fi
+			return
+		fi
+
+		# prepare
+		local question details choices=() defaults=() defaults_string=''
+		question='Which shells to allow as system login shells?'
+		details='Shells that are enabled to run as system login shells can be used by your system upon login to configure your environment, as well as by your terminal emulator as your default shell.'
+		details+=$'\nYour selection will be allowed as a system login shell. Unselected shells will be disallowed as system login shells. Your password may be required to apply the changes.'
+		get_login_choices_defaults_details # apply choices, defaults, defaults_string, and details
+
+		# select which shells to allow and consequently which to also disallow
+		local choices_with_labels=() selected_shells=() result status
+		mapfile -t choices_with_labels < <(get_unique_and_permitted_paths_of_shells_with_labels "${choices[@]}")
+		__do --redirect-stdout=tty -- __print_line
+		__do --redirect-status={status} --redirect-stdout={result} -- \
+			choose --linger --required --multi "$question" "$details" --defaults="$defaults_string" --label -- "${choices_with_labels[@]}"
+		if [[ $status -eq 130 ]]; then
+			echo-style --tty --notice='No changes to system login shells were desired.'
+			return 0
+		elif [[ $status -ne 0 ]]; then
+			return "$status"
+		fi
+		if [[ -n $result ]]; then
+			mapfile -t selected_shells <<<"$result"
+		fi
+
+		# allow or disallow
+		if [[ ${#selected_shells[@]} -eq 0 ]]; then
+			# disallow everything
+			if [[ $option_disallow != 'no' ]]; then
+				echo-style --tty --notice='Skipping disallowing all shells form being used as a login shell, as that is a mistake.'
+				return 0
+			fi
+		else
+			local shell
+			for shell in "${choices[@]}"; do
+				if is-needle --needle="$shell" -- "${selected_shells[@]}"; then
+					if [[ $option_allow != 'no' ]]; then
+						allow_login_shell_path "$shell"
+					fi
+				elif [[ $option_disallow != 'no' ]]; then
+					disallow_login_shell_path "$shell"
+				fi
+			done
+		fi
+	}
+
+	function select_shell_for_system_login_shell {
+		# check
+		if [[ $option_login == 'no' ]]; then
+			return 0
+		fi
+
+		# check
+		if [[ $can_apply_login_shell == 'no' ]]; then
+			echo-style --tty --notice="Dorothy doesn't know how to set the login shell on this Operating System."
+			return 0
+			# return 19 # ENODEV 19 Operation not configurable by device
+		fi
+
+		# handle args
+		if [[ $only_args == 'yes' ]]; then
+			if [[ $option_login == 'yes' ]]; then
+				local arg_shells=() shell
+				mapfile -t arg_shells < <(get_unique_and_permitted_paths_of_shells "${option_shells[@]}")
+				for shell in "${arg_shells[@]}"; do
+					allow_login_shell_path "$shell"
+					apply_login_shell_path "$shell"
+				done
+			fi
+			return
+		fi
+
+		# prepare
+		local question details choices=() defaults=() defaults_string=''
+		question='Which shell to use as your default login shell?'
+		details='Your default login shell is your preferred default shell. For supported systems, it will setup your environment upon login. For supported terminal emulators, it will be used for new terminal sessions.'
+		details+=$'\nYour selection will be allowed as a system login shell, and applied as your preferred login shell. Your password may be required to apply the changes.'
+		get_login_choices_defaults_details # apply choices, defaults, defaults_string, and details
+
+		# select which shell to use as login shell
+		__do --redirect-stdout=tty -- __print_line
+		login_shell_path="$(
+			choose --linger --no-multi "$question" "$details" --defaults="$defaults_string" --label -- "${choices[@]}" || :
+		)"
+		if [[ -z $login_shell_path ]]; then
+			echo-style --tty --notice='No changes to the default login shell were desired.'
+			return 0
+		fi
+
+		# allow
+		allow_login_shell_path "$login_shell_path"
+		apply_login_shell_path "$login_shell_path"
 	}
 
 	# =====================================
 	# Action
 
-	# trim the startup message (alpine)
-	if [[ -f '/etc/motd' ]]; then
-		if confirm --linger --negative --ppid=$$ -- 'Would you like to remove the default startup message?' "$(echo-style --code="$(cat /etc/motd)")"; then
-			sudo-helper -- rm -v -- /etc/motd
-		fi
-	fi
-
-	# arguments
-	if [[ ${#option_shells[@]} -ne 0 ]]; then
-		use_first_available "${option_shells[@]}"
-	else
-		# configuration
-		source "$DOROTHY/sources/config.sh"
-		USER_SHELLS=()
-		load_dorothy_config 'shells.bash'
-		option_shells=("${USER_SHELLS[@]}")
-		if [[ ${#option_shells[@]} -ne 0 ]]; then
-			echo-style --notice='No argument configuration found, using user configuration.'
-			use_first_available "${USER_SHELLS[@]}"
-		else
-			# invalid
-			echo-error 'No argument nor user configuration found.'
-			return 22 # EINVAL 22 Invalid argument
-		fi
-	fi
+	select_shells_for_install_or_uninstall
+	select_shells_for_configure_or_deconfigure
+	select_shells_for_allow_or_disallow
+	select_shell_for_system_login_shell
 )
 
 # fire if invoked standalone
