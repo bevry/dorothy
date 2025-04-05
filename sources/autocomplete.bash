@@ -6,7 +6,6 @@
 # fails if none were loaded (all were missing)
 # autocomplete... provides:
 # AUTOCOMPLETE_GITHUB_COPILOT_CLI
-# AUTOCOMPLETE_TEA
 # AUTOCOMPLETE_VSCODE
 load_dorothy_config "autocomplete.$ACTIVE_POSIX_SHELL" 'autocomplete.sh'
 
@@ -17,13 +16,6 @@ shopt -s progcomp
 # https://www.npmjs.com/package/@githubnext/github-copilot-cli
 if [[ ${AUTOCOMPLETE_GITHUB_COPILOT_CLI-} != 'no' ]] && command-exists -- github-copilot-cli; then
 	eval "$(github-copilot-cli alias -- "$ACTIVE_POSIX_SHELL")"
-fi
-
-# Tea
-# https://docs.tea.xyz/features/magic#using-magic-in-shell-scripts
-# https://github.com/teaxyz/setup/blob/034d006136f423357f17eab90a51c04696582f4a/install.sh#L423-L451
-if [[ ${AUTOCOMPLETE_TEA-} != 'no' ]] && command-exists -- tea; then
-	eval "$(tea --magic="$ACTIVE_POSIX_SHELL" --silent)"
 fi
 
 # Visual Studio Code Terminal Shell Integration
