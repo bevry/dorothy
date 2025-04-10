@@ -7,36 +7,36 @@ function is_owner_test() (
 	local temp
 	temp="$(fs-temp --directory='is-owner' --file='test-file' --touch)"
 
-	eval-tester --name='no args' --status=22 --ignore-stderr \
-		-- is-owner --
+	eval-tester --name='no args' --status=22 --ignore-stderr -- \
+		is-owner --
 
-	eval-tester --name='empty args' --status=22 \
-		-- is-owner -- '' ''
+	eval-tester --name='empty args' --status=22 -- \
+		is-owner -- '' ''
 
-	eval-tester --name='missing' --status=2 \
-		-- is-owner -- "$DOROTHY/this-does-not-exist"
+	eval-tester --name='missing' --status=2 -- \
+		is-owner -- "$DOROTHY/this-does-not-exist"
 
-	eval-tester --name='is owner of its created file' \
-		-- is-owner -- "$temp"
+	eval-tester --name='is owner of its created file' -- \
+		is-owner -- "$temp"
 
-	eval-tester --name='invalid uid is not owner' --status=93 \
-		-- is-owner --uid=0123456789 -- "$temp"
+	eval-tester --name='invalid uid is not owner' --status=93 -- \
+		is-owner --uid=0123456789 -- "$temp"
 
-	eval-tester --name='invalid gid is not owner' --status=93 \
-		-- is-owner --gid=0123456789 -- "$temp"
+	eval-tester --name='invalid gid is not owner' --status=93 -- \
+		is-owner --gid=0123456789 -- "$temp"
 
-	eval-tester --name='invalid uname is not owner' --status=93 \
-		-- is-owner --uname=invalid -- "$temp"
+	eval-tester --name='invalid uname is not owner' --status=93 -- \
+		is-owner --uname=invalid -- "$temp"
 
-	eval-tester --name='invalid gname is not owner' --status=93 \
-		-- is-owner --gname=invalid -- "$temp"
+	eval-tester --name='invalid gname is not owner' --status=93 -- \
+		is-owner --gname=invalid -- "$temp"
 
 	echo-style --g1="TEST: $0"
 	return 0
 )
 function is_owner() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P sudo-helper)"
+	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
@@ -51,11 +51,12 @@ function is_owner() (
 			is-owner [...options] [--] ...<path>
 
 			OPTIONS:
-			--sudo=<sudo>
-			    Defaults to [13], escalating to root if permission would otherwise be denied.
+			--elevated=<elevated>
+			--elevate=<elevate>
 			--user=<user>
 			--group=<group>
-			    Forwarded to [sudo-helper].
+			--reason=<reason>
+			    Forwarded to [eval-helper] and [fs-owner].
 
 			--uid=<user-id> | --user-id=<user-id>
 			--gid=<group-id> | --group-id=<group-id>
@@ -77,17 +78,21 @@ function is_owner() (
 	}
 
 	# process
-	local item option_inputs=() option_sudo='13' option_user='' option_group='' option_user_ids=() option_user_names=() option_group_ids=() option_group_names=()
+	local item option_inputs=() option_user_ids=() option_user_names=() option_group_ids=() option_group_names=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_sudo" -- "$item")"
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*)
+			option_elevate+="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_elevate" -- "$item")"
 			;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--uid='* | '--user-id='*) option_user_ids+=("${item#*=}") ;;
 		'--gid='* | '--group-id='*) option_group_ids+=("${item#*=}") ;;
 		'--u='* | '--uname='* | '--user-name='*) option_user_names+=("${item#*=}") ;;
@@ -114,59 +119,43 @@ function is_owner() (
 	# =====================================
 	# Action
 
-	# @todo rewrite this for is-owner.bash
-
-	local uid uname gid gname
-	if is-mac; then
-		function __get_owner {
-			IFS=' ' read -r uid uname gid gname < <(stat -Lf '%u %Su %g %Sg' -- "$1")
-		}
-	else
-		function __get_owner {
-			IFS=' ' read -r uid uname gid gname < <(stat -Lc '%u %U %g %G' -- "$1")
-		}
-	fi
-	function __is_owner {
-		local input item
-		if [[ ${1-} == '--' ]]; then
-			shift
+	local input item uid uname gid gname
+	for input in "${option_inputs[@]}"; do
+		# this is already running within the eval-helper context
+		IFS=' ' read -r uid uname gid gname < <(
+			fs-owner --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$1"
+		)
+		__return $? || return
+		if [[ ${#option_user_ids[@]} -ne 0 ]]; then
+			for item in "${option_user_ids[@]}"; do
+				if [[ $uid == "$item" ]]; then
+					return 0
+				fi
+			done
 		fi
-		for input in "$@"; do
-			is-present.bash -- "$input" || return
-			__get_owner "$input"
-			if [[ ${#option_user_ids[@]} -ne 0 ]]; then
-				for item in "${option_user_ids[@]}"; do
-					if [[ $uid == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-			if [[ ${#option_user_names[@]} -ne 0 ]]; then
-				for item in "${option_user_names[@]}"; do
-					if [[ $uname == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-			if [[ ${#option_group_ids[@]} -ne 0 ]]; then
-				for item in "${option_group_ids[@]}"; do
-					if [[ $gid == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-			if [[ ${#option_group_names[@]} -ne 0 ]]; then
-				for item in "${option_group_names[@]}"; do
-					if [[ $gname == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-		done
-		return 93 # ENOATTR 93 Attribute not found
-	}
-	sudo_helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- __is_owner -- "${option_inputs[@]}"
-	return
+		if [[ ${#option_user_names[@]} -ne 0 ]]; then
+			for item in "${option_user_names[@]}"; do
+				if [[ $uname == "$item" ]]; then
+					return 0
+				fi
+			done
+		fi
+		if [[ ${#option_group_ids[@]} -ne 0 ]]; then
+			for item in "${option_group_ids[@]}"; do
+				if [[ $gid == "$item" ]]; then
+					return 0
+				fi
+			done
+		fi
+		if [[ ${#option_group_names[@]} -ne 0 ]]; then
+			for item in "${option_group_names[@]}"; do
+				if [[ $gname == "$item" ]]; then
+					return 0
+				fi
+			done
+		fi
+	done
+	return 93 # ENOATTR 93 Attribute not found
 )
 
 # fire if invoked standalone

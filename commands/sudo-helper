@@ -6,39 +6,6 @@ function sudo_helper() (
 	# =====================================
 	# Arguments
 
-	# NOTE:
-
-	# [sudo] and [doas] asks for your own password, not the target users password
-	# [su] asks for the target user password
-	# [sudo] and [doas] can be configured via their configuration files to target other users, not just [root]
-
-	# EXAMPLE:
-
-	# with this sudoers configuration file
-	# developer ALL=(root,webuser) /a-special-echo arg1 arg2
-
-	# and with /a-special-echo only being executable to [root] and [webuser]:
-	# sudo chown root:webuser /a-special-echo
-	# sudo chmod 750 /a-special-echo
-
-	# if you are [webuser], you can run this without escalation (not because of sudoers, but because of the file-system permissions):
-	# /a-special-echo arg1 arg2
-
-	# if you are [someuser], you will be denied ability to run this (not because of sudoers, but because of the file-system permissions):
-	# /a-special-echo arg1 arg2
-	# and if that was the only configuration in sudoers, you would also be denied escalation to [root] or [webuser]
-
-	# if you are [developer], you will be denied ability to run this (not because of sudoers, but because of the file-system permissions):
-	# /a-special-echo arg1 arg2
-	# however, sudoers will allow [developer] to escalate to [root] or [webuser]:
-	# sudo /a-special-echo arg1 arg2
-	# sudo -u webuser /a-special-echo arg1 arg2
-
-	# TERMINOLOGY
-
-	# "privilege escalation" is a bad thing: https://en.wikipedia.org/wiki/Privilege_escalation
-	# use elevation/grant/authorise when it is good thing: https://en.wikipedia.org/wiki/Privilege_elevation
-
 	function help {
 		cat <<-EOF >&2
 			ABOUT:
@@ -46,40 +13,8 @@ function sudo_helper() (
 
 			USAGE:
 			sudo-helper [...options] -- <command> [...args]
-			sudo-helper --local
 
 			OPTIONS:
-			--elevated=<file|device-file|fd>
-			    If specified, append [yes] to this target if the command required elevation.
-			--elevate=<YES|no|''|failure|<exit-status>> | --sudo=<...>
-			    If specified as yes, then the command will be elevated.
-			    If <user> or <group> is specified, the remaining alternatives are discarded:
-			    If specified as no, then the command will be run without elevation.
-			    If specified as failure, then the command will be run without elevation, and if it fails, it will be run with elevation.
-			    If specified as an integer, then the command will be run without elevation, and if it fails with that exit status, it will be run with elevation.
-			    This can be specified multiple times, in which a [yes] or [no] value will reset prior values.
-			    It can be [\n\t ,|] separated.
-			    If this is not specified at all, it will default to [yes].
-			    If this is specified as an empty string, it will default to [no].
-			--user=<user>
-			    Specify a user to run the command as. Forces --sudo=yes
-			--group=<group>
-			    Specify a group to run the command as. Forces --sudo=yes
-			--reason=<reason>
-			    If a prompt is required to momentarily grant privileges, this reason will be used to explain why elevation was required.
-
-			--inherit
-			    If enabled, inherit environment variables include PATH.
-
-			--wrap
-			    If enabled, [eval-helper] will be used to wrap the output of the command
-			--quiet
-			    If enabled, [eval-helper] will be used to silence the output of the command
-			--confirm
-			    If enabled, [eval-helper] will be used to confirm the execution of the command
-
-			--local
-			    Update sudo configuration to enable access to /usr/local paths
 
 		EOF
 		if [[ $# -ne 0 ]]; then
@@ -88,94 +23,6 @@ function sudo_helper() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process
-	# option_quiet='no' is an important default to ensure our call to eval-helper can still be interpolated
-	local item option_cmd=() option_quiet='no' option_elevated='' option_elevate=() option_user='' option_group='' option_reason='' option_confirm='no' option_wrap='no' option_inherit='no' option_local=''
-	function parse_sudo_arg_value {
-		local sudo_arg="$1" sudo_args=()
-		if [[ -z $sudo_arg ]]; then
-			option_elevate+=('')
-		else
-			mapfile -t sudo_args < <(echo-split --characters=$'\n\t ,|' -- "$sudo_arg")
-			option_elevate+=("${sudo_args[@]}")
-		fi
-	}
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*)
-			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--no-quiet'* | '--quiet'*)
-			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--elevated='*) option_elevated="${item#*=}" ;;
-		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) parse_sudo_arg_value "$(get-flag-value --affirmative -- "$item")" ;;
-		'--user='*) option_user="${item#*=}" ;;
-		'--group='*) option_group="${item#*=}" ;;
-		'--reason='*) option_reason="${item#*=}" ;;
-		'--no-inherit'* | '--inherit'*)
-			option_inherit="$(get-flag-value --affirmative --fallback="$option_inherit" -- "$item")"
-			;;
-		'--no-wrap'* | '--wrap'*)
-			option_wrap="$(get-flag-value --affirmative --fallback="$option_wrap" -- "$item")"
-			;;
-		'--no-confirm'* | '--confirm'*)
-			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
-			;;
-		'--no-local'* | '--local'*)
-			option_local="$(get-flag-value --affirmative --fallback="$option_local" -- "$item")"
-			;;
-		'--')
-			option_cmd+=("$@")
-			shift "$#"
-			break
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
-		esac
-	done
-
-	# local
-	if [[ -n $option_local ]]; then
-		# trim problematic paths
-		local system_paths sudoers_line cron_system_line cron_user_line ignore_args=(
-			# these are not needed for [dorothy run] to bootstrap itself
-			--regexp="$HOME"
-			--regexp='/Applications/'
-		)
-		if [[ -n ${HOMEBREW_PREFIX-} ]]; then
-			# these are not needed for [dorothy run] to bootstrap itself
-			# and they confuse cron as it thinks they have minutes due to version numbers
-			ignore_args+=(
-				--regexp="$HOMEBREW_PREFIX/Cellar"
-				--regexp="$HOMEBREW_PREFIX/lib"
-				--regexp="$HOMEBREW_PREFIX/opt"
-			)
-		fi
-		system_paths="$(echo-split ':' --stdin <<<"$PATH" | grep --invert-match --fixed-strings "${ignore_args[@]}" | echo-join ':' --stdin)"
-
-		sudoers_line="Defaults	secure_path=\"$system_paths\"" # $HOME paths do not make sense for root operation
-		cron_system_line="PATH=\"$system_paths\""             # $HOME paths do not make sense for root operation
-		cron_user_line="PATH=\"$system_paths\""               # $HOME paths fails to apply
-
-		# sudoers
-		config-edit --sudoers --line="$sudoers_line" --needle='secure_path' --add="$option_local"
-
-		# cron
-		config-edit --cron-system --line="$cron_system_line" --needle='PATH=' --add="$option_local"
-		config-edit --cron-user --line="$cron_user_line" --needle='PATH=' --add="$option_local"
-
-		# done
-		return 0
-	fi
-
-	# check
-	if [[ ${#option_cmd[@]} -eq 0 ]]; then
-		help 'No <command> was provided.'
-	fi
 
 	# ensure sudo is a valid value
 	local elevate='' elevate_on_statuses=()
@@ -228,41 +75,8 @@ function sudo_helper() (
 	# =====================================
 	# Action
 
-	# https://man.openbsd.org/doas
-	# https://man.archlinux.org/man/doas.1.en
-
-	# sudo
-	# https://manpages.ubuntu.com/manpages/xenial/man8/sudo.8.html
-	# -E, --preserve-env
-	#    preserve user environment when running command
-	# -H, --set-home
-	#    set HOME variable to target user's home dir
-	# -i, --login
-	#    Run the shell specified by the target user's password database entry as a login shell.
-
-	local command_style='code'
-	function __wrap {
-		if [[ $option_wrap == 'yes' || $option_confirm == 'yes' || $option_quiet == 'yes' ]]; then
-			eval-helper --command="$(echo-style --"$command_style"="$(echo-escape-command -- "${option_cmd[@]}")")" --wrap="$option_wrap" --quiet="$option_quiet" --confirm="$option_confirm" -- "$@"
-			return
-		else
-			"$@" # eval
-			return
-		fi
-	}
-
-	# determine technique
-	local technique
-	if __command_exists -- sudo; then
-		technique='sudo'
-	elif __command_exists -- doas; then
-		technique='doas'
-	else
-		technique='none'
-	fi
-
 	# try without sudo
-	if [[ $elevate == 'no' || $technique == 'none' ]]; then
+	if [[ $elevate == 'no' || $elevate_technique == 'none' ]]; then
 		__wrap "${option_cmd[@]}"
 		return
 	elif [[ $elevate == 'failure' ]]; then
@@ -291,7 +105,7 @@ function sudo_helper() (
 	# prep sudo execution
 	command_style='sudo'
 	local sudo_cmd=() home=''
-	if [[ $technique == 'sudo' ]]; then
+	if [[ $elevate_technique == 'sudo' ]]; then
 		sudo_cmd+=('sudo')
 
 		# if no-tty, then use the builtin sudo workaround which is the same as Dorothy's
@@ -303,7 +117,7 @@ function sudo_helper() (
 		# ^ don't enable this yet, until someone requests it, I don't know the implications
 
 		# add the things specific to attestation, while prepping home
-		# don't use is-directory, is-missing, __sudo_mkdirp, as they will cause infinite recursion
+		# don't use is-directory, is-missing, __elevate_mkdirp, as they will cause infinite recursion
 		if [[ -n $option_user ]]; then
 			sudo_cmd+=("--user=$option_user")
 			# should coincide with setup-environment-commands
@@ -339,7 +153,7 @@ function sudo_helper() (
 		# add the things specific to the command
 		if [[ -n $home ]]; then
 			if [[ ! -e $home && ! -L $home ]]; then
-				sudo mkdir -p -- "$home" # don't use __sudo_mkdirp as that calls __try_sudo which calls this
+				sudo mkdir -p -- "$home" # don't use __elevate_mkdirp as that calls __elevate which calls this
 				fs-own --quiet --user="$option_user" --group="$option_group" --no-recursive -- "$home"
 			fi
 			sudo_cmd+=('--set-home')
@@ -362,7 +176,7 @@ function sudo_helper() (
 		else
 			sudo_cmd+=(--)
 		fi
-	elif [[ $technique == 'doas' ]]; then
+	elif [[ $elevate_technique == 'doas' ]]; then
 		# https://man.archlinux.org/man/doas.1.en
 		sudo_cmd+=('doas')
 		if [[ -n $option_user ]]; then
@@ -386,7 +200,6 @@ function sudo_helper() (
 
 	# run with sudo
 	__wrap "${sudo_cmd[@]}" "${option_cmd[@]}"
-	return
 )
 
 # fire if invoked standalone

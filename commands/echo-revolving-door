@@ -2,6 +2,7 @@
 
 function echo_revolving_door() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P echo-clear-lines)"
 
 	# =====================================
 	# Arguments
@@ -12,12 +13,28 @@ function echo_revolving_door() (
 			Continuously clear the output of a command, showing only the latest output, then clearing it upon completion.
 
 			USAGE:
-			(echo-lines -- 1 2; sleep 2; echo-lines -- 3 4; sleep 2) | echo-revolving-door [...options]
-			# outputs 2, then waits, then outputs 4, then waits, then clears
+			{ sleep 1; echo-lines -- 1 2; sleep 1; echo-style --green=3; sleep 1; echo-style --red=4; sleep 1; echo-style --blue=5; sleep 1; } 2>&1 | echo-revolving-door --lines=3
 
 			OPTIONS:
-			--columns=<columns>
-			    The number of columns to display. If not provided, the terminal's columns will be used. If the terminal's columns cannot be determined, or if <= 0, then the full line will be displayed.
+			--lines=<lines> | --lines=terminal
+			    The number of lines to display, defaults to 1.
+			    If set to terminal, then will use the terminal line size if possible, otherwise becomes 0.
+			    If set to 0, revolving door functionality is disabled.
+
+			--columns=<columns> | --columns=terminal
+			    The number of columns to display, defaults to the terminal column size if possible, otherwise becomes 0.
+			    If set to 0, revolving door functionality is disabled.
+
+			--target=<target:file-path|file-descriptor|device-file>
+			    The target to write to, defaults to TTY.
+			    A target can be a file path (e.g. out.txt), a file descriptor (e.g. 1 for STDOUT, 2 for STDERR), or a device file (e.g. /dev/stdout, /dev/stderr, /dev/tty). These are sent to [bash.bash:__do] for processing.
+
+			QUIRKS:
+			Shapeshifting ANSI escape codes will be escaped.
+			If a line exceeded <columns>, only the rightmost <columns> of the line will be shown, with frontmost content being truncated.
+
+			TODOS:
+			If multiple <lines> is supported, usage of gfold may be possible to allow for wrapped lines.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -26,43 +43,106 @@ function echo_revolving_door() (
 	}
 
 	# process
-	local item option_columns=''
+	local item option_lines=1 option_columns='' option_target='TTY'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--lines='*) option_lines="${item#*=}" ;;
 		'--columns='*) option_columns="${item#*=}" ;;
+		'--target='*) option_target="${item#*=}" ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	# determine columns
+	# determine columns and lines
+	if [[ -z $option_lines ]]; then
+		option_lines=1
+	fi
 	if [[ -z $option_columns ]]; then
+		option_columns='terminal'
+	fi
+	if [[ $option_lines == 'terminal' ||  $option_columns == 'terminal' ]]; then
 		local terminal_size=()
 		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
 		if [[ ${#terminal_size[@]} -eq 2 ]]; then
-			option_columns="${terminal_size[1]}"
+			if [[ $option_lines == 'terminal' ]]; then
+				option_lines="${terminal_size[0]}"
+			fi
+			if [[ $option_columns == 'terminal' ]]; then
+				option_columns="${terminal_size[1]}"
+			fi
+		else
+			if [[ $option_lines == 'terminal' ]]; then
+				option_lines=0
+			fi
+			if [[ $option_columns == 'terminal' ]]; then
+				option_columns=0
+			fi
 		fi
+	fi
+	# sanity check
+	if ! [[ $option_columns =~ ^[0-9]+$ ]]; then
+		help "<columns> must be zero, terminal, or a positive integer: $option_columns"
+	fi
+	if ! [[ $option_lines =~ ^[0-9]+$ ]]; then
+		help "<lines> must be zero, terminal, or a positive integer: $option_lines"
 	fi
 
 	# =====================================
 	# Action
 
-	if [[ -z $option_columns || $option_columns -le 0 ]]; then
+	if [[ $option_lines -eq 0 || $option_columns -eq 0 ]]; then
 		cat
 	else
-		local input negative_columns
+		local input negative_columns lines=() prior_lines_count=0
 		negative_columns="$((option_columns * -1))"
+		function __clear {
+			if [[ $prior_lines_count -ne 0 ]]; then
+				echo_clear_lines --target=TTY --discard-last-line-as-inline --count="$prior_lines_count"
+			fi
+		}
+		function __print_joined_lines {
+			if [[ $# -eq 0 ]]; then
+				return 0
+			fi
+			local result=''
+			while [[ $# -gt 0 ]]; do
+				if [[ $# -eq 1 ]]; then
+					result+="$1"
+				else
+					result+="$1"$'\n'
+				fi
+				shift
+			done
+			printf '%s' "$result"
+		}
+		function __flush {
+			local input="$1"
+			# remove the first element of the lines
+			if [[ $option_lines -eq 1 ]]; then
+				lines=()
+			elif [[ $prior_lines_count -eq $option_lines ]]; then
+				lines=("${lines[@]:1}")
+			fi
+			# add the new line
+			lines+=("$input")
+			# move the cursor up and clear
+			__clear
+			__do --redirect-stdout="$option_target" -- __print_joined_lines "${lines[@]}"
+			# update the prior lines count
+			prior_lines_count="${#lines[@]}"
+		}
 		while IFS= read -r input || [[ -n $input ]]; do
 			if [[ -z $input ]]; then
 				continue
 			fi
 			# trim shapeshifting
 			input="$(__escape_shapeshifting -- "$input")"
-			# trim everything after the last newline, don't have to worry about a trailing newline as read already handled that
-			input="${input##*$'\n'}"
+			# trim everything after the last newline, don't have to worry about a trailing newline as read already handled that, in theory there should never be a newline within the input, as each input should be a single line
+			# input="$(__get_substring_after_last "$input" $'\n' "$input")"
 			# get only the last columns
 			input="$(__get_substring "$input" "$negative_columns")"
 			# check we still have something left
@@ -70,9 +150,9 @@ function echo_revolving_door() (
 				continue
 			fi
 			# clear the single line, and output the new line
-			printf '\e[G\e[J%s' "$input"
+			__flush "$input"
 		done
-		printf '\e[G\e[J'
+		__clear
 	fi
 )
 

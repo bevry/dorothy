@@ -45,7 +45,7 @@ function setup_dns() (
 		for path_var in "${path_vars[@]}"; do
 			values+=("${!path_var}")
 		done
-		__sudo_mkdirp "${values[@]}"
+		__elevate_mkdirp "${values[@]}"
 	}
 	function __check_env_vars {
 		local env_var missing_env_vars=()
@@ -227,8 +227,7 @@ function setup_dns() (
 
 		# it does exist
 		if is-mac; then
-			# get its basename which is the service id
-			id="$(fs-filename --basename -- "$file")"
+			id="$(fs-path --no-parents --no-extensions -- "$file")"
 			service-helper --stop -- "$id" || :
 		else
 			service-helper --stop -- "$id" || :
@@ -246,8 +245,7 @@ function setup_dns() (
 		fi
 
 		# it does exist
-		# get its basename which is the service id
-		id="$(fs-filename --basename -- "$file")"
+		id="$(fs-path --no-parents --no-extensions -- "$file")"
 		if is-mac; then
 			# Usage: launchctl unload <service-path, service-path2, ...>
 			# -w      Additionally disables the service such that future load
@@ -266,7 +264,7 @@ function setup_dns() (
 	# loads/installs the service, then enables and starts it
 	function dns_service_enable {
 		local file="$1" id
-		id="$(fs-filename --basename -- "$file")"
+		id="$(fs-path --no-parents --no-extensions -- "$file")"
 		if is-mac; then
 			# ensure correct permissions, not sure why
 			# but [homebrew services] does this, so doing it here
@@ -281,16 +279,16 @@ function setup_dns() (
 	}
 
 	function dns_service_logs {
-		eval-helper --no-quiet -- cat -- "$LOGS_DIR/"*"$id"*.log || :
+		echo-file -- "$LOGS_DIR/"*"$id"*.log || :
 	}
 
 	function dns_service_reload {
 		# after service additions/removals
 		# systemctl needs to be reloaded apparently
 		if __command_exists -- systemctl; then
-			sudo-helper -- systemctl daemon-reload
-			sudo-helper -- systemctl reset-failed
-			# ^ use sudo, otherwise prompted via ubuntu user password
+			eval-helper --elevate -- systemctl daemon-reload
+			eval-helper --elevate -- systemctl reset-failed
+			# ^ use elevation, otherwise prompted via ubuntu user password
 		fi
 	}
 
@@ -358,8 +356,8 @@ function setup_dns() (
 
 		# remove files
 		local had_removal='no'
-		mapfile -t remove_paths_that_exist < <(echo-if-present --sudo -- "${remove_paths[@]}")
-		if [[ ${#remove_paths_that_exist[@]} -ne 0 ]] && fs-rm --quiet --confirm --sudo -- "${remove_paths_that_exist[@]}"; then
+		mapfile -t remove_paths_that_exist < <(echo-if-present --elevate -- "${remove_paths[@]}")
+		if [[ ${#remove_paths_that_exist[@]} -ne 0 ]] && fs-rm --quiet --confirm --elevate -- "${remove_paths_that_exist[@]}"; then
 			had_removal='yes'
 		fi
 
@@ -405,7 +403,7 @@ function setup_dns() (
 			# apply
 			local interface
 			network-interface list | while read -r interface; do
-				sudo-helper -- networksetup -setdnsservers "$interface" "${servers[@]}"
+				eval-helper --elevate -- networksetup -setdnsservers "$interface" "${servers[@]}"
 			done
 
 			# log
@@ -445,7 +443,7 @@ function setup_dns() (
 			echo-style --h2="$action_title $system_dns__title"
 
 			# dump the data for where we are
-			sudo-helper -- resolvectl status --no-pager || :
+			eval-helper --elevate -- resolvectl status --no-pager || :
 
 			# temporarily disable these services while we redo the configuration files
 			# https://wiki.archlinux.org/title/systemd-networkd
@@ -454,16 +452,18 @@ function setup_dns() (
 
 			# allow modifications in case something has locked it
 			# for some reason this can fail
-			sudo-helper -- chattr -i /etc/resolv.conf || :
+			eval-helper --elevate -- chattr -i /etc/resolv.conf || :
 
 			# make life simple, using only /etc/resolv.conf
 			# https://www.freedesktop.org/software/systemd/man/resolved.conf.html
-			fs-rm --quiet --no-confirm --sudo -- \
-				/run/systemd/resolve/stub-resolv.conf \
-				/usr/lib/systemd/resolv.conf \
-				/run/systemd/resolve/resolv.conf \
-				/etc/systemd/resolved.conf \
+			local resolv_paths=(
+				/run/systemd/resolve/stub-resolv.conf
+				/usr/lib/systemd/resolv.conf
+				/run/systemd/resolve/resolv.conf
+				/etc/systemd/resolved.conf
 				/etc/resolv.conf
+			)
+			fs-rm --quiet --no-confirm --elevate -- "${resolv_paths[@]}"
 
 			# prepare config for file, and for interfaces
 			local Domains DNSOverTLS DNSSEC
@@ -480,7 +480,7 @@ function setup_dns() (
 			# apply specific config
 			if [[ $action == 'enable' ]]; then
 				# using systemd, the initial lines are for ping/nslookup/etc, the [Resolve] lines are for systemd-resolve
-				echo-wait -- /etc/resolv.conf <<-EOF
+				echo-write -- /etc/resolv.conf <<-EOF
 					nameserver 127.0.0.53
 					options edns0 trust-ad
 					search .
@@ -493,7 +493,7 @@ function setup_dns() (
 				EOF
 			else
 				# use custom service
-				echo-wait -- /etc/resolv.conf <<-EOF
+				echo-write -- /etc/resolv.conf <<-EOF
 					nameserver ${servers[0]}
 					options edns0 trust-ad
 				EOF
@@ -505,8 +505,8 @@ function setup_dns() (
 			service-helper --enable --start -- systemd-resolved systemd-networkd || :
 
 			# flush their caches
-			sudo-helper -- resolvectl flush-caches --no-pager || :
-			sudo-helper -- resolvectl reset-server-features --no-pager || :
+			eval-helper --elevate -- resolvectl flush-caches --no-pager || :
+			eval-helper --elevate -- resolvectl reset-server-features --no-pager || :
 
 			# apply the changes to their interfaces
 			mapfile -t interfaces < <(network-interface list | echo-values --stdin)
@@ -531,14 +531,14 @@ function setup_dns() (
 				fi
 
 				# remove other changes
-				sudo-helper -- resolvectl revert "$interface" || continue
+				eval-helper --elevate -- resolvectl revert "$interface" || continue
 
 				# apply intended changes
-				sudo-helper -- resolvectl default-route "$interface" "$default_route"
-				sudo-helper -- resolvectl domain "$interface" "$Domains"
-				sudo-helper -- resolvectl dnssec "$interface" "$DNSSEC"
-				sudo-helper -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
-				sudo-helper -- resolvectl dns "$interface" "${servers[@]}"
+				eval-helper --elevate -- resolvectl default-route "$interface" "$default_route"
+				eval-helper --elevate -- resolvectl domain "$interface" "$Domains"
+				eval-helper --elevate -- resolvectl dnssec "$interface" "$DNSSEC"
+				eval-helper --elevate -- resolvectl dnsovertls "$interface" "$DNSOverTLS"
+				eval-helper --elevate -- resolvectl dns "$interface" "${servers[@]}"
 
 				# reboot the interface if it isn't a vpn
 				waiter 5
@@ -546,7 +546,7 @@ function setup_dns() (
 			done
 
 			# dump the status now that we are done
-			sudo-helper -- resolvectl status --no-pager || :
+			eval-helper --elevate -- resolvectl status --no-pager || :
 
 			# now that it is all done, enable or disable
 			if [[ $action == 'enable' ]]; then
@@ -557,8 +557,8 @@ function setup_dns() (
 			fi
 
 			# after significant systemd changes, it may need to be reloaded
-			# sudo-helper -- systemctl daemon-reload
-			# sudo-helper -- systemctl reset-failed
+			# eval-helper --elevate -- systemctl daemon-reload
+			# eval-helper --elevate -- systemctl reset-failed
 
 			# log
 			echo-style --g2="$action_title $system_dns__title"
@@ -687,7 +687,7 @@ function setup_dns() (
 		echo-style --h2="$action_title $adguard_home__title"
 
 		# ensure directories
-		__sudo_mkdirp "$adguard_home__conf_dir" "$adguard_home__data_dir" "$adguard_home__state_dir"
+		__elevate_mkdirp "$adguard_home__conf_dir" "$adguard_home__data_dir" "$adguard_home__state_dir"
 
 		# download the installer, prior to disabling
 		temp__bin_file="$(
@@ -704,12 +704,12 @@ function setup_dns() (
 
 		# now that we know if there is an installation, it is supported, check if it is installed, if so stop it
 		if __adguard_home__installed; then
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service stop || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service stop || :
 		fi
 
 		# now that the service is intended, installed, and stopped, install/upgrade it
-		sudo-helper -- mv -- "$temp__bin_file" "$adguard_home__bin_file" || :
-		fs-own --sudo --x -- "$adguard_home__bin_file" || :
+		eval-helper --elevate -- mv -- "$temp__bin_file" "$adguard_home__bin_file" || :
+		fs-own --elevate --x -- "$adguard_home__bin_file" || :
 		# ^ allow failure, as we will check this later
 
 		# now check the install/upgrade worked
@@ -728,8 +728,8 @@ function setup_dns() (
 		echo-style --h2="Uninstall $adguard_home__title"
 
 		# stop and uninstall the service
-		sudo-helper -- "${adguard_home__bin_cmd[@]}" --service stop || :
-		sudo-helper -- "${adguard_home__bin_cmd[@]}" --service uninstall || :
+		eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service stop || :
+		eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service uninstall || :
 
 		# ensure adguard home has stopped
 		killall "$adguard_home__bin_id" || :
@@ -755,13 +755,13 @@ function setup_dns() (
 
 		# this is here, because we need to seed the configuration file before we can do changes to it
 		if [[ ! -s $adguard_home__conf_file && $action == 'enable' ]]; then
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service install || :
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service start || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service install || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service start || :
 			confirm --ppid=$$ -- "Press <enter> once you have completed the initial $adguard_home__title setup at http://127.0.0.1:3000"
 		fi
 
 		# stop before config update
-		sudo-helper -- "${adguard_home__bin_cmd[@]}" --service stop || :
+		eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service stop || :
 
 		# prepare desired providers
 		upstream_servers=(
@@ -783,20 +783,21 @@ function setup_dns() (
 		for server in "${upstream_servers[@]}"; do
 			replace+="  - $server"$'\n'
 		done
-		sudo-helper --inherit \
-			-- sd "$pattern" "$replace" "$adguard_home__conf_file"
-		sudo-helper -- \
+		# @todo replace with `echo-regexp` and `echo-write`
+		eval-helper --elevate --inherit -- \
+			sd "$pattern" "$replace" "$adguard_home__conf_file"
+		eval-helper --elevate -- \
 			"${adguard_home__bin_cmd[@]}" --check-config
 
 		# enable or disable
 		# Service control action: status, install, uninstall, start, stop, restart, reload (configuration).
 		if [[ $action == 'enable' ]]; then
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service install || :
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service reload || :
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service start || :
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service status || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service install || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service reload || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service start || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service status || :
 		else
-			sudo-helper -- "${adguard_home__bin_cmd[@]}" --service uninstall || :
+			eval-helper --elevate -- "${adguard_home__bin_cmd[@]}" --service uninstall || :
 		fi
 
 		# log
@@ -861,8 +862,8 @@ function setup_dns() (
 		fi
 
 		# now that the service is intended, installed, and stopped, install/upgrade it
-		sudo-helper -- mv -- "$temp__bin_file" "$cloudflared__bin_file"
-		fs-own --sudo --x -- "$cloudflared__bin_file"
+		eval-helper --elevate -- mv -- "$temp__bin_file" "$cloudflared__bin_file"
+		fs-own --elevate --x -- "$cloudflared__bin_file"
 
 		# now check the install/upgrade worked
 		__fail_if_dns_service_is_not_installed "$cloudflared__bin_id" "$cloudflared__bin_file"
@@ -945,7 +946,7 @@ function setup_dns() (
 				# create service with custom upstreams
 				# <string>--address</string>
 				# <string>0.0.0.0</string>
-				echo-wait -- "$cloudflared__proxy_service_file" <<EOF
+				echo-write -- "$cloudflared__proxy_service_file" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -981,7 +982,7 @@ EOF
 				done
 
 				# create service with custom upstreams
-				echo-wait -- "$cloudflared__proxy_service_file" <<-EOF
+				echo-write -- "$cloudflared__proxy_service_file" <<-EOF
 					[Unit]
 					Description=${cloudflared__proxy_service_id}
 					Wants=network-online.target nss-lookup.target
@@ -1077,7 +1078,7 @@ EOF
 		echo-style --h2="$action_title $dnscrypt_proxy__title"
 
 		# ensure directories
-		__sudo_mkdirp "$dnscrypt_proxy__conf_dir"
+		__elevate_mkdirp "$dnscrypt_proxy__conf_dir"
 
 		# validate dnscrypt names
 		validate_dnscrypt_names
@@ -1108,7 +1109,7 @@ EOF
 				--head \
 				--pathname="$dnscrypt_proxy__conf_pathname" \
 				--filepath="$temp_conf_file"
-			sudo-helper -- mv -- "$temp_conf_file" "$dnscrypt_proxy__conf_file"
+			eval-helper --elevate -- mv -- "$temp_conf_file" "$dnscrypt_proxy__conf_file"
 		fi
 
 		# now that we have downloaded everything, uninstall any unsupported installations, and check there are no remaining unsupported installations
@@ -1120,12 +1121,12 @@ EOF
 		# now that we know if there is an installation, it is supported, check if it is installed, if so stop it
 		if __dnscrypt_proxy__installed; then
 			# only tell prior cmd to stop if the prior cmd exists
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
 		fi
 
 		# now that the service is intended, installed, and stopped, install/upgrade it
-		sudo-helper -- mv -- "$temp__bin_file" "$dnscrypt_proxy__bin_file"
-		fs-own --sudo --x -- "$dnscrypt_proxy__bin_file"
+		eval-helper --elevate -- mv -- "$temp__bin_file" "$dnscrypt_proxy__bin_file"
+		fs-own --elevate --x -- "$dnscrypt_proxy__bin_file"
 
 		# now check the install/upgrade worked
 		__fail_if_dns_service_is_not_installed "$dnscrypt_proxy__bin_id" "$dnscrypt_proxy__bin_file"
@@ -1143,8 +1144,8 @@ EOF
 		echo-style --h2="Uninstall $dnscrypt_proxy__title"
 
 		# stop and uninstall the service
-		sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
-		sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service uninstall || :
+		eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
+		eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service uninstall || :
 
 		# ensure adguard home has stopped
 		killall "$dnscrypt_proxy__bin_id" || :
@@ -1183,13 +1184,12 @@ EOF
 
 		# stop the service if it is installed, before config update
 		if [[ -s $dnscrypt_proxy__service_file ]]; then
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
 		fi
 
 		# update the configuration with the new [dnscrypt_names], if any
 		if [[ ${#dnscrypt_names[@]} -ne 0 ]]; then
-			sudo-helper --inherit \
-				-- config-helper --file="$dnscrypt_proxy__conf_file" -- \
+			config-helper --elevate --file="$dnscrypt_proxy__conf_file" -- \
 				--field='ipv4_servers' --no-quote --value='true' \
 				--field='ipv6_servers' --no-quote --value='true' \
 				--field='dnscrypt_servers' --no-quote --value='true' \
@@ -1197,17 +1197,17 @@ EOF
 				--field='server_names' --no-quote --value="[$(
 					echo-quote -- "${dnscrypt_names[@]}" | echo-join ', ' --stdin
 				)]"
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --check -config "$dnscrypt_proxy__conf_file"
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --check -config "$dnscrypt_proxy__conf_file"
 		fi
 
 		# enable or disable
 		if [[ $action == 'enable' ]]; then
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service uninstall || : # Needed before install, otherwise: Failed to install DNSCrypt client proxy: Init already exists: /Library/LaunchDaemons/dnscrypt-proxy.plist
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service install || :
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service start || :
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service uninstall || : # Needed before install, otherwise: Failed to install DNSCrypt client proxy: Init already exists: /Library/LaunchDaemons/dnscrypt-proxy.plist
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service install || :
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service start || :
 		elif [[ -s $dnscrypt_proxy__service_file ]]; then
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
-			sudo-helper -- "${dnscrypt_proxy__bin_cmd[@]}" --service uninstall || :
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service stop || :
+			eval-helper --elevate -- "${dnscrypt_proxy__bin_cmd[@]}" --service uninstall || :
 		fi
 
 		# log
