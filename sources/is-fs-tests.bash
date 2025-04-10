@@ -7,7 +7,7 @@ function is_fs_tests__prep {
 	# 	__print_lines "$root"
 	# 	return 0
 	# fi
-	sudo-helper -- rm -rf -- "$root"
+	eval-helper --elevate -- rm -rf -- "$root"
 
 	__mkdirp \
 		"$root/symlinks" \

@@ -217,12 +217,12 @@ function setup_mac_brew() (
 				fi
 			fi
 			if [[ -d "$HOME/Library/Caches/go-build" ]]; then
-				fs-own --sudo --ugx -- "$HOME/Library/Caches/go-build"
+				fs-own --elevate --ugx -- "$HOME/Library/Caches/go-build"
 				# fix: go: unlinkat /Users/balupton/Library/Caches/go-build/01/0128314b8deff070ae65a398c7404f3988fc31b20cd934f950eee92284d36875-d: permission denied
 			fi
 			# cleanup
-			eval_helper --quiet \
-				-- brew cleanup --quiet -s --prune=all
+			eval_helper --quiet --wrap -- \
+				brew cleanup --quiet -s --prune=all
 			# cleanup further
 			fs-rm --quiet --no-confirm -- "$(brew --cache)"
 		fi
@@ -232,7 +232,7 @@ function setup_mac_brew() (
 	# update brew
 	function update_brew {
 		local __brew_upgrade_status=0
-		brew upgrade --quiet || __brew_upgrade_status=$?
+		brew upgrade || __brew_upgrade_status=$? # don't use `--quiet` such that progress bars are visible, which is important on slow or unreliable internet connections that otherwise may think the operation has stalled
 		if [[ $__brew_upgrade_status -ne 0 ]]; then
 			if ! confirm --positive --ppid=$$ --linger -- 'Would you like to proceed?' "The homebrew upgrade reported a failure exit status of $__brew_upgrade_status, however unless there is actually an error above that requires attention then you can proceed safely, as homebrew reports failure exit statuses when there are merely recommendations, and such recommendations are typically already handled by Dorothy."; then
 				return "$__brew_upgrade_status"
@@ -299,8 +299,8 @@ function setup_mac_brew() (
 			mapfile -t ffmpeg_opts < <(echo-split ' ' -- "$ffmpeg_opts")
 
 			# install with the build options
-			eval_helper --shapeshifter \
-				-- brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts[@]}"
+			eval_helper --quiet --wrap --shapeshifter -- \
+				brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts[@]}"
 
 			# log
 			echo-style --g2='Install ffmpeg with options'
@@ -338,13 +338,13 @@ function setup_mac_brew() (
 				brew_pkgs_bulk+=("$pkg")
 			else
 				# it has arguments, install it right now with the arguments
-				eval_helper --quiet \
-					-- brew install "${brew_opts[@]}" "${brew_pkg_args[@]}"
+				eval_helper --quiet --wrap -- \
+					brew install "${brew_opts[@]}" "${brew_pkg_args[@]}"
 			fi
 		done
 		if [[ ${#brew_pkgs_bulk[@]} -ne 0 ]]; then
-			eval_helper --quiet \
-				-- brew install "${brew_opts[@]}" "${brew_pkgs_bulk[@]}"
+			eval_helper --quiet --wrap -- \
+				brew install "${brew_opts[@]}" "${brew_pkgs_bulk[@]}"
 		fi
 	}
 
@@ -390,8 +390,8 @@ function setup_mac_brew() (
 		elif [[ $# -gt 1 ]]; then
 			fodder="$(
 				choose --multi \
-					--question='Which casks would you like to brew install?' \
-					-- "$@"
+					--question='Which casks would you like to brew install?' -- \
+					"$@"
 			)"
 			mapfile -t cask_selection <<<"$fodder" # <( destroys stdin
 		fi
@@ -405,15 +405,22 @@ function setup_mac_brew() (
 	# uninstall packages with brew
 	function brew_uninstall {
 		local pkg
-		echo-style --h2="Uninstall $# formulas"
+		echo-style --h2="Uninstall $# packages"
 		if [[ $# -ne 0 ]]; then
-			echo-style --dim='You can ignore "No available ..." errors.'
-			echo-style --dim='You can ignore "No such keg: ..." errors.'
-			for pkg in "$@"; do
-				brew uninstall --quiet --ignore-dependencies "$pkg" || :
-			done
+			if brew-installed -- "$@" &>/dev/null; then
+				echo-style --dim='You can ignore "No available ..." errors.'
+				echo-style --dim='You can ignore "No such keg: ..." errors.'
+				for pkg in "$@"; do
+					brew uninstall --quiet --ignore-dependencies "$pkg" || :
+				done
+				# cleanup, used to fix any breaks after the removals, this is only here are is purges upgrade caches, which is undesirable on unreliable internet connections as it means re-runs always has to download everything again
+				source "$DOROTHY/sources/environment.sh"
+				clean_brew
+			else
+				echo-style --dim='Already uninstalled.'
+			fi
 		fi
-		echo-style --g2="Uninstall $# formulas"
+		echo-style --g2="Uninstall $# packages"
 	}
 
 	# untap repositories with brew
@@ -434,10 +441,10 @@ function setup_mac_brew() (
 		local tap
 		echo-style --h2="Tap $# repositories"
 		for tap in "$@"; do
-			eval_helper --quiet --no-wrap \
+			eval_helper --quiet --wrap \
 				--pending="Tap: $tap" \
-				--success="Tapped: $tap" \
-				-- brew tap --quiet "$tap"
+				--success="Tapped: $tap" -- \
+				brew tap --quiet "$tap"
 		done
 		echo-style --g2="Tap $# repositories"
 	}
@@ -465,10 +472,10 @@ function setup_mac_brew() (
 		local repo
 		echo-style --h2="Update $# repositories"
 		for repo in "$@"; do
-			eval_helper --quiet --no-wrap \
+			eval_helper --quiet --wrap \
 				--pending="Updating: $repo" \
-				--success="Updated: $repo" \
-				-- brew_update_repo "$repo"
+				--success="Updated: $repo" -- \
+				brew_update_repo "$repo"
 		done
 		echo-style --g2="Update $# repositories"
 	}
@@ -519,11 +526,6 @@ function setup_mac_brew() (
 	# uninstall packages
 	brew_uninstall "${HOMEBREW_UNINSTALL[@]}"
 
-	# cleanup
-	# used to fix any breaks after the removals
-	source "$DOROTHY/sources/environment.sh"
-	clean_brew
-
 	# uninstall encoding tools
 	# this is necessary before updates, as it could update to a broken update
 	# as such, uninstall before updates, so we can reinstall with our workarounds after
@@ -536,8 +538,8 @@ function setup_mac_brew() (
 
 	# dependencies
 	echo-style --h2='Install build dependencies'
-	eval_helper --quiet \
-		-- setup-util-devel
+	eval_helper --quiet --wrap -- \
+		setup-util-devel
 	echo-style --g2='Install build dependencies'
 
 	# install encoding tools
@@ -592,10 +594,10 @@ function setup_mac_brew() (
 				fi
 				continue
 			fi
-			if is-needle --needle="$item" -- "${HOMEBREW_SLOW_FORMULAS[@]}"; then
+			if __is_within "$item" 'HOMEBREW_SLOW_FORMULAS'; then
 				continue
 			fi
-			if is-needle --needle="$item" -- "${HOMEBREW_ENCODING_FORMULAS[@]}"; then
+			if __is_within "$item" 'HOMEBREW_ENCODING_FORMULAS'; then
 				continue
 			fi
 			if [[ $item == *'ffmpeg'* ]]; then

@@ -123,7 +123,7 @@ DEBUG_TARGET=''
 function __debug_lines {
 	if [[ -n ${DEBUG-} ]]; then
 		if [[ -z $DEBUG_TARGET ]]; then
-			DEBUG_TARGET="$(get-terminal-device-file)"
+			DEBUG_TARGET="$TERMINAL_DEVICE_FILE"
 		fi
 		__print_lines "$@" >>"$DEBUG_TARGET"
 	fi
@@ -204,19 +204,19 @@ function __command_exists {
 	return 0 # all commands are present
 }
 
-# see [commands/sudo-helper] for details
-function __try_sudo {
+# see [commands/eval-helper --elevate] for details
+function __elevate {
 	# trim -- prefix
 	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
-	# forward to sudo-helper if it exists, as it is more detailed
-	if __command_exists -- sudo-helper; then
-		sudo-helper -- "$@"
+	# forward to [eval-helper --elevate] if it exists, as it is more detailed
+	if __command_exists -- eval-helper; then
+		eval-helper --elevate -- "$@"
 		return
 	elif __command_exists -- sudo; then
 		# check if password is required
-		if ! sudo --non-interactive true &>/dev/null; then
+		if ! sudo --non-interactive "$@" &>/dev/null; then
 			# password is required, let the user know what they are being prompted for
 			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2
 			__print_lines "sudo $*" >&2
@@ -237,6 +237,12 @@ function __try_sudo {
 		"$@"
 		return
 	fi
+}
+# bc alias
+function __try_sudo {
+	dorothy-warnings add --code='__try_sudo' --bold=' has been deprecated in favor of ' --code='__elevate' || :
+	__elevate "$@" || return
+	return
 }
 
 # performantly make directories as many directories as possible without sudo
@@ -271,7 +277,7 @@ function __mkdirp {
 		# 		fi
 		# 	done
 		# 	if [[ ${#sudo_missing[@]} -ne 0 ]]; then
-		# 		__sudo_mkdirp -- "${sudo_missing[@]}" || status=$?
+		# 		__elevate_mkdirp -- "${sudo_missing[@]}" || status=$?
 		# 	fi
 		# fi
 	fi
@@ -279,7 +285,7 @@ function __mkdirp {
 }
 
 # performantly make directories with sudo
-function __sudo_mkdirp {
+function __elevate_mkdirp {
 	# trim -- prefix
 	if [[ ${1-} == '--' ]]; then
 		shift
@@ -292,9 +298,15 @@ function __sudo_mkdirp {
 		fi
 	done
 	if [[ ${#missing[@]} -ne 0 ]]; then
-		__try_sudo -- mkdir -p -- "${missing[@]}" || status=$?
+		__elevate -- mkdir -p -- "${missing[@]}" || status=$?
 	fi
 	return "$status"
+}
+# bc alias
+function __sudo_mkdirp {
+	dorothy-warnings add --code='__sudo_mkdirp' --bold=' has been deprecated in favor of ' --code='__elevate_mkdirp' || :
+	__elevate "$@" || return
+	return
 }
 
 # bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
@@ -309,6 +321,7 @@ function __sudo_mkdirp {
 # 		__print_lines "$string"
 # 	fi
 # }
+# __get_substring <string> [<start>] [<length>]
 function __get_substring {
 	local string="$1"
 	local -i start="${2:-0}" length size remaining
@@ -351,6 +364,7 @@ function __substr {
 }
 
 # @todo replace all native occurrences with this self-documenting and less-error prone function
+# __get_substring_before_first <string> <delimiter> [<fallback>]
 function __get_substring_before_first {
 	local string="$1" delimiter="$2"
 	result="${string%%"$delimiter"*}"
@@ -367,11 +381,17 @@ function __get_substring_before_first {
 	# 		return 0
 	# 	fi
 	# done
-	__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
-	return 1
+	if [[ $# -eq 3 ]]; then
+		__print_lines "$3"
+		return 0
+	else
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		return 1
+	fi
 }
 
 # @todo replace all native occurrences with this self-documenting and less-error prone function
+# __get_substring_before_last <string> <delimiter> [<fallback>]
 function __get_substring_before_last {
 	local string="$1" delimiter="$2" result
 	result="${string%"$delimiter"*}"
@@ -388,11 +408,17 @@ function __get_substring_before_last {
 	# 		return 0
 	# 	fi
 	# done
-	__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
-	return 1
+	if [[ $# -eq 3 ]]; then
+		__print_lines "$3"
+		return 0
+	else
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		return 1
+	fi
 }
 
 # @todo replace all native occurrences with this self-documenting and less-error prone function
+# __get_substring_after_first <string> <delimiter> [<fallback>]
 function __get_substring_after_first {
 	local string="$1" delimiter="$2" result
 	result="${string#*"$delimiter"}"
@@ -409,11 +435,17 @@ function __get_substring_after_first {
 	# 		return 0
 	# 	fi
 	# done
-	__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
-	return 1
+	if [[ $# -eq 3 ]]; then
+		__print_lines "$3"
+		return 0
+	else
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		return 1
+	fi
 }
 
 # @todo replace all native occurrences with this self-documenting and less-error prone function
+# __get_substring_after_last <string> <delimiter> [<fallback>]
 function __get_substring_after_last {
 	local string="$1" delimiter="$2" result
 	result="${string##*"$delimiter"}"
@@ -430,8 +462,43 @@ function __get_substring_after_last {
 	# 		return 0
 	# 	fi
 	# done
-	__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
-	return 1
+	if [[ $# -eq 3 ]]; then
+		__print_lines "$3"
+		return 0
+	else
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		return 1
+	fi
+}
+
+# has needle / is needle
+# __is_within <needle> <array-var-name>
+# __is_within <needle> -- ...<element>
+function __is_within {
+	if [[ $2 == '--' ]]; then
+		local needle="$1" item
+		shift # trim needle
+		shift # trim --
+		for item in "$@"; do
+			if [[ $needle == "$item" ]]; then
+				return 0
+			fi
+		done
+		return 1
+	else
+		local needle="$1" array_var="$2" n i
+		# trunk-ignore(shellcheck/SC1087)
+		eval "n=\${#$array_var[@]}"
+		if [[ $n -ne 0 ]]; then
+			for (( i = 0; i < n; ++i )); do
+				# trunk-ignore(shellcheck/SC1087)
+				if eval "[[ \$needle == \"\${$array_var[i]}\" ]]"; then
+					return 0
+				fi
+			done
+		fi
+		return 1
+	fi
 }
 
 # replace shapeshifting ANSI Escape Codes with newlines

@@ -14,5 +14,5 @@ fi
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
 	. "$NVM_DIR/nvm.sh"
 else
-	fs-rm --quiet --no-confirm --optional -- "${NVM_DIR:-"$HOME/.nvm"}"
+	fs-rm --quiet --no-confirm -- "${NVM_DIR:-"$HOME/.nvm"}"
 fi

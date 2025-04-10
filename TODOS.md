@@ -1,9 +1,6 @@
 # TODOS
 
-ssh-helper
-until-success
-eval-helper
-eval-helper --terminal-device-file=/dev/stderr
+ssh-helper --install=*
 
 is-\* --reason support
 
@@ -12,7 +9,7 @@ support --no-status and --status=no/null to discard status so failure returns 0
 ensure-trailing-newline
 ensure-trailing-slash
 echo-file
-echo-wait
+echo-write
 config-helper
 
 get-devices
@@ -22,3 +19,6 @@ debug-terminal-tty
 fs-dequarantine should use is-fs
 commands.test/bash.bash
 echo-style --tty
+
+`\\\n(\s+)-- `
+`-- \\\n$1`
