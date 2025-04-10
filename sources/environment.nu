@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 # set the environment variables
-setup-environment-commands 'nu'
+setup-environment-commands --shell=nu
 	| lines
 	| parse -r 'setenv (?P<name>\w+) *(?P<value>.*)'
 	| transpose -r

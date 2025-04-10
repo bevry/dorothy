@@ -9,7 +9,7 @@ function gocryptfs_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Wrappers around gocryptfs to make things easier.
 
@@ -111,11 +111,11 @@ function gocryptfs_helper() (
 	}
 	function act_info {
 		local vault="${1-}"
-		eval-helper --no-quiet --wrap \
-			-- gocryptfs --speed # dumps version info
+		eval-helper --verbose --wrap -- \
+			gocryptfs --speed # dumps version info
 		if [[ -n $vault ]]; then
-			eval-helper --no-quiet --wrap \
-				-- gocryptfs --info "$vault" # dumps vault info
+			eval-helper --verbose --wrap -- \
+				gocryptfs --info "$vault" # dumps vault info
 		fi
 	}
 	function act_verify {
@@ -143,7 +143,7 @@ function gocryptfs_helper() (
 		if is-file --user="$user" --group="$group" -- "$vault/gocryptfs.conf"; then
 			echo-style --code-good1="$vault" --good1=' is a gocryptfs vault'
 		else
-			echo-style --code-error1="$vault" --error1=' is not a gocryptfs vault' >/dev/stderr
+			echo-style --stderr --code-error1="$vault" --error1=' is not a gocryptfs vault'
 			return 1
 		fi
 	}
@@ -215,52 +215,30 @@ function gocryptfs_helper() (
 		local mount_cmd=() ls_cmd=()
 		if [[ -n $owner || -n $user || -n $group ]]; then
 			# https://github.com/rfjakob/gocryptfs/issues/638#issuecomment-1009578054
-			mount_cmd+=(
-				'sudo-helper'
-				"--user=$user"
-				"--group=$group"
-				'--'
-			)
-			ls_cmd+=(
-				'sudo-helper'
-				"--user=$user"
-				"--group=$group"
-				'--'
-			)
+			mount_cmd+=(eval-helper --elevate --user="$user" --group="$group" --)
+			ls_cmd+=(eval-helper --elevate --user="$user" --group="$group" --)
 		fi
-		mount_cmd+=(
-			'gocryptfs'
-			'--rw'
-			'--noprealloc'
-			'--allow_other'
-		)
+		mount_cmd+=(gocryptfs --rw --noprealloc --allow_other)
 		if [[ -n $owner ]]; then
-			mount_cmd+=(
-				'--force_owner'
-				"$owner"
-			)
+			mount_cmd+=(--force_owner "$owner")
 		fi
 		mount_cmd+=(
 			"$mount_source"
 			"$mount_target"
 		)
-		ls_cmd+=(
-			'ls'
-			'-la'
-			"$mount_target"
-		)
+		ls_cmd+=(ls -la "$mount_target")
 
 		# mount
 		echo-style --bold='Enter the cipher password for mounting:' --newline \
 			--code="$mount_source" --bold=' => ' --code="$mount_target"
-		eval-helper --no-quiet --wrap \
-			-- "${mount_cmd[@]}"
-		eval-helper --no-quiet --wrap \
-			-- "${ls_cmd[@]}"
+		eval-helper --verbose --wrap -- \
+			"${mount_cmd[@]}"
+		eval-helper --verbose --wrap -- \
+			"${ls_cmd[@]}"
 		if [[ -n $owner || -n $user || -n $group ]]; then
-			eval-helper --no-quiet --wrap \
-				-- fs-own --ug --owner="$owner" --user="$user" --group="$group" --recursive \
-				-- "$mount_target"
+			eval-helper --verbose --wrap -- \
+				fs-own --ug --owner="$owner" --user="$user" --group="$group" --recursive -- \
+				"$mount_target"
 		fi
 		__print_line
 	}
@@ -287,11 +265,10 @@ function gocryptfs_helper() (
 			echo-style --bold="Creating a new vault vault at [$new_vault] with algorithm [$algorithm]."
 			gocryptfs --init --"$algorithm" "$new_vault"
 		else
-			{
-				echo-style --error="Something already existed at [$new_vault]..."
-				echo-style --notice='Leaving for you to figure out.'
-				fs-structure -- "$new_vault"
-			} >/dev/stderr
+			echo-style --stderr \
+				--error="Something already existed at [$new_vault]..." --newline \
+				--notice='Leaving for you to figure out.'
+			fs-structure -- "$new_vault" >&2
 			return 1
 		fi
 	}
@@ -332,7 +309,7 @@ function gocryptfs_helper() (
 
 		# create
 		__print_line
-		eval_capture --statusvar=verify_status -- act_verify "$new_vault"
+		__do --redirect-status={verify_status} -- act_verify "$new_vault"
 		if [[ $verify_status -eq 0 ]]; then
 			echo-style --notice="The new vault [$new_vault] already exists..." --newline \
 				'This means a vault upgrade was started but not finished.' --newline \
@@ -342,20 +319,17 @@ function gocryptfs_helper() (
 			gocryptfs --init --"$algorithm" "$new_vault"
 			act_chown "$new_vault"
 		else
-			{
-				echo-style \
-					--error="Something already existed at [$new_vault] which was not a known vault structure..." --newline \
-					--notice='Leaving for you to figure out.'
-				fs-structure -- "$new_vault"
-			} >/dev/stderr
-			return 1
+			echo-style --stderr \
+				--error="Something already existed at [$new_vault] which was not a known vault structure..." --newline \
+				--notice='Leaving for you to figure out.'
+			fs-structure -- "$new_vault" >&2
 		fi
 		# gocryptfs --info "$new_vault"
 
 		# verify there is a difference
-		eval_capture --statusvar=compare_status -- act_compare "$old_vault" "$new_vault"
+		__try {compare_status} -- act_compare "$old_vault" "$new_vault"
 		if [[ $compare_status -eq 0 ]]; then
-			echo-style --error='Vault migration is nonsensical, as both vaults have the same features.' >/dev/stderr
+			echo-style --stderr --error='Vault migration is nonsensical, as both vaults have the same features.'
 			return 1
 		fi
 
@@ -372,9 +346,9 @@ function gocryptfs_helper() (
 		__print_lines '' 'Prepping replacement:'
 		fs-rm --no-confirm -- "$old_plain/"
 		fs-structure -- "$new_plain/"
-		mount-helper \
-			-- --unmount --target="$old_plain" \
-			-- --unmount --target="$new_plain"
+		mount-helper -- \
+			--unmount --target="$old_plain" -- \
+			--unmount --target="$new_plain"
 		fs-structure -- "$old_vault" "$new_vault"
 		# @todo style with var_dump or something
 		echo-style --bold='Confirm the following replacement:' --newline \
@@ -384,7 +358,7 @@ function gocryptfs_helper() (
 			return 1
 		fi
 		fs-rm --no-confirm -- "$old_vault"
-		sudo-helper -- mv -v -- "$new_vault" "$old_vault"
+		eval-helper --elevate -- mv -v -- "$new_vault" "$old_vault"
 		# @todo style with var_dump or something
 		echo-style --bold='Replacement complete:' --newline \
 			--bold+red='Deleted:' '  ' --code="$old_vault" --newline \

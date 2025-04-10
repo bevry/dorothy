@@ -1,13 +1,13 @@
 source "$DOROTHY/sources/bash.bash"
 
-function fs_tests__prep {
+function is_fs_tests__prep {
 	local command="$1" root
 	root="$(fs-temp --directory="$command")"
 	# if [[ -d $root ]]; then
 	# 	__print_lines "$root"
 	# 	return 0
 	# fi
-	sudo-helper -- rm -rf -- "$root"
+	eval-helper --elevate -- rm -rf -- "$root"
 
 	__mkdirp \
 		"$root/symlinks" \
@@ -121,7 +121,7 @@ function fs_tests__prep {
 		"$root/targets/unaccessible-filled-dir" \
 		"$root/targets/unaccessible-filled-file"
 
-	fs-structure -- "$root/targets" >/dev/stderr
+	fs-structure -- "$root/targets" >&2
 
 	__print_lines "$root"
 }
@@ -132,7 +132,7 @@ function __status__root_or_nonroot {
 		__print_lines "$2"
 	fi
 }
-function fs_tests__tuples {
+function is_fs_tests__tuples {
 	local group='' command args=() tuples=()
 
 	# process

@@ -19,6 +19,7 @@ while [[ $# -ne 0 ]]; do
 	# MACOS
 	# stat: /Users/balupton/.cache/dorothy/12776/dir/subfile: stat: Permission denied
 	if stat -L -- "$path" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
 		exit 13 # EACCES 13 Permission denied
 	fi
 done

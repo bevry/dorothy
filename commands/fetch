@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# @todo support --tool=<curl|wget|?>
+
 function fetch_() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,7 +9,7 @@ function fetch_() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Fetch the URL, using whichever tool is available on your system.
 
@@ -82,9 +84,20 @@ function fetch_() (
 	# =====================================
 	# Helpers
 
+	# consider converting this to a bash.bash helper called __convert_exit_status 141 -- ...
+	function __to_sigpipe {
+		local status="$?" item
+		for item in "$@"; do
+			if [[ $status -eq $item ]]; then
+				return 141
+			fi
+		done
+		return "$status"
+	}
+
 	function __log_failure {
 		local status="$?"
-		echo-style --error1='Failed to fetch the URL: ' --code-error1="$option_url" >/dev/stderr || return
+		echo-style --stderr --error1='Failed to fetch the URL: ' --code-error1="$option_url" || return
 		return "$status"
 	}
 
@@ -117,10 +130,17 @@ function fetch_() (
 				"$option_body"
 			)
 		fi
-		# use echo-wait to fix [curl: (23) Failure writing output to destination] when piping to ripgrep
-		{
-			curl "${options[@]}" "$option_url" || __log_failure
-		} | echo-wait
+
+		# > set -o pipefail
+		# > curl --silent --show-error 'https://www.google.com' | :
+		# curl: Failed writing body
+		# [23]
+		#
+		# > set -o pipefail
+		# > curl --silent --show-error --write-out '%{http_code}' 'https://www.google.com' | :
+		# curl: (56) Failure writing output to destination, passed 1378 returned 0
+		# [56]
+		{ curl "${options[@]}" "$option_url" || __to_sigpipe 23 56; } || __log_failure
 	}
 	function do_wget {
 		local options=("$@")
@@ -129,7 +149,11 @@ function fetch_() (
 				"--header=Authorization: $option_auth_token"
 			)
 		fi
-		wget "${options[@]}" "$option_url" || __log_failure
+		# > set -o pipefail
+		# > wget -nv -O- 'https://www.google.com' | :te to ‘-’ (Success).
+		# Cannot write to ‘-’ (Success).
+		# [3]
+		{ wget "${options[@]}" "$option_url" || __to_sigpipe 3; } || __log_failure
 	}
 
 	function fetch_status {
@@ -165,8 +189,8 @@ function fetch_() (
 			do_curl "${options[@]}"
 		elif __command_exists -- wget; then
 			options=(
-				-quiet # only output content
-				-O-    # output to stdout
+				--no-verbose # -nv, --no-verbose: Turn off verbose without being completely quiet (use -q for that), which means that error messages and basic information still get printed.
+				-O-          # output to stdout
 			)
 			do_wget "${options[@]}"
 		else
@@ -185,7 +209,7 @@ function fetch_() (
 		fetch_ok
 	elif [[ $option_ok == 'no' ]]; then
 		local ok_status
-		eval_capture --statusvar=ok_status -- fetch_ok
+		__try {ok_status} -- fetch_ok
 		[[ $ok_status -ne 0 ]]
 		return # explicit return with [[ required for bash v3
 	else
