@@ -30,4 +30,4 @@ fi
 if command-exists -- shuf; then
 	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
 fi
-dorothy-warnings
+dorothy-warnings warn

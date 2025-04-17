@@ -21,4 +21,4 @@ eval (cat $E:DOROTHY'/sources/autocomplete.elv' | slurp)
 if ?(command-exists -- shuf) {
 	shuf -n1 $E:DOROTHY'/sources/shoutouts.txt'
 }
-dorothy-warnings
+dorothy-warnings warn

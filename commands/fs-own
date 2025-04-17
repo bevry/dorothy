@@ -415,15 +415,14 @@ function fs_own() (
 			"${all_parent_paths[@]}"
 	fi
 
-	# the argument handling is complex for bash v3 compat
-	local sudo_as_user_args=() sudo_as_admin_args=() sudo_reason
-
-	# prepare, don't put each path on a new line, as that can make a lot of lines!
+	# prepare reason, don't put each path on a new line, as that can make a lot of lines!
+	local sudo_reason
 	sudo_reason=$'Your password is required to momentarily grant privileges to correct permissions for the following paths:\n'"$(
 		echo-style --reset --code="$(echo-lines --columns -- "${option_paths[@]/"$HOME"/'~'}")"
 	)"
 
 	# sudo as the user/group
+	local sudo_as_user_args=()
 	if [[ -n $owner || $option_sudo == 'yes' ]]; then
 		sudo_as_user_args+=(eval-helper --elevate --inherit --reason="$sudo_reason")
 		if [[ -n $option_user ]]; then
@@ -436,94 +435,74 @@ function fs_own() (
 	fi
 
 	# sudo as the admin
+	local sudo_as_admin_args=()
 	if [[ -n $owner || $option_sudo == 'yes' ]]; then
 		sudo_as_admin_args+=(eval-helper --elevate --inherit --reason="$sudo_reason" --)
+	fi
+
+	# only mac supports double dash on [chown] and [chmod]
+	local double_dash_args=()
+	if is-mac; then
+		double_dash_args+=('--')
 	fi
 
 	# =====================================
 	# Action
 
 	local paths=()
-	function is_available {
+	function __is_available {
 		local path="$1" cmd=()
 		if [[ -n $owner ]]; then
-			if [[ ${#sudo_as_admin_args[@]} -ne 0 ]]; then
-				cmd+=("${sudo_as_admin_args[@]}")
-			fi
+			cmd+=("${sudo_as_admin_args[@]}")
 		else
-			if [[ ${#sudo_as_user_args[@]} -ne 0 ]]; then
-				cmd+=("${sudo_as_user_args[@]}")
-			fi
+			cmd+=("${sudo_as_user_args[@]}")
 		fi
 		# can't use is-present, because sudo doesn't have access, and it is too complicated to add access for it
 		cmd+=(is-present.bash -- "$path")
-		"${cmd[@]}" # eval
+		"${cmd[@]}" || return # eval
 	}
-	function check_exists {
+	function __check_available {
 		local path="$1" available_status
-		__try {available_status} -- is_available "$path"
+		__is_available "$path" || available_status=$?
 		if [[ $available_status -ne 0 ]]; then
 			if [[ $option_optional != 'yes' ]]; then
-				echo-error 'Cannot claim ownership a path that does exist or is inaccessible:' $'\n' --code="$path"
+				echo-error 'Cannot claim ownership a path that does exist or is inaccessible:' $'\n' --code="$path" || return
 				return 2 # ENOENT 2 No such file or directory
 			fi
 		fi
+		return 0
 	}
-	function do_own {
-		local cmd
-
+	function __own {
 		# chown
 		if [[ -n $owner ]]; then
-			cmd=()
-			if [[ ${#sudo_as_admin_args[@]} -ne 0 ]]; then
-				cmd+=("${sudo_as_admin_args[@]}")
-			fi
-			# macos chown and chmod do not support --
-			cmd+=(chown "${ch_args[@]}" "$owner")
-			if ! is-mac; then
-				cmd+=('--')
-			fi
-			cmd+=("${paths[@]}")
-			# act
-			"${cmd[@]}" # eval
+			"${sudo_as_admin_args[@]}" chown "${ch_args[@]}" "$owner" "${double_dash_args[@]}" "${paths[@]}" || return # eval
 		fi
 
 		# chmod
 		if [[ -n $option_permissions ]]; then
-			cmd=()
 			# https://superuser.com/a/91966/32418
-			if [[ ${#sudo_as_user_args[@]} -ne 0 ]]; then
-				cmd+=("${sudo_as_user_args[@]}")
-			fi
 			# removing readable perms on a directory, while recursing, will cause permission denied failure
-			# macos chown and chmod do not support --
-			cmd+=(chmod "${ch_args[@]}" "$option_permissions")
-			if ! is-mac; then
-				cmd+=('--')
-			fi
-			cmd+=("${paths[@]}")
-			# act
-			"${cmd[@]}" # eval
+			"${sudo_as_user_args[@]}" chmod "${ch_args[@]}" "$option_permissions" "${double_dash_args[@]}" "${paths[@]}" || return # eval
 		fi
 	}
 
 	# determine paths
-	local exists_status own_status
 	for path in "${option_paths[@]}"; do
-		__do --redirect-status={exists_status} -- check_exists "$path"
-		# check existence
-		if [[ $exists_status -eq 0 ]]; then
+		if __check_available "$path"; then
 			paths+=("$path") # it exists, update ownership for it
 		fi
 	done
+
 	# perform the ownership
+	local own_status
 	if [[ ${#paths[@]} -ne 0 ]]; then
-		__try {own_status} -- do_own
+		__own || own_status=$?
 		# check ownership failures
 		if [[ $own_status -ne 0 && $option_optional == 'no' ]]; then
 			return "$own_status"
 		fi
 	fi
+
 	# check if we had missing paths
 	if [[ ${#paths[@]} -ne ${#option_paths[@]} ]]; then
 		if [[ $option_optional == 'yes' ]]; then
