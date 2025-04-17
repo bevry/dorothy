@@ -145,8 +145,7 @@ function __disable_debugging {
 # see [commands/is-brew] for details
 # workaround for Dorothy's [brew] helper
 function __is_brew {
-	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]
-	return # explicit return with [[ required for bash v3
+	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return
 }
 
 # see [commands/command-missing] for details
@@ -486,13 +485,13 @@ function __is_within {
 		done
 		return 1
 	else
-		local needle="$1" array_var="$2" n i
+		local needle="$1" array_var_name="$2" n i
 		# trunk-ignore(shellcheck/SC1087)
-		eval "n=\${#$array_var[@]}"
+		eval "n=\${#$array_var_name[@]}"
 		if [[ $n -ne 0 ]]; then
 			for (( i = 0; i < n; ++i )); do
 				# trunk-ignore(shellcheck/SC1087)
-				if eval "[[ \$needle == \"\${$array_var[i]}\" ]]"; then
+				if eval "[[ \$needle == \"\${$array_var_name[i]}\" ]]"; then
 					return 0
 				fi
 			done
@@ -720,7 +719,7 @@ function __get_function_inner {
 function __get_semaphore {
 	# local name="${1:-"$RANDOM$RANDOM"}"
 	local name="$RANDOM$RANDOM" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
-	__mkdirp "$dir"
+	__mkdirp "$dir" || return
 	__print_lines "$dir/$name"
 }
 
@@ -737,8 +736,8 @@ function __wait_for_semaphores {
 	done
 }
 function __wait_for_and_remove_semaphores {
-	__wait_for_semaphores "$@"
-	rm -f -- "$@"
+	__wait_for_semaphores "$@" || return
+	rm -f -- "$@" || return
 }
 function __wait_for_and_return_semaphores {
 	local semaphore_file semaphore_status=0
@@ -753,7 +752,7 @@ function __wait_for_and_return_semaphores {
 			semaphore_status="$(<"$semaphore_file")"
 		fi
 	done
-	rm -f -- "$@"
+	rm -f -- "$@" || :
 	return "$semaphore_status"
 }
 
@@ -822,7 +821,7 @@ else
 	BASH_CAN_LASTPIPE='no'
 	function __require_lastpipe {
 		echo-style --stderr --error='Missing lastpipe support:' || return
-		__require_upgraded_bash
+		__require_upgraded_bash || return
 	}
 fi
 
@@ -895,7 +894,7 @@ function __do {
 		return
 		;;
 
-	# discard stdout, stderr, output
+	# aliases for discard stdout, stderr, output
 	--discard-stdout | --no-stdout | --stdout=no)
 		__do --right-to-left "$@" >/dev/null
 		return
@@ -1397,7 +1396,7 @@ function __do {
 			return 22
 			;;
 
-		# copy output to file target, not that this functionality is ambiguous, fail instead
+		# copy output to file target, note that this functionality is ambiguous, fail instead
 		*)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg. You probably want [--copy-stdout+stderr=$arg_value] or [--redirect-output=stderr --copy-stderr=$arg_value --redirect-output=tty] instead." >&2
@@ -1595,7 +1594,8 @@ function __try {
 
 	# prepare locals specific to our context
 	local DOROTHY_TRY__STATUS=
-	local DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
+	local DOROTHY_TRY__CONTEXT
+	DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
 	local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 	local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
@@ -1767,7 +1767,7 @@ else
 	BASH_CAN_GLOBSTAR='no'
 	function __require_globstar {
 		echo-style --stderr --error='Missing globstar support:' || return
-		__require_upgraded_bash
+		__require_upgraded_bash || return
 	}
 fi
 
@@ -1783,7 +1783,7 @@ else
 	BASH_CAN_EXTGLOB='no'
 	function __require_extglob {
 		echo-style --stderr --error='Missing extglob support:' || return
-		__require_upgraded_bash
+		__require_upgraded_bash || return
 	}
 fi
 
@@ -1887,7 +1887,7 @@ else
 				shift
 			fi
 			# proceed
-			tr '[:upper:]' '[:lower:]' <<<"$1"
+			tr '[:upper:]' '[:lower:]' <<<"$1" || return
 		}
 	fi
 fi
@@ -1902,14 +1902,12 @@ if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 	function __is_var_set {
 		# -v varname: True if the shell variable varname is set (has been assigned a value).
 		# for some reason [[ -v $1 ]] has a syntax error, and shellcheck doesn't like [ -v "$1" ]
-		test -v "$1"
-		return
+		test -v "$1" || return
 	}
 else
 	# bash < 4.2
 	function __is_var_set {
-		[[ -n ${!1-} ]]
-		return # explicit return with [[ required for bash v3
+		[[ -n ${!1-} ]] || return
 	}
 fi
 
@@ -1930,7 +1928,7 @@ fi
 # __require_array -- require a capability to be provided by the current bash version, otherwise fail
 # mapfile -- shim [mapfile] for bash versions that do not have it
 
-# note that there is no need to do [__require_array 'mapfile'] as [mapfile] is always available, it is just the native version that is not available
+# note that there is no need to do [__require_array 'mapfile'] as `bash.bash` makes [mapfile] always available, it is just the native version that is not available
 
 function __has_array_capability {
 	local arg
@@ -1944,7 +1942,7 @@ function __has_array_capability {
 function __require_array {
 	if ! __has_array_capability "$@"; then
 		echo-style --stderr --error='Array support insufficient, required:' ' ' --code="$*" || return
-		__require_upgraded_bash
+		__require_upgraded_bash || return
 	fi
 }
 
@@ -1961,10 +1959,10 @@ elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
 	if [[ $BASH_VERSION_MINOR -ge 4 ]]; then
 		# bash >= 4.4
+		# finally supports nounset without crashing on defined empty arrays
 		BASH_ARRAY_CAPABILITIES+=' empty[native]'
 	else
 		# bash 4.0, 4.1, 4.2, 4.3
-		# a.  Using ${a[@]} or ${a[*]} with an array without any assigned elements when the nounset option is enabled no longer throws an unbound variable error.
 		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
 		set +u # disable nounset to prevent crashes on empty arrays
 	fi
@@ -1972,6 +1970,7 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 	# bash >= 3
 	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
 	set +u # disable nounset to prevent crashes on empty arrays
+	# @todo implement support for all options
 	function mapfile {
 		# Copyright 2021+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
 		# Written for Dorothy (https://github.com/bevry/dorothy)
@@ -2005,19 +2004,19 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 		done
 		if [[ $had_t != 'yes' ]]; then
 			__print_lines \
-				"mapfile[shim]: -t is required in our bash v3 shim" \
+				'mapfile[shim]: -t is required in our bash v3 shim' \
 				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
 			return 2 # that's what native mapfile returns
 		fi
 		if [[ -z ${1-} ]]; then
 			__print_lines \
-				"mapfile[shim]: <array> is required in our bash v3 shim" \
+				'mapfile[shim]: <array> is required in our bash v3 shim' \
 				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
 			return 2 # that's what native mapfile returns
 		fi
 		eval "$1=()"
 		while IFS= read -rd "$delim" item || [[ -n $item ]]; do
-			eval "$1+=($(printf '%q\n' "$item"))"
+			eval "$1+=($(printf '%q\n' "$item"))" || return
 		done
 	}
 fi

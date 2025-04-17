@@ -131,7 +131,7 @@ function stdinargs {
 	done
 
 	# process
-	local had_args='maybe' had_stdin='maybe' had_lines='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r') # bash v3 compat
+	local had_args='maybe' had_stdin='maybe' had_lines='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r')
 	if [[ $timeout_max == 'no' && $timeout_immediate == 'no' && -n $timeout_seconds ]]; then
 		read_args+=('-t' "$timeout_seconds")
 	fi

@@ -25,6 +25,9 @@ From manual discovery:
 
 ## bash v4.0
 
+> [!NOTE]
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `mapfile`, `__get_read_decimal_timeout`.
+
 From changelog:
 
 - Introduces `read -i <default>` for setting a default value.
@@ -90,6 +93,9 @@ Changelog:
 > [!CAUTION]
 > This is this is the recommended minimum version for Dorothy.
 
+> [!NOTE]
+> Dorothy's `bash.bash` disables `nounset` on earlier bash versions to prevent crashes on accessing empty arrays. This has no notable downside, as the exact same logic paths are hit on modern bash versions, so undefined variables will be still be caught for resolution on them.
+
 From changelog:
 
 - No longer throws upon accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
@@ -137,6 +143,9 @@ Changelog:
 > x. The shell only sets up BASH_ARGV and BASH_ARGC at startup if extended debugging mode is active. The old behavior of unconditionally setting them is available as part of the shell compatibility options.
 
 ## bash v5.1
+
+> [!NOTE]
+> Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_set`, `__uppercase_first_letter`, `__lowercase_first_letter`.
 
 From changelog:
 
