@@ -386,12 +386,12 @@ It causes the following unexpected behaviour:
 
 # our standard failure functions, these will be used by our examples
 function a_function_which_failure_IS_NOT_the_last_command {
-	echo 'before failure'
+	printf '%s\n' 'before failure'
 	false # emit an error to this function, as this returns a non-zero exit status
-	echo 'after failure'
+	printf '%s\n' 'after failure'
 }
 function a_function_which_failure_IS_the_last_command {
-	echo 'before failure without after'
+	printf '%s\n' 'before failure without after'
 	false # emit an error to this function, as this returns a non-zero exit status
 }
 
@@ -418,14 +418,14 @@ case "$example" in
 3)
 	set -e
 	! a_function_which_failure_IS_NOT_the_last_command
-	echo 'failure'
+	printf '%s\n' 'failure'
 	# outputs:
 	# before failure
 	# after failure
 	;;
 4)
 	set -e
-	a_function_which_failure_IS_NOT_the_last_command && echo 'success'
+	a_function_which_failure_IS_NOT_the_last_command && printf '%s\n' 'success'
 	# outputs:
 	# before failure
 	# after failure
@@ -433,7 +433,7 @@ case "$example" in
 	;;
 5)
 	set -e
-	a_function_which_failure_IS_NOT_the_last_command || echo 'failure'
+	a_function_which_failure_IS_NOT_the_last_command || printf '%s\n' 'failure'
     # outputs:
 	# before failure
 	# after failure
@@ -441,9 +441,9 @@ case "$example" in
 6)
 	set -e
 	if a_function_which_failure_IS_NOT_the_last_command; then
-		echo 'success'
+		printf '%s\n' 'success'
 	else
-		echo 'failure'
+		printf '%s\n' 'failure'
 	fi
 	# outputs:
 	# before failure
@@ -453,9 +453,9 @@ case "$example" in
 7)
 	set -e
 	if ! a_function_which_failure_IS_NOT_the_last_command; then
-		echo 'failure'
+		printf '%s\n' 'failure'
 	else
-		echo 'success'
+		printf '%s\n' 'success'
 	fi
 	# outputs:
 	# before failure
@@ -466,8 +466,8 @@ case "$example" in
 # if the failure is the last command, then such works as expected, as the exit status of any function is always the exit status of the last executed command, regardless of errexit
 8)
 	set -e
-	a_function_which_failure_IS_the_last_command && echo 'success' || echo 'failure'
-	echo 'ok'
+	a_function_which_failure_IS_the_last_command && printf '%s\n' 'success' || printf '%s\n' 'failure'
+	printf '%s\n' 'ok'
 	# outputs:
 	# before failure without after
 	# failure
@@ -479,13 +479,13 @@ case "$example" in
     # without errexit
     set +e
     a_function_which_failure_IS_NOT_the_last_command
-    echo "status=$?"
+    printf '%s\n' "status=$?"
     # outputs:
     # before failure
     # after failure
     # status=0
     a_function_which_failure_IS_the_last_command
-    echo "status=$?"
+    printf '%s\n' "status=$?"
     # outputs:
     # before failure without after
     # status=1
@@ -494,13 +494,13 @@ case "$example" in
     # with errexit
     set -e
     status=0 && a_function_which_failure_IS_NOT_the_last_command || status=$?
-    echo "status=$status"
+    printf '%s\n' "status=$status"
     # outputs:
     # before failure
     # after failure
     # status=0
     status=0 && a_function_which_failure_IS_the_last_command || status=$?
-    echo "status=$status"
+    printf '%s\n' "status=$status"
     # outputs:
     # before failure without after
     # status=1

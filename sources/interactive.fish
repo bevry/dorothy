@@ -16,4 +16,4 @@ source "$DOROTHY/sources/autocomplete.fish"
 if command-exists -- shuf
 	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
 end
-dorothy-warnings
+dorothy-warnings warn

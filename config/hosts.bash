@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
+# Used by `setup-hosts`, use `--configure` to (re)configure this
+# Do not use `export` keyword in this file
 
 # For details about hosts files, check out these resources:
 # https://en.wikipedia.org/wiki/Hosts_(file)
@@ -11,7 +12,6 @@
 # And here are references for posterity that are inferior to the above:
 # https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt
 
-# Used by `setup-hosts` to select one of these as your preference
 # Label first, then url
 OPTIONS=(
 	'Unified hosts = (adware + malware)' # =>

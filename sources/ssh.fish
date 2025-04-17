@@ -15,12 +15,14 @@ end
 if command-exists -- ssh-agent
 	# start ssh-agent and export SSH_AUTH_SOCK and SSH_AGENT_PID
 	if test -z "$SSH_AUTH_SOCK"
+		# @todo replace with `echo-regexp` and `echo-write`
 		eval (ssh-agent -c | sed -E 's/^setenv /set --global --export /; s/^echo /#echo /')
 	end
 
 	# shutdown the ssh-agent when our shell exits
 	function on_ssh_finish
 		# killall ssh-agent
+		# @todo replace with `echo-regexp` and `echo-write`
 		eval (ssh-agent -k | sed -E 's/^unset /set --erase /; s/^echo /#echo /')
 	end
 	trap on_ssh_finish EXIT

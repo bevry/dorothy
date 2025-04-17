@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-
-# Used by `setup-environment-commands`
+# Used by `edit`
+# Do not use `export` keyword in this file
 
 # Our editors in order of preference
 TERMINAL_EDITORS=(

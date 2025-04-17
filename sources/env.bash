@@ -21,7 +21,7 @@ while read -r line; do
 	done
 done < <(env)
 
-# final scanning of environment, and echo results
+# final scanning of environment, and output results
 function on_env_finish {
 	# ignore failure conditions
 	local last_status=$?
@@ -29,7 +29,7 @@ function on_env_finish {
 		return "$last_status"
 	fi
 
-	# success condition, echo var actions
+	# success condition, output var actions
 	local name value i items_array items_string item item_last_index item_index item_existing split_char is_path
 	while read -r line; do
 		# parse line
@@ -75,14 +75,12 @@ function on_env_finish {
 						continue
 					fi
 					# check if duplicate
-					if [[ ${#items_array[@]} -ne 0 ]]; then # bash v3 compat
-						for item_existing in "${items_array[@]}"; do
-							if [[ $item == "$item_existing" ]]; then
-								# is duplicate, skip
-								continue 2
-							fi
-						done
-					fi
+					for item_existing in "${items_array[@]}"; do
+						if [[ $item == "$item_existing" ]]; then
+							# is duplicate, skip
+							continue 2
+						fi
+					done
 					# add
 					items_array+=("$item")
 					if [[ -z $items_string ]]; then
@@ -105,53 +103,61 @@ function on_env_finish {
 			fi
 		done
 
-		# echo the variable action based on type
+		# output the variable action based on type
 		# if [[ "$shell" = 'fish' ]]; then
-		# 	echo "set --universal --erase $name;"
+		# 	output "set --universal --erase $name;"
 		# fi
 		if [[ -z $value ]]; then
-			# echo var action: delete
+			# output var action: delete
 			if [[ $shell == 'fish' ]]; then
-				echo "set --universal --erase $name;"
+				printf '%s\n' "set --universal --erase $name;"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name"
+				printf '%s\n' "setenv $name"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo 'del $'"$name"
+				printf '%s\n' "if \${...}.get('$name') != None:"$'\n\t'"del \$$name"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#unset-env
-				echo "unset-env $name"
+				printf '%s\n' "unset-env $name"
 			else
-				echo "unset -v $name;"
+				printf '%s\n' "unset -v $name;"
 			fi
 		elif [[ $is_path == 'yes' ]]; then
-			# echo var action: set path
+			# output var action: set path
 			if [[ $shell == 'fish' ]]; then
-				echo "set --export --path $name '$value';"
+				printf '%s\n' "set --export --path $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
+				printf '%s\n' "setenv $name $value"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'.split(':')"
+				printf '%s\n' '$'"$name = '$value'.split(':')"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+				printf '%s\n' "set-env $name '$value'"
 			else
-				echo "export $name='$value';"
+				printf '%s\n' "export $name='$value';"
 			fi
 		else
-			# echo var action: set
+			# output var action: set
 			if [[ $shell == 'fish' ]]; then
-				echo "set --export $name '$value';"
+				printf '%s\n' "set --export $name '$value';"
 			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
+				printf '%s\n' "setenv $name $value"
 			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'"
+				printf '%s\n' '$'"$name = '$value'"
 			elif [[ $shell == 'elvish' ]]; then
 				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+				printf '%s\n' "set-env $name '$value'"
 			else
-				echo "export $name='$value';"
+				printf '%s\n' "export $name='$value';"
 			fi
 		fi
 	done < <(env)
+	# xonsh needs a trailing newline, because xonsh, fixes:
+	# > xonsh
+	# xonsh: For full traceback set: $XONSH_SHOW_TRACEBACK = True
+	# SyntaxError: None: no further code
+	# syntax error in xonsh run control file '/Users/balupton/.config/xonsh/rc.xsh': None: no further code
+	if [[ $shell == 'xonsh' ]]; then
+		printf '\n'
+	fi
 }
 trap on_env_finish EXIT

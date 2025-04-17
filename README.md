@@ -160,9 +160,9 @@ xbps-install --sync bash curl
 
 Now that the prerequisites are installed, Dorothy's intelligent dependency management will be enabled, so you can skip this section. Dorothy's complete requisites for its core experience are as follows:
 
-- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
-- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
-- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
+- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required prior to initiation of the Dorothy installer
+- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): guaranteed by the Dorothy installer, and used to to install Dorothy
+- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): guaranteed by Dorothy, for robust regular expressions and configuration management
 
 If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p -- ~/.local/bin`, move the binary there with `mv -- <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
@@ -174,15 +174,15 @@ If the automated installation of any failed, [post an issue](https://github.com/
 To run a specific command in/from the Dorothy environment, enter the following, swapping out everything after the double-dash (`--`) with whatever command to run:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- dorothy commands
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/repl)"
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
 # now you can run whatever and how many commands as you'd like, such as:
 dorothy commands
@@ -201,8 +201,8 @@ exit
 > Dorothy's installation process currently has a few rough edges and bugs, and should be fixed within a week. Please subscribe to [this issue](https://github.com/bevry/dorothy/pull/281) to track their progress.
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
@@ -243,6 +243,7 @@ For each shell that you configured during the Dorothy installation (can be recon
     - [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
     - [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
     - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+        - KSH and Dash first load their respective `init.ksh` and `init.dash` scripts before loading `init.sh`. This is because KSH, Dash, and Bash all share the same `.profile` configuration file, so different initialization scripts allow us to configure each of them independently.
 
 1.  The initialization script will:
 

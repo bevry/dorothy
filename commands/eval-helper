@@ -1,5 +1,92 @@
 #!/usr/bin/env bash
 
+# NOTE:
+
+# [sudo] and [doas] asks for your own password, not the target users password
+# [su] asks for the target user password
+# [sudo] and [doas] can be configured via their configuration files to target other users, not just [root]
+
+# EXAMPLE:
+
+# with this sudoers configuration file
+# developer ALL=(root,webuser) /a-special-echo arg1 arg2
+
+# and with /a-special-echo only being executable to [root] and [webuser]:
+# sudo chown root:webuser /a-special-echo
+# sudo chmod 750 /a-special-echo
+
+# if you are [webuser], you can run this without escalation (not because of sudoers, but because of the file-system permissions):
+# /a-special-echo arg1 arg2
+
+# if you are [someuser], you will be denied ability to run this (not because of sudoers, but because of the file-system permissions):
+# /a-special-echo arg1 arg2
+# and if that was the only configuration in sudoers, you would also be denied escalation to [root] or [webuser]
+
+# if you are [developer], you will be denied ability to run this (not because of sudoers, but because of the file-system permissions):
+# /a-special-echo arg1 arg2
+# however, sudoers will allow [developer] to elevate to [root] or [webuser]:
+# sudo /a-special-echo arg1 arg2
+# sudo -u webuser /a-special-echo arg1 arg2
+
+# TERMINOLOGY
+
+# "privilege escalation" is a bad thing: https://en.wikipedia.org/wiki/Privilege_escalation
+# use elevation/grant/authorise when it is good thing: https://en.wikipedia.org/wiki/Privilege_elevation
+
+# SUDO
+
+# https://man.openbsd.org/doas
+# https://man.archlinux.org/man/doas.1.en
+
+# https://manpages.ubuntu.com/manpages/xenial/man8/sudo.8.html
+# -E, --preserve-env
+#    preserve user environment when running command
+# -H, --set-home
+#    set HOME variable to target user's home dir
+# -i, --login
+#    Run the shell specified by the target user's password database entry as a login shell.
+
+# DOAS
+
+function eval_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	eval-tester -- \
+		eval-helper -- \
+		waiter --timeout=0
+
+	eval-tester --stdout=my-stdout --stderr=my-stderr -- \
+		eval-helper --pending=my-pending --failure=my-failure --success=my-success -- \
+		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+
+	eval-tester --stdout=my-stdout --stderr=my-stderr --status=123 -- \
+		eval-helper --pending=my-pending --failure=my-failure --success=my-success -- \
+		waiter --timeout=0 --status=123 --stdout=my-stdout --stderr=my-stderr
+
+	eval-tester --stdout=my-stdout --stderr=my-stderr -- \
+		eval-helper --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
+		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+
+	eval-tester --stdout=my-stdout --stderr=my-stderr -- \
+		eval-no-color -- \
+		eval-helper --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
+		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+
+	eval-tester --stdout=my-stdout --stderr=$'my-pending\n<w>\nmy-stderr\n</w>[0]\nmy-success' -- \
+		eval-no-color -- \
+		eval-helper --message-target=STDERR --command-string=w --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
+		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+
+	# --alternative-screen-buffer does not affect verbosity and results
+	eval-tester --stdout=my-stdout --stderr=$'my-pending\n<w>\nmy-stderr\n</w>[0]\nmy-success' -- \
+		eval-no-color -- \
+		eval-helper --alternative-screen-buffer --message-target=STDERR --command-string=w --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
+		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+
+	echo-style --g1="TEST: $0"
+	return 0
+)
 function eval_helper() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,52 +94,97 @@ function eval_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Helpers for working with commands.
 
 			USAGE:
 			eval-helper [...options] -- ...<command>
 
+			QUIRKS:
+			Unless [--no-quiet] aka [--failure-verbosity=full --success=mode=full] is used, then the command's STDOUT and STDERR will be merged into STDERR.
+			Messages (pending, success, failure) are output to TTY if available, otherwise STDERR.
+
 			OPTIONS:
+			--[no-]quiet | --[no-]verbose
+			    If --verbose or --no-quiet, becomes:
+			        --failure-verbosity=full --success-verbosity=full
+			    If --quiet or --no-verbose, becomes:
+			        --failure-verbosity=full --success-verbosity=conclusion
+			    If missing or empty, defaults to result of [get-terminal-quiet-support].
+			    As such, if you require STDOUT of the command, be sure to to provide --verbose.
+			--verbosity=<verbosity>
+			    Becomes --failure-verbosity=<verbosity> --success-verbosity=<verbosity>
+			--failure-verbosity=<failure-verbosity>
+			    If full: message for pending, message for wrap open, command output, message for wrap close and status, message for failure.
+			    If summary: message for pending, message for wrap and status, message for failure.
+			    If conclusion: message for failure.
+			    If summary or conclusion, must be used alongside either --truncate or --screen.
+			--success-verbosity=<success-verbosity>
+			    If full: message for pending, message for wrap open, command output, message for wrap close and status, message for success.
+			    If summary: message for pending, message for wrap and status, message for success.
+			    If conclusion: message for success.
+			    If summary or conclusion, must be used alongside either --truncate or --screen.
+
+			--message-target=<message-target>
+			    By default, messages are output to TTY.
 			--[no-]wrap
-			    Wrap the output of the command in the command itself.
-			    Enabled by default.
-
-			--[no-]confirm
-			    Confirm execution of the command.
-			    Disabled by default.
-
-			--[no-]quiet
-			    If empty, if successful only the pending message, command status, and success message will be kept. If failure, the pending message, command output and status, and failure message will be kept.
-			    If enabled, if successful only the success message will be kept. If failure, the pending message, command output and status, and failure message will be kept.
-			    If disabled, the pending message, command output and status, and success or failure message will be kept. The command stdout will also be available to stdout.
-
-			--[no-]shapeshifter
-			    Workaround for commands that clear themselves.
-			    Disabled by default.
+			    If enabled, the output of the command will be wrapped in a message detailing the command itself, e.g.: < command arg >...</ command arg >
+			    Disabled by default, such that TTY/STDERR/STDOUT are not altered.
+			--command=<command-string>
+			    If provided, use this string instead of the escaped <command>, when wrapping.
+			--pending=<pending>
+			    If provided, will output the <pending> message before and while the command executes.
+			--failure=<failure>
+			    If provided, will output the <failure> message if the command failed.
+			--success=<success>
+			    If provided, will output the <success> message if the command succeeded.
 
 			--[no-]trim
-			    Trim output of the command.
+			    If enabled, trim padding at the start and end of the command output. See [echo-trim-padding] for details.
+
+			--truncate-lines=<lines:integer|terminal>
+			    If enabled, the command output to STDOUT, STDERR (and TTY by attempt) will be truncated during execution to this amount of revolving lines (if enabled, <lines> defaults to [1]). Shapeshifting ANSI Escape Codes will be escaped. This inhibits accurate capturing of command output, as such this transforms command output into a message, as such it will go to <message-target>. If set to [0] all command output will be attempted to be hidden. See [echo-revolving-door] for details.
+			--[no-]alternative-screen-buffer | --[no-]shapeshifter
+			    If enabled, the command will run in an alternative terminal buffer. Use this if the command is a shapeshifter (uses ANSI escape codes to modify lines and cursor).
+			    By default, this is disabled unless invoking a known shapeshifter.
+			    This option isn't that useful if you are not doing [summary] or [conclusion] verbosities.
+
+			--[no-]confirm
+			    Confirm execution of the command before its first execution (--until usage could mean multiple executions).
 			    Disabled by default.
 
-			--pending=<pending>
-			    Message to display while the command is executing.
+			--until=<forever|success|failure|<exit-status>>
+			    If forever, keep (re-)running the command forever.
+			    If success, keep (re-)running the command until a successful exit status.
+			    If failure, keep (re-)running the command until a failure exit status.
+			    If <exit-status>, keep (re-)running the command until the specified exit status. Can only be specified once.
+			    Disabled byy default.
+			--until-interval=<seconds>
+			    Specify the interval between attempts.
+			    Defaults to 10 seconds.
+			    This is only used if [--until] is specified.
 
-			--success=<success>
-			    Message to display if the command succeeded.
+			--elevated=<file-path|file-descriptor|device-file>
+			    If specified, if the <command> required elevation, appends <command> with a training newline to this target.
+			    Can be specified multiple times, and targets can be newline separated.
+			--elevate=<yes|no|''|failure|<exit-status>>
+			    If specified as [yes], then the command will execute with elevated privileges, be it via sudo or doas, or neither if not needed.
+			    If <user> or <group> is specified, it will be elevated and the remaining alternatives are discarded:
+			    If specified as [no], then the command will be run without elevation.
+			    If specified as [failure], then the command will be run without elevation, and if it fails, it will be run again with elevation.
+			    If specified as an integer, then the command will be run without elevation, and if it fails with that exit status, it will be run again with elevation.
+			    Can be specified multiple times, and can be [\n\t ,|] separated. [yes] and [no] values will reset prior values.
+			    If this is not specified at all, or is only empty strings, it will default to [no].
+			--user=<user>
+			    Specify a user to run the command as. Forces --elevate=yes
+			--group=<group>
+			    Specify a group to run the command as. Forces --elevate=yes
+			--reason=<reason>
+			    If a prompt is required to momentarily grant privileges, this reason will be used to explain why elevation was required.
+			--inherit
+			    If enabled, when elevating, the PATH will be inherited to the executing command.
 
-			--failure=<failure>
-			    Message to display if the command failed.
-
-			--command=<command-string>
-			    By default when wrapping the command status and/or output, the escaped <command> is used.
-				Providing a <command-string> will use the <command-string> instead of the escaped <command>.
-			    Intended only for use by [sudo-helper].
-
-			QUIRKS:
-			Unless [--no-quiet] is used, then stdout+stderr will be merged into stderr.
-			Messages are output to TTY if available, otherwise stderr.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -61,36 +193,93 @@ function eval_helper() (
 	}
 
 	# process
-	local item option_quiet option_cmd=() option_wrap='yes' option_trim='no' option_confirm='no' option_shapeshifter='' option_pending='' option_success='' option_failure='' option_command_string='' option_terminal_device_file=''
-	option_quiet="$(get-terminal-quiet-support || :)"
+	# option_failure_verbosity='' option_success_verbosity=''
+	local item option_cmd=() option_do_args=() \
+	option_quiet='' \
+	option_message_target='' option_wrap='' option_pending='' option_success='' option_failure='' option_command_string='' \
+	option_alternative_screen_buffer='' \
+	option_confirm='' \
+	option_until='' option_until_interval='' \
+	option_elevated=() option_elevate=() option_user='' option_group='' option_reason='' option_inherit='no'
+	function parse_elevated {
+		local value="$1" values=()
+		if [[ -n $value ]]; then
+			mapfile -t values < <(
+				echo-split --no-zero-length --characters=$'\n\t' -- "$value"
+			)
+			option_elevated+=("${values[@]}")
+		fi
+	}
+	function parse_elevate {
+		local value="$1" values=()
+		if [[ -n $value ]]; then
+			mapfile -t values < <(
+				echo-split --no-zero-length --characters=$'\n\t ,|' -- "$value"
+			)
+			option_elevate+=("${values[@]}")
+		fi
+	}
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--discard-'* | '--copy-'* | '--redirect-'*) option_do_args+=("${item#*=}") ;;
+		# ...
 		'--no-verbose'* | '--verbose'*)
 			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
 			;;
 		'--no-quiet'* | '--quiet'*)
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
+		#'--success-verbosity='*) option_success_verbosity="${item#*=}" ;;
+		#'--failure-verbosity='*) option_failure_verbosity="${item#*=}" ;;
+		# ...
+		'--message-target='*) option_message_target="${item#*=}" ;;
+		'--no-wrap'* | '--wrap'*)
+			option_wrap="$(get-flag-value --affirmative --fallback="$option_wrap" -- "$item")"
+			;;
 		'--pending='*) option_pending="${item#*=}" ;;
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
 		'--command='*) option_command_string="${item#*=}" ;;
-		'--terminal-device-file='*) option_terminal_device_file="${item#*=}" ;;
-		'--no-trim'* | '--trim'*)
-			option_trim="$(get-flag-value --affirmative --fallback="$option_trim" -- "$item")"
+		# ...
+		# '--no-trim-padding'* | '--trim-padding'*)
+		# 	option_trim_padding="$(get-flag-value --affirmative --fallback="$option_trim_padding" -- "$item")"
+		# 	;;
+		# '--no-trim-empty-lines'* | '--trim-empty-lines'*)
+		# 	option_trim_empty_lines="$(get-flag-value --affirmative --fallback="$option_trim_empty_lines" -- "$item")"
+		# 	;;
+		# '--no-escape-shapeshifting'* | '--escape-shapeshifting'*)
+		# 	option_escape_shapeshifting="$(get-flag-value --affirmative --fallback="$option_escape_shapeshifting" -- "$item")"
+		# 	;;
+		# '--truncate-columns='*) option_truncate_columns="${item#*=}" ;;
+		# '--truncate-lines='*) option_truncate_lines="${item#*=}" ;;
+		'--no-alternative-screen-buffer'* | '--alternative-screen-buffer'*)
+			option_alternative_screen_buffer="$(get-flag-value --affirmative --fallback="$option_alternative_screen_buffer" -- "$item")"
 			;;
+		# ...
 		'--no-confirm'* | '--confirm'*)
 			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
 			;;
-		'--no-shapeshifter'* | '--shapeshifter'*)
-			option_shapeshifter="$(get-flag-value --affirmative --fallback="$option_shapeshifter" -- "$item")"
+		# ...
+		'--until='*) option_until="${item#*=}" ;;
+		'--until-interval='* | '--until-delay='*) option_until_interval="${item#*=}" ;;
+		# <elevate>
+		'--elevated='*)
+			parse_elevated "${item#*=}"
 			;;
-		'--no-wrap'* | '--wrap'*)
-			option_wrap="$(get-flag-value --affirmative --fallback="$option_wrap" -- "$item")"
+		'--no-elevate'* | '--elevate'*)
+			parse_elevate "$(get-flag-value --affirmative -- "$item")"
 			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		'--no-inherit'* | '--inherit'*)
+			option_inherit="$(get-flag-value --affirmative --fallback="$option_inherit" -- "$item")"
+			;;
+		# </elevate>
+		# command
 		'--')
 			option_cmd+=("$@")
 			shift $#
@@ -101,29 +290,115 @@ function eval_helper() (
 		esac
 	done
 
-	# ensure items that write to TTY are cleared correctly
-	if [[ -z $option_shapeshifter ]]; then
-		if [[ ${option_cmd[0]} == 'sudo-helper' ]]; then
-			option_shapeshifter='yes'
+	# quiet
+	if [[ -z $option_quiet || $option_quiet == 'auto' ]]; then
+		if get-terminal-reactivity-support --quiet; then
+			option_quiet="$(get-terminal-quiet-support --fallback=no)"
 		else
-			option_shapeshifter='no'
+			option_quiet='no'
 		fi
 	fi
+
+	# check
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
+		help 'No <command> was provided.'
+	fi
+	if [[ -n $option_until ]]; then
+		if [[ $option_until =~ ^(forever|success|failure)$ ]] || is-integer -- "$option_until"; then
+			: # valid
+		else
+			help "An unrecognised <until> was provided: $option_until"
+		fi
+	fi
+	if [[ -z $option_message_target ]]; then
+		option_message_target='TTY'
+	fi
+
+	# ensure shapeshifters that write to TTY are cleared correctly
+	if [[ -z $option_alternative_screen_buffer ]]; then
+		case "${option_cmd[*]}" in
+		'ssh '*) option_alternative_screen_buffer='yes' ;;
+		'sudo '*) option_alternative_screen_buffer='yes' ;;
+		'doas '*) option_alternative_screen_buffer='yes' ;;
+		*) option_alternative_screen_buffer='no' ;;
+		esac
+	fi
+	# if [[ -z $option_truncate_lines ]]; then
+	# 	option_truncate_lines='no'
+	# fi
+
+	# ensure sudo is a valid value
+	local elevate='' elevate_on_statuses=() elevate_technique=''
+	if [[ -n $option_user || -n $option_group ]]; then
+		# validate user and group, user is important, as otherwise we will be creating directories for users that don't exist
+		if [[ -n $option_user ]] && ! is-user -- "$option_user"; then
+			echo-style --stderr --error1='Cannot elevate privileges to a non-existent user: ' --code-error1="$option_user"
+			return 2 # ENOENT 2 No such file or directory
+		fi
+		if [[ -n $option_group ]] && ! is-group -- "$option_group"; then
+			echo-style --stderr --error1='Cannot elevate privileges to a non-existent group: ' --code-error1="$option_group"
+			return 2 # ENOENT 2 No such file or directory
+		fi
+		elevate='yes'
+	elif [[ ${#option_elevate[@]} -eq 0 || -z ${option_elevate[*]} ]]; then
+		elevate='no'
+	else
+		elevate='no'
+		for item in "${option_elevate[@]}"; do
+			case "$item" in
+			'') : ;; # discard, it's already served its purpose in now defaulting to disabled
+			'yes')
+				elevate='yes'
+				elevate_on_statuses=()
+				;;
+			'no')
+				elevate='no'
+				elevate_on_statuses=()
+				;;
+			'failure')
+				elevate='failure'
+				elevate_on_statuses=()
+				;;
+			[0-9]*)
+				if ! is-integer -- "$item"; then
+					help "An unrecognised value was provided for --sudo: $item"
+				fi
+				elevate='status'
+				elevate_on_statuses+=("$item")
+				;;
+			*)
+				help "An unrecognised value was provided for --sudo: $item"
+				;;
+			esac
+		done
+	fi
+	if [[ $elevate != 'no' ]]; then
+		if __command_exists -- sudo; then
+			elevate_technique='sudo'
+		elif __command_exists -- doas; then
+			elevate_technique='doas'
+		else
+			elevate_technique='none'
+		fi
+	fi
+
+	# quiet, verbose, modes
+	# if [[ -n $option_success_verbosity ]]; then
+	# fi
+	# if [[ -n $option_failure_verbosity ]]; then
+	# fi
 
 	# =====================================
 	# Action
 
-	# terminal
-	local terminal_device_file="$option_terminal_device_file" messages_device_file
-	if [[ -z $terminal_device_file ]]; then
-		terminal_device_file="$(get-terminal-device-file)"
-	fi
-	messages_device_file="$terminal_device_file"
-
 	# element
-	local element_open=''
+	local element_open='' command_style='code'
 	if [[ -z $option_command_string ]]; then
-		option_command_string="$(echo-escape-command -- "${option_cmd[@]}")"
+		option_command_string="$(
+			echo-style --"$command_style"="$(
+				echo-escape-command -- "${option_cmd[@]}"
+			)"
+		)"
 	fi
 	if [[ $option_wrap == 'yes' ]]; then
 		element_open="$(echo-style --element="$option_command_string")"
@@ -133,133 +408,58 @@ function eval_helper() (
 
 	# confirm
 	if [[ $option_confirm == 'yes' ]] && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command that is below:' "$element_open"; then
-		echo-style --notice1='Skipped execution of:' --code-notice1="$element_open" >"$terminal_device_file"
+		echo-style --tty --notice1='Skipped execution of:' --code-notice1="$element_open"
 		return 0
 	fi
 
 	# messages
 	local messages=''
-	function flush_messages {
+	function __flush_messages {
 		if [[ -n $messages ]]; then
-			__print_string "$messages" >"$messages_device_file"
+			__do --redirect-stdout="$option_message_target" -- __print_string "$messages" || return
 			messages=''
 		fi
 	}
 
-	# headers
-	local header=''
-	if [[ -n $option_pending ]]; then
-		header+="$option_pending"$'\n'
-	fi
-	if [[ $option_wrap == 'yes' ]]; then
-		header+="$element_open"$'\n'
-	fi
-	if [[ -n $header ]]; then
-		messages+="$header"
-		flush_messages
-	fi
+	# run
+	# never execute [run_] in a conditional, as if command is an function, its behaviour will be altered
+	local run_status
+	function run_args {
+		# reset
+		run_status=''
 
-	# output everything if already inside a revolving door, or if in verbose mode
-	local cmd_status=0
-	if [[ ${INSIDE_REVOLVING_DOOR-} == 'yes' || $option_quiet == 'no' ]]; then
-		# body
-		if [[ $option_trim == 'yes' ]]; then
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				> >(echo-trim-padding --stdin) \
-				2> >(echo-trim-padding --stdin >/dev/stderr)
-		else
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}"
+		# headers
+		local header='' cmd=("$@")
+
+		# pending
+		if [[ -n $option_pending ]]; then
+			header+="$option_pending"$'\n'
 		fi
 
-		# add close
+		# open wrap
 		if [[ $option_wrap == 'yes' ]]; then
-			messages+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
+			header+="$element_open"$'\n'
 		fi
 
-		# add success or failure
-		if [[ $cmd_status -eq 0 ]]; then
-			if [[ -n $option_success ]]; then
-				messages+="$option_success"$'\n'
-			fi
-		else
-			if [[ -n $option_failure ]]; then
-				messages+="$option_failure"$'\n'
-			fi
+		# flush
+		if [[ -n $header ]]; then
+			messages+="$header"
+			__flush_messages || return
 		fi
 
-		# output
-		flush_messages
-	else
-		# not inside a revolving door, and not in verbose mode
-		local terminal_size terminal_columns=0 body_file
-		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
-		if [[ ${#terminal_size[@]} -eq 2 ]]; then
-			terminal_columns="${terminal_size[1]}"
-		fi
-		body_file="$(mktemp)"
+		# output everything if in verbose mode
+		if [[ $option_quiet == 'no' ]]; then
+			# body
+			__do --redirect-status={run_status} "${option_do_args[@]}" -- \
+				"${cmd[@]}"
 
-		# body
-		# NOTE |& is bash v4 only, and this script must work on Bash v3, which uses 2>&1 |
-		# https://github.com/bevry/dorothy/discussions/151
-		local INSIDE_REVOLVING_DOOR_original="${INSIDE_REVOLVING_DOOR:-"no"}"
-		export INSIDE_REVOLVING_DOOR='yes' # use export, as env doesn't work when option_cmd[0] was a function
-		if [[ $option_shapeshifter == 'yes' ]]; then
-			# this is used if the command writes to TTY
-			# in which case echo-revolving-door fails to clear
-			echo-style --no-trail --alternative-screen-buffer --="$header" >"$terminal_device_file" # redo header inside alt tty while its active
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				> >(tee -a -- "$body_file") \
-				2> >(tee -a -- "$body_file" >/dev/stderr)
-			echo-style --no-trail --default-screen-buffer >"$terminal_device_file"
-		else
-			# direct stdout and stderr to terminal_device_file, as they will be truncated and will be outputting clear ansi codes, which will confuse anything that is expecting legit TTY output
-			eval_capture --statusvar=cmd_status -- "${option_cmd[@]}" \
-				&> >(tee -a -- "$body_file" | echo-revolving-door --columns="$terminal_columns" >"$terminal_device_file")
-			# we cannot detect shapeshifting after the fact, as it occurs in the TTY, not stdout, nor stderr
-		fi
-		export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR_original"
-
-		# clear header, we can re-add them later if needed
-		echo-clear-lines --here-string <<<"$header" >"$terminal_device_file"
-
-		# generate output
-		if [[ $option_quiet == 'no' || $cmd_status -ne 0 ]]; then
-			# pending message, command output and status, and success or failure message
-
-			# add pending
-			if [[ -n $option_pending ]]; then
-				messages+="$option_pending"$'\n'
+			# close wrap
+			if [[ $option_wrap == 'yes' ]]; then
+				messages+="$(echo-style --/element="$option_command_string" --status="$run_status")"$'\n'
 			fi
 
-			# add body
-			local body
-			if [[ -s $body_file ]]; then
-				if [[ $option_trim == 'yes' ]]; then
-					body="$(echo-trim-padding --stdin <"$body_file")"
-				else
-					body="$(cat -- "$body_file")"
-				fi
-			else
-				body=''
-			fi
-			if [[ $option_wrap == 'no' ]]; then
-				if [[ -n $body ]]; then
-					flush_messages
-					__print_lines "$body" >/dev/stderr
-				fi
-			else
-				if [[ -n $body ]]; then
-					messages+="$(echo-style --element="$option_command_string")"$'\n'
-					flush_messages
-					__print_lines "$body" >/dev/stderr
-					messages+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
-				else
-					messages+="$(echo-style --element="$option_command_string" --/fragment='' --status="$cmd_status")"$'\n'
-				fi
-			fi
-
-			# add success or failure
-			if [[ $cmd_status -eq 0 ]]; then
+			# success or failure
+			if [[ $run_status -eq 0 ]]; then
 				if [[ -n $option_success ]]; then
 					messages+="$option_success"$'\n'
 				fi
@@ -269,57 +469,248 @@ function eval_helper() (
 				fi
 			fi
 
-		elif [[ -z $option_quiet ]]; then
-			# pending message, command status, and success message
+			# flush
+			__flush_messages
+		else
+			# direct STDOUT and STDERR to TTY, as they will be truncated and will be outputting clear ansi codes, which will confuse anything that is expecting legit STDOUT output, we cannot detect shapeshifting after the fact, as it occurs in the TTY, not STDOUT, nor STDERR
+			local body
 
-			# add pending
-			if [[ -n $option_pending ]]; then
-				messages+="$option_pending"$'\n'
+			if [[ $option_alternative_screen_buffer == 'yes' ]]; then
+				# start alternative screen buffer, and redo header inside of it
+				echo-style --no-trail --tty --alternative-screen-buffer --="$header"
+
+				# run command, output to STDERR, capture, then to TTY
+				__do --redirect-status={run_status} \
+					--redirect-output=stderr \
+					--copy-stderr={body} \
+					"${option_do_args[@]}" \
+					--redirect-output=TTY \
+					-- \
+					"${cmd[@]}"
+
+				# restore the original screen buffer
+				echo-style --no-trail --tty --default-screen-buffer
+			else
+				__do --redirect-status={run_status} \
+					--redirect-output=stderr \
+					--copy-stderr={body} \
+					"${option_do_args[@]}" \
+					--redirect-output="(echo-revolving-door)" \
+					--redirect-output=TTY \
+					-- \
+					"${option_cmd[@]}"
 			fi
 
-			# truncate body if wrapping
-			if [[ $option_wrap == 'yes' ]]; then
-				local body
-				if [[ -s $body_file ]]; then
-					if [[ $option_trim == 'yes' ]]; then
-						body="$(echo-trim-padding --stdin <"$body_file")"
-					else
-						body="$(cat -- "$body_file")"
+			# clear header, we can re-add them later if needed
+			echo-clear-lines --target=TTY --here-string <<<"$header"
+
+			# generate output
+			if [[ $option_quiet == 'no' || $run_status -ne 0 ]]; then
+				# verbose/failure: pending message, command output and status, and success or failure message
+
+				# add pending
+				if [[ -n $option_pending ]]; then
+					messages+="$option_pending"$'\n'
+				fi
+
+				# add body
+				if [[ $option_wrap == 'no' ]]; then
+					if [[ -n $body ]]; then
+						__flush_messages
+						__print_lines "$body" >&2
 					fi
 				else
-					body=''
+					if [[ -n $body ]]; then
+						messages+="$(echo-style --element="$option_command_string")"$'\n'
+						__flush_messages
+						__print_lines "$body" >&2
+						messages+="$(echo-style --/element="$option_command_string" --status="$run_status")"$'\n'
+					else
+						messages+="$(echo-style --element="$option_command_string" --/fragment='' --status="$run_status")"$'\n'
+					fi
 				fi
-				if [[ -n $body ]]; then
-					# self close as we are truncating
-					messages+="$(echo-style --/element="$option_command_string" --status="$cmd_status")"$'\n'
+
+				# add success or failure
+				if [[ $run_status -eq 0 ]]; then
+					if [[ -n $option_success ]]; then
+						messages+="$option_success"$'\n'
+					fi
 				else
-					# close fragment as there is no data
-					messages+="$(echo-style --element="$option_command_string" --/fragment --status="$cmd_status")"$'\n'
+					if [[ -n $option_failure ]]; then
+						messages+="$option_failure"$'\n'
+					fi
+				fi
+
+			else
+				# if wrap: pending message, command status, and success message
+				# if no wrap: success message
+
+				# truncate body if wrapping
+				if [[ $option_wrap == 'yes' ]]; then
+					# add pending
+					if [[ -n $option_pending ]]; then
+						messages+="$option_pending"$'\n'
+					fi
+
+					# wrap
+					if [[ -n $body ]]; then
+						# self close as we are truncating
+						messages+="$(echo-style --/element="$option_command_string" --status="$run_status")"$'\n'
+					else
+						# close fragment as there is no data
+						messages+="$(echo-style --element="$option_command_string" --/fragment --status="$run_status")"$'\n'
+					fi
+				fi
+
+				# add success
+				if [[ -n $option_success ]]; then
+					messages+="$option_success"$'\n'
 				fi
 			fi
 
-			# add success
-			if [[ -n $option_success ]]; then
-				messages+="$option_success"$'\n'
-			fi
-		elif [[ $option_quiet == 'yes' ]]; then
-			# only success message
+			# output
+			__flush_messages
+		fi
+	}
+	local cmd_elevate=()
+	function run_args_with_optional_elevation {
+		# reset command style
+		command_style='code'
 
-			# add success
-			if [[ -n $option_success ]]; then
-				messages+="$option_success"$'\n'
+		# try without sudo if applicable
+		if [[ $elevate == 'no' || $elevate_technique == 'none' ]]; then
+			run_args "${option_cmd[@]}"
+			return 0 # exit and delegate to run_status
+		elif [[ $elevate == 'failure' ]]; then
+			run_args "${option_cmd[@]}"
+			if [[ $run_status -eq 0 ]]; then
+				return 0 # exit and delegate to run_status
+			fi
+		elif [[ $elevate == 'status' ]]; then
+			run_args "${option_cmd[@]}"
+			for item in "${elevate_on_statuses[@]}"; do
+				if [[ $run_status -eq $item ]]; then
+					elevate='yes'
+					break
+				fi
+			done
+			if [[ $elevate != 'yes' ]]; then
+				return 0 # exit and delegate to run_status
 			fi
 		fi
 
-		# output
-		flush_messages
-	fi
+		# elevate command style
+		command_style='sudo'
 
-	# done
-	return "$cmd_status"
+		# prepare elevation
+		if [[ ${#cmd_elevate[@]} -eq 0 ]]; then
+			local home=''
+			if [[ $elevate_technique == 'sudo' ]]; then
+				cmd_elevate+=(sudo)
+
+				# if no-tty, then use the builtin sudo workaround which is the same as Dorothy's
+				# if ! __has_tty_support; then
+				# 	cmd_elevate+=('--stdin') # note tha this outputs what they are typing unconcealed to terminal
+				# 	# alternative is this insecure option: export SUDO_ASKPASS=...; cmd_elevate+=('--askpass')
+				# 	# as this is an edge case in what is meant to be non-interactive environments, this is fine
+				# fi
+				# ^ don't enable this yet, until someone requests it, I don't know the implications
+
+				# add the things specific to attestation, while prepping home
+				# don't use is-directory, is-missing, __elevate_mkdirp, as they will cause infinite recursion
+				if [[ -n $option_user ]]; then
+					cmd_elevate+=(--user="$option_user")
+					# should coincide with [setup-environment-commands]
+					if [[ -d /Users ]]; then
+						home="/Users/$option_user"
+					elif [[ -d '/home' ]]; then
+						home="/home/$option_user"
+					elif [[ -d "/$option_user" ]]; then
+						home="/$option_user"
+					fi
+				elif [[ -n $HOME ]]; then
+					home="$HOME"
+				fi
+				if [[ -n $option_group ]]; then
+					cmd_elevate+=(--group="$option_group")
+				fi
+
+				# check if password is required
+				# [sudo --validate] doesn't work on multipass, so just use [true] as a no-op
+				if ! "${cmd_elevate[@]}" --non-interactive -- true &>/dev/null; then
+					# password is required, let the user know what they are being prompted for
+					# [--code=*] better than [echo-style --element/="$(echo-escape-command -- "${cmd_elevate[@]}" | echo-join ' ' --stdin)"] as that is too verbose
+					# use [--tty] to ensure the prompt is not hidden when otherwise hiding sudo output, such as in [command-working]
+					# while it would be nice to clear lines, we cannot know how many lines to clear as they could require multiple attempts to enter the password
+					if [[ -n $option_reason ]]; then
+						echo-style --tty --notice="$option_reason"
+					else
+						echo-style --tty --notice='Your password is required to momentarily grant privileges to execute the command:'
+					fi
+					option_wrap='yes'
+				fi
+
+				# ensure home is correctly configured for sudo
+				if [[ -n $home ]]; then
+					if [[ ! -e $home && ! -L $home ]]; then
+						sudo mkdir -p -- "$home" # don't delegate to other commands/functions, as they will call this
+						fs-own --quiet --user="$option_user" --group="$option_group" --no-recursive -- "$home"
+					fi
+					cmd_elevate+=(--set-home)
+				fi
+
+				# sudo supports passing environment variables
+				if [[ $option_inherit == 'yes' ]]; then
+					cmd_elevate+=(--preserve-env PATH="$PATH" --)
+					# if it is linux, [sudo PATH=$PATH] doesn't seem to work, but [env PATH=$PATH] does, so just duplicate it
+					if is-linux; then
+						cmd_elevate+=(env PATH="$PATH")
+					fi
+				else
+					cmd_elevate+=(--)
+				fi
+			elif [[ $elevate_technique == 'doas' ]]; then
+				# https://man.archlinux.org/man/doas.1.en
+				cmd_elevate+=(doas)
+				if [[ -n $option_user ]]; then
+					cmd_elevate+=(-u "$option_user")
+				fi
+				if [[ -n $option_group ]]; then
+					help 'doas does not support --group'
+				fi
+				# doas doesn't support ENVVAR=value, nor --
+				if [[ $option_inherit == 'yes' ]]; then
+					cmd_elevate+=(env DOROTHY="$DOROTHY" PATH="$PATH")
+				fi
+			fi
+		fi
+
+		# note the elevation
+		if [[ ${#option_elevated[@]} -ne 0 && "${cmd_elevate[@]}" -ne 0 ]]; then
+			__print_lines "${cmd_elevate[@]}" "${option_cmd[@]}" | echo-write -- "${option_elevated[@]}"
+		fi
+
+		# run the possibly elevated command
+		run_args "${cmd_elevate[@]}" "${option_cmd[@]}"
+	}
+
+	run_args_with_optional_elevation "${cmd_elevate[@]}" "${option_cmd[@]}"
+	while [[ -n $option_until && ($option_until == 'forever' || ($option_until == 'success' && $run_status -ne 0) || ($option_until == 'failure' && $run_status -eq 0) || ($option_until -ne $run_status)) ]]; do
+		waiter "${option_until_interval:-"10"}" --message="$(echo-style --notice='Next attempt in %s...')"
+		if [[ $option_clear == 'yes' ]]; then
+			# clear the previous execution, re-adding the trailing newline
+			echo-clear-lines --target=TTY --here-string <<<"$attempt_output"
+		fi
+		run_args_with_optional_elevation "${cmd_elevate[@]}" "${option_cmd[@]}"
+	done
+	return "$run_status"
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	eval_helper "$@"
+	if [[ $* == '--test' ]]; then
+		eval_helper_test
+	else
+		eval_helper "$@"
+	fi
 fi
