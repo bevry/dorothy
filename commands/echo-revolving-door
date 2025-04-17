@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# use export, as env doesn't work when option_cmd[0] was a function
+# local INSIDE_REVOLVING_DOOR__original_for_restore="${INSIDE_REVOLVING_DOOR:-"no"}"
+# export INSIDE_REVOLVING_DOOR='yes'
+# ...
+# export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR__original_for_restore"
+
 function echo_revolving_door() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$(type -P echo-clear-lines)"
@@ -17,12 +23,13 @@ function echo_revolving_door() (
 
 			OPTIONS:
 			--lines=<lines> | --lines=terminal
-			    The number of lines to display, defaults to 1.
-			    If set to terminal, then will use the terminal line size if possible, otherwise becomes 0.
+			    The number of lines to display, defaults to the terminal line size if possible, otherwise becomes 0.
+			    If set to a negative number, then will use the terminal line size minus this offset.
 			    If set to 0, revolving door functionality is disabled.
 
 			--columns=<columns> | --columns=terminal
 			    The number of columns to display, defaults to the terminal column size if possible, otherwise becomes 0.
+			    If set to a negative number, then will use the terminal column size minus this offset.
 			    If set to 0, revolving door functionality is disabled.
 
 			--target=<target:file-path|file-descriptor|device-file>
@@ -43,7 +50,7 @@ function echo_revolving_door() (
 	}
 
 	# process
-	local item option_lines=1 option_columns='' option_target='TTY'
+	local item option_lines='' option_columns='' option_target='TTY'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -59,20 +66,27 @@ function echo_revolving_door() (
 
 	# determine columns and lines
 	if [[ -z $option_lines ]]; then
-		option_lines=1
+		option_lines='terminal'
 	fi
 	if [[ -z $option_columns ]]; then
 		option_columns='terminal'
 	fi
-	if [[ $option_lines == 'terminal' ||  $option_columns == 'terminal' ]]; then
+	function __is_terminal_or_negative {
+		[[ $1 == 'terminal' || $1 -lt 0 ]] || return
+	}
+	if __is_terminal_or_negative "$option_lines" || __is_terminal_or_negative "$option_columns"; then
 		local terminal_size=()
 		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
 		if [[ ${#terminal_size[@]} -eq 2 ]]; then
 			if [[ $option_lines == 'terminal' ]]; then
 				option_lines="${terminal_size[0]}"
+			elif [[ $option_lines -lt 0 ]]; then
+				option_lines="$((terminal_size[0] + option_lines))"
 			fi
 			if [[ $option_columns == 'terminal' ]]; then
 				option_columns="${terminal_size[1]}"
+			elif [[ $option_columns -lt 0 ]]; then
+				option_columns="$((terminal_size[1] + option_columns))"
 			fi
 		else
 			if [[ $option_lines == 'terminal' ]]; then
@@ -83,12 +97,13 @@ function echo_revolving_door() (
 			fi
 		fi
 	fi
+
 	# sanity check
 	if ! [[ $option_columns =~ ^[0-9]+$ ]]; then
-		help "<columns> must be zero, terminal, or a positive integer: $option_columns"
+		help "<columns> failed to determine a valid value: $option_columns"
 	fi
 	if ! [[ $option_lines =~ ^[0-9]+$ ]]; then
-		help "<lines> must be zero, terminal, or a positive integer: $option_lines"
+		help "<lines> failed to determine a valid value: $option_lines"
 	fi
 
 	# =====================================
@@ -104,52 +119,54 @@ function echo_revolving_door() (
 				echo_clear_lines --target=TTY --discard-last-line-as-inline --count="$prior_lines_count"
 			fi
 		}
-		function __print_joined_lines {
+		function __join {
+			local join="$1"
+			shift
 			if [[ $# -eq 0 ]]; then
 				return 0
 			fi
 			local result=''
-			while [[ $# -gt 0 ]]; do
-				if [[ $# -eq 1 ]]; then
-					result+="$1"
-				else
-					result+="$1"$'\n'
-				fi
+			while [[ $# -gt 1 ]]; do
+				result+="$1$join"
 				shift
 			done
+			if [[ $# -eq 1 ]]; then
+				result+="$1"
+				shift
+			fi
 			printf '%s' "$result"
 		}
 		function __flush {
+			# get the new input
 			local input="$1"
-			# remove the first element of the lines
+			# trim the first item from the old inputs
 			if [[ $option_lines -eq 1 ]]; then
 				lines=()
 			elif [[ $prior_lines_count -eq $option_lines ]]; then
 				lines=("${lines[@]:1}")
 			fi
-			# add the new line
+			# add the new input to the end of the old inputs
 			lines+=("$input")
 			# move the cursor up and clear
 			__clear
-			__do --redirect-stdout="$option_target" -- __print_joined_lines "${lines[@]}"
+			__do --redirect-stdout="$option_target" -- __join $'\n' "${lines[@]}"
 			# update the prior lines count
 			prior_lines_count="${#lines[@]}"
 		}
 		while IFS= read -r input || [[ -n $input ]]; do
+			# discard empty lines
 			if [[ -z $input ]]; then
 				continue
 			fi
-			# trim shapeshifting
+			# escape shapeshifting
 			input="$(__escape_shapeshifting -- "$input")"
-			# trim everything after the last newline, don't have to worry about a trailing newline as read already handled that, in theory there should never be a newline within the input, as each input should be a single line
-			# input="$(__get_substring_after_last "$input" $'\n' "$input")"
 			# get only the last columns
 			input="$(__get_substring "$input" "$negative_columns")"
 			# check we still have something left
 			if [[ -z $input ]]; then
 				continue
 			fi
-			# clear the single line, and output the new line
+			# flush this input
 			__flush "$input"
 		done
 		__clear
