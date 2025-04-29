@@ -282,10 +282,14 @@ style__color_end__info3="${style__color_end__intensity}${style__color_end__foreg
 
 style__color__redacted="${style__color__background_black}${style__color__foreground_black}" # alternative to conceal, which respects color themes
 style__color_end__redacted="${style__color_end__background}${style__color_end__foreground}"
-style__color__sudo="${style__color__foreground_intense_yellow}"
-style__color_end__sudo="${style__color_end__foreground}"
+style__color__elevate="${style__color__foreground_intense_yellow}"
+style__color_end__elevate="${style__color_end__foreground}"
 style__color__code="${style__color__foreground_intense_black}"
 style__color_end__code="${style__color_end__foreground}"
+style__color__link="${style__color__foreground_blue}"
+style__color_end__link="${style__color_end__foreground}"
+style__color__path="${style__color__foreground_yellow}"
+style__color_end__path="${style__color_end__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
 if [[ -n $GITHUB_ACTIONS ]]; then
 	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
@@ -298,8 +302,8 @@ elif [[ $THEME == 'light' ]]; then
 	# trim style__color__foreground_intense_yellow as it is unreadable on light theme
 	style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
 	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-	style__color__sudo="${style__color__foreground_yellow}"
-	style__color_end__sudo="${style__color_end__foreground}"
+	style__color__elevate="${style__color__foreground_yellow}"
+	style__color_end__elevate="${style__color_end__foreground}"
 
 	# If italics is not supported, swap it with something else...
 	# Values of TERM_PROGRAM that are known to not support italics:
@@ -332,6 +336,10 @@ else
 		style__color_end__italic="$style__color_end__foreground"
 	fi
 fi
+
+# aliases
+style__color__sudo="$style__color__elevate"
+style__color_end__sudo="$style__color_end__elevate"
 
 # don't use these in segments, as it prohibits alternative usage
 # instead, when things take a long time,

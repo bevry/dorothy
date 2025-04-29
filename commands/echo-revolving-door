@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 
-# use export, as env doesn't work when option_cmd[0] was a function
-# local INSIDE_REVOLVING_DOOR__original_for_restore="${INSIDE_REVOLVING_DOOR:-"no"}"
-# export INSIDE_REVOLVING_DOOR='yes'
-# ...
-# export INSIDE_REVOLVING_DOOR="$INSIDE_REVOLVING_DOOR__original_for_restore"
+# @todo it may be possible in this to detect an unsupported shapeshifter code, and then output the clear, then the stored lines in an alterative screen buffer, then upon exit, default screen buffer - this won't support stdin captures though, but will be better than using alternative screen buffers even when not needed
 
 function echo_revolving_door() (
 	source "$DOROTHY/sources/bash.bash"
@@ -39,6 +35,7 @@ function echo_revolving_door() (
 			QUIRKS:
 			Shapeshifting ANSI escape codes will be escaped.
 			If a line exceeded <columns>, only the rightmost <columns> of the line will be shown, with frontmost content being truncated.
+			If you don't want empty lines being output, pipe to [echo-trim-empty-lines] or [echo-trim-zero-length] before piping to [echo-revolving-door].
 
 			TODOS:
 			If multiple <lines> is supported, usage of gfold may be possible to allow for wrapped lines.
@@ -50,52 +47,64 @@ function echo_revolving_door() (
 	}
 
 	# process
-	local item option_lines='' option_columns='' option_target='TTY'
+	local item option_shapeshifter='' option_lines='' option_columns='' option_target='TTY' option_terminal_lines='' option_terminal_columns='' option_ignore_pattern=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--lines='*) option_lines="${item#*=}" ;;
-		'--columns='*) option_columns="${item#*=}" ;;
+		'--no-shapeshifter'* | '--shapeshifter'*)
+			option_shapeshifter="$(get-flag-value --affirmative --fallback="$option_shapeshifter" -- "$item")"
+			;;
+		'--lines='* | '--max-lines='*) option_lines="${item#*=}" ;;
+		'--columns='* | '--max-columns='*) option_columns="${item#*=}" ;;
+		'--terminal-lines='*) option_terminal_lines="${item#*=}" ;;
+		'--terminal-columns='*) option_terminal_columns="${item#*=}" ;;
 		'--target='*) option_target="${item#*=}" ;;
+		'--ignore-pattern='*) option_ignore_pattern+=("${item#*=}") ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	# determine columns and lines
+	# ensure lines and columns
 	if [[ -z $option_lines ]]; then
 		option_lines='terminal'
 	fi
 	if [[ -z $option_columns ]]; then
 		option_columns='terminal'
 	fi
-	function __is_terminal_or_negative {
-		[[ $1 == 'terminal' || $1 -lt 0 ]] || return
-	}
-	if __is_terminal_or_negative "$option_lines" || __is_terminal_or_negative "$option_columns"; then
-		local terminal_size=()
+
+	# adjust lines and columns to terminal lines and columns
+	local terminal_size=() terminal_lines=0
+	if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
 		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
 		if [[ ${#terminal_size[@]} -eq 2 ]]; then
-			if [[ $option_lines == 'terminal' ]]; then
-				option_lines="${terminal_size[0]}"
-			elif [[ $option_lines -lt 0 ]]; then
-				option_lines="$((terminal_size[0] + option_lines))"
-			fi
-			if [[ $option_columns == 'terminal' ]]; then
-				option_columns="${terminal_size[1]}"
-			elif [[ $option_columns -lt 0 ]]; then
-				option_columns="$((terminal_size[1] + option_columns))"
-			fi
-		else
-			if [[ $option_lines == 'terminal' ]]; then
-				option_lines=0
-			fi
-			if [[ $option_columns == 'terminal' ]]; then
-				option_columns=0
-			fi
+			option_terminal_lines="${terminal_size[0]}"
+			option_terminal_columns="${terminal_size[1]}"
 		fi
+	fi
+	if [[ -n $option_terminal_lines ]]; then
+		if [[ $option_lines == 'terminal' ]]; then
+			option_lines="$option_terminal_lines"
+		elif [[ $option_lines -lt 0 ]]; then
+			option_lines="$((option_terminal_lines + option_lines))"
+		elif [[ $option_lines -gt $option_terminal_lines ]]; then
+			option_lines="$option_terminal_lines"
+		fi
+	elif [[ $option_lines == 'terminal' ]]; then
+		option_lines=0
+	fi
+	if [[ -n $option_terminal_columns ]]; then
+		if [[ $option_columns == 'terminal' ]]; then
+			option_columns="$option_terminal_columns"
+		elif [[ $option_columns -lt 0 ]]; then
+			option_columns="$((option_terminal_columns + option_columns))"
+		elif [[ $option_lines -gt $terminal_lines ]]; then
+			option_columns="$option_terminal_columns"
+		fi
+	elif [[ $option_columns == 'terminal' ]]; then
+		option_columns=0
 	fi
 
 	# sanity check
@@ -103,20 +112,24 @@ function echo_revolving_door() (
 		help "<columns> failed to determine a valid value: $option_columns"
 	fi
 	if ! [[ $option_lines =~ ^[0-9]+$ ]]; then
+		# this can happen if the negative value is greater than the terminal height
 		help "<lines> failed to determine a valid value: $option_lines"
 	fi
 
 	# =====================================
 	# Action
 
+
+	# trap 'trap - SIGINT; return 130' SIGINT
+
 	if [[ $option_lines -eq 0 || $option_columns -eq 0 ]]; then
 		cat
 	else
-		local input negative_columns lines=() prior_lines_count=0
+		local negative_columns lines=() prior_lines_count=0 last_modifier='' last_input_ignored='no'
 		negative_columns="$((option_columns * -1))"
 		function __clear {
 			if [[ $prior_lines_count -ne 0 ]]; then
-				echo_clear_lines --target=TTY --discard-last-line-as-inline --count="$prior_lines_count"
+				echo_clear_lines --target="$option_target" --discard-last-line-as-inline --count="$prior_lines_count"
 			fi
 		}
 		function __join {
@@ -136,39 +149,123 @@ function echo_revolving_door() (
 			fi
 			printf '%s' "$result"
 		}
+		function __write {
+			__do --redirect-stdout="$option_target" -- "$@"
+		}
+		function __replace {
+			local input="$1"
+			lines[prior_lines_count]="$input"
+			__write printf '\e[G\e[J%s' "$input"
+		}
 		function __flush {
 			# get the new input
 			local input="$1"
-			# trim the first item from the old inputs
-			if [[ $option_lines -eq 1 ]]; then
-				lines=()
-			elif [[ $prior_lines_count -eq $option_lines ]]; then
-				lines=("${lines[@]:1}")
+			# handle prefix
+			if [[ $last_modifier == $'\r' ]]; then
+				# apply \r
+				__write printf '\r%s' "$input"
+				# \r moves the cursor to the start, and overwrites, so if this line is smaller than the last, then we need to update the last line
+				if [[ $prior_lines_count -ne 0 ]]; then
+					local last_line="${lines[prior_lines_count-1]}"
+					if [[ ${#last_line} -gt ${#input} ]]; then
+						input+="$(__get_substring "$last_line" "${#input}")"
+					fi
+					lines[prior_lines_count-1]="$input"
+				fi
+				# if we don't do the \r application earlier, then we can do this
+				# __write printf '\e[G\e[J%s' "$input"
+				last_modifier=''
+			else
+				# trim the first item from the old inputs
+				if [[ $option_lines -eq 1 ]]; then
+					lines=()
+				elif [[ $prior_lines_count -eq $option_lines ]]; then
+					lines=("${lines[@]:1}")
+				fi
+				# add the new input to the end of the old inputs
+				lines+=("$input")
+				# move the cursor up and clear
+				__clear
+				__write __join $'\n' "${lines[@]}"
+				# update the prior lines count
+				prior_lines_count="${#lines[@]}"
 			fi
-			# add the new input to the end of the old inputs
-			lines+=("$input")
-			# move the cursor up and clear
-			__clear
-			__do --redirect-stdout="$option_target" -- __join $'\n' "${lines[@]}"
-			# update the prior lines count
-			prior_lines_count="${#lines[@]}"
 		}
-		while IFS= read -r input || [[ -n $input ]]; do
-			# discard empty lines
-			if [[ -z $input ]]; then
-				continue
-			fi
+		function __process {
+			local input="$1"
 			# escape shapeshifting
-			input="$(__escape_shapeshifting -- "$input")"
+			input="$(__split_shapeshifting -- "$input")"
+			input="$(__get_substring_after_last	"$input" $'\n' "$input")"
+			# is ignored?
+			last_input_ignored='no'
+			for pattern in "${option_ignore_pattern[@]}"; do
+				if [[ $input =~ $pattern ]]; then
+					last_input_ignored='yes'
+					return 0
+				fi
+			done
 			# get only the last columns
 			input="$(__get_substring "$input" "$negative_columns")"
-			# check we still have something left
-			if [[ -z $input ]]; then
-				continue
-			fi
 			# flush this input
 			__flush "$input"
-		done
+		}
+		if [[ $option_shapeshifter != 'yes' ]]; then
+			local input=''
+			while IFS= read -r input || [[ -n $input ]]; do
+				__process "$input"
+			done
+		else
+			# @todo there is a bug here, where [aaa] is becoming [aa]
+			# printf 'aaa\b\naaa\b\bA\n\r\bccc\b\r\bd\r\n' | echo-revolving-door --shapeshifter
+			local character last_character='' backspace_index=0 input=''
+			# only bash v5: while IFS= read -rN1 character || [[ -n $character ]]; do
+			# what we implemented works on all bash: https://unix.stackexchange.com/a/626655/50703
+			while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+				if [[ $character == $'\b' ]]; then
+					# \b has no effect on \n and \r
+					if [[ $last_character = $'\n' || $last_character = $'\r' ]]; then
+						backspace_index=0
+						continue
+					elif [[ $last_character == $'\b' ]]; then
+						backspace_index="$((backspace_index - 1))"
+					else
+						backspace_index=-1
+					fi
+					last_character=$'\b'
+					continue
+				elif [[ $character == $'\r' ]]; then
+					# if \r would be a no-op, then skip it
+					if [[ -z $last_character || $last_character == $'\n' || $last_character == $'\r' ]]; then
+						last_character=$'\r'
+						continue
+					fi
+					# no need to apply backspace, as \r discards \b
+					# flush the prior input
+					__process "$input"
+					input=''
+					last_character=$'\r'
+					if [[ $last_input_ignored == 'no' ]]; then
+						last_modifier=$'\r'
+					fi
+				elif [[ $character == $'\n' ]]; then
+					# no need to apply backspace, as \n discards \b
+					# flush the prior input
+					__process "$input"
+					input=''
+					last_character=$'\n'
+					last_modifier=$'\n'
+				else
+					if [[ $last_character == $'\b' ]]; then
+						# apply the backspace
+						input="$(__get_substring "$input" 0 "$backspace_index")$character$(__get_substring "$input" "$((backspace_index + 1))")"
+					else
+						input+="$character"
+					fi
+					last_character="$character"
+				fi
+			done
+			__process "$input"
+		fi
 		__clear
 	fi
 )

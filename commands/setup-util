@@ -3,6 +3,9 @@
 # @todo support these:
 # https://github.com/zyedidia/eget
 # https://github.com/marwanhawari/stew
+# https://flox.dev/docs/
+# https://cashapp.github.io/hermit/
+# https://github.com/innobead/huber#installing-huber
 
 function setup_util() (
 	source "$DOROTHY/sources/bash.bash"
@@ -58,6 +61,7 @@ function setup_util() (
 		rpm  # prefer dnf wrapper, note this is also available on opensuse however zypper is preferred there
 
 		# +precompiled -autoupdate -extras
+		nvm
 		download # remote download from url
 
 		# +compiling +autoupdate
@@ -250,6 +254,7 @@ function setup_util() (
 	local MAS=()
 	local NIX=() NIX_PROFILE=()
 	local NPM=() NODE=()
+	local NVM=()
 	local PACMAN=()
 	local PAKKU=()
 	local PAMAC=()
@@ -404,6 +409,7 @@ function setup_util() (
 		'NIX='*) NIX+=("${item#*=}") ;;
 		'NODE='*) NODE+=("${item#*=}") ;;
 		'NPM='*) NPM+=("${item#*=}") ;;
+		'NVM='*) NVM+=("${item#*=}") ;;
 		'PACMAN='*) PACMAN+=("${item#*=}") ;;
 		'PAKKU='*) PAKKU+=("${item#*=}") ;;
 		'PAMAC='*) PAMAC+=("${item#*=}") ;;
@@ -495,7 +501,7 @@ function setup_util() (
 		is_working='yes'
 		is_missing='yes'
 		if [[ -n $option_checker ]]; then
-			if command "$option_checker"; then
+			if eval "$option_checker" >/dev/null; then
 				is_missing='no'
 			else
 				is_working='no'
@@ -1356,11 +1362,7 @@ function setup_util() (
 		local packages=("$@") package
 		# returns 1 only if all are missing, returns 0 if any are installed
 		for package in "${packages[@]}"; do
-			if apt list --installed 2>/dev/null | grep --quiet --fixed-strings --regexp="$package/" &>/dev/null; then
-				continue
-			else
-				return 1
-			fi
+			apt list --installed 2>/dev/null | grep --quiet --fixed-strings --regexp="$package/" &>/dev/null || return 1
 		done
 		return 0
 	}
@@ -2330,25 +2332,85 @@ function setup_util() (
 	# @todo add yarn
 	# https://github.com/yarnpkg/yarn/issues/2993
 
+	# Node.js Version Manager (NVM)
+	# @todo the only current way to prevent re-installation of an already installed nvm node version is via:
+	# setup-util --checker='nvm-env -- nvm exec --lts -- node --version' NVM='--lts' NVM='node' NVM='8'
+	# however we can see there that it will only check for [--lts] and not [node] (aka stable) and [8]
+	# we could move the cli/checker and whatnot checks until after these helpers, and then use these *_installed helpers
+	# to detect if the version is installed, and then skip unless --upgrade is provided
+	function __are_any_of_these_nvm_packages_installed {
+		local packages=("$@") package
+		for package in "${packages[@]}"; do
+			if nvm-env -- nvm exec "$package" -- node --version &>/dev/null; then
+				return 0
+			fi
+		done
+		return 1
+	}
+	function __check_nvm {
+		local packages=("${NVM[@]}")
+
+		# check if applicable
+		if [[ ${#packages[@]} -eq 0 ]]; then
+			return 200 # ECUSTOM 200 Not applicable to this utility
+		fi
+		if ! nvm-env -- nvm --help &>/dev/null; then
+			fallbacks+=('nvm')
+			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
+		fi
+		if [[ $option_action == 'uninstall' ]] && ! __are_any_of_these_nvm_packages_installed "${packages[@]}"; then
+			return 200 # ECUSTOM 200 Not applicable to this uninstallation
+		fi
+	}
+	function do_nvm {
+		local packages=("${NVM[@]}") args=() package
+
+		# args
+		if [[ $option_action == 'uninstall' ]]; then
+			args+=(
+				'uninstall'
+			)
+		else
+			# install / upgrade
+			args+=(
+				'install'
+				'--no-progress'
+			)
+		fi
+
+		# packages
+		for package in "${packages[@]}"; do
+			nvm-env -- nvm "${args[@]}" "${packages[@]}"
+		done
+	}
+	function do_nvm_fallback {
+		log_fallback 'Node.js Version Manager (NVM)'
+		setup-util-nvm --quiet="$option_quiet"
+		source "$DOROTHY/sources/environment.sh"
+		do_nvm "$@"
+	}
+
 	# -------------------------------------
 	# Python
 
 	# pip / Python
 	# https://man.archlinux.org/man/extra/python-pip/pip.1.en
 	function __pip_helper {
-		# Use the correct [pip] executable for the user's environment, as there may be many or multiple installed, such as one for Python v2 and one for Python v3.
+		# use the global [pip] first, as that is likely upgraded
+		# then use the [python] pips, as they are guaranteed to work with their respective python version
+		# then use the generic [pip] locations, which probably won't work if the prior things didn't
 		if __command_exists -- pip; then
 			pip "$@" || return
 		elif python -m pip --version &>/dev/null; then
 			python -m pip "$@" || return
-		elif __command_exists -- pip3; then
-			pip3 "$@" || return
 		elif python3 -m pip --version &>/dev/null; then
 			python -m pip "$@" || return
-		elif __command_exists -- pip2; then
-			pip2 "$@" || return
 		elif python2 -m pip --version &>/dev/null; then
 			python -m pip "$@" || return
+		elif __command_exists -- pip3; then
+			pip3 "$@" || return
+		elif __command_exists -- pip2; then
+			pip2 "$@" || return
 		elif __command_exists -- /usr/local/bin/pip; then
 			/usr/local/bin/pip "$@" || return
 		elif [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/pip" ]]; then
@@ -2375,7 +2437,7 @@ function setup_util() (
 		if [[ ${#packages[@]} -eq 0 ]]; then
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
-		if ! __pip_helper --version; then
+		if ! __pip_helper --version &>/dev/null; then
 			fallbacks+=('pip')
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
@@ -2392,33 +2454,25 @@ function setup_util() (
 		fi
 
 		# args
+		# https://github.com/bevry/dorothy/commit/8aaa8aaabf892e6073627f0e7c394a579761b885
 		if [[ $option_action == 'uninstall' ]]; then
-			args+=(
-				'__pip_helper'
-				'uninstall'
-				'--yes'
-			)
+			args+=(__pip_helper uninstall --yes)
 		else
-			args+=(
-				'__pip_helper'
-				'install'
-				'--user'
-				'--no-warn-script-location'
-			)
+			args+=(__pip_helper install --user --no-warn-script-location)
 			if [[ $option_upgrade == 'yes' ]]; then
-				args+=('--upgrade')
+				args+=(--upgrade)
 			fi
 			if [[ $option_force == 'yes' ]]; then
-				args+=('--force-reinstall ')
+				args+=(--force-reinstall)
 			fi
 		fi
 
 		# packages
-		"${args[@]}" "${packages[@]}"
+		"${args[@]}" --break-system-packages "${packages[@]}" || "${args[@]}" "${packages[@]}"
 	}
 	function do_pip_fallback {
 		log_fallback 'Python & PIP'
-		setup-util-python --quiet="$option_quiet"
+		setup-python
 		source "$DOROTHY/sources/environment.sh"
 		do_pip "$@"
 	}
@@ -2468,27 +2522,18 @@ function setup_util() (
 
 		# args
 		if [[ $option_action == 'uninstall' ]]; then
-			args+=(
-				'pipx'
-				'uninstall-all'
-			)
+			args+=(pipx uninstall-all)
 		elif [[ $option_upgrade == 'yes' ]]; then
-			args+=(
-				'pipx'
-				'upgrade-all'
-			)
+			args+=(pipx upgrade-all --include-deps)
 			if [[ $option_force == 'yes' ]]; then
-				args+=('--force')
+				args+=(--force)
 			fi
 		else
-			# if [[ "$option_force" = 'yes' ]]; then
-			#	args+=('reinstall')
-			args+=(
-				'pipx'
-				'install' # install-all does not exist
-			)
+			# there is also [pipx reinstall] and [pipx reinstall-all]
+			# install-all does not exist
+			args+=(pipx install --include-deps)
 			if [[ $option_force == 'yes' ]]; then
-				args+=('--force')
+				args+=(--force)
 			fi
 		fi
 
@@ -2496,11 +2541,8 @@ function setup_util() (
 		"${args[@]}" "${packages[@]}"
 	}
 	function do_pipx_fallback {
-		if ! __pip_helper --version &>/dev/null; then
-			setup-python
-		fi
 		log_fallback 'Python & PIPX'
-		setup-util-pipx --quiet="$option_quiet"
+		setup-python
 		source "$DOROTHY/sources/environment.sh"
 		do_pipx "$@"
 	}

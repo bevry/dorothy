@@ -488,20 +488,56 @@ function __is_within {
 		local needle="$1" array_var_name="$2" n i
 		# trunk-ignore(shellcheck/SC1087)
 		eval "n=\${#$array_var_name[@]}"
-		if [[ $n -ne 0 ]]; then
-			for (( i = 0; i < n; ++i )); do
-				# trunk-ignore(shellcheck/SC1087)
-				if eval "[[ \$needle == \"\${$array_var_name[i]}\" ]]"; then
-					return 0
-				fi
-			done
-		fi
+		for ((i = 0; i < n; ++i)); do
+			# trunk-ignore(shellcheck/SC1087)
+			if eval "[[ \$needle == \"\${$array_var_name[i]}\" ]]"; then
+				return 0
+			fi
+		done
 		return 1
 	fi
 }
 
+# # __intersect <array-var-name> <array-var-name>
+# function __intersect {
+# 	local array_var_name_left="$1" array_var_name_right="$2" n_left n_right i_left i_right
+# 	# trunk-ignore(shellcheck/SC1087)
+# 	eval "n_left=\${#$array_var_name_left[@]}"
+# 	# trunk-ignore(shellcheck/SC1087)
+# 	eval "n_right=\${#$array_var_name_right[@]}"
+# 	for ((i_left = 0; i_left < n_left; ++i_left)); do
+# 		for ((i_right = 0; i_right < n_right; ++i_right)); do
+# 			if eval "[[ \"\${$array_var_name_left[i]}\" == \"\${$array_var_name_right[i]}\" ]]"; then
+# 				eval "__print_lines \"\${$array_var_name_left[i]}\""
+# 				break
+# 			fi
+# 		done
+# 	done
+# }
+
+# # __complement <array-var-name> <array-var-name>
+# function __complement {
+# 	local array_var_name_left="$1" array_var_name_right="$2" n_left n_right i_left i_right found
+# 	# trunk-ignore(shellcheck/SC1087)
+# 	eval "n_left=\${#$array_var_name_left[@]}"
+# 	# trunk-ignore(shellcheck/SC1087)
+# 	eval "n_right=\${#$array_var_name_right[@]}"
+# 	for ((i_left = 0; i_left < n_left; ++i_left)); do
+# 		found='no'
+# 		for ((i_right = 0; i_right < n_right; ++i_right)); do
+# 			if eval "[[ \"\${$array_var_name_left[i]}\" == \"\${$array_var_name_right[i]}\" ]]"; then
+# 				found='yes'
+# 				break
+# 			fi
+# 		done
+# 		if [[ $found == 'no' ]]; then
+# 			eval "__print_lines \"\${$array_var_name_left[i]}\""
+# 		fi
+# 	done
+# }
+
 # replace shapeshifting ANSI Escape Codes with newlines
-function __escape_shapeshifting {
+function __split_shapeshifting {
 	# trim -- prefix
 	if [[ ${1-} == '--' ]]; then
 		shift
@@ -512,8 +548,8 @@ function __escape_shapeshifting {
 	local input
 	for input in "$@"; do
 		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}"
-		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}"
-		input="${input//[[:cntrl:]][bf]/$'\n'}"
+		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}" # save and restore cursor
+		input="${input//[[:cntrl:]][bf]/$'\n'}"          # page-up, page-down
 		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
 		__print_lines "$input"
 	done
@@ -528,7 +564,7 @@ function __is_shapeshifter {
 	# proceed
 	local input trimmed
 	for input in "$@"; do
-		trimmed="$(__escape_shapeshifting -- "$input")"
+		trimmed="$(__split_shapeshifting -- "$input")"
 		if [[ $input != "$trimmed" ]]; then
 			return 0
 		fi
@@ -742,7 +778,9 @@ function __wait_for_and_remove_semaphores {
 function __wait_for_and_return_semaphores {
 	local semaphore_file semaphore_status=0
 	for semaphore_file in "$@"; do
-		while [[ ! -f $semaphore_file ]]; do
+		# needs -s as otherwise the file may exist but may not have finished writing, which would result in:
+		# return: : numeric argument required
+		while [[ ! -s $semaphore_file ]]; do
 			# __debug_lines "waiting for:" "$semaphore_file" "$(basename -- "$semaphore_file")" "has:" "$(ls -l1 "$temp_directory")"
 			sleep 0.01
 		done
@@ -1014,7 +1052,7 @@ function __do {
 		__return $? || return
 
 		# execute while tracking the exit status to our semaphore file
-		# can't use `__try` as our process
+		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
 		case "$arg_flag" in
 		--redirect-stdout) __do --right-to-left "$@" >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
 		--redirect-stderr) __do --right-to-left "$@" 2> >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;

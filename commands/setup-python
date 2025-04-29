@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# ✓✔☑
-# todo: this is newer than [setup-util pip|pipx] so consider what to do with them
-
 function setup_python() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -112,116 +109,120 @@ function setup_python() (
 	# Packages
 
 	# pip, pipx, user
+	local python_realpaths=()
 	function pip_install {
-		local bin="$1"
-		local pip_install=()
-		local pipx_install=()
-		local pip_installer_url pip_installer python_version
-
-		if __command_missing -- "$bin"; then
+		# python has a lot of symlinks so make sure we aren't doubling up
+		local python_bin="$1"
+		python_bin="$(type -P "$python_bin" || :)"
+		if [[ -z $python_bin ]]; then
 			return 0
 		fi
+		python_bin="$(fs-realpath -- "$python_bin" || :)"
+		if [[ -z $python_bin ]] || __is_within "$python_bin" 'python_realpaths'; then
+			return 0
+		fi
+		python_realpaths+=("$python_bin")
 
 		# log
-		echo-style --h2="packages for $bin"
-		echo-style --dim="$bin: $(type -P "$bin")"
+		echo-style --h2="packages for $python_bin"
+		echo-style --dim="$python_bin: $(type -P "$python_bin")"
 
-		# generic prepare
-		pip_install+=(
+		# version specific prepare
+		local python_version pip_installer_url pip_installer pip_install=(
 			"${PIP_INSTALL[@]}"
 			"${PYTHON_INSTALL[@]}"
 		)
-
-		# version specific prepare
-		if get-python-version "$bin" '2.'; then
+		if get-python-version "$python_bin" '2.'; then
 			python_version=2
 			pip_install+=("${PYTHON2_PIP_INSTALL[@]}")
 			pip_installer_url='https://bootstrap.pypa.io/pip/2.7/get-pip.py'
 		else
 			python_version=3
 			pip_install+=("${PYTHON3_PIP_INSTALL[@]}")
-			pipx_install+=("${PIPX_INSTALL[@]}")
 			pip_installer_url='https://bootstrap.pypa.io/get-pip.py'
 		fi
 
-		# download pip
-		echo-style --h3='download pip'
+		# download pip installer
+		# filename must be get-pip.py, otherwise this error occurs:
+		# https://github.com/pypa/pip/issues/10809
+		# AssertionError: /usr/local/Cellar/python@3.9/3.9.10/Frameworks/Python.framework/Versions/3.9/lib/python3.9/distutils/core.py
 		pip_installer="$(
 			fs-temp \
 				--directory='setup-python' \
-				--directory="python-${python_version}" \
+				--directory="$python_bin-$python_version" \
 				--file='get-pip.py'
 		)"
-		# ^ filename must be get-pip.py, otherwise this error occurs:
-		# https://github.com/pypa/pip/issues/10809
-		# AssertionError: /usr/local/Cellar/python@3.9/3.9.10/Frameworks/Python.framework/Versions/3.9/lib/python3.9/distutils/core.py
 		down --url="$pip_installer_url" --filepath="$pip_installer"
 		fs-own --permissions='+x' -- "$pip_installer"
-		echo-style --dim="installer: $pip_installer"
-		echo-style --g3='download pip'
 
-		# install pip, depending on the situation, it may or may not have --break-system-packages
-		# @todo move this to setup-util-pip
-		echo-style --h3='install pip'
-		function __install_pip {
-			eval-helper --quiet --wrap -- \
-				"$bin" "$pip_installer" --user "$@" || return
+		# helpers
+		# @note: these cannot be separated from [setup-python] as it is dependent on the specific invoking python version
+		# depending on the situation, it may or may not have --break-system-packages
+		function __install_pip_inner {
+			eval-helper --verbose --wrap -- \
+				"$python_bin" "$pip_installer" --user --no-warn-script-location "$@" || return
 		}
-		__install_pip --break-system-packages || __install_pip
-		echo-style --g3='install pip'
+		function __install_pip {
+			__install_pip_inner --break-system-packages "$@" || __install_pip_inner "$@" || return
+		}
+		function __pip_install_inner {
+			eval-helper --verbose --wrap -- \
+				"$python_bin" -m pip install --user --no-warn-script-location "$@" || return
+		}
+		function __pip_install {
+			__pip_install_inner --break-system-packages "$@" || __pip_install_inner "$@" || return
+		}
+
+		# install pip
+		__install_pip
 		source "$DOROTHY/sources/environment.sh"
 
-		# __print_lines '' "Upgrading pip for $bin..."
-		# "$bin" -m pip install \
-		# 	--user --upgrade --force-reinstall --no-warn-script-location \
-		# 	pip setuptools
-		# source "$DOROTHY/sources/environment.sh"
-
 		# install pip packages
-		echo-style --h3="install ${#pip_install[@]} pip packages"
-		for item in "${pip_install[@]}"; do
-			eval-helper --quiet --wrap \
-				--success="$(echo-style --success="pip installed: $item")" -- \
-				"$bin" -m \
-				pip install --user --break-system-packages --upgrade --force-reinstall --no-warn-script-location \
-				"$item" || :
-		done
-		echo-style --g3="install ${#pip_install[@]} pip packages"
+		if [[ ${#pip_install[@]} -ne 0 ]]; then
+			echo-style --h3="install ${#pip_install[@]} pip packages"
+			__pip_install "${pip_install[@]}"
+			echo-style --g3="install ${#pip_install[@]} pip packages"
+		fi
 
-		# pipx
+		# install pipx
 		if [[ $python_version -eq 3 ]]; then
-			# install pipx
-			# @todo move this to setup-util-pipx
-			echo-style --h3='install pipx'
-			# fix: Not removing existing venv /Users/balupton/.local/pipx/venvs/youtube-dl because it was not created in this session
-			fs-rm --quiet --no-confirm -- "$HOME/.local/pipx" "$HOME/Library/Application Support/pipx"
-			eval-helper --quiet --wrap -- \
-				"$bin" -m \
-				pip install --user --break-system-packages --upgrade --force-reinstall --no-warn-script-location \
-				pipx || :
-			echo-style --g3='install pipx'
-			source "$DOROTHY/sources/environment.sh"
-
-			# install pipx packages
-			echo-style --h3="install ${#pipx_install[@]} pipx packages"
-			for item in "${pipx_install[@]}"; do
-				eval-helper --quiet --wrap \
-					--success="$(echo-style --success="pipx installed: $item")" -- \
-					"$bin" -m \
-					pipx install --include-deps --force \
-					"$item" || :
-			done
-			echo-style --g3="install ${#pipx_install[@]} pipx packages"
+			__pip_install --upgrade --force-reinstall pipx
 		fi
 
 		# done
-		echo-style --g2="packages for $bin"
+		echo-style --g2="packages for $python_bin"
 	}
 
 	# install
 	pip_install python
 	pip_install python2
 	pip_install python3
+	source "$DOROTHY/sources/environment.sh"
+
+	# pipx is installed via pip for each python v3 version
+	# however pipx packages exist in a single global space
+	if [[ ${#PIPX_INSTALL[@]} -ne 0 ]]; then
+		echo-style --h3="install ${#PIPX_INSTALL[@]} pipx packages"
+		setup-util --installer=PIPX -- "${PIPX_INSTALL[@]}"
+		echo-style --g3="install ${#PIPX_INSTALL[@]} pipx packages"
+	fi
+
+	# =====================================
+	# Cleanup Caches
+
+	# fix pip installations for python versions that not longer exist
+	local pipdirs pipdir pip
+	pipdirs=("$HOME/Library/Python/"*)
+	for pipdir in "${pipdirs[@]}"; do
+		pip="$pipdir/bin/pip"
+		if ! "$pip" --version &>/dev/null; then
+			fs-rm --quiet --confirm --reason="$pip failed to execute, likely because it's python version is no longer installed/relevant, do you want to remove its cached packages?" -- "$pipdir"
+		fi
+	done
+
+	# fix pipx cache error, might not be needed anymore, hence why it is commented out:
+	# fix: Not removing existing venv /Users/balupton/.local/pipx/venvs/youtube-dl because it was not created in this session
+	# fs-rm --quiet --no-confirm -- "$HOME/.local/pipx" "$HOME/Library/Application Support/pipx"
 
 	# =====================================
 	# Finish
