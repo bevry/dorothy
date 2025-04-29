@@ -1391,7 +1391,7 @@ function dorothy_() (
 	# don't use [sh], as [sh] is [dash] on ubuntu, and [dash] doesn't support the [--...] args
 	function act_repl {
 		# process arguments
-		local item shell='' theme=''
+		local item shell='' theme='' shells=(bash fish)
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -1410,48 +1410,35 @@ function dorothy_() (
 		# action
 		ensure_minimal_dependencies
 
-		# ask
+		# ensure
 		if [[ -z $shell ]]; then
 			shell="$(
 				choose --linger --required \
 					--question='Which shell to use?' -- \
-					bash fish nu
+					"${shells[@]}"
 			)"
 		fi
-
-		# act, installing the shell if it is missing
-		if [[ $shell == 'bash' ]]; then
-			setup-util-bash --quiet
+		function __repl_bash {
 			# [bash --rcfile] works but not within a [--rcfile]
 			# [--login] ignores [--rcfile]
 			# this is not a true login shell, as [$0] is not [-bash], as such loading [init.sh] is incompatible
 			# without [env -i] which would wipe [USER/HOME/DOROTHY], then this shell will inherit exports from the current environment
-			export DOROTHY_RUN=yes
-			"$shell" --rcfile <(
-				cat <<-EOF
-					#!/usr/bin/env bash
-					DOROTHY_FORCE_LOAD=yes
-					DOROTHY_THEME_OVERRIDE='$theme'
-					. '$DOROTHY/init.sh'
-					echo-style 'Your are now using the ' --invert='$ACTIVE_POSIX_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \$'\n' 'Use the ' --code='exit' ' command to return to your parent shell.' \$'\n' 'Use ' --code='dorothy commands' ' to see available commands.'
-				EOF
-			)
-			return
-		elif [[ $shell == 'nu' ]]; then
-			setup-util-nu --quiet
-			export DOROTHY_RUN=yes
-			"$shell" --interactive --login --no-config-file --execute "$(
-				cat <<-EOF
-					#!/usr/bin/env nu
-					\$env.DOROTHY_THEME_OVERRIDE = '$theme'
-					source '$DOROTHY/init.nu'
-					echo-style 'Your are now using the ' --invert='nu' ' shell with Dorothy loaded from ' --code='$DOROTHY' "\n" 'Use the ' --code='exit' ' command to return to your parent shell.' "\n" 'Use ' --code='dorothy commands' ' to see available commands.'
-				EOF
-			)"
-			return
-		elif [[ $shell == 'fish' ]]; then
-			setup-util-fish --quiet
-			export DOROTHY_RUN=yes
+			if ! __has_tty_support; then
+				echo-error 'Cannot use ' --invert="$shell" ' as that shell only supports custom REPLs when ' --code='/dev/tty' ' is available.'
+				return 93 # EPROTONOSUPPORT 93 Protocol not supported
+			fi
+			local rcfile
+			rcfile="$(mktemp)"
+			cat <<-EOF >"$rcfile"
+				#!/usr/bin/env bash
+				DOROTHY_FORCE_LOAD=yes
+				DOROTHY_THEME_OVERRIDE='$theme'
+				. '$DOROTHY/init.sh'
+				echo-style 'Your are now using the ' --invert='$ACTIVE_POSIX_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \$'\n' 'Use the ' --code='exit' ' command to return to your parent shell.' \$'\n' 'Use ' --code='dorothy commands' ' to see available commands.'
+			EOF
+			"$shell" --interactive --rcfile "$rcfile" || return
+		}
+		function __repl_fish {
 			"$shell" --interactive --login --no-config --init-command="$(
 				cat <<-EOF
 					#!/usr/bin/env fish
@@ -1459,8 +1446,28 @@ function dorothy_() (
 					source '$DOROTHY/init.fish'
 					echo-style 'Your are now using the ' --invert='fish' ' shell with Dorothy loaded from ' --code='$DOROTHY' \n 'Use the ' --code='exit' ' command to return to your parent shell.' \n 'Use ' --code='dorothy commands' ' to see available commands.'
 				EOF
-			)"
-			return
+			)" || return
+		}
+		function __repl_nu {
+			# No longer supported:
+			# Error:   × Nushell launched as a REPL, but STDIN is not a TTY; either launch in a valid terminal or provide arguments to invoke a script!
+			setup-util-nu --quiet || return
+			"$shell" --interactive --login --no-config-file --execute "$(
+				cat <<-EOF
+					#!/usr/bin/env nu
+					\$env.DOROTHY_THEME_OVERRIDE = '$theme'
+					source '$DOROTHY/init.nu'
+					echo-style 'Your are now using the ' --invert='nu' ' shell with Dorothy loaded from ' --code='$DOROTHY' "\n" 'Use the ' --code='exit' ' command to return to your parent shell.' "\n" 'Use ' --code='dorothy commands' ' to see available commands.'
+				EOF
+			)" || return
+		}
+
+		# act, installing the shell if it is missing
+		if __is_within "$shell" 'shells'; then
+			setup-util-"$shell" --quiet || return
+			# TERM dumb fallback solves: warning: Could not set up terminal because $TERM is unset. Falling back to hardcoded xterm-256color values
+			export DOROTHY_RUN=yes TERM="${TERM:-"dumb"}"
+			__repl_"$shell" || return
 		else
 			echo-error 'Cannot use ' --invert="$shell" ' as that shell does not support REPLs with custom configuration.'
 			return 93 # EPROTONOSUPPORT 93 Protocol not supported
