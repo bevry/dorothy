@@ -26,7 +26,7 @@ From manual discovery:
 ## bash v4.0
 
 > [!NOTE]
-> Dorothy's `bash.bash` includes cross-version compatible implementations of `mapfile`, `__get_read_decimal_timeout`.
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `mapfile`, `__get_read_decimal_timeout`, `__uppercase_string`, `__lowercase_string`.
 
 From changelog:
 
