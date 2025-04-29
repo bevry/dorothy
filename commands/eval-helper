@@ -46,8 +46,6 @@
 # -i, --login
 #    Run the shell specified by the target user's password database entry as a login shell.
 
-# DOAS
-
 function eval_helper_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
@@ -196,10 +194,10 @@ function eval_helper() (
 	# option_failure_verbosity='' option_success_verbosity=''
 	local item option_cmd=() option_do_args=() \
 	option_quiet='' \
-	option_message_target='' option_wrap='' option_pending='' option_success='' option_failure='' option_command_string='' \
-	option_alternative_screen_buffer='' \
+	option_message_target='' option_wrap='' option_pending='' option_success='' option_failure='' \
+	option_revolving_args=() option_alternative_screen_buffer='' \
 	option_confirm='' \
-	option_until='' option_until_interval='' \
+	option_until='' option_until_interval='' option_until_attempts='' \
 	option_elevated=() option_elevate=() option_user='' option_group='' option_reason='' option_inherit='no'
 	function parse_elevated {
 		local value="$1" values=()
@@ -242,7 +240,6 @@ function eval_helper() (
 		'--pending='*) option_pending="${item#*=}" ;;
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
-		'--command='*) option_command_string="${item#*=}" ;;
 		# ...
 		# '--no-trim-padding'* | '--trim-padding'*)
 		# 	option_trim_padding="$(get-flag-value --affirmative --fallback="$option_trim_padding" -- "$item")"
@@ -258,6 +255,7 @@ function eval_helper() (
 		'--no-alternative-screen-buffer'* | '--alternative-screen-buffer'*)
 			option_alternative_screen_buffer="$(get-flag-value --affirmative --fallback="$option_alternative_screen_buffer" -- "$item")"
 			;;
+		'--revolving-'*) option_revolving_args+=("--${item#--revolving-}") ;;
 		# ...
 		'--no-confirm'* | '--confirm'*)
 			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
@@ -265,6 +263,7 @@ function eval_helper() (
 		# ...
 		'--until='*) option_until="${item#*=}" ;;
 		'--until-interval='* | '--until-delay='*) option_until_interval="${item#*=}" ;;
+		'--until-attempts='*) option_until_attempts="${item#*=}" ;;
 		# <elevate>
 		'--elevated='*)
 			parse_elevated "${item#*=}"
@@ -299,10 +298,12 @@ function eval_helper() (
 		fi
 	fi
 
-	# check
+	# require command
 	if [[ ${#option_cmd[@]} -eq 0 ]]; then
 		help 'No <command> was provided.'
 	fi
+
+	# ensure valid until
 	if [[ -n $option_until ]]; then
 		if [[ $option_until =~ ^(forever|success|failure)$ ]] || is-integer -- "$option_until"; then
 			: # valid
@@ -310,8 +311,20 @@ function eval_helper() (
 			help "An unrecognised <until> was provided: $option_until"
 		fi
 	fi
+
+	# default message target
 	if [[ -z $option_message_target ]]; then
 		option_message_target='TTY'
+	fi
+
+	# default reason
+	if [[ -z $option_reason ]]; then
+		option_reason='Your password is required to momentarily grant privileges to execute the command:'
+	fi
+
+	# convert 0 attempts to empty string aka unlimited
+	if [[ $option_until_attempts == 0 ]]; then
+		option_until_attempts=''
 	fi
 
 	# ensure shapeshifters that write to TTY are cleared correctly
@@ -391,27 +404,6 @@ function eval_helper() (
 	# =====================================
 	# Action
 
-	# element
-	local element_open='' command_style='code'
-	if [[ -z $option_command_string ]]; then
-		option_command_string="$(
-			echo-style --"$command_style"="$(
-				echo-escape-command -- "${option_cmd[@]}"
-			)"
-		)"
-	fi
-	if [[ $option_wrap == 'yes' ]]; then
-		element_open="$(echo-style --element="$option_command_string")"
-	else
-		element_open="$(echo-style --code="$option_command_string")"
-	fi
-
-	# confirm
-	if [[ $option_confirm == 'yes' ]] && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command that is below:' "$element_open"; then
-		echo-style --tty --notice1='Skipped execution of:' --code-notice1="$element_open"
-		return 0
-	fi
-
 	# messages
 	local messages=''
 	function __flush_messages {
@@ -421,29 +413,53 @@ function eval_helper() (
 		fi
 	}
 
+	# revolving
+	function __revolving {
+		echo-revolving-door "${option_revolving_args[@]}" || return
+	}
+
 	# run
 	# never execute [run_] in a conditional, as if command is an function, its behaviour will be altered
-	local run_status
+	local run_status cmd_elevate=() next_attempt=1 elevate_prompt styled_standard_command_string styled_elevate_command_string styled_command_string
+	styled_standard_command_string="$(echo-escape-command -- "${option_cmd[@]}")"
 	function run_args {
 		# reset
 		run_status=''
 
 		# headers
-		local header='' cmd=("$@")
+		local header='' temp='' temp2='' cmd=("$@")
 
 		# pending
 		if [[ -n $option_pending ]]; then
-			header+="$option_pending"$'\n'
+			temp="$option_pending"$'\n'
+			messages+="$temp"
+			header+="$temp"
+		fi
+
+		# confirm
+		temp2="$(echo-style --element="$styled_command_string")"$'\n'
+		if [[ $elevate_prompt == 'yes' ]]; then
+			temp="$(echo-style --notice="$option_reason")"$'\n'
+			messages+="$temp"
+			header+="$temp"
+		elif [[ $option_confirm == 'yes' ]] && __flush_messages && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command:' "$temp2"; then
+			run_status=125
+			messages+="$(echo-style --element/="$styled_command_string" --status="$run_status")"$'\n'
+			if [[ -n $option_failure ]]; then
+				messages+="$option_failure"$'\n'
+			fi
+			__flush_messages
+			return 0
 		fi
 
 		# open wrap
-		if [[ $option_wrap == 'yes' ]]; then
-			header+="$element_open"$'\n'
+		if [[ $option_wrap == 'yes' || $elevate_prompt == 'yes' ]]; then
+			messages+="$temp2"
+			header+="$temp2"
 		fi
 
 		# flush
 		if [[ -n $header ]]; then
-			messages+="$header"
 			__flush_messages || return
 		fi
 
@@ -455,7 +471,7 @@ function eval_helper() (
 
 			# close wrap
 			if [[ $option_wrap == 'yes' ]]; then
-				messages+="$(echo-style --/element="$option_command_string" --status="$run_status")"$'\n'
+				messages+="$(echo-style --/element="$styled_command_string" --status="$run_status")"$'\n'
 			fi
 
 			# success or failure
@@ -491,14 +507,16 @@ function eval_helper() (
 				# restore the original screen buffer
 				echo-style --no-trail --tty --default-screen-buffer
 			else
+				# trap '' SIGINT
 				__do --redirect-status={run_status} \
 					--redirect-output=stderr \
 					--copy-stderr={body} \
 					"${option_do_args[@]}" \
-					--redirect-output="(echo-revolving-door)" \
+					--redirect-output="(__revolving)" \
 					--redirect-output=TTY \
 					-- \
-					"${option_cmd[@]}"
+					"${cmd[@]}"
+				# trap - SIGINT
 			fi
 
 			# clear header, we can re-add them later if needed
@@ -521,12 +539,12 @@ function eval_helper() (
 					fi
 				else
 					if [[ -n $body ]]; then
-						messages+="$(echo-style --element="$option_command_string")"$'\n'
+						messages+="$(echo-style --element="$styled_command_string")"$'\n'
 						__flush_messages
 						__print_lines "$body" >&2
-						messages+="$(echo-style --/element="$option_command_string" --status="$run_status")"$'\n'
+						messages+="$(echo-style --/element="$styled_command_string" --status="$run_status")"$'\n'
 					else
-						messages+="$(echo-style --element="$option_command_string" --/fragment='' --status="$run_status")"$'\n'
+						messages+="$(echo-style --element="$styled_command_string" --/fragment='' --status="$run_status")"$'\n'
 					fi
 				fi
 
@@ -554,11 +572,11 @@ function eval_helper() (
 
 					# wrap
 					if [[ -n $body ]]; then
-						# self close as we are truncating
-						messages+="$(echo-style --/element="$option_command_string" --status="$run_status")"$'\n'
+						# close fragment of ellipses as we have truncated
+						messages+="$(echo-style --element="$styled_command_string" --code=' … ' --/fragment --status="$run_status")"$'\n'
 					else
-						# close fragment as there is no data
-						messages+="$(echo-style --element="$option_command_string" --/fragment --status="$run_status")"$'\n'
+						# self close, as no data
+						messages+="$(echo-style --element/="$styled_command_string" --status="$run_status")"$'\n'
 					fi
 				fi
 
@@ -572,21 +590,26 @@ function eval_helper() (
 			__flush_messages
 		fi
 	}
-	local cmd_elevate=()
 	function run_args_with_optional_elevation {
-		# reset command style
-		command_style='code'
+		# increment attempt
+		next_attempt=$((next_attempt + 1))
 
 		# try without sudo if applicable
 		if [[ $elevate == 'no' || $elevate_technique == 'none' ]]; then
+			styled_command_string="$styled_standard_command_string"
+			elevate_prompt='no'
 			run_args "${option_cmd[@]}"
 			return 0 # exit and delegate to run_status
 		elif [[ $elevate == 'failure' ]]; then
+			styled_command_string="$styled_standard_command_string"
+			elevate_prompt='no'
 			run_args "${option_cmd[@]}"
 			if [[ $run_status -eq 0 ]]; then
 				return 0 # exit and delegate to run_status
 			fi
 		elif [[ $elevate == 'status' ]]; then
+			styled_command_string="$styled_standard_command_string"
+			elevate_prompt='no'
 			run_args "${option_cmd[@]}"
 			for item in "${elevate_on_statuses[@]}"; do
 				if [[ $run_status -eq $item ]]; then
@@ -598,9 +621,6 @@ function eval_helper() (
 				return 0 # exit and delegate to run_status
 			fi
 		fi
-
-		# elevate command style
-		command_style='sudo'
 
 		# prepare elevation
 		if [[ ${#cmd_elevate[@]} -eq 0 ]]; then
@@ -635,21 +655,6 @@ function eval_helper() (
 					cmd_elevate+=(--group="$option_group")
 				fi
 
-				# check if password is required
-				# [sudo --validate] doesn't work on multipass, so just use [true] as a no-op
-				if ! "${cmd_elevate[@]}" --non-interactive -- true &>/dev/null; then
-					# password is required, let the user know what they are being prompted for
-					# [--code=*] better than [echo-style --element/="$(echo-escape-command -- "${cmd_elevate[@]}" | echo-join ' ' --stdin)"] as that is too verbose
-					# use [--tty] to ensure the prompt is not hidden when otherwise hiding sudo output, such as in [command-working]
-					# while it would be nice to clear lines, we cannot know how many lines to clear as they could require multiple attempts to enter the password
-					if [[ -n $option_reason ]]; then
-						echo-style --tty --notice="$option_reason"
-					else
-						echo-style --tty --notice='Your password is required to momentarily grant privileges to execute the command:'
-					fi
-					option_wrap='yes'
-				fi
-
 				# ensure home is correctly configured for sudo
 				if [[ -n $home ]]; then
 					if [[ ! -e $home && ! -L $home ]]; then
@@ -666,8 +671,6 @@ function eval_helper() (
 					if is-linux; then
 						cmd_elevate+=(env PATH="$PATH")
 					fi
-				else
-					cmd_elevate+=(--)
 				fi
 			elif [[ $elevate_technique == 'doas' ]]; then
 				# https://man.archlinux.org/man/doas.1.en
@@ -683,24 +686,62 @@ function eval_helper() (
 					cmd_elevate+=(env DOROTHY="$DOROTHY" PATH="$PATH")
 				fi
 			fi
+			styled_elevate_command_string="$(echo-style --elevate="$(echo-escape-command -- "${cmd_elevate[@]}")" ' ' --code=-- ' ' --="$styled_standard_command_string")"
+		fi
+
+		# check if password is required
+		# [sudo --validate] doesn't work on multipass, so just use [true] as a no-op
+		if [[ $elevate_technique == 'sudo' ]] && ! "${cmd_elevate[@]}" --non-interactive -- true &>/dev/null; then
+			# password is required, let the user know what they are being prompted for
+			elevate_prompt='yes'
+		else
+			elevate_prompt='no'
 		fi
 
 		# note the elevation
-		if [[ ${#option_elevated[@]} -ne 0 && "${cmd_elevate[@]}" -ne 0 ]]; then
+		if [[ ${#option_elevated[@]} -ne 0 && ${#cmd_elevate[@]} -ne 0 ]]; then
 			__print_lines "${cmd_elevate[@]}" "${option_cmd[@]}" | echo-write -- "${option_elevated[@]}"
 		fi
 
 		# run the possibly elevated command
+		styled_command_string="$styled_elevate_command_string"
 		run_args "${cmd_elevate[@]}" "${option_cmd[@]}"
 	}
 
 	run_args_with_optional_elevation "${cmd_elevate[@]}" "${option_cmd[@]}"
-	while [[ -n $option_until && ($option_until == 'forever' || ($option_until == 'success' && $run_status -ne 0) || ($option_until == 'failure' && $run_status -eq 0) || ($option_until -ne $run_status)) ]]; do
-		waiter "${option_until_interval:-"10"}" --message="$(echo-style --notice='Next attempt in %s...')"
-		if [[ $option_clear == 'yes' ]]; then
-			# clear the previous execution, re-adding the trailing newline
-			echo-clear-lines --target=TTY --here-string <<<"$attempt_output"
+	function __should_exit {
+		if [[ -z $option_until ]]; then
+			return 0
 		fi
+		if [[ -n $option_until_attempts && $next_attempt -gt $option_until_attempts ]]; then
+			return 0
+		fi
+		if [[ $option_until == 'forever' ]]; then
+			return 1
+		elif [[ $option_until == 'success' ]]; then
+			if [[ $run_status -eq 0 ]]; then
+				return 0
+			else
+				return 1
+			fi
+		elif [[ $option_until == 'failure' ]]; then
+			if [[ $run_status -ne 0 ]]; then
+				return 0
+			else
+				return 1
+			fi
+		elif [[ $option_until -eq $run_status ]]; then
+			return 0
+		else
+			return 1
+		fi
+	}
+	while ! __should_exit; do
+		waiter "${option_until_interval:-"10"}" --message="$(echo-style --notice="Attempt #$next_attempt in %s...")"
+		# if [[ $option_clear == 'yes' ]]; then
+		# 	# clear the previous execution, re-adding the trailing newline
+		# 	echo-clear-lines --target=TTY --here-string <<<"$attempt_output"
+		# fi
 		run_args_with_optional_elevation "${cmd_elevate[@]}" "${option_cmd[@]}"
 	done
 	return "$run_status"
