@@ -1838,6 +1838,14 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 		# proceed
 		__print_lines "${1@u}"
 	}
+	function __uppercase_string {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		__print_lines "${1@U}"
+	}
 	function __lowercase_string {
 		# trim -- prefix
 		if [[ ${1-} == '--' ]]; then
@@ -1860,6 +1868,14 @@ else
 			# proceed
 			__print_lines "${1^}"
 		}
+		function __uppercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			__print_lines "${1^^}"
+		}
 		function __lowercase_string {
 			# trim -- prefix
 			if [[ ${1-} == '--' ]]; then
@@ -1880,6 +1896,14 @@ else
 			local first_char="${input:0:1}"
 			local rest="${input:1}"
 			__print_lines "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
+		}
+		function __uppercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			tr '[:lower:]' '[:upper:]' <<<"$1" || return
 		}
 		function __lowercase_string {
 			# trim -- prefix
