@@ -582,8 +582,12 @@ style__color__count_spacer=" ${style__color__foreground_intense_black}∙${style
 style__color_end__legend="$style__color_end__intensity"
 style__color__key="${style__color__foreground_black}${style__color__background_white} "
 style__color_end__key=" ${style__color_end__foreground}${style__color_end__background}"
+style__color__key_active="${style__color__foreground_black}${style__color__background_intense_white} "
+style__color_end__key_active=" ${style__color_end__foreground}${style__color_end__background}"
 style__nocolor__key='['
 style__nocolor_end__key=']'
+style__nocolor__key_active='['
+style__nocolor_end__key_active=']'
 
 # paging counts
 # style__count_more=''
@@ -621,10 +625,11 @@ style__color__bar_line="${style__color__dim}│${style__color_end__dim} "
 
 # if confirm appears dim, it is because your terminal theme has changed and you haven't opened a new terminal tab
 
+# ${style__color__background_intense_white}: ⏴⏵
 # confirm color
-style__color__confirm_positive_active="${style__color__bold}${style__color__invert}${style__color__foreground_green} YES  ${style__color_end__invert}${style__color_end__bold}${style__color__key} Y ${style__color_end__key}"
-style__color__confirm_negative_active="${style__color__bold}${style__color__invert}${style__color__foreground_red} NO  ${style__color_end__invert}${style__color_end__bold}${style__color__key} N ${style__color_end__key}"
-style__color__confirm_proceed_active="${style__color__bold}${style__color__invert}${style__color__foreground_green} PROCEED  ${style__color_end__invert}${style__color_end__bold}${style__color__key} ENTER ${style__color_end__key} ${style__color__key} SPACE ${style__color_end__key} ${style__color__key} Y ${style__color_end__key}"
+style__color__confirm_positive_active="${style__color__bold}${style__color__invert}${style__color__foreground_green}⏵YES${style__color_end__underline}  ${style__color_end__invert}${style__color_end__bold}${style__color__key_active} Y ${style__color_end__key_active}"
+style__color__confirm_negative_active="${style__color__bold}${style__color__invert}${style__color__foreground_red}⏵NO${style__color_end__underline}  ${style__color_end__invert}${style__color_end__bold}${style__color__key_active} N ${style__color_end__key_active}"
+style__color__confirm_proceed_active="${style__color__bold}${style__color__invert}${style__color__foreground_green}⏵PROCEED${style__color_end__underline}  ${style__color_end__invert}${style__color_end__bold}${style__color__key_active} ENTER ${style__color_end__key_active} ${style__color__key_active} SPACE ${style__color_end__key_active} ${style__color__key_active} Y ${style__color_end__key_active}"
 
 style__color__confirm_positive_inactive="${style__color__foreground_green} YES  ${style__color__key} Y ${style__color_end__key}"
 style__color__confirm_negative_inactive="${style__color__foreground_red} NO  ${style__color__key} N ${style__color_end__key}"
