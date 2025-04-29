@@ -5,6 +5,7 @@ This topic will discuss incompatibilities between bash versions.
 Sources:
 
 - [Bash Changelog](https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES)
+- [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html)
 
 ## bash v3.1
 
@@ -45,14 +46,14 @@ From manual discovery:
 
 Changelog:
 
-> This document details the changes between this version, bash-4.0-release,
-> and the previous version, bash-4.0-rc1.
+> This document details the changes between this version, `bash-4.0-release`,
+> and the previous version, `bash-4.0-rc1`.
 >
 > a. `readarray` is now a synonym for `mapfile`.
 
-> This document details the changes between this version, bash-4.0-alpha, and the previous version, bash-3.2-release.
+> This document details the changes between this version, `bash-4.0-alpha`, and the previous version, `bash-3.2-release`.
 >
-> p. The `read' builtin has a new -i option which inserts text into the reply buffer when using readline.
+> p. The `read` builtin has a new `-i` option which inserts text into the reply buffer when using readline.
 >
 > u. There is a new `mapfile` builtin to populate an array with lines from a given file.
 >
@@ -72,9 +73,9 @@ From changelog:
 
 Changelog:
 
-> This document details the changes between this version, bash-4.1-alpha, and the previous version, bash-4.0-release.
+> This document details the changes between this version, `bash-4.1-alpha`, and the previous version, `bash-4.0-release`.
 >
-> ee. Fixed an off-by-one error when computing the number of positional parameters for the ${@:0:n} expansion.
+> ee. Fixed an off-by-one error when computing the number of positional parameters for the `${@:0:n}` expansion.
 
 ## bash v4.2
 
@@ -84,9 +85,9 @@ From changelog:
 
 Changelog:
 
-> This document details the changes between this version, bash-4.2-alpha, and the previous version, bash-4.1-release.
+> This document details the changes between this version, `bash-4.2-alpha`, and the previous version, `bash-4.1-release`.
 >
-> f. test/[/[[ have a new -v variable unary operator, which returns success if `variable' has been set.
+> f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
 
 ## bash v4.4
 
@@ -102,7 +103,7 @@ From changelog:
 
 Changelog:
 
-> This document details the changes between this version, bash-4.4-rc2, and the previous version, bash-4.4-beta2.
+> This document details the changes between this version, `bash-4.4-rc2`, and the previous version, `bash-4.4-beta2`.
 >
 > a. Using `${a[@]}` or `${a[*]}` with an array without any assigned elements when the nounset option is enabled no longer throws an unbound variable error.
 
@@ -112,35 +113,35 @@ Nothing notable to Dorothy in this release.
 
 Changelog:
 
-> This document details the changes between this version, bash-5.0-beta, and the previous version, bash-5.0-alpha.
+> This document details the changes between this version, `bash-5.0-beta`, and the previous version, `bash-5.0-alpha`.
 >
-> q. Fixed a bug that caused `lastpipe' and `pipefail' to return an incorrect status for the pipeline if there was more than one external command in a loop body appearing in the last pipeline element.
+> q. Fixed a bug that caused `lastpipe` and `pipefail` to return an incorrect status for the pipeline if there was more than one external command in a loop body appearing in the last pipeline element.
 
-> This document details the changes between this version, bash-5.0-alpha, and the previous version, bash-4.4-release.
+> This document details the changes between this version, `bash-5.0-alpha`, and the previous version, `bash-4.4-release`.
 >
-> f. Fixed a bug that caused SHLVL to be incremented one too many times when creating subshells.
+> f. Fixed a bug that caused `SHLVL` to be incremented one too many times when creating subshells.
 >
 > i. The shell no longer runs traps if a signal arrives while reading command substitution output.
 >
-> o. Changes to make sure that $* and ${array[*]} (and $@/${array[@]}) expand the same way after the recent changes for POSIX interpretation 888.
+> o. Changes to make sure that `$*` and `${array[*]}` (and `$@/${array[@]}`) expand the same way after the recent changes for POSIX interpretation 888.
 >
-> u. Fixed a bug that could result in command substitution, when executed in a context where word splitting is not performed, to leave a stray '\001' character in the string.
+> u. Fixed a bug that could result in command substitution, when executed in a context where word splitting is not performed, to leave a stray `\001` character in the string.
 >
-> ee. The ERR trap now reports line numbers more reliably.
+> ee. The `ERR` trap now reports line numbers more reliably.
 >
 > ss. Fixed a bug that allowed some redirections to stay in place if a later redirection failed.
 >
-> ww. Fixed a bug that could cause `read -N' to fail to read complete multibyte characters, even when the sequences are incomplete or invalid, with or without readline.
+> ww. Fixed a bug that could cause `read -N` to fail to read complete multibyte characters, even when the sequences are incomplete or invalid, with or without readline.
 >
-> mmm. `read -n 0' and `read -N 0' now try a zero-length read in an attempt to detect file descriptor errors.
+> mmm. `read -n 0` and `read -N 0` now try a zero-length read in an attempt to detect file descriptor errors.
 >
-> yyy. `wait' without arguments attempts to wait for all active process substitution processes.
+> yyy. `wait` without arguments attempts to wait for all active process substitution processes.
 >
-> a. The `wait' builtin can now wait for the last process substitution created.
+> a. The `wait` builtin can now wait for the last process substitution created.
 >
-> o. A new shopt option: localvar_inherit; if set, a local variable inherits the value of a variable with the same name at the nearest preceding scope.
+> o. A new `shopt` option: `localvar_inherit`; if set, a local variable inherits the value of a variable with the same name at the nearest preceding scope.
 >
-> x. The shell only sets up BASH_ARGV and BASH_ARGC at startup if extended debugging mode is active. The old behavior of unconditionally setting them is available as part of the shell compatibility options.
+> x. The shell only sets up `BASH_ARGV` and `BASH_ARGC` at startup if extended debugging mode is active. The old behavior of unconditionally setting them is available as part of the shell compatibility options.
 
 ## bash v5.1
 
@@ -155,9 +156,9 @@ From changelog:
 
 Changelog:
 
-> This document details the changes between this version, bash-5.1-alpha, and the previous version, bash-5.0-release.
+> This document details the changes between this version, `bash-5.1-alpha`, and the previous version, `bash-5.0-release`.
 >
-> x. `test -v N` can now test whether or not positional parameter N is set.
+> x. `test -v N` can now test whether or not positional parameter `N` is set.
 >
 > dd. New `U`, `u`, and `L` parameter transformations to convert to uppercase, convert first character to uppercase, and convert to lowercase, respectively.
 >
