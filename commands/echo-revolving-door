@@ -4,7 +4,6 @@
 
 function echo_revolving_door() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P echo-clear-lines)"
 
 	# =====================================
 	# Arguments
@@ -100,7 +99,7 @@ function echo_revolving_door() (
 			option_columns="$option_terminal_columns"
 		elif [[ $option_columns -lt 0 ]]; then
 			option_columns="$((option_terminal_columns + option_columns))"
-		elif [[ $option_lines -gt $terminal_lines ]]; then
+		elif [[ $option_columns -gt $terminal_columns ]]; then
 			option_columns="$option_terminal_columns"
 		fi
 	elif [[ $option_columns == 'terminal' ]]; then
@@ -108,54 +107,38 @@ function echo_revolving_door() (
 	fi
 
 	# sanity check
+	# this can happen if the negative value is greater than the terminal value
+	if ! [[ $option_lines =~ ^[0-9]+$ ]]; then
+		help "<lines> failed to determine a valid value: $option_lines"
+	fi
 	if ! [[ $option_columns =~ ^[0-9]+$ ]]; then
 		help "<columns> failed to determine a valid value: $option_columns"
-	fi
-	if ! [[ $option_lines =~ ^[0-9]+$ ]]; then
-		# this can happen if the negative value is greater than the terminal height
-		help "<lines> failed to determine a valid value: $option_lines"
 	fi
 
 	# =====================================
 	# Action
-
 
 	# trap 'trap - SIGINT; return 130' SIGINT
 
 	if [[ $option_lines -eq 0 || $option_columns -eq 0 ]]; then
 		cat
 	else
-		local negative_columns lines=() prior_lines_count=0 last_modifier='' last_input_ignored='no'
+		local negative_columns prior_lines_count=0 last_modifier='' last_input_ignored='no' # lines=()
 		negative_columns="$((option_columns * -1))"
-		function __clear {
-			if [[ $prior_lines_count -ne 0 ]]; then
-				echo_clear_lines --target="$option_target" --discard-last-line-as-inline --count="$prior_lines_count"
-			fi
-		}
-		function __join {
-			local join="$1"
-			shift
-			if [[ $# -eq 0 ]]; then
-				return 0
-			fi
-			local result=''
-			while [[ $# -gt 1 ]]; do
-				result+="$1$join"
-				shift
-			done
-			if [[ $# -eq 1 ]]; then
-				result+="$1"
-				shift
-			fi
-			printf '%s' "$result"
-		}
-		function __write {
+		function __target {
 			__do --redirect-stdout="$option_target" -- "$@"
+			# "$@"
 		}
-		function __replace {
-			local input="$1"
-			lines[prior_lines_count]="$input"
-			__write printf '\e[G\e[J%s' "$input"
+		function __clear_all {
+			if [[ $prior_lines_count -eq 0 ]]; then
+				:
+			elif [[ $prior_lines_count -eq 1 ]]; then
+				# clear the line
+				__target printf '\e[G\e[K'
+			else
+				# delete the lines
+				__target printf '\e[%dF\e[J' "$((prior_lines_count - 1))"
+			fi
 		}
 		function __flush {
 			# get the new input
@@ -163,39 +146,51 @@ function echo_revolving_door() (
 			# handle prefix
 			if [[ $last_modifier == $'\r' ]]; then
 				# apply \r
-				__write printf '\r%s' "$input"
+				__target printf '\r%s' "$input"
 				# \r moves the cursor to the start, and overwrites, so if this line is smaller than the last, then we need to update the last line
-				if [[ $prior_lines_count -ne 0 ]]; then
-					local last_line="${lines[prior_lines_count-1]}"
-					if [[ ${#last_line} -gt ${#input} ]]; then
-						input+="$(__get_substring "$last_line" "${#input}")"
-					fi
-					lines[prior_lines_count-1]="$input"
-				fi
+				# if [[ $prior_lines_count -ne 0 ]]; then
+				# 	local last_line="${lines[prior_lines_count-1]}"
+				# 	if [[ ${#last_line} -gt ${#input} ]]; then
+				# 		input+="$(__get_substring "$last_line" "${#input}")"
+				# 	fi
+				# 	lines[prior_lines_count-1]="$input"
+				# fi
 				# if we don't do the \r application earlier, then we can do this
-				# __write printf '\e[G\e[J%s' "$input"
+				# __target printf '\e[G\e[J%s' "$input"
 				last_modifier=''
 			else
 				# trim the first item from the old inputs
 				if [[ $option_lines -eq 1 ]]; then
-					lines=()
+					prior_lines_count=1
+					# lines=()
+					# erase this line, injecting the new input at the start of the line
+					__target printf '\e[G\e[K%s' "$input"
 				elif [[ $prior_lines_count -eq $option_lines ]]; then
-					lines=("${lines[@]:1}")
+					# lines=("${lines[@]:1}")
+					# delete the top line, then inject our new line at the start of the line
+					__target printf '\e[%dF\e[M\e[%dE%s' "$((prior_lines_count - 1))" "$((prior_lines_count - 1))" "$input"
+				elif [[ $prior_lines_count -eq 0 ]]; then
+					# add our new line
+					__target printf '%s' "$input"
+					prior_lines_count="$((prior_lines_count + 1))"
+				else
+					# add our new line after the prior line
+					__target printf '\n%s' "$input"
+					prior_lines_count="$((prior_lines_count + 1))"
 				fi
+
 				# add the new input to the end of the old inputs
-				lines+=("$input")
-				# move the cursor up and clear
-				__clear
-				__write __join $'\n' "${lines[@]}"
-				# update the prior lines count
-				prior_lines_count="${#lines[@]}"
+				# lines+=("$input")
+				# prior_lines_count="${#lines[@]}"
 			fi
 		}
 		function __process {
 			local input="$1"
 			# escape shapeshifting
 			input="$(__split_shapeshifting -- "$input")"
-			input="$(__get_substring_after_last	"$input" $'\n' "$input")"
+			if [[ $input == *$'\n'* ]]; then
+				input="$(__get_substring_after_last "$input" $'\n')"
+			fi
 			# is ignored?
 			last_input_ignored='no'
 			for pattern in "${option_ignore_pattern[@]}"; do
@@ -223,7 +218,7 @@ function echo_revolving_door() (
 			while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
 				if [[ $character == $'\b' ]]; then
 					# \b has no effect on \n and \r
-					if [[ $last_character = $'\n' || $last_character = $'\r' ]]; then
+					if [[ $last_character == $'\n' || $last_character == $'\r' ]]; then
 						backspace_index=0
 						continue
 					elif [[ $last_character == $'\b' ]]; then
@@ -266,7 +261,7 @@ function echo_revolving_door() (
 			done
 			__process "$input"
 		fi
-		__clear
+		__clear_all
 	fi
 )
 
