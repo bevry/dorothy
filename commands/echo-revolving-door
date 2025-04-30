@@ -46,7 +46,7 @@ function echo_revolving_door() (
 	}
 
 	# process
-	local item option_shapeshifter='' option_lines='' option_columns='' option_target='TTY' option_terminal_lines='' option_terminal_columns='' option_ignore_pattern=()
+	local item option_shapeshifter='' option_target='TTY' option_ignore_pattern=() option_lines='' option_columns='' option_max_lines='' option_max_columns='' option_min_lines='' option_min_columns='' option_terminal_lines='' option_terminal_columns=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -55,64 +55,91 @@ function echo_revolving_door() (
 		'--no-shapeshifter'* | '--shapeshifter'*)
 			option_shapeshifter="$(get-flag-value --affirmative --fallback="$option_shapeshifter" -- "$item")"
 			;;
-		'--lines='* | '--max-lines='*) option_lines="${item#*=}" ;;
-		'--columns='* | '--max-columns='*) option_columns="${item#*=}" ;;
-		'--terminal-lines='*) option_terminal_lines="${item#*=}" ;;
-		'--terminal-columns='*) option_terminal_columns="${item#*=}" ;;
 		'--target='*) option_target="${item#*=}" ;;
 		'--ignore-pattern='*) option_ignore_pattern+=("${item#*=}") ;;
+		'--lines='*) option_lines="${item#*=}" ;;
+		'--columns='*) option_columns="${item#*=}" ;;
+		'--max-lines='*) option_max_lines="${item#*=}" ;;
+		'--max-columns='*) option_max_columns="${item#*=}" ;;
+		'--min-lines='*) option_min_lines="${item#*=}" ;;
+		'--min-columns='*) option_min_columns="${item#*=}" ;;
+		'--terminal-lines='*) option_terminal_lines="${item#*=}" ;;
+		'--terminal-columns='*) option_terminal_columns="${item#*=}" ;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	# ensure lines and columns
-	if [[ -z $option_lines ]]; then
-		option_lines='terminal'
+	# ensure min and max are, if specified, valid positive numbers
+	if [[ -n $option_max_lines && ! ( $option_max_lines =~ ^[0-9]+$ ) ]]; then
+		help --="<max-lines=$option_max_lines> must be 0 or above"
 	fi
-	if [[ -z $option_columns ]]; then
-		option_columns='terminal'
+	if [[ -n $option_min_lines && ! ( $option_min_lines =~ ^[0-9]+$ ) ]]; then
+		help --="<min-lines=$option_min_lines> must be 0 or above"
+	fi
+	if [[ -n $option_max_lines && -n $option_min_lines && $option_max_lines -lt $option_min_lines ]]; then
+		help --="<max-lines=$option_min_lines> must be greater than <min-lines=$option_min_lines>"
+	fi
+	if [[ -n $option_max_columns && ! ( $option_max_columns =~ ^[0-9]+$ ) ]]; then
+		help --="<max-columns=$option_max_columns> must be 0 or above"
+	fi
+	if [[ -n $option_min_columns && ! ( $option_min_columns =~ ^[0-9]+$ ) ]]; then
+		help --="<min-columns=$option_min_columns> must be 0 or above"
+	fi
+	if [[ -n $option_max_columns && -n $option_min_columns && $option_max_columns -lt $option_min_columns ]]; then
+		help --="<max-columns=$option_min_columns> must be greater than <min-columns=$option_min_columns>"
 	fi
 
 	# adjust lines and columns to terminal lines and columns
-	local terminal_size=() terminal_lines=0
+	local terminal_size=()
 	if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
 		mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
 		if [[ ${#terminal_size[@]} -eq 2 ]]; then
-			option_terminal_lines="${terminal_size[0]}"
-			option_terminal_columns="${terminal_size[1]}"
+			if [[ -z $option_terminal_lines  ]]; then
+				option_terminal_lines="${terminal_size[0]}"
+			fi
+			if [[ -z $option_terminal_columns ]]; then
+				option_terminal_columns="${terminal_size[1]}"
+			fi
 		fi
 	fi
 	if [[ -n $option_terminal_lines ]]; then
-		if [[ $option_lines == 'terminal' ]]; then
+		if [[ -z $option_lines || $option_lines == 'terminal' ]]; then
 			option_lines="$option_terminal_lines"
 		elif [[ $option_lines -lt 0 ]]; then
 			option_lines="$((option_terminal_lines + option_lines))"
 		elif [[ $option_lines -gt $option_terminal_lines ]]; then
 			option_lines="$option_terminal_lines"
 		fi
-	elif [[ $option_lines == 'terminal' ]]; then
-		option_lines=0
+	elif [[  -z $option_lines || $option_lines == 'terminal' || $option_lines -lt 0 ]]; then
+		option_lines="${option_max_lines:-"$option_min_lines"}"
 	fi
 	if [[ -n $option_terminal_columns ]]; then
-		if [[ $option_columns == 'terminal' ]]; then
+		if [[ -z $option_columns || $option_columns == 'terminal' ]]; then
 			option_columns="$option_terminal_columns"
 		elif [[ $option_columns -lt 0 ]]; then
 			option_columns="$((option_terminal_columns + option_columns))"
-		elif [[ $option_columns -gt $terminal_columns ]]; then
+		elif [[ $option_columns -gt $option_terminal_columns ]]; then
 			option_columns="$option_terminal_columns"
 		fi
-	elif [[ $option_columns == 'terminal' ]]; then
-		option_columns=0
+	elif [[ -z $option_columns || $option_columns == 'terminal' || $option_columns -lt 0 ]]; then
+		option_columns="${option_max_columns:-"$option_min_columns"}"
 	fi
 
-	# sanity check
-	# this can happen if the negative value is greater than the terminal value
-	if ! [[ $option_lines =~ ^[0-9]+$ ]]; then
-		help "<lines> failed to determine a valid value: $option_lines"
+	# ensure lines and columns are within the range
+	if [[ -z $option_lines || -z $option_columns ]]; then
+		cat
+		return
 	fi
-	if ! [[ $option_columns =~ ^[0-9]+$ ]]; then
-		help "<columns> failed to determine a valid value: $option_columns"
+	if [[ -n $option_max_lines && $option_lines -gt $option_max_lines ]]; then
+		option_lines="$option_max_lines"
+		for (( ; option_lines < option_min_lines; option_lines++ )); do
+			:
+		done
+	elif [[ -n $option_min_lines && $option_lines -lt $option_min_lines ]]; then
+		for (( ; option_lines < option_min_lines; option_lines++ )); do
+			:
+		done
 	fi
 
 	# =====================================
@@ -121,9 +148,9 @@ function echo_revolving_door() (
 	# trap 'trap - SIGINT; return 130' SIGINT
 
 	if [[ $option_lines -eq 0 || $option_columns -eq 0 ]]; then
-		cat
+		cat &>/dev/null
 	else
-		local negative_columns prior_lines_count=0 last_modifier='' last_input_ignored='no' # lines=()
+		local negative_columns prior_lines_count=0 last_modifier='' last_input_ignored='no'
 		negative_columns="$((option_columns * -1))"
 		function __target {
 			__do --redirect-stdout="$option_target" -- "$@"
@@ -147,26 +174,14 @@ function echo_revolving_door() (
 			if [[ $last_modifier == $'\r' ]]; then
 				# apply \r
 				__target printf '\r%s' "$input"
-				# \r moves the cursor to the start, and overwrites, so if this line is smaller than the last, then we need to update the last line
-				# if [[ $prior_lines_count -ne 0 ]]; then
-				# 	local last_line="${lines[prior_lines_count-1]}"
-				# 	if [[ ${#last_line} -gt ${#input} ]]; then
-				# 		input+="$(__get_substring "$last_line" "${#input}")"
-				# 	fi
-				# 	lines[prior_lines_count-1]="$input"
-				# fi
-				# if we don't do the \r application earlier, then we can do this
-				# __target printf '\e[G\e[J%s' "$input"
 				last_modifier=''
 			else
 				# trim the first item from the old inputs
 				if [[ $option_lines -eq 1 ]]; then
 					prior_lines_count=1
-					# lines=()
 					# erase this line, injecting the new input at the start of the line
 					__target printf '\e[G\e[K%s' "$input"
 				elif [[ $prior_lines_count -eq $option_lines ]]; then
-					# lines=("${lines[@]:1}")
 					# delete the top line, then inject our new line at the start of the line
 					__target printf '\e[%dF\e[M\e[%dE%s' "$((prior_lines_count - 1))" "$((prior_lines_count - 1))" "$input"
 				elif [[ $prior_lines_count -eq 0 ]]; then
@@ -178,10 +193,6 @@ function echo_revolving_door() (
 					__target printf '\n%s' "$input"
 					prior_lines_count="$((prior_lines_count + 1))"
 				fi
-
-				# add the new input to the end of the old inputs
-				# lines+=("$input")
-				# prior_lines_count="${#lines[@]}"
 			fi
 		}
 		function __process {
