@@ -19,7 +19,7 @@ function unziptar_() (
 
 			OPTIONS:
 			--prune
-			    If enabled, delete the archive after extraction.
+			    If enabled, delete the archive and the extracted temp files after extraction.
 
 			--format=<format>
 			    Enforce <format> as the extraction format.
@@ -44,7 +44,7 @@ function unziptar_() (
 	}
 
 	# process, @todo rewrite with option_ prefix
-	local item option_quiet='' option_prune='no' option_archive='' option_format='' option_glob='' option_directory='' option_file='' option_filepath='' 
+	local item option_quiet='' option_prune='no' option_archive='' option_format='' option_glob='' option_directory='' option_file='' option_filepath=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -122,117 +122,182 @@ function unziptar_() (
 		fi
 	fi
 
-	# ensure glob
-	if [[ -z $option_glob ]]; then
-		option_glob='*'
-	fi
-
 	# =====================================
 	# Action
 
-	# extract into temporary/random directory
-	local archive_directory
-	archive_directory="$(fs-temp --directory='unziptar' --directory)"
-	__mkdirp "$archive_directory"
-
-	# enter the temporary directory
-	cd "$archive_directory"
-
-	# unzip to that temporary directory
-	local dmg_device=''
-	function __dmg_unmount {
-		# unmount the DMG device if it exists
-		if [[ -n $dmg_device ]]; then
-			hdiutil detach "$dmg_device" || return
-			dmg_device=''
-		fi
-	}
-	function __relocate {
-		mv -fv -- "$@" || return
-	}
-	if is-alpine; then
-		function __unzip {
-			unzip "$@" || return
-		}
+	# extract into the target directory
+	local archive_target
+	if [[ -z $option_glob && -z $option_file ]]; then
+		archive_target="$option_directory"
 	else
-		function __unzip {
-			eval-helper --quiet --wrap --revolving-lines=5 -- unzip -u "$@" || return
-		}
+		archive_target="$(fs-temp --directory='unziptar' --directory)"
+		__mkdirp "$archive_target"
 	fi
-	function __tar {
-		eval-helper --quiet --wrap --revolving-lines=5 -- tar -xvf "$@" || return
+	cd "$archive_target"
+
+	# quiet / progress
+	local relocate_eval_options=() extract_eval_options=()
+	function __log_extraction_failure {
+		local status=$?
+		fs-type -- "$option_archive" >&2 || :
+		command "$@" >&2 || :
+		return "$status"
 	}
 	if [[ $option_format == 'dmg' ]]; then
+		if [[ -z $option_glob ]]; then
+			option_glob='*'
+		fi
+		function __relocate {
+			eval-helper "${relocate_eval_options[@]}" --revolving-lines=-3 -- cp -Rfv -- "$@" || return
+		}
+		local DMG_DEVICE=''
+		function __dmg_unmount {
+			# unmount the DMG device if it exists
+			if [[ -n $DMG_DEVICE ]]; then
+				hdiutil detach "$DMG_DEVICE" || return
+				DMG_DEVICE=''
+			fi
+		}
+		function __extract {
+			# install what is necessary for identifying the DMG volume
+			# attach the DMG to a volume
+			# this had a [echo-write --buffer | echo-regexp] however that is not necessary with [echo-regexp -f] (as it reads all of stdin) but was necessary when [rg --max-count=1] was used instead (as it reads chunk by chunk)
+			DMG_DEVICE="$(hdiutil attach -readonly -nobrowse -mountroot "$archive_target" "$option_archive" | echo-regexp -fo --regexp='(/dev/.+?)\s' --replace='$1' || __log_extraction_failure hdiutil attach -help)"
+		}
+		function __finish {
+			__dmg_unmount
+		}
 		if [[ $0 != "${BASH_SOURCE[0]}" ]]; then
 			help 'Must be run as a command, not a function, such that DMG cleanup always occurs, even on failures.'
 		fi
 		trap __dmg_unmount EXIT
-		# install what is necessary for identifying the DMG volume
-		# attach the DMG to a volume
-		# this had a [echo-write --buffer | echo-regexp] however that is not necessary with [echo-regexp -f] (as it reads all of stdin) but was necessary when [rg --max-count=1] was used instead (as it reads chunk by chunk)
-		dmg_device="$(hdiutil attach -readonly -nobrowse -mountroot "$archive_directory" "$option_archive" | echo-regexp -fo --regexp='(/dev/.+?)\s' --replace='$1')"
-		function __relocate {
-			cp -Rfv -- "$@" || return
-		}
-	elif [[ $option_format == 'zip' ]]; then
-		# be cautious with unziptar dependency, as is challenging on fresh macos
-		if __command_missing -- unzip; then
-			setup-util-unziptar --quiet
-		fi
-		__unzip "$option_archive" 2>/dev/null || {
-			setup-util-unziptar --quiet
-			__unzip "$option_archive" || {
-				local status="$?"
-				echo-error 'Failed to extract the archive:'
-				fs-type -- "$option_archive"
-				unzip --help
-				return "$status"
-			} >&2
-		}
-	elif [[ $option_format == 'tar' ]]; then
-		# be cautious with unziptar dependency, as is challenging on fresh macos
-		if __command_missing -- tar; then
-			setup-util-unziptar --quiet
-		fi
-		# don't use -z flag, as that enforces gzip (tar.xy) which is not valid for (.tar.xz)
-		# without -z, auto-detection is used
-		__tar "$option_archive" 2>/dev/null || {
-			setup-util-unziptar --quiet
-			__tar "$option_archive" || {
-				local status="$?"
-				echo-error 'Failed to extract the archive:'
-				fs-type -- "$option_archive"
-				tar --help
-				return "$status"
-			} >&2
-		}
 	else
-		help "Unrecognised format: $option_format"
+		function __relocate {
+			eval-helper "${relocate_eval_options[@]}" --revolving-lines=-3 -- mv -fv -- "$@" || return
+		}
+		function __finish {
+			:
+		}
+		if [[ $option_format == 'zip' ]]; then
+			if is-alpine; then
+				function __unzip {
+					# alpine doesn't support -u
+					eval-helper "${extract_eval_options[@]}" --revolving-lines=-3 -- unzip "$@" || return
+				}
+			else
+				function __unzip {
+					eval-helper "${extract_eval_options[@]}" --revolving-lines=-3 -- unzip -u "$@" || return
+				}
+			fi
+			function __extract {
+				# be cautious with unziptar dependency, as is challenging on fresh macos
+				if __command_missing -- unzip; then
+					setup-util-unziptar --quiet
+					__unzip "$option_archive" || __log_extraction_failure unzip --help
+				else
+					__unzip "$option_archive" || {
+						setup-util-unziptar --quiet
+						__unzip "$option_archive" || __log_extraction_failure unzip --help
+					}
+				fi
+			}
+		elif [[ $option_format == 'tar' ]]; then
+			function __tar {
+				# don't use -z flag, as that enforces gzip (tar.xy) which is not valid for (.tar.xz)
+				# without -z, auto-detection is used
+				eval-helper "${extract_eval_options[@]}" --revolving-lines=-3 -- tar -xvf "$@" || return
+			}
+			function __extract {
+				# be cautious with unziptar dependency, as is challenging on fresh macos
+				if __command_missing -- tar; then
+					setup-util-unziptar --quiet
+					__tar "$option_archive" || __log_extraction_failure tar --help
+				else
+					__tar "$option_archive" || {
+						setup-util-unziptar --quiet
+						__tar "$option_archive" || __log_extraction_failure tar --help
+					}
+				fi
+			}
+		else
+			help "Unrecognised format: $option_format"
+		fi
+	fi
+
+	# logging
+	extract_eval_options+=(
+		--failure="$(
+			echo-style --error='Failed to extract' ' ' --path="$option_archive" ' ' --bold='to' ' ' --path="$archive_target"
+		)"
+	)
+	relocate_eval_options+=(
+		--failure="$(
+			echo-style --error='Failed to relocate' ' ' --path="$archive_target/" --code="$option_glob" ' ' --bold='to' ' ' --path="$option_directory/$option_file"
+		)"
+	)
+	if [[ $option_quiet != 'yes' ]]; then
+		extract_eval_options+=(
+			--quiet
+			--pending="$(
+				echo-style --bold='Extracting' ' ' --path="$option_archive" ' ' --bold='to' ' ' --path="$archive_target"
+			)"
+			--success="$(
+				echo-style --success='Extracted' ' ' --path="$option_archive" ' ' --bold='to' ' ' --path="$archive_target"
+			)"
+		)
+		relocate_eval_options+=(
+			--quiet
+			--pending="$(
+				echo-style --bold='Relocating' ' ' --path="$archive_target/" --code="$option_glob" ' ' --bold='to' ' ' --path="$option_directory/$option_file"
+			)"
+			--success="$(
+				echo-style --success='Relocated' ' ' --path="$archive_target/" --code="$option_glob" ' ' --bold='to' ' ' --path="$option_directory/$option_file"
+			)"
+		)
+	fi
+	if [[ $option_quiet == 'no' ]]; then
+		extract_eval_options+=(--verbose --wrap)
+	fi
+
+	# extract
+	__extract
+
+	# check if we are done
+	if [[ -z $option_glob ]]; then
+		__finish
+		return 0
 	fi
 
 	# match extracted paths against glob
 	local glob_paths=() glob_path
 	mapfile -t glob_paths < <(
-		expand-path -- "$archive_directory/$option_glob"
+		expand-path -- "$archive_target/$option_glob"
 	)
 
 	# relocate extracted files
-	function log_glob_failure {
+	function __log_relocation_failure {
 		# @todo style with var_dump or something
-		echo-error --stderr \
-			"$1" --newline \
-			--bold='Archive:' ' ' "$(fs-type -- "$option_archive")" --newline \
-			--bold='Glob:' ' ' "$option_glob" --newline \
-			--bold='File:' ' ' "$option_file" --newline \
-			--bold='Expansion:' ' ' "$archive_directory/$option_glob" --newline \
-			--bold='-- matched paths --' --newline \
-			--="$(echo-verbose -- "${glob_paths[@]}")" --newline \
+		local status=$? args=("$@")
+		if [[ ${#args[@]} -ne 0 ]]; then
+			args+=(--newline)
+		fi
+		args+=(
+			--bold='Archive:' ' ' "$(fs-type -- "$option_archive")" --newline
+			--bold='Glob:' ' ' "$option_glob" --newline
+			--bold='File:' ' ' "$option_file" --newline
+			--bold='Expansion:' ' ' "$archive_target/$option_glob" --newline
+			--bold='-- matched paths --' --newline
+			--="$(echo-verbose -- "${glob_paths[@]}")" --newline
 			--bold='-- available paths --'
-		setup-util-tree --quiet >&2
-		tree "$archive_directory" >&2
+		)
+		echo-error "${args[@]}" || :
+		setup-util-tree --quiet >&2 || :
+		tree "$archive_target" >&2 || :
+		return "$status"
 	}
 	if [[ ${#glob_paths[@]} -eq 0 ]]; then
-		log_glob_failure 'No extracted files matched the glob:'
+		__log_relocation_failure 'No extracted files matched the glob:'
+		__finish
 		return 1
 	elif [[ ${#glob_paths[@]} -eq 1 ]]; then
 		# relocate the single path
@@ -242,33 +307,30 @@ function unziptar_() (
 					# the path is a directory, and its destination exists
 					# as the path is intended to be a file, this means we want to behave as a file, which is to replace the directory, not to place the directory inside the directory
 					# e.g. OBS.app should not go to /Applications/OBS.app/OBS.app if /Applications/OBS.app already existed
-					fs-rm --quiet --no-confirm -- "$option_directory/${file:?}"
+					fs-rm --quiet --no-confirm -- "$option_directory/${option_file:?}"
 				fi
-				__relocate "$glob_path" "$option_directory/$option_file"
+				__relocate "$glob_path" "$option_directory/$option_file" || __log_relocation_failure
 			else
-				__relocate "$glob_path" "$option_directory"
+				__relocate "$glob_path" "$option_directory" || __log_relocation_failure
 			fi
 		done
 	else
 		# was only one intended?
 		if [[ -n $option_file ]]; then
-			log_glob_failure 'Too many extracted files matched the glob:'
+			__log_relocation_failure 'Too many extracted files matched the glob:'
 			return 59 # ETOOMANYREFS 59 Too many references: can't splice
 		fi
 		# relocate multiple files
 		for glob_path in "${glob_paths[@]}"; do
-			__relocate "$glob_path" "$option_directory"
+			__relocate "$glob_path" "$option_directory" || __log_relocation_failure
 		done
 	fi
 
 	# exit the temporary directory then remove it
 	cd "$HOME"
-	__dmg_unmount
-	fs-rm --quiet --no-confirm -- "$archive_directory"
-
-	# prune archive if desired
+	__finish
 	if [[ $option_prune == 'yes' ]]; then
-		fs-rm --quiet --no-confirm -- "$option_archive"
+		fs-rm --quiet --no-confirm -- "$archive_target" "$option_archive"
 	fi
 )
 

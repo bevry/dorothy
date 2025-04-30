@@ -310,50 +310,61 @@ function __sudo_mkdirp {
 
 # bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
 # the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; __print_lines "${v:s}"
-# function __get_substring_native {
-# 	local string="$1" start="${2:-0}" length="${3-}"
-# 	if [[ -n "$length" ]]; then
-# 		__print_lines "${string:start:length}"
-# 	elif [[ -n "$start" ]]; then
-# 		__print_lines "${string:start}"
-# 	else
-# 		__print_lines "$string"
-# 	fi
-# }
-# __get_substring <string> [<start>] [<length>]
-function __get_substring {
-	local string="$1"
-	local -i start="${2:-0}" length size remaining
-	size="${#string}"
-	if [[ $start -lt 0 ]]; then
-		# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
+if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
+	function __get_substring {
+		local string="$1"
+		local -i size="${#string}" start="${2:-0}"
 		if [[ $start*-1 -ge $size ]]; then
+			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
 			start=0
-		else
-			start+=size
+		elif [[ $start -ge $size ]]; then
+			return 0
 		fi
-	elif [[ $start -ge $size ]]; then
-		return 0
-	fi
-	# trunk-ignore(shellcheck/SC2100)
-	remaining=size-start
-	if [[ -z ${3-} ]]; then
-		length=remaining
-	else
-		length=$3
-		if [[ $length -gt $remaining ]]; then
-			length=remaining
-		elif [[ $length -lt 0 ]]; then
-			if [[ $length -le $remaining*-1 ]]; then
-				return 0
+		if [[ -z ${3-} ]]; then
+			if [[ $start -eq 0 ]]; then
+				__print_lines "$string"
 			else
-				# trunk-ignore(shellcheck/SC2100)
-				length+=size-start
+				__print_lines "${string:start}"
+			fi
+		else
+			__print_lines "${string:start:"$3"}"
+		fi
+	}
+else
+	# __get_substring <string> [<start>] [<length>]
+	function __get_substring {
+		local string="$1"
+		local -i size="${#string}" start="${2:-0}" length remaining
+		if [[ $start -lt 0 ]]; then
+			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
+			if [[ $start*-1 -ge $size ]]; then
+				start=0
+			else
+				start+=size
+			fi
+		elif [[ $start -ge $size ]]; then
+			return 0
+		fi
+		# trunk-ignore(shellcheck/SC2100)
+		remaining=size-start
+		if [[ -z ${3-} ]]; then
+			length=remaining
+		else
+			length=$3
+			if [[ $length -gt $remaining ]]; then
+				length=remaining
+			elif [[ $length -lt 0 ]]; then
+				if [[ $length -le $remaining*-1 ]]; then
+					return 0
+				else
+					# trunk-ignore(shellcheck/SC2100)
+					length+=size-start
+				fi
 			fi
 		fi
-	fi
-	__print_lines "${string:start:length}"
-}
+		__print_lines "${string:start:length}"
+	}
+fi
 
 # bc alias
 function __substr {
@@ -468,6 +479,22 @@ function __get_substring_after_last {
 		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
 		return 1
 	fi
+}
+
+# join by the delimiter
+# __join <delimiter> -- ...<element>
+function __join {
+	if [[ $# -lt 2 || $2 != '--' ]]; then
+		return 1
+	elif [[ $# -eq 2 ]]; then
+		return 0
+	fi
+	local result='' i d="$1" a=("$@") n=$# l="$(($# - 1))"
+	for ((i = 2; i < l; i++)); do
+		result+="${a[i]}$d"
+	done
+	result+="${a[l]}"
+	printf '%s' "$result"
 }
 
 # has needle / is needle
@@ -1026,6 +1053,36 @@ function __do {
 		eval "$var=\$result_value"
 		return
 		;;
+
+	# this may seem like a good idea, but it isn't, the reason why is that pipelines are forks, and as such the hierachy gets disconnected, with the updates of inner dos not having their updates seen by outer dos
+	# # redirect, device files, to pipeline
+	# '--redirect-stdout=|'* | '--redirect-stderr=|'* | '--redirect-output=|'*)
+	# 	# trim starting |, converting |<code> to <code>
+	# 	local code
+	# 	code="$(__get_substring "$arg_value" 1)"
+	# 	__return $? || return
+
+	# 	# run our pipes
+	# 	case "$arg_flag" in
+	# 	--redirect-stdout)
+	# 		__do --right-to-left "$@" | eval "$code"
+	# 		return
+	# 		;;
+	# 	--redirect-stderr)
+	# 		# there is no |2 in bash
+	# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+	# 		return 76 # EPROCUNAVAIL 76 Bad procedure for program
+	# 		;;
+	# 	--redirect-output)
+	# 		__do --right-to-left "$@" 2>&1 | eval "$code"
+	# 		return
+	# 		;;
+	# 	*)
+	# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+	# 		return 76 # EPROCUNAVAIL 76 Bad procedure for program
+	# 		;;
+	# 	esac
+	# 	;;
 
 	# redirect, device files, to process substitution
 	--redirect-stdout=\(*\) | --redirect-stderr=\(*\) | --redirect-output=\(*\))
