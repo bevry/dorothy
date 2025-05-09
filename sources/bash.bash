@@ -936,6 +936,12 @@ function __do {
 	arg_value="${arg#*=}"
 	arg_flag="${arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
 	shift
+	# if target is tty, but terminal device file is redirected, then redo with the redirection
+	if [[ $arg_value =~ ^(tty|TTY|/dev/tty)$ && ! ($TERMINAL_DEVICE_FILE =~ ^(tty|TTY|/dev/tty)$) ]]; then
+		__do --right-to-left "$arg_flag=$TERMINAL_DEVICE_FILE" "$@"
+		return
+	fi
+	# process
 	case "$arg" in
 	--)
 		"$@"
@@ -1054,7 +1060,7 @@ function __do {
 		return
 		;;
 
-	# this may seem like a good idea, but it isn't, the reason why is that pipelines are forks, and as such the hierachy gets disconnected, with the updates of inner dos not having their updates seen by outer dos
+	# this may seem like a good idea, but it isn't, the reason why is that pipelines are forks, and as such the hierarchy gets disconnected, with the updates of inner dos not having their updates seen by outer dos
 	# # redirect, device files, to pipeline
 	# '--redirect-stdout=|'* | '--redirect-stderr=|'* | '--redirect-output=|'*)
 	# 	# trim starting |, converting |<code> to <code>
@@ -1150,18 +1156,8 @@ function __do {
 
 		# redirect stdout to tty
 		tty | TTY | /dev/tty)
-			case "$TERMINAL_DEVICE_FILE" in
-			# redirect stdout to /dev/tty
-			tty | TTY | /dev/tty)
-				__do --right-to-left "$@" >>/dev/tty
-				return
-				;;
-			# redo with the actual target
-			*)
-				__do --right-to-left "$arg_flag=$TERMINAL_DEVICE_FILE" "$@"
-				return
-				;;
-			esac
+			__do --right-to-left "$@" >>/dev/tty
+			return
 			;;
 
 		# redirect stdout to null
@@ -1176,10 +1172,10 @@ function __do {
 			return
 			;;
 
-		# invalid
+		# no-op
 		'')
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $arg" >&2
-			return 22 # EINVAL 22 Invalid argument
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# redirect stdout to file target
@@ -1196,45 +1192,93 @@ function __do {
 	--copy-stdout=*)
 		case "$arg_value" in
 
-		# copy stdout to stdout, this behaviour is unspecified, should it double the data to stdout?
+		# copy stdout to stdout
 		1 | stdout | STDOUT | /dev/stdout)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# no-op
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# copy stdout to stderr
 		2 | stderr | STDERR | /dev/stderr)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# prepare our semaphore files that will track the exit status of the process substitution
+			local semaphore_file_targets
+			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			__return $? || return
+
+			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
+			__do --right-to-left "$@" > >(
+				set +e
+				tee -- >(
+					set +e
+					cat >&2
+					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+				)
+				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+			)
+
+			# once completed, wait for and return the status of our process substitution
+			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			return
 			;;
 
 		# copy stdout to tty
 		tty | TTY | /dev/tty)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# prepare our semaphore files that will track the exit status of the process substitution
+			local semaphore_file_targets
+			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			__return $? || return
+
+			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
+			__do --right-to-left "$@" > >(
+				set +e
+				tee -- >(
+					set +e
+					cat >>/dev/tty
+					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+				)
+				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+			)
+
+			# once completed, wait for and return the status of our process substitution
+			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			return
 			;;
 
 		# copy stdout to null
 		null | NULL | /dev/null)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# no-op
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# copy stdout to FD target
 		[0-9]*)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# prepare our semaphore files that will track the exit status of the process substitution
+			local semaphore_file_targets
+			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			__return $? || return
+
+			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
+			__do --right-to-left "$@" > >(
+				set +e
+				tee -- >(
+					set +e
+					cat >&"$arg_value"
+					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+				)
+				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+			)
+
+			# once completed, wait for and return the status of our process substitution
+			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			return
 			;;
 
-		# invalid
+		# no-op
 		'')
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $arg" >&2
-			return 22
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# copy stdout to file target
@@ -1277,18 +1321,8 @@ function __do {
 
 		# redirect stderr to tty
 		tty | TTY | /dev/tty)
-			case "$TERMINAL_DEVICE_FILE" in
-			# redirect stdout to /dev/tty
-			tty | TTY | /dev/tty)
-				__do --right-to-left "$@" 2>>/dev/tty
-				return
-				;;
-			# redo with the actual target
-			*)
-				__do --right-to-left "$arg_flag=$TERMINAL_DEVICE_FILE" "$@"
-				return
-				;;
-			esac
+			__do --right-to-left "$@" 2>>/dev/tty
+			return
 			;;
 
 		# redirect stderr to null
@@ -1303,10 +1337,10 @@ function __do {
 			return
 			;;
 
-		# invalid
+		# no-op
 		'')
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $arg" >&2
-			return 22 # EINVAL 22 Invalid argument
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# redirect stderr to file target
@@ -1325,43 +1359,91 @@ function __do {
 
 		# copy stderr to stdout
 		1 | stdout | STDOUT | /dev/stdout)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# prepare our semaphore files that will track the exit status of the process substitution
+			local semaphore_file_targets
+			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			__return $? || return
+
+			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
+			__do --right-to-left "$@" 2> >(
+				set +e
+				tee -- >(
+					set +e
+					cat
+					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+				) >&2
+				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+			)
+
+			# once completed, wait for and return the status of our process substitution
+			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			return
 			;;
 
 		# copy stderr to stderr, this behaviour is unspecified, should it double the data to stderr?
 		2 | stderr | STDERR | /dev/stderr)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# no-op
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# copy stderr to tty
 		tty | TTY | /dev/tty)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# prepare our semaphore files that will track the exit status of the process substitution
+			local semaphore_file_targets
+			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			__return $? || return
+
+			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
+			__do --right-to-left "$@" 2> >(
+				set +e
+				tee -- >(
+					set +e
+					cat >>/dev/tty
+					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+				) >&2
+				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+			)
+
+			# once completed, wait for and return the status of our process substitution
+			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			return
 			;;
 
 		# copy stderr to null
 		null | NULL | /dev/null)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# no-op
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# copy stderr to FD target
 		[0-9]*)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# prepare our semaphore files that will track the exit status of the process substitution
+			local semaphore_file_targets
+			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			__return $? || return
+
+			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
+			__do --right-to-left "$@" 2> >(
+				set +e
+				tee -- >(
+					set +e
+					cat >&"$arg_value"
+					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+				) >&2
+				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+			)
+
+			# once completed, wait for and return the status of our process substitution
+			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			return
 			;;
 
-		# invalid
+		# no-op
 		'')
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $arg" >&2
-			return 22
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# copy stderr to file target
@@ -1402,20 +1484,10 @@ function __do {
 			return
 			;;
 
-		# redirect stderr to stdout, then stdout to tty, as `&>>` is not supported
+		# redirect stderr to stdout, then stdout to tty, as `&>>` is not supported in all bash versions
 		tty | TTY | /dev/tty)
-			case "$TERMINAL_DEVICE_FILE" in
-			# stderr to stdout, such that and then, both stdout and stderr are redirected to tty
-			tty | TTY | /dev/tty)
-				__do --right-to-left "$@" >>/dev/tty 2>&1
-				return
-				;;
-			# redo with the actual target
-			*)
-				__do --right-to-left "$arg_flag=$TERMINAL_DEVICE_FILE" "$@"
-				return
-				;;
-			esac
+			__do --right-to-left "$@" >>/dev/tty 2>&1
+			return
 			;;
 
 		# redirect output to null
@@ -1430,10 +1502,10 @@ function __do {
 			return
 			;;
 
-		# invalid
+		# no-op
 		'')
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $item" >&2
-			return 22 # EINVAL 22 Invalid argument
+			__do --right-to-left "$@"
+			return
 			;;
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirect to the file target
@@ -1450,21 +1522,21 @@ function __do {
 	--copy-output=*)
 		case "$arg_value" in
 
-		# copy output to stdout, this behaviour is unspecified, should it double the data to stderr?
+		# copy output to stdout, this behaviour is unspecified, as there is no way to send it back to output
 		1 | stdout | STDOUT | /dev/stdout)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
-		# copy output to stderr, this behaviour is unspecified, should it double the data to stderr?
+		# copy output to stderr, this behaviour is unspecified, as there is no way to send it back to output
 		2 | stderr | STDERR | /dev/stderr)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
-		# copy output to tty
+		# copy output to tty, this behaviour is unspecified, as there is no way to send it back to output
 		tty | TTY | /dev/tty)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
@@ -1473,28 +1545,28 @@ function __do {
 
 		# copy stderr to null
 		null | NULL | /dev/null)
-			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
-			return 78 # NOSYS 78 Function not implemented
+			# no-op
+			__do --right-to-left "$@"
+			return
 			;;
 
-		# copy output to FD target
+		# copy output to FD target, this behaviour is unspecified, as there is no way to send it back to output
 		[0-9]*)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
-		# invalid
+		# no-op
 		'')
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $arg" >&2
-			return 22
+			__do --right-to-left "$@"
+			return
 			;;
 
-		# copy output to file target, note that this functionality is ambiguous, fail instead
+		# copy output to file target, this behaviour is unspecified, as there is no way to send it back to output
 		*)
 			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg. You probably want [--copy-stdout+stderr=$arg_value] or [--redirect-output=stderr --copy-stderr=$arg_value --redirect-output=tty] instead." >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg. You probably want [--copy-stdout+stderr=$arg_value] or [--redirect-output=STDERR --copy-stderr=$arg_value --redirect-output=TTY] instead." >&2
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
@@ -2144,3 +2216,23 @@ BASH_ARRAY_CAPABILITIES+=' '
 # note mapfile does not support multiple delimiters, as such do either of these instead:
 # mapfile -t arr < <(<output-command> | echo-split --characters=' ,|' --stdin)
 # mapfile -t arr < <(<output-command> | tr ' ,|' '\n')
+
+# split a string into an array with a multi character delimiter
+# __split <array_var_name> <delimiter> <<<"..."
+function __split {
+	local array_var_name="$1" delimiter="$2" delimiter_length trim_offset input=''
+	delimiter_length="${#delimiter}"
+	trim_offset="$((delimiter_length * -1))"
+	eval "$array_var_name=()"
+	while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+		input+="$character"
+		if [[ $input == *"$delimiter" ]]; then
+			input="$(__get_substring "$input" 0 "$trim_offset")"
+			eval "$array_var_name+=(\"\$input\")"
+			input=''
+		fi
+	done
+	if [[ -n $input ]]; then
+		eval "$array_var_name+=(\"\$input\")"
+	fi
+}

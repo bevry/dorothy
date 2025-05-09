@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# NOTE THAT FOR HISTORICAL VIDEOS YOUTUBE REDUCES THE QUALITY
+# https://www.reddit.com/r/DataHoarder/comments/ize8xs/is_youtube_reducing_the_quality_of_old_videos/
+# I have many archived channels which started at say 1GB for 1 hour in 2017, but now are 200MB for 1 hour, the same codec, but lower resolution.
+
 # FOR THUMBNAILS
 # AVIF is successor to WebP and the closed-source HEIF, however lacks wide support.
 # WebP is successor to the below, and offers wide support.
@@ -62,7 +66,7 @@ function ytd_helper() (
 			    The URL to download the video from.
 
 			--tool=<tool>
-			    The tool to actually invoke, defaults to [ytd-dl] or [youtube-dl] based on availability.
+			    The tool to actually invoke, defaults to [yt-dlp] or [youtube-dl] based on availability.
 
 			-- [... tool options]
 			    Forward to the invoked <tool>. Refer to [youtube-dl --help].
@@ -110,106 +114,127 @@ function ytd_helper() (
 	}
 
 	# =====================================
-	# Dependencies
-
-	setup-util-jq --quiet
-
-	# =====================================
 	# Action
 
 	# arguments
-	local item tool=''
+	local item option_args=(--geo-bypass --no-playlist) option_tool='' option_redo='' option_overwrite='' option_playlist_or_channel=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--tool='*) tool="${item#*=}" ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		'--overwrite') option_overwrite='yes' ;;
+		'--redo') option_redo='.' ;;
+		'--redo='*) option_redo="${item#*=}" ;;
+		'--youtube-video-id='*) option_args+=("https://youtu.be/${item#*=}") ;;
+		'--youtube-playlist-id='*)
+			option_playlist_or_channel='yes'
+			option_args+=("https://www.youtube.com/playlist?list=${item#*=}")
+			;;
 		'--embed')
-			cmd+=(
+			option_args+=(
+				--sub-langs 'en,id'
 				--embed-subs
 				--embed-thumbnail
-				--add-metadata
+				--embed-metadata
+				--embed-chapters
+				--embed-info-json # <-- only works on mkv, which this does not enforce
+
+				# Remux the video into another container if necessary (currently supported: avi, flv, gif, mkv, mov, mp4, webm, aac, aiff, alac, flac, m4a, mka, mp3, ogg, opus, vorbis, wav). If the target container does not support the video/audio codec, remuxing will fail. You can specify multiple rules; e.g. "aac>m4a/mov>mp4/mkv" will remux aac to m4a, mov to mp4 and anything else to mkv
+				# --remux-video mkv
+
+				# Re-encode the video into another format if necessary. The syntax and supported formats are the same as --remux-video
+				# --recode-video mkv
+
+				# Containers that may be used when merging formats, separated by "/", e.g. "mp4/mkv". Ignored if no merge is required. (currently supported: avi, flv, mkv, mov, mp4, webm)
+				# --merge-output-format mkv
 			)
+			# --xattrs not supported on macos
 			;;
 		'--month')
-			cmd+=(
+			option_args+=(
 				--no-overwrites
 				--dateafter "$(date-helper --ytd --month-ago)"
 			)
 			;;
 		'--archive')
-			cmd+=(
-				--no-overwrites
-				--continue
+			option_args+=(
 				--all-formats
 				--all-subs
-				--geo-bypass
+				--continue
+				--no-overwrites
 				--write-all-thumbnails
 				--write-annotations
 				--write-auto-sub
+				--write-auto-subs
 				--write-description
 				--write-info-json
-				--write-sub
+				--write-subs
 			)
 			;;
 		'--audio')
-			cmd+=(
+			option_args+=(
 				--extract-audio
 				--format 'bestaudio[ext=m4a]'
 			)
 			;;
 		'--audio+video')
-			ytd_helper --audio "${cmd[@]}" "$@"
-			ytd_helper "${cmd[@]}" "$@"
+			ytd_helper --audio "${option_args[@]}" "$@"
+			ytd_helper "${option_args[@]}" "$@"
 			return 0
 			;;
 		'--best')
 			# just using 'best' can download a 360p video
 			# this combination will always download the best resolution and codec
 			# consider bv*+ba/bv+na/b
-			cmd+=(
+			option_args+=(
 				--format 'bestvideo+bestaudio/best'
 			)
 			;;
+		'--mkv')
+			option_args+=(
+				#--recode-video mkv <-- this will always re-encode
+				--remux-video mkv # <-- this will remux, but will fail if there is already a mp4 downloaded that has embedded data inside it, hence need for [--force-overwrites]
+				--merge-output-format mkv
+				--format 'bestvideo+bestaudio/best' # [ext=mkv] is not supported, silently ignored
+			)
+			;;
 		'--mp4')
-			cmd+=(
-				--recode-video 'mp4'
-				--merge-output-format 'mp4'
+			option_args+=(
+				--recode-video mp4
+				--merge-output-format mp4
 				--format 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
 			)
 			;;
 		'--free')
 			# `--prefer-free-formats` only prefers, it doesn't guarantee
-			cmd+=(
+			option_args+=(
 				--format '(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9])+bestaudio[acodec=opus]'
 			)
 			;;
 		'--vp9')
-			cmd+=(
-				--recode-video 'webm'
-				--merge-output-format 'webm'
+			option_args+=(
+				--recode-video webm
+				--merge-output-format webm
 				--format '(bestvideo[vcodec^=vp9]/bestvideo)+bestaudio[acodec=opus]'
 				--postprocessor-args '-c:a libopus -c:v vp9 -strict experimental'
 			)
 			;;
 		'--av1')
-			cmd+=(
-				--recode-video 'mkv'
-				--merge-output-format 'mkv'
+			option_args+=(
+				--recode-video mkv
+				--merge-output-format mkv
 				--format '(bestvideo[vcodec^=av01]/bestvideo)+bestaudio[acodec=opus]'
 				--postprocessor-args '-c:a libopus -c:v av1 -strict experimental'
 			)
 			;;
-		'--playlist')
-			cmd+=(
-				--playlist-reverse # when you are updating downloads from a playlist, you want to start with most recent first
-				--ignore-errors
-				--output '%(playlist_uploader)s [%(playlist_uploader_id)s]/%(playlist_title)s [%(playlist_id)s]/%(playlist_index)s - %(title)s [%(id)s].%(ext)s'
-			)
-			;;
+		'--channel' | '--playlist') option_playlist_or_channel='yes' ;;
+		'--safari') option_args+=(--cookies-from-browser safari) ;;
+		'--no-sponsors') option_args+=(--sponsorblock-remove default) ;;
+		'--slim') option_args+=(--sponsorblock-remove all) ;;
 		'--')
-			cmd+=("$@")
+			option_args+=("$@")
 			shift $#
 			break
 			;;
@@ -218,31 +243,92 @@ function ytd_helper() (
 		esac
 	done
 
+	# playlist or channel
+	if [[ $option_playlist_or_channel == 'yes' ]]; then
+		option_args+=(
+			--playlist-reverse # when you are updating downloads from a playlist, you want to start with most recent first
+			--ignore-errors
+			--output '%(playlist_uploader)s [%(playlist_uploader_id)s]/%(playlist_title)s [%(playlist_id)s]/%(playlist_index)s - %(title)s [%(id)s].%(ext)s'
+		)
+	fi
+	if [[ $option_overwrite == 'yes' ]]; then
+		option_args+=(--force-overwrites)
+	fi
+
 	# handle tool
-	if [[ -z $tool ]]; then
+	if [[ -z $option_tool ]]; then
 		if __command_exists -- 'yt-dlp'; then
-			tool='yt-dlp'
+			option_tool='yt-dlp'
 		elif __command_exists -- 'youtube-dl'; then
-			tool='youtube-dl'
+			option_tool='youtube-dl'
 		else
-			get-installer --first-success --invoke --quiet -- ytd-dlp youtube-dl
+			get-installer --first-success --invoke --quiet -- yt-dlp youtube-dl
 			if __command_exists -- 'yt-dlp'; then
-				tool='yt-dlp'
+				option_tool='yt-dlp'
 			elif __command_exists -- 'youtube-dl'; then
-				tool='youtube-dl'
+				option_tool='youtube-dl'
 			fi
 		fi
 	fi
-	if [[ -z $tool ]] || __command_missing -- "$tool"; then
-		echo-error "tool [$tool] is not available"
+	if [[ -z $option_tool ]] || __command_missing -- "$option_tool"; then
+		echo-error "tool [$option_tool] is not available"
 		return 3 # ESRCH 3 No such process
 	fi
-	cmd=("$tool" "${cmd[@]}")
 
 	# =====================================
 	# Action
 
-	eval-helper --wrap --verbose -- "${cmd[@]}" # eval
+	# if redo, re-add all local files
+	if [[ -n $option_redo ]]; then
+		local dirpath filepath filename video_id queue_dirpath='' queue=() removals=()
+		function __process_queue {
+			(
+				echo-style --h1="$queue_dirpath"
+				cd "$queue_dirpath"
+				eval-helper --wrap --verbose -- "$option_tool" "${option_args[@]}" "${queue[@]}"
+				echo-style --g1="$queue_dirpath"
+			)
+			queue=()
+			if [[ ${#removals[@]} -ne 0 ]]; then
+				fs-rm --no-confirm -- "${removals[@]}"
+				removals=()
+			fi
+		}
+		# for all nested files use: /**/*\]
+		# set -x
+		# local filepaths=("$option_redo"/*\].{mp4,mkv,webm,avi,flv,wmv,mov,mpg,mpeg,m4v,3gp,3g2,webp})
+		# local filepaths=("$option_redo"/*\].webp)
+		local filepaths=("$option_redo"/*\].{mp4,mkv,webm,avi,flv,wmv,mov,mpg,mpeg,m4v,3gp,3g2,webp})
+		for filepath in "${filepaths[@]}"; do
+			dirpath="$(fs-path --parents --absolute -- "$filepath")"
+			if [[ -n $queue_dirpath && $dirpath != "$queue_dirpath" ]]; then
+				__process_queue
+			fi
+			filename="$(fs-path --no-parents -- "$filepath")"
+			# extract youtube video id
+			video_id=''
+			if [[ $filename == *' -- '* ]]; then
+				video_id="$(__get_substring_before_first "$filename" ' -- ')"
+				filename="$(__get_substring_after_first "$filename" ' -- ')"
+				filename="$(fs-path --no-extension -- "$filename") [$video_id].$(fs-path --extension -- "$filename")"
+				mv -v -- "$filepath" "$dirpath/$filename"
+				filepath="$dirpath/$filename"
+			elif [[ $filename =~ \[[^\]]+\] ]]; then
+				video_id="$(__get_substring_after_last "$filename" '[')"
+				video_id="$(__get_substring_before_last "$video_id" ']')"
+			fi
+			if [[ -n $video_id ]]; then
+				echo-style --code="$filepath" --bold=' => ' --code="$video_id"
+				queue+=("https://youtu.be/$video_id")
+				queue_dirpath="$dirpath"
+			fi
+		done
+		if [[ ${#queue[@]} -ne 0 ]]; then
+			__process_queue
+		fi
+	else
+		eval-helper --wrap --verbose -- "$option_tool" "${option_args[@]}"
+	fi
 )
 
 # fire if invoked standalone

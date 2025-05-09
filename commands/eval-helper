@@ -148,6 +148,9 @@ function eval_helper() (
 			    By default, this is disabled unless invoking a known shapeshifter.
 			    This option isn't that useful if you are not doing [summary] or [conclusion] verbosities.
 
+			--terminal-lines=<terminal-lines> | --terminal-columns=<terminal-columns>
+			    Forwarded to commands that support them.
+
 			--[no-]confirm
 			    Confirm execution of the command before its first execution (--until usage could mean multiple executions).
 			    Disabled by default.
@@ -191,11 +194,10 @@ function eval_helper() (
 	}
 
 	# process
-	# option_failure_verbosity='' option_success_verbosity=''
-	local item option_cmd=() option_do_args=() \
-	option_quiet='' \
-	option_message_target='' option_wrap='' option_pending='' option_success='' option_failure='' \
-	option_revolving_args=() option_alternative_screen_buffer='' \
+	local item option_cmd=() \
+	option_quiet='' option_persist='' option_wrap='' option_pending='' option_success='' option_failure='' \
+	option_do_args=() option_revolving_args=() option_alternative_screen_buffer='' \
+	option_terminal_lines='' option_terminal_columns='' \
 	option_confirm='' \
 	option_until='' option_until_interval='' option_until_attempts='' \
 	option_elevated=() option_elevate=() option_user='' option_group='' option_reason='' option_inherit='no'
@@ -222,7 +224,6 @@ function eval_helper() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--discard-'* | '--copy-'* | '--redirect-'*) option_do_args+=("$item") ;;
 		# ...
 		'--no-verbose'* | '--verbose'*)
 			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
@@ -230,10 +231,7 @@ function eval_helper() (
 		'--no-quiet'* | '--quiet'*)
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
-		#'--success-verbosity='*) option_success_verbosity="${item#*=}" ;;
-		#'--failure-verbosity='*) option_failure_verbosity="${item#*=}" ;;
-		# ...
-		'--message-target='*) option_message_target="${item#*=}" ;;
+		'--persist='*) option_persist="${item#*=}" ;;
 		'--no-wrap'* | '--wrap'*)
 			option_wrap="$(get-flag-value --affirmative --fallback="$option_wrap" -- "$item")"
 			;;
@@ -241,21 +239,14 @@ function eval_helper() (
 		'--success='*) option_success="${item#*=}" ;;
 		'--failure='*) option_failure="${item#*=}" ;;
 		# ...
-		# '--no-trim-padding'* | '--trim-padding'*)
-		# 	option_trim_padding="$(get-flag-value --affirmative --fallback="$option_trim_padding" -- "$item")"
-		# 	;;
-		# '--no-trim-empty-lines'* | '--trim-empty-lines'*)
-		# 	option_trim_empty_lines="$(get-flag-value --affirmative --fallback="$option_trim_empty_lines" -- "$item")"
-		# 	;;
-		# '--no-escape-shapeshifting'* | '--escape-shapeshifting'*)
-		# 	option_escape_shapeshifting="$(get-flag-value --affirmative --fallback="$option_escape_shapeshifting" -- "$item")"
-		# 	;;
-		# '--truncate-columns='*) option_truncate_columns="${item#*=}" ;;
-		# '--truncate-lines='*) option_truncate_lines="${item#*=}" ;;
+		'--discard-'* | '--copy-'* | '--redirect-'*) option_do_args+=("$item") ;;
 		'--no-alternative-screen-buffer'* | '--alternative-screen-buffer'*)
 			option_alternative_screen_buffer="$(get-flag-value --affirmative --fallback="$option_alternative_screen_buffer" -- "$item")"
 			;;
 		'--revolving-'*) option_revolving_args+=("--${item#--revolving-}") ;;
+		# ...
+		'--terminal-lines='*) option_terminal_lines="${item#*=}" ;;
+		'--terminal-columns='*) option_terminal_columns="${item#*=}" ;;
 		# ...
 		'--no-confirm'* | '--confirm'*)
 			option_confirm="$(get-flag-value --affirmative --fallback="$option_confirm" -- "$item")"
@@ -312,9 +303,13 @@ function eval_helper() (
 		fi
 	fi
 
-	# default message target
-	if [[ -z $option_message_target ]]; then
-		option_message_target='TTY'
+	# default do args and persist
+	local persist=''
+	if [[ -n $option_persist ]]; then
+		option_persist="$(__lowercase_string "$option_persist")"
+		if ! [[ $option_persist =~ ^(stdout|stderr|output)$ ]]; then
+			help "An unrecognised <persist> was provided: $option_persist"
+		fi
 	fi
 
 	# default reason
@@ -336,9 +331,6 @@ function eval_helper() (
 		*) option_alternative_screen_buffer='no' ;;
 		esac
 	fi
-	# if [[ -z $option_truncate_lines ]]; then
-	# 	option_truncate_lines='no'
-	# fi
 
 	# ensure sudo is a valid value
 	local elevate='' elevate_on_statuses=() elevate_technique=''
@@ -406,16 +398,36 @@ function eval_helper() (
 
 	# messages
 	local messages=''
+	function __clear_messages {
+		messages=''
+	}
 	function __flush_messages {
 		if [[ -n $messages ]]; then
-			__do --redirect-stdout="$option_message_target" -- __print_string "$messages" || return
-			messages=''
+			__do --redirect-stdout=TTY -- __print_string "$messages" || return
+			__clear_messages || return
 		fi
 	}
 
-	# revolving
+	# terminal size: constrain to arguments if provided
+	local terminal_lines="$option_terminal_lines" terminal_columns="$option_terminal_columns"
+	function __refresh_terminal_size {
+		if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
+			local terminal_size=()
+			mapfile -t terminal_size < <(get-terminal-lines-and-columns || :)
+			if [[ ${#terminal_size[@]} -eq 2 ]]; then
+				if [[ -z $option_terminal_lines ]]; then
+					terminal_lines="${terminal_size[0]}"
+				fi
+				if [[ -z $option_terminal_columns ]]; then
+					terminal_columns="${terminal_size[1]}"
+				fi
+			fi
+		fi
+	}
+
+	# revolving door
 	function __revolving {
-		echo-revolving-door "${option_revolving_args[@]}" || return
+		echo-revolving-door "${option_revolving_args[@]}" --lines="-$header_lines" --terminal-lines="$terminal_lines" --terminal-columns="$terminal_columns" --target=TTY "$@" || return
 	}
 
 	# run
@@ -425,24 +437,23 @@ function eval_helper() (
 	function run_args {
 		# reset
 		run_status=''
+		persist=''
 
 		# headers
-		local header='' temp='' temp2='' cmd=("$@")
+		local command='' cmd=("$@") do_args=()
 
 		# pending
 		if [[ -n $option_pending ]]; then
-			temp="$option_pending"$'\n'
-			messages+="$temp"
-			header+="$temp"
+			messages+="$option_pending"$'\n'
 		fi
 
 		# confirm
-		temp2="$(echo-style --element="$styled_command_string")"$'\n'
+		command="$(echo-style --element="$styled_command_string")"$'\n'
 		if [[ $elevate_prompt == 'yes' ]]; then
-			temp="$(echo-style --notice="$option_reason")"$'\n'
-			messages+="$temp"
-			header+="$temp"
-		elif [[ $option_confirm == 'yes' ]] && __flush_messages && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command:' "$temp2"; then
+			# has a reason
+			messages+="$(echo-style --notice="$option_reason")"$'\n'
+		elif [[ $option_confirm == 'yes' ]] && __flush_messages && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command:' "$command"; then
+			# cancelled
 			run_status=125
 			messages+="$(echo-style --element/="$styled_command_string" --status="$run_status")"$'\n'
 			if [[ -n $option_failure ]]; then
@@ -452,21 +463,25 @@ function eval_helper() (
 			return 0
 		fi
 
-		# open wrap
+		# command
 		if [[ $option_wrap == 'yes' || $elevate_prompt == 'yes' ]]; then
-			messages+="$temp2"
-			header+="$temp2"
+			messages+="$command"
 		fi
 
-		# flush
-		if [[ -n $header ]]; then
-			__flush_messages || return
-		fi
+		# refresh terminal size
+		__refresh_terminal_size
 
 		# output everything if in verbose mode
-		if [[ $option_quiet == 'no' ]]; then
+		if [[ $option_quiet == 'no' || $terminal_lines -eq 0 || $terminal_columns -eq 0 ]]; then
+			if [[ -n $option_persist ]]; then
+				do_args+=("--copy-$option_persist=TTY")
+			fi
+
+			# flush
+			__flush_messages
+
 			# body
-			__do --redirect-status={run_status} "${option_do_args[@]}" -- \
+			__do --redirect-status={run_status} "${do_args[@]}" "${option_do_args[@]}" -- \
 				"${cmd[@]}"
 
 			# close wrap
@@ -490,16 +505,19 @@ function eval_helper() (
 		else
 			# direct STDOUT and STDERR to TTY, as they will be truncated and will be outputting clear ansi codes, which will confuse anything that is expecting legit STDOUT output, we cannot detect shapeshifting after the fact, as it occurs in the TTY, not STDOUT, nor STDERR
 			local body
+			if [[ -n $option_persist ]]; then
+				do_args+=("--copy-$option_persist={persist}")
+			fi
 
-			if [[ $option_alternative_screen_buffer == 'yes' ]]; then
+			if [[ $option_alternative_screen_buffer == 'yes' || $elevate_prompt == 'yes' ]]; then
 				# start alternative screen buffer, and redo header inside of it
-				echo-style --no-trail --tty --alternative-screen-buffer --="$header"
+				echo-style --no-trail --tty --alternative-screen-buffer --="$messages"
+				__clear_messages
 
 				# run command, output to STDERR, capture, then to TTY
-				__do --redirect-status={run_status} \
-					--redirect-output=stderr \
+				__do --redirect-status={run_status} "${do_args[@]}" "${option_do_args[@]}" \
+					--redirect-output=STDERR \
 					--copy-stderr={body} \
-					"${option_do_args[@]}" \
 					--redirect-output=TTY \
 					-- \
 					"${cmd[@]}"
@@ -507,19 +525,28 @@ function eval_helper() (
 				# restore the original screen buffer
 				echo-style --no-trail --tty --default-screen-buffer
 			else
+				# update header lines
+				if [[ -n $messages ]]; then
+					header_lines="$(echo-wrap --columns="$terminal_columns" -- "$messages" | echo-count-lines --stdin)"
+					__flush_messages
+				else
+					header_lines=0
+				fi
+
 				# trap '' SIGINT
-				__do --redirect-status={run_status} \
-					--redirect-output=stderr \
+				__do --redirect-status={run_status} "${do_args[@]}" "${option_do_args[@]}" \
+					--redirect-output=STDERR \
 					--copy-stderr={body} \
-					"${option_do_args[@]}" \
 					--redirect-output="(__revolving)" \
 					-- \
 					"${cmd[@]}"
 				# trap - SIGINT
-			fi
 
-			# clear header, we can re-add them later if needed
-			echo-clear-lines --target=TTY --here-string <<<"$header"
+				# clear header, we can re-add them later if needed
+				if [[ $header_lines -ne 0 ]]; then
+					echo-clear-lines --lines="$header_lines" --target=TTY
+				fi
+			fi
 
 			# generate output
 			if [[ $option_quiet == 'no' || $run_status -ne 0 ]]; then
@@ -743,6 +770,9 @@ function eval_helper() (
 		# fi
 		run_args_with_optional_elevation "${cmd_elevate[@]}" "${option_cmd[@]}"
 	done
+	if [[ -n $persist ]]; then
+		__do --redirect-stdout="$option_persist" -- __print_string "$persist"
+	fi
 	return "$run_status"
 )
 
