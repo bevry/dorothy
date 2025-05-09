@@ -197,6 +197,9 @@ exit
 > [!IMPORTANT]  
 > To install Dorothy enter the following into your favorite terminal application:
 
+> [!WARNING]
+> Dorothy's installation process currently has a few rough edges and bugs, and should be fixed within a week. Please subscribe to [this issue](https://github.com/bevry/dorothy/pull/281) to track their progress.
+
 ```bash
 bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
