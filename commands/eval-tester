@@ -14,13 +14,20 @@ function eval_tester() (
 
 			OPTIONS:
 			--name=<test name>
+
 			--status=<expected exit code> (defaults to 0)
 			--ignore-status
+
 			--stdout=<expected stdout> (defaults to empty)
 			--ignore-stdout
+
 			--stderr=<expected stderr> (defaults to empty)
 			--ignore-stderr
-			--debug (implies --ignore-stderr)
+
+			--tty=<expected tty> (defaults to empty)
+			--ignore-tty
+
+			--debug
 			    Will run the command with debugging enabled.
 			--bash=<bash path>
 			    Used to ensure that the command is invoked through a specific bash binary.
@@ -32,7 +39,7 @@ function eval_tester() (
 	}
 
 	# process
-	local item option_cmd=() ignore_option=$'\e' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_debug=''
+	local item option_cmd=() ignore_value=$'\e' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_tty='' option_debug=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -40,12 +47,14 @@ function eval_tester() (
 		'--help' | '-h') help ;;
 		'--name='*) option_name="${item#*=}" ;;
 		'--bash='*) option_bash="${item#*=}" ;; # unlike [dorothy test] and [debug-bash] only support a single bash binary here, as nothing else makes sense for the [eval-tester] use case, as it is for getting specific results for a specific bash version
-		'--ignore-status') option_status="$ignore_option" ;;
-		'--ignore-stdout') option_stdout="$ignore_option" ;;
-		'--ignore-stderr') option_stderr="$ignore_option" ;;
+		'--ignore-status') option_status="$ignore_value" ;;
+		'--ignore-stdout') option_stdout="$ignore_value" ;;
+		'--ignore-stderr') option_stderr="$ignore_value" ;;
+		'--ignore-tty') option_tty="$ignore_value" ;;
 		'--status='*) option_status="${item#*=}" ;;
 		'--stdout='*) option_stdout="${item#*=}" ;;
 		'--stderr='*) option_stderr="${item#*=}" ;;
+		'--tty='*) option_tty="${item#*=}" ;;
 		'--no-debug'* | '--debug'*)
 			option_debug="$(get-flag-value --affirmative --fallback="$option_debug" -- "$item")"
 			;;
@@ -60,12 +69,36 @@ function eval_tester() (
 	done
 
 	# if debugging, or custom bash, wrap in debug_bash
-	if [[ $option_debug == 'yes' && -n $option_bash ]]; then
-		option_cmd=(debug_bash -x --bash="$option_bash" -- "${option_cmd[@]}")
-	elif [[ $option_debug == 'yes' ]]; then
-		option_cmd=(debug_bash -x -- "${option_cmd[@]}")
+	if [[ $option_debug == 'yes' ]]; then
+		if [[ -n $option_bash ]]; then
+			option_cmd=(debug_bash -x --bash="$option_bash" -- "${option_cmd[@]}")
+		else
+			option_cmd=(debug_bash -x -- "${option_cmd[@]}")
+		fi
 	elif [[ -n $option_bash ]]; then
 		option_cmd=(debug_bash --bash="$option_bash" -- "${option_cmd[@]}")
+	fi
+
+	# determine bash version, so we can know if BASH_XTRACEFD is supported
+	local stderr_unable_reason=''
+	if [[ $option_debug == 'yes' ]]; then
+		local bash_version_major bash_version_minor
+		if [[ -n $option_bash ]]; then
+			local versions
+			mapfile -t versions < <(debug_bash --bash="$option_bash" -c 'printf "%s\n" "${BASH_VERSINFO[@]}"')
+			if [[ ${#versions[@]} -lt 2 ]]; then
+				echo-style --error="Unable to determine bash version from $option_bash"
+				return 1
+			fi
+			bash_version_major="${versions[0]}"
+			bash_version_minor="${versions[1]}"
+		else
+			bash_version_major="$BASH_VERSION_MAJOR"
+			bash_version_minor="$BASH_VERSION_MINOR"
+		fi
+		if ! [[ $bash_version_major -ge 5 || $bash_version_major -eq 4 && $bash_version_minor -ge 1 ]]; then
+			stderr_unable_reason='Unable to validate stderr, as it will be filled with debugging output.'
+		fi
 	fi
 
 	# =====================================
@@ -101,7 +134,12 @@ function eval_tester() (
 			actual_file="$actual_file.actual"
 			__print_string "$actual" >"$actual_file"
 			__print_string "$expected" >"$expected_file"
+			echo-style --header3+red="<diff of $name>"
 			fs-diff --before="$expected_file" --after="$actual_file" || :
+			echo-style --header3+red="</diff of $name>"
+			if [[ $name != 'stdout' ]]; then
+				__print_line
+			fi
 		fi
 	}
 	function __dump {
@@ -118,28 +156,56 @@ function eval_tester() (
 	}
 
 	# run the command
-	local args=() actual_exit_status actual_stdout actual_stderr cmd_string title='' can_test_stderr='yes'
+	local args=() cmd_string title=''
 	cmd_string="$(echo-escape-command -- "${option_cmd[@]}")"
 	if [[ -n $option_name ]]; then
 		title="$option_name: $cmd_string"
 	else
 		title="$cmd_string"
 	fi
-	if ! __has_tty_support; then
-		can_test_stderr='no'
-	fi
 
 	# capture
+	local actual_exit_status actual_stdout actual_stderr actual_tty
 	args+=('--redirect-status={actual_exit_status}')
-	args+=('--redirect-stdout={actual_stdout}')
-	args+=('--redirect-stderr={actual_stderr}')
+	args+=('--copy-stdout={actual_stdout}')
+	args+=('--copy-stderr={actual_stderr}')
+
+	# file descriptor magic
+	local semaphores=() output_file
+	output_file="$(fs-temp --directory='eval-tester' --file)"
+	# tty
+	local terminal_output_file_for_comparison="$output_file.tty" terminal_output_target_original="$TERMINAL_OUTPUT_TARGET" terminal_output_semaphore
+	export TERMINAL_OUTPUT_TARGET
+	terminal_output_semaphore="$(__get_semaphore)"
+	semaphores+=("$terminal_output_semaphore")
+	__open_fd terminal_output_fd '>' >(
+		set +e
+		__do --redirect-stdout="$terminal_output_target_original" -- tee -- "$terminal_output_file_for_comparison"
+		printf '%s' "$?" >"$terminal_output_semaphore"
+	)
+	TERMINAL_OUTPUT_TARGET="$terminal_output_fd"
+	# debug
+	if [[ $option_debug == 'yes' ]]; then
+		local debug_output_target_original="$BASH_XTRACEFD" debug_output_semaphore
+		debug_output_semaphore="$(__get_semaphore)"
+		semaphores+=("$debug_output_semaphore")
+		__open_fd debug_output_fd '>' >(
+			set +e
+			__do --redirect-stdout="$debug_output_target_original" -- cat
+			printf '%s' "$?" >"$debug_output_semaphore"
+		)
+		BASH_XTRACEFD="$debug_output_fd"
+	fi
 
 	# run
 	echo-style --h3="$title"
+	local time="$(__get_epoch_time)"
 	__do "${args[@]}" -- "${option_cmd[@]}"
+	time="$(echo-math -- "$(__get_epoch_time) - $time")"
+	__return $? -- __wait_for_and_return_semaphores "${semaphores[@]}"
 
 	# check exit code
-	if [[ -n $option_status && $option_status != "$ignore_option" ]]; then
+	if [[ -n $option_status && $option_status != "$ignore_value" ]]; then
 		if [[ $option_status -ne $actual_exit_status ]]; then
 			FAIL='yes'
 			echo-style --error="actual exit status [$actual_exit_status]  !=  expected exit status [$option_status]"
@@ -149,29 +215,35 @@ function eval_tester() (
 	fi
 
 	# check stdout
-	if [[ $option_stdout != "$ignore_option" ]]; then
+	if [[ $option_stdout != "$ignore_value" ]]; then
 		__compare 'stdout' "$actual_stdout" "$option_stdout"
 	elif [[ $FAIL == 'yes' ]]; then
 		__dump 'stdout' "$actual_stdout"
 	fi
 
-	# not ignored
-	if [[ $option_stderr != "$ignore_option" ]]; then
-		if [[ $can_test_stderr == 'yes' || $actual_stderr == "$option_stderr" ]]; then
-			__compare 'stderr' "$actual_stderr" "$option_stderr"
-		else
-			echo-style --stderr --notice='Unable to validate stderr, as it will be filled with TTY output.'
-		fi
+	# check stderr
+	if [[ -n $stderr_unable_reason ]]; then
+		echo-style --stderr --notice="$stderr_unable_reason"
+	elif [[ $option_stderr != "$ignore_value" ]]; then
+		__compare 'stderr' "$actual_stderr" "$option_stderr"
 	elif [[ $FAIL == 'yes' ]]; then
 		__dump 'stderr' "$actual_stderr"
 	fi
 
+	# check tty
+	actual_tty="$(<"$terminal_output_file_for_comparison")"
+	if [[ $option_tty != "$ignore_value" ]]; then
+		__compare 'tty' "$actual_tty" "$option_tty"
+	elif [[ $FAIL == 'yes' ]]; then
+		__dump 'tty' "$actual_tty"
+	fi
+
 	# pass or fail
 	if [[ $FAIL == 'yes' ]]; then
-		echo-style --e3="$title" $'\n'
+		echo-style --e3="$title" ' ' --code="in $time seconds" $'\n'
 		return 1
 	else
-		echo-style --g3="$title" $'\n'
+		echo-style --g3="$title" ' ' --code="in $time seconds" $'\n'
 	fi
 )
 

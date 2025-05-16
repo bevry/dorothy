@@ -17,6 +17,47 @@
 # w.  `set -i' is no longer valid, as in other shells.
 
 # =============================================================================
+# Determine the bash version information, which is used to determine if we can use certain features or not.
+#
+# for example:
+# __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
+# BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
+# $BASH_VERSION_MAJOR -- 5
+# BASH_VERSION_MINOR -- 2
+# BASH_VERSION_PATCH -- 15
+# BASH_VERSION_LATEST -- 5.2.15
+# IS_BASH_VERSION_OUTDATED -- yes/no
+
+if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
+	# e.g. 5.2.15(1)-release => 5.2.15
+	# https://www.gnu.org/software/bash/manual/bash.html#index-BASH_005fVERSINFO
+	# [read] technique not needed as [BASH_VERSINFO] exists in all versions:
+	# IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
+	BASH_VERSION_MAJOR="${BASH_VERSINFO[0]}"
+	BASH_VERSION_MINOR="${BASH_VERSINFO[1]}"
+	BASH_VERSION_PATCH="${BASH_VERSINFO[2]}"
+	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_VERSION_LATEST='5.2.37' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
+	# any v5 version is supported by dorothy, earlier throws on empty array access which is annoying
+	if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
+		IS_BASH_VERSION_OUTDATED='no'
+		function __require_upgraded_bash {
+			:
+		}
+	else
+		# trunk-ignore(shellcheck/SC2034)
+		IS_BASH_VERSION_OUTDATED='yes'
+		function __require_upgraded_bash {
+			echo-style --stderr \
+				--code="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" $'\n' \
+				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' || return
+			return 45 # ENOTSUP 45 Operation not supported
+		}
+	fi
+fi
+
+# =============================================================================
 # Print Helpers
 
 # These should be the same in [bash.bash] and [zsh.zsh].
@@ -116,27 +157,6 @@ function __ternary {
 	else
 		__print_lines "$false_value"
 	fi
-}
-
-# debug
-DEBUG_TARGET=''
-function __debug_lines {
-	if [[ -n ${DEBUG-} ]]; then
-		if [[ -z $DEBUG_TARGET ]]; then
-			DEBUG_TARGET="$TERMINAL_DEVICE_FILE"
-		fi
-		__print_lines "$@" >>"$DEBUG_TARGET"
-	fi
-}
-DEBUG_FORMAT='+ ${BASH_SOURCE[0]} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
-function __enable_debugging {
-	PS4="$DEBUG_FORMAT"
-	DEBUG=yes
-	set -x
-}
-function __disable_debugging {
-	DEBUG=
-	set +x
 }
 
 # =============================================================================
@@ -327,7 +347,10 @@ if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 				__print_lines "${string:start}"
 			fi
 		else
-			__print_lines "${string:start:"$3"}"
+			local -i length="$3"
+			# bash does not support :"$3" for some reason:
+			# string: "-1": syntax error: operand expected (error token is ""-1"")
+			__print_lines "${string:start:length}"
 		fi
 	}
 else
@@ -489,7 +512,7 @@ function __join {
 	elif [[ $# -eq 2 ]]; then
 		return 0
 	fi
-	local result='' i d="$1" a=("$@") n=$# l="$(($# - 1))"
+	local result='' i d="$1" a=("$@") l="$(($# - 1))"
 	for ((i = 2; i < l; i++)); do
 		result+="${a[i]}$d"
 	done
@@ -599,26 +622,7 @@ function __is_shapeshifter {
 	return 1
 }
 
-# see [commands/get-terminal-device-file] for details
-TERMINAL_DEVICE_FILE="${TERMINAL_DEVICE_FILE-}"
-function __refresh_terminal_device_file {
-	# see [commands/get-terminal-device-file] for details
-	if __has_tty_support; then
-		TERMINAL_DEVICE_FILE='/dev/tty'
-	else
-		TERMINAL_DEVICE_FILE='/dev/stderr'
-	fi
-}
-function __has_tty_support {
-	# see [commands/get-terminal-tty-support] for details
-	# don't cache this
-	(: </dev/tty >/dev/tty) &>/dev/null
-	return
-}
-if [[ -z $TERMINAL_DEVICE_FILE ]]; then
-	__refresh_terminal_device_file
-fi
-
+# check if the input is a special target
 function __is_special_file {
 	local target="$1"
 	case "$target" in
@@ -629,6 +633,122 @@ function __is_special_file {
 		;;            # EINVAL 22 Invalid argument
 	*) return 1 ;; # not a special file
 	esac
+}
+
+# Whether the terminal supports the [/dev/tty] device file
+if (: </dev/tty >/dev/tty) &>/dev/null; then
+	# This applies to:
+	# - normal execution: <cmd>
+	# - background execution: <cmd> &
+	# - stdin execution: echo | <cmd>
+	TERMINAL_OUTPUT_TARGET="${TERMINAL_OUTPUT_TARGET:-"/dev/tty"}" # allow custom value for testing
+	TERMINAL_INPUT_TARGET='/dev/tty'
+	TERMINAL_POSITION_INPUT_TARGET='/dev/tty'
+	CAN_QUERY_TERMINAL_SIZE='yes'
+	IS_STDIN_LINE_BUFFERED='no'
+	IS_TTY_AVAILABLE='yes'
+else
+	# This applies to:
+	# - ssh -T execution: ssh -T localhost <cmd>
+	# - GitHub Actions execution
+	TERMINAL_OUTPUT_TARGET="${TERMINAL_OUTPUT_TARGET:-"/dev/stderr"}" # allow custom value for testing
+	# trunk-ignore(shellcheck/SC2034)
+	TERMINAL_INPUT_TARGET='/dev/stdin'
+	# trunk-ignore(shellcheck/SC2034)
+	TERMINAL_POSITION_INPUT_TARGET=''
+	# trunk-ignore(shellcheck/SC2034)
+	CAN_QUERY_TERMINAL_SIZE='no'
+	# trunk-ignore(shellcheck/SC2034)
+	IS_STDIN_LINE_BUFFERED='yes' # @todo this not should not apply to CI
+	# trunk-ignore(shellcheck/SC2034)
+	IS_TTY_AVAILABLE='no'
+fi
+if [[ -t 0 ]]; then
+	# This applies to:
+	# - normal execution: <cmd>
+	IS_STDIN_OPENED_ON_TERMINAL='yes'
+	TERMINAL_THEME_INPUT_TARGET='/dev/tty' # /dev/stdin also supported, but /dev/tty is always available in this case
+else
+	# This applies to:
+	# - stdin execution: echo | <cmd>
+	# - background execution: <cmd> &
+	# - ssh -T execution: ssh -T localhost <cmd>
+	# - GitHub Actions execution
+	IS_STDIN_OPENED_ON_TERMINAL='no'
+	# trunk-ignore(shellcheck/SC2034)
+	TERMINAL_THEME_INPUT_TARGET=''
+fi
+
+# Open a file descriptor in a cross-bash compatible way
+# alternative implementations at https://stackoverflow.com/q/8297415/130638
+function __open_fd {
+	local fd n mode name="$1" target="${3-}"
+	if [[ $name == '{'*'}' ]]; then
+		name="$(__get_substring "$name" 1 -1)"
+	fi
+	n="$(ulimit -n)"
+	case "$2" in
+	'<' | --read) mode='<' ;;
+	'>' | --overwrite | --write) mode='>' ;;
+	'<>' | --read-write) mode='<>' ;;
+	'>>' | --append) mode='>>' ;;
+	*)
+		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid mode provided: $2" >&2
+		return 22 # EINVAL 22 Invalid argument
+		;;
+	esac
+	# Bash >= 4.1, < 4.1
+	if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
+		if [[ -n $target ]]; then
+			if [[ $target =~ ^[0-9]+$ ]]; then
+				eval "exec {$name}$mode&$target"
+			else
+				eval "exec {$name}$mode\"\$target\""
+			fi
+		fi
+	else
+		# FD 3 and 4 are commonly used, so skip them amd start at 5
+		for ((fd = 5; fd < n; fd++)); do
+			# test if the file descriptor is not available on both read and write, then it means it is available
+			if ! eval ": <&$fd" &>/dev/null && ! eval ": >&$fd" &>/dev/null; then
+				# it failed, so it is available
+				eval "$name=$fd"
+				if [[ -n $target ]]; then
+					if [[ $target =~ ^[0-9]+$ ]]; then
+						eval "exec $fd$mode&$target"
+					else
+						eval "exec $fd$mode\"\$target\""
+					fi
+				fi
+				break
+			fi
+		done
+	fi
+}
+
+# Custom debug target
+# BASH_XTRACEFD aka DEBUG_OUTPUT_TARGET
+export BASH_XTRACEFD
+BASH_XTRACEFD="${BASH_XTRACEFD:-"${DEBUG_OUTPUT_TARGET:-"2"}"}"
+function __debug_lines {
+	if [[ -n ${DEBUG-} ]]; then
+		if [[ -z $BASH_XTRACEFD ]]; then
+			BASH_XTRACEFD="$TERMINAL_OUTPUT_TARGET"
+		fi
+		__print_lines "$@" >>"$BASH_XTRACEFD"
+	fi
+}
+
+# more detailed [set -x]
+DEBUG_FORMAT='+ ${BASH_SOURCE[0]} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
+function __enable_debugging {
+	PS4="$DEBUG_FORMAT"
+	DEBUG=yes
+	set -x
+}
+function __disable_debugging {
+	set +x
+	DEBUG=
 }
 
 # use this to ensure that the prior command's exit status bubbles a failure, regardless of whether errexit is on or off:
@@ -775,15 +895,36 @@ function __get_function_inner {
 	__print_string "$code"
 }
 
+function __get_semlock {
+	local context_id="$1" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" semlock_file wait pid=$$
+	__mkdirp "$dir" || return
+	# the lock file contains the process id that has the lock
+	semlock_file="$dir/$context_id.lock"
+	# wait for a exclusive lock
+	while :; do
+		# don't bother with a [[ -s "$semlock_file" ]] before [cat] as the semlock_file could have been removed between
+		wait="$(cat "$semlock_file" 2>/dev/null || :)"
+		if [[ -z $wait ]]; then
+			__print_string "$pid" >"$semlock_file"
+		elif [[ $wait == "$pid" ]]; then
+			break
+		elif [[ "$(ps -p "$wait" &>/dev/null || __print_string dead)" == 'dead' ]]; then
+			# the process is dead, it probably crashed, so failed to cleanup, so remove the lock file
+			rm -f "$semlock_file"
+		fi
+		sleep "0.01$RANDOM"
+	done
+	printf '%s\n' "$semlock_file"
+}
+
 # For semaphores, use $RANDOM$RANDOM as a single $RANDOM caused conflicts on Dorothy's CI tests when we didn't actually use semaphores, now that we use semaphores, we solve the underlying race conditions that caused the conflicts in the first place, however keep the double $RANDOM so it is enough entropy we don't have to bother for an existence check, here are the tests that had conflicts:
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
 # as to why use [__get_semaphore] instead of [mktemp], is that we want [dorothy test] to check if we cleaned everything up, furthermore, [mktemp] actually makes the files, so you have to do more expensive [-s] checks
 function __get_semaphore {
-	# local name="${1:-"$RANDOM$RANDOM"}"
-	local name="$RANDOM$RANDOM" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
+	local context_id="${1:-"$RANDOM$RANDOM"}" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
 	__mkdirp "$dir" || return
-	__print_lines "$dir/$name"
+	__print_lines "$dir/$context_id"
 }
 
 # As to why semaphores are even necessary,
@@ -799,10 +940,12 @@ function __wait_for_semaphores {
 	done
 }
 function __wait_for_and_remove_semaphores {
+	[[ $# -eq 0 ]] || return 0
 	__wait_for_semaphores "$@" || return
 	rm -f -- "$@" || return
 }
 function __wait_for_and_return_semaphores {
+	[[ $# -eq 0 ]] || return 0
 	local semaphore_file semaphore_status=0
 	for semaphore_file in "$@"; do
 		# needs -s as otherwise the file may exist but may not have finished writing, which would result in:
@@ -822,48 +965,8 @@ function __wait_for_and_return_semaphores {
 }
 
 # =============================================================================
-# Determine the bash version information, which is used to determine if we can use certain features or not.
-#
-# for example:
-# __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
-# BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
-# $BASH_VERSION_MAJOR -- 5
-# BASH_VERSION_MINOR -- 2
-# BASH_VERSION_PATCH -- 15
-# BASH_VERSION_LATEST -- 5.2.15
-# IS_BASH_VERSION_OUTDATED -- yes/no
-
-if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
-	# e.g. 5.2.15(1)-release => 5.2.15
-	# https://www.gnu.org/software/bash/manual/bash.html#index-BASH_005fVERSINFO
-	# [read] technique not needed as [BASH_VERSINFO] exists in all versions:
-	# IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
-	BASH_VERSION_MAJOR="${BASH_VERSINFO[0]}"
-	BASH_VERSION_MINOR="${BASH_VERSINFO[1]}"
-	BASH_VERSION_PATCH="${BASH_VERSINFO[2]}"
-	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_VERSION_LATEST='5.2.37' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
-	# any v5 version is supported by dorothy, earlier throws on empty array access which is annoying
-	if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
-		IS_BASH_VERSION_OUTDATED='no'
-		function __require_upgraded_bash {
-			:
-		}
-	else
-		# trunk-ignore(shellcheck/SC2034)
-		IS_BASH_VERSION_OUTDATED='yes'
-		function __require_upgraded_bash {
-			echo-style --stderr \
-				--code="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" $'\n' \
-				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' || return
-			return 45 # ENOTSUP 45 Operation not supported
-		}
-	fi
-fi
-
-# =============================================================================
 # Configure bash for Dorothy best practices.
+# @todo move this section to the start
 
 # Disable completion (not needed in scripts)
 # bash v2: progcomp: If set, the programmable completion facilities (see Programmable Completion) are enabled. This option is enabled by default.
@@ -911,7 +1014,8 @@ shopt -s inherit_errexit 2>/dev/null || : # has no effect on __try
 # as this makes no sense in this context:
 # __do --stdout=null --stdout=output.txt --stderr=stdout --stdout=stdout.txt --stderr=stderr.txt -- echo-style --stderr=my-stderr --stdout=my-stdout
 #
-# @todo re-add samasama support: https://gist.github.com/balupton/32bfc21702e83ad4afdc68929af41c23
+# @todo re-add samasama support for possible performance improvement: https://gist.github.com/balupton/32bfc21702e83ad4afdc68929af41c23
+# @todo consider using [FD>&-] instead of [FD>/dev/null]
 function __do {
 	# 🧙🏻‍♀️ the power is yours, send donations to github.com/sponsors/balupton
 	if [[ $# -eq 0 ]]; then
@@ -936,9 +1040,9 @@ function __do {
 	arg_value="${arg#*=}"
 	arg_flag="${arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
 	shift
-	# if target is tty, but terminal device file is redirected, then redo with the redirection
-	if [[ $arg_value =~ ^(tty|TTY|/dev/tty)$ && ! ($TERMINAL_DEVICE_FILE =~ ^(tty|TTY|/dev/tty)$) ]]; then
-		__do --right-to-left "$arg_flag=$TERMINAL_DEVICE_FILE" "$@"
+	# if target is tty, but terminal device file is redirected, then redo the flag with the redirection value
+	if [[ $arg_value =~ ^(tty|TTY|/dev/tty)$ && ! ($TERMINAL_OUTPUT_TARGET =~ ^(tty|TTY|/dev/tty)$) ]]; then
+		__do --right-to-left "$arg_flag=$TERMINAL_OUTPUT_TARGET" "$@"
 		return
 	fi
 	# process
@@ -1631,7 +1735,8 @@ function dorothy_try__trap_outer {
 		else
 			# lacking this causes nearly all subshell executions to fail on 3.2, 4.0, 4.2
 			dorothy_try__context_lines "SAVE: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" || :
-			{ __mkdirp "$DOROTHY_TRY__DIR" && __print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__FILE_STATUS"; } || :
+			# { __mkdirp "$DOROTHY_TRY__DIR" && __print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__FILE_STATUS"; } || :
+			__print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__FILE_STATUS" || :
 			# wait for semaphores if needed
 			if [[ $BASH_VERSION_MAJOR -eq 4 && ($BASH_VERSION_MINOR -eq 2 || $BASH_VERSION_MINOR -eq 3) ]]; then
 				__wait_for_semaphores "$DOROTHY_TRY__FILE_STATUS"
@@ -1765,8 +1870,9 @@ function __try {
 	DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
 	local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 	local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-	local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
-	local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
+	# local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
+	# local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
+	local DOROTHY_TRY__FILE_STATUS="$(__get_semaphore "$DOROTHY_TRY__CONTEXT.status")"
 
 	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
 	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
@@ -1966,10 +2072,33 @@ fi
 
 # put changelog entries in [versions.md]
 
+# Bash >= 5, < 5
+if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
+	function __get_epoch_time {
+		__print_lines "$EPOCHREALTIME"
+	}
+else
+	function __get_epoch_time {
+		__get_substring "$(date +%s.%N)" 0 -3 || return
+	}
+fi
+
 # Bash >= 4, < 4
 if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 	# bash >= 4
-	BASH_CAN_READ_I='yes'
+	# [read -i] only works if STDIN is open on terminal
+	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
+		# `read -rei`  | direct                                | default shown and exit status `0` if enter pressed or `1` if nothing sent
+		BASH_CAN_READ_I='yes'
+	else
+		# `read -rei`  | immediate pipe/redirection            | default ignored and exit status `0` if input sent or `1` if nothing sent
+		# `read -rei`  | delayed pipe/redirection              | default ignored and exit status `0` if input sent or `1` if nothing sent
+		# `read -rei`  | background task: all                  | input and default ignored and exit status `1`, regardless of piping and redirection
+		# `read -rei`  | ssh -T: direct                        | default ignored and exit status `0` if enter pressed or `142` if timed out
+		# `read -rei`  | GitHub Actions: direct                | default ignored and exit status `0` if input sent, or `1` if nothing sent
+		# `read -rei`  | GitHub Actions: background task: all  | input and default ignored and exit status `1`, regardless of piping and redirections
+		BASH_CAN_READ_I='no'
+	fi
 	BASH_CAN_READ_DECIMAL_TIMEOUT='yes'
 	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='yes'
 	function __get_read_decimal_timeout {
@@ -2218,21 +2347,71 @@ BASH_ARRAY_CAPABILITIES+=' '
 # mapfile -t arr < <(<output-command> | tr ' ,|' '\n')
 
 # split a string into an array with a multi character delimiter
-# __split <array_var_name> <delimiter> <<<"..."
+# __split --target=<array-var-name> --delimiter=<delimiter> --delimiters=...<delimiter> <<<"..."
 function __split {
-	local array_var_name="$1" delimiter="$2" delimiter_length trim_offset input=''
-	delimiter_length="${#delimiter}"
-	trim_offset="$((delimiter_length * -1))"
-	eval "$array_var_name=()"
-	while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
-		input+="$character"
-		if [[ $input == *"$delimiter" ]]; then
-			input="$(__get_substring "$input" 0 "$trim_offset")"
-			eval "$array_var_name+=(\"\$input\")"
-			input=''
+	local item option_target='' option_append='no' option_with_zero_length='yes' option_delimiters=() option_inputs=() \
+		character_index string_length delimiter   \
+		offsets=() offset delimiter_and_offset_index buffer='' character REPLY
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--target='*) option_target="${item#*=}" ;;
+		'--append') option_append='yes' ;;
+		'--no-zero-length') option_with_zero_length='no' ;;
+		'--delimiter='*) option_delimiters+=("${item#*=}") ;;
+		'--delimiters='*)
+			for ((character_index = 0, string_length = "${#item}"; character_index < string_length; character_index++)); do
+				character="${item:character_index:1}"
+				option_delimiters+=("$character")
+			done
+			;;
+		--)
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		*)
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		esac
+	done
+	if [[ $option_append == 'no' ]]; then
+		eval "$option_target=()"
+	fi
+	# read everything from stdin
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		while LC_ALL=C IFS= read -rd '' || [[ -n $REPLY ]]; do
+			option_inputs+=("$REPLY")
+			REPLY=''
+		done
+	fi
+	# cycle through it
+	for delimiter in "${option_delimiters[@]}"; do
+		offset=$(("${#delimiter}" * -1))
+		offsets+=("$offset")
+	done
+	for item in "${option_inputs[@]}"; do
+		# @todo this could be rewritten as a shifting window
+		for (( character_index = 0, string_length = ${#item}; character_index < string_length; character_index++)); do
+			character="${item:character_index:1}"
+			buffer+="$character"
+			for delimiter_and_offset_index in "${!option_delimiters[@]}"; do
+				delimiter="${option_delimiters[$delimiter_and_offset_index]}"
+				offset="${offsets[$delimiter_and_offset_index]}"
+				if [[ $buffer == *"$delimiter" ]]; then
+					buffer="$(__get_substring "$buffer" 0 "$offset")"
+					if [[ $option_with_zero_length == 'yes' || -n $buffer ]]; then
+						eval "$option_target+=(\"\$buffer\")"
+					fi
+					buffer=''
+				fi
+			done
+		done
+		if [[ -n $buffer ]]; then
+			eval "$option_target+=(\"\$buffer\")"
+			buffer=''
 		fi
 	done
-	if [[ -n $input ]]; then
-		eval "$array_var_name+=(\"\$input\")"
-	fi
 }

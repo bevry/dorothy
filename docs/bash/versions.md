@@ -35,7 +35,7 @@ From changelog:
 - Introduces `read -t <decimal-timeout>` for setting a decimal/fractional timeout.
 - Introduces `|&` as shorthand for `2>&1 |`.
 - Introduces `shopt -s globstar`.
-- Introduces `mapfile`, and `readarray` alias for `mapfile`.
+- Introduces `mapfile`, as well as the `readarray` alias for `mapfile`.
 - Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
 
 From manual discovery:
@@ -67,13 +67,22 @@ Changelog:
 
 ## bash v4.1
 
+> [!NOTE]
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__open_fd`.
+
 From changelog:
 
 - Introduces `${arr:0:-N}` for getting the last N items or characters of an array or string.
+- Introduces `BASH_XTRACEFD` for redirecting xtrace output to a file descriptor.
+- Introduces `{fd}` syntax for opening unused file descriptors.
 
 Changelog:
 
 > This document details the changes between this version, `bash-4.1-alpha`, and the previous version, `bash-4.0-release`.
+>
+> o. New variable `$BASH_XTRACEFD`; when set to an integer bash will write xtrace output to that file descriptor.
+>
+> p. If the optional left-hand-side of a redirection is of the form `{var}`, the shell assigns the file descriptor used to `$var` or uses `$var` as the file descriptor to move or close, depending on the redirection operator.
 >
 > ee. Fixed an off-by-one error when computing the number of positional parameters for the `${@:0:n}` expansion.
 
@@ -106,26 +115,41 @@ Changelog:
 > This document details the changes between this version, `bash-4.4-rc2`, and the previous version, `bash-4.4-beta2`.
 >
 > a. Using `${a[@]}` or `${a[*]}` with an array without any assigned elements when the nounset option is enabled no longer throws an unbound variable error.
+>
+> This document details the changes between this version, `bash-4.4-alpha`, and the previous version, `bash-4.3-release`.
+>
+> d. The `mapfile` builtin now has a `-d` option to use an arbitrary character as the record delimiter, and a `-t` option to strip the delimiter as supplied with `-d`.
 
 ## bash v5.0
 
-Nothing notable to Dorothy in this release.
+> [!NOTE]
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__get_epoch_time`.
 
 Changelog:
 
 > This document details the changes between this version, `bash-5.0-beta`, and the previous version, `bash-5.0-alpha`.
 >
 > q. Fixed a bug that caused `lastpipe` and `pipefail` to return an incorrect status for the pipeline if there was more than one external command in a loop body appearing in the last pipeline element.
+>
+> o. Changes to make sure that `$*` and `${array[*]}` (and `$@/${array[@]}`) expand the same way after the recent changes for POSIX interpretation 888.
 
 > This document details the changes between this version, `bash-5.0-alpha`, and the previous version, `bash-4.4-release`.
+>
+> a. The `wait` builtin can now wait for the last process substitution created.
+>
+> b. There is an `EPOCHSECONDS` variable, which expands to the time in seconds since the Unix epoch.
+>
+> c. There is an `EPOCHREALTIME` variable, which expands to the time in seconds since the Unix epoch with microsecond granularity.
 >
 > f. Fixed a bug that caused `SHLVL` to be incremented one too many times when creating subshells.
 >
 > i. The shell no longer runs traps if a signal arrives while reading command substitution output.
 >
-> o. Changes to make sure that `$*` and `${array[*]}` (and `$@/${array[@]}`) expand the same way after the recent changes for POSIX interpretation 888.
+> o. A new `shopt` option: `localvar_inherit`; if set, a local variable inherits the value of a variable with the same name at the nearest preceding scope.
 >
 > u. Fixed a bug that could result in command substitution, when executed in a context where word splitting is not performed, to leave a stray `\001` character in the string.
+>
+> x. The shell only sets up `BASH_ARGV` and `BASH_ARGC` at startup if extended debugging mode is active. The old behavior of unconditionally setting them is available as part of the shell compatibility options.
 >
 > ee. The `ERR` trap now reports line numbers more reliably.
 >
@@ -136,12 +160,6 @@ Changelog:
 > mmm. `read -n 0` and `read -N 0` now try a zero-length read in an attempt to detect file descriptor errors.
 >
 > yyy. `wait` without arguments attempts to wait for all active process substitution processes.
->
-> a. The `wait` builtin can now wait for the last process substitution created.
->
-> o. A new `shopt` option: `localvar_inherit`; if set, a local variable inherits the value of a variable with the same name at the nearest preceding scope.
->
-> x. The shell only sets up `BASH_ARGV` and `BASH_ARGC` at startup if extended debugging mode is active. The old behavior of unconditionally setting them is available as part of the shell compatibility options.
 
 ## bash v5.1
 
