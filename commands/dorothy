@@ -945,7 +945,7 @@ function dorothy_() (
 		# act
 		local hostname
 		hostname="$(get-hostname)"
-		if get-terminal-reactivity-support --quiet && is-generic -- "$hostname"; then
+		if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]] && is-generic -- "$hostname"; then
 			if confirm --bool --ppid=$$ -- "This machine's hostname is currently generic [$hostname], would you like to change it?"; then
 				hostname="$(
 					ask --linger --question='What should the new hostname be?'
@@ -1005,7 +1005,7 @@ function dorothy_() (
 			fi
 
 			# if not reactive, force local
-			if get-terminal-reactivity-support --quiet; then
+			if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
 				where="$(
 					choose --linger --required --label --default="$where" \
 						--question='Where do you want to store your Dorothy user configuration?' -- \
@@ -1423,7 +1423,7 @@ function dorothy_() (
 			# [--login] ignores [--rcfile]
 			# this is not a true login shell, as [$0] is not [-bash], as such loading [init.sh] is incompatible
 			# without [env -i] which would wipe [USER/HOME/DOROTHY], then this shell will inherit exports from the current environment
-			if ! __has_tty_support; then
+			if [[ $IS_TTY_AVAILABLE == 'no' ]]; then
 				echo-error 'Cannot use ' --invert="$shell" ' as that shell only supports custom REPLs when ' --code='/dev/tty' ' is available.'
 				return 93 # EPROTONOSUPPORT 93 Protocol not supported
 			fi
@@ -1822,7 +1822,7 @@ function dorothy_() (
 		assert_dorothy_configured
 
 		# options
-		local item only=() skips=('dorothy' 'bash.bash') only_current_bash_version=() bash_binaries=() bash_custom='no'
+		local item only=() skips=('dorothy' 'bash.bash') only_current_bash_version=('debug-terminal') bash_binaries=() bash_custom='no'
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -1851,9 +1851,9 @@ function dorothy_() (
 		source "$DOROTHY/sources/ripgrep.bash"
 
 		# before we begin, trim the bash.bash:eval_capture cache, and our own cache
-		export DEBUG=yes DEBUG_TARGET="$XDG_CACHE_HOME/dorothy-debug.log"
+		export DEBUG=yes DEBUG_OUTPUT_TARGET="$XDG_CACHE_HOME/dorothy-debug.log"
 		__mkdirp "$XDG_CACHE_HOME/dorothy"
-		rm -rf -- "$XDG_CACHE_HOME/dorothy-try" "$DEBUG_TARGET"
+		rm -rf -- "$XDG_CACHE_HOME/dorothy-try" "$DEBUG_OUTPUT_TARGET"
 
 		# on CI set the modification times to reflect those from the git repository, rather than from clone
 		if is-ci; then
@@ -1934,15 +1934,15 @@ function dorothy_() (
 			fi
 
 			# run again, ensuring this specific bash version is preferred
-			if [[ $failed == 'no' ]]; then
+			if [[ $failed == 'no' ]] && ! __is_within "$filename" -- "${only_current_bash_version[@]}"; then
 				for bash_binary in "${bash_binaries[@]}"; do
 					eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test || {
-						if [[ $bash_custom == 'no' ]] && __is_within "$filename" -- "${only_current_bash_version[@]}"; then
-							echo-style --warning='This test was expected to fail on other bash versions, marking as only warning instead of failure.'
-							warnings+=("$bash_binary $filepath --test")
-						else
-							failures+=("$bash_binary $filepath --test")
-						fi
+						# if [[ $bash_custom == 'no' ]] && __is_within "$filename" -- "${only_current_bash_version[@]}"; then
+						# 	echo-style --warning='This test was expected to fail on other bash versions, marking as only warning instead of failure.'
+						# 	warnings+=("$bash_binary $filepath --test")
+						# else
+						failures+=("$bash_binary $filepath --test")
+						# fi
 					}
 				done
 			fi
@@ -1955,13 +1955,19 @@ function dorothy_() (
 		fi
 
 		# check for eval-capture failed cleaning
-		if is-nonempty-directory -- "$XDG_CACHE_HOME/dorothy-try"; then
-			failures+=($'bash.bash:__try had leftovers: \n'"$(fs-structure -- "$XDG_CACHE_HOME/dorothy-try")")
-		fi
+		local leftover leftovers=(
+			"$XDG_CACHE_HOME/dorothy/semlocks"
+			"$XDG_CACHE_HOME/dorothy/semaphores"
+		)
+		for leftover in "${leftovers[@]}"; do
+			if is-nonempty-directory -- "$leftover"; then
+				failures+=($'leftovers: \n'"$(fs-structure -- "$leftover")")
+			fi
+		done
 
 		# check for debug lines
-		if [[ -n ${DEBUG_TARGET-} && -f $DEBUG_TARGET ]]; then
-			failures+=($'bash.bash:__debug_lines had output: \n'"$(echo-file -- "$DEBUG_TARGET")")
+		if [[ -n ${DEBUG_OUTPUT_TARGET-} && -f $DEBUG_OUTPUT_TARGET ]]; then
+			failures+=($'bash.bash:__debug_lines had output: \n'"$(echo-file -- "$DEBUG_OUTPUT_TARGET")")
 		fi
 
 		# check for warnings

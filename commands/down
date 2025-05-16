@@ -30,17 +30,19 @@ function down_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
 
-	local url='https://github.com/BrentOzarULTD/Stack-Overflow-Database/releases/download/20230114/StackOverflowMini.bak'
-	#local zip='https://github.com/bevry/dorothy/archive/refs/heads/master.zip'
-	# local failure='https://httpstat.us/504'
+	local large='https://github.com/BrentOzarULTD/Stack-Overflow-Database/releases/download/20230114/StackOverflowMini.bak'
+	local zip='https://github.com/bevry/dorothy/archive/refs/heads/master.zip'
+	local failure='https://httpstat.us/504'
 
 	local tempdir
 	tempdir="$(fs-temp --directory='down' --directory='tests' --touch)"
 	cd "$tempdir" || return
 
-	set -x
-
-	down "$url" || return
+	eval-tester --ignore-stderr --ignore-tty -- down "$zip" || return
+	eval-tester --ignore-stderr --ignore-tty -- down --tool=curl -- "$zip" || return
+	eval-tester --ignore-stderr --ignore-tty -- down --tool=wget -- "$zip" || return
+	eval-tester --ignore-stderr --ignore-tty --status=22 -- down --tool=curl --attempts=1 -- "$failure" || return
+	eval-tester --ignore-stderr --ignore-tty --status=4 -- down --tool=wget --attempts=1 -- "$failure" || return
 
 	# down --url="$url" --quiet || return
 	# down --url="$url" --verbose || return
@@ -130,7 +132,7 @@ function down_() (
 		'--no-progress'* | '--progress'*)
 			option_progress="$(get-flag-value --affirmative --fallback="$option_progress" -- "$item")"
 			;;
-		'--curl' | '--tool=curl') option_tool='curl' ;;
+		'--tool='*) option_tool="${item#*=}" ;;
 		'--url='*) option_url="${item#*=}" ;;
 		'--bearer-token='*) option_bearer_token="${item#*=}" ;;
 		'--attempts='*) option_attempts="${item#*=}" ;;
@@ -141,6 +143,16 @@ function down_() (
 		'--archive-'*)
 			is_archive='yes'
 			option_archive_args+=("--${item#--archive-}")
+			;;
+		--)
+			local urls=("$@") url
+			if [[ -n $option_url ]]; then
+				urls+=("$option_url")
+			fi
+			for url in "${urls[@]}"; do
+				down_ --quiet="$option_quiet" --tool="$option_tool" --bearer-token="$option_bearer_token" --attempts="$option_attempts" --attempt-interval="$option_attempt_interval" --directory="$option_directory" --file="$option_file" --filepath="$option_filepath" "${option_archive_args[@]}" --url="$url"
+			done
+			return
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
 		*)
@@ -230,16 +242,29 @@ function down_() (
 		eval_options+=(--verbose --wrap)
 	fi
 	if [[ -z $option_progress ]]; then
-		if ! __has_tty_support || [[ $option_quiet == 'yes' ]]; then
+		if [[ $IS_TTY_AVAILABLE == 'no' || $option_quiet == 'yes' ]]; then
 			option_progress='no'
 		else
 			option_progress='yes'
 		fi
 	fi
 
+	# prefer wget if it is installed, as it has a better progress bar
+	if [[ -z $option_tool ]]; then
+		if __command_exists -- wget; then
+			option_tool='wget'
+		else
+			option_tool='curl'
+		fi
+	fi
+
 	# do download
 	# @todo ensure consistent existing/resume functionality, it should always overwrite
-	if [[ $option_tool != 'curl' ]] && __command_exists -- wget; then
+	if [[ $option_tool == 'wget' ]]; then
+		# install wget if it is is missing
+		if __command_missing -- wget; then
+			setup-util-wget --quiet
+		fi
 		local wget_options=(--unlink)
 		# in wget, 0 = unlimited, N = tries/attempts (not retries)
 		wget_options+=(--tries="${option_attempts:-"1"}" --retry-connrefused --waitretry="$option_attempt_interval")
@@ -266,7 +291,7 @@ function down_() (
 			cd "$download_directory"
 			eval-helper "${eval_options[@]}" -- wget "${wget_options[@]}"
 		)
-	else
+	elif [[ $option_tool == 'curl' ]]; then
 		# install curl if it is is missing
 		if __command_missing -- curl; then
 			setup-util-curl --quiet
@@ -305,6 +330,8 @@ function down_() (
 			cd "$download_directory"
 			eval-helper "${eval_options[@]}" -- curl "${curl_options[@]}"
 		)
+	else
+		help "An unrecognised tool was provided: $option_tool"
 	fi
 
 	# sanity check
