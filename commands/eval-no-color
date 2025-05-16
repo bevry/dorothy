@@ -21,12 +21,18 @@ function eval_no_color() (
 	}
 
 	# process
-	local item option_cmd=()
+	local item option_cmd=() option_env='yes' option_replacements='yes'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-env'* | '--env'*)
+			option_env="$(get-flag-value --affirmative --fallback="$option_env" -- "$item")"
+			;;
+		'--no-replacements'* | '--replacements'*)
+			option_replacements="$(get-flag-value --affirmative --fallback="$option_replacements" -- "$item")"
+			;;
 		'--')
 			option_cmd+=("$@")
 			shift $#
@@ -44,29 +50,44 @@ function eval_no_color() (
 	# =====================================
 	# Dependencies
 
-	local bin_gsed_or_sed
-	bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
+	if [[ $option_replacements == 'yes' ]]; then
+		local bin_gsed_or_sed
+		bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
+	fi
+
+	local cmd=()
+	if [[ $option_env == 'yes' ]]; then
+		cmd=(env COLOR=no "${option_cmd[@]}")
+	else
+		cmd=("${option_cmd[@]}")
+	fi
 
 	# =====================================
 	# Action
+	
 
 	# note: piping to echo-trim-colors doesn't seem to work, hence why we use sed directly
 	# this only removes colors, not other ansi escape codes
 	# @todo replace with `echo-regexp` and `echo-write`
-	local stdout_semaphore stderr_semaphore
-	stdout_semaphore="$(__get_semaphore)"
-	stderr_semaphore="$(__get_semaphore)"
-	env NO_COLOR=yes "${option_cmd[@]}" \
-		> >(
-			"$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g'
-			touch -- "$stdout_semaphore"
-		) \
-		2> >(
-			"$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g' >&2
-			touch -- "$stderr_semaphore"
-		)
-	__wait_for_and_remove_semaphores "$stdout_semaphore" "$stderr_semaphore"
+
 	# ^ maintains stdout, stderr, and exit code
+	# ^ the regex stuff cannot adjust TTY... that is, unless TTY is always forked/opened to a FD that we can redirect
+	
+	if [[ $option_replacements == 'yes' ]]; then
+		local semaphores=("$(__get_semaphore)" "$(__get_semaphore)")
+		"${cmd[@]}" \
+			> >(
+				"$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g'
+				touch -- "${semaphores[0]}"
+			) \
+			2> >(
+				"$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g' >&2
+				touch -- "${semaphores[1]}"
+			)
+		__wait_for_and_remove_semaphores "${semaphores[@]}"
+	else
+		"${cmd[@]}"
+	fi
 )
 
 # fire if invoked standalone

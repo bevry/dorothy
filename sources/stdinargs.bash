@@ -67,6 +67,7 @@ function stdinargs {
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
+		'--no-color'* | '--color'*) export COLOR; COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")" ;;
 		'--timeout' | '--timeout=' | '--timeout=yes')
 			timeout_seconds=1
 			;;
@@ -197,7 +198,7 @@ function stdinargs {
 		if [[ -n $option_max_args && $args_count -gt $option_max_args ]]; then
 			help \
 				'This command only supports a maximum of ' --code="$option_max_args" ' arguments, yet ' --code="$args_count" ' were provided:' --newline \
-				--"$(echo-verbose -- "${option_args[@]}")" >&2
+				--="$(echo-verbose -- "${option_args[@]}")" >&2
 			return 22 # EINVAL 22 Invalid argument
 		fi
 		for item in "${option_args[@]}"; do
