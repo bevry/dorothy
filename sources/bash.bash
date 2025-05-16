@@ -548,43 +548,8 @@ function __is_within {
 	fi
 }
 
-# # __intersect <array-var-name> <array-var-name>
-# function __intersect {
-# 	local array_var_name_left="$1" array_var_name_right="$2" n_left n_right i_left i_right
-# 	# trunk-ignore(shellcheck/SC1087)
-# 	eval "n_left=\${#$array_var_name_left[@]}"
-# 	# trunk-ignore(shellcheck/SC1087)
-# 	eval "n_right=\${#$array_var_name_right[@]}"
-# 	for ((i_left = 0; i_left < n_left; ++i_left)); do
-# 		for ((i_right = 0; i_right < n_right; ++i_right)); do
-# 			if eval "[[ \"\${$array_var_name_left[i]}\" == \"\${$array_var_name_right[i]}\" ]]"; then
-# 				eval "__print_lines \"\${$array_var_name_left[i]}\""
-# 				break
-# 			fi
-# 		done
-# 	done
-# }
-
-# # __complement <array-var-name> <array-var-name>
-# function __complement {
-# 	local array_var_name_left="$1" array_var_name_right="$2" n_left n_right i_left i_right found
-# 	# trunk-ignore(shellcheck/SC1087)
-# 	eval "n_left=\${#$array_var_name_left[@]}"
-# 	# trunk-ignore(shellcheck/SC1087)
-# 	eval "n_right=\${#$array_var_name_right[@]}"
-# 	for ((i_left = 0; i_left < n_left; ++i_left)); do
-# 		found='no'
-# 		for ((i_right = 0; i_right < n_right; ++i_right)); do
-# 			if eval "[[ \"\${$array_var_name_left[i]}\" == \"\${$array_var_name_right[i]}\" ]]"; then
-# 				found='yes'
-# 				break
-# 			fi
-# 		done
-# 		if [[ $found == 'no' ]]; then
-# 			eval "__print_lines \"\${$array_var_name_left[i]}\""
-# 		fi
-# 	done
-# }
+# for intersect, complement, remove_needle, remove_needles see:
+# https://gist.github.com/balupton/80d27cf1a9e193f8247ee4baa2ad8566
 
 # replace shapeshifting ANSI Escape Codes with newlines
 function __split_shapeshifting {
@@ -740,7 +705,7 @@ function __debug_lines {
 }
 
 # more detailed [set -x]
-DEBUG_FORMAT='+ ${BASH_SOURCE[0]} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
+DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
 function __enable_debugging {
 	PS4="$DEBUG_FORMAT"
 	DEBUG=yes
@@ -1704,7 +1669,7 @@ function dorothy_try__dump_lines {
 function dorothy_try__trap_outer {
 	# do not use local, as this is not executed as a function
 	DOROTHY_TRY__TRAP_STATUS=$?
-	DOROTHY_TRY__TRAP_LOCATION="${BASH_SOURCE[0]}:${LINENO}:${FUNCNAME-}:$DOROTHY_TRY__SUBSHELL:${BASH_SUBSHELL-}:$-:$BASH_VERSION"
+	DOROTHY_TRY__TRAP_LOCATION="${BASH_SOURCE[0]-}:${LINENO}:${FUNCNAME-}:$DOROTHY_TRY__SUBSHELL:${BASH_SUBSHELL-}:$-:$BASH_VERSION"
 	if [[ $DOROTHY_TRY__TRAP_STATUS -eq 1 && -f $DOROTHY_TRY__FILE_STATUS ]]; then
 		# Bash versions 4.2 and 4.3 will change a caught but thrown or continued exit status to 1
 		# So we have to restore our saved one from the throw-in-trap-subshell workaround
@@ -1865,14 +1830,13 @@ function __try {
 	DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}" # so we can remove our trap once all tries are finished
 
 	# prepare locals specific to our context
-	local DOROTHY_TRY__STATUS=
-	local DOROTHY_TRY__CONTEXT
+	local DOROTHY_TRY__CONTEXT \
+		DOROTHY_TRY__FILE_STATUS \
+		DOROTHY_TRY__STATUS='' \
+		DOROTHY_TRY__COMMAND=("${cmd[@]}") \
+		DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
-	local DOROTHY_TRY__COMMAND=("${cmd[@]}")
-	local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-	# local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
-	# local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
-	local DOROTHY_TRY__FILE_STATUS="$(__get_semaphore "$DOROTHY_TRY__CONTEXT.status")"
+	DOROTHY_TRY__FILE_STATUS="$(__get_semaphore "$DOROTHY_TRY__CONTEXT.status")"
 
 	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
 	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
@@ -2266,6 +2230,29 @@ function __require_array {
 	fi
 }
 
+function __make_array {
+	local option_targets=() option_size=0 item target index list=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--target='*) option_targets+=("${item#*=}") ;;
+		'--size='*) option_size="${item#*=}" ;;
+		--*)
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		*) option_targets+=("$item") ;;
+		esac
+	done
+	for ((index = 0; index < option_size; index++)); do
+		list+="'' "
+	done
+	for target in "${option_targets[@]}"; do
+		eval "$target=($list)"
+	done
+}
+
 BASH_ARRAY_CAPABILITIES=''
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	# bash >= 5
@@ -2275,6 +2262,7 @@ if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 		BASH_ARRAY_CAPABILITIES+=' associative'
 	fi
 elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
+	# note that these versions do not support [-d <delim>] or [-t] options with mapfile
 	# bash >= 4
 	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
 	if [[ $BASH_VERSION_MINOR -ge 4 ]]; then
@@ -2292,9 +2280,7 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 	set +u # disable nounset to prevent crashes on empty arrays
 	# @todo implement support for all options
 	function mapfile {
-		# Copyright 2021+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
-		# Written for Dorothy (https://github.com/bevry/dorothy)
-		# Licensed under the CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+		dorothy-warnings add --code='mapfile' --bold=' has been deprecated in favor of ' --code='__split' || :
 		local delim=$'\n' item had_t='no'
 		while :; do
 			case "$1" in
@@ -2343,15 +2329,15 @@ fi
 BASH_ARRAY_CAPABILITIES+=' '
 
 # note mapfile does not support multiple delimiters, as such do either of these instead:
-# mapfile -t arr < <(<output-command> | echo-split --characters=' ,|' --stdin)
-# mapfile -t arr < <(<output-command> | tr ' ,|' '\n')
+# __split arr --no-zero-length < <(<output-command> | echo-split --characters=' ,|' --stdin)
+# __split arr --no-zero-length < <(<output-command> | tr ' ,|' '\n')
 
 # split a string into an array with a multi character delimiter
-# __split --target=<array-var-name> --delimiter=<delimiter> --delimiters=...<delimiter> <<<"..."
+# __split <array-var-name> --delimiter=<delimiter> --delimiters=...<delimiter> <<<"..."
 function __split {
 	local item option_target='' option_append='no' option_with_zero_length='yes' option_delimiters=() option_inputs=() \
-		character_index string_length delimiter   \
-		offsets=() offset delimiter_and_offset_index buffer='' character REPLY
+	character_left_index last_slice_left_index string_length string_last delimiter delimiter_length \
+	offsets=() offset delimiter_and_offset_index REPLY window character
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -2359,21 +2345,38 @@ function __split {
 		'--target='*) option_target="${item#*=}" ;;
 		'--append') option_append='yes' ;;
 		'--no-zero-length') option_with_zero_length='no' ;;
+		'--keep-zero-length') : ;; # no-op as already the case
 		'--delimiter='*) option_delimiters+=("${item#*=}") ;;
 		'--delimiters='*)
-			for ((character_index = 0, string_length = "${#item}"; character_index < string_length; character_index++)); do
-				character="${item:character_index:1}"
+			item="${item#*=}"
+			for ((character_left_index = 0, string_length = "${#item}"; character_left_index < string_length; character_left_index++)); do
+				character="${item:character_left_index:1}"
 				option_delimiters+=("$character")
 			done
 			;;
 		--)
+			if [[ $# -eq 0 ]]; then
+				# there's no items, be a no-op
+				if [[ $option_append == 'no' ]]; then
+					eval "$option_target=()"
+				fi
+				return 0
+			fi
 			option_inputs+=("$@")
 			shift $#
 			break
 			;;
-		*)
+		--*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
 			return 22 # EINVAL 22 Invalid argument
+			;;
+		*)
+			if [[ -z $option_target ]]; then
+				option_target="$item"
+			else
+				__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+				return 22 # EINVAL 22 Invalid argument
+			fi
 			;;
 		esac
 	done
@@ -2388,30 +2391,69 @@ function __split {
 		done
 	fi
 	# cycle through it
+	if [[ ${#option_delimiters[@]} -eq 0 ]]; then
+		option_delimiters+=($'\n')
+	fi
 	for delimiter in "${option_delimiters[@]}"; do
-		offset=$(("${#delimiter}" * -1))
+		delimiter_length=${#delimiter}
+		offset=$((delimiter_length * -1)) # variable needed for early bash versions
 		offsets+=("$offset")
 	done
 	for item in "${option_inputs[@]}"; do
-		# @todo this could be rewritten as a shifting window
-		for (( character_index = 0, string_length = ${#item}; character_index < string_length; character_index++)); do
-			character="${item:character_index:1}"
-			buffer+="$character"
+		# check if we even apply
+		if [[ -z $item ]]; then
+			# the item is empty, add it if desired
+			if [[ $option_with_zero_length == 'yes' ]]; then
+				eval "$option_target+=('')"
+			fi
+			# move to the next item
+			continue
+		fi
+		# reset the window for each argument
+		window=''
+		last_slice_left_index=-1
+		string_length=${#item}
+		string_last=$((string_length - 1))
+		# process the argument
+		for ((character_left_index = 0; character_left_index < string_length; character_left_index++)); do
+			# add the character to the window, no need for __get_substring as it is a simple slice
+			character="${item:character_left_index:1}"
+			window+="$character"
+			# cycle through the delimiters
 			for delimiter_and_offset_index in "${!option_delimiters[@]}"; do
 				delimiter="${option_delimiters[$delimiter_and_offset_index]}"
 				offset="${offsets[$delimiter_and_offset_index]}"
-				if [[ $buffer == *"$delimiter" ]]; then
-					buffer="$(__get_substring "$buffer" 0 "$offset")"
-					if [[ $option_with_zero_length == 'yes' || -n $buffer ]]; then
-						eval "$option_target+=(\"\$buffer\")"
+				# does the window end with our delimiter?
+				if [[ $window == *"$delimiter" ]]; then
+					# remove the delimiter
+					window="$(__get_substring "$window" 0 "$offset")"
+					# do we want to add it?
+					if [[ $option_with_zero_length == 'yes' || -n $window ]]; then
+						eval "$option_target+=(\"\$window\")"
 					fi
-					buffer=''
+					# reset the window so characters can be added back to it for the new slice
+					window=''
+					# note the last slice, as we know whether or not we need to add a trailing slice
+					last_slice_left_index="$character_left_index"
 				fi
 			done
 		done
-		if [[ -n $buffer ]]; then
-			eval "$option_target+=(\"\$buffer\")"
-			buffer=''
+		# check how to handle trailing slice
+		if [[ $last_slice_left_index -eq -1 ]]; then
+			# the delimiter was not found, so add the whole string
+			if [[ $option_with_zero_length == 'yes' || -n $window ]]; then
+				eval "$option_target+=(\"\$item\")"
+			fi
+		elif [[ $last_slice_left_index -ne $string_last ]]; then
+			# the delimiter was not the last character, so add the pending slice
+			if [[ $option_with_zero_length == 'yes' || -n $window ]]; then
+				eval "$option_target+=(\"\$window\")"
+			fi
+		elif [[ $last_slice_left_index -eq $string_last ]]; then
+			# delimiter was the last character, so add a right-side slice, if zero-length is allowed
+			if [[ $option_with_zero_length == 'yes' ]]; then
+				eval "$option_target+=('')"
+			fi
 		fi
 	done
 }

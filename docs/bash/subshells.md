@@ -10,12 +10,12 @@ Advice:
 
 ```bash
 # never apply variables within pipes
-printf '%s\n' foo bar | mapfile -t line
-printf 'total number of lines: %s\n' "${#line[@]}"
+printf '%s\n' foo bar | __split lines --no-zero-length
+printf 'total number of lines: %s\n' "${#lines[@]}"
 # outputs 0
 
 # always use <, <<<, or <( instead
-mapfile -t line < <(printf '%s\n' foo bar)
-printf 'total number of lines: %s\n' "${#line[@]}"
+__split lines --no-zero-length < <(printf '%s\n' foo bar)
+printf 'total number of lines: %s\n' "${#lines[@]}"
 # outputs 2
 ```
