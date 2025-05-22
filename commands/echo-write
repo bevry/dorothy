@@ -2,24 +2,66 @@
 
 function echo_write_test() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P eval-tester)"
-	echo-style --h1="TEST: $0"
+	#echo-style --h1="TEST: $0"
+
+	# [printf] supports null-bytes [\0]
+	# however, bash does not (not via read, not via process substitution)
+	# https://lists.gnu.org/archive/html/bug-bash/2016-09/msg00015.html
+
+	local root data_file first_output_file second_output_file
+	root="$(fs-temp --directory=echo-write --directory=tests)"
+	data_file="$root/data-file"
+	first_output_file="$root/first-output-file"
+	second_output_file="$root/second-output-file"
+	function __print_now {
+		printf 'a\n\0b\0c\0'
+	}
+	function __print_sleep {
+		sleep 1
+		printf '%s\n\0' a
+		sleep 2
+		printf '%s\0' b
+		sleep 3
+		printf '%s\0' c
+	}
+	__print_now >"$data_file"
+	rm -f -- "$first_output_file" "$second_output_file"
+
+	# showcase of the issues
+	echo-style --newline --header1='bash (<...)'
+	printf '%q' "$(<"$data_file")" # error suppression doesn't do anything
+
+	echo-style --newline --header1='bash process substitution'
+	printf '%q' "$(__print_now)"
+
+	echo-style --newline --header1='bash read'
+	function __read_whole {
+		local whole=''
+		# bash can write/output null-bytes [\0], but [read] cannot read them
+		while LC_ALL=C IFS= read -rd '' || [[ -n $REPLY ]]; do
+			whole+="$REPLY"
+			REPLY=''
+		done
+		printf '%q' "$whole"
+	}
+	__read_whole <"$data_file"
+
+	echo-style --newline --header1='cat read'
+	cat -nt "$data_file"
+
+	echo-style --newline --header1='bat read'
+	bat --show-all "$data_file"
 
 	# these were mention in prior docs as needing echo-write, however, they don't seem like they do, maybe again it was another issue of: https://github.com/bevry/dorothy/issues/283
 	# eval-tester -- fetch 'https://pkg.cloudflare.com/cloudflare-main.gpg' | gpg --import
 	# eval-tester -- fetch 'https://downloads.1password.com/linux/keys/1password.asc' | gpg --import
 
-	function echo_write_test_direct {
-		{
-			sleep 1
-			printf '%s\n\0' a
-			sleep 2
-			printf '%s\0' b
-			sleep 3
-			printf '%s\0' c
-		} | echo-write stdout
-	}
-	eval_tester --name='echo-write --direct' --stdout=$'a\nbc' -- echo_write_test_direct # echo-write -- stdout
+	# --default
+	eval-tester -- echo-write -- "$first_output_file" < <(__print_now)
+	eval-tester --ignore-outputs -- is-same -- "$first_output_file" "$data_file"
+	eval-tester -- echo-write --no-binary -- "$first_output_file" "$second_output_file" < <(__print_now)
+	eval-tester --ignore-outputs -- is-same -- "$first_output_file" "$data_file"
+	eval-tester --ignore-outputs -- is-same -- "$second_output_file" "$data_file"
 
 	# # ^ outputs a\n to stdout, then b to stdout, then c to stdout
 	# { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --buffer -- stdout stderr tty overwrite.txt
@@ -294,17 +336,13 @@ function echo_write() (
 		# direct mode
 		local target
 		if [[ ${#option_targets[@]} -gt 1 ]]; then
-			# multi, non-binary mode
-			while read -r -d ''; do
+			local REPLY
+			while LC_ALL=C IFS= read -rd '' || [[ -n $REPLY ]]; do
 				for target in "${option_targets[@]}"; do
 					printf '%s' "$REPLY" | do_direct "$target"
 				done
+				REPLY=''
 			done
-			if [[ -n $REPLY ]]; then
-				for target in "${option_targets[@]}"; do
-					printf '%s' "$REPLY" | do_direct "$target"
-				done
-			fi
 		else
 			# single, binary mode
 			for target in "${option_targets[@]}"; do

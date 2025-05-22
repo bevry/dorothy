@@ -228,6 +228,9 @@ style__color_end__success="${style__color_end__foreground}${style__color_end__in
 style__color__positive="${style__color__foreground_green}${style__color__bold}"
 style__color_end__positive="${style__color_end__foreground}${style__color_end__intensity}"
 
+style__color__note="${style__color__bold}${style__color__foreground_intense_blue}" # on dark theme, this is your eyes that need help
+style__color_end__note="${style__color_end__intensity}${style__color_end__foreground}"
+
 style__color__good1="${style__color__background_intense_green}${style__color__foreground_black}"
 style__color_end__good1="${style__color_end__background}${style__color_end__foreground}"
 style__color__code_good1="${style__color__background_intense_green}${style__color__foreground_intense_blue}"

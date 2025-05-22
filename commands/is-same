@@ -3,6 +3,8 @@
 function is_same() (
 	source "$DOROTHY/sources/bash.bash"
 
+	local comparisons=(path target size structure checksum diff)
+
 	# =====================================
 	# Arguments
 
@@ -10,10 +12,13 @@ function is_same() (
 		cat <<-EOF >&2
 			ABOUT:
 			Compares two paths to determine if their contents are identical, compares:
-			- paths
-			- real paths, via [fs-realpath]
-			- structure, via [fs-structure]
-			- checksum, via [checksum]
+			- path: compare source paths, e.g. is /a the same as /a, if so, the rest of the checks can be skipped
+			- target: compare resolved targets via [fs-realpath], e.g. is /a-resolved the same as /b-resolved, if so, the rest of the checks can be skipped
+			- type: compare the file types via [fs-type], e.g. is /a a different file type than /b
+			- size: compare the size of files via [fs-size], e.g. is byte size of /a different to /b
+			- structure: compare the structure of directories via [fs-structure], e.g. is the listing of /a different to /b
+			- checksum: compare the checksums of the files via [checksum], e.g. is /a different content than /b
+			- diff: if checksum fails, provide a diff: only applicable to files, not directories, named pipes / file descriptors, etc
 
 			USAGE:
 			is-same [...options] -- <first path> <second path>
@@ -22,6 +27,9 @@ function is_same() (
 			--algorithm=<algorithm>
 			    The algorithm to use for checksumming.
 			    See [checksum --help] for details.
+
+			--comparisons=...<comparison:path|target|structure|checksum>
+			    The comparisons to perform.
 
 			RETURNS:
 			[0] if the same.
@@ -34,13 +42,14 @@ function is_same() (
 	}
 
 	# process
-	local item option_algorithm='' option_paths=()
+	local item option_paths=() option_comparisons=() option_algorithm=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--algorithm='*) option_algorithm="${item#*=}" ;;
+		'--compares='* | '--compare='* | '--comparisons='* | '--comparison='*) __split option_comparisons --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
 		'--')
 			option_paths+=("$@")
 			shift "$#"
@@ -53,7 +62,10 @@ function is_same() (
 
 	# verify
 	if [[ ${#option_paths[@]} -ne 2 ]]; then
-		help "Not enough <path>s provided."
+		help 'Not enough <path>s provided.'
+	fi
+	if [[ ${#option_comparisons[@]} -eq 0 ]]; then
+		option_comparisons=("${comparisons[@]}")
 	fi
 
 	# =====================================
@@ -65,60 +77,106 @@ function is_same() (
 	second_path="$(fs-absolute -- "${option_paths[1]}")"
 
 	# same path
-	if [[ $first_path == "$second_path" ]]; then
-		echo-style \
-			--header1="$first_path" $'\n' \
-			$'\n' \
-			--header1="$second_path" $'\n' \
-			$'\n' \
-			--good1="^ same because they are the same path"
-		return 0
+	if __is_within path option_comparisons; then
+		if [[ $first_path == "$second_path" ]]; then
+			echo-style \
+				--header1="$first_path" --newline \
+				--header1="$second_path" --newline \
+				--good1="^ same because they are the same path"
+			return 0
+		fi
 	fi
 
 	# same target
-	if [[ "$(fs-realpath -- "$first_path")" == "$(fs-realpath -- "$second_path")" ]]; then
-		echo-style \
-			--header1="$first_path" $'\n' \
-			$'\n' \
-			--header1="$second_path" $'\n' \
-			$'\n' \
-			--good1="^ same because they are are symlinked"
-		return 0
+	if __is_within target option_comparisons; then
+		if [[ "$(fs-realpath -- "$first_path")" == "$(fs-realpath -- "$second_path")" ]]; then
+			echo-style \
+				--header1="$first_path" --newline \
+				--header1="$second_path" --newline \
+				--good1="^ same because they are are symlinked"
+			return 0
+		fi
+	fi
+
+	# same type
+	if __is_within type option_comparisons; then
+		local first_type second_type
+		first_type="$(fs-type --brief -- "$first_path")"
+		second_type="$(fs-type --brief -- "$second_path")"
+		if [[ $first_type != "$second_type" ]]; then
+			echo-style \
+				--header1="$first_path" --newline \
+				--dim="$first_type" --newline \
+				--header1="$second_path" --newline \
+				--dim="$second_type" --newline \
+				--error1="^ different because their types differ"
+			return 1
+		fi
+	fi
+
+	# same size
+	if __is_within size option_comparisons; then
+		local first_size second_size
+		first_size="$(fs-size --bytes -- "$first_path")"
+		second_size="$(fs-size --bytes -- "$second_path")"
+		if [[ $first_size != "$second_size" ]]; then
+			echo-style \
+				--header1="$first_path" ' ' --dim="$first_size bytes" --newline \
+				--header1="$second_path" ' ' --dim="$second_size bytes" --newline \
+				--error1="^ different because their sizes differ"
+			if __is_within diff 'option_comparisons' && [[ -f $first_path && -f $second_path ]]; then
+				fs-diff -- "$first_path" "$second_path"
+			fi
+			return 1
+		fi
 	fi
 
 	# same structure
-	local first_structure second_structure
-	first_structure="$(fs-structure --no-perms --no-time -- "$first_path")"
-	second_structure="$(fs-structure --no-perms --no-time -- "$second_path")"
-	if [[ $first_structure != "$second_structure" ]]; then
-		echo-style \
-			--header1="$first_path" $'\n' \
-			--dim="$first_structure" $'\n' \
-			$'\n' \
-			--header1="$second_path" $'\n' \
-			--dim="$second_structure" $'\n' \
-			$'\n' \
-			--error1='^ different because their structures differ'
-		return 1
+	# quotes on option_comparisons to prevent lint issue
+	if __is_within structure 'option_comparisons' && [[ -d $first_path && -d $second_path ]]; then
+		local first_structure second_structure
+		first_structure="$(fs-structure --relative --no-perms --no-time -- "$first_path")"
+		second_structure="$(fs-structure --relative --no-perms --no-time -- "$second_path")"
+		if [[ $first_structure != "$second_structure" ]]; then
+			echo-style \
+				--header1="$first_path" --newline \
+				--dim="$first_structure" --newline \
+				--newline \
+				--header1="$second_path" --newline \
+				--dim="$second_structure" --newline \
+				--newline \
+				--error1='^ different because their structures differ'
+			return 1
+		fi
 	fi
 
 	# checksum
-	local checksums
-	__split checksums --no-zero-length < <(checksum --untitled --summary --algorithm="$option_algorithm" -- "$first_path" "$second_path")
+	if __is_within checksum option_comparisons; then
+		local checksums # checksum, path, checksum, path
+		__split checksums --delimiters=$'\n\t' --no-zero-length < <(
+			checksum --no-confirm --result=checksum,input --summary --algorithm="$option_algorithm" -- "$first_path" "$second_path"
+		)
 
-	# sanity
-	if [[ ${#checksums[@]} -ne 2 ]]; then
-		echo-error "Invalid amount of checksums, there should only be two, a summary checksum for each directory, instead there were ${#checksums[@]}:" $'\n' "$(echo-verbose -- "${checksums[@]}")"
-		return 1
-	fi
+		# sanity
+		if [[ ${#checksums[@]} -ne 4 ]]; then
+			echo-error "Invalid checksum data:" --newline --="$(echo-verbose -- "${checksums[@]}")"
+			return 1
+		fi
 
-	# inform
-	__print_lines "${checksums[@]}"
+		# inform
+		__print_lines "${checksums[0]}"$'\t'"${checksums[1]}"$'\t' "${checksums[2]}"$'\t'"${checksums[3]}"
 
-	# same checksum
-	if [[ ${checksums[0]} == "${checksums[1]}" ]]; then
-		echo-style --good1="^ same because their checksums match"
-		return 0
+		# same checksum, these may compare coloured outputs, but that is fine
+		if [[ ${checksums[0]} == "${checksums[2]}" ]]; then
+			echo-style --good1="^ same because their checksums match"
+			return 0
+		else
+			echo-style --error1="^ different because their checksums differ"
+			if __is_within diff 'option_comparisons' && [[ -f $first_path && -f $second_path ]]; then
+				fs-diff -- "$first_path" "$second_path"
+			fi
+			return 1
+		fi
 	fi
 
 	# otherwise

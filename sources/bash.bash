@@ -1118,6 +1118,8 @@ function __do {
 		local result_value
 		# trunk-ignore(shellcheck/SC2034)
 		result_value="$(<"$result_file")"
+		# LC_ALL=C IFS= read -r result_value <"$result_file"
+		# result_value="$(cat -- "$result_file")"
 		__return $? || return
 
 		# clean the file
@@ -1567,7 +1569,7 @@ function __do {
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirected to the fd target
 		[0-9]*)
-			__do --right-to-left "$@" 1>&"$target" 2>&1
+			__do --right-to-left "$@" 1>&"$arg_value" 2>&1
 			return
 			;;
 
