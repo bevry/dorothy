@@ -8,9 +8,9 @@
 
 Refer to `debug-terminal-stdin` and `debug-terminal-tty` for additional implementation details
 
-## Determiniations
+## Results
 
-Refer to `debug-terminal --test` for generating determininations.
+Refer to `debug-terminal --test` for generating results.
 
 ## Conclusions
 

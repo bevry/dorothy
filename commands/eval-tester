@@ -3,6 +3,7 @@
 function eval_tester() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$(type -P debug-bash)"
+	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
@@ -39,18 +40,29 @@ function eval_tester() (
 	}
 
 	# process
-	local item option_cmd=() ignore_value=$'\e' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_tty='' option_debug=''
+	local item option_cmd=() ignore_value=$'\f' option_quiet='' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_tty='' option_debug=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
 		'--name='*) option_name="${item#*=}" ;;
 		'--bash='*) option_bash="${item#*=}" ;; # unlike [dorothy test] and [debug-bash] only support a single bash binary here, as nothing else makes sense for the [eval-tester] use case, as it is for getting specific results for a specific bash version
 		'--ignore-status') option_status="$ignore_value" ;;
 		'--ignore-stdout') option_stdout="$ignore_value" ;;
 		'--ignore-stderr') option_stderr="$ignore_value" ;;
 		'--ignore-tty') option_tty="$ignore_value" ;;
+		'--ignore-outputs')
+			option_stdout="$ignore_value"
+			option_stderr="$ignore_value"
+			option_tty="$ignore_value"
+			;;
 		'--status='*) option_status="${item#*=}" ;;
 		'--stdout='*) option_stdout="${item#*=}" ;;
 		'--stderr='*) option_stderr="${item#*=}" ;;
@@ -105,53 +117,62 @@ function eval_tester() (
 	# Action
 
 	local FAIL='no'
-	function __compare {
-		local name="$1" actual="$2" expected="$3" actual_escaped expected_escaped actual_file expected_file
-		if [[ $actual == "$expected" ]]; then
-			echo-style --success="actual $name  ==  expected $name"
+	function __element {
+		local label="$1" style="$2" value="$3"
+		if [[ -n $value ]]; then
+			echo-style --"$style"+element="$label" --newline --="$value" --newline --"$style"+/element="$label"
 		else
-			FAIL='yes'
-			if [[ $actual =~ [[:cntrl:]] || $expected =~ [[:cntrl:]] ]]; then
-				actual_escaped="$(printf '%q' "$actual")"
-				expected_escaped="$(printf '%q' "$expected")"
-				echo-style --header3+red="<actual escaped $name>" --newline \
-					"$actual_escaped" --newline \
-					--header3+red="</actual escaped $name>" --newline \
-					--header3+red="<expected escaped $name>" --newline \
-					"$expected_escaped" --newline \
-					--header3+red="</expected escaped $name>"
-			else
-				echo-style --error="actual $name  !=  expected $name" --newline \
-					--header3+red="<actual $name>" --newline \
-					"$actual" --newline \
-					--header3+red="</actual $name>" --newline \
-					--header3+red="<expected $name>" --newline \
-					"$expected" --newline \
-					--header3+red="</expected $name>"
-			fi
-			actual_file="$(fs-temp --directory='eval-tester' --file)"
-			expected_file="$actual_file.expected"
-			actual_file="$actual_file.actual"
-			__print_string "$actual" >"$actual_file"
-			__print_string "$expected" >"$expected_file"
-			echo-style --header3+red="<diff of $name>"
-			fs-diff --before="$expected_file" --after="$actual_file" || :
-			echo-style --header3+red="</diff of $name>"
-			if [[ $name != 'stdout' ]]; then
-				__print_line
-			fi
+			echo-style --"$style"+element/="$label" --dim+icon-nothing-provided
 		fi
 	}
-	function __dump {
-		local name="$1" actual="$2"
-		echo-style \
-			--header3="<actual $name>" --newline \
-			"$actual" --newline \
-			--header3="</actual $name>"
-		if [[ $actual =~ [[:cntrl:]] ]]; then
-			echo-style --header3="<actual escaped $name>" --newline \
-				"$(printf '%q' "$actual")" --newline \
-				--header3="</actual escaped $name>"
+	function __escaped_element {
+		local label="$1" style="$2" value="$3"
+		if [[ -n $value ]]; then
+			__element "$label escaped" "$style" "$(printf '%q' "$value")"
+		else
+			echo-style --"$style"+element/="$label escaped" --dim+icon-nothing-provided
+		fi
+	}
+	function __compare {
+		local name="$1" actual="$2" expected="$3"
+		if [[ $name == 'STDERR' && -n $stderr_unable_reason ]]; then
+			echo-style --stderr --notice="$stderr_unable_reason"
+		elif [[ $name == 'STATUS' ]]; then
+			if [[ $expected == "$ignore_value" ]]; then
+				echo-style --note="${name} is IGNORED [$actual]"
+			elif [[ $actual == "$expected" ]]; then
+				echo-style --success="${name} is EXPECTED [$expected]"
+			else
+				echo-style --error="${name} is NOT EXPECTED [$actual] != [$expected]"
+			fi
+		elif [[ $expected == "$ignore_value" ]]; then
+			echo-style --note="${name} is IGNORED"
+			if [[ $option_quiet == 'no' ]]; then
+				__element "$name" blue "$actual"
+				__escaped_element "$name" blue "$actual"
+			fi
+		else
+			if [[ $actual == "$expected" ]]; then
+				echo-style --success="${name} is EXPECTED"
+				if [[ $option_quiet == 'no' ]]; then
+					__element "$name" green "$actual"
+					if [[ $actual =~ [[:cntrl:]] ]]; then
+						__escaped_element "$name" green "$actual"
+					fi
+				fi
+			else
+				echo-style --error="${name} is NOT EXPECTED"
+				__element "actual $name" red "$actual"
+				__element "expected $name" red "$expected"
+				if [[ $actual$expected =~ [[:cntrl:]] ]]; then
+					__escaped_element "actual $name" red "$actual"
+					__escaped_element "expected $name" red "$expected"
+				fi
+				fs-diff -- <(__print_string "$actual") <(__print_string "$expected")
+			fi
+		fi
+		if [[ $option_quiet == 'no' && $name != 'TTY' ]]; then
+			__print_line
 		fi
 	}
 
@@ -163,12 +184,6 @@ function eval_tester() (
 	else
 		title="$cmd_string"
 	fi
-
-	# capture
-	local actual_exit_status actual_stdout actual_stderr actual_tty
-	args+=('--redirect-status={actual_exit_status}')
-	args+=('--copy-stdout={actual_stdout}')
-	args+=('--copy-stderr={actual_stderr}')
 
 	# file descriptor magic
 	local semaphores=() output_file
@@ -197,47 +212,36 @@ function eval_tester() (
 		BASH_XTRACEFD="$debug_output_fd"
 	fi
 
-	# run
-	local time
-	echo-style --h3="$title"
+	# capture
+	local command_string time actual_exit_status actual_stdout actual_stderr actual_tty
+	args+=('--redirect-status={actual_exit_status}')
+	args+=('--copy-stdout={actual_stdout}')
+	args+=('--copy-stderr={actual_stderr}')
+	command_string="$(echo-escape-command -- "${option_cmd[@]}")"
+	echo-style --h3="$title" --newline --element+bold="$command_string"
 	time="$(__get_epoch_time)"
+	# __eval_helper --quiet="$option_quiet" --wrap <-- if this is done, element rendering, quite mode, and time duration can all be moved to eval-helper
 	__do "${args[@]}" -- "${option_cmd[@]}"
 	time="$(echo-math -- "$(__get_epoch_time) - $time")"
+	echo-style --/element+bold="$command_string"
 	__return $? -- __wait_for_and_return_semaphores "${semaphores[@]}"
-
-	# check exit code
-	if [[ -n $option_status && $option_status != "$ignore_value" ]]; then
-		if [[ $option_status -ne $actual_exit_status ]]; then
-			FAIL='yes'
-			echo-style --error="actual exit STATUS [$actual_exit_status]  !=  expected exit STATUS [$option_status]"
-		else
-			echo-style --success="actual exit STATUS [$actual_exit_status]  ==  expected exit STATUS [$option_status]"
-		fi
-	fi
-
-	# check stdout
-	if [[ $option_stdout != "$ignore_value" ]]; then
-		__compare STDOUT "$actual_stdout" "$option_stdout"
-	elif [[ $FAIL == 'yes' ]]; then
-		__dump STDOUT "$actual_stdout"
-	fi
-
-	# check stderr
-	if [[ -n $stderr_unable_reason ]]; then
-		echo-style --stderr --notice="$stderr_unable_reason"
-	elif [[ $option_stderr != "$ignore_value" ]]; then
-		__compare STDERR "$actual_stderr" "$option_stderr"
-	elif [[ $FAIL == 'yes' ]]; then
-		__dump STDERR "$actual_stderr"
-	fi
-
-	# check tty
 	actual_tty="$(<"$terminal_output_file_for_comparison")"
-	if [[ $option_tty != "$ignore_value" ]]; then
-		__compare TTY "$actual_tty" "$option_tty"
-	elif [[ $FAIL == 'yes' ]]; then
-		__dump TTY "$actual_tty"
+
+	# determine if we fail, then we can decide what we are outputting
+	if [[ 
+		($option_status != "$ignore_value" && $actual_exit_status -ne $option_status) ||
+		($option_stdout != "$ignore_value" && $actual_stdout != "$option_stdout") ||
+		($option_stderr != "$ignore_value" && $actual_stderr != "$option_stderr") ||
+		($option_tty != "$ignore_value" && $actual_tty != "$option_tty") ]]; then
+		FAIL='yes'
+		option_quiet='no'
 	fi
+
+	# compare
+	__compare STATUS "$actual_exit_status" "$option_status"
+	__compare STDOUT "$actual_stdout" "$option_stdout"
+	__compare STDERR "$actual_stderr" "$option_stderr"
+	__compare TTY "$actual_tty" "$option_tty"
 
 	# pass or fail
 	if [[ $FAIL == 'yes' ]]; then

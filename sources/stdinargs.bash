@@ -67,7 +67,10 @@ function stdinargs {
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
-		'--no-color'* | '--color'*) export COLOR; COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")" ;;
+		'--no-color'* | '--color'*)
+			export COLOR
+			COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")"
+			;;
 		'--timeout' | '--timeout=' | '--timeout=yes')
 			timeout_seconds=1
 			;;

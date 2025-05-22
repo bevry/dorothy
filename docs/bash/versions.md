@@ -4,8 +4,11 @@ This topic will discuss incompatibilities between bash versions.
 
 Sources:
 
-- [Bash Changelog](https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES)
 - [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html)
+- Bash Changelog:
+    - <https://git.savannah.gnu.org/cgit/bash.git/tree/CHANGES>
+    - <https://tiswww.case.edu/php/chet/bash/CHANGES>
+    - <https://github.com/bminor/bash/blob/master/CHANGES>
 
 ## bash v3.1
 
