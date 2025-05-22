@@ -879,7 +879,7 @@ function __get_semlock {
 		fi
 		sleep "0.01$RANDOM"
 	done
-	printf '%s\n' "$semlock_file"
+	__print_lines "$semlock_file"
 }
 
 # For semaphores, use $RANDOM$RANDOM as a single $RANDOM caused conflicts on Dorothy's CI tests when we didn't actually use semaphores, now that we use semaphores, we solve the underlying race conditions that caused the conflicts in the first place, however keep the double $RANDOM so it is enough entropy we don't have to bother for an existence check, here are the tests that had conflicts:
