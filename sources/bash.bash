@@ -159,6 +159,36 @@ function __ternary {
 	fi
 }
 
+function __is_array {
+	local var_name="$1"
+	[[ -n $var_name && "$(declare -p "$var_name" 2>/dev/null || :)" == 'declare -a '* ]] || return
+}
+
+function __dump_vars {
+	local var_name var_value log=()
+	for var_name in "$@"; do
+		var_value="${!var_name}"
+		if __is_array "$var_name"; then
+			local i n
+			if [[ $n == 0 ]]; then
+				# trunk-ignore(shellcheck/SC1087)
+				log+=(--bold="$var_name[@]" ' = ' --dim+icon-nothing-provided --newline)
+			else
+				# trunk-ignore(shellcheck/SC1087)
+				eval "n=\${#$var_name[@]}"
+				for ((i = 0; i < n; ++i)); do
+					eval 'var_value="${!var_name[n]}"'
+					# trunk-ignore(shellcheck/SC1087)
+					log+=(--bold="$var_name[$i]" ' = ' --invert="$var_value" --newline)
+				done
+			fi
+		else
+			log+=(--bold="$var_name" ' = ' --invert="$var_value" --newline)
+		fi
+	done
+	echo-style --no-trail "${log[@]}" || return
+}
+
 # =============================================================================
 # Common Toolkit
 
