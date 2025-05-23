@@ -51,15 +51,18 @@ Dorothy is a dotfile ecosystem featuring:
 | ⭕️ [Ubuntu Desktop][UD]                           | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
 | ⭕️ [Ubuntu Server][URPI]                          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
 | ⭕️ [Ubuntu Server][US]                            | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
 | ꩜ [Debian][D]                                     | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
 | ꩜ [Debian][D]                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
 | ▲ [Manjaro][M] / [Arch][A]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
 | ∞ [Fedora Workstation][FW]                        | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE][OS] [Leap][OSL] & [Tumbleweed][OST] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🐉 [Kali][K]                                      | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+
+<!--
+| ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
 | ⛰ [Alpine][AL]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ⛰ [Alpine][AL]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
-| 🐉 [Kali][K]                                      | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+-->
 
 [WSL2]: https://docs.microsoft.com/en-au/windows/wsl/
 [UWSL]: https://ubuntu.com/wsl
