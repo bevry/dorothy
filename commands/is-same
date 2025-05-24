@@ -1,9 +1,192 @@
 #!/usr/bin/env bash
 
+function is_same_test() (
+	source "$DOROTHY/sources/bash.bash"
+	echo-style --h1="TEST: $0"
+
+	local delimiter='  '
+	function __print {
+		__print_lines hello
+	}
+
+	local dir1 file1 file2 file3 symlink_file1 symlink_dir1 checksum
+	dir1="$(fs-temp --directory='is-same' --directory='tests')"
+	file1="$dir1/file1.txt"
+	file2="$dir1/file2.txt"
+	file3="$dir1/file3.md"
+	symlink_file1="$dir1/symlink_file1.txt"
+	symlink_dir1="$(fs-temp --no-touch --directory='is-same' --directory='tests-two')"
+	checksum='b1946ac92492d2347c6235b4d2611184'
+	__print | tee -- "$file1" "$file2" "$file3" >/dev/null
+	symlink-helper --quiet --target="$file1" --symlink="$symlink_file1"
+	symlink-helper --quiet --target="$dir1" --symlink="$symlink_dir1"
+
+	# helpers
+	function get_expected_path_same {
+		__print_lines "$1" "$2" '^ definitively same because their paths match'
+	}
+	function get_expected_path_differ {
+		__print_lines "$1" "$2" '^ different because their paths differ'
+	}
+	function get_expected_target_same {
+		__print_lines "$1" "$2" "$3" "$4" '^ definitively same because their target paths match'
+	}
+	function get_expected_target_differ {
+		__print_lines "$1" "$2" "$3" "$4" '^ different because their target paths differ'
+	}
+	function get_expected_type_same {
+		__print_lines "$1$delimiter$2" "$3$delimiter$4" '^ same because their types match'
+	}
+	function get_expected_type_differ {
+		__print_lines "$1$delimiter$2" "$3$delimiter$4" '^ definitively different because their types differ'
+	}
+	function get_expected_size_same {
+		__print_lines "$1$delimiter$2" "$3$delimiter$4" '^ same because their sizes match'
+	}
+	function get_expected_size_differ {
+		__print_lines "$1$delimiter$2" "$3$delimiter$4" '^ definitively different because their sizes differ'
+	}
+	function get_expected_structure_same {
+		__print_lines "$1" "$2" '' "$3" "$4" '' '^ same because their structures match'
+	}
+	function get_expected_structure_differ {
+		__print_lines "$1" "$2" '' "$3" "$4" '' '^ definitively different because their structures differ'
+	}
+	function get_expected_checksum_same {
+		__print_lines "$1$delimiter$2" "$3$delimiter$4" '^ definitively same because their checksums match'
+	}
+	function get_expected_checksum_differ {
+		__print_lines "$1$delimiter$2" "$3$delimiter$4" '^ definitively different because their checksums differ'
+	}
+
+	# path
+	eval-tester --name='same path' --stdout="$(get_expected_path_same "$file1" "$file1")" -- \
+		is-same --no-color -- "$file1" "$file1"
+	eval-tester --status=1 --name='different paths' --stdout="$(get_expected_path_differ "$file1" "$file2")" -- \
+		is-same --no-color --comparisons=path -- "$file1" "$file2"
+
+	# target
+	eval-tester --name='same target: same path' --stdout="$(get_expected_target_same "$file1" "$file1" "$file1" "$file1")" -- \
+		is-same --no-color --comparisons=target -- "$file1" "$file1"
+	eval-tester --name='same target: file, symlink' --stdout="$(get_expected_target_same "$file1" "$file1" "$symlink_file1" "$file1")" -- \
+		is-same --no-color -- "$file1" "$symlink_file1"
+	eval-tester --name='same target: file, dir' --stdout="$(get_expected_target_same "$dir1" "$dir1" "$symlink_dir1" "$dir1")" -- \
+		is-same --no-color -- "$dir1" "$symlink_dir1"
+	eval-tester --status=1 --name='diff target: different paths' --stdout="$(get_expected_target_differ "$file1" "$file1" "$file2" "$file2")" -- \
+		is-same --no-color --comparisons=target -- "$file1" "$file2"
+
+	# type
+	eval-tester --status=1 --name='diff type: file, fd' --ignore-outputs -- \
+		is-same --no-color --quiet --comparisons=type -- "$file1" <(__print)
+	eval-tester --name='same type: same path' --stdout="$(get_expected_type_same "$file1" 'ASCII text' "$file1" 'ASCII text')" -- \
+		is-same --no-color --comparisons=type -- "$file1" "$file1"
+	eval-tester --name='same type: diff path' --stdout="$(get_expected_type_same "$file1" 'ASCII text' "$file2" 'ASCII text')" -- \
+		is-same --no-color --comparisons=type -- "$file1" "$file2"
+	eval-tester --name='same type: diff extensions' --stdout="$(get_expected_type_same "$file1" 'ASCII text' "$file3" 'ASCII text')" -- \
+		is-same --no-color --comparisons=type -- "$file1" "$file3" # type match as extensions are ignored
+	eval-tester --name='same type: file, symlink' --stdout="$(get_expected_type_same "$file1" 'ASCII text' "$symlink_file1" 'ASCII text')" -- \
+		is-same --no-color --comparisons=type -- "$file1" "$symlink_file1"
+	eval-tester --status=1 --name='diff type: file, unresolved symlink' --stdout="$(get_expected_type_differ "$file1" 'ASCII text' "$symlink_file1" "symbolic link to $file1")" -- \
+		is-same --no-color --no-resolve --comparisons=type -- "$file1" "$symlink_file1"
+	eval-tester --status=1 --name='type: file and dir differ' --stdout="$(get_expected_type_differ "$file1" 'ASCII text' "$dir1" "directory")" -- \
+		is-same --no-color --comparisons=type -- "$file1" "$dir1"
+
+	# size
+	eval-tester --status=79 --name='size: impossible due to named pipe' --ignore-stderr -- \
+		is-same --no-color --quiet --comparisons=size -- "$file1" <(__print)
+	eval-tester --name='same size: same path' --stdout="$(get_expected_size_same "$file1" '6 bytes' "$file1" '6 bytes')" -- \
+		is-same --no-color --comparisons=size -- "$file1" "$file1"
+	eval-tester --name='same size: diff path' --stdout="$(get_expected_size_same "$file1" '6 bytes' "$file2" '6 bytes')" -- \
+		is-same --no-color --comparisons=size -- "$file1" "$file2"
+	eval-tester --name='same size: diff extensions' --stdout="$(get_expected_size_same "$file2" '6 bytes' "$file3" '6 bytes')" -- \
+		is-same --no-color --comparisons=size -- "$file2" "$file3"
+	eval-tester --name='same size: file, symlink' --stdout="$(get_expected_size_same "$file1" '6 bytes' "$symlink_file1" '6 bytes')" -- \
+		is-same --no-color --comparisons=size -- "$file1" "$symlink_file1"
+	eval-tester --status=1 --name='diff size: file, unresolved symlink' --stdout="$(get_expected_size_differ "$file1" '6 bytes' "$symlink_file1" '54 bytes')" -- \
+		is-same --no-color --no-resolve --comparisons=size -- "$file1" "$symlink_file1"
+	eval-tester --status=1 --name='diff size: file, dir' --stdout="$(get_expected_size_differ "$file1" '6 bytes' "$dir1" '264 bytes')" -- \
+		is-same --no-color --comparisons=size -- "$file1" "$dir1"
+
+	# structure
+	local expected
+	expected="$(
+		cat <<-EOF
+			$dir1
+			Size Name
+			   6 file1.txt
+			   6 file2.txt
+			   6 file3.md
+			   - symlink_file1.txt -> $dir1/file1.txt
+
+			$symlink_dir1
+			Size Name
+			   6 file1.txt
+			   6 file2.txt
+			   6 file3.md
+			   - symlink_file1.txt -> /Users/balupton/.cache/dorothy/is-same/tests/file1.txt
+
+			^ same because their structures match
+		EOF
+	)"
+	eval-tester --name='same structure: dir, symlink' --stdout="$expected" --ignore-tty -- \
+		is-same --no-color --comparisons=structure -- "$dir1" "$symlink_dir1"
+	expected="$(
+		cat <<-EOF
+			$dir1
+			Size Name
+			   6 file1.txt
+			   6 file2.txt
+			   6 file3.md
+			   - symlink_file1.txt -> $dir1/file1.txt
+
+			$DOROTHY/.vscode
+			Size Name
+			 918 extensions.json
+			 899 settings.json
+			 241 workspace.code-workspace
+
+			^ definitively different because their structures differ
+		EOF
+	)"
+	eval-tester --status=1 --name='diff structure: dir, another dir' --stdout="$expected" --ignore-tty -- \
+		is-same --no-color --comparisons=structure -- "$dir1" "$DOROTHY/.vscode"
+
+	# checksum
+	eval-tester --name='same checksum: file, fd' --ignore-tty -- \
+		is-same --no-color --quiet --comparisons=checksum -- "$file1" <(__print)
+	eval-tester --name='same checksum: same path' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$file1" "$checksum")" --ignore-tty -- \
+		is-same --no-color --comparisons=checksum -- "$file1" "$file1"
+	eval-tester --name='same checksum: diff paths' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$file2" "$checksum")" --ignore-tty -- \
+		is-same --no-color --comparisons=checksum -- "$file1" "$file2"
+	eval-tester --name='same checksum: diff extensions' --stdout="$(get_expected_checksum_same "$file2" "$checksum" "$file3" "$checksum")" --ignore-tty -- \
+		is-same --no-color --comparisons=checksum -- "$file2" "$file3"
+	eval-tester --name='same checksum: file, symlink' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$symlink_file1" "$checksum")" --ignore-tty -- \
+		is-same --no-color --comparisons=checksum -- "$file1" "$symlink_file1"
+	eval-tester --status=1 --name='diff checksum: file, dir' --stdout="$(get_expected_checksum_differ "$file1" "$checksum" "$dir1" 'dc3894d2fd0f6151698ccb3c7b9ff661')" --ignore-tty -- \
+		is-same --no-color --comparisons=checksum -- "$file1" "$dir1"
+
+	# overall
+	eval-tester --name='same checksum: file, fd' --ignore-tty -- \
+		is-same --no-color --quiet -- "$file1" <(__print)
+	eval-tester --name='same path' --stdout="$(get_expected_path_same "$file1" "$file1")" -- \
+		is-same --no-color -- "$file1" "$file1"
+	eval-tester --name='same checksum: diff paths' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$file2" "$checksum")" --ignore-tty -- \
+		is-same --no-color -- "$file1" "$file2"
+	eval-tester --name='same checksum: diff extensions' --stdout="$(get_expected_checksum_same "$file2" "$checksum" "$file3" "$checksum")" --ignore-tty -- \
+		is-same --no-color -- "$file2" "$file3"
+	eval-tester --name='same target: file, symlink' --stdout="$(get_expected_target_same "$file1" "$file1" "$symlink_file1" "$file1")" -- \
+		is-same --no-color -- "$file1" "$symlink_file1"
+	eval-tester --status=1 --name='diff type: file, dir' --stdout="$(get_expected_type_differ "$file1" 'ASCII text' "$dir1" 'directory')" -- \
+		is-same --no-color -- "$file1" "$dir1"
+
+	echo-style --g1="TEST: $0"
+)
 function is_same() (
 	source "$DOROTHY/sources/bash.bash"
 
-	local comparisons=(path target size structure checksum diff)
+	local comparisons_without_diff=(path target type size structure checksum)
+	local comparisons=(path target type size structure checksum diff)
+	local delimiter='  '
 
 	# =====================================
 	# Arguments
@@ -24,12 +207,15 @@ function is_same() (
 			is-same [...options] -- <first path> <second path>
 
 			OPTIONS:
+			--comparisons=...<comparison:path|target|structure|checksum>
+			    The comparisons to perform.
+
 			--algorithm=<algorithm>
 			    The algorithm to use for checksumming.
 			    See [checksum --help] for details.
 
-			--comparisons=...<comparison:path|target|structure|checksum>
-			    The comparisons to perform.
+			--no-resolve
+			    Do not resolve symlinks when comparing types.
 
 			RETURNS:
 			[0] if the same.
@@ -42,12 +228,25 @@ function is_same() (
 	}
 
 	# process
-	local item option_paths=() option_comparisons=() option_algorithm=''
+	local item option_paths=() option_comparisons=() option_algorithm='' option_quiet='' option_resolve='yes'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-color'* | '--color'*)
+			export COLOR
+			COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")"
+			;;
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-resolve'* | '--resolve'*)
+			option_resolve="$(get-flag-value --affirmative --fallback="$option_resolve" -- "$item")"
+			;;
 		'--algorithm='*) option_algorithm="${item#*=}" ;;
 		'--compares='* | '--compare='* | '--comparisons='* | '--comparison='*) __split option_comparisons --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
 		'--')
@@ -64,12 +263,22 @@ function is_same() (
 	if [[ ${#option_paths[@]} -ne 2 ]]; then
 		help 'Not enough <path>s provided.'
 	fi
+	if [[ -z $option_quiet ]]; then
+		option_quiet='no'
+	fi
 	if [[ ${#option_comparisons[@]} -eq 0 ]]; then
-		option_comparisons=("${comparisons[@]}")
+		if [[ $option_quiet == 'yes' ]]; then
+			option_comparisons=("${comparisons_without_diff[@]}")
+		else
+			option_comparisons=("${comparisons[@]}")
+		fi
 	fi
 
 	# =====================================
 	# Action
+
+	local comparisons_string
+	comparisons_string="${option_comparisons[*]}"
 
 	# extract and absolute the paths
 	local first_path second_path
@@ -79,55 +288,117 @@ function is_same() (
 	# same path
 	if __is_within path option_comparisons; then
 		if [[ $first_path == "$second_path" ]]; then
-			echo-style \
-				--header1="$first_path" --newline \
-				--header1="$second_path" --newline \
-				--good1="^ same because they are the same path"
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --newline \
+					--header1="$second_path" --newline \
+					--good1="^ definitively same because their paths match"
+			fi
 			return 0
+		elif [[ $comparisons_string == 'path' ]]; then
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --newline \
+					--header1="$second_path" --newline \
+					--error1="^ different because their paths differ"
+			fi
+			return 1
 		fi
 	fi
 
 	# same target
+	local first_realpath='' first_resolved="$first_path" second_realpath='' second_resolved="$second_path"
+	first_realpath="$(fs-realpath -- "$first_path")"
+	second_realpath="$(fs-realpath -- "$second_path")"
+	if [[ $option_resolve == 'yes' ]]; then
+		first_resolved="$first_realpath"
+		second_resolved="$second_realpath"
+	fi
 	if __is_within target option_comparisons; then
-		if [[ "$(fs-realpath -- "$first_path")" == "$(fs-realpath -- "$second_path")" ]]; then
-			echo-style \
-				--header1="$first_path" --newline \
-				--header1="$second_path" --newline \
-				--good1="^ same because they are are symlinked"
+		if [[ $first_resolved == "$second_resolved" ]]; then
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --newline \
+					--dim="$first_realpath" --newline \
+					--header1="$second_path" --newline \
+					--dim="$second_realpath" --newline \
+					--good1="^ definitively same because their target paths match"
+			fi
 			return 0
+		elif [[ $comparisons_string == 'target' ]]; then
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --newline \
+					--dim="$first_realpath" --newline \
+					--header1="$second_path" --newline \
+					--dim="$second_realpath" --newline \
+					--error1="^ different because their target paths differ"
+			fi
+			return 1
 		fi
 	fi
 
 	# same type
 	if __is_within type option_comparisons; then
-		local first_type second_type
-		first_type="$(fs-type --brief -- "$first_path")"
-		second_type="$(fs-type --brief -- "$second_path")"
-		if [[ $first_type != "$second_type" ]]; then
-			echo-style \
-				--header1="$first_path" --newline \
-				--dim="$first_type" --newline \
-				--header1="$second_path" --newline \
-				--dim="$second_type" --newline \
-				--error1="^ different because their types differ"
-			return 1
+		if [[ $comparisons_string != 'type' && (-p $first_resolved || -p $second_resolved) ]]; then
+			# skipping as type will fail on named pipes / file descriptors
+			:
+		else
+			local first_type second_type type_args=(--brief)
+			if [[ $option_resolve != 'yes' ]]; then
+				type_args+=(--no-dereference)
+			fi
+			first_type="$(fs-type "${type_args[@]}" -- "$first_resolved")"
+			second_type="$(fs-type "${type_args[@]}" -- "$second_resolved")"
+			if [[ $first_type != "$second_type" ]]; then
+				if [[ $option_quiet == 'no' ]]; then
+					echo-style \
+						--header1="$first_path" --="$delimiter" --dim="$first_type" --newline \
+						--header1="$second_path" --="$delimiter" --dim="$second_type" --newline \
+						--error1="^ definitively different because their types differ"
+				fi
+				return 1
+			elif [[ $comparisons_string == 'type' ]]; then
+				if [[ $option_quiet == 'no' ]]; then
+					echo-style \
+						--header1="$first_path" --="$delimiter" --dim="$first_type" --newline \
+						--header1="$second_path" --="$delimiter" --dim="$second_type" --newline \
+						--good1="^ same because their types match"
+				fi
+				return 0
+			fi
 		fi
 	fi
 
 	# same size
 	if __is_within size option_comparisons; then
-		local first_size second_size
-		first_size="$(fs-size --bytes -- "$first_path")"
-		second_size="$(fs-size --bytes -- "$second_path")"
-		if [[ $first_size != "$second_size" ]]; then
-			echo-style \
-				--header1="$first_path" ' ' --dim="$first_size bytes" --newline \
-				--header1="$second_path" ' ' --dim="$second_size bytes" --newline \
-				--error1="^ different because their sizes differ"
-			if __is_within diff 'option_comparisons' && [[ -f $first_path && -f $second_path ]]; then
-				fs-diff -- "$first_path" "$second_path"
+		if [[ $comparisons_string != 'size' && (-p $first_resolved || -p $second_resolved) ]]; then
+			# skipping as size will fail on named pipes / file descriptors
+			:
+		else
+			local first_size second_size
+			first_size="$(fs-size --bytes -- "$first_resolved")"
+			second_size="$(fs-size --bytes -- "$second_resolved")"
+			if [[ $first_size != "$second_size" ]]; then
+				if [[ $option_quiet == 'no' ]]; then
+					echo-style \
+						--header1="$first_path" --="$delimiter" --dim="$first_size bytes" --newline \
+						--header1="$second_path" --="$delimiter" --dim="$second_size bytes" --newline \
+						--error1="^ definitively different because their sizes differ"
+				fi
+				if __is_within diff 'option_comparisons' && [[ -f $first_path && -f $second_path ]]; then
+					fs-diff -- "$first_path" "$second_path" || __ignore_exit_status 1
+				fi
+				return 1
+			elif [[ $comparisons_string == 'size' ]]; then
+				if [[ $option_quiet == 'no' ]]; then
+					echo-style \
+						--header1="$first_path" --="$delimiter" --dim="$first_size bytes" --newline \
+						--header1="$second_path" --="$delimiter" --dim="$second_size bytes" --newline \
+						--good1="^ same because their sizes match"
+				fi
+				return 0
 			fi
-			return 1
 		fi
 	fi
 
@@ -138,23 +409,37 @@ function is_same() (
 		first_structure="$(fs-structure --relative --no-perms --no-time -- "$first_path")"
 		second_structure="$(fs-structure --relative --no-perms --no-time -- "$second_path")"
 		if [[ $first_structure != "$second_structure" ]]; then
-			echo-style \
-				--header1="$first_path" --newline \
-				--dim="$first_structure" --newline \
-				--newline \
-				--header1="$second_path" --newline \
-				--dim="$second_structure" --newline \
-				--newline \
-				--error1='^ different because their structures differ'
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --newline \
+					--dim="$first_structure" --newline \
+					--newline \
+					--header1="$second_path" --newline \
+					--dim="$second_structure" --newline \
+					--newline \
+					--error1='^ definitively different because their structures differ'
+			fi
 			return 1
+		elif [[ $comparisons_string == 'structure' ]]; then
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --newline \
+					--dim="$first_structure" --newline \
+					--newline \
+					--header1="$second_path" --newline \
+					--dim="$second_structure" --newline \
+					--newline \
+					--good1="^ same because their structures match"
+			fi
+			return 0
 		fi
 	fi
 
 	# checksum
 	if __is_within checksum option_comparisons; then
-		local checksums # checksum, path, checksum, path
+		local checksums first_checksum second_checksum # checksum, path, checksum, path
 		__split checksums --delimiters=$'\n\t' --no-zero-length < <(
-			checksum --no-confirm --result=checksum,input --summary --algorithm="$option_algorithm" -- "$first_path" "$second_path"
+			checksum --no-color --no-confirm --result=input,checksum --summary --algorithm="$option_algorithm" -- "$first_path" "$second_path"
 		)
 
 		# sanity
@@ -162,29 +447,44 @@ function is_same() (
 			echo-error "Invalid checksum data:" --newline --="$(echo-verbose -- "${checksums[@]}")"
 			return 1
 		fi
-
-		# inform
-		__print_lines "${checksums[0]}"$'\t'"${checksums[1]}"$'\t' "${checksums[2]}"$'\t'"${checksums[3]}"
+		first_checksum="${checksums[1]}"
+		second_checksum="${checksums[3]}"
 
 		# same checksum, these may compare coloured outputs, but that is fine
-		if [[ ${checksums[0]} == "${checksums[2]}" ]]; then
-			echo-style --good1="^ same because their checksums match"
+		if [[ ${checksums[1]} == "${checksums[3]}" ]]; then
+			if [[ $option_quiet == 'no' ]]; then
+				echo-style \
+					--header1="$first_path" --="$delimiter" --dim="$first_checksum" --newline \
+					--header1="$second_path" --="$delimiter" --dim="$second_checksum" --newline \
+					--good1="^ definitively same because their checksums match"
+			fi
 			return 0
 		else
-			echo-style --error1="^ different because their checksums differ"
+			echo-style \
+				--header1="$first_path" --="$delimiter" --dim="$first_checksum" --newline \
+				--header1="$second_path" --="$delimiter" --dim="$second_checksum" --newline \
+				--error1="^ definitively different because their checksums differ"
 			if __is_within diff 'option_comparisons' && [[ -f $first_path && -f $second_path ]]; then
-				fs-diff -- "$first_path" "$second_path"
+				fs-diff -- "$first_path" "$second_path" || __ignore_exit_status 1
 			fi
 			return 1
 		fi
 	fi
 
-	# otherwise
-	echo-style --error1="^ different"
-	return 1
+	# only diff, apply for all input types
+	if [[ $comparisons_string == 'diff' ]]; then
+		fs-diff -- "$first_path" "$second_path"
+	fi
+
+	# otherwise ok
+	return 0
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	is_same "$@"
+	if [[ $* == '--test' ]]; then
+		is_same_test
+	else
+		is_same "$@"
+	fi
 fi

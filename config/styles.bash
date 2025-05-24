@@ -392,6 +392,8 @@ style__nocolor__h2='┌  '
 style__nocolor_end__h2='  ┐'
 style__color__h2="${style__color__reset}${style__color__bold}┌  "
 style__color_end__h2="  ┐${style__color__reset}"
+# style__color__h2="${style__color__reset}┌  ${style__color__invert}"
+# style__color_end__h2="${style__color_end__invert}  ┐${style__color__reset}"
 
 style__nocolor__g2="└${style__icon_good} "
 style__nocolor_end__g2=" ${style__icon_good}┘"
