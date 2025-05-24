@@ -62,6 +62,8 @@ Dorothy is a dotfile ecosystem featuring:
 | ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
 | ⛰ [Alpine][AL]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ⛰ [Alpine][AL]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
+[UV5]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
+[AL]: https://www.alpinelinux.org/downloads/
 -->
 
 [WSL2]: https://docs.microsoft.com/en-au/windows/wsl/
@@ -70,7 +72,6 @@ Dorothy is a dotfile ecosystem featuring:
 [URPI]: https://ubuntu.com/download/raspberry-pi
 [UD]: https://ubuntu.com/download/desktop
 [US]: https://ubuntu.com/download/server
-[UV5]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 [D]: https://www.debian.org
 [M]: https://manjaro.org/download/
 [A]: https://wiki.archlinux.org/title/Installation_guide
@@ -78,7 +79,6 @@ Dorothy is a dotfile ecosystem featuring:
 [OS]: https://www.opensuse.org
 [OSL]: https://get.opensuse.org/leap/
 [OST]: https://get.opensuse.org/tumbleweed/
-[AL]: https://www.alpinelinux.org/downloads/
 [K]: https://www.kali.org/get-kali/#kali-platforms
 
 Table reflects usage by Dorothy users and Dorothy CI support. Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)

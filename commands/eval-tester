@@ -40,7 +40,7 @@ function eval_tester() (
 	}
 
 	# process
-	local item option_cmd=() ignore_value=$'\f' option_quiet='' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_tty='' option_debug=''
+	local item option_cmd=() ignore_value=$'\f' option_quiet='yes' option_name='' option_bash='' option_status='0' option_stdout='' option_stderr='' option_tty='' option_debug=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -79,6 +79,11 @@ function eval_tester() (
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
+
+	# quiet already defaults to yes, but if they did --quiet= or so, then change it to CI status
+	if [[ -z $option_quiet ]]; then
+		option_quiet="$(is-ci --verbose)"
+	fi
 
 	# if debugging, or custom bash, wrap in debug_bash
 	if [[ $option_debug == 'yes' ]]; then
@@ -135,6 +140,9 @@ function eval_tester() (
 	}
 	function __compare {
 		local name="$1" actual="$2" expected="$3"
+		if [[ $option_quiet == 'no' && $name == 'STATUS' ]]; then
+			__print_line
+		fi
 		if [[ $name == 'STDERR' && -n $stderr_unable_reason ]]; then
 			echo-style --stderr --notice="$stderr_unable_reason"
 		elif [[ $name == 'STATUS' ]]; then
@@ -143,7 +151,7 @@ function eval_tester() (
 			elif [[ $actual == "$expected" ]]; then
 				echo-style --success="${name} is EXPECTED [$expected]"
 			else
-				echo-style --error="${name} is NOT EXPECTED [$actual] != [$expected]"
+				echo-style --error="${name} [$actual] is NOT EXPECTED [$expected]"
 			fi
 		elif [[ $expected == "$ignore_value" ]]; then
 			echo-style --note="${name} is IGNORED"
@@ -168,7 +176,7 @@ function eval_tester() (
 					__escaped_element "actual $name" red "$actual"
 					__escaped_element "expected $name" red "$expected"
 				fi
-				fs-diff -- <(__print_string "$actual") <(__print_string "$expected")
+				__element "diff $name" red "$(fs-diff -- <(__print_string "$actual") <(__print_string "$expected") || __ignore_exit_status 1)"
 			fi
 		fi
 		if [[ $option_quiet == 'no' && $name != 'TTY' ]]; then
@@ -180,7 +188,7 @@ function eval_tester() (
 	local args=() cmd_string title=''
 	cmd_string="$(echo-escape-command -- "${option_cmd[@]}")"
 	if [[ -n $option_name ]]; then
-		title="$option_name: $cmd_string"
+		title="$option_name" # no longer need to append cmd_string as we always output it now via the element wrap later
 	else
 		title="$cmd_string"
 	fi
@@ -218,7 +226,7 @@ function eval_tester() (
 	args+=('--copy-stdout={actual_stdout}')
 	args+=('--copy-stderr={actual_stderr}')
 	command_string="$(echo-escape-command -- "${option_cmd[@]}")"
-	echo-style --h3="$title" --newline --element+bold="$command_string"
+	echo-style --h2="$title" --newline --element+bold="$command_string"
 	time="$(__get_epoch_time)"
 	# __eval_helper --quiet="$option_quiet" --wrap <-- if this is done, element rendering, quite mode, and time duration can all be moved to eval-helper
 	__do "${args[@]}" -- "${option_cmd[@]}"
@@ -228,7 +236,7 @@ function eval_tester() (
 	actual_tty="$(<"$terminal_output_file_for_comparison")"
 
 	# determine if we fail, then we can decide what we are outputting
-	if [[ 
+	if [[
 		($option_status != "$ignore_value" && $actual_exit_status -ne $option_status) ||
 		($option_stdout != "$ignore_value" && $actual_stdout != "$option_stdout") ||
 		($option_stderr != "$ignore_value" && $actual_stderr != "$option_stderr") ||
@@ -238,17 +246,19 @@ function eval_tester() (
 	fi
 
 	# compare
-	__compare STATUS "$actual_exit_status" "$option_status"
-	__compare STDOUT "$actual_stdout" "$option_stdout"
-	__compare STDERR "$actual_stderr" "$option_stderr"
-	__compare TTY "$actual_tty" "$option_tty"
+	if [[ $FAIL == 'yes' || $option_quiet != 'yes' ]]; then
+		__compare STATUS "$actual_exit_status" "$option_status"
+		__compare STDOUT "$actual_stdout" "$option_stdout"
+		__compare STDERR "$actual_stderr" "$option_stderr"
+		__compare TTY "$actual_tty" "$option_tty"
+	fi
 
 	# pass or fail
 	if [[ $FAIL == 'yes' ]]; then
-		echo-style --e3="$title" ' ' --code="in $time seconds" $'\n'
+		echo-style --e2="$title" ' ' --code="in $time seconds" $'\n'
 		return 1
 	else
-		echo-style --g3="$title" ' ' --code="in $time seconds" $'\n'
+		echo-style --g2="$title" ' ' --code="in $time seconds" $'\n'
 	fi
 )
 
