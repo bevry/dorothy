@@ -26,14 +26,18 @@ function fs_own_test() (
 	)
 	fs-structure -- "$root" "$dir"
 
+	local stderr=''
+	if is-mac; then
+		stderr='Reporting permission changes is not provided by this Operating System.'
+	fi
 	for flag in "${flags[@]}"; do
 		__print_line
-		eval-tester --ignore-stdout -- fs-own --changes "$flag" -- "$dir" "$file"
-		eval-tester --ignore-stdout -- fs-own --quiet "$flag" -- "$dir" "$file"
-		eval-tester --ignore-stdout -- fs-own --verbose "$flag" -- "$dir" "$file"
-		eval-tester --ignore-stdout -- fs-own --recursive --changes "$flag" -- "$dir"
-		eval-tester --ignore-stdout -- fs-own --recursive --quiet "$flag" -- "$dir"
-		eval-tester --ignore-stdout -- fs-own --recursive --verbose "$flag" -- "$dir"
+		eval-tester --stderr="$stderr" -- fs-own --no-color --changes "$flag" -- "$dir" "$file"
+		eval-tester -- fs-own --no-color --quiet "$flag" -- "$dir" "$file"
+		eval-tester -- fs-own --no-color --verbose "$flag" -- "$dir" "$file"
+		eval-tester --stderr="$stderr" -- fs-own --no-color --recursive --changes "$flag" -- "$dir"
+		eval-tester -- fs-own --no-color --recursive --quiet "$flag" -- "$dir"
+		eval-tester -- fs-own --no-color --recursive --verbose "$flag" -- "$dir"
 		fs-structure -- "$root" "$dir" || :
 	done
 
@@ -115,8 +119,10 @@ function fs_own() (
 			--group=<group>
 			    if provided, will set <owner> to this group.
 
-			--sudo
-			    if provided, sudo will be used, automatically enabled when me/admin/root/owner/user/group is provided.
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--reason=<reason>
+			    Forwarded to [eval-helper].
 
 			--optional
 			    if provided, ignore missing paths and failures.
@@ -146,7 +152,7 @@ function fs_own() (
 	local option_directory_permissions='' # deprecated
 	local option_file_permissions=''      # deprecated
 	local option_reference=''
-	local option_sudo='no'
+	local option_elevated='' option_elevate='' option_reason=''
 	local option_optional='no'
 	local option_recursive='no'
 	while [[ $# -ne 0 ]]; do
@@ -154,6 +160,10 @@ function fs_own() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-color'* | '--color'*)
+			export COLOR
+			COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")"
+			;;
 		'--no-verbose'* | '--verbose'*)
 			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
 			;;
@@ -175,9 +185,13 @@ function fs_own() (
 		'--no-root'* | '--root'*)
 			option_root="$(get-flag-value --affirmative --fallback="$option_root" -- "$item")"
 			;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*)
+			option_elevate+="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_elevate" -- "$item")"
 			;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--no-optional'* | '--optional'*)
 			option_optional="$(get-flag-value --affirmative --fallback="$option_optional" -- "$item")"
 			;;
@@ -241,7 +255,6 @@ function fs_own() (
 		'--group='*) option_group="${item#*=}" ;;
 		'--path='*) option_paths+=("${item#*=}") ;;
 		# these have to be last and in this order, as they could match earlier options:
-
 		'--no-u'* | '--u'*)
 			option_u="$(get-flag-value --affirmative --fallback="$option_u" -- "$item")"
 			;;
@@ -329,6 +342,7 @@ function fs_own() (
 	elif [[ -n $option_group ]]; then
 		owner=":$option_group"
 	fi
+	# check owner
 	if [[ -n $option_owner ]]; then
 		if [[ -n $owner ]]; then
 			if [[ $option_owner != "$owner" ]]; then
@@ -339,6 +353,17 @@ function fs_own() (
 			# $owner is empty, and $option_owner is defined
 			owner="$option_owner"
 		fi
+		# now check user and group
+		local user_group
+		__split user_group --delimiter=':' -- "$owner"
+		if [[ -n $option_user && $option_user != "${user_group[0]}" ]]; then
+			help 'multiple conflicting <user> options cannot be provided'
+		fi
+		if [[ -n $option_group && $option_group != "${user_group[1]}" ]]; then
+			help 'multiple conflicting <group> options cannot be provided'
+		fi
+		option_user="${user_group[0]}"
+		option_group="${user_group[1]}"
 	fi
 
 	# validate there is an action to perform
@@ -397,45 +422,11 @@ function fs_own() (
 	# =====================================
 	# Prepare
 
-	# handle parents
-	if [[ $option_parents == 'yes' ]]; then
-		local parent_paths=()
-		for path in "${option_paths[@]}"; do
-			__split parent_paths --append --no-zero-length < <(fs-parents --no-self --no-root --sudo -- "$path")
-		done
-		fs-own --no-recursive --no-parents \
-			--quiet="$option_quiet" \
-			--changes="$option_changes" \
-			--sudo="$option_sudo" \
-			--optional="$option_optional" \
-			--owner="$owner" \
-			--permissions="$option_permissions" -- \
-			"${parent_paths[@]}"
-	fi
-
 	# prepare reason, don't put each path on a new line, as that can make a lot of lines!
-	local sudo_reason
-	sudo_reason=$'Your password is required to momentarily grant privileges to correct permissions for the following paths:\n'"$(
-		echo-style --reset --code="$(echo-lines --columns -- "${option_paths[@]/"$HOME"/'~'}")"
-	)"
-
-	# sudo as the user/group
-	local sudo_as_user_args=()
-	if [[ -n $owner || $option_sudo == 'yes' ]]; then
-		sudo_as_user_args+=(eval-helper --elevate --inherit --reason="$sudo_reason")
-		if [[ -n $option_user ]]; then
-			sudo_as_user_args+=(--user="$option_user")
-		fi
-		if [[ -n $option_group ]]; then
-			sudo_as_user_args+=(--group="$option_group")
-		fi
-		sudo_as_user_args+=(--)
-	fi
-
-	# sudo as the admin
-	local sudo_as_admin_args=()
-	if [[ -n $owner || $option_sudo == 'yes' ]]; then
-		sudo_as_admin_args+=(eval-helper --elevate --inherit --reason="$sudo_reason" --)
+	if [[ -z $option_reason ]]; then
+		option_reason=$'Your password is required to momentarily grant privileges to correct permissions for the following paths:\n'"$(
+			echo-style --reset --code="$(echo-lines --columns -- "${option_paths[@]/"$HOME"/'~'}")"
+		)"
 	fi
 
 	# mac does not support double dash on [chown] and [chmod]
@@ -448,54 +439,68 @@ function fs_own() (
 	# Action
 
 	local paths=()
-	function __is_available {
-		local path="$1" cmd=()
-		if [[ -n $owner ]]; then
-			cmd+=("${sudo_as_admin_args[@]}")
-		else
-			cmd+=("${sudo_as_user_args[@]}")
-		fi
-		# can't use is-present, because sudo doesn't have access, and it is too complicated to add access for it
-		cmd+=(is-present.bash -- "$path")
-		"${cmd[@]}" || return # eval
-	}
-	function __check_available {
-		local path="$1" __available_status=0
-		__is_available "$path" || __available_status=$?
-		if [[ $__available_status -ne 0 ]]; then
-			if [[ $option_optional != 'yes' ]]; then
-				echo-error 'Cannot claim ownership a path that does exist or is inaccessible:' $'\n' --code="$path" || return
-				return 2 # ENOENT 2 No such file or directory
-			fi
-		fi
-		return 0
-	}
 	function __own {
 		# chown
 		if [[ -n $owner ]]; then
-			"${sudo_as_admin_args[@]}" chown "${ch_args[@]}" "$owner" "${double_dash_args[@]}" "${paths[@]}" || return # eval
+			# as root
+			eval-helper --elevated="$option_elevated" --elevate="$option_elevated" --reason="$option_reason" -- \
+				chown "${ch_args[@]}" "$owner" "${double_dash_args[@]}" "${paths[@]}" || return # eval
 		fi
 
 		# chmod
 		if [[ -n $option_permissions ]]; then
 			# https://superuser.com/a/91966/32418
 			# removing readable perms on a directory, while recursing, will cause permission denied failure
-			"${sudo_as_user_args[@]}" chmod "${ch_args[@]}" "$option_permissions" "${double_dash_args[@]}" "${paths[@]}" || return # eval
+			# as user
+			eval-helper --elevated="$option_elevated" --elevate="$option_elevated" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+				chmod "${ch_args[@]}" "$option_permissions" "${double_dash_args[@]}" "${paths[@]}" || return # eval
 		fi
 	}
 
 	# determine paths
 	for path in "${option_paths[@]}"; do
-		if __check_available "$path"; then
+		if is-present --quiet="$option_quiet" --elevated="$option_elevated" --elevate="$option_elevated" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
 			paths+=("$path") # it exists, update ownership for it
 		fi
 	done
 
 	# perform the ownership
+	function __retry {
+		local args=() paths=()
+		while [[ $1 != '--' ]]; do
+			args+=("$1")
+			shift
+		done
+		[[ $1 == '--' ]] || echo-error 'Missing [--] in [__retry]'
+		while [[ $1 != '--' ]]; do
+			paths+=("$1")
+			shift
+		done
+		fs-own "${args[@]}" \
+			--quiet="$option_quiet" \
+			--changes="$option_changes" \
+			--optional="$option_optional" \
+			--owner="$owner" \
+			--elevated="$option_elevated" \
+			--elevate="$option_elevate" \
+			--reason="$option_reason" \
+			--permissions="$option_permissions" -- "${paths[@]}" || return
+	}
 	if [[ ${#paths[@]} -ne 0 ]]; then
 		local __own_status=0
 		__own || __own_status=$?
-		# check ownership failures
+		# handle parent failure
+		if [[ $__own_status -ne 0 && $option_parents == 'yes' ]]; then
+			# try again on the parent
+			if [[ ${#paths[@]} -ne 1 ]]; then
+				# @todo could do a unique on the paths, to support multiple paths but only a single parent
+				help 'Cannot use --parents with multiple paths'
+			fi
+			__retry --no-recursive --parents -- "$(fs-path --parents -- "${paths[0]}")" || return
+			# now try again on our path
+			__own || __own_status=$?
+		fi
+		# handle optional failure
 		if [[ $__own_status -ne 0 && $option_optional == 'no' ]]; then
 			return "$__own_status"
 		fi

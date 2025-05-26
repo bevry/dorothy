@@ -7,8 +7,11 @@ function is_fs_tests__prep {
 	# 	__print_lines "$root"
 	# 	return 0
 	# fi
+
+	echo-style --tty --header1='removing old FS preparation'
 	eval-helper --elevate -- rm -rf -- "$root"
 
+	echo-style --tty --header1='prepping directories'
 	__mkdirp \
 		"$root/symlinks" \
 		"$root/targets/empty-dir" \
@@ -22,6 +25,7 @@ function is_fs_tests__prep {
 		"$root/targets/unwritable-empty-dir" \
 		"$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
 
+	echo-style --tty --header1='prepping files'
 	touch \
 		"$root/targets/empty-file" \
 		"$root/targets/filled-dir/empty-subfile" \
@@ -44,6 +48,7 @@ function is_fs_tests__prep {
 		"$root/targets/unwritable-filled-dir/filled-subfile" \
 		"$root/targets/unwritable-filled-file"
 
+	echo-style --tty --header1='prepping content'
 	__print_lines 'content' >"$root/targets/filled-dir/filled-subfile"
 	__print_lines 'content' >"$root/targets/filled-file"
 	__print_lines 'content' >"$root/targets/unaccessible-filled-dir/filled-subfile"
@@ -55,48 +60,49 @@ function is_fs_tests__prep {
 	__print_lines 'content' >"$root/targets/unwritable-filled-dir/filled-subfile"
 	__print_lines 'content' >"$root/targets/unwritable-filled-file"
 
-	# symlinks
-	symlink-helper --quiet --target="$root/targets/empty-dir" --symlink="$root/symlinks/empty-dir"
-	symlink-helper --quiet --target="$root/targets/empty-file" --symlink="$root/symlinks/empty-file"
-	symlink-helper --quiet --target="$root/targets/filled-dir/empty-subfile" --symlink="$root/symlinks/filled-dir--empty-subfile"
-	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subdir" --symlink="$root/symlinks/filled-dir--filled-subdir"
-	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/filled-dir--filled-subdir--empty-subdir"
-	symlink-helper --quiet --target="$root/targets/filled-dir/filled-subfile" --symlink="$root/symlinks/filled-dir--filled-subfile"
-	symlink-helper --quiet --target="$root/targets/filled-file" --symlink="$root/symlinks/filled-file"
-	symlink-helper --quiet --target="$root/targets/unaccessible-empty-dir" --symlink="$root/symlinks/unaccessible-empty-dir"
-	symlink-helper --quiet --target="$root/targets/unaccessible-empty-file" --symlink="$root/symlinks/unaccessible-empty-file"
-	symlink-helper --quiet --target="$root/targets/unaccessible-filled-dir" --symlink="$root/symlinks/unaccessible-filled-dir"
-	symlink-helper --quiet --target="$root/targets/unaccessible-filled-dir/empty-subfile" --symlink="$root/symlinks/unaccessible-filled-dir--empty-subfile"
-	symlink-helper --quiet --target="$root/targets/unaccessible-filled-dir/filled-subdir" --symlink="$root/symlinks/unaccessible-filled-dir--filled-subdir"
-	symlink-helper --quiet --target="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir"
-	symlink-helper --quiet --target="$root/targets/unaccessible-filled-dir/filled-subfile" --symlink="$root/symlinks/unaccessible-filled-dir--filled-subfile"
-	symlink-helper --quiet --target="$root/targets/unaccessible-filled-file" --symlink="$root/symlinks/unaccessible-filled-file"
-	symlink-helper --quiet --target="$root/targets/unexecutable-empty-dir" --symlink="$root/symlinks/unexecutable-empty-dir"
-	symlink-helper --quiet --target="$root/targets/unexecutable-empty-file" --symlink="$root/symlinks/unexecutable-empty-file"
-	symlink-helper --quiet --target="$root/targets/unexecutable-filled-dir" --symlink="$root/symlinks/unexecutable-filled-dir"
-	symlink-helper --quiet --target="$root/targets/unexecutable-filled-dir/empty-subfile" --symlink="$root/symlinks/unexecutable-filled-dir--empty-subfile"
-	symlink-helper --quiet --target="$root/targets/unexecutable-filled-dir/filled-subdir" --symlink="$root/symlinks/unexecutable-filled-dir--filled-subdir"
-	symlink-helper --quiet --target="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
-	symlink-helper --quiet --target="$root/targets/unexecutable-filled-dir/filled-subfile" --symlink="$root/symlinks/unexecutable-filled-dir--filled-subfile"
-	symlink-helper --quiet --target="$root/targets/unexecutable-filled-file" --symlink="$root/symlinks/unexecutable-filled-file"
-	symlink-helper --quiet --target="$root/targets/unreadable-empty-dir" --symlink="$root/symlinks/unreadable-empty-dir"
-	symlink-helper --quiet --target="$root/targets/unreadable-empty-file" --symlink="$root/symlinks/unreadable-empty-file"
-	symlink-helper --quiet --target="$root/targets/unreadable-filled-dir" --symlink="$root/symlinks/unreadable-filled-dir"
-	symlink-helper --quiet --target="$root/targets/unreadable-filled-dir/empty-subfile" --symlink="$root/symlinks/unreadable-filled-dir--empty-subfile"
-	symlink-helper --quiet --target="$root/targets/unreadable-filled-dir/filled-subdir" --symlink="$root/symlinks/unreadable-filled-dir--filled-subdir"
-	symlink-helper --quiet --target="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir"
-	symlink-helper --quiet --target="$root/targets/unreadable-filled-dir/filled-subfile" --symlink="$root/symlinks/unreadable-filled-dir--filled-subfile"
-	symlink-helper --quiet --target="$root/targets/unreadable-filled-file" --symlink="$root/symlinks/unreadable-filled-file"
-	symlink-helper --quiet --target="$root/targets/unwritable-empty-dir" --symlink="$root/symlinks/unwritable-empty-dir"
-	symlink-helper --quiet --target="$root/targets/unwritable-empty-file" --symlink="$root/symlinks/unwritable-empty-file"
-	symlink-helper --quiet --target="$root/targets/unwritable-filled-dir" --symlink="$root/symlinks/unwritable-filled-dir"
-	symlink-helper --quiet --target="$root/targets/unwritable-filled-dir/empty-subfile" --symlink="$root/symlinks/unwritable-filled-dir--empty-subfile"
-	symlink-helper --quiet --target="$root/targets/unwritable-filled-dir/filled-subdir" --symlink="$root/symlinks/unwritable-filled-dir--filled-subdir"
-	symlink-helper --quiet --target="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir"
-	symlink-helper --quiet --target="$root/targets/unwritable-filled-dir/filled-subfile" --symlink="$root/symlinks/unwritable-filled-dir--filled-subfile"
-	symlink-helper --quiet --target="$root/targets/unwritable-filled-file" --symlink="$root/symlinks/unwritable-filled-file"
+	echo-style --tty --header1='prepping symlinks'
+	symlink-helper --quiet \
+		--target="$root/targets/empty-dir" --symlink="$root/symlinks/empty-dir" \
+		--target="$root/targets/empty-file" --symlink="$root/symlinks/empty-file" \
+		--target="$root/targets/filled-dir/empty-subfile" --symlink="$root/symlinks/filled-dir--empty-subfile" \
+		--target="$root/targets/filled-dir/filled-subdir" --symlink="$root/symlinks/filled-dir--filled-subdir" \
+		--target="$root/targets/filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/filled-dir--filled-subdir--empty-subdir" \
+		--target="$root/targets/filled-dir/filled-subfile" --symlink="$root/symlinks/filled-dir--filled-subfile" \
+		--target="$root/targets/filled-file" --symlink="$root/symlinks/filled-file" \
+		--target="$root/targets/unaccessible-empty-dir" --symlink="$root/symlinks/unaccessible-empty-dir" \
+		--target="$root/targets/unaccessible-empty-file" --symlink="$root/symlinks/unaccessible-empty-file" \
+		--target="$root/targets/unaccessible-filled-dir" --symlink="$root/symlinks/unaccessible-filled-dir" \
+		--target="$root/targets/unaccessible-filled-dir/empty-subfile" --symlink="$root/symlinks/unaccessible-filled-dir--empty-subfile" \
+		--target="$root/targets/unaccessible-filled-dir/filled-subdir" --symlink="$root/symlinks/unaccessible-filled-dir--filled-subdir" \
+		--target="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" \
+		--target="$root/targets/unaccessible-filled-dir/filled-subfile" --symlink="$root/symlinks/unaccessible-filled-dir--filled-subfile" \
+		--target="$root/targets/unaccessible-filled-file" --symlink="$root/symlinks/unaccessible-filled-file" \
+		--target="$root/targets/unexecutable-empty-dir" --symlink="$root/symlinks/unexecutable-empty-dir" \
+		--target="$root/targets/unexecutable-empty-file" --symlink="$root/symlinks/unexecutable-empty-file" \
+		--target="$root/targets/unexecutable-filled-dir" --symlink="$root/symlinks/unexecutable-filled-dir" \
+		--target="$root/targets/unexecutable-filled-dir/empty-subfile" --symlink="$root/symlinks/unexecutable-filled-dir--empty-subfile" \
+		--target="$root/targets/unexecutable-filled-dir/filled-subdir" --symlink="$root/symlinks/unexecutable-filled-dir--filled-subdir" \
+		--target="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" \
+		--target="$root/targets/unexecutable-filled-dir/filled-subfile" --symlink="$root/symlinks/unexecutable-filled-dir--filled-subfile" \
+		--target="$root/targets/unexecutable-filled-file" --symlink="$root/symlinks/unexecutable-filled-file" \
+		--target="$root/targets/unreadable-empty-dir" --symlink="$root/symlinks/unreadable-empty-dir" \
+		--target="$root/targets/unreadable-empty-file" --symlink="$root/symlinks/unreadable-empty-file" \
+		--target="$root/targets/unreadable-filled-dir" --symlink="$root/symlinks/unreadable-filled-dir" \
+		--target="$root/targets/unreadable-filled-dir/empty-subfile" --symlink="$root/symlinks/unreadable-filled-dir--empty-subfile" \
+		--target="$root/targets/unreadable-filled-dir/filled-subdir" --symlink="$root/symlinks/unreadable-filled-dir--filled-subdir" \
+		--target="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" \
+		--target="$root/targets/unreadable-filled-dir/filled-subfile" --symlink="$root/symlinks/unreadable-filled-dir--filled-subfile" \
+		--target="$root/targets/unreadable-filled-file" --symlink="$root/symlinks/unreadable-filled-file" \
+		--target="$root/targets/unwritable-empty-dir" --symlink="$root/symlinks/unwritable-empty-dir" \
+		--target="$root/targets/unwritable-empty-file" --symlink="$root/symlinks/unwritable-empty-file" \
+		--target="$root/targets/unwritable-filled-dir" --symlink="$root/symlinks/unwritable-filled-dir" \
+		--target="$root/targets/unwritable-filled-dir/empty-subfile" --symlink="$root/symlinks/unwritable-filled-dir--empty-subfile" \
+		--target="$root/targets/unwritable-filled-dir/filled-subdir" --symlink="$root/symlinks/unwritable-filled-dir--filled-subdir" \
+		--target="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir" --symlink="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" \
+		--target="$root/targets/unwritable-filled-dir/filled-subfile" --symlink="$root/symlinks/unwritable-filled-dir--filled-subfile" \
+		--target="$root/targets/unwritable-filled-file" --symlink="$root/symlinks/unwritable-filled-file"
 
-	# adjust
+	echo-style --tty --header1='prepping ownership and permissions'
 	fs-own --recursive --permissions='+rwx' -- \
 		"$root/targets"
 	fs-own --permissions='a-r' -- \
@@ -121,6 +127,7 @@ function is_fs_tests__prep {
 		"$root/targets/unaccessible-filled-dir" \
 		"$root/targets/unaccessible-filled-file"
 
+	echo-style --tty --header1='prepping structure'
 	fs-structure -- "$root/targets" >&2
 
 	__print_lines "$root"

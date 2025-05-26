@@ -534,53 +534,6 @@ function __get_substring_after_last {
 	fi
 }
 
-# join by the delimiter
-# __join <delimiter> -- ...<element>
-function __join {
-	if [[ $# -lt 2 || $2 != '--' ]]; then
-		return 1
-	elif [[ $# -eq 2 ]]; then
-		return 0
-	fi
-	local result='' i d="$1" a=("$@") l="$(($# - 1))"
-	for ((i = 2; i < l; i++)); do
-		result+="${a[i]}$d"
-	done
-	result+="${a[l]}"
-	printf '%s' "$result"
-}
-
-# has needle / is needle
-# __is_within <needle> <array-var-name>
-# __is_within <needle> -- ...<element>
-function __is_within {
-	if [[ $2 == '--' ]]; then
-		local needle="$1" item
-		shift # trim needle
-		shift # trim --
-		for item in "$@"; do
-			if [[ $needle == "$item" ]]; then
-				return 0
-			fi
-		done
-		return 1
-	else
-		local needle="$1" array_var_name="$2" n i
-		# trunk-ignore(shellcheck/SC1087)
-		eval "n=\${#$array_var_name[@]}"
-		for ((i = 0; i < n; ++i)); do
-			# trunk-ignore(shellcheck/SC1087)
-			if eval "[[ \$needle == \"\${$array_var_name[i]}\" ]]"; then
-				return 0
-			fi
-		done
-		return 1
-	fi
-}
-
-# for intersect, complement, remove_needle, remove_needles see:
-# https://gist.github.com/balupton/80d27cf1a9e193f8247ee4baa2ad8566
-
 # replace shapeshifting ANSI Escape Codes with newlines
 function __split_shapeshifting {
 	# trim -- prefix
@@ -2262,29 +2215,6 @@ function __require_array {
 	fi
 }
 
-function __make_array {
-	local option_targets=() option_size=0 item target index list=''
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		'--target='*) option_targets+=("${item#*=}") ;;
-		'--size='*) option_size="${item#*=}" ;;
-		--*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
-			return 22 # EINVAL 22 Invalid argument
-			;;
-		*) option_targets+=("$item") ;;
-		esac
-	done
-	for ((index = 0; index < option_size; index++)); do
-		list+="'' "
-	done
-	for target in "${option_targets[@]}"; do
-		eval "$target=($list)"
-	done
-}
-
 BASH_ARRAY_CAPABILITIES=''
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	# bash >= 5
@@ -2359,6 +2289,31 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 	}
 fi
 BASH_ARRAY_CAPABILITIES+=' '
+
+function __make_array {
+	local option_targets=() option_size=0 option_value='' item target index list=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--target='*) option_targets+=("${item#*=}") ;;
+		'--size='*) option_size="${item#*=}" ;;
+		# trunk-ignore(shellcheck/SC2034)
+		'--value='*) option_value="${item#*=}" ;;
+		--*)
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		*) option_targets+=("$item") ;;
+		esac
+	done
+	for ((index = 0; index < option_size; index++)); do
+		list+='"$option_value" '
+	done
+	for target in "${option_targets[@]}"; do
+		eval "$target=($list)"
+	done
+}
 
 # note mapfile does not support multiple delimiters, as such do either of these instead:
 # __split arr --no-zero-length < <(<output-command> | echo-split --characters=' ,|' --stdin)
@@ -2489,3 +2444,83 @@ function __split {
 		fi
 	done
 }
+
+# join by the delimiter
+# __join <delimiter> -- ...<element>
+function __join {
+	if [[ $# -lt 2 || $2 != '--' ]]; then
+		return 1
+	elif [[ $# -eq 2 ]]; then
+		return 0
+	fi
+	local result='' i d="$1" a=("$@") l="$(($# - 1))"
+	for ((i = 2; i < l; i++)); do
+		result+="${a[i]}$d"
+	done
+	result+="${a[l]}"
+	printf '%s' "$result"
+}
+
+# has needle / is needle
+# __is_within <needle> <array-var-name>
+# __is_within <needle> -- ...<element>
+function __is_within {
+	if [[ $2 == '--' ]]; then
+		local needle="$1" item
+		shift # trim needle
+		shift # trim --
+		for item in "$@"; do
+			if [[ $needle == "$item" ]]; then
+				return 0
+			fi
+		done
+		return 1
+	else
+		local needle="$1" array_var_name="$2" n i
+		# trunk-ignore(shellcheck/SC1087)
+		eval "n=\${#$array_var_name[@]}"
+		for ((i = 0; i < n; ++i)); do
+			# trunk-ignore(shellcheck/SC1087)
+			if eval "[[ \$needle == \"\${$array_var_name[i]}\" ]]"; then
+				return 0
+			fi
+		done
+		return 1
+	fi
+}
+
+# modify <array-var-name> to only the items between the <left> and <right> indices
+# __slice <array-var-name> <left> [<right>] [<left> [<right>] ...]
+# e.g. arr=(a b c d)
+# __slice arr 0 1 # keeps a
+# __slice arr 0 2 # keeps a b
+# __slice arr 0 1 2 3 # keeps a c
+# __slice arr 0 1 2 # keeps a c d
+# @todo use [__is_array] to support strings as well as arrays
+function __slice {
+	# trunk-ignore(shellcheck/SC2034)
+	local array_var_name="$1" left right length results=()
+	shift
+	while [[ $# -ne 0 ]]; do
+		left="$1"
+		shift
+		# have right?
+		if [[ $# -eq 0 ]]; then
+			# no right, keep everything from left
+			# trunk-ignore(shellcheck/SC1087)
+			eval "results+=(\"\${$array_var_name[@]:$left}\")"
+		else
+			# has right, keep everything from left to right
+			# convert right to length, which is what bash uses
+			right="$1"
+			length="$((right - left))"
+			# trunk-ignore(shellcheck/SC1087)
+			eval "results+=(\"\${$array_var_name[@]:$left:$length}\")"
+			shift
+		fi
+	done
+	# mutate the array variable
+	eval "$array_var_name=(\"\${results[@]}\")"
+}
+
+# complement and intersect prototype also available at: https://gist.github.com/balupton/80d27cf1a9e193f8247ee4baa2ad8566
