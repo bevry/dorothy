@@ -32,6 +32,13 @@ function symlink_helper() (
 			--verbose
 			    When verbose, output even if symlink is already desired.
 
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+				Forwarded to [eval-helper].
+
 			EXAMPLES:
 			symlink-helper --target="$HOME" --symlink=./my-home-folder-symlink
 		EOF
@@ -42,7 +49,7 @@ function symlink_helper() (
 	}
 
 	# process
-	local item option_quiet='' option_target='' option_symlink='' option_relative='no'
+	local item option_quiet='' option_targets=() option_symlinks=() option_relative='no' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -54,21 +61,38 @@ function symlink_helper() (
 		'--no-quiet'* | '--quiet'*)
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
-		'--target='* | '--existing='*) option_target="${item#*=}" ;;
-		'--symlink='*) option_symlink="${item#*=}" ;;
+		'--target='* | '--existing='*) option_targets+=("${item#*=}") ;;
+		'--symlink='*) option_symlinks+=("${item#*=}") ;;
 		'--no-relative'* | '--relative'*)
 			option_relative="$(get-flag-value --affirmative --fallback="$option_relative" -- "$item")"
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*)
-			if [[ -z $item ]]; then
-				help 'Empty argument provided.'
-			else
-				help "An unrecognised argument was provided: $item"
-			fi
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*)
+			option_elevate+="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_elevate" -- "$item")"
 			;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--'*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
+
+	# ensure as many targets as symlinks
+	if [[ ${#option_targets[@]} -ne ${#option_symlinks[@]} ]]; then
+		help "The number of targets [${#option_targets[@]}] does not match the number of symlinks [${#option_symlinks[@]}]"
+	elif [[ ${#option_targets[@]} -eq 0 ]]; then
+		option_targets+=("$(
+			ask --required \
+				--question='What is the existing path that you want the symlink to target?'
+		)")
+		option_symlinks+=("$(
+			ask --required \
+				--question='What is the new path that you want to be the symlink that redirects?'
+		)")
+	fi
 
 	# check
 	function help_missing {
@@ -79,103 +103,99 @@ function symlink_helper() (
 			'Create the path at ' --code="$option_target" ' first, then try again.'
 		return 2 # ENOENT 2 No such file or directory
 	}
-	if [[ -z $option_target ]]; then
-		option_target="$(
-			ask --required \
-				--question='What is the existing path that you want the symlink to target?'
-		)"
-	fi
-	if [[ -z $option_symlink ]]; then
-		option_symlink="$(
-			ask --required \
-				--question='What is the new path that you want to be the symlink that redirects?'
-		)"
+	function __wrap {
+		eval-helper --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"
+	}
+	# create the symlink
+	# -F: replace symlink if directory if needed
+	# -f: unlink symlink path if needed
+	# -s: symbolic link
+	if is-busybox -- ln; then
+		function __ln {
+			# alpine's ln doesn't support -F, however the above removals should make it unnecessary
+			# https://github.com/bevry/dorothy/actions/runs/11323459946/job/31486170602#step:4:11
+			__wrap ln -sf "$@"
+		}
+	else
+		function __ln {
+			__wrap ln -sfF "$@"
+		}
 	fi
 
 	# =====================================
 	# Act
 
-	# check the existence of the source, if it doesn't exist, there is no point
-	if [[ ! -e $option_target ]]; then
-		help_missing
-	fi
-
-	# if the symlink doesn't exist, ensure its parent path at least exists
-	if [[ ! -e $option_symlink ]]; then
-		__mkdirp "$(fs-path --parents -- "$option_symlink")"
-	fi
-
 	# ensure validity of target path
-	local original
-	while :; do
-		# ensure both paths are not relative paths, otherwise weird things will happen
-		option_target="$(fs-absolute -- "$option_target")"
-		option_symlink="$(fs-absolute -- "$option_symlink")"
+	local index target symlink original
+	for index in "${!option_targets[@]}"; do
+		target="${option_targets[$index]}"
+		symlink="${option_symlinks[$index]}"
+		# @todo is this while loop necessary?
+		while :; do
+			# ensure both paths are not relative paths, otherwise weird things will happen
+			target="$(fs-path --absolute --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")"
+			symlink="$(fs-path --absolute --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink")"
 
-		# double check the existence of the source, if it doesn't exist, there is no point
-		if [[ ! -e $option_target ]]; then
-			help_missing
-		fi
-
-		# check if the target path is a symlink
-		# if it is, then use its target instead, and repeat the checks
-		if [[ -L $option_target ]]; then
-			original="$option_target"
-			option_target="$(fs-realpath -- "$option_target")"
-			if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
-				echo-style --stderr --bold='💁‍♀️ Target ' --code="$original" --bold=' redirects to ' --code="$option_target" --bold=' 👉 using the redirection...'
+			# double check the existence of the source, if it doesn't exist, there is no point
+			if is-missing --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
+				help_missing
 			fi
-			continue
-		fi
 
-		# all checks passed, break
-		break
-	done
-
-	# determine the desired path
-	if [[ $option_relative == 'yes' ]]; then
-		option_target="$(fs-realpath --relative-to="$(fs-path --parents -- "$option_symlink")" -- "$option_target")"
-	fi
-
-	# check if the symlink is already desired
-	if [[ -e $option_symlink ]]; then
-		if [[ -L $option_symlink ]]; then
-			if [[ "$(fs-realpath -- "$option_symlink")" == "$option_target" ]]; then
-				if [[ $option_quiet == 'no' ]]; then
-					echo-style --stderr --bold='👍 Symlink already created at ' --code="$option_symlink" --bold=' targetting ' --code="$option_target"
+			# check if the target path is a symlink
+			# if it is, then use its target instead, and repeat the checks
+			if is-symlink --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
+				original="$target"
+				target="$(fs-path --resolve --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")"
+				if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+					echo-style --stderr --bold='💁‍♀️ Target ' --code="$original" --bold=' redirects to ' --code="$target" --bold=' 👉 using the redirection...'
 				fi
-				return 0
+				continue
 			fi
-			if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
-				echo-style --stderr --bold='💁‍♀️ Symlink already exists at ' --code="$option_symlink" --bold=' 👉 recreating...'
-			fi
-			# is a symlink but a different target, drop it and recreate
-			rm -f -- "$option_symlink" >&2
-		else
-			# not a symlink, confirm with the user what to do
-			fs-rm --quiet="$option_quiet" --confirm -- "$option_symlink" >&2
+
+			# all checks passed, break
+			break
+		done
+
+		# determine the desired path
+		if [[ $option_relative == 'yes' ]]; then
+			target="$(fs-path --resolve --relative-to="$(fs-path --parents -- "$symlink")" --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")"
 		fi
-	elif [[ -L $option_symlink ]]; then
-		# is a broken symlink, drop it and recreate
-		rm -f -- "$option_symlink" >&2
-	fi
 
-	# create the symlink
-	# -F: replace symlink if directory if needed
-	# -f: unlink symlink path if needed
-	# -s: symbolic link
-	if is-alpine; then
-		# alpine doesn't support -F, however the above removals should make it unnecessary
-		# https://github.com/bevry/dorothy/actions/runs/11323459946/job/31486170602#step:4:11
-		ln -sf -- "$option_target" "$option_symlink" >&2
-	else
-		ln -sfF -- "$option_target" "$option_symlink" >&2
-	fi
+		# check if the symlink is already desired
+		# @todo this could be optimised by writing a symlink-helper.bash or by checking the exit status of the is-* commands
+		if is-exist --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink"; then
+			if is-symlink --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink"; then
+				if [[ "$(fs-path --resolve --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink")" == "$target" ]]; then
+					if [[ $option_quiet == 'no' ]]; then
+						echo-style --stderr --bold='👍 Symlink already created at ' --code="$symlink" --bold=' targetting ' --code="$target"
+					fi
+					return 0
+				fi
+				if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+					echo-style --stderr --bold='💁‍♀️ Symlink already exists at ' --code="$symlink" --bold=' 👉 recreating...'
+				fi
+				# is a symlink but a different target, drop it and recreate
+				__wrap rm -f -- "$symlink" >&2
+			else
+				# not a symlink, confirm with the user what to do
+				fs-rm --quiet="$option_quiet" --confirm --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink" >&2
+			fi
+		elif is-symlink --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink"; then
+			# is a broken symlink, drop it and recreate
+			__wrap rm -f -- "$symlink" >&2
+		else
+			# the symlink doesn't exist, ensure its parent path at least exists
+			__wrap mkdir -p -- "$(fs-path --parents -- "$symlink")" >&2
+		fi
 
-	# log result to stderr
-	if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
-		echo-style --stderr --success='👍 Symlink created at ' --code="$option_symlink" --bold=' targetting ' --code="$option_target"
-	fi
+		# create the symlink
+		__ln -- "$target" "$symlink" >&2
+
+		# log result to stderr
+		if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+			echo-style --stderr --success='👍 Symlink created at ' --code="$symlink" --bold=' targetting ' --code="$target"
+		fi
+	done
 )
 
 # fire if invoked standalone

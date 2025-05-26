@@ -76,11 +76,41 @@ function is_fs_invoke {
 	# execute once for all, capturing the failed path
 	# failed paths are output to a fixed path because there is no simple way to separate the failed paths from other stdout and stderr output when using sudo in in-no tty mode, as sudo will be using stderr for its own output, and fs-owner.bash outputs to stdout
 	# and passing an argument is ugly for the prompt, and doing it via an env var is also complicated for doas, and will also result in the same ugly prompt
-	local command="$1" elevations="${2-}" failures="$XDG_CACHE_HOME/is-fs-failed-paths" # this is serial
-	__print_line >"$failures"                                                           # reset
-	__try {fs_status} -- \
-		eval-helper --inherit --elevated="$option_elevated" --elevate="$elevations $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
-		"$command" -- "${option_inputs[@]}"
+	local item command=() command_args=() do_args=() elevate='' failures="$XDG_CACHE_HOME/is-fs-failed-paths" # this is serial
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--command='*) command+=("${item#*=}") ;;
+		'--elevate='*) elevate="${item#*=}" ;;
+		'--discard-'* | '--copy-'* | '--redirect-'*) do_args+=("$item") ;;
+		--)
+			command_args+=("$@")
+			shift $#
+			;;
+		*)
+			if [[ ${#command[@]} -eq 0 ]]; then
+				command+=("$item")
+			elif [[ -z $elevate ]]; then
+				elevate="$item"
+			else
+				help "is_fs_invoke: invalid argument: $item"
+			fi
+			;;
+		esac
+	done
+	if [[ ${#command_args[@]} -eq 0 ]]; then
+		command+=(-- "${option_inputs[@]}")
+	else
+		command+=("${command_args[@]}")
+	fi
+	# reset failures
+	__print_line >"$failures"
+	# execute the command
+	__do --redirect-status='{fs_status}' "${do_args[@]}" -- \
+		eval-helper --inherit --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+		"${command[@]}"
+	# check for new failures
 	if [[ -s $failures ]]; then
 		fs_failed_path="$(<"$failures")" # at some point, properly support multiple failed paths rather than just the first
 	else
