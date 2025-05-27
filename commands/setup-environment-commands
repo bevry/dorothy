@@ -73,6 +73,98 @@ if [[ -z $shell ]]; then
 	help 'Missing required argument: --shell=<shell>'
 fi
 
+# prep caching ability
+function __cut {
+	# turn `<hash>  <path>` into `<hash>`
+	# cut -f1 -d ' '
+	local checksum
+	IFS=' ' read -r checksum _
+	__print_lines "$checksum"
+}
+CACHE_LOCK_FILE=''
+CACHE_RESULT_FILE=''
+function __cache {
+	local option_validity_seconds='' option_checksum_command=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--validity-seconds='*) option_validity_seconds="${item#*=}" ;;
+		'--')
+			option_checksum_command+=("$@")
+			shift "$#"
+			break
+			;;
+		*)
+			__print_lines "ERROR: Unrecognised __cache argument: $item" >&2
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		esac
+	done
+	if [[ -z $option_validity_seconds ]]; then
+		# default to ten minutes
+		option_validity_seconds=600
+	fi
+	if [[ ${#option_checksum_command[@]} -eq 0 ]]; then
+		option_checksum_command+=(openssl dgst -md5 -r)
+	fi
+	if __command_missing -- "${option_checksum_command[0]}"; then
+		__print_lines "ERROR: To use __cache you must specify a checksum command that exists and is executable, unlike: ${option_checksum_command[0]}" >&2
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	local pid=$$ now_env context_id checksum result_dir
+	now_env="$(env -u TERM_SESSION_ID | sort)" || return
+	checksum="$("${option_checksum_command[@]}" <<<"$now_env" | __cut)" || return
+	context_id="setup-environment-commands.$shell.$checksum"
+	# get an exclusive lock on the context
+	CACHE_LOCK_FILE="$(__get_semlock "$context_id")" || return
+	# get the result cache of the context
+	result_dir="$XDG_CACHE_HOME/dorothy/environment"
+	CACHE_RESULT_FILE="$result_dir/$context_id"
+	# if cache is available and applicable
+	if [[ -f $CACHE_RESULT_FILE ]]; then
+		local now_seconds cache_seconds cache_ago_seconds
+		# if cache is still valid
+		# local now_seconds cache_seconds cache_ago_seconds
+		now_seconds="$(date +%s)" || return
+		cache_seconds="$(date -r "$CACHE_RESULT_FILE" +%s)" || return
+		cache_ago_seconds="$((now_seconds - cache_seconds))"
+		if [[ $cache_ago_seconds -lt $option_validity_seconds ]]; then
+			# then use the cache
+			cat -- "$CACHE_RESULT_FILE" || return
+			rm -f -- "$CACHE_LOCK_FILE" || return
+			# __print_lines "CACHE HIT: $CACHE_RESULT_FILE" >/dev/tty
+			trap - EXIT # disable the [env.bash] trap
+			exit 0      # must be exit, otherwise [setup-environment-commands] will continue
+		else
+			# __print_lines "CACHE INVALIDATED: $CACHE_RESULT_FILE" >/dev/tty
+			:
+		fi
+	else
+		# __print_lines "CACHE NOT FOUND: $CACHE_RESULT_FILE" >/dev/tty
+		__mkdirp "$result_dir" || return
+		:
+	fi
+	# cache needs updating
+	function on_env_finish__cache {
+		local -i status=$?
+		trap - EXIT # disable our cache trap override
+		if [[ $status -ne 0 ]]; then
+			rm -f -- "$CACHE_LOCK_FILE"
+			return "$status"
+		fi
+		# store the result
+		on_env_finish | tee -- "$CACHE_RESULT_FILE" || {
+			status=$?
+			rm -f -- "$CACHE_LOCK_FILE"
+			return "$status"
+		}
+		rm -f -- "$CACHE_LOCK_FILE"
+		return 0
+	}
+	trap on_env_finish__cache EXIT # replace our prior trap with one that caches the result
+}
+
 # load env.bash now, so that
 # any exported variables changed from now on are echo'd at finish
 source "$DOROTHY/sources/env.bash"

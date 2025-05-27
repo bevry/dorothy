@@ -1164,8 +1164,8 @@ function __do {
 		# --stderr) __do --right-to-left "$@" 2> >(__do --status="$semaphore" -- eval "$code") ;;
 
 		# prepare our semaphore file that will track the exit status of the process substitution
-		local semaphore_file_target
-		semaphore_file_target="$(__get_semaphore)"
+		local semaphore_file_target semaphore_context="__do.redirect.$RANDOM$RANDOM"
+		semaphore_file_target="$(__get_semaphore "$semaphore_context")"
 		__return $? || return
 
 		# execute while tracking the exit status to our semaphore file
@@ -1256,8 +1256,8 @@ function __do {
 		# copy stdout to stderr
 		2 | stderr | STDERR | /dev/stderr)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets
-			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-stderr.$RANDOM$RANDOM"
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
 			__return $? || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
@@ -1279,8 +1279,8 @@ function __do {
 		# copy stdout to tty
 		tty | TTY | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets
-			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-tty.$RANDOM$RANDOM"
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
 			__return $? || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
@@ -1309,8 +1309,8 @@ function __do {
 		# copy stdout to FD target
 		[0-9]*)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets
-			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-fd.$RANDOM$RANDOM"
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
 			__return $? || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
@@ -1338,8 +1338,8 @@ function __do {
 		# copy stdout to file target
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
-			local semaphore_file_target
-			semaphore_file_target="$(__get_semaphore)"
+			local semaphore_file_target semaphore_context="__do.copy-stdout-to-file.$RANDOM$RANDOM"
+			semaphore_file_target="$(__get_semaphore "$semaphore_context")"
 			__return $? || return
 
 			# execute, keeping stdout, copying to the value target, and tracking the exit status to our semaphore file
@@ -1414,8 +1414,8 @@ function __do {
 		# copy stderr to stdout
 		1 | stdout | STDOUT | /dev/stdout)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets
-			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-stdout.$RANDOM$RANDOM"
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
 			__return $? || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
@@ -1444,8 +1444,8 @@ function __do {
 		# copy stderr to tty
 		tty | TTY | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets
-			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-tty.$RANDOM$RANDOM"
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
 			__return $? || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
@@ -1474,8 +1474,8 @@ function __do {
 		# copy stderr to FD target
 		[0-9]*)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets
-			semaphore_file_targets=("$(__get_semaphore)" "$(__get_semaphore)")
+			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-fd.$RANDOM$RANDOM"
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
 			__return $? || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
@@ -1503,8 +1503,8 @@ function __do {
 		# copy stderr to file target
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
-			local semaphore_file_target
-			semaphore_file_target="$(__get_semaphore)"
+			local semaphore_file_target semaphore_context="__do.copy-stderr-to-file.$RANDOM$RANDOM"
+			semaphore_file_target="$(__get_semaphore "$semaphore_context")"
 			__return $? || return
 
 			# execute, keeping stderr, copying to the value target, and tracking the exit status to our semaphore file
@@ -1821,7 +1821,7 @@ function __try {
 		DOROTHY_TRY__COMMAND=("${cmd[@]}") \
 		DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
-	DOROTHY_TRY__FILE_STATUS="$(__get_semaphore "$DOROTHY_TRY__CONTEXT.status")"
+	DOROTHY_TRY__FILE_STATUS="$(__get_semaphore "__try.$DOROTHY_TRY__CONTEXT.status")"
 
 	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
 	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
