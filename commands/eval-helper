@@ -183,7 +183,9 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 			    If a prompt is required to momentarily grant privileges, this reason will be used to explain why elevation was required.
 			--inherit
 			    If enabled, when elevating, the PATH will be inherited to the executing command.
-
+			--home
+			    If disabled, do not ensure the HOME is correct for the elevated user. If the HOME does exist, it will be used.
+			    If the elevate <user> is [root], this will default to disabled.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -198,7 +200,7 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 	option_terminal_lines='' option_terminal_columns='' \
 	option_confirm='' \
 	option_until='' option_until_interval='' option_until_attempts='' \
-	option_elevated=() option_elevate=() option_user='' option_group='' option_reason='' option_inherit='no' # option_copy_status='' option_redirect_status=''
+	option_elevated=() option_elevate=() option_user='' option_group='' option_reason='' option_inherit='no' option_home='' # option_copy_status='' option_redirect_status=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -256,6 +258,9 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		'--no-inherit'* | '--inherit'*)
 			option_inherit="$(get-flag-value --affirmative --fallback="$option_inherit" -- "$item")"
 			;;
+		'--no-home'* | '--home'*)
+			option_home="$(get-flag-value --affirmative --fallback="$option_home" -- "$item")"
+			;;
 		# </elevate>
 		# command
 		'--')
@@ -274,6 +279,15 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 			option_quiet="$(get-terminal-quiet-support --fallback=no)"
 		else
 			option_quiet='no'
+		fi
+	fi
+
+	# home
+	if [[ -z $option_home ]]; then
+		if [[ $option_user == 'root' ]]; then
+			option_home='no'
+		else
+			option_home='yes'
 		fi
 	fi
 
@@ -671,10 +685,17 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 				# ensure home is correctly configured for sudo
 				if [[ -n $home ]]; then
 					if [[ ! -e $home && ! -L $home ]]; then
-						sudo mkdir -p -- "$home" # don't delegate to other commands/functions, as they will call this
-						fs-own --quiet --user="$option_user" --group="$option_group" --no-recursive -- "$home"
+						if [[ $option_home == 'no' ]]; then
+							home='' # root user doesn't need home
+						elif mkdir -p -- "$home" &>/dev/null || eval-helper --elevate --no-home -- mkdir -p -- "$home"; then
+							fs-own --quiet --user="$option_user" --group="$option_group" --no-recursive -- "$home" || :
+						else
+							home=''
+						fi
 					fi
-					cmd_elevate+=(--set-home)
+					if [[ -n $home ]]; then
+						cmd_elevate+=(--set-home)
+					fi
 				fi
 
 				# sudo supports passing environment variables

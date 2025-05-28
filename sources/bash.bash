@@ -1170,8 +1170,9 @@ function __do {
 
 		# execute while tracking the exit status to our semaphore file
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
+		# note [>(...)] and [> >(...)] are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
 		case "$arg_flag" in
-		--redirect-stdout) __do --right-to-left "$@" >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
+		--redirect-stdout) __do --right-to-left "$@" > >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
 		--redirect-stderr) __do --right-to-left "$@" 2> >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
 		--redirect-output) __do --right-to-left "$@" &> >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
 		*)

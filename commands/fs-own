@@ -11,6 +11,9 @@ function fs_own_test() (
 	file="$(fs-temp --root="$root" --file='file' --touch)"
 
 	local flag flags=(
+		--root
+		--admin
+		--me
 		--X
 		--x
 		--r
@@ -20,24 +23,17 @@ function fs_own_test() (
 		--ugx
 		--permissions='a-xrw,ug+Xrw'
 		# --reference="$DOROTHY" <-- on macos this is 40755 which fails when applied to files
-		--me
-		--admin
-		--root
 	)
 	fs-structure -- "$root" "$dir"
 
-	local stderr=''
-	if is-mac; then
-		stderr='Reporting permission changes is not provided by this Operating System.'
-	fi
 	for flag in "${flags[@]}"; do
 		__print_line
-		eval-tester --stderr="$stderr" -- fs-own --no-color --changes "$flag" -- "$dir" "$file"
+		eval-tester --ignore-stderr -- fs-own --no-color --changes "$flag" -- "$dir" "$file"
 		eval-tester -- fs-own --no-color --quiet "$flag" -- "$dir" "$file"
-		eval-tester -- fs-own --no-color --verbose "$flag" -- "$dir" "$file"
-		eval-tester --stderr="$stderr" -- fs-own --no-color --recursive --changes "$flag" -- "$dir"
+		eval-tester --ignore-stderr -- fs-own --no-color --verbose "$flag" -- "$dir" "$file"
+		eval-tester --ignore-stderr -- fs-own --no-color --recursive --changes "$flag" -- "$dir"
 		eval-tester -- fs-own --no-color --recursive --quiet "$flag" -- "$dir"
-		eval-tester -- fs-own --no-color --recursive --verbose "$flag" -- "$dir"
+		eval-tester --ignore-stderr -- fs-own --no-color --recursive --verbose "$flag" -- "$dir"
 		fs-structure -- "$root" "$dir" || :
 	done
 
@@ -62,6 +58,7 @@ function fs_own_test() (
 )
 function fs_own() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
@@ -72,32 +69,31 @@ function fs_own() (
 			Claim ownership of a path, by updating its permissions via chmod and chown.
 
 			USAGE:
-			fs-own [...options] [--] ...<path>
+			fs-own [...options] -- ...<path>
 
 			EXAMPLE:
 			fs-own --recursive --ug -- .
 
 			OPTIONS:
 			--quiet | --verbose | --changes
-			    if --verbose, apply --changes if supported and use --verbose on executed chmod/chown commands.
-			    if --quiet, apply --no-changes
-			    if neither --verbose or --quiet then apply --changes if supported
+			    if [--changes], the default, only output to STDERR the changes
+			    if [--verbose], output to STDERR all operations
 
-			--X
+			--X | -X
 			    sets <permissions> to be executable directories for the user: +x
-			--x
+			--x | -x
 			    sets <permissions> to be executable for the user: +x
-			--r
+			--r | -r
 			    sets <permissions> to be executable for the user: +r
-			--w
+			--w | -w
 			    sets <permissions> to be executable for the user: +w
-			--u
+			--u | -u
 			    sets <permissions> to only be available to the user: a-xrw,u+Xrw
-			--ux
+			--ux | -ux
 			    sets <permissions> to only be available and executable to the user: a-xrw,u+xrw
-			--ug
+			--ug | -ug
 			    sets <permissions> to only be available to the user and group: a-xrw,ug+Xrw
-			--ugx
+			--ugx | -ugx
 			    sets <permissions> to only be available and executable to the user and group: a-xrw,ug+xrw
 			--permissions=<permissions>
 			    sets file and directory permissions.
@@ -204,43 +200,43 @@ function fs_own() (
 			fi
 			option_permissions='+X'
 			;;
-		'--x')
+		'--x' | '-x')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
 			option_permissions='+x'
 			;;
-		'--r')
+		'--r' | '-r')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
 			option_permissions='+r'
 			;;
-		'--w')
+		'--w' | '-w')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
 			option_permissions='+w'
 			;;
-		'--u')
+		'--u' | '-u')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
 			option_permissions='a-xrw,u+Xrw'
 			;;
-		'--ux')
+		'--ux' | '-ux')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
 			option_permissions='a-xrw,u+xrw'
 			;;
-		'--ug')
+		'--ug' | '-ug')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
 			option_permissions='a-xrw,ug+Xrw'
 			;;
-		'--ugx')
+		'--ugx' | '-ugx')
 			if [[ -n $option_permissions ]]; then
 				help "$item cannot be specified with other <permissions>"
 			fi
@@ -264,7 +260,7 @@ function fs_own() (
 			break
 			;;
 		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_paths+=("$item") ;;
+		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
@@ -392,30 +388,39 @@ function fs_own() (
 	fi
 
 	# adjustments: changes, quiet, verbose
-	if [[ -z $option_changes ]]; then
-		if [[ $option_quiet == 'yes' ]]; then
-			option_changes='no'
-		else
-			# neither --quiet/--verbose, or just --verbose
-			# in which case, enable changes if supported
-			if is-mac || is-alpine; then
-				option_changes='no'
-			else
-				option_changes='yes'
-			fi
-		fi
-	elif [[ $option_changes == 'yes' ]]; then
-		if is-mac || is-alpine; then
-			echo-style --stderr --dim='Reporting permission changes is not provided by this Operating System.'
-		else
-			ch_args+=('--changes')
-		fi
-	fi
+	function __filter_changes {
+		cat
+	}
 	if [[ $option_quiet == 'no' ]]; then
 		if is-mac; then
-			ch_args+=('-v')
+			# Reports even if there are no changes.
+			# -v: Cause chown to be verbose, showing files as the owner is modified.  If the -v flag is specified more than once, chown will print the filename, followed by the old and new numeric user/group ID.
+			# -v: Cause chmod to be verbose, showing filenames as the mode is modified.  If the -v flag is specified more than once, the old and new modes of the file will also be printed, in both octal and symbolic notation.
+			ch_args+=('-vv')
 		else
+			# -v, --verbose: output a diagnostic for every file processed
 			ch_args+=('--verbose')
+		fi
+	elif [[ $option_changes != 'no' ]]; then
+		if is-mac || is-alpine; then
+			ch_args+=('-vv')
+			function __filter_changes {
+				local line before after
+				while IFS= read -r line; do
+					if [[ $line != *' -> '* ]]; then
+						__print_lines "$line"
+						continue
+					fi
+					before="$(__get_substring_before_last "$line" ' -> ')"
+					after="$(__get_substring_after_last "$line" ' -> ')"
+					before="$(__get_substring_after_last "$before" ': ')"
+					if [[ $before != "$after" ]]; then
+						__print_lines "$line"
+					fi
+				done
+			}
+		else
+			ch_args+=('--changes')
 		fi
 	fi
 
@@ -443,7 +448,7 @@ function fs_own() (
 		# chown
 		if [[ -n $owner ]]; then
 			# as root
-			eval-helper --elevated="$option_elevated" --elevate="$option_elevated" --reason="$option_reason" -- \
+			eval_helper --redirect-stdout='(__filter_changes)' --redirect-output=STDERR --elevated="$option_elevated" --elevate="$option_elevate" --reason="$option_reason" --user=root -- \
 				chown "${ch_args[@]}" "$owner" "${double_dash_args[@]}" "${paths[@]}" || return # eval
 		fi
 
@@ -452,14 +457,14 @@ function fs_own() (
 			# https://superuser.com/a/91966/32418
 			# removing readable perms on a directory, while recursing, will cause permission denied failure
 			# as user
-			eval-helper --elevated="$option_elevated" --elevate="$option_elevated" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			eval_helper --redirect-stdout='(__filter_changes)' --redirect-output=STDERR --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
 				chmod "${ch_args[@]}" "$option_permissions" "${double_dash_args[@]}" "${paths[@]}" || return # eval
 		fi
 	}
 
 	# determine paths
 	for path in "${option_paths[@]}"; do
-		if is-present --quiet="$option_quiet" --elevated="$option_elevated" --elevate="$option_elevated" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+		if is-present --quiet="$option_quiet" --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
 			paths+=("$path") # it exists, update ownership for it
 		fi
 	done
