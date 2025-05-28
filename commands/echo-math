@@ -4,44 +4,43 @@ function echo_math_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
 
-	local inputs=('1 - 1/2' '1 - 1/3' '1 - 1/4')
-	local expected_six=$'0.500000\n0.666667\n0.750000'
-	local expected_two=$'0.50\n0.67\n0.75'
-
-	if __command_exists -- bc; then
+	local inputs=('1 - 1/2' '1 - 1/3' '1 - 1/4' '123456789 / 0.0987654321')
+	local expected_six=$'0.500000\n0.666667\n0.750000\n1249999988.609375'
+	local expected_two=$'0.50\n0.67\n0.75\n1249999988.61'
+	function __test {
 		eval-tester --stdout="$expected_six" -- \
-			echo-math --tool=bc -- "${inputs[@]}"
+			echo-math "$@" -- "${inputs[@]}"
 
-		{
-			__print_lines "${inputs[@]}"
-		} | eval-tester --stdout="$expected_six" -- \
-			echo-math --tool=bc --stdin
+		__print_lines "${inputs[@]}" |
+			eval-tester --stdout="$expected_six" -- \
+				echo-math "$@" --stdin
 
 		eval-tester --stdout="$expected_two" -- \
-			echo-math --precision=2 --tool=bc -- "${inputs[@]}"
+			echo-math --precision=2 "$@" -- "${inputs[@]}"
 
-		{
-			__print_lines "${inputs[@]}"
-		} | eval-tester --stdout="$expected_two" -- \
-			echo-math --precision=2 --tool=bc --stdin
+		__print_lines "${inputs[@]}" |
+			eval-tester --stdout="$expected_two" -- \
+				echo-math --precision=2 "$@" --stdin
+	}
+
+	# run test with defaults
+	__test
+
+	# now run tests for each tool
+	local tools tool benchmarks=()
+	__split tools --no-zero-length < <(echo-math --only-print-tools)
+	if [[ ${#tools[@]} -eq 0 ]]; then
+		echo-error "Failed to fetch available tools for [echo-math]."
+		return 1
 	fi
+	for tool in "${tools[@]}"; do
+		__test --tool="$tool"
+		benchmarks+=("echo-math --tool=$tool -- '123456789 / 0.0987654321'")
+	done
 
-	if __command_exists -- deno; then
-		eval-tester --stdout="$expected_six" -- \
-			echo-math --tool=deno -- "${inputs[@]}"
-
-		{
-			__print_lines "${inputs[@]}"
-		} | eval-tester --stdout="$expected_six" -- \
-			echo-math --tool=deno --stdin
-
-		eval-tester --stdout="$expected_two" -- \
-			echo-math --precision=2 --tool=deno -- "${inputs[@]}"
-
-		{
-			__print_lines "${inputs[@]}"
-		} | eval-tester --stdout="$expected_two" -- \
-			echo-math --precision=2 --tool=deno --stdin
+	# now run benchmarks
+	if __command_exists -- hyperfine; then
+		hyperfine --warmup 10 --runs 25 -- "${benchmarks[@]}"
 	fi
 
 	echo-style --g1="TEST: $0"
@@ -49,8 +48,7 @@ function echo_math_test() (
 )
 function echo_math() (
 	source "$DOROTHY/sources/stdinargs.bash"
-
-	local all_tools=(bc perl deno)
+	local all_tools=(awk gawk bc perl deno)
 
 	# =====================================
 	# Arguments
@@ -73,7 +71,7 @@ function echo_math() (
 
 			--tool=<tool>
 			    The math engine to use.
-			    Available tools in order of preference: ${all_tools[*]}
+			    Available tools in order of speed: $(__join ', ' -- "${all_tools[@]}")
 
 			$(stdinargs_options_help --)
 		EOF
@@ -84,12 +82,13 @@ function echo_math() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_precision=6 option_tool=''
+	local item option_precision=6 option_tool='' only_print_tools=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--only-print-tools') only_print_tools='yes' ;;
 		'--precision='*) option_precision="${item#*=}" ;;
 		'--integer') option_precision=0 ;;
 		'--tool='*) option_tool="${item#*=}" ;;
@@ -104,8 +103,13 @@ function echo_math() (
 	done
 
 	# ensure tool
-	if [[ $option_tool == '?' ]]; then
-		option_tool="$(choose --required 'Which math engine to use?' -- "${all_tools[@]}")"
+	if [[ $only_print_tools == 'yes' ]]; then
+		__print_lines "${all_tools[@]}"
+		return 0
+	elif [[ -n $option_tool ]]; then
+		if [[ $option_tool == '?' ]]; then
+			option_tool="$(choose --required 'Which math engine to use?' -- "${all_tools[@]}")"
+		fi
 		if __command_missing -- "$option_tool"; then
 			get-installer --first-success --invoke --quiet -- "$option_tool"
 		fi
@@ -143,6 +147,16 @@ function echo_math() (
 		function on_line {
 			local formula="$1"
 			perl -E "say sprintf '%.${option_precision}f', $formula"
+		}
+	elif [[ $option_tool == 'awk' ]]; then
+		function on_line {
+			local formula="$1"
+			awk -v precision="$option_precision" 'BEGIN { printf "%." precision "f\n", '"$formula"' }'
+		}
+	elif [[ $option_tool == 'gawk' ]]; then
+		function on_line {
+			local formula="$1"
+			gawk -v precision="$option_precision" 'BEGIN { printf "%." precision "f\n", '"$formula"' }'
 		}
 	else
 		help "The tool [$option_tool] is not yet supported."
