@@ -105,7 +105,7 @@ function is_fs_invoke {
 		command+=("${command_args[@]}")
 	fi
 	# reset failures
-	__print_line >"$failures"
+	__print_string >"$failures"
 	# execute the command
 	__do --redirect-status='{fs_status}' "${do_args[@]}" -- \
 		eval-helper --inherit --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
@@ -118,10 +118,33 @@ function is_fs_invoke {
 	fi
 }
 
-function is_fs_unknown_error {
-	if [[ -z $fs_failed_path ]]; then
-		echo-style --stderr --error1='Encountered the failure exit status of ' --code-error1="$fs_status" --error1=' when processing the paths:' --newline --code-error1="$(__print_lines "${option_inputs[@]}")"
-	else
-		echo-style --stderr --error1='The path ' --code-error1="$fs_failed_path" --error1=' encountered error ' --code-error1="$fs_status"
+function is_fs_error {
+	local status="$1" label='path' was_were='was' spacer=' ' paths="$fs_failed_path"
+	if [[ -z $paths ]]; then
+		paths="$(__print_lines "${option_inputs[@]}")"
 	fi
+	if [[ $paths == *$'\n'* ]]; then
+		label='paths'
+		was_were='were'
+		spacer=$'\n'
+	fi
+	case "$status" in
+	# ENOENT 2 No such file or directory
+	2) echo-style --stderr --error1="The $label $was_were missing:" --="$spacer" --path="$paths" ;;
+	# EBADF 9 Bad file descriptor
+	9) echo-style --stderr --error1="The $label $was_were a broken symlink:" --="$spacer" --path="$paths" ;;
+	# EACCES 13 Permission denied
+	13) echo-style --stderr --error1="The $label $was_were not accessible:" --="$spacer" --path="$paths" ;;
+	# NOTDIR 20 Not a directory
+	20) echo-style --stderr --error1="The $label $was_were present, but $was_were not a directory nor an unbroken symlink to directory:" --="$spacer" --path="$paths" ;;
+	# EISDIR 21 Is a directory
+	21) echo-style --stderr --error1="The $label $was_were a directory, or an unbroken symlink to a directory:" --="$spacer" --path="$paths" ;;
+	# EINVAL 22 Invalid argument
+	22) echo-style --stderr --error1="The $label $was_were not a valid argument:" --="$spacer" --path="$paths" ;;
+	# EFBIG 27 File too large
+	27) echo-style --stderr --error1="The $label $was_were a file, or an unbroken symlink to a file, but $was_were not empty:" --="$spacer" --path="$paths" ;;
+	# ENOTEMPTY 66 Directory not empty
+	66) echo-style --stderr --error1="The $label $was_were a directory, or an unbroken symlink to a directory, but $was_were not empty:" --="$spacer" --path="$paths" ;;
+	*) echo-style --stderr --error1='Encountered the failure exit status of ' --code-error1="$fs_status" --error1=" when processing the $label:" --="$spacer" --path="$paths" ;;
+	esac
 }

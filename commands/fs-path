@@ -229,8 +229,9 @@ function fs_path() (
 			fs-path [...options] [--] ...<path>
 
 			OPTIONS:
-			--resolve
+			--resolve | --resolve=follow | --follow
 			    Transform the symlinks into their target paths. Implies [--absolute].
+			    If set to [--follow] / [--resolve=follow], then continue following resolutions until the target is no longer a symlink. As a comparison, [realpath] follows, [readlink] does not.
 			--absolute | --relative
 			    If the path was relative, then [--absolute] will resolve it to an absolute path, and [--relative] will persist it as a relative path.
 			--relative-from=<relative_from> | --relative-to=<relative_from>
@@ -269,7 +270,7 @@ function fs_path() (
 	}
 
 	# process
-	local item args=() option_absolute='' option_resolve='' option_validate='' option_relative_from='' option_relative_base='' option_extensions='' option_extension='' option_parents='' option_parent=''
+	local item args=() option_absolute='' option_resolve='' option_follow='' option_validate='' option_relative_from='' option_relative_base='' option_extensions='' option_extension='' option_parents='' option_parent=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -286,6 +287,9 @@ function fs_path() (
 			;;
 		'--no-resolve'* | '--resolve'*)
 			option_resolve="$(get-flag-value --affirmative --fallback="$option_resolve" -- "$item")"
+			;;
+		'--no-follow'* | '--follow'*)
+			option_follow="$(get-flag-value --affirmative --fallback="$option_follow" -- "$item")"
 			;;
 		'--no-validate'* | '--validate'*)
 			option_validate="$(get-flag-value --affirmative --fallback="$option_validate" -- "$item")"
@@ -324,6 +328,9 @@ function fs_path() (
 	elif [[ $option_parent == 'yes' ]]; then
 		option_parents='no'
 	fi
+	if [[ $option_follow == 'yes' ]]; then
+		option_resolve='follow'
+	fi
 	if [[ $option_parents == 'yes' && ($option_extensions == 'yes' || $option_extension == 'yes') ]]; then
 		help "--parents cannot be used with --extension/--extensions, as that doesn't make sense"
 	fi
@@ -343,13 +350,9 @@ function fs_path() (
 		is_fs_invoke --elevate=13 --redirect-stdout="{$var}" -- fs-path.bash --resolve="$option_resolve" --validate="$option_validate" -- "${!var}"
 		# if verbose and failure, output contextual failure
 		if [[ $option_quiet == 'no' && $fs_status -ne 0 ]]; then
-			case "$fs_status" in
-			2) echo-style --stderr --error1='The path was missing: ' --code-error1="$fs_failed_path" ;;
-			13) echo-style --stderr --error1='The path was not accessible: ' --code-error1="$fs_failed_path" ;;
-			22) echo-style --stderr --error1='The path was not a valid argument: ' --code-error1="$fs_failed_path" ;;
-			*) is_fs_unknown_error ;;
-			esac
+			is_fs_error "$fs_status"
 		fi
+		return "$fs_status"
 	}
 	for path in "${option_inputs[@]}"; do
 		# `dirname` and `basename` operate on the last forward-slash, back-slashes are not relevant as even in WSL which is our only supported Windows target, then forward-slashes are enforced/emulated.
@@ -369,11 +372,11 @@ function fs_path() (
 		fi
 
 		# resolve the path
-		if [[ $option_resolve == 'yes' || $option_validate == 'yes' || -n $option_relative_from || -n $option_relative_base ]]; then
-			# we want to resolve symlinks or validate the path
+		if [[ $option_resolve =~ ^(yes|follow)$ || $option_validate == 'yes' ]]; then
+			# we need it to be resolved, or validated
 			__expand path
-		elif [[ $option_absolute == 'yes' && $path != /* ]]; then
-			# we want it to be absolute, but it isn't
+		elif [[ $path != /* && (-n $option_relative_from || -n $option_relative_base || $option_absolute == 'yes') ]]; then
+			# we need to it to be absolute, in cases where it is not
 			__expand path
 		fi
 
