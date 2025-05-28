@@ -4,14 +4,26 @@ function fs_size_test() (
 	source "$DOROTHY/sources/bash.bash"
 	echo-style --h1="TEST: $0"
 
-	eval-tester --ignore-stdout -- \
+	# @todo update for multiple tools
+	# @todo update for actual consistent files of consistent size, so stdout can be tested
+
+	eval-tester --ignore-outputs -- \
 		fs-size --bytes -- "$0"
 
-	eval-tester --ignore-stdout -- \
+	eval-tester --ignore-outputs -- \
 		fs-size --kilobytes -- "$0"
 
-	eval-tester --ignore-stdout -- \
+	eval-tester --ignore-outputs -- \
 		fs-size --megabytes -- "$0"
+
+	eval-tester --ignore-outputs -- \
+		fs-size --gigabytes -- "$0"
+
+	eval-tester --ignore-outputs -- \
+		fs-size --nearest "$0"
+
+	eval-tester --ignore-outputs -- \
+		fs-size -- "$0"
 
 	echo-style --g1="TEST: $0"
 	return 0
@@ -28,15 +40,24 @@ function fs_size() (
 			Get the size of a path.
 
 			USAGE:
-			fs-bytes [...options] [--] ...<path>
+			fs-size [...options] [--] ...<path>
 
 			OPTIONS:
+			--tool=<tool:dust|du|stat>
+			    The tool to get the size. If [dust] is installed, it will be used by default.
+			    If the <path> is a directory, [stat] will be avoided, as it does not compute directory sizes correctly.
+			--nearest
+			    Get the size in the nearest denomination, which is the default.
+			    B = bytes, K = kilobytes, M = megabytes, G = gigabytes.
 			--bytes
 			    Get the size in bytes.
+			    Not supported if <tool> is [du] on macOS.
 			--kilobytes
 			    Get the size in kilobytes.
 			--megabytes
 			    Get the size in megabytes.
+			--gigabytes
+			    Get the size in gigabytes.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -45,16 +66,19 @@ function fs_size() (
 	}
 
 	# process
-	local item option_paths=() option_denomination=''
+	local item option_paths=() option_tool='' option_denomination=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--path='*) option_paths+=("${item#*=}") ;;
+		'--tool='*) option_tool="${item#*=}" ;;
 		'--bytes' | '--denomination=bytes') option_denomination='bytes' ;;
 		'--kilobytes' | '--denomination=kilobytes') option_denomination='kilobytes' ;;
 		'--megabytes' | '--denomination=megabytes') option_denomination='megabytes' ;;
+		'--gigabytes' | '--denomination=gigabytes') option_denomination='gigabytes' ;;
+		'--nearest' | '--denomination=nearest') option_denomination='nearest' ;;
 		'--')
 			option_paths+=("$@")
 			shift $#
@@ -69,37 +93,158 @@ function fs_size() (
 	if [[ ${#option_paths[@]} -eq 0 ]]; then
 		help 'No <path>s provided.'
 	fi
+	if [[ -z $option_denomination ]]; then
+		option_denomination='nearest'
+	fi
+
+	# tool
+	if [[ -z $option_tool ]] && __command_exists -- dust; then
+		option_tool='dust'
+		# don't default to stat otherwise, as stat doesn't support directory size
+	elif [[ $option_tool == '?' ]]; then
+		option_tool="$(choose --required 'Which tool to use?' -- dust du stat)"
+		if __command_missing -- "$option_tool"; then
+			get-installer --first-success --invoke --quiet -- "$option_tool"
+		fi
+	fi
 
 	# =====================================
 	# Dependencies
 
-	setup-util-dust --quiet
+	function __cut {
+		local delimiter="$1" size
+		# echo-regexp -fo "^(\d+)$delimiter" '$1' || return
+		# echo-regexp -fo "^(\w+)$delimiter" '$1' || return
+		IFS="$delimiter" read -r size _ || return
+		__print_lines "$size"
+	}
 
-	# helpers
-	case "$option_denomination" in
-	bytes)
-		function __size {
-			# bsd (not equivalent to GNU, reports blocks instead of bytes): du -sAB1 "$path"
-			# gnu: du --summarize --apparent-size --block-size=1 "$path" | echo-regexp -o '^\d+'
-			dust -sbcP -ob -d0 -- "$path" | echo-regexp -fo '^(\d+)B' '$1'
+	# dust
+	function __dust_bytes {
+		local path="$1"
+		dust -sbcP -ob -d0 -- "$path" | __cut ' B'
+	}
+	function __dust_kilobytes {
+		local path="$1"
+		dust -sbcP -ok -d0 -- "$path" | __cut ' K'
+	}
+	function __dust_megabytes {
+		local path="$1"
+		dust -sbcP -om -d0 -- "$path" | __cut ' M'
+	}
+	function __dust_gigabytes {
+		local path="$1"
+		dust -sbcP -oG -d0 -- "$path" | __cut ' G'
+	}
+	function __dust_nearest {
+		local path="$1"
+		dust -sbcP -d0 -- "$path" | __cut ' '
+	}
+
+	# these all report blocks, not bytes:
+	# bsd: du -sAB1 "$path"
+	# gnu: du --summarize --apparent-size --block-size=1 "$path" | echo-regexp -o '^\d+'
+	# macos: du -sAB1 --
+	# no way to get bytes on macos
+	#
+	# -A: Display the apparent size instead of the disk usage.  This can be helpful when operating on compressed volumes or sparse files.
+	# --si: “Human-readable” output.  Use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte, Terabyte and Petabyte based on powers of 1000. <-- outputs everything within a directory, seems just an alias for -shd0
+	# -d depth: Display an entry for all files and directories depth directories deep.
+	# -h: “Human-readable” output.  Use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte, Terabyte and Petabyte based on powers of 1024.
+	# -s: Display an entry for each specified file.  (Equivalent to -d 0)
+	# -k: Display block counts in 1024-byte (1 kiB) blocks.
+	# -m: Display block counts in 1048576-byte (1 MiB) blocks.
+	# -g: Display block counts in 1073741824-byte (1 GiB) blocks.
+	# -a: Display an entry for each file in a file hierarchy.
+	if is-linux; then
+		function __du_bytes {
+			local path="$1"
+			du -sb -- "$path" | __cut $' \t'
 		}
-		;;
-	kilobytes)
-		function __size {
-			dust -sbcP -ok -d0 -- "$path" | echo-regexp -fo '^(\d+)K' '$1'
+	fi
+	function __du_kilobytes {
+		local path="$1"
+		du -sk -- "$path" | __cut $' \t'
+	}
+	function __du_megabytes {
+		local path="$1"
+		du -sm -- "$path" | __cut $' \t'
+	}
+	function __du_gigabytes {
+		local path="$1"
+		du -sg -- "$path" | __cut $' \t'
+	}
+	function __du_nearest {
+		local path="$1"
+		du -hd0 -- "$path" | __cut $' \t'
+	}
+
+	# stat
+	# stat does not give us the correct size for directories
+	if is-mac; then
+		function __stat_bytes {
+			local path="$1"
+			stat -f '%z' -- "$path"
 		}
-		;;
-	megabytes)
-		function __size {
-			dust -sbcP -om -d0 -- "$path" | echo-regexp -fo '^(\d+)M' '$1'
+	else
+		function __stat_bytes {
+			local path="$1"
+			stat -c '%s' -- "$path"
 		}
-		;;
-	*)
-		function __size {
-			dust -sbcP -d0 -- "$path" | echo-regexp -fo '^(\w+) ' '$1'
-		}
-		;;
-	esac
+	fi
+	function __stat_kilobytes {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")"
+		echo-math -- "$bytes / 1024"
+	}
+	function __stat_megabytes {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")"
+		echo-math -- "$bytes / 1024 / 1024"
+	}
+	function __stat_gigabytes {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")"
+		echo-math -- "$bytes / 1024 / 1024 / 1024"
+	}
+	function __stat_nearest {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")"
+		__print_lines "${bytes}B"
+	}
+
+	function __size {
+		local path="$1"
+		if [[ -n $option_tool ]]; then
+			if [[ "$(type -t "__${option_tool}_${option_denomination}" || :)" == 'function' ]]; then
+				"__${option_tool}_${option_denomination}" "$path" # eval
+			else
+				help "The tool [$option_tool] does not support the denomination [$option_denomination]."
+				return 22 # EINVAL 22 Invalid argument
+			fi
+		elif is-directory -- "$path"; then
+			if [[ $option_denomination == 'bytes' ]] || __command_missing -- du; then
+				get-installer --first-success --invoke --quiet -- dust du
+				if __command_exists -- dust; then
+					# dust is installed, use it
+					option_tool='dust'
+					"__dust_$option_denomination" "$path"
+				elif __command_exists -- du; then
+					# du is installed, use it
+					option_tool='du'
+					"__du_$option_denomination" "$path"
+				else
+					# no tool available, error
+					echo-error 'No tool available to determine the accurate size the directory: ' --path="$path"
+					return 22 # EINVAL 22 Invalid argument
+				fi
+			else
+				"__du_${option_denomination}" "$path"
+			fi
+		else
+			"__stat_${option_denomination}" "$path"
+		fi
+	}
 
 	# =====================================
 	# Action
