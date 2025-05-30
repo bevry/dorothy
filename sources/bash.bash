@@ -159,8 +159,40 @@ function __ternary {
 	fi
 }
 
+# check if the value is a reference, i.e. starts with `{` and ends with `}`, e.g. `{var_name}`.
+function __is_reference {
+	local value_or_var_name="$1"
+	[[ $value_or_var_name == '{'*'}' ]] || return
+}
+
+# trim the starting `{` and the trailing `}`, e.g. converting `{var_name}` to `var_name`
+function __get_reference_name {
+	local value_or_var_name="$1"
+	__is_reference "$value_or_var_name" || return
+	__get_substring "$value_or_var_name" 1 -1 || return
+}
+# for __get_reference_value, just use `${!var_name}`
+
+function __is_positive_integer {
+	local value="$1" value
+	[[ $value =~ ^[0-9]+$ ]] || return
+}
+
+function __is_integer {
+	local value="$1" value
+	[[ $value =~ ^[-]?[0-9]+$ ]] || return
+}
+
+function __is_digit {
+	local value="$1" value
+	[[ $value =~ ^[0-9]$ ]] || return
+}
+
 function __is_array {
 	local var_name="$1"
+	if __is_reference "$var_name"; then
+		var_name="$(__get_reference_value "$var_name")" || return
+	fi
 	[[ -n $var_name && "$(declare -p "$var_name" 2>/dev/null || :)" == 'declare -a '* ]] || return
 }
 
@@ -265,23 +297,20 @@ function __elevate {
 		return
 	elif __command_exists -- sudo; then
 		# check if password is required
-		if ! sudo --non-interactive "$@" &>/dev/null; then
+		if ! sudo --non-interactive -- true &>/dev/null; then
 			# password is required, let the user know what they are being prompted for
 			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2
 			__print_lines "sudo $*" >&2
-			sudo "$@"
-			return
-		else
-			# session still active, password not required
-			sudo "$@"
-			return
 		fi
+		sudo "$@"
+		return
 	elif __command_exists -- doas; then
-		local status=0
-		set -x # <inform the user of why they are being prompted for a doas password>
-		doas "$@" || status=$?
-		set +x # </inform>
-		return "$status"
+		if ! doas -n true &>/dev/null; then
+			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2
+			__print_lines "doas $*" >&2
+		fi
+		doas "$@"
+		return
 	else
 		"$@"
 		return
@@ -334,6 +363,7 @@ function __mkdirp {
 }
 
 # performantly make directories with sudo
+# @todo replace this with fs-mkdir
 function __elevate_mkdirp {
 	# trim -- prefix
 	if [[ ${1-} == '--' ]]; then
@@ -630,48 +660,81 @@ fi
 # Open a file descriptor in a cross-bash compatible way
 # alternative implementations at https://stackoverflow.com/q/8297415/130638
 function __open_fd {
-	local fd n mode name="$1" target="${3-}"
-	if [[ $name == '{'*'}' ]]; then
-		name="$(__get_substring "$name" 1 -1)"
-	fi
-	n="$(ulimit -n)"
-	case "$2" in
+	local fd_or_var_name="$1" var_name='' fd='' n mode="$2" target="$3"
+	# it is a variable name, in the format of `{var_name}`
+	var_name="$(__get_reference_name "$fd_or_var_name")" || {
+		if __is_positive_integer "$fd_or_var_name"; then
+			# it is a file descriptor, so use it directly
+			fd="$fd_or_var_name"
+		else
+			# it is a variable name, in the format of `var_name`
+			var_name="$fd_or_var_name"
+		fi
+	}
+	# coalesce the mode
+	case "$mode" in
 	'<' | --read) mode='<' ;;
 	'>' | --overwrite | --write) mode='>' ;;
 	'<>' | --read-write) mode='<>' ;;
 	'>>' | --append) mode='>>' ;;
 	*)
-		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid mode provided: $2" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid mode provided: $mode" >&2
 		return 22 # EINVAL 22 Invalid argument
 		;;
 	esac
-	# Bash >= 4.1, < 4.1
-	if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
-		if [[ -n $target ]]; then
-			if [[ $target =~ ^[0-9]+$ ]]; then
-				eval "exec {$name}$mode&$target"
-			else
-				eval "exec {$name}$mode\"\$target\""
-			fi
+	# Bash >= 4.1
+	if [[ -n $var_name && ($BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1)) ]]; then
+		if __is_positive_integer "$target"; then
+			eval "exec {$var_name}$mode&$target"
+		else
+			eval "exec {$var_name}$mode\"\$target\""
 		fi
 	else
-		# FD 3 and 4 are commonly used, so skip them amd start at 5
-		for ((fd = 5; fd < n; fd++)); do
-			# test if the file descriptor is not available on both read and write, then it means it is available
-			if ! eval ": <&$fd" &>/dev/null && ! eval ": >&$fd" &>/dev/null; then
-				# it failed, so it is available
-				eval "$name=$fd"
-				if [[ -n $target ]]; then
-					if [[ $target =~ ^[0-9]+$ ]]; then
-						eval "exec $fd$mode&$target"
-					else
-						eval "exec $fd$mode\"\$target\""
-					fi
+		# if we don't already have a file descriptor, find an available one
+		if [[ -z $fd ]]; then
+			# FD 3 and 4 are commonly used, so skip them amd start at 5
+			for ((fd = 5, n = "$(ulimit -n)"; fd < n; fd++)); do
+				# test if the file descriptor is not available on both read and write, then it means it is available
+				if ! eval ": <&$fd" &>/dev/null && ! eval ": >&$fd" &>/dev/null; then
+					# it failed, so it is available
+					break
 				fi
-				break
-			fi
-		done
+			done
+		fi
+		# open the file descriptor if we have a target
+		if __is_positive_integer "$target"; then
+			eval "exec $fd$mode&$target"
+		else
+			eval "exec $fd$mode\"\$target\""
+		fi
+		# apply the file descriptor
+		eval "$var_name=$fd"
 	fi
+}
+
+function __close_fd {
+	local fd_or_var_name="$1" var_name='' fd=''
+	# it is a variable name, in the format of `{var_name}`
+	var_name="$(__get_reference_name "$fd_or_var_name")" || {
+		if __is_positive_integer "$fd_or_var_name"; then
+			# it is a file descriptor, so use it directly
+			fd="$fd_or_var_name"
+		else
+			# it is a variable name, in the format of `var_name`
+			var_name="$fd_or_var_name"
+		fi
+	}
+	# Bash >= 4.1
+	if [[ -n $var_name ]]; then
+		if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
+			eval "exec {$var_name}>&-"
+			return
+		fi
+		# cannot close directly, close via file descriptor instead
+		fd="${!var_name}"
+	fi
+	# close the file descriptor
+	eval "exec $fd>&-"
 }
 
 # Custom debug target
@@ -879,6 +942,11 @@ function __get_semaphore {
 # >( ... ) happens asynchronously, however the commands within >(...) happen synchronously, as such we can use this technique to know when they are done, otherwise on the very rare occasion the files may not exist or be incomplete by the time we get to to reading them: https://github.com/bevry/dorothy/issues/277
 # Note that this waits forever on bash 4.1.0, as the [touch] commands that create our semaphore only execute after a [ctrl+c], other older and newer versions are fine
 function __wait_for_semaphores {
+	# skip if empty
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
+	# wait for each semaphore to exist
 	local semaphore_file
 	for semaphore_file in "$@"; do
 		while [[ ! -f $semaphore_file ]]; do
@@ -888,12 +956,20 @@ function __wait_for_semaphores {
 	done
 }
 function __wait_for_and_remove_semaphores {
-	[[ $# -eq 0 ]] || return 0
+	# skip if empty
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
+	# wait for each semaphore to exist, then remove them
 	__wait_for_semaphores "$@" || return
 	rm -f -- "$@" || return
 }
 function __wait_for_and_return_semaphores {
-	[[ $# -eq 0 ]] || return 0
+	# skip if empty
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
+	# wait for each semaphore that represents an exit status to exist and to be written, then remove them
 	local semaphore_file semaphore_status=0
 	for semaphore_file in "$@"; do
 		# needs -s as otherwise the file may exist but may not have finished writing, which would result in:
@@ -905,7 +981,10 @@ function __wait_for_and_return_semaphores {
 		# always return the failure
 		# __wait_for_and_return_semaphores "$semaphore_file-with-0" "$semaphore_file-with-1" "$semaphore_file-with-0" # returns 1
 		if [[ $semaphore_status -eq 0 ]]; then
-			semaphore_status="$(<"$semaphore_file")"
+			semaphore_status="$(<"$semaphore_file")" || {
+				__print_lines "ERROR: ${FUNCNAME[0]}: Failed to read semaphore file: $semaphore_file" >&2
+				return 5 # EIO 5 I/O error
+			}
 		fi
 	done
 	rm -f -- "$@" || :
@@ -1033,10 +1112,9 @@ function __do {
 
 	# redirect or copy, status, to a var target
 	--redirect-status={*} | --copy-status={*})
-		# trim starting { and trailing }, converting {<var>} to <var>
+		# trim squigglies
 		local var
-		var="$(__get_substring "$arg_value" 1 -1)"
-		__return $? || return
+		var="$(__get_reference_name "$arg_value")" || return
 
 		# catch the status
 		local do_status
@@ -1065,9 +1143,7 @@ function __do {
 		__return $? || return
 
 		# apply the status to the non-var target
-		__do --redirect-stdout="$arg_value" -- __print_lines "$do_status"
-		__return $? || return
-
+		__do --redirect-stdout="$arg_value" -- __print_lines "$do_status" || return
 		# return or discard the status
 		case "$arg_flag" in
 		--redirect-*) return 0 ;;
@@ -1081,14 +1157,12 @@ function __do {
 
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
-		# trim starting { and trailing }, converting {<var>} to <var>
+		# trim squigglies
 		local var
-		var="$(__get_substring "$arg_value" 1 -1)"
-		__return $? || return
+		var="$(__get_reference_name "$arg_value")" || return
 
 		# reset all var to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
-		eval "$var="
-		__return $? || return
+		eval "$var=" || return
 
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
@@ -1100,14 +1174,12 @@ function __do {
 		# load the file
 		local result_value
 		# trunk-ignore(shellcheck/SC2034)
-		result_value="$(<"$result_file")"
+		result_value="$(<"$result_file")" || return
 		# LC_ALL=C IFS= read -r result_value <"$result_file"
 		# result_value="$(cat -- "$result_file")"
-		__return $? || return
 
 		# clean the file
-		rm -f -- "$result_file"
-		__return $? || return
+		rm -f -- "$result_file" || return
 
 		# apply the result
 		eval "$var=\$result_value"
@@ -1119,8 +1191,7 @@ function __do {
 	# '--redirect-stdout=|'* | '--redirect-stderr=|'* | '--redirect-output=|'*)
 	# 	# trim starting |, converting |<code> to <code>
 	# 	local code
-	# 	code="$(__get_substring "$arg_value" 1)"
-	# 	__return $? || return
+	# 	code="$(__get_substring "$arg_value" 1)" || return
 
 	# 	# run our pipes
 	# 	case "$arg_flag" in
@@ -1148,8 +1219,7 @@ function __do {
 	--redirect-stdout=\(*\) | --redirect-stderr=\(*\) | --redirect-output=\(*\))
 		# trim starting ( and trailing ), converting (<code>) to <code>
 		local code
-		code="$(__get_substring "$arg_value" 1 -1)"
-		__return $? || return
+		code="$(__get_substring "$arg_value" 1 -1)" || return
 
 		# executing this in errexit mode:
 		# __do --stderr='(cat; __return 10; __return 20)' -- echo-style --stderr=stderr-result --stdout=stdout-result; echo "status=[${statusvar-}] stdout=[${stdoutvar-}] stderr=[${stderrvar-}]"
@@ -1165,8 +1235,7 @@ function __do {
 
 		# prepare our semaphore file that will track the exit status of the process substitution
 		local semaphore_file_target semaphore_context="__do.redirect.$RANDOM$RANDOM"
-		semaphore_file_target="$(__get_semaphore "$semaphore_context")"
-		__return $? || return
+		semaphore_file_target="$(__get_semaphore "$semaphore_context")" || return
 
 		# execute while tracking the exit status to our semaphore file
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
@@ -1258,8 +1327,7 @@ function __do {
 		2 | stderr | STDERR | /dev/stderr)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-stderr.$RANDOM$RANDOM"
-			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
-			__return $? || return
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")") || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1281,8 +1349,7 @@ function __do {
 		tty | TTY | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-tty.$RANDOM$RANDOM"
-			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
-			__return $? || return
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")") || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1311,8 +1378,7 @@ function __do {
 		[0-9]*)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-fd.$RANDOM$RANDOM"
-			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
-			__return $? || return
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")") || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1340,8 +1406,7 @@ function __do {
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
 			local semaphore_file_target semaphore_context="__do.copy-stdout-to-file.$RANDOM$RANDOM"
-			semaphore_file_target="$(__get_semaphore "$semaphore_context")"
-			__return $? || return
+			semaphore_file_target="$(__get_semaphore "$semaphore_context")" || return
 
 			# execute, keeping stdout, copying to the value target, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1416,8 +1481,7 @@ function __do {
 		1 | stdout | STDOUT | /dev/stdout)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-stdout.$RANDOM$RANDOM"
-			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
-			__return $? || return
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")") || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1446,8 +1510,7 @@ function __do {
 		tty | TTY | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-tty.$RANDOM$RANDOM"
-			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
-			__return $? || return
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")") || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1476,8 +1539,7 @@ function __do {
 		[0-9]*)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-fd.$RANDOM$RANDOM"
-			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")")
-			__return $? || return
+			semaphore_file_targets=("$(__get_semaphore "$semaphore_context.1")" "$(__get_semaphore "$semaphore_context.2")") || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1505,8 +1567,7 @@ function __do {
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
 			local semaphore_file_target semaphore_context="__do.copy-stderr-to-file.$RANDOM$RANDOM"
-			semaphore_file_target="$(__get_semaphore "$semaphore_context")"
-			__return $? || return
+			semaphore_file_target="$(__get_semaphore "$semaphore_context")" || return
 
 			# execute, keeping stderr, copying to the value target, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -2312,6 +2373,11 @@ function __make_array {
 		list+='"$option_value" '
 	done
 	for target in "${option_targets[@]}"; do
+		# get the reference name
+		if __is_reference "$target"; then
+			target="$(__get_reference_name "$target")"
+		fi
+		# apply the list to the target
 		eval "$target=($list)"
 	done
 }
@@ -2368,6 +2434,11 @@ function __split {
 			;;
 		esac
 	done
+	# get the reference name
+	if __is_reference "$option_target"; then
+		option_target="$(__get_reference_name "$option_target")"
+	fi
+	# reset if not append
 	if [[ $option_append == 'no' ]]; then
 		eval "$option_target=()"
 	fi
@@ -2478,6 +2549,10 @@ function __is_within {
 		return 1
 	else
 		local needle="$1" array_var_name="$2" n i
+		# get the reference name
+		if __is_reference "$array_var_name"; then
+			array_var_name="$(__get_reference_name "$array_var_name")"
+		fi
 		# trunk-ignore(shellcheck/SC1087)
 		eval "n=\${#$array_var_name[@]}"
 		for ((i = 0; i < n; ++i)); do
@@ -2501,6 +2576,10 @@ function __is_within {
 function __slice {
 	# trunk-ignore(shellcheck/SC2034)
 	local array_var_name="$1" left right length results=()
+	# get the reference name
+	if __is_reference "$array_var_name"; then
+		array_var_name="$(__get_reference_name "$array_var_name")"
+	fi
 	shift
 	while [[ $# -ne 0 ]]; do
 		left="$1"
