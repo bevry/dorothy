@@ -917,10 +917,7 @@ function dorothy_() (
 		}
 		function update_dorothy {
 			# https://github.com/bevry/dorothy/issues/215
-			__update_modern_dorothy || {
-				__print_lines '...Dorothy was unable to be automatically updated. Please manually update Dorothy and try again.'
-				return 1
-			}
+			__update_modern_dorothy || __return $? -- __print_lines '...Dorothy was unable to be automatically updated. Please manually update Dorothy and try again.' || return
 		}
 
 		# check
@@ -1186,7 +1183,7 @@ function dorothy_() (
 							Dorothy User Configuration Repository: $(echo-style --code="$repo_git_url")
 							Dorothy User Configuration Strongbox keyid: $(echo-style --code="$strongbox_keyid")
 							This Machine's Strongbox keyring: $(echo-style --code="$local_strongbox_keyring")
-							This Machine's User: $(echo-style --code="$(whoami)")
+							This Machine's User: $(echo-style --code="$(whoami || :)")
 							This Machine's Local IP: $(echo-style --code="$local_ip")
 							Strongbox Documentation: $(echo-style --code='https://github.com/uw-labs/strongbox')
 							Dorothy's Strongbox Documentation: $(echo-style --code="$the_strongbox_url")
@@ -1469,7 +1466,7 @@ function dorothy_() (
 		}
 
 		# act, installing the shell if it is missing
-		if __is_within "$shell" 'shells'; then
+		if __has {shells} "$shell"; then
 			setup-util-"$shell" --quiet || return
 			# TERM dumb fallback solves: warning: Could not set up terminal because $TERM is unset. Falling back to hardcoded xterm-256color values
 			export DOROTHY_RUN=yes TERM="${TERM:-"dumb"}"
@@ -1518,7 +1515,7 @@ function dorothy_() (
 		assert_dorothy_configured
 
 		local paths=()
-		__split paths --no-zero-length < <(echo-if-present -- "$DOROTHY/commands" "$DOROTHY/commands.beta" "$DOROTHY/user/commands" "$DOROTHY/user/commands.local")
+		__split {paths} --no-zero-length --invoke -- echo-if-present -- "$DOROTHY/commands" "$DOROTHY/commands.beta" "$DOROTHY/user/commands" "$DOROTHY/user/commands.local"
 		setup-util-eza --quiet --optional
 		if __command_exists eza; then
 			eza "${paths[@]}"
@@ -1567,6 +1564,10 @@ function dorothy_() (
 		echo-style --g1='Review Dorothy'
 	}
 
+	function __get_themes {
+		__print_lines 'system' || return
+		fs-path --no-parents --no-extensions -- "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-unique --stdin || return
+	}
 	function act_theme {
 		# pre-requisites
 		assert_dorothy_and_user_cloned
@@ -1576,25 +1577,17 @@ function dorothy_() (
 		ensure_minimal_dependencies
 
 		# features
-		local themes theme files
+		local DOROTHY_THEME='' themes
 		source "$DOROTHY/sources/config.sh"
-
-		# prepare
-		__split files --no-zero-length < <(fs-path --no-parents --no-extensions -- "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-unique --stdin)
-		themes=(
-			system
-			"${files[@]}"
-		)
-
-		# ask
+		load_dorothy_config 'interactive.sh'
+		__split {themes} --no-zero-length --invoke -- __get_themes
 		theme="$(
-			choose --linger --required \
+			choose --linger --required --default="$DOROTHY_THEME" \
 				--question='Which theme to use?' -- \
 				"${themes[@]}"
 		)"
 
 		# apply
-		source "$DOROTHY/sources/config.sh"
 		dorothy-config 'interactive.sh' -- \
 			--find='export DOROTHY_THEME=(.*)' --replace="export DOROTHY_THEME=$(echo-escape-bash -- "$theme")"
 		if [[ -f "$DOROTHY/user/config/interactive.nu" ]]; then
@@ -1755,6 +1748,13 @@ function dorothy_() (
 		# @todo search for unsafe [[ .. ]]  usage
 		# ^\s+\[\[.+\](\s*#.+)?$
 
+		# @todo enforce that `<(...)` is always `<(set +e; ...)` or `<(... || :)` to make it known that the error status is discarded
+
+		# @todo enforce that process substitutions only occur one per assignment, and only for assignments, otherwise exit status is discarded
+		# in which they should enforce `$(... || :)`: \$\(.*\$\(
+
+		# @todo enforce that unnecessary quoting of var references is removed
+
 		# check for unsafe function calls, by checking for missing __* safety convention
 		# ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+
 		# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
@@ -1763,7 +1763,7 @@ function dorothy_() (
 		# To avoid matching: OR a_var=$?
 		# So for now, just modify the var names even though it is unnecessary.
 		local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
-		__split commands --no-zero-length < <(rg --files-with-matches --sortr modified --regexp="$unsafe_regexp" "${scan_paths[@]}")
+		__split {commands} --no-zero-length < <(rg --files-with-matches --sortr modified --regexp="$unsafe_regexp" "${scan_paths[@]}" || :)
 		for filepath in "${commands[@]}"; do
 			if [[ $filepath == "$DOROTHY/commands/dorothy-internals" ]]; then
 				continue
@@ -1796,12 +1796,8 @@ function dorothy_() (
 						trunk upgrade
 					fi
 					# format and check
-					trunk fmt --all "${args[@]}" || {
-						status=$?
-						# if format fails, it is likely for a check failure, so ensure check is run
-						trunk check --all "${args[@]}" || return
-						return "$status"
-					}
+					# if format fails, it is likely for a check failure, so ensure check is run
+					trunk fmt --all "${args[@]}" || __return $? -- trunk check --all "${args[@]}" || return
 					trunk check --all "${args[@]}"
 				)
 				echo-style --g3="$path"
@@ -1823,12 +1819,21 @@ function dorothy_() (
 		echo-style --g1='Dorothy Lint'
 	}
 
+	# this is shared between [debug-bash] and [dorothy]
+	function __get_bash_binaries {
+		{
+			type -pa bash || :
+			expand-path -- "$XDG_BIN_HOME/bash-*" || :
+		} | echo-unique --stdin
+	}
 	function act_test {
 		# pre-requisites
 		assert_dorothy_configured
 
 		# options
-		local item only=() skips=('dorothy' 'bash.bash') only_current_bash_version=('debug-terminal') bash_binaries=() bash_custom='no'
+		local item only=() skips=('dorothy' 'bash.bash') bash_binaries=() bash_custom='no'
+		# trunk-ignore(shellcheck/SC2034)
+		local only_current_bash_version=('debug-terminal')
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -1881,12 +1886,7 @@ function dorothy_() (
 
 		# fetch the other bash locations to test against
 		if [[ ${#bash_binaries[@]} -eq 0 ]]; then
-			__split bash_binaries --no-zero-length < <(
-				{
-					type -pa bash
-					expand-path -- "$XDG_BIN_HOME/bash-*"
-				} | echo-unique --stdin
-			)
+			__split {bash_binaries} --no-zero-length --invoke -- __get_bash_binaries
 		fi
 
 		# prepare scan paths
@@ -1919,14 +1919,14 @@ function dorothy_() (
 				fi
 			done
 		else
-			__split commands --no-zero-length < <(rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}")
+			__split {commands} --no-zero-length < <(rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}")
 		fi
 		for filepath in "${commands[@]}"; do
 			filename="$(basename -- "$filepath")"
 			failed='no'
 
 			# check if we want to skip this test
-			if __is_within "$filename" 'skips'; then
+			if __has {skips} "$filename"; then
 				continue
 			fi
 
@@ -1940,10 +1940,10 @@ function dorothy_() (
 			fi
 
 			# run again, ensuring this specific bash version is preferred
-			if [[ $failed == 'no' ]] && ! __is_within "$filename" -- "${only_current_bash_version[@]}"; then
+			if [[ $failed == 'no' ]] && ! __has {only_current_bash_version} "$filename"; then
 				for bash_binary in "${bash_binaries[@]}"; do
 					eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test || {
-						# if [[ $bash_custom == 'no' ]] && __is_within "$filename" -- "${only_current_bash_version[@]}"; then
+						# if [[ $bash_custom == 'no' ]] && __has {only_current_bash_version} "$filename"; then
 						# 	echo-style --warning='This test was expected to fail on other bash versions, marking as only warning instead of failure.'
 						# 	warnings+=("$bash_binary $filepath --test")
 						# else
