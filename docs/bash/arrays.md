@@ -1,5 +1,8 @@
 # Mastering Arrays in Bash
 
+> [!WARNING]
+> This document is grossly out of date and incorrect or even invalid. Modern Dorothy conventions, which have yet to be documented, have done away with most of the tedium described here.
+
 Sources:
 
 - [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
@@ -73,13 +76,13 @@ echo-verbose ${a[@]::2}  # get all items until the second index, starting at 0
 source "$DOROTHY/sources/bash.bash"
 
 # don't do this
-__split a --no-zero-length -- "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
+__split {a} --no-zero-length -- "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
 printf '%s\n' $? # 0 -- success exit code, despite failure
 printf '%s\n' "${#a[@]}" # 1
 echo-verbose "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
 
 # do this instead
-__split a --no-zero-length < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
+__split {a} --no-zero-length < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
 printf '%s\n' $? # 0 -- success exit code, despite failure
 printf '%s\n' "${#a[@]}" # 0
 echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
@@ -125,7 +128,7 @@ IFS=$'\n' read -ra a <<< "$str"; echo-verbose -- "${a[@]}"
 # [0] = [a b]
 
 # these `mapfile -t` solutions are equivalent, and work
-__split a --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
 mapfile -td $'\n' a <<< "$str"; echo-verbose -- "${a[@]}"
 # both output:
 # [0] = [a b]
@@ -178,7 +181,7 @@ str=$'a b\nc d'
 
 # for a custom deliminator for input that may span multiple lines
 fodder="$(echo-split ' ' -- "$str")"
-__split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -187,7 +190,7 @@ __split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 
 # or even multiple arguments
 fodder="$(echo-split ' ' -- "$str" "$str")"
-__split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # outputs correct:
 # [0] = [a]
 # [1] = [b]
@@ -205,28 +208,28 @@ IFS=' ' read -ra a <<< 'a b'; echo-verbose -- "${a[@]}"
 # [1] = [b]
 
 # for a newline deliminator that is not recursive between elements
-__split a --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
-__split a --no-zero-length < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
 
 # be careful of arguments being jumbled into a single line when parsing to mapfile
 list=('a b' 'c d')
-__split a --no-zero-length -- "${list[@]}"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "${list[@]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a b c d]
-__split a --no-zero-length -- "${list[*]}"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "${list[*]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a b c d]
 
 # such jumbled compression is not a problem with echo-split
 list=('a b' 'c d')
 fodder="$(echo-split '' -- "${list[@]}")"
-__split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
@@ -234,7 +237,7 @@ __split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # you can even use echo-split to split on recursive newlines
 list=($'a\nb' $'c\nd')
 fodder="$(echo-split $'\n' -- "${list[@]}")"
-__split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -243,7 +246,7 @@ __split a --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 
 # which the typical mapfile won't do
 list=($'a\nb' $'c\nd')
-__split a --no-zero-length -- "${list[@]}"; echo-verbose -- "${a[@]}"
+__split {a} --no-zero-length -- "${list[@]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a]
 # [1] = [b c]
@@ -291,7 +294,7 @@ You can even have the following benefits with `mapfile` too:
 ```bash
 # same context throughout:
 a=()
-__split a --no-zero-length < <(echo-split $'\n' -- $'a\nb' $'c\nd')
+__split {a} --no-zero-length < <(echo-split $'\n' -- $'a\nb' $'c\nd')
 echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]

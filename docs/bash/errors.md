@@ -601,25 +601,25 @@ function get_csv_data {
 	printf '%s\n' 'four,five,six'
 }
 
-__try '{status}' -- get_csv_data
+__try {status} -- get_csv_data
 printf '\n%s\n' "status=$status"
 # outputs:
 # one,two,three
 # status=99
 
-__do --redirect-status='{status}' -- get_csv_data
+__do --redirect-status={status} -- get_csv_data
 printf '\n%s\n' "status=$status"
 # outputs:
 # one,two,three
 # status=99
 
-__do --redirect-status='{status}' --redirect-stdout='{stdout}' -- get_csv_data
+__do --redirect-status={status} --redirect-stdout={stdout} -- get_csv_data
 printf '%s\n' "stdout=[$stdout] status=$status"
 # outputs:
 # stdout=[one,two,three] status=99
 
 # which we can read like so:
-__do --redirect-status='{get_status}' --redirect-stdout='{stdout}' -- get_csv_data
+__do --redirect-status={get_status} --redirect-stdout={stdout} -- get_csv_data
 read_status=0
 IFS=, read -r i1 i2 i3 i4 i5 i6 <<<"$stdout" || read_status=$?
 printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=$get_status read_status=$read_status"
@@ -627,9 +627,9 @@ printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=
 # i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] get_status=99 read_status=0
 
 # or read into an array (supporting all bash versions) like so:
-__do --redirect-status='{get_status}' --redirect-stdout='{stdout}' -- get_csv_data
+__do --redirect-status={get_status} --redirect-stdout={stdout} -- get_csv_data
 split_status=0
-__split '{arr}' --delimiter=',' < <(__print_string "$stdout") || split_status=$?
+__split {arr} --delimiter=',' < <(__print_string "$stdout") || split_status=$?
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_status=$get_status split_status=$split_status"
 # outputs:
@@ -641,7 +641,7 @@ printf '%s\n' "get_status=$get_status split_status=$split_status"
 # here is an alternative that uses semaphores
 split_status=0
 semaphore_status_file="$(__get_semaphore)"
-__split '{arr}' --delimiter=',' < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
+__split {arr} --delimiter=',' < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
 __wait_for_semaphores "$semaphore_status_file"
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_status=$(<"$semaphore_status_file") split_status=$split_status"
@@ -650,31 +650,39 @@ printf '%s\n' "get_status=$(<"$semaphore_status_file") split_status=$split_statu
 # [1] = [two]
 # [2] = [three]
 # get_status=99 split_status=0
+```
 
-# if you just want to emit an error if a failure is encountered, you can just do this, note that a trailing newline will be truncated
+If you just want to throw a failure when splitting, you can do these:
+
+```bash
+# discards any trailing newline
 fodder_to_respect_exit_status="$(get_csv_data)"
-__split '{arr}' --delimiter=',' -- "$fodder_to_respect_exit_status"
+__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
 echo-verbose -- "${arr[@]}"
 
-# you can use this if you want the trailing newline to be preserved
-__do --redirect-stdout='{fodder_to_respect_exit_status}' -- get_csv_data
-__split '{arr}' --delimiter=',' -- "$fodder_to_respect_exit_status"
+# preserves trailing newline
+__do --redirect-stdout={fodder_to_respect_exit_status} -- get_csv_data
+__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
+echo-verbose -- "${arr[@]}"
+
+# recommended shorthand that preserves the trailing newline
+__split {arr} --delimiter=',' --invoke -- get_csv_data
 echo-verbose -- "${arr[@]}"
 ```
 
 Note that these below variations do not work:
 
 ```bash
-# this one is incorrect, as the exit status is discarded
-__split '{arr}' --delimiter=',' -- "$(get_csv_data)"
+# this one is incorrect, as the exit status is discarded, as the command substitution is not just for the value of an assignment
+__split {arr} --delimiter=',' -- "$(get_csv_data)"
 echo-verbose -- "${arr[@]}"
 # [0] = [one]
 # [1] = [two]
 # [2] = [three]
 
-# this one also is incorrect, as the conditional disables the failure
+# this one is also incorrect, as the conditional disables the failure
 get_and_split_status=0
-__split '{arr}' --delimiter=',' -- "$(get_csv_data)" || get_and_split_status=$?
+__split {arr} --delimiter=',' -- "$(get_csv_data)" || get_and_split_status=$?
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_and_split_status=$get_and_split_status"
 # [0] = [one]
@@ -699,9 +707,9 @@ status=0 && any_command_or_function_including_unsafe_functions || status=$?
 # AFTER, IF FUNCTION IS SAFE:
 status=0 && __only_safe_functions || status=$?
 # AFTER, FOR ALL FUNCTIONS USING TRY:
-__try '{status}' -- any_command_or_function_including_unsafe_functions
+__try {status} -- any_command_or_function_including_unsafe_functions
 # AFTER, FOR ALL FUNCTIONS USING DO:
-__do --redirect-status='{status}' -- any_command_or_function_including_unsafe_functions
+__do --redirect-status={status} -- any_command_or_function_including_unsafe_functions
 
 # ignoring exit status
 # BEFORE, ACCIDENTALLY DISABLES ERREXIT:
@@ -727,14 +735,14 @@ else
 	# ...
 fi
 # AFTER, FOR ALL FUNCTIONS USING TRY:
-__try '{status}' -- any_command_or_function_including_unsafe_functions
+__try {status} -- any_command_or_function_including_unsafe_functions
 if [[ "$status" -eq 0 ]]; then
 	# ...
 else
 	# ...
 fi
 # AFTER, FOR ALL FUNCTIONS USING DO:
-__do --redirect-status='{status}' -- any_command_or_function_including_unsafe_functions
+__do --redirect-status={status} -- any_command_or_function_including_unsafe_functions
 if [[ "$status" -eq 0 ]]; then
 	# ...
 else
@@ -747,7 +755,7 @@ fi
 # AFTER, IF FUNCTION IS SAFE:
 ! __only_safe_functions
 # AFTER, FOR ALL FUNCTIONS:
-__try '{status}' -- any_command_or_function_including_unsafe_functions
+__try {status} -- any_command_or_function_including_unsafe_functions
 [[ "$status" -ne 0 ]]
 
 # discard exit status inside interpolation
@@ -758,7 +766,7 @@ result="$(any_command_or_function_including_unsafe_functions)" || :
 # AFTER, IF FUNCTION IS SAFE:
 result="$(__only_safe_functions || :)"
 # AFTER, FOR ALL FUNCTIONS:
-__do --discard-status --redirect-stdout='{result}' -- any_command_or_function_including_unsafe_functions
+__do --discard-status --redirect-stdout={result} -- any_command_or_function_including_unsafe_functions
 
 # assigning to an array
 # BEFORE, DISCARDS THE FORMER EXIT STATUS:
@@ -811,21 +819,21 @@ fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functi
 echo "side_effect=$side_effect" # outputs: side_effect=yes
 # AFTER, PRESERVES TRAIL:
 side_effect=no
-__do --redirect-stdout='{fodder_to_respect_exit_status}' -- any_command_or_function_including_unsafe_functions
+__do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_function_including_unsafe_functions
 { side_effect=yes; cat; } < <(__print_string "$fodder_to_respect_exit_status") # outputs: side_effect=yes
 
 # split on a delimiter
 # BEFORE, DISCARDS EXIT STATUS:
-__split '{arr}' --delimiter=',' -- "$(any_command_or_function_including_unsafe_functions)"
+__split {arr} --delimiter=',' -- "$(any_command_or_function_including_unsafe_functions)"
 # AFTER, DISCARDS TRAILING NEWLINES:
 fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
-__split '{arr}' --delimiter=',' -- "$fodder_to_respect_exit_status"
+__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
 # AFTER, ENSURES TRAILING NEWLINES:
 fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
-__split '{arr}' --delimiter=',' <<<"$fodder_to_respect_exit_status"
+__split {arr} --delimiter=',' <<<"$fodder_to_respect_exit_status"
 # AFTER, PRESERVES TRAIL:
-__do --redirect-stdout='{fodder_to_respect_exit_status}' -- any_command_or_function_including_unsafe_functions
-__split '{arr}' --delimiter=',' -- "$fodder_to_respect_exit_status"
+__do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_function_including_unsafe_functions
+__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
 ```
 
 You can find the implementation of `__do` and `__try` inside Dorothy's [`bash.bash`](https://github.com/bevry/dorothy/blob/master/sources/bash.bash), and find their tests within the [`dorothy-internals` command](https://github.com/bevry/dorothy/blob/master/commands/dorothy-internals).

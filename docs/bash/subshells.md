@@ -9,13 +9,25 @@ Sources:
 Advice:
 
 ```bash
+source "$DOROTHY/sources/bash.bash"
+
 # never apply variables within pipes
-printf '%s\n' foo bar | __split lines --no-zero-length
+printf '%s\n' foo bar | __split {lines} --no-zero-length
 printf 'total number of lines: %s\n' "${#lines[@]}"
 # outputs 0
 
-# always use <, <<<, or <( instead
-__split lines --no-zero-length < <(printf '%s\n' foo bar)
+# always have variable assignment, side effects, and mutations on the left-hand side
+__split {lines} --no-zero-length -- 'foo' 'bar'
+printf 'total number of lines: %s\n' "${#lines[@]}"
+__split {lines} --no-zero-length -- $'foo\nbar'
+printf 'total number of lines: %s\n' "${#lines[@]}"
+__split {lines} --no-zero-length --invoke -- printf '%s\n' foo bar
+printf 'total number of lines: %s\n' "${#lines[@]}"
+__split {lines} --no-zero-length -- "$(printf '%s\n' foo bar)"  # avoid this, as if there is multiple command substitutions, only the latter one will have its exit status respected
+printf 'total number of lines: %s\n' "${#lines[@]}"
+__split {lines} --no-zero-length <<<"$(printf '%s\n' foo bar)"
+printf 'total number of lines: %s\n' "${#lines[@]}"
+__split {lines} --no-zero-length < <(printf '%s\n' foo bar) # avoid this, as it discards the exit status of the process substitution
 printf 'total number of lines: %s\n' "${#lines[@]}"
 # outputs 2
 ```
