@@ -71,38 +71,38 @@ fi
 # print each argument concatenated together with no spacing, if no arguments, do nothing
 function __print_string { # b/c alias for __print_strings_or_nothing
 	if [[ $# -ne 0 ]]; then
-		printf '%s' "$@"
+		printf '%s' "$@" || return
 	fi
 }
 function __print_strings { # b/c alias for __print_strings_or_nothing
 	if [[ $# -ne 0 ]]; then
-		printf '%s' "$@"
+		printf '%s' "$@" || return
 	fi
 }
 function __print_strings_or_nothing {
 	if [[ $# -ne 0 ]]; then
-		printf '%s' "$@"
+		printf '%s' "$@" || return
 	fi
 }
 
 # print each argument on its own line, if no arguments, print a line
 function __print_line {
-	printf '\n'
+	printf '\n' || return
 }
 function __print_lines_or_line {
 	# equivalent to [printf '\n'] if no arguments
-	printf '%s\n' "$@"
+	printf '%s\n' "$@" || return
 }
 
 # print each argument on its own line, if no arguments, do nothing
 function __print_lines { # b/c alias for __print_lines_or_nothing
 	if [[ $# -ne 0 ]]; then
-		printf '%s\n' "$@"
+		printf '%s\n' "$@" || return
 	fi
 }
 function __print_lines_or_nothing {
 	if [[ $# -ne 0 ]]; then
-		printf '%s\n' "$@"
+		printf '%s\n' "$@" || return
 	fi
 }
 
@@ -116,7 +116,7 @@ function __print_value_strings_or_nothing {
 		shift
 	done
 	if [[ ${#values[@]} -ne 0 ]]; then
-		printf '%s' "${values[@]}"
+		printf '%s' "${values[@]}" || return
 	fi
 }
 
@@ -130,7 +130,7 @@ function __print_value_lines_or_nothing {
 		shift
 	done
 	if [[ ${#values[@]} -ne 0 ]]; then
-		printf '%s\n' "${values[@]}"
+		printf '%s\n' "${values[@]}" || return
 	fi
 }
 
@@ -144,90 +144,80 @@ function __print_value_lines_or_line {
 		shift
 	done
 	if [[ ${#values[@]} -eq 0 ]]; then
-		printf '\n'
+		printf '\n' || return
 	else
-		printf '%s\n' "${values[@]}"
-	fi
-}
-
-function __ternary {
-	local condition="$1" true_value="$2" false_value="$3"
-	if eval "$condition"; then
-		__print_lines "$true_value"
-	else
-		__print_lines "$false_value"
+		printf '%s\n' "${values[@]}" || return
 	fi
 }
 
 # check if the value is a reference, i.e. starts with `{` and ends with `}`, e.g. `{var_name}`.
 function __is_reference {
-	local value_or_var_name="$1"
-	[[ $value_or_var_name == '{'*'}' ]] || return
+	[[ $1 == '{'*'}' ]] || return
 }
 
 # trim the starting `{` and the trailing `}`, e.g. converting `{var_name}` to `var_name`
 function __get_reference_name {
 	local value_or_var_name="$1" var_name="$1"
 	if ! __is_reference "$value_or_var_name"; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Argument was not a reference, which requires wrapping in squigglies: $value_or_var_name" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Argument was not a reference, which requires wrapping in squigglies: $value_or_var_name" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	var_name="$(__get_substring "$value_or_var_name" 1 -1)" || return
 	if [[ -z $var_name ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Argument reference name was empty: $value_or_var_name" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Argument reference name was empty: $value_or_var_name" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	__print_lines "$var_name"
+	__print_lines "$var_name" || return
 	return 0
 }
 # for __get_reference_value, just use `${!var_name}`
 
 function __is_positive_integer {
-	local value="$1" value
-	[[ $value =~ ^[0-9]+$ ]] || return
+	[[ $1 =~ ^[0-9]+$ ]] || return
 }
 
 function __is_integer {
-	local value="$1" value
-	[[ $value =~ ^[-]?[0-9]+$ ]] || return
+	[[ $1 =~ ^[-]?[0-9]+$ ]] || return
 }
 
 function __is_digit {
-	local value="$1" value
-	[[ $value =~ ^[0-9]$ ]] || return
+	[[ $1 =~ ^[0-9]$ ]] || return
 }
 
 function __is_array {
-	local var_name="$1"
-	if __is_reference "$var_name"; then
-		var_name="$(__get_reference_value "$var_name")" || return
+	local IS_ARRAY__reference="$1"
+	if __is_reference "$IS_ARRAY__reference"; then
+		IS_ARRAY__reference="$(__get_reference_value "$IS_ARRAY__reference")" || return
 	fi
-	[[ -n $var_name && "$(declare -p "$var_name" 2>/dev/null || :)" == 'declare -a '* ]] || return
+	[[ "$(declare -p "$IS_ARRAY__reference" 2>/dev/null || :)" == 'declare -a '* ]] || return
 }
 
-function __dump_vars {
-	local var_name var_value log=()
-	for var_name in "$@"; do
-		var_value="${!var_name}"
-		if __is_array "$var_name"; then
-			local i n
-			if [[ $n == 0 ]]; then
+function __dump {
+	local DUMP__reference DUMP__value DUMP__log=()
+	for DUMP__reference in "$@"; do
+		if __is_reference "$DUMP__reference"; then
+			DUMP__reference="$(__get_reference_value "$DUMP__reference")" || return
+		fi
+		if __is_array "$DUMP__reference"; then
+			local DUMP__index DUMP__total
+			eval "DUMP__total=\${#$DUMP__reference[@]}"
+			if [[ $DUMP__total == 0 ]]; then
 				# trunk-ignore(shellcheck/SC1087)
-				log+=(--bold="$var_name[@]" ' = ' --dim+icon-nothing-provided --newline)
+				DUMP__log+=(--bold="$DUMP__reference[@]" ' = ' --dim+icon-nothing-provided --newline)
 			else
 				# trunk-ignore(shellcheck/SC1087)
-				eval "n=\${#$var_name[@]}"
-				for ((i = 0; i < n; ++i)); do
-					eval 'var_value="${!var_name[n]}"'
+				for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do
+					eval 'DUMP__value="${!DUMP__reference[DUMP__index]}"'
 					# trunk-ignore(shellcheck/SC1087)
-					log+=(--bold="$var_name[$i]" ' = ' --invert="$var_value" --newline)
+					DUMP__log+=(--bold="${DUMP__reference}[$DUMP__index]" ' = ' --invert="$DUMP__value" --newline)
 				done
 			fi
 		else
-			log+=(--bold="$var_name" ' = ' --invert="$var_value" --newline)
+			DUMP__value="${!DUMP__reference}"
+			DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
 		fi
 	done
-	echo-style --no-trail "${log[@]}" || return
+	echo-style --no-trail "${DUMP__log[@]}" || return
 }
 
 # =============================================================================
@@ -302,26 +292,26 @@ function __elevate {
 	fi
 	# forward to [eval-helper --elevate] if it exists, as it is more detailed
 	if __command_exists -- eval-helper; then
-		eval-helper --elevate -- "$@"
+		eval-helper --elevate -- "$@" || return
 		return
 	elif __command_exists -- sudo; then
 		# check if password is required
 		if ! sudo --non-interactive -- true &>/dev/null; then
 			# password is required, let the user know what they are being prompted for
-			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2
-			__print_lines "sudo $*" >&2
+			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2 || return
+			__print_lines "sudo $*" >&2 || return
 		fi
-		sudo "$@"
+		sudo "$@" # eval
 		return
 	elif __command_exists -- doas; then
 		if ! doas -n true &>/dev/null; then
-			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2
-			__print_lines "doas $*" >&2
+			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2 || return
+			__print_lines "doas $*" >&2 || return
 		fi
-		doas "$@"
+		doas "$@" # eval
 		return
 	else
-		"$@"
+		"$@" # eval
 		return
 	fi
 }
@@ -402,8 +392,9 @@ function __sudo_mkdirp {
 if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
 	function __get_substring {
 		local string="$1"
-		local -i size="${#string}" start="${2:-0}"
-		if [[ $start*-1 -ge $size ]]; then
+		local -i size="${#string}" negative_size start="${2:-0}"
+		negative_size=$((size * -1))
+		if [[ $start -lt $negative_size ]]; then
 			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
 			start=0
 		elif [[ $start -ge $size ]]; then
@@ -411,25 +402,26 @@ if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 		fi
 		if [[ -z ${3-} ]]; then
 			if [[ $start -eq 0 ]]; then
-				__print_lines "$string"
+				__print_lines "$string" || return
 			else
-				__print_lines "${string:start}"
+				__print_lines "${string:start}" || return
 			fi
 		else
 			local -i length="$3"
 			# bash does not support :"$3" for some reason:
 			# string: "-1": syntax error: operand expected (error token is ""-1"")
-			__print_lines "${string:start:length}"
+			__print_lines "${string:start:length}" || return
 		fi
 	}
 else
 	# __get_substring <string> [<start>] [<length>]
 	function __get_substring {
 		local string="$1"
-		local -i size="${#string}" start="${2:-0}" length remaining
+		local -i size="${#string}" negative_size start="${2:-0}" length remaining
+		negative_size=$((size * -1))
 		if [[ $start -lt 0 ]]; then
 			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
-			if [[ $start*-1 -ge $size ]]; then
+			if [[ $start -lt $negative_size ]]; then
 				start=0
 			else
 				start+=size
@@ -437,8 +429,7 @@ else
 		elif [[ $start -ge $size ]]; then
 			return 0
 		fi
-		# trunk-ignore(shellcheck/SC2100)
-		remaining=size-start
+		remaining=$((size - start))
 		if [[ -z ${3-} ]]; then
 			length=remaining
 		else
@@ -454,7 +445,7 @@ else
 				fi
 			fi
 		fi
-		__print_lines "${string:start:length}"
+		__print_lines "${string:start:length}" || return
 	}
 fi
 
@@ -471,7 +462,7 @@ function __get_substring_before_first {
 	local string="$1" delimiter="$2"
 	result="${string%%"$delimiter"*}"
 	if [[ $result != "$string" ]]; then
-		__print_lines "$result"
+		__print_lines "$result" || return
 		return 0
 	fi
 	# local string="$1" delimiter="$2" i n dn
@@ -484,10 +475,10 @@ function __get_substring_before_first {
 	# 	fi
 	# done
 	if [[ $# -eq 3 ]]; then
-		__print_lines "$3"
+		__print_lines "$3" || return
 		return 0
 	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
 		return 1
 	fi
 }
@@ -498,7 +489,7 @@ function __get_substring_before_last {
 	local string="$1" delimiter="$2" result
 	result="${string%"$delimiter"*}"
 	if [[ $result != "$string" ]]; then
-		__print_lines "$result"
+		__print_lines "$result" || return
 		return 0
 	fi
 	# local string="$1" delimiter="$2" i n dn
@@ -511,10 +502,10 @@ function __get_substring_before_last {
 	# 	fi
 	# done
 	if [[ $# -eq 3 ]]; then
-		__print_lines "$3"
+		__print_lines "$3" || return
 		return 0
 	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
 		return 1
 	fi
 }
@@ -525,7 +516,7 @@ function __get_substring_after_first {
 	local string="$1" delimiter="$2" result
 	result="${string#*"$delimiter"}"
 	if [[ $result != "$string" ]]; then
-		__print_lines "$result"
+		__print_lines "$result" || return
 		return 0
 	fi
 	# local string="$1" delimiter="$2" i n dn r
@@ -538,10 +529,10 @@ function __get_substring_after_first {
 	# 	fi
 	# done
 	if [[ $# -eq 3 ]]; then
-		__print_lines "$3"
+		__print_lines "$3" || return
 		return 0
 	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
 		return 1
 	fi
 }
@@ -552,7 +543,7 @@ function __get_substring_after_last {
 	local string="$1" delimiter="$2" result
 	result="${string##*"$delimiter"}"
 	if [[ $result != "$string" ]]; then
-		__print_lines "$result"
+		__print_lines "$result" || return
 		return 0
 	fi
 	# local string="$1" delimiter="$2" i n dn r
@@ -565,10 +556,10 @@ function __get_substring_after_last {
 	# 	fi
 	# done
 	if [[ $# -eq 3 ]]; then
-		__print_lines "$3"
+		__print_lines "$3" || return
 		return 0
 	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
 		return 1
 	fi
 }
@@ -588,7 +579,7 @@ function __split_shapeshifting {
 		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}" # save and restore cursor
 		input="${input//[[:cntrl:]][bf]/$'\n'}"          # page-up, page-down
 		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
-		__print_lines "$input"
+		__print_lines "$input" || return
 	done
 }
 
@@ -601,7 +592,7 @@ function __is_shapeshifter {
 	# proceed
 	local input trimmed
 	for input in "$@"; do
-		trimmed="$(__split_shapeshifting -- "$input")"
+		trimmed="$(__split_shapeshifting -- "$input")" || return
 		if [[ $input != "$trimmed" ]]; then
 			return 0
 		fi
@@ -615,7 +606,7 @@ function __is_special_file {
 	case "$target" in
 	1 | stdout | STDOUT | /dev/stdout | 2 | stderr | STDERR | /dev/stderr | tty | TTY | /dev/tty | null | NULL | /dev/null | [0-9]*) return 0 ;; # is a special file
 	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
 		return 22
 		;;            # EINVAL 22 Invalid argument
 	*) return 1 ;; # not a special file
@@ -668,76 +659,130 @@ fi
 
 # Open a file descriptor in a cross-bash compatible way
 # alternative implementations at https://stackoverflow.com/q/8297415/130638
-# __open_fd {file_descriptor_reference} <mode> <target>
-# __open_fd "$file_descriptor_number" <mode> <target>
+# __open_fd ...<{file_descriptor_reference}> ...<file_descriptor_number> <mode> <target>
 function __open_fd {
-	local fd_or_var_name="$1" var_name='' fd='' n mode="$2" target="$3"
-	if __is_positive_integer "$fd_or_var_name"; then
-		fd="$fd_or_var_name"
-	else
-		var_name="$(__get_reference_name "$fd_or_var_name")"
-	fi
-	# coalesce the mode
-	case "$mode" in
-	'<' | --read) mode='<' ;;
-	'>' | --overwrite | --write) mode='>' ;;
-	'<>' | --read-write) mode='<>' ;;
-	'>>' | --append) mode='>>' ;;
-	*)
-		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid mode provided: $mode" >&2
-		return 22 # EINVAL 22 Invalid argument
-		;;
-	esac
-	# Bash >= 4.1
-	if [[ -n $var_name && ($BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1)) ]]; then
-		if __is_positive_integer "$target"; then
-			eval "exec {$var_name}$mode&$target"
-		else
-			eval "exec {$var_name}$mode\"\$target\""
+	local OPEN_FD__item OPEN_FD__number OPEN_FD__numbers=() OPEN_FD__reference OPEN_FD__references=() OPEN_FD__references_count OPEN_FD__mode='' OPEN_FD__target_number='' OPEN_FD__target_file='' OPEN_FD__eval_statement_exec='' OPEN_FD__eval_statement_assignments=''
+	function __validate_reference {
+		local reference="$1"
+		if [[ $reference == OPEN_FD__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
 		fi
-	else
-		# if we don't already have a file descriptor, find an available one
-		if [[ -z $fd ]]; then
+		return 0
+	}
+	while [[ $# -ne 0 ]]; do
+		OPEN_FD__item="$1"
+		shift
+		if [[ -z $OPEN_FD__mode ]]; then
+			case "$OPEN_FD__item" in
+			# file descriptor
+			'{'*'}')
+				OPEN_FD__reference="$(__get_reference_name "$OPEN_FD__item")" || return
+				__validate_reference "$OPEN_FD__reference" || return
+				OPEN_FD__references+=("$OPEN_FD__reference")
+				;;
+			[0-9]*) OPEN_FD__numbers+=("$OPEN_FD__item") ;;
+			# mode
+			'<' | --read) OPEN_FD__mode='<' ;;
+			'>' | --overwrite | --write) OPEN_FD__mode='>' ;;
+			'<>' | --read-write) OPEN_FD__mode='<>' ;;
+			'>>' | --append) OPEN_FD__mode='>>' ;;
+			*)
+				__print_lines "ERROR: ${FUNCNAME[0]}: Invalid argument provided: $OPEN_FD__item" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+				;;
+			esac
+		elif __is_positive_integer "$OPEN_FD__item"; then
+			OPEN_FD__target_number="$OPEN_FD__item"
+			break
+		else
+			OPEN_FD__target_file="$OPEN_FD__item"
+			break
+		fi
+	done
+	# if extra arguments, there were too many
+	if [[ $# -ne 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Too many arguments provided, expected only a file descriptor number or reference, mode, and target." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# must have all the arguments
+	OPEN_FD__references_count=${#OPEN_FD__references[@]}
+	if [[ ($OPEN_FD__references_count -eq 0 && ${#OPEN_FD__numbers[@]} -eq 0) || (-z $OPEN_FD__target_number && -z $OPEN_FD__target_file) ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid arguments provided, expected a file descriptor number or reference, mode, and target." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# open the references
+	if [[ $OPEN_FD__references_count -ne 0 ]]; then
+		# Bash >= 4.1
+		if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
+			if [[ -n $OPEN_FD__target_number ]]; then
+				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
+					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode&$OPEN_FD__target_number "
+				done
+			else
+				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
+					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode\"\${OPEN_FD__target_file}\" "
+				done
+			fi
+		else
 			# FD 3 and 4 are commonly used, so skip them amd start at 5
-			for ((fd = 5, n = "$(ulimit -n)"; fd < n; fd++)); do
+			local OPEN_FD__end OPEN_FD__references_index
+			OPEN_FD__end="$(ulimit -n)" # this must be here, instead of in the for loop initialisation, as otherwise bash 4.3 and 4.4 will crash
+			for ((OPEN_FD__number = 5, OPEN_FD__references_index = 0; OPEN_FD__number < OPEN_FD__end && OPEN_FD__references_index < OPEN_FD__references_count; OPEN_FD__number++)); do
 				# test if the file descriptor is not available on both read and write, then it means it is available
-				if ! eval ": <&$fd" &>/dev/null && ! eval ": >&$fd" &>/dev/null; then
+				if ! eval ": <&$OPEN_FD__number" &>/dev/null && ! eval ": >&$OPEN_FD__number" &>/dev/null; then
 					# it failed, so it is available
-					break
+					OPEN_FD__numbers+=("$OPEN_FD__number")
+					OPEN_FD__reference="${OPEN_FD__references[OPEN_FD__references_index]}"
+					OPEN_FD__references_index=$((OPEN_FD__references_index + 1))
+					OPEN_FD__eval_statement_assignments+="$OPEN_FD__reference=$OPEN_FD__number; "
 				fi
 			done
 		fi
-		# open the file descriptor if we have a target
-		if __is_positive_integer "$target"; then
-			eval "exec $fd$mode&$target"
-		else
-			eval "exec $fd$mode\"\$target\""
-		fi
-		# apply the file descriptor
-		eval "$var_name=$fd"
 	fi
+	# open the numbers
+	if [[ -n $OPEN_FD__target_number ]]; then
+		for OPEN_FD__number in "${OPEN_FD__numbers[@]}"; do
+			OPEN_FD__eval_statement_exec+="$OPEN_FD__number$OPEN_FD__mode&$OPEN_FD__target_number "
+		done
+	else
+		for OPEN_FD__number in "${OPEN_FD__numbers[@]}"; do
+			OPEN_FD__eval_statement_exec+="$OPEN_FD__number$OPEN_FD__mode\"\${OPEN_FD__target_file}\" "
+		done
+	fi
+	# apply
+	eval "exec $OPEN_FD__eval_statement_exec; $OPEN_FD__eval_statement_assignments" || return
 }
 
-# __close_fd {file_descriptor_reference}
-# __close_fd "$file_descriptor_number"
+# __close_fd ...<{file_descriptor_reference}> ...<file_descriptor_number>
 function __close_fd {
-	local fd_or_var_name="$1" var_name='' fd=''
-	if __is_positive_integer "$fd_or_var_name"; then
-		fd="$fd_or_var_name"
-	else
-		var_name="$(__get_reference_name "$fd_or_var_name")"
+	local CLOSE_FD__arg CLOSE_FD__number CLOSE_FD__reference CLOSE_FD__eval_statement_exec=''
+	if [[ $# -eq 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Too little arguments provided, expected a file descriptor number or reference." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
 	fi
-	# Bash >= 4.1
-	if [[ -n $var_name ]]; then
-		if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
-			eval "exec {$var_name}>&-"
-			return
+	for CLOSE_FD__arg in "$@"; do
+		if __is_positive_integer "$CLOSE_FD__arg"; then
+			CLOSE_FD__number="$CLOSE_FD__arg"
+		else
+			CLOSE_FD__reference="$(__get_reference_name "$CLOSE_FD__arg")"
+			if [[ $CLOSE_FD__reference == CLOSE_FD__* ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $CLOSE_FD__reference as it is used internally." >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
+				# close via the file descriptor reference
+				CLOSE_FD__eval_statement_exec+="{$CLOSE_FD__reference}>&- "
+				continue
+			else
+				# get the file descriptor directly
+				CLOSE_FD__number="${!CLOSE_FD__reference}"
+			fi
 		fi
-		# cannot close directly, close via file descriptor instead
-		fd="${!var_name}"
-	fi
-	# close the file descriptor
-	eval "exec $fd>&-"
+		# close the file descriptor number
+		CLOSE_FD__eval_statement_exec+="$CLOSE_FD__number>&- "
+	done
+	eval "exec $CLOSE_FD__eval_statement_exec" || return
 }
 
 # Custom debug target
@@ -749,7 +794,7 @@ function __debug_lines {
 		if [[ -z $BASH_XTRACEFD ]]; then
 			BASH_XTRACEFD="$TERMINAL_OUTPUT_TARGET"
 		fi
-		__print_lines "$@" >>"$BASH_XTRACEFD"
+		__print_lines "$@" >>"$BASH_XTRACEFD" || return
 	fi
 }
 
@@ -783,24 +828,51 @@ function __return {
 		return "$1"
 	fi
 
+	# __return $? -- command ...
+	local RETURN__item RETURN__status=0 RETURN__invoke_only_on_failure=no RETURN__invoke_command=()
+	while [[ $# -ne 0 ]]; do
+		RETURN__item="$1"
+		shift
+		case "$RETURN__item" in
+		'--invoke-only-on-failure') RETURN__invoke_only_on_failure=yes ;;
+		'--')
+			RETURN__invoke_command+=("$@")
+			shift $#
+			break
+			;;
+		[0-9]*)
+			if [[ $RETURN__status -eq 0 ]]; then
+				RETURN__status="$RETURN__item"
+			fi
+			;;
+		*)
+			__print_lines "ERROR: ${FUNCNAME[0]}: Invalid argument provided: $RETURN__item" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		esac
+	done
+
 	# sanity
-	if [[ $# -eq 0 || $2 != '--' ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid arguments provided: $*" >&2
-		return 22 # EINVAL 22 Invalid argument
+	if [[ ${#RETURN__invoke_command[@]} -eq 0 ]]; then
+		return "$RETURN__status"
 	fi
 
-	# __return $? -- command ...
-	local return_status="$1"
-	shift # trim status
-	shift # trim --
-	if [[ $return_status -eq 0 ]]; then
-		# the caller didn't fail, so return with the eval's exit status
-		"$@"
-		return
+	# invoke
+	if [[ $RETURN__status -eq 0 ]]; then
+		# the caller didn't fail
+		if [[ $RETURN__invoke_only_on_failure == 'no' ]]; then
+			# invoke returning the invocation's exit status
+			"${RETURN__invoke_command[@]}" # eval
+			return
+		fi
+		return 0
 	else
 		# the caller failed, so run the eval, but use the caller's failure status
-		"$@" || :
-		return "$return_status"
+		# note that this is generally run within a conditional, so errexit is probably disabled
+		# so we probably do not need || return and || :
+		# @todo at some point validate that the invoke command is either a command or a safety function, then we can enforce `|| :` and `|| return` usage, see `dorothy-internals` for some commented out helper functions
+		"${RETURN__invoke_command[@]}" # eval
+		return "$RETURN__status"
 	fi
 }
 
@@ -808,13 +880,13 @@ function __return {
 
 # ignore an exit status
 function __ignore_exit_status {
-	local status="$?" item
-	for item in "$@"; do
-		if [[ $status -eq $item ]]; then
+	local actual_status="$?" ignore_status
+	for ignore_status in "$@"; do
+		if [[ $actual_status -eq $ignore_status ]]; then
 			return 0
 		fi
 	done
-	return "$status"
+	return "$actual_status"
 }
 
 # ignore a sigpipe exit status
@@ -822,7 +894,7 @@ function __ignore_exit_status {
 # { curl --silent --show-error 'https://www.google.com' | : || __ignore_exit_status 56; } | { { cat; yes; } | head -n 1 || __ignore_sigpipe; } | cat
 # note that the curl pipefail 56 occurs because we pipe [curl] to [:], similar to how we cause another pipefail later by piping [yes] to [head -n 1], this is a contrived example to demonstrate the point
 function __ignore_sigpipe {
-	__ignore_exit_status 141
+	__ignore_exit_status 141 || return
 }
 
 # exit on a specific exit status
@@ -845,9 +917,25 @@ function __is_not_errexit {
 }
 
 function __is_subshell_function {
-	local cmd="$1"
-	# test "$(declare -f "$cmd")" == "$cmd"$' () \n{ \n    ('
-	[[ "$(declare -f "$cmd")" == "$cmd"$' () \n{ \n    ('* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+	# don't assign $1 to a variable, as then that means the variable name could conflict with the evaluation from the declare
+	# test "$(declare -f "$1")" == "$1"$' () \n{ \n    ('
+	[[ "$(declare -f "$1")" == "$1"$' () \n{ \n    ('* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+}
+
+function __get_function_inner {
+	local GET_FUNCTION_INNER__function_code
+	GET_FUNCTION_INNER__function_code="$(declare -f "$1")" || return
+	# remove header and footer of function
+	# this only works bash 5.2 and above:
+	# code="${code#*$'\n{ \n'}"
+	# code="${code%$'\n}'*}"
+	# this works, but reveals the issue with the above is the escaping:
+	# code="${code#*"$osb $newline"}"
+	# code="${code%"$newline$csb"*}"
+	# as such, use this wrapper, which is is clear to our intent:
+	GET_FUNCTION_INNER__function_code="$(__get_substring_after_first "$GET_FUNCTION_INNER__function_code" $'{ \n')" || return
+	GET_FUNCTION_INNER__function_code="$(__get_substring_before_last "$GET_FUNCTION_INNER__function_code" $'\n}')" || return
+	__print_string "$GET_FUNCTION_INNER__function_code" || return
 }
 
 function __get_index_of_parent_function {
@@ -855,15 +943,15 @@ function __get_index_of_parent_function {
 	if [[ ${#FUNCNAME[@]} -le 1 ]]; then
 		return 1
 	fi
-	local until fns=() i
+	local until fns=() index
 	# skip __has_subshell_function_until which will be index [0]
 	fns=("${FUNCNAME[@]:1}")
 
 	# find a match
-	for i in "${!fns[@]}"; do
+	for index in "${!fns[@]}"; do
 		for until in "$@"; do
-			if [[ ${fns[i]} == "$until" ]]; then
-				__print_lines "$i"
+			if [[ ${fns[index]} == "$until" ]]; then
+				__print_lines "$index" || return
 				return 0
 			fi
 		done
@@ -887,48 +975,32 @@ function __get_first_parent_that_is_not {
 				continue 2
 			fi
 		done
-		__print_lines "$fn"
+		__print_lines "$fn" || return
 		return 0
 	done
 	return 1
 }
 
-function __get_function_inner {
-	local cmd="$1" code osb='{' csb='}' newline=$'\n'
-	code="$(declare -f "$cmd")"
-	# remove header and footer of function
-	# this only works bash 5.2 and above:
-	# code="${code#*$'\n{ \n'}"
-	# code="${code%$'\n}'*}"
-	# this works, but reveals the issue with the above is the escaping:
-	# code="${code#*"$osb $newline"}"
-	# code="${code%"$newline$csb"*}"
-	# as such, use this wrapper, which is is clear to our intent:
-	code="$(__get_substring_after_first "$code" "$osb $newline")"
-	code="$(__get_substring_before_last "$code" "$newline$csb")"
-	__print_string "$code"
-}
-
 function __get_semlock {
-	local context_id="$1" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" semlock_file wait pid=$$
+	local context_id="$1" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" semlock wait pid=$$
 	__mkdirp "$dir" || return
 	# the lock file contains the process id that has the lock
-	semlock_file="$dir/$context_id.lock"
+	semlock="$dir/$context_id.lock"
 	# wait for a exclusive lock
 	while :; do
-		# don't bother with a [[ -s "$semlock_file" ]] before [cat] as the semlock_file could have been removed between
-		wait="$(cat "$semlock_file" 2>/dev/null || :)"
+		# don't bother with a [[ -s "$semlock" ]] before [cat] as the semlock could have been removed between
+		wait="$(cat "$semlock" 2>/dev/null || :)"
 		if [[ -z $wait ]]; then
-			__print_string "$pid" >"$semlock_file"
+			__print_string "$pid" >"$semlock" || return
 		elif [[ $wait == "$pid" ]]; then
 			break
 		elif [[ "$(ps -p "$wait" &>/dev/null || __print_string dead)" == 'dead' ]]; then
 			# the process is dead, it probably crashed, so failed to cleanup, so remove the lock file
-			rm -f "$semlock_file"
+			rm -f "$semlock" || return
 		fi
 		sleep "0.01$RANDOM"
 	done
-	__print_lines "$semlock_file"
+	__print_lines "$semlock" || return
 }
 
 # For semaphores, use $RANDOM$RANDOM as a single $RANDOM caused conflicts on Dorothy's CI tests when we didn't actually use semaphores, now that we use semaphores, we solve the underlying race conditions that caused the conflicts in the first place, however keep the double $RANDOM so it is enough entropy we don't have to bother for an existence check, here are the tests that had conflicts:
@@ -938,22 +1010,27 @@ function __get_semlock {
 function __get_semaphore {
 	local context_id="${1:-"$RANDOM$RANDOM"}" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
 	__mkdirp "$dir" || return
-	__print_lines "$dir/$context_id"
+	__print_lines "$dir/$context_id" || return
 }
 
 # overwrites instead of appends
 function __get_semaphores {
-	local array_var_name="$1" context_id semaphores=()
-	array_var_name="$(__get_reference_name "$array_var_name")" || return
+	local GET_SEMAPHORES__reference="$1" GET_SEMAPHORES__context_id GET_SEMAPHORES__semaphores=()
+	shift # trim reference
+	GET_SEMAPHORES__reference="$(__get_reference_name "$GET_SEMAPHORES__reference")" || return
+	if [[ $GET_SEMAPHORES__reference == GET_SEMAPHORES__* ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 	# trim -- prefix
 	if [[ $1 == '--' ]]; then
 		shift
 	fi
-	for context_id in "$@"; do
+	for GET_SEMAPHORES__context_id in "$@"; do
 		# get the semaphore file
-		semaphores+=("$(__get_semaphore "$context_id")") || return
+		GET_SEMAPHORES__semaphores+=("$(__get_semaphore "$GET_SEMAPHORES__context_id")") || return
 	done
-	eval "$array_var_name=(\"\${semaphores[@]}\")"
+	eval "$GET_SEMAPHORES__reference=(\"\${GET_SEMAPHORES__semaphores[@]}\")" || return
 }
 
 # As to why semaphores are even necessary,
@@ -965,9 +1042,9 @@ function __wait_for_semaphores {
 		return 0
 	fi
 	# wait for each semaphore to exist
-	local semaphore_file
-	for semaphore_file in "$@"; do
-		while [[ ! -f $semaphore_file ]]; do
+	local semaphore
+	for semaphore in "$@"; do
+		while [[ ! -f $semaphore ]]; do
 			sleep 0.01
 		done
 	done
@@ -987,18 +1064,17 @@ function __wait_for_and_return_semaphores {
 		return 0
 	fi
 	# wait for each semaphore that represents an exit status to exist and to be written, then remove them
-	local semaphore_file semaphore_status=0
-	for semaphore_file in "$@"; do
+	local semaphore semaphore_status=0
+	for semaphore in "$@"; do
 		# needs -s as otherwise the file may exist but may not have finished writing, which would result in:
 		# return: : numeric argument required
-		while [[ ! -s $semaphore_file ]]; do
+		while [[ ! -s $semaphore ]]; do
 			sleep 0.01
 		done
 		# always return the failure
-		# __wait_for_and_return_semaphores "$semaphore_file-with-0" "$semaphore_file-with-1" "$semaphore_file-with-0" # returns 1
 		if [[ $semaphore_status -eq 0 ]]; then
-			semaphore_status="$(<"$semaphore_file")" || {
-				__print_lines "ERROR: ${FUNCNAME[0]}: Failed to read semaphore file: $semaphore_file" >&2
+			semaphore_status="$(<"$semaphore")" || {
+				__print_lines "ERROR: ${FUNCNAME[0]}: Failed to read semaphore file: $semaphore" >&2 || :
 				return 5 # EIO 5 I/O error
 			} || return
 		fi
@@ -1062,34 +1138,41 @@ shopt -s inherit_errexit 2>/dev/null || : # has no effect on __try
 function __do {
 	# 🧙🏻‍♀️ the power is yours, send donations to github.com/sponsors/balupton
 	if [[ $# -eq 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Arguments are required." >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: Arguments are required." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# externally, we support left to right, however internally, it is implemented right to left, so perform the conversion
 	if [[ $1 != '--right-to-left' ]]; then
-		local inversion=("$1")
+		local DO__inversion=("$1")
 		shift
 		while [[ $# -ne 0 && $1 != '--' ]]; do
-			inversion=("$1" "${inversion[@]}")
+			DO__inversion=("$1" "${DO__inversion[@]}")
 			shift
 		done
-		__do --right-to-left "${inversion[@]}" "$@"
+		__do --right-to-left "${DO__inversion[@]}" "$@"
 		return
 	fi
 	shift # trim --right-to-left
 	# explicit return handling is to have this work in conditional mode
-	local arg="$1" arg_value arg_flag
+	local DO__arg="$1" DO__arg_value DO__arg_flag
 	# process
-	arg_value="${arg#*=}"
-	arg_flag="${arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
+	DO__arg_value="${DO__arg#*=}"
+	DO__arg_flag="${DO__arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
 	shift
 	# if target is tty, but terminal device file is redirected, then redo the flag with the redirection value
-	if [[ $arg_value =~ ^(tty|TTY|/dev/tty)$ && ! ($TERMINAL_OUTPUT_TARGET =~ ^(tty|TTY|/dev/tty)$) ]]; then
-		__do --right-to-left "$arg_flag=$TERMINAL_OUTPUT_TARGET" "$@"
+	if [[ $DO__arg_value =~ ^(tty|TTY|/dev/tty)$ && ! ($TERMINAL_OUTPUT_TARGET =~ ^(tty|TTY|/dev/tty)$) ]]; then
+		__do --right-to-left "$DO__arg_flag=$TERMINAL_OUTPUT_TARGET" "$@"
 		return
 	fi
 	# process
-	case "$arg" in
+	function __validate_reference {
+		local reference="$1"
+		if [[ $reference == DO__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+	}
+	case "$DO__arg" in
 	--)
 		"$@"
 		return
@@ -1097,11 +1180,11 @@ function __do {
 
 	# stdout+stderr alias
 	'--redirect-stdout+stderr='*)
-		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg. You probably want [--redirect-stdout=$arg_value --redirect-stderr=$arg_value] or [--redirect-output=$arg_value] instead. If you are doing a process substitution, you want the former suggestion and have the stderr process substitution output to >&2." >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg. You probably want [--redirect-stdout=$DO__arg_value --redirect-stderr=$DO__arg_value] or [--redirect-output=$DO__arg_value] instead. If you are doing a process substitution, you want the former suggestion and have the stderr process substitution output to >&2." >&2 || :
 		return 78 # NOSYS 78 Function not implemented
 		;;
 	'--copy-stdout+stderr='*)
-		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 		return 78 # NOSYS 78 Function not implemented
 		;;
 
@@ -1128,24 +1211,25 @@ function __do {
 
 	# redirect or copy, status, to a var target
 	--redirect-status={*} | --copy-status={*})
+		local DO__reference DO__status
+
 		# trim squigglies
-		local var
-		var="$(__get_reference_name "$arg_value")" || return
+		DO__reference="$(__get_reference_name "$DO__arg_value")" || return
+		__validate_reference "$DO__reference" || return
 
 		# catch the status
-		local do_status
-		__try {do_status} -- __do --right-to-left "$@"
+		__try {DO__status} -- __do --right-to-left "$@"
 		__return $? || return
 
-		# apply the status ti the var target
-		eval "$var=\$do_status"
+		# apply the status to the var target
+		eval "$DO__reference=\$DO__status" || return
 
 		# return or discard the status
-		case "$arg_flag" in
+		case "$DO__arg_flag" in
 		--redirect-*) return 0 ;;
-		--copy-*) return "$do_status" ;;
+		--copy-*) return "$DO__status" ;;
 		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
 			;;
 		esac
@@ -1154,18 +1238,19 @@ function __do {
 	# redirect or copy, status, to a non-var target
 	--redirect-status=* | --copy-status=*)
 		# catch the status
-		local do_status
-		__try {do_status} -- __do --right-to-left "$@"
+		local DO__status
+		__try {DO__status} -- __do --right-to-left "$@"
 		__return $? || return
 
 		# apply the status to the non-var target
-		__do --redirect-stdout="$arg_value" -- __print_lines "$do_status" || return
+		__do --redirect-stdout="$DO__arg_value" -- __print_lines "$DO__status" || return
+
 		# return or discard the status
-		case "$arg_flag" in
+		case "$DO__arg_flag" in
 		--redirect-*) return 0 ;;
-		--copy-*) return "$do_status" ;;
+		--copy-*) return "$DO__status" ;;
 		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
 			;;
 		esac
@@ -1173,32 +1258,26 @@ function __do {
 
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
+		local DO__reference DO__semaphore DO__result_value
+
 		# trim squigglies
-		local var
-		var="$(__get_reference_name "$arg_value")" || return
+		DO__reference="$(__get_reference_name "$DO__arg_value")" || return
+		__validate_reference "$DO__reference" || return
 
 		# reset all var to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
-		eval "$var=" || return
+		eval "$DO__reference=" || return
 
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
-		local result_file
-		result_file="$(mktemp)"
-		__do --right-to-left "$arg_flag=$result_file" "$@"
-		__return $? || return
+		DO__semaphore="$(__get_semaphore "__do.data-to-reference.$RANDOM$RANDOM")" || return
+		__do --right-to-left "$DO__arg_flag=$DO__semaphore" "$@"
+		__return $? --invoke-only-on-failure -- rm -f -- "$DO__semaphore" || return
 
-		# load the file
-		local result_value
+		# load the value of the file, remove the file, apply the value to the var target
 		# trunk-ignore(shellcheck/SC2034)
-		result_value="$(<"$result_file")" || return
-		# LC_ALL=C IFS= read -r result_value <"$result_file"
-		# result_value="$(cat -- "$result_file")"
-
-		# clean the file
-		rm -f -- "$result_file" || return
-
-		# apply the result
-		eval "$var=\$result_value"
+		DO__result_value="$(<"$DO__semaphore")" || return
+		eval "$DO__reference=\$DO__result_value" || return
+		rm -f -- "$DO__semaphore" || return
 		return
 		;;
 
@@ -1206,26 +1285,26 @@ function __do {
 	# # redirect, device files, to pipeline
 	# '--redirect-stdout=|'* | '--redirect-stderr=|'* | '--redirect-output=|'*)
 	# 	# trim starting |, converting |<code> to <code>
-	# 	local code
-	# 	code="$(__get_substring "$arg_value" 1)" || return
+	# 	local DO__code
+	# 	DO__code="$(__get_substring "$DO__arg_value" 1)" || return
 
 	# 	# run our pipes
-	# 	case "$arg_flag" in
+	# 	case "$DO__arg_flag" in
 	# 	--redirect-stdout)
-	# 		__do --right-to-left "$@" | eval "$code"
+	# 		__do --right-to-left "$@" | eval "$DO__code"
 	# 		return
 	# 		;;
 	# 	--redirect-stderr)
 	# 		# there is no |2 in bash
-	# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+	# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2
 	# 		return 76 # EPROCUNAVAIL 76 Bad procedure for program
 	# 		;;
 	# 	--redirect-output)
-	# 		__do --right-to-left "$@" 2>&1 | eval "$code"
+	# 		__do --right-to-left "$@" 2>&1 | eval "$DO__code"
 	# 		return
 	# 		;;
 	# 	*)
-	# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+	# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2
 	# 		return 76 # EPROCUNAVAIL 76 Bad procedure for program
 	# 		;;
 	# 	esac
@@ -1233,54 +1312,54 @@ function __do {
 
 	# redirect, device files, to process substitution
 	--redirect-stdout=\(*\) | --redirect-stderr=\(*\) | --redirect-output=\(*\))
+		local DO__code DO__semaphore
+
 		# trim starting ( and trailing ), converting (<code>) to <code>
-		local code
-		code="$(__get_substring "$arg_value" 1 -1)" || return
+		DO__code="$(__get_substring "$DO__arg_value" 1 -1)" || return
 
 		# executing this in errexit mode:
 		# __do --stderr='(cat; __return 10; __return 20)' -- echo-style --stderr=stderr-result --stdout=stdout-result; echo "status=[${statusvar-}] stdout=[${stdoutvar-}] stderr=[${stderrvar-}]"
 		#
 		# with this internal code, will not fail, as the return statuses of the subshell redirections are ignored:
-		# --stderr) __do --right-to-left "$@" 2> >(eval "$code"; __return $? -- touch "$semaphore") ;;
+		# --stderr) __do --right-to-left "$@" 2> >(eval "$DO__code"; __return $? -- touch "$DO__semaphore") ;;
 		#
 		# with this internal code, will fail with 20:
-		# --stderr) __do --right-to-left "$@" 2> >(set +e; eval "$code"; printf '%s' "$?" >"$semaphore") ;;
+		# --stderr) __do --right-to-left "$@" 2> >(set +e; eval "$DO__code"; printf '%s' "$?" >"$DO__semaphore") ;;
 		#
 		# with this internal code, will fail with 10, which is what we want
-		# --stderr) __do --right-to-left "$@" 2> >(__do --status="$semaphore" -- eval "$code") ;;
+		# --stderr) __do --right-to-left "$@" 2> >(__do --status="$DO__semaphore" -- eval "$DO__code") ;;
 
 		# prepare our semaphore file that will track the exit status of the process substitution
-		local semaphore_file_target semaphore_context="__do.redirect.$RANDOM$RANDOM"
-		semaphore_file_target="$(__get_semaphore "$semaphore_context")" || return
+		DO__semaphore="$(__get_semaphore "__do.process.$RANDOM$RANDOM")" || return
 
 		# execute while tracking the exit status to our semaphore file
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
 		# note [>(...)] and [> >(...)] are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
-		case "$arg_flag" in
-		--redirect-stdout) __do --right-to-left "$@" > >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
-		--redirect-stderr) __do --right-to-left "$@" 2> >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
-		--redirect-output) __do --right-to-left "$@" &> >(__do --redirect-status="$semaphore_file_target" -- eval "$code") ;;
+		case "$DO__arg_flag" in
+		--redirect-stdout) __do --right-to-left "$@" > >(__do --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		--redirect-stderr) __do --right-to-left "$@" 2> >(__do --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		--redirect-output) __do --right-to-left "$@" &> >(__do --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
 			;;
 		esac
 
 		# once completed, wait for and return the status of our process substitution
-		__return $? -- __wait_for_and_return_semaphores "$semaphore_file_target"
+		__return $? -- __wait_for_and_return_semaphores "$DO__semaphore" || return
 		return
 		;;
 
 	# note that copying to a process substitution is not yet supported
 	# @todo implement this
 	--copy-stdout=\(*\) | --copy-stderr=\(*\) | --copy-output=\(*\))
-		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 		return 78 # NOSYS 78 Function not implemented
 		;;
 
 	# redirect, stdout, to various targets
 	--redirect-stdout=*)
-		case "$arg_value" in
+		case "$DO__arg_value" in
 
 		# redirect stdout to stdout, this is a no-op, continue to next
 		1 | stdout | STDOUT | /dev/stdout)
@@ -1308,7 +1387,7 @@ function __do {
 
 		# redirect stdout to FD target
 		[0-9]*)
-			__do --right-to-left "$@" >&"$arg_value"
+			__do --right-to-left "$@" >&"$DO__arg_value"
 			return
 			;;
 
@@ -1320,7 +1399,7 @@ function __do {
 
 		# redirect stdout to file target
 		*)
-			__do --right-to-left "$@" >>"$arg_value"
+			__do --right-to-left "$@" >>"$DO__arg_value"
 			return
 			;;
 
@@ -1330,7 +1409,7 @@ function __do {
 
 	# copy, stdout, to various targets
 	--copy-stdout=*)
-		case "$arg_value" in
+		case "$DO__arg_value" in
 
 		# copy stdout to stdout
 		1 | stdout | STDOUT | /dev/stdout)
@@ -1342,8 +1421,8 @@ function __do {
 		# copy stdout to stderr
 		2 | stderr | STDERR | /dev/stderr)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-stderr.$RANDOM$RANDOM"
-			__get_semaphores {semaphore_file_targets} -- "$semaphore_context.1" "$semaphore_context.2" || return
+			local DO__semaphores DO__context="__do.copy-stdout-to-stderr.$RANDOM$RANDOM"
+			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1351,21 +1430,21 @@ function __do {
 				tee -- >(
 					set +e
 					cat >&2
-					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+					printf '%s' "$?" >"${DO__semaphores[0]}"
 				)
-				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+				printf '%s' "$?" >"${DO__semaphores[1]}"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return
 			return
 			;;
 
 		# copy stdout to tty
 		tty | TTY | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-tty.$RANDOM$RANDOM"
-			__get_semaphores {semaphore_file_targets} -- "$semaphore_context.1" "$semaphore_context.2" || return
+			local DO__semaphores DO__context="__do.copy-stdout-to-tty.$RANDOM$RANDOM"
+			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1373,13 +1452,13 @@ function __do {
 				tee -- >(
 					set +e
 					cat >>/dev/tty
-					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+					printf '%s' "$?" >"${DO__semaphores[0]}"
 				)
-				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+				printf '%s' "$?" >"${DO__semaphores[1]}"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return
 			return
 			;;
 
@@ -1393,22 +1472,22 @@ function __do {
 		# copy stdout to FD target
 		[0-9]*)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets semaphore_context="__do.copy-stdout-to-fd.$RANDOM$RANDOM"
-			__get_semaphores {semaphore_file_targets} -- "$semaphore_context.1" "$semaphore_context.2" || return
+			local DO__semaphores DO__context="__do.copy-stdout-to-fd.$RANDOM$RANDOM"
+			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
 				set +e
 				tee -- >(
 					set +e
-					cat >&"$arg_value"
-					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+					cat >&"$DO__arg_value"
+					printf '%s' "$?" >"${DO__semaphores[0]}"
 				)
-				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+				printf '%s' "$?" >"${DO__semaphores[1]}"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return
 			return
 			;;
 
@@ -1421,18 +1500,18 @@ function __do {
 		# copy stdout to file target
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
-			local semaphore_file_target semaphore_context="__do.copy-stdout-to-file.$RANDOM$RANDOM"
-			semaphore_file_target="$(__get_semaphore "$semaphore_context")" || return
+			local DO__semaphore DO__context="__do.copy-stdout-to-file.$RANDOM$RANDOM"
+			DO__semaphore="$(__get_semaphore "$DO__context")" || return
 
 			# execute, keeping stdout, copying to the value target, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
 				set +e
-				tee -a -- "$arg_value"
-				printf '%s' "$?" >"$semaphore_file_target"
+				tee -a -- "$DO__arg_value"
+				printf '%s' "$?" >"$DO__semaphore"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "$semaphore_file_target"
+			__return $? -- __wait_for_and_return_semaphores "$DO__semaphore" || return
 			return
 			;;
 
@@ -1441,7 +1520,7 @@ function __do {
 		;;
 
 	--redirect-stderr=*)
-		case "$arg_value" in
+		case "$DO__arg_value" in
 
 		# redirect stderr to stdout
 		1 | stdout | STDOUT | /dev/stdout)
@@ -1469,7 +1548,7 @@ function __do {
 
 		# redirect stderr to FD target
 		[0-9]*)
-			__do --right-to-left "$@" 2>&"$arg_value"
+			__do --right-to-left "$@" 2>&"$DO__arg_value"
 			return
 			;;
 
@@ -1481,7 +1560,7 @@ function __do {
 
 		# redirect stderr to file target
 		*)
-			__do --right-to-left "$@" 2>>"$arg_value"
+			__do --right-to-left "$@" 2>>"$DO__arg_value"
 			return
 			;;
 
@@ -1491,13 +1570,13 @@ function __do {
 
 	# copy, stderr, to various targets
 	--copy-stderr=*)
-		case "$arg_value" in
+		case "$DO__arg_value" in
 
 		# copy stderr to stdout
 		1 | stdout | STDOUT | /dev/stdout)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-stdout.$RANDOM$RANDOM"
-			__get_semaphores {semaphore_file_targets} -- "$semaphore_context.1" "$semaphore_context.2" || return
+			local DO__semaphores DO__context="__do.copy-stderr-to-stdout.$RANDOM$RANDOM"
+			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1505,13 +1584,13 @@ function __do {
 				tee -- >(
 					set +e
 					cat
-					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+					printf '%s' "$?" >"${DO__semaphores[0]}"
 				) >&2
-				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+				printf '%s' "$?" >"${DO__semaphores[1]}"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return
 			return
 			;;
 
@@ -1525,8 +1604,8 @@ function __do {
 		# copy stderr to tty
 		tty | TTY | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-tty.$RANDOM$RANDOM"
-			__get_semaphores {semaphore_file_targets} -- "$semaphore_context.1" "$semaphore_context.2" || return
+			local DO__semaphores DO__context="__do.copy-stderr-to-tty.$RANDOM$RANDOM"
+			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1534,13 +1613,13 @@ function __do {
 				tee -- >(
 					set +e
 					cat >>/dev/tty
-					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+					printf '%s' "$?" >"${DO__semaphores[0]}"
 				) >&2
-				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+				printf '%s' "$?" >"${DO__semaphores[1]}"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return
 			return
 			;;
 
@@ -1554,22 +1633,22 @@ function __do {
 		# copy stderr to FD target
 		[0-9]*)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local semaphore_file_targets semaphore_context="__do.copy-stderr-to-fd.$RANDOM$RANDOM"
-			__get_semaphores {semaphore_file_targets} -- "$semaphore_context.1" "$semaphore_context.2" || return
+			local DO__semaphores DO__context="__do.copy-stderr-to-fd.$RANDOM$RANDOM"
+			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
-					cat >&"$arg_value"
-					printf '%s' "$?" >"${semaphore_file_targets[0]}"
+					cat >&"$DO__arg_value"
+					printf '%s' "$?" >"${DO__semaphores[0]}"
 				) >&2
-				printf '%s' "$?" >"${semaphore_file_targets[1]}"
+				printf '%s' "$?" >"${DO__semaphores[1]}"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "${semaphore_file_targets[@]}"
+			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return
 			return
 			;;
 
@@ -1582,18 +1661,18 @@ function __do {
 		# copy stderr to file target
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
-			local semaphore_file_target semaphore_context="__do.copy-stderr-to-file.$RANDOM$RANDOM"
-			semaphore_file_target="$(__get_semaphore "$semaphore_context")" || return
+			local DO__semaphore DO__context="__do.copy-stderr-to-file.$RANDOM$RANDOM"
+			DO__semaphore="$(__get_semaphore "$DO__context")" || return
 
 			# execute, keeping stderr, copying to the value target, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
 				set +e
-				tee -a -- "$arg_value" >&2
-				printf '%s' "$?" >"$semaphore_file_target"
+				tee -a -- "$DO__arg_value" >&2
+				printf '%s' "$?" >"$DO__semaphore"
 			)
 
 			# once completed, wait for and return the status of our process substitution
-			__return $? -- __wait_for_and_return_semaphores "$semaphore_file_target"
+			__return $? -- __wait_for_and_return_semaphores "$DO__semaphore" || return
 			return
 			;;
 
@@ -1602,7 +1681,7 @@ function __do {
 		;;
 
 	--redirect-output=*)
-		case "$arg_value" in
+		case "$DO__arg_value" in
 
 		# redirect stderr to stdout
 		1 | stdout | STDOUT | /dev/stdout)
@@ -1630,7 +1709,7 @@ function __do {
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirected to the fd target
 		[0-9]*)
-			__do --right-to-left "$@" 1>&"$arg_value" 2>&1
+			__do --right-to-left "$@" 1>&"$DO__arg_value" 2>&1
 			return
 			;;
 
@@ -1642,7 +1721,7 @@ function __do {
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirect to the file target
 		*)
-			__do --right-to-left "$@" >"$arg_value" 2>&1
+			__do --right-to-left "$@" >"$DO__arg_value" 2>&1
 			return
 			;;
 
@@ -1652,26 +1731,26 @@ function __do {
 
 	# copy, output, to various targets
 	--copy-output=*)
-		case "$arg_value" in
+		case "$DO__arg_value" in
 
 		# copy output to stdout, this behaviour is unspecified, as there is no way to send it back to output
 		1 | stdout | STDOUT | /dev/stdout)
 			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy output to stderr, this behaviour is unspecified, as there is no way to send it back to output
 		2 | stderr | STDERR | /dev/stderr)
 			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy output to tty, this behaviour is unspecified, as there is no way to send it back to output
 		tty | TTY | /dev/tty)
 			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
@@ -1685,7 +1764,7 @@ function __do {
 		# copy output to FD target, this behaviour is unspecified, as there is no way to send it back to output
 		[0-9]*)
 			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
@@ -1698,7 +1777,7 @@ function __do {
 		# copy output to file target, this behaviour is unspecified, as there is no way to send it back to output
 		*)
 			# @todo implement this
-			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $arg. You probably want [--copy-stdout+stderr=$arg_value] or [--redirect-output=STDERR --copy-stderr=$arg_value --redirect-output=TTY] instead." >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg. You probably want [--copy-stdout+stderr=$DO__arg_value] or [--redirect-output=STDERR --copy-stderr=$DO__arg_value --redirect-output=TTY] instead." >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
@@ -1708,7 +1787,7 @@ function __do {
 
 	# unknown arg
 	*)
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $arg" >&2
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $DO__arg" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 		;;
 
@@ -1716,7 +1795,7 @@ function __do {
 	esac
 
 	# it should never have reached here from the explicit returns
-	__print_lines "ERROR: ${FUNCNAME[0]}: An unhandled argument provided: $arg" >&2
+	__print_lines "ERROR: ${FUNCNAME[0]}: An unhandled argument provided: $DO__arg" >&2 || :
 	return 29 # ESPIPE 29 Illegal seek
 }
 
@@ -1733,10 +1812,10 @@ function dorothy_try__trap_outer {
 	# do not use local, as this is not executed as a function
 	DOROTHY_TRY__TRAP_STATUS=$?
 	DOROTHY_TRY__TRAP_LOCATION="${BASH_SOURCE[0]-}:${LINENO}:${FUNCNAME-}:$DOROTHY_TRY__SUBSHELL:${BASH_SUBSHELL-}:$-:$BASH_VERSION"
-	if [[ $DOROTHY_TRY__TRAP_STATUS -eq 1 && -f $DOROTHY_TRY__FILE_STATUS ]]; then
+	if [[ $DOROTHY_TRY__TRAP_STATUS -eq 1 && -f $DOROTHY_TRY__SEMAPHORE ]]; then
 		# Bash versions 4.2 and 4.3 will change a caught but thrown or continued exit status to 1
 		# So we have to restore our saved one from the throw-in-trap-subshell workaround
-		DOROTHY_TRY__TRAP_STATUS="$(<"$DOROTHY_TRY__FILE_STATUS")"
+		DOROTHY_TRY__TRAP_STATUS="$(<"$DOROTHY_TRY__SEMAPHORE")"
 		dorothy_try__context_lines "REPLACED: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" || :
 	fi
 
@@ -1763,11 +1842,11 @@ function dorothy_try__trap_outer {
 		else
 			# lacking this causes nearly all subshell executions to fail on 3.2, 4.0, 4.2
 			dorothy_try__context_lines "SAVE: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" || :
-			# { __mkdirp "$DOROTHY_TRY__DIR" && __print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__FILE_STATUS"; } || :
-			__print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__FILE_STATUS" || :
+			# { __mkdirp "$DOROTHY_TRY__DIR" && __print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__SEMAPHORE"; } || :
+			__print_lines "$DOROTHY_TRY__TRAP_STATUS" >"$DOROTHY_TRY__SEMAPHORE" || :
 			# wait for semaphores if needed
 			if [[ $BASH_VERSION_MAJOR -eq 4 && ($BASH_VERSION_MINOR -eq 2 || $BASH_VERSION_MINOR -eq 3) ]]; then
-				__wait_for_semaphores "$DOROTHY_TRY__FILE_STATUS"
+				__wait_for_semaphores "$DOROTHY_TRY__SEMAPHORE"
 			fi
 		fi
 
@@ -1871,35 +1950,33 @@ function dorothy_try__wrapper {
 # then you will discover that this then makes it seem that `__try --` returns/keeps the status, but it does not
 # as such, trying for compat with `__do` is silly, as they are different
 function __try {
-	local item cmd=() exit_status_variable=''
+	# declare local variables
+	local DOROTHY_TRY__item DOROTHY_TRY__reference=''
+	# declare shared variables
+	local DOROTHY_TRY__COMMAND=() DOROTHY_TRY__CONTEXT DOROTHY_TRY__SEMAPHORE DOROTHY_TRY__STATUS='' DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		DOROTHY_TRY__item="$1"
 		shift
-		case "$item" in
+		case "$DOROTHY_TRY__item" in
 		'--')
-			cmd+=("$@")
+			DOROTHY_TRY__COMMAND+=("$@")
 			shift $#
 			break
 			;;
-		{*}) exit_status_variable="$(__get_substring "$item" 1 -1)" ;; # trim starting { and trailing }
+		{*}) DOROTHY_TRY__reference="$(__get_substring "$DOROTHY_TRY__item" 1 -1)" ;; # trim starting { and trailing }
 		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $DOROTHY_TRY__item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		esac
 	done
 
-	# prepare globals
+	# update globals
 	DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}" # so we can remove our trap once all tries are finished
 
-	# prepare locals specific to our context
-	local DOROTHY_TRY__CONTEXT \
-		DOROTHY_TRY__FILE_STATUS \
-		DOROTHY_TRY__STATUS='' \
-		DOROTHY_TRY__COMMAND=("${cmd[@]}") \
-		DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
+	# update shared variables
 	DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
-	DOROTHY_TRY__FILE_STATUS="$(__get_semaphore "__try.$DOROTHY_TRY__CONTEXT.status")"
+	DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "__try.$DOROTHY_TRY__CONTEXT.status")"
 
 	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
 	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
@@ -1911,22 +1988,22 @@ function __try {
 	fi
 
 	# load the exit status if necessary
-	if [[ -f $DOROTHY_TRY__FILE_STATUS ]]; then
-		local loaded_status
-		loaded_status="$(<"$DOROTHY_TRY__FILE_STATUS")"
-		if [[ $loaded_status -ne $DOROTHY_TRY__STATUS ]]; then
-			dorothy_try__context_lines "LOADED: $loaded_status    PRIOR: $DOROTHY_TRY__STATUS    NEEDED" || :
+	if [[ -f $DOROTHY_TRY__SEMAPHORE ]]; then
+		local DOROTHY_TRY__loaded_status
+		DOROTHY_TRY__loaded_status="$(<"$DOROTHY_TRY__SEMAPHORE")"
+		if [[ $DOROTHY_TRY__loaded_status -ne $DOROTHY_TRY__STATUS ]]; then
+			dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    NEEDED" || :
 		else
-			dorothy_try__context_lines "LOADED: $loaded_status    PRIOR: $DOROTHY_TRY__STATUS    SAME" || :
+			dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    SAME" || :
 		fi
-		DOROTHY_TRY__STATUS="$loaded_status"
-		rm -f -- "$DOROTHY_TRY__FILE_STATUS" || :
+		DOROTHY_TRY__STATUS="$DOROTHY_TRY__loaded_status"
+		rm -f -- "$DOROTHY_TRY__SEMAPHORE" || :
 	fi
 
 	# apply the exit status
 	dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-	if [[ -n $exit_status_variable ]]; then
-		eval "$exit_status_variable=${DOROTHY_TRY__STATUS:-0}"
+	if [[ -n $DOROTHY_TRY__reference ]]; then
+		eval "$DOROTHY_TRY__reference=${DOROTHY_TRY__STATUS:-0}"
 	fi
 
 	# return success
@@ -2005,7 +2082,7 @@ function eval_capture {
 			break
 			;;
 		'-'*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >/dev/stderr
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -2102,7 +2179,7 @@ fi
 # Bash >= 5, < 5
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	function __get_epoch_time {
-		__print_lines "$EPOCHREALTIME"
+		__print_lines "$EPOCHREALTIME" || return
 	}
 else
 	function __get_epoch_time {
@@ -2129,7 +2206,7 @@ if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 	BASH_CAN_READ_DECIMAL_TIMEOUT='yes'
 	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='yes'
 	function __get_read_decimal_timeout {
-		__print_lines "$1"
+		__print_lines "$1" || return
 	}
 else
 	# bash < 4
@@ -2143,9 +2220,9 @@ else
 	function __get_read_decimal_timeout {
 		# -lt requires integers, so we need to use regexp instead
 		if [[ -n $1 && $1 =~ ^0[.] ]]; then
-			__print_lines 1
+			__print_lines 1 || return
 		else
-			__print_lines "$1"
+			__print_lines "$1" || return
 		fi
 	}
 fi
@@ -2159,7 +2236,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 			shift
 		fi
 		# proceed
-		__print_lines "${1@u}"
+		__print_lines "${1@u}" || return
 	}
 	function __uppercase_string {
 		# trim -- prefix
@@ -2167,7 +2244,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 			shift
 		fi
 		# proceed
-		__print_lines "${1@U}"
+		__print_lines "${1@U}" || return
 	}
 	function __lowercase_string {
 		# trim -- prefix
@@ -2175,7 +2252,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 			shift
 		fi
 		# proceed
-		__print_lines "${1@L}"
+		__print_lines "${1@L}" || return
 	}
 	# @Q is available, however it is strange, so don't shim
 else
@@ -2189,7 +2266,7 @@ else
 				shift
 			fi
 			# proceed
-			__print_lines "${1^}"
+			__print_lines "${1^}" || return
 		}
 		function __uppercase_string {
 			# trim -- prefix
@@ -2197,7 +2274,7 @@ else
 				shift
 			fi
 			# proceed
-			__print_lines "${1^^}"
+			__print_lines "${1^^}" || return
 		}
 		function __lowercase_string {
 			# trim -- prefix
@@ -2205,7 +2282,7 @@ else
 				shift
 			fi
 			# proceed
-			__print_lines "${1,,}"
+			__print_lines "${1,,}" || return
 		}
 	else
 		# bash < 4
@@ -2216,9 +2293,9 @@ else
 			fi
 			# proceed
 			local input="$1"
-			local first_char="${input:0:1}"
-			local rest="${input:1}"
-			__print_lines "$(tr '[:lower:]' '[:upper:]' <<<"$first_char")$rest"
+			local first_char="${input:0:1}" rest="${input:1}" result
+			result="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
+			__print_lines "$result$rest" || return
 		}
 		function __uppercase_string {
 			# trim -- prefix
@@ -2321,22 +2398,22 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 	# @todo implement support for all options
 	function mapfile {
 		dorothy-warnings add --code='mapfile' --bold=' has been deprecated in favor of ' --code='__split' || :
-		local delim=$'\n' item had_t='no'
+		local MAPFILE__delim=$'\n' MAPFILE__t='no' MAPFILE__reference='' MAPFILE__reply
 		while :; do
 			case "$1" in
 			-t)
-				had_t='yes'
+				MAPFILE__t='yes'
 				shift # trim -t
 				;;
 			-td)
-				had_t='yes'
+				MAPFILE__t='yes'
 				shift # trim -td
-				delim="$1"
+				MAPFILE__delim="$1"
 				shift # trim delim
 				;;
 			-d)
 				shift # trim -d
-				delim="$1"
+				MAPFILE__delim="$1"
 				shift # trim delim
 				;;
 			-*)
@@ -2345,57 +2422,86 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 					'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
 				return 2 # that's what native mapfile returns
 				;;
-			*) break ;;
+			*)
+				if [[ -z $MAPFILE__reference ]]; then
+					MAPFILE__reference="$1"
+				else
+					__print_lines \
+						"mapfile[shim]: unknown argument: $1" \
+						'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
+					return 2 # that's what native mapfile returns
+				fi
+				;;
 			esac
 		done
-		if [[ $had_t != 'yes' ]]; then
-			__print_lines \
-				'mapfile[shim]: -t is required in our bash v3 shim' \
-				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
-			return 2 # that's what native mapfile returns
-		fi
-		if [[ -z ${1-} ]]; then
+		if [[ -z $MAPFILE__reference ]]; then
 			__print_lines \
 				'mapfile[shim]: <array> is required in our bash v3 shim' \
 				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
 			return 2 # that's what native mapfile returns
 		fi
-		eval "$1=()"
-		while IFS= read -rd "$delim" item || [[ -n $item ]]; do
-			eval "$1+=($(printf '%q\n' "$item"))" || return
+		if [[ $MAPFILE__reference == MAPFILE__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $MAPFILE__reference as it is used internally." >&2
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		if [[ $MAPFILE__t != 'yes' ]]; then
+			__print_lines \
+				'mapfile[shim]: -t is required in our bash v3 shim' \
+				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
+			return 2 # that's what native mapfile returns
+		fi
+		shift
+		eval "${MAPFILE__reference}=()" || return
+		while IFS= read -rd "$MAPFILE__delim" MAPFILE__reply || [[ -n $MAPFILE__reply ]]; do
+			eval "${MAPFILE__reference}+=(\"\${MAPFILE__reply}\")" || return
 		done
 	}
 fi
 BASH_ARRAY_CAPABILITIES+=' '
 
 function __make_array {
-	local option_targets=() option_size=0 option_value='' item target index list=''
+	local MAKE_ARRAY__item MAKE_ARRAY__option_targets=() MAKE_ARRAY__option_size=0 MAKE_ARRAY__value='' MAKE_ARRAY__index MAKE_ARRAY__list='' MAKE_ARRAY__reference MAKE_ARRAY__eval_statement=''
+	function __validate_reference {
+		local reference="$1"
+		if [[ $reference == MAKE_ARRAY__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2
+			return 22 # EINVAL 22 Invalid argument
+		fi
+	}
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		MAKE_ARRAY__item="$1"
 		shift
-		case "$item" in
-		'{'*'}') option_targets+=("$(__get_reference_name "$item")") || return ;;
-		'--size='*) option_size="${item#*=}" ;;
+		case "$MAKE_ARRAY__item" in
+		'{'*'}')
+			MAKE_ARRAY__reference="$(__get_reference_name "$MAKE_ARRAY__item")" || return
+			__validate_reference "$MAKE_ARRAY__reference" || return
+			MAKE_ARRAY__option_targets+=("$MAKE_ARRAY__reference")
+			;;
+		'--size='*) MAKE_ARRAY__option_size="${MAKE_ARRAY__item#*=}" ;;
 		# trunk-ignore(shellcheck/SC2034)
-		'--value='*) option_value="${item#*=}" ;;
+		'--value='*) MAKE_ARRAY__value="${MAKE_ARRAY__item#*=}" ;;
 		--*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $MAKE_ARRAY__item" >&2
 			return 22 # EINVAL 22 Invalid argument
 			;;
-		*) option_targets+=("$item") ;;
+		*) MAKE_ARRAY__option_targets+=("$MAKE_ARRAY__item") ;;
 		esac
 	done
-	if [[ ${#option_targets[@]} -eq 0 ]]; then
+	if [[ ${#MAKE_ARRAY__option_targets[@]} -eq 0 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference must be provided." >&2
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	for ((index = 0; index < option_size; index++)); do
-		list+='"$option_value" '
+	# generate the array values
+	for ((MAKE_ARRAY__index = 0; MAKE_ARRAY__index < MAKE_ARRAY__option_size; MAKE_ARRAY__index++)); do
+		# the alternative would be using `{...@Q}` however that isn't available on all bash versions, but this is equally good, perhaps better
+		MAKE_ARRAY__list+='"$MAKE_ARRAY__value" '
 	done
-	for target in "${option_targets[@]}"; do
+	# apply the list to the target, while avoiding conflicts
+	for MAKE_ARRAY__reference in "${MAKE_ARRAY__option_targets[@]}"; do
 		# apply the list to the target
-		eval "$target=($list)"
+		MAKE_ARRAY__eval_statement+="$MAKE_ARRAY__reference=($MAKE_ARRAY__list); "
 	done
+	eval "$MAKE_ARRAY__eval_statement" || return
 }
 
 # split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
@@ -2411,132 +2517,136 @@ function __make_array {
 # __split {arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
 # use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
 function __split {
-	local item option_target='' option_invoke='no' option_append='no' option_with_zero_length='yes' option_delimiters=() option_inputs=() \
-	character_left_index last_slice_left_index string_length string_last delimiter delimiter_length \
-	offsets=() offset delimiter_and_offset_index REPLY window character
+	local SPLIT__item SPLIT__option_reference='' SPLIT__option_invoke='no' SPLIT__option_append='no' SPLIT__option_with_zero_length='yes' SPLIT__option_delimiters=() SPLIT__option_inputs=() \
+	SPLIT__character_left_index SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter SPLIT__delimiter_length \
+	SPLIT__offsets=() SPLIT__offset SPLIT__delimiter_and_offset_index SPLIT__reply SPLIT__window SPLIT__character
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		SPLIT__item="$1"
 		shift
-		case "$item" in
-		'{'*'}') option_target="$(__get_reference_name "$item")" || return ;;
-		'--append') option_append='yes' ;;
-		'--no-zero-length') option_with_zero_length='no' ;;
-		'--invoke') option_invoke='yes' ;;
+		case "$SPLIT__item" in
+		'{'*'}') SPLIT__option_reference="$(__get_reference_name "$SPLIT__item")" || return ;;
+		'--append') SPLIT__option_append='yes' ;;
+		'--no-zero-length') SPLIT__option_with_zero_length='no' ;;
+		'--invoke') SPLIT__option_invoke='yes' ;;
 		'--keep-zero-length') : ;; # no-op as already the case
-		'--delimiter='*) option_delimiters+=("${item#*=}") ;;
+		'--delimiter='*) SPLIT__option_delimiters+=("${SPLIT__item#*=}") ;;
 		'--delimiters='*)
-			item="${item#*=}"
-			for ((character_left_index = 0, string_length = "${#item}"; character_left_index < string_length; character_left_index++)); do
-				character="${item:character_left_index:1}"
-				option_delimiters+=("$character")
+			SPLIT__item="${SPLIT__item#*=}"
+			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
+				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
+				SPLIT__option_delimiters+=("$SPLIT__character")
 			done
 			;;
 		--)
 			if [[ $# -eq 0 ]]; then
-				# there's no items, be a no-op
-				if [[ $option_append == 'no' ]]; then
-					eval "$option_target=()"
+				# there's no items, be a no-op if not appending, if appending then reset to nothing
+				if [[ $SPLIT__option_append == 'no' ]]; then
+					eval "${SPLIT__option_reference}=()" || return
 				fi
 				return 0
 			fi
-			if [[ $option_invoke == 'yes' ]]; then
-				local fodder_to_respect_exit_status
-				__do --redirect-stdout={fodder_to_respect_exit_status} -- "$@"
-				option_inputs+=("$fodder_to_respect_exit_status")
+			if [[ $SPLIT__option_invoke == 'yes' ]]; then
+				local SPLIT__fodder_to_respect_exit_status
+				__do --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				SPLIT__option_inputs+=("$SPLIT__fodder_to_respect_exit_status")
 			else
-				option_inputs+=("$@")
+				SPLIT__option_inputs+=("$@")
 			fi
 			shift $#
 			break
 			;;
 		--*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $item" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $SPLIT__item" >&2
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised argument was provided: $item" >&2
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised argument was provided: $SPLIT__item" >&2
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		esac
 	done
-	if [[ -z $option_target ]]; then
+	if [[ -z $SPLIT__option_reference ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference must be provided." >&2
 		return 22 # EINVAL 22 Invalid argument
 	fi
+	if [[ $SPLIT__option_reference == SPLIT__* ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $SPLIT__reference as it is used internally." >&2
+		return 22 # EINVAL 22 Invalid argument
+	fi
 	# reset if not append
-	if [[ $option_append == 'no' ]]; then
-		eval "$option_target=()"
+	if [[ $SPLIT__option_append == 'no' ]]; then
+		eval "${SPLIT__option_reference}=()" || return
 	fi
 	# read everything from stdin
-	if [[ ${#option_inputs[@]} -eq 0 ]]; then
-		while LC_ALL=C IFS= read -rd '' || [[ -n $REPLY ]]; do
-			option_inputs+=("$REPLY")
-			REPLY=''
+	if [[ ${#SPLIT__option_inputs[@]} -eq 0 ]]; then
+		while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
+			SPLIT__option_inputs+=("$SPLIT__reply")
+			SPLIT__reply=''
 		done
 	fi
 	# cycle through it
-	if [[ ${#option_delimiters[@]} -eq 0 ]]; then
-		option_delimiters+=($'\n')
+	if [[ ${#SPLIT__option_delimiters[@]} -eq 0 ]]; then
+		SPLIT__option_delimiters+=($'\n')
 	fi
-	for delimiter in "${option_delimiters[@]}"; do
-		delimiter_length=${#delimiter}
-		offset=$((delimiter_length * -1)) # variable needed for early bash versions
-		offsets+=("$offset")
+	for SPLIT__delimiter in "${SPLIT__option_delimiters[@]}"; do
+		SPLIT__delimiter_length=${#SPLIT__delimiter}
+		SPLIT__offset=$((SPLIT__delimiter_length * -1)) # variable needed for early bash versions
+		SPLIT__offsets+=("$SPLIT__offset")
 	done
-	for item in "${option_inputs[@]}"; do
+	for SPLIT__item in "${SPLIT__option_inputs[@]}"; do
 		# check if we even apply
-		if [[ -z $item ]]; then
+		if [[ -z $SPLIT__item ]]; then
 			# the item is empty, add it if desired
-			if [[ $option_with_zero_length == 'yes' ]]; then
-				eval "$option_target+=('')"
+			if [[ $SPLIT__option_with_zero_length == 'yes' ]]; then
+				eval "$SPLIT__option_reference+=('')"
 			fi
 			# move to the next item
 			continue
 		fi
 		# reset the window for each argument
-		window=''
-		last_slice_left_index=-1
-		string_length=${#item}
-		string_last=$((string_length - 1))
+		SPLIT__window=''
+		SPLIT__last_slice_left_index=-1
+		SPLIT__string_length=${#SPLIT__item}
+		SPLIT__string_last=$((SPLIT__string_length - 1))
 		# process the argument
-		for ((character_left_index = 0; character_left_index < string_length; character_left_index++)); do
+		for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
 			# add the character to the window, no need for __get_substring as it is a simple slice
-			character="${item:character_left_index:1}"
-			window+="$character"
+			SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
+			SPLIT__window+="$SPLIT__character"
 			# cycle through the delimiters
-			for delimiter_and_offset_index in "${!option_delimiters[@]}"; do
-				delimiter="${option_delimiters[$delimiter_and_offset_index]}"
-				offset="${offsets[$delimiter_and_offset_index]}"
+			for SPLIT__delimiter_and_offset_index in "${!SPLIT__option_delimiters[@]}"; do
+				SPLIT__delimiter="${SPLIT__option_delimiters[SPLIT__delimiter_and_offset_index]}"
+				SPLIT__offset="${SPLIT__offsets[SPLIT__delimiter_and_offset_index]}"
 				# does the window end with our delimiter?
-				if [[ $window == *"$delimiter" ]]; then
+				if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
 					# remove the delimiter
-					window="$(__get_substring "$window" 0 "$offset")"
+					SPLIT__window="$(__get_substring "$SPLIT__window" 0 "$SPLIT__offset")" || return
 					# do we want to add it?
-					if [[ $option_with_zero_length == 'yes' || -n $window ]]; then
-						eval "$option_target+=(\"\$window\")"
+					if [[ $SPLIT__option_with_zero_length == 'yes' || -n $SPLIT__window ]]; then
+						eval "$SPLIT__option_reference+=(\"\$SPLIT__window\")" || return
 					fi
 					# reset the window so characters can be added back to it for the new slice
-					window=''
+					SPLIT__window=''
 					# note the last slice, as we know whether or not we need to add a trailing slice
-					last_slice_left_index="$character_left_index"
+					SPLIT__last_slice_left_index="$SPLIT__character_left_index"
 				fi
 			done
 		done
 		# check how to handle trailing slice
-		if [[ $last_slice_left_index -eq -1 ]]; then
+		if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
 			# the delimiter was not found, so add the whole string
-			if [[ $option_with_zero_length == 'yes' || -n $window ]]; then
-				eval "$option_target+=(\"\$item\")"
+			if [[ $SPLIT__option_with_zero_length == 'yes' || -n $SPLIT__window ]]; then
+				eval "$SPLIT__option_reference+=(\"\${SPLIT__item}\")" || return
 			fi
-		elif [[ $last_slice_left_index -ne $string_last ]]; then
+		elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
 			# the delimiter was not the last character, so add the pending slice
-			if [[ $option_with_zero_length == 'yes' || -n $window ]]; then
-				eval "$option_target+=(\"\$window\")"
+			if [[ $SPLIT__option_with_zero_length == 'yes' || -n $SPLIT__window ]]; then
+				eval "$SPLIT__option_reference+=(\"\${SPLIT__window}\")" || return
 			fi
-		elif [[ $last_slice_left_index -eq $string_last ]]; then
+		elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
 			# delimiter was the last character, so add a right-side slice, if zero-length is allowed
-			if [[ $option_with_zero_length == 'yes' ]]; then
-				eval "$option_target+=('')"
+			if [[ $SPLIT__option_with_zero_length == 'yes' ]]; then
+				eval "$SPLIT__option_reference+=('')" || return
 			fi
 		fi
 	done
@@ -2555,17 +2665,18 @@ function __join {
 		result+="${a[i]}$d"
 	done
 	result+="${a[l]}"
-	printf '%s' "$result"
+	printf '%s' "$result" || return
 }
 
 # does the needle exist inside the array?
 # has needle / is needle
 # for strings, see __string_has_case_insensitive_substring
-# __has <array-var-name> <needle>
+# __has {<array-var-name>} <needle>
 # __has <needle> -- ...<element>
 # @todo support index checks for bash associative arrays
 function __has {
 	if [[ $2 == '--' ]]; then
+		# __has <needle> -- ...<element>
 		local needle="$1" item
 		shift # trim needle
 		shift # trim --
@@ -2576,13 +2687,19 @@ function __has {
 		done
 		return 1
 	else
-		local array_var_name="$1" needle="$2" n i
-		array_var_name="$(__get_reference_name "$array_var_name")" || return
+		# __has <array-var-name> <needle>
+		# trunk-ignore(shellcheck/SC2034)
+		local HAS__reference="$1" HAS__needle="$2" HAS__size HAS__index
+		HAS__reference="$(__get_reference_name "$HAS__reference")" || return
+		if [[ $HAS__reference == HAS__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
 		# trunk-ignore(shellcheck/SC1087)
-		eval "n=\${#$array_var_name[@]}"
-		for ((i = 0; i < n; ++i)); do
+		eval "HAS__size=\${#$HAS__reference[@]}" || return
+		for ((HAS__index = 0; HAS__index < HAS__size; ++HAS__index)); do
 			# trunk-ignore(shellcheck/SC1087)
-			if eval "[[ \$needle == \"\${$array_var_name[i]}\" ]]"; then
+			if eval "[[ \$HAS__needle == \"\${$HAS__reference[HAS__index]}\" ]]"; then
 				return 0
 			fi
 		done
@@ -2599,30 +2716,130 @@ function __has {
 # __slice {arr} 0 1 2 # keeps a c d
 # @todo use [__is_array] to support strings as well as arrays
 function __slice {
-	# trunk-ignore(shellcheck/SC2034)
-	local array_var_name="$1" left right length results=()
-	array_var_name="$(__get_reference_name "$array_var_name")" || return
-	shift
+	local SLICE__item SLICE__option_append='' SLICE__option_inputs=() SLICE__option_indices=() SLICE__option_references=() SLICE__reference SLICE__eval_statement
+	function __validate_reference {
+		local reference="$1"
+		if [[ $reference == SLICE__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+	}
 	while [[ $# -ne 0 ]]; do
-		left="$1"
+		SLICE__item="$1"
 		shift
+		case "$SLICE__item" in
+		'{'*'}')
+			SLICE__reference="$(__get_reference_name "$SLICE__item")" || return
+			__validate_reference "$SLICE__reference" || return
+			SLICE__option_references+=("$SLICE__reference")
+			;;
+		'--append') SLICE__option_append='yes' ;;
+		--)
+			if [[ $# -eq 0 ]]; then
+				# there's no items, be a no-op if not appending, if appending then reset to nothing
+				if [[ $SLICE__option_append == 'no' ]]; then
+					for SLICE__reference in "${SLICE__option_references[@]}"; do
+						SLICE__eval_statement+="$SLICE__reference=(); "
+					done
+					eval "$SLICE__eval_statement" || return
+				fi
+				return 0
+			fi
+			SLICE__option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		--*)
+			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $SLICE__item" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		*)
+			if __is_integer "$SLICE__item"; then
+				SLICE__option_indices+=("$SLICE__item")
+			else
+				__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised argument was provided: $SLICE__item" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			;;
+		esac
+	done
+	# there must always be at least one variable reference
+	if [[ ${#SLICE__option_references[@]} -eq 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference must be provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# if inputs, or if only a single target, then the first target remains a target
+	# if no inputs, then the first array variable is the input
+	if [[ ${#SLICE__option_inputs[@]} -eq 0 ]]; then
+		SLICE__reference="${SLICE__option_references[0]}"
+		eval "SLICE__option_inputs+=(\"\${${SLICE__reference}[@]}\")" || return
+		if [[ ${#SLICE__option_references[@]} -ne 1 ]]; then
+			# the first target is only an input, and not a target
+			SLICE__option_references=("${SLICE__option_references[@]:1}")
+		fi
+	fi
+	# if no indices, then do them all
+	if [[ ${#SLICE__option_indices[@]} -eq 0 ]]; then
+		SLICE__option_indices+=(0)
+	fi
+	# process indices
+	local SLICE__left SLICE__right SLICE__length SLICE__size SLICE__negative_size SLICE__results=()
+	SLICE__size="${#SLICE__option_inputs[@]}"
+	SLICE__negative_size=$((SLICE__size * -1))
+	# now that we have processed all our arguments, set the arguments to the indices
+	set -- "${SLICE__option_indices[@]}"
+	while [[ $# -ne 0 ]]; do
+		SLICE__left="$1"
+		shift
+		if [[ $SLICE__left == '-0' ]]; then
+			SLICE__left="$SLICE__size"
+		elif [[ $SLICE__left -lt $SLICE__negative_size ]]; then
+			# convert negative left to length, which is what bash uses
+			SLICE__left=0
+		fi
 		# have right?
 		if [[ $# -eq 0 ]]; then
 			# no right, keep everything from left
-			# trunk-ignore(shellcheck/SC1087)
-			eval "results+=(\"\${$array_var_name[@]:$left}\")"
+			SLICE__results+=("${SLICE__option_inputs[@]:SLICE__left}")
 		else
 			# has right, keep everything from left to right
 			# convert right to length, which is what bash uses
-			right="$1"
-			length="$((right - left))"
-			# trunk-ignore(shellcheck/SC1087)
-			eval "results+=(\"\${$array_var_name[@]:$left:$length}\")"
+			SLICE__right="$1"
 			shift
+			if [[ $SLICE__right == '-0' ]]; then
+				SLICE__right="$SLICE__size"
+			fi
+			SLICE__length="$((SLICE__right - SLICE__left))"
+			SLICE__results+=("${SLICE__option_inputs[@]:SLICE__left:SLICE__length}")
 		fi
 	done
-	# mutate the array variable
-	eval "$array_var_name=(\"\${results[@]}\")"
+	# apply the results to the targets
+	if [[ $SLICE__option_append == 'yes' ]]; then
+		# append to the target
+		for SLICE__reference in "${SLICE__option_references[@]}"; do
+			SLICE__eval_statement+="$SLICE__reference+=(\"\${SLICE__results[@]}\"); "
+		done
+	else
+		# replace the target with the SLICE__results
+		for SLICE__reference in "${SLICE__option_references[@]}"; do
+			SLICE__eval_statement+="$SLICE__reference=(\"\${SLICE__results[@]}\"); "
+		done
+	fi
+	eval "$SLICE__eval_statement" || return
 }
+
+# push: add the last elements
+# function __append { ... }
+# just do: array+=("$@")
+
+# unshift: add the first elements
+# function __prepend { ... }
+# just do: array=("$@" "${array[@]}")
+
+# pop: remove the last elements
+# function __remove_last { ... }
+
+# shift: remove the first elements
+# function __remove_first { ... }
 
 # complement and intersect prototype also available at: https://gist.github.com/balupton/80d27cf1a9e193f8247ee4baa2ad8566

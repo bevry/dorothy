@@ -414,25 +414,40 @@ a_function_which_failure_IS_NOT_the_last_command
 We can see the unexpected behaviour of conditional errexit disablement in action via the following examples:
 
 ```bash
-# Enable errexit, using conditionals output whether the invocation had success or failure
+set -e
+a_function_which_failure_IS_NOT_the_last_command || :
+# outputs:
+# before and after failure
+
+set -e
+status=0
+a_function_which_failure_IS_NOT_the_last_command || status=$?
+printf '%s\n' "status=$status"
+# outputs:
+# before and after failure
+# status=0
+
 set -e
 ( a_function_which_failure_IS_NOT_the_last_command && printf '%s\n' 'invocation success' ) || printf '%s\n' "invocation failure: $?"
 # outputs:
 # before and after failure
 # invocation success
-# exit status: 0
 
-# same for this:
 set -e
 a_function_which_failure_IS_NOT_the_last_command && printf '%s\n' 'invocation success'
+# outputs:
+# before and after failure
+# invocation success
 
-# and this:
 set -e
 if a_function_which_failure_IS_NOT_the_last_command; then
 	printf '%s\n' 'invocation success'
 else
 	printf '%s\n' 'invocation failure'
 fi
+# outputs:
+# before and after failure
+# invocation success
 
 # and this:
 set -e
