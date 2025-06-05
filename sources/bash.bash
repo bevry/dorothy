@@ -176,6 +176,11 @@ function __is_positive_integer {
 	[[ $1 =~ ^[0-9]+$ ]] || return
 }
 
+# or you if you already know it is an integer, you can just do: [[ $1 -lt 0 ]]
+function __is_negative_integer {
+	[[ $1 =~ ^-[0-9]+$ ]] || return
+}
+
 function __is_integer {
 	[[ $1 =~ ^[-]?[0-9]+$ ]] || return
 }
@@ -385,6 +390,68 @@ function __sudo_mkdirp {
 	dorothy-warnings add --code='__sudo_mkdirp' --bold=' has been deprecated in favor of ' --code='__elevate_mkdirp' || :
 	__elevate "$@" || return
 	return
+}
+
+# get the value at the index of the reference
+# __at {<reference>} <index> | __at <index> {<reference>}
+# __at <string> <index> | __at <index> <string>
+function __at {
+	local AT__reference AT__item AT__input='' AT__index='' AT__value AT__size AT__negative_size AT__eval_statement
+	while [[ $# -ne 0 ]]; do
+		AT__item="$1"
+		shift
+		if __is_integer "$AT__item"; then
+			if [[ -n $AT__index ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Multiple indexes were provided, only one is allowed." >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			AT__index="$AT__item"
+		else
+			if [[ -n $AT__input ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Multiple inputs were provided, only one is allowed." >&2 || :
+			fi
+			AT__input="$AT__item"
+		fi
+	done
+	if [[ -z $AT__index ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: No index was provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if [[ -z $AT__input ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: No input was provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if __is_reference "$AT__input"; then
+		AT__reference="$(__get_reference_name "$AT__input")" || return
+		if [[ $AT__reference == AT__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $AT__reference as it is used internally." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		if ! __is_integer "$AT__index"; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index must be an integer, got: $AT__index" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		if __is_array "$AT__reference"; then
+			eval "AT__size=\${#${AT__reference}[@]}"
+			AT__eval_statement="AT__value=\"\${${AT__reference}[AT__index]}\""
+		else
+			eval "AT__size=\${#${AT__reference}}"
+			AT__eval_statement="AT__value=\"\${${AT__reference}:\"$AT__index\":1}\""
+		fi
+	else
+		AT__reference='AT__input'
+		AT__size="${#AT__input}"
+		AT__eval_statement="AT__value=\"\${${AT__reference}:\"$AT__index\":1}\""
+	fi
+	AT__negative_size="$((AT__size * -1))"
+	if [[ $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: The index $AT__index was out of range $AT__negative_size (inclusive) to $AT__size (exclusive)." >&2 || :
+		return 14 # EFAULT 14 Bad address
+	elif [[ $AT__index -lt 0 ]]; then
+		AT__index="$((AT__size + AT__index))"
+	fi
+	eval "$AT__eval_statement" || return
+	__print_lines "$AT__value" || return
 }
 
 # bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
@@ -2704,6 +2771,48 @@ function __has {
 			fi
 		done
 		return 1
+	fi
+}
+
+# get the index of the needle
+# __index {<array-var-name>} <needle>
+# __index <needle> -- ...<element>
+# doesn't print anything if index not found
+# @todo support index checks for bash associative arrays and strings
+function __index {
+	if [[ $2 == '--' ]]; then
+		# __has <needle> -- ...<element>
+		local needle="$1" index=0
+		shift # trim needle
+		shift # trim --
+		while [[ $# -ne 0 ]]; do
+			local item="$1"
+			shift # trim item
+			if [[ $needle == "$item" ]]; then
+				__print_lines "$index" || return
+				return 0
+			fi
+			index="$((index + 1))"
+		done
+		return 0
+	else
+		# __has <array-var-name> <needle>
+		# trunk-ignore(shellcheck/SC2034)
+		local HAS__reference="$1" HAS__needle="$2" HAS__size HAS__index
+		HAS__reference="$(__get_reference_name "$HAS__reference")" || return
+		if [[ $HAS__reference == HAS__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		# trunk-ignore(shellcheck/SC1087)
+		eval "HAS__size=\${#$HAS__reference[@]}" || return
+		for ((HAS__index = 0; HAS__index < HAS__size; ++HAS__index)); do
+			# trunk-ignore(shellcheck/SC1087)
+			if eval "[[ \$HAS__needle == \"\${$HAS__reference[HAS__index]}\" ]]"; then
+				__print_lines "$HAS__index" || return
+			fi
+		done
+		return 0
 	fi
 }
 
