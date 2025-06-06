@@ -120,7 +120,6 @@ function is_fs_tests__prep {
 		"$root/targets/unwritable-empty-file" \
 		"$root/targets/unwritable-filled-dir" \
 		"$root/targets/unwritable-filled-file"
-	# [-n] doesn't exist on linux chown
 	fs-own --root --permissions='a-xrw,u+xrw' -- \
 		"$root/targets/unaccessible-empty-dir" \
 		"$root/targets/unaccessible-empty-file" \
@@ -130,10 +129,13 @@ function is_fs_tests__prep {
 	echo-style --tty --header1='prepping structure'
 	fs-structure -- "$root/targets" >&2
 
+	# if running locally, sudo elevation may have occurred, which will change our test results, as such reset the sudo elevation such that the tests behave consistently
+	eval-helper --invalidate-elevation
+
 	__print_lines "$root"
 }
 function __status__root_or_nonroot {
-	if is-root --quiet; then
+	if is-root --quiet --login; then
 		__print_lines "$1"
 	else
 		__print_lines "$2"
@@ -176,10 +178,11 @@ function is_fs_tests__tuples {
 	for ((index = 0; index < total; index += 2)); do
 		status="${tuples[index]}"
 		path="${tuples[index + 1]}"
+		# --ignore-tty to ignore elevation output on non-root systems like local macOS
 		if [[ ${#args[@]} -eq 0 ]]; then
-			eval-tester --name="$index / $total" --status="$status" -- "$command" -- "$path" || result=$?
+			eval-tester --ignore-tty --name="$index / $total" --status="$status" -- "$command" -- "$path" || result=$?
 		else
-			eval-tester --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path" || result=$?
+			eval-tester --ignore-tty --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path" || result=$?
 		fi
 	done
 	if [[ $result -ne 0 ]]; then
