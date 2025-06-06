@@ -205,16 +205,13 @@ function __dump {
 		fi
 		if __is_array "$DUMP__reference"; then
 			local DUMP__index DUMP__total
-			eval "DUMP__total=\${#$DUMP__reference[@]}"
+			eval "DUMP__total=\${#${DUMP__reference}[@]}"
 			if [[ $DUMP__total == 0 ]]; then
-				# trunk-ignore(shellcheck/SC1087)
-				DUMP__log+=(--bold="$DUMP__reference[@]" ' = ' --dim+icon-nothing-provided --newline)
+				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --dim+icon-nothing-provided --newline)
 			else
-				# trunk-ignore(shellcheck/SC1087)
 				for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do
 					eval 'DUMP__value="${!DUMP__reference[DUMP__index]}"'
-					# trunk-ignore(shellcheck/SC1087)
-					DUMP__log+=(--bold="${DUMP__reference}[$DUMP__index]" ' = ' --invert="$DUMP__value" --newline)
+					DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --invert="$DUMP__value" --newline)
 				done
 			fi
 		else
@@ -454,67 +451,90 @@ function __at {
 	__print_lines "$AT__value" || return
 }
 
-# bash < 4.2 doesn't support negative lengths, bash >= 4.2 supports negative start indexes however it requires a preceding space or wrapped parenthesis if done directly: ${var: -1} or ${var:(-1)}
-# the bash >= 4.2 behaviour returns empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive: v=12345; s=-6; __print_lines "${v:s}"
-if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
-	function __get_substring {
-		local string="$1"
-		local -i size="${#string}" negative_size start="${2:-0}"
-		negative_size=$((size * -1))
-		if [[ $start -lt $negative_size ]]; then
-			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
-			start=0
-		elif [[ $start -ge $size ]]; then
-			return 0
+function __absolute {
+	if __is_negative_integer "$1"; then
+		# convert negative to positive
+		__print_lines "$(($1 * -1))" || return
+	else
+		# leave positive as is
+		__print_lines "$1" || return
+	fi
+}
+
+# bash >= 5.2 supports negative indexes and negative lengths, via ${var: -3: -1} and ${var:(-3):(-1)} and ${var:"-3":"-1"} and ${var:$start:$length} and ${var:start:length}
+# bash >= 4.2 supports negative start indexes and negative lengths, via ${var: -3: -1} or ${var:(-3):(-1)} and ${var:$start:$length} and ${var:start:length} BUT NOT via ${var:"-1"}
+# bash >= 3.2 supports negative start indexes but not negative lengths, via ${var: -3: 1} or ${var:(-3):1} and ${var:$start:$length} and ${var:start:length} BUT NOT via ${var:"-1"}
+# all bash versions return an empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive; we change it to still function as a window
+# all bash versions crash if the length is negative and is out of bounds; note that a positive length that is out of bounds does not crash; we change it to a no-op
+# @todo support switching between --lengths and --indices for positive integers
+# @note it's algorithm should be the same as __slice and __split
+function __get_substring {
+	# handle string
+	if [[ -z $1 ]]; then
+		return 0 # no-op, as the string is empty
+	fi
+	local string="$1"
+	local -i start length size="${#string}" remaining
+	# determine start
+	if [[ -z ${2-} ]]; then
+		start=0
+	elif [[ $2 == '-0' ]]; then
+		return 0 # no-op
+	elif __is_integer "$2"; then
+		start="$2"
+		if __is_negative_integer "$start"; then
+			start="$((size + start))" # note that size could be like 5, and start be like -10, which still results in -5
 		fi
-		if [[ -z ${3-} ]]; then
-			if [[ $start -eq 0 ]]; then
-				__print_lines "$string" || return
-			else
-				__print_lines "${string:start}" || return
-			fi
+		if [[ $start -ge $size ]]; then
+			return 0 # no-op, as start is beyond the end of the string
+		fi
+	else
+		__print_lines "ERROR: ${FUNCNAME[0]}: The start index must be a positive or negative integer, got: $2" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# determine length
+	if [[ -z ${3-} || $3 == '-0' ]]; then
+		# no length specified, use the remaining length
+		if [[ $start -le 0 ]]; then
+			# if start is 0, we can just print the whole string
+			__print_string "$string" || return
 		else
-			local -i length="$3"
-			# bash does not support :"$3" for some reason:
-			# string: "-1": syntax error: operand expected (error token is ""-1"")
-			__print_lines "${string:start:length}" || return
+			# if start is not 0, we can just print the substring from start to the end
+			__print_string "${string:start}" || return
 		fi
-	}
-else
-	# __get_substring <string> [<start>] [<length>]
-	function __get_substring {
-		local string="$1"
-		local -i size="${#string}" negative_size start="${2:-0}" length remaining
-		negative_size=$((size * -1))
-		if [[ $start -lt 0 ]]; then
-			# this isn't an official thing, as it is conflated with "${var:-fallback}", however it is intuited and expected
-			if [[ $start -lt $negative_size ]]; then
+		return 0
+	elif __is_integer "$3"; then
+		length="$3"
+		if __is_negative_integer "$length"; then
+			if [[ $start -lt 0 ]]; then
 				start=0
-			else
-				start+=size
 			fi
-		elif [[ $start -ge $size ]]; then
-			return 0
+			length="$((size + length - start))" # note this could still result in a negative length, if size was 5, and length was -10
+		elif [[ $start -lt 0 ]]; then
+			if [[ "$((start + length))" -le 0 ]]; then
+				return 0
+			fi
+			length="$((length + start))" # reduce the length by the out of the bounds negative start
+			start=0
 		fi
-		remaining=$((size - start))
-		if [[ -z ${3-} ]]; then
-			length=remaining
+	else
+		__print_lines "ERROR: ${FUNCNAME[0]}: The length must be a positive or negative integer, got: $3" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# start and length ought now be >= 0
+	# determine window
+	if [[ $length -lt 0 ]]; then
+		return 0 # no-op, as there is no size left
+	else
+		remaining="$((size - start))"
+		if [[ $length -ge $remaining ]]; then
+			__print_string "${string:start}" || return
 		else
-			length=$3
-			if [[ $length -gt $remaining ]]; then
-				length=remaining
-			elif [[ $length -lt 0 ]]; then
-				if [[ $length -le $remaining*-1 ]]; then
-					return 0
-				else
-					# trunk-ignore(shellcheck/SC2100)
-					length+=size-start
-				fi
-			fi
+			__print_string "${string:start:length}" || return
 		fi
-		__print_lines "${string:start:length}" || return
-	}
-fi
+	fi
+	return 0
+}
 
 # bc alias
 function __substr {
@@ -2762,11 +2782,9 @@ function __has {
 			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		fi
-		# trunk-ignore(shellcheck/SC1087)
-		eval "HAS__size=\${#$HAS__reference[@]}" || return
+		eval "HAS__size=\${#${HAS__reference}[@]}" || return
 		for ((HAS__index = 0; HAS__index < HAS__size; ++HAS__index)); do
-			# trunk-ignore(shellcheck/SC1087)
-			if eval "[[ \$HAS__needle == \"\${$HAS__reference[HAS__index]}\" ]]"; then
+			if eval "[[ \$HAS__needle == \"\${${HAS__reference}[HAS__index]}\" ]]"; then
 				return 0
 			fi
 		done
@@ -2804,11 +2822,9 @@ function __index {
 			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		fi
-		# trunk-ignore(shellcheck/SC1087)
-		eval "HAS__size=\${#$HAS__reference[@]}" || return
+		eval "HAS__size=\${#${HAS__reference}[@]}" || return
 		for ((HAS__index = 0; HAS__index < HAS__size; ++HAS__index)); do
-			# trunk-ignore(shellcheck/SC1087)
-			if eval "[[ \$HAS__needle == \"\${$HAS__reference[HAS__index]}\" ]]"; then
+			if eval "[[ \$HAS__needle == \"\${${HAS__reference}[HAS__index]}\" ]]"; then
 				__print_lines "$HAS__index" || return
 			fi
 		done
