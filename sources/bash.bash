@@ -306,6 +306,7 @@ function __prepare_login_user {
 	if ! __is_var_set {LOGIN_USER}; then
 		LOGIN_USER="${SUDO_USER-}"
 		if [[ -z $LOGIN_USER ]]; then
+			# @todo [users] can return multiple users, so we need to handle that
 			LOGIN_USER="$(users)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the login user." >&2 || return
 		fi
 	fi
