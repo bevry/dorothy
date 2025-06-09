@@ -129,14 +129,15 @@ function is_fs_tests__prep {
 	echo-style --tty --header1='prepping structure'
 	fs-structure -- "$root/targets" >&2
 
-	# if running locally, sudo elevation may have occurred, which will change our test results, as such reset the sudo elevation such that the tests behave consistently
+	# invalidate elevation after the [fs-own] calls above, such that our [__status__root_or_nonroot] returns correct results
 	eval-helper --invalidate-elevation
 
 	__print_lines "$root"
 }
 function __status__root_or_nonroot {
-	# we do --login here, so we don't have to --invalidate-elevation at the start and of of every [is_fs_tests__tuples]
-	if is-root --login; then
+	# don't do login, as it just wiggles around what we actually need, which is for the current user to be the current elevation
+	# note that invalidation in a process that is already elevated has no effect on that process, only those beyond it
+	if is-root; then
 		__print_lines "$1"
 	else
 		__print_lines "$2"
@@ -176,6 +177,7 @@ function is_fs_tests__tuples {
 		echo-style --h2="$group"
 	fi
 	local index status path total="${#tuples[@]}" result=0
+	eval-helper --invalidate-elevation # ensure tests are running with intended elevation
 	for ((index = 0; index < total; index += 2)); do
 		status="${tuples[index]}"
 		path="${tuples[index + 1]}"
@@ -186,6 +188,7 @@ function is_fs_tests__tuples {
 			eval-tester --ignore-tty --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path" || result=$?
 		fi
 	done
+	eval-helper --invalidate-elevation # ensure subsequent [__status__root_or_nonroot] are running with intended elevation
 	if [[ $result -ne 0 ]]; then
 		if [[ -n $group ]]; then
 			echo-style --e2="$group"
