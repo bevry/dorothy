@@ -306,8 +306,22 @@ function __prepare_login_user {
 	if ! __is_var_set {LOGIN_USER}; then
 		LOGIN_USER="${SUDO_USER-}"
 		if [[ -z $LOGIN_USER ]]; then
-			# @todo [users] can return multiple users, so we need to handle that
-			LOGIN_USER="$(users)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the login user." >&2 || return
+			function __cut {
+				# turn `balupton balupton ...` into `balupton`
+				local first
+				IFS=' ' read -r first _
+				__print_lines "$first"
+			}
+			LOGIN_USER="$(users | __cut || :)"
+			if [[ -z $LOGIN_USER ]]; then
+				# if [users] didn't work (as is the case on CI) then get the current user instead
+				__prepare_current_user || :
+				LOGIN_USER="$CURRENT_USER"
+				if [[ -z $LOGIN_USER ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the login user." >&2 || :
+					return 1
+				fi
+			fi
 		fi
 	fi
 }
@@ -315,49 +329,75 @@ function __prepare_login_uid {
 	if ! __is_var_set {LOGIN_UID}; then
 		LOGIN_UID="${SUDO_UID-}"
 		if [[ -z $LOGIN_UID ]]; then
-			__prepare_login_user || return
-			LOGIN_UID="$(id -u "$LOGIN_USER")" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the login user." >&2 || return
+			__prepare_login_user || :
+			LOGIN_UID="$(id -u "$LOGIN_USER" || :)"
+			if [[ -z $LOGIN_UID ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the login user." >&2 || :
+				return 1
+			fi
 		fi
 	fi
 }
 function __prepare_login_group {
 	if ! __is_var_set {LOGIN_GROUP}; then
-		__prepare_login_uid || return
-		# trunk-ignore(shellcheck/SC2034)
-		LOGIN_GROUP="$(id -gn "$LOGIN_UID")" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the login user." >&2 || return
+		local
+		__prepare_login_uid || :
+		LOGIN_GROUP="$(id -gn "$LOGIN_UID" || :)"
+		if [[ -z $LOGIN_GROUP ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the login user." >&2 || :
+			return 1
+		fi
 	fi
 }
 function __prepare_login_gid {
 	if ! __is_var_set {LOGIN_GID}; then
 		LOGIN_GID="${SUDO_GID-}"
 		if [[ -z $LOGIN_GID ]]; then
-			__prepare_login_uid
-			LOGIN_GID="$(id -g "$LOGIN_UID")" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the login user." >&2 || return
+			__prepare_login_uid || :
+			LOGIN_GID="$(id -g "$LOGIN_UID" || :)"
+			if [[ -z $LOGIN_GID ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the login user." >&2 || :
+				return 1
+			fi
 		fi
 	fi
 }
 function __prepare_login_groups {
 	if ! __is_var_set {LOGIN_GROUPS}; then
-		__prepare_login_uid || return
 		local groups
-		groups="$(id -Gn "$LOGIN_UID")" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups of the login user." >&2
-		__split {LOGIN_GROUPS} --delimiter=' ' -- "$groups" || return
+		__prepare_login_uid || :
+		groups="$(id -Gn "$LOGIN_UID" || :)"
+		__split {LOGIN_GROUPS} --delimiter=' ' --no-zero-length -- "$groups" || :
+		if [[ ${#LOGIN_GROUPS[@]} -eq 0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the login user." >&2 || :
+			return 1
+		fi
 	fi
 }
 function __prepare_login_gids {
 	if ! __is_var_set {LOGIN_GIDS}; then
-		__prepare_login_uid || return
 		local groups
-		groups="$(id -G "$LOGIN_UID")" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the login user." >&2
-		__split {LOGIN_GIDS} --delimiter=' ' -- "$groups" || return
+		__prepare_login_uid || :
+		groups="$(id -G "$LOGIN_UID" || :)"
+		__split {LOGIN_GIDS} --delimiter=' ' --no-zero-length -- "$groups" || :
+		# trunk-ignore(shellcheck/SC2153)
+		if [[ ${#LOGIN_GIDS[@]} -eq 0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the login user." >&2 || :
+			return 1
+		fi
 	fi
 }
 function __prepare_current_user {
 	if ! __is_var_set {CURRENT_USER}; then
 		CURRENT_USER="${USER-}"
 		if [[ -z $CURRENT_USER ]]; then
+			# [whoami] is deprecated is replaced/delegates to [id -un]
 			# note that `dorothy` sets [USER] to the parent of the Dorothy installation, which is appropriate for its [cron] use case
-			CURRENT_USER="$(id -un)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the current user." >&2 || return
+			CURRENT_USER="$(id -un || :)"
+			if [[ -z $CURRENT_USER ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the current user." >&2 || :
+				return 1
+			fi
 		fi
 	fi
 }
@@ -365,20 +405,32 @@ function __prepare_current_uid {
 	if ! __is_var_set {CURRENT_UID}; then
 		CURRENT_UID="${UID-}"
 		if [[ -z $CURRENT_UID ]]; then
-			CURRENT_UID="$(id -u)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the current user." >&2 || return
+			CURRENT_UID="$(id -u || :)"
+			if [[ -z $CURRENT_UID ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the current user." >&2 || :
+				return 1
+			fi
 		fi
 	fi
 }
 function __prepare_current_group {
 	if ! __is_var_set {CURRENT_GROUP}; then
 		# trunk-ignore(shellcheck/SC2034)
-		CURRENT_GROUP="$(id -gn)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || return
+		CURRENT_GROUP="$(id -gn || :)"
+		if [[ -z $CURRENT_GROUP ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || :
+			return 1
+		fi
 	fi
 }
 function __prepare_current_gid {
 	if ! __is_var_set {CURRENT_GID}; then
 		# trunk-ignore(shellcheck/SC2034)
-		CURRENT_GID="$(id -g)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || return
+		CURRENT_GID="$(id -g || :)"
+		if [[ -z $CURRENT_GID ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || :
+			return 1
+		fi
 	fi
 }
 function __prepare_current_groups {
@@ -389,16 +441,25 @@ function __prepare_current_groups {
 		fi
 		if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
 			local groups
-			groups="$(id -Gn)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups of the current user." >&2
-			__split {CURRENT_GROUPS} --delimiter=' ' -- "$groups" || return
+			groups="$(id -Gn || :)"
+			__split {CURRENT_GROUPS} --delimiter=' ' --no-zero-length -- "$groups" || :
+			if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the current user." >&2 || :
+				return 1
+			fi
 		fi
 	fi
 }
 function __prepare_current_gids {
 	if ! __is_var_set {CURRENT_GIDS}; then
 		local groups
-		groups="$(id -G)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the current user." >&2
-		__split {CURRENT_GIDS} --delimiter=' ' -- "$groups" || return
+		groups="$(id -G || :)"
+		__split {CURRENT_GIDS} --delimiter=' ' --no-zero-length -- "$groups" || :
+		# trunk-ignore(shellcheck/SC2153)
+		if [[ ${#CURRENT_GIDS[@]} -eq 0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the current user." >&2 || :
+			return 1
+		fi
 	fi
 }
 
