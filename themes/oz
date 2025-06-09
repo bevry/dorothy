@@ -3,103 +3,143 @@
 # both support arrays
 
 # ansi escape codes in bash and zsh
-RED=$'\e[31m'
-GREEN=$'\e[32m'
-YELLOW=$'\e[33m' # should match [style__color__path]
-BLUE=$'\e[34m'
-CYAN=$'\e[36m'
-NO_COLOR=$'\e[0m'
+C_RESET=$'\e[0m'
+# C_BOLD=$'\e[1m'
+# C_END_BOLD=$'\e[22m'
+# C_DIM=$'\e[2m'
+# C_END_DIM=$'\e[22m'
+C_ITALIC=$'\e[3m'
+# C_END_ITALIC=$'\e[23m'
+# C_UNDERLINE=$'\e[4m'
+# C_END_UNDERLINE=$'\e[24m'
+# C_INVERT=$'\e[7m'
+# C_END_INVERT=$'\e[27m'
+# C_BLINK=$'\e[5m' <-- nothing really supports it
+
+# C_BLACK=$'\e[30m'
+C_RED=$'\e[31m'
+C_GREEN=$'\e[32m'
+C_YELLOW=$'\e[33m'
+C_BLUE=$'\e[34m'
+C_MAGENTA=$'\e[35m'
+C_CYAN=$'\e[36m'
+C_WHITE=$'\e[37m'
+C_INTENSE_WHITE=$'\e[97m'
+C_BACKGROUND_RED=$'\e[41m'
+
 NEWLINE=$'\n'
 TITLE_START=$'\e]0;'
 TITLE_END=$'\a'
 
-# alias colors for their specific usages
-C_RESET="$NO_COLOR"
-C_TIME="$GREEN"
-C_USER="$BLUE"
-C_PATH="$YELLOW"
-C_CLEAN="$CYAN"
-C_DIRTY="$RED"
-C_ERROR="$RED"
+SEPARATOR=":"
+SEPARATOR_LENGTH="${#SEPARATOR}"
+C_SEPARATOR="${C_WHITE}:${C_RESET}"
+C_SEPARATOR_LENGTH="${#C_SEPARATOR}"
 
-# Function to assemble the Git part of our prompt
-function get_git_prompt {
-	local c_git git_branch
-	# silence stderr
-	git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || :)"
-	if [[ -n $git_branch ]]; then
-		# silence stdout and stderr
-		if git diff --quiet &>/dev/null; then
-			c_git="$C_CLEAN"
-		else
-			c_git="$C_DIRTY"
-		fi
-		# [* master] to [master]
-		printf '%s\n' "${c_git}${git_branch/* /}${C_RESET}"
-	fi
-}
+# ctrl+a ctrl+e break on apple terminal and vscode when the symbol has colors / invisible characters
+# sudo erases TERM_PROGRAM, TERM is kept though, but TERM is generic, so just add support for terminals that support it
+if [[ ${TERM-} == 'xterm-ghostty' ]]; then
+	PROMPT_LINE_COLORS_SUPPORTED='yes'
+else
+	PROMPT_LINE_COLORS_SUPPORTED='no'
+fi
 
-# Theme
+if type -P sudo &>/dev/null; then
+	function __is_authenticated {
+		sudo --non-interactive -- true &>/dev/null || return
+	}
+elif type -P dias &>/dev/null; then
+	function __is_authenticated {
+		doas -n true &>/dev/null || return
+	}
+else
+	function __is_authenticated {
+		return 0 # no sudo or doas, so we are authenticated
+	}
+fi
+
+# theme
 function oztheme {
-	# prepare
-	local c_user="$C_USER" \
-		shell="$1" \
-		last_command_exit_status="$2" \
-		title='' prefix='' suffix='' separator=':' user='' symbol='> ' \
-		target="${PWD/HOME/~}" \
-		git_prompt moment
-	git_prompt="$(get_git_prompt)"
-	moment="$(date +%H:%M:%S)"
+	local shell="$1" last_command_exit_status="$2" prompt_segments=() prompt='' title_segments=() title='' \
+	c_suffix nc_suffix suffix authenticated='' time git_branch target="${PWD/HOME/~}" \
+	i n
 
-	# is-ssh, it is duplicated here in case $DOROTHY is not in path,
-	# which can happen if relocating dorothy to xdg
-	if [[ -n ${SSH_CONNECTION-} || -n ${SSH_CLIENT-} || -n ${SSH_TTY-} ]]; then
-		user="${USER}@${HOSTNAME}"
-		c_user="$C_DIRTY"
-	fi
-
-	# construct prefix and title
+	# LAST COMMAND EXIT STATUS
 	if [[ $last_command_exit_status -ne 0 ]]; then
-		prefix+="${C_ERROR}[${last_command_exit_status}]${C_RESET}${separator}"
-	fi
-	if [[ -n $moment ]]; then
-		prefix+="${C_TIME}${moment}${C_RESET}${separator}"
-	fi
-	if [[ -n $user ]]; then
-		prefix+="${c_user}${user}${C_RESET}${separator}"
-		title+="${user}${separator}"
-	fi
-	if [[ -n $target ]]; then
-		prefix+="${C_PATH}${target}${C_RESET}${separator}"
-		title+="${target}${separator}"
-	fi
-	if [[ -n $git_prompt ]]; then
-		prefix+="${git_prompt}${separator}"
+		prompt_segments+=("${C_RED}[${last_command_exit_status}]")
 	fi
 
-	if [[ -n $symbol ]]; then
-		suffix="${suffix}${symbol}"
+	if [[ -n ${SUDO_USER-} && $SUDO_USER != "$USER" ]]; then
+		# after much experimentation, we don't actually care for adding the login user to the prompt, we only care about showing the active user
+		# https://unix.stackexchange.com/a/362773
+		nc_suffix="${USER} "
+		if [[ $USER == 'root' ]]; then
+			c_suffix="${C_BACKGROUND_RED}${C_INTENSE_WHITE}${USER}${C_RESET} "
+			authenticated='yes'
+		else
+			c_suffix="${C_MAGENTA}${C_ITALIC}${USER}${C_RESET} "
+		fi
+		title_segments+=("${USER}")
 	fi
-
-	# delete the last separator
-	if [[ -n $BASH_VERSION ]]; then
-		# bash v3+
-		prefix_length="${#prefix}"
-		title_length="${#title}"
-		prefix="${prefix:0:prefix_length-1}"
-		title="${title:0:title_length-1}"
+	if [[ $authenticated == 'yes' ]] || __is_authenticated; then
+		c_suffix+="${C_RED}#${C_RESET} "
+		nc_suffix+="# "
 	else
-		# zsh, bash v4+
-		prefix="${prefix:0:-1}"
-		title="${title:0:-1}"
+		c_suffix+="${C_WHITE}\$${C_RESET} "
+		nc_suffix+='$ '
 	fi
+	if [[ $PROMPT_LINE_COLORS_SUPPORTED == 'yes' ]]; then
+		suffix="$c_suffix"
+	else
+		suffix="$nc_suffix"
+	fi
+
+	# TIME SEGMENT
+	time="$(date +%H:%M:%S || :)"
+	if [[ -n $time ]]; then
+		prompt_segments+=("${C_GREEN}${time}")
+	fi
+
+	# SUDO, SSH, HOSTNAME
+	if [[ -n ${SSH_CONNECTION-} || -n ${SSH_CLIENT-} || -n ${SSH_TTY-} ]]; then
+		prompt_segments+=("${C_CYAN}${SUDO_USER:-"$USER"}${C_BLUE}@${HOSTNAME}")
+		title_segments+=("${SUDO_USER:-"$USER"}@${HOSTNAME}")
+	fi
+
+	# PATH SEGMENT
+	if [[ -n $target ]]; then
+		prompt_segments+=("${C_YELLOW}${target}")
+		title_segments+=("${target}")
+	fi
+
+	# GIT BRANCH
+	# note that if you are running as another user, this will fail with: fatal: detected dubious ownership in repository at ...
+	git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || :)" || :
+	git_branch="${git_branch/* /}" # [* master] to [master]
+	if [[ -n $git_branch ]]; then
+		if git diff --quiet &>/dev/null; then
+			prompt_segments+=("${C_CYAN}${git_branch}")
+		else
+			prompt_segments+=("${C_RED}${git_branch}")
+		fi
+	fi
+
+	# compose the segments
+	for ((i = 0, n = ${#prompt_segments[@]}; i < n; i++)); do
+		prompt+="${C_SEPARATOR}${prompt_segments[i]}${C_RESET}"
+	done
+	for ((i = 0, n = ${#title_segments[@]}; i < n; i++)); do
+		title+="${SEPARATOR}${title_segments[i]}"
+	done
+	prompt="${prompt:C_SEPARATOR_LENGTH}" # remove the first separator
+	title="${title:SEPARATOR_LENGTH}"     # remove the first separator
 
 	# Bash
 	if [[ $shell == 'bash' ]]; then
 		# sourced
 
 		# apply prompt
-		PS1="${prefix}${NEWLINE}${suffix}"
+		PS1="${prompt}${NEWLINE}${suffix}"
 		# ^ don't export, as if bash is the login shell, bash subshells will also inherit this
 
 		# apply title
@@ -112,7 +152,7 @@ function oztheme {
 		# sourced
 
 		# apply prompt
-		PS1="${prefix}${NEWLINE}${suffix}"
+		PS1="${prompt}${NEWLINE}${suffix}"
 		# ^ don't export, as there is no need to
 
 		# apply title
@@ -123,7 +163,7 @@ function oztheme {
 		# run via command
 
 		# output prompt
-		printf '%s' "${prefix}${NEWLINE}${suffix}"
+		printf '%s' "${prompt}${NEWLINE}${suffix}"
 	fi
 }
 

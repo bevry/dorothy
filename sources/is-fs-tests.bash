@@ -135,7 +135,8 @@ function is_fs_tests__prep {
 	__print_lines "$root"
 }
 function __status__root_or_nonroot {
-	if is-root --quiet --login; then
+	# we do --login here, so we don't have to --invalidate-elevation at the start and of of every [is_fs_tests__tuples]
+	if is-root --login; then
 		__print_lines "$1"
 	else
 		__print_lines "$2"
