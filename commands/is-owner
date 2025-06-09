@@ -16,27 +16,38 @@ function is_owner_test() (
 	eval-tester --name='missing' --status=2 -- \
 		is-owner -- "$DOROTHY/this-does-not-exist"
 
+	eval-tester --name='missing' --status=2 --stderr="The path was missing: $DOROTHY/this-does-not-exist" -- \
+		is-owner --no-color --verbose -- "$DOROTHY/this-does-not-exist"
+
 	eval-tester --name='is owner of its created file' -- \
 		is-owner -- "$temp"
 
+	__prepare_current_user
+	__prepare_current_groups
+
+	eval-tester --name='is owner of its created file: USER' -- \
+		is-owner --users="$CURRENT_USER" -- "$temp"
+
+	eval-tester --name='is owner of its created file: GROUPS' -- \
+		is-owner --groups="${CURRENT_GROUPS[*]}" -- "$temp"
+
 	eval-tester --name='invalid uid is not owner' --status=93 -- \
-		is-owner --uid=0123456789 -- "$temp"
+		is-owner --users=0123456789 -- "$temp"
 
 	eval-tester --name='invalid gid is not owner' --status=93 -- \
-		is-owner --gid=0123456789 -- "$temp"
+		is-owner --groups=0123456789 -- "$temp"
 
 	eval-tester --name='invalid uname is not owner' --status=93 -- \
-		is-owner --uname=invalid -- "$temp"
+		is-owner --users=invalid -- "$temp"
 
 	eval-tester --name='invalid gname is not owner' --status=93 -- \
-		is-owner --gname=invalid -- "$temp"
+		is-owner --groups=invalid -- "$temp"
 
 	echo-style --g1="TEST: $0"
 	return 0
 )
 function is_owner() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
@@ -100,6 +111,10 @@ function is_owner() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-color'* | '--color'*)
+			export COLOR
+			COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")"
+			;;
 		'--no-verbose'* | '--verbose'*)
 			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
 			;;
@@ -153,13 +168,13 @@ function is_owner() (
 	# =====================================
 	# Action
 
-	local input found item uid user gid group fodder_to_respect_exit_status
+	local input found item uid user gid group fodder_to_respect_exit_status result_status=0
 	for input in "${option_paths[@]}"; do
 		if [[ -z $input ]]; then
 			help 'An empty <input> was provided.'
 		fi
 		found='no'
-		fodder_to_respect_exit_status="$(fs-owner --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
+		fodder_to_respect_exit_status="$(fs-owner --quiet="$option_quiet" --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
 		IFS=' ' read -r uid user gid group <<<"$fodder_to_respect_exit_status"
 		for item in "${option_users[@]}"; do
 			if [[ $uid == "$item" || $user == "$item" ]]; then
@@ -173,20 +188,26 @@ function is_owner() (
 		done
 		if [[ $found == 'no' ]]; then
 			if [[ $option_quiet == 'no' ]]; then
+				# let the user know it is not all good
 				local users groups
 				users="$(echo-join --delimiter="$(echo-style --italic='|')" --style=code -- "${option_users[@]}")"
 				groups="$(echo-join --delimiter="$(echo-style --italic='|')" --style=code -- "${option_groups[@]}")"
 				echo-style --stderr 'The path ' --path="$input" --=' has ownership of ' --code="$fodder_to_respect_exit_status" --=' which ' --error='does not match' --=" users:[$users] groups:[$groups]"
+				# if not quiet, let the user know all the failures
+				result_status=93 # EOWNERNOTMATCH 93 Owner does not match
+			else
+				# if quiet, we only care about failure or not failure, so fail early
+				return 93 # ENOATTR 93 Attribute not found
 			fi
-			return 93 # ENOATTR 93 Attribute not found
 		elif [[ $option_quiet == 'no' ]]; then
+			# let the user know it is all good
 			local users groups
 			users="$(echo-join --delimiter="$(echo-style --italic='|')" --style=code -- "${option_users[@]}")"
 			groups="$(echo-join --delimiter="$(echo-style --italic='|')" --style=code -- "${option_groups[@]}")"
 			echo-style --stderr 'The path ' --path="$input" --=' has ownership of ' --code="$fodder_to_respect_exit_status" --=' which ' --success='matched' --=" users:[$users] groups:[$groups]"
 		fi
 	done
-	return 0
+	return "$result_status"
 )
 
 # fire if invoked standalone
