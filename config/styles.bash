@@ -712,18 +712,18 @@ function refresh_style_cache {
 		if [[ $use_color == 'yes' ]]; then
 			# begin
 			var="style__color__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_set "{$var}"; then
 				eval "style__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_set "{$var}"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__nocolor__${style}"
 					eval "style__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_set "{$var}"; then
 						found='yes'
 					fi
 				fi
@@ -731,18 +731,18 @@ function refresh_style_cache {
 
 			# end
 			var="style__color_end__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_set "{$var}"; then
 				eval "style__end__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__end__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_set "{$var}"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__nocolor_end__${style}"
 					eval "style__end__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_set "{$var}"; then
 						found='yes'
 					fi
 				fi
@@ -750,18 +750,18 @@ function refresh_style_cache {
 		else
 			# begin
 			var="style__nocolor__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_set "{$var}"; then
 				eval "style__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_set "{$var}"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__color__${style}"
 					eval "style__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_set "{$var}"; then
 						found='yes'
 					fi
 				fi
@@ -769,18 +769,18 @@ function refresh_style_cache {
 
 			# end
 			var="style__nocolor_end__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_set "{$var}"; then
 				eval "style__end__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__end__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_set "{$var}"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__color_end__${style}"
 					eval "style__end__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_set "{$var}"; then
 						found='yes'
 					fi
 				fi

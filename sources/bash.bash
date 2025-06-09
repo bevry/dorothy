@@ -286,6 +286,135 @@ function __command_exists {
 	return 0 # all commands are present
 }
 
+# Bash automatically assigns variables that provide information about the current user (UID, EUID, and GROUPS), the current host (HOSTTYPE, OSTYPE, MACHTYPE, and HOSTNAME), and the instance of Bash that is running (BASH, BASH_VERSION, and BASH_VERSINFO). See Bash Variables, for details.
+# once elevated with sudo:
+# SUDO_GID=20
+# SUDO_UID=501
+# SUDO_USER=balupton
+# USER=root
+# before elevation:
+# USER=balupton
+# UID=501
+# EID=
+# in terms of terminology, there is uid, effective uid, real uid, and login uid: what their complete overlap is, I am unsure
+# `whoami` is deprecated in favour of `id -u`
+# `id` gives the current user and group
+# `users` give the login user
+# `groups` is an alias for `id -Gn` so it gives the current user's groups
+# regarding macos and linux, -u works on both macos and linux, as macos lacks --user
+function __prepare_login_user {
+	if ! __is_var_set {LOGIN_USER}; then
+		LOGIN_USER="${SUDO_USER-}"
+		if [[ -z $LOGIN_USER ]]; then
+			LOGIN_USER="$(users)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the login user." >&2 || return
+		fi
+	fi
+}
+function __prepare_login_uid {
+	if ! __is_var_set {LOGIN_UID}; then
+		LOGIN_UID="${SUDO_UID-}"
+		if [[ -z $LOGIN_UID ]]; then
+			{
+				__prepare_login_user || return
+				LOGIN_USER="$(id -u "$LOGIN_USER")" || return
+			} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the login user." >&2 || return
+		fi
+	fi
+}
+function __prepare_login_group {
+	if ! __is_var_set {LOGIN_GROUP}; then
+		{
+			__prepare_login_uid || return
+			# trunk-ignore(shellcheck/SC2034)
+			LOGIN_GROUP="$(id -gn "$LOGIN_UID")" || return
+		} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the login user." >&2 || return
+	fi
+}
+function __prepare_login_gid {
+	if ! __is_var_set {LOGIN_GID}; then
+		LOGIN_GID="${SUDO_GID-}"
+		if [[ -z $LOGIN_GID ]]; then
+			{
+				__prepare_login_uid || return
+				LOGIN_GID="$(id -g "$LOGIN_UID")" || return
+			} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the login user." >&2 || return
+		fi
+	fi
+}
+function __prepare_login_groups {
+	if ! __is_var_set {LOGIN_GROUPS}; then
+		{
+			local groups
+			__prepare_login_uid || return
+			groups="$(id -Gn "$LOGIN_UID")" || return
+			__split {LOGIN_GROUPS} --delimiter=' ' -- "$groups" || return
+		} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups of the login user." >&2
+	fi
+}
+function __prepare_current_gids {
+	if ! __is_var_set {LOGIN_GIDS}; then
+		{
+			local groups
+			__prepare_login_uid || return
+			groups="$(id -G "$LOGIN_UID")" || return
+			__split {LOGIN_GIDS} --delimiter=' ' -- "$groups" || return
+		} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the login user." >&2
+	fi
+}
+function __prepare_current_user {
+	if ! __is_var_set {CURRENT_USER}; then
+		CURRENT_USER="${USER-}"
+		if [[ -z $CURRENT_USER ]]; then
+			# note that `dorothy` has sets [USER] to the parent of the Dorothy installation, which is appropriate for its [cron] use case
+			USER="$(id -un)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the current user." >&2 || return
+		fi
+	fi
+}
+function __prepare_current_uid {
+	if ! __is_var_set {CURRENT_UID}; then
+		CURRENT_UID="${UID-}"
+		if [[ -z $CURRENT_UID ]]; then
+			CURRENT_USER="$(id -u)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the current user." >&2 || return
+		fi
+	fi
+}
+function __prepare_current_group {
+	if ! __is_var_set {CURRENT_GROUP}; then
+		# trunk-ignore(shellcheck/SC2034)
+		CURRENT_GROUP="$(id -gn)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || return
+	fi
+}
+function __prepare_current_gid {
+	if ! __is_var_set {CURRENT_GID}; then
+		# trunk-ignore(shellcheck/SC2034)
+		CURRENT_GID="$(id -g)" || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || return
+	fi
+}
+function __prepare_current_groups {
+	if ! __is_var_set {CURRENT_GROUPS}; then
+		CURRENT_GROUPS=()
+		if __is_var_set {GROUPS}; then
+			CURRENT_GROUPS=("${GROUPS[@]}")
+		fi
+		if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
+			{
+				local groups
+				groups="$(id -Gn)" || return
+				__split {CURRENT_GROUPS} --delimiter=' ' -- "$groups" || return
+			} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups of the current user." >&2
+		fi
+	fi
+}
+function __prepare_current_gids {
+	if ! __is_var_set {CURRENT_GIDS}; then
+		{
+			local groups
+			groups="$(id -G)" || return
+			__split {CURRENT_GIDS} --delimiter=' ' -- "$groups" || return
+		} || __return $? -- __print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the current user." >&2
+	fi
+}
+
 # see [commands/eval-helper --elevate] for details
 function __elevate {
 	# trim -- prefix
@@ -430,15 +559,15 @@ function __at {
 		fi
 		if __is_array "$AT__reference"; then
 			eval "AT__size=\${#${AT__reference}[@]}"
-			AT__eval_statement="AT__value=\"\${${AT__reference}[AT__index]}\""
+			AT__eval_statement="AT__value=\"\${${AT__reference}[\$AT__index]}\""
 		else
 			eval "AT__size=\${#${AT__reference}}"
-			AT__eval_statement="AT__value=\"\${${AT__reference}:\"$AT__index\":1}\""
+			AT__eval_statement="AT__value=\"\${${AT__reference}:(\$AT__index):1}\""
 		fi
 	else
 		AT__reference='AT__input'
 		AT__size="${#AT__input}"
-		AT__eval_statement="AT__value=\"\${${AT__reference}:\"$AT__index\":1}\""
+		AT__eval_statement="AT__value=\"\${${AT__reference}:(\$AT__index):1}\""
 	fi
 	AT__negative_size="$((AT__size * -1))"
 	if [[ $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
@@ -2403,24 +2532,29 @@ else
 	fi
 fi
 
-# Bash >= 4.2, < 4.2
-if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
-	# bash >= 4.2
-	# p.  Negative subscripts to indexed arrays, previously errors, now are treated
-	#     as offsets from the maximum assigned index + 1.
-	# q.  Negative length specifications in the ${var:offset:length} expansion,
-	#     previously errors, are now treated as offsets from the end of the variable.
-	function __is_var_set {
-		# -v varname: True if the shell variable varname is set (has been assigned a value).
-		# for some reason [[ -v $1 ]] has a syntax error, and shellcheck doesn't like [ -v "$1" ]
-		test -v "$1" || return
-	}
-else
-	# bash < 4.2
-	function __is_var_set {
-		[[ -n ${!1-} ]] || return
-	}
-fi
+# bash >= 4.2
+# p.  Negative subscripts to indexed arrays, previously errors, now are treated
+#     as offsets from the maximum assigned index + 1.
+# q.  Negative length specifications in the ${var:offset:length} expansion,
+#     previously errors, are now treated as offsets from the end of the variable.
+# [test -v varname] is not used as it behaviour is inconsistent to expectations and across versions
+function __is_var_set {
+	local reference fodder
+	if [[ $# -eq 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: No variable references provided" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	while [[ $# -ne 0 ]]; do
+		reference="$(__get_reference_name "$1")" || return
+		# bash 3.2 and 4.0 will have [local z; declare -p z] will result in [declare -- z=""], this is because on these bash versions, [local z] is actually [local z=] so the var is actually set
+		# bash 4.2 will have [local z; declare -p z] will result in [declare: z: not found]
+		# bash 4.4+ will have [local z; declare -p z] will result in [declare -- z]
+		# [set -u] has no effect
+		fodder="$(declare -p "$reference" 2>/dev/null)" || return 1
+		[[ $fodder == *'='* ]] || return 1
+		shift
+	done
+}
 
 # Shim Array Support
 # Bash v4 has the following capabilities, which must be shimmed in earlier versions:
@@ -2761,6 +2895,7 @@ function __join {
 # __has {<array-var-name>} <needle>
 # __has <needle> -- ...<element>
 # @todo support index checks for bash associative arrays
+# @todo support checking if an array has multiple needles with --any and --all support
 function __has {
 	if [[ $2 == '--' ]]; then
 		# __has <needle> -- ...<element>
