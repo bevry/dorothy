@@ -48,7 +48,7 @@ function is_fs_args {
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
 		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*)
-			option_elevate+="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_elevate" -- "$item")"
+			option_elevate="$(get-flag-value --affirmative --fallback="$option_elevate" -- "$item")"
 			;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
