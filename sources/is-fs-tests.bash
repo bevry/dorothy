@@ -61,7 +61,7 @@ function is_fs_tests__prep {
 	__print_lines 'content' >"$root/targets/unwritable-filled-file"
 
 	echo-style --tty --header1='prepping symlinks'
-	symlink-helper --quiet \
+	fs-link --quiet \
 		--target="$root/targets/empty-dir" --symlink="$root/symlinks/empty-dir" \
 		--target="$root/targets/empty-file" --symlink="$root/symlinks/empty-file" \
 		--target="$root/targets/filled-dir/empty-subfile" --symlink="$root/symlinks/filled-dir--empty-subfile" \
