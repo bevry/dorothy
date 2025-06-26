@@ -187,7 +187,9 @@ function __print_style {
 		while [[ $# -ne 0 ]]; do
 			case "$1" in
 			--no-trail | --trail=no) trail='no' ;;
-			--=*) args+=("${1#*=}") ;;
+			--*=*) args+=("${1#*=}") ;;
+			--newline) args+=($'\n') ;;
+			--*) : ;; # ignore other flags, as they empty styles
 			*) args+=("$1") ;;
 			esac
 			shift
@@ -215,11 +217,15 @@ function __dump {
 			local DUMP__index DUMP__total
 			eval "DUMP__total=\${#${DUMP__reference}[@]}"
 			if [[ $DUMP__total == 0 ]]; then
-				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --dim+icon-nothing-provided --newline)
+				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --dim+icon-nothing-provided='' --newline)
 			else
 				for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do
 					eval "DUMP__value=\"\${${DUMP__reference}[\$DUMP__index]}\""
-					DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --invert="$DUMP__value" --newline)
+					if [[ -z $DUMP__value ]]; then
+						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --dim+icon-nothing-provided='' --newline)
+					else
+						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --invert="$DUMP__value" --newline)
+					fi
 				done
 			fi
 		else
@@ -1213,6 +1219,8 @@ function __to {
 				# such as: `local parts; __split --source={path} --target={parts} --delimiter='/' --no-zero-length`
 				# ^ bash v4+ will make `parts` an array as it is declared, but not defined; however because bash v3 not just declares it but defines it as an empty string, will be notified of this mishap and need to do `parts=()`
 				# as such, any joining by __to is off limits
+				# such as: `local arr; arr+=('value'); __dump arr`
+				# ^ bash v4+ will make `arr` an array with a single `'value'` element, however bash v3 because `arr` was not just declared but also defined as an empty string, will make `arr` have two elements in which the first is an empty string and the second is `'value'`, so when we are using arrays, we need to always not just declare them but define them as arrays to avoid bash v3 mishaps
 				if __is_array "$TO__target" || ! __is_var_set "$TO__target"; then
 					# array to array
 					case "$TO__mode" in
@@ -3392,7 +3400,7 @@ function __slice {
 	# indices
 	local -i SLICE__left SLICE__right SLICE__size
 	# trunk-ignore(shellcheck/SC2034)
-	local SLICE__results SLICE__eval_left_segment SLICE__eval_right_segment
+	local SLICE__results=() SLICE__eval_left_segment SLICE__eval_right_segment
 	if __is_array "$SLICE__source_reference"; then
 		eval "SLICE__size=\"\${#${SLICE__source_reference}[@]}\"" || return
 		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left}\")"
@@ -3408,7 +3416,7 @@ function __slice {
 	while [[ $# -ne 0 ]]; do
 		SLICE__left="$1"
 		shift
-		SLICE__right="$2"
+		SLICE__right="$1" # because we shifted above, it is now $1
 		shift
 		if [[ $SLICE__left == '-0' ]]; then
 			continue # there is nothing to do
