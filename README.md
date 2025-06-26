@@ -93,7 +93,7 @@ For instance, installing [curl](https://en.wikipedia.org/wiki/Curl) with Dorothy
 
 ### Prerequisites
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > To even initiate Dorothy, some prerequisite dependencies are required:
 
 macOS:
@@ -197,7 +197,7 @@ exit
 
 ### Install
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > To install Dorothy enter the following into your favorite terminal application:
 
 ```bash
@@ -388,7 +388,7 @@ Beta commands:
 
 Stable commands:
 
-- [`alias-helper`](https://github.com/bevry/dorothy/tree/master/commands/alias-helper) helps you manage your macOS aliases, and if desired, convert them into symlinks.
+- [`fs-alias`](https://github.com/bevry/dorothy/tree/master/commands/fs-alias) helps you manage your macOS aliases, and if desired, convert them into symlinks.
 - [`macos-drive`](https://github.com/bevry/dorothy/tree/master/commands/macos-drive) helps you turn a macOS installer into a bootable USB drive.
 - [`macos-installer`](https://github.com/bevry/dorothy/tree/master/commands/macos-installer) fetches the latest macOS installer.
 - [`sparse-vault`](https://github.com/bevry/dorothy/tree/master/commands/sparse-vault) lets you easily, and for free, create secure encrypted password-protected vaults on your mac, for securing those super secret data.

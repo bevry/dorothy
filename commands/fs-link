@@ -4,7 +4,7 @@
 
 # @todo update this for auto-elevation
 
-function symlink_helper() (
+function fs_link() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
@@ -13,24 +13,24 @@ function symlink_helper() (
 	function help {
 		cat <<-EOF
 			ABOUT:
-			Create a symlink at a new location that points to an existing location.
+			Create a link (symlink / symbolic link) at a new location that points to an existing location.
 
 			USAGE:
-			symlink-helper [...options] --target=<target> --symlink=<symlink>
+			fs-link [...options] --target=<target> --link=<link>
 
 			OPTIONS:
 			--target=<target> | --existing=<target>
-			    The target of the symlink.
-			--symlink=<symlink>
-			    The location of the symlink to modify.
+			    The target of the link.
+			--link=<link> | --symlink=<link>
+			    The location of the link to modify.
 
 			--relative
-			    Save the symlink target as a relative path instead of absolute.
+			    Save the link target as a relative path instead of absolute.
 
 			--quiet
-			    When quiet, only output errors, do not output symlink creation.
+			    When quiet, only output errors, do not output link creation.
 			--verbose
-			    When verbose, output even if symlink is already desired.
+			    When verbose, output even if link is already desired.
 
 			--elevated=<elevated>
 			--elevate=<elevate>
@@ -40,7 +40,7 @@ function symlink_helper() (
 				Forwarded to [eval-helper].
 
 			EXAMPLES:
-			symlink-helper --target="$HOME" --symlink=./my-home-folder-symlink
+			fs-link --target="$HOME" --link=./my-home-folder-link
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -49,7 +49,7 @@ function symlink_helper() (
 	}
 
 	# process
-	local item option_quiet='' option_targets=() option_symlinks=() option_relative='' option_follow='' option_validate='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	local item option_quiet='' option_targets=() option_links=() option_relative='' option_follow='' option_validate='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -62,7 +62,10 @@ function symlink_helper() (
 			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
 			;;
 		'--target='* | '--existing='*) option_targets+=("${item#*=}") ;;
-		'--symlink='*) option_symlinks+=("${item#*=}") ;;
+		'--link='* | '--symlink='*) option_links+=("${item#*=}") ;;
+		'--no-absolute'* | '--absolute'*)
+			option_relative="$(get-flag-value --non-affirmative --fallback="$option_relative" -- "$item")"
+			;;
 		'--no-relative'* | '--relative'*)
 			option_relative="$(get-flag-value --affirmative --fallback="$option_relative" -- "$item")"
 			;;
@@ -97,28 +100,30 @@ function symlink_helper() (
 		option_validate='yes'
 	fi
 
-	# ensure as many targets as symlinks
-	if [[ ${#option_targets[@]} -ne ${#option_symlinks[@]} ]]; then
-		help "The number of targets [${#option_targets[@]}] does not match the number of symlinks [${#option_symlinks[@]}]"
+	# ensure as many targets as links
+	if [[ ${#option_targets[@]} -ne ${#option_links[@]} ]]; then
+		help "The number of targets [${#option_targets[@]}] does not match the number of links [${#option_links[@]}]"
 	elif [[ ${#option_targets[@]} -eq 0 ]]; then
 		option_targets+=("$(
 			ask --required \
-				--question='What is the existing path that you want the symlink to target?'
+				--question='What is the existing path that you want the link to target?'
 		)")
-		option_symlinks+=("$(
+		option_links+=("$(
 			ask --required \
-				--question='What is the new path that you want to be the symlink that redirects?'
+				--question='What is the new path that you want to be the link that redirects?'
 		)")
 	fi
 
 	# =====================================
 	# Helpers
 
+	local elevation_args=(--elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason")
+
 	function __wrap {
-		eval-helper --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@" || return
+		eval-helper "${elevation_args[@]}" -- "$@" || return
 	}
 
-	# create the symlink, shared between [symlink-helper] and [fs-relocate]
+	# create a symbolic link
 	# __ln <target> <symlink>
 	if is-busybox -- ln; then
 		function __ln {
@@ -141,22 +146,24 @@ function symlink_helper() (
 	# Action
 
 	# ensure validity of target path
-	local index target target_resolved symlink symlink_resolved
+	local index target target_resolved link link_resolved
 	for index in "${!option_targets[@]}"; do
 		target="${option_targets[index]}"
-		symlink="${option_symlinks[index]}"
+		link="${option_links[index]}"
+		__affirm_value_is_defined "$target" '<target>' || return
+		__affirm_value_is_defined "$link" '<link>' || return
 
 		# resolve paths for now
-		target="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")"
-		symlink="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink")"
-		symlink_resolved="$(fs-path --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink")"
-		target_resolved="$(fs-path --quiet="$option_quiet" --resolve --follow="$option_follow" --validate="$option_validate" --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")" || {
+		target="$(fs-path "${elevation_args[@]}" --absolute -- "$target")"
+		link="$(fs-path "${elevation_args[@]}" --absolute -- "$link")"
+		link_resolved="$(fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate -- "$link")"
+		target_resolved="$(fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --validate="$option_validate" -- "$target")" || {
 			local status="$?"
-			target_resolved="$(fs-path --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")" || return
+			target_resolved="$(fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate -- "$target")" || return
 			if [[ $status == 2 ]]; then
 				echo-style --stderr \
 					--error='FAILURE:' --newline \
-					--='Cannot create the symlink ' --path="$symlink" --=' because the target ' --path="$target" --=' failed to resolve.' --newline \
+					--='Cannot create the link ' --path="$link" --=' because the target ' --path="$target" --=' failed to resolve.' --newline \
 					--='Create the target ' --path="$target_resolved" --=' or use ' --code='--no-validate' || :
 				return 2 # ENOENT 2 No such file or directory
 			else
@@ -179,43 +186,43 @@ function symlink_helper() (
 		fi
 		# determine the desired path
 		if [[ $option_relative == 'yes' ]]; then
-			target="$(fs-path --relative-to="$(fs-path --parents -- "$symlink")" --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target")"
+			target="$(fs-path "${elevation_args[@]}" --relative-to="$(fs-path --parents -- "$link")" -- "$target")"
 		fi
 
-		# check if the symlink is already desired
-		if is-present --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink"; then
-			if [[ $symlink != "$symlink_resolved" ]]; then
-				if [[ $symlink_resolved == "$target_resolved" ]]; then
+		# check if the link is already desired
+		if is-present "${elevation_args[@]}" -- "$link"; then
+			if [[ $link != "$link_resolved" ]]; then
+				if [[ $link_resolved == "$target_resolved" ]]; then
 					if [[ $option_quiet == 'no' ]]; then
-						echo-style --stderr --note='👍 Symlink already created at ' --path="$symlink" --bold=' targetting ' --path="$target"
+						echo-style --stderr --note='👍 Link already created at ' --path="$link" --bold=' targetting ' --path="$target"
 					fi
 					continue
 				fi
 				if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
-					echo-style --stderr --note='💁‍♀️ Symlink already exists at ' --path="$symlink" --bold=' targetting ' --path="$target" ' ' --note='recreating...'
+					echo-style --stderr --note='💁‍♀️ Link already exists at ' --path="$link" --bold=' targetting ' --path="$target" ' ' --note='recreating...'
 				fi
-				# is a symlink but a different target, drop it and recreate to our intended target, ignoring target of the symlink
-				__wrap rm -f -- "$symlink" >&2
+				# is a link but a different target, drop it and recreate to our intended target, ignoring target of the link
+				__wrap rm -f -- "$link" >&2
 			else
-				# not a symlink, confirm with the user what to do
-				fs-rm --quiet="$option_quiet" --confirm --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink" >&2
+				# not a link, confirm with the user what to do
+				fs-rm "${elevation_args[@]}" --quiet="$option_quiet" --confirm -- "$link" >&2
 			fi
 		else
 			# nothing exists at the location, ensure its parent path at least exists
-			__wrap mkdir -p -- "$(fs-path --parents -- "$symlink")" >&2
+			__wrap mkdir -p -- "$(fs-path --parents -- "$link")" >&2
 		fi
 
-		# create the symlink
-		__ln -- "$target" "$symlink" >&2
+		# create the link
+		__ln -- "$target" "$link" >&2
 
 		# log result to stderr
 		if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
-			echo-style --stderr --success='👍 Symlink created at ' --path="$symlink" --bold=' targetting ' --path="$target"
+			echo-style --stderr --success='👍 Link created at ' --path="$link" --bold=' targetting ' --path="$target"
 		fi
 	done
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	symlink_helper "$@"
+	fs_link "$@"
 fi

@@ -27,12 +27,7 @@ function fs_mv() (
 			    If provided, place the <source> inside the <target>. Same as calling [fs-mv <source> <destination/source>].
 				Implied if the <destination> has a trailing slash. If --no-within, a trailing slash will be discarded.
 				Implied if there are multiple <sources>. If --no-within, only the last existing <source> will be used.
-			--symlink
-			    If provided, each <source> will be persisted afterwards as a symlink to the <destination>.
-			--resolve
-			    If provided, each and every <source> and <destination> symlink source and destination will be added as additional <source>s.
-			--follow
-			    If provided, the <destination> will become the <destination> symlink target if so.
+			    Not yet implemented.
 			--merge=[shallow|deep]
 			    If provided, if the <source> is a directory <source> it will have its contents placed inside <destination>, if <source> is a file, it will be moved inside the <destination>.
 			    If the <destination> does not exist, it will be created as a directory.
@@ -50,6 +45,17 @@ function fs_mv() (
 			    If provided, discard a <source> item if it is equivalent to its <destination> item.
 			    Not yet implemented.
 
+			--symlink
+			    If provided, each <source> will be persisted afterwards as a symlink to the <destination>.
+			--absolute | --relative
+			    If provided, forces the <source> symlinks to <destination> to be absolute or relative.
+			    By default, this is determined by whether or not the <destination> was absolute or relative.
+			--resolve
+			    If provided, each and every <source> and <destination> symlink source and destination will be added as additional <source>s.
+			--follow
+			    If provided, the <destination> will become the <destination> symlink target if so.
+
+
 			--elevated=<elevated>
 			--elevate=<elevate>
 			--user=<user>
@@ -64,13 +70,26 @@ function fs_mv() (
 	}
 
 	# process
-	local item option_paths=() option_within='' option_symlink='' option_follow='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	# option_within='' option_merge='' option_overwrite='' option_rename='' option_amalgamate=''
+	local item option_quiet='' option_paths=() \
+	option_symlink='' option_absolute='' option_resolve='' option_follow='' \
+	option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-within'* | '--within'*) option_within="$(get-flag-value --affirmative --fallback="$option_within" -- "$item")" ;;
+		'--no-verbose'* | '--verbose'*)
+			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-quiet'* | '--quiet'*)
+			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
+			;;
+		'--no-within'* | '--within'*) help 'The --within option is not yet implemented.' ;;
+		'--no-merge'* | '--merge'*) help 'The --merge option is not yet implemented.' ;;
+		'--no-overwrite'* | '--overwrite'*) help 'The --overwrite option is not yet implemented.' ;;
+		'--no-rename'* | '--rename'*) help 'The --rename option is not yet implemented.' ;;
+		'--no-amalgamate'* | '--amalgamate'*) help 'The --amalgamate option is not yet implemented.' ;;
 		'--no-symlink'* | '--symlink'*)
 			option_symlink="$(get-flag-value --affirmative --fallback="$option_symlink" -- "$item")"
 			if [[ $option_symlink == 'all' ]]; then
@@ -79,11 +98,10 @@ function fs_mv() (
 				help "An unrecognised value was provided for --symlink: $option_symlink"
 			fi
 			;;
+		'--no-absolute'* | '--absolute'*) option_absolute="$(get-flag-value --affirmative --fallback="$option_absolute" -- "$item")" ;;
+		'--no-relative'* | '--relative'*) option_absolute="$(get-flag-value --non-affirmative --fallback="$option_absolute" -- "$item")" ;;
+		'--no-resolve'* | '--resolve'*) option_resolve="$(get-flag-value --affirmative --fallback="$option_resolve" -- "$item")" ;;
 		'--no-follow'* | '--follow'*) option_follow="$(get-flag-value --affirmative --fallback="$option_follow" -- "$item")" ;;
-		'--no-merge'* | '--merge'*) help 'The --merge options are not yet implemented.' ;;
-		'--no-overwrite'* | '--overwrite'*) help 'The --overwrite options are not yet implemented.' ;;
-		'--no-rename'* | '--rename'*) help 'The --rename options are not yet implemented.' ;;
-		'--no-amalgamate'* | '--amalgamate'*) help 'The --amalgamate options are not yet implemented.' ;;
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
 		'--no-elevate'* | '--elevate'*)
@@ -103,132 +121,106 @@ function fs_mv() (
 		esac
 	done
 
+	# =====================================
+	# Helpers
+
+	local elevation_args=(--elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason")
+
+	function __wrap {
+		eval-helper "${elevation_args[@]}" -- "$@" || return
+	}
+
+	# =====================================
+	# Action
+
 	# check
 	if [[ ${#option_paths[@]} -lt 2 ]]; then
 		help 'There must at least be a <source> and <destination> provided.'
 	fi
 
-	# =====================================
-	# Helpers
-
-	function __wrap {
-		eval-helper --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@" || return
-	}
-
-	# create the symlink, shared between [symlink-helper] and [fs-relocate]
-	# __ln <target> <symlink>
-	if is-busybox -- ln; then
-		function __ln {
-			# alpine's ln doesn't support -F, however the above removals should make it unnecessary
-			# https://github.com/bevry/dorothy/actions/runs/11323459946/job/31486170602#step:4:11
-			# -f: unlink symlink path if needed
-			# -s: symbolic link
-			__wrap ln -sf "$@" || return
-		}
-	else
-		function __ln {
-			# -F: replace symlink if directory if needed
-			# -f: unlink symlink path if needed
-			# -s: symbolic link
-			__wrap ln -sfF "$@" || return
-		}
+	# determine the destination
+	local destination
+	__at --source={option_paths} --target={destination} -- -1
+	# determine destination relative or absolute
+	if [[ -z $option_absolute ]]; then
+		if [[ $destination == /* ]]; then
+			option_absolute=yes
+		else
+			option_absolute='no'
+		fi
 	fi
-
-	# =====================================
-	# Action
-
-	local option_sources=() option_destination path
-	__at --source={option_paths} --target={option_destination} -- -1
+	# expand the destination?
 	if [[ $option_follow == 'yes' ]]; then
-		option_destination="$(fs-path --absolute --resolve --follow --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_destination")"
+		destination="$(fs-path "${elevation_args[@]}" --absolute --resolve --follow -- "$destination")"
 	else
-		option_destination="$(fs-path --absolute --no-resolve --no-follow --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_destination")"
+		destination="$(fs-path "${elevation_args[@]}" --absolute --no-resolve --no-follow -- "$destination")"
 	fi
+	# determine the sources
+	local sources=() destination path
 	if [[ $option_resolve == 'yes' ]]; then
 		for path in "${option_paths[@]}"; do
-			option_sources+=("$path")
-			while is-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; do
-				# resolve the symlink
-				path="$(fs-path --absolute --resolve --no-follow --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path")"
-				option_sources+=("$path")
+			__affirm_value_is_defined "$path" '<path>' || return
+			# add the path to the sources
+			path="$(fs-path "${elevation_args[@]}" --absolute --no-resolve --no-follow -- "$path")"
+			sources+=("$path")
+			# resolve the path if it is a symlink
+			while is-symlink "${elevation_args[@]}" -- "$path"; do
+				path="$(fs-path "${elevation_args[@]}" --absolute --resolve --no-follow -- "$path")"
+				# add the resolved symlink to the sources
+				sources+=("$path")
 			done
 		done
 	else
-		__slice --source={option_paths} --target={option_sources} -- 0 -1
+		for path in "${option_paths[@]}"; do
+			__affirm_value_is_defined "$path" '<path>' || return
+			# add the path to the sources
+			path="$(fs-path "${elevation_args[@]}" --absolute --no-resolve --no-follow -- "$path")"
+			sources+=("$path")
+		done
 	fi
-	__unique --source+target={option_sources}
-	__evict --source+target={option_sources} --value="$option_destination"
-	if [[ ${#option_sources[@]} -eq 0 ]]; then
-		help 'The <destination> cannot be the only <source>.'
+	# ensure sources are unique, and do not contain the destination
+	__unique --source+target={sources}
+	__evict --source+target={sources} --value="$destination"
+	# if there are no sources remaining, then the sources were only the destination, which is a problem
+	if [[ ${#sources[@]} -eq 0 ]]; then
+		if [[ $option_quiet == 'no' ]]; then
+			echo-style --stderr --notice='Nothing to move, as the <source>s were only the <destination>:' ' ' --path="$destination"
+			return 0
+		fi
 	fi
 
 	# move all sources to the destination
-	if [[ ${#sources[@]} -ne 0 ]]; then
-		local source original_source symlink_accident
-		function __fail {
-			echo-style --stderr --notice='Something went wrong when relocating paths to their correct location. Please remove one of these to try again:' --newline --code="$source" --newline --code="$destination"
-			return 17 # EEXIST 17 File exists
-		}
-		for source in "${sources[@]}"; do
-			# if source is a symlink, resolve it and remove it
-			if is-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source"; then
-				# store the source symlink
-				original_source="$source"
-				# update the source with the resolved source target
-				if is-exist --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source"; then
-					# is not a broken symlink
-					source="$(fs-path --resolve --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source")"
+	local source
+	function __fail {
+		echo-style --stderr --notice='Something went wrong when relocating paths to their correct location. Please remove one of these to try again:' --newline --code="$source" --newline --code="$destination" || :
+		return 17 # EEXIST 17 File exists
+	}
+	for source in "${sources[@]}"; do
+		if [[ $option_symlink == 'yes' ]]; then
+			fs-link "${elevation_args[@]}" --quiet="$option_quiet" --symlink="$source" --target="$destination" --absolute="$option_absolute"
+		elif is-symlink "${elevation_args[@]}" -- "$source"; then
+			fs-rm "${elevation_args[@]}" --quiet="$option_quiet" --no-confirm -- "$source"
+		elif is-present "${elevation_args[@]}" -- "$source"; then
+			# if the destination exists, trim both the source and destination to avoid merge failures
+			# this is done for the destination here as prior moves could result in new trimmable destination contents
+			if is-present "${elevation_args[@]}" -- "$destination"; then
+				fs-trim "${elevation_args[@]}" --quiet="$option_quiet" --no-confirm --empty --cache -- "$source" "$destination"
+				# if source doesn't exist anymore, we are done, as there is nothing left to relocate
+				if is-missing "${elevation_args[@]}" -- "$source"; then
+					continue
 				fi
-				# if the source target is the the destination, and we want to make a symlink, we are done
-				if [[ $option_symlink == 'yes' && $source == "$destination" ]]; then
-					return 0
-				fi
-				# the source target is not the destination, so remove the source symlink
-				__wrap rm -f -- "$original_source"
-			elif [[ $source == "$destination" ]]; then
-				# sanity check, if the source is the same as the destination, nothing to do
-				return 0
+			else
+				# nothing exists at the location, ensure its parent path at least exists
+				__wrap mkdir -p -- "$(fs-path --parents -- "$destination")" >&2
 			fi
-
-			# sanity check
-			if is-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source"; then
-				__fail
-			fi
-
-			# if the source exists, prep for merging it with the destination
-			if is-present --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source"; then
-				# if the destination exists, trim both the source and destination to avoid merge failures
-				if is-present --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$destination"; then
-					# do the trim
-					fs-trim --no-confirm --quiet --empty --cache --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source" "$destination"
-					# if source doesn't exist anymore, we are done, as there is nothing left to relocate
-					if is-missing --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source"; then
-						return 0
-					fi
-				fi
-
-				# merge the source into the destination
+			# merge the source into the destination
+			if [[ $option_quiet == 'yes' ]]; then
+				__wrap mv -f -- "$source" "$destination" || __fail
+			else
 				__wrap mv -fv -- "$source" "$destination" || __fail
 			fi
-
-			# sanity check
-			if is-present -elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$source"; then
-				__fail
-			fi
-
-			# do we want to persist a symlink?
-			if [[ $option_symlink == 'yes' ]]; then
-				# now that source definitely doesn't exist, symlink the source to the destination
-				__ln "$destination" "$source"
-
-				# cleanup accidents
-				symlink_accident="$source/$(fs-path --no-parents -- "$destination")"
-				if is-symlink -elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$symlink_accident"; then
-					__wrap rm -f -- "$symlink_accident"
-				fi
-			fi
-		done
-	fi
+		fi
+	done
 )
 
 # fire if invoked standalone
