@@ -62,6 +62,9 @@ Includes usage for when a file is not empty.
 ESPIPE 29 Illegal seek
 Includes usage for unknown/unexpected logic path.
 
+EDOM 33 Numerical argument out of domain
+Includes usage for out of range.
+
 ENOPROTOOPT 42 Protocol not available
 Includes usage for missing required dependency.
 
@@ -644,7 +647,7 @@ printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=
 # or read into an array (supporting all bash versions) like so:
 __do --redirect-status={get_status} --redirect-stdout={stdout} -- get_csv_data
 split_status=0
-__split {arr} --delimiter=',' < <(__print_string "$stdout") || split_status=$?
+__split --target={arr} --delimiter=',' < <(__print_string "$stdout") || split_status=$?
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_status=$get_status split_status=$split_status"
 # outputs:
@@ -656,7 +659,7 @@ printf '%s\n' "get_status=$get_status split_status=$split_status"
 # here is an alternative that uses semaphores
 split_status=0
 semaphore_status_file="$(__get_semaphore)"
-__split {arr} --delimiter=',' < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
+__split --target={arr} --delimiter=',' < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
 __wait_for_semaphores "$semaphore_status_file"
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_status=$(<"$semaphore_status_file") split_status=$split_status"
@@ -672,16 +675,16 @@ If you just want to throw a failure when splitting, you can do these:
 ```bash
 # discards any trailing newline
 fodder_to_respect_exit_status="$(get_csv_data)"
-__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
 echo-verbose -- "${arr[@]}"
 
 # preserves trailing newline
 __do --redirect-stdout={fodder_to_respect_exit_status} -- get_csv_data
-__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
 echo-verbose -- "${arr[@]}"
 
 # recommended shorthand that preserves the trailing newline
-__split {arr} --delimiter=',' --invoke -- get_csv_data
+__split --target={arr} --delimiter=',' --invoke -- get_csv_data
 echo-verbose -- "${arr[@]}"
 ```
 
@@ -689,7 +692,7 @@ Note that these below variations do not work:
 
 ```bash
 # this one is incorrect, as the exit status is discarded, as the command substitution is not just for the value of an assignment
-__split {arr} --delimiter=',' -- "$(get_csv_data)"
+__split --target={arr} --delimiter=',' -- "$(get_csv_data)"
 echo-verbose -- "${arr[@]}"
 # [0] = [one]
 # [1] = [two]
@@ -697,7 +700,7 @@ echo-verbose -- "${arr[@]}"
 
 # this one is also incorrect, as the conditional disables the failure
 get_and_split_status=0
-__split {arr} --delimiter=',' -- "$(get_csv_data)" || get_and_split_status=$?
+__split --target={arr} --delimiter=',' -- "$(get_csv_data)" || get_and_split_status=$?
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_and_split_status=$get_and_split_status"
 # [0] = [one]
@@ -839,16 +842,16 @@ __do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_functio
 
 # split on a delimiter
 # BEFORE, DISCARDS EXIT STATUS:
-__split {arr} --delimiter=',' -- "$(any_command_or_function_including_unsafe_functions)"
+__split --target={arr} --delimiter=',' -- "$(any_command_or_function_including_unsafe_functions)"
 # AFTER, DISCARDS TRAILING NEWLINES:
 fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
-__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
 # AFTER, ENSURES TRAILING NEWLINES:
 fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
-__split {arr} --delimiter=',' <<<"$fodder_to_respect_exit_status"
+__split --target={arr} --delimiter=',' <<<"$fodder_to_respect_exit_status"
 # AFTER, PRESERVES TRAIL:
 __do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_function_including_unsafe_functions
-__split {arr} --delimiter=',' -- "$fodder_to_respect_exit_status"
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','"
 ```
 
 You can find the implementation of `__do` and `__try` inside Dorothy's [`bash.bash`](https://github.com/bevry/dorothy/blob/master/sources/bash.bash), and find their tests within the [`dorothy-internals` command](https://github.com/bevry/dorothy/blob/master/commands/dorothy-internals).

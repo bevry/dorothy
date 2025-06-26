@@ -30,7 +30,7 @@ From manual discovery:
 ## bash v4.0
 
 > [!NOTE]
-> Dorothy's `bash.bash` includes cross-version compatible implementations of `__split`, `__get_read_decimal_timeout`, `__uppercase_string`, `__lowercase_string`.
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__split`, `__get_read_decimal_timeout`, `__get_uppercase_string`, `__get_lowercase_string`.
 
 From changelog:
 
@@ -101,6 +101,18 @@ Changelog:
 >
 > f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
 
+## bash v4.3
+
+From changelog:
+
+- Introduces `declare -n` for creating nameref variables.
+
+Changelog:
+
+> This document details the changes between this version, `bash-4.3-alpha`, and the previous version, `bash-4.2-release`.
+>
+> w. The shell has `nameref` variables and new `-n`(/`+n`) options to declare and unset to use them, and a `test -R` option to test for them.
+
 ## bash v4.4
 
 > [!CAUTION]
@@ -167,13 +179,13 @@ Changelog:
 ## bash v5.1
 
 > [!NOTE]
-> Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_set`, `__uppercase_first_letter`, `__lowercase_first_letter`.
+> Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_set`, `__get_uppercase_first_letter`, `__get_lowercase_string`.
 
 From changelog:
 
 - Introduces `${var@U}`, `${var@u}`, `${var@L}`
 - Introduces `test -v INDEX` for testing positional declaration
-- Introduces fixed support for associative arrays
+- Associative arrays now properly functional.
 
 Changelog:
 
@@ -184,3 +196,17 @@ Changelog:
 > dd. New `U`, `u`, and `L` parameter transformations to convert to uppercase, convert first character to uppercase, and convert to lowercase, respectively.
 >
 > oo. Fixed several issues with assigning an associative array variable using a compound assignment that expands the value of the same variable.
+
+## bash v5.2
+
+From changelog:
+
+- Nameref variables (`declare -n nameref`) now properly functional.
+
+Changelog:
+
+> This document details the changes between this version, `bash-5.2-alpha`, and the previous version, `bash-5.1-release`.
+>
+> g. Fixed a problem with performing an assignment with `+=` to an array element that was the value of a nameref.
+> h. Fixed a bug that could cause a nameref containing an array reference using `@` or `*` not to expand to multiple words.
+> bb. Array references using `@` and `*` that are the value of nameref variables (`declare -n ref='v[@]' ; echo $ref`) no longer cause the shell to exit if `set -u` is enabled and the array (`v`) is unset.

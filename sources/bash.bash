@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# trunk-ignore-all(shellcheck/SC2140)
 
 # For bash version compatibility and changes, see:
 # See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about significant changes between bash versions.
@@ -8,60 +9,87 @@
 # https://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
 # https://www.gnu.org/software/bash/manual/bash.html#The-Shopt-Builtin
 
-# Note that [&>] is available to all bash versions, however [&>>] is not, they are different.
+# Note that `&>` is available to all bash versions, however `&>>` is not, they are different.
 
-# bash <= 3.2 is not supported by Dorothy for reasons stated in [versions.md], however it is also too incompetent of a version to even bother checking for it
+# bash <= 3.2 is not supported by Dorothy for reasons stated in `versions.md`, however it is also too incompetent of a version to even bother checking for it
 
 # bash v4.4
 # aa. Bash now puts `s' in the value of $- if the shell is reading from standard input, as Posix requires.
 # w.  `set -i' is no longer valid, as in other shells.
 
 # =============================================================================
-# Determine the bash version information, which is used to determine if we can use certain features or not.
-#
-# for example:
-# __require_upgraded_bash -- BASH_VERSION_CURRENT != BASH_VERSION_LATEST, fail.
-# BASH_VERSION_CURRENT -- 5.2.15(1)-release => 5.2.15
-# $BASH_VERSION_MAJOR -- 5
-# BASH_VERSION_MINOR -- 2
-# BASH_VERSION_PATCH -- 15
-# BASH_VERSION_LATEST -- 5.2.15
-# IS_BASH_VERSION_OUTDATED -- yes/no
+# Essential Toolkit
 
-if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
-	# e.g. 5.2.15(1)-release => 5.2.15
-	# https://www.gnu.org/software/bash/manual/bash.html#index-BASH_005fVERSINFO
-	# [read] technique not needed as [BASH_VERSINFO] exists in all versions:
-	# IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
-	BASH_VERSION_MAJOR="${BASH_VERSINFO[0]}"
-	BASH_VERSION_MINOR="${BASH_VERSINFO[1]}"
-	BASH_VERSION_PATCH="${BASH_VERSINFO[2]}"
-	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_VERSION_LATEST='5.2.37' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
-	# any v5 version is supported by dorothy, earlier throws on empty array access which is annoying
-	if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
-		IS_BASH_VERSION_OUTDATED='no'
-		function __require_upgraded_bash {
-			:
-		}
-	else
-		# trunk-ignore(shellcheck/SC2034)
-		IS_BASH_VERSION_OUTDATED='yes'
-		function __require_upgraded_bash {
-			echo-style --stderr \
-				--code="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" $'\n' \
-				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' || return
-			return 45 # ENOTSUP 45 Operation not supported
-		}
+# -------------------------------------
+# Print Toolkit Dependencies
+
+# see `commands/is-brew` for details
+# workaround for Dorothy's `brew` helper
+function __is_brew {
+	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return
+}
+
+# see `commands/command-missing` for details
+# returns `0` if ANY command is missing
+# returns `1` if ALL commands were present
+function __command_missing {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
 	fi
-fi
+	__affirm_length_defined $# 'command' || return
+	# proceed
+	local command
+	for command in "$@"; do
+		if [[ $command == 'brew' ]]; then
+			# workaround for our `brew` wrapper
+			if __is_brew; then
+				continue
+			else
+				return 0 # a command is missing
+			fi
+		elif type -P "$command" &>/dev/null; then
+			continue
+		else
+			return 0 # a command is missing
+		fi
+	done
+	return 1 # all commands are present
 
-# =============================================================================
-# Print Helpers
+}
 
-# These should be the same in [bash.bash] and [zsh.zsh].
-# They exist because [echo] has flaws, notably [v='-n'; echo "$v"] will not output [-n].
+# see `commands/command-exists` for details
+# returns `0` if all commands are available
+# returns `1` if any command was not available
+function __command_exists {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	__affirm_length_defined $# 'command' || return
+	# proceed
+	local command
+	for command in "$@"; do
+		if [[ $command == 'brew' ]]; then
+			# workaround for Dorothy's `brew` wrapper
+			if __is_brew; then
+				continue
+			else
+				return 1 # a command is missing
+			fi
+		elif type -P "$command" &>/dev/null; then
+			continue
+		else
+			return 1 # a command is missing
+		fi
+	done
+	return 0 # all commands are present
+}
+
+# -------------------------------------
+# Print Toolkit
+
+# They exist because `echo` has flaws, notably `v='-n'; echo "$v"` will not output `-n`.
 # In UNIX there is no difference between an empty string and no input:
 # empty stdin:  printf '' | wc
 #               wc < <(printf '')
@@ -90,7 +118,7 @@ function __print_line {
 	printf '\n' || return
 }
 function __print_lines_or_line {
-	# equivalent to [printf '\n'] if no arguments
+	# equivalent to `printf '\n'` if no arguments
 	printf '%s\n' "$@" || return
 }
 
@@ -150,59 +178,39 @@ function __print_value_lines_or_line {
 	fi
 }
 
-# check if the value is a reference, i.e. starts with `{` and ends with `}`, e.g. `{var_name}`.
-function __is_reference {
-	[[ $1 == '{'*'}' ]] || return
-}
-
-# trim the starting `{` and the trailing `}`, e.g. converting `{var_name}` to `var_name`
-function __get_reference_name {
-	local value_or_var_name="$1" var_name="$1"
-	if ! __is_reference "$value_or_var_name"; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Argument was not a reference, which requires wrapping in squigglies: $value_or_var_name" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
+function __print_style {
+	if __command_exists -- echo-style; then
+		echo-style "$@" || return
+	else
+		# trim flag names and only output values
+		local args=() trail='yes'
+		while [[ $# -ne 0 ]]; do
+			case "$1" in
+			--no-trail | --trail=no) trail='no' ;;
+			--=*) args+=("${1#*=}") ;;
+			*) args+=("$1") ;;
+			esac
+			shift
+		done
+		if [[ ${#args[@]} -eq 0 ]]; then
+			return 0
+		fi
+		if [[ $trail == 'yes' ]]; then
+			printf '%s\n' "${args[@]}" || return
+		else
+			printf '%s' "${args[@]}" || return
+		fi
 	fi
-	var_name="$(__get_substring "$value_or_var_name" 1 -1)" || return
-	if [[ -z $var_name ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Argument reference name was empty: $value_or_var_name" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	__print_lines "$var_name" || return
-	return 0
-}
-# for __get_reference_value, just use `${!var_name}`
-
-function __is_positive_integer {
-	[[ $1 =~ ^[0-9]+$ ]] || return
-}
-
-# or you if you already know it is an integer, you can just do: [[ $1 -lt 0 ]]
-function __is_negative_integer {
-	[[ $1 =~ ^-[0-9]+$ ]] || return
-}
-
-function __is_integer {
-	[[ $1 =~ ^[-]?[0-9]+$ ]] || return
-}
-
-function __is_digit {
-	[[ $1 =~ ^[0-9]$ ]] || return
-}
-
-function __is_array {
-	local IS_ARRAY__reference="$1"
-	if __is_reference "$IS_ARRAY__reference"; then
-		IS_ARRAY__reference="$(__get_reference_value "$IS_ARRAY__reference")" || return
-	fi
-	[[ "$(declare -p "$IS_ARRAY__reference" 2>/dev/null || :)" == 'declare -a '* ]] || return
 }
 
 function __dump {
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
 	local DUMP__reference DUMP__value DUMP__log=()
-	for DUMP__reference in "$@"; do
-		if __is_reference "$DUMP__reference"; then
-			DUMP__reference="$(__get_reference_value "$DUMP__reference")" || return
-		fi
+	while [[ $# -ne 0 ]]; do
+		__dereference --origin="$1" --name={DUMP__reference} || return
+		shift
 		if __is_array "$DUMP__reference"; then
 			local DUMP__index DUMP__total
 			eval "DUMP__total=\${#${DUMP__reference}[@]}"
@@ -210,7 +218,7 @@ function __dump {
 				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --dim+icon-nothing-provided --newline)
 			else
 				for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do
-					eval 'DUMP__value="${!DUMP__reference[DUMP__index]}"'
+					eval "DUMP__value=\"\${${DUMP__reference}[\$DUMP__index]}\""
 					DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --invert="$DUMP__value" --newline)
 				done
 			fi
@@ -219,662 +227,175 @@ function __dump {
 			DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
 		fi
 	done
-	echo-style --no-trail "${DUMP__log[@]}" || return
+	__print_style --no-trail "${DUMP__log[@]}" || return
 }
 
 # =============================================================================
-# Common Toolkit
+# Bash Configuration & Capability Detection, Including Shims/Polyfills
+# Place changelog entries in `versions.md`
 
-# see [commands/is-brew] for details
-# workaround for Dorothy's [brew] helper
-function __is_brew {
-	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return
-}
-
-# see [commands/command-missing] for details
-# returns [0] if ANY command is missing
-# returns [1] if ALL commands were present
-function __command_missing {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# proceed
-	local command
-	for command in "$@"; do
-		if [[ $command == 'brew' ]]; then
-			# workaround for our [brew] wrapper
-			if __is_brew; then
-				continue
-			else
-				return 0 # a command is missing
-			fi
-		elif type -P "$command" &>/dev/null; then
-			continue
-		else
-			return 0 # a command is missing
-		fi
-	done
-	return 1 # all commands are present
-
-}
-
-# see [commands/command-exists] for details
-# returns [0] if all commands are available
-# returns [1] if any command was not available
-function __command_exists {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# proceed
-	local command
-	for command in "$@"; do
-		if [[ $command == 'brew' ]]; then
-			# workaround for our [brew] wrapper
-			if __is_brew; then
-				continue
-			else
-				return 1 # a command is missing
-			fi
-		elif type -P "$command" &>/dev/null; then
-			continue
-		else
-			return 1 # a command is missing
-		fi
-	done
-	return 0 # all commands are present
-}
-
-# Bash automatically assigns variables that provide information about the current user (UID, EUID, and GROUPS), the current host (HOSTTYPE, OSTYPE, MACHTYPE, and HOSTNAME), and the instance of Bash that is running (BASH, BASH_VERSION, and BASH_VERSINFO). See Bash Variables, for details.
-# once elevated with sudo:
-# SUDO_GID=20
-# SUDO_UID=501
-# SUDO_USER=balupton
-# USER=root
-# before elevation:
-# USER=balupton
-# UID=501
-# EID=
-# in terms of terminology, there is uid, effective uid, real uid, and login uid: what their complete overlap is, I am unsure
-# `whoami` is deprecated in favour of `id -u`
-# `id` gives the current user and group
-# `users` give the login user
-# `groups` is an alias for `id -Gn` so it gives the current user's groups
-# regarding macos and linux, -u works on both macos and linux, as macos lacks --user
-function __prepare_login_user {
-	if ! __is_var_set {LOGIN_USER}; then
-		LOGIN_USER="${SUDO_USER-}"
-		if [[ -z $LOGIN_USER ]]; then
-			function __cut {
-				# turn `balupton balupton ...` into `balupton`
-				local first
-				IFS=' ' read -r first _
-				__print_lines "$first"
-			}
-			LOGIN_USER="$(users | __cut || :)"
-			if [[ -z $LOGIN_USER ]]; then
-				# if [users] didn't work (as is the case on CI) then get the current user instead
-				__prepare_current_user || :
-				LOGIN_USER="$CURRENT_USER"
-				if [[ -z $LOGIN_USER ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the login user." >&2 || :
-					return 1
-				fi
-			fi
-		fi
-	fi
-}
-function __prepare_login_uid {
-	if ! __is_var_set {LOGIN_UID}; then
-		LOGIN_UID="${SUDO_UID-}"
-		if [[ -z $LOGIN_UID ]]; then
-			__prepare_login_user || :
-			LOGIN_UID="$(id -u "$LOGIN_USER" || :)"
-			if [[ -z $LOGIN_UID ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the login user." >&2 || :
-				return 1
-			fi
-		fi
-	fi
-}
-function __prepare_login_group {
-	if ! __is_var_set {LOGIN_GROUP}; then
-		local
-		__prepare_login_uid || :
-		LOGIN_GROUP="$(id -gn "$LOGIN_UID" || :)"
-		if [[ -z $LOGIN_GROUP ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the login user." >&2 || :
-			return 1
-		fi
-	fi
-}
-function __prepare_login_gid {
-	if ! __is_var_set {LOGIN_GID}; then
-		LOGIN_GID="${SUDO_GID-}"
-		if [[ -z $LOGIN_GID ]]; then
-			__prepare_login_uid || :
-			LOGIN_GID="$(id -g "$LOGIN_UID" || :)"
-			if [[ -z $LOGIN_GID ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the login user." >&2 || :
-				return 1
-			fi
-		fi
-	fi
-}
-function __prepare_login_groups {
-	if ! __is_var_set {LOGIN_GROUPS}; then
-		local groups
-		__prepare_login_uid || :
-		groups="$(id -Gn "$LOGIN_UID" || :)"
-		__split {LOGIN_GROUPS} --delimiter=' ' --no-zero-length -- "$groups" || :
-		if [[ ${#LOGIN_GROUPS[@]} -eq 0 ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the login user." >&2 || :
-			return 1
-		fi
-	fi
-}
-function __prepare_login_gids {
-	if ! __is_var_set {LOGIN_GIDS}; then
-		local groups
-		__prepare_login_uid || :
-		groups="$(id -G "$LOGIN_UID" || :)"
-		__split {LOGIN_GIDS} --delimiter=' ' --no-zero-length -- "$groups" || :
-		# trunk-ignore(shellcheck/SC2153)
-		if [[ ${#LOGIN_GIDS[@]} -eq 0 ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the login user." >&2 || :
-			return 1
-		fi
-	fi
-}
-function __prepare_current_user {
-	if ! __is_var_set {CURRENT_USER}; then
-		CURRENT_USER="${USER-}"
-		if [[ -z $CURRENT_USER ]]; then
-			# [whoami] is deprecated is replaced/delegates to [id -un]
-			# note that `dorothy` sets [USER] to the parent of the Dorothy installation, which is appropriate for its [cron] use case
-			CURRENT_USER="$(id -un || :)"
-			if [[ -z $CURRENT_USER ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the current user." >&2 || :
-				return 1
-			fi
-		fi
-	fi
-}
-function __prepare_current_uid {
-	if ! __is_var_set {CURRENT_UID}; then
-		CURRENT_UID="${UID-}"
-		if [[ -z $CURRENT_UID ]]; then
-			CURRENT_UID="$(id -u || :)"
-			if [[ -z $CURRENT_UID ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the current user." >&2 || :
-				return 1
-			fi
-		fi
-	fi
-}
-function __prepare_current_group {
-	if ! __is_var_set {CURRENT_GROUP}; then
+# Determine the bash version information, which is used to determine if we can use certain features or not.
+# BASH_VERSION_CURRENT --
+# BASH_VERSION_MAJOR -- 5
+# BASH_VERSION_MINOR -- 2
+# BASH_VERSION_PATCH -- 15
+# BASH_VERSION_LATEST -- 5.2.15
+# IS_BASH_VERSION_OUTDATED -- yes/no
+if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
+	# e.g. 5.2.15(1)-release => 5.2.15
+	# https://www.gnu.org/software/bash/manual/bash.html#index-BASH_005fVERSINFO
+	# `read` technique not needed as `BASH_VERSINFO` exists in all versions:
+	# IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
+	BASH_VERSION_MAJOR="${BASH_VERSINFO[0]}" #
+	BASH_VERSION_MINOR="${BASH_VERSINFO[1]}"
+	BASH_VERSION_PATCH="${BASH_VERSINFO[2]}"
+	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}" # 5.2.15(1)-release => 5.2.15
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_VERSION_LATEST='5.2.37' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
+	# any v5 version is supported by dorothy, earlier throws on empty array access which is annoying
+	if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
+		IS_BASH_VERSION_OUTDATED='no'
+		function __require_upgraded_bash {
+			:
+		}
+	else
 		# trunk-ignore(shellcheck/SC2034)
-		CURRENT_GROUP="$(id -gn || :)"
-		if [[ -z $CURRENT_GROUP ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || :
-			return 1
-		fi
-	fi
-}
-function __prepare_current_gid {
-	if ! __is_var_set {CURRENT_GID}; then
-		# trunk-ignore(shellcheck/SC2034)
-		CURRENT_GID="$(id -g || :)"
-		if [[ -z $CURRENT_GID ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || :
-			return 1
-		fi
-	fi
-}
-function __prepare_current_groups {
-	if ! __is_var_set {CURRENT_GROUPS}; then
-		CURRENT_GROUPS=()
-		if __is_var_set {GROUPS}; then
-			CURRENT_GROUPS=("${GROUPS[@]}")
-		fi
-		if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
-			local groups
-			groups="$(id -Gn || :)"
-			__split {CURRENT_GROUPS} --delimiter=' ' --no-zero-length -- "$groups" || :
-			if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the current user." >&2 || :
-				return 1
+		IS_BASH_VERSION_OUTDATED='yes'
+		function __require_upgraded_bash {
+			local reason="${1-}" reason_args=()
+			if [[ -n $reason ]]; then
+				reason_args+=(--=' due to ' --notice="$reason" --='.')
 			fi
-		fi
+			__print_style \
+				--path="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" "${reason_args[@]}" $'\n' \
+				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >&2 || :
+			return 45 # ENOTSUP 45 Operation not supported
+		}
 	fi
-}
-function __prepare_current_gids {
-	if ! __is_var_set {CURRENT_GIDS}; then
-		local groups
-		groups="$(id -G || :)"
-		__split {CURRENT_GIDS} --delimiter=' ' --no-zero-length -- "$groups" || :
-		# trunk-ignore(shellcheck/SC2153)
-		if [[ ${#CURRENT_GIDS[@]} -eq 0 ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the current user." >&2 || :
-			return 1
+fi
+
+# Custom debug target
+# BASH_XTRACEFD aka DEBUG_OUTPUT_TARGET
+export BASH_XTRACEFD
+BASH_XTRACEFD="${BASH_XTRACEFD:-"${DEBUG_OUTPUT_TARGET:-"2"}"}"
+function __debug_lines {
+	if [[ -n ${DEBUG-} ]]; then
+		if [[ -z $BASH_XTRACEFD ]]; then
+			BASH_XTRACEFD="$TERMINAL_OUTPUT_TARGET"
 		fi
+		__print_lines "$@" >>"$BASH_XTRACEFD" || return
 	fi
 }
 
-# see [commands/eval-helper --elevate] for details
-function __elevate {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# forward to [eval-helper --elevate] if it exists, as it is more detailed
-	if __command_exists -- eval-helper; then
-		eval-helper --elevate -- "$@" || return
-		return
-	elif __command_exists -- sudo; then
-		# check if password is required
-		if ! sudo --non-interactive -- true &>/dev/null; then
-			# password is required, let the user know what they are being prompted for
-			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2 || return
-			__print_lines "sudo $*" >&2 || return
-		fi
-		sudo "$@" # eval
-		return
-	elif __command_exists -- doas; then
-		if ! doas -n true &>/dev/null; then
-			__print_lines 'Your password is required to momentarily grant privileges to execute the command:' >&2 || return
-			__print_lines "doas $*" >&2 || return
-		fi
-		doas "$@" # eval
-		return
-	else
-		"$@" # eval
-		return
-	fi
+# more detailed `set -x`
+DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
+function __enable_debugging {
+	PS4="$DEBUG_FORMAT"
+	DEBUG=yes
+	set -x
 }
-# bc alias
-function __try_sudo {
-	dorothy-warnings add --code='__try_sudo' --bold=' has been deprecated in favor of ' --code='__elevate' || :
-	__elevate "$@" || return
-	return
+function __disable_debugging {
+	set +x
+	DEBUG=
 }
 
-# performantly make directories as many directories as possible without sudo
-function __mkdirp {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# proceed
-	local status=0 dir missing=()
-	for dir in "$@"; do
-		if [[ -n $dir && ! -d $dir ]]; then
-			missing+=("$dir")
-		fi
+function __stack {
+	local index size=${#FUNCNAME[@]}
+	for ((index = 0; index < size; ++index)); do
+		printf '%s\n' "${BASH_SOURCE[index]}:${BASH_LINENO[index]} ${FUNCNAME[index]}"
 	done
-	if [[ ${#missing[@]} -ne 0 ]]; then
-		mkdir -p -- "${missing[@]}" || status=$?
-		# none of this actually works, as there are more major issues if this happens, and needs to be worked around manually
-		# see: https://github.com/orgs/community/discussions/148648#discussioncomment-11862303
-		# if [[ $status -ne 0 ]]; then
-		# 	local sudo_missing=()
-		# 	status=0
-		# 	for dir in "${missing[@]}"; do
-		# 		if [[ ! -d $dir ]]; then
-		# 			sudo_missing+=("$dir")
-		# 			# for some reason, this detection doesn't work:
-		# 			# if mkdir -p -- "$dir" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
-		# 			# 	sudo_missing+=("$dir")
-		# 			# else
-		# 			# 	mkdir -p -- "$dir" || return
-		# 			# fi
-		# 		fi
-		# 	done
-		# 	if [[ ${#sudo_missing[@]} -ne 0 ]]; then
-		# 		__elevate_mkdirp -- "${sudo_missing[@]}" || status=$?
-		# 	fi
-		# fi
-	fi
-	return "$status"
+	__dump {BASH_SOURCE} {LINENO} {FUNCNAME} {BASH_LINENO} {BASH_SUBSHELL} || return
+	caller
 }
 
-# performantly make directories with sudo
-# @todo replace this with fs-mkdir
-function __elevate_mkdirp {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# proceed
-	local status=0 dir missing=()
-	for dir in "$@"; do
-		if [[ -n $dir && ! -d $dir ]]; then
-			missing+=("$dir")
-		fi
-	done
-	if [[ ${#missing[@]} -ne 0 ]]; then
-		__elevate -- mkdir -p -- "${missing[@]}" || status=$?
-	fi
-	return "$status"
-}
-# bc alias
-function __sudo_mkdirp {
-	dorothy-warnings add --code='__sudo_mkdirp' --bold=' has been deprecated in favor of ' --code='__elevate_mkdirp' || :
-	__elevate "$@" || return
-	return
-}
+# CONSIDER
+# bash v5: localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
+# shopt -s localvar_inherit 2>/dev/null || :
+# bash v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
+# shopt -s localvar_unset 2>/dev/null || :
 
-# get the value at the index of the reference
-# __at {<reference>} <index> | __at <index> {<reference>}
-# __at <string> <index> | __at <index> <string>
-function __at {
-	local AT__reference AT__item AT__input='' AT__index='' AT__value AT__size AT__negative_size AT__eval_statement
-	while [[ $# -ne 0 ]]; do
-		AT__item="$1"
-		shift
-		if __is_integer "$AT__item"; then
-			if [[ -n $AT__index ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Multiple indexes were provided, only one is allowed." >&2 || :
-				return 22 # EINVAL 22 Invalid argument
-			fi
-			AT__index="$AT__item"
-		else
-			if [[ -n $AT__input ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Multiple inputs were provided, only one is allowed." >&2 || :
-			fi
-			AT__input="$AT__item"
-		fi
-	done
-	if [[ -z $AT__index ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: No index was provided." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	if [[ -z $AT__input ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: No input was provided." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	if __is_reference "$AT__input"; then
-		AT__reference="$(__get_reference_name "$AT__input")" || return
-		if [[ $AT__reference == AT__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $AT__reference as it is used internally." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		if ! __is_integer "$AT__index"; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The index must be an integer, got: $AT__index" >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		if __is_array "$AT__reference"; then
-			eval "AT__size=\${#${AT__reference}[@]}"
-			AT__eval_statement="AT__value=\"\${${AT__reference}[\$AT__index]}\""
-		else
-			eval "AT__size=\${#${AT__reference}}"
-			AT__eval_statement="AT__value=\"\${${AT__reference}:(\$AT__index):1}\""
-		fi
-	else
-		AT__reference='AT__input'
-		AT__size="${#AT__input}"
-		AT__eval_statement="AT__value=\"\${${AT__reference}:(\$AT__index):1}\""
-	fi
-	AT__negative_size="$((AT__size * -1))"
-	if [[ $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: The index $AT__index was out of range $AT__negative_size (inclusive) to $AT__size (exclusive)." >&2 || :
-		return 14 # EFAULT 14 Bad address
-	elif [[ $AT__index -lt 0 ]]; then
-		AT__index="$((AT__size + AT__index))"
-	fi
-	eval "$AT__eval_statement" || return
-	__print_lines "$AT__value" || return
-}
+# Disable completion (not needed in scripts)
+# bash v2: progcomp: If set, the programmable completion facilities (see Programmable Completion) are enabled. This option is enabled by default.
+shopt -u progcomp
 
-function __absolute {
-	if __is_negative_integer "$1"; then
-		# convert negative to positive
-		__print_lines "$(($1 * -1))" || return
-	else
-		# leave positive as is
-		__print_lines "$1" || return
-	fi
-}
+# Promote the cleanup of nested commands if its login shell terminates.
+# bash v2: huponexit: If set, Bash will send SIGHUP to all jobs when an interactive login shell exits (see Signals).
+shopt -s huponexit
 
-# bash >= 5.2 supports negative indexes and negative lengths, via ${var: -3: -1} and ${var:(-3):(-1)} and ${var:"-3":"-1"} and ${var:$start:$length} and ${var:start:length}
-# bash >= 4.2 supports negative start indexes and negative lengths, via ${var: -3: -1} or ${var:(-3):(-1)} and ${var:$start:$length} and ${var:start:length} BUT NOT via ${var:"-1"}
-# bash >= 3.2 supports negative start indexes but not negative lengths, via ${var: -3: 1} or ${var:(-3):1} and ${var:$start:$length} and ${var:start:length} BUT NOT via ${var:"-1"}
-# all bash versions return an empty string if negative start index is out of bounds, rather than the entire string, which is unintuitive; we change it to still function as a window
-# all bash versions crash if the length is negative and is out of bounds; note that a positive length that is out of bounds does not crash; we change it to a no-op
-# @todo support switching between --lengths and --indices for positive integers
-# @note it's algorithm should be the same as __slice and __split
-function __get_substring {
-	# handle string
-	if [[ -z $1 ]]; then
-		return 0 # no-op, as the string is empty
-	fi
-	local string="$1"
-	local -i start length size="${#string}" remaining
-	# determine start
-	if [[ -z ${2-} ]]; then
-		start=0
-	elif [[ $2 == '-0' ]]; then
-		return 0 # no-op
-	elif __is_integer "$2"; then
-		start="$2"
-		if __is_negative_integer "$start"; then
-			start="$((size + start))" # note that size could be like 5, and start be like -10, which still results in -5
-		fi
-		if [[ $start -ge $size ]]; then
-			return 0 # no-op, as start is beyond the end of the string
-		fi
-	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: The start index must be a positive or negative integer, got: $2" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# determine length
-	if [[ -z ${3-} || $3 == '-0' ]]; then
-		# no length specified, use the remaining length
-		if [[ $start -le 0 ]]; then
-			# if start is 0, we can just print the whole string
-			__print_string "$string" || return
-		else
-			# if start is not 0, we can just print the substring from start to the end
-			__print_string "${string:start}" || return
-		fi
-		return 0
-	elif __is_integer "$3"; then
-		length="$3"
-		if __is_negative_integer "$length"; then
-			if [[ $start -lt 0 ]]; then
-				start=0
-			fi
-			length="$((size + length - start))" # note this could still result in a negative length, if size was 5, and length was -10
-		elif [[ $start -lt 0 ]]; then
-			if [[ "$((start + length))" -le 0 ]]; then
-				return 0
-			fi
-			length="$((length + start))" # reduce the length by the out of the bounds negative start
-			start=0
-		fi
-	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: The length must be a positive or negative integer, got: $3" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# start and length ought now be >= 0
-	# determine window
-	if [[ $length -lt 0 ]]; then
-		return 0 # no-op, as there is no size left
-	else
-		remaining="$((size - start))"
-		if [[ $length -ge $remaining ]]; then
-			__print_string "${string:start}" || return
-		else
-			__print_string "${string:start:length}" || return
-		fi
-	fi
-	return 0
-}
+# disable failglob (nullglob is better)
+# bash v3: failglob: If set, patterns which fail to match filenames during filename expansion result in an expansion error.
+shopt -u failglob
 
-# bc alias
-function __substr {
-	dorothy-warnings add --code='__substr' --bold=' has been deprecated in favor of ' --code='__get_substring' || :
-	__get_substring "$@" || return
-	return
-}
+# bash v1?: nullglob: If set, Bash allows filename patterns which match no files to expand to a null string, rather than themselves.
+shopt -s nullglob
 
-# @todo replace all native occurrences with this self-documenting and less-error prone function
-# __get_substring_before_first <string> <delimiter> [<fallback>]
-function __get_substring_before_first {
-	local string="$1" delimiter="$2"
-	result="${string%%"$delimiter"*}"
-	if [[ $result != "$string" ]]; then
-		__print_lines "$result" || return
-		return 0
-	fi
-	# local string="$1" delimiter="$2" i n dn
-	# n="${#string}"
-	# dn="${#delimiter}"
-	# for (( i = 0; i < n; i++ )); do
-	# 	if [[ ${string:i:dn} == "$delimiter" ]]; then
-	# 		__print_lines "${string:0:i}"
-	# 		return 0
-	# 	fi
-	# done
-	if [[ $# -eq 3 ]]; then
-		__print_lines "$3" || return
-		return 0
-	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
-		return 1
-	fi
-}
+# __require_globstar -- if globstar not supported, fail.
+# bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
+if shopt -s globstar 2>/dev/null; then
+	BASH_CAN_GLOBSTAR='yes'
+	function __require_globstar {
+		:
+	}
+else
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_CAN_GLOBSTAR='no'
+	function __require_globstar {
+		__require_upgraded_bash 'missing globstar support' || return
+	}
+fi
 
-# @todo replace all native occurrences with this self-documenting and less-error prone function
-# __get_substring_before_last <string> <delimiter> [<fallback>]
-function __get_substring_before_last {
-	local string="$1" delimiter="$2" result
-	result="${string%"$delimiter"*}"
-	if [[ $result != "$string" ]]; then
-		__print_lines "$result" || return
-		return 0
-	fi
-	# local string="$1" delimiter="$2" i n dn
-	# n="${#string}"
-	# dn="${#delimiter}"
-	# for (( i = n - dn; i >= 0; i-- )); do
-	# 	if [[ ${string:i:dn} == "$delimiter" ]]; then
-	# 		__print_lines "${string:0:i}"
-	# 		return 0
-	# 	fi
-	# done
-	if [[ $# -eq 3 ]]; then
-		__print_lines "$3" || return
-		return 0
-	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
-		return 1
-	fi
-}
+# __require_extglob -- if extglob not supported, fail.
+# bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
+if shopt -s extglob 2>/dev/null; then
+	BASH_CAN_EXTGLOB='yes'
+	function __require_extglob {
+		:
+	}
+else
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_CAN_EXTGLOB='no'
+	function __require_extglob {
+		__require_upgraded_bash 'missing extglob support' || return
+	}
+fi
 
-# @todo replace all native occurrences with this self-documenting and less-error prone function
-# __get_substring_after_first <string> <delimiter> [<fallback>]
-function __get_substring_after_first {
-	local string="$1" delimiter="$2" result
-	result="${string#*"$delimiter"}"
-	if [[ $result != "$string" ]]; then
-		__print_lines "$result" || return
-		return 0
-	fi
-	# local string="$1" delimiter="$2" i n dn r
-	# n="${#string}"
-	# dn="${#delimiter}"
-	# for (( i = 0; i < n; i++ )); do
-	# 	if [[ ${string:i:dn} == "$delimiter" ]]; then
-	# 		__print_lines "${string:i+dn}"
-	# 		return 0
-	# 	fi
-	# done
-	if [[ $# -eq 3 ]]; then
-		__print_lines "$3" || return
-		return 0
-	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
-		return 1
-	fi
-}
+# __require_lastpipe -- if lastpipe not supported, fail.
+# Enable `cmd | read -r var` usage.
+# bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
+if shopt -s lastpipe 2>/dev/null; then
+	BASH_CAN_LASTPIPE='yes'
+	function __require_lastpipe {
+		:
+	}
+else
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_CAN_LASTPIPE='no'
+	function __require_lastpipe {
+		__require_upgraded_bash 'missing lastpipe support' || return
+	}
+fi
 
-# @todo replace all native occurrences with this self-documenting and less-error prone function
-# __get_substring_after_last <string> <delimiter> [<fallback>]
-function __get_substring_after_last {
-	local string="$1" delimiter="$2" result
-	result="${string##*"$delimiter"}"
-	if [[ $result != "$string" ]]; then
-		__print_lines "$result" || return
-		return 0
-	fi
-	# local string="$1" delimiter="$2" i n dn r
-	# n="${#string}"
-	# dn="${#delimiter}"
-	# for (( i = n - dn; i >= 0; i-- )); do
-	# 	if [[ ${string:i:dn} == "$delimiter" ]]; then
-	# 		__print_lines "${string:i+dn}"
-	# 		return 0
-	# 	fi
-	# done
-	if [[ $# -eq 3 ]]; then
-		__print_lines "$3" || return
-		return 0
-	else
-		__print_lines "ERROR: ${FUNCNAME[0]}: Delimiter $delimiter was not found within: $string" >&2 || :
-		return 1
-	fi
-}
+# Disable functrace, as it causes unexpected behaviour when you know what you are doing.
+# bash v3:  -T  functrace   DEBUG and RETURN traps get inherited to nested commands.
+set +T
 
-# replace shapeshifting ANSI Escape Codes with newlines
-function __split_shapeshifting {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# proceed
-	# regexp should match [echo-clear-lines] [echo-revolving-door] [is-shapeshifter]
-	# https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
-	local input
-	for input in "$@"; do
-		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}"
-		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}" # save and restore cursor
-		input="${input//[[:cntrl:]][bf]/$'\n'}"          # page-up, page-down
-		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
-		__print_lines "$input" || return
-	done
-}
+# Ensure errors can be captured.
+# bash v3:  -E  errtrace    Any trap on ERR is inherited by shell functions, command substitutions, and commands executed in a subshell environment.
+# bash v1:  -e  errexit     Return failure immediately upon non-conditional commands.
+# bash v1:  -u  nounset     Return failure immediately when accessing an unset variable.
+# bash v3:  -o  pipefail    The return value of a pipeline is the status of the last command to exit with a non-zero status, or zero if no command exited with a non-zero status.
+# bash v4.4: inherit_errexit: Subshells inherit errexit.
+# Ensure subshells also get the settings
+set -Eeuo pipefail
+# set +E # __try now crashes or never finishes on bash versions prior to 4.4
+shopt -s inherit_errexit 2>/dev/null || : # has no effect on __try
 
-# determine if the input contains shapeshifting ANSI Escape Codes
-function __is_shapeshifter {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	# proceed
-	local input trimmed
-	for input in "$@"; do
-		trimmed="$(__split_shapeshifting -- "$input")" || return
-		if [[ $input != "$trimmed" ]]; then
-			return 0
-		fi
-	done
-	return 1
+# Detect errexit
+function __is_errexit {
+	[[ $- == *e* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 }
-
-# check if the input is a special target
-function __is_special_file {
-	local target="$1"
-	case "$target" in
-	1 | stdout | STDOUT | /dev/stdout | 2 | stderr | STDERR | /dev/stderr | tty | TTY | /dev/tty | null | NULL | /dev/null | [0-9]*) return 0 ;; # is a special file
-	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
-		return 22
-		;;            # EINVAL 22 Invalid argument
-	*) return 1 ;; # not a special file
-	esac
+function __is_not_errexit {
+	[[ $- != *e* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 }
 
 # Whether the terminal supports the [/dev/tty] device file
@@ -921,158 +442,396 @@ else
 	TERMINAL_THEME_INPUT_TARGET=''
 fi
 
-# Open a file descriptor in a cross-bash compatible way
-# alternative implementations at https://stackoverflow.com/q/8297415/130638
-# __open_fd ...<{file_descriptor_reference}> ...<file_descriptor_number> <mode> <target>
-function __open_fd {
-	local OPEN_FD__item OPEN_FD__number OPEN_FD__numbers=() OPEN_FD__reference OPEN_FD__references=() OPEN_FD__references_count OPEN_FD__mode='' OPEN_FD__target_number='' OPEN_FD__target_file='' OPEN_FD__eval_statement_exec='' OPEN_FD__eval_statement_assignments=''
-	function __validate_reference {
-		local reference="$1"
-		if [[ $reference == OPEN_FD__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		return 0
+if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
+	# Bash >= 5
+	function __get_epoch_time {
+		__print_lines "$EPOCHREALTIME" || return
 	}
-	while [[ $# -ne 0 ]]; do
-		OPEN_FD__item="$1"
+else
+	# Bash < 5
+	function __get_epoch_time {
+		local time size
+		time="$(date +%s.%N)" || return
+		if [[ $time == *000 ]]; then
+			size="${#time}"
+			__print_lines '%s' "${time:0:size-3}" || return # trim last 3 digits, as they are just zeroes
+		else
+			__print_lines '%s' "$time" || return
+		fi
+	}
+fi
+
+if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
+	# bash >= 4
+	# `read -i` only works if STDIN is open on terminal
+	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
+		# `read -rei`  | direct                                | default shown and exit status `0` if enter pressed or `1` if nothing sent
+		BASH_CAN_READ_I='yes'
+	else
+		# `read -rei`  | immediate pipe/redirection            | default ignored and exit status `0` if input sent or `1` if nothing sent
+		# `read -rei`  | delayed pipe/redirection              | default ignored and exit status `0` if input sent or `1` if nothing sent
+		# `read -rei`  | background task: all                  | input and default ignored and exit status `1`, regardless of piping and redirection
+		# `read -rei`  | ssh -T: direct                        | default ignored and exit status `0` if enter pressed or `142` if timed out
+		# `read -rei`  | GitHub Actions: direct                | default ignored and exit status `0` if input sent, or `1` if nothing sent
+		# `read -rei`  | GitHub Actions: background task: all  | input and default ignored and exit status `1`, regardless of piping and redirections
+		BASH_CAN_READ_I='no'
+	fi
+	BASH_CAN_READ_DECIMAL_TIMEOUT='yes'
+	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='yes'
+	function __get_read_decimal_timeout {
+		printf '%s' "$1" || return
+	}
+else
+	# bash < 4
+	# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_CAN_READ_I='no'
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_CAN_READ_DECIMAL_TIMEOUT='no'
+	# trunk-ignore(shellcheck/SC2034)
+	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='no'
+	function __get_read_decimal_timeout {
+		# -lt requires integers, so we need to use regexp instead
+		if [[ -n $1 && $1 =~ ^0[.] ]]; then
+			printf '%s' 1 || return
+		else
+			printf '%s' "$1" || return
+		fi
+	}
+fi
+
+# Bash >= 5.1, >= 4, < 4
+if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
+	# bash >= 5.1
+	function __get_uppercase_first_letter {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		printf '%s' "${1@u}" || return
+	}
+	function __get_uppercase_string {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		printf '%s' "${1@U}" || return
+	}
+	function __get_lowercase_string {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# proceed
+		printf '%s' "${1@L}" || return
+	}
+	# @Q is available, however it is strange, so don't shim
+else
+	# bash < 5.1
+	# @Q is no longer available, however it is strange, so don't shim
+	if [[ $BASH_VERSION_MAJOR -eq 4 ]]; then
+		# bash >= 4
+		function __get_uppercase_first_letter {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			printf '%s' "${1^}" || return
+		}
+		function __get_uppercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			printf '%s' "${1^^}" || return
+		}
+		function __get_lowercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			printf '%s' "${1,,}" || return
+		}
+	else
+		# bash < 4
+		function __get_uppercase_first_letter {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			local input="$1"
+			local first_char="${input:0:1}" rest="${input:1}" result
+			result="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
+			printf '%s' "$result$rest" || return
+		}
+		function __get_uppercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			printf '%s' "$1" | tr '[:lower:]' '[:upper:]' || return
+		}
+		function __get_lowercase_string {
+			# trim -- prefix
+			if [[ ${1-} == '--' ]]; then
+				shift
+			fi
+			# proceed
+			printf '%s' "$1" | tr '[:upper:]' '[:lower:]' || return
+		}
+	fi
+fi
+
+# bash >= 4.2
+# p.  Negative subscripts to indexed arrays, previously errors, now are treated
+#     as offsets from the maximum assigned index + 1.
+# q.  Negative length specifications in the `${var:offset:length}` expansion,
+#     previously errors, are now treated as offsets from the end of the variable.
+# `test -v varname` is not used as it behaviour is inconsistent to expectations and across versions
+function __is_var_set {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
 		shift
-		if [[ -z $OPEN_FD__mode ]]; then
-			case "$OPEN_FD__item" in
-			# file descriptor
-			'{'*'}')
-				OPEN_FD__reference="$(__get_reference_name "$OPEN_FD__item")" || return
-				__validate_reference "$OPEN_FD__reference" || return
-				OPEN_FD__references+=("$OPEN_FD__reference")
+	fi
+	__affirm_length_defined $# 'variable reference' || return
+	# process
+	local IS_VAR_SET__item IS_VAR_SET__reference IS_VAR_SET__fodder
+	while [[ $# -ne 0 ]]; do
+		IS_VAR_SET__item="$1"
+		shift
+		# support with and without squigglies for these references
+		__dereference --origin="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
+		# bash 3.2 and 4.0 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
+		# bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
+		# bash 4.4+ will have `local z; declare -p z` will result in `declare -- z`
+		# `set -u` has no effect
+		IS_VAR_SET__fodder="$(declare -p "$IS_VAR_SET__reference" 2>/dev/null)" || return 1
+		[[ $IS_VAR_SET__fodder == *'='* ]] || return 1
+	done
+	return 0
+}
+
+# Shim Array Support
+# Bash v4 has the following capabilities, which must be shimmed in earlier versions:
+# - `readarray` and `mapfile`
+#     - our shim provides a workaround
+# - associative arrays
+#     - no workaround, you are out of luck
+# - iterating empty arrays:
+#     - broken: `arr=(); for item in "${arr[@]}"; do ...`
+#     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
+#     - use: `[[ "${#array[@]}" -ne 0 ]] && for ...`
+#     - or if you don't care for empty option_inputs, use: `[[ -n "$arr" ]] && for ...`
+#
+# BASH_ARRAY_CAPABILITIES -- string that stores the various capabilities:
+# `mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative`
+# note that there is no need to do `__require_array 'mapfile'` as `bash.bash` makes `mapfile` always available, it is just the native version that is not available
+
+# has_array_capability -- check if a capability is provided by the current bash version
+function __has_array_capability {
+	local arg
+	for arg in "$@"; do
+		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
+			return 1
+		fi
+	done
+}
+
+# __require_array -- require a capability to be provided by the current bash version, otherwise fail
+function __require_array {
+	if ! __has_array_capability "$@"; then
+		__require_upgraded_bash "missing array $* support" || return
+	fi
+}
+
+BASH_ARRAY_CAPABILITIES=''
+if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
+	# bash >= 5
+	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native] empty[native]'
+	if [[ $BASH_VERSION_MINOR -ge 1 ]]; then
+		# bash >= 5.1
+		BASH_ARRAY_CAPABILITIES+=' associative'
+	fi
+elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
+	# note that these versions do not support [-d <delim>] or [-t] options with mapfile
+	# bash >= 4
+	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
+	if [[ $BASH_VERSION_MINOR -ge 4 ]]; then
+		# bash >= 4.4
+		# finally supports nounset without crashing on defined empty arrays
+		BASH_ARRAY_CAPABILITIES+=' empty[native]'
+	else
+		# bash 4.0, 4.1, 4.2, 4.3
+		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
+		set +u # disable nounset to prevent crashes on empty arrays
+	fi
+elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
+	# bash >= 3
+	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
+	set +u # disable nounset to prevent crashes on empty arrays
+	# @todo implement support for all options
+	function mapfile {
+		if __command_exists -- dorothy-warnings; then
+			dorothy-warnings add --code='mapfile' --bold=' has been deprecated in favor of ' --code='__split' || :
+		fi
+		local MAPFILE__delim=$'\n' MAPFILE__t='no' MAPFILE__reference='' MAPFILE__reply
+		while :; do
+			case "$1" in
+			-t)
+				MAPFILE__t='yes'
+				shift # trim -t
 				;;
-			[0-9]*) OPEN_FD__numbers+=("$OPEN_FD__item") ;;
-			# mode
-			'<' | --read) OPEN_FD__mode='<' ;;
-			'>' | --overwrite | --write) OPEN_FD__mode='>' ;;
-			'<>' | --read-write) OPEN_FD__mode='<>' ;;
-			'>>' | --append) OPEN_FD__mode='>>' ;;
+			-td)
+				MAPFILE__t='yes'
+				shift # trim -td
+				MAPFILE__delim="$1"
+				shift # trim delim
+				;;
+			-d)
+				shift # trim -d
+				MAPFILE__delim="$1"
+				shift # trim delim
+				;;
+			-*)
+				__print_lines \
+					"mapfile[shim]: $1: invalid option" \
+					'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2 || :
+				return 2 # that's what native mapfile returns
+				;;
 			*)
-				__print_lines "ERROR: ${FUNCNAME[0]}: Invalid argument provided: $OPEN_FD__item" >&2 || :
-				return 22 # EINVAL 22 Invalid argument
+				if [[ -z $MAPFILE__reference ]]; then
+					# support with and without squigglies for these references
+					__dereference --origin="$1" --name={MAPFILE__reference} || return
+				else
+					__print_lines \
+						"mapfile[shim]: unknown argument: $1" \
+						'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2 || :
+					return 2 # that's what native mapfile returns
+				fi
 				;;
 			esac
-		elif __is_positive_integer "$OPEN_FD__item"; then
-			OPEN_FD__target_number="$OPEN_FD__item"
-			break
-		else
-			OPEN_FD__target_file="$OPEN_FD__item"
-			break
-		fi
-	done
-	# if extra arguments, there were too many
-	if [[ $# -ne 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Too many arguments provided, expected only a file descriptor number or reference, mode, and target." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# must have all the arguments
-	OPEN_FD__references_count=${#OPEN_FD__references[@]}
-	if [[ ($OPEN_FD__references_count -eq 0 && ${#OPEN_FD__numbers[@]} -eq 0) || (-z $OPEN_FD__target_number && -z $OPEN_FD__target_file) ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid arguments provided, expected a file descriptor number or reference, mode, and target." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# open the references
-	if [[ $OPEN_FD__references_count -ne 0 ]]; then
-		# Bash >= 4.1
-		if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
-			if [[ -n $OPEN_FD__target_number ]]; then
-				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
-					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode&$OPEN_FD__target_number "
-				done
-			else
-				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
-					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode\"\${OPEN_FD__target_file}\" "
-				done
-			fi
-		else
-			# FD 3 and 4 are commonly used, so skip them amd start at 5
-			local OPEN_FD__end OPEN_FD__references_index
-			OPEN_FD__end="$(ulimit -n)" # this must be here, instead of in the for loop initialisation, as otherwise bash 4.3 and 4.4 will crash
-			for ((OPEN_FD__number = 5, OPEN_FD__references_index = 0; OPEN_FD__number < OPEN_FD__end && OPEN_FD__references_index < OPEN_FD__references_count; OPEN_FD__number++)); do
-				# test if the file descriptor is not available on both read and write, then it means it is available
-				if ! eval ": <&$OPEN_FD__number" &>/dev/null && ! eval ": >&$OPEN_FD__number" &>/dev/null; then
-					# it failed, so it is available
-					OPEN_FD__numbers+=("$OPEN_FD__number")
-					OPEN_FD__reference="${OPEN_FD__references[OPEN_FD__references_index]}"
-					OPEN_FD__references_index=$((OPEN_FD__references_index + 1))
-					OPEN_FD__eval_statement_assignments+="$OPEN_FD__reference=$OPEN_FD__number; "
-				fi
-			done
-		fi
-	fi
-	# open the numbers
-	if [[ -n $OPEN_FD__target_number ]]; then
-		for OPEN_FD__number in "${OPEN_FD__numbers[@]}"; do
-			OPEN_FD__eval_statement_exec+="$OPEN_FD__number$OPEN_FD__mode&$OPEN_FD__target_number "
 		done
-	else
-		for OPEN_FD__number in "${OPEN_FD__numbers[@]}"; do
-			OPEN_FD__eval_statement_exec+="$OPEN_FD__number$OPEN_FD__mode\"\${OPEN_FD__target_file}\" "
+		if [[ -z $MAPFILE__reference ]]; then
+			__print_lines \
+				'mapfile[shim]: <array> is required in our bash v3 shim' \
+				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2 || :
+			return 2 # that's what native mapfile returns
+		fi
+		if [[ $MAPFILE__t != 'yes' ]]; then
+			__print_lines \
+				'mapfile[shim]: -t is required in our bash v3 shim' \
+				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2 || :
+			return 2 # that's what native mapfile returns
+		fi
+		shift
+		eval "$MAPFILE__reference=()" || return
+		while IFS= read -rd "$MAPFILE__delim" MAPFILE__reply || [[ -n $MAPFILE__reply ]]; do
+			eval "${MAPFILE__reference}+=(\"\${MAPFILE__reply}\")" || return
 		done
-	fi
-	# apply
-	eval "exec $OPEN_FD__eval_statement_exec; $OPEN_FD__eval_statement_assignments" || return
+	}
+fi
+BASH_ARRAY_CAPABILITIES+=' '
+
+# =============================================================================
+# Bash Essential Toolkit
+
+# -------------------------------------
+# Errors Toolkit
+
+function __unrecognised_flag {
+	__print_lines "ERROR: ${FUNCNAME[1]}: An unrecognised flag was provided: $1" >&2 || :
+	return 22 # EINVAL 22 Invalid argument
 }
 
-# __close_fd ...<{file_descriptor_reference}> ...<file_descriptor_number>
-function __close_fd {
-	local CLOSE_FD__arg CLOSE_FD__number CLOSE_FD__reference CLOSE_FD__eval_statement_exec=''
-	if [[ $# -eq 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Too little arguments provided, expected a file descriptor number or reference." >&2 || :
+function __unrecognised_argument {
+	__print_lines "ERROR: ${FUNCNAME[1]}: An unrecognised argument was provided: $1" >&2 || :
+	return 22 # EINVAL 22 Invalid argument
+}
+
+# affirm the mode value is a valid mode
+# __affirm_value_is_valid_write_mode <mode-value>
+function __affirm_value_is_valid_write_mode {
+	case "$1" in
+	'' | prepend | append | overwrite) return 0 ;; # valid modes
+	*)
+		__print_lines "ERROR: \${FUNCNAME[1]}: An invalid mode was provided: \$$1" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+		;;
+	esac
+}
+
+# affirm the value is defined
+# __affirm_value_is_defined <value> <description>
+function __affirm_value_is_defined {
+	if [[ -z $1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} must be provided." >&2 || :
+		__stack >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	for CLOSE_FD__arg in "$@"; do
-		if __is_positive_integer "$CLOSE_FD__arg"; then
-			CLOSE_FD__number="$CLOSE_FD__arg"
-		else
-			CLOSE_FD__reference="$(__get_reference_name "$CLOSE_FD__arg")"
-			if [[ $CLOSE_FD__reference == CLOSE_FD__* ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $CLOSE_FD__reference as it is used internally." >&2 || :
-				return 22 # EINVAL 22 Invalid argument
-			fi
-			if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
-				# close via the file descriptor reference
-				CLOSE_FD__eval_statement_exec+="{$CLOSE_FD__reference}>&- "
-				continue
-			else
-				# get the file descriptor directly
-				CLOSE_FD__number="${!CLOSE_FD__reference}"
-			fi
-		fi
-		# close the file descriptor number
-		CLOSE_FD__eval_statement_exec+="$CLOSE_FD__number>&- "
-	done
-	eval "exec $CLOSE_FD__eval_statement_exec" || return
 }
 
-# Custom debug target
-# BASH_XTRACEFD aka DEBUG_OUTPUT_TARGET
-export BASH_XTRACEFD
-BASH_XTRACEFD="${BASH_XTRACEFD:-"${DEBUG_OUTPUT_TARGET:-"2"}"}"
-function __debug_lines {
-	if [[ -n ${DEBUG-} ]]; then
-		if [[ -z $BASH_XTRACEFD ]]; then
-			BASH_XTRACEFD="$TERMINAL_OUTPUT_TARGET"
-		fi
-		__print_lines "$@" >>"$BASH_XTRACEFD" || return
+# affirm the value is undefined
+# __affirm_value_is_undefined <value> <description>
+function __affirm_value_is_undefined {
+	if [[ -n $1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} was already defined [$1]." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
 	fi
 }
 
-# more detailed [set -x]
-DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
-function __enable_debugging {
-	PS4="$DEBUG_FORMAT"
-	DEBUG=yes
-	set -x
+# affirm the value is an integer
+# __affirm_value_is_integer <value> <description>
+function __affirm_value_is_integer {
+	if ! __is_integer "$1"; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} [$1] must be an integer." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 }
-function __disable_debugging {
-	set +x
-	DEBUG=
+
+# affirm the value is a positive integer
+# __affirm_value_is_positive_integer <value> <description>
+function __affirm_value_is_positive_integer {
+	if ! __is_positive_integer "$1"; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} [$1] must be a positive integer." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 }
+
+# affirm value is greater than one
+# __affirm_length_defined <value> <description>
+function __affirm_length_defined {
+	if [[ $1 -eq 0 ]]; then # ignore positive integer check, as that is too strict for this
+		__print_lines "ERROR: ${FUNCNAME[1]}: At least one ${2:-"value"} must be provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
+# affirm variable is an array
+# __affirm_variable_is_array <variable-name> <description>
+function __affirm_variable_is_array {
+	if ! __is_array "$1"; then # ignore positive integer check, as that is too strict for this
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"variable"} $1 must be an array." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
+# affirm the array is defined
+# __affirm_array_is_defined <array> <description>
+# function __affirm_array_is_defined {
+# 	local AFFIRM_ARRAY_IS_DEFINED__item="$1" AFFIRM_ARRAY_IS_DEFINED__reference
+# 	__dereference --origin="$AFFIRM_ARRAY_IS_DEFINED__item" --name={AFFIRM_ARRAY_IS_DEFINED__reference} || return
+# 	if ! __is_array "$AFFIRM_ARRAY_IS_DEFINED__reference" || eval "[[ \${#${AFFIRM_ARRAY_IS_DEFINED__reference}[@]} -eq 0 ]]"; then
+# 		__print_lines "ERROR: ${FUNCNAME[1]}: At least one ${2:-"value"} must be provided." >&2 || :
+# 		return 22 # EINVAL 22 Invalid argument
+# 	fi
+# }
 
 # use this to ensure that the prior command's exit status bubbles a failure, regardless of whether errexit is on or off:
 # __return $? || return
@@ -1098,21 +857,21 @@ function __return {
 		RETURN__item="$1"
 		shift
 		case "$RETURN__item" in
-		'--invoke-only-on-failure') RETURN__invoke_only_on_failure=yes ;;
-		'--')
+		--invoke-only-on-failure) RETURN__invoke_only_on_failure=yes ;;
+		--)
 			RETURN__invoke_command+=("$@")
 			shift $#
 			break
 			;;
 		[0-9]*)
+			__affirm_value_is_positive_integer "$RETURN__item" 'exit status' || return
+			# it is an exit status, update our result exit status if it is still non-zero
 			if [[ $RETURN__status -eq 0 ]]; then
 				RETURN__status="$RETURN__item"
 			fi
 			;;
-		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: Invalid argument provided: $RETURN__item" >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-			;;
+		--*) __unrecognised_flag "$RETURN__item" || return ;;
+		*) __unrecognised_argument "$RETURN__item" || return ;;
 		esac
 	done
 
@@ -1140,8 +899,6 @@ function __return {
 	fi
 }
 
-# these aren't used anywhere yet:
-
 # ignore an exit status
 function __ignore_exit_status {
 	local actual_status="$?" ignore_status
@@ -1156,7 +913,7 @@ function __ignore_exit_status {
 # ignore a sigpipe exit status
 # this enables the following:
 # { curl --silent --show-error 'https://www.google.com' | : || __ignore_exit_status 56; } | { { cat; yes; } | head -n 1 || __ignore_sigpipe; } | cat
-# note that the curl pipefail 56 occurs because we pipe [curl] to [:], similar to how we cause another pipefail later by piping [yes] to [head -n 1], this is a contrived example to demonstrate the point
+# note that the curl pipefail 56 occurs because we pipe `curl` to `:`, similar to how we cause another pipefail later by piping `yes` to `head -n 1`, this is a contrived example to demonstrate the point
 function __ignore_sigpipe {
 	__ignore_exit_status 141 || return
 }
@@ -1172,13 +929,178 @@ function __exit_on_exit_status {
 	return 0
 }
 
-function __is_errexit {
-	[[ $- == *e* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+# -------------------------------------
+# Variable & Value Toolkit
+
+# as __dereference calls __is_array, we cannot call __dereference from __is_array
+# NOTE:
+# if you do `local arr=(); a='string'` then `declare -p arr` will report `arr` as an array with a single element
+# to avoid that, you must do `local arr; a='string'` as such, never mangling types; or use separate variables (safe and explicit)
+function __is_array {
+	local IS_ARRAY__item IS_ARRAY__size IS_ARRAY__reference='' IS_ARRAY__fodder
+	__affirm_length_defined $# 'variable reference' || return
+	while [[ $# -ne 0 ]]; do
+		IS_ARRAY__item="$1"
+		shift
+		case "$IS_ARRAY__item" in
+		{*})
+			# trim starting and trailing squigglies
+			IS_ARRAY__size="${#IS_ARRAY__item}"
+			IS_ARRAY__reference="${IS_ARRAY__item:1:IS_ARRAY__size-2}"
+			;;
+		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
+		esac
+		# verify the reference
+		if [[ -z $IS_ARRAY__reference || $IS_ARRAY__reference == IS_ARRAY__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		# verify the variable is an array
+		IS_ARRAY__fodder="$(declare -p "$IS_ARRAY__reference" 2>/dev/null)" || return 1
+		[[ $IS_ARRAY__fodder == 'declare -a '* ]] || return 1
+	done
 }
 
-function __is_not_errexit {
-	[[ $- != *e* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+function __is_positive_integer {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[0-9]+$ ]] || return
+		shift
+	done
 }
+
+# or you if you already know it is an integer, you can just do: [[ $1 -lt 0 ]]
+function __is_negative_integer {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^-[0-9]+$ ]] || return
+		shift
+	done
+}
+
+function __is_integer {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[-]?[0-9]+$ ]] || return
+		shift
+	done
+}
+
+function __is_digit {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[0-9]$ ]] || return
+		shift
+	done
+}
+
+function __is_even {
+	__affirm_length_defined $# 'input' || return
+	local input
+	while [[ $# -ne 0 ]]; do
+		input="$1"
+		shift
+		[[ $((input % 2)) -eq 0 ]] || return
+	done
+}
+
+function __is_odd {
+	__affirm_length_defined $# 'input' || return
+	local input
+	while [[ $# -ne 0 ]]; do
+		input="$1"
+		shift
+		[[ $((input % 2)) -ne 0 ]] || return
+	done
+}
+
+function __is_zero {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 -eq 0 ]] || return
+		shift
+	done
+}
+
+# -------------------------------------
+# Reference Toolkit
+
+# check if the value is a reference, i.e. starts with `{` and ends with `}`, e.g. `{var_name}`.
+function __is_reference {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 == '{'*'}' && $1 != '{}' ]] || return
+		shift
+	done
+}
+
+# with the reference, trim its squigglies to get its variable name, and apply it to the variable name reference, and affirm there won't be a conflict
+# e.g. `my_result=hello; MY_CONTEXT__item={my_result}; __dereference --origin="$MY_CONTEXT__item" --name={MY_CONTEXT__reference}; MY_CONTEXT__reference=my_result`
+# e.g. `my_result=hello; MY_CONTEXT__item='{my_result}'; __dereference --origin="$MY_CONTEXT__item"--value={MY_CONTEXT__value}; MY_CONTEXT__value=hello`
+function __dereference {
+	local DEREFERENCE__item DEREFERENCE__origin_reference='' DEREFERENCE__name_reference='' DEREFERENCE__value_reference='' DEREFERENCE__size DEREFERENCE__origin_prefix='' DEREFERENCE__internal_prefix=''
+	while [[ $# -ne 0 ]]; do
+		DEREFERENCE__item="$1"
+		shift
+		case "$DEREFERENCE__item" in
+		--origin={*})
+			DEREFERENCE__item="${DEREFERENCE__item#*=}"
+			DEREFERENCE__size="${#DEREFERENCE__item}"
+			DEREFERENCE__origin_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__origin_prefix="${DEREFERENCE__origin_reference%%__*}__"
+			;;
+		--origin=*)
+			DEREFERENCE__origin_reference="${DEREFERENCE__item#*=}"
+			DEREFERENCE__origin_prefix="${DEREFERENCE__origin_reference%%__*}__"
+			;;
+		--name={*})
+			DEREFERENCE__item="${DEREFERENCE__item#*=}"
+			DEREFERENCE__size="${#DEREFERENCE__item}"
+			DEREFERENCE__name_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__internal_prefix="${DEREFERENCE__name_reference%%__*}__"
+			;;
+		--value={*})
+			DEREFERENCE__item="${DEREFERENCE__item#*=}"
+			DEREFERENCE__size="${#DEREFERENCE__item}"
+			DEREFERENCE__value_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__internal_prefix="${DEREFERENCE__value_reference%%__*}__"
+			;;
+		--*) __unrecognised_flag "$DEREFERENCE__item" || return ;;
+		*) __unrecognised_argument "$DEREFERENCE__item" || return ;;
+		esac
+	done
+	if [[ -z $DEREFERENCE__origin_reference ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: The origin reference is required." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# validate that the reference does not use our variable name prefix
+	if [[ -n $DEREFERENCE__origin_prefix && -n $DEREFERENCE__internal_prefix && $DEREFERENCE__origin_prefix == "$DEREFERENCE__internal_prefix" ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the origin reference [$DEREFERENCE__origin_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if [[ -n $DEREFERENCE__name_reference ]]; then
+		if __is_array "$DEREFERENCE__name_reference"; then
+			# append is intentional, see __to usage
+			eval "$DEREFERENCE__name_reference+=(\"\$DEREFERENCE__origin_reference\")" || return
+		else
+			eval "$DEREFERENCE__name_reference=\"\$DEREFERENCE__origin_reference\"" || return
+		fi
+	fi
+	if [[ -n $DEREFERENCE__value_reference ]]; then
+		if __is_array "$DEREFERENCE__origin_reference"; then
+			# dereference an array, so we need to use the array variable name
+			# append is intentional, see __to usage
+			eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__origin_reference}[@]}\")" || return
+		else
+			# dereference a variable, so we can just use the variable name
+			eval "$DEREFERENCE__value_reference=\"\$${DEREFERENCE__origin_reference}\"" || return
+		fi
+	fi
+	return 0
+}
+
+# -------------------------------------
+# Function Toolkit
 
 function __is_subshell_function {
 	# don't assign $1 to a variable, as then that means the variable name could conflict with the evaluation from the declare
@@ -1187,7 +1109,7 @@ function __is_subshell_function {
 }
 
 function __get_function_inner {
-	local GET_FUNCTION_INNER__function_code
+	local GET_FUNCTION_INNER__function_code GET_FUNCTION_INNER__left=$'{ \n' GET_FUNCTION_INNER__right=$'\n}'
 	GET_FUNCTION_INNER__function_code="$(declare -f "$1")" || return
 	# remove header and footer of function
 	# this only works bash 5.2 and above:
@@ -1196,10 +1118,10 @@ function __get_function_inner {
 	# this works, but reveals the issue with the above is the escaping:
 	# code="${code#*"$osb $newline"}"
 	# code="${code%"$newline$csb"*}"
-	# as such, use this wrapper, which is is clear to our intent:
-	GET_FUNCTION_INNER__function_code="$(__get_substring_after_first "$GET_FUNCTION_INNER__function_code" $'{ \n')" || return
-	GET_FUNCTION_INNER__function_code="$(__get_substring_before_last "$GET_FUNCTION_INNER__function_code" $'\n}')" || return
-	__print_string "$GET_FUNCTION_INNER__function_code" || return
+	# as such, use this wrapper, which is is clear to our intent, do not use any other helper functions though, as this is executed in our complex __try flow
+	GET_FUNCTION_INNER__function_code="${GET_FUNCTION_INNER__function_code#*"$GET_FUNCTION_INNER__left"}"
+	GET_FUNCTION_INNER__function_code="${GET_FUNCTION_INNER__function_code%"$GET_FUNCTION_INNER__right"*}"
+	printf '%s' "$GET_FUNCTION_INNER__function_code" || return
 }
 
 function __get_index_of_parent_function {
@@ -1214,8 +1136,8 @@ function __get_index_of_parent_function {
 	# find a match
 	for index in "${!fns[@]}"; do
 		for until in "$@"; do
-			if [[ ${fns[index]} == "$until" ]]; then
-				__print_lines "$index" || return
+			if [[ ${fns[$index]} == "$until" ]]; then
+				printf '%s' "$index" || return
 				return 0
 			fi
 		done
@@ -1239,172 +1161,174 @@ function __get_first_parent_that_is_not {
 				continue 2
 			fi
 		done
-		__print_lines "$fn" || return
+		printf '%s' "$fn" || return
 		return 0
 	done
 	return 1
 }
 
-function __get_semlock {
-	local context_id="$1" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" semlock wait pid=$$
-	__mkdirp "$dir" || return
-	# the lock file contains the process id that has the lock
-	semlock="$dir/$context_id.lock"
-	# wait for a exclusive lock
-	while :; do
-		# don't bother with a [[ -s "$semlock" ]] before [cat] as the semlock could have been removed between
-		wait="$(cat "$semlock" 2>/dev/null || :)"
-		if [[ -z $wait ]]; then
-			__print_string "$pid" >"$semlock" || return
-		elif [[ $wait == "$pid" ]]; then
-			break
-		elif [[ "$(ps -p "$wait" &>/dev/null || __print_string dead)" == 'dead' ]]; then
-			# the process is dead, it probably crashed, so failed to cleanup, so remove the lock file
-			rm -f "$semlock" || return
-		fi
-		sleep "0.01$RANDOM"
-	done
-	__print_lines "$semlock" || return
-}
-
-# For semaphores, use $RANDOM$RANDOM as a single $RANDOM caused conflicts on Dorothy's CI tests when we didn't actually use semaphores, now that we use semaphores, we solve the underlying race conditions that caused the conflicts in the first place, however keep the double $RANDOM so it is enough entropy we don't have to bother for an existence check, here are the tests that had conflicts:
-# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
-# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
-# as to why use [__get_semaphore] instead of [mktemp], is that we want [dorothy test] to check if we cleaned everything up, furthermore, [mktemp] actually makes the files, so you have to do more expensive [-s] checks
-function __get_semaphore {
-	local context_id="${1:-"$RANDOM$RANDOM"}" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
-	__mkdirp "$dir" || return
-	__print_lines "$dir/$context_id" || return
-}
-
-# overwrites instead of appends
-function __get_semaphores {
-	local GET_SEMAPHORES__reference="$1" GET_SEMAPHORES__context_id GET_SEMAPHORES__semaphores=()
-	shift # trim reference
-	GET_SEMAPHORES__reference="$(__get_reference_name "$GET_SEMAPHORES__reference")" || return
-	if [[ $GET_SEMAPHORES__reference == GET_SEMAPHORES__* ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# trim -- prefix
-	if [[ $1 == '--' ]]; then
-		shift
-	fi
-	for GET_SEMAPHORES__context_id in "$@"; do
-		# get the semaphore file
-		GET_SEMAPHORES__semaphores+=("$(__get_semaphore "$GET_SEMAPHORES__context_id")") || return
-	done
-	eval "$GET_SEMAPHORES__reference=(\"\${GET_SEMAPHORES__semaphores[@]}\")" || return
-}
-
-# As to why semaphores are even necessary,
-# >( ... ) happens asynchronously, however the commands within >(...) happen synchronously, as such we can use this technique to know when they are done, otherwise on the very rare occasion the files may not exist or be incomplete by the time we get to to reading them: https://github.com/bevry/dorothy/issues/277
-# Note that this waits forever on bash 4.1.0, as the [touch] commands that create our semaphore only execute after a [ctrl+c], other older and newer versions are fine
-function __wait_for_semaphores {
-	# skip if empty
-	if [[ $# -eq 0 ]]; then
-		return 0
-	fi
-	# wait for each semaphore to exist
-	local semaphore
-	for semaphore in "$@"; do
-		while [[ ! -f $semaphore ]]; do
-			sleep 0.01
-		done
-	done
-}
-function __wait_for_and_remove_semaphores {
-	# skip if empty
-	if [[ $# -eq 0 ]]; then
-		return 0
-	fi
-	# wait for each semaphore to exist, then remove them
-	__wait_for_semaphores "$@" || return
-	rm -f -- "$@" || return
-}
-function __wait_for_and_return_semaphores {
-	# skip if empty
-	if [[ $# -eq 0 ]]; then
-		return 0
-	fi
-	# wait for each semaphore that represents an exit status to exist and to be written, then remove them
-	local semaphore semaphore_status=0
-	for semaphore in "$@"; do
-		# needs -s as otherwise the file may exist but may not have finished writing, which would result in:
-		# return: : numeric argument required
-		while [[ ! -s $semaphore ]]; do
-			sleep 0.01
-		done
-		# always return the failure
-		if [[ $semaphore_status -eq 0 ]]; then
-			semaphore_status="$(<"$semaphore")" || {
-				__print_lines "ERROR: ${FUNCNAME[0]}: Failed to read semaphore file: $semaphore" >&2 || :
-				return 5 # EIO 5 I/O error
-			} || return
-		fi
-	done
-	rm -f -- "$@" || :
-	return "$semaphore_status"
-}
-
 # =============================================================================
-# Configure bash for Dorothy best practices.
-# @todo move this section to the start
+# Redirection & Error Handling Toolkit
 
-# Disable completion (not needed in scripts)
-# bash v2: progcomp: If set, the programmable completion facilities (see Programmable Completion) are enabled. This option is enabled by default.
-shopt -u progcomp
+# send the source to the targets, respecting the mode
+function __to {
+	local TO__item TO__source='' TO__targets=() TO__mode=''
+	while [[ $# -ne 0 ]]; do
+		TO__item="$1"
+		shift
+		case "$TO__item" in
+		--source={*})
+			__affirm_value_is_undefined "$TO__source" 'source reference' || return
+			__dereference --origin="${TO__item#*=}" --name={TO__source} || return
+			;;
+		--targets=*) __dereference --origin="${TO__item#*=}" --value={TO__targets} || return ;;
+		--target=*) TO__targets+=("${TO__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$TO__mode" 'write mode' || return
+			TO__mode="${TO__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$TO__mode" 'write mode' || return
+			TO__mode="${TO__item:2}"
+			;;
+		--*) __unrecognised_flag "$TO__item" || return ;;
+		*) __unrecognised_argument "$TO__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$TO__source" 'source reference' || return
+	__affirm_value_is_valid_write_mode "$TO__mode" || return
+	if [[ ${#TO__targets[@]} -eq 0 ]]; then
+		TO__targets+=('STDOUT') # default to STDOUT
+	fi
+	local TO__target # TO__source_size
+	for TO__target in "${TO__targets[@]}"; do
+		__affirm_value_is_defined "$TO__target" 'target' || return
+		if __is_reference "$TO__target"; then
+			__dereference --origin="$TO__target" --name={TO__target} || return
+			if __is_array "$TO__source"; then
+				if __is_array "$TO__target" || ! __is_var_set "$TO__target"; then
+					# array to array
+					case "$TO__mode" in
+					prepend) eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return ;;
+					append) eval "$TO__target+=(\"\${${TO__source}[@]}\")" || return ;;
+					'' | overwrite) eval "$TO__target=(\"\${${TO__source}[@]}\")" || return ;;
+					# mode is already validated
+					esac
+				else
+					# array to string, with no delimiter, so `(a b)` becomes `"ab"`
+					case "$TO__mode" in
+					prepend) IFS= eval "$TO__target=\"\${${TO__source}[*]}\${${TO__target}}\"" || return ;;
+					append) IFS= eval "$TO__target+=\"\${${TO__source}[*]}\")" || return ;;
+					'' | overwrite) IFS= eval "$TO__target=\"\${${TO__source}[*]}\"" || return ;;
+					# mode is already validated
+					esac
 
-# Promote the cleanup of nested commands if its login shell terminates.
-# bash v2: huponexit: If set, Bash will send SIGHUP to all jobs when an interactive login shell exits (see Signals).
-shopt -s huponexit
-
-# __require_lastpipe -- if lastpipe not supported, fail.
-# Enable [cmd | read -r var] usage.
-# bash v4.2:    lastpipe    If set, and job control is not active, the shell runs the last command of a pipeline not executed in the background in the current shell environment.
-if shopt -s lastpipe 2>/dev/null; then
-	BASH_CAN_LASTPIPE='yes'
-	function __require_lastpipe {
-		:
-	}
-else
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_CAN_LASTPIPE='no'
-	function __require_lastpipe {
-		echo-style --stderr --error='Missing lastpipe support:' || return
-		__require_upgraded_bash || return
-	}
-fi
-
-# Disable functrace, as it causes unexpected behaviour when you know what you are doing.
-# bash v3:  -T  functrace   DEBUG and RETURN traps get inherited to nested commands.
-set +T
-
-# Ensure errors can be captured.
-# bash v3:  -E  errtrace    Any trap on ERR is inherited by shell functions, command substitutions, and commands executed in a subshell environment.
-# bash v1:  -e  errexit     Return failure immediately upon non-conditional commands.
-# bash v1:  -u  nounset     Return failure immediately when accessing an unset variable.
-# bash v3:  -o  pipefail    The return value of a pipeline is the status of the last command to exit with a non-zero status, or zero if no command exited with a non-zero status.
-# bash v4.4: inherit_errexit: Subshells inherit errexit.
-# Ensure subshells also get the settings
-set -Eeuo pipefail
-# set +E # __try now crashes or never finishes on bash versions prior to 4.4
-shopt -s inherit_errexit 2>/dev/null || : # has no effect on __try
+					# __at and __index provide a source array, in which the consumer/destination then decides if it wants an array or a string, as such the following commented code is not desired:
+					# eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
+					# || [[ $TO__source_size -le 1 ]]
+					# __print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well." >&2 || :
+					# __dump "$TO__source" "$TO__target" >&2 || :
+					# return 22 # EINVAL 22 Invalid argument
+				fi
+			else
+				# string to array
+				if __is_array "$TO__target"; then
+					case "$TO__mode" in
+					prepend) eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return ;;
+					append) eval "$TO__target+=(\"\${${TO__source}}\")" || return ;;
+					'' | overwrite) eval "$TO__target=(\"\${${TO__source}}\")" || return ;;
+					# mode is already validated
+					esac
+				else
+					# string to string
+					case "$TO__mode" in
+					prepend) eval "$TO__target=\"\${${TO__source}}\${${TO__target}}\"" || return ;;
+					append) eval "$TO__target+=\"\$${TO__source}\"" || return ;;
+					'' | overwrite) eval "$TO__target=\"\${${TO__source}}\"" || return ;;
+					# mode is already validated
+					esac
+				fi
+			fi
+		else
+			function __affirm_empty_mode {
+				if [[ -n $TO__mode ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: The target [$TO__target] is not a variable reference, so it cannot be used with the mode [$TO__mode]." >&2 || :
+					return 22 # EINVAL 22 Invalid argument
+				fi
+			}
+			local TO__value=''
+			if __is_array "$TO__source"; then
+				eval "
+				local -i TO__index TO__size
+				for (( TO__index = 0, TO__size = \${#${TO__source}[@]}; TO__index < TO__size; TO__index++ )); do
+					TO__value+=\"\${${TO__source}[TO__index]}\"\$'\n'
+				done" || return
+			else
+				eval "TO__value=\"\$${TO__source}\"" || return
+			fi
+			function __to_target {
+				case "$TO__target" in
+				# stdout
+				1 | STDOUT | stdout | /dev/stdout)
+					__affirm_empty_mode
+					printf '%s' "$TO__value" || return
+					;;
+				# stderr
+				2 | STDERR | stderr | /dev/stderr)
+					__affirm_empty_mode
+					printf '%s' "$TO__value" >&2 || return
+					;;
+				# tty
+				TTY | tty | /dev/tty)
+					__affirm_empty_mode
+					if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
+						TO__target="$TERMINAL_OUTPUT_TARGET"
+						__to_target || return
+					else
+						printf '%s' "$TO__value" >>/dev/tty || return
+					fi
+					;;
+				# null
+				NULL | null | /dev/null) ;; # do nothing
+				# file descriptor
+				[0-9]*)
+					__affirm_value_is_positive_integer "$TO__target" 'file descriptor' || return
+					__affirm_empty_mode
+					printf '%s' "$TO__value" >&"$TO__target" || return
+					;;
+				# file target
+				*)
+					case "$TO__mode" in
+					prepend)
+						TO__value="$(<"$TO__target")$TO__value"
+						printf '%s' "$TO__value" >"$TO__target" || return
+						;;
+					append)
+						printf '%s' "$TO__value" >>"$TO__target" || return
+						;;
+					'' | overwrite)
+						printf '%s' "$TO__value" >"$TO__target" || return
+						;;
+					esac
+					;;
+				esac
+			}
+			__to_target || return
+		fi
+	done
+}
 
 # normally, with > it is right to left, however that makes sense as > portions of our statement are on the right-side
 # however, __do is on the left side, so it should be left to right, such that this intuitively makes sense:
-# __do --stderr=stderr.txt --stdout=stdout.txt --stderr=stdout --stdout=output.txt -stdout=null -- echo-style --stderr=my-stderr --stdout=my-stdout
+# __do --copy-stderr=stderr.txt --copy-stdout=stdout.txt --redirect-stderr=STDOUT --copy-stdout=output.txt --redirect-stdout=NULL -- echo-style --stderr=my-stderr --stdout=my-stdout
 # as this makes no sense in this context:
-# __do --stdout=null --stdout=output.txt --stderr=stdout --stdout=stdout.txt --stderr=stderr.txt -- echo-style --stderr=my-stderr --stdout=my-stdout
+# __do --redirect-stdout=NULL --copy-stdout=output.txt --redirect-stderr=STDOUT --copy-stdout=stdout.txt --copy-stderr=stderr.txt -- echo-style --stderr=my-stderr --stdout=my-stdout
 #
 # @todo re-add samasama support for possible performance improvement: https://gist.github.com/balupton/32bfc21702e83ad4afdc68929af41c23
-# @todo consider using [FD>&-] instead of [FD>/dev/null]
+# @todo consider using `FD>&-` instead of `FD>/dev/null`
 function __do {
 	# 🧙🏻‍♀️ the power is yours, send donations to github.com/sponsors/balupton
-	if [[ $# -eq 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Arguments are required." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
+	__affirm_length_defined $# 'argument' || return
 	# externally, we support left to right, however internally, it is implemented right to left, so perform the conversion
 	if [[ $1 != '--right-to-left' ]]; then
 		local DO__inversion=("$1")
@@ -1424,18 +1348,11 @@ function __do {
 	DO__arg_flag="${DO__arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
 	shift
 	# if target is tty, but terminal device file is redirected, then redo the flag with the redirection value
-	if [[ $DO__arg_value =~ ^(tty|TTY|/dev/tty)$ && ! ($TERMINAL_OUTPUT_TARGET =~ ^(tty|TTY|/dev/tty)$) ]]; then
+	if __is_tty_special_file "$DO__arg_value" && ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
 		__do --right-to-left "$DO__arg_flag=$TERMINAL_OUTPUT_TARGET" "$@"
 		return
 	fi
 	# process
-	function __validate_reference {
-		local reference="$1"
-		if [[ $reference == DO__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-	}
 	case "$DO__arg" in
 	--)
 		"$@"
@@ -1476,10 +1393,7 @@ function __do {
 	# redirect or copy, status, to a var target
 	--redirect-status={*} | --copy-status={*})
 		local DO__reference DO__status
-
-		# trim squigglies
-		DO__reference="$(__get_reference_name "$DO__arg_value")" || return
-		__validate_reference "$DO__reference" || return
+		__dereference --origin="$DO__arg_value" --name={DO__reference} || return
 
 		# catch the status
 		__try {DO__status} -- __do --right-to-left "$@"
@@ -1523,12 +1437,9 @@ function __do {
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
 		local DO__reference DO__semaphore DO__result_value
+		__dereference --origin="$DO__arg_value" --name={DO__reference} || return
 
-		# trim squigglies
-		DO__reference="$(__get_reference_name "$DO__arg_value")" || return
-		__validate_reference "$DO__reference" || return
-
-		# reset all var to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
+		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
 		eval "$DO__reference=" || return
 
 		# execute and write to a file
@@ -1550,7 +1461,7 @@ function __do {
 	# '--redirect-stdout=|'* | '--redirect-stderr=|'* | '--redirect-output=|'*)
 	# 	# trim starting |, converting |<code> to <code>
 	# 	local DO__code
-	# 	DO__code="$(__get_substring "$DO__arg_value" 1)" || return
+	# 	__slice --source={DO__arg_value} --target={DO__code} 1 || return
 
 	# 	# run our pipes
 	# 	case "$DO__arg_flag" in
@@ -1576,10 +1487,11 @@ function __do {
 
 	# redirect, device files, to process substitution
 	--redirect-stdout=\(*\) | --redirect-stderr=\(*\) | --redirect-output=\(*\))
-		local DO__code DO__semaphore
+		local DO__code DO__semaphore DO__size
 
-		# trim starting ( and trailing ), converting (<code>) to <code>
-		DO__code="$(__get_substring "$DO__arg_value" 1 -1)" || return
+		# trim starting and trailing parentheses, converting (<code>) to <code>
+		DO__size="${#DO__arg_value}"
+		DO__code="${DO__arg_value:1:DO__size-2}"
 
 		# executing this in errexit mode:
 		# __do --stderr='(cat; __return 10; __return 20)' -- echo-style --stderr=stderr-result --stdout=stdout-result; echo "status=[${statusvar-}] stdout=[${stdoutvar-}] stderr=[${stderrvar-}]"
@@ -1626,31 +1538,32 @@ function __do {
 		case "$DO__arg_value" in
 
 		# redirect stdout to stdout, this is a no-op, continue to next
-		1 | stdout | STDOUT | /dev/stdout)
+		1 | STDOUT | stdout | /dev/stdout)
 			__do --right-to-left "$@"
 			return
 			;;
 
 		# redirect stdout to stderr
-		2 | stderr | STDERR | /dev/stderr)
+		2 | STDERR | stderr | /dev/stderr)
 			__do --right-to-left "$@" >&2
 			return
 			;;
 
 		# redirect stdout to tty
-		tty | TTY | /dev/tty)
+		TTY | tty | /dev/tty)
 			__do --right-to-left "$@" >>/dev/tty
 			return
 			;;
 
 		# redirect stdout to null
-		null | NULL | /dev/null)
+		NULL | null | /dev/null)
 			__do --right-to-left "$@" >/dev/null
 			return
 			;;
 
 		# redirect stdout to FD target
 		[0-9]*)
+			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
 			__do --right-to-left "$@" >&"$DO__arg_value"
 			return
 			;;
@@ -1676,17 +1589,17 @@ function __do {
 		case "$DO__arg_value" in
 
 		# copy stdout to stdout
-		1 | stdout | STDOUT | /dev/stdout)
+		1 | STDOUT | stdout | /dev/stdout)
 			# no-op
 			__do --right-to-left "$@"
 			return
 			;;
 
 		# copy stdout to stderr
-		2 | stderr | STDERR | /dev/stderr)
+		2 | STDERR | stderr | /dev/stderr)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores DO__context="__do.copy-stdout-to-stderr.$RANDOM$RANDOM"
-			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
+			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1705,10 +1618,10 @@ function __do {
 			;;
 
 		# copy stdout to tty
-		tty | TTY | /dev/tty)
+		TTY | tty | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores DO__context="__do.copy-stdout-to-tty.$RANDOM$RANDOM"
-			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
+			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1727,7 +1640,7 @@ function __do {
 			;;
 
 		# copy stdout to null
-		null | NULL | /dev/null)
+		NULL | null | /dev/null)
 			# no-op
 			__do --right-to-left "$@"
 			return
@@ -1735,9 +1648,11 @@ function __do {
 
 		# copy stdout to FD target
 		[0-9]*)
+			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
+
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores DO__context="__do.copy-stdout-to-fd.$RANDOM$RANDOM"
-			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
+			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" > >(
@@ -1787,31 +1702,32 @@ function __do {
 		case "$DO__arg_value" in
 
 		# redirect stderr to stdout
-		1 | stdout | STDOUT | /dev/stdout)
+		1 | STDOUT | stdout | /dev/stdout)
 			__do --right-to-left "$@" 2>&1
 			return
 			;;
 
 		# redirect stderr to stderr, this is a no-op, continue to next
-		2 | stderr | STDERR | /dev/stderr)
+		2 | STDERR | stderr | /dev/stderr)
 			__do --right-to-left "$@"
 			return
 			;;
 
 		# redirect stderr to tty
-		tty | TTY | /dev/tty)
+		TTY | tty | /dev/tty)
 			__do --right-to-left "$@" 2>>/dev/tty
 			return
 			;;
 
 		# redirect stderr to null
-		null | NULL | /dev/null)
+		NULL | null | /dev/null)
 			__do --right-to-left "$@" 2>/dev/null
 			return
 			;;
 
 		# redirect stderr to FD target
 		[0-9]*)
+			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
 			__do --right-to-left "$@" 2>&"$DO__arg_value"
 			return
 			;;
@@ -1837,10 +1753,10 @@ function __do {
 		case "$DO__arg_value" in
 
 		# copy stderr to stdout
-		1 | stdout | STDOUT | /dev/stdout)
+		1 | STDOUT | stdout | /dev/stdout)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores DO__context="__do.copy-stderr-to-stdout.$RANDOM$RANDOM"
-			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
+			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1859,17 +1775,17 @@ function __do {
 			;;
 
 		# copy stderr to stderr, this behaviour is unspecified, should it double the data to stderr?
-		2 | stderr | STDERR | /dev/stderr)
+		2 | STDERR | stderr | /dev/stderr)
 			# no-op
 			__do --right-to-left "$@"
 			return
 			;;
 
 		# copy stderr to tty
-		tty | TTY | /dev/tty)
+		TTY | tty | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores DO__context="__do.copy-stderr-to-tty.$RANDOM$RANDOM"
-			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
+			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1888,7 +1804,7 @@ function __do {
 			;;
 
 		# copy stderr to null
-		null | NULL | /dev/null)
+		NULL | null | /dev/null)
 			# no-op
 			__do --right-to-left "$@"
 			return
@@ -1896,9 +1812,11 @@ function __do {
 
 		# copy stderr to FD target
 		[0-9]*)
+			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
+
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores DO__context="__do.copy-stderr-to-fd.$RANDOM$RANDOM"
-			__get_semaphores {DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
+			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
 			__do --right-to-left "$@" 2> >(
@@ -1948,31 +1866,32 @@ function __do {
 		case "$DO__arg_value" in
 
 		# redirect stderr to stdout
-		1 | stdout | STDOUT | /dev/stdout)
+		1 | STDOUT | stdout | /dev/stdout)
 			__do --right-to-left "$@" 2>&1
 			return
 			;;
 
 		# redirect stdout to stderr
-		2 | stderr | STDERR | /dev/stderr)
+		2 | STDERR | stderr | /dev/stderr)
 			__do --right-to-left "$@" >&2
 			return
 			;;
 
 		# redirect stderr to stdout, then stdout to tty, as `&>>` is not supported in all bash versions
-		tty | TTY | /dev/tty)
+		TTY | tty | /dev/tty)
 			__do --right-to-left "$@" >>/dev/tty 2>&1
 			return
 			;;
 
 		# redirect output to null
-		null | NULL | /dev/null | no)
+		NULL | null | /dev/null | no)
 			__do --right-to-left "$@" &>/dev/null
 			return
 			;;
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirected to the fd target
 		[0-9]*)
+			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
 			__do --right-to-left "$@" 1>&"$DO__arg_value" 2>&1
 			return
 			;;
@@ -1998,28 +1917,28 @@ function __do {
 		case "$DO__arg_value" in
 
 		# copy output to stdout, this behaviour is unspecified, as there is no way to send it back to output
-		1 | stdout | STDOUT | /dev/stdout)
+		1 | STDOUT | stdout | /dev/stdout)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy output to stderr, this behaviour is unspecified, as there is no way to send it back to output
-		2 | stderr | STDERR | /dev/stderr)
+		2 | STDERR | stderr | /dev/stderr)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy output to tty, this behaviour is unspecified, as there is no way to send it back to output
-		tty | TTY | /dev/tty)
+		TTY | tty | /dev/tty)
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy stderr to null
-		null | NULL | /dev/null)
+		NULL | null | /dev/null)
 			# no-op
 			__do --right-to-left "$@"
 			return
@@ -2027,6 +1946,7 @@ function __do {
 
 		# copy output to FD target, this behaviour is unspecified, as there is no way to send it back to output
 		[0-9]*)
+			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
@@ -2063,7 +1983,7 @@ function __do {
 	return 29 # ESPIPE 29 Illegal seek
 }
 
-# debug helpers, that are overwritten within [dorothy-internals]
+# debug helpers, that are overwritten within `dorothy-internals`
 function dorothy_try__context_lines {
 	:
 }
@@ -2071,7 +1991,7 @@ function dorothy_try__dump_lines {
 	:
 }
 
-# See [dorothy-internals] for details, this is [i6a]
+# See `dorothy-internals` for details, this is `i6a` plus whatever modifications have come after
 function dorothy_try__trap_outer {
 	# do not use local, as this is not executed as a function
 	DOROTHY_TRY__TRAP_STATUS=$?
@@ -2094,7 +2014,7 @@ function dorothy_try__trap_outer {
 		# returning a non-zero exit status in bash v4.4 and up causes the non-zero exit status to be returned to the caller
 		# returning a non-zero exit status in bash versions earlier that v4.4 will cause 0 to be returned to the caller
 		# I have been unable to find a way for a non-zero exit status to propagate to the caller in bash versions earlier than v4.4
-		# using [__return ...] instead of [return ...] just causes the crash to occur
+		# using `__return ...` instead of `return ...` just causes the crash to occur
 
 		# check subshell
 		# in theory, a subshell check only matters if the current subshell is deeper than the original subshell
@@ -2131,7 +2051,7 @@ function dorothy_try__trap_outer {
 			elif [[ "$(__get_index_of_parent_function 'dorothy_try__wrapper' || :)" -eq 1 ]]; then
 				# this is useful regardless of subshell same or same shell, as it will still return us to the wrapper which is what we want
 				dorothy_try__context_lines "RETURN SKIPS TO TRY: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" "FUNCNAME: ${FUNCNAME[*]}" || :
-				return "$DOROTHY_TRY__TRAP_STATUS" # bash v3.2, 4.0 will turn this into [return 0]; bash v4.2, 4.3 will turn this into [return 1]
+				return "$DOROTHY_TRY__TRAP_STATUS" # bash v3.2, 4.0 will turn this into `return 0`; bash v4.2, 4.3 will turn this into [return 1]
 			elif [[ $DOROTHY_TRY__SUBSHELL != "${BASH_SUBSHELL-}" ]]; then
 				# throw to any effective subshell
 				dorothy_try__context_lines "THROW TO SUBSHELL OLD BASH: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" "FUNCNAME: ${FUNCNAME[*]}" || :
@@ -2139,7 +2059,7 @@ function dorothy_try__trap_outer {
 				# Bash 4.2, 4.3 will be ok
 			elif [[ "$(__get_index_of_parent_function 'dorothy_try__wrapper' '__do' '__try' || :)" -eq 1 ]]; then
 				dorothy_try__context_lines "RETURN TO PARENT SUBSHELL OLD BASH: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" "FUNCNAME: ${FUNCNAME[*]}" || :
-				return "$DOROTHY_TRY__TRAP_STATUS" # for some reason this changes to [return 0] even on 4.2 and 4.3, however this is going to one of our functions, which will load the STORE or SAVED value
+				return "$DOROTHY_TRY__TRAP_STATUS" # for some reason this changes to `return 0` even on 4.2 and 4.3, however this is going to one of our functions, which will load the STORE or SAVED value
 				# on bash 3.2 and 4.0 this still results in a crash on: do recursed[subshell] --no-status
 				# however that is mitigated by the [RETURN SKIPS TO TRY] functionality earlier, except on macos bash 3.2 which behaves differently and still crashes
 				# however on 4.2 and 4.3 it lets it pass
@@ -2209,13 +2129,13 @@ function dorothy_try__wrapper {
 }
 # NOTE: DO NOT IMPLEMENT `--discard-status` and `--redirect-status={<status-var>}` as it means you will need to do this:
 # `__try --discard-status --` same as `__try --`
-# `__try --redirect-status={<status-var>} --` same as `__try {<status-var>} --`
+# `__try {<status-var>} --` same as `__try {<status-var>} --`
 # implement `__try --copy-status={<status-var>} --` such that it is applied and returned
 # then you will discover that this then makes it seem that `__try --` returns/keeps the status, but it does not
 # as such, trying for compat with `__do` is silly, as they are different
 function __try {
 	# declare local variables
-	local DOROTHY_TRY__item DOROTHY_TRY__reference=''
+	local DOROTHY_TRY__item DOROTHY_TRY__exit_status_reference=''
 	# declare shared variables
 	local DOROTHY_TRY__COMMAND=() DOROTHY_TRY__CONTEXT DOROTHY_TRY__SEMAPHORE DOROTHY_TRY__STATUS='' DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	while [[ $# -ne 0 ]]; do
@@ -2227,7 +2147,7 @@ function __try {
 			shift $#
 			break
 			;;
-		{*}) DOROTHY_TRY__reference="$(__get_substring "$DOROTHY_TRY__item" 1 -1)" ;; # trim starting { and trailing }
+		{*}) __dereference --origin="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_reference} || return ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $DOROTHY_TRY__item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -2266,8 +2186,8 @@ function __try {
 
 	# apply the exit status
 	dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-	if [[ -n $DOROTHY_TRY__reference ]]; then
-		eval "$DOROTHY_TRY__reference=${DOROTHY_TRY__STATUS:-0}"
+	if [[ -n $DOROTHY_TRY__exit_status_reference ]]; then
+		eval "$DOROTHY_TRY__exit_status_reference=${DOROTHY_TRY__STATUS:-0}"
 	fi
 
 	# return success
@@ -2276,6 +2196,9 @@ function __try {
 
 function eval_capture {
 	local item cmd=() exit_status_variable='' stdout_variable='' stderr_variable='' output_variable='' stdout_target='/dev/stdout' stderr_target='/dev/stderr'
+	if __command_exists -- dorothy-warnings; then
+		dorothy-warnings add --code='eval_capture' --bold=' has been deprecated in favor of ' --code='__try' --bold=' and ' --code='__do' || :
+	fi
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -2389,751 +2312,1614 @@ function eval_capture {
 	"${do[@]}" -- "${cmd[@]}"
 }
 
-# disable failglob (nullglob is better)
-# bash v3: failglob: If set, patterns which fail to match filenames during filename expansion result in an expansion error.
-shopt -u failglob
-
-# bash v1?: nullglob: If set, Bash allows filename patterns which match no files to expand to a null string, rather than themselves.
-shopt -s nullglob
-
-# __require_globstar -- if globstar not supported, fail.
-# bash v4: globstar: If set, the pattern ‘**’ used in a filename expansion context will match all files and zero or more directories and subdirectories. If the pattern is followed by a ‘/’, only directories and subdirectories match.
-if shopt -s globstar 2>/dev/null; then
-	BASH_CAN_GLOBSTAR='yes'
-	function __require_globstar {
-		:
-	}
-else
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_CAN_GLOBSTAR='no'
-	function __require_globstar {
-		echo-style --stderr --error='Missing globstar support:' || return
-		__require_upgraded_bash || return
-	}
-fi
-
-# __require_extglob -- if extglob not supported, fail.
-# bash v5: extglob: If set, the extended pattern matching features described above (see Pattern Matching) are enabled.
-if shopt -s extglob 2>/dev/null; then
-	BASH_CAN_EXTGLOB='yes'
-	function __require_extglob {
-		:
-	}
-else
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_CAN_EXTGLOB='no'
-	function __require_extglob {
-		echo-style --stderr --error='Missing extglob support:' || return
-		__require_upgraded_bash || return
-	}
-fi
-
-# CONSIDER
-# bash v5: localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
-# shopt -s localvar_inherit 2>/dev/null || :
-
-# bash v1?: localvar_unset: If set, calling unset on local variables in previous function scopes marks them so subsequent lookups find them unset until that function returns. This is identical to the behavior of unsetting local variables at the current function scope.
-# shopt -s localvar_unset 2>/dev/null || :
-
 # =============================================================================
-# Shim bash functionality that is inconsistent between bash versions.
+# Extra Toolkit
 
-# put changelog entries in [versions.md]
+# -------------------------------------
+# User & Group Toolkit
 
-# Bash >= 5, < 5
-if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
-	function __get_epoch_time {
-		__print_lines "$EPOCHREALTIME" || return
-	}
-else
-	function __get_epoch_time {
-		__get_substring "$(date +%s.%N)" 0 -3 || return
-	}
-fi
-
-# Bash >= 4, < 4
-if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
-	# bash >= 4
-	# [read -i] only works if STDIN is open on terminal
-	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
-		# `read -rei`  | direct                                | default shown and exit status `0` if enter pressed or `1` if nothing sent
-		BASH_CAN_READ_I='yes'
-	else
-		# `read -rei`  | immediate pipe/redirection            | default ignored and exit status `0` if input sent or `1` if nothing sent
-		# `read -rei`  | delayed pipe/redirection              | default ignored and exit status `0` if input sent or `1` if nothing sent
-		# `read -rei`  | background task: all                  | input and default ignored and exit status `1`, regardless of piping and redirection
-		# `read -rei`  | ssh -T: direct                        | default ignored and exit status `0` if enter pressed or `142` if timed out
-		# `read -rei`  | GitHub Actions: direct                | default ignored and exit status `0` if input sent, or `1` if nothing sent
-		# `read -rei`  | GitHub Actions: background task: all  | input and default ignored and exit status `1`, regardless of piping and redirections
-		BASH_CAN_READ_I='no'
+# Bash automatically assigns variables that provide information about the current user (UID, EUID, and GROUPS), the current host (HOSTTYPE, OSTYPE, MACHTYPE, and HOSTNAME), and the instance of Bash that is running (BASH, BASH_VERSION, and BASH_VERSINFO). See Bash Variables, for details.
+# once elevated with sudo:
+# SUDO_GID=20
+# SUDO_UID=501
+# SUDO_USER=balupton
+# USER=root
+# before elevation:
+# USER=balupton
+# UID=501
+# EID=
+# in terms of terminology, there is uid, effective uid, real uid, and login uid: what their complete overlap is, I am unsure
+# `whoami` is deprecated in favour of `id -u`
+# `id` gives the current user and group
+# `users` give the login user
+# `groups` is an alias for `id -Gn` so it gives the current user's groups
+# regarding macos and linux, -u works on both macos and linux, as macos lacks --user
+function __prepare_login_user {
+	if ! __is_var_set {LOGIN_USER}; then
+		LOGIN_USER="${SUDO_USER-}"
+		if [[ -z $LOGIN_USER ]]; then
+			function __cut {
+				# turn `balupton balupton ...` into `balupton`
+				local first
+				IFS=' ' read -r first _
+				__print_lines "$first"
+			}
+			LOGIN_USER="$(users | __cut || :)"
+			if [[ -z $LOGIN_USER ]]; then
+				# if `users` didn't work (as is the case on CI) then get the current user instead
+				__prepare_current_user || :
+				LOGIN_USER="$CURRENT_USER"
+				if [[ -z $LOGIN_USER ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the login user." >&2 || :
+					return 1
+				fi
+			fi
+		fi
 	fi
-	BASH_CAN_READ_DECIMAL_TIMEOUT='yes'
-	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='yes'
-	function __get_read_decimal_timeout {
-		__print_lines "$1" || return
-	}
-else
-	# bash < 4
-	# Bash versions prior to 4, will error with "invalid timeout specification" on decimal timeouts
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_CAN_READ_I='no'
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_CAN_READ_DECIMAL_TIMEOUT='no'
-	# trunk-ignore(shellcheck/SC2034)
-	BASH_CAN_PIPE_STDOUT_AND_STDERR_SHORTHAND='no'
-	function __get_read_decimal_timeout {
-		# -lt requires integers, so we need to use regexp instead
-		if [[ -n $1 && $1 =~ ^0[.] ]]; then
-			__print_lines 1 || return
-		else
-			__print_lines "$1" || return
-		fi
-	}
-fi
-
-# Bash >= 5.1, >= 4, < 4
-if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
-	# bash >= 5.1
-	function __uppercase_first_letter {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
-		__print_lines "${1@u}" || return
-	}
-	function __uppercase_string {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
-		__print_lines "${1@U}" || return
-	}
-	function __lowercase_string {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
-		__print_lines "${1@L}" || return
-	}
-	# @Q is available, however it is strange, so don't shim
-else
-	# bash < 5.1
-	# @Q is no longer available, however it is strange, so don't shim
-	if [[ $BASH_VERSION_MAJOR -eq 4 ]]; then
-		# bash >= 4
-		function __uppercase_first_letter {
-			# trim -- prefix
-			if [[ ${1-} == '--' ]]; then
-				shift
-			fi
-			# proceed
-			__print_lines "${1^}" || return
-		}
-		function __uppercase_string {
-			# trim -- prefix
-			if [[ ${1-} == '--' ]]; then
-				shift
-			fi
-			# proceed
-			__print_lines "${1^^}" || return
-		}
-		function __lowercase_string {
-			# trim -- prefix
-			if [[ ${1-} == '--' ]]; then
-				shift
-			fi
-			# proceed
-			__print_lines "${1,,}" || return
-		}
-	else
-		# bash < 4
-		function __uppercase_first_letter {
-			# trim -- prefix
-			if [[ ${1-} == '--' ]]; then
-				shift
-			fi
-			# proceed
-			local input="$1"
-			local first_char="${input:0:1}" rest="${input:1}" result
-			result="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
-			__print_lines "$result$rest" || return
-		}
-		function __uppercase_string {
-			# trim -- prefix
-			if [[ ${1-} == '--' ]]; then
-				shift
-			fi
-			# proceed
-			tr '[:lower:]' '[:upper:]' <<<"$1" || return
-		}
-		function __lowercase_string {
-			# trim -- prefix
-			if [[ ${1-} == '--' ]]; then
-				shift
-			fi
-			# proceed
-			tr '[:upper:]' '[:lower:]' <<<"$1" || return
-		}
-	fi
-fi
-
-# bash >= 4.2
-# p.  Negative subscripts to indexed arrays, previously errors, now are treated
-#     as offsets from the maximum assigned index + 1.
-# q.  Negative length specifications in the ${var:offset:length} expansion,
-#     previously errors, are now treated as offsets from the end of the variable.
-# [test -v varname] is not used as it behaviour is inconsistent to expectations and across versions
-function __is_var_set {
-	local reference fodder
-	if [[ $# -eq 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: No variable references provided" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	while [[ $# -ne 0 ]]; do
-		reference="$(__get_reference_name "$1")" || return
-		# bash 3.2 and 4.0 will have [local z; declare -p z] will result in [declare -- z=""], this is because on these bash versions, [local z] is actually [local z=] so the var is actually set
-		# bash 4.2 will have [local z; declare -p z] will result in [declare: z: not found]
-		# bash 4.4+ will have [local z; declare -p z] will result in [declare -- z]
-		# [set -u] has no effect
-		fodder="$(declare -p "$reference" 2>/dev/null)" || return 1
-		[[ $fodder == *'='* ]] || return 1
-		shift
-	done
 }
-
-# Shim Array Support
-# Bash v4 has the following capabilities, which must be shimmed in earlier versions:
-# - `readarray` and `mapfile`
-#     - our shim provides a workaround
-# - associative arrays
-#     - no workaround, you are out of luck
-# - iterating empty arrays:
-#     - broken: `arr=(); for item in "${arr[@]}"; do ...`
-#     - broken: `arr=(); for item in "${!arr[@]}"; do ...`
-#     - use: `[[ "${#array[@]}" -ne 0 ]] && for ...`
-#     - or if you don't care for empty option_inputs, use: `[[ -n "$arr" ]] && for ...`
-#
-# BASH_ARRAY_CAPABILITIES -- string that stores the various capabilities: mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative
-# has_array_capability -- check if a capability is provided by the current bash version
-# __require_array -- require a capability to be provided by the current bash version, otherwise fail
-# mapfile -- shim [mapfile] for bash versions that do not have it
-
-# note that there is no need to do [__require_array 'mapfile'] as `bash.bash` makes [mapfile] always available, it is just the native version that is not available
-
-function __has_array_capability {
-	local arg
-	for arg in "$@"; do
-		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
+function __prepare_login_uid {
+	if ! __is_var_set {LOGIN_UID}; then
+		LOGIN_UID="${SUDO_UID-}"
+		if [[ -z $LOGIN_UID ]]; then
+			__prepare_login_user || :
+			LOGIN_UID="$(id -u "$LOGIN_USER" || :)"
+			if [[ -z $LOGIN_UID ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the login user." >&2 || :
+				return 1
+			fi
+		fi
+	fi
+}
+function __prepare_login_group {
+	if ! __is_var_set {LOGIN_GROUP}; then
+		local
+		__prepare_login_uid || :
+		LOGIN_GROUP="$(id -gn "$LOGIN_UID" || :)"
+		if [[ -z $LOGIN_GROUP ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the login user." >&2 || :
 			return 1
 		fi
+	fi
+}
+function __prepare_login_gid {
+	if ! __is_var_set {LOGIN_GID}; then
+		LOGIN_GID="${SUDO_GID-}"
+		if [[ -z $LOGIN_GID ]]; then
+			__prepare_login_uid || :
+			LOGIN_GID="$(id -g "$LOGIN_UID" || :)"
+			if [[ -z $LOGIN_GID ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the login user." >&2 || :
+				return 1
+			fi
+		fi
+	fi
+}
+function __prepare_login_groups {
+	if ! __is_var_set {LOGIN_GROUPS}; then
+		local groups
+		__prepare_login_uid || :
+		groups="$(id -Gn "$LOGIN_UID" || :)"
+		__split --source={groups} --target={LOGIN_GROUPS} --delimiter=' ' --no-zero-length || :
+		# trunk-ignore(shellcheck/SC2153)
+		if [[ ${#LOGIN_GROUPS[@]} -eq 0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the login user." >&2 || :
+			return 1
+		fi
+	fi
+}
+function __prepare_login_gids {
+	if ! __is_var_set {LOGIN_GIDS}; then
+		local groups
+		__prepare_login_uid || :
+		groups="$(id -G "$LOGIN_UID" || :)"
+		__split --source={groups} --target={LOGIN_GIDS} --delimiter=' ' --no-zero-length || :
+		# trunk-ignore(shellcheck/SC2153)
+		if [[ ${#LOGIN_GIDS[@]} -eq 0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the login user." >&2 || :
+			return 1
+		fi
+	fi
+}
+function __prepare_current_user {
+	if ! __is_var_set {CURRENT_USER}; then
+		CURRENT_USER="${USER-}"
+		if [[ -z $CURRENT_USER ]]; then
+			# `whoami` is deprecated is replaced/delegates to `id -un`
+			# note that `dorothy` sets `USER` to the parent of the Dorothy installation, which is appropriate for its `cron` use case
+			CURRENT_USER="$(id -un || :)"
+			if [[ -z $CURRENT_USER ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the username of the current user." >&2 || :
+				return 1
+			fi
+		fi
+	fi
+}
+function __prepare_current_uid {
+	if ! __is_var_set {CURRENT_UID}; then
+		CURRENT_UID="${UID-}"
+		if [[ -z $CURRENT_UID ]]; then
+			CURRENT_UID="$(id -u || :)"
+			if [[ -z $CURRENT_UID ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the user ID of the current user." >&2 || :
+				return 1
+			fi
+		fi
+	fi
+}
+function __prepare_current_group {
+	if ! __is_var_set {CURRENT_GROUP}; then
+		CURRENT_GROUP="$(id -gn || :)"
+		if [[ -z $CURRENT_GROUP ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || :
+			return 1
+		fi
+	fi
+}
+function __prepare_current_gid {
+	if ! __is_var_set {CURRENT_GID}; then
+		CURRENT_GID="$(id -g || :)"
+		if [[ -z $CURRENT_GID ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || :
+			return 1
+		fi
+	fi
+}
+function __prepare_current_groups {
+	if ! __is_var_set {CURRENT_GROUPS}; then
+		CURRENT_GROUPS=()
+		if __is_var_set {GROUPS}; then
+			CURRENT_GROUPS=("${GROUPS[@]}")
+		fi
+		if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
+			local groups
+			groups="$(id -Gn || :)"
+			__split --source={groups} --target={CURRENT_GROUPS} --delimiter=' ' --no-zero-length || :
+			if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the current user." >&2 || :
+				return 1
+			fi
+		fi
+	fi
+}
+function __prepare_current_gids {
+	if ! __is_var_set {CURRENT_GIDS}; then
+		local groups
+		# trunk-ignore(shellcheck/SC2034)
+		groups="$(id -G || :)"
+		__split --source={groups} --target={CURRENT_GIDS} --delimiter=' ' --no-zero-length || :
+		# trunk-ignore(shellcheck/SC2153)
+		if [[ ${#CURRENT_GIDS[@]} -eq 0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the current user." >&2 || :
+			return 1
+		fi
+	fi
+}
+
+# -------------------------------------
+# Filesystem & Elevate Toolkit
+
+# see `commands/eval-helper --elevate` for details
+function __elevate {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# forward to `eval-helper --elevate` if it exists, as it is more detailed
+	if __command_exists -- eval-helper; then
+		eval-helper --elevate -- "$@" || return
+		return
+	elif __command_exists -- sudo; then
+		# check if password is required
+		if ! sudo --non-interactive -- true &>/dev/null; then
+			# password is required, let the user know what they are being prompted for
+			__print_lines \
+				'Your password is required to momentarily grant privileges to execute the command:' $'\n' \
+				"sudo $*" >&2 || return
+		fi
+		sudo "$@" # eval
+		return
+	elif __command_exists -- doas; then
+		if ! doas -n true &>/dev/null; then
+			__print_lines \
+				'Your password is required to momentarily grant privileges to execute the command:' $'\n' \
+				"doas $*" >&2 || return
+		fi
+		doas "$@" # eval
+		return
+	else
+		"$@" # eval
+		return
+	fi
+}
+# bc alias
+function __try_sudo {
+	if __command_exists -- dorothy-warnings; then
+		dorothy-warnings add --code='__try_sudo' --bold=' has been deprecated in favor of ' --code='__elevate' || :
+	fi
+	__elevate "$@" || return
+	return
+}
+
+# performantly make directories as many directories as possible without sudo
+# this is beta, and may change later
+function __mkdirp {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# proceed
+	local status=0 dir missing=()
+	for dir in "$@"; do
+		if [[ -n $dir && ! -d $dir ]]; then
+			missing+=("$dir")
+		fi
+	done
+	if [[ ${#missing[@]} -ne 0 ]]; then
+		mkdir -p -- "${missing[@]}" || status=$?
+		# none of this actually works, as there are more major issues if this happens, and needs to be worked around manually
+		# see: https://github.com/orgs/community/discussions/148648#discussioncomment-11862303
+		# if [[ $status -ne 0 ]]; then
+		# 	local sudo_missing=()
+		# 	status=0
+		# 	for dir in "${missing[@]}"; do
+		# 		if [[ ! -d $dir ]]; then
+		# 			sudo_missing+=("$dir")
+		# 			# for some reason, this detection doesn't work:
+		# 			# if mkdir -p -- "$dir" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+		# 			# 	sudo_missing+=("$dir")
+		# 			# else
+		# 			# 	mkdir -p -- "$dir" || return
+		# 			# fi
+		# 		fi
+		# 	done
+		# 	if [[ ${#sudo_missing[@]} -ne 0 ]]; then
+		# 		__elevate_mkdirp -- "${sudo_missing[@]}" || status=$?
+		# 	fi
+		# fi
+	fi
+	return "$status"
+}
+
+# performantly make directories with sudo
+# @todo replace this with fs-mkdir
+# this is beta, and may change later
+function __elevate_mkdirp {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# proceed
+	local status=0 dir missing=()
+	for dir in "$@"; do
+		if [[ -n $dir && ! -d $dir ]]; then
+			missing+=("$dir")
+		fi
+	done
+	if [[ ${#missing[@]} -ne 0 ]]; then
+		__elevate -- mkdir -p -- "${missing[@]}" || status=$?
+	fi
+	return "$status"
+}
+# bc alias
+function __sudo_mkdirp {
+	if __command_exists -- dorothy-warnings; then
+		dorothy-warnings add --code='__sudo_mkdirp' --bold=' has been deprecated in favor of ' --code='__elevate_mkdirp' || :
+	fi
+	__elevate_mkdirp "$@" || return
+	return
+}
+
+# -------------------------------------
+# ANSI Toolkit
+
+# replace shapeshifting ANSI Escape Codes with newlines
+# this is beta, and may change later
+function __split_shapeshifting {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# proceed
+	# regexp should match `echo-clear-lines`, `echo-revolving-door`, `is-shapeshifter`
+	# https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
+	local input
+	for input in "$@"; do
+		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}"
+		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}" # save and restore cursor
+		input="${input//[[:cntrl:]][bf]/$'\n'}"          # page-up, page-down
+		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
+		__print_lines "$input" || return
 	done
 }
 
-function __require_array {
-	if ! __has_array_capability "$@"; then
-		echo-style --stderr --error='Array support insufficient, required:' ' ' --code="$*" || return
-		__require_upgraded_bash || return
+# determine if the input contains shapeshifting ANSI Escape Codes
+# this is beta, and may change later
+function __is_shapeshifter {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
 	fi
+	# proceed
+	local input trimmed
+	for input in "$@"; do
+		trimmed="$(__split_shapeshifting -- "$input")" || return
+		if [[ $input != "$trimmed" ]]; then
+			return 0
+		fi
+	done
+	return 1
 }
 
-BASH_ARRAY_CAPABILITIES=''
-if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
-	# bash >= 5
-	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native] empty[native]'
-	if [[ $BASH_VERSION_MINOR -ge 1 ]]; then
-		# bash >= 5.1
-		BASH_ARRAY_CAPABILITIES+=' associative'
-	fi
-elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
-	# note that these versions do not support [-d <delim>] or [-t] options with mapfile
-	# bash >= 4
-	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
-	if [[ $BASH_VERSION_MINOR -ge 4 ]]; then
-		# bash >= 4.4
-		# finally supports nounset without crashing on defined empty arrays
-		BASH_ARRAY_CAPABILITIES+=' empty[native]'
-	else
-		# bash 4.0, 4.1, 4.2, 4.3
-		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
-		set +u # disable nounset to prevent crashes on empty arrays
-	fi
-elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
-	# bash >= 3
-	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
-	set +u # disable nounset to prevent crashes on empty arrays
-	# @todo implement support for all options
-	function mapfile {
-		dorothy-warnings add --code='mapfile' --bold=' has been deprecated in favor of ' --code='__split' || :
-		local MAPFILE__delim=$'\n' MAPFILE__t='no' MAPFILE__reference='' MAPFILE__reply
-		while :; do
-			case "$1" in
-			-t)
-				MAPFILE__t='yes'
-				shift # trim -t
+# -------------------------------------
+# File Descriptor Toolkit
+
+# check if the input is a special target
+# this is beta, and may change later
+function __is_special_file {
+	local target="$1"
+	case "$target" in
+	NULL | TTY | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | tty | /dev/tty | null | /dev/null) return 0 ;; # is a special file
+	'')
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+		;;
+	*) __is_positive_integer "$target" || return 1 ;; # if it is a positive integer, it is a file descriptor
+	esac
+}
+
+function __is_tty_special_file {
+	local target="$1"
+	case "$target" in
+	TTY | tty | /dev/tty) return 0 ;; # is a special tty
+	'')
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+		;;
+	*) return 1 ;; # not a special tty
+	esac
+}
+
+# Open a file descriptor in a cross-bash compatible way
+# alternative implementations at https://stackoverflow.com/q/8297415/130638
+# __open_fd ...<{file_descriptor_reference}> ...<file_descriptor_number> <mode> <target>
+function __open_fd {
+	local OPEN_FD__item OPEN_FD__numbers=() OPEN_FD__references=() OPEN_FD__mode='' OPEN_FD__target_number='' OPEN_FD__target_file=''
+	while [[ $# -ne 0 ]]; do
+		OPEN_FD__item="$1"
+		shift
+		if [[ -z $OPEN_FD__mode ]]; then
+			case "$OPEN_FD__item" in
+			# file descriptor
+			{*}) __dereference --origin="$OPEN_FD__item" --name={OPEN_FD__references} || return ;;
+			[0-9]*)
+				__affirm_value_is_positive_integer "$OPEN_FD__item" 'file descriptor' || return
+				OPEN_FD__numbers+=("$OPEN_FD__item")
 				;;
-			-td)
-				MAPFILE__t='yes'
-				shift # trim -td
-				MAPFILE__delim="$1"
-				shift # trim delim
-				;;
-			-d)
-				shift # trim -d
-				MAPFILE__delim="$1"
-				shift # trim delim
-				;;
-			-*)
-				__print_lines \
-					"mapfile[shim]: $1: invalid option" \
-					'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
-				return 2 # that's what native mapfile returns
-				;;
+			# mode
+			'<' | --read) OPEN_FD__mode='<' ;;
+			'>' | --overwrite | --write) OPEN_FD__mode='>' ;;
+			'<>' | --read-write) OPEN_FD__mode='<>' ;;
+			'>>' | --append) OPEN_FD__mode='>>' ;;
 			*)
-				if [[ -z $MAPFILE__reference ]]; then
-					MAPFILE__reference="$1"
-				else
-					__print_lines \
-						"mapfile[shim]: unknown argument: $1" \
-						'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
-					return 2 # that's what native mapfile returns
-				fi
+				__print_lines "ERROR: ${FUNCNAME[0]}: Invalid argument provided: $OPEN_FD__item" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
-		done
-		if [[ -z $MAPFILE__reference ]]; then
-			__print_lines \
-				'mapfile[shim]: <array> is required in our bash v3 shim' \
-				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
-			return 2 # that's what native mapfile returns
+		elif __is_positive_integer "$OPEN_FD__item"; then
+			OPEN_FD__target_number="$OPEN_FD__item"
+			break
+		else
+			OPEN_FD__target_file="$OPEN_FD__item"
+			break
 		fi
-		if [[ $MAPFILE__reference == MAPFILE__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $MAPFILE__reference as it is used internally." >&2
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		if [[ $MAPFILE__t != 'yes' ]]; then
-			__print_lines \
-				'mapfile[shim]: -t is required in our bash v3 shim' \
-				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2
-			return 2 # that's what native mapfile returns
-		fi
-		shift
-		eval "${MAPFILE__reference}=()" || return
-		while IFS= read -rd "$MAPFILE__delim" MAPFILE__reply || [[ -n $MAPFILE__reply ]]; do
-			eval "${MAPFILE__reference}+=(\"\${MAPFILE__reply}\")" || return
-		done
-	}
-fi
-BASH_ARRAY_CAPABILITIES+=' '
-
-function __make_array {
-	local MAKE_ARRAY__item MAKE_ARRAY__option_targets=() MAKE_ARRAY__option_size=0 MAKE_ARRAY__value='' MAKE_ARRAY__index MAKE_ARRAY__list='' MAKE_ARRAY__reference MAKE_ARRAY__eval_statement=''
-	function __validate_reference {
-		local reference="$1"
-		if [[ $reference == MAKE_ARRAY__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2
-			return 22 # EINVAL 22 Invalid argument
-		fi
-	}
-	while [[ $# -ne 0 ]]; do
-		MAKE_ARRAY__item="$1"
-		shift
-		case "$MAKE_ARRAY__item" in
-		'{'*'}')
-			MAKE_ARRAY__reference="$(__get_reference_name "$MAKE_ARRAY__item")" || return
-			__validate_reference "$MAKE_ARRAY__reference" || return
-			MAKE_ARRAY__option_targets+=("$MAKE_ARRAY__reference")
-			;;
-		'--size='*) MAKE_ARRAY__option_size="${MAKE_ARRAY__item#*=}" ;;
-		# trunk-ignore(shellcheck/SC2034)
-		'--value='*) MAKE_ARRAY__value="${MAKE_ARRAY__item#*=}" ;;
-		--*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $MAKE_ARRAY__item" >&2
-			return 22 # EINVAL 22 Invalid argument
-			;;
-		*) MAKE_ARRAY__option_targets+=("$MAKE_ARRAY__item") ;;
-		esac
 	done
-	if [[ ${#MAKE_ARRAY__option_targets[@]} -eq 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference must be provided." >&2
+	# if extra arguments, there were too many
+	if [[ $# -ne 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Too many arguments provided, expected only a file descriptor number or reference, mode, and target." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	# generate the array values
-	for ((MAKE_ARRAY__index = 0; MAKE_ARRAY__index < MAKE_ARRAY__option_size; MAKE_ARRAY__index++)); do
-		# the alternative would be using `{...@Q}` however that isn't available on all bash versions, but this is equally good, perhaps better
-		MAKE_ARRAY__list+='"$MAKE_ARRAY__value" '
-	done
-	# apply the list to the target, while avoiding conflicts
-	for MAKE_ARRAY__reference in "${MAKE_ARRAY__option_targets[@]}"; do
-		# apply the list to the target
-		MAKE_ARRAY__eval_statement+="$MAKE_ARRAY__reference=($MAKE_ARRAY__list); "
-	done
-	eval "$MAKE_ARRAY__eval_statement" || return
+	# must have all the arguments
+	local OPEN_FD__references_count OPEN_FD__reference OPEN_FD__number OPEN_FD__eval_statement_exec='' OPEN_FD__eval_statement_assignments=''
+	OPEN_FD__references_count=${#OPEN_FD__references[@]}
+	if [[ ($OPEN_FD__references_count -eq 0 && ${#OPEN_FD__numbers[@]} -eq 0) || (-z $OPEN_FD__target_number && -z $OPEN_FD__target_file) ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid arguments provided, expected a file descriptor number or reference, mode, and target." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# open the references
+	if [[ $OPEN_FD__references_count -ne 0 ]]; then
+		# Bash >= 4.1
+		if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
+			if [[ -n $OPEN_FD__target_number ]]; then
+				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
+					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode&$OPEN_FD__target_number "
+				done
+			else
+				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
+					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode\"\${OPEN_FD__target_file}\" "
+				done
+			fi
+		else
+			# FD 3 and 4 are commonly used, so skip them amd start at 5
+			local OPEN_FD__end OPEN_FD__references_index
+			OPEN_FD__end="$(ulimit -n)" # this must be here, instead of in the for loop initialisation, as otherwise bash 4.3 and 4.4 will crash
+			for ((OPEN_FD__number = 5, OPEN_FD__references_index = 0; OPEN_FD__number < OPEN_FD__end && OPEN_FD__references_index < OPEN_FD__references_count; OPEN_FD__number++)); do
+				# test if the file descriptor is not available on both read and write, then it means it is available
+				if ! eval ": <&$OPEN_FD__number" &>/dev/null && ! eval ": >&$OPEN_FD__number" &>/dev/null; then
+					# it failed, so it is available
+					OPEN_FD__numbers+=("$OPEN_FD__number")
+					OPEN_FD__reference="${OPEN_FD__references[$OPEN_FD__references_index]}"
+					OPEN_FD__references_index=$((OPEN_FD__references_index + 1))
+					OPEN_FD__eval_statement_assignments+="$OPEN_FD__reference=$OPEN_FD__number; "
+				fi
+			done
+		fi
+	fi
+	# open the numbers
+	if [[ -n $OPEN_FD__target_number ]]; then
+		for OPEN_FD__number in "${OPEN_FD__numbers[@]}"; do
+			OPEN_FD__eval_statement_exec+="$OPEN_FD__number$OPEN_FD__mode&$OPEN_FD__target_number "
+		done
+	else
+		for OPEN_FD__number in "${OPEN_FD__numbers[@]}"; do
+			OPEN_FD__eval_statement_exec+="$OPEN_FD__number$OPEN_FD__mode\"\${OPEN_FD__target_file}\" "
+		done
+	fi
+	# apply
+	eval "exec $OPEN_FD__eval_statement_exec; $OPEN_FD__eval_statement_assignments" || return
 }
 
-# split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
-# this is wrong:
-# __split {arr} --no-zero-length < <(<output-command>)
-# __split {arr} --no-zero-length <<< "$(<output-command>)"
-# __split {arr} --no-zero-length < <(<output-command> | tr $'\t ,|' '\n')
-# and this is right:
-# fodder_to_respect_exit_status="$(<output-command>)"
-# __split {arr} --no-zero-length --invoke -- <output-command> # this preserves trail
-# __split {arr} --no-zero-length -- "$fodder_to_respect_exit_status"
-# __split {arr} --no-zero-length -- "$fodder_to_respect_exit_status"
-# __split {arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
-# use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
-function __split {
-	local SPLIT__item SPLIT__option_reference='' SPLIT__option_invoke='no' SPLIT__option_append='no' SPLIT__option_with_zero_length='yes' SPLIT__option_delimiters=() SPLIT__option_inputs=() \
-	SPLIT__character_left_index SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter SPLIT__delimiter_length \
-	SPLIT__offsets=() SPLIT__offset SPLIT__delimiter_and_offset_index SPLIT__reply SPLIT__window SPLIT__character
+# __close_fd ...<{file_descriptor_reference}> ...<file_descriptor_number>
+function __close_fd {
+	local CLOSE_FD__item CLOSE_FD__number CLOSE_FD__reference CLOSE_FD__eval_statement_exec=''
+	__affirm_length_defined $# 'file descriptor reference or file descriptor number' || return
+	for CLOSE_FD__item in "$@"; do
+		if __is_positive_integer "$CLOSE_FD__item"; then
+			CLOSE_FD__number="$CLOSE_FD__item"
+		else
+			if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
+				# close via the file descriptor reference
+				__dereference --origin="$CLOSE_FD__item" --name={CLOSE_FD__reference} || return
+				CLOSE_FD__eval_statement_exec+="{$CLOSE_FD__reference}>&- "
+				continue
+			else
+				# get the file descriptor directly
+				__dereference --origin="$CLOSE_FD__item" --value={CLOSE_FD__number} || return
+				if [[ -z $CLOSE_FD__number ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: Invalid file descriptor reference provided: $CLOSE_FD__item" >&2 || :
+					return 22 # EINVAL 22 Invalid argument
+				fi
+			fi
+		fi
+		# close the file descriptor number
+		CLOSE_FD__eval_statement_exec+="$CLOSE_FD__number>&- "
+	done
+	eval "exec $CLOSE_FD__eval_statement_exec" || return
+}
+
+# -------------------------------------
+# Semaphore Toolkit
+
+function __get_semlock {
+	local context_id="$1" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" semlock wait pid=$$
+	__mkdirp "$dir" || return
+	# the lock file contains the process id that has the lock
+	semlock="$dir/$context_id.lock"
+	# wait for a exclusive lock
+	while :; do
+		# don't bother with a [[ -s "$semlock" ]] before `cat` as the semlock could have been removed between
+		wait="$(cat "$semlock" 2>/dev/null || :)"
+		if [[ -z $wait ]]; then
+			__print_string "$pid" >"$semlock" || return
+		elif [[ $wait == "$pid" ]]; then
+			break
+		elif [[ "$(ps -p "$wait" &>/dev/null || __print_string dead)" == 'dead' ]]; then
+			# the process is dead, it probably crashed, so failed to cleanup, so remove the lock file
+			rm -f "$semlock" || return
+		fi
+		sleep "0.01$RANDOM"
+	done
+	__print_lines "$semlock" || return
+}
+
+# For semaphores, use $RANDOM$RANDOM as a single $RANDOM caused conflicts on Dorothy's CI tests when we didn't actually use semaphores, now that we use semaphores, we solve the underlying race conditions that caused the conflicts in the first place, however keep the double $RANDOM so it is enough entropy we don't have to bother for an existence check, here are the tests that had conflicts:
+# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
+# https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
+# as to why use `__get_semaphore` instead of `mktemp`, is that we want `dorothy test` to check if we cleaned everything up, furthermore, `mktemp` actually makes the files, so you have to do more expensive `-s` checks
+function __get_semaphore {
+	local context_id="${1:-"$RANDOM$RANDOM"}" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
+	__mkdirp "$dir" || return
+	__print_lines "$dir/$context_id" || return
+}
+
+# adds/appends the semaphores to the target array variable
+# __semaphores --target={<array-variable-reference>} -- ...<context-id>
+function __semaphores {
+	# process reference argument
+	local SEMAPHORES__item SEMAPHORES__reference='' SEMAPHORES__context_ids=() SEMAPHORES__size=''
 	while [[ $# -ne 0 ]]; do
-		SPLIT__item="$1"
+		SEMAPHORES__item="$1"
 		shift
-		case "$SPLIT__item" in
-		'{'*'}') SPLIT__option_reference="$(__get_reference_name "$SPLIT__item")" || return ;;
-		'--append') SPLIT__option_append='yes' ;;
-		'--no-zero-length') SPLIT__option_with_zero_length='no' ;;
-		'--invoke') SPLIT__option_invoke='yes' ;;
-		'--keep-zero-length') : ;; # no-op as already the case
-		'--delimiter='*) SPLIT__option_delimiters+=("${SPLIT__item#*=}") ;;
-		'--delimiters='*)
-			SPLIT__item="${SPLIT__item#*=}"
-			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
-				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
-				SPLIT__option_delimiters+=("$SPLIT__character")
-			done
+		case "$SEMAPHORES__item" in
+		--target={*})
+			__affirm_value_is_undefined "$SEMAPHORES__reference" 'target reference' || return
+			__dereference --origin="${SEMAPHORES__item#*=}" --name={SEMAPHORES__reference} || return
+			;;
+		--size=*)
+			__affirm_value_is_undefined "$SEMAPHORES__size" 'size/count of semaphores' || return
+			SEMAPHORES__size="${SEMAPHORES__item#*=}"
 			;;
 		--)
-			if [[ $# -eq 0 ]]; then
-				# there's no items, be a no-op if not appending, if appending then reset to nothing
-				if [[ $SPLIT__option_append == 'no' ]]; then
-					eval "${SPLIT__option_reference}=()" || return
+			SEMAPHORES__context_ids+=("$@")
+			shift $#
+			break
+			;;
+		--*) __unrecognised_flag "$TO__item" || return ;;
+		*) __unrecognised_argument "$TO__item" || return ;;
+		esac
+	done
+	# turn context ids into semaphores
+	local SEMAPHORES__context_id SEMAPHORES__semaphores=() SEMAPHORES__index
+	for SEMAPHORES__context_id in "${SEMAPHORES__context_ids[@]}"; do
+		SEMAPHORES__semaphores+=("$(__get_semaphore "$SEMAPHORES__context_id")") || return
+	done
+	for ((SEMAPHORES__index = 0; SEMAPHORES__index < SEMAPHORES__size; SEMAPHORES__index++)); do
+		SEMAPHORES__semaphores+=("$(__get_semaphore)") || return
+	done
+	# append the semaphores to the target
+	eval "$SEMAPHORES__reference+=(\"\${SEMAPHORES__semaphores[@]}\")" || return
+}
+
+# As to why semaphores are even necessary,
+# >( ... ) happens asynchronously, however the commands within >(...) happen synchronously, as such we can use this technique to know when they are done, otherwise on the very rare occasion the files may not exist or be incomplete by the time we get to to reading them: https://github.com/bevry/dorothy/issues/277
+# Note that this waits forever on bash 4.1.0, as the `touch` commands that create our semaphore only execute after a `ctrl+c`, other older and newer versions are fine
+function __wait_for_semaphores {
+	# skip if empty
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
+	# wait for each semaphore to exist
+	local semaphore
+	for semaphore in "$@"; do
+		while [[ ! -f $semaphore ]]; do
+			sleep 0.01
+		done
+	done
+}
+function __wait_for_and_remove_semaphores {
+	# skip if empty
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
+	# wait for each semaphore to exist, then remove them
+	__wait_for_semaphores "$@" || return
+	rm -f -- "$@" || return
+}
+function __wait_for_and_return_semaphores {
+	# skip if empty
+	if [[ $# -eq 0 ]]; then
+		return 0
+	fi
+	# wait for each semaphore that represents an exit status to exist and to be written, then remove them
+	local semaphore semaphore_status=0
+	for semaphore in "$@"; do
+		# needs -s as otherwise the file may exist but may not have finished writing, which would result in:
+		# return: : numeric argument required
+		while [[ ! -s $semaphore ]]; do
+			sleep 0.01
+		done
+		# always return the failure
+		if [[ $semaphore_status -eq 0 ]]; then
+			semaphore_status="$(<"$semaphore")" || {
+				__print_lines "ERROR: ${FUNCNAME[0]}: Failed to read semaphore file: $semaphore" >&2 || :
+				return 5 # EIO 5 I/O error
+			} || return
+		fi
+	done
+	rm -f -- "$@" || :
+	return "$semaphore_status"
+}
+
+# -------------------------------------
+# Strings & Arrays Toolkit
+
+# appends the size with optional fill values to the the target array variables
+function __array {
+	local ARRAY__item ARRAY__references=() ARRAY__size ARRAY__fill=''
+	while [[ $# -ne 0 ]]; do
+		ARRAY__item="$1"
+		shift
+		case "$ARRAY__item" in
+		--target={*}) __dereference --origin="${ARRAY__item#*=}" --name={ARRAY__references} || return ;;
+		--size=*)
+			__affirm_value_is_undefined "${ARRAY__size-}" 'array size' || return
+			ARRAY__size="${ARRAY__item#*=}"
+			;;
+		--fill=*)
+			__affirm_value_is_undefined "$ARRAY__fill" 'array fill' || return
+			# trunk-ignore(shellcheck/SC2034)
+			ARRAY__fill="${ARRAY__item#*=}"
+			;;
+		--*) __unrecognised_flag "$ARRAY__item" || return ;;
+		*) __unrecognised_argument "$ARRAY__item" || return ;;
+		esac
+	done
+	__affirm_length_defined "${#ARRAY__references[@]}" 'variable reference' || return
+	# generate the array values
+	local ARRAY__index ARRAY__fills='' ARRAY__eval_statement='' ARRAY__reference
+	for ((ARRAY__index = 0; ARRAY__index < ARRAY__size; ARRAY__index++)); do
+		# the alternative would be using `{...@Q}` however that isn't available on all bash versions, but this is equally good, perhaps better
+		ARRAY__fills+='"$ARRAY__fill" '
+	done
+	# apply the list to the target, while avoiding conflicts
+	for ARRAY__reference in "${ARRAY__references[@]}"; do
+		# apply the list to the target
+		ARRAY__eval_statement+="$ARRAY__reference+=($ARRAY__fills); "
+	done
+	eval "$ARRAY__eval_statement" || return
+}
+
+# set the targets to the value(s) at the indices of the source reference
+function __at {
+	local AT__indices=()
+	# <single-source helper arguments>
+	local AT__item AT__source_reference='' AT__targets=() AT__mode='' AT__inputs AT__input
+	while [[ $# -ne 0 ]]; do
+		AT__item="$1"
+		shift
+		case "$AT__item" in
+		--source={*})
+			__affirm_value_is_undefined "$AT__source_reference" 'source reference' || return
+			__dereference --origin="${AT__item#*=}" --name={AT__source_reference} || return
+			;;
+		--source+target={*})
+			AT__item="${AT__item#*=}"
+			AT__targets+=("$AT__item")
+			__affirm_value_is_undefined "$AT__source_reference" 'source reference' || return
+			__dereference --origin="$AT__item" --name={AT__source_reference} || return
+			;;
+		--targets=*) __dereference --origin="${AT__item#*=}" --value={AT__targets} || return ;;
+		--target=*) AT__targets+=("${AT__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$AT__mode" 'write mode' || return
+			AT__mode="${AT__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$AT__mode" 'write mode' || return
+			AT__mode="${AT__item:2}"
+			;;
+		--)
+			if [[ -z $AT__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					AT__input="$1"
+					AT__source_reference='AT__input'
+				else
+					# an array input
+					AT__inputs+=("$@")
+					AT__source_reference='AT__inputs'
 				fi
-				return 0
-			fi
-			if [[ $SPLIT__option_invoke == 'yes' ]]; then
-				local SPLIT__fodder_to_respect_exit_status
-				__do --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
-				SPLIT__option_inputs+=("$SPLIT__fodder_to_respect_exit_status")
 			else
-				SPLIT__option_inputs+=("$@")
+				# they are indices
+				for AT__item in "$@"; do
+					__affirm_value_is_integer "$AT__item" 'index' || return
+				done
+				AT__indices+=("$@")
 			fi
 			shift $#
 			break
 			;;
-		--*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $SPLIT__item" >&2
-			return 22 # EINVAL 22 Invalid argument
+		# </single-source helper arguments>
+		[0-9]* | -[0-9]*)
+			__affirm_value_is_integer "$AT__item" 'index' || return
+			AT__indices+=("$AT__item")
 			;;
-		*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised argument was provided: $SPLIT__item" >&2
-			return 22 # EINVAL 22 Invalid argument
-			;;
+		--*) __unrecognised_flag "$AT__item" || return ;;
+		*) __unrecognised_argument "$AT__item" || return ;;
 		esac
 	done
-	if [[ -z $SPLIT__option_reference ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference must be provided." >&2
-		return 22 # EINVAL 22 Invalid argument
+	__affirm_value_is_defined "$AT__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$AT__mode" || return
+	__affirm_length_defined "${#AT__indices[@]}" 'index' || return
+	# action
+	# trunk-ignore(shellcheck/SC2034)
+	local AT__results=() AT__eval_segment AT__index
+	if __is_array "$AT__source_reference"; then
+		eval "AT__size=\${#${AT__source_reference}[@]}"
+		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}[\$AT__index]}\")"
+	else
+		# AT__index could be negative, so wrap it in () to avoid bash version inconsistencies
+		eval "AT__size=\${#${AT__source_reference}}"
+		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}:(\$AT__index):1}\")"
 	fi
-	if [[ $SPLIT__option_reference == SPLIT__* ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $SPLIT__reference as it is used internally." >&2
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# reset if not append
-	if [[ $SPLIT__option_append == 'no' ]]; then
-		eval "${SPLIT__option_reference}=()" || return
-	fi
-	# read everything from stdin
-	if [[ ${#SPLIT__option_inputs[@]} -eq 0 ]]; then
-		while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
-			SPLIT__option_inputs+=("$SPLIT__reply")
-			SPLIT__reply=''
-		done
-	fi
-	# cycle through it
-	if [[ ${#SPLIT__option_delimiters[@]} -eq 0 ]]; then
-		SPLIT__option_delimiters+=($'\n')
-	fi
-	for SPLIT__delimiter in "${SPLIT__option_delimiters[@]}"; do
-		SPLIT__delimiter_length=${#SPLIT__delimiter}
-		SPLIT__offset=$((SPLIT__delimiter_length * -1)) # variable needed for early bash versions
-		SPLIT__offsets+=("$SPLIT__offset")
-	done
-	for SPLIT__item in "${SPLIT__option_inputs[@]}"; do
-		# check if we even apply
-		if [[ -z $SPLIT__item ]]; then
-			# the item is empty, add it if desired
-			if [[ $SPLIT__option_with_zero_length == 'yes' ]]; then
-				eval "$SPLIT__option_reference+=('')"
-			fi
-			# move to the next item
-			continue
+	AT__negative_size="$((AT__size * -1))"
+	for AT__index in "${AT__indices[@]}"; do
+		# validate the index
+		if [[ $AT__index == -0 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index -0 convention only makes sense when used as a length; for a starting index that fetches the last character, you want -1." >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
+		elif [[ $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index $AT__index was out of range $AT__negative_size (inclusive) to $AT__size (exclusive)." >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
+		elif [[ $AT__index -lt 0 ]]; then
+			AT__index="$((AT__size + AT__index))"
 		fi
-		# reset the window for each argument
-		SPLIT__window=''
-		SPLIT__last_slice_left_index=-1
-		SPLIT__string_length=${#SPLIT__item}
-		SPLIT__string_last=$((SPLIT__string_length - 1))
-		# process the argument
-		for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
-			# add the character to the window, no need for __get_substring as it is a simple slice
-			SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
-			SPLIT__window+="$SPLIT__character"
-			# cycle through the delimiters
-			for SPLIT__delimiter_and_offset_index in "${!SPLIT__option_delimiters[@]}"; do
-				SPLIT__delimiter="${SPLIT__option_delimiters[SPLIT__delimiter_and_offset_index]}"
-				SPLIT__offset="${SPLIT__offsets[SPLIT__delimiter_and_offset_index]}"
-				# does the window end with our delimiter?
-				if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
-					# remove the delimiter
-					SPLIT__window="$(__get_substring "$SPLIT__window" 0 "$SPLIT__offset")" || return
-					# do we want to add it?
-					if [[ $SPLIT__option_with_zero_length == 'yes' || -n $SPLIT__window ]]; then
-						eval "$SPLIT__option_reference+=(\"\$SPLIT__window\")" || return
-					fi
-					# reset the window so characters can be added back to it for the new slice
-					SPLIT__window=''
-					# note the last slice, as we know whether or not we need to add a trailing slice
-					SPLIT__last_slice_left_index="$SPLIT__character_left_index"
+		eval "$AT__eval_segment" || return
+	done
+	__to --source={AT__results} --mode="$AT__mode" --targets={AT__targets} || return
+}
+
+# set the targets to the index/indices of the value(s) in the source reference
+function __index {
+	local INDEX__needles=() INDEX__direction='ascending' INDEX__seek_mode='first' INDEX__overlap='no'
+	# <single-source helper arguments>
+	local INDEX__item INDEX__source_reference='' INDEX__targets=() INDEX__mode='' INDEX__inputs INDEX__input
+	while [[ $# -ne 0 ]]; do
+		INDEX__item="$1"
+		shift
+		case "$INDEX__item" in
+		--source={*})
+			__affirm_value_is_undefined "$INDEX__source_reference" 'source reference' || return
+			__dereference --origin="${INDEX__item#*=}" --name={INDEX__source_reference} || return
+			;;
+		--source+target={*})
+			INDEX__item="${INDEX__item#*=}"
+			INDEX__targets+=("$INDEX__item")
+			__affirm_value_is_undefined "$INDEX__source_reference" 'source reference' || return
+			__dereference --origin="$INDEX__item" --name={INDEX__source_reference} || return
+			;;
+		--targets=*) __dereference --origin="${INDEX__item#*=}" --value={INDEX__targets} || return ;;
+		--target=*) INDEX__targets+=("${INDEX__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$INDEX__mode" 'write mode' || return
+			INDEX__mode="${INDEX__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$INDEX__mode" 'write mode' || return
+			INDEX__mode="${INDEX__item:2}"
+			;;
+		--)
+			if [[ -z $INDEX__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					INDEX__input="$1"
+					INDEX__source_reference='INDEX__input'
+				else
+					# an array input
+					INDEX__inputs+=("$@")
+					INDEX__source_reference='INDEX__inputs'
+				fi
+			else
+				# they are needles
+				INDEX__needles+=("$@")
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		--needle=*) INDEX__needles+=("${INDEX__item#*=}") ;;
+		--reverse) INDEX__direction='descending' ;;
+		--first) INDEX__seek_mode='first' ;;                # only the first match of any needle
+		--single) INDEX__seek_mode='single' ;;              # only the first match of each needle
+		--multiple) INDEX__seek_mode='multiple' ;;          # all matches of all needles
+		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --multiple string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times
+		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --multiple string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times
+		--*) __unrecognised_flag "$INDEX__item" || return ;;
+		*) __unrecognised_argument "$INDEX__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$INDEX__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$INDEX__mode" || return
+	__affirm_length_defined "${#INDEX__needles[@]}" 'needle' || return
+	# process
+	local -i INDEX__value_index INDEX__values_size INDEX__needles_size="${#INDEX__needles[@]}" INDEX__needle_size INDEX__last
+	local INDEX__value INDEX__needle INDEX__results=() INDEX__intro_eval_segment INDEX__value_eval_segment INDEX__matched_eval_segment INDEX__for_segment INDEX__finale_eval_segment=
+	if __is_array "$INDEX__source_reference"; then
+		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}[@]}" || return
+		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}[\$INDEX__value_index]}\""
+	else
+		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}}" || return
+		INDEX__value_eval_segment="INDEX__needle_size=\${#INDEX__needle}; INDEX__value=\"\${${INDEX__source_reference}:\$INDEX__value_index:\$INDEX__needle_size}\""
+	fi
+	if [[ $INDEX__direction == 'ascending' ]]; then
+		INDEX__for_segment='INDEX__value_index = 0; INDEX__value_index < INDEX__values_size; ++INDEX__value_index'
+	else
+		# trunk-ignore(shellcheck/SC2034)
+		INDEX__intro_eval_segment+='; INDEX__last="$((INDEX__values_size - 1))"'
+		INDEX__for_segment='INDEX__value_index = INDEX__last; INDEX__value_index >= 0; --INDEX__value_index'
+	fi
+	if [[ $INDEX__seek_mode == 'multiple' ]]; then
+		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index")'
+		INDEX__finale_eval_segment='__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
+	elif [[ $INDEX__seek_mode == 'single' ]]; then
+		__array --size="$INDEX__needles_size" --target={INDEX__results} || return
+		INDEX__matched_eval_segment='INDEX__results[INDEX__needle_index]="$INDEX__value_index"'
+		INDEX__finale_eval_segment='__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
+	else
+		# first
+		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index"); break 2'
+		INDEX__finale_eval_segment='if [[ ${#INDEX__results[@]} -eq 0 ]]; then INDEX__results+=(""); fi; __to --source={INDEX__results\[0\]} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
+	fi
+	if [[ $INDEX__seek_mode == 'single' || $INDEX__seek_mode == 'multiple' ]]; then
+		if [[ $INDEX__overlap == 'no' ]]; then
+			if [[ $INDEX__direction == 'ascending' ]]; then
+				# -1 to offset the upcoming increment from the for loop
+				INDEX__matched_eval_segment+='; INDEX__value_index=$((INDEX__value_index + INDEX__needle_size - 1)); break'
+			else
+				# +1 to offset the upcoming decrement from the for loop
+				INDEX__matched_eval_segment+='; INDEX__value_index=$((INDEX__value_index - INDEX__needle_size + 1)); break'
+			fi
+		fi
+	fi
+	# process
+	eval "
+	$INDEX__intro_eval_segment
+	for (($INDEX__for_segment)); do
+		for ((INDEX__needle_index = 0; INDEX__needle_index < INDEX__needles_size; ++INDEX__needle_index)); do
+			INDEX__needle=\"\${INDEX__needles[\$INDEX__needle_index]}\"
+			$INDEX__value_eval_segment
+			if [[ \$INDEX__value == "\$INDEX__needle" ]]; then
+				$INDEX__matched_eval_segment
+			fi
+		done
+	done
+	$INDEX__finale_eval_segment" || return
+}
+
+# does the needle exist inside the string/array input?
+# has needle / is needle
+# __has {<array-var-name>} --- ...<needle>
+# @todo support index checks for bash associative arrays
+function __has {
+	local HAS__needles=() HAS__seek_mode='first' HAS__ignore_case='no' HAS__overlap='no'
+	# <only source helper arguments>
+	local HAS__item HAS__source_reference='' HAS__inputs HAS__input
+	while [[ $# -ne 0 ]]; do
+		HAS__item="$1"
+		shift
+		case "$HAS__item" in
+		{*})
+			__affirm_value_is_undefined "$HAS__source_reference" 'source reference' || return
+			__dereference --origin="${HAS__item#*=}" --name={HAS__source_reference} || return
+			;;
+		--)
+			if [[ -z $HAS__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					HAS__input="$1"
+					HAS__source_reference='HAS__input'
+				else
+					# an array input
+					HAS__inputs+=("$@")
+					HAS__source_reference='HAS__inputs'
+				fi
+			else
+				# they are needles
+				HAS__needles+=("$@")
+			fi
+			shift $#
+			break
+			;;
+		# </only source helper arguments>
+		--needle=*) HAS__needles+=("${HAS__item#*=}") ;;
+		--first | --any) HAS__seek_mode='first' ;;
+		--all) HAS__seek_mode='all' ;;
+		--ignore-case | --case-insensitive) HAS__ignore_case='yes' ;;
+		--overlap | --overlap=yes) HAS__overlap='yes' ;;  # for --all string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times
+		--no-overlap | --overlap=no) HAS__overlap='no' ;; # for --all string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times
+		--*) __unrecognised_flag "$HAS__item" || return ;;
+		*) __unrecognised_argument "$HAS__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$HAS__source_reference" 'source variable reference' || return
+	__affirm_length_defined "${#HAS__needles[@]}" 'needle' || return
+	# adjust
+	# trunk-ignore(shellcheck/SC2034)
+	local -i HAS__value_index HAS__needle_index HAS__values_size HAS__needle_size HAS__needles_size="${#HAS__needles[@]}"
+	# trunk-ignore(shellcheck/SC2034)
+	local HAS__needle HAS__value HAS__needles_found=() HAS__intro_eval_segment HAS__value_eval_segment HAS__matched_eval_segment HAS__finale_eval_segment
+	if __is_array "$HAS__source_reference"; then
+		HAS__intro_eval_segment="HAS__values_size=\${#${HAS__source_reference}[@]}" || return
+		HAS__value_eval_segment="HAS__value=\"\${${HAS__source_reference}[\$HAS__value_index]}\""
+	else
+		HAS__intro_eval_segment="HAS__values_size=\${#${HAS__source_reference}}" || return
+		HAS__value_eval_segment="HAS__needle_size=\${#HAS__needle}; HAS__value=\"\${${HAS__source_reference}:\$HAS__value_index:\$HAS__needle_size}\""
+	fi
+	if [[ $HAS__seek_mode == 'all' ]]; then
+		__array --size="$HAS__needles_size" --fill='no' --target={HAS__needles_found} || return
+		HAS__matched_eval_segment='HAS__needles_found[HAS__needle_index]=yes'
+		if [[ $HAS__overlap == 'no' ]]; then
+			# -1 to offset the upcoming increment from the for loop
+			HAS__matched_eval_segment+='; HAS__value_index=$((HAS__value_index + HAS__needle_size - 1)); break'
+		fi
+		HAS__finale_eval_segment='if [[ ${HAS__needles_found[*]} == *no* ]]; then return 1; fi'
+	else
+		HAS__matched_eval_segment='return 0'
+		HAS__finale_eval_segment="return 1"
+	fi
+	if [[ $HAS__ignore_case == 'yes' ]]; then
+		# convert the needles to lowercase
+		for HAS__needle_index in "${!HAS__needles[@]}"; do
+			HAS__needle="${HAS__needles[$HAS__needle_index]}"
+			HAS__needle="$(__get_lowercase_string "$HAS__needle")" || return
+		done
+		HAS__value_eval_segment+='; HAS__value="$(__get_lowercase_string "$HAS__value")"'
+	fi
+	# process
+	eval "
+	$HAS__intro_eval_segment
+	for ((HAS__value_index = 0; HAS__value_index < HAS__values_size; ++HAS__value_index)); do
+		for ((HAS__needle_index = 0; HAS__needle_index < HAS__needles_size; ++HAS__needle_index)); do
+			HAS__needle=\"\${HAS__needles[\$HAS__needle_index]}\"
+			$HAS__value_eval_segment
+			if [[ \$HAS__value == "\$HAS__needle" ]]; then
+				$HAS__matched_eval_segment
+			fi
+		done
+	done
+	$HAS__finale_eval_segment" || return
+}
+
+# set the targets to the slice between the start and length indices of the source reference
+# negative starts and lengths will be counted from the end of the source reference
+# out of bound indices will throw
+function __slice {
+	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=()
+	# <single-source helper arguments>
+	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs SLICE__input
+	while [[ $# -ne 0 ]]; do
+		SLICE__item="$1"
+		shift
+		case "$SLICE__item" in
+		--source={*})
+			__affirm_value_is_undefined "$SLICE__source_reference" 'source reference' || return
+			__dereference --origin="${SLICE__item#*=}" --name={SLICE__source_reference} || return
+			;;
+		--source+target={*})
+			SLICE__item="${SLICE__item#*=}"
+			SLICE__targets+=("$SLICE__item")
+			__affirm_value_is_undefined "$SLICE__source_reference" 'source reference' || return
+			__dereference --origin="$SLICE__item" --name={SLICE__source_reference} || return
+			;;
+		--targets=*) __dereference --origin="${SLICE__item#*=}" --value={SLICE__targets} || return ;;
+		--target=*) SLICE__targets+=("${SLICE__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$SLICE__mode" 'write mode' || return
+			SLICE__mode="${SLICE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$SLICE__mode" 'write mode' || return
+			SLICE__mode="${SLICE__item:2}"
+			;;
+		--)
+			if [[ -z $SLICE__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					SLICE__input="$1"
+					SLICE__source_reference='SLICE__input'
+				else
+					# an array input
+					SLICE__inputs+=("$@")
+					SLICE__source_reference='SLICE__inputs'
+				fi
+			else
+				# they are indices
+				for SLICE__item in "$@"; do
+					__affirm_value_is_integer "$SLICE__item" 'index' || return
+				done
+				SLICE__indices+=("$@")
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		[0-9]* | -[0-9]*)
+			__affirm_value_is_integer "$SLICE__item" 'index/length' || return
+			SLICE__indices+=("$SLICE__item")
+			;;
+		--keep-before-first=*) SLICE__keep_before_first+=("${SLICE__item#*=}") ;;
+		--keep-before-last=*) SLICE__keep_before_last+=("${SLICE__item#*=}") ;;
+		--keep-after-first=*) SLICE__keep_after_first+=("${SLICE__item#*=}") ;;
+		--keep-after-last=*) SLICE__keep_after_last+=("${SLICE__item#*=}") ;;
+		--*) __unrecognised_flag "$SLICE__item" || return ;;
+		*) __unrecognised_argument "$SLICE__item" || return ;;
+		esac
+	done
+	# affirm
+	__affirm_value_is_defined "$SLICE__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$SLICE__mode" || return
+	if __is_zero ${#SLICE__indices[@]} ${#SLICE__keep_before_first[@]} ${#SLICE__keep_before_last[@]} ${#SLICE__keep_after_first[@]} ${#SLICE__keep_after_last[@]}; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: No slice arguments provided, at least one of --index, --keep-before-first, --keep-before-last, --keep-after-first, --keep-after-last, must be provided." >&2 || :
+		__dump SLICE__indices SLICE__keep_before_first SLICE__keep_before_last SLICE__keep_after_first SLICE__keep_after_last >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# if indices is odd, then make it to the end
+	if __is_odd "${#SLICE__indices[@]}"; then
+		SLICE__indices+=(-0) # -0 means to the end
+	fi
+	# @todo optimise the below with direct substring options if substring
+	# before first
+	for SLICE__item in "${SLICE__keep_before_first[@]}"; do
+		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --target={SLICE__item} || return
+		SLICE__indices+=(0 "$SLICE__item")
+	done
+	# before last
+	for SLICE__item in "${SLICE__keep_before_last[@]}"; do
+		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --reverse --target={SLICE__item} || return
+		SLICE__indices+=(0 "$SLICE__item")
+	done
+	# after first
+	for SLICE__item in "${SLICE__keep_after_first[@]}"; do
+		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --target={SLICE__item} || return
+		SLICE__indices+=("$((SLICE__item + 1))" -0)
+	done
+	# after last
+	for SLICE__item in "${SLICE__keep_after_last[@]}"; do
+		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --reverse --target={SLICE__item} || return
+		SLICE__indices+=("$((SLICE__item + 1))" -0)
+	done
+	# indices
+	local -i SLICE__left SLICE__right SLICE__size
+	# trunk-ignore(shellcheck/SC2034)
+	local SLICE__results SLICE__eval_left_segment SLICE__eval_right_segment
+	if __is_array "$SLICE__source_reference"; then
+		eval "SLICE__size=\"\${#${SLICE__source_reference}[@]}\"" || return
+		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left}\")"
+		SLICE__eval_right_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left:SLICE__right}\")"
+	else
+		eval "SLICE__size=\"\${#${SLICE__source_reference}}\"" || return
+		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left}\")"
+		SLICE__eval_right_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left:SLICE__right}\")"
+	fi
+	SLICE__negative_size=$((SLICE__size * -1))
+	# we guaranteed earlier we have even indices, and instead of for a loop, a shifting while loop is easiest
+	set -- "${SLICE__indices[@]}"
+	while [[ $# -ne 0 ]]; do
+		SLICE__left="$1"
+		shift
+		SLICE__right="$2"
+		shift
+		if [[ $SLICE__left == '-0' ]]; then
+			continue # there is nothing to do
+		elif [[ $SLICE__left -lt $SLICE__negative_size || $SLICE__left -ge $SLICE__size ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index $SLICE__left was out of range $SLICE__negative_size (inclusive) to $SLICE__size (exclusive)." >&2 || :
+			__dump "{$SLICE__source_reference}" {SLICE__indices} >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
+		fi
+		if [[ $SLICE__right == -0 ]]; then
+			SLICE__right="$SLICE__size" # -0 means to the end, so we convert it to the size
+		elif [[ $SLICE__right -lt 0 ]]; then
+			SLICE__right="$((SLICE__size + SLICE__right - SLICE__left))"
+		fi
+		if [[ $SLICE__right -lt $SLICE__negative_size || $SLICE__right -gt $SLICE__size ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The length $SLICE__right was out of range $SLICE__negative_size (inclusive) to $SLICE__size (inclusive)." >&2 || :
+		fi
+		# add the results
+		if [[ $SLICE__right -eq $SLICE__size ]]; then
+			eval "$SLICE__eval_left_segment" || return
+		else
+			eval "$SLICE__eval_right_segment" || return
+		fi
+	done
+	__to --source={SLICE__results} --mode="$SLICE__mode" --targets={SLICE__targets} || return
+}
+
+# split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
+# this is wrong:
+# __split --target={arr} --no-zero-length < <(<output-command>)
+# __split --target={arr} --no-zero-length <<< "$(<output-command>)"
+# __split --target={arr} --no-zero-length < <(<output-command> | tr $'\t ,|' '\n')
+# and this is right:
+# fodder_to_respect_exit_status="$(<output-command>)"
+# __split --target={arr} --no-zero-length --invoke -- <output-command> # this preserves trail
+# __split --target={arr} --no-zero-length -- "$fodder_to_respect_exit_status"
+# __split --target={arr} --no-zero-length -- "$fodder_to_respect_exit_status"
+# __split --target={arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
+# use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
+function __split {
+	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
+	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
+	# <single-source helper arguments>
+	local SPLIT__item SPLIT__source_reference='' SPLIT__targets=() SPLIT__mode='' SPLIT__input
+	while [[ $# -ne 0 ]]; do
+		SPLIT__item="$1"
+		shift
+		case "$SPLIT__item" in
+		--source={*})
+			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+			__dereference --origin="${SPLIT__item#*=}" --name={SPLIT__source_reference} || return
+			;;
+		--source+target={*})
+			SPLIT__item="${SPLIT__item#*=}"
+			SPLIT__targets+=("$SPLIT__item")
+			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+			__dereference --origin="$SPLIT__item" --name={SPLIT__source_reference} || return
+			;;
+		--targets=*) __dereference --origin="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
+		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
+			SPLIT__mode="${SPLIT__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
+			SPLIT__mode="${SPLIT__item:2}"
+			;;
+		--)
+			if [[ $SPLIT__invoke == 'yes' ]]; then
+				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+				local SPLIT__fodder_to_respect_exit_status
+				__do --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				SPLIT__source_reference='SPLIT__input'
+			elif [[ $SPLIT__invoke == 'try' ]]; then
+				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+				local SPLIT__fodder_to_respect_exit_status
+				__do --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				SPLIT__source_reference='SPLIT__input'
+			elif [[ -z $SPLIT__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+					SPLIT__input="$1"
+					SPLIT__source_reference='SPLIT__input'
+				else
+					__print_lines "ERROR: ${FUNCNAME[0]}: Multiple inputs are not supported, as the source for __split must be a string." >&2 || :
+					return 22 # EINVAL 22 Invalid argument
+				fi
+			else
+				# they are delimiters
+				SPLIT__delimiters+=("$@")
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		'--no-zero-length') SPLIT__zero_length='no' ;;
+		'--keep-zero-length') : ;; # no-op as already the case
+		'--invoke=try') SPLIT__invoke='try' ;;
+		'--invoke') SPLIT__invoke='yes' ;;
+		'--delimiter='*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
+		'--delimiters='*)
+			SPLIT__item="${SPLIT__item#*=}"
+			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
+				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
+				SPLIT__delimiters+=("$SPLIT__character")
+			done
+			;;
+		--*) __unrecognised_flag "$SPLIT__item" || return ;;
+		*) __unrecognised_argument "$SPLIT__item" || return ;;
+		esac
+	done
+	# read everything from stdin
+	if [[ -z $SPLIT__source_reference ]]; then
+		local SPLIT__stdin='' SPLIT__reply
+		while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
+			if [[ -n $SPLIT__stdin ]]; then
+				SPLIT__stdin+=$'\n'
+			fi
+			SPLIT__stdin+="$SPLIT__reply"
+		done
+		SPLIT__source_reference='SPLIT__stdin'
+	fi
+	# affirmations
+	__affirm_value_is_defined "$SPLIT__source_reference" 'source variable reference to a string' || return
+	__affirm_value_is_valid_write_mode "$SPLIT__mode" || return
+	if [[ ${#SPLIT__delimiters[@]} -eq 0 ]]; then
+		SPLIT__delimiters+=($'\n')
+	fi
+	# process
+	eval "SPLIT__input=\"\${$SPLIT__source_reference}\"" || return
+	# check if we even apply
+	if [[ -z $SPLIT__input ]]; then
+		# the item is empty, add it if desired
+		if [[ $SPLIT__zero_length == 'yes' ]]; then
+			__to --source={SPLIT__input} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
+		fi
+		# done
+		return 0
+	fi
+	# reset the window for each argument
+	SPLIT__window=''
+	SPLIT__last_slice_left_index=-1
+	SPLIT__string_length=${#SPLIT__input}
+	SPLIT__string_last=$((SPLIT__string_length - 1))
+	# process the argument
+	for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
+		# add the character to the window, no need for string __slice as it is a simple slice
+		SPLIT__character="${SPLIT__input:SPLIT__character_left_index:1}"
+		SPLIT__window+="$SPLIT__character"
+		# cycle through the delimiters
+		for SPLIT__delimiter in "${SPLIT__delimiters[@]}"; do
+			# does the window end with our delimiter?
+			if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
+				# remove the delimiter
+				SPLIT__window_size=${#SPLIT__window}
+				SPLIT__delimiter_size=${#SPLIT__delimiter}
+				SPLIT__window_offset=$((SPLIT__window_size - SPLIT__delimiter_size))
+				SPLIT__segment="${SPLIT__window:0:SPLIT__window_offset}"
+				# do we want to add it?
+				if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__segment ]]; then
+					SPLIT__results+=("$SPLIT__segment")
+				fi
+				# reset the window so characters can be added back to it for the new slice
+				SPLIT__window=''
+				# note the last slice, as we know whether or not we need to add a trailing slice
+				SPLIT__last_slice_left_index="$SPLIT__character_left_index"
+			fi
+		done
+	done
+	# check how to handle trailing slice
+	if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
+		# the delimiter was not found, so add the whole string
+		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
+			SPLIT__results+=("$SPLIT__input")
+		fi
+	elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
+		# the delimiter was not the last character, so add the pending slice
+		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
+			SPLIT__results+=("$SPLIT__window")
+		fi
+	elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
+		# delimiter was the last character, so add a right-side slice, if zero-length is allowed
+		if [[ $SPLIT__zero_length == 'yes' ]]; then
+			SPLIT__results+=('')
+		fi
+	fi
+	__to --source={SPLIT__results} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
+}
+
+# __evict {source_and_target_array} -- ...<value-to-remove>
+# __evict {source_array} {target_array} -- ...<value-to-remove>
+function __evict {
+	local EVICT__indices=() EVICT__values=() EVICT__prefixes=() EVICT__suffixes=() EVICT__patterns=() EVICT__globs=() EVICT__keep_before_first=() EVICT__keep_before_last=() EVICT__keep_after_first=() EVICT__keep_after_last=() EVICT__optional='no'
+	# <single-source helper arguments>
+	local EVICT__item EVICT__source_reference='' EVICT__targets=() EVICT__mode='' EVICT__inputs EVICT__input
+	while [[ $# -ne 0 ]]; do
+		EVICT__item="$1"
+		shift
+		case "$EVICT__item" in
+		--source={*})
+			__affirm_value_is_undefined "$EVICT__source_reference" 'source reference' || return
+			__dereference --origin="${EVICT__item#*=}" --name={EVICT__source_reference} || return
+			;;
+		--source+target={*})
+			EVICT__item="${EVICT__item#*=}"
+			EVICT__targets+=("$EVICT__item")
+			__affirm_value_is_undefined "$EVICT__source_reference" 'source reference' || return
+			__dereference --origin="$EVICT__item" --name={EVICT__source_reference} || return
+			;;
+		--targets=*) __dereference --origin="${EVICT__item#*=}" --value={EVICT__targets} || return ;;
+		--target=*) EVICT__targets+=("${EVICT__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$EVICT__mode" 'write mode' || return
+			EVICT__mode="${EVICT__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$EVICT__mode" 'write mode' || return
+			EVICT__mode="${EVICT__item:2}"
+			;;
+		--)
+			if [[ -z $EVICT__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					EVICT__input="$1"
+					EVICT__source_reference='EVICT__input'
+				else
+					# an array input
+					EVICT__inputs+=("$@")
+					EVICT__source_reference='EVICT__inputs'
+				fi
+			else
+				# they are values
+				EVICT__values+=("$@")
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		--index=*)
+			EVICT__item="${EVICT__item#*=}"
+			__affirm_value_is_integer "$EVICT__item" 'index/length' || return
+			EVICT__indices+=("$EVICT__item")
+			;;
+		--value=*) EVICT__values+=("${EVICT__item#*=}") ;;
+		--prefix=*) EVICT__prefixes+=("${EVICT__item#*=}") ;;
+		--suffix=*) EVICT__suffixes+=("${EVICT__item#*=}") ;;
+		--pattern=*) EVICT__patterns+=("${EVICT__item#*=}") ;;
+		--glob=*) EVICT__globs+=("${EVICT__item#*=}") ;;
+		--keep-before-first=*) EVICT__keep_before_first+=("${EVICT__item#*=}") ;;
+		--keep-before-last=*) EVICT__keep_before_last+=("${EVICT__item#*=}") ;;
+		--keep-after-first=*) EVICT__keep_after_first+=("${EVICT__item#*=}") ;;
+		--keep-after-last=*) EVICT__keep_after_last+=("${EVICT__item#*=}") ;;
+		--optional) EVICT__optional='yes' ;; # if there was no matches, then do not error
+		--*) __unrecognised_flag "$EVICT__item" || return ;;
+		*) __unrecognised_argument "$EVICT__item" || return ;;
+		esac
+	done
+	# affirm
+	__affirm_value_is_defined "$EVICT__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$EVICT__mode" || return
+	if __is_zero ${#EVICT__indices[@]} ${#EVICT__values[@]} ${#EVICT__prefixes[@]} ${#EVICT__suffixes[@]} ${#EVICT__patterns[@]} ${#EVICT__globs[@]} ${#EVICT__keep_before_first[@]} ${#EVICT__keep_before_last[@]} ${#EVICT__keep_after_first[@]} ${#EVICT__keep_after_last[@]}; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: No evict arguments provided, at least one of --index, --value, --prefix, --suffix, --pattern, --glob, --keep-before-first, --keep-before-last, --keep-after-first, --keep-after-last, must be provided." >&2 || :
+		__dump EVICT__indices EVICT__values EVICT__prefixes EVICT__suffixes EVICT__patterns EVICT__keep_before_first EVICT__keep_before_last EVICT__keep_after_first EVICT__keep_after_last >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# build our list of excluded indices
+	if __is_array "$EVICT__source_reference"; then
+		local EVICT__map=() EVICT__evicted='no'
+		# indices
+		for EVICT__item in "${EVICT__indices[@]}"; do
+			EVICT__map[EVICT__item]='evict'
+		done
+		# values
+		local EVICT__source_values EVICT__results=()
+		local -i EVICT__source_index EVICT__source_size
+		eval "EVICT__source_values=(\"\${${EVICT__source_reference}[@]}\")" || return
+		EVICT__source_size=${#EVICT__source_values[@]}
+		for ((EVICT__source_index = 0; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
+			EVICT__source_value="${EVICT__source_values[EVICT__source_index]}"
+			for EVICT__item in "${EVICT__values[@]}"; do
+				if [[ $EVICT__source_value == "$EVICT__item" ]]; then
+					EVICT__evicted=yes
+					EVICT__map[EVICT__source_index]='evict'
 				fi
 			done
+			for EVICT__item in "${EVICT__prefixes[@]}"; do
+				if [[ $EVICT__source_value == "$EVICT__item"* ]]; then
+					EVICT__evicted=yes
+					EVICT__map[EVICT__source_index]='evict'
+				fi
+			done
+			for EVICT__item in "${EVICT__suffixes[@]}"; do
+				if [[ $EVICT__source_value == *"$EVICT__item" ]]; then
+					EVICT__evicted=yes
+					EVICT__map[EVICT__source_index]='evict'
+				fi
+			done
+			for EVICT__item in "${EVICT__patterns[@]}"; do
+				if [[ $EVICT__source_value =~ $EVICT__item ]]; then
+					EVICT__evicted=yes
+					EVICT__map[EVICT__source_index]='evict'
+				fi
+			done
+			for EVICT__item in "${EVICT__globs[@]}"; do
+				# trunk-ignore(shellcheck/SC2053)
+				if [[ $EVICT__source_value == $EVICT__item ]]; then
+					EVICT__evicted=yes
+					EVICT__map[EVICT__source_index]='evict'
+				fi
+			done
+
 		done
-		# check how to handle trailing slice
-		if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
-			# the delimiter was not found, so add the whole string
-			if [[ $SPLIT__option_with_zero_length == 'yes' || -n $SPLIT__window ]]; then
-				eval "$SPLIT__option_reference+=(\"\${SPLIT__item}\")" || return
+		# before first
+		for EVICT__item in "${EVICT__keep_before_first[@]}"; do
+			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --target={EVICT__item} || return
+			if [[ -n $EVICT__item ]]; then
+				for ((EVICT__source_index = EVICT__item; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
+					EVICT__evicted='yes'
+					EVICT__map[EVICT__source_index]='evict'
+				done
 			fi
-		elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
-			# the delimiter was not the last character, so add the pending slice
-			if [[ $SPLIT__option_with_zero_length == 'yes' || -n $SPLIT__window ]]; then
-				eval "$SPLIT__option_reference+=(\"\${SPLIT__window}\")" || return
+		done
+		# before last
+		for EVICT__item in "${EVICT__keep_before_last[@]}"; do
+			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --reverse --target={EVICT__item} || return
+			if [[ -n $EVICT__item ]]; then
+				for ((EVICT__source_index = EVICT__item; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
+					EVICT__evicted='yes'
+					EVICT__map[EVICT__source_index]='evict'
+				done
 			fi
-		elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
-			# delimiter was the last character, so add a right-side slice, if zero-length is allowed
-			if [[ $SPLIT__option_with_zero_length == 'yes' ]]; then
-				eval "$SPLIT__option_reference+=('')" || return
+		done
+		# after first
+		for EVICT__item in "${EVICT__keep_after_first[@]}"; do
+			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --target={EVICT__item} || return
+			if [[ -n $EVICT__item ]]; then
+				for ((EVICT__source_index = 0; EVICT__source_index <= EVICT__item; ++EVICT__source_index)); do
+					EVICT__evicted='yes'
+					EVICT__map[EVICT__source_index]='evict'
+				done
 			fi
+		done
+		# after last
+		for EVICT__item in "${EVICT__keep_after_last[@]}"; do
+			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --reverse --target={EVICT__item} || return
+			if [[ -n $EVICT__item ]]; then
+				for ((EVICT__source_index = 0; EVICT__source_index <= EVICT__item; ++EVICT__source_index)); do
+					EVICT__evicted='yes'
+					EVICT__map[EVICT__source_index]='evict'
+				done
+			fi
+		done
+		# check
+		if [[ $EVICT__evicted == 'no' && $EVICT__optional == 'no' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: No values were evicted from the source array." >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
 		fi
+		# compile result
+		for ((EVICT__source_index = 0; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
+			if [[ ${EVICT__map[$EVICT__source_index]-} != 'evict' ]]; then
+				EVICT__results+=("${EVICT__source_values[$EVICT__source_index]}")
+			fi
+		done
+		__to --source={EVICT__results} --mode="$EVICT__mode" --targets={EVICT__targets} || return
+	else
+		local EVICT__source_value EVICT__source_original
+		eval "EVICT__source_value=\"\${${EVICT__source_reference}}\"" || return
+		EVICT__source_original="$EVICT__source_value"
+		if [[ ${#EVICT__indices[@]} -ne 0 ]]; then
+			__print "ERROR: ${FUNCNAME[0]}: The source variable is not an array, so --index cannot be used." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		for EVICT__item in "${EVICT__source_values[@]}"; do
+			EVICT__source_value="${EVICT__source_value//"$EVICT__item"/}"
+		done
+		for EVICT__item in "${EVICT__prefixes[@]}"; do
+			if [[ $EVICT__source_value == "$EVICT__item"* ]]; then
+				EVICT__source_value="${EVICT__source_value#"$EVICT__item"}"
+			fi
+		done
+		for EVICT__item in "${EVICT__suffixes[@]}"; do
+			if [[ $EVICT__source_value == *"$EVICT__item" ]]; then
+				EVICT__source_value="${EVICT__source_value%"$EVICT__item"}"
+			fi
+		done
+		for EVICT__item in "${EVICT__patterns[@]}"; do
+			EVICT__source_value="${EVICT__source_value//$EVICT__item/}"
+		done
+		if [[ ${#EVICT__globs[@]} -ne 0 ]]; then
+			__print "ERROR: ${FUNCNAME[0]}: The source variable is not an array, so --glob cannot be used." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		for EVICT__item in "${EVICT__keep_before_first[@]}"; do
+			EVICT__source_value="${EVICT__source_value%%"$EVICT__item"*}"
+		done
+		for EVICT__item in "${EVICT__keep_before_last[@]}"; do
+			EVICT__source_value="${EVICT__source_value%"$EVICT__item"*}"
+		done
+		for EVICT__item in "${EVICT__keep_after_first[@]}"; do
+			EVICT__source_value="${EVICT__source_value#*"$EVICT__item"}"
+		done
+		for EVICT__item in "${EVICT__keep_after_last[@]}"; do
+			EVICT__source_value="${EVICT__source_value##*"$EVICT__item"}"
+		done
+		if [[ $EVICT__optional == 'no' && $EVICT__source_value == "$EVICT__source_original" ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: No values were evicted from the source variable." >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
+		fi
+		__to --source={EVICT__source_value} --mode="$EVICT__mode" --targets={EVICT__targets} || return
+	fi
+}
+
+# __unique {<source-array-var-name>}
+# __unique {...<source-array-var-name>} <target-array-var-name>
+function __unique {
+	# <multi-source helper arguments>
+	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode='' UNIQUE__inputs
+	while [[ $# -ne 0 ]]; do
+		UNIQUE__item="$1"
+		shift
+		case "$UNIQUE__item" in
+		--source={*})
+			__dereference --origin="${UNIQUE__item#*=}" --name={UNIQUE__sources} || return
+			;;
+		--source+target={*})
+			UNIQUE__item="${UNIQUE__item#*=}"
+			UNIQUE__targets+=("$UNIQUE__item") # keep squigglies
+			__dereference --origin="$UNIQUE__item" --name={UNIQUE__item} || return
+			UNIQUE__sources+=("$UNIQUE__item")
+			;;
+		--targets=*) __dereference --origin="${UNIQUE__item#*=}" --value={UNIQUE__targets} || return ;;
+		--target=*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
+			UNIQUE__mode="${UNIQUE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
+			UNIQUE__mode="${UNIQUE__item:2}"
+			;;
+		--)
+			# an array input
+			UNIQUE__inputs+=("$@")
+			UNIQUE__sources+=('UNIQUE__inputs')
+			shift $#
+			break
+			;;
+		# </multi-source helper arguments>
+		--*) __unrecognised_flag "$UNIQUE__item" || return ;;
+		*) __unrecognised_argument "$UNIQUE__item" || return ;;
+		esac
 	done
+	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source reference' || return
+	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return
+	# process
+	local UNIQUE__source UNIQUE__values=() UNIQUE__value UNIQUE__results=()
+	for UNIQUE__source in "${UNIQUE__sources[@]}"; do
+		__affirm_variable_is_array "$UNIQUE__source" || return
+		eval "UNIQUE__values=(\"\${${UNIQUE__source}[@]}\")" || return
+		for UNIQUE__value in "${UNIQUE__values[@]}"; do
+			# if the value already exists in the results, skip it
+			if __has {UNIQUE__results} -- "$UNIQUE__value"; then
+				continue
+			fi
+			# the value is new to the results, so add it
+			UNIQUE__results+=("$UNIQUE__value")
+		done
+	done
+	__to --source={UNIQUE__results} --mode="$UNIQUE__mode" --targets={UNIQUE__targets} || return
 }
 
 # join by the delimiter
 # __join <delimiter> -- ...<element>
 function __join {
-	if [[ $# -lt 2 || $2 != '--' ]]; then
-		return 1
-	elif [[ $# -eq 2 ]]; then
-		return 0
-	fi
-	local result='' i d="$1" a=("$@") l="$(($# - 1))"
-	for ((i = 2; i < l; i++)); do
-		result+="${a[i]}$d"
-	done
-	result+="${a[l]}"
-	printf '%s' "$result" || return
-}
-
-# does the needle exist inside the array?
-# has needle / is needle
-# for strings, see __string_has_case_insensitive_substring
-# __has {<array-var-name>} <needle>
-# __has <needle> -- ...<element>
-# @todo support index checks for bash associative arrays
-# @todo support checking if an array has multiple needles with --any and --all support
-function __has {
-	if [[ $2 == '--' ]]; then
-		# __has <needle> -- ...<element>
-		local needle="$1" item
-		shift # trim needle
-		shift # trim --
-		for item in "$@"; do
-			if [[ $needle == "$item" ]]; then
-				return 0
-			fi
-		done
-		return 1
-	else
-		# __has <array-var-name> <needle>
-		# trunk-ignore(shellcheck/SC2034)
-		local HAS__reference="$1" HAS__needle="$2" HAS__size HAS__index
-		HAS__reference="$(__get_reference_name "$HAS__reference")" || return
-		if [[ $HAS__reference == HAS__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		eval "HAS__size=\${#${HAS__reference}[@]}" || return
-		for ((HAS__index = 0; HAS__index < HAS__size; ++HAS__index)); do
-			if eval "[[ \$HAS__needle == \"\${${HAS__reference}[HAS__index]}\" ]]"; then
-				return 0
-			fi
-		done
-		return 1
-	fi
-}
-
-# get the index of the needle
-# __index {<array-var-name>} <needle>
-# __index <needle> -- ...<element>
-# doesn't print anything if index not found
-# @todo support index checks for bash associative arrays and strings
-function __index {
-	if [[ $2 == '--' ]]; then
-		# __has <needle> -- ...<element>
-		local needle="$1" index=0
-		shift # trim needle
-		shift # trim --
-		while [[ $# -ne 0 ]]; do
-			local item="$1"
-			shift # trim item
-			if [[ $needle == "$item" ]]; then
-				__print_lines "$index" || return
-				return 0
-			fi
-			index="$((index + 1))"
-		done
-		return 0
-	else
-		# __has <array-var-name> <needle>
-		# trunk-ignore(shellcheck/SC2034)
-		local HAS__reference="$1" HAS__needle="$2" HAS__size HAS__index
-		HAS__reference="$(__get_reference_name "$HAS__reference")" || return
-		if [[ $HAS__reference == HAS__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $HAS__reference as it is used internally." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		eval "HAS__size=\${#${HAS__reference}[@]}" || return
-		for ((HAS__index = 0; HAS__index < HAS__size; ++HAS__index)); do
-			if eval "[[ \$HAS__needle == \"\${${HAS__reference}[HAS__index]}\" ]]"; then
-				__print_lines "$HAS__index" || return
-			fi
-		done
-		return 0
-	fi
-}
-
-# modify <array-var-name> to only the items between the <left> and <right> indices
-# __slice <array-var-name> <left> [<right>] [<left> [<right>] ...]
-# e.g. arr=(a b c d)
-# __slice {arr} 0 1 # keeps a
-# __slice {arr} 0 2 # keeps a b
-# __slice {arr} 0 1 2 3 # keeps a c
-# __slice {arr} 0 1 2 # keeps a c d
-# @todo use [__is_array] to support strings as well as arrays
-function __slice {
-	local SLICE__item SLICE__option_append='' SLICE__option_inputs=() SLICE__option_indices=() SLICE__option_references=() SLICE__reference SLICE__eval_statement
-	function __validate_reference {
-		local reference="$1"
-		if [[ $reference == SLICE__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference cannot be named $reference as it is used internally." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-	}
+	local JOIN__delimiter=$'\n'
+	# <multi-source helper arguments>
+	local JOIN__item JOIN__sources=() JOIN__targets=() JOIN__mode='' JOIN__inputs
 	while [[ $# -ne 0 ]]; do
-		SLICE__item="$1"
+		JOIN__item="$1"
 		shift
-		case "$SLICE__item" in
-		'{'*'}')
-			SLICE__reference="$(__get_reference_name "$SLICE__item")" || return
-			__validate_reference "$SLICE__reference" || return
-			SLICE__option_references+=("$SLICE__reference")
+		case "$JOIN__item" in
+		--source={*})
+			__dereference --origin="${JOIN__item#*=}" --name={JOIN__sources} || return
 			;;
-		'--append') SLICE__option_append='yes' ;;
+		--source+target={*})
+			JOIN__item="${JOIN__item#*=}"
+			JOIN__targets+=("$JOIN__item")
+			__dereference --origin="$JOIN__item" --name={JOIN__item} || return
+			JOIN__sources+=("$JOIN__item")
+			;;
+		--targets=*) __dereference --origin="${JOIN__item#*=}" --value={JOIN__targets} || return ;;
+		--target=*) JOIN__targets+=("${JOIN__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$JOIN__mode" 'write mode' || return
+			JOIN__mode="${JOIN__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$JOIN__mode" 'write mode' || return
+			JOIN__mode="${JOIN__item:2}"
+			;;
 		--)
-			if [[ $# -eq 0 ]]; then
-				# there's no items, be a no-op if not appending, if appending then reset to nothing
-				if [[ $SLICE__option_append == 'no' ]]; then
-					for SLICE__reference in "${SLICE__option_references[@]}"; do
-						SLICE__eval_statement+="$SLICE__reference=(); "
-					done
-					eval "$SLICE__eval_statement" || return
-				fi
-				return 0
-			fi
-			SLICE__option_inputs+=("$@")
+			# an array input
+			JOIN__inputs+=("$@")
+			JOIN__sources+=('JOIN__inputs')
 			shift $#
 			break
 			;;
-		--*)
-			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $SLICE__item" >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-			;;
-		*)
-			if __is_integer "$SLICE__item"; then
-				SLICE__option_indices+=("$SLICE__item")
-			else
-				__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised argument was provided: $SLICE__item" >&2 || :
-				return 22 # EINVAL 22 Invalid argument
-			fi
-			;;
+		# </multi-source helper arguments>
+		--delimiter=*) JOIN__delimiter="${JOIN__item#*=}" ;;
+		--*) __unrecognised_flag "$JOIN__item" || return ;;
+		*) __unrecognised_argument "$JOIN__item" || return ;;
 		esac
 	done
-	# there must always be at least one variable reference
-	if [[ ${#SLICE__option_references[@]} -eq 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: A variable reference must be provided." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# if inputs, or if only a single target, then the first target remains a target
-	# if no inputs, then the first array variable is the input
-	if [[ ${#SLICE__option_inputs[@]} -eq 0 ]]; then
-		SLICE__reference="${SLICE__option_references[0]}"
-		eval "SLICE__option_inputs+=(\"\${${SLICE__reference}[@]}\")" || return
-		if [[ ${#SLICE__option_references[@]} -ne 1 ]]; then
-			# the first target is only an input, and not a target
-			SLICE__option_references=("${SLICE__option_references[@]:1}")
-		fi
-	fi
-	# if no indices, then do them all
-	if [[ ${#SLICE__option_indices[@]} -eq 0 ]]; then
-		SLICE__option_indices+=(0)
-	fi
-	# process indices
-	local SLICE__left SLICE__right SLICE__length SLICE__size SLICE__negative_size SLICE__results=()
-	SLICE__size="${#SLICE__option_inputs[@]}"
-	SLICE__negative_size=$((SLICE__size * -1))
-	# now that we have processed all our arguments, set the arguments to the indices
-	set -- "${SLICE__option_indices[@]}"
-	while [[ $# -ne 0 ]]; do
-		SLICE__left="$1"
-		shift
-		if [[ $SLICE__left == '-0' ]]; then
-			SLICE__left="$SLICE__size"
-		elif [[ $SLICE__left -lt $SLICE__negative_size ]]; then
-			# convert negative left to length, which is what bash uses
-			SLICE__left=0
-		fi
-		# have right?
-		if [[ $# -eq 0 ]]; then
-			# no right, keep everything from left
-			SLICE__results+=("${SLICE__option_inputs[@]:SLICE__left}")
-		else
-			# has right, keep everything from left to right
-			# convert right to length, which is what bash uses
-			SLICE__right="$1"
-			shift
-			if [[ $SLICE__right == '-0' ]]; then
-				SLICE__right="$SLICE__size"
-			fi
-			SLICE__length="$((SLICE__right - SLICE__left))"
-			SLICE__results+=("${SLICE__option_inputs[@]:SLICE__left:SLICE__length}")
-		fi
+	__affirm_length_defined "${#JOIN__sources[@]}" 'source reference' || return
+	__affirm_value_is_valid_write_mode "$JOIN__mode" || return
+	# process
+	local JOIN__source JOIN__values=() JOIN__size JOIN__last JOIN__index JOIN__result=''
+	for JOIN__source in "${JOIN__sources[@]}"; do
+		__affirm_variable_is_array "$JOIN__source" || return
+		eval "JOIN__values=(\"\${${JOIN__source}[@]}\")" || return
+		JOIN__size=${#JOIN__values[@]}
+		JOIN__last=$((JOIN__size - 1))
+		for ((JOIN__index = 0; JOIN__index < JOIN__last; ++JOIN__index)); do
+			JOIN__result+="${JOIN__values[JOIN__index]}$JOIN__delimiter"
+		done
+		JOIN__result+="${JOIN__values[JOIN__index]}"
 	done
-	# apply the results to the targets
-	if [[ $SLICE__option_append == 'yes' ]]; then
-		# append to the target
-		for SLICE__reference in "${SLICE__option_references[@]}"; do
-			SLICE__eval_statement+="$SLICE__reference+=(\"\${SLICE__results[@]}\"); "
-		done
-	else
-		# replace the target with the SLICE__results
-		for SLICE__reference in "${SLICE__option_references[@]}"; do
-			SLICE__eval_statement+="$SLICE__reference=(\"\${SLICE__results[@]}\"); "
-		done
-	fi
-	eval "$SLICE__eval_statement" || return
+	__to --source={JOIN__result} --mode="$JOIN__mode" --targets={JOIN__targets} || return
 }
 
 # push: add the last elements
@@ -3146,8 +3932,37 @@ function __slice {
 
 # pop: remove the last elements
 # function __remove_last { ... }
+# just do: __slice {array} 0 -1
 
 # shift: remove the first elements
 # function __remove_first { ... }
+# just do: __slice {array} 1
 
 # complement and intersect prototype also available at: https://gist.github.com/balupton/80d27cf1a9e193f8247ee4baa2ad8566
+
+# __trim turns the following:
+# ```
+# # trim leading and trailing whitespace
+# while [[ $test == ' '* ]]; do
+# 	test="${test:1}"
+# done
+# while [[ $test == *' ' ]]; do
+# 	__slice --source+target={test} -- 0 -1
+# done
+# ```
+# ```
+# # trim leading and trailing whitespace and quotes
+# while [[ $value =~ ^[\ \'\"] ]]; do
+# 	value="${value:1}"
+# done
+# while [[ $value =~ [\ \'\"]$ ]]; do
+# 	__slice --source+target={value} -- -1 || return
+# done
+# ```
+# into the following:
+# ```
+# __trim --source+target={test} --leading-delimiters=' ' --trailing-delimiters=' '
+# ```
+# ```
+# __trim --source+target={value} --leading-delimiters=' \'\"' --trailing-delimiters=' \'\"'
+# ```
