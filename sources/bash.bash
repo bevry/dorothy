@@ -1200,12 +1200,19 @@ function __to {
 	if [[ ${#TO__targets[@]} -eq 0 ]]; then
 		TO__targets+=('STDOUT') # default to STDOUT
 	fi
-	local TO__target # TO__source_size
+	local TO__target TO__source_size
 	for TO__target in "${TO__targets[@]}"; do
 		__affirm_value_is_defined "$TO__target" 'target' || return
 		if __is_reference "$TO__target"; then
 			__dereference --origin="$TO__target" --name={TO__target} || return
 			if __is_array "$TO__source"; then
+				# `__at` and `__index` provide a source array, and the destination decides if it wants an array or string
+				# and bash v3 does not simply declare empty variables, but defines them as strings, so we need to handle that
+				# such as: `local destination; __at --source={option_paths} --target={destination} -- -1`
+				# ^ we obviously want a string, bash v3 will give us a string, and bash v4+ will give us a single length array that works as a string, as: `a('a value'); echo "${a}"; echo "${#a}";` is as expected
+				# such as: `local parts; __split --source={path} --target={parts} --delimiter='/' --no-zero-length`
+				# ^ bash v4+ will make `parts` an array as it is declared, but not defined; however because bash v3 not just declares it but defines it as an empty string, will be notified of this mishap and need to do `parts=()`
+				# as such, any joining by __to is off limits
 				if __is_array "$TO__target" || ! __is_var_set "$TO__target"; then
 					# array to array
 					case "$TO__mode" in
@@ -1215,20 +1222,27 @@ function __to {
 					# mode is already validated
 					esac
 				else
-					# array to string, with no delimiter, so `(a b)` becomes `"ab"`
-					case "$TO__mode" in
-					prepend) IFS= eval "$TO__target=\"\${${TO__source}[*]}\${${TO__target}}\"" || return ;;
-					append) IFS= eval "$TO__target+=\"\${${TO__source}[*]}\")" || return ;;
-					'' | overwrite) IFS= eval "$TO__target=\"\${${TO__source}[*]}\"" || return ;;
-					# mode is already validated
-					esac
-
-					# __at and __index provide a source array, in which the consumer/destination then decides if it wants an array or a string, as such the following commented code is not desired:
-					# eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
-					# || [[ $TO__source_size -le 1 ]]
-					# __print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well." >&2 || :
-					# __dump "$TO__source" "$TO__target" >&2 || :
-					# return 22 # EINVAL 22 Invalid argument
+					eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
+					if [[ $TO__source_size -eq 1 ]]; then
+						# array of single element to string
+						case "$TO__mode" in
+						prepend) eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return ;;
+						append) eval "$TO__target+=\"\${${TO__source}[0]}\")" || return ;;
+						'' | overwrite) eval "$TO__target=\"\${${TO__source}[0]}\"" || return ;;
+						# mode is already validated
+						esac
+					elif [[ $TO__source_size -gt 1 ]]; then
+						__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well. Use an intermediate variable and send to [__join] if needed." >&2 || :
+						__dump "$TO__source" "$TO__target" >&2 || :
+						return 22 # EINVAL 22 Invalid argument
+						# don't do this the below commented out code, as it is ambiguous to what should happen when destination a variable, stream, or file:
+						# case "$TO__mode" in
+						# prepend) IFS= eval "$TO__target=\"\${${TO__source}[*]}\${${TO__target}}\"" || return ;;
+						# append) IFS= eval "$TO__target+=\"\${${TO__source}[*]}\")" || return ;;
+						# '' | overwrite) IFS= eval "$TO__target=\"\${${TO__source}[*]}\"" || return ;;
+						# # mode is already validated
+						# esac
+					fi
 				fi
 			else
 				# string to array
@@ -1258,11 +1272,21 @@ function __to {
 			}
 			local TO__value=''
 			if __is_array "$TO__source"; then
-				eval "
-				local -i TO__index TO__size
-				for (( TO__index = 0, TO__size = \${#${TO__source}[@]}; TO__index < TO__size; TO__index++ )); do
-					TO__value+=\"\${${TO__source}[TO__index]}\"\$'\n'
-				done" || return
+				eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
+				if [[ $TO__source_size -eq 1 ]]; then
+					# array of single element to string
+					eval "TO__value=\"\${${TO__source}[0]}\"" || return
+				elif [[ $TO__source_size -gt 1 ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well. Use an intermediate variable and send to [__join] if needed." >&2 || :
+					__dump "$TO__source" "$TO__target" >&2 || :
+					return 22 # EINVAL 22 Invalid argument
+				fi
+				# don't do this the below commented out code, as it is ambiguous to what should happen when destination a variable, stream, or file:
+				# eval "
+				# local -i TO__index TO__size
+				# for (( TO__index = 0, TO__size = \${#${TO__source}[@]}; TO__index < TO__size; TO__index++ )); do
+				# 	TO__value+=\"\${${TO__source}[TO__index]}\"\$'\n'
+				# done" || return
 			else
 				eval "TO__value=\"\$${TO__source}\"" || return
 			fi
