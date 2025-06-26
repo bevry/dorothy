@@ -451,7 +451,7 @@ fi
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	# Bash >= 5
 	function __get_epoch_time {
-		__print_lines "$EPOCHREALTIME" || return
+		printf '%s' "$EPOCHREALTIME" || return
 	}
 else
 	# Bash < 5
@@ -460,9 +460,9 @@ else
 		time="$(date +%s.%N)" || return
 		if [[ $time == *000 ]]; then
 			size="${#time}"
-			__print_lines '%s' "${time:0:size-3}" || return # trim last 3 digits, as they are just zeroes
+			printf '%s' "${time:0:size-3}" || return # trim last 3 digits, as they are just zeroes
 		else
-			__print_lines '%s' "$time" || return
+			printf '%s' "$time" || return
 		fi
 	}
 fi
