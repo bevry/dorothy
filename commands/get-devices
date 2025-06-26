@@ -132,7 +132,7 @@ function get_devices() (
 			block       Get device block size, e.g. [4096]
 
 			FIELDS AVAILABLE ON THIS OPERATING SYSTEM:
-			$(__join ' ' -- "${field_keys[@]}")
+			$(__join --source={field_keys} --delimiter=' ')
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -143,12 +143,16 @@ function get_devices() (
 	# process
 	declare -A matches exists
 	local item option_quiet='' option_debug='no' option_return=() option_display=() option_choose_args=() option_missing='No matching devices found.' option_terminal_lines='' option_terminal_columns=''
-	# parse_match_arg <arg:--count=3>
+	# parse_match_arg <arg>
 	function parse_match_arg {
+		# --count=3
 		local item="$1" key value
-		key="$(__get_substring_after_first "$item" '--')"
-		key="$(__get_substring_before_first "$key" '=')"
-		value="$(__get_substring_after_first "$item" '=')"
+		# --count=3 => count=3
+		__evict --source={item} --target={key} --keep-after-first='--'
+		# count=3 => count
+		__evict --source+target={key} --keep-before-first='='
+		# --count=3 => 3
+		__evict --source={item} --target={value} --keep-after-first='='
 		matches["$key"]="$value"
 	}
 	# parse_existence_arg <arg>
@@ -158,11 +162,18 @@ function get_devices() (
 	# parse_existence_arg --mount=yes
 	function parse_existence_arg {
 		local item="$1" key value
-		key="$(__get_substring_after_first "$item" '--')"
-		key="$(__get_substring_after_first "$key" 'no-' "$key")"
-		key="$(__get_substring_before_first "$key" '=' "$key")"
+		# --no-mount=yes => no-mount=yes
+		__evict --source={item} --target={key} --keep-after-first='--'
+		# no-mount=yes => mount=yes
+		# trim leading no-
+		if [[ $key == no-* ]]; then
+			key="${key:3}"
+		fi
+		# no-mount=yes => no-mount
+		__evict --source+target={key} --keep-before-first='='
+		# --no-mount=yes => no
 		value="$(get-flag-value --affirmative -- "$item")"
-		if __has {boolean_keys} "$key"; then
+		if __has {boolean_keys} -- "$key"; then
 			matches["$key"]="$value"
 		else
 			exists["$key"]="$value"
@@ -184,10 +195,10 @@ function get_devices() (
 			;;
 
 		'--return='* | '--result='*)
-			__split {option_return} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
+			__split --target={option_return} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
 			;;
 		'--display='*)
-			__split {option_display} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
+			__split --target={option_display} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
 			;;
 		'--missing='*) option_missing="${item#*=}" ;;
 
@@ -219,7 +230,8 @@ function get_devices() (
 	function __refresh_terminal_size {
 		if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
 			local terminal_size=()
-			__split {terminal_size} --no-zero-length < <(get-terminal-lines-and-columns || :)
+			__split --target={terminal_size} --no-zero-length --invoke=try -- \
+				get-terminal-lines-and-columns
 			if [[ ${#terminal_size[@]} -eq 2 ]]; then
 				if [[ -z $option_terminal_lines ]]; then
 					terminal_lines="${terminal_size[0]}"
@@ -321,21 +333,24 @@ function get_devices() (
 		# could be multiple keys per line
 		local key="$1" haystack="$2"
 		# echo-regexp -o --regexp="${key}=\"([^\"\n]+)" --replace='$1' -- "$haystack" || return
-		value="$(__get_substring_after_first "$haystack" "$key=" '')" || return
+		__evict --source={haystack} --target={value} --keep-after-first="$key=" || return
 		if [[ -z $value ]]; then
 			return 0
 		fi
+		# trim leading whitespace and quotes
 		while [[ $value =~ ^[\n\ \'\"] ]]; do
-			value="$(__get_substring "$value" 1)" || return
+			value="${value:1}"
 		done
-		local remaining=''
+		# get everything until the first whitespace or quote
+		local content=''
 		while ! [[ $value =~ ^[\n\'\"] ]]; do
-			remaining+="$(__get_substring "$value" 0 1)" || return
-			value="$(__get_substring "$value" 1)" || return
+			content+="${value:0:1}"
+			value="${value:1}"
 		done
-		value="$remaining"
+		value="$content"
+		# trim trailing whitespace
 		while [[ $value =~ \ $ ]]; do
-			value="$(__get_substring "$value" -1)" || return
+			__slice --source+target={value} -- -1 || return
 		done
 		__print_string "$value" || return
 	}
@@ -346,14 +361,16 @@ function get_devices() (
 		# rk="$(echo-escape-regexp -- "$key")"
 		# rv="$(echo-regexp -o --regexp="${rk}:[ '\"]+([^'\"\n]+)" --replace='$1' -- "$haystack" | echo-trim-each-line --stdin || :)"
 		[[ $haystack == *"$key: "* ]] || return 0
-		value="$(__get_substring_after_first "$haystack" "$key: " '')" || return
-		value="$(__get_substring_before_first "$value" $'\n' "$value")" || return # can be the last line
-		# trim
+		__evict --source={haystack} --target={value} --keep-after-first="$key: " || return
+		if [[ $value == *$'\n'* ]]; then
+			__evict --source+target={value} --keep-before-first=$'\n' || return # can be the last line
+		fi
+		# trim leading and trailing whitespace and quotes
 		while [[ $value =~ ^[\ \'\"] ]]; do
-			value="$(__get_substring "$value" 1)" || return
+			value="${value:1}"
 		done
 		while [[ $value =~ [\ \'\"]$ ]]; do
-			value="$(__get_substring "$value" -1)" || return
+			__slice --source+target={value} -- -1 || return
 		done
 		# if [[ $value != "$rv" ]]; then
 		# 	echo-error "[$value] != [$rv] with [$key] on [$haystack]"
@@ -363,10 +380,14 @@ function get_devices() (
 	}
 	# __get_size <size>
 	function __get_size {
+		local size="$1"
 		# 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
 		# to
 		# 5.0 TB
-		__get_substring_before_first "$1" ' (' "$1" || return
+		if [[ $size == *' ('* ]]; then
+			__evict --source+target={size} --keep-before-first=' (' || return
+		fi
+		__print_lines "$size" || return
 	}
 	# __get_size_property <key> <haystack>
 	function __get_size_property {
@@ -432,8 +453,8 @@ function get_devices() (
 					return_values+=('')
 				fi
 			done
-			result_lines+=("$(__join '  ' -- "${values[@]}")") || return
-			return_lines+=("$(__join $'\t' -- "${return_values[@]}")") || return
+			__join --source={values} --delimiter='  ' --append --target={result_lines} || return
+			__join --source={return_values} --delimiter=$'\t' --append --target={return_lines} || return
 		}
 		function __render_results {
 			local index
@@ -459,7 +480,7 @@ function get_devices() (
 					return_values+=('')
 				fi
 			done
-			result_lines+=("$(__join $'\t' -- "${return_values[@]}")") || return
+			__join --source={return_values} --delimiter=$'\t' --append --target={result_lines} || return
 		}
 		function __render_results {
 			__print_lines "${result_lines[@]}" || return
@@ -478,11 +499,13 @@ function get_devices() (
 					values+=('')
 				fi
 			done
-			result_lines+=("$(__join $'\t' -- "${values[@]}")") || return
+			__join --source={values} --delimiter$'\t' --append --target={result_lines} || return
 		}
 		function __render_results {
-			result_lines=("$(__join $'\t' -- "${option_display[@]}")" "${result_lines[@]}") || return
-			__join $'\n' -- "${result_lines[@]}" >"$devices_tsv_file" || return
+			# prepend option_display values joined by tab to result_lines
+			__join --source={option_display} --delimiter=$'\t' --prepend --target={result_lines} || return
+			# join result_lines and output to devices_tsv_file
+			__join --source={result_lines} --delimiter=$'\n' >"$devices_tsv_file" || return
 			csvlens -t "$devices_tsv_file" || return
 
 			# https://github.com/alexhallam/tv?tab=readme-ov-file#tools-to-pair-with-tv
@@ -584,7 +607,7 @@ function get_devices() (
 			__print_string "$devices_info" >"$devices_info_file"
 			__print_string "$devices_list" >"$devices_list_file"
 		fi
-		__split {devices} --delimiter="$delimiter" --no-zero-length -- "$devices_info"
+		__split --target={devices} --delimiter="$delimiter" --no-zero-length -- "$devices_info"
 		devices_count="${#devices[@]}"
 		echo-style --tty --bold="Found $devices_count devices"
 
@@ -746,7 +769,8 @@ function get_devices() (
 			__wrap --elevate --pending='Getting devices from fdisk...' --success='Got devices from fdisk.' -- fdisk -l |
 				echo-regexp -fongm --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
 		}
-		__split {devices} --no-zero-length --invoke -- __get_devices
+		__split --target={devices} --no-zero-length --invoke -- \
+			__get_devices
 		devices_count="${#devices[@]}"
 		echo-style --tty --bold="Found $devices_count devices"
 

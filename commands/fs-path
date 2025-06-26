@@ -56,7 +56,7 @@ function fs_path_test() (
 	# return parents
 
 	# we don't resolve
-	eval-tester --stdout='.' -- \
+	eval-tester --stdout=. -- \
 		fs-path --parents -- 'd.e.f'
 
 	eval-tester --stdout='a.b.c' -- \
@@ -173,7 +173,7 @@ function fs_path_test() (
 	eval-tester --stdout='/' -- \
 		fs-path --parents -- '//..///..////./////'
 
-	eval-tester --stdout='.' -- \
+	eval-tester --stdout=. -- \
 		fs-path --no-parents -- '//..///..////./////'
 
 	# we don't resolve
@@ -355,7 +355,7 @@ function fs_path() (
 
 		# trim trailing / or .
 		while [[ ($path == *'/' && $path != '/') || ($path == *'/.' && $path != '.') ]]; do
-			path="$(__get_substring "$path" 0 -1)"
+			__slice --source+target={path} -- 0 -1
 		done
 		# trim 2+ slashes, as they are ignored
 		while [[ $path == *'//'* ]]; do
@@ -378,7 +378,7 @@ function fs_path() (
 
 		# compress .. and . where possible
 		local parts i v
-		__split {parts} --delimiter='/' --no-zero-length -- "$path"
+		__split --source={path} --target={parts} --delimiter='/' --no-zero-length
 		if [[ $path == /* ]]; then
 			parts=('/' "${parts[@]}")
 		fi
@@ -386,7 +386,7 @@ function fs_path() (
 			case "${parts[i]}" in
 			'' | '.')
 				# remove the current part
-				__slice {parts} 0 "$i" "$((i + 1))"
+				__slice --source+target={parts} -- 0 "$i" "$((i + 1))"
 				i=$((i - 1))
 				;;
 			'..')
@@ -394,19 +394,19 @@ function fs_path() (
 					v="${parts[i - 1]}"
 					if [[ $v == '/' ]]; then
 						# prior part is root, so remove the current part
-						__slice {parts} 0 "$i" "$((i + 1))"
+						__slice --source+target={parts} -- 0 "$i" "$((i + 1))"
 						i=$((i - 1))
 					elif [[ $v != '..' ]]; then
 						# prior part is neither root nor an unresolvable parent
 						# remove the prior part and the current part
-						__slice {parts} 0 "$((i - 1))" "$((i + 1))"
+						__slice --source+target={parts} -- 0 "$((i - 1))" "$((i + 1))"
 						i=$((i - 2))
 					fi
 				fi
 				;;
 			esac
 		done
-		path="$(__join / -- "${parts[@]}")"
+		__join --source={parts} --delimiter=/ --target={path}
 		if [[ ${#path} -gt 1 && ${path:0:1} == '/' ]]; then
 			path="${path:1}" # remove the leading slash that was added by the above
 		fi
@@ -420,17 +420,17 @@ function fs_path() (
 			# /0/1/2/x/y/z
 			# --relative-from=/0/1/2/a/b/c -- /0/1/2/x/y/z
 			# should return ../../../x/y/z
-			__split {from_parts} --delimiter='/' -- "$option_relative_from"
-			__split {to_parts} --delimiter='/' -- "$path"
+			__split --source={option_relative_from} --target={from_parts} --delimiter='/'
+			__split --source={path} --target={to_parts} --delimiter='/'
 			from_n="${#from_parts[@]}"
 			for ((from_index = from_n - 1; from_index >= 0; from_index--)); do
-				from_slice="$(__join '/' -- "${from_parts[@]:0:from_index}")"
-				to_slice="$(__join '/' -- "${to_parts[@]:0:from_index}")"
+				__join --delimiter='/' {from_slice} -- "${from_parts[@]:0:from_index}"
+				__join --delimiter='/' {to_slice} -- "${to_parts[@]:0:from_index}"
 				__print_lines "$from_index: $from_slice == $to_slice"
 				if [[ $from_slice == "$to_slice" ]]; then
-					__make_array {relative_slice} --size=$((from_n - from_index)) --value='..'
+					__array --target={relative_slice} --size=$((from_n - from_index)) --fill='..'
 					relative_slice+=("${to_parts[@]:from_index}")
-					relative_path="$(__join '/' -- "${relative_slice[@]}")"
+					__join --source={relative_slice} --delimiter='/' --target={relative_path}
 					break
 				fi
 			done
@@ -441,7 +441,7 @@ function fs_path() (
 			option_relative_base+='/' # add a trailing slash
 			if [[ $path == $option_relative_base* ]]; then
 				# the path is within the base, so we can return it relative from the base
-				path="$(__get_substring "$path" "${#option_relative_base}")"
+				__slice --source+target={path} -- "${#option_relative_base}"
 			fi
 		fi
 
@@ -463,7 +463,13 @@ function fs_path() (
 		#   should return ..
 
 		# get the stem/dirname/parents, falling back to the current directory if no slash was found
-		stem="$(__get_substring_before_last "$path" '/' '.')"
+		if [[ $path == *'/'* ]]; then
+			# get the stem/dirname/parents
+			__evict --source={path} --target={stem} --keep-before-last='/'
+		else
+			# no slash, so we return the current directory
+			stem=.
+		fi
 		# workaround if / was the first character, in which we have returned to root
 		if [[ -z $stem ]]; then
 			stem='/'
@@ -478,15 +484,27 @@ function fs_path() (
 				__print_lines '/'
 				continue
 			fi
+			# separate the path and stem
 			path="$stem"
-			stem="$(__get_substring_before_last "$path" '/' '.')"
-			if [[ -z $stem ]]; then
-				stem='/'
+			if [[ $stem == *'/'* ]]; then
+				# get the stem/dirname/parents
+				__evict --source+target={stem} --keep-before-last='/'
+				if [[ -z $stem ]]; then
+					# if stem is empty, then the parent is root
+					stem='/'
+				fi
+			else
+				# no slash, so we return the current directory
+				stem=.
 			fi
 		fi
 
 		# get the leaf/filename/basename, falling back to itself if no slash was found
-		leaf="$(__get_substring_after_last "$path" '/' "$path")"
+		if [[ $path == *'/'* ]]; then
+			__evict --source={path} --target={leaf} --keep-after-last='/'
+		else
+			leaf="$path"
+		fi
 
 		# do we want to trim extension? with workaround when starting with a dot
 		if [[ -n $option_extensions || -n $option_extension ]]; then
@@ -497,7 +515,7 @@ function fs_path() (
 			prefix=''
 			while [[ $leaf == .* ]]; do
 				prefix="$prefix."
-				leaf="$(__get_substring "$leaf" 1)"
+				leaf="${leaf:1}"
 			done
 			if [[ -z $leaf ]]; then
 				help "Cannot use --extensions/--extension on an invalid path: $path"
@@ -505,25 +523,37 @@ function fs_path() (
 			# extensions
 			if [[ $option_extensions == 'no' ]]; then
 				# trim all extensions
-				leaf="$(__get_substring_before_first "$leaf" '.' "$leaf")"
+				if [[ $leaf == *'.'* ]]; then
+					__evict --source+target={leaf} --keep-before-first=.
+				fi
 			elif [[ $option_extension == 'no' ]]; then
 				# trim last extension
-				leaf="$(__get_substring_before_last "$leaf" '.' "$leaf")"
+				if [[ $leaf == *'.'* ]]; then
+					__evict --source+target={leaf} --keep-before-last=.
+				fi
 			elif [[ $option_extensions == 'yes' ]]; then
 				# trim leading dots
 				while [[ $leaf == .* ]]; do
-					leaf="$(__get_substring "$leaf" 1)"
+					leaf="${leaf:1}"
 				done
 				# output all extensions and exit
-				__get_substring_after_first "$leaf" '.' ''
+				if [[ $leaf == *'.'* ]]; then
+					__evict --source+target={leaf} --keep-after-first=.
+				else
+					leaf=''
+				fi
 				continue
 			elif [[ $option_extension == 'yes' ]]; then
 				# trim leading dots
 				while [[ $leaf == .* ]]; do
-					leaf="$(__get_substring "$leaf" 1)"
+					leaf="${leaf:1}"
 				done
 				# output last extension and exit
-				__get_substring_after_last "$leaf" '.' ''
+				if [[ $leaf == *'.'* ]]; then
+					__evict --source+target={leaf} --keep-after-last=.
+				else
+					leaf=''
+				fi
 				continue
 			fi
 			# re-add the trimmed leading dots
