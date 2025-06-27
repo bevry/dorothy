@@ -618,6 +618,7 @@ function __is_var_set {
 		# bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
 		# bash 4.4+ will have `local z; declare -p z` will result in `declare -- z`
 		# `set -u` has no effect
+		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
 		IS_VAR_SET__fodder="$(declare -p "$IS_VAR_SET__reference" 2>/dev/null)" || return 1
 		[[ $IS_VAR_SET__fodder == *'='* ]] || return 1
 	done
