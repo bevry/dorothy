@@ -56,7 +56,7 @@ function tty_get_y_x {
 
 function tty_set_y_x {
 	dorothy-warnings add --code='tty_get_y_x' --bold=' has been been removed, use the ansi escape code directly.'
-	local y x yx
+	local y x yx=()
 	if [[ $# -eq 0 ]]; then
 		__split --target={yx} --no-zero-length --invoke -- \
 			tty_get_y_x
