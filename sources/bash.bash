@@ -3941,11 +3941,16 @@ function __join {
 	__affirm_length_defined "${#JOIN__sources[@]}" 'source reference' || return
 	__affirm_value_is_valid_write_mode "$JOIN__mode" || return
 	# process
-	local JOIN__source JOIN__values=() JOIN__size JOIN__last JOIN__index JOIN__result=''
+	local JOIN__source JOIN__values=() JOIN__result=''
+	local -i JOIN__size JOIN__last JOIN__index
 	for JOIN__source in "${JOIN__sources[@]}"; do
 		__affirm_variable_is_array "$JOIN__source" || return
 		eval "JOIN__values=(\"\${${JOIN__source}[@]}\")" || return
 		JOIN__size=${#JOIN__values[@]}
+		if [[ $JOIN__size -eq 0 ]]; then
+			# no values in this source, so skip to the next source, otherwise JOIN__last will be -1
+			continue
+		fi
 		JOIN__last=$((JOIN__size - 1))
 		for ((JOIN__index = 0; JOIN__index < JOIN__last; ++JOIN__index)); do
 			JOIN__result+="${JOIN__values[JOIN__index]}$JOIN__delimiter"
