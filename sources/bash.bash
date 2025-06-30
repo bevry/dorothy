@@ -2657,10 +2657,10 @@ function __split_shapeshifting {
 	# https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
 	local input
 	for input in "$@"; do
-		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}"
-		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}" # save and restore cursor
-		input="${input//[[:cntrl:]][bf]/$'\n'}"          # page-up, page-down
-		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"
+		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}" # cursor movement
+		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}"                                                        # save and restore cursor
+		input="${input//[[:cntrl:]][bf]/$'\n'}"                                                                 # page-up, page-down
+		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"                                                             # carriage return, backspace
 		__print_lines "$input" || return
 	done
 }

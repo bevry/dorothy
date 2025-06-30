@@ -3,6 +3,8 @@
 # Used by `echo-style`
 # Do not use `export` keyword in this file
 
+# See <ansi-escape-codes.md>
+
 #######################################
 # STYLE SUPPORT #######################
 
@@ -46,7 +48,7 @@ else
 	style__alternative_screen_buffer="$style__clear_screen"
 	style__default_screen_buffer=$'\n'"$style__clear_screen"
 	# ensure clears are also moved to next line: https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2449
-	style__clear_screen=$'\n'$'\e[H\e[J'
+	style__clear_screen=$'\n\e[H\e[J'
 fi
 
 style__bell=$'\a'
@@ -83,7 +85,6 @@ style__end__terminal_clipboard=$'\a'
 style__color_end__intensity=$'\e[22m'  #
 style__color_end__foreground=$'\e[39m' #
 style__color_end__background=$'\e[49m' #
-# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
 # echo-style 'standard' --bold='bold' --dim='dim' --italic='italic' --underline='underline' --blink='blink' --invert='invert' --conceal='conceal' --strike='strike' --framed='framed' --circled='circled' --overlined='overlined'
 style__color__reset=$'\e[0m' # tput sgr0
 style__color__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Kitty] [buggy support: Rio] [unsupported: cool-retro-term, Wez, Extratern, Contour]
