@@ -121,7 +121,7 @@ function read_key_test() (
 		read-key --timeout=10
 	{
 		printf '%s' $'\e[Hab\e[1~cd\e[F\e[Jef'
-	} | eval-tester --name='ANSI escape codes result in verbal failure if verbose' --status=94 --stdout=$'home\na\nb\nhome\nc\nd\nend' --stderr="unknown input: \$'\E[Jef'" -- \
+	} | eval-tester --name='ANSI escape codes result in verbal failure if verbose' --status=94 --stdout=$'home $\'\\E[H\'\na a\nb b\nhome $\'\\E[1~\'\nc c\nd d\nend $\'\\E[F\'' --stderr="unknown \$'\E[Jef'" -- \
 		read-key --verbose --timeout=10
 
 	echo-style --g1="TEST: $0"
@@ -271,24 +271,271 @@ function read_key() (
 		# got key
 		flush
 	}
-	function __match_special_and_trim_once {
-		local name="$1" special found='no'
-		for special in "$@"; do
-			if [[ $inputs == "$special"* ]]; then
-				last_key="$special"
-				printf '%s\n' "$name"
-				# starts with special, so remove special
-				inputs="${inputs#"$special"}"
-				found='yes'
+	local patterns=(
+		# app-specific hotkeys that should be interpreted by the caller instead
+		# up: [k] vim
+		# down: [j] vim
+		# right: [l] vim
+		# left: [h] vim
+
+		# @todo add a third column, that contains any combination of `press` (pressable via keyboard), `print` (printable to paper), `place` (shapeshifter of cursor)
+
+		# The below are shortcut combinations read or written by Dorothy
+		# $'\e\[G\e\[2K' 'clear-line'
+		# $'\e\[F\e\[J' 'delete-line'
+		# $'\n\e\[H\e\[J' 'clear-screen'
+		# $'\e\[H\e\[J' 'clear-screen'
+		# $'\e\[\?1049h\e\[H\e\[J' 'alternative-screen-buffer'
+
+		# The below are pressable keys read or written by Dorothy
+
+		# up
+		# unverified: [$'\eOA'] v100, screen, xterm
+		$'\e\[A' 'up' # [$'\e[A'] is [↑] ubuntu, macos, [cursor up one] ansi escape code
+		$'\eM' 'up'   # [$'\eM'] ansi escape code to cursor up a line and scroll if necessary, note that scrolling moves visible content down but content from above is empty/erased; note that this is also documented as: Reverse Index ( RI is 0x8d); note $'\x8d' becomes a ? in Apple Terminal
+
+		# down
+		# unverified: [$'\eOB'] v100, screen, xterm
+		$'\e\[B' 'down' # [$'\e[B'] is [↓] ubuntu, macos, [cursor down one] ansi escape code
+
+		# right
+		# unverified: [$'\eOC'] v100, screen, xterm
+		$'\e\[C' 'right' # [$'\e[C'] is [→] ubuntu, macos, [cursor right one] ansi escape code
+
+		# left
+		# unverified: [$'\eOD'] v100, screen, xterm
+		$'\e\[D' 'left' # [$'\e[D'] is [←] ubuntu, macos, [cursor left one] ansi escape code
+
+		# home
+		# unverified: [$'\eOH'] xterm
+		$'\e\[H' 'home'     # [$'\e[H'] is [⇱] ubuntu, macos, [numlock 7] ubuntu, [🌐 ⇧ ←] macos, [cursor to top left] ansi escape code
+		$'\e\[1~' 'home'    # [$'\e[1~'] is [🌐 ←] screen/vt macos
+		$'\e\[1\;2D' 'home' # [$'\e[1;2D'] is [⇧ ←] macos, [cursor left twice: the `1;` prefix is not supported on macos] ansi escape code
+
+		# carriage-return
+		$'\e\[G' 'carriage-return' # [$'\e[G'] is [cursor to start of current line] ansi escape code
+		$'\r' 'carriage-return'    # [0x0D = $'\x0d' = $'\r'] is ansi escape code
+
+		# end
+		# unverified: [$'\eOF'] xterm
+		$'\e\[F' 'end'     # [$'\e[F'] is [⇲] ubuntu, macos, [numlock 1] ubuntu, [🌐 ⇧ →] macos, [cursor to start of prior line] ansi escape code
+		$'\e\[4~' 'end'    # [$'\e[4~'] is [🌐 →] screen/vt macos
+		$'\e\[1\;2C' 'end' # [$'\e[1;2C'] is [⇧ ←] macos, [cursor right twice: the `1;` prefix is not supported on macos] ansi escape code
+
+		# insert
+		$'\e\[2~' 'insert' # [$'\e[2~'] is [INSERT] [numlock 0] ubuntu
+
+		# delete
+		$'\e\[3~' 'delete' # [$'\e[3~'] is [⌦] [numlock .] ubuntu, [🌐 ⌫] macos
+
+		# page up
+		# unverified: [$'\006'] [⌃ f] vim
+		$'\e\[5~' 'page-up'    # [$'\e[5~'] is [⇞] [numlock 9] ubuntu, [🌐 ⇧ ↑] macos, [🌐 ↑] screen/vt macos
+		$'\e\[1\;5D' 'page-up' # [$'\E[1;5D'] is [⌃ ←] macos
+		$'\eb' 'page-up'       # [$'\eb'] is [⌥ ←] macos
+
+		# page down
+		# unverified: [$'\002'] [⌃ b] vim
+		$'\e\[6~' 'page-down'    # [$'\e[6~'] is [⇟] [numlock 3] ubuntu, [🌐 ⇧ ↓] macos, [🌐 ↑] screen/vt macos
+		$'\e\[1\;5C' 'page-down' # [$'\e[1;5C'] is [⌃ →] macos
+		$'\ef' 'page-down'       # [$'\ef'] is [⌥ →] macos
+
+		# backspace
+		$'\177' 'backspace' # [$'\x7f' = $'\177'] is [⌫] ubuntu, macos
+		$'\b' 'backspace'   # [0x08 = $'\x08' = $'\b'] is ansi escape code
+
+		# enter / line-feed
+		$'\n' 'enter' # [0x0A = $'\x0a' =  $'\n'] is ubuntu, macos, [^ M] macos
+
+		# tab
+		$'\t' 'tab' # [0x09 = $'\x09' = $'\t'] is [⇥] ubuntu, macos
+
+		# backtab
+		$'\e\[Z' 'backtab' # [$'\e[Z'] is [⇤] [shift ⇥] macos
+
+		# all / select all
+		# $'\001' 'all' # [$'\x01' = $'\001'] is [^ A] macos
+
+		# space
+		' ' 'space' # [0x20 = $'\x20 = ' '] is [ ] ubuntu, macos
+
+		# bell or end terminal title
+		$'\a' 'bell' # [0x07 = $'\x07' = $'\007' = $'\a'] is ansi escape code, is [^ G] macos
+
+		# form feed / new page
+		$'\f' 'form-feed' # [0x0C = $'\x0c' = $'\f] is [⌃ L] macos
+
+		# bash cannot match the null character, \0, as it is immediately discarded
+
+		# CSI Control Sequence Introducer
+		# See <ansi-escape-codes.md> <https://en.wikipedia.org/wiki/ANSI_escape_code> <https://www.gnu.org/software/screen/manual/html_node/Control-Sequences.html> <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences> <https://invisible-island.net/xterm/ctlseqs/ctlseqs.pdf>
+		# @todo finish implementing from <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences>
+		# @todo one day finish implementing from <https://invisible-island.net/xterm/ctlseqs/ctlseqs.pdf>
+
+		# The below are read or written by Dorothy
+		# $'\e\[[0-9\;]*m' 'style' # Select Graphic Rendition
+		# $'\e\[[0-9]*A' 'cursor-up'
+		# $'\e\[[0-9]*B' 'cursor-down'
+		# $'\e\[[0-9]*C' 'cursor-forward'             # Cursor Right
+		# $'\e\[[0-9]*D' 'cursor-back'                # Cursor Left
+		# $'\e\[[0-9]*E' 'cursor-next-line'           # Cursor Next Line; Cursor Down Line; Cursor Below Line
+		# $'\e\[[0-9]*F' 'cursor-previous-line'       # Cursor Previous Line; Cursor Prior Line; Cursor Up Line
+		# $'\e\[[0-9]*G' 'cursor-horizontal-position' # Cursor Horizontal Position; Cursor Horizontal Absolute
+		# $'\e\[[0-9\;]*H' 'cursor-position'          # Direct Cursor Addressing, same as Horizontal Vertical Position
+
+		# $'\e\[[0-2]*J' 'erase-in-display'
+		# ESC [ Pn J           Erase in Display
+		# Pn = None or 0       From Cursor to End of Screen
+		# 1                    From Beginning of Screen to Cursor
+		# 2                    Entire Screen
+
+		# $'\e\[[0-2]*K' 'erase-in-line'
+		# ESC [ Pn K           Erase in Line
+		# Pn = None or 0       From Cursor to End of Line
+		# 1                    From Beginning of Line to Cursor
+		# 2                    Entire Line
+
+		# $'\e\[6n' 'report-cursor-position'         # used by [get-terminal-cursor-line-and-column]; Device Status Report; Reports the cursor position (CPR) by transmitting `ESC[n;mR`, where n is the row and m is the column; `ESC [ 6 n` Send Cursor Position Report; DECXCPR; Report Cursor Position; Emit the cursor position as: ESC [ <r> ; <c> R Where <r> = cursor row and <c> = cursor column
+		# $'\e\[[0-6] q' 'cursor-style'              # Cursor Style; Cursor Shape
+		# $'\e\[\?25h' 'show-cursor'                 # used by [styles.bash]
+		# $'\e\[\?25l' 'hide-cursor'                 # used by [styles.bash]
+		# $'\e\[\?1049h' 'alternative-screen-buffer' # used by [styles.bash]
+		# $'\e\[\?1049l' 'default-screen-buffer'     # used by [styles.bash]
+		# $'\e\]11\;\?\a' 'report-colors'            # used by [get-terminal-theme]
+		# $'\e\[8\;[0-9\;]*t' 'terminal-resize'      # used by [styles.bash]; `ESC [ 8 ; Ph ; Pw t` Resize the window to ‘Ph’ lines and ‘Pw’ columns (SunView special)
+		# $'\e\]52\;c\;.*\a' 'clipboard'             # used by [styles.bash]
+		# # $'\e\]52\;c\;' 'begin-clipboard'           # in case it isn't terminated correctly
+		# $'\e\]0\;.*\a' 'terminal-title'            # used by [styles.bash]; Operating System Command (Hardstatus, xterm title hack)
+		# $'\e\]0\;' 'begin-terminal-title'          # in case it isn't terminated correctly
+
+		# The following are not used within Dorothy, and they appear to work as expected in Apple Terminal even if not used by Dorothy itself:
+		# $'\ec' 'reset'                            # Reset to Initial State
+		# $'\e#8' 'test-card'                       # Fill Screen with E's
+		# $'\e\[[0-9]*d' 'cursor-vertical-position' # Cursor vertical position; Cursor Vertical Absolute
+		# $'\e\[[0-9\;]*f' 'cursor-position'        # Horizontal Vertical Position, same as Direct Cursor Addressing
+
+		# The following are not used within Dorothy, and I do not have time nor care to figure out if they work or not:
+		# $'\016' 'lock-shift-g1'                      # Lock Shift G1 (SO)
+		# $'\e_' 'application-program-command'         # Application Program Command (Hardstatus)
+		# $'\e\!' 'global-message-string'              # Global Message String (Message Line)
+		# $'\e\[[0-9]*\`' 'cursor-horizontal-absolute' # Cursor Horizontal Absolute; Cursor horizontal position
+		# $'\e\[[0-9]*\^' 'scroll-down'                # Scroll Scrolling Region Down
+		# $'\e\[[0-9]*I' 'horizontal-tab'              # Horizontal Tab
+		# $'\e\[[0-9]*L' 'insert-line'                 # Insert Line; in Apple Terminal, no matter the N value, it removes the current and lower lines maintaining horizontal cursor
+		# $'\e\[[0-9]*M' 'delete-line'                 # Delete Line; in Apple Terminal, no matter the N value, it removes the current and lower lines maintaining horizontal cursor
+		# $'\e\[[0-9]*S' 'scroll-up'                   # Scroll Scrolling Region Up
+		# $'\e\[[0-9]*T' 'scroll-down'                 # Scroll Scrolling Region Down
+		# $'\e\[[0-9]*X' 'erase-character'             # Erase character
+		# $'\e\[[0-9]*Z' 'backward-tab'                # Backward Tab; in Apple Terminal, no matter the N value, it goes back to the start of the line
+		# $'\e\[[0-9\;]*r' 'set-scrolling-region'      # Set Scrolling Region
+		# $'\e\[[03]*g' 'tab-clear'                    # Tab Clear; Pn = None or 0 Clear Tab at Current Position; 3 Clear All Tabs
+		# $'\e\[\?1004h' 'enable-reporting-focus'
+		# $'\e\[\?1004l' 'disable-reporting-focus'
+		# $'\e\[\?2004h' 'enable-bracketed-paste-mode'
+		# $'\e\[\?2004l' 'disable-bracketed-paste-mode'
+		# $'\e\[\>c' 'send-secondary-device-attributes-string' # `ESC [ > c` Send Secondary Device Attributes String
+		# $'\e\[200~' 'begin-bracketed-paste'
+		# $'\e\[201~' 'end-bracketed-paste'
+		# $'\e\[4i' 'disable-aux-port'                # `ESC [ 4 i` (A) Stop relay to printer (ANSI Media Copy)
+		# $'\e\[5i' 'enable-aux-port'                 # `ESC [ 5 i` (A) Start relay to printer (ANSI Media Copy)
+		# $'\e\[6p' 'hide-cursor'                     # Cursor Visibility (97801) Invisible
+		# $'\e\[7p' 'show-cursor'                     # Cursor Visibility (97801) Visible
+		# $'\e\[c' 'send-vt100-identification-string' # Send VT100 Identification String
+		# $'\e\[s' 'save-cursor'                     # save-cursor-position, save-current-cursor-position
+		# $'\e\[u' 'restore-cursor'                  # restore-cursor-position, restore-saved-cursor-position
+		# $'\e\[x' 'send-terminal-parameter-report'   # (V) Send Terminal Parameter Report
+		# $'\e\]83\;.*\a' 'screen-command'            # Execute screen command.
+		# $'\e\]83\;' 'begin-screen-command'
+		# $'\e\\' 'string-terminator'       # String Terminator
+		# $'\e\^' 'privacy-message-string'  # Privacy Message String (Message Line)
+		# $'\e\=' 'application-keypad-mode' # Application Keypad Mode
+		# $'\e\>' 'numeric-keypad-mode'     # Numeric Keypad Mode
+		# $'\e7' 'save-cursor'                       # Save Cursor and Attributes
+		# $'\e8' 'restore-cursor'                    # Restore Cursor and Attributes
+		# $'\eD' 'index'                    # Index (IND is 0x84); note $'\x84' becomes a ? in Apple Terminal; note \eD just seems to be a newline that maintains horizontal cursor position while moving the vertical cursor position to the new line
+		# $'\eg' 'visual-bell'
+		# $'\eH' 'horizontal-tab-set'                          # Tab Set (HTS is 0x88); note $'\x88' becomes a ? in Apple Terminal
+		# $'\ek' 'title-definition-string'                     # Title Definition String
+		# $'\en' 'lock-shift-g2'                               # Lock Shift G2
+		# $'\eN' 'single-shift-g2'                             # Single Shift G2; Single Shift Select of G2 Character Set (SS2 is 0x8e), VT220. This affects next character only; note $'\x8e' becomes a ? in Apple Terminal
+		# $'\eo' 'lock-shift-g3'                               # Lock Shift G3
+		# $'\eO' 'single-shift-g3'                             # Single Shift G3; Single Shift Select of G3 Character Set (SS3 is 0x8f), VT220. This affects next character only; note $'\x8f' becomes a ? in Apple Terminal
+		# $'\eP' 'device-control-string'                       # Device Control String (DCS is 0x90); note $'\x90' becomes a ? in Apple Terminal
+		# $'\eZ' 'send-vt100-identification-string'            # Send VT100 Identification String
+
+		# The below documentation did not make it clear what their actual syntax is, so they are not implemented:
+		# Control-O (A) Lock Shift G0 (SI)
+		# `ESC ( Pcs` (A) Designate character set as G0
+		# `ESC ) Pcs` (A) Designate character set as G1
+		# `ESC * Pcs` (A) Designate character set as G2
+		# `ESC + Pcs` (A) Designate character set as G3
+
+		# The below were found from <https://invisible-island.net/xterm/ctlseqs/ctlseqs.pdf> which is too exhaustive to implement all of them, and most don't seem supported
+		# $'\e\[I' 'focus-in' # FocusIn
+		# $'\e\[O' 'focus-out' # FocusOut
+		# $'\eE' 'next-line' # Next Line (NEL is 0x85); note $'\x85' becomes a ? in Apple Terminal; behaves just like \n in Apple Terminal
+		# $'\v' 'cursor-up' # Cursor up (Ctrl-K);  behaves just like \n in Apple Terminal
+		# $'\eV' '' # start-of-guarded-area... this is where I give up as there are too many that don't seem to do anything in Apple Terminal
+
+		# The below is a generic match for setting and resetting terminal modes, of which some are already captured above:
+		# $'\e\[[0-9\;]*h' 'set-mode'   # `ESC [ Ps ;...; Ps h` Set Mode
+		# $'\e\[[0-9\;]*l' 'reset-mode' # `ESC [ Ps ;...; Ps l` Reset Mode
+		# Ps = 4       (A)     Insert Mode
+		# 20           (A)     ‘Automatic Linefeed’ Mode.
+		# 34                   Normal Cursor Visibility
+		# ?1           (V)     Application Cursor Keys
+		# ?3           (V)     Change Terminal Width to 132 columns
+		# ?5           (V)     Reverse Video
+		# ?6           (V)     ‘Origin’ Mode
+		# ?7           (V)     ‘Wrap’ Mode
+		# ?9                   X10 mouse tracking
+		# ?25          (V)     Visible Cursor
+		# ?47                  Alternate Screen (old xterm code)
+		# ?1000        (V)     VT200 mouse tracking
+		# ?1047                Alternate Screen (new xterm code)
+		# ?1049                Alternate Screen (new xterm code)
+	)
+	local -i patterns_size="${#patterns[@]}"
+	function __print_and_trim_key {
+		local name="$1" key="$2"
+		local -i size="${#key}"
+		last_key="$key"
+		inputs="${inputs:size}"
+		if [[ $option_quiet == 'no' ]]; then
+			printf '%s %q\n' "$name" "$key"
+		else
+			printf '%s\n' "$name"
+		fi
+	}
+	function __match_pattern_and_trim_once {
+		local pattern name
+		local -i index
+		for ((index = 0; index < patterns_size; index += 2)); do
+			pattern="${patterns[index]}"
+			if [[ $inputs =~ ^$pattern ]]; then
+				name="${patterns[index + 1]}"
+				__print_and_trim_key "$name" "${BASH_REMATCH[0]}"
+				return 0
 			fi
 		done
-		[[ $found == 'yes' ]] || return
+		return 1
 	}
-	function __match_print_and_trim {
+	function __match_key_and_trim_once {
+		local name="$1" key
+		for key in "$@"; do
+			if [[ $inputs == "$key"* ]]; then
+				__print_and_trim_key "$name" "$key"
+				return 0
+			fi
+		done
+		return 1
+	}
+	function __match_print_and_trim_once {
+		local key
 		if [[ $inputs =~ ^[[:print:]] ]]; then
-			last_key="${inputs:0:1}"
-			printf '%s\n' "$last_key"
-			inputs="${inputs:1}"
+			key="${BASH_REMATCH[0]}" # bash 3.2 does not support multiple calls to BASH_REMATCH so it must be cached
+			__print_and_trim_key "$key" "$key"
+			# __print_and_trim_key "${BASH_REMATCH[0]}" "${BASH_REMATCH[0]}" <-- bash 3.2 does not like this
 			return 0
 		fi
 		return 1
@@ -296,117 +543,16 @@ function read_key() (
 	function flush {
 		while [[ -n $inputs ]]; do
 			case "$inputs" in
-			# ansi_regex="[[:cntrl:]][[0-9;?]*[ABCDEFGHJKSTfhlmnsu]"
-
-			# up
-			# [$'\e[A'] is [↑] ubuntu, macos, [cursor up one] ansi escape code
-			# [$'\eM'] ansi escape code to cursor up a line and scroll if necessary, note that scrolling moves visible content down but content from above is empty/erased
-			$'\e[A'* | $'\eM'*) __match_special_and_trim_once 'up' $'\e[A' $'\eM'* ;;
-
-			# down
-			# [$'\e[B'] is [↓] ubuntu, macos, [cursor down one] ansi escape code
-			$'\e[B'*) __match_special_and_trim_once 'down' $'\e[B' ;;
-
-			# right
-			# [$'\e[C'] is [→] ubuntu, macos, [cursor right one] ansi escape code
-			$'\e[C'*) __match_special_and_trim_once 'right' $'\e[C' ;;
-
-			# left
-			# [$'\e[D'] is [←] ubuntu, macos, [cursor left one] ansi escape code
-			$'\e[D'*) __match_special_and_trim_once 'left' $'\e[D' ;;
-
-			# home
-			# [$'\e[H'] is [⇱] ubuntu, macos, [numlock 7] ubuntu, [🌐 ⇧ ←] macos, [cursor to top left] ansi escape code
-			# [$'\e[1~'] is [🌐 ←] screen/vt macos
-			# [$'\e[1;2D'] is [⇧ ←] macos, [cursor left twice: the `1;` prefix is not supported on macos] ansi escape code
-			$'\e[H'* | $'\e[1~'* | $'\e[1;2D'*) __match_special_and_trim_once 'home' $'\e[H' $'\e[1~' $'\e[1;2D' ;;
-
-			# carriage-return
-			# [$'\e[G'] is [cursor to start of current line] ansi escape code
-			# [0x0D = $'\x0d' = $'\r'] is ansi escape code
-			$'\e[G'* | $'\r'*) __match_special_and_trim_once 'carriage-return' $'\e[G' $'\r' ;;
-
-			# end
-			# [$'\e[F'] is [⇲] ubuntu, macos, [numlock 1] ubuntu, [🌐 ⇧ →] macos, [cursor to start of prior line] ansi escape code
-			# [$'\e[4~'] is [🌐 →] screen/vt macos
-			# [$'\e[1;2C'] is [⇧ ←] macos, [cursor right twice: the `1;` prefix is not supported on macos] ansi escape code
-			$'\e[F'* | $'\e[4~'* | $'\e[1;2C'*) __match_special_and_trim_once 'end' $'\e[F' $'\e[4~' $'\e[1;2C' ;;
-
-			# insert
-			# [$'\e[2~'] is [INSERT] [numlock 0] ubuntu
-			$'\e[2~'*) __match_special_and_trim_once 'insert' $'\e[2~' ;;
-
-			# delete
-			# [$'\e[3~'] is [⌦] [numlock .] ubuntu, [🌐 ⌫] macos
-			$'\e[3~'*) __match_special_and_trim_once 'delete' $'\e[3~' ;;
-
-			# page up
-			# [$'\e[5~'] is [⇞] [numlock 9] ubuntu, [🌐 ⇧ ↑] macos, [🌐 ↑] screen/vt macos
-			# [$'\E[1;5D'] is [⌃ ←] macos
-			# [$'\eb'] is [⌥ ←] macos
-			$'\e[5~'* | $'\e[1;5D'* | $'\eb'*) __match_special_and_trim_once 'page-up' $'\e[5~' $'\e[1;5D' $'\eb' ;;
-
-			# page down
-			# [$'\e[6~'] is [⇟] [numlock 3] ubuntu, [🌐 ⇧ ↓] macos, [🌐 ↑] screen/vt macos
-			# [$'\e[1;5C'] is [⌃ →] macos
-			# [$'\ef'] is [⌥ →] macos
-			$'\e[6~'* | $'\e[1;5C'* | $'\ef'*) __match_special_and_trim_once 'page-down' $'\e[6~' $'\e[1;5C' $'\ef' ;;
-
-			# backspace
-			# [$'\x7f' = $'\177'] is [⌫] ubuntu, macos
-			# [0x08 = $'\x08' = $'\b'] is ansi escape code
-			$'\177'* | $'\b'*) __match_special_and_trim_once 'backspace' $'\177' $'\b' ;;
-
-			# enter
-			# [0x0A = $'\x0a' =  $'\n'] is ubuntu, macos
-			$'\n'*) __match_special_and_trim_once 'enter' $'\n' ;;
-
-			# tab
-			# [0x09 = $'\x09' = $'\t'] is [⇥] ubuntu, macos
-			$'\t'*) __match_special_and_trim_once 'tab' $'\t' ;;
-
-			# backtab
-			# [$'\e[Z'] is [⇤] [shift ⇥] macos
-			$'\e[Z'*) __match_special_and_trim_once 'backtab' $'\e[Z' ;;
-
-			# select all
-			# [$'\x01' = $'\001'] is [ctrl a] macos
-			$'\x01'*) __match_special_and_trim_once 'all' $'\x01' ;;
-
-			# space
-			# [0x20 = $'\x20 = ' '] is [ ] ubuntu, macos
-			' '*) __match_special_and_trim_once 'space' ' ' ;;
-
-			# bell or end terminal title
-			# [0x07 = $'\x07' = $'\007' = $'\a'] is ansi escape code
-			$'\a'*) __match_special_and_trim_once 'bell' $'\a' ;;
-
-			# app-specific hotkeys that should be interpreted by the caller instead
-			# up: [k] vim
-			# down: [j] vim
-			# right: [l] vim
-			# left: [h] vim
-
-			# unverified special keys for other environments
-			# all: [$'\x01'] what type of key is this?
-			# down: [$'\eOB'] v100, screen, xterm
-			# end: [$'\eOF'] xterm
-			# home: [$'\eOH'] xterm
-			# left: [$'\eOD'] v100, screen, xterm
-			# page-down: [$'\002'] [⌃ b] vim
-			# page-up: [$'\006'] [⌃ f] vim
-			# right: [$'\eOC'] v100, screen, xterm
-			# up: [$'\eOA'] v100, screen, xterm
 
 			# escape
 			# [0x1B = $'\x1b' = $'\033' = $'\u001B' = $'\e'] is [⎋] ubuntu, macos
-			$'\e' | $'\e\n'* | $'\e\e'*) __match_special_and_trim_once 'escape' $'\e' ;;
+			$'\e' | $'\e\n'* | $'\e\e'*) __match_key_and_trim_once 'escape' $'\e' ;;
 
 			# standard key or unknown special key
 			*)
-				if ! __match_print_and_trim; then
+				if ! __match_pattern_and_trim_once && ! __match_print_and_trim_once; then
 					if [[ $option_quiet == 'no' ]]; then
-						printf 'unknown input: %q\n' "$inputs" >&2
+						printf '%s %q\n' 'unknown' "$inputs" >&2 # should be the same as __print_and_trim_key but go to stderr instead
 					fi
 					return 94 # EBADMSG 94 Bad message
 				fi
