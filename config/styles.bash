@@ -48,12 +48,13 @@ else
 	style__alternative_screen_buffer="$style__clear_screen"
 	style__default_screen_buffer=$'\n'"$style__clear_screen"
 	# ensure clears are also moved to next line: https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2449
-	style__clear_screen=$'\n\e[H\e[J'
+	style__clear_screen=$'\n'"$style__clear_screen"
 fi
 
 style__bell=$'\a'
 style__newline=$'\n'
 style__tab=$'\t'
+style__space=' ' # for testing
 style__backspace=$'\b'
 style__carriage_return=$'\r'
 style__escape=$'\e'

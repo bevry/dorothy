@@ -32,6 +32,12 @@ From manual discovery:
 > [!NOTE]
 > Dorothy's `bash.bash` includes cross-version compatible implementations of `__split`, `__get_read_decimal_timeout`, `__get_uppercase_string`, `__get_lowercase_string`.
 
+From manual discovery:
+
+- Introduces `l` inside `$-` if login shell.
+- Introduces escape code support inside `echo -en`, prior to that `printf` must be used.
+- No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS
+
 From changelog:
 
 - Introduces `read -i <default>` for setting a default value.
@@ -40,12 +46,6 @@ From changelog:
 - Introduces `shopt -s globstar`.
 - Introduces `mapfile`, as well as the `readarray` alias for `mapfile`.
 - Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
-
-From manual discovery:
-
-- Introduces `l` inside `$-` if login shell.
-- Introduces escape code support inside `echo -en`, prior to that `printf` must be used.
-- No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS
 
 Changelog:
 
@@ -91,6 +91,10 @@ Changelog:
 
 ## bash v4.2
 
+From manual discover:
+
+- Has a bug where closing a file descriptor does not close the stdin of its process substitution, use Dorothy's `bash.bash:CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION` to detect this and search for it to see the appropriate workarounds.
+
 From changelog:
 
 - Introduces `test -v VAR` for testing variable declaration
@@ -106,12 +110,15 @@ Changelog:
 From changelog:
 
 - Introduces `declare -n` for creating nameref variables.
+- Fixes a bug where `<&-` would not close the file descriptor
 
 Changelog:
 
 > This document details the changes between this version, `bash-4.3-alpha`, and the previous version, `bash-4.2-release`.
 >
 > w. The shell has `nameref` variables and new `-n`(/`+n`) options to declare and unset to use them, and a `test -R` option to test for them.
+>
+> bbbbb. Fixed a bug that caused redirections like <&n- to leave file descriptor n closed if executed with a builtin command.
 
 ## bash v4.4
 
