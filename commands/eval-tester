@@ -220,35 +220,40 @@ function eval_tester() (
 	fi
 
 	# file descriptor magic
-	local terminal_output_target_original="$TERMINAL_OUTPUT_TARGET"
-	export TERMINAL_OUTPUT_TARGET
 	local semaphores_status=() semaphore_context="eval-tester.$RANDOM$RANDOM" semaphore_tty_content semaphore_tty_status
 	semaphore_tty_content="$(__get_semaphore "$semaphore_context.tty.content")"
 	semaphore_tty_status="$(__get_semaphore "$semaphore_context.tty.status")"
 	semaphores_status+=("$semaphore_tty_status")
-	__open_fd {terminal_output_fd} '>' >(
+	local TERMINAL_OUTPUT_TARGET__original="$TERMINAL_OUTPUT_TARGET"
+	export TERMINAL_OUTPUT_TARGET # from bash.bash but not exported
+	local reader
+	if [[ $CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
+		# Bash v4.2 has a bug where closing a file descriptor does not close the input to the file descriptor's process substitution, as such we have to send a terminating character ourself and handle that ourself.
+		reader='__cat_until'
+	else
+		reader='cat'
+	fi
+	__open_fd {TERMINAL_OUTPUT_TARGET} '>' >(
 		set +e
 		if [[ $option_discard_tty == 'yes' ]]; then
-			__do --redirect-stdout="$semaphore_tty_content" -- cat
+			"$reader" >"$semaphore_tty_content"
 		else
-			__do --copy-stdout="$semaphore_tty_content" --redirect-stdout="$terminal_output_target_original" -- cat
+			__do --copy-stdout="$semaphore_tty_content" --redirect-stdout="$TERMINAL_OUTPUT_TARGET__original" -- "$reader"
 		fi
 		printf '%s' "$?" >"$semaphore_tty_status"
 	)
-	TERMINAL_OUTPUT_TARGET="$terminal_output_fd"
 	# debug
 	if [[ $option_debug == 'yes' ]]; then
-		local debug_output_target_original="$BASH_XTRACEFD" semaphore_debug_status
+		# BASH_XTRACEFD is from bash.bash and already exported
+		local BASH_XTRACEFD__original="$BASH_XTRACEFD" semaphore_debug_status
 		semaphore_debug_status="$(__get_semaphore "$semaphore_context.debug.status")"
 		semaphores_status+=("$semaphore_debug_status")
-		__open_fd {debug_output_fd} '>' >(
+		__open_fd {BASH_XTRACEFD} '>' >(
 			set +e
 			__do --redirect-stdout="$debug_output_target_original" -- cat
 			printf '%s' "$?" >"$semaphore_debug_status"
 		)
-		BASH_XTRACEFD="$debug_output_fd"
 	fi
-
 	# capture
 	local command_string time actual_exit_status actual_stdout actual_stderr actual_tty
 	args+=('--redirect-status={actual_exit_status}')
@@ -268,10 +273,14 @@ function eval_tester() (
 	# __eval_helper --quiet="$option_quiet" --wrap <-- if this is done, element rendering, quite mode, and time duration can all be moved to eval-helper
 	__do "${args[@]}" -- "${option_cmd[@]}"
 	time="$(echo-math -- "$(__get_epoch_time) - $time")"
-	__close_fd {terminal_output_fd}
+	if [[ $CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
+		__to --target="$TERMINAL_OUTPUT_TARGET" -- $'\004'
+	fi
+	__close_fd {TERMINAL_OUTPUT_TARGET}
+	TERMINAL_OUTPUT_TARGET="$TERMINAL_OUTPUT_TARGET__original"
 	if [[ $option_debug == 'yes' ]]; then
-		__close_fd {debug_output_fd}
-		BASH_XTRACEFD="$debug_output_target_original"
+		__close_fd {BASH_XTRACEFD}
+		BASH_XTRACEFD="$BASH_XTRACEFD__original"
 	fi
 	echo-style --/element+bold="$command_string"
 	__wait_for_and_return_semaphores "${semaphores_status[@]}"
