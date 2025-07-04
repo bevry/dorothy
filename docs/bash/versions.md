@@ -91,9 +91,10 @@ Changelog:
 
 ## bash v4.2
 
-From manual discover:
+From manual discovery:
 
 - Has a bug where closing a file descriptor does not close the stdin of its process substitution, use Dorothy's `bash.bash:CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION` to detect this and search for it to see the appropriate workarounds.
+- `$'\001'` cannot be used in a regex comparison, e.g. `[[ $'\001' =~ $'\001' ]]` will crash with exit status `2`
 
 From changelog:
 
@@ -147,6 +148,10 @@ Changelog:
 > [!NOTE]
 > Dorothy's `bash.bash` includes cross-version compatible implementations of `__get_epoch_time`.
 
+From changelog:
+
+- No longer causes strange duplications when working with `$'\001'`
+
 Changelog:
 
 > This document details the changes between this version, `bash-5.0-beta`, and the previous version, `bash-5.0-alpha`.
@@ -166,6 +171,8 @@ Changelog:
 > f. Fixed a bug that caused `SHLVL` to be incremented one too many times when creating subshells.
 >
 > i. The shell no longer runs traps if a signal arrives while reading command substitution output.
+>
+> n. Fixed a bug that could cause an IFS character in a word to result in an extra '\001' character in the expansion.
 >
 > o. A new `shopt` option: `localvar_inherit`; if set, a local variable inherits the value of a variable with the same name at the nearest preceding scope.
 >

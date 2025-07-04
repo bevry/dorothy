@@ -2802,7 +2802,7 @@ ANSI=(
 
 	# all / select all
 	# [$'\x01' = $'\001'] is [^ A] macos
-	$'\001' $'\001' 'all' '[read-key][not-text]'
+	$'\001' $'\001' 'all' '' # bash v3.2 and other old versions fail to use $'\001' in regex, so it must be avoided in regex or crash, manual workaround exists for the consumers: [read-key][not-text/echo-trim-special/__ansi_trim]
 
 	# insert
 	# [$'\e[2~'] is [INSERT] [numlock 0] ubuntu
@@ -3315,7 +3315,11 @@ function __ansi_trim {
 				continue
 			fi
 			pattern="${ANSI[ansi_index + 1]}"
-			if [[ ${input:input_index} =~ ^$pattern ]]; then
+			if [[ $pattern == $'\001'* ]]; then # workaround bug for older bash versions
+				# match_size=1
+				results+=("${input:last_index:input_index-last_index}")
+				last_index="$((input_index + 1))"
+			elif [[ ${input:input_index} =~ ^$pattern ]]; then
 				match="${BASH_REMATCH[0]}"
 				match_size="${#match}"
 				if [[ $match_size -eq 0 ]]; then
@@ -3342,6 +3346,7 @@ function __ansi_keep_right {
 			if [[ $tags != *"[$filter]"* ]]; then
 				continue
 			fi
+			# no need for $'\001' as echo-revolving-door, the only consumer of this, isn't applicable to it, so it was filtered by the tag filter
 			pattern="${ANSI[ansi_index + 1]}"
 			if [[ ${input:input_index} =~ ^$pattern ]]; then
 				match="${BASH_REMATCH[0]}"
