@@ -54,7 +54,8 @@ fi
 style__bell=$'\a'
 style__newline=$'\n'
 style__tab=$'\t'
-style__space=' ' # for testing
+style__space=' '   # for testing
+style__all=$'\001' # for testing
 style__backspace=$'\b'
 style__carriage_return=$'\r'
 style__escape=$'\e'
