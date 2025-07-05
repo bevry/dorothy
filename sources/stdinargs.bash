@@ -67,10 +67,7 @@ function stdinargs {
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
-		'--no-color'* | '--color'*)
-			export COLOR
-			COLOR="$(get-flag-value --affirmative --fallback=yes -- "$item")"
-			;;
+		'--no-color'* | '--color'*) __flag {COLOR} --affirmative --export -- "$item" ;;
 		'--timeout' | '--timeout=' | '--timeout=yes')
 			timeout_seconds=1
 			;;
@@ -92,7 +89,7 @@ function stdinargs {
 		'--inline' | '--inline=yes')
 			option_inline='yes'
 			;;
-		# don't use get-flag-value, as that will cause a never ending loop
+		# don't use __Flag as we want to do the timeout_max modification
 		'--no-stdin' | '--stdin=no')
 			option_stdin='no'
 			;;
