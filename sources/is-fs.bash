@@ -39,17 +39,11 @@ function is_fs_args {
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*)
-			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--no-quiet'* | '--quiet'*)
-			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
-			;;
+		'--no-verbose'* | '--verbose'*) __flag {option_quiet} --non-affirmative -- "$item" ;;
+		'--no-quiet'* | '--quiet'*) __flag {option_quiet} --affirmative -- "$item" ;;
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
-		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*)
-			option_elevate="$(get-flag-value --affirmative --fallback="$option_elevate" -- "$item")"
-			;;
+		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag {option_elevate} --affirmative -- "$item" ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
 		'--reason='*) option_reason="${item#*=}" ;;

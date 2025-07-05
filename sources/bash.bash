@@ -4855,3 +4855,125 @@ function __join {
 # ```
 # __trim --source+target={value} --leading-delimiters=' \'\"' --trailing-delimiters=' \'\"'
 # ```
+
+function __flag {
+	local FLAG__item FLAG__reference='' FLAG__targets=() FLAG__mode='' FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__empty='yes'
+	while [[ $# -ne 0 ]]; do
+		local FLAG__item="$1"
+		shift
+		case "$FLAG__item" in
+		{*})
+			FLAG__item="${FLAG__item#*=}"
+			FLAG__targets+=("$FLAG__item")
+			__affirm_value_is_undefined "$FLAG__reference" 'flag variable reference' || return
+			__dereference --origin="$FLAG__item" --name={FLAG__reference} || return
+			;;
+		--targets=*) __dereference --origin="${FLAG__item#*=}" --value={FLAG__targets} || return ;;
+		--target=*) FLAG__targets+=("${FLAG__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return
+			FLAG__mode="${FLAG__item#*=}"
+			;;
+		--name=*)
+			__affirm_value_is_undefined "$FLAG__filter" 'flag name filter' || return
+			FLAG__filter="${FLAG__item#*=}"
+			;;
+		--affirmative) FLAG__boolean='yes' ;;
+		--non-affirmative)
+			FLAG__boolean='yes'
+			FLAG__invert='yes'
+			;;
+		--export) FLAG__export='yes' ;;
+		--no-empty) FLAG__empty='no' ;;
+		--) break ;;
+		--*) __unrecognised_flag "$FLAG__item" || return ;;
+		*) __unrecognised_argument "$FLAG__item" || return ;;
+		esac
+	done
+	# affirm
+	__affirm_length_defined "$#" 'flag inputs' || return
+	if [[ $FLAG__export == 'yes' ]]; then
+		__affirm_value_is_defined "$FLAG__reference" 'flag variable reference' || return
+		# export the variable
+		export "$FLAG__reference"
+	fi
+	# handle the inputs
+	local FLAG__name FLAG__inverted FLAG__value FLAG__values=() FLAG__had_nonempty_value='no'
+	local -i FLAG__index FLAG__name_size
+	for FLAG__item in "$@"; do
+		# check flag status
+		if [[ ${FLAG__item:0:2} != '--' ]]; then
+			# not a flag
+			continue
+		fi
+		FLAG__index=2
+
+		# check inversion
+		if [[ ${FLAG__item:FLAG__index:3} == 'no-' ]]; then
+			# is inverted
+			FLAG__inverted='yes'
+			FLAG__index=5
+		else
+			FLAG__inverted='no'
+		fi
+
+		# get the name
+		FLAG__name="${FLAG__item:FLAG__index}"
+		FLAG__name="${FLAG__name%%=*}"
+
+		# if we are looking for a specific flag, check it is so
+		if [[ -n $FLAG__filter && $FLAG__name != "$FLAG__filter" ]]; then
+			# not our specific flag
+			continue
+		fi
+
+		# get the value
+		FLAG__name_size=${#FLAG__name}
+		FLAG__value="${FLAG__item:FLAG__index+FLAG__name_size}"
+		if [[ -z $FLAG__value ]]; then
+			FLAG__value='yes'
+		elif [[ ${FLAG__value:0:1} == '=' ]]; then
+			# is a proper value, trim =
+			FLAG__value="${FLAG__value:1}"
+		else
+			# we didn't actually find the option, we just found its prefix, continue
+			continue
+		fi
+
+		# do we support empty
+		if [[ $FLAG__empty == 'no' && -z $FLAG__value ]]; then
+			# empty values are not allowed, so skip this flag
+			continue
+		fi
+
+		# convert the value if inverted, affirmative, or non-affirmative
+		if [[ $FLAG__boolean == 'yes' ]]; then
+			if [[ $FLAG__invert == 'no' ]]; then
+				case "$FLAG__value" in
+				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='yes' ;;
+				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='no' ;;
+				esac
+			else
+				case "$FLAG__value" in
+				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='no' ;;
+				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='yes' ;;
+				esac
+			fi
+		fi
+		if [[ $FLAG__inverted == 'yes' ]]; then
+			if [[ $FLAG__value == 'yes' ]]; then
+				FLAG__value='no'
+			elif [[ $FLAG__value == 'no' ]]; then
+				FLAG__value='yes'
+			fi
+		fi
+
+		# output
+		FLAG__values+=("$FLAG__value")
+	done
+
+	# if we have values, apply them
+	if [[ ${#FLAG__values[@]} -ne 0 ]]; then
+		__to --source={FLAG__values} --mode="$FLAG__mode" --targets={FLAG__targets} || return
+	fi
+}
