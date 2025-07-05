@@ -2701,9 +2701,19 @@ function __sudo_mkdirp {
 
 # NOTE Bash does not support lazy/non-greedy regex matching, so you will see `[^\a]*` instead of `.*?`
 
+# Workaround bugs in bash with $'\001'.
+# Bash v3.2 turns arr=($'\001') (length 1) into arr=($'\001\001') (length 2):
+# `arr=($'\001'); printf '%q' "${arr[0]}" "${#arr[0]}"` # outputs: $'\001\001'2
+# Note that a string directly, it works fine:
+# `str=$'\001'; printf '%q' "${str}" "${#str}"` # outputs: $'\001'1
+# Fortunately, the combination works fine:
+# str=$'\001'; arr=("$str"); printf '%q' "${arr[0]}" "${#arr[0]}" # outputs: $'\001'1
+ANSI_ALL=$'\001'
+# Bash below v4.2 crashes when $'\001' is used in a regular expression, as such pattern is optional than always required, resorting to globs on the keys instead always using patterns/escaped-keys.
+
 # this is beta, expect it to change later
 ANSI=(
-	# <KEY/EXAMPLE-KEY> <PATTERN> <NAME> <TAGS>
+	# <KEY/EXAMPLE-KEY> <PATTERN:optional> <NAME> <TAGS>
 
 	# app-specific hotkeys that should be interpreted by the caller instead
 	# up: [k] vim
@@ -2726,105 +2736,105 @@ ANSI=(
 
 	# space
 	# [0x20 = $'\x20 = ' '] is [ ] ubuntu, macos
-	' ' '\ ' 'space' '[read-key][echo-revolving-door]'
+	' ' '' 'space' '[read-key][echo-revolving-door]'
 
 	# tab
 	# [0x09 = $'\x09' = $'\t'] is [⇥] ubuntu, macos, [^ I] macos
-	$'\t' $'\t' 'tab' '[read-key][echo-revolving-door]'
+	$'\t' '' 'tab' '[read-key][echo-revolving-door]'
 
 	# enter / line-feed
 	# [0x0A = $'\x0a' =  $'\n'] is ubuntu, macos,  [^ J] [^ M] macos
-	$'\n' $'\n' 'enter' '[read-key][echo-revolving-door]'
+	$'\n' '' 'enter' '[read-key][echo-revolving-door]'
 
 	# carriage-return
 	# [$'\e[G'] is [cursor to start of current line] ansi escape code
-	$'\e[G' $'\e\[G' 'carriage-return' '[read-key][not-text][shapeshifter]'
+	$'\e[G' '' 'carriage-return' '[read-key][not-text][shapeshifter]'
 	# [0x0D = $'\x0d' = $'\r'] is ansi escape code
-	$'\r' $'\r' 'carriage-return' '[read-key][echo-revolving-door][not-text][shapeshifter]'
+	$'\r' '' 'carriage-return' '[read-key][echo-revolving-door][not-text][shapeshifter]'
 
 	# left
 	# unverified: [$'\eOD'] v100, screen, xterm
 	# [$'\e[D'] is [←] ubuntu, macos, [cursor left one] ansi escape code
-	$'\e[D' $'\e\[D' 'left' '[read-key][not-text][shapeshifter]'
+	$'\e[D' '' 'left' '[read-key][not-text][shapeshifter]'
 
 	# right
 	# unverified: [$'\eOC'] v100, screen, xterm
 	# [$'\e[C'] is [→] ubuntu, macos, [cursor right one] ansi escape code
-	$'\e[C' $'\e\[C' 'right' '[read-key][not-text][shapeshifter]'
+	$'\e[C' '' 'right' '[read-key][not-text][shapeshifter]'
 
 	# up
 	# unverified: [$'\eOA'] v100, screen, xterm
 	# [$'\e[A'] is [↑] ubuntu, macos, [cursor up one] ansi escape code
-	$'\e[A' $'\e\[A' 'up' '[read-key][not-text][shapeshifter]'
+	$'\e[A' '' 'up' '[read-key][not-text][shapeshifter]'
 	# [$'\eM'] ansi escape code to cursor up a line and scroll if necessary, note that scrolling moves visible content down but content from above is empty/erased; note that this is also documented as: Reverse Index (RI is 0x8d); note $'\x8d' becomes a ? in Apple Terminal
-	$'\eM' $'\eM' 'up' '[read-key][not-text][shapeshifter]'
+	$'\eM' '' 'up' '[read-key][not-text][shapeshifter]'
 
 	# down
 	# unverified: [$'\eOB'] v100, screen, xterm
 	# [$'\e[B'] is [↓] ubuntu, macos, [cursor down one] ansi escape code
-	$'\e[B' $'\e\[B' 'down' '[read-key][not-text][shapeshifter]'
+	$'\e[B' '' 'down' '[read-key][not-text][shapeshifter]'
 
 	# home
 	# unverified: [$'\eOH'] xterm
 	# [$'\e[1~'] is [🌐 ←] screen/vt macos
-	$'\e[1~' $'\e\[1~' 'home' '[read-key][not-text]'
+	$'\e[1~' '' 'home' '[read-key][not-text]'
 	# [$'\e[H'] is [⇱] ubuntu, macos, [numlock 7] ubuntu, [🌐 ⇧ ←] macos, [cursor to top left] ansi escape code
-	$'\e[H' $'\e\[H' 'home' '[read-key][not-text][shapeshifter]'
+	$'\e[H' '' 'home' '[read-key][not-text][shapeshifter]'
 	# [$'\e[1;2D'] is [⇧ ←] macos, [cursor left twice: the `1;` prefix is not supported on macos] ansi escape code
-	$'\e[1;2D' $'\e\[1;2D' 'home' '[read-key][not-text][shapeshifter]'
+	$'\e[1;2D' '' 'home' '[read-key][not-text][shapeshifter]'
 
 	# end
 	# unverified: [$'\eOF'] xterm
 	# [$'\e[4~'] is [🌐 →] screen/vt macos
-	$'\e[4~' $'\e\[4~' 'end' '[read-key][not-text]'
+	$'\e[4~' '' 'end' '[read-key][not-text]'
 	# [$'\e[F'] is [⇲] ubuntu, macos, [numlock 1] ubuntu, [🌐 ⇧ →] macos, [cursor to start of prior line] ansi escape code
-	$'\e[F' $'\e\[F' 'end' '[read-key][not-text][shapeshifter]'
+	$'\e[F' '' 'end' '[read-key][not-text][shapeshifter]'
 	# [$'\e[1;2C'] is [⇧ ←] macos, [cursor right twice: the `1;` prefix is not supported on macos] ansi escape code
-	$'\e[1;2C' $'\e\[1;2C' 'end' '[read-key][not-text][shapeshifter]'
+	$'\e[1;2C' '' 'end' '[read-key][not-text][shapeshifter]'
 
 	# page up
 	# unverified: [$'\006'] [⌃ f] vim
 	# [$'\e[5~'] is [⇞] [numlock 9] ubuntu, [🌐 ⇧ ↑] macos, [🌐 ↑] screen/vt macos
-	$'\e[5~' $'\e\[5~' 'page-up' '[read-key][not-text]'
+	$'\e[5~' '' 'page-up' '[read-key][not-text]'
 	# [$'\E[1;5D'] is [⌃ ←] macos
-	$'\e[1;5D' $'\e\[1;5D' 'page-up' '[read-key][not-text][shapeshifter]'
+	$'\e[1;5D' '' 'page-up' '[read-key][not-text][shapeshifter]'
 	# [$'\eb'] is [⌥ ←] macos
-	$'\eb' $'\eb' 'page-up' '[read-key][not-text]'
+	$'\eb' '' 'page-up' '[read-key][not-text]'
 
 	# page down
 	# unverified: [$'\002'] [⌃ b] vim
 	# [$'\e[6~'] is [⇟] [numlock 3] ubuntu, [🌐 ⇧ ↓] macos, [🌐 ↑] screen/vt macos
-	$'\e[6~' $'\e\[6~' 'page-down' '[read-key][not-text]'
+	$'\e[6~' '' 'page-down' '[read-key][not-text]'
 	# [$'\e[1;5C'] is [⌃ →] macos
-	$'\e[1;5C' $'\e\[1;5C' 'page-down' '[read-key][not-text][shapeshifter]'
+	$'\e[1;5C' '' 'page-down' '[read-key][not-text][shapeshifter]'
 	# [$'\ef'] is [⌥ →] macos
-	$'\ef' $'\ef' 'page-down' '[read-key][not-text]'
+	$'\ef' '' 'page-down' '[read-key][not-text]'
 
 	# all / select all
 	# [$'\x01' = $'\001'] is [^ A] macos
-	$'\001' $'\001' 'all' '' # bash v3.2 and other old versions fail to use $'\001' in regex, so it must be avoided in regex or crash, manual workaround exists for the consumers: [read-key][not-text/echo-trim-special/__ansi_trim]
+	"$ANSI_ALL" '' 'all' '[read-key][not-text]'
 
 	# insert
 	# [$'\e[2~'] is [INSERT] [numlock 0] ubuntu
-	$'\e[2~' $'\e\[2~' 'insert' '[read-key][not-text]'
+	$'\e[2~' '' 'insert' '[read-key][not-text]'
 
 	# delete
 	# [$'\e[3~'] is [⌦] [numlock .] ubuntu, [🌐 ⌫] macos
-	$'\e[3~' $'\e\[3~' 'delete' '[read-key][not-text]'
+	$'\e[3~' '' 'delete' '[read-key][not-text]'
 
 	# backspace
 	# [$'\x7f' = $'\177'] is [⌫] ubuntu, macos
-	$'\177' $'\177' 'backspace' '[read-key][not-text]'
+	$'\177' '' 'backspace' '[read-key][not-text]'
 	# [0x08 = $'\x08' = $'\b'] is [^ H] macos
-	$'\b' $'\b' 'backspace' '[read-key][echo-revolving-door][not-text][shapeshifter]'
+	$'\b' '' 'backspace' '[read-key][echo-revolving-door][not-text][shapeshifter]'
 
 	# backtab
 	# [$'\e[Z'] is [⇤] [shift ⇥] macos
-	$'\e[Z' $'\e\[Z' 'backtab' '[read-key][not-text][shapeshifter]'
+	$'\e[Z' '' 'backtab' '[read-key][not-text][shapeshifter]'
 
 	# form feed / new page
 	# [0x0C = $'\x0c' = $'\f] is [⌃ L] macos; same as newline but maintains horizontal cursor position
-	$'\f' $'\f' 'form-feed' '[read-key][not-text][shapeshifter]'
+	$'\f' '' 'form-feed' '[read-key][not-text][shapeshifter]'
 
 	# all pressable keys on macos bellow:
 	# N/A `^ Q` macos
@@ -2871,10 +2881,10 @@ ANSI=(
 	#   ^ handled earlier in pressable keys
 	# Save Cursor and Attributes
 	# ESC 7	DECSC	Save Cursor Position in Memory**
-	$'\e7' $'\e7' 'save-cursor' '[not-text]'
+	$'\e7' '' 'save-cursor' '[not-text]'
 	# Restore Cursor and Attributes
 	# ESC 8	DECSR	Restore Cursor Position from Memory**
-	$'\e8' $'\e8' 'restore-cursor' '[not-text][shapeshifter]'
+	$'\e8' '' 'restore-cursor' '[not-text][shapeshifter]'
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#cursor-positioning>
 	# Cursor Up
 	# ESC [ <n> A	CUU	Cursor Up	Cursor up by <n>
@@ -2908,21 +2918,21 @@ ANSI=(
 	$'\e[5;5f' $'\e\[[0-9;]*f' 'cursor-position' '[not-text][shapeshifter]'
 	# Save Cursor and Attributes
 	# ESC [ s	ANSISYSSC	Save Cursor – Ansi.sys emulation	**With no parameters, performs a save cursor operation like DECSC
-	$'\e[s' $'\e\[s' 'save-cursor' '[not-text]'
+	$'\e[s' '' 'save-cursor' '[not-text]'
 	# Restore Cursor and Attributes
 	# ESC [ u	ANSISYSRC	Restore Cursor – Ansi.sys emulation	**With no parameters, performs a restore cursor operation like DECRC
-	$'\e[u' $'\e\[u' 'restore-cursor' '[not-text][shapeshifter]'
+	$'\e[u' '' 'restore-cursor' '[not-text][shapeshifter]'
 
 	# Cursor Visibility
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#cursor-visibility>
 	# ESC [ ? 12 h	ATT160	Text Cursor Enable Blinking	Start the cursor blinking
-	$'\e[?12h' $'\e\[[?]12h' 'enable-blinking-cursor' '[not-text]'
+	$'\e[?12h' '' 'enable-blinking-cursor' '[not-text]'
 	# ESC [ ? 12 l	ATT160	Text Cursor Disable Blinking	Stop blinking the cursor
-	$'\e[?12l' $'\e\[[?]12l' 'disable-blinking-cursor' '[not-text]'
+	$'\e[?12l' '' 'disable-blinking-cursor' '[not-text]'
 	# ESC [ ? 25 h	DECTCEM	Text Cursor Enable Mode Show	Show the cursor
-	$'\e[?25h' $'\e\[[?]25h' 'show-cursor' '[not-text]' # used by [styles.bash]
+	$'\e[?25h' '' 'show-cursor' '[not-text]' # used by [styles.bash]
 	# ESC [ ? 25 l	DECTCEM	Text Cursor Enable Mode Hide	Hide the cursor
-	$'\e[?25l' $'\e\[[?]25l' 'hide-cursor' '[not-text]' # used by [styles.bash]
+	$'\e[?25l' '' 'hide-cursor' '[not-text]' # used by [styles.bash]
 
 	# Cursor Shape
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#cursor-shape>
@@ -2979,27 +2989,27 @@ ANSI=(
 	# Mode Changes
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#mode-changes>
 	# ESC =	DECKPAM	Enable Keypad Application Mode	Keypad keys will emit their Application Mode sequences.
-	$'\e=' $'\e\=' 'application-keypad-mode' '[not-text]'
+	$'\e=' '' 'application-keypad-mode' '[not-text]'
 	# ESC >	DECKPNM	Enable Keypad Numeric Mode	Keypad keys will emit their Numeric Mode sequences.
-	$'\e>' $'\e\>' 'numeric-keypad-mode' '[not-text]'
+	$'\e>' '' 'numeric-keypad-mode' '[not-text]'
 	# ESC [ ? 1 h	DECCKM	Enable Cursor Keys Application Mode	Keypad keys will emit their Application Mode sequences.
-	$'\e[?1h' $'\e\[[?]1h' 'enable-cursor-keys-application-mode' '[not-text]'
+	$'\e[?1h' '' 'enable-cursor-keys-application-mode' '[not-text]'
 	# ESC [ ? 1 l	DECCKM	Disable Cursor Keys Application Mode (use Normal Mode)	Keypad keys will emit their Numeric Mode sequences.
-	$'\e[?1l' $'\e\[[?]1l' 'disable-cursor-keys-application-mode' '[not-text]'
+	$'\e[?1l' '' 'disable-cursor-keys-application-mode' '[not-text]'
 
 	# Query State
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#query-state>
 	# Report Cursor Position / Send Cursor Position Report
 	# ESC [ 6 n	DECXCPR	Report Cursor Position	Emit the cursor position as: ESC [ <r> ; <c> R Where <r> = cursor row and <c> = cursor column
 	# Device Status Report; Reports the cursor position (CPR) by transmitting `ESC[n;mR`, where n is the row and m is the column; `ESC [ 6 n` Send Cursor Position Report; DECXCPR; Report Cursor Position; Emit the cursor position as: ESC [ <r> ; <c> R Where <r> = cursor row and <c> = cursor column
-	$'\e[6n' $'\e\[6n' 'report-cursor-position' '[not-text][shapeshifter]' # used by [get-terminal-cursor-line-and-column]; shapeshifter as can inject data into terminal if no proper active read
+	$'\e[6n' '' 'report-cursor-position' '[not-text][shapeshifter]' # used by [get-terminal-cursor-line-and-column]; shapeshifter as can inject data into terminal if no proper active read
 	# ESC [ 0 c	DA	Device Attributes	Report the terminal identity. Will emit “\x1b[?1;0c”, indicating "VT101 with No Options".
-	$'\e[0c' $'\e\[0c' 'report-terminal-identity' '[not-text][shapeshifter]' # shapeshifter as can inject data into terminal if no proper active read
+	$'\e[0c' '' 'report-terminal-identity' '[not-text][shapeshifter]' # shapeshifter as can inject data into terminal if no proper active read
 
 	# Tabs
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#tabs>
 	# ESC H	HTS	Horizontal Tab Set	Sets a tab stop in the current column the cursor is in.
-	$'\eH' $'\eH' 'horizontal-tab-set' '[not-text]'
+	$'\eH' '' 'horizontal-tab-set' '[not-text]'
 	# ESC [ <n> I	CHT	Cursor Horizontal (Forward) Tab	Advance the cursor to the next column (in the same row) with a tab stop. If there are no more tab stops, move to the last column in the row. If the cursor is in the last column, move to the first column of the next row.
 	# Horizontal Tab / Cursor Horizontal Tab
 	$'\e[5I' $'\e\[[0-9]*I' 'horizontal-tab' '[not-text][shapeshifter]'
@@ -3015,9 +3025,9 @@ ANSI=(
 	# Designate Character Set
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#designate-character-set>
 	# ESC ( 0	Designate Character Set – DEC Line Drawing	Enables DEC Line Drawing Mode
-	$'\e(0' $'\e\(0' 'drawing-mode' '[not-text][shapeshifter]'
+	$'\e(0' '' 'drawing-mode' '[not-text][shapeshifter]'
 	# ESC ( B	Designate Character Set – US ASCII	Enables ASCII Mode (Default)
-	$'\e(B' $'\e\(B' 'ascii-mode' '[not-text][shapeshifter]'
+	$'\e(B' '' 'ascii-mode' '[not-text][shapeshifter]'
 
 	# Scrolling Margins
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#scrolling-margins>
@@ -3033,45 +3043,45 @@ ANSI=(
 	# Alternate Screen Buffer
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#alternate-screen-buffer>
 	# ESC [ ? 1 0 4 9 h	Use Alternate Screen Buffer	Switches to a new alternate screen buffer.
-	$'\e[?1049h' $'\e\[[?]1049h' 'alternative-screen-buffer' '[not-text][shapeshifter]' # used by [styles.bash]
+	$'\e[?1049h' '' 'alternative-screen-buffer' '[not-text][shapeshifter]' # used by [styles.bash]
 	# ESC [ ? 1 0 4 9 l	Use Main Screen Buffer	Switches to the main buffer.
-	$'\e[?1049l' $'\e\[[?]1049l' 'default-screen-buffer' '[not-text][shapeshifter]' # used by [styles.bash]
+	$'\e[?1049l' '' 'default-screen-buffer' '[not-text][shapeshifter]' # used by [styles.bash]
 
 	# Window Width
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#window-width>
 	# ESC [ ? 3 h	DECCOLM	Set Number of Columns to 132	Sets the console width to 132 columns wide.
-	$'\e[?3h' $'\e\[[?]3h' 'set-number-of-columns-132' '[not-text][shapeshifter]' # this doesn't appear to shapeshift in Apple Terminal, but surely it should
+	$'\e[?3h' '' 'set-number-of-columns-132' '[not-text][shapeshifter]' # this doesn't appear to shapeshift in Apple Terminal, but surely it should
 	# ESC [ ? 3 l	DECCOLM	Set Number of Columns to 80	Sets the console width to 80 columns wide.
-	$'\e[?3l' $'\e\[[?]3l' 'set-number-of-columns-80' '[not-text][shapeshifter]' # this doesn't appear to shapeshift in Apple Terminal, but surely it should
+	$'\e[?3l' '' 'set-number-of-columns-80' '[not-text][shapeshifter]' # this doesn't appear to shapeshift in Apple Terminal, but surely it should
 
 	# Soft Reset
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#soft-reset>
 	# ESC [ ! p	DECSTR	Soft Reset	Reset certain terminal settings to their defaults.
-	$'\e[!p' $'\e\[\!p' 'soft-reset' '[not-text][shapeshifter]' # this doesn't appear to shapeshift in Apple Terminal, but it probably does if settings were altered before the reset
+	$'\e[!p' '' 'soft-reset' '[not-text][shapeshifter]' # this doesn't appear to shapeshift in Apple Terminal, but it probably does if settings were altered before the reset
 
 	# Other Control Sequence Introducer Commands (CSI)
 	# <https://en.wikipedia.org/wiki/ANSI_escape_code#Control_Sequence_Introducer_commands>
-	$'\e[?1004h' $'\e\[[?]1004h' 'enable-reporting-focus' '[not-text]'
-	$'\e[?1004l' $'\e\[[?]1004l' 'disable-reporting-focus' '[not-text]'
-	$'\e[?2004h' $'\e\[[?]2004h' 'enable-bracketed-paste-mode' '[not-text]'
-	$'\e[?2004l' $'\e\[[?]2004l' 'disable-bracketed-paste-mode' '[not-text]'
+	$'\e[?1004h' '' 'enable-reporting-focus' '[not-text]'
+	$'\e[?1004l' '' 'disable-reporting-focus' '[not-text]'
+	$'\e[?2004h' '' 'enable-bracketed-paste-mode' '[not-text]'
+	$'\e[?2004l' '' 'disable-bracketed-paste-mode' '[not-text]'
 
 	# Other Operating System Commands (OSC)
-	$'\e]11;?\a' $'\e\]11;[?]\a' 'report-colors' '[not-text][shapeshifter]' # used by [get-terminal-theme]; shapeshifter as can inject data into terminal if no proper active read
-	$'\e]52;c;CLIPBOARD\a' $'\e\]52;c;[^\a]*\a' 'clipboard' '[not-text]'    # used by [styles.bash]
+	$'\e]11;?\a' '' 'report-colors' '[not-text][shapeshifter]'           # used by [get-terminal-theme]; shapeshifter as can inject data into terminal if no proper active read
+	$'\e]52;c;CLIPBOARD\a' $'\e\]52;c;[^\a]*\a' 'clipboard' '[not-text]' # used by [styles.bash]
 
 	# Other ANSI Sequences
 	# <https://www.gnu.org/software/screen/manual/html_node/Control-Sequences.html>
 	# ESC E                           Next Line
-	$'\eE' $'\eE' 'next-line' '[not-text][shapeshifter]'
+	$'\eE' '' 'next-line' '[not-text][shapeshifter]'
 	# ESC D                           Index
-	$'\eD' $'\eD' 'index' '[not-text][shapeshifter]'
+	$'\eD' '' 'index' '[not-text][shapeshifter]'
 	# ESC M                           Reverse Index
 	#   ^ handled earlier in pressable keys
 	# ESC H                           Horizontal Tab Set
 	#   ^ handled earlier in microsoft section
 	# ESC Z                           Send VT100 Identification String
-	$'\eZ' $'\eZ' 'send-vt100-identification-string' '[not-text]'
+	$'\eZ' '' 'send-vt100-identification-string' '[not-text]'
 	# ESC 8                   (V)     Restore Cursor and Attributes
 	#   ^ handled earlier in microsoft section
 	# ESC [s                  (A)     Save Cursor and Attributes
@@ -3079,32 +3089,32 @@ ANSI=(
 	# ESC [u                  (A)     Restore Cursor and Attributes
 	#   ^ handled earlier in microsoft section
 	# ESC c                           Reset to Initial State
-	$'\ec' $'\ec' 'reset' '[not-text][shapeshifter]'
+	$'\ec' '' 'reset' '[not-text][shapeshifter]'
 	# ESC g                           Visual Bell
-	$'\eg' $'\eg' 'visual-bell' '[not-text]'
+	$'\eg' '' 'visual-bell' '[not-text]'
 	# ESC Pn p                        Cursor Visibility (97801)
 	#     Pn = 6                      Invisible
 	#          7                      Visible
-	$'\e[6p' $'\e\[6p' 'hide-cursor' '[not-text]' # Cursor Visibility (97801) Invisible
-	$'\e[7p' $'\e\[7p' 'show-cursor' '[not-text]' # Cursor Visibility (97801) Visible
+	$'\e[6p' '' 'hide-cursor' '[not-text]' # Cursor Visibility (97801) Invisible
+	$'\e[7p' '' 'show-cursor' '[not-text]' # Cursor Visibility (97801) Visible
 	# ESC =                   (V)     Application Keypad Mode
 	#   ^ handled earlier in microsoft section
 	# ESC >                   (V)     Numeric Keypad Mode
 	#   ^ handled earlier in microsoft section
 	# ESC # 8                 (V)     Fill Screen with E's
-	$'\e#8' $'\e#8' 'test-card' '[not-text][shapeshifter]'
+	$'\e#8' '' 'test-card' '[not-text][shapeshifter]'
 	# ESC \                   (A)     String Terminator
-	$'\e\\' $'\e[\]' 'string-terminator' '[not-text]'
+	$'\e\\' '' 'string-terminator' '[not-text]'
 	# ESC ^                   (A)     Privacy Message String (Message Line)
-	$'\e^' $'\e\^' 'privacy-message-string' '[not-text]'
+	$'\e^' '' 'privacy-message-string' '[not-text]'
 	# ESC !                           Global Message String (Message Line)
-	$'\e!' $'\e!' 'global-message-string' '[not-text]'
+	$'\e!' '' 'global-message-string' '[not-text]'
 	# ESC k                           Title Definition String
-	$'\ek' $'\ek' 'title-definition-string' '[not-text]'
+	$'\ek' '' 'title-definition-string' '[not-text]'
 	# ESC P                   (A)     Device Control String. Outputs a string directly to the host terminal without interpretation.
-	$'\eP' $'\eP' 'device-control-string' '[not-text]'
+	$'\eP' '' 'device-control-string' '[not-text]'
 	# ESC _                   (A)     Application Program Command (Hardstatus)
-	$'\e_' $'\e_' 'application-program-command' '[not-text]'
+	$'\e_' '' 'application-program-command' '[not-text]'
 	# ESC ] 0 ; string ^G     (A)     Operating System Command (Hardstatus, xterm title hack)
 	#   ^ handled earlier in microsoft section
 	# ESC ] 83 ; cmd ^G       (A)     Execute screen command. This only works if multi-user support is compiled into screen.
@@ -3115,13 +3125,13 @@ ANSI=(
 	# Control-O               (A)     Lock Shift G0 (SI)
 	#   ^ need more docs
 	# ESC n                   (A)     Lock Shift G2
-	$'\en' $'\en' 'lock-shift-g2' '[not-text]'
+	$'\en' '' 'lock-shift-g2' '[not-text]'
 	# ESC o                   (A)     Lock Shift G3
-	$'\eo' $'\eo' 'lock-shift-g3' '[not-text]'
+	$'\eo' '' 'lock-shift-g3' '[not-text]'
 	# ESC N                   (A)     Single Shift G2
-	$'\eN' $'\eN' 'single-shift-g2' '[not-text]'
+	$'\eN' '' 'single-shift-g2' '[not-text]'
 	# ESC O                   (A)     Single Shift G3
-	$'\eO' $'\eO' 'single-shift-g3' '[not-text]' # Single Shift G3; Single Shift Select of G3 Character Set (SS3 is 0x8f), VT220. This affects next character only; note $'\x8f' becomes a ? in Apple Terminal
+	$'\eO' '' 'single-shift-g3' '[not-text]' # Single Shift G3; Single Shift Select of G3 Character Set (SS3 is 0x8f), VT220. This affects next character only; note $'\x8f' becomes a ? in Apple Terminal
 	# ESC ( Pcs               (A)     Designate character set as G0
 	#   ^ handled earlier in microsoft section
 	# ESC ) Pcs               (A)     Designate character set as G1
@@ -3237,17 +3247,17 @@ ANSI=(
 	$'\e[?5h' $'\e\[[0-9?]*h' 'set-mode' '[not-text][shapeshifter]'
 	$'\e[?5l' $'\e\[[0-9?]*l' 'reset-mode' '[not-text][shapeshifter]'
 	# ESC [ 5 i               (A)     Start relay to printer (ANSI Media Copy)
-	$'\e[5i' $'\e\[5i' 'start-relay-to-printer' '[not-text]'
+	$'\e[5i' '' 'start-relay-to-printer' '[not-text]'
 	# ESC [ 4 i               (A)     Stop relay to printer (ANSI Media Copy)
-	$'\e[4i' $'\e\[4i' 'stop-relay-to-printer' '[not-text]'
+	$'\e[4i' '' 'stop-relay-to-printer' '[not-text]'
 	# ESC [ 8 ; Ph ; Pw t             Resize the window to ‘Ph’ lines and ‘Pw’ columns (SunView special)
 	$'\e[8;10;100t' $'\e\[8;[0-9;]*t' 'terminal-resize' '[not-text][shapeshifter]' # used by [styles.bash]
 	# ESC [ c                         Send VT100 Identification String
-	$'\e[c' $'\e\[c' 'send-vt100-identification-string' '[not-text]'
+	$'\e[c' '' 'send-vt100-identification-string' '[not-text]'
 	# ESC [ x                 (V)     Send Terminal Parameter Report
-	$'\e[x' $'\e\[x' 'send-terminal-parameter-report' '[not-text]'
+	$'\e[x' '' 'send-terminal-parameter-report' '[not-text]'
 	# ESC [ > c                       Send Secondary Device Attributes String
-	$'\e[>c' $'\e\[>c' 'send-secondary-device-attributes-string' '[not-text]'
+	$'\e[>c' '' 'send-secondary-device-attributes-string' '[not-text]'
 	# ESC [ 6 n                       Send Cursor Position Report
 	#   ^ handled earlier in microsoft section
 
@@ -3255,13 +3265,14 @@ ANSI=(
 	# <https://en.wikipedia.org/wiki/ANSI_escape_code#C0_control_codes>
 	# ^G	0x07	BEL	Bell	Makes an audible noise.
 	# [0x07 = $'\x07' = $'\007' = $'\a'] is `^ G` macos
-	$'\a' $'\a' 'bell' '[read-key][not-text]' # besides bell, this is also used to end clipboard and terminal title sequences
+	$'\a' '' 'bell' '[read-key][not-text]' # besides bell, this is also used to end clipboard and terminal title sequences
 	# ^[	0x1B	ESC	Escape	Starts all the escape sequences
 	# [0x1B = $'\x1B' = $'\033' = $'\e'] is `^ [` on macos
-	$'\e' $'\e' 'escape' '[not-text][shapeshifter]' # remain shapeshifter as it could be any of the unlisted sequences which could be a shapeshifter
+	$'\e' '' 'escape' '[not-text][shapeshifter]' # remain shapeshifter as it could be any of the unlisted sequences which could be a shapeshifter
 )
 ANSI_SIZE=${#ANSI[@]}
 
+# these were written before pattern became optional
 # function __ansi_has_any {
 # 	local input="$1" filter_with="${2-}" filter_without="${3-}" pattern tags
 # 	local -i index
@@ -3280,7 +3291,6 @@ ANSI_SIZE=${#ANSI[@]}
 # 	done
 # 	return 1
 # }
-
 # function __ansi_replace_with_name {
 # 	local input="$1" filter="$2" pattern match tail
 # 	tail="$input"
@@ -3305,7 +3315,7 @@ ANSI_SIZE=${#ANSI[@]}
 # }
 
 function __ansi_trim {
-	local input="$1" filter="$2" tags pattern match results=()
+	local input="$1" filter="$2" tags pattern key match results=() name
 	local -i input_size input_index match_size ansi_index last_index=0
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
@@ -3315,16 +3325,20 @@ function __ansi_trim {
 				continue
 			fi
 			pattern="${ANSI[ansi_index + 1]}"
-			if [[ $pattern == $'\001'* ]]; then # workaround bug for older bash versions
-				# match_size=1
-				results+=("${input:last_index:input_index-last_index}")
-				last_index="$((input_index + 1))"
+			if [[ -z $pattern ]]; then
+				key="${ANSI[ansi_index]}"
+				if [[ ${input:input_index} == "$key"* ]]; then
+					match_size="${#key}"
+				else
+					match_size=0
+				fi
 			elif [[ ${input:input_index} =~ ^$pattern ]]; then
 				match="${BASH_REMATCH[0]}"
-				match_size="${#match}"
-				if [[ $match_size -eq 0 ]]; then
-					continue # false positive on earlier bash version
-				fi
+				match_size="${#match}" # note that earlier bash versions could pass the regex, but match will be empty and match_size will result in 0
+			else
+				match_size=0
+			fi
+			if [[ $match_size -gt 0 ]]; then
 				results+=("${input:last_index:input_index-last_index}")
 				last_index="$((input_index + match_size))"
 				input_index="$((input_index + match_size - 1))" # -1 to account for the next increment
@@ -3337,7 +3351,7 @@ function __ansi_trim {
 }
 
 function __ansi_keep_right {
-	local input="$1" filter="$2" tags pattern match
+	local input="$1" filter="$2" tags pattern key match
 	local -i input_size input_index match_size ansi_index last_index=0
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
@@ -3346,14 +3360,21 @@ function __ansi_keep_right {
 			if [[ $tags != *"[$filter]"* ]]; then
 				continue
 			fi
-			# no need for $'\001' as echo-revolving-door, the only consumer of this, isn't applicable to it, so it was filtered by the tag filter
 			pattern="${ANSI[ansi_index + 1]}"
-			if [[ ${input:input_index} =~ ^$pattern ]]; then
-				match="${BASH_REMATCH[0]}"
-				match_size="${#match}"
-				if [[ $match_size -eq 0 ]]; then
-					continue # false positive on earlier bash version
+			if [[ -z $pattern ]]; then
+				key="${ANSI[ansi_index]}"
+				if [[ ${input:input_index} == "$key"* ]]; then
+					match_size="${#key}"
+				else
+					match_size=0
 				fi
+			elif [[ ${input:input_index} =~ ^$pattern ]]; then
+				match="${BASH_REMATCH[0]}"
+				match_size="${#match}" # note that earlier bash versions could pass the regex, but match will be empty and match_size will result in 0
+			else
+				match_size=0
+			fi
+			if [[ $match_size -gt 0 ]]; then
 				last_index="$((input_index + match_size))"
 				input_index="$((input_index + match_size - 1))"
 				break
@@ -3370,18 +3391,26 @@ function __is_shapeshifter {
 	if [[ ${1-} == '--' ]]; then
 		shift
 	fi
-	local input="$1" tags pattern match
+	local input="$1" tags pattern key match
 	local -i input_size input_index match_size ansi_index
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
 			# 0=<KEY> 1=<PATTERN> 2=<NAME> 3=<TAGS>
 			pattern="${ANSI[ansi_index + 1]}"
-			if [[ ${input:input_index} =~ ^$pattern ]]; then
-				match="${BASH_REMATCH[0]}"
-				match_size="${#match}"
-				if [[ $match_size -eq 0 ]]; then
-					continue # false positive on earlier bash version
+			if [[ -z $pattern ]]; then
+				key="${ANSI[ansi_index]}"
+				if [[ ${input:input_index} == "$key"* ]]; then
+					match_size="${#key}"
+				else
+					match_size=0
 				fi
+			elif [[ ${input:input_index} =~ ^$pattern ]]; then
+				match="${BASH_REMATCH[0]}"
+				match_size="${#match}" # note that earlier bash versions could pass the regex, but match will be empty and match_size will result in 0
+			else
+				match_size=0
+			fi
+			if [[ $match_size -gt 0 ]]; then
 				tags="${ANSI[ansi_index + 3]}"
 				if [[ $tags == *"[shapeshifter]"* ]]; then
 					return 0
