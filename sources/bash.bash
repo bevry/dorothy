@@ -4856,6 +4856,7 @@ function __join {
 # __trim --source+target={value} --leading-delimiters=' \'\"' --trailing-delimiters=' \'\"'
 # ```
 
+
 function __flag {
 	local FLAG__item FLAG__reference='' FLAG__targets=() FLAG__mode='' FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__empty='yes'
 	while [[ $# -ne 0 ]]; do
@@ -4891,14 +4892,14 @@ function __flag {
 		esac
 	done
 	# affirm
-	__affirm_length_defined "$#" 'flag inputs' || return
+	__affirm_length_defined "$#" 'flag input' || return
 	if [[ $FLAG__export == 'yes' ]]; then
 		__affirm_value_is_defined "$FLAG__reference" 'flag variable reference' || return
 		# export the variable
 		export "$FLAG__reference"
 	fi
 	# handle the inputs
-	local FLAG__name FLAG__inverted FLAG__value FLAG__values=() FLAG__had_nonempty_value='no'
+	local FLAG__name FLAG__inverted FLAG__value FLAG__values=()
 	local -i FLAG__index FLAG__name_size
 	for FLAG__item in "$@"; do
 		# check flag status
