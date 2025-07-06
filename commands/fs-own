@@ -83,8 +83,9 @@ function fs_own() (
 
 			OPTIONS:
 			--quiet | --verbose | --changes
-			    if [--changes], the default, only output to STDERR the changes
-			    if [--verbose], output to STDERR all operations
+			    if [--quiet], don't output permission operations or failures to STDERR
+			    if [--changes], the default, only output to STDERR the changes any failures
+			    if [--verbose], output to STDERR all operations and any failures
 
 			--X | -X
 			    sets <permissions> to be executable directories for the user: +x
@@ -128,7 +129,7 @@ function fs_own() (
 			    Forwarded to [eval-helper].
 
 			--optional
-			    if provided, ignore missing paths and failures.
+			    if provided, continue on permission change failures and missing/no paths
 
 			--recursive
 			    if provided, will recurse into child paths.
@@ -338,14 +339,17 @@ function fs_own() (
 		# now check user and group
 		local user_group=()
 		__split --target={user_group} --delimiter=':' -- "$owner"
+		if [[ ${#user_group[@]} -gt 2 ]]; then
+			help 'invalid <owner> provided, must be in the format [<user>][:][<group>]'
+		fi
 		if [[ -n $option_user && $option_user != "${user_group[0]}" ]]; then
 			help 'multiple conflicting <user> options cannot be provided'
 		fi
-		if [[ -n $option_group && $option_group != "${user_group[1]}" ]]; then
+		if [[ -n $option_group && $option_group != "${user_group[1]-}" ]]; then
 			help 'multiple conflicting <group> options cannot be provided'
 		fi
 		option_user="${user_group[0]}"
-		option_group="${user_group[1]}"
+		option_group="${user_group[1]-}"
 	fi
 
 	# validate there is an action to perform
@@ -433,8 +437,9 @@ function fs_own() (
 	# =====================================
 	# Action
 
-	local paths=()
 	function __own {
+		local paths=("$@")
+
 		# chown
 		if [[ -n $owner ]]; then
 			# as root
@@ -452,62 +457,45 @@ function fs_own() (
 		fi
 	}
 
-	# determine paths
-	for path in "${option_paths[@]}"; do
-		if is-present --quiet="$option_quiet" --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
-			paths+=("$path") # it exists, update ownership for it
-		fi
-	done
-
 	# perform the ownership
-	function __retry {
-		local args=() paths=()
-		while [[ $1 != '--' ]]; do
-			args+=("$1")
-			shift
-		done
-		[[ $1 == '--' ]] || echo-error 'Missing [--] in [__retry]'
-		while [[ $1 != '--' ]]; do
-			paths+=("$1")
-			shift
-		done
-		fs-own "${args[@]}" \
-			--quiet="$option_quiet" \
-			--changes="$option_changes" \
-			--optional="$option_optional" \
-			--owner="$owner" \
-			--elevated="$option_elevated" \
-			--elevate="$option_elevate" \
-			--reason="$option_reason" \
-			--permissions="$option_permissions" -- "${paths[@]}" || return
-	}
-	if [[ ${#paths[@]} -ne 0 ]]; then
-		local __own_status=0
-		__own || __own_status=$?
-		# handle parent failure
-		if [[ $__own_status -ne 0 && $option_parents == 'yes' ]]; then
-			# try again on the parent
-			if [[ ${#paths[@]} -ne 1 ]]; then
-				# @todo could do a unique on the paths, to support multiple paths but only a single parent
-				help 'Cannot use --parents with multiple paths'
+	local __result_status=0
+	if [[ $option_parents == 'yes' ]]; then
+		local path parent __path_status
+		for path in "${option_paths[@]}"; do
+			__path_status=0
+			__own "$path" || __path_status=$?
+			if [[ $__path_status -ne 0 ]]; then
+				parent=$(fs-path --parents -- "$path") || __path_status=$?
+				if [[ $__path_status -ne 0 ]]; then
+					continue
+				fi
+				fs-own \
+					--quiet="$option_quiet" \
+					--changes="$option_changes" \
+					--optional="$option_optional" \
+					--owner="$owner" \
+					--elevated="$option_elevated" \
+					--elevate="$option_elevate" \
+					--reason="$option_reason" \
+					--permissions="$option_permissions" \
+					--no-recursive --parents -- "$parent" || __path_status=$?
+				if [[ $__path_status -eq 0 ]]; then
+					__own "$path" || __path_status=$?
+				fi
+				if [[ $__path_status -ne 0 ]]; then
+					__result_status=$__path_status
+				fi
 			fi
-			__retry --no-recursive --parents -- "$(fs-path --parents -- "${paths[0]}")" || return
-			# now try again on our path
-			__own || __own_status=$?
-		fi
-		# handle optional failure
-		if [[ $__own_status -ne 0 && $option_optional == 'no' ]]; then
-			return "$__own_status"
-		fi
+		done
+	else
+		__own "${option_paths[@]}" || __result_status=$?
 	fi
 
-	# check if we had missing paths
-	if [[ ${#paths[@]} -ne ${#option_paths[@]} ]]; then
-		if [[ $option_optional == 'yes' ]]; then
-			return 0
-		fi
-		return 2 # ENOENT 2 No such file or directory
+	# handle failures
+	if [[ $option_optional == 'yes' ]]; then
+		return 0
 	fi
+	return "$__result_status"
 )
 
 # fire if invoked standalone
