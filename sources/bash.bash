@@ -4856,7 +4856,6 @@ function __join {
 # __trim --source+target={value} --leading-delimiters=' \'\"' --trailing-delimiters=' \'\"'
 # ```
 
-
 function __flag {
 	local FLAG__item FLAG__reference='' FLAG__targets=() FLAG__mode='' FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__empty='yes'
 	while [[ $# -ne 0 ]]; do

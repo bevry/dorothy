@@ -38,133 +38,144 @@ function debug_bash() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# this is shared between [debug-bash] and [dorothy]
-	function __get_bash_binaries {
+	# process
+	local item option_bash_binaries=() option_bash_options=() option_wrap='no' option_continue='no' option_bash_arguments=() option_only_print_binaries='no'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--help | -h) help ;;
+		--no-wrap* | --wrap*) __flag {option_wrap} --affirmative -- "$item" ;;
+		--no-continue* | --continue*) __flag {option_continue} --affirmative -- "$item" ;;
+		--no-only-print-binaries* | --only-print-binaries*) __flag {option_only_print_binaries} --affirmative -- "$item" ;;
+		--all) option_bash_binaries+=(all) ;;
+		--ab | --all-binaries | --all-bash-binaries) option_bash_binaries+=(all-binaries) ;;
+		--av | --all-versions | --all-bash-versions) option_bash_binaries+=(all-versions) ;;
+		--bash=* | --b=* | --binary=* | --binaries=* | --bash-binary=* | --bash-binaries=*) __split --target={option_bash_binaries} --append --no-zero-length --delimiters=$'\n\t' -- "${item#*=}" ;;
+		--v=* | --version=* | --versions=* | --bash-version=* | --bash-versions=*) __split --target={option_bash_binaries} --append --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
+		-c=* | --code=* | --eval=*)
+			option_bash_options+=(-c "${item#*=}")
+			;;
+		-x)
+			option_bash_options+=(-x)
+			export PS4="$DEBUG_FORMAT"
+			;;
+		-v)
+			option_bash_options+=(-v)
+			export PS4="$DEBUG_FORMAT"
+			;;
+		-xv | -vx)
+			option_bash_options+=(-xv)
+			export PS4="$DEBUG_FORMAT"
+			;;
+		--)
+			if [[ $1 == bash ]]; then
+				shift
+				if [[ $1 == -- ]]; then
+					shift
+				fi
+			fi
+			if [[ $1 == -* ]]; then
+				help "Custom options for bash are not supported."
+			fi
+			option_bash_arguments+=("$@")
+			shift "$#"
+			break
+			;;
+		--*) help "An unrecognised flag was provided: $item" ;;
+		*) help "An unrecognised argument was provided: $item" ;;
+		esac
+	done
+
+	# prepare
+	local __exit_status=0
+	function __get_all_bash_binaries_and_versions {
 		{
 			type -pa bash || :
 			expand-path -- "$XDG_BIN_HOME/bash-*" || :
 		} | echo-unique --stdin
 	}
+	function __get_all_bash_binaries {
+		type -pa bash | echo-unique --stdin
+	}
+	function __get_all_bash_versions {
+		expand-path -- "$XDG_BIN_HOME/bash-*" || :
+	}
 
-	# process
-	local item option_bash_binaries=() option_args=() option_wrap='no' option_continue='no' option_cmd=()
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-wrap'* | '--wrap'*) __flag {option_wrap} --affirmative -- "$item" ;;
-		'--no-continue'* | '--continue'*) __flag {option_continue} --affirmative -- "$item" ;;
-		'--bash='* | '--version='* | '--versions='*) __split --target={option_bash_binaries} --append --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
-		'--all' | '--all='*)
-			if [[ ${item#*=} == 'no' ]]; then
-				continue
-			fi
-			local bash_binaries=()
-			__split --target={bash_binaries} --no-zero-length --invoke -- \
-				__get_bash_binaries
-			option_bash_binaries+=("${bash_binaries[@]}")
-			;;
-		'-x')
-			option_args+=('-x')
-			export PS4="$DEBUG_FORMAT"
-			;;
-		'-v')
-			option_args+=('-v')
-			export PS4="$DEBUG_FORMAT"
-			;;
-		'-xv' | '-vx')
-			option_args+=('-xv')
-			export PS4="$DEBUG_FORMAT"
-			;;
-		'--')
-			option_cmd+=("$@")
-			shift "$#"
-			break
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*)
-			option_cmd+=("$item" "$@")
-			shift $#
-			;;
-		esac
-	done
-
-	# check
-	if [[ ${#option_cmd[@]} -eq 0 ]]; then
-		help 'No <command> was provided.'
+	# determine bash binaries
+	local bash_input bash_binary bash_binaries=()
+	if [[ ${#option_bash_binaries[@]} -eq 0 ]]; then
+		option_bash_binaries+=('bash')
 	fi
-
-	# check if we have a function, in which case only support the args
-	local cmd_first="${option_cmd[0]}"
-	if [[ $cmd_first != '-c' ]]; then
-		if [[ "$(type -t "$cmd_first")" == 'function' ]]; then
-			if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
-				help 'Cannot invoke a function through a custom bash binary.'
-			fi
-			if [[ ${#option_args[@]} -eq 0 ]]; then
-				help 'There is no point invoking debug-bash without options.'
-			fi
-			# function/builtin
-			set "${option_args[@]}"
-			"${option_cmd[@]}" # eval
-			return
+	for bash_input in "${option_bash_binaries[@]}"; do
+		if [[ $bash_input == 'all' ]]; then
+			setup-util-bash --all-versions
+			__split --target={bash_binaries} --no-zero-length --invoke -- \
+				__get_all_bash_binaries_and_versions
+			continue
+		elif [[ $bash_input == 'all-versions' ]]; then
+			# install all versions, and use all binaries
+			setup-util-bash --all-versions
+			__split --target={bash_binaries} --no-zero-length --invoke -- \
+				__get_all_bash_versions
+			continue
+		elif [[ $bash_input == 'all-binaries' ]]; then
+			__split --target={bash_binaries} --no-zero-length --invoke -- \
+				__get_all_bash_binaries
+			continue
 		fi
-		# update the command with the resolved path so that bash can execute it
-		if [[ $cmd_first == 'bash' ]]; then
-			help "Use --bash=$cmd_first to invoke bash through a custom binary."
+		if [[ $bash_input =~ ^[0-9] ]]; then
+			# convert version number to executable
+			setup-util-bash --version="$bash_input"
+			bash_input="$(expand-path -- "$XDG_BIN_HOME/bash-$bash_input*" | echo-first-line --stdin)"
+			# if it doesn't exist, install it
 		fi
-		option_cmd[0]="$(type -P "$cmd_first")"
+		bash_binary="$(type -P "$bash_input" || :)"
+		if [[ -z $bash_binary ]]; then
+			echo-style --error='The bash binary ' --code="$bash_input" ' does not exist.'
+			__exit_status=2 # ENOENT 2 No such file or directory
+			continue
+		else
+			bash_binaries+=("$bash_binary")
+		fi
+	done
+	__unique --source+target={bash_binaries}
+	if [[ $option_only_print_binaries == 'yes' ]]; then
+		__print_lines "${bash_binaries[@]}"
+		return "$__exit_status"
 	fi
 
 	# resolve bash path
-	local cmd=() __exit_status=0
-	if [[ ${#option_bash_binaries[@]} -ne 0 ]]; then
-		local bash_input bash_path bash_binary bash_version
-		for bash_input in "${option_bash_binaries[@]}"; do
-			if [[ $bash_input =~ ^[0-9] ]]; then
-				# convert version number to executable
-				bash_input="$(expand-path -- "$XDG_BIN_HOME/bash-$bash_input*" | echo-first-line --stdin)"
+	local cmd=() bash_binary bash_version bash_path
+	for bash_binary in "${bash_binaries[@]}"; do
+		bash_version="$("$bash_binary" -c 'printf '%s' "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}.${BASH_VERSINFO[2]}"')"
+		# check bash version
+		if [[ $bash_version == '4.1'* || $bash_version == '3.1'* || $bash_version == '3.0'* || $bash_version == '2.'* || $bash_version == '1.'* || $bash_version == '0.'* ]]; then
+			echo-style --error="The bash binary [$bash_input] is version [$bash_version], which is not supported."
+			__exit_status=75 # EPROGMISMATCH 75 Program version wrong
+			continue
+		fi
+		# enforce the bash version if custom
+		if [[ ${#option_bash_binaries[@]} -eq 0 ]]; then
+			# we are just using the default one
+			cmd=("$bash_binary" "${option_bash_options[@]}" -- "${option_bash_arguments[@]}")
+			if [[ $option_wrap == 'yes' ]]; then
+				cmd=(eval-helper --verbose --wrap -- "${cmd[@]}")
 			fi
-			bash_binary="$(type -P "$bash_input" || :)"
-			if [[ -z $bash_binary ]]; then
-				echo-style --error="The bash binary [$bash_input] does not exist."
-				__exit_status=2 # ENOENT 2 No such file or directory
-				continue
-			fi
-			bash_version="$("$bash_binary" -c 'IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"; printf '%s' "${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}"')"
-			# check bash version
-			if [[ $bash_version == '4.1'* || $bash_version == '3.1'* || $bash_version == '3.0'* || $bash_version == '2.'* || $bash_version == '1.'* || $bash_version == '0.'* ]]; then
-				echo-style --error="The bash binary [$bash_input] is version [$bash_version], which is not supported."
-				__exit_status=75 # EPROGMISMATCH 75 Program version wrong
-				continue
-			fi
+		else
 			bash_path="$(fs-temp --directory='debug-bash' --directory="custom-path-for-bash-$bash_version" --directory --touch)"
 			ln -sf -- "$bash_binary" "$bash_path/bash"
-			cmd=(env PATH="$bash_path:$PATH" "$bash_binary") # bash_binary to make it obvious which bash is being used
-			cmd+=("${option_args[@]}" "${option_cmd[@]}")
+			cmd=(env PATH="$bash_path:$PATH" "$bash_binary" "${option_bash_options[@]}" -- "${option_bash_arguments[@]}")
 			if [[ $option_wrap == 'yes' ]]; then
 				cmd=(eval-helper --verbose --wrap --command="${cmd[*]/$PATH/\"\$PATH\"}" -- "${cmd[@]}")
 			fi
-			if [[ $option_continue == 'yes' ]]; then
-				"${cmd[@]}" || __exit_status=$? # eval
-			else
-				"${cmd[@]}" # eval
-			fi
-		done
-	else
-		cmd=()
-		if [[ ${#option_args[@]} -ne 0 ]]; then
-			cmd+=(bash "${option_args[@]}")
-		elif [[ $cmd_first == '-c' ]]; then
-			cmd+=(bash)
 		fi
-		cmd+=("${option_cmd[@]}")
-		if [[ $option_wrap == 'yes' ]]; then
-			cmd=(eval-helper --verbose --wrap -- "${cmd[@]}")
+		if [[ $option_continue == 'yes' ]]; then
+			"${cmd[@]}" || __exit_status=$? # eval
+		else
+			"${cmd[@]}" # eval
 		fi
-		"${cmd[@]}" # eval
-	fi
+	done
 	if [[ $__exit_status -ne 0 ]]; then
 		return "$__exit_status"
 	fi
