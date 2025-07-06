@@ -1642,42 +1642,48 @@ function dorothy_() (
 	}
 
 	# this is shared between [debug-bash] and [dorothy]
-	function __get_bash_binaries {
-		{
-			type -pa bash || :
-			expand-path -- "$XDG_BIN_HOME/bash-*" || :
-		} | echo-unique --stdin
-	}
 	function act_test {
 		# pre-requisites
 		assert_dorothy_configured
 
 		# options
-		local item only=() skips=('dorothy' 'bash.bash') bash_binaries=() bash_custom='no'
 		# trunk-ignore(shellcheck/SC2034)
-		local only_current_bash_version=('debug-terminal')
+		local item only=() skips=('dorothy' 'bash.bash') user_bash_binaries=()
+		# trunk-ignore(shellcheck/SC2034)
+		local only_environment_bash=('debug-terminal' 'dorothy-internals')
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
 			case "$item" in
-			'--bash='*)
-				bash_binaries+=("${item#*=}")
-				bash_custom='yes'
+			--all | --ab | --all-binaries | --all-bash-binaries | --av | --all-versions | --all-bash-versions | --bash=* | --b=* | --binary=* | --binaries=* | --bash-binary=* | --bash-binaries=* | --v=* | --version=* | --versions=* | --bash-version=* | --bash-versions=*)
+				__split --target={user_bash_binaries} --no-zero-length --append --invoke -- \
+					debug-bash "$item" --only-print-binaries
 				;;
-			'--skip='*) skips+=("${item#*=}") ;;
-			'--only='*) only+=("${item#*=}") ;;
-			'--')
+			--skip=*) skips+=("${item#*=}") ;;
+			--only=*) only+=("${item#*=}") ;;
+			--)
 				only+=("$@")
 				shift $#
 				break
 				;;
-			'--'*)
+			--*)
 				help "An unrecognised flag was provided: $item"
 				return
 				;;
 			*) only+=("$item") ;;
 			esac
 		done
+
+		# unique the bash binaries
+
+		# load bash binaries
+		local environment_bash_binary other_bash_binaries=()
+		environment_bash_binary="$(type -P bash)"
+		if [[ ${#user_bash_binaries[@]} -eq 0 ]]; then
+			user_bash_binaries+=("$environment_bash_binary")
+		else
+			__evict --source={user_bash_binaries} --target={other_bash_binaries} --value="$environment_bash_binary" --optional
+		fi
 
 		# action
 		echo-style --h1='Dorothy Tests'
@@ -1705,12 +1711,6 @@ function dorothy_() (
 		# __print_lines '' 'debug-terminal-tty:'
 		# debug-terminal-tty || :
 		# __print_lines ''
-
-		# fetch the other bash locations to test against
-		if [[ ${#bash_binaries[@]} -eq 0 ]]; then
-			__split --target={bash_binaries} --no-zero-length --invoke -- \
-				__get_bash_binaries
-		fi
 
 		# prepare scan paths
 		local scan_paths=(
@@ -1746,37 +1746,52 @@ function dorothy_() (
 			__split --target={commands} --no-zero-length --invoke=try -- \
 				rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}"
 		fi
-		local filepath filename failed failures=() warnings=() bash_binary
+		local filepath filename passed failures=() warnings=() bash_binary pending failure success
 		for filepath in "${commands[@]}"; do
 			filename="$(basename -- "$filepath")"
-			failed='no'
+			passed=yes
 
 			# check if we want to skip this test
 			if __has {skips} -- "$filename"; then
 				continue
 			fi
 
-			# run the test on the current bash version
-			if [[ $bash_custom == 'no' ]]; then
-				# don't bother with flakey tests, see the blame, we had it, but it resembles a different issue, solve it being flakey instead
-				eval-helper --verbose --wrap -- "$filepath" --test || {
+			# styles
+			echo-style --h1="$filepath"
+
+			# run the test on the environment bash binary
+			if __has {only_environment_bash} -- "$filename"; then
+				# run only against the environment bash binary if desired
+				eval-helper --verbose --wrap \
+					-- "$filepath" --test || {
+					passed=no
 					failures+=("$filepath --test")
-					failed='yes'
+				}
+				continue
+			elif __has {user_bash_binaries} -- "$environment_bash_binary"; then
+				# run against the environment bash binary if desired
+				eval-helper --verbose --wrap \
+					-- "$filepath" --test || {
+					passed=no
+					failures+=("$filepath --test")
 				}
 			fi
 
-			# run again, ensuring this specific bash version is preferred
-			if [[ $failed == 'no' ]] && ! __has {only_current_bash_version} -- "$filename"; then
-				for bash_binary in "${bash_binaries[@]}"; do
-					eval-helper --verbose --wrap -- debug-bash --bash="$bash_binary" -- "$filepath" --test || {
-						# if [[ $bash_custom == 'no' ]] && __has {only_current_bash_version} -- "$filename"; then
-						# 	echo-style --warning='This test was expected to fail on other bash versions, marking as only warning instead of failure.'
-						# 	warnings+=("$bash_binary $filepath --test")
-						# else
-						failures+=("$bash_binary $filepath --test")
-						# fi
-					}
-				done
+			# run against the other bash binaries if desired
+			for bash_binary in "${other_bash_binaries[@]}"; do
+				# run
+				eval-helper --verbose --wrap -- \
+					debug-bash --bash="$bash_binary" -- "$filepath" --test || {
+					passed=no
+					failures+=("$bash_binary $filepath --test")
+				}
+			done
+
+			# styles
+			if [[ $passed == 'yes' ]]; then
+				echo-style --g1="$filepath"
+			else
+				echo-style --e1="$filepath"
 			fi
 		done
 
