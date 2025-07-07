@@ -99,7 +99,7 @@ function is_fs_invoke {
 		command+=("${command_args[@]}")
 	fi
 	# reset failures
-	__print_string >"$failures"
+	: >"$failures"
 	# execute the command
 	__do --redirect-status={fs_status} "${do_args[@]}" -- \
 		eval-helper --inherit --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
