@@ -285,7 +285,7 @@ fi
 export BASH_XTRACEFD
 BASH_XTRACEFD="${BASH_XTRACEFD:-"${DEBUG_OUTPUT_TARGET:-"2"}"}"
 function __debug_lines {
-	if [[ -n ${DEBUG-} ]]; then
+	if [[ -n ${BASH_DEBUG-} ]]; then
 		if [[ -z $BASH_XTRACEFD ]]; then
 			BASH_XTRACEFD="$TERMINAL_OUTPUT_TARGET"
 		fi
@@ -294,16 +294,27 @@ function __debug_lines {
 }
 
 # more detailed `set -x`
-DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
+BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
 function __enable_debugging {
-	PS4="$DEBUG_FORMAT"
-	DEBUG=yes
+	PS4="$BASH_DEBUG_FORMAT"
+	export BASH_DEBUG=yes BASH_DEBUG_X=yes
 	set -x
 }
 function __disable_debugging {
 	set +x
-	DEBUG=
+	BASH_DEBUG=
+	BASH_DEBUG_X=
 }
+if [[ ${BASH_DEBUG-} == 'yes' ]]; then
+	PS4="$BASH_DEBUG_FORMAT"
+	if [[ ${BASH_DEBUG_X-} == 'yes' && ${BASH_DEBUG_V-} == 'yes' ]]; then
+		set -xv
+	elif [[ ${BASH_DEBUG_X-} == 'yes' ]]; then
+		set -x
+	elif [[ ${BASH_DEBUG_V-} == 'yes' ]]; then
+		set -v
+	fi
+fi
 
 function __stack {
 	local index size=${#FUNCNAME[@]}
