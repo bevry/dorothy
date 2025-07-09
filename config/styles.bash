@@ -5,6 +5,17 @@
 
 # See <ansi-escape-codes.md>
 
+# disable tracing of this while it loads as it is too large
+# shared by `bash.bash` `styles.bash`
+if [[ $- == *x* ]]; then
+	set +x
+	BASH_X=yes
+fi
+if [[ $- == *v* ]]; then
+	set +v
+	BASH_V=yes
+fi
+
 #######################################
 # STYLE SUPPORT #######################
 
@@ -51,6 +62,7 @@ else
 	style__clear_screen=$'\n'"$style__clear_screen"
 fi
 
+style__ellipsis='…'
 style__bell=$'\a'
 style__newline=$'\n'
 style__tab=$'\t'
@@ -553,10 +565,13 @@ style__color_end__input_warning="${style__color_end__bold}${style__color_end__fo
 style__color__input_error="${style__color__error1}"
 style__color_end__input_error="${style__color_end__error1}"
 
-# confirm/choose/ask text
+# confirm/choose/ask/debugging text
 style__commentary='[ '
 style__commentary_end=' ]'
 style__icon_nothing_provided="${style__commentary}nothing provided${style__commentary_end}"
+style__icon_undeclared="${style__commentary}undeclared${style__commentary_end}"
+style__icon_undefined="${style__commentary}undefined${style__commentary_end}"
+style__icon_empty="${style__commentary}empty${style__commentary_end}"
 style__icon_no_selection="${style__commentary}no selection${style__commentary_end}"
 style__icon_nothing_selected="${style__commentary}nothing selected${style__commentary_end}"
 style__icon_using_password="${style__commentary}using the entered password${style__commentary_end}"
@@ -565,6 +580,9 @@ style__icon_timeout_optional="${style__commentary}timed out: not required${style
 style__icon_timeout_required="${style__commentary}input failure: timed out: required${style__commentary_end}"
 style__icon_input_failure="${style__commentary}input failure: %s${style__commentary_end}"
 style__nocolor__commentary_nothing_provided="${style__icon_nothing_provided}"
+style__nocolor__commentary_undeclared="${style__icon_undeclared}"
+style__nocolor__commentary_undefined="${style__icon_undefined}"
+style__nocolor__commentary_empty="${style__icon_empty}"
 style__nocolor__commentary_no_selection="${style__icon_no_selection}"
 style__nocolor__commentary_nothing_selected="${style__icon_nothing_selected}"
 style__nocolor__commentary_using_password="${style__icon_using_password}"
@@ -573,6 +591,9 @@ style__nocolor__commentary_timeout_optional="${style__icon_timeout_optional}"
 style__nocolor__commentary_timeout_required="${style__icon_timeout_required}"
 style__nocolor__commentary_input_failure="${style__icon_input_failure}"
 style__color__commentary_nothing_provided="${style__color__empty_line}${style__icon_nothing_provided}${style__color_end__empty_line}"
+style__color__commentary_undeclared="${style__color__empty_line}${style__icon_undeclared}${style__color_end__empty_line}"
+style__color__commentary_undefined="${style__color__empty_line}${style__icon_undefined}${style__color_end__empty_line}"
+style__color__commentary_empty="${style__color__empty_line}${style__icon_empty}${style__color_end__empty_line}"
 style__color__commentary_no_selection="${style__color__empty_line}${style__icon_no_selection}${style__color_end__empty_line}"
 style__color__commentary_nothing_selected="${style__color__empty_line}${style__icon_nothing_selected}${style__color_end__empty_line}"
 style__color__commentary_using_password="${style__color__empty_line}${style__icon_using_password}${style__color_end__empty_line}"
@@ -715,18 +736,18 @@ function refresh_style_cache {
 		if [[ $use_color == 'yes' ]]; then
 			# begin
 			var="style__color__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_defined "$var"; then
 				eval "style__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_defined "$var"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__nocolor__${style}"
 					eval "style__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_defined "$var"; then
 						found='yes'
 					fi
 				fi
@@ -734,18 +755,18 @@ function refresh_style_cache {
 
 			# end
 			var="style__color_end__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_defined "$var"; then
 				eval "style__end__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__end__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_defined "$var"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__nocolor_end__${style}"
 					eval "style__end__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_defined "$var"; then
 						found='yes'
 					fi
 				fi
@@ -753,18 +774,18 @@ function refresh_style_cache {
 		else
 			# begin
 			var="style__nocolor__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_defined "$var"; then
 				eval "style__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_defined "$var"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__color__${style}"
 					eval "style__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_defined "$var"; then
 						found='yes'
 					fi
 				fi
@@ -772,18 +793,18 @@ function refresh_style_cache {
 
 			# end
 			var="style__nocolor_end__${style}"
-			if __is_var_set "$var"; then
+			if __is_var_defined "$var"; then
 				eval "style__end__${style}=\"\${!var}\""
 				found='yes'
 			else
 				var="style__end__${style}"
-				if __is_var_set "$var"; then
+				if __is_var_defined "$var"; then
 					# no need to update it
 					found='yes'
 				else
 					var="style__color_end__${style}"
 					eval "style__end__${style}=''" # set to nothing regardless
-					if __is_var_set "$var"; then
+					if __is_var_defined "$var"; then
 						found='yes'
 					fi
 				fi
@@ -796,3 +817,14 @@ function refresh_style_cache {
 		fi
 	done
 }
+
+# restore tracing
+# shared by `bash.bash` `styles.bash`
+if [[ -n ${BASH_X-} ]]; then
+	unset BASH_X
+	set -x
+fi
+if [[ -n ${BASH_V-} ]]; then
+	unset BASH_V
+	set -v
+fi

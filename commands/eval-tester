@@ -32,6 +32,9 @@ function eval_tester() (
 			    Will run the command with debugging enabled.
 			--bash=<bash path>
 			    Used to ensure that the command is invoked through a specific bash binary.
+
+			--trailing-newlines
+			    Preserve trailing newlines on STDOUT, STDERR, and TTY comparisons.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			echo-error "$@"
@@ -40,39 +43,41 @@ function eval_tester() (
 	}
 
 	# process
-	local item option_cmd=() ignore_value=$'\f' option_quiet='yes' option_name='' option_bash='' option_status='0' option_stdout='' option_discard_stdout='' option_stderr='' option_discard_stderr='' option_tty='' option_discard_tty='' option_debug=''
+	local item option_cmd=() ignore_value=$'\f' option_quiet='yes' option_name='' option_bash='' option_status='0' option_stdout='' option_discard_stdout='' option_stderr='' option_discard_stderr='' option_tty='' option_discard_tty='' option_debug='no' option_trace='no' option_trailing_newlines='no'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*) __flag {option_quiet} --non-affirmative -- "$item" ;;
-		'--no-quiet'* | '--quiet'*) __flag {option_quiet} --affirmative -- "$item" ;;
-		'--name='*) option_name="${item#*=}" ;;
-		'--bash='*) option_bash="${item#*=}" ;; # unlike [dorothy test] and [debug-bash] only support a single bash binary here, as nothing else makes sense for the [eval-tester] use case, as it is for getting specific results for a specific bash version
-		'--ignore-status') option_status="$ignore_value" ;;
-		'--ignore-stdout') option_stdout="$ignore_value" ;;
-		'--ignore-stderr') option_stderr="$ignore_value" ;;
-		'--ignore-tty') option_tty="$ignore_value" ;;
-		'--no-discard-stdout'* | '--discard-stdout'*) __flag {option_discard_stdout} --affirmative -- "$item" ;;
-		'--no-discard-stderr'* | '--discard-stderr'*) __flag {option_discard_stderr} --affirmative -- "$item" ;;
-		'--no-discard-tty'* | '--discard-tty'*) __flag {option_discard_tty} --affirmative -- "$item" ;;
-		'--ignore-outputs')
+		--help | -h) help ;;
+		--no-verbose* | --verbose*) __flag {option_quiet} --non-affirmative -- "$item" ;;
+		--no-quiet* | --quiet*) __flag {option_quiet} --affirmative -- "$item" ;;
+		--name=*) option_name="${item#*=}" ;;
+		--bash=*) option_bash="${item#*=}" ;; # unlike [dorothy test] and [debug-bash] only support a single bash binary here, as nothing else makes sense for the [eval-tester] use case, as it is for getting specific results for a specific bash version
+		--ignore-status) option_status="$ignore_value" ;;
+		--ignore-stdout) option_stdout="$ignore_value" ;;
+		--ignore-stderr) option_stderr="$ignore_value" ;;
+		--ignore-tty) option_tty="$ignore_value" ;;
+		--no-discard-stdout* | --discard-stdout*) __flag {option_discard_stdout} --affirmative -- "$item" ;;
+		--no-discard-stderr* | --discard-stderr*) __flag {option_discard_stderr} --affirmative -- "$item" ;;
+		--no-discard-tty* | --discard-tty*) __flag {option_discard_tty} --affirmative -- "$item" ;;
+		--ignore-outputs)
 			option_stdout="$ignore_value"
 			option_stderr="$ignore_value"
 			option_tty="$ignore_value"
 			;;
-		'--status='*) option_status="${item#*=}" ;;
-		'--stdout='*) option_stdout="${item#*=}" ;;
-		'--stderr='*) option_stderr="${item#*=}" ;;
-		'--tty='*) option_tty="${item#*=}" ;;
-		'--no-debug'* | '--debug'*) __flag {option_debug} --affirmative -- "$item" ;;
-		'--')
+		--status=*) option_status="${item#*=}" ;;
+		--stdout=*) option_stdout="${item#*=}" ;;
+		--stderr=*) option_stderr="${item#*=}" ;;
+		--tty=*) option_tty="${item#*=}" ;;
+		--no-debug* | --debug*) __flag {option_debug} --affirmative -- "$item" ;;
+		--no-trace* | --trace*) __flag {option_trace} --affirmative -- "$item" ;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag {option_trailing_newlines} --affirmative -- "$item" ;;
+		--)
 			option_cmd+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		--*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
@@ -82,15 +87,19 @@ function eval_tester() (
 		option_quiet="$(is-ci --verbose)"
 	fi
 
-	# if debugging, or custom bash, wrap in debug_bash
-	if [[ $option_debug == 'yes' ]]; then
+	# if debugging, or custom bash, wrap in debug_bash, keep it clean
+	if [[ -n $option_bash || $option_debug == 'yes' || $option_trace == 'yes' ]]; then
+		local pieces=(debug_bash)
 		if [[ -n $option_bash ]]; then
-			option_cmd=(debug_bash -x --bash="$option_bash" -- "${option_cmd[@]}")
-		else
-			option_cmd=(debug_bash -x -- "${option_cmd[@]}")
+			pieces+=(--bash="$option_bash")
 		fi
-	elif [[ -n $option_bash ]]; then
-		option_cmd=(debug_bash --bash="$option_bash" -- "${option_cmd[@]}")
+		if [[ $option_debug == 'yes' ]]; then
+			pieces+=(--debug)
+		fi
+		if [[ $option_trace == 'yes' ]]; then
+			pieces+=(--trace)
+		fi
+		option_cmd=("${pieces[@]}" -- "${option_cmd[@]}")
 	fi
 
 	# determine bash version, so we can know if BASH_XTRACEFD is supported
@@ -111,7 +120,9 @@ function eval_tester() (
 			bash_version_major="${versions[0]}"
 			bash_version_minor="${versions[1]}"
 		else
+			# trunk-ignore(shellcheck/SC2153)
 			bash_version_major="$BASH_VERSION_MAJOR"
+			# trunk-ignore(shellcheck/SC2153)
 			bash_version_minor="$BASH_VERSION_MINOR"
 		fi
 		if ! [[ $bash_version_major -ge 5 || $bash_version_major -eq 4 && $bash_version_minor -ge 1 ]]; then
@@ -128,7 +139,7 @@ function eval_tester() (
 		if [[ -n $value ]]; then
 			echo-style --"$style"+element="$label" --newline --="$value" --newline --"$style"+/element="$label"
 		else
-			echo-style --"$style"+element/="$label" --dim+icon-nothing-provided
+			echo-style --"$style"+element/="$label" --commentary-empty
 		fi
 	}
 	function __escaped_element {
@@ -136,7 +147,7 @@ function eval_tester() (
 		if [[ -n $value ]]; then
 			__element "$label escaped" "$style" "$(printf '%q' "$value")"
 		else
-			echo-style --"$style"+element/="$label escaped" --dim+icon-nothing-provided
+			echo-style --"$style"+element/="$label escaped" --commentary-empty
 		fi
 	}
 	function __compare {
@@ -215,7 +226,7 @@ function eval_tester() (
 	local TERMINAL_OUTPUT_TARGET__original="$TERMINAL_OUTPUT_TARGET"
 	export TERMINAL_OUTPUT_TARGET # from bash.bash but not exported
 	local reader
-	if [[ $CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
+	if [[ $BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
 		# Bash v4.2 has a bug where closing a file descriptor does not close the input to the file descriptor's process substitution, as such we have to send a terminating character ourself and handle that ourself.
 		reader='__cat_until'
 	else
@@ -230,30 +241,21 @@ function eval_tester() (
 		fi
 		printf '%s' "$?" >"$semaphore_tty_status"
 	)
-	# debug
-	if [[ $option_debug == 'yes' ]]; then
-		# BASH_XTRACEFD is from bash.bash and already exported
-		local BASH_XTRACEFD__original="$BASH_XTRACEFD" semaphore_debug_status
-		semaphore_debug_status="$(__get_semaphore "$semaphore_context.debug.status")"
-		semaphores_status+=("$semaphore_debug_status")
-		__open_fd {BASH_XTRACEFD} '>' >(
-			set +e
-			__do --redirect-stdout="$debug_output_target_original" -- cat
-			printf '%s' "$?" >"$semaphore_debug_status"
-		)
-	fi
 	# capture
 	local command_string time actual_exit_status actual_stdout actual_stderr actual_tty
-	args+=('--redirect-status={actual_exit_status}')
+	args+=(
+		--trailing-newlines="$option_trailing_newlines"
+		--redirect-status={actual_exit_status}
+	)
 	if [[ $option_discard_stdout == 'yes' ]]; then
-		args+=('--redirect-stdout={actual_stdout}')
+		args+=(--redirect-stdout={actual_stdout})
 	else
-		args+=('--copy-stdout={actual_stdout}')
+		args+=(--copy-stdout={actual_stdout})
 	fi
 	if [[ $option_discard_stderr == 'yes' ]]; then
-		args+=('--redirect-stderr={actual_stderr}')
+		args+=(--redirect-stderr={actual_stderr})
 	else
-		args+=('--copy-stderr={actual_stderr}')
+		args+=(--copy-stderr={actual_stderr})
 	fi
 	command_string="$(echo-escape-command -- "${option_cmd[@]}")"
 	echo-style --h2="$title" --newline --element+bold="$command_string"
@@ -261,23 +263,25 @@ function eval_tester() (
 	# __eval_helper --quiet="$option_quiet" --wrap <-- if this is done, element rendering, quite mode, and time duration can all be moved to eval-helper
 	__do "${args[@]}" -- "${option_cmd[@]}"
 	time="$(echo-math -- "$(__get_epoch_time) - $time")"
-	if [[ $CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
+	if [[ $BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
 		__to --target="$TERMINAL_OUTPUT_TARGET" -- $'\004'
 	fi
 	__close_fd {TERMINAL_OUTPUT_TARGET}
 	TERMINAL_OUTPUT_TARGET="$TERMINAL_OUTPUT_TARGET__original"
-	if [[ $option_debug == 'yes' ]]; then
-		__close_fd {BASH_XTRACEFD}
-		BASH_XTRACEFD="$BASH_XTRACEFD__original"
-	fi
 	echo-style --/element+bold="$command_string"
 	__wait_for_and_return_semaphores "${semaphores_status[@]}"
 	__wait_for_semaphores "$semaphore_tty_content"
-	actual_tty="$(<"$semaphore_tty_content")"
+	if [[ $option_trailing_newlines == 'no' ]]; then
+		actual_tty="$(<"$semaphore_tty_content")"
+	else
+		local REPLY
+		__read_whole <"$semaphore_tty_content"
+		actual_tty="$REPLY"
+	fi
 	rm -f -- "$semaphore_tty_content"
 
 	# determine if we fail, then we can decide what we are outputting
-	if [[ 
+	if [[
 		($option_status != "$ignore_value" && $actual_exit_status -ne $option_status) ||
 		($option_stdout != "$ignore_value" && $actual_stdout != "$option_stdout") ||
 		($option_stderr != "$ignore_value" && $actual_stderr != "$option_stderr") ||

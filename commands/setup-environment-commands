@@ -36,7 +36,6 @@ function help {
 
 		--empty
 		    If provided, don't load any environment variables, useful for debugging and demonstration.
-
 	EOF
 	if [[ $# -ne 0 ]]; then
 		__print_lines 'ERROR:' "$*" >&2
@@ -45,31 +44,46 @@ function help {
 }
 
 # arguments
-shell='' # shared by env.bash, as it is handled by a trap, we cannot pass arguments to it. SHELL is taken, it is the login shell
-option_empty=''
+option_shell='' # shared by env.bash, as it is handled by a trap, we cannot pass arguments to it. SHELL is taken, it is the login shell
+option_debug='no'
+option_blank='no'
+option_invalidate='no'
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
-	'--help') help ;;
-	'--shell='*) shell="${item#*=}" ;;
-	'--empty' | '--refresh') option_empty='yes' ;;
-	'--ppid='*) : ;; # ignore for now
-	'--') break ;;
-	*)
-		if [[ -z $shell ]]; then
-			shell="$item"
-		else
-			help "An unrecognised argument was provided: $item"
+	--help) help ;;
+	--shell=*) option_shell="${item#*=}" ;;
+	--ppid=*) : ;; # ignore for now, for future cache invalidation idea
+	--no-debug* | --debug*) __flag {option_debug} --affirmative -- "$item" || return ;;
+	--no-blank* | --blank*) __flag {option_blank} --affirmative -- "$item" || return ;;
+	--no-invalidate* | --invalidate*) __flag {option_invalidate} --affirmative -- "$item" || return ;;
+	--no-fresh* | --fresh*)
+		__flag {item} --affirmative -- "$item" || return
+		if [[ $item == 'yes' ]]; then
+			option_blank='yes'
+			option_cache='no'
+			option_invalidate='yes'
 		fi
 		;;
+	--*) __unrecognised_flag "$item" || return ;;
+	*) __unrecognised_argument "$item" || return ;;
 	esac
 done
-if [[ $option_empty == 'yes' ]]; then
-	env -i DOROTHY="$DOROTHY" "$DOROTHY/commands/setup-environment-commands" --shell="$shell"
-	exit
+if [[ $option_debug == 'yes' ]]; then
+	BASH_DEBUG='yes'
+	__debug_dump {option_shell} {option_debug} {option_blank} {option_invalidate}
 fi
-if [[ -z $shell ]]; then
+if [[ $option_blank == 'yes' ]]; then
+	env -i DOROTHY="$DOROTHY" \
+		"$DOROTHY/commands/setup-environment-commands" \
+		--shell="$option_shell" \
+		--debug="$option_debug" \
+		--invalidate="$option_invalidate"
+	# don't send blank because then it will recurse forever
+	exit 0
+fi
+if [[ -z $option_shell ]]; then
 	help 'Missing required argument: --shell=<shell>'
 fi
 
@@ -84,6 +98,12 @@ function __cut {
 CACHE_LOCK_FILE=''
 CACHE_RESULT_FILE=''
 function __cache {
+	# cache the environment setup commands
+	local cache_dir="$XDG_CACHE_HOME/dorothy/environment"
+	if [[ $option_invalidate == 'yes' ]]; then
+		__debug_dump --value='== CACHE INVALIDATED ==' {cache_dir}
+		rm -rfv "$XDG_CACHE_HOME/dorothy/environment" || :
+	fi
 	local option_validity_seconds='' option_checksum_command=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
@@ -112,15 +132,14 @@ function __cache {
 		__print_lines "ERROR: To use __cache you must specify a checksum command that exists and is executable, unlike: ${option_checksum_command[0]}" >&2
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	local pid=$$ now_env context_id checksum result_dir
+	local pid=$$ now_env context_id checksum
 	now_env="$(env -u TERM_SESSION_ID | sort)" || return
 	checksum="$("${option_checksum_command[@]}" <<<"$now_env" | __cut)" || return
-	context_id="setup-environment-commands.$shell.$checksum"
+	context_id="setup-environment-commands.$option_shell.$checksum"
 	# get an exclusive lock on the context
 	CACHE_LOCK_FILE="$(__get_semlock "$context_id")" || return
 	# get the result cache of the context
-	result_dir="$XDG_CACHE_HOME/dorothy/environment"
-	CACHE_RESULT_FILE="$result_dir/$context_id"
+	CACHE_RESULT_FILE="$cache_dir/$context_id"
 	# if cache is available and applicable
 	if [[ -f $CACHE_RESULT_FILE ]]; then
 		local now_seconds cache_seconds cache_ago_seconds
@@ -131,22 +150,22 @@ function __cache {
 		cache_ago_seconds="$((now_seconds - cache_seconds))"
 		if [[ $cache_ago_seconds -lt $option_validity_seconds ]]; then
 			# then use the cache
+			__debug_dump --value='== CACHE HIT ==' {CACHE_RESULT_FILE}
 			cat -- "$CACHE_RESULT_FILE" || return
 			rm -f -- "$CACHE_LOCK_FILE" || return
-			# __print_lines "CACHE HIT: $CACHE_RESULT_FILE" >/dev/tty
 			trap - EXIT # disable the [env.bash] trap
 			exit 0      # must be exit, otherwise [setup-environment-commands] will continue
 		else
-			# __print_lines "CACHE INVALIDATED: $CACHE_RESULT_FILE" >/dev/tty
+			__debug_dump --value='== CACHE MISS ==' {CACHE_RESULT_FILE}
 			:
 		fi
 	else
-		# __print_lines "CACHE NOT FOUND: $CACHE_RESULT_FILE" >/dev/tty
-		__mkdirp "$result_dir" || return
+		__debug_dump --value='== CACHE 404 ==' {CACHE_RESULT_FILE}
+		__mkdirp "$cache_dir" || return
 		:
 	fi
 	# cache needs updating
-	function on_env_finish__cache {
+	function __on_env_finish__cache {
 		local -i status=$?
 		trap - EXIT # disable our cache trap override
 		if [[ $status -ne 0 ]]; then
@@ -154,11 +173,12 @@ function __cache {
 			return "$status"
 		fi
 		# store the result
-		on_env_finish | tee -- "$CACHE_RESULT_FILE" || __return $? -- rm -f -- "$CACHE_LOCK_FILE" || return
-		rm -f -- "$CACHE_LOCK_FILE"
+		__debug_dump --value='== CACHE UPDATING ==' {CACHE_RESULT_FILE}
+		__on_env_finish | tee -- "$CACHE_RESULT_FILE" || __return $? -- rm -f -- "$CACHE_LOCK_FILE" || return
+		rm -f -- "$CACHE_LOCK_FILE" || return
 		return 0
 	}
-	trap on_env_finish__cache EXIT # replace our prior trap with one that caches the result
+	trap __on_env_finish__cache EXIT # replace our prior trap with one that caches the result
 }
 
 # load env.bash now, so that
@@ -314,7 +334,7 @@ function __rubygems {
 	if [[ -x $gem ]]; then
 		# fetch gempaths and replace colons with newlines
 		local gemdirs=() gemdir
-		__split --target={gemdirs} --no-zero-length --delimiter=':' --invoke -- \
+		__split --target={gemdirs} --no-zero-length --delimiters=':' --no-trailing-newlines --invoke -- \
 			"$gem" environment gempath || :
 		for gemdir in "${gemdirs[@]}"; do
 			PATH="$gemdir/bin:$PATH"
