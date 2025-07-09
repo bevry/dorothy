@@ -17,6 +17,17 @@
 # aa. Bash now puts `s' in the value of $- if the shell is reading from standard input, as Posix requires.
 # w.  `set -i' is no longer valid, as in other shells.
 
+# disable tracing of this while it loads as it is too large
+# shared by `bash.bash` `styles.bash`
+if [[ $- == *x* ]]; then
+	set +x
+	BASH_X=yes
+fi
+if [[ $- == *v* ]]; then
+	set +v
+	BASH_V=yes
+fi
+
 # =============================================================================
 # Essential Toolkit
 
@@ -55,7 +66,6 @@ function __command_missing {
 		fi
 	done
 	return 1 # all commands are present
-
 }
 
 # see `commands/command-exists` for details
@@ -113,10 +123,12 @@ function __print_strings_or_nothing {
 	fi
 }
 
-# print each argument on its own line, if no arguments, print a line
+# print a newline
 function __print_line {
 	printf '\n' || return
 }
+
+# print each argument on its own line, if no arguments, print a line
 function __print_lines_or_line {
 	# equivalent to `printf '\n'` if no arguments
 	printf '%s\n' "$@" || return
@@ -178,30 +190,34 @@ function __print_value_lines_or_line {
 	fi
 }
 
+function __print_without_styles {
+	# trim flag names and only output values
+	local args=() trail='yes'
+	while [[ $# -ne 0 ]]; do
+		case "$1" in
+		--no-trail | --trail=no) trail='no' ;;
+		--newline) args+=($'\n') ;;
+		--commentary-undeclared=) args+=('[ nothing provided ]') ;;
+		--commentary-undefined=) args+=('[ undefined ]') ;;
+		--commentary-empty=) args+=('[ empty ]') ;;
+		--*=*) args+=("${1#*=}") ;;
+		--*) : ;; # ignore other flags, as they empty styles
+		*) args+=("$1") ;;
+		esac
+		shift
+	done
+	# for conformance with `echo-style`, we print even if zero arguments
+	if [[ $trail == 'yes' ]]; then
+		args+=($'\n')
+	fi
+	printf '%s' "${args[@]}" || return
+}
 function __print_style {
 	if __command_exists -- echo-style; then
 		echo-style "$@" || return
 	else
-		# trim flag names and only output values
-		local args=() trail='yes'
-		while [[ $# -ne 0 ]]; do
-			case "$1" in
-			--no-trail | --trail=no) trail='no' ;;
-			--*=*) args+=("${1#*=}") ;;
-			--newline) args+=($'\n') ;;
-			--*) : ;; # ignore other flags, as they empty styles
-			*) args+=("$1") ;;
-			esac
-			shift
-		done
-		if [[ ${#args[@]} -eq 0 ]]; then
-			return 0
-		fi
-		if [[ $trail == 'yes' ]]; then
-			printf '%s\n' "${args[@]}" || return
-		else
-			printf '%s' "${args[@]}" || return
-		fi
+		# this is two functions for testing
+		__print_without_styles "$@" || return
 	fi
 }
 
@@ -209,55 +225,120 @@ function __dump {
 	if [[ $# -eq 0 ]]; then
 		return 0
 	fi
-	local DUMP__reference DUMP__value DUMP__log=()
+	local DUMP__item DUMP__style=yes DUMP__reference DUMP__indices=no DUMP__value DUMP__log=()
 	while [[ $# -ne 0 ]]; do
-		__dereference --origin="$1" --name={DUMP__reference} || return
+		DUMP__item="$1"
 		shift
+		case "$DUMP__item" in
+		--no-style | --no-color)
+			DUMP__style=no
+			continue
+			;;
+		--indices)
+			DUMP__indices=yes
+			continue
+			;;
+		--value=*)
+			DUMP__value="${DUMP__item#*=}"
+			if [[ -z $DUMP__value ]]; then
+				DUMP__log+=(--commentary-empty='' --newline)
+			else
+				DUMP__log+=(--invert="$DUMP__value" --newline)
+			fi
+			continue
+			;;
+		esac
+		__dereference --origin="$DUMP__item" --name={DUMP__reference} || return
+		# @todo support associative arrays
+		if ! __is_var_declared "$DUMP__reference"; then
+			DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undeclared='' --newline)
+			continue
+		fi
 		if __is_array "$DUMP__reference"; then
-			local DUMP__index DUMP__total
+			if ! __is_var_defined "$DUMP__reference"; then
+				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-undefined='' --newline)
+				continue
+			fi
+			local -i DUMP__index DUMP__total DUMP__char_index DUMP__char_total
 			eval "DUMP__total=\${#${DUMP__reference}[@]}"
 			if [[ $DUMP__total == 0 ]]; then
-				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --dim+icon-nothing-provided='' --newline)
+				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-empty='' --newline)
 			else
 				for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do
-					eval "DUMP__value=\"\${${DUMP__reference}[\$DUMP__index]}\""
-					if [[ -z $DUMP__value ]]; then
-						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --dim+icon-nothing-provided='' --newline)
+					eval "DUMP__value=\"\${${DUMP__reference}[DUMP__index]}\""
+					if [[ $DUMP__indices == 'yes' ]]; then
+						DUMP__log+=(--bold="${DUMP__reference}[ ${DUMP__index} | $(((DUMP__total - DUMP__index) * -1)) ]")
 					else
-						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]" ' = ' --invert="$DUMP__value" --newline)
+						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]")
+					fi
+					if [[ -z $DUMP__value ]]; then
+						DUMP__log+=(' = ' --commentary-empty='' --newline)
+					else
+						DUMP__log+=(' = ' --invert="$DUMP__value" --newline)
 					fi
 				done
 			fi
 		else
+			if ! __is_var_defined "$DUMP__reference"; then
+				DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undefined='' --newline)
+				continue
+			fi
 			DUMP__value="${!DUMP__reference}"
-			DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
+			if [[ -z $DUMP__value ]]; then
+				DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-empty='' --newline)
+			else
+				DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
+			fi
+			if [[ $DUMP__indices == 'yes' ]]; then
+				DUMP__char_total="${#DUMP__value}"
+				for ((DUMP__char_index = 0; DUMP__char_index < DUMP__char_total; ++DUMP__char_index)); do
+					if [[ $DUMP__indices == 'yes' ]]; then
+						DUMP__log+=(--bold="${DUMP__reference}[ ${DUMP__char_index} | $(((DUMP__char_total - DUMP__char_index) * -1)) ]")
+					else
+						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__char_index}]")
+					fi
+					if [[ -z $DUMP__value ]]; then
+						DUMP__log+=(' = ' --commentary-empty='' --newline)
+					else
+						DUMP__log+=(' = ' --invert="${DUMP__value:DUMP__char_index:1}" --newline)
+					fi
+				done
+			fi
 		fi
 	done
-	__print_style --no-trail "${DUMP__log[@]}" || return
+	if [[ $DUMP__style == 'no' ]]; then
+		__print_without_styles --no-trail "${DUMP__log[@]}" || return
+	else
+		__print_style --no-trail "${DUMP__log[@]}" || return
+	fi
 }
+
+# not actually used anywhere
+# function __stack {
+# 	local index size=${#FUNCNAME[@]}
+# 	for ((index = 0; index < size; ++index)); do
+# 		printf '%s\n' "${BASH_SOURCE[index]}:${BASH_LINENO[index]} ${FUNCNAME[index]}"
+# 	done
+# 	__dump {BASH_SOURCE} {LINENO} {FUNCNAME} {BASH_LINENO} {BASH_SUBSHELL} || return
+# 	caller
+# }
 
 # =============================================================================
 # Bash Configuration & Capability Detection, Including Shims/Polyfills
 # Place changelog entries in `versions.md`
 
 # Determine the bash version information, which is used to determine if we can use certain features or not.
-# BASH_VERSION_CURRENT --
-# BASH_VERSION_MAJOR -- 5
-# BASH_VERSION_MINOR -- 2
-# BASH_VERSION_PATCH -- 15
-# BASH_VERSION_LATEST -- 5.2.15
-# IS_BASH_VERSION_OUTDATED -- yes/no
 if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	# e.g. 5.2.15(1)-release => 5.2.15
 	# https://www.gnu.org/software/bash/manual/bash.html#index-BASH_005fVERSINFO
 	# `read` technique not needed as `BASH_VERSINFO` exists in all versions:
 	# IFS=. read -r BASH_VERSION_MAJOR BASH_VERSION_MINOR BASH_VERSION_PATCH <<<"${BASH_VERSION%%(*}"
-	BASH_VERSION_MAJOR="${BASH_VERSINFO[0]}" #
-	BASH_VERSION_MINOR="${BASH_VERSINFO[1]}"
-	BASH_VERSION_PATCH="${BASH_VERSINFO[2]}"
+	BASH_VERSION_MAJOR="${BASH_VERSINFO[0]}"                                                 # 5
+	BASH_VERSION_MINOR="${BASH_VERSINFO[1]}"                                                 # 2
+	BASH_VERSION_PATCH="${BASH_VERSINFO[2]}"                                                 # 15
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}" # 5.2.15(1)-release => 5.2.15
 	# trunk-ignore(shellcheck/SC2034)
-	BASH_VERSION_LATEST='5.2.37' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
+	BASH_VERSION_LATEST='5.3' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
 	# any v5 version is supported by dorothy, earlier throws on empty array access which is annoying
 	if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
 		IS_BASH_VERSION_OUTDATED='no'
@@ -279,51 +360,6 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 		}
 	fi
 fi
-
-# Custom debug target
-# BASH_XTRACEFD aka DEBUG_OUTPUT_TARGET
-export BASH_XTRACEFD
-BASH_XTRACEFD="${BASH_XTRACEFD:-"${DEBUG_OUTPUT_TARGET:-"2"}"}"
-function __debug_lines {
-	if [[ -n ${BASH_DEBUG-} ]]; then
-		if [[ -z $BASH_XTRACEFD ]]; then
-			BASH_XTRACEFD="$TERMINAL_OUTPUT_TARGET"
-		fi
-		__print_lines "$@" >>"$BASH_XTRACEFD" || return
-	fi
-}
-
-# more detailed `set -x`
-BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
-function __enable_debugging {
-	PS4="$BASH_DEBUG_FORMAT"
-	export BASH_DEBUG=yes BASH_DEBUG_X=yes
-	set -x
-}
-function __disable_debugging {
-	set +x
-	BASH_DEBUG=
-	BASH_DEBUG_X=
-}
-if [[ ${BASH_DEBUG-} == 'yes' ]]; then
-	PS4="$BASH_DEBUG_FORMAT"
-	if [[ ${BASH_DEBUG_X-} == 'yes' && ${BASH_DEBUG_V-} == 'yes' ]]; then
-		set -xv
-	elif [[ ${BASH_DEBUG_X-} == 'yes' ]]; then
-		set -x
-	elif [[ ${BASH_DEBUG_V-} == 'yes' ]]; then
-		set -v
-	fi
-fi
-
-function __stack {
-	local index size=${#FUNCNAME[@]}
-	for ((index = 0; index < size; ++index)); do
-		printf '%s\n' "${BASH_SOURCE[index]}:${BASH_LINENO[index]} ${FUNCNAME[index]}"
-	done
-	__dump {BASH_SOURCE} {LINENO} {FUNCNAME} {BASH_LINENO} {BASH_SUBSHELL} || return
-	caller
-}
 
 # CONSIDER
 # bash v5: localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
@@ -459,17 +495,31 @@ else
 	TERMINAL_THEME_INPUT_TARGET=''
 fi
 
+# all bash versions above 4.1 can open an available file descriptor to a reference:
+# debug-bash --continue --all-bash-versions --code='echo "$BASH_VERSION"; exec {my_fd}> >(cat)'
 if [[ $BASH_VERSION_MAJOR -ge 5 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 1) ]]; then
-	CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE=yes
+	BASH_CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE=yes
 else
-	CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE=no
+	BASH_CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE=no
 fi
 
 if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 2 ]]; then
-	CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION=no
+	BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION=no
 else
 	# trunk-ignore(shellcheck/SC2034)
-	CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION=yes
+	BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION=yes
+fi
+
+# all bash versions support a negative start index for arrays and strings:
+# debug-bash --all-bash-versions --code='echo "$BASH_VERSION"; arr=(a b c); echo "${arr[@]:(-1)}"; str=abc; echo "${str:(-1)}"'
+# all bash versions fail with a negative array length:
+# debug-bash --continue --all-bash-versions --code='echo "$BASH_VERSION"; arr=(a b c); echo "${arr[@]:0:(-1)}"'
+# bash versions prior to 4.2 fail with a negative strength length:
+# debug-bash --continue --all-bash-versions --code='echo "$BASH_VERSION"; str=abc; echo "${str:0:(-1)}"'
+if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
+	BASH_CAN_USE_A_NEGATIVE_LENGTH=yes
+else
+	BASH_CAN_USE_A_NEGATIVE_LENGTH=no
 fi
 
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
@@ -539,7 +589,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 			shift
 		fi
 		# proceed
-		printf '%s' "${1@u}" || return
+		printf '%s' "${@@u}" || return
 	}
 	function __get_uppercase_string {
 		# trim -- prefix
@@ -547,7 +597,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 			shift
 		fi
 		# proceed
-		printf '%s' "${1@U}" || return
+		printf '%s' "${@@U}" || return
 	}
 	function __get_lowercase_string {
 		# trim -- prefix
@@ -555,7 +605,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 			shift
 		fi
 		# proceed
-		printf '%s' "${1@L}" || return
+		printf '%s' "${@@L}" || return
 	}
 	# @Q is available, however it is strange, so don't shim
 else
@@ -569,7 +619,7 @@ else
 				shift
 			fi
 			# proceed
-			printf '%s' "${1^}" || return
+			printf '%s' "${@^}" || return
 		}
 		function __get_uppercase_string {
 			# trim -- prefix
@@ -577,7 +627,7 @@ else
 				shift
 			fi
 			# proceed
-			printf '%s' "${1^^}" || return
+			printf '%s' "${@^^}" || return
 		}
 		function __get_lowercase_string {
 			# trim -- prefix
@@ -585,20 +635,26 @@ else
 				shift
 			fi
 			# proceed
-			printf '%s' "${1,,}" || return
+			printf '%s' "${@,,}" || return
 		}
 	else
 		# bash < 4
+		# bash versions prior to v4 also do not have:
+		# `declare -u`: -u	to convert NAMEs to upper case on assignment
+		# `declare -l`: -l	to convert NAMEs to lower case on assignment
 		function __get_uppercase_first_letter {
 			# trim -- prefix
 			if [[ ${1-} == '--' ]]; then
 				shift
 			fi
 			# proceed
-			local input="$1"
-			local first_char="${input:0:1}" rest="${input:1}" result
-			result="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
-			printf '%s' "$result$rest" || return
+			while [[ $# -ne 0 ]]; do
+				local input="$1"
+				local first_char="${input:0:1}" rest="${input:1}" result
+				result="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
+				printf '%s' "$result$rest" || return
+				shift
+			done
 		}
 		function __get_uppercase_string {
 			# trim -- prefix
@@ -606,7 +662,10 @@ else
 				shift
 			fi
 			# proceed
-			printf '%s' "$1" | tr '[:lower:]' '[:upper:]' || return
+			while [[ $# -ne 0 ]]; do
+				printf '%s' "$1" | tr '[:lower:]' '[:upper:]' || return
+				shift
+			done
 		}
 		function __get_lowercase_string {
 			# trim -- prefix
@@ -614,7 +673,10 @@ else
 				shift
 			fi
 			# proceed
-			printf '%s' "$1" | tr '[:upper:]' '[:lower:]' || return
+			while [[ $# -ne 0 ]]; do
+				printf '%s' "$1" | tr '[:upper:]' '[:lower:]' || return
+				shift
+			done
 		}
 	fi
 fi
@@ -625,7 +687,87 @@ fi
 # q.  Negative length specifications in the `${var:offset:length}` expansion,
 #     previously errors, are now treated as offsets from the end of the variable.
 # `test -v varname` is not used as it behaviour is inconsistent to expectations and across versions
-function __is_var_set {
+# bash 3.2 and 4.0 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
+# bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
+# bash 4.4+ will have `local z; declare -p z` will result in `declare -- z`
+# `set -u` has no effect
+if [[ $BASH_VERSION_MAJOR -lt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 0) ]]; then
+	BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED='yes'
+else
+	BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED='no'
+fi
+if [[ $BASH_VERSION_MAJOR -lt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -lt 4) ]]; then
+	BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED='yes'
+else
+	BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED='no'
+fi
+if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 3 ]]; then
+	# function fn { local var; local -a arr; declare -p var arr || :; __get_var_declaration var arr a; }; fn
+	# bash 4.3:
+	# bash-4.3.30: declare: var: not found
+	# bash-4.3.30: declare: arr: not found
+	# declare -- var
+	# declare -a arr=...
+	BASH_CAN_DECLARE_P_VAR='no'
+	function __get_var_declaration {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		# process
+		local GET_VAR_DECLARATION__fodder GET_VAR_DECLARATION__declaration GET_VAR_DECLARATION__missing=()
+		GET_VAR_DECLARATION__fodder="$(declare -p)"
+		while [[ $# -ne 0 ]]; do
+			if [[ $GET_VAR_DECLARATION__fodder =~ declare\ (-[a-zA-Z]*|--)\ $1(=|$'\n'|$) ]]; then
+				GET_VAR_DECLARATION__declaration="${BASH_REMATCH[0]}"
+				if [[ $GET_VAR_DECLARATION__declaration == *= ]]; then
+					GET_VAR_DECLARATION__declaration+='…' # as we cannot get a multiline value, or a value that includes declare, just be simple, which is good enough for our use cases
+				fi
+				printf '%s\n' "$GET_VAR_DECLARATION__declaration" || return
+			else
+				GET_VAR_DECLARATION__missing+=("$1")
+			fi
+			shift
+		done
+		if [[ ${#GET_VAR_DECLARATION__missing[@]} -ne 0 ]]; then
+			local GET_VAR_DECLARATION__item
+			for GET_VAR_DECLARATION__item in "${GET_VAR_DECLARATION__missing[@]}"; do
+				printf '%s: declare: %s: not found\n' "$0" "$GET_VAR_DECLARATION__item" >&2 || :
+			done
+			return 1 # declare -p returns 1 so do the same
+		fi
+	}
+else
+	# function fn { local var; local -a arr; declare -p var arr || :; __get_var_declaration var arr a; }; fn
+	# bash 4.4:
+	# declare -- var
+	# declare -a arr
+	# declare -- var
+	# declare -a arr
+	# bash 4.2:
+	# declare -- var
+	# declare -a arr='()'
+	# declare -- var
+	# declare -a arr='()'
+	# bash 4.0:
+	# declare -- var=""
+	# declare -a arr='()'
+	# declare -- var=""
+	# declare -a arr='()'
+	BASH_CAN_DECLARE_P_VAR='yes'
+	function __get_var_declaration {
+		# trim -- prefix
+		if [[ ${1-} == '--' ]]; then
+			shift
+		fi
+		# process
+		declare -p "$@" || return
+	}
+fi
+function __is_var_defined {
 	# trim -- prefix
 	if [[ ${1-} == '--' ]]; then
 		shift
@@ -638,15 +780,63 @@ function __is_var_set {
 		shift
 		# support with and without squigglies for these references
 		__dereference --origin="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
-		# bash 3.2 and 4.0 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
-		# bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
-		# bash 4.4+ will have `local z; declare -p z` will result in `declare -- z`
-		# `set -u` has no effect
 		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
-		IS_VAR_SET__fodder="$(declare -p "$IS_VAR_SET__reference" 2>/dev/null)" || return 1
+		IS_VAR_SET__fodder="$(__get_var_declaration "$IS_VAR_SET__reference" 2>/dev/null)" || return 1
 		[[ $IS_VAR_SET__fodder == *'='* ]] || return 1
 	done
 	return 0
+}
+function __is_var_declared {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	__affirm_length_defined $# 'variable reference' || return
+	# process
+	local IS_VAR_SET__item IS_VAR_SET__reference IS_VAR_SET__fodder
+	while [[ $# -ne 0 ]]; do
+		IS_VAR_SET__item="$1"
+		shift
+		# support with and without squigglies for these references
+		__dereference --origin="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
+		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
+		__get_var_declaration "$IS_VAR_SET__reference" &>/dev/null || return 1
+		return 0
+	done
+	return 0
+}
+# b/c alias
+function __is_var_set {
+	__is_var_defined "$@" || return
+}
+
+# as __dereference calls __is_array, we cannot call __dereference from __is_array
+# NOTE:
+# if you do `local arr=(); a='string'` then `declare -p arr` will report `arr` as an array with a single element
+# to avoid that, you must do `local arr; a='string'` as such, never mangling types; or use separate variables (safe and explicit)
+function __is_array {
+	local IS_ARRAY__item IS_ARRAY__size IS_ARRAY__reference='' IS_ARRAY__fodder
+	__affirm_length_defined $# 'variable reference' || return
+	while [[ $# -ne 0 ]]; do
+		IS_ARRAY__item="$1"
+		shift
+		case "$IS_ARRAY__item" in
+		{*})
+			# trim starting and trailing squigglies
+			IS_ARRAY__size="${#IS_ARRAY__item}"
+			IS_ARRAY__reference="${IS_ARRAY__item:1:IS_ARRAY__size-2}"
+			;;
+		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
+		esac
+		# verify the reference
+		if [[ -z $IS_ARRAY__reference || $IS_ARRAY__reference == IS_ARRAY__* ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		# verify the variable is an array
+		IS_ARRAY__fodder="$(__get_var_declaration "$IS_ARRAY__reference" 2>/dev/null)" || return 1
+		[[ $IS_ARRAY__fodder == 'declare -a '* ]] || return 1
+	done
 }
 
 # Shim Array Support
@@ -792,7 +982,7 @@ function __affirm_value_is_valid_write_mode {
 	case "$1" in
 	'' | prepend | append | overwrite) return 0 ;; # valid modes
 	*)
-		__print_lines "ERROR: \${FUNCNAME[1]}: An invalid mode was provided: \$$1" >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: An invalid mode was provided: $1" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 		;;
 	esac
@@ -803,7 +993,6 @@ function __affirm_value_is_valid_write_mode {
 function __affirm_value_is_defined {
 	if [[ -z $1 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} must be provided." >&2 || :
-		__stack >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -812,7 +1001,7 @@ function __affirm_value_is_defined {
 # __affirm_value_is_undefined <value> <description>
 function __affirm_value_is_undefined {
 	if [[ -n $1 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} was already defined [$1]." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} must not be already defined, it was: $(__dump --value="$1" || :)" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -821,7 +1010,7 @@ function __affirm_value_is_undefined {
 # __affirm_value_is_integer <value> <description>
 function __affirm_value_is_integer {
 	if ! __is_integer "$1"; then
-		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} [$1] must be an integer." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} must be an integer, it was: $(__dump --value="$1" || :)" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -830,7 +1019,7 @@ function __affirm_value_is_integer {
 # __affirm_value_is_positive_integer <value> <description>
 function __affirm_value_is_positive_integer {
 	if ! __is_positive_integer "$1"; then
-		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} [$1] must be a positive integer." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} must be a positive integer, it was: $(__dump --value="$1" || :)" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -838,17 +1027,22 @@ function __affirm_value_is_positive_integer {
 # affirm value is greater than one
 # __affirm_length_defined <value> <description>
 function __affirm_length_defined {
+	# cannot use `__affirm_value_is_positive_integer` nor `_is_positive_integer` as they use this
+	if ! [[ $1 =~ ^[0-9]+$ ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The length of ${2:-"value"} must be a positive integer, it was: $(__dump --value="$1" || :)" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 	if [[ $1 -eq 0 ]]; then # ignore positive integer check, as that is too strict for this
-		__print_lines "ERROR: ${FUNCNAME[1]}: At least one ${2:-"value"} must be provided." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: At least one ${2:-"value"} must be provided, none were." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
 
 # affirm variable is an array
-# __affirm_variable_is_array <variable-name> <description>
+# __affirm_variable_is_array <variable-name>
 function __affirm_variable_is_array {
 	if ! __is_array "$1"; then # ignore positive integer check, as that is too strict for this
-		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"variable"} $1 must be an array." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: The variable \$$1 must be an array." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -961,36 +1155,7 @@ function __exit_on_exit_status {
 }
 
 # -------------------------------------
-# Variable & Value Toolkit
-
-# as __dereference calls __is_array, we cannot call __dereference from __is_array
-# NOTE:
-# if you do `local arr=(); a='string'` then `declare -p arr` will report `arr` as an array with a single element
-# to avoid that, you must do `local arr; a='string'` as such, never mangling types; or use separate variables (safe and explicit)
-function __is_array {
-	local IS_ARRAY__item IS_ARRAY__size IS_ARRAY__reference='' IS_ARRAY__fodder
-	__affirm_length_defined $# 'variable reference' || return
-	while [[ $# -ne 0 ]]; do
-		IS_ARRAY__item="$1"
-		shift
-		case "$IS_ARRAY__item" in
-		{*})
-			# trim starting and trailing squigglies
-			IS_ARRAY__size="${#IS_ARRAY__item}"
-			IS_ARRAY__reference="${IS_ARRAY__item:1:IS_ARRAY__size-2}"
-			;;
-		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
-		esac
-		# verify the reference
-		if [[ -z $IS_ARRAY__reference || $IS_ARRAY__reference == IS_ARRAY__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		# verify the variable is an array
-		IS_ARRAY__fodder="$(declare -p "$IS_ARRAY__reference" 2>/dev/null)" || return 1
-		[[ $IS_ARRAY__fodder == 'declare -a '* ]] || return 1
-	done
-}
+# Value Toolkit
 
 function __is_positive_integer {
 	__affirm_length_defined $# 'input' || return
@@ -1031,6 +1196,7 @@ function __is_even {
 	while [[ $# -ne 0 ]]; do
 		input="$1"
 		shift
+		__affirm_value_is_integer "$input" 'input' || return
 		[[ $((input % 2)) -eq 0 ]] || return
 	done
 }
@@ -1041,6 +1207,7 @@ function __is_odd {
 	while [[ $# -ne 0 ]]; do
 		input="$1"
 		shift
+		__affirm_value_is_integer "$input" 'input' || return
 		[[ $((input % 2)) -ne 0 ]] || return
 	done
 }
@@ -1051,6 +1218,33 @@ function __is_zero {
 		[[ $1 -eq 0 ]] || return
 		shift
 	done
+}
+
+# check if the input is a special target
+# this is beta, and may change later
+function __is_special_file {
+	local target="$1"
+	case "$target" in
+	NULL | TTY | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | tty | /dev/tty | null | /dev/null) return 0 ;; # is a special file
+	'')
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+		;;
+	*) __is_positive_integer "$target" || return 1 ;; # if it is a positive integer, it is a file descriptor which is a special file, otherwise it's a file target
+	esac
+}
+
+# this is beta, and may change later
+function __is_tty_special_file {
+	local target="$1"
+	case "$target" in
+	TTY | tty | /dev/tty) return 0 ;; # is a special tty
+	'')
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+		;;
+	*) return 1 ;; # not a special tty
+	esac
 }
 
 # -------------------------------------
@@ -1118,13 +1312,21 @@ function __dereference {
 		fi
 	fi
 	if [[ -n $DEREFERENCE__value_reference ]]; then
-		if __is_array "$DEREFERENCE__origin_reference"; then
-			# dereference an array, so we need to use the array variable name
+		if __is_array "$DEREFERENCE__value_reference"; then
 			# append is intentional, see __to usage
-			eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__origin_reference}[@]}\")" || return
+			if __is_array "$DEREFERENCE__origin_reference"; then
+				eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__origin_reference}[@]}\")" || return
+			else
+				eval "$DEREFERENCE__value_reference+=(\"\$${DEREFERENCE__origin_reference}\")" || return
+			fi
 		else
-			# dereference a variable, so we can just use the variable name
-			eval "$DEREFERENCE__value_reference=\"\$${DEREFERENCE__origin_reference}\"" || return
+			if __is_array "$DEREFERENCE__origin_reference"; then
+				# convert the value variable into an array via assignment
+				# @todo this may be a mistake in a hindsight? or not?
+				eval "$DEREFERENCE__value_reference=(\"\${${DEREFERENCE__origin_reference}[@]}\")" || return
+			else
+				eval "$DEREFERENCE__value_reference=\"\$${DEREFERENCE__origin_reference}\"" || return
+			fi
 		fi
 	fi
 	return 0
@@ -1134,6 +1336,7 @@ function __dereference {
 # Function Toolkit
 
 function __is_subshell_function {
+	# surprisingly despite the `declare -p <var>` bug in bash 4.3, `declare -f <fn>` works fine
 	# don't assign $1 to a variable, as then that means the variable name could conflict with the evaluation from the declare
 	# test "$(declare -f "$1")" == "$1"$' () \n{ \n    ('
 	[[ "$(declare -f "$1")" == "$1"$' () \n{ \n    ('* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
@@ -1203,7 +1406,7 @@ function __get_first_parent_that_is_not {
 
 # send the source to the targets, respecting the mode
 function __to {
-	local TO__item TO__source='' TO__targets=() TO__mode='' TO__inputs TO__input
+	local TO__item TO__source='' TO__targets=() TO__mode='' TO__inputs=() TO__input=''
 	while [[ $# -ne 0 ]]; do
 		TO__item="$1"
 		shift
@@ -1262,7 +1465,7 @@ function __to {
 				# as such, any joining by __to is off limits
 				# such as: `local arr; arr+=('value'); __dump arr`
 				# ^ bash v4+ will make `arr` an array with a single `'value'` element, however bash v3 because `arr` was not just declared but also defined as an empty string, will make `arr` have two elements in which the first is an empty string and the second is `'value'`, so when we are using arrays, we need to always not just declare them but define them as arrays to avoid bash v3 mishaps
-				if __is_array "$TO__target" || ! __is_var_set "$TO__target"; then
+				if __is_array "$TO__target"; then #  || ! __is_var_defined "$TO__target"; <-- introduces too many failures from divergences between bash versions <4.4 and others, as such require the caller to have code that is explicit and avoids such divergent silent failures
 					# array to array
 					case "$TO__mode" in
 					prepend) eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return ;;
@@ -1280,9 +1483,12 @@ function __to {
 						'' | overwrite) eval "$TO__target=\"\${${TO__source}[0]}\"" || return ;;
 						# mode is already validated
 						esac
-					elif [[ $TO__source_size -gt 1 ]]; then
-						__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well. Use an intermediate variable and send to [__join] if needed." >&2 || :
-						__dump "$TO__source" "$TO__target" >&2 || :
+					else
+						__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well:" >&2 || :
+						__dump "$TO__source" >&2 || :
+						if ! __is_special_file "$TO__target"; then
+							__dump "$TO__target" >&2 || :
+						fi
 						return 22 # EINVAL 22 Invalid argument
 						# don't do this the below commented out code, as it is ambiguous to what should happen when destination a variable, stream, or file:
 						# case "$TO__mode" in
@@ -1315,7 +1521,7 @@ function __to {
 		else
 			function __affirm_empty_mode {
 				if [[ -n $TO__mode ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: The target [$TO__target] is not a variable reference, so it cannot be used with the mode [$TO__mode]." >&2 || :
+					__print_lines "ERROR: ${FUNCNAME[1]}: The target [$TO__target] is not a variable reference nor file target, so it cannot be used with the mode [$TO__mode]." >&2 || :
 					return 22 # EINVAL 22 Invalid argument
 				fi
 			}
@@ -1325,9 +1531,12 @@ function __to {
 				if [[ $TO__source_size -eq 1 ]]; then
 					# array of single element to string
 					eval "TO__value=\"\${${TO__source}[0]}\"" || return
-				elif [[ $TO__source_size -gt 1 ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well. Use an intermediate variable and send to [__join] if needed." >&2 || :
-					__dump "$TO__source" "$TO__target" >&2 || :
+				else
+					__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well:" >&2 || :
+					__dump "$TO__source" >&2 || :
+					if ! __is_special_file "$TO__target"; then
+						__dump "$TO__target" >&2 || :
+					fi
 					return 22 # EINVAL 22 Invalid argument
 				fi
 				# don't do this the below commented out code, as it is ambiguous to what should happen when destination a variable, stream, or file:
@@ -1339,99 +1548,132 @@ function __to {
 			else
 				eval "TO__value=\"\$${TO__source}\"" || return
 			fi
-			function __to_target {
-				case "$TO__target" in
-				# stdout
-				1 | STDOUT | stdout | /dev/stdout)
-					__affirm_empty_mode
-					printf '%s' "$TO__value" || return
+			if __is_tty_special_file "$TO__target" && ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
+				TO__target="$TERMINAL_OUTPUT_TARGET"
+			fi
+			case "$TO__target" in
+			# stdout
+			1 | STDOUT | stdout | /dev/stdout)
+				__affirm_empty_mode || return
+				printf '%s' "$TO__value" || return
+				;;
+			# stderr
+			2 | STDERR | stderr | /dev/stderr)
+				__affirm_empty_mode || return
+				printf '%s' "$TO__value" >&2 || return
+				;;
+			# tty
+			TTY | tty | /dev/tty)
+				__affirm_empty_mode || return
+				printf '%s' "$TO__value" >>/dev/tty || return
+				;;
+			# null
+			NULL | null | /dev/null) ;; # do nothing
+			# file descriptor
+			[0-9]*)
+				__affirm_value_is_positive_integer "$TO__target" 'file descriptor' || return
+				__affirm_empty_mode || return
+				printf '%s' "$TO__value" >&"$TO__target" || return
+				;;
+			# file target
+			*)
+				case "$TO__mode" in
+				prepend)
+					local REPLY
+					__read_whole <"$TO__target" || return
+					printf '%s' "$TO__value$REPLY" >"$TO__target" || return
 					;;
-				# stderr
-				2 | STDERR | stderr | /dev/stderr)
-					__affirm_empty_mode
-					printf '%s' "$TO__value" >&2 || return
+				append)
+					printf '%s' "$TO__value" >>"$TO__target" || return
 					;;
-				# tty
-				TTY | tty | /dev/tty)
-					__affirm_empty_mode
-					if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
-						TO__target="$TERMINAL_OUTPUT_TARGET"
-						__to_target || return
-					else
-						printf '%s' "$TO__value" >>/dev/tty || return
-					fi
-					;;
-				# null
-				NULL | null | /dev/null) ;; # do nothing
-				# file descriptor
-				[0-9]*)
-					__affirm_value_is_positive_integer "$TO__target" 'file descriptor' || return
-					__affirm_empty_mode
-					printf '%s' "$TO__value" >&"$TO__target" || return
-					;;
-				# file target
-				*)
-					case "$TO__mode" in
-					prepend)
-						TO__value="$(<"$TO__target")$TO__value"
-						printf '%s' "$TO__value" >"$TO__target" || return
-						;;
-					append)
-						printf '%s' "$TO__value" >>"$TO__target" || return
-						;;
-					'' | overwrite)
-						printf '%s' "$TO__value" >"$TO__target" || return
-						;;
-					esac
+				'' | overwrite)
+					printf '%s' "$TO__value" >"$TO__target" || return
 					;;
 				esac
-			}
-			__to_target || return
+				;;
+			esac
 		fi
 	done
 }
 
-# normally, with > it is right to left, however that makes sense as > portions of our statement are on the right-side
-# however, __do is on the left side, so it should be left to right, such that this intuitively makes sense:
-# __do --copy-stderr=stderr.txt --copy-stdout=stdout.txt --redirect-stderr=STDOUT --copy-stdout=output.txt --redirect-stdout=NULL -- echo-style --stderr=my-stderr --stdout=my-stdout
-# as this makes no sense in this context:
-# __do --redirect-stdout=NULL --copy-stdout=output.txt --redirect-stderr=STDOUT --copy-stdout=stdout.txt --copy-stderr=stderr.txt -- echo-style --stderr=my-stderr --stdout=my-stdout
 #
 # @todo re-add samasama support for possible performance improvement: https://gist.github.com/balupton/32bfc21702e83ad4afdc68929af41c23
 # @todo consider using `FD>&-` instead of `FD>/dev/null`
 function __do {
 	# 🧙🏻‍♀️ the power is yours, send donations to github.com/sponsors/balupton
 	__affirm_length_defined $# 'argument' || return
-	# externally, we support left to right, however internally, it is implemented right to left, so perform the conversion
-	if [[ $1 != '--right-to-left' ]]; then
-		local DO__inversion=("$1")
-		shift
+	# normally, with > it is right to left, however that makes sense as > portions of our statement are on the right-side
+	# however, __do is on the left side, so it should be left to right, such that this intuitively makes sense:
+	# __do --copy-stderr=stderr.txt --copy-stdout=stdout.txt --redirect-stderr=STDOUT --copy-stdout=output.txt --redirect-stdout=NULL -- echo-style --stderr=my-stderr --stdout=my-stdout
+	# as this makes no sense in this context:
+	# __do --redirect-stdout=NULL --copy-stdout=output.txt --redirect-stderr=STDOUT --copy-stdout=stdout.txt --copy-stderr=stderr.txt -- echo-style --stderr=my-stderr --stdout=my-stdout
+	#
+	# furthermore, for some reason the recursion with the inversion is necessary for the tests to pass
+	# just doing recursion with inversion later, via set, or via pop, causes the tests to fail: <https://gist.github.com/balupton/cb05a7a8a161a9df2b246cf1491b7654>
+	if [[ $1 != '--inverted' ]]; then
+		local DO__inversion=()
 		while [[ $# -ne 0 && $1 != '--' ]]; do
 			DO__inversion=("$1" "${DO__inversion[@]}")
 			shift
 		done
-		__do --right-to-left "${DO__inversion[@]}" "$@"
+		__do --inverted "${DO__inversion[@]}" "$@"
+		return
+	else
+		shift # remove the --inverted flag
+	fi
+	local DO__trailing_newlines=yes DO__args=() DO__cmd=()
+	while [[ $# -ne 0 ]]; do
+		case "$1" in
+		--trailing-newlines | --trailing-newlines=yes)
+			DO__trailing_newlines=yes
+			shift
+			;;
+		--no-trailing-newlines | --trailing-newlines=no)
+			DO__trailing_newlines=no
+			shift
+			;;
+		--trailing-newlines=)
+			shift
+			;;
+		--)
+			shift
+			DO__cmd=("$@")
+			shift $#
+			break
+			;;
+		*)
+			DO__args+=("$1")
+			shift
+			;;
+		esac
+	done
+	if [[ ${#DO__cmd[@]} -eq 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: No command was provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if [[ ${#DO__args[@]} -eq 0 ]]; then
+		"${DO__cmd[@]}"
 		return
 	fi
-	shift # trim --right-to-left
-	# explicit return handling is to have this work in conditional mode
-	local DO__arg="$1" DO__arg_value DO__arg_flag
-	# process
-	DO__arg_value="${DO__arg#*=}"
+	# extract the arg that we will be working with on this recursion iteration
+	local DO__arg DO__arg_value DO__arg_flag
+	if [[ ${#DO__args[@]} -eq 1 ]]; then
+		DO__arg="${DO__args[0]}"
+		set -- --trailing-newlines="$DO__trailing_newlines" -- "${DO__cmd[@]}"
+	else
+		DO__arg="${DO__args[0]}" # get the first argument
+		DO__args=("${DO__args[@]:1}") # remove the first argument from the remainder
+		set -- --trailing-newlines="$DO__trailing_newlines" "${DO__args[@]}" -- "${DO__cmd[@]}"
+	fi
 	DO__arg_flag="${DO__arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
-	shift
+	DO__arg_value="${DO__arg#*=}"
 	# if target is tty, but terminal device file is redirected, then redo the flag with the redirection value
 	if __is_tty_special_file "$DO__arg_value" && ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
-		__do --right-to-left "$DO__arg_flag=$TERMINAL_OUTPUT_TARGET" "$@"
-		return
+		DO__arg_value="$TERMINAL_OUTPUT_TARGET"
+		DO__arg="${DO__arg_flag}=$DO__arg_value"
 	fi
 	# process
 	case "$DO__arg" in
-	--)
-		"$@"
-		return
-		;; # done
-
 	# stdout+stderr alias
 	'--redirect-stdout+stderr='*)
 		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg. You probably want [--redirect-stdout=$DO__arg_value --redirect-stderr=$DO__arg_value] or [--redirect-output=$DO__arg_value] instead. If you are doing a process substitution, you want the former suggestion and have the stderr process substitution output to >&2." >&2 || :
@@ -1445,21 +1687,21 @@ function __do {
 	# discard status
 	--discard-status | --no-status | --status=no)
 		# catch and discard the status
-		__try -- __do --right-to-left "$@"
+		__try -- __do --inverted "$@"
 		return
 		;;
 
 	# aliases for discard stdout, stderr, output
 	--discard-stdout | --no-stdout | --stdout=no)
-		__do --right-to-left "$@" >/dev/null
+		__do --inverted "$@" >/dev/null
 		return
 		;;
 	--discard-stderr | --no-stderr | --stderr=no)
-		__do --right-to-left "$@" 2>/dev/null
+		__do --inverted "$@" 2>/dev/null
 		return
 		;;
 	--discard-output | --no-output | --output=no | --discard-stdout+stderr | --no-stdout+stderr | --stdout+stderr=no)
-		__do --right-to-left "$@" &>/dev/null
+		__do --inverted "$@" &>/dev/null
 		return
 		;;
 
@@ -1469,7 +1711,7 @@ function __do {
 		__dereference --origin="$DO__arg_value" --name={DO__reference} || return
 
 		# catch the status
-		__try {DO__status} -- __do --right-to-left "$@"
+		__try {DO__status} -- __do --inverted "$@"
 		__return $? || return
 
 		# apply the status to the var target
@@ -1490,11 +1732,11 @@ function __do {
 	--redirect-status=* | --copy-status=*)
 		# catch the status
 		local DO__status
-		__try {DO__status} -- __do --right-to-left "$@"
+		__try {DO__status} -- __do --inverted "$@"
 		__return $? || return
 
 		# apply the status to the non-var target
-		__do --redirect-stdout="$DO__arg_value" -- __print_lines "$DO__status" || return
+		__do --inverted --redirect-stdout="$DO__arg_value" -- printf '%s' "$DO__status" || return
 
 		# return or discard the status
 		case "$DO__arg_flag" in
@@ -1509,7 +1751,7 @@ function __do {
 
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
-		local DO__reference DO__semaphore DO__result_value
+		local DO__reference DO__semaphore REPLY
 		__dereference --origin="$DO__arg_value" --name={DO__reference} || return
 
 		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
@@ -1518,13 +1760,16 @@ function __do {
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
 		DO__semaphore="$(__get_semaphore "__do.data-to-reference.$RANDOM$RANDOM")" || return
-		__do --right-to-left "$DO__arg_flag=$DO__semaphore" "$@"
+		__do --inverted "$DO__arg_flag=$DO__semaphore" "$@"
 		__return $? --invoke-only-on-failure -- rm -f -- "$DO__semaphore" || return
 
 		# load the value of the file, remove the file, apply the value to the var target
-		# trunk-ignore(shellcheck/SC2034)
-		DO__result_value="$(<"$DO__semaphore")" || return
-		eval "$DO__reference=\$DO__result_value" || return
+		if [[ $DO__trailing_newlines == no ]]; then
+			REPLY="$(<"$DO__semaphore")" || __return $? -- rm -f -- "$DO__semaphore" || return
+		else
+			__read_whole <"$DO__semaphore" || __return $? -- rm -f -- "$DO__semaphore" || return
+		fi
+		eval "$DO__reference=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return
 		rm -f -- "$DO__semaphore" || return
 		return
 		;;
@@ -1539,7 +1784,7 @@ function __do {
 	# 	# run our pipes
 	# 	case "$DO__arg_flag" in
 	# 	--redirect-stdout)
-	# 		__do --right-to-left "$@" | eval "$DO__code"
+	# 		__do --inverted "$@" | eval "$DO__code"
 	# 		return
 	# 		;;
 	# 	--redirect-stderr)
@@ -1548,7 +1793,7 @@ function __do {
 	# 		return 76 # EPROCUNAVAIL 76 Bad procedure for program
 	# 		;;
 	# 	--redirect-output)
-	# 		__do --right-to-left "$@" 2>&1 | eval "$DO__code"
+	# 		__do --inverted "$@" 2>&1 | eval "$DO__code"
 	# 		return
 	# 		;;
 	# 	*)
@@ -1570,13 +1815,13 @@ function __do {
 		# __do --stderr='(cat; __return 10; __return 20)' -- echo-style --stderr=stderr-result --stdout=stdout-result; echo "status=[${statusvar-}] stdout=[${stdoutvar-}] stderr=[${stderrvar-}]"
 		#
 		# with this internal code, will not fail, as the return statuses of the subshell redirections are ignored:
-		# --stderr) __do --right-to-left "$@" 2> >(eval "$DO__code"; __return $? -- touch "$DO__semaphore") ;;
+		# --stderr) __do --inverted "$@" 2> >(eval "$DO__code"; __return $? -- touch "$DO__semaphore") ;;
 		#
 		# with this internal code, will fail with 20:
-		# --stderr) __do --right-to-left "$@" 2> >(set +e; eval "$DO__code"; printf '%s' "$?" >"$DO__semaphore") ;;
+		# --stderr) __do --inverted "$@" 2> >(set +e; eval "$DO__code"; printf '%s' "$?" >"$DO__semaphore") ;;
 		#
 		# with this internal code, will fail with 10, which is what we want
-		# --stderr) __do --right-to-left "$@" 2> >(__do --status="$DO__semaphore" -- eval "$DO__code") ;;
+		# --stderr) __do --inverted "$@" 2> >(__do --status="$DO__semaphore" -- eval "$DO__code") ;;
 
 		# prepare our semaphore file that will track the exit status of the process substitution
 		DO__semaphore="$(__get_semaphore "__do.process.$RANDOM$RANDOM")" || return
@@ -1585,9 +1830,9 @@ function __do {
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
 		# note [>(...)] and [> >(...)] are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
 		case "$DO__arg_flag" in
-		--redirect-stdout) __do --right-to-left "$@" > >(__do --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		--redirect-stderr) __do --right-to-left "$@" 2> >(__do --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		--redirect-output) __do --right-to-left "$@" &> >(__do --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		--redirect-stdout) __do --inverted "$@" > >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		--redirect-stderr) __do --inverted "$@" 2> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		--redirect-output) __do --inverted "$@" &> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -1612,44 +1857,44 @@ function __do {
 
 		# redirect stdout to stdout, this is a no-op, continue to next
 		1 | STDOUT | stdout | /dev/stdout)
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
 		# redirect stdout to stderr
 		2 | STDERR | stderr | /dev/stderr)
-			__do --right-to-left "$@" >&2
+			__do --inverted "$@" >&2
 			return
 			;;
 
 		# redirect stdout to tty
 		TTY | tty | /dev/tty)
-			__do --right-to-left "$@" >>/dev/tty
+			__do --inverted "$@" >>/dev/tty
 			return
 			;;
 
 		# redirect stdout to null
 		NULL | null | /dev/null)
-			__do --right-to-left "$@" >/dev/null
+			__do --inverted "$@" >/dev/null
 			return
 			;;
 
 		# redirect stdout to FD target
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
-			__do --right-to-left "$@" >&"$DO__arg_value"
+			__do --inverted "$@" >&"$DO__arg_value"
 			return
 			;;
 
 		# no-op
 		'')
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
 		# redirect stdout to file target
 		*)
-			__do --right-to-left "$@" >>"$DO__arg_value"
+			__do --inverted "$@" >>"$DO__arg_value"
 			return
 			;;
 
@@ -1664,7 +1909,7 @@ function __do {
 		# copy stdout to stdout
 		1 | STDOUT | stdout | /dev/stdout)
 			# no-op
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -1675,7 +1920,7 @@ function __do {
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" > >(
+			__do --inverted "$@" > >(
 				set +e
 				tee -- >(
 					set +e
@@ -1697,7 +1942,7 @@ function __do {
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" > >(
+			__do --inverted "$@" > >(
 				set +e
 				tee -- >(
 					set +e
@@ -1715,7 +1960,7 @@ function __do {
 		# copy stdout to null
 		NULL | null | /dev/null)
 			# no-op
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -1728,7 +1973,7 @@ function __do {
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" > >(
+			__do --inverted "$@" > >(
 				set +e
 				tee -- >(
 					set +e
@@ -1745,7 +1990,7 @@ function __do {
 
 		# no-op
 		'')
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -1756,7 +2001,7 @@ function __do {
 			DO__semaphore="$(__get_semaphore "$DO__context")" || return
 
 			# execute, keeping stdout, copying to the value target, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" > >(
+			__do --inverted "$@" > >(
 				set +e
 				tee -a -- "$DO__arg_value"
 				printf '%s' "$?" >"$DO__semaphore"
@@ -1776,44 +2021,44 @@ function __do {
 
 		# redirect stderr to stdout
 		1 | STDOUT | stdout | /dev/stdout)
-			__do --right-to-left "$@" 2>&1
+			__do --inverted "$@" 2>&1
 			return
 			;;
 
 		# redirect stderr to stderr, this is a no-op, continue to next
 		2 | STDERR | stderr | /dev/stderr)
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
 		# redirect stderr to tty
 		TTY | tty | /dev/tty)
-			__do --right-to-left "$@" 2>>/dev/tty
+			__do --inverted "$@" 2>>/dev/tty
 			return
 			;;
 
 		# redirect stderr to null
 		NULL | null | /dev/null)
-			__do --right-to-left "$@" 2>/dev/null
+			__do --inverted "$@" 2>/dev/null
 			return
 			;;
 
 		# redirect stderr to FD target
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
-			__do --right-to-left "$@" 2>&"$DO__arg_value"
+			__do --inverted "$@" 2>&"$DO__arg_value"
 			return
 			;;
 
 		# no-op
 		'')
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
 		# redirect stderr to file target
 		*)
-			__do --right-to-left "$@" 2>>"$DO__arg_value"
+			__do --inverted "$@" 2>>"$DO__arg_value"
 			return
 			;;
 
@@ -1832,7 +2077,7 @@ function __do {
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" 2> >(
+			__do --inverted "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
@@ -1850,7 +2095,7 @@ function __do {
 		# copy stderr to stderr, this behaviour is unspecified, should it double the data to stderr?
 		2 | STDERR | stderr | /dev/stderr)
 			# no-op
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -1861,7 +2106,7 @@ function __do {
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" 2> >(
+			__do --inverted "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
@@ -1879,7 +2124,7 @@ function __do {
 		# copy stderr to null
 		NULL | null | /dev/null)
 			# no-op
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -1892,7 +2137,7 @@ function __do {
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" 2> >(
+			__do --inverted "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
@@ -1909,7 +2154,7 @@ function __do {
 
 		# no-op
 		'')
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -1920,7 +2165,7 @@ function __do {
 			DO__semaphore="$(__get_semaphore "$DO__context")" || return
 
 			# execute, keeping stderr, copying to the value target, and tracking the exit status to our semaphore file
-			__do --right-to-left "$@" 2> >(
+			__do --inverted "$@" 2> >(
 				set +e
 				tee -a -- "$DO__arg_value" >&2
 				printf '%s' "$?" >"$DO__semaphore"
@@ -1940,44 +2185,44 @@ function __do {
 
 		# redirect stderr to stdout
 		1 | STDOUT | stdout | /dev/stdout)
-			__do --right-to-left "$@" 2>&1
+			__do --inverted "$@" 2>&1
 			return
 			;;
 
 		# redirect stdout to stderr
 		2 | STDERR | stderr | /dev/stderr)
-			__do --right-to-left "$@" >&2
+			__do --inverted "$@" >&2
 			return
 			;;
 
 		# redirect stderr to stdout, then stdout to tty, as `&>>` is not supported in all bash versions
 		TTY | tty | /dev/tty)
-			__do --right-to-left "$@" >>/dev/tty 2>&1
+			__do --inverted "$@" >>/dev/tty 2>&1
 			return
 			;;
 
 		# redirect output to null
 		NULL | null | /dev/null | no)
-			__do --right-to-left "$@" &>/dev/null
+			__do --inverted "$@" &>/dev/null
 			return
 			;;
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirected to the fd target
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return
-			__do --right-to-left "$@" 1>&"$DO__arg_value" 2>&1
+			__do --inverted "$@" 1>&"$DO__arg_value" 2>&1
 			return
 			;;
 
 		# no-op
 		'')
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirect to the file target
 		*)
-			__do --right-to-left "$@" >"$DO__arg_value" 2>&1
+			__do --inverted "$@" >"$DO__arg_value" 2>&1
 			return
 			;;
 
@@ -2013,7 +2258,7 @@ function __do {
 		# copy stderr to null
 		NULL | null | /dev/null)
 			# no-op
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -2027,7 +2272,7 @@ function __do {
 
 		# no-op
 		'')
-			__do --right-to-left "$@"
+			__do --inverted "$@"
 			return
 			;;
 
@@ -2408,7 +2653,7 @@ function eval_capture {
 # `groups` is an alias for `id -Gn` so it gives the current user's groups
 # regarding macos and linux, -u works on both macos and linux, as macos lacks --user
 function __prepare_login_user {
-	if ! __is_var_set {LOGIN_USER}; then
+	if ! __is_var_defined {LOGIN_USER}; then
 		LOGIN_USER="${SUDO_USER-}"
 		if [[ -z $LOGIN_USER ]]; then
 			function __cut {
@@ -2431,7 +2676,7 @@ function __prepare_login_user {
 	fi
 }
 function __prepare_login_uid {
-	if ! __is_var_set {LOGIN_UID}; then
+	if ! __is_var_defined {LOGIN_UID}; then
 		LOGIN_UID="${SUDO_UID-}"
 		if [[ -z $LOGIN_UID ]]; then
 			__prepare_login_user || :
@@ -2444,7 +2689,7 @@ function __prepare_login_uid {
 	fi
 }
 function __prepare_login_group {
-	if ! __is_var_set {LOGIN_GROUP}; then
+	if ! __is_var_defined {LOGIN_GROUP}; then
 		local
 		__prepare_login_uid || :
 		LOGIN_GROUP="$(id -gn "$LOGIN_UID" || :)"
@@ -2455,7 +2700,7 @@ function __prepare_login_group {
 	fi
 }
 function __prepare_login_gid {
-	if ! __is_var_set {LOGIN_GID}; then
+	if ! __is_var_defined {LOGIN_GID}; then
 		LOGIN_GID="${SUDO_GID-}"
 		if [[ -z $LOGIN_GID ]]; then
 			__prepare_login_uid || :
@@ -2468,7 +2713,7 @@ function __prepare_login_gid {
 	fi
 }
 function __prepare_login_groups {
-	if ! __is_var_set {LOGIN_GROUPS}; then
+	if ! __is_var_defined {LOGIN_GROUPS}; then
 		local groups
 		__prepare_login_uid || :
 		groups="$(id -Gn "$LOGIN_UID" || :)"
@@ -2481,7 +2726,7 @@ function __prepare_login_groups {
 	fi
 }
 function __prepare_login_gids {
-	if ! __is_var_set {LOGIN_GIDS}; then
+	if ! __is_var_defined {LOGIN_GIDS}; then
 		local groups
 		__prepare_login_uid || :
 		groups="$(id -G "$LOGIN_UID" || :)"
@@ -2494,7 +2739,7 @@ function __prepare_login_gids {
 	fi
 }
 function __prepare_current_user {
-	if ! __is_var_set {CURRENT_USER}; then
+	if ! __is_var_defined {CURRENT_USER}; then
 		CURRENT_USER="${USER-}"
 		if [[ -z $CURRENT_USER ]]; then
 			# `whoami` is deprecated is replaced/delegates to `id -un`
@@ -2508,7 +2753,7 @@ function __prepare_current_user {
 	fi
 }
 function __prepare_current_uid {
-	if ! __is_var_set {CURRENT_UID}; then
+	if ! __is_var_defined {CURRENT_UID}; then
 		CURRENT_UID="${UID-}"
 		if [[ -z $CURRENT_UID ]]; then
 			CURRENT_UID="$(id -u || :)"
@@ -2520,7 +2765,7 @@ function __prepare_current_uid {
 	fi
 }
 function __prepare_current_group {
-	if ! __is_var_set {CURRENT_GROUP}; then
+	if ! __is_var_defined {CURRENT_GROUP}; then
 		CURRENT_GROUP="$(id -gn || :)"
 		if [[ -z $CURRENT_GROUP ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || :
@@ -2529,7 +2774,7 @@ function __prepare_current_group {
 	fi
 }
 function __prepare_current_gid {
-	if ! __is_var_set {CURRENT_GID}; then
+	if ! __is_var_defined {CURRENT_GID}; then
 		CURRENT_GID="$(id -g || :)"
 		if [[ -z $CURRENT_GID ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || :
@@ -2538,9 +2783,9 @@ function __prepare_current_gid {
 	fi
 }
 function __prepare_current_groups {
-	if ! __is_var_set {CURRENT_GROUPS}; then
+	if ! __is_var_defined {CURRENT_GROUPS}; then
 		CURRENT_GROUPS=()
-		if __is_var_set {GROUPS}; then
+		if __is_var_defined {GROUPS}; then
 			CURRENT_GROUPS=("${GROUPS[@]}")
 		fi
 		if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
@@ -2555,7 +2800,7 @@ function __prepare_current_groups {
 	fi
 }
 function __prepare_current_gids {
-	if ! __is_var_set {CURRENT_GIDS}; then
+	if ! __is_var_defined {CURRENT_GIDS}; then
 		local groups
 		# trunk-ignore(shellcheck/SC2034)
 		groups="$(id -G || :)"
@@ -3327,8 +3572,13 @@ ANSI_SIZE=${#ANSI[@]}
 
 function __ansi_trim {
 	local input="$1" filter="$2" tags pattern key match results=() name
-	local -i input_size input_index match_size ansi_index last_index=0
+	local -i input_size input_index match_size ansi_index last_index=0 key_size
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
+		# this little case statement turns [echo-trim-special --test] from 7s to 1s
+		case "${input:input_index:1}" in
+		$'\e' | $'\r' | $'\b' | $'\177' | $'\a' | $'\f' | "$ANSI_ALL") : ;;
+		*) continue ;;
+		esac
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
 			# 0=<KEY> 1=<PATTERN> 2=<NAME> 3=<TAGS>
 			tags="${ANSI[ansi_index + 3]}"
@@ -3338,7 +3588,9 @@ function __ansi_trim {
 			pattern="${ANSI[ansi_index + 1]}"
 			if [[ -z $pattern ]]; then
 				key="${ANSI[ansi_index]}"
-				if [[ ${input:input_index} == "$key"* ]]; then
+				key_size="${#key}"
+				# if [[ ${input:input_index} == "$key"* ]]; then <-- slower on [echo-trim-special --test] by about 500ms
+				if [[ ${input:input_index:key_size} == "$key" ]]; then
 					match_size="${#key}"
 				else
 					match_size=0
@@ -3361,9 +3613,11 @@ function __ansi_trim {
 	printf '%s' "${results[@]}" || return
 }
 
+# keep right of everything that does not match the filter
+# redo this as __ansi_truncate_complex_shapeshifting
 function __ansi_keep_right {
 	local input="$1" filter="$2" tags pattern key match
-	local -i input_size input_index match_size ansi_index last_index=0
+	local -i input_size input_index match_size ansi_index last_index=0 key_size
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
 			# 0=<KEY> 1=<PATTERN> 2=<NAME> 3=<TAGS>
@@ -3374,7 +3628,8 @@ function __ansi_keep_right {
 			pattern="${ANSI[ansi_index + 1]}"
 			if [[ -z $pattern ]]; then
 				key="${ANSI[ansi_index]}"
-				if [[ ${input:input_index} == "$key"* ]]; then
+				key_size="${#key}"
+				if [[ ${input:input_index:key_size} == "$key" ]]; then
 					match_size="${#key}"
 				else
 					match_size=0
@@ -3403,14 +3658,15 @@ function __is_shapeshifter {
 		shift
 	fi
 	local input="$1" tags pattern key match
-	local -i input_size input_index match_size ansi_index
+	local -i input_size input_index match_size ansi_index key_size
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
 			# 0=<KEY> 1=<PATTERN> 2=<NAME> 3=<TAGS>
 			pattern="${ANSI[ansi_index + 1]}"
 			if [[ -z $pattern ]]; then
 				key="${ANSI[ansi_index]}"
-				if [[ ${input:input_index} == "$key"* ]]; then
+				key_size="${#key}"
+				if [[ ${input:input_index:key_size} == "$key" ]]; then
 					match_size="${#key}"
 				else
 					match_size=0
@@ -3435,51 +3691,58 @@ function __is_shapeshifter {
 }
 
 # -------------------------------------
-# File Descriptor Toolkit
-
-# check if the input is a special target
-# this is beta, and may change later
-function __is_special_file {
-	local target="$1"
-	case "$target" in
-	NULL | TTY | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | tty | /dev/tty | null | /dev/null) return 0 ;; # is a special file
-	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-		;;
-	*) __is_positive_integer "$target" || return 1 ;; # if it is a positive integer, it is a file descriptor
-	esac
-}
-
-function __is_tty_special_file {
-	local target="$1"
-	case "$target" in
-	TTY | tty | /dev/tty) return 0 ;; # is a special tty
-	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-		;;
-	*) return 1 ;; # not a special tty
-	esac
-}
+# Read Toolkit
+# these are beta and may change
 
 # `printf '\0'` will write a null-byte, however `bash` discards it, and `read` requires workarounds: https://unix.stackexchange.com/a/626655
 # `LC_ALL=C IFS= read -rd '' -n1` works, capturing newlines and null-bytes
 # `LC_ALL=C IFS= read -rn1` discards newlines
 # `LC_ALL=C IFS= read -rd ''` discards null-bytes
 # `LC_ALL=C IFS= read -rd '' -N1` discards null-bytes
+# `(<file)` discards null-bytes and trailing line
 
-function __cat_whole {
-	local whole='' REPLY
+# @todo one day make something like this, but for now, it is too complex and not needed
+# __read --whole
+# __read --null-separated-pieces
+# __read --lines --inline
+# __read --until=<character>
+# function __read {
+# 	local READ__whole='' READ__pieces='' READ__lines='' READ__inline='' READ__until=''
+# 	while [[ $# -ne 0 ]]; do
+# 		case "$1" in
+# 		--whole) READ__whole=yes ;;
+# 		--null-separated-pieces) READ__pieces=yes ;;
+# 		--lines) READ__lines=yes ;;
+# 		--inline) READ__inline=yes ;;
+# 		--until=*)
+# 			READ__until="${1#*=}"
+# 			if [[ ${#READ__until} -gt 1 ]]; then
+# 				printf '%s%q%d' "ERROR: ${FUNCNAME[0]}: The until character must be zero-length or a single-length character:" "$READ__until" "${#READ__until}" >&2 || :
+# 				return 22 # EINVAL 22 Invalid argument
+# 			elif [[ -z $READ__until ]]; then
+# 				READ__until='null'
+# 			fi
+# 			;;
+# 		*) __unrecognised_argument "$1" || return ;;
+# 		esac
+# 		shift
+# 	done
+
+function __read_whole {
+	# LC_ALL=C IFS= read -rd '' <-- this just reads until the first null byte, needs a loop
+	local whole=''
+	REPLY=''
 	# unable to capture null-bytes in bash in a whole string
 	while LC_ALL=C IFS= read -rd '' || [[ -n $REPLY ]]; do
 		whole+="$REPLY"
 		REPLY=''
 	done
-	printf '%s' "$whole"
+	REPLY="$whole"
 }
 
-# this could support a reference array, which is then joined at print by \0
+# function __read_pieces
+# function __write_pieces
+
 function __cat_pieces {
 	local segment='' REPLY
 	while LC_ALL=C IFS= read -rd '' -n1 || [[ -n $REPLY ]]; do
@@ -3527,7 +3790,10 @@ function __cat_until {
 	done
 }
 
-# See <https://stackoverflow.com/q/8297415/130638> and <https://gist.github.com/balupton/66e023e68f08ae827288a68a04d835c1> for commentary
+# -------------------------------------
+# File Descriptor Toolkit
+
+# See <https://stackoverflow.com/q/8297415/130638> then <https://gist.github.com/balupton/66e023e68f08ae827288a68a04d835c1> for commentary
 
 # checks if a file descriptor reference or number is open, not that despite being able to open a file descriptor for reading or writing, there is no reliable way to detect if the file descriptor was opened only for reading xor writing, see: https://gist.github.com/balupton/66e023e68f08ae827288a68a04d835c1
 function __is_fd_open {
@@ -3621,7 +3887,7 @@ function __open_fd {
 	# open the references
 	if [[ $OPEN_FD__references_count -ne 0 ]]; then
 		# Bash >= 4.1
-		if [[ $CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE == 'yes' ]]; then
+		if [[ $BASH_CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE == 'yes' ]]; then
 			if [[ -n $OPEN_FD__target_number ]]; then
 				for OPEN_FD__reference in "${OPEN_FD__references[@]}"; do
 					OPEN_FD__eval_statement_exec+="{$OPEN_FD__reference}$OPEN_FD__mode&$OPEN_FD__target_number "
@@ -3670,7 +3936,7 @@ function __close_fd {
 		if __is_positive_integer "$CLOSE_FD__item"; then
 			CLOSE_FD__number="$CLOSE_FD__item"
 		else
-			if [[ $CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE == 'yes' ]]; then
+			if [[ $BASH_CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE == 'yes' ]]; then
 				# close via the file descriptor reference
 				__dereference --origin="$CLOSE_FD__item" --name={CLOSE_FD__reference} || return
 				CLOSE_FD__eval_statement_exec+="{$CLOSE_FD__reference}>&- "
@@ -3819,45 +4085,52 @@ function __wait_for_and_return_semaphores {
 
 # appends the size with optional fill values to the the target array variables
 function __array {
-	local ARRAY__item ARRAY__references=() ARRAY__size ARRAY__fill=''
+	local ARRAY__size='' ARRAY__fill=''
+	# <no-source, multi-target, helper arguments>
+	local ARRAY__item ARRAY__targets=() ARRAY__mode=''
 	while [[ $# -ne 0 ]]; do
 		ARRAY__item="$1"
 		shift
 		case "$ARRAY__item" in
-		--target={*}) __dereference --origin="${ARRAY__item#*=}" --name={ARRAY__references} || return ;;
+		--targets=*) __dereference --origin="${ARRAY__item#*=}" --value={ARRAY__targets} || return ;;
+		--target=*) ARRAY__targets+=("${ARRAY__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$ARRAY__mode" 'write mode' || return
+			ARRAY__mode="${ARRAY__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$ARRAY__mode" 'write mode' || return
+			ARRAY__mode="${ARRAY__item:2}"
+			;;
+		# </no-source, multi-target, helper arguments>
 		--size=*)
 			__affirm_value_is_undefined "${ARRAY__size-}" 'array size' || return
 			ARRAY__size="${ARRAY__item#*=}"
 			;;
 		--fill=*)
 			__affirm_value_is_undefined "$ARRAY__fill" 'array fill' || return
-			# trunk-ignore(shellcheck/SC2034)
 			ARRAY__fill="${ARRAY__item#*=}"
 			;;
 		--*) __unrecognised_flag "$ARRAY__item" || return ;;
 		*) __unrecognised_argument "$ARRAY__item" || return ;;
 		esac
 	done
-	__affirm_length_defined "${#ARRAY__references[@]}" 'variable reference' || return
+	# affirm
+	__affirm_value_is_positive_integer "$ARRAY__size" 'array fill size' || return
 	# generate the array values
-	local ARRAY__index ARRAY__fills='' ARRAY__eval_statement='' ARRAY__reference
+	local ARRAY__index ARRAY__results=()
 	for ((ARRAY__index = 0; ARRAY__index < ARRAY__size; ARRAY__index++)); do
 		# the alternative would be using `{...@Q}` however that isn't available on all bash versions, but this is equally good, perhaps better
-		ARRAY__fills+='"$ARRAY__fill" '
+		ARRAY__results+=("$ARRAY__fill")
 	done
-	# apply the list to the target, while avoiding conflicts
-	for ARRAY__reference in "${ARRAY__references[@]}"; do
-		# apply the list to the target
-		ARRAY__eval_statement+="$ARRAY__reference+=($ARRAY__fills); "
-	done
-	eval "$ARRAY__eval_statement" || return
+	__to --source={ARRAY__results} --mode="$ARRAY__mode" --targets={ARRAY__targets} || return
 }
 
 # set the targets to the value(s) at the indices of the source reference
 function __at {
 	local AT__indices=()
 	# <single-source helper arguments>
-	local AT__item AT__source_reference='' AT__targets=() AT__mode='' AT__inputs AT__input
+	local AT__item AT__source_reference='' AT__targets=() AT__mode='' AT__inputs=() AT__input=''
 	while [[ $# -ne 0 ]]; do
 		AT__item="$1"
 		shift
@@ -3906,6 +4179,11 @@ function __at {
 			break
 			;;
 		# </single-source helper arguments>
+		--index=*)
+			AT__item="${AT__item#*=}"
+			__affirm_value_is_integer "$AT__item" 'index' || return
+			AT__indices+=("$AT__item")
+			;;
 		[0-9]* | -[0-9]*)
 			__affirm_value_is_integer "$AT__item" 'index' || return
 			AT__indices+=("$AT__item")
@@ -3919,7 +4197,8 @@ function __at {
 	__affirm_length_defined "${#AT__indices[@]}" 'index' || return
 	# action
 	# trunk-ignore(shellcheck/SC2034)
-	local AT__results=() AT__eval_segment AT__index
+	local AT__results=() AT__eval_segment AT__index # AT__index could be -0 which is string
+	local -i AT__size AT__negative_size
 	if __is_array "$AT__source_reference"; then
 		eval "AT__size=\${#${AT__source_reference}[@]}"
 		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}[\$AT__index]}\")"
@@ -3931,11 +4210,12 @@ function __at {
 	AT__negative_size="$((AT__size * -1))"
 	for AT__index in "${AT__indices[@]}"; do
 		# validate the index
-		if [[ $AT__index == -0 ]]; then
+		if [[ $AT__index == '-0' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The index -0 convention only makes sense when used as a length; for a starting index that fetches the last character, you want -1." >&2 || :
 			return 33 # EDOM 33 Numerical argument out of domain
-		elif [[ $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The index $AT__index was out of range $AT__negative_size (inclusive) to $AT__size (exclusive)." >&2 || :
+		elif [[ $AT__size -eq 0 || $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$AT__index" || :) was beyond the range of:" >&2 || :
+			__dump --indices "$AT__source_reference" >&2 || :
 			return 33 # EDOM 33 Numerical argument out of domain
 		elif [[ $AT__index -lt 0 ]]; then
 			AT__index="$((AT__size + AT__index))"
@@ -3949,7 +4229,7 @@ function __at {
 function __index {
 	local INDEX__needles=() INDEX__direction='ascending' INDEX__seek_mode='first' INDEX__overlap='no'
 	# <single-source helper arguments>
-	local INDEX__item INDEX__source_reference='' INDEX__targets=() INDEX__mode='' INDEX__inputs INDEX__input
+	local INDEX__item INDEX__source_reference='' INDEX__targets=() INDEX__mode='' INDEX__inputs=() INDEX__input=''
 	while [[ $# -ne 0 ]]; do
 		INDEX__item="$1"
 		shift
@@ -4071,7 +4351,7 @@ function __index {
 function __has {
 	local HAS__needles=() HAS__seek_mode='first' HAS__ignore_case='no' HAS__overlap='no'
 	# <only source helper arguments>
-	local HAS__item HAS__source_reference='' HAS__inputs HAS__input
+	local HAS__item HAS__source_reference='' HAS__inputs=() HAS__input=''
 	while [[ $# -ne 0 ]]; do
 		HAS__item="$1"
 		shift
@@ -4166,7 +4446,7 @@ function __has {
 function __slice {
 	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=()
 	# <single-source helper arguments>
-	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs SLICE__input
+	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs=() SLICE__input=''
 	while [[ $# -ne 0 ]]; do
 		SLICE__item="$1"
 		shift
@@ -4261,47 +4541,46 @@ function __slice {
 		SLICE__indices+=("$((SLICE__item + 1))" -0)
 	done
 	# indices
-	local -i SLICE__left SLICE__right SLICE__size
+	local -i SLICE__size SLICE__remaining
 	# trunk-ignore(shellcheck/SC2034)
-	local SLICE__results=() SLICE__eval_left_segment SLICE__eval_right_segment
+	local SLICE__results=() SLICE__eval_left_segment SLICE__eval_length_segment SLICE__left SLICE__length # left and length could be -0 which is string
 	if __is_array "$SLICE__source_reference"; then
 		eval "SLICE__size=\"\${#${SLICE__source_reference}[@]}\"" || return
 		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left}\")"
-		SLICE__eval_right_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left:SLICE__right}\")"
+		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left:SLICE__length}\")"
 	else
 		eval "SLICE__size=\"\${#${SLICE__source_reference}}\"" || return
 		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left}\")"
-		SLICE__eval_right_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left:SLICE__right}\")"
+		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left:SLICE__length}\")"
 	fi
 	SLICE__negative_size=$((SLICE__size * -1))
 	# we guaranteed earlier we have even indices, and instead of for a loop, a shifting while loop is easiest
 	set -- "${SLICE__indices[@]}"
 	while [[ $# -ne 0 ]]; do
 		SLICE__left="$1"
-		shift
-		SLICE__right="$1" # because we shifted above, it is now $1
-		shift
-		if [[ $SLICE__left == '-0' ]]; then
+		SLICE__length="$2"
+		shift 2
+		# __dump SLICE__left SLICE__length SLICE__size SLICE__negative_size >&2 || :
+		if [[ $SLICE__left == '-0' || $SLICE__length == '0' ]]; then
 			continue # there is nothing to do
 		elif [[ $SLICE__left -lt $SLICE__negative_size || $SLICE__left -ge $SLICE__size ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The index $SLICE__left was out of range $SLICE__negative_size (inclusive) to $SLICE__size (exclusive)." >&2 || :
-			__dump "{$SLICE__source_reference}" {SLICE__indices} >&2 || :
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) was beyond the range of:" >&2 || :
+			__dump --indices "$SLICE__source_reference" >&2 || :
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
-		if [[ $SLICE__right == -0 ]]; then
-			SLICE__right="$SLICE__size" # -0 means to the end, so we convert it to the size
-		elif [[ $SLICE__right -lt 0 ]]; then
-			SLICE__right="$((SLICE__size + SLICE__right - SLICE__left))"
-		fi
-		if [[ $SLICE__right -lt $SLICE__negative_size || $SLICE__right -gt $SLICE__size ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The length $SLICE__right was out of range $SLICE__negative_size (inclusive) to $SLICE__size (inclusive)." >&2 || :
-		fi
-		# add the results
-		if [[ $SLICE__right -eq $SLICE__size ]]; then
+		if [[ $SLICE__length == -0 || $SLICE__length -eq $SLICE__size ]]; then
 			eval "$SLICE__eval_left_segment" || return
-		else
-			eval "$SLICE__eval_right_segment" || return
+			continue
 		fi
+		SLICE__remaining="$((SLICE__size - SLICE__left))"
+		if [[ $SLICE__length -gt $SLICE__remaining || $SLICE__length -lt $SLICE__remaining*-1 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) with length $(__dump --value="$SLICE__length" || :) was beyond the range of:" >&2 || :
+			__dump --indices "$SLICE__source_reference" >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
+		elif [[ $SLICE__length -lt 0 && $BASH_CAN_USE_A_NEGATIVE_LENGTH == 'no' ]]; then
+			SLICE__length="$((SLICE__size + SLICE__length - SLICE__left))"
+		fi
+		eval "$SLICE__eval_length_segment" || return
 	done
 	__to --source={SLICE__results} --mode="$SLICE__mode" --targets={SLICE__targets} || return
 }
@@ -4319,10 +4598,10 @@ function __slice {
 # __split --target={arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
 # use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
 function __split {
-	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
+	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
 	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
 	# <single-source helper arguments>
-	local SPLIT__item SPLIT__source_reference='' SPLIT__targets=() SPLIT__mode='' SPLIT__input
+	local SPLIT__item SPLIT__source_reference='' SPLIT__targets=() SPLIT__mode='' SPLIT__input=''
 	while [[ $# -ne 0 ]]; do
 		SPLIT__item="$1"
 		shift
@@ -4347,17 +4626,18 @@ function __split {
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
 			SPLIT__mode="${SPLIT__item:2}"
 			;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag {SPLIT__trailing_newlines} --affirmative -- "$SPLIT__item" || return ;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
 				local SPLIT__fodder_to_respect_exit_status
-				__do --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
 				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
 				SPLIT__source_reference='SPLIT__input'
 			elif [[ $SPLIT__invoke == 'try' ]]; then
 				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
 				local SPLIT__fodder_to_respect_exit_status
-				__do --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
 				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
 				SPLIT__source_reference='SPLIT__input'
 			elif [[ -z $SPLIT__source_reference ]]; then
@@ -4479,7 +4759,7 @@ function __split {
 function __evict {
 	local EVICT__indices=() EVICT__values=() EVICT__prefixes=() EVICT__suffixes=() EVICT__patterns=() EVICT__globs=() EVICT__keep_before_first=() EVICT__keep_before_last=() EVICT__keep_after_first=() EVICT__keep_after_last=() EVICT__optional='no'
 	# <single-source helper arguments>
-	local EVICT__item EVICT__source_reference='' EVICT__targets=() EVICT__mode='' EVICT__inputs EVICT__input
+	local EVICT__item EVICT__source_reference='' EVICT__targets=() EVICT__mode='' EVICT__inputs=() EVICT__input=''
 	while [[ $# -ne 0 ]]; do
 		EVICT__item="$1"
 		shift
@@ -4906,6 +5186,7 @@ function __flag {
 	if [[ $FLAG__export == 'yes' ]]; then
 		__affirm_value_is_defined "$FLAG__reference" 'flag variable reference' || return
 		# export the variable
+		# trunk-ignore(shellcheck/SC2163)
 		export "$FLAG__reference"
 	fi
 	# handle the inputs
@@ -4988,3 +5269,54 @@ function __flag {
 		__to --source={FLAG__values} --mode="$FLAG__mode" --targets={FLAG__targets} || return
 	fi
 }
+
+# -------------------------------------
+# Debug Toolkit
+
+export BASH_DEBUG_FORMAT PS4 BASH_XTRACEFD DEBUG_OUTPUT_TARGET BASH_DEBUG
+BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
+PS4="$BASH_DEBUG_FORMAT"
+if [[ -z ${DEBUG_OUTPUT_TARGET-} ]]; then
+	if [[ -z ${BASH_XTRACEFD-} ]]; then
+		BASH_XTRACEFD=2
+	fi
+	DEBUG_OUTPUT_TARGET="$BASH_XTRACEFD"
+elif [[ $DEBUG_OUTPUT_TARGET =~ ^[0-9]+$ ]]; then
+	BASH_XTRACEFD="$DEBUG_OUTPUT_TARGET"
+else
+	# otherwise it's something else, so wo we need to proxy it through a file descriptor
+	__open_fd {BASH_XTRACEFD} '>' "$DEBUG_OUTPUT_TARGET"
+fi
+function __debug_lines {
+	if [[ -n ${BASH_DEBUG-} ]]; then
+		# BASH_XTRACEFD is always defined as per above
+		__print_lines "$@" >&"$BASH_XTRACEFD" || return
+	fi
+}
+function __debug_dump {
+	if [[ -n ${BASH_DEBUG-} ]]; then
+		# BASH_XTRACEFD is always defined as per above
+		__dump "$@" >&"$BASH_XTRACEFD" || return
+	fi
+}
+
+# more detailed `set -x`
+function __enable_debugging {
+	BASH_DEBUG=yes
+	set -x
+}
+function __disable_debugging {
+	set +x
+	BASH_DEBUG=
+}
+
+# restore tracing
+# shared by `bash.bash` `styles.bash`
+if [[ -n ${BASH_X-} ]]; then
+	unset BASH_X
+	set -x
+fi
+if [[ -n ${BASH_V-} ]]; then
+	unset BASH_V
+	set -v
+fi

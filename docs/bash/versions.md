@@ -26,6 +26,7 @@ From manual discovery:
 - Introduces the ability to initialize multiple arrays at once, e.g. `local a=() b=()`
 - Introduces the ability to define a subshell `function subshell () ( ... )`
 - Introduces the ability to do grouped conditions `[[ ... && ( ... || ... ) ]]`
+- Has a bug where using `\001` in an array would result in its duplication: `arr=($'\001'); printf '%q' "${arr[0]}" "${#arr[0]}"` outputs `$'\001\001'2`. Use `bash.bash:$ANSI_ALL` instead, such as `arr=("$ANSI_ALL")`.
 
 ## bash v4.0
 
@@ -94,7 +95,8 @@ Changelog:
 
 From manual discovery:
 
-- Has a bug where closing a file descriptor does not close the stdin of its process substitution, use Dorothy's `bash.bash:CLOSING_A_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION` to detect this and search for it to see the appropriate workarounds.
+- If a crash occurs via `errexit` the exit status will always be `1` instead of the intended exit status. Refer to <errors.md> for guidance.
+- Has a bug where closing a file descriptor does not close the stdin of its process substitution, use Dorothy's `bash.bash:BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION` to detect this and search for it to see the appropriate workarounds.
 - `$'\001'` cannot be used in a regex comparison, e.g. `[[ $'\001' =~ $'\001' ]]` will crash with exit status `2`
 
 From changelog:
@@ -108,6 +110,14 @@ Changelog:
 > f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
 
 ## bash v4.3
+
+> [!NOTE]
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__get_var_declaration`.
+
+From manual discovery:
+
+- If a crash occurs via `errexit` the exit status will always be `1` instead of the intended exit status. Refer to <errors.md> for guidance.
+- `declare -p ...<var>` fails to correctly find the declaration for `<var>` even though it exists within `declare -p`.
 
 From changelog:
 
@@ -194,7 +204,7 @@ Changelog:
 ## bash v5.1
 
 > [!NOTE]
-> Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_set`, `__get_uppercase_first_letter`, `__get_lowercase_string`.
+> Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_defined`, `__get_uppercase_first_letter`, `__get_lowercase_string`.
 
 From changelog:
 
