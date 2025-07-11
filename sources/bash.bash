@@ -1661,7 +1661,7 @@ function __do {
 		DO__arg="${DO__args[0]}"
 		set -- --trailing-newlines="$DO__trailing_newlines" -- "${DO__cmd[@]}"
 	else
-		DO__arg="${DO__args[0]}" # get the first argument
+		DO__arg="${DO__args[0]}"      # get the first argument
 		DO__args=("${DO__args[@]:1}") # remove the first argument from the remainder
 		set -- --trailing-newlines="$DO__trailing_newlines" "${DO__args[@]}" -- "${DO__cmd[@]}"
 	fi
@@ -5285,7 +5285,13 @@ elif [[ $DEBUG_OUTPUT_TARGET =~ ^[0-9]+$ ]]; then
 	BASH_XTRACEFD="$DEBUG_OUTPUT_TARGET"
 else
 	# otherwise it's something else, so wo we need to proxy it through a file descriptor
-	__open_fd {BASH_XTRACEFD} '>' "$DEBUG_OUTPUT_TARGET"
+	# bash: BASH_XTRACEFD: 16: invalid value for trace file descriptor
+	# https://github.com/bevry/dorothy/actions/runs/16209071208/job/45765634010#step:2:13067
+	__open_fd {BASH_DEBUG_FD} '>' "$DEBUG_OUTPUT_TARGET"
+	if ! [[ $BASH_DEBUG_FD =~ ^[0-9]+$ ]]; then
+		__dump --value='BASH_XTRACEFD CANNOT BE SET TO:' {BASH_DEBUG_FD} >&2
+	fi
+	BASH_XTRACEFD="$BASH_DEBUG_FD"
 fi
 function __debug_lines {
 	if [[ -n ${BASH_DEBUG-} ]]; then
