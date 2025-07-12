@@ -1621,7 +1621,18 @@ function __do {
 	else
 		shift # remove the --inverted flag
 	fi
-	local DO__trailing_newlines=yes DO__args=() DO__cmd=()
+	# trailing newlines defaults to no, to match bash $(...) behaviour, which while divergent from writing to files/file-descriptors/etc, this divergence is too convenient, hence why bash even has the divergence in the first place, for instance, if one does consistency, then this:
+	# __do --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
+	# if [[ $choice == 'b' ]]; then
+	# has to become:
+	# __do --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
+	# if [[ $choice == $'b\n' ]]; then
+	# or:
+	# __do --no-trailing-newlines --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
+	# if [[ $choice == $'b\n' ]]; then
+	# or `choose` itself would need to be modified to not have a trailing newline on the last item
+	# however, such trailing newlines are common everywhere, and are expected in all CLI/TUI output as they want a trailing newline so that dumb interactive shell prompts don't have the prompt on the same line as the tool output, so instead interactive shells just strip the trailing newline in script usage; the whole thing is a mess, and explains why consistency in an inconsistent world is not ideal and why divergence in a divergent world is better
+	local DO__trailing_newlines=no DO__args=() DO__cmd=()
 	while [[ $# -ne 0 ]]; do
 		case "$1" in
 		--trailing-newlines | --trailing-newlines=yes)
@@ -2302,12 +2313,8 @@ function __do {
 }
 
 # debug helpers, that are overwritten within `dorothy-internals`
-function dorothy_try__context_lines {
-	:
-}
-function dorothy_try__dump_lines {
-	:
-}
+function dorothy_try__context_lines { :; }
+function dorothy_try__dump_lines { :; }
 
 # See `dorothy-internals` for details, this is `i6a` plus whatever modifications have come after
 function dorothy_try__trap_outer {
@@ -4626,7 +4633,7 @@ function __split {
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
 			SPLIT__mode="${SPLIT__item:2}"
 			;;
-		--no-trailing-newlines* | --trailing-newlines*) __flag {SPLIT__trailing_newlines} --affirmative -- "$SPLIT__item" || return ;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag {SPLIT__trailing_newlines} --affirmative --fallback-on-empty -- "$SPLIT__item" || return ;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
@@ -5169,13 +5176,13 @@ function __flag {
 			__affirm_value_is_undefined "$FLAG__filter" 'flag name filter' || return
 			FLAG__filter="${FLAG__item#*=}"
 			;;
-		--affirmative) FLAG__boolean='yes' ;;
-		--non-affirmative)
+		--affirmative) FLAG__boolean='yes' ;; # consider enforcing coerce, which was to be opted out of for non yes/no values
+		--non-affirmative)                    # consider enforcing coerce, which has to be opted out of for non yes/no values
 			FLAG__boolean='yes'
 			FLAG__invert='yes'
 			;;
 		--export) FLAG__export='yes' ;;
-		--no-empty) FLAG__empty='no' ;;
+		--fallback-on-empty) FLAG__empty='no' ;; # this is beta, consider redoing as --coerce, as which unless the affirmative/non-affirmative is yes/no then skip if empty or error if other
 		--) break ;;
 		--*) __unrecognised_flag "$FLAG__item" || return ;;
 		*) __unrecognised_argument "$FLAG__item" || return ;;
@@ -5233,8 +5240,8 @@ function __flag {
 		fi
 
 		# do we support empty
-		if [[ $FLAG__empty == 'no' && -z $FLAG__value ]]; then
-			# empty values are not allowed, so skip this flag
+		if [[ -z $FLAG__value && $FLAG__empty == 'no' ]]; then
+			# empty values are not allowed, so keep the original source value
 			continue
 		fi
 
@@ -5273,47 +5280,56 @@ function __flag {
 # -------------------------------------
 # Debug Toolkit
 
-export BASH_DEBUG_FORMAT PS4 BASH_XTRACEFD DEBUG_OUTPUT_TARGET BASH_DEBUG
+# BASH_XTRACEFD
+# DEBUG_OUTPUT_TARGET
+# before we begin, trim the bash.bash:eval_capture cache, and our own cache
+# export BASH_DEBUG=yes DEBUG_OUTPUT_TARGET="$XDG_CACHE_HOME/dorothy-debug.log"
+# __mkdirp "$XDG_CACHE_HOME/dorothy"
+# rm -rf -- "$XDG_CACHE_HOME/dorothy-try" "$DEBUG_OUTPUT_TARGET"
+
+# if [[ -z ${DEBUG_OUTPUT_TARGET-} ]]; then
+# 	if [[ -z ${BASH_XTRACEFD-} ]]; then
+# 		BASH_XTRACEFD=2
+# 	fi
+# 	DEBUG_OUTPUT_TARGET="$BASH_XTRACEFD"
+# elif [[ $DEBUG_OUTPUT_TARGET =~ ^[0-9]+$ ]]; then
+# 	BASH_XTRACEFD="$DEBUG_OUTPUT_TARGET"
+# else
+# 	# otherwise it's something else, so wo we need to proxy it through a file descriptor
+# 	# bash: BASH_XTRACEFD: 16: invalid value for trace file descriptor
+# 	# https://github.com/bevry/dorothy/actions/runs/16209071208/job/45765634010#step:2:13067
+# 	__open_fd {BASH_DEBUG_FD} '>' "$DEBUG_OUTPUT_TARGET"
+# 	if ! [[ $BASH_DEBUG_FD =~ ^[0-9]+$ ]]; then
+# 		__dump --value='BASH_XTRACEFD CANNOT BE SET TO:' {BASH_DEBUG_FD} >&2
+# 	fi
+# 	BASH_XTRACEFD="$BASH_DEBUG_FD"
+# fi
+
+# BASH_XTRACEFD may not exist, in which it defaults to 2, but if it does exist, it is a number, and it cannot be properly applied without using `exec ...`
+export BASH_DEBUG_FORMAT PS4 DOROTHY_DEBUG
 BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
 PS4="$BASH_DEBUG_FORMAT"
-if [[ -z ${DEBUG_OUTPUT_TARGET-} ]]; then
-	if [[ -z ${BASH_XTRACEFD-} ]]; then
-		BASH_XTRACEFD=2
-	fi
-	DEBUG_OUTPUT_TARGET="$BASH_XTRACEFD"
-elif [[ $DEBUG_OUTPUT_TARGET =~ ^[0-9]+$ ]]; then
-	BASH_XTRACEFD="$DEBUG_OUTPUT_TARGET"
-else
-	# otherwise it's something else, so wo we need to proxy it through a file descriptor
-	# bash: BASH_XTRACEFD: 16: invalid value for trace file descriptor
-	# https://github.com/bevry/dorothy/actions/runs/16209071208/job/45765634010#step:2:13067
-	__open_fd {BASH_DEBUG_FD} '>' "$DEBUG_OUTPUT_TARGET"
-	if ! [[ $BASH_DEBUG_FD =~ ^[0-9]+$ ]]; then
-		__dump --value='BASH_XTRACEFD CANNOT BE SET TO:' {BASH_DEBUG_FD} >&2
-	fi
-	BASH_XTRACEFD="$BASH_DEBUG_FD"
-fi
 function __debug_lines {
-	if [[ -n ${BASH_DEBUG-} ]]; then
+	if [[ -n ${DOROTHY_DEBUG-} ]]; then
 		# BASH_XTRACEFD is always defined as per above
-		__print_lines "$@" >&"$BASH_XTRACEFD" || return
+		__print_lines "$@" >&"${BASH_XTRACEFD:-"2"}" || return
 	fi
 }
 function __debug_dump {
-	if [[ -n ${BASH_DEBUG-} ]]; then
+	if [[ -n ${DOROTHY_DEBUG-} ]]; then
 		# BASH_XTRACEFD is always defined as per above
-		__dump "$@" >&"$BASH_XTRACEFD" || return
+		__dump "$@" >&"${BASH_XTRACEFD:-"2"}" || return
 	fi
 }
 
 # more detailed `set -x`
 function __enable_debugging {
-	BASH_DEBUG=yes
-	set -x
+	DOROTHY_DEBUG=yes
+	set -xv
 }
 function __disable_debugging {
-	set +x
-	BASH_DEBUG=
+	set +xv
+	DOROTHY_DEBUG=
 }
 
 # restore tracing

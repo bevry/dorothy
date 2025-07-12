@@ -57,34 +57,6 @@
 # 	return 1
 # }
 
-# debug helper overrides
-function dorothy_try__context_lines {
-	printf '%s\n' "CONTEXT: $DOROTHY_TRY__CONTEXT" "COMMAND: ${DOROTHY_TRY__COMMAND[*]}" >&2
-	printf '         %s\n' "$@" >&2
-}
-
-function dorothy_try__dump_lines {
-	__print_lines "$@" \
-		"DOROTHY_TRY__COUNT    = ${DOROTHY_TRY__COUNT-}" \
-		"DOROTHY_TRY__STATUS   = ${DOROTHY_TRY__STATUS-}" \
-		"DOROTHY_TRY__CONTEXT  = ${DOROTHY_TRY__CONTEXT-}" \
-		"DOROTHY_TRY__COMMAND  = ${DOROTHY_TRY__COMMAND:+"${DOROTHY_TRY__COMMAND[*]}"}" \
-		"DOROTHY_TRY__SUBSHELL = ${DOROTHY_TRY__SUBSHELL-}" \
-		"BASH_SOURCE           = ${BASH_SOURCE[*]}" \
-		"BASH_LINENO           = ${BASH_LINENO[*]}" \
-		"LINENO                = ${LINENO}" \
-		"FUNCNAME              = ${FUNCNAME[*]}" \
-		"CHILD_MAX             = ${CHILD_MAX-}" \
-		"SHLVL                 = ${SHLVL-}" \
-		"BASH_SUBSHELL         = ${BASH_SUBSHELL-}" \
-		"BASH_COMMAND          = ${BASH_COMMAND-}" \
-		"BASH_CMDS             = ${BASH_CMDS[*]}" \
-		"BASH_ARGC             = ${BASH_ARGC[*]}" \
-		"BASH_ARGV             = ${BASH_ARGV[*]}" \
-		"BASH_VERSION          = ${BASH_VERSION}" \
-		"-                     = $-" >&2
-}
-
 # now for our implementation overrides
 case "$option_implementation" in
 
