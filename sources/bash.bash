@@ -4388,7 +4388,7 @@ function __has {
 			break
 			;;
 		# </only source helper arguments>
-		--needle=*) HAS__needles+=("${HAS__item#*=}") ;;
+		--value=* | --needle=*) HAS__needles+=("${HAS__item#*=}") ;;
 		--first | --any) HAS__seek_mode='first' ;;
 		--all) HAS__seek_mode='all' ;;
 		--ignore-case | --case-insensitive) HAS__ignore_case='yes' ;;
@@ -5280,32 +5280,10 @@ function __flag {
 # -------------------------------------
 # Debug Toolkit
 
-# BASH_XTRACEFD
-# DEBUG_OUTPUT_TARGET
-# before we begin, trim the bash.bash:eval_capture cache, and our own cache
-# export BASH_DEBUG=yes DEBUG_OUTPUT_TARGET="$XDG_CACHE_HOME/dorothy-debug.log"
-# __mkdirp "$XDG_CACHE_HOME/dorothy"
-# rm -rf -- "$XDG_CACHE_HOME/dorothy-try" "$DEBUG_OUTPUT_TARGET"
+# BASH_XTRACEFD is a numerical file descriptor where [set -xv] messages go, which are rendered by `PS4`
+# BASH_XTRACEFD can only be set during the invocation of bash, and can only be modified within an existing bash process via `exec ...` which forks it.
+# If BASH_XTRACEFD is not defined, then it defaults to 2.
 
-# if [[ -z ${DEBUG_OUTPUT_TARGET-} ]]; then
-# 	if [[ -z ${BASH_XTRACEFD-} ]]; then
-# 		BASH_XTRACEFD=2
-# 	fi
-# 	DEBUG_OUTPUT_TARGET="$BASH_XTRACEFD"
-# elif [[ $DEBUG_OUTPUT_TARGET =~ ^[0-9]+$ ]]; then
-# 	BASH_XTRACEFD="$DEBUG_OUTPUT_TARGET"
-# else
-# 	# otherwise it's something else, so wo we need to proxy it through a file descriptor
-# 	# bash: BASH_XTRACEFD: 16: invalid value for trace file descriptor
-# 	# https://github.com/bevry/dorothy/actions/runs/16209071208/job/45765634010#step:2:13067
-# 	__open_fd {BASH_DEBUG_FD} '>' "$DEBUG_OUTPUT_TARGET"
-# 	if ! [[ $BASH_DEBUG_FD =~ ^[0-9]+$ ]]; then
-# 		__dump --value='BASH_XTRACEFD CANNOT BE SET TO:' {BASH_DEBUG_FD} >&2
-# 	fi
-# 	BASH_XTRACEFD="$BASH_DEBUG_FD"
-# fi
-
-# BASH_XTRACEFD may not exist, in which it defaults to 2, but if it does exist, it is a number, and it cannot be properly applied without using `exec ...`
 export BASH_DEBUG_FORMAT PS4 DOROTHY_DEBUG
 BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
 PS4="$BASH_DEBUG_FORMAT"

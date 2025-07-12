@@ -73,6 +73,7 @@ option_binaries=()
 option_csv_file=''
 option_skip=()
 option_only=()
+option_until=''
 option_csv='yes'
 while [[ $# -ne 0 ]]; do
 	item="$1"
@@ -94,6 +95,7 @@ while [[ $# -ne 0 ]]; do
 	--only=*)
 		__split --target={option_only} --append --no-zero-length -- "${item#*=}"
 		;;
+	--until=*) option_until="${item#*=}" ;;
 	--csv=no | --no-csv) option_csv=no ;;
 	--csv=yes | --csv) option_csv=yes ;;
 	--csv=*) option_csv_file="${item#*=}" ;;
@@ -122,7 +124,7 @@ fi
 # =====================================
 # Handle Arguments
 
-function render_csv {
+function __render_csv {
 	if [[ $render_csv == 'no' ]]; then
 		return 0
 	fi
@@ -150,7 +152,7 @@ function render_csv {
 	local result_length=6
 
 	# csv file handling
-	echo-file --raw -- "$option_csv_file" | echo-write --atomic -- "$option_csv_file"
+	echo-file --raw -- "$option_csv_file" | echo-write --atomic -- "$option_csv_file" || return
 
 	# fetch details
 	local implementation version test result
@@ -233,24 +235,15 @@ function render_csv {
 	result_length=$((result_length + 20))
 
 	# output result
-	printf "%-${implementation_length}s%-${version_length}s%-${test_length}s%-${result_length}s${c_end_line}\n" "${parts[@]}"
+	printf "%-${implementation_length}s%-${version_length}s%-${test_length}s%-${result_length}s${c_end_line}\n" "${parts[@]}" || return
 }
 
 # handle multiple bash versions
 if [[ ${#option_binaries[@]} -ne 0 ]]; then
 	__result_status=0
-
-	# execute the tests
 	debug-bash --binaries="$(__print_lines "${option_binaries[@]}")" --no-wrap --continue -- \
 		dorothy-internals --skip="$(__print_lines "${option_skip[@]}")" --only="$(__print_lines "${option_only[@]}")" --csv="$option_csv" --csv="$option_csv_file" -- "${option_implementations[@]}" || __result_status=$?
-
-	# ignore bash 4.1 complaint
-	if [[ $__result_status -eq 75 ]]; then
-		__result_status=0
-	fi
-
-	# finish
-	render_csv
+	__render_csv || exit 223
 	exit "$__result_status"
 fi
 # we are now a single bash version
@@ -275,14 +268,22 @@ BASH_VERSION_AND_BINARY="$BASH_VERSION_CURRENT:$BASH"
 if [[ $BASH_VERSION_AND_BINARY == '3.2.57:/bin/bash' ]] && is-mac; then
 	BASH_VERSION_AND_BINARY+=':macos'
 fi
-SUITE_NAME="[$option_implementation] [$BASH_VERSION_AND_BINARY]"
+SUITE_NAME="$BASH_VERSION_AND_BINARY"
 TEST_NAME=''
 COUNT_TESTS=0
+TESTS=()
+COUNT=0
+TESTS_OK=()
 COUNT_OK=0
+TESTS_FAIL=()
 COUNT_FAIL=0
+TESTS_SKIP=()
+COUNT_SKIP=0
+TESTS_PENDING=()
+COUNT_PENDING=0
 CSV_UPDATES=''
 
-# parse skip and only into an easier format
+# parse skip and only into an easier format that works across all bash versions and doesn't use one of our bash.bash helpers
 skip_string=''
 only_string=''
 for item in "${option_skip[@]}"; do
@@ -291,9 +292,19 @@ done
 for item in "${option_only[@]}"; do
 	only_string+="{$item}"
 done
+if [[ -n $only_string ]]; then
+	FOUND_ONLY=no
+else
+	FOUND_ONLY=yes
+fi
+if [[ -n $option_until ]]; then
+	FOUND_UNTIL=no
+else
+	FOUND_UNTIL=yes
+fi
 
 # start the suite
-echo-style --stderr --h1="$SUITE_NAME" --tty+terminal-title="$SUITE_NAME"
+echo-style --stderr --h1="$SUITE_NAME" --tty+terminal-title="$SUITE_NAME" ' ' --code="$option_implementation"
 
 # prepare
 function __begin_test_block {
@@ -310,28 +321,53 @@ function __begin_test_block {
 			had_crash_stdout='yes'
 			option_crash_stdout="${item#*=}"
 			;;
-		*)
-			__print_lines "ERROR: __begin_test_block: An unrecognised flag was provided: $item" >&2 || return
-			return 22
-			;; # EINVAL 22 Invalid argument
+		--*) __unrecognised_flag "$item" || exit 223 ;;
+		*) __unrecognised_argument "$item" || exit 223 ;;
 		esac
 	done
 
 	# ensure we have a name
 	if [[ -z $option_name ]]; then
-		__print_lines "ERROR: __begin_test_block: A name was not provided" >&2 || return
-		return 22
+		__print_lines "ERROR: __begin_test_block: A name was not provided" >&2 || exit 223
+		exit 222
 	fi
 
-	# check the prior test is ok
-	# @todo improve this
-	# __dump {COUNT_TESTS} {COUNT_OK} {COUNT_FAIL} {TEST_NAME} >&2
+	# verify all test data is as expected
+	__verify_test_blocks || exit
 
-	# apply and reset shared vars
+	# note the test exists
 	TEST_NAME="$option_name"
+	TESTS+=("$TEST_NAME")
+	TESTS_PENDING+=("$TEST_NAME")
 
-	# check if we are not only, if not only, then skip silently
-	if [[ -n $only_string && $only_string != *"{$TEST_NAME}"* ]]; then
+	# check skips
+	local skip='no'
+	if [[ -n $option_until ]]; then
+		if [[ $option_until == "$TEST_NAME" ]]; then
+			FOUND_UNTIL='yes'
+		else
+			skip='no'
+		fi
+	fi
+	if [[ -n $only_string ]]; then
+		if [[ $only_string == *"{$TEST_NAME}"* ]]; then
+			FOUND_ONLY='yes'
+		else
+			skip='yes'
+		fi
+	fi
+	if [[ -n $skip_string ]]; then
+		if [[ $skip_string != *"{$TEST_NAME}"* ]]; then
+			skip='yes'
+		fi
+	fi
+	if [[ $skip == 'yes' ]]; then
+		# note the test is skipped
+		TESTS_SKIP+=("$TEST_NAME")
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,SKIPPED"$'\n'
+		__complete_test_block || exit
+		# echo-style --stderr --h2="$TEST_NAME" --newline --warning='SKIPPED MANUAL' --newline --e2="$TEST_NAME" || return
+		# return non-zero such that the begin block is not entered
 		return 1
 	fi
 
@@ -346,31 +382,32 @@ function __begin_test_block {
 
 	# if it crashes, then run again, invoking only this test, and capture its stdout and status
 	if [[ $crashes == 'yes' && -z $only_string ]]; then
-		local __crash_exit_status='' crash_stdout_file crash_stdout='' crash_result='ok' REPLY
-		# log our test is starting via a custom route
-		COUNT_TESTS=$((COUNT_TESTS + 1))
+		local __crash_exit_status='' crash_stdout_file crash_stdout='' crash_ok=yes
 		# run only this text, capturing status and stdout
+		# @todo capture stderr?
 		crash_stdout_file="$(mktemp)"
 		set +e
-		dorothy-internals --only="$TEST_NAME" --csv=no --implementation="$option_implementation" --version="$BASH" >"$crash_stdout_file"
+		dorothy-internals --only="$TEST_NAME" --no-csv --implementation="$option_implementation" --version="$BASH" >"$crash_stdout_file"
 		__crash_exit_status=$?
 		set -e
-		# __read_whole <"$crash_stdout_file" || return
-		# crash_stdout="$REPLY"
-		crash_stdout="$(<"$crash_stdout_file")" || return # we want to trim trailing newlines for consistency with bash, __do, and eval-tester
-		rm -f -- "$crash_stdout_file"
+		# we want to trim trailing newlines for consistency with bash, __do, and eval-tester
+		crash_stdout="$(<"$crash_stdout_file")" || exit 223
+		rm -f -- "$crash_stdout_file" || exit 223
+
+		# @todo delegate the below to __end_test_block ???
+
 		# compare status
 		if [[ -n $option_crash_exit_status && $__crash_exit_status -ne $option_crash_exit_status ]]; then
-			crash_result='fail'
-			echo-style --stderr --red --bold='Crashed Exit Status' ' ' --="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="$option_crash_exit_status" || return
+			crash_ok=no
+			echo-style --stderr --red --bold='Crashed Exit Status' ' ' --="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="$option_crash_exit_status" || exit 223
 		elif [[ $__crash_exit_status -eq 0 ]]; then
-			crash_result='fail'
-			echo-style --stderr --green --bold='Crashed Exit Status:' ' ' --invert="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="<non-zero>" || return
+			crash_ok=no
+			echo-style --stderr --green --bold='Crashed Exit Status:' ' ' --invert="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="<non-zero>" || exit 223
 		else
-			echo-style --stderr --green --bold='Crashed Exit Status:' ' ' --invert="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="<non-zero>" || return
+			echo-style --stderr --green --bold='Crashed Exit Status:' ' ' --invert="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="<non-zero>" || exit 223
 		fi
 
-		# compare stdout
+		# compare crash stdout
 		if [[ $had_crash_stdout == 'yes' ]]; then
 			if [[ -z $crash_stdout ]]; then
 				crash_stdout='<empty>'
@@ -379,107 +416,165 @@ function __begin_test_block {
 				option_crash_stdout='<empty>'
 			fi
 			if [[ $crash_stdout != "$option_crash_stdout" ]]; then
-				crash_result='fail'
-				echo-style --stderr --red --bold='Crashed STDOUT:' ' ' --invert="$crash_stdout" --newline --bold='Expected STDOUT:' ' ' --invert="$option_crash_stdout" || return
+				crash_ok=no
+				echo-style --stderr --red --bold='Crashed STDOUT:' ' ' --invert="$crash_stdout" --newline --bold='Expected STDOUT:' ' ' --invert="$option_crash_stdout" || exit 223
 			else
-				echo-style --stderr --green --bold='Crashed STDOUT:' ' ' --invert="$crash_stdout" --newline --bold='Expected STDOUT:' ' ' --invert="$option_crash_stdout" || return
+				echo-style --stderr --green --bold='Crashed STDOUT:' ' ' --invert="$crash_stdout" --newline --bold='Expected STDOUT:' ' ' --invert="$option_crash_stdout" || exit 223
 			fi
 		fi
 
-		# compare result
-		if [[ $crash_result != 'ok' ]]; then
-			COUNT_FAIL=$((COUNT_FAIL + 1))
-			echo-style --stderr --error='CRASH DIVERGED' --newline || return
-			CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,$TEST_NAME,CRASH DIVERGED"$'\n'
+		# note the crash result
+		if [[ $crash_ok == yes ]]; then
+			TESTS_OK+=("$TEST_NAME")
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,crash ok"$'\n'
+			echo-style --stderr --g2="$TEST_NAME" ' ' --success='crash ok' || exit 223
 		else
-			COUNT_OK=$((COUNT_OK + 1))
-			echo-style --stderr --success='crash ok' --newline || return
-			CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,$TEST_NAME,crash ok"$'\n'
+			TESTS_FAIL+=("$TEST_NAME")
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,CRASH DIVERGED"$'\n'
+			echo-style --stderr --e2="$TEST_NAME" ' ' --error='CRASH DIVERGED' || exit 223
 		fi
+
+		# now that the result is noted, remove from pending
+		__complete_test_block || exit
+
+		# return non-zero such that the begin block is not entered
 		return 1
 	fi
 
-	# otherwise run this test if it isn't a skip
-	if [[ $skip_string == *"{$TEST_NAME}"* ]]; then
-		echo-style --stderr --h2="$TEST_NAME" --newline --warning='SKIPPED MANUAL' --newline --e2="$TEST_NAME" || return
-		CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,$TEST_NAME,SKIPPED"$'\n'
-		return 1
-	fi
-
-	# run the test
-	COUNT_TESTS=$((COUNT_TESTS + 1))
-	echo-style --stderr --h2="$TEST_NAME" || return
+	# run the test in this context
+	echo-style --stderr --h2="$TEST_NAME" || exit 223
 }
 function __end_test_block {
-	local result='ok' actual_var actual expected actual_file expected_file
+	# runs once the test is ended, but not on crash test ending
+	local ok='yes' actual_var actual expected actual_file expected_file
 	while [[ $# -ne 0 ]]; do
-		__dereference --origin="$1" --name={actual_var} || return
+		__dereference --origin="$1" --name={actual_var} || exit 223
 		actual="${!actual_var-}"
 		shift
 		expected="$1"
 		shift
 		if [[ $actual != "$expected" ]]; then
-			__print_lines \
+			__print_lines '' \
 				$'\e[7m'"FAIL: [$actual_var]"$'\e[0m' \
 				$'\e[7m'"== IT WAS == "$'\e[0m' \
 				"$actual" \
 				$'\e[7m''== IT SHOULD BE =='$'\e[0m' \
 				"$expected" \
-				$'\e[7m'"== END FAILURE =="$'\e[0m' || return
+				$'\e[7m'"== END FAILURE =="$'\e[0m' || exit 223
 			actual_file="$(fs-temp --directory='dorothy-internals' --file)"
 			expected_file="$actual_file.expected"
 			actual_file="$actual_file.actual"
-			__print_string "$actual" >"$actual_file"
-			__print_string "$expected" >"$expected_file"
-			fs-diff --unchanged --after="$expected_file" --before="$actual_file" || :
-			result='fail'
+			__print_string "$actual" >"$actual_file" || exit 223
+			__print_string "$expected" >"$expected_file" || exit 223
+			fs-diff --unchanged --before="$actual_file" --after="$expected_file" || :
+			ok='no'
 		fi
 	done
-	if [[ $result != 'ok' ]]; then
-		COUNT_FAIL=$((COUNT_FAIL + 1))
-		echo-style --stderr --e2="$TEST_NAME" || return
-		CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,$TEST_NAME,FAIL"$'\n'
+	# note the appropriate result
+	if [[ $ok == 'yes' ]]; then
+		TESTS_OK+=("$TEST_NAME")
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,ok"$'\n'
+		echo-style --stderr --g2="$TEST_NAME" || exit 223
 	else
-		COUNT_OK=$((COUNT_OK + 1))
-		echo-style --stderr --g2="$TEST_NAME" || return
-		CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,$TEST_NAME,ok"$'\n'
+		TESTS_FAIL+=("$TEST_NAME")
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,FAIL"$'\n'
+		echo-style --stderr --e2="$TEST_NAME" || exit 223
+	fi
+	# now that the result is noted, remove from pending
+	__complete_test_block || exit
+}
+function __complete_test_block {
+	# run once the test is ended, and on crash test ending
+	# ensure we are still relevant
+	if [[ -z $TEST_NAME ]]; then
+		echo-style --stderr --error="ERROR: ${FUNCNAME[0]}: Cannot complete a test block that has already cleaned itself up." || exit 223
+		return 222 # ECUSTOM 222 Tests malformed
+	fi
+	# remove the test from pending
+	local last
+	local -i count=${#TESTS_PENDING[@]} last_index
+	last_index=$((count - 1))
+	if [[ $count -eq 0 ]]; then
+		echo-style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) has finished but it was not inside pending..." || exit 223
+		__dump {TESTS_PENDING} >&2 || exit 223
+		return 222 # ECUSTOM 222 Tests malformed
+	elif [[ $count -ne 1 ]]; then
+		echo-style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) has finished but there were more than one pending test..." || exit 223
+		__dump {TESTS_PENDING} >&2 || exit 223
+		return 222 # ECUSTOM 222 Tests malformed
+	else
+		last="${TESTS_PENDING[last_index]}"
+		if [[ $last == "$TEST_NAME" ]]; then
+			TEST_NAME=''
+			TESTS_PENDING=("${TESTS_PENDING[@]:0:last_index}")
+		else
+			echo-style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) does not match the last pending test name of $(__dump --value="$last")" || exit 223
+
+			__dump {TESTS_PENDING} >&2 || exit 223
+			return 222 # ECUSTOM 222 Tests malformed
+		fi
+	fi
+	# verify all test data is as expected
+	__verify_test_blocks || exit
+}
+function __verify_test_blocks {
+	local -i count_tests="${#TESTS[@]}" count_pending="${#TESTS_PENDING[@]}" count_ok="${#TESTS_OK[@]}" count_fail="${#TESTS_FAIL[@]}" count_skip="${#TESTS_SKIP[@]}" count_finished
+	count_finished=$((count_ok + count_fail + count_skip))
+	if [[ -n $TEST_NAME ]]; then
+		echo-style --stderr --e2="$TEST_NAME" ' ' --error='PENDING' || exit 223
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,PENDING"$'\n'
+		return 221 # ECUSTOM 221 Tests failed
+	fi
+	if [[ $count_pending -ne 0 ]]; then
+		local pending_test_name
+		for pending_test_name in "${TESTS_PENDING[@]}"; do
+			echo-style --stderr --e2="$pending_test_name" ' ' --error='INCOMPLETE' || exit 223
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$pending_test_name,INCOMPLETE"$'\n'
+		done
+		return 221 # ECUSTOM 221 Tests failed
+	fi
+	if [[ $count_tests -ne $count_finished ]]; then
+		echo-style --stderr --e2="$SUITE_NAME" ' ' --status="$exit_status" ' ' --error='UNFINISHED' || exit 223
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$SUITE_NAME,UNFINISHED"$'\n'
+		return 221 # ECUSTOM 221 Tests failed
 	fi
 }
-function on_exit {
-	local -i exit_status=$? incomplete_count
-	incomplete_count=$((COUNT_TESTS - COUNT_OK - COUNT_FAIL))
+function __on_exit {
+	local -i exit_status=$?
+	local -i count_tests="${#TESTS[@]}" count_pending="${#TESTS_PENDING[@]}" count_ok="${#TESTS_OK[@]}" count_fail="${#TESTS_FAIL[@]}" count_skip="${#TESTS_SKIP[@]}" count_finished
+	count_finished=$((count_ok + count_fail + count_skip))
+	local count_message="TESTS:$count_tests  FINISHED:$count_finished  OK:$count_ok  FAIL:$count_fail  SKIP:$count_skip  PENDING:$count_pending"
 
-	# log the crash
-	if [[ $incomplete_count -eq 1 && -n $TEST_NAME ]]; then
-		echo-style --stderr --e2="$TEST_NAME" ' ' --status="$exit_status" ' ' --error='CRASHED'
-		CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,$TEST_NAME,CRASHED"$'\n'
+	# verify if we aren't coming from a failed verification
+	if [[ $exit_status -ne 221 && $exit_status -ne 222 && $exit_status -ne 223 ]]; then
+		__verify_test_blocks || :
 	fi
 
 	# log the suite
 	if [[ $exit_status -ne 0 ]]; then
-		echo-style --stderr --e1="$SUITE_NAME" ' ' --status="$exit_status"
+		echo-style --stderr --e1="$SUITE_NAME" ' ' --status="$exit_status" || :
 	else
-		echo-style --stderr --g1="$SUITE_NAME"
+		echo-style --stderr --g1="$SUITE_NAME" || :
 	fi
 
 	# append all our results to the csv file
 	if [[ -n $CSV_UPDATES ]]; then
-		if [[ $COUNT_OK -ne $COUNT_TESTS ]]; then
-			CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,TESTS:$COUNT_TESTS  SUCCESSES:$COUNT_OK  FAILURES:$COUNT_FAIL  INCOMPLETE:$incomplete_count,FAIL"$'\n'
+		if [[ $count_ok -ne $count_tests ]]; then
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$count_message,FAIL"$'\n'
 		else
-			CSV_UPDATES+="$option_implementation,$BASH_VERSION_AND_BINARY,TESTS:$COUNT_TESTS  SUCCESSES:$COUNT_OK  FAILURES:$COUNT_FAIL  INCOMPLETE:$incomplete_count,ok"$'\n'
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$count_message,ok"$'\n'
 		fi
 		if [[ -n $option_csv_file ]]; then
-			__print_string "$CSV_UPDATES" >>"$option_csv_file"
+			__print_string "$CSV_UPDATES" >>"$option_csv_file" || exit 223
 		fi
 	fi
 
 	# finish
-	render_csv
+	__render_csv || exit 223
 }
 
 # write everything at once on exit, as writing as it happens causes corruption
-trap on_exit EXIT
+trap __on_exit EXIT
 
 # =====================================
 # Implementations
@@ -1250,7 +1345,7 @@ if __begin_test_block --name='__ignore_sigpipe'; then
 	)"
 fi
 
-# @todo figure out a way to test `__exit_on_exit_status`
+# @todo figure out a way to test `__exit___on_exit_status`
 
 # -------------------------------------
 # Value Toolkit
@@ -2822,8 +2917,5 @@ fi
 # =====================================
 # Conclusion
 
-if [[ $COUNT_OK -ne $COUNT_TESTS ]]; then
-	__return 2 # final test of ERR
-fi
-
+__verify_test_blocks
 # proceed to EXIT
