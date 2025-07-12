@@ -103,6 +103,9 @@ Includes usage when a <path> is missing a required attribute, such as missing re
 EADDRINUSE 98 Address already in use
 Incudes usage when trying to use an already existing path.
 
+ENOTRECOVERABLE 104 State not recoverable
+Includes usage for unknown/unexpected logic path.
+
 ECANCELED 125 Operation cancelled
 
 ECUSTOM 200 Not applicable <for reason>
@@ -111,6 +114,11 @@ Used to signal to the caller that the action was not performed, and might be fin
 - Doing an operation on a path, such a mount path, that is already in the desired state.
 
 ECUSTOM 210 Processing complete, exit early
+
+ECUSTOM 220 Expectation mismatch
+ECUSTOM 221 Tests failed
+ECUSTOM 222 Tests malformed
+ECUSTOM 223 Tests broken
 ```
 
 ### moreutil/errno
