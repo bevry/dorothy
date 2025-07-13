@@ -3046,16 +3046,19 @@ ANSI=(
 
 	# tab
 	# [0x09 = $'\x09' = $'\t'] is [⇥] ubuntu, macos, [^ I] macos
+	# <https://ghostty.org/docs/vt/control/tab> Tab (TAB)
 	$'\t' '' 'tab' '[read-key][echo-revolving-door]'
 
 	# enter / line-feed
 	# [0x0A = $'\x0a' =  $'\n'] is ubuntu, macos,  [^ J] [^ M] macos
+	# <https://ghostty.org/docs/vt/control/lf> Linefeed (LF)
 	$'\n' '' 'enter' '[read-key][echo-revolving-door]'
 
 	# carriage-return
 	# [$'\e[G'] is [cursor to start of current line] ansi escape code
 	$'\e[G' '' 'carriage-return' '[read-key][not-text][shapeshifter]'
 	# [0x0D = $'\x0d' = $'\r'] is ansi escape code
+	# <https://ghostty.org/docs/vt/control/cr> Carriage Return (CR)
 	$'\r' '' 'carriage-return' '[read-key][echo-revolving-door][not-text][shapeshifter]'
 
 	# left
@@ -3073,6 +3076,7 @@ ANSI=(
 	# [$'\e[A'] is [↑] ubuntu, macos, [cursor up one] ansi escape code
 	$'\e[A' '' 'up' '[read-key][not-text][shapeshifter]'
 	# [$'\eM'] ansi escape code to cursor up a line and scroll if necessary, note that scrolling moves visible content down but content from above is empty/erased; note that this is also documented as: Reverse Index (RI is 0x8d); note $'\x8d' becomes a ? in Apple Terminal
+	# <https://ghostty.org/docs/vt/esc/ri> Reverse Index (RI)
 	$'\eM' '' 'up' '[read-key][not-text][shapeshifter]'
 
 	# down
@@ -3132,6 +3136,7 @@ ANSI=(
 	# [$'\x7f' = $'\177'] is [⌫] ubuntu, macos
 	$'\177' '' 'backspace' '[read-key][not-text]'
 	# [0x08 = $'\x08' = $'\b'] is [^ H] macos
+	# <https://ghostty.org/docs/vt/control/bs> Backspace (BS)
 	$'\b' '' 'backspace' '[read-key][echo-revolving-door][not-text][shapeshifter]'
 
 	# backtab
@@ -3187,37 +3192,47 @@ ANSI=(
 	#   ^ handled earlier in pressable keys
 	# Save Cursor and Attributes
 	# ESC 7	DECSC	Save Cursor Position in Memory**
+	# <https://ghostty.org/docs/vt/esc/decsc> Save Cursor (DECSC)
 	$'\e7' '' 'save-cursor' '[not-text]'
 	# Restore Cursor and Attributes
 	# ESC 8	DECSR	Restore Cursor Position from Memory**
+	# <https://ghostty.org/docs/vt/esc/decrc> Restore Cursor (DECRC)
 	$'\e8' '' 'restore-cursor' '[not-text][shapeshifter]'
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#cursor-positioning>
 	# Cursor Up
 	# ESC [ <n> A	CUU	Cursor Up	Cursor up by <n>
+	# <https://ghostty.org/docs/vt/csi/cuu> Cursor Up (CUU)
 	$'\e[5A' $'\e\[[0-9]*A' 'cursor-up' '[not-text][shapeshifter]'
 	# Cursor Down
 	# ESC [ <n> B	CUD	Cursor Down	Cursor down by <n>
+	# <https://ghostty.org/docs/vt/csi/cud> Cursor Down (CUD)
 	$'\e[5B' $'\e\[[0-9]*B' 'cursor-down' '[not-text][shapeshifter]'
-	# Cursor Right / Cursor Right
+	# Cursor Right / Cursor Forward
 	# ESC [ <n> C	CUF	Cursor Forward	Cursor forward (Right) by <n>
+	# <https://ghostty.org/docs/vt/csi/cuf> Cursor Forward (CUF)
 	$'\e[5C' $'\e\[[0-9]*C' 'cursor-forward' '[not-text][shapeshifter]'
-	# Cursor Left / Cursor Back
+	# Cursor Left / Cursor Back / Cursor Backward
 	# ESC [ <n> D	CUB	Cursor Backward	Cursor backward (Left) by <n>
+	# <https://ghostty.org/docs/vt/csi/cub> Cursor Backward (CUB)
 	$'\e[5D' $'\e\[[0-9]*D' 'cursor-back' '[not-text][shapeshifter]'
 	# Cursor Next Line / Cursor Down Line / Cursor Below Line
 	# ESC [ <n> E	CNL	Cursor Next Line	Cursor down <n> lines from current position
+	# <https://ghostty.org/docs/vt/csi/cnl> Cursor Next Line (CNL)
 	$'\e[5E' $'\e\[[0-9]*E' 'cursor-next-line' '[not-text][shapeshifter]'
 	# Cursor Previous Line / Cursor Up Line / Cursor Prior Line
 	# ESC [ <n> F	CPL	Cursor Previous Line	Cursor up <n> lines from current position
+	# <https://ghostty.org/docs/vt/csi/cpl> Cursor Previous Line (CPL)
 	$'\e[5F' $'\e\[[0-9]*F' 'cursor-previous-line' '[not-text][shapeshifter]'
 	# Cursor Horizontal Position / Cursor Horizontal Absolute
 	# ESC [ <n> G	CHA	Cursor Horizontal Absolute	Cursor moves to <n>th position horizontally in the current line
 	$'\e[5G' $'\e\[[0-9]*G' 'cursor-horizontal-position' '[not-text][shapeshifter]'
 	# Cursor Vertical Position / Cursor Vertical Absolute / Vertical Position Absolute
 	# ESC [ <n> d	VPA	Vertical Line Position Absolute	Cursor moves to the <n>th position vertically in the current column
+	# <https://ghostty.org/docs/vt/csi/vpa> Vertical Position Absolute (VPA)
 	$'\e[5d' $'\e\[[0-9]*d' 'cursor-vertical-position' '[not-text][shapeshifter]'
 	# Cursor Position / Direct Cursor Addressing / Horizontal Vertical Position
 	# ESC [ <y> ; <x> H	CUP	Cursor Position	*Cursor moves to <x>; <y> coordinate within the viewport, where <x> is the column of the <y> line
+	# <https://ghostty.org/docs/vt/csi/cup> Cursor Position (CUP)
 	$'\e[5;5H' $'\e\[[0-9;]*H' 'cursor-position' '[not-text][shapeshifter]'
 	# Cursor Position / Horizontal Vertical Position /  Direct Cursor Addressing
 	# ESC [ <y> ; <x> f	HVP	Horizontal Vertical Position	*Cursor moves to <x>; <y> coordinate within the viewport, where <x> is the column of the <y> line
@@ -3249,43 +3264,55 @@ ANSI=(
 	# ESC [ 4 SP q	DECSCUSR	Steady Underline	Steady underline cursor shape
 	# ESC [ 5 SP q	DECSCUSR	Blinking Bar	Blinking bar cursor shape
 	# ESC [ 6 SP q	DECSCUSR	Steady Bar	Steady bar cursor shape
+	# <https://ghostty.org/docs/vt/csi/decscusr> Set Cursor Style (DECSCUSR)
 	$'\e[5 q' $'\e\[[0-6] q' 'cursor-shape' '[not-text]'
 
 	# Viewport Positioning
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#viewport-positioning>
 	# Scroll Up / Scroll Scrolling Region Up
 	# ESC [ <n> S	SU	Scroll Up	Scroll text up by <n>. Also known as pan down, new lines fill in from the bottom of the screen
+	# <https://ghostty.org/docs/vt/csi/su> Scroll Up (SU)
 	$'\e[5S' $'\e\[[0-9]*S' 'scroll-up' '[not-text][shapeshifter]'
 	# Scroll Down / Scroll Scrolling Region Down
 	# ESC [ <n> T	SD	Scroll Down	Scroll down by <n>. Also known as pan up, new lines fill in from the top of the screen
+	# <https://ghostty.org/docs/vt/csi/sd> Scroll Down (SD)
 	$'\e[5T' $'\e\[[0-9]*T' 'scroll-down' '[not-text][shapeshifter]'
 
 	# Text Modification
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#text-modification>
 	# ESC [ <n> @	ICH	Insert Character	Insert <n> spaces at the current cursor position, shifting all existing text to the right. Text exiting the screen to the right is removed.
+	# <https://ghostty.org/docs/vt/csi/ich> Insert Character (ICH)
 	$'\e[5@' $'\e\[[0-9]*@' 'insert-character' '[not-text][shapeshifter]'
 	# ESC [ <n> P	DCH	Delete Character	Delete <n> characters at the current cursor position, shifting in space characters from the right edge of the screen.
+	# <https://ghostty.org/docs/vt/csi/dch> Delete Character (DCH)
 	$'\e[5P' $'\e\[[0-9]*P' 'delete-character' '[not-text][shapeshifter]' # printf 'asd\e[G'; sleep 1; printf '%s' $'\e[5P'; sleep 5
 	# ESC [ <n> X	ECH	Erase Character	Erase <n> characters from the current cursor position by overwriting them with a space character.
+	# <https://ghostty.org/docs/vt/csi/ech> Erase Character (ECH)
 	$'\e[5X' $'\e\[[0-9]*X' 'erase-character' '[not-text][shapeshifter]'
 	# ESC [ <n> L	IL	Insert Line	Inserts <n> lines into the buffer at the cursor position. The line the cursor is on, and lines below it, will be shifted downwards.
 	# Apple Terminal, no matter the N value, it removes the current and lower lines maintaining horizontal cursor
+	# <https://ghostty.org/docs/vt/csi/il> Insert Line (IL)
 	$'\e[5L' $'\e\[[0-9]*L' 'insert-line' '[not-text][shapeshifter]'
 	# ESC [ <n> M	DL	Delete Line	Deletes <n> lines from the buffer, starting with the row the cursor is on.
 	# Apple Terminal: no matter the N value, it removes the current and lower lines maintaining horizontal cursor
+	# <https://ghostty.org/docs/vt/csi/dl> Delete Line (DL)
 	$'\e[5M' $'\e\[[0-9]*M' 'delete-line' '[not-text][shapeshifter]'
 	# ESC [ <n> J	ED	Erase in Display	Replace all text in the current viewport/screen specified by <n> with space characters
 	# ESC [ Pn J           Erase in Display
 	# Pn = None or 0       From Cursor to End of Screen
 	# 1                    From Beginning of Screen to Cursor
 	# 2                    Entire Screen
+	# <https://ghostty.org/docs/vt/csi/ed> Erase Display (ED)
 	$'\e[2J' $'\e\[[0-2]*J' 'erase-in-display' '[not-text][shapeshifter]'
 	# ESC [ <n> K	EL	Erase in Line	Replace all text on the line with the cursor specified by <n> with space characters
 	# ESC [ Pn K           Erase in Line
 	# Pn = None or 0       From Cursor to End of Line
 	# 1                    From Beginning of Line to Cursor
 	# 2                    Entire Line
+	# <https://ghostty.org/docs/vt/csi/el> Erase Line (EL)
 	$'\e[2K' $'\e\[[0-2]*K' 'erase-in-line' '[not-text][shapeshifter]'
+	# <https://ghostty.org/docs/vt/csi/rep> Repeat Previous Character (REP)
+	$'\e[5b' $'\e\[[0-9]*b' 'repeat-character' '[not-text][shapeshifter]'
 
 	# Screen Colors
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#screen-colors>
@@ -3295,9 +3322,11 @@ ANSI=(
 	# Mode Changes
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#mode-changes>
 	# ESC =	DECKPAM	Enable Keypad Application Mode	Keypad keys will emit their Application Mode sequences.
-	$'\e=' '' 'application-keypad-mode' '[not-text]'
+	# <https://ghostty.org/docs/vt/esc/deckpam> Keypad Application Mode (DECKPAM)
+	$'\e=' '' 'keypad-application-mode' '[not-text]'
 	# ESC >	DECKPNM	Enable Keypad Numeric Mode	Keypad keys will emit their Numeric Mode sequences.
-	$'\e>' '' 'numeric-keypad-mode' '[not-text]'
+	# <https://ghostty.org/docs/vt/esc/deckpnm> Keypad Numeric Mode (DECKPNM)
+	$'\e>' '' 'keypad-numeric-mode' '[not-text]'
 	# ESC [ ? 1 h	DECCKM	Enable Cursor Keys Application Mode	Keypad keys will emit their Application Mode sequences.
 	$'\e[?1h' '' 'enable-cursor-keys-application-mode' '[not-text]'
 	# ESC [ ? 1 l	DECCKM	Disable Cursor Keys Application Mode (use Normal Mode)	Keypad keys will emit their Numeric Mode sequences.
@@ -3309,6 +3338,8 @@ ANSI=(
 	# ESC [ 6 n	DECXCPR	Report Cursor Position	Emit the cursor position as: ESC [ <r> ; <c> R Where <r> = cursor row and <c> = cursor column
 	# Device Status Report; Reports the cursor position (CPR) by transmitting `ESC[n;mR`, where n is the row and m is the column; `ESC [ 6 n` Send Cursor Position Report; DECXCPR; Report Cursor Position; Emit the cursor position as: ESC [ <r> ; <c> R Where <r> = cursor row and <c> = cursor column
 	$'\e[6n' '' 'report-cursor-position' '[not-text][shapeshifter]' # used by [get-terminal-cursor-line-and-column]; shapeshifter as can inject data into terminal if no proper active read
+	# <https://ghostty.org/docs/vt/csi/dsr> Device Status Report (DSR)
+	$'\e[5n' '' 'report-operating-status' '[not-text][shapeshifter]'
 	# ESC [ 0 c	DA	Device Attributes	Report the terminal identity. Will emit “\x1b[?1;0c”, indicating "VT101 with No Options".
 	$'\e[0c' '' 'report-terminal-identity' '[not-text][shapeshifter]' # shapeshifter as can inject data into terminal if no proper active read
 
@@ -3318,14 +3349,17 @@ ANSI=(
 	$'\eH' '' 'horizontal-tab-set' '[not-text]'
 	# ESC [ <n> I	CHT	Cursor Horizontal (Forward) Tab	Advance the cursor to the next column (in the same row) with a tab stop. If there are no more tab stops, move to the last column in the row. If the cursor is in the last column, move to the first column of the next row.
 	# Horizontal Tab / Cursor Horizontal Tab
+	# <https://ghostty.org/docs/vt/csi/cht> Cursor Horizontal Tabulation (CHT)
 	$'\e[5I' $'\e\[[0-9]*I' 'horizontal-tab' '[not-text][shapeshifter]'
 	# ESC [ <n> Z	CBT	Cursor Backwards Tab	Move the cursor to the previous column (in the same row) with a tab stop. If there are no more tab stops, moves the cursor to the first column. If the cursor is in the first column, doesn’t move the cursor.
 	# Backward Tab; in Apple Terminal, no matter the N value, it goes back to the start of the line
+	# <https://ghostty.org/docs/vt/csi/cbt> Cursor Backward Tabulation (CBT)
 	$'\e[5Z' $'\e\[[0-9]*Z' 'backward-tab' '[not-text][shapeshifter]'
 	# Tab Clear / Clear Tab at Current Position / Clear All Tabs
 	# ESC [ 0 g	TBC	Tab Clear (current column)	Clears the tab stop in the current column, if there is one. Otherwise does nothing.
 	# ESC [ 3 g	TBC	Tab Clear (all columns)	Clears all currently set tab stops.
 	# Tab Clear; Pn = None or 0 Clear Tab at Current Position; 3 Clear All Tabs
+	# <https://ghostty.org/docs/vt/csi/tbc> Tab Clear (TBC)
 	$'\e[3g' $'\e\[[03]*g' 'tab-clear' '[not-text]'
 
 	# Designate Character Set
@@ -3338,7 +3372,10 @@ ANSI=(
 	# Scrolling Margins
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#scrolling-margins>
 	# ESC [ <t> ; <b> r	DECSTBM	Set Scrolling Region	Sets the VT scrolling margins of the viewport.
-	$'\e[5;5r' $'\e\[[0-9;]*r' 'set-scrolling-region' '[not-text][shapeshifter]' # Set Scrolling Region
+	# <https://ghostty.org/docs/vt/csi/decstbm> Set Top and Bottom Margins (DECSTBM)
+	$'\e[5;5r' $'\e\[[0-9;]*r' 'set-top-and-bottom-margins' '[not-text][shapeshifter]'
+	# <https://ghostty.org/docs/vt/csi/decslrm> Set Left and Right Margins (DECSLRM)
+	$'\e[5;5s' $'\e\[[0-9;]*s' 'set-left-and-right-margins' '[not-text][shapeshifter]'
 
 	# Window Title
 	# <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#window-title>
@@ -3381,6 +3418,7 @@ ANSI=(
 	# ESC E                           Next Line
 	$'\eE' '' 'next-line' '[not-text][shapeshifter]'
 	# ESC D                           Index
+	# <https://ghostty.org/docs/vt/esc/ind> Index (IND)
 	$'\eD' '' 'index' '[not-text][shapeshifter]'
 	# ESC M                           Reverse Index
 	#   ^ handled earlier in pressable keys
@@ -3395,6 +3433,7 @@ ANSI=(
 	# ESC [u                  (A)     Restore Cursor and Attributes
 	#   ^ handled earlier in microsoft section
 	# ESC c                           Reset to Initial State
+	# <https://ghostty.org/docs/vt/esc/ris> Full Reset (RIS)
 	$'\ec' '' 'reset' '[not-text][shapeshifter]'
 	# ESC g                           Visual Bell
 	$'\eg' '' 'visual-bell' '[not-text]'
@@ -3408,6 +3447,7 @@ ANSI=(
 	# ESC >                   (V)     Numeric Keypad Mode
 	#   ^ handled earlier in microsoft section
 	# ESC # 8                 (V)     Fill Screen with E's
+	# <https://ghostty.org/docs/vt/esc/decaln> Screen Alignment Test (DECALN)
 	$'\e#8' '' 'test-card' '[not-text][shapeshifter]'
 	# ESC \                   (A)     String Terminator
 	$'\e\\' '' 'string-terminator' '[not-text]'
@@ -3437,7 +3477,8 @@ ANSI=(
 	# ESC N                   (A)     Single Shift G2
 	$'\eN' '' 'single-shift-g2' '[not-text]'
 	# ESC O                   (A)     Single Shift G3
-	$'\eO' '' 'single-shift-g3' '[not-text]' # Single Shift G3; Single Shift Select of G3 Character Set (SS3 is 0x8f), VT220. This affects next character only; note $'\x8f' becomes a ? in Apple Terminal
+	# Single Shift G3; Single Shift Select of G3 Character Set (SS3 is 0x8f), VT220. This affects next character only; note $'\x8f' becomes a ? in Apple Terminal
+	$'\eO' '' 'single-shift-g3' '[not-text]'
 	# ESC ( Pcs               (A)     Designate character set as G0
 	#   ^ handled earlier in microsoft section
 	# ESC ) Pcs               (A)     Designate character set as G1
@@ -3477,7 +3518,12 @@ ANSI=(
 	# ESC [ Pn G                      Cursor horizontal position
 	#   ^ handled earlier in microsoft section
 	# ESC [ Pn `                      same as above
-	$'\e[5`' $'\e\[[0-9]*`' 'cursor-horizontal-position' '[not-text][shapeshifter]'
+	# <https://ghostty.org/docs/vt/csi/hpa> Horizontal Position Absolute (HPA)
+	$'\e[5`' $'\e\[[0-9]*`' 'horizontal-position-absolute' '[not-text][shapeshifter]'
+	# <https://ghostty.org/docs/vt/csi/hpr> Horizontal Position Relative (HPR)
+	$'\e[5a' $'\e\[[0-9]*a' 'horizontal-position-relative' '[not-text][shapeshifter]'
+	# <https://ghostty.org/docs/vt/csi/vpr> Vertical Position Relative (VPR)
+	$'\e[5e' $'\e\[[0-9]*e' 'vertical-position-relative' '[not-text][shapeshifter]'
 	# ESC [ Pn d                      Cursor vertical position
 	#   ^ handled earlier in microsoft section
 	# ESC [ Ps ;...; Ps m             Select Graphic Rendition
@@ -3566,11 +3612,14 @@ ANSI=(
 	$'\e[>c' '' 'send-secondary-device-attributes-string' '[not-text]'
 	# ESC [ 6 n                       Send Cursor Position Report
 	#   ^ handled earlier in microsoft section
+	# <https://ghostty.org/docs/vt/csi/xtshiftescape> Set Shift-Escape (XTSHIFTESCAPE)
+	$'\e[>s' $'\e\[>[01]*s' 'shift-escape' '[not-text][shapeshifter]'
 
 	# The below need to be at the end, as they begin or end other sequences
 	# <https://en.wikipedia.org/wiki/ANSI_escape_code#C0_control_codes>
 	# ^G	0x07	BEL	Bell	Makes an audible noise.
 	# [0x07 = $'\x07' = $'\007' = $'\a'] is `^ G` macos
+	# <https://ghostty.org/docs/vt/control/bel> Bell (BEL)
 	$'\a' '' 'bell' '[read-key][not-text]' # besides bell, this is also used to end clipboard and terminal title sequences
 	# ^[	0x1B	ESC	Escape	Starts all the escape sequences
 	# [0x1B = $'\x1B' = $'\033' = $'\e'] is `^ [` on macos
