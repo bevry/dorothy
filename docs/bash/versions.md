@@ -18,7 +18,7 @@ From manual discovery:
 
 ## bash v3.2
 
-> [!CAUTION]
+> [!IMPORTANT]
 > This is this is the minimum required version for Dorothy.
 
 From manual discovery:
@@ -72,8 +72,15 @@ Changelog:
 
 ## bash v4.1
 
+> [!CAUTION]
+> Because of the bugs in this version, this version is discouraged.
+
 > [!NOTE]
 > Dorothy's `bash.bash` includes cross-version compatible implementations of `__open_fd`.
+
+From manual discovery:
+
+- Has a bug where modifications of a file do not actually modify the file, see comment at `bash.bash:__wait_for_semaphores`.
 
 From changelog:
 
@@ -93,6 +100,9 @@ Changelog:
 
 ## bash v4.2
 
+> [!CAUTION]
+> Because of the exit status bug in this version, this version is discouraged.
+
 From manual discovery:
 
 - If a crash occurs via `errexit` the exit status will always be `1` instead of the intended exit status. Refer to <errors.md> for guidance.
@@ -110,6 +120,9 @@ Changelog:
 > f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
 
 ## bash v4.3
+
+> [!CAUTION]
+> Because of the exit status bug in this version, this version is discouraged.
 
 > [!NOTE]
 > Dorothy's `bash.bash` includes cross-version compatible implementations of `__get_var_declaration`.
@@ -134,11 +147,15 @@ Changelog:
 
 ## bash v4.4
 
-> [!CAUTION]
+> [!IMPORTANT]
 > This is this is the recommended minimum version for Dorothy.
 
 > [!NOTE]
 > Dorothy's `bash.bash` disables `nounset` on earlier bash versions to prevent crashes on accessing empty arrays. This has no notable downside, as the exact same logic paths are hit on modern bash versions, so undefined variables will be still be caught for resolution on them.
+
+From manual discovery:
+
+- Crashes now return the correct exit status.
 
 From changelog:
 

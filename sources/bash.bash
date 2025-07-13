@@ -326,6 +326,8 @@ function __dump {
 # =============================================================================
 # Bash Configuration & Capability Detection, Including Shims/Polyfills
 # Place changelog entries in `versions.md`
+# Distribution of bash versions: <https://repology.org/project/bash/versions>
+# Listing of bash releases: <https://ftp.gnu.org/gnu/bash/?C=M;O=D>
 
 # Determine the bash version information, which is used to determine if we can use certain features or not.
 if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
@@ -360,6 +362,47 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 		}
 	fi
 fi
+
+# Unsupported versions should be reflected in `dorothy-workflow.yml`
+# trunk-ignore(shellcheck/SC2034)
+BASH_VERSIONS_SUPPORTED=(
+	# they all compile on ubuntu x86 without any flags, however byacc is needed for a few of them
+	# 3.0.16 # compiles on macos with CPPFLAGS modification <-- not supported by dorothy
+	# 3.1    # compiles on macos with CPPFLAGS modification <-- not supported by dorothy
+	3.2.57 # compiles on macos with CPPFLAGS modification
+	4.0    # compiles on macos with CPPFLAGS modification
+	# 4.1    # compiles on macos with CPPFLAGS modification <-- not supported by dorothy, see note at `__wait_for_semaphores`
+	# 4.2.53 # compiles on macos with CPPFLAGS modification <-- partially supported by dorothy, crashes can fail to return the correct exit status
+	# 4.3.30 # compiles on macos with CPPFLAGS modification <-- partially supported by dorothy, crashes can fail to return the correct exit status
+	4.4.18 # compiles on macos with CPPFLAGS modification
+	5.0    # compiles on macos with CPPFLAGS modification
+	5.1.16 # compiles on macos x86 without any flags
+	5.2.37 # compiles on macos x86 without any flags
+	5.3    # compiles on macos x86 without any flags
+)
+
+function __get_coerced_bash_version {
+	local input="$1" result
+	case "$input" in
+	3.0*) result='3.0.16' ;;
+	3.1*) result='3.1' ;;
+	3 | 3. | 3.2*) result='3.2.57' ;;
+	4.0*) result='4.0' ;;
+	4.1*) result='4.1' ;;
+	4.2*) result='4.2.53' ;;
+	4.3*) result='4.3.30' ;;
+	4 | 4. | 4.4*) result='4.4.18' ;;
+	5.0*) result='5.0' ;;
+	5.1*) result='5.1.16' ;;
+	5.2*) result='5.2.37' ;;
+	'' | 5 | 5. | 5.3*) result='5.3' ;;
+	*)
+		__print_lines "ERROR: The bash version $(__dump --value="$input" || :) is not supported by Dorothy." >&2 || :
+		return 75 # EPROGMISMATCH 75 Program version wrong
+		;;
+	esac
+	printf '%s' "$result" || return
+}
 
 # CONSIDER
 # bash v5: localvar_inherit: If set, local variables inherit the value and attributes of a variable of the same name that exists at a previous scope before any new value is assigned. The nameref attribute is not inherited.
