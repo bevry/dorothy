@@ -730,11 +730,11 @@ fi
 # q.  Negative length specifications in the `${var:offset:length}` expansion,
 #     previously errors, are now treated as offsets from the end of the variable.
 # `test -v varname` is not used as it behaviour is inconsistent to expectations and across versions
-# bash 3.2 and 4.0 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
+# bash 3.2, 4.0, 4.1 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
 # bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
 # bash 4.4+ will have `local z; declare -p z` will result in `declare -- z`
 # `set -u` has no effect
-if [[ $BASH_VERSION_MAJOR -lt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 0) ]]; then
+if [[ $BASH_VERSION_MAJOR -lt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -le 1) ]]; then
 	BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED='yes'
 else
 	BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED='no'
