@@ -248,7 +248,7 @@ function __dump {
 			continue
 			;;
 		esac
-		__dereference --origin="$DUMP__item" --name={DUMP__reference} || return
+		__dereference --source="$DUMP__item" --name={DUMP__reference} || return
 		# @todo support associative arrays
 		if ! __is_var_declared "$DUMP__reference"; then
 			DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undeclared='' --newline)
@@ -822,7 +822,7 @@ function __is_var_defined {
 		IS_VAR_SET__item="$1"
 		shift
 		# support with and without squigglies for these references
-		__dereference --origin="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
+		__dereference --source="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
 		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
 		IS_VAR_SET__fodder="$(__get_var_declaration "$IS_VAR_SET__reference" 2>/dev/null)" || return 1
 		[[ $IS_VAR_SET__fodder == *'='* ]] || return 1
@@ -841,7 +841,7 @@ function __is_var_declared {
 		IS_VAR_SET__item="$1"
 		shift
 		# support with and without squigglies for these references
-		__dereference --origin="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
+		__dereference --source="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
 		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
 		__get_var_declaration "$IS_VAR_SET__reference" &>/dev/null || return 1
 		return 0
@@ -972,7 +972,7 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 			*)
 				if [[ -z $MAPFILE__reference ]]; then
 					# support with and without squigglies for these references
-					__dereference --origin="$1" --name={MAPFILE__reference} || return
+					__dereference --source="$1" --name={MAPFILE__reference} || return
 				else
 					__print_lines \
 						"mapfile[shim]: unknown argument: $1" \
@@ -1094,7 +1094,7 @@ function __affirm_variable_is_array {
 # __affirm_array_is_defined <array> <description>
 # function __affirm_array_is_defined {
 # 	local AFFIRM_ARRAY_IS_DEFINED__item="$1" AFFIRM_ARRAY_IS_DEFINED__reference
-# 	__dereference --origin="$AFFIRM_ARRAY_IS_DEFINED__item" --name={AFFIRM_ARRAY_IS_DEFINED__reference} || return
+# 	__dereference --source="$AFFIRM_ARRAY_IS_DEFINED__item" --name={AFFIRM_ARRAY_IS_DEFINED__reference} || return
 # 	if ! __is_array "$AFFIRM_ARRAY_IS_DEFINED__reference" || eval "[[ \${#${AFFIRM_ARRAY_IS_DEFINED__reference}[@]} -eq 0 ]]"; then
 # 		__print_lines "ERROR: ${FUNCNAME[1]}: At least one ${2:-"value"} must be provided." >&2 || :
 # 		return 22 # EINVAL 22 Invalid argument
@@ -1303,23 +1303,23 @@ function __is_reference {
 }
 
 # with the reference, trim its squigglies to get its variable name, and apply it to the variable name reference, and affirm there won't be a conflict
-# e.g. `my_result=hello; MY_CONTEXT__item={my_result}; __dereference --origin="$MY_CONTEXT__item" --name={MY_CONTEXT__reference}; MY_CONTEXT__reference=my_result`
-# e.g. `my_result=hello; MY_CONTEXT__item='{my_result}'; __dereference --origin="$MY_CONTEXT__item"--value={MY_CONTEXT__value}; MY_CONTEXT__value=hello`
+# e.g. `my_result=hello; MY_CONTEXT__item={my_result}; __dereference --source="$MY_CONTEXT__item" --name={MY_CONTEXT__reference}; MY_CONTEXT__reference=my_result`
+# e.g. `my_result=hello; MY_CONTEXT__item='{my_result}'; __dereference --source="$MY_CONTEXT__item"--value={MY_CONTEXT__value}; MY_CONTEXT__value=hello`
 function __dereference {
-	local DEREFERENCE__item DEREFERENCE__origin_reference='' DEREFERENCE__name_reference='' DEREFERENCE__value_reference='' DEREFERENCE__size DEREFERENCE__origin_prefix='' DEREFERENCE__internal_prefix=''
+	local DEREFERENCE__item DEREFERENCE__source_reference='' DEREFERENCE__name_reference='' DEREFERENCE__value_reference='' DEREFERENCE__size DEREFERENCE__source_prefix='' DEREFERENCE__internal_prefix=''
 	while [[ $# -ne 0 ]]; do
 		DEREFERENCE__item="$1"
 		shift
 		case "$DEREFERENCE__item" in
-		--origin={*})
+		--source={*})
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
-			DEREFERENCE__origin_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
-			DEREFERENCE__origin_prefix="${DEREFERENCE__origin_reference%%__*}__"
+			DEREFERENCE__source_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__source_prefix="${DEREFERENCE__source_reference%%__*}__"
 			;;
-		--origin=*)
-			DEREFERENCE__origin_reference="${DEREFERENCE__item#*=}"
-			DEREFERENCE__origin_prefix="${DEREFERENCE__origin_reference%%__*}__"
+		--source=*)
+			DEREFERENCE__source_reference="${DEREFERENCE__item#*=}"
+			DEREFERENCE__source_prefix="${DEREFERENCE__source_reference%%__*}__"
 			;;
 		--name={*})
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
@@ -1337,38 +1337,38 @@ function __dereference {
 		*) __unrecognised_argument "$DEREFERENCE__item" || return ;;
 		esac
 	done
-	if [[ -z $DEREFERENCE__origin_reference ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: The origin reference is required." >&2 || :
+	if [[ -z $DEREFERENCE__source_reference ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: The source reference is required." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# validate that the reference does not use our variable name prefix
-	if [[ -n $DEREFERENCE__origin_prefix && -n $DEREFERENCE__internal_prefix && $DEREFERENCE__origin_prefix == "$DEREFERENCE__internal_prefix" ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the origin reference [$DEREFERENCE__origin_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
+	if [[ -n $DEREFERENCE__source_prefix && -n $DEREFERENCE__internal_prefix && $DEREFERENCE__source_prefix == "$DEREFERENCE__internal_prefix" ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source reference [$DEREFERENCE__source_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	if [[ -n $DEREFERENCE__name_reference ]]; then
 		if __is_array "$DEREFERENCE__name_reference"; then
 			# append is intentional, see __to usage
-			eval "$DEREFERENCE__name_reference+=(\"\$DEREFERENCE__origin_reference\")" || return
+			eval "$DEREFERENCE__name_reference+=(\"\$DEREFERENCE__source_reference\")" || return
 		else
-			eval "$DEREFERENCE__name_reference=\"\$DEREFERENCE__origin_reference\"" || return
+			eval "$DEREFERENCE__name_reference=\"\$DEREFERENCE__source_reference\"" || return
 		fi
 	fi
 	if [[ -n $DEREFERENCE__value_reference ]]; then
 		if __is_array "$DEREFERENCE__value_reference"; then
 			# append is intentional, see __to usage
-			if __is_array "$DEREFERENCE__origin_reference"; then
-				eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__origin_reference}[@]}\")" || return
+			if __is_array "$DEREFERENCE__source_reference"; then
+				eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__source_reference}[@]}\")" || return
 			else
-				eval "$DEREFERENCE__value_reference+=(\"\$${DEREFERENCE__origin_reference}\")" || return
+				eval "$DEREFERENCE__value_reference+=(\"\$${DEREFERENCE__source_reference}\")" || return
 			fi
 		else
-			if __is_array "$DEREFERENCE__origin_reference"; then
+			if __is_array "$DEREFERENCE__source_reference"; then
 				# convert the value variable into an array via assignment
 				# @todo this may be a mistake in a hindsight? or not?
-				eval "$DEREFERENCE__value_reference=(\"\${${DEREFERENCE__origin_reference}[@]}\")" || return
+				eval "$DEREFERENCE__value_reference=(\"\${${DEREFERENCE__source_reference}[@]}\")" || return
 			else
-				eval "$DEREFERENCE__value_reference=\"\$${DEREFERENCE__origin_reference}\"" || return
+				eval "$DEREFERENCE__value_reference=\"\$${DEREFERENCE__source_reference}\"" || return
 			fi
 		fi
 	fi
@@ -1456,9 +1456,9 @@ function __to {
 		case "$TO__item" in
 		--source={*})
 			__affirm_value_is_undefined "$TO__source" 'source reference' || return
-			__dereference --origin="${TO__item#*=}" --name={TO__source} || return
+			__dereference --source="${TO__item#*=}" --name={TO__source} || return
 			;;
-		--targets=*) __dereference --origin="${TO__item#*=}" --value={TO__targets} || return ;;
+		--targets=*) __dereference --source="${TO__item#*=}" --value={TO__targets} || return ;;
 		--target=*) TO__targets+=("${TO__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$TO__mode" 'write mode' || return
@@ -1497,7 +1497,7 @@ function __to {
 	for TO__target in "${TO__targets[@]}"; do
 		__affirm_value_is_defined "$TO__target" 'target' || return
 		if __is_reference "$TO__target"; then
-			__dereference --origin="$TO__target" --name={TO__target} || return
+			__dereference --source="$TO__target" --name={TO__target} || return
 			if __is_array "$TO__source"; then
 				# `__at` and `__index` provide a source array, and the destination decides if it wants an array or string
 				# and bash v3 does not simply declare empty variables, but defines them as strings, so we need to handle that
@@ -1762,7 +1762,7 @@ function __do {
 	# redirect or copy, status, to a var target
 	--redirect-status={*} | --copy-status={*})
 		local DO__reference DO__status
-		__dereference --origin="$DO__arg_value" --name={DO__reference} || return
+		__dereference --source="$DO__arg_value" --name={DO__reference} || return
 
 		# catch the status
 		__try {DO__status} -- __do --inverted "$@"
@@ -1806,7 +1806,7 @@ function __do {
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
 		local DO__reference DO__semaphore REPLY
-		__dereference --origin="$DO__arg_value" --name={DO__reference} || return
+		__dereference --source="$DO__arg_value" --name={DO__reference} || return
 
 		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
 		eval "$DO__reference=" || return
@@ -2515,7 +2515,7 @@ function __try {
 			shift $#
 			break
 			;;
-		{*}) __dereference --origin="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_reference} || return ;;
+		{*}) __dereference --source="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_reference} || return ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $DOROTHY_TRY__item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -3902,7 +3902,7 @@ function __is_fd_open {
 		shift
 		case "$IS_FD_OPEN__item" in
 		# no way to test if a file descriptor reference is available, it has to be dereferenced first
-		{*}) __dereference --origin="$IS_FD_OPEN__item" --value={IS_FD_OPEN__numbers} || return ;;
+		{*}) __dereference --source="$IS_FD_OPEN__item" --value={IS_FD_OPEN__numbers} || return ;;
 		[0-9]*) IS_FD_OPEN__numbers+=("$IS_FD_OPEN__item") ;;
 		*) __unrecognised_argument "$IS_FD_OPEN__item" || return ;;
 		esac
@@ -3926,7 +3926,7 @@ function __is_fd_available {
 		shift
 		case "$IS_FD_AVAILABLE__item" in
 		# no way to test if a file descriptor reference is available, it has to be dereferenced first
-		{*}) __dereference --origin="$IS_FD_AVAILABLE__item" --value={IS_FD_AVAILABLE__numbers} || return ;;
+		{*}) __dereference --source="$IS_FD_AVAILABLE__item" --value={IS_FD_AVAILABLE__numbers} || return ;;
 		[0-9]*) IS_FD_AVAILABLE__numbers+=("$IS_FD_AVAILABLE__item") ;;
 		*) __unrecognised_argument "$IS_FD_AVAILABLE__item" || return ;;
 		esac
@@ -3951,7 +3951,7 @@ function __open_fd {
 		if [[ -z $OPEN_FD__mode ]]; then
 			case "$OPEN_FD__item" in
 			# file descriptor
-			{*}) __dereference --origin="$OPEN_FD__item" --name={OPEN_FD__references} || return ;;
+			{*}) __dereference --source="$OPEN_FD__item" --name={OPEN_FD__references} || return ;;
 			[0-9]*)
 				__affirm_value_is_positive_integer "$OPEN_FD__item" 'file descriptor' || return
 				OPEN_FD__numbers+=("$OPEN_FD__item")
@@ -4037,12 +4037,12 @@ function __close_fd {
 		else
 			if [[ $BASH_CAN_OPEN_AVAILABLE_FILE_DESCRIPTOR_TO_REFERENCE == 'yes' ]]; then
 				# close via the file descriptor reference
-				__dereference --origin="$CLOSE_FD__item" --name={CLOSE_FD__reference} || return
+				__dereference --source="$CLOSE_FD__item" --name={CLOSE_FD__reference} || return
 				CLOSE_FD__eval_statement_exec+="{$CLOSE_FD__reference}>&- "
 				continue
 			else
 				# get the file descriptor directly
-				__dereference --origin="$CLOSE_FD__item" --value={CLOSE_FD__number} || return
+				__dereference --source="$CLOSE_FD__item" --value={CLOSE_FD__number} || return
 				if [[ -z $CLOSE_FD__number ]]; then
 					__print_lines "ERROR: ${FUNCNAME[0]}: Invalid file descriptor reference provided: $CLOSE_FD__item" >&2 || :
 					return 22 # EINVAL 22 Invalid argument
@@ -4102,7 +4102,7 @@ function __semaphores {
 		case "$SEMAPHORES__item" in
 		--target={*})
 			__affirm_value_is_undefined "$SEMAPHORES__reference" 'target reference' || return
-			__dereference --origin="${SEMAPHORES__item#*=}" --name={SEMAPHORES__reference} || return
+			__dereference --source="${SEMAPHORES__item#*=}" --name={SEMAPHORES__reference} || return
 			;;
 		--size=*)
 			__affirm_value_is_undefined "$SEMAPHORES__size" 'size/count of semaphores' || return
@@ -4182,6 +4182,181 @@ function __wait_for_and_return_semaphores {
 # -------------------------------------
 # Strings & Arrays Toolkit
 
+# extract the value of a flag/option/argument
+function __flag {
+	local FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__coerce='no' FLAG__empty='yes'
+	# <single-source helper arguments>
+	local FLAG__item FLAG__source_reference='' FLAG__targets=() FLAG__mode=''
+	while [[ $# -ne 0 ]]; do
+		local FLAG__item="$1"
+		shift
+		case "$FLAG__item" in
+		--source={*})
+			__affirm_value_is_undefined "$FLAG__source_reference" 'source reference' || return
+			__dereference --source="${FLAG__item#*=}" --name={FLAG__source_reference} || return
+			;;
+		--source+target={*})
+			FLAG__item="${FLAG__item#*=}"
+			FLAG__targets+=("$FLAG__item")
+			__affirm_value_is_undefined "$FLAG__source_reference" 'source reference' || return
+			__dereference --source="$FLAG__item" --name={FLAG__source_reference} || return
+			;;
+		--targets=*) __dereference --source="${FLAG__item#*=}" --value={FLAG__targets} || return ;;
+		--target=*) FLAG__targets+=("${FLAG__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return
+			FLAG__mode="${FLAG__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return
+			FLAG__mode="${FLAG__item:2}"
+			;;
+		--)
+			__affirm_value_is_undefined "$FLAG__source_reference" 'source reference' || return
+			# they are inputs
+			if [[ $# -eq 1 ]]; then
+				# a string input
+				# trunk-ignore(shellcheck/SC2034)
+				FLAG__input="$1"
+				FLAG__source_reference='FLAG__input'
+			else
+				# an array input
+				FLAG__inputs+=("$@")
+				FLAG__source_reference='FLAG__inputs'
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		--name=*)
+			__affirm_value_is_undefined "$FLAG__filter" 'flag name filter' || return
+			FLAG__filter="${FLAG__item#*=}"
+			;;
+		--affirmative) FLAG__boolean='yes' ;; # consider enforcing coerce, which was to be opted out of for non yes/no values
+		--non-affirmative)                    # consider enforcing coerce, which has to be opted out of for non yes/no values
+			FLAG__boolean='yes'
+			FLAG__invert='yes'
+			;;
+		--export) FLAG__export='yes' ;;
+		--coerce) FLAG__coerce='yes' ;;
+		--no-empty) FLAG__empty='no' ;; # aka --discard-empty, --fallback-on-empty, --ignore-empty
+		--*) __unrecognised_flag "$FLAG__item" || return ;;
+		*) __unrecognised_argument "$FLAG__item" || return ;;
+		esac
+	done
+	# affirm
+	__affirm_value_is_defined "$FLAG__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$FLAG__mode" || return
+	if [[ $FLAG__coerce == 'yes' ]]; then
+		if [[ $FLAG__boolean == 'no' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Cannot coerce non-boolean flags, use --affirmative or --non-affirmative to coerce boolean values only." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		FLAG__empty='no'
+	fi
+	# export
+	if [[ $FLAG__export == 'yes' ]]; then
+		for FLAG__item in "${FLAG__targets[@]}"; do
+			if __is_reference "$FLAG__item"; then
+				__dereference --source="$FLAG__item" --name={FLAG__item} || return
+				# export the variable
+				# trunk-ignore(shellcheck/SC2163)
+				export "$FLAG__item"
+			fi
+		done
+	fi
+	# set the inputs
+	if __is_array "$FLAG__source_reference"; then
+		eval "set -- \"\${${FLAG__source_reference}[@]}\""
+	else
+		eval "set -- \"\${${FLAG__source_reference}}\""
+	fi
+	# process the inputs
+	local FLAG__name FLAG__inverted FLAG__value FLAG__values=()
+	local -i FLAG__index FLAG__name_size
+	for FLAG__item in "$@"; do
+		# check flag status
+		if [[ ${FLAG__item:0:2} != '--' ]]; then
+			# not a flag
+			continue
+		fi
+		FLAG__index=2
+
+		# check inversion
+		if [[ ${FLAG__item:FLAG__index:3} == 'no-' ]]; then
+			# is inverted
+			FLAG__inverted='yes'
+			FLAG__index=5
+		else
+			FLAG__inverted='no'
+		fi
+
+		# get the name
+		FLAG__name="${FLAG__item:FLAG__index}"
+		FLAG__name="${FLAG__name%%=*}"
+
+		# if we are looking for a specific flag, check it is so
+		if [[ -n $FLAG__filter && $FLAG__name != "$FLAG__filter" ]]; then
+			# not our specific flag
+			continue
+		fi
+
+		# get the value
+		FLAG__name_size=${#FLAG__name}
+		FLAG__value="${FLAG__item:FLAG__index+FLAG__name_size}"
+		if [[ -z $FLAG__value ]]; then
+			FLAG__value='yes'
+		elif [[ ${FLAG__value:0:1} == '=' ]]; then
+			# is a proper value, trim =
+			FLAG__value="${FLAG__value:1}"
+		else
+			# we didn't actually find the option, we just found its prefix, continue
+			continue
+		fi
+
+		# do we support empty
+		if [[ -z $FLAG__value && $FLAG__empty == 'no' ]]; then
+			# empty values are not allowed, so keep the original source value
+			continue
+		fi
+
+		# convert the value if inverted, affirmative, or non-affirmative
+		if [[ $FLAG__boolean == 'yes' ]]; then
+			if [[ $FLAG__invert == 'no' ]]; then
+				case "$FLAG__value" in
+				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='yes' ;;
+				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='no' ;;
+				esac
+			else
+				case "$FLAG__value" in
+				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='no' ;;
+				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='yes' ;;
+				esac
+			fi
+			if [[ $FLAG__coerce == 'yes' && $FLAG__value != 'yes' && $FLAG__value != 'no' ]]; then
+				# error as invalid
+				__print_lines "ERROR: ${FUNCNAME[0]}: Invalid boolean value for flag $(__dump --value="$FLAG__name" || :), it was: $(__dump --value="$FLAG__value" || :)" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+		fi
+		if [[ $FLAG__inverted == 'yes' ]]; then
+			if [[ $FLAG__value == 'yes' ]]; then
+				FLAG__value='no'
+			elif [[ $FLAG__value == 'no' ]]; then
+				FLAG__value='yes'
+			fi
+		fi
+
+		# output
+		FLAG__values+=("$FLAG__value")
+	done
+
+	# if we have values, apply them
+	if [[ ${#FLAG__values[@]} -ne 0 ]]; then
+		__to --source={FLAG__values} --mode="$FLAG__mode" --targets={FLAG__targets} || return
+	fi
+}
+
 # appends the size with optional fill values to the the target array variables
 function __array {
 	local ARRAY__size='' ARRAY__fill=''
@@ -4191,7 +4366,7 @@ function __array {
 		ARRAY__item="$1"
 		shift
 		case "$ARRAY__item" in
-		--targets=*) __dereference --origin="${ARRAY__item#*=}" --value={ARRAY__targets} || return ;;
+		--targets=*) __dereference --source="${ARRAY__item#*=}" --value={ARRAY__targets} || return ;;
 		--target=*) ARRAY__targets+=("${ARRAY__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$ARRAY__mode" 'write mode' || return
@@ -4236,15 +4411,15 @@ function __at {
 		case "$AT__item" in
 		--source={*})
 			__affirm_value_is_undefined "$AT__source_reference" 'source reference' || return
-			__dereference --origin="${AT__item#*=}" --name={AT__source_reference} || return
+			__dereference --source="${AT__item#*=}" --name={AT__source_reference} || return
 			;;
 		--source+target={*})
 			AT__item="${AT__item#*=}"
 			AT__targets+=("$AT__item")
 			__affirm_value_is_undefined "$AT__source_reference" 'source reference' || return
-			__dereference --origin="$AT__item" --name={AT__source_reference} || return
+			__dereference --source="$AT__item" --name={AT__source_reference} || return
 			;;
-		--targets=*) __dereference --origin="${AT__item#*=}" --value={AT__targets} || return ;;
+		--targets=*) __dereference --source="${AT__item#*=}" --value={AT__targets} || return ;;
 		--target=*) AT__targets+=("${AT__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$AT__mode" 'write mode' || return
@@ -4335,15 +4510,15 @@ function __index {
 		case "$INDEX__item" in
 		--source={*})
 			__affirm_value_is_undefined "$INDEX__source_reference" 'source reference' || return
-			__dereference --origin="${INDEX__item#*=}" --name={INDEX__source_reference} || return
+			__dereference --source="${INDEX__item#*=}" --name={INDEX__source_reference} || return
 			;;
 		--source+target={*})
 			INDEX__item="${INDEX__item#*=}"
 			INDEX__targets+=("$INDEX__item")
 			__affirm_value_is_undefined "$INDEX__source_reference" 'source reference' || return
-			__dereference --origin="$INDEX__item" --name={INDEX__source_reference} || return
+			__dereference --source="$INDEX__item" --name={INDEX__source_reference} || return
 			;;
-		--targets=*) __dereference --origin="${INDEX__item#*=}" --value={INDEX__targets} || return ;;
+		--targets=*) __dereference --source="${INDEX__item#*=}" --value={INDEX__targets} || return ;;
 		--target=*) INDEX__targets+=("${INDEX__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$INDEX__mode" 'write mode' || return
@@ -4457,7 +4632,7 @@ function __has {
 		case "$HAS__item" in
 		{*})
 			__affirm_value_is_undefined "$HAS__source_reference" 'source reference' || return
-			__dereference --origin="${HAS__item#*=}" --name={HAS__source_reference} || return
+			__dereference --source="${HAS__item#*=}" --name={HAS__source_reference} || return
 			;;
 		--)
 			if [[ -z $HAS__source_reference ]]; then
@@ -4552,15 +4727,15 @@ function __slice {
 		case "$SLICE__item" in
 		--source={*})
 			__affirm_value_is_undefined "$SLICE__source_reference" 'source reference' || return
-			__dereference --origin="${SLICE__item#*=}" --name={SLICE__source_reference} || return
+			__dereference --source="${SLICE__item#*=}" --name={SLICE__source_reference} || return
 			;;
 		--source+target={*})
 			SLICE__item="${SLICE__item#*=}"
 			SLICE__targets+=("$SLICE__item")
 			__affirm_value_is_undefined "$SLICE__source_reference" 'source reference' || return
-			__dereference --origin="$SLICE__item" --name={SLICE__source_reference} || return
+			__dereference --source="$SLICE__item" --name={SLICE__source_reference} || return
 			;;
-		--targets=*) __dereference --origin="${SLICE__item#*=}" --value={SLICE__targets} || return ;;
+		--targets=*) __dereference --source="${SLICE__item#*=}" --value={SLICE__targets} || return ;;
 		--target=*) SLICE__targets+=("${SLICE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$SLICE__mode" 'write mode' || return
@@ -4707,15 +4882,15 @@ function __split {
 		case "$SPLIT__item" in
 		--source={*})
 			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-			__dereference --origin="${SPLIT__item#*=}" --name={SPLIT__source_reference} || return
+			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__source_reference} || return
 			;;
 		--source+target={*})
 			SPLIT__item="${SPLIT__item#*=}"
 			SPLIT__targets+=("$SPLIT__item")
 			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-			__dereference --origin="$SPLIT__item" --name={SPLIT__source_reference} || return
+			__dereference --source="$SPLIT__item" --name={SPLIT__source_reference} || return
 			;;
-		--targets=*) __dereference --origin="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
+		--targets=*) __dereference --source="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
 		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
@@ -4725,7 +4900,7 @@ function __split {
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
 			SPLIT__mode="${SPLIT__item:2}"
 			;;
-		--no-trailing-newlines* | --trailing-newlines*) __flag {SPLIT__trailing_newlines} --affirmative --fallback-on-empty -- "$SPLIT__item" || return ;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag --target={SPLIT__trailing_newlines} --affirmative --coerce -- "$SPLIT__item" || return ;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
@@ -4865,15 +5040,15 @@ function __evict {
 		case "$EVICT__item" in
 		--source={*})
 			__affirm_value_is_undefined "$EVICT__source_reference" 'source reference' || return
-			__dereference --origin="${EVICT__item#*=}" --name={EVICT__source_reference} || return
+			__dereference --source="${EVICT__item#*=}" --name={EVICT__source_reference} || return
 			;;
 		--source+target={*})
 			EVICT__item="${EVICT__item#*=}"
 			EVICT__targets+=("$EVICT__item")
 			__affirm_value_is_undefined "$EVICT__source_reference" 'source reference' || return
-			__dereference --origin="$EVICT__item" --name={EVICT__source_reference} || return
+			__dereference --source="$EVICT__item" --name={EVICT__source_reference} || return
 			;;
-		--targets=*) __dereference --origin="${EVICT__item#*=}" --value={EVICT__targets} || return ;;
+		--targets=*) __dereference --source="${EVICT__item#*=}" --value={EVICT__targets} || return ;;
 		--target=*) EVICT__targets+=("${EVICT__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$EVICT__mode" 'write mode' || return
@@ -5088,15 +5263,15 @@ function __unique {
 		shift
 		case "$UNIQUE__item" in
 		--source={*})
-			__dereference --origin="${UNIQUE__item#*=}" --name={UNIQUE__sources} || return
+			__dereference --source="${UNIQUE__item#*=}" --name={UNIQUE__sources} || return
 			;;
 		--source+target={*})
 			UNIQUE__item="${UNIQUE__item#*=}"
 			UNIQUE__targets+=("$UNIQUE__item") # keep squigglies
-			__dereference --origin="$UNIQUE__item" --name={UNIQUE__item} || return
+			__dereference --source="$UNIQUE__item" --name={UNIQUE__item} || return
 			UNIQUE__sources+=("$UNIQUE__item")
 			;;
-		--targets=*) __dereference --origin="${UNIQUE__item#*=}" --value={UNIQUE__targets} || return ;;
+		--targets=*) __dereference --source="${UNIQUE__item#*=}" --value={UNIQUE__targets} || return ;;
 		--target=*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
@@ -5148,15 +5323,15 @@ function __join {
 		shift
 		case "$JOIN__item" in
 		--source={*})
-			__dereference --origin="${JOIN__item#*=}" --name={JOIN__sources} || return
+			__dereference --source="${JOIN__item#*=}" --name={JOIN__sources} || return
 			;;
 		--source+target={*})
 			JOIN__item="${JOIN__item#*=}"
 			JOIN__targets+=("$JOIN__item")
-			__dereference --origin="$JOIN__item" --name={JOIN__item} || return
+			__dereference --source="$JOIN__item" --name={JOIN__item} || return
 			JOIN__sources+=("$JOIN__item")
 			;;
-		--targets=*) __dereference --origin="${JOIN__item#*=}" --value={JOIN__targets} || return ;;
+		--targets=*) __dereference --source="${JOIN__item#*=}" --value={JOIN__targets} || return ;;
 		--target=*) JOIN__targets+=("${JOIN__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$JOIN__mode" 'write mode' || return
@@ -5245,129 +5420,6 @@ function __join {
 # ```
 # __trim --source+target={value} --leading-delimiters=' \'\"' --trailing-delimiters=' \'\"'
 # ```
-
-function __flag {
-	local FLAG__item FLAG__reference='' FLAG__targets=() FLAG__mode='' FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__empty='yes'
-	while [[ $# -ne 0 ]]; do
-		local FLAG__item="$1"
-		shift
-		case "$FLAG__item" in
-		{*})
-			FLAG__item="${FLAG__item#*=}"
-			FLAG__targets+=("$FLAG__item")
-			__affirm_value_is_undefined "$FLAG__reference" 'flag variable reference' || return
-			__dereference --origin="$FLAG__item" --name={FLAG__reference} || return
-			;;
-		--targets=*) __dereference --origin="${FLAG__item#*=}" --value={FLAG__targets} || return ;;
-		--target=*) FLAG__targets+=("${FLAG__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
-			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return
-			FLAG__mode="${FLAG__item#*=}"
-			;;
-		--name=*)
-			__affirm_value_is_undefined "$FLAG__filter" 'flag name filter' || return
-			FLAG__filter="${FLAG__item#*=}"
-			;;
-		--affirmative) FLAG__boolean='yes' ;; # consider enforcing coerce, which was to be opted out of for non yes/no values
-		--non-affirmative)                    # consider enforcing coerce, which has to be opted out of for non yes/no values
-			FLAG__boolean='yes'
-			FLAG__invert='yes'
-			;;
-		--export) FLAG__export='yes' ;;
-		--fallback-on-empty) FLAG__empty='no' ;; # this is beta, consider redoing as --coerce, as which unless the affirmative/non-affirmative is yes/no then skip if empty or error if other
-		--) break ;;
-		--*) __unrecognised_flag "$FLAG__item" || return ;;
-		*) __unrecognised_argument "$FLAG__item" || return ;;
-		esac
-	done
-	# affirm
-	__affirm_length_defined "$#" 'flag input' || return
-	if [[ $FLAG__export == 'yes' ]]; then
-		__affirm_value_is_defined "$FLAG__reference" 'flag variable reference' || return
-		# export the variable
-		# trunk-ignore(shellcheck/SC2163)
-		export "$FLAG__reference"
-	fi
-	# handle the inputs
-	local FLAG__name FLAG__inverted FLAG__value FLAG__values=()
-	local -i FLAG__index FLAG__name_size
-	for FLAG__item in "$@"; do
-		# check flag status
-		if [[ ${FLAG__item:0:2} != '--' ]]; then
-			# not a flag
-			continue
-		fi
-		FLAG__index=2
-
-		# check inversion
-		if [[ ${FLAG__item:FLAG__index:3} == 'no-' ]]; then
-			# is inverted
-			FLAG__inverted='yes'
-			FLAG__index=5
-		else
-			FLAG__inverted='no'
-		fi
-
-		# get the name
-		FLAG__name="${FLAG__item:FLAG__index}"
-		FLAG__name="${FLAG__name%%=*}"
-
-		# if we are looking for a specific flag, check it is so
-		if [[ -n $FLAG__filter && $FLAG__name != "$FLAG__filter" ]]; then
-			# not our specific flag
-			continue
-		fi
-
-		# get the value
-		FLAG__name_size=${#FLAG__name}
-		FLAG__value="${FLAG__item:FLAG__index+FLAG__name_size}"
-		if [[ -z $FLAG__value ]]; then
-			FLAG__value='yes'
-		elif [[ ${FLAG__value:0:1} == '=' ]]; then
-			# is a proper value, trim =
-			FLAG__value="${FLAG__value:1}"
-		else
-			# we didn't actually find the option, we just found its prefix, continue
-			continue
-		fi
-
-		# do we support empty
-		if [[ -z $FLAG__value && $FLAG__empty == 'no' ]]; then
-			# empty values are not allowed, so keep the original source value
-			continue
-		fi
-
-		# convert the value if inverted, affirmative, or non-affirmative
-		if [[ $FLAG__boolean == 'yes' ]]; then
-			if [[ $FLAG__invert == 'no' ]]; then
-				case "$FLAG__value" in
-				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='yes' ;;
-				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='no' ;;
-				esac
-			else
-				case "$FLAG__value" in
-				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='no' ;;
-				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='yes' ;;
-				esac
-			fi
-		fi
-		if [[ $FLAG__inverted == 'yes' ]]; then
-			if [[ $FLAG__value == 'yes' ]]; then
-				FLAG__value='no'
-			elif [[ $FLAG__value == 'no' ]]; then
-				FLAG__value='yes'
-			fi
-		fi
-
-		# output
-		FLAG__values+=("$FLAG__value")
-	done
-
-	# if we have values, apply them
-	if [[ ${#FLAG__values[@]} -ne 0 ]]; then
-		__to --source={FLAG__values} --mode="$FLAG__mode" --targets={FLAG__targets} || return
-	fi
-}
 
 # -------------------------------------
 # Debug Toolkit
