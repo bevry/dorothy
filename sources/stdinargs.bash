@@ -67,7 +67,7 @@ function stdinargs {
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
-		'--no-color'* | '--color'*) __flag {COLOR} --affirmative --export -- "$item" ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
 		'--timeout' | '--timeout=' | '--timeout=yes')
 			timeout_seconds=1
 			;;
