@@ -2740,7 +2740,6 @@ function __prepare_login_uid {
 }
 function __prepare_login_group {
 	if ! __is_var_defined {LOGIN_GROUP}; then
-		local
 		__prepare_login_uid || :
 		LOGIN_GROUP="$(id -gn "$LOGIN_UID" || :)"
 		if [[ -z $LOGIN_GROUP ]]; then
@@ -2764,6 +2763,7 @@ function __prepare_login_gid {
 }
 function __prepare_login_groups {
 	if ! __is_var_defined {LOGIN_GROUPS}; then
+		LOGIN_GROUPS=()
 		local groups
 		__prepare_login_uid || :
 		groups="$(id -Gn "$LOGIN_UID" || :)"
@@ -2777,6 +2777,7 @@ function __prepare_login_groups {
 }
 function __prepare_login_gids {
 	if ! __is_var_defined {LOGIN_GIDS}; then
+		LOGIN_GIDS=()
 		local groups
 		__prepare_login_uid || :
 		groups="$(id -G "$LOGIN_UID" || :)"
@@ -2851,6 +2852,7 @@ function __prepare_current_groups {
 }
 function __prepare_current_gids {
 	if ! __is_var_defined {CURRENT_GIDS}; then
+		CURRENT_GIDS=()
 		local groups
 		# trunk-ignore(shellcheck/SC2034)
 		groups="$(id -G || :)"
