@@ -99,6 +99,7 @@ ENOMSG 91 No message of desired type
 
 ENOATTR 93 Attribute not found
 Includes usage when a <path> is missing a required attribute, such as missing readable/writable/executable permissions when that specific attribute is sought.
+Includes usage when a desired property or needle was not found.
 
 EADDRINUSE 98 Address already in use
 Incudes usage when trying to use an already existing path.

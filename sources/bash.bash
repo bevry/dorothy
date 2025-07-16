@@ -817,15 +817,15 @@ function __is_var_defined {
 	fi
 	__affirm_length_defined $# 'variable reference' || return
 	# process
-	local IS_VAR_SET__item IS_VAR_SET__reference IS_VAR_SET__fodder
+	local IS_VAR_DEFINED__item IS_VAR_DEFINED__reference IS_VAR_DEFINED__fodder
 	while [[ $# -ne 0 ]]; do
-		IS_VAR_SET__item="$1"
+		IS_VAR_DEFINED__item="$1"
 		shift
 		# support with and without squigglies for these references
-		__dereference --source="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
-		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
-		IS_VAR_SET__fodder="$(__get_var_declaration "$IS_VAR_SET__reference" 2>/dev/null)" || return 1
-		[[ $IS_VAR_SET__fodder == *'='* ]] || return 1
+		__dereference --source="$IS_VAR_DEFINED__item" --name={IS_VAR_DEFINED__reference} || return
+		__affirm_variable_name_is_valid "$IS_VAR_DEFINED__reference" || return
+		IS_VAR_DEFINED__fodder="$(__get_var_declaration "$IS_VAR_DEFINED__reference" 2>/dev/null)" || return 1
+		[[ $IS_VAR_DEFINED__fodder == *'='* ]] || return 1
 	done
 	return 0
 }
@@ -836,14 +836,14 @@ function __is_var_declared {
 	fi
 	__affirm_length_defined $# 'variable reference' || return
 	# process
-	local IS_VAR_SET__item IS_VAR_SET__reference IS_VAR_SET__fodder
+	local IS_VAR_DECLARED__item IS_VAR_DECLARED__reference IS_VAR_DECLARED__fodder
 	while [[ $# -ne 0 ]]; do
-		IS_VAR_SET__item="$1"
+		IS_VAR_DECLARED__item="$1"
 		shift
 		# support with and without squigglies for these references
-		__dereference --source="$IS_VAR_SET__item" --name={IS_VAR_SET__reference} || return
-		IS_VAR_SET__reference="${IS_VAR_SET__reference%%\[*}" # remove array indexes, as `declare -p` only wants the parent variable, not the index
-		__get_var_declaration "$IS_VAR_SET__reference" &>/dev/null || return 1
+		__dereference --source="$IS_VAR_DECLARED__item" --name={IS_VAR_DECLARED__reference} || return
+		__affirm_variable_name_is_valid "$IS_VAR_DECLARED__reference" || return
+		__get_var_declaration "$IS_VAR_DECLARED__reference" &>/dev/null || return 1
 		return 0
 	done
 	return 0
@@ -872,7 +872,8 @@ function __is_array {
 		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
 		esac
 		# verify the reference
-		if [[ -z $IS_ARRAY__reference || $IS_ARRAY__reference == IS_ARRAY__* ]]; then
+		__affirm_variable_name_is_valid "$IS_ARRAY__reference" || return
+		if [[ $IS_ARRAY__reference == IS_ARRAY__* ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		fi
@@ -1085,7 +1086,17 @@ function __affirm_length_defined {
 # __affirm_variable_is_array <variable-name>
 function __affirm_variable_is_array {
 	if ! __is_array "$1"; then # ignore positive integer check, as that is too strict for this
-		__print_lines "ERROR: ${FUNCNAME[1]}: The variable \$$1 must be an array." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: The variable $1 must be an array." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
+function __affirm_variable_name_is_valid {
+	if ! [[ -n $1 && $1 =~ ^[-_a-zA-Z0-9]+$ ]]; then
+		# don't accept array keys/indexes, as this will end up with invalid logic somewhere down the line, instead pass it over as an input like so:
+		# before: __fn --source={arr[0]}
+		# after:  __fn -- "${arr[0]}"
+		__print_lines "ERROR: ${FUNCNAME[1]}: Invalid variable name: $1" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -1406,14 +1417,15 @@ function __get_index_of_parent_function {
 	if [[ ${#FUNCNAME[@]} -le 1 ]]; then
 		return 1
 	fi
-	local until fns=() index
+	local -i index
+	local until fns=()
 	# skip __has_subshell_function_until which will be index [0]
 	fns=("${FUNCNAME[@]:1}")
 
 	# find a match
 	for index in "${!fns[@]}"; do
 		for until in "$@"; do
-			if [[ ${fns[$index]} == "$until" ]]; then
+			if [[ ${fns[index]} == "$until" ]]; then
 				printf '%s' "$index" || return
 				return 0
 			fi
@@ -1527,7 +1539,7 @@ function __to {
 						# mode is already validated
 						esac
 					else
-						__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well:" >&2 || :
+						__print_lines "ERROR: ${FUNCNAME[0]}: If the source $(__dump --value="$TO__source" || :) is an array, then the target $(__dump --value="$TO__target" || :) must be as well:" >&2 || :
 						__dump "$TO__source" >&2 || :
 						if ! __is_special_file "$TO__target"; then
 							__dump "$TO__target" >&2 || :
@@ -1564,7 +1576,7 @@ function __to {
 		else
 			function __affirm_empty_mode {
 				if [[ -n $TO__mode ]]; then
-					__print_lines "ERROR: ${FUNCNAME[1]}: The target [$TO__target] is not a variable reference nor file target, so it cannot be used with the mode [$TO__mode]." >&2 || :
+					__print_lines "ERROR: ${FUNCNAME[1]}: The target $(__dump --value="$TO__target" || :) is not a variable reference nor file target, so it cannot be used with the mode $(__dump --value="$TO__mode" || :)." >&2 || :
 					return 22 # EINVAL 22 Invalid argument
 				fi
 			}
@@ -1575,7 +1587,7 @@ function __to {
 					# array of single element to string
 					eval "TO__value=\"\${${TO__source}[0]}\"" || return
 				else
-					__print_lines "ERROR: ${FUNCNAME[0]}: If the source [$TO__source] is an array, then the target [$TO__target] must be as well:" >&2 || :
+					__print_lines "ERROR: ${FUNCNAME[0]}: If the source $(__dump --value="$TO__source" || :) is an array, then the target $(__dump --value="$TO__target" || :) must be as well:" >&2 || :
 					__dump "$TO__source" >&2 || :
 					if ! __is_special_file "$TO__target"; then
 						__dump "$TO__target" >&2 || :
@@ -3672,7 +3684,7 @@ ANSI_SIZE=${#ANSI[@]}
 # }
 
 function __ansi_trim {
-	local input="$1" filter="$2" tags pattern key match results=() name
+	local input="$1" filter="$2" tags pattern key match results=()
 	local -i input_size input_index match_size ansi_index last_index=0 key_size
 	for ((input_index = 0, input_size = ${#input}; input_index < input_size; input_index++)); do
 		# this little case statement turns [echo-trim-special --test] from 7s to 1s
@@ -4002,12 +4014,12 @@ function __open_fd {
 			# FD 3 and 4 are commonly used and expected
 			# FD >=10 are apparently used internally, whatever that means
 			# So start at 5 and hope for the best
-			local OPEN_FD__end OPEN_FD__references_index
+			local -i OPEN_FD__end OPEN_FD__references_index
 			OPEN_FD__end="$(ulimit -n)" # this must be here, instead of in the for loop initialisation, as otherwise bash 4.3 and 4.4 will crash
 			for ((OPEN_FD__number = 5, OPEN_FD__references_index = 0; OPEN_FD__number < OPEN_FD__end && OPEN_FD__references_index < OPEN_FD__references_count; OPEN_FD__number++)); do
 				if __is_fd_available "$OPEN_FD__number"; then
 					OPEN_FD__numbers+=("$OPEN_FD__number")
-					OPEN_FD__reference="${OPEN_FD__references[$OPEN_FD__references_index]}"
+					OPEN_FD__reference="${OPEN_FD__references[OPEN_FD__references_index]}"
 					OPEN_FD__references_index=$((OPEN_FD__references_index + 1))
 					OPEN_FD__eval_statement_assignments+="$OPEN_FD__reference=$OPEN_FD__number; "
 				fi
@@ -4477,7 +4489,7 @@ function __at {
 	local -i AT__size AT__negative_size
 	if __is_array "$AT__source_reference"; then
 		eval "AT__size=\${#${AT__source_reference}[@]}"
-		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}[\$AT__index]}\")"
+		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}[AT__index]}\")"
 	else
 		# AT__index could be negative, so wrap it in () to avoid bash version inconsistencies
 		eval "AT__size=\${#${AT__source_reference}}"
@@ -4551,13 +4563,13 @@ function __index {
 			break
 			;;
 		# </single-source helper arguments>
-		--needle=*) INDEX__needles+=("${INDEX__item#*=}") ;;
+		--value=* | --needle=*) INDEX__needles+=("${INDEX__item#*=}") ;;
 		--reverse) INDEX__direction='descending' ;;
 		--first) INDEX__seek_mode='first' ;;                # only the first match of any needle
-		--single) INDEX__seek_mode='single' ;;              # only the first match of each needle
-		--multiple) INDEX__seek_mode='multiple' ;;          # all matches of all needles
-		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --multiple string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times
-		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --multiple string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times
+		--each) INDEX__seek_mode='each' ;;                  # only the first match of each needle
+		--every) INDEX__seek_mode='every' ;;                # all matches of all needles
+		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times
+		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times
 		--*) __unrecognised_flag "$INDEX__item" || return ;;
 		*) __unrecognised_argument "$INDEX__item" || return ;;
 		esac
@@ -4570,10 +4582,10 @@ function __index {
 	local INDEX__value INDEX__needle INDEX__results=() INDEX__intro_eval_segment INDEX__value_eval_segment INDEX__matched_eval_segment INDEX__for_segment INDEX__finale_eval_segment=
 	if __is_array "$INDEX__source_reference"; then
 		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}[@]}" || return
-		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}[\$INDEX__value_index]}\""
+		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}[INDEX__value_index]}\""
 	else
 		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}}" || return
-		INDEX__value_eval_segment="INDEX__needle_size=\${#INDEX__needle}; INDEX__value=\"\${${INDEX__source_reference}:\$INDEX__value_index:\$INDEX__needle_size}\""
+		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}:\$INDEX__value_index:\$INDEX__needle_size}\""
 	fi
 	if [[ $INDEX__direction == 'ascending' ]]; then
 		INDEX__for_segment='INDEX__value_index = 0; INDEX__value_index < INDEX__values_size; ++INDEX__value_index'
@@ -4582,19 +4594,19 @@ function __index {
 		INDEX__intro_eval_segment+='; INDEX__last="$((INDEX__values_size - 1))"'
 		INDEX__for_segment='INDEX__value_index = INDEX__last; INDEX__value_index >= 0; --INDEX__value_index'
 	fi
-	if [[ $INDEX__seek_mode == 'multiple' ]]; then
+	if [[ $INDEX__seek_mode == 'every' ]]; then
 		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index")'
 		INDEX__finale_eval_segment='__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
-	elif [[ $INDEX__seek_mode == 'single' ]]; then
+	elif [[ $INDEX__seek_mode == 'each' ]]; then
 		__array --size="$INDEX__needles_size" --target={INDEX__results} || return
 		INDEX__matched_eval_segment='INDEX__results[INDEX__needle_index]="$INDEX__value_index"'
 		INDEX__finale_eval_segment='__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
 	else
 		# first
 		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index"); break 2'
-		INDEX__finale_eval_segment='if [[ ${#INDEX__results[@]} -eq 0 ]]; then INDEX__results+=(""); fi; __to --source={INDEX__results\[0\]} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
+		INDEX__finale_eval_segment='if [[ ${#INDEX__results[@]} -eq 1 ]]; then __to --mode="$INDEX__mode" --targets={INDEX__targets} -- "${INDEX__results[0]}" || return; else __to --mode="$INDEX__mode" --targets={INDEX__targets} -- ""; fi'
 	fi
-	if [[ $INDEX__seek_mode == 'single' || $INDEX__seek_mode == 'multiple' ]]; then
+	if [[ $INDEX__seek_mode != 'first' ]]; then
 		if [[ $INDEX__overlap == 'no' ]]; then
 			if [[ $INDEX__direction == 'ascending' ]]; then
 				# -1 to offset the upcoming increment from the for loop
@@ -4610,7 +4622,8 @@ function __index {
 	$INDEX__intro_eval_segment
 	for (($INDEX__for_segment)); do
 		for ((INDEX__needle_index = 0; INDEX__needle_index < INDEX__needles_size; ++INDEX__needle_index)); do
-			INDEX__needle=\"\${INDEX__needles[\$INDEX__needle_index]}\"
+			INDEX__needle=\"\${INDEX__needles[INDEX__needle_index]}\"
+			INDEX__needle_size=\${#INDEX__needle}
 			$INDEX__value_eval_segment
 			if [[ \$INDEX__value == "\$INDEX__needle" ]]; then
 				$INDEX__matched_eval_segment
@@ -4622,7 +4635,7 @@ function __index {
 
 # does the needle exist inside the string/array input?
 # has needle / is needle
-# __has {<array-var-name>} --- ...<needle>
+# __has --source={<array-var-name>} --- ...<needle>
 # @todo support index checks for bash associative arrays
 function __has {
 	local HAS__needles=() HAS__seek_mode='first' HAS__ignore_case='no' HAS__overlap='no'
@@ -4632,7 +4645,7 @@ function __has {
 		HAS__item="$1"
 		shift
 		case "$HAS__item" in
-		{*})
+		--source={*})
 			__affirm_value_is_undefined "$HAS__source_reference" 'source reference' || return
 			__dereference --source="${HAS__item#*=}" --name={HAS__source_reference} || return
 			;;
@@ -4676,10 +4689,10 @@ function __has {
 	local HAS__needle HAS__value HAS__needles_found=() HAS__intro_eval_segment HAS__value_eval_segment HAS__matched_eval_segment HAS__finale_eval_segment
 	if __is_array "$HAS__source_reference"; then
 		HAS__intro_eval_segment="HAS__values_size=\${#${HAS__source_reference}[@]}" || return
-		HAS__value_eval_segment="HAS__value=\"\${${HAS__source_reference}[\$HAS__value_index]}\""
+		HAS__value_eval_segment="HAS__value=\"\${${HAS__source_reference}[HAS__value_index]}\""
 	else
 		HAS__intro_eval_segment="HAS__values_size=\${#${HAS__source_reference}}" || return
-		HAS__value_eval_segment="HAS__needle_size=\${#HAS__needle}; HAS__value=\"\${${HAS__source_reference}:\$HAS__value_index:\$HAS__needle_size}\""
+		HAS__value_eval_segment="HAS__value=\"\${${HAS__source_reference}:\$HAS__value_index:\$HAS__needle_size}\""
 	fi
 	if [[ $HAS__seek_mode == 'all' ]]; then
 		__array --size="$HAS__needles_size" --fill='no' --target={HAS__needles_found} || return
@@ -4688,16 +4701,16 @@ function __has {
 			# -1 to offset the upcoming increment from the for loop
 			HAS__matched_eval_segment+='; HAS__value_index=$((HAS__value_index + HAS__needle_size - 1)); break'
 		fi
-		HAS__finale_eval_segment='if [[ ${HAS__needles_found[*]} == *no* ]]; then return 1; fi'
+		HAS__finale_eval_segment='if [[ ${HAS__needles_found[*]} == *no* ]]; then return 93; fi'
 	else
 		HAS__matched_eval_segment='return 0'
-		HAS__finale_eval_segment="return 1"
+		HAS__finale_eval_segment="return 93"
 	fi
 	if [[ $HAS__ignore_case == 'yes' ]]; then
 		# convert the needles to lowercase
 		for HAS__needle_index in "${!HAS__needles[@]}"; do
-			HAS__needle="${HAS__needles[$HAS__needle_index]}"
-			HAS__needle="$(__get_lowercase_string "$HAS__needle")" || return
+			HAS__needle="${HAS__needles[HAS__needle_index]}"
+			HAS__needles[HAS__needle_index]="$(__get_lowercase_string "$HAS__needle")" || return
 		done
 		HAS__value_eval_segment+='; HAS__value="$(__get_lowercase_string "$HAS__value")"'
 	fi
@@ -4706,7 +4719,8 @@ function __has {
 	$HAS__intro_eval_segment
 	for ((HAS__value_index = 0; HAS__value_index < HAS__values_size; ++HAS__value_index)); do
 		for ((HAS__needle_index = 0; HAS__needle_index < HAS__needles_size; ++HAS__needle_index)); do
-			HAS__needle=\"\${HAS__needles[\$HAS__needle_index]}\"
+			HAS__needle=\"\${HAS__needles[HAS__needle_index]}\"
+			HAS__needle_size=\${#HAS__needle}
 			$HAS__value_eval_segment
 			if [[ \$HAS__value == "\$HAS__needle" ]]; then
 				$HAS__matched_eval_segment
@@ -5202,8 +5216,8 @@ function __evict {
 		fi
 		# compile result
 		for ((EVICT__source_index = 0; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
-			if [[ ${EVICT__map[$EVICT__source_index]-} != 'evict' ]]; then
-				EVICT__results+=("${EVICT__source_values[$EVICT__source_index]}")
+			if [[ ${EVICT__map[EVICT__source_index]-} != 'evict' ]]; then
+				EVICT__results+=("${EVICT__source_values[EVICT__source_index]}")
 			fi
 		done
 		__to --source={EVICT__results} --mode="$EVICT__mode" --targets={EVICT__targets} || return
@@ -5304,7 +5318,7 @@ function __unique {
 		eval "UNIQUE__values=(\"\${${UNIQUE__source}[@]}\")" || return
 		for UNIQUE__value in "${UNIQUE__values[@]}"; do
 			# if the value already exists in the results, skip it
-			if __has {UNIQUE__results} -- "$UNIQUE__value"; then
+			if __has --source={UNIQUE__results} -- "$UNIQUE__value"; then
 				continue
 			fi
 			# the value is new to the results, so add it
