@@ -4875,175 +4875,6 @@ function __slice {
 	__to --source={SLICE__results} --mode="$SLICE__mode" --targets={SLICE__targets} || return
 }
 
-# split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
-# this is wrong:
-# __split --target={arr} --no-zero-length < <(<output-command>)
-# __split --target={arr} --no-zero-length <<< "$(<output-command>)"
-# __split --target={arr} --no-zero-length < <(<output-command> | tr $'\t ,|' '\n')
-# and this is right:
-# fodder_to_respect_exit_status="$(<output-command>)"
-# __split --target={arr} --no-zero-length --invoke -- <output-command> # this preserves trail
-# __split --target={arr} --no-zero-length -- "$fodder_to_respect_exit_status"
-# __split --target={arr} --no-zero-length -- "$fodder_to_respect_exit_status"
-# __split --target={arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
-# use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
-function __split {
-	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
-	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
-	# <single-source helper arguments>
-	local SPLIT__item SPLIT__source_reference='' SPLIT__targets=() SPLIT__mode='' SPLIT__input=''
-	while [[ $# -ne 0 ]]; do
-		SPLIT__item="$1"
-		shift
-		case "$SPLIT__item" in
-		--source={*})
-			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__source_reference} || return
-			;;
-		--source+target={*})
-			SPLIT__item="${SPLIT__item#*=}"
-			SPLIT__targets+=("$SPLIT__item")
-			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-			__dereference --source="$SPLIT__item" --name={SPLIT__source_reference} || return
-			;;
-		--targets=*) __dereference --source="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
-		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
-			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
-			SPLIT__mode="${SPLIT__item#*=}"
-			;;
-		--append | --prepend | --overwrite)
-			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
-			SPLIT__mode="${SPLIT__item:2}"
-			;;
-		--no-trailing-newlines* | --trailing-newlines*) __flag --target={SPLIT__trailing_newlines} --affirmative --coerce -- "$SPLIT__item" || return ;;
-		--)
-			if [[ $SPLIT__invoke == 'yes' ]]; then
-				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-				local SPLIT__fodder_to_respect_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
-				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
-				SPLIT__source_reference='SPLIT__input'
-			elif [[ $SPLIT__invoke == 'try' ]]; then
-				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-				local SPLIT__fodder_to_respect_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
-				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
-				SPLIT__source_reference='SPLIT__input'
-			elif [[ -z $SPLIT__source_reference ]]; then
-				# they are inputs
-				if [[ $# -eq 1 ]]; then
-					# a string input
-					# trunk-ignore(shellcheck/SC2034)
-					__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-					SPLIT__input="$1"
-					SPLIT__source_reference='SPLIT__input'
-				else
-					__print_lines "ERROR: ${FUNCNAME[0]}: Multiple inputs are not supported, as the source for __split must be a string." >&2 || :
-					return 22 # EINVAL 22 Invalid argument
-				fi
-			else
-				# they are delimiters
-				SPLIT__delimiters+=("$@")
-			fi
-			shift $#
-			break
-			;;
-		# </single-source helper arguments>
-		'--no-zero-length') SPLIT__zero_length='no' ;;
-		'--keep-zero-length') : ;; # no-op as already the case
-		'--invoke=try') SPLIT__invoke='try' ;;
-		'--invoke') SPLIT__invoke='yes' ;;
-		'--delimiter='*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
-		'--delimiters='*)
-			SPLIT__item="${SPLIT__item#*=}"
-			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
-				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
-				SPLIT__delimiters+=("$SPLIT__character")
-			done
-			;;
-		--*) __unrecognised_flag "$SPLIT__item" || return ;;
-		*) __unrecognised_argument "$SPLIT__item" || return ;;
-		esac
-	done
-	# read everything from stdin
-	if [[ -z $SPLIT__source_reference ]]; then
-		local SPLIT__stdin='' SPLIT__reply
-		while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
-			if [[ -n $SPLIT__stdin ]]; then
-				SPLIT__stdin+=$'\n'
-			fi
-			SPLIT__stdin+="$SPLIT__reply"
-		done
-		SPLIT__source_reference='SPLIT__stdin'
-	fi
-	# affirmations
-	__affirm_value_is_defined "$SPLIT__source_reference" 'source variable reference to a string' || return
-	__affirm_value_is_valid_write_mode "$SPLIT__mode" || return
-	if [[ ${#SPLIT__delimiters[@]} -eq 0 ]]; then
-		SPLIT__delimiters+=($'\n')
-	fi
-	# process
-	eval "SPLIT__input=\"\${$SPLIT__source_reference}\"" || return
-	# check if we even apply
-	if [[ -z $SPLIT__input ]]; then
-		# the item is empty, add it if desired
-		if [[ $SPLIT__zero_length == 'yes' ]]; then
-			__to --source={SPLIT__input} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
-		fi
-		# done
-		return 0
-	fi
-	# reset the window for each argument
-	SPLIT__window=''
-	SPLIT__last_slice_left_index=-1
-	SPLIT__string_length=${#SPLIT__input}
-	SPLIT__string_last=$((SPLIT__string_length - 1))
-	# process the argument
-	for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
-		# add the character to the window, no need for string __slice as it is a simple slice
-		SPLIT__character="${SPLIT__input:SPLIT__character_left_index:1}"
-		SPLIT__window+="$SPLIT__character"
-		# cycle through the delimiters
-		for SPLIT__delimiter in "${SPLIT__delimiters[@]}"; do
-			# does the window end with our delimiter?
-			if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
-				# remove the delimiter
-				SPLIT__window_size=${#SPLIT__window}
-				SPLIT__delimiter_size=${#SPLIT__delimiter}
-				SPLIT__window_offset=$((SPLIT__window_size - SPLIT__delimiter_size))
-				SPLIT__segment="${SPLIT__window:0:SPLIT__window_offset}"
-				# do we want to add it?
-				if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__segment ]]; then
-					SPLIT__results+=("$SPLIT__segment")
-				fi
-				# reset the window so characters can be added back to it for the new slice
-				SPLIT__window=''
-				# note the last slice, as we know whether or not we need to add a trailing slice
-				SPLIT__last_slice_left_index="$SPLIT__character_left_index"
-			fi
-		done
-	done
-	# check how to handle trailing slice
-	if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
-		# the delimiter was not found, so add the whole string
-		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
-			SPLIT__results+=("$SPLIT__input")
-		fi
-	elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
-		# the delimiter was not the last character, so add the pending slice
-		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
-			SPLIT__results+=("$SPLIT__window")
-		fi
-	elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
-		# delimiter was the last character, so add a right-side slice, if zero-length is allowed
-		if [[ $SPLIT__zero_length == 'yes' ]]; then
-			SPLIT__results+=('')
-		fi
-	fi
-	__to --source={SPLIT__results} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
-}
-
 # __evict {source_and_target_array} -- ...<value-to-remove>
 # __evict {source_array} {target_array} -- ...<value-to-remove>
 function __evict {
@@ -5326,6 +5157,175 @@ function __unique {
 		done
 	done
 	__to --source={UNIQUE__results} --mode="$UNIQUE__mode" --targets={UNIQUE__targets} || return
+}
+
+# split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
+# this is wrong:
+# __split --target={arr} --no-zero-length < <(<output-command>)
+# __split --target={arr} --no-zero-length <<< "$(<output-command>)"
+# __split --target={arr} --no-zero-length < <(<output-command> | tr $'\t ,|' '\n')
+# and this is right:
+# fodder_to_respect_exit_status="$(<output-command>)"
+# __split --target={arr} --no-zero-length --invoke -- <output-command> # this preserves trail
+# __split --target={arr} --no-zero-length -- "$fodder_to_respect_exit_status"
+# __split --target={arr} --no-zero-length -- "$fodder_to_respect_exit_status"
+# __split --target={arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
+# use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
+function __split {
+	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
+	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
+	# <single-source helper arguments>
+	local SPLIT__item SPLIT__source_reference='' SPLIT__targets=() SPLIT__mode='' SPLIT__input=''
+	while [[ $# -ne 0 ]]; do
+		SPLIT__item="$1"
+		shift
+		case "$SPLIT__item" in
+		--source={*})
+			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__source_reference} || return
+			;;
+		--source+target={*})
+			SPLIT__item="${SPLIT__item#*=}"
+			SPLIT__targets+=("$SPLIT__item")
+			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+			__dereference --source="$SPLIT__item" --name={SPLIT__source_reference} || return
+			;;
+		--targets=*) __dereference --source="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
+		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
+			SPLIT__mode="${SPLIT__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
+			SPLIT__mode="${SPLIT__item:2}"
+			;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag --target={SPLIT__trailing_newlines} --affirmative --coerce -- "$SPLIT__item" || return ;;
+		--)
+			if [[ $SPLIT__invoke == 'yes' ]]; then
+				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+				local SPLIT__fodder_to_respect_exit_status
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				SPLIT__source_reference='SPLIT__input'
+			elif [[ $SPLIT__invoke == 'try' ]]; then
+				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+				local SPLIT__fodder_to_respect_exit_status
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				SPLIT__source_reference='SPLIT__input'
+			elif [[ -z $SPLIT__source_reference ]]; then
+				# they are inputs
+				if [[ $# -eq 1 ]]; then
+					# a string input
+					# trunk-ignore(shellcheck/SC2034)
+					__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
+					SPLIT__input="$1"
+					SPLIT__source_reference='SPLIT__input'
+				else
+					__print_lines "ERROR: ${FUNCNAME[0]}: Multiple inputs are not supported, as the source for __split must be a string." >&2 || :
+					return 22 # EINVAL 22 Invalid argument
+				fi
+			else
+				# they are delimiters
+				SPLIT__delimiters+=("$@")
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		'--no-zero-length') SPLIT__zero_length='no' ;;
+		'--keep-zero-length') : ;; # no-op as already the case
+		'--invoke=try') SPLIT__invoke='try' ;;
+		'--invoke') SPLIT__invoke='yes' ;;
+		'--delimiter='*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
+		'--delimiters='*)
+			SPLIT__item="${SPLIT__item#*=}"
+			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
+				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
+				SPLIT__delimiters+=("$SPLIT__character")
+			done
+			;;
+		--*) __unrecognised_flag "$SPLIT__item" || return ;;
+		*) __unrecognised_argument "$SPLIT__item" || return ;;
+		esac
+	done
+	# read everything from stdin
+	if [[ -z $SPLIT__source_reference ]]; then
+		local SPLIT__stdin='' SPLIT__reply
+		while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
+			if [[ -n $SPLIT__stdin ]]; then
+				SPLIT__stdin+=$'\n'
+			fi
+			SPLIT__stdin+="$SPLIT__reply"
+		done
+		SPLIT__source_reference='SPLIT__stdin'
+	fi
+	# affirmations
+	__affirm_value_is_defined "$SPLIT__source_reference" 'source variable reference to a string' || return
+	__affirm_value_is_valid_write_mode "$SPLIT__mode" || return
+	if [[ ${#SPLIT__delimiters[@]} -eq 0 ]]; then
+		SPLIT__delimiters+=($'\n')
+	fi
+	# process
+	eval "SPLIT__input=\"\${$SPLIT__source_reference}\"" || return
+	# check if we even apply
+	if [[ -z $SPLIT__input ]]; then
+		# the item is empty, add it if desired
+		if [[ $SPLIT__zero_length == 'yes' ]]; then
+			__to --source={SPLIT__input} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
+		fi
+		# done
+		return 0
+	fi
+	# reset the window for each argument
+	SPLIT__window=''
+	SPLIT__last_slice_left_index=-1
+	SPLIT__string_length=${#SPLIT__input}
+	SPLIT__string_last=$((SPLIT__string_length - 1))
+	# process the argument
+	for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
+		# add the character to the window, no need for string __slice as it is a simple slice
+		SPLIT__character="${SPLIT__input:SPLIT__character_left_index:1}"
+		SPLIT__window+="$SPLIT__character"
+		# cycle through the delimiters
+		for SPLIT__delimiter in "${SPLIT__delimiters[@]}"; do
+			# does the window end with our delimiter?
+			if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
+				# remove the delimiter
+				SPLIT__window_size=${#SPLIT__window}
+				SPLIT__delimiter_size=${#SPLIT__delimiter}
+				SPLIT__window_offset=$((SPLIT__window_size - SPLIT__delimiter_size))
+				SPLIT__segment="${SPLIT__window:0:SPLIT__window_offset}"
+				# do we want to add it?
+				if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__segment ]]; then
+					SPLIT__results+=("$SPLIT__segment")
+				fi
+				# reset the window so characters can be added back to it for the new slice
+				SPLIT__window=''
+				# note the last slice, as we know whether or not we need to add a trailing slice
+				SPLIT__last_slice_left_index="$SPLIT__character_left_index"
+			fi
+		done
+	done
+	# check how to handle trailing slice
+	if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
+		# the delimiter was not found, so add the whole string
+		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
+			SPLIT__results+=("$SPLIT__input")
+		fi
+	elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
+		# the delimiter was not the last character, so add the pending slice
+		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
+			SPLIT__results+=("$SPLIT__window")
+		fi
+	elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
+		# delimiter was the last character, so add a right-side slice, if zero-length is allowed
+		if [[ $SPLIT__zero_length == 'yes' ]]; then
+			SPLIT__results+=('')
+		fi
+	fi
+	__to --source={SPLIT__results} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
 }
 
 # join by the delimiter
