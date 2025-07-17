@@ -63,7 +63,7 @@ ESPIPE 29 Illegal seek
 Includes usage for unknown/unexpected logic path.
 
 EDOM 33 Numerical argument out of domain
-Includes usage for out of range.
+Includes usage for: index out of range, length out of range, needle not found, value not found, subset not found within superset, etc.
 
 ENOPROTOOPT 42 Protocol not available
 Includes usage for missing required dependency.
@@ -99,7 +99,6 @@ ENOMSG 91 No message of desired type
 
 ENOATTR 93 Attribute not found
 Includes usage when a <path> is missing a required attribute, such as missing readable/writable/executable permissions when that specific attribute is sought.
-Includes usage when a desired property or needle was not found.
 
 EADDRINUSE 98 Address already in use
 Incudes usage when trying to use an already existing path.
