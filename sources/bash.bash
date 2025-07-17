@@ -213,12 +213,12 @@ function __print_without_styles {
 	printf '%s' "${args[@]}" || return
 }
 function __print_style {
-	if __command_exists -- echo-style; then
-		echo-style "$@" || return
-	else
-		# this is two functions for testing
-		__print_without_styles "$@" || return
-	fi
+	# if __command_exists -- echo-style; then
+	# 	echo-style "$@" || return
+	# else
+	# this is two functions for testing
+	__print_without_styles "$@" || return
+	# fi
 }
 
 function __dump {
@@ -264,9 +264,13 @@ function __dump {
 			if [[ $DUMP__total == 0 ]]; then
 				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-empty='' --newline)
 			else
-				for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do
+				# for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do <-- can't do this, as it doesn't support this sparse arrays, e.g.: arr=(); arr[5]='...'; __dump {arr};
+				local DUMP__reference_indices=()
+				eval "DUMP__reference_indices=(\"\${!${DUMP__reference}[@]}\")"
+				for DUMP__index in "${DUMP__reference_indices[@]}"; do
 					eval "DUMP__value=\"\${${DUMP__reference}[DUMP__index]}\""
 					if [[ $DUMP__indices == 'yes' ]]; then
+						# obviously this will be broken if the array is sparse, however that is up the caller
 						DUMP__log+=(--bold="${DUMP__reference}[ ${DUMP__index} | $(((DUMP__total - DUMP__index) * -1)) ]")
 					else
 						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]")
@@ -4500,7 +4504,7 @@ function __at {
 		# validate the index
 		if [[ $AT__index == '-0' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The index -0 convention only makes sense when used as a length; for a starting index that fetches the last character, you want -1." >&2 || :
-			return 33 # EDOM 33 Numerical argument out of domain
+			return 22 # EINVAL 22 Invalid argument
 		elif [[ $AT__size -eq 0 || $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$AT__index" || :) was beyond the range of:" >&2 || :
 			__dump --indices "$AT__source_reference" >&2 || :
@@ -4515,7 +4519,7 @@ function __at {
 
 # set the targets to the index/indices of the value(s) in the source reference
 function __index {
-	local INDEX__needles=() INDEX__direction='ascending' INDEX__seek_mode='first' INDEX__overlap='no'
+	local INDEX__needles=() INDEX__direction='ascending' INDEX__seek_mode='first' INDEX__overlap='no' INDEX__require='all'
 	# <single-source helper arguments>
 	local INDEX__item INDEX__source_reference='' INDEX__targets=() INDEX__mode='' INDEX__inputs=() INDEX__input=''
 	while [[ $# -ne 0 ]]; do
@@ -4568,8 +4572,11 @@ function __index {
 		--first) INDEX__seek_mode='first' ;;                # only the first match of any needle
 		--each) INDEX__seek_mode='each' ;;                  # only the first match of each needle
 		--every) INDEX__seek_mode='every' ;;                # all matches of all needles
-		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times
-		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times
+		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times, for --each string matches, "aab" will match needles "aa" once and "ab" once
+		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times, for --each string matches, "aab" will match needles "aa" once and "ab" zero times
+		--require-none | --require=none) INDEX__require='none' ;;
+		--require-any | --require=any) INDEX__require='any' ;;
+		--require-all | --require=all) INDEX__require='all' ;;
 		--*) __unrecognised_flag "$INDEX__item" || return ;;
 		*) __unrecognised_argument "$INDEX__item" || return ;;
 		esac
@@ -4579,7 +4586,7 @@ function __index {
 	__affirm_length_defined "${#INDEX__needles[@]}" 'needle' || return
 	# process
 	local -i INDEX__value_index INDEX__values_size INDEX__needles_size="${#INDEX__needles[@]}" INDEX__needle_size INDEX__last
-	local INDEX__value INDEX__needle INDEX__results=() INDEX__intro_eval_segment INDEX__value_eval_segment INDEX__matched_eval_segment INDEX__for_segment INDEX__finale_eval_segment=
+	local INDEX__value INDEX__needle INDEX__results=() INDEX__intro_eval_segment INDEX__value_eval_segment INDEX__matched_eval_segment INDEX__for_segment
 	if __is_array "$INDEX__source_reference"; then
 		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}[@]}" || return
 		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}[INDEX__value_index]}\""
@@ -4590,21 +4597,21 @@ function __index {
 	if [[ $INDEX__direction == 'ascending' ]]; then
 		INDEX__for_segment='INDEX__value_index = 0; INDEX__value_index < INDEX__values_size; ++INDEX__value_index'
 	else
-		# trunk-ignore(shellcheck/SC2034)
 		INDEX__intro_eval_segment+='; INDEX__last="$((INDEX__values_size - 1))"'
 		INDEX__for_segment='INDEX__value_index = INDEX__last; INDEX__value_index >= 0; --INDEX__value_index'
 	fi
 	if [[ $INDEX__seek_mode == 'every' ]]; then
-		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index")'
-		INDEX__finale_eval_segment='__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
+		local INDEX__found=()
+		INDEX__needle_eval_segment=''
+		INDEX__matched_eval_segment='INDEX__found[INDEX__needle_index]="$INDEX__value_index"; INDEX__results+=("$INDEX__value_index")'
 	elif [[ $INDEX__seek_mode == 'each' ]]; then
-		__array --size="$INDEX__needles_size" --target={INDEX__results} || return
-		INDEX__matched_eval_segment='INDEX__results[INDEX__needle_index]="$INDEX__value_index"'
-		INDEX__finale_eval_segment='__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return'
+		local INDEX__found=()
+		INDEX__needle_eval_segment='if [[ -n "${INDEX__found[INDEX__needle_index]-}" ]]; then continue; fi'
+		INDEX__matched_eval_segment='INDEX__found[INDEX__needle_index]="$INDEX__value_index"; INDEX__results[INDEX__needle_index]="$INDEX__value_index"'
 	else
 		# first
+		INDEX__needle_eval_segment=''
 		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index"); break 2'
-		INDEX__finale_eval_segment='if [[ ${#INDEX__results[@]} -eq 1 ]]; then __to --mode="$INDEX__mode" --targets={INDEX__targets} -- "${INDEX__results[0]}" || return; else __to --mode="$INDEX__mode" --targets={INDEX__targets} -- ""; fi'
 	fi
 	if [[ $INDEX__seek_mode != 'first' ]]; then
 		if [[ $INDEX__overlap == 'no' ]]; then
@@ -4622,6 +4629,7 @@ function __index {
 	$INDEX__intro_eval_segment
 	for (($INDEX__for_segment)); do
 		for ((INDEX__needle_index = 0; INDEX__needle_index < INDEX__needles_size; ++INDEX__needle_index)); do
+			$INDEX__needle_eval_segment
 			INDEX__needle=\"\${INDEX__needles[INDEX__needle_index]}\"
 			INDEX__needle_size=\${#INDEX__needle}
 			$INDEX__value_eval_segment
@@ -4629,8 +4637,64 @@ function __index {
 				$INDEX__matched_eval_segment
 			fi
 		done
-	done
-	$INDEX__finale_eval_segment" || return
+	done" || return
+	if [[ $INDEX__seek_mode == 'every' ]]; then
+		# all of all
+		if [[ $INDEX__require == 'any' ]]; then
+			local INDEX__found_size="${#INDEX__found[@]}"
+			if [[ $INDEX__found_size -eq 0 ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: No needles were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+				__dump {INDEX__needles} {INDEX__found} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				return 33 # EDOM 33 Numerical argument out of domain
+			fi
+		elif [[ $INDEX__require == 'all' ]]; then
+			local INDEX__found_size="${#INDEX__found[@]}"
+			if [[ $INDEX__found_size -ne INDEX__needles_size ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Not all needles were found, expected $(__dump --value="$INDEX__needles_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+				__dump {INDEX__needles} {INDEX__found} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				return 33 # EDOM 33 Numerical argument out of domain
+			fi
+		fi
+		__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return
+	elif [[ $INDEX__seek_mode == 'each' ]]; then
+		# first of each
+		if [[ $INDEX__require == 'any' ]]; then
+			local INDEX__found_size="${#INDEX__results[@]}"
+			if [[ $INDEX__found_size -eq 0 ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: No needles were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+				__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				return 33 # EDOM 33 Numerical argument out of domain
+			fi
+		elif [[ $INDEX__require == 'all' ]]; then
+			local INDEX__found_size="${#INDEX__results[@]}"
+			if [[ $INDEX__found_size -ne INDEX__needles_size ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Not all needles were found, expected $(__dump --value="$INDEX__needles_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+				__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				return 33 # EDOM 33 Numerical argument out of domain
+			fi
+		fi
+		__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return
+	else
+		# first of all
+		local INDEX__found_size="${#INDEX__results[@]}"
+		if [[ $INDEX__found_size -gt 1 ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Too many needles were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+			__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+			return 33 # EDOM 33 Numerical argument out of domain
+		fi
+		if [[ $INDEX__require != 'none' ]]; then
+			if [[ $INDEX__found_size -eq 0 ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: No needles were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+				__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				return 33 # EDOM 33 Numerical argument out of domain
+			fi
+		fi
+		if [[ ${#INDEX__results[@]} -eq 1 ]]; then
+			__to --mode="$INDEX__mode" --targets={INDEX__targets} -- "${INDEX__results[0]}" || return
+		else
+			__to --mode="$INDEX__mode" --targets={INDEX__targets} -- ""
+		fi
+	fi
 }
 
 # does the needle exist inside the string/array input?
@@ -4704,7 +4768,7 @@ function __has {
 		HAS__finale_eval_segment='if [[ ${HAS__needles_found[*]} == *no* ]]; then return 93; fi'
 	else
 		HAS__matched_eval_segment='return 0'
-		HAS__finale_eval_segment="return 93"
+		HAS__finale_eval_segment='return 33' # EDOM 33 Numerical argument out of domain
 	fi
 	if [[ $HAS__ignore_case == 'yes' ]]; then
 		# convert the needles to lowercase
@@ -4734,7 +4798,7 @@ function __has {
 # negative starts and lengths will be counted from the end of the source reference
 # out of bound indices will throw
 function __slice {
-	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=()
+	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=() SLICE__require='all'
 	# <single-source helper arguments>
 	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs=() SLICE__input=''
 	while [[ $# -ne 0 ]]; do
@@ -4793,6 +4857,10 @@ function __slice {
 		--keep-before-last=*) SLICE__keep_before_last+=("${SLICE__item#*=}") ;;
 		--keep-after-first=*) SLICE__keep_after_first+=("${SLICE__item#*=}") ;;
 		--keep-after-last=*) SLICE__keep_after_last+=("${SLICE__item#*=}") ;;
+		# @todo require handling currently only affects groups of the same keep type, so combinations of groups/types/slices are unaffected
+		--require-none | --require=none) SLICE__require='none' ;;
+		--require-any | --require=any) SLICE__require='any' ;;
+		--require-all | --require=all) SLICE__require='all' ;;
 		--*) __unrecognised_flag "$SLICE__item" || return ;;
 		*) __unrecognised_argument "$SLICE__item" || return ;;
 		esac
@@ -4809,27 +4877,35 @@ function __slice {
 	if __is_odd "${#SLICE__indices[@]}"; then
 		SLICE__indices+=(-0) # -0 means to the end
 	fi
-	# @todo optimise the below with direct substring options if substring
+	local SLICE__keep_result_indices=()
 	# before first
-	for SLICE__item in "${SLICE__keep_before_first[@]}"; do
-		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --target={SLICE__item} || return
-		SLICE__indices+=(0 "$SLICE__item")
-	done
+	if [[ ${#SLICE__keep_before_first[@]} -ne 0 ]]; then
+		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_before_first[@]}" || return
+		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+			SLICE__indices+=(0 "$SLICE__item")
+		done
+	fi
 	# before last
-	for SLICE__item in "${SLICE__keep_before_last[@]}"; do
-		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --reverse --target={SLICE__item} || return
-		SLICE__indices+=(0 "$SLICE__item")
-	done
+	if [[ ${#SLICE__keep_before_last[@]} -ne 0 ]]; then
+		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_before_last[@]}" || return
+		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+			SLICE__indices+=(0 "$SLICE__item")
+		done
+	fi
 	# after first
-	for SLICE__item in "${SLICE__keep_after_first[@]}"; do
-		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --target={SLICE__item} || return
-		SLICE__indices+=("$((SLICE__item + 1))" -0)
-	done
+	if [[ ${#SLICE__keep_after_first[@]} -ne 0 ]]; then
+		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_after_first[@]}" || return
+		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+			SLICE__indices+=("$((SLICE__item + 1))" -0)
+		done
+	fi
 	# after last
-	for SLICE__item in "${SLICE__keep_after_last[@]}"; do
-		__index --source="{$SLICE__source_reference}" --needle="$SLICE__item" --reverse --target={SLICE__item} || return
-		SLICE__indices+=("$((SLICE__item + 1))" -0)
-	done
+	if [[ ${#SLICE__keep_after_last[@]} -ne 0 ]]; then
+		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_after_last[@]}" || return
+		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+			SLICE__indices+=("$((SLICE__item + 1))" -0)
+		done
+	fi
 	# indices
 	local -i SLICE__size SLICE__remaining
 	# trunk-ignore(shellcheck/SC2034)
@@ -4875,10 +4951,9 @@ function __slice {
 	__to --source={SLICE__results} --mode="$SLICE__mode" --targets={SLICE__targets} || return
 }
 
-# __evict {source_and_target_array} -- ...<value-to-remove>
-# __evict {source_array} {target_array} -- ...<value-to-remove>
+# evict compounds its operations
 function __evict {
-	local EVICT__indices=() EVICT__values=() EVICT__prefixes=() EVICT__suffixes=() EVICT__patterns=() EVICT__globs=() EVICT__keep_before_first=() EVICT__keep_before_last=() EVICT__keep_after_first=() EVICT__keep_after_last=() EVICT__optional='no'
+	local EVICT__indices=() EVICT__values=() EVICT__prefixes=() EVICT__suffixes=() EVICT__patterns=() EVICT__globs=() EVICT__keep_before_first=() EVICT__keep_before_last=() EVICT__keep_after_first=() EVICT__keep_after_last=() EVICT__require='all'
 	# <single-source helper arguments>
 	local EVICT__item EVICT__source_reference='' EVICT__targets=() EVICT__mode='' EVICT__inputs=() EVICT__input=''
 	while [[ $# -ne 0 ]]; do
@@ -4926,6 +5001,7 @@ function __evict {
 			break
 			;;
 		# </single-source helper arguments>
+		# evicts all, with no overlap
 		--index=*)
 			EVICT__item="${EVICT__item#*=}"
 			__affirm_value_is_integer "$EVICT__item" 'index/length' || return
@@ -4940,7 +5016,9 @@ function __evict {
 		--keep-before-last=*) EVICT__keep_before_last+=("${EVICT__item#*=}") ;;
 		--keep-after-first=*) EVICT__keep_after_first+=("${EVICT__item#*=}") ;;
 		--keep-after-last=*) EVICT__keep_after_last+=("${EVICT__item#*=}") ;;
-		--optional) EVICT__optional='yes' ;; # if there was no matches, then do not error
+		--require-none | --require=none) EVICT__require='none' ;;
+		--require-any | --require=any) EVICT__require='any' ;;
+		--require-all | --require=all) EVICT__require='all' ;;
 		--*) __unrecognised_flag "$EVICT__item" || return ;;
 		*) __unrecognised_argument "$EVICT__item" || return ;;
 		esac
@@ -5100,8 +5178,6 @@ function __evict {
 	fi
 }
 
-# __unique {<source-array-var-name>}
-# __unique {...<source-array-var-name>} <target-array-var-name>
 function __unique {
 	# <multi-source helper arguments>
 	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode='' UNIQUE__inputs
