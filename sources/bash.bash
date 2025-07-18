@@ -558,7 +558,7 @@ else
 fi
 
 # all bash versions support a negative start index for arrays and strings:
-# debug-bash --all-bash-versions --code='echo "$BASH_VERSION"; arr=(a b c); echo "${arr[@]:(-1)}"; str=abc; echo "${str:(-1)}"'
+# debug-bash --all-bash-versions --code='echo "$BASH_VERSION"; arr=(aa bb cc); echo "${arr[@]:(-1)}"; str=abc; echo "${str:(-1)}"'
 # all bash versions fail with a negative array length:
 # debug-bash --continue --all-bash-versions --code='echo "$BASH_VERSION"; arr=(a b c); echo "${arr[@]:0:(-1)}"'
 # bash versions prior to 4.2 fail with a negative strength length:
@@ -1578,6 +1578,15 @@ function __to {
 				fi
 			fi
 		else
+			# handle tty redirects
+			if __is_tty_special_file "$TO__target" && ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
+				TO__target="$TERMINAL_OUTPUT_TARGET"
+			fi
+			# no-ops on null targets
+			case "$TO__target" in
+			NULL | null | /dev/null) continue ;;
+			esac
+			# render for the non-null targets
 			function __affirm_empty_mode {
 				if [[ -n $TO__mode ]]; then
 					__print_lines "ERROR: ${FUNCNAME[1]}: The target $(__dump --value="$TO__target" || :) is not a variable reference nor file target, so it cannot be used with the mode $(__dump --value="$TO__mode" || :)." >&2 || :
@@ -1607,9 +1616,7 @@ function __to {
 			else
 				eval "TO__value=\"\$${TO__source}\"" || return
 			fi
-			if __is_tty_special_file "$TO__target" && ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
-				TO__target="$TERMINAL_OUTPUT_TARGET"
-			fi
+			# send the render
 			case "$TO__target" in
 			# stdout
 			1 | STDOUT | stdout | /dev/stdout)
@@ -1626,8 +1633,6 @@ function __to {
 				__affirm_empty_mode || return
 				printf '%s' "$TO__value" >>/dev/tty || return
 				;;
-			# null
-			NULL | null | /dev/null) ;; # do nothing
 			# file descriptor
 			[0-9]*)
 				__affirm_value_is_positive_integer "$TO__target" 'file descriptor' || return
@@ -4418,6 +4423,164 @@ function __array {
 	__to --source={ARRAY__results} --mode="$ARRAY__mode" --targets={ARRAY__targets} || return
 }
 
+# reverses the array or string
+function __reverse {
+	# <single-source helper arguments>
+	local REVERSE__item REVERSE__source_reference='' REVERSE__targets=() REVERSE__mode='' REVERSE__inputs=() REVERSE__input=''
+	while [[ $# -ne 0 ]]; do
+		REVERSE__item="$1"
+		shift
+		case "$REVERSE__item" in
+		--source={*})
+			__affirm_value_is_undefined "$REVERSE__source_reference" 'source reference' || return
+			__dereference --source="${REVERSE__item#*=}" --name={REVERSE__source_reference} || return
+			;;
+		--source+target={*})
+			REVERSE__item="${REVERSE__item#*=}"
+			REVERSE__targets+=("$REVERSE__item")
+			__affirm_value_is_undefined "$REVERSE__source_reference" 'source reference' || return
+			__dereference --source="$REVERSE__item" --name={REVERSE__source_reference} || return
+			;;
+		--targets=*) __dereference --source="${REVERSE__item#*=}" --value={REVERSE__targets} || return ;;
+		--target=*) REVERSE__targets+=("${REVERSE__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$REVERSE__mode" 'write mode' || return
+			REVERSE__mode="${REVERSE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$REVERSE__mode" 'write mode' || return
+			REVERSE__mode="${REVERSE__item:2}"
+			;;
+		--)
+			# they are inputs
+			__affirm_value_is_undefined "$REVERSE__source_reference" 'source reference' || return
+			if [[ $# -eq 1 ]]; then
+				# a string input
+				# trunk-ignore(shellcheck/SC2034)
+				REVERSE__input="$1"
+				REVERSE__source_reference='REVERSE__input'
+			else
+				# an array input
+				REVERSE__inputs+=("$@")
+				REVERSE__source_reference='REVERSE__inputs'
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		--*) __unrecognised_flag "$REVERSE__item" || return ;;
+		*) __unrecognised_argument "$REVERSE__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$REVERSE__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$REVERSE__mode" || return
+	# action
+	if __is_array "$REVERSE__source_reference"; then
+		# support sparse arrays
+		local REVERSE__indices=()
+		eval 'REVERSE__indices=("${!'"$REVERSE__source_reference"'[@]}")' || return
+		local REVERSE__result=()
+		local -i REVERSE__index REVERSE__source_index REVERSE__size="${#REVERSE__indices[@]}"
+		for ((REVERSE__index = REVERSE__size - 1; REVERSE__index >= 0; REVERSE__index--)); do
+			REVERSE__source_index="${REVERSE__indices[REVERSE__index]}"
+			eval 'REVERSE__result+=("${'"$REVERSE__source_reference"'[REVERSE__source_index]}")' || return
+		done
+	else
+		local -i REVERSE__source_index REVERSE__source_size
+		eval 'REVERSE__source_size=${#'"$REVERSE__source_reference"'}' || return
+		for ((REVERSE__source_index = REVERSE__source_size - 1; REVERSE__source_index >= 0; REVERSE__source_index--)); do
+			eval 'REVERSE__result+="${'"$REVERSE__source_reference"':REVERSE__source_index:1}"' || return
+		done
+	fi
+	__to --source={REVERSE__result} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return
+}
+
+# get an array of indices of the array or string
+function __indices {
+	local INDICES__direction='ascending'
+	# <single-source helper arguments>
+	local INDICES__item INDICES__source_reference='' INDICES__targets=() INDICES__mode='' INDICES__inputs=() INDICES__input=''
+	while [[ $# -ne 0 ]]; do
+		INDICES__item="$1"
+		shift
+		case "$INDICES__item" in
+		--source={*})
+			__affirm_value_is_undefined "$INDICES__source_reference" 'source reference' || return
+			__dereference --source="${INDICES__item#*=}" --name={INDICES__source_reference} || return
+			;;
+		--source+target={*})
+			INDICES__item="${INDICES__item#*=}"
+			INDICES__targets+=("$INDICES__item")
+			__affirm_value_is_undefined "$INDICES__source_reference" 'source reference' || return
+			__dereference --source="$INDICES__item" --name={INDICES__source_reference} || return
+			;;
+		--targets=*) __dereference --source="${INDICES__item#*=}" --value={INDICES__targets} || return ;;
+		--target=*) INDICES__targets+=("${INDICES__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$INDICES__mode" 'write mode' || return
+			INDICES__mode="${INDICES__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$INDICES__mode" 'write mode' || return
+			INDICES__mode="${INDICES__item:2}"
+			;;
+		--)
+			# they are inputs
+			__affirm_value_is_undefined "$INDICES__source_reference" 'source reference' || return
+			if [[ $# -eq 1 ]]; then
+				# a string input
+				# trunk-ignore(shellcheck/SC2034)
+				INDICES__input="$1"
+				INDICES__source_reference='INDICES__input'
+			else
+				# an array input
+				INDICES__inputs+=("$@")
+				INDICES__source_reference='INDICES__inputs'
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments># direction mode:
+		--direction=descending | --direction=reverse | --direction=reversed | --descending | --reverse | --reversed) INDICES__direction='descending' ;;
+		--direction=ascending | --direction=forward | --ascending | --forward) INDICES__direction='ascending' ;; # default
+		--*) __unrecognised_flag "$INDICES__item" || return ;;
+		*) __unrecognised_argument "$INDICES__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$INDICES__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$INDICES__mode" || return
+	# action
+	if __is_array "$INDICES__source_reference"; then
+		# support sparse arrays
+		local INDICES__indices=()
+		eval 'INDICES__indices=("${!'"$INDICES__source_reference"'[@]}")' || return
+		if [[ $INDICES__direction == 'ascending' ]]; then
+			__to --source={INDICES__indices} --mode="$INDICES__mode" --targets={INDICES__targets} || return
+		else
+			local INDICES__indices_reversed=()
+			local -i INDICES__index INDICES__size="${#INDICES__indices[@]}"
+			for ((INDICES__index = INDICES__size - 1; INDICES__index >= 0; INDICES__index--)); do
+				INDICES__indices_reversed+=("${INDICES__indices[INDICES__index]}")
+			done
+			__to --source={INDICES__indices_reversed} --mode="$INDICES__mode" --targets={INDICES__targets} || return
+		fi
+	else
+		local INDICES__indices=()
+		local -i INDICES__index INDICES__size
+		eval 'INDICES__size=${#'"$INDICES__source_reference"'}' || return
+		if [[ $INDICES__direction == 'ascending' ]]; then
+			for ((INDICES__index = 0; INDICES__index < INDICES__size; INDICES__index++)); do
+				INDICES__indices+=("$INDICES__index")
+			done
+		else
+			for ((INDICES__index = INDICES__size - 1; INDICES__index >= 0; INDICES__index--)); do
+				INDICES__indices+=("$INDICES__index")
+			done
+		fi
+		__to --source={INDICES__indices} --mode="$INDICES__mode" --targets={INDICES__targets} || return
+	fi
+}
+
 # set the targets to the value(s) at the indices of the source reference
 function __at {
 	local AT__indices=()
@@ -4502,7 +4665,7 @@ function __at {
 	AT__negative_size="$((AT__size * -1))"
 	for AT__index in "${AT__indices[@]}"; do
 		# validate the index
-		if [[ $AT__index == '-0' ]]; then
+		if [[ $AT__index -eq '-0' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The index -0 convention only makes sense when used as a length; for a starting index that fetches the last character, you want -1." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		elif [[ $AT__size -eq 0 || $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
@@ -4517,9 +4680,24 @@ function __at {
 	__to --source={AT__results} --mode="$AT__mode" --targets={AT__targets} || return
 }
 
-# set the targets to the index/indices of the value(s) in the source reference
+# __index fetches the indices of lookups against the content of the source reference
+# the fetching traverses the cursor along the source content in the specified DIRECTION MODE
+# it matches the lookups against the source content at the location of the cursor, by cursor position first then by lookup position
+# if there is a match from an unconsumed lookup, the result index will be noted
+# once a match occurs, SEEK MODE takes effect:
+# in `first` seek mode, the operation will conclude upon the first matched lookup
+# in `each` seek mode, the operation will conclude after the source content is exhausted or after all lookups have been consumed, whichever occurs first; each lookup can only be matched once, in which it is marked as consumed, and unable to be used again
+# in `multiple` seek mode, the operation will conclude after the source content is exhausted
+# once a match has completed, OVERLAP MODE takes effect:
+# if overlapping, in `each` and `multiple` seek modes, additional matches are allowed on the same cursor position and (if source content is a string) throughout the matched lookup segment
+# if not overlapping, in `each` and `multiple` seek modes, no more matches are allowed within the cursor position and (if source content is a string) the matched lookup segment, skipping around it
+# once the operation is concluded, REQUIRE MODE takes effect:
+# in `none` require mode, no checks for matched lookups are made
+# in `any` require mode, at least one lookup must have matched at least once
+# in `all` require mode, all the specified lookups must have matched at least once
+# if no require mode failures, then the noted indexes are sent to the targets
 function __index {
-	local INDEX__needles=() INDEX__direction='ascending' INDEX__seek_mode='first' INDEX__overlap='no' INDEX__require='all'
+	local INDEX__lookups=() INDEX__direction='ascending' INDEX__seek='first' INDEX__overlap='no' INDEX__require='all' INDEX__quiet='no'
 	# <single-source helper arguments>
 	local INDEX__item INDEX__source_reference='' INDEX__targets=() INDEX__mode='' INDEX__inputs=() INDEX__input=''
 	while [[ $# -ne 0 ]]; do
@@ -4561,115 +4739,272 @@ function __index {
 				fi
 			else
 				# they are needles
-				INDEX__needles+=("$@")
+				for INDEX__item in "$@"; do
+					iINDEX__lookups+=(--needle="$INDEX__item")
+				done
 			fi
 			shift $#
 			break
 			;;
 		# </single-source helper arguments>
-		--value=* | --needle=*) INDEX__needles+=("${INDEX__item#*=}") ;;
-		--reverse) INDEX__direction='descending' ;;
-		--first) INDEX__seek_mode='first' ;;                # only the first match of any needle
-		--each) INDEX__seek_mode='each' ;;                  # only the first match of each needle
-		--every) INDEX__seek_mode='every' ;;                # all matches of all needles
+		# lookups:
+		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*)
+			if [[ -z ${INDEX__item#*=} ]]; then
+				__print_lines "ERROR: ${FUNCNAME[1]}: The $(__dump --value="$INDEX__item" || :) option must not have an empty value." >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			INDEX__lookups+=("$INDEX__item")
+			;;
+		# direction mode:
+		--direction=descending | --direction=reverse | --descending | --reverse) INDEX__direction='descending' ;;
+		--direction=ascending | --direction=forward | --ascending | --forward) INDEX__direction='ascending' ;; # default
+		# seek mode:
+		--first) INDEX__seek='first' ;;       # only the first match of any needle
+		--each) INDEX__seek='each' ;;         # only the first match of each needle
+		--multiple) INDEX__seek='multiple' ;; # all matches of all needles
+		# overlap mode:
 		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times, for --each string matches, "aab" will match needles "aa" once and "ab" once
 		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times, for --each string matches, "aab" will match needles "aa" once and "ab" zero times
+		# require mode:
 		--require-none | --require=none) INDEX__require='none' ;;
 		--require-any | --require=any) INDEX__require='any' ;;
 		--require-all | --require=all) INDEX__require='all' ;;
+		# has mode
+		--no-verbose* | --verbose*) __flag --source={INDEX__item} --target={INDEX__quiet} --non-affirmative --coerce ;;
+		--no-quiet* | --quiet*) __flag --source={INDEX__item} --target={INDEX__quiet} --affirmative --coerce ;;
+		--any)
+			INDEX__seek='first'
+			INDEX__require='any'
+			;;
+		--all)
+			INDEX__seek='each'
+			INDEX__require='all'
+			;;
 		--*) __unrecognised_flag "$INDEX__item" || return ;;
 		*) __unrecognised_argument "$INDEX__item" || return ;;
 		esac
 	done
 	__affirm_value_is_defined "$INDEX__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$INDEX__mode" || return
-	__affirm_length_defined "${#INDEX__needles[@]}" 'needle' || return
-	# process
-	local -i INDEX__value_index INDEX__values_size INDEX__needles_size="${#INDEX__needles[@]}" INDEX__needle_size INDEX__last
-	local INDEX__value INDEX__needle INDEX__results=() INDEX__intro_eval_segment INDEX__value_eval_segment INDEX__matched_eval_segment INDEX__for_segment
+	__affirm_length_defined "${#INDEX__lookups[@]}" 'lookup' || return
+	# get the indices
+	local INDEX__indices=()
+	__indices --source="{$INDEX__source_reference}" --target={INDEX__indices} || return
+	# affirm there are indices available
+	local -i INDEX__size="${#INDEX__indices[@]}"
+	__affirm_length_defined "$INDEX__size" 'source' || return
+	# get the first and last indices for use with prefix/suffix
+	local -i INDEX__first_in_whole="${INDEX__indices[0]}" INDEX__last_in_whole="${INDEX__indices[@]: -1}"
+	# reverse the indices if desired
+	if [[ $INDEX__direction == 'descending' ]]; then
+		__reverse --source+target={INDEX__indices} || return
+	fi
+	# get the first and last indices for use with pattern/glob
+	local -i INDEX__first_in_order="${INDEX__indices[0]}" # INDEX__last_in_order="${INDEX__indices[@]: -1}"
+	# prepare array awareness
+	local INDEX__array
 	if __is_array "$INDEX__source_reference"; then
-		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}[@]}" || return
-		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}[INDEX__value_index]}\""
+		INDEX__array=yes
 	else
-		INDEX__intro_eval_segment="INDEX__values_size=\${#${INDEX__source_reference}}" || return
-		INDEX__value_eval_segment="INDEX__value=\"\${${INDEX__source_reference}:\$INDEX__value_index:\$INDEX__needle_size}\""
+		INDEX__array=no
 	fi
-	if [[ $INDEX__direction == 'ascending' ]]; then
-		INDEX__for_segment='INDEX__value_index = 0; INDEX__value_index < INDEX__values_size; ++INDEX__value_index'
-	else
-		INDEX__intro_eval_segment+='; INDEX__last="$((INDEX__values_size - 1))"'
-		INDEX__for_segment='INDEX__value_index = INDEX__last; INDEX__value_index >= 0; --INDEX__value_index'
-	fi
-	if [[ $INDEX__seek_mode == 'every' ]]; then
-		local INDEX__found=()
-		INDEX__needle_eval_segment=''
-		INDEX__matched_eval_segment='INDEX__found[INDEX__needle_index]="$INDEX__value_index"; INDEX__results+=("$INDEX__value_index")'
-	elif [[ $INDEX__seek_mode == 'each' ]]; then
-		local INDEX__found=()
-		INDEX__needle_eval_segment='if [[ -n "${INDEX__found[INDEX__needle_index]-}" ]]; then continue; fi'
-		INDEX__matched_eval_segment='INDEX__found[INDEX__needle_index]="$INDEX__value_index"; INDEX__results[INDEX__needle_index]="$INDEX__value_index"'
-	else
-		# first
-		INDEX__needle_eval_segment=''
-		INDEX__matched_eval_segment='INDEX__results+=("$INDEX__value_index"); break 2'
-	fi
-	if [[ $INDEX__seek_mode != 'first' ]]; then
-		if [[ $INDEX__overlap == 'no' ]]; then
-			if [[ $INDEX__direction == 'ascending' ]]; then
-				# -1 to offset the upcoming increment from the for loop
-				INDEX__matched_eval_segment+='; INDEX__value_index=$((INDEX__value_index + INDEX__needle_size - 1)); break'
-			else
-				# +1 to offset the upcoming decrement from the for loop
-				INDEX__matched_eval_segment+='; INDEX__value_index=$((INDEX__value_index - INDEX__needle_size + 1)); break'
-			fi
+	# cycle
+	# trunk-ignore(shellcheck/SC2124)
+	local -i INDEX__index INDEX__lookups_index INDEX__lookups_size="${#INDEX__lookups[@]}" INDEX__lookup_size INDEX__match_index INDEX__skips=0 INDEX__lookup_break
+	local INDEX__lookup INDEX__results=() INDEX__lookups_consumed=() INDEX__lookups_indices=("${!INDEX__lookups[@]}") INDEX__lookup_match INDEX__lookups_consumed=() INDEX__value
+	for INDEX__index in "${INDEX__indices[@]}"; do
+		if [[ $INDEX__skips -ne 0 ]]; then
+			# skip this index
+			INDEX__skips=$((INDEX__skips - 1))
+			continue
 		fi
-	fi
-	# process
-	eval "
-	$INDEX__intro_eval_segment
-	for (($INDEX__for_segment)); do
-		for ((INDEX__needle_index = 0; INDEX__needle_index < INDEX__needles_size; ++INDEX__needle_index)); do
-			$INDEX__needle_eval_segment
-			INDEX__needle=\"\${INDEX__needles[INDEX__needle_index]}\"
-			INDEX__needle_size=\${#INDEX__needle}
-			$INDEX__value_eval_segment
-			if [[ \$INDEX__value == "\$INDEX__needle" ]]; then
-				$INDEX__matched_eval_segment
+		for INDEX__lookups_index in "${INDEX__lookups_indices[@]}"; do
+			if [[ $INDEX__seek == 'each' && -n ${INDEX__lookups_consumed[INDEX__lookups_index]-} ]]; then
+				# this lookup has already matched, skip it
+				continue
+			fi
+			INDEX__lookup="${INDEX__lookups[INDEX__lookups_index]}" INDEX__lookup_match='' INDEX__value='' INDEX__match_index=$INDEX__index INDEX__lookup_break=0
+			case "$INDEX__lookup" in
+			--value=* | --needle=*)
+				# exact match
+				INDEX__lookup="${INDEX__lookup#*=}"
+				if [[ $INDEX__array == 'yes' ]]; then
+					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]}' || return
+				else
+					INDEX__lookup_size=${#INDEX__lookup}
+					if [[ $INDEX__direction == 'ascending' ]]; then
+						# ascending, so we need to look right-ways
+						if [[ $((INDEX__match_index + INDEX__lookup_size)) -le $INDEX__size ]]; then
+							eval 'INDEX__value="${'"$INDEX__source_reference"':INDEX__match_index:INDEX__lookup_size}"' || return
+						else
+							continue
+						fi
+					else
+						# descending, so we need to look left-ways
+						INDEX__match_index=$((INDEX__index - INDEX__lookup_size + 1)) # +1 to include the current character
+						if [[ $INDEX__match_index -ge 0 ]]; then
+							eval 'INDEX__value="${'"$INDEX__source_reference"':INDEX__match_index:INDEX__lookup_size}"' || return
+						else
+							continue
+						fi
+					fi
+				fi
+				if [[ $INDEX__value == "$INDEX__lookup" ]]; then
+					INDEX__lookup_match="$INDEX__value" # substring match
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				;;
+			--prefix=*)
+				# prefix match
+				INDEX__lookup="${INDEX__lookup#*=}"
+				INDEX__lookup_size=${#INDEX__lookup}
+				if [[ $INDEX__array == 'yes' ]]; then
+					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]:0:INDEX__lookup_size}' || return
+				elif [[ $INDEX__index -eq $INDEX__first_in_whole ]]; then
+					# only match once when we are at the first in whole index
+					eval 'INDEX__value="${'"$INDEX__source_reference"':0:INDEX__lookup_size}"' || return
+				else
+					continue
+				fi
+				if [[ $INDEX__value == "$INDEX__lookup" ]]; then
+					INDEX__lookup_match="$INDEX__value" # substring match
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				;;
+			--suffix=*)
+				# suffix match
+				INDEX__lookup="${INDEX__lookup#*=}"
+				INDEX__lookup_size=${#INDEX__lookup}
+				if [[ $INDEX__array == 'yes' ]]; then
+					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]: -INDEX__lookup_size}' || return
+				elif [[ $INDEX__index -eq $INDEX__last_in_whole ]]; then
+					# only match once when we are at the last in whole index
+					INDEX__match_index=$((INDEX__index - INDEX__lookup_size + 1)) # +1 to include the current character
+					eval 'INDEX__value="${'"$INDEX__source_reference"':INDEX__match_index}"' || return
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				if [[ $INDEX__value == "$INDEX__lookup" ]]; then
+					INDEX__lookup_match="$INDEX__value" # substring match
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				;;
+			--pattern=*)
+				# pattern match
+				INDEX__lookup="${INDEX__lookup#*=}"
+				if [[ $INDEX__array == 'yes' ]]; then
+					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]}' || return
+				elif [[ $INDEX__index -eq $INDEX__first_in_order ]]; then
+					# whole string match
+					eval 'INDEX__value="${'"$INDEX__source_reference"'}"' || return
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				if [[ $INDEX__value =~ $INDEX__lookup ]] && [[ -n ${BASH_REMATCH[0]-} ]]; then # workaround a bash bug
+					INDEX__lookup_match="$INDEX__value"                                           # whole string match
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				;;
+			--glob=*)
+				# pattern match
+				INDEX__lookup="${INDEX__lookup#*=}"
+				if [[ $INDEX__array == 'yes' ]]; then
+					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]}' || return
+				elif [[ $INDEX__index -eq $INDEX__first_in_order ]]; then
+					# whole string match
+					eval 'INDEX__value="${'"$INDEX__source_reference"'}"' || return
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				# trunk-ignore(shellcheck/SC2053)
+				if [[ $INDEX__value == $INDEX__lookup ]]; then
+					INDEX__lookup_match="$INDEX__value" # whole string match
+					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				else
+					continue
+				fi
+				;;
+			esac
+			if [[ -n $INDEX__lookup_match ]]; then
+				if [[ $INDEX__seek == 'multiple' ]]; then
+					INDEX__results+=("$INDEX__match_index")
+					if [[ $INDEX__overlap == 'no' ]]; then
+						INDEX__lookup_break=1 # go to the next character (strings) / element (arrays)
+					fi
+				elif [[ $INDEX__seek == 'each' ]]; then
+					INDEX__results[INDEX__lookups_index]="$INDEX__match_index"
+					if [[ ${#INDEX__results[@]} -eq $INDEX__lookups_size ]]; then
+						INDEX__lookup_break=2 # all needles found, break the outer loop
+					elif [[ $INDEX__overlap == 'no' ]]; then
+						INDEX__lookup_break=1 # go to the next character (strings) / element (arrays)
+					fi
+				else
+					INDEX__results+=("$INDEX__match_index")
+					INDEX__lookup_break=2 # first match found, break the outer loop
+				fi
+				if [[ $INDEX__array == 'no' && $INDEX__overlap == 'no' ]]; then
+					# go a few characters ahead, applicable to strings
+					INDEX__skips="${#INDEX__lookup_match}"
+					INDEX__skips=$((INDEX__skips - 1)) # remove ourself
+				fi
+				if [[ $INDEX__lookup_break -ne 0 ]]; then
+					break "$INDEX__lookup_break"
+				fi
 			fi
 		done
-	done" || return
-	if [[ $INDEX__seek_mode == 'every' ]]; then
-		# all of all
+	done
+	# done, check
+	# @todo can these require checks be simplified now that INDEX__lookups_consumed is always defined?
+	if [[ $INDEX__seek == 'multiple' ]]; then
 		if [[ $INDEX__require == 'any' ]]; then
-			local INDEX__found_size="${#INDEX__found[@]}"
+			local INDEX__found_size="${#INDEX__lookups_consumed[@]}"
 			if [[ $INDEX__found_size -eq 0 ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: No needles were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-				__dump {INDEX__needles} {INDEX__found} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				if [[ $INDEX__quiet == 'no' ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				fi
 				return 33 # EDOM 33 Numerical argument out of domain
 			fi
 		elif [[ $INDEX__require == 'all' ]]; then
-			local INDEX__found_size="${#INDEX__found[@]}"
-			if [[ $INDEX__found_size -ne INDEX__needles_size ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Not all needles were found, expected $(__dump --value="$INDEX__needles_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-				__dump {INDEX__needles} {INDEX__found} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+			local INDEX__found_size="${#INDEX__lookups_consumed[@]}"
+			if [[ $INDEX__found_size -ne INDEX__lookups_size ]]; then
+				if [[ $INDEX__quiet == 'no' ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$INDEX__lookups_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				fi
 				return 33 # EDOM 33 Numerical argument out of domain
 			fi
 		fi
 		__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return
-	elif [[ $INDEX__seek_mode == 'each' ]]; then
+	elif [[ $INDEX__seek == 'each' ]]; then
 		# first of each
 		if [[ $INDEX__require == 'any' ]]; then
 			local INDEX__found_size="${#INDEX__results[@]}"
 			if [[ $INDEX__found_size -eq 0 ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: No needles were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-				__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				if [[ $INDEX__quiet == 'no' ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				fi
 				return 33 # EDOM 33 Numerical argument out of domain
 			fi
 		elif [[ $INDEX__require == 'all' ]]; then
 			local INDEX__found_size="${#INDEX__results[@]}"
-			if [[ $INDEX__found_size -ne INDEX__needles_size ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: Not all needles were found, expected $(__dump --value="$INDEX__needles_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-				__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+			if [[ $INDEX__found_size -ne INDEX__lookups_size ]]; then
+				if [[ $INDEX__quiet == 'no' ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$INDEX__lookups_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				fi
 				return 33 # EDOM 33 Numerical argument out of domain
 			fi
 		fi
@@ -4678,14 +5013,16 @@ function __index {
 		# first of all
 		local INDEX__found_size="${#INDEX__results[@]}"
 		if [[ $INDEX__found_size -gt 1 ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Too many needles were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-			__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-			return 33 # EDOM 33 Numerical argument out of domain
+			__print_lines "ERROR: ${FUNCNAME[0]}: Too many lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+			__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+			return 34 # ERANGE 34 Result too large
 		fi
 		if [[ $INDEX__require != 'none' ]]; then
 			if [[ $INDEX__found_size -eq 0 ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: No needles were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-				__dump {INDEX__needles} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				if [[ $INDEX__quiet == 'no' ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
+					__dump {INDEX__lookups} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
+				fi
 				return 33 # EDOM 33 Numerical argument out of domain
 			fi
 		fi
@@ -4702,96 +5039,7 @@ function __index {
 # __has --source={<array-var-name>} --- ...<needle>
 # @todo support index checks for bash associative arrays
 function __has {
-	local HAS__needles=() HAS__seek_mode='first' HAS__ignore_case='no' HAS__overlap='no'
-	# <only source helper arguments>
-	local HAS__item HAS__source_reference='' HAS__inputs=() HAS__input=''
-	while [[ $# -ne 0 ]]; do
-		HAS__item="$1"
-		shift
-		case "$HAS__item" in
-		--source={*})
-			__affirm_value_is_undefined "$HAS__source_reference" 'source reference' || return
-			__dereference --source="${HAS__item#*=}" --name={HAS__source_reference} || return
-			;;
-		--)
-			if [[ -z $HAS__source_reference ]]; then
-				# they are inputs
-				if [[ $# -eq 1 ]]; then
-					# a string input
-					# trunk-ignore(shellcheck/SC2034)
-					HAS__input="$1"
-					HAS__source_reference='HAS__input'
-				else
-					# an array input
-					HAS__inputs+=("$@")
-					HAS__source_reference='HAS__inputs'
-				fi
-			else
-				# they are needles
-				HAS__needles+=("$@")
-			fi
-			shift $#
-			break
-			;;
-		# </only source helper arguments>
-		--value=* | --needle=*) HAS__needles+=("${HAS__item#*=}") ;;
-		--first | --any) HAS__seek_mode='first' ;;
-		--all) HAS__seek_mode='all' ;;
-		--ignore-case | --case-insensitive) HAS__ignore_case='yes' ;;
-		--overlap | --overlap=yes) HAS__overlap='yes' ;;  # for --all string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times
-		--no-overlap | --overlap=no) HAS__overlap='no' ;; # for --all string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times
-		--*) __unrecognised_flag "$HAS__item" || return ;;
-		*) __unrecognised_argument "$HAS__item" || return ;;
-		esac
-	done
-	__affirm_value_is_defined "$HAS__source_reference" 'source variable reference' || return
-	__affirm_length_defined "${#HAS__needles[@]}" 'needle' || return
-	# adjust
-	# trunk-ignore(shellcheck/SC2034)
-	local -i HAS__value_index HAS__needle_index HAS__values_size HAS__needle_size HAS__needles_size="${#HAS__needles[@]}"
-	# trunk-ignore(shellcheck/SC2034)
-	local HAS__needle HAS__value HAS__needles_found=() HAS__intro_eval_segment HAS__value_eval_segment HAS__matched_eval_segment HAS__finale_eval_segment
-	if __is_array "$HAS__source_reference"; then
-		HAS__intro_eval_segment="HAS__values_size=\${#${HAS__source_reference}[@]}" || return
-		HAS__value_eval_segment="HAS__value=\"\${${HAS__source_reference}[HAS__value_index]}\""
-	else
-		HAS__intro_eval_segment="HAS__values_size=\${#${HAS__source_reference}}" || return
-		HAS__value_eval_segment="HAS__value=\"\${${HAS__source_reference}:\$HAS__value_index:\$HAS__needle_size}\""
-	fi
-	if [[ $HAS__seek_mode == 'all' ]]; then
-		__array --size="$HAS__needles_size" --fill='no' --target={HAS__needles_found} || return
-		HAS__matched_eval_segment='HAS__needles_found[HAS__needle_index]=yes'
-		if [[ $HAS__overlap == 'no' ]]; then
-			# -1 to offset the upcoming increment from the for loop
-			HAS__matched_eval_segment+='; HAS__value_index=$((HAS__value_index + HAS__needle_size - 1)); break'
-		fi
-		HAS__finale_eval_segment='if [[ ${HAS__needles_found[*]} == *no* ]]; then return 93; fi'
-	else
-		HAS__matched_eval_segment='return 0'
-		HAS__finale_eval_segment='return 33' # EDOM 33 Numerical argument out of domain
-	fi
-	if [[ $HAS__ignore_case == 'yes' ]]; then
-		# convert the needles to lowercase
-		for HAS__needle_index in "${!HAS__needles[@]}"; do
-			HAS__needle="${HAS__needles[HAS__needle_index]}"
-			HAS__needles[HAS__needle_index]="$(__get_lowercase_string "$HAS__needle")" || return
-		done
-		HAS__value_eval_segment+='; HAS__value="$(__get_lowercase_string "$HAS__value")"'
-	fi
-	# process
-	eval "
-	$HAS__intro_eval_segment
-	for ((HAS__value_index = 0; HAS__value_index < HAS__values_size; ++HAS__value_index)); do
-		for ((HAS__needle_index = 0; HAS__needle_index < HAS__needles_size; ++HAS__needle_index)); do
-			HAS__needle=\"\${HAS__needles[HAS__needle_index]}\"
-			HAS__needle_size=\${#HAS__needle}
-			$HAS__value_eval_segment
-			if [[ \$HAS__value == "\$HAS__needle" ]]; then
-				$HAS__matched_eval_segment
-			fi
-		done
-	done
-	$HAS__finale_eval_segment" || return
+	__index --quiet --any --target=NULL "$@" || return
 }
 
 # set the targets to the slice between the start and length indices of the source reference
