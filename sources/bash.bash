@@ -1534,7 +1534,15 @@ function __to {
 					esac
 				else
 					eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
-					if [[ $TO__source_size -eq 1 ]]; then
+					if [[ $TO__source_size -eq 0 ]]; then
+						# array of no elements to empty string
+						case "$TO__mode" in
+						prepend) : ;;
+						append) : ;;
+						'' | overwrite) eval "$TO__target=" || return ;;
+						# mode is already validated
+						esac
+					elif [[ $TO__source_size -eq 1 ]]; then
 						# array of single element to string
 						case "$TO__mode" in
 						prepend) eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return ;;
@@ -4680,7 +4688,7 @@ function __at {
 	__to --source={AT__results} --mode="$AT__mode" --targets={AT__targets} || return
 }
 
-# __index fetches the indices of lookups against the content of the source reference
+# __iterate fetches the indices of lookups against the content of the source reference
 # the fetching traverses the cursor along the source content in the specified DIRECTION MODE
 # it matches the lookups against the source content at the location of the cursor, by cursor position first then by lookup position
 # if there is a match from an unconsumed lookup, the result index will be noted
@@ -4696,51 +4704,51 @@ function __at {
 # in `any` require mode, at least one lookup must have matched at least once
 # in `all` require mode, all the specified lookups must have matched at least once
 # if no require mode failures, then the noted indexes are sent to the targets
-function __index {
-	local INDEX__lookups=() INDEX__direction='ascending' INDEX__seek='first' INDEX__overlap='no' INDEX__require='all' INDEX__quiet='no'
+function __iterate {
+	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' ITERATE__on='result'
 	# <single-source helper arguments>
-	local INDEX__item INDEX__source_reference='' INDEX__targets=() INDEX__mode='' INDEX__inputs=() INDEX__input=''
+	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode='' ITERATE__inputs=() ITERATE__input=''
 	while [[ $# -ne 0 ]]; do
-		INDEX__item="$1"
+		ITERATE__item="$1"
 		shift
-		case "$INDEX__item" in
+		case "$ITERATE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$INDEX__source_reference" 'source reference' || return
-			__dereference --source="${INDEX__item#*=}" --name={INDEX__source_reference} || return
+			__affirm_value_is_undefined "$ITERATE__source_reference" 'source reference' || return
+			__dereference --source="${ITERATE__item#*=}" --name={ITERATE__source_reference} || return
 			;;
 		--source+target={*})
-			INDEX__item="${INDEX__item#*=}"
-			INDEX__targets+=("$INDEX__item")
-			__affirm_value_is_undefined "$INDEX__source_reference" 'source reference' || return
-			__dereference --source="$INDEX__item" --name={INDEX__source_reference} || return
+			ITERATE__item="${ITERATE__item#*=}"
+			ITERATE__targets+=("$ITERATE__item")
+			__affirm_value_is_undefined "$ITERATE__source_reference" 'source reference' || return
+			__dereference --source="$ITERATE__item" --name={ITERATE__source_reference} || return
 			;;
-		--targets=*) __dereference --source="${INDEX__item#*=}" --value={INDEX__targets} || return ;;
-		--target=*) INDEX__targets+=("${INDEX__item#*=}") ;;
+		--targets=*) __dereference --source="${ITERATE__item#*=}" --value={ITERATE__targets} || return ;;
+		--target=*) ITERATE__targets+=("${ITERATE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
-			__affirm_value_is_undefined "$INDEX__mode" 'write mode' || return
-			INDEX__mode="${INDEX__item#*=}"
+			__affirm_value_is_undefined "$ITERATE__mode" 'write mode' || return
+			ITERATE__mode="${ITERATE__item#*=}"
 			;;
 		--append | --prepend | --overwrite)
-			__affirm_value_is_undefined "$INDEX__mode" 'write mode' || return
-			INDEX__mode="${INDEX__item:2}"
+			__affirm_value_is_undefined "$ITERATE__mode" 'write mode' || return
+			ITERATE__mode="${ITERATE__item:2}"
 			;;
 		--)
-			if [[ -z $INDEX__source_reference ]]; then
+			if [[ -z $ITERATE__source_reference ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
 					# trunk-ignore(shellcheck/SC2034)
-					INDEX__input="$1"
-					INDEX__source_reference='INDEX__input'
+					ITERATE__input="$1"
+					ITERATE__source_reference='ITERATE__input'
 				else
 					# an array input
-					INDEX__inputs+=("$@")
-					INDEX__source_reference='INDEX__inputs'
+					ITERATE__inputs+=("$@")
+					ITERATE__source_reference='ITERATE__inputs'
 				fi
 			else
 				# they are needles
-				for INDEX__item in "$@"; do
-					iINDEX__lookups+=(--needle="$INDEX__item")
+				for ITERATE__item in "$@"; do
+					iITERATE__lookups+=(--needle="$ITERATE__item")
 				done
 			fi
 			shift $#
@@ -4749,297 +4757,371 @@ function __index {
 		# </single-source helper arguments>
 		# lookups:
 		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*)
-			if [[ -z ${INDEX__item#*=} ]]; then
-				__print_lines "ERROR: ${FUNCNAME[1]}: The $(__dump --value="$INDEX__item" || :) option must not have an empty value." >&2 || :
+			if [[ -z ${ITERATE__item#*=} ]]; then
+				__print_lines "ERROR: ${FUNCNAME[1]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value." >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
-			INDEX__lookups+=("$INDEX__item")
+			ITERATE__lookups+=("$ITERATE__item")
 			;;
-		# direction mode:
-		--direction=descending | --direction=reverse | --descending | --reverse) INDEX__direction='descending' ;;
-		--direction=ascending | --direction=forward | --ascending | --forward) INDEX__direction='ascending' ;; # default
+		# order mode
+		--by=lookup | --order=lookup | --order=argument) ITERATE__by='lookup' ;;
+		--by=cursor | --by=content | --order=content | --order=source) ITERATE__by='content' ;;
+		# content direction mode:
+		--direction=descending | --direction=reverse | --descending | --reverse) ITERATE__direction='descending' ;;
+		--direction=ascending | --direction=forward | --ascending | --forward) ITERATE__direction='ascending' ;; # default
 		# seek mode:
-		--first) INDEX__seek='first' ;;       # only the first match of any needle
-		--each) INDEX__seek='each' ;;         # only the first match of each needle
-		--multiple) INDEX__seek='multiple' ;; # all matches of all needles
+		--seek=first) ITERATE__seek='first' ;;       # only the first match of any needle
+		--seek=each) ITERATE__seek='each' ;;         # only the first match of each needle
+		--seek=multiple) ITERATE__seek='multiple' ;; # all matches of all needles
 		# overlap mode:
-		--overlap | --overlap=yes) INDEX__overlap='yes' ;;  # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" thrice and "a" four times, for --each string matches, "aab" will match needles "aa" once and "ab" once
-		--no-overlap | --overlap=no) INDEX__overlap='no' ;; # for --every string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" zero times, for --each string matches, "aab" will match needles "aa" once and "ab" zero times
+		--overlap=yes | --overlap) ITERATE__overlap='yes' ;;  # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" 3 times and "a" 4 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 1 time
+		--overlap=no | --no-overlap) ITERATE__overlap='no' ;; # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" 0 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 0 times
 		# require mode:
-		--require-none | --require=none) INDEX__require='none' ;;
-		--require-any | --require=any) INDEX__require='any' ;;
-		--require-all | --require=all) INDEX__require='all' ;;
-		# has mode
-		--no-verbose* | --verbose*) __flag --source={INDEX__item} --target={INDEX__quiet} --non-affirmative --coerce ;;
-		--no-quiet* | --quiet*) __flag --source={INDEX__item} --target={INDEX__quiet} --affirmative --coerce ;;
+		--require=none | --require-none | --optional) ITERATE__require='none' ;;
+		--require=any | --require-any) ITERATE__require='any' ;;
+		--require=all | --require-all) ITERATE__require='all' ;;
+		# quiet mode
+		--no-verbose* | --verbose*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
+		--no-quiet* | --quiet*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
+		# operation mode
+		--index | --indices)
+			ITERATE__operation='index'
+			ITERATE__by='lookup'
+			ITERATE__seek='each'
+			ITERATE__require='all'
+			;;
+		--has)
+			ITERATE__operation='has'
+			ITERATE__by='lookup'
+			ITERATE__seek='each'
+			ITERATE__require='all'
+			ITERATE__quiet='yes'
+			;;
+		--evict)
+			ITERATE__operation='evict'
+			ITERATE__by='lookup'
+			ITERATE__seek='each'
+			ITERATE__require='all'
+			ITERATE__on='result'
+			;;
+		# evict on mode
+		--on=content) ITERATE__on='content' ;; # @todo implement
+		--on=result) ITERATE__on='result' ;;
+		# shortcut mode mostly for has/evict
+		--first)
+			ITERATE__by='lookup'
+			ITERATE__seek='first'
+			ITERATE__require='any'
+			# overlap doesn't matter
+			;;
 		--any)
-			INDEX__seek='first'
-			INDEX__require='any'
+			ITERATE__by='cursor'
+			ITERATE__seek='first'
+			ITERATE__require='any'
+			# overlap doesn't matter
 			;;
-		--all)
-			INDEX__seek='each'
-			INDEX__require='all'
+		--each | --all)
+			ITERATE__by='lookup'
+			ITERATE__seek='each'
+			ITERATE__require='all'
 			;;
-		--*) __unrecognised_flag "$INDEX__item" || return ;;
-		*) __unrecognised_argument "$INDEX__item" || return ;;
+		--multiple)
+			ITERATE__by='lookup'
+			ITERATE__seek='multiple'
+			ITERATE__require='all'
+			;;
+		--*) __unrecognised_flag "$ITERATE__item" || return ;;
+		*) __unrecognised_argument "$ITERATE__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$INDEX__source_reference" 'source variable reference' || return
-	__affirm_value_is_valid_write_mode "$INDEX__mode" || return
-	__affirm_length_defined "${#INDEX__lookups[@]}" 'lookup' || return
+	__affirm_value_is_defined "$ITERATE__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$ITERATE__mode" || return
+	__affirm_length_defined "${#ITERATE__lookups[@]}" 'lookup' || return
 	# get the indices
-	local INDEX__indices=()
-	__indices --source="{$INDEX__source_reference}" --target={INDEX__indices} || return
+	local ITERATE__indices=()
+	__indices --source="{$ITERATE__source_reference}" --target={ITERATE__indices} || return
 	# affirm there are indices available
-	local -i INDEX__size="${#INDEX__indices[@]}"
-	__affirm_length_defined "$INDEX__size" 'source' || return
+	local -i ITERATE__size="${#ITERATE__indices[@]}"
+	__affirm_length_defined "$ITERATE__size" 'source' || return
 	# get the first and last indices for use with prefix/suffix
-	local -i INDEX__first_in_whole="${INDEX__indices[0]}" INDEX__last_in_whole="${INDEX__indices[@]: -1}"
+	# trunk-ignore(shellcheck/SC2124)
+	local -i ITERATE__first_in_whole="${ITERATE__indices[0]}" ITERATE__last_in_whole="${ITERATE__indices[@]: -1}"
 	# reverse the indices if desired
-	if [[ $INDEX__direction == 'descending' ]]; then
-		__reverse --source+target={INDEX__indices} || return
+	if [[ $ITERATE__direction == 'descending' ]]; then
+		__reverse --source+target={ITERATE__indices} || return
 	fi
 	# get the first and last indices for use with pattern/glob
-	local -i INDEX__first_in_order="${INDEX__indices[0]}" # INDEX__last_in_order="${INDEX__indices[@]: -1}"
+	local -i ITERATE__first_in_order="${ITERATE__indices[0]}" # ITERATE__last_in_order="${ITERATE__indices[@]: -1}"
 	# prepare array awareness
-	local INDEX__array
-	if __is_array "$INDEX__source_reference"; then
-		INDEX__array=yes
+	local ITERATE__array
+	if __is_array "$ITERATE__source_reference"; then
+		ITERATE__array=yes
 	else
-		INDEX__array=no
+		ITERATE__array=no
 	fi
-	# cycle
-	# trunk-ignore(shellcheck/SC2124)
-	local -i INDEX__index INDEX__lookups_index INDEX__lookups_size="${#INDEX__lookups[@]}" INDEX__lookup_size INDEX__match_index INDEX__skips=0 INDEX__lookup_break
-	local INDEX__lookup INDEX__results=() INDEX__lookups_consumed=() INDEX__lookups_indices=("${!INDEX__lookups[@]}") INDEX__lookup_match INDEX__lookups_consumed=() INDEX__value
-	for INDEX__index in "${INDEX__indices[@]}"; do
-		if [[ $INDEX__skips -ne 0 ]]; then
-			# skip this index
-			INDEX__skips=$((INDEX__skips - 1))
-			continue
-		fi
-		for INDEX__lookups_index in "${INDEX__lookups_indices[@]}"; do
-			if [[ $INDEX__seek == 'each' && -n ${INDEX__lookups_consumed[INDEX__lookups_index]-} ]]; then
-				# this lookup has already matched, skip it
+	# iterate
+	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookups_size="${#ITERATE__lookups[@]}" ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index
+	local ITERATE__results=() ITERATE__consumed_indices_map=() ITERATE__consumed_lookups_map=() ITERATE__lookups_indices=("${!ITERATE__lookups[@]}") ITERATE__value ITERATE__lookup ITERATE__match
+	if [[ $ITERATE__by == 'lookup' ]]; then
+		ITERATE__outers=("${ITERATE__lookups_indices[@]}")
+		ITERATE__inners=("${ITERATE__indices[@]}")
+	else
+		ITERATE__outers=("${ITERATE__indices[@]}")
+		ITERATE__inners=("${ITERATE__lookups_indices[@]}")
+	fi
+	for ITERATE__outer in "${ITERATE__outers[@]}"; do
+		for ITERATE__inner in "${ITERATE__inners[@]}"; do
+			# adjust for our iteration mode
+			if [[ $ITERATE__by == 'lookup' ]]; then
+				ITERATE__lookup_index="$ITERATE__outer" ITERATE__index="$ITERATE__inner"
+			else
+				ITERATE__index="$ITERATE__outer" ITERATE__lookup_index="$ITERATE__inner"
+			fi
+			# has this lookup index or content index already been consumed? these maps are always updated, regardless of modes
+			if [[ $ITERATE__overlap == 'no' && -n ${ITERATE__consumed_indices_map[ITERATE__index]-} ]] || [[ $ITERATE__seek == 'each' && -n ${ITERATE__consumed_lookups_map[ITERATE__lookup_index]-} ]]; then
 				continue
 			fi
-			INDEX__lookup="${INDEX__lookups[INDEX__lookups_index]}" INDEX__lookup_match='' INDEX__value='' INDEX__match_index=$INDEX__index INDEX__lookup_break=0
-			case "$INDEX__lookup" in
+			# handle the lookup
+			ITERATE__lookup="${ITERATE__lookups[ITERATE__lookup_index]}" ITERATE__match='' ITERATE__value='' ITERATE__match_index=$ITERATE__index
+			case "$ITERATE__lookup" in
 			--value=* | --needle=*)
 				# exact match
-				INDEX__lookup="${INDEX__lookup#*=}"
-				if [[ $INDEX__array == 'yes' ]]; then
-					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]}' || return
+				ITERATE__lookup="${ITERATE__lookup#*=}"
+				if [[ $ITERATE__array == 'yes' ]]; then
+					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
 				else
-					INDEX__lookup_size=${#INDEX__lookup}
-					if [[ $INDEX__direction == 'ascending' ]]; then
+					ITERATE__lookup_size=${#ITERATE__lookup}
+					if [[ $ITERATE__direction == 'ascending' ]]; then
 						# ascending, so we need to look right-ways
-						if [[ $((INDEX__match_index + INDEX__lookup_size)) -le $INDEX__size ]]; then
-							eval 'INDEX__value="${'"$INDEX__source_reference"':INDEX__match_index:INDEX__lookup_size}"' || return
+						if [[ $((ITERATE__match_index + ITERATE__lookup_size)) -le $ITERATE__size ]]; then
+							eval 'ITERATE__value="${'"$ITERATE__source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
 						else
 							continue
 						fi
 					else
 						# descending, so we need to look left-ways
-						INDEX__match_index=$((INDEX__index - INDEX__lookup_size + 1)) # +1 to include the current character
-						if [[ $INDEX__match_index -ge 0 ]]; then
-							eval 'INDEX__value="${'"$INDEX__source_reference"':INDEX__match_index:INDEX__lookup_size}"' || return
+						ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character
+						if [[ $ITERATE__match_index -ge 0 ]]; then
+							eval 'ITERATE__value="${'"$ITERATE__source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
 						else
 							continue
 						fi
 					fi
 				fi
-				if [[ $INDEX__value == "$INDEX__lookup" ]]; then
-					INDEX__lookup_match="$INDEX__value" # substring match
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				if [[ $ITERATE__value == "$ITERATE__lookup" ]]; then
+					ITERATE__match="$ITERATE__value" # substring match
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				;;
 			--prefix=*)
 				# prefix match
-				INDEX__lookup="${INDEX__lookup#*=}"
-				INDEX__lookup_size=${#INDEX__lookup}
-				if [[ $INDEX__array == 'yes' ]]; then
-					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]:0:INDEX__lookup_size}' || return
-				elif [[ $INDEX__index -eq $INDEX__first_in_whole ]]; then
+				ITERATE__lookup="${ITERATE__lookup#*=}"
+				ITERATE__lookup_size=${#ITERATE__lookup}
+				if [[ $ITERATE__array == 'yes' ]]; then
+					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]:0:ITERATE__lookup_size}' || return
+				elif [[ $ITERATE__index -eq $ITERATE__first_in_whole ]]; then
 					# only match once when we are at the first in whole index
-					eval 'INDEX__value="${'"$INDEX__source_reference"':0:INDEX__lookup_size}"' || return
+					eval 'ITERATE__value="${'"$ITERATE__source_reference"':0:ITERATE__lookup_size}"' || return
 				else
 					continue
 				fi
-				if [[ $INDEX__value == "$INDEX__lookup" ]]; then
-					INDEX__lookup_match="$INDEX__value" # substring match
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				if [[ $ITERATE__value == "$ITERATE__lookup" ]]; then
+					ITERATE__match="$ITERATE__value" # substring match
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				;;
 			--suffix=*)
 				# suffix match
-				INDEX__lookup="${INDEX__lookup#*=}"
-				INDEX__lookup_size=${#INDEX__lookup}
-				if [[ $INDEX__array == 'yes' ]]; then
-					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]: -INDEX__lookup_size}' || return
-				elif [[ $INDEX__index -eq $INDEX__last_in_whole ]]; then
+				ITERATE__lookup="${ITERATE__lookup#*=}"
+				ITERATE__lookup_size=${#ITERATE__lookup}
+				if [[ $ITERATE__array == 'yes' ]]; then
+					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]: -ITERATE__lookup_size}' || return
+				elif [[ $ITERATE__index -eq $ITERATE__last_in_whole ]]; then
 					# only match once when we are at the last in whole index
-					INDEX__match_index=$((INDEX__index - INDEX__lookup_size + 1)) # +1 to include the current character
-					eval 'INDEX__value="${'"$INDEX__source_reference"':INDEX__match_index}"' || return
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+					ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character
+					eval 'ITERATE__value="${'"$ITERATE__source_reference"':ITERATE__match_index}"' || return
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
-				if [[ $INDEX__value == "$INDEX__lookup" ]]; then
-					INDEX__lookup_match="$INDEX__value" # substring match
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				if [[ $ITERATE__value == "$ITERATE__lookup" ]]; then
+					ITERATE__match="$ITERATE__value" # substring match
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				;;
 			--pattern=*)
 				# pattern match
-				INDEX__lookup="${INDEX__lookup#*=}"
-				if [[ $INDEX__array == 'yes' ]]; then
-					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]}' || return
-				elif [[ $INDEX__index -eq $INDEX__first_in_order ]]; then
+				ITERATE__lookup="${ITERATE__lookup#*=}"
+				if [[ $ITERATE__array == 'yes' ]]; then
+					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
+				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
-					eval 'INDEX__value="${'"$INDEX__source_reference"'}"' || return
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+					eval 'ITERATE__value="${'"$ITERATE__source_reference"'}"' || return
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
-				if [[ $INDEX__value =~ $INDEX__lookup ]] && [[ -n ${BASH_REMATCH[0]-} ]]; then # workaround a bash bug
-					INDEX__lookup_match="$INDEX__value"                                           # whole string match
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				if [[ $ITERATE__value =~ $ITERATE__lookup ]] && [[ -n ${BASH_REMATCH[0]-} ]]; then # workaround a bash bug
+					ITERATE__match="$ITERATE__value"                                                  # whole string match
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				;;
 			--glob=*)
 				# pattern match
-				INDEX__lookup="${INDEX__lookup#*=}"
-				if [[ $INDEX__array == 'yes' ]]; then
-					eval 'INDEX__value=${'"$INDEX__source_reference"'[INDEX__index]}' || return
-				elif [[ $INDEX__index -eq $INDEX__first_in_order ]]; then
+				ITERATE__lookup="${ITERATE__lookup#*=}"
+				if [[ $ITERATE__array == 'yes' ]]; then
+					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
+				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
-					eval 'INDEX__value="${'"$INDEX__source_reference"'}"' || return
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+					eval 'ITERATE__value="${'"$ITERATE__source_reference"'}"' || return
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				# trunk-ignore(shellcheck/SC2053)
-				if [[ $INDEX__value == $INDEX__lookup ]]; then
-					INDEX__lookup_match="$INDEX__value" # whole string match
-					INDEX__lookups_consumed[INDEX__lookups_index]="$INDEX__index"
+				if [[ $ITERATE__value == $ITERATE__lookup ]]; then
+					ITERATE__match="$ITERATE__value" # whole string match
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				;;
 			esac
-			if [[ -n $INDEX__lookup_match ]]; then
-				if [[ $INDEX__seek == 'multiple' ]]; then
-					INDEX__results+=("$INDEX__match_index")
-					if [[ $INDEX__overlap == 'no' ]]; then
-						INDEX__lookup_break=1 # go to the next character (strings) / element (arrays)
-					fi
-				elif [[ $INDEX__seek == 'each' ]]; then
-					INDEX__results[INDEX__lookups_index]="$INDEX__match_index"
-					if [[ ${#INDEX__results[@]} -eq $INDEX__lookups_size ]]; then
-						INDEX__lookup_break=2 # all needles found, break the outer loop
-					elif [[ $INDEX__overlap == 'no' ]]; then
-						INDEX__lookup_break=1 # go to the next character (strings) / element (arrays)
+			if [[ -n $ITERATE__match ]]; then
+				if [[ $ITERATE__seek == 'multiple' ]]; then
+					ITERATE__results+=("$ITERATE__match_index")
+				elif [[ $ITERATE__seek == 'each' ]]; then
+					ITERATE__results[ITERATE__lookup_index]="$ITERATE__match_index"
+					if [[ ${#ITERATE__results[@]} -eq $ITERATE__lookups_size ]]; then
+						break 2 # finished, break the outer loop
 					fi
 				else
-					INDEX__results+=("$INDEX__match_index")
-					INDEX__lookup_break=2 # first match found, break the outer loop
+					# first
+					ITERATE__results+=("$ITERATE__match_index")
+					break 2 # finished, break the outer loop
 				fi
-				if [[ $INDEX__array == 'no' && $INDEX__overlap == 'no' ]]; then
-					# go a few characters ahead, applicable to strings
-					INDEX__skips="${#INDEX__lookup_match}"
-					INDEX__skips=$((INDEX__skips - 1)) # remove ourself
-				fi
-				if [[ $INDEX__lookup_break -ne 0 ]]; then
-					break "$INDEX__lookup_break"
+				# block this match from being matched again
+				if [[ $ITERATE__overlap == 'no' ]]; then
+					ITERATE__match_size=${#ITERATE__match}
+					for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__match_index + ITERATE__match_size; ITERATE__overlap_index++)); do
+						ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
+					done
 				fi
 			fi
 		done
 	done
-	# done, check
-	# @todo can these require checks be simplified now that INDEX__lookups_consumed is always defined?
-	if [[ $INDEX__seek == 'multiple' ]]; then
-		if [[ $INDEX__require == 'any' ]]; then
-			local INDEX__found_size="${#INDEX__lookups_consumed[@]}"
-			if [[ $INDEX__found_size -eq 0 ]]; then
-				if [[ $INDEX__quiet == 'no' ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-				fi
-				return 33 # EDOM 33 Numerical argument out of domain
+	# any/all require checks
+	local ITERATE__found_size="${#ITERATE__consumed_lookups_map[@]}"
+	# validate has mode
+	if [[ $ITERATE__operation == 'has' && $ITERATE__require == 'none' ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: The operation $(__dump --value=has || :) cannot be used with the require mode $(__dump --value=none || :), use $(__dump --value=any || :) or $(__dump --value=all || :) or there is no point." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# validate first mode
+	if [[ $ITERATE__seek == 'first' && $ITERATE__found_size -gt 1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Too many lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
+		__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_reference}" >&2 || :
+		return 34 # ERANGE 34 Result too large
+	fi
+	# any/all require checks
+	if [[ $ITERATE__require == 'any' ]]; then
+		if [[ $ITERATE__found_size -eq 0 ]]; then
+			if [[ $ITERATE__quiet == 'no' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
+				__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_reference}" >&2 || :
 			fi
-		elif [[ $INDEX__require == 'all' ]]; then
-			local INDEX__found_size="${#INDEX__lookups_consumed[@]}"
-			if [[ $INDEX__found_size -ne INDEX__lookups_size ]]; then
-				if [[ $INDEX__quiet == 'no' ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$INDEX__lookups_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-				fi
-				return 33 # EDOM 33 Numerical argument out of domain
-			fi
+			return 33 # EDOM 33 Numerical argument out of domain
 		fi
-		__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return
-	elif [[ $INDEX__seek == 'each' ]]; then
-		# first of each
-		if [[ $INDEX__require == 'any' ]]; then
-			local INDEX__found_size="${#INDEX__results[@]}"
-			if [[ $INDEX__found_size -eq 0 ]]; then
-				if [[ $INDEX__quiet == 'no' ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-				fi
-				return 33 # EDOM 33 Numerical argument out of domain
+	elif [[ $ITERATE__require == 'all' ]]; then
+		if [[ $ITERATE__found_size -ne ITERATE__lookups_size ]]; then
+			if [[ $ITERATE__quiet == 'no' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$ITERATE__lookups_size" || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
+				__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_reference}" >&2 || :
 			fi
-		elif [[ $INDEX__require == 'all' ]]; then
-			local INDEX__found_size="${#INDEX__results[@]}"
-			if [[ $INDEX__found_size -ne INDEX__lookups_size ]]; then
-				if [[ $INDEX__quiet == 'no' ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$INDEX__lookups_size" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-					__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-				fi
-				return 33 # EDOM 33 Numerical argument out of domain
-			fi
-		fi
-		__to --source={INDEX__results} --mode="$INDEX__mode" --targets={INDEX__targets} || return
-	else
-		# first of all
-		local INDEX__found_size="${#INDEX__results[@]}"
-		if [[ $INDEX__found_size -gt 1 ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Too many lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-			__dump {INDEX__lookups} {INDEX__lookups_consumed} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-			return 34 # ERANGE 34 Result too large
-		fi
-		if [[ $INDEX__require != 'none' ]]; then
-			if [[ $INDEX__found_size -eq 0 ]]; then
-				if [[ $INDEX__quiet == 'no' ]]; then
-					__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$INDEX__found_size" || :):" >&2 || :
-					__dump {INDEX__lookups} {INDEX__results} "{$INDEX__source_reference}" >&2 || :
-				fi
-				return 33 # EDOM 33 Numerical argument out of domain
-			fi
-		fi
-		if [[ ${#INDEX__results[@]} -eq 1 ]]; then
-			__to --mode="$INDEX__mode" --targets={INDEX__targets} -- "${INDEX__results[0]}" || return
-		else
-			__to --mode="$INDEX__mode" --targets={INDEX__targets} -- ""
+			return 33 # EDOM 33 Numerical argument out of domain
 		fi
 	fi
+	# send the appropriate result based on the operation
+	if [[ $ITERATE__operation == 'has' ]]; then
+		# failure checks already happened above for has, so we can just return 0
+		return 0
+	fi
+	# send the results
+	__to --source={ITERATE__results} --mode="$ITERATE__mode" --targets={ITERATE__targets} || return
+}
+function __index {
+	__iterate --index "$@" || return
+}
+function __has {
+	__iterate --has "$@" || return
+}
+function __evict {
+	__iterate --evict "$@" || return
 }
 
-# does the needle exist inside the string/array input?
-# has needle / is needle
-# __has --source={<array-var-name>} --- ...<needle>
-# @todo support index checks for bash associative arrays
-function __has {
-	__index --quiet --any --target=NULL "$@" || return
+function __unique {
+	# <multi-source helper arguments>
+	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode='' UNIQUE__inputs
+	while [[ $# -ne 0 ]]; do
+		UNIQUE__item="$1"
+		shift
+		case "$UNIQUE__item" in
+		--source={*})
+			__dereference --source="${UNIQUE__item#*=}" --name={UNIQUE__sources} || return
+			;;
+		--source+target={*})
+			UNIQUE__item="${UNIQUE__item#*=}"
+			UNIQUE__targets+=("$UNIQUE__item") # keep squigglies
+			__dereference --source="$UNIQUE__item" --name={UNIQUE__item} || return
+			UNIQUE__sources+=("$UNIQUE__item")
+			;;
+		--targets=*) __dereference --source="${UNIQUE__item#*=}" --value={UNIQUE__targets} || return ;;
+		--target=*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
+			UNIQUE__mode="${UNIQUE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
+			UNIQUE__mode="${UNIQUE__item:2}"
+			;;
+		--)
+			# an array input
+			UNIQUE__inputs+=("$@")
+			UNIQUE__sources+=('UNIQUE__inputs')
+			shift $#
+			break
+			;;
+		# </multi-source helper arguments>
+		--*) __unrecognised_flag "$UNIQUE__item" || return ;;
+		*) __unrecognised_argument "$UNIQUE__item" || return ;;
+		esac
+	done
+	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source reference' || return
+	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return
+	# process
+	local UNIQUE__source UNIQUE__values=() UNIQUE__value UNIQUE__results=()
+	for UNIQUE__source in "${UNIQUE__sources[@]}"; do
+		__affirm_variable_is_array "$UNIQUE__source" || return
+		eval "UNIQUE__values=(\"\${${UNIQUE__source}[@]}\")" || return
+		for UNIQUE__value in "${UNIQUE__values[@]}"; do
+			# if the value already exists in the results, skip it
+			if __has --source={UNIQUE__results} -- "$UNIQUE__value"; then
+				continue
+			fi
+			# the value is new to the results, so add it
+			UNIQUE__results+=("$UNIQUE__value")
+		done
+	done
+	__to --source={UNIQUE__results} --mode="$UNIQUE__mode" --targets={UNIQUE__targets} || return
 }
 
 # set the targets to the slice between the start and length indices of the source reference
@@ -5197,290 +5279,6 @@ function __slice {
 		eval "$SLICE__eval_length_segment" || return
 	done
 	__to --source={SLICE__results} --mode="$SLICE__mode" --targets={SLICE__targets} || return
-}
-
-# evict compounds its operations
-function __evict {
-	local EVICT__indices=() EVICT__values=() EVICT__prefixes=() EVICT__suffixes=() EVICT__patterns=() EVICT__globs=() EVICT__keep_before_first=() EVICT__keep_before_last=() EVICT__keep_after_first=() EVICT__keep_after_last=() EVICT__require='all'
-	# <single-source helper arguments>
-	local EVICT__item EVICT__source_reference='' EVICT__targets=() EVICT__mode='' EVICT__inputs=() EVICT__input=''
-	while [[ $# -ne 0 ]]; do
-		EVICT__item="$1"
-		shift
-		case "$EVICT__item" in
-		--source={*})
-			__affirm_value_is_undefined "$EVICT__source_reference" 'source reference' || return
-			__dereference --source="${EVICT__item#*=}" --name={EVICT__source_reference} || return
-			;;
-		--source+target={*})
-			EVICT__item="${EVICT__item#*=}"
-			EVICT__targets+=("$EVICT__item")
-			__affirm_value_is_undefined "$EVICT__source_reference" 'source reference' || return
-			__dereference --source="$EVICT__item" --name={EVICT__source_reference} || return
-			;;
-		--targets=*) __dereference --source="${EVICT__item#*=}" --value={EVICT__targets} || return ;;
-		--target=*) EVICT__targets+=("${EVICT__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
-			__affirm_value_is_undefined "$EVICT__mode" 'write mode' || return
-			EVICT__mode="${EVICT__item#*=}"
-			;;
-		--append | --prepend | --overwrite)
-			__affirm_value_is_undefined "$EVICT__mode" 'write mode' || return
-			EVICT__mode="${EVICT__item:2}"
-			;;
-		--)
-			if [[ -z $EVICT__source_reference ]]; then
-				# they are inputs
-				if [[ $# -eq 1 ]]; then
-					# a string input
-					# trunk-ignore(shellcheck/SC2034)
-					EVICT__input="$1"
-					EVICT__source_reference='EVICT__input'
-				else
-					# an array input
-					EVICT__inputs+=("$@")
-					EVICT__source_reference='EVICT__inputs'
-				fi
-			else
-				# they are values
-				EVICT__values+=("$@")
-			fi
-			shift $#
-			break
-			;;
-		# </single-source helper arguments>
-		# evicts all, with no overlap
-		--index=*)
-			EVICT__item="${EVICT__item#*=}"
-			__affirm_value_is_integer "$EVICT__item" 'index/length' || return
-			EVICT__indices+=("$EVICT__item")
-			;;
-		--value=*) EVICT__values+=("${EVICT__item#*=}") ;;
-		--prefix=*) EVICT__prefixes+=("${EVICT__item#*=}") ;;
-		--suffix=*) EVICT__suffixes+=("${EVICT__item#*=}") ;;
-		--pattern=*) EVICT__patterns+=("${EVICT__item#*=}") ;;
-		--glob=*) EVICT__globs+=("${EVICT__item#*=}") ;;
-		--keep-before-first=*) EVICT__keep_before_first+=("${EVICT__item#*=}") ;;
-		--keep-before-last=*) EVICT__keep_before_last+=("${EVICT__item#*=}") ;;
-		--keep-after-first=*) EVICT__keep_after_first+=("${EVICT__item#*=}") ;;
-		--keep-after-last=*) EVICT__keep_after_last+=("${EVICT__item#*=}") ;;
-		--require-none | --require=none) EVICT__require='none' ;;
-		--require-any | --require=any) EVICT__require='any' ;;
-		--require-all | --require=all) EVICT__require='all' ;;
-		--*) __unrecognised_flag "$EVICT__item" || return ;;
-		*) __unrecognised_argument "$EVICT__item" || return ;;
-		esac
-	done
-	# affirm
-	__affirm_value_is_defined "$EVICT__source_reference" 'source variable reference' || return
-	__affirm_value_is_valid_write_mode "$EVICT__mode" || return
-	if __is_zero ${#EVICT__indices[@]} ${#EVICT__values[@]} ${#EVICT__prefixes[@]} ${#EVICT__suffixes[@]} ${#EVICT__patterns[@]} ${#EVICT__globs[@]} ${#EVICT__keep_before_first[@]} ${#EVICT__keep_before_last[@]} ${#EVICT__keep_after_first[@]} ${#EVICT__keep_after_last[@]}; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: No evict arguments provided, at least one of --index, --value, --prefix, --suffix, --pattern, --glob, --keep-before-first, --keep-before-last, --keep-after-first, --keep-after-last, must be provided." >&2 || :
-		__dump EVICT__indices EVICT__values EVICT__prefixes EVICT__suffixes EVICT__patterns EVICT__keep_before_first EVICT__keep_before_last EVICT__keep_after_first EVICT__keep_after_last >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	# build our list of excluded indices
-	if __is_array "$EVICT__source_reference"; then
-		local EVICT__map=() EVICT__evicted='no'
-		# indices
-		for EVICT__item in "${EVICT__indices[@]}"; do
-			EVICT__map[EVICT__item]='evict'
-		done
-		# values
-		local EVICT__source_values EVICT__results=()
-		local -i EVICT__source_index EVICT__source_size
-		eval "EVICT__source_values=(\"\${${EVICT__source_reference}[@]}\")" || return
-		EVICT__source_size=${#EVICT__source_values[@]}
-		for ((EVICT__source_index = 0; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
-			EVICT__source_value="${EVICT__source_values[EVICT__source_index]}"
-			for EVICT__item in "${EVICT__values[@]}"; do
-				if [[ $EVICT__source_value == "$EVICT__item" ]]; then
-					EVICT__evicted=yes
-					EVICT__map[EVICT__source_index]='evict'
-				fi
-			done
-			for EVICT__item in "${EVICT__prefixes[@]}"; do
-				if [[ $EVICT__source_value == "$EVICT__item"* ]]; then
-					EVICT__evicted=yes
-					EVICT__map[EVICT__source_index]='evict'
-				fi
-			done
-			for EVICT__item in "${EVICT__suffixes[@]}"; do
-				if [[ $EVICT__source_value == *"$EVICT__item" ]]; then
-					EVICT__evicted=yes
-					EVICT__map[EVICT__source_index]='evict'
-				fi
-			done
-			for EVICT__item in "${EVICT__patterns[@]}"; do
-				if [[ $EVICT__source_value =~ $EVICT__item ]]; then
-					EVICT__evicted=yes
-					EVICT__map[EVICT__source_index]='evict'
-				fi
-			done
-			for EVICT__item in "${EVICT__globs[@]}"; do
-				# trunk-ignore(shellcheck/SC2053)
-				if [[ $EVICT__source_value == $EVICT__item ]]; then
-					EVICT__evicted=yes
-					EVICT__map[EVICT__source_index]='evict'
-				fi
-			done
-
-		done
-		# before first
-		for EVICT__item in "${EVICT__keep_before_first[@]}"; do
-			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --target={EVICT__item} || return
-			if [[ -n $EVICT__item ]]; then
-				for ((EVICT__source_index = EVICT__item; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
-					EVICT__evicted='yes'
-					EVICT__map[EVICT__source_index]='evict'
-				done
-			fi
-		done
-		# before last
-		for EVICT__item in "${EVICT__keep_before_last[@]}"; do
-			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --reverse --target={EVICT__item} || return
-			if [[ -n $EVICT__item ]]; then
-				for ((EVICT__source_index = EVICT__item; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
-					EVICT__evicted='yes'
-					EVICT__map[EVICT__source_index]='evict'
-				done
-			fi
-		done
-		# after first
-		for EVICT__item in "${EVICT__keep_after_first[@]}"; do
-			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --target={EVICT__item} || return
-			if [[ -n $EVICT__item ]]; then
-				for ((EVICT__source_index = 0; EVICT__source_index <= EVICT__item; ++EVICT__source_index)); do
-					EVICT__evicted='yes'
-					EVICT__map[EVICT__source_index]='evict'
-				done
-			fi
-		done
-		# after last
-		for EVICT__item in "${EVICT__keep_after_last[@]}"; do
-			__index --source="{$EVICT__source_reference}" --needle="$EVICT__item" --reverse --target={EVICT__item} || return
-			if [[ -n $EVICT__item ]]; then
-				for ((EVICT__source_index = 0; EVICT__source_index <= EVICT__item; ++EVICT__source_index)); do
-					EVICT__evicted='yes'
-					EVICT__map[EVICT__source_index]='evict'
-				done
-			fi
-		done
-		# check
-		if [[ $EVICT__evicted == 'no' && $EVICT__optional == 'no' ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: No values were evicted from the source array." >&2 || :
-			return 33 # EDOM 33 Numerical argument out of domain
-		fi
-		# compile result
-		for ((EVICT__source_index = 0; EVICT__source_index < EVICT__source_size; ++EVICT__source_index)); do
-			if [[ ${EVICT__map[EVICT__source_index]-} != 'evict' ]]; then
-				EVICT__results+=("${EVICT__source_values[EVICT__source_index]}")
-			fi
-		done
-		__to --source={EVICT__results} --mode="$EVICT__mode" --targets={EVICT__targets} || return
-	else
-		local EVICT__source_value EVICT__source_original
-		eval "EVICT__source_value=\"\${${EVICT__source_reference}}\"" || return
-		EVICT__source_original="$EVICT__source_value"
-		if [[ ${#EVICT__indices[@]} -ne 0 ]]; then
-			__print "ERROR: ${FUNCNAME[0]}: The source variable is not an array, so --index cannot be used." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		for EVICT__item in "${EVICT__source_values[@]}"; do
-			EVICT__source_value="${EVICT__source_value//"$EVICT__item"/}"
-		done
-		for EVICT__item in "${EVICT__prefixes[@]}"; do
-			if [[ $EVICT__source_value == "$EVICT__item"* ]]; then
-				EVICT__source_value="${EVICT__source_value#"$EVICT__item"}"
-			fi
-		done
-		for EVICT__item in "${EVICT__suffixes[@]}"; do
-			if [[ $EVICT__source_value == *"$EVICT__item" ]]; then
-				EVICT__source_value="${EVICT__source_value%"$EVICT__item"}"
-			fi
-		done
-		for EVICT__item in "${EVICT__patterns[@]}"; do
-			EVICT__source_value="${EVICT__source_value//$EVICT__item/}"
-		done
-		if [[ ${#EVICT__globs[@]} -ne 0 ]]; then
-			__print "ERROR: ${FUNCNAME[0]}: The source variable is not an array, so --glob cannot be used." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		for EVICT__item in "${EVICT__keep_before_first[@]}"; do
-			EVICT__source_value="${EVICT__source_value%%"$EVICT__item"*}"
-		done
-		for EVICT__item in "${EVICT__keep_before_last[@]}"; do
-			EVICT__source_value="${EVICT__source_value%"$EVICT__item"*}"
-		done
-		for EVICT__item in "${EVICT__keep_after_first[@]}"; do
-			EVICT__source_value="${EVICT__source_value#*"$EVICT__item"}"
-		done
-		for EVICT__item in "${EVICT__keep_after_last[@]}"; do
-			EVICT__source_value="${EVICT__source_value##*"$EVICT__item"}"
-		done
-		if [[ $EVICT__optional == 'no' && $EVICT__source_value == "$EVICT__source_original" ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: No values were evicted from the source variable." >&2 || :
-			return 33 # EDOM 33 Numerical argument out of domain
-		fi
-		__to --source={EVICT__source_value} --mode="$EVICT__mode" --targets={EVICT__targets} || return
-	fi
-}
-
-function __unique {
-	# <multi-source helper arguments>
-	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode='' UNIQUE__inputs
-	while [[ $# -ne 0 ]]; do
-		UNIQUE__item="$1"
-		shift
-		case "$UNIQUE__item" in
-		--source={*})
-			__dereference --source="${UNIQUE__item#*=}" --name={UNIQUE__sources} || return
-			;;
-		--source+target={*})
-			UNIQUE__item="${UNIQUE__item#*=}"
-			UNIQUE__targets+=("$UNIQUE__item") # keep squigglies
-			__dereference --source="$UNIQUE__item" --name={UNIQUE__item} || return
-			UNIQUE__sources+=("$UNIQUE__item")
-			;;
-		--targets=*) __dereference --source="${UNIQUE__item#*=}" --value={UNIQUE__targets} || return ;;
-		--target=*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
-			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
-			UNIQUE__mode="${UNIQUE__item#*=}"
-			;;
-		--append | --prepend | --overwrite)
-			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
-			UNIQUE__mode="${UNIQUE__item:2}"
-			;;
-		--)
-			# an array input
-			UNIQUE__inputs+=("$@")
-			UNIQUE__sources+=('UNIQUE__inputs')
-			shift $#
-			break
-			;;
-		# </multi-source helper arguments>
-		--*) __unrecognised_flag "$UNIQUE__item" || return ;;
-		*) __unrecognised_argument "$UNIQUE__item" || return ;;
-		esac
-	done
-	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source reference' || return
-	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return
-	# process
-	local UNIQUE__source UNIQUE__values=() UNIQUE__value UNIQUE__results=()
-	for UNIQUE__source in "${UNIQUE__sources[@]}"; do
-		__affirm_variable_is_array "$UNIQUE__source" || return
-		eval "UNIQUE__values=(\"\${${UNIQUE__source}[@]}\")" || return
-		for UNIQUE__value in "${UNIQUE__values[@]}"; do
-			# if the value already exists in the results, skip it
-			if __has --source={UNIQUE__results} -- "$UNIQUE__value"; then
-				continue
-			fi
-			# the value is new to the results, so add it
-			UNIQUE__results+=("$UNIQUE__value")
-		done
-	done
-	__to --source={UNIQUE__results} --mode="$UNIQUE__mode" --targets={UNIQUE__targets} || return
 }
 
 # split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
