@@ -4705,9 +4705,9 @@ function __at {
 # in `all` require mode, all the specified lookups must have matched at least once
 # if no require mode failures, then the noted indexes are sent to the targets
 function __iterate {
-	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' ITERATE__on='result'
+	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' # ITERATE__on='result'
 	# <single-source helper arguments>
-	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode='' ITERATE__inputs=() ITERATE__input=''
+	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode=''
 	while [[ $# -ne 0 ]]; do
 		ITERATE__item="$1"
 		shift
@@ -4737,18 +4737,23 @@ function __iterate {
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
-					# trunk-ignore(shellcheck/SC2034)
-					ITERATE__input="$1"
-					ITERATE__source_reference='ITERATE__input'
+					# local RECURSED_ITERATE__input=''
+					# RECURSED_ITERATE__input="$1"
+					# ITERATE__source_reference='RECURSED_ITERATE__input'
+					ITERATE__source_reference="ITERATE_${RANDOM}__inputs"
+					eval "local $ITERATE__source_reference=\"\$1\"" || return
 				else
 					# an array input
-					ITERATE__inputs+=("$@")
-					ITERATE__source_reference='ITERATE__inputs'
+					# local RECURSED_ITERATE__inputs=()
+					# RECURSED_ITERATE__inputs=("$@")
+					# ITERATE__source_reference='RECURSED_ITERATE__inputs'
+					ITERATE__source_reference="ITERATE_${RANDOM}__inputs"
+					eval "local $ITERATE__source_reference=(\"\$@\")" || return
 				fi
 			else
 				# they are needles
 				for ITERATE__item in "$@"; do
-					iITERATE__lookups+=(--needle="$ITERATE__item")
+					ITERATE__lookups+=(--needle="$ITERATE__item")
 				done
 			fi
 			shift $#
@@ -4756,9 +4761,10 @@ function __iterate {
 			;;
 		# </single-source helper arguments>
 		# lookups:
-		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*)
-			if [[ -z ${ITERATE__item#*=} ]]; then
-				__print_lines "ERROR: ${FUNCNAME[1]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value." >&2 || :
+		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*) ITERATE__lookups+=("$ITERATE__item") ;;
+		--keep-before-first=* | --keep-before-last=* | --keep-after-first=* | --keep-after-last=*)
+			if [[ $ITERATE__operation != 'evict' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option is only valid for the $(__dump --value=evict || :) operation." >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
 			ITERATE__lookups+=("$ITERATE__item")
@@ -4805,8 +4811,8 @@ function __iterate {
 			ITERATE__on='result'
 			;;
 		# evict on mode
-		--on=content) ITERATE__on='content' ;; # @todo implement
-		--on=result) ITERATE__on='result' ;;
+		# --on=content) ITERATE__on='content' ;; # @todo implement
+		# --on=result) ITERATE__on='result' ;; <-- this is possible by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the __replace function
 		# shortcut mode mostly for has/evict
 		--first)
 			ITERATE__by='lookup'
@@ -4856,12 +4862,32 @@ function __iterate {
 	local ITERATE__array
 	if __is_array "$ITERATE__source_reference"; then
 		ITERATE__array=yes
+		# if we are an array, only ensure , ensure these aren't empty
+		for ITERATE__item in "${ITERATE__lookups[@]}"; do
+			case "$ITERATE__item" in
+			--prefix=* | --suffix=* | --pattern=* | --glob=*)
+				if [[ -z ${ITERATE__item#*=} ]]; then
+					__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value." >&2 || :
+					__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+					return 22 # EINVAL 22 Invalid argument
+				fi
+				;;
+			esac
+		done
 	else
 		ITERATE__array=no
+		# if we are a string, ensure no empty lookups
+		for ITERATE__item in "${ITERATE__lookups[@]}"; do
+			if [[ -z ${ITERATE__item#*=} ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value when the input is a string." >&2 || :
+				__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+		done
 	fi
 	# iterate
-	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookups_size="${#ITERATE__lookups[@]}" ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index
-	local ITERATE__results=() ITERATE__consumed_indices_map=() ITERATE__consumed_lookups_map=() ITERATE__lookups_indices=("${!ITERATE__lookups[@]}") ITERATE__value ITERATE__lookup ITERATE__match
+	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookups_size="${#ITERATE__lookups[@]}" ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index ITERATE__break
+	local ITERATE__results=() ITERATE__consumed_indices_map=() ITERATE__consumed_lookups_map=() ITERATE__lookups_indices=("${!ITERATE__lookups[@]}") ITERATE__value ITERATE__lookup_option ITERATE__lookup ITERATE__match ITERATE__matched
 	if [[ $ITERATE__by == 'lookup' ]]; then
 		ITERATE__outers=("${ITERATE__lookups_indices[@]}")
 		ITERATE__inners=("${ITERATE__indices[@]}")
@@ -4882,11 +4908,11 @@ function __iterate {
 				continue
 			fi
 			# handle the lookup
-			ITERATE__lookup="${ITERATE__lookups[ITERATE__lookup_index]}" ITERATE__match='' ITERATE__value='' ITERATE__match_index=$ITERATE__index
-			case "$ITERATE__lookup" in
+			ITERATE__lookup_option="${ITERATE__lookups[ITERATE__lookup_index]}" ITERATE__match='' ITERATE__matched=no ITERATE__value='' ITERATE__match_index=$ITERATE__index ITERATE__break=0
+			ITERATE__lookup="${ITERATE__lookup_option#*=}"
+			case "$ITERATE__lookup_option" in
 			--value=* | --needle=*)
 				# exact match
-				ITERATE__lookup="${ITERATE__lookup#*=}"
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
 				else
@@ -4909,6 +4935,7 @@ function __iterate {
 					fi
 				fi
 				if [[ $ITERATE__value == "$ITERATE__lookup" ]]; then
+					ITERATE__matched=yes
 					ITERATE__match="$ITERATE__value" # substring match
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
@@ -4917,7 +4944,6 @@ function __iterate {
 				;;
 			--prefix=*)
 				# prefix match
-				ITERATE__lookup="${ITERATE__lookup#*=}"
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]:0:ITERATE__lookup_size}' || return
@@ -4928,6 +4954,7 @@ function __iterate {
 					continue
 				fi
 				if [[ $ITERATE__value == "$ITERATE__lookup" ]]; then
+					ITERATE__matched=yes
 					ITERATE__match="$ITERATE__value" # substring match
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
@@ -4936,7 +4963,6 @@ function __iterate {
 				;;
 			--suffix=*)
 				# suffix match
-				ITERATE__lookup="${ITERATE__lookup#*=}"
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]: -ITERATE__lookup_size}' || return
@@ -4949,6 +4975,7 @@ function __iterate {
 					continue
 				fi
 				if [[ $ITERATE__value == "$ITERATE__lookup" ]]; then
+					ITERATE__matched=yes
 					ITERATE__match="$ITERATE__value" # substring match
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
@@ -4957,7 +4984,6 @@ function __iterate {
 				;;
 			--pattern=*)
 				# pattern match
-				ITERATE__lookup="${ITERATE__lookup#*=}"
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
@@ -4968,7 +4994,8 @@ function __iterate {
 					continue
 				fi
 				if [[ $ITERATE__value =~ $ITERATE__lookup ]] && [[ -n ${BASH_REMATCH[0]-} ]]; then # workaround a bash bug
-					ITERATE__match="$ITERATE__value"                                                  # whole string match
+					ITERATE__matched=yes
+					ITERATE__match="$ITERATE__value" # whole string match
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
@@ -4976,7 +5003,6 @@ function __iterate {
 				;;
 			--glob=*)
 				# pattern match
-				ITERATE__lookup="${ITERATE__lookup#*=}"
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
@@ -4988,38 +5014,102 @@ function __iterate {
 				fi
 				# trunk-ignore(shellcheck/SC2053)
 				if [[ $ITERATE__value == $ITERATE__lookup ]]; then
+					ITERATE__matched=yes
 					ITERATE__match="$ITERATE__value" # whole string match
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
 				;;
+			--keep-before-first=* | --keep-before-last=* | --keep-after-first=* | --keep-after-last=*)
+				if [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
+					# handle the eviction options by marking them as consumed indices
+					# send the result of index via process substitution to avoid complicated eval and referencing magic to avoid conflicts between recursion
+					case "$ITERATE__lookup_option" in
+					--keep-before-first=*)
+						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
+						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__size; ITERATE__overlap_index++)); do
+							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
+						done
+						;;
+					--keep-before-last=*)
+						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
+						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__size; ITERATE__overlap_index++)); do
+							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
+						done
+						;;
+					--keep-after-first=*)
+						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
+						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index <= ITERATE__match_index; ITERATE__overlap_index++)); do
+							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
+						done
+						;;
+					--keep-after-last=*)
+						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
+						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index <= ITERATE__match_index; ITERATE__overlap_index++)); do
+							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
+						done
+						;;
+					esac
+					ITERATE__matched=yes
+					ITERATE__match="$ITERATE__value" # substring match
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
+				fi
+				;;
 			esac
-			if [[ -n $ITERATE__match ]]; then
+			if [[ $ITERATE__matched == 'yes' ]]; then
+				# for eviction, keep this for the overlap and breaking modifications, even thought he results array doesn't matter for eviction
 				if [[ $ITERATE__seek == 'multiple' ]]; then
 					ITERATE__results+=("$ITERATE__match_index")
 				elif [[ $ITERATE__seek == 'each' ]]; then
 					ITERATE__results[ITERATE__lookup_index]="$ITERATE__match_index"
 					if [[ ${#ITERATE__results[@]} -eq $ITERATE__lookups_size ]]; then
-						break 2 # finished, break the outer loop
+						ITERATE__break=2 # finished, break the outer loop
 					fi
 				else
 					# first
 					ITERATE__results+=("$ITERATE__match_index")
-					break 2 # finished, break the outer loop
+					ITERATE__break=2 # finished, break the outer loop
 				fi
 				# block this match from being matched again
-				if [[ $ITERATE__overlap == 'no' ]]; then
+				if [[ $ITERATE__overlap == 'no' || $ITERATE__operation == 'evict' ]]; then
 					ITERATE__match_size=${#ITERATE__match}
 					for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__match_index + ITERATE__match_size; ITERATE__overlap_index++)); do
 						ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
 					done
 				fi
+				# handle the break now, so that the overlap eviction above takes effect
+				if [[ $ITERATE__break -ne 0 ]]; then
+					break "$ITERATE__break"
+				fi
 			fi
 		done
 	done
 	# any/all require checks
-	local ITERATE__found_size="${#ITERATE__consumed_lookups_map[@]}"
+	local -i ITERATE__found_size="${#ITERATE__consumed_lookups_map[@]}"
+	# if we are eviction, then generate the eviction result
+	if [[ $ITERATE__operation == 'evict' ]]; then
+		ITERATE__results=()
+		if [[ $ITERATE__array == 'yes' ]]; then
+			for ITERATE__index in "${ITERATE__indices[@]}"; do
+				if [[ -n ${ITERATE__consumed_indices_map[ITERATE__index]-} ]]; then
+					# this index was consumed, so skip it
+					continue
+				fi
+				eval 'ITERATE__results+=("${'"$ITERATE__source_reference"'[ITERATE__index]}")' || return
+			done
+		else
+			local ITERATE__result=''
+			for ITERATE__index in "${ITERATE__indices[@]}"; do
+				if [[ -n ${ITERATE__consumed_indices_map[ITERATE__index]-} ]]; then
+					# this index was consumed, so skip it
+					continue
+				fi
+				eval 'ITERATE__result+="${'"$ITERATE__source_reference"':ITERATE__index:1}"' || return
+			done
+			ITERATE__results+=("$ITERATE__result")
+		fi
+	fi
 	# validate has mode
 	if [[ $ITERATE__operation == 'has' && $ITERATE__require == 'none' ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: The operation $(__dump --value=has || :) cannot be used with the require mode $(__dump --value=none || :), use $(__dump --value=any || :) or $(__dump --value=all || :) or there is no point." >&2 || :
@@ -5065,6 +5155,222 @@ function __has {
 }
 function __evict {
 	__iterate --evict "$@" || return
+}
+
+function __replace {
+	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replace=''
+	# <single-source helper arguments>
+	local REPLACE__item REPLACE__source_reference='' REPLACE__targets=() REPLACE__mode='' REPLACE__inputs=() REPLACE__input=''
+	while [[ $# -ne 0 ]]; do
+		REPLACE__item="$1"
+		shift
+		case "$REPLACE__item" in
+		--source={*})
+			__affirm_value_is_undefined "$REPLACE__source_reference" 'source reference' || return
+			__dereference --source="${REPLACE__item#*=}" --name={REPLACE__source_reference} || return
+			;;
+		--source+target={*})
+			REPLACE__item="${REPLACE__item#*=}"
+			REPLACE__targets+=("$REPLACE__item")
+			__affirm_value_is_undefined "$REPLACE__source_reference" 'source reference' || return
+			__dereference --source="$REPLACE__item" --name={REPLACE__source_reference} || return
+			;;
+		--targets=*) __dereference --source="${REPLACE__item#*=}" --value={REPLACE__targets} || return ;;
+		--target=*) REPLACE__targets+=("${REPLACE__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$REPLACE__mode" 'write mode' || return
+			REPLACE__mode="${REPLACE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$REPLACE__mode" 'write mode' || return
+			REPLACE__mode="${REPLACE__item:2}"
+			;;
+		--)
+			# they are inputs
+			__affirm_value_is_undefined "$REPLACE__source_reference" 'source reference' || return
+			if [[ $# -eq 1 ]]; then
+				# a string input
+				# trunk-ignore(shellcheck/SC2034)
+				REPLACE__input="$1"
+				REPLACE__source_reference='REPLACE__input'
+			else
+				# an array input
+				REPLACE__inputs+=("$@")
+				REPLACE__source_reference='REPLACE__inputs'
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		--default-replace=*)
+			__affirm_value_is_undefined "$REPLACE__default_replace" 'default replace' || return
+			REPLACE__default_replace="${REPLACE__item#*=}"
+			;;
+		--replace=* | --with=*) REPLACE__lookups+=("$REPLACE__item") ;;
+		# lookups:
+		--value=* | --needle=* | --value:all=* | --needle:all=* | --prefix=* | --prefix:all=* | --suffix=* | --suffix:all=* | --pattern=* | --pattern:all=* | --before=*  | --before:last=* | --after=* | --after:last=* | --to=* | --to-last=* | --from=* | --from:last=*)
+			if [[ -z ${REPLACE__item#*=} ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$REPLACE__item" || :) option must not have an empty value." >&2 || :
+				__dump {REPLACE__lookups} "{$REPLACE__source_reference}" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			REPLACE__lookups+=("$REPLACE__item")
+			;;
+		# require mode:
+		--require=none | --optional) REPLACE__require='none' ;;
+		--require=any | --any) REPLACE__require='any' ;;
+		--require=all | --all) REPLACE__require='all' ;;
+		# quiet mode
+		--no-verbose* | --verbose*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
+		--no-quiet* | --quiet*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
+		# done
+		--*) __unrecognised_flag "$REPLACE__item" || return ;;
+		*) __unrecognised_argument "$REPLACE__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$REPLACE__source_reference" 'source variable reference' || return
+	__affirm_length_defined "${#REPLACE__lookups[@]}" 'lookup' || return
+	# handle array
+	if __is_array "$REPLACE__source_reference"; then
+		# if we are an array, perform the replace on each element
+		local -i REPLACE__index
+		local REPLACE__indices=() REPLACE__array=()
+		__indices --source="{$REPLACE__source_reference}" --target={REPLACE__indices} || return
+		for REPLACE__index in "${REPLACE__indices[@]}"; do
+			eval 'REPLACE__item="${'"$REPLACE__source_reference"'['"$REPLACE__index"']}"'
+			__replace --source+target={REPLACE__item} --require="$REPLACE__require" --quiet="$REPLACE__quiet" "${REPLACE__lookups[@]}" || return
+			REPLACE__array["$REPLACE__index"]="$REPLACE__item"
+		done
+		__to --source={REPLACE__array} --mode="$REPLACE__mode" --targets={REPLACE__targets} || return
+		return
+	fi
+	# handle string
+	local -i REPLACE__expected_size=0
+	local REPLACE__found_lookups=() REPLACE__missing_lookups=() REPLACE__value_wip REPLACE__replace
+	eval 'REPLACE__value_wip="${'"$REPLACE__source_reference"'}"' || return
+	set -- "${REPLACE__lookups[@]}"
+	while [[ $# -ne 0 ]]; do
+		REPLACE__lookup="$1"
+		shift
+		if [[ -n ${1-} ]] && [[ $1 == --replace=* ||  $1 == --with=*  ]]; then
+			REPLACE__replace="${1#*=}"
+			shift
+		else
+			REPLACE__replace="$REPLACE__default_replace"
+		fi
+		# handle the lookup
+		REPLACE__expected_size=$((REPLACE__expected_size + 1))
+		REPLACE__lookup_query="${REPLACE__lookup#*=}"
+		REPLACE__value_before="$REPLACE__value_wip"
+		case "$REPLACE__lookup" in
+		# exact match
+		--value=* | --needle=*) REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/"$REPLACE__replace"}" ;;
+		--value:all=* | --needle:all=*) REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/"$REPLACE__replace"}" ;;
+
+		--prefix=*)
+			if [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip#"$REPLACE__lookup_query"}"
+			fi
+			;;
+		--prefix:all=*)
+			while [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; do
+				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip#"$REPLACE__lookup_query"}"
+			done
+			;;
+
+		--suffix=*)
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; then
+				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replace"
+			fi
+			;;
+		--suffix:all=*)
+			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; do
+				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replace"
+			done
+			;;
+
+		--pattern=*)
+			REPLACE__value_wip="${REPLACE__value_wip/$REPLACE__lookup_query/$REPLACE__replace}"
+			;;
+		--pattern:all=*)
+			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replace}"
+			;;
+
+		--before=*)
+			local -i REPLACE__index
+			REPLACE__index="$(__index --first --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip:REPLACE__index}"
+			;;
+		--before:last=*)
+			local -i REPLACE__index
+			REPLACE__index="$(__index --first --reverse --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip:REPLACE__index}"
+			;;
+
+		--after=*)
+			local -i REPLACE__index
+			REPLACE__index="$(__index --first --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__value_wip="${REPLACE__value_wip:0:(REPLACE__index+1)}$REPLACE__replace"
+			;;
+		--after:last=*)
+			local -i REPLACE__index
+			REPLACE__index="$(__index --first --reverse --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__value_wip="${REPLACE__value_wip:0:(REPLACE__index+1)}$REPLACE__replace"
+			;;
+
+		--to=*)
+			# keep after first
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip#*"$REPLACE__lookup_query"}"
+			fi
+			;;
+		--to:last=*)
+			# keep after last
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip##*"$REPLACE__lookup_query"}"
+			fi
+			;;
+
+		--from=*)
+			# keep before first
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="${REPLACE__value_wip%%"$REPLACE__lookup_query"*}$REPLACE__replace"
+			fi
+			;;
+		--from:last=*)
+			# keep before last
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"*}$REPLACE__replace"
+			fi
+			;;
+		esac
+		if [[ $REPLACE__value_wip != "$REPLACE__value_before" ]]; then
+			REPLACE__found_lookups+=("$REPLACE__lookup")
+		else
+			REPLACE__missing_lookups+=("$REPLACE__lookup")
+		fi
+	done
+	# any/all require checks
+	local -i REPLACE__found_size="${#REPLACE__found_lookups[@]}" # REPLACE__missing_size="${#REPLACE__missing_lookups[@]}"
+	if [[ $REPLACE__require == 'any' ]]; then
+		if [[ $REPLACE__found_size -eq 0 ]]; then
+			if [[ $REPLACE__quiet == 'no' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$REPLACE__missing_size" || :):" >&2 || :
+				__dump {REPLACE__lookups} {REPLACE__found_lookups} {REPLACE__missing_lookups} "{$REPLACE__source_reference}" >&2 || :
+			fi
+			return 33 # EDOM 33 Numerical argument out of domain
+		fi
+	elif [[ $REPLACE__require == 'all' ]]; then
+		if [[ $REPLACE__found_size -ne $REPLACE__expected_size ]]; then
+			if [[ $REPLACE__quiet == 'no' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$REPLACE__expected_size" || :) but found $(__dump --value="$REPLACE__found_size" || :):" >&2 || :
+				__dump {REPLACE__lookups} {REPLACE__found_lookups} {REPLACE__missing_lookups} "{$REPLACE__source_reference}" >&2 || :
+			fi
+			return 33 # EDOM 33 Numerical argument out of domain
+		fi
+	fi
+	# send the results
+	__to --source={REPLACE__value_wip} --mode="$REPLACE__mode" --targets={REPLACE__targets} || return
 }
 
 function __unique {
@@ -5183,10 +5489,10 @@ function __slice {
 			__affirm_value_is_integer "$SLICE__item" 'index/length' || return
 			SLICE__indices+=("$SLICE__item")
 			;;
-		--keep-before-first=*) SLICE__keep_before_first+=("${SLICE__item#*=}") ;;
-		--keep-before-last=*) SLICE__keep_before_last+=("${SLICE__item#*=}") ;;
-		--keep-after-first=*) SLICE__keep_after_first+=("${SLICE__item#*=}") ;;
-		--keep-after-last=*) SLICE__keep_after_last+=("${SLICE__item#*=}") ;;
+		# --keep-before-first=*) SLICE__keep_before_first+=("${SLICE__item#*=}") ;;
+		# --keep-before-last=*) SLICE__keep_before_last+=("${SLICE__item#*=}") ;;
+		# --keep-after-first=*) SLICE__keep_after_first+=("${SLICE__item#*=}") ;;
+		# --keep-after-last=*) SLICE__keep_after_last+=("${SLICE__item#*=}") ;;
 		# @todo require handling currently only affects groups of the same keep type, so combinations of groups/types/slices are unaffected
 		--require-none | --require=none) SLICE__require='none' ;;
 		--require-any | --require=any) SLICE__require='any' ;;
@@ -5207,35 +5513,35 @@ function __slice {
 	if __is_odd "${#SLICE__indices[@]}"; then
 		SLICE__indices+=(-0) # -0 means to the end
 	fi
-	local SLICE__keep_result_indices=()
-	# before first
-	if [[ ${#SLICE__keep_before_first[@]} -ne 0 ]]; then
-		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_before_first[@]}" || return
-		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-			SLICE__indices+=(0 "$SLICE__item")
-		done
-	fi
-	# before last
-	if [[ ${#SLICE__keep_before_last[@]} -ne 0 ]]; then
-		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_before_last[@]}" || return
-		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-			SLICE__indices+=(0 "$SLICE__item")
-		done
-	fi
-	# after first
-	if [[ ${#SLICE__keep_after_first[@]} -ne 0 ]]; then
-		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_after_first[@]}" || return
-		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-			SLICE__indices+=("$((SLICE__item + 1))" -0)
-		done
-	fi
-	# after last
-	if [[ ${#SLICE__keep_after_last[@]} -ne 0 ]]; then
-		__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_after_last[@]}" || return
-		for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-			SLICE__indices+=("$((SLICE__item + 1))" -0)
-		done
-	fi
+	# local SLICE__keep_result_indices=()
+	# # before first
+	# if [[ ${#SLICE__keep_before_first[@]} -ne 0 ]]; then
+	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_before_first[@]}" || return
+	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+	# 		SLICE__indices+=(0 "$SLICE__item")
+	# 	done
+	# fi
+	# # before last
+	# if [[ ${#SLICE__keep_before_last[@]} -ne 0 ]]; then
+	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_before_last[@]}" || return
+	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+	# 		SLICE__indices+=(0 "$SLICE__item")
+	# 	done
+	# fi
+	# # after first
+	# if [[ ${#SLICE__keep_after_first[@]} -ne 0 ]]; then
+	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_after_first[@]}" || return
+	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+	# 		SLICE__indices+=("$((SLICE__item + 1))" -0)
+	# 	done
+	# fi
+	# # after last
+	# if [[ ${#SLICE__keep_after_last[@]} -ne 0 ]]; then
+	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_after_last[@]}" || return
+	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
+	# 		SLICE__indices+=("$((SLICE__item + 1))" -0)
+	# 	done
+	# fi
 	# indices
 	local -i SLICE__size SLICE__remaining
 	# trunk-ignore(shellcheck/SC2034)
