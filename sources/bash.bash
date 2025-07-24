@@ -5693,7 +5693,7 @@ function __split {
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
 			SPLIT__mode="${SPLIT__item:2}"
 			;;
-		--no-trailing-newlines* | --trailing-newlines*) __flag --target={SPLIT__trailing_newlines} --affirmative --coerce -- "$SPLIT__item" || return ;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return ;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
