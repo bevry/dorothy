@@ -4847,7 +4847,11 @@ function __iterate {
 	__indices --source="{$ITERATE__source_reference}" --target={ITERATE__indices} || return
 	# affirm there are indices available
 	local -i ITERATE__size="${#ITERATE__indices[@]}"
-	__affirm_length_defined "$ITERATE__size" 'source' || return
+	__affirm_length_defined "$ITERATE__size" 'source' || {
+		local -i ITERATE__exit_status="$?"
+		__dump {ITERATE__source_reference} {ITERATE__targets} {ITERATE__operation} {ITERATE__lookups} >&2 || :
+		return "$ITERATE__exit_status"
+	}
 	# get the first and last indices for use with prefix/suffix
 	# trunk-ignore(shellcheck/SC2124)
 	local -i ITERATE__first_in_whole="${ITERATE__indices[0]}" ITERATE__last_in_whole="${ITERATE__indices[@]: -1}"
