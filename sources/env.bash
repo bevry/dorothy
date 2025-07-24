@@ -14,7 +14,7 @@ function __env_parse {
 	local env line name value found
 	local -i index size
 	env="$(env | sort)" || return $? # maybe `declare -p` and filtering for `declare -x` would be faster???
-	__debug_dump --value='== ENV ==' {env}
+	__debug_dump --value='== ENV ==' {env} || :
 	while read -r line; do
 		name='' value='' size=${#line} found=no
 		for ((index = 0; index < size; index++)); do
@@ -29,7 +29,7 @@ function __env_parse {
 		if [[ $found == 'no' ]]; then
 			# no equals sign, so an environment variable has outputted outputted a newline and messed everything up
 			env="$(env)"
-			__dump --value='== LAST ENV ENTRY IS MISSING ASSIGNMENT ==' {env} {REPLY} {line} >&2
+			__dump --value='== LAST ENV ENTRY IS MISSING ASSIGNMENT ==' {env} {REPLY} {line} >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		fi
 	done <<<"$env"
@@ -40,7 +40,7 @@ if __has_array_capability 'associative'; then
 	function __env_inherited {
 		local REPLY name value
 		local -i index
-		__env_parse
+		__env_parse || return
 		for ((index = 0; index < ${#REPLY[@]}; index += 2)); do
 			name="${REPLY[index]}"
 			value="${REPLY[index + 1]}"
@@ -51,12 +51,12 @@ else
 	inherited=() # [name, value, name, value, ...]
 	function __env_inherited {
 		local REPLY
-		__env_parse
+		__env_parse || return
 		# trunk-ignore(shellcheck/SC2190)
 		inherited=("${REPLY[@]}")
 	}
 fi
-__env_inherited
+__env_inherited || exit
 
 # final scanning of environment, and output results
 function __on_env_finish {
@@ -68,7 +68,7 @@ function __on_env_finish {
 
 	local -i index inherited_size=${#inherited[@]}
 	# trunk-ignore(shellcheck/SC2034)
-	local REPLY name value split_delimiter values=() is_path results=() prior
+	local REPLY name value delimiter values=() is_path results=() original_value
 	__env_parse || return
 	set -- "${REPLY[@]}"
 	while [[ $# -ne 0 ]]; do
@@ -82,27 +82,31 @@ function __on_env_finish {
 		fi
 
 		# adjust
-		split_delimiter='' is_path='no'
+		delimiter='' is_path='no'
 		if [[ $name =~ (PATH|DIRS)$ ]]; then
-			split_delimiter=':' is_path='yes'
+			delimiter=':' is_path='yes'
 		elif [[ $name =~ FLAGS$ ]]; then
-			split_delimiter=' '
+			delimiter=' '
 		fi
 
 		# de-duplicate split values
-		if [[ -n $split_delimiter ]]; then
+		if [[ -n $delimiter ]]; then
 			# trunk-ignore(shellcheck/SC2034)
-			prior="$value"
-			__split --source={value} --delimiter="$split_delimiter" --target={values} --no-zero-length || return
+			original_value="$value" values=()
+			__split --source={value} --delimiter="$delimiter" --target={values} --no-zero-length || return
 			__unique --source+target={values} || return
-			__join --source={values} --delimiter="$split_delimiter" --target={value} || return
-			__debug_dump --value='== DE-DUPLICATED ==' {name} {prior} {value}
+			__join --source={values} --delimiter="$delimiter" --target={value} || return
+			if [[ -z $value && $name == 'PATH' ]]; then
+				__dump --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			__debug_dump --value='== DE-DUPLICATED ==' {name} {original_value} {delimiter} {value} || :
 		fi
 
 		# find it in inherited, and check if it is the same if it is the same as inherited
 		if __has_array_capability 'associative'; then
 			if [[ -n ${inherited["$name"]-} && ${inherited["$name"]} == "$value" ]]; then
-				__debug_dump --value='== SKIP INHERITED ==' {name} {value}
+				__debug_dump --value='== SKIP INHERITED ==' {name} {value} || :
 				continue
 			fi
 		else
@@ -110,7 +114,7 @@ function __on_env_finish {
 				if [[ ${inherited[index]} == "$name" ]]; then
 					if [[ ${inherited[index + 1]} == "$value" ]]; then
 						# is inherited, continue to next item
-						__debug_dump --value='== SKIP INHERITED ==' {name} {value}
+						__debug_dump --value='== SKIP INHERITED ==' {name} {value} || :
 						continue 2
 					fi
 				fi
@@ -120,7 +124,7 @@ function __on_env_finish {
 		# output the variable action based on type
 		if [[ -z $value ]]; then
 			# output var action: delete
-			__debug_dump --value='== DELETE ==' {name} {value}
+			__debug_dump --value='== DELETE ==' {name} {value} || :
 			if [[ $option_shell == 'fish' ]]; then
 				results+=("set --universal --erase $name;")
 			elif [[ $option_shell == 'nu' ]]; then
@@ -135,7 +139,7 @@ function __on_env_finish {
 			fi
 		elif [[ $is_path == 'yes' ]]; then
 			# output var action: set path
-			__debug_dump --value='== SET PATH ==' {name} {value}
+			__debug_dump --value='== SET PATH ==' {name} {value} || :
 			if [[ $option_shell == 'fish' ]]; then
 				results+=("set --export --path $name '$value';")
 			elif [[ $option_shell == 'nu' ]]; then
@@ -150,7 +154,7 @@ function __on_env_finish {
 			fi
 		else
 			# output var action: set
-			__debug_dump --value='== SET ==' {name} {value}
+			__debug_dump --value='== SET ==' {name} {value} || :
 			if [[ $option_shell == 'fish' ]]; then
 				results+=("set --export $name '$value';")
 			elif [[ $option_shell == 'nu' ]]; then
@@ -176,6 +180,6 @@ function __on_env_finish {
 	fi
 
 	# output all the results
-	__print_lines "${results[@]}"
+	__print_lines "${results[@]}" || return
 }
 trap __on_env_finish EXIT

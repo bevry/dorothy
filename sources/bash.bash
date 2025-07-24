@@ -5458,19 +5458,40 @@ function __unique {
 	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source reference' || return
 	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return
 	# process
-	local UNIQUE__source UNIQUE__values=() UNIQUE__value UNIQUE__results=()
-	for UNIQUE__source in "${UNIQUE__sources[@]}"; do
-		__affirm_variable_is_array "$UNIQUE__source" || return
-		eval 'UNIQUE__values=("${'"$UNIQUE__source"'[@]}")' || return
-		for UNIQUE__value in "${UNIQUE__values[@]}"; do
-			# if the value already exists in the results, skip it
-			if __has --source={UNIQUE__results} -- "$UNIQUE__value"; then
-				continue
-			fi
-			# the value is new to the results, so add it
-			UNIQUE__results+=("$UNIQUE__value")
+	local -i UNIQUE__index
+	local UNIQUE__source UNIQUE__indices=() UNIQUE__value UNIQUE__results=()
+	if __has_array_capability 'associative'; then
+		declare -A UNIQUE__encountered
+		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
+			__affirm_variable_is_array "$UNIQUE__source" || return
+			eval 'UNIQUE__indices=("${!'"$UNIQUE__source"'[@]}")' || return
+			# source is always an array, so no need for: __indices --source="{$UNIQUE__source}" --target={UNIQUE__indices} || return
+			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
+				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]}"' || return
+				if [[ -n ${UNIQUE__encountered["$UNIQUE__value"]-} ]]; then
+					continue
+				fi
+				UNIQUE__encountered["$UNIQUE__value"]="$UNIQUE__index"
+				UNIQUE__results+=("$UNIQUE__value")
+			done
 		done
-	done
+	else
+		local UNIQUE__result_value
+		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
+			__affirm_variable_is_array "$UNIQUE__source" || return
+			eval 'UNIQUE__indices=("${!'"$UNIQUE__source"'[@]}")' || return
+			# source is always an array, so no need for: __indices --source="{$UNIQUE__source}" --target={UNIQUE__indices} || return
+			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
+				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]}"' || return
+				for UNIQUE__result_value in "${UNIQUE__results[@]}"; do
+					if [[ "$UNIQUE__result_value" == "$UNIQUE__value" ]]; then
+						continue 2 # skip to the next index
+					fi
+				done
+				UNIQUE__results+=("$UNIQUE__value")
+			done
+		done
+	fi
 	__to --source={UNIQUE__results} --mode="$UNIQUE__mode" --targets={UNIQUE__targets} || return
 }
 
