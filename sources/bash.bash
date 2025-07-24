@@ -5461,7 +5461,7 @@ function __unique {
 	local UNIQUE__source UNIQUE__values=() UNIQUE__value UNIQUE__results=()
 	for UNIQUE__source in "${UNIQUE__sources[@]}"; do
 		__affirm_variable_is_array "$UNIQUE__source" || return
-		eval "UNIQUE__values=(\"\${${UNIQUE__source}[@]}\")" || return
+		eval 'UNIQUE__values=("${'"$UNIQUE__source"'[@]}")' || return
 		for UNIQUE__value in "${UNIQUE__values[@]}"; do
 			# if the value already exists in the results, skip it
 			if __has --source={UNIQUE__results} -- "$UNIQUE__value"; then
