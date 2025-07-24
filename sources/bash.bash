@@ -197,7 +197,7 @@ function __print_without_styles {
 		case "$1" in
 		--no-trail | --trail=no) trail='no' ;;
 		--newline) args+=($'\n') ;;
-		--commentary-undeclared=) args+=('[ nothing provided ]') ;;
+		--commentary-undeclared=) args+=('[ undeclared ]') ;;
 		--commentary-undefined=) args+=('[ undefined ]') ;;
 		--commentary-empty=) args+=('[ empty ]') ;;
 		--*=*) args+=("${1#*=}") ;;
@@ -732,7 +732,7 @@ fi
 # p.  Negative subscripts to indexed arrays, previously errors, now are treated
 #     as offsets from the maximum assigned index + 1.
 # q.  Negative length specifications in the `${var:offset:length}` expansion,
-#     previously errors, are now treated as offsets from the end of the variable.
+#     previously errors, are now treated as offsets from the variable.'s end
 # `test -v varname` is not used as it behaviour is inconsistent to expectations and across versions
 # bash 3.2, 4.0, 4.1 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
 # bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
@@ -4707,7 +4707,7 @@ function __at {
 function __iterate {
 	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' # ITERATE__on='result'
 	# <single-source helper arguments>
-	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode=''
+	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode='' # ITERATE__inputs=() ITERATE__input=''
 	while [[ $# -ne 0 ]]; do
 		ITERATE__item="$1"
 		shift
@@ -4737,16 +4737,16 @@ function __iterate {
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
-					# local RECURSED_ITERATE__input=''
-					# RECURSED_ITERATE__input="$1"
-					# ITERATE__source_reference='RECURSED_ITERATE__input'
-					ITERATE__source_reference="ITERATE_${RANDOM}__inputs"
+					# ITERATE__input="$1"
+					# ITERATE__source_reference='ITERATE__input'
+					# ^ this doesn't allow for recursive sources, whereas the below does
+					ITERATE__source_reference="ITERATE_${RANDOM}__input"
 					eval "local $ITERATE__source_reference=\"\$1\"" || return
 				else
 					# an array input
-					# local RECURSED_ITERATE__inputs=()
-					# RECURSED_ITERATE__inputs=("$@")
-					# ITERATE__source_reference='RECURSED_ITERATE__inputs'
+					# ITERATE__inputs=("$@")
+					# ITERATE__source_reference='ITERATE__inputs'
+					# ^ this doesn't allow for recursive sources, whereas the below does
 					ITERATE__source_reference="ITERATE_${RANDOM}__inputs"
 					eval "local $ITERATE__source_reference=(\"\$@\")" || return
 				fi
@@ -4808,7 +4808,6 @@ function __iterate {
 			ITERATE__by='lookup'
 			ITERATE__seek='each'
 			ITERATE__require='all'
-			ITERATE__on='result'
 			;;
 		# evict on mode
 		# --on=content) ITERATE__on='content' ;; # @todo implement
@@ -5022,6 +5021,7 @@ function __iterate {
 				fi
 				;;
 			--keep-before-first=* | --keep-before-last=* | --keep-after-first=* | --keep-after-last=*)
+				# @todo there is some ambiguity here, on whether the operation should happen on the actual value then retrospectively apply, or whether it should happen at the start like pattern and glob - perhaps what is best is for us to introduce a `-1` index which these ones operate on, in which overlap does not apply, however, at this stage, this stuff seems too obscure to be worth it, as if they are doing multiple of these operations, why aren't they just using `__replace` ?
 				if [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# handle the eviction options by marking them as consumed indices
 					# send the result of index via process substitution to avoid complicated eval and referencing magic to avoid conflicts between recursion
@@ -5040,13 +5040,15 @@ function __iterate {
 						;;
 					--keep-after-first=*)
 						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
-						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index <= ITERATE__match_index; ITERATE__overlap_index++)); do
+						ITERATE__lookup_size=${#ITERATE__lookup}
+						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
 							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
 						done
 						;;
 					--keep-after-last=*)
 						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
-						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index <= ITERATE__match_index; ITERATE__overlap_index++)); do
+						ITERATE__lookup_size=${#ITERATE__lookup}
+						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
 							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
 						done
 						;;
@@ -5158,7 +5160,7 @@ function __evict {
 }
 
 function __replace {
-	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replace=''
+	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replacement=''
 	# <single-source helper arguments>
 	local REPLACE__item REPLACE__source_reference='' REPLACE__targets=() REPLACE__mode='' REPLACE__inputs=() REPLACE__input=''
 	while [[ $# -ne 0 ]]; do
@@ -5202,20 +5204,11 @@ function __replace {
 			break
 			;;
 		# </single-source helper arguments>
-		--default-replace=*)
-			__affirm_value_is_undefined "$REPLACE__default_replace" 'default replace' || return
-			REPLACE__default_replace="${REPLACE__item#*=}"
+		--default-replacement=* | --default-replace=*)
+			__affirm_value_is_undefined "$REPLACE__default_replacement" 'default replace' || return
+			REPLACE__default_replacement="${REPLACE__item#*=}"
 			;;
-		--replace=* | --with=*) REPLACE__lookups+=("$REPLACE__item") ;;
-		# lookups:
-		--value=* | --needle=* | --value:all=* | --needle:all=* | --prefix=* | --prefix:all=* | --suffix=* | --suffix:all=* | --pattern=* | --pattern:all=* | --before=*  | --before:last=* | --after=* | --after:last=* | --to=* | --to-last=* | --from=* | --from:last=*)
-			if [[ -z ${REPLACE__item#*=} ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$REPLACE__item" || :) option must not have an empty value." >&2 || :
-				__dump {REPLACE__lookups} "{$REPLACE__source_reference}" >&2 || :
-				return 22 # EINVAL 22 Invalid argument
-			fi
-			REPLACE__lookups+=("$REPLACE__item")
-			;;
+		--replacement=* | --replace=* | --with=*) REPLACE__lookups+=("$REPLACE__item") ;;
 		# require mode:
 		--require=none | --optional) REPLACE__require='none' ;;
 		--require=any | --any) REPLACE__require='any' ;;
@@ -5223,6 +5216,15 @@ function __replace {
 		# quiet mode
 		--no-verbose* | --verbose*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
 		--no-quiet* | --quiet*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
+		# everything else assume is a lookup to save us from duplicating case statements:
+		--*=*)
+			if [[ -z ${REPLACE__item#*=} ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$REPLACE__item" || :) option must not have an empty value." >&2 || :
+				__dump {REPLACE__lookups} "{$REPLACE__source_reference}" >&2 || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			REPLACE__lookups+=("$REPLACE__item")
+			;;
 		# done
 		--*) __unrecognised_flag "$REPLACE__item" || return ;;
 		*) __unrecognised_argument "$REPLACE__item" || return ;;
@@ -5246,102 +5248,131 @@ function __replace {
 	fi
 	# handle string
 	local -i REPLACE__expected_size=0
-	local REPLACE__found_lookups=() REPLACE__missing_lookups=() REPLACE__value_wip REPLACE__replace
+	local REPLACE__found_lookups=() REPLACE__missing_lookups=() REPLACE__value_wip REPLACE__replacement
 	eval 'REPLACE__value_wip="${'"$REPLACE__source_reference"'}"' || return
 	set -- "${REPLACE__lookups[@]}"
 	while [[ $# -ne 0 ]]; do
 		REPLACE__lookup="$1"
 		shift
-		if [[ -n ${1-} ]] && [[ $1 == --replace=* ||  $1 == --with=*  ]]; then
-			REPLACE__replace="${1#*=}"
+		if [[ -n ${1-} ]] && [[ $1 == --replacement=* || $1 == --replace=* || $1 == --with=* ]]; then
+			REPLACE__replacement="${1#*=}"
 			shift
 		else
-			REPLACE__replace="$REPLACE__default_replace"
+			REPLACE__replacement="$REPLACE__default_replacement"
 		fi
 		# handle the lookup
 		REPLACE__expected_size=$((REPLACE__expected_size + 1))
 		REPLACE__lookup_query="${REPLACE__lookup#*=}"
 		REPLACE__value_before="$REPLACE__value_wip"
 		case "$REPLACE__lookup" in
-		# exact match
-		--value=* | --needle=*) REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/"$REPLACE__replace"}" ;;
-		--value:all=* | --needle:all=*) REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/"$REPLACE__replace"}" ;;
+		# --replace-this=*
+		--value=* | --needle=*)
+			REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/"$REPLACE__replacement"}"
+			;;
+		# --replace-all-occurrences-of-this=*
+		--value-all=* | --needle-all=*)
+			REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/"$REPLACE__replacement"}"
+			;;
 
+		# --replace-this-prefix=*
 		--prefix=*)
 			if [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; then
-				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip#"$REPLACE__lookup_query"}"
+				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#"$REPLACE__lookup_query"}"
 			fi
 			;;
-		--prefix:all=*)
+		# --replace-all-occurrences-of-this-prefix=*
+		--prefix-all=*)
 			while [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; do
-				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip#"$REPLACE__lookup_query"}"
+				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#"$REPLACE__lookup_query"}"
 			done
 			;;
 
+		# --replace-this-suffix=*
 		--suffix=*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; then
-				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replace"
+				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replacement"
 			fi
 			;;
-		--suffix:all=*)
+		# --replace-all-occurrences-of-this-suffix=*
+		--suffix-all=*)
 			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; do
-				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replace"
+				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replacement"
 			done
 			;;
 
+		# --replace-this-pattern=*
 		--pattern=*)
-			REPLACE__value_wip="${REPLACE__value_wip/$REPLACE__lookup_query/$REPLACE__replace}"
+			REPLACE__value_wip="${REPLACE__value_wip/$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
-		--pattern:all=*)
-			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replace}"
+		# --replace-all-occurrences-of-this-pattern=*
+		--pattern-all=*)
+			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 
-		--before=*)
+		# --replace-everything-before-the-start-of-this=*
+		# --keep-everything-after-the-start-of-this=*
+		--replace-before-first=*)
 			local -i REPLACE__index
 			REPLACE__index="$(__index --first --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
-			REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip:REPLACE__index}"
+			REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip:REPLACE__index}"
 			;;
-		--before:last=*)
+		# --replace-everything-before-the-start-of-the-last-occurrence-of-this=*
+		# --keep-everything-after-the-start-of-the-last-occurrence-of-this=*
+		--replace-before-last=*)
 			local -i REPLACE__index
 			REPLACE__index="$(__index --first --reverse --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
-			REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip:REPLACE__index}"
+			REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip:REPLACE__index}"
 			;;
 
-		--after=*)
-			local -i REPLACE__index
+		# --replace-everything-before-the-end-of-this=*
+		# --keep-everything-after-the-end-of-this=*
+		--keep-after-first=*)
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#*"$REPLACE__lookup_query"}"
+			fi
+			;;
+		# --replace-everything-before-the-end-of-the-last-occurrence-of-this=*
+		# --keep-everything-after-the-end-of-the-last-occurrence-of-this=*
+		--keep-after-last=*)
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip##*"$REPLACE__lookup_query"}"
+			fi
+			;;
+
+		# --replace-everything-after-the-start-of-this=*
+		# --keep-everything-before-the-start-of-this=*
+		--keep-before-first=*)
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="${REPLACE__value_wip%%"$REPLACE__lookup_query"*}$REPLACE__replacement"
+			fi
+			;;
+		# --replace-everything-after-the-start-of-the-last-occurrence-of-this=*
+		# --keep-everything-before-the-start-of-the-last-occurrence-of-this=*
+		--keep-before-last=*)
+			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
+				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"*}$REPLACE__replacement"
+			fi
+			;;
+
+		# --replace-everything-after-the-end-of-this=*
+		# --keep-everything-before-the-end-of-this=*
+		--replace-after-first=*)
+			local -i REPLACE__index REPLACE__lookup_size
 			REPLACE__index="$(__index --first --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
-			REPLACE__value_wip="${REPLACE__value_wip:0:(REPLACE__index+1)}$REPLACE__replace"
+			REPLACE__lookup_size=${#REPLACE__lookup_query}
+			REPLACE__value_wip="${REPLACE__value_wip:0:REPLACE__index+REPLACE__lookup_size}$REPLACE__replacement"
 			;;
-		--after:last=*)
-			local -i REPLACE__index
+		# --replace-everything-after-the-end-of-the-last-occurrence-of-this=*
+		# --keep-everything-before-the-end-of-the-last-occurrence-of-this=*
+		--replace-after-last=*)
+			local -i REPLACE__index REPLACE__lookup_size
 			REPLACE__index="$(__index --first --reverse --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
-			REPLACE__value_wip="${REPLACE__value_wip:0:(REPLACE__index+1)}$REPLACE__replace"
+			REPLACE__lookup_size=${#REPLACE__lookup_query}
+			REPLACE__value_wip="${REPLACE__value_wip:0:REPLACE__index+REPLACE__lookup_size}$REPLACE__replacement"
 			;;
 
-		--to=*)
-			# keep after first
-			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
-				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip#*"$REPLACE__lookup_query"}"
-			fi
-			;;
-		--to:last=*)
-			# keep after last
-			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
-				REPLACE__value_wip="$REPLACE__replace${REPLACE__value_wip##*"$REPLACE__lookup_query"}"
-			fi
-			;;
-
-		--from=*)
-			# keep before first
-			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
-				REPLACE__value_wip="${REPLACE__value_wip%%"$REPLACE__lookup_query"*}$REPLACE__replace"
-			fi
-			;;
-		--from:last=*)
-			# keep before last
-			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
-				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"*}$REPLACE__replace"
-			fi
+		*)
+			__unrecognised_flag "$REPLACE__lookup" || return
 			;;
 		esac
 		if [[ $REPLACE__value_wip != "$REPLACE__value_before" ]]; then
@@ -5431,7 +5462,7 @@ function __unique {
 }
 
 # set the targets to the slice between the start and length indices of the source reference
-# negative starts and lengths will be counted from the end of the source reference
+# negative starts and lengths will be counted from the source reference's end
 # out of bound indices will throw
 function __slice {
 	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=() SLICE__require='all'
