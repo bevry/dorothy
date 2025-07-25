@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # trunk-ignore-all(shellcheck/SC2034)
 # trunk-ignore-all(shellcheck/SC2178)
+# trunk-ignore-all(cspell/error)
 source "$DOROTHY/sources/bash.bash"
 
 # =====================================
@@ -56,6 +57,8 @@ function help {
 
 		--skip=<test>
 		    Skip this specific test.
+		--skip-to=<test>
+		    Skip all tests until this specific test.
 		--only=<test>
 		    Only run this specific test. This is used to capture results of tests that crash.
 
@@ -73,7 +76,7 @@ option_binaries=()
 option_csv_file=''
 option_skip=()
 option_only=()
-option_until=''
+option_skip_to=''
 option_csv='yes'
 while [[ $# -ne 0 ]]; do
 	item="$1"
@@ -95,7 +98,7 @@ while [[ $# -ne 0 ]]; do
 	--only=*)
 		__split --target={option_only} --append --no-zero-length -- "${item#*=}"
 		;;
-	--until=*) option_until="${item#*=}" ;;
+	--skip-to=*) option_skip_to="${item#*=}" ;;
 	--csv=no | --no-csv) option_csv=no ;;
 	--csv=yes | --csv) option_csv=yes ;;
 	--csv=*) option_csv_file="${item#*=}" ;;
@@ -304,10 +307,10 @@ if [[ -n $only_string ]]; then
 else
 	FOUND_ONLY=yes
 fi
-if [[ -n $option_until ]]; then
-	FOUND_UNTIL=no
+if [[ -n $option_skip_to ]]; then
+	FOUND_SKIP_TO=no
 else
-	FOUND_UNTIL=yes
+	FOUND_SKIP_TO=yes
 fi
 
 # start the suite
@@ -349,11 +352,11 @@ function __begin_test_block {
 
 	# check skips
 	local skip='no'
-	if [[ -n $option_until ]]; then
-		if [[ $option_until == "$TEST_NAME" ]]; then
-			FOUND_UNTIL='yes'
+	if [[ -n $option_skip_to && $FOUND_SKIP_TO == 'no' ]]; then
+		if [[ $option_skip_to == "$TEST_NAME" ]]; then
+			FOUND_SKIP_TO='yes'
 		else
-			skip='no'
+			skip='yes'
 		fi
 	fi
 	if [[ -n $only_string ]]; then
@@ -451,28 +454,51 @@ function __begin_test_block {
 	# run the test in this context
 	echo-style --stderr --h2="$TEST_NAME" || __crash_broken
 }
+function __run_test_block {
+
+	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
+	__end_test_block {results}
+}
 function __end_test_block {
 	# runs once the test is ended, but not on crash test ending
 	local ok='yes' actual_var actual expected actual_file expected_file
 	while [[ $# -ne 0 ]]; do
 		__dereference --source="$1" --name={actual_var} || __crash_broken
-		actual="${!actual_var-}"
+		actual="${!actual_var-}" actual_file='' expected_file=''
 		shift
-		expected="$1"
-		shift
+		if [[ $# -eq 0 ]]; then
+			expected_file="$DOROTHY/fixtures/$TEST_NAME.expected.txt"
+			if [[ -f $expected_file ]]; then
+				expected="$(sed "s/\\\$dump_var_empty_or_undefined_placeholder/$dump_var_empty_or_undefined_placeholder/" <"$DOROTHY/fixtures/$TEST_NAME.expected.txt")" || __crash_broken
+				actual_file="$DOROTHY/fixtures/$TEST_NAME.actual.txt"
+				__print_string "$actual" >"$actual_file" || __crash_broken
+			else
+				__print_lines "ERROR: ${FUNCNAME[0]}: Arguments are expected to be tuples [<actual> <expected>], however an odd amount of arguments were supplied." >&2 || :
+				__crash_broken
+			fi
+		else
+			expected="$1"
+			shift
+		fi
 		if [[ $actual != "$expected" ]]; then
-			__print_lines '' \
-				$'\e[7m'"FAIL: [$actual_var]"$'\e[0m' \
-				$'\e[7m'"== IT WAS == "$'\e[0m' \
-				"$actual" \
-				$'\e[7m''== IT SHOULD BE =='$'\e[0m' \
-				"$expected" \
-				$'\e[7m'"== END FAILURE =="$'\e[0m' || __crash_broken
-			actual_file="$(fs-temp --directory='dorothy-internals' --file)"
-			expected_file="$actual_file.expected"
-			actual_file="$actual_file.actual"
-			__print_string "$actual" >"$actual_file" || __crash_broken
-			__print_string "$expected" >"$expected_file" || __crash_broken
+			if [[ -z $actual_file || -z $expected_file ]]; then
+				__print_lines '' \
+					$'\e[7m'"FAIL: [$actual_var]"$'\e[0m' \
+					$'\e[7m'"== IT WAS == "$'\e[0m' \
+					"$actual" \
+					$'\e[7m''== IT SHOULD BE =='$'\e[0m' \
+					"$expected" \
+					$'\e[7m'"== END FAILURE =="$'\e[0m' || __crash_broken
+
+				actual_file="$(fs-temp --directory='dorothy-internals' --file)"
+				expected_file="$actual_file.expected"
+				actual_file="$actual_file.actual"
+				__print_string "$actual" >"$actual_file" || __crash_broken
+				__print_string "$expected" >"$expected_file" || __crash_broken
+			else
+				__print_lines '' \
+					$'\e[7m'"FAIL: [$actual_var]"$'\e[0m' || __crash_broken
+			fi
 			fs-diff --unchanged --before="$actual_file" --after="$expected_file" || :
 			ok='no'
 		fi
@@ -1590,7 +1616,6 @@ if __begin_test_block --name='__read_whole'; then
 		printf '%q' "$REPLY"
 	)
 	results="$(tests 2>&1)"
-	# trunk-ignore(cspell/error)
 	__end_test_block {results} "$'before-nullbefore-eot\004before-form-feed\fbefore-newline\nafter-newline'"
 fi
 
@@ -2702,73 +2727,7 @@ if __begin_test_block --name='__flag'; then
 		__print_lines "[status = $?] result = $(__dump --value="$item" || :)"
 	)
 	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-			--flag...
-			[status = 0] result = yes
-			[status = 0] result = NO
-			[status = 0] result = YES
-			[status = 0] result = value
-			[status = 0] result = [ empty ]
-			--no-flag...
-			[status = 0] result = no
-			[status = 0] result = NO
-			[status = 0] result = YES
-			[status = 0] result = value
-			[status = 0] result = [ empty ]
-			--affirmative --flag...
-			[status = 0] result = yes
-			[status = 0] result = no
-			[status = 0] result = yes
-			[status = 0] result = value
-			[status = 0] result = [ empty ]
-			--affirmative --no-flag...
-			[status = 0] result = no
-			[status = 0] result = yes
-			[status = 0] result = no
-			[status = 0] result = value
-			[status = 0] result = [ empty ]
-			--non-affirmative --flag...
-			[status = 0] result = no
-			[status = 0] result = yes
-			[status = 0] result = no
-			[status = 0] result = value
-			[status = 0] result = [ empty ]
-			[status = 0] result = yes
-			[status = 0] result = no
-			[status = 0] result = yes
-			[status = 0] result = value
-			[status = 0] result = [ empty ]
-			--coerce --affirmative --flag...
-			[status = 0] result = yes
-			[status = 0] result = no
-			[status = 0] result = yes
-			ERROR: __flag: Invalid boolean value for flag flag, it was: value
-			[status = 22] result = yes
-			[status = 0] result = yes
-			--coerce --affirmative --no-flag...
-			[status = 0] result = no
-			[status = 0] result = yes
-			[status = 0] result = no
-			ERROR: __flag: Invalid boolean value for flag flag, it was: value
-			[status = 22] result = no
-			[status = 0] result = no
-			--coerce --non-affirmative --flag...
-			[status = 0] result = no
-			[status = 0] result = yes
-			[status = 0] result = no
-			ERROR: __flag: Invalid boolean value for flag flag, it was: value
-			[status = 22] result = no
-			[status = 0] result = no
-			--coerce --non-affirmative --no-flag...
-			[status = 0] result = yes
-			[status = 0] result = no
-			[status = 0] result = yes
-			ERROR: __flag: Invalid boolean value for flag flag, it was: value
-			[status = 22] result = yes
-			[status = 0] result = yes
-		EOF
-	)"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__array'; then
@@ -2812,60 +2771,7 @@ if __begin_test_block --name='__array'; then
 		__dump defined_array declared_variable
 	)
 	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-			defined_array[@] = [ empty ]
-			declared_variable = $dump_var_empty_or_undefined_placeholder
-			--
-			ERROR: __array: The array fill size must be a positive integer, it was: [ empty ]
-			[status = 22]
-			--
-			ERROR: __to: If the source ARRAY__results is an array, then the target declared_variable must be as well:
-			ARRAY__results[@] = [ empty ]
-			declared_variable = $dump_var_empty_or_undefined_placeholder
-			[status = 22]
-			--
-			[status = 0]
-			defined_array[@] = [ empty ]
-			declared_variable[@] = [ empty ]
-			--
-			[status = 0]
-			defined_array[0] = [ empty ]
-			declared_variable[0] = [ empty ]
-			--
-			[status = 0]
-			defined_array[0] = [ empty ]
-			defined_array[1] = [ empty ]
-			declared_variable[0] = [ empty ]
-			declared_variable[1] = [ empty ]
-			--
-			[status = 0]
-			defined_array[0] = [ empty ]
-			defined_array[1] = [ empty ]
-			defined_array[2] = .
-			defined_array[3] = .
-			defined_array[4] = .
-			declared_variable[0] = [ empty ]
-			declared_variable[1] = [ empty ]
-			declared_variable[2] = .
-			declared_variable[3] = .
-			declared_variable[4] = .
-			--
-			[status = 0]
-			defined_array[0] = ..
-			defined_array[1] = [ empty ]
-			defined_array[2] = [ empty ]
-			defined_array[3] = .
-			defined_array[4] = .
-			defined_array[5] = .
-			declared_variable[0] = ..
-			declared_variable[1] = [ empty ]
-			declared_variable[2] = [ empty ]
-			declared_variable[3] = .
-			declared_variable[4] = .
-			declared_variable[5] = .
-		EOF
-	)"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__at'; then
@@ -2927,93 +2833,7 @@ if __begin_test_block --name='__at'; then
 
 	)
 	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-			abfe
-			ERROR: __to: If the source AT__results is an array, then the target STDOUT must be as well:
-			AT__results[0] = a
-			AT__results[1] = b
-			AT__results[2] = f
-			[status = 22]
-			array_target[0] = a
-			array_target[1] = b
-			array_target[2] = f
-			array_target[3] = e
-			---
-			abfe
-			ERROR: __to: If the source AT__results is an array, then the target STDOUT must be as well:
-			AT__results[0] = a
-			AT__results[1] = b
-			AT__results[2] = f
-			[status = 22]
-			ERROR: __to: If the source AT__results is an array, then the target str_target must be as well:
-			AT__results[0] = a
-			AT__results[1] = b
-			AT__results[2] = f
-			AT__results[3] = e
-			str_target = $dump_var_empty_or_undefined_placeholder
-			[status = 22]
-			---
-			f[status = 0]
-			ERROR: __at: The index 6 was beyond the range of:
-			arr[ 0 | -6 ] = a
-			arr[ 1 | -5 ] = b
-			arr[ 2 | -4 ] = c
-			arr[ 3 | -3 ] = d
-			arr[ 4 | -2 ] = e
-			arr[ 5 | -1 ] = f
-			[status = 33]
-			ERROR: __at: The index 7 was beyond the range of:
-			arr[ 0 | -6 ] = a
-			arr[ 1 | -5 ] = b
-			arr[ 2 | -4 ] = c
-			arr[ 3 | -3 ] = d
-			arr[ 4 | -2 ] = e
-			arr[ 5 | -1 ] = f
-			[status = 33]
-			b[status = 0]
-			a[status = 0]
-			ERROR: __at: The index -7 was beyond the range of:
-			arr[ 0 | -6 ] = a
-			arr[ 1 | -5 ] = b
-			arr[ 2 | -4 ] = c
-			arr[ 3 | -3 ] = d
-			arr[ 4 | -2 ] = e
-			arr[ 5 | -1 ] = f
-			[status = 33]
-			---
-			f[status = 0]
-			ERROR: __at: The index 6 was beyond the range of:
-			str = abcdef
-			str[ 0 | -6 ] = a
-			str[ 1 | -5 ] = b
-			str[ 2 | -4 ] = c
-			str[ 3 | -3 ] = d
-			str[ 4 | -2 ] = e
-			str[ 5 | -1 ] = f
-			[status = 33]
-			ERROR: __at: The index 7 was beyond the range of:
-			str = abcdef
-			str[ 0 | -6 ] = a
-			str[ 1 | -5 ] = b
-			str[ 2 | -4 ] = c
-			str[ 3 | -3 ] = d
-			str[ 4 | -2 ] = e
-			str[ 5 | -1 ] = f
-			[status = 33]
-			b[status = 0]
-			a[status = 0]
-			ERROR: __at: The index -7 was beyond the range of:
-			str = abcdef
-			str[ 0 | -6 ] = a
-			str[ 1 | -5 ] = b
-			str[ 2 | -4 ] = c
-			str[ 3 | -3 ] = d
-			str[ 4 | -2 ] = e
-			str[ 5 | -1 ] = f
-			[status = 33]
-		EOF
-	)"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__index'; then
@@ -3056,7 +2876,7 @@ if __begin_test_block --name='__index'; then
 		done
 	)
 	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(<"$DOROTHY/fixtures/__index.expected.txt")"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__has'; then
@@ -3144,65 +2964,48 @@ if __begin_test_block --name='__has'; then
 		__print_lines "[status = $?]"
 
 	)
-	results="$(tests)"
-	__end_test_block {results} "$(
-		cat <<-EOF
+	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
+	__end_test_block {results}
+fi
 
-			array
+if __begin_test_block --name='__evict'; then
+	function tests {
+		local arr=(a '' ab '' abc ' ' abcd ' ') target_arr=()
 
-			--first
-			[status = 0]
-			[status = 0]
-			[status = 93]
+		__evict --source={arr} -- ab ' '
+		__print_lines "[status = $?]"
+		__dump {arr}
 
-			--all
-			[status = 93]
-			[status = 93]
-			[status = 93]
+		__evict --source={arr} --target={target_arr} -- abc ' '
+		__print_lines "[status = $?]"
+		__dump {arr} {target_arr}
+	}
+	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
+	__end_test_block {results}
+fi
 
-			--ignore-case --first
-			[status = 0]
-			[status = 0]
-			[status = 93]
+if __begin_test_block --name='__unique'; then
+	function tests() (
+		set +e
+		local arr1=(a b a c '' '' ' ') arr2=(c d) arr_target=()
 
-			--ignore-case --all
-			[status = 93]
-			[status = 93]
-			[status = 93]
+		__print_lines '' '=== source target ==='
+		__unique --source={arr1} --target={arr_target}
+		__print_lines "[status = $?]"
+		__dump {arr_target}
 
-			string
+		__print_lines '' '=== source source target ==='
+		__unique --source={arr1} --source={arr2} --target={arr_target}
+		__print_lines "[status = $?]"
+		__dump {arr_target}
 
-			--first
-			[status = 0]
-			[status = 0]
-			[status = 93]
-
-			--all
-			[status = 93]
-			[status = 93]
-			[status = 93]
-
-			--ignore-case --first
-			[status = 0]
-			[status = 0]
-			[status = 93]
-
-			--ignore-case --all
-			[status = 93]
-			[status = 93]
-			[status = 93]
-
-			--overlap --first
-			[status = 0]
-			[status = 0]
-			[status = 93]
-
-			--overlap --all
-			[status = 0]
-			[status = 93]
-			[status = 93]
-		EOF
-	)"
+		__print_lines '' '=== source+target ==='
+		__unique --source+target={arr1}
+		__print_lines "[status = $?]"
+		__dump {arr1}
+	)
+	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__slice'; then
@@ -3268,87 +3071,7 @@ if __begin_test_block --name='__slice'; then
 		__slice_test_needles --source={string} --require=none
 	)
 	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(<"$DOROTHY/fixtures/__slice.expected.txt")"
-fi
-
-if __begin_test_block --name='__evict'; then
-	function tests {
-		local arr=(a '' ab '' abc ' ' abcd ' ') target_arr=()
-
-		__evict --source={arr} -- ab ' '
-		__print_lines "[status = $?]"
-		__dump {arr}
-
-		__evict --source={arr} --target={target_arr} -- abc ' '
-		__print_lines "[status = $?]"
-		__dump {arr} {target_arr}
-	}
-	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-			failure status: 22
-			failure status: 22
-			failure status: 22
-			failure status: 22
-			[0] = [a]
-			[1] = []
-			[0] = [a]
-			[1] = []
-			[0] = [a]
-		EOF
-	)"
-fi
-
-if __begin_test_block --name='__unique'; then
-	function tests() (
-		set +e
-		local arr1=(a b a c '' '' ' ') arr2=(c d) arr_target=()
-
-		__print_lines '' '=== source target ==='
-		__unique --source={arr1} --target={arr_target}
-		__print_lines "[status = $?]"
-		__dump {arr_target}
-
-		__print_lines '' '=== source source target ==='
-		__unique --source={arr1} --source={arr2} --target={arr_target}
-		__print_lines "[status = $?]"
-		__dump {arr_target}
-
-		__print_lines '' '=== source+target ==='
-		__unique --source+target={arr1}
-		__print_lines "[status = $?]"
-		__dump {arr1}
-	)
-	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-
-			=== source target ===
-			[status = 0]
-			arr_target[0] = a
-			arr_target[1] = b
-			arr_target[2] = c
-			arr_target[3] = [ empty ]
-			arr_target[4] = $space
-
-			=== source source target ===
-			[status = 0]
-			arr_target[0] = a
-			arr_target[1] = b
-			arr_target[2] = c
-			arr_target[3] = [ empty ]
-			arr_target[4] = $space
-			arr_target[5] = d
-
-			=== source+target ===
-			[status = 0]
-			arr1[0] = a
-			arr1[1] = b
-			arr1[2] = c
-			arr1[3] = [ empty ]
-			arr1[4] = $space
-		EOF
-	)"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__split'; then
@@ -3414,99 +3137,8 @@ if __begin_test_block --name='__split'; then
 			__print_lines $'a\nb' $'c\td' 'e f' 'g, h' 'i|j' 'k*l**m'
 		echo-verbose -- "${my_array[@]}"
 	}
-	results="$(tests)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-			split on nothing
-			[ nothing provided ]
-			split on empty
-			[0] = []
-			split on empty with no-zero-length
-			[ nothing provided ]
-			split on single character delimiter
-			[0] = [0]
-			[1] = [1]
-			[2] = [2
-			3]
-			[3] = [4]
-			[4] = [5]
-			split on multiple character delimiter
-			[0] = [0]
-			[1] = [1]
-			[2] = [2
-			3]
-			[3] = [4]
-			[4] = [5]
-			split on multiple delimiters
-			[0] = [0]
-			[1] = [1:]
-			[2] = [2]
-			[3] = [3]
-			[4] = [4]
-			split on newline via argument
-			[0] = [0]
-			[1] = [1]
-			[2] = [2]
-			split on newline via process substitution
-			[0] = [0]
-			[1] = [1]
-			[2] = [2]
-			split on newline via here string
-			[0] = [0]
-			[1] = [1]
-			[2] = [2]
-			[3] = []
-			split on newline via arguments
-			[0] = [0]
-			[1] = [1]
-			[2] = [2]
-			[3] = []
-			[4] = [3]
-			[5] = []
-			[6] = []
-			[7] = [4]
-			[8] = []
-			[9] = []
-			[10] = [5]
-			[11] = []
-			[12] = []
-			[13] = [6]
-			[14] = []
-			[15] = []
-			split on newline via arguments without zero-length
-			[0] = [0]
-			[1] = [1]
-			[2] = [2]
-			[3] = [3]
-			[4] = [4]
-			[5] = [5]
-			[6] = [6]
-			split with append and defaulted delim
-			[0] = [0]
-			[1] = [1]
-			[2] = [2]
-			[3] = [3]
-			[4] = [4]
-			[5] = [5]
-			[6] = [6]
-			[7] = [7]
-			split with real-world use case
-			[0] = [yes]
-			split with invoke
-			[0] = [a]
-			[1] = [b]
-			[2] = [c]
-			[3] = [d]
-			[4] = [e]
-			[5] = [f]
-			[6] = [g]
-			[7] = [h]
-			[8] = [i]
-			[9] = [j]
-			[10] = [k*l]
-			[11] = [m]
-		EOF
-	)"
+	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
+	__end_test_block {results}
 fi
 
 if __begin_test_block --name='__join'; then
@@ -3519,15 +3151,8 @@ if __begin_test_block --name='__join'; then
 		__join $'\n' -- 1 2
 		__join $'\n' -- 1 2 3
 	}
-	results="$(tests)"
-	__end_test_block {results} "$(
-		cat <<-EOF
-			11212311
-			21
-			2
-			3
-		EOF
-	)"
+	results="$(tests 2>&1 | __ansi_trim_special_from_stdin)"
+	__end_test_block {results}
 fi
 
 # =====================================
