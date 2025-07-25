@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# trunk-ignore-all(shellcheck/SC2140)
 
 # For bash version compatibility and changes, see:
 # See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about significant changes between bash versions.
@@ -741,11 +740,13 @@ fi
 if [[ $BASH_VERSION_MAJOR -lt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -le 1) ]]; then
 	BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED='yes'
 else
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED='no'
 fi
 if [[ $BASH_VERSION_MAJOR -lt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -lt 4) ]]; then
 	BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED='yes'
 else
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED='no'
 fi
 if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 3 ]]; then
@@ -804,6 +805,7 @@ else
 	# declare -a arr='()'
 	# declare -- var=""
 	# declare -a arr='()'
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_DECLARE_P_VAR='yes'
 	function __get_var_declaration {
 		# trim -- prefix
@@ -840,7 +842,7 @@ function __is_var_declared {
 	fi
 	__affirm_length_defined $# 'variable reference' || return
 	# process
-	local IS_VAR_DECLARED__item IS_VAR_DECLARED__reference IS_VAR_DECLARED__fodder
+	local IS_VAR_DECLARED__item IS_VAR_DECLARED__reference
 	while [[ $# -ne 0 ]]; do
 		IS_VAR_DECLARED__item="$1"
 		shift
@@ -2797,7 +2799,6 @@ function __prepare_login_groups {
 		__prepare_login_uid || :
 		groups="$(id -Gn "$LOGIN_UID" || :)"
 		__split --source={groups} --target={LOGIN_GROUPS} --delimiter=' ' --no-zero-length || :
-		# trunk-ignore(shellcheck/SC2153)
 		if [[ ${#LOGIN_GROUPS[@]} -eq 0 ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group names of the login user." >&2 || :
 			return 1
@@ -2811,7 +2812,6 @@ function __prepare_login_gids {
 		__prepare_login_uid || :
 		groups="$(id -G "$LOGIN_UID" || :)"
 		__split --source={groups} --target={LOGIN_GIDS} --delimiter=' ' --no-zero-length || :
-		# trunk-ignore(shellcheck/SC2153)
 		if [[ ${#LOGIN_GIDS[@]} -eq 0 ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the login user." >&2 || :
 			return 1
@@ -2886,7 +2886,6 @@ function __prepare_current_gids {
 		# trunk-ignore(shellcheck/SC2034)
 		groups="$(id -G || :)"
 		__split --source={groups} --target={CURRENT_GIDS} --delimiter=' ' --no-zero-length || :
-		# trunk-ignore(shellcheck/SC2153)
 		if [[ ${#CURRENT_GIDS[@]} -eq 0 ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the groups IDs of the current user." >&2 || :
 			return 1
@@ -4485,9 +4484,9 @@ function __reverse {
 	# action
 	if __is_array "$REVERSE__source_reference"; then
 		# support sparse arrays
-		local REVERSE__indices=()
+		# trunk-ignore(shellcheck/SC2034)
+		local REVERSE__indices=() REVERSE__result=()
 		eval 'REVERSE__indices=("${!'"$REVERSE__source_reference"'[@]}")' || return
-		local REVERSE__result=()
 		local -i REVERSE__index REVERSE__source_index REVERSE__size="${#REVERSE__indices[@]}"
 		for ((REVERSE__index = REVERSE__size - 1; REVERSE__index >= 0; REVERSE__index--)); do
 			REVERSE__source_index="${REVERSE__indices[REVERSE__index]}"
@@ -5254,6 +5253,7 @@ function __replace {
 		for REPLACE__index in "${REPLACE__indices[@]}"; do
 			eval 'REPLACE__item="${'"$REPLACE__source_reference"'['"$REPLACE__index"']}"'
 			__replace --source+target={REPLACE__item} --require="$REPLACE__require" --quiet="$REPLACE__quiet" "${REPLACE__lookups[@]}" || return
+			# trunk-ignore(shellcheck/SC2034)
 			REPLACE__array["$REPLACE__index"]="$REPLACE__item"
 		done
 		__to --source={REPLACE__array} --mode="$REPLACE__mode" --targets={REPLACE__targets} || return
@@ -5484,7 +5484,7 @@ function __unique {
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
 				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]}"' || return
 				for UNIQUE__result_value in "${UNIQUE__results[@]}"; do
-					if [[ "$UNIQUE__result_value" == "$UNIQUE__value" ]]; then
+					if [[ $UNIQUE__result_value == "$UNIQUE__value" ]]; then
 						continue 2 # skip to the next index
 					fi
 				done
@@ -5499,7 +5499,7 @@ function __unique {
 # negative starts and lengths will be counted from the source reference's end
 # out of bound indices will throw
 function __slice {
-	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=() SLICE__require='all'
+	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=() # SLICE__require='all'
 	# <single-source helper arguments>
 	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs=() SLICE__input=''
 	while [[ $# -ne 0 ]]; do
@@ -5558,10 +5558,10 @@ function __slice {
 		# --keep-before-last=*) SLICE__keep_before_last+=("${SLICE__item#*=}") ;;
 		# --keep-after-first=*) SLICE__keep_after_first+=("${SLICE__item#*=}") ;;
 		# --keep-after-last=*) SLICE__keep_after_last+=("${SLICE__item#*=}") ;;
-		# @todo require handling currently only affects groups of the same keep type, so combinations of groups/types/slices are unaffected
-		--require-none | --require=none) SLICE__require='none' ;;
-		--require-any | --require=any) SLICE__require='any' ;;
-		--require-all | --require=all) SLICE__require='all' ;;
+		# --require-none | --require=none) SLICE__require='none' ;;
+		# --require-any | --require=any) SLICE__require='any' ;;
+		# --require-all | --require=all) SLICE__require='all' ;;
+		# # @todo require handling currently only affects groups of the same keep type, so combinations of groups/types/slices are unaffected
 		--*) __unrecognised_flag "$SLICE__item" || return ;;
 		*) __unrecognised_argument "$SLICE__item" || return ;;
 		esac
@@ -5711,7 +5711,6 @@ function __split {
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
-					# trunk-ignore(shellcheck/SC2034)
 					__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
 					SPLIT__input="$1"
 					SPLIT__source_reference='SPLIT__input'

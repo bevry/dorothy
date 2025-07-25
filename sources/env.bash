@@ -67,7 +67,6 @@ function __on_env_finish {
 	fi
 
 	local -i index inherited_size=${#inherited[@]}
-	# trunk-ignore(shellcheck/SC2034)
 	local REPLY name value delimiter values=() is_path results=() original_value
 	__env_parse || return
 	set -- "${REPLY[@]}"

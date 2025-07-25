@@ -269,6 +269,7 @@ core) ;;
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 		__mkdirp "$DOROTHY_TRY__DIR"
 		function dorothy_try__trap {
+			# trunk-ignore(shellcheck/SC2034)
 			local trap_status="$1" trap_fn="$2" trap_cmd="$3" trap_subshell="$4" trap_context="$5"
 			if [[ $DOROTHY_TRY__CONTEXT == "$trap_context" ]]; then
 				if [[ $DOROTHY_TRY__SUBSHELL == "$trap_subshell" || $trap_fn == 'dorothy_try__wrapper' ]]; then
