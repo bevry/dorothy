@@ -1017,11 +1017,19 @@ BASH_ARRAY_CAPABILITIES+=' '
 # Errors Toolkit
 
 function __unrecognised_flag {
+	if [[ $# -ne 1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected a single argument, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	__print_lines "ERROR: ${FUNCNAME[1]}: An unrecognised flag was provided: $1" >&2 || :
 	return 22 # EINVAL 22 Invalid argument
 }
 
 function __unrecognised_argument {
+	if [[ $# -ne 1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected a single argument, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	__print_lines "ERROR: ${FUNCNAME[1]}: An unrecognised argument was provided: $1" >&2 || :
 	return 22 # EINVAL 22 Invalid argument
 }
@@ -1029,6 +1037,10 @@ function __unrecognised_argument {
 # affirm the mode value is a valid mode
 # __affirm_value_is_valid_write_mode <mode-value>
 function __affirm_value_is_valid_write_mode {
+	if [[ $# -ne 1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected a single argument, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	case "$1" in
 	'' | prepend | append | overwrite) return 0 ;; # valid modes
 	*)
@@ -1041,6 +1053,10 @@ function __affirm_value_is_valid_write_mode {
 # affirm the value is defined
 # __affirm_value_is_defined <value> <description>
 function __affirm_value_is_defined {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	if [[ -z $1 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} must be provided." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1050,6 +1066,10 @@ function __affirm_value_is_defined {
 # affirm the value is undefined
 # __affirm_value_is_undefined <value> <description>
 function __affirm_value_is_undefined {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	if [[ -n $1 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"value"} must not be already defined, it was: $(__dump --value="$1" || :)" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1059,6 +1079,10 @@ function __affirm_value_is_undefined {
 # affirm the value is an integer
 # __affirm_value_is_integer <value> <description>
 function __affirm_value_is_integer {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	if ! __is_integer "$1"; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} must be an integer, it was: $(__dump --value="$1" || :)" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1068,6 +1092,10 @@ function __affirm_value_is_integer {
 # affirm the value is a positive integer
 # __affirm_value_is_positive_integer <value> <description>
 function __affirm_value_is_positive_integer {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	if ! __is_positive_integer "$1"; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} must be a positive integer, it was: $(__dump --value="$1" || :)" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1077,6 +1105,10 @@ function __affirm_value_is_positive_integer {
 # affirm value is greater than one
 # __affirm_length_defined <value> <description>
 function __affirm_length_defined {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	# cannot use `__affirm_value_is_positive_integer` nor `_is_positive_integer` as they use this
 	if ! [[ $1 =~ ^[0-9]+$ ]]; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: The length of ${2:-"value"} must be a positive integer, it was: $(__dump --value="$1" || :)" >&2 || :
@@ -1091,6 +1123,10 @@ function __affirm_length_defined {
 # affirm variable is an array
 # __affirm_variable_is_array <variable-name>
 function __affirm_variable_is_array {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	if ! __is_array "$1"; then # ignore positive integer check, as that is too strict for this
 		__print_lines "ERROR: ${FUNCNAME[1]}: The variable $1 must be an array." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1098,6 +1134,10 @@ function __affirm_variable_is_array {
 }
 
 function __affirm_variable_name_is_valid {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
 	if ! [[ -n $1 && $1 =~ ^[-_a-zA-Z0-9]+$ ]]; then
 		# don't accept array keys/indexes, as this will end up with invalid logic somewhere down the line, instead pass it over as an input like so:
 		# before: __fn --source={arr[0]}
@@ -1131,12 +1171,18 @@ function __affirm_variable_name_is_valid {
 # >(if tee -a -- "${samasama[@]}" 2>&1; then touch "$semaphore"; else status=$?; touch "$semaphore"; return "$status"; fi)
 # note that this disabled errexit on the eval'd code
 function __return {
+	# __return
+	local RETURN__original_exit_status="$?"
+	if [[ $# -eq 0 ]]; then
+		return "$RETURN__original_exit_status"
+	fi
+
 	# __return $?
 	if [[ $# -eq 1 ]]; then
 		return "$1"
 	fi
 
-	# __return $? -- command ...
+	# __return ...[exit-status] -- command ...
 	local RETURN__item RETURN__status=0 RETURN__invoke_only_on_failure=no RETURN__invoke_command=()
 	while [[ $# -ne 0 ]]; do
 		RETURN__item="$1"
@@ -1366,6 +1412,7 @@ function __dereference {
 	if [[ -n $DEREFERENCE__name_reference ]]; then
 		if __is_array "$DEREFERENCE__name_reference"; then
 			# append is intentional, see __to usage
+			# perhaps adding mode would be a good idea
 			eval "$DEREFERENCE__name_reference+=(\"\$DEREFERENCE__source_reference\")" || return
 		else
 			eval "$DEREFERENCE__name_reference=\"\$DEREFERENCE__source_reference\"" || return
@@ -1374,6 +1421,7 @@ function __dereference {
 	if [[ -n $DEREFERENCE__value_reference ]]; then
 		if __is_array "$DEREFERENCE__value_reference"; then
 			# append is intentional, see __to usage
+			# perhaps adding mode would be a good idea
 			if __is_array "$DEREFERENCE__source_reference"; then
 				eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__source_reference}[@]}\")" || return
 			else
@@ -1467,7 +1515,7 @@ function __get_first_parent_that_is_not {
 
 # send the source to the targets, respecting the mode
 function __to {
-	local TO__item TO__source='' TO__targets=() TO__mode='' TO__inputs=() TO__input=''
+	local TO__item TO__source='' TO__targets=() TO__mode='' TO__inputs=() TO__input='' TO__coerce='yes'
 	while [[ $# -ne 0 ]]; do
 		TO__item="$1"
 		shift
@@ -1478,6 +1526,9 @@ function __to {
 			;;
 		--targets=*) __dereference --source="${TO__item#*=}" --value={TO__targets} || return ;;
 		--target=*) TO__targets+=("${TO__item#*=}") ;;
+		# can't use `__flag` as `__flag` uses `__to`, so the wrong variables will be set due to recursion
+		--no-coerce | --coerce=no | --no-coerce=yes) TO__coerce=no ;;
+		--coerce | --coerce=yes | --no-coerce=no) TO__coerce=yes ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$TO__mode" 'write mode' || return
 			TO__mode="${TO__item#*=}"
@@ -1526,7 +1577,8 @@ function __to {
 				# as such, any joining by __to is off limits
 				# such as: `local arr; arr+=('value'); __dump arr`
 				# ^ bash v4+ will make `arr` an array with a single `'value'` element, however bash v3 because `arr` was not just declared but also defined as an empty string, will make `arr` have two elements in which the first is an empty string and the second is `'value'`, so when we are using arrays, we need to always not just declare them but define them as arrays to avoid bash v3 mishaps
-				if __is_array "$TO__target"; then #  || ! __is_var_defined "$TO__target"; <-- introduces too many failures from divergences between bash versions <4.4 and others, as such require the caller to have code that is explicit and avoids such divergent silent failures
+				# as such, never do a `|| ! __is_var_defined "$TO__target"` check here and change the behaviour based on whether the value is declared but undefined, as that introduces too many failures from divergences between bash versions prior to 4.4, as such require the caller to have code that is explicit and avoids such divergent silent failures
+				if __is_array "$TO__target"; then #
 					# array to array
 					case "$TO__mode" in
 					prepend) eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return ;;
@@ -1536,7 +1588,7 @@ function __to {
 					esac
 				else
 					eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
-					if [[ $TO__source_size -eq 0 ]]; then
+					if [[ $TO__coerce == 'yes' && $TO__source_size -eq 0 ]]; then
 						# array of no elements to empty string
 						case "$TO__mode" in
 						prepend) : ;;
@@ -1544,7 +1596,7 @@ function __to {
 						'' | overwrite) eval "$TO__target=" || return ;;
 						# mode is already validated
 						esac
-					elif [[ $TO__source_size -eq 1 ]]; then
+					elif [[ $TO__coerce == 'yes' && $TO__source_size -eq 1 ]]; then
 						# array of single element to string
 						case "$TO__mode" in
 						prepend) eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return ;;
@@ -1554,29 +1606,25 @@ function __to {
 						esac
 					else
 						__print_lines "ERROR: ${FUNCNAME[0]}: If the source $(__dump --value="$TO__source" || :) is an array, then the target $(__dump --value="$TO__target" || :) must be as well:" >&2 || :
-						__dump "$TO__source" >&2 || :
-						if ! __is_special_file "$TO__target"; then
-							__dump "$TO__target" >&2 || :
-						fi
+						__dump "$TO__source" "$TO__target" >&2 || :
 						return 22 # EINVAL 22 Invalid argument
-						# don't do this the below commented out code, as it is ambiguous to what should happen when destination a variable, stream, or file:
-						# case "$TO__mode" in
-						# prepend) IFS= eval "$TO__target=\"\${${TO__source}[*]}\${${TO__target}}\"" || return ;;
-						# append) IFS= eval "$TO__target+=\"\${${TO__source}[*]}\")" || return ;;
-						# '' | overwrite) IFS= eval "$TO__target=\"\${${TO__source}[*]}\"" || return ;;
-						# # mode is already validated
-						# esac
 					fi
 				fi
 			else
 				# string to array
 				if __is_array "$TO__target"; then
-					case "$TO__mode" in
-					prepend) eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return ;;
-					append) eval "$TO__target+=(\"\${${TO__source}}\")" || return ;;
-					'' | overwrite) eval "$TO__target=(\"\${${TO__source}}\")" || return ;;
-					# mode is already validated
-					esac
+					if [[ $TO__coerce == 'yes' ]]; then
+						case "$TO__mode" in
+						prepend) eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return ;;
+						append) eval "$TO__target+=(\"\${${TO__source}}\")" || return ;;
+						'' | overwrite) eval "$TO__target=(\"\${${TO__source}}\")" || return ;;
+						# mode is already validated
+						esac
+					else
+						__print_lines "ERROR: ${FUNCNAME[0]}: If the source $(__dump --value="$TO__source" || :) is a string, then the target $(__dump --value="$TO__target" || :) must be as well:" >&2 || :
+						__dump "$TO__source" "$TO__target" >&2 || :
+						return 22 # EINVAL 22 Invalid argument
+					fi
 				else
 					# string to string
 					case "$TO__mode" in
@@ -1606,7 +1654,7 @@ function __to {
 			local TO__value=''
 			if __is_array "$TO__source"; then
 				eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
-				if [[ $TO__source_size -eq 1 ]]; then
+				if [[ $TO__coerce == 'yes' && $TO__source_size -eq 1 ]]; then
 					# array of single element to string
 					eval "TO__value=\"\${${TO__source}[0]}\"" || return
 				else
@@ -4297,9 +4345,9 @@ function __flag {
 	fi
 	# set the inputs
 	if __is_array "$FLAG__source_reference"; then
-		eval "set -- \"\${${FLAG__source_reference}[@]}\""
+		eval 'set -- "${'"$FLAG__source_reference"'[@]}"'
 	else
-		eval "set -- \"\${${FLAG__source_reference}}\""
+		eval 'set -- "${'"$FLAG__source_reference"'}"'
 	fi
 	# process the inputs
 	local FLAG__name FLAG__inverted FLAG__value FLAG__values=()
@@ -4427,7 +4475,7 @@ function __array {
 		# the alternative would be using `{...@Q}` however that isn't available on all bash versions, but this is equally good, perhaps better
 		ARRAY__results+=("$ARRAY__fill")
 	done
-	__to --source={ARRAY__results} --mode="$ARRAY__mode" --targets={ARRAY__targets} || return
+	__to --source={ARRAY__results} --mode="$ARRAY__mode" --targets={ARRAY__targets} --no-coerce || return
 }
 
 # reverses the array or string

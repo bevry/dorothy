@@ -89,7 +89,7 @@ function stdinargs {
 		'--inline' | '--inline=yes')
 			option_inline='yes'
 			;;
-		# don't use __Flag as we want to do the timeout_max modification
+		# don't use __flag as we want to do the `timeout_max` modification
 		'--no-stdin' | '--stdin=no')
 			option_stdin='no'
 			;;
