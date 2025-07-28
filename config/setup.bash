@@ -70,7 +70,7 @@ HOMEBREW_FONTS=(
 	'font-source-code-pro' # many editors require this
 	'font-ubuntu'
 )
-# HOMEBREW_UNINSTALL=()        # for casks and formulas
+# HOMEBREW_UNINSTALL=() # for casks and formulas
 # HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
 
 # Golang / go
