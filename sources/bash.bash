@@ -220,6 +220,26 @@ function __print_style {
 	# fi
 }
 
+function __print_join {
+	local parts=() delimiter=$'\n'
+	while [[ $# -ne 0 ]]; do
+		case "$1" in
+		--delimiter=*) delimiter="${1#*=}" ;;
+		--)
+			shift
+			break
+			;;
+		*) break ;;
+		esac
+		shift
+	done
+	while [[ $# -gt 1 ]]; do
+		parts+=("$1$delimiter")
+		shift
+	done
+	printf '%s' "${parts[@]}" "$@"
+}
+
 function __dump {
 	if [[ $# -eq 0 ]]; then
 		return 0
@@ -5277,7 +5297,7 @@ function __replace {
 		--no-verbose* | --verbose*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
 		--no-quiet* | --quiet*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
 		# everything else assume is a lookup to save us from duplicating case statements:
-		--*=*)
+		--*)
 			if [[ -z ${REPLACE__item#*=} ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$REPLACE__item" || :) option must not have an empty value." >&2 || :
 				__dump {REPLACE__lookups} "{$REPLACE__source_reference}" >&2 || :
@@ -5285,8 +5305,6 @@ function __replace {
 			fi
 			REPLACE__lookups+=("$REPLACE__item")
 			;;
-		# done
-		--*) __unrecognised_flag "$REPLACE__item" || return ;;
 		*) __unrecognised_argument "$REPLACE__item" || return ;;
 		esac
 	done
@@ -5336,26 +5354,26 @@ function __replace {
 			;;
 
 		# --replace-this-prefix=*
-		--prefix=*)
+		--prefix=* | --leading=*)
 			if [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; then
 				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#"$REPLACE__lookup_query"}"
 			fi
 			;;
 		# --replace-all-occurrences-of-this-prefix=*
-		--prefix-all=*)
+		--prefix-all=* | --leading-all=*)
 			while [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; do
 				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#"$REPLACE__lookup_query"}"
 			done
 			;;
 
 		# --replace-this-suffix=*
-		--suffix=*)
+		--suffix=* | --trailing=*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; then
 				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replacement"
 			fi
 			;;
 		# --replace-all-occurrences-of-this-suffix=*
-		--suffix-all=*)
+		--suffix-all=* | --trailing-all=*)
 			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; do
 				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replacement"
 			done
@@ -5368,6 +5386,13 @@ function __replace {
 		# --replace-all-occurrences-of-this-pattern=*
 		--pattern-all=*)
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
+			;;
+
+		--leading-whitespace)
+			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[![:space:]]*}"}"
+			;;
+		--trailing-whitespace)
+			REPLACE__value_wip="${REPLACE__value_wip%"${REPLACE__value_wip##*[![:space:]]}"}"
 			;;
 
 		# --replace-everything-before-the-start-of-this=*
