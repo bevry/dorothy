@@ -89,9 +89,9 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -135,9 +135,9 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -252,9 +252,9 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -350,9 +350,9 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -599,9 +599,9 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -745,9 +745,9 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -898,9 +898,9 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -1078,9 +1078,9 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
@@ -1284,9 +1284,9 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __slice {item} {exit_status_variable} -- 1 -1 ;; # trim starting { and trailing }
+			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
 			*)
-				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2
+				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 				;;
 			esac
