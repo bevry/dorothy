@@ -189,6 +189,26 @@ function __print_value_lines_or_line {
 	fi
 }
 
+function __print_join {
+	local parts=() delimiter=$'\n'
+	while [[ $# -ne 0 ]]; do
+		case "$1" in
+		--delimiter=*) delimiter="${1#*=}" ;;
+		--)
+			shift
+			break
+			;;
+		*) break ;;
+		esac
+		shift
+	done
+	while [[ $# -gt 1 ]]; do
+		parts+=("$1$delimiter")
+		shift
+	done
+	printf '%s' "${parts[@]}" "$@"
+}
+
 function __print_without_styles {
 	# trim flag names and only output values
 	local args=() trail='yes'
@@ -218,26 +238,6 @@ function __print_style {
 	# this is two functions for testing
 	__print_without_styles "$@" || return
 	# fi
-}
-
-function __print_join {
-	local parts=() delimiter=$'\n'
-	while [[ $# -ne 0 ]]; do
-		case "$1" in
-		--delimiter=*) delimiter="${1#*=}" ;;
-		--)
-			shift
-			break
-			;;
-		*) break ;;
-		esac
-		shift
-	done
-	while [[ $# -gt 1 ]]; do
-		parts+=("$1$delimiter")
-		shift
-	done
-	printf '%s' "${parts[@]}" "$@"
 }
 
 function __dump {
