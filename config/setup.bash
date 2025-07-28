@@ -54,7 +54,6 @@ HOMEBREW_FONTS=(
 	'font-fira-mono-nerd-font'
 	'font-hack' # many editors require this
 	'font-hasklig'
-	'font-ibm-plex' # many editors require this
 	'font-inconsolata-go-nerd-font'
 	'font-inter' # many apps require this
 	'font-jetbrains-mono'
@@ -104,6 +103,7 @@ HOMEBREW_FONTS=(
 # Used by `setup-utils`
 # You can use `setup-utils --configure` to configure these.
 SETUP_UTILS=(
+	'ibm-plex' # many editors require this
 	'nano'
 	'vim'
 )
