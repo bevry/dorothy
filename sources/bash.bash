@@ -5108,18 +5108,27 @@ function __iterate {
 					# send the result of index via process substitution to avoid complicated eval and referencing magic to avoid conflicts between recursion
 					case "$ITERATE__lookup_option" in
 					--keep-before-first=*)
+						# really, this could just become:
+						# __index --forward --source={my_array_or_string} --target={the_index} --value="my-needle"
+						# __slice --source+target={my_array_or_string} -- 0 "$the_index"
 						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
 						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__size; ITERATE__overlap_index++)); do
 							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
 						done
 						;;
 					--keep-before-last=*)
+						# really, this could just become:
+						# __index --reverse --source={my_array_or_string} --target={the_index} --value="my-needle"
+						# __slice --source+target={my_array_or_string} -- 0 "$the_index"
 						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
 						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__size; ITERATE__overlap_index++)); do
 							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
 						done
 						;;
 					--keep-after-first=*)
+						# really, this could just become:
+						# __index --forward --source={my_array_or_string} --target={the_index} --value="my-needle"
+						# __slice --source+target={my_array_or_string} -- "$((the_index + 1))"
 						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
 						ITERATE__lookup_size=${#ITERATE__lookup}
 						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
@@ -5127,6 +5136,9 @@ function __iterate {
 						done
 						;;
 					--keep-after-last=*)
+						# really, this could just become:
+						# __index --reverse --source={my_array_or_string} --target={the_index} --value="my-needle"
+						# __slice --source+target={my_array_or_string} -- "$((the_index + 1))"
 						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
 						ITERATE__lookup_size=${#ITERATE__lookup}
 						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
