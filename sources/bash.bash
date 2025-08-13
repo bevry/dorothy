@@ -4552,7 +4552,6 @@ function __reverse {
 	# action
 	if __is_array "$REVERSE__source_reference"; then
 		# support sparse arrays
-		# trunk-ignore(shellcheck/SC2034)
 		local REVERSE__indices=() REVERSE__result=()
 		eval 'REVERSE__indices=("${!'"$REVERSE__source_reference"'[@]}")' || return
 		local -i REVERSE__index REVERSE__source_index REVERSE__size="${#REVERSE__indices[@]}"
@@ -4561,6 +4560,8 @@ function __reverse {
 			eval 'REVERSE__result+=("${'"$REVERSE__source_reference"'[REVERSE__source_index]}")' || return
 		done
 	else
+		# trunk-ignore(shellcheck/SC2178)
+		local REVERSE__result=''
 		local -i REVERSE__source_index REVERSE__source_size
 		eval 'REVERSE__source_size=${#'"$REVERSE__source_reference"'}' || return
 		for ((REVERSE__source_index = REVERSE__source_size - 1; REVERSE__source_index >= 0; REVERSE__source_index--)); do
