@@ -1,4 +1,24 @@
 #!/usr/bin/env bash
+# `bash.bash` is a source file from the Dorothy dotfile ecosystem: https://dorothy.bevry.me
+# To use it standalone in your non-Dorothy projects, you can:
+# ``` bash
+# eval "$(curl -fsSL 'https://raw.githubusercontent.com/bevry/dorothy/HEAD/sources/bash.bash')"
+# ```
+# Or, with complete command conventions, you can:
+# ``` bash
+# #!/usr/bin/env bash
+# function my_command() (
+#   eval "$(curl -fsSL 'https://raw.githubusercontent.com/bevry/dorothy/HEAD/sources/bash.bash')"
+#   # ... your code here ...
+# )
+# # fire if invoked standalone
+# if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+#   my_command "$@"
+# fi
+# ```
+# Replace `HEAD` with the latest commit hash to protect against breaking changes.
+# Regardless of how you use `bash.bash`, it, like Dorothy, is RPL-1.5 licensed:
+# https://github.com/bevry/dorothy/blob/HEAD/LICENSE.md
 
 # For bash version compatibility and changes, see:
 # See <https://github.com/bevry/dorothy/blob/master/docs/bash/versions.md> for documentation about significant changes between bash versions.
@@ -649,6 +669,8 @@ fi
 # Bash >= 5.1, >= 4, < 4
 if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 	# bash >= 5.1
+	BASH_NATIVE_UPPERCASE_SUFFIX='@U'
+	BASH_NATIVE_LOWERCASE_SUFFIX='@L'
 	function __get_uppercase_first_letter {
 		# trim -- prefix
 		if [[ ${1-} == '--' ]]; then
@@ -678,6 +700,8 @@ else
 	# bash < 5.1
 	# @Q is no longer available, however it is strange, so don't shim
 	if [[ $BASH_VERSION_MAJOR -eq 4 ]]; then
+		BASH_NATIVE_UPPERCASE_SUFFIX='^^'
+		BASH_NATIVE_LOWERCASE_SUFFIX=',,'
 		# bash >= 4
 		function __get_uppercase_first_letter {
 			# trim -- prefix
@@ -705,6 +729,8 @@ else
 		}
 	else
 		# bash < 4
+		BASH_NATIVE_UPPERCASE_SUFFIX=''
+		BASH_NATIVE_LOWERCASE_SUFFIX=''
 		# bash versions prior to v4 also do not have:
 		# `declare -u`: -u	to convert NAMEs to upper case on assignment
 		# `declare -l`: -l	to convert NAMEs to lower case on assignment
@@ -778,13 +804,6 @@ if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 3 ]]; then
 	# declare -a arr=...
 	BASH_CAN_DECLARE_P_VAR='no'
 	function __get_var_declaration {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		if [[ $# -eq 0 ]]; then
-			return 0
-		fi
 		# process
 		local GET_VAR_DECLARATION__fodder GET_VAR_DECLARATION__declaration GET_VAR_DECLARATION__missing=()
 		GET_VAR_DECLARATION__fodder="$(declare -p)"
@@ -828,19 +847,10 @@ else
 	# trunk-ignore(shellcheck/SC2034)
 	BASH_CAN_DECLARE_P_VAR='yes'
 	function __get_var_declaration {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# process
 		declare -p "$@" || return
 	}
 fi
 function __is_var_defined {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
 	__affirm_length_defined $# 'variable reference' || return
 	# process
 	local IS_VAR_DEFINED__item IS_VAR_DEFINED__reference IS_VAR_DEFINED__fodder
@@ -849,17 +859,12 @@ function __is_var_defined {
 		shift
 		# support with and without squigglies for these references
 		__dereference --source="$IS_VAR_DEFINED__item" --name={IS_VAR_DEFINED__reference} || return
-		__affirm_variable_name_is_valid "$IS_VAR_DEFINED__reference" || return
 		IS_VAR_DEFINED__fodder="$(__get_var_declaration "$IS_VAR_DEFINED__reference" 2>/dev/null)" || return 1
 		[[ $IS_VAR_DEFINED__fodder == *'='* ]] || return 1
 	done
 	return 0
 }
 function __is_var_declared {
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
 	__affirm_length_defined $# 'variable reference' || return
 	# process
 	local IS_VAR_DECLARED__item IS_VAR_DECLARED__reference
@@ -868,9 +873,7 @@ function __is_var_declared {
 		shift
 		# support with and without squigglies for these references
 		__dereference --source="$IS_VAR_DECLARED__item" --name={IS_VAR_DECLARED__reference} || return
-		__affirm_variable_name_is_valid "$IS_VAR_DECLARED__reference" || return
 		__get_var_declaration "$IS_VAR_DECLARED__reference" &>/dev/null || return 1
-		return 0
 	done
 	return 0
 }
@@ -884,7 +887,8 @@ function __is_var_set {
 # if you do `local arr=(); a='string'` then `declare -p arr` will report `arr` as an array with a single element
 # to avoid that, you must do `local arr; a='string'` as such, never mangling types; or use separate variables (safe and explicit)
 function __is_array {
-	local IS_ARRAY__item IS_ARRAY__size IS_ARRAY__reference='' IS_ARRAY__fodder
+	local -i IS_ARRAY__size
+	local IS_ARRAY__item IS_ARRAY__reference='' IS_ARRAY__fodder
 	__affirm_length_defined $# 'variable reference' || return
 	while [[ $# -ne 0 ]]; do
 		IS_ARRAY__item="$1"
@@ -897,7 +901,7 @@ function __is_array {
 			;;
 		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
 		esac
-		# verify the reference
+		# verify the reference, can't use __dereference as __dereference calls __is_array
 		__affirm_variable_name_is_valid "$IS_ARRAY__reference" || return
 		if [[ $IS_ARRAY__reference == IS_ARRAY__* ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
@@ -907,6 +911,36 @@ function __is_array {
 		IS_ARRAY__fodder="$(__get_var_declaration "$IS_ARRAY__reference" 2>/dev/null)" || return 1
 		[[ $IS_ARRAY__fodder == 'declare -a '* ]] || return 1
 	done
+	return 0
+}
+
+function __is_sparse_array {
+	local -i IS_SPARSE_ARRAY__size IS_SPARSE_ARRAY__last IS_SPARSE_ARRAY__size_minus_one
+	local IS_SPARSE_ARRAY__item IS_SPARSE_ARRAY__reference='' IS_SPARSE_ARRAY__fodder IS_SPARSE_ARRAY__indices=()
+	__affirm_length_defined $# 'variable reference' || return
+	while [[ $# -ne 0 ]]; do
+		IS_SPARSE_ARRAY__item="$1"
+		shift
+		__dereference --source="$IS_SPARSE_ARRAY__item" --name={IS_SPARSE_ARRAY__reference} || return
+		# verify the variable is an array
+		IS_SPARSE_ARRAY__fodder="$(__get_var_declaration "$IS_SPARSE_ARRAY__reference" 2>/dev/null)" || return 1
+		[[ $IS_SPARSE_ARRAY__fodder == 'declare -a '* ]] || return 1
+		# now tht we know it is an array, verify the last index is the index count minus one
+		eval 'IS_SPARSE_ARRAY__indices=("${!'"$IS_SPARSE_ARRAY__reference"'[@]}")' || return 1
+		IS_SPARSE_ARRAY__size="${#IS_SPARSE_ARRAY__indices[@]}"
+		if [[ $IS_SPARSE_ARRAY__size -eq 0 ]]; then
+			# empty array is not sparse
+			return 1
+		fi
+		IS_SPARSE_ARRAY__last="${IS_SPARSE_ARRAY__indices[IS_SPARSE_ARRAY__size - 1]}"
+		IS_SPARSE_ARRAY__size_minus_one=$((IS_SPARSE_ARRAY__size - 1))
+		if [[ $IS_SPARSE_ARRAY__last -eq IS_SPARSE_ARRAY__size_minus_one ]]; then
+			# if the last index is the size minus one, then it is not sparse
+			return 1
+		fi
+		# it is actually sparse, as it is an non-zero-length array, and the last index is not the size minus one
+	done
+	return 0
 }
 
 # Shim Array Support
@@ -1158,7 +1192,8 @@ function __affirm_variable_name_is_valid {
 		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
 		return 22
 	fi
-	if ! [[ -n $1 && $1 =~ ^[-_a-zA-Z0-9]+$ ]]; then
+	if [[ -z $1 ]] || ! [[ $1 =~ ^[_a-zA-Z0-9]+$ ]]; then
+		# even though : and - can be literals, they are not valid as variable names
 		# don't accept array keys/indexes, as this will end up with invalid logic somewhere down the line, instead pass it over as an input like so:
 		# before: __fn --source={arr[0]}
 		# after:  __fn -- "${arr[0]}"
@@ -1424,6 +1459,8 @@ function __dereference {
 		__print_lines "ERROR: ${FUNCNAME[0]}: The source reference is required." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
+	# validate the source reference is valid
+	__affirm_variable_name_is_valid "$DEREFERENCE__source_reference" || return
 	# validate that the reference does not use our variable name prefix
 	if [[ -n $DEREFERENCE__source_prefix && -n $DEREFERENCE__internal_prefix && $DEREFERENCE__source_prefix == "$DEREFERENCE__internal_prefix" ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source reference [$DEREFERENCE__source_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
@@ -4741,7 +4778,7 @@ function __at {
 	AT__negative_size="$((AT__size * -1))"
 	for AT__index in "${AT__indices[@]}"; do
 		# validate the index
-		if [[ $AT__index -eq '-0' ]]; then
+		if [[ $AT__index == '-0' ]]; then # -eq will convert -0 to 0
 			__print_lines "ERROR: ${FUNCNAME[0]}: The index -0 convention only makes sense when used as a length; for a starting index that fetches the last character, you want -1." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		elif [[ $AT__size -eq 0 || $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
@@ -4756,24 +4793,187 @@ function __at {
 	__to --source={AT__results} --mode="$AT__mode" --targets={AT__targets} || return
 }
 
-# __iterate fetches the indices of lookups against the content of the source reference
-# the fetching traverses the cursor along the source content in the specified DIRECTION MODE
-# it matches the lookups against the source content at the location of the cursor, by cursor position first then by lookup position
-# if there is a match from an unconsumed lookup, the result index will be noted
-# once a match occurs, SEEK MODE takes effect:
-# in `first` seek mode, the operation will conclude upon the first matched lookup
-# in `each` seek mode, the operation will conclude after the source content is exhausted or after all lookups have been consumed, whichever occurs first; each lookup can only be matched once, in which it is marked as consumed, and unable to be used again
-# in `multiple` seek mode, the operation will conclude after the source content is exhausted
-# once a match has completed, OVERLAP MODE takes effect:
-# if overlapping, in `each` and `multiple` seek modes, additional matches are allowed on the same cursor position and (if source content is a string) throughout the matched lookup segment
-# if not overlapping, in `each` and `multiple` seek modes, no more matches are allowed within the cursor position and (if source content is a string) the matched lookup segment, skipping around it
-# once the operation is concluded, REQUIRE MODE takes effect:
-# in `none` require mode, no checks for matched lookups are made
-# in `any` require mode, at least one lookup must have matched at least once
-# in `all` require mode, all the specified lookups must have matched at least once
-# if no require mode failures, then the noted indexes are sent to the targets
+function __case {
+	local CASE__conversion='lower'
+	# <single-source helper arguments>
+	local CASE__item CASE__source_reference='' CASE__targets=() CASE__mode='' CASE__inputs=() CASE__input=''
+	while [[ $# -ne 0 ]]; do
+		CASE__item="$1"
+		shift
+		case "$CASE__item" in
+		--source={*})
+			__affirm_value_is_undefined "$CASE__source_reference" 'source reference' || return
+			__dereference --source="${CASE__item#*=}" --name={CASE__source_reference} || return
+			;;
+		--source+target={*})
+			CASE__item="${CASE__item#*=}"
+			CASE__targets+=("$CASE__item")
+			__affirm_value_is_undefined "$CASE__source_reference" 'source reference' || return
+			__dereference --source="$CASE__item" --name={CASE__source_reference} || return
+			;;
+		--targets=*) __dereference --source="${CASE__item#*=}" --value={CASE__targets} || return ;;
+		--target=*) CASE__targets+=("${CASE__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return
+			CASE__mode="${CASE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return
+			CASE__mode="${CASE__item:2}"
+			;;
+		--)
+			__affirm_value_is_undefined "$CASE__source_reference" 'source reference' || return
+			# they are inputs
+			if [[ $# -eq 1 ]]; then
+				# a string input
+				# trunk-ignore(shellcheck/SC2034)
+				CASE__input="$1"
+				CASE__source_reference='CASE__input'
+			else
+				# an array input
+				CASE__inputs+=("$@")
+				CASE__source_reference='CASE__inputs'
+			fi
+			shift $#
+			break
+			;;
+		# </single-source helper arguments>
+		--case=* | --convert=* | --conversion=* | --case-convert=* | --case-conversion=*) CASE__conversion="${CASE__item#*=}" ;;
+		--upper | --uppercase | --upper-case) CASE__conversion='upper' ;;
+		--lower | --lowercase | --lower-case) CASE__conversion='lower' ;;
+		--*) __unrecognised_flag "$CASE__item" || return ;;
+		*) __unrecognised_argument "$CASE__item" || return ;;
+		esac
+	done
+	__affirm_value_is_defined "$CASE__source_reference" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$CASE__mode" || return
+	if [[ -z $CASE__conversion ]]; then
+		CASE__conversion='lower'
+	fi
+	if [[ $CASE__conversion != 'lower' && $CASE__conversion != 'upper' ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid case mode: $(__dump --value="$CASE__conversion" || :), expected $(__dump --value=lower) or $(__dump --value=upper)." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# action
+	# we do a sparse array check here, as the native case changes convert sparse arrays into complete arrays by redoing indices
+	if [[ -n $BASH_NATIVE_UPPERCASE_SUFFIX ]] && ! __is_sparse_array "$CASE__source_reference"; then
+		if __is_array "$CASE__source_reference"; then
+			local CASE__results=()
+			if [[ $CASE__conversion == 'upper' ]]; then
+				eval 'CASE__results=("${'"$CASE__source_reference"'[@]'"$BASH_NATIVE_UPPERCASE_SUFFIX"'}")' || return
+			else
+				eval 'CASE__results=("${'"$CASE__source_reference"'[@]'"$BASH_NATIVE_LOWERCASE_SUFFIX"'}")' || return
+			fi
+			__to --source={CASE__results} --mode="$CASE__mode" --targets={CASE__targets} || return
+		else
+			local CASE__result=''
+			if [[ $CASE__conversion == 'upper' ]]; then
+				eval 'CASE__result="${'"${CASE__source_reference}${BASH_NATIVE_UPPERCASE_SUFFIX}"'}"' || return
+			else
+				eval 'CASE__result="${'"${CASE__source_reference}${BASH_NATIVE_LOWERCASE_SUFFIX}"'}"' || return
+			fi
+			__to --source={CASE__result} --mode="$CASE__mode" --targets={CASE__targets} || return
+		fi
+	else
+		if __is_array "$CASE__source_reference"; then
+			local -i CASE__index
+			# trunk-ignore(shellcheck/SC2034)
+			local CASE__results=() CASE__indices=()
+			__indices --source="{$CASE__source_reference}" --target={CASE__indices} || return
+			# trunk-ignore(shellcheck/SC2034)
+			for CASE__index in "${CASE__indices[@]}"; do
+				if [[ $CASE__conversion == 'upper' ]]; then
+					eval 'CASE__results[CASE__index]="$(__get_uppercase_string -- "${'"$CASE__source_reference"'[CASE__index]}")"' || return
+				else
+					eval 'CASE__results[CASE__index]="$(__get_lowercase_string -- "${'"$CASE__source_reference"'[CASE__index]}")"' || return
+				fi
+			done
+			__to --source={CASE__results} --mode="$CASE__mode" --targets={CASE__targets} || return
+		else
+			# trunk-ignore(shellcheck/SC2034)
+			local CASE__result=''
+			if [[ $CASE__conversion == 'upper' ]]; then
+				eval 'CASE__result="$(__get_uppercase_string -- "${'"$CASE__source_reference"'}")"' || return
+			else
+				eval 'CASE__result="$(__get_lowercase_string -- "${'"$CASE__source_reference"'}")"' || return
+			fi
+			__to --source={CASE__result} --mode="$CASE__mode" --targets={CASE__targets} || return
+		fi
+	fi
+}
+
+# -----------------------------------------------------------------------------
+# A NOTE ON THE REMOVAL OF `--keep-*` ARGUMENTS
+#
+# `__iterate`, `__evict`, `__slice` all use to contain support `--keep-*` arguments, however they were all better served by either `__replace` or by the following two calls:
+#
+# `--keep-before-first=*` is:
+# `__index --forward --source={my_array_or_string} --target={the_index} --value="my-needle"`
+# `__slice --source+target={my_array_or_string} -- 0 "$the_index"`
+#
+# `--keep-before-last=*` is:
+# `__index --reverse --source={my_array_or_string} --target={the_index} --value="my-needle"`
+# `__slice --source+target={my_array_or_string} -- 0 "$the_index"`
+#
+# `--keep-after-first=*` is:
+# `__index --forward --source={my_array_or_string} --target={the_index} --value="my-needle"`
+# `__slice --source+target={my_array_or_string} -- "$((the_index + 1))"`
+#
+# `--keep-after-last=*` is:
+# `__index --reverse --source={my_array_or_string} --target={the_index} --value="my-needle"`
+# `__slice --source+target={my_array_or_string} -- "$((the_index + 1))"`
+#
+# for their original implementation, see fb6ead4ea1a16506af6536aa08ce227e9eb98867fb6ead4ea1a16506af6536aa08ce227e9eb98867 and its subsequent commit for their removal
+#
+# -----------------------------------------------------------------------------
+# WHAT IS `__iterate`
+#
+# It is the super function of `__index`, `__has`, and `__evict`.
+# They use to all be distinct functions, however, it turns out they are all the same internals only with different outputs.
+#
+# -----------------------------------------------------------------------------
+# HOW DOES `__iterate` WORK
+#
+# Indices are fetched via `__indices` for the source reference, this supports strings, arrays, and sparse arrays.
+# If there are no indices:
+# - `__has` will return `1`
+# - `__evict` will send the result, which will just be the empty source
+# - `__index` will fail
+#
+# We then fetch the first and last indices in the original order, for use by `--{suffix,prefix}` lookups.
+#
+# If reversing/descending, indices are now reversed, and we extract the first in the new order, for use by `--{pattern,glob}` lookups.
+#
+# We then extract whether our source is an array or not, and validate lookups accordingly.
+# Array sources can lookup empty array items, other empty lookups don't make sense.
+# String sources don't make sense with any empty lookup.
+#
+# BY MODE:
+# To iterate over the source, this is determined by `--by={lookup,cursor}`.
+# If `--by=lookup`, we iterate by each lookup, with each lookup cycling through all index cursors.
+# If `--by=cursor`, we iterate over each cursor index, with each index cycling through each lookup.
+# i.e.
+# If we do `--first` (which is `--by=lookup --seek=first --require=any`), we seek the first lookup in their lookup order, e.g. `__iterate --first --value=b --value=a -- abc` will match `b` and output `1`.
+# If we do `--any` (which is `--by=cursor --seek=first --require=any`), we seek the first lookup in their cursor order, e.g. `__iterate --any --value=b --value=a -- abc` will match `a` and output `0`.
+#
+# SEEK MODE:
+# If `--seek=first`, the operation will conclude upon the first matched lookup.
+# If `--seek=each`, the operation will conclude after the source content is exhausted or after all lookups have been consumed, whichever occurs first; each lookup can only be matched once, in which it is marked as consumed, and unable to be used again.
+# If `--seek=multiple`, the operation will conclude after the source content is exhausted
+# once a match has completed, OVERLAP MODE takes effect.
+#
+# OVERLAP MODE:
+# If `--overlap`, then in `each` and `multiple` seek modes, additional matches are allowed on the same cursor position and (if source content is a string) throughout the matched lookup segment.
+# If `--no-overlap`, then in `each` and `multiple` seek modes, no more matches are allowed within the cursor position and (if source content is a string) the matched lookup segment, skipping around it.
+#
+# REQUIRE MODE:
+# Upon conclusion of the operation:
+# If `--require=none`, no checks for matched lookups are made.
+# If `--require=any`, at least one lookup must have matched at least once.
+# If `--require=all`, all the specified lookups must have matched at least once.
+# If no require mode failures, then the noted indexes are sent to the targets.
 function __iterate {
-	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' # ITERATE__on='result'
+	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' ITERATE__case=''
 	# <single-source helper arguments>
 	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode='' # ITERATE__inputs=() ITERATE__input=''
 	while [[ $# -ne 0 ]]; do
@@ -4830,33 +5030,32 @@ function __iterate {
 		# </single-source helper arguments>
 		# lookups:
 		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*) ITERATE__lookups+=("$ITERATE__item") ;;
-		--keep-before-first=* | --keep-before-last=* | --keep-after-first=* | --keep-after-last=*)
-			if [[ $ITERATE__operation != 'evict' ]]; then
-				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option is only valid for the $(__dump --value=evict || :) operation." >&2 || :
-				return 22 # EINVAL 22 Invalid argument
-			fi
-			ITERATE__lookups+=("$ITERATE__item")
-			;;
 		# order mode
 		--by=lookup | --order=lookup | --order=argument) ITERATE__by='lookup' ;;
 		--by=cursor | --by=content | --order=content | --order=source) ITERATE__by='content' ;;
-		# content direction mode:
+		# content direction mode
 		--direction=descending | --direction=reverse | --descending | --reverse) ITERATE__direction='descending' ;;
 		--direction=ascending | --direction=forward | --ascending | --forward) ITERATE__direction='ascending' ;; # default
-		# seek mode:
+		# seek mode
 		--seek=first) ITERATE__seek='first' ;;       # only the first match of any needle
 		--seek=each) ITERATE__seek='each' ;;         # only the first match of each needle
 		--seek=multiple) ITERATE__seek='multiple' ;; # all matches of all needles
-		# overlap mode:
+		# overlap mode
 		--overlap=yes | --overlap) ITERATE__overlap='yes' ;;  # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" 3 times and "a" 4 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 1 time
 		--overlap=no | --no-overlap) ITERATE__overlap='no' ;; # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" 0 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 0 times
-		# require mode:
+		# require mode
 		--require=none | --require-none | --optional) ITERATE__require='none' ;;
 		--require=any | --require-any) ITERATE__require='any' ;;
 		--require=all | --require-all) ITERATE__require='all' ;;
 		# quiet mode
 		--no-verbose* | --verbose*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
 		--no-quiet* | --quiet*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
+		# case conversion mode
+		--case=* | --convert=* | --conversion=* | --case-convert=* | --case-conversion=*) ITERATE__case="${CASE__item#*=}" ;;
+		--upper | --uppercase | --upper-case) ITERATE__case='upper' ;;
+		--lower | --lowercase | --lower-case) ITERATE__case='lower' ;;
+		--ignore-case | --ignore-case=yes | --respect-case=no | --case-insensitive | --case-insensitive=yes | --case-sensitive=no) ITERATE__case='lower' ;;
+		--ignore-case=no | --respect-case | --respect-case=yes | --case-insensitive=no | --case-sensitive | --case-sensitive=yes) : ;; # no-op
 		# operation mode
 		--index | --indices)
 			ITERATE__operation='index'
@@ -4878,8 +5077,8 @@ function __iterate {
 			ITERATE__require='all'
 			;;
 		# evict on mode
-		# --on=content) ITERATE__on='content' ;; # @todo implement
-		# --on=result) ITERATE__on='result' ;; <-- this is possible by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the __replace function
+		# --on=content) ITERATE__on='content' ;;
+		# --on=result) ITERATE__on='result' ;; <-- this would work by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the `__replace` function
 		# shortcut mode mostly for has/evict
 		--first)
 			ITERATE__by='lookup'
@@ -4899,6 +5098,13 @@ function __iterate {
 			ITERATE__require='all'
 			;;
 		--multiple)
+			# `--by={cursor,lookup}` does not affect the result content only the result order if not overlapping
+			# if overlapping, then `--by={cursor,lookup}` will impact the result content, and naturally, its order
+			# overlap impacts the order, as would be the case in `--needle=ba --needle=ab --multiple --no-overlap -- 'aba bab ab ba'`
+			# there are absolutely no good naming options (unlike `--{any,each}` for toggling `--by={cursor,lookup}` for `--seek=multiple`
+			# as `--all` already makes sense as a synonym for `--each` due to its `__has` usage when contrasted between `--{any,all}`
+			# and `--{every,repeat,multiple}` are all equally ambiguous
+			# as such, just make sure you specify `--by={cursor,lookup}` and `--[no]-overlap` with `--multiple` to ensure everyone is clear on what you intended
 			ITERATE__by='lookup'
 			ITERATE__seek='multiple'
 			ITERATE__require='all'
@@ -4942,21 +5148,28 @@ function __iterate {
 	local ITERATE__array
 	if __is_array "$ITERATE__source_reference"; then
 		ITERATE__array=yes
-		# if we are an array, only ensure , ensure these aren't empty
+		# if we are an array, validate what can be empty and what cannot be
 		for ITERATE__item in "${ITERATE__lookups[@]}"; do
-			case "$ITERATE__item" in
-			--prefix=* | --suffix=* | --pattern=* | --glob=*)
-				if [[ -z ${ITERATE__item#*=} ]]; then
+			if [[ -z ${ITERATE__item#*=} ]]; then
+				case "$ITERATE__item" in
+				# we can lookup empty array elements
+				--value=* | --needle=*) : ;;
+
+				# these lookups make no sense if they are empty
+				--prefix=* | --suffix=* | --pattern=* | --glob=*)
 					__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value." >&2 || :
 					__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
 					return 22 # EINVAL 22 Invalid argument
-				fi
-				;;
-			esac
+					;;
+
+				# invalid lookup
+				*) __unrecognised_flag "$ITERATE__item" || return ;;
+				esac
+			fi
 		done
 	else
 		ITERATE__array=no
-		# if we are a string, ensure no empty lookups
+		# if we are a string, ensure no empty lookups, as none of them make sense if empty
 		for ITERATE__item in "${ITERATE__lookups[@]}"; do
 			if [[ -z ${ITERATE__item#*=} ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value when the input is a string." >&2 || :
@@ -4964,6 +5177,23 @@ function __iterate {
 				return 22 # EINVAL 22 Invalid argument
 			fi
 		done
+	fi
+	# because our comparison reference can be different based on case modification, setup a new variable
+	# this is because if we are comparing ignoring case, we still want to return the original case sensitive result
+	local ITERATE__compare_source_reference="$ITERATE__source_reference"
+	if [[ -n $ITERATE__case ]]; then
+		# convert the source reference
+		if [[ $ITERATE__array == 'yes' ]]; then
+			ITERATE__compare_source_reference="ITERATE_${RANDOM}__inputs__${ITERATE__case}"
+			eval "local $ITERATE__compare_source_reference=()" || return
+			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_reference}" --target="{$ITERATE__compare_source_reference}"
+		else
+			ITERATE__compare_source_reference="ITERATE_${RANDOM}__input__${ITERATE__case}"
+			eval "local $ITERATE__compare_source_reference=''" || return
+			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_reference}" --target="{$ITERATE__compare_source_reference}"
+		fi
+		# convert lookups
+		__case --conversion="$ITERATE__case" --source+target={ITERATE__lookups}
 	fi
 	# iterate
 	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookups_size="${#ITERATE__lookups[@]}" ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index ITERATE__break
@@ -4994,13 +5224,13 @@ function __iterate {
 			--value=* | --needle=*)
 				# exact match
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
+					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return
 				else
 					ITERATE__lookup_size=${#ITERATE__lookup}
 					if [[ $ITERATE__direction == 'ascending' ]]; then
 						# ascending, so we need to look right-ways
 						if [[ $((ITERATE__match_index + ITERATE__lookup_size)) -le $ITERATE__size ]]; then
-							eval 'ITERATE__value="${'"$ITERATE__source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
+							eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
 						else
 							continue
 						fi
@@ -5008,7 +5238,7 @@ function __iterate {
 						# descending, so we need to look left-ways
 						ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character
 						if [[ $ITERATE__match_index -ge 0 ]]; then
-							eval 'ITERATE__value="${'"$ITERATE__source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
+							eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
 						else
 							continue
 						fi
@@ -5026,10 +5256,10 @@ function __iterate {
 				# prefix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]:0:ITERATE__lookup_size}' || return
+					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]:0:ITERATE__lookup_size}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_whole ]]; then
 					# only match once when we are at the first in whole index
-					eval 'ITERATE__value="${'"$ITERATE__source_reference"':0:ITERATE__lookup_size}"' || return
+					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':0:ITERATE__lookup_size}"' || return
 				else
 					continue
 				fi
@@ -5045,11 +5275,11 @@ function __iterate {
 				# suffix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]: -ITERATE__lookup_size}' || return
+					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]: -ITERATE__lookup_size}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__last_in_whole ]]; then
 					# only match once when we are at the last in whole index
 					ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character
-					eval 'ITERATE__value="${'"$ITERATE__source_reference"':ITERATE__match_index}"' || return
+					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index}"' || return
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
@@ -5065,10 +5295,10 @@ function __iterate {
 			--pattern=*)
 				# pattern match
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
+					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
-					eval 'ITERATE__value="${'"$ITERATE__source_reference"'}"' || return
+					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"'}"' || return
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
@@ -5084,10 +5314,10 @@ function __iterate {
 			--glob=*)
 				# pattern match
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__source_reference"'[ITERATE__index]}' || return
+					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
-					eval 'ITERATE__value="${'"$ITERATE__source_reference"'}"' || return
+					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"'}"' || return
 					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
@@ -5101,59 +5331,12 @@ function __iterate {
 					continue
 				fi
 				;;
-			--keep-before-first=* | --keep-before-last=* | --keep-after-first=* | --keep-after-last=*)
-				# @todo there is some ambiguity here, on whether the operation should happen on the actual value then retrospectively apply, or whether it should happen at the start like pattern and glob - perhaps what is best is for us to introduce a `-1` index which these ones operate on, in which overlap does not apply, however, at this stage, this stuff seems too obscure to be worth it, as if they are doing multiple of these operations, why aren't they just using `__replace` ?
-				if [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
-					# handle the eviction options by marking them as consumed indices
-					# send the result of index via process substitution to avoid complicated eval and referencing magic to avoid conflicts between recursion
-					case "$ITERATE__lookup_option" in
-					--keep-before-first=*)
-						# really, this could just become:
-						# __index --forward --source={my_array_or_string} --target={the_index} --value="my-needle"
-						# __slice --source+target={my_array_or_string} -- 0 "$the_index"
-						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
-						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__size; ITERATE__overlap_index++)); do
-							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
-						done
-						;;
-					--keep-before-last=*)
-						# really, this could just become:
-						# __index --reverse --source={my_array_or_string} --target={the_index} --value="my-needle"
-						# __slice --source+target={my_array_or_string} -- 0 "$the_index"
-						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
-						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__size; ITERATE__overlap_index++)); do
-							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
-						done
-						;;
-					--keep-after-first=*)
-						# really, this could just become:
-						# __index --forward --source={my_array_or_string} --target={the_index} --value="my-needle"
-						# __slice --source+target={my_array_or_string} -- "$((the_index + 1))"
-						ITERATE__match_index="$(__index --forward --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
-						ITERATE__lookup_size=${#ITERATE__lookup}
-						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
-							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
-						done
-						;;
-					--keep-after-last=*)
-						# really, this could just become:
-						# __index --reverse --source={my_array_or_string} --target={the_index} --value="my-needle"
-						# __slice --source+target={my_array_or_string} -- "$((the_index + 1))"
-						ITERATE__match_index="$(__index --reverse --source="{$ITERATE__source_reference}" --quiet --value="$ITERATE__lookup")" || continue
-						ITERATE__lookup_size=${#ITERATE__lookup}
-						for ((ITERATE__overlap_index = 0; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
-							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
-						done
-						;;
-					esac
-					ITERATE__matched=yes
-					ITERATE__match="$ITERATE__value" # substring match
-					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
-				fi
-				;;
+
+			# invalid lookup
+			*) __unrecognised_flag "$ITERATE__lookup_option" || return ;;
 			esac
 			if [[ $ITERATE__matched == 'yes' ]]; then
-				# for eviction, keep this for the overlap and breaking modifications, even thought he results array doesn't matter for eviction
+				# for eviction, keep this for the overlap and breaking modifications, even though the results array doesn't matter for eviction
 				if [[ $ITERATE__seek == 'multiple' ]]; then
 					ITERATE__results+=("$ITERATE__match_index")
 				elif [[ $ITERATE__seek == 'each' ]]; then
@@ -5166,7 +5349,8 @@ function __iterate {
 					ITERATE__results+=("$ITERATE__match_index")
 					ITERATE__break=2 # finished, break the outer loop
 				fi
-				# block this match from being matched again
+				# note the consumed indices,
+				# this is utilised by our entrance overlap check (as our no overlap skips consumed indices), or by our exit when evicting (as the evict result evicts consumed indices)
 				if [[ $ITERATE__overlap == 'no' || $ITERATE__operation == 'evict' ]]; then
 					ITERATE__match_size=${#ITERATE__match}
 					for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__match_index + ITERATE__match_size; ITERATE__overlap_index++)); do
@@ -5585,7 +5769,7 @@ function __unique {
 # negative starts and lengths will be counted from the source reference's end
 # out of bound indices will throw
 function __slice {
-	local SLICE__indices=() SLICE__keep_before_first=() SLICE__keep_before_last=() SLICE__keep_after_first=() SLICE__keep_after_last=() # SLICE__require='all'
+	local SLICE__indices=()
 	# <single-source helper arguments>
 	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs=() SLICE__input=''
 	while [[ $# -ne 0 ]]; do
@@ -5640,14 +5824,6 @@ function __slice {
 			__affirm_value_is_integer "$SLICE__item" 'index/length' || return
 			SLICE__indices+=("$SLICE__item")
 			;;
-		# --keep-before-first=*) SLICE__keep_before_first+=("${SLICE__item#*=}") ;;
-		# --keep-before-last=*) SLICE__keep_before_last+=("${SLICE__item#*=}") ;;
-		# --keep-after-first=*) SLICE__keep_after_first+=("${SLICE__item#*=}") ;;
-		# --keep-after-last=*) SLICE__keep_after_last+=("${SLICE__item#*=}") ;;
-		# --require-none | --require=none) SLICE__require='none' ;;
-		# --require-any | --require=any) SLICE__require='any' ;;
-		# --require-all | --require=all) SLICE__require='all' ;;
-		# # @todo require handling currently only affects groups of the same keep type, so combinations of groups/types/slices are unaffected
 		--*) __unrecognised_flag "$SLICE__item" || return ;;
 		*) __unrecognised_argument "$SLICE__item" || return ;;
 		esac
@@ -5655,44 +5831,11 @@ function __slice {
 	# affirm
 	__affirm_value_is_defined "$SLICE__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$SLICE__mode" || return
-	if __is_zero ${#SLICE__indices[@]} ${#SLICE__keep_before_first[@]} ${#SLICE__keep_before_last[@]} ${#SLICE__keep_after_first[@]} ${#SLICE__keep_after_last[@]}; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: No slice arguments provided, at least one of --index, --keep-before-first, --keep-before-last, --keep-after-first, --keep-after-last, must be provided." >&2 || :
-		__dump SLICE__indices SLICE__keep_before_first SLICE__keep_before_last SLICE__keep_after_first SLICE__keep_after_last >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
+	__affirm_length_defined "${#SLICE__indices[@]}" '<index> [<length>] tuple' || return
 	# if indices is odd, then make it to the end
 	if __is_odd "${#SLICE__indices[@]}"; then
-		SLICE__indices+=(-0) # -0 means to the end
+		SLICE__indices+=('-0') # -0 means to the end
 	fi
-	# local SLICE__keep_result_indices=()
-	# # before first
-	# if [[ ${#SLICE__keep_before_first[@]} -ne 0 ]]; then
-	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_before_first[@]}" || return
-	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-	# 		SLICE__indices+=(0 "$SLICE__item")
-	# 	done
-	# fi
-	# # before last
-	# if [[ ${#SLICE__keep_before_last[@]} -ne 0 ]]; then
-	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_before_last[@]}" || return
-	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-	# 		SLICE__indices+=(0 "$SLICE__item")
-	# 	done
-	# fi
-	# # after first
-	# if [[ ${#SLICE__keep_after_first[@]} -ne 0 ]]; then
-	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each -- "${SLICE__keep_after_first[@]}" || return
-	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-	# 		SLICE__indices+=("$((SLICE__item + 1))" -0)
-	# 	done
-	# fi
-	# # after last
-	# if [[ ${#SLICE__keep_after_last[@]} -ne 0 ]]; then
-	# 	__index --require="$SLICE__require" --source="{$SLICE__source_reference}" --overwrite --target={SLICE__keep_result_indices} --each --reverse -- "${SLICE__keep_after_last[@]}" || return
-	# 	for SLICE__item in "${SLICE__keep_result_indices[@]}"; do
-	# 		SLICE__indices+=("$((SLICE__item + 1))" -0)
-	# 	done
-	# fi
 	# indices
 	local -i SLICE__size SLICE__remaining
 	# trunk-ignore(shellcheck/SC2034)
@@ -5721,7 +5864,7 @@ function __slice {
 			__dump --indices "$SLICE__source_reference" >&2 || :
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
-		if [[ $SLICE__length == -0 || $SLICE__length -eq $SLICE__size ]]; then
+		if [[ $SLICE__length == '-0' || $SLICE__length -eq $SLICE__size ]]; then
 			eval "$SLICE__eval_left_segment" || return
 			continue
 		fi

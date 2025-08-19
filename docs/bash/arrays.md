@@ -36,12 +36,12 @@ printf '%s\n' "${#a[@]}"
 # ^ this is usually okay, but has a gotcha with `mapfile ... <<< ...` usage, see the later chapter about array lengths
 
 # contains
-if is-needle --needle=' ' -- "${a[@]}"; then
+if __has --source={a} --needle=' '; then
 	printf '%s\n' 'with [ ]'
 else
 	printf '%s\n' 'without [ ]'
 fi
-if is-needle --needle='c d' -- "${a[@]}"; then
+if __has --source={a} --needle='c d'; then
 	printf '%s\n' 'with [c d]'
 else
 	printf '%s\n' 'without [c d]'
