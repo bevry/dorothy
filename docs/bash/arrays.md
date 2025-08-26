@@ -82,7 +82,7 @@ printf '%s\n' "${#a[@]}" # 1
 echo-verbose "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
 
 # do this instead
-__split --target={a} --no-zero-length < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
+__split --target={a} --no-zero-length --stdin < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
 printf '%s\n' $? # 0 -- success exit code, despite failure
 printf '%s\n' "${#a[@]}" # 0
 echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
@@ -212,7 +212,7 @@ __split --target={a} --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
-__split --target={a} --no-zero-length < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length --stdin < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
@@ -294,7 +294,7 @@ You can even have the following benefits with `mapfile` too:
 ```bash
 # same context throughout:
 a=()
-__split --target={a} --no-zero-length < <(echo-split $'\n' -- $'a\nb' $'c\nd')
+__split --target={a} --no-zero-length --stdin < <(echo-split $'\n' -- $'a\nb' $'c\nd')
 echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
