@@ -655,7 +655,7 @@ printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=
 # or read into an array (supporting all bash versions) like so:
 __do --redirect-status={get_status} --redirect-stdout={stdout} -- get_csv_data
 split_status=0
-__split --target={arr} --delimiter=',' < <(__print_string "$stdout") || split_status=$?
+__split --target={arr} --delimiter=',' --stdin < <(__print_string "$stdout") || split_status=$?
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_status=$get_status split_status=$split_status"
 # outputs:
@@ -667,7 +667,7 @@ printf '%s\n' "get_status=$get_status split_status=$split_status"
 # here is an alternative that uses semaphores
 split_status=0
 semaphore_status_file="$(__get_semaphore)"
-__split --target={arr} --delimiter=',' < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
+__split --target={arr} --delimiter=',' --stdin < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
 __wait_for_semaphores "$semaphore_status_file"
 echo-verbose -- "${arr[@]}"
 printf '%s\n' "get_status=$(<"$semaphore_status_file") split_status=$split_status"
@@ -856,7 +856,7 @@ fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functi
 __split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
 # AFTER, ENSURES TRAILING NEWLINES:
 fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
-__split --target={arr} --delimiter=',' <<<"$fodder_to_respect_exit_status"
+__split --target={arr} --delimiter=',' --stdin <<<"$fodder_to_respect_exit_status"
 # AFTER, PRESERVES TRAIL:
 __do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_function_including_unsafe_functions
 __split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','"

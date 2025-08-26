@@ -902,7 +902,7 @@ function __is_array {
 		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
 		esac
 		# verify the reference, can't use __dereference as __dereference calls __is_array
-		__affirm_variable_name_is_valid "$IS_ARRAY__reference" || return
+		__affirm_variable_name_is_valid "$IS_ARRAY__reference" 'variable reference' || return
 		if [[ $IS_ARRAY__reference == IS_ARRAY__* ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -1174,6 +1174,23 @@ function __affirm_length_defined {
 	fi
 }
 
+# affirm variable is defined
+# __affirm_variable_is_defined <variable-name>
+function __affirm_variable_is_defined {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
+	if [[ -z $1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"variable name"} must be provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if ! __is_var_defined "$1"; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"variable name"} $1 must be defined." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
 # affirm variable is an array
 # __affirm_variable_is_array <variable-name>
 function __affirm_variable_is_array {
@@ -1181,8 +1198,12 @@ function __affirm_variable_is_array {
 		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
 		return 22
 	fi
+	if [[ -z $1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"variable name"} must be provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 	if ! __is_array "$1"; then # ignore positive integer check, as that is too strict for this
-		__print_lines "ERROR: ${FUNCNAME[1]}: The variable $1 must be an array." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"variable name"} $1 must be an array." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -1192,12 +1213,16 @@ function __affirm_variable_name_is_valid {
 		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
 		return 22
 	fi
-	if [[ -z $1 ]] || ! [[ $1 =~ ^[_a-zA-Z0-9]+$ ]]; then
+	if [[ -z $1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"variable name"} must be provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if ! [[ $1 =~ ^[_a-zA-Z0-9]+$ ]]; then
 		# even though : and - can be literals, they are not valid as variable names
 		# don't accept array keys/indexes, as this will end up with invalid logic somewhere down the line, instead pass it over as an input like so:
 		# before: __fn --source={arr[0]}
 		# after:  __fn -- "${arr[0]}"
-		__print_lines "ERROR: ${FUNCNAME[1]}: Invalid variable name: $1" >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[1]}: Invalid ${2:-"variable name"}: $1" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -1386,7 +1411,7 @@ function __is_zero {
 function __is_special_file {
 	local target="$1"
 	case "$target" in
-	NULL | TTY | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | tty | /dev/tty | null | /dev/null) return 0 ;; # is a special file
+	0 | STDIN | stdin | /dev/stdin | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | TTY | tty | /dev/tty | NULL | null | /dev/null) return 0 ;; # is a special file
 	'')
 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1396,15 +1421,28 @@ function __is_special_file {
 }
 
 # this is beta, and may change later
+# function __is_stdin_special_file {
+# 	local target="$1"
+# 	case "$target" in
+# 	0 | STDIN | stdin | /dev/stdin) return 0 ;; # is a stdin target
+# 	'')
+# 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+# 		return 22 # EINVAL 22 Invalid argument
+# 		;;
+# 	*) return 1 ;; # not a stdin target
+# 	esac
+# }
+
+# this is beta, and may change later
 function __is_tty_special_file {
 	local target="$1"
 	case "$target" in
-	TTY | tty | /dev/tty) return 0 ;; # is a special tty
+	TTY | tty | /dev/tty) return 0 ;; # is a tty target
 	'')
 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 		;;
-	*) return 1 ;; # not a special tty
+	*) return 1 ;; # not a tty target
 	esac
 }
 
@@ -1456,14 +1494,14 @@ function __dereference {
 		esac
 	done
 	if [[ -z $DEREFERENCE__source_reference ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: The source reference is required." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[0]}: The source variable reference is required." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# validate the source reference is valid
-	__affirm_variable_name_is_valid "$DEREFERENCE__source_reference" || return
+	__affirm_variable_name_is_valid "$DEREFERENCE__source_reference" 'source variable reference' || return
 	# validate that the reference does not use our variable name prefix
 	if [[ -n $DEREFERENCE__source_prefix && -n $DEREFERENCE__internal_prefix && $DEREFERENCE__source_prefix == "$DEREFERENCE__internal_prefix" ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source reference [$DEREFERENCE__source_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source variable reference [$DEREFERENCE__source_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	if [[ -n $DEREFERENCE__name_reference ]]; then
@@ -1572,13 +1610,13 @@ function __get_first_parent_that_is_not {
 
 # send the source to the targets, respecting the mode
 function __to {
-	local TO__item TO__source='' TO__targets=() TO__mode='' TO__inputs=() TO__input='' TO__coerce='yes'
+	local TO__item TO__source='' TO__targets=() TO__mode='' TO__coerce='yes'
 	while [[ $# -ne 0 ]]; do
 		TO__item="$1"
 		shift
 		case "$TO__item" in
 		--source={*})
-			__affirm_value_is_undefined "$TO__source" 'source reference' || return
+			__affirm_value_is_undefined "$TO__source" 'source variable reference' || return
 			__dereference --source="${TO__item#*=}" --name={TO__source} || return
 			;;
 		--targets=*) __dereference --source="${TO__item#*=}" --value={TO__targets} || return ;;
@@ -1595,16 +1633,17 @@ function __to {
 			TO__mode="${TO__item:2}"
 			;;
 		--)
-			__affirm_value_is_undefined "$TO__source" 'source reference' || return
+			__affirm_value_is_undefined "$TO__source" 'source variable reference' || return
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				TO__input="$1"
+				local TO__input="$1"
 				TO__source='TO__input'
 			else
 				# an array input
-				TO__inputs+=("$@")
+				# trunk-ignore(shellcheck/SC2034)
+				local TO__inputs=("$@")
 				TO__source='TO__inputs'
 			fi
 			shift $#
@@ -1614,7 +1653,7 @@ function __to {
 		*) __unrecognised_argument "$TO__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$TO__source" 'source reference' || return
+	__affirm_variable_is_defined "$TO__source" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$TO__mode" || return
 	if [[ ${#TO__targets[@]} -eq 0 ]]; then
 		TO__targets+=('STDOUT') # default to STDOUT
@@ -3962,6 +4001,7 @@ function __is_shapeshifter {
 # 		shift
 # 	done
 
+# once this supports a target variable, then make __split use it
 function __read_whole {
 	# LC_ALL=C IFS= read -rd '' <-- this just reads until the first null byte, needs a loop
 	local whole=''
@@ -4327,13 +4367,13 @@ function __flag {
 		shift
 		case "$FLAG__item" in
 		--source={*})
-			__affirm_value_is_undefined "$FLAG__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$FLAG__source_reference" 'source variable reference' || return
 			__dereference --source="${FLAG__item#*=}" --name={FLAG__source_reference} || return
 			;;
 		--source+target={*})
 			FLAG__item="${FLAG__item#*=}"
 			FLAG__targets+=("$FLAG__item")
-			__affirm_value_is_undefined "$FLAG__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$FLAG__source_reference" 'source variable reference' || return
 			__dereference --source="$FLAG__item" --name={FLAG__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${FLAG__item#*=}" --value={FLAG__targets} || return ;;
@@ -4347,16 +4387,17 @@ function __flag {
 			FLAG__mode="${FLAG__item:2}"
 			;;
 		--)
-			__affirm_value_is_undefined "$FLAG__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$FLAG__source_reference" 'source variable reference' || return
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				FLAG__input="$1"
+				local FLAG__input="$1"
 				FLAG__source_reference='FLAG__input'
 			else
 				# an array input
-				FLAG__inputs+=("$@")
+				# trunk-ignore(shellcheck/SC2034)
+				local FLAG__inputs=("$@")
 				FLAG__source_reference='FLAG__inputs'
 			fi
 			shift $#
@@ -4380,7 +4421,7 @@ function __flag {
 		esac
 	done
 	# affirm
-	__affirm_value_is_defined "$FLAG__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$FLAG__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$FLAG__mode" || return
 	if [[ $FLAG__coerce == 'yes' ]]; then
 		if [[ $FLAG__boolean == 'no' ]]; then
@@ -4538,19 +4579,19 @@ function __array {
 # reverses the array or string
 function __reverse {
 	# <single-source helper arguments>
-	local REVERSE__item REVERSE__source_reference='' REVERSE__targets=() REVERSE__mode='' REVERSE__inputs=() REVERSE__input=''
+	local REVERSE__item REVERSE__source_reference='' REVERSE__targets=() REVERSE__mode=''
 	while [[ $# -ne 0 ]]; do
 		REVERSE__item="$1"
 		shift
 		case "$REVERSE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$REVERSE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$REVERSE__source_reference" 'source variable reference' || return
 			__dereference --source="${REVERSE__item#*=}" --name={REVERSE__source_reference} || return
 			;;
 		--source+target={*})
 			REVERSE__item="${REVERSE__item#*=}"
 			REVERSE__targets+=("$REVERSE__item")
-			__affirm_value_is_undefined "$REVERSE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$REVERSE__source_reference" 'source variable reference' || return
 			__dereference --source="$REVERSE__item" --name={REVERSE__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${REVERSE__item#*=}" --value={REVERSE__targets} || return ;;
@@ -4565,15 +4606,16 @@ function __reverse {
 			;;
 		--)
 			# they are inputs
-			__affirm_value_is_undefined "$REVERSE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$REVERSE__source_reference" 'source variable reference' || return
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				REVERSE__input="$1"
+				local REVERSE__input="$1"
 				REVERSE__source_reference='REVERSE__input'
 			else
 				# an array input
-				REVERSE__inputs+=("$@")
+				# trunk-ignore(shellcheck/SC2034)
+				local REVERSE__inputs=("$@")
 				REVERSE__source_reference='REVERSE__inputs'
 			fi
 			shift $#
@@ -4584,47 +4626,49 @@ function __reverse {
 		*) __unrecognised_argument "$REVERSE__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$REVERSE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$REVERSE__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$REVERSE__mode" || return
 	# action
 	if __is_array "$REVERSE__source_reference"; then
 		# support sparse arrays
-		local REVERSE__indices=() REVERSE__result=()
+		# trunk-ignore(shellcheck/SC2034)
+		local REVERSE__indices=() REVERSE__results=()
 		eval 'REVERSE__indices=("${!'"$REVERSE__source_reference"'[@]}")' || return
 		local -i REVERSE__index REVERSE__source_index REVERSE__size="${#REVERSE__indices[@]}"
 		for ((REVERSE__index = REVERSE__size - 1; REVERSE__index >= 0; REVERSE__index--)); do
 			REVERSE__source_index="${REVERSE__indices[REVERSE__index]}"
-			eval 'REVERSE__result+=("${'"$REVERSE__source_reference"'[REVERSE__source_index]}")' || return
+			eval 'REVERSE__results+=("${'"$REVERSE__source_reference"'[REVERSE__source_index]}")' || return
 		done
+		__to --source={REVERSE__results} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return
 	else
-		# trunk-ignore(shellcheck/SC2178)
+		# trunk-ignore(shellcheck/SC2034)
 		local REVERSE__result=''
 		local -i REVERSE__source_index REVERSE__source_size
 		eval 'REVERSE__source_size=${#'"$REVERSE__source_reference"'}' || return
 		for ((REVERSE__source_index = REVERSE__source_size - 1; REVERSE__source_index >= 0; REVERSE__source_index--)); do
 			eval 'REVERSE__result+="${'"$REVERSE__source_reference"':REVERSE__source_index:1}"' || return
 		done
+		__to --source={REVERSE__result} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return
 	fi
-	__to --source={REVERSE__result} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return
 }
 
 # get an array of indices of the array or string
 function __indices {
 	local INDICES__direction='ascending'
 	# <single-source helper arguments>
-	local INDICES__item INDICES__source_reference='' INDICES__targets=() INDICES__mode='' INDICES__inputs=() INDICES__input=''
+	local INDICES__item INDICES__source_reference='' INDICES__targets=() INDICES__mode=''
 	while [[ $# -ne 0 ]]; do
 		INDICES__item="$1"
 		shift
 		case "$INDICES__item" in
 		--source={*})
-			__affirm_value_is_undefined "$INDICES__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$INDICES__source_reference" 'source variable reference' || return
 			__dereference --source="${INDICES__item#*=}" --name={INDICES__source_reference} || return
 			;;
 		--source+target={*})
 			INDICES__item="${INDICES__item#*=}"
 			INDICES__targets+=("$INDICES__item")
-			__affirm_value_is_undefined "$INDICES__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$INDICES__source_reference" 'source variable reference' || return
 			__dereference --source="$INDICES__item" --name={INDICES__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${INDICES__item#*=}" --value={INDICES__targets} || return ;;
@@ -4639,15 +4683,16 @@ function __indices {
 			;;
 		--)
 			# they are inputs
-			__affirm_value_is_undefined "$INDICES__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$INDICES__source_reference" 'source variable reference' || return
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				INDICES__input="$1"
+				local INDICES__input="$1"
 				INDICES__source_reference='INDICES__input'
 			else
 				# an array input
-				INDICES__inputs+=("$@")
+				# trunk-ignore(shellcheck/SC2034)
+				local INDICES__inputs=("$@")
 				INDICES__source_reference='INDICES__inputs'
 			fi
 			shift $#
@@ -4660,7 +4705,7 @@ function __indices {
 		*) __unrecognised_argument "$INDICES__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$INDICES__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$INDICES__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$INDICES__mode" || return
 	# action
 	if __is_array "$INDICES__source_reference"; then
@@ -4698,19 +4743,19 @@ function __indices {
 function __at {
 	local AT__indices=()
 	# <single-source helper arguments>
-	local AT__item AT__source_reference='' AT__targets=() AT__mode='' AT__inputs=() AT__input=''
+	local AT__item AT__source_reference='' AT__targets=() AT__mode=''
 	while [[ $# -ne 0 ]]; do
 		AT__item="$1"
 		shift
 		case "$AT__item" in
 		--source={*})
-			__affirm_value_is_undefined "$AT__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$AT__source_reference" 'source variable reference' || return
 			__dereference --source="${AT__item#*=}" --name={AT__source_reference} || return
 			;;
 		--source+target={*})
 			AT__item="${AT__item#*=}"
 			AT__targets+=("$AT__item")
-			__affirm_value_is_undefined "$AT__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$AT__source_reference" 'source variable reference' || return
 			__dereference --source="$AT__item" --name={AT__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${AT__item#*=}" --value={AT__targets} || return ;;
@@ -4729,11 +4774,12 @@ function __at {
 				if [[ $# -eq 1 ]]; then
 					# a string input
 					# trunk-ignore(shellcheck/SC2034)
-					AT__input="$1"
+					local AT__input="$1"
 					AT__source_reference='AT__input'
 				else
 					# an array input
-					AT__inputs+=("$@")
+					# trunk-ignore(shellcheck/SC2034)
+					local AT__inputs=("$@")
 					AT__source_reference='AT__inputs'
 				fi
 			else
@@ -4760,7 +4806,7 @@ function __at {
 		*) __unrecognised_argument "$AT__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$AT__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$AT__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$AT__mode" || return
 	__affirm_length_defined "${#AT__indices[@]}" 'index' || return
 	# action
@@ -4796,19 +4842,19 @@ function __at {
 function __case {
 	local CASE__conversion='lower'
 	# <single-source helper arguments>
-	local CASE__item CASE__source_reference='' CASE__targets=() CASE__mode='' CASE__inputs=() CASE__input=''
+	local CASE__item CASE__source_reference='' CASE__targets=() CASE__mode=''
 	while [[ $# -ne 0 ]]; do
 		CASE__item="$1"
 		shift
 		case "$CASE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$CASE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$CASE__source_reference" 'source variable reference' || return
 			__dereference --source="${CASE__item#*=}" --name={CASE__source_reference} || return
 			;;
 		--source+target={*})
 			CASE__item="${CASE__item#*=}"
 			CASE__targets+=("$CASE__item")
-			__affirm_value_is_undefined "$CASE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$CASE__source_reference" 'source variable reference' || return
 			__dereference --source="$CASE__item" --name={CASE__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${CASE__item#*=}" --value={CASE__targets} || return ;;
@@ -4822,16 +4868,17 @@ function __case {
 			CASE__mode="${CASE__item:2}"
 			;;
 		--)
-			__affirm_value_is_undefined "$CASE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$CASE__source_reference" 'source variable reference' || return
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				CASE__input="$1"
+				local CASE__input="$1"
 				CASE__source_reference='CASE__input'
 			else
 				# an array input
-				CASE__inputs+=("$@")
+				# trunk-ignore(shellcheck/SC2034)
+				local CASE__inputs=("$@")
 				CASE__source_reference='CASE__inputs'
 			fi
 			shift $#
@@ -4845,7 +4892,7 @@ function __case {
 		*) __unrecognised_argument "$CASE__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$CASE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$CASE__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$CASE__mode" || return
 	if [[ -z $CASE__conversion ]]; then
 		CASE__conversion='lower'
@@ -4973,21 +5020,21 @@ function __case {
 # If `--require=all`, all the specified lookups must have matched at least once.
 # If no require mode failures, then the noted indexes are sent to the targets.
 function __iterate {
-	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='first' ITERATE__overlap='no' ITERATE__require='all' ITERATE__quiet='no' ITERATE__by='lookup' ITERATE__operation='index' ITERATE__case=''
+	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='' ITERATE__overlap='no' ITERATE__require='' ITERATE__quiet='no' ITERATE__by='' ITERATE__operation='' ITERATE__case=''
 	# <single-source helper arguments>
-	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode='' # ITERATE__inputs=() ITERATE__input=''
+	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode=''
 	while [[ $# -ne 0 ]]; do
 		ITERATE__item="$1"
 		shift
 		case "$ITERATE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$ITERATE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$ITERATE__source_reference" 'source variable reference' || return
 			__dereference --source="${ITERATE__item#*=}" --name={ITERATE__source_reference} || return
 			;;
 		--source+target={*})
 			ITERATE__item="${ITERATE__item#*=}"
 			ITERATE__targets+=("$ITERATE__item")
-			__affirm_value_is_undefined "$ITERATE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$ITERATE__source_reference" 'source variable reference' || return
 			__dereference --source="$ITERATE__item" --name={ITERATE__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${ITERATE__item#*=}" --value={ITERATE__targets} || return ;;
@@ -5031,22 +5078,22 @@ function __iterate {
 		# lookups:
 		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*) ITERATE__lookups+=("$ITERATE__item") ;;
 		# order mode
-		--by=lookup | --order=lookup | --order=argument) ITERATE__by='lookup' ;;
-		--by=cursor | --by=content | --order=content | --order=source) ITERATE__by='content' ;;
+		--by=lookup | --order=lookup | --order=argument | --lookup) ITERATE__by='lookup' ;;
+		--by=cursor | --by=content | --order=content | --order=source | --cursor) ITERATE__by='content' ;;
 		# content direction mode
 		--direction=descending | --direction=reverse | --descending | --reverse) ITERATE__direction='descending' ;;
 		--direction=ascending | --direction=forward | --ascending | --forward) ITERATE__direction='ascending' ;; # default
 		# seek mode
-		--seek=first) ITERATE__seek='first' ;;       # only the first match of any needle
-		--seek=each) ITERATE__seek='each' ;;         # only the first match of each needle
-		--seek=multiple) ITERATE__seek='multiple' ;; # all matches of all needles
+		--seek=first | --first) ITERATE__seek='first' ;;                                   # only the first match of any needle
+		--seek=each | --each) ITERATE__seek='each' ;;                                      # only the first match of each needle
+		--seek=every | --seek=multiple | --every | --multiple) ITERATE__seek='multiple' ;; # all matches of all needles
 		# overlap mode
 		--overlap=yes | --overlap) ITERATE__overlap='yes' ;;  # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" 3 times and "a" 4 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 1 time
 		--overlap=no | --no-overlap) ITERATE__overlap='no' ;; # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" 0 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 0 times
 		# require mode
-		--require=none | --require-none | --optional) ITERATE__require='none' ;;
-		--require=any | --require-any) ITERATE__require='any' ;;
-		--require=all | --require-all) ITERATE__require='all' ;;
+		--require=none | --optional) ITERATE__require='none' ;;
+		--require=any | --any) ITERATE__require='any' ;;
+		--require=all | --all) ITERATE__require='all' ;;
 		# quiet mode
 		--no-verbose* | --verbose*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
 		--no-quiet* | --quiet*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
@@ -5057,65 +5104,75 @@ function __iterate {
 		--ignore-case | --ignore-case=yes | --respect-case=no | --case-insensitive | --case-insensitive=yes | --case-sensitive=no) ITERATE__case='lower' ;;
 		--ignore-case=no | --respect-case | --respect-case=yes | --case-insensitive=no | --case-sensitive | --case-sensitive=yes) : ;; # no-op
 		# operation mode
-		--index | --indices)
-			ITERATE__operation='index'
-			ITERATE__by='lookup'
-			ITERATE__seek='each'
-			ITERATE__require='all'
-			;;
-		--has)
+		--operation=index | --index | --indices) ITERATE__operation='index' ;;
+		--operation=has | --has)
 			ITERATE__operation='has'
-			ITERATE__by='lookup'
-			ITERATE__seek='each'
-			ITERATE__require='all'
 			ITERATE__quiet='yes'
 			;;
-		--evict)
-			ITERATE__operation='evict'
-			ITERATE__by='lookup'
-			ITERATE__seek='each'
-			ITERATE__require='all'
-			;;
+		--operation=evict | --evict) ITERATE__operation='evict' ;;
 		# evict on mode
 		# --on=content) ITERATE__on='content' ;;
 		# --on=result) ITERATE__on='result' ;; <-- this would work by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the `__replace` function
 		# shortcut mode mostly for has/evict
-		--first)
-			ITERATE__by='lookup'
-			ITERATE__seek='first'
-			ITERATE__require='any'
-			# overlap doesn't matter
-			;;
-		--any)
-			ITERATE__by='cursor'
-			ITERATE__seek='first'
-			ITERATE__require='any'
-			# overlap doesn't matter
-			;;
-		--each | --all)
-			ITERATE__by='lookup'
-			ITERATE__seek='each'
-			ITERATE__require='all'
-			;;
-		--multiple)
-			# `--by={cursor,lookup}` does not affect the result content only the result order if not overlapping
-			# if overlapping, then `--by={cursor,lookup}` will impact the result content, and naturally, its order
-			# overlap impacts the order, as would be the case in `--needle=ba --needle=ab --multiple --no-overlap -- 'aba bab ab ba'`
-			# there are absolutely no good naming options (unlike `--{any,each}` for toggling `--by={cursor,lookup}` for `--seek=multiple`
-			# as `--all` already makes sense as a synonym for `--each` due to its `__has` usage when contrasted between `--{any,all}`
-			# and `--{every,repeat,multiple}` are all equally ambiguous
-			# as such, just make sure you specify `--by={cursor,lookup}` and `--[no]-overlap` with `--multiple` to ensure everyone is clear on what you intended
-			ITERATE__by='lookup'
-			ITERATE__seek='multiple'
-			ITERATE__require='all'
-			;;
 		--*) __unrecognised_flag "$ITERATE__item" || return ;;
 		*) __unrecognised_argument "$ITERATE__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$ITERATE__source_reference" 'source variable reference' || return
+	local -i ITERATE__lookups_size="${#ITERATE__lookups[@]}"
+	__affirm_value_is_defined "$ITERATE__operation" 'operation' || return
+	__affirm_variable_is_defined "$ITERATE__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$ITERATE__mode" || return
-	__affirm_length_defined "${#ITERATE__lookups[@]}" 'lookup' || return
+	__affirm_length_defined "$ITERATE__lookups_size" 'lookup' || return
+	# handle the new automatic inference or failure of inference of various modes
+	if [[ -z $ITERATE__seek ]]; then
+		if [[ $ITERATE__operation == 'evict' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value=evict || :) operation requires an explicit $(__dump --value='{first,each,every}' || :) seek mode." >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		elif [[ $ITERATE__require == 'any' ]]; then
+			if [[ -z $ITERATE__by ]]; then
+				ITERATE__by='cursor' # this default is only done, as it doesn't matter in first/any mode
+			fi
+			ITERATE__seek='first'
+		elif [[ $ITERATE__lookups_size -eq 1 || $ITERATE__require == 'all' ]]; then
+			# if all, then default to each, as desiring every is an edge case typically only for evict, which we've already aborted
+			ITERATE__seek='each' # first/each are equivalent when there is only one lookup
+		else
+			__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__operation" || :) operation requires an explicit $(__dump --value='{first,each,every}' || :) seek mode when using multiple lookups." >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+	fi
+	if [[ -z $ITERATE__require ]]; then
+		if [[ $ITERATE__seek == 'first' ]]; then
+			ITERATE__require='any' # if they are seeking first, then all is a mistake, and none is unlikely
+		elif [[ $ITERATE__operation == 'evict' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value=evict || :) operation requires an explicit $(__dump --value='{optional,any,all}' || :) require mode." >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		elif [[ $ITERATE__lookups_size -eq 1 ]]; then
+			ITERATE__require='any' # any/all are equivalent when there is only one lookup
+		elif [[ $ITERATE__operation == 'has' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: $(__dump --value=has || :) operation requires an explicit $(__dump --value='{any,all}' || :) require mode when using multiple lookups." >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		else
+			ITERATE__require='all'
+		fi
+	fi
+	if [[ -z $ITERATE__by ]]; then
+		ITERATE__by='lookup'
+	fi
+	# sanity checks
+	__affirm_value_is_defined "$ITERATE__by" 'by mode' || return
+	__affirm_value_is_defined "$ITERATE__seek" 'seek mode' || return
+	__affirm_value_is_defined "$ITERATE__require" 'require mode' || return
+	# ensure that if multiple lookups were specified, it can't be all and first
+	if [[ $ITERATE__lookups_size -gt 1 && $ITERATE__require == 'all' && $ITERATE__seek == 'first' ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value=first || :) seek mode cannot be used with the $(__dump --value=all || :) require mode when multiple lookups are specified, as such would always fail." >&2 || :
+		__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 	# get the indices
 	local ITERATE__indices=()
 	__indices --source="{$ITERATE__source_reference}" --target={ITERATE__indices} || return
@@ -5196,7 +5253,7 @@ function __iterate {
 		__case --conversion="$ITERATE__case" --source+target={ITERATE__lookups}
 	fi
 	# iterate
-	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookups_size="${#ITERATE__lookups[@]}" ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index ITERATE__break
+	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index ITERATE__break
 	local ITERATE__results=() ITERATE__consumed_indices_map=() ITERATE__consumed_lookups_map=() ITERATE__lookups_indices=("${!ITERATE__lookups[@]}") ITERATE__value ITERATE__lookup_option ITERATE__lookup ITERATE__match ITERATE__matched
 	if [[ $ITERATE__by == 'lookup' ]]; then
 		ITERATE__outers=("${ITERATE__lookups_indices[@]}")
@@ -5205,6 +5262,16 @@ function __iterate {
 		ITERATE__outers=("${ITERATE__indices[@]}")
 		ITERATE__inners=("${ITERATE__lookups_indices[@]}")
 	fi
+	function __is_string_overlapped {
+		if [[ $ITERATE__overlap == 'no' ]]; then
+			for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__match_index + ITERATE__lookup_size; ITERATE__overlap_index++)); do
+				if [[ -n ${ITERATE__consumed_indices_map[ITERATE__overlap_index]-} ]]; then
+					return 0
+				fi
+			done
+		fi
+		return 1
+	}
 	for ITERATE__outer in "${ITERATE__outers[@]}"; do
 		for ITERATE__inner in "${ITERATE__inners[@]}"; do
 			# adjust for our iteration mode
@@ -5230,6 +5297,11 @@ function __iterate {
 					if [[ $ITERATE__direction == 'ascending' ]]; then
 						# ascending, so we need to look right-ways
 						if [[ $((ITERATE__match_index + ITERATE__lookup_size)) -le $ITERATE__size ]]; then
+							# when not overlapping, validate none of the indices have been consumed
+							if __is_string_overlapped; then
+								continue
+							fi
+							# valid, note the match value
 							eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
 						else
 							continue
@@ -5238,6 +5310,11 @@ function __iterate {
 						# descending, so we need to look left-ways
 						ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character
 						if [[ $ITERATE__match_index -ge 0 ]]; then
+							# when not overlapping, validate none of the indices have been consumed
+							if __is_string_overlapped; then
+								continue
+							fi
+							# valid, note the match value
 							eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return
 						else
 							continue
@@ -5257,8 +5334,12 @@ function __iterate {
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]:0:ITERATE__lookup_size}' || return
-				elif [[ $ITERATE__index -eq $ITERATE__first_in_whole ]]; then
-					# only match once when we are at the first in whole index
+				elif [[ $ITERATE__index -eq $ITERATE__first_in_whole ]]; then # only match when we are at the first in whole index
+					# when not overlapping, validate none of the indices have been consumed
+					if __is_string_overlapped; then
+						continue
+					fi
+					# valid, note the match value
 					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':0:ITERATE__lookup_size}"' || return
 				else
 					continue
@@ -5276,11 +5357,13 @@ function __iterate {
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]: -ITERATE__lookup_size}' || return
-				elif [[ $ITERATE__index -eq $ITERATE__last_in_whole ]]; then
-					# only match once when we are at the last in whole index
-					ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character
+				elif [[ $ITERATE__index -eq $ITERATE__last_in_whole ]]; then         # only match once when we are at the last in whole index
+					ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character# when not overlapping, validate none of the indices have been consumed
+					if __is_string_overlapped; then
+						continue
+					fi
+					# valid, note the match value
 					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index}"' || return
-					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
@@ -5299,7 +5382,6 @@ function __iterate {
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
 					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"'}"' || return
-					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
@@ -5318,7 +5400,6 @@ function __iterate {
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
 					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"'}"' || return
-					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
 				else
 					continue
 				fi
@@ -5352,10 +5433,14 @@ function __iterate {
 				# note the consumed indices,
 				# this is utilised by our entrance overlap check (as our no overlap skips consumed indices), or by our exit when evicting (as the evict result evicts consumed indices)
 				if [[ $ITERATE__overlap == 'no' || $ITERATE__operation == 'evict' ]]; then
-					ITERATE__match_size=${#ITERATE__match}
-					for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__match_index + ITERATE__match_size; ITERATE__overlap_index++)); do
-						ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
-					done
+					if [[ $ITERATE__array == 'yes' ]]; then
+						ITERATE__consumed_indices_map["$ITERATE__match_index"]="$ITERATE__lookup_index"
+					else
+						ITERATE__match_size=${#ITERATE__match}
+						for ((ITERATE__overlap_index = ITERATE__match_index; ITERATE__overlap_index < ITERATE__match_index + ITERATE__match_size; ITERATE__overlap_index++)); do
+							ITERATE__consumed_indices_map["$ITERATE__overlap_index"]="$ITERATE__lookup_index"
+						done
+					fi
 				fi
 				# handle the break now, so that the overlap eviction above takes effect
 				if [[ $ITERATE__break -ne 0 ]]; then
@@ -5439,19 +5524,19 @@ function __evict {
 function __replace {
 	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replacement=''
 	# <single-source helper arguments>
-	local REPLACE__item REPLACE__source_reference='' REPLACE__targets=() REPLACE__mode='' REPLACE__inputs=() REPLACE__input=''
+	local REPLACE__item REPLACE__source_reference='' REPLACE__targets=() REPLACE__mode=''
 	while [[ $# -ne 0 ]]; do
 		REPLACE__item="$1"
 		shift
 		case "$REPLACE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$REPLACE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$REPLACE__source_reference" 'source variable reference' || return
 			__dereference --source="${REPLACE__item#*=}" --name={REPLACE__source_reference} || return
 			;;
 		--source+target={*})
 			REPLACE__item="${REPLACE__item#*=}"
 			REPLACE__targets+=("$REPLACE__item")
-			__affirm_value_is_undefined "$REPLACE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$REPLACE__source_reference" 'source variable reference' || return
 			__dereference --source="$REPLACE__item" --name={REPLACE__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${REPLACE__item#*=}" --value={REPLACE__targets} || return ;;
@@ -5466,15 +5551,16 @@ function __replace {
 			;;
 		--)
 			# they are inputs
-			__affirm_value_is_undefined "$REPLACE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$REPLACE__source_reference" 'source variable reference' || return
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				REPLACE__input="$1"
+				local REPLACE__input="$1"
 				REPLACE__source_reference='REPLACE__input'
 			else
 				# an array input
-				REPLACE__inputs+=("$@")
+				# trunk-ignore(shellcheck/SC2034)
+				local REPLACE__inputs=("$@")
 				REPLACE__source_reference='REPLACE__inputs'
 			fi
 			shift $#
@@ -5505,7 +5591,7 @@ function __replace {
 		*) __unrecognised_argument "$REPLACE__item" || return ;;
 		esac
 	done
-	__affirm_value_is_defined "$REPLACE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$REPLACE__source_reference" 'source variable reference' || return
 	__affirm_length_defined "${#REPLACE__lookups[@]}" 'lookup' || return
 	# handle array
 	if __is_array "$REPLACE__source_reference"; then
@@ -5596,14 +5682,14 @@ function __replace {
 		# --keep-everything-after-the-start-of-this=*
 		--replace-before-first=*)
 			local -i REPLACE__index
-			REPLACE__index="$(__index --first --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__index="$(__index --source={REPLACE__value_wip} --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip:REPLACE__index}"
 			;;
 		# --replace-everything-before-the-start-of-the-last-occurrence-of-this=*
 		# --keep-everything-after-the-start-of-the-last-occurrence-of-this=*
 		--replace-before-last=*)
 			local -i REPLACE__index
-			REPLACE__index="$(__index --first --reverse --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__index="$(__index --source={REPLACE__value_wip} --reverse --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip:REPLACE__index}"
 			;;
 
@@ -5641,7 +5727,7 @@ function __replace {
 		# --keep-everything-before-the-end-of-this=*
 		--replace-after-first=*)
 			local -i REPLACE__index REPLACE__lookup_size
-			REPLACE__index="$(__index --first --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__index="$(__index --source={REPLACE__value_wip} --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__lookup_size=${#REPLACE__lookup_query}
 			REPLACE__value_wip="${REPLACE__value_wip:0:REPLACE__index+REPLACE__lookup_size}$REPLACE__replacement"
 			;;
@@ -5649,7 +5735,7 @@ function __replace {
 		# --keep-everything-before-the-end-of-the-last-occurrence-of-this=*
 		--replace-after-last=*)
 			local -i REPLACE__index REPLACE__lookup_size
-			REPLACE__index="$(__index --first --reverse --source={REPLACE__value_wip} --quiet --value="$REPLACE__lookup_query")" || continue
+			REPLACE__index="$(__index --source={REPLACE__value_wip} --reverse --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__lookup_size=${#REPLACE__lookup_query}
 			REPLACE__value_wip="${REPLACE__value_wip:0:REPLACE__index+REPLACE__lookup_size}$REPLACE__replacement"
 			;;
@@ -5689,7 +5775,7 @@ function __replace {
 
 function __unique {
 	# <multi-source helper arguments>
-	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode='' UNIQUE__inputs
+	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode=''
 	while [[ $# -ne 0 ]]; do
 		UNIQUE__item="$1"
 		shift
@@ -5715,7 +5801,8 @@ function __unique {
 			;;
 		--)
 			# an array input
-			UNIQUE__inputs+=("$@")
+			# trunk-ignore(shellcheck/SC2034)
+			local UNIQUE__inputs=("$@")
 			UNIQUE__sources+=('UNIQUE__inputs')
 			shift $#
 			break
@@ -5725,30 +5812,36 @@ function __unique {
 		*) __unrecognised_argument "$UNIQUE__item" || return ;;
 		esac
 	done
-	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source reference' || return
+	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return
 	# process
 	local -i UNIQUE__index
-	local UNIQUE__source UNIQUE__indices=() UNIQUE__value UNIQUE__results=()
+	local UNIQUE__source UNIQUE__indices=() UNIQUE__value UNIQUE__empty="EMPTY${RANDOM}EMPTY" UNIQUE__results=()
 	if __has_array_capability 'associative'; then
 		declare -A UNIQUE__encountered
 		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
-			__affirm_variable_is_array "$UNIQUE__source" || return
+			__affirm_variable_is_array "$UNIQUE__source" 'source variable reference' || return
 			eval 'UNIQUE__indices=("${!'"$UNIQUE__source"'[@]}")' || return
 			# source is always an array, so no need for: __indices --source="{$UNIQUE__source}" --target={UNIQUE__indices} || return
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
-				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]}"' || return
+				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]:-"$UNIQUE__empty"}"' || return
+				# associative arrays cannot have zero-length keys, so we do the UNIQUE__empty fallback
 				if [[ -n ${UNIQUE__encountered["$UNIQUE__value"]-} ]]; then
 					continue
 				fi
 				UNIQUE__encountered["$UNIQUE__value"]="$UNIQUE__index"
-				UNIQUE__results+=("$UNIQUE__value")
+				# when doing the results, handle the UNIQUE__empty placeholder
+				if [[ $UNIQUE__value == "$UNIQUE__empty" ]]; then
+					UNIQUE__results+=('')
+				else
+					UNIQUE__results+=("$UNIQUE__value")
+				fi
 			done
 		done
 	else
 		local UNIQUE__result_value
 		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
-			__affirm_variable_is_array "$UNIQUE__source" || return
+			__affirm_variable_is_array "$UNIQUE__source" 'source variable reference' || return
 			eval 'UNIQUE__indices=("${!'"$UNIQUE__source"'[@]}")' || return
 			# source is always an array, so no need for: __indices --source="{$UNIQUE__source}" --target={UNIQUE__indices} || return
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
@@ -5768,22 +5861,23 @@ function __unique {
 # set the targets to the slice between the start and length indices of the source reference
 # negative starts and lengths will be counted from the source reference's end
 # out of bound indices will throw
+# if you want to suppress out of bounds, do: `__slice --quiet ... || __ignore_exit_status 33`
 function __slice {
-	local SLICE__indices=()
+	local SLICE__indices=() SLICE__quiet='no'
 	# <single-source helper arguments>
-	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode='' SLICE__inputs=() SLICE__input=''
+	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode=''
 	while [[ $# -ne 0 ]]; do
 		SLICE__item="$1"
 		shift
 		case "$SLICE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$SLICE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$SLICE__source_reference" 'source variable reference' || return
 			__dereference --source="${SLICE__item#*=}" --name={SLICE__source_reference} || return
 			;;
 		--source+target={*})
 			SLICE__item="${SLICE__item#*=}"
 			SLICE__targets+=("$SLICE__item")
-			__affirm_value_is_undefined "$SLICE__source_reference" 'source reference' || return
+			__affirm_value_is_undefined "$SLICE__source_reference" 'source variable reference' || return
 			__dereference --source="$SLICE__item" --name={SLICE__source_reference} || return
 			;;
 		--targets=*) __dereference --source="${SLICE__item#*=}" --value={SLICE__targets} || return ;;
@@ -5802,11 +5896,12 @@ function __slice {
 				if [[ $# -eq 1 ]]; then
 					# a string input
 					# trunk-ignore(shellcheck/SC2034)
-					SLICE__input="$1"
+					local SLICE__input="$1"
 					SLICE__source_reference='SLICE__input'
 				else
 					# an array input
-					SLICE__inputs+=("$@")
+					# trunk-ignore(shellcheck/SC2034)
+					local SLICE__inputs=("$@")
 					SLICE__source_reference='SLICE__inputs'
 				fi
 			else
@@ -5820,6 +5915,10 @@ function __slice {
 			break
 			;;
 		# </single-source helper arguments>
+		# quiet mode
+		--no-verbose* | --verbose*) __flag --source={SLICE__item} --target={SLICE__quiet} --non-affirmative --coerce ;;
+		--no-quiet* | --quiet*) __flag --source={SLICE__item} --target={SLICE__quiet} --affirmative --coerce ;;
+		# index/length
 		[0-9]* | -[0-9]*)
 			__affirm_value_is_integer "$SLICE__item" 'index/length' || return
 			SLICE__indices+=("$SLICE__item")
@@ -5829,7 +5928,7 @@ function __slice {
 		esac
 	done
 	# affirm
-	__affirm_value_is_defined "$SLICE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$SLICE__source_reference" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$SLICE__mode" || return
 	__affirm_length_defined "${#SLICE__indices[@]}" '<index> [<length>] tuple' || return
 	# if indices is odd, then make it to the end
@@ -5860,8 +5959,10 @@ function __slice {
 		if [[ $SLICE__left == '-0' || $SLICE__length == '0' ]]; then
 			continue # there is nothing to do
 		elif [[ $SLICE__left -lt $SLICE__negative_size || $SLICE__left -ge $SLICE__size ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) was beyond the range of:" >&2 || :
-			__dump --indices "$SLICE__source_reference" >&2 || :
+			if [[ $SLICE__quiet == 'no' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) was beyond the range of:" >&2 || :
+				__dump --indices "$SLICE__source_reference" >&2 || :
+			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
 		if [[ $SLICE__length == '-0' || $SLICE__length -eq $SLICE__size ]]; then
@@ -5870,8 +5971,10 @@ function __slice {
 		fi
 		SLICE__remaining="$((SLICE__size - SLICE__left))"
 		if [[ $SLICE__length -gt $SLICE__remaining || $SLICE__length -lt $SLICE__remaining*-1 ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) with length $(__dump --value="$SLICE__length" || :) was beyond the range of:" >&2 || :
-			__dump --indices "$SLICE__source_reference" >&2 || :
+			if [[ $SLICE__quiet == 'no' ]]; then
+				__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) with length $(__dump --value="$SLICE__length" || :) was beyond the range of:" >&2 || :
+				__dump --indices "$SLICE__source_reference" >&2 || :
+			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		elif [[ $SLICE__length -lt 0 && $BASH_CAN_USE_A_NEGATIVE_LENGTH == 'no' ]]; then
 			SLICE__length="$((SLICE__size + SLICE__length - SLICE__left))"
@@ -5883,9 +5986,9 @@ function __slice {
 
 # split, unlike mapfile and readarray, supports multi-character delimiters, and multiple delimiters
 # this is wrong:
-# __split --target={arr} --no-zero-length < <(<output-command>)
-# __split --target={arr} --no-zero-length <<< "$(<output-command>)"
-# __split --target={arr} --no-zero-length < <(<output-command> | tr $'\t ,|' '\n')
+# __split --target={arr} --no-zero-length --stdin < <(<output-command>)
+# __split --target={arr} --no-zero-length --stdin <<< "$(<output-command>)"
+# __split --target={arr} --no-zero-length --stdin < <(<output-command> | tr $'\t ,|' '\n')
 # and this is right:
 # fodder_to_respect_exit_status="$(<output-command>)"
 # __split --target={arr} --no-zero-length --invoke -- <output-command> # this preserves trail
@@ -5896,21 +5999,20 @@ function __slice {
 function __split {
 	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
 	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
-	# <single-source helper arguments>
-	local SPLIT__item SPLIT__source_reference='' SPLIT__targets=() SPLIT__mode='' SPLIT__input=''
+	# <multi-source helper arguments>
+	local SPLIT__item SPLIT__sources=() SPLIT__targets=() SPLIT__mode=''
 	while [[ $# -ne 0 ]]; do
 		SPLIT__item="$1"
 		shift
 		case "$SPLIT__item" in
 		--source={*})
-			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__source_reference} || return
+			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__sources} || return
 			;;
 		--source+target={*})
 			SPLIT__item="${SPLIT__item#*=}"
 			SPLIT__targets+=("$SPLIT__item")
-			__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-			__dereference --source="$SPLIT__item" --name={SPLIT__source_reference} || return
+			__dereference --source="$SPLIT__item" --name={SPLIT__item} || return
+			SPLIT__sources+=("$SPLIT__item")
 			;;
 		--targets=*) __dereference --source="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
 		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
@@ -5922,45 +6024,50 @@ function __split {
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
 			SPLIT__mode="${SPLIT__item:2}"
 			;;
-		--no-trailing-newlines* | --trailing-newlines*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return ;;
+		# </multi-source helper arguments>
+		--stdin | --source=STDIN | --source=stdin | --source=/dev/stdin | --source=0)
+			local SPLIT__stdin='' SPLIT__reply=''
+			while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
+				if [[ -n $SPLIT__stdin ]]; then
+					SPLIT__stdin+=$'\n'
+				fi
+				SPLIT__stdin+="$SPLIT__reply"
+			done
+			SPLIT__sources+=('SPLIT__stdin')
+			;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
-				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-				local SPLIT__fodder_to_respect_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
-				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
-				SPLIT__source_reference='SPLIT__input'
+				local SPLIT__fodder_to_respect_exit_status SPLIT__exit_status
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				if [[ $SPLIT__exit_status -ne 0 ]]; then
+					return "$SPLIT__exit_status"
+				fi
+				local SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				SPLIT__sources+=('SPLIT__input')
 			elif [[ $SPLIT__invoke == 'try' ]]; then
-				__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
 				local SPLIT__fodder_to_respect_exit_status
 				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
-				SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
-				SPLIT__source_reference='SPLIT__input'
-			elif [[ -z $SPLIT__source_reference ]]; then
-				# they are inputs
-				if [[ $# -eq 1 ]]; then
-					# a string input
-					__affirm_value_is_undefined "$SPLIT__source_reference" 'source reference' || return
-					SPLIT__input="$1"
-					SPLIT__source_reference='SPLIT__input'
-				else
-					__print_lines "ERROR: ${FUNCNAME[0]}: Multiple inputs are not supported, as the source for __split must be a string." >&2 || :
-					return 22 # EINVAL 22 Invalid argument
-				fi
+				# trunk-ignore(shellcheck/SC2034)
+				local SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				SPLIT__sources+=('SPLIT__input')
 			else
-				# they are delimiters
-				SPLIT__delimiters+=("$@")
+				# an array input
+				# trunk-ignore(shellcheck/SC2034)
+				local SPLIT__inputs=("$@")
+				SPLIT__sources+=('SPLIT__inputs')
+				shift $#
+				break
 			fi
 			shift $#
 			break
 			;;
-		# </single-source helper arguments>
-		'--no-zero-length') SPLIT__zero_length='no' ;;
-		'--keep-zero-length') : ;; # no-op as already the case
-		'--invoke=try') SPLIT__invoke='try' ;;
-		'--invoke') SPLIT__invoke='yes' ;;
-		'--delimiter='*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
-		'--delimiters='*)
+		--no-trailing-newlines* | --trailing-newlines*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return ;;
+		--no-zero-length) SPLIT__zero_length='no' ;;
+		--keep-zero-length) : ;; # no-op as already the case
+		--invoke=try) SPLIT__invoke='try' ;;
+		--invoke) SPLIT__invoke='yes' ;;
+		--delimiter=*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
+		--delimiters=*)
 			SPLIT__item="${SPLIT__item#*=}"
 			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
 				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
@@ -5971,81 +6078,80 @@ function __split {
 		*) __unrecognised_argument "$SPLIT__item" || return ;;
 		esac
 	done
-	# read everything from stdin
-	if [[ -z $SPLIT__source_reference ]]; then
-		local SPLIT__stdin='' SPLIT__reply
-		while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
-			if [[ -n $SPLIT__stdin ]]; then
-				SPLIT__stdin+=$'\n'
-			fi
-			SPLIT__stdin+="$SPLIT__reply"
-		done
-		SPLIT__source_reference='SPLIT__stdin'
-	fi
-	# affirmations
-	__affirm_value_is_defined "$SPLIT__source_reference" 'source variable reference to a string' || return
+	__affirm_length_defined "${#SPLIT__sources[@]}" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$SPLIT__mode" || return
 	if [[ ${#SPLIT__delimiters[@]} -eq 0 ]]; then
 		SPLIT__delimiters+=($'\n')
 	fi
 	# process
-	eval "SPLIT__input=\"\${$SPLIT__source_reference}\"" || return
-	# check if we even apply
-	if [[ -z $SPLIT__input ]]; then
-		# the item is empty, add it if desired
-		if [[ $SPLIT__zero_length == 'yes' ]]; then
-			__to --source={SPLIT__input} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
+	local SPLIT__source SPLIT__strings=()
+	for SPLIT__source in "${SPLIT__sources[@]}"; do
+		__affirm_variable_is_defined "$SPLIT__source" 'source variable reference' || return
+		if __is_array "$SPLIT__source"; then
+			eval 'SPLIT__strings+=("${'"$SPLIT__source"'[@]}")' || return
+		else
+			eval 'SPLIT__strings+=("${'"$SPLIT__source"'}")' || return
 		fi
-		# done
-		return 0
-	fi
-	# reset the window for each argument
-	SPLIT__window=''
-	SPLIT__last_slice_left_index=-1
-	SPLIT__string_length=${#SPLIT__input}
-	SPLIT__string_last=$((SPLIT__string_length - 1))
-	# process the argument
-	for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
-		# add the character to the window, no need for string __slice as it is a simple slice
-		SPLIT__character="${SPLIT__input:SPLIT__character_left_index:1}"
-		SPLIT__window+="$SPLIT__character"
-		# cycle through the delimiters
-		for SPLIT__delimiter in "${SPLIT__delimiters[@]}"; do
-			# does the window end with our delimiter?
-			if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
-				# remove the delimiter
-				SPLIT__window_size=${#SPLIT__window}
-				SPLIT__delimiter_size=${#SPLIT__delimiter}
-				SPLIT__window_offset=$((SPLIT__window_size - SPLIT__delimiter_size))
-				SPLIT__segment="${SPLIT__window:0:SPLIT__window_offset}"
-				# do we want to add it?
-				if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__segment ]]; then
-					SPLIT__results+=("$SPLIT__segment")
-				fi
-				# reset the window so characters can be added back to it for the new slice
-				SPLIT__window=''
-				# note the last slice, as we know whether or not we need to add a trailing slice
-				SPLIT__last_slice_left_index="$SPLIT__character_left_index"
-			fi
-		done
 	done
-	# check how to handle trailing slice
-	if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
-		# the delimiter was not found, so add the whole string
-		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
-			SPLIT__results+=("$SPLIT__input")
+	local SPLIT__string SPLIT__results=()
+	for SPLIT__string in "${SPLIT__strings[@]}"; do
+		# handle empty
+		if [[ -z $SPLIT__string ]]; then
+			# add iff desired
+			if [[ $SPLIT__zero_length == 'yes' ]]; then
+				SPLIT__results+=('')
+			fi
+			# done with empty
+			continue
 		fi
-	elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
-		# the delimiter was not the last character, so add the pending slice
-		if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
-			SPLIT__results+=("$SPLIT__window")
+		# reset the window for each argument
+		SPLIT__window=''
+		SPLIT__last_slice_left_index=-1
+		SPLIT__string_length=${#SPLIT__string}
+		SPLIT__string_last=$((SPLIT__string_length - 1))
+		# process the argument
+		for ((SPLIT__character_left_index = 0; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
+			# add the character to the window, no need for string __slice as it is a simple slice
+			SPLIT__character="${SPLIT__string:SPLIT__character_left_index:1}"
+			SPLIT__window+="$SPLIT__character"
+			# cycle through the delimiters
+			for SPLIT__delimiter in "${SPLIT__delimiters[@]}"; do
+				# does the window end with our delimiter?
+				if [[ $SPLIT__window == *"$SPLIT__delimiter" ]]; then
+					# remove the delimiter
+					SPLIT__window_size=${#SPLIT__window}
+					SPLIT__delimiter_size=${#SPLIT__delimiter}
+					SPLIT__window_offset=$((SPLIT__window_size - SPLIT__delimiter_size))
+					SPLIT__segment="${SPLIT__window:0:SPLIT__window_offset}"
+					# do we want to add it?
+					if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__segment ]]; then
+						SPLIT__results+=("$SPLIT__segment")
+					fi
+					# reset the window so characters can be added back to it for the new slice
+					SPLIT__window=''
+					# note the last slice, as we know whether or not we need to add a trailing slice
+					SPLIT__last_slice_left_index="$SPLIT__character_left_index"
+				fi
+			done
+		done
+		# check how to handle trailing slice
+		if [[ $SPLIT__last_slice_left_index -eq -1 ]]; then
+			# the delimiter was not found, so add the whole string
+			if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
+				SPLIT__results+=("$SPLIT__string")
+			fi
+		elif [[ $SPLIT__last_slice_left_index -ne $SPLIT__string_last ]]; then
+			# the delimiter was not the last character, so add the pending slice
+			if [[ $SPLIT__zero_length == 'yes' || -n $SPLIT__window ]]; then
+				SPLIT__results+=("$SPLIT__window")
+			fi
+		elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
+			# delimiter was the last character, so add a right-side slice, if zero-length is allowed
+			if [[ $SPLIT__zero_length == 'yes' ]]; then
+				SPLIT__results+=('')
+			fi
 		fi
-	elif [[ $SPLIT__last_slice_left_index -eq $SPLIT__string_last ]]; then
-		# delimiter was the last character, so add a right-side slice, if zero-length is allowed
-		if [[ $SPLIT__zero_length == 'yes' ]]; then
-			SPLIT__results+=('')
-		fi
-	fi
+	done
 	__to --source={SPLIT__results} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return
 }
 
@@ -6054,7 +6160,7 @@ function __split {
 function __join {
 	local JOIN__delimiter=$'\n'
 	# <multi-source helper arguments>
-	local JOIN__item JOIN__sources=() JOIN__targets=() JOIN__mode='' JOIN__inputs
+	local JOIN__item JOIN__sources=() JOIN__targets=() JOIN__mode=''
 	while [[ $# -ne 0 ]]; do
 		JOIN__item="$1"
 		shift
@@ -6080,7 +6186,8 @@ function __join {
 			;;
 		--)
 			# an array input
-			JOIN__inputs+=("$@")
+			# trunk-ignore(shellcheck/SC2034)
+			local JOIN__inputs=("$@")
 			JOIN__sources+=('JOIN__inputs')
 			shift $#
 			break
@@ -6091,13 +6198,13 @@ function __join {
 		*) __unrecognised_argument "$JOIN__item" || return ;;
 		esac
 	done
-	__affirm_length_defined "${#JOIN__sources[@]}" 'source reference' || return
+	__affirm_length_defined "${#JOIN__sources[@]}" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$JOIN__mode" || return
 	# process
 	local JOIN__source JOIN__values=() JOIN__result=''
 	local -i JOIN__size JOIN__last JOIN__index
 	for JOIN__source in "${JOIN__sources[@]}"; do
-		__affirm_variable_is_array "$JOIN__source" || return
+		__affirm_variable_is_array "$JOIN__source" 'source variable reference' || return
 		eval "JOIN__values=(\"\${${JOIN__source}[@]}\")" || return
 		JOIN__size=${#JOIN__values[@]}
 		if [[ $JOIN__size -eq 0 ]]; then
