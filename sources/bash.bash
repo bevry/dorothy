@@ -615,15 +615,56 @@ if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	}
 else
 	# Bash < 5
-	function __get_epoch_time {
-		local time size
-		time="$(date +%s.%N)" || return
-		if [[ $time == *000 ]]; then
-			size="${#time}"
-			printf '%s' "${time:0:size-3}" || return # trim last 3 digits, as they are just zeroes
-		else
-			printf '%s' "$time" || return
+	EPOCH_TIME_FUNCTION=''
+	function __get_epoch_time_via_date {
+		local time=''
+		time="$(date +%s.%N 2>/dev/null)" || return 19 # ENODEV 19 Operation not supported by device
+		if [[ -z $time || $time =~ [^.0-9] ]]; then
+			# if subseconds is not supported, will output non numeric characters: 1756379172.N
+			return 19 # ENODEV 19 Operation not supported by device
 		fi
+		EPOCH_TIME_FUNCTION='__get_epoch_time_via_date'
+		printf '%s' "$time" || return
+	}
+	function __get_epoch_time_via_gdate {
+		local time=''
+		time="$(gdate +%s.%N 2>/dev/null)" || return 19 # ENODEV 19 Operation not supported by device
+		if [[ -z $time || $time =~ [^.0-9] ]]; then
+			# if subseconds is not supported, will output non numeric characters: 1756379172.N
+			return 19 # ENODEV 19 Operation not supported by device
+		fi
+		EPOCH_TIME_FUNCTION='__get_epoch_time_via_gdate'
+		printf '%s' "$time" || return
+	}
+	function __get_epoch_time_via_perl {
+		local time=''
+		time="$(perl -MTime::HiRes=time -e 'printf "%.6f\n", time' 2>/dev/null)" || return 19 # ENODEV 19 Operation not supported by device
+		if [[ -z $time || $time =~ [^.0-9] ]]; then
+			return 19 # ENODEV 19 Operation not supported by device
+		fi
+		EPOCH_TIME_FUNCTION='__get_epoch_time_via_perl'
+		printf '%s' "$time" || return
+	}
+	function __get_epoch_time {
+		local time=''
+		# fetch
+		if [[ -z $EPOCH_TIME_FUNCTION ]]; then
+			time="$(__get_epoch_time_via_date || __get_epoch_time_via_gdate || __get_epoch_time_via_perl || :)"
+		else
+			time="$("$EPOCH_TIME_FUNCTION" || :)"
+		fi
+		# check
+		if [[ -z $time || $time =~ [^.0-9] ]]; then
+			__require_upgraded_bash 'missing epoch time support' || return
+		fi
+		# the fallback techniques are not that precise, so they leave multiple trailing zeroes
+		local -i size
+		while [[ $time == *.*0 ]]; do
+			size="${#time}"
+			time="${time:0:size-1}"
+		done
+		# return
+		printf '%s' "$time" || return
 	}
 fi
 
