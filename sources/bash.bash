@@ -5117,7 +5117,7 @@ function __iterate {
 			;;
 		# </single-source helper arguments>
 		# lookups:
-		--value=* | --needle=* | --prefix=* | --suffix=* | --pattern=* | --glob=*) ITERATE__lookups+=("$ITERATE__item") ;;
+		--value=* | --needle=* | --index=* | --prefix=* | --suffix=* | --pattern=* | --glob=*) ITERATE__lookups+=("$ITERATE__item") ;;
 		# order mode
 		--by=lookup | --order=lookup | --order=argument | --lookup) ITERATE__by='lookup' ;;
 		--by=cursor | --by=content | --order=content | --order=source | --cursor) ITERATE__by='content' ;;
@@ -5370,6 +5370,22 @@ function __iterate {
 					continue
 				fi
 				;;
+			--index=*)
+				# index match
+				ITERATE__lookup_size=1
+				if [[ $ITERATE__array == 'yes' ]]; then
+					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return
+				else
+					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__index:1}"' || return
+				fi
+				if [[ $ITERATE__index == "$ITERATE__lookup" ]]; then
+					ITERATE__matched=yes
+					ITERATE__match="$ITERATE__value"
+					ITERATE__consumed_lookups_map[ITERATE__lookup_index]="$ITERATE__index"
+				else
+					continue
+				fi
+				;;
 			--prefix=*)
 				# prefix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
@@ -5563,7 +5579,8 @@ function __evict {
 }
 
 function __replace {
-	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replacement=''
+	local REPLACE__empty="EMPTY${RANDOM}EMPTY"
+	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replacement='' REPLACE__default_fallback="$REPLACE__empty"
 	# <single-source helper arguments>
 	local REPLACE__item REPLACE__source_reference='' REPLACE__targets=() REPLACE__mode=''
 	while [[ $# -ne 0 ]]; do
@@ -5614,9 +5631,10 @@ function __replace {
 			;;
 		--replacement=* | --replace=* | --with=*) REPLACE__lookups+=("$REPLACE__item") ;;
 		# require mode:
-		--require=none | --optional) REPLACE__require='none' ;;
+		--require=none | --optional | --fallback) REPLACE__require='none' ;;
 		--require=any | --any) REPLACE__require='any' ;;
 		--require=all | --all) REPLACE__require='all' ;;
+		--fallback=*) REPLACE__default_fallback="${REPLACE__item#*=}" REPLACE__require='none' ;;
 		# quiet mode
 		--no-verbose* | --verbose*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
 		--no-quiet* | --quiet*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
@@ -5674,7 +5692,9 @@ function __replace {
 			;;
 		# --replace-all-occurrences-of-this=*
 		--value-all=* | --needle-all=*)
-			REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/"$REPLACE__replacement"}"
+			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; do
+				REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/$REPLACE__replacement}"
+			done
 			;;
 
 		# --replace-this-prefix=*
@@ -5793,7 +5813,11 @@ function __replace {
 	done
 	# any/all require checks
 	local -i REPLACE__found_size="${#REPLACE__found_lookups[@]}" # REPLACE__missing_size="${#REPLACE__missing_lookups[@]}"
-	if [[ $REPLACE__require == 'any' ]]; then
+	if [[ $REPLACE__require == 'none' ]]; then
+		if [[ $REPLACE__found_size -eq 0 && $REPLACE__default_fallback != "$REPLACE__empty" ]]; then
+			REPLACE__value_wip="$REPLACE__default_fallback"
+		fi
+	elif [[ $REPLACE__require == 'any' ]]; then
 		if [[ $REPLACE__found_size -eq 0 ]]; then
 			if [[ $REPLACE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$REPLACE__missing_size" || :):" >&2 || :
@@ -5903,6 +5927,31 @@ function __unique {
 # negative starts and lengths will be counted from the source reference's end
 # out of bound indices will throw
 # if you want to suppress out of bounds, do: `__slice --quiet ... || __ignore_exit_status 33`
+# a prior implementation of this had a sliding window implementation, however the problem is, while a sliding window implementation is intuitive, it is not standard, and as such, there are differing expectations as to what out of bound behaviour should be, as such that is why the current implementation throws to enforce the caller to be explicit
+# at a later point, one could implement an option that adjusts the out of bound behaviour
+# note that the following proposals are error-prone, as again, they do not specify which out of bound behaviour should occur:
+# ```
+# __slice --source+target={parts} -- \
+# 	0 "$i" \
+# 	"$((i + 1))" --ignore-out-of-bounds
+# ```
+# as such, it would need ot be something like:
+# ```
+# __slice --source+target={parts} -- \
+# 	0 "$i" \
+# 	"$((i + 1))" --out-of-bound=sliding-window
+# ```
+# which would still enforce an out of bound error if the first tuple is out of bound,
+# a default out of bound override could occur like so:
+# ```
+# __slice --source+target={parts} --out-of-bound=sliding-window -- \
+# 	0 "$i" \
+# 	"$((i + 1))"
+# ```
+# for now, if you are just wanting to evict certain indices, use the less efficient but clearer `__evict` function:
+# ```
+# __evict --source+target={parts} --each --all --index="$i"
+# ```
 function __slice {
 	local SLICE__indices=() SLICE__quiet='no'
 	# <single-source helper arguments>
