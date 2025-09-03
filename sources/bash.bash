@@ -736,7 +736,10 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 		# proceed
 		printf '%s' "${@@L}" || return
 	}
-	# @Q is available, however it is strange, so don't shim
+	# Don't shim escaping/quoting as their native behaviour is divergent to intuition.
+	# `${var@Q}` is available, but it is strange, `Ben's World` becomes `'Ben'\''s World'`
+	# If you want `"Ben's World"`, use `echo-quote` instead.
+	# `$(printf '%q' "$var")` escapes bash-style, e.g. `hello world` => `Ben\'s\ World`
 else
 	# bash < 5.1
 	# @Q is no longer available, however it is strange, so don't shim
@@ -784,8 +787,8 @@ else
 			while [[ $# -ne 0 ]]; do
 				local input="$1"
 				local first_char="${input:0:1}" rest="${input:1}" result
-				result="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
-				printf '%s' "$result$rest" || return
+				first_char="$(tr '[:lower:]' '[:upper:]' <<<"$first_char")" || return
+				printf '%s' "$first_char$rest" || return
 				shift
 			done
 		}
@@ -4611,7 +4614,6 @@ function __array {
 	# generate the array values
 	local ARRAY__index ARRAY__results=()
 	for ((ARRAY__index = 0; ARRAY__index < ARRAY__size; ARRAY__index++)); do
-		# the alternative would be using `{...@Q}` however that isn't available on all bash versions, but this is equally good, perhaps better
 		ARRAY__results+=("$ARRAY__fill")
 	done
 	__to --source={ARRAY__results} --mode="$ARRAY__mode" --targets={ARRAY__targets} --no-coerce || return
@@ -5012,7 +5014,7 @@ function __case {
 # `__slice --source+target={my_array_or_string} -- "$((the_index + 1))"`
 #
 # for their original implementation, see fb6ead4ea1a16506af6536aa08ce227e9eb98867fb6ead4ea1a16506af6536aa08ce227e9eb98867 and its subsequent commit for their removal
-#
+
 # -----------------------------------------------------------------------------
 # WHAT IS `__iterate`
 #

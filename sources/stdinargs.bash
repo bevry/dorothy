@@ -13,6 +13,16 @@ source "$DOROTHY/sources/bash.bash"
 # 3
 # [0] success
 function stdinargs_options_help {
+	local option_stdin=''
+	local default_message=$'\n    This is the default behaviour.' stdin_empty_message='' stdin_yes_message='' stdin_no_message=''
+	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@"
+	if [[ $option_stdin == 'yes' ]]; then
+		stdin_yes_message="$default_message"
+	elif [[ $option_stdin == 'no' ]]; then
+		stdin_no_message="$default_message"
+	else
+		stdin_empty_message="$default_message"
+	fi
 	cat <<-EOF
 		--timeout | --timeout=yes
 		    Wait one second for STDIN content before timing out.
@@ -24,30 +34,13 @@ function stdinargs_options_help {
 		--timeout=<seconds>
 		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to 1 second on earlier bash versions.
 
-		--inline | --inline=yes
-		    When processing STDIN or lines from arguments, process non-empty trailing lines.
-		    This is the default behaviour.
-		--no-inline | --inline=no
-		    When processing STDIN or lines from arguments, ignore non-empty trailing lines.
-
 		--stdin=
-		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.
+		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
 		--stdin | --stdin=yes | -
-		    Require STDIN for processing inputs, and disable timeout.
+		    Require STDIN for processing inputs, and disable timeout.$stdin_yes_message
 		--no-stdin | --stdin=no | --
-		    Require arguments for processing inputs, and ignore STDIN.
+		    Require arguments for processing inputs, and ignore STDIN.$stdin_no_message
 	EOF
-	if [[ $* == '--stdin' ]]; then
-		cat <<-EOF
-
-			[--stdin] is the default for this command.
-		EOF
-	else
-		cat <<-EOF
-
-			[--stdin=] is the default for this command.
-		EOF
-	fi
 }
 
 function stdinargs {
@@ -131,8 +124,22 @@ function stdinargs {
 		esac
 	done
 
+	# deprecations
+	if [[ "$(type -t on_input)" == 'function' ]]; then
+		dorothy-warnings add --path="$0" --=':' --code='on_input' --bold=' has been deprecated in favor of ' --code='on_piece' --bold=', however, you may want ' --code='on_whole' --bold=' instead.'
+		function on_piece {
+			on_input "$@"
+		}
+	fi
+	if [[ "$(type -t on_no_lines)" == 'function' ]]; then
+		dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='on_no_input'
+		function on_no_lines {
+			on_no_input "$@"
+		}
+	fi
+
 	# process
-	local had_args='maybe' had_stdin='maybe' had_lines='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r')
+	local had_args='maybe' had_stdin='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r')
 	if [[ $timeout_max == 'no' && $timeout_immediate == 'no' && -n $timeout_seconds ]]; then
 		read_args+=('-t' "$timeout_seconds")
 	fi
@@ -146,37 +153,50 @@ function stdinargs {
 		return "$stdinargs_status"
 	}
 	function stdinargs_read {
-		local line='' what="$1" had_line='no'
-		# for each line, call `on_line` or `on_input`
-		# for each inline, call `on_inline` or `on_line` or `on_input`
-		# [read -t 0 line] will not read anything, so it must be done separately
-		# IFS= to not trim whitespace lines (e.g. ' ' would otherwise become '')
-		# trunk-ignore(shellcheck/SC2162)
-		while ([[ $timeout_immediate == 'no' ]] || read -t 0) && IFS= read "${read_args[@]}" line; do
-			had_line='yes'
-			if [[ $complete == 'yes' ]]; then
-				break
-			fi
-			if [[ "$(type -t on_line)" == 'function' ]]; then
-				stdinargs_eval on_line "$line"
-			else
-				stdinargs_eval on_input "$line"
-			fi
-		done
-		if [[ -n $line && $option_inline != 'no' ]]; then # this needs to be `[[`` otherwise an inline of `>` will cause crash with `test`
-			had_line='yes'
-			if [[ $complete == 'yes' ]]; then
-				:
-			elif [[ "$(type -t on_inline)" == 'function' ]]; then
-				stdinargs_eval on_inline "$line"
-			elif [[ "$(type -t on_line)" == 'function' ]]; then
-				stdinargs_eval on_line "$line"
-			else
-				stdinargs_eval on_input "$line"
+		local what="$1" had_read='no'
+		if [[ "$(type -t on_whole)" == 'function' ]]; then
+			local piece='' whole=''
+			while ([[ $timeout_immediate == 'no' ]] || read -t 0) && LC_ALL=C IFS= read -rd '' piece || [[ -n $piece ]]; do
+				had_read='yes'
+				if [[ $complete == 'yes' ]]; then
+					break
+				fi
+				whole+="$piece"
+				piece=''
+			done
+			stdinargs_eval on_whole "$whole"
+		else
+			# for each line, call `on_line` or `on_piece`
+			# for each inline, call `on_inline` or `on_line` or `on_piece`
+			# [read -t 0 line] will not read anything, so it must be done separately
+			# IFS= to not trim whitespace lines (e.g. ' ' would otherwise become '')
+			local piece=''
+			# trunk-ignore(shellcheck/SC2162)
+			while ([[ $timeout_immediate == 'no' ]] || read -t 0) && IFS= read "${read_args[@]}" piece; do
+				had_read='yes'
+				if [[ $complete == 'yes' ]]; then
+					break
+				fi
+				if [[ "$(type -t on_line)" == 'function' ]]; then
+					stdinargs_eval on_line "$piece"
+				else
+					stdinargs_eval on_piece "$piece"
+				fi
+			done
+			if [[ -n $piece && $option_inline != 'no' ]]; then # this needs to be `[[`` otherwise a piece of `>` will cause crash with `test`
+				had_read='yes'
+				if [[ $complete == 'yes' ]]; then
+					:
+				elif [[ "$(type -t on_inline)" == 'function' ]]; then
+					stdinargs_eval on_inline "$piece"
+				elif [[ "$(type -t on_line)" == 'function' ]]; then
+					stdinargs_eval on_line "$piece"
+				else
+					stdinargs_eval on_piece "$piece"
+				fi
 			fi
 		fi
-		if [[ $had_line == 'yes' ]]; then
-			had_lines='yes'
+		if [[ $had_read == 'yes' ]]; then
 			if [[ $what == 'stdin' ]]; then
 				had_stdin='yes'
 			fi
@@ -207,8 +227,10 @@ function stdinargs {
 			fi
 			if [[ "$(type -t on_arg)" == 'function' ]]; then
 				stdinargs_eval on_arg "$item"
-			elif [[ "$(type -t on_input)" == 'function' ]]; then
-				stdinargs_eval on_input "$item"
+			elif [[ "$(type -t on_piece)" == 'function' ]]; then
+				stdinargs_eval on_piece "$item"
+			elif [[ "$(type -t on_whole)" == 'function' ]]; then
+				stdinargs_eval on_whole "$item"
 			# this is against what [printf '%s' '' | wc -l] does, and doesn't make sense when you really think about it:
 			# elif [[ -z "$item" && "$option_inline" = 'yes' ]]; then
 			# 	if [[ "$(type -t on_inline)" = 'function' ]]; then
@@ -217,7 +239,6 @@ function stdinargs {
 			# 		stdinargs_eval on_line "$item"
 			# 	fi
 			else
-				had_lines='no'
 				stdinargs_read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
 			fi
 		done
@@ -228,11 +249,7 @@ function stdinargs {
 	# if we autodetect stdin, then skip stdin if arguments were provided
 	if [[ $option_stdin != 'no' && ($option_stdin == 'yes' || $had_args != 'yes') ]]; then
 		had_stdin='no'
-		if [[ $had_lines != 'yes' ]]; then
-			had_lines='no'
-		fi
-		# for each line of stdin, call `on_(inline|line|input)`
-		stdinargs_read stdin # </dev/stdin
+		stdinargs_read stdin
 	fi
 
 	# verify (note that values can be yes/no/maybe)
@@ -247,9 +264,6 @@ function stdinargs {
 	fi
 	if [[ $had_stdin != 'yes' && "$(type -t on_no_stdin)" == 'function' ]]; then
 		on_no_stdin
-	fi
-	if [[ $had_lines != 'yes' && "$(type -t on_no_lines)" == 'function' ]]; then
-		on_no_lines
 	fi
 
 	# if `finish` exists, call it

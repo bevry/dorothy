@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+
+function echo_json_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	local inputs=(
+		'hello'
+		'hello world'
+		'true'
+		'{"key":  true}'
+		'{"key":  true} asd'
+	)
+	local strings=(
+		'"hello"'
+		'"hello world"'
+		'"true"'
+		'"{\"key\":  true}"'
+		'"{\"key\":  true} asd"'
+	)
+	local encodes=(
+		'"hello"'
+		'"hello world"'
+		'true'
+		'{"key":true}'
+		'"{\"key\":  true} asd"'
+	)
+	local decodes=(
+		'hello'
+		'hello world'
+		'true'
+		'{"key":true}'
+		'{"key":  true} asd'
+	)
+
+	local all_tools=('' deno jq ruby perl) tool index input string encode decode
+	for tool in "${all_tools[@]}"; do
+		for index in "${!inputs[@]}"; do
+			input="${inputs[index]}"
+			string="${strings[index]}"
+			encode="${encodes[index]}"
+			decode="${decodes[index]}"
+			eval-tester --stdout="$string" -- \
+				echo-json --stringify --tool="$tool" -- "$input"
+			eval-tester --stdout="$encode" -- \
+				echo-json --encode --tool="$tool" -- "$input"
+			eval-tester --stdout="$decode" -- \
+				echo-json --decode --tool="$tool" -- "$input"
+		done
+	done
+
+	return 0
+)
+function echo_json() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	local all_tools=(deno jq ruby perl)
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >&2
+			ABOUT:
+			For each input, stringify, encode or decode JSON.
+
+			USAGE:
+			echo-json <operation> [--] ...<input>
+			echo-lines ...<input> | echo-json <operation>
+
+			OPTIONS:
+			--operation=stringify | --stringify
+			    String to JSON string.
+
+			--operation=encode | --encode
+			    JSON data to JSON string.
+
+			--operation=decode | --decode
+			    JSON data to string.
+
+			--operation=parse | --parse
+			    JSON data to pretty string, output is dependent on the tool used.
+
+			--tool=<$(__join --source={all_tools} --delimiter='|')>
+			    Which tool to use for processing. Default is the first available tool.
+			    If you provide [?] we will prompt you to choose.
+
+			$(stdinargs_options_help --)
+		EOF
+		if [[ $# -ne 0 ]]; then
+			echo-error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_operation='' option_tool='' actions=('stringify' 'encode' 'decode' 'parse')
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--stringify' | 'stringify' | '--encode' | 'encode' | '--decode' | 'decode' | '--parse' | 'parse') option_operation="${item#--}" ;;
+		'--operation='* | '--action='*) option_operation="${item#*=}" ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# convert tool aliases
+	case $option_tool in
+	'typescript' | 'ts' | 'js' | 'javascript') option_tool='deno' ;;
+	'pl') option_tool='perl' ;;
+	'rb') option_tool='ruby' ;;
+	esac
+
+	# ensure tool
+	if [[ $option_tool == '?' ]]; then
+		option_tool="$(choose --required 'Which tool to use?' -- "${all_tools[@]}")"
+		if __command_missing -- "$option_tool"; then
+			get-installer --first-success --invoke --quiet -- "$option_tool"
+		fi
+	elif [[ -z $option_tool ]]; then
+		local item
+		for item in "${all_tools[@]}"; do
+			if __command_exists -- "$item"; then
+				option_tool="$item"
+				break
+			fi
+		done
+	fi
+
+	# ensure action
+	if [[ $option_operation == '?' ]]; then
+		option_operation="$(choose --required 'Which action to perform?' -- "${actions[@]}")"
+	elif ! __has --source={option_operation} --any -- "${actions[@]}"; then
+		help "You must provide a valid <action>" --newline --="$(__dump {option_operation} {actions} || :)"
+	fi
+
+	# =====================================
+	# Action
+
+	local script
+	if [[ $option_tool == 'ruby' ]]; then
+		script="$(type -P echo-json.rb)"
+	elif [[ $option_tool == 'deno' ]]; then
+		script="$(type -P echo-json.ts)"
+	elif [[ $option_tool == 'perl' ]]; then
+		script="$(type -P echo-json.pl)"
+	elif [[ $option_tool == 'jq' ]]; then
+		# For jq, we'll handle it specially in the on_line function
+		script='jq'
+	else
+		help "The tool [$option_tool] is not yet supported."
+	fi
+	function on_whole {
+		if [[ $script == 'jq' ]]; then
+			# For jq stringify, treat input as raw string and output as JSON string
+			# -R: Read raw input (don't parse as JSON)
+			# -s: Slurp entire input into a single string
+			# -M: Monochrome output (no colors)
+			# @json: Format as JSON string
+			if [[ $option_operation == 'stringify' ]]; then
+				jq -RM '.' < <(__print_string "$1")
+			elif [[ $option_operation == 'encode' ]]; then
+				local stdout status
+				__do --redirect-status={status} --redirect-stdout={stdout} --discard-stderr -- \
+					jq -rM '@json' < <(__print_string "$1")
+				if [[ $status == 0 ]]; then
+					__print_lines "$stdout"
+				else
+					jq -RM '.' < <(__print_string "$1")
+				fi
+			elif [[ $option_operation == 'decode' ]]; then
+				local stdout status
+				__do --redirect-status={status} --redirect-stdout={stdout} --discard-stderr -- \
+					jq -crM '.' < <(__print_string "$1")
+				if [[ $status == 0 ]]; then
+					__print_string "$stdout" # it was valid JSON
+				else
+					__print_string "$1" # it's was just a string
+				fi
+			elif [[ $option_operation == 'parse' ]]; then
+				jq '.' < <(__print_string "$1")
+			else
+				help "Internal Error: Invalid operation: $option_operation" || return
+			fi
+		else
+			"$script" "$option_operation" "$1"
+		fi
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_json_test
+	else
+		echo_json "$@"
+	fi
+fi
