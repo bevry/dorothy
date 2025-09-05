@@ -8,22 +8,29 @@ function is_same_test() (
 		__print_lines hello
 	}
 
-	local dir1 file1 file2 file3 symlink_file1 symlink_dir1 checksum dir1_checksum file_bytes symlink_bytes dir_bytes
-	dir1="$(fs-temp --directory='is-same' --directory='tests')"
+	local root dir1 file1 file2 file3 symlink_file1 dir2 symlink_dir1 file_checksum dir1_checksum file_bytes symlink_file1_bytes dir1_bytes
+	root="$(fs-temp --directory='is-same')"
+	fs-rm --quiet --no-confirm -- "$root"
+	dir1="$(fs-temp --root="$root" --directory='tests-01')"
+	dir2="$(fs-temp --root="$root" --directory='tests-02')"
 	file1="$dir1/file1.txt"
 	file2="$dir1/file2.txt"
 	file3="$dir1/file3.md"
 	symlink_file1="$dir1/symlink_file1.txt"
-	symlink_dir1="$(fs-temp --no-touch --directory='is-same' --directory='tests-two')"
-	checksum='b1946ac92492d2347c6235b4d2611184'
-	dir1_checksum='dc3894d2fd0f6151698ccb3c7b9ff661'
+	symlink_dir1="$(fs-temp --no-touch --root="$root" --directory='tests-01-symlink')"
+
+	# write the files
 	__print | tee -- "$file1" "$file2" "$file3" >/dev/null
-	file_bytes='6 bytes'
-	symlink_bytes='54 bytes' # on macos-15 ci it is 52 bytes for some reason... https://github.com/bevry/dorothy/actions/runs/16092593894/job/45411265124#step:2:1088
-	dir_bytes='264 bytes'
 	fs-link --quiet \
 		--target="$file1" --symlink="$symlink_file1" \
 		--target="$dir1" --symlink="$symlink_dir1"
+
+	# directories and symlinks have various sizes depending on the file system use, so fetch the size directly
+	file_checksum="$(checksum --no-color --no-confirm -- "$file1")"
+	dir1_checksum="$(checksum --no-color --no-confirm -- "$dir1")"
+	file_bytes='6 bytes'
+	dir1_bytes="$(fs-size --bytes -- "$dir1") bytes"
+	symlink_file1_bytes="$(fs-size --bytes -- "$symlink_file1") bytes"
 
 	# helpers
 	function get_expected_path_same {
@@ -106,9 +113,9 @@ function is_same_test() (
 		is-same --no-color --comparisons=size -- "$file2" "$file3"
 	eval-tester --name='same size: file, symlink' --stdout="$(get_expected_size_same "$file1" "$file_bytes" "$symlink_file1" "$file_bytes")" -- \
 		is-same --no-color --comparisons=size -- "$file1" "$symlink_file1"
-	eval-tester --status=1 --name='diff size: file, unresolved symlink' --stdout="$(get_expected_size_differ "$file1" "$file_bytes" "$symlink_file1" "$symlink_bytes")" -- \
+	eval-tester --status=1 --name='diff size: file, unresolved symlink' --stdout="$(get_expected_size_differ "$file1" "$file_bytes" "$symlink_file1" "$symlink_file1_bytes")" -- \
 		is-same --no-color --no-resolve --comparisons=size -- "$file1" "$symlink_file1"
-	eval-tester --status=1 --name='diff size: file, dir' --stdout="$(get_expected_size_differ "$file1" "$file_bytes" "$dir1" "$dir_bytes")" -- \
+	eval-tester --status=1 --name='diff size: file, dir' --stdout="$(get_expected_size_differ "$file1" "$file_bytes" "$dir1" "$dir1_bytes")" -- \
 		is-same --no-color --comparisons=size -- "$file1" "$dir1"
 
 	# structure
@@ -127,7 +134,7 @@ function is_same_test() (
 			   6 file1.txt
 			   6 file2.txt
 			   6 file3.md
-			   - symlink_file1.txt -> /Users/balupton/.cache/dorothy/is-same/tests/file1.txt
+			   - symlink_file1.txt -> $dir1/file1.txt
 
 			^ same because their structures match
 		EOF
@@ -143,30 +150,27 @@ function is_same_test() (
 			   6 file3.md
 			   - symlink_file1.txt -> $dir1/file1.txt
 
-			$DOROTHY/.vscode
-			Size Name
-			 918 extensions.json
-			 899 settings.json
-			 241 workspace.code-workspace
+			$dir2
+			The directory is empty: $dir2
 
 			^ definitively different because their structures differ
 		EOF
 	)"
 	eval-tester --status=1 --name='diff structure: dir, dir' --stdout="$expected" --ignore-tty -- \
-		is-same --no-color --comparisons=structure -- "$dir1" "$DOROTHY/.vscode"
+		is-same --no-color --comparisons=structure -- "$dir1" "$dir2"
 
 	# checksum
 	eval-tester --name='same checksum: file, fd' --ignore-tty -- \
 		is-same --no-color --quiet --comparisons=checksum -- "$file1" <(__print)
-	eval-tester --name='same checksum: same path' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$file1" "$checksum")" --ignore-tty -- \
+	eval-tester --name='same checksum: same path' --stdout="$(get_expected_checksum_same "$file1" "$file_checksum" "$file1" "$file_checksum")" --ignore-tty -- \
 		is-same --no-color --comparisons=checksum -- "$file1" "$file1"
-	eval-tester --name='same checksum: diff paths' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$file2" "$checksum")" --ignore-tty -- \
+	eval-tester --name='same checksum: diff paths' --stdout="$(get_expected_checksum_same "$file1" "$file_checksum" "$file2" "$file_checksum")" --ignore-tty -- \
 		is-same --no-color --comparisons=checksum -- "$file1" "$file2"
-	eval-tester --name='same checksum: diff extensions' --stdout="$(get_expected_checksum_same "$file2" "$checksum" "$file3" "$checksum")" --ignore-tty -- \
+	eval-tester --name='same checksum: diff extensions' --stdout="$(get_expected_checksum_same "$file2" "$file_checksum" "$file3" "$file_checksum")" --ignore-tty -- \
 		is-same --no-color --comparisons=checksum -- "$file2" "$file3"
-	eval-tester --name='same checksum: file, symlink' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$symlink_file1" "$checksum")" --ignore-tty -- \
+	eval-tester --name='same checksum: file, symlink' --stdout="$(get_expected_checksum_same "$file1" "$file_checksum" "$symlink_file1" "$file_checksum")" --ignore-tty -- \
 		is-same --no-color --comparisons=checksum -- "$file1" "$symlink_file1"
-	eval-tester --status=1 --name='diff checksum: file, dir' --stdout="$(get_expected_checksum_differ "$file1" "$checksum" "$dir1" "$dir1_checksum")" --ignore-tty -- \
+	eval-tester --status=1 --name='diff checksum: file, dir' --stdout="$(get_expected_checksum_differ "$file1" "$file_checksum" "$dir1" "$dir1_checksum")" --ignore-tty -- \
 		is-same --no-color --comparisons=checksum -- "$file1" "$dir1"
 
 	# overall
@@ -174,9 +178,9 @@ function is_same_test() (
 		is-same --no-color --quiet -- "$file1" <(__print)
 	eval-tester --name='same path' --stdout="$(get_expected_path_same "$file1" "$file1")" -- \
 		is-same --no-color -- "$file1" "$file1"
-	eval-tester --name='same checksum: diff paths' --stdout="$(get_expected_checksum_same "$file1" "$checksum" "$file2" "$checksum")" --ignore-tty -- \
+	eval-tester --name='same checksum: diff paths' --stdout="$(get_expected_checksum_same "$file1" "$file_checksum" "$file2" "$file_checksum")" --ignore-tty -- \
 		is-same --no-color -- "$file1" "$file2"
-	eval-tester --name='same checksum: diff extensions' --stdout="$(get_expected_checksum_same "$file2" "$checksum" "$file3" "$checksum")" --ignore-tty -- \
+	eval-tester --name='same checksum: diff extensions' --stdout="$(get_expected_checksum_same "$file2" "$file_checksum" "$file3" "$file_checksum")" --ignore-tty -- \
 		is-same --no-color -- "$file2" "$file3"
 	eval-tester --name='same target: file, symlink' --stdout="$(get_expected_target_same "$file1" "$file1" "$symlink_file1" "$file1")" -- \
 		is-same --no-color -- "$file1" "$symlink_file1"
