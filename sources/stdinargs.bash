@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
 
+# on_whole: argument, or entire stdin
+# on_piece: argument, or line, or inline
+
 # @todo use [declare -f help] to verify help supports arguments, otherwise our failure messages won't be seen
 
 # the reason we disable timeout with --stdin is so that:
@@ -33,7 +36,7 @@ function stdinargs_options_help {
 		    STDIN content must be immediate.
 		--timeout=<seconds>
 		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to 1 second on earlier bash versions.
-
+		
 		--stdin=
 		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
 		--stdin | --stdin=yes | -
@@ -43,8 +46,61 @@ function stdinargs_options_help {
 	EOF
 }
 
+function __print_first_function {
+	local fn type
+	while [[ $# -ne 0 ]]; do
+		fn="$1"
+		shift
+		if [[ -z $fn ]]; then
+			continue
+		fi
+		type="$(type -t "$fn" 2>/dev/null)" || continue
+		if [[ "$type" != 'function' ]]; then
+			continue
+		fi
+		__print_string "$fn"
+		return 0
+	done
+	return 0
+}
+
+local STDINARGS__pieces=0
+function __print_piece {
+	if [[ $STDINARGS__pieces -eq 0 ]]; then
+		__print_string "$1" || return
+		STDINARGS__pieces=$((STDINARGS__pieces + 1))
+	else
+		__print_string $'\n'"$1" || return
+	fi
+}
+
 function stdinargs {
-	# prepare
+	# function
+	local fn_help fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
+	fn_help="$(__print_first_function __help help __on_help on_help)" || return
+	fn_arg="$(__print_first_function __on_arg on_arg)" || return
+	fn_whole="$(__print_first_function __on_whole on_whole)" || return
+	fn_start="$(__print_first_function __on_start on_start)" || return
+	fn_nothing="$(__print_first_function __on_nothing on_nothing __on_no_input on_no_input)" || return
+	fn_no_args="$(__print_first_function __on_no_args on_no_args)" || return
+	fn_no_stdin="$(__print_first_function __on_no_stdin on_no_stdin)" || return
+	fn_finish="$(__print_first_function __on_finish on_finish)" || return
+	if [[ -z $fn_whole ]]; then
+		# alternatives to whole
+		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return
+		fn_line="$(__print_first_function __on_line on_line)" || return
+		fn_inline="$(__print_first_function __on_inline on_inline)" || return
+
+		# deprecations
+		if [[ "$(type -t on_no_lines)" == 'function' ]]; then
+			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='fn_nothing'
+			function on_no_lines {
+				on_no_input "$@"
+			}
+		fi
+	fi
+
+	# arguments
 	local timeout_immediate='no' timeout_max='no' timeout_seconds=1
 	local item option_stdin='' option_inline='yes' option_max_args='' option_args=()
 	while [[ $# -ne 0 ]]; do
@@ -52,7 +108,7 @@ function stdinargs {
 		shift
 		case "$item" in
 		'--help' | '-h')
-			if [[ "$(type -t help)" == 'function' ]]; then
+			if [[ -n $fn_help ]]; then
 				help >&2
 				return 22 # EINVAL 22 Invalid argument
 			else
@@ -124,20 +180,6 @@ function stdinargs {
 		esac
 	done
 
-	# deprecations
-	if [[ "$(type -t on_input)" == 'function' ]]; then
-		dorothy-warnings add --path="$0" --=':' --code='on_input' --bold=' has been deprecated in favor of ' --code='on_piece' --bold=', however, you may want ' --code='on_whole' --bold=' instead.'
-		function on_piece {
-			on_input "$@"
-		}
-	fi
-	if [[ "$(type -t on_no_lines)" == 'function' ]]; then
-		dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='on_no_input'
-		function on_no_lines {
-			on_no_input "$@"
-		}
-	fi
-
 	# process
 	local had_args='maybe' had_stdin='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r')
 	if [[ $timeout_max == 'no' && $timeout_immediate == 'no' && -n $timeout_seconds ]]; then
@@ -154,7 +196,7 @@ function stdinargs {
 	}
 	function stdinargs_read {
 		local what="$1" had_read='no'
-		if [[ "$(type -t on_whole)" == 'function' ]]; then
+		if [[ -n $fn_whole ]]; then
 			local piece='' whole=''
 			while ([[ $timeout_immediate == 'no' ]] || read -t 0) && LC_ALL=C IFS= read -rd '' piece || [[ -n $piece ]]; do
 				had_read='yes'
@@ -164,7 +206,7 @@ function stdinargs {
 				whole+="$piece"
 				piece=''
 			done
-			stdinargs_eval on_whole "$whole"
+			stdinargs_eval "$fn_whole" "$whole"
 		else
 			# for each line, call `on_line` or `on_piece`
 			# for each inline, call `on_inline` or `on_line` or `on_piece`
@@ -177,22 +219,22 @@ function stdinargs {
 				if [[ $complete == 'yes' ]]; then
 					break
 				fi
-				if [[ "$(type -t on_line)" == 'function' ]]; then
-					stdinargs_eval on_line "$piece"
+				if [[ -n "$fn_line" ]]; then
+					stdinargs_eval "$fn_line" "$piece"
 				else
-					stdinargs_eval on_piece "$piece"
+					stdinargs_eval "$fn_piece" "$piece"
 				fi
 			done
 			if [[ -n $piece && $option_inline != 'no' ]]; then # this needs to be `[[`` otherwise a piece of `>` will cause crash with `test`
 				had_read='yes'
 				if [[ $complete == 'yes' ]]; then
 					:
-				elif [[ "$(type -t on_inline)" == 'function' ]]; then
-					stdinargs_eval on_inline "$piece"
-				elif [[ "$(type -t on_line)" == 'function' ]]; then
-					stdinargs_eval on_line "$piece"
+				elif [[ -n "$fn_inline" ]]; then
+					stdinargs_eval "$fn_inline" "$piece"
+				elif [[ -n "$fn_line" ]]; then
+					stdinargs_eval "$fn_line" "$piece"
 				else
-					stdinargs_eval on_piece "$piece"
+					stdinargs_eval "$fn_piece" "$piece"
 				fi
 			fi
 		fi
@@ -204,8 +246,8 @@ function stdinargs {
 	}
 
 	# start
-	if [[ "$(type -t on_start)" == 'function' ]]; then
-		on_start
+	if [[ -n "$fn_start" ]]; then
+		"$fn_start" # eval
 	fi
 
 	# attempt arguments first
@@ -225,19 +267,12 @@ function stdinargs {
 			if [[ $complete == 'yes' ]]; then
 				break
 			fi
-			if [[ "$(type -t on_arg)" == 'function' ]]; then
-				stdinargs_eval on_arg "$item"
-			elif [[ "$(type -t on_piece)" == 'function' ]]; then
-				stdinargs_eval on_piece "$item"
-			elif [[ "$(type -t on_whole)" == 'function' ]]; then
-				stdinargs_eval on_whole "$item"
-			# this is against what [printf '%s' '' | wc -l] does, and doesn't make sense when you really think about it:
-			# elif [[ -z "$item" && "$option_inline" = 'yes' ]]; then
-			# 	if [[ "$(type -t on_inline)" = 'function' ]]; then
-			# 		stdinargs_eval on_inline "$item"
-			# 	elif [[ "$(type -t on_line)" = 'function' ]]; then
-			# 		stdinargs_eval on_line "$item"
-			# 	fi
+			if [[ -n "$fn_arg" ]]; then
+				stdinargs_eval "$fn_arg" "$item"
+			elif [[ -n "$fn_whole" ]]; then
+				stdinargs_eval "$fn_whole" "$item"
+			elif [[ -n "$fn_piece" ]]; then
+				stdinargs_eval "$fn_piece" "$item"
 			else
 				stdinargs_read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
 			fi
@@ -255,19 +290,19 @@ function stdinargs {
 	# verify (note that values can be yes/no/maybe)
 	if [[ $had_args != 'yes' && $had_stdin != 'yes' ]]; then
 		# no stdin, no argument
-		if [[ "$(type -t on_no_input)" == 'function' ]]; then
-			on_no_input
+		if [[ -n "$fn_nothing" ]]; then
+			"$fn_nothing" # eval
 		fi
 	fi
-	if [[ $had_args != 'yes' && "$(type -t on_no_args)" == 'function' ]]; then
-		on_no_args
+	if [[ $had_args != 'yes' && -n "$fn_no_args" ]]; then
+		"$fn_no_args" # eval
 	fi
-	if [[ $had_stdin != 'yes' && "$(type -t on_no_stdin)" == 'function' ]]; then
-		on_no_stdin
+	if [[ $had_stdin != 'yes' && -n "$fn_no_stdin" ]]; then
+		"$fn_no_stdin" # eval
 	fi
 
 	# if `finish` exists, call it
-	if [[ "$(type -t on_finish)" == 'function' ]]; then
-		on_finish
+	if [[ -n "$fn_finish" ]]; then
+		"$fn_finish" # eval
 	fi
 }
