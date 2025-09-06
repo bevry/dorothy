@@ -36,13 +36,16 @@ function stdinargs_options_help {
 		    STDIN content must be immediate.
 		--timeout=<seconds>
 		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to 1 second on earlier bash versions.
-		
+
 		--stdin=
 		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
 		--stdin | --stdin=yes | -
 		    Require STDIN for processing inputs, and disable timeout.$stdin_yes_message
 		--no-stdin | --stdin=no | --
 		    Require arguments for processing inputs, and ignore STDIN.$stdin_no_message
+		
+		--no-color
+		    Disables colored output.
 	EOF
 }
 
@@ -55,7 +58,7 @@ function __print_first_function {
 			continue
 		fi
 		type="$(type -t "$fn" 2>/dev/null)" || continue
-		if [[ "$type" != 'function' ]]; then
+		if [[ $type != 'function' ]]; then
 			continue
 		fi
 		__print_string "$fn"
@@ -112,7 +115,7 @@ function stdinargs {
 				help >&2
 				return 22 # EINVAL 22 Invalid argument
 			else
-				echo-error 'A [help] function is required.'
+				__print_error 'A [help] function is required.'
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
@@ -219,7 +222,7 @@ function stdinargs {
 				if [[ $complete == 'yes' ]]; then
 					break
 				fi
-				if [[ -n "$fn_line" ]]; then
+				if [[ -n $fn_line ]]; then
 					stdinargs_eval "$fn_line" "$piece"
 				else
 					stdinargs_eval "$fn_piece" "$piece"
@@ -229,9 +232,9 @@ function stdinargs {
 				had_read='yes'
 				if [[ $complete == 'yes' ]]; then
 					:
-				elif [[ -n "$fn_inline" ]]; then
+				elif [[ -n $fn_inline ]]; then
 					stdinargs_eval "$fn_inline" "$piece"
-				elif [[ -n "$fn_line" ]]; then
+				elif [[ -n $fn_line ]]; then
 					stdinargs_eval "$fn_line" "$piece"
 				else
 					stdinargs_eval "$fn_piece" "$piece"
@@ -246,7 +249,7 @@ function stdinargs {
 	}
 
 	# start
-	if [[ -n "$fn_start" ]]; then
+	if [[ -n $fn_start ]]; then
 		"$fn_start" # eval
 	fi
 
@@ -267,11 +270,11 @@ function stdinargs {
 			if [[ $complete == 'yes' ]]; then
 				break
 			fi
-			if [[ -n "$fn_arg" ]]; then
+			if [[ -n $fn_arg ]]; then
 				stdinargs_eval "$fn_arg" "$item"
-			elif [[ -n "$fn_whole" ]]; then
+			elif [[ -n $fn_whole ]]; then
 				stdinargs_eval "$fn_whole" "$item"
-			elif [[ -n "$fn_piece" ]]; then
+			elif [[ -n $fn_piece ]]; then
 				stdinargs_eval "$fn_piece" "$item"
 			else
 				stdinargs_read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
@@ -290,19 +293,19 @@ function stdinargs {
 	# verify (note that values can be yes/no/maybe)
 	if [[ $had_args != 'yes' && $had_stdin != 'yes' ]]; then
 		# no stdin, no argument
-		if [[ -n "$fn_nothing" ]]; then
+		if [[ -n $fn_nothing ]]; then
 			"$fn_nothing" # eval
 		fi
 	fi
-	if [[ $had_args != 'yes' && -n "$fn_no_args" ]]; then
+	if [[ $had_args != 'yes' && -n $fn_no_args ]]; then
 		"$fn_no_args" # eval
 	fi
-	if [[ $had_stdin != 'yes' && -n "$fn_no_stdin" ]]; then
+	if [[ $had_stdin != 'yes' && -n $fn_no_stdin ]]; then
 		"$fn_no_stdin" # eval
 	fi
 
 	# if `finish` exists, call it
-	if [[ -n "$fn_finish" ]]; then
+	if [[ -n $fn_finish ]]; then
 		"$fn_finish" # eval
 	fi
 }

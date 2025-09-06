@@ -229,48 +229,74 @@ function __print_join {
 	printf '%s' "${parts[@]}" "$@"
 }
 
+export DOROTHY_DEBUG
+DOROTHY_DEBUG="${DOROTHY_DEBUG:-"no"}"
 function __print_without_styles {
 	# trim flag names and only output values
-	local args=() trail='yes'
+	local item arg option_args=() option_trail='yes' option_debug='no'
 	while [[ $# -ne 0 ]]; do
-		case "$1" in
-		--no-trail | --trail=no) trail='no' ;;
-		--newline) args+=($'\n') ;;
-		--commentary-undeclared=) args+=('[ undeclared ]') ;;
-		--commentary-undefined=) args+=('[ undefined ]') ;;
-		--commentary-empty=) args+=('[ empty ]') ;;
-		--*=*) args+=("${1#*=}") ;;
-		--*) : ;; # ignore other flags, as they empty styles
-		*) args+=("$1") ;;
-		esac
+		item="$1"
+		arg=''
 		shift
+		case "$item" in
+		--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative --coerce || return ;;
+		--no-trail* | --trail*) __flag --source={item} --target={option_trail} --affirmative --coerce || return ;;
+		--color | --colors | --colors=yes) : ;;      # ignore
+		--no-color | --no-colors | --colors=no) : ;; # ignore
+		--newline) arg=$'\n' ;;
+		--commentary-undeclared=) arg='[ undeclared ]' ;;
+		--commentary-undefined=) arg='[ undefined ]' ;;
+		--commentary-empty=) arg='[ empty ]' ;;
+		--*=*) arg="${item#*=}" ;;
+		--*) : ;; # ignore other flags, as they empty styles
+		*) arg="$item" ;;
+		esac
+		if [[ -n $arg && $option_debug == $DOROTHY_DEBUG ]]; then
+			option_args+=("$arg")
+		fi
 	done
 	# for conformance with `echo-style`, we print even if zero arguments
-	if [[ $trail == 'yes' ]]; then
-		args+=($'\n')
+	if [[ $option_debug == $DOROTHY_DEBUG && $option_trail == 'yes' ]]; then
+		option_args+=($'\n')
 	fi
-	printf '%s' "${args[@]}" || return
+	# do we have anything?
+	if [[ ${#option_args[@]} -eq 0 ]]; then
+		return 0
+	fi
+	# output
+	printf '%s' "${option_args[@]}" || return
 }
 function __print_style {
-	# if __command_exists -- echo-style; then
-	# 	echo-style "$@" || return
-	# else
-	# this is two functions for testing
-	__print_without_styles "$@" || return
-	# fi
+	if [[ -n ${DOROTHY-} ]]; then
+		unset __print_style
+		source "$DOROTHY/sources/styles.bash" || return
+		__print_style "$@" || return
+	else
+		__print_without_styles "$@" || return
+	fi
+}
+function __print_error {
+	__print_style --stderr \
+		--newline \
+		--error='ERROR:' --newline "$@" || return
 }
 
 function __dump {
 	if [[ $# -eq 0 ]]; then
 		return 0
 	fi
-	local DUMP__item DUMP__style=yes DUMP__reference DUMP__indices=no DUMP__value DUMP__log=()
+	local DUMP__item DUMP__color='' DUMP__reference DUMP__indices=no DUMP__value DUMP__log=()
 	while [[ $# -ne 0 ]]; do
 		DUMP__item="$1"
 		shift
 		case "$DUMP__item" in
+		--debug)
+			if [[ $DOROTHY_DEBUG != 'yes' ]]; then
+				return 0
+			fi
+			;;
 		--no-style | --no-color)
-			DUMP__style=no
+			DUMP__color=no
 			continue
 			;;
 		--indices)
@@ -349,11 +375,7 @@ function __dump {
 			fi
 		fi
 	done
-	if [[ $DUMP__style == 'no' ]]; then
-		__print_without_styles --no-trail "${DUMP__log[@]}" || return
-	else
-		__print_style --no-trail "${DUMP__log[@]}" || return
-	fi
+	__print_style --colors="$DUMP__color" --no-trail "${DUMP__log[@]}" || return
 }
 
 # not actually used anywhere
@@ -564,6 +586,16 @@ else
 	IS_STDIN_LINE_BUFFERED='yes' # @todo this not should not apply to CI
 	# trunk-ignore(shellcheck/SC2034)
 	IS_TTY_AVAILABLE='no'
+fi
+if [[ ${CI-} =~ ^(yes|YES|true|TRUE|1)$ ]]; then
+	CI='yes'
+else
+	CI=''
+fi
+if [[ $CI == 'yes' ]]; then
+	ALTERNATIVE_SCREEN_BUFFER_SUPPORTED='no'
+else
+	ALTERNATIVE_SCREEN_BUFFER_SUPPORTED='yes'
 fi
 if [[ -t 0 ]]; then
 	# This applies to:
@@ -1448,6 +1480,86 @@ function __is_zero {
 		[[ $1 -eq 0 ]] || return
 		shift
 	done
+}
+
+function __is_affirmative {
+	local item option_inputs=() option_ignore_empty='no'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--no-ignore-empty* | --ignore-empty*) __flag --source={item} --target={option_ignore_empty} --affirmative --coerce || return ;;
+		--)
+			option_inputs+=("$@")
+			shift "$#"
+			break
+			;;
+		--*) __unrecognised_flag "$item" || return ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+	local input had_affirmative='no'
+	for input in "${option_inputs[@]}"; do
+		case "$input" in
+		Y | y | YES | yes | TRUE | true) had_affirmative='yes' ;;
+		N | n | NO | no | FALSE | false) return 1 ;;
+		'')
+			if [[ $option_ignore_empty == 'yes' ]]; then
+				continue
+			else
+				return 91 # ENOMSG 91 No message of desired type
+			fi
+			;;
+		*)
+			return 91 # ENOMSG 91 No message of desired type
+			;;
+		esac
+	done
+	if [[ $had_affirmative == 'no' ]]; then
+		return 91 # ENOMSG 91 No message of desired type
+	else
+		return 0
+	fi
+}
+
+function __is_non_affirmative {
+	local item option_inputs=() option_ignore_empty='no'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--no-ignore-empty* | --ignore-empty*) __flag --source={item} --target={option_ignore_empty} --affirmative --coerce || return ;;
+		--)
+			option_inputs+=("$@")
+			shift "$#"
+			break
+			;;
+		--*) __unrecognised_flag "$item" || return ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+	local input had_non_affirmative='no'
+	for input in "${option_inputs[@]}"; do
+		case "$input" in
+		Y | y | YES | yes | TRUE | true) return 1 ;;
+		N | n | NO | no | FALSE | false) had_non_affirmative='yes' ;;
+		'')
+			if [[ $option_ignore_empty == 'yes' ]]; then
+				continue
+			else
+				return 91 # ENOMSG 91 No message of desired type
+			fi
+			;;
+		*)
+			return 91 # ENOMSG 91 No message of desired type
+			;;
+		esac
+	done
+	if [[ $had_non_affirmative == 'no' ]]; then
+		return 91 # ENOMSG 91 No message of desired type
+	else
+		return 0
+	fi
 }
 
 # check if the input is a special target
@@ -4544,13 +4656,13 @@ function __flag {
 		if [[ $FLAG__boolean == 'yes' ]]; then
 			if [[ $FLAG__invert == 'no' ]]; then
 				case "$FLAG__value" in
-				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='yes' ;;
-				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='no' ;;
+				yes | y | true | Y | YES | TRUE) FLAG__value='yes' ;;
+				no | n | false | N | NO | FALSE) FLAG__value='no' ;;
 				esac
 			else
 				case "$FLAG__value" in
-				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='no' ;;
-				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='yes' ;;
+				yes | y | true | Y | YES | TRUE) FLAG__value='no' ;;
+				no | n | false | N | NO | FALSE) FLAG__value='yes' ;;
 				esac
 			fi
 			if [[ $FLAG__coerce == 'yes' && $FLAG__value != 'yes' && $FLAG__value != 'no' ]]; then
@@ -6364,21 +6476,9 @@ function __join {
 # BASH_XTRACEFD can only be set during the invocation of bash, and can only be modified within an existing bash process via `exec ...` which forks it.
 # If BASH_XTRACEFD is not defined, then it defaults to 2.
 
-export BASH_DEBUG_FORMAT PS4 DOROTHY_DEBUG
+export BASH_DEBUG_FORMAT PS4
 BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
 PS4="$BASH_DEBUG_FORMAT"
-function __debug_lines {
-	if [[ -n ${DOROTHY_DEBUG-} ]]; then
-		# BASH_XTRACEFD is always defined as per above
-		__print_lines "$@" >&"${BASH_XTRACEFD:-"2"}" || return
-	fi
-}
-function __debug_dump {
-	if [[ -n ${DOROTHY_DEBUG-} ]]; then
-		# BASH_XTRACEFD is always defined as per above
-		__dump "$@" >&"${BASH_XTRACEFD:-"2"}" || return
-	fi
-}
 
 # more detailed `set -x`
 function __enable_debugging {
