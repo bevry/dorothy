@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
+source "$DOROTHY/sources/styles.bash"
 
 function is_fs_options {
 	local elevate="${1-}"
@@ -116,7 +117,7 @@ function is_fs_invoke {
 function is_fs_error {
 	local status="$1" label='path' was_were='was' spacer=' ' paths="$fs_failed_path"
 	if [[ -z $paths ]]; then
-		paths="$(__print_lines "${option_inputs[@]}")"
+		paths="$(__print_lines "${option_inputs[@]}")" || return
 	fi
 	if [[ $paths == *$'\n'* ]]; then
 		label='paths'
@@ -125,21 +126,21 @@ function is_fs_error {
 	fi
 	case "$status" in
 	# ENOENT 2 No such file or directory
-	2) echo-style --stderr --error1="The $label $was_were missing:" --="$spacer" --path="$paths" ;;
+	2) __print_style --stderr --error1="The $label $was_were missing:" --="$spacer" --path="$paths" || return ;;
 	# EBADF 9 Bad file descriptor
-	9) echo-style --stderr --error1="The $label $was_were a broken symlink:" --="$spacer" --path="$paths" ;;
+	9) __print_style --stderr --error1="The $label $was_were a broken symlink:" --="$spacer" --path="$paths" || return ;;
 	# EACCES 13 Permission denied
-	13) echo-style --stderr --error1="The $label $was_were not accessible:" --="$spacer" --path="$paths" ;;
+	13) __print_style --stderr --error1="The $label $was_were not accessible:" --="$spacer" --path="$paths" || return ;;
 	# NOTDIR 20 Not a directory
-	20) echo-style --stderr --error1="The $label $was_were present, but $was_were not a directory nor an unbroken symlink to directory:" --="$spacer" --path="$paths" ;;
+	20) __print_style --stderr --error1="The $label $was_were present, but $was_were not a directory nor an unbroken symlink to directory:" --="$spacer" --path="$paths" || return ;;
 	# EISDIR 21 Is a directory
-	21) echo-style --stderr --error1="The $label $was_were a directory, or an unbroken symlink to a directory:" --="$spacer" --path="$paths" ;;
+	21) __print_style --stderr --error1="The $label $was_were a directory, or an unbroken symlink to a directory:" --="$spacer" --path="$paths" || return ;;
 	# EINVAL 22 Invalid argument
-	22) echo-style --stderr --error1="The $label $was_were not a valid argument:" --="$spacer" --path="$paths" ;;
+	22) __print_style --stderr --error1="The $label $was_were not a valid argument:" --="$spacer" --path="$paths" || return ;;
 	# EFBIG 27 File too large
-	27) echo-style --stderr --error1="The $label $was_were a file, or an unbroken symlink to a file, but $was_were not empty:" --="$spacer" --path="$paths" ;;
+	27) __print_style --stderr --error1="The $label $was_were a file, or an unbroken symlink to a file, but $was_were not empty:" --="$spacer" --path="$paths" || return ;;
 	# ENOTEMPTY 66 Directory not empty
-	66) echo-style --stderr --error1="The $label $was_were a directory, or an unbroken symlink to a directory, but $was_were not empty:" --="$spacer" --path="$paths" ;;
-	*) echo-style --stderr --error1='Encountered the failure exit status of ' --code-error1="$fs_status" --error1=" when processing the $label:" --="$spacer" --path="$paths" ;;
+	66) __print_style --stderr --error1="The $label $was_were a directory, or an unbroken symlink to a directory, but $was_were not empty:" --="$spacer" --path="$paths" || return ;;
+	*) __print_style --stderr --error1='Encountered the failure exit status of ' --code-error1="$fs_status" --error1=" when processing the $label:" --="$spacer" --path="$paths" || return ;;
 	esac
 }

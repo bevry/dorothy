@@ -38,7 +38,7 @@ function help() {
 		    Specifies the question that the prompt will be answering.
 	EOF
 	if [[ $# -ne 0 ]]; then
-		echo-error "$@"
+		__print_error "$@"
 	fi
 	return 22 # Invalid argument
 }

@@ -14,7 +14,7 @@ function __env_parse {
 	local env line name value found
 	local -i index size
 	env="$(env | sort)" || return $? # maybe `declare -p` and filtering for `declare -x` would be faster???
-	__debug_dump --value='== ENV ==' {env} || :
+	__dump --debug --value='== ENV ==' {env} || :
 	while read -r line; do
 		name='' value='' size=${#line} found=no
 		for ((index = 0; index < size; index++)); do
@@ -99,13 +99,13 @@ function __on_env_finish {
 				__dump --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
-			__debug_dump --value='== DE-DUPLICATED ==' {name} {original_value} {delimiter} {value} || :
+			__dump --debug --value='== DE-DUPLICATED ==' {name} {original_value} {delimiter} {value} || :
 		fi
 
 		# find it in inherited, and check if it is the same if it is the same as inherited
 		if __has_array_capability 'associative'; then
 			if [[ -n ${inherited["$name"]-} && ${inherited["$name"]} == "$value" ]]; then
-				__debug_dump --value='== SKIP INHERITED ==' {name} {value} || :
+				__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
 				continue
 			fi
 		else
@@ -113,7 +113,7 @@ function __on_env_finish {
 				if [[ ${inherited[index]} == "$name" ]]; then
 					if [[ ${inherited[index + 1]} == "$value" ]]; then
 						# is inherited, continue to next item
-						__debug_dump --value='== SKIP INHERITED ==' {name} {value} || :
+						__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
 						continue 2
 					fi
 				fi
@@ -123,7 +123,7 @@ function __on_env_finish {
 		# output the variable action based on type
 		if [[ -z $value ]]; then
 			# output var action: delete
-			__debug_dump --value='== DELETE ==' {name} {value} || :
+			__dump --debug --value='== DELETE ==' {name} {value} || :
 			if [[ $option_shell == 'fish' ]]; then
 				results+=("set --universal --erase $name;")
 			elif [[ $option_shell == 'nu' ]]; then
@@ -138,7 +138,7 @@ function __on_env_finish {
 			fi
 		elif [[ $is_path == 'yes' ]]; then
 			# output var action: set path
-			__debug_dump --value='== SET PATH ==' {name} {value} || :
+			__dump --debug --value='== SET PATH ==' {name} {value} || :
 			if [[ $option_shell == 'fish' ]]; then
 				results+=("set --export --path $name '$value';")
 			elif [[ $option_shell == 'nu' ]]; then
@@ -153,7 +153,7 @@ function __on_env_finish {
 			fi
 		else
 			# output var action: set
-			__debug_dump --value='== SET ==' {name} {value} || :
+			__dump --debug --value='== SET ==' {name} {value} || :
 			if [[ $option_shell == 'fish' ]]; then
 				results+=("set --export $name '$value';")
 			elif [[ $option_shell == 'nu' ]]; then

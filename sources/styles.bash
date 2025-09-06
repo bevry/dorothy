@@ -17,18 +17,172 @@ if [[ $- == *v* ]]; then
 fi
 
 #######################################
-# STYLE SUPPORT #######################
+# CAPABILITY DETECTION ################
 
+export THEME COLOR
 GITHUB_ACTIONS="${GITHUB_ACTIONS-}"
-THEME="$(get-terminal-theme || :)"
-USE_COLOR="$(get-terminal-color-support --fallback=yes)" # USE_COLOR is actually only used here, not in get-terminal-color-support
+THEME="${THEME-}" # (get-terminal-theme || :)"
+COLOR="${COLOR-}"
 TERM_PROGRAM="${TERM_PROGRAM-}"
 if [[ $TERM_PROGRAM =~ ^(Hyper|tmux|vscode)$ ]]; then
 	ITALICS_SUPPORTED='yes'
 else
 	ITALICS_SUPPORTED='no'
 fi
-ALTERNATIVE_SCREEN_BUFFER_SUPPORTED="$(get-terminal-alternative-support)"
+
+function __get_terminal_color_support {
+	# arguments
+	local item option_fallback='' option_quiet='' option_color='' # option_env='yes'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--fallback=*) option_fallback="${item#*=}" ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce || return ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce || return ;;
+		# --no-env* | --env*) __flag --source={item} --target={option_env} --affirmative ;;
+		--)
+			# now that we have the forwarded arguments, see if anything matches color
+			while [[ $# -ne 0 ]]; do
+				item="$1"
+				shift
+				case "$item" in
+				--no-color* | --color*) __flag --source={item} --target={option_color} --affirmative --coerce || return ;;
+				esac
+			done
+			break
+			;;
+		--*) __unrecognised_flag "$item" || return ;;
+		*)
+			if [[ -z $option_fallback ]]; then
+				option_fallback="$item"
+			else
+				__unrecognised_argument "$item" || return
+			fi
+			;;
+		esac
+	done
+
+	# handle status
+	local -i status=0
+	local exit_result='' exit_status='' error_status=''
+	if [[ $option_quiet == 'yes' ]]; then
+		# quiet
+		function __process_status {
+			if [[ $status -eq 0 || $status -eq 1 ]]; then
+				exit_status="$status"
+				# don't output anything as quiet
+				# but keep the status as that is how quiet determines the result
+			fi
+		}
+	else
+		# verbose, output instead
+		function __process_status {
+			if [[ $status -eq 0 ]]; then
+				exit_status=0
+				exit_result='yes'
+				__print_lines "$exit_result" || return
+			elif [[ $status -eq 1 ]]; then
+				exit_status=0 # as we are not quiet, we determine the result via the output
+				exit_result='no'
+				__print_lines "$exit_result" || return
+			else
+				error_status="$status" # not this failure if all other fallbacks failed or are not preent
+			fi
+		}
+	fi
+
+	# process arguments against env
+	if [[ -n $option_color ]]; then
+		status=0
+		__is_affirmative -- "$option_color" || status=$?
+		__process_status || return
+		if [[ -n $exit_status ]]; then
+			# don't modify COLOR, as this is just argument handling, not env
+			return "$exit_status"
+		fi
+	fi
+	if [[ -n ${COLOR-} ]]; then
+		status=0
+		__is_affirmative -- "$COLOR" || status=$?
+		__process_status || return
+		if [[ -n $exit_status ]]; then
+			COLOR="$exit_result"
+			return "$exit_status"
+		fi
+	fi
+	if [[ -n ${NO_COLOR-} ]]; then
+		status=0
+		__is_non_affirmative -- "$NO_COLOR" || status=$?
+		__process_status || return
+		if [[ -n $exit_status ]]; then
+			COLOR="$exit_result"
+			return "$exit_status"
+		fi
+	fi
+	if [[ -n ${NOCOLOR-} ]]; then
+		status=0
+		__is_non_affirmative -- "$NOCOLOR" || status=$?
+		__process_status || return
+		if [[ -n $exit_status ]]; then
+			COLOR="$exit_result"
+			return "$exit_status"
+		fi
+	fi
+	if [[ -n ${CRON-} || -n ${CRONITOR_EXEC-} ]]; then
+		# cron strips nearly all env vars, these must be defined manually in [crontab -e]
+		status=1
+		__process_status || return
+		if [[ -n $exit_status ]]; then
+			COLOR="$exit_result"
+			return "$exit_status"
+		fi
+	fi
+	if [[ -n ${TERM-} ]]; then
+		# cron strips TERM, however bash resets it to TERM=dumb
+		# https://unix.stackexchange.com/a/411097
+		if [[ $TERM == 'xterm-256color' ]]; then
+			# Visual Studio Code's integrated terminal reports TERM=xterm-256color
+			status=0
+			__process_status || return
+			if [[ -n $exit_status ]]; then
+				COLOR="$exit_result"
+				return "$exit_status"
+			fi
+		elif [[ $TERM == 'dumb' ]]; then
+			if [[ -n ${GITHUB_ACTIONS-} ]]; then
+				: # continue to fallback
+			elif [[ -n $CI ]]; then
+				# if there are other CIs that support colors, they should be added to the prior check
+				status=1
+				__process_status || return
+				if [[ -n $exit_status ]]; then
+					COLOR="$exit_result"
+					return "$exit_status"
+				fi
+			else
+				# [ssh -T ...] would be an example of this
+				: # continue to fallback
+			fi
+		fi
+		# continue to fallback
+	fi
+
+	# fallback
+	if [[ -n $option_fallback ]]; then
+		status=0
+		__is_affirmative -- "$option_fallback" || status=$?
+		__process_status || return
+		if [[ -n $exit_status ]]; then
+			# don't modify COLOR, as this is just fallback handling, not env
+			return "$exit_status"
+		fi
+	fi
+
+	# nothing
+	error_status="${error_status:-"91"}" # ENOMSG 91 No message of desired type
+	return "$error_status"
+}
 
 #######################################
 # ANSI STYLES #########################
@@ -705,35 +859,36 @@ if [[ $THEME == 'light' ]]; then
 	style__color_end__default_line="$style__color_end__foreground"
 fi
 
-# helpers
-function refresh_style_cache {
-	# this should be similar to append_style in echo-style
-	# side effect: USE_COLOR
-	local item use_color=''
+#######################################
+# RENDER HELPERS ######################
+
+function __refresh_style_cache {
+	# this should be similar to __append_style in echo-style
+	local item option_color=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		--color=yes | --color) use_color='yes' ;;
-		--color=no | --nocolor) use_color='no' ;;
+		--colors=yes | --colors | --color) option_color='yes' ;;
+		--colors=no | --no-colors | --no-color) option_color='no' ;;
+		--colors=) : ;;
 		--) break ;;
+		--*) __unrecognised_argument "$item" || return ;;
 		esac
 	done
-	if [[ -z $use_color ]]; then
-		if [[ -n ${USE_COLOR-} ]]; then
-			use_color="$USE_COLOR"
-		elif get-terminal-color-support --quiet --fallback=yes; then
-			USE_COLOR='yes'
-			use_color='yes'
+	if [[ -z $option_color ]]; then
+		if [[ ${COLOR-} =~ ^(yes|no)$ ]]; then
+			option_color="$COLOR"
+		elif __get_terminal_color_support --quiet --fallback=yes; then
+			option_color='yes'
 		else
-			USE_COLOR='no'
-			use_color='no'
+			option_color='no'
 		fi
 	fi
 	local style var
 	for style in "$@"; do
 		found='no'
-		if [[ $use_color == 'yes' ]]; then
+		if [[ $option_color == 'yes' ]]; then
 			# begin
 			var="style__color__${style}"
 			if __is_var_defined "$var"; then
@@ -812,10 +967,291 @@ function refresh_style_cache {
 		fi
 		# only respect found on versions of bash that can detect accurately detect it, as otherwise empty values will be confused as not found
 		if [[ $found == 'no' && $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
-			echo-error "Style not found: $style"
+			__print_error "Style not found: $style" || return
 			return 1
 		fi
 	done
+}
+
+function __print_style {
+	# performance improvement for no styles
+	if [[ ${STYLES-} == 'no' ]]; then
+		__print_without_styles "$@" || return
+		return
+	fi
+
+	# process
+	local item items=() option_trail='yes' option_debug='no' option_color=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--no-trail* | --trail*) __flag --source={item} --target={option_trail} --affirmative --coerce || return ;;
+		--colors=yes | --colors | --color)
+			# ^ dont do wildcard checks, as that messes with --nocolor+... and --color+modifiers
+			option_color=yes
+			;;
+		--colors=no | --no-colors | --no-color)
+			# ^ don't do wildcard checks, as that messes with --nocolor+... and --color+modifiers
+			option_color='no'
+			;;
+		--colors=) : ;;
+		--)
+			items+=("$@")
+			shift $#
+			;;
+		*)
+			items+=("$item" "$@")
+			shift $#
+			;;
+		esac
+	done
+
+	# fethc color if not provided by argument, as this is expensive
+	if [[ -z $option_color ]]; then
+		option_color="$(__get_terminal_color_support --fallback=yes)" # parse env only, as flags are handled by us to support color and nocolor modifiers
+	fi
+
+	# =====================================
+	# Action
+
+	# act
+	local item flag style generic \
+		i current_char_index last_char_index \
+		item_target buffer_target='/dev/stdout' \
+		MISSING_STYLES=() \
+		ITEM_COLOR buffer_color="$option_color" \
+		ITEM_BEGIN \
+		item_content \
+		ITEM_END \
+		buffer_left='' buffer_disable='' buffer_right=''
+	function __append_style {
+		# this should be similar to refresh_style_cache in styles.bash
+		local style="$1" var='' found='no'
+		if [[ $ITEM_COLOR == 'yes' ]]; then
+			# begin
+			var="style__color__${style}"
+			if __is_var_defined "$var"; then
+				ITEM_BEGIN+="${!var}"
+				found='yes'
+			else
+				# cache
+				var="style__${style}"
+				if __is_var_defined "$var"; then
+					ITEM_BEGIN+="${!var}"
+					found='yes'
+				else
+					var="style__nocolor__${style}"
+					if __is_var_defined "$var"; then
+						found='yes'
+					fi
+				fi
+			fi
+
+			# end
+			var="style__color_end__${style}"
+			if __is_var_defined "$var"; then
+				ITEM_END="${!var}${ITEM_END}"
+				found='yes'
+			else
+				# cache
+				var="style__end__${style}"
+				if __is_var_defined "$var"; then
+					ITEM_END="${!var}${ITEM_END}"
+					found='yes'
+				else
+					var="style__nocolor_end__${style}"
+					if __is_var_defined "$var"; then
+						found='yes'
+					fi
+				fi
+			fi
+		else
+			# begin
+			var="style__nocolor__${style}"
+			if __is_var_defined "$var"; then
+				ITEM_BEGIN+="${!var}"
+				found='yes'
+			else
+				# cache
+				var="style__${style}"
+				if __is_var_defined "$var"; then
+					ITEM_BEGIN+="${!var}"
+					found='yes'
+				else
+					var="style__color__${style}"
+					if __is_var_defined "$var"; then
+						found='yes'
+					fi
+				fi
+			fi
+
+			# end
+			var="style__nocolor_end__${style}"
+			if __is_var_defined "$var"; then
+				ITEM_END="${!var}${ITEM_END}"
+				found='yes'
+			else
+				# cache
+				var="style__end__${style}"
+				if __is_var_defined "$var"; then
+					ITEM_END="${!var}${ITEM_END}"
+					found='yes'
+				else
+					var="style__color_end__${style}"
+					if __is_var_defined "$var"; then
+						found='yes'
+					fi
+				fi
+			fi
+		fi
+		# only respect found on versions of bash that can detect accurately detect it, as otherwise empty values will be confused as not found
+		if [[ $found == 'no' && $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
+			MISSING_STYLES+=("${style}")
+		fi
+	}
+	for item in "${items[@]}"; do
+		# check flag status
+		if [[ ${item:0:3} == '--=' ]]; then
+			# empty flag, just item content, e.g. '--=Hello', --=--=
+			buffer_left+="${item:3}"
+			continue
+		elif [[ ${item:0:2} != '--' || $item == '--' ]]; then
+			# not a flag, just item content, e.g. 'Hello', '--'
+			buffer_left+="$item"
+			continue
+		fi
+		flag="${item:2}"
+		item_content=''
+		generic='yes'
+
+		# get the flag and value combo
+		for ((i = 0; i < ${#flag}; i++)); do
+			if [[ ${flag:i:1} == '=' ]]; then
+				generic='no'
+				item_content="${flag:i+1}"
+				flag="${flag:0:i}"
+				break
+			fi
+		done
+
+		# handle style+style combinations
+		last_char_index=0
+		item_target="$buffer_target"
+		ITEM_COLOR="$buffer_color"
+		ITEM_STYLE=''
+		ITEM_BEGIN=''
+		ITEM_END=''
+		for ((current_char_index = 0; current_char_index <= ${#flag}; current_char_index++)); do
+			if [[ ${flag:current_char_index:1} == '+' || $current_char_index -eq ${#flag} ]]; then
+				style="${flag:last_char_index:current_char_index-last_char_index}"
+				last_char_index="$((current_char_index + 1))"
+				style="${style//-/_}" # convert hyphens to underscores
+
+				# handle special cases
+				case "$style" in
+				black | red | green | yellow | blue | magenta | cyan | white | purple | gray | grey) style="foreground_$style" ;;
+				intense_*) style="foreground_intense_${style:8}" ;;
+				fg_*) style="foreground_${style:3}" ;;
+				bg_*) style="background_${style:3}" ;;
+				/*) style="slash_${style:1}" ;;
+				*/)
+					__replace --source+target={style} --trailing='/' || return
+					style+='_slash'
+					;;
+				status)
+					if [[ $item_content -eq 0 ]]; then
+						style='good3'
+					else
+						style='error3'
+					fi
+					item_content="[${item_content}]"
+					;;
+				color)
+					ITEM_COLOR='yes'
+					continue
+					;;
+				nocolor)
+					ITEM_COLOR='no'
+					continue
+					;;
+				stdout)
+					item_target='/dev/stdout'
+					continue
+					;;
+				stderr)
+					item_target='/dev/stderr'
+					continue
+					;;
+				tty)
+					item_target='/dev/tty'
+					continue
+					;;
+				debug)
+					if [[ $DOROTHY_DEBUG == 'yes' ]]; then
+						item_target="${BASH_XTRACEFD:-"2"}"
+					else
+						item_target='/dev/null'
+					fi
+					continue
+					;;
+				null)
+					item_target='/dev/null'
+					continue
+					;;
+				esac
+
+				# get the style
+				__append_style "$style" || return
+			fi
+		done
+
+		# handle nocolor and color correctly, as in conditional output based on NO_COLOR=true
+		# e.g. env COLOR=false echo-style --color=yes --nocolor=no # outputs no
+		# e.g. env COLOR=true echo-style --color=yes --nocolor=no # outputs yes
+		if [[ $option_color != "$ITEM_COLOR" ]]; then
+			continue
+		fi
+
+		# if it is generic, add the styles (except disable) to the buffer instead
+		if [[ $generic == 'yes' ]]; then
+			# flush buffer if necessary
+			if [[ $item_target != "$buffer_target" ]]; then
+				__do --redirect-stdout="$buffer_target" -- \
+					__print_string "${buffer_left}" || return
+				buffer_left=''
+				buffer_target="$item_target"
+			fi
+			# update buffer
+			buffer_left+="${ITEM_BEGIN}${ITEM_STYLE}"
+			# if [[ $buffer_disable != *"$ITEM_DISABLE"* ]]; then
+			# 	buffer_disable="${ITEM_DISABLE}${buffer_disable}"
+			# fi
+			buffer_right="${ITEM_END}${buffer_right}"
+		else
+			# flush buffer if necessary
+			if [[ $item_target != "$buffer_target" ]]; then
+				__do --redirect-stdout="$buffer_target" -- \
+					__print_string "${buffer_left}" || return
+				buffer_left=''
+				__do --redirect-stdout="$item_target" \
+					-- __print_string "${ITEM_BEGIN}${item_content}${ITEM_END}" || return
+			else
+				buffer_left+="${ITEM_BEGIN}${item_content}${ITEM_END}"
+			fi
+		fi
+	done
+
+	# close the buffer
+	if [[ $option_trail == 'yes' ]]; then
+		buffer_right+=$'\n'
+	fi
+	__do --redirect-stdout="$buffer_target" -- \
+		__print_string "${buffer_left}${buffer_disable}${buffer_right}" || return
+	if [[ ${#MISSING_STYLES[@]} -ne 0 ]]; then
+		__print_lines 'ERROR: MISSING STYLES:' "${MISSING_STYLES[@]}" >&2 || return
+		return 22 # EINVAL 22 Invalid argument
+	fi
 }
 
 # restore tracing
