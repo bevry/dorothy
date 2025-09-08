@@ -89,6 +89,11 @@ function __process() (
 			# not a directory
 			if [[ $option_resolve =~ ^(yes|follow)$ ]]; then
 				if [[ -L $path ]]; then
+					if [[ -p $path ]]; then
+						# on linux, /dev/fd/* (which things know how to handle), is a name-pipe but also a symlink, that will go to pipe:[*] (which nothing knows how to handle)
+						printf '%s\n' "$path" || __fail $? || return
+						break
+					fi
 					# is a symlink (broken or otherwise), resolve it
 					# stat -tc %N "$path" # alpine, however format is tedious, use [readlink] instead
 					# stat -f %Y "$path"  # macos/bsd, use [readlink] for consistency as wherever [readlink] is available, [stat] is available
