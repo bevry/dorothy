@@ -268,7 +268,8 @@ function __print_without_styles {
 }
 function __print_style {
 	if [[ -n ${DOROTHY-} ]]; then
-		unset __print_style
+		# function romeo { function romeo { echo replaced; }; romeo; }; romeo; romeo
+		# $'replaced\nreplaced'
 		source "$DOROTHY/sources/styles.bash" || return
 		__print_style "$@" || return
 	else
