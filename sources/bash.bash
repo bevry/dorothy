@@ -1501,8 +1501,8 @@ function __is_affirmative {
 	local input had_affirmative='no'
 	for input in "${option_inputs[@]}"; do
 		case "$input" in
-		Y | y | YES | yes | TRUE | true) had_affirmative='yes' ;;
-		N | n | NO | no | FALSE | false) return 1 ;;
+		yes|y|true|Y|YES|TRUE) had_affirmative='yes' ;;
+		no|n|false|N|NO|FALSE) return 1 ;;
 		'')
 			if [[ $option_ignore_empty == 'yes' ]]; then
 				continue
@@ -1541,8 +1541,8 @@ function __is_non_affirmative {
 	local input had_non_affirmative='no'
 	for input in "${option_inputs[@]}"; do
 		case "$input" in
-		Y | y | YES | yes | TRUE | true) return 1 ;;
-		N | n | NO | no | FALSE | false) had_non_affirmative='yes' ;;
+		yes|y|true|Y|YES|TRUE) return 1 ;;
+		no|n|false|N|NO|FALSE) had_non_affirmative='yes' ;;
 		'')
 			if [[ $option_ignore_empty == 'yes' ]]; then
 				continue
@@ -4515,7 +4515,7 @@ function __wait_for_and_return_semaphores {
 
 # extract the value of a flag/option/argument
 function __flag {
-	local FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__coerce='no' FLAG__empty='yes'
+	local FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__coerce='no' FLAG__empty='yes' FLAG__yes='yes' FLAG__no='no'
 	# <single-source helper arguments>
 	local FLAG__item FLAG__source_reference='' FLAG__targets=() FLAG__mode=''
 	while [[ $# -ne 0 ]]; do
@@ -4534,6 +4534,8 @@ function __flag {
 			;;
 		--targets=*) __dereference --source="${FLAG__item#*=}" --value={FLAG__targets} || return ;;
 		--target=*) FLAG__targets+=("${FLAG__item#*=}") ;;
+		--yes=*) FLAG__yes="${FLAG__item#*=}" ;;
+		--no=*) FLAG__no="${FLAG__item#*=}" ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return
 			FLAG__mode="${FLAG__item#*=}"
@@ -4656,13 +4658,13 @@ function __flag {
 		if [[ $FLAG__boolean == 'yes' ]]; then
 			if [[ $FLAG__invert == 'no' ]]; then
 				case "$FLAG__value" in
-				yes | y | true | Y | YES | TRUE) FLAG__value='yes' ;;
-				no | n | false | N | NO | FALSE) FLAG__value='no' ;;
+				yes|y|true|Y|YES|TRUE) FLAG__value='yes' ;;
+				no|n|false|N|NO|FALSE) FLAG__value='no' ;;
 				esac
 			else
 				case "$FLAG__value" in
-				yes | y | true | Y | YES | TRUE) FLAG__value='no' ;;
-				no | n | false | N | NO | FALSE) FLAG__value='yes' ;;
+				yes|y|true|Y|YES|TRUE) FLAG__value='no' ;;
+				no|n|false|N|NO|FALSE) FLAG__value='yes' ;;
 				esac
 			fi
 			if [[ $FLAG__coerce == 'yes' && $FLAG__value != 'yes' && $FLAG__value != 'no' ]]; then
@@ -4677,6 +4679,13 @@ function __flag {
 			elif [[ $FLAG__value == 'no' ]]; then
 				FLAG__value='yes'
 			fi
+		fi
+
+		# convert to custom
+		if [[ $FLAG__value == 'yes' ]]; then
+			FLAG__value="$FLAG__yes"
+		elif [[ $FLAG__value == 'no' ]]; then
+			FLAG__value="$FLAG__no"
 		fi
 
 		# output
