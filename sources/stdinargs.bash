@@ -43,7 +43,7 @@ function stdinargs_options_help {
 		    Require STDIN for processing inputs, and disable timeout.$stdin_yes_message
 		--no-stdin | --stdin=no | --
 		    Require arguments for processing inputs, and ignore STDIN.$stdin_no_message
-		
+
 		--no-color
 		    Disables colored output.
 	EOF
