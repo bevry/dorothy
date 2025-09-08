@@ -1501,8 +1501,8 @@ function __is_affirmative {
 	local input had_affirmative='no'
 	for input in "${option_inputs[@]}"; do
 		case "$input" in
-		yes|y|true|Y|YES|TRUE) had_affirmative='yes' ;;
-		no|n|false|N|NO|FALSE) return 1 ;;
+		yes | y | true | Y | YES | TRUE) had_affirmative='yes' ;;
+		no | n | false | N | NO | FALSE) return 1 ;;
 		'')
 			if [[ $option_ignore_empty == 'yes' ]]; then
 				continue
@@ -1541,8 +1541,8 @@ function __is_non_affirmative {
 	local input had_non_affirmative='no'
 	for input in "${option_inputs[@]}"; do
 		case "$input" in
-		yes|y|true|Y|YES|TRUE) return 1 ;;
-		no|n|false|N|NO|FALSE) had_non_affirmative='yes' ;;
+		yes | y | true | Y | YES | TRUE) return 1 ;;
+		no | n | false | N | NO | FALSE) had_non_affirmative='yes' ;;
 		'')
 			if [[ $option_ignore_empty == 'yes' ]]; then
 				continue
@@ -4658,13 +4658,13 @@ function __flag {
 		if [[ $FLAG__boolean == 'yes' ]]; then
 			if [[ $FLAG__invert == 'no' ]]; then
 				case "$FLAG__value" in
-				yes|y|true|Y|YES|TRUE) FLAG__value='yes' ;;
-				no|n|false|N|NO|FALSE) FLAG__value='no' ;;
+				yes | y | true | Y | YES | TRUE) FLAG__value='yes' ;;
+				no | n | false | N | NO | FALSE) FLAG__value='no' ;;
 				esac
 			else
 				case "$FLAG__value" in
-				yes|y|true|Y|YES|TRUE) FLAG__value='no' ;;
-				no|n|false|N|NO|FALSE) FLAG__value='yes' ;;
+				yes | y | true | Y | YES | TRUE) FLAG__value='no' ;;
+				no | n | false | N | NO | FALSE) FLAG__value='yes' ;;
 				esac
 			fi
 			if [[ $FLAG__coerce == 'yes' && $FLAG__value != 'yes' && $FLAG__value != 'no' ]]; then
