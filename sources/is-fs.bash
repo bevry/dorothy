@@ -2,32 +2,32 @@
 source "$DOROTHY/sources/bash.bash"
 source "$DOROTHY/sources/styles.bash"
 
-function is_fs_options {
+function __is_fs_options {
 	local elevate="${1-}"
 	if [[ -n $elevate ]]; then
-		cat <<-EOF
+		cat <<-EOF || return
 			--verbose | --no-quiet | --quiet=no
-				If affirmative, output to STDERR the first path that failed and how it failed.
+			    If affirmative, output to STDERR the first path that failed and how it failed.
 
 			--elevated=<elevated>
 			--elevate=<elevate>
-				Defaults to [$elevate] which will elevate privileges if necessary.
+			    Defaults to $(__dump --value="$elevate" || :) which will elevate privileges if necessary.
 			--user=<user>
 			--group=<group>
 			--reason=<reason>
-				Forwarded to [eval-helper].
+			    Forwarded to $(__dump --value='eval-helper' || :).
 		EOF
 	else
-		cat <<-EOF
+		cat <<-EOF || return
 			--verbose | --no-quiet | --quiet=no
-				If affirmative, output to STDERR the first path that failed and how it failed.
+			    If affirmative, output to STDERR the first path that failed and how it failed.
 
 			--elevated=<elevated>
 			--elevate=<elevate>
 			--user=<user>
 			--group=<group>
 			--reason=<reason>
-				Forwarded to [eval-helper].
+			    Forwarded to $(__dump --value='eval-helper' || :).
 		EOF
 	fi
 }
@@ -35,17 +35,17 @@ function is_fs_options {
 # trunk-ignore(shellcheck/SC2034)
 # trunk-ignore(shellcheck/SC2168)
 local item option_inputs=() option_quiet='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
-function is_fs_args {
+function __is_fs_args {
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--help' | '-h') __help || return ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative || return ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative || return ;;
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
-		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag --source={item} --target={option_elevate} --affirmative ;;
+		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag --source={item} --target={option_elevate} --affirmative || return ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
 		'--reason='*) option_reason="${item#*=}" ;;
@@ -55,20 +55,20 @@ function is_fs_args {
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) __help "An unrecognised flag was provided: $item" || return ;;
 		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# verify
 	if [[ ${#option_inputs[@]} -eq 0 ]]; then
-		help 'No <input>s provided.'
+		__help 'No <input>s provided.' || return
 	fi
 }
 
 # trunk-ignore(shellcheck/SC2168)
 local fs_status fs_failed_path
-function is_fs_invoke {
+function __is_fs_invoke {
 	# execute once for all, capturing the failed path
 	# failed paths are output to a fixed path because there is no simple way to separate the failed paths from other stdout and stderr output when using sudo in in-no tty mode, as sudo will be using stderr for its own output, and fs-owner.bash outputs to stdout
 	# and passing an argument is ugly for the prompt, and doing it via an env var is also complicated for doas, and will also result in the same ugly prompt
@@ -90,7 +90,7 @@ function is_fs_invoke {
 			elif [[ -z $elevate ]]; then
 				elevate="$item"
 			else
-				help "is_fs_invoke: invalid argument: $item"
+				__unrecognised_argument "$item" || return
 			fi
 			;;
 		esac
@@ -101,20 +101,20 @@ function is_fs_invoke {
 		command+=("${command_args[@]}")
 	fi
 	# reset failures
-	: >"$failures"
+	: >"$failures" || return
 	# execute the command
 	__do --redirect-status={fs_status} "${do_args[@]}" -- \
 		eval-helper --inherit --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
-		"${command[@]}"
+		"${command[@]}" || return
 	# check for new failures
 	if [[ -s $failures ]]; then
-		fs_failed_path="$(<"$failures")" # at some point, properly support multiple failed paths rather than just the first
+		fs_failed_path="$(<"$failures")" || return # at some point, properly support multiple failed paths rather than just the first
 	else
 		fs_failed_path=''
 	fi
 }
 
-function is_fs_error {
+function __is_fs_error {
 	local status="$1" label='path' was_were='was' spacer=' ' paths="$fs_failed_path"
 	if [[ -z $paths ]]; then
 		paths="$(__print_lines "${option_inputs[@]}")" || return

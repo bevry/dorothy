@@ -115,6 +115,90 @@ function __command_exists {
 	return 0 # all commands are present
 }
 
+# cache performant checks for command existence and installation
+function __command_required {
+	# verbose
+	local option_verbose='no'
+	if [[ ${1-} == '--verbose' ]]; then
+		option_verbose='yes'
+		shift
+	fi
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	__affirm_length_defined $# 'command' || return
+	# proceed
+	local command
+	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+		declare -A COMMAND_REQUIRED # shared
+		for command in "$@"; do
+			if [[ ${COMMAND_REQUIRED["$command"]-} == 'yes' ]]; then
+				if [[ $option_verbose == 'yes' ]]; then
+					__print_string "$command"
+				fi
+				return 0
+			elif __command_exists -- "$command"; then
+				COMMAND_REQUIRED["$command"]='yes'
+				if [[ $option_verbose == 'yes' ]]; then
+					__print_string "$command"
+				fi
+				return 0
+			fi
+		done
+	else
+		local other
+		COMMAND_REQUIRED=() # shared
+		for command in "$@"; do
+			for other in "${COMMAND_REQUIRED[@]}"; do
+				if [[ $command == "$other" ]]; then
+					if [[ $option_verbose == 'yes' ]]; then
+						__print_string "$command"
+					fi
+					return 0
+				fi
+			done
+			if __command_exists -- "$command"; then
+				COMMAND_REQUIRED+=("$command")
+				if [[ $option_verbose == 'yes' ]]; then
+					__print_string "$command"
+				fi
+				return 0
+			fi
+		done
+	fi
+	# if any were found, we would have already returned
+	get-installer --first-success --invoke --quiet -- "$@" || return
+	# okay, save that they are now installed
+	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+		for command in "$@"; do
+			if __command_exists -- "$command"; then
+				COMMAND_REQUIRED["$command"]='yes'
+				if [[ $option_verbose == 'yes' ]]; then
+					__print_string "$command"
+				fi
+				return 0
+			fi
+		done
+	else
+		for command in "$@"; do
+			if __command_exists -- "$command"; then
+				COMMAND_REQUIRED+=("$command")
+				if [[ $option_verbose == 'yes' ]]; then
+					__print_string "$command"
+				fi
+				return 0
+			fi
+		done
+		# there will always be a
+	fi
+	# if nothing was installed, then get-installer did not return failure
+	return 104 # ENOTRECOVERABLE 104 State not recoverable
+}
+
+# for __tool see later
+
+
 # -------------------------------------
 # Print Toolkit
 
@@ -560,6 +644,14 @@ function __is_not_errexit {
 	[[ $- != *e* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 }
 
+# Detect nounset
+function __is_nounset {
+	[[ $- == *u* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+}
+function __is_not_nounset {
+	[[ $- != *u* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+}
+
 # Whether the terminal supports the [/dev/tty] device file
 if (: </dev/tty >/dev/tty) &>/dev/null; then
 	# This applies to:
@@ -959,6 +1051,20 @@ function __is_var_set {
 	__is_var_defined "$@" || return
 }
 
+function __is_function_defined {
+	__affirm_length_defined $# 'function name reference' || return
+	local IS_FUNCTION_DEFINED__item IS_FUNCTION_DEFINED__reference IS_FUNCTION_DEFINED__type
+	while [[ $# -ne 0 ]]; do
+		IS_FUNCTION_DEFINED__item="$1"
+		shift
+		# support with and without squigglies for these references
+		__dereference --source="$IS_FUNCTION_DEFINED__item" --name={IS_FUNCTION_DEFINED__reference} || return
+		IS_FUNCTION_DEFINED__type="$(type -t "$IS_FUNCTION_DEFINED__reference" 2>/dev/null)" || return 1
+		[[ $IS_FUNCTION_DEFINED__type == 'function' ]] || return 1
+	done
+	return 0
+}
+
 # as __dereference calls __is_array, we cannot call __dereference from __is_array
 # NOTE:
 # if you do `local arr=(); a='string'` then `declare -p arr` will report `arr` as an array with a single element
@@ -1036,13 +1142,19 @@ function __is_sparse_array {
 # `mapfile[native] mapfile[shim] readarray[native] empty[native] empty[shim] associative`
 # note that there is no need to do `__require_array 'mapfile'` as `bash.bash` makes `mapfile` always available, it is just the native version that is not available
 
-# has_array_capability -- check if a capability is provided by the current bash version
+# has_array_capability -- check if all capability is provided by the current bash version
+# EPROTONOSUPPORT 43 Protocol not supported
 function __has_array_capability {
-	local arg
-	for arg in "$@"; do
-		if [[ $BASH_ARRAY_CAPABILITIES != *" $arg"* ]]; then
-			return 1
-		fi
+	local capability
+	for capability in "$@"; do
+		case "$capability" in
+		--) : ;; # ignore
+		associative*) [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]] || return 43  ;;
+		mapfile*) [[ $BASH_HAS_NATIVE_MAPFILE  == 'yes' ]] || return 43  ;;
+		readarray*) [[ $BASH_HAS_NATIVE_READARRAY  == 'yes' ]] || return 43  ;;
+		empty*) [[ $BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS  == 'yes' ]] || return 43  ;;
+		*) __unrecognised_flag "$capability" || return ;;
+		esac
 	done
 }
 
@@ -1053,30 +1165,39 @@ function __require_array {
 	fi
 }
 
-BASH_ARRAY_CAPABILITIES=''
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	# bash >= 5
-	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native] empty[native]'
+	BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS=yes
+	BASH_HAS_NATIVE_READARRAY=yes
+	BASH_HAS_NATIVE_MAPFILE=yes
 	if [[ $BASH_VERSION_MINOR -ge 1 ]]; then
 		# bash >= 5.1
-		BASH_ARRAY_CAPABILITIES+=' associative'
+		BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY=yes
+	else
+		# bash 5.0
+		BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY=no
 	fi
 elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 	# note that these versions do not support [-d <delim>] or [-t] options with mapfile
 	# bash >= 4
-	BASH_ARRAY_CAPABILITIES+=' mapfile[native] readarray[native]'
+	BASH_HAS_NATIVE_READARRAY=yes
+	BASH_HAS_NATIVE_MAPFILE=yes
+	BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY=no
 	if [[ $BASH_VERSION_MINOR -ge 4 ]]; then
 		# bash >= 4.4
 		# finally supports nounset without crashing on defined empty arrays
-		BASH_ARRAY_CAPABILITIES+=' empty[native]'
+		BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS=yes
 	else
 		# bash 4.0, 4.1, 4.2, 4.3
-		BASH_ARRAY_CAPABILITIES+=' empty[shim]'
+		BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS=no
 		set +u # disable nounset to prevent crashes on empty arrays
 	fi
 elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 	# bash >= 3
-	BASH_ARRAY_CAPABILITIES+=' mapfile[shim] empty[shim]'
+	BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS=no
+	BASH_HAS_NATIVE_READARRAY=no
+	BASH_HAS_NATIVE_MAPFILE=no
+	BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY=no
 	set +u # disable nounset to prevent crashes on empty arrays
 	# @todo implement support for all options
 	function mapfile {
@@ -1139,7 +1260,6 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 		done
 	}
 fi
-BASH_ARRAY_CAPABILITIES+=' '
 
 # =============================================================================
 # Bash Essential Toolkit
@@ -1265,6 +1385,23 @@ function __affirm_variable_is_defined {
 	if ! __is_var_defined "$1"; then
 		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"variable name"} $1 must be defined." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
+# affirm function is defined
+# __affirm_function_is_defined <function-name>
+function __affirm_function_is_defined {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
+	if [[ -z $1 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"function name"} must be provided." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	if ! __is_function_defined "$1"; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"function name"} $1 must be defined." >&2 || :
+		return 78 # ENOSYS 78 Function not implemented
 	fi
 }
 
@@ -6006,7 +6143,7 @@ function __unique {
 	# process
 	local -i UNIQUE__index
 	local UNIQUE__source UNIQUE__indices=() UNIQUE__value UNIQUE__empty="EMPTY${RANDOM}EMPTY" UNIQUE__results=()
-	if __has_array_capability 'associative'; then
+	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
 		declare -A UNIQUE__encountered
 		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
 			__affirm_variable_is_array "$UNIQUE__source" 'source variable reference' || return
@@ -6433,6 +6570,47 @@ function __join {
 	done
 	__to --source={JOIN__result} --mode="$JOIN__mode" --targets={JOIN__targets} || return
 }
+
+
+# tool
+function __tool {
+	local TOOL_delimiter=$'\n'
+	# <multi-source helper arguments>
+	local TOOL_item TOOL__tool_reference='' TOOL__tools_reference='' TOOL__help_reference=''
+	while [[ $# -ne 0 ]]; do
+		TOOL_item="$1"
+		shift
+		case "$TOOL_item" in
+		--tool={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_reference} || return ;;
+		--tools={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_reference} || return ;;
+		--help={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__help_reference} || return ;;
+		--*) __unrecognised_flag "$JOIN__item" || return ;;
+		*) __unrecognised_argument "$JOIN__item" || return ;;
+		esac
+	done
+	# assertions
+	__affirm_variable_is_defined "$TOOL__tool_reference" 'tool variable reference' || return
+	__affirm_variable_is_defined "$TOOL__tools_reference" 'tools variable reference' || return
+	__affirm_function_is_defined "$TOOL__help_reference" 'help function reference' || return
+	local TOOL__tool='' TOOL__tools=()
+	__dereference --source="$TOOL__tool_reference" --value={TOOL__tool} || return
+	__dereference --source="$TOOL__tools_reference" --value={TOOL__tools} || return
+	# dependency
+	if [[ $TOOL__tool == '?' ]]; then
+		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")"
+		__command_required -- "$TOOL__tool" || return
+	elif [[ -z $TOOL__tool ]]; then
+		TOOL__tool="$(__command_required --verbose -- "${TOOL__tools[@]}")" || return
+	elif __has --source={TOOL__tools} -- "$TOOL__tool"; then
+		__command_required -- "$TOOL__tool" || return
+	else
+		"$TOOL__help_reference" "The provided <tool> is not supported: $TOOL__tool" || return # eval
+		return
+	fi
+	# apply
+	__to --source={TOOL__tool} --target="{$TOOL__tool_reference}" || return
+}
+
 
 # push: add the last elements
 # function __append { ... }

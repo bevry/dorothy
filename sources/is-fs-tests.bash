@@ -8,10 +8,10 @@ function is_fs_tests__prep {
 	# 	return 0
 	# fi
 
-	echo-style --tty --header1='removing old FS preparation'
+	__print_style --tty --header1='removing old FS preparation'
 	eval-helper --elevate -- rm -rf -- "$root"
 
-	echo-style --tty --header1='prepping directories'
+	__print_style --tty --header1='prepping directories'
 	__mkdirp \
 		"$root/symlinks" \
 		"$root/targets/empty-dir" \
@@ -25,7 +25,7 @@ function is_fs_tests__prep {
 		"$root/targets/unwritable-empty-dir" \
 		"$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
 
-	echo-style --tty --header1='prepping files'
+	__print_style --tty --header1='prepping files'
 	touch \
 		"$root/targets/empty-file" \
 		"$root/targets/filled-dir/empty-subfile" \
@@ -48,7 +48,7 @@ function is_fs_tests__prep {
 		"$root/targets/unwritable-filled-dir/filled-subfile" \
 		"$root/targets/unwritable-filled-file"
 
-	echo-style --tty --header1='prepping content'
+	__print_style --tty --header1='prepping content'
 	__print_lines 'content' >"$root/targets/filled-dir/filled-subfile"
 	__print_lines 'content' >"$root/targets/filled-file"
 	__print_lines 'content' >"$root/targets/unaccessible-filled-dir/filled-subfile"
@@ -60,7 +60,7 @@ function is_fs_tests__prep {
 	__print_lines 'content' >"$root/targets/unwritable-filled-dir/filled-subfile"
 	__print_lines 'content' >"$root/targets/unwritable-filled-file"
 
-	echo-style --tty --header1='prepping symlinks'
+	__print_style --tty --header1='prepping symlinks'
 	fs-link --quiet \
 		--target="$root/targets/empty-dir" --symlink="$root/symlinks/empty-dir" \
 		--target="$root/targets/empty-file" --symlink="$root/symlinks/empty-file" \
@@ -102,7 +102,7 @@ function is_fs_tests__prep {
 		--target="$root/targets/unwritable-filled-dir/filled-subfile" --symlink="$root/symlinks/unwritable-filled-dir--filled-subfile" \
 		--target="$root/targets/unwritable-filled-file" --symlink="$root/symlinks/unwritable-filled-file"
 
-	echo-style --tty --header1='prepping ownership and permissions'
+	__print_style --tty --header1='prepping ownership and permissions'
 	fs-own --recursive --permissions='+rwx' -- \
 		"$root/targets"
 	fs-own --permissions='a-r' -- \
@@ -126,7 +126,7 @@ function is_fs_tests__prep {
 		"$root/targets/unaccessible-filled-dir" \
 		"$root/targets/unaccessible-filled-file"
 
-	echo-style --tty --header1='prepping structure'
+	__print_style --tty --header1='prepping structure'
 	fs-structure -- "$root/targets" >&2
 
 	# invalidate elevation after the [fs-own] calls above, such that our [__status__root_or_nonroot] returns correct results
@@ -138,9 +138,9 @@ function __status__root_or_nonroot {
 	# don't do login, as it just wiggles around what we actually need, which is for the current user to be the current elevation
 	# note that invalidation in a process that is already elevated has no effect on that process, only those beyond it
 	if is-root; then
-		__print_lines "$1"
+		__print_lines "$1" || return
 	else
-		__print_lines "$2"
+		__print_lines "$2" || return
 	fi
 }
 function is_fs_tests__tuples {
@@ -174,7 +174,7 @@ function is_fs_tests__tuples {
 
 	# tests
 	if [[ -n $group ]]; then
-		echo-style --h2="$group"
+		__print_style --h2="$group"
 	fi
 	local index status path total="${#tuples[@]}" result=0
 	eval-helper --invalidate-elevation # ensure tests are running with intended elevation
@@ -191,12 +191,12 @@ function is_fs_tests__tuples {
 	eval-helper --invalidate-elevation # ensure subsequent [__status__root_or_nonroot] are running with intended elevation
 	if [[ $result -ne 0 ]]; then
 		if [[ -n $group ]]; then
-			echo-style --e2="$group"
+			__print_style --e2="$group"
 		fi
 		return 1
 	fi
 	if [[ -n $group ]]; then
-		echo-style --g2="$group"
+		__print_style --g2="$group"
 	fi
 	return 0
 }
