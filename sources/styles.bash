@@ -885,7 +885,7 @@ function __refresh_style_cache {
 			option_color='no'
 		fi
 	fi
-	local style var
+	local style var missing_styles=()
 	for style in "$@"; do
 		found='no'
 		if [[ $option_color == 'yes' ]]; then
@@ -965,12 +965,14 @@ function __refresh_style_cache {
 				fi
 			fi
 		fi
-		# only respect found on versions of bash that can detect accurately detect it, as otherwise empty values will be confused as not found
-		if [[ $found == 'no' && $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
-			__print_error "Style not found: $style" || return
-			return 1
+		if [[ $found == 'no' ]]; then
+			missing_styles+=("${style}")
 		fi
 	done
+	if [[ ${#missing_styles[@]} -ne 0 ]]; then
+		__print_lines 'ERROR: MISSING STYLES:' "${missing_styles[@]}" >&2 || return
+		return 22 # EINVAL 22 Invalid argument
+	fi
 }
 
 function __print_style {
@@ -1007,7 +1009,7 @@ function __print_style {
 		esac
 	done
 
-	# fethc color if not provided by argument, as this is expensive
+	# fetch color if not provided by argument, as this is expensive
 	if [[ -z $option_color ]]; then
 		option_color="$(__get_terminal_color_support --fallback=yes)" # parse env only, as flags are handled by us to support color and nocolor modifiers
 	fi
@@ -1019,7 +1021,7 @@ function __print_style {
 	local item flag style generic \
 		i current_char_index last_char_index \
 		item_target buffer_target='/dev/stdout' \
-		MISSING_STYLES=() \
+		missing_styles=() \
 		ITEM_COLOR buffer_color="$option_color" \
 		ITEM_BEGIN \
 		item_content \
@@ -1105,9 +1107,8 @@ function __print_style {
 				fi
 			fi
 		fi
-		# only respect found on versions of bash that can detect accurately detect it, as otherwise empty values will be confused as not found
-		if [[ $found == 'no' && $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
-			MISSING_STYLES+=("${style}")
+		if [[ $found == 'no' ]]; then
+			missing_styles+=("${style}")
 		fi
 	}
 	for item in "${items[@]}"; do
@@ -1248,8 +1249,8 @@ function __print_style {
 	fi
 	__do --redirect-stdout="$buffer_target" -- \
 		__print_string "${buffer_left}${buffer_disable}${buffer_right}" || return
-	if [[ ${#MISSING_STYLES[@]} -ne 0 ]]; then
-		__print_lines 'ERROR: MISSING STYLES:' "${MISSING_STYLES[@]}" >&2 || return
+	if [[ ${#missing_styles[@]} -ne 0 ]]; then
+		__print_lines 'ERROR: MISSING STYLES:' "${missing_styles[@]}" >&2 || return
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
