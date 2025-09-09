@@ -31,7 +31,7 @@ function fs_size_test() (
 )
 function fs_size() (
 	source "$DOROTHY/sources/bash.bash"
-	all_tools=(dust du stat)
+	all_tools=(dust du stat wc)
 
 	# =====================================
 	# Arguments
@@ -101,9 +101,6 @@ function fs_size() (
 		option_denomination='nearest'
 	fi
 
-	# ensure tool
-	__tool --tool={option_tool} --tools={all_tools} --help={help} || return
-
 	# =====================================
 	# Dependencies
 
@@ -115,34 +112,38 @@ function fs_size() (
 		__print_lines "$size"
 	}
 
+	# wc
+	function __wc_lines {
+		wc -l "$path" | __cut ' ' || return
+	}
+
 	# dust
 	function __dust_bytes {
 		local path="$1"
-		dust -sbcP -ob -d0 -- "$path" | __cut ' B'
+		dust -sbcP -ob -d0 -- "$path" | __cut ' B' || return
 	}
 	function __dust_kilobytes {
 		local path="$1"
-		dust -sbcP -ok -d0 -- "$path" | __cut ' K'
+		dust -sbcP -ok -d0 -- "$path" | __cut ' K' || return
 	}
 	function __dust_megabytes {
 		local path="$1"
-		dust -sbcP -om -d0 -- "$path" | __cut ' M'
+		dust -sbcP -om -d0 -- "$path" | __cut ' M' || return
 	}
 	function __dust_gigabytes {
 		local path="$1"
-		dust -sbcP -oG -d0 -- "$path" | __cut ' G'
+		dust -sbcP -oG -d0 -- "$path" | __cut ' G' || return
 	}
 	function __dust_nearest {
 		local path="$1"
-		dust -sbcP -d0 -- "$path" | __cut ' '
+		dust -sbcP -d0 -- "$path" | __cut ' ' || return
 	}
 
-	# these all report blocks, not bytes:
+	# these argument combinations report blocks, not bytes:
 	# bsd: du -sAB1 "$path"
 	# gnu: du --summarize --apparent-size --block-size=1 "$path" | echo-regexp -o '^\d+'
 	# macos: du -sAB1 --
-	# no way to get bytes on macos
-	#
+
 	# -A: Display the apparent size instead of the disk usage.  This can be helpful when operating on compressed volumes or sparse files.
 	# --si: “Human-readable” output.  Use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte, Terabyte and Petabyte based on powers of 1000. <-- outputs everything within a directory, seems just an alias for -shd0
 	# -d depth: Display an entry for all files and directories depth directories deep.
@@ -155,91 +156,114 @@ function fs_size() (
 	if is-linux; then
 		function __du_bytes {
 			local path="$1"
-			du -sb -- "$path" | __cut $' \t'
+			du -sb -- "$path" | __cut $' \t' || return
 		}
 	fi
+	# THERE IS NO WAY TO GET ONLY BYTES WITH DU ON MACOS
 	function __du_kilobytes {
 		local path="$1"
-		du -sk -- "$path" | __cut $' \t'
+		du -sk -- "$path" | __cut $' \t' || return
 	}
 	function __du_megabytes {
 		local path="$1"
-		du -sm -- "$path" | __cut $' \t'
+		du -sm -- "$path" | __cut $' \t' || return
 	}
 	function __du_gigabytes {
 		local path="$1"
-		du -sg -- "$path" | __cut $' \t'
+		du -sg -- "$path" | __cut $' \t' || return
 	}
 	function __du_nearest {
 		local path="$1"
-		du -hd0 -- "$path" | __cut $' \t'
+		du -hd0 -- "$path" | __cut $' \t' || return
 	}
 
 	# stat
-	# stat does not give us the correct size for directories
+	# STAT DOES NOT GIVE US THE RECURSIVE SIZE FOR DIRECTORIES
 	if is-mac; then
 		function __stat_bytes {
 			local path="$1"
-			stat -f '%z' -- "$path"
+			stat -f '%z' -- "$path" || return
 		}
 	else
 		function __stat_bytes {
 			local path="$1"
-			stat -c '%s' -- "$path"
+			stat -c '%s' -- "$path" || return
 		}
 	fi
 	function __stat_kilobytes {
 		local path="$1" bytes
-		bytes="$(__stat_bytes "$path")"
-		echo-math -- "$bytes / 1024"
+		bytes="$(__stat_bytes "$path")" || return
+		echo-math -- "$bytes / 1024" || return
 	}
 	function __stat_megabytes {
 		local path="$1" bytes
-		bytes="$(__stat_bytes "$path")"
-		echo-math -- "$bytes / 1024 / 1024"
+		bytes="$(__stat_bytes "$path")" || return
+		echo-math -- "$bytes / 1024 / 1024" || return
 	}
 	function __stat_gigabytes {
 		local path="$1" bytes
-		bytes="$(__stat_bytes "$path")"
-		echo-math -- "$bytes / 1024 / 1024 / 1024"
+		bytes="$(__stat_bytes "$path")" || return
+		echo-math -- "$bytes / 1024 / 1024 / 1024" || return
 	}
 	function __stat_nearest {
 		local path="$1" bytes
-		bytes="$(__stat_bytes "$path")"
-		__print_lines "${bytes}B"
+		bytes="$(__stat_bytes "$path")" || return
+		__print_lines "${bytes}B" || return
 	}
 
-	function __size {
-		local path="$1"
-		if [[ $option_denomination == 'lines' ]]; then
-			if is-directory -- "$path"; then
-				__print_error 'Cannot calculate the size in lines of ' --path="$path" ' as it is a directory.' || :
-				return 22 # EINVAL 22 Invalid argument
-			else
-				wc -l "$path" | __cut ' ' || return
-			fi
-		elif [[ -n $option_tool ]]; then
-			if [[ "$(type -t "__${option_tool}_${option_denomination}" || :)" == 'function' ]]; then
-				"__${option_tool}_${option_denomination}" "$path" # eval
-			else
-				help "The tool [$option_tool] does not support the denomination [$option_denomination]."
-				return 22 # EINVAL 22 Invalid argument
-			fi
-		elif is-directory -- "$path"; then
-			if [[ $option_denomination == 'bytes' ]] || __command_missing -- du; then
-				if [[ $option_tool == 'dust' ]]; then
-					"__dust_$option_denomination" "$path"
-				elif [[ $option_tool == 'du' ]]; then
-					"__du_$option_denomination" "$path"
-				else
-					return 19 # ENODEV 19 Operation not supported by device
-				fi
-			else
-				"__du_${option_denomination}" "$path"
-			fi
-		else
-			"__stat_${option_denomination}" "$path"
+	function __tool_help {
+		# vars are inherited from the caller scopes
+		if ! __has --source={all_tools} --any -- "$TOOL__tool"; then
+			help 'The tool ' --code="$TOOL__tool" ' is unregonised.' || return
 		fi
+		help 'The tool ' --code="$TOOL__tool" ' does not support the denomination ' --code="$option_denomination" ' on the path ' --path="$path" || :
+		return 19 # ENODEV 19 Operation not supported by device
+	}
+	function __get_tool_function {
+		local tool="$1" fn
+		fn="__${tool}_${option_denomination}"
+		if __is_function_defined "$fn"; then
+			__print_string "$fn"
+		else
+			return 78 # NOSYS 78 Function not implemented
+		fi
+	}
+	function __has_tool_function {
+		local tool="$1" fn
+		__get_tool_function "$tool" >/dev/null || return
+	}
+	function __size {
+		local path="$1" fn available_tools=("${all_tools[@]}") desired_tool="$option_tool" tool fn
+		if [[ -p $path ]]; then
+			__print_error 'Cannot determine size of ' --path="$path" ' as it is a named pipe / file descriptor.'
+			return 79 # EFTYPE 79 Inappropriate file type or format
+		else
+			is-readable --verbose -- "$path" || __return $? -- \
+				__print_error 'Cannot determine size of ' --path="$path" ' as it is not readable.' || return
+		fi
+		# disable tools without an implementation for that operation
+		for tool in "${available_tools[@]}"; do
+			if ! __has_tool_function "$tool"; then
+				__evict --source+target={available_tools} --value="$tool" --each --required
+			fi
+		done
+		# disablet ools that do have an operation defined, but it is conditional
+		if is-directory -- "$path"; then
+			__evict --source+target={available_tools} --value='stat' --value='wc' --each --optional # optional, as it may have been removed earlier
+		fi
+		# confirm there are tools available (there won't be for `fs-size --lines -- .`)
+		if [[ ${#available_tools[@]} -eq 0 ]]; then
+			help 'No tools available that support the denomination ' --code="$option_denomination" ' on the path ' --path="$path" || :
+			return 19 # ENODEV 19 Operation not supported by device
+		fi
+		# for the available tools, select the available and esired tool
+		__tool --tool={desired_tool} --tools={available_tools} --help={__tool_help} || return
+		# invoke the available and desired tool, with sanity checks
+		fn="$(__get_tool_function "$desired_tool")" || return
+		if [[ -z $fn ]]; then
+			return 104 # ENOTRECOVERABLE 104 State not recoverable
+		fi
+		"$fn" "$path" || return
 	}
 
 	# =====================================
@@ -248,14 +272,6 @@ function fs_size() (
 	# get apparent size in bytes
 	local path
 	for path in "${option_paths[@]}"; do
-		# check path is valid
-		if [[ -p $path ]]; then
-			__print_error 'Cannot determine size of ' --path="$path" ' as it is a named pipe / file descriptor.'
-			return 79 # EFTYPE 79 Inappropriate file type or format
-		else
-			is-readable --verbose -- "$path" || __return $? -- \
-				__print_error 'Cannot determine size of ' --path="$path" ' as it is not readable.' || return
-		fi
 		__size "$path"
 	done
 )
