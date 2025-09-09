@@ -5395,7 +5395,7 @@ function __iterate {
 		# require mode
 		--require=none | --optional) ITERATE__require='none' ;;
 		--require=any | --any) ITERATE__require='any' ;;
-		--require=all | --all) ITERATE__require='all' ;;
+		--require=all | --all | --required) ITERATE__require='all' ;;
 		# quiet mode
 		--no-verbose* | --verbose*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
 		--no-quiet* | --quiet*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
