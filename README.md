@@ -237,7 +237,6 @@ Dorothy installs itself to `$DOROTHY`, which defaults to the [XDG](https://wiki.
 For each shell that you configured during the Dorothy installation (can be reconfigured via the `dorothy install` command), the configured shell performs the following steps when you open a new shell instance via your terminal:
 
 1.  The shell loads Dorothy's initialization script:
-
     - [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
     - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
     - [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
@@ -246,18 +245,14 @@ For each shell that you configured during the Dorothy installation (can be recon
         - KSH and Dash first load their respective `init.ksh` and `init.dash` scripts before loading `init.sh`. This is because KSH, Dash, and Bash all share the same `.profile` configuration file, so different initialization scripts allow us to configure each of them independently.
 
 1.  The initialization script will:
-
     1. Ensure the `DOROTHY` environment variable is set to the location of the Dorothy installation.
 
     1. If a login shell, it loads our login script `sources/login.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-
         1. Apply any configuration changes necessary for that login shell
         1. Load our environment script `sources/environment.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-
             1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
 
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-
         1. Load your own `user/config(.local)/interactive.(sh|bash|dash|elv|fish|ksh|nu|xsh|zsh)` configuration script for your own interactive login shell configuration.
             - [Elvish](https://elv.sh) will only load `interactive.elv` if it exists.
             - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
@@ -303,19 +298,16 @@ After installing Dorothy, there will now a plethora of commands available to you
 Stable commands:
 
 - [`setup-system`](https://github.com/bevry/dorothy/tree/master/commands/setup-system)
-
     - `setup-system install` correctly setup your system to your prompted preferences
     - `setup-system update` correctly update your system to your existing preferences
 
     This is done via these commands:
-
     - [`setup-linux`](https://github.com/bevry/dorothy/tree/master/commands/setup-linux) correctly setup your Linux system, and its various packaging systems, as desired
     - [`setup-mac`](https://github.com/bevry/dorothy/tree/master/commands/setup-mac) correctly setup your macOS system, including its homebrew and Mac App Store installations, as desired
     - [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin) correctly setup available CLI utilities from installed GUI Applications
     - [`setup-git`](https://github.com/bevry/dorothy/tree/master/commands/setup-git) correctly setup Git on your system, including your profile, SSH, GPG, and 1Password configurations, as desired.
 
         Related commands:
-
         - [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
         - [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
 
@@ -343,7 +335,6 @@ Stable commands:
 - [`github-download`](https://github.com/bevry/dorothy/tree/master/commands/github-download) download files from GitHub without the tedium.
 
 - [`secret`](https://github.com/bevry/dorothy/tree/master/commands/secret) stops you from leaking your env secrets to the world when a malicious program sends your shell environment variables to a remote server. Instead, `secret` will use 1Password to securely expose your secrets to just the command that needs them. Specifically:
-
     - secrets are fetched directly from 1Password, with a short lived session
     - secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
     - secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
@@ -355,26 +346,22 @@ Stable commands:
     The solution to this is encrypted DNS. Some VPN providers already include it within their service, however most don't. And if you have encrypted DNS, then you get the benefits of preventing eavesdropping without the need for expensive VPN, and the risk of your VPN provider eavesdropping on you.
 
     Dorothy supports configuring your DNS to encrypted DNS via the [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) command, which includes installation and configuration for any of these:
-
     - AdGuard Home
     - Cloudflared
     - DNSCrypt
 
     Related commands:
-
     - [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
     - [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
 
 - [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, and safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
 
     Related commands:
-
     - [`get-devices`](https://github.com/bevry/dorothy/tree/master/commands/get-devices) cross-platform fetching and filtering of select and complete device information
     - [`gocryptfs-helper`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) helpers for [GoCryptFS](https://github.com/rfjakob/gocryptfs)
     - [`what-is-using`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) find out what is using a path so that you can unmount it safely
 
 - Dorothy also provides commands for writing commands, such as:
-
     - [`bash.bash`](https://github.com/bevry/dorothy/tree/master/sourcces/bash.bash) for a Bash strict mode that actually works, and various shims/polyfills
     - [`ask`](https://github.com/bevry/dorothy/tree/master/commands/ask), [`confirm`](https://github.com/bevry/dorothy/tree/master/commands/confirm), and [`choose`](https://github.com/bevry/dorothy/tree/master/commands/choose) for prompting the user for input
     - [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
@@ -444,8 +431,12 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 - [Benjamin Lupton](https://github.com/balupton) — [view contributions](https://github.com/bevry/dorothy/commits?author=balupton 'View the GitHub contributions of Benjamin Lupton on repository bevry/dorothy')
 - [Bevry Team](https://github.com/BevryMe) — [view contributions](https://github.com/bevry/dorothy/commits?author=BevryMe 'View the GitHub contributions of Bevry Team on repository bevry/dorothy')
 - [BJReplay](https://github.com/BJReplay) — [view contributions](https://github.com/bevry/dorothy/commits?author=BJReplay 'View the GitHub contributions of BJReplay on repository bevry/dorothy')
+- [Cœur](https://github.com/Coeur) — [view contributions](https://github.com/bevry/dorothy/commits?author=Coeur 'View the GitHub contributions of Cœur on repository bevry/dorothy')
+- [Joel McCracken](https://github.com/joelmccracken) — [view contributions](https://github.com/bevry/dorothy/commits?author=joelmccracken 'View the GitHub contributions of Joel McCracken on repository bevry/dorothy')
 - [molleweide](https://github.com/molleweide) — [view contributions](https://github.com/bevry/dorothy/commits?author=molleweide 'View the GitHub contributions of molleweide on repository bevry/dorothy')
-- [Nutchanon Ninyawee](https://github.com/wasdee) — [view contributions](https://github.com/bevry/dorothy/commits?author=wasdee 'View the GitHub contributions of Nutchanon Ninyawee on repository bevry/dorothy')
+- [Nutchanon](https://github.com/ninyawee) — [view contributions](https://github.com/bevry/dorothy/commits?author=ninyawee 'View the GitHub contributions of Nutchanon on repository bevry/dorothy')
+- [Octavian](https://github.com/octavian-one) — [view contributions](https://github.com/bevry/dorothy/commits?author=octavian-one 'View the GitHub contributions of Octavian on repository bevry/dorothy')
+- [Oscar Vargas Torres](https://github.com/oscarvarto) — [view contributions](https://github.com/bevry/dorothy/commits?author=oscarvarto 'View the GitHub contributions of Oscar Vargas Torres on repository bevry/dorothy')
 - [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai 'View the GitHub contributions of Sumit Rai on repository bevry/dorothy')
 
 ### Finances
@@ -460,30 +451,33 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 #### Sponsors
 
-- [Andrew Nesbitt](https://nesbitt.io) — Software engineer and researcher
-- [Codecov](https://codecov.io) — Empower developers with tools to improve code quality and testing.
+- [Andrew Nesbitt](https://nesbitt.io) — Working on mapping the world of open source software @ecosyste-ms and empowering developers with @octobox
+- [Canonical](https://canonical.com)
+- [Divinci ™](https://divinci.ai) — A more comfortable AI conversation experience, with friends! 🤖🖤
 - [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
 - [Poonacha Medappa](https://poonachamedappa.com)
-- [Rob Morris](https://github.com/Rob-Morris)
-- [Sentry](https://sentry.io) — Real-time crash reporting for your web apps, mobile apps, and games.
-- [Syntax](https://syntax.fm) — Syntax Podcast
+- [Roboflow](https://roboflow.com)
 
 #### Donors
 
 - [Andrew Nesbitt](https://nesbitt.io)
 - [Balsa](https://balsa.com)
+- [Canonical](https://canonical.com)
 - [Chad](https://opencollective.com/chad8)
 - [Codecov](https://codecov.io)
+- [Divinci ™](https://divinci.ai)
 - [entroniq](https://gitlab.com/entroniq)
 - [Frontend Masters](https://FrontendMasters.com)
 - [Jean-Luc Geering](https://github.com/jlgeering)
-- [Michael Duane Mooring](https://mdm.cc)
+- [Michael Duane Mooring](https://divinci.app)
 - [Mohammed Shah](https://github.com/smashah)
 - [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
-- [Rob Morris](https://github.com/Rob-Morris)
+- [Rob Morris](https://linktr.ee/recipromancer)
+- [Roboflow](https://roboflow.com)
 - [Sentry](https://sentry.io)
 - [ServieJS](https://github.com/serviejs)
+- [Square](https://github.com/square)
 - [Syntax](https://syntax.fm)
 
 <!-- /BACKERS -->

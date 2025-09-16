@@ -87,7 +87,7 @@ function __get_terminal_color_support {
 				exit_result='no'
 				__print_lines "$exit_result" || return
 			else
-				error_status="$status" # not this failure if all other fallbacks failed or are not preent
+				error_status="$status" # not this failure if all other fallbacks failed or are not present
 			fi
 		}
 	fi
