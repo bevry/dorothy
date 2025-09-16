@@ -198,7 +198,6 @@ function __command_required {
 
 # for __tool see later
 
-
 # -------------------------------------
 # Print Toolkit
 
@@ -1149,10 +1148,10 @@ function __has_array_capability {
 	for capability in "$@"; do
 		case "$capability" in
 		--) : ;; # ignore
-		associative*) [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]] || return 43  ;;
-		mapfile*) [[ $BASH_HAS_NATIVE_MAPFILE  == 'yes' ]] || return 43  ;;
-		readarray*) [[ $BASH_HAS_NATIVE_READARRAY  == 'yes' ]] || return 43  ;;
-		empty*) [[ $BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS  == 'yes' ]] || return 43  ;;
+		associative*) [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]] || return 43 ;;
+		mapfile*) [[ $BASH_HAS_NATIVE_MAPFILE == 'yes' ]] || return 43 ;;
+		readarray*) [[ $BASH_HAS_NATIVE_READARRAY == 'yes' ]] || return 43 ;;
+		empty*) [[ $BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS == 'yes' ]] || return 43 ;;
 		*) __unrecognised_flag "$capability" || return ;;
 		esac
 	done
@@ -6571,7 +6570,6 @@ function __join {
 	__to --source={JOIN__result} --mode="$JOIN__mode" --targets={JOIN__targets} || return
 }
 
-
 # tool
 function __tool {
 	local TOOL_delimiter=$'\n'
@@ -6610,7 +6608,6 @@ function __tool {
 	# apply
 	__to --source={TOOL__tool} --target="{$TOOL__tool_reference}" || return
 }
-
 
 # push: add the last elements
 # function __append { ... }
