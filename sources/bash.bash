@@ -4188,7 +4188,7 @@ function __ansi_keep_right {
 		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
 			# 0=<KEY> 1=<PATTERN> 2=<NAME> 3=<TAGS>
 			tags="${ANSI[ansi_index + 3]}"
-			if [[ $tags != *"[$filter]"* ]]; then
+			if [[ $tags == *"[$filter]"* ]]; then
 				continue
 			fi
 			pattern="${ANSI[ansi_index + 1]}"
