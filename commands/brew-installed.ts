@@ -7,26 +7,47 @@ const json = await new Response(Deno.stdin.readable).json()
 // prepare result
 const names = new Set<string>()
 
-// add casks if not filtered to only formula
-if (Deno.args.includes('--formula') === false) {
-	// all casks are by request, so no need for special --requested handling for casks
-	for (const cask of json.casks.filter((i: any) => i.installed)) {
+// type
+const type: 'cask' | 'formula' | 'tap' | '' = Deno.args.includes('--type=cask')
+	? 'cask'
+	: Deno.args.includes('--type=formula')
+		? 'formula'
+		: Deno.args.includes('--type=tap')
+			? 'tap'
+			: ''
+
+// add taps if desired
+if (['tap'].includes(type)) {
+	// all taps are by request
+	const taps = json || []
+	for (const tap of taps.filter((i: any) => i.installed)) {
+		names.add(tap.name)
+	}
+}
+
+// add casks if desired
+if (['', 'cask'].includes(type)) {
+	// all casks are by request
+	const casks = json.casks || []
+	for (const cask of casks.filter((i: any) => i.installed)) {
 		names.add(cask.full_token)
 	}
 }
 
-// add formulas if not filtered to only casks
-if (Deno.args.includes('--cask') === false) {
+// add formulas if desired
+if (['', 'formula'].includes(type)) {
+	// formulas could be by request, or by dependency
+	const formulae = json.formulae || []
 	if (Deno.args.includes('--requested')) {
 		// only requested formula
-		for (const formula of json.formulae) {
+		for (const formula of formulae) {
 			if (formula.installed.find((i: any) => i.installed_on_request)) {
 				names.add(formula.full_name)
 			}
 		}
 	} else {
 		// all formula
-		for (const formula of json.formulae.filter((i: any) => i.installed)) {
+		for (const formula of formulae.filter((i: any) => i.installed)) {
 			names.add(formula.full_name)
 		}
 	}

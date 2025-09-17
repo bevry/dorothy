@@ -14,30 +14,32 @@ function brew_installed() (
 	function help {
 		cat <<-EOF >&2
 			ABOUT:
-			Outputs the names of the homebrew installed packages.
+			Outputs the names of the homebrew installed items.
 
 			USAGE:
-			brew-installed [...options] -- [...<package>]
+			brew-installed [...options] -- [...<items>]
 
 			OPTIONS:
-			--requested
-			    Output only packages that were manually installed, not packages that were only dependencies.
+			-- ...<item>
+			    If provided, only get details for these <item>s. Fail if one of them has not yet been installed.
 
 			--formula
-			    Output only packages that are formulas.
-
+			    Output consider formulas. Formulas can be installed by request, or by dependency; use --requested to filter.
 			--cask
-			    Output only packages that are casks.
+			    Output consider casks. All casks are only installed by request.
+			--tap
+			    Output consider taps. All taps are only installed by request.
 
 			--quiet
 			    If provided, do not output anything, just return the exit status.
 
-			...<package>
-			    If provided, only get details for these packages. Fail if one of them has not yet been installed.
+			--requested
+			    Only consider formulas that were manually installed, not formulas that were only dependencies.
+			    Only compatible with --formula.
 
 			QUIRKS:
-			If packages are provided, failure exit status will be returned if any are missing.
-			Existing packages will still be output to stdout, unless --quiet is provided.
+			If <item>s are provided, failure exit status will be returned if any are missing.
+			Existing <item>s will still be output to stdout, unless --quiet is provided.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			__print_error "$@"
@@ -46,59 +48,53 @@ function brew_installed() (
 	}
 
 	# process
-	local item option_quiet='' option_requested='no' option_packages=() option_type brew_list_cmd brew_info_cmd deno_script_args
-	option_type='' # empty, formula, cask
-	brew_list_cmd=(
-		'brew'
-		'list'
-		'--versions' # --versions is necessary to limit to installed option_packages, as --full-name/-1 doesn't
-	)
-	brew_info_cmd=(
-		'brew'
-		'info'
-	)
-	deno_script_args=(
-		'--requested' # the deno script only runs with brew info, which is only run when --requested is provided
-	)
+	local item option_quiet='' option_requested='no' option_items=() option_type='' # empty, formula, cask, tap
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
-		'--formula' | '--formulae') option_type='formula' ;;
-		'--cask' | '--casks') option_type='cask' ;;
-		'--no-requested'* | '--requested'*) __flag --source={item} --target={option_requested} --affirmative ;;
-		'--')
-			option_packages+=("$@")
+		--help | -h) help ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		--type=formula | --type=formulas | --formula | --formulae) option_type=formula ;;
+		--type=cask | --type=casks | --cask | --casks) option_type=cask ;;
+		--type=tap | --type=taps | --tap | --taps) option_type=tap ;;
+		--no-requested* | --requested*) __flag --source={item} --target={option_requested} --affirmative --coerce ;;
+		--)
+			option_items+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		--*) help "An unrecognised flag was provided: $item" ;;
 		*) help "An unrecognised argument was provided: $item" ;;
 		esac
 	done
 
-	# add the filter
-	if [[ -n $option_type ]]; then
-		brew_list_cmd+=("--$option_type")
-		brew_info_cmd+=("--$option_type")
-		deno_script_args+=("--$option_type")
+	local deno_script_args=()
+	if [[ $option_requested == 'yes' ]]; then
+		if [[ $option_type != 'formula' ]]; then
+			help --='--requested requires --formula.'
+		fi
+		deno_script_args+=('--requested')
 	fi
 
-	# add the packages
-	if [[ ${#option_packages[@]} -ne 0 ]]; then
-		brew_list_cmd+=("${option_packages[@]}")
-		brew_info_cmd+=(
-			'--json=v2'
-			"${option_packages[@]}"
-		)
+	local brew_list_cmd=() brew_info_cmd=()
+	if [[ $option_type == 'tap' ]]; then
+		brew_info_cmd=(brew tap-info --json)
+		deno_script_args+=(--type=tap)
 	else
-		brew_info_cmd+=(
-			'--json=v2'
-			'--installed'
-		)
+		brew_list_cmd=(brew list --versions)
+		# --versions is necessary to limit to installed option_packages, as --full-name/-1 doesn't
+		brew_info_cmd=(brew info --json=v2)
+		if [[ -n $option_type ]]; then
+			brew_list_cmd+=("--$option_type")
+			brew_info_cmd+=("--$option_type")
+			deno_script_args+=("--type=$option_type")
+		fi
+		# if no items, only get the installed ones
+		if [[ ${#option_items[@]} -eq 0 ]]; then
+			brew_info_cmd+=('--installed')
+		fi
 	fi
 
 	# =====================================
@@ -107,9 +103,9 @@ function brew_installed() (
 	function do_brew_simple {
 		# handles only --cask and --formula, but not --requested
 		if [[ $option_quiet == 'yes' ]]; then
-			"${brew_list_cmd[@]}" &>/dev/null
+			"${brew_list_cmd[@]}" "${option_items[@]}" &>/dev/null
 		else
-			"${brew_list_cmd[@]}" | cut -d' ' -f1 | echo-unique --stdin
+			"${brew_list_cmd[@]}" "${option_items[@]}" | cut -d' ' -f1 | echo-unique --stdin
 		fi
 	}
 
@@ -119,18 +115,18 @@ function brew_installed() (
 		local deno_script
 		deno_script="$(type -P 'brew-installed.ts')"
 		if [[ $option_quiet == 'yes' ]]; then
-			"${brew_info_cmd[@]}" | "$deno_script" "${deno_script_args[@]}" &>/dev/null
+			"${brew_info_cmd[@]}" "${option_items[@]}" | "$deno_script" "${deno_script_args[@]}" &>/dev/null
 		else
-			"${brew_info_cmd[@]}" | "$deno_script" "${deno_script_args[@]}"
+			"${brew_info_cmd[@]}" "${option_items[@]}" | "$deno_script" "${deno_script_args[@]}"
 		fi
 	}
 
 	# get names of requested packages
-	if [[ $option_requested == 'no' ]]; then
+	if [[ $option_requested == 'no' && ${#brew_list_cmd[@]} -ne 0 ]]; then
 		do_brew_simple
-	elif [[ ${#option_packages[@]} -eq 0 ]]; then
+	elif [[ ${#option_items[@]} -eq 0 ]]; then
 		do_brew_advanced
-	elif [[ "$(do_brew_advanced | echo-count-lines --no-inline --stdin)" -ne ${#option_packages[@]} ]]; then
+	elif [[ "$(do_brew_advanced | echo-count-lines --no-inline --stdin)" -ne ${#option_items[@]} ]]; then
 		return 1
 	fi
 )
