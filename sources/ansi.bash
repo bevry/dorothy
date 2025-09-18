@@ -735,6 +735,23 @@ function __ansi_trim {
 	printf '%s' "${results[@]}" || return
 }
 
+# this is the original and more performant variation of `__ansi_keep_right`, used by `echo-revolving-door`
+function __split_shapeshifting {
+	# trim -- prefix
+	if [[ ${1-} == '--' ]]; then
+		shift
+	fi
+	# https://www.gnu.org/software/bash/manual/bash.html#Pattern-Matching
+	local input
+	for input in "$@"; do
+		input="${input//[[:cntrl:]]\[*([\;\?0-9])[\][\^\`\~\\ABCDEFGHIJKLMNOPQSTUVWXYZabcdefghijklnosu]/$'\n'}" # cursor movement
+		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}"                                                        # save and restore cursor
+		input="${input//[[:cntrl:]][bf]/$'\n'}"                                                                 # page-up, page-down
+		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"                                                             # carriage return, backspace
+		__print_lines "$input" || return
+	done
+}
+
 # keep right of everything that does not match the filter
 # redo this as __ansi_truncate_complex_shapeshifting
 function __ansi_keep_right {
