@@ -4881,7 +4881,7 @@ function __iterate {
 				fi
 				;;
 			--pattern=*)
-				# pattern match
+				# pattern match: POSIX extended regular expression
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
