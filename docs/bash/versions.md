@@ -49,14 +49,15 @@ From changelog:
 - Introduces `mapfile`, as well as the `readarray` alias for `mapfile`.
 - Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-4.0-release`,
 > and the previous version, `bash-4.0-rc1`.
 >
 > a. `readarray` is now a synonym for `mapfile`.
 
-> This document details the changes between this version, `bash-4.0-alpha`, and the previous version, `bash-3.2-release`.
+> This document details the changes between this version, `bash-4.0-alpha`, and the previous version,`bash-3.2-release`.
 >
 > p. The `read` builtin has a new `-i` option which inserts text into the reply buffer when using readline.
 >
@@ -69,6 +70,8 @@ Changelog:
 > dd. The parser now understands `|&` as a synonym for `2>&1 |`, which redirects the standard error for a command through a pipe
 >
 > hh. There are new case-modifying word expansions: uppercase `(^[^])` and lowercase `(,[,])`. They can work on either the first character or array element, or globally. They accept an optional shell pattern that determines which characters to modify. There is an optionally-configured feature to include capitalization operators.
+
+</details>
 
 ## bash v4.1
 
@@ -88,7 +91,8 @@ From changelog:
 - Introduces `BASH_XTRACEFD` for redirecting xtrace output to a file descriptor.
 - Introduces `{fd}` syntax for opening unused file descriptors.
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-4.1-alpha`, and the previous version, `bash-4.0-release`.
 >
@@ -97,6 +101,8 @@ Changelog:
 > p. If the optional left-hand-side of a redirection is of the form `{var}`, the shell assigns the file descriptor used to `$var` or uses `$var` as the file descriptor to move or close, depending on the redirection operator.
 >
 > ee. Fixed an off-by-one error when computing the number of positional parameters for the `${@:0:n}` expansion.
+
+</details>
 
 ## bash v4.2
 
@@ -113,11 +119,14 @@ From changelog:
 
 - Introduces `test -v VAR` for testing variable declaration
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-4.2-alpha`, and the previous version, `bash-4.1-release`.
 >
 > f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
+
+</details>
 
 ## bash v4.3
 
@@ -137,13 +146,16 @@ From changelog:
 - Introduces `declare -n` for creating nameref variables.
 - Fixes a bug where `<&-` would not close the file descriptor
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-4.3-alpha`, and the previous version, `bash-4.2-release`.
 >
 > w. The shell has `nameref` variables and new `-n`(/`+n`) options to declare and unset to use them, and a `test -R` option to test for them.
 >
 > bbbbb. Fixed a bug that caused redirections like <&n- to leave file descriptor n closed if executed with a builtin command.
+
+</details>
 
 ## bash v4.4
 
@@ -161,7 +173,8 @@ From changelog:
 
 - No longer throws upon accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-4.4-rc2`, and the previous version, `bash-4.4-beta2`.
 >
@@ -170,6 +183,8 @@ Changelog:
 > This document details the changes between this version, `bash-4.4-alpha`, and the previous version, `bash-4.3-release`.
 >
 > d. The `mapfile` builtin now has a `-d` option to use an arbitrary character as the record delimiter, and a `-t` option to strip the delimiter as supplied with `-d`.
+
+</details>
 
 ## bash v5.0
 
@@ -180,7 +195,8 @@ From changelog:
 
 - No longer causes strange duplications when working with `$'\001'`
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-5.0-beta`, and the previous version, `bash-5.0-alpha`.
 >
@@ -218,18 +234,29 @@ Changelog:
 >
 > yyy. `wait` without arguments attempts to wait for all active process substitution processes.
 
+</details>
+
 ## bash v5.1
+
+> [!IMPORTANT]
+> This is this is the recommended minimum version for Dorothy on SUSE platforms.
 
 > [!NOTE]
 > Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_defined`, `__get_uppercase_first_letter`, `__get_lowercase_string`.
 
 From changelog:
 
+- Associative arrays now properly functional.
 - Introduces `${var@U}`, `${var@u}`, `${var@L}`
 - Introduces `test -v INDEX` for testing positional declaration
-- Associative arrays now properly functional.
+- Fixes `wait_for: No record of process ...` crashes; according to [this user report](https://gist.github.com/azat/affbda3f8c6b5c38648d4ab105777d88), it is this version that fixes it
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
+
+> This document details the changes between this version, `bash-5.1-beta`, and the previous version, `bash-5.1-alpha`.
+>
+> e. Make sure `SIGCHLD` is blocked in all cases where `waitchld()` is not called from a signal handler.
 
 > This document details the changes between this version, `bash-5.1-alpha`, and the previous version, `bash-5.0-release`.
 >
@@ -239,16 +266,95 @@ Changelog:
 >
 > oo. Fixed several issues with assigning an associative array variable using a compound assignment that expands the value of the same variable.
 
+</details>
+
 ## bash v5.2
 
 From changelog:
 
 - Nameref variables (`declare -n nameref`) now properly functional.
 
-Changelog:
+<details>
+<summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-5.2-alpha`, and the previous version, `bash-5.1-release`.
 >
 > g. Fixed a problem with performing an assignment with `+=` to an array element that was the value of a nameref.
 > h. Fixed a bug that could cause a nameref containing an array reference using `@` or `*` not to expand to multiple words.
 > bb. Array references using `@` and `*` that are the value of nameref variables (`declare -n ref='v[@]' ; echo $ref`) no longer cause the shell to exit if `set -u` is enabled and the array (`v`) is unset.
+
+</details>
+
+## bash v5.3
+
+From changelog:
+
+- Introduces performant command interpolation, via command substitution `${command;}` or `${|command;}` instead of process substitution `$(command)`.
+- Introduces `fltexpr` for floating point arithmetic.
+- When debugging, `LINENO` is now correct.
+- We've likely encountered the plethora of bugs fixed in this version, however, by the time of its release, Dorothy already implemented workarounds, such that these bugs are not surfaced.
+
+<details>
+<summary>Changelog:</summary>
+
+> This document details the changes between this version, `bash-5.3-rc2`, and the previous version, `bash-5.3-rc1`.
+>
+> f. Fixed an issue with a backslash-newline appearing after a right paren in a nested subshell command.
+>
+> h. Fixed an issue with a nameref variable referencing an unset array element when the `nounset` option is enabled.
+
+> This document details the changes between this version, `bash-5.3-rc1`, and the previous version, `bash-5.3-beta`.
+>
+> d. Changes to `set -e` exit behavior in posix mode, since POSIX now says to exit as if executing the `exit builtin with no arguments`.
+>
+> a. There is a new `fltexpr' loadable builtin to perform floating-point arithmetic similarly to `let'.
+
+> This document details the changes between this version, `bash-5.3-beta`, and the previous version, `bash-5.3-alpha`.
+>
+> e. The bash build process now assumes a `C90` compilation environment and a `POSIX.1-1990` execution environment.
+>
+> x. Fix for return status for commands whose return status is being inverted when set -e is ignored.
+>
+> i. `wait -n` can now return terminated process substitutions, jobs about which the user has already been notified (like `wait` without options)
+>
+> q. If `exit` is run in a trap and not supplied an exit status argument, it uses the value of `$?` from before the trap only if it's run at the trap's `top level` and would cause the trap to end (that is, not in a subshell). This is from Posix interp 1602.
+
+> This document details the changes between this version, `bash-5.3-alpha`, and the previous version, `bash-5.2-release`.
+>
+> c. Fixed a bug with subshell command execution that caused it to set `LINENO` incorrectly.
+>
+> g. Fixed a bug where nested word expansions confused the state parser and resulted in quotes being required where they should not have been.
+>
+> s. Fixed a bug that caused the shell to unlink FIFOs used for process substitution before a compound command completes.
+>
+> u. Fixed a bug that caused subshells not to run the `EXIT` trap if a signal arrived after the command and before returning to the caller.
+>
+> v. Fixed a bug where `wait` without arguments could wait for inherited process substitutions, which are not children of this shell.
+>
+> w. Fixed a bug with expanding $\* in a here-document body.
+>
+> y. Change for POSIX interpretation 1602 about the default return status for `return` in a trap command.
+>
+> gg. Fixed a bug that caused `eval` to run the ERR trap in commands where it should not.
+>
+> rrr. Treat the failure to open file in `$(<file)` as a non-fatal expansion error instead of a fatal redirection error.
+>
+> ttt. Fix `{var}>&-` so it doesn't silently close stdin if var is not a number.
+>
+> yyy. Fix bug that caused `FUNCNAME` not to be reset after a parse error with compound assignments to local variables.
+>
+> kkkk. `BASH_REMATCH` can now be a local variable.
+>
+> xxxx. Fix bug with closing `/dev/fd` process substitutions in shell functions.
+>
+> j. `trap` has a new `-P` option that prints the trap action associated with each signal argument.
+>
+> l. `printf` uses the `alternate form` for `%q` and `%Q` to force single quoting.
+>
+> s. New form of command substitution: `${ command; }` or `${|command;}` to capture the output of COMMAND without forking a child process and using pipes.
+>
+> q. `GLOBSORT`: new variable to specify how to sort the results of pathname expansion (`name`, `size`, `blocks`, `mtime`, `atime`, `ctime`, `none`) in ascending or descending order.
+>
+> x. `BASH_TRAPSIG`: new variable, set to the numeric signal number of the trap being executed while it's running.
+
+</details>

@@ -490,15 +490,22 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}" # 5.2.15(1)-release => 5.2.15
 	# trunk-ignore(shellcheck/SC2034)
 	BASH_VERSION_LATEST='5.3' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
-	# any v5 version is supported by dorothy, earlier throws on empty array access which is annoying
-	if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
+	# bash v4.4 and above are supported by Dorothy, unless on SUSE in which it is v5.1 and above, see <versions.md> for reasoning
+	# opensuse/leap hits a bash 4.4 error on the `is-same` test:
+	# https://github.com/bevry/dorothy/actions/runs/17821527495/job/50664874215#step:4:24635
+	# /github/home/.local/share/dorothy/commands/checksum: line 532: wait_for: No record of process 3552994
+	# https://gist.github.com/azat/affbda3f8c6b5c38648d4ab105777d88
+	if [[ ${MACTYPE-} =~ suse-linux-gnu$ && ($BASH_VERSION_MAJOR -lt 5 || ($BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -lt 1)) ]]; then
+		IS_BASH_VERSION_OUTDATED='yes'
+	elif [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
 		IS_BASH_VERSION_OUTDATED='no'
-		function __require_upgraded_bash {
-			:
-		}
+	else
+		IS_BASH_VERSION_OUTDATED='yes'
+	fi
+	if [[ $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
+		function __require_upgraded_bash { :; }
 	else
 		# trunk-ignore(shellcheck/SC2034)
-		IS_BASH_VERSION_OUTDATED='yes'
 		function __require_upgraded_bash {
 			local reason="${1-}" reason_args=()
 			if [[ -n $reason ]]; then
@@ -530,6 +537,7 @@ BASH_VERSIONS_SUPPORTED=(
 	5.3    # compiles on macos x86 without any flags
 )
 
+# convert a version (short and full) into its corresponding latest downloadable version identifier
 function __get_coerced_bash_version {
 	local input="$1" result
 	case "$input" in
