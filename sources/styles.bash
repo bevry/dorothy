@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # Used by `echo-style`, `ask`, `choose`, `confirm`
-# Do not use `export` keyword in this file
 
 # See <ansi-escape-codes.md>
 
