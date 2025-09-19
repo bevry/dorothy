@@ -6,21 +6,44 @@ function echo_math_test() (
 	local inputs=('1 - 1/2' '1 - 1/3' '1 - 1/4' '123456789 / 0.0987654321')
 	local expected_six=$'0.500000\n0.666667\n0.750000\n1249999988.609375'
 	local expected_two=$'0.50\n0.67\n0.75\n1249999988.61'
+	local expected_zero=$'0\n1\n1\n1249999989'
+	local expected_zero_deno=$'1\n1\n1\n1249999989'
 	function __test {
+		local expected
+
 		# this first one may install the tool, use --discard-tty to avoid dumping thousands of lines to the CI terminal, and --ignore-tty to avoid comparisons of the captured TTY data
+
+		# --precision=6
+		# arguments
 		eval-tester --discard-tty --ignore-tty --stdout="$expected_six" -- \
 			echo-math "$@" -- "${inputs[@]}"
-
+		# stdin
 		__print_lines "${inputs[@]}" |
 			eval-tester --stdout="$expected_six" -- \
 				echo-math "$@" --stdin
 
+		# --precision=2
+		# arguments
 		eval-tester --stdout="$expected_two" -- \
 			echo-math --precision=2 "$@" -- "${inputs[@]}"
-
+		# stdin
 		__print_lines "${inputs[@]}" |
 			eval-tester --stdout="$expected_two" -- \
 				echo-math --precision=2 "$@" --stdin
+		
+		# --precision=0
+		if [[ $* == *'--tool=deno'* ]]; then
+			expected="$expected_zero_deno"
+		else
+			expected="$expected_zero"
+		fi
+		# arguments
+		eval-tester --stdout="$expected" -- \
+			echo-math --precision=0 "$@" -- "${inputs[@]}"
+		# stdin
+		__print_lines "${inputs[@]}" |
+			eval-tester --stdout="$expected" -- \
+				echo-math --precision=0 "$@" --stdin
 	}
 
 	# run test with defaults
@@ -40,15 +63,19 @@ function echo_math_test() (
 	done
 
 	# now run benchmarks
-	if __command_exists -- hyperfine; then
-		hyperfine --warmup 10 --runs 25 -- "${benchmarks[@]}"
-	fi
+	# if __command_exists -- hyperfine; then
+	# 	hyperfine --warmup 10 --runs 25 -- "${benchmarks[@]}"
+	# fi
 
 	return 0
 )
 function echo_math() (
 	source "$DOROTHY/sources/stdinargs.bash"
-	local all_tools=(awk gawk deno)
+	local all_tools=()
+	if [[ $BASH_NATIVE_FLOATING_POINT == 'yes' ]]; then
+		all_tools+=(bash)
+	fi
+	all_tools+=(awk gawk deno)
 	# [bc] is removed, as it fails silently on debian systems
 
 	# =====================================
@@ -112,6 +139,7 @@ function echo_math() (
 	# =====================================
 	# Action
 
+	# bash: dynamic decimals by default
 	# bc: 0 decimals by default
 	# bc -l: 20 decimals by default
 	# 0. becomes ., hence need for printf
@@ -125,34 +153,40 @@ function echo_math() (
 			# echo-escape-command: Failed to compute: awk -v precision=6 BEGIN\ \{\ printf\ \"%.\"\ precision\ \"f\\n\"\,\ /\ \}
 			__print_error 'Failed to compute: ' --code="$(echo-quote --always=no -- "$@" | echo-join --stdin || :)" --newline \
 				"With $1 binary: " --code="$(type -P "$1" || :)" --newline \
-				"With $1 version: " --code="$($1 --version 2>/dev/null || :)"
+				"With $1 version: " --code="$($1 --version 2>/dev/null || :)" || :
 			return "$exit_status"
 		}
 	}
 
 	# perl implementation (doesn't work on opensuse): https://gist.github.com/balupton/2a8ec0c004cb382895807ae71c6cef83
-	if [[ $option_tool == 'bc' ]]; then
-		function on_line {
+	if [[ $option_tool == 'bash' ]]; then
+		function __on_line {
 			local formula="$1" fodder_to_respect_exit_status
-			fodder_to_respect_exit_status="$(__wrap bc --mathlib --no-prompt --no-read-prompt --standard --warn --expression="$formula")"
-			printf "%.${option_precision}f\n" "$fodder_to_respect_exit_status"
+			fltexpr "fodder_to_respect_exit_status=$formula" || return
+			printf "%.${option_precision}f\n" "$fodder_to_respect_exit_status" || return
+		}
+	elif [[ $option_tool == 'bc' ]]; then
+		function __on_line {
+			local formula="$1" fodder_to_respect_exit_status
+			fodder_to_respect_exit_status="$(__wrap bc --mathlib --no-prompt --no-read-prompt --standard --warn --expression="$formula")" || return
+			printf "%.${option_precision}f\n" "$fodder_to_respect_exit_status" || return
 		}
 	elif [[ $option_tool == 'deno' ]]; then
 		local deno_script
 		deno_script="$(type -P echo-math.ts)"
-		function on_line {
+		function __on_line {
 			local formula="$1"
-			__wrap "$deno_script" "$option_precision" "$formula"
+			__wrap "$deno_script" "$option_precision" "$formula" || return
 		}
 	elif [[ $option_tool == 'awk' ]]; then
-		function on_line {
+		function __on_line {
 			local formula="$1"
-			__wrap awk -v precision="$option_precision" 'BEGIN { printf "%." precision "f\n", '"$formula"' }'
+			__wrap awk -v precision="$option_precision" 'BEGIN { printf "%." precision "f\n", '"$formula"' }' || return
 		}
 	elif [[ $option_tool == 'gawk' ]]; then
-		function on_line {
+		function __on_line {
 			local formula="$1"
-			__wrap gawk -v precision="$option_precision" 'BEGIN { printf "%." precision "f\n", '"$formula"' }'
+			__wrap gawk -v precision="$option_precision" 'BEGIN { printf "%." precision "f\n", '"$formula"' }' || return
 		}
 	else
 		return 19 # ENODEV 19 Operation not supported by device

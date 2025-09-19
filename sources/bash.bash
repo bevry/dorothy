@@ -839,6 +839,14 @@ else
 	}
 fi
 
+# Bash >= 5.3
+# Evidently, on CI, some bash 5.3 binaries still don't have fltexpr, as such, don't do a version number check, furthermore, the `enable fltexpr` call is instantaneous anyway, so there is no hit to doing this
+if enable fltexpr &>/dev/null; then
+	BASH_NATIVE_FLOATING_POINT='yes'
+else
+	BASH_NATIVE_FLOATING_POINT='no'
+fi
+
 # Bash >= 5.1, >= 4, < 4
 if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 	# bash >= 5.1

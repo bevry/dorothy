@@ -307,7 +307,7 @@ From changelog:
 >
 > d. Changes to `set -e` exit behavior in posix mode, since POSIX now says to exit as if executing the `exit builtin with no arguments`.
 >
-> a. There is a new `fltexpr' loadable builtin to perform floating-point arithmetic similarly to `let'.
+> a. There is a new `fltexpr` loadable builtin to perform floating-point arithmetic similarly to `let'.
 
 > This document details the changes between this version, `bash-5.3-beta`, and the previous version, `bash-5.3-alpha`.
 >
