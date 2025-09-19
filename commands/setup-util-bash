@@ -49,10 +49,42 @@ function setup_util_bash() (
 		source "$(type -P setup-util)"
 
 		# @todo support uninstall
+
+		# https://www.gnu.org/prep/ftp.html'
+		function __get_bash_patches {
+			local patches_url="$1"
+			fetch "$patches_url" | echo-regexp -gno --regexp='href="(bash[^"]+)' --replace='$1' | grep --invert-match --regexp='\.sig$' | sort # sort here, as dependning on the mirror, a different sort order will be returned, and they must be sorted by ascending name
+		}
 		function do_install {
+			# dependencies
 			setup-util-devel --quiet
 			setup-util --quiet --cli='yacc' APT='byacc' BREW='byacc'
 			source "$DOROTHY/sources/environment.sh"
+			# patches
+			local version
+			# don't look to ./configure as that is only minor version, and we want the patch version, which should be in the path
+			# version="$(echo-regexp -o --regexp='BASHVERS=(.+)' --replace='$1' <./configure)" || return
+			version="$(pwd | echo-regexp -o --regexp='/bash-([^/]+)/' --replace='$1' || :)"
+			# if it isn't in the path, then it we aren't doing a versioned download, and just getting the latest, so use that
+			if [[ -z $version ]]; then
+				version="$BASH_VERSION_LATEST"
+			fi
+			# if the version has a patch, we don't need to patch
+			if [[ $version == *.*.* ]]; then
+				__print_style --stderr --bold='Bash version ' --code="$version" --bold=' is already patched.'
+			else
+				local patches_url patches=() patch patch_url patch_content
+				patches_url="https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/"
+				__split --target={patches} --no-zero-length --invoke=try -- \
+					__get_bash_patches "$patches_url" || return
+				for patch in "${patches[@]}"; do
+					patch_url="${patches_url}${patch}"
+					# __print_style --stderr --bold='Patching ' --code="$patch" --bold=' from ' --path="$patch_url"
+					down --url="$patch_url" --file="$patch" || return
+					patch --input="$patch" -p0 # p0 is necessary for linux builds
+				done
+			fi
+			# compile
 			./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}"
 			make
 		}
@@ -61,7 +93,7 @@ function setup_util_bash() (
 				--cli="bash-$version"
 				--order='download'
 				"$@"
-				DOWNLOAD="https://ftp.gnu.org/gnu/bash/bash-${version}.tar.gz"
+				DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${version}.tar.gz"
 				DOWNLOAD_ARCHIVE_FORMAT='tar'
 				DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
 				DOWNLOAD_BUILD_INSTALL='do_install'
@@ -182,7 +214,7 @@ function setup_util_bash() (
 		)
 	else
 		options+=(
-			DOWNLOAD="https://ftp.gnu.org/gnu/bash/bash-${BASH_VERSION_LATEST}.tar.gz"
+			DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${BASH_VERSION_LATEST}.tar.gz"
 			DOWNLOAD_ARCHIVE_FORMAT='tar'
 			DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
 			DOWNLOAD_TARGET_PATH="$XDG_PREFIX/bin/bash"
