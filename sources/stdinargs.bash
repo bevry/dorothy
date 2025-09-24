@@ -115,7 +115,7 @@ function stdinargs {
 				help >&2
 				return 22 # EINVAL 22 Invalid argument
 			else
-				__print_error 'A [help] function is required.'
+				__print_error 'A ' --code='help' ' function is required.'
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
@@ -172,7 +172,7 @@ function stdinargs {
 			fi
 			;;
 		'--'*)
-			help "An unrecognised flag was provided: $item" >&2
+			help 'An unrecognised flag was provided: ' --variable-value={item} >&2
 			return 22 # EINVAL 22 Invalid argument
 			;;
 		*)
@@ -262,8 +262,8 @@ function stdinargs {
 		had_args='yes'
 		if [[ -n $option_max_args && $args_count -gt $option_max_args ]]; then
 			help \
-				'This command only supports a maximum of ' --code="$option_max_args" ' arguments, yet ' --code="$args_count" ' were provided:' --newline \
-				--="$(echo-verbose -- "${option_args[@]}")" >&2
+				'This command only supports a maximum of ' --value="$option_max_args" ' arguments, yet ' --value="$args_count" ' were provided:' --newline \
+				--variable={option_args}
 			return 22 # EINVAL 22 Invalid argument
 		fi
 		for item in "${option_args[@]}"; do

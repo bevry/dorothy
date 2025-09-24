@@ -31,45 +31,45 @@ fi
 
 function __get_terminal_color_support {
 	# arguments
-	local item option_fallback='' option_quiet='' option_color='' # option_env='yes'
+	local GET_TERMINAL_COLOR_SUPPORT__item GET_TERMINAL_COLOR_SUPPORT__fallback='' GET_TERMINAL_COLOR_SUPPORT__quiet='' GET_TERMINAL_COLOR_SUPPORT__color='' # option_env='yes'
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		GET_TERMINAL_COLOR_SUPPORT__item="$1"
 		shift
-		case "$item" in
-		--fallback=*) option_fallback="${item#*=}" ;;
-		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce || return ;;
-		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce || return ;;
-		# --no-env* | --env*) __flag --source={item} --target={option_env} --affirmative ;;
+		case "$GET_TERMINAL_COLOR_SUPPORT__item" in
+		--fallback=*) GET_TERMINAL_COLOR_SUPPORT__fallback="${GET_TERMINAL_COLOR_SUPPORT__item#*=}" ;;
+		--no-verbose* | --verbose*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__quiet} --non-affirmative --coerce || return ;;
+		--no-quiet* | --quiet*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__quiet} --affirmative --coerce || return ;;
+		# --no-env* | --env*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={option_env} --affirmative ;;
 		--)
 			# now that we have the forwarded arguments, see if anything matches color
 			while [[ $# -ne 0 ]]; do
-				item="$1"
+				GET_TERMINAL_COLOR_SUPPORT__item="$1"
 				shift
-				case "$item" in
-				--no-color* | --color*) __flag --source={item} --target={option_color} --affirmative --coerce || return ;;
+				case "$GET_TERMINAL_COLOR_SUPPORT__item" in
+				--no-color* | --color*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__color} --affirmative --coerce || return ;;
 				esac
 			done
 			break
 			;;
-		--*) __unrecognised_flag "$item" || return ;;
+		--*) __unrecognised_flag "$GET_TERMINAL_COLOR_SUPPORT__item" || return ;;
 		*)
-			if [[ -z $option_fallback ]]; then
-				option_fallback="$item"
+			if [[ -z $GET_TERMINAL_COLOR_SUPPORT__fallback ]]; then
+				GET_TERMINAL_COLOR_SUPPORT__fallback="$GET_TERMINAL_COLOR_SUPPORT__item"
 			else
-				__unrecognised_argument "$item" || return
+				__unrecognised_argument "$GET_TERMINAL_COLOR_SUPPORT__item" || return
 			fi
 			;;
 		esac
 	done
 
 	# handle status
-	local -i status=0
-	local exit_result='' exit_status='' error_status=''
-	if [[ $option_quiet == 'yes' ]]; then
+	local -i GET_TERMINAL_COLOR_SUPPORT__status=0
+	local GET_TERMINAL_COLOR_SUPPORT__exit_result='' GET_TERMINAL_COLOR_SUPPORT__exit_status='' GET_TERMINAL_COLOR_SUPPORT__error_status=''
+	if [[ $GET_TERMINAL_COLOR_SUPPORT__quiet == 'yes' ]]; then
 		# quiet
 		function __process_status {
-			if [[ $status -eq 0 || $status -eq 1 ]]; then
-				exit_status="$status"
+			if [[ $GET_TERMINAL_COLOR_SUPPORT__status -eq 0 || $GET_TERMINAL_COLOR_SUPPORT__status -eq 1 ]]; then
+				GET_TERMINAL_COLOR_SUPPORT__exit_status="$GET_TERMINAL_COLOR_SUPPORT__status"
 				# don't output anything as quiet
 				# but keep the status as that is how quiet determines the result
 			fi
@@ -77,64 +77,64 @@ function __get_terminal_color_support {
 	else
 		# verbose, output instead
 		function __process_status {
-			if [[ $status -eq 0 ]]; then
-				exit_status=0
-				exit_result='yes'
-				__print_lines "$exit_result" || return
-			elif [[ $status -eq 1 ]]; then
-				exit_status=0 # as we are not quiet, we determine the result via the output
-				exit_result='no'
-				__print_lines "$exit_result" || return
+			if [[ $GET_TERMINAL_COLOR_SUPPORT__status -eq 0 ]]; then
+				GET_TERMINAL_COLOR_SUPPORT__exit_status=0
+				GET_TERMINAL_COLOR_SUPPORT__exit_result='yes'
+				__print_lines "$GET_TERMINAL_COLOR_SUPPORT__exit_result" || return
+			elif [[ $GET_TERMINAL_COLOR_SUPPORT__status -eq 1 ]]; then
+				GET_TERMINAL_COLOR_SUPPORT__exit_status=0 # as we are not quiet, we determine the result via the output
+				GET_TERMINAL_COLOR_SUPPORT__exit_result='no'
+				__print_lines "$GET_TERMINAL_COLOR_SUPPORT__exit_result" || return
 			else
-				error_status="$status" # not this failure if all other fallbacks failed or are not present
+				GET_TERMINAL_COLOR_SUPPORT__error_status="$GET_TERMINAL_COLOR_SUPPORT__status" # not this failure if all other fallbacks failed or are not present
 			fi
 		}
 	fi
 
 	# process arguments against env
-	if [[ -n $option_color ]]; then
-		status=0
-		__is_affirmative -- "$option_color" || status=$?
+	if [[ -n $GET_TERMINAL_COLOR_SUPPORT__color ]]; then
+		GET_TERMINAL_COLOR_SUPPORT__status=0
+		__is_affirmative -- "$GET_TERMINAL_COLOR_SUPPORT__color" || GET_TERMINAL_COLOR_SUPPORT__status=$?
 		__process_status || return
-		if [[ -n $exit_status ]]; then
+		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			# don't modify COLOR, as this is just argument handling, not env
-			return "$exit_status"
+			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 		fi
 	fi
 	if [[ -n ${COLOR-} ]]; then
-		status=0
-		__is_affirmative -- "$COLOR" || status=$?
+		GET_TERMINAL_COLOR_SUPPORT__status=0
+		__is_affirmative -- "$COLOR" || GET_TERMINAL_COLOR_SUPPORT__status=$?
 		__process_status || return
-		if [[ -n $exit_status ]]; then
-			COLOR="$exit_result"
-			return "$exit_status"
+		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
+			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
+			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 		fi
 	fi
 	if [[ -n ${NO_COLOR-} ]]; then
-		status=0
-		__is_non_affirmative -- "$NO_COLOR" || status=$?
+		GET_TERMINAL_COLOR_SUPPORT__status=0
+		__is_non_affirmative -- "$NO_COLOR" || GET_TERMINAL_COLOR_SUPPORT__status=$?
 		__process_status || return
-		if [[ -n $exit_status ]]; then
-			COLOR="$exit_result"
-			return "$exit_status"
+		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
+			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
+			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 		fi
 	fi
 	if [[ -n ${NOCOLOR-} ]]; then
-		status=0
-		__is_non_affirmative -- "$NOCOLOR" || status=$?
+		GET_TERMINAL_COLOR_SUPPORT__status=0
+		__is_non_affirmative -- "$NOCOLOR" || GET_TERMINAL_COLOR_SUPPORT__status=$?
 		__process_status || return
-		if [[ -n $exit_status ]]; then
-			COLOR="$exit_result"
-			return "$exit_status"
+		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
+			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
+			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 		fi
 	fi
 	if [[ -n ${CRON-} || -n ${CRONITOR_EXEC-} ]]; then
 		# cron strips nearly all env vars, these must be defined manually in [crontab -e]
-		status=1
+		GET_TERMINAL_COLOR_SUPPORT__status=1
 		__process_status || return
-		if [[ -n $exit_status ]]; then
-			COLOR="$exit_result"
-			return "$exit_status"
+		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
+			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
+			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 		fi
 	fi
 	if [[ -n ${TERM-} ]]; then
@@ -142,22 +142,22 @@ function __get_terminal_color_support {
 		# https://unix.stackexchange.com/a/411097
 		if [[ $TERM == 'xterm-256color' ]]; then
 			# Visual Studio Code's integrated terminal reports TERM=xterm-256color
-			status=0
+			GET_TERMINAL_COLOR_SUPPORT__status=0
 			__process_status || return
-			if [[ -n $exit_status ]]; then
-				COLOR="$exit_result"
-				return "$exit_status"
+			if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
+				COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
+				return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 			fi
 		elif [[ $TERM == 'dumb' ]]; then
 			if [[ -n ${GITHUB_ACTIONS-} ]]; then
 				: # continue to fallback
 			elif [[ -n $CI ]]; then
 				# if there are other CIs that support colors, they should be added to the prior check
-				status=1
+				GET_TERMINAL_COLOR_SUPPORT__status=1
 				__process_status || return
-				if [[ -n $exit_status ]]; then
-					COLOR="$exit_result"
-					return "$exit_status"
+				if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
+					COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
+					return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 				fi
 			else
 				# [ssh -T ...] would be an example of this
@@ -168,19 +168,19 @@ function __get_terminal_color_support {
 	fi
 
 	# fallback
-	if [[ -n $option_fallback ]]; then
-		status=0
-		__is_affirmative -- "$option_fallback" || status=$?
+	if [[ -n $GET_TERMINAL_COLOR_SUPPORT__fallback ]]; then
+		GET_TERMINAL_COLOR_SUPPORT__status=0
+		__is_affirmative -- "$GET_TERMINAL_COLOR_SUPPORT__fallback" || GET_TERMINAL_COLOR_SUPPORT__status=$?
 		__process_status || return
-		if [[ -n $exit_status ]]; then
+		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			# don't modify COLOR, as this is just fallback handling, not env
-			return "$exit_status"
+			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
 		fi
 	fi
 
 	# nothing
-	error_status="${error_status:-"91"}" # ENOMSG 91 No message of desired type
-	return "$error_status"
+	GET_TERMINAL_COLOR_SUPPORT__error_status="${GET_TERMINAL_COLOR_SUPPORT__error_status:-"91"}" # ENOMSG 91 No message of desired type
+	return "$GET_TERMINAL_COLOR_SUPPORT__error_status"
 }
 
 #######################################
@@ -459,6 +459,8 @@ style__color__code="${style__color__foreground_intense_black}"
 style__color_end__code="${style__color_end__foreground}"
 style__color__link="${style__color__foreground_blue}"
 style__color_end__link="${style__color_end__foreground}"
+style__color__url="${style__color__link}"
+style__color_end__url="${style__color_end__link}"
 style__color__path="${style__color__foreground_yellow}"
 style__color_end__path="${style__color_end__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
@@ -863,113 +865,113 @@ fi
 
 function __refresh_style_cache {
 	# this should be similar to __append_style in echo-style
-	local item option_color=''
+	local REFRESH_STYLE_CACHE__item REFRESH_STYLE_CACHE__color=''
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		REFRESH_STYLE_CACHE__item="$1"
 		shift
-		case "$item" in
-		--colors=yes | --colors | --color) option_color='yes' ;;
-		--colors=no | --no-colors | --no-color) option_color='no' ;;
+		case "$REFRESH_STYLE_CACHE__item" in
+		--colors=yes | --colors | --color) REFRESH_STYLE_CACHE__color='yes' ;;
+		--colors=no | --no-colors | --no-color) REFRESH_STYLE_CACHE__color='no' ;;
 		--colors=) : ;;
 		--) break ;;
-		--*) __unrecognised_argument "$item" || return ;;
+		--*) __unrecognised_argument "$REFRESH_STYLE_CACHE__item" || return ;;
 		esac
 	done
-	if [[ -z $option_color ]]; then
+	if [[ -z $REFRESH_STYLE_CACHE__color ]]; then
 		if [[ ${COLOR-} =~ ^(yes|no)$ ]]; then
-			option_color="$COLOR"
+			REFRESH_STYLE_CACHE__color="$COLOR"
 		elif __get_terminal_color_support --quiet --fallback=yes; then
-			option_color='yes'
+			REFRESH_STYLE_CACHE__color='yes'
 		else
-			option_color='no'
+			REFRESH_STYLE_CACHE__color='no'
 		fi
 	fi
-	local style var missing_styles=()
-	for style in "$@"; do
-		found='no'
-		if [[ $option_color == 'yes' ]]; then
+	local REFRESH_STYLE_CACHE__style REFRESH_STYLE_CACHE__found REFRESH_STYLE_CACHE__var REFRESH_STYLE_CACHE__missing_styles=()
+	for REFRESH_STYLE_CACHE__style in "$@"; do
+		REFRESH_STYLE_CACHE__found='no'
+		if [[ $REFRESH_STYLE_CACHE__color == 'yes' ]]; then
 			# begin
-			var="style__color__${style}"
-			if __is_var_defined "$var"; then
-				eval "style__${style}=\"\${!var}\""
-				found='yes'
+			REFRESH_STYLE_CACHE__var="style__color__${REFRESH_STYLE_CACHE__style}"
+			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+				eval "style__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
+				REFRESH_STYLE_CACHE__found='yes'
 			else
-				var="style__${style}"
-				if __is_var_defined "$var"; then
+				REFRESH_STYLE_CACHE__var="style__${REFRESH_STYLE_CACHE__style}"
+				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
 					# no need to update it
-					found='yes'
+					REFRESH_STYLE_CACHE__found='yes'
 				else
-					var="style__nocolor__${style}"
-					eval "style__${style}=''" # set to nothing regardless
-					if __is_var_defined "$var"; then
-						found='yes'
+					REFRESH_STYLE_CACHE__var="style__nocolor__${REFRESH_STYLE_CACHE__style}"
+					eval "style__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
+					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+						REFRESH_STYLE_CACHE__found='yes'
 					fi
 				fi
 			fi
 
 			# end
-			var="style__color_end__${style}"
-			if __is_var_defined "$var"; then
-				eval "style__end__${style}=\"\${!var}\""
-				found='yes'
+			REFRESH_STYLE_CACHE__var="style__color_end__${REFRESH_STYLE_CACHE__style}"
+			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+				eval "style__end__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
+				REFRESH_STYLE_CACHE__found='yes'
 			else
-				var="style__end__${style}"
-				if __is_var_defined "$var"; then
+				REFRESH_STYLE_CACHE__var="style__end__${REFRESH_STYLE_CACHE__style}"
+				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
 					# no need to update it
-					found='yes'
+					REFRESH_STYLE_CACHE__found='yes'
 				else
-					var="style__nocolor_end__${style}"
-					eval "style__end__${style}=''" # set to nothing regardless
-					if __is_var_defined "$var"; then
-						found='yes'
+					REFRESH_STYLE_CACHE__var="style__nocolor_end__${REFRESH_STYLE_CACHE__style}"
+					eval "style__end__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
+					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+						REFRESH_STYLE_CACHE__found='yes'
 					fi
 				fi
 			fi
 		else
 			# begin
-			var="style__nocolor__${style}"
-			if __is_var_defined "$var"; then
-				eval "style__${style}=\"\${!var}\""
-				found='yes'
+			REFRESH_STYLE_CACHE__var="style__nocolor__${REFRESH_STYLE_CACHE__style}"
+			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+				eval "style__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
+				REFRESH_STYLE_CACHE__found='yes'
 			else
-				var="style__${style}"
-				if __is_var_defined "$var"; then
+				REFRESH_STYLE_CACHE__var="style__${REFRESH_STYLE_CACHE__style}"
+				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
 					# no need to update it
-					found='yes'
+					REFRESH_STYLE_CACHE__found='yes'
 				else
-					var="style__color__${style}"
-					eval "style__${style}=''" # set to nothing regardless
-					if __is_var_defined "$var"; then
-						found='yes'
+					REFRESH_STYLE_CACHE__var="style__color__${REFRESH_STYLE_CACHE__style}"
+					eval "style__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
+					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+						REFRESH_STYLE_CACHE__found='yes'
 					fi
 				fi
 			fi
 
 			# end
-			var="style__nocolor_end__${style}"
-			if __is_var_defined "$var"; then
-				eval "style__end__${style}=\"\${!var}\""
-				found='yes'
+			REFRESH_STYLE_CACHE__var="style__nocolor_end__${REFRESH_STYLE_CACHE__style}"
+			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+				eval "style__end__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
+				REFRESH_STYLE_CACHE__found='yes'
 			else
-				var="style__end__${style}"
-				if __is_var_defined "$var"; then
+				REFRESH_STYLE_CACHE__var="style__end__${REFRESH_STYLE_CACHE__style}"
+				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
 					# no need to update it
-					found='yes'
+					REFRESH_STYLE_CACHE__found='yes'
 				else
-					var="style__color_end__${style}"
-					eval "style__end__${style}=''" # set to nothing regardless
-					if __is_var_defined "$var"; then
-						found='yes'
+					REFRESH_STYLE_CACHE__var="style__color_end__${REFRESH_STYLE_CACHE__style}"
+					eval "style__end__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
+					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
+						REFRESH_STYLE_CACHE__found='yes'
 					fi
 				fi
 			fi
 		fi
-		if [[ $found == 'no' ]]; then
-			missing_styles+=("${style}")
+		if [[ $REFRESH_STYLE_CACHE__found == 'no' ]]; then
+			REFRESH_STYLE_CACHE__missing_styles+=("${REFRESH_STYLE_CACHE__style}")
 		fi
 	done
-	if [[ ${#missing_styles[@]} -ne 0 ]]; then
-		__print_lines 'ERROR: MISSING STYLES:' "${missing_styles[@]}" >&2 || return
+	if [[ ${#REFRESH_STYLE_CACHE__missing_styles[@]} -ne 0 ]]; then
+		__print_lines 'ERROR: MISSING STYLES:' "${REFRESH_STYLE_CACHE__missing_styles[@]}" >&2 || return
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -982,274 +984,289 @@ function __print_style {
 	fi
 
 	# process
-	local item items=() option_trail='yes' option_debug='no' option_color=''
+	local PRINT_STYLE__item PRINT_STYLE__items=() PRINT_STYLE__trail='yes' PRINT_STYLE__color=''
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		PRINT_STYLE__item="$1"
 		shift
-		case "$item" in
-		--no-trail* | --trail*) __flag --source={item} --target={option_trail} --affirmative --coerce || return ;;
+		case "$PRINT_STYLE__item" in
+		--no-trail* | --trail*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__trail} --affirmative --coerce || return ;;
 		--colors=yes | --colors | --color)
 			# ^ dont do wildcard checks, as that messes with --nocolor+... and --color+modifiers
-			option_color=yes
+			PRINT_STYLE__color=yes
 			;;
 		--colors=no | --no-colors | --no-color)
 			# ^ don't do wildcard checks, as that messes with --nocolor+... and --color+modifiers
-			option_color='no'
+			PRINT_STYLE__color='no'
 			;;
 		--colors=) : ;;
 		--)
-			items+=("$@")
+			PRINT_STYLE__items+=("$@")
 			shift $#
 			;;
 		*)
-			items+=("$item" "$@")
+			PRINT_STYLE__items+=("$PRINT_STYLE__item" "$@")
 			shift $#
 			;;
 		esac
 	done
 
 	# fetch color if not provided by argument, as this is expensive
-	if [[ -z $option_color ]]; then
-		option_color="$(__get_terminal_color_support --fallback=yes)" # parse env only, as flags are handled by us to support color and nocolor modifiers
+	if [[ -z $PRINT_STYLE__color ]]; then
+		PRINT_STYLE__color="$(__get_terminal_color_support --fallback=yes)" # parse env only, as flags are handled by us to support color and nocolor modifiers
 	fi
 
 	# =====================================
 	# Action
 
 	# act
-	local item flag style generic \
-		i current_char_index last_char_index \
-		item_target buffer_target='/dev/stdout' \
-		missing_styles=() \
-		ITEM_COLOR buffer_color="$option_color" \
-		ITEM_BEGIN \
-		item_content \
-		ITEM_END \
-		buffer_left='' buffer_disable='' buffer_right=''
+	local PRINT_STYLE__item PRINT_STYLE__flag PRINT_STYLE__style PRINT_STYLE__generic \
+		PRINT_STYLE__index PRINT_STYLE__current_char_index PRINT_STYLE__last_char_index \
+		PRINT_STYLE__item_target \
+		PRINT_STYLE__buffer_target='/dev/stdout' \
+		PRINT_STYLE__missing_styles=() \
+		PRINT_STYLE__item_color \
+		PRINT_STYLE__buffer_color="$PRINT_STYLE__color" \
+		PRINT_STYLE__item_begin \
+		PRINT_STYLE__item_content \
+		PRINT_STYLE__item_end \
+		PRINT_STYLE__buffer_left='' \
+		PRINT_STYLE__buffer_disable='' \
+		PRINT_STYLE__buffer_right=''
 	function __append_style {
 		# this should be similar to refresh_style_cache in styles.bash
-		local style="$1" var='' found='no'
-		if [[ $ITEM_COLOR == 'yes' ]]; then
+		local APPEND_STYLE__style="$1" APPEND_STYLE__var='' APPEND_STYLE__found='no'
+		if [[ $PRINT_STYLE__item_color == 'yes' ]]; then
 			# begin
-			var="style__color__${style}"
-			if __is_var_defined "$var"; then
-				ITEM_BEGIN+="${!var}"
-				found='yes'
+			APPEND_STYLE__var="style__color__${APPEND_STYLE__style}"
+			if __is_var_defined "$APPEND_STYLE__var"; then
+				PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
+				APPEND_STYLE__found='yes'
 			else
 				# cache
-				var="style__${style}"
-				if __is_var_defined "$var"; then
-					ITEM_BEGIN+="${!var}"
-					found='yes'
+				APPEND_STYLE__var="style__${APPEND_STYLE__style}"
+				if __is_var_defined "$APPEND_STYLE__var"; then
+					PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
+					APPEND_STYLE__found='yes'
 				else
-					var="style__nocolor__${style}"
-					if __is_var_defined "$var"; then
-						found='yes'
+					APPEND_STYLE__var="style__nocolor__${APPEND_STYLE__style}"
+					if __is_var_defined "$APPEND_STYLE__var"; then
+						APPEND_STYLE__found='yes'
 					fi
 				fi
 			fi
 
 			# end
-			var="style__color_end__${style}"
-			if __is_var_defined "$var"; then
-				ITEM_END="${!var}${ITEM_END}"
-				found='yes'
+			APPEND_STYLE__var="style__color_end__${APPEND_STYLE__style}"
+			if __is_var_defined "$APPEND_STYLE__var"; then
+				PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
+				APPEND_STYLE__found='yes'
 			else
 				# cache
-				var="style__end__${style}"
-				if __is_var_defined "$var"; then
-					ITEM_END="${!var}${ITEM_END}"
-					found='yes'
+				APPEND_STYLE__var="style__end__${APPEND_STYLE__style}"
+				if __is_var_defined "$APPEND_STYLE__var"; then
+					PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
+					APPEND_STYLE__found='yes'
 				else
-					var="style__nocolor_end__${style}"
-					if __is_var_defined "$var"; then
-						found='yes'
+					APPEND_STYLE__var="style__nocolor_end__${APPEND_STYLE__style}"
+					if __is_var_defined "$APPEND_STYLE__var"; then
+						APPEND_STYLE__found='yes'
 					fi
 				fi
 			fi
 		else
 			# begin
-			var="style__nocolor__${style}"
-			if __is_var_defined "$var"; then
-				ITEM_BEGIN+="${!var}"
-				found='yes'
+			APPEND_STYLE__var="style__nocolor__${APPEND_STYLE__style}"
+			if __is_var_defined "$APPEND_STYLE__var"; then
+				PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
+				APPEND_STYLE__found='yes'
 			else
 				# cache
-				var="style__${style}"
-				if __is_var_defined "$var"; then
-					ITEM_BEGIN+="${!var}"
-					found='yes'
+				APPEND_STYLE__var="style__${APPEND_STYLE__style}"
+				if __is_var_defined "$APPEND_STYLE__var"; then
+					PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
+					APPEND_STYLE__found='yes'
 				else
-					var="style__color__${style}"
-					if __is_var_defined "$var"; then
-						found='yes'
+					APPEND_STYLE__var="style__color__${APPEND_STYLE__style}"
+					if __is_var_defined "$APPEND_STYLE__var"; then
+						APPEND_STYLE__found='yes'
 					fi
 				fi
 			fi
 
 			# end
-			var="style__nocolor_end__${style}"
-			if __is_var_defined "$var"; then
-				ITEM_END="${!var}${ITEM_END}"
-				found='yes'
+			APPEND_STYLE__var="style__nocolor_end__${APPEND_STYLE__style}"
+			if __is_var_defined "$APPEND_STYLE__var"; then
+				PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
+				APPEND_STYLE__found='yes'
 			else
 				# cache
-				var="style__end__${style}"
-				if __is_var_defined "$var"; then
-					ITEM_END="${!var}${ITEM_END}"
-					found='yes'
+				APPEND_STYLE__var="style__end__${APPEND_STYLE__style}"
+				if __is_var_defined "$APPEND_STYLE__var"; then
+					PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
+					APPEND_STYLE__found='yes'
 				else
-					var="style__color_end__${style}"
-					if __is_var_defined "$var"; then
-						found='yes'
+					APPEND_STYLE__var="style__color_end__${APPEND_STYLE__style}"
+					if __is_var_defined "$APPEND_STYLE__var"; then
+						APPEND_STYLE__found='yes'
 					fi
 				fi
 			fi
 		fi
-		if [[ $found == 'no' ]]; then
-			missing_styles+=("${style}")
+		if [[ $APPEND_STYLE__found == 'no' ]]; then
+			PRINT_STYLE__missing_styles+=("${APPEND_STYLE__style}")
 		fi
 	}
-	for item in "${items[@]}"; do
+	for PRINT_STYLE__item in "${PRINT_STYLE__items[@]}"; do
 		# check flag status
-		if [[ ${item:0:3} == '--=' ]]; then
+		if [[ ${PRINT_STYLE__item:0:3} == '--=' ]]; then
 			# empty flag, just item content, e.g. '--=Hello', --=--=
-			buffer_left+="${item:3}"
+			PRINT_STYLE__buffer_left+="${PRINT_STYLE__item:3}"
 			continue
-		elif [[ ${item:0:2} != '--' || $item == '--' ]]; then
+		elif [[ ${PRINT_STYLE__item:0:2} != '--' || $PRINT_STYLE__item == '--' ]]; then
 			# not a flag, just item content, e.g. 'Hello', '--'
-			buffer_left+="$item"
+			PRINT_STYLE__buffer_left+="$PRINT_STYLE__item"
 			continue
 		fi
-		flag="${item:2}"
-		item_content=''
-		generic='yes'
+		PRINT_STYLE__flag="${PRINT_STYLE__item:2}"
+		PRINT_STYLE__item_content=''
+		PRINT_STYLE__generic='yes'
 
 		# get the flag and value combo
-		for ((i = 0; i < ${#flag}; i++)); do
-			if [[ ${flag:i:1} == '=' ]]; then
-				generic='no'
-				item_content="${flag:i+1}"
-				flag="${flag:0:i}"
+		for ((PRINT_STYLE__index = 0; PRINT_STYLE__index < ${#PRINT_STYLE__flag}; PRINT_STYLE__index++)); do
+			if [[ ${PRINT_STYLE__flag:PRINT_STYLE__index:1} == '=' ]]; then
+				PRINT_STYLE__generic='no'
+				PRINT_STYLE__item_content="${PRINT_STYLE__flag:PRINT_STYLE__index+1}"
+				PRINT_STYLE__flag="${PRINT_STYLE__flag:0:PRINT_STYLE__index}"
 				break
 			fi
 		done
 
 		# handle style+style combinations
-		last_char_index=0
-		item_target="$buffer_target"
-		ITEM_COLOR="$buffer_color"
-		ITEM_STYLE=''
-		ITEM_BEGIN=''
-		ITEM_END=''
-		for ((current_char_index = 0; current_char_index <= ${#flag}; current_char_index++)); do
-			if [[ ${flag:current_char_index:1} == '+' || $current_char_index -eq ${#flag} ]]; then
-				style="${flag:last_char_index:current_char_index-last_char_index}"
-				last_char_index="$((current_char_index + 1))"
-				style="${style//-/_}" # convert hyphens to underscores
+		PRINT_STYLE__last_char_index=0
+		PRINT_STYLE__item_target="$PRINT_STYLE__buffer_target"
+		PRINT_STYLE__item_color="$PRINT_STYLE__buffer_color"
+		PRINT_STYLE__item_begin=''
+		PRINT_STYLE__item_end=''
+		for ((PRINT_STYLE__current_char_index = 0; PRINT_STYLE__current_char_index <= ${#PRINT_STYLE__flag}; PRINT_STYLE__current_char_index++)); do
+			if [[ ${PRINT_STYLE__flag:PRINT_STYLE__current_char_index:1} == '+' || $PRINT_STYLE__current_char_index -eq ${#PRINT_STYLE__flag} ]]; then
+				PRINT_STYLE__style="${PRINT_STYLE__flag:PRINT_STYLE__last_char_index:PRINT_STYLE__current_char_index-PRINT_STYLE__last_char_index}"
+				PRINT_STYLE__last_char_index="$((PRINT_STYLE__current_char_index + 1))"
+				PRINT_STYLE__style="${PRINT_STYLE__style//-/_}" # convert hyphens to underscores
 
 				# handle special cases
-				case "$style" in
-				black | red | green | yellow | blue | magenta | cyan | white | purple | gray | grey) style="foreground_$style" ;;
-				intense_*) style="foreground_intense_${style:8}" ;;
-				fg_*) style="foreground_${style:3}" ;;
-				bg_*) style="background_${style:3}" ;;
-				/*) style="slash_${style:1}" ;;
+				case "$PRINT_STYLE__style" in
+				black | red | green | yellow | blue | magenta | cyan | white | purple | gray | grey) PRINT_STYLE__style="foreground_${PRINT_STYLE__style}" ;;
+				intense_*) PRINT_STYLE__style="foreground_intense_${PRINT_STYLE__style:8}" ;;
+				fg_*) PRINT_STYLE__style="foreground_${PRINT_STYLE__style:3}" ;;
+				bg_*) PRINT_STYLE__style="background_${PRINT_STYLE__style:3}" ;;
+				/*) PRINT_STYLE__style="slash_${PRINT_STYLE__style:1}" ;;
 				*/)
-					__replace --source+target={style} --trailing='/' || return
-					style+='_slash'
+					__replace --source+target={PRINT_STYLE__style} --trailing='/' || return
+					PRINT_STYLE__style+='_slash'
 					;;
 				status)
-					if [[ $item_content -eq 0 ]]; then
-						style='good3'
+					if [[ $PRINT_STYLE__item_content -eq 0 ]]; then
+						PRINT_STYLE__style='good3'
 					else
-						style='error3'
+						PRINT_STYLE__style='error3'
 					fi
-					item_content="[${item_content}]"
+					PRINT_STYLE__item_content="[${PRINT_STYLE__item_content}]"
 					;;
 				color)
-					ITEM_COLOR='yes'
+					PRINT_STYLE__item_color='yes'
 					continue
 					;;
 				nocolor)
-					ITEM_COLOR='no'
+					PRINT_STYLE__item_color='no'
 					continue
 					;;
 				stdout)
-					item_target='/dev/stdout'
+					PRINT_STYLE__item_target='/dev/stdout'
 					continue
 					;;
 				stderr)
-					item_target='/dev/stderr'
+					PRINT_STYLE__item_target='/dev/stderr'
 					continue
 					;;
 				tty)
-					item_target='/dev/tty'
+					PRINT_STYLE__item_target='/dev/tty'
 					continue
 					;;
 				debug)
 					if [[ $DOROTHY_DEBUG == 'yes' ]]; then
-						item_target="${BASH_XTRACEFD:-"2"}"
+						PRINT_STYLE__item_target="${BASH_XTRACEFD:-"2"}"
 					else
-						item_target='/dev/null'
+						PRINT_STYLE__item_target='/dev/null'
 					fi
 					continue
 					;;
 				null)
-					item_target='/dev/null'
+					PRINT_STYLE__item_target='/dev/null'
+					continue
+					;;
+				value)
+					PRINT_STYLE__item_content="$(__dump --value="$PRINT_STYLE__item_content")" || return
+					continue
+					;;
+				variable_value)
+					PRINT_STYLE__item_content="$(__dump --variable-value="$PRINT_STYLE__item_content")" || return
+					continue
+					;;
+				variable)
+					PRINT_STYLE__item_content="$(__dump --variable="$PRINT_STYLE__item_content")" || return
 					continue
 					;;
 				esac
 
 				# get the style
-				__append_style "$style" || return
+				__append_style "$PRINT_STYLE__style" || return
 			fi
 		done
 
 		# handle nocolor and color correctly, as in conditional output based on NO_COLOR=true
 		# e.g. env COLOR=false echo-style --color=yes --nocolor=no # outputs no
 		# e.g. env COLOR=true echo-style --color=yes --nocolor=no # outputs yes
-		if [[ $option_color != "$ITEM_COLOR" ]]; then
+		if [[ $PRINT_STYLE__color != "$PRINT_STYLE__item_color" ]]; then
 			continue
 		fi
 
 		# if it is generic, add the styles (except disable) to the buffer instead
-		if [[ $generic == 'yes' ]]; then
+		if [[ $PRINT_STYLE__generic == 'yes' ]]; then
 			# flush buffer if necessary
-			if [[ $item_target != "$buffer_target" ]]; then
-				__do --redirect-stdout="$buffer_target" -- \
-					__print_string "${buffer_left}" || return
-				buffer_left=''
-				buffer_target="$item_target"
+			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
+				__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
+					__print_string "${PRINT_STYLE__buffer_left}" || return
+				PRINT_STYLE__buffer_left=''
+				PRINT_STYLE__buffer_target="$PRINT_STYLE__item_target"
 			fi
 			# update buffer
-			buffer_left+="${ITEM_BEGIN}${ITEM_STYLE}"
-			# if [[ $buffer_disable != *"$ITEM_DISABLE"* ]]; then
-			# 	buffer_disable="${ITEM_DISABLE}${buffer_disable}"
+			PRINT_STYLE__buffer_left+="${PRINT_STYLE__item_begin}"
+			# if [[ $PRINT_STYLE__buffer_disable != *"$ITEM_DISABLE"* ]]; then
+			# 	PRINT_STYLE__buffer_disable="${ITEM_DISABLE}${PRINT_STYLE__buffer_disable}"
 			# fi
-			buffer_right="${ITEM_END}${buffer_right}"
+			PRINT_STYLE__buffer_right="${PRINT_STYLE__item_end}${PRINT_STYLE__buffer_right}"
 		else
 			# flush buffer if necessary
-			if [[ $item_target != "$buffer_target" ]]; then
-				__do --redirect-stdout="$buffer_target" -- \
-					__print_string "${buffer_left}" || return
-				buffer_left=''
-				__do --redirect-stdout="$item_target" \
-					-- __print_string "${ITEM_BEGIN}${item_content}${ITEM_END}" || return
+			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
+				__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
+					__print_string "${PRINT_STYLE__buffer_left}" || return
+				PRINT_STYLE__buffer_left=''
+				__do --redirect-stdout="$PRINT_STYLE__item_target" \
+					-- __print_string "${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}" || return
 			else
-				buffer_left+="${ITEM_BEGIN}${item_content}${ITEM_END}"
+				PRINT_STYLE__buffer_left+="${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}"
 			fi
 		fi
 	done
 
 	# close the buffer
-	if [[ $option_trail == 'yes' ]]; then
-		buffer_right+=$'\n'
+	if [[ $PRINT_STYLE__trail == 'yes' ]]; then
+		PRINT_STYLE__buffer_right+=$'\n'
 	fi
-	__do --redirect-stdout="$buffer_target" -- \
-		__print_string "${buffer_left}${buffer_disable}${buffer_right}" || return
-	if [[ ${#missing_styles[@]} -ne 0 ]]; then
-		__print_lines 'ERROR: MISSING STYLES:' "${missing_styles[@]}" >&2 || return
+	__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
+		__print_string "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" || return
+	if [[ ${#PRINT_STYLE__missing_styles[@]} -ne 0 ]]; then
+		__print_lines 'ERROR: MISSING STYLES:' "${PRINT_STYLE__missing_styles[@]}" >&2 || return
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }

@@ -55,7 +55,7 @@ function __is_fs_args {
 			shift $#
 			break
 			;;
-		'--'*) __help "An unrecognised flag was provided: $item" || return ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return ;;
 		*) option_inputs+=("$item") ;;
 		esac
 	done

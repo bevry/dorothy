@@ -316,38 +316,41 @@ export DOROTHY_DEBUG
 DOROTHY_DEBUG="${DOROTHY_DEBUG:-"no"}"
 function __print_without_styles {
 	# trim flag names and only output values
-	local item arg option_args=() option_trail='yes' option_debug='no'
+	local PRINT_WITHOUT_STYLES__item PRINT_WITHOUT_STYLES__arg PRINT_WITHOUT_STYLES__args=() PRINT_WITHOUT_STYLES__trail='yes' PRINT_WITHOUT_STYLES__debug='no'
 	while [[ $# -ne 0 ]]; do
-		item="$1"
-		arg=''
+		PRINT_WITHOUT_STYLES__item="$1"
+		PRINT_WITHOUT_STYLES__arg=''
 		shift
-		case "$item" in
-		--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative --coerce || return ;;
-		--no-trail* | --trail*) __flag --source={item} --target={option_trail} --affirmative --coerce || return ;;
+		case "$PRINT_WITHOUT_STYLES__item" in
+		--no-debug* | --debug*) __flag --source={PRINT_WITHOUT_STYLES__item} --target={PRINT_WITHOUT_STYLES__debug} --affirmative --coerce || return ;;
+		--no-trail* | --trail*) __flag --source={PRINT_WITHOUT_STYLES__item} --target={PRINT_WITHOUT_STYLES__trail} --affirmative --coerce || return ;;
 		--color | --colors | --colors=yes) : ;;      # ignore
 		--no-color | --no-colors | --colors=no) : ;; # ignore
-		--newline) arg=$'\n' ;;
-		--commentary-undeclared=) arg='[ undeclared ]' ;;
-		--commentary-undefined=) arg='[ undefined ]' ;;
-		--commentary-empty=) arg='[ empty ]' ;;
-		--*=*) arg="${item#*=}" ;;
+		--newline) PRINT_WITHOUT_STYLES__arg=$'\n' ;;
+		--commentary-undeclared=) PRINT_WITHOUT_STYLES__arg='[ undeclared ]' ;;
+		--commentary-undefined=) PRINT_WITHOUT_STYLES__arg='[ undefined ]' ;;
+		--commentary-empty=) PRINT_WITHOUT_STYLES__arg='[ empty ]' ;;
+		--value=*) PRINT_WITHOUT_STYLES__arg="$(__dump --value="${PRINT_WITHOUT_STYLES__item#*=}")" || return ;;
+		--variable-value=*) PRINT_WITHOUT_STYLES__arg="$(__dump --variable-value="${PRINT_WITHOUT_STYLES__item#*=}")" || return ;;
+		--variable=*) PRINT_WITHOUT_STYLES__arg="$(__dump --variable="${PRINT_WITHOUT_STYLES__item#*=}")" || return ;;
+		--*=*) PRINT_WITHOUT_STYLES__arg="${PRINT_WITHOUT_STYLES__item#*=}" ;;
 		--*) : ;; # ignore other flags, as they empty styles
-		*) arg="$item" ;;
+		*) PRINT_WITHOUT_STYLES__arg="$PRINT_WITHOUT_STYLES__item" ;;
 		esac
-		if [[ -n $arg && $option_debug == $DOROTHY_DEBUG ]]; then
-			option_args+=("$arg")
+		if [[ -n $PRINT_WITHOUT_STYLES__arg && $PRINT_WITHOUT_STYLES__debug == $DOROTHY_DEBUG ]]; then
+			PRINT_WITHOUT_STYLES__args+=("$PRINT_WITHOUT_STYLES__arg")
 		fi
 	done
 	# for conformance with `echo-style`, we print even if zero arguments
-	if [[ $option_debug == $DOROTHY_DEBUG && $option_trail == 'yes' ]]; then
-		option_args+=($'\n')
+	if [[ $PRINT_WITHOUT_STYLES__debug == $DOROTHY_DEBUG && $PRINT_WITHOUT_STYLES__trail == 'yes' ]]; then
+		PRINT_WITHOUT_STYLES__args+=($'\n')
 	fi
 	# do we have anything?
-	if [[ ${#option_args[@]} -eq 0 ]]; then
+	if [[ ${#PRINT_WITHOUT_STYLES__args[@]} -eq 0 ]]; then
 		return 0
 	fi
 	# output
-	printf '%s' "${option_args[@]}" || return
+	printf '%s' "${PRINT_WITHOUT_STYLES__args[@]}" || return
 }
 function __print_style {
 	if [[ -n ${DOROTHY-} ]]; then
@@ -369,9 +372,10 @@ function __dump {
 	if [[ $# -eq 0 ]]; then
 		return 0
 	fi
-	local DUMP__item DUMP__color='' DUMP__reference DUMP__indices=no DUMP__value DUMP__log=()
+	local DUMP__item DUMP__color='' DUMP__reference DUMP__show_name='yes' DUMP__name DUMP__indices=no DUMP__value DUMP__log=()
 	while [[ $# -ne 0 ]]; do
 		DUMP__item="$1"
+		DUMP__show_name='yes'
 		shift
 		case "$DUMP__item" in
 		--debug)
@@ -396,22 +400,46 @@ function __dump {
 			fi
 			continue
 			;;
+		--variable-value=*)
+			DUMP__show_name='no'
+			DUMP__item="${DUMP__item#*=}"
+			;;
+		--variable=*)
+			DUMP__item="${DUMP__item#*=}"
+			;;
 		esac
 		__dereference --source="$DUMP__item" --name={DUMP__reference} || return
+		if [[ $DUMP__show_name == 'yes' ]]; then
+			DUMP__name="$DUMP__reference"
+		else
+			DUMP__name=''
+		fi
 		# @todo support associative arrays
 		if ! __is_var_declared "$DUMP__reference"; then
-			DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undeclared='' --newline)
+			if [[ $DUMP__show_name == 'yes' ]]; then
+				DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undeclared='' --newline)
+			else
+				DUMP__log+=(--commentary-undeclared='')
+			fi
 			continue
 		fi
 		if __is_array "$DUMP__reference"; then
 			if ! __is_var_defined "$DUMP__reference"; then
-				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-undefined='' --newline)
+				if [[ $DUMP__show_name == 'yes' ]]; then
+					DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-undefined='' --newline)
+				else
+					DUMP__log+=(--commentary-undefined='')
+				fi
 				continue
 			fi
 			local -i DUMP__index DUMP__total DUMP__char_index DUMP__char_total
 			eval "DUMP__total=\${#${DUMP__reference}[@]}"
 			if [[ $DUMP__total == 0 ]]; then
-				DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-empty='' --newline)
+				if [[ $DUMP__show_name == 'yes' ]]; then
+					DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-empty='' --newline)
+				else
+					DUMP__log+=(--commentary-empty='')
+				fi
 			else
 				# for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do <-- can't do this, as it doesn't support this sparse arrays, e.g.: arr=(); arr[5]='...'; __dump {arr};
 				local DUMP__reference_indices=()
@@ -420,40 +448,53 @@ function __dump {
 					eval "DUMP__value=\"\${${DUMP__reference}[DUMP__index]}\""
 					if [[ $DUMP__indices == 'yes' ]]; then
 						# obviously this will be broken if the array is sparse, however that is up the caller
-						DUMP__log+=(--bold="${DUMP__reference}[ ${DUMP__index} | $(((DUMP__total - DUMP__index) * -1)) ]")
+						DUMP__log+=(--bold="${DUMP__name}[ ${DUMP__index} | $(((DUMP__total - DUMP__index) * -1)) ]" ' = ')
 					else
-						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__index}]")
+						DUMP__log+=(--bold="${DUMP__name}[${DUMP__index}]" ' = ')
 					fi
 					if [[ -z $DUMP__value ]]; then
-						DUMP__log+=(' = ' --commentary-empty='' --newline)
+						DUMP__log+=(--commentary-empty='' --newline)
 					else
-						DUMP__log+=(' = ' --invert="$DUMP__value" --newline)
+						DUMP__log+=(--invert="$DUMP__value" --newline)
 					fi
 				done
 			fi
 		else
 			if ! __is_var_defined "$DUMP__reference"; then
-				DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undefined='' --newline)
+				if [[ $DUMP__show_name == 'yes' ]]; then
+					DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undefined='' --newline)
+				else
+					DUMP__log+=(--commentary-undefined='')
+				fi
 				continue
 			fi
 			DUMP__value="${!DUMP__reference}"
 			if [[ -z $DUMP__value ]]; then
-				DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-empty='' --newline)
+				if [[ $DUMP__show_name == 'yes' ]]; then
+					DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-empty='' --newline)
+				else
+					DUMP__log+=(--commentary-empty='')
+				fi
 			else
-				DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
+				if [[ $DUMP__show_name == 'yes' ]]; then
+					DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
+				else
+					DUMP__log+=(--invert="$DUMP__value")
+				fi
 			fi
+			# for non-arrays, if indices, then we output the string as already done above, then we also output the indices of the string
 			if [[ $DUMP__indices == 'yes' ]]; then
 				DUMP__char_total="${#DUMP__value}"
 				for ((DUMP__char_index = 0; DUMP__char_index < DUMP__char_total; ++DUMP__char_index)); do
 					if [[ $DUMP__indices == 'yes' ]]; then
-						DUMP__log+=(--bold="${DUMP__reference}[ ${DUMP__char_index} | $(((DUMP__char_total - DUMP__char_index) * -1)) ]")
+						DUMP__log+=(--bold="${DUMP__name}[ ${DUMP__char_index} | $(((DUMP__char_total - DUMP__char_index) * -1)) ]" ' = ')
 					else
-						DUMP__log+=(--bold="${DUMP__reference}[${DUMP__char_index}]")
+						DUMP__log+=(--bold="${DUMP__name}[${DUMP__char_index}]" ' = ')
 					fi
 					if [[ -z $DUMP__value ]]; then
-						DUMP__log+=(' = ' --commentary-empty='' --newline)
+						DUMP__log+=(--commentary-empty='' --newline)
 					else
-						DUMP__log+=(' = ' --invert="${DUMP__value:DUMP__char_index:1}" --newline)
+						DUMP__log+=(--invert="${DUMP__value:DUMP__char_index:1}" --newline)
 					fi
 				done
 			fi
@@ -1160,15 +1201,15 @@ function __is_sparse_array {
 # has_array_capability -- check if all capability is provided by the current bash version
 # EPROTONOSUPPORT 43 Protocol not supported
 function __has_array_capability {
-	local capability
-	for capability in "$@"; do
-		case "$capability" in
+	local HAS_ARRAY_CAPABILITY__item
+	for HAS_ARRAY_CAPABILITY__item in "$@"; do
+		case "$HAS_ARRAY_CAPABILITY__item" in
 		--) : ;; # ignore
 		associative*) [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]] || return 43 ;;
 		mapfile*) [[ $BASH_HAS_NATIVE_MAPFILE == 'yes' ]] || return 43 ;;
 		readarray*) [[ $BASH_HAS_NATIVE_READARRAY == 'yes' ]] || return 43 ;;
 		empty*) [[ $BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS == 'yes' ]] || return 43 ;;
-		*) __unrecognised_flag "$capability" || return ;;
+		*) __unrecognised_flag "$HAS_ARRAY_CAPABILITY__item" || return ;;
 		esac
 	done
 }
@@ -1298,6 +1339,13 @@ function __unrecognised_argument {
 	fi
 	__print_lines "ERROR: ${FUNCNAME[1]}: An unrecognised argument was provided: $1" >&2 || :
 	return 22 # EINVAL 22 Invalid argument
+}
+
+function __unrecognised_arguments {
+	if [[ $# -ne 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: Unrecognised arguments ere provided: $*" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
 }
 
 # affirm the mode value is a valid mode
@@ -1636,28 +1684,28 @@ function __is_zero {
 }
 
 function __is_affirmative {
-	local item option_inputs=() option_ignore_empty='no'
+	local IS_AFFIRMATIVE__item IS_AFFIRMATIVE__inputs=() IS_AFFIRMATIVE__ignore_empty='no'
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		IS_AFFIRMATIVE__item="$1"
 		shift
-		case "$item" in
-		--no-ignore-empty* | --ignore-empty*) __flag --source={item} --target={option_ignore_empty} --affirmative --coerce || return ;;
+		case "$IS_AFFIRMATIVE__item" in
+		--no-ignore-empty* | --ignore-empty*) __flag --source={IS_AFFIRMATIVE__item} --target={IS_AFFIRMATIVE__ignore_empty} --affirmative --coerce || return ;;
 		--)
-			option_inputs+=("$@")
+			IS_AFFIRMATIVE__inputs+=("$@")
 			shift "$#"
 			break
 			;;
-		--*) __unrecognised_flag "$item" || return ;;
-		*) option_inputs+=("$item") ;;
+		--*) __unrecognised_flag "$IS_AFFIRMATIVE__item" || return ;;
+		*) IS_AFFIRMATIVE__inputs+=("$IS_AFFIRMATIVE__item") ;;
 		esac
 	done
-	local input had_affirmative='no'
-	for input in "${option_inputs[@]}"; do
-		case "$input" in
-		yes | y | true | Y | YES | TRUE) had_affirmative='yes' ;;
+	local IS_AFFIRMATIVE__input IS_AFFIRMATIVE__had_affirmative='no'
+	for IS_AFFIRMATIVE__input in "${IS_AFFIRMATIVE__inputs[@]}"; do
+		case "$IS_AFFIRMATIVE__input" in
+		yes | y | true | Y | YES | TRUE) IS_AFFIRMATIVE__had_affirmative='yes' ;;
 		no | n | false | N | NO | FALSE) return 1 ;;
 		'')
-			if [[ $option_ignore_empty == 'yes' ]]; then
+			if [[ $IS_AFFIRMATIVE__ignore_empty == 'yes' ]]; then
 				continue
 			else
 				return 91 # ENOMSG 91 No message of desired type
@@ -1668,7 +1716,7 @@ function __is_affirmative {
 			;;
 		esac
 	done
-	if [[ $had_affirmative == 'no' ]]; then
+	if [[ $IS_AFFIRMATIVE__had_affirmative == 'no' ]]; then
 		return 91 # ENOMSG 91 No message of desired type
 	else
 		return 0
@@ -1676,28 +1724,28 @@ function __is_affirmative {
 }
 
 function __is_non_affirmative {
-	local item option_inputs=() option_ignore_empty='no'
+	local IS_NON_AFFIRMATIVE__item IS_NON_AFFIRMATIVE__inputs=() IS_NON_AFFIRMATIVE__ignore_empty='no'
 	while [[ $# -ne 0 ]]; do
-		item="$1"
+		IS_NON_AFFIRMATIVE__item="$1"
 		shift
-		case "$item" in
-		--no-ignore-empty* | --ignore-empty*) __flag --source={item} --target={option_ignore_empty} --affirmative --coerce || return ;;
+		case "$IS_NON_AFFIRMATIVE__item" in
+		--no-ignore-empty* | --ignore-empty*) __flag --source={IS_NON_AFFIRMATIVE__item} --target={IS_NON_AFFIRMATIVE__ignore_empty} --affirmative --coerce || return ;;
 		--)
-			option_inputs+=("$@")
+			IS_NON_AFFIRMATIVE__inputs+=("$@")
 			shift "$#"
 			break
 			;;
-		--*) __unrecognised_flag "$item" || return ;;
-		*) option_inputs+=("$item") ;;
+		--*) __unrecognised_flag "$IS_NON_AFFIRMATIVE__item" || return ;;
+		*) IS_NON_AFFIRMATIVE__inputs+=("$IS_NON_AFFIRMATIVE__item") ;;
 		esac
 	done
-	local input had_non_affirmative='no'
-	for input in "${option_inputs[@]}"; do
-		case "$input" in
+	local IS_NON_AFFIRMATIVE__input IS_NON_AFFIRMATIVE__had_non_affirmative='no'
+	for IS_NON_AFFIRMATIVE__input in "${IS_NON_AFFIRMATIVE__inputs[@]}"; do
+		case "$IS_NON_AFFIRMATIVE__input" in
 		yes | y | true | Y | YES | TRUE) return 1 ;;
-		no | n | false | N | NO | FALSE) had_non_affirmative='yes' ;;
+		no | n | false | N | NO | FALSE) IS_NON_AFFIRMATIVE__had_non_affirmative='yes' ;;
 		'')
-			if [[ $option_ignore_empty == 'yes' ]]; then
+			if [[ $IS_NON_AFFIRMATIVE__ignore_empty == 'yes' ]]; then
 				continue
 			else
 				return 91 # ENOMSG 91 No message of desired type
@@ -1718,14 +1766,14 @@ function __is_non_affirmative {
 # check if the input is a special target
 # this is beta, and may change later
 function __is_special_file {
-	local target="$1"
-	case "$target" in
+	local IS_SPECIAL_FILE__target="$1"
+	case "$IS_SPECIAL_FILE__target" in
 	0 | STDIN | stdin | /dev/stdin | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | TTY | tty | /dev/tty | NULL | null | /dev/null) return 0 ;; # is a special file
 	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $IS_SPECIAL_FILE__target" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 		;;
-	*) __is_positive_integer "$target" || return 1 ;; # if it is a positive integer, it is a file descriptor which is a special file, otherwise it's a file target
+	*) __is_positive_integer "$IS_SPECIAL_FILE__target" || return 1 ;; # if it is a positive integer, it is a file descriptor which is a special file, otherwise it's a file target
 	esac
 }
 
@@ -1744,11 +1792,11 @@ function __is_special_file {
 
 # this is beta, and may change later
 function __is_tty_special_file {
-	local target="$1"
-	case "$target" in
+	local IS_TTY_SPECIAL_FILE__target="$1"
+	case "$IS_TTY_SPECIAL_FILE__target" in
 	TTY | tty | /dev/tty) return 0 ;; # is a tty target
 	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $target" >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $IS_TTY_SPECIAL_FILE__target" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 		;;
 	*) return 1 ;; # not a tty target
@@ -3914,6 +3962,7 @@ function __flag {
 			;;
 		--export) FLAG__export='yes' ;;
 		--coerce) FLAG__coerce='yes' ;;
+		--no-coerce) FLAG__coerce='no' ;;
 		--no-empty) FLAG__empty='no' ;; # aka --discard-empty, --fallback-on-empty, --ignore-empty
 		--*) __unrecognised_flag "$FLAG__item" || return ;;
 		*) __unrecognised_argument "$FLAG__item" || return ;;
