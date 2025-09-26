@@ -3777,28 +3777,54 @@ function __close_fd {
 }
 
 # -------------------------------------
+# Process Toolkit
+
+function __is_process_alive {
+	if [[ $# -ne 1 ]] || ! __is_positive_integer "$1" || [[ $1 -eq 0 ]]; then
+		return 1
+	fi
+	local -i IS_PROCESS_ALIVE__id="$1"
+	if [[ "$(ps -p "$IS_PROCESS_ALIVE__id" &>/dev/null || __print_string dead)" == 'dead' ]]; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+function __is_trap_alive {
+	if [[ -z $* ]]; then
+		return 1
+	fi
+	local IS_TRAP_ALIVE__id="$1"
+	if [[ -z "$(trap -p "$IS_TRAP_ALIVE__id" 2>/dev/null || :)" ]]; then
+		return 1
+	fi
+	return 0
+}
+
+# -------------------------------------
 # Semaphore Toolkit
 
 function __get_semlock {
-	local context_id="$1" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" semlock wait pid=$$
-	__mkdirp "$dir" || return
+	local GET_SEMLOCK__context_id="$1" GET_SEMLOCK__dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" GET_SEMLOCK__semlock GET_SEMLOCK__wait GET_SEMLOCK__pid=$$
+	__mkdirp "$GET_SEMLOCK__dir" || return
 	# the lock file contains the process id that has the lock
-	semlock="$dir/$context_id.lock"
+	GET_SEMLOCK__semlock="${GET_SEMLOCK__dir}/${GET_SEMLOCK__context_id}.lock"
 	# wait for a exclusive lock
 	while :; do
 		# don't bother with a [[ -s "$semlock" ]] before `cat` as the semlock could have been removed between
-		wait="$(cat "$semlock" 2>/dev/null || :)"
-		if [[ -z $wait ]]; then
-			__print_string "$pid" >"$semlock" || return
-		elif [[ $wait == "$pid" ]]; then
+		GET_SEMLOCK__wait="$(cat "$GET_SEMLOCK__semlock" 2>/dev/null || :)"
+		if [[ -z $GET_SEMLOCK__wait ]]; then
+			__print_string "$GET_SEMLOCK__pid" >"$GET_SEMLOCK__semlock" || return
+		elif [[ $GET_SEMLOCK__wait == "$GET_SEMLOCK__pid" ]]; then
 			break
-		elif [[ "$(ps -p "$wait" &>/dev/null || __print_string dead)" == 'dead' ]]; then
+		elif ! __is_process_alive "$GET_SEMLOCK__wait"; then
 			# the process is dead, it probably crashed, so failed to cleanup, so remove the lock file
-			rm -f "$semlock" || return
+			rm -f "$GET_SEMLOCK__semlock" || return
 		fi
 		sleep "0.01$RANDOM"
 	done
-	__print_lines "$semlock" || return
+	__print_lines "$GET_SEMLOCK__semlock" || return
 }
 
 # For semaphores, use $RANDOM$RANDOM as a single $RANDOM caused conflicts on Dorothy's CI tests when we didn't actually use semaphores, now that we use semaphores, we solve the underlying race conditions that caused the conflicts in the first place, however keep the double $RANDOM so it is enough entropy we don't have to bother for an existence check, here are the tests that had conflicts:
@@ -3806,9 +3832,9 @@ function __get_semlock {
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
 # as to why use `__get_semaphore` instead of `mktemp`, is that we want `dorothy test` to check if we cleaned everything up, furthermore, `mktemp` actually makes the files, so you have to do more expensive `-s` checks
 function __get_semaphore {
-	local context_id="${1:-"$RANDOM$RANDOM"}" dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
-	__mkdirp "$dir" || return
-	__print_lines "$dir/$context_id" || return
+	local GET_SEMAPHORE__context_id="${1:-"$RANDOM$RANDOM"}" GET_SEMAPHORE__dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
+	__mkdirp "$GET_SEMAPHORE__dir" || return
+	__print_lines "${GET_SEMAPHORE__dir}/${GET_SEMAPHORE__context_id}" || return
 }
 
 # adds/appends the semaphores to the target array variable
@@ -5906,6 +5932,99 @@ function __tool {
 # ```
 # __trim --source+target={value} --leading-delimiters=' \'\"' --trailing-delimiters=' \'\"'
 # ```
+
+# -------------------------------------
+# Progress Bar Toolkit
+
+TERMINAL_TITLE_PROGRESS_BAR__alarmer=0
+TERMINAL_TITLE_PROGRESS_BAR__waiter=0
+TERMINAL_TITLE_PROGRESS_BAR__ansi=''
+function __terminal_title_progress_bar__send_alarm {
+	if __is_trap_alive ALRM && __is_process_alive "$TERMINAL_TITLE_PROGRESS_BAR__alarmer"; then
+		kill -s ALRM "$TERMINAL_TITLE_PROGRESS_BAR__alarmer" || return 1
+	else
+		return 1
+	fi
+}
+function __terminal_title_progress_bar__on_alarm {
+	if [[ -n $TERMINAL_TITLE_PROGRESS_BAR__ansi ]]; then
+		__to --source={TERMINAL_TITLE_PROGRESS_BAR__ansi} --target=TTY || return
+	fi
+	if __is_trap_alive ALRM && __is_process_alive "$TERMINAL_TITLE_PROGRESS_BAR__alarmer"; then
+		{
+			sleep 10 || :
+			__terminal_title_progress_bar__send_alarm || :
+		} &
+		TERMINAL_TITLE_PROGRESS_BAR__waiter=$!
+	fi
+}
+function __terminal_title_progress_bar {
+	local -i TERMINAL_TITLE_PROGRESS_BAR__progress=0 TERMINAL_TITLE_PROGRESS_BAR__remaining=-1 TERMINAL_TITLE_PROGRESS_BAR__total=100 TERMINAL_TITLE_PROGRESS_BAR__id=-1
+	local TERMINAL_TITLE_PROGRESS_BAR__item='' TERMINAL_TITLE_PROGRESS_BAR__create='no' TERMINAL_TITLE_PROGRESS_BAR__destroy='no'
+	while [[ $# -ne 0 ]]; do
+		TERMINAL_TITLE_PROGRESS_BAR__item="$1"
+		shift
+		case "$TERMINAL_TITLE_PROGRESS_BAR__item" in
+		--create) TERMINAL_TITLE_PROGRESS_BAR__create='yes' ;;
+		--destroy) TERMINAL_TITLE_PROGRESS_BAR__destroy='yes' ;;
+		# --id=*)
+		# 	TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
+		# 	__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'progress bar identifier' || return
+		# 	TERMINAL_TITLE_PROGRESS_BAR__id="$TERMINAL_TITLE_PROGRESS_BAR__item"
+		# 	;;
+		--progress=*)
+			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
+			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'progress' || return
+			TERMINAL_TITLE_PROGRESS_BAR__progress="$TERMINAL_TITLE_PROGRESS_BAR__item"
+			;;
+		--remaining=*)
+			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
+			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'remaining' || return
+			TERMINAL_TITLE_PROGRESS_BAR__remaining="$TERMINAL_TITLE_PROGRESS_BAR__item"
+			;;
+		--total=*)
+			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
+			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'total' || return
+			TERMINAL_TITLE_PROGRESS_BAR__total="$TERMINAL_TITLE_PROGRESS_BAR__item"
+			;;
+		--*) __unrecognised_flag "$JOIN__item" || return ;;
+		*) __unrecognised_argument "$JOIN__item" || return ;;
+		esac
+	done
+	# destroy
+	if [[ $TERMINAL_TITLE_PROGRESS_BAR__destroy == 'yes' ]]; then
+		# kill the waiter
+		if __is_process_alive "$TERMINAL_TITLE_PROGRESS_BAR__waiter"; then
+			kill -s INT "$TERMINAL_TITLE_PROGRESS_BAR__waiter" || :
+		fi
+		# clear the alarmer
+		trap - ALRM || :
+		# send the clear
+		TERMINAL_TITLE_PROGRESS_BAR__ansi=$'\e]9;4;0\a'
+		__to --source={TERMINAL_TITLE_PROGRESS_BAR__ansi} --target=TTY || return
+	elif [[ $TERMINAL_TITLE_PROGRESS_BAR__create == 'yes' ]]; then
+		# start the alarmer
+		TERMINAL_TITLE_PROGRESS_BAR__alarmer=$(($$ + 1))
+		trap __terminal_title_progress_bar__on_alarm ALRM # SIGALRM, 142
+		__terminal_title_progress_bar__send_alarm || :
+	else
+		# calculate the percentages
+		if [[ $TERMINAL_TITLE_PROGRESS_BAR__remaining -ne -1 ]]; then
+			$TERMINAL_TITLE_PROGRESS_BAR__progress="$((TERMINAL_TITLE_PROGRESS_BAR__total - TERMINAL_TITLE_PROGRESS_BAR__remaining))"
+		fi
+		if [[ $TERMINAL_TITLE_PROGRESS_BAR__total -ne 100 && $TERMINAL_TITLE_PROGRESS_BAR__progress -ne -1 ]]; then
+			TERMINAL_TITLE_PROGRESS_BAR__progress="$(((TERMINAL_TITLE_PROGRESS_BAR__progress / TERMINAL_TITLE_PROGRESS_BAR__total) * 100))"
+		fi
+
+		# update via alarmer or directly
+		TERMINAL_TITLE_PROGRESS_BAR__ansi=$'\e]9;4;1;'"$TERMINAL_TITLE_PROGRESS_BAR__progress"$'\a'
+		__terminal_title_progress_bar__send_alarm || {
+			if [[ -n $TERMINAL_TITLE_PROGRESS_BAR__ansi ]]; then
+				__to --source={TERMINAL_TITLE_PROGRESS_BAR__ansi} --target=TTY || return
+			fi
+		}
+	fi
+}
 
 # -------------------------------------
 # Debug Toolkit
