@@ -70,120 +70,130 @@ function eval_helper_test() (
 		eval-helper --no-color --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
 		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
 
-	eval-tester --stdout=my-stdout --stderr=$'my-pending\n<w>\nmy-stderr\n</w>[0]\nmy-success' --ignore-tty -- \
-		eval-helper --no-color --message-target=STDERR --command-string=w --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
-		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+	# test quiet and persist
+	# eval-tester --stdout=my-stdout --ignore-stderr --ignore-tty -- \
+	# 	eval-helper --no-color --quiet --wrap --pending=my-pending --failure=my-failure --success=my-success --persist=STDOUT -- \
+	# 	waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
 
-	# --alternative-screen-buffer does not affect verbosity and results
-	eval-tester --stdout=my-stdout --stderr=$'my-pending\n<w>\nmy-stderr\n</w>[0]\nmy-success' --ignore-tty -- \
-		eval-helper --no-color --alternative-screen-buffer --message-target=STDERR --command-string=w --wrap --pending=my-pending --failure=my-failure --success=my-success -- \
-		waiter --timeout=0 --stdout=my-stdout --stderr=my-stderr
+	# for some reason, if `get-terminal-lines-and-columns` or `get-terminal-lines-and-columns.bash` are sent via `eval-helper` with `--clear` or `--alternative` then fetching the lines fails, which then causes `eval-helper` to always have auto always revert to direct mode as terminal_lines and terminal_columsn will be empty:
+	# eval-helper --wrap --mode=alternative -- get-terminal-lines-and-columns.bash
+	# eval-helper --wrap --mode=clear -- get-terminal-lines-and-columns.bash
+	# eval-tester -- get-terminal-lines-and-columns.bash
+	# ^ until this is work around, testing eval-helper will be difficult
 
 	return 0
 )
 function eval_helper() ( # to use this as a function, it needs to change from a subshell, and become __eval_helper, but that is a significant [|| return] effort for now
 	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/styles.bash"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >&2
+		__print_help <<-EOF
 			ABOUT:
-			Helpers for working with commands.
+			Execute a command with conveniences:
+			- Configure to wrap the command with pending, success, and failure messages; including expanded details on failures.
+			- Configure to hide and/or obsure the command output, ensuring it occurs within specified dimensions, including support for shapeshifting commands, alternative screen buffers, and cycling of output within a revolving door; with expansions on failures.
+			- Configure to elevate privileges of the command, with confirmation and reasoning of why and what is being elevated. Supporting {sudo}, {doas}, and {cron} environments.
+			- Configure to retry the command.
 
 			USAGE:
-			eval-helper [...options] -- ...<command>
+			{eval-helper [...options] -- ...<command>}
 
 			QUIRKS:
-			Unless [--no-quiet] aka [--failure-verbosity=full --success=mode=full] is used, then the command's STDOUT and STDERR will be merged into STDERR.
 			Messages (pending, success, failure) are output to TTY if available, otherwise STDERR.
+			Unless <direct>, then any visuual output is sent to STDERR instead of STDOUT: use <perist> to workaround this.
 
 			OPTIONS:
-			--[no-]quiet | --[no-]verbose
-			    If --verbose or --no-quiet, becomes:
-			        --failure-verbosity=full --success-verbosity=full
-			    If --quiet or --no-verbose, becomes:
-			        --failure-verbosity=full --success-verbosity=conclusion
-			    If missing or empty, defaults to result of [get-terminal-quiet-support].
-			    As such, if you require STDOUT of the command, be sure to to provide --verbose.
-			--verbosity=<verbosity>
-			    Becomes --failure-verbosity=<verbosity> --success-verbosity=<verbosity>
-			--failure-verbosity=<failure-verbosity>
-			    If full: message for pending, message for wrap open, command output, message for wrap close and status, message for failure.
-			    If summary: message for pending, message for wrap and status, message for failure.
-			    If conclusion: message for failure.
-			    If summary or conclusion, must be used alongside either --truncate or --screen.
-			--success-verbosity=<success-verbosity>
-			    If full: message for pending, message for wrap open, command output, message for wrap close and status, message for success.
-			    If summary: message for pending, message for wrap and status, message for success.
-			    If conclusion: message for success.
-			    If summary or conclusion, must be used alongside either --truncate or --screen.
+			-- ...<command>
+			    The command to execute along with any of its arguments.
 
-			--message-target=<message-target>
-			    By default, messages are output to TTY.
-			--[no-]wrap
-			    If enabled, the output of the command will be wrapped in a message detailing the command itself, e.g.: < command arg >...</ command arg >
-			    Disabled by default, such that TTY/STDERR/STDOUT are not altered.
-			--command=<command-string>
-			    If provided, use this string instead of the escaped <command>, when wrapping.
+			--[no-]quiet[=<bool:quiet>] | --[no-]verbose[=<bool:verbose>]
+			    IF missing or empty:
+			        If STDIN is not attached to a TTY, it will become <verbose>.
+			        If STDIN is attached to a TTY:
+			            It will depend on {VERBOSE} then {QUIET} environment variables, otherwise <verbose>.
+			--[no-]pending-on-success[=<bool:pending-on-success>]
+			    If enabled, the <pending> message will be shown even if the command succeeds.
+			    If not specified, defaults to <verbose>.
+			--[no-]wrap-on-success[=<bool:wrap-on-success>]
+			    If enabled, the command output will be wrapped even if the command succeeds.
+			    If not specified, defaults to <verbose>.
+			--[no-]body-on-success[=<bool:body-on-success>]
+			    If enabled, the command output will be shown even if the command succeeds.
+			    If disabled, the command output will be truncated if the command succeeds.
+			    If the command fails, the command output will always be shown.
+			    If not specified, defaults to <verbose>.
+			--[no-]wrap[=<bool:wrap>]
+			    If enabled, the execution of the command will be wrapped in a message detailing the command itself, e.g. {< command arg >...</ command arg >}
+			--[no-]time[=<bool:time>]
+			    If enabled, the execution duuration will be shown alongside the closing <wrap> message.
+
 			--pending=<pending>
-			    If provided, will output the <pending> message before and while the command executes.
-			--failure=<failure>
-			    If provided, will output the <failure> message if the command failed.
+			    A message to show before and while the command executes, and afterwards on failure or if <pending-on-success> is enabled.
 			--success=<success>
-			    If provided, will output the <success> message if the command succeeded.
+			    A message to show after the command, if it was successful.
+			--failure=<failure>
+			    A message to show after the command, if it failed.
 
-			--[no-]trim
-			    If enabled, trim padding at the start and end of the command output. See [echo-trim-padding] for details.
+			--(discard|copy|redirect)-{*}=<...forwarded to {__do}>
+			    Forwards to Dorothy's {bash.bash:__do} function, which facilitates powerful command output redirections.
+			--revolving-{*}=<...forwarded to {echo-revolving-door}>
+			    If <clear>, forwards to Dorothy's {echo-revolving-door} command, which facilitates command output truncation and cycling. E.g. {--revolving-lines=<revolving-lines>} will restrict the lines of the <clear> output to <revolving-lines>, within the maximum <terminal-lines>, and minus any header messaging.
+			--terminal-lines=<terminal-lines>
+			    If provided, will use <terminal-lines> instead of detecting ourselves.
+			--terminal-height=<terminal-height>
+			    If provided, will use <terminal-height> instead of detecting ourselves.
 
-			--truncate-lines=<lines:integer|terminal>
-			    If enabled, the command output to STDOUT, STDERR (and TTY by attempt) will be truncated during execution to this amount of revolving lines (if enabled, <lines> defaults to [1]). Shapeshifting ANSI Escape Codes will be escaped. This inhibits accurate capturing of command output, as such this transforms command output into a message, as such it will go to <message-target>. If set to [0] all command output will be attempted to be hidden. See [echo-revolving-door] for details.
-			--[no-]alternative-screen-buffer | --[no-]shapeshifter
-			    If enabled, the command will run in an alternative terminal buffer. Use this if the command is a shapeshifter (uses ANSI escape codes to modify lines and cursor).
-			    By default, this is disabled unless invoking a known shapeshifter.
-			    This option isn't that useful if you are not doing [summary] or [conclusion] verbosities.
+			--persist=<persist:stdout|stderr|output>
+			    If you are capturing the output of the command, such as done in interpolation, then use this ensure the captured output is still persisted visually. Capturing occurs before {__do} and {echo-revolving-door} alterations.
+			    E.g. {stdout="\$(eval-helper --wrap --persist=STDOUT -- echo hello)"; echo-verbose -- "\$stdout"}
 
-			--terminal-lines=<terminal-lines> | --terminal-columns=<terminal-columns>
-			    Forwarded to commands that support them.
+			--[no-]shapeshifter=<bool:shapeshifter> | --mode=shapehifter
+			    If enabled, we expect the command to prompt for terminal input or reshape terminal output or write to TTY directly which escapes our own emulation.
+			    This will result in the command executing directly, with alterations disabled.
+			--[no-]alternative-screen-buffer=<bool:alternative-screen-buffer> | --mode=alternative
+			    If enabled, we will wrap the command outpuut and alterations within an alternative screen buffer.
+			--[no-]clear=<bool:clear> | --mode=clear
+			    If enabled, we will send the terminal output to {echo-revolving-door} to ensure it operates within our desired dimensions and clears according to our desired messaging confuguration. Shapeshifting ANSI Escape Codes will be omitted visually. Visually STDOUT and STDER are merged into STDERR, so alterations are not captured: use <persist> to capture/persist the original output upon completion.
+			--mode=<mode:shapeshifter|alternative|clear|direct|auto>
+			    If <auto>, which is the default, it will be configured to <shapeshifter> for known shapeshifters (e.g. {vim}), to <alternative> for possible shapeshifters (e.g. {ssh}, {sudo}, {doas}), to <clear> if <quiet> or likewise, otherwise it will be <direct>. If <direct>, the command will execute directly.
 
 			--[no-]confirm
-			    Confirm execution of the command before its first execution (--until usage could mean multiple executions).
-			    Disabled by default.
+			    If enabled, confirm each execution of the command: each, as {--until} usage may result in multiple executions.
 
-			--until=<forever|success|failure|<exit-status>>
-			    If forever, keep (re-)running the command forever.
-			    If success, keep (re-)running the command until a successful exit status.
-			    If failure, keep (re-)running the command until a failure exit status.
+			--until=<until:forever|success|failure|<exit-status>>
+			    If {forever}, keep (re-)running the command forever.
+			    If {success}, keep (re-)running the command until a successful exit status.
+			    If {failure}, keep (re-)running the command until a failure exit status.
 			    If <exit-status>, keep (re-)running the command until the specified exit status. Can only be specified once.
-			    Disabled by default.
 			--until-interval=<seconds>
-			    Specify the interval between attempts.
-			    Defaults to 10 seconds.
-			    This is only used if [--until] is specified.
+			    If {--until}, then this is the interval between attempts. Defaults to 1 seconds.
 
 			--elevated=<file-path|file-descriptor|device-file>
-			    If specified, if the <command> required elevation, the <command> alongside a trailing newline will be appended to this target.
+			    If specified, and if the <command> required elevation, then the <command> alongside a trailing newline will be appended to this target.
 			    Can be specified multiple times, and targets can be newline separated.
 			--elevate=<yes|no|failure|<exit-status>>
-			    If specified as [yes], then the command will execute with elevated privileges, be it via sudo or doas, or neither if not needed.
+			    If specified as {yes}, then the command will execute with elevated privileges, be it via {sudo} or {doas}, or neither if not needed.
 			    If <user> or <group> is specified, it will be elevated and the remaining alternatives are discarded:
-			    If specified as [no], then the command will be run without elevation.
-			    If specified as [failure], then the command will be run without elevation, and if it fails, it will be run again with elevation.
-			    If specified as an integer, then the command will be run without elevation, and if it fails with that exit status, it will be run again with elevation.
-			    Can be specified multiple times, and can be [\n\t ,|] separated. [yes] and [no] values will reset prior values.
-			    Empty values will be ignored. If this is not specified at all, or is only empty strings, it will default to [no].
+			    If specified as {no}, then the command will be run without elevation.
+			    If specified as {failure}, then the command will be run without elevation, and if it fails, then it will be run again with elevation.
+			    If specified as an <exit-status> integer'), then the command will be run without elevation, and if it fails with that exit status, then it will be run again with elevation.
+			    Can be specified multiple times, and can be {\n\t ,|'} separated. The {yes} and {no} values will reset prior values.
+			    Empty values will be ignored. If this is not specified at all, or is only empty strings, it will default to {no}.
 			--user=<user>
-			    Specify a user to run the command as. Forces [--elevate=yes].
+			    Specify a user to run the command as. Forces {--elevate=yes}.
 			--group=<group>
-			    Specify a group to run the command as. Forces [--elevate=yes].
+			    Specify a group to run the command as. Forces {--elevate=yes}.
 			--reason=<reason>
 			    If a prompt is required to momentarily grant privileges, this reason will be used to explain why elevation was required.
-			--inherit
-			    If enabled, when elevating, the PATH will be inherited to the executing command.
-			--home
-			    If disabled, do not ensure the HOME is correct for the elevated user. If the HOME does exist, it will be used.
-			    If the elevate <user> is [root], this will default to disabled.
+			--[no-]inherit
+			    If enabled, when elevating, the {PATH} will be inherited to the executing command.
+			--[no-]home
+			    If disabled, do not ensure the {HOME} is correct for the elevated user. If the {PATH} does exist, it will be used.
+			    If the elevate <user> is {root}, this will default to disabled.
 			--invalidate-elevation
 			    If specified, any active elevation will be invalidated. All other arguments are discarded.
 		EOF
@@ -197,7 +207,7 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 	local item option_cmd=() \
 	option_quiet='' option_pending_on_success='' option_wrap_on_success='' option_body_on_success='' \
 	option_persist='' option_wrap='' option_time='no' option_pending='' option_success='' option_failure='' \
-	option_do_args=() option_revolving_args=() option_alternative_screen_buffer='' option_shapeshifter='' \
+	option_do_args=() option_revolving_args=() option_mode='' \
 	option_terminal_lines='' option_terminal_columns='' \
 	option_confirm='' \
 	option_until='' option_until_interval='' option_until_attempts='' \
@@ -225,8 +235,37 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		# '--redirect-status='*) option_redirect_status="${item#*=}" ;; <-- ^^
 		'--discard-'*'={'* | '--copy-'*'={'* | '--redirect-'*'={'*) help "Until eval-helper can be sourced as __eval_helper variable assignments will not work:, write to a file then read from it instead: $item" ;;
 		'--discard-'* | '--copy-'* | '--redirect-'*) option_do_args+=("$item") ;;
-		'--no-alternative-screen-buffer'* | '--alternative-screen-buffer'*) __flag --source={item} --target={option_alternative_screen_buffer} --affirmative --coerce ;;
-		'--no-shapeshifter'* | '--shapeshifter'*) __flag --source={item} --target={option_shapeshifter} --affirmative --coerce ;;
+		'--mode='*)
+			case "${item#--mode=}" in
+			'shapeshifter' | 'alternative' | 'clear' | 'direct') option_mode="${item#--mode=}" ;;
+			'' | 'auto') option_mode='' ;;
+			*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			esac
+			;;
+		'--no-alternative-screen-buffer'* | '--alternative-screen-buffer'*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_mode='alternative'
+			fi
+			;;
+		'--no-shapeshifter'* | '--shapeshifter'*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_mode='shapeshifter'
+			fi
+			;;
+		'--no-clear'* | '--clear'*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_mode='clear'
+			fi
+			;;
+		'--no-direct'* | '--direct'*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_mode='direct'
+			fi
+			;;
 		'--revolving-'*) option_revolving_args+=("--${item#--revolving-}") ;;
 		# ...
 		'--terminal-lines='*) option_terminal_lines="${item#*=}" ;;
@@ -347,12 +386,14 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 
 	# ensure shapeshifters that write to TTY are cleared correctly
 	local is_potential_shapeshifter=''
-	if [[ -z $option_alternative_screen_buffer && -z $option_shapeshifter ]]; then
-		case "${option_cmd[*]}" in
-		'ssh '*) is_potential_shapeshifter='yes' ;;
-		'sudo '*) is_potential_shapeshifter='yes' ;;
-		'doas '*) is_potential_shapeshifter='yes' ;;
-		esac
+	if [[ -z $option_mode ]]; then
+		local input_command_string="${option_cmd[*]}"
+		if [[ $input_command_string =~ ^(vim|vi)\  ]]; then
+			option_mode='shapeshifter'
+		fi
+		if [[ $input_command_string =~ ^(ssh|sudo|doas)\  ]]; then
+			is_potential_shapeshifter='yes'
+		fi
 	fi
 
 	# ensure sudo is a valid value
@@ -429,7 +470,7 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
 			local terminal_size=()
 			__split --target={terminal_size} --no-zero-length --invoke=try -- \
-				get-terminal-lines-and-columns
+				get-terminal-lines-and-columns || return
 			if [[ ${#terminal_size[@]} -eq 2 ]]; then
 				if [[ -z $option_terminal_lines ]]; then
 					terminal_lines="${terminal_size[0]}"
@@ -514,10 +555,12 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		# execution mode, either direct, alternative, or clear
 		# this must not break `p="$(eval-helper --inherit --elevated= --elevate=13  --user= --group= --reason= -- fs-path.bash --resolve=yes --validate=no -- /Users/balupton/.config/dorothy)"; echo "p=$p"`
 		local mode direct
-		if [[ $option_shapeshifter == 'yes' || $terminal_lines -eq 0 || $terminal_columns -eq 0 ]]; then
+		if [[ $option_mode == 'shapeshifter' || $terminal_lines -eq 0 || $terminal_columns -eq 0 ]]; then
 			mode='direct'
-		elif [[ $option_alternative_screen_buffer == 'yes' ]]; then
+		elif [[ $option_mode == 'alternative' ]]; then
 			mode='alternative'
+		elif [[ -n $option_mode ]]; then
+			mode="$option_mode"
 		else
 			# default to direct, as it still allows interpolation to work
 			# however, undo direct iff we have manually specified an option that undoes direct

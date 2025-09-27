@@ -1271,6 +1271,19 @@ function __print_style {
 	fi
 }
 
+# beta command, will change
+function __print_help {
+	__refresh_style_cache -- bold dim code foreground_magenta
+	# echo-regexp -gm '(\[[^\]]+\])' "$style__dim\$1$style__end__dim" | \
+	cat |
+		echo-regexp -gm '([.]*<[^>]+>)' "$style__bold\$1$style__end__bold" |
+		echo-regexp -gm '\{([^\}]+)}' "$style__dim\$1$style__end__dim" |
+		echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" | {
+		cat
+		echo
+	} >&2
+}
+
 # restore tracing
 # shared by `bash.bash` `styles.bash`
 if [[ -n ${BASH_X-} ]]; then
