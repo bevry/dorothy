@@ -5195,13 +5195,13 @@ function __replace {
 	if __is_array "$REPLACE__source_reference"; then
 		# if we are an array, perform the replace on each element
 		local -i REPLACE__index
-		local REPLACE__indices=() REPLACE__array=()
+		local REPLACE__indices=() REPLACE__array=() REPLACE__recursion_reference="REPLACE_${RANDOM}__item"
 		__indices --source="{$REPLACE__source_reference}" --target={REPLACE__indices} || return
 		for REPLACE__index in "${REPLACE__indices[@]}"; do
-			eval 'REPLACE__item="${'"$REPLACE__source_reference"'['"$REPLACE__index"']}"'
-			__replace --source+target={REPLACE__item} --require="$REPLACE__require" --quiet="$REPLACE__quiet" "${REPLACE__lookups[@]}" || return
+			eval "$REPLACE__recursion_reference"'="${'"$REPLACE__source_reference"'['"$REPLACE__index"']}"'
+			__replace --source+target="{$REPLACE__recursion_reference}" --require="$REPLACE__require" --quiet="$REPLACE__quiet" "${REPLACE__lookups[@]}" || return
 			# trunk-ignore(shellcheck/SC2034)
-			REPLACE__array["$REPLACE__index"]="$REPLACE__item"
+			REPLACE__array["$REPLACE__index"]="${!REPLACE__recursion_reference}"
 		done
 		__to --source={REPLACE__array} --mode="$REPLACE__mode" --targets={REPLACE__targets} || return
 		return
