@@ -5972,7 +5972,7 @@ function __terminal_title_progress_bar {
 		# 	__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'progress bar identifier' || return
 		# 	TERMINAL_TITLE_PROGRESS_BAR__id="$TERMINAL_TITLE_PROGRESS_BAR__item"
 		# 	;;
-		--progress=*)
+		--progress=* | --index=*)
 			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
 			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'progress' || return
 			TERMINAL_TITLE_PROGRESS_BAR__progress="$TERMINAL_TITLE_PROGRESS_BAR__item"
@@ -6013,7 +6013,7 @@ function __terminal_title_progress_bar {
 			$TERMINAL_TITLE_PROGRESS_BAR__progress="$((TERMINAL_TITLE_PROGRESS_BAR__total - TERMINAL_TITLE_PROGRESS_BAR__remaining))"
 		fi
 		if [[ $TERMINAL_TITLE_PROGRESS_BAR__total -ne 100 && $TERMINAL_TITLE_PROGRESS_BAR__progress -ne -1 ]]; then
-			TERMINAL_TITLE_PROGRESS_BAR__progress="$(((TERMINAL_TITLE_PROGRESS_BAR__progress / TERMINAL_TITLE_PROGRESS_BAR__total) * 100))"
+			TERMINAL_TITLE_PROGRESS_BAR__progress="$(((TERMINAL_TITLE_PROGRESS_BAR__progress * 100 / TERMINAL_TITLE_PROGRESS_BAR__total * 100) / 100))" # bash can't do floating point, so this variation is a workaround
 		fi
 
 		# update via alarmer or directly
