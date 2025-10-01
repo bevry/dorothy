@@ -258,9 +258,9 @@ style__color__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Ghostty, 
 style__color_end__bold="$style__color_end__intensity"
 style__color__dim=$'\e[2m' # tput dim [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
 style__color_end__dim="$style__color_end__intensity"
-style__color__italic=$'\e[3m' # [supported: VScode, Hyper, Terminal] [colored support: Ghostty, Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
-style__color_end__italic=$'\e[23m'
-style__color__underline=$'\e[4m' # tput sgr 0 1 [supported: Terminal, VSCode,Ghostty,  Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+style__color__italic=$'\e[3m'      # [supported: VScode, Hyper, Terminal] [colored support: Ghostty, Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
+style__color_end__italic=$'\e[23m' # Ghostty will have this also cancel bold/dim.
+style__color__underline=$'\e[4m'   # tput sgr 0 1 [supported: Terminal, VSCode,Ghostty,  Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
 style__color_end__underline=$'\e[24m'
 style__color__double_underline=$'\e[21m' # [supported: Tabby]
 style__color_end__double_underline=$'\e[24m'
@@ -1273,15 +1273,103 @@ function __print_style {
 
 # beta command, will change
 function __print_help {
-	__refresh_style_cache -- bold dim code foreground_magenta
+	__refresh_style_cache -- intensity framed underline invert italic background_intense_black foreground bold dim code foreground_magenta foreground_green foreground_red
 	# echo-regexp -gm '(\[[^\]]+\])' "$style__dim\$1$style__end__dim" | \
-	cat |
-		echo-regexp -gm '([.]*<[^>]+>)' "$style__bold\$1$style__end__bold" |
-		echo-regexp -gm '\{([^\}]+)}' "$style__dim\$1$style__end__dim" |
-		echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" | {
-		cat
-		echo
-	} >&2
+
+	# `eval-helper --help` edge cases:
+	# --(discard|copy|redirect)-{*}=<...forwarded to {__do}>
+	# --until=<until:forever|success|failure|<exit-status>>
+	#     If {failure},
+	#     If <exit-status>,
+
+	# echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" |
+	# echo-regexp -g '\[0\](\s)' "$style__foreground_green[0]$style__end__foreground_green\$1" |
+	# echo-regexp -g '\[([\d]+)\](\s)' "$style__foreground_red[\$1]$style__end__foreground_red\$2" |
+	# echo-regexp -g $'([^`\e]<[^/ >][^>]+?>[^`\e])' "$style__bold\$1$style__end__bold" |
+	# echo-regexp -g $'(`[^\e`]+?)\e\[(1|2|22)m([^`]+?`)' '$1$3' |
+	# echo-regexp -gm $'`([^`]+?)`' "$style__dim\$1$style__end__dim" | {
+
+	# cat |
+	# 	echo-regexp -g $'(<[^/ >][^>]+?>)' "<bold>\$1</bold>" |
+	# 	echo-regexp -gm '^(--.+|[A-Z]+\:)$' "<magenta>\$1</magenta>" |
+	# 	echo-regexp -g '\[0\]' "<green>[0]</green>" |
+	# 	echo-regexp -g '\[([\d]+)\](\s)' "<red>[\$1]</red>\$2" |
+	# 	echo-regexp -g '\[([^\d][^\]]+)\]' "<dim>[\$1]</dim>" |
+	# 	echo-regexp -gm $'`([^`]+?)`' "<code>\$1</code>" | {
+	# 		cat
+	# 		echo
+	# 	} >&2
+
+	local character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
+	local -i c l
+	# | echo-regexp -gm $'`([^`]+?)`' "$style__framed\$1$style__end__framed"
+	echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" |
+		echo-regexp -g '\[0\](\s)' "$style__foreground_green[0]$style__end__foreground_green\$1" |
+		echo-regexp -g '\[([\d]+)\](\s)' "$style__foreground_red[\$1]$style__end__foreground_red\$2" |
+		while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+			if [[ $character == $'\e' ]]; then
+				in_color='yes'
+				buffer+="${character}"
+			elif [[ $in_color == 'yes' ]]; then
+				if [[ $character == 'm' ]]; then
+					in_color='no'
+				fi
+				buffer+="${character}"
+			elif [[ $character == '<' ]]; then
+				intensities+=("$style__bold")
+				buffer+="${style__bold}${character}"
+			elif [[ $character == '[' ]]; then
+				intensities+=("$style__dim")
+				buffer+="${style__dim}${character}"
+			elif [[ $character == '>' || $character == ']' || $character == '`' ]]; then
+				if [[ $character == '`' ]]; then
+					character=''
+					if [[ $in_tick == 'no' ]]; then
+						intensities+=("$style__dim")
+						buffer+="${style__dim}"
+						in_tick='yes'
+						continue
+					else
+						in_tick='no'
+					fi
+				fi
+
+				# there's currently a bug in __slice that prevents -1 being used as a length
+				# __dump {intensities} >&2
+				# __slice --source+target={intensities} --mode=overwrite 0 -1 || return
+				# __dump {intensities} >&2
+
+				c="${#intensities[@]}"
+				buffer+="${character}"
+				if [[ $c -eq 0 ]]; then
+					# this is probably malformed syntax
+					continue
+				fi
+
+				# pop off the last intensity as it is now finished
+				if [[ $c -eq 1 ]]; then
+					intensities=()
+				else
+					l="$((c - 1))"
+					intensities=("${intensities[@]:0:l}")
+					l="$((l - 1))"
+				fi
+
+				# re-affirm the prior insensity
+				if [[ ${#intensities[@]} -eq 0 ]]; then
+					buffer+="${style__end__intensity}"
+				else
+					# __slice --source={intensities} --target={last} -1 || return
+					last="${intensities[l]}"
+					# for some strange reason, in the case of:
+					#
+					buffer+="${style__end__intensity}${last}"
+				fi
+			else
+				buffer+="${character}"
+			fi
+		done
+	__print_lines "$buffer" >&2 || return
 }
 
 # restore tracing

@@ -69,16 +69,16 @@ function __command_missing {
 	fi
 	__affirm_length_defined $# 'command' || return
 	# proceed
-	local command
-	for command in "$@"; do
-		if [[ $command == 'brew' ]]; then
+	local COMMAND_MISSING__command
+	for COMMAND_MISSING__command in "$@"; do
+		if [[ $COMMAND_MISSING__command == 'brew' ]]; then
 			# workaround for our `brew` wrapper
 			if __is_brew; then
 				continue
 			else
 				return 0 # a command is missing
 			fi
-		elif type -P "$command" &>/dev/null; then
+		elif type -P "$COMMAND_MISSING__command" &>/dev/null; then
 			continue
 		else
 			return 0 # a command is missing
@@ -97,16 +97,16 @@ function __command_exists {
 	fi
 	__affirm_length_defined $# 'command' || return
 	# proceed
-	local command
-	for command in "$@"; do
-		if [[ $command == 'brew' ]]; then
+	local COMMAND_EXISTS__command
+	for COMMAND_EXISTS__command in "$@"; do
+		if [[ $COMMAND_EXISTS__command == 'brew' ]]; then
 			# workaround for Dorothy's `brew` wrapper
 			if __is_brew; then
 				continue
 			else
 				return 1 # a command is missing
 			fi
-		elif type -P "$command" &>/dev/null; then
+		elif type -P "$COMMAND_EXISTS__command" &>/dev/null; then
 			continue
 		else
 			return 1 # a command is missing
@@ -116,65 +116,75 @@ function __command_exists {
 }
 
 # cache performant checks for command existence and installation
+# __command_required [--list] [--no-install] [--] ...<command>
 function __command_required {
 	# verbose
-	local option_verbose='no'
-	if [[ ${1-} == '--verbose' ]]; then
-		option_verbose='yes'
+	local COMMAND_REQUIRED__item COMMAND_REQUIRED__list='no' COMMAND_REQUIRED__install='yes' COMMAND_REQUIRED__commands=()
+	while [[ $# -ne 0 ]]; do
+		COMMAND_REQUIRED__item="$1"
 		shift
-	fi
-	# trim -- prefix
-	if [[ ${1-} == '--' ]]; then
-		shift
-	fi
-	__affirm_length_defined $# 'command' || return
+		case "$COMMAND_REQUIRED__item" in
+		--no-list* | --list*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__list} --affirmative --coerce || return ;;
+		--no-install* | --install*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__install} --affirmative --coerce || return ;;
+		--)
+			COMMAND_REQUIRED__commands+=("$@")
+			shift $#
+			break
+			;;
+		*) COMMAND_REQUIRED__commands+=("$COMMAND_REQUIRED__item") ;;
+		esac
+	done
+	__affirm_length_defined "${#COMMAND_REQUIRED__commands[@]}" '<command>' || return
 	# proceed
-	local command
+	local COMMAND_REQUIRED__command
 	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-		declare -A COMMAND_REQUIRED # shared
-		for command in "$@"; do
-			if [[ ${COMMAND_REQUIRED["$command"]-} == 'yes' ]]; then
-				if [[ $option_verbose == 'yes' ]]; then
-					__print_string "$command"
+		declare -A COMMAND_REQUIRED__CACHE # shared
+		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
+			if [[ ${COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]-} == 'yes' ]]; then
+				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command"
 				fi
 				return 0
-			elif __command_exists -- "$command"; then
-				COMMAND_REQUIRED["$command"]='yes'
-				if [[ $option_verbose == 'yes' ]]; then
-					__print_string "$command"
+			elif __command_exists -- "$COMMAND_REQUIRED__command"; then
+				COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]='yes'
+				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command"
 				fi
 				return 0
 			fi
 		done
 	else
-		local other
-		COMMAND_REQUIRED=() # shared
-		for command in "$@"; do
-			for other in "${COMMAND_REQUIRED[@]}"; do
-				if [[ $command == "$other" ]]; then
-					if [[ $option_verbose == 'yes' ]]; then
-						__print_string "$command"
+		local COMMAND_REQUIRED__command COMMAND_REQUIRED__other
+		COMMAND_REQUIRED__CACHE=() # shared
+		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
+			for COMMAND_REQUIRED__other in "${COMMAND_REQUIRED__CACHE[@]}"; do
+				if [[ $COMMAND_REQUIRED__command == "$COMMAND_REQUIRED__other" ]]; then
+					if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
+						__print_string "$COMMAND_REQUIRED__command"
 					fi
 					return 0
 				fi
 			done
-			if __command_exists -- "$command"; then
-				COMMAND_REQUIRED+=("$command")
-				if [[ $option_verbose == 'yes' ]]; then
-					__print_string "$command"
+			if __command_exists -- "$COMMAND_REQUIRED__command"; then
+				COMMAND_REQUIRED__CACHE+=("$COMMAND_REQUIRED__command")
+				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command"
 				fi
 				return 0
 			fi
 		done
 	fi
 	# if any were found, we would have already returned
+	if [[ $COMMAND_REQUIRED__install == 'no' ]]; then
+		return 6 # ENXIO 6 Device not configured
+	fi
 	get-installer --first-success --invoke --quiet -- "$@" || return
 	# okay, save that they are now installed
 	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
 		for command in "$@"; do
 			if __command_exists -- "$command"; then
-				COMMAND_REQUIRED["$command"]='yes'
-				if [[ $option_verbose == 'yes' ]]; then
+				COMMAND_REQUIRED__CACHE["$command"]='yes'
+				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
 					__print_string "$command"
 				fi
 				return 0
@@ -183,8 +193,8 @@ function __command_required {
 	else
 		for command in "$@"; do
 			if __command_exists -- "$command"; then
-				COMMAND_REQUIRED+=("$command")
-				if [[ $option_verbose == 'yes' ]]; then
+				COMMAND_REQUIRED__CACHE+=("$command")
+				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
 					__print_string "$command"
 				fi
 				return 0
@@ -5877,7 +5887,7 @@ function __tool {
 		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")"
 		__command_required -- "$TOOL__tool" || return
 	elif [[ -z $TOOL__tool ]]; then
-		TOOL__tool="$(__command_required --verbose -- "${TOOL__tools[@]}")" || return
+		TOOL__tool="$(__command_required --list -- "${TOOL__tools[@]}")" || return
 	elif __has --source={TOOL__tools} -- "$TOOL__tool"; then
 		__command_required -- "$TOOL__tool" || return
 	else

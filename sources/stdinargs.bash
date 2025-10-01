@@ -15,10 +15,13 @@ source "$DOROTHY/sources/bash.bash"
 # > { sleep 1; echo 1; sleep 2; echo 2; sleep 3; echo 3; } | echo-count-lines --no-timeout
 # 3
 # [0] success
-function stdinargs_options_help {
-	local option_stdin=''
-	local default_message=$'\n    This is the default behaviour.' stdin_empty_message='' stdin_yes_message='' stdin_no_message=''
-	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@"
+
+# This prints stdinargs options that callers should include in their help rendering.
+function __stdinargs_options_help {
+	local option_stdin='' \
+		default_message=$'\n    This is the default behaviour.' \
+		stdin_empty_message='' stdin_yes_message='' stdin_no_message=''
+	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@" || retuurn
 	if [[ $option_stdin == 'yes' ]]; then
 		stdin_yes_message="$default_message"
 	elif [[ $option_stdin == 'no' ]]; then
@@ -26,7 +29,7 @@ function stdinargs_options_help {
 	else
 		stdin_empty_message="$default_message"
 	fi
-	cat <<-EOF
+	cat <<-EOF || return
 		--timeout | --timeout=yes
 		    Wait one second for STDIN content before timing out.
 		    This is the default behaviour.
@@ -35,7 +38,7 @@ function stdinargs_options_help {
 		--timeout=immediate | --timeout=0
 		    STDIN content must be immediate.
 		--timeout=<seconds>
-		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to 1 second on earlier bash versions.
+		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to \`1\` second on earlier bash versions.
 
 		--stdin=
 		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
@@ -48,7 +51,9 @@ function stdinargs_options_help {
 		    Disables colored output.
 	EOF
 }
+function stdinargs_options_help { __stdinargs_options_help; }
 
+# This fetching the first defined function.
 function __print_first_function {
 	local fn type
 	while [[ $# -ne 0 ]]; do
@@ -67,6 +72,7 @@ function __print_first_function {
 	return 0
 }
 
+# This is a helper callers of stdinargs can call to handle joining of pieces.
 local STDINARGS__pieces=0
 function __print_piece {
 	if [[ $STDINARGS__pieces -eq 0 ]]; then
@@ -77,26 +83,42 @@ function __print_piece {
 	fi
 }
 
+# This processes the arguments.
+# This cannot become a safety function, as it needs to support unsafe fuctions, which safety functions cannot.
+# Only if unsafe is hard deprecated, could it become a safety fuunction, but that doesn't make sense.
 function stdinargs {
 	# function
-	local fn_help fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
+	local fn_help fn_stdin fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
+	# help function
 	fn_help="$(__print_first_function __help help __on_help on_help)" || return
-	fn_arg="$(__print_first_function __on_arg on_arg)" || return
+	# on argument funtion
+	fn_arg="$(__print_first_function __on_argument on_argument __on_arg on_arg)" || return
+	# if there is stdin content, handle it ourself
+	fn_stdin="$(__print_first_function __on_stdin on_stdin)" || return
+	# if there is stdin or argument content, receive it in whole
 	fn_whole="$(__print_first_function __on_whole on_whole)" || return
+	# before we begin parsing stdin or arguments, call this
 	fn_start="$(__print_first_function __on_start on_start)" || return
+	# if there were no stdin nor arguments, call this
 	fn_nothing="$(__print_first_function __on_nothing on_nothing __on_no_input on_no_input)" || return
-	fn_no_args="$(__print_first_function __on_no_args on_no_args)" || return
+	# if there were no arguments, call this
+	fn_no_args="$(__print_first_function __on_no_arguments on_no_arguments __on_no_args on_no_args)" || return
+	# if there were no stdin, call this
 	fn_no_stdin="$(__print_first_function __on_no_stdin on_no_stdin)" || return
+	# after we finish parsing stdin and arguments, call this
 	fn_finish="$(__print_first_function __on_finish on_finish)" || return
 	if [[ -z $fn_whole ]]; then
-		# alternatives to whole
-		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return
-		fn_line="$(__print_first_function __on_line on_line)" || return
+		# if there isn't whole, then call these
+		# inlines are a trailing line that isn't terminated by `\n`, either from STDIN or from arguments
 		fn_inline="$(__print_first_function __on_inline on_inline)" || return
+		# lines are STDIN and/or argument lines and/or inlines (iff no inline function)
+		fn_line="$(__print_first_function __on_line on_line)" || return
+		# pieces are a whole argument, or a STDIN line, or a STDIN inline (iff no arg nor whole nor inline nor line function)
+		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return
 
 		# deprecations
 		if [[ "$(type -t on_no_lines)" == 'function' ]]; then
-			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='fn_nothing'
+			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='__on_nothing' || return
 			function on_no_lines {
 				on_no_input "$@"
 			}
@@ -112,14 +134,14 @@ function stdinargs {
 		case "$item" in
 		'--help' | '-h')
 			if [[ -n $fn_help ]]; then
-				help >&2
-				return 22 # EINVAL 22 Invalid argument
+				"$fn_help" # eval
+				return 22  # EINVAL 22 Invalid argument
 			else
-				__print_error 'A ' --code='help' ' function is required.'
+				__print_error 'A ' --code='help' ' function is required.' || return
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
-		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export || return ;;
 		'--timeout' | '--timeout=' | '--timeout=yes')
 			timeout_seconds=1
 			;;
@@ -132,7 +154,7 @@ function stdinargs {
 			;;
 		'--timeout='*)
 			timeout_seconds="${item#*=}"
-			timeout_seconds="$(__get_read_decimal_timeout "$timeout_seconds")"
+			timeout_seconds="$(__get_read_decimal_timeout "$timeout_seconds")" || return
 			;;
 		# inline
 		'--no-inline' | '--inline=no')
@@ -172,8 +194,8 @@ function stdinargs {
 			fi
 			;;
 		'--'*)
-			help 'An unrecognised flag was provided: ' --variable-value={item} >&2
-			return 22 # EINVAL 22 Invalid argument
+			"$fn_help" 'An unrecognised flag was provided: ' --variable-value={item} # eval
+			return 22                                                                # EINVAL 22 Invalid argument
 			;;
 		*)
 			option_args+=("$item" "$@")
@@ -199,7 +221,12 @@ function stdinargs {
 	}
 	function stdinargs_read {
 		local what="$1" had_read='no'
-		if [[ -n $fn_whole ]]; then
+		if [[ $what == 'stdin' && -n $fn_stdin ]]; then
+			if [[ $timeout_immediate == 'no' ]] || read -t 0; then
+				had_read='yes'
+				stdinargs_eval "$fn_stdin"
+			fi
+		elif [[ -n $fn_whole ]]; then
 			local piece='' whole=''
 			while ([[ $timeout_immediate == 'no' ]] || read -t 0) && LC_ALL=C IFS= read -rd '' piece || [[ -n $piece ]]; do
 				had_read='yes'
@@ -261,7 +288,7 @@ function stdinargs {
 		# for each argument, call `on_(arg|input)` for each argument, otherwise call `on_(inline|line|input)` on each line of the argument
 		had_args='yes'
 		if [[ -n $option_max_args && $args_count -gt $option_max_args ]]; then
-			help \
+			"$fn_help" \
 				'This command only supports a maximum of ' --value="$option_max_args" ' arguments, yet ' --value="$args_count" ' were provided:' --newline \
 				--variable={option_args}
 			return 22 # EINVAL 22 Invalid argument

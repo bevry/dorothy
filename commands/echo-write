@@ -12,10 +12,10 @@ function echo_write_test() (
 	data_file="$root/data-file"
 	first_output_file="$root/first-output-file"
 	second_output_file="$root/second-output-file"
-	function __print_now {
+	function __print_right_away {
 		printf 'a\n\0b\0c\0'
 	}
-	function __print_sleep {
+	function __print_through_sleep {
 		sleep 1
 		printf '%s\n\0' a
 		sleep 2
@@ -23,8 +23,11 @@ function echo_write_test() (
 		sleep 3
 		printf '%s\0' c
 	}
-	__print_now >"$data_file"
-	rm -f -- "$first_output_file" "$second_output_file"
+	__print_right_away >"$data_file"
+	function __clear {
+		rm -f -- "$first_output_file" "$second_output_file"
+	}
+	__clear
 
 	# showcase of the issues
 	__print_style --header1='ISSUE SHOWCASE'
@@ -33,7 +36,7 @@ function echo_write_test() (
 	printf '%q' "$(<"$data_file")" # error suppression doesn't do anything
 
 	__print_style --newline --header1='bash process substitution'
-	printf '%q' "$(__print_now)"
+	printf '%q' "$(__print_right_away)"
 
 	__print_style --newline --header1='bash read'
 	function __escape_stdin {
@@ -62,11 +65,14 @@ function echo_write_test() (
 	__print_style --header1='THE ACTUAL TESTS'
 
 	# --default
-	eval-tester -- echo-write -- "$first_output_file" < <(__print_now)
-	eval-tester --ignore-outputs -- is-same -- "$first_output_file" "$data_file"
-	eval-tester -- echo-write --no-binary -- "$first_output_file" "$second_output_file" < <(__print_now)
-	eval-tester --ignore-outputs -- is-same -- "$first_output_file" "$data_file"
-	eval-tester --ignore-outputs -- is-same -- "$second_output_file" "$data_file"
+	eval-tester --name='print right away' -- echo-write -- "$first_output_file" < <(__print_right_away)
+	eval-tester --name='check from print right way' --ignore-outputs -- is-same --cat -- "$data_file" "$first_output_file"
+	__clear
+	eval-tester --name='print multiple right away' -- echo-write -- "$first_output_file" "$second_output_file" < <(__print_right_away)
+	eval-tester --name='check from print multiple right way' --ignore-outputs -- is-same --cat -- "$data_file" "$first_output_file" "$second_output_file"
+	__clear
+	eval-tester --name='print right away no-binary' -- echo-write --no-binary -- "$first_output_file" "$second_output_file" < <(__print_right_away)
+	eval-tester --name='check from print right away no-binary' --ignore-outputs -- is-same --cat -- "$data_file" "$first_output_file" "$second_output_file"
 
 	# # ^ outputs a\n to stdout, then b to stdout, then c to stdout
 	# { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --buffer -- stdout stderr tty overwrite.txt
@@ -82,66 +88,67 @@ function echo_write_test() (
 )
 function echo_write() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/styles.bash"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >&2
+		__print_help <<-EOF
 			ABOUT:
-			echo-write handles these use cases:
-			1. [<input> | echo-write] same as [cat], it will read STDIN as it happens, until the <input> closes, avoiding issues with delays and timeouts.
-			2. [<input> | echo-write --direct [--no-binary] -- ...<target>] if [tee] and [cat] had a baby, it will STDIN and write to each <target> as it happens.
-			3. [<input> | echo-write --buffer | <writer>] similar to [sponge], it will read STDIN into a buffer until <input> closes, then sends the buffered input to the <writer>, this avoids SIGPIPE failures.
-			4. [<input> | echo-write --buffer -- ...<target>] similar to [sponge], it will read STDIN into a buffer until <input> closes, then writes the buffered input to each <target>, this avoids SIGPIPE failures, and may allow you to write to the same file that was read (if you need that, use --atomic).
-			5. [<input-file> | echo-write --atomic -- <input-file>] same as [sponge], it will read STDIN into a buffer until <input-file> closes, then atomically replaces the <input-file> with the buffered input, this allows you to write to the same file that was read, it also avoids SIGPIPE failures.
+			\`echo-write\` handles these use cases:
+			1. \`<input> | echo-write\` same as \`cat\`, it will read STDIN as it happens, until the <input> closes, avoiding issues with delays and timeouts.
+			2. \`<input> | echo-write --direct [--no-binary] -- ...<target>\` if \`tee\` and \`cat\` had a baby, it will STDIN and write to each <target> as it happens.
+			3. \`<input> | echo-write --buffer | <writer>\` similar to \`sponge\`, it will read STDIN into a buffer until <input> closes, then sends the buffered input to the <writer>, this avoids SIGPIPE failures.
+			4. \`<input> | echo-write --buffer -- ...<target>\` similar to \`sponge\`, it will read STDIN into a buffer until <input> closes, then writes the buffered input to each <target>, this avoids SIGPIPE failures, and may allow you to write to the same file that was read (if you need that, use --atomic).
+			5. \`<input-file> | echo-write --atomic -- <input-file>\` same as \`sponge\`, it will read STDIN into a buffer until <input-file> closes, then atomically replaces the <input-file> with the buffered input, this allows you to write to the same file that was read, it also avoids SIGPIPE failures.
 
-			[echo-write] will automatically detect if a sudo escalation to write to a <target> is necessary, and will do the appropriate sudo escalation prompt.
-			If appending, [echo-write] will also do the same sudo escalation prompt if reading a <target> requires sudo escalation.
+			\`echo-write\` will automatically detect if a sudo escalation to write to a <target> is necessary, and will do the appropriate sudo escalation prompt.
+			If appending, \`echo-write\` will also do the same sudo escalation prompt if reading a <target> requires sudo escalation.
 
-			Note if [tee] already fits your needs, continue using [tee]. The only advantage of [echo-write] in that use case which is #2, would be auto sudo escalation, and writing to other FDs.
+			Note if \`tee\` already fits your needs, continue using \`tee\`. The only advantage of \`echo-write\` in that use case which is #2, would be auto sudo escalation, and writing to other FDs.
 
 			USAGE:
-			<input> | echo-write [...options] [-- ...<target>] | <reader>
+			\`<input> | echo-write [...options] [-- ...<target>] | <reader>\`
 
 			OPTIONS:
 			--direct [--no-binary]
 			    The default mode, write the <input> directly to the <target>s, without buffering.
-			    Only supports multiple targets if either --no-binary, --buffer, or --atomic is provided.
+			    Only supports multiple targets if either <binary:false>, <buffer>, or <atomic> is provided.
 			    This means:
-			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write -- stdout
+			    \`{ sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write -- stdout
 			    # ^ outputs a\n to stdout, then b to stdout, then c to stdout
 			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --buffer -- stdout stderr tty overwrite.txt
 			    # ^ outputs a\nbc to stdout, then a\nbc to stderr, then a\nbc to tty, then a\nbc to overwrite.txt
 			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --no-binary -- stdout stderr tty overwrite.txt
 			    # ^ outputs a\n to stdout stderr tty and overwrite.txt, then b to stdout stderr tty and overwrite.txt, then c to stdout stderr tty and overwrite.txt, with overwrite.txt being overwritten each time, meaning it only has [c] inside it
 			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --no-binary --append -- stdout stderr tty append.txt
-			    # ^ outputs a\n to stdout stderr tty and append.txt, then b to stdout stderr tty and append.txt, then c to stdout stderr tty and append.txt, with append.txt being appended each time, meaning it has [a\nb\nc] inside it
+			    # ^ outputs a\n to stdout stderr tty and append.txt, then b to stdout stderr tty and append.txt, then c to stdout stderr tty and append.txt, with append.txt being appended each time, meaning it has [a\nb\nc] inside it.\`
 			--buffer
 			    Buffer all the <input> to a temporary file, then write the content from the temporary file to the <target>s.
-			    This avoids SIGPIPE failures, however it is better to use [bash.bash:__ignore_pipe].
+			    This avoids SIGPIPE failures, however it is better to use \`bash.bash:__ignore_pipe\`.
 			--atomic
 			    Buffer all the <input> to a temporary file, then replace the <target:file> with the temporary file.
-			    This is useful when reading and writing to the same file in a pipe, e.g. [{cat,jq,rg} <target:file> | echo-write -- <target:file>].
-			    For non-files, this is the same as [--buffer].
+			    This is useful when reading and writing to the same file in a pipe, e.g. \`{cat,jq,rg} <target:file> | echo-write -- <target:file>\`.
+			    For non-files, this is the same as <buffer>.
 			--append
 			    When writing to the <target>s, append to them instead of overwriting.
 			    For non-files, this has no effect, they are always appended.
 
 			--elevated=<elevated>
 			--elevate=<elevate>
-			    Defaults to [13] and [93] which elevates privileges if necessary to write the <target:file-path>.
+			    Forwards as \`13 93 <elevate>\` which elevates privileges if necessary to write the <target:file-path>.
 			--user=<user>
 			--group=<group>
 			--reason=<reason>
-			    Forwarded to [eval-helper].
+			    Forwarded to \`eval-helper\`.
 
-			[-- ...<target:file-path|file-descriptor|device-file>]
+			-- ...<target:file-path|file-descriptor|device-file>
 			    A target to write to. If none are provided, it is STDOUT.
-			    A target can be a file path (e.g. out.txt), a file descriptor (e.g. 1 for STDOUT, 2 for STDERR), or a device file (e.g. /dev/stdout, /dev/stderr, /dev/tty). These are sent to [bash.bash:__do] for processing.
+			    A target can be a file path (e.g. \`out.txt\`), a file descriptor (e.g. \`1\` for STDOUT, \`2\` for STDERR), or a device file (e.g. \`/dev/stdout\`, \`/dev/stderr\`, \`/dev/tty\`). These are sent to \`bash.bash:__do\` for processing.
 
 			QUIRKS:
-			This command has each flag disabled, except --direct, such that your code becomes self-documenting. That is to say, by providing the flag, you communicate why you needed [echo-write] in the first place.
+			This command has each flag disabled, except <direct>, such that your code becomes self-documenting. That is to say, by providing the flag, you communicate why you needed \`echo-write\` in the first place.
 		EOF
 		if [[ $# -ne 0 ]]; then
 			__print_error "$@"
