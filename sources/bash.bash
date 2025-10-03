@@ -1633,7 +1633,7 @@ function __exit_on_exit_status {
 function __is_positive_integer {
 	__affirm_length_defined $# 'input' || return
 	while [[ $# -ne 0 ]]; do
-		[[ $1 =~ ^[0-9]+$ ]] || return
+		[[ $1 =~ ^[+]?[0-9]+$ ]] || return
 		shift
 	done
 }
@@ -1650,7 +1650,7 @@ function __is_negative_integer {
 function __is_integer {
 	__affirm_length_defined $# 'input' || return
 	while [[ $# -ne 0 ]]; do
-		[[ $1 =~ ^[-]?[0-9]+$ ]] || return
+		[[ $1 =~ ^[+-]?[0-9]+$ ]] || return
 		shift
 	done
 }
@@ -1687,19 +1687,25 @@ function __is_odd {
 
 function __is_zero {
 	__affirm_length_defined $# 'input' || return
+	local input
 	while [[ $# -ne 0 ]]; do
-		[[ $1 -eq 0 ]] || return
+		input="$1"
 		shift
+		__affirm_value_is_integer "$input" 'input' || return
+		[[ $input -eq 0 ]] || return
 	done
 }
 
+# Checks that ALL <input>s are of the desired affirmation (affirmative/non-affirmative)
+# __is_affirmative [--ignore-empty] [--affirmation=[non-]affirmative] -- ...<input>
 function __is_affirmative {
-	local IS_AFFIRMATIVE__item IS_AFFIRMATIVE__inputs=() IS_AFFIRMATIVE__ignore_empty='no'
+	local IS_AFFIRMATIVE__item IS_AFFIRMATIVE__inputs=() IS_AFFIRMATIVE__ignore_empty='no' IS_AFFIRMATIVE__affirmation='affirmative'
 	while [[ $# -ne 0 ]]; do
 		IS_AFFIRMATIVE__item="$1"
 		shift
 		case "$IS_AFFIRMATIVE__item" in
 		--no-ignore-empty* | --ignore-empty*) __flag --source={IS_AFFIRMATIVE__item} --target={IS_AFFIRMATIVE__ignore_empty} --affirmative --coerce || return ;;
+		--affirmation=affirmative | --affirmation=non-affirmative) IS_AFFIRMATIVE__affirmation="${IS_AFFIRMATIVE__item#*=}" ;;
 		--)
 			IS_AFFIRMATIVE__inputs+=("$@")
 			shift "$#"
@@ -1709,11 +1715,21 @@ function __is_affirmative {
 		*) IS_AFFIRMATIVE__inputs+=("$IS_AFFIRMATIVE__item") ;;
 		esac
 	done
-	local IS_AFFIRMATIVE__input IS_AFFIRMATIVE__had_affirmative='no'
+	local IS_AFFIRMATIVE__input IS_AFFIRMATIVE__affirmed='no'
 	for IS_AFFIRMATIVE__input in "${IS_AFFIRMATIVE__inputs[@]}"; do
 		case "$IS_AFFIRMATIVE__input" in
-		yes | y | true | Y | YES | TRUE) IS_AFFIRMATIVE__had_affirmative='yes' ;;
-		no | n | false | N | NO | FALSE) return 1 ;;
+		yes | y | true | Y | YES | TRUE)
+			if [[ $IS_AFFIRMATIVE__affirmation == 'non-affirmative' ]]; then
+				return 1
+			fi
+			IS_AFFIRMATIVE__affirmed='yes'
+			;;
+		no | n | false | N | NO | FALSE)
+			if [[ $IS_AFFIRMATIVE__affirmation == 'affirmative' ]]; then
+				return 1
+			fi
+			IS_AFFIRMATIVE__affirmed='yes'
+			;;
 		'')
 			if [[ $IS_AFFIRMATIVE__ignore_empty == 'yes' ]]; then
 				continue
@@ -1726,51 +1742,16 @@ function __is_affirmative {
 			;;
 		esac
 	done
-	if [[ $IS_AFFIRMATIVE__had_affirmative == 'no' ]]; then
+	if [[ $IS_AFFIRMATIVE__affirmed == 'no' ]]; then
 		return 91 # ENOMSG 91 No message of desired type
 	else
 		return 0
 	fi
 }
 
+# Alias for `__is_affirmative --non-affirmative`
 function __is_non_affirmative {
-	local IS_NON_AFFIRMATIVE__item IS_NON_AFFIRMATIVE__inputs=() IS_NON_AFFIRMATIVE__ignore_empty='no'
-	while [[ $# -ne 0 ]]; do
-		IS_NON_AFFIRMATIVE__item="$1"
-		shift
-		case "$IS_NON_AFFIRMATIVE__item" in
-		--no-ignore-empty* | --ignore-empty*) __flag --source={IS_NON_AFFIRMATIVE__item} --target={IS_NON_AFFIRMATIVE__ignore_empty} --affirmative --coerce || return ;;
-		--)
-			IS_NON_AFFIRMATIVE__inputs+=("$@")
-			shift "$#"
-			break
-			;;
-		--*) __unrecognised_flag "$IS_NON_AFFIRMATIVE__item" || return ;;
-		*) IS_NON_AFFIRMATIVE__inputs+=("$IS_NON_AFFIRMATIVE__item") ;;
-		esac
-	done
-	local IS_NON_AFFIRMATIVE__input IS_NON_AFFIRMATIVE__had_non_affirmative='no'
-	for IS_NON_AFFIRMATIVE__input in "${IS_NON_AFFIRMATIVE__inputs[@]}"; do
-		case "$IS_NON_AFFIRMATIVE__input" in
-		yes | y | true | Y | YES | TRUE) return 1 ;;
-		no | n | false | N | NO | FALSE) IS_NON_AFFIRMATIVE__had_non_affirmative='yes' ;;
-		'')
-			if [[ $IS_NON_AFFIRMATIVE__ignore_empty == 'yes' ]]; then
-				continue
-			else
-				return 91 # ENOMSG 91 No message of desired type
-			fi
-			;;
-		*)
-			return 91 # ENOMSG 91 No message of desired type
-			;;
-		esac
-	done
-	if [[ $had_non_affirmative == 'no' ]]; then
-		return 91 # ENOMSG 91 No message of desired type
-	else
-		return 0
-	fi
+	__is_affirmative --affirmation=non-affirmative "$@" || return
 }
 
 # check if the input is a special target
