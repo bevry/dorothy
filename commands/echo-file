@@ -35,6 +35,8 @@ function echo_file_test() (
 
 	# BAT
 
+	setup-util-bat --uninstall --quiet
+
 	echo a | eval-tester --ignore-tty --stdout=$'a\n' --trailing-newlines -- \
 		echo-file --no-color --stdin --raw --bat
 
@@ -89,6 +91,8 @@ function echo_file() (
 			--[no-]header
 			    Show the file content wrapped in a header that indicates its <path>.
 			    If omitted, enabled.
+			--name=<name>
+			    If provided, outputs <name> in the <header> instead of <path>. Useful for providing a name including extension when using STDIN such that <bat> can <highlight> correctly.
 			--[no-]highlight
 			    If <bat>, show file content with syntax highlighting.
 			    If enabled, implies <bat>.
@@ -105,12 +109,13 @@ function echo_file() (
 			--[no-]raw
 			    Enables <plain> and disables <header>, <highlight>, <number>, <bat>, <color>. Shows unadultered raw content, for piping to other commands. <bat> is disabled because otherwise a trailing newline will be inserted if missing.
 
-			--[no-]ignore-missing
-			    If enabled, do not return a failure nor show an error message when a <path> is missing.
-			--[no-]ignore-unreadable
-			    If enabled, do not return a failure nor show an error message when a <path> is unreadable.
+			--[no-]warn
+			    If <enabled>, the default, when a <path> is missing or unreadable, output a failure message.
+			--[no-]error
+			    If <enabled>, the default, when a <path> is missing or unreadable, return a failure status.
 			--[no-]optional | --[no-]required
-			    Alias for setting both <ignore-missing> and <ignore-unreadable> accordingly.
+			    If <optional>, both <warn> and <error> will be disabled.
+			    If <required>, both <warn> and <error> will be enabled.
 
 			--elevated=<elevated>
 			--elevate=<elevate>
@@ -131,8 +136,8 @@ function echo_file() (
 	# process our own arguments, delegate everything else to stdinargs
 	local item \
 		option_bat='' option_install='' \
-		option_header='' option_highlight='' option_numbers='' option_plain='' option_hidden='no' option_trim='no' \
-		option_ignore_missing='' option_ignore_unreadable='' \
+		option_header='' option_name='' option_highlight='' option_numbers='' option_plain='' option_hidden='no' option_trim='no' \
+		option_warn='yes' option_error='yes' \
 		option_elevated='' option_elevate='' option_user='' option_group='' option_reason='' \
 		option_args=()
 	# don't move 13 and 93 into option_elevate here, as then that means they apply on bat and cat, which we don't want
@@ -145,6 +150,7 @@ function echo_file() (
 		--no-bat* | --bat*) __flag --source={item} --target={option_bat} --affirmative --coerce ;;
 		--no-install* | --install*) __flag --source={item} --target={option_bat} --affirmative --coerce ;;
 		--no-header* | --header*) __flag --source={item} --target={option_header} --affirmative --coerce ;;
+		--name=*) option_name="${item#*=}" ;;
 		--no-highlight* | --highlight*) __flag --source={item} --target={option_highlight} --affirmative --coerce ;;
 		--no-number* | --number* | --no-lines* | --lines*) __flag --source={item} --target={option_numbers} --affirmative --coerce ;;
 		--no-plain* | --plain*)
@@ -167,20 +173,20 @@ function echo_file() (
 				COLOR='no'
 			fi
 			;;
-		--no-ignore-missing* | --ignore-missing*) __flag --source={item} --target={option_ignore_missing} --affirmative --coerce ;;
-		--no-ignore-unreadable* | --ignore-unreadable*) __flag --source={item} --target={option_ignore_unreadable} --affirmative --coerce ;;
+		--no-warn* | --warn*) __flag --source={item} --target={option_warn} --affirmative --coerce ;;
+		--no-error* | --error*) __flag --source={item} --target={option_error} --affirmative --coerce ;;
 		--no-required* | --required*)
-			__flag --source+target={item} --non-affirmative --coerce
+			__flag --source+target={item} --affirmative --coerce
 			if [[ -n $item ]]; then
-				option_ignore_missing="$item"
-				option_ignore_unreadable="$item"
+				option_warn="$item"
+				option_error="$item"
 			fi
 			;;
 		--no-optional* | --optional*)
-			__flag --source+target={item} --affirmative --coerce
+			__flag --source+target={item} --non-affirmative --coerce
 			if [[ -n $item ]]; then
-				option_ignore_missing="$item"
-				option_ignore_unreadable="$item"
+				option_warn="$item"
+				option_error="$item"
 			fi
 			;;
 		# <elevate>
@@ -238,7 +244,7 @@ function echo_file() (
 	# Action
 
 	# receive then act on all files
-	local FILE REASON ELEVATE
+	local FILE NAME REASON ELEVATE
 	function __wrap {
 		eval-helper --elevated="$option_elevated" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$@" || return
 	}
@@ -310,16 +316,16 @@ function echo_file() (
 			if [[ $FILE == '/dev/stdin' ]]; then
 				# STDIN
 				if [[ $option_trim == 'yes' ]]; then
-					echo-trim-padding --stdin | bat --file-name "$FILE" "${bat_options[@]}" - || return
+					echo-trim-padding --stdin | bat --file-name "$NAME" "${bat_options[@]}" - || return
 				else
-					bat --file-name "$FILE" "${bat_options[@]}" - || return
+					bat --file-name "$NAME" "${bat_options[@]}" - || return
 				fi
 			else
 				# FILE
 				if [[ $option_trim == 'yes' ]]; then
-					__wrap cat "$FILE" | echo-trim-padding --stdin | bat --file-name "$FILE" "${bat_options[@]}" - || return
+					__wrap cat "$FILE" | echo-trim-padding --stdin | bat --file-name "$NAME" "${bat_options[@]}" - || return
 				else
-					__wrap cat "$FILE" | bat --file-name "$FILE" "${bat_options[@]}" - || return
+					__wrap cat "$FILE" | bat --file-name "$NAME" "${bat_options[@]}" - || return
 				fi
 			fi
 		}
@@ -373,10 +379,10 @@ function echo_file() (
 				local content
 				content="$(__cat)" || return
 				if [[ -n $content ]]; then
-					__print_style --element="$FILE" --newline --code="$content" --newline --/element="$FILE" || return
+					__print_style --element="$NAME" --newline --code="$content" --newline --/element="$NAME" || return
 				else
 					# self close, as no data (consistent with eval-helper)
-					__print_style --element/="$FILE" || return
+					__print_style --element/="$NAME" || return
 				fi
 			else
 				__cat || return
@@ -387,21 +393,23 @@ function echo_file() (
 	# on_file
 	function __on_stdin {
 		FILE='/dev/stdin'
+		NAME="${option_name:-"$FILE"}"
 		__read || return
 	}
 	function __on_argument {
 		# share
 		FILE="$1"
+		NAME="${option_name:-"$FILE"}"
 		REASON="${option_reason:-"Your password is required to momentarily grant privileges to read the file: $FILE"}"
 		# auto-elevation
 		ELEVATE="$option_elevate"
 		local target_elevated
 		target_elevated="$(mktemp)" || return
 
-		# check missing, with elevation if inaccessible (13)
+		# check file, with elevation if inaccessible (13)
 		# ! [[ -e "$FILE" ]] &&
-		if is-missing --quiet="$option_ignore_missing" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
-			if [[ $option_ignore_unreadable == 'yes' ]]; then
+		if ! is-file --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
+			if [[ $option_error == 'no' ]]; then
 				return 0
 			else
 				return 13 # EACCES 13 Permission denied
@@ -413,8 +421,8 @@ function echo_file() (
 
 		# check unreadable, with elevation if unreadable (93)
 		# ! [[ -r "$FILE" ]] &&
-		if ! is-readable --quiet="$option_ignore_unreadable" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="93 $ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
-			if [[ $option_ignore_unreadable == 'yes' ]]; then
+		if ! is-readable --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="93 $ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
+			if [[ $option_error == 'no' ]]; then
 				return 0
 			else
 				return 13 # EACCES 13 Permission denied

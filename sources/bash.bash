@@ -116,15 +116,17 @@ function __command_exists {
 }
 
 # cache performant checks for command existence and installation
-# __command_required [--list] [--no-install] [--] ...<command>
+# __command_required [--print] [--no-install] [--] ...<command>
+# --print: print the command that was found or installed
+# if multiple commands are provided, the first one found is used, if not found, the first one installed is used
 function __command_required {
 	# verbose
-	local COMMAND_REQUIRED__item COMMAND_REQUIRED__list='no' COMMAND_REQUIRED__install='yes' COMMAND_REQUIRED__commands=()
+	local COMMAND_REQUIRED__item COMMAND_REQUIRED__print='no' COMMAND_REQUIRED__install='yes' COMMAND_REQUIRED__commands=()
 	while [[ $# -ne 0 ]]; do
 		COMMAND_REQUIRED__item="$1"
 		shift
 		case "$COMMAND_REQUIRED__item" in
-		--no-list* | --list*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__list} --affirmative --coerce || return ;;
+		--no-print* | --print*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__print} --affirmative --coerce || return ;;
 		--no-install* | --install*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__install} --affirmative --coerce || return ;;
 		--)
 			COMMAND_REQUIRED__commands+=("$@")
@@ -141,14 +143,14 @@ function __command_required {
 		declare -A COMMAND_REQUIRED__CACHE # shared
 		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
 			if [[ ${COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]-} == 'yes' ]]; then
-				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command"
+				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command" || return
 				fi
 				return 0
 			elif __command_exists -- "$COMMAND_REQUIRED__command"; then
 				COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]='yes'
-				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command"
+				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command" || return
 				fi
 				return 0
 			fi
@@ -159,16 +161,16 @@ function __command_required {
 		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
 			for COMMAND_REQUIRED__other in "${COMMAND_REQUIRED__CACHE[@]}"; do
 				if [[ $COMMAND_REQUIRED__command == "$COMMAND_REQUIRED__other" ]]; then
-					if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
-						__print_string "$COMMAND_REQUIRED__command"
+					if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+						__print_string "$COMMAND_REQUIRED__command" || return
 					fi
 					return 0
 				fi
 			done
 			if __command_exists -- "$COMMAND_REQUIRED__command"; then
 				COMMAND_REQUIRED__CACHE+=("$COMMAND_REQUIRED__command")
-				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command"
+				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command" || return
 				fi
 				return 0
 			fi
@@ -178,24 +180,24 @@ function __command_required {
 	if [[ $COMMAND_REQUIRED__install == 'no' ]]; then
 		return 6 # ENXIO 6 Device not configured
 	fi
-	get-installer --first-success --invoke --quiet -- "$@" || return
+	get-installer --first-success --invoke --quiet -- "${COMMAND_REQUIRED__commands[@]}" || return
 	# okay, save that they are now installed
 	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-		for command in "$@"; do
-			if __command_exists -- "$command"; then
-				COMMAND_REQUIRED__CACHE["$command"]='yes'
-				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
-					__print_string "$command"
+		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
+			if __command_exists -- "$COMMAND_REQUIRED__command"; then
+				COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]='yes'
+				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command"
 				fi
 				return 0
 			fi
 		done
 	else
-		for command in "$@"; do
-			if __command_exists -- "$command"; then
-				COMMAND_REQUIRED__CACHE+=("$command")
-				if [[ $COMMAND_REQUIRED__list == 'yes' ]]; then
-					__print_string "$command"
+		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
+			if __command_exists -- "$COMMAND_REQUIRED__command"; then
+				COMMAND_REQUIRED__CACHE+=("$COMMAND_REQUIRED__command")
+				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+					__print_string "$COMMAND_REQUIRED__command"
 				fi
 				return 0
 			fi
@@ -5865,10 +5867,10 @@ function __tool {
 	__dereference --source="$TOOL__tools_reference" --value={TOOL__tools} || return
 	# dependency
 	if [[ $TOOL__tool == '?' ]]; then
-		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")"
+		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")" || return
 		__command_required -- "$TOOL__tool" || return
 	elif [[ -z $TOOL__tool ]]; then
-		TOOL__tool="$(__command_required --list -- "${TOOL__tools[@]}")" || return
+		TOOL__tool="$(__command_required --print -- "${TOOL__tools[@]}")" || return
 	elif __has --source={TOOL__tools} -- "$TOOL__tool"; then
 		__command_required -- "$TOOL__tool" || return
 	else
