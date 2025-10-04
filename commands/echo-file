@@ -60,6 +60,14 @@ function echo_file_test() (
 	printf '\n\n\n' | eval-tester --stdout='' --trailing-newlines -- \
 		echo-file --no-color --stdin --raw --bat --hidden --trim
 
+	# PROCESS SUBSTITUTION
+
+	eval-tester --stdout=$'a $\n^I$\n^@b' --trailing-newlines -- \
+		echo-file --no-color --raw --bat=no --hidden -- <(printf 'a \n\t\n\0b')
+
+	eval-tester --stdout=$'a·␊\n├──┤␊\n␀b\n' --trailing-newlines -- \
+		echo-file --no-color --raw --bat --hidden -- <(printf 'a \n\t\n\0b')
+
 	return 0
 )
 function echo_file() (
@@ -413,33 +421,38 @@ function echo_file() (
 		REASON="${option_reason:-"Your password is required to momentarily grant privileges to read the file: $FILE"}"
 		# auto-elevation
 		ELEVATE="$option_elevate"
-		local target_elevated
-		target_elevated="$(mktemp)" || return
 
-		# check file, with elevation if inaccessible (13)
-		# ! [[ -e "$FILE" ]] &&
-		if ! is-file --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
-			if [[ $option_error == 'no' ]]; then
-				return 0
-			else
-				return 13 # EACCES 13 Permission denied
-			fi
-		fi
-		if [[ -s $target_elevated ]]; then
-			ELEVATE='yes'
-		fi
+		# if it isn't a process substitution, then check access with optional elevation
+		if ! [[ -p "$FILE" ]]; then 
+			# prepare temp file to capture if elevation was used
+			local target_elevated
+			target_elevated="$(mktemp)" || return
 
-		# check unreadable, with elevation if unreadable (93)
-		# ! [[ -r "$FILE" ]] &&
-		if ! is-readable --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="93 $ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
-			if [[ $option_error == 'no' ]]; then
-				return 0
-			else
-				return 13 # EACCES 13 Permission denied
+			# check file, with elevation if inaccessible (13)
+			# ! [[ -e "$FILE" ]] &&
+			if ! is-file --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
+				if [[ $option_error == 'no' ]]; then
+					return 0
+				else
+					return 13 # EACCES 13 Permission denied
+				fi
 			fi
-		fi
-		if [[ -s $target_elevated ]]; then
-			ELEVATE='yes'
+			if [[ -s $target_elevated ]]; then
+				ELEVATE='yes'
+			fi
+
+			# check unreadable, with elevation if unreadable (93)
+			# ! [[ -r "$FILE" ]] &&
+			if ! is-readable --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="93 $ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
+				if [[ $option_error == 'no' ]]; then
+					return 0
+				else
+					return 13 # EACCES 13 Permission denied
+				fi
+			fi
+			if [[ -s $target_elevated ]]; then
+				ELEVATE='yes'
+			fi
 		fi
 
 		# read the file
