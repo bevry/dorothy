@@ -17,11 +17,11 @@ source "$DOROTHY/sources/bash.bash"
 # [0] success
 
 # This prints stdinargs options that callers should include in their help rendering.
-function __stdinargs_options_help {
+function __stdinargs__help_options {
 	local option_stdin='' \
 		default_message=$'\n    This is the default behaviour.' \
 		stdin_empty_message='' stdin_yes_message='' stdin_no_message=''
-	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@" || retuurn
+	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@" || return
 	if [[ $option_stdin == 'yes' ]]; then
 		stdin_yes_message="$default_message"
 	elif [[ $option_stdin == 'no' ]]; then
@@ -51,7 +51,7 @@ function __stdinargs_options_help {
 		    Disables colored output.
 	EOF
 }
-function stdinargs_options_help { __stdinargs_options_help; }
+function stdinargs_options_help { __stdinargs__help_options; } # b/c alias
 
 # This fetching the first defined function.
 function __print_first_function {
@@ -85,7 +85,7 @@ function __print_piece {
 
 # This processes the arguments.
 # This cannot become a safety function, as it needs to support unsafe fuctions, which safety functions cannot.
-# Only if unsafe is hard deprecated, could it become a safety fuunction, but that doesn't make sense.
+# Only if unsafe is hard deprecated, could it become a safety function, but that doesn't make sense.
 function stdinargs {
 	# function
 	local fn_help fn_stdin fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
@@ -210,7 +210,7 @@ function stdinargs {
 	if [[ $timeout_max == 'no' && $timeout_immediate == 'no' && -n $timeout_seconds ]]; then
 		read_args+=('-t' "$timeout_seconds")
 	fi
-	function stdinargs_eval {
+	function stdinargs__eval {
 		local stdinargs_status
 		__try {stdinargs_status} -- "$@"
 		if [[ $stdinargs_status == 210 ]]; then
@@ -219,12 +219,12 @@ function stdinargs {
 		fi
 		return "$stdinargs_status"
 	}
-	function stdinargs_read {
+	function stdinargs__read {
 		local what="$1" had_read='no'
 		if [[ $what == 'stdin' && -n $fn_stdin ]]; then
 			if [[ $timeout_immediate == 'no' ]] || read -t 0; then
 				had_read='yes'
-				stdinargs_eval "$fn_stdin"
+				stdinargs__eval "$fn_stdin"
 			fi
 		elif [[ -n $fn_whole ]]; then
 			local piece='' whole=''
@@ -236,7 +236,7 @@ function stdinargs {
 				whole+="$piece"
 				piece=''
 			done
-			stdinargs_eval "$fn_whole" "$whole"
+			stdinargs__eval "$fn_whole" "$whole"
 		else
 			# for each line, call `on_line` or `on_piece`
 			# for each inline, call `on_inline` or `on_line` or `on_piece`
@@ -250,9 +250,9 @@ function stdinargs {
 					break
 				fi
 				if [[ -n $fn_line ]]; then
-					stdinargs_eval "$fn_line" "$piece"
+					stdinargs__eval "$fn_line" "$piece"
 				else
-					stdinargs_eval "$fn_piece" "$piece"
+					stdinargs__eval "$fn_piece" "$piece"
 				fi
 			done
 			if [[ -n $piece && $option_inline != 'no' ]]; then # this needs to be `[[`` otherwise a piece of `>` will cause crash with `test`
@@ -260,11 +260,11 @@ function stdinargs {
 				if [[ $complete == 'yes' ]]; then
 					:
 				elif [[ -n $fn_inline ]]; then
-					stdinargs_eval "$fn_inline" "$piece"
+					stdinargs__eval "$fn_inline" "$piece"
 				elif [[ -n $fn_line ]]; then
-					stdinargs_eval "$fn_line" "$piece"
+					stdinargs__eval "$fn_line" "$piece"
 				else
-					stdinargs_eval "$fn_piece" "$piece"
+					stdinargs__eval "$fn_piece" "$piece"
 				fi
 			fi
 		fi
@@ -298,13 +298,13 @@ function stdinargs {
 				break
 			fi
 			if [[ -n $fn_arg ]]; then
-				stdinargs_eval "$fn_arg" "$item"
+				stdinargs__eval "$fn_arg" "$item"
 			elif [[ -n $fn_whole ]]; then
-				stdinargs_eval "$fn_whole" "$item"
+				stdinargs__eval "$fn_whole" "$item"
 			elif [[ -n $fn_piece ]]; then
-				stdinargs_eval "$fn_piece" "$item"
+				stdinargs__eval "$fn_piece" "$item"
 			else
-				stdinargs_read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
+				stdinargs__read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
 			fi
 		done
 	fi
@@ -314,7 +314,7 @@ function stdinargs {
 	# if we autodetect stdin, then skip stdin if arguments were provided
 	if [[ $option_stdin != 'no' && ($option_stdin == 'yes' || $had_args != 'yes') ]]; then
 		had_stdin='no'
-		stdinargs_read stdin
+		stdinargs__read stdin
 	fi
 
 	# verify (note that values can be yes/no/maybe)
