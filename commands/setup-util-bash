@@ -50,10 +50,41 @@ function setup_util_bash() (
 
 		# @todo support uninstall
 
-		# https://www.gnu.org/prep/ftp.html'
-		function __get_bash_patches {
-			local patches_url="$1"
-			fetch "$patches_url" | echo-regexp -gno --regexp='href="(bash[^"]+)' --replace='$1' | grep --invert-match --regexp='\.sig$' | sort # sort here, as depending on the mirror, a different sort order will be returned, and they must be sorted by ascending name
+		# https://www.gnu.org/prep/ftp.html
+		# try mirrors first as they are faster, then fallback to main site
+		function __download_bash_version_patch {
+			local version="$1" patch="$2"
+			down --url="https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" || \
+				down --url="https://ftp.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" || return
+		}
+		function __fetch_bash_version_patches {
+			local version="$1"
+			fetch "https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/" || \
+				fetch "https://ftp.gnu.org/gnu/bash/bash-${version}-patches/" || return
+		}
+		function __get_bash_version_patches {
+			# https://github.com/bevry/dorothy/actions/runs/18237950922/job/51935016858#step:2:1816
+			# some mirrors have two <a> tags:
+			# https://ftp.wayne.edu/gnu/bash/bash-5.0-patches/
+            # <td valign="top">
+            #     <a href="bash50-001">
+            #         <img src="/icons/text.gif" alt="[TXT]">
+            #     </a>
+            # </td>
+            # <td>
+            #     <a href="bash50-001">bash50-001</a>
+            # </td>
+			# https://ftp.gnu.org/gnu/bash/bash-5.0-patches/
+			# <td valign="top">
+            #     <img src="/icons/unknown.gif" alt="[   ]">
+            # </td>
+            # <td>
+            #     <a href="bash50-001">bash50-001</a>
+            # </td>
+			# so send to `echo-unique` rather than complicating our filter
+			# also send to `sort`, as depending on the mirror, a different sort order will be returned, and they must be sorted by ascending name
+			local version="$1"
+			__fetch_bash_version_patches "$version" | echo-regexp -gno --regexp='href="(bash[^"]+)' --replace='$1' | grep --invert-match --regexp='\.sig$' | echo-unique --stdin | sort || return
 		}
 		function do_install {
 			# dependencies
@@ -73,14 +104,14 @@ function setup_util_bash() (
 			if [[ $version == *.*.* ]]; then
 				__print_style --stderr --bold='Bash version ' --code="$version" --bold=' is already patched.'
 			else
-				local patches_url patches=() patch patch_url patch_content
-				patches_url="https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/"
+				# use ftp.gnu.org for fetching the listing, then use mirrors for fetching the mirrors
+				# mirrors sometimes are not reliable with duplicate data or missing items
+				local patches=() patch patch_content
 				__split --target={patches} --no-zero-length --invoke=try -- \
-					__get_bash_patches "$patches_url" || return
+					__get_bash_version_patches "$version" || return
 				for patch in "${patches[@]}"; do
-					patch_url="${patches_url}${patch}"
-					# __print_style --stderr --bold='Patching ' --code="$patch" --bold=' from ' --path="$patch_url"
-					down --url="$patch_url" --file="$patch" || return
+					# if the mirror fails, then fallback to the main site, and if that fails, then give up
+					__download_bash_version_patch "$version" "$patch" || return
 					patch --input="$patch" -p0 # p0 is necessary for linux builds
 				done
 			fi

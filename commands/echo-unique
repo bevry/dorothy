@@ -1,13 +1,39 @@
 #!/usr/bin/env bash
 
+function echo_unique_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	eval-tester --name='no args' -- \
+		echo-unique
+
+	eval-tester --name='no args' -- \
+		echo-unique --
+
+	# respect case
+	eval-tester --stdout=$'A\nC\ne\na\nb\n' --trailing-newlines -- \
+		echo-unique -- A C e a b a b
+
+	__print_lines A C e a b a b | eval-tester --stdout=$'A\nC\ne\na\nb\n' --trailing-newlines -- \
+		echo-unique --stdin
+
+	# ignore case
+	eval-tester --stdout=$'a\nc\ne\nb\n' --trailing-newlines -- \
+		echo-unique --ignore-case -- A C e a b a b
+
+	__print_lines A c e a b a b | eval-tester --stdout=$'a\nc\ne\nb\n' --trailing-newlines -- \
+		echo-unique --stdin --ignore-case
+
+	return 0
+)
 function echo_unique() (
 	source "$DOROTHY/sources/stdinargs.bash"
+	source "$DOROTHY/sources/styles.bash"
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >&2
+	function __help {
+		__print_help <<-EOF || return
 			ABOUT:
 			Output each input that is unique, in their original order, without the need to sort beforehand.
 
@@ -16,48 +42,31 @@ function echo_unique() (
 			echo-lines ...<input> | echo-unique [...options]
 
 			OPTIONS:
-			--ignore-case
-			    If provided, ignore case when comparing lines.
+			--[no-]lower-case | --[no-]ignore-case
+			    If enabled, convert the input to lower-case to ignore-case.
 
-			EXAMPLES:
-
-			echo-unique -- a c e a b a b
-
-			    a
-				c
-				e
-				b
-			    # exit status: 0
-
-			echo-lines -- a c e a b a b | echo-unique
-
-			    a
-				c
-				e
-				b
-			    # exit status: 0
+			$(__stdinargs__help_options --)
 		EOF
 		if [[ $# -ne 0 ]]; then
-			__print_error "$@"
+			__print_error "$@" || return
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_ignore_case='no' option_args=()
+	local item option_lower_case='no' option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--stdin') : ;; # already the case
-		'--ignore-case') option_ignore_case='yes' ;;
-		'--')
-			option_args+=("$@")
+		--help | -h) __help ;;
+		--no-lower-case* | --lower-case* | --no-ignore-case* | --ignore-case*) __flag --source={item} --target={option_lower_case} --affirmative --coerce ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		--)
+			option_args+=("$item" "$@")
 			shift $#
 			break
 			;;
-		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*) option_args+=("$item") ;;
 		esac
 	done
@@ -65,25 +74,26 @@ function echo_unique() (
 	# =====================================
 	# Action
 
-	local bin_gawk_or_awk
-	bin_gawk_or_awk="$(echo-gnu-command --install -- gawk)"
-
-	function do_uniq {
-		if [[ $option_ignore_case == 'yes' ]]; then
-			"$bin_gawk_or_awk" '!seen[tolower($0)]++'
-		else
-			"$bin_gawk_or_awk" '!seen[$0]++'
+	local arguments=()
+	function __on_piece {
+		arguments+=("$1")
+	}
+	function __on_finish {
+		if [[ $option_lower_case == 'yes' ]]; then
+			__case --source+target={arguments} --lower || return
 		fi
+		__unique --source+target={arguments} || return
+		__print_lines "${arguments[@]}" || return
 	}
 
-	if [[ ${#option_args[@]} -ne 0 ]]; then
-		__print_lines "${option_args[@]}" | do_uniq
-	else
-		do_uniq
-	fi
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	echo_unique "$@"
+	if [[ $* == '--test' ]]; then
+		echo_unique_test
+	else
+		echo_unique "$@"
+	fi
 fi
