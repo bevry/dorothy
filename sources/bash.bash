@@ -115,7 +115,7 @@ function __command_exists {
 	return 0 # all commands are present
 }
 
-# cache performant checks for command existence and installation
+# command existence and installation
 # __command_required [--print] [--no-install] [--] ...<command>
 # --print: print the command that was found or installed
 # if multiple commands are provided, the first one found is used, if not found, the first one installed is used
@@ -139,71 +139,28 @@ function __command_required {
 	__affirm_length_defined "${#COMMAND_REQUIRED__commands[@]}" '<command>' || return
 	# proceed
 	local COMMAND_REQUIRED__command
-	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-		declare -A COMMAND_REQUIRED__CACHE # shared
-		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
-			if [[ ${COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]-} == 'yes' ]]; then
-				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command" || return
-				fi
-				return 0
-			elif __command_exists -- "$COMMAND_REQUIRED__command"; then
-				COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]='yes'
-				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command" || return
-				fi
-				return 0
+	for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
+		if __command_exists -- "$COMMAND_REQUIRED__command"; then
+			if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+				__print_string "$COMMAND_REQUIRED__command" || return
 			fi
-		done
-	else
-		local COMMAND_REQUIRED__command COMMAND_REQUIRED__other
-		COMMAND_REQUIRED__CACHE=() # shared
-		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
-			for COMMAND_REQUIRED__other in "${COMMAND_REQUIRED__CACHE[@]}"; do
-				if [[ $COMMAND_REQUIRED__command == "$COMMAND_REQUIRED__other" ]]; then
-					if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
-						__print_string "$COMMAND_REQUIRED__command" || return
-					fi
-					return 0
-				fi
-			done
-			if __command_exists -- "$COMMAND_REQUIRED__command"; then
-				COMMAND_REQUIRED__CACHE+=("$COMMAND_REQUIRED__command")
-				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command" || return
-				fi
-				return 0
-			fi
-		done
-	fi
+			return 0
+		fi
+	done
 	# if any were found, we would have already returned
 	if [[ $COMMAND_REQUIRED__install == 'no' ]]; then
 		return 6 # ENXIO 6 Device not configured
 	fi
 	get-installer --first-success --invoke --quiet -- "${COMMAND_REQUIRED__commands[@]}" || return
-	# okay, save that they are now installed
-	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
-			if __command_exists -- "$COMMAND_REQUIRED__command"; then
-				COMMAND_REQUIRED__CACHE["$COMMAND_REQUIRED__command"]='yes'
-				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command"
-				fi
-				return 0
+	# verify installation
+	for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
+		if __command_exists -- "$COMMAND_REQUIRED__command"; then
+			if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
+				__print_string "$COMMAND_REQUIRED__command" || return
 			fi
-		done
-	else
-		for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
-			if __command_exists -- "$COMMAND_REQUIRED__command"; then
-				COMMAND_REQUIRED__CACHE+=("$COMMAND_REQUIRED__command")
-				if [[ $COMMAND_REQUIRED__print == 'yes' ]]; then
-					__print_string "$COMMAND_REQUIRED__command"
-				fi
-				return 0
-			fi
-		done
-		# there will always be a
-	fi
+			return 0
+		fi
+	done
 	# if nothing was installed, then get-installer did not return failure
 	return 104 # ENOTRECOVERABLE 104 State not recoverable
 }
