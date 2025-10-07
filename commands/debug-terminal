@@ -1,27 +1,38 @@
 #!/usr/bin/env bash
 
-# prepare
-self="${BASH_SOURCE[0]}"
+# =====================================
+# INITIALISE
+
+SELF="${BASH_SOURCE[0]}"
 if [[ -z ${DOROTHY-} ]]; then
 	export DOROTHY
 	DOROTHY="${XDG_DATA_HOME:-"$HOME/.local/share"}/dorothy"
 	source "$DOROTHY/sources/environment.sh"
 fi
 source "$DOROTHY/sources/bash.bash"
-if [[ -z $* ]]; then
-	test='--normal'
-else
-	test="$*"
-	if is-ci; then
-		test+=' --within-ci'
-	fi
-	__replace --optional --source+target={test} --value='--no-recurse' --leading-whitespace --trailing-whitespace
-fi
-result_file="$(fs-temp --directory='debug-terminal' --file='debug-terminal.tsv')"
-newline=$'\n'
+
+RESULT_FILE="$(fs-temp --directory='debug-terminal' --file='debug-terminal.tsv')"
+function __render {
+	echo-json stream --stdin <"$RESULT_FILE" | echo-json table --stdin || exit 116
+}
+
+# =====================================
+# ACTION
 
 # process action
-if [[ -z $* || $1 == '--normal' || $* == *'--no-recurse'* ]]; then
+if [[ -z $* || $1 == '--test' ]]; then
+	: >"$RESULT_FILE" # erase the result file
+	# dependencies
+	__command_required jq
+	__command_required nu
+	# run all the variations
+	"$SELF" --all "${@:2}"
+	if ! is-ci; then
+		"$SELF" --ssh "${@:2}"
+	fi
+	__render
+	exit
+elif [[ $1 == '--normal' || $* == *'--no-recurse'* ]]; then
 	:
 elif [[ $1 == '--all' ]]; then
 	variations=(
@@ -38,55 +49,30 @@ elif [[ $1 == '--all' ]]; then
 		'--immediate-and-delayed-stdin-redirection'
 	)
 	for variation in "${variations[@]}"; do
-		eval-helper --wrap -- "$self" "$variation" "${@:2}"
+		eval-helper --wrap --verbose -- "$SELF" "$variation" "${@:2}"
 	done
 	exit
-elif [[ $1 == '--test' ]]; then
-	# erase the result file
-	: >"$result_file"
-
-	# run all the variations
-	"$self" --all "${@:2}"
-	if ! is-ci; then
-		"$self" --ssh "${@:2}"
-	fi
-
-	# it goes header row, data row, header row, data row, ...
-	# so we want to remove all header rows except the first one
-	awk 'NR==1 || (NR%2==0)' "$result_file" >"$result_file.trimmed"
-
-	# transpose the columns and rows, the following breaks the file, so we have to do it ourself:
-	# qsv transpose -d $'\t' ...
-	echo-transpose --stdin <"$result_file.trimmed" >"$result_file.transposed"
-
-	# render the result
-	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'no' || ${DEBUG_BASH-} == 'yes' ]] || __command_missing -- csvlens; then
-		echo-file --raw -- "$result_file.transposed"
-	else
-		csvlens -t "$result_file.transposed"
-	fi
-	exit
 elif [[ $1 == '--ssh' ]]; then
-	ssh -T localhost "$self" --all --within-ssh
+	ssh -T localhost "$SELF" --all --within-ssh
 	exit
 elif [[ $1 == '--background' ]]; then
-	"$self" "$@" --no-recurse &
+	"$SELF" "$@" --no-recurse &
 	wait $! # just [wait] is bash v5
 	exit
 elif [[ $1 == '--stdin-pipe' ]]; then
-	printf '%s\n' 1 2 3 4 5 6 7 8 9 0 | "$self" "$@" --no-recurse
+	printf '%s\n' 1 2 3 4 5 6 7 8 9 0 | "$SELF" "$@" --no-recurse
 	exit
 elif [[ $1 == '--stdin-redirection' ]]; then
-	"$self" "$@" --no-recurse < <(printf '%s\n' 1 2 3 4 5 6 7 8 9 0)
+	"$SELF" "$@" --no-recurse < <(printf '%s\n' 1 2 3 4 5 6 7 8 9 0)
 	exit
 elif [[ $1 == '--stdin-stdout-pipe' ]]; then
-	printf '%s\n' 1 2 3 4 5 6 7 8 9 0 | "$self" "$@" --no-recurse | cat
+	printf '%s\n' 1 2 3 4 5 6 7 8 9 0 | "$SELF" "$@" --no-recurse | cat
 	exit
 elif [[ $1 == '--stdin-stdout-stderr-redirection' ]]; then
-	"$self" "$@" --no-recurse 2> >(cat) > >(cat) < <(printf '%s\n' 1 2 3 4 5 6 7 8 9 0)
+	"$SELF" "$@" --no-recurse 2> >(cat) > >(cat) < <(printf '%s\n' 1 2 3 4 5 6 7 8 9 0)
 	exit
 elif [[ $1 == '--closed-stdin-stdout' ]]; then
-	"$self" "$@" --no-recurse >&- <&- # can't close stderr, as for some reason, it hangs: 2>&-
+	"$SELF" "$@" --no-recurse >&- <&- # can't close stderr, as for some reason, it hangs: 2>&-
 	# > BASH_XTRACEFD=1 debug-bash -x -- debug-terminal --closed-stdin-stdout-stderr --no-recurse 2>&-
 	exit
 elif [[ $1 == '--delayed-stdin-pipe' ]]; then
@@ -94,10 +80,10 @@ elif [[ $1 == '--delayed-stdin-pipe' ]]; then
 		sleep 5
 		# on ci mac this returns 1, everywhere else this returns 141, and there doesn't seem to be a workaround
 		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
-	} | "$self" "$@" --no-recurse || __ignore_sigpipe || __ignore_exit_status 1 # this will sigpipe fail as the command will finish before the sleep finishes
+	} | "$SELF" "$@" --no-recurse || __ignore_sigpipe || __ignore_exit_status 1 # this will sigpipe fail as the command will finish before the sleep finishes
 	exit
 elif [[ $1 == '--delayed-stdin-redirection' ]]; then
-	"$self" "$@" --no-recurse < <(
+	"$SELF" "$@" --no-recurse < <(
 		sleep 5
 		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
 	)
@@ -108,10 +94,10 @@ elif [[ $1 == '--immediate-and-delayed-stdin-pipe' ]]; then
 		sleep 5
 		# on ci mac this returns 1, everywhere else this returns 141, and there doesn't seem to be a workaround
 		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
-	} | "$self" "$@" --no-recurse || __ignore_sigpipe || __ignore_exit_status 1 # this will sigpipe fail as the command will finish before the sleep finishes
+	} | "$SELF" "$@" --no-recurse || __ignore_sigpipe || __ignore_exit_status 1 # this will sigpipe fail as the command will finish before the sleep finishes
 	exit
 elif [[ $1 == '--immediate-and-delayed-stdin-redirection' ]]; then
-	"$self" "$@" --no-recurse < <(
+	"$SELF" "$@" --no-recurse < <(
 		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
 		sleep 5
 		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
@@ -122,38 +108,49 @@ else
 	exit 22 # EINVAL 22 Invalid argument
 fi
 
-# helpers
-check_keys=('test')
-check_values=("$test")
+# =====================================
+# HELPERS
+
+CONTEXT="$*"
+if is-ci; then
+	CONTEXT+=' --within-ci'
+fi
+__replace --optional --source+target={CONTEXT} --value='--no-recurse' --leading-whitespace --trailing-whitespace
+
+RESULTS=()
 function __check {
-	check_keys+=("$1")
-	printf '%s\t\t%s\n' "$test" "$1" >&2 || : # this will fail on our closed file descriptor test
-	if eval "$1"; then
-		check_values+=(OK)
-	else
-		check_values+=(FAIL)
-	fi
+	local code="$1" status=0 stdout stderr
+	# __do --redirect-status={status} --redirect-stdout={stdout} --redirect-stderr={stderr} -- eval "$code" <-- we can't use do, as we are debugging the descriptors themselves, and do modifies them
+	eval "$code" || status=$?
+	RESULTS+=("$(
+		echo-json make -- \
+			'context' "$CONTEXT" \
+			'code' "$code" \
+			'status' "$status"
+	)") || return
+	# ^ jq has a weird clear line behaviour
+	# 'stdout' "$stdout" \
+	# 'stderr' "$stderr"
 }
 function __finish {
-	local joined_keys='' joined_values='' result semlock_file
-	__join --source={check_keys} --delimiter=$'\t' --target={joined_keys} || exit 110
-	__join --source={check_values} --delimiter=$'\t' --target={joined_values} || exit 111
-	result="${joined_keys}${newline}${joined_values}${newline}"
-	semlock_file="$(__get_semlock 'debug-terminal')" || exit 112
-	printf '%s' "$result" >>"$result_file" || exit 113
-	# @todo remove need for manual semlock tracking and do: `| echo-write --append -- "$result_file"` instead which will be updated to use a semlock
-	rm -f "$semlock_file" || exit 114
+	local semlock_file
+	semlock_file="$(__get_semlock 'debug-terminal')" || exit 113
+	__print_lines "${RESULTS[@]}" >>"$RESULT_FILE" || exit 114
+	# @todo remove need for manual semlock tracking and do: `| echo-write --append -- "$RESULT_FILE"` instead which will be updated to use a semlock
+	rm -f "$semlock_file" || exit 115
 }
-
 function __file {
 	[[ -e $1 ]] || return 2 # ENOENT 2 No such file or directory
 	file "$1" || return 74  # EPROGUNAVAIL 74 RPC prog. not avail
 }
 
-__check 'ls -la /proc/self/fd'
-__check '__file /proc/self/fd/0'
-__check '__file /proc/self/fd/1'
-__check '__file /proc/self/fd/2'
+# =====================================
+# TESTS
+
+__check 'ls -la /proc/SELF/fd'
+__check '__file /proc/SELF/fd/0'
+__check '__file /proc/SELF/fd/1'
+__check '__file /proc/SELF/fd/2'
 
 __check 'ls -la /proc/$$/fdinfo'
 __check '__file /proc/$$/fdinfo/0'

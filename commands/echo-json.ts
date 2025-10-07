@@ -1,120 +1,122 @@
 #!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 
-type Operation = 'stringify' | 'encode' | 'decode' | 'parse'
-
-function help(...args: string[]) {
-	console.error(
-		[
-			'USAGE:',
-			'echo-json.ts <stringify|encode|decode|parse> <content>',
-			'echo <content> | echo-json.ts <stringify|encode|decode|parse>',
-			...(args.length ? ['', 'ERROR:', ...args] : []),
-		].join('\n'),
-	)
-	Deno.exit(22)
+import {
+	CodeError,
+	AbstractHelpError,
+	exitWithError,
+	writeStdoutStringify,
+	writeStdoutPlain,
+	writeStdoutPretty,
+} from '../sources/ts.ts'
+type Action = 'make' | 'stringify' | 'encode' | 'decode' | 'json' | 'pretty'
+const actions: Action[] = [
+	'make',
+	'stringify',
+	'encode',
+	'decode',
+	'json',
+	'pretty',
+]
+class HelpError extends AbstractHelpError {
+	help = [
+		'USAGE:',
+		'echo-json.ts <make> [--] ...[<key> <value>]',
+		'echo-json.ts <stringify|encode|decode|json|pretty> [--] ...<input>',
+	].join('\n')
 }
 
-async function parse(...args: string[]): {
-	operation: Operation
-	content: string
-} {
-	if (args.length === 0) {
-		throw new Error('No arguments provided.')
+function real(input: string) {
+	try {
+		return JSON.parse(input)
+	} catch {
+		return input
 	}
-	const arg = String(args.shift())
-	let operation: Operation, content: string
-	switch (arg) {
-		case 'stringify':
-		case 'encode':
-		case 'decode':
-		case 'parse':
-			operation = arg
-			break
-		default:
-			throw new Error(`<operation> was invalid, it was: ${arg}`)
-			break
-	}
-	if (args.length === 0) {
-		content = await readStdin()
-		return { operation, content }
-	}
-	content = args.shift()
-	if (args.length !== 0) {
-		throw new Error('An unrecognised argument was provided: ' + arg)
-	}
-	return { operation, content }
 }
 
-async function writeStdoutPlain(output: string) {
-	return await Deno.stdout.write(new TextEncoder().encode(output))
-}
-
-function writeStdoutPretty(output: unknown) {
-	console.log(output)
-}
-
-async function readStdin(): Promise<string> {
-	return new TextDecoder().decode(await Deno.readAll(Deno.stdin))
-}
-
-async function main() {
-	// extract the inputs
-	const { operation, content } = await parse(...Deno.args)
-	// handle interpretation differences between stringify, encode, and decode
-	let parsed: unknown, parseError: Error | undefined
-	if (operation == 'stringify') {
-		parsed = content
-	} else {
-		try {
-			// update the content
-			parsed = JSON.parse(content)
-		} catch (e) {
-			// store the parse error for later if desired
-			parseError = e
-			// and make parsed just the string input
-			parsed = content
+function parse(input: string) {
+	try {
+		return {
+			parseError: null,
+			value: JSON.parse(input),
+		}
+	} catch (parseError) {
+		return {
+			parseError,
+			value: input,
 		}
 	}
-	let output: string
-	switch (operation) {
-		case 'stringify':
-		case 'encode':
-			try {
-				output = JSON.stringify(parsed)
-			} catch (e) {
-				throw new Error(
-					`Failed to encode the content as a JSON string: ${e.message}`,
-				)
+}
+
+async function main(...args: string[]) {
+	// parse <action>
+	if (args.length === 0) {
+		throw new HelpError(`No <action> was provided.`)
+	}
+	if (!actions.includes(args[0])) {
+		throw new HelpError(`An unrecognised <action> was provided: ${args[0]}`)
+	}
+	const action: Action = args.shift()
+	// remove -- if present, note it is optional, because not all actions use arguments
+	if (args.length && args[0] === '--') args.shift()
+	// <make> ...[<key> <value>]
+	if (action === 'make') {
+		// validate we have a <value> for every <key>
+		if (args.length % 2 !== 0) {
+			throw new Error('<make> requires an even number of <key> <value> pairs.')
+		}
+		// build the object
+		const output: Record<string, unknown> = {}
+		while (args.length) {
+			const key = args.shift()
+			const value = args.shift()
+			output[key] = real(value)
+		}
+		return writeStdoutStringify(output)
+	}
+	// <action> ...<input>
+	while (args.length) {
+		const input = args.shift()
+		switch (action) {
+			case 'stringify': {
+				return writeStdoutStringify(input)
+				break
 			}
-			return await writeStdoutPlain(output)
-			break
-		case 'decode':
-			try {
-				output =
-					typeof parsed === 'object' ? JSON.stringify(parsed) : String(parsed)
-			} catch (e) {
-				throw new Error(
-					`Failed to recode the content as a JSON string: ${e.message}`,
-				)
+			case 'json':
+			case 'pretty': {
+				const { parseError, value } = parse(input)
+				if (parseError != null) {
+					throw new Error(
+						`Failed to parse what should be JSON-encoded <input> = ${parseError.message}`,
+					)
+				}
+				if (action == 'json') {
+					return writeStdoutStringify(value)
+				} else {
+					return writeStdoutPretty(value)
+				}
+				break
 			}
-			return await writeStdoutPlain(output)
-			break
-		case 'parse':
-			if (parseError != null) {
-				throw new Error(
-					`Failed to parse the JSON content: ${parseError.message}`,
-				)
+			case 'encode': {
+				const { value } = parse(input)
+				return writeStdoutStringify(value)
+				break
 			}
-			return await writeStdoutPretty(parsed)
-			break
-		default:
-			throw new Error('Internal Error: Invalid operation: ' + operation)
-			break
+			case 'decode': {
+				const { value } = parse(input)
+				const output =
+					typeof value === 'object' ? JSON.stringify(value) : String(value)
+				return writeStdoutPlain(output)
+				break
+			}
+			default:
+				throw new Error(`Invalid action: ${action}`)
+				break
+		}
 	}
 }
 
 try {
-	await main()
-} catch (e) {
-	help(e.message)
+	await main(...Deno.args)
+} catch (error) {
+	exitWithError(error)
 }

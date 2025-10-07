@@ -1303,7 +1303,7 @@ function __print_help {
 	local character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
 	local -i c l
 	# | echo-regexp -gm $'`([^`]+?)`' "$style__framed\$1$style__end__framed"
-	echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" |
+	echo-regexp -gm '^(--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" |
 		echo-regexp -g '\[0\](\s)' "$style__foreground_green[0]$style__end__foreground_green\$1" |
 		echo-regexp -g '\[([\d]+)\](\s)' "$style__foreground_red[\$1]$style__end__foreground_red\$2" |
 		while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
