@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
-source "$DOROTHY/sources/styles.bash"
 
 function __is_fs__options {
 	local elevate="${1-}"

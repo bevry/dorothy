@@ -283,44 +283,6 @@ function __print_join {
 
 export DOROTHY_DEBUG
 DOROTHY_DEBUG="${DOROTHY_DEBUG:-"no"}"
-function __print_without_styles {
-	# trim flag names and only output values
-	local PRINT_WITHOUT_STYLES__item PRINT_WITHOUT_STYLES__arg PRINT_WITHOUT_STYLES__args=() PRINT_WITHOUT_STYLES__trail='yes' PRINT_WITHOUT_STYLES__debug='no'
-	while [[ $# -ne 0 ]]; do
-		PRINT_WITHOUT_STYLES__item="$1"
-		PRINT_WITHOUT_STYLES__arg=''
-		shift
-		case "$PRINT_WITHOUT_STYLES__item" in
-		--no-debug* | --debug*) __flag --source={PRINT_WITHOUT_STYLES__item} --target={PRINT_WITHOUT_STYLES__debug} --affirmative --coerce || return ;;
-		--no-trail* | --trail*) __flag --source={PRINT_WITHOUT_STYLES__item} --target={PRINT_WITHOUT_STYLES__trail} --affirmative --coerce || return ;;
-		--color | --colors | --colors=yes) : ;;      # ignore
-		--no-color | --no-colors | --colors=no) : ;; # ignore
-		--newline) PRINT_WITHOUT_STYLES__arg=$'\n' ;;
-		--commentary-undeclared=) PRINT_WITHOUT_STYLES__arg='[ undeclared ]' ;;
-		--commentary-undefined=) PRINT_WITHOUT_STYLES__arg='[ undefined ]' ;;
-		--commentary-empty=) PRINT_WITHOUT_STYLES__arg='[ empty ]' ;;
-		--value=*) PRINT_WITHOUT_STYLES__arg="$(__dump --value="${PRINT_WITHOUT_STYLES__item#*=}")" || return ;;
-		--variable-value=*) PRINT_WITHOUT_STYLES__arg="$(__dump --variable-value="${PRINT_WITHOUT_STYLES__item#*=}")" || return ;;
-		--variable=*) PRINT_WITHOUT_STYLES__arg="$(__dump --variable="${PRINT_WITHOUT_STYLES__item#*=}")" || return ;;
-		--*=*) PRINT_WITHOUT_STYLES__arg="${PRINT_WITHOUT_STYLES__item#*=}" ;;
-		--*) : ;; # ignore other flags, as they empty styles
-		*) PRINT_WITHOUT_STYLES__arg="$PRINT_WITHOUT_STYLES__item" ;;
-		esac
-		if [[ -n $PRINT_WITHOUT_STYLES__arg && $PRINT_WITHOUT_STYLES__debug == $DOROTHY_DEBUG ]]; then
-			PRINT_WITHOUT_STYLES__args+=("$PRINT_WITHOUT_STYLES__arg")
-		fi
-	done
-	# for conformance with `echo-style`, we print even if zero arguments
-	if [[ $PRINT_WITHOUT_STYLES__debug == $DOROTHY_DEBUG && $PRINT_WITHOUT_STYLES__trail == 'yes' ]]; then
-		PRINT_WITHOUT_STYLES__args+=($'\n')
-	fi
-	# do we have anything?
-	if [[ ${#PRINT_WITHOUT_STYLES__args[@]} -eq 0 ]]; then
-		return 0
-	fi
-	# output
-	printf '%s' "${PRINT_WITHOUT_STYLES__args[@]}" || return
-}
 function __print_style {
 	if [[ -n ${DOROTHY-} ]]; then
 		# function romeo { function romeo { echo replaced; }; romeo; }; romeo; romeo
@@ -328,7 +290,17 @@ function __print_style {
 		source "$DOROTHY/sources/styles.bash" || return
 		__print_style "$@" || return
 	else
-		__print_without_styles "$@" || return
+		printf '%s\n' "${FUNCNAME[0]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/styles.bash> to be sourced." >&2 || :
+		return 6 # ENXIO 6 Device not configured
+	fi
+}
+function __print_help {
+	if [[ -n ${DOROTHY-} ]]; then
+		source "$DOROTHY/sources/styles.bash" || return
+		__print_help "$@" || return
+	else
+		printf '%s\n' "${FUNCNAME[0]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/styles.bash> to be sourced." >&2 || :
+		return 6 # ENXIO 6 Device not configured
 	fi
 }
 function __print_error {

@@ -977,12 +977,6 @@ function __refresh_style_cache {
 }
 
 function __print_style {
-	# performance improvement for no styles
-	if [[ ${STYLES-} == 'no' ]]; then
-		__print_without_styles "$@" || return
-		return
-	fi
-
 	# process
 	local PRINT_STYLE__item PRINT_STYLE__items=() PRINT_STYLE__trail='yes' PRINT_STYLE__color=''
 	while [[ $# -ne 0 ]]; do
