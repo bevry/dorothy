@@ -29,6 +29,7 @@ else
 	ITALICS_SUPPORTED='no'
 fi
 
+# ensures COLOR is correct when applicable
 function __get_terminal_color_support {
 	# arguments
 	local GET_TERMINAL_COLOR_SUPPORT__item GET_TERMINAL_COLOR_SUPPORT__fallback='' GET_TERMINAL_COLOR_SUPPORT__quiet='' GET_TERMINAL_COLOR_SUPPORT__color='' # option_env='yes'
@@ -187,59 +188,59 @@ function __get_terminal_color_support {
 # ANSI STYLES #########################
 
 # terminal
-style__clear_line=$'\e[G\e[2K'  # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
-style__delete_line=$'\e[F\e[J'  # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
-style__clear_screen=$'\e[H\e[J' # # \e[H\e[J moves cursor to the top and erases the screen (so no effect to the scroll buffer), unfortunately \e[2J moves the cursor to the bottom, then prints a screen worth of blank lines, then moves the cursor to the top (keeping what was on the screen in the scroll buffer, padded then by a screen of white space); tldr \e[H\e[J wipes the screen, \e[2J pads the screen
-style__enable_cursor_blinking=$'\e[?12h'
-style__disable_cursor_blinking=$'\e[?12l'
-style__show_cursor=$'\e[?25h'
-style__hide_cursor=$'\e[?25l'
-style__reset_cursor=$'\e[0 q'
-style__cursor_blinking_block=$'\e[1 q'
-style__cursor_steady_block=$'\e[2 q'
-style__cursor_blinking_underline=$'\e[3 q'
-style__cursor_steady_underline=$'\e[4 q'
-style__cursor_blinking_bar=$'\e[5 q'
-style__cursor_steady_bar=$'\e[6 q'
+STYLE__clear_line=$'\e[G\e[2K'  # move cursor to beginning of current line and erase/clear/overwrite-with-whitespace the line, $'\e[G\e[J' is equivalent
+STYLE__delete_line=$'\e[F\e[J'  # move cursor to beginning of the prior line and erase/clear/overwrite-with-whitespace all lines from there
+STYLE__clear_screen=$'\e[H\e[J' # # \e[H\e[J moves cursor to the top and erases the screen (so no effect to the scroll buffer), unfortunately \e[2J moves the cursor to the bottom, then prints a screen worth of blank lines, then moves the cursor to the top (keeping what was on the screen in the scroll buffer, padded then by a screen of white space); tldr \e[H\e[J wipes the screen, \e[2J pads the screen
+STYLE__enable_cursor_blinking=$'\e[?12h'
+STYLE__disable_cursor_blinking=$'\e[?12l'
+STYLE__show_cursor=$'\e[?25h'
+STYLE__hide_cursor=$'\e[?25l'
+STYLE__reset_cursor=$'\e[0 q'
+STYLE__cursor_blinking_block=$'\e[1 q'
+STYLE__cursor_steady_block=$'\e[2 q'
+STYLE__cursor_blinking_underline=$'\e[3 q'
+STYLE__cursor_steady_underline=$'\e[4 q'
+STYLE__cursor_blinking_bar=$'\e[5 q'
+STYLE__cursor_steady_bar=$'\e[6 q'
 if [[ $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
-	style__alternative_screen_buffer=$'\e[?1049h\e[H\e[J' # switch-to/enable/open alternative screen buffer (of which there is only one), the \e[H is necessary to put the cursor at the top on wsl ubuntu otherwise it stays in the same place, and unfortunately the clear is sometimes necessary for vscode
-	style__default_screen_buffer=$'\e[?1049l'             # restore/enable/open/switch-to the default/primary/main/normal screen buffer
+	STYLE__alternative_screen_buffer=$'\e[?1049h\e[H\e[J' # switch-to/enable/open alternative screen buffer (of which there is only one), the \e[H is necessary to put the cursor at the top on wsl ubuntu otherwise it stays in the same place, and unfortunately the clear is sometimes necessary for vscode
+	STYLE__default_screen_buffer=$'\e[?1049l'             # restore/enable/open/switch-to the default/primary/main/normal screen buffer
 else
 	# if unable to tap into alternative screen buffer, then output a newline (in case clear screen isn't supported) and clear the screen (which GitHub CI doesn't support, but it does not output the ansi escape code) - without this change, then following output will incorrectly be on the same line as the previous output
 	# https://github.com/bevry/dorothy/actions/runs/11358242517/job/31592464176#step:2:3754
 	# https://github.com/bevry/dorothy/actions/runs/11358441972/job/31592966478#step:2:2805
 	# even though practically multiple calls to alternative screen buffer will clear the screen, the newline on the initial call is unintuitive — https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2439 — so only do the newline
-	style__alternative_screen_buffer="$style__clear_screen"
-	style__default_screen_buffer=$'\n'"$style__clear_screen"
+	STYLE__alternative_screen_buffer="$STYLE__clear_screen"
+	STYLE__default_screen_buffer=$'\n'"$STYLE__clear_screen"
 	# ensure clears are also moved to next line: https://github.com/bevry/dorothy/actions/runs/11358588333/job/31593337760#step:2:2449
-	style__clear_screen=$'\n'"$style__clear_screen"
+	STYLE__clear_screen=$'\n'"$STYLE__clear_screen"
 fi
 
-style__ellipsis='…'
-style__bell=$'\a'
-style__newline=$'\n'
-style__tab=$'\t'
-style__space=' '   # for testing
-style__all=$'\001' # for testing
-style__backspace=$'\b'
-style__carriage_return=$'\r'
-style__escape=$'\e'
-style__home=$'\e[H'
+STYLE__ellipsis='…'
+STYLE__bell=$'\a'
+STYLE__newline=$'\n'
+STYLE__tab=$'\t'
+STYLE__space=' '   # for testing
+STYLE__all=$'\001' # for testing
+STYLE__backspace=$'\b'
+STYLE__carriage_return=$'\r'
+STYLE__escape=$'\e'
+STYLE__home=$'\e[H'
 
 # terminal
-style__terminal_title=$'\e]0;'
-style__end__terminal_title=$'\a'
+STYLE__terminal_title=$'\e]0;'
+STYLE__END__terminal_title=$'\a'
 
 # echo-style --terminal-resize='100;80' # height and width
 # echo-style --terminal-resize='100;'   # width only
 # echo-style --terminal-resize=';80'    # width only
-style__terminal_resize=$'\e[8;'
-style__end__terminal_resize='t'
+STYLE__terminal_resize=$'\e[8;'
+STYLE__END__terminal_resize='t'
 
 # echo-style --base64+terminal-clipboard='Hello World' # not yet implemented, but would be great, have a base64 style function
 # echo-style --terminal-clipboard="$(printf '%s' 'Hello World' | base64)"
-style__terminal_clipboard=$'\e]52;c;'
-style__end__terminal_clipboard=$'\a'
+STYLE__terminal_clipboard=$'\e]52;c;'
+STYLE__END__terminal_clipboard=$'\a'
 
 # not yet implemented, add styles for meta keys, such as up, down, enter, escape, etc
 # not yet implemented, but would dramatically simplify testing, could be done via a sleep style function
@@ -249,131 +250,131 @@ style__end__terminal_clipboard=$'\a'
 # echo-style --pre-print-delay=$delay --down+enter+escape+escape+escape+enter+enter | eval-tester ...
 
 # modes
-style__color_end__intensity=$'\e[22m'  #
-style__color_end__foreground=$'\e[39m' #
-style__color_end__background=$'\e[49m' #
+STYLE__MULTICOLOR__END__intensity=$'\e[22m'  #
+STYLE__MULTICOLOR__END__foreground=$'\e[39m' #
+STYLE__MULTICOLOR__END__background=$'\e[49m' #
 # echo-style 'standard' --bold='bold' --dim='dim' --italic='italic' --underline='underline' --blink='blink' --invert='invert' --conceal='conceal' --strike='strike' --framed='framed' --circled='circled' --overlined='overlined'
-style__color__reset=$'\e[0m' # tput sgr0
-style__color__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Kitty] [buggy support: Rio] [unsupported: cool-retro-term, Wez, Extratern, Contour]
-style__color_end__bold="$style__color_end__intensity"
-style__color__dim=$'\e[2m' # tput dim [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
-style__color_end__dim="$style__color_end__intensity"
-style__color__italic=$'\e[3m'      # [supported: VScode, Hyper, Terminal] [colored support: Ghostty, Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
-style__color_end__italic=$'\e[23m' # Ghostty will have this also cancel bold/dim.
-style__color__underline=$'\e[4m'   # tput sgr 0 1 [supported: Terminal, VSCode,Ghostty,  Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
-style__color_end__underline=$'\e[24m'
-style__color__double_underline=$'\e[21m' # [supported: Tabby]
-style__color_end__double_underline=$'\e[24m'
-style__color__blink=$'\e[5m' # tput blink [supported: Terminal, VSCode, Alacritty, Hyper, Contour] [fade-in-out support: Wez, cool-retro-term] [unsupported: Ghostty, Wave, Warp, iTerm2, Tabby, Extraterm, Rio, Kitty]
-style__color_end__blink=$'\e[25m'
-style__color__invert=$'\e[7m' # tput rev [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, cool-retro-arm, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
-style__color_end__invert=$'\e[27m'
-style__color__conceal=$'\e[8m' # [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, iTerm2, Tabby, Wez, Rio, Contour] [unsupported: cool-retro-term, Wave, Warp, Extraterm, Kitty]
-style__color_end__conceal=$'\e[28m'
-style__color__strike=$'\e[9m' # [supported: VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: cool-retro-term]
-style__color_end__strike=$'\e[29m'
-style__color__framed=$'\e[51m' # [frames each character: Contour] [unsupported: everything else]
-style__color_end__framed=$'\e[54m'
-style__color__circled=$'\e[52m' # [supported: none known]
-style__color_end__circled="$style__color_end__framed"
-style__color__overlined=$'\e[53m' # [supported: Ghostty, Tabby, Wez, Extratern, Contour] [unsupported: everything else]
-style__color_end__overlined=$'\e[55m'
+STYLE__MULTICOLOR__reset=$'\e[0m' # tput sgr0
+STYLE__MULTICOLOR__bold=$'\e[1m'  # tput bold [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Kitty] [buggy support: Rio] [unsupported: cool-retro-term, Wez, Extratern, Contour]
+STYLE__MULTICOLOR__END__bold="$STYLE__MULTICOLOR__END__intensity"
+STYLE__MULTICOLOR__dim=$'\e[2m' # tput dim [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Contour, Kitty] [unsupported: cool-retro-term, Extraterm, Rio]
+STYLE__MULTICOLOR__END__dim="$STYLE__MULTICOLOR__END__intensity"
+STYLE__MULTICOLOR__italic=$'\e[3m'       # [supported: VScode, Hyper, Terminal] [colored support: Ghostty, Alacritty, Wave, iTerm2, Tabby, Wez, Extraterm, Contour, Kitty] [unsupported: Warp, cool-retro-term, Rio] - note that Monaspace fonts may appear to having working italic in macOS Terminal, however that is because it by default chooses italic for the generic style so everything is italic
+STYLE__MULTICOLOR__END__italic=$'\e[23m' # Ghostty will have this also cancel bold/dim.
+STYLE__MULTICOLOR__underline=$'\e[4m'    # tput sgr 0 1 [supported: Terminal, VSCode,Ghostty,  Alacritty, Hyper, cool-retro-term, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+STYLE__MULTICOLOR__END__underline=$'\e[24m'
+STYLE__MULTICOLOR__double_underline=$'\e[21m' # [supported: Tabby]
+STYLE__MULTICOLOR__END__double_underline=$'\e[24m'
+STYLE__MULTICOLOR__blink=$'\e[5m' # tput blink [supported: Terminal, VSCode, Alacritty, Hyper, Contour] [fade-in-out support: Wez, cool-retro-term] [unsupported: Ghostty, Wave, Warp, iTerm2, Tabby, Extraterm, Rio, Kitty]
+STYLE__MULTICOLOR__END__blink=$'\e[25m'
+STYLE__MULTICOLOR__invert=$'\e[7m' # tput rev [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, cool-retro-arm, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: -]
+STYLE__MULTICOLOR__END__invert=$'\e[27m'
+STYLE__MULTICOLOR__conceal=$'\e[8m' # [supported: Terminal, VSCode, Ghostty, Alacritty, Hyper, iTerm2, Tabby, Wez, Rio, Contour] [unsupported: cool-retro-term, Wave, Warp, Extraterm, Kitty]
+STYLE__MULTICOLOR__END__conceal=$'\e[28m'
+STYLE__MULTICOLOR__strike=$'\e[9m' # [supported: VSCode, Ghostty, Alacritty, Hyper, Wave, Warp, iTerm2, Tabby, Wez, Extraterm, Rio, Contour, Kitty] [unsupported: cool-retro-term]
+STYLE__MULTICOLOR__END__strike=$'\e[29m'
+STYLE__MULTICOLOR__framed=$'\e[51m' # [frames each character: Contour] [unsupported: everything else]
+STYLE__MULTICOLOR__END__framed=$'\e[54m'
+STYLE__MULTICOLOR__circled=$'\e[52m' # [supported: none known]
+STYLE__MULTICOLOR__END__circled="$STYLE__MULTICOLOR__END__framed"
+STYLE__MULTICOLOR__overlined=$'\e[53m' # [supported: Ghostty, Tabby, Wez, Extratern, Contour] [unsupported: everything else]
+STYLE__MULTICOLOR__END__overlined=$'\e[55m'
 
 # foreground
-style__color__foreground_black=$'\e[30m' # tput setaf 0
-style__color_end__foreground_black="$style__color_end__foreground"
-style__color__foreground_red=$'\e[31m' # tput setaf 1
-style__color_end__foreground_red="$style__color_end__foreground"
-style__color__foreground_green=$'\e[32m' # tput setaf 2
-style__color_end__foreground_green="$style__color_end__foreground"
-style__color__foreground_yellow=$'\e[33m' # tput setaf 3
-style__color_end__foreground_yellow="$style__color_end__foreground"
-style__color__foreground_blue=$'\e[34m' # tput setaf 4
-style__color_end__foreground_blue="$style__color_end__foreground"
-style__color__foreground_magenta=$'\e[35m' # tput setaf 5
-style__color_end__foreground_magenta="$style__color_end__foreground"
-style__color__foreground_cyan=$'\e[36m' # tput setaf 6
-style__color_end__foreground_cyan="$style__color_end__foreground"
-style__color__foreground_white=$'\e[37m' # tput setaf 7
-style__color_end__foreground_white="$style__color_end__foreground"
-style__color__foreground_purple="$style__color__foreground_magenta"
-style__color_end__foreground_purple="$style__color_end__foreground"
-style__color__foreground_gray="$style__color__foreground_white"
-style__color_end__foreground_gray="$style__color_end__foreground"
-style__color__foreground_grey="$style__color__foreground_white"
-style__color_end__foreground_grey="$style__color_end__foreground"
+STYLE__MULTICOLOR__foreground_black=$'\e[30m' # tput setaf 0
+STYLE__MULTICOLOR__END__foreground_black="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_red=$'\e[31m' # tput setaf 1
+STYLE__MULTICOLOR__END__foreground_red="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_green=$'\e[32m' # tput setaf 2
+STYLE__MULTICOLOR__END__foreground_green="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_yellow=$'\e[33m' # tput setaf 3
+STYLE__MULTICOLOR__END__foreground_yellow="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_blue=$'\e[34m' # tput setaf 4
+STYLE__MULTICOLOR__END__foreground_blue="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_magenta=$'\e[35m' # tput setaf 5
+STYLE__MULTICOLOR__END__foreground_magenta="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_cyan=$'\e[36m' # tput setaf 6
+STYLE__MULTICOLOR__END__foreground_cyan="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_white=$'\e[37m' # tput setaf 7
+STYLE__MULTICOLOR__END__foreground_white="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_purple="$STYLE__MULTICOLOR__foreground_magenta"
+STYLE__MULTICOLOR__END__foreground_purple="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_gray="$STYLE__MULTICOLOR__foreground_white"
+STYLE__MULTICOLOR__END__foreground_gray="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_grey="$STYLE__MULTICOLOR__foreground_white"
+STYLE__MULTICOLOR__END__foreground_grey="$STYLE__MULTICOLOR__END__foreground"
 
 # foreground_intense
-style__color__foreground_intense_black=$'\e[90m' # tput setaf 8
-style__color_end__foreground_intense_black="$style__color_end__foreground"
-style__color__foreground_intense_red=$'\e[91m' # tput setaf 9
-style__color_end__foreground_intense_red="$style__color_end__foreground"
-style__color__foreground_intense_green=$'\e[92m' # tput setaf 10
-style__color_end__foreground_intense_green="$style__color_end__foreground"
-style__color__foreground_intense_yellow=$'\e[93m' # tput setaf 11
-style__color_end__foreground_intense_yellow="$style__color_end__foreground"
-style__color__foreground_intense_blue=$'\e[94m' # tput setaf 12
-style__color_end__foreground_intense_blue="$style__color_end__foreground"
-style__color__foreground_intense_magenta=$'\e[95m' # tput setaf 13
-style__color_end__foreground_intense_magenta="$style__color_end__foreground"
-style__color__foreground_intense_cyan=$'\e[96m' # tput setaf 14
-style__color_end__foreground_intense_cyan="$style__color_end__foreground"
-style__color__foreground_intense_white=$'\e[97m' # tput setaf 15
-style__color_end__foreground_intense_white="$style__color_end__foreground"
-style__color__foreground_intense_purple="$style__color__foreground_intense_magenta"
-style__color_end__foreground_intense_purple="$style__color_end__foreground"
-style__color__foreground_intense_gray="$style__color__foreground_intense_white"
-style__color_end__foreground_intense_gray="$style__color_end__foreground"
-style__color__foreground_intense_grey="$style__color__foreground_intense_white"
-style__color_end__foreground_intense_grey="$style__color_end__foreground"
+STYLE__MULTICOLOR__foreground_intense_black=$'\e[90m' # tput setaf 8
+STYLE__MULTICOLOR__END__foreground_intense_black="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_red=$'\e[91m' # tput setaf 9
+STYLE__MULTICOLOR__END__foreground_intense_red="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_green=$'\e[92m' # tput setaf 10
+STYLE__MULTICOLOR__END__foreground_intense_green="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_yellow=$'\e[93m' # tput setaf 11
+STYLE__MULTICOLOR__END__foreground_intense_yellow="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_blue=$'\e[94m' # tput setaf 12
+STYLE__MULTICOLOR__END__foreground_intense_blue="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_magenta=$'\e[95m' # tput setaf 13
+STYLE__MULTICOLOR__END__foreground_intense_magenta="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_cyan=$'\e[96m' # tput setaf 14
+STYLE__MULTICOLOR__END__foreground_intense_cyan="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_white=$'\e[97m' # tput setaf 15
+STYLE__MULTICOLOR__END__foreground_intense_white="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_purple="$STYLE__MULTICOLOR__foreground_intense_magenta"
+STYLE__MULTICOLOR__END__foreground_intense_purple="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_gray="$STYLE__MULTICOLOR__foreground_intense_white"
+STYLE__MULTICOLOR__END__foreground_intense_gray="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__foreground_intense_grey="$STYLE__MULTICOLOR__foreground_intense_white"
+STYLE__MULTICOLOR__END__foreground_intense_grey="$STYLE__MULTICOLOR__END__foreground"
 
 # background
-style__color__background_black=$'\e[40m' # tput setab 0
-style__color_end__background_black="$style__color_end__background"
-style__color__background_red=$'\e[41m' # tput setab 1
-style__color_end__background_red="$style__color_end__background"
-style__color__background_green=$'\e[42m' # tput setab 2
-style__color_end__background_green="$style__color_end__background"
-style__color__background_yellow=$'\e[43m' # tput setab 3
-style__color_end__background_yellow="$style__color_end__background"
-style__color__background_blue=$'\e[44m' # tput setab 4
-style__color_end__background_blue="$style__color_end__background"
-style__color__background_magenta=$'\e[45m' # tput setab 5
-style__color_end__background_magenta="$style__color_end__background"
-style__color__background_cyan=$'\e[46m' # tput setab 6
-style__color_end__background_cyan="$style__color_end__background"
-style__color__background_white=$'\e[47m' # tput setab 7
-style__color_end__background_white="$style__color_end__background"
-style__color__background_purple="$style__color__background_magenta"
-style__color_end__background_purple="$style__color_end__background"
-style__color__background_gray="$style__color__background_white"
-style__color_end__background_gray="$style__color_end__background"
-style__color__background_grey="$style__color__background_white"
-style__color_end__background_grey="$style__color_end__background"
+STYLE__MULTICOLOR__background_black=$'\e[40m' # tput setab 0
+STYLE__MULTICOLOR__END__background_black="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_red=$'\e[41m' # tput setab 1
+STYLE__MULTICOLOR__END__background_red="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_green=$'\e[42m' # tput setab 2
+STYLE__MULTICOLOR__END__background_green="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_yellow=$'\e[43m' # tput setab 3
+STYLE__MULTICOLOR__END__background_yellow="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_blue=$'\e[44m' # tput setab 4
+STYLE__MULTICOLOR__END__background_blue="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_magenta=$'\e[45m' # tput setab 5
+STYLE__MULTICOLOR__END__background_magenta="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_cyan=$'\e[46m' # tput setab 6
+STYLE__MULTICOLOR__END__background_cyan="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_white=$'\e[47m' # tput setab 7
+STYLE__MULTICOLOR__END__background_white="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_purple="$STYLE__MULTICOLOR__background_magenta"
+STYLE__MULTICOLOR__END__background_purple="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_gray="$STYLE__MULTICOLOR__background_white"
+STYLE__MULTICOLOR__END__background_gray="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_grey="$STYLE__MULTICOLOR__background_white"
+STYLE__MULTICOLOR__END__background_grey="$STYLE__MULTICOLOR__END__background"
 
 # background_intense
-style__color__background_intense_black=$'\e[100m' # tput setab 8
-style__color_end__background_intense_black="$style__color_end__background"
-style__color__background_intense_red=$'\e[101m' # tput setab 9
-style__color_end__background_intense_red="$style__color_end__background"
-style__color__background_intense_green=$'\e[102m' # tput setab 10
-style__color_end__background_intense_green="$style__color_end__background"
-style__color__background_intense_yellow=$'\e[103m' # tput setab 11
-style__color_end__background_intense_yellow="$style__color_end__background"
-style__color__background_intense_blue=$'\e[104m' # tput setab 12
-style__color_end__background_intense_blue="$style__color_end__background"
-style__color__background_intense_magenta=$'\e[105m' # tput setab 13
-style__color_end__background_intense_magenta="$style__color_end__background"
-style__color__background_intense_cyan=$'\e[106m' # tput setab 14
-style__color_end__background_intense_cyan="$style__color_end__background"
-style__color__background_intense_white=$'\e[107m' # tput setab 15
-style__color_end__background_intense_white="$style__color_end__background"
-style__color__background_intense_purple="$style__color__background_intense_magenta"
-style__color_end__background_intense_purple="$style__color_end__background"
-style__color__background_intense_gray="$style__color__background_intense_white"
-style__color_end__background_intense_gray="$style__color_end__background"
-style__color__background_intense_grey="$style__color__background_intense_white"
-style__color_end__background_intense_grey="$style__color_end__background"
+STYLE__MULTICOLOR__background_intense_black=$'\e[100m' # tput setab 8
+STYLE__MULTICOLOR__END__background_intense_black="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_red=$'\e[101m' # tput setab 9
+STYLE__MULTICOLOR__END__background_intense_red="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_green=$'\e[102m' # tput setab 10
+STYLE__MULTICOLOR__END__background_intense_green="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_yellow=$'\e[103m' # tput setab 11
+STYLE__MULTICOLOR__END__background_intense_yellow="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_blue=$'\e[104m' # tput setab 12
+STYLE__MULTICOLOR__END__background_intense_blue="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_magenta=$'\e[105m' # tput setab 13
+STYLE__MULTICOLOR__END__background_intense_magenta="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_cyan=$'\e[106m' # tput setab 14
+STYLE__MULTICOLOR__END__background_intense_cyan="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_white=$'\e[107m' # tput setab 15
+STYLE__MULTICOLOR__END__background_intense_white="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_purple="$STYLE__MULTICOLOR__background_intense_magenta"
+STYLE__MULTICOLOR__END__background_intense_purple="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_gray="$STYLE__MULTICOLOR__background_intense_white"
+STYLE__MULTICOLOR__END__background_intense_gray="$STYLE__MULTICOLOR__END__background"
+STYLE__MULTICOLOR__background_intense_grey="$STYLE__MULTICOLOR__background_intense_white"
+STYLE__MULTICOLOR__END__background_intense_grey="$STYLE__MULTICOLOR__END__background"
 
 # modes that aren't implemented by operating systems
 # blink_fast=$'\e[6m'
@@ -382,101 +383,101 @@ style__color_end__background_intense_grey="$style__color_end__background"
 # CUSTOM STYLES #######################
 
 # styles
-style__color__header="${style__color__bold}${style__color__underline}"
-style__color_end__header="${style__color_end__intensity}${style__color_end__underline}"
-style__color__header1="${style__color__invert}"
-style__color_end__header1="${style__color_end__invert}"
-style__color__header2="${style__color__bold}${style__color__underline}"
-style__color_end__header2="${style__color_end__intensity}${style__color_end__underline}"
-style__color__header3="${style__color__bold}"
-style__color_end__header3="${style__color_end__intensity}"
+STYLE__MULTICOLOR__header="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}"
+STYLE__MULTICOLOR__END__header="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}"
+STYLE__MULTICOLOR__header1="${STYLE__MULTICOLOR__invert}"
+STYLE__MULTICOLOR__END__header1="${STYLE__MULTICOLOR__END__invert}"
+STYLE__MULTICOLOR__header2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}"
+STYLE__MULTICOLOR__END__header2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}"
+STYLE__MULTICOLOR__header3="${STYLE__MULTICOLOR__bold}"
+STYLE__MULTICOLOR__END__header3="${STYLE__MULTICOLOR__END__intensity}"
 
-style__color__success="${style__color__foreground_green}${style__color__bold}"
-style__color_end__success="${style__color_end__foreground}${style__color_end__intensity}"
-style__color__positive="${style__color__foreground_green}${style__color__bold}"
-style__color_end__positive="${style__color_end__foreground}${style__color_end__intensity}"
+STYLE__MULTICOLOR__success="${STYLE__MULTICOLOR__foreground_green}${STYLE__MULTICOLOR__bold}"
+STYLE__MULTICOLOR__END__success="${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__intensity}"
+STYLE__MULTICOLOR__positive="${STYLE__MULTICOLOR__foreground_green}${STYLE__MULTICOLOR__bold}"
+STYLE__MULTICOLOR__END__positive="${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__intensity}"
 
-style__color__note="${style__color__bold}${style__color__foreground_intense_blue}" # on dark theme, this is your eyes that need help
-style__color_end__note="${style__color_end__intensity}${style__color_end__foreground}"
+STYLE__MULTICOLOR__note="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_intense_blue}" # on dark theme, this is your eyes that need help
+STYLE__MULTICOLOR__END__note="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__good1="${style__color__background_intense_green}${style__color__foreground_black}"
-style__color_end__good1="${style__color_end__background}${style__color_end__foreground}"
-style__color__code_good1="${style__color__background_intense_green}${style__color__foreground_intense_blue}"
-style__color_end__code_good1="${style__color_end__background}${style__color_end__foreground}"
+STYLE__MULTICOLOR__good1="${STYLE__MULTICOLOR__background_intense_green}${STYLE__MULTICOLOR__foreground_black}"
+STYLE__MULTICOLOR__END__good1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__code_good1="${STYLE__MULTICOLOR__background_intense_green}${STYLE__MULTICOLOR__foreground_intense_blue}"
+STYLE__MULTICOLOR__END__code_good1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__good2="${style__color__bold}${style__color__underline}${style__color__foreground_green}"
-style__color_end__good2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-style__color__good3="${style__color__bold}${style__color__foreground_green}"
-style__color_end__good3="${style__color_end__intensity}${style__color_end__foreground}"
+STYLE__MULTICOLOR__good2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_green}"
+STYLE__MULTICOLOR__END__good2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__good3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_green}"
+STYLE__MULTICOLOR__END__good3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__negative="${style__color__foreground_red}${style__color__bold}"
-style__color_end__negative="${style__color_end__foreground}${style__color_end__intensity}"
-style__color__error="${style__color__background_intense_red}${style__color__foreground_intense_white}"
-style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
+STYLE__MULTICOLOR__negative="${STYLE__MULTICOLOR__foreground_red}${STYLE__MULTICOLOR__bold}"
+STYLE__MULTICOLOR__END__negative="${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__intensity}"
+STYLE__MULTICOLOR__error="${STYLE__MULTICOLOR__background_intense_red}${STYLE__MULTICOLOR__foreground_intense_white}"
+STYLE__MULTICOLOR__END__error="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__error1="${style__color__background_red}${style__color__foreground_intense_white}"
-style__color_end__error1="${style__color_end__background}${style__color_end__foreground}"
-style__color__code_error1="${style__color__background_red}${style__color__foreground_intense_yellow}"
-style__color_end__code_error1="${style__color_end__background}${style__color_end__foreground}"
+STYLE__MULTICOLOR__error1="${STYLE__MULTICOLOR__background_red}${STYLE__MULTICOLOR__foreground_intense_white}"
+STYLE__MULTICOLOR__END__error1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__code_error1="${STYLE__MULTICOLOR__background_red}${STYLE__MULTICOLOR__foreground_intense_yellow}"
+STYLE__MULTICOLOR__END__code_error1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__error2="${style__color__bold}${style__color__underline}${style__color__foreground_red}"
-style__color_end__error2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-style__color__error3="${style__color__bold}${style__color__foreground_red}"
-style__color_end__error3="${style__color_end__intensity}${style__color_end__foreground}"
+STYLE__MULTICOLOR__error2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_red}"
+STYLE__MULTICOLOR__END__error2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__error3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_red}"
+STYLE__MULTICOLOR__END__error3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_intense_yellow}" # on dark theme, this is your eyes that need help
-style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-style__color__warning="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
-style__color_end__warning="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-style__color__info="${style__color__bold}${style__color__underline}${style__color__foreground_intense_blue}" # on dark theme, this is your eyes that need help
-style__color_end__info="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
+STYLE__MULTICOLOR__notice="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_intense_yellow}" # on dark theme, this is your eyes that need help
+STYLE__MULTICOLOR__END__notice="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__warning="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_yellow}"
+STYLE__MULTICOLOR__END__warning="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__info="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_intense_blue}" # on dark theme, this is your eyes that need help
+STYLE__MULTICOLOR__END__info="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__notice1="${style__color__background_intense_yellow}${style__color__foreground_black}"
-style__color_end__notice1="${style__color_end__background}${style__color_end__foreground}"
-style__color__code_notice1="${style__color__background_intense_yellow}${style__color__foreground_blue}"
-style__color_end__code_notice1="${style__color_end__background}${style__color_end__foreground}"
+STYLE__MULTICOLOR__notice1="${STYLE__MULTICOLOR__background_intense_yellow}${STYLE__MULTICOLOR__foreground_black}"
+STYLE__MULTICOLOR__END__notice1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__code_notice1="${STYLE__MULTICOLOR__background_intense_yellow}${STYLE__MULTICOLOR__foreground_blue}"
+STYLE__MULTICOLOR__END__code_notice1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__notice2="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
-style__color_end__notice2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-style__color__notice3="${style__color__bold}${style__color__foreground_yellow}"
-style__color_end__notice3="${style__color_end__intensity}${style__color_end__foreground}"
+STYLE__MULTICOLOR__notice2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_yellow}"
+STYLE__MULTICOLOR__END__notice2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__notice3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_yellow}"
+STYLE__MULTICOLOR__END__notice3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__info1="${style__color__background_blue}${style__color__foreground_intense_white}"
-style__color_end__info1="${style__color_end__background}${style__color_end__foreground}"
-style__color__code_info1="${style__color__background_blue}${style__color__foreground_intense_green}"
-style__color_end__code_info1="${style__color_end__background}${style__color_end__foreground}"
+STYLE__MULTICOLOR__info1="${STYLE__MULTICOLOR__background_blue}${STYLE__MULTICOLOR__foreground_intense_white}"
+STYLE__MULTICOLOR__END__info1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__code_info1="${STYLE__MULTICOLOR__background_blue}${STYLE__MULTICOLOR__foreground_intense_green}"
+STYLE__MULTICOLOR__END__code_info1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__info2="${style__color__bold}${style__color__underline}${style__color__foreground_blue}"
-style__color_end__info2="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-style__color__info3="${style__color__bold}${style__color__foreground_blue}"
-style__color_end__info3="${style__color_end__intensity}${style__color_end__foreground}"
+STYLE__MULTICOLOR__info2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_blue}"
+STYLE__MULTICOLOR__END__info2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__info3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_blue}"
+STYLE__MULTICOLOR__END__info3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
-style__color__redacted="${style__color__background_black}${style__color__foreground_black}" # alternative to conceal, which respects color themes
-style__color_end__redacted="${style__color_end__background}${style__color_end__foreground}"
-style__color__elevate="${style__color__foreground_intense_yellow}"
-style__color_end__elevate="${style__color_end__foreground}"
-style__color__code="${style__color__foreground_intense_black}"
-style__color_end__code="${style__color_end__foreground}"
-style__color__link="${style__color__foreground_blue}"
-style__color_end__link="${style__color_end__foreground}"
-style__color__url="${style__color__link}"
-style__color_end__url="${style__color_end__link}"
-style__color__path="${style__color__foreground_yellow}"
-style__color_end__path="${style__color_end__foreground}"
+STYLE__MULTICOLOR__redacted="${STYLE__MULTICOLOR__background_black}${STYLE__MULTICOLOR__foreground_black}" # alternative to conceal, which respects color themes
+STYLE__MULTICOLOR__END__redacted="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__elevate="${STYLE__MULTICOLOR__foreground_intense_yellow}"
+STYLE__MULTICOLOR__END__elevate="${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__code="${STYLE__MULTICOLOR__foreground_intense_black}"
+STYLE__MULTICOLOR__END__code="${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__link="${STYLE__MULTICOLOR__foreground_blue}"
+STYLE__MULTICOLOR__END__link="${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__url="${STYLE__MULTICOLOR__link}"
+STYLE__MULTICOLOR__END__url="${STYLE__MULTICOLOR__END__link}"
+STYLE__MULTICOLOR__path="${STYLE__MULTICOLOR__foreground_yellow}"
+STYLE__MULTICOLOR__END__path="${STYLE__MULTICOLOR__END__foreground}"
 # do not add a code-notice style that is just yellow text, as it is not better than just a standard code style as it doesn't distinguish itself enough, instead do a notice1 and code-notice1 style
 if [[ -n $GITHUB_ACTIONS ]]; then
-	style__color__header1="${style__color__background_intense_white}${style__color__foreground_black}"
-	style__color_end__header1="${style__color_end__background}${style__color_end__foreground}"
-	style__color__error1="${style__color__background_red}${style__color__foreground_black}"
-	style__color_end__error1="${style__color_end__background}${style__color_end__foreground}"
-	style__color__error="${style__color__background_red}${style__color__foreground_black}"
-	style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
+	STYLE__MULTICOLOR__header1="${STYLE__MULTICOLOR__background_intense_white}${STYLE__MULTICOLOR__foreground_black}"
+	STYLE__MULTICOLOR__END__header1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+	STYLE__MULTICOLOR__error1="${STYLE__MULTICOLOR__background_red}${STYLE__MULTICOLOR__foreground_black}"
+	STYLE__MULTICOLOR__END__error1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
+	STYLE__MULTICOLOR__error="${STYLE__MULTICOLOR__background_red}${STYLE__MULTICOLOR__foreground_black}"
+	STYLE__MULTICOLOR__END__error="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 elif [[ $THEME == 'light' ]]; then
-	# trim style__color__foreground_intense_yellow as it is unreadable on light theme
-	style__color__notice="${style__color__bold}${style__color__underline}${style__color__foreground_yellow}"
-	style__color_end__notice="${style__color_end__intensity}${style__color_end__underline}${style__color_end__foreground}"
-	style__color__elevate="${style__color__foreground_yellow}"
-	style__color_end__elevate="${style__color_end__foreground}"
+	# trim STYLE__MULTICOLOR__foreground_intense_yellow as it is unreadable on light theme
+	STYLE__MULTICOLOR__notice="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_yellow}"
+	STYLE__MULTICOLOR__END__notice="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
+	STYLE__MULTICOLOR__elevate="${STYLE__MULTICOLOR__foreground_yellow}"
+	STYLE__MULTICOLOR__END__elevate="${STYLE__MULTICOLOR__END__foreground}"
 
 	# If italics is not supported, swap it with something else...
 	# Values of TERM_PROGRAM that are known to not support italics:
@@ -484,17 +485,17 @@ elif [[ $THEME == 'light' ]]; then
 	# As italics support is rare, do the swap if not in a known terminal that supports italics....
 	if [[ $ITALICS_SUPPORTED == 'no' ]]; then
 		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
-		# style__color__italic="$style__color__dim"
-		# style__color_end__italic="$style__color_end__dim"
-		style__color__italic="$style__color__foreground_intense_black"
-		style__color_end__italic="$style__color_end__foreground"
+		# STYLE__MULTICOLOR__italic="$STYLE__MULTICOLOR__dim"
+		# STYLE__MULTICOLOR__END__italic="$STYLE__MULTICOLOR__END__dim"
+		STYLE__MULTICOLOR__italic="$STYLE__MULTICOLOR__foreground_intense_black"
+		STYLE__MULTICOLOR__END__italic="$STYLE__MULTICOLOR__END__foreground"
 	fi
 else
 	# on dark theme on vscode
-	# style__color__background_intense_red forces black foreground, which black on red is unreadable, so adjust
-	if [[ $TERM_PROGRAM == vscode ]]; then
-		style__color__error="${style__color__background_red}${style__color__foreground_intense_white}"
-		style__color_end__error="${style__color_end__background}${style__color_end__foreground}"
+	# STYLE__MULTICOLOR__background_intense_red forces black foreground, which black on red is unreadable, so adjust
+	if [[ $TERM_PROGRAM == 'vscode' ]]; then
+		STYLE__MULTICOLOR__error="${STYLE__MULTICOLOR__background_red}${STYLE__MULTICOLOR__foreground_intense_white}"
+		STYLE__MULTICOLOR__END__error="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
 	fi
 
 	# If italics is not supported, swap it with something else...
@@ -503,16 +504,16 @@ else
 	# As italics support is rare, do the swap if not in a known terminal that supports italics....
 	if [[ $ITALICS_SUPPORTED == 'no' ]]; then
 		# do not use underline, as it makes a mess, an underlined | or , or space is not pretty
-		# style__color__italic="$style__color__dim"
-		# style__color_end__italic="$style__color_end__dim"
-		style__color__italic="$style__color__foreground_intense_white"
-		style__color_end__italic="$style__color_end__foreground"
+		# STYLE__MULTICOLOR__italic="$STYLE__MULTICOLOR__dim"
+		# STYLE__MULTICOLOR__END__italic="$STYLE__MULTICOLOR__END__dim"
+		STYLE__MULTICOLOR__italic="$STYLE__MULTICOLOR__foreground_intense_white"
+		STYLE__MULTICOLOR__END__italic="$STYLE__MULTICOLOR__END__foreground"
 	fi
 fi
 
 # aliases
-style__color__sudo="$style__color__elevate"
-style__color_end__sudo="$style__color_end__elevate"
+STYLE__MULTICOLOR__sudo="$STYLE__MULTICOLOR__elevate"
+STYLE__MULTICOLOR__END__sudo="$STYLE__MULTICOLOR__END__elevate"
 
 # don't use these in segments, as it prohibits alternative usage
 # instead, when things take a long time,
@@ -529,104 +530,104 @@ style__color_end__sudo="$style__color_end__elevate"
 # ⚠️ 🛑 ⛔ ✅ ✊ ✋ 👍 🏆 ❌ ❓ ❔ ❕ ❗
 # ✓ ✔ ✕ ✖ ✗ ✘ ★ ☆
 # ❢ ❣ ♡ ❤ ❥ ♥
-style__icon_good='☺'
-style__icon_error='!'
+STYLE__icon_good='☺'
+STYLE__icon_error='!'
 
 # level 1 wrappers
 # hN = header level N
 # gN = good level N (use to close a header element)
 # eN = error level N (use to close a header element)
 # nN = notice level N (use to close a header element)
-style__nocolor__h1=$'\n┌  '
-style__nocolor_end__h1='  ┐'
-style__color__h1=$'\n'"${style__color__header1}┌  "
-style__color_end__h1="  ┐${style__color_end__header1}"
+STYLE__MONOCOLOR__h1=$'\n┌  '
+STYLE__MONOCOLOR__END__h1='  ┐'
+STYLE__MULTICOLOR__h1=$'\n'"${STYLE__MULTICOLOR__header1}┌  "
+STYLE__MULTICOLOR__END__h1="  ┐${STYLE__MULTICOLOR__END__header1}"
 
-style__nocolor__g1="└${style__icon_good} "
-style__nocolor_end__g1=" ${style__icon_good}┘"
-style__color__g1="${style__color__good1}└  "
-style__color_end__g1="  ┘${style__color_end__good1}"
+STYLE__MONOCOLOR__g1="└${STYLE__icon_good} "
+STYLE__MONOCOLOR__END__g1=" ${STYLE__icon_good}┘"
+STYLE__MULTICOLOR__g1="${STYLE__MULTICOLOR__good1}└  "
+STYLE__MULTICOLOR__END__g1="  ┘${STYLE__MULTICOLOR__END__good1}"
 
-style__nocolor__e1="└${style__icon_error} "
-style__nocolor_end__e1=" ${style__icon_error}┘"
-style__color__e1="${style__color__error1}└  "
-style__color_end__e1="  ┘${style__color_end__error1}"
+STYLE__MONOCOLOR__e1="└${STYLE__icon_error} "
+STYLE__MONOCOLOR__END__e1=" ${STYLE__icon_error}┘"
+STYLE__MULTICOLOR__e1="${STYLE__MULTICOLOR__error1}└  "
+STYLE__MULTICOLOR__END__e1="  ┘${STYLE__MULTICOLOR__END__error1}"
 
-style__nocolor__n1='└  '
-style__nocolor_end__n1='  ┘'
-style__color__n1="${style__color__notice1}└  "
-style__color_end__n1="  ┘${style__color_end__notice1}"
+STYLE__MONOCOLOR__n1='└  '
+STYLE__MONOCOLOR__END__n1='  ┘'
+STYLE__MULTICOLOR__n1="${STYLE__MULTICOLOR__notice1}└  "
+STYLE__MULTICOLOR__END__n1="  ┘${STYLE__MULTICOLOR__END__notice1}"
 
 # level 2 wrappers
-style__nocolor__h2='┌  '
-style__nocolor_end__h2='  ┐'
-style__color__h2="${style__color__reset}${style__color__bold}┌  "
-style__color_end__h2="  ┐${style__color__reset}"
-# style__color__h2="${style__color__reset}┌  ${style__color__invert}"
-# style__color_end__h2="${style__color_end__invert}  ┐${style__color__reset}"
+STYLE__MONOCOLOR__h2='┌  '
+STYLE__MONOCOLOR__END__h2='  ┐'
+STYLE__MULTICOLOR__h2="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__bold}┌  "
+STYLE__MULTICOLOR__END__h2="  ┐${STYLE__MULTICOLOR__reset}"
+# STYLE__MULTICOLOR__h2="${STYLE__MULTICOLOR__reset}┌  ${STYLE__MULTICOLOR__invert}"
+# STYLE__MULTICOLOR__END__h2="${STYLE__MULTICOLOR__END__invert}  ┐${STYLE__MULTICOLOR__reset}"
 
-style__nocolor__g2="└${style__icon_good} "
-style__nocolor_end__g2=" ${style__icon_good}┘"
-style__color__g2="${style__color__reset}${style__color__bold}${style__color__foreground_green}└  "
-style__color_end__g2="  ┘${style__color__reset}"
+STYLE__MONOCOLOR__g2="└${STYLE__icon_good} "
+STYLE__MONOCOLOR__END__g2=" ${STYLE__icon_good}┘"
+STYLE__MULTICOLOR__g2="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_green}└  "
+STYLE__MULTICOLOR__END__g2="  ┘${STYLE__MULTICOLOR__reset}"
 
-style__nocolor__e2="└${style__icon_error} "
-style__nocolor_end__e2=" ${style__icon_error}┘"
-style__color__e2="${style__color__reset}${style__color__bold}${style__color__foreground_red}└  "
-style__color_end__e2="  ┘${style__color__reset}"
+STYLE__MONOCOLOR__e2="└${STYLE__icon_error} "
+STYLE__MONOCOLOR__END__e2=" ${STYLE__icon_error}┘"
+STYLE__MULTICOLOR__e2="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_red}└  "
+STYLE__MULTICOLOR__END__e2="  ┘${STYLE__MULTICOLOR__reset}"
 
-style__nocolor__n2='└  '
-style__nocolor_end__n2='  ┘'
-style__color__n2="${style__color__reset}${style__color__bold}${style__color__foreground_yellow}└  "
-style__color_end__n2="  ┘${style__color__reset}"
+STYLE__MONOCOLOR__n2='└  '
+STYLE__MONOCOLOR__END__n2='  ┘'
+STYLE__MULTICOLOR__n2="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_yellow}└  "
+STYLE__MULTICOLOR__END__n2="  ┘${STYLE__MULTICOLOR__reset}"
 
 # level 3 wrappers
-style__nocolor__h3='┌  '
-style__nocolor_end__h3='  ┐'
-style__color__h3="${style__color__reset}┌  "
-style__color_end__h3="  ┐${style__color__reset}"
+STYLE__MONOCOLOR__h3='┌  '
+STYLE__MONOCOLOR__END__h3='  ┐'
+STYLE__MULTICOLOR__h3="${STYLE__MULTICOLOR__reset}┌  "
+STYLE__MULTICOLOR__END__h3="  ┐${STYLE__MULTICOLOR__reset}"
 
-style__nocolor__g3="└${style__icon_good} "
-style__nocolor_end__g3=" ${style__icon_good}┘"
-style__color__g3="${style__color__reset}${style__color__foreground_green}└  "
-style__color_end__g3="  ┘${style__color__reset}"
+STYLE__MONOCOLOR__g3="└${STYLE__icon_good} "
+STYLE__MONOCOLOR__END__g3=" ${STYLE__icon_good}┘"
+STYLE__MULTICOLOR__g3="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__foreground_green}└  "
+STYLE__MULTICOLOR__END__g3="  ┘${STYLE__MULTICOLOR__reset}"
 
-style__nocolor__e3="└${style__icon_error} "
-style__nocolor_end__e3=" ${style__icon_error}┘"
-style__color__e3="${style__color__reset}${style__color__foreground_red}└  "
-style__color_end__e3="  ┘${style__color__reset}"
+STYLE__MONOCOLOR__e3="└${STYLE__icon_error} "
+STYLE__MONOCOLOR__END__e3=" ${STYLE__icon_error}┘"
+STYLE__MULTICOLOR__e3="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__foreground_red}└  "
+STYLE__MULTICOLOR__END__e3="  ┘${STYLE__MULTICOLOR__reset}"
 
-style__nocolor__n3='└  '
-style__nocolor_end__n3='  ┘'
-style__color__n3="${style__color__reset}${style__color__foreground_yellow}└  "
-style__color_end__n3="  ┘${style__color__reset}"
+STYLE__MONOCOLOR__n3='└  '
+STYLE__MONOCOLOR__END__n3='  ┘'
+STYLE__MULTICOLOR__n3="${STYLE__MULTICOLOR__reset}${STYLE__MULTICOLOR__foreground_yellow}└  "
+STYLE__MULTICOLOR__END__n3="  ┘${STYLE__MULTICOLOR__reset}"
 
 # element
-style__nocolor__element='< '
-style__nocolor_end__element=' >'
-style__color__element="${style__color__dim}${style__color__bold}< ${style__color_end__intensity}"
-style__color_end__element="${style__color__dim}${style__color__bold} >${style__color_end__intensity}"
+STYLE__MONOCOLOR__element='< '
+STYLE__MONOCOLOR__END__element=' >'
+STYLE__MULTICOLOR__element="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold}< ${STYLE__MULTICOLOR__END__intensity}"
+STYLE__MULTICOLOR__END__element="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold} >${STYLE__MULTICOLOR__END__intensity}"
 
-style__nocolor__slash_element='</ '
-style__nocolor_end__slash_element=' >'
-style__color__slash_element="${style__color__dim}${style__color__bold}</ ${style__color_end__intensity}"
-style__color_end__slash_element="${style__color__dim}${style__color__bold} >${style__color_end__intensity}"
+STYLE__MONOCOLOR__slash_element='</ '
+STYLE__MONOCOLOR__END__slash_element=' >'
+STYLE__MULTICOLOR__slash_element="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold}</ ${STYLE__MULTICOLOR__END__intensity}"
+STYLE__MULTICOLOR__END__slash_element="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold} >${STYLE__MULTICOLOR__END__intensity}"
 
-style__nocolor__element_slash='< '
-style__nocolor_end__element_slash=' />'
-style__color__element_slash="${style__color__dim}${style__color__bold}< ${style__color_end__intensity}"
-style__color_end__element_slash="${style__color__dim}${style__color__bold} />${style__color_end__intensity}"
+STYLE__MONOCOLOR__element_slash='< '
+STYLE__MONOCOLOR__END__element_slash=' />'
+STYLE__MULTICOLOR__element_slash="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold}< ${STYLE__MULTICOLOR__END__intensity}"
+STYLE__MULTICOLOR__END__element_slash="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold} />${STYLE__MULTICOLOR__END__intensity}"
 
 # fragment
-style__nocolor__fragment='<>'
-style__color__fragment="${style__color__dim}${style__color__bold}<>${style__color_end__intensity}"
+STYLE__MONOCOLOR__fragment='<>'
+STYLE__MULTICOLOR__fragment="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold}<>${STYLE__MULTICOLOR__END__intensity}"
 
-style__nocolor__slash_fragment='</>'
-style__color__slash_fragment="${style__color__dim}${style__color__bold}</>${style__color_end__intensity}"
+STYLE__MONOCOLOR__slash_fragment='</>'
+STYLE__MULTICOLOR__slash_fragment="${STYLE__MULTICOLOR__dim}${STYLE__MULTICOLOR__bold}</>${STYLE__MULTICOLOR__END__intensity}"
 
-# the style__color__resets allow these to work:
-# echo-style --h1_begin --h1='Setup Python' --h1_end $'\n' --g1_begin --g1='Setup Python' --g1_end
-# echo-style --element_slash_begin --h3="this should not be dim" --element_slash_end "$status"
+# the STYLE__MULTICOLOR__resets allow these to work:
+# echo-style --h1_begin --h1='Setup Python' --h1__END $'\n' --g1_begin --g1='Setup Python' --g1__END
+# echo-style --element_slash_begin --h3="this should not be dim" --element_slash__END "$status"
 # echo-style a --h1 --element c --red=d e
 
 # choose
@@ -668,17 +669,17 @@ style__color__slash_fragment="${style__color__dim}${style__color__bold}</>${styl
 # ╭	╮	╯ ╰
 
 # confirm/choose/ask questions
-style__color__question_title_prompt="${style__color__bold}${style__color__underline}"
-style__color_end__question_title_prompt="${style__color_end__bold}${style__color_end__underline}"
+STYLE__MULTICOLOR__question_title_prompt="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}"
+STYLE__MULTICOLOR__END__question_title_prompt="${STYLE__MULTICOLOR__END__bold}${STYLE__MULTICOLOR__END__underline}"
 
-style__color__question_title_result="${style__color__bold}"
-style__color_end__question_title_result="${style__color_end__bold}"
+STYLE__MULTICOLOR__question_title_result="${STYLE__MULTICOLOR__bold}"
+STYLE__MULTICOLOR__END__question_title_result="${STYLE__MULTICOLOR__END__bold}"
 
-style__color__question_body="${style__color__dim}"
-style__color_end__question_body="${style__color_end__dim}"
+STYLE__MULTICOLOR__question_body="${STYLE__MULTICOLOR__dim}"
+STYLE__MULTICOLOR__END__question_body="${STYLE__MULTICOLOR__END__dim}"
 
 # ask icons
-style__icon_prompt='> '
+STYLE__icon_prompt='> '
 
 # for input result indentation, it doesn't sense:
 # https://en.wikipedia.org/wiki/List_of_Unicode_characters#Box_Drawing
@@ -691,289 +692,312 @@ style__icon_prompt='> '
 # after a lot of experimentation, it does not make sense to prefix it: https://gist.github.com/balupton/5160f1ee8581ffe9d1d67963824f86d0
 
 # lines
-style__icon_multi_selected='▣ '
-style__icon_multi_default='⊡ '
-style__icon_multi_active='⊡ '
-style__icon_multi_standard='□ '
-style__icon_single_selected='⦿ ' # only used in confirmation and linger
-style__icon_single_default='⦾ '
-style__icon_single_active_required='◉ '
-style__icon_single_active_optional='⦿ '
-style__icon_single_standard='○ '
-style__color__result_line="$style__color__dim"
-style__color_end__result_line="$style__color_end__intensity"
-style__color__active_line="$style__color__invert"
-style__color_end__active_line="$style__color_end__invert"
-style__color__selected_line="$style__color__foreground_intense_green"
-style__color_end__selected_line="$style__color_end__foreground"
-style__color__default_line="$style__color__foreground_intense_yellow"
-style__color_end__default_line="$style__color_end__foreground"
-style__color__empty_line="${style__color__foreground_magenta}${style__color__background_intense_white}" # this is inverted
-style__color_end__empty_line="${style__color_end__foreground}${style__color_end__background}"
-style__color__inactive_line=''
-style__color_end__inactive_line=''
+STYLE__icon_multi_selected='▣ '
+STYLE__icon_multi_default='⊡ '
+STYLE__icon_multi_active='⊡ '
+STYLE__icon_multi_standard='□ '
+STYLE__icon_single_selected='⦿ ' # only used in confirmation and linger
+STYLE__icon_single_default='⦾ '
+STYLE__icon_single_active_required='◉ '
+STYLE__icon_single_active_optional='⦿ '
+STYLE__icon_single_standard='○ '
+STYLE__MULTICOLOR__result_line="$STYLE__MULTICOLOR__dim"
+STYLE__MULTICOLOR__END__result_line="$STYLE__MULTICOLOR__END__intensity"
+STYLE__MULTICOLOR__active_line="$STYLE__MULTICOLOR__invert"
+STYLE__MULTICOLOR__END__active_line="$STYLE__MULTICOLOR__END__invert"
+STYLE__MULTICOLOR__selected_line="$STYLE__MULTICOLOR__foreground_intense_green"
+STYLE__MULTICOLOR__END__selected_line="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__default_line="$STYLE__MULTICOLOR__foreground_intense_yellow"
+STYLE__MULTICOLOR__END__default_line="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__empty_line="${STYLE__MULTICOLOR__foreground_magenta}${STYLE__MULTICOLOR__background_intense_white}" # this is inverted
+STYLE__MULTICOLOR__END__empty_line="${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__background}"
+STYLE__MULTICOLOR__inactive_line=''
+STYLE__MULTICOLOR__END__inactive_line=''
 
 # notice and warning too much emphasis on something with fallback
 # confirm/choose/ask failures
-style__color__input_warning="${style__color__bold}${style__color__foreground_yellow}"
-style__color_end__input_warning="${style__color_end__bold}${style__color_end__foreground_yellow}"
-style__color__input_error="${style__color__error1}"
-style__color_end__input_error="${style__color_end__error1}"
+STYLE__MULTICOLOR__input_warning="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_yellow}"
+STYLE__MULTICOLOR__END__input_warning="${STYLE__MULTICOLOR__END__bold}${STYLE__MULTICOLOR__END__foreground_yellow}"
+STYLE__MULTICOLOR__input_error="${STYLE__MULTICOLOR__error1}"
+STYLE__MULTICOLOR__END__input_error="${STYLE__MULTICOLOR__END__error1}"
 
 # confirm/choose/ask/debugging text
-style__commentary='[ '
-style__commentary_end=' ]'
-style__icon_nothing_provided="${style__commentary}nothing provided${style__commentary_end}"
-style__icon_undeclared="${style__commentary}undeclared${style__commentary_end}"
-style__icon_undefined="${style__commentary}undefined${style__commentary_end}"
-style__icon_empty="${style__commentary}empty${style__commentary_end}"
-style__icon_no_selection="${style__commentary}no selection${style__commentary_end}"
-style__icon_nothing_selected="${style__commentary}nothing selected${style__commentary_end}"
-style__icon_using_password="${style__commentary}using the entered password${style__commentary_end}"
-style__icon_timeout_default="${style__commentary}timed out: used default${style__commentary_end}"
-style__icon_timeout_optional="${style__commentary}timed out: not required${style__commentary_end}"
-style__icon_timeout_required="${style__commentary}input failure: timed out: required${style__commentary_end}"
-style__icon_input_failure="${style__commentary}input failure: %s${style__commentary_end}"
-style__nocolor__commentary_nothing_provided="${style__icon_nothing_provided}"
-style__nocolor__commentary_undeclared="${style__icon_undeclared}"
-style__nocolor__commentary_undefined="${style__icon_undefined}"
-style__nocolor__commentary_empty="${style__icon_empty}"
-style__nocolor__commentary_no_selection="${style__icon_no_selection}"
-style__nocolor__commentary_nothing_selected="${style__icon_nothing_selected}"
-style__nocolor__commentary_using_password="${style__icon_using_password}"
-style__nocolor__commentary_timeout_default="${style__icon_timeout_default}"
-style__nocolor__commentary_timeout_optional="${style__icon_timeout_optional}"
-style__nocolor__commentary_timeout_required="${style__icon_timeout_required}"
-style__nocolor__commentary_input_failure="${style__icon_input_failure}"
-style__color__commentary_nothing_provided="${style__color__empty_line}${style__icon_nothing_provided}${style__color_end__empty_line}"
-style__color__commentary_undeclared="${style__color__empty_line}${style__icon_undeclared}${style__color_end__empty_line}"
-style__color__commentary_undefined="${style__color__empty_line}${style__icon_undefined}${style__color_end__empty_line}"
-style__color__commentary_empty="${style__color__empty_line}${style__icon_empty}${style__color_end__empty_line}"
-style__color__commentary_no_selection="${style__color__empty_line}${style__icon_no_selection}${style__color_end__empty_line}"
-style__color__commentary_nothing_selected="${style__color__empty_line}${style__icon_nothing_selected}${style__color_end__empty_line}"
-style__color__commentary_using_password="${style__color__empty_line}${style__icon_using_password}${style__color_end__empty_line}"
-style__color__commentary_timeout_default="${style__color__input_warning}${style__icon_timeout_default}${style__color_end__input_warning}"
-style__color__commentary_timeout_optional="${style__color__input_warning}${style__icon_timeout_optional}${style__color_end__input_warning}"
-style__color__commentary_timeout_required="${style__color__input_error}${style__icon_timeout_required}${style__color_end__input_error}"
-style__color__commentary_input_failure="${style__color__input_error}${style__icon_input_failure}${style__color_end__input_error}"
+STYLE__commentary='[ '
+STYLE__commentary__END=' ]'
+STYLE__icon_nothing_provided="${STYLE__commentary}nothing provided${STYLE__commentary__END}"
+STYLE__icon_undeclared="${STYLE__commentary}undeclared${STYLE__commentary__END}"
+STYLE__icon_undefined="${STYLE__commentary}undefined${STYLE__commentary__END}"
+STYLE__icon_empty="${STYLE__commentary}empty${STYLE__commentary__END}"
+STYLE__icon_no_selection="${STYLE__commentary}no selection${STYLE__commentary__END}"
+STYLE__icon_nothing_selected="${STYLE__commentary}nothing selected${STYLE__commentary__END}"
+STYLE__icon_using_password="${STYLE__commentary}using the entered password${STYLE__commentary__END}"
+STYLE__icon_timeout_default="${STYLE__commentary}timed out: used default${STYLE__commentary__END}"
+STYLE__icon_timeout_optional="${STYLE__commentary}timed out: not required${STYLE__commentary__END}"
+STYLE__icon_timeout_required="${STYLE__commentary}input failure: timed out: required${STYLE__commentary__END}"
+STYLE__icon_input_failure="${STYLE__commentary}input failure: %s${STYLE__commentary__END}"
+
+STYLE__MONOCOLOR__commentary_nothing_provided="${STYLE__icon_nothing_provided}"
+STYLE__MULTICOLOR__commentary_nothing_provided="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_nothing_provided}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_undeclared="${STYLE__icon_undeclared}"
+STYLE__MULTICOLOR__commentary_undeclared="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_undeclared}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_undefined="${STYLE__icon_undefined}"
+STYLE__MULTICOLOR__commentary_undefined="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_undefined}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_empty="${STYLE__icon_empty}"
+STYLE__MULTICOLOR__commentary_empty="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_empty}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_no_selection="${STYLE__icon_no_selection}"
+STYLE__MULTICOLOR__commentary_no_selection="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_no_selection}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_nothing_selected="${STYLE__icon_nothing_selected}"
+STYLE__MULTICOLOR__commentary_nothing_selected="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_nothing_selected}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_using_password="${STYLE__icon_using_password}"
+STYLE__MULTICOLOR__commentary_using_password="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_using_password}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_timeout_default="${STYLE__icon_timeout_default}"
+STYLE__MULTICOLOR__commentary_timeout_default="${STYLE__MULTICOLOR__input_warning}${STYLE__icon_timeout_default}${STYLE__MULTICOLOR__END__input_warning}"
+
+STYLE__MONOCOLOR__commentary_timeout_optional="${STYLE__icon_timeout_optional}"
+STYLE__MULTICOLOR__commentary_timeout_optional="${STYLE__MULTICOLOR__input_warning}${STYLE__icon_timeout_optional}${STYLE__MULTICOLOR__END__input_warning}"
+
+STYLE__MONOCOLOR__commentary_timeout_required="${STYLE__icon_timeout_required}"
+STYLE__MULTICOLOR__commentary_timeout_required="${STYLE__MULTICOLOR__input_error}${STYLE__icon_timeout_required}${STYLE__MULTICOLOR__END__input_error}"
+
+STYLE__MONOCOLOR__commentary_input_failure="${STYLE__icon_input_failure}"
+STYLE__MULTICOLOR__commentary_input_failure="${STYLE__MULTICOLOR__input_error}${STYLE__icon_input_failure}${STYLE__MULTICOLOR__END__input_error}"
 
 # spacers
-style__result_commentary_spacer=' '
-style__legend_legend_spacer='  '
-style__legend_key_spacer=' '
-style__key_key_spacer=' '
-style__indent_bar='   '
-style__indent_active='⏵  '
-style__indent_inactive='   '
-style__indent_blockquote='│ '
+STYLE__result_commentary_spacer=' '
+STYLE__legend_legend_spacer='  '
+STYLE__legend_key_spacer=' '
+STYLE__key_key_spacer=' '
+STYLE__indent_bar='   '
+STYLE__indent_active='⏵  '
+STYLE__indent_inactive='   '
+STYLE__indent_blockquote='│ '
+STYLE__MONOCOLOR__count_spacer=' ∙ '
+STYLE__MULTICOLOR__count_spacer=" ${STYLE__MULTICOLOR__foreground_intense_black}∙${STYLE__MULTICOLOR__END__foreground} "
 
-# style__count_spacer=' ∙ '
-style__nocolor__count_spacer=' ∙ '
-style__color__count_spacer=" ${style__color__foreground_intense_black}∙${style__color_end__foreground} "
-
-style__color_end__legend="$style__color_end__intensity"
-style__color__key="${style__color__foreground_black}${style__color__background_white} "
-style__color_end__key=" ${style__color_end__foreground}${style__color_end__background}"
-style__color__key_active="${style__color__foreground_black}${style__color__background_intense_white} "
-style__color_end__key_active=" ${style__color_end__foreground}${style__color_end__background}"
-style__nocolor__key='['
-style__nocolor_end__key=']'
-style__nocolor__key_active='['
-style__nocolor_end__key_active=']'
+# legend
+STYLE__MULTICOLOR__legend="$STYLE__MULTICOLOR__dim" # dim is better than white, nice separation
+STYLE__MULTICOLOR__END__legend="$STYLE__MULTICOLOR__END__intensity"
+STYLE__MULTICOLOR__key="${STYLE__MULTICOLOR__foreground_black}${STYLE__MULTICOLOR__background_white} "
+STYLE__MULTICOLOR__END__key=" ${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__background}"
+STYLE__MULTICOLOR__key_active="${STYLE__MULTICOLOR__foreground_black}${STYLE__MULTICOLOR__background_intense_white} "
+STYLE__MULTICOLOR__END__key_active=" ${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__background}"
+STYLE__MONOCOLOR__key='['
+STYLE__MONOCOLOR__END__key=']'
+STYLE__MONOCOLOR__key_active='['
+STYLE__MONOCOLOR__END__key_active=']'
 
 # paging counts
-# style__count_more=''
-style__color__count_more="$style__color__dim"
-style__color_end__count_more="$style__color_end__dim"
-style__color__count_selected="$style__color__foreground_green"
-style__color_end__count_selected="$style__color_end__foreground"
-style__color__count_defaults="$style__color__foreground_yellow"
-style__color_end__count_defaults="$style__color_end__foreground"
-style__color__count_empty="$style__color__foreground_magenta"
-style__color_end__count_empty="$style__color_end__foreground"
+# STYLE__count_more=''
+STYLE__MULTICOLOR__count_more="$STYLE__MULTICOLOR__dim"
+STYLE__MULTICOLOR__END__count_more="$STYLE__MULTICOLOR__END__dim"
+STYLE__MULTICOLOR__count_selected="$STYLE__MULTICOLOR__foreground_green"
+STYLE__MULTICOLOR__END__count_selected="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__count_defaults="$STYLE__MULTICOLOR__foreground_yellow"
+STYLE__MULTICOLOR__END__count_defaults="$STYLE__MULTICOLOR__END__foreground"
+STYLE__MULTICOLOR__count_empty="$STYLE__MULTICOLOR__foreground_magenta"
+STYLE__MULTICOLOR__END__count_empty="$STYLE__MULTICOLOR__END__foreground"
 
 # paging headers
-# style__bar_top='┌ '
-# style__end__bar_top=' ┐'
-# style__bar_middle='├ '
-# style__end__bar_middle=' ┤'
-# style__bar_bottom='└ '
-# style__end__bar_bottom=' ┘'
-# style__bar_line='│ '
-style__nocolor__bar_top='┌ '
-style__nocolor_end__bar_top=' ┐'
-style__nocolor__bar_middle='├ '
-style__nocolor_end__bar_middle=' ┤'
-style__nocolor__bar_bottom='└ '
-style__nocolor_end__bar_bottom=' ┘'
-style__nocolor__bar_line='│ '
-style__color__bar_top="${style__color__dim}┌${style__color_end__dim} "
-style__color_end__bar_top=" ${style__color__dim}┐${style__color_end__dim}"
-style__color__bar_middle="${style__color__dim}├${style__color_end__dim} "
-style__color_end__bar_middle=" ${style__color__dim}┤${style__color_end__dim}"
-style__color__bar_bottom="${style__color__dim}└${style__color_end__dim} "
-style__color_end__bar_bottom=" ${style__color__dim}┘${style__color_end__dim}"
-style__color__bar_line="${style__color__dim}│${style__color_end__dim} "
+# STYLE__bar_top='┌ '
+# STYLE__END__bar_top=' ┐'
+# STYLE__bar_middle='├ '
+# STYLE__END__bar_middle=' ┤'
+# STYLE__bar_bottom='└ '
+# STYLE__END__bar_bottom=' ┘'
+# STYLE__bar_line='│ '
+STYLE__MONOCOLOR__bar_top='┌ '
+STYLE__MONOCOLOR__END__bar_top=' ┐'
+STYLE__MONOCOLOR__bar_middle='├ '
+STYLE__MONOCOLOR__END__bar_middle=' ┤'
+STYLE__MONOCOLOR__bar_bottom='└ '
+STYLE__MONOCOLOR__END__bar_bottom=' ┘'
+STYLE__MONOCOLOR__bar_line='│ '
+STYLE__MULTICOLOR__bar_top="${STYLE__MULTICOLOR__dim}┌${STYLE__MULTICOLOR__END__dim} "
+STYLE__MULTICOLOR__END__bar_top=" ${STYLE__MULTICOLOR__dim}┐${STYLE__MULTICOLOR__END__dim}"
+STYLE__MULTICOLOR__bar_middle="${STYLE__MULTICOLOR__dim}├${STYLE__MULTICOLOR__END__dim} "
+STYLE__MULTICOLOR__END__bar_middle=" ${STYLE__MULTICOLOR__dim}┤${STYLE__MULTICOLOR__END__dim}"
+STYLE__MULTICOLOR__bar_bottom="${STYLE__MULTICOLOR__dim}└${STYLE__MULTICOLOR__END__dim} "
+STYLE__MULTICOLOR__END__bar_bottom=" ${STYLE__MULTICOLOR__dim}┘${STYLE__MULTICOLOR__END__dim}"
+STYLE__MULTICOLOR__bar_line="${STYLE__MULTICOLOR__dim}│${STYLE__MULTICOLOR__END__dim} "
 
 # if confirm appears dim, it is because your terminal theme has changed and you haven't opened a new terminal tab
-
-# ${style__color__background_intense_white}: ⏴⏵
-# confirm color
-style__color__confirm_positive_active="${style__color__bold}${style__color__invert}${style__color__foreground_green}⏵YES${style__color_end__underline}  ${style__color_end__invert}${style__color_end__bold}${style__color__key_active} Y ${style__color_end__key_active}"
-style__color__confirm_negative_active="${style__color__bold}${style__color__invert}${style__color__foreground_red}⏵NO${style__color_end__underline}  ${style__color_end__invert}${style__color_end__bold}${style__color__key_active} N ${style__color_end__key_active}"
-style__color__confirm_proceed_active="${style__color__bold}${style__color__invert}${style__color__foreground_green}⏵PROCEED${style__color_end__underline}  ${style__color_end__invert}${style__color_end__bold}${style__color__key_active} ENTER ${style__color_end__key_active} ${style__color__key_active} SPACE ${style__color_end__key_active} ${style__color__key_active} Y ${style__color_end__key_active}"
-
-style__color__confirm_positive_inactive="${style__color__foreground_green} YES  ${style__color__key} Y ${style__color_end__key}"
-style__color__confirm_negative_inactive="${style__color__foreground_red} NO  ${style__color__key} N ${style__color_end__key}"
-style__color__confirm_abort_inactive="${style__color__foreground_red}${style__color__dim} ABORT  ${style__color__key} ESC ${style__color_end__key}${style__color_end__dim}"
-
-style__color__confirm_positive_result="${style__color__bold}${style__color__invert}${style__color__foreground_green} YES ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
-style__color__confirm_negative_result="${style__color__bold}${style__color__invert}${style__color__foreground_red} NO ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
-style__color__confirm_abort_result="${style__color__bold}${style__color__invert}${style__color__foreground_red} ABORT ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
-style__color__confirm_proceed_result="${style__color__bold}${style__color__invert}${style__color__foreground_green} PROCEED ${style__color_end__foreground}${style__color_end__invert}${style__color_end__bold}"
-
-# confirm nocolor
-style__nocolor__confirm_positive_active='*YES* [Y]'
-style__nocolor__confirm_negative_active='*NO* [N]'
-style__nocolor__confirm_proceed_active='*PROCEED* [ENTER] [SPACE] [Y]'
-
-style__nocolor__confirm_positive_inactive=' YES  [Y]'
-style__nocolor__confirm_negative_inactive=' NO  [N]'
-style__nocolor__confirm_abort_inactive=' ABORT  [ESC] [Q]'
-
-style__nocolor__confirm_positive_result='[YES]'
-style__nocolor__confirm_negative_result='[NO]'
-style__nocolor__confirm_abort_result='[ABORT]'
-style__nocolor__confirm_proceed_result='[PROCEED]'
 
 # adjustments
 if [[ $THEME == 'light' ]]; then
 	# keys
-	style__color__legend="$style__color__foreground_intense_black"
-	style__color_end__legend="$style__color_end__foreground"
-	style__color__key="$style__color__background_intense_white "
-	style__color_end__key=" $style__color_end__background"
+	STYLE__MULTICOLOR__legend="$STYLE__MULTICOLOR__foreground_intense_black"
+	STYLE__MULTICOLOR__END__legend="$STYLE__MULTICOLOR__END__foreground"
+	STYLE__MULTICOLOR__key="$STYLE__MULTICOLOR__background_intense_white "
+	STYLE__MULTICOLOR__END__key=" $STYLE__MULTICOLOR__END__background"
 	# lines
-	style__color__selected_line="$style__color__foreground_green"
-	style__color_end__selected_line="$style__color_end__foreground"
-	style__color__default_line="$style__color__foreground_yellow"
-	style__color_end__default_line="$style__color_end__foreground"
+	STYLE__MULTICOLOR__selected_line="$STYLE__MULTICOLOR__foreground_green"
+	STYLE__MULTICOLOR__END__selected_line="$STYLE__MULTICOLOR__END__foreground"
+	STYLE__MULTICOLOR__default_line="$STYLE__MULTICOLOR__foreground_yellow"
+	STYLE__MULTICOLOR__END__default_line="$STYLE__MULTICOLOR__END__foreground"
 fi
 
 #######################################
 # RENDER HELPERS ######################
 
-function __refresh_style_cache {
-	# this should be similar to __append_style in echo-style
-	local REFRESH_STYLE_CACHE__item REFRESH_STYLE_CACHE__color=''
+function __load_styles {
+	local LOAD_STYLES__item LOAD_STYLES__color='' LOAD_STYLES__save='no' LOAD_STYLES__begin='' LOAD_STYLES__end=''
 	while [[ $# -ne 0 ]]; do
-		REFRESH_STYLE_CACHE__item="$1"
+		LOAD_STYLES__item="$1"
 		shift
-		case "$REFRESH_STYLE_CACHE__item" in
-		--colors=yes | --colors | --color) REFRESH_STYLE_CACHE__color='yes' ;;
-		--colors=no | --no-colors | --no-color) REFRESH_STYLE_CACHE__color='no' ;;
-		--colors=) : ;;
+		case "$LOAD_STYLES__item" in
+		--no-color* | --color*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__color} --affirmative --coerce || return ;;
+		--no-save* | --save* | --no-cache* | --cache*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__save} --affirmative --coerce || return ;;
+		--begin={*})
+			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__begin} || return
+			# LOAD_STYLES__begin="${LOAD_STYLES__item#*=}"
+			# LOAD_STYLES__begin="${LOAD_STYLES__begin//[^a-zA-Z0-9_]/}"
+			;;
+		--end={*})
+			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__end} || return
+			# LOAD_STYLES__end="${LOAD_STYLES__item#*=}"
+			# LOAD_STYLES__end="${LOAD_STYLES__end//[^a-zA-Z0-9_]/}"
+			;;
 		--) break ;;
-		--*) __unrecognised_argument "$REFRESH_STYLE_CACHE__item" || return ;;
+		--*) __unrecognised_argument "$LOAD_STYLES__item" || return ;;
 		esac
 	done
-	if [[ -z $REFRESH_STYLE_CACHE__color ]]; then
-		if [[ ${COLOR-} =~ ^(yes|no)$ ]]; then
-			REFRESH_STYLE_CACHE__color="$COLOR"
-		elif __get_terminal_color_support --quiet --fallback=yes; then
-			REFRESH_STYLE_CACHE__color='yes'
-		else
-			REFRESH_STYLE_CACHE__color='no'
-		fi
-	fi
-	local REFRESH_STYLE_CACHE__style REFRESH_STYLE_CACHE__found REFRESH_STYLE_CACHE__var REFRESH_STYLE_CACHE__missing_styles=()
-	for REFRESH_STYLE_CACHE__style in "$@"; do
-		REFRESH_STYLE_CACHE__found='no'
-		if [[ $REFRESH_STYLE_CACHE__color == 'yes' ]]; then
-			# begin
-			REFRESH_STYLE_CACHE__var="style__color__${REFRESH_STYLE_CACHE__style}"
-			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-				eval "style__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
-				REFRESH_STYLE_CACHE__found='yes'
-			else
-				REFRESH_STYLE_CACHE__var="style__${REFRESH_STYLE_CACHE__style}"
-				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-					# no need to update it
-					REFRESH_STYLE_CACHE__found='yes'
-				else
-					REFRESH_STYLE_CACHE__var="style__nocolor__${REFRESH_STYLE_CACHE__style}"
-					eval "style__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
-					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-						REFRESH_STYLE_CACHE__found='yes'
-					fi
-				fi
-			fi
-
-			# end
-			REFRESH_STYLE_CACHE__var="style__color_end__${REFRESH_STYLE_CACHE__style}"
-			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-				eval "style__end__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
-				REFRESH_STYLE_CACHE__found='yes'
-			else
-				REFRESH_STYLE_CACHE__var="style__end__${REFRESH_STYLE_CACHE__style}"
-				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-					# no need to update it
-					REFRESH_STYLE_CACHE__found='yes'
-				else
-					REFRESH_STYLE_CACHE__var="style__nocolor_end__${REFRESH_STYLE_CACHE__style}"
-					eval "style__end__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
-					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-						REFRESH_STYLE_CACHE__found='yes'
-					fi
-				fi
-			fi
-		else
-			# begin
-			REFRESH_STYLE_CACHE__var="style__nocolor__${REFRESH_STYLE_CACHE__style}"
-			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-				eval "style__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
-				REFRESH_STYLE_CACHE__found='yes'
-			else
-				REFRESH_STYLE_CACHE__var="style__${REFRESH_STYLE_CACHE__style}"
-				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-					# no need to update it
-					REFRESH_STYLE_CACHE__found='yes'
-				else
-					REFRESH_STYLE_CACHE__var="style__color__${REFRESH_STYLE_CACHE__style}"
-					eval "style__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
-					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-						REFRESH_STYLE_CACHE__found='yes'
-					fi
-				fi
-			fi
-
-			# end
-			REFRESH_STYLE_CACHE__var="style__nocolor_end__${REFRESH_STYLE_CACHE__style}"
-			if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-				eval "style__end__${REFRESH_STYLE_CACHE__style}=\"\${!REFRESH_STYLE_CACHE__var}\""
-				REFRESH_STYLE_CACHE__found='yes'
-			else
-				REFRESH_STYLE_CACHE__var="style__end__${REFRESH_STYLE_CACHE__style}"
-				if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-					# no need to update it
-					REFRESH_STYLE_CACHE__found='yes'
-				else
-					REFRESH_STYLE_CACHE__var="style__color_end__${REFRESH_STYLE_CACHE__style}"
-					eval "style__end__${REFRESH_STYLE_CACHE__style}=''" # set to nothing regardless
-					if __is_var_defined "$REFRESH_STYLE_CACHE__var"; then
-						REFRESH_STYLE_CACHE__found='yes'
-					fi
-				fi
-			fi
-		fi
-		if [[ $REFRESH_STYLE_CACHE__found == 'no' ]]; then
-			REFRESH_STYLE_CACHE__missing_styles+=("${REFRESH_STYLE_CACHE__style}")
-		fi
-	done
-	if [[ ${#REFRESH_STYLE_CACHE__missing_styles[@]} -ne 0 ]]; then
-		__print_lines 'ERROR: MISSING STYLES:' "${REFRESH_STYLE_CACHE__missing_styles[@]}" >&2 || return
+	# require either save/cache or begin/end
+	if [[ -z $LOAD_STYLES__save && -z $LOAD_STYLES__begin && -z $LOAD_STYLES__end ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Either --save/--cache or --begin=.../--end=... is required" >&2 || return
 		return 22 # EINVAL 22 Invalid argument
 	fi
+	# color
+	if [[ -z $LOAD_STYLES__color ]]; then
+		if [[ ${COLOR-} =~ ^(yes|no)$ ]]; then
+			LOAD_STYLES__color="$COLOR"
+		elif __get_terminal_color_support --quiet --fallback=yes; then
+			LOAD_STYLES__color='yes'
+		else
+			LOAD_STYLES__color='no'
+		fi
+	fi
+	local LOAD_STYLES__desired LOAD_STYLES__undesired
+	if [[ $LOAD_STYLES__color == 'yes' ]]; then
+		LOAD_STYLES__desired='MULTICOLOR'
+		LOAD_STYLES__undesired='MONOCOLOR'
+	else
+		LOAD_STYLES__desired='MONOCOLOR'
+		LOAD_STYLES__undesired='MULTICOLOR'
+	fi
+	# cycle
+	local LOAD_STYLES__style LOAD_STYLES__var='' LOAD_STYLES__found LOAD_STYLES__missing=()
+	for LOAD_STYLES__style in "$@"; do
+		# RESET
+		LOAD_STYLES__found='no'
+
+		# BEGIN
+		# check if it has explicit desired color
+		LOAD_STYLES__var="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}"
+		if __is_var_defined "$LOAD_STYLES__var"; then
+			# it has explicit desired color
+			# update the cache with the explicit desired color
+			if [[ $LOAD_STYLES__save == 'yes' ]]; then
+				# __to --source="{$LOAD_STYLES__var}" --target="{STYLE__$LOAD_STYLES__style}" || return
+				eval "STYLE__${LOAD_STYLES__style}=\"\${!LOAD_STYLES__var}\""
+			fi
+			# append our result with the explicit desired color
+			if [[ -n $LOAD_STYLES__begin ]]; then
+				# __to --source="{$LOAD_STYLES__var}" --append --target="${LOAD_STYLES__begin}" || return
+				eval "${LOAD_STYLES__begin}+=\"\${!LOAD_STYLES__var}\""
+			fi
+			# note it has been found
+			LOAD_STYLES__found='yes'
+		else
+			# it does not have explicit undesired color
+			# check if it has explicit undesired color
+			LOAD_STYLES__var="STYLE__${LOAD_STYLES__undesired}__${LOAD_STYLES__style}"
+			if __is_var_defined "$LOAD_STYLES__var"; then
+				# it does not have explicit desired color, but ihas the explicit undesired color
+				# empty the cache as it is not the desired color
+				if [[ $LOAD_STYLES__save == 'yes' ]]; then
+					eval "STYLE__${LOAD_STYLES__style}="
+				fi
+				# note it has been found
+				LOAD_STYLES__found='yes'
+			else
+				# it doesn't have explicit desired nor undesired
+				# check if it implicit combo
+				LOAD_STYLES__var="STYLE__${LOAD_STYLES__style}"
+				if __is_var_defined "$LOAD_STYLES__var"; then
+					# it does have implicit combo
+					# no need to update the cache, as the cache name is already the implicit name
+					# append our result with the implicit combo
+					if [[ -n $LOAD_STYLES__begin ]]; then
+						eval "${LOAD_STYLES__begin}+=\"\${!LOAD_STYLES__var}\""
+					fi
+					# note it has been found
+					LOAD_STYLES__found='yes'
+				fi
+			fi
+		fi
+
+		# END
+		# check if it has explicit desired color
+		LOAD_STYLES__var="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}"
+		if __is_var_defined "$LOAD_STYLES__var"; then
+			# it has explicit desired color
+			# update the cache with the explicit desired color
+			if [[ $LOAD_STYLES__save == 'yes' ]]; then
+				eval "STYLE__END__${LOAD_STYLES__style}=\"\${!LOAD_STYLES__var}\""
+			fi
+			# prepend our result with the explicit desired color
+			if [[ -n $LOAD_STYLES__end ]]; then
+				eval "${LOAD_STYLES__end}=\"\${!LOAD_STYLES__var}\${!LOAD_STYLES__end}\""
+			fi
+			# note it has been found
+			LOAD_STYLES__found='yes'
+		else
+			# it does not have explicit undesired color
+			# check if it has explicit undesired color
+			LOAD_STYLES__var="STYLE__${LOAD_STYLES__undesired}__END__${LOAD_STYLES__style}"
+			if __is_var_defined "$LOAD_STYLES__var"; then
+				# it does not have explicit desired color, but ihas the explicit undesired color
+				# empty the cache as it is not the desired color
+				if [[ $LOAD_STYLES__save == 'yes' ]]; then
+					eval "STYLE__END__${LOAD_STYLES__style}="
+				fi
+				# note it has been found
+				LOAD_STYLES__found='yes'
+			else
+				# it doesn't have explicit desired nor undesired
+				# check if it implicit combo
+				LOAD_STYLES__var="STYLE__END__${LOAD_STYLES__style}"
+				if __is_var_defined "$LOAD_STYLES__var"; then
+					# it does have implicit combo
+					# no need to update the cache, as the cache name is already the implicit name
+					# prepend our result with the implicit combo
+					if [[ -n $LOAD_STYLES__end ]]; then
+						eval "${LOAD_STYLES__end}=\"\${!LOAD_STYLES__var}\${!LOAD_STYLES__end}\""
+					fi
+					# note it has been found
+					LOAD_STYLES__found='yes'
+				fi
+			fi
+		fi
+		if [[ $LOAD_STYLES__found == 'no' ]]; then
+			LOAD_STYLES__missing+=("$LOAD_STYLES__style")
+		fi
+	done
+	if [[ ${#LOAD_STYLES__missing[@]} -ne 0 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: MISSING STYLES:" "${LOAD_STYLES__missing[@]}" >&2 || return
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
+function __refresh_style_cache {
+	__load_styles --save "$@"
 }
 
 function __print_style {
@@ -984,15 +1008,7 @@ function __print_style {
 		shift
 		case "$PRINT_STYLE__item" in
 		--no-trail* | --trail*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__trail} --affirmative --coerce || return ;;
-		--colors=yes | --colors | --color)
-			# ^ dont do wildcard checks, as that messes with --nocolor+... and --color+modifiers
-			PRINT_STYLE__color=yes
-			;;
-		--colors=no | --no-colors | --no-color)
-			# ^ don't do wildcard checks, as that messes with --nocolor+... and --color+modifiers
-			PRINT_STYLE__color='no'
-			;;
-		--colors=) : ;;
+		--no-color* | --color*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__color} --affirmative --coerce || return ;;
 		--)
 			PRINT_STYLE__items+=("$@")
 			shift $#
@@ -1013,219 +1029,154 @@ function __print_style {
 	# Action
 
 	# act
-	local PRINT_STYLE__item PRINT_STYLE__flag PRINT_STYLE__style PRINT_STYLE__generic \
+	local PRINT_STYLE__item PRINT_STYLE__item_flag PRINT_STYLE__item_type \
 		PRINT_STYLE__index PRINT_STYLE__current_char_index PRINT_STYLE__last_char_index \
 		PRINT_STYLE__item_target \
 		PRINT_STYLE__buffer_target='/dev/stdout' \
-		PRINT_STYLE__missing_styles=() \
 		PRINT_STYLE__item_color \
 		PRINT_STYLE__buffer_color="$PRINT_STYLE__color" \
 		PRINT_STYLE__item_begin \
 		PRINT_STYLE__item_content \
 		PRINT_STYLE__item_end \
+		PRINT_STYLE__flag_style \
+		PRINT_STYLE__item_styles=() \
 		PRINT_STYLE__buffer_left='' \
 		PRINT_STYLE__buffer_disable='' \
 		PRINT_STYLE__buffer_right=''
-	function __append_style {
-		# this should be similar to refresh_style_cache in styles.bash
-		local APPEND_STYLE__style="$1" APPEND_STYLE__var='' APPEND_STYLE__found='no'
-		if [[ $PRINT_STYLE__item_color == 'yes' ]]; then
-			# begin
-			APPEND_STYLE__var="style__color__${APPEND_STYLE__style}"
-			if __is_var_defined "$APPEND_STYLE__var"; then
-				PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
-				APPEND_STYLE__found='yes'
-			else
-				# cache
-				APPEND_STYLE__var="style__${APPEND_STYLE__style}"
-				if __is_var_defined "$APPEND_STYLE__var"; then
-					PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
-					APPEND_STYLE__found='yes'
-				else
-					APPEND_STYLE__var="style__nocolor__${APPEND_STYLE__style}"
-					if __is_var_defined "$APPEND_STYLE__var"; then
-						APPEND_STYLE__found='yes'
-					fi
-				fi
-			fi
-
-			# end
-			APPEND_STYLE__var="style__color_end__${APPEND_STYLE__style}"
-			if __is_var_defined "$APPEND_STYLE__var"; then
-				PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
-				APPEND_STYLE__found='yes'
-			else
-				# cache
-				APPEND_STYLE__var="style__end__${APPEND_STYLE__style}"
-				if __is_var_defined "$APPEND_STYLE__var"; then
-					PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
-					APPEND_STYLE__found='yes'
-				else
-					APPEND_STYLE__var="style__nocolor_end__${APPEND_STYLE__style}"
-					if __is_var_defined "$APPEND_STYLE__var"; then
-						APPEND_STYLE__found='yes'
-					fi
-				fi
-			fi
-		else
-			# begin
-			APPEND_STYLE__var="style__nocolor__${APPEND_STYLE__style}"
-			if __is_var_defined "$APPEND_STYLE__var"; then
-				PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
-				APPEND_STYLE__found='yes'
-			else
-				# cache
-				APPEND_STYLE__var="style__${APPEND_STYLE__style}"
-				if __is_var_defined "$APPEND_STYLE__var"; then
-					PRINT_STYLE__item_begin+="${!APPEND_STYLE__var}"
-					APPEND_STYLE__found='yes'
-				else
-					APPEND_STYLE__var="style__color__${APPEND_STYLE__style}"
-					if __is_var_defined "$APPEND_STYLE__var"; then
-						APPEND_STYLE__found='yes'
-					fi
-				fi
-			fi
-
-			# end
-			APPEND_STYLE__var="style__nocolor_end__${APPEND_STYLE__style}"
-			if __is_var_defined "$APPEND_STYLE__var"; then
-				PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
-				APPEND_STYLE__found='yes'
-			else
-				# cache
-				APPEND_STYLE__var="style__end__${APPEND_STYLE__style}"
-				if __is_var_defined "$APPEND_STYLE__var"; then
-					PRINT_STYLE__item_end="${!APPEND_STYLE__var}${PRINT_STYLE__item_end}"
-					APPEND_STYLE__found='yes'
-				else
-					APPEND_STYLE__var="style__color_end__${APPEND_STYLE__style}"
-					if __is_var_defined "$APPEND_STYLE__var"; then
-						APPEND_STYLE__found='yes'
-					fi
-				fi
-			fi
-		fi
-		if [[ $APPEND_STYLE__found == 'no' ]]; then
-			PRINT_STYLE__missing_styles+=("${APPEND_STYLE__style}")
-		fi
-	}
 	for PRINT_STYLE__item in "${PRINT_STYLE__items[@]}"; do
+		# reset
+		PRINT_STYLE__item_target="$PRINT_STYLE__buffer_target"
+		PRINT_STYLE__item_color="$PRINT_STYLE__buffer_color"
+		PRINT_STYLE__item_flag=''
+		PRINT_STYLE__item_content=''
 		# check flag status
 		if [[ ${PRINT_STYLE__item:0:3} == '--=' ]]; then
 			# empty flag, just item content, e.g. '--=Hello', --=--=
-			PRINT_STYLE__buffer_left+="${PRINT_STYLE__item:3}"
-			continue
+			PRINT_STYLE__item_type='content'
+			PRINT_STYLE__item_content="${PRINT_STYLE__item:3}"
 		elif [[ ${PRINT_STYLE__item:0:2} != '--' || $PRINT_STYLE__item == '--' ]]; then
 			# not a flag, just item content, e.g. 'Hello', '--'
-			PRINT_STYLE__buffer_left+="$PRINT_STYLE__item"
-			continue
-		fi
-		PRINT_STYLE__flag="${PRINT_STYLE__item:2}"
-		PRINT_STYLE__item_content=''
-		PRINT_STYLE__generic='yes'
+			PRINT_STYLE__item_type='content'
+			PRINT_STYLE__item_content="$PRINT_STYLE__item"
+		else
+			# is a flag
+			PRINT_STYLE__item_type='flag'
+			PRINT_STYLE__item_flag="${PRINT_STYLE__item:2}"
 
-		# get the flag and value combo
-		for ((PRINT_STYLE__index = 0; PRINT_STYLE__index < ${#PRINT_STYLE__flag}; PRINT_STYLE__index++)); do
-			if [[ ${PRINT_STYLE__flag:PRINT_STYLE__index:1} == '=' ]]; then
-				PRINT_STYLE__generic='no'
-				PRINT_STYLE__item_content="${PRINT_STYLE__flag:PRINT_STYLE__index+1}"
-				PRINT_STYLE__flag="${PRINT_STYLE__flag:0:PRINT_STYLE__index}"
-				break
-			fi
-		done
+			# break apart the flag into <flag>=<item_content> combo
+			for ((PRINT_STYLE__index = 0; PRINT_STYLE__index < ${#PRINT_STYLE__item_flag}; PRINT_STYLE__index++)); do
+				if [[ ${PRINT_STYLE__item_flag:PRINT_STYLE__index:1} == '=' ]]; then
+					PRINT_STYLE__item_type='flag+content'
+					PRINT_STYLE__item_content="${PRINT_STYLE__item_flag:PRINT_STYLE__index+1}"
+					PRINT_STYLE__item_flag="${PRINT_STYLE__item_flag:0:PRINT_STYLE__index}"
+					break
+				fi
+			done
 
-		# handle style+style combinations
-		PRINT_STYLE__last_char_index=0
-		PRINT_STYLE__item_target="$PRINT_STYLE__buffer_target"
-		PRINT_STYLE__item_color="$PRINT_STYLE__buffer_color"
-		PRINT_STYLE__item_begin=''
-		PRINT_STYLE__item_end=''
-		for ((PRINT_STYLE__current_char_index = 0; PRINT_STYLE__current_char_index <= ${#PRINT_STYLE__flag}; PRINT_STYLE__current_char_index++)); do
-			if [[ ${PRINT_STYLE__flag:PRINT_STYLE__current_char_index:1} == '+' || $PRINT_STYLE__current_char_index -eq ${#PRINT_STYLE__flag} ]]; then
-				PRINT_STYLE__style="${PRINT_STYLE__flag:PRINT_STYLE__last_char_index:PRINT_STYLE__current_char_index-PRINT_STYLE__last_char_index}"
-				PRINT_STYLE__last_char_index="$((PRINT_STYLE__current_char_index + 1))"
-				PRINT_STYLE__style="${PRINT_STYLE__style//-/_}" # convert hyphens to underscores
+			# lowercase the flag
+			PRINT_STYLE__item_flag="$(__get_lowercase_string "$PRINT_STYLE__item_flag")"
 
-				# handle special cases
-				case "$PRINT_STYLE__style" in
-				black | red | green | yellow | blue | magenta | cyan | white | purple | gray | grey) PRINT_STYLE__style="foreground_${PRINT_STYLE__style}" ;;
-				intense_*) PRINT_STYLE__style="foreground_intense_${PRINT_STYLE__style:8}" ;;
-				fg_*) PRINT_STYLE__style="foreground_${PRINT_STYLE__style:3}" ;;
-				bg_*) PRINT_STYLE__style="background_${PRINT_STYLE__style:3}" ;;
-				/*) PRINT_STYLE__style="slash_${PRINT_STYLE__style:1}" ;;
-				*/)
-					__replace --source+target={PRINT_STYLE__style} --trailing='/' || return
-					PRINT_STYLE__style+='_slash'
-					;;
-				status)
-					if [[ $PRINT_STYLE__item_content -eq 0 ]]; then
-						PRINT_STYLE__style='good3'
-					else
-						PRINT_STYLE__style='error3'
-					fi
-					PRINT_STYLE__item_content="[${PRINT_STYLE__item_content}]"
-					;;
-				color)
-					PRINT_STYLE__item_color='yes'
-					continue
-					;;
-				nocolor)
-					PRINT_STYLE__item_color='no'
-					continue
-					;;
-				stdout)
-					PRINT_STYLE__item_target='/dev/stdout'
-					continue
-					;;
-				stderr)
-					PRINT_STYLE__item_target='/dev/stderr'
-					continue
-					;;
-				tty)
-					PRINT_STYLE__item_target='/dev/tty'
-					continue
-					;;
-				debug)
-					if [[ $DOROTHY_DEBUG == 'yes' ]]; then
-						PRINT_STYLE__item_target="${BASH_XTRACEFD:-"2"}"
-					else
+			# handle style+style combinations
+			PRINT_STYLE__last_char_index=0
+			PRINT_STYLE__item_styles=()
+			for ((PRINT_STYLE__current_char_index = 0; PRINT_STYLE__current_char_index <= ${#PRINT_STYLE__item_flag}; PRINT_STYLE__current_char_index++)); do
+				if [[ ${PRINT_STYLE__item_flag:PRINT_STYLE__current_char_index:1} == '+' || $PRINT_STYLE__current_char_index -eq ${#PRINT_STYLE__item_flag} ]]; then
+					PRINT_STYLE__flag_style="${PRINT_STYLE__item_flag:PRINT_STYLE__last_char_index:PRINT_STYLE__current_char_index-PRINT_STYLE__last_char_index}"
+					PRINT_STYLE__last_char_index="$((PRINT_STYLE__current_char_index + 1))"
+					PRINT_STYLE__flag_style="${PRINT_STYLE__flag_style//-/_}" # convert hyphens to underscores
+
+					# handle special cases
+					case "$PRINT_STYLE__flag_style" in
+					black | red | green | yellow | blue | magenta | cyan | white | purple | gray | grey) PRINT_STYLE__flag_style="foreground_${PRINT_STYLE__flag_style}" ;;
+					intense_*) PRINT_STYLE__flag_style="foreground_intense_${PRINT_STYLE__flag_style:8}" ;;
+					/*) PRINT_STYLE__flag_style="slash_${PRINT_STYLE__flag_style:1}" ;;
+					*/)
+						__replace --source+target={PRINT_STYLE__flag_style} --trailing='/' || return
+						PRINT_STYLE__flag_style+='_slash'
+						;;
+					status)
+						if [[ $PRINT_STYLE__item_content -eq 0 ]]; then
+							PRINT_STYLE__flag_style='good3'
+						else
+							PRINT_STYLE__flag_style='error3'
+						fi
+						PRINT_STYLE__item_content="[${PRINT_STYLE__item_content}]"
+						;;
+					multicolor)
+						PRINT_STYLE__item_color='yes'
+						if [[ $PRINT_STYLE__item_type == 'flag' ]]; then
+							PRINT_STYLE__buffer_color='yes'
+						fi
+						continue
+						;;
+					monocolor)
+						PRINT_STYLE__item_color='no'
+						if [[ $PRINT_STYLE__item_type == 'flag' ]]; then
+							PRINT_STYLE__buffer_color='no'
+						fi
+						continue
+						;;
+					stdout)
+						PRINT_STYLE__item_target='/dev/stdout'
+						continue
+						;;
+					stderr)
+						PRINT_STYLE__item_target='/dev/stderr'
+						continue
+						;;
+					tty)
+						PRINT_STYLE__item_target='/dev/tty'
+						continue
+						;;
+					debug)
+						if [[ $DOROTHY_DEBUG == 'yes' ]]; then
+							PRINT_STYLE__item_target="${BASH_XTRACEFD:-"2"}"
+						else
+							PRINT_STYLE__item_target='/dev/null'
+						fi
+						continue
+						;;
+					null)
 						PRINT_STYLE__item_target='/dev/null'
-					fi
-					continue
-					;;
-				null)
-					PRINT_STYLE__item_target='/dev/null'
-					continue
-					;;
-				value)
-					PRINT_STYLE__item_content="$(__dump --value="$PRINT_STYLE__item_content")" || return
-					continue
-					;;
-				variable_value)
-					PRINT_STYLE__item_content="$(__dump --variable-value="$PRINT_STYLE__item_content")" || return
-					continue
-					;;
-				variable)
-					PRINT_STYLE__item_content="$(__dump --variable="$PRINT_STYLE__item_content")" || return
-					continue
-					;;
-				esac
+						continue
+						;;
+					value)
+						PRINT_STYLE__item_content="$(__dump --value="$PRINT_STYLE__item_content")" || return
+						continue
+						;;
+					variable_value)
+						PRINT_STYLE__item_content="$(__dump --variable-value="$PRINT_STYLE__item_content")" || return
+						continue
+						;;
+					variable)
+						PRINT_STYLE__item_content="$(__dump --variable="$PRINT_STYLE__item_content")" || return
+						continue
+						;;
+					esac
 
-				# get the style
-				__append_style "$PRINT_STYLE__style" || return
-			fi
-		done
+					# add the possibly modified style to the item styles
+					PRINT_STYLE__item_styles+=("$PRINT_STYLE__flag_style")
+				fi
+			done
+
+			# append and prepend the styles
+			# it is done here, to do them all at once, but also to make sure that a trailing +multicolor/monocolor is respected
+			PRINT_STYLE__item_begin=''
+			PRINT_STYLE__item_end=''
+			__load_styles --color="$PRINT_STYLE__item_color" --begin={PRINT_STYLE__item_begin} --end={PRINT_STYLE__item_end} -- "${PRINT_STYLE__item_styles[@]}" || return
+		fi
 
 		# handle nocolor and color correctly, as in conditional output based on NO_COLOR=true
 		# e.g. env COLOR=false echo-style --color=yes --nocolor=no # outputs no
 		# e.g. env COLOR=true echo-style --color=yes --nocolor=no # outputs yes
-		if [[ $PRINT_STYLE__color != "$PRINT_STYLE__item_color" ]]; then
+		if [[ $PRINT_STYLE__item_color != "$PRINT_STYLE__color" ]]; then
 			continue
 		fi
 
-		# if it is generic, add the styles (except disable) to the buffer instead
-		if [[ $PRINT_STYLE__generic == 'yes' ]]; then
+		# handle the argument type
+		if [[ $PRINT_STYLE__item_type == 'content' ]]; then
+			PRINT_STYLE__buffer_left+="${PRINT_STYLE__item_content}"
+		elif [[ $PRINT_STYLE__item_type == 'flag' ]]; then
 			# flush buffer if necessary
 			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
 				__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
@@ -1259,16 +1210,12 @@ function __print_style {
 	fi
 	__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
 		__print_string "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" || return
-	if [[ ${#PRINT_STYLE__missing_styles[@]} -ne 0 ]]; then
-		__print_lines 'ERROR: MISSING STYLES:' "${PRINT_STYLE__missing_styles[@]}" >&2 || return
-		return 22 # EINVAL 22 Invalid argument
-	fi
 }
 
 # beta command, will change
 function __print_help {
-	__refresh_style_cache -- intensity framed underline invert italic background_intense_black foreground bold dim code foreground_magenta foreground_green foreground_red
-	# echo-regexp -gm '(\[[^\]]+\])' "$style__dim\$1$style__end__dim" | \
+	__load_styles --save -- intensity framed underline invert italic background_intense_black foreground bold dim code foreground_magenta foreground_green foreground_red
+	# echo-regexp -gm '(\[[^\]]+\])' "$STYLE__dim\$1$STYLE__END__dim" | \
 
 	# `eval-helper --help` edge cases:
 	# --(discard|copy|redirect)-{*}=<...forwarded to {__do}>
@@ -1276,12 +1223,12 @@ function __print_help {
 	#     If {failure},
 	#     If <exit-status>,
 
-	# echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" |
-	# echo-regexp -g '\[0\](\s)' "$style__foreground_green[0]$style__end__foreground_green\$1" |
-	# echo-regexp -g '\[([\d]+)\](\s)' "$style__foreground_red[\$1]$style__end__foreground_red\$2" |
-	# echo-regexp -g $'([^`\e]<[^/ >][^>]+?>[^`\e])' "$style__bold\$1$style__end__bold" |
+	# echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
+	# echo-regexp -g '\[0\](\s)' "$STYLE__foreground_green[0]$STYLE__END__foreground_green\$1" |
+	# echo-regexp -g '\[([\d]+)\](\s)' "$STYLE__foreground_red[\$1]$STYLE__END__foreground_red\$2" |
+	# echo-regexp -g $'([^`\e]<[^/ >][^>]+?>[^`\e])' "$STYLE__bold\$1$STYLE__END__bold" |
 	# echo-regexp -g $'(`[^\e`]+?)\e\[(1|2|22)m([^`]+?`)' '$1$3' |
-	# echo-regexp -gm $'`([^`]+?)`' "$style__dim\$1$style__end__dim" | {
+	# echo-regexp -gm $'`([^`]+?)`' "$STYLE__dim\$1$STYLE__END__dim" | {
 
 	# cat |
 	# 	echo-regexp -g $'(<[^/ >][^>]+?>)' "<bold>\$1</bold>" |
@@ -1296,10 +1243,10 @@ function __print_help {
 
 	local character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
 	local -i c l
-	# | echo-regexp -gm $'`([^`]+?)`' "$style__framed\$1$style__end__framed"
-	echo-regexp -gm '^(--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$style__foreground_magenta\$1$style__end__foreground_magenta" |
-		echo-regexp -g '\[0\](\s)' "$style__foreground_green[0]$style__end__foreground_green\$1" |
-		echo-regexp -g '\[([\d]+)\](\s)' "$style__foreground_red[\$1]$style__end__foreground_red\$2" |
+	# | echo-regexp -gm $'`([^`]+?)`' "$STYLE__framed\$1$STYLE__END__framed"
+	echo-regexp -gm '^(--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
+		echo-regexp -g '\[0\](\s)' "$STYLE__foreground_green[0]$STYLE__END__foreground_green\$1" |
+		echo-regexp -g '\[([\d]+)\](\s)' "$STYLE__foreground_red[\$1]$STYLE__END__foreground_red\$2" |
 		while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
 			if [[ $character == $'\e' ]]; then
 				in_color='yes'
@@ -1310,17 +1257,17 @@ function __print_help {
 				fi
 				buffer+="${character}"
 			elif [[ $character == '<' ]]; then
-				intensities+=("$style__bold")
-				buffer+="${style__bold}${character}"
+				intensities+=("$STYLE__bold")
+				buffer+="${STYLE__bold}${character}"
 			elif [[ $character == '[' ]]; then
-				intensities+=("$style__dim")
-				buffer+="${style__dim}${character}"
+				intensities+=("$STYLE__dim")
+				buffer+="${STYLE__dim}${character}"
 			elif [[ $character == '>' || $character == ']' || $character == '`' ]]; then
 				if [[ $character == '`' ]]; then
 					character=''
 					if [[ $in_tick == 'no' ]]; then
-						intensities+=("$style__dim")
-						buffer+="${style__dim}"
+						intensities+=("$STYLE__dim")
+						buffer+="${STYLE__dim}"
 						in_tick='yes'
 						continue
 					else
@@ -1351,13 +1298,13 @@ function __print_help {
 
 				# re-affirm the prior insensity
 				if [[ ${#intensities[@]} -eq 0 ]]; then
-					buffer+="${style__end__intensity}"
+					buffer+="${STYLE__END__intensity}"
 				else
 					# __slice --source={intensities} --target={last} -1 || return
 					last="${intensities[l]}"
 					# for some strange reason, in the case of:
 					#
-					buffer+="${style__end__intensity}${last}"
+					buffer+="${STYLE__END__intensity}${last}"
 				fi
 			else
 				buffer+="${character}"
