@@ -323,6 +323,8 @@ function __dump {
 			if [[ $DOROTHY_DEBUG != 'yes' ]]; then
 				return 0
 			fi
+			DUMP__log+=("$DUMP__item")
+			continue
 			;;
 		--no-style | --no-color)
 			DUMP__color=no
@@ -347,6 +349,10 @@ function __dump {
 			;;
 		--variable=*)
 			DUMP__item="${DUMP__item#*=}"
+			;;
+		--*)
+			DUMP__log+=("$DUMP__item")
+			continue
 			;;
 		esac
 		__dereference --source="$DUMP__item" --name={DUMP__reference} || return

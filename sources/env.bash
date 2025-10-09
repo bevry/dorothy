@@ -29,7 +29,7 @@ function __env_parse {
 		if [[ $found == 'no' ]]; then
 			# no equals sign, so an environment variable has outputted outputted a newline and messed everything up
 			env="$(env)"
-			__dump --value='== LAST ENV ENTRY IS MISSING ASSIGNMENT ==' {env} {REPLY} {line} >&2 || :
+			__dump --stderr --value='== LAST ENV ENTRY IS MISSING ASSIGNMENT ==' {env} {REPLY} {line} || :
 			return 22 # EINVAL 22 Invalid argument
 		fi
 	done <<<"$env"
@@ -96,7 +96,7 @@ function __on_env_finish {
 			__unique --source+target={values} || return
 			__join --source={values} --delimiter="$delimiter" --target={value} || return
 			if [[ -z $value && $name == 'PATH' ]]; then
-				__dump --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} >&2 || :
+				__dump --stderr --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
 			__dump --debug --value='== DE-DUPLICATED ==' {name} {original_value} {delimiter} {value} || :
