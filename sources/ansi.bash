@@ -828,3 +828,207 @@ function __is_shapeshifter {
 	done
 	return 1
 }
+
+function __read_key {
+	# process
+	# do not use a subsequent_timeout smaller than 0.01, as that is still 100 keys a second, which is faster than any human can press and reasonable enough for automated key presses, and more importantly, anything smaller introduces issues where only a portion of the ansi escape combination is read, and in which re-attempting to read the remaining portion results in discarded characters of the ansi escape sequence, see alternative failed implementations at: https://gist.github.com/balupton/d8ee5f5d6022d3988f148df26909d638
+	local item option_quiet='yes' option_timeout='' option_continue='no' subsequent_timeout='0.01' option_keep_line_buffer_newlines='no'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--help | -h) read-key --help || return ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce || return ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce || return ;;
+		--no-continue* | --continue*) __flag --source={item} --target={option_continue} --affirmative --coerce || return ;;
+		--timeout=*) option_timeout="${item#*=}" ;;
+		--no-keep-line-buffer-newlines* | --keep-line-buffer-newlines*) __flag --source={item} --target={option_keep_line_buffer_newlines} --affirmative --coerce || return ;;
+		--*) __unrecognised_flag "$item" || return ;;
+		*) __unrecognised_argument "$item" || return ;;
+		esac
+	done
+
+	# timeout
+	if ! __is_number "$option_timeout"; then
+		option_timeout=600 # ten minutes
+	fi
+
+	# bash v3 compat
+	option_timeout="$(__get_read_decimal_timeout "$option_timeout")" || return
+	subsequent_timeout="$(__get_read_decimal_timeout "$subsequent_timeout")" || return
+
+	# =====================================
+	# Action
+
+	local inputs='' input='' last_key=''
+	if [[ $IS_STDIN_LINE_BUFFERED == 'no' ]]; then
+		function __discard_key_if_line_buffer_enter { return 1; }
+	else
+		function __discard_key_if_line_buffer_enter {
+			[[ $input == $'\n' && -n $last_key && $last_key != $'\n' ]] || return
+		}
+	fi
+	function __add {
+		local input="$1"
+		if [[ -z $input ]]; then
+			input=$'\n'
+		fi
+		if [[ $input == $'\e' || $input == $'\n' ]]; then
+			__flush || return
+		fi
+		if __discard_key_if_line_buffer_enter; then
+			if [[ $option_keep_line_buffer_newlines == 'yes' ]]; then
+				printf '%s\n' 'line-buffer' || return
+			fi
+			last_key="$input"
+			input=''
+		fi
+		#printf 'input: %q\tinputs: %q\n' "$input" "$inputs"
+		inputs+="$input"
+	}
+	function __read_and_flush {
+		# read
+		local -i status=0
+		local readings=() reading
+		# read rapidly then add
+		IFS= read -rsn1 -t "$option_timeout" input || status=$?
+		if [[ $status -eq 0 ]]; then
+			readings+=("$input")
+			while :; do
+				# IFS= allows the space character [ ] to be indentation
+				# -r allows backslash key [\] to be kept
+				# -s prevents the input from being echoed
+				# -n1 reads only one character, which is necessary surprisingly to read non-printable characters
+				if ! IFS= read -rsn1 -t "$subsequent_timeout" input; then
+					break
+				fi
+				readings+=("$input")
+			done
+		fi
+		for reading in "${readings[@]}"; do
+			__add "$reading" || return
+		done
+
+		# handle errors
+		# in practice, timeouts are only ever 148, however docs say >=128 should be considered timeout
+		if [[ $status -ge 128 ]]; then
+			return 60 # ETIMEDOUT 60 Operation timed out
+		elif [[ $status -eq 1 ]] && ([[ ! -t 0 ]] || ! read -t 0); then
+			# this can happen on CI environments, and other environments with stdin and TTY trickery
+			return 60 # ETIMEDOUT 60 Operation timed out
+		elif [[ $status -ne 0 ]]; then
+			return "$status" # some other issue, let the caller figure it out
+		fi
+
+		# got key
+		__flush || return
+	}
+	function __print_and_trim_key {
+		local name="$1" key="$2"
+		local -i size="${#key}"
+		last_key="$key"
+		inputs="${inputs:size}"
+		if [[ $option_quiet == 'no' ]]; then
+			printf '%s %q\n' "$name" "$key" || return
+		else
+			printf '%s\n' "$name" || return
+		fi
+	}
+	function __match_pattern_and_trim_once {
+		local tags pattern key name match
+		local -i ansi_index
+		for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
+			# 0=<KEY> 1=<PATTERN> 2=<NAME> 3=<TAGS>
+			tags="${ANSI[ansi_index + 3]}"
+			if [[ $tags != *"[read-key]"* ]]; then
+				continue
+			fi
+			pattern="${ANSI[ansi_index + 1]}"
+			if [[ -z $pattern ]]; then
+				key="${ANSI[ansi_index]}"
+				if [[ $inputs == $key* ]]; then
+					match="$key"
+				else
+					match=''
+				fi
+			elif [[ $inputs =~ ^$pattern ]]; then
+				match="${BASH_REMATCH[0]}"
+			else
+				match=''
+			fi
+			if [[ -n $match ]]; then
+				name="${ANSI[ansi_index + 2]}"
+				__print_and_trim_key "$name" "$match" || return
+				return 0
+			fi
+		done
+		return 1
+	}
+	function __match_key_and_trim_once {
+		local name="$1" key
+		for key in "$@"; do
+			if [[ $inputs == "$key"* ]]; then
+				__print_and_trim_key "$name" "$key" || return
+				return 0
+			fi
+		done
+		return 1
+	}
+	function __match_print_and_trim_once {
+		local key
+		if [[ $inputs =~ ^[[:print:]] ]]; then
+			key="${BASH_REMATCH[0]}" # bash 3.2 does not support multiple calls to BASH_REMATCH so it must be cached
+			__print_and_trim_key "$key" "$key" || return
+			# __print_and_trim_key "${BASH_REMATCH[0]}" "${BASH_REMATCH[0]}" <-- bash 3.2 does not like this
+			return 0
+		fi
+		return 1
+	}
+	function __flush {
+		while [[ -n $inputs ]]; do
+			case "$inputs" in
+
+			# escape
+			# [0x1B = $'\x1b' = $'\033' = $'\u001B' = $'\e'] is [⎋] ubuntu, macos
+			$'\e' | $'\e\n'* | $'\e\e'*) __match_key_and_trim_once 'escape' $'\e' || return ;;
+
+			# standard key or unknown special key
+			*)
+				if ! __match_pattern_and_trim_once && ! __match_print_and_trim_once; then
+					if [[ $option_quiet == 'no' ]]; then
+						printf '%s %q\n' 'unknown' "$inputs" >&2 || return # should be the same as __print_and_trim_key but go to stderr instead
+					fi
+					return 94 # EBADMSG 94 Bad message
+				fi
+				;;
+			esac
+		done
+	}
+
+	# act
+	if [[ $option_continue == 'no' ]]; then
+		__read_and_flush || return
+	else
+		while :; do
+			__read_and_flush || return
+		done
+	fi
+}
+
+function __should_wrap {
+	local item option_width='' option_content=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--width=*) option_width="${item#*=}" ;;
+		--content=*) option_content="${item#*=}" ;;
+		--*) __unrecognised_flag "$item" || return ;;
+		*) __unrecognised_argument "$item" || return ;;
+		esac
+	done
+	__affirm_value_is_positive_integer "$option_width" '<width>' || return
+	__affirm_value_is_defined "$option_content" '<content>' || return
+	[[ $option_width -eq 0 ]] || return
+	[[ ${#option_content} -gt $option_width || $option_content =~ [^a-zA-Z0-9\ \n] ]] || return
+}

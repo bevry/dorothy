@@ -1604,6 +1604,14 @@ function __is_digit {
 	done
 }
 
+function __is_number {
+	__affirm_length_defined $# 'input' || return
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[-]?[0-9]+(\.[0-9]+)?$ ]] || return
+		shift
+	done
+}
+
 function __is_even {
 	__affirm_length_defined $# 'input' || return
 	local input
