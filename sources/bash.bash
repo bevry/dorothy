@@ -724,8 +724,12 @@ fi
 # debug-bash --continue --all-bash-versions --code='echo "$BASH_VERSION"; str=abc; echo "${str:0:(-1)}"'
 if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
 	BASH_CAN_USE_A_NEGATIVE_LENGTH=yes
+	BASH_CAN_PRINTF_DATEFMT='yes'
+	function __get_date { printf "%($1)T" || return; }
 else
 	BASH_CAN_USE_A_NEGATIVE_LENGTH=no
+	BASH_CAN_PRINTF_DATEFMT='no'
+	function __get_date { date "+%($1)T" || return; }
 fi
 
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then

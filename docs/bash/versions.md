@@ -117,14 +117,23 @@ From manual discovery:
 
 From changelog:
 
+- Introduces `\u...` and `\U...` escape sequences
 - Introduces `test -v VAR` for testing variable declaration
+- Introduces `printf %(datefmt)T`
+- Introduces `lastpipe`
 
 <details>
 <summary>Changelog:</summary>
 
 > This document details the changes between this version, `bash-4.2-alpha`, and the previous version, `bash-4.1-release`.
 >
+> d. `$'...'`, `echo`, and `printf` understand `\uXXXX` and `\UXXXXXXXX` escape sequences.
+>
 > f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
+>
+> m. The `printf` builtin has a new %(fmt)T specifier, which allows time values to use `strftime`-like formatting.
+>
+> t. There is a new `lastpipe` shell option that runs the last command of a pipeline in the current shell context. The `lastpipe` option has no effect if job control is enabled.
 
 </details>
 
@@ -193,6 +202,7 @@ From changelog:
 
 From changelog:
 
+- Introduces `EPOCHSECONDS` and `EPOCHREALTIME`
 - No longer causes strange duplications when working with `$'\001'`
 
 <details>
