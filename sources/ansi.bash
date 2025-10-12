@@ -1029,6 +1029,11 @@ function __should_wrap {
 	done
 	__affirm_value_is_positive_integer "$option_width" '<width>' || return
 	__affirm_value_is_defined "$option_content" '<content>' || return
-	[[ $option_width -eq 0 ]] || return
-	[[ ${#option_content} -gt $option_width || $option_content =~ [^a-zA-Z0-9\ \n] ]] || return
+	if [[ $option_width -eq 0 ]]; then
+		return 1 # don't wrap
+	fi
+	if [[ ${#option_content} -gt $option_width || $option_content =~ [^a-zA-Z0-9\ \n] ]]; then
+		return 0 # do wrap
+	fi
+	retuurn 1 # don't wrap
 }
