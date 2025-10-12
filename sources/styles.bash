@@ -1214,36 +1214,9 @@ function __print_style {
 
 # beta command, will change
 function __print_help {
-	__load_styles --save -- intensity framed underline invert italic background_intense_black foreground bold dim code foreground_magenta foreground_green foreground_red
-	# echo-regexp -gm '(\[[^\]]+\])' "$STYLE__dim\$1$STYLE__END__dim" | \
-
-	# `eval-helper --help` edge cases:
-	# --(discard|copy|redirect)-{*}=<...forwarded to {__do}>
-	# --until=<until:forever|success|failure|<exit-status>>
-	#     If {failure},
-	#     If <exit-status>,
-
-	# echo-regexp -gm '^(--.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
-	# echo-regexp -g '\[0\](\s)' "$STYLE__foreground_green[0]$STYLE__END__foreground_green\$1" |
-	# echo-regexp -g '\[([\d]+)\](\s)' "$STYLE__foreground_red[\$1]$STYLE__END__foreground_red\$2" |
-	# echo-regexp -g $'([^`\e]<[^/ >][^>]+?>[^`\e])' "$STYLE__bold\$1$STYLE__END__bold" |
-	# echo-regexp -g $'(`[^\e`]+?)\e\[(1|2|22)m([^`]+?`)' '$1$3' |
-	# echo-regexp -gm $'`([^`]+?)`' "$STYLE__dim\$1$STYLE__END__dim" | {
-
-	# cat |
-	# 	echo-regexp -g $'(<[^/ >][^>]+?>)' "<bold>\$1</bold>" |
-	# 	echo-regexp -gm '^(--.+|[A-Z]+\:)$' "<magenta>\$1</magenta>" |
-	# 	echo-regexp -g '\[0\]' "<green>[0]</green>" |
-	# 	echo-regexp -g '\[([\d]+)\](\s)' "<red>[\$1]</red>\$2" |
-	# 	echo-regexp -g '\[([^\d][^\]]+)\]' "<dim>[\$1]</dim>" |
-	# 	echo-regexp -gm $'`([^`]+?)`' "<code>\$1</code>" | {
-	# 		cat
-	# 		echo
-	# 	} >&2
-
+	__load_styles --save -- intensity bold dim foreground_magenta foreground_green foreground_red
 	local character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
 	local -i c l
-	# | echo-regexp -gm $'`([^`]+?)`' "$STYLE__framed\$1$STYLE__END__framed"
 	echo-regexp -gm '^(--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
 		echo-regexp -g '\[0\](\s)' "$STYLE__foreground_green[0]$STYLE__END__foreground_green\$1" |
 		echo-regexp -g '\[([\d]+)\](\s)' "$STYLE__foreground_red[\$1]$STYLE__END__foreground_red\$2" |
@@ -1302,8 +1275,6 @@ function __print_help {
 				else
 					# __slice --source={intensities} --target={last} -1 || return
 					last="${intensities[l]}"
-					# for some strange reason, in the case of:
-					#
 					buffer+="${STYLE__END__intensity}${last}"
 				fi
 			else
