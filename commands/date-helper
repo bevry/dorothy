@@ -1,13 +1,53 @@
 #!/usr/bin/env bash
 
+function date_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# second formats
+	eval-tester --ignore-stdout -- date-helper --format='%s'
+	eval-tester --ignore-stdout -- date-helper --format='%FT%T%z'
+
+	# longer formats
+	local formats=(
+		'%d'
+		'%m'
+		'%Y'
+		'+%Y'
+		'YEAR %Y YEAR'
+		'+YEAR %Y YEAR'
+	) format
+	for format in "${formats[@]}"; do
+		eval-tester --stdout="$(__get_date "$format")" -- date-helper --format="$format"
+	done
+
+	# options
+	eval-tester --ignore-stdout -- date-helper --utc
+	eval-tester --ignore-stdout -- date-helper --month-ago
+	eval-tester --ignore-stdout -- date-helper --next-year
+	eval-tester --ignore-stdout -- date-helper --utc --month-ago
+	eval-tester --ignore-stdout -- date-helper --utc --next-year
+
+	# formats
+	eval-tester --ignore-stdout -- date-helper --iso
+	eval-tester --ignore-stdout -- date-helper --iso --next-year
+	eval-tester --ignore-stdout -- date-helper --8601
+	eval-tester --ignore-stdout -- date-helper --unix
+	eval-tester --ignore-stdout -- date-helper --gpg
+	eval-tester --ignore-stdout -- date-helper --adguard
+	eval-tester --ignore-stdout -- date-helper --ytd
+)
+
 function date_helper() (
 	source "$DOROTHY/sources/bash.bash"
+
+	# https://stackoverflow.com/a/34138409/130638
+	local default_format='%FT%T%z'
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >&2
+		__print_help <<-EOF || return
 			ABOUT:
 			Outputs the date in a specific format, defaulting to local ISO time.
 
@@ -15,29 +55,36 @@ function date_helper() (
 			date-helper [--options] [-- ...<arg>]
 
 			OPTIONS:
-			--format=...
-			    Set the output format to use, e.g. '+%Y-%m-%d'
+			--format=<format>
+			    Set the output format to use, e.g. \`%Y-%m-%d\`
+			--no-format
+			    If <format> is not specified, do not default it to \`${default_format}\`. For use with <arg>.
 
+			--utc
+			    Outputs the date in UTC (Coordinated Universal) time.
 			--month-ago | --monthago
 			    Makes the output date one month in the past.
-
 			--next-year | --nextyear
 			    Makes the output date one year in the future.
 
-			--adguard
-			    Sets the output format to be compatible with AdGuard rules, e.g. 22 Feb 2022 23:11 UTC
-
 			--iso
-			    Sets the output format to be compatible with ISO 8601, e.g. 2022-02-22T23:11:11Z
-
+			    Enforces <utc> and <format> for ISO 8601, e.g. \`2022-02-22T23:11:11Z\`
+			--8601
+			    Enforces <format> for ISO 8601, e.g. \`2022-02-22T23:11:11+00:00\`
+			--unix
+			    Enforces <utc> and <format> for Unix timestamp, e.g. \`1645609871\`
 			--gpg
-			    Sets the output format to be compatible with GPG, e.g. 2022-02-22
+			    Enforces <format> for GPG, e.g. \`2022-02-22\`
+			--adguard
+			    Enforces <utc> and <format> for AdGuard rules, e.g. \`22 Feb 2022 23:11 UTC\`
+			--ytd
+			    Enforces <utc> and <format> for YouTube Downloaders, e.g. \`20220222\`
 
 			-- ...<arg>
 			    Forwards to the argument to the native date command.
 		EOF
 		if [[ $# -ne 0 ]]; then
-			__print_error "$@"
+			__print_error "$@" || return
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -49,39 +96,42 @@ function date_helper() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--format='*) option_format="${item#*=}" ;;
+		'--no-format='* | '--format='*)
+			__flag --source={item} --target={option_format} --affirmative --no-coerce
+			;;
 		'--no-utc'* | '--utc'*) __flag --source={item} --target={option_utc} --affirmative --coerce ;;
 		'--monthago' | '--month-ago') option_month_ago='yes' ;;
 		'--nextyear' | '--next-year') option_next_year='yes' ;;
-		'--ytd')
-			option_utc='yes'
-			option_format='+%Y%m%d' # YYYYMMDD
-			;;
-		'--gpg')
-			option_utc='no'
-			option_format='+%Y-%m-%d'
-			;;
 		'--iso')
 			# https://stackoverflow.com/a/7216394/130638
 			option_utc='yes'
-			option_format='+%Y-%m-%dT%H:%M:%SZ'
+			option_format='%Y-%m-%dT%H:%M:%SZ'
 			;;
 			# https://github.com/AdguardTeam/FiltersRegistry/issues/398
 		'--8601')
 			if is-mac; then
-				option_format='-Iseconds'
+				option_args+=('-Iseconds')
 			else
-				option_format='-Is'
+				option_args+=('-Is')
 			fi
-			;;
-		'--adguard')
-			option_utc='yes'
-			option_format='+%d %b %Y %H:%M UTC'
+			option_format='no'
 			;;
 		'--unix')
 			option_utc='yes'
-			option_format='+%s'
+			option_format='%s'
 			# despite bash docs, $EPOCHSECONDS doesn't exist, at least on macos; furthermore using such would not work as we support other options in tandem
+			;;
+		'--gpg')
+			option_utc='no'
+			option_format='%Y-%m-%d'
+			;;
+		'--adguard')
+			option_utc='yes'
+			option_format='%d %b %Y %H:%M UTC'
+			;;
+		'--ytd')
+			option_utc='yes'
+			option_format='%Y%m%d' # YYYYMMDD
 			;;
 		'--')
 			option_args+=("$@")
@@ -107,10 +157,10 @@ function date_helper() (
 			args+=('-v' '-1m')
 		else
 			# get the current date, but one month in the past, and work on linux
-			month="$(__get_date "+%m")"
+			month="$(__get_date '%m')"
 			month="$((month - 1))"
-			year="$(__get_date "+%Y")"
-			date="$(__get_date "+%d")"
+			year="$(__get_date '%Y')"
+			date="$(__get_date '%d')"
 			option_args+=("--date=${year}-${month}-${date}")
 		fi
 	fi
@@ -122,30 +172,29 @@ function date_helper() (
 			option_args+=('-v' '+1y')
 		else
 			# get the current date, but one year in the future, and work on linux
-			year="$(__get_date "+%Y")"
+			year="$(__get_date '%Y')"
 			year="$((year + 1))"
-			month_date="$(__get_date "+%m-%d")"
+			month_date="$(__get_date '%m-%d')"
 			option_args+=("--date=${year}-${month_date}")
 		fi
 	fi
 
 	# format
-	if [[ -n $option_format ]]; then
+	if [[ -z $option_format || $option_format == 'yes' ]]; then
+		option_args+=("$default_format")
+	elif [[ $option_format != 'no' ]]; then
 		option_args+=("$option_format")
-	elif [[ ${#option_args[@]} -eq 0 ]]; then
-		# https://stackoverflow.com/a/34138409/130638
-		option_args+=("+%FT%T%z")
 	fi
 
-	# use a quicker method if possible
-	if [[ $BASH_CAN_PRINTF_DATEFMT == 'yes' && ${#option_args[@]} -eq 1 && ${option_args[0]} == '+%'* ]]; then
-		printf "%(${option_args[0]})T\n"
-	else
-		date "${option_args[@]}"
-	fi
+	# get the date
+	__get_date "${option_args[@]}"
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	date_helper "$@"
+	if [[ $* == '--test' ]]; then
+		date_helper_test
+	else
+		date_helper "$@"
+	fi
 fi

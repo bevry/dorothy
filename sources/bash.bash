@@ -725,21 +725,70 @@ fi
 if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 2) ]]; then
 	BASH_CAN_USE_A_NEGATIVE_LENGTH=yes
 	BASH_CAN_PRINTF_DATEFMT='yes'
-	function __get_date { printf "%($1)T" || return; }
 else
 	BASH_CAN_USE_A_NEGATIVE_LENGTH=no
 	BASH_CAN_PRINTF_DATEFMT='no'
-	function __get_date { date "+%($1)T" || return; }
 fi
+
+# `__get_date '+YEAR: %Y'` == `__get_date 'YEAR: %Y' == `__get_date --format='YEAR: %Y'` (uses `printf` if supported)
+# `__get_date %Y` == `__get_date +%Y` == `__get_date --format=%Y` (uses `printf` if supported)
+# `__get_date -v +1y` (uses `date`, as `printf` does not support arguments)
+# `__get_date -u +%Y` == `__get_date -u %Y` == `__get_date -u --format=%Y` (uses `date`, as `printf` does not support arguments)
+function __get_date {
+	local GET_DATE__date_args=() GET_DATE__item
+	if [[ $# -eq 0 ]]; then
+		__affirm_length_defined $# 'input' || return
+	elif [[ $# -eq 1 ]]; then
+		# to `date` or `printf`
+		local GET_DATE__format=''
+		while [[ $# -ne 0 ]]; do
+			GET_DATE__item="$1"
+			shift
+			case "$GET_DATE__item" in
+			-*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			+*) GET_DATE__format="${GET_DATE__item:1}" ;; # this is constrained to $#==1 because of (-v +1y) combo
+			%*) GET_DATE__format="$GET_DATE__item" ;;
+			--format=*) GET_DATE__format="${GET_DATE__item#*=}" ;;
+			*) GET_DATE__format="$GET_DATE__item" ;; # the only single argument that `date` supports is setting the system clock, e.g. `date 0613162785` and `date 1432`, which is not what this function is for, so assume it is not that, and instead is a format
+			esac
+		done
+		if [[ ${#GET_DATE__date_args[@]} -ne 0 || $BASH_CAN_PRINTF_DATEFMT == 'no' ]]; then
+			if [[ -n $GET_DATE__format ]]; then
+				GET_DATE__date_args+=("+$GET_DATE__format")
+			fi
+			date "${GET_DATE__date_args[@]}" || return
+		elif [[ -n $GET_DATE__format ]]; then
+			printf "%($GET_DATE__format)T\n" || return # \n to match `date` behaviour
+		else
+			__affirm_value_is_defined "$GET_DATE__format" 'date format' || return
+		fi
+	else
+		# forward to `date` but repair missing + on format
+		while [[ $# -ne 0 ]]; do
+			GET_DATE__item="$1"
+			shift
+			case "$GET_DATE__item" in
+			-*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			+*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			%*) GET_DATE__date_args+=("+$GET_DATE__item") ;;
+			--format=*) GET_DATE__date_args+=("+${GET_DATE__item#*=}") ;;
+			*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			esac
+		done
+		date "${GET_DATE__date_args[@]}" || return
+	fi
+}
 
 if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 	# Bash >= 5
-	function __get_epoch_time {
-		printf '%s' "$EPOCHREALTIME" || return
-	}
+	# `EPOCHSECONDS` expands to the time in seconds since the Unix epoch.
+	# `EPOCHREALTIME` expands to the time in seconds since the Unix epoch with microsecond granularity.
+	function __get_epoch_seconds { printf '%s' "$EPOCHSECONDS" || return; }
+	function __get_epoch_time { printf '%s' "$EPOCHREALTIME" || return; }
 else
 	# Bash < 5
 	EPOCH_TIME_FUNCTION=''
+	function __get_epoch_seconds { date +%s || return; }
 	function __get_epoch_time_via_date {
 		local time=''
 		time="$(date +%s.%N 2>/dev/null)" || return 19 # ENODEV 19 Operation not supported by device
@@ -781,7 +830,7 @@ else
 		if [[ -z $time || $time =~ [^.0-9] ]]; then
 			__require_upgraded_bash 'missing epoch time support' || return
 		fi
-		# the fallback techniques are not that precise, so they leave multiple trailing zeroes
+		# the fallback techniques are not that precise, so they leave multiple trailing zeroes, trim the trailing zeroes
 		local -i size
 		while [[ $time == *.*0 ]]; do
 			size="${#time}"
