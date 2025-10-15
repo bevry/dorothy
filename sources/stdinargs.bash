@@ -117,7 +117,7 @@ function stdinargs {
 		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return
 
 		# deprecations
-		if [[ "$(type -t on_no_lines)" == 'function' ]]; then
+		if __is_function_defined "on_no_lines" ]]; then
 			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='__on_nothing' || return
 			function on_no_lines {
 				on_no_input "$@"
