@@ -130,15 +130,16 @@ function down_() (
 	}
 
 	# process
-	local item option_quiet='' option_progress='' option_tool='' option_url='' option_bearer_token='' option_attempts='' option_attempt_interval='' option_directory='' option_file='' option_filepath='' option_archive_args=() is_archive='no'
+	local item option_quiet='' option_wrap='' option_progress='' option_tool='' option_url='' option_bearer_token='' option_attempts='' option_attempt_interval='' option_directory='' option_file='' option_filepath='' option_archive_args=() is_archive='no'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
-		'--no-progress'* | '--progress'*) __flag --source={item} --target={option_progress} --affirmative ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-progress'* | '--progress'*) __flag --source={item} --target={option_progress} --affirmative --coerce ;;
+		'--no-wrap'* | '--wrap'*) __flag --source={item} --target={option_wrap} --affirmative --coerce ;;
 		'--tool='*) option_tool="${item#*=}" ;;
 		'--url='*) option_url="${item#*=}" ;;
 		'--bearer-token='*) option_bearer_token="${item#*=}" ;;
@@ -159,7 +160,7 @@ function down_() (
 				urls+=("$option_url")
 			fi
 			for url in "${urls[@]}"; do
-				down_ --quiet="$option_quiet" --tool="$option_tool" --bearer-token="$option_bearer_token" --attempts="$option_attempts" --attempt-interval="$option_attempt_interval" --directory="$option_directory" --file="$option_file" --filepath="$option_filepath" "${option_archive_args[@]}" --url="$url"
+				down_ --quiet="$option_quiet" --wrap="$option_wrap" --tool="$option_tool" --bearer-token="$option_bearer_token" --attempts="$option_attempts" --attempt-interval="$option_attempt_interval" --directory="$option_directory" --file="$option_file" --filepath="$option_filepath" "${option_archive_args[@]}" --url="$url"
 			done
 			return
 			;;
@@ -248,7 +249,12 @@ function down_() (
 		eval_options+=(--quiet --pending="$pending" --success="$success")
 	fi
 	if [[ $option_quiet == 'no' ]]; then
-		eval_options+=(--verbose --wrap)
+		eval_options+=(--verbose)
+		if [[ $option_wrap != 'no' ]]; then
+			eval_options+=(--wrap)
+		fi
+	elif [[ $option_wrap == 'yes' ]]; then
+		eval_options+=(--wrap)
 	fi
 	if [[ -z $option_progress ]]; then
 		if [[ $IS_TTY_AVAILABLE == 'no' || $option_quiet == 'yes' ]]; then
@@ -258,10 +264,11 @@ function down_() (
 		fi
 	fi
 
-	# workaround wget/wget1/wget2 discrepancies
-	# and prefer wget/wget1 if it is installed, as it has a better progress bar, otherwise use curl
-	# don't use wget2, as it doesn't return failure exit status, so it is not suitable for our use
-	local wget_binary='' wget_busybox='no'
+	# ensure tool
+	# workaround wget (version 1) aka wget1, wget2, and wget (busybox) discrepancies
+	# prefer wget version 1), wget1, and wget (busybox) if installed, as wget has a better progress bar than curl, however wget2 is broken (doesn't return failure exit status)
+	# if no suitable wget, fallback to curl
+	local wget_binary='wget' wget_busybox='no'
 	function __prepare_wget {
 		if __command_exists -- wget1; then
 			option_tool='wget'
@@ -281,24 +288,21 @@ function down_() (
 		__prepare_wget || {
 			option_tool='curl'
 		}
+	elif [[ $option_tool == 'wget' ]]; then
+		__prepare_wget || __command_required -- "$wget_binary" || __prepare_wget || {
+			__print_error --code='down' ' is only compatible with ' --code='wget' ' (version 1), as ' --code='wget2' ' does not return failure exit status'
+			"$wget_binary" --version >&2
+			return 75 # EPROGMISMATCH 75 Program version wrong
+		}
 	fi
 
 	# do download
 	# @todo ensure consistent existing/resume functionality, it should always overwrite
 	if [[ $option_tool == 'wget' ]]; then
-		# ensure wget, then determine what wget it was
-		__command_required -- "$wget_binary" || return
-		if [[ -z $wget_binary ]]; then
-			__prepare_wget || {
-				__print_error --code='down' ' is only compatible with ' --code='wget' ' version 1, as ' --code='wget2' ' does not return failure exit status'
-				"$$wget_binary" --version >&2
-				return 75 # EPROGMISMATCH 75 Program version wrong
-			}
-		fi
-
-		# wget2 is different to wget, however fedora aliases wget to wget2, which is broken as wget2 does not return failure exit status
+		# already ensured wget earlier
 		local wget_options=()
 		if [[ $wget_busybox == 'yes' ]]; then
+			# busybox wget is different to wget (version 1), and wget2
 			wget_options+=(-c)
 			if [[ -n $option_attempts && $option_attempts -ne 1 ]]; then
 				eval_options+=(--until=success --until-attempts="$option_attempts" --until-interval="$option_attempt_interval")
