@@ -1269,7 +1269,7 @@ function __print_help {
 					l="$((l - 1))"
 				fi
 
-				# re-affirm the prior insensity
+				# re-affirm the prior intensity
 				if [[ ${#intensities[@]} -eq 0 ]]; then
 					buffer+="${STYLE__END__intensity}"
 				else
