@@ -85,11 +85,13 @@ HOMEBREW_FONTS=(
 
 # Python
 # Used by `setup-python`
+# Unless you absolutely require PIP/PIPX, use UV_INSTALL
 # PYTHON_INSTALL=()
 # PIP_INSTALL=()
 # PYTHON2_PIP_INSTALL=()
 # PYTHON3_PIP_INSTALL=()
 # PIPX_INSTALL=()
+# UV_INSTALL=()
 
 # Ruby
 # Used by `setup-ruby`

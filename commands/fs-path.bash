@@ -95,10 +95,17 @@ function __process() (
 						break
 					fi
 					# is a symlink (broken or otherwise), resolve it
-					# stat -tc %N "$path" # alpine, however format is tedious, use [readlink] instead
-					# stat -f %Y "$path"  # macos/bsd, use [readlink] for consistency as wherever [readlink] is available, [stat] is available
+					# `stat -tc %N "$path"` # alpine, however format is tedious, use `readlink` instead
+					# `stat -f %Y "$path"`  # macos/bsd, use `readlink` for consistency as wherever `readlink` is available, `stat` is available
 					# readlink supports broken symlinks
-					resolved_absolute_or_relative_path="$(readlink -- "$path")" || __fail $? || return
+					# must do `-f` to handle the case where a path is a symlink inside a symlink, e.g.
+					# `readlink -f /opt/homebrew/opt/python/libexec/bin/python`
+					# => `/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/bin/python3.13`
+					# `readlink /opt/homebrew/opt/python/libexec/bin/python`
+					# => `../../Frameworks/Python.framework/Versions/3.13/bin/python3.13` which is 404, as depends upon
+					# `readlink /opt/homebrew/opt/python`
+					# => `../Cellar/python@3.13/3.13.7` to be resolved first
+					resolved_absolute_or_relative_path="$(readlink -f -- "$path")" || __fail $? || return
 					if [[ $option_resolve == 'follow' ]]; then
 						resolved_absolute_or_relative_path="$(__process "$resolved_absolute_or_relative_path")" || __fail $? || return
 					fi

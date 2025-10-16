@@ -8,6 +8,66 @@
 # Right to left is the preference for paths.
 
 # =====================================
+# Helpers
+
+function __add_directory {
+	local directory="$1" target="${2:-PATH}"
+	if [[ -d $directory ]]; then
+		directory="${directory// /\\ }"
+		eval "$target=\"\$directory:\$$target\""
+	fi
+}
+
+# PATH, LDFLAGS, CPPFLAGS, PKG_CONFIG_PATH
+function __add_prefix_directory {
+	local p="$1"
+	if [[ -n $p && -d $p ]]; then
+		# for invokers to discover it
+		__add_directory "$p/bin" || return
+		# for invokers under root to discover it
+		if [[ $USER == 'root' ]]; then
+			__add_directory "$p/sbin" || return
+		fi
+		# for compilers to discover it
+		if [[ -d "$p/lib" ]]; then
+			LDFLAGS="-L$p/lib $LDFLAGS"
+			# for pkg-config to discover it
+			__add_directory "$p/lib/pkgconfig" PKG_CONFIG_PATH || return
+		fi
+		if [[ -d "$p/include" ]]; then
+			CPPFLAGS="-I$p/include $CPPFLAGS"
+		fi
+		# man and share/man
+		__add_directory "$p/man" MANPATH || return
+		__add_directory "$p/share/man" MANPATH || return
+		__add_directory "$p/share/info" INFOPATH || return
+	fi
+}
+
+# add ruby gems
+function __add_ruby_gem {
+	local gem="$1"
+	export GEM_HOME="$HOME/.gem"
+	if [[ -x $gem ]]; then
+		# fetch gempaths and replace colons with newlines
+		local gemdirs=() gemdir
+		__split --target={gemdirs} --no-zero-length --delimiters=':' --invoke -- \
+			"$gem" environment gempath || :
+		for gemdir in "${gemdirs[@]}"; do
+			PATH="$gemdir/bin:$PATH"
+		done
+	fi
+}
+
+function __cut {
+	# turn `<hash>  <path>` into `<hash>`
+	# cut -f1 -d ' '
+	local checksum
+	IFS=' ' read -r checksum _
+	__print_lines "$checksum"
+}
+
+# =====================================
 # Requisites
 
 # DOROTHY for sourcing
@@ -23,7 +83,7 @@ source "$DOROTHY/sources/config.sh"
 
 # help
 function help {
-	cat <<-EOF >&2
+	__print_help <<-EOF
 		ABOUT:
 		Outputs commands to be evaluated by the caller to setup the environment for a given shell.
 
@@ -92,14 +152,7 @@ if [[ -z $option_shell ]]; then
 	help 'Missing required argument: --shell=<shell>'
 fi
 
-# prep caching ability
-function __cut {
-	# turn `<hash>  <path>` into `<hash>`
-	# cut -f1 -d ' '
-	local checksum
-	IFS=' ' read -r checksum _
-	__print_lines "$checksum"
-}
+# caching, depends on options
 CACHE_LOCK_FILE=''
 CACHE_RESULT_FILE=''
 function __cache {
@@ -277,75 +330,13 @@ p=''
 # Configuration
 
 # prepare hooks, and load user overrides
-function before_dorothy_paths {
-	return 0
-}
-function after_dorothy_paths {
-	return 0
-}
-function after_everything {
-	return 0
-}
+function before_dorothy_paths { :; }
+function after_dorothy_paths { :; }
+function after_everything { :; }
 load_dorothy_config 'environment.bash'
 # environment.bash provides:
 # NVM_DIR, HOMEBREW_ARCH, PYENV_VERSION, RUBY_VERSION
 # and other overrides
-
-# =====================================
-# Helpers
-
-# PATH, LDFLAGS, CPPFLAGS, PKG_CONFIG_PATH
-function add_prefix_dir {
-	local p="$1"
-	if [[ -n $p && -d $p ]]; then
-		# for invokers to discover it
-		if [[ -d "$p/bin" ]]; then
-			PATH="$p/bin:$PATH"
-		fi
-		# for invokers under root to discover it
-		if [[ $USER == 'root' && -d "$p/sbin" ]]; then
-			PATH="$p/sbin:$PATH"
-		fi
-		# for compilers to discover it
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-			# for pkg-config to discover it
-			if [[ -d "$p/lib/pkgconfig" ]]; then
-				PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
-			fi
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-		# man and share/man
-		if [[ -d "$p/man" ]]; then
-			MANPATH="$p/man:$MANPATH"
-		fi
-		if [[ -d "$p/share" ]]; then
-			if [[ -d "$p/share/man" ]]; then
-				MANPATH="$p/share/man:$MANPATH"
-			fi
-			if [[ -d "$p/share/info" ]]; then
-				INFOPATH="$p/share/info:$INFOPATH"
-			fi
-		fi
-	fi
-}
-
-# add gems
-function __rubygems {
-	local gem="$1"
-	export GEM_HOME="$HOME/.gem"
-	if [[ -x $gem ]]; then
-		# fetch gempaths and replace colons with newlines
-		local gemdirs=() gemdir
-		__split --target={gemdirs} --no-zero-length --delimiters=':' --invoke -- \
-			"$gem" environment gempath || :
-		for gemdir in "${gemdirs[@]}"; do
-			PATH="$gemdir/bin:$PATH"
-		done
-	fi
-}
 
 # =====================================
 # Environment
@@ -363,19 +354,15 @@ export XDG_DATA_DIRS="${XDG_DATA_DIRS:-"$XDG_DATA_HOME:/usr/local/share:/usr/sha
 export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-"$XDG_CONFIG_HOME:/etc/xdg"}"
 
 # Flatpak adjustments
-if [[ -d '/var/lib/flatpak/exports/share' ]]; then
-	XDG_DATA_DIRS="/var/lib/flatpak/exports/share:$XDG_DATA_DIRS"
-fi
-if [[ -d "$XDG_DATA_HOME/flatpak/exports/share" ]]; then
-	XDG_DATA_DIRS="$XDG_DATA_HOME/flatpak/exports/share:$XDG_DATA_DIRS"
-fi
+__add_directory '/var/lib/flatpak/exports/share' XDG_DATA_DIRS
+__add_directory "$XDG_DATA_HOME/flatpak/exports/share" XDG_DATA_DIRS
 
 # Appimage
 export APPIMAGE_HOME="${APPIMAGE_HOME:-"$HOME/Applications"}"
 
 # Homebrew, UNIX
-add_prefix_dir /usr
-add_prefix_dir /usr/local
+__add_prefix_directory /usr
+__add_prefix_directory /usr/local
 
 # Zsh
 # https://zsh.sourceforge.io/Intro/intro_3.html
@@ -410,16 +397,16 @@ fi
 # if [[ -x '/usr/bin/xcode-select' && -x '/usr/bin/xcrun' ]]; then
 if __command_exists -- 'xcode-select' 'xcrun'; then
 	# Apple Command Line Tools
-	add_prefix_dir '/Library/Developer/CommandLineTools/usr'
+	__add_prefix_directory '/Library/Developer/CommandLineTools/usr'
 
 	# Xcode Command Line Tools
 	#p='/Applications/Xcode.app/Contents/Developer'
 	p="$(xcode-select --print-path 2>/dev/null || :)"
-	add_prefix_dir "$p/usr"
+	__add_prefix_directory "$p/usr"
 
 	# Xcode Toolchain
 	p="$p/Toolchains/XcodeDefault.xctoolchain"
-	add_prefix_dir "$p/usr"
+	__add_prefix_directory "$p/usr"
 	if [[ -d "$p/usr/bin" ]]; then
 		#CC="$p/usr/bin/clang"
 		#CXX="$p/usr/bin/clang++"
@@ -431,7 +418,7 @@ if __command_exists -- 'xcode-select' 'xcrun'; then
 	# /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk => $p/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk => xcrun --sdk macosx --show-sdk-path
 	#p='/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
 	p="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || :)"
-	add_prefix_dir "$p/usr"
+	__add_prefix_directory "$p/usr"
 	if [[ -d "$p/usr/lib" ]]; then
 		LIBRARY_PATH="$p/usr/lib:$LIBRARY_PATH"
 	fi
@@ -442,9 +429,7 @@ if __command_exists -- 'xcode-select' 'xcrun'; then
 fi
 
 # Snap
-if [[ -d '/snap/bin' ]]; then
-	PATH="/snap/bin:$PATH"
-fi
+__add_directory '/snap/bin'
 
 # Windows WSL
 # Most of these are handled by inheriting PATH, however VSCode integrated terminal does not inherit WSL's PATH:
@@ -472,14 +457,12 @@ if is-wsl; then # @ todo is-wsl or is-windows is better?
 		)
 	done
 	for wsl_dir in "${wsl_dirs[@]}"; do
-		if [[ -d $wsl_dir ]]; then
-			PATH="$(echo-escape-spaces -- "$wsl_dir"):$PATH"
-		fi
+		__add_directory "$wsl_dir"
 	done
 fi
 
 # Homebrew, UNIX
-add_prefix_dir /user/local
+__add_prefix_directory /user/local
 
 # macOS
 if is-mac; then
@@ -531,32 +514,24 @@ fi
 if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	# /usr/local already added to PATH, so only add these if different
 	if [[ $HOMEBREW_PREFIX != '/usr/local' ]]; then
-		if [[ -d "$HOMEBREW_PREFIX/bin" ]]; then
-			PATH="$HOMEBREW_PREFIX/bin:$PATH"
-		fi
-		if [[ -d "$HOMEBREW_PREFIX/sbin" ]]; then
-			PATH="$HOMEBREW_PREFIX/sbin:$PATH"
-		fi
+		__add_directory "$HOMEBREW_PREFIX/bin"
+		__add_directory "$HOMEBREW_PREFIX/sbin"
 	fi
 
 	# add the rest
-	if [[ -d "$HOMEBREW_PREFIX/share/man" ]]; then
-		MANPATH="$HOMEBREW_PREFIX/share/man:$MANPATH"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/share/info" ]]; then
-		INFOPATH="$HOMEBREW_PREFIX/share/info:$INFOPATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/share/man" MANPATH
+	__add_directory "$HOMEBREW_PREFIX/share/info" INFOPATH
 
 	# for compilers to find llvm
 	if [[ $HOMEBREW_PREFIX != '/user/local' ]]; then
-		add_prefix_dir "$HOMEBREW_PREFIX"
+		__add_prefix_directory "$HOMEBREW_PREFIX"
 	fi
 
 	# llvm
-	add_prefix_dir "$HOMEBREW_PREFIX/opt/llvm"
+	__add_prefix_directory "$HOMEBREW_PREFIX/opt/llvm"
 
 	# SQLite (dependency of python)
-	add_prefix_dir "$HOMEBREW_PREFIX/opt/sqlite"
+	__add_prefix_directory "$HOMEBREW_PREFIX/opt/sqlite"
 
 	# guile (dependency of something)
 	if [[ -d "$HOMEBREW_PREFIX/share/guile" ]]; then
@@ -566,27 +541,14 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	fi
 
 	# icu4c (dependency of heroku)
-	if [[ -d "$HOMEBREW_PREFIX/opt/icu4c/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/icu4c/bin:$PATH"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/opt/icu4c/sbin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/icu4c/sbin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/opt/icu4c/bin"
+	__add_directory "$HOMEBREW_PREFIX/opt/icu4c/sbin"
 
 	# Sphinx (dependency of ruby)
-	if [[ -d "$HOMEBREW_PREFIX/opt/sphinx-doc/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/sphinx-doc/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/opt/sphinx-doc/bin"
 
 	# GetText (dependency of gpg)
-	if [[ -d "$HOMEBREW_PREFIX/opt/gettext/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/gettext/bin:$PATH"
-	fi
-
-	# trash-cli: don't uncomment this, as trash-cli doesn't support macos, and macos has its own trash bin now
-	# if [[ -d "$HOMEBREW_PREFIX/opt/trash-cli/bin" ]]; then
-	# 	PATH="$HOMEBREW_PREFIX/opt/trash-cli/bin:$PATH"
-	# fi
+	__add_directory "$HOMEBREW_PREFIX/opt/gettext/bin"
 
 	# Ruby
 	if [[ -n ${HOMEBREW_RUBY_VERSION-} ]]; then
@@ -604,14 +566,14 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 			fi
 		fi
 		if [[ -n $p ]]; then
-			add_prefix_dir "$p"
+			__add_prefix_directory "$p"
 		fi
 	else
 		# add them all, excluding special paths
 		rubydirs=("$HOMEBREW_PREFIX/opt/ruby"*'/bin')
 		for rubydir in "${rubydirs[@]}"; do
 			PATH="$rubydir:$PATH"
-			__rubygems "$rubydir/gem"
+			__add_ruby_gem "$rubydir/gem"
 		done
 	fi
 
@@ -621,7 +583,7 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 		PATH="$nodedir:$PATH"
 	done
 
-	# Python & Pip
+	# Python, PIP
 	# https://docs.brew.sh/Homebrew-and-Python
 	# the pip bin dirs `$HOME/Library/Python/*` are created by pip to match the invoking python version, and only contain pip packages, each bin contains code to invoke it only against its respective python version
 	# e.g. [/opt/homebrew/opt/python/libexec/bin/pip] running on [/opt/homebrew/opt/python/libexec/bin/python] [Python 3.13.3] will create [/Users/balupton/Library/Python/3.13] and [/Users/balupton/Library/Python/3.13/bin/pip] will only contain [#!/opt/homebrew/opt/python@3.13/bin/python3.13]
@@ -634,23 +596,21 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 			PATH="$pipdir:$PATH"
 		done
 		# add the pip directory for our current python version as the most desired one
-		pip_version_and_path="$(pip --version 2>/dev/null || :)"
 		# pip 24.2 from /Users/balupton/Library/Python/3.12/lib/python/site-packages/pip (python 3.12)
+		pip_version_and_path="$(pip --version 2>/dev/null || :)"
 		if [[ $pip_version_and_path == pip\ *\ from\ *\ \(python\ *\) ]]; then
 			# ... (python 3.12) => 3.12)
 			#  3.12) => 3.12
 			__replace --source+target={pip_version_and_path} --keep-after-last=' ' --trailing=')'
 			pip_version_path="$HOME/Library/Python/${pip_version_and_path}/bin"
-			if [[ -d $pip_version_path ]]; then
-				PATH="$pip_version_path:$PATH"
-			fi
+			__add_directory "$pip_version_path"
 		fi
 		# this combination above ensures that say if the default python version is 2 but v3 is installed, then pipx is still available (only python v3), or say if a python v2 package is installed but python v3 is the default, then that python v2 package will also be found
 	fi
 
 	# OpenSSL (dependency of python, gpg, and node)
 	# openssl is a symlink to whatever directory has the latest version
-	add_prefix_dir "$HOMEBREW_PREFIX/opt/openssl"
+	__add_prefix_directory "$HOMEBREW_PREFIX/opt/openssl"
 	# ^^ setup-util-gocryptfs needs this on macos big sur
 	# ```
 	# Package libcrypto was not found in the pkg-config search path.
@@ -666,19 +626,13 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	# ````
 
 	# NSS
-	if [[ -d "$HOMEBREW_PREFIX/opt/nss/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/nss/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/opt/nss/bin"
 
 	# Anaconda
-	if [[ -d "$HOMEBREW_PREFIX/anaconda3/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/anaconda3/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/anaconda3/bin"
 
 	# Heroku
-	if [[ -d "$HOMEBREW_PREFIX/heroku/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/heroku/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/heroku/bin"
 
 	# Package Config
 	# This was not recommended anywhere, but it seems logical as a way to have pkg-config bootstrapped with its default paths, of which it includes a lot more available configs than manually doing everything as we have done above
@@ -692,7 +646,7 @@ else
 	# and [which] writes its errors to stdout!
 
 	# Ruby
-	__rubygems /usr/bin/gem
+	__add_ruby_gem /usr/bin/gem
 fi
 
 # Deno for official yet stupid deno_install script, commented out as [setup-util-deno] is superior
@@ -715,6 +669,16 @@ fi
 if [[ -n ${PYENV_ROOT-} ]]; then
 	PATH="$PYENV_ROOT/bin:$PATH"
 	PATH="$PYENV_ROOT/shims:$PATH"
+fi
+
+# Python: pipx
+# `PIPX_HOME` is meant to go to `$XDG_DATA_HOME/pipx`, however on macOS it breaks and defaults to `$HOME/Library/Application Support/pipx`
+# which then causes this error: ⚠️ Found a space in the pipx home path. We heavily discourage this, due to multiple incompatibilities. Please check our docs for more information on this, as well as some pointers on how to migrate to a different home path.
+# so enforce it
+if [[ -z ${PIPX_HOME-} ]]; then
+	export PIPX_HOME="$XDG_DATA_HOME/pipx"
+	export PIPX_GLOBAL_BIN_DIR="$XDG_BIN_HOME"
+	export PIPX_GLOBAL_MAN_DIR="$XDG_DATA_HOME/man"
 fi
 
 # Rust: rustup
@@ -784,12 +748,6 @@ if __command_exists -- go; then
 	fi
 fi
 
-# Clojurescript
-if [[ -d "$HOME/.clojure/clojure-1.8" ]]; then
-	PATH="$HOME/.clojure/clojure-1.8.0:$PATH"
-	CLASSPATH="$HOME/.clojure/clojure-1.8.0:$CLASSPATH"
-fi
-
 # Yarn
 if __command_exists -- yarn; then
 	# on CI, yarn exists, yet this can return nothing
@@ -800,25 +758,17 @@ if __command_exists -- yarn; then
 fi
 
 # Flossbank
-if [[ -d "$HOME/.flossbank/bin" ]]; then
-	PATH="$HOME/.flossbank/bin:$PATH"
-fi
+__add_directory "$HOME/.flossbank/bin"
 
 # 1Password, exposes op-ssh-sign
-if [[ -d '/Applications/1Password.app/Contents/MacOS/' ]]; then
-	PATH="/Applications/1Password.app/Contents/MacOS/:$PATH"
-fi
+__add_directory '/Applications/1Password.app/Contents/MacOS'
 
 # Generics: Java
 CLASSPATH=".:$CLASSPATH"
 
 # Generics: pre-XDG user bin paths (note the user should be preferring XDG_BIN_HOME)
-if [[ -d "$HOME/.bin" ]]; then
-	PATH="$HOME/.bin:$PATH"
-fi
-if [[ -d "$HOME/bin" ]]; then
-	PATH="$HOME/bin:$PATH"
-fi
+__add_directory "$HOME/.bin"
+__add_directory "$HOME/bin"
 
 # Generics: when XDG_BIN_HOME is customised, ensure the default XDG_BIN_HOME is still added, for anything that expects it
 if [[ $XDG_BIN_HOME != "$HOME/.local/bin" ]]; then
@@ -826,7 +776,7 @@ if [[ $XDG_BIN_HOME != "$HOME/.local/bin" ]]; then
 fi
 # Generics: XDG, always add, even if not existent, in case it is created later
 PATH="$XDG_BIN_HOME:$PATH"
-add_prefix_dir "$XDG_PREFIX" # only adds directories that exist
+__add_prefix_directory "$XDG_PREFIX" # only adds directories that exist
 
 # GO LLVM
 # https://stackoverflow.com/a/58488820
