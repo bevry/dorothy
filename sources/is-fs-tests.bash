@@ -2,14 +2,11 @@ source "$DOROTHY/sources/bash.bash"
 
 function is_fs_tests__prep {
 	local command="$1" root
-	root="$(fs-temp --directory="$command")"
+	root="$(fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory)"
 	# if [[ -d $root ]]; then
 	# 	__print_lines "$root"
 	# 	return 0
 	# fi
-
-	__print_style --tty --header1='removing old FS preparation'
-	eval-helper --elevate -- rm -rf -- "$root"
 
 	__print_style --tty --header1='prepping directories'
 	__mkdirp \
@@ -168,9 +165,6 @@ function is_fs_tests__tuples {
 			;;
 		esac
 	done
-
-	# process
-	root="$(fs-temp --directory="$command")"
 
 	# tests
 	if [[ -n $group ]]; then

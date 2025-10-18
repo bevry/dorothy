@@ -16,7 +16,7 @@ while [[ $# -ne 0 ]]; do
 	# checks
 	if [[ -e $path || -L $path ]]; then
 		# exists: is a symlink (broken or otherwise, accessible or otherwise), file, or directory
-		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 17 # EEXIST 17 File exists
 	else
 		# discern if inaccessible, missing

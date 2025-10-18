@@ -26,7 +26,7 @@ while [[ $# -ne 0 ]]; do
 	is-present.bash -- "$path" || exit
 	__get_owner "$path" || {
 		status=$?
-		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit "$status"
 	}
 done

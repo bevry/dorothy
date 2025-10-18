@@ -3428,6 +3428,11 @@ function __try_sudo {
 	return
 }
 
+# this should never be the case, as TMPDIR bash should prefill if not env inherited, but just in case, ensure it
+if [[ -z ${TMPDIR-} ]]; then
+	TMPDIR="$(mktemp -d)"
+fi
+
 # performantly make directories as many directories as possible without sudo
 # this is beta, and may change later
 function __mkdirp {
@@ -3795,7 +3800,7 @@ function __is_trap_alive {
 # Semaphore Toolkit
 
 function __get_semlock {
-	local GET_SEMLOCK__context_id="$1" GET_SEMLOCK__dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semlocks" GET_SEMLOCK__semlock GET_SEMLOCK__wait GET_SEMLOCK__pid=$$
+	local GET_SEMLOCK__context_id="$1" GET_SEMLOCK__dir="$TMPDIR/dorothy/semlocks" GET_SEMLOCK__semlock GET_SEMLOCK__wait GET_SEMLOCK__pid=$$
 	__mkdirp "$GET_SEMLOCK__dir" || return
 	# the lock file contains the process id that has the lock
 	GET_SEMLOCK__semlock="${GET_SEMLOCK__dir}/${GET_SEMLOCK__context_id}.lock"
@@ -3821,7 +3826,7 @@ function __get_semlock {
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
 # as to why use `__get_semaphore` instead of `mktemp`, is that we want `dorothy test` to check if we cleaned everything up, furthermore, `mktemp` actually makes the files, so you have to do more expensive `-s` checks
 function __get_semaphore {
-	local GET_SEMAPHORE__context_id="${1:-"$RANDOM$RANDOM"}" GET_SEMAPHORE__dir="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy/semaphores"
+	local GET_SEMAPHORE__context_id="${1:-"$RANDOM$RANDOM"}" GET_SEMAPHORE__dir="$TMPDIR/dorothy/semaphores"
 	__mkdirp "$GET_SEMAPHORE__dir" || return
 	__print_lines "${GET_SEMAPHORE__dir}/${GET_SEMAPHORE__context_id}" || return
 }

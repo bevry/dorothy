@@ -24,7 +24,7 @@ while [[ $# -ne 0 ]]; do
 		if /usr/bin/xattr -l "$path" | grep --quiet --fixed-strings --regexp='com.apple.quarantine'; then
 			/usr/bin/xattr -d com.apple.quarantine "$path" >&2 || {
 				status=$?
-				printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+				printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 				exit "$status"
 			}
 		fi

@@ -71,7 +71,8 @@ function __is_fs__invoke {
 	# execute once for all, capturing the failed path
 	# failed paths are output to a fixed path because there is no simple way to separate the failed paths from other stdout and stderr output when using sudo in in-no tty mode, as sudo will be using stderr for its own output, and fs-owner.bash outputs to stdout
 	# and passing an argument is ugly for the prompt, and doing it via an env var is also complicated for doas, and will also result in the same ugly prompt
-	local item command=() command_args=() do_args=() elevate='' failures="$XDG_CACHE_HOME/is-fs-failed-paths" # this is serial
+	export TMPDIR                                                                                     # ensure TMPDIR is inherited to invocation
+	local item command=() command_args=() do_args=() elevate='' failures="$TMPDIR/is-fs-failed-paths" # this is serial
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift

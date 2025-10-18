@@ -57,7 +57,7 @@ function __process() (
 	function __fail {
 		# inherit $path
 		local status="$1"
-		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		return "$status"
 	}
 	function __accessible {

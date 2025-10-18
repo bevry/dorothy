@@ -1282,6 +1282,9 @@ function __print_help {
 			fi
 		done
 	__print_lines "$buffer" >&2 || return
+	if [[ $# -ne 0 ]]; then
+		__print_error "$@" || return
+	fi
 }
 
 # restore tracing

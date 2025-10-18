@@ -16,7 +16,7 @@ while [[ $# -ne 0 ]]; do
 	is-accessible.bash -- "$path" || exit
 	if [[ ! -e $path && -L $path ]]; then
 		# broken symlink
-		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 9 # EBADF 9 Bad file descriptor
 	fi
 	# is accessible, now determine if writable
@@ -30,7 +30,7 @@ while [[ $# -ne 0 ]]; do
 		fi
 	done
 	# not writable
-	printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+	printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 	exit 93 # ENOATTR 93 Attribute not found
 done
 exit 0

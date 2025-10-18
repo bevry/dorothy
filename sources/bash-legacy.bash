@@ -149,7 +149,7 @@ core) ;;
 		local DOROTHY_TRY__CONTEXT="$RANDOM"
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try" # don't use mktemp as it requires -s checks, as it actually makes the files, this doesn't make the files
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try" # don't use mktemp as it requires -s checks, as it actually makes the files, this doesn't make the files
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 		__mkdirp "$DOROTHY_TRY__DIR"
 		function dorothy_try__trap {
@@ -265,7 +265,7 @@ core) ;;
 		local DOROTHY_TRY__STATUS=
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM$RANDOM"
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try" # don't use mktemp as it requires -s checks, as it actually makes the files, this doesn't make the files
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try" # don't use mktemp as it requires -s checks, as it actually makes the files, this doesn't make the files
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 		__mkdirp "$DOROTHY_TRY__DIR"
 		function dorothy_try__trap {
@@ -366,7 +366,7 @@ core) ;;
 
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 		__mkdirp "$DOROTHY_TRY__DIR"
 		function dorothy_try__trap {
@@ -615,7 +615,7 @@ core) ;;
 
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try" # mktemp requires -s checks, as it actually makes the files, this doesn't make the files
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 		__mkdirp "$DOROTHY_TRY__DIR"
 
@@ -761,7 +761,7 @@ core) ;;
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM"
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try"
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 
 		# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
@@ -914,7 +914,7 @@ v5b | 5b)
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM"
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try"
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 
 		# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
@@ -1094,7 +1094,7 @@ v5b | 5b)
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM"
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try"
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 
 		# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
@@ -1300,7 +1300,7 @@ v5b | 5b)
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM"
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
-		local DOROTHY_TRY__DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/dorothy-try"
+		local DOROTHY_TRY__DIR="$TMPDIR/dorothy/try"
 		local DOROTHY_TRY__FILE_STATUS="$DOROTHY_TRY__DIR/$DOROTHY_TRY__CONTEXT.status"
 
 		# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap

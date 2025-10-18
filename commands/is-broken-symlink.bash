@@ -18,7 +18,7 @@ while [[ $# -ne 0 ]]; do
 		# Check for accessible target
 		if [[ -e $path ]]; then
 			# Accessible symlink and target, not a broken symlink
-			printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 			exit 79 # EFTYPE 79 Inappropriate file type or format
 		else
 			# Discern accessibility of symlink target
@@ -28,12 +28,12 @@ while [[ $# -ne 0 ]]; do
 		fi
 	elif [[ -e $path ]]; then
 		# Accessible existing non-symlink file or directory
-		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 17 # EEXIST 17 File exists
 	else
 		# Discern accessibility or non-existence
 		is-accessible.bash -- "$path" || exit
-		printf '%s\n' "$path" >>"$XDG_CACHE_HOME/is-fs-failed-paths"
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 2 # ENOENT 2 No such file or directory
 	fi
 done
