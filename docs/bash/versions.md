@@ -48,6 +48,7 @@ From changelog:
 - Introduces `shopt -s globstar`.
 - Introduces `mapfile`, as well as the `readarray` alias for `mapfile`.
 - Introduces `${var^}` and `${var,}` for uppercase and lowercase conversions.
+- Introduces associative arrays, via `declare -A <var-name>`. Note that `declare -A assoc_array=(key1 value1 key2 value2)` is not yet supported, and only becomes working in bash v5.3.
 
 <details>
 <summary>Changelog:</summary>
@@ -59,6 +60,10 @@ From changelog:
 
 > This document details the changes between this version, `bash-4.0-alpha`, and the previous version,`bash-3.2-release`.
 >
+> c. There is a new variable, `$BASHPID`, which always returns the process id of the current shell.
+>
+> n. The `-p` option to `declare` now displays all variable values and attributes (or function values and attributes if used with `-f`).
+>
 > p. The `read` builtin has a new `-i` option which inserts text into the reply buffer when using readline.
 >
 > u. There is a new `mapfile` builtin to populate an array with lines from a given file.
@@ -67,9 +72,19 @@ From changelog:
 >
 > y. The `-t` option to the `read` builtin now supports fractional timeout values.
 >
+> cc. There is a new `&>>` redirection operator, which appends the standard output and standard error to the named file.
+>
 > dd. The parser now understands `|&` as a synonym for `2>&1 |`, which redirects the standard error for a command through a pipe
 >
+> ee. The new `;&` case statement action list terminator causes execution to continue with the action associated with the next pattern in the statement rather than terminating the command.
+>
+> ff. The new `;;&` case statement action list terminator causes the shell to test the next set of patterns after completing execution of the current action, rather than terminating the command.
+>
 > hh. There are new case-modifying word expansions: uppercase `(^[^])` and lowercase `(,[,])`. They can work on either the first character or array element, or globally. They accept an optional shell pattern that determines which characters to modify. There is an optionally-configured feature to include capitalization operators.
+>
+> ii. The shell provides associative array variables, with the appropriate support to create, delete, assign values to, and expand them.
+>
+> jj. The `declare` builtin now has new `-l` (convert value to lowercase upon assignment) and `-u` (convert value to uppercase upon assignment) options. There is an optionally-configurable `-c` option to capitalize a value at assignment.
 
 </details>
 
@@ -87,9 +102,10 @@ From manual discovery:
 
 From changelog:
 
-- Introduces `${arr:0:-N}` for getting the last N items or characters of an array or string.
 - Introduces `BASH_XTRACEFD` for redirecting xtrace output to a file descriptor.
 - Introduces `{fd}` syntax for opening unused file descriptors.
+- Fixes `${@:0:n}` and `${*:0:n}` incorrectly functioning as `n-1`, affects all prior versions. Workaround for prior versions: `args=("$@"); args=("${args[@]:0:n}")`.
+- Fixes `printf -v array[index] format ...` for assigning formatted strings to array indices.
 
 <details>
 <summary>Changelog:</summary>
@@ -97,6 +113,8 @@ From changelog:
 > This document details the changes between this version, `bash-4.1-alpha`, and the previous version, `bash-4.0-release`.
 >
 > o. New variable `$BASH_XTRACEFD`; when set to an integer bash will write xtrace output to that file descriptor.
+>
+> e. `printf -v` can now assign values to array indices.
 >
 > p. If the optional left-hand-side of a redirection is of the form `{var}`, the shell assigns the file descriptor used to `$var` or uses `$var` as the file descriptor to move or close, depending on the redirection operator.
 >
@@ -109,6 +127,9 @@ From changelog:
 > [!CAUTION]
 > Because of the exit status bug in this version, this version is discouraged.
 
+> [!NOTE]
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__is_var_defined`, `__is_var_declared`, `__is_var_set`, `__get_date`, `__slice`.
+
 From manual discovery:
 
 - If a crash occurs via `errexit` the exit status will always be `1` instead of the intended exit status. Refer to <errors.md> for guidance.
@@ -120,6 +141,7 @@ From changelog:
 - Introduces `\u...` and `\U...` escape sequences
 - Introduces `test -v VAR` for testing variable declaration
 - Introduces `printf %(datefmt)T`
+- Introduces negative lengths for arrays and strings, e.g. `${array[@]:0: -1}` for all except the last element
 - Introduces `lastpipe`
 
 <details>
@@ -127,11 +149,15 @@ From changelog:
 
 > This document details the changes between this version, `bash-4.2-alpha`, and the previous version, `bash-4.1-release`.
 >
+> b. Subshells begun to execute command substitutions or run shell functions or builtins in subshells do not reset trap strings until a new trap is specified. This allows `$(trap)` to display the caller's traps and the trap strings to persist until a new trap is set.
+>
 > d. `$'...'`, `echo`, and `printf` understand `\uXXXX` and `\UXXXXXXXX` escape sequences.
 >
 > f. `test`/`[`/`[[` have a new `-v` variable unary operator, which returns success if `variable` has been set.
 >
 > m. The `printf` builtin has a new %(fmt)T specifier, which allows time values to use `strftime`-like formatting.
+>
+> p. Negative subscripts to indexed arrays, previously errors, now are treated as offsets from the maximum assigned index + 1.
 >
 > t. There is a new `lastpipe` shell option that runs the last command of a pipeline in the current shell context. The `lastpipe` option has no effect if job control is enabled.
 
@@ -181,6 +207,7 @@ From manual discovery:
 From changelog:
 
 - No longer throws upon accessing an empty array. Previously must do `[[ "${#arr[@]}" -ne 0 ]] && for item in "${arr[@]}"; do`.
+- Fixes `printf -v var ''` not setting `var` to the empty string.
 
 <details>
 <summary>Changelog:</summary>
@@ -192,6 +219,8 @@ From changelog:
 > This document details the changes between this version, `bash-4.4-alpha`, and the previous version, `bash-4.3-release`.
 >
 > d. The `mapfile` builtin now has a `-d` option to use an arbitrary character as the record delimiter, and a `-t` option to strip the delimiter as supplied with `-d`.
+>
+> m. `printf -v var ""` will now set `var' to the empty string, as if `var=""` had been executed.
 
 </details>
 
@@ -203,16 +232,23 @@ From changelog:
 From changelog:
 
 - Introduces `EPOCHSECONDS` and `EPOCHREALTIME`
+- Fixes zero-length keys in associative arrays
 - No longer causes strange duplications when working with `$'\001'`
 
 <details>
 <summary>Changelog:</summary>
+
+> This document details the changes between this version, `bash-5.0-beta2`, and the previous version, `bash-5.0-beta`.
+>
+> a. Associative and indexed arrays now allow subscripts consisting solely of whitespace.
 
 > This document details the changes between this version, `bash-5.0-beta`, and the previous version, `bash-5.0-alpha`.
 >
 > q. Fixed a bug that caused `lastpipe` and `pipefail` to return an incorrect status for the pipeline if there was more than one external command in a loop body appearing in the last pipeline element.
 >
 > o. Changes to make sure that `$*` and `${array[*]}` (and `$@/${array[@]}`) expand the same way after the recent changes for POSIX interpretation 888.
+>
+> ooo. Fixed some cases where `printf -v` did not return failure status on a variable assignment error.
 
 > This document details the changes between this version, `bash-5.0-alpha`, and the previous version, `bash-4.4-release`.
 >
@@ -252,13 +288,13 @@ From changelog:
 > This is this is the recommended minimum version for Dorothy on SUSE platforms.
 
 > [!NOTE]
-> Dorothy's `bash.bash` provides cross-version compatible implementations of `__is_var_defined`, `__get_uppercase_first_letter`, `__get_lowercase_string`.
+> Dorothy's `bash.bash` provides cross-version compatible implementations of `__get_uppercase_string`, `__get_uppercase_first_letter`, `__get_lowercase_string`.
 
 From changelog:
 
-- Associative arrays now properly functional.
-- Introduces `${var@U}`, `${var@u}`, `${var@L}`
+- Introduces `${var@U}`, `${var@u}`, `${var@L}` for uppercase, uppercase first letter, and lowercase conversions.
 - Introduces `test -v INDEX` for testing positional declaration
+- Introduces associative array compound assignments with key-value pairs, e.g. `assoc_array=(key1 value1 key2 value2)`, however is broken until 5.3.
 - Fixes `wait_for: No record of process ...` crashes; according to [this user report](https://gist.github.com/azat/affbda3f8c6b5c38648d4ab105777d88), it is this version that fixes it
 
 <details>
@@ -274,6 +310,8 @@ From changelog:
 >
 > dd. New `U`, `u`, and `L` parameter transformations to convert to uppercase, convert first character to uppercase, and convert to lowercase, respectively.
 >
+> gg. Associative arrays may be assigned using a list of key-value pairs within a compound assignment. Compound assignments where the words are not of the form `[key]=value` are assumed to be key-value assignments. A missing or empty key is an error; a missing value is treated as `NULL`. Assignments may not mix the two forms.
+>
 > oo. Fixed several issues with assigning an associative array variable using a compound assignment that expands the value of the same variable.
 
 </details>
@@ -283,6 +321,8 @@ From changelog:
 From changelog:
 
 - Nameref variables (`declare -n nameref`) now properly functional.
+- Fixes `test -v` with `@` and `*` indices.
+- Fixes `printf`, `read`, `wait` assignment to associative arrays.
 
 <details>
 <summary>Changelog:</summary>
@@ -290,8 +330,14 @@ From changelog:
 > This document details the changes between this version, `bash-5.2-alpha`, and the previous version, `bash-5.1-release`.
 >
 > g. Fixed a problem with performing an assignment with `+=` to an array element that was the value of a nameref.
+>
 > h. Fixed a bug that could cause a nameref containing an array reference using `@` or `*` not to expand to multiple words.
+>
+> j. Associative array assignment and certain instances of referencing (e.g., `test -v`) now allow `@` and `*` to be used as keys.
+>
 > bb. Array references using `@` and `*` that are the value of nameref variables (`declare -n ref='v[@]' ; echo $ref`) no longer cause the shell to exit if `set -u` is enabled and the array (`v`) is unset.
+>
+> ss. Builtins like `printf`/`read`/`wait` now behave more consistently when assigning arbitrary keys to associative arrays (like `]`. when appropriately quoted).
 
 </details>
 
@@ -301,6 +347,7 @@ From changelog:
 
 - Introduces performant command interpolation, via command substitution `${command;}` or `${|command;}` instead of process substitution `$(command)`.
 - Introduces `fltexpr` for floating point arithmetic.
+- Fixes associative array compound assignments with key-value pairs, e.g. `assoc_array=(key1 value1 key2 value2)`.
 - When debugging, `LINENO` is now correct.
 - We've likely encountered the plethora of bugs fixed in this version, however, by the time of its release, Dorothy already implemented workarounds, such that these bugs are not surfaced.
 
@@ -346,6 +393,8 @@ From changelog:
 > y. Change for POSIX interpretation 1602 about the default return status for `return` in a trap command.
 >
 > gg. Fixed a bug that caused `eval` to run the ERR trap in commands where it should not.
+>
+> zz. Fixed key-value pair associative array assignment to be more consistent with compound array assignment, and indexed array assignment (`a=(zero one)`) to be more consistent with explicitly assigning indices one by one.
 >
 > rrr. Treat the failure to open file in `$(<file)` as a non-fatal expansion error instead of a fatal redirection error.
 >
