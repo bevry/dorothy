@@ -197,11 +197,7 @@ function stdinargs {
 			"$fn_help" 'An unrecognised flag was provided: ' --variable-value={item} # eval
 			return 22                                                                # EINVAL 22 Invalid argument
 			;;
-		*)
-			option_args+=("$item" "$@")
-			shift $#
-			break
-			;;
+		*) option_args+=("$item") ;;
 		esac
 	done
 
