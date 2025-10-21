@@ -919,7 +919,7 @@ function __load_styles {
 			# check if it has explicit undesired color
 			LOAD_STYLES__var="STYLE__${LOAD_STYLES__undesired}__${LOAD_STYLES__style}"
 			if __is_var_defined "$LOAD_STYLES__var"; then
-				# it does not have explicit desired color, but ihas the explicit undesired color
+				# it does not have explicit desired color, but it has the explicit undesired color
 				# empty the cache as it is not the desired color
 				if [[ $LOAD_STYLES__save == 'yes' ]]; then
 					eval "STYLE__${LOAD_STYLES__style}="
@@ -963,7 +963,7 @@ function __load_styles {
 			# check if it has explicit undesired color
 			LOAD_STYLES__var="STYLE__${LOAD_STYLES__undesired}__END__${LOAD_STYLES__style}"
 			if __is_var_defined "$LOAD_STYLES__var"; then
-				# it does not have explicit desired color, but ihas the explicit undesired color
+				# it does not have explicit desired color, but it has the explicit undesired color
 				# empty the cache as it is not the desired color
 				if [[ $LOAD_STYLES__save == 'yes' ]]; then
 					eval "STYLE__END__${LOAD_STYLES__style}="

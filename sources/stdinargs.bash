@@ -84,14 +84,14 @@ function __print_piece {
 }
 
 # This processes the arguments.
-# This cannot become a safety function, as it needs to support unsafe fuctions, which safety functions cannot.
+# This cannot become a safety function, as it needs to support unsafe functions, which safety functions cannot.
 # Only if unsafe is hard deprecated, could it become a safety function, but that doesn't make sense.
 function stdinargs {
 	# function
 	local fn_help fn_stdin fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
 	# help function
 	fn_help="$(__print_first_function __help help __on_help on_help)" || return
-	# on argument funtion
+	# on argument function
 	fn_arg="$(__print_first_function __on_argument on_argument __on_arg on_arg)" || return
 	# if there is stdin content, handle it ourself
 	fn_stdin="$(__print_first_function __on_stdin on_stdin)" || return
