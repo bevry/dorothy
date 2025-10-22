@@ -19,7 +19,7 @@ You can find the various configuration files that are available to you by browsi
 
 When setting up your user configuration, Dorothy will make sure that the `*.local` directories are git ignored by default (using `$DOROTHY/user/.gitignore`), so that they are not unintentionally pushed to the public.
 
-To share this git ignored configuration between your machines, you would have to use a tool like Dorothy's [`cpr` command](https://github.com/bevry/dorothy/blob/master/commands/cpr) to copy the configuration between machines.
+To share this git ignored configuration between your machines, you would have to use a tool like Dorothy's [`fs-copy` command](https://github.com/bevry/dorothy/blob/master/commands/fs-copy) to copy the configuration between machines.
 
 ### Strongbox
 

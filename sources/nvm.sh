@@ -17,5 +17,5 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 	. "$NVM_DIR/nvm.sh"
 elif [ -d "$NVM_DIR" ]; then
 	# we have nvm, but it is corrupted, so remove it
-	fs-rm --quiet --no-confirm -- "$NVM_DIR"
+	fs-remove --quiet --no-confirm -- "$NVM_DIR"
 fi
