@@ -34,32 +34,12 @@ function dorothy_() (
 
 	# vars that should be exported to subshells, which may or may not be inherited, as setup-environment-commands has not run yet
 	local self="${BASH_SOURCE:-"$0"}" is_remote
-	if [[ $self == *'.local/share/dorothy/commands/dorothy' && -f $self ]]; then
+	if [[ $self == *'/commands/dorothy' && -f $self ]]; then
 		is_remote='no'
 	else
 		is_remote='yes'
 	fi
-	export DOROTHY ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME
-	if [[ -z ${DOROTHY-} ]]; then
-		# handle (1) fresh installation situation and (2) cron situation (dorothy is installed, however environment is empty)
-		# `env -i "$(which dorothy)" run env` <-- whoami returns user who has dorothy installed:
-		# `sudo env -i "$(which dorothy)" run env` <-- whoami returns root, who does not have dorothy installed
-		if [[ $is_remote == 'no' ]]; then
-			# handle fresh environment situation / cron situation
-			DOROTHY="${self%/commands/dorothy*}"
-			if [[ -z ${HOME-} ]]; then
-				export HOME
-				HOME="${self%/.local/share/dorothy/commands/dorothy*}"
-			fi
-			if [[ -z ${USER-} ]]; then
-				export USER
-				USER="$(basename -- "$HOME")"
-			fi
-		else
-			# handle fresh installation situation
-			DOROTHY=''
-		fi
-	fi
+	export ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME DOROTHY
 	if [[ -z ${XDG_CONFIG_HOME-} ]]; then
 		XDG_CONFIG_HOME="$HOME/.config"
 	fi
@@ -75,9 +55,48 @@ function dorothy_() (
 	if [[ -z ${XDG_STATE_HOME-} ]]; then
 		XDG_STATE_HOME="$HOME/.local/state"
 	fi
+	if [[ -z ${DOROTHY-} ]]; then
+		# handle (1) fresh installation situation and (2) cron situation (dorothy is installed, however environment is empty)
+		# `env -i "$(which dorothy)" run env` <-- whoami returns user who has dorothy installed:
+		# `sudo env -i "$(which dorothy)" run env` <-- whoami returns root, who does not have dorothy installed
+		if [[ $is_remote == 'no' ]]; then
+			# dorothy exists locally, was invoked locally, but environment is empty
+			# e.g. cron, some github actions tests
+			DOROTHY="${self%/commands/dorothy*}"
+			if [[ -z ${HOME-} ]]; then
+				export HOME
+				HOME="${self%/.local/share/dorothy/commands/dorothy*}"
+			fi
+			if [[ -z ${USER-} ]]; then
+				export USER
+				USER="$(basename -- "$HOME")"
+			fi
+		elif [[ -d "$XDG_DATA_HOME/dorothy" ]]; then
+			# dorothy exists locally, but were invoked remotely
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		elif [[ -d "$HOME/.local/share/dorothy" ]]; then
+			# dorothy exists locally, but were invoked remotely, with custom XDG
+			DOROTHY="$HOME/.local/share/dorothy"
+		elif [[ -x ./commands/dorothy ]]; then
+			# dorothy exists locally, but were invoked remotely, with custom location
+			# e.g. some github action tests
+			DOROTHY="$(pwd)"
+		else
+			# no existing installation
+			# no custom $DOROTHY
+			# so use XDG
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		fi
+	fi
+
+	# if we are remove, but dorothy exists locally, defer to local, as otherwise we are making expectations about dorothy commands that may be newer than present
+	if [[ $is_remote == 'yes' && -x "$DOROTHY/commands/dorothy" ]]; then
+		"$DOROTHY/commands/dorothy" "$@"
+		return
+	fi
 
 	# =====================================
-	# Sourcing
+	# Soource Preperations
 
 	# defaults
 	local dorothy_slug='bevry/dorothy'
@@ -307,7 +326,24 @@ function dorothy_() (
 		option_reference="$dorothy_reference"
 	fi
 
-	# other variables
+	# adjust XDG based on determined existing/desired DOROTHY location
+	if [[ -z $option_xdg ]]; then
+		if [[ $DOROTHY == "$XDG_DATA_HOME/dorothy" ]]; then
+			option_xdg='yes'
+		else
+			option_xdg='no'
+		fi
+	fi
+	local DOROTHY_USER
+	if [[ -d "$XDG_CONFIG_HOME/dorothy" ]]; then
+		DOROTHY_USER="$XDG_CONFIG_HOME/dorothy"
+	elif [[ -d "$DOROTHY/user" ]]; then
+		DOROTHY_USER="$DOROTHY/user"
+	else
+		DOROTHY_USER="$XDG_CONFIG_HOME/dorothy"
+	fi
+
+	# dorothy repository variables
 	local the_upstream_remote_name="${option_remote_name:-"${option_slug%%/*}"}" # get everything before the first /
 	local the_upstream_git_https="https://github.com/$option_slug.git"
 	local the_homepage="https://github.com/$option_slug"
@@ -322,8 +358,12 @@ function dorothy_() (
 	# =====================================
 	# Sourcing
 
+	# source
 	__source 'sources/bash.bash'
 	__source 'sources/styles.bash'
+
+	# adjust path for determined (including user defined) DOROTHY, as well as standard DOROTHY XDG location (in case user ever changes DOROTHY location)
+	PATH="$DOROTHY/user/commands:$XDG_CONFIG_HOME/dorothy/commands:$DOROTHY/commands:$XDG_CONFIG_HOME/dorothy/commands:$XDG_BIN_HOME:$PATH"
 
 	# =====================================
 	# Substitutions
@@ -553,6 +593,7 @@ function dorothy_() (
 	function relocate_dorothy_if_necessary {
 		# move if necessary
 		if [[ -d $DOROTHY || -d "$XDG_DATA_HOME/dorothy" ]] && __command_exists -- fs-move; then
+			# the symlink means we don't have to update PATH
 			if [[ $option_xdg == 'yes' ]]; then
 				fs-move --symlink -- "$DOROTHY" "$XDG_DATA_HOME/dorothy"
 			elif [[ $option_xdg == 'no' ]]; then
@@ -570,8 +611,8 @@ function dorothy_() (
 	function relocate_user_if_necessary {
 		# move if necessary
 		if [[ -d "$DOROTHY/user" || -d "$XDG_CONFIG_HOME/dorothy" ]] && __command_exists -- fs-move; then
+			# the symlink means `$DOROTHY/user` and `$XDG_CONFIG_HOME/dorothy` are in sync
 			if [[ $option_xdg == 'yes' ]]; then
-				# ensure $DOROTHY/user always exists
 				fs-move --symlink -- "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 			elif [[ $option_xdg == 'no' ]]; then
 				fs-move --symlink -- "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
@@ -591,32 +632,6 @@ function dorothy_() (
 	}
 
 	function prepare_dorothy {
-		# if no DOROTHY env override, attempt DOROTHY from possible existing installations
-		if [[ -z $DOROTHY ]]; then
-			if [[ -d "$XDG_DATA_HOME/dorothy" ]]; then
-				DOROTHY="$XDG_DATA_HOME/dorothy"
-			elif [[ -d "$HOME/.local/share/dorothy" ]]; then
-				DOROTHY="$HOME/.local/share/dorothy"
-			elif [[ -x ./commands/dorothy ]]; then
-				DOROTHY="$(pwd)" # github actions, cron, etc
-			else
-				# no existing installation
-				# no custom $DOROTHY
-				# so use XDG
-				DOROTHY="$XDG_DATA_HOME/dorothy"
-			fi
-		fi
-
-		# adjust XDG based on determination above
-		if [[ $DOROTHY == "$XDG_DATA_HOME/dorothy" ]]; then
-			option_xdg='yes'
-		else
-			option_xdg='no'
-		fi
-
-		# adjust path for determined (including user defined) DOROTHY, as well as standard DOROTHY XDG location (in case user ever changes DOROTHY location)
-		PATH="$DOROTHY/user/commands:$XDG_CONFIG_HOME/dorothy/commands:$DOROTHY/commands:$XDG_CONFIG_HOME/dorothy/commands:$XDG_BIN_HOME:$PATH"
-
 		# if dorothy exists, ensure DOROTHY is in correct location
 		relocate_dorothy_if_necessary
 
@@ -784,7 +799,7 @@ function dorothy_() (
 		# helpers
 		function install_user {
 			# sanity check
-			if [[ -d "$DOROTHY/user" ]]; then
+			if [[ -d $DOROTHY_USER ]]; then
 				# should have called update
 				return 29 # ESPIPE 29 Illegal seek
 			fi
@@ -977,10 +992,10 @@ function dorothy_() (
 				repo_git_url="$(git-helper protocol-format --url="$repo_url")"
 
 				# check if it is a strongbox instance
-				if __git_init_and_fetch "$DOROTHY/user" "$repo_git_url"; then
+				if __git_init_and_fetch "$DOROTHY_USER" "$repo_git_url"; then
 					# check for strongbox
 					local strongbox_keyid
-					strongbox_keyid="$(git-helper --path="$DOROTHY/user" get-strongbox)"
+					strongbox_keyid="$(git-helper --path="$DOROTHY_USER" get-strongbox)"
 					if [[ -n $strongbox_keyid ]]; then
 						__print_style --notice='Strongbox repository detected.'
 						__prepare_current_user
@@ -1030,15 +1045,15 @@ function dorothy_() (
 						__print_style --good2='Your Strongbox keyring is now configured correctly, continuing with clone.'
 					fi
 					# continue with the clone
-					git-helper --path="$DOROTHY/user" update --url="$repo_git_url"
+					git-helper --path="$DOROTHY_USER" update --url="$repo_git_url"
 				fi
 
 				# do the clone
 				repo_git_url="$(git-helper protocol-format --url="$repo_url")"
-				if git clone "$repo_git_url" "$DOROTHY/user"; then
-					__print_style --green+bold="$repo_git_url" --green=' successfully cloned to ' --green+bold="$DOROTHY/user"
+				if git clone "$repo_git_url" "$DOROTHY_USER"; then
+					__print_style --green+bold="$repo_git_url" --green=' successfully cloned to ' --green+bold="$DOROTHY_USER"
 				else
-					__print_style --yellow+bold="$repo_git_url" --yellow=' failed to clone to ' --yellow+bold="$DOROTHY/user"
+					__print_style --yellow+bold="$repo_git_url" --yellow=' failed to clone to ' --yellow+bold="$DOROTHY_USER"
 					__print_style --yellow='We will manually initialise instead.'
 				fi
 			else
@@ -1046,23 +1061,23 @@ function dorothy_() (
 			fi
 
 			# if we haven't initialised, then manually initialise
-			if [[ ! -d "$DOROTHY/user/.git" ]]; then
-				__git_init "$DOROTHY/user"
-				__print_style --yellow='Manually initialised git repository at ' --yellow+bold="$DOROTHY/user"
+			if [[ ! -d "$DOROTHY_USER/.git" ]]; then
+				__git_init "$DOROTHY_USER"
+				__print_style --yellow='Manually initialised git repository at ' --yellow+bold="$DOROTHY_USER"
 			fi
 		}
 		function update_user {
-			__print_style --h2="Updating the Dorothy user configuration at $DOROTHY/user"
-			if ! git-helper --path="$DOROTHY/user" --verify update; then
+			__print_style --h2="Updating the Dorothy user configuration at $DOROTHY_USER"
+			if ! git-helper --path="$DOROTHY_USER" --verify update; then
 				__print_lines '...Dorothy user configuration was unable to be updated, you will have to figure this out later...'
-				__print_style --n2="Updating the Dorothy user configuration at $DOROTHY/user"
+				__print_style --n2="Updating the Dorothy user configuration at $DOROTHY_USER"
 			else
-				__print_style --g2="Updating the Dorothy user configuration at $DOROTHY/user"
+				__print_style --g2="Updating the Dorothy user configuration at $DOROTHY_USER"
 			fi
 		}
 
 		# update or install the user configuration based on its presence
-		if [[ -d "$DOROTHY/user" ]]; then
+		if [[ -d $DOROTHY_USER ]]; then
 			# it already exists, so update it
 			update_user
 		else
