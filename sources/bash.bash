@@ -6004,7 +6004,7 @@ function __terminal_title_progress_bar {
 	else
 		# calculate the percentages
 		if [[ $TERMINAL_TITLE_PROGRESS_BAR__remaining -ne -1 ]]; then
-			$TERMINAL_TITLE_PROGRESS_BAR__progress="$((TERMINAL_TITLE_PROGRESS_BAR__total - TERMINAL_TITLE_PROGRESS_BAR__remaining))"
+			TERMINAL_TITLE_PROGRESS_BAR__progress="$((TERMINAL_TITLE_PROGRESS_BAR__total - TERMINAL_TITLE_PROGRESS_BAR__remaining))"
 		fi
 		if [[ $TERMINAL_TITLE_PROGRESS_BAR__total -ne 100 && $TERMINAL_TITLE_PROGRESS_BAR__progress -ne -1 ]]; then
 			TERMINAL_TITLE_PROGRESS_BAR__progress="$(((TERMINAL_TITLE_PROGRESS_BAR__progress * 100 / TERMINAL_TITLE_PROGRESS_BAR__total * 100) / 100))" # bash can't do floating point, so this variation is a workaround
