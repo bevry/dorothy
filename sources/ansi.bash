@@ -1035,5 +1035,5 @@ function __should_wrap {
 	if [[ ${#option_content} -gt $option_width || $option_content =~ [^a-zA-Z0-9\ \n] ]]; then
 		return 0 # do wrap
 	fi
-	retuurn 1 # don't wrap
+	return 1 # don't wrap
 }
