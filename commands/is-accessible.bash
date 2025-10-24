@@ -18,7 +18,7 @@ while [[ $# -ne 0 ]]; do
 	# stat: cannot statx '<path>': Permission denied
 	# MACOS
 	# stat: <path>: stat: Permission denied
-	if stat -L -- "$path" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+	if stat -L -- "$path" 2>&1 | grep --quiet --extended-regexp --regexp=': Permission denied$'; then
 		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 13 # EACCES 13 Permission denied
 	fi

@@ -3458,7 +3458,7 @@ function __mkdirp {
 		# 		if [[ ! -d $dir ]]; then
 		# 			sudo_missing+=("$dir")
 		# 			# for some reason, this detection doesn't work:
-		# 			# if mkdir -p -- "$dir" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+		# 			# if mkdir -p -- "$dir" 2>&1 | grep --quiet --extended-regexp --regexp=': Permission denied$'; then
 		# 			# 	sudo_missing+=("$dir")
 		# 			# else
 		# 			# 	mkdir -p -- "$dir" || return
