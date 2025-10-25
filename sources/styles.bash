@@ -848,13 +848,13 @@ fi
 
 # declare -A STYLES_MONOCOLOR STYLES_MULTICOLOR <-- for bash v4.0 and above, cache to these instead for performance
 function __load_styles {
-	local LOAD_STYLES__item LOAD_STYLES__color='' LOAD_STYLES__save='no' LOAD_STYLES__begin='' LOAD_STYLES__end=''
+	local LOAD_STYLES__item LOAD_STYLES__color='' LOAD_STYLES__save='' LOAD_STYLES__begin='' LOAD_STYLES__end=''
 	while [[ $# -ne 0 ]]; do
 		LOAD_STYLES__item="$1"
 		shift
 		case "$LOAD_STYLES__item" in
 		--no-color* | --color*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__color} --affirmative --coerce || return ;;
-		--no-save* | --save* | --no-cache* | --cache*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__save} --affirmative --coerce || return ;;
+		--no-save* | --save* | --no-cache* | --cache*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__save} --affirmative || return ;; # yes/no/auto
 		--begin={*})
 			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__begin} || return
 			# LOAD_STYLES__begin="${LOAD_STYLES__item#*=}"
@@ -884,6 +884,13 @@ function __load_styles {
 			LOAD_STYLES__color='no'
 		fi
 	fi
+	if [[ -z $LOAD_STYLES__save ]]; then
+		if [[ $LOAD_STYLES__color == "$COLOR" ]]; then
+			LOAD_STYLES__save='auto'
+		else
+			LOAD_STYLES__save='no'
+		fi
+	fi
 	local LOAD_STYLES__desired LOAD_STYLES__undesired
 	if [[ $LOAD_STYLES__color == 'yes' ]]; then
 		LOAD_STYLES__desired='MULTICOLOR'
@@ -893,25 +900,23 @@ function __load_styles {
 		LOAD_STYLES__undesired='MULTICOLOR'
 	fi
 	# cycle
-	local LOAD_STYLES__style LOAD_STYLES__var='' LOAD_STYLES__found LOAD_STYLES__missing=()
+	local LOAD_STYLES__style LOAD_STYLES__eval='' LOAD_STYLES__var='' LOAD_STYLES__found LOAD_STYLES__missing=()
 	for LOAD_STYLES__style in "$@"; do
 		# RESET
-		LOAD_STYLES__found='no'
+		LOAD_STYLES__found='no' LOAD_STYLES__eval=''
 
 		# BEGIN
 		# check if it has explicit desired color
 		LOAD_STYLES__var="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}"
 		if __is_var_defined "$LOAD_STYLES__var"; then
 			# it has explicit desired color
-			# update the cache with the explicit desired color
-			if [[ $LOAD_STYLES__save == 'yes' ]]; then
-				# __to --source="{$LOAD_STYLES__var}" --target="{STYLE__$LOAD_STYLES__style}" || return
-				eval "STYLE__${LOAD_STYLES__style}=\"\${!LOAD_STYLES__var}\""
-			fi
+			case "$LOAD_STYLES__save" in
+			yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
+			esac
 			# append our result with the explicit desired color
 			if [[ -n $LOAD_STYLES__begin ]]; then
 				# __to --source="{$LOAD_STYLES__var}" --append --target="${LOAD_STYLES__begin}" || return
-				eval "${LOAD_STYLES__begin}+=\"\${!LOAD_STYLES__var}\""
+				LOAD_STYLES__eval+="${LOAD_STYLES__begin}+=\"\${${LOAD_STYLES__var}}\"; "
 			fi
 			# note it has been found
 			LOAD_STYLES__found='yes'
@@ -921,10 +926,9 @@ function __load_styles {
 			LOAD_STYLES__var="STYLE__${LOAD_STYLES__undesired}__${LOAD_STYLES__style}"
 			if __is_var_defined "$LOAD_STYLES__var"; then
 				# it does not have explicit desired color, but it has the explicit undesired color
-				# empty the cache as it is not the desired color
-				if [[ $LOAD_STYLES__save == 'yes' ]]; then
-					eval "STYLE__${LOAD_STYLES__style}="
-				fi
+				case "$LOAD_STYLES__save" in
+				auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}='' STYLE__${LOAD_STYLES__style}=''; " ;;
+				esac
 				# note it has been found
 				LOAD_STYLES__found='yes'
 			else
@@ -933,10 +937,12 @@ function __load_styles {
 				LOAD_STYLES__var="STYLE__${LOAD_STYLES__style}"
 				if __is_var_defined "$LOAD_STYLES__var"; then
 					# it does have implicit combo
-					# no need to update the cache, as the cache name is already the implicit name
+					case "$LOAD_STYLES__save" in
+					auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\" STYLE__${LOAD_STYLES__undesired}__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
+					esac
 					# append our result with the implicit combo
 					if [[ -n $LOAD_STYLES__begin ]]; then
-						eval "${LOAD_STYLES__begin}+=\"\${!LOAD_STYLES__var}\""
+						LOAD_STYLES__eval+="${LOAD_STYLES__begin}+=\"\${${LOAD_STYLES__var}}\"; "
 					fi
 					# note it has been found
 					LOAD_STYLES__found='yes'
@@ -949,13 +955,12 @@ function __load_styles {
 		LOAD_STYLES__var="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}"
 		if __is_var_defined "$LOAD_STYLES__var"; then
 			# it has explicit desired color
-			# update the cache with the explicit desired color
-			if [[ $LOAD_STYLES__save == 'yes' ]]; then
-				eval "STYLE__END__${LOAD_STYLES__style}=\"\${!LOAD_STYLES__var}\""
-			fi
+			case "$LOAD_STYLES__save" in
+			yes) LOAD_STYLES__eval+="STYLE__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
+			esac
 			# prepend our result with the explicit desired color
 			if [[ -n $LOAD_STYLES__end ]]; then
-				eval "${LOAD_STYLES__end}=\"\${!LOAD_STYLES__var}\${!LOAD_STYLES__end}\""
+				LOAD_STYLES__eval+="${LOAD_STYLES__end}=\"\${${LOAD_STYLES__var}}\${${LOAD_STYLES__end}}\"; "
 			fi
 			# note it has been found
 			LOAD_STYLES__found='yes'
@@ -965,10 +970,9 @@ function __load_styles {
 			LOAD_STYLES__var="STYLE__${LOAD_STYLES__undesired}__END__${LOAD_STYLES__style}"
 			if __is_var_defined "$LOAD_STYLES__var"; then
 				# it does not have explicit desired color, but it has the explicit undesired color
-				# empty the cache as it is not the desired color
-				if [[ $LOAD_STYLES__save == 'yes' ]]; then
-					eval "STYLE__END__${LOAD_STYLES__style}="
-				fi
+				case "$LOAD_STYLES__save" in
+				auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}='' STYLE__END__${LOAD_STYLES__style}=''; " ;;
+				esac
 				# note it has been found
 				LOAD_STYLES__found='yes'
 			else
@@ -977,15 +981,20 @@ function __load_styles {
 				LOAD_STYLES__var="STYLE__END__${LOAD_STYLES__style}"
 				if __is_var_defined "$LOAD_STYLES__var"; then
 					# it does have implicit combo
-					# no need to update the cache, as the cache name is already the implicit name
+					case "$LOAD_STYLES__save" in
+					auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\" STYLE__${LOAD_STYLES__undesired}__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
+					esac
 					# prepend our result with the implicit combo
 					if [[ -n $LOAD_STYLES__end ]]; then
-						eval "${LOAD_STYLES__end}=\"\${!LOAD_STYLES__var}\${!LOAD_STYLES__end}\""
+						LOAD_STYLES__eval+="${LOAD_STYLES__end}=\"\${${LOAD_STYLES__var}}\${${LOAD_STYLES__end}}\"; "
 					fi
 					# note it has been found
 					LOAD_STYLES__found='yes'
 				fi
 			fi
+		fi
+		if [[ -n $LOAD_STYLES__eval ]]; then
+			eval "$LOAD_STYLES__eval" || return
 		fi
 		if [[ $LOAD_STYLES__found == 'no' ]]; then
 			LOAD_STYLES__missing+=("$LOAD_STYLES__style")
