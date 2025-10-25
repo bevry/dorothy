@@ -1225,10 +1225,12 @@ function __print_style {
 # beta command, will change
 function __print_help {
 	__load_styles --save -- intensity bold dim foreground_magenta foreground_green foreground_red
-	local character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
+	local REPLY command='' character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
+	__read_whole
+	command="$(echo-regexp -o --regexp='USAGE:[\n\s]+([a-z-]+)' --replace='$1' -- "$REPLY")" || :
 	local -i c l
-	echo-regexp -gm '^(--.+|    \[?--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
-		echo-regexp -gm "^(dorothy [- a-zA-Z0-9.=<>[\]]+)$" "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
+	echo-regexp -gm '^(--.+|    \[?--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" -- "$REPLY" |
+		echo-regexp -gm "^($command [- a-zA-Z0-9.=<>[|\]]+)$" "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
 		echo-regexp -g '\[0\](\s)' "$STYLE__foreground_green[0]$STYLE__END__foreground_green\$1" |
 		echo-regexp -g '\[([\d]+)\](\s)' "$STYLE__foreground_red[\$1]$STYLE__END__foreground_red\$2" |
 		while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
