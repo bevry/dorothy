@@ -313,7 +313,7 @@ function __dump {
 	if [[ $# -eq 0 ]]; then
 		return 0
 	fi
-	local DUMP__item DUMP__color='' DUMP__reference DUMP__show_name='yes' DUMP__name DUMP__indices=no DUMP__value DUMP__log=()
+	local DUMP__item DUMP__color='' DUMP__variable_name DUMP__show_name='yes' DUMP__name DUMP__indices=no DUMP__value DUMP__log=()
 	while [[ $# -ne 0 ]]; do
 		DUMP__item="$1"
 		DUMP__show_name='yes'
@@ -355,44 +355,44 @@ function __dump {
 			continue
 			;;
 		esac
-		__dereference --source="$DUMP__item" --name={DUMP__reference} || return
+		__dereference --source="$DUMP__item" --name={DUMP__variable_name} || return
 		if [[ $DUMP__show_name == 'yes' ]]; then
-			DUMP__name="$DUMP__reference"
+			DUMP__name="$DUMP__variable_name"
 		else
 			DUMP__name=''
 		fi
 		# @todo support associative arrays
-		if ! __is_var_declared "$DUMP__reference"; then
+		if ! __is_var_declared "$DUMP__variable_name"; then
 			if [[ $DUMP__show_name == 'yes' ]]; then
-				DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undeclared='' --newline)
+				DUMP__log+=(--bold="$DUMP__variable_name" ' = ' --commentary-undeclared='' --newline)
 			else
 				DUMP__log+=(--commentary-undeclared='')
 			fi
 			continue
 		fi
-		if __is_array "$DUMP__reference"; then
-			if ! __is_var_defined "$DUMP__reference"; then
+		if __is_array "$DUMP__variable_name"; then
+			if ! __is_var_defined "$DUMP__variable_name"; then
 				if [[ $DUMP__show_name == 'yes' ]]; then
-					DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-undefined='' --newline)
+					DUMP__log+=(--bold="${DUMP__variable_name}[@]" ' = ' --commentary-undefined='' --newline)
 				else
 					DUMP__log+=(--commentary-undefined='')
 				fi
 				continue
 			fi
 			local -i DUMP__index DUMP__total DUMP__char_index DUMP__char_total
-			eval "DUMP__total=\${#${DUMP__reference}[@]}"
+			eval "DUMP__total=\${#${DUMP__variable_name}[@]}"
 			if [[ $DUMP__total == 0 ]]; then
 				if [[ $DUMP__show_name == 'yes' ]]; then
-					DUMP__log+=(--bold="${DUMP__reference}[@]" ' = ' --commentary-empty='' --newline)
+					DUMP__log+=(--bold="${DUMP__variable_name}[@]" ' = ' --commentary-empty='' --newline)
 				else
 					DUMP__log+=(--commentary-empty='')
 				fi
 			else
 				# for ((DUMP__index = 0; DUMP__index < DUMP__total; ++DUMP__index)); do <-- can't do this, as it doesn't support this sparse arrays, e.g.: arr=(); arr[5]='...'; __dump {arr};
 				local DUMP__reference_indices=()
-				eval "DUMP__reference_indices=(\"\${!${DUMP__reference}[@]}\")"
+				eval "DUMP__reference_indices=(\"\${!${DUMP__variable_name}[@]}\")"
 				for DUMP__index in "${DUMP__reference_indices[@]}"; do
-					eval "DUMP__value=\"\${${DUMP__reference}[DUMP__index]}\""
+					eval "DUMP__value=\"\${${DUMP__variable_name}[DUMP__index]}\""
 					if [[ $DUMP__indices == 'yes' ]]; then
 						# obviously this will be broken if the array is sparse, however that is up the caller
 						DUMP__log+=(--bold="${DUMP__name}[ ${DUMP__index} | $(((DUMP__total - DUMP__index) * -1)) ]" ' = ')
@@ -407,24 +407,24 @@ function __dump {
 				done
 			fi
 		else
-			if ! __is_var_defined "$DUMP__reference"; then
+			if ! __is_var_defined "$DUMP__variable_name"; then
 				if [[ $DUMP__show_name == 'yes' ]]; then
-					DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-undefined='' --newline)
+					DUMP__log+=(--bold="$DUMP__name" ' = ' --commentary-undefined='' --newline)
 				else
 					DUMP__log+=(--commentary-undefined='')
 				fi
 				continue
 			fi
-			DUMP__value="${!DUMP__reference}"
+			DUMP__value="${!DUMP__variable_name}"
 			if [[ -z $DUMP__value ]]; then
 				if [[ $DUMP__show_name == 'yes' ]]; then
-					DUMP__log+=(--bold="$DUMP__reference" ' = ' --commentary-empty='' --newline)
+					DUMP__log+=(--bold="$DUMP__name" ' = ' --commentary-empty='' --newline)
 				else
 					DUMP__log+=(--commentary-empty='')
 				fi
 			else
 				if [[ $DUMP__show_name == 'yes' ]]; then
-					DUMP__log+=(--bold="$DUMP__reference" ' = ' --invert="$DUMP__value" --newline)
+					DUMP__log+=(--bold="$DUMP__name" ' = ' --invert="$DUMP__value" --newline)
 				else
 					DUMP__log+=(--invert="$DUMP__value")
 				fi
@@ -523,6 +523,25 @@ BASH_VERSIONS_SUPPORTED=(
 	5.1.16 # compiles on macos x86 without any flags
 	5.2.37 # compiles on macos x86 without any flags
 	5.3    # compiles on macos x86 without any flags
+)
+
+# Things below 100% are broken, and require immediate upgrading.
+# Things above 100% are working
+# Increments within a centigrade, e.g. 100% to 110%, are minor improvements or new features.
+# Increments of a centigrade, e.g. 100% to 200%, fix a significant bug.
+BASH_VERSIONS_SUPPORT=(
+	3.0 0%   # untested
+	3.1 0%   # untested
+	3.2 100% # passes, but bugs require workarounds
+	4.0 110% # passes, but bugs require workarounds, adds `read` defaults, adds `globstar`
+	4.1 0%   # broken as `__wait_for_semaphores` cannot detect updates
+	4.2 50%  # is-fs.bash broken, as crashes do not return the correct exit status
+	4.3 50%  # is-fs.bash broken, as crashes do not return the correct exit status
+	4.4 200% # working, but has `wait_for` issue (unsure if earlier versions also have the same issue)
+	5.0 210% # adds `EPOCHSECONDS`, `EPOCHREALTIME`
+	5.1 300% # fixes `wait_for`, adds case conversions, adds associative arrays
+	5.2 300% # adds nameref
+	5.3 310% # adds fltexpr
 )
 
 # convert a version (short and full) into its corresponding latest downloadable version identifier
@@ -745,10 +764,10 @@ function __get_date {
 			GET_DATE__item="$1"
 			shift
 			case "$GET_DATE__item" in
+			--format=*) GET_DATE__format="${GET_DATE__item#*=}" ;;
 			-*) GET_DATE__date_args+=("$GET_DATE__item") ;;
 			+*) GET_DATE__format="${GET_DATE__item:1}" ;; # this is constrained to $#==1 because of (-v +1y) combo
 			%*) GET_DATE__format="$GET_DATE__item" ;;
-			--format=*) GET_DATE__format="${GET_DATE__item#*=}" ;;
 			*) GET_DATE__format="$GET_DATE__item" ;; # the only single argument that `date` supports is setting the system clock, e.g. `date 0613162785` and `date 1432`, which is not what this function is for, so assume it is not that, and instead is a format
 			esac
 		done
@@ -920,7 +939,7 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 	# Don't shim escaping/quoting as their native behaviour is divergent to intuition.
 	# `${var@Q}` is available, but it is strange, `Ben's World` becomes `'Ben'\''s World'`
 	# If you want `"Ben's World"`, use `echo-quote` instead.
-	# `$(printf '%q' "$var")` escapes bash-style, e.g. `hello world` => `Ben\'s\ World`
+	# `printf '%q' "$var"` escapes bash-style, e.g. `hello world` => `Ben\'s\ World`
 else
 	# bash < 5.1
 	# @Q is no longer available, however it is strange, so don't shim
@@ -1003,7 +1022,7 @@ fi
 #     as offsets from the maximum assigned index + 1.
 # q.  Negative length specifications in the `${var:offset:length}` expansion,
 #     previously errors, are now treated as offsets from the variable.'s end
-# `test -v varname` is not used as it behaviour is inconsistent to expectations and across versions
+# `[[ -v varname ]]` (introduced bash 4.2) is not used as its behaviour is inconsistent to expectations and across versions <-- how is it inconsistent? perhaps we can workaround it?
 # bash 3.2, 4.0, 4.1 will have `local z; declare -p z` will result in `declare -- z=""`, this is because on these bash versions, `local z` is actually `local z=` so the var is actually set
 # bash 4.2 will have `local z; declare -p z` will result in `declare: z: not found`
 # bash 4.4+ will have `local z; declare -p z` will result in `declare -- z`
@@ -1052,6 +1071,12 @@ if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 3 ]]; then
 			return 1 # declare -p returns 1 so do the same
 		fi
 	}
+	function __is_var_defined__inner {
+		[[ "$(__get_var_declaration "$1" 2>/dev/null)" == *'='* ]] || return 1
+	}
+	function __is_array__inner {
+		[[ "$(__get_var_declaration "$1" 2>/dev/null)" == 'declare -a '* ]] || return 1
+	}
 else
 	# function fn { local var; local -a arr; declare -p var arr || :; __get_var_declaration var arr a; }; fn
 	# bash 4.4:
@@ -1074,106 +1099,78 @@ else
 	function __get_var_declaration {
 		declare -p "$@" || return
 	}
+	function __is_var_defined__inner {
+		[[ "$(declare -p "$1" 2>/dev/null)" == *'='* ]] || return 1
+	}
+	function __is_array__inner {
+		[[ "$(declare -p "$1" 2>/dev/null)" == 'declare -a '* ]] || return 1
+	}
 fi
-function __is_var_defined {
-	__affirm_length_defined $# 'variable reference' || return
-	# process
-	local IS_VAR_DEFINED__item IS_VAR_DEFINED__reference IS_VAR_DEFINED__fodder
-	while [[ $# -ne 0 ]]; do
-		IS_VAR_DEFINED__item="$1"
-		shift
-		# support with and without squigglies for these references
-		__dereference --source="$IS_VAR_DEFINED__item" --name={IS_VAR_DEFINED__reference} || return
-		IS_VAR_DEFINED__fodder="$(__get_var_declaration "$IS_VAR_DEFINED__reference" 2>/dev/null)" || return 1
-		[[ $IS_VAR_DEFINED__fodder == *'='* ]] || return 1
-	done
-	return 0
-}
 function __is_var_declared {
-	__affirm_length_defined $# 'variable reference' || return
-	# process
-	local IS_VAR_DECLARED__item IS_VAR_DECLARED__reference
+	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
-		IS_VAR_DECLARED__item="$1"
+		__affirm_variable_name "$1" || return
+		__get_var_declaration "$1" &>/dev/null || return
 		shift
-		# support with and without squigglies for these references
-		__dereference --source="$IS_VAR_DECLARED__item" --name={IS_VAR_DECLARED__reference} || return
-		__get_var_declaration "$IS_VAR_DECLARED__reference" &>/dev/null || return 1
 	done
 	return 0
 }
-# b/c alias
-function __is_var_set {
+function __is_var_defined {
+	__affirm_length_defined $# 'variable name' || return
+	while [[ $# -ne 0 ]]; do
+		__affirm_variable_name "$1" || return
+		__is_var_defined__inner "$1" || return
+		shift
+	done
+	return 0
+}
+function __is_var_set { # b/c alias
 	__is_var_defined "$@" || return
 }
 
 function __is_function_defined {
-	__affirm_length_defined $# 'function name reference' || return
-	local IS_FUNCTION_DEFINED__item IS_FUNCTION_DEFINED__reference IS_FUNCTION_DEFINED__type
+	__affirm_length_defined $# 'function name' || return
 	while [[ $# -ne 0 ]]; do
-		IS_FUNCTION_DEFINED__item="$1"
+		__affirm_variable_name "$1" 'function name' || return
+		[[ "$(type -t "$1")" == 'function' ]] || return 1
 		shift
-		# support with and without squigglies for these references
-		__dereference --source="$IS_FUNCTION_DEFINED__item" --name={IS_FUNCTION_DEFINED__reference} || return
-		IS_FUNCTION_DEFINED__type="$(type -t "$IS_FUNCTION_DEFINED__reference" 2>/dev/null)" || return 1
-		[[ $IS_FUNCTION_DEFINED__type == 'function' ]] || return 1
 	done
 	return 0
 }
 
-# as __dereference calls __is_array, we cannot call __dereference from __is_array
 # NOTE:
 # if you do `local arr=(); a='string'` then `declare -p arr` will report `arr` as an array with a single element
 # to avoid that, you must do `local arr; a='string'` as such, never mangling types; or use separate variables (safe and explicit)
 function __is_array {
-	local -i IS_ARRAY__size
-	local IS_ARRAY__item IS_ARRAY__reference='' IS_ARRAY__fodder
-	__affirm_length_defined $# 'variable reference' || return
+	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
-		IS_ARRAY__item="$1"
+		__affirm_variable_name "$1" || return
+		__is_array__inner "$1" || return
 		shift
-		case "$IS_ARRAY__item" in
-		{*})
-			# trim starting and trailing squigglies
-			IS_ARRAY__size="${#IS_ARRAY__item}"
-			IS_ARRAY__reference="${IS_ARRAY__item:1:IS_ARRAY__size-2}"
-			;;
-		*) IS_ARRAY__reference="$IS_ARRAY__item" ;;
-		esac
-		# verify the reference, can't use __dereference as __dereference calls __is_array
-		__affirm_variable_name_is_valid "$IS_ARRAY__reference" 'variable reference' || return
-		if [[ $IS_ARRAY__reference == IS_ARRAY__* ]]; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: The variable reference [$IS_ARRAY__reference] is invalid." >&2 || :
-			return 22 # EINVAL 22 Invalid argument
-		fi
-		# verify the variable is an array
-		IS_ARRAY__fodder="$(__get_var_declaration "$IS_ARRAY__reference" 2>/dev/null)" || return 1
-		[[ $IS_ARRAY__fodder == 'declare -a '* ]] || return 1
 	done
 	return 0
 }
 
 function __is_sparse_array {
-	local -i IS_SPARSE_ARRAY__size IS_SPARSE_ARRAY__last IS_SPARSE_ARRAY__size_minus_one
-	local IS_SPARSE_ARRAY__item IS_SPARSE_ARRAY__reference='' IS_SPARSE_ARRAY__fodder IS_SPARSE_ARRAY__indices=()
 	__affirm_length_defined $# 'variable reference' || return
+	# no conflict checks here, but should be fine, whatever
+	local IS_SPARSE_ARRAY__indices=()
+	local -i IS_SPARSE_ARRAY__size IS_SPARSE_ARRAY__last_index IS_SPARSE_ARRAY__size_minus_one
 	while [[ $# -ne 0 ]]; do
-		IS_SPARSE_ARRAY__item="$1"
+		__is_array "$1" || return # do not do affirm, as that ruins so many downstream outputs
+		# now that we know it is an array, verify the last index is the index count minus one
+		eval 'IS_SPARSE_ARRAY__indices=("${!'"$1"'[@]}")' || return 1
+		# remove $1
 		shift
-		__dereference --source="$IS_SPARSE_ARRAY__item" --name={IS_SPARSE_ARRAY__reference} || return
-		# verify the variable is an array
-		IS_SPARSE_ARRAY__fodder="$(__get_var_declaration "$IS_SPARSE_ARRAY__reference" 2>/dev/null)" || return 1
-		[[ $IS_SPARSE_ARRAY__fodder == 'declare -a '* ]] || return 1
-		# now tht we know it is an array, verify the last index is the index count minus one
-		eval 'IS_SPARSE_ARRAY__indices=("${!'"$IS_SPARSE_ARRAY__reference"'[@]}")' || return 1
+		# now detect if it is a sparse array or not
 		IS_SPARSE_ARRAY__size="${#IS_SPARSE_ARRAY__indices[@]}"
 		if [[ $IS_SPARSE_ARRAY__size -eq 0 ]]; then
 			# empty array is not sparse
 			return 1
 		fi
-		IS_SPARSE_ARRAY__last="${IS_SPARSE_ARRAY__indices[IS_SPARSE_ARRAY__size - 1]}"
+		IS_SPARSE_ARRAY__last_index="${IS_SPARSE_ARRAY__indices[IS_SPARSE_ARRAY__size - 1]}"
 		IS_SPARSE_ARRAY__size_minus_one=$((IS_SPARSE_ARRAY__size - 1))
-		if [[ $IS_SPARSE_ARRAY__last -eq IS_SPARSE_ARRAY__size_minus_one ]]; then
+		if [[ $IS_SPARSE_ARRAY__last_index -eq $IS_SPARSE_ARRAY__size_minus_one ]]; then
 			# if the last index is the size minus one, then it is not sparse
 			return 1
 		fi
@@ -1260,7 +1257,7 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 		if __command_exists -- dorothy-warnings; then
 			dorothy-warnings add --code='mapfile' --bold=' has been deprecated in favor of ' --code='__split' || :
 		fi
-		local MAPFILE__delim=$'\n' MAPFILE__t='no' MAPFILE__reference='' MAPFILE__reply
+		local MAPFILE__delim=$'\n' MAPFILE__t='no' MAPFILE__variable_name='' MAPFILE__reply
 		while :; do
 			case "$1" in
 			-t)
@@ -1285,9 +1282,9 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 				return 2 # that's what native mapfile returns
 				;;
 			*)
-				if [[ -z $MAPFILE__reference ]]; then
+				if [[ -z $MAPFILE__variable_name ]]; then
 					# support with and without squigglies for these references
-					__dereference --source="$1" --name={MAPFILE__reference} || return
+					__dereference --source="$1" --name={MAPFILE__variable_name} || return
 				else
 					__print_lines \
 						"mapfile[shim]: unknown argument: $1" \
@@ -1297,7 +1294,7 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 				;;
 			esac
 		done
-		if [[ -z $MAPFILE__reference ]]; then
+		if [[ -z $MAPFILE__variable_name ]]; then
 			__print_lines \
 				'mapfile[shim]: <array> is required in our bash v3 shim' \
 				'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2 || :
@@ -1310,9 +1307,9 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 			return 2 # that's what native mapfile returns
 		fi
 		shift
-		eval "$MAPFILE__reference=()" || return
+		eval "$MAPFILE__variable_name=()" || return
 		while IFS= read -rd "$MAPFILE__delim" MAPFILE__reply || [[ -n $MAPFILE__reply ]]; do
-			eval "${MAPFILE__reference}+=(\"\${MAPFILE__reply}\")" || return
+			eval "${MAPFILE__variable_name}+=(\"\${MAPFILE__reply}\")" || return
 		done
 	}
 fi
@@ -1423,12 +1420,12 @@ function __affirm_length_defined {
 		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
 		return 22
 	fi
-	# cannot use `__affirm_value_is_positive_integer` nor `_is_positive_integer` as they use this
-	if ! [[ $1 =~ ^[0-9]+$ ]]; then
-		__print_lines "ERROR: ${FUNCNAME[1]}: The length of ${2:-"value"} must be a positive integer, it was: $(__dump --value="$1" || :)" >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
-	if [[ $1 -eq 0 ]]; then # ignore positive integer check, as that is too strict for this
+	# don't bother with positive integer check, as that is too strict for this, as this only ever, and should only ever receive $# computations
+	# if ! [[ $1 =~ ^[0-9]+$ ]]; then
+	# 	__print_lines "ERROR: ${FUNCNAME[1]}: The length of ${2:-"value"} must be a positive integer, it was: $(__dump --value="$1" || :)" >&2 || :
+	# 	return 22 # EINVAL 22 Invalid argument
+	# fi
+	if [[ $1 -eq 0 ]]; then # `'' -eq 0` is true
 		__print_lines "ERROR: ${FUNCNAME[1]}: At least one ${2:-"value"} must be provided, none were." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
@@ -1485,7 +1482,9 @@ function __affirm_variable_is_array {
 	fi
 }
 
-function __affirm_variable_name_is_valid {
+# affirm <variable-name> is a valid variable name, not a reference (a variable named wrapped in squigglies), nor an invalid pattern
+# __affirm_variable_name <variable-name>
+function __affirm_variable_name {
 	if [[ $# -ne 1 && $# -ne 2 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
 		return 22
@@ -1495,6 +1494,10 @@ function __affirm_variable_name_is_valid {
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	if ! [[ $1 =~ ^[_a-zA-Z0-9]+$ ]]; then
+		if [[ ${1:0:1} == '{' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[1]}: Invalid ${2:-"variable name"}, remove the squigglies: $1" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
 		# even though : and - can be literals, they are not valid as variable names
 		# don't accept array keys/indexes, as this will end up with invalid logic somewhere down the line, instead pass it over as an input like so:
 		# before: __fn --source={arr[0]}
@@ -1804,11 +1807,61 @@ function __is_reference {
 	done
 }
 
+# @todo consider using this in `__to` and `__do`
+function __apply_value {
+	# trunk-ignore(shellcheck/SC2034)
+	local APPLY_VALUE__mode="$1" APPLY_VALUE__target_variable_name="$2" APPLY_VALUE__value="$3"
+	if __is_array "$APPLY_VALUE__target_variable_name"; then
+		case "$APPLY_VALUE__mode" in
+		prepend) eval "$APPLY_VALUE__target_variable_name=(\"\${APPLY_VALUE__value}\" \"\${${APPLY_VALUE__target_variable_name}[@]}\")" || return ;;
+		append) eval "$APPLY_VALUE__target_variable_name+=(\"\${APPLY_VALUE__value}\")" || return ;;
+		*) eval "$APPLY_VALUE__target_variable_name=(\"\${APPLY_VALUE__value}\")" || return ;;
+		esac
+	else
+		case "$APPLY_VALUE__mode" in
+		prepend) eval "$APPLY_VALUE__target_variable_name=\"\${APPLY_VALUE__value}\${${APPLY_VALUE__target_variable_name}}\"" || return ;;
+		append) eval "$APPLY_VALUE__target_variable_name+=\"\${APPLY_VALUE__value}\"" || return ;;
+		*) eval "$APPLY_VALUE__target_variable_name=\"\${APPLY_VALUE__value}\"" || return ;;
+		esac
+	fi
+}
+
+# @todo consider using this in `__to` and `__do`
+function __apply_variable_value {
+	local APPLY_VARIABLE_VALUE__mode="$1" APPLY_VARIABLE_VALUE__target_variable_name="$2" APPLY_VARIABLE_VALUE__source_variable_name="$3"
+	if __is_array "$APPLY_VARIABLE_VALUE__target_variable_name"; then
+		if __is_array "$APPLY_VARIABLE_VALUE__source_variable_name"; then
+			case "$APPLY_VARIABLE_VALUE__mode" in
+			prepend) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}[@]}\" \"\${${APPLY_VARIABLE_VALUE__target_variable_name}[@]}\")" || return ;;
+			append) eval "$APPLY_VARIABLE_VALUE__target_variable_name+=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}[@]}\")" || return ;;
+			*) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}[@]}\")" || return ;;
+			esac
+		else
+			case "$APPLY_VARIABLE_VALUE__mode" in
+			prepend) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\" \"\${${APPLY_VARIABLE_VALUE__target_variable_name}[@]}\")" || return ;;
+			append) eval "$APPLY_VARIABLE_VALUE__target_variable_name+=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\")" || return ;;
+			*) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\")" || return ;;
+			esac
+		fi
+	else
+		if __is_array "$APPLY_VARIABLE_VALUE__source_variable_name"; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Cannot apply an array source $(__dump --value="$APPLY_VARIABLE_VALUE__source_variable_name" || :) to a non-array target $(__dump --value="$APPLY_VARIABLE_VALUE__target_variable_name" || :)." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		else
+			case "$APPLY_VARIABLE_VALUE__mode" in
+			prepend) eval "$APPLY_VARIABLE_VALUE__target_variable_name=\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\${${APPLY_VARIABLE_VALUE__target_variable_name}}\"" || return ;;
+			append) eval "$APPLY_VARIABLE_VALUE__target_variable_name+=\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\"" || return ;;
+			*) eval "$APPLY_VARIABLE_VALUE__target_variable_name=\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\"" || return ;;
+			esac
+		fi
+	fi
+}
+
 # with the reference, trim its squigglies to get its variable name, and apply it to the variable name reference, and affirm there won't be a conflict
 # e.g. `my_result=hello; MY_CONTEXT__item={my_result}; __dereference --source="$MY_CONTEXT__item" --name={MY_CONTEXT__reference}; MY_CONTEXT__reference=my_result`
 # e.g. `my_result=hello; MY_CONTEXT__item='{my_result}'; __dereference --source="$MY_CONTEXT__item"--value={MY_CONTEXT__value}; MY_CONTEXT__value=hello`
 function __dereference {
-	local DEREFERENCE__item DEREFERENCE__source_reference='' DEREFERENCE__name_reference='' DEREFERENCE__value_reference='' DEREFERENCE__size DEREFERENCE__source_prefix='' DEREFERENCE__internal_prefix=''
+	local DEREFERENCE__item DEREFERENCE__source_variable_name='' DEREFERENCE__target_name_variable_name='' DEREFERENCE__target_value_variable_name='' DEREFERENCE__size DEREFERENCE__source_prefix='' DEREFERENCE__internal_prefix='' DEREFERENCE__mode=''
 	while [[ $# -ne 0 ]]; do
 		DEREFERENCE__item="$1"
 		shift
@@ -1816,66 +1869,65 @@ function __dereference {
 		--source={*})
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
-			DEREFERENCE__source_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
-			DEREFERENCE__source_prefix="${DEREFERENCE__source_reference%%__*}__"
+			DEREFERENCE__source_variable_name="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__source_prefix="${DEREFERENCE__source_variable_name%%__*}__"
 			;;
 		--source=*)
-			DEREFERENCE__source_reference="${DEREFERENCE__item#*=}"
-			DEREFERENCE__source_prefix="${DEREFERENCE__source_reference%%__*}__"
+			DEREFERENCE__source_variable_name="${DEREFERENCE__item#*=}"
+			DEREFERENCE__source_prefix="${DEREFERENCE__source_variable_name%%__*}__"
 			;;
 		--name={*})
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
-			DEREFERENCE__name_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
-			DEREFERENCE__internal_prefix="${DEREFERENCE__name_reference%%__*}__"
+			DEREFERENCE__target_name_variable_name="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__internal_prefix="${DEREFERENCE__target_name_variable_name%%__*}__"
 			;;
 		--value={*})
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
-			DEREFERENCE__value_reference="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
-			DEREFERENCE__internal_prefix="${DEREFERENCE__value_reference%%__*}__"
+			DEREFERENCE__target_value_variable_name="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
+			DEREFERENCE__internal_prefix="${DEREFERENCE__target_value_variable_name%%__*}__"
+			;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$DEREFERENCE__mode" 'write mode' || return
+			DEREFERENCE__mode="${DEREFERENCE__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$DEREFERENCE__mode" 'write mode' || return
+			DEREFERENCE__mode="${DEREFERENCE__item:2}"
 			;;
 		--*) __unrecognised_flag "$DEREFERENCE__item" || return ;;
 		*) __unrecognised_argument "$DEREFERENCE__item" || return ;;
 		esac
 	done
-	if [[ -z $DEREFERENCE__source_reference ]]; then
+	if [[ -z $DEREFERENCE__source_variable_name ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: The source variable reference is required." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# validate the source reference is valid
-	__affirm_variable_name_is_valid "$DEREFERENCE__source_reference" 'source variable reference' || return
+	__affirm_variable_name "$DEREFERENCE__source_variable_name" 'source variable reference' || return
+	__affirm_value_is_valid_write_mode "$DEREFERENCE__mode" || return
 	# validate that the reference does not use our variable name prefix
 	if [[ -n $DEREFERENCE__source_prefix && -n $DEREFERENCE__internal_prefix && $DEREFERENCE__source_prefix == "$DEREFERENCE__internal_prefix" ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source variable reference [$DEREFERENCE__source_reference] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source variable reference [$DEREFERENCE__source_variable_name] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	if [[ -n $DEREFERENCE__name_reference ]]; then
-		if __is_array "$DEREFERENCE__name_reference"; then
-			# append is intentional, see __to usage
-			# perhaps adding mode would be a good idea
-			eval "$DEREFERENCE__name_reference+=(\"\$DEREFERENCE__source_reference\")" || return
-		else
-			eval "$DEREFERENCE__name_reference=\"\$DEREFERENCE__source_reference\"" || return
+	# `__is_array` is not performant, so require `--mode` to be set for array handling
+	if [[ -z $DEREFERENCE__mode ]]; then
+		# no mode, assumes both references are to string, as that is way more performant
+		if [[ -n $DEREFERENCE__target_name_variable_name ]]; then
+			eval "$DEREFERENCE__target_name_variable_name=\"\${DEREFERENCE__source_variable_name}\"" || return
 		fi
-	fi
-	if [[ -n $DEREFERENCE__value_reference ]]; then
-		if __is_array "$DEREFERENCE__value_reference"; then
-			# append is intentional, see __to usage
-			# perhaps adding mode would be a good idea
-			if __is_array "$DEREFERENCE__source_reference"; then
-				eval "$DEREFERENCE__value_reference+=(\"\${${DEREFERENCE__source_reference}[@]}\")" || return
-			else
-				eval "$DEREFERENCE__value_reference+=(\"\$${DEREFERENCE__source_reference}\")" || return
-			fi
-		else
-			if __is_array "$DEREFERENCE__source_reference"; then
-				# convert the value variable into an array via assignment
-				# @todo this may be a mistake in a hindsight? or not?
-				eval "$DEREFERENCE__value_reference=(\"\${${DEREFERENCE__source_reference}[@]}\")" || return
-			else
-				eval "$DEREFERENCE__value_reference=\"\$${DEREFERENCE__source_reference}\"" || return
-			fi
+		if [[ -n $DEREFERENCE__target_value_variable_name ]]; then
+			eval "$DEREFERENCE__target_value_variable_name=\"\${${DEREFERENCE__source_variable_name}}\"" || return
+		fi
+	else
+		# be vigilant
+		if [[ -n $DEREFERENCE__target_name_variable_name ]]; then
+			__apply_value "$DEREFERENCE__mode" "$DEREFERENCE__target_name_variable_name" "$DEREFERENCE__source_variable_name" || return
+		fi
+		if [[ -n $DEREFERENCE__target_value_variable_name ]]; then
+			__apply_variable_value "$DEREFERENCE__mode" "$DEREFERENCE__target_value_variable_name" "$DEREFERENCE__source_variable_name" || return
 		fi
 	fi
 	return 0
@@ -1965,7 +2017,7 @@ function __to {
 			__affirm_value_is_undefined "$TO__source" 'source variable reference' || return
 			__dereference --source="${TO__item#*=}" --name={TO__source} || return
 			;;
-		--targets=*) __dereference --source="${TO__item#*=}" --value={TO__targets} || return ;;
+		--targets=*) __dereference --source="${TO__item#*=}" --append --value={TO__targets} || return ;;
 		--target=*) TO__targets+=("${TO__item#*=}") ;;
 		# can't use `__flag` as `__flag` uses `__to`, so the wrong variables will be set due to recursion
 		--no-coerce | --coerce=no | --no-coerce=yes) TO__coerce=no ;;
@@ -2282,15 +2334,15 @@ function __do {
 
 	# redirect or copy, status, to a var target
 	--redirect-status={*} | --copy-status={*})
-		local DO__reference DO__status
-		__dereference --source="$DO__arg_value" --name={DO__reference} || return
+		local DO__variable_name DO__status
+		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return
 
 		# catch the status
 		__try {DO__status} -- __do --inverted "$@"
 		__return $? || return
 
 		# apply the status to the var target
-		eval "$DO__reference=\$DO__status" || return
+		eval "$DO__variable_name=\$DO__status" || return
 
 		# return or discard the status
 		case "$DO__arg_flag" in
@@ -2326,11 +2378,11 @@ function __do {
 
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
-		local DO__reference DO__semaphore REPLY
-		__dereference --source="$DO__arg_value" --name={DO__reference} || return
+		local DO__variable_name DO__semaphore REPLY
+		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return
 
 		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
-		eval "$DO__reference=" || return
+		eval "$DO__variable_name=" || return
 
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
@@ -2344,7 +2396,7 @@ function __do {
 		else
 			__read_whole <"$DO__semaphore" || __return $? -- rm -f -- "$DO__semaphore" || return
 		fi
-		eval "$DO__reference=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return
+		eval "$DO__variable_name=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return
 		rm -f -- "$DO__semaphore" || return
 		return
 		;;
@@ -3024,7 +3076,7 @@ function dorothy_try__wrapper {
 # as such, trying for compat with `__do` is silly, as they are different
 function __try {
 	# declare local variables
-	local DOROTHY_TRY__item DOROTHY_TRY__exit_status_reference=''
+	local DOROTHY_TRY__item DOROTHY_TRY__exit_status_variable_name=''
 	# declare shared variables
 	local DOROTHY_TRY__COMMAND=() DOROTHY_TRY__CONTEXT DOROTHY_TRY__SEMAPHORE DOROTHY_TRY__STATUS='' DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	while [[ $# -ne 0 ]]; do
@@ -3036,7 +3088,7 @@ function __try {
 			shift $#
 			break
 			;;
-		{*}) __dereference --source="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_reference} || return ;;
+		{*}) __dereference --source="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_variable_name} || return ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $DOROTHY_TRY__item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -3075,8 +3127,8 @@ function __try {
 
 	# apply the exit status
 	dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-	if [[ -n $DOROTHY_TRY__exit_status_reference ]]; then
-		eval "$DOROTHY_TRY__exit_status_reference=${DOROTHY_TRY__STATUS:-0}"
+	if [[ -n $DOROTHY_TRY__exit_status_variable_name ]]; then
+		eval "$DOROTHY_TRY__exit_status_variable_name=${DOROTHY_TRY__STATUS:-0}"
 	fi
 
 	# return success
@@ -3224,7 +3276,7 @@ function eval_capture {
 # `groups` is an alias for `id -Gn` so it gives the current user's groups
 # regarding macos and linux, -u works on both macos and linux, as macos lacks --user
 function __prepare_login_user {
-	if ! __is_var_defined {LOGIN_USER}; then
+	if ! __is_var_defined LOGIN_USER; then
 		LOGIN_USER="${SUDO_USER-}"
 		if [[ -z $LOGIN_USER ]]; then
 			function __cut {
@@ -3247,7 +3299,7 @@ function __prepare_login_user {
 	fi
 }
 function __prepare_login_uid {
-	if ! __is_var_defined {LOGIN_UID}; then
+	if ! __is_var_defined LOGIN_UID; then
 		LOGIN_UID="${SUDO_UID-}"
 		if [[ -z $LOGIN_UID ]]; then
 			__prepare_login_user || :
@@ -3260,7 +3312,7 @@ function __prepare_login_uid {
 	fi
 }
 function __prepare_login_group {
-	if ! __is_var_defined {LOGIN_GROUP}; then
+	if ! __is_var_defined LOGIN_GROUP; then
 		__prepare_login_uid || :
 		LOGIN_GROUP="$(id -gn "$LOGIN_UID" || :)"
 		if [[ -z $LOGIN_GROUP ]]; then
@@ -3270,7 +3322,7 @@ function __prepare_login_group {
 	fi
 }
 function __prepare_login_gid {
-	if ! __is_var_defined {LOGIN_GID}; then
+	if ! __is_var_defined LOGIN_GID; then
 		LOGIN_GID="${SUDO_GID-}"
 		if [[ -z $LOGIN_GID ]]; then
 			__prepare_login_uid || :
@@ -3283,7 +3335,7 @@ function __prepare_login_gid {
 	fi
 }
 function __prepare_login_groups {
-	if ! __is_var_defined {LOGIN_GROUPS}; then
+	if ! __is_var_defined LOGIN_GROUPS; then
 		LOGIN_GROUPS=()
 		local groups
 		__prepare_login_uid || :
@@ -3296,7 +3348,7 @@ function __prepare_login_groups {
 	fi
 }
 function __prepare_login_gids {
-	if ! __is_var_defined {LOGIN_GIDS}; then
+	if ! __is_var_defined LOGIN_GIDS; then
 		LOGIN_GIDS=()
 		local groups
 		__prepare_login_uid || :
@@ -3309,7 +3361,7 @@ function __prepare_login_gids {
 	fi
 }
 function __prepare_current_user {
-	if ! __is_var_defined {CURRENT_USER}; then
+	if ! __is_var_defined CURRENT_USER; then
 		CURRENT_USER="${USER-}"
 		if [[ -z $CURRENT_USER ]]; then
 			# `whoami` is deprecated is replaced/delegates to `id -un`
@@ -3323,7 +3375,7 @@ function __prepare_current_user {
 	fi
 }
 function __prepare_current_uid {
-	if ! __is_var_defined {CURRENT_UID}; then
+	if ! __is_var_defined CURRENT_UID; then
 		CURRENT_UID="${UID-}"
 		if [[ -z $CURRENT_UID ]]; then
 			CURRENT_UID="$(id -u || :)"
@@ -3335,7 +3387,7 @@ function __prepare_current_uid {
 	fi
 }
 function __prepare_current_group {
-	if ! __is_var_defined {CURRENT_GROUP}; then
+	if ! __is_var_defined CURRENT_GROUP; then
 		CURRENT_GROUP="$(id -gn || :)"
 		if [[ -z $CURRENT_GROUP ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group name of the current user." >&2 || :
@@ -3344,7 +3396,7 @@ function __prepare_current_group {
 	fi
 }
 function __prepare_current_gid {
-	if ! __is_var_defined {CURRENT_GID}; then
+	if ! __is_var_defined CURRENT_GID; then
 		CURRENT_GID="$(id -g || :)"
 		if [[ -z $CURRENT_GID ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: Unable to fetch the group ID of the current user." >&2 || :
@@ -3353,9 +3405,9 @@ function __prepare_current_gid {
 	fi
 }
 function __prepare_current_groups {
-	if ! __is_var_defined {CURRENT_GROUPS}; then
+	if ! __is_var_defined CURRENT_GROUPS; then
 		CURRENT_GROUPS=()
-		if __is_var_defined {GROUPS}; then
+		if __is_var_defined GROUPS; then
 			CURRENT_GROUPS=("${GROUPS[@]}")
 		fi
 		if [[ ${#CURRENT_GROUPS[@]} -eq 0 ]]; then
@@ -3370,7 +3422,7 @@ function __prepare_current_groups {
 	fi
 }
 function __prepare_current_gids {
-	if ! __is_var_defined {CURRENT_GIDS}; then
+	if ! __is_var_defined CURRENT_GIDS; then
 		CURRENT_GIDS=()
 		local groups
 		# trunk-ignore(shellcheck/SC2034)
@@ -3616,7 +3668,7 @@ function __is_fd_open {
 		shift
 		case "$IS_FD_OPEN__item" in
 		# no way to test if a file descriptor reference is available, it has to be dereferenced first
-		{*}) __dereference --source="$IS_FD_OPEN__item" --value={IS_FD_OPEN__numbers} || return ;;
+		{*}) __dereference --source="$IS_FD_OPEN__item" --append --value={IS_FD_OPEN__numbers} || return ;;
 		[0-9]*) IS_FD_OPEN__numbers+=("$IS_FD_OPEN__item") ;;
 		*) __unrecognised_argument "$IS_FD_OPEN__item" || return ;;
 		esac
@@ -3640,7 +3692,7 @@ function __is_fd_available {
 		shift
 		case "$IS_FD_AVAILABLE__item" in
 		# no way to test if a file descriptor reference is available, it has to be dereferenced first
-		{*}) __dereference --source="$IS_FD_AVAILABLE__item" --value={IS_FD_AVAILABLE__numbers} || return ;;
+		{*}) __dereference --source="$IS_FD_AVAILABLE__item" --append --value={IS_FD_AVAILABLE__numbers} || return ;;
 		[0-9]*) IS_FD_AVAILABLE__numbers+=("$IS_FD_AVAILABLE__item") ;;
 		*) __unrecognised_argument "$IS_FD_AVAILABLE__item" || return ;;
 		esac
@@ -3665,7 +3717,7 @@ function __open_fd {
 		if [[ -z $OPEN_FD__mode ]]; then
 			case "$OPEN_FD__item" in
 			# file descriptor
-			{*}) __dereference --source="$OPEN_FD__item" --name={OPEN_FD__references} || return ;;
+			{*}) __dereference --source="$OPEN_FD__item" --append --name={OPEN_FD__references} || return ;;
 			[0-9]*)
 				__affirm_value_is_positive_integer "$OPEN_FD__item" 'file descriptor' || return
 				OPEN_FD__numbers+=("$OPEN_FD__item")
@@ -3835,14 +3887,14 @@ function __get_semaphore {
 # __semaphores --target={<array-variable-reference>} -- ...<context-id>
 function __semaphores {
 	# process reference argument
-	local SEMAPHORES__item SEMAPHORES__reference='' SEMAPHORES__context_ids=() SEMAPHORES__size=''
+	local SEMAPHORES__item SEMAPHORES__variable_name='' SEMAPHORES__context_ids=() SEMAPHORES__size=''
 	while [[ $# -ne 0 ]]; do
 		SEMAPHORES__item="$1"
 		shift
 		case "$SEMAPHORES__item" in
 		--target={*})
-			__affirm_value_is_undefined "$SEMAPHORES__reference" 'target reference' || return
-			__dereference --source="${SEMAPHORES__item#*=}" --name={SEMAPHORES__reference} || return
+			__affirm_value_is_undefined "$SEMAPHORES__variable_name" 'target reference' || return
+			__dereference --source="${SEMAPHORES__item#*=}" --name={SEMAPHORES__variable_name} || return
 			;;
 		--size=*)
 			__affirm_value_is_undefined "$SEMAPHORES__size" 'size/count of semaphores' || return
@@ -3866,7 +3918,7 @@ function __semaphores {
 		SEMAPHORES__semaphores+=("$(__get_semaphore)") || return
 	done
 	# append the semaphores to the target
-	eval "$SEMAPHORES__reference+=(\"\${SEMAPHORES__semaphores[@]}\")" || return
+	eval "$SEMAPHORES__variable_name+=(\"\${SEMAPHORES__semaphores[@]}\")" || return
 }
 
 # As to why semaphores are even necessary,
@@ -3926,22 +3978,22 @@ function __wait_for_and_return_semaphores {
 function __flag {
 	local FLAG__filter='' FLAG__boolean='no' FLAG__invert='no' FLAG__export='no' FLAG__coerce='no' FLAG__empty='yes' FLAG__yes='yes' FLAG__no='no'
 	# <single-source helper arguments>
-	local FLAG__item FLAG__source_reference='' FLAG__targets=() FLAG__mode=''
+	local FLAG__item FLAG__source_variable_name='' FLAG__targets=() FLAG__mode=''
 	while [[ $# -ne 0 ]]; do
 		local FLAG__item="$1"
 		shift
 		case "$FLAG__item" in
 		--source={*})
-			__affirm_value_is_undefined "$FLAG__source_reference" 'source variable reference' || return
-			__dereference --source="${FLAG__item#*=}" --name={FLAG__source_reference} || return
+			__affirm_value_is_undefined "$FLAG__source_variable_name" 'source variable reference' || return
+			__dereference --source="${FLAG__item#*=}" --name={FLAG__source_variable_name} || return
 			;;
 		--source+target={*})
 			FLAG__item="${FLAG__item#*=}"
 			FLAG__targets+=("$FLAG__item")
-			__affirm_value_is_undefined "$FLAG__source_reference" 'source variable reference' || return
-			__dereference --source="$FLAG__item" --name={FLAG__source_reference} || return
+			__affirm_value_is_undefined "$FLAG__source_variable_name" 'source variable reference' || return
+			__dereference --source="$FLAG__item" --name={FLAG__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${FLAG__item#*=}" --value={FLAG__targets} || return ;;
+		--targets=*) __dereference --source="${FLAG__item#*=}" --append --value={FLAG__targets} || return ;;
 		--target=*) FLAG__targets+=("${FLAG__item#*=}") ;;
 		--yes=*) FLAG__yes="${FLAG__item#*=}" ;;
 		--no=*) FLAG__no="${FLAG__item#*=}" ;;
@@ -3954,18 +4006,18 @@ function __flag {
 			FLAG__mode="${FLAG__item:2}"
 			;;
 		--)
-			__affirm_value_is_undefined "$FLAG__source_reference" 'source variable reference' || return
+			__affirm_value_is_undefined "$FLAG__source_variable_name" 'source variable reference' || return
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
 				local FLAG__input="$1"
-				FLAG__source_reference='FLAG__input'
+				FLAG__source_variable_name='FLAG__input'
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
 				local FLAG__inputs=("$@")
-				FLAG__source_reference='FLAG__inputs'
+				FLAG__source_variable_name='FLAG__inputs'
 			fi
 			shift $#
 			break
@@ -3989,7 +4041,7 @@ function __flag {
 		esac
 	done
 	# affirm
-	__affirm_variable_is_defined "$FLAG__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$FLAG__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$FLAG__mode" || return
 	if [[ $FLAG__coerce == 'yes' ]]; then
 		if [[ $FLAG__boolean == 'no' ]]; then
@@ -4010,10 +4062,10 @@ function __flag {
 		done
 	fi
 	# set the inputs
-	if __is_array "$FLAG__source_reference"; then
-		eval 'set -- "${'"$FLAG__source_reference"'[@]}"'
+	if __is_array "$FLAG__source_variable_name"; then
+		eval 'set -- "${'"$FLAG__source_variable_name"'[@]}"'
 	else
-		eval 'set -- "${'"$FLAG__source_reference"'}"'
+		eval 'set -- "${'"$FLAG__source_variable_name"'}"'
 	fi
 	# process the inputs
 	local FLAG__name FLAG__inverted FLAG__value FLAG__values=()
@@ -4117,7 +4169,7 @@ function __array {
 		ARRAY__item="$1"
 		shift
 		case "$ARRAY__item" in
-		--targets=*) __dereference --source="${ARRAY__item#*=}" --value={ARRAY__targets} || return ;;
+		--targets=*) __dereference --source="${ARRAY__item#*=}" --append --value={ARRAY__targets} || return ;;
 		--target=*) ARRAY__targets+=("${ARRAY__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$ARRAY__mode" 'write mode' || return
@@ -4153,22 +4205,22 @@ function __array {
 # reverses the array or string
 function __reverse {
 	# <single-source helper arguments>
-	local REVERSE__item REVERSE__source_reference='' REVERSE__targets=() REVERSE__mode=''
+	local REVERSE__item REVERSE__source_variable_name='' REVERSE__targets=() REVERSE__mode=''
 	while [[ $# -ne 0 ]]; do
 		REVERSE__item="$1"
 		shift
 		case "$REVERSE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$REVERSE__source_reference" 'source variable reference' || return
-			__dereference --source="${REVERSE__item#*=}" --name={REVERSE__source_reference} || return
+			__affirm_value_is_undefined "$REVERSE__source_variable_name" 'source variable reference' || return
+			__dereference --source="${REVERSE__item#*=}" --name={REVERSE__source_variable_name} || return
 			;;
 		--source+target={*})
 			REVERSE__item="${REVERSE__item#*=}"
 			REVERSE__targets+=("$REVERSE__item")
-			__affirm_value_is_undefined "$REVERSE__source_reference" 'source variable reference' || return
-			__dereference --source="$REVERSE__item" --name={REVERSE__source_reference} || return
+			__affirm_value_is_undefined "$REVERSE__source_variable_name" 'source variable reference' || return
+			__dereference --source="$REVERSE__item" --name={REVERSE__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${REVERSE__item#*=}" --value={REVERSE__targets} || return ;;
+		--targets=*) __dereference --source="${REVERSE__item#*=}" --append --value={REVERSE__targets} || return ;;
 		--target=*) REVERSE__targets+=("${REVERSE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$REVERSE__mode" 'write mode' || return
@@ -4180,17 +4232,17 @@ function __reverse {
 			;;
 		--)
 			# they are inputs
-			__affirm_value_is_undefined "$REVERSE__source_reference" 'source variable reference' || return
+			__affirm_value_is_undefined "$REVERSE__source_variable_name" 'source variable reference' || return
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
 				local REVERSE__input="$1"
-				REVERSE__source_reference='REVERSE__input'
+				REVERSE__source_variable_name='REVERSE__input'
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
 				local REVERSE__inputs=("$@")
-				REVERSE__source_reference='REVERSE__inputs'
+				REVERSE__source_variable_name='REVERSE__inputs'
 			fi
 			shift $#
 			break
@@ -4200,27 +4252,27 @@ function __reverse {
 		*) __unrecognised_argument "$REVERSE__item" || return ;;
 		esac
 	done
-	__affirm_variable_is_defined "$REVERSE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$REVERSE__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$REVERSE__mode" || return
 	# action
-	if __is_array "$REVERSE__source_reference"; then
+	if __is_array "$REVERSE__source_variable_name"; then
 		# support sparse arrays
 		# trunk-ignore(shellcheck/SC2034)
 		local REVERSE__indices=() REVERSE__results=()
-		eval 'REVERSE__indices=("${!'"$REVERSE__source_reference"'[@]}")' || return
+		eval 'REVERSE__indices=("${!'"$REVERSE__source_variable_name"'[@]}")' || return
 		local -i REVERSE__index REVERSE__source_index REVERSE__size="${#REVERSE__indices[@]}"
 		for ((REVERSE__index = REVERSE__size - 1; REVERSE__index >= 0; REVERSE__index--)); do
 			REVERSE__source_index="${REVERSE__indices[REVERSE__index]}"
-			eval 'REVERSE__results+=("${'"$REVERSE__source_reference"'[REVERSE__source_index]}")' || return
+			eval 'REVERSE__results+=("${'"$REVERSE__source_variable_name"'[REVERSE__source_index]}")' || return
 		done
 		__to --source={REVERSE__results} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return
 	else
 		# trunk-ignore(shellcheck/SC2034)
 		local REVERSE__result=''
 		local -i REVERSE__source_index REVERSE__source_size
-		eval 'REVERSE__source_size=${#'"$REVERSE__source_reference"'}' || return
+		eval 'REVERSE__source_size=${#'"$REVERSE__source_variable_name"'}' || return
 		for ((REVERSE__source_index = REVERSE__source_size - 1; REVERSE__source_index >= 0; REVERSE__source_index--)); do
-			eval 'REVERSE__result+="${'"$REVERSE__source_reference"':REVERSE__source_index:1}"' || return
+			eval 'REVERSE__result+="${'"$REVERSE__source_variable_name"':REVERSE__source_index:1}"' || return
 		done
 		__to --source={REVERSE__result} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return
 	fi
@@ -4230,22 +4282,22 @@ function __reverse {
 function __indices {
 	local INDICES__direction='ascending'
 	# <single-source helper arguments>
-	local INDICES__item INDICES__source_reference='' INDICES__targets=() INDICES__mode=''
+	local INDICES__item INDICES__source_variable_name='' INDICES__targets=() INDICES__mode=''
 	while [[ $# -ne 0 ]]; do
 		INDICES__item="$1"
 		shift
 		case "$INDICES__item" in
 		--source={*})
-			__affirm_value_is_undefined "$INDICES__source_reference" 'source variable reference' || return
-			__dereference --source="${INDICES__item#*=}" --name={INDICES__source_reference} || return
+			__affirm_value_is_undefined "$INDICES__source_variable_name" 'source variable reference' || return
+			__dereference --source="${INDICES__item#*=}" --name={INDICES__source_variable_name} || return
 			;;
 		--source+target={*})
 			INDICES__item="${INDICES__item#*=}"
 			INDICES__targets+=("$INDICES__item")
-			__affirm_value_is_undefined "$INDICES__source_reference" 'source variable reference' || return
-			__dereference --source="$INDICES__item" --name={INDICES__source_reference} || return
+			__affirm_value_is_undefined "$INDICES__source_variable_name" 'source variable reference' || return
+			__dereference --source="$INDICES__item" --name={INDICES__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${INDICES__item#*=}" --value={INDICES__targets} || return ;;
+		--targets=*) __dereference --source="${INDICES__item#*=}" --append --value={INDICES__targets} || return ;;
 		--target=*) INDICES__targets+=("${INDICES__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$INDICES__mode" 'write mode' || return
@@ -4257,17 +4309,17 @@ function __indices {
 			;;
 		--)
 			# they are inputs
-			__affirm_value_is_undefined "$INDICES__source_reference" 'source variable reference' || return
+			__affirm_value_is_undefined "$INDICES__source_variable_name" 'source variable reference' || return
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
 				local INDICES__input="$1"
-				INDICES__source_reference='INDICES__input'
+				INDICES__source_variable_name='INDICES__input'
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
 				local INDICES__inputs=("$@")
-				INDICES__source_reference='INDICES__inputs'
+				INDICES__source_variable_name='INDICES__inputs'
 			fi
 			shift $#
 			break
@@ -4279,13 +4331,13 @@ function __indices {
 		*) __unrecognised_argument "$INDICES__item" || return ;;
 		esac
 	done
-	__affirm_variable_is_defined "$INDICES__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$INDICES__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$INDICES__mode" || return
 	# action
-	if __is_array "$INDICES__source_reference"; then
+	if __is_array "$INDICES__source_variable_name"; then
 		# support sparse arrays
 		local INDICES__indices=()
-		eval 'INDICES__indices=("${!'"$INDICES__source_reference"'[@]}")' || return
+		eval 'INDICES__indices=("${!'"$INDICES__source_variable_name"'[@]}")' || return
 		if [[ $INDICES__direction == 'ascending' ]]; then
 			__to --source={INDICES__indices} --mode="$INDICES__mode" --targets={INDICES__targets} || return
 		else
@@ -4299,7 +4351,7 @@ function __indices {
 	else
 		local INDICES__indices=()
 		local -i INDICES__index INDICES__size
-		eval 'INDICES__size=${#'"$INDICES__source_reference"'}' || return
+		eval 'INDICES__size=${#'"$INDICES__source_variable_name"'}' || return
 		if [[ $INDICES__direction == 'ascending' ]]; then
 			for ((INDICES__index = 0; INDICES__index < INDICES__size; INDICES__index++)); do
 				INDICES__indices+=("$INDICES__index")
@@ -4317,22 +4369,22 @@ function __indices {
 function __at {
 	local AT__indices=()
 	# <single-source helper arguments>
-	local AT__item AT__source_reference='' AT__targets=() AT__mode=''
+	local AT__item AT__source_variable_name='' AT__targets=() AT__mode=''
 	while [[ $# -ne 0 ]]; do
 		AT__item="$1"
 		shift
 		case "$AT__item" in
 		--source={*})
-			__affirm_value_is_undefined "$AT__source_reference" 'source variable reference' || return
-			__dereference --source="${AT__item#*=}" --name={AT__source_reference} || return
+			__affirm_value_is_undefined "$AT__source_variable_name" 'source variable reference' || return
+			__dereference --source="${AT__item#*=}" --name={AT__source_variable_name} || return
 			;;
 		--source+target={*})
 			AT__item="${AT__item#*=}"
 			AT__targets+=("$AT__item")
-			__affirm_value_is_undefined "$AT__source_reference" 'source variable reference' || return
-			__dereference --source="$AT__item" --name={AT__source_reference} || return
+			__affirm_value_is_undefined "$AT__source_variable_name" 'source variable reference' || return
+			__dereference --source="$AT__item" --name={AT__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${AT__item#*=}" --value={AT__targets} || return ;;
+		--targets=*) __dereference --source="${AT__item#*=}" --append --value={AT__targets} || return ;;
 		--target=*) AT__targets+=("${AT__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$AT__mode" 'write mode' || return
@@ -4343,18 +4395,18 @@ function __at {
 			AT__mode="${AT__item:2}"
 			;;
 		--)
-			if [[ -z $AT__source_reference ]]; then
+			if [[ -z $AT__source_variable_name ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
 					# trunk-ignore(shellcheck/SC2034)
 					local AT__input="$1"
-					AT__source_reference='AT__input'
+					AT__source_variable_name='AT__input'
 				else
 					# an array input
 					# trunk-ignore(shellcheck/SC2034)
 					local AT__inputs=("$@")
-					AT__source_reference='AT__inputs'
+					AT__source_variable_name='AT__inputs'
 				fi
 			else
 				# they are indices
@@ -4380,20 +4432,20 @@ function __at {
 		*) __unrecognised_argument "$AT__item" || return ;;
 		esac
 	done
-	__affirm_variable_is_defined "$AT__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$AT__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$AT__mode" || return
 	__affirm_length_defined "${#AT__indices[@]}" 'index' || return
 	# action
 	# trunk-ignore(shellcheck/SC2034)
 	local AT__results=() AT__eval_segment AT__index # AT__index could be -0 which is string
 	local -i AT__size AT__negative_size
-	if __is_array "$AT__source_reference"; then
-		eval "AT__size=\${#${AT__source_reference}[@]}"
-		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}[AT__index]}\")"
+	if __is_array "$AT__source_variable_name"; then
+		eval "AT__size=\${#${AT__source_variable_name}[@]}"
+		AT__eval_segment="AT__results+=(\"\${${AT__source_variable_name}[AT__index]}\")"
 	else
 		# AT__index could be negative, so wrap it in () to avoid bash version inconsistencies
-		eval "AT__size=\${#${AT__source_reference}}"
-		AT__eval_segment="AT__results+=(\"\${${AT__source_reference}:(\$AT__index):1}\")"
+		eval "AT__size=\${#${AT__source_variable_name}}"
+		AT__eval_segment="AT__results+=(\"\${${AT__source_variable_name}:(\$AT__index):1}\")"
 	fi
 	AT__negative_size="$((AT__size * -1))"
 	for AT__index in "${AT__indices[@]}"; do
@@ -4403,7 +4455,7 @@ function __at {
 			return 22 # EINVAL 22 Invalid argument
 		elif [[ $AT__size -eq 0 || $AT__index -lt $AT__negative_size || $AT__index -ge $AT__size ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$AT__index" || :) was beyond the range of:" >&2 || :
-			__dump --indices "$AT__source_reference" >&2 || :
+			__dump --indices "$AT__source_variable_name" >&2 || :
 			return 33 # EDOM 33 Numerical argument out of domain
 		elif [[ $AT__index -lt 0 ]]; then
 			AT__index="$((AT__size + AT__index))"
@@ -4416,22 +4468,22 @@ function __at {
 function __case {
 	local CASE__conversion='lower'
 	# <single-source helper arguments>
-	local CASE__item CASE__source_reference='' CASE__targets=() CASE__mode=''
+	local CASE__item CASE__source_variable_name='' CASE__targets=() CASE__mode=''
 	while [[ $# -ne 0 ]]; do
 		CASE__item="$1"
 		shift
 		case "$CASE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$CASE__source_reference" 'source variable reference' || return
-			__dereference --source="${CASE__item#*=}" --name={CASE__source_reference} || return
+			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return
+			__dereference --source="${CASE__item#*=}" --name={CASE__source_variable_name} || return
 			;;
 		--source+target={*})
 			CASE__item="${CASE__item#*=}"
 			CASE__targets+=("$CASE__item")
-			__affirm_value_is_undefined "$CASE__source_reference" 'source variable reference' || return
-			__dereference --source="$CASE__item" --name={CASE__source_reference} || return
+			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return
+			__dereference --source="$CASE__item" --name={CASE__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${CASE__item#*=}" --value={CASE__targets} || return ;;
+		--targets=*) __dereference --source="${CASE__item#*=}" --append --value={CASE__targets} || return ;;
 		--target=*) CASE__targets+=("${CASE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return
@@ -4442,18 +4494,18 @@ function __case {
 			CASE__mode="${CASE__item:2}"
 			;;
 		--)
-			__affirm_value_is_undefined "$CASE__source_reference" 'source variable reference' || return
+			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
 				local CASE__input="$1"
-				CASE__source_reference='CASE__input'
+				CASE__source_variable_name='CASE__input'
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
 				local CASE__inputs=("$@")
-				CASE__source_reference='CASE__inputs'
+				CASE__source_variable_name='CASE__inputs'
 			fi
 			shift $#
 			break
@@ -4466,7 +4518,7 @@ function __case {
 		*) __unrecognised_argument "$CASE__item" || return ;;
 		esac
 	done
-	__affirm_variable_is_defined "$CASE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$CASE__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$CASE__mode" || return
 	if [[ -z $CASE__conversion ]]; then
 		CASE__conversion='lower'
@@ -4477,36 +4529,36 @@ function __case {
 	fi
 	# action
 	# we do a sparse array check here, as the native case changes convert sparse arrays into complete arrays by redoing indices
-	if [[ -n $BASH_NATIVE_UPPERCASE_SUFFIX ]] && ! __is_sparse_array "$CASE__source_reference"; then
-		if __is_array "$CASE__source_reference"; then
+	if [[ -n $BASH_NATIVE_UPPERCASE_SUFFIX ]] && ! __is_sparse_array "$CASE__source_variable_name"; then
+		if __is_array "$CASE__source_variable_name"; then
 			local CASE__results=()
 			if [[ $CASE__conversion == 'upper' ]]; then
-				eval 'CASE__results=("${'"$CASE__source_reference"'[@]'"$BASH_NATIVE_UPPERCASE_SUFFIX"'}")' || return
+				eval 'CASE__results=("${'"$CASE__source_variable_name"'[@]'"$BASH_NATIVE_UPPERCASE_SUFFIX"'}")' || return
 			else
-				eval 'CASE__results=("${'"$CASE__source_reference"'[@]'"$BASH_NATIVE_LOWERCASE_SUFFIX"'}")' || return
+				eval 'CASE__results=("${'"$CASE__source_variable_name"'[@]'"$BASH_NATIVE_LOWERCASE_SUFFIX"'}")' || return
 			fi
 			__to --source={CASE__results} --mode="$CASE__mode" --targets={CASE__targets} || return
 		else
 			local CASE__result=''
 			if [[ $CASE__conversion == 'upper' ]]; then
-				eval 'CASE__result="${'"${CASE__source_reference}${BASH_NATIVE_UPPERCASE_SUFFIX}"'}"' || return
+				eval 'CASE__result="${'"${CASE__source_variable_name}${BASH_NATIVE_UPPERCASE_SUFFIX}"'}"' || return
 			else
-				eval 'CASE__result="${'"${CASE__source_reference}${BASH_NATIVE_LOWERCASE_SUFFIX}"'}"' || return
+				eval 'CASE__result="${'"${CASE__source_variable_name}${BASH_NATIVE_LOWERCASE_SUFFIX}"'}"' || return
 			fi
 			__to --source={CASE__result} --mode="$CASE__mode" --targets={CASE__targets} || return
 		fi
 	else
-		if __is_array "$CASE__source_reference"; then
+		if __is_array "$CASE__source_variable_name"; then
 			local -i CASE__index
 			# trunk-ignore(shellcheck/SC2034)
 			local CASE__results=() CASE__indices=()
-			__indices --source="{$CASE__source_reference}" --target={CASE__indices} || return
+			__indices --source="{$CASE__source_variable_name}" --target={CASE__indices} || return
 			# trunk-ignore(shellcheck/SC2034)
 			for CASE__index in "${CASE__indices[@]}"; do
 				if [[ $CASE__conversion == 'upper' ]]; then
-					eval 'CASE__results[CASE__index]="$(__get_uppercase_string -- "${'"$CASE__source_reference"'[CASE__index]}")"' || return
+					eval 'CASE__results[CASE__index]="$(__get_uppercase_string -- "${'"$CASE__source_variable_name"'[CASE__index]}")"' || return
 				else
-					eval 'CASE__results[CASE__index]="$(__get_lowercase_string -- "${'"$CASE__source_reference"'[CASE__index]}")"' || return
+					eval 'CASE__results[CASE__index]="$(__get_lowercase_string -- "${'"$CASE__source_variable_name"'[CASE__index]}")"' || return
 				fi
 			done
 			__to --source={CASE__results} --mode="$CASE__mode" --targets={CASE__targets} || return
@@ -4514,9 +4566,9 @@ function __case {
 			# trunk-ignore(shellcheck/SC2034)
 			local CASE__result=''
 			if [[ $CASE__conversion == 'upper' ]]; then
-				eval 'CASE__result="$(__get_uppercase_string -- "${'"$CASE__source_reference"'}")"' || return
+				eval 'CASE__result="$(__get_uppercase_string -- "${'"$CASE__source_variable_name"'}")"' || return
 			else
-				eval 'CASE__result="$(__get_lowercase_string -- "${'"$CASE__source_reference"'}")"' || return
+				eval 'CASE__result="$(__get_lowercase_string -- "${'"$CASE__source_variable_name"'}")"' || return
 			fi
 			__to --source={CASE__result} --mode="$CASE__mode" --targets={CASE__targets} || return
 		fi
@@ -4596,22 +4648,22 @@ function __case {
 function __iterate {
 	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='' ITERATE__overlap='no' ITERATE__require='' ITERATE__quiet='no' ITERATE__by='' ITERATE__operation='' ITERATE__case=''
 	# <single-source helper arguments>
-	local ITERATE__item ITERATE__source_reference='' ITERATE__targets=() ITERATE__mode=''
+	local ITERATE__item ITERATE__source_variable_name='' ITERATE__targets=() ITERATE__mode=''
 	while [[ $# -ne 0 ]]; do
 		ITERATE__item="$1"
 		shift
 		case "$ITERATE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$ITERATE__source_reference" 'source variable reference' || return
-			__dereference --source="${ITERATE__item#*=}" --name={ITERATE__source_reference} || return
+			__affirm_value_is_undefined "$ITERATE__source_variable_name" 'source variable reference' || return
+			__dereference --source="${ITERATE__item#*=}" --name={ITERATE__source_variable_name} || return
 			;;
 		--source+target={*})
 			ITERATE__item="${ITERATE__item#*=}"
 			ITERATE__targets+=("$ITERATE__item")
-			__affirm_value_is_undefined "$ITERATE__source_reference" 'source variable reference' || return
-			__dereference --source="$ITERATE__item" --name={ITERATE__source_reference} || return
+			__affirm_value_is_undefined "$ITERATE__source_variable_name" 'source variable reference' || return
+			__dereference --source="$ITERATE__item" --name={ITERATE__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${ITERATE__item#*=}" --value={ITERATE__targets} || return ;;
+		--targets=*) __dereference --source="${ITERATE__item#*=}" --append --value={ITERATE__targets} || return ;;
 		--target=*) ITERATE__targets+=("${ITERATE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$ITERATE__mode" 'write mode' || return
@@ -4622,22 +4674,22 @@ function __iterate {
 			ITERATE__mode="${ITERATE__item:2}"
 			;;
 		--)
-			if [[ -z $ITERATE__source_reference ]]; then
+			if [[ -z $ITERATE__source_variable_name ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
 					# ITERATE__input="$1"
-					# ITERATE__source_reference='ITERATE__input'
+					# ITERATE__source_variable_name='ITERATE__input'
 					# ^ this doesn't allow for recursive sources, whereas the below does
-					ITERATE__source_reference="ITERATE_${RANDOM}__input"
-					eval "local $ITERATE__source_reference=\"\$1\"" || return
+					ITERATE__source_variable_name="ITERATE_${RANDOM}__input"
+					eval "local $ITERATE__source_variable_name=\"\$1\"" || return
 				else
 					# an array input
 					# ITERATE__inputs=("$@")
-					# ITERATE__source_reference='ITERATE__inputs'
+					# ITERATE__source_variable_name='ITERATE__inputs'
 					# ^ this doesn't allow for recursive sources, whereas the below does
-					ITERATE__source_reference="ITERATE_${RANDOM}__inputs"
-					eval "local $ITERATE__source_reference=(\"\$@\")" || return
+					ITERATE__source_variable_name="ITERATE_${RANDOM}__inputs"
+					eval "local $ITERATE__source_variable_name=(\"\$@\")" || return
 				fi
 			else
 				# they are needles
@@ -4694,14 +4746,14 @@ function __iterate {
 	done
 	local -i ITERATE__lookups_size="${#ITERATE__lookups[@]}"
 	__affirm_value_is_defined "$ITERATE__operation" 'operation' || return
-	__affirm_variable_is_defined "$ITERATE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$ITERATE__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$ITERATE__mode" || return
 	__affirm_length_defined "$ITERATE__lookups_size" 'lookup' || return
 	# handle the new automatic inference or failure of inference of various modes
 	if [[ -z $ITERATE__seek ]]; then
 		if [[ $ITERATE__operation == 'evict' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value=evict || :) operation requires an explicit $(__dump --value='{first,each,every}' || :) seek mode." >&2 || :
-			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		elif [[ $ITERATE__require == 'any' ]]; then
 			if [[ -z $ITERATE__by ]]; then
@@ -4713,7 +4765,7 @@ function __iterate {
 			ITERATE__seek='each' # first/each are equivalent when there is only one lookup
 		else
 			__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__operation" || :) operation requires an explicit $(__dump --value='{first,each,every}' || :) seek mode when using multiple lookups." >&2 || :
-			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		fi
 	fi
@@ -4722,13 +4774,13 @@ function __iterate {
 			ITERATE__require='any' # if they are seeking first, then all is a mistake, and none is unlikely
 		elif [[ $ITERATE__operation == 'evict' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value=evict || :) operation requires an explicit $(__dump --value='{optional,any,all}' || :) require mode." >&2 || :
-			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		elif [[ $ITERATE__lookups_size -eq 1 ]]; then
 			ITERATE__require='any' # any/all are equivalent when there is only one lookup
 		elif [[ $ITERATE__operation == 'has' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[0]}: $(__dump --value=has || :) operation requires an explicit $(__dump --value='{any,all}' || :) require mode when using multiple lookups." >&2 || :
-			__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+			__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		else
 			ITERATE__require='all'
@@ -4744,25 +4796,25 @@ function __iterate {
 	# ensure that if multiple lookups were specified, it can't be all and first
 	if [[ $ITERATE__lookups_size -gt 1 && $ITERATE__require == 'all' && $ITERATE__seek == 'first' ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value=first || :) seek mode cannot be used with the $(__dump --value=all || :) require mode when multiple lookups are specified, as such would always fail." >&2 || :
-		__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+		__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# get the indices
 	local ITERATE__indices=()
-	__indices --source="{$ITERATE__source_reference}" --target={ITERATE__indices} || return
+	__indices --source="{$ITERATE__source_variable_name}" --target={ITERATE__indices} || return
 	# affirm there are indices available
 	local -i ITERATE__size="${#ITERATE__indices[@]}"
 	if [[ $ITERATE__size -eq 0 ]]; then
 		case "$ITERATE__operation" in
 		has) return 1 ;;
 		evict)
-			__to --source="{$ITERATE__source_reference}" --mode="$ITERATE__mode" --targets={ITERATE__targets} || return
+			__to --source="{$ITERATE__source_variable_name}" --mode="$ITERATE__mode" --targets={ITERATE__targets} || return
 			return
 			;;
 		esac
 		__affirm_length_defined "$ITERATE__size" 'source' || {
 			local -i ITERATE__exit_status="$?"
-			__dump {ITERATE__source_reference} {ITERATE__targets} {ITERATE__operation} {ITERATE__lookups} >&2 || :
+			__dump {ITERATE__source_variable_name} {ITERATE__targets} {ITERATE__operation} {ITERATE__lookups} >&2 || :
 			return "$ITERATE__exit_status"
 		}
 	fi
@@ -4777,7 +4829,7 @@ function __iterate {
 	local -i ITERATE__first_in_order="${ITERATE__indices[0]}" # ITERATE__last_in_order="${ITERATE__indices[@]: -1}"
 	# prepare array awareness
 	local ITERATE__array
-	if __is_array "$ITERATE__source_reference"; then
+	if __is_array "$ITERATE__source_variable_name"; then
 		ITERATE__array=yes
 		# if we are an array, validate what can be empty and what cannot be
 		for ITERATE__item in "${ITERATE__lookups[@]}"; do
@@ -4789,7 +4841,7 @@ function __iterate {
 				# these lookups make no sense if they are empty
 				--prefix=* | --suffix=* | --pattern=* | --glob=*)
 					__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value." >&2 || :
-					__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+					__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 					return 22 # EINVAL 22 Invalid argument
 					;;
 
@@ -4804,24 +4856,24 @@ function __iterate {
 		for ITERATE__item in "${ITERATE__lookups[@]}"; do
 			if [[ -z ${ITERATE__item#*=} ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value when the input is a string." >&2 || :
-				__dump {ITERATE__lookups} "{$ITERATE__source_reference}" >&2 || :
+				__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
 		done
 	fi
 	# because our comparison reference can be different based on case modification, setup a new variable
 	# this is because if we are comparing ignoring case, we still want to return the original case sensitive result
-	local ITERATE__compare_source_reference="$ITERATE__source_reference"
+	local ITERATE__compare_source_reference="$ITERATE__source_variable_name"
 	if [[ -n $ITERATE__case ]]; then
 		# convert the source reference
 		if [[ $ITERATE__array == 'yes' ]]; then
 			ITERATE__compare_source_reference="ITERATE_${RANDOM}__inputs__${ITERATE__case}"
 			eval "local $ITERATE__compare_source_reference=()" || return
-			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_reference}" --target="{$ITERATE__compare_source_reference}"
+			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_variable_name}" --target="{$ITERATE__compare_source_reference}"
 		else
 			ITERATE__compare_source_reference="ITERATE_${RANDOM}__input__${ITERATE__case}"
 			eval "local $ITERATE__compare_source_reference=''" || return
-			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_reference}" --target="{$ITERATE__compare_source_reference}"
+			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_variable_name}" --target="{$ITERATE__compare_source_reference}"
 		fi
 		# convert lookups
 		__case --conversion="$ITERATE__case" --source+target={ITERATE__lookups}
@@ -5050,7 +5102,7 @@ function __iterate {
 					# this index was consumed, so skip it
 					continue
 				fi
-				eval 'ITERATE__results+=("${'"$ITERATE__source_reference"'[ITERATE__index]}")' || return
+				eval 'ITERATE__results+=("${'"$ITERATE__source_variable_name"'[ITERATE__index]}")' || return
 			done
 		else
 			local ITERATE__result=''
@@ -5059,7 +5111,7 @@ function __iterate {
 					# this index was consumed, so skip it
 					continue
 				fi
-				eval 'ITERATE__result+="${'"$ITERATE__source_reference"':ITERATE__index:1}"' || return
+				eval 'ITERATE__result+="${'"$ITERATE__source_variable_name"':ITERATE__index:1}"' || return
 			done
 			ITERATE__results+=("$ITERATE__result")
 		fi
@@ -5072,7 +5124,7 @@ function __iterate {
 	# validate first mode
 	if [[ $ITERATE__seek == 'first' && $ITERATE__found_size -gt 1 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: Too many lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
-		__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_reference}" >&2 || :
+		__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_variable_name}" >&2 || :
 		return 34 # ERANGE 34 Result too large
 	fi
 	# any/all require checks
@@ -5080,7 +5132,7 @@ function __iterate {
 		if [[ $ITERATE__found_size -eq 0 ]]; then
 			if [[ $ITERATE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
-				__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_reference}" >&2 || :
+				__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_variable_name}" >&2 || :
 			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
@@ -5088,7 +5140,7 @@ function __iterate {
 		if [[ $ITERATE__found_size -ne ITERATE__lookups_size ]]; then
 			if [[ $ITERATE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$ITERATE__lookups_size" || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
-				__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_reference}" >&2 || :
+				__dump {ITERATE__lookups} {ITERATE__consumed_lookups_map} {ITERATE__results} "{$ITERATE__source_variable_name}" >&2 || :
 			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
@@ -5115,22 +5167,22 @@ function __replace {
 	local REPLACE__empty="EMPTY${RANDOM}EMPTY"
 	local REPLACE__lookups=() REPLACE__require='all' REPLACE__quiet='no' REPLACE__default_replacement='' REPLACE__default_fallback="$REPLACE__empty"
 	# <single-source helper arguments>
-	local REPLACE__item REPLACE__source_reference='' REPLACE__targets=() REPLACE__mode=''
+	local REPLACE__item REPLACE__source_variable_name='' REPLACE__targets=() REPLACE__mode=''
 	while [[ $# -ne 0 ]]; do
 		REPLACE__item="$1"
 		shift
 		case "$REPLACE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$REPLACE__source_reference" 'source variable reference' || return
-			__dereference --source="${REPLACE__item#*=}" --name={REPLACE__source_reference} || return
+			__affirm_value_is_undefined "$REPLACE__source_variable_name" 'source variable reference' || return
+			__dereference --source="${REPLACE__item#*=}" --name={REPLACE__source_variable_name} || return
 			;;
 		--source+target={*})
 			REPLACE__item="${REPLACE__item#*=}"
 			REPLACE__targets+=("$REPLACE__item")
-			__affirm_value_is_undefined "$REPLACE__source_reference" 'source variable reference' || return
-			__dereference --source="$REPLACE__item" --name={REPLACE__source_reference} || return
+			__affirm_value_is_undefined "$REPLACE__source_variable_name" 'source variable reference' || return
+			__dereference --source="$REPLACE__item" --name={REPLACE__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${REPLACE__item#*=}" --value={REPLACE__targets} || return ;;
+		--targets=*) __dereference --source="${REPLACE__item#*=}" --append --value={REPLACE__targets} || return ;;
 		--target=*) REPLACE__targets+=("${REPLACE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$REPLACE__mode" 'write mode' || return
@@ -5142,17 +5194,17 @@ function __replace {
 			;;
 		--)
 			# they are inputs
-			__affirm_value_is_undefined "$REPLACE__source_reference" 'source variable reference' || return
+			__affirm_value_is_undefined "$REPLACE__source_variable_name" 'source variable reference' || return
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
 				local REPLACE__input="$1"
-				REPLACE__source_reference='REPLACE__input'
+				REPLACE__source_variable_name='REPLACE__input'
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
 				local REPLACE__inputs=("$@")
-				REPLACE__source_reference='REPLACE__inputs'
+				REPLACE__source_variable_name='REPLACE__inputs'
 			fi
 			shift $#
 			break
@@ -5175,7 +5227,7 @@ function __replace {
 		--*)
 			if [[ -z ${REPLACE__item#*=} ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$REPLACE__item" || :) option must not have an empty value." >&2 || :
-				__dump {REPLACE__lookups} "{$REPLACE__source_reference}" >&2 || :
+				__dump {REPLACE__lookups} "{$REPLACE__source_variable_name}" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
 			REPLACE__lookups+=("$REPLACE__item")
@@ -5183,16 +5235,16 @@ function __replace {
 		*) __unrecognised_argument "$REPLACE__item" || return ;;
 		esac
 	done
-	__affirm_variable_is_defined "$REPLACE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$REPLACE__source_variable_name" 'source variable reference' || return
 	__affirm_length_defined "${#REPLACE__lookups[@]}" 'lookup' || return
 	# handle array
-	if __is_array "$REPLACE__source_reference"; then
+	if __is_array "$REPLACE__source_variable_name"; then
 		# if we are an array, perform the replace on each element
 		local -i REPLACE__index
 		local REPLACE__indices=() REPLACE__array=() REPLACE__recursion_reference="REPLACE_${RANDOM}__item"
-		__indices --source="{$REPLACE__source_reference}" --target={REPLACE__indices} || return
+		__indices --source="{$REPLACE__source_variable_name}" --target={REPLACE__indices} || return
 		for REPLACE__index in "${REPLACE__indices[@]}"; do
-			eval "$REPLACE__recursion_reference"'="${'"$REPLACE__source_reference"'['"$REPLACE__index"']}"'
+			eval "$REPLACE__recursion_reference"'="${'"$REPLACE__source_variable_name"'['"$REPLACE__index"']}"'
 			__replace --source+target="{$REPLACE__recursion_reference}" --require="$REPLACE__require" --quiet="$REPLACE__quiet" "${REPLACE__lookups[@]}" || return
 			# trunk-ignore(shellcheck/SC2034)
 			REPLACE__array["$REPLACE__index"]="${!REPLACE__recursion_reference}"
@@ -5203,7 +5255,7 @@ function __replace {
 	# handle string
 	local -i REPLACE__expected_size=0
 	local REPLACE__found_lookups=() REPLACE__missing_lookups=() REPLACE__value_wip REPLACE__replacement
-	eval 'REPLACE__value_wip="${'"$REPLACE__source_reference"'}"' || return
+	eval 'REPLACE__value_wip="${'"$REPLACE__source_variable_name"'}"' || return
 	set -- "${REPLACE__lookups[@]}"
 	while [[ $# -ne 0 ]]; do
 		REPLACE__lookup="$1"
@@ -5354,7 +5406,7 @@ function __replace {
 		if [[ $REPLACE__found_size -eq 0 ]]; then
 			if [[ $REPLACE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: No lookups were found, expected at least $(__dump --value='1' || :) but found $(__dump --value="$REPLACE__missing_size" || :):" >&2 || :
-				__dump {REPLACE__lookups} {REPLACE__found_lookups} {REPLACE__missing_lookups} "{$REPLACE__source_reference}" >&2 || :
+				__dump {REPLACE__lookups} {REPLACE__found_lookups} {REPLACE__missing_lookups} "{$REPLACE__source_variable_name}" >&2 || :
 			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
@@ -5362,7 +5414,7 @@ function __replace {
 		if [[ $REPLACE__found_size -ne $REPLACE__expected_size ]]; then
 			if [[ $REPLACE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: Not all lookups were found, expected $(__dump --value="$REPLACE__expected_size" || :) but found $(__dump --value="$REPLACE__found_size" || :):" >&2 || :
-				__dump {REPLACE__lookups} {REPLACE__found_lookups} {REPLACE__missing_lookups} "{$REPLACE__source_reference}" >&2 || :
+				__dump {REPLACE__lookups} {REPLACE__found_lookups} {REPLACE__missing_lookups} "{$REPLACE__source_variable_name}" >&2 || :
 			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
@@ -5373,21 +5425,20 @@ function __replace {
 
 function __unique {
 	# <multi-source helper arguments>
-	local UNIQUE__item UNIQUE__sources=() UNIQUE__targets=() UNIQUE__mode=''
+	local UNIQUE__item UNIQUE__sources_variable_names=() UNIQUE__targets=() UNIQUE__mode=''
 	while [[ $# -ne 0 ]]; do
 		UNIQUE__item="$1"
 		shift
 		case "$UNIQUE__item" in
 		--source={*})
-			__dereference --source="${UNIQUE__item#*=}" --name={UNIQUE__sources} || return
+			__dereference --source="${UNIQUE__item#*=}" --append --name={UNIQUE__sources_variable_names} || return
 			;;
 		--source+target={*})
 			UNIQUE__item="${UNIQUE__item#*=}"
 			UNIQUE__targets+=("$UNIQUE__item") # keep squigglies
-			__dereference --source="$UNIQUE__item" --name={UNIQUE__item} || return
-			UNIQUE__sources+=("$UNIQUE__item")
+			__dereference --source="$UNIQUE__item" --append --name={UNIQUE__sources_variable_names} || return
 			;;
-		--targets=*) __dereference --source="${UNIQUE__item#*=}" --value={UNIQUE__targets} || return ;;
+		--targets=*) __dereference --source="${UNIQUE__item#*=}" --append --value={UNIQUE__targets} || return ;;
 		--target=*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return
@@ -5401,7 +5452,7 @@ function __unique {
 			# an array input
 			# trunk-ignore(shellcheck/SC2034)
 			local UNIQUE__inputs=("$@")
-			UNIQUE__sources+=('UNIQUE__inputs')
+			UNIQUE__sources_variable_names+=('UNIQUE__inputs')
 			shift $#
 			break
 			;;
@@ -5410,19 +5461,19 @@ function __unique {
 		*) __unrecognised_argument "$UNIQUE__item" || return ;;
 		esac
 	done
-	__affirm_length_defined "${#UNIQUE__sources[@]}" 'source variable reference' || return
+	__affirm_length_defined "${#UNIQUE__sources_variable_names[@]}" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return
 	# process
 	local -i UNIQUE__index
-	local UNIQUE__source UNIQUE__indices=() UNIQUE__value UNIQUE__empty="EMPTY${RANDOM}EMPTY" UNIQUE__results=()
+	local UNIQUE__source_variable_name UNIQUE__indices=() UNIQUE__value UNIQUE__empty="EMPTY${RANDOM}EMPTY" UNIQUE__results=()
 	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
 		declare -A UNIQUE__encountered
-		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
-			__affirm_variable_is_array "$UNIQUE__source" 'source variable reference' || return
-			eval 'UNIQUE__indices=("${!'"$UNIQUE__source"'[@]}")' || return
-			# source is always an array, so no need for: __indices --source="{$UNIQUE__source}" --target={UNIQUE__indices} || return
+		for UNIQUE__source_variable_name in "${UNIQUE__sources_variable_names[@]}"; do
+			__affirm_variable_is_array "$UNIQUE__source_variable_name" 'source variable reference' || return
+			eval 'UNIQUE__indices=("${!'"$UNIQUE__source_variable_name"'[@]}")' || return
+			# source is always an array, so no need for: __indices --source="{$UNIQUE__source_variable_name}" --target={UNIQUE__indices} || return
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
-				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]:-"$UNIQUE__empty"}"' || return
+				eval 'UNIQUE__value="${'"$UNIQUE__source_variable_name"'[UNIQUE__index]:-"$UNIQUE__empty"}"' || return
 				# associative arrays cannot have zero-length keys, so we do the UNIQUE__empty fallback
 				if [[ -n ${UNIQUE__encountered["$UNIQUE__value"]-} ]]; then
 					continue
@@ -5438,12 +5489,12 @@ function __unique {
 		done
 	else
 		local UNIQUE__result_value
-		for UNIQUE__source in "${UNIQUE__sources[@]}"; do
-			__affirm_variable_is_array "$UNIQUE__source" 'source variable reference' || return
-			eval 'UNIQUE__indices=("${!'"$UNIQUE__source"'[@]}")' || return
-			# source is always an array, so no need for: __indices --source="{$UNIQUE__source}" --target={UNIQUE__indices} || return
+		for UNIQUE__source_variable_name in "${UNIQUE__sources_variable_names[@]}"; do
+			__affirm_variable_is_array "$UNIQUE__source_variable_name" 'source variable reference' || return
+			eval 'UNIQUE__indices=("${!'"$UNIQUE__source_variable_name"'[@]}")' || return
+			# source is always an array, so no need for: __indices --source="{$UNIQUE__source_variable_name}" --target={UNIQUE__indices} || return
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
-				eval 'UNIQUE__value="${'"$UNIQUE__source"'[UNIQUE__index]}"' || return
+				eval 'UNIQUE__value="${'"$UNIQUE__source_variable_name"'[UNIQUE__index]}"' || return
 				for UNIQUE__result_value in "${UNIQUE__results[@]}"; do
 					if [[ $UNIQUE__result_value == "$UNIQUE__value" ]]; then
 						continue 2 # skip to the next index
@@ -5488,22 +5539,22 @@ function __unique {
 function __slice {
 	local SLICE__indices=() SLICE__quiet='no'
 	# <single-source helper arguments>
-	local SLICE__item SLICE__source_reference='' SLICE__targets=() SLICE__mode=''
+	local SLICE__item SLICE__source_variable_name='' SLICE__targets=() SLICE__mode=''
 	while [[ $# -ne 0 ]]; do
 		SLICE__item="$1"
 		shift
 		case "$SLICE__item" in
 		--source={*})
-			__affirm_value_is_undefined "$SLICE__source_reference" 'source variable reference' || return
-			__dereference --source="${SLICE__item#*=}" --name={SLICE__source_reference} || return
+			__affirm_value_is_undefined "$SLICE__source_variable_name" 'source variable reference' || return
+			__dereference --source="${SLICE__item#*=}" --name={SLICE__source_variable_name} || return
 			;;
 		--source+target={*})
 			SLICE__item="${SLICE__item#*=}"
 			SLICE__targets+=("$SLICE__item")
-			__affirm_value_is_undefined "$SLICE__source_reference" 'source variable reference' || return
-			__dereference --source="$SLICE__item" --name={SLICE__source_reference} || return
+			__affirm_value_is_undefined "$SLICE__source_variable_name" 'source variable reference' || return
+			__dereference --source="$SLICE__item" --name={SLICE__source_variable_name} || return
 			;;
-		--targets=*) __dereference --source="${SLICE__item#*=}" --value={SLICE__targets} || return ;;
+		--targets=*) __dereference --source="${SLICE__item#*=}" --append --value={SLICE__targets} || return ;;
 		--target=*) SLICE__targets+=("${SLICE__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$SLICE__mode" 'write mode' || return
@@ -5514,18 +5565,18 @@ function __slice {
 			SLICE__mode="${SLICE__item:2}"
 			;;
 		--)
-			if [[ -z $SLICE__source_reference ]]; then
+			if [[ -z $SLICE__source_variable_name ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
 					# a string input
 					# trunk-ignore(shellcheck/SC2034)
 					local SLICE__input="$1"
-					SLICE__source_reference='SLICE__input'
+					SLICE__source_variable_name='SLICE__input'
 				else
 					# an array input
 					# trunk-ignore(shellcheck/SC2034)
 					local SLICE__inputs=("$@")
-					SLICE__source_reference='SLICE__inputs'
+					SLICE__source_variable_name='SLICE__inputs'
 				fi
 			else
 				# they are indices
@@ -5551,7 +5602,7 @@ function __slice {
 		esac
 	done
 	# affirm
-	__affirm_variable_is_defined "$SLICE__source_reference" 'source variable reference' || return
+	__affirm_variable_is_defined "$SLICE__source_variable_name" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$SLICE__mode" || return
 	__affirm_length_defined "${#SLICE__indices[@]}" '<index> [<length>] tuple' || return
 	# if indices is odd, then make it to the end
@@ -5562,14 +5613,14 @@ function __slice {
 	local -i SLICE__size SLICE__remaining
 	# trunk-ignore(shellcheck/SC2034)
 	local SLICE__results=() SLICE__eval_left_segment SLICE__eval_length_segment SLICE__left SLICE__length # left and length could be -0 which is string
-	if __is_array "$SLICE__source_reference"; then
-		eval "SLICE__size=\"\${#${SLICE__source_reference}[@]}\"" || return
-		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left}\")"
-		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_reference}[@]:SLICE__left:SLICE__length}\")"
+	if __is_array "$SLICE__source_variable_name"; then
+		eval "SLICE__size=\"\${#${SLICE__source_variable_name}[@]}\"" || return
+		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}[@]:SLICE__left}\")"
+		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}[@]:SLICE__left:SLICE__length}\")"
 	else
-		eval "SLICE__size=\"\${#${SLICE__source_reference}}\"" || return
-		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left}\")"
-		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_reference}:SLICE__left:SLICE__length}\")"
+		eval "SLICE__size=\"\${#${SLICE__source_variable_name}}\"" || return
+		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}:SLICE__left}\")"
+		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}:SLICE__left:SLICE__length}\")"
 	fi
 	SLICE__negative_size=$((SLICE__size * -1))
 	# we guaranteed earlier we have even indices, and instead of for a loop, a shifting while loop is easiest
@@ -5584,7 +5635,7 @@ function __slice {
 		elif [[ $SLICE__left -lt $SLICE__negative_size || $SLICE__left -ge $SLICE__size ]]; then
 			if [[ $SLICE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) was beyond the range of:" >&2 || :
-				__dump --indices "$SLICE__source_reference" >&2 || :
+				__dump --indices "$SLICE__source_variable_name" >&2 || :
 			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
@@ -5596,7 +5647,7 @@ function __slice {
 		if [[ $SLICE__length -gt $SLICE__remaining || $SLICE__length -lt $SLICE__remaining*-1 ]]; then
 			if [[ $SLICE__quiet == 'no' ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The index $(__dump --value="$SLICE__left" || :) with length $(__dump --value="$SLICE__length" || :) was beyond the range of:" >&2 || :
-				__dump --indices "$SLICE__source_reference" >&2 || :
+				__dump --indices "$SLICE__source_variable_name" >&2 || :
 			fi
 			return 33 # EDOM 33 Numerical argument out of domain
 		elif [[ $SLICE__length -lt 0 && $BASH_CAN_USE_A_NEGATIVE_LENGTH == 'no' ]]; then
@@ -5623,21 +5674,20 @@ function __split {
 	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
 	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
 	# <multi-source helper arguments>
-	local SPLIT__item SPLIT__sources=() SPLIT__targets=() SPLIT__mode=''
+	local SPLIT__item SPLIT__sources_variable_names=() SPLIT__targets=() SPLIT__mode=''
 	while [[ $# -ne 0 ]]; do
 		SPLIT__item="$1"
 		shift
 		case "$SPLIT__item" in
 		--source={*})
-			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__sources} || return
+			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__sources_variable_names} || return
 			;;
 		--source+target={*})
 			SPLIT__item="${SPLIT__item#*=}"
 			SPLIT__targets+=("$SPLIT__item")
-			__dereference --source="$SPLIT__item" --name={SPLIT__item} || return
-			SPLIT__sources+=("$SPLIT__item")
+			__dereference --source="$SPLIT__item" --append --name={SPLIT__sources_variable_names} || return
 			;;
-		--targets=*) __dereference --source="${SPLIT__item#*=}" --value={SPLIT__targets} || return ;;
+		--targets=*) __dereference --source="${SPLIT__item#*=}" --append --value={SPLIT__targets} || return ;;
 		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return
@@ -5656,7 +5706,7 @@ function __split {
 				fi
 				SPLIT__stdin+="$SPLIT__reply"
 			done
-			SPLIT__sources+=('SPLIT__stdin')
+			SPLIT__sources_variable_names+=('SPLIT__stdin')
 			;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
@@ -5666,18 +5716,18 @@ function __split {
 					return "$SPLIT__exit_status"
 				fi
 				local SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
-				SPLIT__sources+=('SPLIT__input')
+				SPLIT__sources_variable_names+=('SPLIT__input')
 			elif [[ $SPLIT__invoke == 'try' ]]; then
 				local SPLIT__fodder_to_respect_exit_status
 				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
 				# trunk-ignore(shellcheck/SC2034)
 				local SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
-				SPLIT__sources+=('SPLIT__input')
+				SPLIT__sources_variable_names+=('SPLIT__input')
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
 				local SPLIT__inputs=("$@")
-				SPLIT__sources+=('SPLIT__inputs')
+				SPLIT__sources_variable_names+=('SPLIT__inputs')
 				shift $#
 				break
 			fi
@@ -5701,19 +5751,19 @@ function __split {
 		*) __unrecognised_argument "$SPLIT__item" || return ;;
 		esac
 	done
-	__affirm_length_defined "${#SPLIT__sources[@]}" 'source variable reference' || return
+	__affirm_length_defined "${#SPLIT__sources_variable_names[@]}" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$SPLIT__mode" || return
 	if [[ ${#SPLIT__delimiters[@]} -eq 0 ]]; then
 		SPLIT__delimiters+=($'\n')
 	fi
 	# process
-	local SPLIT__source SPLIT__strings=()
-	for SPLIT__source in "${SPLIT__sources[@]}"; do
-		__affirm_variable_is_defined "$SPLIT__source" 'source variable reference' || return
-		if __is_array "$SPLIT__source"; then
-			eval 'SPLIT__strings+=("${'"$SPLIT__source"'[@]}")' || return
+	local SPLIT__source_variable_name SPLIT__strings=()
+	for SPLIT__source_variable_name in "${SPLIT__sources_variable_names[@]}"; do
+		__affirm_variable_is_defined "$SPLIT__source_variable_name" 'source variable reference' || return
+		if __is_array "$SPLIT__source_variable_name"; then
+			eval 'SPLIT__strings+=("${'"$SPLIT__source_variable_name"'[@]}")' || return
 		else
-			eval 'SPLIT__strings+=("${'"$SPLIT__source"'}")' || return
+			eval 'SPLIT__strings+=("${'"$SPLIT__source_variable_name"'}")' || return
 		fi
 	done
 	local SPLIT__string SPLIT__results=()
@@ -5783,21 +5833,20 @@ function __split {
 function __join {
 	local JOIN__delimiter=$'\n'
 	# <multi-source helper arguments>
-	local JOIN__item JOIN__sources=() JOIN__targets=() JOIN__mode=''
+	local JOIN__item JOIN__sources_variable_names=() JOIN__targets=() JOIN__mode=''
 	while [[ $# -ne 0 ]]; do
 		JOIN__item="$1"
 		shift
 		case "$JOIN__item" in
 		--source={*})
-			__dereference --source="${JOIN__item#*=}" --name={JOIN__sources} || return
+			__dereference --source="${JOIN__item#*=}" --append --name={JOIN__sources_variable_names} || return
 			;;
 		--source+target={*})
 			JOIN__item="${JOIN__item#*=}"
 			JOIN__targets+=("$JOIN__item")
-			__dereference --source="$JOIN__item" --name={JOIN__item} || return
-			JOIN__sources+=("$JOIN__item")
+			__dereference --source="$JOIN__item" --append --name={JOIN__sources_variable_names} || return
 			;;
-		--targets=*) __dereference --source="${JOIN__item#*=}" --value={JOIN__targets} || return ;;
+		--targets=*) __dereference --source="${JOIN__item#*=}" --append --value={JOIN__targets} || return ;;
 		--target=*) JOIN__targets+=("${JOIN__item#*=}") ;;
 		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
 			__affirm_value_is_undefined "$JOIN__mode" 'write mode' || return
@@ -5811,7 +5860,7 @@ function __join {
 			# an array input
 			# trunk-ignore(shellcheck/SC2034)
 			local JOIN__inputs=("$@")
-			JOIN__sources+=('JOIN__inputs')
+			JOIN__sources_variable_names+=('JOIN__inputs')
 			shift $#
 			break
 			;;
@@ -5821,14 +5870,14 @@ function __join {
 		*) __unrecognised_argument "$JOIN__item" || return ;;
 		esac
 	done
-	__affirm_length_defined "${#JOIN__sources[@]}" 'source variable reference' || return
+	__affirm_length_defined "${#JOIN__sources_variable_names[@]}" 'source variable reference' || return
 	__affirm_value_is_valid_write_mode "$JOIN__mode" || return
 	# process
-	local JOIN__source JOIN__values=() JOIN__result=''
+	local JOIN__source_variable_name JOIN__values=() JOIN__result=''
 	local -i JOIN__size JOIN__last JOIN__index
-	for JOIN__source in "${JOIN__sources[@]}"; do
-		__affirm_variable_is_array "$JOIN__source" 'source variable reference' || return
-		eval "JOIN__values=(\"\${${JOIN__source}[@]}\")" || return
+	for JOIN__source_variable_name in "${JOIN__sources_variable_names[@]}"; do
+		__affirm_variable_is_array "$JOIN__source_variable_name" 'source variable reference' || return
+		eval "JOIN__values=(\"\${${JOIN__source_variable_name}[@]}\")" || return
 		JOIN__size=${#JOIN__values[@]}
 		if [[ $JOIN__size -eq 0 ]]; then
 			# no values in this source, so skip to the next source, otherwise JOIN__last will be -1
@@ -5845,27 +5894,27 @@ function __join {
 
 # tool
 function __tool {
-	local TOOL_delimiter=$'\n'
+	# local TOOL_delimiter=$'\n'
 	# <multi-source helper arguments>
-	local TOOL_item TOOL__tool_reference='' TOOL__tools_reference='' TOOL__help_reference=''
+	local TOOL_item TOOL__tool_variable_name='' TOOL__tools_variable_names='' TOOL__help_function_name=''
 	while [[ $# -ne 0 ]]; do
 		TOOL_item="$1"
 		shift
 		case "$TOOL_item" in
-		--tool={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_reference} || return ;;
-		--tools={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_reference} || return ;;
-		--help={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__help_reference} || return ;;
+		--tool={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_variable_name} || return ;;
+		--tools={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_variable_names} || return ;;
+		--help={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__help_function_name} || return ;;
 		--*) __unrecognised_flag "$JOIN__item" || return ;;
 		*) __unrecognised_argument "$JOIN__item" || return ;;
 		esac
 	done
 	# assertions
-	__affirm_variable_is_defined "$TOOL__tool_reference" 'tool variable reference' || return
-	__affirm_variable_is_defined "$TOOL__tools_reference" 'tools variable reference' || return
-	__affirm_function_is_defined "$TOOL__help_reference" 'help function reference' || return
+	__affirm_variable_is_defined "$TOOL__tool_variable_name" 'tool variable reference' || return
+	__affirm_variable_is_defined "$TOOL__tools_variable_names" 'tools variable reference' || return
+	__affirm_function_is_defined "$TOOL__help_function_name" 'help function reference' || return
 	local TOOL__tool='' TOOL__tools=()
-	__dereference --source="$TOOL__tool_reference" --value={TOOL__tool} || return
-	__dereference --source="$TOOL__tools_reference" --value={TOOL__tools} || return
+	__dereference --source="$TOOL__tool_variable_name" --value={TOOL__tool} || return
+	__dereference --source="$TOOL__tools_variable_names" --value={TOOL__tools} || return
 	# dependency
 	if [[ $TOOL__tool == '?' ]]; then
 		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")" || return
@@ -5875,11 +5924,11 @@ function __tool {
 	elif __has --source={TOOL__tools} -- "$TOOL__tool"; then
 		__command_required -- "$TOOL__tool" || return
 	else
-		"$TOOL__help_reference" "The provided <tool> is not supported: $TOOL__tool" || return # eval
+		"$TOOL__help_function_name" "The provided <tool> is not supported: $TOOL__tool" || return # eval
 		return
 	fi
 	# apply
-	__to --source={TOOL__tool} --target="{$TOOL__tool_reference}" || return
+	__to --source={TOOL__tool} --target="{$TOOL__tool_variable_name}" || return
 }
 
 # push: add the last elements
@@ -5953,7 +6002,7 @@ function __terminal_title_progress_bar__on_alarm {
 	fi
 }
 function __terminal_title_progress_bar {
-	local -i TERMINAL_TITLE_PROGRESS_BAR__progress=0 TERMINAL_TITLE_PROGRESS_BAR__remaining=-1 TERMINAL_TITLE_PROGRESS_BAR__total=100 TERMINAL_TITLE_PROGRESS_BAR__id=-1
+	local -i TERMINAL_TITLE_PROGRESS_BAR__progress=0 TERMINAL_TITLE_PROGRESS_BAR__remaining=-1 TERMINAL_TITLE_PROGRESS_BAR__total=100 # TERMINAL_TITLE_PROGRESS_BAR__id=-1
 	local TERMINAL_TITLE_PROGRESS_BAR__item='' TERMINAL_TITLE_PROGRESS_BAR__create='no' TERMINAL_TITLE_PROGRESS_BAR__destroy='no'
 	while [[ $# -ne 0 ]]; do
 		TERMINAL_TITLE_PROGRESS_BAR__item="$1"

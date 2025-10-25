@@ -79,7 +79,7 @@ core) ;;
 		trap 'DOROTHY_TRY__TRAP_STATUS=$?; if test "${FUNCNAME-}" = 'dorothy_try__wrapper'; then return 0; elif test -n "${FUNCNAME-}"; then return "$DOROTHY_TRY__TRAP_STATUS"; else exit "$DOROTHY_TRY__TRAP_STATUS"; fi' ERR
 
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -89,7 +89,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -104,8 +104,8 @@ core) ;;
 		dorothy_try__wrapper
 
 		# Apply and unset the exit status caught by our trap
-		if [[ -n $exit_status_variable ]]; then
-			eval "${exit_status_variable}=${DOROTHY_TRY__TRAP_STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "${exit_status_variable_name}=${DOROTHY_TRY__TRAP_STATUS:-0}"
 		fi
 		unset -v DOROTHY_TRY__TRAP_STATUS
 
@@ -125,7 +125,7 @@ core) ;;
 2 | i2 | v2 | c1fe25b | c1fe25b4a2382fc979dace2d23ee15efd60d8c28)
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -135,7 +135,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -201,8 +201,8 @@ core) ;;
 			DOROTHY_TRY__STATUS="$(<"$DOROTHY_TRY__FILE_STATUS")"
 			rm -f -- "$DOROTHY_TRY__FILE_STATUS"
 		fi
-		if [[ -n $exit_status_variable ]]; then
-			eval "$exit_status_variable=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "$exit_status_variable_name=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -242,7 +242,7 @@ core) ;;
 3 | i3 | v3 | d377355 | d37735588a39ee768ed7717a3a8ba45e8d6f9590)
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -252,7 +252,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -323,8 +323,8 @@ core) ;;
 			DOROTHY_TRY__STATUS="$(cat -- "$DOROTHY_TRY__FILE_STATUS")"
 			rm -f -- "$DOROTHY_TRY__FILE_STATUS"
 		fi
-		if [[ -n $exit_status_variable ]]; then
-			eval "${exit_status_variable}=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "${exit_status_variable_name}=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -340,7 +340,7 @@ core) ;;
 4 | i4 | v4 | 4a | i4a | v4a | 3842e0f)
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -350,7 +350,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -442,8 +442,8 @@ core) ;;
 			rm -f -- "$DOROTHY_TRY__FILE_STATUS"
 		fi
 		dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-		if [[ -n $exit_status_variable ]]; then
-			eval "${exit_status_variable}=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "${exit_status_variable_name}=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -589,7 +589,7 @@ core) ;;
 	}
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -599,7 +599,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -641,8 +641,8 @@ core) ;;
 			rm -f -- "$DOROTHY_TRY__FILE_STATUS"
 		fi
 		dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-		if [[ -n $exit_status_variable ]]; then
-			eval "${exit_status_variable}=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "${exit_status_variable_name}=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -735,7 +735,7 @@ core) ;;
 	}
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -745,7 +745,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -788,8 +788,8 @@ core) ;;
 
 		# apply the exit status
 		dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-		if [[ -n $exit_status_variable ]]; then
-			eval "$exit_status_variable=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "$exit_status_variable_name=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -888,7 +888,7 @@ v5b | 5b)
 	}
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -898,7 +898,7 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -941,8 +941,8 @@ v5b | 5b)
 
 		# apply the exit status
 		dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-		if [[ -n $exit_status_variable ]]; then
-			eval "$exit_status_variable=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "$exit_status_variable_name=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -1068,7 +1068,7 @@ v5b | 5b)
 	}
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -1078,7 +1078,7 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -1121,8 +1121,8 @@ v5b | 5b)
 
 		# apply the exit status
 		dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-		if [[ -n $exit_status_variable ]]; then
-			eval "$exit_status_variable=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "$exit_status_variable_name=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
@@ -1274,7 +1274,7 @@ v5b | 5b)
 	}
 	function __try {
 		# Process the arguments
-		local item cmd=() exit_status_variable=''
+		local item cmd=() exit_status_variable_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -1284,7 +1284,7 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -1327,8 +1327,8 @@ v5b | 5b)
 
 		# apply the exit status
 		dorothy_try__context_lines "RESULT: ${DOROTHY_TRY__STATUS:-0}" || :
-		if [[ -n $exit_status_variable ]]; then
-			eval "$exit_status_variable=${DOROTHY_TRY__STATUS:-0}"
+		if [[ -n $exit_status_variable_name ]]; then
+			eval "$exit_status_variable_name=${DOROTHY_TRY__STATUS:-0}"
 		fi
 
 		# return success
