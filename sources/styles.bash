@@ -927,7 +927,7 @@ function __load_styles {
 			if __is_var_defined "$LOAD_STYLES__var"; then
 				# it does not have explicit desired color, but it has the explicit undesired color
 				case "$LOAD_STYLES__save" in
-				auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}='' STYLE__${LOAD_STYLES__style}=''; " ;;
+				auto | yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}='' STYLE__${LOAD_STYLES__style}=''; " ;;
 				esac
 				# note it has been found
 				LOAD_STYLES__found='yes'
@@ -938,7 +938,7 @@ function __load_styles {
 				if __is_var_defined "$LOAD_STYLES__var"; then
 					# it does have implicit combo
 					case "$LOAD_STYLES__save" in
-					auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\" STYLE__${LOAD_STYLES__undesired}__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
+					auto | yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\" STYLE__${LOAD_STYLES__undesired}__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
 					esac
 					# append our result with the implicit combo
 					if [[ -n $LOAD_STYLES__begin ]]; then
@@ -971,7 +971,7 @@ function __load_styles {
 			if __is_var_defined "$LOAD_STYLES__var"; then
 				# it does not have explicit desired color, but it has the explicit undesired color
 				case "$LOAD_STYLES__save" in
-				auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}='' STYLE__END__${LOAD_STYLES__style}=''; " ;;
+				auto | yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}='' STYLE__END__${LOAD_STYLES__style}=''; " ;;
 				esac
 				# note it has been found
 				LOAD_STYLES__found='yes'
@@ -982,7 +982,7 @@ function __load_styles {
 				if __is_var_defined "$LOAD_STYLES__var"; then
 					# it does have implicit combo
 					case "$LOAD_STYLES__save" in
-					auto|yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\" STYLE__${LOAD_STYLES__undesired}__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
+					auto | yes) LOAD_STYLES__eval+="STYLE__${LOAD_STYLES__desired}__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\" STYLE__${LOAD_STYLES__undesired}__END__${LOAD_STYLES__style}=\"\${${LOAD_STYLES__var}}\"; " ;;
 					esac
 					# prepend our result with the implicit combo
 					if [[ -n $LOAD_STYLES__end ]]; then

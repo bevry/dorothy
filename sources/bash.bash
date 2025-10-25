@@ -1110,7 +1110,7 @@ function __is_var_declared {
 	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
 		__affirm_variable_name "$1" || return
-		[[ -n "${!1-}" ]] || __get_var_declaration "$1" &>/dev/null || return # do a performant initial check for typical use cases, falling back to a comprehensive but slower check for all use cases
+		[[ -n ${!1-} ]] || __get_var_declaration "$1" &>/dev/null || return # do a performant initial check for typical use cases, falling back to a comprehensive but slower check for all use cases
 		shift
 	done
 	return 0
@@ -1119,7 +1119,7 @@ function __is_var_defined {
 	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
 		__affirm_variable_name "$1" || return
-		[[ -n "${!1-}" ]] || __is_var_defined__inner "$1" || return # do a performant initial check for typical use cases, falling back to a comprehensive but slower check for all use cases
+		[[ -n ${!1-} ]] || __is_var_defined__inner "$1" || return # do a performant initial check for typical use cases, falling back to a comprehensive but slower check for all use cases
 		shift
 	done
 	return 0
