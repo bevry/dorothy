@@ -332,7 +332,7 @@ function git_helper() (
 
 	function __branch {
 		# process
-		local item check='no' remote='' branch='' active='' default='' local='' global='' env='' usual='' verify=''
+		local item check='no' remote='' branch='' head='' active='' default='' local='' global='' env='' usual='' verify=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -340,6 +340,7 @@ function git_helper() (
 			--no-check* | --check*) __flag --source={item} --target={check} --affirmative --coerce || return ;;
 			--no-remote* | --remote*) __flag --source={item} --target={remote} --affirmative --no-coerce || return ;;
 			--no-branch* | --branch*) __flag --source={item} --target={branch} --affirmative --no-coerce || return ;;
+			--no-head* | --head*) __flag --source={item} --target={head} --affirmative --coerce || return ;;
 			--no-active* | --active*) __flag --source={item} --target={active} --affirmative --coerce || return ;;
 			--no-default* | --default*) __flag --source={item} --target={default} --affirmative --coerce || return ;;
 			--no-local* | --local*) __flag --source={item} --target={local} --affirmative --coerce || return ;;
@@ -352,11 +353,22 @@ function git_helper() (
 			esac
 		done
 
-		# branches
-		local branches=() temp
+		# adjustments
 		if [[ $branch == 'yes' ]]; then
 			branch=''
 		fi
+		if [[ $remote == 'yes' ]]; then
+			remote=''
+		fi
+
+		# on a fresh init
+		# `git rev-parse --abbrev-ref HEAD` will output HEAD but error
+		# and `git branch -a` will output:
+		# remotes/origin/HEAD -> origin/master
+		# remotes/origin/master
+
+		# branches
+		local branches=() temp
 		if [[ -n $branch && $branch != 'no' && $branch != 'yes' ]]; then
 			branches+=("$branch")
 		fi
@@ -389,45 +401,62 @@ function git_helper() (
 			branches+=(main master)
 		fi
 
+		# unique the branches
+		__unique --source+target={branches} || return
+
+		# evict head branches
+		if [[ $head == 'no' ]]; then
+			# as we have done unique, there will only be one
+			__evict --source+target={branches} --first --optional --value='HEAD' || return
+		fi
+
+		# validate
+		if [[ ${#branches[@]} -eq 0 ]]; then
+			return 93 # ENOATTR 93 Attribute not found
+		fi
+
 		# if not verify, just do the first result
 		if [[ $verify == 'no' ]]; then
 			__print_lines "${branches[0]}"
 			return 0
 		fi
 
-		if [[ $verified_remote == 'no' ]]; then
-			verified_remote='yes'
-			remote="$(__remote --get --remote="$remote")" || :
-		fi
-
 		# verify branch locally then remotely
 		__affirm_length_defined "${#branches[@]}" '<branch>' || return
-		local found
+		local found=() fetched_remote='no'
 		for branch in "${branches[@]}"; do
-			found='no'
 			# local
 			if git rev-parse --verify --quiet "$branch" &>/dev/null; then
-				found='yes'
+				found+=("$branch")
 			# remote
 			elif [[ $remote != 'no' ]]; then
 				# remote and local branches, designed specially for this purpose:
 				# git rev-parse --verify --quiet "$remote/$branch" &>/dev/null || return
 				# remote and local branches:
 				# git rev-parse --abbrev-ref "$remote/$branch" &>/dev/null || return
+				if [[ $fetched_remote == 'no' ]]; then
+					remote="$(__remote --remote="$remote")" || return
+					fetched_remote='yes'
+				fi
 				if git rev-parse --verify --quiet "$remote/$branch" &>/dev/null || {
 					# try fetch the git remote and try again
 					git fetch "$remote" &>/dev/null && git rev-parse --verify --quiet "$remote/$branch" &>/dev/null
 				}; then
-					found='yes'
+					found+=("$branch")
 				fi
 			fi
-			# check
-			if [[ $found == 'no' ]]; then
-				return 93 # ENOATTR 93 Attribute not found
-			elif [[ $check != 'yes' ]]; then
-				__print_lines "$branch"
-			fi
 		done
+
+		# handle
+		case "${#found[@]}" in
+		0) return 93 ;; # ENOATTR 93 Attribute not found
+		1) __print_lines "${found[0]}" ;;
+		*) choose --linger --required --no-confirm-solo \
+			--question="Which branch to select for the repository?" \
+			--question="$option_path" \
+			--default-exact="${found[0]}" \
+			-- "${found[@]}" || return ;;
+		esac
 
 		# done
 		return 0
@@ -509,7 +538,7 @@ function git_helper() (
 				fi
 			else
 				local local_branch
-				local_branch="$(__branch --no-remote --branch="$branch")" || return
+				local_branch="$(__branch --no-remote --branch="$branch" --verify)" || return
 				# check
 				if [[ $check == yes ]]; then
 					if git cat-file -e "$local_branch:$file" 2>/dev/null; then
@@ -525,10 +554,10 @@ function git_helper() (
 
 		# remote subpaths
 		if [[ $remote != 'no' ]]; then
-			remote="$(__remote --get --remote="$remote")" || return
+			remote="$(__remote --remote="$remote")" || return
 			# remote requires branch, so ignore branch=no
 			local remote_branch
-			remote_branch="$(__branch --remote="$remote" --branch="$branch")" || return
+			remote_branch="$(__branch --remote="$remote" --branch="$branch" --verify)" || return
 			# check
 			if [[ $check == yes ]]; then
 				if git cat-file -e "$remote/$remote_branch:$file" 2>/dev/null; then
@@ -836,7 +865,6 @@ function git_helper() (
 				--question="Which git remote to select for the repository?" \
 				--question="$option_path" \
 				--default-exact="$remote" -- "${remotes[@]}")" || return
-			verified_remote='yes'
 		fi
 
 		# if no url, get the url from the specified/prompted remote
@@ -1012,12 +1040,11 @@ function git_helper() (
 		done
 
 		# if we haven't initialised, then manually initialise
-		local log_init='no'
 		if [[ ! -d .git ]]; then
-			if [[ $init == 'yes' ]]; then
-				git init || return
-				log_init='yes'
+			if [[ $init != 'no' ]]; then
+				git init -q || return
 			else
+				# fail with nice error
 				__verify || return
 			fi
 		fi
@@ -1030,7 +1057,8 @@ function git_helper() (
 				url=''
 			else
 				# ignore failures, as it just means there wasn't a url and the repo doesn't have remotes
-				url="$(__url --remote="$remote" --url="$url" --protocol="$protocol" 2>/dev/null)" || :
+				# use https for now for consistent url passing, it'll be converted to the intended protocol later
+				url="$(__url --remote="$remote" --url="$url" --protocol=https 2>/dev/null)" || :
 			fi
 			if [[ -n $url ]]; then
 				if [[ $url == *github.com* ]]; then
@@ -1185,16 +1213,7 @@ function git_helper() (
 		# avoid merge conflicts
 		git config pull.ff only || return
 
-		# apply
-		url="$(__url --remote="$remote" --url="$url" --protocol="$protocol" 2>/dev/null)" || :
-		if [[ -z $url ]]; then
-			if [[ $log_init == 'yes' ]]; then
-				__print_style --yellow='Manually initialised git repository at ' --yellow+bold="$option_path" || return
-			fi
-			if [[ $update =~ ^(optional|no)$ ]]; then
-				return 0
-			fi
-		fi
+		# exit early if no update
 		if [[ $update == 'no' ]]; then
 			return 0
 		fi
@@ -1213,7 +1232,8 @@ function git_helper() (
 				-- git fetch --all --prune || return
 
 			# now that we have fetch, ensure the branch
-			branch="$(__branch --remote="$remote" --branch="$branch" --verify)" || return
+			# if an init just happened, the active branch will be HEAD, which when cloned will use the default branch configuration, which may not actually be the remote branch name, this is easiest to workaround by just denying head branches
+			branch="$(__branch --remote="$remote" --branch="$branch" --no-head --verify)" || return
 
 			# if strongbox, ensure configured before pulling
 			local strongbox_keyid
@@ -1235,7 +1255,6 @@ function git_helper() (
 					__print_style \
 						--notice2="Your Strongbox keyring on this machine is missing the Strongbox keyid for your specified $option_label:" --newline \
 						--newline \
-						"$option_label's remote URL: " --url="$url" --newline \
 						"$option_label's local path: " --path="$option_path" --newline \
 						"$option_label's Strongbox keyid: " --path="$strongbox_keyid" --newline \
 						"This Machine's Strongbox keyring: " --path="$local_strongbox_keyring" --newline \
@@ -1280,7 +1299,7 @@ function git_helper() (
 			pending="$(__print_style --bold='Pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 			success="$(__print_style --success='Pulled ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 			failure="$(__print_style --error='Failed pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-			eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" --copy-stdout="$PULL_OUTPUT_FILE" \
+			eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
 				-- git pull "$remote" "$branch" || return
 		}
 
