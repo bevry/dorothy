@@ -1314,6 +1314,7 @@ function __print_help {
 			__print_lines "$buffer" >&2 || return
 		}
 	if [[ $# -ne 0 ]]; then
+		__print_line || return
 		__print_error "$@" || return
 	fi
 }
