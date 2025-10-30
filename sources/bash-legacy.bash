@@ -16,7 +16,7 @@
 
 # function __is_catchable_function {
 # 	local cmd="$1"
-# 	if __is_safety_function "$cmd" || __is_subshell_function "$cmd"; then
+# 	if __is_safety_function "$cmd" || __is_subshell_function__internal "$cmd"; then
 # 		return 0
 # 	else
 # 		return 1
@@ -33,7 +33,7 @@
 # 		if [[ $cmd == "$until" ]]; then
 # 			break
 # 		fi
-# 		if __is_subshell_function "$cmd"; then
+# 		if __is_subshell_function__internal "$cmd"; then
 # 			return 0
 # 		fi
 # 	done
@@ -397,8 +397,8 @@ core) ;;
 			# the [$?] in [return $?] in the trap is necessary: https://github.com/bevry/dorothy/actions/runs/13102792036
 			trap 'DOROTHY_TRY__TRAP_STATUS=$?; if [[ $- = *e* ]]; then dorothy_try__trap "$DOROTHY_TRY__TRAP_STATUS" "${FUNCNAME-}" "${BASH_SOURCE[0]}:${LINENO}:${FUNCNAME-}:$-:$BASH_VERSION" "${BASH_SUBSHELL-}" "$DOROTHY_TRY__CONTEXT"; return $?; fi' ERR
 
-			# if [__is_subshell_function] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function] will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
-			if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+			# if [__is_subshell_function__internal] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function__internal] will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
+			if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 				set +e
 				(
 					set -e
@@ -563,8 +563,8 @@ core) ;;
 		# trunk-ignore(shellcheck/SC2064)
 		trap "$dorothy_try__trap_inner" ERR
 
-		# if [__is_subshell_function] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function] will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
-		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+		# if [__is_subshell_function__internal] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function__internal] will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
+		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 			set +e
 			(
 				set -e
@@ -707,7 +707,7 @@ core) ;;
 		trap "$dorothy_try__trap_inner" ERR
 
 		# workaround
-		if [[ $BASH_VERSION_MAJOR -lt 4 ]] && __is_errexit && __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+		if [[ $BASH_VERSION_MAJOR -lt 4 ]] && __is_errexit && __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 			# this workaround is necessary to prevent macos bash v3.2 from crashing on `try __solo[subshell]`
 			# compiled bash v3.2 does not have this issue, and is not harmed by this logic path
 			set +e
@@ -860,7 +860,7 @@ v5b | 5b)
 		trap "$dorothy_try__trap_inner" ERR
 
 		# workaround
-		if [[ $BASH_VERSION_MAJOR -lt 4 ]] && __is_errexit && __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+		if [[ $BASH_VERSION_MAJOR -lt 4 ]] && __is_errexit && __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 			# this workaround is necessary to prevent macos bash v3.2 from crashing on `try __solo[subshell]`
 			# compiled bash v3.2 does not have this issue, and is not harmed by this logic path
 			set +e
@@ -1034,7 +1034,7 @@ v5b | 5b)
 		else
 			# bash version 4.3 and below
 			# here we are now experimenting with always enforcing a subshell, such that the throw-in-trap workaround for bash 4.3 and below can be used
-			if ! __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+			if ! __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 				__print_lines 'WARNING: __try: subshell was not detected, side effects will be disabled as we are enforcing a subshell' >&2
 			fi
 			if __is_errexit; then
@@ -1238,7 +1238,7 @@ v5b | 5b)
 			# if errexit is enabled, we depend on the trap, and would not have reached here, which is fine
 			# if errexit is disabled, the trap may or may not have fired, depending on the bash version, in which we need the status via the technique below
 			continued_status=$?
-		elif __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+		elif __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 			if __is_errexit; then
 				# this workaround is necessary to prevent macos bash v3.2 from crashing on `try __solo[subshell]`
 				# compiled bash v3.2 does not have this issue, and is not harmed by this logic path

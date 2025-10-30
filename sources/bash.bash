@@ -491,7 +491,6 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	if [[ $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
 		function __require_upgraded_bash { :; }
 	else
-		# trunk-ignore(shellcheck/SC2034)
 		function __require_upgraded_bash {
 			local reason="${1-}" reason_args=()
 			if [[ -n $reason ]]; then
@@ -700,6 +699,7 @@ fi
 if [[ $CI == 'yes' ]]; then
 	ALTERNATIVE_SCREEN_BUFFER_SUPPORTED='no'
 else
+	# trunk-ignore(shellcheck/SC2034)
 	ALTERNATIVE_SCREEN_BUFFER_SUPPORTED='yes'
 fi
 if [[ -t 0 ]]; then
@@ -785,10 +785,10 @@ function __get_date {
 			GET_DATE__item="$1"
 			shift
 			case "$GET_DATE__item" in
+			--format=*) GET_DATE__date_args+=("+${GET_DATE__item#*=}") ;;
 			-*) GET_DATE__date_args+=("$GET_DATE__item") ;;
 			+*) GET_DATE__date_args+=("$GET_DATE__item") ;;
 			%*) GET_DATE__date_args+=("+$GET_DATE__item") ;;
-			--format=*) GET_DATE__date_args+=("+${GET_DATE__item#*=}") ;;
 			*) GET_DATE__date_args+=("$GET_DATE__item") ;;
 			esac
 		done
@@ -902,7 +902,13 @@ fi
 if enable fltexpr &>/dev/null; then
 	BASH_NATIVE_FLOATING_POINT='yes'
 else
+	# trunk-ignore(shellcheck/SC2034)
 	BASH_NATIVE_FLOATING_POINT='no'
+fi
+if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 3 ]]; then
+	BASH_COMMAND_SUBSTITUTION='yes'
+else
+	BASH_COMMAND_SUBSTITUTION='no'
 fi
 
 # Bash >= 5.1, >= 4, < 4
@@ -1069,10 +1075,10 @@ if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 3 ]]; then
 			return 1 # declare -p returns 1 so do the same
 		fi
 	}
-	function __is_var_defined__inner {
+	function __is_var_defined__internal {
 		[[ "$(__get_var_declaration "$1" 2>/dev/null)" == *'='* ]] || return 1
 	}
-	function __is_array__inner {
+	function __is_array__internal {
 		[[ "$(__get_var_declaration "$1" 2>/dev/null)" == 'declare -a '* ]] || return 1
 	}
 else
@@ -1097,13 +1103,42 @@ else
 	function __get_var_declaration {
 		declare -p "$@" || return
 	}
-	function __is_var_defined__inner {
-		[[ "$(declare -p "$1" 2>/dev/null)" == *'='* ]] || return 1
+	if [[ $BASH_COMMAND_SUBSTITUTION == 'yes' ]]; then
+		function __is_var_defined__internal {
+			# trunk-ignore(shfmt/parse)
+			[[ "${ declare -p "$1" 2>/dev/null || return; }" == *'='* ]] || return 1
+		}
+		function __is_array__internal {
+			[[ "${ declare -p "$1" 2>/dev/null || return; }" == 'declare -a '* ]] || return 1
+		}
+	else
+		function __is_var_defined__internal {
+			[[ "$(declare -p "$1" 2>/dev/null)" == *'='* ]] || return 1
+		}
+		function __is_array__internal {
+			[[ "$(declare -p "$1" 2>/dev/null)" == 'declare -a '* ]] || return 1
+		}
+	fi
+fi
+if [[ $BASH_COMMAND_SUBSTITUTION == 'yes' ]]; then
+	function __is_function_defined__internal {
+		[[ "${ type -t "$1" || return; }" == 'function' ]] || return 1
 	}
-	function __is_array__inner {
-		[[ "$(declare -p "$1" 2>/dev/null)" == 'declare -a '* ]] || return 1
+	function __is_subshell_function__internal {
+		[[ "${ declare -f "$1" || return; }" == "$1"$' () \n{ \n    ('* ]] || return 1
+	}
+else
+	function __is_function_defined__internal {
+		[[ "$(type -t "$1")" == 'function' ]] || return 1
+	}
+	function __is_subshell_function__internal {
+		# surprisingly despite the `declare -p <var>` bug in bash 4.3, `declare -f <fn>` works fine
+		# don't assign $1 to a variable, as then that means the variable name could conflict with the evaluation from the declare
+		# test "$(declare -f "$1")" == "$1"$' () \n{ \n    ('
+		[[ "$(declare -f "$1")" == "$1"$' () \n{ \n    ('* ]] || return 1 # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 	}
 fi
+
 function __is_var_declared {
 	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
@@ -1117,7 +1152,7 @@ function __is_var_defined {
 	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
 		__affirm_variable_name "$1" || return
-		[[ -n ${!1-} ]] || __is_var_defined__inner "$1" || return # do a performant initial check for typical use cases, falling back to a comprehensive but slower check for all use cases
+		[[ -n ${!1-} ]] || __is_var_defined__internal "$1" || return # do a performant initial check for typical use cases, falling back to a comprehensive but slower check for all use cases
 		shift
 	done
 	return 0
@@ -1130,7 +1165,17 @@ function __is_function_defined {
 	__affirm_length_defined $# 'function name' || return
 	while [[ $# -ne 0 ]]; do
 		__affirm_variable_name "$1" 'function name' || return
-		[[ "$(type -t "$1")" == 'function' ]] || return 1
+		__is_function_defined__internal "$1" || return
+		shift
+	done
+	return 0
+}
+
+function __is_subshell_function {
+	__affirm_length_defined $# 'function name' || return
+	while [[ $# -ne 0 ]]; do
+		__affirm_variable_name "$1" 'function name' || return
+		__is_subshell_function__internal "$1" || return
 		shift
 	done
 	return 0
@@ -1143,7 +1188,7 @@ function __is_array {
 	__affirm_length_defined $# 'variable name' || return
 	while [[ $# -ne 0 ]]; do
 		__affirm_variable_name "$1" || return
-		__is_array__inner "$1" || return
+		__is_array__internal "$1" || return
 		shift
 	done
 	return 0
@@ -1806,9 +1851,10 @@ function __is_reference {
 }
 
 # @todo consider using this in `__to` and `__do`
-function __apply_value {
+# __string_to_target <string-value> <mode> <target-variable-name>
+function __string_to_target {
 	# trunk-ignore(shellcheck/SC2034)
-	local APPLY_VALUE__mode="$1" APPLY_VALUE__target_variable_name="$2" APPLY_VALUE__value="$3"
+	local APPLY_VALUE__value="$1" APPLY_VALUE__mode="$2" APPLY_VALUE__target_variable_name="$3"
 	if __is_array "$APPLY_VALUE__target_variable_name"; then
 		case "$APPLY_VALUE__mode" in
 		prepend) eval "$APPLY_VALUE__target_variable_name=(\"\${APPLY_VALUE__value}\" \"\${${APPLY_VALUE__target_variable_name}[@]}\")" || return ;;
@@ -1825,8 +1871,9 @@ function __apply_value {
 }
 
 # @todo consider using this in `__to` and `__do`
-function __apply_variable_value {
-	local APPLY_VARIABLE_VALUE__mode="$1" APPLY_VARIABLE_VALUE__target_variable_name="$2" APPLY_VARIABLE_VALUE__source_variable_name="$3"
+# __source_to_target <source-variable-name> <mode> <target-variable-name>
+function __source_to_target {
+	local APPLY_VARIABLE_VALUE__source_variable_name="$1" APPLY_VARIABLE_VALUE__mode="$2" APPLY_VARIABLE_VALUE__target_variable_name="$3"
 	if __is_array "$APPLY_VARIABLE_VALUE__target_variable_name"; then
 		if __is_array "$APPLY_VARIABLE_VALUE__source_variable_name"; then
 			case "$APPLY_VARIABLE_VALUE__mode" in
@@ -1910,36 +1957,17 @@ function __dereference {
 		__print_lines "ERROR: ${FUNCNAME[0]}: To avoid conflicts, the source variable reference [$DEREFERENCE__source_variable_name] must not use the prefix [$DEREFERENCE__internal_prefix]." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	# `__is_array` is not performant, so require `--mode` to be set for array handling
-	if [[ -z $DEREFERENCE__mode ]]; then
-		# no mode, assumes both references are to string, as that is way more performant
-		if [[ -n $DEREFERENCE__target_name_variable_name ]]; then
-			eval "$DEREFERENCE__target_name_variable_name=\"\${DEREFERENCE__source_variable_name}\"" || return
-		fi
-		if [[ -n $DEREFERENCE__target_value_variable_name ]]; then
-			eval "$DEREFERENCE__target_value_variable_name=\"\${${DEREFERENCE__source_variable_name}}\"" || return
-		fi
-	else
-		# be vigilant
-		if [[ -n $DEREFERENCE__target_name_variable_name ]]; then
-			__apply_value "$DEREFERENCE__mode" "$DEREFERENCE__target_name_variable_name" "$DEREFERENCE__source_variable_name" || return
-		fi
-		if [[ -n $DEREFERENCE__target_value_variable_name ]]; then
-			__apply_variable_value "$DEREFERENCE__mode" "$DEREFERENCE__target_value_variable_name" "$DEREFERENCE__source_variable_name" || return
-		fi
+	if [[ -n $DEREFERENCE__target_name_variable_name ]]; then
+		__string_to_target "$DEREFERENCE__source_variable_name"  "$DEREFERENCE__mode" "$DEREFERENCE__target_name_variable_name"|| return
+	fi
+	if [[ -n $DEREFERENCE__target_value_variable_name ]]; then
+		__source_to_target "$DEREFERENCE__source_variable_name" "$DEREFERENCE__mode" "$DEREFERENCE__target_value_variable_name" || return
 	fi
 	return 0
 }
 
 # -------------------------------------
 # Function Toolkit
-
-function __is_subshell_function {
-	# surprisingly despite the `declare -p <var>` bug in bash 4.3, `declare -f <fn>` works fine
-	# don't assign $1 to a variable, as then that means the variable name could conflict with the evaluation from the declare
-	# test "$(declare -f "$1")" == "$1"$' () \n{ \n    ('
-	[[ "$(declare -f "$1")" == "$1"$' () \n{ \n    ('* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
-}
 
 function __get_function_inner {
 	local GET_FUNCTION_INNER__function_code GET_FUNCTION_INNER__left=$'{ \n' GET_FUNCTION_INNER__right=$'\n}'
@@ -3032,7 +3060,7 @@ function dorothy_try__wrapper {
 		# if errexit is enabled, we depend on the trap, and would not have reached here, which is fine
 		# if errexit is disabled, the trap may or may not have fired, depending on the bash version, in which we need the status via the technique below
 		continued_status=$?
-	elif __is_subshell_function "${DOROTHY_TRY__COMMAND[0]}"; then
+	elif __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 		if __is_errexit; then
 			# this workaround is necessary to prevent macos bash v3.2 from crashing on `try __solo[subshell]`
 			# compiled bash v3.2 does not have this issue, and is not harmed by this logic path
@@ -5894,13 +5922,13 @@ function __join {
 function __tool {
 	# local TOOL_delimiter=$'\n'
 	# <multi-source helper arguments>
-	local TOOL_item TOOL__tool_variable_name='' TOOL__tools_variable_names='' TOOL__help_function_name=''
+	local TOOL_item TOOL__tool_variable_name='' TOOL__tools_variable_name='' TOOL__help_function_name=''
 	while [[ $# -ne 0 ]]; do
 		TOOL_item="$1"
 		shift
 		case "$TOOL_item" in
 		--tool={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_variable_name} || return ;;
-		--tools={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_variable_names} || return ;;
+		--tools={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_variable_name} || return ;;
 		--help={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__help_function_name} || return ;;
 		--*) __unrecognised_flag "$JOIN__item" || return ;;
 		*) __unrecognised_argument "$JOIN__item" || return ;;
@@ -5908,11 +5936,11 @@ function __tool {
 	done
 	# assertions
 	__affirm_variable_is_defined "$TOOL__tool_variable_name" 'tool variable reference' || return
-	__affirm_variable_is_defined "$TOOL__tools_variable_names" 'tools variable reference' || return
+	__affirm_variable_is_defined "$TOOL__tools_variable_name" 'tools variable reference' || return
 	__affirm_function_is_defined "$TOOL__help_function_name" 'help function reference' || return
 	local TOOL__tool='' TOOL__tools=()
 	__dereference --source="$TOOL__tool_variable_name" --value={TOOL__tool} || return
-	__dereference --source="$TOOL__tools_variable_names" --value={TOOL__tools} || return
+	__dereference --source="$TOOL__tools_variable_name" --value={TOOL__tools} || return
 	# dependency
 	if [[ $TOOL__tool == '?' ]]; then
 		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")" || return
@@ -5922,7 +5950,7 @@ function __tool {
 	elif __has --source={TOOL__tools} -- "$TOOL__tool"; then
 		__command_required -- "$TOOL__tool" || return
 	else
-		"$TOOL__help_function_name" "The provided <tool> is not supported: $TOOL__tool" || return # eval
+		"$TOOL__help_function_name" 'The provided <tool> of ' --variable-value={TOOL__tool} ' is not supported. Supported tools are:' --newline --variable-value={TOOL__tools} || return # eval
 		return
 	fi
 	# apply
@@ -6054,6 +6082,7 @@ function __terminal_title_progress_bar {
 			TERMINAL_TITLE_PROGRESS_BAR__progress="$((TERMINAL_TITLE_PROGRESS_BAR__total - TERMINAL_TITLE_PROGRESS_BAR__remaining))"
 		fi
 		if [[ $TERMINAL_TITLE_PROGRESS_BAR__total -ne 100 && $TERMINAL_TITLE_PROGRESS_BAR__progress -ne -1 ]]; then
+			# trunk-ignore(shellcheck/SC2017)
 			TERMINAL_TITLE_PROGRESS_BAR__progress="$(((TERMINAL_TITLE_PROGRESS_BAR__progress * 100 / TERMINAL_TITLE_PROGRESS_BAR__total * 100) / 100))" # bash can't do floating point, so this variation is a workaround
 		fi
 
