@@ -304,9 +304,7 @@ function __print_help {
 	fi
 }
 function __print_error {
-	__print_style --stderr \
-		--newline \
-		--error='ERROR:' --newline "$@" || return
+	__print_style --stderr --error='ERROR:' ' ' "$@" || return
 }
 
 function __dump {

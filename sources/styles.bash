@@ -1224,77 +1224,95 @@ function __print_style {
 
 # beta command, will change
 function __print_help {
-	__load_styles --save -- intensity bold dim foreground_magenta foreground_green foreground_red
-	local REPLY command='' character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
-	__read_whole
-	command="$(echo-regexp -o --regexp='USAGE:[\n\s]+([a-z-]+)' --replace='$1' -- "$REPLY")" || :
-	local -i c l
-	echo-regexp -gm '^(--.+|    \[?--.+|[a-zA-Z]+ [|] --.+|[A-Z]+\:)$' "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" -- "$REPLY" |
-		echo-regexp -gm "^($command [- a-zA-Z0-9.=<>[|\]]+)$" "$STYLE__foreground_magenta\$1$STYLE__END__foreground_magenta" |
-		echo-regexp -g '\[0\](\s)' "$STYLE__foreground_green[0]$STYLE__END__foreground_green\$1" |
-		echo-regexp -g '\[([\d]+)\](\s)' "$STYLE__foreground_red[\$1]$STYLE__END__foreground_red\$2" |
-		while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
-			if [[ $character == $'\e' ]]; then
-				in_color='yes'
-				buffer+="${character}"
-			elif [[ $in_color == 'yes' ]]; then
-				if [[ $character == 'm' ]]; then
-					in_color='no'
-				fi
-				buffer+="${character}"
-			elif [[ $character == '<' ]]; then
-				intensities+=("$STYLE__bold")
-				buffer+="${STYLE__bold}${character}"
-			elif [[ $character == '[' ]]; then
-				intensities+=("$STYLE__dim")
-				buffer+="${STYLE__dim}${character}"
-			elif [[ $character == '>' || $character == ']' || $character == '`' ]]; then
-				if [[ $character == '`' ]]; then
-					character=''
+	__load_styles --save -- intensity bold dim code foreground_magenta foreground_green foreground_red
+	# {
+	# 	# echo-regexp -gm "^($command [- a-zA-Z0-9.=<>[|\]]+)$" "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
+	# 	local REPLY before_actions='' within_actions='' after_actions=''
+	# 	__read_whole
+	# 		printf '%s' "$REPLY"
+	# 	else
+	# 		__replace --source={REPLY} --target={before_actions} --optional --keep-before-first='ACTIONS:'
+	# 		__replace --source={REPLY} --target={within_actions} --optional --replace-before-first='ACTIONS:'
+	# 		__replace --source={within_actions} --target={after_actions} --replace-before-first='EXAMPLES:' 2>/dev/null || after_actions=''
+	# 		__replace --source+target={within_actions} --optional --keep-before-first='EXAMPLES:'
+	# 		if [[ -n $within_actions ]]; then
+	# 			within_actions="$(echo-regexp -gm "^([[\-a-z0-9][{}()[\]<>\-._:=| a-zA-Z0-9]+)$" "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" -- "$within_actions")"$'\n\n'
+	# 		fi
+	# 		# printf '%s' "<before>$before_actions</before><actions>$within_actions</actions><after>$after_actions</after>"
+	# 		printf '%s' "${before_actions}${within_actions}${after_actions}"
+	# 	fi
+	# } |
+	cat |
+		echo-regexp -gm '^([\t ]*)- ' '$1• ' |
+		echo-regexp -gm '^([A-Z ]+\:)$' "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
+		echo-regexp -gm '^( *)([[<\-a-z][{}()[\]<>\-._:=*`?/| a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
+		echo-regexp -g '\[0\](\s)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |
+		echo-regexp -g '\[([\d]+)\](\s)' "${STYLE__foreground_red}[\$1]${STYLE__END__foreground_red}\$2" |
+		{
+			local buffer='' character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
+			local -i c l
+			while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+				if [[ $character == $'\e' ]]; then
+					in_color='yes'
+					buffer+="${character}"
+				elif [[ $in_color == 'yes' ]]; then
+					if [[ $character == 'm' ]]; then
+						in_color='no'
+					fi
+					buffer+="${character}"
+				elif [[ $character == '`' ]]; then
 					if [[ $in_tick == 'no' ]]; then
-						intensities+=("$STYLE__dim")
-						buffer+="${STYLE__dim}"
 						in_tick='yes'
-						continue
+						buffer+="${STYLE__code}"
 					else
 						in_tick='no'
+						buffer+="${STYLE__END__code}"
 					fi
-				fi
+				elif [[ $character == '<' ]]; then
+					intensities+=("$STYLE__bold")
+					buffer+="${STYLE__bold}${character}"
+				elif [[ $character == '[' ]]; then
+					intensities+=("$STYLE__dim")
+					buffer+="${STYLE__dim}${character}"
+				elif [[ $character == '>' || $character == ']' ]]; then
+					buffer+="${character}"
 
-				# there's currently a bug in __slice that prevents -1 being used as a length
-				# __dump {intensities} >&2
-				# __slice --source+target={intensities} --mode=overwrite 0 -1 || return
-				# __dump {intensities} >&2
+					# there's currently a bug in __slice that prevents -1 being used as a length
+					# __dump {intensities} >&2
+					# __slice --source+target={intensities} --mode=overwrite 0 -1 || return
+					# __dump {intensities} >&2
 
-				c="${#intensities[@]}"
-				buffer+="${character}"
-				if [[ $c -eq 0 ]]; then
-					# this is probably malformed syntax
-					continue
-				fi
+					c="${#intensities[@]}"
+					if [[ $c -eq 0 ]]; then
+						# this is probably malformed syntax, or something like this from `fs-copy`:
+						# Enable SSH on macOS via \`System Preferences > Sharing > Remote Login\`.
+						# @todo figure out why the first > there drops the backtick intensity
+						continue
+					fi
 
-				# pop off the last intensity as it is now finished
-				if [[ $c -eq 1 ]]; then
-					intensities=()
+					# pop off the last intensity as it is now finished
+					if [[ $c -eq 1 ]]; then
+						intensities=()
+					else
+						l="$((c - 1))"
+						intensities=("${intensities[@]:0:l}")
+						l="$((l - 1))"
+					fi
+
+					# re-affirm the prior intensity
+					if [[ ${#intensities[@]} -eq 0 ]]; then
+						buffer+="${STYLE__END__intensity}"
+					else
+						# __slice --source={intensities} --target={last} -1 || return
+						last="${intensities[l]}"
+						buffer+="${STYLE__END__intensity}${last}"
+					fi
 				else
-					l="$((c - 1))"
-					intensities=("${intensities[@]:0:l}")
-					l="$((l - 1))"
+					buffer+="${character}"
 				fi
-
-				# re-affirm the prior intensity
-				if [[ ${#intensities[@]} -eq 0 ]]; then
-					buffer+="${STYLE__END__intensity}"
-				else
-					# __slice --source={intensities} --target={last} -1 || return
-					last="${intensities[l]}"
-					buffer+="${STYLE__END__intensity}${last}"
-				fi
-			else
-				buffer+="${character}"
-			fi
-		done
-	__print_lines "$buffer" >&2 || return
+			done
+			__print_lines "$buffer" >&2 || return
+		}
 	if [[ $# -ne 0 ]]; then
 		__print_error "$@" || return
 	fi
