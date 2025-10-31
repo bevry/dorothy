@@ -1827,11 +1827,10 @@ function __is_special_file {
 
 # this is beta, and may change later
 function __is_tty_special_file {
-	local IS_TTY_SPECIAL_FILE__target="$1"
-	case "$IS_TTY_SPECIAL_FILE__target" in
+	case "$1" in
 	TTY | tty | /dev/tty) return 0 ;; # is a tty target
 	'')
-		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $IS_TTY_SPECIAL_FILE__target" >&2 || :
+		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $1" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 		;;
 	*) return 1 ;; # not a tty target
@@ -1851,55 +1850,128 @@ function __is_reference {
 }
 
 # @todo consider using this in `__to` and `__do`
-# __string_to_target <string-value> <mode> <target-variable-name>
-function __string_to_target {
+# __string_to_variable <string-value> <target-variable-name> [<mode:prepend|append|overwrite>]
+function __string_to_variable {
 	# trunk-ignore(shellcheck/SC2034)
-	local APPLY_VALUE__value="$1" APPLY_VALUE__mode="$2" APPLY_VALUE__target_variable_name="$3"
-	if __is_array "$APPLY_VALUE__target_variable_name"; then
-		case "$APPLY_VALUE__mode" in
-		prepend) eval "$APPLY_VALUE__target_variable_name=(\"\${APPLY_VALUE__value}\" \"\${${APPLY_VALUE__target_variable_name}[@]}\")" || return ;;
-		append) eval "$APPLY_VALUE__target_variable_name+=(\"\${APPLY_VALUE__value}\")" || return ;;
-		*) eval "$APPLY_VALUE__target_variable_name=(\"\${APPLY_VALUE__value}\")" || return ;;
+	local STRING_TO_VARIABLE__value="$1" STRING_TO_VARIABLE__target_variable_name="$2" STRING_TO_VARIABLE__mode="${3-}"
+	if __is_array "$STRING_TO_VARIABLE__target_variable_name"; then
+		case "$STRING_TO_VARIABLE__mode" in
+		prepend) eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\" \"\${${STRING_TO_VARIABLE__target_variable_name}[@]}\")" || return ;;
+		append) eval "$STRING_TO_VARIABLE__target_variable_name+=(\"\${STRING_TO_VARIABLE__value}\")" || return ;;
+		*) eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\")" || return ;;
 		esac
 	else
-		case "$APPLY_VALUE__mode" in
-		prepend) eval "$APPLY_VALUE__target_variable_name=\"\${APPLY_VALUE__value}\${${APPLY_VALUE__target_variable_name}}\"" || return ;;
-		append) eval "$APPLY_VALUE__target_variable_name+=\"\${APPLY_VALUE__value}\"" || return ;;
-		*) eval "$APPLY_VALUE__target_variable_name=\"\${APPLY_VALUE__value}\"" || return ;;
+		case "$STRING_TO_VARIABLE__mode" in
+		prepend) eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\${${STRING_TO_VARIABLE__target_variable_name}}\"" || return ;;
+		append) eval "$STRING_TO_VARIABLE__target_variable_name+=\"\${STRING_TO_VARIABLE__value}\"" || return ;;
+		*) eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\"" || return ;;
 		esac
 	fi
 }
 
 # @todo consider using this in `__to` and `__do`
-# __source_to_target <source-variable-name> <mode> <target-variable-name>
-function __source_to_target {
-	local APPLY_VARIABLE_VALUE__source_variable_name="$1" APPLY_VARIABLE_VALUE__mode="$2" APPLY_VARIABLE_VALUE__target_variable_name="$3"
-	if __is_array "$APPLY_VARIABLE_VALUE__target_variable_name"; then
-		if __is_array "$APPLY_VARIABLE_VALUE__source_variable_name"; then
-			case "$APPLY_VARIABLE_VALUE__mode" in
-			prepend) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}[@]}\" \"\${${APPLY_VARIABLE_VALUE__target_variable_name}[@]}\")" || return ;;
-			append) eval "$APPLY_VARIABLE_VALUE__target_variable_name+=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}[@]}\")" || return ;;
-			*) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}[@]}\")" || return ;;
+# __variable_to_variable <source-variable-name> <target-variable-name> [<mode:prepend|append|overwrite>]
+function __variable_to_variable {
+	local VARIABLE_TO_VARIABLE__source_variable_name="$1" VARIABLE_TO_VARIABLE__target_variable_name="$2" VARIABLE_TO_VARIABLE__mode="${3-}"
+	if __is_array "$VARIABLE_TO_VARIABLE__target_variable_name"; then
+		if __is_array "$VARIABLE_TO_VARIABLE__source_variable_name"; then
+			case "$VARIABLE_TO_VARIABLE__mode" in
+			prepend) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return ;;
+			append) eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return ;;
+			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return ;;
 			esac
 		else
-			case "$APPLY_VARIABLE_VALUE__mode" in
-			prepend) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\" \"\${${APPLY_VARIABLE_VALUE__target_variable_name}[@]}\")" || return ;;
-			append) eval "$APPLY_VARIABLE_VALUE__target_variable_name+=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\")" || return ;;
-			*) eval "$APPLY_VARIABLE_VALUE__target_variable_name=(\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\")" || return ;;
+			case "$VARIABLE_TO_VARIABLE__mode" in
+			prepend) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return ;;
+			append) eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return ;;
+			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return ;;
 			esac
 		fi
 	else
-		if __is_array "$APPLY_VARIABLE_VALUE__source_variable_name"; then
-			__print_lines "ERROR: ${FUNCNAME[0]}: Cannot apply an array source $(__dump --value="$APPLY_VARIABLE_VALUE__source_variable_name" || :) to a non-array target $(__dump --value="$APPLY_VARIABLE_VALUE__target_variable_name" || :)." >&2 || :
+		if __is_array "$VARIABLE_TO_VARIABLE__source_variable_name"; then
+			# so far this is only used in __dereference so show __dereference as the name instead
+			__print_lines "ERROR: ${FUNCNAME[1]}: Cannot apply an array source $(__dump --value="$VARIABLE_TO_VARIABLE__source_variable_name" || :) to a non-array target $(__dump --value="$VARIABLE_TO_VARIABLE__target_variable_name" || :)." >&2 || :
 			return 22 # EINVAL 22 Invalid argument
 		else
-			case "$APPLY_VARIABLE_VALUE__mode" in
-			prepend) eval "$APPLY_VARIABLE_VALUE__target_variable_name=\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\${${APPLY_VARIABLE_VALUE__target_variable_name}}\"" || return ;;
-			append) eval "$APPLY_VARIABLE_VALUE__target_variable_name+=\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\"" || return ;;
-			*) eval "$APPLY_VARIABLE_VALUE__target_variable_name=\"\${${APPLY_VARIABLE_VALUE__source_variable_name}}\"" || return ;;
+			case "$VARIABLE_TO_VARIABLE__mode" in
+			prepend) eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\${${VARIABLE_TO_VARIABLE__target_variable_name}}\"" || return ;;
+			append) eval "$VARIABLE_TO_VARIABLE__target_variable_name+=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return ;;
+			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return ;;
 			esac
 		fi
 	fi
+}
+
+function __affirm_empty_mode {
+	local AFFIRM_EMPTY_MODE__mode="$1" AFFIRM_EMPTY_MODE__target="$2"
+	if [[ -n $AFFIRM_EMPTY_MODE__mode ]]; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The target $(__dump --value="$AFFIRM_EMPTY_MODE__target" || :) is not a variable reference nor file target, so it cannot be used with the mode $(__dump --value="$AFFIRM_EMPTY_MODE__mode" || :)." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
+function __value_to_tty {
+	local VALUE_TO_TTY__value="$1"
+	# handle TTY redirects
+	if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
+		__value_to_target "$VALUE_TO_TTY__value" "$TERMINAL_OUTPUT_TARGET" || return
+		return
+	fi
+	# TTY is not redirected
+	printf '%s' "$VALUE_TO_TTY__value" >>/dev/tty || return
+}
+
+function __value_to_target {
+	local VALUE_TO_TARGET__value="$1" VALUE_TO_TARGET__target="$2" VALUE_TO_TARGET__mode="${3-}"
+	# process
+	case "$VALUE_TO_TARGET__target" in
+	# stdout
+	1 | STDOUT | stdout | /dev/stdout | '')
+		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return
+		printf '%s' "$VALUE_TO_TARGET__value" || return
+		;;
+	# stderr
+	2 | STDERR | stderr | /dev/stderr)
+		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return
+		printf '%s' "$VALUE_TO_TARGET__value" >&2 || return
+		;;
+	# tty
+	TTY | tty | /dev/tty)
+		# handle TTY redirects
+		if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
+			__value_to_target "$VALUE_TO_TARGET__value" "$TERMINAL_OUTPUT_TARGET" "$VALUE_TO_TARGET__mode" || return
+			return
+		fi
+		# TTY is not redirected
+		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return
+		printf '%s' "$VALUE_TO_TARGET__value" >>/dev/tty || return
+		;;
+	# null
+	NULL | null | /dev/null) : ;;
+	# file descriptor
+	[0-9]*)
+		# __affirm_value_is_positive_integer "$VALUE_TO_TARGET__target" 'file descriptor' || return
+		# ^ no need, as the regex already affirms that
+		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return
+		printf '%s' "$VALUE_TO_TARGET__value" >&"$VALUE_TO_TARGET__target" || return
+		;;
+	# file target
+	*)
+		case "$TO__mode" in
+		prepend)
+			local REPLY
+			__read_whole <"$VALUE_TO_TARGET__target" || return
+			printf '%s' "$VALUE_TO_TARGET__value$REPLY" >"$VALUE_TO_TARGET__target" || return
+			;;
+		append)
+			printf '%s' "$VALUE_TO_TARGET__value" >>"$VALUE_TO_TARGET__target" || return
+			;;
+		'' | overwrite)
+			printf '%s' "$VALUE_TO_TARGET__value" >"$VALUE_TO_TARGET__target" || return
+			;;
+		esac
+		;;
+	esac
 }
 
 # with the reference, trim its squigglies to get its variable name, and apply it to the variable name reference, and affirm there won't be a conflict
@@ -1958,10 +2030,10 @@ function __dereference {
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	if [[ -n $DEREFERENCE__target_name_variable_name ]]; then
-		__string_to_target "$DEREFERENCE__source_variable_name"  "$DEREFERENCE__mode" "$DEREFERENCE__target_name_variable_name"|| return
+		__string_to_variable "$DEREFERENCE__source_variable_name" "$DEREFERENCE__target_name_variable_name" "$DEREFERENCE__mode" || return
 	fi
 	if [[ -n $DEREFERENCE__target_value_variable_name ]]; then
-		__source_to_target "$DEREFERENCE__source_variable_name" "$DEREFERENCE__mode" "$DEREFERENCE__target_value_variable_name" || return
+		__variable_to_variable "$DEREFERENCE__source_variable_name" "$DEREFERENCE__target_value_variable_name" "$DEREFERENCE__mode" || return
 	fi
 	return 0
 }
@@ -2156,21 +2228,11 @@ function __to {
 				fi
 			fi
 		else
-			# handle tty redirects
-			if __is_tty_special_file "$TO__target" && ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
-				TO__target="$TERMINAL_OUTPUT_TARGET"
-			fi
 			# no-ops on null targets
 			case "$TO__target" in
 			NULL | null | /dev/null) continue ;;
 			esac
 			# render for the non-null targets
-			function __affirm_empty_mode {
-				if [[ -n $TO__mode ]]; then
-					__print_lines "ERROR: ${FUNCNAME[1]}: The target $(__dump --value="$TO__target" || :) is not a variable reference nor file target, so it cannot be used with the mode $(__dump --value="$TO__mode" || :)." >&2 || :
-					return 22 # EINVAL 22 Invalid argument
-				fi
-			}
 			local TO__value=''
 			if __is_array "$TO__source"; then
 				eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return
@@ -2194,46 +2256,8 @@ function __to {
 			else
 				eval "TO__value=\"\$${TO__source}\"" || return
 			fi
-			# send the render
-			case "$TO__target" in
-			# stdout
-			1 | STDOUT | stdout | /dev/stdout)
-				__affirm_empty_mode || return
-				printf '%s' "$TO__value" || return
-				;;
-			# stderr
-			2 | STDERR | stderr | /dev/stderr)
-				__affirm_empty_mode || return
-				printf '%s' "$TO__value" >&2 || return
-				;;
-			# tty
-			TTY | tty | /dev/tty)
-				__affirm_empty_mode || return
-				printf '%s' "$TO__value" >>/dev/tty || return
-				;;
-			# file descriptor
-			[0-9]*)
-				__affirm_value_is_positive_integer "$TO__target" 'file descriptor' || return
-				__affirm_empty_mode || return
-				printf '%s' "$TO__value" >&"$TO__target" || return
-				;;
-			# file target
-			*)
-				case "$TO__mode" in
-				prepend)
-					local REPLY
-					__read_whole <"$TO__target" || return
-					printf '%s' "$TO__value$REPLY" >"$TO__target" || return
-					;;
-				append)
-					printf '%s' "$TO__value" >>"$TO__target" || return
-					;;
-				'' | overwrite)
-					printf '%s' "$TO__value" >"$TO__target" || return
-					;;
-				esac
-				;;
-			esac
+			# send to target
+			__value_to_target "$TO__value" "$TO__target" "$TO__mode" || return
 		fi
 	done
 }
@@ -6017,7 +6041,7 @@ function __terminal_title_progress_bar__send_alarm {
 }
 function __terminal_title_progress_bar__on_alarm {
 	if [[ -n $TERMINAL_TITLE_PROGRESS_BAR__ansi ]]; then
-		__to --source={TERMINAL_TITLE_PROGRESS_BAR__ansi} --target=TTY || return
+		__value_to_tty "$TERMINAL_TITLE_PROGRESS_BAR__ansi" || return
 	fi
 	if __is_trap_alive ALRM && __is_process_alive "$TERMINAL_TITLE_PROGRESS_BAR__alarmer"; then
 		{
@@ -6070,7 +6094,7 @@ function __terminal_title_progress_bar {
 		trap - ALRM || :
 		# send the clear
 		TERMINAL_TITLE_PROGRESS_BAR__ansi=$'\e]9;4;0\a'
-		__to --source={TERMINAL_TITLE_PROGRESS_BAR__ansi} --target=TTY || return
+		__value_to_tty "$TERMINAL_TITLE_PROGRESS_BAR__ansi" || return
 	elif [[ $TERMINAL_TITLE_PROGRESS_BAR__create == 'yes' ]]; then
 		# start the alarmer
 		TERMINAL_TITLE_PROGRESS_BAR__alarmer=$(($$ + 1))
@@ -6090,7 +6114,7 @@ function __terminal_title_progress_bar {
 		TERMINAL_TITLE_PROGRESS_BAR__ansi=$'\e]9;4;1;'"$TERMINAL_TITLE_PROGRESS_BAR__progress"$'\a'
 		__terminal_title_progress_bar__send_alarm || {
 			if [[ -n $TERMINAL_TITLE_PROGRESS_BAR__ansi ]]; then
-				__to --source={TERMINAL_TITLE_PROGRESS_BAR__ansi} --target=TTY || return
+				__value_to_tty "$TERMINAL_TITLE_PROGRESS_BAR__ansi" || return
 			fi
 		}
 	fi

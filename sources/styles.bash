@@ -915,7 +915,6 @@ function __load_styles {
 			esac
 			# append our result with the explicit desired color
 			if [[ -n $LOAD_STYLES__begin ]]; then
-				# __to --source="{$LOAD_STYLES__var}" --append --target="${LOAD_STYLES__begin}" || return
 				LOAD_STYLES__eval+="${LOAD_STYLES__begin}+=\"\${${LOAD_STYLES__var}}\"; "
 			fi
 			# note it has been found
@@ -1185,12 +1184,11 @@ function __print_style {
 
 		# handle the argument type
 		if [[ $PRINT_STYLE__item_type == 'content' ]]; then
-			PRINT_STYLE__buffer_left+="${PRINT_STYLE__item_content}"
+			PRINT_STYLE__buffer_left+="$PRINT_STYLE__item_content"
 		elif [[ $PRINT_STYLE__item_type == 'flag' ]]; then
 			# flush buffer if necessary
 			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
-				__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
-					__print_string "${PRINT_STYLE__buffer_left}" || return
+				__value_to_target "$PRINT_STYLE__buffer_left" "$PRINT_STYLE__buffer_target" || return
 				PRINT_STYLE__buffer_left=''
 				PRINT_STYLE__buffer_target="$PRINT_STYLE__item_target"
 			fi
@@ -1203,11 +1201,9 @@ function __print_style {
 		else
 			# flush buffer if necessary
 			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
-				__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
-					__print_string "${PRINT_STYLE__buffer_left}" || return
+				__value_to_target "$PRINT_STYLE__buffer_left" "$PRINT_STYLE__buffer_target" || return
 				PRINT_STYLE__buffer_left=''
-				__do --redirect-stdout="$PRINT_STYLE__item_target" \
-					-- __print_string "${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}" || return
+				__value_to_target "${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}" "$PRINT_STYLE__item_target" || return
 			else
 				PRINT_STYLE__buffer_left+="${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}"
 			fi
@@ -1218,8 +1214,7 @@ function __print_style {
 	if [[ $PRINT_STYLE__trail == 'yes' ]]; then
 		PRINT_STYLE__buffer_right+=$'\n'
 	fi
-	__do --redirect-stdout="$PRINT_STYLE__buffer_target" -- \
-		__print_string "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" || return
+	__value_to_target "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" "$PRINT_STYLE__buffer_target" || return
 }
 
 # beta command, will change
