@@ -1957,7 +1957,7 @@ function __value_to_target {
 		;;
 	# file target
 	*)
-		case "$TO__mode" in
+		case "$VALUE_TO_TARGET__mode" in
 		prepend)
 			local REPLY
 			__read_whole <"$VALUE_TO_TARGET__target" || return
