@@ -431,10 +431,12 @@ function git_helper() (
 		local found=() fetched_remote='no'
 		for branch in "${branches[@]}"; do
 			# local
-			if git rev-parse --verify --quiet "$branch" &>/dev/null; then
+			if [[ $local != 'no' ]] && git rev-parse --verify --quiet "$branch" &>/dev/null; then
 				found+=("$branch")
+				continue
+			fi
 			# remote
-			elif [[ $remote != 'no' ]]; then
+			if [[ $remote != 'no' ]]; then
 				# remote and local branches, designed specially for this purpose:
 				# git rev-parse --verify --quiet "$remote/$branch" &>/dev/null || return
 				# remote and local branches:
@@ -910,9 +912,17 @@ function git_helper() (
 				--default-exact="$remote" -- "${remotes[@]}")" || return
 		fi
 
-		# if no url, get the url from the specified/prompted remote
-		if [[ -z $url ]]; then
-			url="$(git remote get-url "$remote")" || return
+		# fetch the remote url for check or if no url
+		local remote_url=''
+		if [[ -z $url || $mode == 'check' ]]; then
+			remote_url="$(git remote get-url "$remote" 2>/dev/null)" || return
+			if [[ -z $remote_url ]]; then
+				__print_error 'The remote ' --variable-value={remote} ' does not exist on the repository at ' --path="$option_path" ' so unable to fetch its URL.' || :
+				return 93 # ENOATTR 93 Attribute not found
+			fi
+			if [[ -z $url ]]; then
+				url="$remote_url"
+			fi
 		fi
 
 		# process
@@ -964,14 +974,14 @@ function git_helper() (
 			fi
 		}
 
-		# apply difference if necessary
-		if [[ $protocol_url != "$url" ]]; then
-			# if apply, then apply
-			if [[ $mode == 'apply' ]]; then
-				__set_remote_url "$protocol_url" || return
-			elif [[ $mode == 'check' ]]; then
-				return 93 # ENOATTR 93 Attribute not found
-			fi
+		# if check, then check the url matches
+		if [[ $mode == 'check' && $remote_url != "$protocol_url" ]]; then
+			return 93 # ENOATTR 93 Attribute not found
+		fi
+
+		# if apply, then apply, so the remote can be updated or even created
+		if [[ $mode == 'apply' ]]; then
+			__set_remote_url "$protocol_url" || return
 		fi
 
 		# test application
@@ -982,7 +992,7 @@ function git_helper() (
 			pending="$(__print_style --bold='Testing ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
 			success="$(__print_style --success='Using ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
 			failure="$(__print_style --error='Failed ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
-			eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
+			eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 				-- git fetch --dry-run "$remote"
 		}
 		function __test_with_fallback {
@@ -1254,9 +1264,6 @@ function git_helper() (
 			fi
 		fi
 
-		# avoid merge conflicts
-		git config pull.ff only || return
-
 		# exit early if no update
 		if [[ $update == 'no' ]]; then
 			return 0
@@ -1264,6 +1271,11 @@ function git_helper() (
 
 		# wrap the update to handle optional
 		function __do_update {
+			# avoid merge conflicts
+			# this prevents the need for doing a `git status &>/dev/null` check. to make sure the HEAD is fresh
+			# although, doing the status check is a better idea perhaps
+			git config pull.ff only || return
+
 			# the verify and test will handle the update failure
 			remote="$(__remote --apply --remote="$remote" --url="$url" --protocol="$protocol" --verify --test)" || return
 
@@ -1272,8 +1284,23 @@ function git_helper() (
 			pending="$(__print_style --bold='Fetching ' --bold='all remotes' ' on ' --variable={option_path})" || return
 			success="$(__print_style --success='Fetched ' --bold='all remotes' ' on ' --variable={option_path})" || return
 			failure="$(__print_style --error='Failed fetching ' --bold='all remotes' ' on ' --variable={option_path})" || return
-			eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
+			eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 				-- git fetch --all --prune || return
+
+
+			# if we pull on HEAD then it will pull from the desired branch, but it will not pull TO the desired branch, instead it will pull to the DEFAULT branch, which causes `bevry/dorothy-fixtures` to go from `master` to `main` which is then not linked back to `origin/master`
+			# as such, check if there are any local branches, and if not, then do a checkout of the brranch instead of a direct pull
+			# this is here, as we need the branch for strongbox
+			local operation
+			if [[ -z "$(git  branch --list 2>/dev/null || :)" ]]; then
+				# select the remote branch, and checkout later
+				branch="$(__branch --remote="$remote" --branch="$branch" --no-head --no-local --verify)" || return
+				operation='checkout'
+			else
+				# select the hopefully remote. branch, and pull later
+				branch="$(__branch --remote="$remote" --branch="$branch" --no-local --verify)" || return
+				operation='pull'
+			fi
 
 			# if strongbox, ensure configured before pulling
 			local strongbox_keyid
@@ -1334,26 +1361,20 @@ function git_helper() (
 				fi
 			fi
 
-			# prep
-			local pending success failure
-
-			# if we pull on HEAD then it will pull from the desired branch, but it will not pull TO the desired branch, instead it will pull to the DEFAULT branch, which causes `bevry/dorothy-fixtures` to go from `master` to `main` which is then not linked back to `origin/master`
-			branch="$(__branch --remote="$remote" --branch="$branch" --verify)" || return
-			if [[ $branch == 'HEAD' ]]; then
-				branch="$(__branch --remote="$remote" --branch="$branch" --no-head --verify)" || return
+			# checkout or pull
+			if [[ $operation == 'checkout' ]]; then
 				pending="$(__print_style --bold='Checking out ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 				success="$(__print_style --success='Checked out ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 				failure="$(__print_style --error='Failed to checkout ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
-					-- git checkout "$branch" || return
+				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
+					-- git checkout --track "$remote/$branch" || return
+			else
+				pending="$(__print_style --bold='Pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				success="$(__print_style --success='Pulled ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				failure="$(__print_style --error='Failed pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
+					-- git pull "$remote" "$branch" || return
 			fi
-
-			# do the pull, applying the remote changes to the local branch
-			pending="$(__print_style --bold='Pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-			success="$(__print_style --success='Pulled ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-			failure="$(__print_style --error='Failed pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-			eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
-				-- git pull "$remote" "$branch" || return
 		}
 
 		# do the update handling optional
