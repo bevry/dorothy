@@ -618,6 +618,20 @@ function git_helper() (
 		fi
 	}
 
+	function __get_validated_protocol {
+		local protocol="$1"
+		if [[ -z $protocol ]]; then
+			return 0
+		elif [[ $protocol == 'http' ]]; then
+			__print_lines 'https' || return
+		elif [[ $protocol =~ ^(ssh|https)$ ]]; then
+			__print_lines "$protocol" || return
+		else
+			__print_error 'The protocol ' --value="$protocol" ' is not supported. Supported protocols are: ' --code='https' ' and ' --value='ssh' || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+	}
+
 	function __protocol {
 		# process
 		local item protocol='' test='no'
@@ -625,23 +639,13 @@ function git_helper() (
 			item="$1"
 			shift
 			case "$item" in
-			--protocol=*) protocol="${item#*=}" ;;
+			--protocol=*) protocol="$(__get_validated_protocol "${item#*=}")" ;;
 			--no-test* | --test*) __flag --source={item} --target={test} --affirmative --coerce || return ;;
 			--*) __unrecognised_flag "$item" || return ;;
 			*) __unrecognised_argument "$item" || return ;;
 			esac
 		done
 
-		# use default
-		if [[ -z $protocol ]]; then
-			protocol="$GIT_PROTOCOL"
-		fi
-		# verify
-		if [[ $protocol == 'http' ]]; then
-			protocol='https'
-		elif ! [[ $protocol =~ ^(ssh|https)$ ]]; then
-			protocol=''
-		fi
 		# protocols
 		local protocols
 		if [[ $test == 'yes' ]]; then
@@ -651,21 +655,47 @@ function git_helper() (
 		else
 			protocols=('https' 'ssh')
 		fi
-		# select
-		if [[ -z $protocol || $test == 'yes' ]]; then
-			# nice workaround for CI to select the first item, while still requiring a confirmation from a human
-			local defaults=("$protocol" "$GIT_PROTOCOL")
+
+		# prepare defaults
+		# @todo do this same technique for preferred branch
+		local defaults=() update_repo_config='no'
+		if [[ -z $protocol ]]; then
+			update_repo_config='yes'
+			defaults=(
+				"$protocol"
+				"$(git config git.protocol 2>/dev/null || :)"
+				"$GIT_PROTOCOL"
+				"$(git config --global git.protocol 2>/dev/null || :)"
+			)
 			if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'no' ]]; then
 				defaults+=("${protocols[0]}")
 			fi
+			__evict --source+target={defaults} --optional --every --value='' || return
+		fi
+
+		# this choose selects but also filters to tested protocols
+		# @todo update __load_protocols to test reotes instead of generic protocol testing
+		if [[ -z $protocol || $test == 'yes' ]]; then
 			protocol="$(choose --required --no-confirm-default --no-confirm-solo \
 				--question='Which git protocol to use on the repository?' \
 				--question="$option_path" \
 				--defaults-exact="$(__print_lines "${defaults[@]}")" -- "${protocols[@]}")" || return
+			if [[ -n $protocol && $update_repo_config == 'yes' ]]; then
+				# this could fail if it isn't already init'd
+				# however, it is the best option, as it persists regardless of subshell
+				git config git.protocol "$protocol" 2>/dev/null || :
+				# do this, but it won't have an effect due to it not escaping the subshell
+				if [[ -z $GIT_PROTOCOL ]]; then
+					GIT_PROTOCOL="$protocol"
+				fi
+			fi
 		fi
+
 		# result
 		if [[ -n $protocol ]]; then
 			__print_lines "$protocol" || return
+		elif [[ ${#defaults[@]} -ge 1 ]]; then
+			__get_validated_protocol "${defaults[0]}" || return
 		else
 			return 42 # ENOPROTOOPT 42 Protocol not available
 		fi
@@ -1061,7 +1091,8 @@ function git_helper() (
 			fi
 		fi
 
-		if [[ $new == 'yes' ]]; then
+		# if new and no remotes
+		if [[ $new == 'yes' && -z "$(git remote 2>/dev/null || :)" ]]; then
 			# url, where
 			local where
 			if [[ $url =~ ^(local|none)$ ]]; then
@@ -1243,10 +1274,6 @@ function git_helper() (
 			eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
 				-- git fetch --all --prune || return
 
-			# now that we have fetch, ensure the branch
-			# if an init just happened, the active branch will be HEAD, which when cloned will use the default branch configuration, which may not actually be the remote branch name, this is easiest to workaround by just denying head branches
-			branch="$(__branch --remote="$remote" --branch="$branch" --no-head --verify)" || return
-
 			# if strongbox, ensure configured before pulling
 			local strongbox_keyid
 			strongbox_keyid="$(__strongbox --remote="$remote" --branch="$branch")" || :
@@ -1306,8 +1333,21 @@ function git_helper() (
 				fi
 			fi
 
-			# do the pull, applying the remote changes to the local branch
+			# prep
 			local pending success failure
+
+			# if we pull on HEAD then it will pull from the desired branch, but it will not pull TO the desired branch, instead it will pull to the DEFAULT branch, which causes `bevry/dorothy-fixtures` to go from `master` to `main` which is then not linked back to `origin/master`
+			branch="$(__branch --remote="$remote" --branch="$branch" --verify)" || return
+			if [[ $branch == 'HEAD' ]]; then
+				branch="$(__branch --remote="$remote" --branch="$branch" --no-head --verify)" || return
+				pending="$(__print_style --bold='Checking out ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				success="$(__print_style --success='Checked out ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				failure="$(__print_style --error='Failed to checkout ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				eval-helper --quiet --pending="$pending" --success="$success" --failure="$failure" \
+					-- git checkout "$branch" || return
+			fi
+
+			# do the pull, applying the remote changes to the local branch
 			pending="$(__print_style --bold='Pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 			success="$(__print_style --success='Pulled ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 			failure="$(__print_style --error='Failed pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
