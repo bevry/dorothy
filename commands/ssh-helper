@@ -8,71 +8,74 @@ function ssh_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >&2
+		__print_help "$@" <<-EOF || return
 			ABOUT:
-			Helpers for interacting with SSH.
+			Helpers for interacting with SSH. Includes support for the 1Password SSH Agent.
 
 			USAGE:
-			ssh-helper <install|update|setup|configure>
-				[--configure]
+			\`ssh-helper [...options] <action> [...arguments]\`
 
-			    Ensure SSH is configured correctly. Includes support for the 1Password SSH Agent.
+			OPTIONS:
+			--[no-]reconfigure
+			    Whether to re-prompt and re-save configuration settings.
+			--[no-]fallback
+			    If disabled, prevents installation of fallbacks to install dependencies.
+			--[no-]deps
+			    If disabled, prevents installation of depedencies, such as gpg etc.
+			--[no-]slim
+			    If enabled, disables reconfiguration, fallbacks, and dependencies.
 
-			ssh-helper new
-			  <filename>
-			  <comment, e.g. your email>
-
+			ACTIONS:
+			new <filename> <comment, e.g. your email>
 			    Generate a new SSH key with appropriate conventions.
 
-			ssh-helper add
-
+			add
 			    Make the SSH agent aware of all your SSH keys.
 
-			ssh-helper permissions
-
+			permissions
 			    Correct the permissions for the SSH files.
 
-			ssh-helper test
-			  <server URI>
-
+			test <server-uri>
 			    Test whether or not your SSH agent can correctly authenticate to the server.
 
-			ssh-helper connect
-			  [...ssh args, e.g. server URI]
-
-			    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the [ssh] command, as they are passed directly to it.
+			connect [...ssh args, e.g. server URI]
+			    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the \`ssh\` command, as they are passed directly to it.
 		EOF
-		if [[ $# -ne 0 ]]; then
-			__print_error "$@"
-		fi
+		# @todo not all actions are documented!
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item action='' option_args=() option_configure=''
+	local item action='' option_args=() option_reconfigure='' option_fallback='' option_deps=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		# install|update|setup|configure
+		# <shared actions between many setup commands>
 		'setup')
 			action='setup'
-			# option_configure will autodetect
+			# option_reconfigure will autodetect
 			;;
 		'update')
 			action='setup'
-			if [[ -z $option_configure ]]; then
-				option_configure='no'
+			if [[ -z $option_reconfigure ]]; then
+				option_reconfigure='no'
 			fi
 			;;
 		'install' | 'configure')
 			action='setup'
-			if [[ -z $option_configure ]]; then
-				option_configure='yes'
+			if [[ -z $option_reconfigure ]]; then
+				option_reconfigure='yes'
 			fi
 			;;
-		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
+		# </shared actions between many setup commands>
+		# <shared options between many setup commands>
+		'--no-reconfigure'* | '--reconfigure'*) __flag --source={item} --target={option_reconfigure} --affirmative --coerce ;;
+		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
+		'--no-deps'* | '--deps'*) __flag --source={item} --target={option_deps} --affirmative --coerce ;;
+		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_reconfigure} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
+		# </shared options between many setup commands>
 		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			action="$item"
@@ -82,6 +85,13 @@ function ssh_helper() (
 			;;
 		esac
 	done
+
+	# slim options
+	local slim_options=(
+		--reconfigure="$option_reconfigure"
+		--fallback="$option_fallback"
+		--deps="$option_deps"
+	)
 
 	# ensure valid action
 	local actions=(
@@ -140,8 +150,8 @@ function ssh_helper() (
 		op_sock="$(get_op_sock)"
 
 		# configure if empty or desired
-		if [[ -z $SSH_IDENTITY_AGENT && -z $option_configure ]]; then
-			option_configure='yes'
+		if [[ -z $SSH_IDENTITY_AGENT && -z $option_reconfigure ]]; then
+			option_reconfigure='yes'
 		fi
 
 		# 1password alias to op
@@ -159,7 +169,7 @@ function ssh_helper() (
 		# confirm the configuration is actually available
 		if [[ -n $op_sock ]]; then
 			if [[ $SSH_IDENTITY_AGENT == 'op' ]]; then
-				if [[ $option_configure == 'no' ]] || confirm --linger --positive --ppid=$$ -- '1Password SSH Agent is still available, continue to use it?'; then
+				if [[ $option_reconfigure == 'no' ]] || confirm --linger --positive --ppid=$$ -- '1Password SSH Agent is still available, continue to use it?'; then
 					SSH_IDENTITY_AGENT='op'
 				else
 					SSH_IDENTITY_AGENT=''
@@ -170,7 +180,7 @@ function ssh_helper() (
 				else
 					SSH_IDENTITY_AGENT=''
 				fi
-			elif [[ $option_configure != 'no' ]]; then
+			elif [[ $option_reconfigure != 'no' ]]; then
 				if confirm --linger --negative --ppid=$$ -- "1Password SSH agent is available, use it instead of [$SSH_IDENTITY_AGENT]?"; then
 					SSH_IDENTITY_AGENT='op'
 				else
@@ -189,7 +199,7 @@ function ssh_helper() (
 		fi
 
 		# Save ssh agent configuration before we replace aliases
-		if [[ $option_configure == 'yes' ]]; then
+		if [[ $option_reconfigure == 'yes' ]]; then
 			dorothy-config 'git.bash' --prefer=local -- \
 				--field='SSH_IDENTITY_AGENT' --value="$SSH_IDENTITY_AGENT"
 		fi
@@ -224,8 +234,7 @@ function ssh_helper() (
 			--find='AddKeysToAgent .+' --replace='AddKeysToAgent yes'
 
 		# trim the identity segment
-		# @todo replace with `echo-regexp` and `echo-write`
-		sd --flags mis '# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' '' "$HOME/.ssh/config"
+		echo-regexp -gis --regexp='# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' --replace='' <"$HOME/.ssh/config" | echo-write --atomic -- "$HOME/.ssh/config"
 
 		# and add it back in if desired
 		if [[ -n $SSH_IDENTITY_AGENT ]]; then
@@ -243,7 +252,7 @@ function ssh_helper() (
 		# ---------------------------------
 		# SSH Keys
 
-		if [[ $option_configure != 'no' ]]; then
+		if [[ $option_reconfigure != 'no' ]]; then
 			__print_style --header3='Add SSH Keys to SSH Agent'
 			if confirm --linger --negative --ppid=$$ -- 'Do you want to (re-)add your SSH keys to the SSH agent?'; then
 				ssh_add
@@ -270,9 +279,11 @@ function ssh_helper() (
 		__print_style --code="$(ssh-keygen -R github.com)"
 
 		# add new key, using the github recommended method
-		setup-util-curl --quiet --optional
-		setup-util-jq --quiet --optional
-		setup-util-deno --quiet --optional
+		if [[ $option_deps != 'no' ]]; then
+			setup-util-curl --quiet --optional "${slim_options[@]}"
+			setup-util-jq --quiet --optional "${slim_options[@]}"
+			setup-util-deno --quiet --optional "${slim_options[@]}"
+		fi
 		# fetch and extract keys, prepend [github.com ] to non-empty-lines (non-empty necessary for sd), append to known_hosts
 		if __command_exists -- curl jq deno && fetch 'https://api.github.com/meta' | jq -r '.ssh_keys | .[]' | echo-regexp -fgmn '^(.+)$' 'github.com $1' >>"$HOME/.ssh/known_hosts"; then
 			: # success
@@ -295,7 +306,7 @@ function ssh_helper() (
 
 		# check
 		if [[ -z $name ]]; then
-			help 'Missing <filename> in [ssh-helper new <filename>].'
+			help 'Missing <filename> in ' --code='ssh-helper new <filename>'
 		fi
 
 		# prepare

@@ -124,7 +124,7 @@ function git_helper() (
 			    --[no-]test
 			        If enabled, test the connection to <remote>.
 			        Will default to enabled if <remote> and <url> is provided with <mode:apply>.
-			url [...arguuments]
+			url [...arguments]
 			    Alias for \`remote --result=url [...arguments]\`
 
 			verify
@@ -343,14 +343,12 @@ function git_helper() (
 			shift
 			case "$item" in
 			--no-check* | --check*) __flag --source={item} --target={check} --affirmative --coerce || return ;;
-			--no-remote* | --remote*) __flag --source={item} --target={remote} --affirmative --no-coerce || return ;;
 			--no-branch* | --branch*) __flag --source={item} --target={branch} --affirmative --no-coerce || return ;;
-			--no-head* | --head*) __flag --source={item} --target={head} --affirmative --coerce || return ;;
 			--no-active* | --active*) __flag --source={item} --target={active} --affirmative --coerce || return ;;
-			--no-default* | --default*) __flag --source={item} --target={default} --affirmative --coerce || return ;;
+			--no-head* | --head*) __flag --source={item} --target={head} --affirmative --coerce || return ;;
 			--no-local* | --local*) __flag --source={item} --target={local} --affirmative --coerce || return ;;
-			--no-global* | --global*) __flag --source={item} --target={global} --affirmative --coerce || return ;;
-			--no-env* | --env*) __flag --source={item} --target={env} --affirmative --coerce || return ;;
+			--no-remote* | --remote*) __flag --source={item} --target={remote} --affirmative --no-coerce || return ;;
+			--no-default* | --default*) __flag --source={item} --target={default} --affirmative --coerce || return ;;
 			--no-usual* | --usual*) __flag --source={item} --target={usual} --affirmative --coerce || return ;;
 			--no-verify* | --verify*) __flag --source={item} --target={verify} --affirmative --coerce || return ;;
 			--*) __unrecognised_flag "$item" || return ;;
@@ -358,112 +356,162 @@ function git_helper() (
 			esac
 		done
 
-		# adjustments
-		if [[ $branch == 'yes' ]]; then
-			branch=''
-		fi
-		if [[ $remote == 'yes' ]]; then
-			remote=''
-		fi
-
 		# on a fresh init
 		# `git rev-parse --abbrev-ref HEAD` will output HEAD but error
 		# and `git branch -a` will output:
 		# remotes/origin/HEAD -> origin/master
 		# remotes/origin/master
 
-		# branches
-		local branches=() temp
-		if [[ -n $branch && $branch != 'no' && $branch != 'yes' ]]; then
-			branches+=("$branch")
+		# adjustments for user error due to common conventions
+		if [[ $branch =~ ^(yes|no)$ ]]; then
+			branch=''
 		fi
-		if [[ $active == 'yes' || ($active != 'no' && -z $branch) ]]; then
+
+		# compile the branches
+		local branches=() defaults=() skips=() local_branches=() remote_branches=() refs=() temp_list=() temp
+
+		# add the argument branch to defaults
+		if [[ -n $branch ]]; then
+			defaults+=("$branch")
+			skips+=("$branch")
+		fi
+
+		# add active branch
+		if [[ $active != 'no' ]]; then
 			temp="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || :)"
 			if [[ -n $temp ]]; then
 				branches+=("$temp")
-			fi
-		fi
-		if [[ $default == 'yes' || ($default != 'no' && -z $branch) ]]; then
-			if [[ $local != 'no' ]]; then
-				temp="$(git config --local init.defaultBranch 2>/dev/null || :)"
-				if [[ -n $temp ]]; then
-					branches+=("$temp")
-				fi
-			fi
-			if [[ $global != 'no' ]]; then
-				temp="$(git config --global init.defaultBranch 2>/dev/null || :)"
-				if [[ -n $temp ]]; then
-					branches+=("$temp")
+				defaults+=("$temp")
+				if [[ $active == 'yes' ]]; then
+					skips+=("$temp")
 				fi
 			fi
 		fi
-		if [[ $env == 'yes' || ($env != 'no' && -z $branch) ]]; then
+
+		# add local branches
+		__split --target={local_branches} --overwrite --no-zero-length --invoke \
+			-- git branch --list --format='%(refname:short)'
+		if [[ $local != 'no' ]]; then
+			branches+=("${local_branches[@]}")
+		fi
+
+		# add remote branches, and prep filter
+		__split --target={temp_list} --overwrite --no-zero-length --invoke \
+			-- git branch --list --remotes --format='%(refname)'
+		if [[ -n $remote && $remote != 'no' && $remote != 'yes' ]]; then
+			for temp in "${temp_list[@]}"; do
+				if [[ $temp == "refs/remotes/$remote/"* ]]; then
+					remote_branches+=("${temp#refs/remotes/*/}")
+				fi
+			done
+			if [[ ${#remote_branches[@]} -eq 0 ]]; then
+				__print_error 'The desired remote of ' --value="$remote" ' has no branches in the repository at ' --path="$option_path" '. Perhaps you need to fetch first.' || return
+				return 93 # ENOATTR 93 Attribute not found
+			fi
+		else
+			remote_branches+=("${temp_list[@]#refs/remotes/*/}")
+		fi
+		if [[ $remote != 'no' ]]; then
+			branches+=("${remote_branches[@]}")
+		fi
+
+		# add default branches
+		if [[ $default != 'no' ]]; then
+			temp="$(git config --local init.defaultBranch 2>/dev/null || :)"
+			if [[ -n $temp ]]; then
+				defaults+=("$temp")
+				if [[ $default == 'yes' ]]; then
+					skips+=("$temp")
+				fi
+			fi
 			if [[ -n $GIT_DEFAULT_BRANCH ]]; then
-				branches+=("$GIT_DEFAULT_BRANCH")
+				defaults+=("$GIT_DEFAULT_BRANCH")
+				if [[ $default == 'yes' ]]; then
+					skips+=("$GIT_DEFAULT_BRANCH")
+				fi
+			fi
+			temp="$(git config --global init.defaultBranch 2>/dev/null || :)"
+			if [[ -n $temp ]]; then
+				defaults+=("$temp")
+				if [[ $default == 'yes' ]]; then
+					skips+=("$temp")
+				fi
 			fi
 		fi
-		if [[ $usual == 'yes' || ($usual != 'no' && -z $branch) ]]; then
-			branches+=(main master)
+
+		# add usual
+		if [[ $usual != 'no' ]]; then
+			defaults+=(main master)
 		fi
 
 		# unique the branches
 		__unique --source+target={branches} || return
+		__unique --source+target={defaults} || return
+		__unique --source+target={skips} || return
 
 		# evict head branches
 		if [[ $head == 'no' ]]; then
 			# as we have done unique, there will only be one
 			__evict --source+target={branches} --first --optional --value='HEAD' || return
+			__evict --source+target={defaults} --first --optional --value='HEAD' || return
+			__evict --source+target={skips} --first --optional --value='HEAD' || return
+		fi
+
+		# if we are filtering, then filter
+		local filtered
+		if [[ $local == 'no' ]]; then
+			# evict branches that are only local
+			filtered=()
+			for temp in "${branches[@]}"; do
+				if ! __has --source={local_branches} -- "$temp" || __has --source={remote_branches} -- "$temp"; then
+					filtered+=("$temp")
+				fi
+			done
+			branches=("${filtered[@]}")
+		fi
+		if [[ $remote == 'no' ]]; then
+			# evict branches that are only remote
+			filtered=()
+			for temp in "${branches[@]}"; do
+				if ! __has --source={remote_branches} -- "$temp" || __has --source={local_branches} -- "$temp"; then
+					filtered+=("$temp")
+				fi
+			done
+			branches=("${filtered[@]}")
 		fi
 
 		# validate
 		if [[ ${#branches[@]} -eq 0 ]]; then
+			__print_error 'No branches at ' --path="$option_path" ' matched the requirements.' || return
 			return 93 # ENOATTR 93 Attribute not found
 		fi
 
-		# if not verify, just do the first result
+		# if not verify, then add skips then defaults to branches
 		if [[ $verify == 'no' ]]; then
-			__print_lines "${branches[0]}"
-			return 0
+			branches+=("${skips[@]}" "${defaults[@]}")
+			__unique --source+target={branches} || return
 		fi
 
-		# verify branch locally then remotely
-		__affirm_length_defined "${#branches[@]}" '<branch>' || return
-		local found=() fetched_remote='no'
-		for branch in "${branches[@]}"; do
-			# local
-			if [[ $local != 'no' ]] && git rev-parse --verify --quiet "$branch" &>/dev/null; then
-				found+=("$branch")
-				continue
-			fi
-			# remote
-			if [[ $remote != 'no' ]]; then
-				# remote and local branches, designed specially for this purpose:
-				# git rev-parse --verify --quiet "$remote/$branch" &>/dev/null || return
-				# remote and local branches:
-				# git rev-parse --abbrev-ref "$remote/$branch" &>/dev/null || return
-				if [[ $fetched_remote == 'no' ]]; then
-					remote="$(__remote --remote="$remote")" || return
-					fetched_remote='yes'
-				fi
-				if git rev-parse --verify --quiet "$remote/$branch" &>/dev/null || {
-					# try fetch the git remote and try again
-					git fetch "$remote" &>/dev/null && git rev-parse --verify --quiet "$remote/$branch" &>/dev/null
-				}; then
-					found+=("$branch")
-				fi
+		# if we can skip, then skip
+		for temp in "${skips[@]}"; do
+			if __has --source={branches} -- "$temp"; then
+				__print_lines "$temp" || return
+				return 0
 			fi
 		done
 
-		# handle
-		case "${#found[@]}" in
-		0) return 93 ;; # ENOATTR 93 Attribute not found
-		1) __print_lines "${found[0]}" ;;
-		*) choose --linger --required --no-confirm-solo \
+		# if solo, then skip confirm which lingers
+		if [[ ${#branches[@]} -eq 1 ]]; then
+			__print_lines "${branches[0]}" || return
+			return 0
+		fi
+
+		# select
+		choose --linger --required --no-confirm-solo \
 			--question="Which branch to select for the repository?" \
 			--question="$option_path" \
-			--default-exact="${found[0]}" \
-			-- "${found[@]}" || return ;;
-		esac
+			--defaults-exact="$(__print_lines "${skips[@]}" "${defaults[@]}")" \
+			-- "${branches[@]}" || return
 
 		# done
 		return 0
@@ -665,7 +713,7 @@ function git_helper() (
 			update_repo_config='yes'
 			defaults=(
 				"$protocol"
-				"$(git config git.protocol 2>/dev/null || :)"
+				"$(git config --local git.protocol 2>/dev/null || :)"
 				"$GIT_PROTOCOL"
 				"$(git config --global git.protocol 2>/dev/null || :)"
 			)
@@ -675,6 +723,7 @@ function git_helper() (
 			__unique --source+target={defaults} || return
 			__evict --source+target={defaults} --optional --first --value='' || return
 		fi
+		# __dump {protocol} {protocols} {defaults} {mode} {GIT_PROTOCOL} >&2 || return
 
 		# this choose selects but also filters to tested protocols
 		# @todo update __load_protocols to test reotes instead of generic protocol testing
@@ -686,7 +735,7 @@ function git_helper() (
 			if [[ -n $protocol && $update_repo_config == 'yes' ]]; then
 				# this could fail if it isn't already init'd
 				# however, it is the best option, as it persists regardless of subshell
-				git config git.protocol "$protocol" 2>/dev/null || :
+				git config --local git.protocol "$protocol" 2>/dev/null || :
 				# do this, but it won't have an effect due to it not escaping the subshell
 				if [[ -z $GIT_PROTOCOL ]]; then
 					GIT_PROTOCOL="$protocol"
@@ -736,6 +785,18 @@ function git_helper() (
 	# =================================
 	# URLs
 
+	function __get_username_fallback {
+		local username
+		username="$(get-profile username || :)"
+		if [[ -z $username ]]; then
+			return 93 # ENOATTR 93 Attribute not found
+		fi
+		if is-generic -- "$username"; then
+			return 93 # ENOATTR 93 Attribute not found
+		fi
+		__print_lines "$username" || return
+	}
+
 	function __format_url_to_protocol {
 		# process
 		local item protocol='' url=''
@@ -751,29 +812,50 @@ function git_helper() (
 		done
 
 		# ensure
+		local original_url="$url"
 		__affirm_value_is_defined "$protocol" '<protocol>' || return
 		if ! [[ $protocol =~ ^(https|ssh)$ ]]; then
 			return 14 # EFAULT 14 Bad address
 		fi
 
 		# convert urns
-		local where='' username='' project=''
+		local where='' slug=''
 		if [[ $url =~ ^(gh|github): ]]; then
-			# github:username/project
+			# github:<project>
+			# github:<username>/<project>
 			where='github'
-			__replace --source={url} --keep-after-first=':' --keep-before-first='/' --target={username} || return
-			__replace --source={url} --keep-after-last='/' --target={project} || return
+			__replace --source={url} --keep-after-first=':' --target={slug} || return
 		elif [[ $url =~ ^(gl|gitlab): ]]; then
+			# gitlab:<project>
+			# gitlab:<username>/<project>
 			where='gitlab'
-			__replace --source={url} --keep-after-first=':' --keep-before-first='/' --target={username} || return
-			__replace --source={url} --keep-after-last='/' --target={project} || return
+			__replace --source={url} --keep-after-first=':' --target={slug} || return
 		elif [[ $url =~ ^[^:/]+/[^:/]+$ ]]; then
-			# username/project, assume github
+			# <project>
+			# <username>/<project>
+			# assume github
 			where='github'
-			__replace --source={url} --keep-before-first='/' --target={username} || return
-			__replace --source={url} --keep-after-first='/' --target={project} || return
+			slug="$url"
 		fi
-		if [[ -n $username && -n $project ]]; then
+		if [[ -n $slug ]]; then
+			local username='' project=''
+			if [[ $slug == */* ]]; then
+				__replace --source={url} --keep-before-first='/' --target={username} || return
+				__replace --source={url} --keep-after-last='/' --target={project} || return
+			else
+				project="$slug"
+			fi
+			if [[ -z $project ]]; then
+				__print_error 'The URL ' --value="$original_url" ' is invalid as it does not contain a project name.' || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			if [[ -z $username ]]; then
+				username="$(__get_username_fallback)" || :
+			fi
+			if [[ -z $username ]]; then
+				__print_error 'The URL ' --value="$original_url" ' is did not contain a username, and one could not be inferred.' || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
 			if [[ $protocol == 'https' ]]; then
 				__print_lines "https://$where.com/$username/$project.git" || return
 			else
@@ -808,6 +890,12 @@ function git_helper() (
 		subpath="${url#*:}"
 		if [[ -z $subpath || $subpath == "$url" ]]; then
 			subpath="${url#*/}"
+		fi
+
+		# validate
+		if [[ -z $domain || -z $subpath ]]; then
+			__print_error 'The URL ' --value="$original_url" ' was malformed, could not determine its domain and subpath.' || :
+			return 22 # EINVAL 22 Invalid argument
 		fi
 
 		# format
@@ -954,19 +1042,19 @@ function git_helper() (
 				__print_error 'The remote ' --variable-value={remote} ' resulted in ' --url="$result_url" ' instead of the desired ' --url="$custom_url" || :
 
 				# and check to see if it was git config rewrite rules to blame
-				local global_lines='' local_lines=''
+				local local_lines='' global_lines=''
+				local_lines="$(git config --local --list | grep --fixed-strings --regexp='.insteadof=')"
+				if [[ -n $local_lines ]]; then
+					__print_style --stderr --bold='These rules of your local git config could be to blame:' --newline --code="$local_lines" || :
+				fi
 				global_lines="$(git config --global --list | grep --fixed-strings --regexp='.insteadof=')" || :
 				if [[ -n $global_lines ]]; then
 					__print_style --stderr --bold='These rules of your global git config could be to blame:' --newline --code="$global_lines" || :
 				fi
-				local_lines="$(git config --list | grep --fixed-strings --regexp='.insteadof=')"
-				if [[ -n $local_lines ]]; then
-					__print_style --stderr --bold='These rules of your global git config could be to blame:' --newline --code="$local_lines" || :
-				fi
 				if [[ -n $local_lines || -n $local_lines ]]; then
 					__print_style --stderr --notice='Remove them running the following:' || :
+					echo-regexp -gomn '^(.+)=.*$' 'git config --local --unset $1' -- "$local_lines" >&2 || :
 					echo-regexp -gomn '^(.+)=.*$' 'git config --global --unset $1' -- "$local_lines" >&2 || :
-					echo-regexp -gomn '^(.+)=.*$' 'git config --unset $1' -- "$local_lines" >&2 || :
 				fi
 
 				# note the failure
@@ -989,9 +1077,9 @@ function git_helper() (
 			local remote_url pending success failure status
 			# trunk-ignore(shellcheck/SC2034)
 			remote_url="$(git remote get-url "$remote")" || return
-			pending="$(__print_style --bold='Testing ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
-			success="$(__print_style --success='Using ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
-			failure="$(__print_style --error='Failed ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
+			pending="$(__print_style --bold='Testing' ' ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
+			success="$(__print_style --success='Using' ' ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
+			failure="$(__print_style --error='Failed' ' ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
 			eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 				-- git fetch --dry-run "$remote"
 		}
@@ -1139,48 +1227,44 @@ function git_helper() (
 			# handle remote repository setup
 			if [[ $where =~ ^(github|gitlab|custom)$ ]]; then
 				# validate
-				local username='' default cli enter_or_confirm='Enter' repo_slug remote_slug conflict_choice
-				if [[ -z $url ]]; then
-					# prepare username default, and clear generic usernames
-					if [[ -z $username ]]; then
-						username="$(get-profile username || :)"
-						if [[ -n $username ]] && is-generic -- "$username"; then
-							username=''
-						fi
-					fi
-				fi
+				local username='' default cli enter_or_confirm='Enter' repo_slug remote_slug remote_slug__styled conflict_options conflict_choice web_url
 				while :; do
 					default='' cli='' repo_slug='' remote_slug=''
 					if [[ $where != 'custom' ]]; then
 						default+="$where:"
 					fi
 					if [[ -n $username ]]; then
+						# for subsequent loops, prefill username on next loops
+						# it isn't needed, hence why we don't prefill it for the first loop
 						default+="$username/"
 					fi
 					default+="$project"
 					url="$(
 						ask --linger --default="$default" \
 							"$enter_or_confirm the repository clone URL for your $option_label:" \
-							'e.g. github:username/project' \
-							'e.g. https://github.com/username/project.git' \
-							'e.g. ssh://git@github.com/balupton/dotfiles.git' \
-							'e.g. git@github.com:balupton/dotfiles.git'
+							'e.g. github:<project>' \
+							'e.g. github:<username>/<project>' \
+							'e.g. https://github.com/<username>/<project>.git' \
+							'e.g. ssh://git@github.com/<username>/<project>.git' \
+							'e.g. git@github.com:<username>/<project>.git'
 					)"
 					if [[ -z $url || $url == 'local' ]]; then
 						url=''
 						where='local'
 						break
 					fi
-					url="$(__format_url_to_protocol --url="$url" --protocol=https)" || return
-					if [[ -z $url || $url == 'local' ]]; then
+					url="$(__format_url_to_protocol --url="$url" --protocol=https)" || :
+					if [[ -z $url ]]; then
 						url=''
 						where='local'
 						break
 					fi
+					web_url="${url%.git}"
 					if [[ $url == *github.com* ]]; then
 						where='github'
 						setup-util-gh --confirm --optional
-						if __command_exists -- gh; then
+						# can only use the gh CLI if it is authenticated
+						if __command_exists -- gh && gh auth status &>/dev/null; then
 							cli='gh'
 						fi
 					elif [[ $url == *gitlab.com* ]]; then
@@ -1195,6 +1279,7 @@ function git_helper() (
 
 					# make the repo slug
 					if [[ -n $cli ]]; then
+						# update vars for next loops and for debugging
 						__replace --source={url} --keep-before-last='/' --keep-after-first='.com' --pattern='[/:]' --target={username} || return
 						__replace --source={url} --keep-after-last='/' --keep-before-first='.git' --target={project} || return
 						repo_slug="$username/$project"
@@ -1206,20 +1291,28 @@ function git_helper() (
 						if [[ $remote_slug == "$repo_slug" ]]; then
 							break
 						else
-							conflict_choice="$(
-								choose --required --label --question="When verifying $repo_slug it redirected to $remote_slug. What do you want to do?" -- \
-									create "Create a new repository at $repo_slug" \
-									change "Use $remote_slug instead" \
-									redirect "Use $repo_slug and have it redirect to $remote_slug for now" \
+							remote_slug__styled="$(__dump --value="$remote_slug" || :)"
+							if [[ -n $remote_slug ]]; then
+								conflict_options=(
+									create "Create a new repository at $repo_slug"
+									change "Use $remote_slug instead"
+									ignore "Use $repo_slug and have it redirect to $remote_slug for now"
 									rename "Rename $remote_slug to $repo_slug"
-							)"
+								)
+							else
+								conflict_options=(
+									create "Create a new repository at $repo_slug"
+									ignore "Use $repo_slug and ignore the verification failure"
+								)
+							fi
+							conflict_choice="$(choose --required --label --question="When verifying $repo_slug it redirected to $remote_slug__styled. What do you want to do?" -- "${conflict_options[@]}")"
 							case "$conflict_choice" in
 							create) : ;;
 							change)
 								url="https://$where.com/$remote_slug.git"
 								break
 								;;
-							redirect)
+							ignore)
 								break
 								;;
 							rename)
@@ -1232,9 +1325,9 @@ function git_helper() (
 						if glab repo view "$repo_slug" >/dev/null; then
 							break
 						fi
-					elif fetch --ok "$url"; then
+					elif fetch --ok "$web_url"; then
 						break
-					elif confirm --linger --bool --ppid=$$ -- "Unable to validate the repository exists. Does it actually exist?" "Go to $url and verify it exists."; then
+					elif confirm --linger --bool --ppid=$$ -- "Unable to validate the repository exists. Does it actually exist?" "Go to $web_url and verify it exists."; then
 						break
 					fi
 
@@ -1274,33 +1367,36 @@ function git_helper() (
 			# avoid merge conflicts
 			# this prevents the need for doing a `git status &>/dev/null` check. to make sure the HEAD is fresh
 			# although, doing the status check is a better idea perhaps
-			git config pull.ff only || return
+			git config --local pull.ff only || return
 
 			# the verify and test will handle the update failure
 			remote="$(__remote --apply --remote="$remote" --url="$url" --protocol="$protocol" --verify --test)" || return
 
 			# fetch all origins, branches, and prune remote deleted branches
 			local pending success failure
-			pending="$(__print_style --bold='Fetching ' --bold='all remotes' ' on ' --variable={option_path})" || return
-			success="$(__print_style --success='Fetched ' --bold='all remotes' ' on ' --variable={option_path})" || return
-			failure="$(__print_style --error='Failed fetching ' --bold='all remotes' ' on ' --variable={option_path})" || return
+			pending="$(__print_style --bold='Fetching' ' ' --bold='all remotes' ' on ' --variable={option_path})" || return
+			success="$(__print_style --success='Fetched' ' ' --bold='all remotes' ' on ' --variable={option_path})" || return
+			failure="$(__print_style --error='Failed to fetch' ' ' --bold='all remotes' ' on ' --variable={option_path})" || return
 			eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 				-- git fetch --all --prune || return
-
 
 			# if we pull on HEAD then it will pull from the desired branch, but it will not pull TO the desired branch, instead it will pull to the DEFAULT branch, which causes `bevry/dorothy-fixtures` to go from `master` to `main` which is then not linked back to `origin/master`
 			# as such, check if there are any local branches, and if not, then do a checkout of the brranch instead of a direct pull
 			# this is here, as we need the branch for strongbox
 			local operation
-			if [[ -z "$(git  branch --list 2>/dev/null || :)" ]]; then
-				# select the remote branch, and checkout later
-				branch="$(__branch --remote="$remote" --branch="$branch" --no-head --no-local --verify)" || return
+			if [[ -z "$(git branch --list 2>/dev/null || :)" ]]; then
+				# no local branches, so checkout later
 				operation='checkout'
 			else
-				# select the hopefully remote. branch, and pull later
-				branch="$(__branch --remote="$remote" --branch="$branch" --no-local --verify)" || return
+				# has local branches, so pull later
 				operation='pull'
 			fi
+
+			# if no branch, use the current branch, and filter to remote branches only
+			if [[ -z $branch ]]; then
+				branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || :)"
+			fi
+			branch="$(__branch --remote="$remote" --branch="$branch" --no-head --no-local --verify)" || return
 
 			# if strongbox, ensure configured before pulling
 			local strongbox_keyid
@@ -1312,7 +1408,8 @@ function git_helper() (
 				local local_strongbox_keyring
 				local_strongbox_keyring="$HOME/.strongbox_keyring"
 				function __check_keyring {
-					grep --quiet --fixed-strings --regexp="$strongbox_keyid" -- "$local_strongbox_keyring" || return
+					# ignore stderr if keyring doesn't exist yet
+					grep --quiet --fixed-strings --regexp="$strongbox_keyid" -- "$local_strongbox_keyring" 2>/dev/null || return
 				}
 				if ! __check_keyring; then
 					# strongbox is not configured
@@ -1333,11 +1430,11 @@ function git_helper() (
 						--code="$(edit --dry "$local_strongbox_keyring" || :)" --newline \
 						--newline \
 						'If VNC is enabled on this machine, run the following on your primary machine to then manually copy the Strongbox keyring to this machine:' --newline \
-						--code="$(echo-escape-command -- cat "$HOME/.strongbox_keyring" || :)" --newline \
+						--code="$(echo-escape-command --persist="~" -- cat "~/.strongbox_keyring" || :)" --newline \
 						--code="$(echo-escape-command -- open "vnc://$local_ip" || :)" --newline \
 						--newline \
 						'If SSH is enabled on this machine, run the following on your primary machine to copy the Strongbox keyring to this machine:' --newline \
-						--code="$(echo-escape-command -- fs-copy -- "$HOME/.strongbox_keyring" "${CURRENT_USER}@${local_ip}:${local_strongbox_keyring}" || :)" --newline \
+						--code="$(echo-escape-command --persist="~" -- fs-copy -- "~/.strongbox_keyring" "${CURRENT_USER}@${local_ip}:${local_strongbox_keyring}" || :)" --newline \
 						--newline \
 						'To enable SSH on this machine:' --newline \
 						'macOS via: ' --code='System Preferences > Sharing > Remote Login.' --newline \
@@ -1363,15 +1460,15 @@ function git_helper() (
 
 			# checkout or pull
 			if [[ $operation == 'checkout' ]]; then
-				pending="$(__print_style --bold='Checking out ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				success="$(__print_style --success='Checked out ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				failure="$(__print_style --error='Failed to checkout ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				pending="$(__print_style --bold='Checking out' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				success="$(__print_style --success='Checked out' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				failure="$(__print_style --error='Failed to checkout' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 					-- git checkout --track "$remote/$branch" || return
 			else
-				pending="$(__print_style --bold='Pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				success="$(__print_style --success='Pulled ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				failure="$(__print_style --error='Failed pulling ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				pending="$(__print_style --bold='Pulling' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				success="$(__print_style --success='Pulled' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				failure="$(__print_style --error='Failed to pull' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
 				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 					-- git pull "$remote" "$branch" || return
 			fi
@@ -1445,8 +1542,8 @@ function git_helper() (
 	author | author-update | update-author) __update_author "${option_args[@]}" ;;
 	# branches
 	branch) __branch "${option_args[@]}" ;;
-	active-branch | current-branch) __branch --active --no-default --no-env --no-usual --verify "${option_args[@]}" ;;
-	default-branch) __branch --no-active --verify "${option_args[@]}" ;;
+	active-branch | current-branch) __branch --active --verify "${option_args[@]}" ;;
+	default-branch) __branch --default --verify "${option_args[@]}" ;;
 	# commits
 	commit) __commit "${option_args[@]}" ;;
 	first-commit-url) __commit --first --url "${option_args[@]}" ;;

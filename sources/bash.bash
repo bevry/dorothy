@@ -151,6 +151,7 @@ function __command_required {
 	if [[ $COMMAND_REQUIRED__install == 'no' ]]; then
 		return 6 # ENXIO 6 Device not configured
 	fi
+	# @todo update this to be inlined into `setup-util` to make implementing the `--(fallback|deps|slim)` options easier
 	get-installer --first-success --invoke --quiet -- "${COMMAND_REQUIRED__commands[@]}" || return
 	# verify installation
 	for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
@@ -663,7 +664,7 @@ function __is_not_nounset {
 	[[ $- != *u* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 }
 
-# Whether the terminal supports the [/dev/tty] device file
+# Whether the terminal supports the `/dev/tty` device file
 if (: </dev/tty >/dev/tty) &>/dev/null; then
 	# This applies to:
 	# - normal execution: <cmd>
@@ -677,7 +678,7 @@ if (: </dev/tty >/dev/tty) &>/dev/null; then
 	IS_TTY_AVAILABLE='yes'
 else
 	# This applies to:
-	# - ssh -T execution: ssh -T localhost <cmd>
+	# - `ssh -T execution: ssh -T localhost <cmd>`
 	# - GitHub Actions execution
 	TERMINAL_OUTPUT_TARGET="${TERMINAL_OUTPUT_TARGET:-"/dev/stderr"}" # allow custom value for testing
 	# trunk-ignore(shellcheck/SC2034)
