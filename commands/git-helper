@@ -486,19 +486,34 @@ function git_helper() (
 			return 93 # ENOATTR 93 Attribute not found
 		fi
 
-		# if not verify, then add skips then defaults to branches
-		if [[ $verify == 'no' ]]; then
-			branches+=("${skips[@]}" "${defaults[@]}")
-			__unique --source+target={branches} || return
-		fi
-
-		# if we can skip, then skip
+		# skip now if the skip branch branch actually exists
+		# if not verifying, then just make it the first preference
+		# @todo this may be a mistake, and if not verifying, we may just want to return the first skip? but that seems strange
+		# maybe if not verifying, it should be the first skip that exists, otherwise the first skip that doesn't exist, otherwise the first default that exists, otherwise the first default that doesn't exist, ... but who knows
+		# need a use case that challanges this
 		for temp in "${skips[@]}"; do
 			if __has --source={branches} -- "$temp"; then
 				__print_lines "$temp" || return
 				return 0
 			fi
 		done
+
+		# handle verify vs no verify
+		if [[ $verify == 'no' ]]; then
+			# not verify, so we don't care if branches exist, so just prepend skips and defaults to branches
+			branches+=("${skips[@]}" "${defaults[@]}")
+			__unique --source+target={branches} || return
+		else
+			# redo branches in preferred order
+			temp_list=()
+			for temp in "${skips[@]}" "${defaults[@]}"; do
+				if __has --source={branches} -- "$temp"; then
+					temp_list+=("$temp")
+				fi
+			done
+			branches=("${temp_list[@]}")
+			__unique --source+target={branches} || return
+		fi
 
 		# if solo, then skip confirm which lingers
 		if [[ ${#branches[@]} -eq 1 ]]; then
@@ -1077,23 +1092,15 @@ function git_helper() (
 		fi
 
 		# test application
-		function __test {
-			local remote_url pending success failure status
-			# trunk-ignore(shellcheck/SC2034)
-			remote_url="$(git remote get-url "$remote")" || return
-			pending="$(__print_style --bold='Testing' ' ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
-			success="$(__print_style --success='Using' ' ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
-			failure="$(__print_style --error='Failed' ' ' --variable={remote} ' on ' --variable={option_path} ' to ' --variable={remote_url})" || return
-			eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
-				-- git fetch --dry-run "$remote"
-		}
 		function __test_with_fallback {
-			if __test; then
+			if eval-helper --quiet --wrap -- git fetch --dry-run "$remote"; then
 				return 0
 			fi
+			local tested_url
+			tested_url="$(git remote get-url "$remote")" || return
 			# @todo once `choose` supports `--inline` then change to `choose` instead of this `confirm` seesaw
 			if [[ $protocol == 'ssh' ]]; then
-				if confirm --positive --ppid=$$ -- "Protocol [$protocol] failed, try HTTPS?"; then
+				if confirm --positive --ppid=$$ -- "Testing $option_path remote $remote to $tested_url via $protocol failed, try HTTPS?"; then
 					protocol='https'
 					__set_remote_url "$https_url" || return
 					__test_with_fallback || return
@@ -1101,7 +1108,7 @@ function git_helper() (
 					return 1
 				fi
 			else
-				if confirm --positive --ppid=$$ -- "Protocol [$protocol] failed, try SSH?"; then
+				if confirm --positive --ppid=$$ -- "Testing $option_path remote $remote to $tested_url via $protocol failed, try SSH?"; then
 					protocol='ssh'
 					__set_remote_url "$ssh_url" || return
 					__test_with_fallback || return
@@ -1378,11 +1385,11 @@ function git_helper() (
 
 			# fetch all origins, branches, and prune remote deleted branches
 			local pending success failure
-			pending="$(__print_style --bold='Fetching' ' ' --bold='all remotes' ' on ' --variable={option_path})" || return
-			success="$(__print_style --success='Fetched' ' ' --bold='all remotes' ' on ' --variable={option_path})" || return
-			failure="$(__print_style --error='Failed to fetch' ' ' --bold='all remotes' ' on ' --variable={option_path})" || return
+			pending="$(__print_style --bold='Fetching' ' ' --path="$option_path" ' ' --variable={remote})" || return
+			success="$(__print_style --success='Fetched' ' ' --path="$option_path" ' ' --variable={remote})" || return
+			failure="$(__print_style --error='Failed to fetch' ' ' --path="$option_path" ' ' --variable={remote})" || return
 			eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
-				-- git fetch --all --prune || return
+				-- git fetch "$remote" --prune || return
 
 			# if we pull on HEAD then it will pull from the desired branch, but it will not pull TO the desired branch, instead it will pull to the DEFAULT branch, which causes `bevry/dorothy-fixtures` to go from `master` to `main` which is then not linked back to `origin/master`
 			# as such, check if there are any local branches, and if not, then do a checkout of the brranch instead of a direct pull
@@ -1464,15 +1471,15 @@ function git_helper() (
 
 			# checkout or pull
 			if [[ $operation == 'checkout' ]]; then
-				pending="$(__print_style --bold='Checking out' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				success="$(__print_style --success='Checked out' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				failure="$(__print_style --error='Failed to checkout' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				pending="$(__print_style --bold='Checking out' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return
+				success="$(__print_style --success='Checked out' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return
+				failure="$(__print_style --error='Failed to checkout' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return
 				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 					-- git checkout --track "$remote/$branch" || return
 			else
-				pending="$(__print_style --bold='Pulling' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				success="$(__print_style --success='Pulled' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
-				failure="$(__print_style --error='Failed to pull' ' ' --variable={branch} ' via ' --variable={remote} ' on ' --variable={option_path})" || return
+				pending="$(__print_style --bold='Pulling' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return
+				success="$(__print_style --success='Pulled' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return
+				failure="$(__print_style --error='Failed to pull' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return
 				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" \
 					-- git pull "$remote" "$branch" || return
 			fi
