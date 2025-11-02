@@ -39,27 +39,28 @@ Dorothy is a dotfile ecosystem featuring:
 
 ### Supported Platforms
 
-| Operating System                                  | Architecture                                   | Support                  |
-| ------------------------------------------------- | ---------------------------------------------- | ------------------------ |
-| 🍏 macOS                                          | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver, 🤖 CI   |
-| 🍏 macOS                                          | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
-| 🍏 macOS                                          | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
-| 🪟 Windows 10/11 [WSL2][WSL2] [Ubuntu][UbuntuWSL]      | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| 🍓 [Raspberry Pi OS with Desktop][PiOS]          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| 🍓 [Raspberry Pi OS Lite][PiOS]                  | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
-| ⭕️ [Ubuntu Desktop][UbuntuD]                           | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Desktop][UbuntuPi]                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Server][UbuntuS]                            | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ⭕️ [Ubuntu Server][UbuntuPi]                          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ꩜ [Debian][Debian]                                     | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI   |
-| ꩜ [Debian][Debian]                                     | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
-| ∞ [Fedora Workstation][FedoraW]                        | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 👐 [AlmaLinux][Alma]                                     | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI   |
-| ❍ [OpenMandriva][Mandriva] [Rock][Rock] [Rolling][Rolling]                                     | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI   |
-| ر [Devuan][Devuan]                                     | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI   |
+| Operating System                                                | Architecture                                   | Support                  |
+| --------------------------------------------------------------- | ---------------------------------------------- | ------------------------ |
+| 🍏 macOS                                                        | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                        | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                        | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
+| 🪟 Windows 10/11 [WSL2][WSL2] [Ubuntu][UbuntuWSL]               | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| 🍓 [Raspberry Pi OS with Desktop][PiOS]                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| 🍓 [Raspberry Pi OS Lite][PiOS]                                 | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| ⭕️ [Ubuntu Desktop][UbuntuD]                                    | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Desktop][UbuntuPi]                                   | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Server][UbuntuS]                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ⭕️ [Ubuntu Server][UbuntuPi]                                    | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ꩜ [Debian][Debian]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ꩜ [Debian][Debian]                                              | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| ∞ [Fedora Workstation][FedoraW]                                 | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ▲ [Arch][Arch]                                                  | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 👐 [AlmaLinux][Alma]                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ❍ [OpenMandriva][Mandriva] [Rock][Rock] [Rolling][Rolling]      | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ر [Devuan][Devuan]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE][OpenSUSE] [Leap][Leap] & [Tumbleweed][Tumbleweed] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 🐉 [Kali][Kali]                                      | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⭐ [Vanilla][Vanilla]                                     | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI   |
+| 🐉 [Kali][Kali]                                                 | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ⭐ [Vanilla][Vanilla]                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 
 [WSL2]: https://docs.microsoft.com/en-au/windows/wsl/
 [UbuntuWSL]: https://ubuntu.com/wsl
@@ -69,6 +70,7 @@ Dorothy is a dotfile ecosystem featuring:
 [UbuntuS]: https://ubuntu.com/download/server
 [Debian]: https://www.debian.org
 [FedoraW]: https://fedoraproject.org/workstation/
+[Arch]: https://wiki.archlinux.org/title/Arch_Linux
 [Alma]: https://almalinux.org
 [Mandriva]: https://www.openmandriva.org
 [Rock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
@@ -81,13 +83,12 @@ Dorothy is a dotfile ecosystem featuring:
 [Vanilla]: https://vanillaos.org
 
 <!--
-| ▲ [Manjaro][Manjaro] / [Arch][Arch]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| 𝚖 [Manjaro][Manjaro]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
 | ⭕️ [Ubuntu Server][UbuntuFive]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
 | ⛰ [Alpine][Alpine]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ⛰ [Alpine][Alpine]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
 
 [Manjaro]: https://manjaro.org/download/
-[Arch]: https://wiki.archlinux.org/title/Installation_guide
 [UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 [Alpine]: https://www.alpinelinux.org/downloads/
 [Rocky]: https://rockylinux.org
