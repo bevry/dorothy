@@ -17,17 +17,31 @@ function setup_python() (
 	local UV_INSTALL=()
 	load_dorothy_config 'setup.bash'
 
+	# deprecations
+	local deprecations='no'
+	if [[ ${#PIPX[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PIPX` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead.'
+		deprecations='yes'
+	fi
+	if [[ ${#PIP_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PIP_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead.'
+		deprecations='yes'
+	fi
+	if [[ ${#PYTHON2_PIP_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PYTHON2_PIP_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead. Or send a PR for `PYTHON2_INSTALL` which uses UV in the background.'
+		deprecations='yes'
+	fi
+	if [[ ${#PYTHON3_PIP_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PYTHON3_PIP_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead.  Or send a PR for `PYTHON3_INSTALL` which uses UV in the background.'
+		deprecations='yes'
+	fi
+	if [[ $deprecations == 'yes' ]]; then
+		return 6 # ENXIO 6 Device not configured
+	fi
+
 	# adjustments
 	__split --target={PYTHON_INSTALL} --no-zero-length --invoke -- \
 		dorothy-config --packages-var='PYTHON_INSTALL' -- "${PYTHON_INSTALL[@]}"
-	__split --target={PIP_INSTALL} --no-zero-length --invoke -- \
-		dorothy-config --packages-var='PIP_INSTALL' -- "${PIP_INSTALL[@]}"
-	__split --target={PYTHON2_PIP_INSTALL} --no-zero-length --invoke -- \
-		dorothy-config --packages-var='PYTHON2_PIP_INSTALL' -- "${PYTHON2_PIP_INSTALL[@]}"
-	__split --target={PYTHON3_PIP_INSTALL} --no-zero-length --invoke -- \
-		dorothy-config --packages-var='PYTHON3_PIP_INSTALL' -- "${PYTHON3_PIP_INSTALL[@]}"
-	__split --target={PIPX_INSTALL} --no-zero-length --invoke -- \
-		dorothy-config --packages-var='PIPX_INSTALL' -- "${PIPX_INSTALL[@]}"
 	__split --target={UV_INSTALL} --no-zero-length --invoke -- \
 		dorothy-config --packages-var='UV_INSTALL' -- "${UV_INSTALL[@]}"
 
@@ -35,19 +49,16 @@ function setup_python() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >&2
-			Setup the Python ecosystem (python, pip, pipx, uv).
+		__print_help "$@" <<-EOF || return
+			Setup the Python ecosystem via uv.
 
 			USAGE:
 			setup-python [...options] [install|update|setup|configure]
 
 			OPTIONS:
-			--configure
+			--[no-]configure
 			    Whether to prompt, confirm, or save configuration changes.
 		EOF
-		if [[ $# -ne 0 ]]; then
-			__print_error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
@@ -73,7 +84,7 @@ function setup_python() (
 	done
 
 	# check
-	if [[ -z "${PYTHON_INSTALL[*]}${PIP_INSTALL[*]}${PYTHON2_PIP_INSTALL[*]}${PYTHON3_PIP_INSTALL[*]}${PIPX_INSTALL[*]}${UV_INSTALL[*]}" ]]; then
+	if [[ -z "${PYTHON_INSTALL[*]}${UV_INSTALL[*]}" ]]; then
 		if [[ $option_configure == 'no' ]]; then
 			__print_style --dim='Setup of Python ecosystem skipped.'
 			return 0
@@ -92,122 +103,15 @@ function setup_python() (
 
 	# log
 	__print_style --h2="Install Python"
-	setup-util-python # @todo update this to use uv
+	setup-util-python
 	source "$DOROTHY/sources/environment.sh"
 	__print_style --g2="Install Python"
 
 	# =====================================
-	# PyEnv
-
-	# pyenv
-	# PYENV_ROOT="${PYENV_ROOT:-"$HOME/.pyenv"}"
-	# __print_lines '' 'Cleaning pyenv...'
-	# fs-remove --quiet --no-confirm --  "$PYENV_ROOT"
-	# if [[ -n "${PYENV_VERSION-}" ]]; then
-	#	__print_lines '' 'Ensuring pyenv is latest...'
-	# 	fetch https://pyenv.run | bash
-	# 	source "$DOROTHY/sources/environment.sh"
-	# 	pyenv install "$PYENV_VERSION"
-	# fi
-	# source "$DOROTHY/sources/environment.sh"
-
-	# =====================================
 	# Packages
 
-	# pip, pipx, user
-	local python_realpaths=()
-	function pip_install {
-		# python has a lot of symlinks so make sure we aren't doubling up
-		local python_bin="$1"
-		python_bin="$(type -P "$python_bin" || :)"
-		if [[ -z $python_bin ]]; then
-			return 0
-		fi
-		python_bin="$(fs-path --resolve -- "$python_bin" || :)"
-		if [[ -z $python_bin ]] || __has --source={python_realpaths} -- "$python_bin"; then
-			return 0
-		fi
-		python_realpaths+=("$python_bin")
+	# there use to be support for pip and pipx here, but it was dropped, as uv is superior
 
-		# log
-		__print_style --h2="packages for $python_bin"
-		__print_style --dim="$python_bin: $(type -P "$python_bin")"
-
-		# version specific prepare
-		local python_version pip_installer_url pip_installer pip_install=("${PIP_INSTALL[@]}")
-		if get-python-version "$python_bin" '2.'; then
-			python_version=2
-			pip_install+=("${PYTHON2_PIP_INSTALL[@]}")
-			pip_installer_url='https://bootstrap.pypa.io/pip/2.7/get-pip.py'
-		else
-			python_version=3
-			pip_install+=("${PYTHON3_PIP_INSTALL[@]}")
-			pip_installer_url='https://bootstrap.pypa.io/get-pip.py'
-		fi
-
-		# download pip installer
-		# filename must be get-pip.py, otherwise this error occurs:
-		# https://github.com/pypa/pip/issues/10809
-		# AssertionError: /usr/local/Cellar/python@3.9/3.9.10/Frameworks/Python.framework/Versions/3.9/lib/python3.9/distutils/core.py
-		pip_installer="$(fs-temp --cache --directory='dorothy' --directory='setup-python' --directory="$python_bin-$python_version" --file='get-pip.py')"
-		down --url="$pip_installer_url" --filepath="$pip_installer"
-		fs-own --permissions='+x' -- "$pip_installer"
-
-		# helpers
-		# @note: these cannot be separated from [setup-python] as it is dependent on the specific invoking python version
-		# depending on the situation, it may or may not have --break-system-packages
-		function __install_pip_inner {
-			eval-helper --verbose --wrap -- \
-				"$python_bin" "$pip_installer" --user --no-warn-script-location "$@" || return
-		}
-		# trunk-ignore(shellcheck/SC2120)
-		function __install_pip {
-			__install_pip_inner --break-system-packages "$@" || __install_pip_inner "$@" || return
-		}
-		function __pip_install_inner {
-			eval-helper --verbose --wrap -- \
-				"$python_bin" -m pip install --user --no-warn-script-location "$@" || return
-		}
-		function __pip_install {
-			__pip_install_inner --break-system-packages "$@" || __pip_install_inner "$@" || return
-		}
-
-		# install pip
-		# trunk-ignore(shellcheck/SC2119)
-		__install_pip
-		source "$DOROTHY/sources/environment.sh"
-
-		# install pip packages
-		if [[ ${#pip_install[@]} -ne 0 ]]; then
-			__print_style --h3="install ${#pip_install[@]} pip packages"
-			__pip_install "${pip_install[@]}"
-			__print_style --g3="install ${#pip_install[@]} pip packages"
-		fi
-
-		# install pipx
-		if [[ $python_version -eq 3 ]]; then
-			__pip_install --upgrade --force-reinstall pipx
-		fi
-
-		# done
-		__print_style --g2="packages for $python_bin"
-	}
-
-	# install
-	pip_install python
-	pip_install python2
-	pip_install python3
-	source "$DOROTHY/sources/environment.sh"
-
-	# pipx is installed via pip for each python v3 version
-	# however pipx packages exist in a single global space
-	if [[ ${#PIPX_INSTALL[@]} -ne 0 ]]; then
-		__print_style --h3="install ${#PIPX_INSTALL[@]} pipx packages"
-		setup-util --installer=PIPX -- "${PIPX_INSTALL[@]}"
-		__print_style --g3="install ${#PIPX_INSTALL[@]} pipx packages"
-	fi
-
-	# uv is global, with virtual python, it is also preferred, so use to install the generic PYTHON_INSTALL
 	# @todo update uv to also handle the PYTHON2 and PYTHON3 options, via PYTHON2_INSTALL and PYTHON3_INSTALL, or have UV_INSTALL include a python specifier
 	local uv_install=("${UV_INSTALL[@]}" "${PYTHON_INSTALL[@]}")
 	if [[ ${#uv_install[@]} -ne 0 ]]; then
@@ -215,23 +119,6 @@ function setup_python() (
 		setup-util --installer=UV -- "${uv_install[@]}"
 		__print_style --g3="install ${#uv_install[@]} uv packages"
 	fi
-
-	# =====================================
-	# Cleanup Caches
-
-	# fix pip installations for python versions that not longer exist
-	local pipdirs pipdir pip
-	pipdirs=("$HOME/Library/Python/"*)
-	for pipdir in "${pipdirs[@]}"; do
-		pip="$pipdir/bin/pip"
-		if ! "$pip" --version &>/dev/null; then
-			fs-remove --quiet --confirm --reason="$pip failed to execute, likely because it's python version is no longer installed/relevant, do you want to remove its cached packages?" -- "$pipdir"
-		fi
-	done
-
-	# fix pipx cache error, might not be needed anymore, hence why it is commented out:
-	# fix: Not removing existing venv /Users/balupton/.local/pipx/venvs/youtube-dl because it was not created in this session
-	# fs-remove --quiet --no-confirm -- "$HOME/.local/pipx" "$HOME/Library/Application Support/pipx"
 
 	# =====================================
 	# Finish
