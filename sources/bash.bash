@@ -527,20 +527,20 @@ BASH_VERSIONS_SUPPORTED=(
 # Things above 100% are working
 # Increments within a centigrade, e.g. 100% to 110%, are minor improvements or new features.
 # Increments of a centigrade, e.g. 100% to 200%, fix a significant bug.
-BASH_VERSIONS_SUPPORT=(
-	3.0 0%   # untested
-	3.1 0%   # untested
-	3.2 100% # passes, but bugs require workarounds
-	4.0 110% # passes, but bugs require workarounds, adds `read` defaults, adds `globstar`
-	4.1 0%   # broken as `__wait_for_semaphores` cannot detect updates
-	4.2 50%  # is-fs.bash broken, as crashes do not return the correct exit status
-	4.3 50%  # is-fs.bash broken, as crashes do not return the correct exit status
-	4.4 200% # working, but has `wait_for` issue (unsure if earlier versions also have the same issue)
-	5.0 210% # adds `EPOCHSECONDS`, `EPOCHREALTIME`
-	5.1 300% # fixes `wait_for`, adds case conversions, adds associative arrays
-	5.2 300% # adds nameref
-	5.3 310% # adds fltexpr
-)
+# BASH_VERSIONS_SUPPORT=(
+# 	3.0 0%   # untested
+# 	3.1 0%   # untested
+# 	3.2 100% # passes, but bugs require workarounds
+# 	4.0 110% # passes, but bugs require workarounds, adds `read` defaults, adds `globstar`
+# 	4.1 0%   # broken as `__wait_for_semaphores` cannot detect updates
+# 	4.2 50%  # is-fs.bash broken, as crashes do not return the correct exit status
+# 	4.3 50%  # is-fs.bash broken, as crashes do not return the correct exit status
+# 	4.4 200% # working, but has `wait_for` issue (unsure if earlier versions also have the same issue)
+# 	5.0 210% # adds `EPOCHSECONDS`, `EPOCHREALTIME`
+# 	5.1 300% # fixes `wait_for`, adds case conversions, adds associative arrays
+# 	5.2 300% # adds nameref
+# 	5.3 310% # adds fltexpr
+# )
 
 # convert a version (short and full) into its corresponding latest downloadable version identifier
 function __get_coerced_bash_version {

@@ -31,7 +31,6 @@ function __is_fs__options {
 	fi
 }
 
-# trunk-ignore(shellcheck/SC2034)
 # trunk-ignore(shellcheck/SC2168)
 local item option_inputs=() option_quiet='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 function __is_fs__args {

@@ -52,7 +52,7 @@ function __stdinargs__help_options {
 		    Disables colored output.
 	EOF
 }
-function stdinargs_options_help { __stdinargs__help_options; } # b/c alias
+function stdinargs_options_help { __stdinargs__help_options "$@"; } # b/c alias
 
 # This fetching the first defined function.
 function __print_first_function {
@@ -74,6 +74,7 @@ function __print_first_function {
 }
 
 # This is a helper callers of stdinargs can call to handle joining of pieces.
+# trunk-ignore(shellcheck/SC2168)
 local STDINARGS__pieces=0
 function __print_piece {
 	if [[ $STDINARGS__pieces -eq 0 ]]; then
@@ -118,7 +119,7 @@ function stdinargs {
 		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return
 
 		# deprecations
-		if __is_function_defined "on_no_lines" ]]; then
+		if __is_function_defined on_no_lines; then
 			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='__on_nothing' || return
 			function on_no_lines {
 				on_no_input "$@"
