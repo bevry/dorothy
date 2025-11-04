@@ -409,6 +409,8 @@ STYLE__MULTICOLOR__good2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underli
 STYLE__MULTICOLOR__END__good2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
 STYLE__MULTICOLOR__good3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_green}"
 STYLE__MULTICOLOR__END__good3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__intense_good3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_intense_green}"
+STYLE__MULTICOLOR__END__intense_good3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
 STYLE__MULTICOLOR__negative="${STYLE__MULTICOLOR__foreground_red}${STYLE__MULTICOLOR__bold}"
 STYLE__MULTICOLOR__END__negative="${STYLE__MULTICOLOR__END__foreground}${STYLE__MULTICOLOR__END__intensity}"
@@ -424,6 +426,8 @@ STYLE__MULTICOLOR__error2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underl
 STYLE__MULTICOLOR__END__error2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
 STYLE__MULTICOLOR__error3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_red}"
 STYLE__MULTICOLOR__END__error3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__intense_error3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_intense_red}"
+STYLE__MULTICOLOR__END__intense_error3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
 STYLE__MULTICOLOR__notice="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underline}${STYLE__MULTICOLOR__foreground_intense_yellow}" # on dark theme, this is your eyes that need help
 STYLE__MULTICOLOR__END__notice="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
@@ -441,6 +445,8 @@ STYLE__MULTICOLOR__notice2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__under
 STYLE__MULTICOLOR__END__notice2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
 STYLE__MULTICOLOR__notice3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_yellow}"
 STYLE__MULTICOLOR__END__notice3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__intense_notice3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_intense_yellow}"
+STYLE__MULTICOLOR__END__intense_notice3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
 STYLE__MULTICOLOR__info1="${STYLE__MULTICOLOR__background_blue}${STYLE__MULTICOLOR__foreground_intense_white}"
 STYLE__MULTICOLOR__END__info1="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
@@ -451,6 +457,8 @@ STYLE__MULTICOLOR__info2="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__underli
 STYLE__MULTICOLOR__END__info2="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__underline}${STYLE__MULTICOLOR__END__foreground}"
 STYLE__MULTICOLOR__info3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_blue}"
 STYLE__MULTICOLOR__END__info3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
+STYLE__MULTICOLOR__intense_info3="${STYLE__MULTICOLOR__bold}${STYLE__MULTICOLOR__foreground_intense_blue}"
+STYLE__MULTICOLOR__END__intense_info3="${STYLE__MULTICOLOR__END__intensity}${STYLE__MULTICOLOR__END__foreground}"
 
 STYLE__MULTICOLOR__redacted="${STYLE__MULTICOLOR__background_black}${STYLE__MULTICOLOR__foreground_black}" # alternative to conceal, which respects color themes
 STYLE__MULTICOLOR__END__redacted="${STYLE__MULTICOLOR__END__background}${STYLE__MULTICOLOR__END__foreground}"
@@ -1097,7 +1105,7 @@ function __print_style {
 					# handle special cases
 					case "$PRINT_STYLE__flag_style" in
 					black | red | green | yellow | blue | magenta | cyan | white | purple | gray | grey) PRINT_STYLE__flag_style="foreground_${PRINT_STYLE__flag_style}" ;;
-					intense_*) PRINT_STYLE__flag_style="foreground_intense_${PRINT_STYLE__flag_style:8}" ;;
+					intense_black | intense_red | intense_green | intense_yellow | intense_blue | intense_magenta | intense_cyan | intense_white | intense_purple | intense_gray | intense_grey) PRINT_STYLE__flag_style="foreground_intense_${PRINT_STYLE__flag_style:8}" ;;
 					/*) PRINT_STYLE__flag_style="slash_${PRINT_STYLE__flag_style:1}" ;;
 					*/)
 						__replace --source+target={PRINT_STYLE__flag_style} --trailing='/' || return
@@ -1161,6 +1169,11 @@ function __print_style {
 						PRINT_STYLE__item_content="$(__dump --variable="$PRINT_STYLE__item_content")" || return
 						continue
 						;;
+					help | man)
+						# trunk-ignore(shellcheck/SC2119)
+						PRINT_STYLE__item_content="$(__print_help <<<"$PRINT_STYLE__item_content" 2>&1)" || return
+						continue
+						;;
 					esac
 
 					# add the possibly modified style to the item styles
@@ -1218,27 +1231,11 @@ function __print_style {
 }
 
 # beta command, will change
+# trunk-ignore(shellcheck/SC2120)
 function __print_help {
 	__load_styles --save -- intensity bold dim code foreground_magenta foreground_green foreground_red
-	# {
-	# 	# echo-regexp -gm "^($command [- a-zA-Z0-9.=<>[|\]]+)$" "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
-	# 	local REPLY before_actions='' within_actions='' after_actions=''
-	# 	__read_whole
-	# 		printf '%s' "$REPLY"
-	# 	else
-	# 		__replace --source={REPLY} --target={before_actions} --optional --keep-before-first='ACTIONS:'
-	# 		__replace --source={REPLY} --target={within_actions} --optional --replace-before-first='ACTIONS:'
-	# 		__replace --source={within_actions} --target={after_actions} --replace-before-first='EXAMPLES:' 2>/dev/null || after_actions=''
-	# 		__replace --source+target={within_actions} --optional --keep-before-first='EXAMPLES:'
-	# 		if [[ -n $within_actions ]]; then
-	# 			within_actions="$(echo-regexp -gm "^([[\-a-z0-9][{}()[\]<>\-._:=| a-zA-Z0-9]+)$" "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" -- "$within_actions")"$'\n\n'
-	# 		fi
-	# 		# printf '%s' "<before>$before_actions</before><actions>$within_actions</actions><after>$after_actions</after>"
-	# 		printf '%s' "${before_actions}${within_actions}${after_actions}"
-	# 	fi
-	# } |
 	cat |
-		echo-regexp -gm '^([\t ]*)- ' '$1• ' |
+		echo-regexp -gm '^([\t ]*)[-*] ' '$1• ' |
 		echo-regexp -gm '^([A-Z ]+\:)$' "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
 		echo-regexp -gm '^( *)([[<\-a-z][{}()[\]<>\-._:=*`?/| a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
 		echo-regexp -g '\[0\](\s)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |

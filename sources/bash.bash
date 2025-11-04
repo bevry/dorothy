@@ -5880,7 +5880,6 @@ function __split {
 }
 
 # join by the delimiter
-# __join <delimiter> -- ...<element>
 function __join {
 	local JOIN__delimiter=$'\n'
 	# <multi-source helper arguments>
@@ -5941,6 +5940,49 @@ function __join {
 		JOIN__result+="${JOIN__values[JOIN__index]}"
 	done
 	__to --source={JOIN__result} --mode="$JOIN__mode" --targets={JOIN__targets} || return
+}
+
+# sort
+function __sort {
+	local SORT__args=()
+	# <multi-source-value helper arguments>
+	local SORT__item SORT__elements=() SORT__targets=() SORT__mode=''
+	while [[ $# -ne 0 ]]; do
+		SORT__item="$1"
+		shift
+		case "$SORT__item" in
+		--source={*})
+			__dereference --source="${SORT__item#*=}" --append --value={SORT__elements} || return
+			;;
+		--source+target={*})
+			SORT__item="${SORT__item#*=}"
+			SORT__targets+=("$SORT__item")
+			__dereference --source="$SORT__item" --append --value={SORT__elements} || return
+			;;
+		--targets=*) __dereference --source="${SORT__item#*=}" --append --value={SORT__targets} || return ;;
+		--target=*) SORT__targets+=("${SORT__item#*=}") ;;
+		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+			__affirm_value_is_undefined "$SORT__mode" 'write mode' || return
+			SORT__mode="${SORT__item#*=}"
+			;;
+		--append | --prepend | --overwrite)
+			__affirm_value_is_undefined "$SORT__mode" 'write mode' || return
+			SORT__mode="${SORT__item:2}"
+			;;
+		--)
+			# an array input
+			SORT__elements+=("$@")
+			shift $#
+			break
+			;;
+		# </multi-source-value helper arguments>
+		-*) SORT__args+=("$SORT__item") ;;
+		*) __unrecognised_argument "$SORT__item" || return ;;
+		esac
+	done
+	__affirm_value_is_valid_write_mode "$SORT__mode" || return
+	# process
+	__split --targets={SORT__targets} --no-zero-length --invoke -- sort "${SORT__args[@]}" <<< "$(__print_lines "${SORT__elements[@]}")" || return
 }
 
 # tool

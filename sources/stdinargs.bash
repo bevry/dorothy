@@ -17,7 +17,6 @@ source "$DOROTHY/sources/bash.bash"
 # [0] success
 
 # This prints stdinargs options that callers should include in their help rendering.
-# trunk-ignore(shellcheck/SC2120)
 function __stdinargs__help_options {
 	local option_stdin='' \
 		default_message=$'\n    This is the default behaviour.' \

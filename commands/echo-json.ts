@@ -1,13 +1,16 @@
 #!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 
 import {
-	CodeError,
 	AbstractHelpError,
 	exitWithError,
 	writeStdoutStringify,
 	writeStdoutPlain,
 	writeStdoutPretty,
+	asString,
+	asError,
 } from '../sources/ts.ts'
+
+// Actions and Arguments
 type Action = 'make' | 'stringify' | 'encode' | 'decode' | 'json' | 'pretty'
 const actions: Action[] = [
 	'make',
@@ -18,13 +21,23 @@ const actions: Action[] = [
 	'pretty',
 ]
 class HelpError extends AbstractHelpError {
-	help = [
+	override help = [
 		'USAGE:',
 		'echo-json.ts <make> [--] ...[<key> <value>]',
 		'echo-json.ts <stringify|encode|decode|json|pretty> [--] ...<input>',
 	].join('\n')
 }
+function assertAction(value: unknown): asserts value is Action {
+	if (!actions.includes(value as Action)) {
+		throw new HelpError(`An unrecognised <action> was provided: ${value}`)
+	}
+}
+function asAction(value: unknown): Action {
+	assertAction(value)
+	return value
+}
 
+// Parsing
 function real(input: string) {
 	try {
 		return JSON.parse(input)
@@ -32,8 +45,10 @@ function real(input: string) {
 		return input
 	}
 }
-
-function parse(input: string) {
+function parse(input: string): {
+	parseError: Error | null
+	value: unknown
+} {
 	try {
 		return {
 			parseError: null,
@@ -41,21 +56,19 @@ function parse(input: string) {
 		}
 	} catch (parseError) {
 		return {
-			parseError,
+			parseError: asError(parseError),
 			value: input,
 		}
 	}
 }
 
+// Execute
 async function main(...args: string[]) {
 	// parse <action>
 	if (args.length === 0) {
 		throw new HelpError(`No <action> was provided.`)
 	}
-	if (!actions.includes(args[0])) {
-		throw new HelpError(`An unrecognised <action> was provided: ${args[0]}`)
-	}
-	const action: Action = args.shift()
+	const action: Action = asAction(args.shift())
 	// remove -- if present, note it is optional, because not all actions use arguments
 	if (args.length && args[0] === '--') args.shift()
 	// <make> ...[<key> <value>]
@@ -67,15 +80,15 @@ async function main(...args: string[]) {
 		// build the object
 		const output: Record<string, unknown> = {}
 		while (args.length) {
-			const key = args.shift()
-			const value = args.shift()
+			const key = asString(args.shift())
+			const value = asString(args.shift())
 			output[key] = real(value)
 		}
 		return writeStdoutStringify(output)
 	}
 	// <action> ...<input>
 	while (args.length) {
-		const input = args.shift()
+		const input = asString(args.shift())
 		switch (action) {
 			case 'stringify': {
 				return writeStdoutStringify(input)
