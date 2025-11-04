@@ -265,7 +265,7 @@ function setup_shell() (
 	}
 
 	local apply_login_shell_method='none'
-	if is-ci; then
+	if [[ -n $CI ]]; then
 		if [[ -f /etc/passwd ]]; then
 			apply_login_shell_method='passwd'
 		fi
@@ -524,6 +524,9 @@ function setup_shell() (
 			$(__gets_url_label_of_basenames_of_shells "${all_configurable_basenames_of_shells[@]}" || :)
 
 			OPTIONS:
+			[--] ...<shell>
+			    A <shell> to perform one of the below actions on.
+
 			--[no-]reconfigure
 			    Whether to re-prompt and re-save configuration settings.
 			--[no-]fallback
@@ -533,9 +536,13 @@ function setup_shell() (
 			--[no-]slim
 			    If enabled, disables reconfiguration, fallbacks, and dependencies.
 
-			[--] ...<shell>
-			    A <shell> to perform one of the below actions on.
+			--[no-]clean
+			    Remove the current shell configuration files, leaving only the configurations that load Dorothy. Useful if you have already migrated to Dorothy.
+			--[no-]brew
+			    If disabled, exclude <shell> paths that were installed via Homebrew. Useful when uninstalling Homebrew.
 
+			ACTION OPTIONS:
+			If no action options are specified, then <install>, <configure>, <allow>, and <login> will be enabled.
 			--[no-]install
 			    Install the specified <shell>s.
 			--[no-]uninstall
@@ -548,14 +555,8 @@ function setup_shell() (
 			    Enable the specified <shell>s to be used as login shells.
 			--[no-]disallow
 			    Disable the specified <shell>s from being used as login shells.
-			--[no-]login
-			    Set the specified <shell>s as your login shell.
-			If none of these are provided, defaults to enabling <install>, <configure>, <allow>, and <login>.
-
-			--[no-]clean
-			    Remove the current shell configuration files, leaving only the configurations that load Dorothy. Useful if you have already migrated to Dorothy.
-			--[no-]brew
-			    If disabled, exclude <shell> paths that were installed via Homebrew. Useful when uninstalling Homebrew.
+			--[no-]login[=<login-shell>]
+			    Set the specified <login-shell> or <shell>s as your login shell.
 
 			QUIRKS:
 			You can use a command name, such as \`bash\` to select the preferred variation of the shell.
@@ -584,7 +585,7 @@ function setup_shell() (
 		'--no-deconfigure'* | '--deconfigure'*) __flag --source={item} --target={option_deconfigure} --affirmative --coerce || return ;;
 		'--no-allow'* | '--allow'*) __flag --source={item} --target={option_allow} --affirmative --coerce || return ;;
 		'--no-disallow'* | '--disallow'*) __flag --source={item} --target={option_disallow} --affirmative --coerce || return ;;
-		'--no-login'* | '--login'*) __flag --source={item} --target={option_login} --affirmative --coerce || return ;;
+		'--no-login'* | '--login'*) __flag --source={item} --target={option_login} --affirmative --no-coerce || return ;;
 		'--no-clean'* | '--clean'*) __flag --source={item} --target={option_clean} --affirmative --coerce || return ;;
 		'--no-brew'* | '--brew'*) __flag --source={item} --target={option_brew} --affirmative --coerce || return ;;
 		'--exclude='*) option_exclusions+=("${item#*=}") ;;
@@ -606,9 +607,14 @@ function setup_shell() (
 	)
 
 	# load configuration if argument shells provided
-	local only_args='no'
+	local prespecified_shells='no'
+	local prespecified_login_shell='' # @todo change this to an array, process it earlier in args parsing, support all various actions, this will simplify and empower
+	if [[ -n $option_login && $option_login != 'no' && $option_login != 'yes' ]]; then
+		prespecified_login_shell="$option_login"
+		option_shells+=("$prespecified_login_shell")
+	fi
 	if [[ ${#option_shells[@]} -ne 0 ]]; then
-		only_args='yes'
+		prespecified_shells='yes'
 		if [[ -z $option_install && -z $option_uninstall && -z $option_configure && -z $option_deconfigure && -z $option_allow && -z $option_disallow && -z $option_login && -z $option_clean ]]; then
 			option_install='yes'
 			option_configure='yes'
@@ -622,6 +628,7 @@ function setup_shell() (
 		load_dorothy_config 'shells.bash'
 		option_shells=("${USER_SHELLS[@]}")
 	fi
+	__unique --source+target={option_shells} || return
 
 	# =====================================
 	# Helpers
@@ -633,7 +640,7 @@ function setup_shell() (
 		fi
 
 		# handle args
-		if [[ $only_args == 'yes' ]]; then
+		if [[ $prespecified_shells == 'yes' ]]; then
 			if [[ $option_uninstall == 'yes' || $option_install == 'yes' ]]; then
 				local arg_shells=() shell
 				__split --target={arg_shells} --no-zero-length --invoke \
@@ -725,7 +732,7 @@ function setup_shell() (
 		fi
 
 		# handle args
-		if [[ $only_args == 'yes' ]]; then
+		if [[ $prespecified_shells == 'yes' ]]; then
 			if [[ $option_deconfigure == 'yes' || $option_configure == 'yes' ]]; then
 				local arg_shells=() shell
 				__split --target={arg_shells} --no-zero-length --invoke \
@@ -870,7 +877,7 @@ function setup_shell() (
 		fi
 
 		# handle args
-		if [[ $only_args == 'yes' ]]; then
+		if [[ $prespecified_shells == 'yes' ]]; then
 			if [[ $option_disallow == 'yes' || $option_allow == 'yes' ]]; then
 				local arg_shells=() shell
 				__split --target={arg_shells} --no-zero-length --invoke \
@@ -946,16 +953,22 @@ function setup_shell() (
 		fi
 
 		# handle args
-		if [[ $only_args == 'yes' ]]; then
-			if [[ $option_login == 'yes' ]]; then
-				local arg_shells=() shell
-				__split --target={arg_shells} --no-zero-length --invoke \
-					-- __get_unique_and_permitted_paths_of_shells "${option_shells[@]}" || return
-				for shell in "${arg_shells[@]}"; do
-					__allow_login_shell_path "$shell" || return
-					__apply_login_shell_path "$shell" || return
-				done
-			fi
+		local arg_shells=() shell prespecified='no'
+		if [[ -n $prespecified_login_shell ]]; then
+			prespecified='yes'
+			__split --target={arg_shells} --no-zero-length --invoke \
+				-- __get_unique_and_permitted_paths_of_shells "$option_login" || return
+		elif [[ $option_login == 'yes' && $prespecified_shells == 'yes' ]]; then
+			prespecified='yes'
+			__split --target={arg_shells} --no-zero-length --invoke \
+				-- __get_unique_and_permitted_paths_of_shells "${option_shells[@]}" || return
+		fi
+		if [[ $prespecified == 'yes' ]]; then
+			for shell in "${arg_shells[@]}"; do
+				__allow_login_shell_path "$shell" || return
+				__apply_login_shell_path "$shell" || return
+				break # only apply the first preference
+			done
 			return
 		fi
 

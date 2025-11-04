@@ -170,8 +170,14 @@ function dorothy_() (
 			    If omitted, detection of existing installation is used, and if no existing installation is found, it defaults to enabled.
 
 			ACTIONS:
-			install
+			install [..arguments]
 			    Installs and configures the Dorothy dotfile ecosystem, the Dorothy User Configuration, and the Dorothy configured shells.
+			    --[no-]dev
+			        If enabled, install development dependencies.
+			    --util=<utility> | --utils=<utility1,utility2,...>
+			        Install additional utilities during installation.
+			    --shell=<shell> | --shells=<shell1,shell2,...>
+			        Configure these shells during installation.
 			update
 			    Pull updates for the Dorothy dotfile ecosystem and the Dorothy User Configuration.
 			uninstall
@@ -263,6 +269,8 @@ function dorothy_() (
 			;;
 		'i' | 'install')
 			__set_action 'install'
+			option_args+=("$@")
+			shift $#
 			;;
 		'uninstall')
 			__set_action 'uninstall'
@@ -514,12 +522,16 @@ function dorothy_() (
 
 		# deps
 		__print_style --h2='Ensure development dependencies'
-		setup-util-bash --quiet "$@"
-		setup-util-ripgrep --quiet "$@"
-		setup-util-prettier --quiet "$@"
-		setup-util-shellcheck --quiet "$@"
-		setup-util-shfmt --quiet "$@"
-		setup-util-trunk --quiet "$@"
+		setup-util-bash "$@"
+		setup-util-ripgrep "$@"
+		setup-util-prettier "$@"
+		setup-util-shellcheck "$@"
+		setup-util-shfmt "$@"
+		setup-util-trunk "$@"
+		if [[ -z $CI ]]; then
+			# local dev, upgrade and add git hook
+			printf 'trunk check --ci --no-progress --trigger=git-push\n' >"$DOROTHY/.git/hooks/pre-push"
+		fi
 		__print_style --g2='Ensure development dependencies'
 	}
 
@@ -832,20 +844,43 @@ function dorothy_() (
 	# Actions: Install, Update, Trial
 
 	function act_install {
-		__unrecognised_arguments "$@" || return
+		# process arguments
+		local item utils=() shells=() dev='no'
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			'--util='*) utils+=("${item#*=}") ;;
+			'--utils='*) __split --target={utils} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+			'--shell='*) shells+=("${item#*=}") ;;
+			'--shells='*) __split --target={shells} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+			'--no-dev'* | '--dev'*) __flag --source={item} --target={dev} --affirmative --coerce ;;
+			'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+			esac
+		done
+
+		# log
+		__print_style --h1='Install Dorothy'
 
 		# pre-requisites
 		ensure_dorothy_configured
 		assert_dorothy_configured
 
 		# action
-		__print_style --h1='Install Dorothy'
 		ensure_minimal_dependencies
 		ensure_machine_configured
 		ensure_user_configured
-		setup-shell --reconfigure
+		if [[ $dev == 'yes' ]]; then
+			ensure_development_dependencies
+		fi
+		local util
+		for util in "${utils[@]}"; do
+			"setup-util-$util" # eval
+		done
+		setup-shell --reconfigure -- "${shells[@]}"
 
-		# log success
+		# done
 		__print_style --g1='Install Dorothy'
 		__print_style --success='Dorothy is now setup.' ' ' --notice='Restart your terminal.'
 	}
@@ -853,13 +888,15 @@ function dorothy_() (
 	function act_uninstall {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Uninstall Dorothy'
+
 		# pre-requisites
 		ensure_dorothy_configured
 		assert_dorothy_configured
+		ensure_minimal_dependencies
 
 		# action
-		__print_style --h1='Uninstall Dorothy'
-		ensure_minimal_dependencies
 		setup-shell --deconfigure
 
 		# log success and instructions for removal
@@ -881,18 +918,22 @@ function dorothy_() (
 	function act_update {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Update Dorothy'
+
 		# pre-requisites
 		assert_dorothy_configured
-
-		# action
-		__print_style --h1='Update Dorothy'
 		ensure_minimal_dependencies
 		ensure_dorothy_configured
+
+		# action
 		ensure_user_configured
 		__print_style --h2='Correct Dorothy Permissions'
 		ensure_permissions_configured # needed as new commands wouldn't be executable otherwise
 		dorothy-warnings clear        # remove any warnings that are no longer relevant
 		__print_style --g2='Correct Dorothy Permissions'
+
+		# done
 		__print_style --g1='Update Dorothy'
 	}
 
@@ -1036,46 +1077,58 @@ function dorothy_() (
 	function act_permissions {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Correct Dorothy Permissions'
+
 		# pre-requisites
 		assert_dorothy_configured
+		# ensure_minimal_dependencies <-- if they are running this, then we assume they are already setup
 
 		# action
-		__print_style --h1='Correct Dorothy Permissions'
-		# ensure_minimal_dependencies <-- if they are running this, then we assume they are already setup
 		ensure_permissions_configured
+
+		# done
 		__print_style --g1='Correct Dorothy Permissions'
 	}
 
 	function act_edit {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Edit Dorothy'
+
 		# pre-requisites
 		assert_dorothy_and_user_cloned
-
-		# action
-		__print_style --h1='Edit Dorothy'
 		# ensure_minimal_dependencies <-- if they are editing, then we assume they are already setup
 		ensure_permissions_configured
+
+		# action
 		if [[ "$(edit --dry --only-editor)" == 'code' ]]; then
 			edit -- "$DOROTHY/.vscode/workspace.code-workspace"
 		else
 			edit -- "$DOROTHY"
 		fi
+
+		# done
 		__print_style --g1='Edit Dorothy'
 	}
 
 	function act_review {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Review Dorothy'
+
 		# pre-requisites
 		assert_dorothy_and_user_cloned
-
-		# action
-		__print_style --h1='Review Dorothy'
 		ensure_minimal_dependencies
 		ensure_permissions_configured
+
+		# action
 		git-helper review --path="$DOROTHY/user" || :
 		git-helper review --path="$DOROTHY" || :
+
+		# done
 		__print_style --g1='Review Dorothy'
 	}
 
@@ -1086,11 +1139,11 @@ function dorothy_() (
 	function act_theme {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Select Dorothy Theme'
+
 		# pre-requisites
 		assert_dorothy_and_user_cloned
-
-		# action
-		__print_style --h1='Select Dorothy Theme'
 		ensure_minimal_dependencies
 
 		# features
@@ -1121,7 +1174,7 @@ function dorothy_() (
 			config-edit --file="$DOROTHY/user/config/interactive.elv" --needle="DOROTHY_THEME" --line="set-env DOROTHY_THEME $(echo-quote -- "$theme")" --add
 		fi
 
-		# log
+		# done
 		__print_style \
 			--success='Configuration change applied, ' --notice='restart your terminal for the change to take effect.' --newline \
 			--g1='Select Dorothy Theme'
@@ -1130,18 +1183,16 @@ function dorothy_() (
 	function act_dev {
 		__unrecognised_arguments "$@" || return
 
-		# pre-requisites
-		assert_dorothy_configured
-		if is-ci; then
-			ensure_development_dependencies --no-quiet
-		else
-			# local dev, upgrade and add git hook
-			ensure_development_dependencies --no-quiet --upgrade
-			printf 'trunk check --ci --no-progress --trigger=git-push\n' >"$DOROTHY/.git/hooks/pre-push"
-		fi
-
 		# log
 		__print_style --h1='Dorothy Development'
+
+		# pre-requisites
+		assert_dorothy_configured
+		if [[ -n $CI ]]; then
+			ensure_development_dependencies
+		else
+			ensure_development_dependencies --upgrade
+		fi
 
 		# versions
 		eval-helper --verbose --wrap -- bash --version || :
@@ -1151,23 +1202,23 @@ function dorothy_() (
 		eval-helper --verbose --wrap -- shfmt --version || :
 		eval-helper --verbose --wrap -- trunk --version || :
 
-		# log
+		# done
 		__print_style --g1='Dorothy Development'
 	}
 
 	function act_format {
 		__unrecognised_arguments "$@" || return
 
+		# log
+		__print_style --h1='Dorothy Format'
+
 		# pre-requisites
 		assert_dorothy_configured
 		ensure_development_dependencies
 
-		# action
-		__print_style --h1='Dorothy Format'
-
 		# adjust for ci
 		local args=()
-		if is-ci; then
+		if [[ -n $CI ]]; then
 			args+=('--no-progress') # don't use [--ci] as it doesn't apply fixes, and our CI suite expects fixes
 		fi
 
@@ -1197,22 +1248,23 @@ function dorothy_() (
 			__print_style --g3="$DOROTHY/user"
 		fi
 
+		# done
 		__print_style --g1='Dorothy Format'
 	}
 
 	function act_check {
 		__unrecognised_arguments "$@" || return
 
+		# action
+		__print_style --h1='Dorothy Checks'
+
 		# pre-requisites
 		assert_dorothy_configured
 		ensure_development_dependencies
 
-		# action
-		__print_style --h1='Dorothy Checks'
-
 		# adjust for ci
 		local args=()
-		if is-ci; then
+		if [[ -n $CI ]]; then
 			args+=('--ci' '--no-progress')
 		fi
 
@@ -1236,19 +1288,20 @@ function dorothy_() (
 			__print_style --g3="$DOROTHY/user"
 		fi
 
+		# done
 		__print_style --g1='Dorothy Checks'
 	}
 
 	function act_lint {
 		__unrecognised_arguments "$@" || return
 
+		# action
+		__print_style --h1='Dorothy Lint'
+
 		# pre-requisites
 		assert_dorothy_configured
 		ensure_development_dependencies
 		source "$DOROTHY/sources/ripgrep.bash"
-
-		# action
-		__print_style --h1='Dorothy Lint'
 
 		# upgrade trunk?
 		local update_tools='no' update_backers='no'
@@ -1264,7 +1317,7 @@ function dorothy_() (
 
 		# adjust for ci
 		local args=()
-		if is-ci; then
+		if [[ -n $CI ]]; then
 			args+=('--ci' '--no-progress')
 		fi
 
@@ -1351,6 +1404,7 @@ function dorothy_() (
 		lint_path "$DOROTHY"
 		lint_path "$DOROTHY/user"
 
+		# done
 		__print_style --g1='Dorothy Lint'
 	}
 
@@ -1381,6 +1435,9 @@ function dorothy_() (
 			esac
 		done
 
+		# log
+		__print_style --h1='Dorothy Tests'
+
 		# pre-requisites
 		assert_dorothy_configured
 		# ensure_development_dependencies <-- we aren't developing on tests, just testing, dev is for coding etc, linting, checking, etc
@@ -1401,8 +1458,7 @@ function dorothy_() (
 		user_bash_binary="${user_bash_binaries[0]}"
 
 		# context
-		__print_style --h1='Dorothy Tests' --newline \
-			--bold='Environment:' --newline \
+		__print_style --bold='Environment:' --newline \
 			--="$(get-arch --dump || :)"
 		echo-file --optional -- /etc/os-release || :
 		__print_style \
@@ -1414,7 +1470,7 @@ function dorothy_() (
 			--code="$("$user_bash_binary" --version | echo-first-line --stdin || :)"
 
 		# on CI set the modification times to reflect those from the git repository, rather than from clone
-		if is-ci; then
+		if [[ -n $CI ]]; then
 			git-helper umt --path="$DOROTHY"
 		fi
 
@@ -1518,7 +1574,7 @@ function dorothy_() (
 		fi
 
 		# check for eval-capture failed cleaning
-		if is-ci; then
+		if [[ -n $CI ]]; then
 			local leftover leftovers=(
 				"$TMPDIR/dorothy/semlocks"
 				"$TMPDIR/dorothy/semaphores"
@@ -1544,20 +1600,20 @@ function dorothy_() (
 			return 1
 		fi
 
-		# log
+		# done
 		__print_style --g1='Dorothy Tests'
 	}
 
 	function act_todos {
 		__unrecognised_arguments "$@" || return
 
+		# action
+		__print_style --h1='Dorothy Todos'
+
 		# pre-requisites
 		# no need for user config for todos
 		assert_dorothy_configured
 		source "$DOROTHY/sources/ripgrep.bash"
-
-		# action
-		__print_style --h1='Dorothy Todos'
 
 		# verbose about command conventions and support
 		local scan_paths=(
@@ -1648,7 +1704,7 @@ function dorothy_() (
 		__todos_scan 'commands' || __command_status=1
 		__todos_scan 'commands.beta' || :
 
-		# log
+		# done
 		if [[ $__command_status -eq 0 ]]; then
 			__print_style --g1='Dorothy Todos'
 		else

@@ -697,7 +697,7 @@ if [[ ${CI-} =~ ^(yes|YES|true|TRUE|1)$ ]]; then
 else
 	CI=''
 fi
-if [[ $CI == 'yes' ]]; then
+if [[ -n $CI ]]; then
 	ALTERNATIVE_SCREEN_BUFFER_SUPPORTED='no'
 else
 	# trunk-ignore(shellcheck/SC2034)
