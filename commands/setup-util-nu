@@ -30,23 +30,10 @@ function setup_util_nu() (
 	__flag --target={option_reconfigure} --name='reconfigure' --affirmative --coerce -- "$@"
 
 	# nushell requires all sources files to exist ahead of time
-	function __write_state_config {
-		local file="$1" method="$2" target="$3"
-		# if the target exist and is a non-em,pty file, then source it
-		if [[ -n $target && -s $target ]]; then
-			# source it
-			local escaped
-			escaped="$(echo-quote -- "$target")" || return
-			cat <<-EOF >"$file" || return
-				#!/usr/bin/env nu
-				$method $escaped
-			EOF
-		else
-			# otherwise just be empty
-			cat <<-EOF >"$file" || return
-				#!/usr/bin/env nu
-			EOF
-		fi
+	function __quoted_realpath {
+		local path="$1"
+		path="$(fs-path --resolve -- "$path")" || return
+		echo-quote -- "$path" || return
 	}
 	function __reconfigure {
 		# if reconfigure is not desired, or if not installed, then don't reconfigure
@@ -54,67 +41,50 @@ function setup_util_nu() (
 			return 0
 		fi
 
-		# ensure nushell configuration directory exists
-		local config_dir
-		config_dir="$(nu -c 'echo $nu.default-config-dir')" || return
-		fs-mkdir -- "$config_dir" || return
+		# prep
+		local autoload_path="$XDG_DATA_HOME/nushell/vendor/autoload" state_path="$DOROTHY/state" removals=()
 
-		# ensure [themes/starship.nu] works
-		fs-mkdir -- "$XDG_STATE_HOME/starship" || return
+		# startship
 		if __command_exists -- starship; then
-			starship init nu >"$XDG_STATE_HOME/starship/init.nu" || return
+			{
+				__print_lines '#!/usr/bin/env nu'
+				starship init nu
+			} >"$state_path/starship.nu" || return
 		else
-			fs-remove --quiet --no-confirm -- "$XDG_STATE_HOME/starship/init.nu" || return
+			{ __print_lines '#!/usr/bin/env nu'; } >"$state_path/starship.nu" || return
 		fi
-		__write_state_config "$DOROTHY/state/sources/starship.nu" 'use' "$XDG_STATE_HOME/starship/init.nu" || return
+		removals+=("$autoload_path/starship.nu" "$XDG_STATE_HOME/starship/init.nu" "$state_path/sources/starship.nu") # deprecated
 
-		# ensure [sources/autocomplete.nu] works
-		fs-mkdir -- "$XDG_STATE_HOME/carapace" || return
+		# carapace
 		if __command_exists -- carapace; then
-			carapace _carapace nushell >"$XDG_STATE_HOME/carapace/init.nu" || return
+			{
+				__print_lines '#!/usr/bin/env nu'
+				carapace _carapace nushell
+			} >"$state_path/carapace.nu" || return
 		else
-			fs-remove --quiet --no-confirm -- "$XDG_STATE_HOME/carapace/init.nu" || return
+			{ __print_lines '#!/usr/bin/env nu'; } >"$state_path/carapace.nu" || return
 		fi
-		__write_state_config "$DOROTHY/state/sources/carapace.nu" 'source' "$XDG_STATE_HOME/carapace/init.nu" || return
+		removals+=("$autoload_path/carapace.nu" "$state_path/sources/carapace.nu" "$XDG_STATE_HOME/carapace/init.nu") # deprecated
 
-		# ensure [(config|config.local)/interactive.nu] works
-		local file files=(
-			'interactive.nu'
-		)
-		local dir dirs=(
-			'config.local'
-			'config'
-		)
-		for file in "${files[@]}"; do
-			# scaffold configuration files if the user is setup and has configuration directories
-			if [[ -d "$DOROTHY/user/config" ]]; then
-				# user configuration exists, scaffold the config.local file
-				if [[ -d "$DOROTHY/user/config.local" && ! -f "$DOROTHY/user/config.local/$file" ]]; then
-					cat <<-EOF >"$DOROTHY/user/config.local/$file" || return
-						#!/usr/bin/env nu
+		# dorothy configuration files
+		if [[ -f "$DOROTHY/user/config.local/interactive.nu" ]]; then
+			{ __print_lines '#!/usr/bin/env nu' "source $(__quoted_realpath "$DOROTHY/user/config.local/interactive.nu")"; } >"$state_path/interactive.nu" || return
+		elif [[ -f "$DOROTHY/user/config/interactive.nu" ]]; then
+			{ __print_lines '#!/usr/bin/env nu' "source $(__quoted_realpath "$DOROTHY/user/config/interactive.nu")"; } >"$state_path/interactive.nu" || return
+		elif [[ -f "$DOROTHY/config/interactive.nu" ]]; then
+			{ __print_lines '#!/usr/bin/env nu' "source $(__quoted_realpath "$DOROTHY/config/interactive.nu")"; } >"$state_path/interactive.nu" || return
+		else
+			{ __print_lines '#!/usr/bin/env nu'; } >"$state_path/interactive.nu" || return
+		fi
+		removals+=("$autoload_path/dorothy-interactive.nu" "$state_path/config.local/interactive.nu" "$state_path/config/interactive.nu") # deprecated
 
-						# load my public configuration
-						source ../config/$file
-					EOF
-				fi
-				# user configuration exists, scaffold the config file
-				if [[ ! -f "$DOROTHY/user/config/$file" ]]; then
-					cat <<-EOF >"$DOROTHY/user/config/$file" || return
-						#!/usr/bin/env nu
+		# deprecated
+		removals+=("$autoload_path/dorothy.nu")
 
-						# load the dorothy defaults
-						source ~/.local/share/dorothy/config/$file
-					EOF
-					# ^ this should load in a way that is cross-os compatible, hence [source ~/...] instead of interpolating [source $DOROTHY/...]
-				fi
-			fi
-
-			# enable or disable the configuration files, based on their existence
-			for dir in "${dirs[@]}"; do
-				__write_state_config "$DOROTHY/state/$dir/$file" 'source' "$DOROTHY/user/$dir/$file" || return
-				# ^ as this is local to the machine, it doesn't need to be cross-os compatible
-			done
-		done
+		# removals
+		if [[ ${#removals[@]} -ne 0 ]]; then
+			fs-remove --quiet --no-confirm -- "${removals[@]}" || return
+		fi
 	}
 
 	# improve performance for detectable utilities with conditional assets
