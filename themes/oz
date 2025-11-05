@@ -1,43 +1,14 @@
-#!/usr/bin/env sh
-# trunk-ignore-all(shellcheck)
-# ^ use `sh` instead of `bash`, as `bash` will have `shfmt` strip the $ from start indexes
+#!/usr/bin/env bash
+# ^ using `bash` will cause `shfmt` to fail, as this is `bash` and `zsh` compatible but not compatible with `sh`
 # `bash` and `zsh` run this natively, both support arrays, `zsh` does require $ prefix for var indexes
 
-# ansi escape codes in bash and zsh
-C_RESET=$'\e[0m'
-# C_BOLD=$'\e[1m'
-# C_END_BOLD=$'\e[22m'
-# C_DIM=$'\e[2m'
-# C_END_DIM=$'\e[22m'
-C_ITALIC=$'\e[3m'
-# C_END_ITALIC=$'\e[23m'
-# C_UNDERLINE=$'\e[4m'
-# C_END_UNDERLINE=$'\e[24m'
-# C_INVERT=$'\e[7m'
-# C_END_INVERT=$'\e[27m'
-# C_BLINK=$'\e[5m' <-- nothing really supports it
-
-# C_BLACK=$'\e[30m'
-C_RED=$'\e[31m'
-C_GREEN=$'\e[32m'
-C_YELLOW=$'\e[33m'
-C_BLUE=$'\e[34m'
-C_MAGENTA=$'\e[35m'
-C_CYAN=$'\e[36m'
-C_WHITE=$'\e[37m'
-C_INTENSE_WHITE=$'\e[97m'
-C_BACKGROUND_RED=$'\e[41m'
-
-NEWLINE=$'\n'
 TITLE_START=$'\e]0;'
 TITLE_END=$'\a'
-
+NEWLINE=$'\n'
 SEPARATOR=':'
-SEPARATOR_LENGTH="${#SEPARATOR}"
-C_SEPARATOR="${C_WHITE}:${C_RESET}"
 SHELL_START_INDEX=0 # zsh and bash have different start indexes
 
-# NOTE THAT ANSI ESCAPE SEQUENCES MUST BE ECAPED IF WITHIN PS1
+# NOTE THAT ANSI ESCAPE SEQUENCES MUST BE ESCAPED IF WITHIN PS1
 # FURTHERMORE PS1 SUPPORTS SHORTCUTS
 # https://www.gnu.org/software/bash/manual/bash.html#Controlling-the-Prompt
 if [[ ${TERM-} == 'xterm-ghostty' ]]; then
@@ -45,57 +16,60 @@ if [[ ${TERM-} == 'xterm-ghostty' ]]; then
 else
 	PROMPT_LINE_COLORS_SUPPORTED='no'
 fi
-function __does_shell_support_prompt_line_colors {
+__does_shell_support_prompt_line_colors() {
 	local shell="$1"
 	if [[ $PROMPT_LINE_COLORS_SUPPORTED != 'yes' ]]; then
 		return 1
 	fi
-	case $shell in
-	bash) return 0 ;;
+	if [[ $shell == 'bash' ]]; then
+		return 0
+	fi
 	# zsh does not support
-	esac
 	return 1
 }
 
-if [[ -n $BASH_VERSION ]]; then
-	function __command_exists {
-		type -P "$1" &>/dev/null || return
+if [[ -n ${BASH_VERSION-} ]]; then
+	__command_exists() {
+		type -P "$1" >/dev/null 2>&1 || return
 	}
 else
-	function __command_exists {
-		which -s "$1" &>/dev/null || return
+	__command_exists() {
+		which -s "$1" >/dev/null 2>&1 || return
 	}
 fi
 if __command_exists sudo; then
-	function __is_authenticated {
-		sudo --non-interactive -- true &>/dev/null || return
+	__is_authenticated() {
+		sudo --non-interactive -- true >/dev/null 2>&1 || return
 	}
 elif __command_exists doas; then
-	function __is_authenticated {
-		doas -n true &>/dev/null || return
+	__is_authenticated() {
+		doas -n true >/dev/null 2>&1 || return
 	}
 else
-	function __is_authenticated {
+	__is_authenticated() {
 		return 1 # no sudo or doas, so we are not authenticated
 	}
 fi
 
 # improve performance of time fetching on bash versions that support it, >=4.2
-if [[ ${BASH_VERSINFO[0]} -gt 4 || (${BASH_VERSINFO[0]} -eq 4 && ${BASH_VERSINFO[1]} -ge 2) ]]; then
+if [[ -n ${BASH_VERSION-} && ${BASH_VERSINFO[0]} -gt 4 || (${BASH_VERSINFO[0]} -eq 4 && ${BASH_VERSINFO[1]} -ge 2) ]]; then
 	# this is instant
-	function __get_time { printf '%(%H:%M:%S)T' || return; }
+	__get_time() {
+		printf '%(%H:%M:%S)T' || return
+	}
 else
 	# this is slow
-	function __get_time { date '+%H:%M:%S' || return; }
+	__get_time() {
+		date '+%H:%M:%S' || return
+	}
 fi
 
 # theme
-function oztheme {
-	local shell="$1" prompt_line_colors a z last_command_exit_status="$2" prompt_segments=() prompt='' title_segments=() title='' \
-	c_suffix nc_suffix suffix authenticated='' time git_branch target="${PWD/HOME/~}" \
-	i n
+oztheme() {
+	local shell="$1" last_command_exit_status="$2"
 
 	# handle invisible characters in prompt
+	local prompt_line_colors a z
 	if __does_shell_support_prompt_line_colors "$shell"; then
 		prompt_line_colors='yes'
 		a='\['
@@ -106,82 +80,94 @@ function oztheme {
 		z=''
 	fi
 
+	# handle colors
+	local reset="$a"$'\e[0m'"$z" italic="$a"$'\e[3m'"$z" red="$a"$'\e[31m'"$z" green="$a"$'\e[32m'"$z" yellow="$a"$'\e[33m'"$z" blue="$a"$'\e[34m'"$z" magenta="$a"$'\e[35m'"$z" cyan="$a"$'\e[36m'"$z" white="$a"$'\e[37m'"$z" intense_white="$a"$'\e[97m'"$z" background_red="$a"$'\e[41m'"$z"
+	local separator="${white}:${reset}" separator_length
+	separator_length=${#separator}
+	local prompt_segments=() prompt='' title_segments=() title='' yay_color_suffix nay_color_suffix suffix
+
 	# LAST COMMAND EXIT STATUS
 	if [[ $last_command_exit_status -ne 0 ]]; then
-		prompt_segments+=("${a}${C_RED}${z}[${last_command_exit_status}]")
+		prompt_segments+=("${red}[${last_command_exit_status}]")
 	fi
 
+	# AUTHENTICATION
+	local authenticated=''
 	if [[ -n ${SUDO_USER-} && $SUDO_USER != "$USER" ]]; then
 		# after much experimentation, we don't actually care for adding the login user to the prompt, we only care about showing the active user
 		# https://unix.stackexchange.com/a/362773
-		nc_suffix="${USER} "
+		nay_color_suffix="${USER} "
 		if [[ $USER == 'root' ]]; then
-			c_suffix="${a}${C_BACKGROUND_RED}${C_INTENSE_WHITE}${z}${USER}${a}${C_RESET}${z} "
+			yay_color_suffix="${background_red}${intense_white}${USER}${reset} "
 			authenticated='yes'
 		else
-			c_suffix="${a}${C_MAGENTA}${C_ITALIC}${z}${USER}${a}${C_RESET}${z} "
+			yay_color_suffix="${magenta}${italic}${USER}${reset} "
 		fi
 		title_segments+=("${USER}")
 	fi
 	if [[ $authenticated == 'yes' ]] || __is_authenticated; then
-		c_suffix+="${a}${C_RED}${z}#${a}${C_RESET}${z} "
-		nc_suffix+="# "
+		yay_color_suffix+="${red}#${reset} "
+		nay_color_suffix+="# "
 	else
-		c_suffix+='$ '
-		nc_suffix+='$ '
+		yay_color_suffix+='$ '
+		nay_color_suffix+='$ '
 	fi
 	if [[ $prompt_line_colors == 'yes' ]]; then
-		suffix="$c_suffix"
+		suffix="$yay_color_suffix"
 	else
-		suffix="$nc_suffix"
+		suffix="$nay_color_suffix"
 	fi
 
 	# TIME SEGMENT
 	if [[ $shell == 'bash' ]]; then
 		# https://www.gnu.org/software/bash/manual/bash.html#Controlling-the-Prompt
-		prompt_segments+=("${a}${C_GREEN}${z}\t")
+		prompt_segments+=("${green}\t")
 	else
+		local time
 		time="$(__get_time || :)"
 		if [[ -n $time ]]; then
-			prompt_segments+=("${a}${C_GREEN}${z}${time}")
+			prompt_segments+=("${green}${time}")
 		fi
 	fi
 
 	# SUDO, SSH, HOSTNAME
 	if [[ -n ${SSH_CONNECTION-} || -n ${SSH_CLIENT-} || -n ${SSH_TTY-} ]]; then
-		prompt_segments+=("${a}${C_CYAN}${z}${SUDO_USER:-"$USER"}${a}${C_BLUE}${z}@${a}${HOSTNAME}${z}")
+		prompt_segments+=("${cyan}${SUDO_USER:-"$USER"}${blue}@${HOSTNAME}")
 		title_segments+=("${SUDO_USER:-"$USER"}@${HOSTNAME}")
 	fi
 
 	# PATH SEGMENT
+	local target="${PWD/HOME/~}"
 	if [[ -n $target ]]; then
-		prompt_segments+=("${a}${C_YELLOW}${z}${target}")
+		prompt_segments+=("${yellow}${target}")
 		title_segments+=("${target}")
 	fi
 
 	# GIT BRANCH
 	# note that if you are running as another user, this will fail with: fatal: detected dubious ownership in repository at ...
+	local git_branch
 	git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || :)"
 	git_branch="${git_branch/* /}" # [* master] to [master]
 	if [[ -n $git_branch ]]; then
-		if git diff --quiet &>/dev/null; then
-			prompt_segments+=("${a}${C_CYAN}${z}${git_branch}")
+		if git diff --quiet >/dev/null 2>&1; then
+			prompt_segments+=("${cyan}${git_branch}")
 		else
-			prompt_segments+=("${a}${C_RED}${z}${git_branch}")
+			prompt_segments+=("${red}${git_branch}")
 		fi
 	fi
 
 	# compose the segments
-	for ((i = $SHELL_START_INDEX, n = ${#prompt_segments[@]} + $SHELL_START_INDEX; i < n; i++)); do
-		prompt+="${a}${C_SEPARATOR}${z}${prompt_segments[i]}${a}${C_RESET}${z}"
+	local i n
+	for ((i = SHELL_START_INDEX, n = ${#prompt_segments[@]} + SHELL_START_INDEX; i < n; i++)); do
+		prompt+="${separator}${prompt_segments[i]}${reset}"
 	done
-	for ((i = $SHELL_START_INDEX, n = ${#title_segments[@]} + $SHELL_START_INDEX; i < n; i++)); do
-		title+="${SEPARATOR}${title_segments[i]}"
+	for ((i = SHELL_START_INDEX, n = ${#title_segments[@]} + SHELL_START_INDEX; i < n; i++)); do
+		title+="${separator}${title_segments[i]}"
 	done
 
-	# $ necessary for zsh
-	prompt="${prompt:((${#a} + ${#C_SEPARATOR} + ${#z}))}" # remove the first separator
-	title="${title:$SEPARATOR_LENGTH}"     # remove the first separator
+	# $ necessary for zsh, and "$..." is necessary for shfmt to not strip it
+	prompt="${prompt:"$separator_length"}" # remove the first separator
+	title="${title:"$separator_length"}"   # remove the first separator
 
 	# adjust for shell
 	if [[ $shell == 'bash' ]]; then
@@ -215,7 +201,7 @@ elif [[ -n $ZSH_VERSION ]]; then
 	SHELL_START_INDEX=1
 	PS1='' PROMPT=''
 	# @todo apparently `export DISABLE_AUTO_TITLE='true'` may be necessary with `oh-my-zsh` however I don't use it so I don't know
-	function precmd {
+	precmd() {
 		PS1="$(oztheme zsh "$?")"
 	}
 fi
