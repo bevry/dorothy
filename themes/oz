@@ -35,30 +35,48 @@ TITLE_END=$'\a'
 SEPARATOR=':'
 SEPARATOR_LENGTH="${#SEPARATOR}"
 C_SEPARATOR="${C_WHITE}:${C_RESET}"
-C_SEPARATOR_LENGTH="${#C_SEPARATOR}"
 SHELL_START_INDEX=0 # zsh and bash have different start indexes
 
-# ctrl+a ctrl+e break on apple terminal and vscode when the symbol has colors / invisible characters
-# sudo erases TERM_PROGRAM, TERM is kept though, but TERM is generic, so just add support for terminals that support it
-# Ghostty 1.2.0 broke support, but Ghostty 1.2.1 fixed it, but it seems Ghostty 1.2.3 broke it again: https://github.com/ghostty-org/ghostty/discussions/9470
-# if [[ ${TERM-} == 'xterm-ghostty' ]]; then
-# 	PROMPT_LINE_COLORS_SUPPORTED='yes'
-# else
-PROMPT_LINE_COLORS_SUPPORTED='no'
-# fi
+# NOTE THAT ANSI ESCAPE SEQUENCES MUST BE ECAPED IF WITHIN PS1
+# FURTHERMORE PS1 SUPPORTS SHORTCUTS
+# https://www.gnu.org/software/bash/manual/bash.html#Controlling-the-Prompt
+if [[ ${TERM-} == 'xterm-ghostty' ]]; then
+	PROMPT_LINE_COLORS_SUPPORTED='yes'
+else
+	PROMPT_LINE_COLORS_SUPPORTED='no'
+fi
+function __does_shell_support_prompt_line_colors {
+	local shell="$1"
+	if [[ $PROMPT_LINE_COLORS_SUPPORTED != 'yes' ]]; then
+		return 1
+	fi
+	case $shell in
+	bash) return 0 ;;
+	# zsh does not support
+	esac
+	return 1
+}
 
-# trunk-ignore(shfmt/parse)
-if type -P sudo &>/dev/null; then
+if [[ -n $BASH_VERSION ]]; then
+	function __command_exists {
+		type -P "$1" &>/dev/null || return
+	}
+else
+	function __command_exists {
+		which -s "$1" &>/dev/null || return
+	}
+fi
+if __command_exists sudo; then
 	function __is_authenticated {
 		sudo --non-interactive -- true &>/dev/null || return
 	}
-elif type -P dias &>/dev/null; then
+elif __command_exists doas; then
 	function __is_authenticated {
 		doas -n true &>/dev/null || return
 	}
 else
 	function __is_authenticated {
-		return 0 # no sudo or doas, so we are authenticated
+		return 1 # no sudo or doas, so we are not authenticated
 	}
 fi
 
@@ -73,13 +91,24 @@ fi
 
 # theme
 function oztheme {
-	local shell="$1" last_command_exit_status="$2" prompt_segments=() prompt='' title_segments=() title='' \
+	local shell="$1" prompt_line_colors a z last_command_exit_status="$2" prompt_segments=() prompt='' title_segments=() title='' \
 	c_suffix nc_suffix suffix authenticated='' time git_branch target="${PWD/HOME/~}" \
 	i n
 
+	# handle invisible characters in prompt
+	if __does_shell_support_prompt_line_colors "$shell"; then
+		prompt_line_colors='yes'
+		a='\['
+		z='\]'
+	else
+		prompt_line_colors='no'
+		a=''
+		z=''
+	fi
+
 	# LAST COMMAND EXIT STATUS
 	if [[ $last_command_exit_status -ne 0 ]]; then
-		prompt_segments+=("${C_RED}[${last_command_exit_status}]")
+		prompt_segments+=("${a}${C_RED}${z}[${last_command_exit_status}]")
 	fi
 
 	if [[ -n ${SUDO_USER-} && $SUDO_USER != "$USER" ]]; then
@@ -87,41 +116,46 @@ function oztheme {
 		# https://unix.stackexchange.com/a/362773
 		nc_suffix="${USER} "
 		if [[ $USER == 'root' ]]; then
-			c_suffix="${C_BACKGROUND_RED}${C_INTENSE_WHITE}${USER}${C_RESET} "
+			c_suffix="${a}${C_BACKGROUND_RED}${C_INTENSE_WHITE}${z}${USER}${a}${C_RESET}${z} "
 			authenticated='yes'
 		else
-			c_suffix="${C_MAGENTA}${C_ITALIC}${USER}${C_RESET} "
+			c_suffix="${a}${C_MAGENTA}${C_ITALIC}${z}${USER}${a}${C_RESET}${z} "
 		fi
 		title_segments+=("${USER}")
 	fi
 	if [[ $authenticated == 'yes' ]] || __is_authenticated; then
-		c_suffix+="${C_RED}#${C_RESET} "
+		c_suffix+="${a}${C_RED}${z}#${a}${C_RESET}${z} "
 		nc_suffix+="# "
 	else
-		c_suffix+="${C_WHITE}\$${C_RESET} "
+		c_suffix+='$ '
 		nc_suffix+='$ '
 	fi
-	if [[ $PROMPT_LINE_COLORS_SUPPORTED == 'yes' ]]; then
+	if [[ $prompt_line_colors == 'yes' ]]; then
 		suffix="$c_suffix"
 	else
 		suffix="$nc_suffix"
 	fi
 
 	# TIME SEGMENT
-	time="$(__get_time || :)"
-	if [[ -n $time ]]; then
-		prompt_segments+=("${C_GREEN}${time}")
+	if [[ $shell == 'bash' ]]; then
+		# https://www.gnu.org/software/bash/manual/bash.html#Controlling-the-Prompt
+		prompt_segments+=("${a}${C_GREEN}${z}\t")
+	else
+		time="$(__get_time || :)"
+		if [[ -n $time ]]; then
+			prompt_segments+=("${a}${C_GREEN}${z}${time}")
+		fi
 	fi
 
 	# SUDO, SSH, HOSTNAME
 	if [[ -n ${SSH_CONNECTION-} || -n ${SSH_CLIENT-} || -n ${SSH_TTY-} ]]; then
-		prompt_segments+=("${C_CYAN}${SUDO_USER:-"$USER"}${C_BLUE}@${HOSTNAME}")
+		prompt_segments+=("${a}${C_CYAN}${z}${SUDO_USER:-"$USER"}${a}${C_BLUE}${z}@${a}${HOSTNAME}${z}")
 		title_segments+=("${SUDO_USER:-"$USER"}@${HOSTNAME}")
 	fi
 
 	# PATH SEGMENT
 	if [[ -n $target ]]; then
-		prompt_segments+=("${C_YELLOW}${target}")
+		prompt_segments+=("${a}${C_YELLOW}${z}${target}")
 		title_segments+=("${target}")
 	fi
 
@@ -131,25 +165,25 @@ function oztheme {
 	git_branch="${git_branch/* /}" # [* master] to [master]
 	if [[ -n $git_branch ]]; then
 		if git diff --quiet &>/dev/null; then
-			prompt_segments+=("${C_CYAN}${git_branch}")
+			prompt_segments+=("${a}${C_CYAN}${z}${git_branch}")
 		else
-			prompt_segments+=("${C_RED}${git_branch}")
+			prompt_segments+=("${a}${C_RED}${z}${git_branch}")
 		fi
 	fi
 
 	# compose the segments
 	for ((i = $SHELL_START_INDEX, n = ${#prompt_segments[@]} + $SHELL_START_INDEX; i < n; i++)); do
-		prompt+="${C_SEPARATOR}${prompt_segments[i]}${C_RESET}"
+		prompt+="${a}${C_SEPARATOR}${z}${prompt_segments[i]}${a}${C_RESET}${z}"
 	done
 	for ((i = $SHELL_START_INDEX, n = ${#title_segments[@]} + $SHELL_START_INDEX; i < n; i++)); do
 		title+="${SEPARATOR}${title_segments[i]}"
 	done
 
 	# $ necessary for zsh
-	prompt="${prompt:$C_SEPARATOR_LENGTH}" # remove the first separator
+	prompt="${prompt:((${#a} + ${#C_SEPARATOR} + ${#z}))}" # remove the first separator
 	title="${title:$SEPARATOR_LENGTH}"     # remove the first separator
 
-	# Bash
+	# adjust for shell
 	if [[ $shell == 'bash' ]]; then
 		# sourced, unsure why PS1 and title are separate
 		PS1="${prompt}${NEWLINE}${suffix}"
