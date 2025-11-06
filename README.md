@@ -234,6 +234,8 @@ If your shell doesn't recognize any of the Dorothy commands (you get a command n
 
 If you see unrecognised symbols, you probably require fonts. Once Dorothy is loaded, run `setup-util-noto-emoji` which installs [Noto Emoji](https://github.com/googlefonts/noto-emoji), a font for enabling emojis inside your terminal. For rendering glyphs, run `setup-util-nerd-fonts` which will prompt you for which [Nerd Font](https://www.nerdfonts.com/font-downloads) to install. You may need to update your terminal preferences to leverage these installed fonts.
 
+If you are using Visual Studio Code, due to [this `#wontfix` bug](https://github.com/microsoft/vscode/issues/267565) in their terminal rendering you wil need `"terminal.integrated.minimumContrastRatio": 1` in your settings to fix background colours disabling foreground colours (this is automatically applied to the `dorothy edit` workspace). Visual Studio Code also has another [`#wontfix` bug](https://github.com/xtermjs/xterm.js/issues/734) where tab characters are converted to spaces, preventing their copying, without a workaround.
+
 ## Overview
 
 ### Dorothy Core
