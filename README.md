@@ -39,39 +39,44 @@ Dorothy is a dotfile ecosystem featuring:
 
 ### Supported Platforms
 
-| Operating System                                                | Architecture                                   | Support                  |
-| --------------------------------------------------------------- | ---------------------------------------------- | ------------------------ |
-| 🍏 macOS                                                        | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver, 🤖 CI   |
-| 🍏 macOS                                                        | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
-| 🍏 macOS                                                        | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
-| 🪟 Windows 10/11 [WSL2][WSL2] [Ubuntu][UbuntuWSL]               | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| 🍓 [Raspberry Pi OS with Desktop][PiOS]                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| 🍓 [Raspberry Pi OS Lite][PiOS]                                 | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
-| ⭕️ [Ubuntu Desktop][UbuntuD]                                    | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Desktop][UbuntuPi]                                   | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Server][UbuntuS]                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ⭕️ [Ubuntu Server][UbuntuPi]                                    | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ꩜ [Debian][Debian]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ꩜ [Debian][Debian]                                              | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
-| ∞ [Fedora Workstation][FedoraW]                                 | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ▲ [Arch][Arch]                                                  | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 👐 [AlmaLinux][Alma]                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ❍ [OpenMandriva][Mandriva] [Rock][Rock] [Rolling][Rolling]      | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ر [Devuan][Devuan]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 🦎 [OpenSUSE][OpenSUSE] [Leap][Leap] & [Tumbleweed][Tumbleweed] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 🐉 [Kali][Kali]                                                 | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⭐ [Vanilla][Vanilla]                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| Operating System                                                                                          | Architecture                                   | Support                  |
+| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------ |
+| 🍏 macOS                                                                                                  | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                                                                  | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                                                                  | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
+| 🍓 [Raspberry Pi OS][PiOS]: [Desktop][PiOSDownload], [Lite][PiOSDownload]                                 | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ⭕️ [Ubuntu on Raspberry Pi][UbuntuPi]: Desktop, Server                                                    | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ꩜ [Debian on Raspberry Pi][DebianPi]                                                                      | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| 🪟 Windows 10/11 [WSL2][WSL2]: [Ubuntu][UbuntuWSL], [Debian][DebianWSL], [Alma][AlmaWSL], [Kali][KaliWSL] | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| ⭕️ [Ubuntu][Ubuntu]: [Desktop][UbuntuD], [Server][UbuntuS]                                                | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ꩜ [Debian][Debian]                                                                                        | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ∞ [Fedora][Fedora]: [Workstation][FedoraW], [Server][FedoraS]                                             | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ▲ [Arch][Arch]                                                                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 👐 [AlmaLinux][AlmaLinux]                                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ❍ [OpenMandriva][Mandriva]: [Rock][Rock], [Rolling][Rolling]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 💫 [Devuan][Devuan]                                                                                       | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🦎 [OpenSUSE][OpenSUSE]: [Leap][Leap], [Tumbleweed][Tumbleweed]                                           | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🐉 [Kali][Kali]                                                                                           | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ⭐ [Vanilla][Vanilla]                                                                                     | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 
 [WSL2]: https://docs.microsoft.com/en-au/windows/wsl/
-[UbuntuWSL]: https://ubuntu.com/wsl
-[PiOS]: https://www.raspberrypi.com/software/operating-systems/
+[UbuntuWSL]: https://apps.microsoft.com/detail/9pdxgncfsczv
+[DebianWSL]: https://apps.microsoft.com/detail/9msvkqc78pk6
+[AlmaWSL]: https://apps.microsoft.com/search/publisher?name=AlmaLinux+OS+Foundation
+[KaliWSL]: https://apps.microsoft.com/detail/9pkr34tncv07
+[PiOS]: https://www.raspberrypi.com/documentation/computers/os.html
+[PiOSDownload]: https://www.raspberrypi.com/software/operating-systems/
+[Ubuntu]: https://ubuntu.com
 [UbuntuPi]: https://ubuntu.com/download/raspberry-pi
 [UbuntuD]: https://ubuntu.com/download/desktop
 [UbuntuS]: https://ubuntu.com/download/server
 [Debian]: https://www.debian.org
+[DebianPi]: https://raspi.debian.net
+[Fedora]: https://fedoraproject.org
 [FedoraW]: https://fedoraproject.org/workstation/
+[FedoraS]: https://fedoraproject.org/server/
 [Arch]: https://wiki.archlinux.org/title/Arch_Linux
-[Alma]: https://almalinux.org
+[AlmaLinux]: https://almalinux.org
 [Mandriva]: https://www.openmandriva.org
 [Rock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
 [Rolling]: https://wiki.openmandriva.org/en/distribution/releases/rome
@@ -107,7 +112,7 @@ For instance, installing [curl](https://en.wikipedia.org/wiki/Curl) with Dorothy
 ### Prerequisites
 
 > [!IMPORTANT]
-> To even initiate Dorothy, some prerequisite dependencies are required:
+> To initiate Dorothy, some prerequisite dependencies are required:
 
 macOS:
 
@@ -118,10 +123,10 @@ xcode-select --install
 Windows 10/11:
 
 ```bash
-# [Install WSL.](https://learn.microsoft.com/en-au/windows/wsl/install)
+# Install WSL: <https://learn.microsoft.com/en-au/windows/wsl/install>
 wsl --install
 wsl --set-default-version 2
-# note that [wsl --version] does not report WSL2, you need to do [wsl -l -v]
+# Note that `wsl --version` does not report WSL2, you need to do `wsl -l -v`
 ```
 
 Ubuntu / Debian / Kali:
@@ -302,7 +307,7 @@ Use these sources to find inspiration for your own user commands and configurati
 - [Dorothy's `commands.beta` directory](https://github.com/bevry/dorothy/tree/master/commands.beta) for beta-quality commands with possibly outdated conventions.
 - [Dorothy's `docs` directory](https://github.com/bevry/dorothy/tree/master/docs) containing tips and tricks for Dorothy, and various shells, such as [enabling private user configurations](https://github.com/bevry/dorothy/blob/master/docs/dorothy/private-configuration.md), and the [manual to assisted](https://github.com/bevry/dorothy/blob/master/docs/dorothy/manual-to-assisted.md) philosophy of Dorothy
 - Dorothy User Configurations:
-    - [@balupton](https://github.com/balupton) / [dotfiles](https://github.com/balupton/dotfiles): uses Fish as login shell, plenty of Bash commands
+    - [@balupton](https://github.com/balupton) / [dotfiles](https://github.com/balupton/dotfiles): uses Bash as login shell, plenty of Bash commands
     - [@molleweide](https://github.com/molleweide) / [dotfiles](https://github.com/molleweide/dotfiles): uses Zsh as login shell, plenty of Bash commands, kmonad user
     - [@jondpenton](https://github.com/jondpenton) / [dotfiles](https://github.com/jondpenton/dotfiles): uses Nu as login shell, plenty of Nu commands
     - [See more Dorothy User Configurations](https://github.com/stars/balupton/lists/dorothy-user-configurations)
