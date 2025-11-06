@@ -3,7 +3,7 @@
 # do not use any dorothy command, as this is eval'd on environments and situations where dorothy may not be available
 
 if [ "$*" = '--help' ]; then
-	cat <<-EOF >/dev/stderr
+	cat <<-EOF >&2
 		ABOUT:
 		Runs a series of network debugging commands.
 
@@ -15,26 +15,32 @@ fi
 
 # see [sources/bash.bash] for details
 __command_exists() {
-	type "$1" >/dev/null 2>&1
+	type "$1" >/dev/null 2>&1 || return
+	return
 }
-__try_sudo() {
-	if __command_exists sudo; then
+__elevate() {
+	# trim -- prefix
+	if [ "${1-}" = '--' ]; then
+		shift
+	fi
+	# forward to [eval-helper --elevate] if it exists, as it is more detailed
+	if __command_exists -- eval-helper; then
+		eval-helper --elevate -- "$@"
+		return
+	elif __command_exists -- sudo; then
 		# check if password is required
-		if
-			! sudo --non-interactive true >/dev/null 2>&1
-		then
+		if ! sudo --non-interactive "$@" 2>/dev/null; then
 			# password is required, let the user know what they are being prompted for
-			printf '%s\n' 'Your sudo/root/login password is required to execute the command:' >/dev/stderr
-			printf '%s\n' "sudo $*" >/dev/stderr
-			sudo "$@" || return
+			printf '%s\n' 'Your password is required to momentarily grant privileges to execute the command:' "sudo $*" >&2
+			sudo "$@"
+			return
 		else
 			# session still active, password not required
-			sudo "$@" || return
+			sudo "$@"
+			return
 		fi
-	elif __command_exists doas; then
-		set -x # <inform the user of why they are being prompted for a doas password>
+	elif __command_exists -- doas; then
 		doas "$@" || return
-		set +x # </inform>
 	else
 		"$@" || return
 	fi
@@ -55,17 +61,17 @@ nslookup search
 
 # install curl, dig (bind-tools/dnsutils), whois
 if __command_exists apk; then
-	__try_sudo apk update
-	__try_sudo apk add curl bind-tools
+	__elevate apk update
+	__elevate apk add curl bind-tools
 elif __command_exists apt; then
-	__try_sudo apt update
-	__try_sudo apt install -y curl dnsutils whois
+	__elevate apt update
+	__elevate apt install -y curl dnsutils whois
 elif __command_exists pacman; then
-	__try_sudo pacman -Syu
-	__try_sudo pacman -Sy curl dnsutils
+	__elevate pacman -Syu
+	__elevate pacman -Sy curl dnsutils
 elif __command_exists zypper; then
-	__try_sudo zypper update
-	__try_sudo zypper install curl dnsutils
+	__elevate zypper update
+	__elevate zypper install curl dnsutils
 fi
 
 printf '%s\n' 'DATE:'
@@ -75,19 +81,19 @@ printf '%s\n' 'RESOLVE:'
 systemd-resolve --status
 
 printf '%s\n' 'DNS LISTENERS:'
-__try_sudo ss -lp "sport = :domain"
+__elevate ss -lp "sport = :domain"
 
 printf '%s\n' 'LISTENERS:'
-__try_sudo netstat -tulpn | grep LISTEN
+__elevate netstat -tulpn | grep LISTEN
 
 printf '%s\n' 'DNS:'
-__try_sudo resolvectl dns
+__elevate resolvectl dns
 
 printf '%s\n' 'RESOLV:'
 cat /etc/resolv.conf
 
 printf '%s\n' 'ROUTE:'
-__try_sudo route -n
+__elevate route -n
 
 printf '%s\n' 'DIG:'
 dig "$domain"

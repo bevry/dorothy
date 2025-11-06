@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+
+function echo_write_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# [printf] supports null-bytes [\0]
+	# however, bash does not (not via read, not via process substitution)
+	# https://lists.gnu.org/archive/html/bug-bash/2016-09/msg00015.html
+
+	local root data_file first_output_file second_output_file
+	root="$(fs-temp --directory='dorothy' --directory='echo-write' --directory='tests')"
+	data_file="$root/data-file"
+	first_output_file="$root/first-output-file"
+	second_output_file="$root/second-output-file"
+	function __print_right_away {
+		printf 'a\n\0b\0c\0'
+	}
+	function __print_through_sleep {
+		sleep 1
+		printf '%s\n\0' a
+		sleep 2
+		printf '%s\0' b
+		sleep 3
+		printf '%s\0' c
+	}
+	__print_right_away >"$data_file"
+	function __clear {
+		rm -f -- "$first_output_file" "$second_output_file"
+	}
+	__clear
+
+	# showcase of the issues
+	__print_style --header1='ISSUE SHOWCASE'
+
+	__print_style --header1='bash (<...)'
+	printf '%q' "$(<"$data_file")" # error suppression doesn't do anything
+
+	__print_style --newline --header1='bash process substitution'
+	printf '%q' "$(__print_right_away)"
+
+	__print_style --newline --header1='bash read'
+	function __escape_stdin {
+		local whole='' reply
+		# bash can write/output null-bytes [\0], but [read] cannot read them
+		while LC_ALL=C IFS= read -rd '' reply || [[ -n $reply ]]; do
+			whole+="$reply"
+			reply=''
+		done
+		printf '%q' "$whole"
+	}
+	__escape_stdin <"$data_file"
+
+	__print_style --newline --header1='cat read'
+	cat -bnt "$data_file"
+
+	if __command_exists -- bat; then
+		__print_style --newline --header1='bat read'
+		bat --show-all "$data_file"
+	fi
+
+	# these were mention in prior docs as needing echo-write, however, they don't seem like they do, maybe again it was another issue of: https://github.com/bevry/dorothy/issues/283
+	# eval-tester -- fetch 'https://pkg.cloudflare.com/cloudflare-main.gpg' | gpg --import
+	# eval-tester -- fetch 'https://downloads.1password.com/linux/keys/1password.asc' | gpg --import
+
+	__print_style --header1='THE ACTUAL TESTS'
+
+	# --default
+	eval-tester --name='print right away' -- echo-write -- "$first_output_file" < <(__print_right_away)
+	eval-tester --name='check from print right way' --ignore-outputs -- is-same --cat -- "$data_file" "$first_output_file"
+	__clear
+	eval-tester --name='print multiple right away' -- echo-write -- "$first_output_file" "$second_output_file" < <(__print_right_away)
+	eval-tester --name='check from print multiple right way' --ignore-outputs -- is-same --cat -- "$data_file" "$first_output_file" "$second_output_file"
+	__clear
+	eval-tester --name='print right away no-binary' -- echo-write --no-binary -- "$first_output_file" "$second_output_file" < <(__print_right_away)
+	eval-tester --name='check from print right away no-binary' --ignore-outputs -- is-same --cat -- "$data_file" "$first_output_file" "$second_output_file"
+
+	# # ^ outputs a\n to stdout, then b to stdout, then c to stdout
+	# { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --buffer -- stdout stderr tty overwrite.txt
+	# # ^ outputs a\nbc to stdout, then a\nbc to stderr, then a\nbc to tty, then a\nbc to overwrite.txt
+
+	# { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --no-binary -- stdout stderr tty overwrite.txt
+	# # ^ outputs a\n to stdout stderr tty and overwrite.txt, then b to stdout stderr tty and overwrite.txt, then c to stdout stderr tty and overwrite.txt, with overwrite.txt being overwritten each time, meaning it only has [c] inside it
+
+	# { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --no-binary --append -- stdout stderr tty append.txt
+	# # ^ outputs a\n to stdout stderr tty and append.txt, then b to stdout stderr tty and append.txt, then c to stdout stderr tty and append.txt, with append.txt being appended each time, meaning it has [a\nb\nc] inside it
+
+	return 0
+)
+function echo_write() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return
+			ABOUT:
+			\`echo-write\` handles these use cases:
+			- \`<input> | echo-write\` same as \`cat\`, it will read STDIN as it happens, until the <input> closes, avoiding issues with delays and timeouts.
+			- \`<input> | echo-write --direct [--no-binary] -- ...<target>\` if \`tee\` and \`cat\` had a baby, it will STDIN and write to each <target> as it happens.
+			- \`<input> | echo-write --buffer | <writer>\` similar to \`sponge\`, it will read STDIN into a buffer until <input> closes, then sends the buffered input to the <writer>, this avoids SIGPIPE failures.
+			- \`<input> | echo-write --buffer -- ...<target>\` similar to \`sponge\`, it will read STDIN into a buffer until <input> closes, then writes the buffered input to each <target>, this avoids SIGPIPE failures, and may allow you to write to the same file that was read (if you need that, use --atomic).
+			- \`<input-file> | echo-write --atomic -- <input-file>\` same as \`sponge\`, it will read STDIN into a buffer until <input-file> closes, then atomically replaces the <input-file> with the buffered input, this allows you to write to the same file that was read, it also avoids SIGPIPE failures.
+
+			\`echo-write\` will automatically detect if a sudo escalation to write to a <target> is necessary, and will do the appropriate sudo escalation prompt.
+			If appending, \`echo-write\` will also do the same sudo escalation prompt if reading a <target> requires sudo escalation.
+
+			Note if \`tee\` already fits your needs, continue using \`tee\`. The only advantage of \`echo-write\` in that use case which is #2, would be auto sudo escalation, and writing to other FDs.
+
+			USAGE:
+			\`<input> | echo-write [...options] [-- ...<target>] | <reader>\`
+
+			OPTIONS:
+			--direct [--no-binary]
+			    The default mode, write the <input> directly to the <target>s, without buffering.
+			    Only supports multiple targets if either <binary:false>, <buffer>, or <atomic> is provided.
+			    This means:
+			    \`{ sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write -- stdout
+			    # ^ outputs a\n to stdout, then b to stdout, then c to stdout
+			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --buffer -- stdout stderr tty overwrite.txt
+			    # ^ outputs a\nbc to stdout, then a\nbc to stderr, then a\nbc to tty, then a\nbc to overwrite.txt
+			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --no-binary -- stdout stderr tty overwrite.txt
+			    # ^ outputs a\n to stdout stderr tty and overwrite.txt, then b to stdout stderr tty and overwrite.txt, then c to stdout stderr tty and overwrite.txt, with overwrite.txt being overwritten each time, meaning it only has [c] inside it
+			    { sleep 1; printf '%s\n\0' a; sleep 2; printf '%s\0' b; sleep 3; printf '%s\0' c; } | echo-write --no-binary --append -- stdout stderr tty append.txt
+			    # ^ outputs a\n to stdout stderr tty and append.txt, then b to stdout stderr tty and append.txt, then c to stdout stderr tty and append.txt, with append.txt being appended each time, meaning it has [a\nb\nc] inside it.\`
+			--buffer
+			    Buffer all the <input> to a temporary file, then write the content from the temporary file to the <target>s.
+			    This avoids SIGPIPE failures, however it is better to use \`bash.bash:__ignore_pipe\`.
+			--atomic
+			    Buffer all the <input> to a temporary file, then replace the <target:file> with the temporary file.
+			    This is useful when reading and writing to the same file in a pipe, e.g. \`{cat,jq,rg} <target:file> | echo-write -- <target:file>\`.
+			    For non-files, this is the same as <buffer>.
+			--append
+			    When writing to the <target>s, append to them instead of overwriting.
+			    For non-files, this has no effect, they are always appended.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			    Forwards as \`13 93 <elevate>\` which elevates privileges if necessary to write the <target:file-path>.
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
+
+			-- ...<target:file-path|file-descriptor|device-file>
+			    A target to write to. If none are provided, it is STDOUT.
+			    A target can be a file path (e.g. \`out.txt\`), a file descriptor (e.g. \`1\` for STDOUT, \`2\` for STDERR), or a device file (e.g. \`/dev/stdout\`, \`/dev/stderr\`, \`/dev/tty\`). These are sent to \`bash.bash:__do\` for processing.
+
+			QUIRKS:
+			This command has each flag disabled, except <direct>, such that your code becomes self-documenting. That is to say, by providing the flag, you communicate why you needed \`echo-write\` in the first place.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_append='' option_atomic='' option_buffer='' option_direct='' option_binary='' option_targets=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-append'* | '--append'*) __flag --source={item} --target={option_append} --affirmative ;;
+		'--no-atomic'* | '--atomic'*) __flag --source={item} --target={option_atomic} --affirmative ;;
+		'--no-buffer'* | '--buffer'*) __flag --source={item} --target={option_buffer} --affirmative ;;
+		'--no-direct'* | '--direct'*) __flag --source={item} --target={option_direct} --affirmative ;;
+		'--no-binary'* | '--binary'*) __flag --source={item} --target={option_binary} --affirmative ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--')
+			option_targets+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_targets+=("$item") ;;
+		esac
+	done
+
+	# if no targets, then it is STDOUT
+	if [[ ${#option_targets[@]} -eq 0 ]]; then
+		option_targets=('/dev/stdout')
+	fi
+
+	# direct is just the default, so reset flags
+	if [[ -z $option_direct && -z $option_buffer && -z $option_atomic ]]; then
+		option_direct='yes'
+	fi
+	if [[ $option_direct == 'yes' ]]; then
+		if [[ $option_atomic == 'yes' ]]; then
+			help --='--direct cannot be used with --atomic'
+		fi
+		if [[ $option_buffer == 'yes' ]]; then
+			help --='--direct cannot be used with --buffer'
+		fi
+		if [[ $option_binary == 'yes' ]]; then
+			help --='--direct cannot be used with --binary'
+		fi
+		if [[ ${#option_targets[@]} -ne 1 && -z $option_binary ]]; then
+			help --='--direct with multiple <target>s requires either --no-binary, --buffer, or --atomic to be provided, e.g. ' --code="echo-write --no-binary -- ${option_targets[*]}"
+		fi
+	fi
+
+	# =====================================
+	# Action
+
+	function get_reason {
+		local target="$1"
+		__print_lines "${option_reason:-"Your password is required to momentarily grant privileges to update the file: $target"}"
+	}
+	function get_elevate {
+		# auto-elevation
+		local target="$1" target_elevated
+		target_elevated="$(mktemp)"
+		is-touchable --verbose --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="13 93 $option_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- "$target" || :
+		if [[ -s $target_elevated ]]; then
+			__print_lines 'yes'
+		else
+			__print_lines 'no'
+		fi
+	}
+	function do_atomic {
+		local buffer_file="$1" target="$2" reason target_elevate
+		if __is_special_file "$target"; then
+			__do --redirect-stdout="$target" -- cat "$buffer_file"
+			return
+		fi
+
+		# determine elevation
+		reason="$(get_reason "$target")"
+		target_elevate="$(get_elevate "$target")"
+
+		# write
+		if [[ $option_append == 'yes' ]]; then
+			joined_file="$(mktemp)"
+			# write
+			echo-file --raw --ignore-missing --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- "$target" "$buffer_file" >"$joined_file"
+			# replace
+			eval-helper --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- \
+				cp -f -- "$joined_file" "$target"
+			# remove
+			rm -f -- "$joined_file"
+		else
+			eval-helper --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- \
+				cp -f -- "$buffer_file" "$target"
+		fi
+	}
+	function do_buffer {
+		local buffer_file="$1" target="$2" reason target_elevate
+		if __is_special_file "$target"; then
+			__do --redirect-stdout="$target" -- cat "$buffer_file"
+			return
+		fi
+
+		# determine elevation
+		reason="$(get_reason "$target")"
+		target_elevate="$(get_elevate "$target")"
+
+		# write
+		if [[ $target_elevate == 'yes' ]]; then
+			if [[ $option_append == 'yes' ]]; then
+				__do --discard-stdout -- \
+					eval-helper --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- \
+					tee -a "$target" <"$buffer_file"
+			else
+				__do --discard-stdout -- \
+					eval-helper --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- \
+					tee -- "$target" <"$buffer_file"
+			fi
+		else
+			if [[ $option_append == 'yes' ]]; then
+				cat "$buffer_file" >>"$target"
+			else
+				cat "$buffer_file" >"$target"
+			fi
+		fi
+	}
+	function do_direct {
+		# direct only supports a single target
+		local target="$1" reason target_elevate
+		if __is_special_file "$target"; then
+			__do --redirect-stdout="$target" -- cat
+			return
+		fi
+		# determine elevation
+		reason="$(get_reason "$target")"
+		target_elevate="$(get_elevate "$target")"
+
+		# write
+		if [[ $target_elevate == 'yes' ]]; then
+			if [[ $option_append == 'yes' ]]; then
+				__do --discard-stdout -- \
+					eval-helper --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- \
+					tee -a "$target"
+			else
+				__do --discard-stdout -- \
+					eval-helper --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- \
+					tee -- "$target"
+			fi
+		else
+			if [[ $option_append == 'yes' ]]; then
+				cat >>"$target"
+			else
+				cat >"$target"
+			fi
+		fi
+	}
+	if [[ $option_atomic == 'yes' ]]; then
+		local buffer_file
+		buffer_file="$(mktemp)"
+		cat >"$buffer_file"
+		local target
+		for target in "${option_targets[@]}"; do
+			do_atomic "$buffer_file" "$target"
+		done
+		rm -f -- "$buffer_file"
+	elif [[ $option_buffer == 'yes' ]]; then
+		local buffer_file
+		buffer_file="$(mktemp)"
+		cat >"$buffer_file"
+		local target
+		for target in "${option_targets[@]}"; do
+			do_buffer "$buffer_file" "$target"
+		done
+		rm -f -- "$buffer_file"
+	else
+		# direct mode
+		local target
+		if [[ ${#option_targets[@]} -gt 1 ]]; then
+			local REPLY
+			while LC_ALL=C IFS= read -rd '' || [[ -n $REPLY ]]; do
+				for target in "${option_targets[@]}"; do
+					printf '%s' "$REPLY" | do_direct "$target"
+				done
+				REPLY=''
+			done
+		else
+			# single, binary mode
+			for target in "${option_targets[@]}"; do
+				do_direct "$target"
+			done
+		fi
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_write_test
+	else
+		echo_write "$@"
+	fi
+fi

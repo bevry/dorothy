@@ -2,14 +2,14 @@
 
 ## Documentation on ANSI Escape Codes
 
-- <https://terminals-wiki.org/wiki/index.php/CodeChart:ANSI/ESC/CSI>
 - <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences>
 - <https://www.gnu.org/software/screen/manual/html_node/Control-Sequences.html>
 - <https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797> and <https://gist.github.com/ConnerWill/d4b6c776b509add763e17f9f113fd25b> they look the ame but have different commit histories
 - <https://en.wikipedia.org/wiki/ANSI_escape_code#CSI_(Control_Sequence_Introducer)_sequences>
+- <https://terminals-wiki.org/wiki/index.php/CodeChart:ANSI/ESC/CSI> - seems useful, but in reality, it isn't, e.g. how to close the reversed string it mentions, what are the exact complete sequences, etc.
 - <https://tldp.org/HOWTO/Bash-Prompt-HOWTO/bash-prompt-escape-sequences.html>
 - <https://en.wikipedia.org/wiki/ANSI_escape_code#Terminal_input_sequences> mentions screen/vt codes, which can be verified by entering `screen` then entering `read-key` then entering the key
-- <https://invisible-island.net/xterm/ctlseqs/ctlseqs.pdf>
+- <https://invisible-island.net/xterm/ctlseqs/ctlseqs.pdf> this is comprehensive, perhaps even definitive, but in doings so, it has conflictual sequences and many aren't actually supported in general
 - <https://unix.stackexchange.com/a/668615/50703>
 
 ## Documentation on ANSI Escape Codes for colors

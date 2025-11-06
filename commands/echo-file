@@ -4,59 +4,223 @@
 # https://github.com/swsnr/mdcat
 # https://github.com/efugier/smartcat
 
+function echo_file_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	eval-tester --name='no args' -- \
+		echo-file --
+
+	# CAT
+
+	echo a | eval-tester --stdout=$'a\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw
+
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'a \n\t\nb' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw
+
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'a $\n^I$\n^@b' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --hidden
+
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'< /dev/stdin >\na $\n^I$\n^@b\n</ /dev/stdin >\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --hidden --header
+
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'< /dev/stdin >\n     1\ta $\n     2\t^I$\n     3\t^@b\n</ /dev/stdin >\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --hidden --header --lines
+
+	printf '\n\n\n' | eval-tester --stdout=$'< /dev/stdin >\n     1\t$\n     2\t$\n     3\t$\n</ /dev/stdin >\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --hidden --header --lines
+
+	printf '\n\n\n' | eval-tester --stdout=$'< /dev/stdin />\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --hidden --header --lines --trim
+
+	# BAT
+
+	setup-util-bat --uninstall --quiet
+
+	# TTY will have install info, and STDERR will have failed install technique info
+	echo a | eval-tester --ignore-tty --ignore-stderr --stdout=$'a\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --bat
+
+	# for some reason on ubuntu, kali, and debian, this is resulting in no trailing newline
+	# however, it attempts install bat even though the prior installed it
+	# it is not related to bat version: bat (0.25.0-2+b2) ...
+	# https://github.com/bevry/dorothy/actions/runs/18237950922/job/51935016876#step:4:10782
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'a \n\t\nb\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --bat
+
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'a·␊\n├──┤␊\n␀b\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --bat --hidden
+
+	printf 'a \n\t\n\0b' | eval-tester --stdout=$'   1 a·␊\n   2 ├──┤␊\n   3 ␀b\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --bat --hidden --lines
+
+	printf '\n\n\n' | eval-tester --stdout=$'   1 ␊\n   2 ␊\n   3 ␊\n' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --bat --hidden --lines
+
+	printf '\n\n\n' | eval-tester --stdout='' --trailing-newlines -- \
+		echo-file --no-color --stdin --raw --bat --hidden --trim
+
+	# PROCESS SUBSTITUTION
+
+	eval-tester --stdout=$'a $\n^I$\n^@b' --trailing-newlines -- \
+		echo-file --no-color --raw --bat=no --hidden -- <(printf 'a \n\t\n\0b')
+
+	eval-tester --stdout=$'a·␊\n├──┤␊\n␀b\n' --trailing-newlines -- \
+		echo-file --no-color --raw --bat --hidden -- <(printf 'a \n\t\n\0b')
+
+	# FILES
+
+	__print_lines 'this-is-stdin' | eval-tester --ignore-output -- \
+		echo-file --stdin --cat -- <(__print_lines 'this-is-process-substitution') "$DOROTHY/.gitignore"
+
+	__print_lines 'this-is-stdin' | eval-tester --ignore-output -- \
+		echo-file --stdin --bat -- <(__print_lines 'this-is-process-substitution') "$DOROTHY/.gitignore"
+
+	return 0
+)
 function echo_file() (
 	source "$DOROTHY/sources/stdinargs.bash"
+	source "$DOROTHY/sources/styles.bash" # __get_terminal_color_support
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	# trunk-ignore(shellcheck/SC2120)
+	function __help {
+		__print_help "$@" <<-EOF || return
 			ABOUT:
-			Output the contents of the passed file paths.
+			Output the contents of the each <path> or STDIN.
 
 			USAGE:
-			echo-file [...options] [--] ...<path>
-			echo-lines ...<path> | echo-file [...options]
+			\`echo-file [...options] [--] ...<path>\`
+			\`echo-lines ...<path> | echo-file [...options] --stdin\`
 
 			OPTIONS:
+			[--] ...<path>
+			    Output the contents of each <path>.
+			--stdin
+			    Output the contents of STDIN.
+
 			--[no-]bat
-			    If affirmative, install and use [bat] if it doesn't exist.
-				If missing, use [bat] if it exists.
-				If negative, don't use [bat].
+			    If enabled, install and use \`bat\` if it doesn't exist.
+			    If disabled, don't use \`bat\`.
+			    If omitted, use \`bat\` if it exists  or if <install>.
+			--[no-]cat
+			    Inverse of <bat>.
+			--[no-]install
+			    If enabled, prefer <bat> and install \`bat\` if necessary.
+			    If disabled, disable <bat> and <highlight> if \`bat\` is missing.
+			    If omitted, only install \`bat\` if <bat> or <highlight>.
 
-			--raw
-			    No line numbers or filename, only file contents.
+			--[no-]header
+			    Show the file content wrapped in a header that indicates its <path>.
+			    If omitted, enabled.
+			--name=<name>
+			    If provided, outputs <name> in the <header> instead of <path>. Useful for providing a name including extension when using STDIN such that <bat> can <highlight> correctly.
+			--[no-]highlight
+			    If <bat>, show file content with syntax highlighting.
+			    If enabled, implies <bat>.
+			    If disabled, does not request <bat>.
+			    If omitted, matches <bat>.
+			--[no-]numbers | --[no-]lines
+			    Show line numbers.
+			--[no-]plain
+			    Disables <number>, retains <header> and <highlight>. Shows enriched content that is unadulterated when copy-pasted, however if used with <bat>, a trailing newline will be inserted if missing.
+			--[no-]hidden
+			    Show hidden characters.
+			--[no-]trim
+			    Trim the padding at the start and end of the file content. Requires <raw>.
+			--[no-]raw
+			    Enables <plain> and disables <header>, <highlight>, <number>, <bat>, <color>. Shows unadulterated raw content, for piping to other commands. <bat> is disabled because otherwise a trailing newline will be inserted if missing.
 
-			--plain
-			    No line numbers.
+			--[no-]warn
+			    If <enabled>, the default, when a <path> is missing or unreadable, output a failure message.
+			--[no-]error
+			    If <enabled>, the default, when a <path> is missing or unreadable, return a failure status.
+			--[no-]optional | --[no-]required
+			    If <optional>, both <warn> and <error> will be disabled.
+			    If <required>, both <warn> and <error> will be enabled.
 
-			$(stdinargs_options_help --)
+			--elevated=<elevated>
+			--elevate=<elevate>
+			    Forwards as \`13 93 <elevate>\` which elevates privileges if necessary to read <path>.
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
+
+			$(__stdinargs__help_options --)
 		EOF
-		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_bat='' option_raw='no' option_plain='no' option_args=()
+	local item \
+		option_bat='' option_install='' \
+		option_header='' option_name='' option_highlight='' option_numbers='' option_plain='' option_hidden='no' option_trim='no' \
+		option_warn='yes' option_error='yes' \
+		option_elevated='' option_elevate='' option_user='' option_group='' option_reason='' \
+		option_args=()
+	# don't move 13 and 93 into option_elevate here, as then that means they apply on bat and cat, which we don't want
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-bat'* | '--bat'*)
-			option_bat="$(get-flag-value --affirmative --fallback="$option_bat" -- "$item")"
+		# trunk-ignore(shellcheck/SC2119)
+		--help | -h) __help ;;
+		--no-color* | --color*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		--no-cat* | --cat*) __flag --source={item} --target={option_bat} --non-affirmative --coerce ;;
+		--no-bat* | --bat*) __flag --source={item} --target={option_bat} --affirmative --coerce ;;
+		--no-install* | --install*) __flag --source={item} --target={option_bat} --affirmative --coerce ;;
+		--no-header* | --header*) __flag --source={item} --target={option_header} --affirmative --coerce ;;
+		--name=*) option_name="${item#*=}" ;;
+		--no-highlight* | --highlight*) __flag --source={item} --target={option_highlight} --affirmative --coerce ;;
+		--no-number* | --number* | --no-lines* | --lines*) __flag --source={item} --target={option_numbers} --affirmative --coerce ;;
+		--no-plain* | --plain*)
+			__flag --source={item} --target={option_plain} --affirmative --coerce
+			if [[ $option_plain == 'yes' ]]; then
+				option_numbers='no'
+			fi
 			;;
-		'--no-raw'* | '--raw'*)
-			option_raw="$(get-flag-value --affirmative --fallback="$option_raw" -- "$item")"
+		--no-hidden* | --hidden*) __flag --source={item} --target={option_hidden} --affirmative --coerce ;;
+		--no-trim* | --trim*) __flag --source={item} --target={option_trim} --affirmative --coerce ;;
+		--no-raw* | --raw*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_header='no'
+				option_highlight='no'
+				option_numbers='no'
+				option_plain='yes'
+				option_bat='no'
+				export COLOR
+				COLOR='no'
+			fi
 			;;
-		'--no-plain'* | '--plain'*)
-			option_plain="$(get-flag-value --affirmative --fallback="$option_plain" -- "$item")"
+		--no-warn* | --warn*) __flag --source={item} --target={option_warn} --affirmative --coerce ;;
+		--no-error* | --error*) __flag --source={item} --target={option_error} --affirmative --coerce ;;
+		--no-required* | --required*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ -n $item ]]; then
+				option_warn="$item"
+				option_error="$item"
+			fi
 			;;
+		--no-optional* | --optional*)
+			__flag --source+target={item} --non-affirmative --coerce
+			if [[ -n $item ]]; then
+				option_warn="$item"
+				option_error="$item"
+			fi
+			;;
+		# <elevate>
+		--elevated=*) option_elevated="${item#*=}" ;;
+		--no-elevate* | --elevate*) __flag --source={item} --target={option_elevate} --affirmative ;;
+		--user=*) option_user="${item#*=}" ;;
+		--group=*) option_group="${item#*=}" ;;
+		--reason=*) option_reason="${item#*=}" ;;
+		# </elevate>
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
-		'--')
+		--)
 			option_args+=("$item" "$@")
 			shift $#
 			break
@@ -65,116 +229,244 @@ function echo_file() (
 		esac
 	done
 
-	# install bat if yes
-	if [[ $option_bat == 'yes' ]]; then
-		setup-util-bat --quiet
-	elif [[ -z $option_bat ]]; then
-		if __command_exists -- bat; then
+	# handle <bat>
+	if [[ -z $option_bat ]]; then
+		if __command_exists -- bat || [[ $option_highlight == 'yes' || $option_install == 'yes' ]]; then
 			option_bat='yes'
 		else
 			option_bat='no'
 		fi
 	fi
+	if [[ $option_bat == 'yes' ]]; then
+		if ! __command_required --install="$option_install" -- bat; then
+			option_bat='no'
+		fi
+	else
+		option_bat='no'
+	fi
+	if [[ -z $option_header ]]; then
+		option_header='yes'
+	fi
+	if [[ -z $option_highlight ]]; then
+		option_highlight="$option_bat"
+	fi
+	if [[ -z $option_numbers ]]; then
+		option_numbers='no'
+	fi
+	if [[ -z $option_plain ]]; then
+		option_plain='no'
+	fi
+	if [[ -z $option_hidden ]]; then
+		option_hidden='no'
+	fi
+	if [[ -z $option_trim ]]; then
+		option_trim='no'
+	fi
 
 	# =====================================
 	# Action
 
-	if [[ $option_raw == 'yes' ]]; then
-		# raw
-		function echo_files {
-			local file result=0
-			while [[ $# -ne 0 ]]; do
-				file="$1"
-				shift
-				if [[ -f $file ]]; then
-					echo-trim-padding --stdin <"$file"
-				else
-					echo-style --error="The file does not exist." >/dev/stderr
-					result=2 # ENOENT No such file or directory
-					# ^ dont like this, so that all files are noted before crash
-				fi
-				if [[ $# -ne 0 ]]; then
-					__print_lines '' ''
-				fi
-			done
-			return "$result"
-		}
-	else
-		# plain/bat
-		local terminal_theme='' bat_cmd=(
-			bat
-			--paging=never
-		)
-		if [[ $option_plain == 'yes' ]]; then
-			bat_cmd+=(
-				--plain
-			)
+	# receive then act on all files
+	local FILE NAME REASON ELEVATE
+	function __wrap {
+		eval-helper --elevated="$option_elevated" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$@" || return
+	}
+
+	# bat
+	if [[ $option_bat == 'yes' ]]; then
+		local terminal_theme='' bat_styles=() bat_options=()
+		bat_options+=(--paging=never)
+		if [[ $option_hidden == 'yes' ]]; then
+			bat_options+=(--show-all)
+		fi
+		#  -p, --plain...: Only show plain style, no decorations. This is an alias for '--style=plain'. When '-p' is used twice ('-pp'), it also disables automatic paging (alias for '--style=plain --paging=never').
+		# --color <when>: Specify when to use colored output. The automatic mode only enables colors if an interactive terminal is detected - colors are automatically disabled if the output goes to a pipe. Possible values: *auto*, never, always.
+		# --decorations <when>: Specify when to use the decorations that have been specified via '--style'. The automatic mode only enables decorations if an interactive terminal is detected. Possible values: *auto*, never, always.
+		#
+		# --style <components>:
+		# By default, the following components are enabled: changes, grid, header-filename, numbers, snip
+		# Possible values:
+		# * default: enables recommended style components (default).
+		# * full: enables all available components.
+		# * auto: same as 'default', unless the output is piped.
+		# * plain: disables all available components.
+		# * changes: show Git modification markers.
+		# * header: alias for 'header-filename'.
+		# * header-filename: show filenames before the content.
+		# * header-filesize: show file sizes before the content.
+		# * grid: vertical/horizontal lines to separate side bar and the header from the content.
+		# * rule: horizontal lines to delimit files.
+		# * numbers: show line numbers in the side bar.
+		# * snip: draw separation lines between distinct line ranges.
+		bat_options+=(--decorations=always)
+		if __get_terminal_color_support --quiet --fallback=yes; then
+			bat_options+=(--color=always)
 		else
-			bat_cmd+=(
-				--decorations=always
-				--color=always
-			)
+			bat_options+=(--color=never)
+		fi
+		# bat 0.24.0 (fc95468) does not support header, nor header-filename
+		# error: invalid value '+header' for '--style <components>': Unknown style, '+header'
+		# error: invalid value '+header-filename' for '--style <components>': Unknown style, '+header-filename'
+		# https://github.com/bevry/dorothy/actions/runs/18237950922/job/51935016919#step:4:10028
+		if [[ $option_header == 'yes' ]]; then
+			bat_styles+=(+header)
+		else
+			bat_styles+=(-header)
+		fi
+		if [[ $option_numbers == 'yes' ]]; then
+			bat_styles+=(+numbers)
+		else
+			bat_styles+=(-numbers)
+		fi
+		if [[ $option_plain == 'yes' ]]; then
+			# rule is a divider when there is no grid, between multiple files - single file has no effect
+			bat_styles+=('-changes,-grid,+rule')
+			bat_options+=(--tabs 0) # don't convert tabs to spaces
+		else
+			# rule is a subset of grid, when grid is enabled, rule is irrelevant
+			bat_styles+=('+changes,+grid')
 		fi
 		if [[ -z ${BAT_THEME-} ]]; then
-			terminal_theme="$(get-terminal-theme --ignore-cache || :)"
+			terminal_theme="$(get-terminal-theme || :)"
 			if [[ $terminal_theme == 'light' ]]; then
-				bat_cmd+=(
-					--theme=ansi
-				)
+				bat_options+=(--theme=ansi)
 			elif [[ $terminal_theme == 'dark' ]]; then
-				bat_cmd+=(
-					--theme=1337
-				)
+				bat_options+=(--theme=1337)
 			fi # else bat is installed, but without knowing the terminal theme, we cannot be sure that the bat theme is readable
 		fi
-
-		function echo_file_bat {
-			local file="$1"
-			if [[ $option_plain == 'yes' ]]; then
-				echo-style --element="$file"
-				"${bat_cmd[@]}" "$file" # eval
-				echo-style --/element="$file"
+		local bat_styles_string=''
+		__join --source={bat_styles} --delimiter=',' --target={bat_styles_string} || return
+		bat_options+=(--style="$bat_styles_string")
+		# adding a suffix like ` (trimmed)` or ` | echo-trim-padding --stdin` to the file name disables syntax highlighting unfortunately
+		function __read {
+			if [[ $FILE == '/dev/stdin' ]]; then
+				# STDIN
+				if [[ $option_trim == 'yes' ]]; then
+					echo-trim-padding --stdin | bat --file-name "$NAME" "${bat_options[@]}" - || return
+				else
+					bat --file-name "$NAME" "${bat_options[@]}" - || return
+				fi
 			else
-				"${bat_cmd[@]}" "$file"
+				# FILE
+				if [[ $option_trim == 'yes' ]]; then
+					__wrap cat "$FILE" | echo-trim-padding --stdin | bat --file-name "$NAME" "${bat_options[@]}" - || return
+				else
+					__wrap cat "$FILE" | bat --file-name "$NAME" "${bat_options[@]}" - || return
+				fi
 			fi
 		}
-		function echo_files {
-			local file result=0 bat_status=1
-			while [[ $# -ne 0 ]]; do
-				file="$1"
-				shift
-				if [[ -f $file ]]; then
-					if [[ $option_bat == 'yes' ]]; then
-						eval_capture --statusvar=bat_status -- echo_file_bat "$file"
-					fi
-					if [[ $bat_status -ne 0 ]]; then
-						echo-style \
-							--element="$file" --newline \
-							--code="$(echo-trim-padding --stdin <"$file")" --newline \
-							--/element="$file"
-					fi
+	else
+		local cat_options=()
+		if [[ $option_hidden == 'yes' ]]; then
+			#  -e      Display non-printing characters (see the -v option), and display a dollar sign (‘$’) at the end of each line.
+			# -t      Display non-printing characters (see the -v option), and display tab characters as ‘^I’.
+			# -v      Display non-printing characters so they are visible.  Control characters print as ‘^X’ for control-X; the delete character (octal 0177) prints as ‘^?’.  Non-ASCII characters (with the high bit set) are printed as ‘M-’ (for meta) followed by the character for the low 7 bits.
+			cat_options+=(-etv) # use -t to replace tabs as it may be desired in they are in vscode which transforms tabs to spaces, so useful to know it is actually a tab
+		fi
+		if [[ $option_numbers == 'yes' ]]; then
+			# -b      Number the non-blank output lines, starting at 1.
+			# -n      Number the output lines, starting at 1.
+			cat_options+=(-n) # using -b does not count non-blank lines, use -n alone to count all lines
+		fi
+		function __read {
+			if [[ $FILE == '/dev/stdin' ]]; then
+				# STDIN
+				if [[ $option_trim == 'yes' ]]; then
+					function __cat {
+						echo-trim-padding --stdin | cat "${cat_options[@]}" - || return
+					}
 				else
-					echo-style --stderr \
-						--element="$file" --newline \
-						--error="The file does not exist." --newline \
-						--/element="$file" --status=2
-					result=2 # ENOENT No such file or directory
-					# ^ dont like this, so that all files are noted before crash
+					function __cat {
+						cat "${cat_options[@]}" - || return
+					}
 				fi
-				if [[ $# -ne 0 ]]; then
-					__print_lines '' ''
+			else
+				# FILE
+				if [[ $option_trim == 'yes' ]]; then
+					function __cat {
+						__wrap cat -- "$FILE" | echo-trim-padding --stdin | cat "${cat_options[@]}" - || return
+					}
+				else
+					function __cat {
+						__wrap cat "${cat_options[@]}" -- "$FILE" || return
+					}
 				fi
-			done
-			return "$result"
+			fi
+
+			# this doesn't handle files without trailing newline well, and it doesn't color well
+			# if [[ $option_header == 'yes' ]]; then
+			# 	__print_style --element="$FILE" || return
+			# fi
+			# __cat || return
+			# if [[ $option_header == 'yes' ]]; then
+			# 	__print_style --/element="$FILE" || return
+			# fi
+			if [[ $option_header == 'yes' ]]; then
+				local content
+				content="$(__cat)" || return
+				if [[ -n $content ]]; then
+					__print_style --element="$NAME" --newline --code="$content" --newline --/element="$NAME" || return
+				else
+					# self close, as no data (consistent with eval-helper)
+					__print_style --element/="$NAME" || return
+				fi
+			else
+				__cat || return
+			fi
 		}
 	fi
 
-	local files=()
-	function on_line {
-		files+=("$1")
+	# STDIN
+	function __on_stdin {
+		FILE='/dev/stdin'
+		NAME="${option_name:-"$FILE"}"
+		__read || return
 	}
-	function on_finish {
-		echo_files "${files[@]}"
+
+	# ...<path>
+	function __on_argument {
+		# share
+		FILE="$1"
+		NAME="${option_name:-"$FILE"}"
+		REASON="${option_reason:-"Your password is required to momentarily grant privileges to read the file: $FILE"}"
+		# auto-elevation
+		ELEVATE="$option_elevate"
+
+		# if it isn't a process substitution, then check access with optional elevation
+		if ! [[ -p $FILE ]]; then
+			# prepare temp file to capture if elevation was used
+			local target_elevated
+			target_elevated="$(mktemp)" || return
+
+			# check file, with elevation if inaccessible (13)
+			# ! [[ -e "$FILE" ]] &&
+			if ! is-file --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
+				if [[ $option_error == 'no' ]]; then
+					return 0
+				else
+					return 13 # EACCES 13 Permission denied
+				fi
+			fi
+			if [[ -s $target_elevated ]]; then
+				ELEVATE='yes'
+			fi
+
+			# check unreadable, with elevation if unreadable (93)
+			# ! [[ -r "$FILE" ]] &&
+			if ! is-readable --no-quiet="$option_warn" --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="93 $ELEVATE" --user="$option_user" --group="$option_group" --reason="$REASON" -- "$FILE"; then
+				if [[ $option_error == 'no' ]]; then
+					return 0
+				else
+					return 13 # EACCES 13 Permission denied
+				fi
+			fi
+			if [[ -s $target_elevated ]]; then
+				ELEVATE='yes'
+			fi
+		fi
+
+		# read the file
+		__read || return
 	}
 
 	stdinargs "${option_args[@]}"
@@ -182,5 +474,9 @@ function echo_file() (
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	echo_file "$@"
+	if [[ $* == '--test' ]]; then
+		echo_file_test
+	else
+		echo_file "$@"
+	fi
 fi

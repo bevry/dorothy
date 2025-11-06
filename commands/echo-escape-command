@@ -1,13 +1,28 @@
 #!/usr/bin/env bash
 
+function echo_escape_command_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	eval-tester --stdout='my-command argument spaced\ argument'$'\n' --trailing-newlines -- \
+		echo-escape-command -- 'my-command' 'argument' 'spaced argument'
+
+	eval-tester --stdout='my-command --var=\~/dir spaced\ argument'$'\n' --trailing-newlines -- \
+		echo-escape-command -- 'my-command' '--var=~/dir' 'spaced argument'
+
+	eval-tester --stdout='my-command --var=~/dir spaced\ argument'$'\n' --trailing-newlines -- \
+		echo-escape-command --persist='~' -- 'my-command' '--var=~/dir' 'spaced argument'
+
+	return 0
+)
 function echo_escape_command() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
 	# =====================================
 	# Arguments
 
+	# trunk-ignore(shellcheck/SC2120)
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return
 			ABOUT:
 			Escape the <...command> for human readability.
 
@@ -16,26 +31,60 @@ function echo_escape_command() (
 			echo-lines <...command> | echo-escape-command [...options]
 
 			OPTIONS:
-			$(stdinargs_options_help --)
+			--persist=<string>
+			    A string to persist unescaped in the output.
+
+			$(__stdinargs__help_options --)
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_persist=() option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		# trunk-ignore(shellcheck/SC2119)
+		'--help' | '-h') help ;;
+		'--persist='*) option_persist+=("${item#*=}") ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
 	# =====================================
 	# Action
 
-	local args=()
-	function on_input {
-		args+=("$@")
+	local inputs=()
+	function __on_piece {
+		local escaped persist
+		printf -v escaped '%q' "$1" || return
+		for persist in "${option_persist[@]}"; do
+			escaped="${escaped//"\\$persist"/"$persist"}"
+		done
+		inputs+=("$escaped")
 	}
-	function on_finish {
-		printf '%q\n' "${args[@]}" | echo-join ' ' --stdin
+	function __on_finish {
+		local result=''
+		__join --source={inputs} --delimiter=' ' --target={result} || return
+		__print_lines "$result" || return
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	echo_escape_command "$@"
+	if [[ $* == '--test' ]]; then
+		echo_escape_command_test
+	else
+		echo_escape_command "$@"
+	fi
 fi

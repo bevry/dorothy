@@ -2,91 +2,89 @@
 
 function edit_() (
 	source "$DOROTHY/sources/bash.bash"
-	__require_array 'mapfile'
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Open your preferred editor.
 
 			USAGE:
-			edit [...options] [--] [...everything here is forwarded to the editor]
+			edit [...options] [-- ...<path>]
 
 			OPTIONS:
+			-- ...<path>
+			    Open the editor to this <path>.
+
 			--dry
 			    If enabled, output the editor instead of invoking it.
-
-			--[no-]prompt
-			    If enabled (the default), support editors that require additional arguments to edit the file.
-
-			--[no-]wait
-			    If disabled (the default), edit the file but skip waiting for the editor to close the file.
-
 			--only-editor
 			    If enabled, only output the editor command, and not any arguments.
 			    Enforces --dry.
 
-			--sudo
-			    If enabled, the editor will be opened in sudo mode.
+			--prompt
+			    If enabled (the default), support editors that require additional arguments to edit the file.
+
+			--wait
+			    If disabled (the default), edit the file but skip waiting for the editor to close the file.
 
 			--terminal
 			    If enabled, enforce a terminal editor.
 
 			--gui
 			    If enabled, enforce a gui editor.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			    If enabled, the editor will be opened with elevated privileges.
+			    If disabled, auto-elevation will not occur even if elevated privileges are necessary.
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to [eval-helper].
+
+			[...all other options forwarded to the editor]
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process, @todo rewrite with option_ prefix
-	local item dry='no' prompt='yes' wait='no' only_editor='no' sudo='no' terminal='' gui='' args=()
+	local item option_dry='no' option_prompt='yes' option_wait='no' option_only_editor='no' option_terminal='' option_gui='' option_paths=() option_args=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-dry'* | '--dry'*)
-			dry="$(get-flag-value --affirmative --fallback="$dry" -- "$item")"
-			;;
-		'--no-prompt'* | '--prompt'*)
-			prompt="$(get-flag-value --affirmative --fallback="$prompt" -- "$item")"
-			;;
-		'--no-wait'* | '--wait'*)
-			wait="$(get-flag-value --affirmative --fallback="$wait" -- "$item")"
-			;;
-		'--no-only-editor'* | '--only-editor'*)
-			only_editor="$(get-flag-value --affirmative --fallback="$only_editor" -- "$item")"
-			;;
-		'--no-sudo'* | '--sudo'*)
-			sudo="$(get-flag-value --affirmative --fallback="$sudo" -- "$item")"
-			;;
-		'--no-terminal'* | '--terminal'*)
-			terminal="$(get-flag-value --affirmative --fallback="$terminal" -- "$item")"
-			;;
-		'--no-gui'* | '--gui'*)
-			gui="$(get-flag-value --affirmative --fallback="$gui" -- "$item")"
-			;;
+		'--no-dry'* | '--dry'*) __flag --source={item} --target={option_dry} --affirmative ;;
+		'--no-prompt'* | '--prompt'*) __flag --source={item} --target={option_prompt} --affirmative ;;
+		'--no-wait'* | '--wait'*) __flag --source={item} --target={option_wait} --affirmative ;;
+		'--no-only-editor'* | '--only-editor'*) __flag --source={item} --target={option_only_editor} --affirmative ;;
+		'--no-terminal'* | '--terminal'*) __flag --source={item} --target={option_terminal} --affirmative ;;
+		'--no-gui'* | '--gui'*) __flag --source={item} --target={option_gui} --affirmative ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'.' | '..') option_paths+=("$item") ;;
 		'--')
-			args+=("$@")
+			option_paths+=("$@")
 			shift "$#"
 			break
 			;;
-		*)
-			args+=("$item" "$@")
-			shift "$#"
-			break
-			;;
+		*) option_args+=("$item") ;;
 		esac
 	done
 
 	# check that terminal and gui are not both no
-	if [[ $terminal == 'no' && $gui == 'no' ]]; then
+	if [[ $option_terminal == 'no' && $option_gui == 'no' ]]; then
 		help "either [--terminal] or [--gui] must be enabled."
 	fi
 
@@ -101,59 +99,78 @@ function edit_() (
 
 	# check config
 	if [[ ${#TERMINAL_EDITORS[@]} -eq 0 ]]; then
-		echo-style --warning="TERMINAL_EDITORS was undefined" >/dev/stderr
+		__print_style --stderr --warning='TERMINAL_EDITORS was undefined' || return
 	fi
 	if [[ ${#GUI_EDITORS[@]} -eq 0 ]]; then
-		echo-style --warning="GUI_EDITORS was undefined" >/dev/stderr
+		__print_style --stderr --warning='GUI_EDITORS was undefined' || return
 	fi
+
+	# helpers
+	function __is_terminal_editor {
+		__has --source={TERMINAL_EDITORS} -- "$1" || return
+	}
+	function __is_gui_editor {
+		__has --source={GUI_EDITORS} -- "$1" || return
+	}
 
 	# =====================================
 	# Action
 
 	# determine the editors
 	local editors=()
-	if [[ -z $terminal && -z $gui ]]; then
+	if [[ -z $option_terminal && -z $option_gui ]]; then
 		# no terminal or gui preference, determine sensible defaults
 		if is-vscode; then
 			# if running within vscode, add vscode as first preference
 			editors+=(code)
-			gui='yes'
-			terminal='yes'
+			option_gui='yes'
+			option_terminal='yes'
 		elif is-ssh || is-headless; then
 			# if terminal, only use terminal editors
-			gui='no'
-			terminal='yes'
+			option_gui='no'
+			option_terminal='yes'
 		else
 			# if desktop, enable terminal and gui editors
-			gui='yes'
-			terminal='yes'
+			option_gui='yes'
+			option_terminal='yes'
 		fi
 	fi
-	if [[ $gui == 'yes' ]]; then
+	if [[ $option_gui == 'yes' ]]; then
 		# add the gui editors if desired
 		editors+=("${GUI_EDITORS[@]}")
 	fi
-	if [[ $terminal == 'yes' ]]; then
+	if [[ $option_terminal == 'yes' ]]; then
 		# add the terminal editors if desired
 		editors+=("${TERMINAL_EDITORS[@]}")
 	fi
+	# auto-elevation
+	if [[ ${#option_paths[@]} -ne 0 ]]; then
+		if [[ -z $option_elevated ]]; then
+			option_elevated="$(mktemp)"
+		fi
+		is-touchable --elevated="$option_elevated" --elevate="13 93 $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "${option_paths[@]}"
+		if [[ -s $option_elevated ]]; then
+			option_elevate='yes'
+		fi
+	fi
 
 	# filter options by available
-	local array=() needle command
-	for needle in "${editors[@]}"; do
-		array=()
-		command="${needle%% *}"
+	local cmd=() editor command
+	# trunk-ignore(shellcheck/SC2034)
+	for editor in "${editors[@]}"; do
+		cmd=()
+		__split --source={editor} --target={cmd} --delimiters=$'\n ' --no-zero-length
+		command="${cmd[0]}"
 		if [[ -n $command ]]; then
 			if __command_exists -- "$command"; then
-				mapfile -t array < <(echo-split ' ' -- "$needle")
-
 				# absolute path so sudo has availability: may not actually be necessary
-				# array[0]="$(fs-absolute -- "${array[0]}")"
+				# array[0]="$(fs-path --absolute -- "${array[0]}")"
 
 				# handle fancy editors fancifully
 				case "$command" in
 				'code')
-					if [[ $prompt == 'no' || $sudo == 'yes' ]]; then
+					# requires prompt, and cannot elevate
+					if [[ $option_prompt == 'no' || $option_elevate == 'yes' ]]; then
 						continue
 					fi
 					if is-kde; then
@@ -161,48 +178,51 @@ function edit_() (
 						if __command_missing -- kwalletmanager5; then
 							setup-util --quiet --cli=kwalletmanager5 APT='kwalletmanager'
 						fi
-						array+=('--password-store=gnome-libsecret') # kwallet5
+						cmd+=('--password-store=gnome-libsecret') # kwallet5
 					fi
-					if [[ $wait == 'yes' ]]; then
-						array+=('-w')
+					if [[ $option_wait == 'yes' ]]; then
+						cmd+=('-w')
 					fi
-					if is-wsl; then
-						array+=('--reuse-window')
+					if is-wsl; then # @todo is-wsl or is-windows is better?
+						cmd+=('--reuse-window')
 					else
 						# on wsl, --new-window causes git to wait forever to close the file
-						array+=('--new-window')
+						cmd+=('--new-window')
 					fi
 					;;
 				'atom' | 'subl' | 'zed')
-					if [[ $prompt == 'no' || $sudo == 'yes' ]]; then
+					# requires prompt and cannot elevate
+					if [[ $option_prompt == 'no' || $option_elevate == 'yes' ]]; then
 						continue
 					fi
-					if [[ $sudo == 'yes' ]]; then
+					if [[ $option_elevate == 'yes' ]]; then
 						continue
 					fi
-					if [[ $wait == 'yes' ]]; then
-						array+=('-w')
+					if [[ $option_wait == 'yes' ]]; then
+						cmd+=('-w')
 					fi
 					;;
 				'emacs')
-					if [[ $prompt == 'no' ]]; then
+					# requires prompt
+					if [[ $option_prompt == 'no' ]]; then
 						continue
 					fi
-					array+=('--no-window-system')
+					cmd+=('--no-window-system')
 					;;
 				esac
 
-				# we have a suitable editor, leave the search
+				# we have a suitable editor, add the paths and leave the search
+				cmd+=("${option_args[@]}" "${option_paths[@]}")
 				break
-			elif [[ $gui == 'yes' ]] && is-needle --needle="$needle" -- "${GUI_EDITORS[@]}" && get-app --quiet -- "$command"; then
-				# ignore gui editors that don't support sudo
-				if [[ $sudo == 'yes' && $command =~ ^(TextEdit)$ ]]; then
+			elif [[ $option_gui == 'yes' ]] && __is_gui_editor "$command" && get-app --quiet -- "$command"; then
+				# if elevating, ignore editors that can't elevate
+				if [[ $option_elevate == 'yes' && $command =~ ^(TextEdit)$ ]]; then
 					continue
 				fi
+
 				# apps require prompts
-				if [[ $prompt == 'yes' ]]; then
-					mapfile -t array < <(echo-split ' ' -- "$needle")
-					array=('open' '-a' "${array[@]}")
+				if [[ $option_prompt == 'yes' ]]; then
+					cmd=('open' '-a' "${cmd[@]}" "${option_args[@]}" "${option_paths[@]}")
 					# we have a suitable editor, leave the search
 					break
 				fi
@@ -212,42 +232,27 @@ function edit_() (
 	done
 
 	# check editor
-	if [[ ${#array[@]} -eq 0 ]]; then
-		if [[ $dry == 'yes' ]] && is-ci; then
+	if [[ ${#cmd[@]} -eq 0 ]]; then
+		if [[ $option_dry == 'yes' && -n $CI ]]; then
 			: # if running on ci, and if dry, then suppress error
-		elif [[ ${#array[@]} -ne 0 ]]; then
-			echo-style --error="$0: None of the configured editors were available:" >/dev/stderr
-			echo-verbose "${array[@]}" >/dev/stderr
+		else
+			__print_style --stderr --error="$0: None of the configured editors were available." || :
 		fi
 		return 42 # ENOPROTOOPT 42 Protocol not available
 	fi
 
-	# only output the editor command
-	if [[ $only_editor != 'no' ]]; then
-		__print_lines "${array[0]}"
+	# handle result
+	if [[ $option_only_editor != 'no' ]]; then
+		# only output the editor
+		__print_lines "${cmd[0]}"
 		return
-	fi
-
-	# generate the entire command
-	local cmd=()
-	if [[ $sudo == 'yes' ]]; then
-		cmd+=(
-			'sudo-helper'
-			'--inherit'
-			'--'
-		)
-	fi
-	cmd+=("${array[@]}")
-	if [[ ${#args[@]} -ne 0 ]]; then
-		cmd+=("${args[@]}")
-	fi
-
-	# invoke
-	if [[ $dry == 'yes' ]]; then
+	elif [[ $option_dry == 'yes' ]]; then
 		# print a single line, with values space separated, such that [setup-git] works properly with [code --new-window]
 		__print_lines "${cmd[*]}"
 	else
-		"${cmd[@]}"
+		# run the editor
+		eval-helper --inherit --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			"${cmd[@]}"
 	fi
 )
 

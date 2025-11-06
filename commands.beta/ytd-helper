@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# NOTE THAT FOR HISTORICAL VIDEOS YOUTUBE REDUCES THE QUALITY
+# https://www.reddit.com/r/DataHoarder/comments/ize8xs/is_youtube_reducing_the_quality_of_old_videos/
+# I have many archived channels which started at say 1GB for 1 hour in 2017, but now are 200MB for 1 hour, the same codec, but lower resolution.
+
 # FOR THUMBNAILS
 # AVIF is successor to WebP and the closed-source HEIF, however lacks wide support.
 # WebP is successor to the below, and offers wide support.
@@ -45,12 +49,14 @@
 
 function ytd_helper() (
 	source "$DOROTHY/sources/bash.bash"
+	# trunk-ignore(shellcheck/SC2034)
+	local all_tools=(yt-dlp youtube-dl)
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Helper for interacting with [youtube-dl] and its clones. Wraps with custom flags for common tasks.
 
@@ -61,188 +67,488 @@ function ytd_helper() (
 			<url>
 			    The URL to download the video from.
 
-			--tool=<tool>
-			    The tool to actually invoke, defaults to [ytd-dl] or [youtube-dl] based on availability.
+			--tool=<tool:$(__join --source={all_tools} --delimiter='|')|?>
+			    The tool to use. Use [?] to prompt. Default is the first available tool.
+
+			[... our options]
+			    Read our source code at $(__print_style --path="$0") for all options.
 
 			-- [... tool options]
 			    Forward to the invoked <tool>. Refer to [youtube-dl --help].
-
-			--best
-			    Download the best video+audio combination.
-
-			--embed
-			    Embed as much as possible into the video+audio combination.
-
-			--month
-			    Restrict downloads to the past month.
-
-			--archive
-			    Download as much as possible, but do not use embed, as not all formats support embedding.
-
-			--audio
-			    Download only the best audio.
-
-			--audio+video
-			    Download the video+audio combination as usual, but also download the best audio.
-
-			--mp4
-			    Download the best video+audio combination, preferring MP4 for video and M4A for audio.
-
-			--free
-			    Download the best video+audio combination of royalty free codecs.
-
-			--vp9
-			    Download the best video+audio combination of VP9 for video, Opus for audio, and WebM for container.
-
-			--av1
-			    Download the best video+audio combination of AV1 for video, Opus for audio, and MKV for container.
-
-			--channel
-			    Download with each channel in its own folder.
-
-			--playlist
-			    Download with each playlist in its own folder, and each video in its own folder.
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# =====================================
-	# Dependencies
-
-	setup-util-jq --quiet
-
-	# =====================================
 	# Action
 
+	# prep our result args that are forwarded
+	local args=(--geo-bypass)
+
 	# arguments
-	local item tool=''
+	local item option_args=() option_urls=() option_tool='' option_redo='' option_overwrite='' option_resume='' option_playlist_or_channel='' option_mark='' option_format='' option_container='' option_recode='' option_languages=() option_embed='yes' option_month='' option_archive='' option_audio='' option_enforce='' option_browser='' option_sponsors='' option_slim='' option_json=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--tool='*) tool="${item#*=}" ;;
-		'--embed')
-			cmd+=(
-				--embed-subs
-				--embed-thumbnail
-				--add-metadata
-			)
-			;;
-		'--month')
-			cmd+=(
-				--no-overwrites
-				--dateafter "$(date-helper --ytd --month-ago)"
-			)
-			;;
-		'--archive')
-			cmd+=(
-				--no-overwrites
-				--continue
-				--all-formats
-				--all-subs
-				--geo-bypass
-				--write-all-thumbnails
-				--write-annotations
-				--write-auto-sub
-				--write-description
-				--write-info-json
-				--write-sub
-			)
-			;;
-		'--audio')
-			cmd+=(
-				--extract-audio
-				--format 'bestaudio[ext=m4a]'
-			)
-			;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		'--redo') option_redo='.' ;;
+		'--redo='*) option_redo="${item#*=}" ;;
 		'--audio+video')
-			ytd_helper --audio "${cmd[@]}" "$@"
-			ytd_helper "${cmd[@]}" "$@"
+			ytd_helper --audio "${args[@]}" "$@"
+			ytd_helper "${args[@]}" "$@"
 			return 0
 			;;
-		'--best')
-			# just using 'best' can download a 360p video
-			# this combination will always download the best resolution and codec
-			# consider bv*+ba/bv+na/b
-			cmd+=(
-				--format 'bestvideo+bestaudio/best'
-			)
+		'--video='* | '--youtube-video='* | '--youtube-video-id='*)
+			item="${item#*=}"
+			if [[ $item =~ ^https?:// ]]; then
+				option_urls+=("$item")
+			elif [[ $item =~ ^(you|www) ]]; then
+				option_urls+=("https://$item")
+			else
+				option_urls+=("https://youtu.be/$item")
+			fi
 			;;
-		'--mp4')
-			cmd+=(
-				--recode-video 'mp4'
-				--merge-output-format 'mp4'
-				--format 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
-			)
+		'--playlist='* | '--youtube-playlist='* | '--youtube-playlist-id='*)
+			option_playlist_or_channel='yes'
+			item="${item#*=}"
+			if [[ $item =~ ^https?:// ]]; then
+				option_urls+=("$item")
+			elif [[ $item =~ ^(you|www) ]]; then
+				option_urls+=("https://$item")
+			else
+				option_urls+=("https://www.youtube.com/playlist?list=$item")
+			fi
 			;;
-		'--free')
-			# `--prefer-free-formats` only prefers, it doesn't guarantee
-			cmd+=(
-				--format '(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9])+bestaudio[acodec=opus]'
-			)
+		'--channel' | '--playlist') option_playlist_or_channel='yes' ;;
+		'--l='* | '--lang='* | '--language='* | '--languages='*)
+			__split --target={option_languages} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
 			;;
-		'--vp9')
-			cmd+=(
-				--recode-video 'webm'
-				--merge-output-format 'webm'
-				--format '(bestvideo[vcodec^=vp9]/bestvideo)+bestaudio[acodec=opus]'
-				--postprocessor-args '-c:a libopus -c:v vp9 -strict experimental'
-			)
+		'--no-overwrite'* | '--overwrite'*) __flag --source={item} --target={option_overwrite} --affirmative --coerce ;;
+		'--no-resume'* | '--resume'*) __flag --source={item} --target={option_resume} --affirmative --coerce ;;
+		'--no-recode'* | '--recode'*) __flag --source={item} --target={option_recode} --affirmative --coerce ;;
+		'--no-mark'* | '--mark'*) __flag --source={item} --target={option_mark} --affirmative --coerce ;;
+		'--no-embed'* | '--embed'*) __flag --source={item} --target={option_embed} --affirmative --coerce ;;
+		'--no-month'* | '--month'*) __flag --source={item} --target={option_month} --affirmative --coerce ;;
+		'--no-archive'* | '--archive'*) __flag --source={item} --target={option_archive} --affirmative --coerce ;;
+		'--no-audio'* | '--audio'*) __flag --source={item} --target={option_audio} --affirmative --coerce ;;
+		'--no-enforce'* | '--enforce'*) __flag --source={item} --target={option_enforce} --affirmative --coerce ;;
+		'--no-sponsors'* | '--sponsors'*) __flag --source={item} --target={option_sponsors} --affirmative --coerce ;;
+		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_slim} --affirmative --coerce ;;
+		'--no-json'* | '--json'*) __flag --source={item} --target={option_json} --affirmative --coerce ;;
+		'--no-list'* | '--list'*) __flag --source={item} --target={option_list} --affirmative --coerce ;;
+		'--format='*) option_format="${item#*=}" ;;
+		'--in='* | '--container='*) option_container="${item#*=}" ;;
+		'--no-safari'* | '--safari'*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_browser='safari'
+			fi
 			;;
-		'--av1')
-			cmd+=(
-				--recode-video 'mkv'
-				--merge-output-format 'mkv'
-				--format '(bestvideo[vcodec^=av01]/bestvideo)+bestaudio[acodec=opus]'
-				--postprocessor-args '-c:a libopus -c:v av1 -strict experimental'
-			)
+		'--no-chrome'* | '--chrome'*)
+			__flag --source+target={item} --affirmative --coerce
+			if [[ $item == 'yes' ]]; then
+				option_browser='chrome'
+			fi
 			;;
-		'--playlist')
-			cmd+=(
-				--playlist-reverse # when you are updating downloads from a playlist, you want to start with most recent first
-				--ignore-errors
-				--output '%(playlist_uploader)s [%(playlist_uploader_id)s]/%(playlist_title)s [%(playlist_id)s]/%(playlist_index)s - %(title)s [%(id)s].%(ext)s'
-			)
-			;;
+		'--browser='*) option_browser="${item#*=}" ;;
 		'--')
-			cmd+=("$@")
+			for item in "$@"; do
+				if [[ $item =~ ^https?:// ]]; then
+					option_urls+=("$item")
+				else
+					option_args+=("$item")
+				fi
+			done
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# handle tool
-	if [[ -z $tool ]]; then
-		if __command_exists -- 'yt-dlp'; then
-			tool='yt-dlp'
-		elif __command_exists -- 'youtube-dl'; then
-			tool='youtube-dl'
-		else
-			get-installer --first-success --invoke --quiet -- ytd-dlp youtube-dl
-			if __command_exists -- 'yt-dlp'; then
-				tool='yt-dlp'
-			elif __command_exists -- 'youtube-dl'; then
-				tool='youtube-dl'
-			fi
+	# options
+	if [[ $option_slim == 'yes' ]]; then
+		args+=(--sponsorblock-remove all)
+	elif [[ $option_sponsors == 'no' ]]; then
+		args+=(--sponsorblock-remove default)
+	fi
+	if [[ -n $option_browser ]]; then
+		option_args+=(--cookies-from-browser "$option_browser")
+	fi
+	if [[ $option_audio == 'yes' ]]; then
+		args+=(--extract-audio)
+		if [[ -z $option_format ]]; then
+			option_format='bestaudio[ext=opus]'
 		fi
 	fi
-	if [[ -z $tool ]] || __command_missing -- "$tool"; then
-		echo-error "tool [$tool] is not available"
-		return 3 # ESRCH 3 No such process
+	# https://en.wikipedia.org/wiki/Comparison_of_video_container_formats
+	# alac and flac are lossless and open, however it's unlikely we ever get lossless audio so don't bother with the complexity
+	if [[ -n $option_format ]]; then
+		case "$option_format" in
+		'best')
+			if [[ -z $option_container ]]; then
+				option_container='mp4'
+			fi
+			# just using 'best' can download a 360p video
+			# this combination will always download the best resolution and codec
+			# consider bv*+ba/bv+na/b
+			option_format='bestvideo+bestaudio/best'
+			;;
+		'mp' | 'mp4' | 'mpeg')
+			# High Efficiency Video Coding (HEVC) = H.265 = MPEG-H Part 2
+			# avc1 = Advanced Video Coding (AVC) = H.264 = MPEG-4 Part 10
+			if [[ -z $option_container ]]; then
+				option_container='mp4'
+			fi
+			if [[ $option_enforce == 'yes' ]]; then
+				option_format='(bestvideo[vcodec^=h265]/bestvideo[vcodec^=h264]/bestvideo[ext=mp4]/bestvideo)+(bestaudio[ext=m4a]/bestaudio)/best[ext=mp4]/best'
+				args+=(--postprocessor-args '-c:a aac -c:v libx265 -strict experimental')
+			else
+				option_format='(bestvideo[vcodec^=h265]/bestvideo[vcodec^=h264]/bestvideo[ext=mp4])+(bestaudio[ext=m4a])/best[ext=mp4]'
+			fi
+			;;
+		'he')
+			# prefer the highest efficiency formats first
+			if [[ -z $option_container ]]; then
+				option_container='mp4'
+			fi
+			# Usually, each codec is available for each resolution, with YouTube Premium accounts getting access to higher bitrates or higher resolutions:
+			# [LGQWMH7zb0k]
+			# 137     mp4   1920x1080   25    │    1.08GiB 2977k https │ avc1.640028   2977k video only          1080p, mp4_dash
+			# 248     webm  1920x1080   25    │  570.60MiB 1534k https │ vp9           1534k video only          1080p, webm_dash
+			# 399     mp4   1920x1080   25    │  507.85MiB 1365k https │ av01.0.08M.08 1365k video only          1080p, mp4_dash
+			# 356     webm  1920x1080   25    │    1.48GiB 4062k https │ vp9           4062k video only          1080p Premium, webm_dash
+			# 721     mp4   1920x1080   25    │  908.07MiB 2441k https │ av01.0.08M.08 2441k video only          1080p Premium, mp4_dash
+			# [Ox8q1hD3wEg]
+			# 137     mp4   1920x1080   25    │    1.19GiB 3484k https │ avc1.640028   3484k video only          1080p, mp4_dash
+			# 248     webm  1920x1080   25    │  818.99MiB 2349k https │ vp9           2349k video only          1080p, webm_dash
+			# 399     mp4   1920x1080   25    │  559.93MiB 1606k https │ av01.0.08M.08 1606k video only          1080p, mp4_dash
+			# 356     webm  1920x1080   25    │    1.55GiB 4550k https │ vp9           4550k video only          1080p Premium, webm_dash
+			# 721     mp4   1920x1080   25    │    1.00GiB 2942k https │ av01.0.08M.08 2942k video only          1080p Premium, mp4_dash
+			#
+			# And here, we will note that VP9 had a higher bitrate at the same resolution, but as AV1 is more efficient, it triumphs:
+			# [IBXydJeKhJ0]
+			# 248     webm  1920x1080   25    │   814.01MiB 2259k https │ vp9           2259k video only          1080p, webm_dash
+			# 399     mp4   1920x1080   25    │   546.28MiB 1516k https │ av01.0.08M.08 1516k video only          1080p, mp4_dash
+			# 356     webm  1920x1080   25    │     1.48GiB 4212k https │ vp9           4212k video only          1080p Premium, webm_dash
+			# 721     mp4   1920x1080   25    │  1011.73MiB 2807k https │ av01.0.08M.08 2807k video only          1080p Premium, mp4_dash
+			#
+			# And here, where VP9 of lower bitrate triumphs over AVC of higher bitrate:
+			# [PNReeVlBFAo]
+			# 136     mp4   1280x720    25    │  329.03MiB  893k https │ avc1.4d401f  893k video only          720p, mp4_dash
+			# 247     webm  1280x720    25    │  222.10MiB  603k https │ vp9          603k video only          720p, webm_dash
+			# 137     mp4   1920x1080   25    │  873.73MiB 2371k https │ avc1.640028 2371k video only          1080p, mp4_dash
+			# 248     webm  1920x1080   25    │  393.49MiB 1068k https │ vp9         1068k video only          1080p, webm_dash
+			#
+			# Sometimes you even get high quality resolutions and formats without premium:
+			# [q6J0yLmddTk]
+			# 137     mp4   1920x1080   25    │  834.14MiB 2431k https │ avc1.640028   2431k video only          1080p, mp4_dash
+			# 248     webm  1920x1080   25    │  373.18MiB 1088k https │ vp9           1088k video only          1080p, webm_dash
+			# 399     mp4   1920x1080   25    │  407.94MiB 1189k https │ av01.0.08M.08 1189k video only          1080p, mp4_dash
+			# 271     webm  2560x1440   25    │    1.35GiB 4015k https │ vp9           4015k video only          1440p, webm_dash
+			# 400     mp4   2560x1440   25    │    1.11GiB 3310k https │ av01.0.12M.08 3310k video only          1440p, mp4_dash
+			# 313     webm  3840x2160   25    │    3.11GiB 9268k https │ vp9           9268k video only          2160p, webm_dash
+			# 401     mp4   3840x2160   25    │    1.94GiB 5802k https │ av01.0.12M.08 5802k video only          2160p, mp4_dash
+			#
+			# However, sometimes you'll get an extreme result like this, where only an older codec has the higher resolutions:
+			# [IFZh7NgfXrc]
+			# 0 m4a   audio only      2 │   45.15MiB  129k https │ audio only        mp4a.40.2  129k 44k [fr] medium, m4a_dash
+			# 251 webm  audio only      2 │   35.90MiB  103k https │ audio only        opus       103k 48k [fr] medium, webm_dash
+			# 160 mp4   256x144     25    │   33.04MiB   95k https │ avc1.4d400c   95k video only          144p, mp4_dash
+			# 134 mp4   640x360     25    │  156.46MiB  449k https │ avc1.4d401e  449k video only          360p, mp4_dash
+			# 18  mp4   640x360     25  2 │ ≈201.47MiB  578k https │ avc1.42001E       mp4a.40.2       44k [fr] 360p
+			# 243 webm  640x360     25    │  115.51MiB  331k https │ vp9          331k video only          360p, webm_dash
+			# 136 mp4   1280x720    25    │  351.07MiB 1007k https │ avc1.4d401f 1007k video only          720p, mp4_dash
+			# 137 mp4   1920x1080   25    │    1.15GiB 3371k https │ avc1.640028 3371k video only          1080p, mp4_dash
+			# [J4tvHkk1qZ0]
+			# 243 webm  640x360     25    │   84.72MiB  233k https │ vp9          233k video only          360p, webm_dash
+			# 136 mp4   1280x720    25    │  217.13MiB  597k https │ avc1.4d401f  597k video only          720p, mp4_dash
+			# 137 mp4   1920x1080   25    │  886.47MiB 2439k https │ avc1.640028 2439k video only          1080p, mp4_dash
+			#
+			# Usually the difference won't be that extreme though:
+			# [W4ROkoo-qSs]
+			# 242     webm  426x240     25    │   57.81MiB 158k https │ vp9           158k video only          240p, webm_dash
+			# 395     mp4   426x240     25    │   42.63MiB 117k https │ av01.0.00M.08 117k video only          240p, mp4_dash
+			# 134     mp4   568x320     25    │   89.60MiB 245k https │ avc1.4d4015   245k video only          360p, mp4_dash
+			# 18      mp4   568x320     25  2 │ ≈136.84MiB 374k https │ avc1.42001E        mp4a.40.2       44k [en] 360p
+			#
+			# Sometimes vp9 may have way higher bitrate than av1, making it higher quality, and there may even be other languages:
+			# [y1otd2x1b-k]
+			# 249-0 webm  audio only      2 │   15.64MiB   45k https │ audio only          opus        45k 48k [fr] French, low, webm_dash
+			# 249-1 webm  audio only      2 │   16.55MiB   47k https │ audio only          opus        47k 48k [es] Spanish, low, webm_dash
+			# 249-2 webm  audio only      2 │   17.67MiB   51k https │ audio only          opus        51k 48k [pt] Portuguese, low, webm_dash
+			# 249-3 webm  audio only      2 │   17.79MiB   51k https │ audio only          opus        51k 48k [pl] Polish, low, webm_dash
+			# 249-4 webm  audio only      2 │   17.87MiB   51k https │ audio only          opus        51k 48k [it] Italian, low, webm_dash
+			# 249-5 webm  audio only      2 │   17.88MiB   51k https │ audio only          opus        51k 48k [zh] Chinese, low, webm_dash
+			# 249-6 webm  audio only      2 │   17.93MiB   51k https │ audio only          opus        51k 48k [tr] Turkish, low, webm_dash
+			# 249-7 webm  audio only      2 │   18.49MiB   53k https │ audio only          opus        53k 48k [ar] Arabic, low, webm_dash
+			# 250-0 webm  audio only      2 │   19.44MiB   56k https │ audio only          opus        56k 48k [es] Spanish, low, webm_dash
+			# 250-1 webm  audio only      2 │   19.66MiB   56k https │ audio only          opus        56k 48k [fr] French, low, webm_dash
+			# 250-2 webm  audio only      2 │   23.93MiB   68k https │ audio only          opus        68k 48k [pl] Polish, low, webm_dash
+			# 250-3 webm  audio only      2 │   24.34MiB   70k https │ audio only          opus        70k 48k [zh] Chinese, low, webm_dash
+			# 250-4 webm  audio only      2 │   24.44MiB   70k https │ audio only          opus        70k 48k [pt] Portuguese, low, webm_dash
+			# 250-5 webm  audio only      2 │   24.68MiB   71k https │ audio only          opus        71k 48k [tr] Turkish, low, webm_dash
+			# 250-6 webm  audio only      2 │   24.76MiB   71k https │ audio only          opus        71k 48k [it] Italian, low, webm_dash
+			# 250-7 webm  audio only      2 │   25.33MiB   72k https │ audio only          opus        72k 48k [ar] Arabic, low, webm_dash
+			# 249-8 webm  audio only      2 │   16.88MiB   48k https │ audio only          opus        48k 48k [en] English original (default), low, webm_dash
+			# 250-8 webm  audio only      2 │   19.95MiB   57k https │ audio only          opus        57k 48k [en] English original (default), low, webm_dash
+			# 140-0 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [fr] French, medium, m4a_dash
+			# 140-1 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [es] Spanish, medium, m4a_dash
+			# 140-2 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [it] Italian, medium, m4a_dash
+			# 140-3 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [pt] Portuguese, medium, m4a_dash
+			# 140-4 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [tr] Turkish, medium, m4a_dash
+			# 140-5 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [zh] Chinese, medium, m4a_dash
+			# 140-6 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [ar] Arabic, medium, m4a_dash
+			# 140-7 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [pl] Polish, medium, m4a_dash
+			# 140-8 m4a   audio only      2 │   45.29MiB  129k https │ audio only          mp4a.40.2  129k 44k [en] English original (default), medium, m4a_dash
+			# 251-0 webm  audio only      2 │   36.26MiB  104k https │ audio only          opus       104k 48k [es] Spanish, medium, webm_dash
+			# 251-1 webm  audio only      2 │   44.25MiB  127k https │ audio only          opus       127k 48k [fr] French, medium, webm_dash
+			# 251-2 webm  audio only      2 │   46.55MiB  133k https │ audio only          opus       133k 48k [pl] Polish, medium, webm_dash
+			# 251-3 webm  audio only      2 │   46.99MiB  134k https │ audio only          opus       134k 48k [zh] Chinese, medium, webm_dash
+			# 251-4 webm  audio only      2 │   47.40MiB  136k https │ audio only          opus       136k 48k [tr] Turkish, medium, webm_dash
+			# 251-5 webm  audio only      2 │   47.57MiB  136k https │ audio only          opus       136k 48k [pt] Portuguese, medium, webm_dash
+			# 251-6 webm  audio only      2 │   47.78MiB  137k https │ audio only          opus       137k 48k [it] Italian, medium, webm_dash
+			# 251-7 webm  audio only      2 │   48.43MiB  138k https │ audio only          opus       138k 48k [ar] Arabic, medium, webm_dash
+			# 251-8 webm  audio only      2 │   37.15MiB  106k https │ audio only          opus       106k 48k [en] English original (default), medium, webm_dash
+			# 160   mp4   256x144     25    │   20.50MiB   59k https │ avc1.4d400c     59k video only          144p, mp4_dash
+			# 278   webm  256x144     25    │   28.33MiB   81k https │ vp9             81k video only          144p, webm_dash
+			# 394   mp4   256x144     25    │   22.23MiB   64k https │ av01.0.00M.08   64k video only          144p, mp4_dash
+			# 133   mp4   426x240     25    │   33.86MiB   97k https │ avc1.4d4015     97k video only          240p, mp4_dash
+			# 242   webm  426x240     25    │   37.20MiB  106k https │ vp9            106k video only          240p, webm_dash
+			# 395   mp4   426x240     25    │   32.29MiB   92k https │ av01.0.00M.08   92k video only          240p, mp4_dash
+			# 134   mp4   640x360     25    │   61.46MiB  176k https │ avc1.4d401e    176k video only          360p, mp4_dash
+			# 18    mp4   640x360     25  2 │  181.24MiB  518k https │ avc1.42001E         mp4a.40.2       44k [en] 360p
+			# 243   webm  640x360     25    │   64.95MiB  186k https │ vp9            186k video only          360p, webm_dash
+			# 396   mp4   640x360     25    │   56.07MiB  160k https │ av01.0.01M.08  160k video only          360p, mp4_dash
+			# 135   mp4   854x480     25    │   93.79MiB  268k https │ avc1.4d401e    268k video only          480p, mp4_dash
+			# 244   webm  854x480     25    │   92.73MiB  265k https │ vp9            265k video only          480p, webm_dash
+			# 397   mp4   854x480     25    │   92.89MiB  266k https │ av01.0.04M.08  266k video only          480p, mp4_dash
+			# 136   mp4   1280x720    25    │  176.92MiB  506k https │ avc1.4d401f    506k video only          720p, mp4_dash
+			# 247   webm  1280x720    25    │  153.30MiB  438k https │ vp9            438k video only          720p, webm_dash
+			# 398   mp4   1280x720    25    │  162.19MiB  464k https │ av01.0.05M.08  464k video only          720p, mp4_dash
+			# 137   mp4   1920x1080   25    │  654.60MiB 1871k https │ avc1.640028   1871k video only          1080p, mp4_dash
+			# 248   webm  1920x1080   25    │  273.95MiB  783k https │ vp9            783k video only          1080p, webm_dash
+			# 399   mp4   1920x1080   25    │  286.02MiB  818k https │ av01.0.08M.08  818k video only          1080p, mp4_dash
+			# 356   webm  1920x1080   25    │  700.44MiB 2002k https │ vp9           2002k video only          1080p Premium, webm_dash
+			#
+			# This only prioritises codec, without awareness of resolution:
+			# option_format='(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9]/bestvideo[vcodec^=h265]/bestvideo[vcodec^=h264]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
+			#
+			# But we want this, which prioritises resolution, then codec — however, this doesn't take into account same resolution but one with a way higher bitrate.
+			# local resolutions=(2160 1440 1080 720 480 360 240 144) resolution codecs=(av01 vp9 avc1) video_formats=() video_format=''
+			# for resolution in "${resolutions[@]}"; do
+			# 	for codec in "${codecs[@]}"; do
+			# 		video_formats+=("bestvideo[height>=$resolution][vcodec^=$codec]")
+			# 	done
+			# done
+			# __join --source={video_formats} --delimiter='/' --target={video_format}
+			#
+			# However, all that craziness above is not needed, as we can just use `yt-dlp`'s  sorting mechanism:
+			# https://github.com/yt-dlp/yt-dlp/issues/2894#issuecomment-1051486992
+			# option_format=''
+			# args+=(-S quality,res,fps,vcodec,acodec:opus)
+			#
+			# However, even that fails to work as expected, as on [y1otd2x1b-k] it still downloads 399 instead of 356.
+			# Omitting it altogether, does allow `yt-dlp` to select the correct format.
+			if [[ $option_enforce == 'yes' ]]; then
+				args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
+			fi
+			;;
+		'free')
+			# `--prefer-free-formats` only prefers, it doesn't guarantee
+			if [[ -z $option_container ]]; then
+				option_container='mp4'
+			fi
+			if [[ $option_enforce == 'yes' ]]; then
+				option_format='(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
+				args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
+			else
+				option_format='(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9])+bestaudio[acodec=opus]'
+			fi
+			;;
+		'av1')
+			# av01 = AOMedia Video 1 (AV1)
+			# Using [--safari] can disable [av1] codec availability,
+			# My guess is that this is because YouTube may restrict av1 to YouTube Premium accounts when logged in
+			if [[ -z $option_container ]]; then
+				option_container='mp4'
+			fi
+			if [[ $option_enforce == 'yes' ]]; then
+				option_format='(bestvideo[vcodec^=av01]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
+				args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
+			else
+				option_format='bestvideo[vcodec^=av01]+bestaudio[acodec=opus]'
+			fi
+			;;
+		'vp9')
+			if [[ -z $option_container ]]; then
+				option_container='mp4'
+			fi
+			if [[ $option_enforce == 'yes' ]]; then
+				option_format='(bestvideo[vcodec^=vp9]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
+				args+=(--postprocessor-args '-c:a libopus -c:v vp9 -strict experimental')
+			else
+				option_format='bestvideo[vcodec^=vp9]+bestaudio[acodec=opus]'
+			fi
+			;;
+		esac
+		if [[ -n $option_format ]]; then
+			args+=(--format "$option_format")
+		fi
 	fi
-	cmd=("$tool" "${cmd[@]}")
+	# mp4, mkv, webm
+	if [[ -n $option_container ]]; then
+		# --recode-video mkv <-- this will always re-encode
+		# --remux-video mkv <-- this will remux, but will fail if there is already a mp4 downloaded that has embedded data inside it, hence need for [--force-overwrites]
+		if [[ $option_recode == 'yes' ]]; then
+			args+=(--recode-video "$option_container")
+		else
+			args+=(--remux-video "$option_container")
+		fi
+		args+=(--merge-output-format "$option_container")
+	fi
+	if [[ ${#option_languages[@]} -ne 0 ]]; then
+		local csv_languages
+		__join --source={option_languages} --target={csv_languages} --delimiter=',' || return
+		args+=(--sub-langs "$csv_languages")
+	fi
+	if [[ $option_mark == 'yes' ]]; then
+		args+=(--sponsorblock-mark all)
+	fi
+	if [[ $option_embed == 'yes' ]]; then
+		args+=(
+			--embed-subs
+			--embed-thumbnail
+			--embed-metadata
+			--embed-chapters
+			# Plex does not support MKV metadata, nor .NFO metadata files, only MP4 metadata...
+			# https://github.com/yt-dlp/yt-dlp/issues/14500#issuecomment-3346927509
+
+			# Remux the video into another container if necessary (currently supported: avi, flv, gif, mkv, mov, mp4, webm, aac, aiff, alac, flac, m4a, mka, mp3, ogg, opus, vorbis, wav). If the target container does not support the video/audio codec, remuxing will fail. You can specify multiple rules; e.g. "aac>m4a/mov>mp4/mkv" will remux aac to m4a, mov to mp4 and anything else to mkv
+			# --remux-video mkv
+
+			# Re-encode the video into another format if necessary. The syntax and supported formats are the same as --remux-video
+			# --recode-video mkv
+
+			# Containers that may be used when merging formats, separated by "/", e.g. "mp4/mkv". Ignored if no merge is required. (currently supported: avi, flv, mkv, mov, mp4, webm)
+			# --merge-output-format mkv
+		)
+		# --xattrs not supported on macos
+		if [[ $option_container == 'mkv' ]]; then
+			args+=(--embed-info-json) # [Metadata] The info-json can only be attached to mkv/mka files
+		elif [[ -z $option_json ]]; then
+			option_json='yes'
+		fi
+	fi
+	if [[ $option_archive == 'yes' ]]; then
+		args+=(
+			--all-formats
+			--all-subs
+			--no-overwrites
+			--write-all-thumbnails
+			--write-annotations
+			--write-auto-sub
+			--write-auto-subs
+			--write-description
+			--write-info-json
+			--write-subs
+		)
+	elif [[ $option_json == 'yes' ]]; then
+		args+=(
+			--write-info-json
+		)
+	fi
+	if [[ $option_month == 'yes' ]]; then
+		args+=(--dateafter "$(date-helper --ytd --month-ago)")
+	fi
+	if [[ $option_overwrite == 'yes' ]]; then
+		args+=(--force-overwrites)
+	elif [[ $option_overwrite == 'no' ]]; then
+		args+=(--no-overwrites)
+	fi
+	if [[ $option_resume == 'yes' ]]; then
+		args+=(--continue)
+	fi
+
+	# playlist or channel
+	if [[ $option_playlist_or_channel == 'yes' ]]; then
+		args+=(
+			--playlist-reverse # when you are updating downloads from a playlist, you want to start with most recent first
+			--ignore-errors
+			--output '%(playlist_uploader)s [%(playlist_uploader_id)s]/%(playlist_title)s [%(playlist_id)s]/%(playlist_index)s - %(title)s [%(id)s].%(ext)s'
+		)
+	else
+		args+=(--no-playlist)
+	fi
+
+	# ensure tool
+	__tool --tool={option_tool} --tools={all_tools} --help={help} || return
 
 	# =====================================
 	# Action
 
-	command "${cmd[@]}" # eval
+	function __download {
+		local urls=("$@")
+		eval-helper --wrap --verbose -- "$option_tool" --list-formats "${option_args[@]}" "${urls[@]}" || :
+		eval-helper --wrap --verbose -- "$option_tool" "${args[@]}" "${option_args[@]}" "${urls[@]}" || return
+	}
+
+	# if redo, re-add all local files
+	if [[ -n $option_redo && $option_redo != 'no' ]]; then
+		if [[ $option_red == 'yes' ]]; then
+			option_redo='.'
+		fi
+		local queue_dirpath='' queue=() removals=()
+		function __process_queue {
+			(
+				__print_style --h1="$queue_dirpath" || return
+				cd "$queue_dirpath" || return
+				__download "${queue[@]}" || return
+				__print_style --g1="$queue_dirpath" || return
+			)
+			queue=()
+			if [[ ${#removals[@]} -ne 0 ]]; then
+				fs-remove --no-confirm -- "${removals[@]}" || return
+				removals=()
+			fi
+		}
+		# for all nested files use: /**/*\]
+		# local filepaths=("$option_redo"/*\].{mp4,mkv,webm,avi,flv,wmv,mov,mpg,mpeg,m4v,3gp,3g2,webp})
+		# local filepaths=("$option_redo"/*\].webp)
+		local filepaths=("$option_redo"/*\].{mp4,mkv,webm,avi,flv,wmv,mov,mpg,mpeg,m4v,3gp,3g2,webp,info.json,nfo}) filepath dirpath filename video_id
+		for filepath in "${filepaths[@]}"; do
+			dirpath="$(fs-path --parents --absolute -- "$filepath")" || return
+			if [[ -n $queue_dirpath && $dirpath != "$queue_dirpath" ]]; then
+				__process_queue || return
+			fi
+			filename="$(fs-path --no-parents -- "$filepath")" || return
+			# extract youtube video id
+			video_id=''
+			if [[ $filename =~ \[[^\]]+\] ]]; then
+				__replace --source={filename} --target={video_id} --keep-after-last='[' --keep-before-first=']' || return
+			fi
+			if [[ -n $video_id ]]; then
+				__print_style --code="$filepath" --bold=' => ' --code="$video_id" || return
+				queue+=("https://youtu.be/$video_id")
+				queue_dirpath="$dirpath"
+			fi
+		done
+		# now the discovered file ids
+		if [[ ${#queue[@]} -ne 0 ]]; then
+			__process_queue || return
+		fi
+	fi
+
+	# now the passed urls
+	if [[ ${#option_urls[@]} -ne 0 ]]; then
+		__download "${option_urls[@]}" || return
+	fi
 )
 
 # fire if invoked standalone

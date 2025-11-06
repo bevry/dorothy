@@ -11,20 +11,22 @@
 
 function fs_structure_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-style --h1="TEST: $0"
 
-	set -x
-	fs-structure
-	fs-structure --no-eza
+	eval-tester --ignore-outputs -- \
+		fs-structure --no-eza
+	eval-tester --ignore-outputs -- \
+		fs-structure
 
-	fs-structure -- .
-	fs-structure --no-eza -- .
+	eval-tester --ignore-outputs -- \
+		fs-structure --no-eza -- .
+	eval-tester --ignore-outputs -- \
+		fs-structure -- .
 
-	fs-structure -- "$DOROTHY"
-	fs-structure --no-eza -- "$DOROTHY"
-	set +x
+	eval-tester --ignore-outputs -- \
+		fs-structure --no-eza -- "$DOROTHY"
+	eval-tester --ignore-outputs -- \
+		fs-structure -- "$DOROTHY"
 
-	echo-style --g1="TEST: $0"
 	return 0
 )
 function fs_structure() (
@@ -34,7 +36,7 @@ function fs_structure() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Output the structure of a directory path.
 
@@ -42,9 +44,11 @@ function fs_structure() (
 			fs-structure [...options] [--] ...<path>
 
 			OPTIONS:
+			--relative
+			    If specified, paths displayed are relative to the <path>.
 			--no-perms
 			    If specified, don't display permission and ownerships information.
-			    Only applicable when [eza] is used.
+			    Incompatible with [--no-eza].
 			--no-time
 			    If specified, don't display time information.
 			--no-eza
@@ -52,46 +56,44 @@ function fs_structure() (
 			--no-color
 			    If specified, don't use colors.
 
-			--sudo=<sudo>
+			--elevated=<elevated>
+			--elevate=<elevate>
 			--user=<user>
 			--group=<group>
-			    Forwarded to [sudo-helper], [is-missing], [fs-absolute], [is-empty-directory].
+			--reason=<reason>
+			    Forwarded to [eval-helper].
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_inputs=() option_sudo='' option_user='' option_group='' option_perms='' option_time='' option_eza='' option_color
-	option_color="$(get-terminal-color-support --fallback=yes -- "$@")"
+	local item option_inputs=() option_relative='' option_perms='' option_time='' option_eza='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value --affirmative --fallback="$option_sudo" -- "$item")"
-			;;
+		'--no-relative'* | '--relative'*) __flag --source={item} --target={option_relative} --affirmative ;;
+		'--no-perms'* | '--perms'* | '--no-permissions'* | '--permissions'*) __flag --source={item} --target={option_perms} --affirmative ;;
+		'--no-time'* | '--time'*) __flag --source={item} --target={option_time} --affirmative ;;
+		'--no-eza'* | '--eza'*) __flag --source={item} --target={option_eza} --affirmative ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
-		'--no-perms'* | '--perms'* | '--no-permissions'* | '--permissions'*)
-			option_perms="$(get-flag-value --affirmative --fallback="$option_perms" -- "$item")"
-			;;
-		'--no-time'* | '--time'*)
-			option_time="$(get-flag-value --affirmative --fallback="$option_time" -- "$item")"
-			;;
-		'--no-eza'* | '--eza'*)
-			option_eza="$(get-flag-value --affirmative --fallback="$option_eza" -- "$item")"
-			;;
-		'--no-color'* | '--color'*) : ;; # handled by get-terminal-color-support
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
 			option_inputs+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*) option_inputs+=("$item") ;;
 		esac
 	done
@@ -107,6 +109,8 @@ function fs_structure() (
 	# dependencies
 	if [[ $option_eza != 'no' ]]; then
 		setup-util-eza --quiet --optional
+	elif [[ $option_perms == 'no' ]]; then
+		help 'Cannot use --no-perms with --no-eza'
 	fi
 	# another alternative is lsd:
 	# lsd -lA  --total-size --header
@@ -138,10 +142,10 @@ function fs_structure() (
 		fi
 
 		# disable colors?
-		if [[ $option_color == 'no' ]]; then
-			eza_cmd+=('--color=never')
-		elif [[ $option_color == 'yes' ]]; then
-			eza_cmd+=('--color=always')
+		if [[ $COLOR == 'no' ]]; then
+			eza_cmd+=(--color=never)
+		elif [[ $COLOR == 'yes' ]]; then
+			eza_cmd+=(--color=always)
 		fi
 	else
 		# -A, --almost-all: do not list implied . and ..
@@ -153,7 +157,7 @@ function fs_structure() (
 		if [[ $option_time == 'no' ]]; then
 			if is-mac; then
 				# -D format: When printing in the long (-l) format, use format to format the date and time output.  The argument format is a string used by trftime(3).  Depending on the choice of format string, this may result in a different number of columns in the output.  This option overrides the -T option.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
-				ls_cmd+=('-D' '')
+				ls_cmd+=(-D '')
 			else
 				# --time-style=TIME_STYLE: time/date format with -l; see TIME_STYLE below
 				ls_cmd+=("--time-style=+''")
@@ -169,20 +173,20 @@ function fs_structure() (
 		# fi
 
 		# disable colors?
-		if [[ $option_color == 'no' ]]; then
-			ls_cmd+=('--color=never')
-			# dust_sizes_cmd+=('--no-colors')
-			# dust_counts_cmd+=('--no-colors')
-		elif [[ $option_color == 'yes' ]]; then
-			ls_cmd+=('--color=always')
-			# dust_sizes_cmd+=('--force-colors')
-			# dust_counts_cmd+=('--force-colors')
+		if [[ $COLOR == 'no' ]]; then
+			ls_cmd+=(--color=never)
+			# dust_sizes_cmd+=(--no-colors)
+			# dust_counts_cmd+=(--no-colors)
+		elif [[ $COLOR == 'yes' ]]; then
+			ls_cmd+=(--color=always)
+			# dust_sizes_cmd+=(--force-colors)
+			# dust_counts_cmd+=(--force-colors)
 		fi
 	fi
 
 	# helpers
 	function __wrap {
-		sudo-helper --inherit --no-wrap --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$@"
+		eval-helper --no-wrap --inherit --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"
 	}
 	function __list {
 		local path="$1"
@@ -202,22 +206,30 @@ function fs_structure() (
 		fi
 
 		# just -e is faulty, as -e fails on broken symlinks
-		if is-missing --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input"; then
-			echo-style --error1='The path is missing: ' --code-error1="$input" >/dev/stderr
+		if is-missing --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input"; then
+			__print_style --stderr --error1='The path is missing: ' --code-error1="$input"
 			return 2 # ENOENT 2 No such file or directory
 		fi
 
 		# now that we know it exists, get its path
-		path="$(fs-absolute --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$input")"
+		path="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
 
 		# if it is empty, note it, as otherwise the output of eza and ls is unintuitive
-		if is-empty-directory --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- "$path"; then
-			echo-style --notice1='The directory is empty: ' --code-notice1="$path"
+		if is-empty-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			__print_style --notice1='The directory is empty: ' --code-notice1="$path"
 			continue
 		fi
 
 		# it exists and isn't an empty directory, list its contents
-		__list "$path"
+		if [[ $option_relative == 'yes' ]]; then
+			local parent child
+			parent="$(fs-path --parents -- "$path")" || return
+			child="$(fs-path --no-parents -- "$path")" || return
+			cd "$parent" || return
+			__list "$child"
+		else
+			__list "$path"
+		fi
 	done
 )
 

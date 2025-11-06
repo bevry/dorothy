@@ -1,133 +1,197 @@
 #!/usr/bin/env bash
 
 # @todo merge into [convert-helper]
-function video_merge() (
+
+# Video by Al d'Vilas: https://www.pexels.com/video/time-lapse-video-of-the-sky-5786143/
+# https://videos.pexels.com/video-files/5786143/5786143-hd_1920_1080_30fps.mp4
+# https://videos.pexels.com/video-files/5786143/5786143-sd_426_240_30fps.mp4
+
+# Video by Yaroslav Shuraev from Pexels: https://www.pexels.com/video/close-up-shot-of-bushes-5978808/
+# https://videos.pexels.com/video-files/5978808/5978808-uhd_4096_2160_24fps.mp4
+# https://videos.pexels.com/video-files/5978808/5978808-sd_426_226_24fps.mp4
+
+function video_merge_test() (
 	source "$DOROTHY/sources/bash.bash"
 
-	local index input
+	# prepare
+	local root video_one video_two video_output
+	root="$(fs-temp --directory='dorothy' --directory='video-merge' --directory='tests' --directory)"
+	video_one="$(fs-temp --root="$root" --file='5786143.mp4')"
+	video_two="$(fs-temp --root="$root" --file='5978808.mp4')"
+	video_two="$(fs-temp --root="$root" --file='5978808.mp4')"
+	video_output="$(fs-temp --root="$root" --file='output.mp4')"
+	down --url='https://videos.pexels.com/video-files/5786143/5786143-sd_426_240_30fps.mp4' --filepath="$video_one"
+	down --url='https://videos.pexels.com/video-files/5978808/5978808-sd_426_226_24fps.mp4' --filepath="$video_two"
+
+	# if no ffmpeg, adjust tests
+	if __command_missing -- ffmpeg; then
+		eval-tester --status=19 --ignore-stderr --ignore-tty -- \
+			video-merge --no-open "$video_output" -- "$video_one" "$video_two"
+	else
+		eval-tester --ignore-stderr --ignore-tty -- \
+			video-merge --no-open "$video_output" -- "$video_one" "$video_two"
+	fi
+
+	# done
+)
+function video_merge() (
+	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Concatenate multiple video files into a single video, without having to transcode.
 			https://trac.ffmpeg.org/wiki/Concatenate
 
 			USAGE:
-			video-merge [<output>] -- ...<input>
+			video-merge [...options] [<output>] -- ...<input>
+
+			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to [is-file], [fs-path --absolute], [fs-remove], [eval-helper].
 
 			EXAMPLE:
-			video-merge 'result.m4v' -- 'input1.m4v' 'input2.m4v'
+			video-merge 'merged.m4v' -- 'input1.m4v' 'input2.m4v'
 
 			QUIRKS:
-			If <output> is not provided, the basename of the current directory will be used.
+			If <output> is not provided, the basename of the current directory will be used. If an extension if not provided within <output> the first <input> extension will be used. The <output> cannot be an <input>.
+
+			DEPENDENCIES:
+			[ffmpeg] you can install this via [setup-mac-brew --configure] if on macOS, for other platforms, it is up to you to install it.
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item inputs=() output=''
+	local item option_quiet='' option_open='no' option_output='' option_inputs=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--output='*) output="${item#*=}" ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-open'* | '--open'*) __flag --source={item} --target={option_open} --affirmative ;;
+		'--output='* | '--target='*) option_output="${item#*=}" ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
-			inputs+=("$@")
+			option_inputs+=("$@")
 			shift "$#"
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if [[ -z $output ]]; then
-				output="$item"
+			if [[ -z $option_output ]]; then
+				option_output="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
-	# make inputs absolute, and fetch extension for generating output if not defined
+	# requirement check
+	if __command_missing -- ffmpeg; then
+		help "The ffmpeg command is required to run this command, but it is not installed. Please install it." || :
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+
+	# fetch extension
 	local extension=''
-	for index in "${!inputs[@]}"; do
+	if [[ -n $option_output ]]; then
+		extension="$(fs-path --extension -- "$option_output")"
+	fi
+
+	# adjust mapping
+	local map_args=()
+	if [[ $extension == 'm4b' ]]; then
+		map_args+=('-map 0:a')
+	fi
+
+	# make inputs absolute
+	# fetch extension if still empty
+	local index
+	for index in "${!option_inputs[@]}"; do
 		# check existence
-		input="${inputs[index]}"
-		if [[ ! -f $input ]]; then
-			# fail
-			help "The input file does not exist: $input"
-		else
-			# extract extension
+		input="${option_inputs[index]}"
+		if is-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input"; then
+			# fetch extension
 			if [[ -z $extension ]]; then
-				extension="$(fs-extension -- "$input")"
+				extension="$(fs-path --extension -- "$input")"
 			fi
 			# convert to absolute path
-			inputs[index]="$(fs-absolute -- "$input")"
+			option_inputs[index]="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
+		else
+			# fail
+			help "The input file does not exist: $input"
 		fi
 	done
 
-	# ensure output
-	if [[ -z $output ]]; then
-		output="$(basename -- "$(pwd)").$extension"
+	# use directory name if no output is provided
+	if [[ -z $option_output ]]; then
+		option_output="$(fs-path --no-parents -- "$(pwd)").$extension"
 	fi
 
 	# make output absolute
-	output="$(fs-absolute -- "$output")"
+	option_output="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_output")"
+
+	# if the output is an input, error, as the user knows best
+	for index in "${!option_inputs[@]}"; do
+		if [[ $option_output == "${option_inputs[index]}" ]]; then
+			help "The <output> cannot be an <input>: $option_output"
+		fi
+	done
 
 	# check if the output file already exists, if it does, prompt for removal otherwise fail
-	if is-present -- "$output"; then
-		if confirm --linger --positive --ppid=$$ -- 'The output file already exists, remove it?' "$(echo-style --code="$output")"; then
-			rm -f -- "$output"
-		else
-			help "The output file already exists: $output"
-		fi
-	fi
+	fs-remove --quiet --confirm --no-confirm-if-empty --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$option_output"
 
-	# confirm the output is not an input
-	for index in "${!inputs[@]}"; do
-		if [[ $output == "${inputs[index]}" ]]; then
-			echo-style --notice="The output file has been automatically trimmed from the input files."
-			inputs[index]=''
-		fi
+	# prepare the working directory
+	local root input_list
+	root="$(fs-temp --directory='dorothy' --directory='video-merge' --directory)"
+	input_list="$(fs-temp --root="$root" --file='input_list' --extension='txt')"
+
+	# generate the input list
+	local input
+	for input in "${option_inputs[@]}"; do
+		# https://trac.ffmpeg.org/wiki/Concatenate#Instructions
+		input="$(echo-escape-command -- "$input")"
+		__print_lines "file $input" >>"$input_list"
 	done
-
-	# =====================================
-	# Action
-
-	# output the input list
-	local temp_list
-	temp_list="$(
-		fs-temp \
-			--directory='video-merge' \
-			--file --extension='txt'
-	)"
-	for input in "${inputs[@]}"; do
-		if [[ -n $input ]]; then
-			__print_lines "file: $(echo-escape-command -- "$input")" >>"$temp_list"
-		fi
-	done
-	echo-file -- "$temp_list"
 
 	# concatenate
-	eval-helper --quiet \
-		--pending="$(echo-style --bold="Concatenating the video files into: " --code="$output")" \
-		--success="$(echo-style --success="Concatenated the video files into: " --code="$output")" \
-		--failure="$(echo-style --error="Failed to concatenate the video files into: " --code="$output")" \
-		-- ffmpeg -f concat -safe 0 -i "$temp_list" -c copy "$output"
+	eval-helper --quiet="${option_quiet:-"yes"}" --wrap --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" \
+		--pending="$(__print_style --bold='Concatenating the media files into: ' --code="$option_output")" \
+		--success="$(__print_style --success='Concatenated the media files into: ' --code="$option_output")" \
+		--failure="$(__print_style --error='Failed to concatenate the media files into: ' --code="$option_output")" \
+		-- ffmpeg -y -nostdin -f concat -safe 0 -i "$input_list" "${map_args[@]}" -c copy "$option_output"
 
 	# ask if they want to open it
-	if is-headful && confirm --linger --positive --ppid=$$ -- 'Open the concatenated video file?'; then
-		open "$output"
+	if ([[ $option_open != 'no' ]] && is-headful) && ([[ $option_open == 'yes' ]] || confirm --linger --positive --ppid=$$ -- 'Open the concatenated video file?'); then
+		open "$option_output"
 	fi
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	video_merge "$@"
+	if [[ $* == '--test' ]]; then
+		video_merge_test
+	else
+		video_merge "$@"
+	fi
 fi

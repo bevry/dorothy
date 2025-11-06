@@ -2,74 +2,74 @@
 
 # NOTES:
 # [echo -en] doesn't work with escape codes on bash v3, [printf ...] does
-# ["$terminal_device_file"] is used as otherwise "$(confirm ...)" will not output anything to the user, as stdout gets captured in those situations
+# [tty] is used as otherwise "$(confirm ...)" will not output anything to the user, as stdout gets captured in those situations
 #    why would anyone use confirm in that way? they don't but confirm within a getter does, such as [select_installer] within [macos-drive]
 
 function confirm_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-style --h1="TEST: $0"
 
-	# --ignore-stderr otherwise only \n^[[68;1R is output
-
+	local -i delay=1
 	local escape=$'\e'
 
 	{
-		sleep 3
+		sleep "$delay"
 		__print_line
-	} | eval-tester --name='receive positive response by enter key' --ignore-stderr \
-		-- confirm --ppid=$$ --positive --timeout=5 -- 'What is your response?'
+	} | eval-tester --name='receive positive response by enter key' --ignore-tty -- \
+		confirm --ppid=$$ --positive --timeout=$((delay * 2)) -- 'What is your response?'
 
 	{
-		sleep 3
+		sleep "$delay"
 		__print_line
-	} | eval-tester --name='receive negative response by enter key' --status=1 --ignore-stderr \
-		-- confirm --ppid=$$ --negative --timeout=5 -- 'What is your response?'
+	} | eval-tester --name='receive negative response by enter key' --status=1 --ignore-tty -- \
+		confirm --ppid=$$ --negative --timeout=$((delay * 2)) -- 'What is your response?'
 
 	{
-		sleep 3
+		sleep "$delay"
 		__print_lines 'y'
-	} | eval-tester --name='receive positive response by y key' --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+	} | eval-tester --name='receive positive response by y key' --ignore-tty -- \
+		confirm --ppid=-1 --bool --timeout=$((delay * 2)) -- 'What is your response?'
 
 	{
-		sleep 3
+		sleep "$delay"
 		__print_lines 'n'
-	} | eval-tester --name='receive negative response by n key' --status=1 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+	} | eval-tester --name='receive negative response by n key' --status=1 --ignore-tty -- \
+		confirm --ppid=-1 --bool --timeout=$((delay * 2)) -- 'What is your response?'
 
 	{
-		sleep 3
+		sleep "$delay"
 		__print_line
-	} | eval-tester --name='receive timeout response by timeout and enter key rejected by require' --status=60 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+	} | eval-tester --name='receive timeout response by timeout and enter key rejected by require' --status=60 --ignore-tty --stderr='What is your response?  [ABORT] [ input failure: timed out: required ]' -- \
+		confirm --no-color --ppid=-1 --bool --timeout=$((delay * 2)) -- 'What is your response?'
 
-	eval-tester --name='receive positive response by timeout and no input' --ignore-stderr \
-		-- confirm --ppid=$$ --positive --timeout=5 -- 'What is your response?'
+	eval-tester --name='receive positive response by timeout and no input' --ignore-tty -- \
+		confirm --no-color --ppid=$$ --positive --timeout="$delay" -- 'What is your response?'
 
-	eval-tester --name='receive negative response by timeout and no input' --status=1 --ignore-stderr \
-		-- confirm --ppid=$$ --negative --timeout=5 -- 'What is your response?'
+	eval-tester --name='receive negative response by timeout and no input' --status=1 --ignore-tty -- \
+		confirm --no-color --ppid=$$ --negative --timeout="$delay" -- 'What is your response?'
 
-	eval-tester --name='receive timeout response by timeout and no input' --status=60 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+	eval-tester --name='receive timeout response by timeout and no input' --status=60 --ignore-tty --stderr='What is your response?  [ABORT] [ input failure: timed out: required ]' -- \
+		confirm --no-color --ppid=-1 --bool --timeout="$delay" -- 'What is your response?'
 
 	{
 		# press escape key
-		sleep 3
+		sleep "$delay"
 		__print_string "$escape"
-	} | eval-tester --name='receive abort response by escape key' --status=125 --ignore-stderr \
-		-- confirm --ppid=-1 --bool --timeout=5 -- 'What is your response?'
+	} | eval-tester --name='receive abort response by escape key' --status=125 --ignore-tty --stderr='What is your response?  [ABORT]' -- \
+		confirm --no-color --ppid=-1 --bool --timeout=$((delay * 2)) -- 'What is your response?'
 
-	echo-style --g1="TEST: $0"
 	return 0
 )
 function confirm_() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/styles.bash" # __load_styles
+	source "$DOROTHY/sources/ansi.bash"   # __read_key
+	source "$(type -P echo-clear-lines)"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			USAGE:
 			confirm --ppid=\$\$ [...options]
 
@@ -108,10 +108,9 @@ function confirm_() (
 
 			--[no-]linger=[yes|NO]
 			    Whether the prompt should persist afterwards.
-
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -123,6 +122,7 @@ function confirm_() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
 		'--question='*) option_question+=("${item#*=}") ;;
 		'--bool') option_mode='bool' ;;
 		'--positive' | '--positive=yes' | '--negative=no' | '--no-negative') option_mode='positive' ;;
@@ -131,15 +131,13 @@ function confirm_() (
 		'--mode='*) option_mode="${item#*=}" ;;
 		'--timeout='*) option_timeout="${item#*=}" ;;
 		'--ppid='*) option_ppid="${item#*=}" ;;
-		'--no-linger'* | '--linger'*)
-			option_linger="$(get-flag-value --affirmative --fallback="$option_linger" -- "$item")"
-			;;
+		'--no-linger'* | '--linger'*) __flag --source={item} --target={option_linger} --affirmative ;;
 		'--')
 			option_question+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*) option_question+=("$item") ;;
 		esac
 	done
@@ -158,7 +156,7 @@ function confirm_() (
 
 	# question
 	local question_title question_body
-	if [[ ${#option_question[@]} -ne 0 ]]; then # bash v3 compat
+	if [[ ${#option_question[@]} -ne 0 ]]; then
 		if [[ -n ${option_question[0]} ]]; then
 			question_title="${option_question[0]}"
 			question_body="$(__print_lines "${option_question[@]:1}")"
@@ -172,56 +170,36 @@ function confirm_() (
 	fi
 
 	# =====================================
-	# TTY
-
-	local terminal_device_file terminal_tty_support='yes'
-	terminal_device_file="$(get-terminal-device-file)"
-	if [[ $terminal_device_file == '/dev/stderr' ]]; then
-		terminal_tty_support='no'
-	fi
-
-	# =====================================
 	# Styles
 
-	source "$DOROTHY/sources/config.sh"
-
-	# styles.bash provides:
-	# all style variables
-	load_dorothy_config 'styles.bash'
-
-	# refresh the styles
-	refresh_style_cache -- 'question_title_prompt' 'question_title_result' 'question_body' 'input_warning' 'input_error' 'confirm_positive_active' 'confirm_positive_inactive' 'confirm_positive_result' 'confirm_negative_active' 'confirm_negative_inactive' 'confirm_negative_result' 'confirm_abort_inactive' 'confirm_abort_result' 'confirm_proceed_active' 'confirm_proceed_result' 'commentary_timeout_default' 'commentary_timeout_required' 'commentary_input_failure' 'result_commentary_spacer'
+	__load_styles --save -- bell commentary_timeout_default commentary_timeout_required commentary_input_failure result_commentary_spacer question_body question_title_prompt question_title_result || return
 
 	# style the question
-	local question_title_and_body='' question_title_result='' title_result_spacer legend_legend_spacer='   ' legend_indent='  '
+	local question_title_and_body='' question_title_result=''
 	if [[ -n $question_title ]]; then
 		if [[ -n $question_body ]]; then
-			question_title_and_body="${style__question_title_prompt}${question_title}${style__end__question_title_prompt}"$'\n'"${style__question_body}${question_body}${style__end__question_body}"$'\n'
+			question_title_and_body="${STYLE__question_title_prompt}${question_title}${STYLE__END__question_title_prompt}"$'\n'"${STYLE__question_body}${question_body}${STYLE__END__question_body}"$'\n'
 		else
-			question_title_and_body="${style__question_title_prompt}${question_title}${style__end__question_title_prompt}"$'\n'
+			question_title_and_body="${STYLE__question_title_prompt}${question_title}${STYLE__END__question_title_prompt}"$'\n'
 		fi
-		question_title_result="${style__question_title_result}${question_title}${style__end__question_title_result}"
-		title_result_spacer='  '
-	else
-		title_result_spacer=''
+		question_title_result="${STYLE__question_title_result}${question_title}${STYLE__END__question_title_result}  "
 	fi
 
 	# renders
+	# 🯟
 	local options_unselected=() options_selected=() options_results=() selected_index='' selectable_count selectable_last yes_index no_index='' abort_index
 	if [[ $option_mode =~ ^(positive|negative|bool)$ ]]; then
 		options_selected+=(
-			"${legend_indent}${style__confirm_positive_active}"
-			"${legend_legend_spacer}${style__confirm_negative_active}"
+			"$(__print_style --monocolor='  *YES* [Y]' --multicolor --background-green+intense-white+bold='👉 YES ' --background-white --green='🭬' --intense-black=' Y  ')"
+			"$(__print_style --monocolor='     *NO* [N]' --multicolor '   ' --background-red+intense-white+bold='👉 NO ' --background-white --red='🭬' --intense-black=' N  ')"
 		)
 		options_unselected+=(
-			"${legend_indent}${style__confirm_positive_inactive}"
-			"${legend_legend_spacer}${style__confirm_negative_inactive}"
-			"${legend_legend_spacer}${style__confirm_abort_inactive}"
+			"$(__print_style --monocolor='   YES  [Y]' --multicolor '   ' --green='YES' --dim=' ' --invert+white='🭬' --background-white+intense-black=' Y  ')"
+			"$(__print_style --monocolor='      NO  [N]' --multicolor '      ' --red='NO' --dim=' ' --invert+white='🭬' --background-white+intense-black=' N  ')"
 		)
 		options_results=(
-			"${title_result_spacer}${style__confirm_positive_result}"
-			"${title_result_spacer}${style__confirm_negative_result}"
-			"${title_result_spacer}${style__confirm_abort_result}"
+			"$(__print_style --monocolor='[YES]' --multicolor+background-green+intense-white+bold=' YES ')"
+			"$(__print_style --monocolor='[NO]' --multicolor+background-red+intense-white+bold=' NO ')"
 		)
 		if [[ $option_mode == 'positive' ]]; then
 			selected_index=0
@@ -233,20 +211,24 @@ function confirm_() (
 		abort_index=2
 	elif [[ $option_mode == 'confirm' ]]; then
 		options_selected+=(
-			"${legend_indent}${style__confirm_proceed_active}"
+			"$(__print_style --monocolor='  *PROCEED* [ENTER|SPACE|Y]' --multicolor --background-green+intense-white+bold='👉 PROCEED ' --background-white --green='🭬' --intense-black=' ENTER │ SPACE │ Y  ')"
 		)
 		options_unselected+=(
 			'' # never used
-			"${legend_legend_spacer}${style__confirm_abort_inactive}"
 		)
 		options_results=(
-			"${title_result_spacer}${style__confirm_proceed_result}"
-			"${title_result_spacer}${style__confirm_abort_result}"
+			"$(__print_style --monocolor='[PROCEED]' --multicolor+background-green+intense-white+bold=' PROCEED ')"
 		)
 		selected_index=0
 		yes_index=1
 		abort_index=1
 	fi
+	options_unselected+=(
+		"            $(__print_style --monocolor=' ABORT  [ESC|Q]' --multicolor --dim+red='ABORT' --dim=' ' --invert+white='🭬' --dim+background-white+intense-black=' ESC │ Q  ')"
+	)
+	options_results+=(
+		"$(__print_style --monocolor='[ABORT]' --multicolor+background-red+intense-white+bold=' ABORT ')"
+	)
 	selectable_count="${#options_selected[@]}"
 	selectable_last="$((selectable_count - 1))"
 
@@ -254,21 +236,23 @@ function confirm_() (
 	# Action
 
 	local question_confirm_and_input_lines='' FINISHED=''
-	__print_value_strings_or_nothing "$question_title_and_body" >"$terminal_device_file"
+	if [[ -n $question_title_and_body ]]; then
+		__value_to_tty "$question_title_and_body"
+	fi
 	function refresh {
 		# clear the prompt and any input lines
-		echo-clear-lines -- "$question_confirm_and_input_lines" >"$terminal_device_file"
+		echo_clear_lines --target=TTY -- "$question_confirm_and_input_lines"
 
 		# re-render the keys prompt
 		local str='' index
 		for index in "${!options_unselected[@]}"; do
 			if [[ -n $selected_index && $index -eq $selected_index ]]; then
-				str+="${options_selected[$index]}"
+				str+="${options_selected[index]}"
 			else
-				str+="${options_unselected[$index]}"
+				str+="${options_unselected[index]}"
 			fi
 		done
-		__print_string "$str  " >"$terminal_device_file"
+		__value_to_tty "$str  "
 	}
 	function on_confirm_terminate {
 		RESULT=$?
@@ -287,7 +271,7 @@ function confirm_() (
 		FINISHED='yes'
 
 		# clear
-		echo-clear-lines --here-string <<<"$question_title_and_body$question_confirm_and_input_lines" >"$terminal_device_file"
+		echo_clear_lines --target=TTY --here-string <<<"$question_title_and_body$question_confirm_and_input_lines"
 
 		# output the finale
 		local result
@@ -296,17 +280,17 @@ function confirm_() (
 			# inform if requested
 			if [[ $option_linger == 'yes' ]]; then
 				result="${options_results[RESULT]}"
-				__print_lines "$question_title_result$result$commentary" >"$terminal_device_file"
+				__value_to_tty "$question_title_result$result$commentary"$'\n'
 			fi
 		else
 			# failure response
 			# always inform
 			result="${options_results[abort_index]}"
 			if [[ $option_linger == 'yes' ]]; then
-				__print_lines "$question_title_result$result$commentary" >"$terminal_device_file"
+				__value_to_tty "$question_title_result$result$commentary"$'\n'
 			else
 				# even if not lingering, ensure crash response is shown
-				__print_lines "$question_title_result$result$commentary" >/dev/stderr
+				__print_lines "$question_title_result$result$commentary" >&2
 			fi
 			# kill caller's parent
 			if [[ $option_ppid -ge 0 ]]; then
@@ -334,21 +318,24 @@ function confirm_() (
 	trap on_confirm_terminate SIGINT SIGTERM # this is necessary to always show ABORT message
 
 	local input keys commentary='' RESULT=''
+	local -i __read_status
 	while :; do
 		# render
 		refresh
 
 		# capture
-		eval_capture --statusvar=read_status --stdoutvar=input -- \
-			read-key --keep-line-buffer-newlines --timeout="$option_timeout"
+		__read_status=0
+		# trunk-ignore(shellcheck/SC2034)
+		input="$(__read_key --keep-line-buffer-newlines --timeout="$option_timeout")" || __read_status=$?
 
 		# input => keys => key
 		keys=()
-		mapfile -t keys <<<"$input"
+		__split --source={input} --target={keys}
 
 		# prep clearing of any input that leaked
 		question_confirm_and_input_lines=''
-		if [[ $terminal_tty_support == 'no' ]]; then
+		# only applies in line-buffer mode
+		if [[ $IS_STDIN_LINE_BUFFERED == 'yes' ]]; then
 			for key in "${keys[@]}"; do
 				if [[ $key =~ ^(enter|line-buffer)$ ]]; then
 					question_confirm_and_input_lines+=$'\n'
@@ -357,10 +344,10 @@ function confirm_() (
 		fi
 
 		# handle status
-		if [[ $read_status -eq 60 ]]; then
+		if [[ $__read_status -eq 60 ]]; then
 			# timeout
 			# default
-			commentary="${style__result_commentary_spacer}${style__commentary_timeout_default}"
+			commentary="${STYLE__result_commentary_spacer}${STYLE__commentary_timeout_default}"
 			if [[ $option_mode == 'positive' ]]; then
 				RESULT=0
 				break
@@ -370,18 +357,18 @@ function confirm_() (
 			else
 				# bool, confirm
 				# required
-				commentary="${style__result_commentary_spacer}${style__commentary_timeout_required}"
-				RESULT="$read_status"
+				commentary="${STYLE__result_commentary_spacer}${STYLE__commentary_timeout_required}"
+				RESULT="$__read_status"
 				break
 			fi
-		elif [[ $read_status -eq 94 ]]; then
+		elif [[ $__read_status -eq 94 ]]; then
 			# unknown character, send bell and continue
-			__print_string $'\a' >"$terminal_device_file" # bell
+			__value_to_tty "$STYLE__bell"
 			continue
-		elif [[ $read_status -ne 0 ]]; then
+		elif [[ $__read_status -ne 0 ]]; then
 			# failure
-			commentary="${style__result_commentary_spacer}$(printf "$style__commentary_input_failure" "read status: $read_status")"
-			RESULT="$read_status"
+			commentary="${STYLE__result_commentary_spacer}$(printf "$STYLE__commentary_input_failure" "read status: $__read_status")"
+			RESULT="$__read_status"
 			break
 		fi
 
@@ -393,7 +380,7 @@ function confirm_() (
 					RESULT="$yes_index"
 					break
 				else
-					__print_string $'\a' >"$terminal_device_file" # bell
+					__value_to_tty "$STYLE__bell"
 				fi
 				;;
 			'N' | 'n')
@@ -401,7 +388,7 @@ function confirm_() (
 					RESULT="$no_index"
 					break
 				else
-					__print_string $'\a' >"$terminal_device_file" # bell
+					__value_to_tty "$STYLE__bell"
 				fi
 				;;
 			'left' | 'right' | 'up' | 'down')
@@ -440,7 +427,7 @@ function confirm_() (
 						break
 					fi
 				fi
-				__print_string $'\a' >"$terminal_device_file" # bell
+				__value_to_tty "$STYLE__bell"
 				;;
 			'escape' | 'Q' | 'q')
 				RESULT=125 # abort
@@ -455,7 +442,6 @@ function confirm_() (
 		fi
 	done
 	on_finish
-	return
 )
 
 # fire if invoked standalone

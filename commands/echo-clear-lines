@@ -2,76 +2,92 @@
 
 function echo_clear_lines() (
 	source "$DOROTHY/sources/stdinargs.bash"
+	source "$DOROTHY/sources/ansi.bash"
 
 	# =====================================
 	# Arguments
 
+	# trunk-ignore(shellcheck/SC2120)
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return
 			ABOUT:
 			Deletes as many lines as it received.
 
 			USAGE:
-			echo-clear-lines [...options] [--] ...<input>
-			echo-lines ...<input> | echo-clear-lines [...options]
+			\`echo-clear-lines [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-clear-lines [...options]\`
 
 			OPTIONS:
-			--here-string | --herestring | '--<<<'
-			    If using a here string, provide this option to discard the trailing newline that here strings add.
+			--count-only
+			    If provided, only count the lines and do not clear them.
+			    Applies \`--target=STDOUT\`
 
-			--count=<count>
-			    If provided, use this many lines rather than erasing lines as they happen.
+			--discard-last-line-as-inline
+			    If the cursor is intended to be shown alongside the last line, instead of below it on a new empty line, then enable this option to reduce the count by one.
 
-			$(stdinargs_options_help --)
+			--here-string | --herestring
+			    Enables STDIN parsing and enables <discard-last-line-as-inline>, as here strings append a trailing newline.
+
+			--lines=<lines> | --count=<lines>
+			    If provided, use this many lines rather than counting them from <input>.
+
+			--target=<target:file-path|file-descriptor|device-file>
+			    The target to write to, defaults to TTY.
+			    A target can be a file path (e.g. \`out.txt\`), a file descriptor (e.g. \`1\` for STDOUT, \`2\` for STDERR), or a device file (e.g. \`/dev/stdout\`, \`/dev/stderr\`, \`/dev/tty\`).
+			    These are sent to \`bash.bash:__do\` for processing.
+
+			$(__stdinargs__help_options --)
 
 			EXAMPLE:
 
-			echo 'sup'
+			\`printf '%s\n' 'sup'
 			printf 'a\nb\nc'
 			echo-clear-lines -- $'a\nb\nc'
 			# ^ retains: sup
 			# ^ Note that the argument technique should be discouraged, as can cause [Argument list too long] error:
 			#   https://github.com/bevry/dorothy/actions/runs/7622089094/job/20759535555#step:4:3259
 
-			echo 'sup'
+			printf '%s\n' 'sup'
 			printf 'a\nb\nc'
 			echo-clear-lines --stdin < <(printf 'a\nb\nc')
 			# ^ retains: sup
 			# ^ Use this instead of the arguments option, and do not use <<< as it prints a trailing newline, which would erase 'sup'.
 
-			echo 'sup'
+			printf '%s\n' 'sup'
 			printf 'a\nb\nc'
 			printf 'a\nb\nc' | echo-clear-lines
 			# ^ retains: sup
 
 			file="\$(mktemp)"
-			echo 'sup'
+			printf '%s\n' 'sup'
 			printf 'a\nb\nc' | tee -- "\$file
 			echo-clear-lines < "\$file"
-			# ^ retains: sup
+			# ^ retains: sup\`
 		EOF
-		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
+	# @todo support [--target=<target>] same as [echo-revolving-door]
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_here_string='no' option_columns='' option_count='' option_count_only='no' option_args=()
+	local item option_discard_last_line_as_inline='no' option_columns='' option_lines='' option_count_only='no' option_target='TTY' option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
+		# trunk-ignore(shellcheck/SC2119)
 		'--help' | '-h') help ;;
-		'--count='*) option_count="${item#*=}" ;;
+		'--lines='* | '--count='*) option_lines="${item#*=}" ;;
 		'--no-count-only'* | '--count-only'*)
-			option_count_only="$(get-flag-value --affirmative --fallback="$option_count_only" -- "$item")"
+			option_target='STDOUT'
+			__flag --source={item} --target={option_count_only} --affirmative
 			;;
 		'--columns='*) option_columns="${item#*=}" ;;
-		'--here-string' | '--herestring' | '--<<<')
-			option_here_string='yes'
+		'--no-discard-last-line-as-inline'* | '--discard-last-line-as-inline'*) __flag --source={item} --target={option_discard_last_line_as_inline} --affirmative ;;
+		'--here-string')
+			option_discard_last_line_as_inline='yes'
 			option_args+=('--stdin')
 			;;
+		'--target='*) option_target="${item#*=}" ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
 			option_args+=("$item" "$@")
@@ -82,6 +98,19 @@ function echo_clear_lines() (
 		esac
 	done
 
+	# try to detect width, otherwise default to 0
+	if [[ -z $option_columns ]]; then
+		local terminal_size=()
+		__split --target={terminal_size} --no-zero-length --invoke=try -- \
+			get-terminal-lines-and-columns
+		if [[ ${#terminal_size[@]} -eq 2 ]]; then
+			option_columns="${terminal_size[1]}"
+		fi
+	fi
+	if [[ -z $option_columns ]]; then
+		option_columns=0
+	fi
+
 	# =====================================
 	# Action
 
@@ -90,49 +119,53 @@ function echo_clear_lines() (
 	# and a here-string with a trailing line, will appear as a complete line and another complete empty line
 
 	local count=0 had_inline='no'
-	function clear_lines {
+	function __clear_lines {
 		# adapt
-		if [[ $option_here_string == 'yes' || $had_inline == 'yes' ]]; then
-			if [[ $count -ne 0 ]]; then
+		if [[ $option_discard_last_line_as_inline == 'yes' || $had_inline == 'yes' ]]; then
+			if [[ $count -ge 1 ]]; then
 				count="$((count - 1))"
 			fi
 		fi
 		# clear
 		if [[ $option_count_only == 'yes' ]]; then
-			__print_lines "$count"
+			__value_to_target "$count"$'\n' "$option_target" || return
 		elif [[ $count -eq 0 ]]; then
-			printf '\e[G\e[J'
+			__value_to_target $'\e[G\e[J' "$option_target" || return
 		else
-			printf '\e[%dF\e[J' "$count"
+			__value_to_target $'\e['"$count"$'F\e[J' "$option_target" || return
 		fi
 	}
-	function on_line {
-		local input="$1" lines
-		if [[ -z $input ]]; then
-			# it is a complete line, so add 1 to count
-			# we don't send empty input to echo-wrap/echo-count-lines as empty input will appear as 0
-			count="$((count + 1))"
-		elif __is_shapeshifter -- "$input"; then
-			# if shapeshifter, reset count
-			count=0
-		else
-			# if not shapeshifter, wrap and count
-			lines="$(echo-wrap --columns="$option_columns" -- "$input" | echo-count-lines --stdin)"
-			count="$((count + lines))"
-		fi
-	}
-	function on_inline {
-		# if inline, proceed as normal but remove a line
-		on_line "$1"
-		had_inline='yes'
-	}
-	function on_finish {
-		clear_lines
-	}
-	if [[ -n $option_count ]]; then
-		count="$option_count"
-		clear_lines
+	if [[ -n $option_lines ]]; then
+		count="$option_lines"
+		__clear_lines || return
 	else
+		function __on_line {
+			local input="$1" lines
+			if [[ -z $input ]]; then
+				# it is a complete line, so add 1 to count
+				# we don't send empty input to echo-wrap/echo-count-lines as empty input will appear as 0
+				count="$((count + 1))"
+			elif __is_shapeshifter -- "$input"; then
+				# if shapeshifter, reset count
+				count=0
+			else
+				# if not shapeshifter, wrap and count
+				if __should_wrap --content="$input" --width="$option_columns"; then
+					lines="$(echo-wrap --columns="$option_columns" -- "$input" | echo-count-lines --stdin)" || return
+				else
+					lines="$(echo-count-lines -- "$input")" || return
+				fi
+				count="$((count + lines))"
+			fi
+		}
+		function __on_inline {
+			# if inline, proceed as normal but remove a line
+			__on_line "$1" || return
+			had_inline='yes'
+		}
+		function __on_finish {
+			__clear_lines || return
+		}
 		stdinargs "${option_args[@]}"
 	fi
 )

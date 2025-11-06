@@ -39,44 +39,60 @@ Dorothy is a dotfile ecosystem featuring:
 
 ### Supported Platforms
 
-| Operating System                                  | Architecture                                   | Support                  |
-| ------------------------------------------------- | ---------------------------------------------- | ------------------------ |
-| 🍏 macOS                                          | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver          |
-| 🍏 macOS                                          | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
-| 🍏 macOS                                          | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
-| 🪟 Windows 10/11 [WSL2][WSL2] [Ubuntu][UWSL]      | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| 🍓 [Raspberry Pi OS with Desktop][RPIOS]          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| 🍓 [Raspberry Pi OS Lite][RPIOS]                  | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
-| ⭕️ [Ubuntu Desktop][URPI]                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Desktop][UD]                           | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Server][URPI]                          | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ⭕️ [Ubuntu Server][US]                            | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ⭕️ [Ubuntu Server][UV5]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
-| ꩜ [Debian][D]                                     | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
-| ꩜ [Debian][D]                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ▲ [Manjaro][M] / [Arch][A]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| ∞ [Fedora Workstation][FW]                        | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 🦎 [OpenSUSE][OS] [Leap][OSL] & [Tumbleweed][OST] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⛰ [Alpine][AL]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⛰ [Alpine][AL]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
-| 🐉 [Kali][K]                                      | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| Operating System                                                | Architecture                                   | Support                  |
+| --------------------------------------------------------------- | ---------------------------------------------- | ------------------------ |
+| 🍏 macOS                                                        | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                        | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                        | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
+| 🪟 Windows 10/11 [WSL2][WSL2] [Ubuntu][UbuntuWSL]               | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| 🍓 [Raspberry Pi OS with Desktop][PiOS]                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| 🍓 [Raspberry Pi OS Lite][PiOS]                                 | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| ⭕️ [Ubuntu Desktop][UbuntuD]                                    | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Desktop][UbuntuPi]                                   | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Server][UbuntuS]                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ⭕️ [Ubuntu Server][UbuntuPi]                                    | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
+| ꩜ [Debian][Debian]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ꩜ [Debian][Debian]                                              | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| ∞ [Fedora Workstation][FedoraW]                                 | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ▲ [Arch][Arch]                                                  | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 👐 [AlmaLinux][Alma]                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ❍ [OpenMandriva][Mandriva] [Rock][Rock] [Rolling][Rolling]      | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ر [Devuan][Devuan]                                              | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🦎 [OpenSUSE][OpenSUSE] [Leap][Leap] & [Tumbleweed][Tumbleweed] | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🐉 [Kali][Kali]                                                 | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ⭐ [Vanilla][Vanilla]                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 
 [WSL2]: https://docs.microsoft.com/en-au/windows/wsl/
-[UWSL]: https://ubuntu.com/wsl
-[RPIOS]: https://www.raspberrypi.com/software/operating-systems/
-[URPI]: https://ubuntu.com/download/raspberry-pi
-[UD]: https://ubuntu.com/download/desktop
-[US]: https://ubuntu.com/download/server
-[UV5]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
-[D]: https://www.debian.org
-[M]: https://manjaro.org/download/
-[A]: https://wiki.archlinux.org/title/Installation_guide
-[FW]: https://fedoraproject.org/workstation/
-[OS]: https://www.opensuse.org
-[OSL]: https://get.opensuse.org/leap/
-[OST]: https://get.opensuse.org/tumbleweed/
-[AL]: https://www.alpinelinux.org/downloads/
-[K]: https://www.kali.org/get-kali/#kali-platforms
+[UbuntuWSL]: https://ubuntu.com/wsl
+[PiOS]: https://www.raspberrypi.com/software/operating-systems/
+[UbuntuPi]: https://ubuntu.com/download/raspberry-pi
+[UbuntuD]: https://ubuntu.com/download/desktop
+[UbuntuS]: https://ubuntu.com/download/server
+[Debian]: https://www.debian.org
+[FedoraW]: https://fedoraproject.org/workstation/
+[Arch]: https://wiki.archlinux.org/title/Arch_Linux
+[Alma]: https://almalinux.org
+[Mandriva]: https://www.openmandriva.org
+[Rock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
+[Rolling]: https://wiki.openmandriva.org/en/distribution/releases/rome
+[Devuan]: https://www.devuan.org
+[OpenSUSE]: https://www.opensuse.org
+[Leap]: https://get.opensuse.org/leap/
+[Tumbleweed]: https://get.opensuse.org/tumbleweed/
+[Kali]: https://www.kali.org/get-kali/#kali-platforms
+[Vanilla]: https://vanillaos.org
+
+<!--
+| 𝚖 [Manjaro][Manjaro]                        | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
+| ⭕️ [Ubuntu Server][UbuntuFive]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
+| ⛰ [Alpine][Alpine]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ⛰ [Alpine][Alpine]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
+
+[Manjaro]: https://manjaro.org/download/
+[UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
+[Alpine]: https://www.alpinelinux.org/downloads/
+[Rocky]: https://rockylinux.org
+-->
 
 Table reflects usage by Dorothy users and Dorothy CI support. Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
@@ -90,7 +106,7 @@ For instance, installing [curl](https://en.wikipedia.org/wiki/Curl) with Dorothy
 
 ### Prerequisites
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > To even initiate Dorothy, some prerequisite dependencies are required:
 
 macOS:
@@ -160,9 +176,9 @@ xbps-install --sync bash curl
 
 Now that the prerequisites are installed, Dorothy's intelligent dependency management will be enabled, so you can skip this section. Dorothy's complete requisites for its core experience are as follows:
 
-- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required for initiation
-- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): required for installation
-- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): required for advanced configuration and regular expression processing
+- [`bash`](https://release-monitoring.org/project/166/), [`curl`](https://release-monitoring.org/project/381/): required prior to initiation of the Dorothy installer
+- [`grep`](https://release-monitoring.org/project/1251/), [`git`](https://git-scm.com/downloads), [`awk`](https://release-monitoring.org/project/868/): guaranteed by the Dorothy installer, and used to to install Dorothy
+- [`jq`](https://jqlang.github.io/jq/download/), [`deno`](https://deno.com/#installation): guaranteed by Dorothy, for robust regular expressions and configuration management
 
 If the automated installation of any failed, [post an issue](https://github.com/bevry/dorothy/issues) including details of your environment, and use their links for alternative installation methods. If you are downloading their binaries straight from GitHub, you can unzip with `tar -xvf <archive>`, make a discoverable binary directory with `mkdir -p -- ~/.local/bin`, move the binary there with `mv -- <bin> ~/.local/bin`, and make the binaries executable with `chmod +x ~/.local/bin/*`.
 
@@ -174,15 +190,15 @@ If the automated installation of any failed, [post an issue](https://github.com/
 To run a specific command in/from the Dorothy environment, enter the following, swapping out everything after the double-dash (`--`) with whatever command to run:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/run)" -- dorothy commands
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 To run multiple commands in/from a Dorothy-configured REPL, enter the following line by line:
 
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/repl)"
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 
 # now you can run whatever and how many commands as you'd like, such as:
 dorothy commands
@@ -194,15 +210,12 @@ exit
 
 ### Install
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > To install Dorothy enter the following into your favorite terminal application:
 
-> [!WARNING]
-> Dorothy's installation process currently has a few rough edges and bugs, and should be fixed within a week. Please subscribe to [this issue](https://github.com/bevry/dorothy/pull/281) to track their progress.
-
 ```bash
+bash -i # in case your shell doesn't recognize the next command
 bash -ic "$(curl -fsSL https://dorothy.bevry.me/install)"
-# if your shell doesn't recognize any of the above syntax, run `bash -i` then try again
 ```
 
 During installation, Dorothy will ask you to create a repository to store your user configuration, such as a `dotfiles` repository. If you already have a dotfiles repository, you can use that, or make another.
@@ -237,26 +250,22 @@ Dorothy installs itself to `$DOROTHY`, which defaults to the [XDG](https://wiki.
 For each shell that you configured during the Dorothy installation (can be reconfigured via the `dorothy install` command), the configured shell performs the following steps when you open a new shell instance via your terminal:
 
 1.  The shell loads Dorothy's initialization script:
-
     - [Elvish](https://elv.sh) loads our [`init.elv`](https://github.com/bevry/dorothy/blob/master/init.elv) script
     - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) loads our [`init.fish`](https://github.com/bevry/dorothy/blob/master/init.fish) script
     - [Nu](https://www.nushell.sh) loads our [`init.nu`](https://github.com/bevry/dorothy/blob/master/init.nu) script
     - [Xonsh](https://xon.sh) loads our [`init.xsh`](https://github.com/bevry/dorothy/blob/master/init.xsh) script
     - POSIX shells ([Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>), [Zsh](https://en.wikipedia.org/wiki/Z_shell), [Dash](https://wiki.archlinux.org/title/Dash), [KSH](https://en.wikipedia.org/wiki/KornShell), etc) load our [`init.sh`](https://github.com/bevry/dorothy/blob/master/init.sh) script
+        - KSH and Dash first load their respective `init.ksh` and `init.dash` scripts before loading `init.sh`. This is because KSH, Dash, and Bash all share the same `.profile` configuration file, so different initialization scripts allow us to configure each of them independently.
 
 1.  The initialization script will:
-
     1. Ensure the `DOROTHY` environment variable is set to the location of the Dorothy installation.
 
     1. If a login shell, it loads our login script `sources/login.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-
         1. Apply any configuration changes necessary for that login shell
         1. Load our environment script `sources/environment.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-
             1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
 
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-
         1. Load your own `user/config(.local)/interactive.(sh|bash|dash|elv|fish|ksh|nu|xsh|zsh)` configuration script for your own interactive login shell configuration.
             - [Elvish](https://elv.sh) will only load `interactive.elv` if it exists.
             - [Fish](<https://en.wikipedia.org/wiki/Fish_(Unix_shell)>) will load `interactive.fish` if it exists, otherwise it will load `interactive.sh`.
@@ -302,19 +311,16 @@ After installing Dorothy, there will now a plethora of commands available to you
 Stable commands:
 
 - [`setup-system`](https://github.com/bevry/dorothy/tree/master/commands/setup-system)
-
     - `setup-system install` correctly setup your system to your prompted preferences
     - `setup-system update` correctly update your system to your existing preferences
 
     This is done via these commands:
-
     - [`setup-linux`](https://github.com/bevry/dorothy/tree/master/commands/setup-linux) correctly setup your Linux system, and its various packaging systems, as desired
     - [`setup-mac`](https://github.com/bevry/dorothy/tree/master/commands/setup-mac) correctly setup your macOS system, including its homebrew and Mac App Store installations, as desired
     - [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin) correctly setup available CLI utilities from installed GUI Applications
     - [`setup-git`](https://github.com/bevry/dorothy/tree/master/commands/setup-git) correctly setup Git on your system, including your profile, SSH, GPG, and 1Password configurations, as desired.
 
         Related commands:
-
         - [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
         - [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
 
@@ -342,7 +348,6 @@ Stable commands:
 - [`github-download`](https://github.com/bevry/dorothy/tree/master/commands/github-download) download files from GitHub without the tedium.
 
 - [`secret`](https://github.com/bevry/dorothy/tree/master/commands/secret) stops you from leaking your env secrets to the world when a malicious program sends your shell environment variables to a remote server. Instead, `secret` will use 1Password to securely expose your secrets to just the command that needs them. Specifically:
-
     - secrets are fetched directly from 1Password, with a short lived session
     - secrets are cached securely for speed and convenience, only root/sudo has access to the cache (cache can be made optional if you want)
     - secrets are not added to the global environment, only the secrets that are desired for the command are loaded for the command's environment only
@@ -354,26 +359,22 @@ Stable commands:
     The solution to this is encrypted DNS. Some VPN providers already include it within their service, however most don't. And if you have encrypted DNS, then you get the benefits of preventing eavesdropping without the need for expensive VPN, and the risk of your VPN provider eavesdropping on you.
 
     Dorothy supports configuring your DNS to encrypted DNS via the [`setup-dns`](https://github.com/bevry/dorothy/tree/master/commands/setup-dns) command, which includes installation and configuration for any of these:
-
     - AdGuard Home
     - Cloudflared
     - DNSCrypt
 
     Related commands:
-
     - [`flush-dns`](https://github.com/bevry/dorothy/tree/master/commands/flush-dns) lets you easily flush your DNS anytime, any system.
     - [`setup-hosts`](https://github.com/bevry/dorothy/tree/master/commands/setup-hosts) lets you easily select from a variety of HOSTS files for security and privacy, while maintaining your customizations.
 
 - [`mount-helper`](https://github.com/bevry/dorothy/tree/master/commands/mount-helper) lets you easily, correctly, and safely mount, unmount, automount, various devices, filesystems, network shares, gocryptfs vaults, etc, on any system.
 
     Related commands:
-
     - [`get-devices`](https://github.com/bevry/dorothy/tree/master/commands/get-devices) cross-platform fetching and filtering of select and complete device information
     - [`gocryptfs-helper`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) helpers for [GoCryptFS](https://github.com/rfjakob/gocryptfs)
     - [`what-is-using`](https://github.com/bevry/dorothy/tree/master/commands/gocryptfs-helper) find out what is using a path so that you can unmount it safely
 
 - Dorothy also provides commands for writing commands, such as:
-
     - [`bash.bash`](https://github.com/bevry/dorothy/tree/master/sourcces/bash.bash) for a Bash strict mode that actually works, and various shims/polyfills
     - [`ask`](https://github.com/bevry/dorothy/tree/master/commands/ask), [`confirm`](https://github.com/bevry/dorothy/tree/master/commands/confirm), and [`choose`](https://github.com/bevry/dorothy/tree/master/commands/choose) for prompting the user for input
     - [`echo-style`](https://github.com/bevry/dorothy/tree/master/commands/echo-style), [`echo-error`](https://github.com/bevry/dorothy/tree/master/commands/echo-error), [`echo-verbose`](https://github.com/bevry/dorothy/tree/master/commands/echo-verbose), and [`eval-helper`](https://github.com/bevry/dorothy/tree/master/commands/eval-helper) for output styling
@@ -387,7 +388,7 @@ Beta commands:
 
 Stable commands:
 
-- [`alias-helper`](https://github.com/bevry/dorothy/tree/master/commands/alias-helper) helps you manage your macOS aliases, and if desired, convert them into symlinks.
+- [`fs-alias`](https://github.com/bevry/dorothy/tree/master/commands/fs-alias) helps you manage your macOS aliases, and if desired, convert them into symlinks.
 - [`macos-drive`](https://github.com/bevry/dorothy/tree/master/commands/macos-drive) helps you turn a macOS installer into a bootable USB drive.
 - [`macos-installer`](https://github.com/bevry/dorothy/tree/master/commands/macos-installer) fetches the latest macOS installer.
 - [`sparse-vault`](https://github.com/bevry/dorothy/tree/master/commands/sparse-vault) lets you easily, and for free, create secure encrypted password-protected vaults on your mac, for securing those super secret data.
@@ -443,8 +444,12 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 - [Benjamin Lupton](https://github.com/balupton) — [view contributions](https://github.com/bevry/dorothy/commits?author=balupton 'View the GitHub contributions of Benjamin Lupton on repository bevry/dorothy')
 - [Bevry Team](https://github.com/BevryMe) — [view contributions](https://github.com/bevry/dorothy/commits?author=BevryMe 'View the GitHub contributions of Bevry Team on repository bevry/dorothy')
 - [BJReplay](https://github.com/BJReplay) — [view contributions](https://github.com/bevry/dorothy/commits?author=BJReplay 'View the GitHub contributions of BJReplay on repository bevry/dorothy')
+- [Cœur](https://github.com/Coeur) — [view contributions](https://github.com/bevry/dorothy/commits?author=Coeur 'View the GitHub contributions of Cœur on repository bevry/dorothy')
+- [Joel McCracken](https://github.com/joelmccracken) — [view contributions](https://github.com/bevry/dorothy/commits?author=joelmccracken 'View the GitHub contributions of Joel McCracken on repository bevry/dorothy')
 - [molleweide](https://github.com/molleweide) — [view contributions](https://github.com/bevry/dorothy/commits?author=molleweide 'View the GitHub contributions of molleweide on repository bevry/dorothy')
-- [Nutchanon Ninyawee](https://github.com/wasdee) — [view contributions](https://github.com/bevry/dorothy/commits?author=wasdee 'View the GitHub contributions of Nutchanon Ninyawee on repository bevry/dorothy')
+- [Nutchanon](https://github.com/ninyawee) — [view contributions](https://github.com/bevry/dorothy/commits?author=ninyawee 'View the GitHub contributions of Nutchanon on repository bevry/dorothy')
+- [Octavian](https://github.com/octavian-one) — [view contributions](https://github.com/bevry/dorothy/commits?author=octavian-one 'View the GitHub contributions of Octavian on repository bevry/dorothy')
+- [Oscar Vargas Torres](https://github.com/oscarvarto) — [view contributions](https://github.com/bevry/dorothy/commits?author=oscarvarto 'View the GitHub contributions of Oscar Vargas Torres on repository bevry/dorothy')
 - [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai 'View the GitHub contributions of Sumit Rai on repository bevry/dorothy')
 
 ### Finances
@@ -459,30 +464,33 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 
 #### Sponsors
 
-- [Andrew Nesbitt](https://nesbitt.io) — Software engineer and researcher
-- [Codecov](https://codecov.io) — Empower developers with tools to improve code quality and testing.
+- [Andrew Nesbitt](https://nesbitt.io) — Working on mapping the world of open source software @ecosyste-ms and empowering developers with @octobox
+- [Canonical](https://canonical.com)
+- [Divinci ™](https://divinci.ai) — A more comfortable AI conversation experience, with friends! 🤖🖤
 - [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
 - [Poonacha Medappa](https://poonachamedappa.com)
-- [Rob Morris](https://github.com/Rob-Morris)
-- [Sentry](https://sentry.io) — Real-time crash reporting for your web apps, mobile apps, and games.
-- [Syntax](https://syntax.fm) — Syntax Podcast
+- [Roboflow](https://roboflow.com)
 
 #### Donors
 
 - [Andrew Nesbitt](https://nesbitt.io)
 - [Balsa](https://balsa.com)
+- [Canonical](https://canonical.com)
 - [Chad](https://opencollective.com/chad8)
 - [Codecov](https://codecov.io)
+- [Divinci ™](https://divinci.ai)
 - [entroniq](https://gitlab.com/entroniq)
 - [Frontend Masters](https://FrontendMasters.com)
 - [Jean-Luc Geering](https://github.com/jlgeering)
-- [Michael Duane Mooring](https://mdm.cc)
+- [Michael Duane Mooring](https://divinci.app)
 - [Mohammed Shah](https://github.com/smashah)
 - [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
-- [Rob Morris](https://github.com/Rob-Morris)
+- [Rob Morris](https://linktr.ee/recipromancer)
+- [Roboflow](https://roboflow.com)
 - [Sentry](https://sentry.io)
 - [ServieJS](https://github.com/serviejs)
+- [Square](https://github.com/square)
 - [Syntax](https://syntax.fm)
 
 <!-- /BACKERS -->

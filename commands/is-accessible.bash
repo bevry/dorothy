@@ -15,10 +15,11 @@ while [[ $# -ne 0 ]]; do
 
 	# check accessibility, regardless of existence, by checking the stderr and discarding stdout of stat -L which -L checks the source and target of symlinks
 	# LINUX
-	# stat: cannot statx '/home/runner/.cache/dorothy/5350/dir/subfile': Permission denied
+	# stat: cannot statx '<path>': Permission denied
 	# MACOS
-	# stat: /Users/balupton/.cache/dorothy/12776/dir/subfile: stat: Permission denied
-	if stat -L -- "$path" 2>&1 | grep --quiet --regexp=': Permission denied$'; then
+	# stat: <path>: stat: Permission denied
+	if stat -L -- "$path" 2>&1 | grep --quiet --extended-regexp --regexp=': Permission denied$'; then
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 13 # EACCES 13 Permission denied
 	fi
 done

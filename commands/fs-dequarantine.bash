@@ -22,7 +22,11 @@ while [[ $# -ne 0 ]]; do
 		# note that the -r option doesn't exist, will return [option -r not recognized] on Ventura and Sonoma
 		# cannot just -d directly, as will get a [No such xattr: com.apple.quarantine] error, so check for it first, this induces no errors
 		if /usr/bin/xattr -l "$path" | grep --quiet --fixed-strings --regexp='com.apple.quarantine'; then
-			/usr/bin/xattr -d com.apple.quarantine "$path" >/dev/stderr || exit
+			/usr/bin/xattr -d com.apple.quarantine "$path" >&2 || {
+				status=$?
+				printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
+				exit "$status"
+			}
 		fi
 		continue
 	elif [[ -e $path ]]; then

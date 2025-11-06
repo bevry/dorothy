@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
 
+function eval_no_color_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	eval-tester --stdout=bold-stdout --stderr=bold-stderr --tty=bold-tty -- \
+		eval-no-color --env --no-replacements -- \
+		echo-style --stdout+bold='bold-stdout' --stderr+bold='bold-stderr' --tty+bold='bold-tty'
+
+	eval-tester --stdout=bold-stdout --stderr=bold-stderr --tty=$'\e[1mbold-tty\e[22m' -- \
+		eval-no-color --no-env --replacements -- \
+		echo-style --stdout+bold='bold-stdout' --stderr+bold='bold-stderr' --tty+bold='bold-tty'
+
+	eval-tester --stdout=bold-stdout --stderr=bold-stderr --tty=bold-tty -- \
+		eval-no-color -- \
+		echo-style --stdout+bold='bold-stdout' --stderr+bold='bold-stderr' --tty+bold='bold-tty'
+
+	return 0
+)
 function eval_no_color() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,7 +24,7 @@ function eval_no_color() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Execute the command avoiding outputting color, and stripping any color that was output.
 
@@ -15,24 +32,26 @@ function eval_no_color() (
 			eval-no-color [--] ...<command>
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_cmd=()
+	local item option_cmd=() option_env='yes' option_replacements='yes'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-env'* | '--env'*) __flag --source={item} --target={option_env} --affirmative ;;
+		'--no-replacements'* | '--replacements'*) __flag --source={item} --target={option_replacements} --affirmative ;;
 		'--')
 			option_cmd+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			option_cmd+=("$item" "$@")
 			shift $#
@@ -41,22 +60,47 @@ function eval_no_color() (
 		esac
 	done
 
-	# =====================================
-	# Dependencies
-
-	local bin_gsed_or_sed
-	bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
+	# check
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
+		help 'No ' --code='<command>' ' was provided to execute.'
+	fi
 
 	# =====================================
 	# Action
 
 	# note: piping to echo-trim-colors doesn't seem to work, hence why we use sed directly
 	# this only removes colors, not other ansi escape codes
-	(env NO_COLOR=yes "${option_cmd[@]}") > >("$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g') 2> >("$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g' >&2)
+	# @todo replace with `echo-regexp` and `echo-write`
+
 	# ^ maintains stdout, stderr, and exit code
+	# ^ the regex stuff cannot adjust TTY... that is, unless TTY is always forked/opened to a FD that we can redirect
+
+	# handle env
+	local cmd=()
+	if [[ $option_env == 'yes' ]]; then
+		cmd=(env COLOR=no "${option_cmd[@]}")
+	else
+		cmd=("${option_cmd[@]}")
+	fi
+
+	# handle replacements
+	if [[ $option_replacements == 'yes' ]]; then
+		local bin_gsed_or_sed
+		bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
+		function __strip {
+			"$bin_gsed_or_sed" 's/\x1b\[[0-9;]*m//g' || :
+		}
+		__do --redirect-stdout='(__strip)' --redirect-stderr='(__strip >&2)' -- "${cmd[@]}"
+	else
+		"${cmd[@]}"
+	fi
 )
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	eval_no_color "$@"
+	if [[ $* == '--test' ]]; then
+		eval_no_color_test
+	else
+		eval_no_color "$@"
+	fi
 fi

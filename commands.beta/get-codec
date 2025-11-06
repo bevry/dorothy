@@ -2,83 +2,235 @@
 
 function get_codec_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-style --h1="TEST: $0"
 
 	local ogg_media_url='https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg' ogg_media_file
-	ogg_media_file="$(fs-temp --directory='get-codec' --file --extension='ogg')"
+	ogg_media_file="$(fs-temp --directory='dorothy' --directory='get-codec' --directory='tests' --file --extension='ogg')"
 	down --url="$ogg_media_url" --filepath="$ogg_media_file"
 
-	if __command_exists -- ffprobe; then
-		eval-tester --name='ogg vorbis file is ogg vorbis' --stdout='vorbis' \
-			-- get-codec --path="$ogg_media_file"
-	else
-		eval-tester --name='ogg vorbis file is ogg vorbis' --status=6 --ignore-stderr \
-			-- get-codec --path="$ogg_media_file"
-	fi
+	local expected
+	expected="$(
+		# minify
+		echo-json json --stdin <<-EOF
+			[
+				{
+				"path": "$ogg_media_file",
+				"track_id": "1202962525 (0x47B3C05D)",
+				"type": "Audio",
+				"format": "Vorbis",
+				"format_info": "",
+				"codec_id": "",
+				"codec_info": "",
+				"bit_rate": "160 kb/s",
+				"duration": "6 s 104 ms",
+				"width": "",
+				"height": "",
+				"size": "119 KiB"
+				}
+			]
+		EOF
+	)"
+	eval-tester --name='ogg vorbis file is ogg vorbis' --stdout="$expected" --ignore-tty -- \
+		get-codec --no-color --no-progress --render=json --path="$ogg_media_file"
 
-	echo-style --g1="TEST: $0"
 	return 0
 )
 function get_codec() (
 	source "$DOROTHY/sources/bash.bash"
+	# trunk-ignore-all(shellcheck/SC2034)
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		cat <<-EOF >&2 || return
 			ABOUT:
-			Get the codec information for a given file path.
+			Get the details of each codec in a media file.
 
 			USAGE:
-			get-codec [--verbose] <path>
+			get-codec [...options] -- ...<path>
+
+			OPTIONS:
+			...<path>
+			    A <path> to a media file.
+
+			--[no-]progress
+			    If disabled, do not show progress updates as they happen.
+
+			--[no-]absolute
+			    If enabled, output absolute paths in the results.
+			    If disabled, only output the filename.
+			    If omitted, output the path as provided.
+
+			--render=<render:table|json|csv|tsv>
+			    How to render result codec information. Defaults to \`table\`.
+
+			DEPENDENCIES:
+			Uses \`mediainfo\` to get codec information.
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@" || return
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_path='' option_verbose='no'
+	local item option_paths=() option_progress='' option_render='table' option_absolute=''
+	if [[ $# -eq 0 ]]; then
+		__help 'No arguments were provided.' || return
+	fi
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--path='*) option_path="${item#*=}" ;;
-		'--no-verbose'* | '--verbose'*)
-			option_verbose="$(get-flag-value --affirmative --fallback="$option_verbose" -- "$item")"
+		--help | -h) __help ;;
+		--no-color* | --color*) __flag --source={item} --target={COLOR} --affirmative --export || return ;;
+		--no-progress* | --progress*) __flag --source={item} --target={option_progress} --affirmative --coerce || return ;;
+		--no-absolute* | --absolute*) __flag --source={item} --target={option_absolute} --affirmative --coerce || return ;;
+		--render=table | --render=json | --render=csv | --render=tsv) option_render="${item#*=}" ;;
+		--path=*) option_paths+=("${item#*=}") ;;
+		--)
+			option_paths+=("$@")
+			shift $#
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*)
-			if [[ -z $option_path ]]; then
-				option_path="$item"
-			else
-				help "An unrecognised argument was provided: $item"
-			fi
-			;;
+		--*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return ;;
+		*) __help 'An unrecognised argument was provided: ' --variable-value={item} || return ;;
 		esac
 	done
 
 	# check
-	if [[ -z $option_path ]]; then
-		help "No path was provided"
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		return
 	fi
+
+	# dependencies
+	# `ffprobe` failed on some formats:
+	# Unsupported codec with id 0 for input stream 2
+	# Unsupported codec with id 0 for input stream 3
+	# `mediainfo` worked
+	__command_required mediainfo
 
 	# =====================================
 	# Action
 
-	if __command_missing -- ffprobe; then
-		echo-error 'ffprobe is required for this command.'
-		return 6 # ENXIO 6 Device not configured
-	fi
+	function __get_formats_as_streamed_json {
+		local path="$1" desired_path='' fodder='' parts=()
+		is-readable --verbose -- "$path" || return
+		fodder="$(mediainfo -- "$path" 2>&1)" || return
+		if [[ $option_absolute == 'yes' ]]; then
+			desired_path="$(fs-path --absolute -- "$path")" || return
+		elif [[ $option_absolute == 'no' ]]; then
+			desired_path="$(fs-path --no-parents -- "$path")" || return
+		else
+			desired_path="$path"
+		fi
+		if [[ $option_progress != 'no' ]]; then
+			__print_style --no-trail --tty --clear-line --path="$desired_path" || return
+		fi
+		__split --source={fodder} --delimiter=$'\n\n' --target={parts} || return
+		local part type fields key value track_id format format_info codec_id codec_info bit_rate duration width height size results render codec
+		for part in "${parts[@]}"; do
+			type=''
+			__replace --source={part} --keep-before-first=$'\n' --target={type} || return
+			__replace --source={type} --optional --leading-whitespace --trailing-whitespace --target={type} || return
+			if ! [[ $type =~ ^(Video|Audio)$ ]]; then
+				continue
+			fi
+			fields=() field='' track_id='' format='' format_info='' codec_id='' codec_info='' bit_rate='' duration='' width='' height='' size='' render='' # results=() render=''
+			__split --source={part} --delimiter=$'\n' --target={fields} || return
+			for field in "${fields[@]}"; do
+				key='' value=''
+				__replace --source={field} --optional --keep-before-first=':' --leading-whitespace --trailing-whitespace --target={key} || return
+				__replace --source={field} --optional --keep-after-first=':' --leading-whitespace --trailing-whitespace --target={value} || return
+				if [[ -z $key || -z $value ]]; then
+					continue
+				fi
+				# Format                                   : AVC
+				# Format/Info                              : Advanced Video Codec
+				# Codec ID                                 : avc1
+				# Codec ID/Info                            : Advanced Video Coding
 
-	if [[ $option_verbose == 'no' ]]; then
-		ffprobe -i "$option_path" 2>&1 | echo-regexp -fon --regexp='Audio: ([\w\d-]+)' --replace='$1'
-	else
-		ffprobe -i "$option_path"
-	fi
+				# Format                                   : AAC LC
+				# Format/Info                              : Advanced Audio Codec Low Complexity
+				# Codec ID                                 : mp4a-40-2
+
+				# Format                                   : AV1
+				# Format/Info                              : AOMedia Video 1
+				# Codec ID                                 : V_AV1
+				# Bit rate                                 : 1 514 kb/s
+
+				# Format                                   : Opus
+				# Codec ID                                 : A_OPUS
+
+				# Duration                                 : 52 min 0 s
+				# Width                                    : 1 920 pixels
+				# Height                                   : 1 080 pixels
+				# Stream size                              : 907 MiB (96%)
+				if [[ $key == 'ID' ]]; then
+					track_id="$value"
+				elif [[ $key == 'Format' ]]; then
+					format="$value"
+				elif [[ $key == 'Format/Info' ]]; then
+					format_info="$value"
+				elif [[ $key == 'Codec ID' ]]; then
+					codec_id="$value"
+				elif [[ $key == 'Codec ID/Info' ]]; then
+					codec_info="$value"
+				elif [[ $key == 'Bit rate' ]]; then
+					bit_rate="$value"
+				elif [[ $key == 'Duration' ]]; then
+					duration="$value"
+				elif [[ $key == 'Width' ]]; then
+					width="$value" # trim pixels
+					__replace --source+target={width} --optional --trailing=' pixels' --value-all=' ' || return
+				elif [[ $key == 'Height' ]]; then
+					height="$value"
+					__replace --source+target={height} --optional --trailing=' pixels' --value-all=' ' || return
+				elif [[ $key == 'Stream size' ]]; then
+					size="$value"
+					__replace --source+target={size} --optional --keep-before-first=' (' || return
+				fi
+			done
+			if [[ -z $track_id || -z $format ]]; then
+				continue
+			fi
+			# results=("$codec_id" "$codec_info" "$format" "$format_info")
+			# __evict --source+target={results} --every --optional --value='' 	# __evict --source+target={results} --no-zero-length
+			# __join --source={results} --delimiter="$result_delimiter" --target={render}
+
+			# compile the path and fields into a json objet
+			echo-json make -- \
+				path "$desired_path" \
+				track_id "$track_id" \
+				type "$type" \
+				format "$format" \
+				format_info "$format_info" \
+				codec_id "$codec_id" \
+				codec_info "$codec_info" \
+				bit_rate "$bit_rate" \
+				duration "$duration" \
+				width "$width" \
+				height "$height" \
+				size "$size" || return
+		done
+	}
+
+	function __process_paths_to_streamed_json {
+		local paths=("$@") path status=0
+		local -i index count="${#paths[@]}"
+		for index in "${!paths[@]}"; do
+			path="${paths[index]}"
+			if [[ $option_progress != 'no' ]]; then
+				__terminal_title_progress_bar --index="$index" --total="$count" || status="$?"
+			fi
+			__get_formats_as_streamed_json "$path" || status="$?"
+		done
+		if [[ $option_progress != 'no' ]]; then
+			__print_style --no-trail --tty --clear-line || status="$?"
+		fi
+		return "$status"
+	}
+
+	__process_paths_to_streamed_json "${option_paths[@]}" | echo-json stream --stdin | echo-json "$option_render" --stdin || return
 )
 
 # fire if invoked standalone

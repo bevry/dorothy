@@ -14,7 +14,7 @@
 # Environment configuration includes:
 #   homebrew path, homebrew architecture, ecosystem paths, etc.
 # Environment configuration is necessary so that:
-#   dependencies can be detected and installed, such as sd for config-helper
+#   dependencies can be detected and installed,
 #   test dependencies can correctly infer their environment's capabilities
 
 # =====================================
@@ -25,7 +25,7 @@ function dorothy_() (
 	# sanity check that we are running in bash
 	# sanity check, as [function .. () (], [elif], [&>], [local] are all bashisms, so other shells should have failed by now
 	if [[ -z ${BASH_VERSION-} ]]; then
-		printf '%s\n' "Dorothy requires bash to run. Refer to the installation instructions: $dorothy_install" >/dev/stderr
+		printf '%s\n' "Dorothy requires bash to run. Refer to the installation instructions: $dorothy_install" >&2
 		exit 6 # ENXIO 6 Device not configured
 	fi
 
@@ -34,35 +34,12 @@ function dorothy_() (
 
 	# vars that should be exported to subshells, which may or may not be inherited, as setup-environment-commands has not run yet
 	local self="${BASH_SOURCE:-"$0"}" is_remote
-	if [[ $self == *'.local/share/dorothy/commands/dorothy' && -f $self ]]; then
+	if [[ $self == *'/commands/dorothy' && -f $self ]]; then
 		is_remote='no'
 	else
 		is_remote='yes'
 	fi
-	export DOROTHY ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME
-	if [[ -z ${DOROTHY-} ]]; then
-		# handle (1) fresh installation situation and (2) cron situation (dorothy is installed, however environment is empty)
-		# `env -i "$(which dorothy)" run env` <-- whoami returns user who has dorothy installed:
-		# `sudo env -i "$(which dorothy)" run env` <-- whoami returns root, who does not have dorothy installed
-		if [[ $is_remote == 'no' ]]; then
-			# handle fresh environment situation / cron situation
-			DOROTHY="${self%/commands/dorothy*}"
-			if [[ -z ${HOME-} ]]; then
-				export HOME
-				HOME="${self%/.local/share/dorothy/commands/dorothy*}"
-			fi
-			if [[ -z ${USER-} ]]; then
-				export USER
-				USER="$(basename -- "$HOME")"
-			fi
-		else
-			# handle fresh installation situation
-			DOROTHY=''
-		fi
-	fi
-	if [[ -z ${ZDOTDIR-} ]]; then
-		ZDOTDIR=''
-	fi
+	export ZDOTDIR PATH XDG_CONFIG_HOME XDG_CACHE_HOME XDG_BIN_HOME XDG_DATA_HOME XDG_STATE_HOME DOROTHY
 	if [[ -z ${XDG_CONFIG_HOME-} ]]; then
 		XDG_CONFIG_HOME="$HOME/.config"
 	fi
@@ -78,17 +55,96 @@ function dorothy_() (
 	if [[ -z ${XDG_STATE_HOME-} ]]; then
 		XDG_STATE_HOME="$HOME/.local/state"
 	fi
+	if [[ -z ${DOROTHY-} ]]; then
+		# handle (1) fresh installation situation and (2) cron situation (dorothy is installed, however environment is empty)
+		# `env -i "$(which dorothy)" run env` <-- whoami returns user who has dorothy installed:
+		# `sudo env -i "$(which dorothy)" run env` <-- whoami returns root, who does not have dorothy installed
+		if [[ $is_remote == 'no' ]]; then
+			# dorothy exists locally, was invoked locally, but environment is empty
+			# e.g. cron, some github actions tests
+			DOROTHY="${self%/commands/dorothy*}"
+			if [[ -z ${HOME-} ]]; then
+				export HOME
+				HOME="${self%/.local/share/dorothy/commands/dorothy*}"
+			fi
+			if [[ -z ${USER-} ]]; then
+				export USER
+				USER="$(basename -- "$HOME")"
+			fi
+		elif [[ -d "$XDG_DATA_HOME/dorothy" ]]; then
+			# dorothy exists locally, but were invoked remotely
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		elif [[ -d "$HOME/.local/share/dorothy" ]]; then
+			# dorothy exists locally, but were invoked remotely, with custom XDG
+			DOROTHY="$HOME/.local/share/dorothy"
+		elif [[ -x ./commands/dorothy ]]; then
+			# dorothy exists locally, but were invoked remotely, with custom location
+			# e.g. some github action tests
+			DOROTHY="$(pwd)"
+		else
+			# no existing installation
+			# no custom $DOROTHY
+			# so use XDG
+			DOROTHY="$XDG_DATA_HOME/dorothy"
+		fi
+	fi
+
+	# if we are remove, but dorothy exists locally, defer to local, as otherwise we are making expectations about dorothy commands that may be newer than present
+	if [[ $is_remote == 'yes' && -x "$DOROTHY/commands/dorothy" ]]; then
+		"$DOROTHY/commands/dorothy" "$@"
+		return
+	fi
+
+	# =====================================
+	# Source Preparation
+
+	# defaults
+	local dorothy_slug='bevry/dorothy'
+	local dorothy_reference='HEAD'
+	local dorothy_homepage="https://github.com/$dorothy_slug"
+	local dorothy_install="$dorothy_homepage#install"
+	local dorothy_user_description="My user configuration for the Dorothy dotfile ecosystem: $dorothy_homepage"
+	local dorothy_fixtures_uri='github:bevry/dorothy-fixtures'
+
+	# options
+	local option_slug="$dorothy_slug" option_reference="$dorothy_reference"
+	function __source {
+		local relative_path="$1"
+
+		# only use remote, if we are remote, or if local doesn't exist
+		if [[ $is_remote == 'yes' || -z $DOROTHY || ! -f "$DOROTHY/$relative_path" ]]; then
+			# we are remote, or local doesn't exist
+			eval "$(curl -fsSL "https://raw.githubusercontent.com/$option_slug/$option_reference/$relative_path")"
+		else
+			# we are not remote, and local exists
+			source "$DOROTHY/$relative_path"
+		fi
+	}
 
 	# =====================================
 	# Arguments
 
+	function __print_help {
+		if [[ -n $DOROTHY && -f "$DOROTHY/sources/bash.bash" ]]; then
+			__source 'sources/bash.bash' || return
+			__source 'sources/styles.bash' || return
+			__print_help "$@" || return
+		else
+			cat >&2 || return
+			if [[ $# -ne 0 ]]; then
+				# use printf, as __print_line not loaded yet
+				printf '\nERROR:\n%s\n' "$*" >&2 || return
+			fi
+		fi
+	}
+
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return
 			ABOUT:
-			Helpers for interacting with the Dorothy dotfile ecosystem.
+			Manipulate the Dorothy dotfile ecosystem.
 
 			USAGE:
-			dorothy [...options] <action> [...arguments]
+			\`dorothy [...options] <action> [...arguments]\`
 
 			OPTIONS:
 			--help, -h
@@ -96,111 +152,93 @@ function dorothy_() (
 
 			--slug=<slug>
 			    If Dorothy needs to be installed/updated, use this slug.
-
 			--branch=<branch>
 			    If Dorothy needs to be fresh installed, checkout this branch.
-
 			--reference=<reference> | --commit=<reference>
 			    If Dorothy needs to be fresh installed, checkout this reference.
-
-			--remote-name=<remote>
+			--remote=<remote>
 			    If Dorothy needs to be installed/updated, use this remote name.
+			--user=<user> | --no-user
+			    If Dorothy needs to be installed,updated, use this Repository URI for the Dorothy User Configuration.
 
-			--xdg | --no-xdg
+			--[no-]deps
+			    If disabled, skip dependency checks. Saves time if they are already known to be configured correctly.
 
-			    If [--xdg] is used, DOROTHY will be relocated to the XDG location.
-			    If [--no-xdg] is used, a custom DOROTHY will be permitted.
-			    If neither is provided, autodetection is used. This is the default.
+			--[no-]xdg
+			    If enabled, DOROTHY will be relocated to the XDG location.
+			    If disabled, a custom DOROTHY will be permitted.
+			    If omitted, detection of existing installation is used, and if no existing installation is found, it defaults to enabled.
 
 			ACTIONS:
+			install [..arguments]
+			    Installs and configures the Dorothy dotfile ecosystem, the Dorothy User Configuration, and the Dorothy configured shells.
+			    --[no-]dev
+			        If enabled, install development dependencies.
+			    --util=<utility> | --utils=<utility1,utility2,...>
+			        Install additional utilities during installation.
+			    --shell=...<shell> | --shells=...<shell>
+			        Configure these shells during installation.
+			update
+			    Pull updates for the Dorothy dotfile ecosystem and the Dorothy User Configuration.
+			uninstall
+			    Remove Dorothy from your Dorothy configured shells.
 
-			dorothy install
-			  [--clean]
-			  [--skip-install]
-			  [--user=<user>]
+			repl [--shell=<shell>] [--theme=<theme>]
+			    Invoke a Dorothy-configured shell, to invoke multiple commands interactively.
+			    If a <shell> is provided, invoke Dorothy within that shell, otherwise prompt for which REPL-supported shell to use.
+			run -- <command> [...<arguments>]
+			    Invoke the <command> within the Dorothy environment, without the need to install Dorothy to access the command.
+			commands
+			    List all Dorothy commands that are available to you.
+			themes
+			    List all Dorothy themes that are available to you.
+			theme
+			    Configure the theme for your Dorothy configured shells.
 
-			    Installs Dorothy interactively, with configuration for dotfile modifications.
-
-			    Unless [--clean] is provided, Dorothy will only extend your shell configuration.
-			    If [--clean] is provided, Dorothy will prompt you if you would like to remove your default shell configuration for a lighter installation experience.
-
-			dorothy uninstall
-
-			    Removes the Dorothy sourcing from your dotfile configuration files.
-
-			dorothy repl
-			  [--shell=<shell>]
-			  [--theme=<theme>]
-
-			    Invoke a Dorothy-configured REPL, where you can run as many commands within the Dorothy environment as you'd like.
-			    If a shell is provided, invoke Dorothy within that shell, otherwise prompt for which REPL-supported shell to use.
-
-			dorothy run
-				-- <command> [...]
-
-				Invoke the <command> within the Dorothy environment, without the need to install Dorothy to access the command.
-
-			dorothy update
-
-			    Updates Dorothy to the latest version.
-
-			dorothy commands
-
-			    List all the Dorothy commands that are available to you.
-
-			dorothy permissions
-
+			permissions
 			    Correct permissions of new Dorothy commands, ensuring they are executable, and that git is aware of them.
+			edit
+			    Correct permissions, then open Dorothy and its user configuration in your desired editor.
+			review
+			    Correct permissions, then open Dorothy and its user configuration in your desired git reviewer.
 
-			dorothy edit
-
-			    Correct permissions, then open Dorothy's installation and user configuration in your desired editor.
-
-			dorothy review
-
-			    Correct permissions, then open Dorothy's installation and user configuration in your desired git reviewer.
-
-			dorothy theme
-
-			    Interactively configure your desired theme for Dorothy configured shells.
-
-			dorothy dev
-
-			    Automatically install Dorothy' development dependencies.
-
-			dorothy format
-
-			    Automatically format Dorothy's source code to its conventions.
-
-			dorothy check
-
-			    Automatically check Dorothy's source code to its conventions.
-
-			dorothy lint
-
-			    Automatically format and check Dorothy's source code to its conventions.
+			dev
+			    Install Dorothy's development dependencies.
+			format
+			    Format Dorothy's source code to its conventions.
+			check
+			    Check Dorothy's source code to its conventions.
+			lint
+			    Format and check Dorothy's source code to its conventions.
 			    Files are processed by most recently modified first.
+			todos
+			    Small tasks you can do today to contribute to Dorothy.
 
-			dorothy test
-
+			test [...arguments]
 			    Run tests on Dorothy's source code.
 			    Files are processed by most recently modified first.
-
-			dorothy todos
-
-			    Output information about possible improvements to make to Dorothy.
-
+			    Tests against all available bash versions on the machine \`bash\`, and \`bash-*\`.
+			    --bash=...<version>
+			        Only test against this bash version or binary.
+			    --skip=...<test>
+			        Skip this test.
+			    --only=...<test> | [--] ...<test>
+			        Run only these tests
 		EOF
-		if [[ $# -ne 0 ]]; then
-			# use printf, as __print_line not loaded yet
-			printf '%s' "ERROR: $*" >/dev/stderr
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process action arguments
-	# @todo prevent double-action overwrite
-	local item action='' option_xdg='' option_slug option_branch option_reference option_remote_name option_args=()
+	local item action='' option_xdg='' option_deps='' option_branch='' option_remote='' option_user='' option_args=() # option_slug option_reference defined earlier
+	function __affirm_action_is_undefined {
+		if [[ -n $action ]]; then
+			help 'Only one <action> may be provided.' || return
+		fi
+	}
+	function __set_action {
+		__affirm_action_is_undefined || return
+		action="$1"
+	}
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -208,221 +246,152 @@ function dorothy_() (
 		'--help' | '-h') help ;;
 		'--xdg' | '--xdg=yes') option_xdg='yes' ;;
 		'--no-xdg' | '--xdg=no') option_xdg='no' ;;
+		'--deps' | '--deps=yes') option_deps='yes' ;;
+		'--no-deps' | '--deps=no') option_deps='no' ;;
 		'--slug='*) option_slug="${item#*=}" ;;
 		'--branch='*)
 			option_branch="${item#*=}"
 			option_reference="$option_branch"
 			;;
 		'--commit='* | '--ref='* | '--reference='*) option_reference="${item#*=}" ;;
-		'--remote-name='* | '--remote='*) option_remote_name="${item#*=}" ;;
+		'--remote='*) option_remote="${item#*=}" ;;
+		'--no-user') option_user='none' ;;
+		'--user='*) option_user="${item#*=}" ;;
 		'repl')
-			action='repl'
+			__set_action 'repl'
 			option_args+=("$@")
 			shift $#
 			;;
 		'run')
-			action='run'
+			__set_action 'run'
 			option_args+=("$@")
 			shift $#
 			;;
 		'i' | 'install')
-			action='install'
+			__set_action 'install'
 			option_args+=("$@")
 			shift $#
 			;;
 		'uninstall')
-			action='uninstall'
+			__set_action 'uninstall'
 			;;
 		'u' | 'up' | 'update')
-			action='update'
+			__set_action 'update'
 			;;
 		'p' | 'perm' | 'perms' | 'permissions')
-			action='permissions'
+			__set_action 'permissions'
 			;;
 		'e' | 'edit')
-			action='edit'
+			__set_action 'edit'
+			;;
+		'r' | 'review')
+			__set_action 'review'
+			;;
+		'theme')
+			__set_action 'theme'
+			;;
+		'd' | 'dev')
+			__set_action 'dev'
+			;;
+		'f' | 'format')
+			__set_action 'format'
 			option_args+=("$@")
 			shift $#
 			;;
-		'r' | 'review')
-			action='review'
-			;;
-		'theme')
-			action='theme'
-			;;
-		'd' | 'dev')
-			action='dev'
-			;;
-		'f' | 'format')
-			action='format'
-			;;
 		'c' | 'check')
-			action='check'
+			__set_action 'check'
+			option_args+=("$@")
+			shift $#
 			;;
 		'l' | 'lint')
-			action='lint'
+			__set_action 'lint'
+			option_args+=("$@")
+			shift $#
 			;;
 		't' | 'test')
-			action='test'
+			__set_action 'test'
 			option_args+=("$@")
 			shift $#
 			;;
 		'todo' | 'todos')
-			action='todos'
+			__set_action 'todos'
 			;;
 		'commands')
-			action='commands'
+			__set_action 'commands'
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
+	# ensure
 	if [[ -z $action ]]; then
 		help "<action> must be provided."
 	fi
+	if [[ -z $option_deps ]]; then
+		option_deps='yes'
+	fi
 
-	# =====================================
-	# Variables
+	# sourcing variables
+	if [[ -z $option_slug ]]; then
+		option_slug="$dorothy_slug"
+	fi
+	if [[ -z $option_reference ]]; then
+		option_reference="$dorothy_reference"
+	fi
 
-	# defaults
-	local dorothy_slug='bevry/dorothy'
-	local dorothy_reference='HEAD'
-	local dorothy_homepage="https://github.com/$dorothy_slug"
-	local dorothy_install="$dorothy_homepage#install"
-	local dorothy_worker='https://dorothy.bevry.me'
-	local dorothy_worker_run="$dorothy_worker/run"
-
-	# options
-	local the_slug="${option_slug:-"$dorothy_slug"}"
-	local the_branch="${option_branch-}"
-	local the_reference="${option_reference:-"$dorothy_reference"}"
-	local the_upstream_remote_name="${option_remote_name:-"${the_slug%%/*}"}" # get everything before the first /
-	local the_upstream_git_https="https://github.com/$the_slug.git"
-	local the_bash_url="https://raw.githubusercontent.com/$the_slug/$the_reference/sources/bash.bash"
-	local the_browse_url
-	if [[ $the_slug == "$dorothy_slug" && $the_reference == "$dorothy_reference" ]]; then
-		the_browse_url="https://github.com/$the_slug"
+	# adjust XDG based on determined existing/desired DOROTHY location
+	if [[ -z $option_xdg ]]; then
+		if [[ $DOROTHY == "$XDG_DATA_HOME/dorothy" ]]; then
+			option_xdg='yes'
+		else
+			option_xdg='no'
+		fi
+	fi
+	local DOROTHY_USER
+	if [[ -d "$XDG_CONFIG_HOME/dorothy" ]]; then
+		DOROTHY_USER="$XDG_CONFIG_HOME/dorothy"
+	elif [[ -d "$DOROTHY/user" ]]; then
+		DOROTHY_USER="$DOROTHY/user"
 	else
-		the_browse_url="https://github.com/$the_slug/tree/$the_reference"
+		DOROTHY_USER="$XDG_CONFIG_HOME/dorothy"
+	fi
+
+	# dorothy repository variables
+	local the_upstream_remote="${option_remote:-"${option_slug%%/*}"}" # get everything before the first /
+	local the_upstream_git_https="https://github.com/$option_slug.git"
+	local the_homepage="https://github.com/$option_slug"
+	local the_browse_url
+	if [[ $option_slug == "$dorothy_slug" && $option_reference == "$dorothy_reference" ]]; then
+		the_browse_url="$the_homepage"
+	else
+		the_browse_url="$the_homepage/tree/$option_reference"
 	fi
 
 	# =====================================
 	# Sourcing
 
-	# the local installation exists, and the invoked [dorothy] command is of the local installation
-	if [[ $is_remote == 'no' && -n $DOROTHY && -f "$DOROTHY/sources/bash.bash" ]]; then
-		# match with the local installation's [bash.bash]
-		source "$DOROTHY/sources/bash.bash"
-	else
-		# we are the remote [dorothy] command, so match with the remote [bash.bash]
-		eval "$(curl -fsSL "$the_bash_url")"
-	fi
+	# source
+	__source 'sources/bash.bash'
+	__source 'sources/styles.bash'
+
+	# adjust path for determined (including user defined) DOROTHY, as well as standard DOROTHY XDG location (in case user ever changes DOROTHY location)
+	PATH="$DOROTHY/user/commands:$XDG_CONFIG_HOME/dorothy/commands:$DOROTHY/commands:$XDG_CONFIG_HOME/dorothy/commands:$XDG_BIN_HOME:$PATH"
+
+	# ensure state is considered a directory and not a file, by creating it as a directory if it doesn't exist
+	__mkdirp "$XDG_STATE_HOME/dorothy"
 
 	# =====================================
 	# Substitutions
 
 	# see [commands/is-mac] for details
 	function __is_mac {
-		[[ "$(uname -s)" == 'Darwin' ]]
-		return # explicit return with [[ required for bash v3
-	}
-
-	# see [commands/is-linux] for details
-	function __is_linux {
-		[[ "$(uname -s)" == 'Linux' ]]
-		return # explicit return with [[ required for bash v3
-	}
-
-	# see [commands/is-manjaro] for details
-	function __is_manjaro {
-		uname -r | grep --quiet --ignore-case --fixed-strings --regexp='manjaro'
-		return
+		[[ $OSTYPE == darwin* ]] || return
 	}
 
 	# see [commands/is-alpine] for details
 	function __is_alpine {
-		[[ -f /etc/os-release ]] && grep --quiet --ignore-case --regexp='ID=alpine' -- /etc/os-release 2>/dev/null
-		return # explicit return with [[ required for bash v3
-	}
-
-	# see [commands/fs-realpath] for details
-	function __fs_realpath {
-		# options
-		local item paths=()
-		while [[ $# -ne 0 ]]; do
-			item="$1"
-			shift
-			case "$item" in
-			'--help' | '-h')
-				help
-				return
-				;;
-			'--')
-				paths+=("$@")
-				shift $#
-				break
-				;;
-			'--'*)
-				help "An unrecognised flag was provided: $item"
-				return
-				;;
-			*) paths+=("$item") ;;
-			esac
-		done
-
-		local gnu_realpath='' fallback_realpath='' gnu_readlink='' fallback_readlink=''
-		if __command_exists -- grealpath; then
-			gnu_realpath='grealpath'
-		elif __command_exists -- realpath; then
-			if __is_mac; then
-				# usage: realpath [-q] [path ...]
-				fallback_realpath='realpath'
-			elif __is_alpine && [[ "$(realpath "$(type -P 'realpath')" || :)" == "$(type -P busybox || :)" ]]; then
-				# Usage: realpath FILE...
-				fallback_realpath='realpath'
-			elif __is_linux; then
-				gnu_realpath='realpath'
-			fi
-		fi
-		if __command_exists -- greadlink; then
-			gnu_readlink='greadlink'
-		elif __command_exists -- readlink; then
-			if __is_mac; then
-				# usage: readlink [-fn] [file ...]
-				fallback_readlink='readlink'
-			elif __is_alpine && [[ "$(readlink -f "$(type -P 'readlink')" || :)" == "$(type -P busybox || :)" ]]; then
-				# Usage: readlink [-fnv] FILE
-				fallback_readlink='readlink'
-			elif __is_linux; then
-				gnu_readlink='readlink'
-			fi
-		fi
-
-		# --resolve=yes --validate=yes --relative=no
-		local path
-		for path in "${paths[@]}"; do
-			if [[ -n $gnu_realpath ]]; then
-				"$gnu_realpath" --canonicalize-existing "$path"
-				return
-			elif [[ -n $gnu_readlink ]]; then
-				"$gnu_readlink" --canonicalize-existing "$path"
-				return
-			elif [[ -n $fallback_readlink ]]; then
-				"$fallback_readlink" -f "$path"
-				return
-			elif [[ -n $fallback_realpath ]]; then
-				"$fallback_realpath" "$path"
-				return
-			elif __command_exists -- fish; then
-				# this isn't --validate, but it is a last resort
-				fish -c 'builtin realpath "$argv[1]"' -- "$path"
-				return
-			else
-				__print_lines "Dorothy requires GNU readlink or realpath to be installed. $dorothy_install" >/dev/stderr
-				return 6 # ENXIO 6 Device not configured
-			fi
-		done
+		[[ -f /etc/os-release ]] && grep --quiet --ignore-case --fixed-strings --regexp='ID=alpine' -- /etc/os-release 2>/dev/null || return
 	}
 
 	# =====================================
@@ -442,6 +411,11 @@ function dorothy_() (
 		# ensure locations exist
 		__mkdirp "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_BIN_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
+		# skip deps
+		if [[ $option_deps == 'no' ]]; then
+			return 0
+		fi
+
 		# dorothy has yet to be installed
 		# don't check for [realpath/readlink from coreutils] as no way to install that on macos without brew, however install them if installing other things
 		# this should somewhat coincide with:
@@ -454,42 +428,41 @@ function dorothy_() (
 			if __command_exists -- apt-get; then
 				# for ubuntu/debian/kali
 				# E: Unable to locate package ncurses
-				__try_sudo apt-get install -y bash curl git coreutils moreutils gawk
+				__elevate apt-get install -y bash curl git coreutils gawk
 			elif __command_exists -- zypper; then
 				# for opensuse
-				__try_sudo zypper --non-interactive install bash curl git-core coreutils moreutils gawk
+				__elevate zypper --non-interactive install bash curl git-core coreutils gawk
 			elif __command_exists -- apk; then
 				# for alpine
-				__try_sudo apk add bash curl grep git coreutils moreutils gawk
+				__elevate apk add bash curl grep git coreutils gawk
 			elif __command_exists -- pamac; then
 				# for manjaro that has pamac installed
-				__try_sudo pamac install --no-confirm bash curl git coreutils moreutils gawk
+				__elevate pamac install --no-confirm bash curl git coreutils gawk
 			elif __command_exists -- pacman; then
 				# for manjaro and arch
-				__try_sudo pacman --noconfirm --refresh --sync --needed bash curl git coreutils moreutils gawk
+				__elevate pacman --noconfirm --refresh --sync --needed bash curl git coreutils gawk
 			elif __command_exists -- urpmi; then
 				# for mageia, prefer over fedora as mageia contains dnf
-				# No package named moreutils
-				__try_sudo urpmi --auto bash curl git gawk
+				__elevate urpmi --auto bash curl git gawk
 			elif __command_exists -- dnf; then
 				# for fedora
-				__try_sudo dnf install --assumeyes --refresh --best --allowerasing bash curl git coreutils moreutils gawk
+				__elevate dnf install --assumeyes --refresh --best --allowerasing bash curl git coreutils gawk
 			elif [[ -n ${HOMEBREW_PREFIX-} && -x "$HOMEBREW_PREFIX/bin/brew" ]]; then
 				# this is here for consistency only, as it is unnecessary, all the commands already exist on macos without any need for homebrew
-				"$HOMEBREW_PREFIX/bin/brew" install bash curl git coreutils moreutils gawk
+				"$HOMEBREW_PREFIX/bin/brew" install bash curl git coreutils gawk
 			elif __command_exists -- xbps-install; then
 				# for void
-				__try_sudo xbps-install --sync --yes bash curl git coreutils moreutils gawk
+				__elevate xbps-install --sync --yes bash curl git coreutils gawk
 			elif __command_exists -- nix-env; then
 				# for nix
-				__try_sudo nix-env --install --attr nixpkgs.bash nixpkgs.curl nixpkgs.git nixpkgs.coreutils nixpkgs.moreutils nixpkgs.gawk
+				__elevate nix-env --install --attr nixpkgs.bash nixpkgs.curl nixpkgs.git nixpkgs.coreutils nixpkgs.gawk
 			elif __command_exists -- emerge; then
 				# for gentoo
-				__try_sudo emerge app-shells/bash net-misc/curl dev-vcs/git sys-apps/coreutils sys-apps/moreutils sys-apps/gawk
+				__elevate emerge app-shells/bash net-misc/curl dev-vcs/git sys-apps/coreutils sys-apps/gawk
 			else
 				# for everything else
 				# @todo style with var_dump or something
-				cat <<-EOF >/dev/stderr
+				cat <<-EOF >&2
 					One of these installation dependencies are missing:
 					bash:  $(bash --version | head -1 || :)
 					curl:  $(curl --version | head -1 || :)
@@ -507,30 +480,35 @@ function dorothy_() (
 		# ensure coreutils is installed on alpine, otherwise [env] won't support [-S]
 		# Usage: env [-i0] [-u NAME]... [-] [NAME=VALUE]... [PROG ARGS]
 		if __is_alpine && [[ "$(realpath "$(type -P 'env')" || :)" == "$(type -P busybox || :)" ]]; then
-			__try_sudo apk add coreutils
+			__elevate apk add coreutils
 		fi
 	}
 
 	function ensure_minimal_dependencies {
+		# skip deps
+		if [[ $option_deps != 'no' ]]; then
+			return 0
+		fi
+
 		# dorothy has been installed
-		echo-style --h2='Ensure required dependencies'
+		__print_style --h2='Ensure required dependencies'
 
 		# macos tooling
 		if __is_mac; then
 			setup-util-apple-rosetta --quiet
 			setup-util-apple-cli-tools --quiet
-			source "$DOROTHY/sources/environment.sh"
+			# environment invalidation and reloading now happens automatically via signals
 		fi
 
 		# upgrade bash if necessary
 		setup-util-bash --quiet
 
-		# [github-download] sometimes requires [jq]
-		# [get-github-release] sometimes requires [gsed] however it allows fallback to [sed]
-		# [config-helper] uses [echo-regexp] which requires [deno]
+		# `github-download` sometimes requires `jq`
+		# `get-github-release` sometimes requires `gsed` however it allows fallback to `sed`
+		# `config-helper` uses `echo-regexp` which requires `deno]
 		if __command_missing -- jq deno; then
 			if __command_exists -- apt-get; then
-				__try_sudo apt-get -qq update # -qq: quiet
+				__elevate apt-get -qq update # -qq: quiet
 			fi
 			setup-util-jq --quiet
 			setup-util-deno --quiet
@@ -542,76 +520,68 @@ function dorothy_() (
 		fi
 
 		# log
-		echo-style --g2='Ensure required dependencies'
+		__print_style --g2='Ensure required dependencies'
 	}
 
 	function ensure_development_dependencies {
-		echo-style --h2='Ensure development dependencies'
-		setup-util-bash --quiet "$@"
-		setup-util-ripgrep --quiet "$@"
-		setup-util-prettier --quiet "$@"
-		setup-util-shellcheck --quiet "$@"
-		setup-util-shfmt --quiet "$@"
-		setup-util-trunk --quiet "$@"
-		echo-style --g2='Ensure development dependencies'
-	}
-
-	function assert_dorothy_configured {
-		# DOROTHY is determined earlier, so this checks it is installed
-		if [[ ! -d $DOROTHY ]]; then
-			echo-style \
-				--error='Dorothy is not installed.' $'\n' \
-				'Nothing was found at: ' --code="$DOROTHY" $'\n' \
-				--warning='Run' --code=' dorothy install ' --warning='to install, then you can run' --code=" dorothy $action"
-			return 2 # ENOENT 2 No such file or directory
+		# skip deps
+		if [[ $option_deps == 'no' ]]; then
+			return 0
 		fi
-		# no need to source bash.bash here, as we did it earlier via source and curl
-		source "$DOROTHY/sources/environment.sh"
 
-		# ensure state exists
-		__mkdirp "$XDG_STATE_HOME/dorothy"
-		relocate_then_symlink_if_necessary "$DOROTHY/state" "$XDG_STATE_HOME/dorothy"
-		__mkdirp \
-			"$DOROTHY/state/config.local" \
-			"$DOROTHY/state/config" \
-			"$DOROTHY/state/sources"
-	}
-
-	function assert_user_cloned {
-		if [[ ! -d "$DOROTHY/user/commands.local" || ! -d "$DOROTHY/user/commands" || ! -d "$DOROTHY/user/config.local" || ! -d "$DOROTHY/user/config" ]]; then
-			echo-style \
-				--error='Dorothy user configuration is not configured correctly.' $'\n' \
-				--warning='Run' --code=' dorothy install ' --warning='to install, then you can run' --code=" dorothy $action"
-			return 2 # ENOENT 2 No such file or directory
+		# skip if already installed
+		local upgrade='no'
+		__flag --target={upgrade} --name='upgrade' --affirmative --coerce -- "$@"
+		if [[ $upgrade != 'yes' ]] && __command_exists -- bash rg prettier shellcheck shfmt trunk; then
+			return 0
 		fi
-	}
 
-	function assert_dorothy_and_user_cloned {
-		assert_dorothy_configured
-		assert_user_cloned
-	}
+		# deps
+		__print_style --h2='Ensure development dependencies'
 
-	function git_init {
-		local path="$1"
-		__mkdirp "$path"
-		(
-			cd "$path"
-			git init
-		)
-	}
+		# install
+		setup-util-bash "$@"
+		setup-util-ripgrep "$@"
+		setup-util-prettier "$@"
+		setup-util-shellcheck "$@"
+		setup-util-shfmt "$@"
+		setup-util-trunk "$@"
 
-	function rm_deprecated {
-		local file
-		for file in "$@"; do
-			# -s (file exists and is not empty)
-			if [[ -s $file ]]; then
-				echo-file -- "$file"
-				if confirm --positive --ppid=$$ -- 'Unless you are an experienced user who has already made modifications to this shell configuration file, it can be safely removed for a lighter installation. Remove this file?'; then
-					rm -f -- "$file"
-				fi
-				__print_line
+		# versions
+		eval-helper --verbose --wrap -- bash --version
+		eval-helper --verbose --wrap -- prettier --version
+		eval-helper --verbose --wrap -- rg --version
+		eval-helper --verbose --wrap -- shellcheck --version
+		eval-helper --verbose --wrap -- shfmt --version
+		eval-helper --verbose --wrap -- trunk --version
+
+		# install and optionally upgrade project dependencies
+		function __traverse() (
+			local path="$1"
+			if [[ ! -d $path ]]; then
+				return
 			fi
-		done
+			cd "$path" || return
+			__print_style --h3="Dependencies: $path" || return
+			if [[ -f package.json ]] && __command_exists -- npx npm; then
+				if [[ $upgrade == 'yes' ]]; then
+					npx npm-check-updates -u || :
+				fi
+				npm install || return
+			fi
+			if [[ -d .trunk && ! -e .git/hooks/pre-push ]]; then
+				printf 'trunk check --ci --no-progress --trigger=git-push\n' >.git/hooks/pre-push || return
+				if [[ $upgrade == 'yes' ]]; then
+					trunk upgrade || return
+				fi
+			fi
+			__print_style --g3="Dependencies: $path" || return
+		)
+		__traverse "$DOROTHY"
+		__traverse "$DOROTHY/user"
+
+		# done
+		__print_style --g2='Ensure development dependencies'
 	}
 
 	function make_executable {
@@ -623,78 +593,19 @@ function dorothy_() (
 		fi
 	}
 
-	# relocate and remove symlinks
-	function relocate_if_necessary {
-		local source="$1" destination="$2" temp
-
-		# if source is a symlink, resolve it and remove it
-		if [[ -L $source ]]; then
-			temp="$source"
-			# resolve where the source actually is
-			if [[ -e $destination ]]; then
-				source="$(__fs_realpath -- "$source")"
-			else
-				source=''
-			fi
-			# remove the source symlink
-			rm -f -- "$temp"
-		fi
-
-		# if destination is a symlink, resolve it, move it, and remove it
-		if [[ -L $destination ]]; then
-			if [[ -e $destination ]]; then
-				temp="$(__fs_realpath -- "$destination")"
-				# remove the destination symlink
-				rm -f -- "$destination"
-				# relocate the target to the destination
-				mv -fv -- "$temp" "$destination"
-			else
-				# remove the destination symlink
-				rm -f -- "$destination"
-			fi
-		fi
-
-		# do we need to move and merge the source with the destination?
-		if [[ -n $source && -n $destination && $source != "$destination" && -e $source ]]; then
-			mv -fv -- "$source" "$destination"
-		fi
-
-		# all done
-		return 0
-	}
-
-	# relocate and recreate symlink
-	function relocate_then_symlink_if_necessary {
-		local symlink="$1" destination="$2"
-		relocate_if_necessary "$symlink" "$destination"
-		if __is_alpine; then
-			# alpine doesn't support -F, however the removals of relocate_if_necessary should make it unnecessary
-			ln -sf -- "$destination" "$symlink"
-		else
-			# -F: replace symlink if directory if needed
-			# -f: unlink symlink path if needed
-			# -s: symbolic link
-			ln -sfF -- "$destination" "$symlink"
-		fi
-		# cleanup accidents
-		symlink="$symlink/$(basename -- "$destination")"
-		if [[ -L $symlink ]]; then
-			rm -f -- "$symlink"
-		fi
-	}
-
 	function relocate_dorothy_if_necessary {
 		# move if necessary
-		if [[ -d $DOROTHY || -d "$XDG_DATA_HOME/dorothy" ]]; then
+		if [[ -d $DOROTHY || -d "$XDG_DATA_HOME/dorothy" ]] && __command_exists -- fs-move; then
+			# the symlink means we don't have to update PATH
 			if [[ $option_xdg == 'yes' ]]; then
-				relocate_then_symlink_if_necessary "$DOROTHY" "$XDG_DATA_HOME/dorothy"
+				fs-move --symlink -- "$DOROTHY" "$XDG_DATA_HOME/dorothy"
 			elif [[ $option_xdg == 'no' ]]; then
-				relocate_then_symlink_if_necessary "$XDG_DATA_HOME/dorothy" "$DOROTHY"
-				relocate_then_symlink_if_necessary "$HOME/.local/share/dorothy" "$DOROTHY"
+				fs-move --symlink -- "$HOME/.local/share/dorothy" "$XDG_DATA_HOME/dorothy" "$DOROTHY"
 			else
 				# invalid option_xdg value
 				return 76 # EPROCUNAVAIL 76 Bad procedure for program
 			fi
+			fs-move --symlink -- "$DOROTHY/state" "$XDG_STATE_HOME/dorothy"
 
 			# ensure correct permissions
 			make_executable "$DOROTHY/commands/"* "$DOROTHY/commands.beta/"* "$DOROTHY/commands.deprecated/"*
@@ -703,12 +614,12 @@ function dorothy_() (
 
 	function relocate_user_if_necessary {
 		# move if necessary
-		if [[ -d "$DOROTHY/user" || -d "$XDG_CONFIG_HOME/dorothy" ]]; then
+		if [[ -d "$DOROTHY/user" || -d "$XDG_CONFIG_HOME/dorothy" ]] && __command_exists -- fs-move; then
+			# the symlink means `$DOROTHY/user` and `$XDG_CONFIG_HOME/dorothy` are in sync
 			if [[ $option_xdg == 'yes' ]]; then
-				# ensure $DOROTHY/user always exists
-				relocate_then_symlink_if_necessary "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
+				fs-move --symlink -- "$DOROTHY/user" "$XDG_CONFIG_HOME/dorothy"
 			elif [[ $option_xdg == 'no' ]]; then
-				relocate_then_symlink_if_necessary "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
+				fs-move --symlink -- "$XDG_CONFIG_HOME/dorothy" "$DOROTHY/user"
 			else
 				# invalid option_xdg value
 				return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -722,70 +633,6 @@ function dorothy_() (
 				make_executable "$DOROTHY/user/commands.local/"*
 			fi
 		fi # else fresh install and no prior clones exist
-	}
-
-	function relocate_zsh_if_necessary {
-		# https://zsh.sourceforge.io/Intro/intro_3.html
-		# determine ZDOTDIR
-		if [[ $option_xdg == 'yes' ]]; then
-			if [[ -z $ZDOTDIR ]]; then
-				ZDOTDIR="$XDG_CONFIG_HOME/zsh"
-			fi
-		elif [[ $option_xdg == 'no' ]]; then
-			if [[ -z $ZDOTDIR ]]; then
-				ZDOTDIR="$HOME"
-			fi
-		else
-			# invalid option_xdg value
-			return 76 # EPROCUNAVAIL 76 Bad procedure for program
-		fi
-		# move config files
-		# zshenv needs to be in $HOME - all other goes in ZDOT.
-		__mkdirp "$ZDOTDIR" # required for opensuse
-		relocate_if_necessary "$ZDOTDIR/.zshenv" "$HOME/.zshenv"
-		relocate_if_necessary "$HOME/.zprofile" "$ZDOTDIR/.zprofile"
-		relocate_if_necessary "$HOME/.zshrc" "$ZDOTDIR/.zshrc"
-		relocate_if_necessary "$HOME/.zlogin" "$ZDOTDIR/.zlogin"
-		relocate_if_necessary "$HOME/.zlogout" "$ZDOTDIR/.zlogout"
-	}
-
-	function prepare_dorothy {
-		# if no DOROTHY env override, attempt DOROTHY from possible existing installations
-		if [[ -z $DOROTHY ]]; then
-			if [[ -d "$XDG_DATA_HOME/dorothy" ]]; then
-				DOROTHY="$XDG_DATA_HOME/dorothy"
-			elif [[ -d "$HOME/.local/share/dorothy" ]]; then
-				DOROTHY="$HOME/.local/share/dorothy"
-			elif [[ -x ./commands/dorothy ]]; then
-				DOROTHY="$(pwd)" # github actions, cron, etc
-			else
-				# no existing installation
-				# no custom $DOROTHY
-				# so use XDG
-				DOROTHY="$XDG_DATA_HOME/dorothy"
-			fi
-		fi
-
-		# adjust XDG based on determination above
-		if [[ $DOROTHY == "$XDG_DATA_HOME/dorothy" ]]; then
-			option_xdg='yes'
-		else
-			option_xdg='no'
-		fi
-
-		# adjust path for determined (including user defined) DOROTHY, as well as standard DOROTHY XDG location (in case user ever changes DOROTHY location)
-		PATH="$DOROTHY/user/commands:$XDG_CONFIG_HOME/dorothy/commands:$DOROTHY/commands:$XDG_CONFIG_HOME/dorothy/commands:$XDG_BIN_HOME:$PATH"
-
-		# if dorothy exists, ensure DOROTHY is in correct location
-		relocate_dorothy_if_necessary
-
-		# if user configuration exists, ensure user configuration is in correct location
-		relocate_user_if_necessary
-
-		# ensure shell config files are in correct location
-		relocate_zsh_if_necessary
-		# fish uses xdg by default
-		# bash does not support xdg
 	}
 
 	function stage_new_files {
@@ -829,43 +676,37 @@ function dorothy_() (
 		source "$(type -P eval-helper)"
 
 		eval_helper --quiet --no-wrap \
-			--pending="$(echo-style --bold='Correcting permissions...')" \
-			--success="$(echo-style --success='Corrected permissions.')" \
-			--failure="$(echo-style --error='Failed to correct permissions.')" \
-			-- correct_permissions
+			--pending="$(__print_style --bold='Correcting permissions...')" \
+			--success="$(__print_style --success='Corrected permissions.')" \
+			--failure="$(__print_style --error='Failed to correct permissions.')" -- \
+			correct_permissions
 
 		eval_helper --quiet --no-wrap \
-			--pending="$(echo-style --bold='Staging new files...')" \
-			--success="$(echo-style --success='Staged new files.')" \
-			--failure="$(echo-style --error='Failed to stage new files.')" \
-			-- stage_new_files "$DOROTHY"
+			--pending="$(__print_style --bold='Staging new files...')" \
+			--success="$(__print_style --success='Staged new files.')" \
+			--failure="$(__print_style --error='Failed to stage new files.')" -- \
+			stage_new_files "$DOROTHY"
 
 		eval_helper --quiet --no-wrap \
-			--pending="$(echo-style --bold='Staging changed files...')" \
-			--success="$(echo-style --success='Staged changed files.')" \
-			--failure="$(echo-style --error='Failed to stage changed files.')" \
-			-- stage_changed_files "$DOROTHY"
+			--pending="$(__print_style --bold='Staging changed files...')" \
+			--success="$(__print_style --success='Staged changed files.')" \
+			--failure="$(__print_style --error='Failed to stage changed files.')" -- \
+			stage_changed_files "$DOROTHY"
 	}
 
 	function ensure_dorothy_configured {
-		# sanity check
-		if ! [[ $action =~ ^(install|update|repl|run)$ ]]; then
-			return 29 # ESPIPE 29 Illegal seek
-		fi
-
-		# helpers
 		function install_dorothy {
+			__print_lines "Installing Dorothy into $DOROTHY from $the_browse_url"
+
+			# setup repo with branch
 			local clone_args=(
 				'--quiet'   # --quiet to suppress 'Cloning into...' feedback
 				'--no-tags' # don't do [--depth 1] and [--single-branch] as a full history is required to do any checkouts
 			)
-			__print_lines "Installing Dorothy into $DOROTHY from $the_browse_url"
-
-			# setup repo with branch
-			if [[ -n $the_branch ]]; then
+			if [[ -n $option_branch ]]; then
 				clone_args+=(
 					'--branch'
-					"$the_branch"
+					"$option_branch"
 				)
 			fi
 			__eval_wrap -- git clone "${clone_args[@]}" "$the_upstream_git_https" "$DOROTHY"
@@ -873,60 +714,63 @@ function dorothy_() (
 			# setup repo with reference
 			(
 				cd "$DOROTHY"
-				__eval_wrap -- git checkout --quiet "$the_reference" # --quiet to suppress "detached HEAD" feedback
+				__eval_wrap -- git checkout --quiet "$option_reference" # --quiet to suppress "detached HEAD" feedback
 			)
 		}
 		function __update_modern_dorothy {
-			if __command_exists -- echo-style git-helper; then
-				echo-style --h2="Updating the Dorothy installation at $DOROTHY from $the_browse_url" || return
-				# verify it is a repository
-				git-helper --path="$DOROTHY" verify || return
-				# update its configured remote first (their upstream)
-				git-helper --path="$DOROTHY" update || return
-				# update our intended remote second (the upstream)
-				git-helper --path="$DOROTHY" update -- --remote-name="$the_upstream_remote_name" --remote-url="$the_upstream_git_https" || return
-				echo-style --g2="Updating the Dorothy installation at $DOROTHY" || return
+			if __command_exists -- git-helper; then
+				__print_style --h2="Syncing the Dorothy installation at $DOROTHY" || return
+				# verify, so we don't have to do it via `--verify` later
+				git-helper verify --path="$DOROTHY" || return
+				# sync with its configured remote first (their upstream)
+				git-helper sync --path="$DOROTHY" || return
+				# sync with our intended remote second (the upstream)
+				git-helper sync --path="$DOROTHY" --remote="$the_upstream_remote" --url="$the_upstream_git_https" || return
+				__print_style --g2="Syncing the Dorothy installation at $DOROTHY" || return
 			else
 				return 1
 			fi
 		}
 		function update_dorothy {
 			# https://github.com/bevry/dorothy/issues/215
-			__update_modern_dorothy || {
-				__print_lines '...Dorothy was unable to be automatically updated. Please manually update Dorothy and try again.'
-				return 1
-			}
+			__update_modern_dorothy || __return $? -- __print_error 'Dorothy was unable to be automatically updated. Update Dorothy manually then try again.' || return
 		}
 
-		# check
-		if [[ $action =~ ^(repl|run)$ ]]; then
-			# in trial mode, only install dorothy if necessary, do not update
-			if [[ ! -d $DOROTHY ]]; then
-				install_dorothy
+		# install dorothy if necessary
+		if [[ ! -d $DOROTHY ]]; then
+			install_dorothy
+			source "$DOROTHY/sources/environment.sh"
+		elif [[ $action =~ ^(update|install)$ ]]; then
+			if [[ ${DOROTHY_ENVIRONMENT-} != 'yes' ]]; then
+				source "$DOROTHY/sources/environment.sh"
 			fi
-		else
-			# in install and update mode, do whatever is appropriate
-			if [[ -d $DOROTHY ]]; then
-				update_dorothy
-			else
-				install_dorothy
-			fi
+			update_dorothy
+			source "$DOROTHY/sources/environment.sh"
+		elif [[ ${DOROTHY_ENVIRONMENT-} != 'yes' ]]; then
+			source "$DOROTHY/sources/environment.sh"
 		fi
 
 		# move if necessary, and fix permissions
 		relocate_dorothy_if_necessary
 	}
 
-	function ensure_machine_configured {
-		# sanity check
-		if ! [[ $action =~ ^(install)$ ]]; then
-			return 29 # ESPIPE 29 Illegal seek
+	function assert_dorothy_configured {
+		if [[ ! -d $DOROTHY ]]; then
+			__print_style \
+				--error1='Dorothy is not installed.' --newline \
+				--error1='Nothing was found at: ' --code-error1="$DOROTHY" $'\n' \
+				--notice1='Run ' --code-notice1='dorothy install' --notice1=' to install, then you can run ' --code-notice1="dorothy $action"
+			return 2 # ENOENT 2 No such file or directory
 		fi
+		if [[ ${DOROTHY_ENVIRONMENT-} != 'yes' ]]; then
+			source "$DOROTHY/sources/environment.sh"
+		fi
+	}
 
-		# act
+	function ensure_machine_configured {
 		local hostname
 		hostname="$(get-hostname)"
-		if get-terminal-reactivity-support --quiet && is-generic -- "$hostname"; then
+		if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]] && is-generic -- "$hostname"; then
 			if confirm --bool --ppid=$$ -- "This machine's hostname is currently generic [$hostname], would you like to change it?"; then
 				hostname="$(
 					ask --linger --question='What should the new hostname be?'
@@ -941,215 +785,15 @@ function dorothy_() (
 	}
 
 	function ensure_user_configured {
-		local user="${1-}"
-
 		# sanity check
 		if ! [[ $action =~ ^(install|update)$ ]]; then
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 
-		# helpers
-		function install_user {
-			# sanity check
-			if [[ -d "$DOROTHY/user" ]]; then
-				# should have called update
-				return 29 # ESPIPE 29 Illegal seek
-			fi
-
-			# prepare
-			local question='' where='' cli='' repo_git='' repo_url='' repo_name repo_description local_ip
-			repo_name='dotfiles'
-			repo_description="My user configuration for the Dorothy dotfile ecosystem: $dorothy_homepage"
-
-			# handle github and gitlab prefixes, local value, custom urls, and default github usernames
-			if [[ -n $user ]]; then
-				if [[ $user =~ ^(gh|github): ]]; then
-					where='github'
-					user="${user#*:}"
-				elif [[ $user =~ ^(gitlab|gl): ]]; then
-					where='github'
-					user="${user#*:}"
-				elif [[ $user =~ ^(local|none)$ ]]; then
-					where='local'
-					user=''
-				elif [[ $user == *:* ]]; then
-					where='custom'
-				else
-					where='github'
-				fi
-			fi
-			if [[ -z $where ]]; then
-				if get-terminal-reactivity-support --quiet; then
-					where="$(
-						choose --linger --required --label \
-							--question='Where do you want to store your Dorothy user configuration?' \
-							-- \
-							github \
-							'Use a GitHub repository for your user configuration.' \
-							gitlab \
-							'Use a GitLab repository for your user configuration.' \
-							custom \
-							'Manually specify a repository URL for your user configuration.' \
-							'local' \
-							"Don't use a repository for your user configuration, just store it locally for now."
-					)"
-				else
-					where='local'
-				fi
-			fi
-			if [[ $where == 'github' ]] && __command_exists -- gh; then
-				cli='gh'
-			elif [[ $where == 'gitlab' ]] && __command_exists -- glab; then
-				cli='glab'
-			fi
-			if [[ $where =~ ^(github|gitlab)$ ]]; then
-				# prepare username default, and clear generic usernames
-				if [[ -z $user ]]; then
-					user="$(get-profile username || :)"
-					if [[ -n $user ]] && is-generic -- "$user"; then
-						user=''
-					fi
-					user="$(
-						ask --required --linger \
-							--question="Enter your $where username." \
-							--default="$user"
-					)"
-				fi
-
-				# check what they want to call the repository
-				repo_name="$(
-					ask --required --linger \
-						--question="Enter the $where repository name for your Dorothy user configuration." \
-						--default="$repo_name"
-				)"
-				repo_url="https://$where.com/$user/$repo_name"
-
-				# confirm it exists
-				if fetch --ok "$repo_url"; then
-					if [[ -n $cli ]]; then
-						if "$cli" repo view "$repo_name" | grep --quiet --ignore-case --fixed-strings --regexp="$dorothy_homepage" || :; then
-							echo-style --green+bold="$repo_url" --green=' verified as a Dorothy user configuration repository.'
-						elif confirm --bool --ppid=$$ -- "$repo_url exists, but does not yet seem to be a Dorothy user configuration repository, would you like to use it anyway (Y), or select an alternative (N)?"; then
-							echo-style --blue='^ manually confirmed to use as the Dorothy user configuration repository.'
-						else
-							echo-style --yellow='^ manually elected to use an alternative.'
-							repo_url=''
-						fi
-					fi
-				else
-					echo-style --yellow+bold="$repo_url" --yellow=' does not yet exist, let us create it...'
-					if [[ $cli == 'gh' ]]; then
-						if ! gh repo create "$repo_name" --description "$repo_description" --homepage "$dorothy_homepage" --public --confirm --enable-wiki=false; then
-							repo_url=''
-						fi
-					elif [[ $cli == 'glab' ]]; then
-						# @todo untested
-						if ! glab repo create "$repo_name" --description "$repo_description" --public; then
-							repo_url=''
-						fi
-					fi
-				fi
-			fi
-
-			# if the repo doesn't exist, get the user to manually create it
-			if [[ -z $repo_url && $where != 'local' ]]; then
-				if [[ $where == 'github' ]]; then
-					open 'https://github.com/new'
-				elif [[ $where == 'gitlab' ]]; then
-					open 'https://gitlab.com/projects/new#blank_project'
-				fi
-				question="$(
-					cat <<-EOF
-						Create a repository for your Dorothy user configuration using the following details.
-
-						Repository name:
-						${repo_name}
-
-						Description:
-						${repo_description}
-
-						Visibility:
-						Public
-
-						Initialize with:
-						keep everything unchecked
-
-						Once you have created the repository to house your Dorothy user configuration, type its URL below.
-					EOF
-				)"
-				repo_url="$(
-					ask --linger --question="$question"
-				)"
-			fi
-
-			# if we have a repo url, then clone it
-			if [[ -n $repo_url ]]; then
-				# check if it is strongbox
-				if fetch --ok "$(git-helper protocol-format "$repo_url" https | sed -E 's#.git$#/raw/HEAD/.strongbox-keyid#')"; then
-					echo-style --notice='Strongbox repository detected.'
-					setup-util-strongbox
-					local_ip="$(what-is-my-ip local | echo-first-line || :)"
-					question="$(
-						cat <<-EOF
-							You will now be prompted to update your $(echo-style --code="~/.strongbox_keyring") file.
-
-							If VNC is enabled, run the following on your primary machine to copy the contents:
-
-							$(echo-style --code='cat ~/.strongbox_keyring')
-							$(echo-style --code="open vnc://${local_ip}")
-
-							If SSH is enabled, run the following on your primary machine to write the contents:
-
-							$(echo-style --code="cpr -- \"\$HOME/.strongbox_keyring\" \"$(whoami)@${local_ip}:$HOME/.strongbox_keyring\"")
-
-							To enable SSH, do the following on this machine:
-
-							macOS via: System Preferences > Sharing > Remote Login.
-							Linux via: $(echo-style --code="bash -ic \"\$(curl -fsSL '$dorothy_worker_run')\" -- setup-util-sshd")
-
-						EOF
-					)"
-					if [[ ! -f "$HOME/.strongbox_keyring" ]] && confirm --ppid=$$ -- "$question"; then
-						edit --wait -- "$HOME/.strongbox_keyring"
-					fi
-				fi
-
-				# do the clone
-				repo_git="$(git-helper protocol-format "$repo_url")"
-				if git clone "$repo_git" "$DOROTHY/user"; then
-					echo-style --green+bold="$repo_git" --green=" successfully cloned to " --green+bold="$DOROTHY/user"
-				else
-					echo-style --yellow+bold="$repo_git" --yellow=" failed to clone to " --yellow+bold="$DOROTHY/user"
-					echo-style --yellow='We will manually initialise instead.'
-				fi
-			else
-				echo-style --yellow='No git repository URL provided, we will manually initialise instead.'
-			fi
-
-			# if we haven't initialised, then manually initialise
-			if [[ ! -d "$DOROTHY/user" ]]; then
-				git_init "$DOROTHY/user"
-				echo-style --yellow='Manually initialised git repository at ' --yellow+bold="$DOROTHY/user"
-			fi
-		}
-		function update_user {
-			echo-style --h2="Updating the Dorothy user configuration at $DOROTHY/user"
-			if ! git-helper --path="$DOROTHY/user" --verify update; then
-				__print_lines '...Dorothy user configuration was unable to be updated, you will have to figure this out later...'
-				echo-style --n2="Updating the Dorothy user configuration at $DOROTHY/user"
-			else
-				echo-style --g2="Updating the Dorothy user configuration at $DOROTHY/user"
-			fi
-		}
-
-		# update or install the user configuration based on its presence
-		if [[ -d "$DOROTHY/user" ]]; then
-			# it already exists, so update it
-			update_user
-		else
-			# it doesn't exist, so install it
-			install_user
-		fi
+		# create/update
+		__print_style --h2="Syncing the Dorothy User Configuration at $DOROTHY_USER" || return
+		git-helper sync --path="$DOROTHY_USER" --label='Dorothy User Configuration' --new --update=optional --project='dotfiles' --description="$dorothy_user_description" --homepage="$dorothy_homepage" --url="$option_user"
+		__print_style --g2="Syncing the Dorothy User Configuration at $DOROTHY_USER" || return
 
 		# move if necessary, and fix permissions
 		relocate_user_if_necessary
@@ -1159,7 +803,7 @@ function dorothy_() (
 	}
 
 	function adjust_user_configuration {
-		local file who name url header content
+		local file who name url header
 
 		# create essential directories
 		__mkdirp \
@@ -1168,10 +812,10 @@ function dorothy_() (
 			"$DOROTHY/user/config.local" \
 			"$DOROTHY/user/config"
 
-		# ensure README.md mentions dorothy
-		file="$DOROTHY/user/README.md"
-		if ! ([[ -f $file ]] && grep --quiet --ignore-case --fixed-strings --regexp="$dorothy_homepage" -- "$file"); then
+		# ensure README.md mentions dorothy, such that [git-helper is-dorothy] works, such that the repository is successfully identified as a Dorothy User Configuration repository when installing it next time
+		if ! git-helper is-dorothy --path="$DOROTHY/user" --no-remote; then
 			# README.md does not mention dorothy, time to add it
+			file="$DOROTHY/user/README.md"
 			name="$(get-profile name || get-profile username || :)"
 			url="$(get-profile url || :)"
 			if [[ -n $name && -n $url ]]; then
@@ -1185,14 +829,15 @@ function dorothy_() (
 				cat <<-EOF
 					# Dorothy User Configuration
 
-					This is ${who} user configuration for the [Dorothy](${dorothy_homepage}) dotfile ecosystem.
+					This is $who user configuration for the [Dorothy]($dorothy_homepage) dotfile ecosystem.
 				EOF
 			)"
 			if [[ ! -f $file ]]; then
+				# file doesn't exist, so just add the header to the file
 				__print_lines "$header" >"$file"
 			else
-				content="$(cat -- "$file")"
-				printf '%s\n\n%s' "$header" "$content" >"$file"
+				# add the header to the start of the file
+				printf '%s\n\n%s' "$header" "$(<"$file")" >"$file"
 			fi
 		fi
 
@@ -1202,219 +847,18 @@ function dorothy_() (
 			--find='config.local[/]' --replace='config.local/'
 	}
 
-	function ensure_shell_configured {
-		# process arguments
-		local item option_clean='no' option_uninstall='no' default_shells=() use_shells=() fodder=''
-		local supported_shells=(
-			bash
-			dash
-			elvish
-			fish
-			ksh
-			nu
-			xonsh
-			zsh
-		)
-		local supported_shells_with_labels=(
-			bash Bash
-			dash Dash
-			elvish Elvish
-			fish Fish
-			ksh KSH
-			nu Nu
-			xonsh Xonsh
-			zsh Zsh
-		)
-		while [[ $# -ne 0 ]]; do
-			item="$1"
-			shift
-			case "$item" in
-			'--clean' | '--clean=yes') option_clean='yes' ;;
-			'--no-clean' | '--clean=no') option_clean='no' ;;
-			'--uninstall') option_uninstall='yes' ;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
-			esac
-		done
-
-		echo-style --h2='Dorothy Shell Configuration'
-
-		# if not uninstalling
-		if [[ $option_uninstall == 'no' ]]; then
-			# configure default selected shells by checking for their existence
-			local cmd
-			for cmd in "${supported_shells[@]}"; do
-				if __command_exists -- "$cmd"; then
-					default_shells+=("$cmd")
-				fi
-			done
-
-			eval_capture --stdoutvar=fodder -- \
-				choose \
-				--defaults="$(__print_lines "${default_shells[@]}")" \
-				--question="Which shells to use Dorothy?" \
-				--multi \
-				--label \
-				-- "${supported_shells_with_labels[@]}"
-			mapfile -t use_shells <<<"$fodder"
+	function assert_user_configured {
+		if [[ ! -d "$DOROTHY/user/commands.local" || ! -d "$DOROTHY/user/commands" || ! -d "$DOROTHY/user/config.local" || ! -d "$DOROTHY/user/config" ]]; then
+			__print_style \
+				--error1='Dorothy User Configuration is missing or not configured correctly.' --newline \
+				--notice1='Run ' --code-notice1='dorothy install' --notice1=' to install, then you can run ' --code-notice1="dorothy $action"
+			return 2 # ENOENT 2 No such file or directory
 		fi
-		use_shells+=('bash v3 compat workaround')
+	}
 
-		# cleanup
-		if [[ $option_clean == 'yes' ]]; then
-			rm_deprecated "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$XDG_CONFIG_HOME/fish/config.fish" "$ZDOTDIR/.zshrc" "$ZDOTDIR/.zprofile"
-		fi
-
-		# bash
-		if is-needle --needle='bash' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Bash'
-			setup-util-bash
-
-			# mac and raspi ubuntu
-			config-helper --file="$HOME/.bash_profile" -- \
-				--find='.+? # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
-
-			# vm ubuntu
-			config-helper --file="$HOME/.bashrc" -- \
-				--find='.+? # Dorothy' --replace="source \"$DOROTHY/init.sh\" # Dorothy"
-
-			echo-style --g3='Configuring Bash'
-		else
-			config-helper --file="$HOME/.bash_profile" -- \
-				--find='.+? # Dorothy' --replace=''
-			config-helper --file="$HOME/.bashrc" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# dash
-		if is-needle --needle='dash' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Dash'
-			setup-util-dash
-
-			# configure
-			config-helper --file="$HOME/.profile" -- \
-				--find='.+? # Dorothy' --replace=". \"$DOROTHY/init.sh\" # Dorothy"
-
-			echo-style --g3='Configuring Dash'
-		fi
-
-		# elvish
-		if is-needle --needle='elvish' -- "${use_shells[@]}"; then
-			# https://elv.sh/ref/command.html#rc-file
-			# https://elv.sh/ref/runtime.html
-			# https://github.com/elves/elvish/issues/1726
-			echo-style --h3='Configuring Elvish'
-			setup-util-elvish
-			__mkdirp "$XDG_CONFIG_HOME/elvish"
-
-			# configure
-			config-helper --file="$XDG_CONFIG_HOME/elvish/rc.elv" -- \
-				--find='.+? # Dorothy' --replace="eval (cat -- '$DOROTHY/init.elv' | slurp) # Dorothy"
-
-			echo-style --h3='Configuring Elvish'
-		else
-			__mkdirp "$XDG_CONFIG_HOME/elvish"
-			config-helper --file="$XDG_CONFIG_HOME/elvish/rc.elv" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# fish
-		if is-needle --needle='fish' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Fish'
-			setup-util-fish
-			__mkdirp "$XDG_CONFIG_HOME/fish"
-
-			# configure
-			config-helper --file="$XDG_CONFIG_HOME/fish/config.fish" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.fish' # Dorothy"
-
-			echo-style --g3='Configuring Zsh'
-		else
-			__mkdirp "$XDG_CONFIG_HOME/fish"
-			config-helper --file="$XDG_CONFIG_HOME/fish/config.fish" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# ksh
-		if is-needle --needle='ksh' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring KSH'
-			setup-util-ksh
-
-			# configure
-			config-helper --file="$HOME/.profile" -- \
-				--find='.+? # Dorothy' --replace=". '$DOROTHY/init.sh' # Dorothy"
-
-			echo-style --g3='Configuring KSH'
-		fi
-
-		# nu
-		if is-needle --needle='nu' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Nu'
-			setup-util-nu
-
-			# configure
-			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.nu' # Dorothy"
-
-			echo-style --g3='Configuring Nu'
-		elif __command_exists -- nu; then
-			config-helper --file="$(nu -c 'echo $nu.loginshell-path')" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# xonsh
-		if is-needle --needle='xonsh' -- "${use_shells[@]}"; then
-			# https://xon.sh/xonshrc.html
-			echo-style --h3='Configuring Xonsh'
-			setup-util-xonsh
-			__mkdirp "$XDG_CONFIG_HOME/xonsh/rc.d"
-
-			# configure
-			config-helper --file="$XDG_CONFIG_HOME/xonsh/rc.xsh" -- \
-				--find='.+? # Dorothy' --replace="execx(compilex(open('$DOROTHY/init.xsh').read())) # Dorothy"
-
-			echo-style --g3='Configuring Xonsh'
-		else
-			__mkdirp "$XDG_CONFIG_HOME/xonsh/rc.d"
-			config-helper --file="$XDG_CONFIG_HOME/xonsh/rc.xsh" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		# zsh
-		# https://zsh.sourceforge.io/Intro/intro_3.html
-		if is-needle --needle='zsh' -- "${use_shells[@]}"; then
-			echo-style --h3='Configuring Zsh'
-			setup-util-zsh
-			__mkdirp "$ZDOTDIR"
-
-			# configure
-			config-helper --file="$ZDOTDIR/.zshrc" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.sh' # Dorothy"
-
-			config-helper --file="$ZDOTDIR/.zprofile" -- \
-				--find='.+? # Dorothy' --replace="source '$DOROTHY/init.sh' # Dorothy"
-
-			config-helper --file="$HOME/.zshenv" -- \
-				--find='ZDOTDIR=.+' --replace="ZDOTDIR='$ZDOTDIR'"
-
-			echo-style --g3='Configuring Zsh'
-		else
-			__mkdirp "$ZDOTDIR"
-			config-helper --file="$ZDOTDIR/.zshrc" -- \
-				--find='.+? # Dorothy' --replace=''
-			config-helper --file="$ZDOTDIR/.zprofile" -- \
-				--find='.+? # Dorothy' --replace=''
-			config-helper --file="$HOME/.zshenv" -- \
-				--find='ZDOTDIR=.+' --replace="ZDOTDIR='$ZDOTDIR'"
-		fi
-
-		# no bash, dash, ksh
-		if ! is-needle --any --needle='bash' --needle='dash' --needle='ksh' -- "${use_shells[@]}"; then
-			config-helper --file="$HOME/.profile" -- \
-				--find='.+? # Dorothy' --replace=''
-		fi
-
-		echo-style --g2='Dorothy Shell Configuration'
+	function assert_dorothy_and_user_configured {
+		ensure_dorothy_configured
+		assert_user_configured
 	}
 
 	# =====================================
@@ -1422,59 +866,66 @@ function dorothy_() (
 
 	function act_install {
 		# process arguments
-		local item option_clean='no' option_skip_install='no' option_user=''
+		local item utils=() shells=() dev='no'
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
 			case "$item" in
-			'--clean' | '--clean=yes') option_clean='yes' ;;
-			'--no-clean' | '--clean=no') option_clean='no' ;;
-			'--skip-install') option_skip_install='yes' ;;
-			'--user='*) option_user="${item#*=}" ;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
+			'--util='*) utils+=("${item#*=}") ;;
+			'--utils='*) __split --target={utils} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+			'--shell='* | '--shells='*) __split --target={shells} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+			'--no-dev'* | '--dev'*) __flag --source={item} --target={dev} --affirmative --coerce ;;
+			'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 			esac
 		done
 
+		# log
+		__print_style --h1='Install Dorothy'
+
 		# pre-requisites
-		if [[ $option_skip_install == 'no' ]]; then
-			ensure_dorothy_configured
-		fi
-		assert_dorothy_configured
+		ensure_dorothy_configured
+		ensure_minimal_dependencies
 
 		# action
-		echo-style --h1='Install Dorothy'
-		if [[ $option_skip_install == 'no' ]]; then
-			ensure_minimal_dependencies
-			ensure_machine_configured
-			ensure_user_configured "$option_user"
+		ensure_machine_configured
+		ensure_user_configured
+		if [[ $dev == 'yes' ]]; then
+			ensure_development_dependencies
 		fi
-		ensure_shell_configured --clean="$option_clean"
+		local util
+		for util in "${utils[@]}"; do
+			"setup-util-$util" # eval
+		done
+		setup-shell --reconfigure -- "${shells[@]}"
 
-		# log success
-		echo-style --g1='Install Dorothy'
-		echo-style --success='Dorothy is now setup.' ' ' --notice='Restart your terminal.'
+		# done
+		__print_style --g1='Install Dorothy'
+		__print_style --success='Dorothy is now setup.' ' ' --notice='Restart your terminal.'
 	}
 
 	function act_uninstall {
+		__unrecognised_arguments "$@" || return
+
+		# log
+		__print_style --h1='Uninstall Dorothy'
+
 		# pre-requisites
-		ensure_dorothy_configured
 		assert_dorothy_configured
+		ensure_minimal_dependencies
 
 		# action
-		echo-style --h1='Uninstall Dorothy'
-		ensure_minimal_dependencies
-		ensure_shell_configured --uninstall
+		setup-shell --deconfigure
 
 		# log success and instructions for removal
-		echo-style --g1='Uninstall Dorothy'
-		echo-style --success='Dorothy is now uninstalled.' ' ' --notice='Restart your terminal.'
+		__print_style --g1='Uninstall Dorothy'
+		__print_style --success='Dorothy is now uninstalled.' ' ' --notice='Restart your terminal.'
 		local paths=()
 		if [[ -d $DOROTHY ]]; then
 			paths+=("$DOROTHY")
 		fi
 		if [[ -d "$DOROTHY/user" ]]; then
-			paths+=("$(__fs_realpath -- "$DOROTHY/user")")
+			paths+=("$(fs-path --resolve -- "$DOROTHY/user")")
 		fi
 		if [[ ${#paths[@]} -ne 0 ]]; then
 			__print_lines 'Once you have restarted your terminal, you can delete Dorothy by removing the following paths:'
@@ -1483,82 +934,74 @@ function dorothy_() (
 	}
 
 	function act_update {
+		__unrecognised_arguments "$@" || return
+
+		# log
+		__print_style --h1='Update Dorothy'
+
 		# pre-requisites
 		assert_dorothy_configured
+		ensure_minimal_dependencies
 
 		# action
-		echo-style --h1='Update Dorothy'
-		ensure_minimal_dependencies
-		ensure_dorothy_configured
 		ensure_user_configured
-		echo-style --h2='Correct Dorothy Permissions'
+		__print_style --h2='Correct Dorothy Permissions'
 		ensure_permissions_configured # needed as new commands wouldn't be executable otherwise
 		dorothy-warnings clear        # remove any warnings that are no longer relevant
-		echo-style --g2='Correct Dorothy Permissions'
-		echo-style --g1='Update Dorothy'
+		__print_style --g2='Correct Dorothy Permissions'
+
+		# done
+		__print_style --g1='Update Dorothy'
 	}
 
 	# don't use [sh], as [sh] is [dash] on ubuntu, and [dash] doesn't support the [--...] args
 	function act_repl {
 		# process arguments
-		local item shell='' theme=''
+		local item shell='' theme='' shells=(bash fish)
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
 			case "$item" in
 			'--shell='*) shell="${item#*=}" ;;
 			'--theme='*) theme="${item#*=}" ;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
+			'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 			esac
 		done
 
 		# pre-requisites
 		ensure_dorothy_configured
-		assert_dorothy_configured
-
-		# action
 		ensure_minimal_dependencies
 
-		# ask
+		# ensure
 		if [[ -z $shell ]]; then
 			shell="$(
 				choose --linger --required \
-					--question='Which shell to use?' \
-					-- bash fish nu
+					--question='Which shell to use?' -- \
+					"${shells[@]}"
 			)"
 		fi
-
-		# act, installing the shell if it is missing
-		if [[ $shell == 'bash' ]]; then
-			setup-util-bash --quiet
+		function __repl_bash {
 			# [bash --rcfile] works but not within a [--rcfile]
 			# [--login] ignores [--rcfile]
 			# this is not a true login shell, as [$0] is not [-bash], as such loading [init.sh] is incompatible
 			# without [env -i] which would wipe [USER/HOME/DOROTHY], then this shell will inherit exports from the current environment
-			"$shell" --rcfile <(
-				cat <<-EOF
-					#!/usr/bin/env bash
-					DOROTHY_FORCE_LOAD=yes
-					DOROTHY_THEME_OVERRIDE='$theme'
-					. '$DOROTHY/init.sh'
-					echo-style 'Your are now using the ' --invert='$ACTIVE_POSIX_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \$'\n' 'Use the ' --code='exit' ' command to return to your parent shell.' \$'\n' 'Use ' --code='dorothy commands' ' to see available commands.'
-				EOF
-			)
-			return
-		elif [[ $shell == 'nu' ]]; then
-			setup-util-nu --quiet
-			"$shell" --interactive --login --no-config-file --execute "$(
-				cat <<-EOF
-					#!/usr/bin/env nu
-					\$env.DOROTHY_THEME_OVERRIDE = '$theme'
-					source '$DOROTHY/init.nu'
-					echo-style 'Your are now using the ' --invert='nu' ' shell with Dorothy loaded from ' --code='$DOROTHY' "\n" 'Use the ' --code='exit' ' command to return to your parent shell.' "\n" 'Use ' --code='dorothy commands' ' to see available commands.'
-				EOF
-			)"
-			return
-		elif [[ $shell == 'fish' ]]; then
-			setup-util-fish --quiet
+			if [[ $IS_TTY_AVAILABLE == 'no' ]]; then
+				__print_error 'Cannot use ' --invert="$shell" ' as that shell only supports custom REPLs when ' --code='/dev/tty' ' is available.'
+				return 93 # EPROTONOSUPPORT 93 Protocol not supported
+			fi
+			local rcfile
+			rcfile="$(fs-temp --directory='dorothy' --directory='repl' --file="$theme.$ACTIVE_POSIX_SHELL")"
+			cat <<-EOF >"$rcfile"
+				#!/usr/bin/env bash
+				DOROTHY_FORCE_LOAD=yes
+				DOROTHY_THEME_OVERRIDE='$theme'
+				. '$DOROTHY/init.sh'
+				echo-style 'Your are now using the ' --invert='$ACTIVE_POSIX_SHELL' ' shell with Dorothy loaded from ' --code='$DOROTHY' \$'\n' 'Use the ' --code='exit' ' command to return to your parent shell.' \$'\n' 'Use ' --code='dorothy commands' ' to see available commands.'
+			EOF
+			"$shell" --interactive --rcfile "$rcfile" || return
+		}
+		function __repl_fish {
 			"$shell" --interactive --login --no-config --init-command="$(
 				cat <<-EOF
 					#!/usr/bin/env fish
@@ -1566,10 +1009,30 @@ function dorothy_() (
 					source '$DOROTHY/init.fish'
 					echo-style 'Your are now using the ' --invert='fish' ' shell with Dorothy loaded from ' --code='$DOROTHY' \n 'Use the ' --code='exit' ' command to return to your parent shell.' \n 'Use ' --code='dorothy commands' ' to see available commands.'
 				EOF
-			)"
-			return
+			)" || return
+		}
+		function __repl_nu {
+			# No longer supported:
+			# Error:   × Nushell launched as a REPL, but STDIN is not a TTY; either launch in a valid terminal or provide arguments to invoke a script!
+			setup-util-nu --quiet || return
+			"$shell" --interactive --login --no-config-file --execute "$(
+				cat <<-EOF
+					#!/usr/bin/env nu
+					\$env.DOROTHY_THEME_OVERRIDE = '$theme'
+					source '$DOROTHY/init.nu'
+					echo-style 'Your are now using the ' --invert='nu' ' shell with Dorothy loaded from ' --code='$DOROTHY' "\n" 'Use the ' --code='exit' ' command to return to your parent shell.' "\n" 'Use ' --code='dorothy commands' ' to see available commands.'
+				EOF
+			)" || return
+		}
+
+		# act, installing the shell if it is missing
+		if __has --source={shells} -- "$shell"; then
+			setup-util-"$shell" --quiet || return
+			# TERM dumb fallback solves: warning: Could not set up terminal because $TERM is unset. Falling back to hardcoded xterm-256color values
+			export DOROTHY_RUN=yes TERM="${TERM:-"dumb"}"
+			__repl_"$shell" || return
 		else
-			echo-error 'Cannot use ' --invert="$shell" ' as that shell does not support REPLs with custom configuration.'
+			__print_error 'Cannot use ' --invert="$shell" ' as that shell does not support REPLs with custom configuration.'
 			return 93 # EPROTONOSUPPORT 93 Protocol not supported
 		fi
 	}
@@ -1586,20 +1049,20 @@ function dorothy_() (
 				shift $#
 				break
 				;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
+			'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 			esac
 		done
 
 		# pre-requisites
 		{
 			ensure_dorothy_configured
-			assert_dorothy_configured
 			ensure_minimal_dependencies
-		} >/dev/stderr # don't conflate stdout, don't use /dev/tty as tty doesn't exist on CI
+		} >&2 # don't pollute stdout, don't use /dev/tty as tty doesn't exist on CI
 
 		# now that our environment is setup, run the command
-		command "${args[@]}" # eval builtins and commands, but not functions
+		export DOROTHY_RUN=yes
+		command "${args[@]}" # eval
 		return
 	}
 
@@ -1607,11 +1070,16 @@ function dorothy_() (
 	# Actions: ...
 
 	function act_commands {
+		__unrecognised_arguments "$@" || return
+
 		# pre-requisites
 		assert_dorothy_configured
+		ensure_minimal_dependencies
 
+		# output the commands
 		local paths=()
-		mapfile -t paths < <(echo-if-present -- "$DOROTHY/commands" "$DOROTHY/commands.beta" "$DOROTHY/user/commands" "$DOROTHY/user/commands.local")
+		__split --target={paths} --no-zero-length --invoke -- \
+			echo-if-present -- "$DOROTHY/commands" "$DOROTHY/commands.beta" "$DOROTHY/user/commands" "$DOROTHY/user/commands.local"
 		setup-util-eza --quiet --optional
 		if __command_exists eza; then
 			eza "${paths[@]}"
@@ -1621,74 +1089,90 @@ function dorothy_() (
 	}
 
 	function act_permissions {
+		__unrecognised_arguments "$@" || return
+
+		# log
+		__print_style --h1='Correct Dorothy Permissions'
+
 		# pre-requisites
 		assert_dorothy_configured
+		ensure_minimal_dependencies
 
 		# action
-		echo-style --h1='Correct Dorothy Permissions'
-		# ensure_minimal_dependencies <-- if they are running this, then we assume they are already setup
 		ensure_permissions_configured
-		echo-style --g1='Correct Dorothy Permissions'
+
+		# done
+		__print_style --g1='Correct Dorothy Permissions'
 	}
 
 	function act_edit {
+		__unrecognised_arguments "$@" || return
+
+		# log
+		__print_style --h1='Edit Dorothy'
+
 		# pre-requisites
-		assert_dorothy_and_user_cloned
+		assert_dorothy_and_user_configured
+		ensure_minimal_dependencies
 
 		# action
-		echo-style --h1='Edit Dorothy'
-		# ensure_minimal_dependencies <-- if they are editing, then we assume they are already setup
 		ensure_permissions_configured
 		if [[ "$(edit --dry --only-editor)" == 'code' ]]; then
 			edit -- "$DOROTHY/.vscode/workspace.code-workspace"
 		else
 			edit -- "$DOROTHY"
 		fi
-		echo-style --g1='Edit Dorothy'
+
+		# done
+		__print_style --g1='Edit Dorothy'
 	}
 
 	function act_review {
+		__unrecognised_arguments "$@" || return
+
+		# log
+		__print_style --h1='Review Dorothy'
+
 		# pre-requisites
-		assert_dorothy_and_user_cloned
+		assert_dorothy_and_user_configured
+		ensure_minimal_dependencies
 
 		# action
-		echo-style --h1='Review Dorothy'
-		ensure_minimal_dependencies
 		ensure_permissions_configured
-		git-helper --path="$DOROTHY/user" review || :
-		git-helper --path="$DOROTHY" review || :
-		echo-style --g1='Review Dorothy'
+		git-helper review --path="$DOROTHY/user" || :
+		git-helper review --path="$DOROTHY" || :
+
+		# done
+		__print_style --g1='Review Dorothy'
 	}
 
+	function __get_themes {
+		__print_lines 'system' || return
+		fs-path --no-parents --no-extensions -- "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-unique --stdin || return
+	}
 	function act_theme {
-		# pre-requisites
-		assert_dorothy_and_user_cloned
+		__unrecognised_arguments "$@" || return
 
-		# action
-		echo-style --h1='Select Dorothy Theme'
+		# log
+		__print_style --h1='Select Dorothy Theme'
+
+		# pre-requisites
+		assert_dorothy_and_user_configured
 		ensure_minimal_dependencies
 
 		# features
-		local themes theme files
+		local DOROTHY_THEME='' themes=()
 		source "$DOROTHY/sources/config.sh"
-		__require_array 'mapfile'
-
-		# prepare
-		mapfile -t files < <(__print_lines "$DOROTHY/themes/"*.* "$DOROTHY/user/themes/"*.* | echo-filenames --stdin | uniq)
-		themes=(
-			system
-			"${files[@]}"
-		)
-
-		# ask
+		load_dorothy_config 'interactive.sh'
+		__split --target={themes} --no-zero-length --invoke -- \
+			__get_themes
 		theme="$(
-			choose --linger --required \
-				--question='Which theme to use?' \
-				-- "${themes[@]}"
+			choose --linger --required --default="$DOROTHY_THEME" \
+				--question='Which theme to use?' -- \
+				"${themes[@]}"
 		)"
 
 		# apply
-		source "$DOROTHY/sources/config.sh"
 		dorothy-config 'interactive.sh' -- \
 			--find='export DOROTHY_THEME=(.*)' --replace="export DOROTHY_THEME=$(echo-escape-bash -- "$theme")"
 		if [[ -f "$DOROTHY/user/config/interactive.nu" ]]; then
@@ -1704,231 +1188,276 @@ function dorothy_() (
 			config-edit --file="$DOROTHY/user/config/interactive.elv" --needle="DOROTHY_THEME" --line="set-env DOROTHY_THEME $(echo-quote -- "$theme")" --add
 		fi
 
-		# log
-		echo-style --success='Configuration change applied, ' --notice='restart your terminal for the change to take effect.'
-		echo-style --g1='Select Dorothy Theme'
+		# done
+		__print_style \
+			--success='Configuration change applied, ' --notice='restart your terminal for the change to take effect.' --newline \
+			--g1='Select Dorothy Theme'
 	}
 
 	function act_dev {
-		# pre-requisites
-		assert_dorothy_configured
-
-		# action
-		echo-style --h1='Dorothy Development'
-		if is-ci; then
-			ensure_development_dependencies --no-quiet
-		else
-			# local dev, upgrade and add git hook
-			ensure_development_dependencies --no-quiet --upgrade
-			printf 'trunk check --ci --no-progress --trigger=git-push\n' >"$DOROTHY/.git/hooks/pre-push"
-		fi
-
-		# versions
-		eval-helper --no-quiet -- bash --version || :
-		eval-helper --no-quiet -- prettier --version || :
-		eval-helper --no-quiet -- rg --version || :
-		eval-helper --no-quiet -- shellcheck --version || :
-		eval-helper --no-quiet -- shfmt --version || :
-		eval-helper --no-quiet -- trunk --version || :
+		# process arguments
+		local item upgrade=''
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			--no-upgrade* | --upgrade*) __flag --source={item} --target={upgrade} --affirmative --coerce || return ;;
+			*) __unrecognised_arguments "$item" "$@" || return ;;
+			esac
+		done
 
 		# log
-		echo-style --g1='Dorothy Development'
+		__print_style --h1='Dorothy Development'
+
+		# pre-requisites
+		ensure_dorothy_configured
+		ensure_development_dependencies --upgrade="$upgrade"
+
+		# done
+		__print_style --g1='Dorothy Development'
 	}
 
 	function act_format {
-		# pre-requisites
-		assert_dorothy_configured
-
-		# action
-		echo-style --h1='Dorothy Format'
-		ensure_development_dependencies
-
-		# adjust for ci
-		local args=()
-		if is-ci; then
-			args+=('--no-progress') # don't use [--ci] as it doesn't apply fixes, and our CI suite expects fixes
-		fi
-
-		# on dorothy
-		echo-style --h3="$DOROTHY"
-		(
-			cd "$DOROTHY"
-			# format
-			trunk fmt --all "${args[@]}"
-		)
-		echo-style --g3="$DOROTHY"
-
-		# on user configuration
-		if [[ -d "$DOROTHY/user/.trunk" ]]; then
-			echo-style --h3="$DOROTHY/user"
-			(
-				cd "$DOROTHY/user"
-				# format
-				trunk fmt --all "${args[@]}"
-			)
-			echo-style --g3="$DOROTHY/user"
-		fi
-
-		echo-style --g1='Dorothy Format'
+		act_lint --no-upgrade --format "$@"
 	}
 
 	function act_check {
-		# pre-requisites
-		assert_dorothy_configured
-
-		# action
-		echo-style --h1='Dorothy Checks'
-		ensure_development_dependencies
-
-		# adjust for ci
-		local args=()
-		if is-ci; then
-			args+=('--ci' '--no-progress')
-		fi
-
-		# on dorothy
-		echo-style --h3="$DOROTHY"
-		(
-			cd "$DOROTHY"
-			# check
-			trunk check --all "${args[@]}"
-		)
-		echo-style --g3="$DOROTHY"
-
-		# on user configuration
-		if [[ -d "$DOROTHY/user/.trunk" ]]; then
-			echo-style --h3="$DOROTHY/user"
-			(
-				cd "$DOROTHY/user"
-				# check
-				trunk check --all "${args[@]}"
-			)
-			echo-style --g3="$DOROTHY/user"
-		fi
-
-		echo-style --g1='Dorothy Checks'
+		act_lint --no-upgrade --check "$@"
 	}
 
 	function act_lint {
+		# process arguments
+		local item check='' format='' backers='' upgrade=''
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			--no-check* | --check*) __flag --source={item} --target={check} --affirmative --coerce || return ;;
+			--no-format* | --format*) __flag --source={item} --target={format} --affirmative --coerce || return ;;
+			--no-backers* | --backers*) __flag --source={item} --target={backers} --affirmative --coerce || return ;;
+			--no-upgrade* | --upgrade*) __flag --source={item} --target={upgrade} --affirmative --coerce || return ;;
+			*) __unrecognised_arguments "$item" "$@" || return ;;
+			esac
+		done
+
+		# adjustments
+		local intent
+		if [[ -z $format && -z $check ]]; then
+			format='yes'
+			check='yes'
+		elif [[ -z $format ]]; then
+			format='no'
+		elif [[ -z $check ]]; then
+			check='no'
+		fi
+		if [[ $format == 'yes' && $check == 'yes' ]]; then
+			intent='Lint'
+		elif [[ $format == 'yes' ]]; then
+			intent='Format'
+		else
+			intent='Check'
+		fi
+		__print_style --h1="Dorothy $intent"
+
 		# pre-requisites
-		assert_dorothy_configured
+		ensure_dorothy_configured
+		ensure_development_dependencies --upgrade="$upgrade"
+		source "$DOROTHY/sources/ripgrep.bash"
 
-		# action
-		echo-style --h1='Dorothy Lint'
-
-		# upgrade trunk?
-		local upgrade_linting='no'
-		if confirm --negative --ppid=$$ -- 'Upgrade lint tooling?'; then
-			upgrade_linting='yes'
-		fi
-
-		# dependencies
-		ensure_development_dependencies
-
-		# adjust for ci
-		local args=()
-		if is-ci; then
-			args+=('--ci' '--no-progress')
-		fi
-
-		# prepare scan paths
-		local commands filepath scan_paths=(
-			"$DOROTHY/commands/"
-			"$DOROTHY/commands.beta/"
-			"$DOROTHY/commands.deprecated/"
-		)
-		if [[ -d "$DOROTHY/user" ]]; then
-			if [[ -d "$DOROTHY/user/commands" ]]; then
-				scan_paths+=("$DOROTHY/user/commands/")
-			fi
-			if [[ -d "$DOROTHY/user/commands.local" ]]; then
-				scan_paths+=("$DOROTHY/user/commands.local/")
+		# adjustments
+		if [[ -z $upgrade ]]; then
+			if confirm --negative --ppid=$$ -- 'Update lint tooling?'; then
+				upgrade='yes'
+			else
+				upgrade='no'
 			fi
 		fi
+		if [[ $USER == 'balupton' ]] && __command_exists -- npm; then
+			if [[ -z $backers ]]; then
+				if confirm --negative --ppid=$$ -- 'Update backers?'; then
+					backers='yes'
+				else
+					backers='no'
+				fi
+			fi
+		else
+			backers='no'
+		fi
 
-		# check for unsafe function calls, by checking for __ convention
-		# ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+
-		# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
-		# @todo improve upon this by checking if the function also calls function, as any calling of a function must also be safe
-		local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
-		mapfile -t commands < <(rg --files-with-matches --sortr modified --regexp="$unsafe_regexp" "${scan_paths[@]}")
-		if [[ ${#commands[@]} -ne 0 ]]; then
+		# backers
+		if [[ $backers == 'yes' ]]; then
+			function __traverse() (
+				cd "$1" || return
+				if [[ -f package.json ]] && __command_exists -- npx npm; then
+					github-auth -- npm run our:meta || return # this requires reformatting afterwards
+				fi
+			)
+			__traverse "$DOROTHY"
+		fi
+
+		# formatting
+		if [[ $format == 'yes' ]]; then
+			# sort installers.dat
+			# trunk-ignore(shellcheck/SC2094)
+			sort <"$DOROTHY/config/installers.dat" | echo-write --atomic -- "$DOROTHY/config/installers.dat"
+
+			# sort all keys and array values in the installers.json configuration file
+			if __command_exists -- jq; then
+				jq 'walk(if type == "object" then to_entries | sort_by(.key) | from_entries elif type == "array" then sort else . end)' "$DOROTHY/cspell.json" | echo-write --atomic -- "$DOROTHY/cspell.json"
+			fi
+		fi
+
+		# checks
+		if [[ $check == 'yes' ]]; then
+			# prepare scan paths
+			local scan_paths=(
+				"$DOROTHY/commands/"
+				"$DOROTHY/commands.beta/"
+				"$DOROTHY/commands.deprecated/"
+			)
+			if [[ -d "$DOROTHY/user" ]]; then
+				if [[ -d "$DOROTHY/user/commands" ]]; then
+					scan_paths+=("$DOROTHY/user/commands/")
+				fi
+				if [[ -d "$DOROTHY/user/commands.local" ]]; then
+					scan_paths+=("$DOROTHY/user/commands.local/")
+				fi
+			fi
+
+			# @todo search for unsafe [[ .. ]]  usage
+			# ^\s+\[\[.+\](\s*#.+)?$
+
+			# @todo enforce that `<(...)` is always `<(set +e; ...)` or `<(... || :)` to make it known that the error status is discarded
+
+			# @todo enforce that process substitutions only occur one per assignment, and only for assignments, otherwise exit status is discarded
+			# in which they should enforce `$(... || :)`: \$\(.*\$\(
+
+			# @todo enforce that unnecessary quoting of var references is removed
+
+			# check for unsafe function calls, by checking for missing __* safety convention
+			# ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+
+			# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
+			# @todo improve upon this by checking if the function also calls function, as any calling of a function must also be safe
+			# Unfortunately, it seems [^=] does not work in ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+[^=]
+			# To avoid matching: OR a_var=$?
+			# So for now, just modify the var names even though it is unnecessary.
+			local commands=() filepath \
+			unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
+			__split --target={commands} --no-zero-length --invoke=try -- \
+				rg --files-with-matches --sortr modified --regexp="$unsafe_regexp" "${scan_paths[@]}"
 			for filepath in "${commands[@]}"; do
-				unsafe_contents="$(rg --regexp="$unsafe_regexp" "$filepath" | grep --invert-match --fixed-strings --regexp='for ' || :)"
+				if [[ $filepath =~ (dorothy-internals|rb|py|ts|js|php)$ ]]; then
+					continue
+				fi
+				unsafe_contents="$(rg --color always --regexp="$unsafe_regexp" "$filepath" | grep --invert-match --extended-regexp --regexp='(for|__load_styles) ' || :)"
 				if [[ -z $unsafe_contents ]]; then
 					continue
 				fi
 				unsafe_count="$((unsafe_count + 1))"
-				unsafe_bundle+="$(echo-style --element="$filepath")"$'\n'"$unsafe_contents"$'\n'"$(echo-style --/element="$filepath")"$'\n'
+				unsafe_bundle+="$(__print_style --element="$filepath")"$'\n'"$unsafe_contents"$'\n'"$(__print_style --/element="$filepath")"$'\n'
 			done
 			if [[ $unsafe_count -ne 0 ]]; then
-				echo-style --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle" --e1='Dorothy Lint'
+				__print_style --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle" --e1="Dorothy $intent"
 				return 1
 			fi
 		fi
 
-		# on dorothy
-		echo-style --h3="$DOROTHY"
-		(
-			cd "$DOROTHY"
-			# upgrade
-			if [[ $upgrade_linting == 'yes' ]]; then
-				if __command_exists -- npx npm; then
-					npx npm-check-updates -u
-					npm install
-				fi
-				trunk upgrade
-			fi
-			# format and check
-			trunk fmt --all "${args[@]}"
-			trunk check --all "${args[@]}"
-			# update meta, only do this for balupton, as we can't guarantee up to date Node.js, as this requires Node.js 20
-			# https://github.com/bevry/dorothy/actions/runs/7636822585/job/20804540714#step:13:14
-			if [[ $USER == 'balupton' ]] && __command_exists -- npm; then
-				# if balupton, update meta with auth
-				# github-auth -- npm run our:meta # @todo currently broken
-				# update the readme formatting to be consistent again
-				npx prettier --write README.md
-			fi
-		)
-		echo-style --g3="$DOROTHY"
-
-		# on user configuration
-		if [[ -d "$DOROTHY/user/.trunk" ]]; then
-			echo-style --h3="$DOROTHY/user"
-			(
-				cd "$DOROTHY/user"
-				# upgrade
-				if [[ $upgrade_linting == 'yes' ]]; then
-					if __command_exists -- npx npm; then
-						npx npm-check-updates -u
-						npm install
-					fi
-					trunk upgrade
-				fi
-				# format and check
-				trunk fmt --all "${args[@]}"
-				trunk check --all "${args[@]}"
-			)
-			echo-style --g3="$DOROTHY/user"
+		# adjust for ci
+		local trunk_args=()
+		if [[ -n $CI ]]; then
+			trunk_args+=('--ci' '--no-progress')
 		fi
 
-		echo-style --g1='Dorothy Lint'
+		function __traverse() (
+			local path="$1"
+			if [[ ! -d "$path/.trunk" ]]; then
+				return
+			fi
+			cd "$path" || return
+			__print_style --h3="$intent: $path" || return
+			if [[ $format == 'yes' && $check == 'yes' ]]; then
+				# if format fails, it is likely for a check failure, so ensure check is run before crashing
+				trunk fmt --all "${trunk_args[@]}" || __return $? -- trunk check --all "${trunk_args[@]}" || return
+				trunk check --all "${trunk_args[@]}" || return
+			elif [[ $format == 'yes' ]]; then
+				trunk fmt --all "${trunk_args[@]}" || return
+			else
+				trunk check --all "${trunk_args[@]}" || return
+			fi
+			__print_style --g3="$intent: $path" || return
+		)
+		__traverse "$DOROTHY"
+		__traverse "$DOROTHY/user"
+
+		# done
+		__print_style --g1="Dorothy $intent"
 	}
 
+	# this is shared between [debug-bash] and [dorothy]
 	function act_test {
-		# pre-requisites
-		assert_dorothy_configured
-		# ^ no need for user config for tests
-		local only=("$@") flakey=('config-helper' 'echo-wait') skips=('dorothy' 'bash.bash') no_bash_v3=('get-installer' 'dorothy-config')
+		# process arguments
+		local item only=() skips=('dorothy' 'bash.bash') user_bash_binaries=()
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			--all | --ab | --all-binaries | --all-bash-binaries | --av | --all-versions | --all-bash-versions | --bash=* | --b=* | --binary=* | --binaries=* | --bash-binary=* | --bash-binaries=* | --v=* | --version=* | --versions=* | --bash-version=* | --bash-versions=*)
+				__split --target={user_bash_binaries} --no-zero-length --append --invoke -- \
+					debug-bash "$item" --only-print-binaries
+				;;
+			--skip=*) skips+=("${item#*=}") ;;
+			--only=*) only+=("${item#*=}") ;;
+			--)
+				only+=("$@")
+				shift $#
+				break
+				;;
+			--*)
+				help 'An unrecognised flag was provided: ' --variable-value={item}
+				return
+				;;
+			*) only+=("$item") ;;
+			esac
+		done
 
-		# action
-		echo-style --h1='Dorothy Tests'
+		# log
+		__print_style --h1='Dorothy Tests'
+
+		# pre-requisites
+		ensure_dorothy_configured
+		ensure_minimal_dependencies
+		# ensure_development_dependencies <-- dev deps are for dev, not for tests
 		source "$DOROTHY/sources/ripgrep.bash"
 
+		# fixtures
+		git-helper sync --path="$DOROTHY/fixtures" --label='Dorothy Fixtures' --update=optional --url="$dorothy_fixtures_uri" || return
+
+		# load bash binaries
+		local environment_bash_binary other_bash_binaries=() user_bash_binaries_string user_bash_binary
+		environment_bash_binary="$(type -P bash)"
+		if [[ ${#user_bash_binaries[@]} -eq 0 ]]; then
+			user_bash_binaries+=("$environment_bash_binary")
+		else
+			__evict --source={user_bash_binaries} --target={other_bash_binaries} --every --optional -- "$environment_bash_binary"
+		fi
+		user_bash_binaries_string="$(__print_lines "${user_bash_binaries[@]}")"
+		user_bash_binary="${user_bash_binaries[0]}"
+
+		# context
+		__print_style --bold='Environment:' --newline \
+			--="$(get-arch --dump || :)"
+		echo-file --optional -- /etc/os-release || :
+		__print_style \
+			--bold='Environment Bash:' --newline \
+			--code="$environment_bash_binary" --newline \
+			--code="$("$environment_bash_binary" --version | echo-first-line --stdin || :)" --newline \
+			--bold='Intended Bash:' --newline \
+			--code="$user_bash_binary" --newline \
+			--code="$("$user_bash_binary" --version | echo-first-line --stdin || :)"
+
 		# on CI set the modification times to reflect those from the git repository, rather than from clone
-		if is-ci; then
-			git-helper --path="$DOROTHY" umt
+		if [[ -n $CI ]]; then
+			git-helper umt --path="$DOROTHY"
 		fi
 
 		# run relevant debugs
@@ -1938,15 +1467,8 @@ function dorothy_() (
 		# debug-terminal-tty || :
 		# __print_lines ''
 
-		# able to test on bash v3?
-		local bash has_macos_bash_v3='no'
-		bash="$(type -P bash)"
-		if __is_mac && [[ $bash != '/bin/bash' && "$(/bin/bash --version || :)" == 'GNU bash, version 3.'* ]]; then
-			has_macos_bash_v3=yes
-		fi
-
 		# prepare scan paths
-		local commands filepath filename failures=() scan_paths=(
+		local scan_paths=(
 			"$DOROTHY/commands/"
 			"$DOROTHY/commands.beta/"
 			# "$DOROTHY/commands.deprecated/" <-- don't run deprecated tests, as that will cause deprecated warnings, which cases dorothy-warnings test to fail
@@ -1961,89 +1483,122 @@ function dorothy_() (
 		fi
 
 		# run tests on commands that have them
-		mapfile -t commands < <(rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}")
+		local commands=()
+		if [[ ${#only[@]} -ne 0 ]]; then
+			local scan_path only_command
+			for scan_path in "${scan_paths[@]}"; do
+				if [[ -d $scan_path ]]; then
+					for only_command in "${only[@]}"; do
+						only_command="$scan_path$only_command"
+						# slash is included in the var
+						if [[ -f $only_command ]]; then
+							commands+=("$only_command")
+						fi
+					done
+				fi
+			done
+		else
+			__split --target={commands} --no-zero-length --invoke=try -- \
+				rg --files-with-matches --sortr modified --fixed-strings --regexp='--test' "${scan_paths[@]}"
+		fi
+		local filepath filename passed run_others failures=() warnings=() bash_binary
 		for filepath in "${commands[@]}"; do
 			filename="$(basename -- "$filepath")"
+			passed=yes
+			run_others=yes
 
 			# check if we want to skip this test
-			if is-needle --needle="$filename" -- "${skips[@]}"; then
+			if __has --source={skips} -- "$filename"; then
 				continue
 			fi
 
-			# check if we want to run only specific tests
-			if [[ ${#only[@]} -ne 0 ]] && ! is-needle --needle="$filename" -- "${only[@]}"; then
-				continue
-			fi
+			# styles
+			__print_style --h1="$filepath"
 
-			# run the test on the current bash version
-			{
-				if is-needle --needle="$filename" -- "${flakey[@]}"; then
-					echo-style --invert="FIRST ATTEMPT: $filename"
-					eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
-						echo-style --invert="SECOND ATTEMPT: $filename"
-						eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test || {
-							echo-style --invert="THIRD ATTEMPT: $filename"
-							eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
-						}
-					}
-				else
-					eval-helper --no-quiet --wrap -- "$bash" "$filepath" --test
-				fi
-			} || {
-				failures+=("$bash $filepath --test")
-			}
-
-			# check if we can test on bash v3
-			if [[ $has_macos_bash_v3 == 'yes' ]]; then
-				# we can test, but do we want to test this one on bash v3?
-				if is-needle --needle="$filename" -- "${no_bash_v3[@]}"; then
-					continue
-				fi
-				# run the test on bash v3
-				{
-					if is-needle --needle="$filename" -- "${flakey[@]}"; then
-						echo-style --invert="FIRST ATTEMPT: $filename"
-						env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
-							echo-style --invert="SECOND ATTEMPT: $filename"
-							env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test || {
-								echo-style --invert="THIRD ATTEMPT: $filename"
-								env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test
-							}
-						}
-					else
-						env EVAL_TESTER_BASH=/bin/bash PATH="/bin:$PATH" eval-helper --no-quiet --wrap -- /bin/bash "$filepath" --test
-					fi
-				} || {
-					failures+=("/bin/bash '$filepath' --test")
+			# run the test on the environment bash binary
+			if [[ $filename == 'dorothy-internals' ]]; then
+				# run only against the environment bash binary if desired
+				eval-helper --verbose --wrap --time \
+					-- "$filepath" --bash-binaries="$user_bash_binaries_string" || {
+					passed=no
+					failures+=("$filepath --test")
 				}
+				run_others=no
+			elif __has --source={user_bash_binaries} -- "$environment_bash_binary"; then
+				# run against the environment bash binary if desired
+				eval-helper --verbose --wrap --time \
+					-- "$filepath" --test || {
+					passed=no
+					failures+=("$filepath --test")
+				}
+			fi
+
+			# run against the other bash binaries if desired
+			if [[ $run_others == 'yes' ]]; then
+				for bash_binary in "${other_bash_binaries[@]}"; do
+					# run
+					eval-helper --verbose --wrap --time -- \
+						debug-bash --bash="$bash_binary" -- "$filepath" --test || {
+						passed=no
+						failures+=("$bash_binary $filepath --test")
+					}
+				done
+			fi
+
+			# styles
+			if [[ $passed == 'yes' ]]; then
+				__print_style --g1="$filepath"
+			else
+				__print_style --e1="$filepath"
 			fi
 		done
 
 		# check for warnings
-		if dorothy-warnings check; then
+		if dorothy-warnings has; then
 			dorothy-warnings list
 			failures+=('dorothy-warnings')
 		fi
 
+		# check for eval-capture failed cleaning
+		if [[ -n $CI ]]; then
+			local leftover leftovers=(
+				"$TMPDIR/dorothy/semlocks"
+				"$TMPDIR/dorothy/semaphores"
+			)
+			for leftover in "${leftovers[@]}"; do
+				if is-nonempty-directory -- "$leftover"; then
+					failures+=("$leftover had leftovers:"$'\n'"$(fs-structure -- "$leftover")")
+				fi
+			done
+		fi
+
+		# check for warnings
+		if [[ ${#warnings[@]} -ne 0 ]]; then
+			__print_style --warning='The following tests were warnings:'
+			__print_lines "${warnings[@]}"
+		fi
+
 		# check for failures
 		if [[ ${#failures[@]} -ne 0 ]]; then
-			echo-style --error='The following tests were failures:'
+			__print_style --error='The following tests were failures:'
 			__print_lines "${failures[@]}"
-			echo-style --e1='Dorothy Tests'
+			__print_style --e1='Dorothy Tests'
 			return 1
 		fi
 
-		# log
-		echo-style --g1='Dorothy Tests'
+		# done
+		__print_style --g1='Dorothy Tests'
 	}
 
 	function act_todos {
-		# pre-requisites
-		assert_dorothy_configured
-		# ^ no need for user config for todos
+		__unrecognised_arguments "$@" || return
 
 		# action
-		echo-style --h1='Dorothy Todos'
+		__print_style --h1='Dorothy Todos'
+
+		# pre-requisites
+		# no need for user config for todos
+		ensure_dorothy_configured
 		source "$DOROTHY/sources/ripgrep.bash"
 
 		# verbose about command conventions and support
@@ -2054,7 +1609,7 @@ function dorothy_() (
 		)
 		function __todos_scan {
 			local filepath filename messages file_status success_count=0 fail_count=0 matches
-			echo-style --h2="$1" || return
+			__print_style --h2="$1" || return
 			for filepath in "$DOROTHY/$1/"*; do
 				filename="$(basename -- "$filepath")"
 				messages=()
@@ -2099,8 +1654,8 @@ function dorothy_() (
 					)
 				fi
 
-				# is the file used by other commands?
-				matches="$(rg --files-with-matches --regexp="[^\[]${filename}" "${scan_paths[@]}" || :)"
+				# is the file used by other commands? excludes [cmd] and `cmd` usage which are in comments and messages
+				matches="$(rg --files-with-matches --regexp="[^\[\`]${filename}" "${scan_paths[@]}" || :)"
 				if [[ -z $matches || $matches == "$filepath" ]]; then
 					messages+=(
 						' '
@@ -2122,24 +1677,25 @@ function dorothy_() (
 				else
 					fail_count="$((fail_count + 1))"
 				fi
-				echo-style --element/="$filename" --status="$file_status" "${messages[@]}"
+				__print_style --element/="$filename" --status="$file_status" "${messages[@]}"
 			done
 			if [[ $fail_count -eq 0 ]]; then
-				echo-style --g2="$1" ' ' --code-good1="$success_count" --good1=' successes' || return
+				__print_style --g2="$1" ' ' --code-good1="$success_count" --good1=' successes' || return
 			else
-				echo-style --e2="$1" ' ' --code-good1="$success_count" --good1=' successes' ' ' --code-error1="$fail_count" --error1=' failures' || return
+				__print_style --e2="$1" ' ' --code-good1="$success_count" --good1=' successes' ' ' --code-error1="$fail_count" --error1=' failures' || return
 				return 1
 			fi
 		}
 		local __command_status=0
+
 		__todos_scan 'commands' || __command_status=1
 		__todos_scan 'commands.beta' || :
 
-		# log
+		# done
 		if [[ $__command_status -eq 0 ]]; then
-			echo-style --g1='Dorothy Todos'
+			__print_style --g1='Dorothy Todos'
 		else
-			echo-style --e1='Dorothy Todos'
+			__print_style --e1='Dorothy Todos'
 			return "$__command_status"
 		fi
 	}
@@ -2148,25 +1704,11 @@ function dorothy_() (
 	# Act
 
 	# ensure the prerequisites are installed in case the user skipped them
-	ensure_prereq_dependencies >/dev/stderr # don't conflate stdout, don't use /dev/tty as tty doesn't exist on CI
+	ensure_prereq_dependencies >&2 # don't pollute stdout, don't use /dev/tty as tty doesn't exist on CI
 
-	# all helpers are defined, and argument overrides are handled
-	# so prepare the local environment context with what is necessary for dorothy
-	# such that the following [choose] will be found
-	prepare_dorothy >/dev/stderr # don't conflate stdout, don't use /dev/tty as tty doesn't exist on CI
-
-	if [[ "$(type -t "act_$action")" == 'function' ]]; then
-		if [[ ${#option_args[@]} -eq 0 ]]; then # bash v3 compat
-			"act_$action"
-			return
-		else
-			"act_$action" "${option_args[@]}"
-			return
-		fi
-	else
-		echo-style --stderr --error1="Action not yet implemented: " --code-error1="$action"
-		return 78 # ENOSYS 78 Function not implemented
-	fi
+	# action
+	__affirm_function_is_defined "act_$action"
+	"act_$action" "${option_args[@]}" # eval
 )
 
 # fire if invoked standalone

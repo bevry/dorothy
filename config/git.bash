@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-
-# Used by `setup-git`, `ssh-helper`
-# You can use `setup-git --configure` to configure these.
+# Used by `setup-git`, `ssh-helper`, use `--configure` to (re)configure this
+# Do not use `export` keyword in this file
 
 # GPG_SIGNING_KEY=''
 # GPG_SIGNING_AGENT=''    # 'op' for 1password, 'krypton' for Krypt.co, 'default' for system default

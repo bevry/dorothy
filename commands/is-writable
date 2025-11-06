@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 
 function is_writable_test() (
-	source "$DOROTHY/sources/tests.bash"
-	echo-style --h1="TEST: $0"
+	source "$DOROTHY/sources/is-fs-tests.bash"
 
 	local root command='is-writable'
-	root="$(fs_tests__prep "$command")"
+	root="$(is_fs_tests__prep "$command")"
 
-	eval-tester --name='no args' --status=22 --ignore-stderr \
-		-- "$command" --
+	eval-tester --name='no args' --status=22 --ignore-stderr -- \
+		"$command" --
 
 	# test no escalation
 	local tuples=(
@@ -26,8 +25,8 @@ function is_writable_test() (
 		0 "$root/targets/filled-file"
 		# these aren't executable because they are only executable to root
 		# so in which case a fs-own +x on these, results in
-		# chmod: Unable to change file mode on /Users/balupton/.cache/dorothy/is-executable/targets/unaccessible-empty-file: Operation not permitted
-		# in which we need to detect that, and escalate to root, so there needs to be a is-owned command too, which fs-own uses
+		# chmod: Unable to change file mode on <path>: Operation not permitted
+		# in which we need to detect that, and elevate to root, so there needs to be a is-owned command too, which fs-own uses
 		"$(__status__root_or_nonroot 0 93)" "$root/targets/unaccessible-empty-dir"
 		"$(__status__root_or_nonroot 0 93)" "$root/targets/unaccessible-empty-file"
 		"$(__status__root_or_nonroot 0 93)" "$root/targets/unaccessible-filled-dir"
@@ -101,7 +100,7 @@ function is_writable_test() (
 		0 "$root/symlinks/unwritable-filled-dir--filled-subfile"
 		"$(__status__root_or_nonroot 0 93)" "$root/symlinks/unwritable-filled-file"
 	)
-	fs_tests__tuples --group='test no escalation' "$command" --no-sudo -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test no escalation' "$command" --no-sudo -- "${tuples[@]}"
 
 	# test default escalation
 	tuples=(
@@ -122,7 +121,7 @@ function is_writable_test() (
 		0 "$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
 		0 "$root/symlinks/unexecutable-filled-dir--filled-subfile"
 	)
-	fs_tests__tuples --group='test default escalation' "$command" -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test default escalation' "$command" -- "${tuples[@]}"
 
 	# test with escalation
 	tuples=(
@@ -143,10 +142,10 @@ function is_writable_test() (
 		0 "$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
 		0 "$root/symlinks/unexecutable-filled-dir--filled-subfile"
 	)
-	fs_tests__tuples --group='test with escalation' "$command" --sudo -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test with escalation' "$command" --elevate -- "${tuples[@]}"
 
 	# break the symlinks
-	sudo-helper -- rm -rf -- "$root/targets"
+	eval-helper --elevate -- rm -rf -- "$root/targets"
 	tuples=(
 		9 "$root/symlinks/empty-dir"
 		9 "$root/symlinks/empty-file"
@@ -188,19 +187,20 @@ function is_writable_test() (
 		9 "$root/symlinks/unwritable-filled-dir--filled-subfile"
 		9 "$root/symlinks/unwritable-filled-file"
 	)
-	fs_tests__tuples --group='test broken symlinks' "$command" -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test broken symlinks' "$command" -- "${tuples[@]}"
 
-	echo-style --g1="TEST: $0"
 	return 0
 )
 function is_writable() (
-	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/is-fs.bash"
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		local fodder
+		fodder="$(__is_fs__options '13')" || return
+		cat <<-EOF >&2 || return
 			ABOUT:
 			Check if all <path>s are writable.
 
@@ -208,58 +208,36 @@ function is_writable() (
 			is-writable [...options] [--] ...<path>
 
 			OPTIONS:
-			--sudo=<sudo>
-			    Defaults to [13], escalating to root if permission would otherwise be denied.
-			--user=<user>
-			--group=<group>
-			    Forwarded to [sudo-helper].
+			$fodder
 
 			RETURNS:
 			[0] if all <path>s are writable
-			[2] if a <path> was not found
+			[2] if a <path> was missing
 			[9] if a <path> was a broken symlink
-			[13] if a <path> was not accessible: unless [--no-sudo] was provided a sudo request will be made to prevent this failure.
-			[22] if empty arguments are provided
-			[93] if a <path> was found but not writable
+			[13] if a <path> was not accessible
+			[22] if empty arguments were provided
+			[93] if a <path> was present, but was not writable
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@" || return
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_inputs=() option_sudo='13' option_user='' option_group=''
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_sudo" -- "$item")"
-			;;
-		'--user='*) option_user="${item#*=}" ;;
-		'--group='*) option_group="${item#*=}" ;;
-		'--')
-			option_inputs+=("$@")
-			shift $#
-			break
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_inputs+=("$item") ;;
-		esac
-	done
+	__is_fs__args "$@" || return
 
-	# verify
-	if [[ ${#option_inputs[@]} -eq 0 ]]; then
-		help 'No <input>s provided.'
-	fi
+	# invoke
+	__is_fs__invoke 'is-writable.bash' '13' || return
 
-	# =====================================
-	# Action
+	# errors
+	case "$fs_status" in
+	93) __is_fs__error 'The <path> was present, but was not writable:' || return ;;
+	*) __is_fs__error || return ;;
+	esac
 
-	sudo-helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- is-writable.bash -- "${option_inputs[@]}"
-	return
+	# done
+	return "$fs_status"
 )
 
 # fire if invoked standalone

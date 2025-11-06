@@ -7,32 +7,47 @@ function ensure_trailing_newline() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
-			Ensure a file's contents has a trailing newline.
+			Ensure an existing file has a trailing newline.
 
 			USAGE:
-			ensure-trailing-newline [--] ...<path>
+			ensure-trailing-newline [...options] [--] ...<path>
+
+			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to [eval-helper].
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_paths=()
+	local item option_paths=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
 			option_paths+=("$@")
 			shift "$#"
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*) option_paths+=("$item") ;;
 		esac
 	done
@@ -45,23 +60,17 @@ function ensure_trailing_newline() (
 	# =====================================
 	# Action
 
-	local path result=0
+	local path reason result
 	for path in "${option_paths[@]}"; do
-		if [[ -f $path ]]; then
-			if [[ "$(tail -n1 <"$path" | wc -l)" -eq 0 ]]; then
-				if [[ -w $path ]]; then
-					__print_line >>"$path"
-				else
-					echo-style --error1='File is not writable: ' --code-error1="$path" >/dev/stderr
-					result=13 # EACCES 13 Permission denied
-				fi
-			fi
-		else
-			echo-style --error1='Path is not a file: ' --code-error1="$path" >/dev/stderr
-			result=2 # ENOENT 2 No such file or directory
+		reason="${option_reason:-"Your password is required to momentarily grant privileges to ensure a trailing newline in the file: $path"}"
+		# check if it has a trailing newline, 0 = no, 1 = yes
+		result="$(echo-file --raw --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- "$path" | tail -n1 | wc -l | echo-trim-each-line --stdin)"
+		if [[ $result == 0 ]]; then # use ==, as number not guaranteed
+			# requires trailing newline to be added
+			__print_line | echo-write --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- "$path"
 		fi
 	done
-	return "$result"
+	return 0
 )
 
 # fire if invoked standalone

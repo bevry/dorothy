@@ -74,6 +74,7 @@ else
 			fi
 		elif [ -n "${ZSH_VERSION-}" ]; then
 			# trunk-ignore(shellcheck/SC3010)
+			# trunk-ignore(shellcheck/SC3062)
 			if [[ -o login ]]; then
 				DOROTHY_LOAD='yes'
 			fi

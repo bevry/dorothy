@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
+# Do not use `export` keyword in this file
 
 # APK
 # Used by `setup-linux`
@@ -54,7 +54,6 @@ HOMEBREW_FONTS=(
 	'font-fira-mono-nerd-font'
 	'font-hack' # many editors require this
 	'font-hasklig'
-	'font-ibm-plex' # many editors require this
 	'font-inconsolata-go-nerd-font'
 	'font-inter' # many apps require this
 	'font-jetbrains-mono'
@@ -71,7 +70,7 @@ HOMEBREW_FONTS=(
 	'font-source-code-pro' # many editors require this
 	'font-ubuntu'
 )
-# HOMEBREW_UNINSTALL=()        # for casks and formulas
+# HOMEBREW_UNINSTALL=() # for casks and formulas
 # HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
 
 # Golang / go
@@ -87,10 +86,7 @@ HOMEBREW_FONTS=(
 # Python
 # Used by `setup-python`
 # PYTHON_INSTALL=()
-# PIP_INSTALL=()
-# PYTHON2_PIP_INSTALL=()
-# PYTHON3_PIP_INSTALL=()
-# PIPX_INSTALL=()
+# UV_INSTALL=()
 
 # Ruby
 # Used by `setup-ruby`
@@ -104,7 +100,7 @@ HOMEBREW_FONTS=(
 # Used by `setup-utils`
 # You can use `setup-utils --configure` to configure these.
 SETUP_UTILS=(
+	'ibm-plex' # many editors require this
 	'nano'
-	'neovim'
 	'vim'
 )

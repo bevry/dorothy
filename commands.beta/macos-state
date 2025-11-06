@@ -9,7 +9,7 @@ function macos_state() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Applies your theme preference to macOS, VSCode, and Wallpaper.
 
@@ -29,7 +29,7 @@ function macos_state() (
 			macos-state restore --root='username@hostname:/Volumes/System'
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -43,12 +43,12 @@ function macos_state() (
 		'--help' | '-h') help ;;
 		'--local='*) local_root="${item#*=}" ;;
 		'--backups='*) backup_root="${item#*=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			if [[ -z $action ]]; then
 				action="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
@@ -93,13 +93,13 @@ function macos_state() (
 				__print_lines '' 'Unable to find the Time Machine backup automatically, attempting manual resolution...'
 				time_backup_volume="$(
 					choose --linger --required \
-						--question='Which volume contains the time machine backups?' \
-						-- /Volumes/*
+						--question='Which volume contains the time machine backups?' -- \
+						/Volumes/*
 				)"
 				time_backup_machine="$(
 					choose-path --required \
-						--question='Which backup entry to use?' \
-						-- "$time_backup_volume/Backups.backupdb/"*
+						--question='Which backup entry to use?' -- \
+						"$time_backup_volume/Backups.backupdb/"*
 				)"
 				backup_root="$time_backup_machine/Latest"
 			fi
@@ -107,7 +107,7 @@ function macos_state() (
 				__print_lines "Time Machine Backup: $backup_root"
 				backup_type='tm'
 			else
-				__print_lines 'Time Machine backup could not be determined' >/dev/stderr
+				__print_lines 'Time Machine backup could not be determined' >&2
 				backup_root=''
 			fi
 		fi
@@ -127,9 +127,9 @@ function macos_state() (
 	local question=''
 	cloud_root="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Apps/macos-state"
 	if [[ $action == 'backup' ]]; then
-		question="Where will the backups be stored?"
+		question='Where will the backups be stored?'
 	else
-		question="Where are the backups stored?"
+		question='Where are the backups stored?'
 	fi
 	backup_root="$(
 		ask --required --confirm \
@@ -163,29 +163,24 @@ function macos_state() (
 			if [[ $backup_type == 'remote' ]]; then
 				# fail on remote
 				potential_root="$(fs-join -- "$backup_root" "$local_root")"
-				echo-style \
+				__print_style --stderr \
 					--error='Remote backup locations must manually specify the volume.' --newline \
 					--notice='Try again with something like:' --newline \
-					--code="$(echo-escape-command -- 'macos-state' "$potential_root")" >/dev/stderr
+					--code="$(echo-escape-command -- 'macos-state' "$potential_root")"
 				return 1
 			else
 				# ask
 				backup_root="$(
 					choose --linger --required \
-						--question='Which backup volume to use?' \
-						-- "$(fs-join -- "$backup_root" 'Volumes')/"*
+						--question='Which backup volume to use?' -- \
+						"$(fs-join -- "$backup_root" 'Volumes')/"*
 				)"
 			fi
 		fi
 	fi
 
-	# dump variables
-	echo-style --dim \
-		"Action: $action" $'\n' \
-		"Local Volume: $local_root" $'\n' \
-		"Cloud Root: $cloud_root" $'\n' \
-		"Backup Root: $backup_root" $'\n' \
-		"Backup Type: $backup_type"
+	# dump
+	__dump {action} {local_root} {cloud_root} {backup_root} {backup_type} || return
 
 	# Helpers
 	function fs_volume_join {
@@ -200,7 +195,7 @@ function macos_state() (
 		local path="$1"
 		if is-present -- "$path"; then
 			if confirm --linger --positive --ppid=$$ -- '^ will be replaced, continue?'; then
-				fs-rm --quiet --no-confirm --sudo -- "$path"
+				fs-remove --quiet --no-confirm --elevate -- "$path"
 			fi
 		fi
 	}
@@ -227,15 +222,15 @@ function macos_state() (
 
 		if is-present -- "$from"; then
 			if [[ $backup_type == 'remote' ]]; then
-				cpr -- "$from" "$to"
+				fs-copy -- "$from" "$to"
 			else
 				do_replace "$to"
-				cpr -- "$from" "$to"
+				fs-copy -- "$from" "$to"
 			fi
 		else
-			echo-style --notice='^ MISSING'
+			__print_style --notice='^ MISSING'
 			warnings+=("MISSING: $from")
-			fs-rm --quiet --no-confirm --sudo -- "$path"
+			fs-remove --quiet --no-confirm --elevate -- "$path"
 		fi
 	}
 
@@ -244,7 +239,7 @@ function macos_state() (
 		from="$(fs_volume_join "$backup_root" "$path")"
 		to="$(fs_volume_join "$local_root" "$path")"
 		cat <<-EOF
-			$(echo-style --bold='RESTORE:')
+			$(__print_style --bold='RESTORE:')
 			$from
 			=>
 			$to
@@ -255,20 +250,20 @@ function macos_state() (
 			tmutil restore -v "$from" "$to"
 		elif [[ $backup_type == 'remote' ]]; then
 			do_replace "$to"
-			cpr -- "$from" "$to"
+			fs-copy -- "$from" "$to"
 		elif is-present -- "$from"; then
 			do_replace "$to"
-			cpr -- "$from" "$to"
+			fs-copy -- "$from" "$to"
 		else
-			echo-style --notice='^ MISSING'
+			__print_style --notice='^ MISSING'
 			warnings+=("MISSING: $from")
-			fs-rm --quiet --no-confirm --sudo -- "$path"
+			fs-remove --quiet --no-confirm --elevate -- "$path"
 		fi
 	}
 
 	function process {
-		local title="$1" paths=("${@:1}") path=''
-		echo-style --h1 "$title"
+		local title="$1" paths=("${@:2}") path=''
+		__print_style --h1 "$title"
 		if confirm --linger --bool --ppid=$$ -- "Do you want to $action $title"; then
 			for path in "${paths[@]}"; do
 				if [[ $action == 'backup' ]]; then
@@ -278,9 +273,9 @@ function macos_state() (
 				fi
 			done
 		else
-			echo-style --dim="Skipped..."
+			__print_style --dim="Skipped..."
 		fi
-		echo-style --g1 "$title"
+		__print_style --g1 "$title"
 	}
 
 	# ===============
@@ -568,12 +563,10 @@ function macos_state() (
 
 	# Finish
 	if [[ ${#warnings[@]} -eq 0 ]]; then
-		echo-style --success="Completed successfully"
+		__print_style --success="Completed successfully"
 	else
-		{
-			echo-style --error="Completed with warnings:"
-			__print_lines "${warnings[@]}"
-		} >/dev/stderr
+		__print_style --stderr --warning='Completed with warnings:'
+		__print_lines "${warnings[@]}" >&2
 	fi
 )
 

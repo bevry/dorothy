@@ -2,13 +2,12 @@
 
 function github_download() (
 	source "$DOROTHY/sources/bash.bash"
-	__require_array 'mapfile'
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Download a file from a GitHub repository.
 
@@ -78,7 +77,7 @@ function github_download() (
 			fetch 'https://bevry.me/api/github/repos/jqlang/jq/releases' | jq -r '.[] | {tag_name, id}'
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -90,12 +89,8 @@ function github_download() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*)
-			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--no-quiet'* | '--quiet'*)
-			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
-			;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
 		# repo
 		'--slug='*) slug="${item#*=}" ;;
 		# reference
@@ -117,11 +112,9 @@ function github_download() (
 		'--directory='*) directory="${item#*=}" ;;
 		'--file='*) file="${item#*=}" ;;
 		'--filepath='*) filepath="${item#*=}" ;;
-		'--no-dry'* | '--dry'*)
-			dry="$(get-flag-value --affirmative --fallback="$dry" -- "$item")"
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--no-dry'* | '--dry'*) __flag --source={item} --target={dry} --affirmative ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
@@ -132,19 +125,19 @@ function github_download() (
 	if [[ -n $release ]]; then
 		# convert release into its modern format
 		if [[ $release == 'latest' ]]; then
-			echo-style --tty --notice1='deprecation warning: ' --code-notice1="--release=$release → --latest"
+			__print_style --tty --notice1='deprecation warning: ' --code-notice1="--release=$release → --latest"
 			if [[ -n $alias ]]; then
 				help "[--release=latest] and [--alias=$alias] are mutually exclusive, you should only use: --alias=$alias"
 			fi
 			alias='latest'
-		elif is-integer -- "$release"; then
-			echo-style --tty --notice1='deprecation warning: ' --code-notice1="--release=$release → --id=$release"
+		elif __is_integer "$release"; then
+			__print_style --tty --notice1='deprecation warning: ' --code-notice1="--release=$release → --id=$release"
 			if [[ -n $id ]]; then
 				help "[--release=$release] and [--id=$id] are mutually exclusive, you should only use: --id=$id"
 			fi
 			id="$release"
 		else
-			echo-style --tty --notice1='deprecation warning: ' --code-notice1="--release=$release → --tag=$release"
+			__print_style --tty --notice1='deprecation warning: ' --code-notice1="--release=$release → --tag=$release"
 			if [[ -n $tag ]]; then
 				help "[--release=$release] and [--tag=$tag] are mutually exclusive, you should only use: --tag=$tag"
 			fi
@@ -211,12 +204,12 @@ function github_download() (
 	# ensure directory, filename, filepath
 	if [[ -n $filepath ]]; then
 		# filepath is a directory + file combination
-		filepath="$(fs-absolute -- "$filepath")"
+		filepath="$(fs-path --absolute -- "$filepath")"
 		directory="$(dirname -- "$filepath")"
 		file="$(basename -- "$filepath")"
 	elif [[ -n $directory && -n $file ]]; then
 		# directory + file
-		filepath="$(fs-absolute -- "$directory/$file")"
+		filepath="$(fs-path --absolute -- "$directory/$file")"
 		directory="$(dirname -- "$filepath")"
 		file="$(basename -- "$filepath")"
 	elif [[ -z $directory && -n $file ]]; then
@@ -226,7 +219,7 @@ function github_download() (
 		file="$(basename -- "$filepath")"
 	elif [[ -n $directory && -z $file ]]; then
 		# directory, without file
-		directory="$(fs-absolute -- "$directory")"
+		directory="$(fs-path --absolute -- "$directory")"
 		filepath='' # it is for dir+file combos only
 	else
 		directory="$(pwd)"
@@ -246,9 +239,10 @@ function github_download() (
 
 		# get the assets [name, url] for the release
 		local assets=()
-		mapfile -t assets < <(get-github-release --slug="$slug" --assets --alias="$alias" --tag="$tag" --id="$id")
+		__split --target={assets} --no-zero-length --invoke -- \
+			get-github-release --slug="$slug" --assets --alias="$alias" --tag="$tag" --id="$id"
 		if [[ ${#assets[@]} -eq 0 ]]; then
-			echo-error 'No release assets were found for repository ' --code="$slug"
+			__print_error 'No release assets were found for repository ' --code="$slug"
 			return 1
 		fi
 
@@ -279,10 +273,10 @@ function github_download() (
 
 		# filtering worked
 		if [[ ${#matches[@]} -eq 0 ]]; then
-			{
-				echo-style --error1='No assets matched the filter: ' --code-error1="$asset_regexp"
-				echo-verbose -- "${assets[@]}"
-			} >/dev/stderr
+			__print_style --stderr \
+				--error1='No assets matched the filter:' --newline \
+				--variable={asset_regexp} --newline \
+				--variable={assets}
 			return 1
 		fi
 
@@ -326,12 +320,14 @@ function github_download() (
 			--filepath="$filepath"
 	}
 	function download_release {
-		local asset assets
-		mapfile -t assets < <(get_assets)
+		local assets=()
+		__split --target={assets} --no-zero-length --invoke -- \
+			get_assets
 		if [[ ${#assets[@]} -eq 0 ]]; then
-			echo-error 'No download assets were found for repository ' --code="$slug"
+			__print_error 'No download assets were found for repository ' --code="$slug"
 			return 1
 		fi
+		local asset
 		for asset in "${assets[@]}"; do
 			if [[ $dry == 'yes' ]]; then
 				__print_lines "$asset"

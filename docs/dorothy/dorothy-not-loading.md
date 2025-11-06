@@ -108,6 +108,6 @@ Close the Preferences and open a new terminal tab.
 
 Set the variable `vterm-shell` to be one of the [Manual Invocation](#manual-invocation) commands, e.g. for Zsh you can use:
 
-```
+```lisp
 (setq vterm-shell "/bin/zsh -l")
 ```

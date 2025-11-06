@@ -9,14 +9,14 @@ Advice:
 ```bash
 # fails to output trailing line:
 printf $'a\nb\nc' | while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done
 # [a]
 # [b]
 
 # outputs correctly, including the trailing line:
 printf $'a\nb\nc' | while read -r line || [[ -n "$line" ]]; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done
 # [a]
 # [b]
@@ -24,7 +24,7 @@ done
 
 # note that <<< works as expected
 while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done <<< $'a\nb\nc'
 # [a]
 # [b]
@@ -32,7 +32,7 @@ done <<< $'a\nb\nc'
 
 # but < <( does not
 while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done < <(printf $'a\nb\nc')
 # [a]
 # [b]

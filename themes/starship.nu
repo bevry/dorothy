@@ -11,4 +11,4 @@ command-exists -- 'starship' | complete; if $env.LAST_EXIT_CODE != 0 {
 }
 
 # starship exists, load starship
-source ~/.local/state/dorothy/sources/starship.nu
+source ~/.local/state/dorothy/starship.nu

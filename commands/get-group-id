@@ -7,58 +7,85 @@ function get_group_id() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Get the group identifier for a group name.
 
 			USAGE:
-			get-group-id <group>
-			get-group-id --group=<group>
+			get-group-id [...options] [--] ...<group>
+
+			OPTIONS:
+			--group=<group> | --groups=<groups> | ...<group>
+			    Groups to verify and fetch their IDs for.
+			--login
+			    If enabled, the login user's primary group will be used as the <group>, if none were provided.
+			    Otherwise, the current user's primary group will be used as the <group>, if none were provided.
+
+			COMPANION COMMANDS:
+			[get-group-id]
+			[get-profile]
+			[get-user-id]
+			[is-admin]
+			[is-group]
+			[is-owner]
+			[is-password-usable]
+			[is-root]
+			[is-user-in-group]
+			[is-user]
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_group=''
+	local item option_groups=() option_login=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--group='*) option_group="${item#*=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*)
-			if [[ -z $option_group ]]; then
-				option_group="$item"
-			else
-				help "An unrecognised argument was provided: $item"
-			fi
+		'--no-login'* | '--login'*) __flag --source={item} --target={option_login} --affirmative ;;
+		'--group='* | '--groups='*) __split --target={option_groups} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--')
+			option_groups+=("$@")
+			shift $#
+			break
 			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_groups+=("$item") ;;
 		esac
 	done
 
-	# check
-	if [[ -z $option_group ]]; then
-		help "No <group> was provided"
-		# ^ there is no fallback for this, as a user may be part of several groups, so the question is which one, e.g. [id -g] [id -G] [groups]
-		# using [id -g] will result in:
-		# sudo: unknown group 1000
-		# sudo: error initializing audit plugin sudoers_audit
+	# verify
+	# @todo consider if this should do all groups, instead of the just the primary one, probably could be an option?
+	if [[ ${#option_groups[@]} -eq 0 ]]; then
+		if [[ $option_login == 'yes' ]]; then
+			__prepare_login_group
+			option_groups+=("$LOGIN_GROUP")
+		else
+			__prepare_current_group # could prompt
+			option_groups+=("$CURRENT_GROUP")
+		fi
 	fi
 
 	# =====================================
 	# Action
 
 	# https://stackoverflow.com/a/10910180
-	if __command_exists -- getent; then
-		getent group "$option_group" | cut -d: -f3
-	else
-		echo-style --error="$0: Getting the group identifier is unsupported on this platform." >/dev/stderr
-		return 19 # ENODEV 19 Operation not supported by device
-	fi
+	local group
+	for group in "${option_groups[@]}"; do
+		if __command_exists -- getent; then
+			getent group "$group" | cut -d: -f3
+		elif __command_exists -- dscl; then
+			# "$bin_gawk_or_awk" '($1 == "PrimaryGroupID:") { print $2 }'
+			dscl . -read "/Groups/$group" | echo-regexp -fon --regexp='PrimaryGroupID: (\d+)' --replace='$1'
+		else
+			__print_style --stderr --error="$0: Getting the group identifier is unsupported on this platform."
+			return 19 # ENODEV 19 Operation not supported by device
+		fi
+	done
 )
 
 # fire if invoked standalone

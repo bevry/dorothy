@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 # NOTES:
-# use /dev/random as on macos /dev/zero is instant
+# use `/dev/random` as on macos `/dev/zero` is instant
+#
+# Prototypes: https://gist.github.com/balupton/c46c22a891b4d14da2407bba9283c843
 
 function fs_speed() (
 	source "$DOROTHY/sources/bash.bash"
@@ -10,7 +12,7 @@ function fs_speed() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Calculate the speed at a directory path.
 
@@ -18,32 +20,40 @@ function fs_speed() (
 			fs-speed [...options] [--] ...<path>
 
 			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
 			--user=<user>
 			--group=<group>
-			    If specified run the removal commands as this <user> and <group>.
+			--reason=<reason>
+			    Forwarded to [eval-helper].
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_paths=() option_user='' option_group=''
+	local item option_paths=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--path='*) option_paths+=("${item#*=}") ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
 			option_paths+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*) option_paths+=("$item") ;;
 		esac
 	done
@@ -59,30 +69,25 @@ function fs_speed() (
 	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-read.fio
 	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-write.fio
 
-	function eval_wrapper {
-		while [[ $1 == '--' ]]; do
-			shift
-		done
-		if [[ -n $option_user || -n $option_group ]]; then
-			sudo-helper --inherit --user="$option_user" --group="$option_group" -- "$@"
-		else
-			eval-helper --no-quiet -- "$@"
-		fi
-	}
-
 	local path
 	for path in "${option_paths[@]}"; do
 		# start
-		echo-style --h1="Speed Test: $path"
+		__print_style --h1="Speed Test: $path"
 
 		# https://raw.githubusercontent.com/axboe/fio/master/examples/fio-seq-RW.fio
 		cd "$path"
-		fs-rm --quiet --no-confirm --user="$option_user" --group="$option_group" -- ./fio-seq-RW
-		eval_wrapper -- fio --name=fio-seq-RW --filename=fio-seq-RW --rw=rw --rwmixread=60 --rwmixwrite=40 --bs=256K --direct=0 --numjobs=2 --time_based=1 --runtime=90 --size=1G --ioengine=libaio --iodepth=16
-		fs-rm --quiet --no-confirm --user="$option_user" --group="$option_group" -- ./fio-seq-RW
+		# cleanup
+		fs-remove --quiet --no-confirm --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			./fio-seq-RW
+		# run
+		eval-helper --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			fio --name=fio-seq-RW --filename=fio-seq-RW --rw=rw --rwmixread=60 --rwmixwrite=40 --bs=256K --direct=0 --numjobs=2 --time_based=1 --runtime=90 --size=1G --ioengine=libaio --iodepth=16
+		# cleanup again
+		fs-remove --quiet --no-confirm --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			./fio-seq-RW
 
 		# done
-		echo-style --g1="Speed Test: $path"
+		__print_style --g1="Speed Test: $path"
 	done
 )
 
@@ -90,79 +95,3 @@ function fs_speed() (
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	fs_speed "$@"
 fi
-
-# # prepare
-# # https://unix.stackexchange.com/a/121888/50703 <-- DO NOT USE DD
-# # https://stackoverflow.com/a/50882704/130638
-# # https://unix.stackexchange.com/a/324210/50703
-# # https://stackoverflow.com/a/29935167/130638 <--- DO NOT USE dd
-# local bs size=2 count=5
-# if is-mac; then
-# 	bs="${size}g" # mac only
-# else
-# 	bs="${size}G" # linux only
-# fi
-
-# local scratchpad log bytes megabytes speed path
-# for path in "${option_paths[@]}"; do
-# 	# start
-# 	echo-style --h1="Speed Test: $path"
-
-# 	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-read.fio
-# 	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-write.fio
-# 	# works but doesn't allow over-rides: https://raw.githubusercontent.com/axboe/fio/master/examples/fio-seq-RW.fio
-# 	# cd "$path"
-# 	# fio --name=fio-seq-RW --filename=fio-seq-RW --rw=rw --rwmixread=60 --rwmixwrite=40 --bs=256K --direct=0 --numjobs=4 --time_based=1 --runtime=90 --size=10G --ioengine=libaio --iodepth=16
-# 	# fs-rm --quiet --no-confirm -- './fio-seq-RW'
-
-# 	# prepare a temporary file in the path we wish to speed test
-# 	scratchpad="$(fs-temp --root="$path" --file)"
-
-# 	# prepare a temporary file in our temp directory, to store the output
-# 	# which we use for the speed analysis
-# 	log="$(fs-temp --directory='fs-speed' --file="$(basename -- "$scratchpad").log")"
-
-# 	# ensure they are empty
-# 	fs-rm --quiet --no-confirm -- "$scratchpad" "$log"
-
-# 	# write performance
-# 	# 2>&1 | is because dd writes to something other than stdout
-# 	eval-helper --quiet="$option_quiet" \
-# 		--pending="$(echo-style --bold='Calculating write performance...')" \
-# 		--success="$(echo-style --success='Calculated write performance.')" \
-# 		--failure="$(echo-style --error='Failed calculate write.')" \
-# 		-- dd if=/dev/urandom of="$scratchpad" bs="$bs" count="$count" 2>&1 | tee -- "$log"
-# 	bytes="$(echo-regexp -o --regexp='(\d+) bytes/sec' --replace='$1' <"$log")"
-# 	if [[ -n "$bytes" ]]; then
-# 		megabytes="$(echo-math --precision=0 -- "$bytes / 1024 / 1024")"
-# 		echo-style 'Writes at ' --bold="$megabytes megabytes" ' a second.'
-# 	else
-# 		speed="$(echo-regexp -o --regexp='(\d+ [a-zA-Z]+)/s' --replace='$1' <"$log")"
-# 		if [[ -n "$speed" ]]; then
-# 			echo-style 'Writes at ' --bold="$speed" ' a second.'
-# 		fi
-# 	fi
-
-# 	# read performance
-# 	eval-helper --quiet="$option_quiet" \
-# 		--pending="$(echo-style --bold='Calculating read performance...')" \
-# 		--success="$(echo-style --success='Calculated read performance.')" \
-# 		--failure="$(echo-style --error='Failed calculate read.')" \
-# 		-- dd if="$scratchpad" of=/dev/zero bs="$bs" 2>&1 | tee -- "$log"
-# 	bytes="$(echo-regexp -o --regexp='(\d+) bytes/sec' --replace='$1' <"$log")"
-# 	if [[ -n "$bytes" ]]; then
-# 		megabytes="$(echo-math --precision=0 -- "$bytes / 1024 / 1024")"
-# 		echo-style 'Reads at ' --bold="$megabytes megabytes" ' a second.'
-# 	else
-# 		speed="$(echo-regexp -o --regexp='(\d+ [a-zA-Z]+)/s' --replace='$1' <"$log")"
-# 		if [[ -n "$speed" ]]; then
-# 			echo-style 'Reads at ' --bold="$speed" ' a second.'
-# 		fi
-# 	fi
-
-# 	# cleanup
-# 	fs-rm --quiet --no-confirm -- "$scratchpad" "$log"
-
-# 	# done
-# 	echo-style --g1="Speed Test: $path"
-# done

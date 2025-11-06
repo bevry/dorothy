@@ -57,7 +57,7 @@ load_dorothy_config() {
 	# if nothing was loaded, then fail
 	if [ "$load_dorothy_config__loaded" = 'no' ]; then
 		if [ "$load_dorothy_config__optional" = 'no' ]; then
-			echo-style --error="Missing the configuration file: $*" >/dev/stderr
+			echo-style --stderr --error="Missing the configuration file: $*"
 			return 2 # ENOENT 2 No such file or directory
 		fi
 	fi

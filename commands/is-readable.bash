@@ -19,14 +19,17 @@ while [[ $# -ne 0 ]]; do
 		continue
 	elif [[ -e $path ]]; then
 		# does exist: is not readable
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 93 # ENOATTR 93 Attribute not found
 	else
 		# discern if inaccessible, broken, missing
 		is-accessible.bash -- "$path" || exit
 		if [[ -L $path ]]; then
 			# broken symlink
+			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 			exit 9 # EBADF 9 Bad file descriptor
 		fi
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 2 # ENOENT 2 No such file or directory
 	fi
 done

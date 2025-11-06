@@ -1,5 +1,8 @@
 # Mastering Arrays in Bash
 
+> [!WARNING]
+> This document is grossly out of date and incorrect or even invalid. Modern Dorothy conventions, which have yet to be documented, have done away with most of the tedium described here.
+
 Sources:
 
 - [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
@@ -22,26 +25,26 @@ a+=(
 )
 
 for r in "${a[@]}"; do
-    echo "[$r]"
+    printf '%s\n' "[$r]"
 done
 
 # args length
-echo "$#"
+printf '%s\n' "$#"
 
 # array length
-echo "${#a[@]}"
+printf '%s\n' "${#a[@]}"
 # ^ this is usually okay, but has a gotcha with `mapfile ... <<< ...` usage, see the later chapter about array lengths
 
 # contains
-if is-needle --needle=' ' -- "${a[@]}"; then
-	echo 'with [ ]'
+if __has --source={a} --needle=' '; then
+	printf '%s\n' 'with [ ]'
 else
-	echo 'without [ ]'
+	printf '%s\n' 'without [ ]'
 fi
-if is-needle --needle='c d' -- "${a[@]}"; then
-	echo 'with [c d]'
+if __has --source={a} --needle='c d'; then
+	printf '%s\n' 'with [c d]'
 else
-	echo 'without [c d]'
+	printf '%s\n' 'without [c d]'
 fi
 
 # subsets
@@ -73,20 +76,20 @@ echo-verbose ${a[@]::2}  # get all items until the second index, starting at 0
 source "$DOROTHY/sources/bash.bash"
 
 # don't do this
-mapfile -t a <<< "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
-echo $? # 0 -- success exit code, despite failure
-echo "${#a[@]}" # 1
+__split --target={a} --no-zero-length -- "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
+printf '%s\n' $? # 0 -- success exit code, despite failure
+printf '%s\n' "${#a[@]}" # 1
 echo-verbose "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
 
 # do this instead
-mapfile -t a < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
-echo $? # 0 -- success exit code, despite failure
-echo "${#a[@]}" # 0
+__split --target={a} --no-zero-length --stdin < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
+printf '%s\n' $? # 0 -- success exit code, despite failure
+printf '%s\n' "${#a[@]}" # 0
 echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
 
 # you can use this to ensure that the array is not empty
 if is-array-empty -- "${a[@]}"; then
-	echo 'failure' > /dev/stderr
+	printf '%s\n' 'failure' >/dev/stderr
 	exit 1
 fi
 
@@ -125,7 +128,7 @@ IFS=$'\n' read -ra a <<< "$str"; echo-verbose -- "${a[@]}"
 # [0] = [a b]
 
 # these `mapfile -t` solutions are equivalent, and work
-mapfile -t a <<< "$str"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
 mapfile -td $'\n' a <<< "$str"; echo-verbose -- "${a[@]}"
 # both output:
 # [0] = [a b]
@@ -178,7 +181,7 @@ str=$'a b\nc d'
 
 # for a custom deliminator for input that may span multiple lines
 fodder="$(echo-split ' ' -- "$str")"
-mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -187,7 +190,7 @@ mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 
 # or even multiple arguments
 fodder="$(echo-split ' ' -- "$str" "$str")"
-mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # outputs correct:
 # [0] = [a]
 # [1] = [b]
@@ -205,28 +208,28 @@ IFS=' ' read -ra a <<< 'a b'; echo-verbose -- "${a[@]}"
 # [1] = [b]
 
 # for a newline deliminator that is not recursive between elements
-mapfile -t a <<< "$str"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "$str"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
-mapfile -t a < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length --stdin < <(echo-lines -- 'a b' 'c d'); echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
 
 # be careful of arguments being jumbled into a single line when parsing to mapfile
 list=('a b' 'c d')
-mapfile -t a <<< "${list[@]}"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "${list[@]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a b c d]
-mapfile -t a <<< "${list[*]}"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "${list[*]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a b c d]
 
 # such jumbled compression is not a problem with echo-split
 list=('a b' 'c d')
 fodder="$(echo-split '' -- "${list[@]}")"
-mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a b]
 # [1] = [c d]
@@ -234,7 +237,7 @@ mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 # you can even use echo-split to split on recursive newlines
 list=($'a\nb' $'c\nd')
 fodder="$(echo-split $'\n' -- "${list[@]}")"
-mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "$fodder"; echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]
 # [1] = [b]
@@ -243,7 +246,7 @@ mapfile -t a <<< "$fodder"; echo-verbose -- "${a[@]}"
 
 # which the typical mapfile won't do
 list=($'a\nb' $'c\nd')
-mapfile -t a <<< "${list[@]}"; echo-verbose -- "${a[@]}"
+__split --target={a} --no-zero-length -- "${list[@]}"; echo-verbose -- "${a[@]}"
 # output incorrect:
 # [0] = [a]
 # [1] = [b c]
@@ -262,7 +265,7 @@ If you don't meed the result as an array via `mapfile -t lines` which you would 
 # for newlines
 list=('a b' $'c\nd' 'e f')
 echo-lines -- "${list[@]}" | while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done
 # output correct by arguments:
 # [a b]
@@ -273,7 +276,7 @@ done
 # for custom deliminator
 list=('a b' $'c\nd' 'e f')
 echo-split ' ' -- "${list[@]}" | while read -r line; do
-	echo "[$line]"
+	printf '%s\n' "[$line]"
 done
 # output correct by newline:
 # [a]
@@ -291,7 +294,7 @@ You can even have the following benefits with `mapfile` too:
 ```bash
 # same context throughout:
 a=()
-mapfile -t a < <(echo-split $'\n' -- $'a\nb' $'c\nd')
+__split --target={a} --no-zero-length --stdin < <(echo-split $'\n' -- $'a\nb' $'c\nd')
 echo-verbose -- "${a[@]}"
 # output correct:
 # [0] = [a]

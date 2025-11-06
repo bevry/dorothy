@@ -56,7 +56,7 @@ fn load_dorothy_config {
 	# if nothing was loaded, then fail
 	if (eq loaded $false) {
 		if (eq $optional $false) {
-			echo-style --error="Missing the configuration file: $argv" >/dev/stderr
+			echo-style --stderr --error="Missing the configuration file: $argv"
 			return 2  # ENOENT 2 No such file or directory
 		}
 	}

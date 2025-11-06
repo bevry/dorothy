@@ -10,6 +10,6 @@ if test -n "$DOROTHY_THEME" -a "$DOROTHY_THEME" != 'system'
 	else if test -f "$DOROTHY/themes/$DOROTHY_THEME.fish"
 		source "$DOROTHY/themes/$DOROTHY_THEME.fish"
 	else
-		echo-style --warning="Dorothy theme [$DOROTHY_THEME] is not supported by this shell [fish]" >/dev/stderr
+		echo-style --stderr --warning="Dorothy theme [$DOROTHY_THEME] is not supported by this shell [fish]"
 	end
 end

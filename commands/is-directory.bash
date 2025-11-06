@@ -18,14 +18,17 @@ while [[ $# -ne 0 ]]; do
 		continue
 	elif [[ -e $path ]]; then
 		# accessible and exists, but not an unbroken symlink to a directory, nor a directory
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 20 # NOTDIR 20 Not a directory
 	else
 		# discern if inaccessible, broken, missing
 		is-accessible.bash -- "$path" || exit
 		if [[ -L $path ]]; then
 			# broken symlink
+			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 			exit 9 # EBADF 9 Bad file descriptor
 		fi
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 2 # ENOENT 2 No such file or directory
 	fi
 done

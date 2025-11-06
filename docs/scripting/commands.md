@@ -39,8 +39,8 @@ The `source ...` sources our [`sources/bash.bash` file](https://github.com/bevry
 For instance:
 
 - if your command needs to capture the exit status and/or output of a command, you can use `eval_capture ...`
-- if your command requires `globstar` you can use `__require_globstar` to fail if globstar is unsupported.
-- if your command uses `mapfile` you can use `__require_array 'mapfile'` to fail if mapfile is unsupported.
+- if your command requires `globstar` you can use `__require_globstar` to fail if that is unsupported.
+- if your command accesses empty arrays you can use `__require_array 'empty'` to fail if that is unsupported.
 
 If your bash command makes use of `ripgrep`, then use the following to ensure it is installed and that it won't output something silly.
 

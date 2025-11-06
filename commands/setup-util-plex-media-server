@@ -36,42 +36,57 @@ function setup_util_plex_media_server() (
 		"$@"
 		CASK='plex-media-server'
 	)
-	function get_json {
-		fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass'
+	function __get_json {
+		fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass' || return
 	}
-	function get_platform_urls {
+	function __get_platform_url {
 		if is-mac; then
-			get_json | jq -r '.computer.MacOS.releases[].url'
+			__get_json | jq -r '.computer.MacOS.releases[].url' || return
 		elif is-linux; then
-			get_json | jq -r '.computer.Linux.releases[].url'
+			__get_json | jq -r '.computer.Linux.releases[].url' || return
 		elif is-windows; then
-			get_json | jq -r '.computer.Windows.releases[].url'
+			__get_json | jq -r '.computer.Windows.releases[].url' || return
 		else
-			get_json | jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url'
+			__get_json | jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url' || return
 		fi
+	}
+	function __add_download_app_option {
+		local url
+		url="$(__get_platform_url | echo-regexp -om --regexp='^.+-universal.zip$')" || return
+		options+=(
+			DOWNLOAD="$url"
+			DOWNLOAD_ARCHIVE_EXTRACT='yes'
+			DOWNLOAD_FILENAME='Plex Media Server.app'
+		)
+	}
+	function __add_deb_option {
+		local regexp="$1" url
+		url="$(__get_platform_url | echo-regexp -om --regexp="$regexp")" || return
+		options+=(DEB="$url")
+	}
+	function __add_rpm_option {
+		local regexp="$1" url
+		url="$(__get_platform_url | echo-regexp -om --regexp="$regexp")" || return
+		options+=(RPM="$url")
 	}
 	arch="$(get-arch)"
 	if is-mac; then
-		options+=(
-			DOWNLOAD="$(get_platform_urls | echo-regexp -om --regexp='^.+-universal.zip$')"
-			DOWNLOAD_FILENAME='Plex Media Server.app' # macos
-			DOWNLOAD_UNZIP_FORMAT='zip'
-		)
+		__add_download_app_option || :
 	elif is-ubuntu; then
 		if [[ $arch == 'x64' ]]; then
-			options+=("DEB=$(get_platform_urls | echo-regexp -om --regexp='^.+_amd64.deb$')")
+			__add_deb_option '^.+_amd64.deb$' || :
 		elif [[ $arch == 'x32' ]]; then
-			options+=("DEB=$(get_platform_urls | echo-regexp -om --regexp='^.+_i386.deb$')")
+			__add_deb_option '^.+_i386.deb$' || :
 		elif [[ $arch == 'a64' ]]; then
-			options+=("DEB=$(get_platform_urls | echo-regexp -om --regexp='^.+_arm64.deb$')")
+			__add_deb_option '^.+_arm64.deb$' || :
 		elif [[ $arch == 'a32' ]]; then
-			options+=("DEB=$(get_platform_urls | echo-regexp -om --regexp='^.+_armhf.deb$')")
+			__add_deb_option '^.+_armhf.deb$' || :
 		fi
 	elif __command_exists -- rpm; then
 		if [[ $arch == 'x64' ]]; then
-			options+=("RPM=$(get_platform_urls | echo-regexp -om --regexp='^.+\.x86_64\.rpm$')")
+			__add_rpm_option '^.+\.x86_64\.rpm$' || :
 		elif [[ $arch == 'x32' ]]; then
-			options+=("RPM=$(get_platform_urls | echo-regexp -om --regexp='^.+\.i686\.rpm$')")
+			__add_rpm_option '^.+\.i686\.rpm$' || :
 		fi
 	fi
 	setup-util "${options[@]}"
@@ -80,20 +95,20 @@ function setup_util_plex_media_server() (
 	if __command_missing -- plex-media-server && ! get-app --quiet -- 'Plex Media Server'; then
 		# remove services
 		service-helper --remove -- \
-			-- "${service_ids[@]}"
+			"${service_ids[@]}"
 
 		# remove paths
-		fs-rm --confirm --sudo --optional \
-			-- "${service_uninstall_paths[@]}"
+		fs-remove --confirm --elevate -- \
+			"${service_uninstall_paths[@]}"
 
 		# remove user
 		if is-user -- plex; then
-			sudo-helper -- userdel plex
+			eval-helper --elevate -- userdel plex
 		fi
 
 		# remove group
 		if is-group -- plex; then
-			sudo-helper -- groupdel --force plex
+			eval-helper --elevate -- groupdel --force plex
 		fi
 
 		# all done for uninstall
@@ -104,7 +119,7 @@ function setup_util_plex_media_server() (
 	if service-helper --supported; then
 		# verify the service was initialised
 		if ! service-helper --exists -- "${service_ids[@]}"; then
-			echo-error "$service_title was installed, however the service was not."
+			__print_error "$service_title was installed, however the service was not."
 			return 1
 		fi
 	fi

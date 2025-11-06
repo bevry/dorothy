@@ -2,12 +2,13 @@
 
 function waiter_() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/styles.bash"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Take a break.
 
@@ -15,9 +16,10 @@ function waiter_() (
 			waiter [...options]
 
 			OPTIONS:
-			<timeout> | --timeout=<timeout>
+			<timeout> | --timeout=<timeout:seconds>
 			    If provided, will wait for this amount of seconds, and count down.
 			    If not provided, will wait indefinitely, and count up.
+				If zero, will not wait and will return immediately.
 
 			--message=<message>
 			    A custom message where %s will be replaced with the time remaining or the time waited.
@@ -30,16 +32,14 @@ function waiter_() (
 			    Defaults to 0, however if --exists is provided, this will default to [ETIMEDOUT 60 Operation timed out] instead.
 
 			--stdout=<stdout>
-			    If provided, once done waiting, output this to stdout.
-
+			    If provided, once done waiting, output this to STDOUT.
 			--stderr=<stderr>
-			    If provided, once done waiting, output this to stderr.
-
+			    If provided, once done waiting, output this to STDERR.
 			--tty=<tty>
 			    If provided, once done waiting, output to this TTY.
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -58,19 +58,19 @@ function waiter_() (
 		'--stdout='*) option_stdout="${item#*=}" ;;
 		'--stderr='*) option_stderr="${item#*=}" ;;
 		'--tty='*) option_tty="${item#*=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			if [[ -z $option_timeout ]]; then
 				option_timeout="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
 	# validate
-	if [[ -n $option_timeout ]] && ! is-integer -- "$option_timeout"; then
+	if [[ -n $option_timeout ]] && ! __is_integer "$option_timeout"; then
 		help "If <timeout> is provided, it must be an integer, this is not an integer: $option_timeout"
 	fi
 
@@ -87,15 +87,15 @@ function waiter_() (
 	if [[ -z $option_message ]]; then
 		if [[ -n $option_exists ]]; then
 			if [[ -n $option_timeout ]]; then
-				option_message="$(echo-style --dim='Waiting for path ' --code="$option_exists" --dim=' to become available... %s remaining')"
+				option_message="$(__print_style --dim='Waiting for path ' --code="$option_exists" --dim=' to become available... %s remaining')"
 			else
-				option_message="$(echo-style --dim='Waiting for path ' --code="$option_exists" --dim=' to become available... %s elapsed')"
+				option_message="$(__print_style --dim='Waiting for path ' --code="$option_exists" --dim=' to become available... %s elapsed')"
 			fi
 		else
 			if [[ -n $option_timeout ]]; then
-				option_message="$(echo-style --dim='Waiting... %s remaining')"
+				option_message="$(__print_style --dim='Waiting... %s remaining')"
 			else
-				option_message="$(echo-style --dim='Waiting... %s elapsed')"
+				option_message="$(__print_style --dim='Waiting... %s elapsed')"
 			fi
 		fi
 	fi
@@ -103,87 +103,67 @@ function waiter_() (
 	# =====================================
 	# Action
 
-	# terminal
-	local terminal_device_file
-	terminal_device_file="$(get-terminal-device-file)"
+	__load_styles --save -- clear_line
 
 	# print helpers
-	function __print_plural {
-		if [[ $1 -gt 1 ]]; then
-			printf '%s' 's'
-		fi
-	}
-	function __print_minutes {
-		local plural
-		plural="$(__print_plural "$1")"
-		printf "$option_message"$'\n' "$1 minute$plural" >"$terminal_device_file"
-	}
-	function __print_seconds {
-		local plural
-		plural="$(__print_plural "$1")"
-		printf "$option_message"$'\n' "$1 second$plural" >"$terminal_device_file"
-	}
-	function __print_minutes_and_seconds {
-		local plural_minutes plural_seconds
-		plural_minutes="$(__print_plural "$1")"
-		plural_seconds="$(__print_plural "$2")"
-		printf "$option_message"$'\n' "$1 minute$plural_minutes and $2 second$plural_seconds" >"$terminal_device_file"
+	function __print_revolving_duration {
+		local duration
+		duration="$(echo-duration -- "$1")" || return
+		printf "${STYLE__clear_line}${option_message}" "$duration"
 	}
 
 	# wait
-	local -i minutes delta waited=0
+	local needs_final_clear='no'
+	local -i waited=0 timeout="$option_timeout"
+	if [[ -n $CI ]]; then
+		function __pause_for_timeout {
+			sleep "$timeout"
+			timeout=0
+		}
+	else
+		function __pause_for_timeout {
+			sleep 1
+			timeout="$((timeout - 1))"
+		}
+	fi
+
 	while :; do
 		if [[ -n $option_exists && -e $option_exists ]]; then
 			option_status=0
 			break
 		fi
+		# if there is a timeout option
 		if [[ -n $option_timeout ]]; then
-			if [[ $option_timeout -eq 0 ]]; then
+			# then work with the timeout integer
+			if [[ $timeout -eq 0 ]]; then
 				break
 			fi
-			if [[ $option_timeout -gt 60 ]]; then
-				minutes="$((option_timeout / 60))"
-				delta="$((option_timeout % 60))"
-				if [[ $delta -eq 0 ]]; then
-					__print_minutes "$minutes"
-					delta=60
-				else
-					__print_minutes_and_seconds "$minutes" "$delta"
-				fi
-				option_timeout="$((option_timeout - delta))"
-				sleep "$delta"
-			else
-				__print_seconds "$option_timeout"
-				option_timeout="$((option_timeout - 1))"
-				sleep 1
-			fi
-		elif [[ $waited -gt 60 ]]; then
-			minutes="$((waited / 60))"
-			delta="$((option_timeout % 60))"
-			__print_minutes "$minutes"
-			if [[ $delta -eq 0 ]]; then
-				delta=60
-			fi
-			waited="$((waited + delta))"
-			sleep "$delta"
+			__do --redirect-stdout=TTY -- __print_revolving_duration "$timeout"
+			needs_final_clear='yes'
+			__pause_for_timeout
 		else
-			__print_seconds "$waited"
+			# work with the waiter integer
+			__do --redirect-stdout=TTY -- __print_revolving_duration "$waited"
+			needs_final_clear='yes'
 			waited="$((waited + 1))"
 			sleep 1
 		fi
-		# erase duration message
-		echo-style --no-trail --delete-line >"$terminal_device_file"
 	done
+
+	# erase duration message
+	if [[ $needs_final_clear == 'yes' ]]; then
+		__value_to_tty "$STYLE__clear_line"
+	fi
 
 	# waiting done, do dumps if we have them
 	if [[ -n ${option_stdout-} ]]; then
-		__print_lines "$option_stdout" >/dev/stdout
+		__print_lines "$option_stdout"
 	fi
 	if [[ -n ${option_stderr-} ]]; then
-		__print_lines "$option_stderr" >/dev/stderr
+		__print_lines "$option_stderr" >&2
 	fi
 	if [[ -n ${option_tty-} ]]; then
-		__print_lines "$option_tty" >"$terminal_device_file"
+		__do --redirect-stdout=TTY -- __print_lines "$option_tty"
 	fi
 	return "$option_status"
 )

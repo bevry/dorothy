@@ -4,154 +4,181 @@
 # It outputs the differences in environment variables from sourcing to exit
 
 # IMPORTED BY SOURCE STATEMENT
-# $shell - the current shell name, e.g. `fish` or `bash` or `zsh`
+# $option_shell - the current shell name, e.g. `fish` or `bash` or `zsh`
 #
 # NOTES
 # echos should suffix with ; otherwise fish will break
 
-# initial scanning of environment into a tuple]
-inherited=() # [name, value], [name, value], ...
-while read -r line; do
-	for ((i = 0; i < ${#line}; i++)); do
-		if [[ ${line:i:1} == '=' ]]; then
-			inherited+=("${line:0:i}") # name
-			inherited+=("${line:i+1}") # value
-			break
+function __env_parse {
+	REPLY=() # [name, value], [name, value], ...
+	local env line name value found
+	local -i index size
+	env="$(env | sort)" || return $? # maybe `declare -p` and filtering for `declare -x` would be faster???
+	__dump --debug --value='== ENV ==' {env} || :
+	while read -r line; do
+		name='' value='' size=${#line} found=no
+		for ((index = 0; index < size; index++)); do
+			if [[ ${line:index:1} == '=' ]]; then
+				name="${line:0:index}"
+				value="${line:index+1}"
+				REPLY+=("$name" "$value")
+				found=yes
+				break
+			fi
+		done
+		if [[ $found == 'no' ]]; then
+			# no equals sign, so an environment variable has outputted outputted a newline and messed everything up
+			env="$(env)"
+			__dump --stderr --value='== LAST ENV ENTRY IS MISSING ASSIGNMENT ==' {env} {REPLY} {line} || :
+			return 22 # EINVAL 22 Invalid argument
 		fi
-	done
-done < <(env)
+	done <<<"$env"
+}
 
-# final scanning of environment, and echo results
-function on_env_finish {
+if __has_array_capability 'associative'; then
+	declare -A inherited
+	function __env_inherited {
+		local REPLY name value
+		local -i index
+		__env_parse || return
+		for ((index = 0; index < ${#REPLY[@]}; index += 2)); do
+			name="${REPLY[index]}"
+			value="${REPLY[index + 1]}"
+			inherited["$name"]="$value"
+		done
+	}
+else
+	inherited=() # [name, value, name, value, ...]
+	function __env_inherited {
+		local REPLY
+		__env_parse || return
+		# trunk-ignore(shellcheck/SC2190)
+		inherited=("${REPLY[@]}")
+	}
+fi
+__env_inherited || exit
+
+# final scanning of environment, and output results
+function __on_env_finish {
 	# ignore failure conditions
-	local last_status=$?
+	local -i last_status=$?
 	if [[ $last_status -ne 0 ]]; then
 		return "$last_status"
 	fi
 
-	# success condition, echo var actions
-	local name value i items_array items_string item item_last_index item_index item_existing split_char is_path
-	while read -r line; do
-		# parse line
-		name='' value=''
-		for ((i = 0; i < ${#line}; i++)); do
-			if [[ ${line:i:1} == '=' ]]; then
-				name="${line:0:i}"  # name
-				value="${line:i+1}" # value
-				break
-			fi
-		done
-		if [[ -z $name ]]; then
-			# on fedora, env can output functions, in which case we get garbled data sometimes
-			continue
-		fi
+	local -i index inherited_size=${#inherited[@]}
+	local REPLY name value delimiter values=() is_path results=() original_value
+	__env_parse || return
+	set -- "${REPLY[@]}"
+	while [[ $# -ne 0 ]]; do
+		name="$1" value="$2"
+		shift 2
+
+		# ignore shell level
+		# fixes: [set: Tried to change the read-only variable 'SHLVL'] on fish shell
 		if [[ $name == 'SHLVL' ]]; then
-			# ignore shell level, fixes: [set: Tried to change the read-only variable 'SHLVL'] on fish shell
 			continue
 		fi
 
 		# adjust
-		split_char=''
-		is_path='no'
+		delimiter='' is_path='no'
 		if [[ $name =~ (PATH|DIRS)$ ]]; then
-			split_char=':'
-			is_path='yes'
+			delimiter=':' is_path='yes'
 		elif [[ $name =~ FLAGS$ ]]; then
-			split_char=' '
+			delimiter=' '
 		fi
-		if [[ -n $split_char ]]; then
-			# cycle through each item in the path, removing duplicates and empties
-			items_array=()
-			items_string=''
-			item_last_index=0
-			# the <= and -o, is to ensure that the last item is processed, as it does not have a trailing :
-			for ((item_index = 0; item_index <= ${#value}; item_index++)); do
-				# || is used instead of -o, because of `[[ '(' = ':' -o 375 -eq 7258 ]]` producing `test: `)' expected, found :`
-				if [[ ${value:item_index:1} == "$split_char" || $item_index -eq ${#value} ]]; then
-					item="${value:item_last_index:item_index-item_last_index}"
-					item_last_index="$((item_index + 1))"
-					# check if empty
-					if [[ -z $item ]]; then
-						continue
-					fi
-					# check if duplicate
-					if [[ ${#items_array[@]} -ne 0 ]]; then # bash v3 compat
-						for item_existing in "${items_array[@]}"; do
-							if [[ $item == "$item_existing" ]]; then
-								# is duplicate, skip
-								continue 2
-							fi
-						done
-					fi
-					# add
-					items_array+=("$item")
-					if [[ -z $items_string ]]; then
-						items_string="$item"
-					else
-						items_string="$items_string$split_char$item"
-					fi
-				fi
-			done
-			value="$items_string"
+
+		# de-duplicate split values
+		if [[ -n $delimiter ]]; then
+			# trunk-ignore(shellcheck/SC2034)
+			original_value="$value" values=()
+			__split --source={value} --delimiter="$delimiter" --target={values} --no-zero-length || return
+			__unique --source+target={values} || return
+			__join --source={values} --delimiter="$delimiter" --target={value} || return
+			if [[ -z $value && $name == 'PATH' ]]; then
+				__dump --stderr --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			__dump --debug --value='== DE-DUPLICATED ==' {name} {original_value} {delimiter} {value} || :
 		fi
 
 		# find it in inherited, and check if it is the same if it is the same as inherited
-		for ((i = 0; i < ${#inherited[@]}; i += 2)); do
-			if [[ ${inherited[i]} == "$name" ]]; then
-				if [[ ${inherited[i + 1]} == "$value" ]]; then
-					# is inherited, continue to next item
-					continue 2
-				fi
-			fi
-		done
-
-		# echo the variable action based on type
-		# if [[ "$shell" = 'fish' ]]; then
-		# 	echo "set --universal --erase $name;"
-		# fi
-		if [[ -z $value ]]; then
-			# echo var action: delete
-			if [[ $shell == 'fish' ]]; then
-				echo "set --universal --erase $name;"
-			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name"
-			elif [[ $shell == 'xonsh' ]]; then
-				echo 'del $'"$name"
-			elif [[ $shell == 'elvish' ]]; then
-				# https://elv.sh/ref/builtin.html#unset-env
-				echo "unset-env $name"
-			else
-				echo "unset -v $name;"
-			fi
-		elif [[ $is_path == 'yes' ]]; then
-			# echo var action: set path
-			if [[ $shell == 'fish' ]]; then
-				echo "set --export --path $name '$value';"
-			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
-			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'.split(':')"
-			elif [[ $shell == 'elvish' ]]; then
-				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
-			else
-				echo "export $name='$value';"
+		if __has_array_capability 'associative'; then
+			if [[ -n ${inherited["$name"]-} && ${inherited["$name"]} == "$value" ]]; then
+				__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
+				continue
 			fi
 		else
-			# echo var action: set
-			if [[ $shell == 'fish' ]]; then
-				echo "set --export $name '$value';"
-			elif [[ $shell == 'nu' ]]; then
-				echo "setenv $name $value"
-			elif [[ $shell == 'xonsh' ]]; then
-				echo '$'"$name = '$value'"
-			elif [[ $shell == 'elvish' ]]; then
-				# https://elv.sh/ref/builtin.html#set-env
-				echo "set-env $name '$value'"
+			for ((index = 0; index < inherited_size; index += 2)); do
+				if [[ ${inherited[index]} == "$name" ]]; then
+					if [[ ${inherited[index + 1]} == "$value" ]]; then
+						# is inherited, continue to next item
+						__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
+						continue 2
+					fi
+				fi
+			done
+		fi
+
+		# output the variable action based on type
+		if [[ -z $value ]]; then
+			# output var action: delete
+			__dump --debug --value='== DELETE ==' {name} {value} || :
+			if [[ $option_shell == 'fish' ]]; then
+				results+=("set --universal --erase $name;")
+			elif [[ $option_shell == 'nu' ]]; then
+				results+=("setenv $name")
+			elif [[ $option_shell == 'xonsh' ]]; then
+				results+=("if \${...}.get('$name') != None:"$'\n\t'"del \$$name")
+			elif [[ $option_shell == 'elvish' ]]; then
+				# https://elv.sh/ref/builtin.html#unset-env
+				results+=("unset-env $name")
 			else
-				echo "export $name='$value';"
+				results+=("unset -v $name;")
+			fi
+		elif [[ $is_path == 'yes' ]]; then
+			# output var action: set path
+			__dump --debug --value='== SET PATH ==' {name} {value} || :
+			if [[ $option_shell == 'fish' ]]; then
+				results+=("set --export --path $name '$value';")
+			elif [[ $option_shell == 'nu' ]]; then
+				results+=("setenv $name $value")
+			elif [[ $option_shell == 'xonsh' ]]; then
+				results+=('$'"$name = '$value'.split(':')")
+			elif [[ $option_shell == 'elvish' ]]; then
+				# https://elv.sh/ref/builtin.html#set-env
+				results+=("set-env $name '$value'")
+			else
+				results+=("export $name='$value';")
+			fi
+		else
+			# output var action: set
+			__dump --debug --value='== SET ==' {name} {value} || :
+			if [[ $option_shell == 'fish' ]]; then
+				results+=("set --export $name '$value';")
+			elif [[ $option_shell == 'nu' ]]; then
+				results+=("setenv $name $value")
+			elif [[ $option_shell == 'xonsh' ]]; then
+				results+=('$'"$name = '$value'")
+			elif [[ $option_shell == 'elvish' ]]; then
+				# https://elv.sh/ref/builtin.html#set-env
+				results+=("set-env $name '$value'")
+			else
+				results+=("export $name='$value';")
 			fi
 		fi
-	done < <(env)
+	done
+
+	# xonsh needs a trailing newline, because xonsh, fixes:
+	# > xonsh
+	# xonsh: For full traceback set: $XONSH_SHOW_TRACEBACK = True
+	# SyntaxError: None: no further code
+	# syntax error in xonsh run control file '/Users/balupton/.config/xonsh/rc.xsh': None: no further code
+	if [[ $option_shell == 'xonsh' ]]; then
+		results+=('')
+	fi
+
+	# output all the results
+	__print_lines "${results[@]}" || return
 }
-trap on_env_finish EXIT
+trap __on_env_finish EXIT

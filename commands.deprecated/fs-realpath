@@ -1,0 +1,455 @@
+#!/usr/bin/env bash
+
+function fs_realpath() (
+	source "$DOROTHY/sources/bash.bash"
+	dorothy-warnings add --code='fs-realpath' --bold=' has been deprecated in favor of ' --code='fs-path --resolve'
+
+	# =====================================
+	# Arguments
+
+	function help {
+		cat <<-EOF >&2
+			ABOUT:
+			Output the absolute (relative paths are expanded) and real (symlinks are resolved) representation of a path.
+
+			USAGE:
+			fs-realpath [...options] [--] ...<path>
+
+			OPTIONS:
+			--resolve=<YES/no>
+			    If [--resolve=no] do not substitute symlinks with their targets.
+			    Defaults to [--resolve=yes] as it is sensible, and supports macOS without needing GNU or Fish utilities.
+
+			--validate=<YES/no>
+			    If [--validate=yes] require every part of the path must be resolvable, aka do not support broken symlinks.
+			    Defaults to [--validate=yes] as it supports macOS without needing GNU or Fish utilities.
+
+			--relative=<NO/yes>
+			    If [--relative=yes] don't resolve relative paths to an absolute path, aka support relative paths.
+			    Defaults to [--relative=no] as that is probably desired, and it supports macOS without needing GNU or Fish utilities.
+			--relative-to=<relative_to>
+			    If provided, print the resolved path relative to DIR
+			--relative-base=<relative_base>
+			    If provided, print absolute paths unless paths below DIR
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to [eval-helper].
+		EOF
+		if [[ $# -ne 0 ]]; then
+			__print_error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# options
+	local item option_paths=() option_resolve='yes' option_validate='yes' option_relative='no' option_relative_to='' option_relative_base='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-resolve'* | '--resolve'*) __flag --source={item} --target={option_resolve} --affirmative ;;
+		'--no-validate'* | '--validate'*) __flag --source={item} --target={option_validate} --affirmative ;;
+		'--relative-to='*) option_relative_to="${item#*=}" ;;
+		'--relative-base='*) option_relative_base="${item#*=}" ;;
+		'--no-relative'* | '--relative'*)
+			# this must be after --relative-{to,base} otherwise it will capture them
+			__flag --source={item} --target={option_relative} --affirmative
+			;;
+		'--path='*) option_paths+=("${item#*=}") ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--')
+			option_paths+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_paths+=("$item") ;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		help 'No <path>s provided.'
+	fi
+
+	# =====================================
+	# Action
+
+	function __wrap {
+		eval-helper --inherit --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"
+	}
+
+	function __is_symlink {
+		is-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason"
+	}
+	function __is_present {
+		is-present --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason"
+	}
+
+	function do_gnu_realpath {
+		local gnu_realpath
+		if __command_exists -- grealpath; then
+			gnu_realpath='grealpath'
+		elif __command_exists -- realpath; then
+			if is-mac; then
+				# usage: realpath [-q] [path ...]
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-busybox -- realpath; then
+				# Usage: realpath FILE...
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-linux; then
+				gnu_realpath='realpath'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
+		else
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		### grealpath (macos coreutils), realpath (ubuntu) ###
+		# realpath [OPTION]... FILE...
+		# -e, --canonicalize-existing:   all components of the path must exist
+		# -m, --canonicalize-missing:    no path components need exist or be a directory
+		# -L, --logical:                 resolve '..' components before symlinks
+		# -P, --physical:                resolve symlinks as encountered (default)
+		# -q, --quiet:                   suppress most error messages
+		# 	--relative-to=DIR:           print the resolved path relative to DIR
+		# 	--relative-base=DIR:         print absolute paths unless paths below DIR
+		# -s, --strip, --no-symlinks:    don't expand symlinks
+		# -z, --zero:                    end each output line with NUL, not newline
+		local path="$1"
+		local args=()
+
+		# grealpath always returns absolute paths, so do not support relative option
+		if [[ $option_relative == 'yes' ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		# grealpath supports validation, and non-validation
+		if [[ $option_validate == 'yes' ]]; then
+			args+=('--canonicalize-existing')
+		else
+			args+=('--canonicalize-missing')
+		fi
+
+		# grealpath supports resolution, and non-resolution
+		if [[ $option_resolve == 'no' ]]; then
+			args+=('--no-symlinks')
+		fi
+
+		# grealpath supports relative-to and relative-dir
+		if [[ -n $option_relative_to ]]; then
+			args+=("--relative-to=$option_relative_to")
+		fi
+		if [[ -n $option_relative_base ]]; then
+			args+=("--relative-base=$option_relative_base")
+		fi
+
+		# execute
+		__wrap "$gnu_realpath" "${args[@]}" "$path"
+	}
+	function do_gnu_readlink {
+		# don't support unsupported args
+		if [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		local gnu_readlink
+		if __command_exists -- greadlink; then
+			gnu_readlink='greadlink'
+		elif __command_exists -- readlink; then
+			if is-mac; then
+				# usage: readlink [-fn] [file ...]
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-busybox -- readlink; then
+				# Usage: readlink [-fnv] FILE
+				return 45 # ENOTSUP 45 Operation not supported
+			elif is-linux; then
+				gnu_readlink='readlink'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
+		else
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		### greadlink macos coreutils), readlink (ubuntu) ###
+		# readlink [OPTION]... FILE...
+		# -f, --canonicalize:            canonicalize by following every symlink in every component of the given name recursively; all but the last component must exist
+		# -e, --canonicalize-existing:   canonicalize by following every symlink in every component of the given name recursively, all components must exist
+		# -m, --canonicalize-missing:    canonicalize by following every symlink in every component of the given name recursively, without requirements on components existence
+		# -n, --no-newline:              do not output the trailing delimiter
+		# -q, --quiet
+		# -s, --silent:                  suppress most error messages (on by default)
+		# -v, --verbose:                 report error messages
+		# -z, --zero:                    end each output line with NUL, not newline
+		local path="$1"
+
+		# greadlink always resolves symlinks
+		if [[ $option_resolve == 'no' ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		# handle quirks
+		if [[ $option_relative == 'yes' ]]; then
+			if [[ $option_validate == 'yes' ]]; then
+				# relative paths are not supported when validating
+				return 45 # ENOTSUP 45 Operation not supported
+			elif [[ ! -L $path ]]; then
+				# unless canonicalizing, then symlinks are required
+				return 45 # ENOTSUP 45 Operation not supported
+			else
+				__wrap "$gnu_readlink" "$path"
+			fi
+		else
+			if [[ $option_validate == 'yes' ]]; then
+				__wrap "$gnu_readlink" --canonicalize-existing "$path"
+			else
+				__wrap "$gnu_readlink" --canonicalize-missing "$path"
+			fi
+		fi
+	}
+	function do_fallback_readlink {
+		# don't support unsupported args
+		if [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		local fallback_readlink
+		if __command_exists -- readlink; then
+			if is-mac; then
+				# usage: readlink [-fn] [file ...]
+				fallback_readlink='readlink'
+			elif is-busybox -- readlink; then
+				# Usage: readlink [-fnv] FILE
+				fallback_readlink='readlink'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
+		else
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		### readlink (busybox) ###
+		# BusyBox v1.37.0 (2025-01-17 18:12:01 UTC) multi-call binary.
+		# Usage: readlink [-fnv] FILE
+		# Display the value of a symlink
+		# -n: Don't add newline
+		# -f: Canonicalize by following all symlinks
+		# -v: Verbose
+
+		### readlink (macos) ###
+		# readlink [-fn] [file ...]
+		# If the given argument is not a symbolic link and the -f option is not specified, readlink will print nothing and exit with an error.  If the -f option is specified, the output is canonicalized by following every symlink in every component of the given path recursively.
+		#
+		# NOTES
+		# -f fetches the absolutely resolved path
+
+		if [[ $option_resolve == 'yes' && $option_relative == 'yes' && $option_validate == 'no' ]]; then
+			if __is_symlink -- "$path"; then
+				__wrap "$fallback_readlink" "$path"
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
+		elif [[ $option_resolve == 'yes' && $option_relative == 'no' && $option_validate == 'yes' ]]; then
+			# readlink will return correct output when valid
+			# if invalid, will output nothing and have a failure exit code
+			__wrap "$fallback_readlink" -f "$path"
+		else
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+	}
+	function do_fallback_realpath {
+		# don't support unsupported args
+		if [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		local fallback_realpath
+		if __command_exists -- realpath; then
+			if is-mac; then
+				# usage: realpath [-q] [path ...]
+				fallback_realpath='realpath'
+			elif is-busybox -- realpath; then
+				# Usage: realpath FILE...
+				fallback_realpath='realpath'
+			else
+				return 45 # ENOTSUP 45 Operation not supported
+			fi
+		else
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		### realpath (busybox) ###
+		# BusyBox v1.37.0 (2025-01-17 18:12:01 UTC) multi-call binary.
+		# Usage: realpath FILE...
+		# Print absolute pathnames of FILEs
+
+		### realpath (macos) ###
+		# realpath [-q] [path ...]
+		# If -q is specified, warnings will not be printed when realpath(3) fails.
+
+		if [[ $option_resolve == 'yes' && $option_relative == 'no' && $option_validate == 'yes' ]]; then
+			# realpath will return correct output when valid
+			# if invalid, will output error (unless -q) and have failure exit code
+			__wrap "$fallback_realpath" "$path"
+		else
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+	}
+	function do_bash {
+		# don't support unsupported args
+		if [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		if [[ $option_validate == 'yes' && $option_relative == 'no' && $option_resolve == 'no' ]]; then
+			fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"
+			return
+		fi
+		return 45 # ENOTSUP 45 Operation not supported
+	}
+	function do_fish {
+		# check lack of support
+		if __command_missing -- fish || [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		# https://gitter.im/fish-shell/fish-shell?at=60e4d29c9cf317173013b830
+		# file:///opt/homebrew/Cellar/fish/3.5.1/share/doc/fish/cmds/realpath.html?highlight=realpath
+		# not supported in fish v3.1.2
+		# supported in fish version v3.3.0
+		# exact compatibility unknown
+		# if you are using an old version, remove fish and reinstall using [setup-util-fish]
+		if [[ "$(version-compare "$(fish -c "printf '%s\n' \$FISH_VERSION")" 3.3.0)" -lt 0 ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+
+		### realpath (fish) ###
+		# realpath [OPTIONS] PATH
+		# realpath follows all symbolic links encountered for the provided PATH, printing the absolute path resolved. fish provides a realpath-alike builtin intended to enrich systems where no such command is installed by default.
+		#  If a realpath command exists, that will be preferred.  builtin realpath will explicitly use the fish implementation of realpath.
+		# -s or --no-symlinks:   Don't resolve symlinks, only make paths absolute, squash multiple slashes and remove trailing slashes.
+		if [[ $option_relative == 'no' && $option_validate == 'no' ]]; then
+			if [[ $option_resolve == 'no' ]]; then
+				__wrap fish -c 'builtin realpath --no-symlinks "$argv[1]"' -- "$path"
+				return
+			else
+				__wrap fish -c 'builtin realpath "$argv[1]"' -- "$path"
+				return
+			fi
+		fi
+		return 45 # ENOTSUP 45 Operation not supported
+	}
+	function do_perl {
+		# check lack of support
+		if __command_missing -- perl || [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		if [[ $option_resolve == 'no' && $option_validate == 'no' && $option_relative == 'no' ]]; then
+			__wrap perl -e 'use Cwd "abs_path"; print abs_path($ARGV[0]), "\n"' -- "$path"
+			return
+		fi
+		return 45 # ENOTSUP 45 Operation not supported
+	}
+	function do_python {
+		# check lack of support
+		if __command_missing -- python || [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		if [[ $option_validate == 'no' && $option_relative == 'no' ]]; then
+			if [[ $option_resolve == 'no' ]]; then
+				__wrap python -c 'import os; import sys; print(os.path.abspath(sys.argv[1]))' "$path"
+				return
+			else
+				__wrap python -c 'import os; import sys; print(os.path.realpath(sys.argv[1]))' "$path"
+				return
+			fi
+		fi
+		return 45 # ENOTSUP 45 Operation not supported
+	}
+	function do_ruby {
+		# check lack of support
+		if __command_missing -- ruby || [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		if [[ $option_relative == 'no' ]]; then
+			if [[ $option_validate == 'no' && $option_resolve == 'no' ]]; then
+				__wrap ruby -e 'puts File.expand_path(ARGV[0])' -- "$path"
+				return
+			elif [[ $option_validate == 'yes' && $option_resolve == 'yes' ]]; then
+				__wrap ruby -e 'puts File.realpath(ARGV[0])' -- "$path"
+				return
+			fi
+		fi
+		return 45 # ENOTSUP 45 Operation not supported
+	}
+	function do_php {
+		# don't support unsupported args
+		if __command_missing -- php || [[ -n $option_relative_to || -n $option_relative_to ]]; then
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		if [[ $option_validate == 'yes' && $option_relative == 'no' && $option_resolve == 'no' ]]; then
+			if __is_present "$path"; then
+				__wrap php -r 'echo realpath($argv[1]) . "\n";' -- "$path"
+				return
+			fi
+		fi
+		return 45 # ENOTSUP 45 Operation not supported
+	}
+
+	local FALLBACK='yes'
+	local methods=(
+		do_gnu_realpath
+		do_gnu_readlink
+		do_fallback_readlink
+		do_fallback_realpath
+		do_bash
+		do_perl
+		do_ruby
+		do_php
+		do_python
+		do_fish
+	)
+	function do_path {
+		local method method_status path="${1%/}" # trim the trailing slash, as a trailing slash will fail symlink detection
+
+		# cycle through the options, and continue if the option is not supported
+		for method in "${methods[@]}"; do
+			__try {method_status} -- "$method" "$path"
+			if [[ $method_status -ne 45 ]]; then
+				return "$method_status"
+			fi
+		done
+
+		# if no option was supported, then install utilities and try again
+		if [[ $FALLBACK == 'no' ]]; then
+			# greadlink + macos-readlink support [--relative=yes] but require [--resolve=yes --validate=no] and for the symlink to exist
+			__print_error 'fs-realpath depends on installed helper utilities, non of which support this combination of options:' $'\n' \
+				--code="fs-realpath --resolve=$option_resolve --validate=$option_validate --relative=$option_relative -- $(echo-escape-command -- "$path")"
+			return 45 # ENOTSUP 45 Operation not supported
+		fi
+		FALLBACK='no'
+		get-installer --first-success --invoke --quiet -- realpath readlink || :
+		do_path "$path"
+	}
+
+	local path
+	for path in "${option_paths[@]}"; do
+		do_path "$path"
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	fs_realpath "$@"
+fi

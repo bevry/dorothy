@@ -13,14 +13,14 @@
 # MOUNTING
 
 ## DEVICE
-# sudo-helper -- mount /dev/sdb1 /mnt
+# eval-helper --elevate -- mount /dev/sdb1 /mnt
 
 ## BTRFS
 # /dev/sdb1 on /mnt type btrfs (rw,relatime,space_cache)
 
 ## SAMBA - UBUNTU (user,username,pass,password are alias - does not support URI authentication - if no /etc/fstab entry, then requires sudo)
-# sudo-helper -- mount -t cifs //server/share /mnt -o username=user,password=pass
-# sudo-helper -- mount -t cifs //192.168.4.21/balupton ./samba -o "username=balupton,password=hello today"
+# eval-helper --elevate -- mount -t cifs //server/share /mnt -o username=user,password=pass
+# eval-helper --elevate -- mount -t cifs //192.168.4.21/balupton ./samba -o "username=balupton,password=hello today"
 
 ## SAMBA - MACOS (no keychain auth, no -o auth, mount_smbfs is the tool)
 # mount -t smbfs "//url-escaped-username:url-escaped-password@ip-address/url-escaped-share" ./samba
@@ -497,16 +497,10 @@ function mount_helper() (
 	# Helpers
 
 	function __is_samba {
-		[[ $1 =~ ^(samba|smb|smbfs|cifs)$ ]]
-		return # explicit return with [[ required for bash v3
+		[[ $1 =~ ^(samba|smb|smbfs|cifs)$ ]] || return
 	}
 	function __is_gocryptfs {
-		[[ $1 =~ ^(gocryptfs|fuse.gocryptfs)$ ]]
-		return # explicit return with [[ required for bash v3
-	}
-	function join {
-		echo-join ',' -- "$@"
-		return
+		[[ $1 =~ ^(gocryptfs|fuse.gocryptfs)$ ]] || return
 	}
 	function stringify_args {
 		# output non-empty arguments as space separated strings
@@ -518,53 +512,6 @@ function mount_helper() (
 			fi
 		done
 		__print_lines "${result[*]}"
-	}
-	function string_dump {
-		local result=() arg value
-		while [[ $# -ne 0 ]]; do
-			arg="$1"
-			shift
-			if [[ -z $arg ]]; then
-				result+=($'\n')
-			else
-				value="${!arg}"
-				if [[ -n $value ]]; then
-					value="--invert=$value"
-				fi
-				result+=(
-					--bold="$arg"
-					' = '
-					"$value"
-				)
-				if [[ $# -ne 0 ]]; then
-					result+=($'\n')
-				fi
-			fi
-		done
-		echo-style "${result[@]}"
-	}
-	function value_dump {
-		local result=() arg value mode='var'
-		for arg in "$@"; do
-			if [[ $mode == 'var' ]]; then
-				result+=(
-					--bold="$arg"
-					' = '
-				)
-				mode='value'
-			else
-				if [[ -n $arg ]]; then
-					result+=(
-						"--invert=$arg"
-					)
-				fi
-				result+=(
-					$' \n'
-				)
-				mode='var'
-			fi
-		done
-		echo-style "${result[@]}"
 	}
 
 	# =====================================
@@ -660,7 +607,7 @@ function mount_helper() (
 
 		# coerce target
 		if [[ -n $option_target ]]; then
-			option_target="$(fs-realpath --no-validate -- "$option_target")"
+			option_target="$(fs-path --resolve --no-validate -- "$option_target")"
 		fi
 
 		# coerce source options by parsing source
@@ -862,6 +809,7 @@ function mount_helper() (
 			)
 			if [[ -n $option_password ]]; then
 				# --extpass stringArray            Use external program for the password prompt
+				# @todo figure out the escaping to convert this to printf, such as passwords can begin with a dash
 				gocryptfs_options+=(
 					"--extpass=echo $option_password"
 				)
@@ -871,7 +819,7 @@ function mount_helper() (
 			fi
 			if [[ -n $option_owner ]]; then
 				if is-mac; then
-					echo-error '<owner> with <gocryptfs> is not supported on macOS.'
+					__print_error '<owner> with <gocryptfs> is not supported on macOS.'
 					return 19 # ENODEV 19 Operation not supported by device
 				fi
 				# neither of these require sudo
@@ -890,7 +838,7 @@ function mount_helper() (
 
 			# coerce source
 			if [[ -n $option_share ]]; then # option under [check]
-				option_share="$(fs-realpath --no-validate -- "$option_share")"
+				option_share="$(fs-path --resolve --no-validate -- "$option_share")"
 				gocryptfs_source="$option_share"
 				if ! is-mac; then
 					mount_source="$option_share"
@@ -904,11 +852,7 @@ function mount_helper() (
 					# gocryptfs
 					gocryptfs_cmd=(
 						'gocryptfs'
-					)
-					if [[ ${#gocryptfs_options[@]} -ne 0 ]]; then
-						gocryptfs_cmd+=("${gocryptfs_options[@]}")
-					fi
-					gocryptfs_cmd+=(
+						"${gocryptfs_options[@]}"
 						"$gocryptfs_source"
 						"$option_target"
 					)
@@ -945,22 +889,22 @@ function mount_helper() (
 			fi
 
 			# verify
-			# use --mounted then --no-mounted to prefer the node of the filesystem which is actually mounted
-			eval_capture --statusvar=temp_status --stdoutvar=temp -- get-devices --quiet --result=node --mounted --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count"
+			# use --mount then --no-mount to prefer the node of the filesystem which is actually mounted
+			__do --redirect-status={temp_status} --redirect-stdout={temp} -- get-devices --missing= --result=node --mountable --mount --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count"
 			if [[ -z $temp || $temp_status == 6 ]]; then
-				# no mounted devices, so try unmount devices
-				eval_capture --statusvar=temp_status --stdoutvar=temp -- get-devices --quiet --result=node --no-mounted --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count"
+				# no mounted devices, so try unmounted devices
+				__do --redirect-status={temp_status} --redirect-stdout={temp} -- get-devices --missing= --result=node --mountable --no-mount --node="$option_share" --filesystem="$mount_type" --label="$option_label" --count="$option_count"
 			fi
 			if [[ -n $temp ]]; then
 				# get only the first line
 				option_share="$(echo-first-line --stdin <<<"$temp")"
 			fi
 			if [[ $temp_status == 0 && -n $temp ]]; then
-				echo-style --success='Validated' ' ' --invert="$option_share" ' ' --invert="$mount_type" ' ' --invert="$option_label" ' ' --invert="$option_count"
+				__print_style --success='Validated' ' ' --invert="$option_share" ' ' --invert="$mount_type" ' ' --invert="$option_label" ' ' --invert="$option_count"
 			else
-				echo-style --error='Failed to validate' ' ' --invert="$option_share" ' ' --invert="$mount_type" ' ' --invert="$option_label" ' ' --invert="$option_count"
+				__print_style --error='Failed to validate' ' ' --invert="$option_share" ' ' --invert="$mount_type" ' ' --invert="$option_label" ' ' --invert="$option_count"
 				if [[ $option_actions == *'[unmount]'* ]]; then
-					echo-style --notice='As the goal is to unmount, we are continuing...'
+					__print_style --notice='As the goal is to unmount, we are continuing...'
 				else
 					return 5 # EIO 5 Input/output error
 				fi
@@ -1036,7 +980,7 @@ function mount_helper() (
 				fi
 				# autodetect option_fstab, here as we still want autodetection even when uses_fstab is no (change their mind)
 				if [[ -z $option_automount ]]; then
-					temp="$fstab_source $fstab_target $fstab_type $(join auto "${fstab_options[@]}") 0 0"
+					temp="$fstab_source $fstab_target $fstab_type $(__print_join --delimiter=',' -- auto "${fstab_options[@]}") 0 0"
 					if config-edit --fstab --has --line="$temp"; then
 						option_automount='yes'
 					else
@@ -1046,9 +990,9 @@ function mount_helper() (
 				# generate the appropriate
 				if [[ $uses_fstab == 'yes' ]]; then
 					if [[ $option_automount == 'yes' ]]; then
-						fstab_line="$fstab_source $fstab_target $fstab_type $(join auto "${fstab_options[@]}") 0 0"
+						fstab_line="$fstab_source $fstab_target $fstab_type $(__print_join --delimiter=',' -- auto "${fstab_options[@]}") 0 0"
 					else
-						fstab_line="$fstab_source $fstab_target $fstab_type $(join noauto "${fstab_options[@]}") 0 0"
+						fstab_line="$fstab_source $fstab_target $fstab_type $(__print_join --delimiter=',' -- noauto "${fstab_options[@]}") 0 0"
 					fi
 				fi
 			fi
@@ -1065,37 +1009,24 @@ function mount_helper() (
 		fi
 
 		# coerce commands
-		root_cmd=(
-			'sudo-helper'
-			'--inherit'
-			'--'
-		)
+		root_cmd=(eval-helper --inherit --elevate --)
 		exists_root_cmd+=("${root_cmd[@]}")
 		if [[ -n $option_user || -n $option_group ]]; then
-			owner_cmd=(
-				'sudo-helper'
-				'--inherit'
-			)
+			owner_cmd=(eval-helper --inherit --elevate)
 			if [[ -n $option_user ]]; then
 				owner_cmd+=("--user=$option_user")
 			fi
 			if [[ -n $option_group ]]; then
 				owner_cmd+=("--group=$option_group")
 			fi
-			owner_cmd+=('--')
+			owner_cmd+=(--)
 		fi
 		if [[ -n $mount_source && -n $mount_type && -n $option_target ]]; then
 			# here for --parse debugging
 			if is-mac; then
-				mount_cmd+=(
-					mount
-					-v
-				)
+				mount_cmd+=(mount -v)
 			else
-				mount_cmd+=(
-					mount
-					--verbose
-				)
+				mount_cmd+=(mount --verbose)
 			fi
 			if [[ $uses_fstab == 'yes' ]]; then
 				mount_cmd+=("$option_target")
@@ -1104,9 +1035,8 @@ function mount_helper() (
 					'-t' "$mount_type"
 				)
 				if [[ ${#fstab_options[@]} -ne 0 ]]; then
-					mount_cmd+=(
-						'-o' "$(join "${fstab_options[@]}")"
-					)
+					mount_cmd+=(-o)
+					__join --source={fstab_options} --delimiter=',' --append --target={mount_cmd}
 				fi
 				mount_cmd+=(
 					"$mount_source"
@@ -1116,7 +1046,7 @@ function mount_helper() (
 		fi
 		if [[ -n $option_target ]]; then
 			rm_root_cmd=(
-				fs-rm --sudo --no-confirm-if-empty
+				fs-remove --elevate --no-confirm-if-empty
 				--
 				"$option_target"
 			)
@@ -1124,7 +1054,7 @@ function mount_helper() (
 				mounting_cmd+=("${root_cmd[@]}")
 				mkdir_cmd+=("${root_cmd[@]}")
 				rm_cmd+=(
-					fs-rm --sudo --no-confirm-if-empty
+					fs-remove --elevate --no-confirm-if-empty
 					--
 					"$option_target"
 				)
@@ -1132,7 +1062,7 @@ function mount_helper() (
 				mounting_cmd+=("${owner_cmd[@]}")
 				mkdir_cmd+=("${owner_cmd[@]}")
 
-				rm_cmd+=(fs-rm --no-confirm-if-empty)
+				rm_cmd+=(fs-remove --no-confirm-if-empty)
 				if [[ -n $option_user ]]; then
 					rm_cmd+=("--user=$option_user")
 				fi
@@ -1145,7 +1075,7 @@ function mount_helper() (
 				)
 			else
 				rm_cmd+=(
-					fs-rm --no-confirm-if-empty
+					fs-remove --no-confirm-if-empty
 					--
 					"$option_target"
 				)
@@ -1266,35 +1196,25 @@ function mount_helper() (
 		# helpers
 		function log_source_target {
 			if [[ -n $log_source ]]; then
-				echo-style --bold='source' ' = ' --code="$log_source"
+				__print_style --bold='source' ' = ' --code="$log_source"
 			fi
 			if [[ -n $option_target ]]; then
-				echo-style --bold='target' ' = ' --code="$option_target"
+				__print_style --bold='target' ' = ' --code="$option_target"
 			fi
 		}
 		function do_parse {
 			__print_line
-			string_dump \
-				log_source option_actions option_remount option_source option_target '' \
-				mount_source mounted_source fstab_source open_source gocryptfs_source '' \
-				mount_type mounted_type fstab_type '' \
-				check_source check_target check_type '' \
-				fstab_line cron_line '' \
-				uses_ownership uses_fstab uses_cron uses_wait uses_mkdir uses_root_for_mount uses_root_for_unmount
-			value_dump \
-				open_cmd "${open_cmd[*]}" \
-				gocryptfs_cmd "${gocryptfs_cmd[*]}" \
-				mount_cmd "${mount_cmd[*]}" \
-				mounting_cmd "${mounting_cmd[*]}" \
-				unmount_cmd "${unmount_cmd[*]}" \
-				unmount_force_cmd "${unmount_force_cmd[*]}" \
-				exists_cmd "${exists_cmd[*]}" \
-				ls_cmd "${ls_cmd[*]}" \
-				mkdir_cmd "${mkdir_cmd[*]}" \
-				rm_cmd "${rm_cmd[*]}"
+			__dump \
+				log_source option_actions option_remount option_source option_target \
+				mount_source mounted_source fstab_source open_source gocryptfs_source \
+				mount_type mounted_type fstab_type \
+				check_source check_target check_type \
+				fstab_line cron_line \
+				uses_ownership uses_fstab uses_cron uses_wait uses_mkdir uses_root_for_mount uses_root_for_unmount \
+				open_cmd gocryptfs_cmd mount_cmd mounting_cmd unmount_cmd unmount_force_cmd exists_cmd ls_cmd mkdir_cmd rm_cmd
 		}
 		function do_configure {
-			echo-style --h2='configure'
+			__print_style --h2='configure'
 
 			# add fuse config
 			# https://github.com/rfjakob/gocryptfs/blob/master/Documentation/MANPAGE.md#-allow_other
@@ -1302,13 +1222,13 @@ function mount_helper() (
 			config-edit --fuse --line='user_allow_other'
 
 			# ensure sudo and cron are configured correctly for automounting
-			sudo-helper --local
+			config-edit --local
 
-			echo-style --g2='configure'
+			__print_style --g2='configure'
 		}
 		function do_automount {
 			# prepare
-			echo-style --h2='automount'
+			__print_style --h2='automount'
 			local add_fstab_line add_cron_line
 
 			# determine
@@ -1325,34 +1245,34 @@ function mount_helper() (
 
 			# fstab
 			if [[ -n $fstab_needle ]]; then
-				echo-style --h3='fstab'
+				__print_style --h3='fstab'
 				if [[ -n $fstab_source ]]; then
-					echo-style --invert='fstab' ' is ' --positive='supported' ' for ' --code="$log_source"
+					__print_style --invert='fstab' ' is ' --positive='supported' ' for ' --code="$log_source"
 				else
-					echo-style --invert='fstab' ' is ' --negative='unsupported' ' for ' --code="$log_source"
+					__print_style --invert='fstab' ' is ' --negative='unsupported' ' for ' --code="$log_source"
 				fi
 				if [[ $add_fstab_line == 'yes' ]]; then
-					echo-style --invert='fstab' ' is ' --positive='desired.'
+					__print_style --invert='fstab' ' is ' --positive='desired.'
 				else
-					echo-style --invert='fstab' ' is ' --negative='undesired.'
+					__print_style --invert='fstab' ' is ' --negative='undesired.'
 				fi
 				# apply
 				config-edit --fstab --line="$fstab_line" --needle="$fstab_needle" --add="$add_fstab_line"
-				echo-style --g3='fstab'
+				__print_style --g3='fstab'
 			fi
 
 			# cron
 			if [[ -n $cron_needle ]]; then
-				echo-style --h3='cron'
+				__print_style --h3='cron'
 				if [[ -n $cron_line ]]; then
-					echo-style --invert='cron' ' is ' --positive='supported' ' for ' --code="$log_source"
+					__print_style --invert='cron' ' is ' --positive='supported' ' for ' --code="$log_source"
 				else
-					echo-style --invert='cron' ' is ' --negative='unsupported' ' for ' --code="$log_source"
+					__print_style --invert='cron' ' is ' --negative='unsupported' ' for ' --code="$log_source"
 				fi
 				if [[ $add_cron_line == 'yes' ]]; then
-					echo-style --invert='cron' ' is ' --positive='desired.'
+					__print_style --invert='cron' ' is ' --positive='desired.'
 				else
-					echo-style --invert='cron' ' is ' --negative='undesired.'
+					__print_style --invert='cron' ' is ' --negative='undesired.'
 				fi
 				# apply
 				if [[ $uses_root_for_mount == 'yes' ]]; then
@@ -1362,10 +1282,10 @@ function mount_helper() (
 					config-edit --cron-system --needle="$cron_target" --remove
 					config-edit --cron-user --line="$cron_line" --needle="$cron_target" --add="$add_cron_line"
 				fi
-				echo-style --g3='cron'
+				__print_style --g3='cron'
 			fi
 
-			echo-style --g2='automount'
+			__print_style --g2='automount'
 		}
 		function scan_haystack_for_string_needle {
 			local filter="$1"
@@ -1383,9 +1303,11 @@ function mount_helper() (
 		function update_existing_mounts {
 			local haystack="$1"
 			if is-mac; then
-				mapfile -t EXISTING_MOUNTS < <(echo-regexp -ong --regexp=" on (.+?) \(" --replace='$1' -- "$haystack")
+				__split --target={EXISTING_MOUNTS} --no-zero-length --invoke=try -- \
+					echo-regexp -ong --regexp=" on (.+?) \(" --replace='$1' -- "$haystack"
 			else
-				mapfile -t EXISTING_MOUNTS < <(echo-regexp -ong --regexp=" on (.+?) type " --replace='$1' -- "$haystack")
+				__split --target={EXISTING_MOUNTS} --no-zero-length --invoke=try -- \
+					echo-regexp -ong --regexp=" on (.+?) type " --replace='$1' -- "$haystack"
 			fi
 		}
 		function do_unmount_existing {
@@ -1420,18 +1342,18 @@ function mount_helper() (
 			fi
 
 			# check
-			echo-style --h2='check mount entries'
+			__print_style --h2='check mount entries'
 			local haystack found
 			haystack="$(mount)"
 			if [[ -n $check_type ]]; then
 				found="$(scan_haystack_for_string_needle "$haystack" "$check_type")"
 				if [[ -n $found ]]; then
 					SHARED_CHECK_STATUS+='[type-found]'
-					echo-style --positive='matching type:' ' ' --invert="$check_type" $'\n' --code="$found"
+					__print_style --positive='matching type:' ' ' --invert="$check_type" --newline --code="$found"
 					update_existing_mounts "$found" # used for when source and target are not defined
 				else
 					SHARED_CHECK_STATUS+='[type-missing]'
-					echo-style --negative='matching type:' ' ' --invert="$check_type" $'\n' --code='[[ type not mounted ]]'
+					__print_style --negative='matching type:' ' ' --invert="$check_type" --newline --code='[[ type not mounted ]]'
 				fi
 			else
 				SHARED_CHECK_STATUS+='[type-unknown]'
@@ -1440,11 +1362,11 @@ function mount_helper() (
 				found="$(scan_haystack_for_string_needle "$haystack" "$check_source")"
 				if [[ -n $found ]]; then
 					SHARED_CHECK_STATUS+='[source-found]'
-					echo-style --positive="matching source: " --invert="$check_source" $'\n' --code="$found"
+					__print_style --positive="matching source: " --invert="$check_source" --newline --code="$found"
 					update_existing_mounts "$found" # override the earlier update from type
 				else
 					SHARED_CHECK_STATUS+='[source-missing]'
-					echo-style --negative="matching source: " --invert="$check_source" $'\n' --code='[[ source not mounted ]]'
+					__print_style --negative="matching source: " --invert="$check_source" --newline --code='[[ source not mounted ]]'
 				fi
 			else
 				SHARED_CHECK_STATUS+='[source-unknown]'
@@ -1453,10 +1375,10 @@ function mount_helper() (
 				found="$(scan_haystack_for_string_needle "$haystack" "$check_target")"
 				if [[ -n $found ]]; then
 					SHARED_CHECK_STATUS+='[target-found]'
-					echo-style --positive='matching target:' ' ' --invert="$check_target" $'\n' --code="$found"
+					__print_style --positive='matching target:' ' ' --invert="$check_target" --newline --code="$found"
 				else
 					SHARED_CHECK_STATUS+='[target-missing]'
-					echo-style --negative='matching target:' ' ' --invert="$check_target" $'\n' --code='[[ target not mounted ]]'
+					__print_style --negative='matching target:' ' ' --invert="$check_target" --newline --code='[[ target not mounted ]]'
 				fi
 			else
 				SHARED_CHECK_STATUS+='[target-unknown]'
@@ -1465,16 +1387,15 @@ function mount_helper() (
 			found="$(scan_haystack_for_string_needle "$haystack" "$check_type" "$check_source" "$check_target")"
 			if [[ -n $found ]]; then
 				SHARED_CHECK_STATUS+='[valid]'
-				echo-style --positive='matching expectation:' $'\n' --code="$found"
-				echo-style --g2='check mount entries'
+				__print_style --positive='matching expectation:' --newline --code="$found"
+				__print_style --g2='check mount entries'
 				return 0
 			else
-				echo-style --warning='matching expectation:' ' ' --invert="$check_target" $'\n' --code='[[ expectation not mounted ]]'
-				echo-style --e2='check mount entries'
-				return 1
+				__print_style --warning='matching expectation:' ' ' --invert="$check_target" --newline --code='[[ expectation not mounted ]]'
+				__print_style --e2='check mount entries'
+				return 0
 			fi
 		}
-		# trunk-ignore(shellcheck/SC2120)
 		function do_unmount {
 			local goal='unmount' status
 			if [[ ${1-} == '--goal=mount' ]]; then
@@ -1490,115 +1411,115 @@ function mount_helper() (
 			local local_check_status=''
 			while :; do
 				# update check
-				eval_capture -- do_check
+				do_check
 				local_check_status="$SHARED_CHECK_STATUS"
-				echo-style --h2='unmount'
+				__print_style --h2='unmount'
 
 				# reminder to the user what they are working with
 				log_source_target
 
 				# process check
 				if [[ $local_check_status == *'[source-unknown][target-missing]'* ]]; then
-					echo-style --positive='Target not mounted.'
+					__print_style --positive='Target not mounted.'
 					break # skip to cleanup
 				elif [[ $local_check_status == *'[source-missing][target-missing]'* ]]; then
-					echo-style --positive='Source not mounted.' ' ' --positive='Target not mounted.'
+					__print_style --positive='Source not mounted.' ' ' --positive='Target not mounted.'
 					break                                                                          # skip to cleanup
 				elif [[ $local_check_status == *'[source-found][target-found][valid]'* ]]; then # needs both as unmounting with only --target and no source information is still [valid]
-					echo-style --positive="Correct source is mounted to correct target."
+					__print_style --positive="Correct source is mounted to correct target."
 					# if the goal is mounting, then check if they want to remount
 					if [[ $option_remount == 'yes' ]]; then
 						# remount
-						echo-style --notice="will remount..."
+						__print_style --notice="will remount..."
 						# continue to unmount
 					elif [[ $option_remount == 'no' ]]; then
 						# user changed their mind and doesn't want to ummount
 						if [[ $goal == 'mount' ]]; then
-							echo-style --positive="will skip..."
+							__print_style --positive="will skip..."
 							return 200 # ECUSTOM 200 Not applicable as already unmounted as desired
 						else
-							echo-style --warning='will abort...'
+							__print_style --warning='will abort...'
 							return 98 # EADDRINUSE 98 Address already in use
 						fi
 					elif [[ $goal == 'unmount' ]]; then
 						: # goal is to unmount, so continue to unmount
 					else
 						# already mounted, remount?
-						eval_capture --statusvar=status -- \
+						__try {status} -- \
 							confirm --linger --negative --ppid=-1 -- 'Do you wish to unmount to enable remounting?'
 						if [[ $status -eq 0 ]]; then
 							: # user wants to remount, so continue to unmount
 						elif [[ $status -eq 1 ]]; then
 							# user changed their mind and doesn't want to ummount
 							if [[ $goal == 'mount' ]]; then
-								echo-style --positive="will skip..."
+								__print_style --positive="will skip..."
 								return 200 # ECUSTOM 200 Not applicable as already unmounted as desired
 							else
-								echo-style --warning='will abort...'
+								__print_style --warning='will abort...'
 								return 98 # EADDRINUSE 98 Address already in use
 							fi
 						elif is-abort -- "$status"; then
-							echo-style --warning='will abort...'
+							__print_style --warning='will abort...'
 							return 98 # EADDRINUSE 98 Address already in use
 						else
 							# failure
-							echo-error 'An unexpected failure occurred.'
+							__print_error 'An unexpected failure occurred.'
 							return "$status"
 						fi
 					fi
 				elif [[ $local_check_status == *'[source-missing][target-found]'* ]]; then
-					echo-style --positive='Source not mounted.' ' ' --negative='Target mounted to an unexpected source.'
-					eval_capture --statusvar=status -- \
+					__print_style --positive='Source not mounted.' ' ' --negative='Target mounted to an unexpected source.'
+					__try {status} -- \
 						confirm --linger --positive --ppid=-1 -- 'Unmount the target to mount to the correct source?' '[y] to unmount, [n] to abort'
 					if [[ $status -eq 0 ]]; then
 						: # continue to unmount
 					elif [[ $status -eq 1 ]] || is-abort -- "$status"; then
-						echo-style --warning='will abort...'
+						__print_style --warning='will abort...'
 						return 98 # EADDRINUSE 98 Address already in use
 					else
 						# failure
-						echo-error 'An unexpected failure occurred.'
+						__print_error 'An unexpected failure occurred.'
 						return "$status"
 					fi
 				elif [[ $local_check_status == *'[target-found]'* ]]; then
-					echo-style --positive='Target found.'
+					__print_style --positive='Target found.'
 					# continue to unmount
 				elif [[ $local_check_status == *'[source-missing][target-unknown]'* ]]; then
-					echo-style --positive='Source not mounted.'
+					__print_style --positive='Source not mounted.'
 					break # skip to cleanup
 				elif [[ $local_check_status == *'[type-missing][source-unknown][target-unknown]'* ]]; then
-					echo-style --positive='Type not mounted.'
+					__print_style --positive='Type not mounted.'
 					break # skip to cleanup
 				elif [[ $local_check_status == *'[type-found][source-unknown][target-unknown]'* ]]; then
 					if [[ ${#EXISTING_MOUNTS[@]} -eq 0 ]]; then
-						echo-style --positive='Type found.' ' ' --error='However, no targets found that can be unmounted.'
+						__print_style --positive='Type found.' ' ' --error='However, no targets found that can be unmounted.'
 						return 76 # EPROCUNAVAIL 76 Bad procedure for program
 					else
-						echo-style --positive='Type found.' ' ' --notice='Unmounting existing targets:' $'\n' \
+						__print_style --positive='Type found.' ' ' --notice='Unmounting existing targets:' --newline \
 							--code="$(__print_lines "${EXISTING_MOUNTS[@]}")"
 						do_unmount_existing
 						continue # now that they should be unmounted, try again
 					fi
 				elif [[ $local_check_status == *'[source-found][target-unknown]'* ]]; then
 					if [[ ${#EXISTING_MOUNTS[@]} -eq 0 ]]; then
-						echo-style --positive='Source found.' ' ' --error='However, no targets found that can be unmounted.'
+						__print_style --positive='Source found.' ' ' --error='However, no targets found that can be unmounted.'
 						return 76 # EPROCUNAVAIL 76 Bad procedure for program
 					else
-						echo-style --positive='Source found.' ' ' --notice='Unmounting existing targets:' $'\n' \
+						__print_style --positive='Source found.' ' ' --notice='Unmounting existing targets:' --newline \
 							--code="$(__print_lines "${EXISTING_MOUNTS[@]}")"
 						do_unmount_existing
 						continue # now that they should be unmounted, try again
 					fi
 				elif [[ $local_check_status == *'[source-found][target-missing]'* ]]; then
 					if [[ ${#EXISTING_MOUNTS[@]} -eq 0 ]]; then
-						echo-style --positive='Source found.' ' ' --error='However, no targets found that can be unmounted.'
+						__print_style --positive='Source found.' ' ' --error='However, no targets found that can be unmounted.'
 						return 76 # EPROCUNAVAIL 76 Bad procedure for program
 					else
-						echo-style --notice='Source is mounted to alternative targets:' $'\n' \
-							--code="$(__print_lines "${EXISTING_MOUNTS[@]}")" $'\n' \
-							--positive='Intended target is not mounted to any source:' $'\n' \
+						__print_style --notice='Source is mounted to alternative targets:' --newline \
+							--code="$(__print_lines "${EXISTING_MOUNTS[@]}")" --newline \
+							--positive='Intended target is not mounted to any source:' --newline \
 							--code="$option_target"
-						eval_capture --statusvar=status -- \
+						__try {status} -- \
 							confirm --linger --positive --ppid=-1 -- 'Unmount the existing targets of the source?' '[y] to unmount existing targets, [n] to leave existing targets intact, [ctrl+c] to abort'
 						if [[ $status -eq 0 ]]; then
 							do_unmount_existing
@@ -1607,65 +1528,65 @@ function mount_helper() (
 							# we want to be an addition to this alternative target
 							break # skip to cleanup
 						elif is-abort -- "$status"; then
-							echo-style --warning='will abort...'
+							__print_style --warning='will abort...'
 							return 98 # EADDRINUSE 98 Address already in use
 						else
 							# failure
-							echo-error 'An unexpected failure occurred.'
+							__print_error 'An unexpected failure occurred.'
 							return "$status"
 						fi
 					fi
 				else
-					echo-error "Unhandled mount status combination: $local_check_status"
+					__print_error "Unhandled mount status combination: $local_check_status"
 					return 76 # EPROCUNAVAIL 76 Bad procedure for program
 				fi
 
 				# verify unmount
 				if [[ -z $option_target ]]; then
-					echo-error "Unmount was triggered without a target for procedure: $local_check_status"
+					__print_error "Unmount was triggered without a target for procedure: $local_check_status"
 					return 76 # EPROCUNAVAIL 76 Bad procedure for program
 				fi
 
 				# perform the unmount, no need for an existence check
 				# we already verified it earlier
-				echo-style --notice='Unmounting target...' ' ' --invert="$option_target"
-				eval_capture --statusvar=status -- \
-					eval-helper --no-quiet --wrap -- "${unmount_cmd[@]}"
+				__print_style --notice='Unmounting target...' ' ' --invert="$option_target"
+				__try {status} -- \
+					eval-helper --verbose --wrap -- "${unmount_cmd[@]}"
 				if [[ $status -eq 0 ]]; then
-					echo-style --positive='Unmounted.'
+					__print_style --positive='Unmounted.'
 					break # skip to cleanup
 				elif is-abort -- "$status"; then
-					echo-style --warning='will abort...'
+					__print_style --warning='will abort...'
 					return 98 # EADDRINUSE 98 Address already in use
 				else
 					# unmount failed, give information to the user to decide on force unmount
 					# https://github.com/rfjakob/gocryptfs/issues/459
 					what-is-using -- "$option_target"
-					eval_capture --statusvar=status -- \
+					__try {status} -- \
 						confirm --linger --positive --ppid=-1 -- '[y] to try again, [n] to force unmount, [ctrl+c] to abort'
 					if [[ $status -eq 0 ]]; then
 						# user doesn't want to force unmount, but just try again, perhaps they made a change somewhere else to make it successful
 						continue # try again
 					elif [[ $status -eq 1 ]]; then
 						# force unmount
-						eval_capture --statusvar=status -- \
-							eval-helper --no-quiet --wrap -- "${unmount_force_cmd[@]}"
+						__try {status} -- \
+							eval-helper --verbose --wrap -- "${unmount_force_cmd[@]}"
 						if [[ $status -eq 0 ]]; then
-							echo-style --positive='Unmounted forcefully.'
+							__print_style --positive='Unmounted forcefully.'
 							break # skip to cleanup
 						elif is-abort -- "$status"; then
-							echo-style --warning='will abort...'
+							__print_style --warning='will abort...'
 							return 98 # EADDRINUSE 98 Address already in use
 						else
-							echo-style --notice='Force unmount encountered a problem. Will check again...'
+							__print_style --notice='Force unmount encountered a problem. Will check again...'
 							continue # try again
 						fi
 					elif is-abort -- "$status"; then
-						echo-style --warning='will abort...'
+						__print_style --warning='will abort...'
 						return 98 # EADDRINUSE 98 Address already in use
 					else
 						# failure
-						echo-error 'An unexpected failure occurred.'
+						__print_error 'An unexpected failure occurred.'
 						return "$status"
 					fi
 				fi
@@ -1674,45 +1595,45 @@ function mount_helper() (
 			# cleanup
 			if [[ -n $option_target ]]; then
 				# check if it exists as our intended user
-				eval_capture --statusvar=status -- "${exists_cmd[@]}"
+				__try {status} -- "${exists_cmd[@]}"
 				if [[ $status -eq 0 ]]; then
 					# log
-					echo-style --notice='Cleaning unmounted target...' ' ' --invert="$option_target"
+					__print_style --notice='Cleaning unmounted target...' ' ' --invert="$option_target"
 					# it exists as our intended user, so we can remove it as our intended user
 					if [[ $status -eq 0 ]]; then
 						"${rm_cmd[@]}" # eval, no need to eval wrap as it is noisy enough
 					fi
 					# check
-					eval_capture --statusvar=status -- "${exists_cmd[@]}"
+					__try {status} -- "${exists_cmd[@]}"
 					if [[ $status -eq 0 ]]; then
-						echo-style --warning='Failed to clean...'
+						__print_style --warning='Failed to clean...'
 						return 66 # ENOTEMPTY 66 Directory not empty
 					fi
-					echo-style --positive='Cleaned unmounted target.'
+					__print_style --positive='Cleaned unmounted target.'
 				else
 					# check if it exists as root
-					eval_capture --statusvar=status -- "${exists_root_cmd[@]}"
+					__try {status} -- "${exists_root_cmd[@]}"
 					if [[ $status -eq 0 ]]; then
 						# log
-						echo-style --notice='Cleaning unmounted target as root...' ' ' --invert="$option_target"
+						__print_style --notice='Cleaning unmounted target as root...' ' ' --invert="$option_target"
 						"${rm_root_cmd[@]}" # eval, no need to eval wrap as it is noisy enough
 						# check
-						eval_capture --statusvar=status -- "${exists_root_cmd[@]}"
+						__try {status} -- "${exists_root_cmd[@]}"
 						if [[ $status -eq 0 ]]; then
-							echo-style --warning='Failed to clean...'
+							__print_style --warning='Failed to clean...'
 							return 66 # ENOTEMPTY 66 Directory not empty
 						fi
-						echo-style --positive='Cleaned unmounted target.'
+						__print_style --positive='Cleaned unmounted target.'
 					fi # else it doesn't exist
 				fi
 			fi
 
 			# success
-			echo-style --g2='unmount'
+			__print_style --g2='unmount'
 			return 0
 		}
 		function do_mount {
-			local unmount_status ls_status fix_perms=()
+			local unmount_status ls_status
 
 			# check if invalid
 			if [[ -z $option_share || -z $option_target ]]; then
@@ -1721,27 +1642,27 @@ function mount_helper() (
 
 			# verify mounting
 			if [[ ${#mounting_cmd[@]} -eq 0 ]]; then
-				echo-error "Unable to understand how to mount the source:" ' ' --code="$log_source"
+				__print_error "Unable to understand how to mount the source:" ' ' --code="$log_source"
 				return 22 # EINVAL 22 Invalid argument
 			fi
 
 			# unmount with appropriate handling for remounting
-			eval_capture --statusvar=unmount_status -- do_unmount --goal=mount
+			__try {unmount_status} -- do_unmount --goal=mount
 			if [[ $unmount_status -eq 200 ]]; then
-				echo-style --notice='Skipped remount.'
+				__print_style --notice='Skipped remount.'
 				return 0
 			elif [[ $unmount_status -ne 0 ]]; then
-				echo-style --warning='Failed to unmount the target.'
+				__print_style --warning='Failed to unmount the target.'
 				return "$unmount_status"
 			fi
 
 			# segment
-			echo-style --h2='mount'
+			__print_style --h2='mount'
 
 			# validate gocryptfs here instead of during parsing, as if it is during parsing, it will crash if checking if an unmounted gocryptfs source is unmounted (e.g. /mnt/an-unmounted-hard-drive/a-gocryptfs-source)
 			if [[ -n $gocryptfs_source ]]; then
 				if ! gocryptfs-helper verify -- "$gocryptfs_source" --user="$option_user" --group="$option_group"; then
-					echo-error 'Failed to verify gocryptfs mount source:' ' ' --code="$gocryptfs_source"
+					__print_error 'Failed to verify gocryptfs mount source:' ' ' --code="$gocryptfs_source"
 					return 22 # EINVAL 22 Invalid argument
 				fi
 			fi
@@ -1765,38 +1686,33 @@ function mount_helper() (
 			# if not mounted, go through the process
 			if [[ $uses_mkdir == 'yes' ]]; then
 				# make the directory
+				# @todo consider some way to make the directory with the appropriate permissions so we don't have to adjust it after the fact
 				"${mkdir_cmd[@]}"
-				# @todo instead of the fix_perms workaround always being needed when saying making /Volumes/TARGET for the first time (as /Volumes will be root because / is root, despite /Volumes/TARGET being desired), we should make a [fs-mkdir] helper that accepts the desired ownership arguments, uses sudo to create and own each missing parent before moving on to create and own each missing child
 
-				# then chown it, without parent modification, but recommend parent modification if it fails
+				# then chown it, escalating to the parent if necessary
 				if [[ $uses_ownership == 'yes' ]]; then
-					eval-helper --no-quiet --wrap --shapeshifter \
-						-- fs-own --ug --owner="$option_owner" --user="$option_user" --group="$option_group" \
-						--recursive -- "$option_target"
-					fix_perms=(
-						fs-own --ug --owner="$option_owner" --user="$option_user" --group="$option_group"
-						--recursive --parents -- "$(echo-escape-command -- "$option_target")"
-					)
+					eval-helper --verbose --wrap --shapeshifter -- \
+						fs-own --ug --owner="$option_owner" --user="$option_user" --group="$option_group" --recursive --parents -- \
+						"$option_target"
 				else
-					fix_perms=(
-						fs-own --ug --me
-						--recursive --parents -- "$(echo-escape-command -- "$option_target")"
-					)
+					eval-helper --verbose --wrap --shapeshifter -- \
+						fs-own --ug --me --recursive --parents -- \
+						"$option_target"
 				fi
 
 				# then ls it
-				eval_capture --statusvar=ls_status -- eval-helper --no-quiet --wrap -- "${ls_cmd[@]}"
+				__try {ls_status} -- eval-helper --verbose --wrap -- "${ls_cmd[@]}"
 				if [[ $ls_status -ne 0 ]]; then
-					echo-style --notice1='Failed to access the mount target: ' --code-notice1="$option_target" $'\n' \
-						--notice='This is likely due to incorrect permissions on the target or its parent directories, and probably requires running the following to resolve:' $'\n' \
-						--code="${fix_perms[*]}"
+					__print_style \
+						--notice1='Failed to access the mount target: ' --code-notice1="$option_target" --newline \
+						--notice='This is likely due to incorrect permissions on the target or its parent directories.'
 					return "$ls_status"
 				fi
 			fi
 
 			# mount
-			eval-helper --no-quiet --wrap \
-				-- "${mounting_cmd[@]}"
+			eval-helper --verbose --wrap -- \
+				"${mounting_cmd[@]}"
 
 			# wait
 			if [[ $uses_wait == 'yes' ]]; then
@@ -1805,26 +1721,25 @@ function mount_helper() (
 
 			# chown
 			if [[ $uses_ownership == 'yes' ]] && ! __is_samba "$option_type"; then
-				eval-helper --no-quiet --wrap --shapeshifter \
-					-- fs-own --recursive --ug --owner="$option_owner" --user="$option_user" --group="$option_group" \
-					-- "$option_target"
+				eval-helper --verbose --wrap --shapeshifter -- \
+					fs-own --ug --owner="$option_owner" --user="$option_user" --group="$option_group" --recursive -- \
+					"$option_target"
 			fi
 
 			# ls
 			# 0 = ok
 			# 1 = minor problem (e.g., cannot access subdirectory)
 			# 2 = serious trouble (e.g., cannot access command-line argument)
-			eval_capture --statusvar=ls_status -- eval-helper --no-quiet --wrap -- "${ls_cmd[@]}"
+			__try {ls_status} -- eval-helper --verbose --wrap -- "${ls_cmd[@]}"
 			if [[ $ls_status -eq 1 ]]; then
-				echo-style --notice='Listing failed to access a subdirectory, but that is okay.'
+				__print_style --notice='Listing failed to access a subdirectory, but that is okay.'
 			elif [[ $ls_status -ne 0 ]]; then
-				echo-style --warning='Failed to list the target.'
+				__print_style --warning='Failed to list the target.'
 				return "$ls_status"
 			fi
 
 			# log
-			echo-style --success='Successfully mounted' ' ' --invert="$log_source" ' ' --success='to' ' ' --invert="$option_target"
-			echo-style --g2='mount'
+			__print_style --success='Successfully mounted' ' ' --invert="$log_source" ' ' --success='to' ' ' --invert="$option_target" --newline --g2='mount'
 		}
 
 		# =====================================
@@ -1839,6 +1754,9 @@ function mount_helper() (
 			# check
 			if [[ $option_actions == *'[check]'* ]]; then
 				do_check
+				if [[ -z $SHARED_CHECK_STATUS ]]; then
+					return 1
+				fi
 			fi
 
 			# config
@@ -1849,7 +1767,6 @@ function mount_helper() (
 
 			# unmount
 			if [[ $option_actions == *'[unmount]'* ]]; then
-				# trunk-ignore(shellcheck/SC2119)
 				do_unmount
 			fi
 
@@ -1866,14 +1783,14 @@ function mount_helper() (
 
 		# do the action with correct logging
 		local action_status
-		echo-style --h2="$title"
+		__print_style --h2="$title"
 		log_source_target
-		eval_capture --statusvar=action_status -- do_action
+		__try {action_status} -- do_action
 		log_source_target
 		if [[ $action_status -eq 0 ]]; then
-			echo-style --g2="$title"
+			__print_style --g2="$title"
 		else
-			echo-style --e2="$title"
+			__print_style --e2="$title"
 			return "$action_status"
 		fi
 	}
@@ -1882,7 +1799,7 @@ function mount_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			USAGE:
 			mount-helper [--] [...options]
 
@@ -1939,15 +1856,15 @@ function mount_helper() (
 
 			USAGE:
 
-			mount-helper \
-				-- --action=... --type=btrfs --share='/dev/...' --target='/Volumes/folder' \
-				-- --action=... --btrfs [--label='...'] [--count=...] [--share='/dev/...'] --target='/Volumes/folder' \
-				-- --action=... --gocryptfs --share='/path/to/vault' --target='/Volumes/folder' \
-				-- --action=... --samba --server='ip' --share='folder' --target='/Volumes/folder' \
-				-- --automount --samba --username='user' --password='pass' --server='ip' --share='folder' --target='/Volumes/folder'
+			mount-helper -- \
+				--action=... --type=btrfs --share='/dev/...' --target='/Volumes/folder' -- \
+				--action=... --btrfs [--label='...'] [--count=...] [--share='/dev/...'] --target='/Volumes/folder' -- \
+				--action=... --gocryptfs --share='/path/to/vault' --target='/Volumes/folder' -- \
+				--action=... --samba --server='ip' --share='folder' --target='/Volumes/folder' -- \
+				--automount --samba --username='user' --password='pass' --server='ip' --share='folder' --target='/Volumes/folder'
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -1966,18 +1883,10 @@ function mount_helper() (
 		'--configure') option_actions+='[configure]' ;;
 		'--check' | '--mounted') option_actions+='[check]' ;;
 
-		'--no-automount'* | '--automount'*)
-			option_automount="$(get-flag-value --affirmative --fallback="$option_automount" -- "$item")"
-			;;
-		'--no-cron'* | '--cron'*)
-			option_cron="$(get-flag-value --affirmative --fallback="$option_cron" -- "$item")"
-			;;
-		'--no-fstab'* | '--fstab'*)
-			option_fstab="$(get-flag-value --affirmative --fallback="$option_fstab" -- "$item")"
-			;;
-		'--no-remount'* | '--remount'*)
-			option_remount="$(get-flag-value --affirmative --fallback="$option_remount" -- "$item")"
-			;;
+		'--no-automount'* | '--automount'*) __flag --source={item} --target={option_automount} --affirmative ;;
+		'--no-cron'* | '--cron'*) __flag --source={item} --target={option_cron} --affirmative ;;
+		'--no-fstab'* | '--fstab'*) __flag --source={item} --target={option_fstab} --affirmative ;;
+		'--no-remount'* | '--remount'*) __flag --source={item} --target={option_remount} --affirmative ;;
 
 		'--type='*) option_type="${item#*=}" ;;
 		'--samba' | '--smb' | '--smbfs' | '--cifs') option_type='samba' ;;
@@ -1987,9 +1896,7 @@ function mount_helper() (
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
 		'--owner='*) option_owner="${item#*=}" ;;
-		'--no-own'* | '--own'*)
-			option_own="$(get-flag-value --affirmative --fallback="$option_own" -- "$item")"
-			;;
+		'--no-own'* | '--own'*) __flag --source={item} --target={option_own} --affirmative ;;
 
 		'--username='*) option_username="${item#*=}" ;;
 		'--password='*) option_password="${item#*=}" ;;
@@ -2006,7 +1913,7 @@ function mount_helper() (
 			action
 			reset
 			;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 

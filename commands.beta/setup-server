@@ -21,15 +21,21 @@ function setup_server() (
 	local DRIVE_MOUNT=() VAULT_MOUNT=() SAMBA_MOUNT=()
 	local PLEX_HOME='' SYNCTHING_HOME='' TRANSMISSION_HOME=''
 	local NORDVPN_TOKEN='' NORDVPN_DNS='' # 1.1.1.1 or 192.168.5.20 or whatever
-	echo-style --h2='server configuration'
+	__print_style --h2='server configuration' || return
 	load_dorothy_config 'server.bash'
-	echo-style --g2='server configuration'
+	__print_style --g2='server configuration' || return
 
 	# -------------------------------------
 	# Adjustments
 
 	local me owner=''
-	me="$(whoami)"
+	__prepare_current_user
+	if [[ $CURRENT_USER != 'root' ]]; then
+		me="$CURRENT_USER"
+	else
+		__prepare_login_user
+		me="$LOGIN_USER"
+	fi
 
 	local services_enable=(
 		'nordvpnd.socket'
@@ -110,7 +116,7 @@ function setup_server() (
 	else
 		# not linux, so fail on assert_linux
 		function assert_linux {
-			echo-error 'This action is for linux machines only.'
+			__print_error 'This action is for linux machines only.'
 			return 46 # EPFNOSUPPORT 46 Protocol family not supported
 		}
 	fi
@@ -126,17 +132,15 @@ function setup_server() (
 			shift
 			case "$item" in
 			'--help' | '-h') help ;;
-			'--no-reload'* | '--reload'*)
-				option_reload="$(get-flag-value --affirmative --fallback="$option_reload" -- "$item")"
-				;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
+			'--no-reload'* | '--reload'*) __flag --source={item} --target={option_reload} --affirmative ;;
+			'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 			esac
 		done
 
 		# check configuration
 		if [[ -z $SHARE_USER || -z $SHARE_GROUP ]]; then
-			echo-error 'SHARE_USER and SHARE_GROUP must be defined'
+			__print_error 'SHARE_USER and SHARE_GROUP must be defined'
 			return 1
 		fi
 
@@ -145,25 +149,25 @@ function setup_server() (
 			# create share user if necessary
 			if ! is-user -- "$SHARE_USER"; then
 				# create user
-				sudo-helper -- useradd "$SHARE_USER" || :
+				eval-helper --elevate -- useradd "$SHARE_USER" || :
 			fi
 
 			# ensure correct share user password
 			if [[ -n $SHARE_PASSWORD ]]; then
-				printf '%s:%s\n' "$SHARE_USER" "$SHARE_PASSWORD" | sudo-helper -- chpasswd
+				printf '%s:%s\n' "$SHARE_USER" "$SHARE_PASSWORD" | eval-helper --elevate -- chpasswd
 				if __command_exists -- smbpasswd; then
-					printf '%s\n%s\n' "$SHARE_PASSWORD" "$SHARE_PASSWORD" | sudo-helper -- smbpasswd -sa "$SHARE_USER"
+					printf '%s\n%s\n' "$SHARE_PASSWORD" "$SHARE_PASSWORD" | eval-helper --elevate -- smbpasswd -sa "$SHARE_USER"
 				fi
 			fi
 
 			# ensure user is only a share user, rather than a login user
 			# must be after password setting, as password setting will undo this
-			sudo-helper -- usermod -L "$SHARE_USER"
+			eval-helper --elevate -- usermod -L "$SHARE_USER"
 		fi
 
 		# create share group if desired and necessary
 		if [[ -n $SHARE_GROUP ]] && ! is-group -- "$SHARE_GROUP"; then
-			sudo-helper -- groupadd "$SHARE_GROUP" || :
+			eval-helper --elevate -- groupadd "$SHARE_GROUP" || :
 		fi
 
 		# add users to groups
@@ -180,11 +184,11 @@ function setup_server() (
 				fi
 				# skip if user already inside the group
 				if is-user-in-group --user="$user" --group="$group"; then
-					echo-style --dim="user [$user] is already inside group [$group]"
+					__print_style --dim --variable={user} ' is already inside ' --variable={group} || return
 					continue
 				fi
 				# add the user to the group
-				sudo-helper -- gpasswd -a "$user" "$group"
+				eval-helper --elevate -- gpasswd -a "$user" "$group"
 				# if it affected us, we have to reload
 				if [[ $user == "$me" ]]; then
 					option_reload='yes'
@@ -194,7 +198,7 @@ function setup_server() (
 
 		# check if reload is necessary
 		if [[ $option_reload == 'yes' ]]; then
-			echo-style \
+			__print_style \
 				--success="The current user [$me] has been added to new groups." --newline \
 				--notice='You must logout or reboot for the change to apply.'
 		fi
@@ -205,7 +209,7 @@ function setup_server() (
 	if [[ -n $SHARE_USER && -n $SHARE_GROUP ]]; then
 		assert_linux
 		if is-user -- "$SHARE_USER" && is-group -- "$SHARE_GROUP" && is-user-in-group --user="$me" --group="$SHARE_GROUP"; then
-			owner="$(get-user-id "$SHARE_USER"):$(get-group-id "$SHARE_GROUP")"
+			owner="$(get-user-id --user="$SHARE_USER"):$(get-group-id --group="$SHARE_GROUP")"
 		else
 			setup_owner --reload='yes'
 		fi
@@ -229,9 +233,9 @@ function setup_server() (
 		temp='/var/lib/plexmediaserver'
 		if [[ -n $PLEX_HOME ]] && is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
 			if is-missing --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$PLEX_HOME"; then
-				sudo-helper -- mv -v -- "$temp" "$PLEX_HOME"
+				eval-helper --elevate -- mv -v -- "$temp" "$PLEX_HOME"
 			else
-				echo-style --warning="Both [$temp] and [$PLEX_HOME] exist"
+				__print_style --warning="Both [$temp] and [$PLEX_HOME] exist" || return
 			fi
 		fi
 		if is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
@@ -246,9 +250,9 @@ function setup_server() (
 		temp="$XDG_CONFIG_HOME/syncthing"
 		if [[ -n $SYNCTHING_HOME ]] && is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
 			if is-missing --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$SYNCTHING_HOME"; then
-				sudo-helper -- mv -v -- "$temp" "$SYNCTHING_HOME"
+				eval-helper --elevate -- mv -v -- "$temp" "$SYNCTHING_HOME"
 			else
-				echo-style --warning="Both [$temp] and [$SYNCTHING_HOME] exist"
+				__print_style --warning="Both [$temp] and [$SYNCTHING_HOME] exist" || return
 			fi
 		fi
 		if is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
@@ -266,9 +270,9 @@ function setup_server() (
 		temp='/var/lib/transmission-daemon'
 		if [[ -n $TRANSMISSION_HOME ]] && is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
 			if is-missing --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$TRANSMISSION_HOME"; then
-				sudo-helper -- mv -v -- "$temp" "$TRANSMISSION_HOME"
+				eval-helper --elevate -- mv -v -- "$temp" "$TRANSMISSION_HOME"
 			else
-				echo-style --warning="Both [$temp] and [$TRANSMISSION_HOME] exist"
+				__print_style --warning="Both [$temp] and [$TRANSMISSION_HOME] exist" || return
 			fi
 		fi
 		if is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
@@ -278,16 +282,16 @@ function setup_server() (
 			paths+=("$TRANSMISSION_HOME")
 			# clear the log as it goes on forever
 			if is-present --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$TRANSMISSION_HOME/transmission.log"; then
-				sudo-helper -- truncate -s0 "$TRANSMISSION_HOME/transmission.log"
+				eval-helper --elevate -- truncate -s0 "$TRANSMISSION_HOME/transmission.log"
 			fi
 		fi
 
 		# apply
 		if [[ ${#paths[@]} -ne 0 ]]; then
-			eval-helper --no-quiet --wrap -- \
+			eval-helper --verbose --wrap -- \
 				fs-own --optional --permissions="$perms" --user="$SHARE_USER" --group="$SHARE_GROUP" --recursive -- "${paths[@]}"
 		else
-			echo-style --notice='No service configurations found yet.'
+			__print_style --notice='No service configurations found yet.' || return
 		fi
 	}
 
@@ -301,7 +305,7 @@ function setup_server() (
 
 		# samba
 		if service-helper --exists 'smbd'; then
-			edit --wait --sudo -- '/etc/samba/smb.conf'
+			edit --wait --elevate -- '/etc/samba/smb.conf'
 			testparm --suppress-prompt >/dev/null # test samba config
 		fi
 
@@ -309,7 +313,7 @@ function setup_server() (
 		if [[ -n $PLEX_HOME ]]; then
 			temp="$PLEX_HOME/Preferences.xml"
 			if is-file --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
-				edit --wait --sudo -- "$temp"
+				edit --wait --elevate -- "$temp"
 			fi
 		fi
 
@@ -317,7 +321,7 @@ function setup_server() (
 		if [[ -n $SYNCTHING_HOME ]]; then
 			temp="$SYNCTHING_HOME/config.xml"
 			if is-file --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
-				edit --wait --sudo -- "$temp"
+				edit --wait --elevate -- "$temp"
 			fi
 		fi
 
@@ -325,7 +329,7 @@ function setup_server() (
 		if [[ -n $TRANSMISSION_HOME ]]; then
 			temp="$TRANSMISSION_HOME/settings.json"
 			if is-file --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp"; then
-				edit --wait --sudo -- "$temp"
+				edit --wait --elevate -- "$temp"
 			fi
 		fi
 	}
@@ -350,8 +354,8 @@ function setup_server() (
 
 	function act_setup {
 		# fix timezone
-		sudo-helper -- dpkg-reconfigure tzdata # essential, otherwise time won't sync
-		# not needed, as is handled during installation: sudo-helper -- dpkg-reconfigure locales
+		eval-helper --elevate -- dpkg-reconfigure tzdata # essential, otherwise time won't sync
+		# not needed, as is handled during installation: eval-helper --elevate -- dpkg-reconfigure locales
 
 		# setup utilities
 		local utility
@@ -372,7 +376,7 @@ function setup_server() (
 		temp="$(type -P gocryptfs 2>/dev/null || :)"
 		if [[ -n $temp ]]; then
 			# ensure that it is accessible
-			if ! sudo-helper --inherit --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp" --version; then
+			if ! eval-helper --inherit --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$temp" --version; then
 				setup-util-gocryptfs --upgrade
 			fi
 
@@ -385,19 +389,21 @@ function setup_server() (
 	# VPN
 
 	function verify_nordvpn_killswitch {
+		# note: I'm not sure why [echo-write] is needed here, need to test on my raspberry pi server machine, and document why or remove it
+
 		# verify firewall, this is crucial for killswitch to work
 		nordvpn set firewall on || : # or to prevent already enabled errors
 		waiter 5                     # this can take a while for changes to be reflected
-		if ! nordvpn settings | echo-wait | grep --quiet --fixed-strings --regexp='Firewall: enabled'; then
-			echo-style --error='Firewall failed to enable. Reboot your machine.'
+		if ! nordvpn settings | echo-write --buffer | grep --quiet --fixed-strings --regexp='Firewall: enabled'; then
+			__print_style --error='Firewall failed to enable. Reboot your machine.' || return
 			return 2
 		fi
 
 		# verify killswitch
 		nordvpn set killswitch on || : # or to prevent already enabled errors
 		waiter 5                       # this can take a while for changes to be reflected
-		if ! nordvpn settings | echo-wait | grep --quiet --fixed-strings --regexp='Kill Switch: enabled'; then
-			echo-style --error='Killswitch failed to enable. Reboot your machine.'
+		if ! nordvpn settings | echo-write --buffer | grep --quiet --fixed-strings --regexp='Kill Switch: enabled'; then
+			__print_style --error='Killswitch failed to enable. Reboot your machine.' || return
 			return 2
 		fi
 	}
@@ -413,15 +419,14 @@ function setup_server() (
 			clear_address="$(what-is-my-ip remote)"
 			clear_prefix="$(__print_lines "$clear_address" | echo-regexp -o --regexp='^[0-9]+[.][0-9]+[.][0-9]+[.]')"
 			if [[ $vpn_prefix == "$clear_prefix" ]]; then
-				echo-style --success="Successfully connected [$clear_address] to NordVPN [$vpn_address]."
+				__print_style --success="Successfully connected [$clear_address] to NordVPN [$vpn_address]." || return
 			else
-				echo-style --error="Not connected [$clear_address] to NordVPN [$vpn_address]."
+				__print_style --error="Not connected [$clear_address] to NordVPN [$vpn_address]." || return
 				return 1
 			fi
 		else
 			return 1
 		fi
-
 		# verify nordvpn killswitch
 		verify_nordvpn_killswitch
 	}
@@ -498,10 +503,10 @@ function setup_server() (
 			# sudo sysctl net/ipv6/conf/default/forwarding=1
 			# sudo sysctl net/ipv6/conf/all/forwarding=1
 
-			eval-helper --no-quiet --wrap \
-				-- sudo ufw status verbose # verbose shows ports + protocols of apps
-			eval-helper --no-quiet --wrap \
-				-- sudo iptables -L -v
+			eval-helper --verbose --wrap -- \
+				sudo ufw status verbose # verbose shows ports + protocols of apps
+			eval-helper --verbose --wrap -- \
+				sudo iptables -L -v
 		fi
 
 		# continue with nordvpn
@@ -566,12 +571,9 @@ function setup_server() (
 			# attempt nordvpn connect
 			nordvpn set autoconnect on P2P
 			nordvpn connect P2P || {
-				echo-style --warning='NordVPN failed to connect, here are the logs:'
+				__print_style --warning='NordVPN failed to connect, here are the logs:' || return
 				service-helper --logs -- nordvpnd
-				nordvpn connect P2P || {
-					echo-error 'NordVPN failed to connect, try rebooting manually.'
-					return 1
-				}
+				nordvpn connect P2P || __return $? -- __print_error 'NordVPN failed to connect, try rebooting manually.' || return
 			}
 			waiter 60
 
@@ -587,7 +589,7 @@ function setup_server() (
 	# Connection Status
 
 	function act_check {
-		local ec
+		local check_status
 
 		# no nordvpn on this machine, so just check the internet is working
 		if __command_missing -- nordvpn; then
@@ -596,58 +598,57 @@ function setup_server() (
 		fi
 
 		# verify vpn
-		eval_capture --statusvar=ec -- verify_nordvpn_connection
-		if [[ $ec -eq 2 ]]; then
+		__try {check_status} -- verify_nordvpn_connection
+		if [[ $check_status -eq 2 ]]; then
 			# killswitch failed, we must reboot
 			act_stop
-			echo-style --warning='Failed to activate killswitch. Stopped all services. Ready for reboot:'
-			echo-style --code='sudo reboot'
+			__print_style --warning='Failed to activate killswitch. Stopped all services. Ready for reboot:' || return
+			__print_style --code='sudo reboot' || return
 			return 1
-		elif [[ $ec -ne 0 ]]; then
+		elif [[ $check_status -ne 0 ]]; then
 			# failed to connect, try again
 			service-helper --stop --ignore -- "${services_vpn_dependent[@]}"
-			eval_capture --statusvar=ec -- act_connect
-			if [[ $ec -eq 0 ]]; then
-				echo-style --success='Reconnected to NordVPN.'
+			__try {check_status} -- act_connect
+			if [[ $check_status -eq 0 ]]; then
+				__print_style --success='Reconnected to NordVPN.' || return
 
-				echo-style --notice='Resuming dependent services:'
+				__print_style --notice='Resuming dependent services:' || return
 				# the [|| :] is to that we resume, rather than start, as the service may be dependent on another service such as samba or a mount, this functionality is more just for temporary vpn disconnections/reconnections
 				service-helper --start --ignore -- "${services_vpn_dependent[@]}" || :
-				echo-style --success='Resumed dependent services.'
+				__print_style --success='Resumed dependent services.' || return
 			else
-				echo-style --error='Failed to connect to NordVPN.'
-				echo-style --notice='As dependent services have already stopped, disabling NordVPN.'
+				__print_style --error='Failed to connect to NordVPN.' || return
+				__print_style --notice='As dependent services have already stopped, disabling NordVPN.' || return
 				act_disconnect
-				echo-style --warning='You will have to figure out why NordVPN failed.'
+				__print_style --warning='You will have to figure out why NordVPN failed.' || return
 				return 1
 			fi
 		else
-			echo-style --success='Connection OK.'
+			__print_style --success='Connection OK.' || return
 		fi
 	}
 
 	function act_status {
-		# eval-helper --no-quiet --wrap \
+		# eval-helper --verbose --wrap \
 		# 	-- sudo ufw status verbose
-		# eval-helper --no-quiet --wrap \
+		# eval-helper --verbose --wrap \
 		# 	-- sudo iptables -L -v
-		eval-helper --no-quiet --wrap \
-			-- cat /etc/resolv.conf
-		eval-helper --no-quiet --wrap \
-			-- resolvectl status --no-pager
-		eval-helper --no-quiet --wrap \
-			-- resolvectl dns
-		eval-helper --no-quiet --wrap \
-			-- nslookup cloudflare.com
+		echo-file -- /etc/resolv.conf
+		eval-helper --verbose --wrap -- \
+			resolvectl status --no-pager
+		eval-helper --verbose --wrap -- \
+			resolvectl dns
+		eval-helper --verbose --wrap -- \
+			nslookup cloudflare.com
 		if __command_exists -- nordvpn; then
-			eval-helper --no-quiet --wrap \
-				-- nordvpn status
-			eval-helper --no-quiet --wrap \
-				-- fetch 'http://ipecho.net/plain'
-			eval-helper --no-quiet --wrap \
-				-- fetch 'https://test.nextdns.io'
-			eval-helper --no-quiet --wrap \
-				-- fetch "https://nordvpn.com/wp-admin/admin-ajax.php?action=get_user_info_data&ip=$(what-is-my-ip remote)"
+			eval-helper --verbose --wrap -- \
+				nordvpn status
+			eval-helper --verbose --wrap -- \
+				fetch 'http://ipecho.net/plain'
+			eval-helper --verbose --wrap -- \
+				fetch 'https://test.nextdns.io'
+			eval-helper --verbose --wrap -- \
+				fetch "https://nordvpn.com/wp-admin/admin-ajax.php?action=get_user_info_data&ip=$(what-is-my-ip remote)"
 		fi
 	}
 
@@ -657,26 +658,26 @@ function setup_server() (
 	function act_mount {
 		# volumes
 		if is-not-directory --user="$SHARE_USER" --group="$SHARE_GROUP" -- '/Volumes'; then
-			sudo-helper -- mkdir -p -- '/Volumes'
+			__elevate_mkdirp -- '/Volumes'
 			fs-own --user="$SHARE_USER" --group="$SHARE_GROUP" --no-recursive -- '/Volumes'
 		fi
 
 		# drive
 		if [[ ${#DRIVE_MOUNT[@]} -ne 0 ]]; then
-			eval-helper --no-quiet --wrap --shapeshifter \
-				-- mount-helper "${DRIVE_MOUNT[@]}" "${OWNER_MOUNT[@]}" --mount
+			eval-helper --verbose --wrap --shapeshifter -- \
+				mount-helper "${DRIVE_MOUNT[@]}" "${OWNER_MOUNT[@]}" --mount
 		fi
 
 		# vault
 		if [[ ${#VAULT_MOUNT[@]} -ne 0 ]]; then
 			local vault_share
-			vault_share="$(get-flag-value share -- "${VAULT_MOUNT[@]}")"
+			__flag --target={vault_share} --name=share -- "${VAULT_MOUNT[@]}"
 			if [[ -n $vault_share ]] && is-missing --user="$SHARE_USER" --group="$SHARE_GROUP" -- "$vault_share"; then
 				gocryptfs-helper new -- "$vault_share"
 				fs-own --user="$SHARE_USER" --group="$SHARE_GROUP" --recursive -- "$vault_share"
 			fi
-			eval-helper --no-quiet --wrap --shapeshifter \
-				-- mount-helper "${VAULT_MOUNT[@]}" "${OWNER_MOUNT[@]}" --mount
+			eval-helper --verbose --wrap --shapeshifter -- \
+				mount-helper "${VAULT_MOUNT[@]}" "${OWNER_MOUNT[@]}" --mount
 		fi
 
 		# samba
@@ -694,15 +695,15 @@ function setup_server() (
 		# vault
 		service-helper --ignore --stop --status --logs -- "${services_vault_dependent[@]}"
 		if [[ ${#VAULT_MOUNT[@]} -ne 0 ]]; then
-			eval-helper --no-quiet --wrap --shapeshifter \
-				-- mount-helper "${VAULT_MOUNT[@]}" "${OWNER_MOUNT[@]}" --unmount --no-automount
+			eval-helper --verbose --wrap --shapeshifter -- \
+				mount-helper "${VAULT_MOUNT[@]}" "${OWNER_MOUNT[@]}" --unmount --no-automount
 		fi
 
 		# drive
 		service-helper --ignore --stop --status --logs -- "${services_drive_dependent[@]}"
 		if [[ ${#DRIVE_MOUNT[@]} -ne 0 ]]; then
-			eval-helper --no-quiet --wrap --shapeshifter \
-				-- mount-helper "${DRIVE_MOUNT[@]}" "${OWNER_MOUNT[@]}" --unmount --no-automount
+			eval-helper --verbose --wrap --shapeshifter -- \
+				mount-helper "${DRIVE_MOUNT[@]}" "${OWNER_MOUNT[@]}" --unmount --no-automount
 		fi
 	}
 
@@ -737,20 +738,20 @@ function setup_server() (
 	}
 	function act_shutdown {
 		act_stop
-		sudo-helper -- shutdown --poweroff
+		eval-helper --elevate -- shutdown --poweroff
 	}
 	function act_reboot {
 		act_stop
-		sudo-helper -- shutdown --reboot
+		eval-helper --elevate -- shutdown --reboot
 	}
 
 	# =====================================
 	# Action
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return
 			USAGE:
-			setup-server <action>
+			\`setup-server <action>\`
 
 			ACTIONS:
 			setup
@@ -786,9 +787,6 @@ function setup_server() (
 			check
 			    Check the internet (and optional VPN) connection is working.
 		EOF
-		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
@@ -804,12 +802,12 @@ function setup_server() (
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			if [[ -z $action ]]; then
 				action="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
@@ -821,12 +819,9 @@ function setup_server() (
 	# act
 	if [[ -z $action ]]; then
 		help 'No <action> provided.'
-	elif [[ "$(type -t "act_$action")" == 'function' ]]; then
-		"act_$action" "${option_args[@]}"
-	else
-		echo-error "$0: Action not yet implemented: $action"
-		return 78 # ENOSYS 78 Function not implemented
 	fi
+	__affirm_function_is_defined "act_$action"
+	"act_$action" "${option_args[@]}" # eval
 )
 
 # fire if invoked standalone

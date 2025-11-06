@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+function echo_transpose_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	eval-tester --stdout=$'1 4 7\n2 5 8\n3 6 9' -- echo-transpose --delimiter=' ' <<-EOF
+		1 2 3
+		4 5 6
+		7 8 9
+	EOF
+
+	eval-tester --stdout=$'1\t4\t7\n2\t5\t8\n3\t6\t9' -- echo-transpose <<<$'1\t2\t3\n4\t5\t6\n7\t8\t9'
+
+	return 0
+)
+function echo_transpose() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	# trunk-ignore(shellcheck/SC2120)
+	function help {
+		cat <<-EOF >&2
+			ABOUT:
+			Transpose the rows and columns of the <input> by the <delimiter> argument.
+
+			USAGE:
+			echo-transpose [...options] [--] ...<input>
+			echo-lines ...<input> | echo-transpose [...options]
+
+			OPTIONS:
+			--delimiter=<delimiter>
+			    The delimiter to separate the <input> into items.
+			    Defaults to the tab character.
+
+			$(__stdinargs__help_options --)
+
+			QUIRKS:
+			All columns must have a value, no empty/zero-length values.
+		EOF
+		if [[ $# -ne 0 ]]; then
+			__print_error "$@"
+		fi
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_delimiter=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		# trunk-ignore(shellcheck/SC2119)
+		'--help' | '-h') help ;;
+		'--delimiter='*) option_delimiter="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	if [[ -z $option_delimiter ]]; then
+		option_delimiter=$'\t'
+	fi
+
+	# =====================================
+	# Action
+
+	local results=() columns=() columns_total='' row_index=0 delimiter_length="${#option_delimiter}"
+	function __on_line {
+		# trunk-ignore(shellcheck/SC2034)
+		local input="$1"
+		row_index=$((row_index + 1))
+		__split --source={input} --target={columns} --keep-zero-length --delimiter="$option_delimiter" || return
+		local -i i n="${#columns[@]}"
+		if [[ -z $columns_total ]]; then
+			columns_total="$n"
+			for ((i = 0; i < n; i++)); do
+				results[i]=''
+			done
+		elif [[ $n -ne $columns_total ]]; then
+			__print_error "The number of columns in the input is inconsistent, expected $columns_total but got $n on row $row_index." || return
+			return 1
+		fi
+		for ((i = 0; i < n; i++)); do
+			results[i]+="${columns[i]}$option_delimiter"
+		done
+	}
+	function __on_finish {
+		# trim the trailing delimiter
+		local -i index total="${#results[@]}" size
+		for ((index = 0; index < total; index++)); do
+			size="${#results[index]}"
+			results[index]="${results[index]:0:size-delimiter_length}"
+		done
+		__print_lines "${results[@]}" || return
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_transpose_test
+	else
+		echo_transpose "$@"
+	fi
+fi

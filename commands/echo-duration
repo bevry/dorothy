@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+
+function echo_duration_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# this first one may install the tool, use --discard-tty to avoid dumping thousands of lines to the CI terminal, and --ignore-tty to avoid comparisons of the captured TTY data
+
+	# arguments
+	local expected=(
+		'15.1 seconds'
+		'20 seconds'
+		'60.1 seconds (1 minute)'
+		'61 seconds (1 minute, 1 second)'
+		'62 seconds (1 minute, 2 seconds)'
+		'120 seconds (2 minutes)'
+		'121 seconds (2 minutes, 1 second)'
+		'122 seconds (2 minutes, 2 seconds)'
+		'600 seconds (10 minutes)'
+		'601 seconds (10 minutes, 1 second)'
+		'661 seconds (11 minutes, 1 second)'
+		'722 seconds (12 minutes, 2 seconds)'
+	) expected_lines
+	expected_lines="$(__print_lines "${expected[@]}")"
+	eval-tester --discard-tty --ignore-tty --stdout="$expected_lines" -- echo-duration --start=5.5 --end=20.6 -- 20 60.1 61 62 120 121 122 600 601 661 722
+	# stdin
+	__print_lines 15.1 20 60.1 61 62 120 121 122 600 601 661 722 | eval-tester --stdout="$expected_lines" -- echo-duration --stdin
+
+	return 0
+)
+function echo_duration() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	# trunk-ignore(shellcheck/SC2120)
+	function help {
+		__print_help "$@" <<-EOF || return
+			ABOUT:
+			For each <input>, escape regex control characters by prepending backslashes.
+
+			USAGE:
+			\`echo-duration [...options] [[--] ...<input>]\`
+			\`echo-lines ...<input> | echo-duration [...options]\`
+
+			OPTIONS:
+			--before=<before> | --begin=<before> | --start=<before>
+			    A timestamp (in seconds) representing the start time.
+			--after=<after> | --end=<after> | --finish=<after>
+			    A timestamp (in seconds) representing the end time.
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLE:
+			\`echo-duration --before=5 --after=20  # 15 seconds\`
+			\`echo-duration -- 20  # 20 seconds\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# this was provided by chatgpt, with printf modifications
+	function __on_piece {
+		local delta="$1" parts=() delta_seconds hours='' minutes='' seconds=''
+		# check if it is below 60 seconds, in which case we just print it with milliseconds
+		seconds="${delta%%.*}"
+		if [[ $seconds -lt 60 ]]; then
+			__print_lines "$delta seconds" || return
+			return
+		fi
+		# remove unnecessary trailing zeroes from delta
+		if [[ $delta == *.* ]]; then
+			while [[ $delta == *0 ]]; do
+				delta="${delta%0}"
+			done
+			while [[ $delta == *. ]]; do
+				delta="${delta%.}"
+			done
+		fi
+		# remove decimal for seconds
+		delta_seconds="${delta%%.*}"
+		if [[ $delta_seconds -lt 60 ]]; then
+			seconds="$delta_seconds"
+		elif [[ $delta_seconds -lt 3600 ]]; then
+			minutes="$((delta_seconds / 60))" || return
+			seconds="$((delta_seconds - minutes * 60))" || return
+		else
+			hours="$((delta_seconds / 3600))" || return
+			minutes="$(((delta_seconds - hours * 3600) / 60))" || return
+			seconds="$((delta_seconds - hours * 3600 - minutes * 60))" || return
+		fi
+		# parts
+		if [[ $hours -eq 1 ]]; then
+			parts+=("$hours hour")
+		elif [[ $hours -gt 1 ]]; then
+			parts+=("$hours hours")
+		fi
+		if [[ $minutes -eq 1 ]]; then
+			parts+=("$minutes minute")
+		elif [[ $minutes -gt 1 ]]; then
+			parts+=("$minutes minutes")
+		fi
+		if [[ $seconds -eq 1 ]]; then
+			parts+=("$seconds second")
+		elif [[ $seconds -gt 1 ]]; then
+			parts+=("$seconds seconds")
+		fi
+		# join
+		if [[ $delta_seconds -lt 60 || ${#parts[@]} -eq 0 ]]; then
+			__print_lines "$delta seconds" || return
+		else
+			local join=''
+			__join --source={parts} --delimiter=', ' --target={join} || return
+			__print_lines "$delta seconds ($join)" || return
+		fi
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_before='' option_after='' option_args=()
+	function __delta {
+		if [[ -z $option_before || -z $option_after ]]; then
+			return
+		fi
+		local delta
+		delta="$(echo-math -- "$option_after - $option_before")" || return # echo-math necessary as they have decimals
+		option_args+=("$delta")
+		option_after='' option_before=''
+	}
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		# trunk-ignore(shellcheck/SC2119)
+		'--help' | '-h') help ;;
+		'--before='* | '--begin='* | '--start='*)
+			option_before="${item#*=}"
+			__delta
+			;;
+		'--after='* | '--end='* | '--finish='*)
+			option_after="${item#*=}"
+			__delta
+			;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_duration_test
+	else
+		echo_duration "$@"
+	fi
+fi

@@ -17,6 +17,7 @@ while [[ $# -ne 0 ]]; do
 	if [[ -f $path ]]; then
 		if [[ ! -r $path ]]; then
 			# does exist: not readable however, so no ability to check contents
+			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 			exit 13 # EACCES 13 Permission denied
 		fi
 		if [[ -s $path ]]; then
@@ -24,18 +25,22 @@ while [[ $# -ne 0 ]]; do
 			continue
 		else
 			# does exist: is a symlink to an empty file, or an empty file
+			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 			exit 17 # EEXIST 17 File exists
 		fi
 	elif [[ -e $path ]]; then
 		# does exist: not a symlink to a file, nor a file
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 79 # EFTYPE 79 Inappropriate file type or format
 	else
 		# discern if inaccessible, broken, missing
 		is-accessible.bash -- "$path" || exit
 		if [[ -L $path ]]; then
 			# broken symlink
+			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 			exit 9 # EBADF 9 Bad file descriptor
 		fi
+		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 2 # ENOENT 2 No such file or directory
 	fi
 done

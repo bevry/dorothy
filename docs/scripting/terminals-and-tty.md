@@ -8,77 +8,11 @@
 
 Refer to `debug-terminal-stdin` and `debug-terminal-tty` for additional implementation details
 
-## STDIN
+## Results
 
-### Detection
+Refer to `debug-terminal --test` for generating results.
 
-| technique             | context                              | result                                                                                                                                     |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `file /dev/stdin`     | direct                               | `/dev/stdin: character special (16/4)`                                                                                                     |
-| `file /dev/stdin`     | immediate pipe/redirection           | `/dev/stdin: fifo (named pipe)`                                                                                                            |
-| `file /dev/stdin`     | delayed pipe/redirection             | `/dev/stdin: fifo (named pipe)`                                                                                                            |
-| `file /dev/stdin`     | background task: all                 | `/dev/stdin: character special (3/2)`                                                                                                      |
-| `file /dev/stdin`     | ssh -T: direct                       | `/dev/stdin: fifo (named pipe)`                                                                                                            |
-| `file /dev/stdin`     | GitHub Actions: direct               | `/dev/stdin: symbolic link to /proc/self/fd/0` `/proc/self/fd/0: symbolic link to pipe:[16750]` `/dev/fd/0: symbolic link to pipe:[16750]` |
-| `file /dev/stdin`     | GitHub Actions: background task: all | `/dev/stdin: symbolic link to /proc/self/fd/0` `/proc/self/fd/0: symbolic link to /dev/null` `/dev/fd/0: symbolic link to /dev/null`       |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read -t 0`           | direct                               | exit status `1`                                                                                                                            |
-| `read -t 0`           | immediate pipe/redirection           | exit status `0`                                                                                                                            |
-| `read -t 0`           | delayed pipe/redirection             | exit status `1`                                                                                                                            |
-| `read -t 0`           | background task: all                 | exit status `0`                                                                                                                            |
-| `read -t 0`           | ssh -T: direct                       | exit status `1`                                                                                                                            |
-| `read -t 0`           | GitHub Actions: direct               | exit status `0`                                                                                                                            |
-| `read -t 0`           | GitHub Actions: background task: all | exit status `0`                                                                                                                            |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `[[ -t 0 ]]`          | direct                               | exit status `0`                                                                                                                            |
-| `[[ -t 0 ]]`          | immediate pipe/redirection           | exit status `1`                                                                                                                            |
-| `[[ -t 0 ]]`          | delayed pipe/redirection             | exit status `1`                                                                                                                            |
-| `[[ -t 0 ]]`          | background task: all                 | exit status `1`                                                                                                                            |
-| `[[ -t 0 ]]`          | ssh -T: direct                       | exit status `1`                                                                                                                            |
-| `[[ -t 0 ]]`          | GitHub Actions: direct               | exit status `1`                                                                                                                            |
-| `[[ -t 0 ]]`          | GitHub Actions: background task: all | exit status `1`                                                                                                                            |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `[[ -p /dev/stdin ]]` | direct                               | exit status `1`                                                                                                                            |
-| `[[ -p /dev/stdin ]]` | immediate pipe/redirection           | exit status `0`                                                                                                                            |
-| `[[ -p /dev/stdin ]]` | delayed pipe/redirection             | exit status `0`                                                                                                                            |
-| `[[ -p /dev/stdin ]]` | background task: all                 | exit status `1`                                                                                                                            |
-| `[[ -p /dev/stdin ]]` | ssh -T: direct                       | exit status `0`                                                                                                                            |
-| `[[ -p /dev/stdin ]]` | GitHub Actions: direct               | exit status `0`                                                                                                                            |
-| `[[ -p /dev/stdin ]]` | GitHub Actions: background task: all | exit status `1`                                                                                                                            |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `[[ -c /dev/stdin ]]` | direct                               | exit status `0`                                                                                                                            |
-| `[[ -c /dev/stdin ]]` | immediate pipe/redirection           | exit status `1`                                                                                                                            |
-| `[[ -c /dev/stdin ]]` | delayed pipe/redirection             | exit status `1`                                                                                                                            |
-| `[[ -c /dev/stdin ]]` | background task: all                 | exit status `0`                                                                                                                            |
-| `[[ -c /dev/stdin ]]` | ssh -T: direct                       | exit status `1`                                                                                                                            |
-| `[[ -c /dev/stdin ]]` | GitHub Actions: direct               | exit status `1`                                                                                                                            |
-| `[[ -c /dev/stdin ]]` | GitHub Actions: background task: all | exit status `0`                                                                                                                            |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `[[ -r /dev/stdin ]]` | direct                               | exit status `0`                                                                                                                            |
-| `[[ -r /dev/stdin ]]` | immediate pipe/redirection           | exit status `0`                                                                                                                            |
-| `[[ -r /dev/stdin ]]` | delayed pipe/redirection             | exit status `0`                                                                                                                            |
-| `[[ -r /dev/stdin ]]` | background task: all                 | exit status `0`                                                                                                                            |
-| `[[ -r /dev/stdin ]]` | ssh -T: direct                       | exit status `0`                                                                                                                            |
-| `[[ -r /dev/stdin ]]` | GitHub Actions: direct               | exit status `0`                                                                                                                            |
-| `[[ -r /dev/stdin ]]` | GitHub Actions: background task: all | exit status `0`                                                                                                                            |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `[[ -w /dev/stdin ]]` | direct                               | exit status `0`                                                                                                                            |
-| `[[ -w /dev/stdin ]]` | immediate pipe/redirection           | exit status `0`                                                                                                                            |
-| `[[ -w /dev/stdin ]]` | delayed pipe/redirection             | exit status `0`                                                                                                                            |
-| `[[ -w /dev/stdin ]]` | background task: all                 | exit status `0`                                                                                                                            |
-| `[[ -w /dev/stdin ]]` | ssh -T: direct                       | exit status `0`                                                                                                                            |
-| `[[ -w /dev/stdin ]]` | GitHub Actions: direct               | exit status `0`                                                                                                                            |
-| `[[ -w /dev/stdin ]]` | GitHub Actions: background task: all | exit status `0`                                                                                                                            |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read -rei`           | direct                               | default shown and exit status `0` if enter pressed or `1` if nothing sent                                                                  |
-| `read -rei`           | immediate pipe/redirection           | default ignored and exit status `0` if input sent or `1` if nothing sent                                                                   |
-| `read -rei`           | delayed pipe/redirection             | default ignored and exit status `0` if input sent or `1` if nothing sent                                                                   |
-| `read -rei`           | background task: all                 | input and default ignored and exit status `1`, regardless of piping and redirections                                                       |
-| `read -rei`           | ssh -T: direct                       | default ignored and exit status `0` if enter pressed or `142` if timed out                                                                 |
-| `read -rei`           | GitHub Actions: direct               | default ignored and exit status `0` if input sent, or `1` if nothing sent                                                                  |
-| `read -rei`           | GitHub Actions: background task: all | input and default ignored and exit status `1`, regardless of piping and redirections                                                       |
-
-### Observations
+## Conclusions
 
 - direct execution is interactive within the direct context and within the `ssh -T ...` context
 - direct execution is interactive and reactive within the direct context

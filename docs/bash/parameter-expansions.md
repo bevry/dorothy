@@ -58,29 +58,29 @@ Advice:
 
 ```bash
 # get first line, via pipe, tried and tested
-echo -e 'a\nb' | echo-first-line
+printf '%s\n' $'a\nb' | echo-first-line
 
 # get first line, via variable
-var=$'one\ntwo'; echo "${var%$'\n'*}" # one
+var=$'one\ntwo'; printf '%s\n' "${var%$'\n'*}" # one
 
 # get everything before the first X
-var="aXbXc"; echo "${var%%X*}" # a
+var="aXbXc"; printf '%s\n' "${var%%X*}" # a
 
 # get everything after the first X
-var="aXbXc"; echo "${var#*X}" # bXc
+var="aXbXc"; printf '%s\n' "${var#*X}" # bXc
 
 # get everything before the last X
-var="aXbXc"; echo "${var%X*}" # aXb
+var="aXbXc"; printf '%s\n' "${var%X*}" # aXb
 
 # get everything after the last X
-var="aXbXc"; echo "${var##*X}" # c
+var="aXbXc"; printf '%s\n' "${var##*X}" # c
 
 
 # replace first o with O
-echo "${var/o/O}"
+printf '%s\n' "${var/o/O}"
 
 # replace all o with O
-echo "${var//o/O}"
+printf '%s\n' "${var//o/O}"
 ```
 
 ## get backslash escapes

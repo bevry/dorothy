@@ -8,14 +8,17 @@ function get_app() (
 		"$HOME/Applications"
 		'/Applications'
 		'/Applications/Setapp'
-		'/System/Applications' # TextEdit
+		'/Applications/Utilities'
+		'/System/Applications'           # TextEdit
+		'/System/Applications/Utilities' # Terminal
+		'/System/Library/CoreServices'   # Finder
 	)
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Get the full path of a GUI application.
 
@@ -29,42 +32,46 @@ function get_app() (
 			--no-quiet | --quiet
 			    If enabled, do not output the path of the application, and do not output any error messages.
 
+			--id | --output=id
+			    If enabled, on macos, output the bundle identifier of the application instead of the path.
+
 			QUIRKS:
 			Searches the following paths for the application:
 			$(__print_lines "${dirs[@]}")
+
+			If the application failed to resolve, it will not be outputted.
+			Only if it is impossible to detect whether the application is present, will a failure occur.
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_apps=() option_quiet=''
+	local item option_apps=() option_quiet='' option_output=path
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--app='*) option_apps+=("${item#*=}") ;;
-		'--name='*) option_apps+=("${item#*=}") ;;
-		'--no-verbose'* | '--verbose'*)
-			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--no-quiet'* | '--quiet'*)
-			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--')
+		--help | -h) help ;;
+		--app=*) option_apps+=("${item#*=}") ;;
+		--name=*) option_apps+=("${item#*=}") ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		--id | --output=id) option_output=id ;;
+		--path | --output=path) option_output=path ;;
+		--)
 			option_apps+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			if [[ ${#option_apps[@]} -eq 0 ]]; then
 				option_apps+=("$item")
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
@@ -78,7 +85,7 @@ function get_app() (
 	# =====================================
 	# Action
 
-	local name app dir path can_find was_found
+	local name app dir path can_find was_found result
 	for name in "${option_apps[@]}"; do
 		if [[ -z $name ]]; then
 			return 1
@@ -92,9 +99,18 @@ function get_app() (
 			for dir in "${dirs[@]}"; do
 				path="$dir/$app"
 				if [[ -d $path ]]; then
+					if [[ $option_output == 'id' ]]; then
+						# get the bundle identifier
+						result="$(defaults read "$path/Contents/Info.plist" CFBundleIdentifier 2>/dev/null || :)"
+						if [[ -z $result ]]; then
+							continue
+						fi
+					else
+						result="$path"
+					fi
 					was_found='yes'
 					if [[ $option_quiet != 'yes' ]]; then
-						__print_lines "$path"
+						__print_lines "$result"
 					fi
 					continue
 				fi
@@ -106,13 +122,13 @@ function get_app() (
 			fi
 			# wasn't found
 			return 1
-		elif is-wsl; then
+		elif is-windows; then
 			can_find='no'
 			if __command_exists -- winget.exe; then
 				can_find='yes'
 				# only output if found
 				local winget_status winget_stdout
-				eval_capture --statusvar=winget_status --stdoutvar=winget_stdout -- winget.exe list --disable-interactivity "$name"
+				__do --redirect-status={winget_status} --redirect-stdout={winget_stdout} -- winget.exe list --disable-interactivity "$name"
 				if [[ $winget_status -eq 0 ]]; then
 					if [[ $option_quiet != 'yes' ]]; then
 						echo-last-line --stdin <<<"$winget_stdout"
@@ -124,8 +140,8 @@ function get_app() (
 				can_find='yes'
 				# check for the header of the table of results
 				local scoop_stdout
-				scoop_stdout="$(scoop list "$name")"
-				if grep --quiet --fixed-strings --regexp='----' <<<"$scoop_stdout"; then
+				scoop_stdout="$(scoop list "$name" || :)"
+				if [[ $scroop_stdout == *'----'* ]]; then
 					if [[ $option_quiet != 'yes' ]]; then
 						echo-trim-padding -- "$scoop_stdout" | echo-last-line --stdin
 					fi
@@ -134,7 +150,7 @@ function get_app() (
 			fi
 			if [[ $can_find == 'no' ]]; then
 				if [[ $option_quiet != 'yes' ]]; then
-					echo-error "Unable to detect application [$name] on WSL. Install Winget or Scoop."
+					__print_error 'Unable to detect application ' --variable-value={name} ' on WSL. Install Winget or Scoop.'
 				fi
 				return 6 # ENXIO 6 Device not configured
 			fi
@@ -142,12 +158,12 @@ function get_app() (
 			return 1
 		elif is-headless; then
 			if [[ $option_quiet != 'yes' ]]; then
-				echo-style --notice="Skipping detection of application [$name] on headless system." >/dev/stderr
+				__print_style --stderr --notice 'Skipping detection of application ' --variable-value={name} ' on headless system.'
 			fi
 			return 19 # ENODEV 19 Operation not supported by device
 		else
 			if [[ $option_quiet != 'yes' ]]; then
-				echo-error "Unable to detect application [$name] on Linux. Submit a PR to support it."
+				__print_style --stderr --notice 'Unable to detect application ' --variable-value={name} ' on Linux. Submit a PR to support it.'
 			fi
 			return 19 # ENODEV 19 Operation not supported by device
 		fi

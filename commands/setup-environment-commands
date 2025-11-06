@@ -1,69 +1,252 @@
 #!/usr/bin/env bash
+
+# =====================================
+# IMPORTANT NOTES
+
+# Don't use `is-admin` here, as sudo does not necessarily load this, as such sudo should inherit standard config.
+
+# Right to left is the preference for paths.
+
+# =====================================
+# Helpers
+
+function __add_directory {
+	local directory="$1" target="${2:-PATH}"
+	if [[ -d $directory ]]; then
+		directory="${directory// /\\ }"
+		eval "$target=\"\$directory:\$$target\""
+	fi
+}
+
+# PATH, LDFLAGS, CPPFLAGS, PKG_CONFIG_PATH
+function __add_prefix_directory {
+	local p="$1"
+	if [[ -n $p && -d $p ]]; then
+		# for invokers to discover it
+		__add_directory "$p/bin" || return
+		# for invokers under root to discover it
+		if [[ $USER == 'root' ]]; then
+			__add_directory "$p/sbin" || return
+		fi
+		# for compilers to discover it
+		if [[ -d "$p/lib" ]]; then
+			LDFLAGS="-L$p/lib $LDFLAGS"
+			# for pkg-config to discover it
+			__add_directory "$p/lib/pkgconfig" PKG_CONFIG_PATH || return
+		fi
+		if [[ -d "$p/include" ]]; then
+			CPPFLAGS="-I$p/include $CPPFLAGS"
+		fi
+		# man and share/man
+		__add_directory "$p/man" MANPATH || return
+		__add_directory "$p/share/man" MANPATH || return
+		__add_directory "$p/share/info" INFOPATH || return
+	fi
+}
+
+# add ruby gems
+function __add_ruby_gem {
+	local gem="$1"
+	export GEM_HOME="$HOME/.gem"
+	if [[ -x $gem ]]; then
+		# fetch gempaths and replace colons with newlines
+		local gemdirs=() gemdir
+		__split --target={gemdirs} --no-zero-length --delimiters=':' --invoke -- \
+			"$gem" environment gempath || :
+		for gemdir in "${gemdirs[@]}"; do
+			PATH="$gemdir/bin:$PATH"
+		done
+	fi
+}
+
+function __cut {
+	# turn `<hash>  <path>` into `<hash>`
+	# cut -f1 -d ' '
+	local checksum
+	IFS=' ' read -r checksum _
+	__print_lines "$checksum"
+}
+
+# =====================================
+# Requisites
+
+# DOROTHY for sourcing
 export DOROTHY
 if [[ -z ${DOROTHY-} ]]; then
 	self="${BASH_SOURCE:-"$0"}"
 	DOROTHY="${self%/commands/setup-environment-commands*}"
 fi
 
+# sources
 source "$DOROTHY/sources/bash.bash"
-__require_array 'mapfile'
-
-# =====================================
-# Notes
-
-# This is an internal command, no need for help handling.
-
-# Don't use `is-admin` here, as sudo does not necessarily load this
-# so sudo should inherit standard config.
-
-# Right to left is the preference for paths.
-
-# Always use terminal editor for prompts as GUI editors are too slow.
-
-# =====================================
-# Helpers
-
-function rubygems {
-	local gem="$1" gemdirs_string gemdirs_array gemdir
-	export GEM_HOME="$HOME/.gem"
-	if [[ -x $gem ]]; then
-		# fetch gempaths and replace colons with newlines
-		gemdirs_string="$("$gem" environment gempath)"
-		gemdirs_string="${gemdirs_string//:/$'\n'}"
-		mapfile -t gemdirs_array <<<"$gemdirs_string" # <("$gem" environment gempath | tr ':' '\n')
-		for gemdir in "${gemdirs_array[@]}"; do
-			PATH="$gemdir/bin:$PATH"
-		done
-	fi
-}
-
-# =====================================
-# Configuration
-
 source "$DOROTHY/sources/config.sh"
 
-# arguments provides:
-export shell="${1-}"
+# help
+function help {
+	__print_help "$@" <<-EOF || return
+		ABOUT:
+		Outputs commands to be evaluated by the caller to setup the environment for a given shell.
 
-# testing
-if [[ $* == *'--refresh'* ]]; then
-	env -i DOROTHY="$DOROTHY" "$DOROTHY/commands/setup-environment-commands" "$shell"
-	exit
+		USAGE:
+		\`setup-environment-commands [...options] --shell=<shell>\`
+
+		OPTIONS:
+		--shell=<shell> | <shell>
+		    The shell to export the environment for.
+
+		--debug
+		    If provided, output decisions and their context to STDERR.
+
+		--blank
+		    If provided, don't load any environment variables, useful for debugging and demonstration.
+
+		--invalidate
+		    If provided, invalidate the cache, if there is one.
+	EOF
+	return 22 # EINVAL 22 Invalid argument
+}
+
+# arguments
+option_shell='' # shared by env.bash, as it is handled by a trap, we cannot pass arguments to it. SHELL is taken, it is the login shell
+option_debug='no'
+option_blank='no'
+option_invalidate='no'
+while [[ $# -ne 0 ]]; do
+	item="$1"
+	shift
+	case "$item" in
+	--help) help ;;
+	--shell=*) option_shell="${item#*=}" ;;
+	--ppid=*) : ;; # ignore for now, for future cache invalidation idea
+	--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative || exit ;;
+	--no-blank* | --blank*) __flag --source={item} --target={option_blank} --affirmative || exit ;;
+	--no-invalidate* | --invalidate*) __flag --source={item} --target={option_invalidate} --affirmative || exit ;;
+	--no-fresh* | --fresh* | --no-refresh* | --refresh*)
+		__flag --source+target={item} --affirmative || exit
+		if [[ $item == 'yes' ]]; then
+			option_blank='yes'
+			option_invalidate='yes'
+		fi
+		;;
+	--*) __unrecognised_flag "$item" || exit ;;
+	*) __unrecognised_argument "$item" || exit ;;
+	esac
+done
+if [[ $option_debug == 'yes' ]]; then
+	# trunk-ignore(shellcheck/SC2034)
+	DOROTHY_DEBUG='yes'
+	__dump --debug {option_shell} {option_debug} {option_blank} {option_invalidate}
+fi
+if [[ $option_blank == 'yes' ]]; then
+	env -i DOROTHY="$DOROTHY" \
+		"$DOROTHY/commands/setup-environment-commands" \
+		--shell="$option_shell" \
+		--debug="$option_debug" \
+		--invalidate="$option_invalidate"
+	# don't send blank because then it will recurse forever
+	exit 0
+fi
+if [[ -z $option_shell ]]; then
+	help 'Missing required argument: --shell=<shell>'
 fi
 
-# environment provides:
-# DOROTHY
-
-# environment.bash provides:
-# NVM_DIR, HOMEBREW_ARCH, PYENV_VERSION, RUBY_VERSION
-# and other overrides
+# caching, depends on options
+CACHE_LOCK_FILE=''
+CACHE_RESULT_FILE=''
+function __cache {
+	# cache the environment setup commands
+	local cache_dir="$TMPDIR/dorothy/setup-environment-commands"
+	if [[ $option_invalidate == 'yes' ]]; then
+		__dump --debug --value='== CACHE INVALIDATED ==' {cache_dir}
+		rm -rf "$cache_dir" || :
+	fi
+	local option_validity_seconds='' option_checksum_command=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--validity-seconds='*) option_validity_seconds="${item#*=}" ;;
+		'--')
+			option_checksum_command+=("$@")
+			shift "$#"
+			break
+			;;
+		*)
+			__print_lines "ERROR: Unrecognised __cache argument: $item" >&2
+			return 22 # EINVAL 22 Invalid argument
+			;;
+		esac
+	done
+	if [[ -z $option_validity_seconds ]]; then
+		# default to thirty minutes
+		option_validity_seconds=1800 # 600
+	fi
+	if [[ ${#option_checksum_command[@]} -eq 0 ]]; then
+		option_checksum_command+=(openssl dgst -md5 -r)
+	fi
+	if __command_missing -- "${option_checksum_command[0]}"; then
+		__print_lines "ERROR: To use __cache you must specify a checksum command that exists and is executable, unlike: ${option_checksum_command[0]}" >&2
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	# @todo instead of ignore_env_vars change it to list of only vars instead, which is automatically updated from what this actually sets
+	local now_env context_id checksum ignore_env_var ignore_env_vars=(TERM_SESSION_ID SECURITYSESSIONID LaunchInstanceID GPG_TTY PS4 SSH_AGENT_PID SSH_AUTH_SOCK COLOR BASH_DEBUG_FORMAT SHLVL TMPDIR) env_args=()
+	for ignore_env_var in "${ignore_env_vars[@]}"; do
+		env_args+=(-u "$ignore_env_var")
+	done
+	now_env="$(env "${env_args[@]}" | sort)" || return
+	checksum="$("${option_checksum_command[@]}" <<<"$now_env" | __cut)" || return
+	context_id="setup-environment-commands.$option_shell.$checksum"
+	# get an exclusive lock on the context
+	CACHE_LOCK_FILE="$(__get_semlock "$context_id")" || return
+	# get the result cache of the context
+	CACHE_RESULT_FILE="$cache_dir/$context_id"
+	# if cache is available and applicable
+	if [[ -f $CACHE_RESULT_FILE ]]; then
+		local now_seconds cache_seconds cache_ago_seconds
+		# if cache is still valid
+		# local now_seconds cache_seconds cache_ago_seconds
+		now_seconds="$(__get_epoch_seconds)" || return
+		cache_seconds="$(date -r "$CACHE_RESULT_FILE" +%s)" || return
+		cache_ago_seconds="$((now_seconds - cache_seconds))"
+		if [[ $cache_ago_seconds -lt $option_validity_seconds ]]; then
+			# then use the cache
+			__dump --debug --value='== CACHE HIT ==' {CACHE_RESULT_FILE}
+			cat -- "$CACHE_RESULT_FILE" || return
+			rm -f -- "$CACHE_LOCK_FILE" || return
+			trap - EXIT # disable the `env.bash` trap
+			exit 0      # must be exit, otherwise `setup-environment-commands` will continue
+		else
+			__dump --debug --value='== CACHE EXPIRED ==' {CACHE_RESULT_FILE}
+			:
+		fi
+	else
+		__dump --debug --value='== CACHE 404 ==' {CACHE_RESULT_FILE}
+		__mkdirp "$cache_dir" || return
+		:
+	fi
+	# cache needs updating
+	function __on_env_finish__cache {
+		local -i status=$?
+		trap - EXIT # disable our cache trap override
+		if [[ $status -ne 0 ]]; then
+			rm -f -- "$CACHE_LOCK_FILE"
+			return "$status"
+		fi
+		# store the result
+		__dump --debug --value='== CACHE UPDATING ==' {CACHE_RESULT_FILE}
+		__on_env_finish | tee -- "$CACHE_RESULT_FILE" || __return $? -- rm -f -- "$CACHE_LOCK_FILE" || return
+		rm -f -- "$CACHE_LOCK_FILE" || return
+		return 0
+	}
+	trap __on_env_finish__cache EXIT # replace our prior trap with one that caches the result
+}
 
 # load env.bash now, so that
 # any exported variables changed from now on are echo'd at finish
 source "$DOROTHY/sources/env.bash"
 
 # =====================================
-# Prepare
+# Requisites
 
 # PATH vars contain multiple paths
 # _DIR vars contain a single universal path
@@ -77,12 +260,13 @@ export LANG LC_ALL EDITOR
 # env -i "$(type -P bash)" -l -- $(type -P 'dorothy-command')
 # Fresh install of Dorothy on Ubuntu 21.04 on a Raspberry Pi 400
 if [[ -z ${USER-} ]]; then
+	__prepare_current_user
 	export USER
-	USER="$(whoami 2>/dev/null || users 2>/dev/null || __print_lines 'unknown')"
+	USER="$CURRENT_USER"
 fi
 if [[ -z ${HOME-} ]]; then
 	export HOME
-	# should coincide with sudo-helper
+	# should coincide with [eval-helper --elevate]
 	if [[ -d /Users ]]; then
 		HOME="/Users/$USER"
 	elif [[ -d "/home/$USER" ]]; then
@@ -94,68 +278,70 @@ if [[ -z ${HOME-} ]]; then
 	fi
 fi
 
+# =====================================
+# More Requisites
+# While these seem optional, if the environment is entirely cleared, which can happen under cron, these are still essential
+
 # Local directories
 # https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch04s09.html
-export BIN_DIR CONF_DIR DATA_DIR LIB_DIR STATE_DIR SERVICE_DIR LOGS_DIR
-BIN_DIR='/usr/local/bin'
-CONF_DIR='/usr/local/etc'
-DATA_DIR='/usr/local/share'
-LIB_DIR='/usr/local/lib'
-STATE_DIR='/var/local/state'
+# always override for now, as it is seems unlikely that these will ever change, so allowing override is not necessary
+export \
+	BIN_DIR='/usr/local/bin' \
+	CONF_DIR='/usr/local/etc' \
+	DATA_DIR='/usr/local/share' \
+	LIB_DIR='/usr/local/lib' \
+	STATE_DIR='/var/local/state' \
+	SERVICE_DIR LOGS_DIR # set later
 
 # XDG
 # https://wiki.archlinux.org/title/XDG_Base_Directory
 # https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 # XDG_RUNTIME_DIR is a special directory and variable created by the system
-export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-"$HOME/.config"}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-"$HOME/.cache"}"
-export XDG_BIN_HOME="${XDG_BIN_HOME:-"$HOME/.local/bin"}"
-export XDG_DATA_HOME="${XDG_DATA_HOME:-"$HOME/.local/share"}"
-export XDG_STATE_HOME="${XDG_STATE_HOME:-"$HOME/.local/state"}"
+export XDG_PREFIX="${XDG_PREFIX:-"$HOME/.local"}"
+export \
+	XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-"$HOME/.config"}" \
+	XDG_CACHE_HOME="${XDG_CACHE_HOME:-"$HOME/.cache"}" \
+	XDG_BIN_HOME="${XDG_BIN_HOME:-"$XDG_PREFIX/bin"}" \
+	XDG_DATA_HOME="${XDG_DATA_HOME:-"$XDG_PREFIX/share"}" \
+	XDG_STATE_HOME="${XDG_STATE_HOME:-"$XDG_PREFIX/state"}"
 # ^ if these are already defined, not to worry, `env.bash` will tidy up duplicates
 __mkdirp "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_BIN_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
-# Appimage
-export APPIMAGE_HOME="${APPIMAGE_HOME:-"$HOME/Applications"}"
-
 # reset paths and flags
 # $PATH last to make sure we inherit operating-system specific paths, such as WSL paths, and let the deduplicator later trim out duplicates in preferred order
-export PATH="$DOROTHY/commands:$XDG_BIN_HOME:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+export \
+	PATH="$DOROTHY/commands:$XDG_BIN_HOME:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" \
+	MANPATH="${MANPATH-}" \
+	INFOPATH="${INFOPATH-}" \
+	CLASSPATH="${CLASSPATH-}" \
+	PKG_CONFIG_PATH="${PKG_CONFIG_PATH-}" \
+	LDFLAGS="${LDFLAGS-}" \
+	CPPFLAGS="${CPPFLAGS-}" \
+	CC CXX \
+	LIBRARY_PATH="${LIBRARY_PATH-}"
 
-export MANPATH="${MANPATH-}" INFOPATH="${INFOPATH-}" CLASSPATH="${CLASSPATH-}" PKG_CONFIG_PATH="${PKG_CONFIG_PATH-}" LDFLAGS="${LDFLAGS-}" CPPFLAGS="${CPPFLAGS-}" CC CXX LIBRARY_PATH="${LIBRARY_PATH-}"
+# theme and terminal essentials
+export TERM_PROGRAM="${TERM_PROGRAM-}" THEME COLOR
+THEME="$(get-terminal-theme || :)"
+COLOR="$(get-terminal-color-support --fallback=yes)"
 
-# local vars
+# helpful local vars
 p=''
 
 # =====================================
 # Configuration
 
 # prepare hooks, and load user overrides
-function before_dorothy_paths {
-	return 0
-}
-function after_dorothy_paths {
-	return 0
-}
-function after_everything {
-	return 0
-}
+function before_dorothy_paths { :; }
+function after_dorothy_paths { :; }
+function after_everything { :; }
 load_dorothy_config 'environment.bash'
+# environment.bash provides:
+# NVM_DIR, HOMEBREW_ARCH, PYENV_VERSION, RUBY_VERSION
+# and other overrides
 
 # =====================================
 # Environment
-
-# XDG compiled properties
-export XDG_DATA_DIRS="${XDG_DATA_DIRS:-"$XDG_DATA_HOME:/usr/local/share:/usr/share"}"
-export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-"$XDG_CONFIG_HOME:/etc/xdg"}"
-
-# Flatpak adjustments
-if [[ -d '/var/lib/flatpak/exports/share' ]]; then
-	XDG_DATA_DIRS="/var/lib/flatpak/exports/share:$XDG_DATA_DIRS"
-fi
-if [[ -d "$XDG_DATA_HOME/flatpak/exports/share" ]]; then
-	XDG_DATA_DIRS="$XDG_DATA_HOME/flatpak/exports/share:$XDG_DATA_DIRS"
-fi
 
 # Should we prefer XDG?
 export PREFER_XDG
@@ -163,6 +349,32 @@ if [[ $DOROTHY == "$HOME/.dorothy" ]]; then
 	PREFER_XDG='no'
 else
 	PREFER_XDG='yes'
+fi
+
+# XDG compiled properties
+export XDG_DATA_DIRS="${XDG_DATA_DIRS:-"$XDG_DATA_HOME:/usr/local/share:/usr/share"}"
+export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-"$XDG_CONFIG_HOME:/etc/xdg"}"
+
+# Flatpak adjustments
+__add_directory '/var/lib/flatpak/exports/share' XDG_DATA_DIRS
+__add_directory "$XDG_DATA_HOME/flatpak/exports/share" XDG_DATA_DIRS
+
+# Appimage
+export APPIMAGE_HOME="${APPIMAGE_HOME:-"$HOME/Applications"}"
+
+# Homebrew, UNIX
+__add_prefix_directory /usr
+__add_prefix_directory /usr/local
+
+# Zsh
+# https://zsh.sourceforge.io/Intro/intro_3.html
+export ZDOTDIR
+if [[ -z ${ZDOTDIR-} ]]; then
+	if [[ $PREFER_XDG == 'yes' ]]; then
+		ZDOTDIR="$XDG_CONFIG_HOME/zsh"
+	elif [[ $PREFER_XDG == 'no' ]]; then
+		ZDOTDIR="$HOME"
+	fi
 fi
 
 # GnuPG
@@ -186,25 +398,20 @@ fi
 # Xcode
 # if [[ -x '/usr/bin/xcode-select' && -x '/usr/bin/xcrun' ]]; then
 if __command_exists -- 'xcode-select' 'xcrun'; then
-	#p='/Applications/Xcode.app/Contents/Developer'
-	p="$(xcode-select --print-path 2>/dev/null || :)"
-
 	# Apple Command Line Tools
-	if [[ -d '/Library/Developer/CommandLineTools/usr/bin' ]]; then
-		PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
-	fi
+	__add_prefix_directory '/Library/Developer/CommandLineTools/usr'
 
 	# Xcode Command Line Tools
-	if [[ -d "$p/usr/bin" ]]; then
-		PATH="$p/usr/bin:$PATH"
-	fi
+	#p='/Applications/Xcode.app/Contents/Developer'
+	p="$(xcode-select --print-path 2>/dev/null || :)"
+	__add_prefix_directory "$p/usr"
 
 	# Xcode Toolchain
-	p="$p/Toolchains/XcodeDefault.xctoolchain/usr/bin"
-	if [[ -d $p ]]; then
-		PATH="$p:$PATH"
-		#CC="$p/clang"
-		#CXX="$p/clang++"
+	p="$p/Toolchains/XcodeDefault.xctoolchain"
+	__add_prefix_directory "$p/usr"
+	if [[ -d "$p/usr/bin" ]]; then
+		#CC="$p/usr/bin/clang"
+		#CXX="$p/usr/bin/clang++"
 		CC="$(xcrun --find clang 2>/dev/null || :)"
 		CXX="$(xcrun --find clang++ 2>/dev/null || :)"
 	fi
@@ -213,12 +420,9 @@ if __command_exists -- 'xcode-select' 'xcrun'; then
 	# /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk => $p/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk => xcrun --sdk macosx --show-sdk-path
 	#p='/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
 	p="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || :)"
+	__add_prefix_directory "$p/usr"
 	if [[ -d "$p/usr/lib" ]]; then
-		LDFLAGS="-L$p/usr/lib $LDFLAGS"
 		LIBRARY_PATH="$p/usr/lib:$LIBRARY_PATH"
-	fi
-	if [[ -d "$p/usr/include" ]]; then
-		CPPFLAGS="-I$p/usr/include $CPPFLAGS"
 	fi
 	if [[ -d "$p/System/Library/Frameworks" ]]; then
 		# https://stackoverflow.com/a/68766210
@@ -227,14 +431,12 @@ if __command_exists -- 'xcode-select' 'xcrun'; then
 fi
 
 # Snap
-if [[ -d '/snap/bin' ]]; then
-	PATH="/snap/bin:$PATH"
-fi
+__add_directory '/snap/bin'
 
 # Windows WSL
 # Most of these are handled by inheriting PATH, however VSCode integrated terminal does not inherit WSL's PATH:
 # /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files (x86)/Intel/iCLS Client/:/mnt/c/Program Files/Intel/iCLS Client/:/mnt/c/Windows/system32:/mnt/c/Windows:/mnt/c/Windows/System32/Wbem:/mnt/c/Windows/System32/WindowsPowerShell/v1.0/:/mnt/c/Windows/System32/OpenSSH/:/mnt/c/Program Files/Cloudflare/Cloudflare WARP/:/mnt/c/Users/balup/scoop/shims:/mnt/c/Users/balup/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/balup/AppData/Local/Programs/Microsoft VS Code/bin:/snap/bin
-if is-wsl; then
+if is-wsl; then # @ todo is-wsl or is-windows is better?
 	wsl_dirs=()
 	for wsl_mount in /mnt/*/; do
 		# skip mounts that aren't single space [/mnt/c/ = 7], skip mounts already in path
@@ -257,34 +459,12 @@ if is-wsl; then
 		)
 	done
 	for wsl_dir in "${wsl_dirs[@]}"; do
-		if [[ -d $wsl_dir ]]; then
-			PATH="$(echo-escape-spaces -- "$wsl_dir"):$PATH"
-		fi
+		__add_directory "$wsl_dir"
 	done
 fi
 
 # Homebrew, UNIX
-if [[ -d '/usr/local/bin' ]]; then
-	PATH="/usr/local/bin:$PATH"
-fi
-if [[ -d '/usr/local/sbin' ]]; then
-	PATH="/usr/local/sbin:$PATH"
-fi
-if [[ -d '/usr/share/man' ]]; then
-	MANPATH="/usr/share/man:$MANPATH"
-fi
-if [[ -d '/usr/local/man' ]]; then
-	MANPATH="/usr/local/man:$MANPATH"
-fi
-if [[ -d '/usr/share/info' ]]; then
-	INFOPATH="/usr/share/info:$INFOPATH"
-fi
-if [[ -d '/usr/lib' ]]; then
-	LDFLAGS="-L/usr/lib $LDFLAGS"
-fi
-if [[ -d '/usr/lib/pkgconfig' ]]; then
-	PKG_CONFIG_PATH="/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
-fi
+__add_prefix_directory /user/local
 
 # macOS
 if is-mac; then
@@ -293,7 +473,7 @@ if is-mac; then
 	# Homebrew
 	export HOMEBREW_ARCH HOMEBREW_PREFIX HOMEBREW_CELLAR HOMEBREW_REPOSITORY HOMEBREW_SHELLENV_PREFIX HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 	if [[ -z ${HOMEBREW_ARCH-} ]]; then
-		if [[ "$(uname -p)" == 'arm' || "$(uname -m)" == 'arm64' ]]; then
+		if [[ "$(uname -p || :)" == 'arm' || "$(uname -m || :)" == 'arm64' ]]; then
 			HOMEBREW_ARCH='arm64e'
 		else
 			HOMEBREW_ARCH='x86_64'
@@ -336,62 +516,24 @@ fi
 if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	# /usr/local already added to PATH, so only add these if different
 	if [[ $HOMEBREW_PREFIX != '/usr/local' ]]; then
-		if [[ -d "$HOMEBREW_PREFIX/bin" ]]; then
-			PATH="$HOMEBREW_PREFIX/bin:$PATH"
-		fi
-		if [[ -d "$HOMEBREW_PREFIX/sbin" ]]; then
-			PATH="$HOMEBREW_PREFIX/sbin:$PATH"
-		fi
+		__add_directory "$HOMEBREW_PREFIX/bin"
+		__add_directory "$HOMEBREW_PREFIX/sbin"
 	fi
 
 	# add the rest
-	if [[ -d "$HOMEBREW_PREFIX/share/man" ]]; then
-		MANPATH="$HOMEBREW_PREFIX/share/man:$MANPATH"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/share/info" ]]; then
-		INFOPATH="$HOMEBREW_PREFIX/share/info:$INFOPATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/share/man" MANPATH
+	__add_directory "$HOMEBREW_PREFIX/share/info" INFOPATH
 
 	# for compilers to find llvm
-	if [[ -d "$HOMEBREW_PREFIX/lib" ]]; then
-		LDFLAGS="-L$HOMEBREW_PREFIX/lib $LDFLAGS"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/include" ]]; then
-		CPPFLAGS="-I$HOMEBREW_PREFIX/include $CPPFLAGS"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/lib/pkgconfig" ]]; then
-		PKG_CONFIG_PATH="$HOMEBREW_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
+	if [[ $HOMEBREW_PREFIX != '/user/local' ]]; then
+		__add_prefix_directory "$HOMEBREW_PREFIX"
 	fi
 
 	# llvm
-	if [[ -d "$HOMEBREW_PREFIX/opt/llvm/bin" ]]; then
-		p="$HOMEBREW_PREFIX/opt/llvm"
-		PATH="$p/bin:$PATH"
-		# for compilers to find llvm
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-	fi
+	__add_prefix_directory "$HOMEBREW_PREFIX/opt/llvm"
 
 	# SQLite (dependency of python)
-	if [[ -d "$HOMEBREW_PREFIX/opt/sqlite/bin" ]]; then
-		p="$HOMEBREW_PREFIX/opt/sqlite"
-		PATH="$p/bin:$PATH"
-		# for compilers to find sqlite
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-		# for pkg-config to find sqlite
-		if [[ -d "$p/lib/pkgconfig" ]]; then
-			PKG_CONFIG_PATH="$p/lib/pkgconfig $PKG_CONFIG_PATH"
-		fi
-	fi
+	__add_prefix_directory "$HOMEBREW_PREFIX/opt/sqlite"
 
 	# guile (dependency of something)
 	if [[ -d "$HOMEBREW_PREFIX/share/guile" ]]; then
@@ -401,27 +543,14 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	fi
 
 	# icu4c (dependency of heroku)
-	if [[ -d "$HOMEBREW_PREFIX/opt/icu4c/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/icu4c/bin:$PATH"
-	fi
-	if [[ -d "$HOMEBREW_PREFIX/opt/icu4c/sbin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/icu4c/sbin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/opt/icu4c/bin"
+	__add_directory "$HOMEBREW_PREFIX/opt/icu4c/sbin"
 
 	# Sphinx (dependency of ruby)
-	if [[ -d "$HOMEBREW_PREFIX/opt/sphinx-doc/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/sphinx-doc/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/opt/sphinx-doc/bin"
 
 	# GetText (dependency of gpg)
-	if [[ -d "$HOMEBREW_PREFIX/opt/gettext/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/gettext/bin:$PATH"
-	fi
-
-	# trash-cli: don't uncomment this, as trash-cli doesn't support macos, and macos has its own trash bin now
-	# if [[ -d "$HOMEBREW_PREFIX/opt/trash-cli/bin" ]]; then
-	# 	PATH="$HOMEBREW_PREFIX/opt/trash-cli/bin:$PATH"
-	# fi
+	__add_directory "$HOMEBREW_PREFIX/opt/gettext/bin"
 
 	# Ruby
 	if [[ -n ${HOMEBREW_RUBY_VERSION-} ]]; then
@@ -434,31 +563,19 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 		else
 			p="$HOMEBREW_PREFIX/opt/ruby@$HOMEBREW_RUBY_VERSION"
 			if [[ ! -d $p ]]; then
-				__print_lines "# specified [HOMEBREW_RUBY_VERSION = $HOMEBREW_RUBY_VERSION] was not found at $p" >/dev/stderr
+				__print_lines "# specified [HOMEBREW_RUBY_VERSION = $HOMEBREW_RUBY_VERSION] was not found at $p" >&2
 				p=''
 			fi
 		fi
 		if [[ -n $p ]]; then
-			PATH="$p/bin:$PATH"
-			rubygems "$p/bin/gem"
-			# for compilers to find ruby
-			if [[ -d "$p/lib" ]]; then
-				LDFLAGS="-L$p/lib $LDFLAGS"
-			fi
-			if [[ -d "$p/include" ]]; then
-				CPPFLAGS="-I$p/include $CPPFLAGS"
-			fi
-			# for pkg-config to find ruby
-			if [[ -d "$p/lib/pkgconfig" ]]; then
-				PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
-			fi
+			__add_prefix_directory "$p"
 		fi
 	else
 		# add them all, excluding special paths
 		rubydirs=("$HOMEBREW_PREFIX/opt/ruby"*'/bin')
 		for rubydir in "${rubydirs[@]}"; do
 			PATH="$rubydir:$PATH"
-			rubygems "$rubydir/gem"
+			__add_ruby_gem "$rubydir/gem"
 		done
 	fi
 
@@ -469,60 +586,34 @@ if [[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]]; then
 	done
 
 	# Python
-	# https://docs.brew.sh/Homebrew-and-Python
-	if [[ -d "$HOMEBREW_PREFIX/opt/python/libexec/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/python/libexec/bin:$PATH"
-	fi
-
-	# Python: Pip
-	pipdirs=("$HOME/Library/Python/"*'/bin')
-	for pipdir in "${pipdirs[@]}"; do
-		PATH="$pipdir:$PATH"
-	done
+	# There use to be some very complex logic here to handle `python`, `pip`, and `pipx`
+	# However it was all dropped as `uv` is superior, and handles it all, and uses XDG as do we, so no need for `uv python update-shell -q`
 
 	# OpenSSL (dependency of python, gpg, and node)
 	# openssl is a symlink to whatever directory has the latest version
-	if [[ -d "$HOMEBREW_PREFIX/opt/openssl/bin" ]]; then
-		p="$HOMEBREW_PREFIX/opt/openssl"
-		PATH="$p/bin:$PATH"
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-		if [[ -d "$p/lib/pkgconfig" ]]; then
-			PKG_CONFIG_PATH="$p/lib/pkgconfig:$PKG_CONFIG_PATH"
-		fi
-		# ^^ setup-util-gocryptfs needs this on macos big sur
-		# ```
-		# Package libcrypto was not found in the pkg-config search path.
-		# Perhaps you should add the directory containing `libcrypto.pc'
-		# to the PKG_CONFIG_PATH environment variable
-		# No package 'libcrypto' found
-		# pkg-config: exit status 1
-		# ```
-		# and
-		# ```
-		# ld: library not found for -lcrypto
-		# clang: error: linker command failed with exit code 1 (use -v to see invocation)
-		# ````
-	fi
+	__add_prefix_directory "$HOMEBREW_PREFIX/opt/openssl"
+	# ^^ setup-util-gocryptfs needs this on macos big sur
+	# ```
+	# Package libcrypto was not found in the pkg-config search path.
+	# Perhaps you should add the directory containing `libcrypto.pc'
+	# to the PKG_CONFIG_PATH environment variable
+	# No package 'libcrypto' found
+	# pkg-config: exit status 1
+	# ```
+	# and
+	# ```
+	# ld: library not found for -lcrypto
+	# clang: error: linker command failed with exit code 1 (use -v to see invocation)
+	# ````
 
 	# NSS
-	if [[ -d "$HOMEBREW_PREFIX/opt/nss/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/opt/nss/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/opt/nss/bin"
 
 	# Anaconda
-	if [[ -d "$HOMEBREW_PREFIX/anaconda3/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/anaconda3/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/anaconda3/bin"
 
 	# Heroku
-	if [[ -d "$HOMEBREW_PREFIX/heroku/bin" ]]; then
-		PATH="$HOMEBREW_PREFIX/heroku/bin:$PATH"
-	fi
+	__add_directory "$HOMEBREW_PREFIX/heroku/bin"
 
 	# Package Config
 	# This was not recommended anywhere, but it seems logical as a way to have pkg-config bootstrapped with its default paths, of which it includes a lot more available configs than manually doing everything as we have done above
@@ -536,7 +627,7 @@ else
 	# and [which] writes its errors to stdout!
 
 	# Ruby
-	rubygems /usr/bin/gem
+	__add_ruby_gem /usr/bin/gem
 fi
 
 # Deno for official yet stupid deno_install script, commented out as [setup-util-deno] is superior
@@ -547,18 +638,9 @@ fi
 # 	PATH="$DENO_INSTALL/bin:$PATH"
 # fi
 
-# NVM
+# NVM, only set if applicable
 if [[ -z ${NVM_DIR-} && -d "$HOME/.nvm" ]]; then
 	export NVM_DIR="$HOME/.nvm"
-fi
-
-# Python: pyenv
-if [[ -z ${PYENV_ROOT-} && -d "$HOME/.pyenv" ]]; then
-	export PYENV_ROOT="$HOME/.pyenv"
-fi
-if [[ -n ${PYENV_ROOT-} ]]; then
-	PATH="$PYENV_ROOT/bin:$PATH"
-	PATH="$PYENV_ROOT/shims:$PATH"
 fi
 
 # Rust: rustup
@@ -628,12 +710,6 @@ if __command_exists -- go; then
 	fi
 fi
 
-# Clojurescript
-if [[ -d "$HOME/.clojure/clojure-1.8" ]]; then
-	PATH="$HOME/.clojure/clojure-1.8.0:$PATH"
-	CLASSPATH="$HOME/.clojure/clojure-1.8.0:$CLASSPATH"
-fi
-
 # Yarn
 if __command_exists -- yarn; then
 	# on CI, yarn exists, yet this can return nothing
@@ -644,33 +720,25 @@ if __command_exists -- yarn; then
 fi
 
 # Flossbank
-if [[ -d "$HOME/.flossbank/bin" ]]; then
-	PATH="$HOME/.flossbank/bin:$PATH"
-fi
+__add_directory "$HOME/.flossbank/bin"
 
 # 1Password, exposes op-ssh-sign
-if [[ -d '/Applications/1Password.app/Contents/MacOS/' ]]; then
-	PATH="/Applications/1Password.app/Contents/MacOS/:$PATH"
-fi
+__add_directory '/Applications/1Password.app/Contents/MacOS'
 
 # Generics: Java
 CLASSPATH=".:$CLASSPATH"
 
 # Generics: pre-XDG user bin paths (note the user should be preferring XDG_BIN_HOME)
-if [[ -d "$HOME/.bin" ]]; then
-	PATH="$HOME/.bin:$PATH"
-fi
-if [[ -d "$HOME/bin" ]]; then
-	PATH="$HOME/bin:$PATH"
-fi
+__add_directory "$HOME/.bin"
+__add_directory "$HOME/bin"
 
 # Generics: when XDG_BIN_HOME is customised, ensure the default XDG_BIN_HOME is still added, for anything that expects it
 if [[ $XDG_BIN_HOME != "$HOME/.local/bin" ]]; then
 	PATH="$HOME/.local/bin:$PATH"
 fi
-
 # Generics: XDG, always add, even if not existent, in case it is created later
 PATH="$XDG_BIN_HOME:$PATH"
+__add_prefix_directory "$XDG_PREFIX" # only adds directories that exist
 
 # GO LLVM
 # https://stackoverflow.com/a/58488820
@@ -715,6 +783,7 @@ fi
 
 # EDITOR, SUDO_EDITOR doesn't do anything so ignore
 if [[ -z ${EDITOR-} ]]; then
+	# Always use terminal editor for prompts as GUI editors are too slow.
 	EDITOR="$(edit --dry --no-prompt --terminal || :)"
 fi
 

@@ -26,7 +26,7 @@ For example, in the below code example, tab indentation is used for code alignme
 
 # help
 function help() {
-	cat <<-EOF >/dev/stderr
+	cat <<-EOF >&2
 		ABOUT:
 		Prompt the user for an input value in a clean and robust way.
 
@@ -38,7 +38,7 @@ function help() {
 		    Specifies the question that the prompt will be answering.
 	EOF
 	if [[ $# -ne 0 ]]; then
-		echo-error "$@"
+		__print_error "$@"
 	fi
 	return 22 # Invalid argument
 }
@@ -83,7 +83,7 @@ if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 fi
 ```
 
-Variables can use the name of a function or command, e.g. `local source=...; echo "$source"` as variables do not conflict with functions/commands due to them requiring the `$` prefix.
+Variables can use the name of a function or command, e.g. `local source=...; printf '%s\n' "$source"` as variables do not conflict with functions/commands due to them requiring the `$` prefix.
 
 As bash is a case-sensitive language, we are open to adopting `camelCase` and `CamelCase` if there is well reasoned grounds for it.
 
@@ -108,7 +108,7 @@ Use single-quotes `'` if there is no need for interpolation, use double-quotes `
 If doing value substitution, always use double-quotes `"` as single-quotes will be outputted:
 
 ```bash
-echo "${missing:-'bad'} ${missing:-"good"}"
+printf '%s\n' "${missing:-'bad'} ${missing:-"good"}"
 # outputs:
 # 'bad' good
 ```
@@ -137,10 +137,10 @@ Prefer `$var` rather than `${var}` for simple interpolations, for advanced inter
 ```bash
 # recommended
 local indent='  ' world='Earth'
-echo "$world" # good
-echo "${world}" # bad, unnecessary complexity
-echo "${indent}Hello, $world." # fine
-echo "${indent}Hello, ${world}." # also fine
+printf '%s\n' "$world" # good
+printf '%s\n' "${world}" # bad, unnecessary complexity
+printf '%s\n' "${indent}Hello, $world." # fine
+printf '%s\n' "${indent}Hello, ${world}." # also fine
 ```
 
 Always use `"$HOME"` instead of `~`, as `~` doesn't work if it is inside a string, which becomes a common mistake when refactoring.
@@ -151,26 +151,26 @@ Sometimes you may need to use special characters, such as newlines, here are som
 
 ```bash
 # this is good
-echo $'hello\nworld'
+printf '%s\n' $'hello\nworld'
 # but it is too simple for most use cases
 
 # a more involved use case would be variable interpolation
 name='dorothy'
-echo $'hello\n$name'
+printf '%s\n' $'hello\n$name'
 # which outputs:
 # hello
 # $name
 # which is not what we desire
 
 # let's try this:
-echo $"hello\n$name"
+printf '%s\n' $"hello\n$name"
 # which outputs:
 # hello\ndorothy
 # which is is still not desire
 
 # so let's use this, which is the right technique for the right bits
-echo 'hello'$'\n'"$name" # fine
-echo $'hello\n'"$name" # also fine
+printf '%s\n' 'hello'$'\n'"$name" # fine
+printf '%s\n' $'hello\n'"$name" # also fine
 # which outputs:
 # hello
 # dorothy

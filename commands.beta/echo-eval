@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# [Stack Exchange: How to apply shell command to each line of a command output?](https://stackoverflow.com/a/68310927/130638)
+# `ls -1 | xargs -I %s -- echo %s`
+# ^ xargs is too complicated, hence why this now exists
+
 function echo_eval() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
@@ -7,22 +11,24 @@ function echo_eval() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Execute the <command> on each stdin input.
 
 			USAGE:
-			... | echo-eval [...options] -- <command>
+			... | echo-eval [...options] -- ...<command> # same as '\$1'
+			... | echo-eval [...options] -- ...<command> '\$1' # runs the command for each input individually
+			... | echo-eval [...options] -- ...<command> '\$@' # runs the command for all inputs at once
 
 			EXAMPLE:
 			echo-verbose A B C | echo-eval -- echo-lowercase --
 			choose-path 'Which animation?' -- *.mp4 | echo-eval --stdin -- image-to-ascii -w 200 --fps 24
 
 			OPTIONS:
-			$(stdinargs_options_help --stdin)
+			$(__stdinargs__help_options --stdin)
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -54,9 +60,28 @@ function echo_eval() (
 	# =====================================
 	# Action
 
-	function on_input {
-		"${option_cmd[@]}" "$@" # eval
-	}
+	local index='' before=() after=() expand='no'
+	# split on $@ or $1
+	__index --source={option_cmd} --target={index} --first -- '$@' '$1'
+	if [[ ${option_cmd[index]} == '$@' ]]; then
+		expand='yes'
+	fi
+	__slice --source={option_cmd} --target={before} -- 0 "$index"
+	__slice --source={option_cmd} --target={after} --quiet -- "$((index + 1))" || __ignore_exit_status 33
+
+	if [[ $expand == 'no' ]]; then
+		function __on_piece {
+			"${before[@]}" "$1" "${after[@]}" || return # eval
+		}
+	else
+		local inputs=()
+		function __on_piece {
+			inputs+=("$1")
+		}
+		function __on_finish {
+			"${before[@]}" "${inputs[@]}" "${after[@]}" || return # eval
+		}
+	fi
 
 	stdinargs --stdin "${option_args[@]}"
 )

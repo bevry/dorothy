@@ -2,169 +2,200 @@
 
 function is_owner_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-style --h1="TEST: $0"
 
 	local temp
-	temp="$(fs-temp --directory='is-owner' --file='test-file' --touch)"
+	temp="$(fs-temp --directory='dorothy' --directory='is-owner' --directory='tests' --file='test-file' --touch)"
 
-	eval-tester --name='no args' --status=22 --ignore-stderr \
-		-- is-owner --
+	eval-tester --name='no args' --status=22 --ignore-stderr -- \
+		is-owner --
 
-	eval-tester --name='empty args' --status=22 \
-		-- is-owner -- '' ''
+	eval-tester --name='empty args' --status=22 --ignore-stderr -- \
+		is-owner -- '' ''
 
-	eval-tester --name='missing' --status=2 \
-		-- is-owner -- "$DOROTHY/this-does-not-exist"
+	eval-tester --name='missing' --status=2 -- \
+		is-owner -- "$DOROTHY/this-does-not-exist"
 
-	eval-tester --name='is owner of its created file' \
-		-- is-owner -- "$temp"
+	eval-tester --name='missing' --status=2 --stderr="The path was missing: $DOROTHY/this-does-not-exist" -- \
+		is-owner --no-color --verbose -- "$DOROTHY/this-does-not-exist"
 
-	eval-tester --name='invalid uid is not owner' --status=93 \
-		-- is-owner --uid=0123456789 -- "$temp"
+	eval-tester --name='is owner of its created file' -- \
+		is-owner -- "$temp"
 
-	eval-tester --name='invalid gid is not owner' --status=93 \
-		-- is-owner --gid=0123456789 -- "$temp"
+	__prepare_current_user
+	eval-tester --name='is owner of its created file: USER' -- \
+		is-owner --users="$CURRENT_USER" -- "$temp"
 
-	eval-tester --name='invalid uname is not owner' --status=93 \
-		-- is-owner --uname=invalid -- "$temp"
+	__prepare_current_groups
+	eval-tester --name='is owner of its created file: GROUPS' -- \
+		is-owner --groups="${CURRENT_GROUPS[*]}" -- "$temp"
 
-	eval-tester --name='invalid gname is not owner' --status=93 \
-		-- is-owner --gname=invalid -- "$temp"
+	eval-tester --name='invalid uid is not owner' --status=93 -- \
+		is-owner --users=0123456789 -- "$temp"
 
-	echo-style --g1="TEST: $0"
+	eval-tester --name='invalid gid is not owner' --status=93 -- \
+		is-owner --groups=0123456789 -- "$temp"
+
+	eval-tester --name='invalid uname is not owner' --status=93 -- \
+		is-owner --users=invalid -- "$temp"
+
+	eval-tester --name='invalid gname is not owner' --status=93 -- \
+		is-owner --groups=invalid -- "$temp"
+
 	return 0
 )
 function is_owner() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P sudo-helper)"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
-			Check if all <path>s are present (including that of symlinks, broken or otherwise) and are owned by one of the provided <user-id>s, <user-name>s, <group-id>s, <group-name>s.
-			If no <user-id>s, <user-name>s, <group-id>s, <group-name>s are provided, those of the current user will be used.
+			Check if all <path>s are present (including that of symlinks, broken or otherwise) and are owned by one of the provided <users> or <groups>.
 
 			USAGE:
 			is-owner [...options] [--] ...<path>
 
 			OPTIONS:
-			--sudo=<sudo>
-			    Defaults to [13], escalating to root if permission would otherwise be denied.
+			--verbose | --no-quiet
+			    If enabled, the reason for matching or not matching will be output to stderr.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
 			--user=<user>
 			--group=<group>
-			    Forwarded to [sudo-helper].
+			--reason=<reason>
+			    Forwarded to [eval-helper].
 
-			--uid=<user-id> | --user-id=<user-id>
-			--gid=<group-id> | --group-id=<group-id>
-			--u=<user-name> | --uname=<user-name> | --user-name=<user-name>
-			--g=<group-name> | --gname=<group-name> | --group-name=<group-name>
-			    Specific <user-id>s, <user-name>s, <group-id>s, <group-name>s to check against.
+			--users=<users>
+			    The users to check own the file.
+			--groups=<groups>
+			    The groups to check own the file.
+			--login
+			    If enable, the login user and groups will be used as <users> and <groups>, if none were provided.
+			    Otherwise, the current user and groups will be used as <users> and <groups>, if none were provided.
 
 			RETURNS:
 			[0] if all <path>s were present (file, directory, symlink, broken symlink) and owned by any of the provided <user-id>s, <user-name>s, <group-id>s, <group-name>s.
-			[2] if a <path> was not present
-			[13] if a <path> was not accessible: unless [--no-sudo] was provided a sudo request will be made to prevent this failure.
-			[22] if empty arguments are provided
-			[93] if the owner of a <path> does not match any of the provided <user-id>s, <user-name>s, <group-id>s, <group-name>s.
+			[2] if a <path> was missing
+			[13] if a <path> was not accessible
+			[22] if empty arguments were provided
+			[93] if the owner of a <path> did not match any of the provided <user-id>s, <user-name>s, <group-id>s, <group-name>s.
+
+			COMPANION COMMANDS:
+			[get-group-id]
+			[get-profile]
+			[get-user-id]
+			[is-admin]
+			[is-group]
+			[is-owner]
+			[is-password-usable]
+			[is-root]
+			[is-user-in-group]
+			[is-user]
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_inputs=() option_sudo='13' option_user='' option_group='' option_user_ids=() option_user_names=() option_group_ids=() option_group_names=()
+	local item option_quiet='' option_paths=() option_login='' option_users=() option_groups=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value --affirmative --fallback-on-empty --fallback="$option_sudo" -- "$item")"
-			;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
-		'--uid='* | '--user-id='*) option_user_ids+=("${item#*=}") ;;
-		'--gid='* | '--group-id='*) option_group_ids+=("${item#*=}") ;;
-		'--u='* | '--uname='* | '--user-name='*) option_user_names+=("${item#*=}") ;;
-		'--g='* | '--gname='* | '--group-name='*) option_group_names+=("${item#*=}") ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--no-login'* | '--login'*) __flag --source={item} --target={option_login} --affirmative ;;
+		'--groups='*) __split --target={option_groups} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--users='*) __split --target={option_users} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
 		'--')
-			option_inputs+=("$@")
+			option_paths+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) option_inputs+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_paths+=("$item") ;;
 		esac
 	done
 
 	# verify
-	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
 		help 'No <input>s provided.'
 	fi
-	if [[ ${#option_user_ids[@]} -eq 0 && ${#option_user_names[@]} -eq 0 && ${#option_group_ids[@]} -eq 0 && ${#option_group_names[@]} -eq 0 ]]; then
-		option_user_ids+=("$(id -u)")
-		IFS=' ' read -ra option_group_ids < <(id -G)
+	if [[ ${#option_users[@]} -eq 0 && ${#option_groups[@]} -eq 0 ]]; then
+		if [[ $option_login == 'yes' ]]; then
+			__prepare_login_user
+			__prepare_login_uid
+			__prepare_login_groups
+			__prepare_login_gids
+			option_users+=("$LOGIN_USER" "$LOGIN_UID")
+			option_groups+=("${LOGIN_GROUPS[@]}" "${LOGIN_GIDS[@]}")
+		else
+			__prepare_current_user
+			__prepare_current_uid
+			__prepare_current_groups
+			__prepare_current_gids
+			option_users+=("$CURRENT_USER" "$CURRENT_UID")
+			option_groups+=("${CURRENT_GROUPS[@]}" "${CURRENT_GIDS[@]}")
+		fi
 	fi
 
 	# =====================================
 	# Action
 
-	local uid uname gid gname
-	if is-mac; then
-		function __get_owner {
-			IFS=' ' read -r uid uname gid gname < <(stat -Lf '%u %Su %g %Sg' -- "$1")
-		}
-	else
-		function __get_owner {
-			IFS=' ' read -r uid uname gid gname < <(stat -Lc '%u %U %g %G' -- "$1")
-		}
-	fi
-	function __is_owner {
-		local input item
-		if [[ ${1-} == '--' ]]; then
-			shift
+	local input found item uid user gid group fodder_to_respect_exit_status result_status=0
+	for input in "${option_paths[@]}"; do
+		if [[ -z $input ]]; then
+			help 'An empty <input> was provided.'
 		fi
-		for input in "$@"; do
-			is-present.bash -- "$input" || return
-			__get_owner "$input"
-			if [[ ${#option_user_ids[@]} -ne 0 ]]; then
-				for item in "${option_user_ids[@]}"; do
-					if [[ $uid == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-			if [[ ${#option_user_names[@]} -ne 0 ]]; then
-				for item in "${option_user_names[@]}"; do
-					if [[ $uname == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-			if [[ ${#option_group_ids[@]} -ne 0 ]]; then
-				for item in "${option_group_ids[@]}"; do
-					if [[ $gid == "$item" ]]; then
-						return 0
-					fi
-				done
-			fi
-			if [[ ${#option_group_names[@]} -ne 0 ]]; then
-				for item in "${option_group_names[@]}"; do
-					if [[ $gname == "$item" ]]; then
-						return 0
-					fi
-				done
+		found='no'
+		fodder_to_respect_exit_status="$(fs-owner --quiet="$option_quiet" --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
+		IFS=' ' read -r uid user gid group <<<"$fodder_to_respect_exit_status"
+		for item in "${option_users[@]}"; do
+			if [[ $uid == "$item" || $user == "$item" ]]; then
+				found='yes'
 			fi
 		done
-		return 93 # ENOATTR 93 Attribute not found
-	}
-	sudo_helper --inherit --sudo="$option_sudo" --user="$option_user" --group="$option_group" -- __is_owner -- "${option_inputs[@]}"
-	return
+		for item in "${option_groups[@]}"; do
+			if [[ $gid == "$item" || $group == "$item" ]]; then
+				found='yes'
+			fi
+		done
+		if [[ $found == 'no' ]]; then
+			if [[ $option_quiet == 'no' ]]; then
+				# let the user know it is not all good
+				local users groups
+				users="$(echo-join --delimiter="$(__print_style --italic='|')" --style=code -- "${option_users[@]}")"
+				groups="$(echo-join --delimiter="$(__print_style --italic='|')" --style=code -- "${option_groups[@]}")"
+				__print_style --stderr 'The path ' --path="$input" --=' has ownership of ' --code="$fodder_to_respect_exit_status" --=' which ' --error='does not match' --=" users:[$users] groups:[$groups]"
+				# if not quiet, let the user know all the failures
+				result_status=93 # EOWNERNOTMATCH 93 Owner does not match
+			else
+				# if quiet, we only care about failure or not failure, so fail early
+				return 93 # ENOATTR 93 Attribute not found
+			fi
+		elif [[ $option_quiet == 'no' ]]; then
+			# let the user know it is all good
+			local users groups
+			users="$(echo-join --delimiter="$(__print_style --italic='|')" --style=code -- "${option_users[@]}")"
+			groups="$(echo-join --delimiter="$(__print_style --italic='|')" --style=code -- "${option_groups[@]}")"
+			__print_style --stderr 'The path ' --path="$input" --=' has ownership of ' --code="$fodder_to_respect_exit_status" --=' which ' --success='matched' --=" users:[$users] groups:[$groups]"
+		fi
+	done
+	return "$result_status"
 )
 
 # fire if invoked standalone

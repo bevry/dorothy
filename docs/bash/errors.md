@@ -62,6 +62,9 @@ Includes usage for when a file is not empty.
 ESPIPE 29 Illegal seek
 Includes usage for unknown/unexpected logic path.
 
+EDOM 33 Numerical argument out of domain
+Includes usage for: index out of range, length out of range, needle not found, value not found, subset not found within superset, etc.
+
 ENOPROTOOPT 42 Protocol not available
 Includes usage for missing required dependency.
 
@@ -100,6 +103,9 @@ Includes usage when a <path> is missing a required attribute, such as missing re
 EADDRINUSE 98 Address already in use
 Incudes usage when trying to use an already existing path.
 
+ENOTRECOVERABLE 104 State not recoverable
+Includes usage for unknown/unexpected logic path.
+
 ECANCELED 125 Operation cancelled
 
 ECUSTOM 200 Not applicable <for reason>
@@ -108,6 +114,11 @@ Used to signal to the caller that the action was not performed, and might be fin
 - Doing an operation on a path, such a mount path, that is already in the desired state.
 
 ECUSTOM 210 Processing complete, exit early
+
+ECUSTOM 220 Expectation mismatch
+ECUSTOM 221 Tests failed
+ECUSTOM 222 Tests malformed
+ECUSTOM 223 Tests broken
 ```
 
 ### moreutil/errno
@@ -377,175 +388,387 @@ On Ubuntu 22.04, Bash Shell `trap -l` defines the following (with descriptions a
 
 ## Invocation and Capturing
 
-In Bash, any invocation of a function within a conditional (`!`, `if`, `&&`, `||`) will invoke the function with `errexit` (aka `set -e`) disabled.
-This unfortunately cannot be disabled, and is a legacy decision from bash's prior primary use as a login shell, rather than a scripting language.
-It causes the following unexpected behaviour:
+In Bash, any invocation of a function within a conditional (`!`, `if`, `&&`, `||`) will invoke the function with `errexit` (aka `set -e`) disabled, which ignores non-zero exit statuses, which are used to indicate an error. This ignore error on conditional behaviour of bash unfortunately cannot be disabled; it is a legacy decision from bash's prior primary use as a login shell rather than as a scripting language.
+
+We can see this in action via the following:
 
 ```bash
 #!/usr/bin/env bash
-
-# our standard failure functions, these will be used by our examples
+function a_custom_failure {
+    return 99
+}
 function a_function_which_failure_IS_NOT_the_last_command {
-	echo 'before failure'
-	false # emit an error to this function, as this returns a non-zero exit status
-	echo 'after failure'
+	printf '%s' 'before'
+	a_custom_failure # this emits an error as its invocation results in an unhandled non-zero exit status
+	printf '%s\n' ' and after failure' # the exit status that will be returned without errexit will be that of this last line
 }
-function a_function_which_failure_IS_the_last_command {
-	echo 'before failure without after'
-	false # emit an error to this function, as this returns a non-zero exit status
-}
-
-
-# select an example, either by modifying "1", or by saving this a script and using the first argument
-example="${1:-"1"}"
-case "$example" in
-# these examples are as expected
-1)
-	set +e # disable errors returning immediately, the default bash mode, desirable for the login shell
-	a_function_which_failure_IS_NOT_the_last_command
-	# outputs:
-	# before failure
-	# after failure
-	;;
-2)
-	set -e # enable errors to return immediately, the default bash mode in dorothy enabled when we `source "$DOROTHY/sources/bash.bash"`, desirable for scripting
-	a_function_which_failure_IS_NOT_the_last_command
-    # outputs:
-	# before failure
-	;;
-
-# however these don't
-3)
-	set -e
-	! a_function_which_failure_IS_NOT_the_last_command
-	echo 'failure'
-	# outputs:
-	# before failure
-	# after failure
-	;;
-4)
-	set -e
-	a_function_which_failure_IS_NOT_the_last_command && echo 'success'
-	# outputs:
-	# before failure
-	# after failure
-	# success
-	;;
-5)
-	set -e
-	a_function_which_failure_IS_NOT_the_last_command || echo 'failure'
-    # outputs:
-	# before failure
-	# after failure
-	;;
-6)
-	set -e
-	if a_function_which_failure_IS_NOT_the_last_command; then
-		echo 'success'
-	else
-		echo 'failure'
-	fi
-	# outputs:
-	# before failure
-	# after failure
-	# success
-	;;
-7)
-	set -e
-	if ! a_function_which_failure_IS_NOT_the_last_command; then
-		echo 'failure'
-	else
-		echo 'success'
-	fi
-	# outputs:
-	# before failure
-	# after failure
-	# success
-	;;
-
-# if the failure is the last command, then such works as expected, as the exit status of any function is always the exit status of the last executed command, regardless of errexit
-8)
-	set -e
-	a_function_which_failure_IS_the_last_command && echo 'success' || echo 'failure'
-	echo 'ok'
-	# outputs:
-	# before failure without after
-	# failure
-	# ok
-	;;
-
-# this behaviour also impacts how we fetch exit codes
-9)
-    # without errexit
-    set +e
-    a_function_which_failure_IS_NOT_the_last_command
-    echo "status=$?"
-    # outputs:
-    # before failure
-    # after failure
-    # status=0
-    a_function_which_failure_IS_the_last_command
-    echo "status=$?"
-    # outputs:
-    # before failure without after
-    # status=1
-    ;;
-10)
-    # with errexit
-    set -e
-    status=0 && a_function_which_failure_IS_NOT_the_last_command || status=$?
-    echo "status=$status"
-    # outputs:
-    # before failure
-    # after failure
-    # status=0
-    status=0 && a_function_which_failure_IS_the_last_command || status=$?
-    echo "status=$status"
-    # outputs:
-    # before failure without after
-    # status=1
-    ;;
-esac
 ```
-
-Official guidance from the bash community is to either abandon `errexit` and place `|| return` on every single line, or use `errexit` and implement a workaround for when invoking functions.
-
-Dorothy has such a workaround, which is `eval_capture` and is provided by placing `source "$DOROTHY/sources/bash.bash"` at the beginning of your command, and is used like so:
 
 ```bash
-local status=0 stdout='' stderr='' output=''
-eval_capture [--statusvar=status] [--stdoutvar=stdout] [--stderrvar=stderr] [--outputvar=output] [--] cmd ...
+# Disable `errexit`, where non-zero exit statuses are ignored, desirable for login shells where a failed command does not crash the shell
+set +e
+a_function_which_failure_IS_NOT_the_last_command
+# outputs:
+# before and after failure
+# exit status: 0
 ```
 
-Which is implemented like so:
+```bash
+# Enable `errexit`, where unhandled non-zero statuses are thrown, desirable for scripting, and the behaviour once `bash.bash` is sourced.
+set -e
+a_function_which_failure_IS_NOT_the_last_command
+# outputs:
+# before
+# crash exit status: 99
+```
+
+We can see the unexpected behaviour of conditional errexit disablement in action via the following examples:
+
+```bash
+set -e
+a_function_which_failure_IS_NOT_the_last_command || :
+# outputs:
+# before and after failure
+
+set -e
+status=0
+a_function_which_failure_IS_NOT_the_last_command || status=$?
+printf '%s\n' "status=$status"
+# outputs:
+# before and after failure
+# status=0
+
+set -e
+( a_function_which_failure_IS_NOT_the_last_command && printf '%s\n' 'invocation success' ) || printf '%s\n' "invocation failure: $?"
+# outputs:
+# before and after failure
+# invocation success
+
+set -e
+a_function_which_failure_IS_NOT_the_last_command && printf '%s\n' 'invocation success'
+# outputs:
+# before and after failure
+# invocation success
+
+set -e
+if a_function_which_failure_IS_NOT_the_last_command; then
+	printf '%s\n' 'invocation success'
+else
+	printf '%s\n' 'invocation failure'
+fi
+# outputs:
+# before and after failure
+# invocation success
+
+# and this:
+set -e
+if ! a_function_which_failure_IS_NOT_the_last_command; then
+	printf '%s\n' 'invocation failure'
+else
+	printf '%s\n' 'invocation success'
+fi
+```
+
+This problem also manifests in an inability to capture the correct exit status for such unsafe functions:
+
+```bash
+set -e
+status=0 && a_function_which_failure_IS_NOT_the_last_command || status=$?
+printf '%s\n' "status=$status"
+# outputs:
+# before and after failure
+# status=0
+
+set -e
+status=0
+stdout="$(a_function_which_failure_IS_NOT_the_last_command)" || status=$?
+printf '%s\n' "stdout=[$stdout] status=$status"
+# outputs:
+# stdout=[before and after failure]
+# status=0
+
+set -e
+status=0
+stdout_line_1=''
+IFS= read -r stdout_line_1 <<<"$(a_function_which_failure_IS_NOT_the_last_command)" || status=$?
+printf '%s\n' "stdout=[$stdout_line_1] status=$status"
+# outputs:
+# stdout=[before and after failure]
+# status=0
+
+# this one deviates a little, as the process substitution is created before and within an earlier context than that of the conditional
+# however, as we can see, the status now reflects the read failure, rather than the failure of the process substitution
+set -e
+status=0
+stdout_line_1=''
+IFS= read -r stdout_line_1 < <(a_function_which_failure_IS_NOT_the_last_command) || status=$?
+printf '%s\n' "stdout=[$stdout_line_1] status=$status"
+# outputs:
+# stdout=[before]
+# status=1
+
+# this one supports reading multiple lines correctly, however the `while read || [[ -n $REPLY ]]` combination prevents even the read error from being captured
+set -e
+status=0
+stdout=''
+is_trailing='no'
+while IFS= read -r || { is_trailing='yes' && [[ -n $REPLY ]]; }; do
+    stdout+="$REPLY"
+    if [[ $is_trailing == 'no' ]]; then
+        stdout+=$'\n'
+    fi
+done < <(a_function_which_failure_IS_NOT_the_last_command) || status=$?
+printf '%s\n' "stdout=[$stdout] status=$status"
+# outputs:
+# stdout=[before]
+# status=0
+```
+
+This all happens because the conditional invocation of `a_function_which_failure_IS_NOT_the_last_command` prevents its invocation of `a_custom_failure` from emitting an unhandled non-zero exit status error, which causes it to continue as if it was successful, which makes it appear as it was successful because its last line `printf '%s\n' ' and after failure'` is successful.
+
+To make our function safe for conditionals, we must ensure every and any line that could throw, including print statements that can throw if the destined file descriptor is closed (e.g. `>&-`), must be trailed by `|| return`. We can denote such safe for conditional functions, by a Dorothy convention of a double underscore prefix `__`. For our function, its safety function equivalent would be like so:
+
+```bash
+function __a_function_which_failure_IS_NOT_the_last_command {
+	printf '%s' 'before' || return
+	a_custom_failure || return
+	printf '%s\n' 'and after failure' || return
+}
+
+set -e
+status=0
+stdout="$(__a_function_which_failure_IS_NOT_the_last_command)" || status=$?
+printf '%s\n' "stdout=[$stdout] status=$status"
+# outputs:
+# stdout=[before] status=99
+```
+
+However, for any significant program, this becomes untenable, and it still prevents us from easily capturing the exit status while combining it with `read`, unless we do a variation:
+
+```bash
+function a_custom_failure {
+    return 99
+}
+function get_csv_data {
+	printf '%s' 'one,two,three'
+	a_custom_failure
+	printf '%s\n' 'four,five,six'
+}
+function __get_csv_data {
+	printf '%s' 'one,two,three' || return
+	a_custom_failure || return
+	printf '%s\n' 'four,five,six' || return
+}
+
+# the failure in `get_csv_data` causes the read to fail, which causes an exit status of 1
+set -e
+status=0
+IFS=, read -r i1 i2 i3 i4 i5 i6 < <(get_csv_data) || status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] status=$status"
+# outputs:
+# i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] status=1
+set -e
+status=0
+IFS=, read -r i1 i2 i3 i4 i5 i6 < <(__get_csv_data) || status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] status=$status"
+# outputs:
+# i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] status=1
+
+# the failure in `get_csv_data` is completely discarded, and the conditional has no effect on the behaviour
+set -e
+status=0
+IFS=, read -r i1 i2 i3 i4 i5 i6 <<<"$(get_csv_data)" || status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] status=$status"
+# outputs:
+# i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] status=0
+set -e
+status=0
+IFS=, read -r i1 i2 i3 i4 i5 i6 <<<"$(__get_csv_data)" || status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] status=$status"
+# outputs:
+# i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] status=0
+
+# the failure in `get_csv_data` is disabled causing unexpected outputs, which causes the exit status to correct but unexpected
+set -e
+get_status=0
+read_status=0
+fodder_to_respect_exit_status="$(get_csv_data)" || get_status=$?
+IFS=, read -r i1 i2 i3 i4 i5 i6 <<<"$fodder_to_respect_exit_status" || read_status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=$get_status read_status=$read_status"
+# outputs:
+# i1=[one] i2=[two] i3=[threefour] i4=[five] i5=[six] i6=[] get_status=0 read_status=0
+```
+
+This variation works, only because it is a safety function:
+
+```bash
+# the failure in `__get_csv_data` is respected, and the exit status is captured correctly
+set -e
+get_status=0
+read_status=0
+fodder_to_respect_exit_status="$(__get_csv_data)" || get_status=$?
+IFS=, read -r i1 i2 i3 i4 i5 i6 <<<"$fodder_to_respect_exit_status" || read_status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=$get_status read_status=$read_status"
+# outputs:
+# i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] get_status=99 read_status=0
+```
+
+Fortunately, Dorothy's `bash.bash` enables `errexit` such that unhandled errors are thrown, and provides `__try` and `__do` to capture and handle the exit status of conditionals and substitutions, without altering their execution behaviour.
+
+```bash
+source "$DOROTHY/sources/bash.bash"
+
+function a_custom_failure {
+    return 99
+}
+function get_csv_data {
+	printf '%s' 'one,two,three'
+	a_custom_failure
+	printf '%s\n' 'four,five,six'
+}
+
+__try {status} -- get_csv_data
+printf '\n%s\n' "status=$status"
+# outputs:
+# one,two,three
+# status=99
+
+__do --redirect-status={status} -- get_csv_data
+printf '\n%s\n' "status=$status"
+# outputs:
+# one,two,three
+# status=99
+
+__do --redirect-status={status} --redirect-stdout={stdout} -- get_csv_data
+printf '%s\n' "stdout=[$stdout] status=$status"
+# outputs:
+# stdout=[one,two,three] status=99
+
+# which we can read like so:
+__do --redirect-status={get_status} --redirect-stdout={stdout} -- get_csv_data
+read_status=0
+IFS=, read -r i1 i2 i3 i4 i5 i6 <<<"$stdout" || read_status=$?
+printf '%s\n' "i1=[$i1] i2=[$i2] i3=[$i3] i4=[$i4] i5=[$i5] i6=[$i6] get_status=$get_status read_status=$read_status"
+# outputs:
+# i1=[one] i2=[two] i3=[three] i4=[] i5=[] i6=[] get_status=99 read_status=0
+
+# or read into an array (supporting all bash versions) like so:
+__do --redirect-status={get_status} --redirect-stdout={stdout} -- get_csv_data
+split_status=0
+__split --target={arr} --delimiter=',' --stdin < <(__print_string "$stdout") || split_status=$?
+echo-verbose -- "${arr[@]}"
+printf '%s\n' "get_status=$get_status split_status=$split_status"
+# outputs:
+# [0] = [one]
+# [1] = [two]
+# [2] = [three]
+# get_status=99 split_status=0
+
+# here is an alternative that uses semaphores
+split_status=0
+semaphore_status_file="$(__get_semaphore)"
+__split --target={arr} --delimiter=',' --stdin < <(__do --redirect-status="$semaphore_status_file" -- get_csv_data) || split_status=$?
+__wait_for_semaphores "$semaphore_status_file"
+echo-verbose -- "${arr[@]}"
+printf '%s\n' "get_status=$(<"$semaphore_status_file") split_status=$split_status"
+# outputs:
+# [0] = [one]
+# [1] = [two]
+# [2] = [three]
+# get_status=99 split_status=0
+```
+
+If you just want to throw a failure when splitting, you can do these:
+
+```bash
+# discards any trailing newline
+fodder_to_respect_exit_status="$(get_csv_data)"
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
+echo-verbose -- "${arr[@]}"
+
+# preserves trailing newline
+__do --redirect-stdout={fodder_to_respect_exit_status} -- get_csv_data
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
+echo-verbose -- "${arr[@]}"
+
+# recommended shorthand that preserves the trailing newline
+__split --target={arr} --delimiter=',' --invoke -- get_csv_data
+echo-verbose -- "${arr[@]}"
+```
+
+Note that these below variations do not work:
+
+```bash
+# this one is incorrect, as the exit status is discarded, as the command substitution is not just for the value of an assignment
+__split --target={arr} --delimiter=',' -- "$(get_csv_data)"
+echo-verbose -- "${arr[@]}"
+# [0] = [one]
+# [1] = [two]
+# [2] = [three]
+
+# this one is also incorrect, as the conditional disables the failure
+get_and_split_status=0
+__split --target={arr} --delimiter=',' -- "$(get_csv_data)" || get_and_split_status=$?
+echo-verbose -- "${arr[@]}"
+printf '%s\n' "get_and_split_status=$get_and_split_status"
+# [0] = [one]
+# [1] = [two]
+# [2] = [threefour]
+# [3] = [five]
+# [4] = [six]
+# get_and_split_status=0
+
+# these failures seem to indicate that "$(...)" interpolation only reflects its exit status if it is solely being used as a value in a variable assignment, but if it is being used in a statement, then the exit status is discarded and the resulting exit status is that of the statement itself, which will be 0 unless the statement itself fails
+```
+
+In summary, here are various before and after examples:
 
 ```bash
 #!/usr/bin/env bash
-source "$DOROTHY/sources/bash.bash" # enables errexit and provides eval_capture
+source "$DOROTHY/sources/bash.bash"
 
 # capturing exit status
-# before
-status=0 && some_function || status=$?
-# after
-status=0
-eval_capture --statusvar=status a_function_which_failure_IS_NOT_the_last_command
+# BEFORE, ACCIDENTALLY DISABLES ERREXIT:
+status=0 && any_command_or_function_including_unsafe_functions || status=$?
+# AFTER, IF FUNCTION IS SAFE:
+status=0 && __only_safe_functions || status=$?
+# AFTER, FOR ALL FUNCTIONS USING TRY:
+__try {status} -- any_command_or_function_including_unsafe_functions
+# AFTER, FOR ALL FUNCTIONS USING DO:
+__do --redirect-status={status} -- any_command_or_function_including_unsafe_functions
 
 # ignoring exit status
-# before
-some_function || :
-# after
-eval_capture some_function
+# BEFORE, ACCIDENTALLY DISABLES ERREXIT:
+any_command_or_function_including_unsafe_functions || :
+# AFTER, IF FUNCTION IS SAFE:
+__only_safe_functions || :
+# AFTER, FOR ALL FUNCTIONS USING TRY:
+__try -- any_command_or_function_including_unsafe_functions
+# AFTER, FOR ALL FUNCTIONS USING DO:
+__do --discard-status -- any_command_or_function_including_unsafe_functions
 
 # acting upon success or failure
-# before
-if some_function; then
+# BEFORE, ACCIDENTALLY DISABLES ERREXIT:
+if any_command_or_function_including_unsafe_functions; then
 	# ...
 else
 	# ...
 fi
-# after
-local status
-eval_capture --statusvar=status some_function
+# AFTER, IF FUNCTION IS SAFE:
+if __only_safe_functions; then
+	# ...
+else
+	# ...
+fi
+# AFTER, FOR ALL FUNCTIONS USING TRY:
+__try {status} -- any_command_or_function_including_unsafe_functions
+if [[ "$status" -eq 0 ]]; then
+	# ...
+else
+	# ...
+fi
+# AFTER, FOR ALL FUNCTIONS USING DO:
+__do --redirect-status={status} -- any_command_or_function_including_unsafe_functions
 if [[ "$status" -eq 0 ]]; then
 	# ...
 else
@@ -553,27 +776,90 @@ else
 fi
 
 # negating exit status
-# before
-! some_function
-# after
-local status
-eval_capture --statusvar=status some_function
-if [[ "$status" -ne 0 ]]; then
-    # ...
-fi
+# BEFORE, ACCIDENTALLY DISABLES ERREXIT:
+! any_command_or_function_including_unsafe_functions
+# AFTER, IF FUNCTION IS SAFE:
+! __only_safe_functions
+# AFTER, FOR ALL FUNCTIONS:
+__try {status} -- any_command_or_function_including_unsafe_functions
+[[ "$status" -ne 0 ]]
 
-# ignoring exit status inside interpolation
-# before
-local result
-result="$(some_function || :)"
-# after
-local result
-eval_capture --stdoutvar=result some_function
+# discard exit status inside interpolation
+# BEFORE, ACCIDENTALLY DISABLES ERREXIT:
+result="$(any_command_or_function_including_unsafe_functions || :)"
+# BEFORE, ACCIDENTALLY DISABLES ERREXIT AND DISCARDS VARIABLE ASSIGNMENT ERRORS TOO:
+result="$(any_command_or_function_including_unsafe_functions)" || :
+# AFTER, IF FUNCTION IS SAFE:
+result="$(__only_safe_functions || :)"
+# AFTER, FOR ALL FUNCTIONS:
+__do --discard-status --redirect-stdout={result} -- any_command_or_function_including_unsafe_functions
+
+# assigning to an array
+# BEFORE, DISCARDS THE FORMER EXIT STATUS:
+arr=()
+arr=("$(echo a; exit 9;)" "$(echo b;)") || echo "$?" # outputs nothing as the failure was undetected
+echo "$? ${PIPESTATUS[@]}" # outputs: 0 0
+echo-verbose -- "${arr[@]}"
+# outputs:
+# 0 0
+# [0] = [a]
+# [1] = [b]
+# AFTER, ENSURES EXIT STATUS IS RESPECTED:
+arr=()
+arr+=("$(echo a; exit 9;)") || echo "$?" # outputs: 9
+arr+=("$(echo b;)") || echo "$?" # outputs nothing as there was no failure
+echo-verbose -- "${arr[@]}"
+# outputs:
+# 9
+# [0] = [a]
+# [1] = [b]
+# AFTER, ENSURES EXIT STATUS IS RESPECTED:
+a=("$(echo a; exit 9;)") || echo "$?" # outputs: 9
+b=("$(echo b;)") || echo "$?" # outputs nothing as there was no failure
+arr=("$a" "$b") || echo "$?" # outputs nothing as there was no failure
+echo-verbose -- "${arr[@]}"
+# outputs:
+# 9
+# [0] = [a]
+# [1] = [b]
+
+# forward the output of one command to another, respecting exit status
+# BEFORE, DISCARDS EXIT STATUS:
+cat < <(any_command_or_function_including_unsafe_functions) # discards exit status
+# AFTER, RESPECTS EXIT STATUS:
+any_command_or_function_including_unsafe_functions | cat # respects exit status
+
+# forward the output of one command to another, respecting exit status and side effects
+# BEFORE, RESPECTS SIDE EFFECTS BUT DISCARDS EXIT STATUS:
+side_effect=no
+{ side_effect=yes; cat; } < <(any_command_or_function_including_unsafe_functions) # discards exit status
+echo "side_effect=$side_effect" # outputs: side_effect=yes
+# BEFORE, RESPECTS EXIT STATUS BUT DISCARDS SIDE EFFECTS:
+side_effect=no
+any_command_or_function_including_unsafe_functions | { side_effect=yes; cat; }  # respects exit status, but discards side effects
+echo "side_effect=$side_effect"  # outputs: side_effect=no
+# AFTER, ENSURES TRAILING NEWLINE:
+side_effect=no
+fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
+{ side_effect=yes; cat; } <<<"$fodder_to_respect_exit_status"
+echo "side_effect=$side_effect" # outputs: side_effect=yes
+# AFTER, PRESERVES TRAIL:
+side_effect=no
+__do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_function_including_unsafe_functions
+{ side_effect=yes; cat; } < <(__print_string "$fodder_to_respect_exit_status") # outputs: side_effect=yes
+
+# split on a delimiter
+# BEFORE, DISCARDS EXIT STATUS:
+__split --target={arr} --delimiter=',' -- "$(any_command_or_function_including_unsafe_functions)"
+# AFTER, DISCARDS TRAILING NEWLINES:
+fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','
+# AFTER, ENSURES TRAILING NEWLINES:
+fodder_to_respect_exit_status="$(any_command_or_function_including_unsafe_functions)"
+__split --target={arr} --delimiter=',' --stdin <<<"$fodder_to_respect_exit_status"
+# AFTER, PRESERVES TRAIL:
+__do --redirect-stdout={fodder_to_respect_exit_status} -- any_command_or_function_including_unsafe_functions
+__split --source={fodder_to_respect_exit_status} --target={arr} --delimiter=','"
 ```
 
-If for whatever reason you do decide to not use eval_capture, then prefix the function with two underscores (`__`) to indicate it is safe for `if`, `and`, `or`, `not` operations, and make sure every invocation statement is suffixed with `|| return`.
-
-For more information on this, refer to:
-
-- https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
-- https://github.com/bevry/dorothy/blob/master/sources/bash.bash
+You can find the implementation of `__do` and `__try` inside Dorothy's [`bash.bash`](https://github.com/bevry/dorothy/blob/master/sources/bash.bash), and find their tests within the [`dorothy-internals` command](https://github.com/bevry/dorothy/blob/master/commands/dorothy-internals).

@@ -25,13 +25,64 @@
 
 function get_devices() (
 	source "$DOROTHY/sources/bash.bash"
-	__require_array 'mapfile'
+	__require_array 'associative'
+	source "$DOROTHY/sources/styles.bash" # __load_styles
+	source "$(type -P eval-helper)"
+	# source "$(type -P echo-regexp)"
+
+	# prepare
+	local field_keys boolean_keys=(mountable)
+	if is-mac; then
+		field_keys=(
+			node
+			uuid
+			raid_uuid # UUID of the RAID set
+			raid_slice
+			model
+			serial
+			type
+			id
+			apfs_physical_store
+			apfs_container
+			# ...
+			filesystem
+			label
+			mountable
+			mount
+			# ...
+			location
+			virtual
+			# ...
+			size
+			volume_used_space
+			container_free_space
+			container_size
+			block
+		)
+	else
+		field_keys=(
+			node
+			size
+			model
+			filesystem
+			label
+			mount
+			count
+			count_available
+			uuid
+			serial
+			product
+			vendor
+			revision
+			block
+		)
+	fi
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Get devices and their information.
 
@@ -39,541 +90,736 @@ function get_devices() (
 			get-devices [...options] [-- ...<node>]
 
 			OPTIONS:
-			--result=<detail>
-			    What to output as the result. If CSV values provided, they will be tabbed separated.
+			--question=<question> | --required | --multi
+			    If provided, these are forwarded to [choose], which will be used to show a prompt to make a selection of devices.
+			    Implies [--return=node]. If you want other fields, be sure to specify them.
+			    If not provided, and no <return-field-name> is provided, then an interactive table will be displayed.
 
-			--details=<detail>
-			    What to output as the label (accepts CSV values).
-			    Defaults to all details.
+			--return=<return-field-name>
+			    If provided, limit the returned fields to only these. Supports separated values. Result will be tabbed separated.
 
-			--select=<question>
-			    If provided, prompts the user to select one of the matched devices with the <question>.
-			    Defaults <result> to <node>.
+			--display=<display-field-name>
+			    If provided, limit the displayed fields to only these. Supports separated values.
 
 			--missing=<missing>
 			    If provided, and no results were found, then output this <missing> message instead of the default one.
+			    If empty, then no warning message will be shown.
+
+			--terminal-lines=<terminal-lines> | --terminal-columns=<terminal-columns>
+			    Forwarded to commands that support them.
 
 			--debug
 			    Output debug information.
 
-			--quiet
-			    Don't output warning about no matching devices.
+			--<field-name> | --no-<field-name>
+			    Filter devices to only those which <field-name> applies or not.
+			--<field-name>=<field-value>
+			    Filter devices to only those that the <field-name> specified as <field-value>.
 
-			FILTERS:
-			--node=<node>
-			    Filter devices, only returning those of <node>.
+			FIELDS:
+			Field availability and value format is dependent on device, filesystem, and operating system.
+			node        Get device node, e.g. [/dev/sda]
+			size        Get device size, e.g. [10.91 TiB]
+			label       Get device label, e.g. [TANKER]
+			filesystem  Get device filesystem/type, e.g. [btrfs|ext4]
+			mount       Get device mount point, e.g. [/boot/firmware]
+			count       Get how many devices are attached to the filesystem (btrfs only), e.g. [1]
+			vendor      Get device vendor, e.g. [Seagate]
+			model       Get device model, e.g. [My Book 25EE]
+			product     Get device product, e.g. [Expansion Desk]
+			revision    Get device revision, e.g. [0915]
+			serial      Get device serial number, e.g. [1AA1AA11]
+			uuid        Get device uuid, e.g. [1aa1aa11-1aa1-aa11-1aa1-aa1aa1aa1aa1]
+			block       Get device block size, e.g. [4096]
 
-			--uuid=<uuid>
-			    Filter devices, only returning those of <uuid>.
-
-			--label=<label>
-			    Filter devices, only returning those of <label>.
-
-			--filesystem=<filesystem>
-			    Filter devices, only returning those of <filesystem>.
-
-			--mount=<mount>
-			    Filter devices, only returning those mounted to <mount>.
-
-			--mounted
-			    Filter devices, only returning those that are mounted.
-
-			--count=<count>
-			    Filter devices, only returning those of <count>.
-			    Currently only supports btrfs.
-
-			DETAILS:
-			node
-			    Get device node, e.g. [/dev/sda]
-
-			size
-			    Get device size, e.g. [10.91 TiB]
-
-			label
-			    Get device label, e.g. [TANKER]
-
-			filesystem
-			    Get device filesystem/type, e.g. [btrfs|ext4]
-
-			mount
-			    Get device mount point, e.g. [/boot/firmware]
-
-			count
-				Get how many devices are attached to the filesystem (btrfs only), e.g. [1]
-
-			vendor
-			    Get device vendor, e.g. [Seagate]
-
-			model
-			    Get device model, e.g. [My Book 25EE]
-
-			product
-			    Get device product, e.g. [Expansion Desk]
-
-			revision
-			    Get device revision, e.g. [0915]
-
-			serial
-			    Get device serial number, e.g. [1AA1AA11] coerced from [Serial Number '1AA1AA11        ']
-
-			uuid
-			    Get device uuid, e.g. [1aa1aa11-1aa1-aa11-1aa1-aa1aa1aa1aa1]
-
-			block
-			    Get device block size, e.g. [4096]
+			FIELDS AVAILABLE ON THIS OPERATING SYSTEM:
+			$(__join --source={field_keys} --delimiter=' ')
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_results=() option_select='' option_missing='' option_debug='no' option_quiet=''
-	local option_has_node='' option_node=''
-	local option_has_label='' option_label=''
-	local option_has_filesystem='' option_filesystem=''
-	local option_has_mount='' option_mount=''
-	local option_has_count='' option_count=''
-	local option_has_uuid='' option_uuid=''
-	local option_details=(
-		node
-		size
-		label
-		filesystem
-		mount
-		count
-		vendor
-		model
-		product
-		revision
-		serial
-		uuid
-		block
-	)
-	local filters=(
-		node
-		label
-		filesystem
-		mount
-		count
-		uuid
-	)
+	declare -A matches exists
+	local item option_quiet='' option_debug='no' option_return=() option_display=() option_choose_args=() option_missing='No matching devices found.' option_terminal_lines='' option_terminal_columns=''
+	function parse_arg {
+		# matches examples:
+		# --count=3
+		# exists examples:
+		# --no-mount
+		# --mount
+		# --no-mount=yes
+		# --mount=yes
+		local item="$1" key value
+		__replace --source={item} --target={key} --keep-after-first='--' --keep-before-first='=' --leading='no-' --require=any
+		__flag --source={item} --target={value} --affirmative
+		if __has --source={boolean_keys} -- "$key"; then
+			matches["$key"]="$value"
+		elif [[ $value == 'yes' || $value == 'no' ]]; then
+			exists["$key"]="$value"
+		else
+			matches["$key"]="$value"
+		fi
+	}
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*)
-			option_quiet="$(get-flag-value --non-affirmative --fallback="$option_quiet" -- "$item")"
-			;;
-		'--no-quiet'* | '--quiet'*)
-			option_quiet="$(get-flag-value --affirmative --fallback="$option_quiet" -- "$item")"
-			;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-debug'* | '--debug'*) __flag --source={item} --target={option_debug} --affirmative ;;
 
-		'--result='*)
-			mapfile -t option_results < <(echo-split ',' -- "${item#*=}")
+		'--return='* | '--result='*)
+			__split --target={option_return} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
 			;;
-		'--detail='*)
-			mapfile -t option_details < <(echo-split ',' -- "${item#*=}")
+		'--display='*)
+			__split --target={option_display} --append --no-zero-length --delimiters=$'\n\t ,:|' -- "${item#*=}"
 			;;
-		'--select='*) option_select="${item#*=}" ;;
 		'--missing='*) option_missing="${item#*=}" ;;
-		'--no-debug'* | '--debug'*)
-			option_debug="$(get-flag-value --affirmative --fallback="$option_debug" -- "$item")"
-			;;
 
-		'--node='*) option_node="${item#*=}" ;;
-		'--no-node' | '--node')
-			option_has_node="$(get-flag-value --affirmative --fallback="$option_has_node" -- "$item")"
-			;;
+		'--select') option_choose_args+=('Select a device.') ;;        # b/c
+		'--select='*) option_choose_args+=("--question=${item#*=}") ;; # b/c
+		'--question'* | '--no-multi'* | '--multi'* | '--no-required'* | '--required'*) option_choose_args+=("$item") ;;
 
-		'--label='*) option_label="${item#*=}" ;;
-		'--no-label' | '--label')
-			option_has_label="$(get-flag-value --affirmative --fallback="$option_has_label" -- "$item")"
-			;;
+		'--terminal-lines='*) option_terminal_lines="${item#*=}" ;;
+		'--terminal-columns='*) option_terminal_columns="${item#*=}" ;;
 
-		'--filesystem='*) option_filesystem="${item#*=}" ;;
-		'--no-filesystem' | '--filesystem')
-			option_has_filesystem="$(get-flag-value --affirmative --fallback="$option_has_filesystem" -- "$item")"
-			;;
+		'--'*) parse_arg "$item" ;;
 
-		'--mount='*) option_mount="${item#*=}" ;;
-		'--no-mount' | '--mount')
-			option_has_mount="$(get-flag-value --affirmative --fallback="$option_has_mount" -- "$item")"
-			;;
-		'--no-mounted'* | '--mounted'*)
-			option_has_mount="$(get-flag-value --affirmative --fallback="$option_has_mount" -- "$item")"
-			;;
-
-		'--count='*) option_count="${item#*=}" ;;
-		'--no-count' | '--count')
-			option_has_count="$(get-flag-value --affirmative --fallback="$option_has_count" -- "$item")"
-			;;
-
-		'--uuid='*) option_uuid="${item#*=}" ;;
-		'--no-uuid' | '--uuid')
-			option_has_uuid="$(get-flag-value --affirmative --fallback="$option_has_uuid" -- "$item")"
-			;;
-
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# if select is provided, yet no results are provided, then default to node
-	if [[ -n $option_select && ${#option_results[@]} -eq 0 ]]; then
-		option_results=('node')
+	# adjustments
+	local quiet="${option_quiet:-"yes"}" check_keys=("${!matches[@]}" "${!exists[@]}")
+	if [[ ${#option_display[@]} -eq 0 ]]; then
+		option_display=("${field_keys[@]}")
+	fi
+	if [[ ${#option_choose_args[@]} -ne 0 && ${#option_return[@]} -eq 0 ]]; then
+		option_return=('node')
 	fi
 
-	# if no select is provided, yet results are provided, then ignore display
-	if [[ -z $option_select && ${#option_results[@]} -ne 0 ]]; then
-		option_details=()
-	fi
+	# terminal size: constrain to arguments if provided
+	local terminal_lines="$option_terminal_lines" terminal_columns="$option_terminal_columns"
+	function __refresh_terminal_size {
+		if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
+			local terminal_size=()
+			__split --target={terminal_size} --no-zero-length --invoke=try -- \
+				get-terminal-lines-and-columns || return
+			if [[ ${#terminal_size[@]} -eq 2 ]]; then
+				if [[ -z $option_terminal_lines ]]; then
+					terminal_lines="${terminal_size[0]}"
+				fi
+				if [[ -z $option_terminal_columns ]]; then
+					terminal_columns="${terminal_size[1]}"
+				fi
+			fi
+		fi
+	}
+	__refresh_terminal_size
 
-	# if no missing, default to a generic message
-	if [[ -z $option_missing ]]; then
-		option_missing='No matching devices found.'
-	fi
+	local root
+	root="$(fs-temp --cache --directory='dorothy' --directory='get-devices')"
 
 	# =====================================
-	# Action
-
-	# terminal
-	local terminal_device_file
-	terminal_device_file="$(get-terminal-device-file)"
+	# Helpers
 
 	# dependencies
 	setup-util-devices --quiet
 
-	# helpers
-	function get_key {
-		local key="$1" haystack="$2"
-		echo-regexp -o --regexp="${key}=\"([^\"\n]+)" --replace='$1' -- "$haystack"
+	# prepare
+	declare -A fields
+	local result_lines=() devices=() devices_count=0
+
+	# wrap
+	function __wrap {
+		eval_helper --terminal-lines="$terminal_lines" --terminal-columns="$terminal_columns" --quiet="$quiet" --persist=STDOUT --wrap --revolving-max-lines=5 "$@"
 	}
-	function get_property {
-		local key="$1" haystack="$2"
-		echo-regexp -o --regexp="${key}[: '\"]+([^'\"\n]+)" --replace='$1' -- "$haystack" | echo-trim-each-line --stdin
+
+	# progress bar
+	# local message_segment=0
+	function __progress {
+		local count="$1" total="$2" comment="${3-}" message
+		message="Fetching device information: $((count * 100 / total))% [$count/$total] $comment"
+		__do --redirect-output=TTY -- printf $'\r'"%-${terminal_columns}s" "$message" || return
+		# local progress_decimal progress_size progress_step i message_size progress_segment progress_bar='['
+		# message_size="${#message}"
+		# if [[ $message_segment -eq 0 ]]; then
+		# 	message_segment="$(echo-math --integer -- "$message_size + 8")"
+		# elif [[ $message_size -gt $message_segment ]]; then
+		# 	message_segment="$(echo-math --integer -- "$message_size + 4")"
+		# fi
+		# progress_segment="$(echo-math --integer -- "$option_terminal_columns - $message_segment")"
+		# progress_decimal="$(echo-math -- "$count / $total")"
+		# progress_size="$((progress_segment - 3))"
+		# progress_step="$(echo-math --integer -- "$progress_size * $progress_decimal")"
+		# for ((i = 0; i < progress_step; i++)); do
+		# 	progress_bar+='#'
+		# done
+		# for ((i = progress_step; i < progress_size; i++)); do
+		# 	progress_bar+='-'
+		# done
+		# progress_bar+=']'
+		# __do --redirect-output=TTY -- printf $'\r'"%-${message_segment}s%-${progress_segment}s" "$message" "$progress_bar"
 	}
-	function check_exclude {
-		local name="$1" value="$2"
-		local option="option_$name"
-		option="${!option}"
-		local has="option_has_$name"
-		has="${!has}"
-		if [[ -n $option && $option != "$value" ]]; then
-			return 0
+
+	# checking fields
+	# __check_key <key> <value>
+	function __check_field {
+		local key="$1" field_value='' exists_value
+		if [[ -v fields["$key"] ]]; then
+			field_value="${fields["$key"]}"
 		fi
-		if [[ -n $has ]]; then
-			if [[ ($has == 'yes' && -z $value) || ($has == 'no' && -n $value) ]]; then
-				return 0
+		if [[ -v matches["$key"] && ${matches["$key"]} != "$field_value" ]]; then
+			return 1
+		fi
+		if [[ -v exists["$key"] ]]; then
+			exists_value="${exists["$key"]}"
+			if [[ ($exists_value == 'yes' && -z $field_value) || ($exists_value == 'no' && -n $field_value) ]]; then
+				return 1
 			fi
 		fi
-		return 1
+		return 0
 	}
+	# __correct_fields
+	function __correct_fields {
+		local key value
+		for key in "${boolean_keys[@]}"; do
+			if ! [[ -v matches["$key"] ]]; then
+				matches["$key"]='no'
+			fi
+			value="${matches["$key"]}"
+			if ! [[ $value =~ ^(yes|no)$ ]]; then
+				__print_error 'Encountered invalid boolean value for:' --newline --variable={key} --newline --variable={value} || return
+				return 22 # EINVAL 22 Invalid argument
+			fi
+		done
+	}
+	# __check_fields
+	function __check_fields {
+		local key
+		for key in "${check_keys[@]}"; do
+			__check_field "$key" || return
+		done
+		return 0
+	}
+
+	# fetching fields
+	# __get_key <key> <haystack>
+	function __get_key {
+		# could be multiple keys per line
+		local key="$1" haystack="$2"
+		# echo-regexp -o --regexp="${key}=\"([^\"\n]+)" --replace='$1' -- "$haystack" || return
+		__replace --source={haystack} --target={value} --keep-after-first="$key=" || return
+		if [[ -z $value ]]; then
+			return 0
+		fi
+		# trim leading whitespace and quotes
+		while [[ $value =~ ^[\n\ \'\"] ]]; do
+			value="${value:1}"
+		done
+		# get everything until the first whitespace or quote
+		local content=''
+		while ! [[ $value =~ ^[\n\'\"] ]]; do
+			content+="${value:0:1}"
+			value="${value:1}"
+		done
+		value="$content"
+		__replace --optional --source+target={value} --trailing-whitespace || return
+		__print_string "$value" || return
+	}
+	# __get_property <key> <haystack>
+	function __get_property {
+		# one property per line
+		local key="$1" haystack="$2" value # rk rv
+		# rk="$(echo-escape-regexp -- "$key")"
+		# rv="$(echo-regexp -o --regexp="${rk}:[ '\"]+([^'\"\n]+)" --replace='$1' -- "$haystack" | echo-trim-each-line --stdin || :)"
+		[[ $haystack == *"$key: "* ]] || return 0
+		__replace --source={haystack} --target={value} --keep-after-first="$key: " || return
+		if [[ $value == *$'\n'* ]]; then
+			__replace --source+target={value} --keep-before-first=$'\n' || return # can be the last line
+		fi
+		# trim leading and trailing whitespace and quotes
+		while [[ $value =~ ^[\ \'\"] ]]; do
+			value="${value:1}"
+		done
+		while [[ $value =~ [\ \'\"]$ ]]; do
+			__slice --source+target={value} -- 0 -1 || return
+		done
+		# if [[ $value != "$rv" ]]; then
+		# 	__print_error "[$value] != [$rv] with [$key] on [$haystack]"
+		# 	exit 9
+		# fi
+		__print_string "$value" || return
+	}
+	# __get_size <size>
+	function __get_size {
+		local size="$1"
+		# 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
+		# to
+		# 5.0 TB
+		if [[ $size == *' ('* ]]; then
+			__replace --source+target={size} --keep-before-first=' (' || return
+		fi
+		__print_lines "$size" || return
+	}
+	# __get_size_property <key> <haystack>
+	function __get_size_property {
+		local key="$1" haystack="$2" value
+		value="$(__get_property "$key" "$haystack")" || return
+		__get_size "$value" || return
+	}
+
+	# adding and rendering fields: macos vs linux
+	if [[ ${#option_choose_args[@]} -ne 0 ]]; then
+		# choose and return for a program
+		__load_styles --save -- bold code # dim foreground_black foreground_red foreground_green foreground_yellow foreground_blue foreground_magenta foreground_cyan foreground_white
+		# local open_colors=(
+		# 	"$STYLE__foreground_black"
+		# 	"$STYLE__foreground_red"
+		# 	"$STYLE__foreground_green"
+		# 	"$STYLE__foreground_yellow"
+		# 	"$STYLE__foreground_blue"
+		# 	"$STYLE__foreground_magenta"
+		# 	"$STYLE__foreground_cyan"
+		# 	"$STYLE__foreground_white"
+		# ) close_colors=(
+		# 	"$STYLE__END__foreground_black"
+		# 	"$STYLE__END__foreground_red"
+		# 	"$STYLE__END__foreground_green"
+		# 	"$STYLE__END__foreground_yellow"
+		# 	"$STYLE__END__foreground_blue"
+		# 	"$STYLE__END__foreground_magenta"
+		# 	"$STYLE__END__foreground_cyan"
+		# 	"$STYLE__END__foreground_white"
+		# )
+		local return_lines=()
+		function __add_fields_to_results {
+			local values=() key value line return_values=() # color_index=0 color_open color_close
+			for key in "${option_display[@]}"; do
+				# if [[ $color_index -lt ${#open_colors[@]} ]]; then
+				# 	color_open="${open_colors[color_index]}"
+				# 	color_close="${close_colors[color_index]}"
+				# 	color_index="$((color_index + 1))"
+				# else
+				# 	color_open="${open_colors[0]}"
+				# 	color_close="${close_colors[0]}"
+				# 	color_index=1
+				# fi
+				if [[ -v fields["$key"] ]]; then
+					value="${fields[$key]}"
+					if [[ -n $value ]]; then
+						# line="$key=[$value]"
+						# line="$(__print_style --bold="$key " --code="$value")"
+						line="${STYLE__bold}${key}${STYLE__END__bold} ${STYLE__code}${value}${STYLE__END__code}"
+						# line="${color_open}${line}${color_close}"
+						values+=("$line")
+					fi
+				fi
+			done
+			for key in "${option_return[@]}"; do
+				if [[ -v fields["$key"] ]]; then
+					return_values+=("${fields[$key]}")
+				else
+					return_values+=('')
+				fi
+			done
+			__join --source={values} --delimiter='  ' --append --target={result_lines} || return
+			__join --source={return_values} --delimiter=$'\t' --append --target={return_lines} || return
+		}
+		function __render_results {
+			local index
+			index="$(choose --index "${option_choose_args[@]}" -- "${result_lines[@]}")" || return
+			if [[ -z $index ]]; then
+				__print_error "$option_missing" || return
+				return 1
+			fi
+			if [[ $index -lt 0 || $index -ge ${#return_lines[@]} ]]; then
+				__print_error "Invalid index [$index] for [0, ${#return_lines[@]}]" || return
+			fi
+			local return_line="${return_lines[index]}"
+			__print_lines "$return_line" || return
+		}
+	elif [[ ${#option_return[@]} -ne 0 ]]; then
+		# return for a program
+		function __add_fields_to_results {
+			local return_values=() key
+			for key in "${option_result[@]}"; do
+				if [[ -v fields["$key"] ]]; then
+					return_values+=("${fields[$key]}")
+				else
+					return_values+=('')
+				fi
+			done
+			__join --source={return_values} --delimiter=$'\t' --append --target={result_lines} || return
+		}
+		function __render_results {
+			__print_lines "${result_lines[@]}" || return
+		}
+	else
+		# render for the user
+		local devices_tsv_file
+		devices_tsv_file="$(fs-temp --root="$root" --file='tsv')"
+		__command_required -- 'csvlens' || return
+		function __add_fields_to_results {
+			local values=() key
+			for key in "${option_display[@]}"; do
+				if [[ -v fields["$key"] ]]; then
+					values+=("${fields[$key]}")
+				else
+					values+=('')
+				fi
+			done
+			__join --source={values} --delimiter$'\t' --append --target={result_lines} || return
+		}
+		function __render_results {
+			# prepend option_display values joined by tab to result_lines
+			__join --source={option_display} --delimiter=$'\t' --prepend --target={result_lines} || return
+			# join result_lines and output to devices_tsv_file
+			__join --source={result_lines} --delimiter=$'\n' >"$devices_tsv_file" || return
+			csvlens -t "$devices_tsv_file" || return
+
+			# https://github.com/alexhallam/tv?tab=readme-ov-file#tools-to-pair-with-tv
+			# brew install tidy-viewer
+			# tv --color-always  --no-dimensions  --no-row-numbering --force-all-rows --delimiter $'\t' devices.tsv
+			# ^ no ability to disable NA
+			# no ability to disable margin padding
+			# no ability to disable footer status bar
+			# otherwise really good, truncates automatically
+
+			# column fails to render the long columns properly
+			# bash-5.2$ column -c 50 -xts $'\t' devices.tsv
+			# column: line too long
+
+			# https://github.com/johnkerl/miller
+		}
+	fi
+
+	# =====================================
+	# Action
 
 	# debug
 	if [[ $option_debug == 'yes' ]]; then
 		{
 			if [[ -n $option_node ]]; then
 				# model, serial, uuid, filesystem, size, block, label
-				sudo-helper --wrap \
-					-- diskutil info "$option_node" || :
+				eval_helper --wrap -- \
+					diskutil info "$option_node" || :
 
 				# label, uuid, block, filesystem
-				sudo-helper --wrap \
-					-- blkid "$option_node" || :
+				eval_helper --elevate --wrap -- \
+					blkid "$option_node" || :
 
 				# serial, vendor, product, revision
-				sudo-helper --wrap \
-					-- sginfo -a "$option_node" || :
+				eval_helper --elevate --wrap -- \
+					sginfo -a "$option_node" || :
 
-				sudo-helper --wrap \
-					-- hdparm -I "$option_node" || :
+				eval_helper --elevate --wrap -- \
+					hdparm -I "$option_node" || :
 
-				sudo-helper --wrap \
-					-- sdparm -i "$option_node" || :
+				eval_helper --elevate --wrap -- \
+					sdparm -i "$option_node" || :
 
 				# -i: model, serial, firmware, pci id, ieee id, controller id, nvme version, etc.
 				# -a: same as -i, but includes SMART specific details that we don't care for
-				# sudo-helper --wrap \
+				# eval_helper --elevate --wrap \
 				# 	-- smartctl -a "$option_node" ''
 
 				#  btrfs filesystem show [options] [<path>|<uuid>|<device>|label]
-				sudo-helper --wrap \
-					-- btrfs filesystem show "$option_node"
+				eval_helper --elevate --wrap -- \
+					btrfs filesystem show "$option_node"
 			else
 				if is-linux; then
 					# macos doesn't support fdisk for listing
-					sudo-helper --wrap \
-						-- fdisk -l || :
+					eval_helper --elevate --wrap -- \
+						fdisk -l || :
 
 					# Gets all the details for the drives, including the vendor, model, serial, driver capabilities, etc.
 					# UASP unsupported: configuration: driver=usb-storage
 					# UASP supported: configuration: driver=uas maxpower=... speed=...
-					sudo-helper --wrap \
-						-- lshw -class disk -class storage || :
+					eval_helper --elevate --wrap -- \
+						lshw -class disk -class storage || :
 
 					# Fetch filesystems and mounts for all drives
-					sudo-helper --wrap \
-						-- lsblk -f || :
+					eval_helper --elevate --wrap -- \
+						lsblk -f || :
 				else
-					sudo-helper --wrap \
-						-- diskutil list || :
+					eval_helper --wrap -- \
+						diskutil list || :
 				fi
 
 				#  btrfs filesystem show [options]
-				sudo-helper --wrap \
-					-- btrfs filesystem show
+				eval_helper --elevate --wrap -- \
+					btrfs filesystem show
 
 				# trail
 				__print_line
 			fi
-		} >/dev/stderr
+		} >&2
 	fi
 
-	# action
-	local MOUNT_HAYSTACK='' MOUNT_RAID=''
-	function get_all {
-		MOUNT_HAYSTACK="$(mount)"
-		if [[ $option_filesystem == 'btrfs' ]] || echo-regexp -q --regexp='btrfs' -- "$MOUNT_HAYSTACK"; then
+	# fetch
+	if is-mac; then
+		# get all devices
+		local delimiter='**********' devices_list='' devices_list_file devices_info='' devices_info_file
+		devices_list_file="$(fs-temp --root="$root" --file='list')"
+		devices_info_file="$(fs-temp --root="$root" --file='info')"
+		devices_list="$(__wrap --pending='Checking devices list from diskutil...' --success='Checked devices list from diskutil.' -- diskutil list)"
+		if [[ -s $devices_info_file && -s $devices_list_file ]]; then
+			if [[ $devices_list == "$(<"$devices_list_file")" ]]; then
+				echo is same
+				devices_info="$(<"$devices_info_file")"
+			# else
+			# 	fs-diff -- "$devices_list_file" <(__print_string "$devices_list") || :
+			fi
+		fi
+		if [[ -z $devices_info ]]; then
+			devices_info="$(__wrap --pending='Refreshing devices from diskutil...' --success='Refreshing devices from diskutil.' -- diskutil info -all)"
+			__print_string "$devices_info" >"$devices_info_file"
+			__print_string "$devices_list" >"$devices_list_file"
+		fi
+		__split --source={devices_info} --target={devices} --delimiter="$delimiter" --no-zero-length
+		devices_count="${#devices[@]}"
+		__print_style --tty --bold="Found $devices_count devices"
+
+		# get all serial numbers
+		# ioreg -d 1 -ar -c  IOBlockStorageDevice <-- good xml output, includes serial of mac ssd, but not the usb devices
+		# ioreg -l | grep -i serialnumber <-- garbled xml output, includes serials but difficult to work with
+		# system_profiler -listDataTypes
+		# system_profiler SPUSBDataType -json <-- all usb devices and serials
+		# system_profiler SPNVMeDataType -json <-- mac ssd info and serial
+		# system_profiler SPStorageDataType -json <-- good summary of storage volumes, no serials
+		# fields[serial]="$(__get_property 'Disk / Partition UUID' "$device")"
+		# local serials_json_query='reduce (.. | select(.serial_num? and .Media?)) as $item ({};
+		# 	reduce $item.Media[] as $media (.;
+		# 		. + {($media.bsd_name): $item.serial_num}
+		# 	)
+		# )'
+		local usb_serials_tsv_query='reduce (.. | select(.serial_num? and .Media?)) as $item ({};
+			reduce $item.Media[] as $media (.;
+				. + {($media.bsd_name): $item.serial_num}
+			)
+		) | to_entries | map("\(.key)\t\(.value)") | join("\n")'
+		local nvme_serials_tsv_query='.SPNVMeDataType[] | .. | select(.bsd_name? and .device_serial?) | "\(.bsd_name)\t\(.device_serial)"'
+		declare -A serials
+		while IFS=$'\t' read -r device serial; do
+			serials[$device]="$serial"
+		done < <(system_profiler SPUSBDataType -json | jq -r "$usb_serials_tsv_query")
+		while IFS=$'\t' read -r device serial; do
+			serials[$device]="$serial"
+		done < <(system_profiler SPNVMeDataType -json | jq -r "$nvme_serials_tsv_query")
+
+		# partition type: raid, boot, efi, volume (apfs volume, multiple per apfs container)
+		# device type: physical (apfs physical container), virtual (apfs virtual container), partition
+		# local temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' count_available='' count_info='' serial='' vendor='' product='' revision='' device_type='' partition_type=''
+
+		# https://en.wikipedia.org/wiki/Apple_Partition_Map
+		declare -A type_map
+		type_map['EF57347C-0000-11AA-AA11-00306543ECAC']='APFS Container' # Content (IOContent)
+		type_map['7C3457EF-0000-11AA-AA11-00306543ECAC']='RAID Set'       # Content (IOContent) also a APFS Physical Store
+		type_map[GUID_partition_scheme]='Drive'                           # Content (IOContent)
+		type_map[Apple_Boot]='Apple BootX Partition'                      # Content (IOContent)
+		type_map[Apple_APFS_Recovery]='APFS Recovery Partition'           # Content (IOContent)
+		type_map[Apple_APFS_ISC]='APFS iBoot System Container'            # Content (IOContent)
+		type_map[Apple_RAID]='RAID Slice'                                 # Partition Type
+		type_map[Apple_APFS]='APFS Physical Store'                        # Partition Type
+		type_map['41504653-0000-11AA-AA11-00306543ECAC']='APFS Volume'    # Partition Type
+
+		# cycle through each device
+		local index device device id size label model type filesystem
+		for index in "${!devices[@]}"; do
+			# checks
+			# __progress "$i" "$devices_count"
+			device="${devices[index]}"
+			if is-whitespace -- "$device"; then
+				continue
+			fi
+
+			# reset
+			fields=()
+
+			# fetch id
+			id="$(__get_property 'Device Identifier' "$device")" # disk7
+			__progress "$i" "$devices_count" "$id"
+			if [[ -z $id ]]; then
+				return 1
+			fi
+			# __print_style --tty --bold='Getting device: ' --="$(echo-join $'\t' --style=code -- "$id" "$model")"
+			# __print_style --tty --bold='Getting device: ' --code="%s"
+			fields[id]="$id"
+			fields[node]="$(__get_property 'Device Node' "$device")" # /dev/disk7
+			fields[uuid]="$(__get_property 'Disk / Partition UUID' "$device")"
+
+			# serial only exists on devices that have a model
+			model="$(__get_property 'Device / Media Name' "$device")"
+			fields[model]="$model"
+			if [[ -n $model && -v serials["$id"] ]]; then # avoids: bad array subscript
+				fields[serial]="${serials["$id"]}"
+			fi
+
+			# type information
+			# each physical disk, has a GUID_partition_scheme
+			# each apfs physical store (includes apfs filesystem - can be physical partition or virtual-partition/raid)
+			# each apfs physical store, has an apfs container (excludes filesystem)
+			# each apfs container, has an apfs volume (includes apfs filesystem - this is what is mounted)
+			fields[virtual]="$(__get_property 'Virtual' "$device")"
+			fields[location]="$(__get_property 'Device Location' "$device")"
+			type="$(__get_property 'Content (IOContent)' "$device")"
+			if [[ -z $type ]]; then
+				type="$(__get_property 'Partition Type' "$device")"
+			fi
+			if [[ -n $type && -v type_map["$type"] ]]; then # avoids: bad array subscript
+				type="${type_map["$type"]}"
+			fi
+			fields[type]="$type"
+
+			# size information
+			# Disk Size:                 3.5 TB (3499678826496 Bytes) (exactly 6835310208 512-Byte-Units)
+			# Volume Used Space:         2.1 TB (2130515156992 Bytes) (exactly 4161162416 512-Byte-Units)
+			# Container Total Space:     3.5 TB (3499678826496 Bytes) (exactly 6835310208 512-Byte-Units)
+			# Container Free Space:      1.4 TB (1368724865024 Bytes) (exactly 2673290752 512-Byte-Units)
+			fields[size]="$(__get_size_property 'Disk Size' "$device")"
+			fields[block]="$(__get_property 'Device Block Size' "$device")" # 512 Byte
+			fields[apfs_container]="$(__get_property 'APFS Container' "$device")"
+			fields[apfs_physical_store]="$(__get_property 'APFS Physical Store' "$device")"
+			if [[ $type == 'RAID Set' ]]; then
+				label="$(__get_property 'Set Name' "$device")"
+				fields[raid_uuid]="$(__get_property 'RAID Set UUID' "$device")"
+			elif [[ $type == 'RAID Slice' ]]; then
+				label="$(__get_property 'Parent Set Name' "$device")"
+				fields[raid_uuid]="$(__get_property 'Parent RAID Set UUID' "$device")"
+				fields[raid_slice]="$(__get_property 'Slice' "$device")"
+			else
+				label="$(__get_property 'Volume Name' "$device")"
+				if [[ $label == 'Not applicable (no file system)' ]]; then
+					label=''
+				fi
+			fi
+			fields[label]="$label"
+			fields[mountable]='no'
+			if [[ -n $label ]]; then
+				# filesystem only exists on devices that have a label
+				filesystem="$(__get_property 'Type (Bundle)' "$device")"
+				fields[filesystem]="$filesystem"
+				if [[ -n $filesystem ]]; then
+					# mountable only exists on devices that have a filesystem
+					# [Yes|No|Not applicable (no file system)]
+					if [[ "$(__get_property 'Mounted' "$device")" =~ ^(Yes|No)$ ]]; then
+						fields[mountable]='yes'
+						# these only exist on devices that are mountable
+						fields[mount]="$(__get_property 'Mount Point' "$device")"
+						fields[volume_used_space]="$(__get_size_property 'Volume Used Space' "$device")"
+						fields[container_free_space]="$(__get_size_property 'Container Free Space' "$device")"
+						fields[container_size]="$(__get_size_property 'Container Total Space' "$device")"
+					else
+						help "Mountable was fetched for an invalid context: $id"$'\n'"$device"
+					fi
+				fi
+			fi
+
+			# check and add
+			__correct_fields || return
+			__check_fields || continue
+			__add_fields_to_results
+		done
+		echo-clear-lines --lines=0
+	else
+		# btrfs prep
+		local mount_haystack
+		mount_haystack="$(mount)"
+		if [[ $option_filesystem == 'btrfs' ]] || echo-regexp -q --regexp='btrfs' -- "$mount_haystack"; then
 			# if you attach a btrfs cluster to a new machine
 			# it may not be completely discovered until the btrfs agent scans for the devices
 			# and btrfs supports mounting partial filesystems, which cause innumerable errors
-			eval-helper --quiet -- btrfs-helper discover >"$terminal_device_file"
-			MOUNT_HAYSTACK="$(mount)"
-		fi
-		if is-mac; then
-			MOUNT_RAID="$(sudo-helper -- diskutil appleRAID list)"
-			sudo-helper -- diskutil list | echo-regexp -fong --regexp='/dev/[^ ]+'
-		else
-			sudo-helper -- fdisk -l | echo-regexp -fongm --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
-		fi
-	}
-	function get_one {
-		# trunk-ignore-all(shellcheck/SC2034)
-		local exclude_status temp node="$1" size="${2-}" model="${3-}" label='' uuid='' block='' filesystem='' mount='' count='' count_available='' count_info='' serial='' vendor='' product='' revision=''
-
-		# check node quickly
-		eval_capture --statusvar=exclude_status -- check_exclude 'node' "$node"
-		if [[ $exclude_status -eq 0 ]]; then
-			return 0
+			__wrap --pending='Getting devices from btrfs' -- btrfs-helper discover
+			mount_haystack="$(mount)"
 		fi
 
-		# fetch properties
-		if is-mac; then
-			# macos doesn't seem to provide a way to find out if a node is actually mountable
+		# get devices
+		function __get_devices {
+			__wrap --elevate --pending='Getting devices from fdisk...' --success='Got devices from fdisk.' -- fdisk -l |
+				echo-regexp -fongm --regexp='Disk (/dev/.+): (.+?),.+\nDisk model: (.+)' --replace=$'$1\t$2\t$3'
+		}
+		__split --target={devices} --no-zero-length --invoke -- \
+			__get_devices
+		devices_count="${#devices[@]}"
+		__print_style --tty --bold="Found $devices_count devices"
 
-			# fetch diskutil properties
-			temp="$(sudo-helper -- diskutil info "$node")"
-			uuid="$(get_property 'Disk [/] Partition UUID' "$temp")"
-			model="$(get_property 'Device [/] Media Name' "$temp")"
-			serial="$(get_property 'Disk [/] Partition UUID' "$temp")"
-			# IOContent is the type of device, not a UUID
-			size="$(get_property 'Disk Size' "$temp")"
-			# 5.0 TB (5034252828672 Bytes) (exactly 9832525056 512-Byte-Units)
-			if [[ -n $size ]]; then
-				size="${size%% (*}" # 5.0 TB
+		# cycle devices
+		declare -A fields
+		local index device node size model filesystem temp
+		for index in "${!devices[@]}"; do
+			device="${devices[index]}"
+			IFS=$'\t' read -r node size model <<<"$device"
+			if [[ -z $node ]]; then
+				continue
 			fi
-			block="$(get_property 'Device Block Size' "$temp")" # 512 Byte
+			__progress "$i" "$devices_count" "$node"
+			if [[ -n $model ]]; then
+				model="$(echo-trim-each-line -- "$model")"
+			fi
+			fields=()
+			fields[node]="$node"
+			fields[size]="$size"
+			fields[model]="$model"
 
-			# fetch label last, as it is complicated, and overwrites temp
-			label="$(get_property 'Volume Name' "$temp")" # volume device
-			if [[ -n $label && $label != 'Not applicable (no file system)' ]]; then
-				# if volume device, also has a filesystem
-				filesystem="$(get_property 'Type [(]Bundle[)]' "$temp")"
-			elif [[ "$(get_property 'Content [(]IOContent[)]' "$temp")" == 'GUID_partition_scheme' ]]; then
-				# child raid device
-				serial=''
-				label=''
-				temp="${node##*/}" # /dev/disk7 => disk7
-				temp="$(echo-regexp -o --regexp="${temp}s\d+" -- "$MOUNT_RAID")"
-				if [[ -n $temp ]]; then
-					temp="$(sudo-helper -- diskutil info "$temp")"
-					uuid="$(get_property 'Parent RAID Set UUID' "$temp")"
-					label="$(get_property 'Parent Set Name' "$temp")"
-					serial="$(get_property 'Disk [/] Partition UUID' "$temp")"
-				fi
-			else
-				# root device of volume
-				label="$(get_property 'Set Name' "$temp")"
-				if [[ -z $label ]]; then
-					# probably child device of label
-					temp="$(get_property 'APFS Physical Store' "$temp")"
-					if [[ -n $temp ]]; then
-						temp="$(sudo-helper -- diskutil info "$temp")"
-						uuid="$(get_property 'Disk [/] Partition UUID' "$temp")"
-						label="$(get_property 'Set Name' "$temp")"
-						filesystem="$(get_property 'Type [(]Bundle[)]' "$temp")"
-					fi
-				else
-					# raid device
-					filesystem="$(get_property 'Type [(]Bundle[)]' "$temp")"
-				fi
-			fi
-
-			# uuid
-			if [[ -n $label && -n $uuid ]]; then
-				# apfs count
-				count_info="$(echo-regexp -sm --regexp="$uuid.+?====+" -- "$MOUNT_RAID")"
-				count="$(echo-regexp -c --regexp='^[\d-] ' -- "$count_info")"
-				count_available="$(echo-regexp -c --regexp='^\d ' -- "$count_info")"
-			fi
-
-			# fetch mount
-			mount="$(echo-regexp -o --regexp="$node on (.+?) \($filesystem" --replace='$1' -- "$MOUNT_HAYSTACK")"
-			if [[ -n $filesystem && -z $mount ]]; then
-				mount="$(echo-regexp -o --regexp="${node}s1 on (.+?) \($filesystem" --replace='$1' -- "$MOUNT_HAYSTACK")"
-			fi
-		else
 			# fetch blkid properties
-			temp="$(sudo-helper -- blkid "$node" || :)" # can fail if recently removed from a btrfs cluster
+			temp="$(__wrap --elevate -- blkid "$node" || :)" # can fail if recently removed from a btrfs cluster
 			if [[ -n $temp ]]; then
-				filesystem="$(get_key 'TYPE' "$temp")"
-				label="$(get_key 'LABEL' "$temp")"
-				uuid="$(get_key 'UUID' "$temp")"
-				block="$(get_key 'BLOCK_SIZE' "$temp")"
+				filesystem="$(__get_key 'TYPE' "$temp")"
+				fields[filesystem]="$filesystem"
+				fields[label]="$(__get_key 'LABEL' "$temp")"
+				fields[uuid]="$(__get_key 'UUID' "$temp")"
+				fields[block]="$(__get_key 'BLOCK_SIZE' "$temp")"
+				if [[ $filesystem == 'btrfs' ]]; then
+					# fetch count
+					temp="$(__wrap --elevate -- btrfs filesystem show "$node")"
+					fields[count]="$(echo-regexp -o --regexp='Total devices ([0-9]+)' --replace='$1' -- "$temp")"
+					fields[count_available]="$(echo-regexp -c --regexp='devid' -- "$temp")"
+				fi
 			fi
 
 			# fetch sginfo properties
-			temp="$(sudo-helper -- sginfo -a "$node")"
-			serial="$(get_property 'Serial Number' "$temp")"
-			vendor="$(get_property 'Vendor' "$temp")"
-			product="$(get_property 'Product' "$temp")"
-			revision="$(get_property 'Revision level' "$temp")"
+			temp="$(__wrap --elevate -- sginfo -a "$node")"
+			fields[serial]="$(get_property 'Serial Number' "$temp")"
+			fields[vendor]="$(get_property 'Vendor' "$temp")"
+			fields[product]="$(get_property 'Product' "$temp")"
+			fields[revision]="$(get_property 'Revision level' "$temp")"
 
 			# fetch mount
-			mount="$(echo-regexp -o --regexp="$node on (.+?) type $filesystem" --replace='$1' -- "$MOUNT_HAYSTACK")"
-		fi
+			# @todo figure out mountable
+			fields[mount]="$(echo-regexp -o --regexp="$node on (.+?) type $filesystem" --replace='$1' -- "$mount_haystack")"
 
-		# fetch count
-		if [[ $filesystem == 'btrfs' ]]; then
-			count_info="$(sudo-helper -- btrfs filesystem show "$node")"
-			count="$(echo-regexp -o --regexp='Total devices ([0-9]+)' --replace='$1' -- "$count_info")"
-			count_available="$(echo-regexp -c --regexp='devid' -- "$count_info")"
-		fi
-
-		# check filters
-		local filter
-		for filter in "${filters[@]}"; do
-			eval_capture --statusvar=exclude_status -- check_exclude "$filter" "${!filter}"
-			if [[ $exclude_status -eq 0 ]]; then
-				return 0
-			fi
+			# check and add
+			__correct_fields || return
+			__check_fields || continue
+			__add_fields_to_results
 		done
-
-		# validate
-		local result_status=0
-		if [[ -n $count ]]; then
-			if [[ $count != "$count_available" ]] || echo-regexp -qi --regexp='(warning|error|missing)' -- "$count_info"; then
-				echo-style --error="$node: $count_available/$count devices found" $'\n' "$(echo-lines --indent=$'\t' --stdin <<<"$count_info")" >/dev/stderr
-				result_status=5 # EIO 5 Input/output error
-			fi
-			if [[ -n $option_count && $option_label == "$label" && $option_count != "$count" ]]; then
-				echo-style --error="$node: $count_available/$count devices found, however we expected $option_count devices" $'\n' "$(echo-lines --indent=$'\t' --stdin <<<"$count_info")" >/dev/stderr
-				result_status=5 # EIO 5 Input/output error
-			fi
-		fi
-
-		# output
-		local result
-		if [[ ${#option_results[@]} -ne 0 ]]; then
-			if [[ ${#option_results[@]} -eq 1 ]]; then
-				printf '%s' "${!option_results[0]}"
-			else
-				for temp in "${option_results[@]}"; do
-					printf '%s\t' "${!temp}"
-				done
-			fi
-			printf '\n'
-		fi
-		if [[ ${#option_details[@]} -ne 0 ]]; then
-			if [[ ${#option_details[@]} -eq 1 ]]; then
-				printf '%s=[%s]' "${option_details[0]}" "${!option_details[0]}"
-			else
-				for temp in "${option_details[@]}"; do
-					printf '%s=[%s] ' "$temp" "${!temp}"
-				done
-			fi
-			printf '\n'
-		fi
-
-		# return failure
-		return "$result_status"
-	}
-
-	# fetch all
-	local status result
-	echo-style --bold='Getting devices...' >"$terminal_device_file"
-	eval_capture --statusvar=status --stdoutvar=result -- get_all
-	if [[ $status -ne 0 ]]; then
-		return "$status"
-	fi
-	# erase [Getting devices...] message
-	echo-style --no-trail --delete-line >"$terminal_device_file"
-
-	# iterate through all
-	local message items=() node size model results=() result_status=0
-	if is-mac; then
-		# mac only gets node, size and model are fetched later
-		message="$(echo-style --bold='Getting device: ' --code='%s %s %s')"
-	else
-		message="$(echo-style --bold='Getting device: ' --code='%s' ' | ' --code='%s' ' | ' --code='%s')"
-	fi
-	mapfile -t items <<<"$result"
-	for item in "${items[@]}"; do
-		if [[ -z $item ]]; then
-			continue
-		fi
-		# reset
-		node='' size='' model=''
-		# read
-		IFS=$'\t' read -r node size model <<<"$item"
-		# trim trailing whitespace from model
-		if [[ -n $model ]]; then
-			model="$(echo-trim-each-line -- "$model")"
-		fi
-		printf "$message\n" "$node" "$size" "$model" >"$terminal_device_file"
-		# process
-		eval_capture --statusvar=status --stdoutvar=result -- get_one "$node" "$size" "$model"
-		# handle
-		if [[ -n $result ]]; then
-			results+=("$result")
-		fi
-		if [[ $status -ne 0 ]]; then
-			result_status="$status"
-		else
-			# erase [Getting device:] message
-			echo-style --no-trail --delete-line >"$terminal_device_file"
-		fi
-	done
-
-	# check for failure
-	if [[ $result_status -ne 0 ]]; then
-		if [[ -z $option_select ]]; then
-			__print_lines "${results[@]}"
-		fi
-		return "$result_status"
+		echo-clear-lines --lines=0
 	fi
 
-	# check for missing failure
-	if [[ ${#results[@]} -eq 0 ]]; then
-		if [[ $option_quiet != 'yes' ]]; then
-			echo-style --error="$option_missing" >/dev/stderr
-		fi
-		return 6 # ENXIO 6 Device not configured
-	fi
+	# validate
+	# local result_status=0
+	# if [[ -n $count ]]; then
+	# 	if [[ $count != "$count_available" ]] || echo-regexp -qi --regexp='(warning|error|missing)' -- "$count_info"; then
+	# 		__print_style --stderr \
+	# 			--error="$node: $count_available/$count devices found" --newline \
+	# 			--="$(echo-lines --indent=$'\t' --stdin <<<"$count_info")"
+	# 		result_status=5 # EIO 5 Input/output error
+	# 	fi
+	# 	if [[ -n $option_count && $option_label == "$label" && $option_count != "$count" ]]; then
+	# 		__print_style --stderr \
+	# 			--error="$node: $count_available/$count devices found, however we expected $option_count devices" --newline \
+	# 			--="$(echo-lines --indent=$'\t' --stdin <<<"$count_info")"
+	# 		result_status=5 # EIO 5 Input/output error
+	# 	fi
+	# fi
 
-	# all good, select one
-	if [[ -n $option_select ]]; then
-		# expand results into results and details
-		mapfile -t results < <(__print_lines "${results[@]}")
-		choose --required --confirm --label \
-			--question="$option_select" \
-			-- "${results[@]}"
-	else
-		__print_lines "${results[@]}"
-	fi
+	# render
+	__render_results
 )
 
 # fire if invoked standalone

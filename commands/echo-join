@@ -2,13 +2,14 @@
 
 function echo_join_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-style --h1="TEST: $0"
 
 	eval-tester --stdout='a b' -- echo-join -- a b
 
 	eval-tester --stdout='a, b' -- echo-join ', ' -- a b
 
-	eval-tester --stdout=$'a\n\tb' -- echo-join --join=$'\n\t' -- a b
+	eval-tester --stdout=$'a\n\tb' -- echo-join --delimiter=$'\n\t' -- a b
+
+	eval-tester --stdout=$'\e[1ma\e[22m \e[1mb\e[22m' -- echo-join --join=' ' --style=bold -- a b
 
 	__print_lines a b | eval-tester --stdout='a b' -- echo-join --stdin
 
@@ -16,7 +17,6 @@ function echo_join_test() (
 
 	__print_lines a b | eval-tester --stdout=$'a\n\tb' -- echo-join --join=$'\n\t' --stdin
 
-	echo-style --g1="TEST: $0"
 	return 0
 )
 function echo_join() (
@@ -25,39 +25,39 @@ function echo_join() (
 	# =====================================
 	# Arguments
 
+	# trunk-ignore(shellcheck/SC2120)
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return
 			ABOUT:
 			Concatenate the inputs with the <join> between them.
 
 			USAGE:
-			echo-join <join> [...options] [--] ...<input>
-			echo-lines ...<input> | echo-join <join> [...options]
+			\`echo-join <join> [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-join <join> [...options]\`
 
 			OPTIONS:
-			<join> | --join=<join>
-			    The joiner to put between each <input>. If not provided, a space is used.
+			<delimiter> | --join=<delimiter> | --delimiter=<delimiter>
+			    The delimiter to put between each <input>. If not provided, a space is used.
 
-			$(stdinargs_options_help --)
+			$(__stdinargs__help_options --)
 
 			QUIRKS:
 			There will be no newline at the end, in case you your input or <join> contains newlines, we do not wish to mangle your intention.
 		EOF
-		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
 	local rand="$RANDOM"
-	local item option_join="$rand" option_args=()
+	local item option_delimiter="$rand" option_style='' option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
+		# trunk-ignore(shellcheck/SC2119)
 		'--help' | '-h') help ;;
-		'--join='*) option_join="${item#*=}" ;;
+		'--delimiter='* | '--join='*) option_delimiter="${item#*=}" ;;
+		'--style='*) option_style="${item#*=}" ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
 			option_args+=("$item" "$@")
@@ -66,8 +66,8 @@ function echo_join() (
 			;;
 		'--'*) option_args+=("$item") ;;
 		*)
-			if [[ $option_join == "$rand" ]]; then
-				option_join="$item"
+			if [[ $option_delimiter == "$rand" ]]; then
+				option_delimiter="$item"
 			else
 				option_args+=("$item")
 			fi
@@ -76,26 +76,29 @@ function echo_join() (
 	done
 
 	# default to empty space
-	if [[ $option_join == "$rand" ]]; then
-		option_join=' '
+	if [[ $option_delimiter == "$rand" ]]; then
+		option_delimiter=' '
 	fi
 
 	# =================================
 	# Action
 
 	local items=()
-	function on_input {
-		items+=("$1")
-	}
-	function on_finish {
-		local index
-		for index in "${!items[@]}"; do
-			if [[ $index -eq 0 ]]; then
-				printf '%s' "${items[index]}"
-			else
-				printf '%s%s' "$option_join" "${items[index]}"
+	if [[ -n $option_style ]]; then
+		function __on_piece {
+			local item="$1" render
+			if [[ -n $item ]]; then
+				render="$(__print_style "--$option_style=$item")" || return
+				items+=("$render")
 			fi
-		done
+		}
+	else
+		function __on_piece {
+			items+=("$1")
+		}
+	fi
+	function __on_finish {
+		__join --source={items} --delimiter="$option_delimiter" || return
 	}
 
 	stdinargs "${option_args[@]}"

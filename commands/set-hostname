@@ -7,7 +7,7 @@ function set_hostname() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Update the current machine's hostname, with correct support for:
 			- updating dependent services
@@ -17,7 +17,7 @@ function set_hostname() (
 			set-hostname <hostname>
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -29,12 +29,12 @@ function set_hostname() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			if [[ -z $option_hostname ]]; then
 				option_hostname="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
@@ -59,37 +59,39 @@ function set_hostname() (
 	original="$(get-hostname)"
 
 	# apply the hostname, using ALL available methods
+	# @todo verify none of these output to stdout
 	if __command_exists -- setup-hostname; then
 		# https://wiki.alpinelinux.org/wiki/Alpine_setup_scripts#setup-hostname
 		setup-hostname -n "$option_hostname"
 		result=0
 	fi
 	if __command_exists -- 'hostname'; then
-		sudo-helper -- hostname "$option_hostname"
+		eval-helper --elevate -- hostname "$option_hostname"
 		result=0
 	fi
 	if __command_exists -- 'hostnamectl'; then
-		sudo-helper -- hostnamectl set-hostname "$option_hostname"
+		eval-helper --elevate -- hostnamectl set-hostname "$option_hostname"
 		result=0
 	fi
 	if [[ -f '/etc/hostname' ]]; then
-		__print_lines "$option_hostname" | sudo-helper -- tee -a -- /etc/hostname
+		echo-write --append -- /etc/hostname <<<"$option_hostname"
 		result=0
 	fi
 	if [[ -f '/proc/sys/kernel/hostname' ]]; then
-		__print_lines "$option_hostname" | sudo-helper -- tee -a -- /proc/sys/kernel/hostname
+		echo-write --append -- /proc/sys/kernel/hostname <<<"$option_hostname"
 		result=0
 	fi
 	if __command_exists -- 'sysctl'; then
-		sudo-helper -- sysctl kernel.hostname="$option_hostname"
+		eval-helper --elevate -- sysctl kernel.hostname="$option_hostname"
 		result=0
 	fi
 
 	# write the hostname to the /etc/hosts file, this was necessary for a forgotten reason
 	# instead of two --expression, can also do -e 's//; s//'
 	# don't use sd, as this runs in initial setup
-	sudo-helper --inherit \
-		-- "$bin_gsed_or_sed" --null-data --in-place --regexp-extended \
+	# @todo replace with `echo-regexp` and `echo-write`
+	eval-helper --elevate --inherit -- \
+		"$bin_gsed_or_sed" --null-data --in-place --regexp-extended \
 		--expression="s#127.0.0.1\s+($original|$option_hostname)\n##g" \
 		--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$option_hostname\n#" \
 		/etc/hosts
@@ -103,8 +105,8 @@ function set_hostname() (
 		/etc/init.d/hostname restart
 	fi
 	if [[ -f '/etc/sysconfig/network' ]]; then
-		sudo-helper --inherit \
-			-- config-helper --file='/etc/sysconfig/network' -- \
+		eval-helper --elevate --inherit -- \
+			config-helper --file='/etc/sysconfig/network' -- \
 			--field='HOSTNAME' --no-quote --value="$option_hostname"
 	fi
 

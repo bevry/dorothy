@@ -53,6 +53,20 @@
 # uname -m
 # x86_64
 
+function get_arch_test() {
+	source "$DOROTHY/sources/bash.bash"
+
+	__print_style --header1='native:'
+	get-arch --dump || return
+
+	if is-mac; then
+		__print_style --newline --header1='emulated as x86_64:'
+		arch -x86_64 /bin/bash "$(type -P get-arch)" --dump || return
+	fi
+
+	return 0
+}
+
 function get_arch() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -60,15 +74,19 @@ function get_arch() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		cat <<-EOF >&2
 			ABOUT:
 			Get the architecture of the current system.
 
 			USAGE:
-			get-arch
+			get-arch [...options]
+
+			OPTIONS:
+			--dump
+			    Dump all relevant information about the current architecture.
 
 			OUTPUTS:
-			[a64] for ARM 64 bit, including Raspberry Pi, Apple Silicon, and Apple Silicon via $(echo-style --code='arch -x86_64 ...')
+			[a64] for ARM 64 bit, including Raspberry Pi, Apple Silicon, and Apple Silicon via $(__print_style --code='arch -x86_64 ...' || :)
 			[x64] for AMD/Intel 64 bit, aka x86_64
 			[x32] for AMD/Intel 32 bit, aka x86
 			[a32] for ARM 32 bit, including Raspberry Pi 1, 2, 3
@@ -79,33 +97,58 @@ function get_arch() (
 			[1] if architecture was unknown or could not be determined
 		EOF
 		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
+			__print_error "$@"
 		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item
+	local item option_dump='no'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		--help | -h) help ;;
+		--no-color* | --color*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		--no-dump* | --dump*) __flag --source={item} --target={option_dump} --affirmative --coerce ;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
+
+	# dump
+	if [[ $option_dump == 'yes' ]]; then
+		__print_style \
+			--bold='arch' --=' = ' --="$(__dump --value="$(get-arch || :)" || :)" --newline \
+			--="$(__dump {HOSTTYPE} {OSTYPE} {MACHTYPE} || :)" --newline \
+			--bold='BASH_VERSINFO' --=' = ' --="$(__dump --value="${BASH_VERSINFO[*]}" || :)" --newline \
+			--bold='uname -a' --=' = ' --="$(__dump --value="$(uname -a || :)" || :)" --newline \
+			--bold='uname -m' --=' = ' --="$(__dump --value="$(uname -m || :)" || :)" --newline \
+			--bold='uname -n' --=' = ' --="$(__dump --value="$(uname -n || :)" || :)" --newline \
+			--bold='uname -o' --=' = ' --="$(__dump --value="$(uname -o || :)" || :)" --newline \
+			--bold='uname -p' --=' = ' --="$(__dump --value="$(uname -p || :)" || :)" --newline \
+			--bold='uname -r' --=' = ' --="$(__dump --value="$(uname -r || :)" || :)" --newline \
+			--bold='uname -s' --=' = ' --="$(__dump --value="$(uname -s || :)" || :)" --newline \
+			--bold='uname -v' --=' = ' --="$(__dump --value="$(uname -v || :)" || :)"
+		return
+	fi
 
 	# =====================================
 	# Action
 
-	local arch
-	arch="$(uname -m)" # -i is only linux, -m is linux and apple, -p follows [arch ...] emulation
+	# Bash already provides several builtin variables, so no need for `uname` calls under normal circumstances:
+	# printf %s\\n "$HOSTTYPE" "$OSTYPE" "$MACHTYPE" "$HOSTNAME"
+	# arch="$(uname -m)" # -i is only linux, -m is linux and apple, -p follows [arch ...] emulation
+
+	local arch="$HOSTTYPE"
 	if [[ $arch == 'aarch64' || $arch == 'arm64' ]]; then
-		__print_lines 'a64' # raspberry pi, apple silicon
+		__print_lines 'a64' # Raspberry Pi, Apple Silicon
 	elif [[ $arch == x86_64* ]]; then
-		if [[ "$(uname -v)" == *ARM64* ]]; then
-			__print_lines 'a64' # apple silicon running via `arch -x86_64 /bin/bash -c 'uname -m'`
+		# Is this Apple Silicon running via `arch -x86_64 <command>`?
+		# if it is, then `$HOSTTYPE` and `uname -m` is `x86_64`:
+		# so on macOS/Darwin, we can must fallback to a `uname -v` check
+		if [[ $OSTYPE == darwin* && "$(uname -v)" == *ARM64* ]]; then
+			__print_lines 'a64' # Apple Silicon running via `arch -x86_64 <command>`
 		else
 			__print_lines 'x64'
 		fi
@@ -122,5 +165,9 @@ function get_arch() (
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	get_arch "$@"
+	if [[ $* == '--test' ]]; then
+		get_arch_test
+	else
+		get_arch "$@"
+	fi
 fi

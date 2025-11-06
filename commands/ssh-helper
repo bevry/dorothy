@@ -2,76 +2,81 @@
 
 function ssh_helper() (
 	source "$DOROTHY/sources/bash.bash"
-	__require_array 'mapfile'
 	__require_globstar
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return
 			ABOUT:
-			Helpers for interacting with SSH.
+			Helpers for interacting with SSH. Includes support for the 1Password SSH Agent.
 
 			USAGE:
-			ssh-helper <install|update|setup|configure>
-				[--configure]
+			\`ssh-helper [...options] <action> [...arguments]\`
 
-			    Ensure SSH is configured correctly. Includes support for the 1Password SSH Agent.
+			OPTIONS:
+			--[no-]reconfigure
+			    Whether to re-prompt and re-save configuration settings.
+			--[no-]fallback
+			    If disabled, prevents installation of fallbacks to install dependencies.
+			--[no-]deps
+			    If disabled, prevents installation of dependencies, such as gpg etc.
+			--[no-]slim
+			    If enabled, disables reconfiguration, fallbacks, and dependencies.
 
-			ssh-helper new
-			  <filename>
-			  <comment, e.g. your email>
-
+			ACTIONS:
+			new <filename> <comment, e.g. your email>
 			    Generate a new SSH key with appropriate conventions.
 
-			ssh-helper add
-
+			add
 			    Make the SSH agent aware of all your SSH keys.
 
-			ssh-helper permissions
-
+			permissions
 			    Correct the permissions for the SSH files.
 
-			ssh-helper test
-			  <server URI>
-
+			test <server-uri>
 			    Test whether or not your SSH agent can correctly authenticate to the server.
 
-			ssh-helper connect
-			  [...ssh args, e.g. server URI]
-
-			    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the [ssh] command, as they are passed directly to it.
+			connect [...ssh args, e.g. server URI]
+			    Keep trying to connect (login) to the server until there is a successful connection. All the flags/arguments are the same as the \`ssh\` command, as they are passed directly to it.
 		EOF
-		if [[ $# -ne 0 ]]; then
-			echo-error "$@"
-		fi
+		# @todo not all actions are documented!
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item action='' option_args=() option_configure=''
+	local item action='' option_args=() option_reconfigure='' option_fallback='' option_deps=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		# install|update|setup|configure
+		# <shared actions between many setup commands>
 		'setup')
 			action='setup'
+			# option_reconfigure will autodetect
 			;;
 		'update')
 			action='setup'
-			option_configure='no'
+			if [[ -z $option_reconfigure ]]; then
+				option_reconfigure='no'
+			fi
 			;;
 		'install' | 'configure')
 			action='setup'
-			option_configure='yes'
+			if [[ -z $option_reconfigure ]]; then
+				option_reconfigure='yes'
+			fi
 			;;
-		'--no-configure'* | '--configure'*)
-			option_configure="$(get-flag-value --affirmative --fallback="$option_configure" -- "$item")"
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		# </shared actions between many setup commands>
+		# <shared options between many setup commands>
+		'--no-reconfigure'* | '--reconfigure'*) __flag --source={item} --target={option_reconfigure} --affirmative --coerce ;;
+		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
+		'--no-deps'* | '--deps'*) __flag --source={item} --target={option_deps} --affirmative --coerce ;;
+		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_reconfigure} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
+		# </shared options between many setup commands>
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			action="$item"
 			option_args+=("$@")
@@ -80,6 +85,13 @@ function ssh_helper() (
 			;;
 		esac
 	done
+
+	# slim options
+	local slim_options=(
+		--reconfigure="$option_reconfigure"
+		--fallback="$option_fallback"
+		--deps="$option_deps"
+	)
 
 	# ensure valid action
 	local actions=(
@@ -104,8 +116,7 @@ function ssh_helper() (
 	function __sock_exists {
 		# the = part is some weird convention
 		local sock="$1"
-		[[ -n $sock && (-e $sock || -e "${sock}=") ]]
-		return # explicit return with [[ required for bash v3
+		[[ -n $sock && (-e $sock || -e "${sock}=") ]] || return
 	}
 	function get_op_sock {
 		local op_sock='' op_socks=(
@@ -139,8 +150,8 @@ function ssh_helper() (
 		op_sock="$(get_op_sock)"
 
 		# configure if empty or desired
-		if [[ -z $SSH_IDENTITY_AGENT && -z $option_configure ]]; then
-			option_configure='yes'
+		if [[ -z $SSH_IDENTITY_AGENT && -z $option_reconfigure ]]; then
+			option_reconfigure='yes'
 		fi
 
 		# 1password alias to op
@@ -158,7 +169,7 @@ function ssh_helper() (
 		# confirm the configuration is actually available
 		if [[ -n $op_sock ]]; then
 			if [[ $SSH_IDENTITY_AGENT == 'op' ]]; then
-				if [[ $option_configure == 'no' ]] || confirm --linger --positive --ppid=$$ -- '1Password SSH Agent is still available, continue to use it?'; then
+				if [[ $option_reconfigure == 'no' ]] || confirm --linger --positive --ppid=$$ -- '1Password SSH Agent is still available, continue to use it?'; then
 					SSH_IDENTITY_AGENT='op'
 				else
 					SSH_IDENTITY_AGENT=''
@@ -169,7 +180,7 @@ function ssh_helper() (
 				else
 					SSH_IDENTITY_AGENT=''
 				fi
-			elif [[ $option_configure != 'no' ]]; then
+			elif [[ $option_reconfigure != 'no' ]]; then
 				if confirm --linger --negative --ppid=$$ -- "1Password SSH agent is available, use it instead of [$SSH_IDENTITY_AGENT]?"; then
 					SSH_IDENTITY_AGENT='op'
 				else
@@ -178,16 +189,17 @@ function ssh_helper() (
 			fi
 		elif [[ -n $SSH_IDENTITY_AGENT ]]; then
 			if [[ $SSH_IDENTITY_AGENT == 'op' && -z $op_sock ]]; then
-				echo-style --warning='1Password SSH Agent is not available.' $'\n' \
-					'If you wish to use it, you must enable it first:' $'\n' \
-					--code='https://developer.op.com/docs/ssh/get-started#step-3-turn-on-the-op-ssh-agent' $'\n' \
-					--notice='Disabling for now...' >/dev/stderr
+				__print_style --stderr \
+					--warning='1Password SSH Agent is not available.' --newline \
+					'If you wish to use it, you must enable it first:' --newline \
+					--url='https://developer.op.com/docs/ssh/get-started#step-3-turn-on-the-op-ssh-agent' --newline \
+					--notice='Disabling for now...'
 				SSH_IDENTITY_AGENT=''
 			fi
 		fi
 
 		# Save ssh agent configuration before we replace aliases
-		if [[ $option_configure == 'yes' ]]; then
+		if [[ $option_reconfigure == 'yes' ]]; then
 			dorothy-config 'git.bash' --prefer=local -- \
 				--field='SSH_IDENTITY_AGENT' --value="$SSH_IDENTITY_AGENT"
 		fi
@@ -201,8 +213,9 @@ function ssh_helper() (
 
 		# confirm the ssh agent is a working socket
 		if [[ -n $SSH_IDENTITY_AGENT ]] && ! __sock_exists "$SSH_IDENTITY_AGENT"; then
-			echo-style --warning="$0: The SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT] does not exist as a valid socket." $'\n' \
-				--notice='Disabling for now...' >/dev/stderr
+			__print_style --stderr \
+				--warning="$0: The SSH_IDENTITY_AGENT of [$SSH_IDENTITY_AGENT] does not exist as a valid socket." --newline \
+				--notice='Disabling for now...'
 			SSH_IDENTITY_AGENT=''
 		fi
 
@@ -213,7 +226,7 @@ function ssh_helper() (
 		# http://apple.stackexchange.com/a/254619/15131
 		# https://stackoverflow.com/a/15578473/130638
 		# don't use $HOME as that isn't portable
-		echo-style --header2='SSH Configuration: .ssh/config'
+		__print_style --header2='SSH Configuration: .ssh/config'
 		config-helper --file="$HOME/.ssh/config" -- \
 			--find='UserKnownHostsFile .+' --replace='UserKnownHostsFile ~/.ssh/known_hosts' \
 			--find='IgnoreUnknown .+' --replace='IgnoreUnknown UseKeychain,AddKeysToAgent,IdentitiesOnly' \
@@ -221,7 +234,8 @@ function ssh_helper() (
 			--find='AddKeysToAgent .+' --replace='AddKeysToAgent yes'
 
 		# trim the identity segment
-		sd --flags mis '# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' '' "$HOME/.ssh/config"
+		# trunk-ignore(shellcheck/SC2094)
+		echo-regexp -gis --regexp='# <dorothy:SSH_IDENTITY_AGENT>.+?# </dorothy:SSH_IDENTITY_AGENT>[[:space:]]*' --replace='' <"$HOME/.ssh/config" | echo-write --atomic -- "$HOME/.ssh/config"
 
 		# and add it back in if desired
 		if [[ -n $SSH_IDENTITY_AGENT ]]; then
@@ -239,8 +253,8 @@ function ssh_helper() (
 		# ---------------------------------
 		# SSH Keys
 
-		if [[ $option_configure != 'no' ]]; then
-			echo-style --header3='Add SSH Keys to SSH Agent'
+		if [[ $option_reconfigure != 'no' ]]; then
+			__print_style --header3='Add SSH Keys to SSH Agent'
 			if confirm --linger --negative --ppid=$$ -- 'Do you want to (re-)add your SSH keys to the SSH agent?'; then
 				ssh_add
 			fi
@@ -257,20 +271,21 @@ function ssh_helper() (
 		# https://github.blog/2023-03-23-we-updated-our-rsa-ssh-host-key/
 
 		# log
-		echo-style --header3='Add GitHub Keys to Known Hosts'
+		__print_style --header3='Add GitHub Keys to Known Hosts'
 
 		# ensure it exists, which it may not on new systems
-		touch "$HOME/.ssh/known_hosts"
+		touch -- "$HOME/.ssh/known_hosts"
 
 		# remove old github keys
-		echo-style --code="$(ssh-keygen -R github.com)"
+		__print_style --code="$(ssh-keygen -R github.com)"
 
-		# add new key, using the gihtub recommended method
-		setup-util-curl --quiet --optional
-		setup-util-jq --quiet --optional
-		setup-util-deno --quiet --optional
+		# add new key, using the github recommended method
+		if [[ $option_deps != 'no' ]]; then
+			setup-util-curl --quiet --optional "${slim_options[@]}"
+			setup-util-jq --quiet --optional "${slim_options[@]}"
+		fi
 		# fetch and extract keys, prepend [github.com ] to non-empty-lines (non-empty necessary for sd), append to known_hosts
-		if __command_exists -- curl jq deno && fetch 'https://api.github.com/meta' | jq -r '.ssh_keys | .[]' | echo-regexp -fgmn '^(.+)$' 'github.com $1' >>"$HOME/.ssh/known_hosts"; then
+		if __command_exists -- curl jq && fetch 'https://api.github.com/meta' | jq -r '.ssh_keys | .[]' | echo-lines --prefix='github.com ' --stdin >>"$HOME/.ssh/known_hosts"; then
 			: # success
 		else
 			# fallback to ssh-keyscan method, which requires encrypted dns to be secure, which can be done via [setup-dns]
@@ -291,17 +306,17 @@ function ssh_helper() (
 
 		# check
 		if [[ -z $name ]]; then
-			help 'Missing <filename> in [ssh-helper new <filename>].'
+			help 'Missing <filename> in ' --code='ssh-helper new <filename>'
 		fi
 
 		# prepare
 		__mkdirp "$HOME/.ssh"
-		touch "$HOME/.ssh/config"
+		touch -- "$HOME/.ssh/config"
 
 		# remove the old keys
 		local paths=("$path"*)
 		if [[ ${#paths[@]} -ne 0 ]]; then
-			fs-rm --reason='Cannot create a new key as an old key already exists with that filename.' --confirm -- "${paths[@]}"
+			fs-remove --reason='Cannot create a new key as an old key already exists with that filename.' --confirm -- "${paths[@]}"
 		fi
 
 		# make the new key
@@ -316,7 +331,7 @@ function ssh_helper() (
 		cat <<-EOF
 			Public key that you can share is outputted below
 			------------------------------------------------
-			$(cat -- "${path}.pub")
+			$(<"${path}.pub")
 		EOF
 	}
 
@@ -382,15 +397,9 @@ function ssh_helper() (
 		# SSH_SK_PROVIDER
 		# Specifies a path to a library that will be used when loading any FIDO authenticator-hosted
 		# keys, overriding the default of using the built-in USB HID support.
-		cat <<-EOF
-			DISPLAY=[${DISPLAY-}]
-			SSH_ASKPASS=[${SSH_ASKPASS-}]
-			SSH_ASKPASS_REQUIRE=[${SSH_ASKPASS_REQUIRE-}]
-			SSH_AUTH_SOCK=[${SSH_AUTH_SOCK-}]
-			SSH_AGENT_PID=[${SSH_AGENT_PID-}]
-			SSH_SK_PROVIDER=[${SSH_SK_PROVIDER-}]
-			GPG_TTY=[${GPG_TTY-}]
-		EOF
+
+		# log
+		__dump {DISPLAY} {SSH_ASKPASS} {SSH_ASKPASS_REQUIRE} {SSH_AUTH_SOCK} {SSH_AGENT_PID} {SSH_SK_PROVIDER} {GPG_TTY}
 
 		# for found keys, correct permissions, add to keychain, add to agent
 		local public_key private_key
@@ -414,7 +423,7 @@ function ssh_helper() (
 		# create .ssh config file if necessary
 		__mkdirp "$HOME/.ssh"
 		if [[ ! -f "$HOME/.ssh/config" ]]; then
-			touch "$HOME/.ssh/config"
+			touch -- "$HOME/.ssh/config"
 		fi
 
 		# ensure correct permissions
@@ -423,9 +432,10 @@ function ssh_helper() (
 
 	function ssh_test {
 		local uri="${1:-"git@github.com"}" logs __test_status
-		logs="$(mktemp)"
+		logs="$(mktemp)" # @todo consider using fs-temp
 
 		# test and fetch exit code
+		# @todo consider using eval-helper for this instead
 		__test_status=0 && ssh -qT "$uri" &>"$logs" || __test_status=$?
 
 		# 0 no error
@@ -434,7 +444,7 @@ function ssh_helper() (
 		if [[ $__test_status -le 1 ]]; then
 			return 0
 		else
-			cat -- "$logs" >/dev/stderr
+			cat -- "$logs" >&2
 			return 1
 		fi
 	}
@@ -450,27 +460,23 @@ function ssh_helper() (
 			shift
 			case "$item" in
 			'--help' | '-h') help ;;
-			'--no-raw'* | '--raw'*)
-				raw="$(get-flag-value --affirmative --fallback="$raw" -- "$item")"
-				;;
-			'--no-multi'* | '--multi'*)
-				multi="$(get-flag-value --affirmative --fallback="$multi" -- "$item")"
-				;;
+			'--no-raw'* | '--raw'*) __flag --source={item} --target={raw} --affirmative ;;
+			'--no-multi'* | '--multi'*) __flag --source={item} --target={multi} --affirmative ;;
 			'--')
-				mapfile -t paths < <(fs-absolute -- "$@")
+				__split --target={paths} --no-zero-length --invoke -- \
+					fs-path --absolute -- "$@"
 				shift $#
 				break
 				;;
-			'--'*) help "An unrecognised flag was provided: $item" ;;
-			*) help "An unrecognised argument was provided: $item" ;;
+			'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+			*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 			esac
 		done
 
 		# select one of the public keys if not specified
 		if [[ ${#paths[@]} -eq 0 ]]; then
-			mapfile -t paths < <(
+			__split --target={paths} --no-zero-length --invoke -- \
 				choose --required --multi="$multi" --question="Which SSH Public Key to export?" -- "$HOME/.ssh/"*.pub
-			)
 		fi
 
 		# output the paths
@@ -481,9 +487,9 @@ function ssh_helper() (
 		# 0 = success
 		# 130 = success then closed eventually
 		local connect_status
-		eval_capture --statusvar=connect_status -- ssh "$@"
+		__try {connect_status} -- ssh "$@"
 		if [[ $connect_status -ne 0 ]] && ! is-abort -- "$connect_status"; then
-			echo-style --warning="Failed with exit code [$connect_status], will try again in 10 seconds..." >/dev/stderr
+			__print_style --stderr --warning="Failed with exit code [$connect_status], will try again in 10 seconds..."
 			sleep 10
 			ssh_connect "$@"
 		fi
@@ -492,7 +498,7 @@ function ssh_helper() (
 	# =====================================
 	# Act
 
-	if [[ "$(type -t "ssh_$action")" == 'function' ]]; then
+	if __is_function_defined "ssh_$action"; then
 		"ssh_$action" "${option_args[@]}"
 	else
 		help "<action> unsupported or yet implemented: $action" || :

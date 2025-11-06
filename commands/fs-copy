@@ -1,0 +1,467 @@
+#!/usr/bin/env bash
+
+# @todo figure out how to make --eval compatible with paths that have spaces
+
+# @todo support these:
+# https://github.com/rclone/rclone - 52.9k stars, last update days ago
+#
+# ignore these, as they are exclusively for cross-machine transfers:
+# https://github.com/schollz/croc - 31.3k stars, last update weeks ago
+# https://github.com/magic-wormhole/magic-wormhole - 21.8k stars, last update weeks ago
+# https://github.com/veeso/termscp - 2.6k stars, last update weeks ago
+#
+# ignore these, as they are web apps, and are also recently unmaintained:
+# https://github.com/ShareDropio/sharedrop - 10.7k stars, last update months ago - is a web app
+# https://github.com/kern/filepizza - 9.5K stars, last update months ago - is a web app
+#
+# ignore these, as they are recently unmaintained:
+# https://github.com/abdfnx/tran - 435 stars, last update months ago
+#
+# ignore these, as they are archived:
+# https://github.com/mozilla/send - 13.3k stars, archived
+# https://github.com/SpatiumPortae/portal - 1.7k stars, last update years ago
+# https://github.com/dennis-tra/pcp - 1.1k stars, last update years ago
+# https://github.com/nils-werner/zget - 484 stars, last update years ago
+# https://github.com/zerotier/toss - 339 stars, archived
+# https://github.com/subins2000/WebDrop - 278 stars, last update years ago
+# https://github.com/lmangani/gunstore.io - 41 stars, last update years ago
+# https://github.com/devclub-iitd/SenData - 16 stars, last update years ago
+# https://github.com/rockymadden/github-crypt - 15 stars, last update years ago
+# https://github.com/aelafifi/gcp - https://code.lm7.fr/mcy/gcp - https://repology.org/project/gcp/packages - 15 stars, last update 2019, supported dropped
+
+function fs_copy() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# determine tools
+	# rsync: setup-util-rsync
+	# scp: bundled wih openssh-client
+	# cp: setup-util-coreutils
+	# diff: setup-util-diff
+	# git: setup-util-git
+
+	# trunk-ignore(shellcheck/SC2034)
+	local verify_tools=(rsync diff git) copy_tools=(rsync scp cp)
+
+	# =====================================
+	# Arguments
+
+	# help
+	function help {
+		__print_help "$@" <<-EOF || return
+			ABOUT:
+			Copy everything from one location to another, with:
+			- preservation of attributes
+			- progress updates
+			- local and remote sources
+
+			USAGE:
+			\`fs-copy [...options] [--] <origin> <destination>\`
+			\`fs-copy [...options] [--origin=<origin>] [--destination=<destination>]\`
+
+			OPTIONS:
+			<origin> <destination>
+			    These can be a local path on your current machine, or a remote path.
+			    If a remote file path, it should be: \`<username>@<hostname>:/<path>\`
+			    If a remote directory path, it should be: \`<username>@<hostname>:/<path>/\`
+			    The <hostname> is the hostname or IP address of a valid SSH server.
+			    Enable SSH on macOS via \`System Preferences > Sharing > Remote Login\`
+			    Enable SSH on Ubuntu via \`https://ubuntu.com/server/docs/service-openssh\`
+
+			--tool=<tool>
+			    If specified, skips tool prompt. Available tools on this machine are:
+			    For copy: $(__join --source={copy_tools} --delimiter=', ')
+			    For verify: $(__join --source={verify_tools} --delimiter=', ')
+
+			--[no-]confirm
+			    If enabled, do not confirm anything.
+			--[no-]dry
+			    If enabled, only output the determined command, do not run it.
+			--[no-]elevate
+			    If enabled, run the determined command with elevated privileges.
+			--[no-]verify | --[no-]dry
+			    If enabled, do a dry run and only verify that the target contains all the files from the source, do not modify anything.
+
+			RSYNC OPTIONS:
+			--[no-]backup
+			    If enabled, existing destination paths that do not match source contents will be renamed; defaults <tool> to \`rsync\`.
+			--[no-]remove
+			    If enabled, remove source files as they are successfully copied to the target; defaults <tool> to \`rsync\`.
+			--[no-]checksum
+			    If enabled, files are compared by their checksums, instead of the default quicker date and size comparison; defaults <tool> to \`rsync\`.
+			--[no-]linux
+			    If enabled, increases compatibility with between linux systems; defaults <tool> to \`rsync\`.
+			--owner=<user>:<group>
+			    If specified, uses this value for the ownership of copied files; defaults <tool> to \`rsync\`.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='no' option_tool='' option_origin='' option_destination='' option_confirm='' option_dry='' option_elevate='' option_verify='' option_backup='' option_remove='' option_checksum='' option_linux='' option_owner=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		'--origin='* | '--source='*) option_origin="${item#*=}" ;;
+		'--destination='*) option_ destination="${item#*=}" ;;
+		'--owner='*) option_owner="${item#*=}" ;;
+		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative --coerce ;;
+		'--no-dry'* | '--dry'*) __flag --source={item} --target={option_dry} --affirmative --coerce ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--no-verify'* | '--verify'*) __flag --source={item} --target={option_verify} --affirmative --coerce ;;
+		'--no-backup'* | '--backup'*) __flag --source={item} --target={option_backup} --affirmative --coerce ;;
+		'--no-remove'* | '--remove'*) __flag --source={item} --target={option_remove} --affirmative --coerce ;;
+		'--no-checksum'* | '--checksum'*) __flag --source={item} --target={option_checksum} --affirmative --coerce ;;
+		'--no-linux'* | '--linux'*) __flag --source={item} --target={option_linux} --affirmative --coerce ;;
+		'--')
+			if [[ -n $option_origin || -n $option_destination ]]; then
+				help "[--] can only be used if <origin> and <destination> are not set via other means"
+			fi
+			option_origin="$1"
+			option_destination="$2"
+			shift "$#"
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*)
+			if [[ -z $item ]]; then
+				help "Empty <origin> or <destination> argument provided."
+			elif [[ -z $option_origin ]]; then
+				option_origin={item}
+			elif [[ -z $option_destination ]]; then
+				option_destination="$item"
+			else
+				help 'An unrecognised argument was provided: ' --variable-value={item}
+			fi
+			;;
+		esac
+	done
+
+	# check origin and destination
+	if [[ -z $option_origin || -z $option_destination ]]; then
+		help "Both <origin> and <destination> must be specified."
+	fi
+
+	# if manually set an rsync option, then default tool to rsync
+	if [[ -z $option_tool && ($option_backup == 'yes' || $option_remove == 'yes' || $option_checksum == 'yes' || $option_linux == 'yes' || -n $option_owner) ]]; then
+		option_tool='rsync'
+	fi
+
+	# ensure tool
+	if [[ $option_verify == 'yes' ]]; then
+		__tool --tool={option_tool} --tools={verify_tools} --help={help} || return
+	else
+		__tool --tool={option_tool} --tools={copy_tools} --help={help} || return
+	fi
+
+	# if both local and directories, prevent weird behaviour
+	if [[ $option_origin != *:* && $option_destination != *:* && ${option_origin:-1} != '/' && ${option_destination:-1} != '/' && -d $option_origin && -d $option_destination ]]; then
+		option_origin+='/'
+		option_destination+='/'
+	fi
+
+	# rsync options
+	if [[ $option_tool == 'rsync' ]]; then
+		# ensure linux
+		if [[ -z $option_linux ]]; then
+			if [[ $option_origin != *:* && $option_destination != *:* ]]; then
+				# both local
+				if is-linux; then
+					option_linux='yes'
+				else
+					option_linux='no'
+				fi
+			elif [[ $option_origin == *:* && $option_destination == *:* ]] || is-linux; then
+				# both remote
+				# or one remote, and we are linux
+				if [[ $option_confirm != 'no' ]] && confirm --bool --ppid=$$ -- 'Are both machines Linux machines?'; then
+					option_linux='yes'
+				else
+					option_linux='no'
+				fi
+			else
+				# one is remote, and we are not linux
+				option_linux='no'
+			fi
+		fi
+		# ensure checksum
+		if [[ -z $option_checksum ]]; then
+			if [[ $option_confirm != 'no' ]] && confirm --negative --ppid=$$ -- 'Compare files via checksum, instead of the quicker and default date and size comparison?'; then
+				option_checksum='yes'
+			else
+				option_checksum='no'
+			fi
+		fi
+		# if verify, default backup and remove to no
+		if [[ $option_verify == 'yes' ]]; then
+			if [[ -z $option_backup ]]; then
+				option_backup='no'
+			fi
+			if [[ -z $option_remove ]]; then
+				option_remove='no'
+			fi
+		else
+			# if not verify, then prompt for backup and remove
+			# ensure backup
+			if [[ -z $option_backup ]]; then
+				if [[ $option_confirm != 'no' ]] && confirm --negative --ppid=$$ -- 'Remove the source files after successful copies?'; then
+					option_backup='yes'
+				else
+					option_backup='no'
+				fi
+			fi
+			# ensure remove
+			if [[ -z $option_remove ]]; then
+				if [[ $option_confirm != 'no' ]] && confirm --negative --ppid=$$ -- 'Remove the source files after successful copies?'; then
+					option_remove='yes'
+				else
+					option_remove='no'
+				fi
+			fi
+		fi
+	fi
+
+	# adjustments
+	local RECURSED='no'
+	function __adjust_faux {
+		local question suggestion tangent
+		suggestion="$(get-local-to-remote "$1" 2>/dev/null || :)"
+		if [[ -n $suggestion ]]; then
+			question="$(
+				__print_style \
+					--bold+underline='What would you like to do?' --newline \
+					'Using rsync with a remote directory that is mounted locally can be slow.' --newline \
+					'It is recommended to use its remote location instead, which autodetection implies it as:' --newline \
+					--code-notice1="$suggestion" --newline \
+					'Alternatively, attempt a different tool as they can be better under these circumstances.'
+			)" || return
+			tangent="$(
+				choose \
+					--question="$question" \
+					--label -- \
+					'exit' 'rethink and exit' \
+					'ignore' 'ignore suggestion and continue anyway' \
+					'different' 'attempt a different tool'
+			)" || return
+			if [[ $tangent == 'ignore' ]]; then
+				__print_style --dim='Faux Remotes: ignore and continue' || return
+				return 0
+			elif [[ $tangent == 'different' ]]; then
+				RECURSED='yes'
+				__print_style --dim='Faux Remotes: attempting a different tool' || return
+				fs-copy --confirm="$option_confirm" --dry="$option_dry" --elevate="$option_elevate" --verify="$option_verify" -- "$option_origin" "$option_destination" || return
+				return
+			else
+				__print_style --dim='Faux Remotes: exit' || return
+				# exit / default
+				return 1
+			fi
+		fi
+		return 0
+	}
+	if [[ $option_confirm != 'no' ]]; then
+		if [[ $option_tool == 'rsync' ]]; then
+			__adjust_faux "$option_origin" || return
+			if [[ $RECURSED == 'yes' ]]; then
+				return 0
+			fi
+			__adjust_faux "$option_destination" || return
+			if [[ $RECURSED == 'yes' ]]; then
+				return 0
+			fi
+		fi
+	fi
+
+	# =====================================
+	# Action
+
+	# prepare
+	local cmd=()
+
+	# tool
+	if [[ $option_tool == 'rsync' ]]; then
+		# via rsync, file by file progress
+		cmd+=(rsync)
+
+		# -P: same as --partial --progress
+		# --partial: keep partially transferred files
+		# --progress: show progress during transfer
+		#
+		# --archive, -a: archive mode; equals -rlptgoD (no -H,-A,-X)
+		#   --recursive, -r: recurse into directories
+		#   --links, -l: copy symlinks as symlinks
+		#   --perms, -p: preserve permissions
+		#   --times, -t: preserve modification times
+		#   --group, -g: preserve group
+		#   --owner, -o: preserve owner (super-user only)
+		#   -D: same as --devices --specials
+		#   --devices: preserve device files (super-user only)
+		#   --specials: preserve special files
+		#
+		# --human-readable, -h: output numbers in a human-readable format
+		cmd+=(-P --archive --human-readable)
+
+		# verify
+		if [[ $option_verify == 'yes' ]]; then
+			# -i, --itemize-changes       output a change-summary for all updates
+			# -n, --dry-run               show what would have been transferred
+			cmd+=(--itemize-changes --dry-run)
+		fi
+
+		# linux
+		if [[ $option_linux == 'yes' ]]; then
+			# --acls, -A: preserve ACLs (implies --perms)
+			# --xattrs, -X: preserve extended attributes
+			# --atimes, -U: preserve access (use) times
+			cmd+=(--acls --xattrs --atimes)
+
+			# --crtimes, -N: preserve create times (newness)
+			# --crtimes not supported on ubuntu server on arm, nor manjero on x86
+			# cmd+=('--crtimes')
+		fi
+
+		# checksum
+		if [[ $option_checksum == 'yes' ]]; then
+			# --checksum, -c: skip based on checksum, not mod-time & size
+			cmd+=('--checksum')
+		fi
+
+		# remove
+		if [[ $option_remove == 'yes' ]]; then
+			cmd+=('--remove-source-files')
+		fi
+
+		# owner
+		if [[ -n $option_owner ]]; then
+			cmd+=("--chown=$option_owner")
+		fi
+
+		# backup
+		if [[ $option_backup == 'yes' ]]; then
+			# -b, --backup: Make a backup of changed files with ~ suffix.
+			cmd+=('--backup')
+		fi
+
+		# paths
+		cmd+=("$option_origin" "$option_destination")
+
+		# workaround for rsync always returning success exit code
+		# https://superuser.com/q/1700581/32418
+		if [[ $option_verify == 'yes' ]]; then
+			function __verify_stdout {
+				# check for errors
+				if grep --quiet --extended-regexp --regexp='^>'; then
+					# has error
+					return 1
+				fi
+				return 0
+			}
+		fi
+
+	elif [[ $option_tool == 'scp' ]]; then
+		# via scp
+		cmd+=(scp)
+
+		# sanity check
+		if [[ $option_verify == 'yes' ]]; then
+			help '<scp> is incompatible with <verify>'
+		fi
+
+		# -A: Allows forwarding of ssh-agent(1) to the remote system.  The default is not to forward an authentication agent.
+		# -p: Preserves modification times, access times, and modes from the original file.
+		# -r: Recursively copy entire directories.  Note that scp follows symbolic links encountered in the tree traversal.
+		cmd+=(-A -p -r)
+
+		# paths
+		cmd+=(
+			"$option_origin"
+			"$option_destination"
+		)
+
+	elif [[ $option_tool == 'cp' ]]; then
+		# via cp
+		cmd+=(cp)
+
+		# sanity check
+		if [[ $option_verify == 'yes' ]]; then
+			help '<cp> is incompatible with <verify>'
+		fi
+
+		# -a: Same as -pPR options. Preserves structure and attributes of files but not directory structure.
+		# -P; If the -R option is specified, no symbolic links are followed.  This is the default.
+		# -R: When source_file designates a directory, cp copies the directory and the entire subtree connected at that point.  If the source_file ends in a /, the contents of the directory are copied rather than the directory itself.  This option also causes symbolic links to be copied, rather than indirected through, and for cp to create special files rather than copying them as normal files.  Created directories have the same mode as the corresponding source directory, unmodified by the process' umask.
+		#
+		# -L: If the -R option is specified, all symbolic links are followed.
+		# -p: Cause cp to preserve the following attributes of each source file in the copy: modification time, access time, file flags, file mode, user ID, and group ID, as allowed by permissions.  Access Control Lists (ACLs) and Extended Attributes (EAs), including resource forks, will also be preserved.
+		# -f: If the destination file cannot be opened, remove it and create a new file, without prompting for confirmation regardless of its permissions.
+		# -v: Cause cp to be verbose, showing files as they are copied.
+		cmd+=(-a -L -p -f -v)
+
+		# paths
+		cmd+=(
+			"$option_origin"
+			"$option_destination"
+		)
+
+	elif [[ $option_tool == 'diff' ]]; then
+		cmd+=(diff)
+
+		# sanity check
+		if [[ $option_verify != 'yes' ]]; then
+			help '<diff> requires <verify>'
+		fi
+
+		# -q  --brief: Output only whether files differ.
+		# -r  --recursive: Recursively compare any subdirectories found.
+		cmd+=(--brief --recursive)
+
+		# paths
+		cmd+=(
+			"$option_origin"
+			"$option_destination"
+		)
+
+	elif [[ $option_tool == 'git' ]]; then
+		cmd+=(git diff)
+
+		# sanity check
+		if [[ $option_verify != 'yes' ]]; then
+			help '<git> requires <verify>'
+		fi
+
+		# --no-index: This form is to compare the given two paths on the filesystem. You can omit the --no-index option when running the command in a working tree controlled by Git and at least one of the paths points outside the working tree, or when running the command outside a working tree controlled by Git. This form implies --exit-code.
+		cmd+=(--no-index)
+
+		# paths
+		cmd+=(
+			"$option_origin"
+			"$option_destination"
+		)
+
+	else
+		help 'An unrecognised <tool> was provided: ' --variable-value={option_tool}
+	fi
+
+	function __wrap {
+		eval-helper --quiet="$option_quiet" --wrap --shapeshifter --elevate="$option_elevate" -- "$@"
+	}
+
+	# run
+	if [[ $option_dry == 'yes' ]]; then
+		echo-escape-command -- "${cmd[@]}"
+	elif __is_function_defined __verify_stdout; then
+		output="$(fs-temp --directory='dorothy' --directory='fs-copy' --file)"
+		__wrap "${cmd[@]}" 2>&1 | tee "$output"
+		__verify_stdout <"$output"
+	else
+		__wrap "${cmd[@]}"
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	fs_copy "$@"
+fi

@@ -9,6 +9,3 @@ export HISTTIMEFORMAT='%F %T '
 
 # essential
 . "$DOROTHY/sources/environment.sh"
-
-# clear the theme cache
-get-terminal-theme --clear-cache
