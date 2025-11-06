@@ -450,6 +450,7 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 - [Nutchanon](https://github.com/ninyawee) — [view contributions](https://github.com/bevry/dorothy/commits?author=ninyawee 'View the GitHub contributions of Nutchanon on repository bevry/dorothy')
 - [Octavian](https://github.com/octavian-one) — [view contributions](https://github.com/bevry/dorothy/commits?author=octavian-one 'View the GitHub contributions of Octavian on repository bevry/dorothy')
 - [Oscar Vargas Torres](https://github.com/oscarvarto) — [view contributions](https://github.com/bevry/dorothy/commits?author=oscarvarto 'View the GitHub contributions of Oscar Vargas Torres on repository bevry/dorothy')
+- [Sam Gutentag](https://github.com/samgutentag) — [view contributions](https://github.com/bevry/dorothy/commits?author=samgutentag 'View the GitHub contributions of Sam Gutentag on repository bevry/dorothy')
 - [Sumit Rai](https://github.com/sumitrai) — [view contributions](https://github.com/bevry/dorothy/commits?author=sumitrai 'View the GitHub contributions of Sumit Rai on repository bevry/dorothy')
 
 ### Finances
@@ -465,9 +466,9 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 #### Sponsors
 
 - [Andrew Nesbitt](https://nesbitt.io) — Working on mapping the world of open source software @ecosyste-ms and empowering developers with @octobox
-- [Canonical](https://canonical.com)
 - [Divinci ™](https://divinci.ai) — A more comfortable AI conversation experience, with friends! 🤖🖤
 - [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
+- [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
 - [Roboflow](https://roboflow.com)
 
