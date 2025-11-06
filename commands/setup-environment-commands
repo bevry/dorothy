@@ -5,68 +5,6 @@
 
 # Don't use `is-admin` here, as sudo does not necessarily load this, as such sudo should inherit standard config.
 
-# Right to left is the preference for paths.
-
-# =====================================
-# Helpers
-
-function __add_directory {
-	local directory="$1" target="${2:-PATH}"
-	if [[ -d $directory ]]; then
-		directory="${directory// /\\ }"
-		eval "$target=\"\$directory:\$$target\""
-	fi
-}
-
-# PATH, LDFLAGS, CPPFLAGS, PKG_CONFIG_PATH
-function __add_prefix_directory {
-	local p="$1"
-	if [[ -n $p && -d $p ]]; then
-		# for invokers to discover it
-		__add_directory "$p/bin" || return
-		# for invokers under root to discover it
-		if [[ $USER == 'root' ]]; then
-			__add_directory "$p/sbin" || return
-		fi
-		# for compilers to discover it
-		if [[ -d "$p/lib" ]]; then
-			LDFLAGS="-L$p/lib $LDFLAGS"
-			# for pkg-config to discover it
-			__add_directory "$p/lib/pkgconfig" PKG_CONFIG_PATH || return
-		fi
-		if [[ -d "$p/include" ]]; then
-			CPPFLAGS="-I$p/include $CPPFLAGS"
-		fi
-		# man and share/man
-		__add_directory "$p/man" MANPATH || return
-		__add_directory "$p/share/man" MANPATH || return
-		__add_directory "$p/share/info" INFOPATH || return
-	fi
-}
-
-# add ruby gems
-function __add_ruby_gem {
-	local gem="$1"
-	export GEM_HOME="$HOME/.gem"
-	if [[ -x $gem ]]; then
-		# fetch gempaths and replace colons with newlines
-		local gemdirs=() gemdir
-		__split --target={gemdirs} --no-zero-length --delimiters=':' --invoke -- \
-			"$gem" environment gempath || :
-		for gemdir in "${gemdirs[@]}"; do
-			PATH="$gemdir/bin:$PATH"
-		done
-	fi
-}
-
-function __cut {
-	# turn `<hash>  <path>` into `<hash>`
-	# cut -f1 -d ' '
-	local checksum
-	IFS=' ' read -r checksum _
-	__print_lines "$checksum"
-}
-
 # =====================================
 # Requisites
 
@@ -80,6 +18,9 @@ fi
 # sources
 source "$DOROTHY/sources/bash.bash"
 source "$DOROTHY/sources/config.sh"
+
+# =====================================
+# Arguments
 
 # help
 function help {
@@ -150,7 +91,237 @@ if [[ -z $option_shell ]]; then
 	help 'Missing required argument: --shell=<shell>'
 fi
 
-# caching, depends on options
+# =====================================
+# Helpers
+
+# __add_directory <directory> [<target=PATH>]
+# Prepends the <directory> to the colon delimited <target> environment variable, defaulting to PATH, if the directory exists.
+function __add_directory {
+	local directory="$1" target="${2:-PATH}"
+	if [[ -d $directory ]]; then
+		directory="${directory// /\\ }"
+		eval "$target=\"\$directory:\$$target\""
+	fi
+}
+
+# __add_prefix_directory <directory>
+# Prepends <directory>/bin, <directory>/sbin, <directory>/lib/pkgconfig, <directory>/include, <directory>/man <directory>/share/man <directory>/share/info to their respective environment variables.
+function __add_prefix_directory {
+	local p="$1"
+	if [[ -n $p && -d $p ]]; then
+		# for invokers to discover it
+		__add_directory "$p/bin" || return
+		# for invokers under root to discover it
+		if [[ $USER == 'root' ]]; then
+			__add_directory "$p/sbin" || return
+		fi
+		# for compilers to discover it
+		if [[ -d "$p/lib" ]]; then
+			LDFLAGS="-L$p/lib $LDFLAGS"
+			# for pkg-config to discover it
+			__add_directory "$p/lib/pkgconfig" PKG_CONFIG_PATH || return
+		fi
+		if [[ -d "$p/include" ]]; then
+			CPPFLAGS="-I$p/include $CPPFLAGS"
+		fi
+		# man and share/man
+		__add_directory "$p/man" MANPATH || return
+		__add_directory "$p/share/man" MANPATH || return
+		__add_directory "$p/share/info" INFOPATH || return
+	fi
+}
+
+# __add_ruby_gem <gem-executable>
+# Sets `GEM_HOME`, and prepends each reported `${gempath}/bin` from the <gem-executable> to the `PATH`
+function __add_ruby_gem {
+	local gem="$1"
+	export GEM_HOME="$HOME/.gem"
+	if [[ -x $gem ]]; then
+		# fetch gempaths and replace colons with newlines
+		local gemdirs=() gemdir
+		__split --target={gemdirs} --no-zero-length --delimiters=':' --invoke -- \
+			"$gem" environment gempath || :
+		for gemdir in "${gemdirs[@]}"; do
+			PATH="$gemdir/bin:$PATH"
+		done
+	fi
+}
+
+# <stdin> | __cut
+# Fetches the first space-delimited field from STDIN
+# Turning `<hash>  <path>` into `<hash>`
+function __cut {
+	local checksum
+	IFS=' ' read -r checksum _
+	__print_lines "$checksum"
+}
+
+# Environment variables that should be ignored, because they are arbitrary or readonly or irrelevant to our goals here
+IGNORE_ENV_VARIABLES='
+BASH_DEBUG_FORMAT
+COLOR
+GPG_TTY
+LaunchInstanceID
+PS4
+SECURITYSESSIONID
+SHLVL
+SSH_AGENT_PID
+SSH_AUTH_SOCK
+TERM_SESSION_ID
+TMPDIR
+'
+
+# Store the initial environment variables so we can know what changed
+if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+	declare -a ENV_NAMES=()
+	declare -A ENV_MAP_NAME_VALUE=()
+	while read -r name; do
+		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
+			continue
+		fi
+		value="${!name-}"
+		ENV_NAMES+=("$name")
+		ENV_MAP_NAME_VALUE["$name"]="$value"
+	done <<<"$(compgen -e || :)"
+else
+	declare -a ENV_NAMES=() ENV_VALUES=()
+	while read -r name; do
+		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
+			continue
+		fi
+		value="${!name-}"
+		ENV_NAMES+=("$name")
+		ENV_VALUES+=("$value")
+	done <<<"$(compgen -e || :)"
+fi
+
+# Scan the result environment variables and output their changes
+function __on_env_finish {
+	# Ignore failure conditions
+	local -i last_status=$?
+	if [[ $last_status -ne 0 ]]; then
+		return "$last_status"
+	fi
+
+	# Cycle through the combined old and new environment variable names
+	local -i index
+	local name value delimiter original_value values is_path results=()
+	while read -r name; do
+		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
+			continue
+		fi
+		value="${!name-}"
+
+		# De-duplicate delimited values, e.g. `PATH=a:b:a` => `PATH=a:b`
+		delimiter='' is_path='no'
+		if [[ $name =~ (PATH|DIRS)$ ]]; then
+			delimiter=':' is_path='yes'
+		elif [[ $name =~ FLAGS$ ]]; then
+			delimiter=' '
+		fi
+		if [[ -n $delimiter ]]; then
+			# trunk-ignore(shellcheck/SC2034)
+			original_value="$value" values=()
+			__split --source={value} --delimiter="$delimiter" --target={values} --no-zero-length || return
+			__unique --source+target={values} || return
+			__join --source={values} --delimiter="$delimiter" --target={value} || return
+			if [[ -z $value && $name == 'PATH' ]]; then
+				__dump --stderr --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} || :
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			__dump --debug --value='== DE-DUPLICATED ==' {name} {original_value} {delimiter} {value} || :
+		fi
+
+		# Cycle through each environment variable, skipping all that are unchanged from earlier
+		if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+			if [[ ${ENV_MAP_NAME_VALUE["$name"]-} == "$value" ]]; then
+				__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
+				continue
+			fi
+		else
+			for ((index = 0; index < ${#ENV_NAMES[@]}; index++)); do
+				if [[ ${ENV_NAMES[index]} == "$name" ]]; then
+					if [[ ${ENV_VALUES[index]} == "$value" ]]; then
+						__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
+						continue
+					fi
+				fi
+			done
+		fi
+
+		# Note that this name has changed, for use in caching later
+		changed_names+=("$name")
+
+		# Output the changed variable shell-specific and type-specific declaration
+		if [[ -z $value ]]; then
+			# The value is now empty, delete it
+			__dump --debug --value='== DELETE ==' {name} {value} || :
+			if [[ $option_shell == 'fish' ]]; then
+				results+=("set --universal --erase $name;")
+			elif [[ $option_shell == 'nu' ]]; then
+				results+=("setenv $name")
+			elif [[ $option_shell == 'xonsh' ]]; then
+				results+=("if \${...}.get('$name') != None:"$'\n\t'"del \$$name")
+			elif [[ $option_shell == 'elvish' ]]; then
+				# https://elv.sh/ref/builtin.html#unset-env
+				results+=("unset-env $name")
+			else
+				results+=("unset -v $name;")
+			fi
+		elif [[ $is_path == 'yes' ]]; then
+			# The value is a path, set path
+			__dump --debug --value='== SET PATH ==' {name} {value} || :
+			if [[ $option_shell == 'fish' ]]; then
+				results+=("set --export --path $name '$value';")
+			elif [[ $option_shell == 'nu' ]]; then
+				results+=("setenv $name $value")
+			elif [[ $option_shell == 'xonsh' ]]; then
+				results+=('$'"$name = '$value'.split(':')")
+			elif [[ $option_shell == 'elvish' ]]; then
+				# https://elv.sh/ref/builtin.html#set-env
+				results+=("set-env $name '$value'")
+			else
+				results+=("export $name='$value';")
+			fi
+		else
+			# The value is a string, set it
+			__dump --debug --value='== SET ==' {name} {value} || :
+			if [[ $option_shell == 'fish' ]]; then
+				results+=("set --export $name '$value';")
+			elif [[ $option_shell == 'nu' ]]; then
+				results+=("setenv $name $value")
+			elif [[ $option_shell == 'xonsh' ]]; then
+				results+=('$'"$name = '$value'")
+			elif [[ $option_shell == 'elvish' ]]; then
+				# https://elv.sh/ref/builtin.html#set-env
+				results+=("set-env $name '$value'")
+			else
+				results+=("export $name='$value';")
+			fi
+		fi
+	done <<<"$({
+		compgen -e || :
+		__print_lines "${ENV_NAMES[@]}" || :
+	} | sort --unique || :)"
+
+	# xonsh needs a trailing newline, because xonsh, fixes:
+	# > xonsh
+	# xonsh: For full traceback set: $XONSH_SHOW_TRACEBACK = True
+	# SyntaxError: None: no further code
+	# syntax error in xonsh run control file '/Users/balupton/.config/xonsh/rc.xsh': None: no further code
+	if [[ $option_shell == 'xonsh' ]]; then
+		results+=('')
+	fi
+
+	# Output the declarations to STDOUT
+	__print_lines "${results[@]}" || return
+}
+trap __on_env_finish EXIT
+
+# =====================================
+# Caching
+
+# Exit early with caching if suitable and if requested
 CACHE_LOCK_FILE=''
 CACHE_RESULT_FILE=''
 function __cache {
@@ -240,10 +411,6 @@ function __cache {
 	}
 	trap __on_env_finish__cache EXIT # replace our prior trap with one that caches the result
 }
-
-# load env.bash now, so that
-# any exported variables changed from now on are echo'd at finish
-source "$DOROTHY/sources/env.bash"
 
 # =====================================
 # Requisites
