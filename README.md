@@ -57,10 +57,12 @@ Dorothy is a dotfile ecosystem featuring:
 | 👐 [AlmaLinux][AlmaLinux]                                                                                      | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE][OpenSUSE]: [Leap][Leap], [Tumbleweed][Tumbleweed]                                                | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🐉 [Kali][Kali]                                                                                                | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ![OpenEulerLogo][OpenEulerLogo] [OpenEuler][OpenEuler]                                                         | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 𝓮 [elementary OS][Elementary]                                                                                  | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 𝓮 [elementary OS][elementaryOS]                                                                                | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ⭐ [Vanilla][Vanilla]                                                                                          | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 💫 [Devuan][Devuan]                                                                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ![CachyOSLogo][CachyOSLogo] [CachyOS][CachyOS]                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ❍ [OpenMandriva][Mandriva]: [Rock][Rock], [Rolling][Rolling]                                                   | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 
 <!-- Sorted alphabetically -->
@@ -68,11 +70,13 @@ Dorothy is a dotfile ecosystem featuring:
 [AlmaLinux]: https://almalinux.org
 [AlmaWSL]: https://apps.microsoft.com/search/publisher?name=AlmaLinux+OS+Foundation
 [Arch]: https://wiki.archlinux.org/title/Arch_Linux
+[CachyOS]: https://cachyos.org/download/
+[CachyOSLogo]: docs/assets/cachyos.svg
 [Debian]: https://www.debian.org
 [DebianPi]: https://raspi.debian.net
 [DebianWSL]: https://apps.microsoft.com/detail/9msvkqc78pk6
 [Devuan]: https://www.devuan.org
-[Elementary]: https://elementary.io
+[elementaryOS]: https://elementary.io
 [Fedora]: https://fedoraproject.org
 [FedoraS]: https://fedoraproject.org/server/
 [FedoraW]: https://fedoraproject.org/workstation/
@@ -81,6 +85,8 @@ Dorothy is a dotfile ecosystem featuring:
 [Leap]: https://get.opensuse.org/leap/
 [Mandriva]: https://www.openmandriva.org
 [Manjaro]: https://manjaro.org/download/
+[OpenEuler]: https://www.openeuler.org/en/download/
+[OpenEulerLogo]: docs/assets/openeuler.svg
 [OpenSUSE]: https://www.opensuse.org
 [PiOS]: https://www.raspberrypi.com/documentation/computers/os.html
 [PiOSDownload]: https://www.raspberrypi.com/software/operating-systems/
