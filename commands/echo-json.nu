@@ -5,22 +5,25 @@ def main [
 	...args
 ] {
     let actions = [make stringify encode decode json pretty table csv tsv stream]
+	# validate
     if $action not-in $actions {
         error make { msg: $"An unrecognised <action> was provided: ($action)" }
     }
+	# remove the : prefix on each argument to work around nushell's arg issues
+	mut $args = $args | each { |arg| $arg | str replace --regex '^:' '' }
+	# action
     if $action == 'make' {
         if ($args | length) mod 2 != 0 {
             error make { msg: '<make> requires an even number of <key> <value> pairs.' }
         }
-		mut args = $args
         mut rec = {}
-        while ($args | length) > 0 {
-            let key = $args | first
-            $args = $args | skip 1
-            let val = $args | first
-            $args = $args | skip 1
+        mut index = 0
+        while $index < ($args | length) {
+            let key = $args | get $index
+            let val = $args | get ($index + 1)
             let val = try { $val | from json } catch { $val }
-            $rec = $rec | insert $key $val
+            $rec = ($rec | upsert $key $val)
+            $index = $index + 2
         }
         print ($rec | to json -r)
         return
@@ -45,7 +48,7 @@ def main [
 				print ($parsed | to json -r)
 			}
 			'pretty' => {
-				let parsed = $input | from json 
+				let parsed = $input | from json
 				print ($parsed | to nuon)
 			}
 			'table' => {
