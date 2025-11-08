@@ -1,25 +1,18 @@
 #!/usr/bin/env bash
 
-# TODO: ( ) Support other hosts than github.com
-#
-# Rename command to util-config-link?
+# TODO: Rename to [user/config.utils]
 
-# TODO: Verbose, print every stage of the process. Or print all info
-# in one chunk at the end.
-
-# TODO: Handle case where we need a custom name for looking for the config file.
-# USE_CONFIG_<CLI>_{<REMOTE>,<NAME>}
-# This could be exported by eg a setup-util-command in order to look for a custom
-# name in simple configs or remote,
+# TODO: Take either `cli` name or `app` name, eg. Brave browser could have a config
+# and so would be an app instead of cli
 
 function util_config_helper() (
-    source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/bash.bash"
 
-    # =====================================
-    # Arguments
+	# =====================================
+	# Arguments
 
-    function help {
-        __print_help "$@" <<-EOF || return
+	function help {
+		__print_help "$@" <<-EOF || return
 			ABOUT:
 			Intended to be used by \`setup-util\`.
 
@@ -70,181 +63,142 @@ function util_config_helper() (
 			    symlink to target destination.
 
 		EOF
-        return 22 # EINVAL 22 Invalid argument
-    }
+		return 22 # EINVAL 22 Invalid argument
+	}
 
-    # process
-    local item action='' option_environment_enabled='no' option_force='' option_args=()
-    while test "$#" -ne 0; do
-        item="$1"
-        shift
-        case "$item" in
-        --help | -h) help ;;
-        --symlink-simple) action="symlink_all_simple" ;;
-        '--force='* ) option_force="${item#*=}" ;;
-        --)
-            option_args+=("$@")
-            shift "$#"
-            break
-            ;;
-        *)
-            option_args+=("$item")
-            ;;
-        esac
-    done
+	# process
+	local item action='' option_environment_enabled='no' option_force='' option_args=()
+	while test "$#" -ne 0; do
+		item="$1"
+		shift
+		case "$item" in
+		--help | -h) help ;;
+		--symlink-simple) action="symlink_all_simple" ;;
+		'--force='*) option_force="${item#*=}" ;;
+		--)
+			option_args+=("$@")
+			shift "$#"
+			break
+			;;
+		*)
+			option_args+=("$item")
+			;;
+		esac
+	done
 
-    if [[ "${#option_args[@]}" -eq 0 ]] ; then
-        help "Requires <name> and [<destination>] args. You supplied none."
-    fi
+	if [[ "${#option_args[@]}" -eq 0 ]]; then
+		help "Requires <name> and [<destination>] args. You supplied none."
+	fi
 
-    # =======================================================
-    # Actions
+	# =======================================================
+	# Actions
 
-    # WARN: Ask Ben about naming convention for setup utils, how should it be??
-    # should it be the name of the CLI?
-    # ^ Maybe the setup-util database map needs to be used check for special
-    # case name maps, sqlite -> sqlite3; neovim -> nvim
+	# WARN: Ask Ben about naming convention for setup utils, how should it be??
+	# should it be the name of the CLI?
+	# ^ Maybe the setup-util database map needs to be used check for special
+	# case name maps, sqlite -> sqlite3; neovim -> nvim
 
-    function symlink_all_simple_configs() {
-        echo-style --h1="SETTING UP USER SYMLINKS"
-        local util_name config_destination_path
+	function symlink_all_simple_configs() {
+		echo-style --h1="SETTING UP USER SYMLINKS"
+		local u_name dest_dir
+		for util_path in "$DOROTHY/user/config.xdg"/* "$DOROTHY/user/config.local/config.xdg"; do
 
-        for util_path in "$DOROTHY/user/config.xdg"/* "$DOROTHY/user/config.local/config.xdg"; do
+			u_name="$(basename "$util_path")"
+			dest_dir="$XDG_CONFIG_HOME/$u_name"
 
-            util_name="$(basename "$util_path")"
-            config_destination_path="$XDG_CONFIG_HOME/$util_name"
+			if [[ -f "$DOROTHY/commands/setup-util-$u_name" ]]; then
+				__print_lines "[$u_name] is handled by setup-util-$u_name"
+				continue
+			fi
 
-            if [[ -f "$DOROTHY/commands/setup-util-$util_name" ]]; then
-                __print_lines "[$util_name] is handled by setup-util-$util_name"
-                continue
-            fi
+			symlink-helper --existing="$util_path" --symlink="$dest_dir" --log-if-overriding-file # \ --quiet --log-if-overriding-symlink
+		done
 
-            symlink-helper --existing="$util_path" --symlink="$config_destination_path" --log-if-overriding-file # \ --quiet --log-if-overriding-symlink
-        done
+		echo-style --g1="SETTING UP USER SYMLINKS"
+	}
 
-        echo-style --g1="SETTING UP USER SYMLINKS"
-    }
+	setup_user_config_for_utility() {
+		local option_util_name=${1-} option_destination_dir=${2-}
+		local override_source_name_env='', override_remote_env='', override_remote_env='' source_name='', target_dir='', remote_name=''
 
-    setup_user_config_for_utility() {
+		if [[ -z "$option_util_name" ]]; then
+			__print_lines "ERROR: setup_user_config_for_utility requires two args: option_util_name, option_destination_dir"
+		fi
 
-        local util_name=${1-} config_destination_path=${2-} repo_block GITHUB_USER repo_slug repo_block
-        local util_config_override_prefix="USE_CONFIG_"
-
-        if [[ -z "$util_name" ]] ; then
-            __print_lines "ERROR: setup_user_config_for_utility requires two args: util_name, config_destination_path"
-        fi
-
-        local config_cli_remote_env_var
-        local default_remote_config_name="$util_name-config"
-
-        # Handle env var USE_CONFIG_<CLI>_<REMOTE>
-        # ^ Remote repo to pull from
-        local config_cli_remote_env_var="$util_config_override_prefix${util_name^^}"
-        local config_cli_remote_name_real="${!config_cli_remote_env_var:-$default_remote_config_name}"
-
-        # Handle env var USE_CONFIG_<CLI>_<FILENAME>
-        # ^ The name that should be assigned in eg. XDG_CONFIG_HOME
-        local config_cli_filename_env_var="USE_CONFIG_${util_name}_REMOTE"
-        local config_cli_filename_real="${!config_cli_filename_env_var:-$util_name}"
-
+		# Can we proceed?
 		if [[ "${SETUP_UTIL_ALLOW_SETTING_UP_USER_CONFIGS-}" == 'yes' || "$option_force" == 'yes' ]]; then
 			if [[ "$option_force" == 'no' ]]; then
 				__print_style "setup_util: User config DISABLED explicitly. Exiting..."
 				return
 			else
-				__print_style "setup_util: User config ENABLED. Setting up user config for <${util_name}>"
+				__print_style "setup_util: User config ENABLED. Setting up user config for <${option_util_name}>"
 			fi
 		else
-			__print_style "setup-util: Setting up utility user configurations hasn't been enabled AND was not explicitly enabled via flag option. Ignoring for <${util_name}>"
+			__print_style "setup-util: Setting up utility user configurations hasn't been enabled AND was not explicitly enabled via flag option. Ignoring for <${option_util_name}>"
 			return
 		fi
 
-        GITHUB_USER=$(git config github.user)
+		# ---------------------------------
+		# Handle overrides
 
-        __print_lines "---- Setup configuration symlink for UTIL = [$util_name] ----"
+		# Handle env var USE_CONFIG_<CLI>_<FILENAME>
+		# ^ Override the config file name that should be looked for/used when symlinking.
+		# ^^ This might be a bit overkill to accomodate for.
+		override_source_name_env="USE_CONFIG_${option_util_name}_FILENAME"
+		source_name="${!override_source_name_env:-$option_util_name}"
 
-        __print_lines "destination: $config_destination_path"
+		# Handle env var USE_CONFIG_<CLI>_<DIR>
+		# ^ Override the target directory wherein <cli>s config is expected to be.
+ 	 	override_target_dir_env="USE_CONFIG_${option_util_name^^}_DIR"
+		target_dir="${!override_target_dir_env:-$XDG_CONFIG_HOME}"
+		# Passed as option takes precedence.
+		if [[ -n "$option_destination_dir" ]]; then
+			target_dir="$option_destination_dir"
+		fi
 
-        # ---------------------------------
-        # 1. CHECK FOR SIMPLE CONFIG
+		# Handle env var USE_CONFIG_<CLI>_<REMOTE>
+		# ^ Override the remove repo to pull config from
+		override_remote_env="USE_CONFIG_${option_util_name^^}_REMOTE"
+		remote_name="${!override_remote_env:-$source_name-config}"
 
-        __print_lines ":: Check if a simple config exists, ie. user/config.{xdg,xdg.local} ::"
+		# Handle config.utils configs first
 
-        local config_simple_path=''
-        if [[ -d "$DOROTHY/user/config.xdg/$util_name" ]]; then
-            config_simple_path="$DOROTHY/user/config.xdg/$util_name"
-        elif [[ -d "$DOROTHY/user/config.local/config.xdg/$util_name" ]]; then
-            config_simple_path="$DOROTHY/user/config.local/config.xdg/$util_name"
-        fi
+		local simple_dir="$DOROTHY/user/config.xdg" source_path='' destination_path=''
 
-        if [[ -n "$config_simple_path" ]]; then
-            __print_lines "Found simple config: [$config_simple_path]. Linking..."
-            # symlink-helper --existing="$config_simple_path" --symlink="$config_destination_path" --log-if-overriding-file # \ --quiet --log-if-overriding-symlink
-            return
-        fi
+		if [[ -e "$simple_dir/$option_util_name" ]]; then
+			source_path="$simple_dir/$source_name"
+		elif [[ -e "$simple_dir.local" ]]; then
+			source_path="$simple_dir.local/$source_name"
+		fi
 
-        __print_lines "Could not find simple config. Proceeding to check for compex config."
+		destination_path="$target_dir/$source_name"
 
-        # ---------------------------------
-        # 2. CHECK FOR REPO STORAGE CONFIG
+		# What happens/How to handle if the target path parent dir does not exist??
+		if [[ -n "$source_path" ]]; then
+			__print_lines "Found simple config: [$source_path]. Linking..."
+			false && fs-move --symlink -- "$source_path" "$destination_path"
+			return
+		fi
 
-        local cloned_path tracked_key
+		# Try syncing the config with repo-manager
+		if repo-manager sync "$remote_name" "$destination_path"; then
+			__print_lines "Failure to setup configuration for util [$option_util_name]. No remote config was found."
+		fi
 
-        __print_lines "config_cli_remote_env_var: $config_cli_remote_env_var | $USE_CONFIG_NVIM"
+	}
 
-        repo_slug="$GITHUB_USER/$config_cli_remote_name_real"
-        repo_block="github.com/$repo_slug"
+	# =======================================================
+	# Action
 
-        __print_lines ":: Check if a complex config [$repo_slug] is managed with GHM ::"
-
-
-        if cloned_path="$(repo-manager is-cloned "$repo_block")"; then
-            __print_lines "Found repo in GHM already cloned out. Linking into XDG_CONFIG_HOME..."
-            # symlink-helper --existing="$cloned_path" --symlink="$config_destination_path" --log-if-overriding-file # \ --quiet --log-if-overriding-symlink
-            return
-        elif tracked_key="$(repo-manager is-tracked "$repo_block")"; then
-            __print_lines "Found repo is tracked in GHM database. Restore and linking into XDG_CONFIG_HOME..."
-            # repo-manager restore "repo_block" "$config_destination_path"
-            return
-        fi
-
-        __print_lines "Could not find repo in database. Proceeding to check for remote config."
-
-        # ---------------------------------
-        # 3. QUERY KNOWN/SUPPORTED HOSTS FOR COMPLEX CONFIGS
-
-        __print_lines ":: Check for remote config ::"
-
-        local repo_url="git@github.com:$repo_slug.git"
-
-        if gh repo view "$repo_slug" &>dev/null; then
-            __print_lines "Remote config was found. Clone and linking..."
-
-            # repo-manager clone "$repo_url" "$config_destination_path"
-            return
-        fi
-
-        __print_lines "No remote config was found"
-
-        # ---------------------------------
-        # No config was found
-
-        __print_lines "No config could be found for util [$util_name]"
-
-    }
-
-    # =======================================================
-    # Action
-
-    if [[ "$action" == "symlink_all_simple" ]]; then
-        symlink_all_simple_configs
-    else
-        setup_user_config_for_utility "${option_args[@]}"
-    fi
+	if [[ "$action" == "symlink_all_simple" ]]; then
+		symlink_all_simple_configs
+	else
+		setup_user_config_for_utility "${option_args[@]}"
+	fi
 
 )
 
 # fire if invoked standalone
 if test "$0" = "${BASH_SOURCE[0]}"; then
-    util_config_helper "$@"
+	util_config_helper "$@"
 fi
