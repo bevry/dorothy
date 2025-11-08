@@ -2,7 +2,7 @@
 
 # Enables better UX around mode options, e.g. instead of just `--format=(table|json|seconds)` you can do `--table` or `--json` or `--seconds`.
 # ``` nu
-# def main [	
+# def main [
 # 	--format: string = "" # Output format: table (default), json, or seconds
 # 	--seconds(-s) # Alias for --format=seconds
 # 	--json(-j) # Alias for --format=json
@@ -47,7 +47,7 @@ export def get_mode_from_options [
 			if $value == true {
 				$count = $count + 1
 				$mode = $key
-				$specified = $specified | insert $key $value
+				$specified = ($specified | insert $key $value)
 			}
 		} else if ($value | describe) == "string" {
 			if not ($value | is-empty) {
@@ -57,7 +57,7 @@ export def get_mode_from_options [
 				}
 				$count = $count + 1
 				$mode = $value
-				$specified = $specified | insert $key $value
+				$specified = ($specified | insert $key $value)
 			}
 		} else {
 			error make { msg: $"Invalid argument: Unrecognised `--($key)=($value)`. The value must must be a boolean or string.", code: "EINVAL", status: 22 }
@@ -168,7 +168,7 @@ export def terminal_title_progress_bar [
 	--remaining: int = -1   # Update the Progress Bar with by this instead of by <progress>.
 ] {
    if $destroy {
-		# Validate <id>	
+		# Validate <id>
 		if ($id | describe) != "int" or $id < 0 {
 			error make {msg: "A valid --id is required to destroy a progress bar."}
 		}

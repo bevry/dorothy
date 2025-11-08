@@ -22,7 +22,7 @@ def main [
             let key = $args | get $index
             let val = $args | get ($index + 1)
             let val = try { $val | from json } catch { $val }
-            $rec = ($rec | upsert $key $val)
+            $rec = ($rec | insert $key $val)
             $index = $index + 2
         }
         print ($rec | to json -r)
