@@ -157,41 +157,53 @@ function __cut {
 }
 
 # Environment variables that should be ignored, because they are arbitrary or readonly or irrelevant to our goals here
-IGNORE_ENV_VARIABLES='
-BASH_DEBUG_FORMAT
-COLOR
-GPG_TTY
-LaunchInstanceID
-PS4
-SECURITYSESSIONID
-SHLVL
-SSH_AGENT_PID
-SSH_AUTH_SOCK
-TERM_SESSION_ID
-TMPDIR
-'
+IGNORE_ENV_VARIABLES=(
+	BASH_DEBUG_FORMAT
+	COLOR
+	GPG_TTY
+	LaunchInstanceID
+	PS4
+	SECURITYSESSIONID
+	SHLVL
+	SSH_AGENT_PID
+	SSH_AUTH_SOCK
+	TERM_SESSION_ID
+	TMPDIR
+)
+function __is_ignored_env_var {
+	local name="$1" ignored_name
+	for ignored_name in "${IGNORE_ENV_VARIABLES[@]}"; do
+		if [[ $name == "$ignored_name" ]]; then
+			return 0
+		fi
+	done
+	return 1
+}
 
 # Store the initial environment variables so we can know what changed
+ENV_COMPOSITE='' # for caching
 if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
 	declare -a ENV_NAMES=()
 	declare -A ENV_MAP_NAME_VALUE=()
 	while read -r name; do
-		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
+		if __is_ignored_env_var "$name"; then
 			continue
 		fi
 		value="${!name-}"
 		ENV_NAMES+=("$name")
 		ENV_MAP_NAME_VALUE["$name"]="$value"
+		ENV_COMPOSITE+="$name $value "
 	done <<<"$(compgen -e || :)"
 else
 	declare -a ENV_NAMES=() ENV_VALUES=()
 	while read -r name; do
-		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
+		if __is_ignored_env_var "$name"; then
 			continue
 		fi
 		value="${!name-}"
 		ENV_NAMES+=("$name")
 		ENV_VALUES+=("$value")
+		ENV_COMPOSITE+="$name $value "
 	done <<<"$(compgen -e || :)"
 fi
 
@@ -360,12 +372,8 @@ function __cache {
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# @todo instead of ignore_env_vars change it to list of only vars instead, which is automatically updated from what this actually sets
-	local now_env context_id checksum ignore_env_var ignore_env_vars=(TERM_SESSION_ID SECURITYSESSIONID LaunchInstanceID GPG_TTY PS4 SSH_AGENT_PID SSH_AUTH_SOCK COLOR BASH_DEBUG_FORMAT SHLVL TMPDIR) env_args=()
-	for ignore_env_var in "${ignore_env_vars[@]}"; do
-		env_args+=(-u "$ignore_env_var")
-	done
-	now_env="$(env "${env_args[@]}" | sort)" || return
-	checksum="$("${option_checksum_command[@]}" <<<"$now_env" | __cut)" || return
+	local checksum context_id
+	checksum="$("${option_checksum_command[@]}" <<<"$ENV_COMPOSITE" | __cut)" || return
 	context_id="setup-environment-commands.$option_shell.$checksum"
 	# get an exclusive lock on the context
 	CACHE_LOCK_FILE="$(__get_semlock "$context_id")" || return
