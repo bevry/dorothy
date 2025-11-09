@@ -57,13 +57,19 @@ on:
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
-env:
-  SLUG: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-  COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      SLUG: ${{ steps.vars.outputs.SLUG }}
+      COMMIT: ${{ steps.vars.outputs.COMMIT }}
+    steps:
+      - name: "Set variables"
+        id: vars
+        run: |
+          echo "SLUG=${{ github.event.pull_request.head.repo.full_name || github.repository }}" >> $GITHUB_OUTPUT
+          echo "COMMIT=${{ github.event.pull_request.head.sha || github.sha }}" >> $GITHUB_OUTPUT
   debug-env:
-    branding:
-      icon: 'hash'
     runs-on: ubuntu-latest
     steps:
       - name: "Debug Environment"
@@ -102,26 +108,24 @@ jobs:
             ${{ toJson(github.ref) }}
 
             resolved slug:
-            ${{ toJson(github.event.pull_request.head.repo.full_name || github.repository) }}
+            ${{ toJson(needs.setup.outputs.SLUG) }}
 
             resolved sha:
-            ${{ toJson(env.COMMIT) }}
+            ${{ toJson(needs.setup.outputs.COMMIT) }}
 
             github:
             ${{ false && toJson(github) }}
           EGITHUB
   login-shells:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'layers'
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Install"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
         run: |
           # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/install?slug=${{ env.SLUG }}&commit=${{ env.COMMIT }}')" -- --shells=bash,zsh,fish,nu,xonsh,elvish,dash,ksh --utils=carapace
+          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/install?slug=${{ needs.setup.outputs.SLUG }}&commit=${{ needs.setup.outputs.COMMIT }}')" -- --shells=bash,zsh,fish,nu,xonsh,elvish,dash,ksh --utils=carapace
       - name: "Dorothy Login Shell: bash"
         shell: bash -leo pipefail {0}
         run: |
@@ -178,31 +182,27 @@ jobs:
           echo-style --success='ok'
   check:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'settings'
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Check"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
         run: |
           # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/check?slug=${{ env.SLUG }}&commit=${{ env.COMMIT }}')"
+          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/check?slug=${{ needs.setup.outputs.SLUG }}&commit=${{ needs.setup.outputs.COMMIT }}')"
   format:
     if: github.event_name == 'push'
-    branding:
-      icon: 'loader'
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Format"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
         run: |
           # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/format?slug=${{ env.SLUG }}&commit=${{ env.COMMIT }}')"
+          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/format?slug=${{ needs.setup.outputs.SLUG }}&commit=${{ needs.setup.outputs.COMMIT }}')"
       - name: "Commit Changes"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # writable
         run: |
           cd '/home/runner/.local/share/dorothy' || exit
           if git diff --quiet &>/dev/null; then
@@ -210,14 +210,12 @@ jobs:
           else
             git config --global user.name 'Continuous Integration' || exit
             git config --global user.email 'bot@bevry.me' || exit
-            git remote set-url origin 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}' || exit
+            git remote set-url origin 'https://x-access-token:${{ secrets.READONLY_GITHUB_TOKEN }}@github.com/${{ github.repository }}' || exit
             git commit -a -m 'ci: adjustments' || exit
             git push origin HEAD:${{ github.ref }} || exit
           fi
   macos-test:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'compass'
     strategy:
       fail-fast: false
       matrix:
@@ -231,15 +229,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: "Dorothy Test"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-test@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-test@${{ needs.setup.outputs.COMMIT }}
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLUG: ${{ env.SLUG }}
-          COMMIT: ${{ env.COMMIT }}
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
   macos-fresh-test:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'command'
     strategy:
       fail-fast: false
       matrix:
@@ -257,15 +253,13 @@ jobs:
           # run homebrew uninstaller
           bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/Homebrew/install/master/uninstall.sh')"
       - name: "Dorothy Test"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-test@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-test@${{ needs.setup.outputs.COMMIT }}
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLUG: ${{ env.SLUG }}
-          COMMIT: ${{ env.COMMIT }}
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
   bash-versions-test:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'triangle'
     strategy:
       fail-fast: false
       matrix:
@@ -284,14 +278,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Test"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-test@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-test@${{ needs.setup.outputs.COMMIT }}
         # continue-on-error: ${{ matrix.bash == '4.1' || matrix.bash == '4.2.53' || matrix.bash == '4.3.30' }}
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
   containers-x86-test:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'anchor'
     strategy:
       fail-fast: false
       matrix:
@@ -317,17 +309,15 @@ jobs:
       image: ${{ matrix.container }}
     steps:
       - name: "Dorothy Dependencies"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-deps@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-deps@${{ needs.setup.outputs.COMMIT }}
       - name: "Dorothy Test"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-test@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-test@${{ needs.setup.outputs.COMMIT }}
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLUG: ${{ env.SLUG }}
-          COMMIT: ${{ env.COMMIT }}
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
   containers-arm-test:
     if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    branding:
-      icon: 'cpu'
     strategy:
       fail-fast: false
       matrix:
@@ -353,10 +343,10 @@ jobs:
       image: ${{ matrix.container }}
     steps:
       - name: "Dorothy Dependencies"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-deps@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-deps@${{ needs.setup.outputs.COMMIT }}
       - name: "Dorothy Test"
-        uses: ${{ env.SLUG }}/.github/actions/dorothy-test@${{ env.COMMIT }}
+        uses: ${{ needs.setup.outputs.SLUG }}/.github/actions/dorothy-test@${{ needs.setup.outputs.COMMIT }}
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLUG: ${{ env.SLUG }}
-          COMMIT: ${{ env.COMMIT }}
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
