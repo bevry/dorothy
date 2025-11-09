@@ -22,9 +22,9 @@ if [ "$DOROTHY_ENVIRONMENT_EVAL_STATUS" = 0 ]; then
 	eval "$DOROTHY_ENVIRONMENT_EVAL" || DOROTHY_ENVIRONMENT_EVAL_STATUS=$?
 fi
 if [ "$DOROTHY_ENVIRONMENT_EVAL_STATUS" != 0 ]; then
-	printf '%s\n' 'DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG:' "bash -x '$DOROTHY/commands/setup-environment-commands' --debug --shell='$ACTIVE_POSIX_SHELL'" >&2 || :
+	printf '%s\n' 'DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG:' "bash -x '$DOROTHY/commands/setup-environment-commands' --shell='$ACTIVE_POSIX_SHELL'" >&2 || :
 	if [ -n "${CI-}" ]; then
-		bash -x "$DOROTHY/commands/setup-environment-commands" --debug --shell="$ACTIVE_POSIX_SHELL" >&2 || :
+		bash -x "$DOROTHY/commands/setup-environment-commands" --shell="$ACTIVE_POSIX_SHELL" >&2 || :
 	fi
 	return "$DOROTHY_ENVIRONMENT_EVAL_STATUS"
 fi
