@@ -28,11 +28,11 @@ DOROTHY_ENVIRONMENT_EVAL="$("$DOROTHY/commands/setup-environment-commands" --she
 # evaluate the environment setup
 if [ -n "${DOROTHY_ENVIRONMENT_EVAL-}" ]; then
 	eval "$DOROTHY_ENVIRONMENT_EVAL" || {
-    printf '%s\n' \
-		"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, SETUP IS BELOW:" >&2 || :
-    cat -vbn <<<"$DOROTHY_ENVIRONMENT_EVAL" >&2 || :
-	if [ -n "${CI-}" ]; then
-		exit 6 # ENXIO 6 Device not configured
-	fi
-  }
+		printf '%s\n' \
+			"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, SETUP IS BELOW:" >&2 || :
+		printf '%s' "$DOROTHY_ENVIRONMENT_EVAL" | cat -vbn >&2 || :
+		if [ -n "${CI-}" ]; then
+			exit 6 # ENXIO 6 Device not configured
+		fi
+	}
 fi
