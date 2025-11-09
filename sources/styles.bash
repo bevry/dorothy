@@ -38,8 +38,8 @@ function __get_terminal_color_support {
 		shift
 		case "$GET_TERMINAL_COLOR_SUPPORT__item" in
 		--fallback=*) GET_TERMINAL_COLOR_SUPPORT__fallback="${GET_TERMINAL_COLOR_SUPPORT__item#*=}" ;;
-		--no-verbose* | --verbose*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__quiet} --non-affirmative --coerce || return ;;
-		--no-quiet* | --quiet*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__quiet} --affirmative --coerce || return ;;
+		--no-verbose* | --verbose*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__quiet} --non-affirmative --coerce || return $? ;;
+		--no-quiet* | --quiet*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__quiet} --affirmative --coerce || return $? ;;
 		# --no-env* | --env*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={option_env} --affirmative ;;
 		--)
 			# now that we have the forwarded arguments, see if anything matches color
@@ -47,17 +47,17 @@ function __get_terminal_color_support {
 				GET_TERMINAL_COLOR_SUPPORT__item="$1"
 				shift
 				case "$GET_TERMINAL_COLOR_SUPPORT__item" in
-				--no-color* | --color*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__color} --affirmative --coerce || return ;;
+				--no-color* | --color*) __flag --source={GET_TERMINAL_COLOR_SUPPORT__item} --target={GET_TERMINAL_COLOR_SUPPORT__color} --affirmative --coerce || return $? ;;
 				esac
 			done
 			break
 			;;
-		--*) __unrecognised_flag "$GET_TERMINAL_COLOR_SUPPORT__item" || return ;;
+		--*) __unrecognised_flag "$GET_TERMINAL_COLOR_SUPPORT__item" || return $? ;;
 		*)
 			if [[ -z $GET_TERMINAL_COLOR_SUPPORT__fallback ]]; then
 				GET_TERMINAL_COLOR_SUPPORT__fallback="$GET_TERMINAL_COLOR_SUPPORT__item"
 			else
-				__unrecognised_argument "$GET_TERMINAL_COLOR_SUPPORT__item" || return
+				__unrecognised_argument "$GET_TERMINAL_COLOR_SUPPORT__item" || return $?
 			fi
 			;;
 		esac
@@ -81,11 +81,11 @@ function __get_terminal_color_support {
 			if [[ $GET_TERMINAL_COLOR_SUPPORT__status -eq 0 ]]; then
 				GET_TERMINAL_COLOR_SUPPORT__exit_status=0
 				GET_TERMINAL_COLOR_SUPPORT__exit_result='yes'
-				__print_lines "$GET_TERMINAL_COLOR_SUPPORT__exit_result" || return
+				__print_lines "$GET_TERMINAL_COLOR_SUPPORT__exit_result" || return $?
 			elif [[ $GET_TERMINAL_COLOR_SUPPORT__status -eq 1 ]]; then
 				GET_TERMINAL_COLOR_SUPPORT__exit_status=0 # as we are not quiet, we determine the result via the output
 				GET_TERMINAL_COLOR_SUPPORT__exit_result='no'
-				__print_lines "$GET_TERMINAL_COLOR_SUPPORT__exit_result" || return
+				__print_lines "$GET_TERMINAL_COLOR_SUPPORT__exit_result" || return $?
 			else
 				GET_TERMINAL_COLOR_SUPPORT__error_status="$GET_TERMINAL_COLOR_SUPPORT__status" # not this failure if all other fallbacks failed or are not present
 			fi
@@ -96,7 +96,7 @@ function __get_terminal_color_support {
 	if [[ -n $GET_TERMINAL_COLOR_SUPPORT__color ]]; then
 		GET_TERMINAL_COLOR_SUPPORT__status=0
 		__is_affirmative -- "$GET_TERMINAL_COLOR_SUPPORT__color" || GET_TERMINAL_COLOR_SUPPORT__status=$?
-		__process_status || return
+		__process_status || return $?
 		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			# don't modify COLOR, as this is just argument handling, not env
 			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -105,7 +105,7 @@ function __get_terminal_color_support {
 	if [[ -n ${COLOR-} ]]; then
 		GET_TERMINAL_COLOR_SUPPORT__status=0
 		__is_affirmative -- "$COLOR" || GET_TERMINAL_COLOR_SUPPORT__status=$?
-		__process_status || return
+		__process_status || return $?
 		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
 			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -114,7 +114,7 @@ function __get_terminal_color_support {
 	if [[ -n ${NO_COLOR-} ]]; then
 		GET_TERMINAL_COLOR_SUPPORT__status=0
 		__is_non_affirmative -- "$NO_COLOR" || GET_TERMINAL_COLOR_SUPPORT__status=$?
-		__process_status || return
+		__process_status || return $?
 		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
 			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -123,7 +123,7 @@ function __get_terminal_color_support {
 	if [[ -n ${NOCOLOR-} ]]; then
 		GET_TERMINAL_COLOR_SUPPORT__status=0
 		__is_non_affirmative -- "$NOCOLOR" || GET_TERMINAL_COLOR_SUPPORT__status=$?
-		__process_status || return
+		__process_status || return $?
 		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
 			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -132,7 +132,7 @@ function __get_terminal_color_support {
 	if [[ -n ${CRON-} || -n ${CRONITOR_EXEC-} ]]; then
 		# cron strips nearly all env vars, these must be defined manually in [crontab -e]
 		GET_TERMINAL_COLOR_SUPPORT__status=1
-		__process_status || return
+		__process_status || return $?
 		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
 			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -144,7 +144,7 @@ function __get_terminal_color_support {
 		if [[ $TERM == 'xterm-256color' ]]; then
 			# Visual Studio Code's integrated terminal reports TERM=xterm-256color
 			GET_TERMINAL_COLOR_SUPPORT__status=0
-			__process_status || return
+			__process_status || return $?
 			if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 				COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
 				return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -155,7 +155,7 @@ function __get_terminal_color_support {
 			elif [[ -n $CI ]]; then
 				# if there are other CIs that support colors, they should be added to the prior check
 				GET_TERMINAL_COLOR_SUPPORT__status=1
-				__process_status || return
+				__process_status || return $?
 				if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 					COLOR="$GET_TERMINAL_COLOR_SUPPORT__exit_result"
 					return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -172,7 +172,7 @@ function __get_terminal_color_support {
 	if [[ -n $GET_TERMINAL_COLOR_SUPPORT__fallback ]]; then
 		GET_TERMINAL_COLOR_SUPPORT__status=0
 		__is_affirmative -- "$GET_TERMINAL_COLOR_SUPPORT__fallback" || GET_TERMINAL_COLOR_SUPPORT__status=$?
-		__process_status || return
+		__process_status || return $?
 		if [[ -n $GET_TERMINAL_COLOR_SUPPORT__exit_status ]]; then
 			# don't modify COLOR, as this is just fallback handling, not env
 			return "$GET_TERMINAL_COLOR_SUPPORT__exit_status"
@@ -861,25 +861,25 @@ function __load_styles {
 		LOAD_STYLES__item="$1"
 		shift
 		case "$LOAD_STYLES__item" in
-		--no-color* | --color*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__color} --affirmative --coerce || return ;;
-		--no-save* | --save* | --no-cache* | --cache*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__save} --affirmative || return ;; # yes/no/auto
+		--no-color* | --color*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__color} --affirmative --coerce || return $? ;;
+		--no-save* | --save* | --no-cache* | --cache*) __flag --source={LOAD_STYLES__item} --target={LOAD_STYLES__save} --affirmative || return $? ;; # yes/no/auto
 		--begin={*})
-			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__begin} || return
+			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__begin} || return $?
 			# LOAD_STYLES__begin="${LOAD_STYLES__item#*=}"
 			# LOAD_STYLES__begin="${LOAD_STYLES__begin//[^a-zA-Z0-9_]/}"
 			;;
 		--end={*})
-			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__end} || return
+			__dereference --source="${LOAD_STYLES__item#*=}" --name={LOAD_STYLES__end} || return $?
 			# LOAD_STYLES__end="${LOAD_STYLES__item#*=}"
 			# LOAD_STYLES__end="${LOAD_STYLES__end//[^a-zA-Z0-9_]/}"
 			;;
 		--) break ;;
-		--*) __unrecognised_argument "$LOAD_STYLES__item" || return ;;
+		--*) __unrecognised_argument "$LOAD_STYLES__item" || return $? ;;
 		esac
 	done
 	# require either save/cache or begin/end
 	if [[ -z $LOAD_STYLES__save && -z $LOAD_STYLES__begin && -z $LOAD_STYLES__end ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Either --save/--cache or --begin=.../--end=... is required" >&2 || return
+		__print_lines "ERROR: ${FUNCNAME[0]}: Either --save/--cache or --begin=.../--end=... is required" >&2 || return $?
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# color
@@ -1001,14 +1001,14 @@ function __load_styles {
 			fi
 		fi
 		if [[ -n $LOAD_STYLES__eval ]]; then
-			eval "$LOAD_STYLES__eval" || return
+			eval "$LOAD_STYLES__eval" || return $?
 		fi
 		if [[ $LOAD_STYLES__found == 'no' ]]; then
 			LOAD_STYLES__missing+=("$LOAD_STYLES__style")
 		fi
 	done
 	if [[ ${#LOAD_STYLES__missing[@]} -ne 0 ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: MISSING STYLES:" "${LOAD_STYLES__missing[@]}" >&2 || return
+		__print_lines "ERROR: ${FUNCNAME[0]}: MISSING STYLES:" "${LOAD_STYLES__missing[@]}" >&2 || return $?
 		return 22 # EINVAL 22 Invalid argument
 	fi
 }
@@ -1024,8 +1024,8 @@ function __print_style {
 		PRINT_STYLE__item="$1"
 		shift
 		case "$PRINT_STYLE__item" in
-		--no-trail* | --trail*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__trail} --affirmative --coerce || return ;;
-		--no-color* | --color*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__color} --affirmative --coerce || return ;;
+		--no-trail* | --trail*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__trail} --affirmative --coerce || return $? ;;
+		--no-color* | --color*) __flag --source={PRINT_STYLE__item} --target={PRINT_STYLE__color} --affirmative --coerce || return $? ;;
 		--)
 			PRINT_STYLE__items+=("$@")
 			shift $#
@@ -1108,7 +1108,7 @@ function __print_style {
 					intense_black | intense_red | intense_green | intense_yellow | intense_blue | intense_magenta | intense_cyan | intense_white | intense_purple | intense_gray | intense_grey) PRINT_STYLE__flag_style="foreground_intense_${PRINT_STYLE__flag_style:8}" ;;
 					/*) PRINT_STYLE__flag_style="slash_${PRINT_STYLE__flag_style:1}" ;;
 					*/)
-						__replace --source+target={PRINT_STYLE__flag_style} --trailing='/' || return
+						__replace --source+target={PRINT_STYLE__flag_style} --trailing='/' || return $?
 						PRINT_STYLE__flag_style+='_slash'
 						;;
 					status)
@@ -1158,20 +1158,20 @@ function __print_style {
 						continue
 						;;
 					value)
-						PRINT_STYLE__item_content="$(__dump --value="$PRINT_STYLE__item_content")" || return
+						PRINT_STYLE__item_content="$(__dump --value="$PRINT_STYLE__item_content")" || return $?
 						continue
 						;;
 					variable_value)
-						PRINT_STYLE__item_content="$(__dump --variable-value="$PRINT_STYLE__item_content")" || return
+						PRINT_STYLE__item_content="$(__dump --variable-value="$PRINT_STYLE__item_content")" || return $?
 						continue
 						;;
 					variable)
-						PRINT_STYLE__item_content="$(__dump --variable="$PRINT_STYLE__item_content")" || return
+						PRINT_STYLE__item_content="$(__dump --variable="$PRINT_STYLE__item_content")" || return $?
 						continue
 						;;
 					help | man)
 						# trunk-ignore(shellcheck/SC2119)
-						PRINT_STYLE__item_content="$(__print_help <<<"$PRINT_STYLE__item_content" 2>&1)" || return
+						PRINT_STYLE__item_content="$(__print_help <<<"$PRINT_STYLE__item_content" 2>&1)" || return $?
 						continue
 						;;
 					esac
@@ -1185,7 +1185,7 @@ function __print_style {
 			# it is done here, to do them all at once, but also to make sure that a trailing +multicolor/monocolor is respected
 			PRINT_STYLE__item_begin=''
 			PRINT_STYLE__item_end=''
-			__load_styles --color="$PRINT_STYLE__item_color" --begin={PRINT_STYLE__item_begin} --end={PRINT_STYLE__item_end} -- "${PRINT_STYLE__item_styles[@]}" || return
+			__load_styles --color="$PRINT_STYLE__item_color" --begin={PRINT_STYLE__item_begin} --end={PRINT_STYLE__item_end} -- "${PRINT_STYLE__item_styles[@]}" || return $?
 		fi
 
 		# handle nocolor and color correctly, as in conditional output based on NO_COLOR=true
@@ -1201,7 +1201,7 @@ function __print_style {
 		elif [[ $PRINT_STYLE__item_type == 'flag' ]]; then
 			# flush buffer if necessary
 			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
-				__value_to_target "$PRINT_STYLE__buffer_left" "$PRINT_STYLE__buffer_target" || return
+				__value_to_target "$PRINT_STYLE__buffer_left" "$PRINT_STYLE__buffer_target" || return $?
 				PRINT_STYLE__buffer_left=''
 				PRINT_STYLE__buffer_target="$PRINT_STYLE__item_target"
 			fi
@@ -1214,9 +1214,9 @@ function __print_style {
 		else
 			# flush buffer if necessary
 			if [[ $PRINT_STYLE__item_target != "$PRINT_STYLE__buffer_target" ]]; then
-				__value_to_target "$PRINT_STYLE__buffer_left" "$PRINT_STYLE__buffer_target" || return
+				__value_to_target "$PRINT_STYLE__buffer_left" "$PRINT_STYLE__buffer_target" || return $?
 				PRINT_STYLE__buffer_left=''
-				__value_to_target "${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}" "$PRINT_STYLE__item_target" || return
+				__value_to_target "${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}" "$PRINT_STYLE__item_target" || return $?
 			else
 				PRINT_STYLE__buffer_left+="${PRINT_STYLE__item_begin}${PRINT_STYLE__item_content}${PRINT_STYLE__item_end}"
 			fi
@@ -1227,7 +1227,7 @@ function __print_style {
 	if [[ $PRINT_STYLE__trail == 'yes' ]]; then
 		PRINT_STYLE__buffer_right+=$'\n'
 	fi
-	__value_to_target "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" "$PRINT_STYLE__buffer_target" || return
+	__value_to_target "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" "$PRINT_STYLE__buffer_target" || return $?
 }
 
 # beta command, will change
@@ -1271,7 +1271,7 @@ function __print_help {
 
 					# there's currently a bug in __slice that prevents -1 being used as a length
 					# __dump {intensities} >&2
-					# __slice --source+target={intensities} --mode=overwrite 0 -1 || return
+					# __slice --source+target={intensities} --mode=overwrite 0 -1 || return $?
 					# __dump {intensities} >&2
 
 					c="${#intensities[@]}"
@@ -1295,7 +1295,7 @@ function __print_help {
 					if [[ ${#intensities[@]} -eq 0 ]]; then
 						buffer+="${STYLE__END__intensity}"
 					else
-						# __slice --source={intensities} --target={last} -1 || return
+						# __slice --source={intensities} --target={last} -1 || return $?
 						last="${intensities[l]}"
 						buffer+="${STYLE__END__intensity}${last}"
 					fi
@@ -1303,11 +1303,11 @@ function __print_help {
 					buffer+="${character}"
 				fi
 			done
-			__print_lines "$buffer" >&2 || return
+			__print_lines "$buffer" >&2 || return $?
 		}
 	if [[ $# -ne 0 ]]; then
-		__print_line || return
-		__print_error "$@" || return
+		__print_line || return $?
+		__print_error "$@" || return $?
 	fi
 }
 

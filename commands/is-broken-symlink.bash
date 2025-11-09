@@ -22,7 +22,7 @@ while [[ $# -ne 0 ]]; do
 			exit 79 # EFTYPE 79 Inappropriate file type or format
 		else
 			# Discern accessibility of symlink target
-			is-accessible.bash -- "$path" || exit
+			is-accessible.bash -- "$path" || exit $?
 			# Target was accessible but did not exist, thus it is a broken symlink, which is what we want
 			continue
 		fi
@@ -32,7 +32,7 @@ while [[ $# -ne 0 ]]; do
 		exit 17 # EEXIST 17 File exists
 	else
 		# Discern accessibility or non-existence
-		is-accessible.bash -- "$path" || exit
+		is-accessible.bash -- "$path" || exit $?
 		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		exit 2 # ENOENT 2 No such file or directory
 	fi

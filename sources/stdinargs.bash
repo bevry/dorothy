@@ -21,7 +21,7 @@ function __stdinargs__help_options {
 	local option_stdin='' \
 		default_message=$'\n    This is the default behaviour.' \
 		stdin_empty_message='' stdin_yes_message='' stdin_no_message=''
-	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@" || return
+	__flag --target={option_stdin} --name='stdin' --affirmative --coerce -- "$@" || return $?
 	if [[ $option_stdin == 'yes' ]]; then
 		stdin_yes_message="$default_message"
 	elif [[ $option_stdin == 'no' ]]; then
@@ -29,7 +29,7 @@ function __stdinargs__help_options {
 	else
 		stdin_empty_message="$default_message"
 	fi
-	cat <<-EOF || return
+	cat <<-EOF || return $?
 		--timeout | --timeout=yes
 		    Wait one second for STDIN content before timing out.
 		    This is the default behaviour.
@@ -77,10 +77,10 @@ function __print_first_function {
 local STDINARGS__pieces=0
 function __print_piece {
 	if [[ $STDINARGS__pieces -eq 0 ]]; then
-		__print_string "$1" || return
+		__print_string "$1" || return $?
 		STDINARGS__pieces=$((STDINARGS__pieces + 1))
 	else
-		__print_string $'\n'"$1" || return
+		__print_string $'\n'"$1" || return $?
 	fi
 }
 
@@ -91,35 +91,35 @@ function stdinargs {
 	# function
 	local fn_help fn_stdin fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
 	# help function
-	fn_help="$(__print_first_function __help help __on_help on_help)" || return
+	fn_help="$(__print_first_function __help help __on_help on_help)" || return $?
 	# on argument function
-	fn_arg="$(__print_first_function __on_argument on_argument __on_arg on_arg)" || return
+	fn_arg="$(__print_first_function __on_argument on_argument __on_arg on_arg)" || return $?
 	# if there is stdin content, handle it ourself
-	fn_stdin="$(__print_first_function __on_stdin on_stdin)" || return
+	fn_stdin="$(__print_first_function __on_stdin on_stdin)" || return $?
 	# if there is stdin or argument content, receive it in whole
-	fn_whole="$(__print_first_function __on_whole on_whole)" || return
+	fn_whole="$(__print_first_function __on_whole on_whole)" || return $?
 	# before we begin parsing stdin or arguments, call this
-	fn_start="$(__print_first_function __on_start on_start)" || return
+	fn_start="$(__print_first_function __on_start on_start)" || return $?
 	# if there were no stdin nor arguments, call this
-	fn_nothing="$(__print_first_function __on_nothing on_nothing __on_no_input on_no_input)" || return
+	fn_nothing="$(__print_first_function __on_nothing on_nothing __on_no_input on_no_input)" || return $?
 	# if there were no arguments, call this
-	fn_no_args="$(__print_first_function __on_no_arguments on_no_arguments __on_no_args on_no_args)" || return
+	fn_no_args="$(__print_first_function __on_no_arguments on_no_arguments __on_no_args on_no_args)" || return $?
 	# if there were no stdin, call this
-	fn_no_stdin="$(__print_first_function __on_no_stdin on_no_stdin)" || return
+	fn_no_stdin="$(__print_first_function __on_no_stdin on_no_stdin)" || return $?
 	# after we finish parsing stdin and arguments, call this
-	fn_finish="$(__print_first_function __on_finish on_finish)" || return
+	fn_finish="$(__print_first_function __on_finish on_finish)" || return $?
 	if [[ -z $fn_whole ]]; then
 		# if there isn't whole, then call these
 		# inlines are a trailing line that isn't terminated by `\n`, either from STDIN or from arguments
-		fn_inline="$(__print_first_function __on_inline on_inline)" || return
+		fn_inline="$(__print_first_function __on_inline on_inline)" || return $?
 		# lines are STDIN and/or argument lines and/or inlines (iff no inline function)
-		fn_line="$(__print_first_function __on_line on_line)" || return
+		fn_line="$(__print_first_function __on_line on_line)" || return $?
 		# pieces are a whole argument, or a STDIN line, or a STDIN inline (iff no arg nor whole nor inline nor line function)
-		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return
+		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return $?
 
 		# deprecations
 		if __is_function_defined on_no_lines; then
-			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='__on_nothing' || return
+			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='__on_nothing' || return $?
 			function on_no_lines {
 				on_no_input "$@"
 			}
@@ -138,11 +138,11 @@ function stdinargs {
 				"$fn_help" # eval
 				return 22  # EINVAL 22 Invalid argument
 			else
-				__print_error 'A ' --code='help' ' function is required.' || return
+				__print_error 'A ' --code='help' ' function is required.' || return $?
 				return 78 # ENOSYS 78 Function not implemented
 			fi
 			;;
-		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export || return ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export || return $? ;;
 		'--timeout' | '--timeout=' | '--timeout=yes')
 			timeout_seconds=1
 			;;
@@ -155,7 +155,7 @@ function stdinargs {
 			;;
 		'--timeout='*)
 			timeout_seconds="${item#*=}"
-			timeout_seconds="$(__get_read_decimal_timeout "$timeout_seconds")" || return
+			timeout_seconds="$(__get_read_decimal_timeout "$timeout_seconds")" || return $?
 			;;
 		# inline
 		'--no-inline' | '--inline=no')

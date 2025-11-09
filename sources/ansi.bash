@@ -77,7 +77,7 @@ ANSI=(
 	# <https://ghostty.org/docs/vt/control/lf> Linefeed (LF)
 	$'\n' '' 'enter' '[read-key][echo-revolving-door]'
 
-	# carriage-return
+	# carriage-return $?
 	# [$'\e[G'] is [cursor to start of current line] ansi escape code
 	$'\e[G' '' 'carriage-return' '[read-key][not-text][shapeshifter]'
 	# [0x0D = $'\x0d' = $'\r'] is ansi escape code
@@ -689,7 +689,7 @@ ANSI_SIZE=${#ANSI[@]}
 # 			fi
 # 		done
 # 	done
-# 	printf '%s' "$tail" || return
+# 	printf '%s' "$tail" || return $?
 # }
 
 function __ansi_trim {
@@ -732,7 +732,7 @@ function __ansi_trim {
 		done
 	done
 	results+=("${input:last_index}")
-	printf '%s' "${results[@]}" || return
+	printf '%s' "${results[@]}" || return $?
 }
 
 # this is the original and more performant variation of `__ansi_keep_right`, used by `echo-revolving-door`
@@ -748,7 +748,7 @@ function __split_shapeshifting {
 		input="${input//[[:cntrl:]][\]\`\^\\78M]/$'\n'}"                                                        # save and restore cursor
 		input="${input//[[:cntrl:]][bf]/$'\n'}"                                                                 # page-up, page-down
 		input="${input//[$'\r'$'\177'$'\b']/$'\n'}"                                                             # carriage return, backspace
-		__print_lines "$input" || return
+		__print_lines "$input" || return $?
 	done
 }
 
@@ -786,7 +786,7 @@ function __ansi_keep_right {
 			fi
 		done
 	done
-	printf '%s' "${input:last_index}" || return
+	printf '%s' "${input:last_index}" || return $?
 }
 
 # determine if the input contains shapeshifting ANSI Escape Codes
@@ -837,14 +837,14 @@ function __read_key {
 		item="$1"
 		shift
 		case "$item" in
-		--help | -h) read-key --help || return ;;
-		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce || return ;;
-		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce || return ;;
-		--no-continue* | --continue*) __flag --source={item} --target={option_continue} --affirmative --coerce || return ;;
+		--help | -h) read-key --help || return $? ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce || return $? ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce || return $? ;;
+		--no-continue* | --continue*) __flag --source={item} --target={option_continue} --affirmative --coerce || return $? ;;
 		--timeout=*) option_timeout="${item#*=}" ;;
-		--no-keep-line-buffer-newlines* | --keep-line-buffer-newlines*) __flag --source={item} --target={option_keep_line_buffer_newlines} --affirmative --coerce || return ;;
-		--*) __unrecognised_flag "$item" || return ;;
-		*) __unrecognised_argument "$item" || return ;;
+		--no-keep-line-buffer-newlines* | --keep-line-buffer-newlines*) __flag --source={item} --target={option_keep_line_buffer_newlines} --affirmative --coerce || return $? ;;
+		--*) __unrecognised_flag "$item" || return $? ;;
+		*) __unrecognised_argument "$item" || return $? ;;
 		esac
 	done
 
@@ -854,8 +854,8 @@ function __read_key {
 	fi
 
 	# bash v3 compat
-	option_timeout="$(__get_read_decimal_timeout "$option_timeout")" || return
-	subsequent_timeout="$(__get_read_decimal_timeout "$subsequent_timeout")" || return
+	option_timeout="$(__get_read_decimal_timeout "$option_timeout")" || return $?
+	subsequent_timeout="$(__get_read_decimal_timeout "$subsequent_timeout")" || return $?
 
 	# =====================================
 	# Action
@@ -865,7 +865,7 @@ function __read_key {
 		function __discard_key_if_line_buffer_enter { return 1; }
 	else
 		function __discard_key_if_line_buffer_enter {
-			[[ $input == $'\n' && -n $last_key && $last_key != $'\n' ]] || return
+			[[ $input == $'\n' && -n $last_key && $last_key != $'\n' ]] || return $?
 		}
 	fi
 	function __add {
@@ -874,11 +874,11 @@ function __read_key {
 			input=$'\n'
 		fi
 		if [[ $input == $'\e' || $input == $'\n' ]]; then
-			__flush || return
+			__flush || return $?
 		fi
 		if __discard_key_if_line_buffer_enter; then
 			if [[ $option_keep_line_buffer_newlines == 'yes' ]]; then
-				printf '%s\n' 'line-buffer' || return
+				printf '%s\n' 'line-buffer' || return $?
 			fi
 			last_key="$input"
 			input=''
@@ -906,7 +906,7 @@ function __read_key {
 			done
 		fi
 		for reading in "${readings[@]}"; do
-			__add "$reading" || return
+			__add "$reading" || return $?
 		done
 
 		# handle errors
@@ -921,7 +921,7 @@ function __read_key {
 		fi
 
 		# got key
-		__flush || return
+		__flush || return $?
 	}
 	function __print_and_trim_key {
 		local name="$1" key="$2"
@@ -929,9 +929,9 @@ function __read_key {
 		last_key="$key"
 		inputs="${inputs:size}"
 		if [[ $option_quiet == 'no' ]]; then
-			printf '%s %q\n' "$name" "$key" || return
+			printf '%s %q\n' "$name" "$key" || return $?
 		else
-			printf '%s\n' "$name" || return
+			printf '%s\n' "$name" || return $?
 		fi
 	}
 	function __match_pattern_and_trim_once {
@@ -958,7 +958,7 @@ function __read_key {
 			fi
 			if [[ -n $match ]]; then
 				name="${ANSI[ansi_index + 2]}"
-				__print_and_trim_key "$name" "$match" || return
+				__print_and_trim_key "$name" "$match" || return $?
 				return 0
 			fi
 		done
@@ -968,7 +968,7 @@ function __read_key {
 		local name="$1" key
 		for key in "$@"; do
 			if [[ $inputs == "$key"* ]]; then
-				__print_and_trim_key "$name" "$key" || return
+				__print_and_trim_key "$name" "$key" || return $?
 				return 0
 			fi
 		done
@@ -978,7 +978,7 @@ function __read_key {
 		local key
 		if [[ $inputs =~ ^[[:print:]] ]]; then
 			key="${BASH_REMATCH[0]}" # bash 3.2 does not support multiple calls to BASH_REMATCH so it must be cached
-			__print_and_trim_key "$key" "$key" || return
+			__print_and_trim_key "$key" "$key" || return $?
 			# __print_and_trim_key "${BASH_REMATCH[0]}" "${BASH_REMATCH[0]}" <-- bash 3.2 does not like this
 			return 0
 		fi
@@ -990,13 +990,13 @@ function __read_key {
 
 			# escape
 			# [0x1B = $'\x1b' = $'\033' = $'\u001B' = $'\e'] is [⎋] ubuntu, macos
-			$'\e' | $'\e\n'* | $'\e\e'*) __match_key_and_trim_once 'escape' $'\e' || return ;;
+			$'\e' | $'\e\n'* | $'\e\e'*) __match_key_and_trim_once 'escape' $'\e' || return $? ;;
 
 			# standard key or unknown special key
 			*)
 				if ! __match_pattern_and_trim_once && ! __match_print_and_trim_once; then
 					if [[ $option_quiet == 'no' ]]; then
-						printf '%s %q\n' 'unknown' "$inputs" >&2 || return # should be the same as __print_and_trim_key but go to stderr instead
+						printf '%s %q\n' 'unknown' "$inputs" >&2 || return $? # should be the same as __print_and_trim_key but go to stderr instead
 					fi
 					return 94 # EBADMSG 94 Bad message
 				fi
@@ -1007,10 +1007,10 @@ function __read_key {
 
 	# act
 	if [[ $option_continue == 'no' ]]; then
-		__read_and_flush || return
+		__read_and_flush || return $?
 	else
 		while :; do
-			__read_and_flush || return
+			__read_and_flush || return $?
 		done
 	fi
 }
@@ -1023,12 +1023,12 @@ function __should_wrap {
 		case "$item" in
 		--width=*) option_width="${item#*=}" ;;
 		--content=*) option_content="${item#*=}" ;;
-		--*) __unrecognised_flag "$item" || return ;;
-		*) __unrecognised_argument "$item" || return ;;
+		--*) __unrecognised_flag "$item" || return $? ;;
+		*) __unrecognised_argument "$item" || return $? ;;
 		esac
 	done
-	__affirm_value_is_positive_integer "$option_width" '<width>' || return
-	__affirm_value_is_defined "$option_content" '<content>' || return
+	__affirm_value_is_positive_integer "$option_width" '<width>' || return $?
+	__affirm_value_is_defined "$option_content" '<content>' || return $?
 	if [[ $option_width -eq 0 ]]; then
 		return 1 # don't wrap
 	fi

@@ -207,7 +207,7 @@ export def terminal_title_progress_bar [
 			$final_progress = $total - $remaining
 		}
 		if ($total != 100 and $final_progress != -1) {
-			$final_progress = (($final_progress / $total) * 100) | math round
+			$final_progress = ((($final_progress / $total) * 100) | math round)
 		}
 
 		# Validate progress calculation

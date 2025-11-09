@@ -23,7 +23,7 @@ while [[ $# -ne 0 ]]; do
 	shift
 
 	# checks
-	is-present.bash -- "$path" || exit
+	is-present.bash -- "$path" || exit $?
 	__get_owner "$path" || {
 		status=$?
 		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"

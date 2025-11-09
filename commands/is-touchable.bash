@@ -13,7 +13,7 @@ while [[ $# -ne 0 ]]; do
 	path="$1"
 	shift
 	# discern if inaccessible, broken, missing
-	is-accessible.bash -- "$path" || exit
+	is-accessible.bash -- "$path" || exit $?
 	if [[ ! -e $path && -L $path ]]; then
 		# broken symlink
 		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
@@ -24,7 +24,7 @@ while [[ $# -ne 0 ]]; do
 	while [[ $i_path != '/' ]]; do
 		if is-present.bash -- "$i_path"; then
 			is-writable.bash -- "$i_path"
-			exit
+			exit $?
 		else
 			i_path="$(dirname -- "$i_path")"
 		fi

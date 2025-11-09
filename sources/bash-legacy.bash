@@ -6,12 +6,12 @@
 # function __is_standard_function {
 # 	local cmd="$1" inner
 # 	inner="$(declare -f "$cmd")"
-# 	[[ $inner == "$cmd"$' () \n{ \n    '* && $inner != "$cmd"$' () \n{ \n    ('* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+# 	[[ $inner == "$cmd"$' () \n{ \n    '* && $inner != "$cmd"$' () \n{ \n    ('* ]] || return $? # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 # }
 
 # function __is_safety_function {
 # 	local cmd="$1"
-# 	[[ $cmd == __* ]] || return # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
+# 	[[ $cmd == __* ]] || return $? # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
 # }
 
 # function __is_catchable_function {
@@ -89,7 +89,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -135,7 +135,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -252,7 +252,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -350,7 +350,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -599,7 +599,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -745,7 +745,7 @@ core) ;;
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -898,7 +898,7 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -1078,7 +1078,7 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument
@@ -1284,7 +1284,7 @@ v5b | 5b)
 				shift $#
 				break
 				;;
-			{*}) __dereference --source={item} --name={exit_status_variable_name} || return ;;
+			{*}) __dereference --source={item} --name={exit_status_variable_name} || return $? ;;
 			*)
 				__print_lines "ERROR: __try: An unrecognised flag was provided: $item" >&2 || :
 				return 22 # EINVAL 22 Invalid argument

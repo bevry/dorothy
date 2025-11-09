@@ -135,9 +135,9 @@ function __status__root_or_nonroot {
 	# don't do login, as it just wiggles around what we actually need, which is for the current user to be the current elevation
 	# note that invalidation in a process that is already elevated has no effect on that process, only those beyond it
 	if is-root; then
-		__print_lines "$1" || return
+		__print_lines "$1" || return $?
 	else
-		__print_lines "$2" || return
+		__print_lines "$2" || return $?
 	fi
 }
 function is_fs_tests__tuples {

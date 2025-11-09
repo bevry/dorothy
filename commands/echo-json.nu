@@ -26,7 +26,7 @@ def main [
             $index = $index + 2
         }
         print ($rec | to json -r)
-        return
+        return $?
     }
     for input in $args {
 		match $action {

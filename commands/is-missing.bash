@@ -20,7 +20,7 @@ while [[ $# -ne 0 ]]; do
 		exit 17 # EEXIST 17 File exists
 	else
 		# discern if inaccessible, missing
-		is-accessible.bash -- "$path" || exit
+		is-accessible.bash -- "$path" || exit $?
 		continue # missing, which is what we want
 	fi
 done
