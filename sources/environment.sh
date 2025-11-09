@@ -18,7 +18,7 @@ fi
 # create the environment setup, passing over $$ such that a trap could be hooked that automatically refreshes on invalidation (not yet implemented)
 DOROTHY_ENVIRONMENT_EVAL="$("$DOROTHY/commands/setup-environment-commands" --shell="$ACTIVE_POSIX_SHELL" --ppid=$$)" || {
 	printf '%s\n' \
-		"FAILED TO CREATE DOROTHY ENVIRONMENT SETUP WITH $?, RUN THESE TO DEBUG:" \
+		"FAILED TO CREATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, RUN THESE TO DEBUG:" \
 		"'$DOROTHY/commands/setup-environment-commands' --debug --shell='$ACTIVE_POSIX_SHELL'" \
 		"bash -x '$DOROTHY/commands/setup-environment-commands' --shell='$ACTIVE_POSIX_SHELL'" >&2 || :
 	if [ -n "${CI-}" ]; then
@@ -29,7 +29,7 @@ DOROTHY_ENVIRONMENT_EVAL="$("$DOROTHY/commands/setup-environment-commands" --she
 if [ -n "${DOROTHY_ENVIRONMENT_EVAL-}" ]; then
 	eval "$DOROTHY_ENVIRONMENT_EVAL" || {
     printf '%s\n' \
-		"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH $?, SETUP IS BELOW:" >&2 || :
+		"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, SETUP IS BELOW:" >&2 || :
     cat -vbn <<<"$DOROTHY_ENVIRONMENT_EVAL" >&2 || :
 	if [ -n "${CI-}" ]; then
 		exit 6 # ENXIO 6 Device not configured
