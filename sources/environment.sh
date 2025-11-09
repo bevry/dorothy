@@ -21,6 +21,9 @@ DOROTHY_ENVIRONMENT_EVAL="$("$DOROTHY/commands/setup-environment-commands" --she
 		"FAILED TO CREATE DOROTHY ENVIRONMENT SETUP WITH $?, RUN THESE TO DEBUG:" \
 		"'$DOROTHY/commands/setup-environment-commands' --debug --shell='$ACTIVE_POSIX_SHELL'" \
 		"bash -x '$DOROTHY/commands/setup-environment-commands' --shell='$ACTIVE_POSIX_SHELL'" >&2 || :
+	if [ -n "${CI-}" ]; then
+		exit 6 # ENXIO 6 Device not configured
+	fi
 }
 # evaluate the environment setup
 if [ -n "${DOROTHY_ENVIRONMENT_EVAL-}" ]; then
@@ -28,5 +31,8 @@ if [ -n "${DOROTHY_ENVIRONMENT_EVAL-}" ]; then
     printf '%s\n' \
 		"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH $?, SETUP IS BELOW:" >&2 || :
     cat -vbn <<<"$DOROTHY_ENVIRONMENT_EVAL" >&2 || :
+	if [ -n "${CI-}" ]; then
+		exit 6 # ENXIO 6 Device not configured
+	fi
   }
 fi
