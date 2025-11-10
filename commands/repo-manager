@@ -10,31 +10,6 @@
 
 # TODO: look at tmux-continuum AND resurrect. > setup job backup at intervals
 
-function repo_manager_test() (
-
-	# TODO: use fs-temp. look at how Bens using it elsewhere.
-
-	# 1. configure: override dorothy code dir and backup file.
-
-	local test_repos=(
-		git@github.com:bevry/dorothy.git
-		https://github.com/neovim/neovim.git
-		git@github.com:kmonad/kmonad.git
-	)
-
-	# How do i use custom vars since the command
-
-	# 2. clone a bunch of repos
-	#
-	# 3. list
-	#
-	# 4. remove repos
-	#
-	# 5. restore repos
-	#
-	# remove everything.
-
-)
 function repo_manager() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -83,6 +58,9 @@ function repo_manager() (
 				is pulled down and linked to your desired destination.
 			fork <repo>
 			    Same as clone but creating a fork and syncing it to server/remote.
+			fork --user|--user-config
+				Make the fork cloned under your user account, and rename to <name>-config
+				if it is a utility user config.
 			is-cloned <repo>
 			    Check if <repo> exists and print the backupline.
 			is-tracked <repo>
@@ -94,7 +72,7 @@ function repo_manager() (
 			<repo>s can be in the form of either SSH or HTTPS string, or on the form of \`<host>/<user>/<name>\`
 
 			QUIRKS:
-			For <repo> inputs, if you only specify a single name without forward slashes, then repo-manager will assume that you are targeting a user repository, ie <host>/<current_user>/<name
+			For <repo> inputs, if you only specify a single name without forward slashes, then repo-manager will assume that you are targeting a user repository, ie <host>/<current_user>/<name.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -108,7 +86,7 @@ function repo_manager() (
 		--help | -h) help ;;
 		--test-mode) option_test_mode='yes' ;;
 		--override-test) action='override_test' ;;
-		--)
+		'--')
 			option_args+=("$@")
 			shift "$#"
 			break
@@ -139,6 +117,10 @@ function repo_manager() (
 	# ======================
 	# Configuration
 
+	local repo_block_description="[[<host>/]<user>/]<name>"
+
+	local repo_block_regex='^((([A-Za-z0-9.-]+)/)?([A-Za-z0-9_-]+)/)?([A-Za-z0-9_.-]+)$'
+
 	if [[ "$option_test_mode" == 'no' ]]; then
 		# Use this instead of `ghq root` and just append /repos or /worktrees
 		local REPO_MANAGER_DIR="${DOROTHY_LOCAL_CODE_DIR:-"$HOME/.local/code"}"
@@ -160,29 +142,6 @@ function repo_manager() (
 		"github.com"
 		# gitlab.com
 	)
-
-	# ======================
-	# Testing
-
-	function __testing() {
-		__print_lines "test unique in array"
-		array=("apple" "banana" "apple" "orange" "banana")
-		unique_array=($(printf "%s\n" "${array[@]}" | sort -u))
-		echo "Original Array: ${array[*]}"
-		echo "Unique Array: ${unique_array[*]}"
-
-		local repo_ssh=git@github.com:bevry/dorothy.git
-		local repo_https=https://github.com/bevry/dorothy.git
-
-		echo
-		__print_lines "Get parts for $repo_ssh"
-		__get_repo_host_user_and_name "$repo_ssh"
-
-		echo
-		__print_lines "Get parts for $repo_https"
-		__get_repo_host_user_and_name "$repo_https"
-
-	}
 
 	# =====================================
 	# Helpers
@@ -208,7 +167,7 @@ function repo_manager() (
 
 		IFS=/ repo_block="${*}"
 
-		__print_lines "repo_block: $repo_block" >/dev/tty
+		# __print_lines "repo_block: $repo_block" >/dev/tty
 
 		# Capture git remotes
 		# Take output from git remotes -v and then format it with awk
@@ -225,20 +184,38 @@ function repo_manager() (
 	# This function is a bit hacky.
 	#
 	# Supported formats are SSH and HTTPS
-	function __get_repo_host_user_and_name() {
-		url="$1"
+	#
+	# TODO: Currently this func only works on url. merge this with the logic
+	# for repositioning host/user/name from a repo block.
+	#
+	function __get_parts_from_input_repo_id() {
 
-		git_trimmed=${url%.git}
-		REPO_NAME="${git_trimmed##*/}"
+		# TODO: option --url-only ?? explicitly prevent and inform user.
 
-		repo_trimmed="${git_trimmed%/*}"
-		USER_NAME=$(echo "$repo_trimmed" | sed -E 's/.*[:\/]([^\/]*)$/\1/')
+		local input_id="$1"
 
-		left="${repo_trimmed%?$USER_NAME}"
-		HOST_NAME="${left##*[\/@]}"
+		local host user name
 
-		# echo "$REPO_NAME, $repo_trimmed  >> $USER_NAME >>>>> $left"
-		printf '%s\n' "$HOST_NAME" "$USER_NAME" "$REPO_NAME"
+
+		if [[ $input =~ $repo_block_regex ]]; then
+			host="${BASH_REMATCH[3]:-github.com}"
+			user="${BASH_REMATCH[4]:-$GITHUB_USER}"
+			name="${BASH_REMATCH[5]}"
+		else
+			# assume input_id is url
+
+			git_trimmed=${input_id%.git}
+			name="${git_trimmed##*/}"
+
+			repo_trimmed="${git_trimmed%/*}"
+			user=$(echo "$repo_trimmed" | sed -E 's/.*[:\/]([^\/]*)$/\1/')
+
+			left="${repo_trimmed%?$USER_NAME}"
+			host="${left##*[\/@]}"
+
+		fi
+
+		printf '%s\n' "$host" "$user" "$name"
 	}
 
 	# loop over all repos.
@@ -283,7 +260,7 @@ function repo_manager() (
 	function __get_user_for_host() {
 		local host=${1-}
 		case "$host" in
-			'github.com') git config github.user ;;
+		'github.com') git config github.user ;;
 		esac
 	}
 
@@ -310,7 +287,7 @@ function repo_manager() (
 			esac
 		done
 
-		local lines_to_add=()
+		local lines_to_add=() backup_line_formatted=''
 
 		mkdir -p "$DOROTHY_USER_BACKUP_DIR"
 
@@ -319,9 +296,6 @@ function repo_manager() (
 
 			# TODO: Only add repos that dont yet exist??
 			# ^ Add target lines to `lines_to_add` above and write last.
-
-			# # WARN: only for testing purps
-			# >"$REPO_MANAGER_BACKUP_FILE"
 
 			{
 				local host user name
@@ -347,22 +321,16 @@ function repo_manager() (
 
 			# TODO: check that input repo exists.
 
-			local backup_line_formatted="$(__format_backup_line "${option_args[@]}")"
+			backup_line_formatted="$(__format_backup_line "${option_args[@]}")"
 			lines_to_add+=("$backup_line_formatted")
 		fi
 
 		# append data to backup
-		# __print_lines "${lines_to_add[@]}" >>"$REPO_MANAGER_BACKUP_FILE"
-
 		local tmp="$DOROTHY/user/backups/repo_manager_backup_tmp_file"
-
-		# sort and replace backup file
 		{
 			cat "$REPO_MANAGER_BACKUP_FILE"
 			__print_lines "${lines_to_add[@]}"
 		} | sort -u >"$tmp" && mv "$tmp" "$REPO_MANAGER_BACKUP_FILE"
-
-		# TODO: sort lines
 
 		# locatedb-load >/dev/null 2>&1 &
 	}
@@ -444,12 +412,12 @@ function repo_manager() (
 
 	}
 
-# if you dont pass a user, then RM will query a user account for current user
-# on this machine for all supported hosts. this is a good callback.
-#
-# TODO: option_arg: --within-user: Only check remotes for repos within user's
-# own account, unless a different account name is explicitly given.
-# ^ This partially also for safety reasons.
+	# if you dont pass a user, then RM will query a user account for current user
+	# on this machine for all supported hosts. this is a good callback.
+	#
+	# TODO: option_arg: --within-user: Only check remotes for repos within user's
+	# own account, unless a different account name is explicitly given.
+	# ^ This partially also for safety reasons.
 	function __sync() {
 		local input_source_block=$1 destination_path=$2 host='' user='' name='' repo_block='' repo_dir='' tracked_key='' host_not_provided='no' remote_acct_user_name=''
 
@@ -460,6 +428,7 @@ function repo_manager() (
 		# split repo block
 		IFS=/ read host user name <<<"$input_source_block"
 
+		# TODO: Move to __get_parts_from_input
 		# If name is non-empty string, means user submitted a full input block,
 		# <host>/<user>/<name>
 		if [[ -n "$name" ]]; then
@@ -484,7 +453,7 @@ function repo_manager() (
 
 			# If the user account is not explicitly given, then we only check
 			# for user's account across hosts
-			if [[ -z "$user" ]] ; then
+			if [[ -z "$user" ]]; then
 				user="$(__get_user_for_host "$check_host")"
 			fi
 
@@ -509,7 +478,7 @@ function repo_manager() (
 				# pull down into store
 				__print_lines "Found remote"
 				false && repo-manager clone "$repo_url" "$destination_path"
-			 	return 0
+				return 0
 			fi
 		done
 
@@ -519,8 +488,7 @@ function repo_manager() (
 
 	}
 
-	# if repo from backup does not exist/hasn't been cloned, then remove
-	# that repo. Ask before!!
+	# Remove not-cloned repos from backup file.
 	function __clean() {
 		:
 	}
@@ -529,28 +497,29 @@ function repo_manager() (
 	# Wont delete any remotes.
 	# @args host user name
 	function __remove() {
+		:
 
 		# TODO:
 		# get host from $1
 		# get user from $2
 		# get repo from $3
 
-		# Specify the GitHub repo URL you want to remove
-		github_url="https:\/\/github\.com\/username\/repo"
-
-		# Specify the input file
-		input_file="input_file.txt"
-
-		# Create a temporary file for storing modified content
-		temp_file=$(mktemp)
-
-		# Use grep to filter out lines that match the GitHub URL
-		grep -v "$github_url" "$input_file" >"$temp_file"
-
-		# Replace the original file with the modified content
-		mv "$temp_file" "$input_file"
-
-		echo "Lines with the GitHub URL removed."
+		# # Specify the GitHub repo URL you want to remove
+		# github_url="https:\/\/github\.com\/username\/repo"
+		#
+		# # Specify the input file
+		# input_file="input_file.txt"
+		#
+		# # Create a temporary file for storing modified content
+		# temp_file=$(mktemp)
+		#
+		# # Use grep to filter out lines that match the GitHub URL
+		# grep -v "$github_url" "$input_file" >"$temp_file"
+		#
+		# # Replace the original file with the modified content
+		# mv "$temp_file" "$input_file"
+		#
+		# echo "Lines with the GitHub URL removed."
 	}
 
 	# What is this func??!!
@@ -569,8 +538,7 @@ function repo_manager() (
 	#   ~ 1
 	#
 	# TODO:
-	# 1. loop over
-	#
+	# 1. loop over...
 	#
 	capture_and_overwrite_local_repos_remotes() {
 		local ghq_all_repos remotes repo_match_line_to_append_remotes=''
@@ -663,7 +631,7 @@ function repo_manager() (
 	# ======================
 
 	function __clone() {
-		local item option_url='' option_destination=''
+		local item option_url='' option_link_destination=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -674,7 +642,7 @@ function repo_manager() (
 				if [[ -z "$option_url" ]]; then
 					option_url="$item"
 				else
-					option_destination="$item"
+					option_link_destination="$item"
 				fi
 				;;
 			esac
@@ -685,7 +653,7 @@ function repo_manager() (
 		fi
 
 		local parts=()
-		mapfile -t parts <<<"$(__get_repo_host_user_and_name "${option_url[@]}")"
+		mapfile -t parts <<<"$(__get_parts_from_input_repo_id "${option_url[@]}")"
 		local host="${parts[0]}" user="${parts[1]}" name="${parts[2]}"
 
 		local parts_concat="$host/$user/$name"
@@ -706,8 +674,8 @@ function repo_manager() (
 
 		false && git clone -- "$option_url" "$repo_name_path"
 
-		if [[ -n "$option_destination" ]]; then
-			fs-move --symlink -- "$repos_name_path" "$option_destination"
+		if [[ -n "$option_link_destination" ]]; then
+			fs-move --symlink -- "$repos_name_path" "$option_link_destination"
 		fi
 
 		__backup "$host" "$user" "$name"
@@ -742,14 +710,9 @@ function repo_manager() (
 		fi
 	}
 
-	# Combine the above somehow.
-	function __is_managed() {
-		:
-	}
-
 	# Create new repo and add github remote
 	function __new() {
-		local item option_repo_name='' option_destination=''
+		local item option_repo_name='' option_link_destination=''
 
 		while [[ $# -ne 0 ]]; do
 			item="$1"
@@ -761,7 +724,7 @@ function repo_manager() (
 				if [[ -z "$option_repo_name" ]]; then
 					option_repo_name="$item"
 				else
-					option_destination="$item"
+					option_link_destination="$item"
 				fi
 				;;
 			esac
@@ -783,65 +746,107 @@ function repo_manager() (
 
 		init_github_remote "$repo_name_path" "$repo_name"
 
-		if [[ -n "$option_destination" ]]; then
-			fs-move --symlink -- "$DOROTHY_LOCAL_CODE_DIR/repos/$host/$user/$name" "$option_destination"
+		if [[ -n "$option_link_destination" ]]; then
+			fs-move --symlink -- "$DOROTHY_LOCAL_CODE_DIR/repos/$host/$user/$name" "$option_link_destination"
 		fi
 
 		__backup "$host" "$user" "$name"
 	}
 
+	# TODO: Forking should default to keep the repo under the original users account
+	# name, but if you supply the flag --user-config, then it will create the fork under
+	# your own user account and rename it to <name>-config. Supplying --user should
+	# make the fork to your user account.
+	# TODO: If you pass a repo block, instead of url, then allow for forking and
+	# moving the repo into your user account if you supply the above flags.
 	function __fork() {
-		local item option_url='' option_destination=''
+
+		local item option_args=() option_repo_key='' option_link_destination='' option_to_user='no' option_new_name=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
 			case "$item" in
+			--user) option_to_user='yes' ;;
+			'--rename='*) option_new_name="${item#*=}" ;;
 			--*) __unrecognised_flag "$item" || return ;;
-			# *) __unrecognised_argument "$item" || return ;;
-			*)
-				if [[ -z "$option_url" ]]; then
-					option_url="$item"
-				else
-					option_destination="$item"
-				fi
+				# *) __unrecognised_argument "$item" || return ;;
+			--)
+				option_args+=("$@")
+				shift "$#"
+				break
 				;;
+			*) __unrecognised_argument "$item" || return ;;
 			esac
 		done
 
-		if [[ -z "$option_url" ]]; then
-			help '__fork requires at least one valid URL for cloning.'
+		# All of this option args proc is easier to make int the switch above by
+		# just shifting for each arg.
+		if [[ "${#option_args[@]}" -eq 0 ]]; then
+			help "__fork requires at least a repo key on the form $($repo_block_description) or source url."
+		fi
+		option_repo_key="${option_args[0]}"
+
+		if [[ "${#option_args[@]}" -gt 1 ]]; then
+			option_link_destination="${option_args[1]}"
 		fi
 
-		local parts=()
-		mapfile -t parts <<<"$(__get_repo_host_user_and_name "${option_url[@]}")"
-		local host="${parts[0]}" user="${parts[1]}" name="${parts[2]}"
+		# get repo block parts
+
+		local host user name
+
+		read -r var1 var2 var3 < <(__get_parts_from_input_repo_id "${option_repo_key[@]}")
+
+
+		host="${parts[0]}" user="${parts[1]}" name="${parts[2]}"
 
 		local parts_concat="$host/$user/$name"
 
-		local repo_user_dir="$REPO_MANAGER_DIR/repos/$host/$user"
-		local repos_name_path="$repo_user_dir/$name"
+		local clone_to_user="$user"
+		if [[ "$option_to_user" ]] ; then
+			clone_to_user="$GITHUB_USER"
+		fi
 
-		__print_lines "$repos_name_path"
+		local repo_user_dir="$REPO_MANAGER_DIR/repos/$host/$clone_to_user"
 
-		# if [[ -d "$repos_name_path" ]]; then
-		#     __print_lines "Repo [$parts_concat] already exists!"
-		#     return
-		# fi
+		if [[ "$option_new_name" =='yes' ]] ; then
+			name="$option_new_name"
+		fi
+
+		local clone_path="$repo_user_dir/$name"
+
+		__print_lines "$clone_path"
+
+		if [[ -d "$clone_path" ]]; then
+			__print_lines "Repo [$parts_concat] already exists!"
+			return
+		fi
 
 		# __ensure_user_dir_exists "$repo_user_dir"
 
-		# git clone -- "$option_url" "$repos_name_path"
+		false && {
+			git clone -- "$option_repo_key" "$clone_path"
 
-		# if [[ -n "$option_destination" ]]; then
-		#     fs-move --symlink -- "$repos_name_path" "$option_destination"
-		# fi
+			# __maybe_link
+			if [[ -n "$option_link_destination" ]]; then
+				false && fs-move --symlink -- "$clone_path" "$option_link_destination"
+			fi
 
-		__backup "$host" "$user" "$name"
+			__backup "$host" "$user" "$name"
 
-		# checkout default / set default branch?
-		pushd "$repos_name_path" >/dev/null 2>&1
-		gh repo fork
-		popd >/dev/null 2>&1
+			# checkout default / set default branch?
+
+			#
+
+			pushd "$clone_path" >/dev/null 2>&1
+			gh repo fork
+			popd >/dev/null 2>&1
+		}
+	}
+
+	# Create worktrees from entries in the main clone tree.
+	# and put them under $REPO_MANAGER_DIR/worktrees, ($WORKTREES_DIR)
+	function __worktree() {
+		:
 	}
 
 	function create_new_nvim_plugin() {
@@ -876,14 +881,9 @@ function repo_manager() (
 	new | create) __new "${option_args[@]}" ;;
 	clone) __clone "${option_args[@]}" ;;
 	fork) __fork "${option_args[@]}" ;;
-
-	override_test)
-		local cli="${option_args[0]}"
-		local override_var="USE_CONFIG_$cli"
-		local custom_name="${!override_var}"
-		__print_lines "CLI: neovim" "Override: "${custom_name:-<None>}""
-		# cli name
-		;;
+	worktree) __worktree "${option_args}" ;;
+	# is-cloned) __is_cloned ;;
+	# is-managed) __is_tracked ;;
 
 	# ??
 	capture_and_overwrite_local_repos_remotes) capture_and_overwrite_local_repos_remotes ;;
