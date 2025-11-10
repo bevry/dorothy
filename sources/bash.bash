@@ -2105,6 +2105,37 @@ function __get_first_parent_that_is_not {
 	return 1
 }
 
+function __get_all_parents_that_are_not {
+	# if it is only this helper function then skip
+	if [[ ${#FUNCNAME[@]} -le 1 ]]; then
+		return 1
+	fi
+	local fn fns=() not nots=("$@")
+	# skip __get_first_parent_that_is_not
+	fns=("${FUNCNAME[@]:1}")
+
+	# find a match
+	local list=''
+	for fn in "${fns[@]}"; do
+		for not in "${nots[@]}"; do
+			if [[ $fn == "$not" ]]; then
+				continue 2
+			fi
+		done
+		list="[$fn]$list" # prepend
+	done
+	if [[ -z $list ]]; then
+		return 1
+	fi
+	printf '%s' "$list" || return $?
+	return 0
+}
+
+# if this changes, you also need to update `eval-capture`
+function __get_context_prefix {
+	printf '%s' "[$BASH_VERSION_CURRENT] $(__get_all_parents_that_are_not '__get_context_prefix' 'eval_capture' '__do' '__try' 'dorothy_try__wrapper' || :)" || return $?
+}
+
 # =============================================================================
 # Redirection & Error Handling Toolkit
 
@@ -2432,7 +2463,7 @@ function __do {
 
 	# redirect or copy, device files, to a var target
 	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
-		local DO__variable_name DO__semaphore REPLY
+		local DO__variable_name DO__semaphore DO__context REPLY
 		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return $?
 
 		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
@@ -2440,7 +2471,8 @@ function __do {
 
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
-		DO__semaphore="$(__get_semaphore "__do.data-to-reference.$RANDOM$RANDOM")" || return $?
+		DO__context="$(__get_context_prefix || :) [__do][data-to-reference][$DO__arg_flag][$DO__variable_name] [$RANDOM]"
+		DO__semaphore="$(__get_semaphore "$DO__context")" || return $?
 		__do --inverted "$DO__arg_flag=$DO__semaphore" "$@"
 		__return $? --invoke-only-on-failure -- rm -f -- "$DO__semaphore" || return $?
 
@@ -2486,7 +2518,7 @@ function __do {
 
 	# redirect, device files, to process substitution
 	--redirect-stdout=\(*\) | --redirect-stderr=\(*\) | --redirect-output=\(*\))
-		local DO__code DO__semaphore DO__size
+		local DO__code DO__semaphore DO__context DO__size
 
 		# trim starting and trailing parentheses, converting (<code>) to <code>
 		DO__size="${#DO__arg_value}"
@@ -2505,7 +2537,8 @@ function __do {
 		# --stderr) __do --inverted "$@" 2> >(__do --status="$DO__semaphore" -- eval "$DO__code") ;;
 
 		# prepare our semaphore file that will track the exit status of the process substitution
-		DO__semaphore="$(__get_semaphore "__do.process.$RANDOM$RANDOM")" || return $?
+		DO__context="$(__get_context_prefix || :) [__do][data-to-process][$DO__arg_flag] [$RANDOM]"
+		DO__semaphore="$(__get_semaphore "$DO__context")" || return $?
 
 		# execute while tracking the exit status to our semaphore file
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
@@ -2597,7 +2630,8 @@ function __do {
 		# copy stdout to stderr
 		2 | STDERR | stderr | /dev/stderr)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local DO__semaphores DO__context="__do.copy-stdout-to-stderr.$RANDOM$RANDOM"
+			local DO__semaphores DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stdout-to-stderr] [$RANDOM]"
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return $?
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
@@ -2619,7 +2653,8 @@ function __do {
 		# copy stdout to tty
 		TTY | tty | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local DO__semaphores DO__context="__do.copy-stdout-to-tty.$RANDOM$RANDOM"
+			local DO__semaphores DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stdout-to-tty] [$RANDOM]"
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return $?
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
@@ -2650,7 +2685,8 @@ function __do {
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return $?
 
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local DO__semaphores DO__context="__do.copy-stdout-to-fd.$RANDOM$RANDOM"
+			local DO__semaphores DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stdout-to-fd][$DO__arg_value] [$RANDOM]"
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return $?
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
@@ -2678,7 +2714,8 @@ function __do {
 		# copy stdout to file target
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
-			local DO__semaphore DO__context="__do.copy-stdout-to-file.$RANDOM$RANDOM"
+			local DO__semaphore DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stdout-to-file] [$RANDOM]"
 			DO__semaphore="$(__get_semaphore "$DO__context")" || return $?
 
 			# execute, keeping stdout, copying to the value target, and tracking the exit status to our semaphore file
@@ -2754,7 +2791,8 @@ function __do {
 		# copy stderr to stdout
 		1 | STDOUT | stdout | /dev/stdout)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local DO__semaphores DO__context="__do.copy-stderr-to-stdout.$RANDOM$RANDOM"
+			local DO__semaphores DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stderr-to-stdout] [$RANDOM]"
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return $?
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
@@ -2783,7 +2821,8 @@ function __do {
 		# copy stderr to tty
 		TTY | tty | /dev/tty)
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local DO__semaphores DO__context="__do.copy-stderr-to-tty.$RANDOM$RANDOM"
+			local DO__semaphores DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stderr-to-tty] [$RANDOM]"
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return $?
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
@@ -2814,7 +2853,8 @@ function __do {
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return $?
 
 			# prepare our semaphore files that will track the exit status of the process substitution
-			local DO__semaphores DO__context="__do.copy-stderr-to-fd.$RANDOM$RANDOM"
+			local DO__semaphores DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stderr-to-fd][$DO__arg_value] [$RANDOM]"
 			__semaphores --target={DO__semaphores} -- "$DO__context.1" "$DO__context.2" || return $?
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
@@ -2842,7 +2882,8 @@ function __do {
 		# copy stderr to file target
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
-			local DO__semaphore DO__context="__do.copy-stderr-to-file.$RANDOM$RANDOM"
+			local DO__semaphore DO__context
+			DO__context="$(__get_context_prefix || :) [__do][copy-stderr-to-file] [$RANDOM]"
 			DO__semaphore="$(__get_semaphore "$DO__context")" || return $?
 
 			# execute, keeping stderr, copying to the value target, and tracking the exit status to our semaphore file
@@ -3154,8 +3195,9 @@ function __try {
 	DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}" # so we can remove our trap once all tries are finished
 
 	# update shared variables
-	DOROTHY_TRY__CONTEXT="$BASH_VERSION_CURRENT-$(__get_first_parent_that_is_not 'eval_capture' '__do' '__try' 'dorothy_try_wrapper' || :)-$RANDOM"
-	DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "__try.$DOROTHY_TRY__CONTEXT.status")"
+	# [3.2.57][testing_middle] [__try] [26180].status
+	DOROTHY_TRY__CONTEXT="$(__get_context_prefix || :) [__try] [$RANDOM]"
+	DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "$DOROTHY_TRY__CONTEXT.status")"
 
 	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
 	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
@@ -5764,18 +5806,18 @@ function __split {
 			;;
 		--)
 			if [[ $SPLIT__invoke == 'yes' ]]; then
-				local SPLIT__fodder_to_respect_exit_status SPLIT__exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				local SPLIT__fodder_with_redirect_exit_status SPLIT__exit_status
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
 				if [[ $SPLIT__exit_status -ne 0 ]]; then
 					return "$SPLIT__exit_status"
 				fi
-				local SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				local SPLIT__input="$SPLIT__fodder_with_redirect_exit_status"
 				SPLIT__sources_variable_names+=('SPLIT__input')
 			elif [[ $SPLIT__invoke == 'try' ]]; then
-				local SPLIT__fodder_to_respect_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_to_respect_exit_status} -- "$@"
+				local SPLIT__fodder_with_discard_exit_status
+				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
 				# trunk-ignore(shellcheck/SC2034)
-				local SPLIT__input="$SPLIT__fodder_to_respect_exit_status"
+				local SPLIT__input="$SPLIT__fodder_with_discard_exit_status"
 				SPLIT__sources_variable_names+=('SPLIT__input')
 			else
 				# an array input
