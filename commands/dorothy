@@ -558,12 +558,12 @@ function dorothy_() (
 		__print_style --h2='Ensure development dependencies'
 
 		# install
-		setup-util-bash "$@"
-		setup-util-ripgrep "$@"
-		setup-util-prettier "$@"
-		setup-util-shellcheck "$@"
-		setup-util-shfmt "$@"
-		setup-util-trunk "$@"
+		setup-util-bash
+		setup-util-ripgrep
+		setup-util-prettier --upgrade="$upgrade"
+		setup-util-shellcheck --upgrade="$upgrade"
+		setup-util-shfmt --upgrade="$upgrade"
+		setup-util-trunk --upgrade="$upgrade"
 
 		# versions
 		eval-helper --verbose --wrap -- bash --version
@@ -588,7 +588,7 @@ function dorothy_() (
 				npm install || return $?
 			fi
 			if [[ -d .trunk && ! -e .git/hooks/pre-push ]]; then
-				printf 'trunk check --ci --no-progress --trigger=git-push\n' >.git/hooks/pre-push || return $?
+				__print_lines 'trunk check --ci --no-progress --trigger=git-push' >.git/hooks/pre-push || return $?
 				if [[ $upgrade == 'yes' ]]; then
 					trunk upgrade || return $?
 				fi
@@ -1258,6 +1258,9 @@ function dorothy_() (
 			esac
 		done
 
+		# prepare
+		local -i __lint_status=0
+
 		# adjustments
 		local intent
 		if [[ -z $format && -z $check ]]; then
@@ -1321,8 +1324,8 @@ function dorothy_() (
 
 		# checks
 		if [[ $check == 'yes' ]]; then
-			# prepare scan paths
-			local scan_paths=(
+			# prepare paths and variables for manual scans
+			local filepath commands=() scan_paths=(
 				"$DOROTHY/commands/"
 				"$DOROTHY/commands.beta/"
 				"$DOROTHY/commands.deprecated/"
@@ -1353,8 +1356,7 @@ function dorothy_() (
 			# Unfortunately, it seems [^=] does not work in ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+[^=]
 			# To avoid matching: OR a_var=$?
 			# So for now, just modify the var names even though it is unnecessary.
-			local commands=() filepath \
-			unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
+			local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
 			__split --target={commands} --no-zero-length --invoke=try -- \
 				rg --files-with-matches --sortr modified --regexp="$unsafe_regexp" "${scan_paths[@]}"
 			for filepath in "${commands[@]}"; do
@@ -1369,9 +1371,17 @@ function dorothy_() (
 				unsafe_bundle+="$(__print_style --element="$filepath")"$'\n'"$unsafe_contents"$'\n'"$(__print_style --/element="$filepath")"$'\n'
 			done
 			if [[ $unsafe_count -ne 0 ]]; then
-				__print_style --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle" --e1="Dorothy $intent"
-				return 1
+				__print_style --no-trail --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle"
+				__lint_status=1
 			fi
+
+			# nushell linting
+			# NOTE: this is disabled because there isn't actually a functioning linter for nushell yet
+			# __split --target={commands} --no-zero-length --invoke=try -- \
+			# 	rg --files-with-matches --sortr modified --regexp="^[#][!]/usr/bin/env nu" "${scan_paths[@]}"
+			# for filepath in "${commands[@]}"; do
+			# 	nu -c "nu-check -d \"$filepath\"" >/dev/null || __lint_status=$?
+			# done
 		fi
 
 		# adjust for ci
@@ -1380,6 +1390,7 @@ function dorothy_() (
 			trunk_args+=('--ci' '--no-progress')
 		fi
 
+		# lint with trunk
 		function __traverse() (
 			local path="$1"
 			if [[ ! -d "$path/.trunk" ]]; then
@@ -1398,11 +1409,15 @@ function dorothy_() (
 			fi
 			__print_style --g3="$intent: $path" || return $?
 		)
-		__traverse "$DOROTHY"
-		__traverse "$DOROTHY/user"
+		__traverse "$DOROTHY" || __lint_status=$?
+		__traverse "$DOROTHY/user" || __lint_status=$?
 
 		# done
-		__print_style --g1="Dorothy $intent"
+		if [[ $__lint_status -eq 0 ]]; then
+			__print_style --g1="Dorothy $intent"
+		else
+			__print_style --e1="Dorothy $intent"
+		fi
 	}
 
 	# this is shared between [debug-bash] and [dorothy]
@@ -1622,7 +1637,6 @@ function dorothy_() (
 				for failure in "${failures[@]}"; do
 					markdown+="> * \`$failure\`"$'\n'
 				done
-				markdown+="> [View full summary.](https://github.com/$option_slug/actions/runs/$GITHUB_RUN_ID/job/$JOB_ID)"$'\n'
 				__print_string "$markdown" >"$GITHUB_STEP_SUMMARY"
 			fi
 			return 221 # ECUSTOM 221 Tests failed
