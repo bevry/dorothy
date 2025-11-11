@@ -19,7 +19,7 @@ while [[ $# -ne 0 ]]; do
 		continue
 	else
 		# discern if inaccessible, missing
-		is-accessible.bash -- "$path" || exit
+		is-accessible.bash -- "$path" || exit $?
 		if [[ -L $path ]]; then
 			# broken symlink
 			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"

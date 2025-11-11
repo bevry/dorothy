@@ -4,7 +4,7 @@
 # Place all export declarations `export VAR` at the start, before their definitions/assignments `VAR=...`, otherwise no bash v3 compatibility
 
 # To enable caching, uncomment the following line:
-# __cache || exit
+# __cache || exit $?
 
 # export NVM_DIR HOMEBREW_ARCH PYENV_VERSION HOMEBREW_RUBY_VERSION # ...
 

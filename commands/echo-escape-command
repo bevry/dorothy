@@ -12,6 +12,8 @@ function echo_escape_command_test() (
 	eval-tester --stdout='my-command --var=~/dir spaced\ argument'$'\n' --trailing-newlines -- \
 		echo-escape-command --persist='~' -- 'my-command' '--var=~/dir' 'spaced argument'
 
+	# @todo add tests for --variable
+
 	return 0
 )
 function echo_escape_command() (
@@ -22,7 +24,7 @@ function echo_escape_command() (
 
 	# trunk-ignore(shellcheck/SC2120)
 	function help {
-		__print_help "$@" <<-EOF || return
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Escape the <...command> for human readability.
 
@@ -34,13 +36,16 @@ function echo_escape_command() (
 			--persist=<string>
 			    A string to persist unescaped in the output.
 
+			--variable=<string>
+			    A variable whose value should be restored back to the variable in the output.
+
 			$(__stdinargs__help_options --)
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_persist=() option_args=()
+	local item option_persist=() option_variables=() option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -48,6 +53,7 @@ function echo_escape_command() (
 		# trunk-ignore(shellcheck/SC2119)
 		'--help' | '-h') help ;;
 		'--persist='*) option_persist+=("${item#*=}") ;;
+		'--var='* | '--variable='*) option_variables+=("${item#*=}") ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
 			option_args+=("$item" "$@")
@@ -63,18 +69,33 @@ function echo_escape_command() (
 	# Action
 
 	local inputs=()
+	if [[ $BASH_PRINTF_Q_ESCAPES_TIDLE == 'yes' ]]; then
+		function __escape {
+			printf -v REPLY '%q' "$1" || return $?
+		}
+	else
+		local tidle='~' escaped_tidle='\~'
+		function __escape {
+			printf -v REPLY '%q' "$1" || return $?
+			REPLY="${REPLY//$tidle/$escaped_tidle}"
+		}
+	fi
 	function __on_piece {
-		local escaped persist
-		printf -v escaped '%q' "$1" || return
+		local REPLY escaped persist variable
+		__escape "$1" || return $?
+		escaped="$REPLY"
 		for persist in "${option_persist[@]}"; do
 			escaped="${escaped//"\\$persist"/"$persist"}"
+		done
+		for variable in "${option_variables[@]}"; do
+			escaped="${escaped//"${!variable}"/"\$$variable"}"
 		done
 		inputs+=("$escaped")
 	}
 	function __on_finish {
 		local result=''
-		__join --source={inputs} --delimiter=' ' --target={result} || return
-		__print_lines "$result" || return
+		__join --source={inputs} --delimiter=' ' --target={result} || return $?
+		__print_lines "$result" || return $?
 	}
 
 	stdinargs "${option_args[@]}"

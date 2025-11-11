@@ -530,9 +530,9 @@ To make our function safe for conditionals, we must ensure every and any line th
 
 ```bash
 function __a_function_which_failure_IS_NOT_the_last_command {
-	printf '%s' 'before' || return
-	a_custom_failure || return
-	printf '%s\n' 'and after failure' || return
+	printf '%s' 'before' || return $?
+	a_custom_failure || return $?
+	printf '%s\n' 'and after failure' || return $?
 }
 
 set -e
@@ -555,9 +555,9 @@ function get_csv_data {
 	printf '%s\n' 'four,five,six'
 }
 function __get_csv_data {
-	printf '%s' 'one,two,three' || return
-	a_custom_failure || return
-	printf '%s\n' 'four,five,six' || return
+	printf '%s' 'one,two,three' || return $?
+	a_custom_failure || return $?
+	printf '%s\n' 'four,five,six' || return $?
 }
 
 # the failure in `get_csv_data` causes the read to fail, which causes an exit status of 1

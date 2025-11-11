@@ -38,5 +38,5 @@ to
 
 ```plain
 function __help {
-	cat <<-EOF >&2 || return
+	cat <<-EOF >&2 || return $?
 ```

@@ -15,13 +15,24 @@ else
 	ACTIVE_POSIX_SHELL='sh'
 fi
 
-# set the environment variables, passing over $$ such that a trap could be hooked that automatically refreshes on invalidation (not yet implemented)
-DOROTHY_ENVIRONMENT_EVAL_STATUS=0
-DOROTHY_ENVIRONMENT_EVAL="$("$DOROTHY/commands/setup-environment-commands" --shell="$ACTIVE_POSIX_SHELL" --ppid=$$)" || DOROTHY_ENVIRONMENT_EVAL_STATUS=$?
-if [ "$DOROTHY_ENVIRONMENT_EVAL_STATUS" = 0 ]; then
-	eval "$DOROTHY_ENVIRONMENT_EVAL" || DOROTHY_ENVIRONMENT_EVAL_STATUS=$?
-fi
-if [ "$DOROTHY_ENVIRONMENT_EVAL_STATUS" != 0 ]; then
-	printf '%s\n' 'DOROTHY FAILED TO SETUP ENVIRONMENT, RUN THIS TO DEBUG:' "bash -x '$DOROTHY/commands/setup-environment-commands' --shell='$ACTIVE_POSIX_SHELL'" >&2 || :
-	return "$DOROTHY_ENVIRONMENT_EVAL_STATUS"
+# create the environment setup, passing over $$ such that a trap could be hooked that automatically refreshes on invalidation (not yet implemented)
+DOROTHY_ENVIRONMENT_EVAL="$("$DOROTHY/commands/setup-environment-commands" --shell="$ACTIVE_POSIX_SHELL" --ppid=$$)" || {
+	printf '%s\n' \
+		"FAILED TO CREATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, RUN THESE TO DEBUG:" \
+		"'$DOROTHY/commands/setup-environment-commands' --debug --shell='$ACTIVE_POSIX_SHELL'" \
+		"bash -x '$DOROTHY/commands/setup-environment-commands' --shell='$ACTIVE_POSIX_SHELL'" >&2 || :
+	if [ -n "${CI-}" ]; then
+		exit 6 # ENXIO 6 Device not configured
+	fi
+}
+# evaluate the environment setup
+if [ -n "${DOROTHY_ENVIRONMENT_EVAL-}" ]; then
+	eval "$DOROTHY_ENVIRONMENT_EVAL" || {
+		printf '%s\n' \
+			"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, SETUP IS BELOW:" >&2 || :
+		printf '%s' "$DOROTHY_ENVIRONMENT_EVAL" | cat -vbn >&2 || :
+		if [ -n "${CI-}" ]; then
+			exit 6 # ENXIO 6 Device not configured
+		fi
+	}
 fi

@@ -1,6 +1,56 @@
-# don't use [shell: bash] unless needed, as for macos-fresh that caused an infinite queue for the test step, and for linux bash may not exist yet
+# NOTE:
+# Don't use `shell: bash` unless needed, as for macos-fresh that caused an infinite queue for the test step, and for linux bash may not exist yet
+#
+# NOTE:
+# You can find details on the avalilable runners here:
 # https://docs.github.com/en/actions/learn-github-actions/contexts#github-context
-name: dorothy-workflow
+# https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+# https://github.com/actions/runner-images?tab=readme-ov-file#available-images
+#
+# NOTE:
+# Windows runners are disabled due to:
+# - windows-2025 <-- windows changes the line endings in our source files, disrespecting our .gitattributes, so disable until that is fixed
+# - windows-2022 <-- ^^
+# - windows-11-arm <-- deno doesn't yet support windows arm
+#
+# NOTE:
+# Do not use `ubuntu-slim` as its ENV vars are different.
+#
+# NOTE:
+# if you are getting errors like this:
+#  ! [remote rejected]   dev/ci-arm -> dev/ci-arm (refusing to allow an OAuth App to create or update workflow `.github/workflows/dorothy-workflow.yml` without `workflow` scope)
+# It is because the HTTPS authentication token doesn't have the `workflow` scope which is writable
+# Instead, push via SSH instead, so setup your SSH keys, `setup-git`, `git-helper url --apply --protocol=ssh`, then push, and it will work
+#
+# SUPPORTED CONTAINERS::
+# Sorted by docker pulls then by docker stars
+# https://hub.docker.com/search?badges=official
+# - "ubuntu:latest" # https://hub.docker.com/_/ubuntu 1B+ pulls 10K+ stars
+# - "debian:latest" # https://hub.docker.com/_/debian 1B+ pulls 5.3K stars
+# - "fedora:latest" # https://hub.docker.com/_/fedora 100M+ pulls 1.3K stars
+# - "archlinux:latest" # https://hub.docker.com/_/archlinux 10M+ pulls 644 stars
+# - "almalinux:latest" # https://hub.docker.com/_/almalinux 10M+ puulls 201 stars
+# - "opensuse/leap:latest" # https://hub.docker.com/r/opensuse/leap 10M+ pulls 105 stars <-- has outdated bash, so is good to test
+# - "opensuse/tumbleweed:latest" # https://hub.docker.com/r/opensuse/tumbleweed 10M+ pulls 85 stars
+# - "kalilinux/kali-rolling:latest" # https://hub.docker.com/r/kalilinux/kali-rolling 5M+ pulls 985 stars
+# - "openeuler/openeuler:latest" # https://hub.docker.com/r/openeuler/openeuler 500K+ pulls 45 stars
+# - "manjarolinux/base" # https://hub.docker.com/r/manjarolinux/base 100K+ puulls 39 stars <-- was broken due to https://gitlab.manjaro.org/packages/core/bash/-/issues/8 see https://github.com/bevry/dorothy/actions/runs/7999660175/job/21847844816#step:3:84 however tested locally and seems fine
+# - "elementary/docker:latest" # https://hub.docker.com/r/elementary/docker 100K+ pulls 11 stars
+# - "ghcr.io/vanilla-os/pico:main" # https://github.com/vanilla-os/pico-image/pkgs/container/pico 13.6K pulls 8 stars <-- there is also `ghcr.io/vanilla-os/core:latest` from https://github.com/Vanilla-OS/core-image/pkgs/container/core/544319268?tag=latest however it is too heavy for github actions, `failed to register layer: max depth exceeded`
+# - "devuan/devuan:latest" # https://hub.docker.com/r/devuan/devuan 10K+ pulls 2 stars
+# - "cachyos/cachyos:latest" # https://hub.docker.com/r/cachyos/cachyos 8.4K pulls 3 stars
+# - "openmandriva/minimal:rock" # https://hub.docker.com/r/openmandriva/minimal 644 pulls 0 stars
+# - "openmandriva/minimal:rolling" # https://hub.docker.com/r/openmandriva/minimal 644 pulls 0 stars
+#
+# UNSUPPORTED CONTAINERS:
+# - 'alpine:latest' # https://hub.docker.com/_/alpine <-- official deno is broken on alpine https://github.com/denoland/deno_install/issues/311 https://github.com/denoland/deno/issues/3711 but `setup-util-deno` supports a third party deno that gets updated every few months however its broken for some reason https://github.com/bevry/dorothy/actions/runs/18792197623/job/53624940079#step:4:71
+# - 'adelielinux/adelie:latest' # https://hub.docker.com/r/adelielinux/adelie <-- alpine alternative, permission denied, doesn't have gawk
+# - 'voidlinux/voidlinux' # https://hub.docker.com/r/voidlinux/voidlinux <-- permission failure, locale failure, remote failure: https://github.com/bevry/dorothy/actions/runs/6622814794/job/17988863384
+# - 'mageia:cauldron' # https://hub.docker.com/_/mageia <-- cauldron is where moreutils is, disabled as couldn't get working
+# - 'nixos/nix' # https://hub.docker.com/r/nixos/nix <-- doesn't make bash available to env, also locale failure
+# - 'gentoo/stage3' # https://hub.docker.com/r/gentoo/stage3 <-- couldn't get to work due to home misconfigure error
+# - 'rockylinux:latest' # https://hub.docker.com/_/rockylinux <-- despite being listed, github fails to pull it
+name: "Dorothy's Workflow"
 on:
   - push
   - pull_request
@@ -8,63 +58,76 @@ concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  debug-env:
-    runs-on: ubuntu-latest
+  setup:
+    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
+    runs-on: ubuntu-slim
+    outputs:
+      SLUG: ${{ github.event.pull_request.head.repo.full_name || github.repository}}
+      COMMIT: ${{ github.event.pull_request.head.sha || github.sha  }}
     steps:
-      - name: "Debug Environment"
+      - name: "Setup Environment"
         shell: bash -leo pipefail {0}
         run: |
           # output github context
           cat <<-EGITHUB
-            run?
-            ${{ toJson( github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' ) ) }}
+          run?
+          ${{ toJson( github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' ) ) }}
 
-            github.event_name:
-            ${{ toJson(github.event_name) }}
+          github.event_name:
+          ${{ toJson(github.event_name) }}
 
-            github.event.pull_request.draft:
-            ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) }}
+          github.event.pull_request.draft:
+          ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) }}
 
-            github.event.pull_request.state:
-            ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.state) }}
+          github.event.pull_request.state:
+          ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.state) }}
 
-            github.event.pull_request.assignees:
-            ${{ github.event_name == 'pull_request' && toJson( toJson(github.event.pull_request.assignees) != '[]' ) }}
+          github.event.pull_request.assignees:
+          ${{ github.event_name == 'pull_request' && toJson( toJson(github.event.pull_request.assignees) != '[]' ) }}
 
-            github.repository:
-            ${{ toJson(github.repository) }}
+          github.repository:
+          ${{ toJson(github.repository) }}
 
-            github.event.pull_request.head.repo.full_name:
-            ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.head.repo.full_name) }}
+          github.event.pull_request.head.repo.full_name:
+          ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.head.repo.full_name) }}
 
-            github.event.pull_request.head.sha:
-            ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.head.sha) }}
+          github.event.pull_request.head.sha:
+          ${{ github.event_name == 'pull_request' && toJson(github.event.pull_request.head.sha) }}
 
-            github.sha:
-            ${{ toJson(github.sha) }}
+          github.sha:
+          ${{ toJson(github.sha) }}
 
-            github.ref
-            ${{ toJson(github.ref) }}
+          github.ref
+          ${{ toJson(github.ref) }}
 
-            resolved slug:
-            ${{ toJson(github.event.pull_request.head.repo.full_name || github.repository) }}
+          github.job
+          ${{ toJson(github.job) }}
 
-            resolved sha:
-            ${{ toJson(github.event.pull_request.head.sha || github.sha) }}
+          job.check_run_id
+          ${{ job.check_run_id }}
 
-            github:
-            ${{ false && toJson(github) }}
+          resolved slug:
+          ${{ toJson(github.event.pull_request.head.repo.full_name || github.repository) }}
+
+          resolved sha:
+          ${{ toJson(github.event.pull_request.head.sha || github.sha) }}
+
+          github:
+          ${{ false && toJson(github) }}
+
+          env:
+          $(env | sort)
           EGITHUB
   login-shells:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Install"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
         run: |
           # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/install?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')" -- --shells=bash,zsh,fish,nu,xonsh,elvish,dash,ksh --utils=carapace
+          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/install?slug=${{ needs.setup.outputs.SLUG }}&commit=${{ needs.setup.outputs.COMMIT }}')" -- --shells=bash,zsh,fish,nu,xonsh,elvish,dash,ksh --utils=carapace
       - name: "Dorothy Login Shell: bash"
         shell: bash -leo pipefail {0}
         run: |
@@ -119,67 +182,44 @@ jobs:
           # continue as normal
           command-exists -- dorothy
           echo-style --success='ok'
-  lint:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
+  check:
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Check"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+        shell: bash -leo pipefail {0}
         run: |
           # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/check?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')"
+          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/check?slug=${{ needs.setup.outputs.SLUG }}&commit=${{ needs.setup.outputs.COMMIT }}')"
   format:
+    needs: setup
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: "Dorothy Format"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
         run: |
           # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/format?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')"
+          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/format?slug=${{ needs.setup.outputs.SLUG }}&commit=${{ needs.setup.outputs.COMMIT }}')"
       - name: "Commit Changes"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # writable
         run: |
-          cd '/home/runner/.local/share/dorothy' || exit
+          cd '/home/runner/.local/share/dorothy' || exit $?
           if git diff --quiet &>/dev/null; then
-            printf '%s\n' 'Already formatted.' || exit
+            printf '%s\n' 'Already formatted.' || exit $?
           else
-            git config --global user.name 'Continuous Integration' || exit
-            git config --global user.email 'bot@bevry.me' || exit
-            git remote set-url origin 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}' || exit
-            git commit -a -m 'ci: adjustments' || exit
-            git push origin HEAD:${{ github.ref }} || exit
+            git config --global user.name 'Continuous Integration' || exit $?
+            git config --global user.email 'bot@bevry.me' || exit $?
+            git remote set-url origin 'https://x-access-token:${{ secrets.READONLY_GITHUB_TOKEN }}@github.com/${{ github.repository }}' || exit $?
+            git commit -a -m 'ci: adjustments' || exit $?
+            git push origin HEAD:${{ github.ref }} || exit $?
           fi
-  # https://github.com/actions/runner-images?tab=readme-ov-file#available-images
-  runner-test:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#standard-github-hosted-runners-for-public-repositories
-          - ubuntu-24.04
-          - ubuntu-22.04
-          - ubuntu-24.04-arm
-          - ubuntu-22.04-arm
-          # - windows-2025 <-- windows changes the line endings in our source files, disrespecting our .gitattributes, so disable until that is fixed
-          # - windows-2022 <-- ^^
-          # - windows-11-arm <-- deno doesn't yet support windows arm
-          # macos tests are done later as they need their own bash handling
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: "Dorothy Test"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
-        shell: bash -leo pipefail {0}
-        run: |
-          # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/run?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')" -- dorothy test
   macos-test:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
+    needs: setup
     strategy:
       fail-fast: false
       matrix:
@@ -190,41 +230,33 @@ jobs:
         bash:
           - bash
           - /bin/bash # this Bash 3.2 version actually behaves differently to GNU Bash 3.2 version
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: "Dorothy Test"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
-        run: |
-          # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/run?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')" -- dorothy test --bash="${{ matrix.bash }}"
-  fresh-macos-test:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          - macos-26
-          - macos-15
-          - macos-14
-        bash:
-          - bash
-          - /bin/bash # this Bash 3.2 version actually behaves differently to GNU Bash 3.2 version
+        mode:
+          - homebrew
+          - fresh
     runs-on: ${{ matrix.runner }}
     steps:
       - name: "Uninstall Homebrew"
+        if: matrix.mode == 'fresh'
         run: |
           # run homebrew uninstaller
           bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/Homebrew/install/master/uninstall.sh')"
-      - name: "Dorothy Test"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
-        run: |
-          # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/run?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')" -- dorothy test --bash="${{ matrix.bash }}"
-  all-bash-versions-test:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
-    runs-on: ubuntu-latest
+      - name: "Dorothy Upgrade Bash Version"
+        if: matrix.bash == 'bash'
+        uses: bevry/dorothy/.github/actions/dorothy-run@dev/ci-arm
+        with:
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
+          COMMAND: "setup-util-bash"
+      - name: "Dorothy Test Bash Version: ${{ matrix.bash }}"
+        uses: bevry/dorothy/.github/actions/dorothy-run@dev/ci-arm
+        with:
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
+          COMMAND: "dorothy test --bash=${{ matrix.bash }}"
+  bash-versions-test:
+    needs: setup
     strategy:
       fail-fast: false
       matrix:
@@ -240,95 +272,81 @@ jobs:
           - "5.2.37"
           - "5.3"
           # This should match all versions known in `bash.bash` and include in `continue-on-error` the unsupported versions
-    steps:
-      - name: "Dorothy Test"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
-        continue-on-error: ${{ matrix.bash == '4.1' || matrix.bash == '4.2.53' || matrix.bash == '4.3.30' }}
-        run: |
-          # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/run?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')" -- dorothy test --bash-version="${{ matrix.bash }}"
-  container-test:
-    if: github.event_name == 'push' || ( github.event_name == 'pull_request' && toJson(github.event.pull_request.draft) == 'false' && toJson(github.event.pull_request.state) == '"open"' && toJson(github.event.pull_request.assignees) != '[]' )
     runs-on: ubuntu-latest
+    # continue-on-error: ${{ matrix.bash == '4.1' || matrix.bash == '4.2.53' || matrix.bash == '4.3.30' }}
+    steps:
+      - name: "Dorothy Test Bash Version: ${{ matrix.bash }}"
+        uses: bevry/dorothy/.github/actions/dorothy-run@dev/ci-arm
+        with:
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
+          COMMAND: "dorothy test --bash=${{ matrix.bash }}"
+  containers-x86-test:
+    needs: setup
     strategy:
       fail-fast: false
       matrix:
         container:
-          # Sorted byy docker pulls then by docker stars
-          # https://hub.docker.com/search?badges=official
-          - "ubuntu:latest" # https://hub.docker.com/_/ubuntu 1B+ pulls 10K+ stars
-          - "debian:latest" # https://hub.docker.com/_/debian 1B+ pulls 5.3K stars
-          - "fedora:latest" # https://hub.docker.com/_/fedora 100M+ pulls 1.3K stars
-          - "archlinux:latest" # https://hub.docker.com/_/archlinux 10M+ pulls 644 stars
-          - "almalinux:latest" # https://hub.docker.com/_/almalinux 10M+ puulls 201 stars
-          - "opensuse/leap:latest" # https://hub.docker.com/r/opensuse/leap 10M+ pulls 105 stars <-- has outdated bash, so is good to test
-          - "opensuse/tumbleweed:latest" # https://hub.docker.com/r/opensuse/tumbleweed 10M+ pulls 85 stars
-          - "kalilinux/kali-rolling:latest" # https://hub.docker.com/r/kalilinux/kali-rolling 5M+ pulls 985 stars
-          - "openeuler/openeuler:latest" # https://hub.docker.com/r/openeuler/openeuler 500K+ pulls 45 stars
-          - "manjarolinux/base" # https://hub.docker.com/r/manjarolinux/base 100K+ puulls 39 stars <-- was broken due to https://gitlab.manjaro.org/packages/core/bash/-/issues/8 see https://github.com/bevry/dorothy/actions/runs/7999660175/job/21847844816#step:3:84 however tested locally and seems fine
-          - "elementary/docker:latest" # https://hub.docker.com/r/elementary/docker 100K+ pulls 11 stars
-          - "ghcr.io/vanilla-os/pico:main" # https://github.com/vanilla-os/pico-image/pkgs/container/pico 13.6K pulls 8 stars <-- there is also `ghcr.io/vanilla-os/core:latest` from https://github.com/Vanilla-OS/core-image/pkgs/container/core/544319268?tag=latest however it is too heavy for github actions, `failed to register layer: max depth exceeded`
-          - "devuan/devuan:latest" # https://hub.docker.com/r/devuan/devuan 10K+ pulls 2 stars
-          - "cachyos/cachyos:latest" # https://hub.docker.com/r/cachyos/cachyos 8.4K pulls 3 stars
-          - "openmandriva/minimal:rock" # https://hub.docker.com/r/openmandriva/minimal 644 pulls 0 stars
-          - "openmandriva/minimal:rolling" # https://hub.docker.com/r/openmandriva/minimal 644 pulls 0 stars
-          # - 'alpine:latest' # https://hub.docker.com/_/alpine <-- official deno is broken on alpine https://github.com/denoland/deno_install/issues/311 https://github.com/denoland/deno/issues/3711 but `setup-util-deno` supports a third party deno that gets updated every few months however its broken for some reason https://github.com/bevry/dorothy/actions/runs/18792197623/job/53624940079#step:4:71
-          # - 'adelielinux/adelie:latest' # https://hub.docker.com/r/adelielinux/adelie <-- alpine alternative, permission denied, doesn't have gawk
-          # - 'voidlinux/voidlinux' # https://hub.docker.com/r/voidlinux/voidlinux <-- permission failure, locale failure, remote failure: https://github.com/bevry/dorothy/actions/runs/6622814794/job/17988863384
-          # - 'mageia:cauldron' # https://hub.docker.com/_/mageia <-- cauldron is where moreutils is, disabled as couldn't get working
-          # - 'nixos/nix' # https://hub.docker.com/r/nixos/nix <-- doesn't make bash available to env, also locale failure
-          # - 'gentoo/stage3' # https://hub.docker.com/r/gentoo/stage3 <-- couldn't get to work due to home misconfigure error
-          # - 'rockylinux:latest' # https://hub.docker.com/_/rockylinux <-- despite being listed, github fails to pull it
+        - "almalinux:latest"
+        - "archlinux:latest"
+        - "cachyos/cachyos:latest"
+        - "debian:latest"
+        - "devuan/devuan:latest"
+        - "elementary/docker:latest"
+        - "fedora:latest"
+        - "ghcr.io/vanilla-os/pico:main"
+        - "kalilinux/kali-rolling:latest"
+        - "manjarolinux/base"
+        - "openeuler/openeuler:latest"
+        - "openmandriva/minimal:rock"
+        - "openmandriva/minimal:rolling"
+        - "opensuse/leap:latest"
+        - "opensuse/tumbleweed:latest"
+        - "ubuntu:latest"
+    runs-on: ubuntu-24.04
     container:
       image: ${{ matrix.container }}
     steps:
       - name: "Dorothy Dependencies"
-        run: |
-          # this should somewhat coincide with [commands/dorothy:ensure_prereq_dependencies]
-          if command -v apt-get; then
-            # for ubuntu/debian/kali
-            apt-get update
-            apt-get install -y bash curl
-          elif command -v zypper; then
-            # for opensuse
-            zypper --non-interactive --gpg-auto-import-keys refresh
-            zypper --non-interactive install bash curl
-          elif command -v apk; then
-            # for alpine
-            apk update
-            apk add bash curl
-          elif command -v pacman; then
-            # for manjaro (manjaro CI image doesn't have pamac installed) and arch
-            pacman-key --init
-            pacman --noconfirm --refresh --sync --sysupgrade # resolve version mismatches between git and pcre2, alternative is to `pacman -S pacman-contrib; pacman -S $(pactree -u git)`
-            pacman --noconfirm --refresh --sync --needed bash curl
-          elif command -v urpmi; then
-            # for mageia, prefer over fedora as mageia also contains dnf
-            # https://wiki.mageia.org/en/Cauldron
-            # https://github.com/bevry/dorothy/actions/runs/6033044029/job/16369147940
-            # https://github.com/bevry/dorothy/actions/runs/6033557632/job/16370418074
-            # urpmi --auto-update --auto
-            urpmi.update -a
-            urpmi --auto bash curl
-          elif command -v dnf; then
-            # for fedora
-            dnf makecache --refresh # dnf check-update --assumeyes
-            dnf install --assumeyes --refresh --best --allowerasing bash curl
-          elif command -v xbps-install; then
-            # for void linux
-            xbps-install --sync --update --yes xbps
-            xbps-install --sync --yes bash curl
-          elif command -v nix-env; then
-            # for nix
-            nix-env --install --attr nixpkgs.bash nixpkgs.curl
-          elif command -v emerge; then
-            # for gentoo
-            emerge app-shells/bash net-misc/curl
-          fi
+        uses: bevry/dorothy/.github/actions/dorothy-deps@dev/ci-arm
       - name: "Dorothy Test"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # prevent rate limiting
-        run: |
-          # ensure dorothy is cloned, and run command
-          bash -c "$(curl -fsSL 'https://dorothy.bevry.me/test?slug=${{ github.event.pull_request.head.repo.full_name || github.repository }}&commit=${{ github.event.pull_request.head.sha || github.sha }}')"
+        uses: bevry/dorothy/.github/actions/dorothy-test@dev/ci-arm
+        with:
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}
+  containers-arm-test:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        container:
+        - "almalinux:latest"
+        # - "archlinux:latest"
+        # - "cachyos/cachyos:latest"
+        - "debian:latest"
+        # - "devuan/devuan:latest"
+        # - "elementary/docker:latest"
+        - "fedora:latest"
+        # - "ghcr.io/vanilla-os/pico:main"
+        - "kalilinux/kali-rolling:latest"
+        - "manjarolinux/base"
+        - "openeuler/openeuler:latest"
+        # - "openmandriva/minimal:rock"
+        # - "openmandriva/minimal:rolling"
+        - "opensuse/leap:latest"
+        - "opensuse/tumbleweed:latest"
+        - "ubuntu:latest"
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ${{ matrix.container }}
+    steps:
+      - name: "Dorothy Dependencies"
+        uses: bevry/dorothy/.github/actions/dorothy-deps@dev/ci-arm
+      - name: "Dorothy Test"
+        uses: bevry/dorothy/.github/actions/dorothy-test@dev/ci-arm
+        with:
+          GITHUB_TOKEN: ${{ secrets.READONLY_GITHUB_TOKEN }}
+          SLUG: ${{ needs.setup.outputs.SLUG }}
+          COMMIT: ${{ needs.setup.outputs.COMMIT }}

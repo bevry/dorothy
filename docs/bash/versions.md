@@ -23,9 +23,9 @@ From manual discovery:
 
 From manual discovery:
 
-- Introduces the ability to initialize multiple arrays at once, e.g. `local a=() b=()`
-- Introduces the ability to define a subshell `function subshell () ( ... )`
-- Introduces the ability to do grouped conditions `[[ ... && ( ... || ... ) ]]`
+- Introduces the ability to initialize multiple arrays at once, e.g. `local a=() b=()`.
+- Introduces the ability to define a subshell `function subshell () ( ... )`.
+- Introduces the ability to do grouped conditions `[[ ... && ( ... || ... ) ]]`.
 - Has a bug where using `\001` in an array would result in its duplication: `arr=($'\001'); printf '%q' "${arr[0]}" "${#arr[0]}"` outputs `$'\001\001'2`. Use `bash.bash:$ANSI_ALL` instead, such as `arr=("$ANSI_ALL")`.
 
 ## bash v4.0
@@ -37,8 +37,8 @@ From manual discovery:
 
 - Introduces `l` inside `$-` if login shell.
 - Introduces escape code support inside `echo -en`, prior to that `printf` must be used.
-- No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS
-- Fixes the bug where using `\001` in an array would result in its duplication: `arr=($'\001'); printf '%q' "${arr[0]}" "${#arr[0]}"` outputs `$'\001\001'2`
+- No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS.
+- Fixes the bug where using `\001` in an array would result in its duplication: `arr=($'\001'); printf '%q' "${arr[0]}" "${#arr[0]}"` outputs `$'\001\001'2`.
 
 From changelog:
 
@@ -134,15 +134,15 @@ From manual discovery:
 
 - If a crash occurs via `errexit` the exit status will always be `1` instead of the intended exit status. Refer to <errors.md> for guidance.
 - Has a bug where closing a file descriptor does not close the stdin of its process substitution, use Dorothy's `bash.bash:BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION` to detect this and search for it to see the appropriate workarounds.
-- `$'\001'` cannot be used in a regex comparison, e.g. `[[ $'\001' =~ $'\001' ]]` will crash with exit status `2`
+- `$'\001'` cannot be used in a regex comparison, e.g. `[[ $'\001' =~ $'\001' ]]` will crash with exit status `2`.
 
 From changelog:
 
-- Introduces `\u...` and `\U...` escape sequences
-- Introduces `test -v VAR` for testing variable declaration
-- Introduces `printf %(datefmt)T`
-- Introduces negative lengths for arrays and strings, e.g. `${array[@]:0: -1}` for all except the last element
-- Introduces `lastpipe`
+- Introduces `\u...` and `\U...` escape sequences.
+- Introduces `test -v VAR` for testing variable declaration.
+- Introduces `printf %(datefmt)T`.
+- Introduces negative lengths for arrays and strings, e.g. `${array[@]:0: -1}` for all except the last element.
+- Introduces `lastpipe`.
 
 <details>
 <summary>Changelog:</summary>
@@ -169,7 +169,7 @@ From changelog:
 > Because of the exit status bug in this version, this version is discouraged.
 
 > [!NOTE]
-> Dorothy's `bash.bash` includes cross-version compatible implementations of `__get_var_declaration`.
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__get_var_declaration`, and Dorothy's `echo-escape-command` includes cross-version compatible implementations of `printf %q`.
 
 From manual discovery:
 
@@ -179,7 +179,8 @@ From manual discovery:
 From changelog:
 
 - Introduces `declare -n` for creating nameref variables.
-- Fixes a bug where `<&-` would not close the file descriptor
+- Fixes a bug where `<&-` would not close the file descriptor.
+- Fixes a bug where `~` would not be escaped by `printf %q`.
 
 <details>
 <summary>Changelog:</summary>
@@ -189,6 +190,8 @@ From changelog:
 > w. The shell has `nameref` variables and new `-n`(/`+n`) options to declare and unset to use them, and a `test -R` option to test for them.
 >
 > bbbbb. Fixed a bug that caused redirections like <&n- to leave file descriptor n closed if executed with a builtin command.
+>
+> ddddd. Fixed a bug that caused `printf`'s `%q` format specifier not to quote a tilde even if it appeared in a location where it would be subject to tilde expansion.
 
 </details>
 
@@ -231,9 +234,9 @@ From changelog:
 
 From changelog:
 
-- Introduces `EPOCHSECONDS` and `EPOCHREALTIME`
-- Fixes zero-length keys in associative arrays
-- No longer causes strange duplications when working with `$'\001'`
+- Introduces `EPOCHSECONDS` and `EPOCHREALTIME`.
+- Fixes zero-length keys in associative arrays.
+- No longer causes strange duplications when working with `$'\001'`.
 
 <details>
 <summary>Changelog:</summary>
@@ -293,9 +296,9 @@ From changelog:
 From changelog:
 
 - Introduces `${var@U}`, `${var@u}`, `${var@L}` for uppercase, uppercase first letter, and lowercase conversions.
-- Introduces `test -v INDEX` for testing positional declaration
+- Introduces `test -v INDEX` for testing positional declaration.
 - Introduces associative array compound assignments with key-value pairs, e.g. `assoc_array=(key1 value1 key2 value2)`, however is broken until 5.3.
-- Fixes `wait_for: No record of process ...` crashes; according to [this user report](https://gist.github.com/azat/affbda3f8c6b5c38648d4ab105777d88), it is this version that fixes it
+- Fixes `wait_for: No record of process ...` crashes; according to [this user report](https://gist.github.com/azat/affbda3f8c6b5c38648d4ab105777d88), it is this version that fixes it.
 
 <details>
 <summary>Changelog:</summary>

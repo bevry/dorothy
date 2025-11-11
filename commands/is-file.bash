@@ -23,7 +23,7 @@ while [[ $# -ne 0 ]]; do
 		exit 79 # EFTYPE 79 Inappropriate file type or format
 	else
 		# discern if inaccessible, broken, missing
-		is-accessible.bash -- "$path" || exit
+		is-accessible.bash -- "$path" || exit $?
 		if [[ -L $path ]]; then
 			# broken symlink
 			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"

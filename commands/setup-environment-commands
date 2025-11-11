@@ -24,7 +24,7 @@ source "$DOROTHY/sources/config.sh"
 
 # help
 function help {
-	__print_help "$@" <<-EOF || return
+	__print_help "$@" <<-EOF || return $?
 		ABOUT:
 		Outputs commands to be evaluated by the caller to setup the environment for a given shell.
 
@@ -34,6 +34,9 @@ function help {
 		OPTIONS:
 		--shell=<shell> | <shell>
 		    The shell to export the environment for.
+
+		--verbose
+		    If provided, provide details about whether the cache was hit or missed.
 
 		--debug
 		    If provided, output decisions and their context to STDERR.
@@ -49,6 +52,7 @@ function help {
 
 # arguments
 option_shell='' # shared by env.bash, as it is handled by a trap, we cannot pass arguments to it. SHELL is taken, it is the login shell
+option_verbose=''
 option_debug='no'
 option_blank='no'
 option_invalidate='no'
@@ -59,20 +63,26 @@ while [[ $# -ne 0 ]]; do
 	--help) help ;;
 	--shell=*) option_shell="${item#*=}" ;;
 	--ppid=*) : ;; # ignore for now, for future cache invalidation idea
-	--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative || exit ;;
-	--no-blank* | --blank*) __flag --source={item} --target={option_blank} --affirmative || exit ;;
-	--no-invalidate* | --invalidate*) __flag --source={item} --target={option_invalidate} --affirmative || exit ;;
+	--no-verbose* | --verbose*) __flag --source={item} --target={option_verbose} --affirmative || exit $? ;;
+	--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative || exit $? ;;
+	--no-blank* | --blank*) __flag --source={item} --target={option_blank} --affirmative || exit $? ;;
+	--no-invalidate* | --invalidate*) __flag --source={item} --target={option_invalidate} --affirmative || exit $? ;;
 	--no-fresh* | --fresh* | --no-refresh* | --refresh*)
-		__flag --source+target={item} --affirmative || exit
+		__flag --source+target={item} --affirmative || exit $?
 		if [[ $item == 'yes' ]]; then
 			option_blank='yes'
 			option_invalidate='yes'
 		fi
 		;;
-	--*) __unrecognised_flag "$item" || exit ;;
-	*) __unrecognised_argument "$item" || exit ;;
+	--*) __unrecognised_flag "$item" || exit $? ;;
+	*) __unrecognised_argument "$item" || exit $? ;;
 	esac
 done
+if [[ $option_verbose == 'yes' ]]; then
+	debug_or_stderr_arg='--stderr'
+else
+	debug_or_stderr_arg='--debug'
+fi
 if [[ $option_debug == 'yes' ]]; then
 	# trunk-ignore(shellcheck/SC2034)
 	DOROTHY_DEBUG='yes'
@@ -110,24 +120,24 @@ function __add_prefix_directory {
 	local p="$1"
 	if [[ -n $p && -d $p ]]; then
 		# for invokers to discover it
-		__add_directory "$p/bin" || return
+		__add_directory "$p/bin" || return $?
 		# for invokers under root to discover it
 		if [[ $USER == 'root' ]]; then
-			__add_directory "$p/sbin" || return
+			__add_directory "$p/sbin" || return $?
 		fi
 		# for compilers to discover it
 		if [[ -d "$p/lib" ]]; then
 			LDFLAGS="-L$p/lib $LDFLAGS"
 			# for pkg-config to discover it
-			__add_directory "$p/lib/pkgconfig" PKG_CONFIG_PATH || return
+			__add_directory "$p/lib/pkgconfig" PKG_CONFIG_PATH || return $?
 		fi
 		if [[ -d "$p/include" ]]; then
 			CPPFLAGS="-I$p/include $CPPFLAGS"
 		fi
 		# man and share/man
-		__add_directory "$p/man" MANPATH || return
-		__add_directory "$p/share/man" MANPATH || return
-		__add_directory "$p/share/info" INFOPATH || return
+		__add_directory "$p/man" MANPATH || return $?
+		__add_directory "$p/share/man" MANPATH || return $?
+		__add_directory "$p/share/info" INFOPATH || return $?
 	fi
 }
 
@@ -157,42 +167,69 @@ function __cut {
 }
 
 # Environment variables that should be ignored, because they are arbitrary or readonly or irrelevant to our goals here
-IGNORE_ENV_VARIABLES='
-BASH_DEBUG_FORMAT
-COLOR
-GPG_TTY
-LaunchInstanceID
-PS4
-SECURITYSESSIONID
-SHLVL
-SSH_AGENT_PID
-SSH_AUTH_SOCK
-TERM_SESSION_ID
-TMPDIR
-'
+IGNORE_VARIABLE_NAMES=(
+	BASH_DEBUG_FORMAT
+	COLOR
+	GPG_TTY
+	LaunchInstanceID
+	PS4
+	SECURITYSESSIONID
+	SHLVL
+	SSH_AGENT_PID
+	SSH_AUTH_SOCK
+	TERM_SESSION_ID
+	TMPDIR
+	WT_SESSION
+	WT_PROFILE_ID
+	WSL_INTEROP
+)
+function __is_ignored_env_var {
+	local name="$1" ignored_name
+	for ignored_name in "${IGNORE_VARIABLE_NAMES[@]}"; do
+		if [[ $name == "$ignored_name" ]]; then
+			return 0
+		fi
+	done
+	return 1
+}
 
-# Store the initial environment variables so we can know what changed
+# Fetch the initial global environment variable names
+# `compgen` fetches all variable names, not just exported ones, so we do this instead
+INITIAL_EXPORTED_VARIABLE_NAMES=()
+INITIAL_EXPORTED_VARIABLE_COMPOSITE='' # for caching
+function __get_exported_variable_names {
+	local names=()
+	while read -r name; do
+		# this fetches the name
+		if [[ $name =~ ^declare\ -x\ ([^=]+)= ]]; then
+			name="${BASH_REMATCH[1]}"
+		else
+			continue
+		fi
+		# this ensures it isn't ignored
+		if __is_ignored_env_var "$name"; then
+			continue
+		fi
+		names+=("$name")
+	done <<<"$(declare -px)" # fetch all exported variables
+	printf '%s\n' "${names[@]}" || return
+}
 if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-	declare -a ENV_NAMES=()
-	declare -A ENV_MAP_NAME_VALUE=()
+	declare -A INITIAL_EXPORTED_VARIABLE_NAMES_TO_VALUES=()
 	while read -r name; do
-		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
-			continue
-		fi
-		value="${!name-}"
-		ENV_NAMES+=("$name")
-		ENV_MAP_NAME_VALUE["$name"]="$value"
-	done <<<"$(compgen -e || :)"
+		value="${!name}"
+		INITIAL_EXPORTED_VARIABLE_VALUES+=("$value")
+		INITIAL_EXPORTED_VARIABLE_COMPOSITE+="$name $value"$'\n'
+		INITIAL_EXPORTED_VARIABLE_NAMES_TO_VALUES["$name"]="$value"
+	done <<<"$(__get_exported_variable_names | sort)"
 else
-	declare -a ENV_NAMES=() ENV_VALUES=()
+	INITIAL_EXPORTED_VARIABLE_VALUES=()
 	while read -r name; do
-		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
-			continue
-		fi
-		value="${!name-}"
-		ENV_NAMES+=("$name")
-		ENV_VALUES+=("$value")
-	done <<<"$(compgen -e || :)"
+		value="${!name}"
+		INITIAL_EXPORTED_VARIABLE_NAMES+=("$name")
+		INITIAL_EXPORTED_VARIABLE_VALUES+=("$value")
+		INITIAL_EXPORTED_VARIABLE_COMPOSITE+="$name $value"$'\n'
+	done <<<"$(__get_exported_variable_names | sort)"
 fi
 
 # Scan the result environment variables and output their changes
@@ -207,10 +244,13 @@ function __on_env_finish {
 	local -i index
 	local name value delimiter original_value values is_path results=()
 	while read -r name; do
-		if [[ $name == $'\n'"$IGNORE_ENV_VARIABLES"$'\n' ]]; then
+		value="${!name-}"
+
+		# if the value has a quote, discard it as we cannot handle it
+		if [[ $value =~ [\'\"] ]]; then
+			__dump "$debug_or_stderr_arg" --value='== SKIP QUOTED ==' {name} {value} || :
 			continue
 		fi
-		value="${!name-}"
 
 		# De-duplicate delimited values, e.g. `PATH=a:b:a` => `PATH=a:b`
 		delimiter='' is_path='no'
@@ -222,9 +262,9 @@ function __on_env_finish {
 		if [[ -n $delimiter ]]; then
 			# trunk-ignore(shellcheck/SC2034)
 			original_value="$value" values=()
-			__split --source={value} --delimiter="$delimiter" --target={values} --no-zero-length || return
-			__unique --source+target={values} || return
-			__join --source={values} --delimiter="$delimiter" --target={value} || return
+			__split --source={value} --delimiter="$delimiter" --target={values} --no-zero-length || return $?
+			__unique --source+target={values} || return $?
+			__join --source={values} --delimiter="$delimiter" --target={value} || return $?
 			if [[ -z $value && $name == 'PATH' ]]; then
 				__dump --stderr --value='== DE-DUPLICATION FAILED ==' {name} {original_value} {delimiter} {values} {value} {is_path} || :
 				return 22 # EINVAL 22 Invalid argument
@@ -234,14 +274,14 @@ function __on_env_finish {
 
 		# Cycle through each environment variable, skipping all that are unchanged from earlier
 		if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-			if [[ ${ENV_MAP_NAME_VALUE["$name"]-} == "$value" ]]; then
+			if [[ ${INITIAL_EXPORTED_VARIABLE_NAMES_TO_VALUES["$name"]-} == "$value" ]]; then
 				__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
 				continue
 			fi
 		else
-			for ((index = 0; index < ${#ENV_NAMES[@]}; index++)); do
-				if [[ ${ENV_NAMES[index]} == "$name" ]]; then
-					if [[ ${ENV_VALUES[index]} == "$value" ]]; then
+			for ((index = 0; index < ${#INITIAL_EXPORTED_VARIABLE_NAMES[@]}; index++)); do
+				if [[ ${INITIAL_EXPORTED_VARIABLE_NAMES[index]} == "$name" ]]; then
+					if [[ ${INITIAL_EXPORTED_VARIABLE_VALUES[index]} == "$value" ]]; then
 						__dump --debug --value='== SKIP INHERITED ==' {name} {value} || :
 						continue
 					fi
@@ -300,8 +340,8 @@ function __on_env_finish {
 			fi
 		fi
 	done <<<"$({
-		compgen -e || :
-		__print_lines "${ENV_NAMES[@]}" || :
+		__get_exported_variable_names || :
+		__print_lines "${INITIAL_EXPORTED_VARIABLE_NAMES[@]}" || :
 	} | sort --unique || :)"
 
 	# xonsh needs a trailing newline, because xonsh, fixes:
@@ -314,7 +354,7 @@ function __on_env_finish {
 	fi
 
 	# Output the declarations to STDOUT
-	__print_lines "${results[@]}" || return
+	__print_lines "${results[@]}" || return $?
 }
 trap __on_env_finish EXIT
 
@@ -326,9 +366,9 @@ CACHE_LOCK_FILE=''
 CACHE_RESULT_FILE=''
 function __cache {
 	# cache the environment setup commands
-	local cache_dir="$TMPDIR/dorothy/setup-environment-commands"
+	local cache_dir="$DOROTHY/state/setup-environment-commands"
 	if [[ $option_invalidate == 'yes' ]]; then
-		__dump --debug --value='== CACHE INVALIDATED ==' {cache_dir}
+		__dump --debug --value='== CACHE INVALIDATED ==' {cache_dir} || return $?
 		rm -rf "$cache_dir" || :
 	fi
 	local option_validity_seconds='' option_checksum_command=()
@@ -360,15 +400,11 @@ function __cache {
 		return 22 # EINVAL 22 Invalid argument
 	fi
 	# @todo instead of ignore_env_vars change it to list of only vars instead, which is automatically updated from what this actually sets
-	local now_env context_id checksum ignore_env_var ignore_env_vars=(TERM_SESSION_ID SECURITYSESSIONID LaunchInstanceID GPG_TTY PS4 SSH_AGENT_PID SSH_AUTH_SOCK COLOR BASH_DEBUG_FORMAT SHLVL TMPDIR) env_args=()
-	for ignore_env_var in "${ignore_env_vars[@]}"; do
-		env_args+=(-u "$ignore_env_var")
-	done
-	now_env="$(env "${env_args[@]}" | sort)" || return
-	checksum="$("${option_checksum_command[@]}" <<<"$now_env" | __cut)" || return
+	local checksum context_id
+	checksum="$("${option_checksum_command[@]}" <<<"$INITIAL_EXPORTED_VARIABLE_COMPOSITE" | __cut)" || return $?
 	context_id="setup-environment-commands.$option_shell.$checksum"
 	# get an exclusive lock on the context
-	CACHE_LOCK_FILE="$(__get_semlock "$context_id")" || return
+	CACHE_LOCK_FILE="$(__get_semlock "$context_id")" || return $?
 	# get the result cache of the context
 	CACHE_RESULT_FILE="$cache_dir/$context_id"
 	# if cache is available and applicable
@@ -376,24 +412,22 @@ function __cache {
 		local now_seconds cache_seconds cache_ago_seconds
 		# if cache is still valid
 		# local now_seconds cache_seconds cache_ago_seconds
-		now_seconds="$(__get_epoch_seconds)" || return
-		cache_seconds="$(date -r "$CACHE_RESULT_FILE" +%s)" || return
+		now_seconds="$(__get_epoch_seconds)" || return $?
+		cache_seconds="$(date -r "$CACHE_RESULT_FILE" +%s)" || return $?
 		cache_ago_seconds="$((now_seconds - cache_seconds))"
 		if [[ $cache_ago_seconds -lt $option_validity_seconds ]]; then
 			# then use the cache
-			__dump --debug --value='== CACHE HIT ==' {CACHE_RESULT_FILE}
-			cat -- "$CACHE_RESULT_FILE" || return
-			rm -f -- "$CACHE_LOCK_FILE" || return
+			__dump "$debug_or_stderr_arg" --value='== CACHE HIT ==' {CACHE_RESULT_FILE} {INITIAL_EXPORTED_VARIABLE_COMPOSITE} || return $?
+			cat -- "$CACHE_RESULT_FILE" || return $?
+			rm -f -- "$CACHE_LOCK_FILE" || return $?
 			trap - EXIT # disable the `env.bash` trap
 			exit 0      # must be exit, otherwise `setup-environment-commands` will continue
 		else
-			__dump --debug --value='== CACHE EXPIRED ==' {CACHE_RESULT_FILE}
-			:
+			__dump "$debug_or_stderr_arg" --value='== CACHE EXPIRED ==' {CACHE_RESULT_FILE} {INITIAL_EXPORTED_VARIABLE_COMPOSITE} || return $?
 		fi
 	else
-		__dump --debug --value='== CACHE 404 ==' {CACHE_RESULT_FILE}
-		__mkdirp "$cache_dir" || return
-		:
+		__dump "$debug_or_stderr_arg" --value='== CACHE 404 ==' {CACHE_RESULT_FILE} {INITIAL_EXPORTED_VARIABLE_COMPOSITE} || return $?
+		__mkdirp "$cache_dir" || return $?
 	fi
 	# cache needs updating
 	function __on_env_finish__cache {
@@ -404,9 +438,9 @@ function __cache {
 			return "$status"
 		fi
 		# store the result
-		__dump --debug --value='== CACHE UPDATING ==' {CACHE_RESULT_FILE}
-		__on_env_finish | tee -- "$CACHE_RESULT_FILE" || __return $? -- rm -f -- "$CACHE_LOCK_FILE" || return
-		rm -f -- "$CACHE_LOCK_FILE" || return
+		__dump --debug --value='== CACHE UPDATING ==' {CACHE_RESULT_FILE} || return $?
+		__on_env_finish | tee -- "$CACHE_RESULT_FILE" || __return $? -- rm -f -- "$CACHE_LOCK_FILE" || return $?
+		rm -f -- "$CACHE_LOCK_FILE" || return $?
 		return 0
 	}
 	trap __on_env_finish__cache EXIT # replace our prior trap with one that caches the result
