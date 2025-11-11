@@ -116,14 +116,6 @@ function stdinargs {
 		fn_line="$(__print_first_function __on_line on_line)" || return $?
 		# pieces are a whole argument, or a STDIN line, or a STDIN inline (iff no arg nor whole nor inline nor line function)
 		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return $?
-
-		# deprecations
-		if __is_function_defined on_no_lines; then
-			dorothy-warnings add --path="$0" --=':' --code='on_no_lines' --bold=' has been deprecated in favor of ' --code='__on_nothing' || return $?
-			function on_no_lines {
-				on_no_input "$@"
-			}
-		fi
 	fi
 
 	# arguments
