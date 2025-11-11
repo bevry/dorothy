@@ -1587,18 +1587,18 @@ function __affirm_variable_name {
 # >(if tee -a -- "${samasama[@]}" 2>&1; then touch "$semaphore"; else status=$?; touch "$semaphore"; return "$status"; fi)
 # note that this disabled errexit on the eval'd code
 function __return {
-	# __return $?
+	# `__return`
 	local RETURN__original_exit_status="$?"
 	if [[ $# -eq 0 ]]; then
 		return "$RETURN__original_exit_status"
 	fi
 
-	# __return $?
+	# `__return <positive-integer>`
 	if [[ $# -eq 1 ]]; then
 		return "$1"
 	fi
 
-	# __return ...[exit-status] -- command ...
+	# `__return [...<exit-status>] [-- <...command>`
 	local RETURN__item RETURN__status=0 RETURN__invoke_only_on_failure=no RETURN__invoke_command=()
 	while [[ $# -ne 0 ]]; do
 		RETURN__item="$1"
