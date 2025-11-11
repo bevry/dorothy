@@ -1047,8 +1047,8 @@ else
 fi
 if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 3) ]]; then
 	# bash 4.3 and above
-	# This document details the changes between this version, `bash-4.3-alpha`, and the previous version, `bash-4.2-release`.
-	# ddddd. Fixed a bug that caused `printf`'s `%q` format specifier not to quote a tilde even if it appeared in a location where it would be subject to tilde expansion.
+	# > This document details the changes between this version, `bash-4.3-alpha`, and the previous version, `bash-4.2-release`.
+	# > ddddd. Fixed a bug that caused `printf`'s `%q` format specifier not to quote a tilde even if it appeared in a location where it would be subject to tilde expansion.
 	BASH_PRINTF_Q_ESCAPES_TIDLE='yes'
 else
 	# trunk-ignore(shellcheck/SC2034)
