@@ -1928,7 +1928,7 @@ function __value_to_tty {
 	# handle TTY redirects
 	if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
 		__value_to_target "$VALUE_TO_TTY__value" "$TERMINAL_OUTPUT_TARGET" || return $?
-		return $?
+		return 0
 	fi
 	# TTY is not redirected
 	printf '%s' "$VALUE_TO_TTY__value" >>/dev/tty || return $?
@@ -1953,7 +1953,7 @@ function __value_to_target {
 		# handle TTY redirects
 		if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
 			__value_to_target "$VALUE_TO_TARGET__value" "$TERMINAL_OUTPUT_TARGET" "$VALUE_TO_TARGET__mode" || return $?
-			return $?
+			return 0
 		fi
 		# TTY is not redirected
 		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return $?
@@ -2564,7 +2564,7 @@ function __do {
 
 		# once completed, wait for and return the status of our process substitution
 		__return $? -- __wait_for_and_return_semaphores "$DO__semaphore" || return $?
-		return $?
+		return 0
 		;;
 
 	# note that copying to a process substitution is not yet supported
@@ -2656,7 +2656,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return $?
-			return $?
+			return 0
 			;;
 
 		# copy stdout to tty
@@ -2679,7 +2679,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return $?
-			return $?
+			return 0
 			;;
 
 		# copy stdout to null
@@ -2711,7 +2711,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return $?
-			return $?
+			return 0
 			;;
 
 		# no-op
@@ -2736,7 +2736,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "$DO__semaphore" || return $?
-			return $?
+			return 0
 			;;
 
 		# done with stdout copy
@@ -2817,7 +2817,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return $?
-			return $?
+			return 0
 			;;
 
 		# copy stderr to stderr, this behaviour is unspecified, should it double the data to stderr?
@@ -2847,7 +2847,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return $?
-			return $?
+			return 0
 			;;
 
 		# copy stderr to null
@@ -2879,7 +2879,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "${DO__semaphores[@]}" || return $?
-			return $?
+			return 0
 			;;
 
 		# no-op
@@ -2904,7 +2904,7 @@ function __do {
 
 			# once completed, wait for and return the status of our process substitution
 			__return $? -- __wait_for_and_return_semaphores "$DO__semaphore" || return $?
-			return $?
+			return 0
 			;;
 
 		# done with stderr copy
@@ -3552,7 +3552,7 @@ function __elevate {
 	# forward to `eval-helper --elevate` if it exists, as it is more detailed
 	if __command_exists -- eval-helper; then
 		eval-helper --elevate -- "$@" || return $?
-		return $?
+		return 0
 	elif __command_exists -- sudo; then
 		# check if password is required
 		if ! sudo --non-interactive -- true &>/dev/null; then
@@ -3582,7 +3582,7 @@ function __try_sudo {
 		dorothy-warnings add --code='__try_sudo' --bold=' has been deprecated in favor of ' --code='__elevate' || :
 	fi
 	__elevate "$@" || return $?
-	return $?
+	return 0
 }
 
 # this should never be the case, as TMPDIR bash should prefill if not env inherited, but just in case, ensure it
@@ -3656,7 +3656,7 @@ function __sudo_mkdirp {
 		dorothy-warnings add --code='__sudo_mkdirp' --bold=' has been deprecated in favor of ' --code='__elevate_mkdirp' || :
 	fi
 	__elevate_mkdirp "$@" || return $?
-	return $?
+	return 0
 }
 
 # -------------------------------------
@@ -4914,7 +4914,7 @@ function __iterate {
 		has) return 1 ;;
 		evict)
 			__to --source="{$ITERATE__source_variable_name}" --mode="$ITERATE__mode" --targets={ITERATE__targets} || return $?
-			return $?
+			return 0
 			;;
 		esac
 		__affirm_length_defined "$ITERATE__size" 'source' || {
@@ -5355,7 +5355,7 @@ function __replace {
 			REPLACE__array["$REPLACE__index"]="${!REPLACE__recursion_reference}"
 		done
 		__to --source={REPLACE__array} --mode="$REPLACE__mode" --targets={REPLACE__targets} || return $?
-		return $?
+		return 0
 	fi
 	# handle string
 	local -i REPLACE__expected_size=0
