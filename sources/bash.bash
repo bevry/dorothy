@@ -51,7 +51,23 @@ fi
 # Essential Toolkit
 
 # -------------------------------------
-# Print Toolkit Dependencies
+# Environment Toolkit & Print Toolkit Dependencies
+
+# see `commands/is-mac` for details
+function __is_macos {
+	[[ $OSTYPE == darwin* ]] || return $?
+}
+
+# see `commands/is-linux` for details
+# this will/should pass on WSL on Windows
+function __is_linux {
+	[[ "$(uname -s)" == 'Linux' ]] || return $?
+}
+
+# see `commands/is-linux` for details
+function __is_wsl {
+	uname -a | grep --quiet --ignore-case --fixed-strings --regexp='-WSL' || return $?
+}
 
 # see `commands/is-brew` for details
 # workaround for Dorothy's `brew` helper

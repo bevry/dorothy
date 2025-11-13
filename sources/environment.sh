@@ -31,6 +31,7 @@ if [ -n "${DOROTHY_ENVIRONMENT_EVAL-}" ]; then
 		printf '%s\n' \
 			"FAILED TO EVALUATE DOROTHY ENVIRONMENT SETUP WITH EXIT STATUS $?, SETUP IS BELOW:" >&2 || :
 		printf '%s' "$DOROTHY_ENVIRONMENT_EVAL" | cat -vbn >&2 || :
+		printf '\n' >&2 || :
 		if [ -n "${CI-}" ]; then
 			exit 6 # ENXIO 6 Device not configured
 		fi
