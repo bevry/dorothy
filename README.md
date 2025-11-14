@@ -45,8 +45,8 @@ Dorothy is a dotfile ecosystem featuring:
 | -------------------------------------------------------------------------------------------------------------- | ------------------------ | -------- |
 | 🍏 macOS                                                                                                       | 🍏 Apple Silicon (ARM64) | 🤖 CI    |
 | 🍏 macOS                                                                                                       | 👔 Intel/AMD (x86_64)    | 🤖 CI    |
-| 🍓 [Raspberry Pi OS][PiOS]: [Desktop][PiOSDownload], [Lite][PiOSDownload]                                      | 🍓 Raspberry Pi (ARM64)  | 🌞 Daily |
-| 🪟 Windows 10/11 [WSL2][WSL2]: [Ubuntu][UbuntuWSL], [Debian][DebianWSL], [AlmaLinux][AlmaWSL], [Kali][KaliWSL] | 👔 Intel/AMD (x86_64)    | 🌞 Daily |
+| 🍓 [Raspberry Pi OS][PiOS]: [Desktop][PiOSDownload], [Lite][PiOSDownload]                                      | 🍓 Raspberry Pi (ARM64)  | 🕺 Human |
+| 🪟 Windows 10/11 [WSL2][WSL2]: [Ubuntu][UbuntuWSL], [Debian][DebianWSL], [AlmaLinux][AlmaWSL], [Kali][KaliWSL] | 👔 Intel/AMD (x86_64)    | 🤖 CI    |
 | 👐 [AlmaLinux][AlmaLinux]                                                                                      | 👔 Intel/AMD (x86_64)    | 🤖 CI    |
 | 👐 [AlmaLinux on Raspberry Pi][AlmaLinuxPi]                                                                    | 🍓 Raspberry Pi (ARM64)  | 🤖 CI    |
 | ▲ [Arch][Arch]                                                                                                 | 👔 Intel/AMD (x86_64)    | 🤖 CI    |
@@ -124,7 +124,7 @@ Previously supported, but support broke.
 [Rocky]: https://rockylinux.org
 -->
 
-Table reflects usage by Dorothy users and Dorothy CI support. Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
+Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
 ### Dependencies
 
@@ -148,10 +148,10 @@ xcode-select --install
 Windows 10/11:
 
 ```bash
-# Install WSL: <https://learn.microsoft.com/en-au/windows/wsl/install>
-wsl --install
+# https://learn.microsoft.com/en-au/windows/wsl/install
 wsl --set-default-version 2
-# Note that `wsl --version` does not report WSL2, you need to do `wsl -l -v`
+wsl --install
+wsl --list --verbose
 ```
 
 Ubuntu / Debian / Kali:
