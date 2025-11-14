@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+
+function echo_escape_filesystem_test() (
+	source "$DOROTHY/sources/bash.bash"
+
+	eval-tester --status=9 -- \
+		echo-escape-filesystem -- ''
+
+	eval-tester --stdout='__'$'\n' --trailing-newlines -- \
+		echo-escape-filesystem -- '//'
+
+	eval-tester --status=9 -- \
+		echo-escape-filesystem --path -- '//'
+
+	eval-tester --stdout='![_______]'$'\n' --trailing-newlines -- \
+		echo-escape-filesystem -- '![:*?"<>|]'
+
+	eval-tester --stdout='a_b/__prepare_(login_current)_(user_uid_group_gid_groups_gids).expected.txt'$'\n' --trailing-newlines -- \
+		echo-escape-filesystem --path -- 'a\b/__prepare_(login|current)_(user|uid|group|gid|groups|gids).expected.txt'
+
+	return 0
+)
+
+function echo_escape_filesystem() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	# trunk-ignore(shellcheck/SC2120)
+	function help {
+		__print_help "$@" <<-EOF || return
+			ABOUT:
+			Sanitize each <input> for cross-platform modern filesystem usage by replacing special characters with underscores \`_\`.
+
+			USAGE:
+			\`echo-escape-filesystem [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-escape-filesystem [...options]\`
+
+			OPTIONS:
+			--filename|--basename|--name
+			    Convert slashes to underscores.
+			    This is the default mode.
+			--filepath|--path
+			    Preserve forward slashes \`/\`. Backslashes \`\\\` are still converted to underscores \`_\`.
+
+			$(__stdinargs__help_options --)
+
+			QUIRKS:
+			FAT is more restrictive, and this does not cover that.
+		EOF
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_mode='name' option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		# trunk-ignore(shellcheck/SC2119)
+		'--help' | '-h') help ;;
+		'--filename' | '--basename' | '--name')
+			option_mode='name'
+			;;
+		'--filepath' | '--path')
+			option_mode='path'
+			;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# https://en.wikipedia.org/wiki/Filename
+
+	function __is_reserved_filename {
+		local name="$1" upper
+		if [[ -z $name ]]; then
+			return 0
+		fi
+		upper="$(__get_uppercase_string "$name")"
+		# trunk-ignore(cspell)
+		if [[ $upper =~ ^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]|LST|CLOCK\$|KEYBD\$|SCREEN\$|\$IDLE\$|CONFIG\$)$ ]]; then
+			return 0
+		fi
+		return 1
+	}
+	function __has_reserved_filename {
+		local name="$1" parts=() upper
+		__split --source={name} --target={parts} --delimiter='/' || return $?
+		for part in "${parts[@]}"; do
+			if __is_reserved_filename "$part"; then
+				return 0
+			fi
+		done
+		return 1
+	}
+
+	# does not check for reserved filenames
+	function __escape_filepath {
+		local input="$1"
+		input="${input//[\\:*?\"<>|[:cntrl:]]/_}"
+		printf '%s\n' "$input" || return $?
+	}
+	function __escape_filename {
+		local input="$1"
+		input="$(__escape_filepath "$input")" || return $?
+		input="${input//\//_}"
+		printf '%s\n' "$input" || return $?
+	}
+
+	if [[ $option_mode == 'path' ]]; then
+		function __on_piece {
+			local input="$1"
+			if __has_reserved_filename "$input"; then
+				return 9 # EBADF 9 Bad file descriptor
+			fi
+			__escape_filepath "$input" || return $?
+		}
+	else
+		function __on_piece {
+			local input="$1"
+			if __is_reserved_filename "$input"; then
+				return 9 # EBADF 9 Bad file descriptor
+			fi
+			__escape_filename "$input" || return $?
+		}
+	fi
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_escape_filesystem_test
+	else
+		echo_escape_filesystem "$@"
+	fi
+fi

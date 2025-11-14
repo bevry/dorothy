@@ -53,24 +53,54 @@ function __stdinargs__help_options {
 }
 function stdinargs_options_help { __stdinargs__help_options "$@"; } # b/c alias
 
-# This fetching the first defined function.
-function __print_first_function {
-	local fn type
-	while [[ $# -ne 0 ]]; do
-		fn="$1"
-		shift
-		if [[ -z $fn ]]; then
-			continue
-		fi
-		type="$(type -t "$fn" 2>/dev/null)" || continue
-		if [[ $type != 'function' ]]; then
-			continue
-		fi
-		__print_string "$fn"
-		return 0
-	done
-	return 0
-}
+# Helpers for fetching our handlers
+# This use to use `type -t` however that was slow
+if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+	declare -A STDINARGS__functions_map=()
+	function __stdinargs__prepare_functions {
+		local line fn prefix='declare -f ' prefix_length
+		prefix_length="${#prefix}"
+		while read -r line; do
+			fn="${line:prefix_length}"
+			STDINARGS__functions_map["$fn"]=1
+		done <<<"$(declare -F)"
+	}
+	function __stdinargs__get_first_function {
+		local fn
+		while [[ $# -ne 0 ]]; do
+			fn="$1"
+			shift
+			if [[ -n $fn && -n ${STDINARGS__functions_map["$fn"]-} ]]; then
+				__print_string "$fn"
+				return 0
+			fi
+		done
+		return 0 # empty result is fine
+	}
+else
+	# trunk-ignore(shellcheck/SC2168)
+	local STDINARGS__functions_composite=''
+	function __stdinargs__prepare_functions {
+		local line fn prefix='declare -f ' prefix_length
+		prefix_length="${#prefix}"
+		while read -r line; do
+			fn="${line:prefix_length}"
+			STDINARGS__functions_composite+="[$fn]"
+		done <<<"$(declare -F)"
+	}
+	function __stdinargs__get_first_function {
+		local fn
+		while [[ $# -ne 0 ]]; do
+			fn="$1"
+			shift
+			if [[ -n $fn && $STDINARGS__functions_composite == *"[$fn]"* ]]; then
+				__print_string "$fn"
+				return 0
+			fi
+		done
+		return 0 # empty result is fine
+	}
+fi
 
 # This is a helper callers of stdinargs can call to handle joining of pieces.
 # trunk-ignore(shellcheck/SC2168)
@@ -90,32 +120,34 @@ function __print_piece {
 function stdinargs {
 	# function
 	local fn_help fn_stdin fn_whole fn_piece fn_line fn_inline fn_arg fn_start fn_nothing fn_no_args fn_no_stdin fn_finish
+	# cache the functions
+	__stdinargs__prepare_functions
 	# help function
-	fn_help="$(__print_first_function __help help __on_help on_help)" || return $?
+	fn_help="$(__stdinargs__get_first_function __help help __on_help on_help)" || return $?
 	# on argument function
-	fn_arg="$(__print_first_function __on_argument on_argument __on_arg on_arg)" || return $?
+	fn_arg="$(__stdinargs__get_first_function __on_argument on_argument __on_arg on_arg)" || return $?
 	# if there is stdin content, handle it ourself
-	fn_stdin="$(__print_first_function __on_stdin on_stdin)" || return $?
+	fn_stdin="$(__stdinargs__get_first_function __on_stdin on_stdin)" || return $?
 	# if there is stdin or argument content, receive it in whole
-	fn_whole="$(__print_first_function __on_whole on_whole)" || return $?
+	fn_whole="$(__stdinargs__get_first_function __on_whole on_whole)" || return $?
 	# before we begin parsing stdin or arguments, call this
-	fn_start="$(__print_first_function __on_start on_start)" || return $?
+	fn_start="$(__stdinargs__get_first_function __on_start on_start)" || return $?
 	# if there were no stdin nor arguments, call this
-	fn_nothing="$(__print_first_function __on_nothing on_nothing __on_no_input on_no_input)" || return $?
+	fn_nothing="$(__stdinargs__get_first_function __on_nothing on_nothing __on_no_input on_no_input)" || return $?
 	# if there were no arguments, call this
-	fn_no_args="$(__print_first_function __on_no_arguments on_no_arguments __on_no_args on_no_args)" || return $?
+	fn_no_args="$(__stdinargs__get_first_function __on_no_arguments on_no_arguments __on_no_args on_no_args)" || return $?
 	# if there were no stdin, call this
-	fn_no_stdin="$(__print_first_function __on_no_stdin on_no_stdin)" || return $?
+	fn_no_stdin="$(__stdinargs__get_first_function __on_no_stdin on_no_stdin)" || return $?
 	# after we finish parsing stdin and arguments, call this
-	fn_finish="$(__print_first_function __on_finish on_finish)" || return $?
+	fn_finish="$(__stdinargs__get_first_function __on_finish on_finish)" || return $?
 	if [[ -z $fn_whole ]]; then
 		# if there isn't whole, then call these
 		# inlines are a trailing line that isn't terminated by `\n`, either from STDIN or from arguments
-		fn_inline="$(__print_first_function __on_inline on_inline)" || return $?
+		fn_inline="$(__stdinargs__get_first_function __on_inline on_inline)" || return $?
 		# lines are STDIN and/or argument lines and/or inlines (iff no inline function)
-		fn_line="$(__print_first_function __on_line on_line)" || return $?
+		fn_line="$(__stdinargs__get_first_function __on_line on_line)" || return $?
 		# pieces are a whole argument, or a STDIN line, or a STDIN inline (iff no arg nor whole nor inline nor line function)
-		fn_piece="$(__print_first_function __on_piece on_piece __on_input on_input)" || return $?
+		fn_piece="$(__stdinargs__get_first_function __on_piece on_piece __on_input on_input)" || return $?
 	fi
 
 	# arguments
