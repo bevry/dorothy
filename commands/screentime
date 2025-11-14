@@ -1,0 +1,482 @@
+#!/usr/bin/env nu
+use ~/.local/share/dorothy/sources/nu.nu [is_affirmative, get_mode_from_options]
+# https://github.com/copilot/c/b8a85f16-8077-4434-87bd-35c322bce51e
+
+# Apple uses a different "starting point" for counting time than Unix systems.
+# Unix counts seconds since January 1, 1970 00:00:00 UTC (called "Unix epoch")
+# Apple's Core Data counts seconds since January 1, 2001 00:00:00 UTC (called "Core Data epoch")
+# The difference between these two dates is exactly 978,307,200 seconds (31 years)
+# We add this number to convert Apple's timestamps to standard Unix timestamps
+const CORE_DATA_EPOCH_OFFSET = 978307200
+
+# Full path to macOS Screen Time database
+# $env.HOME = your user home directory (e.g., /Users/balupton)
+# This SQLite database stores all Screen Time usage data
+let KNOWLEDGE_DB_PATH = $"($env.HOME)/Library/Application Support/Knowledge/knowledgeC.db"
+
+# Common app aliases for convenience
+let APP_ALIASES = {
+	"vscode": "com.microsoft.VSCode",
+	"code": "com.microsoft.VSCode",
+	"safari": "com.apple.Safari",
+	"chrome": "com.google.Chrome",
+	"firefox": "org.mozilla.firefox",
+	"brave": "com.brave.Browser",
+	"edge": "com.microsoft.edgemac",
+	"slack": "com.tinyspeck.slackmacgap",
+	"discord": "com.hnc.Discord",
+	"spotify": "com.spotify.client",
+	"telegram": "ru.keepcoder.Telegram",
+	"whatsapp": "net.whatsapp.WhatsApp",
+	"signal": "org.whispersystems.Signal-Desktop",
+	"1password": "com.1password.1password",
+	"obs": "com.obsproject.obs-studio",
+	"xcode": "com.apple.dt.Xcode",
+	"sketch": "com.bohemiancoding.sketch3",
+	"figma": "com.figma.Desktop",
+	"notion": "notion.id",
+	"zoom": "us.zoom.xos",
+	"teams": "com.microsoft.teams2",
+	"plex": "tv.plex.desktop",
+	"alfred": "com.runningwithcrayons.Alfred",
+	"backblaze": "com.backblaze.BackblazeRestore",
+	"kindle": "com.amazon.Kindle",
+	"music": "com.apple.Music",
+	"numbers": "com.apple.iWork.Numbers",
+	"pages": "com.apple.iWork.Pages",
+	"keynote": "com.apple.iWork.Keynote",
+	"gitfox": "com.bytieful.Gitfox-setapp",
+	"ghostty": "com.mitchellh.ghostty",
+	"term": "com.apple.Terminal",
+	"terminal": "com.apple.Terminal",
+	"finder": "com.apple.finder"
+}
+
+# Common website aliases for convenience
+let WEBSITE_ALIASES = {
+	"github": "github.com",
+	"stackoverflow": "stackoverflow.com",
+	"stack": "stackoverflow.com",
+	"so": "stackoverflow.com",
+	"youtube": "youtube.com",
+	"yt": "youtube.com",
+	"reddit": "reddit.com",
+	"google": "google.com",
+	"twitter": "twitter.com",
+	"x": "twitter.com",
+	"facebook": "facebook.com",
+	"fb": "facebook.com",
+	"instagram": "instagram.com",
+	"ig": "instagram.com",
+	"linkedin": "linkedin.com",
+	"medium": "medium.com",
+	"docs": "docs.google.com",
+	"gmail": "gmail.com",
+	"amazon": "amazon.com",
+	"aws": "aws.amazon.com",
+	"netflix": "netflix.com",
+	"twitch": "twitch.tv",
+	"discord-web": "discord.com"
+}
+
+# Function to get bundle ID from an app path
+def get_bundle_id [app_path: string] {
+	try {
+		let info_plist = $"($app_path)/Contents/Info.plist"
+		if ($info_plist | path exists) {
+			let bundle_id = (defaults read $info_plist CFBundleIdentifier | str trim)
+			$bundle_id
+		} else {
+			null
+		}
+	} catch {
+		null
+	}
+}
+
+# Function to find apps and their bundle IDs with case-insensitive fuzzy matching
+# This is somewhat similar to Dorothy's `get-app` command
+def find_apps [query: string] {
+	# Common app directories
+	let app_dirs = [
+		$"($env.HOME)/Applications",
+		'/Applications'
+		'/Applications/Setapp'
+		'/Applications/Utilities'
+		'/System/Applications'           # TextEdit
+		'/System/Applications/Utilities' # Terminal
+		'/System/Library/CoreServices' # Finder
+	]
+
+	let all_apps = ($app_dirs | each { |dir|
+		if ($dir | path exists) {
+			try {
+				let pattern = $"($dir)/*.app"
+				let apps = (glob $pattern | where ($it | path type) == dir)
+				$apps
+			} catch { |err|
+				print --stderr $"Error in ($dir): ($err.msg)"
+				[]
+			}
+		} else {
+			[]
+		}
+	} | flatten)
+
+	# Extract app names and create fuzzy matches (case-insensitive)
+	let query_lower = ($query | str downcase)
+	let matches = ($all_apps | each { |app_path|
+		let app_name = ($app_path | path basename | str replace ".app" "")
+		let app_name_lower = ($app_name | str downcase)
+		let bundle_id = (get_bundle_id $app_path)
+
+		if $bundle_id != null {
+			{
+				name: $app_name,
+				path: $app_path,
+				bundle_id: $bundle_id,
+				# Case-insensitive fuzzy matching - check if query is contained in app name
+				score: (if ($app_name_lower | str contains $query_lower) { 1 } else { 0 })
+			}
+		}
+	} | where bundle_id != null and score > 0 | sort-by score --reverse)
+
+	$matches
+}
+
+# Function to resolve app input to bundle ID
+# Tries: app alias → bundle ID → app search → return null if not found
+def resolve_app [input: string] {
+	# Check app aliases FIRST (case-insensitive) - fast lookup
+	let input_lower = ($input | str downcase)
+	let alias_result = ($APP_ALIASES | get -o $input_lower)
+	if $alias_result != null {
+		return $alias_result
+	}
+
+	# Check website aliases SECOND (case-insensitive) - fast lookup
+	let input_lower = ($input | str downcase)
+	let alias_result = ($WEBSITE_ALIASES | get -o $input_lower)
+	if $alias_result != null {
+		# This is a website, not an app
+		return null
+	}
+
+	# Quick check: if it contains a dot and ends with a common TLD, it's probably a website, not an app
+	if ($input | str contains ".") {
+		let input_lower = ($input | str downcase)
+		let ends_with_tld = (
+			($input_lower | str ends-with ".com") or
+			($input_lower | str ends-with ".org") or
+			($input_lower | str ends-with ".net") or
+			($input_lower | str ends-with ".edu") or
+			($input_lower | str ends-with ".gov") or
+			($input_lower | str ends-with ".io") or
+			($input_lower | str ends-with ".co") or
+			($input_lower | str ends-with ".uk") or
+			($input_lower | str ends-with ".dev") or
+			($input_lower | str ends-with ".app")
+		)
+		if $ends_with_tld {
+			# This is probably a website, not an app bundle ID
+			return null
+		}
+	}
+
+	# Check if it's already a bundle ID (contains dot and starts with TLD)
+	if ($input | str contains ".") {
+		let input_lower = ($input | str downcase)
+		let starts_with_tld = (
+			($input_lower | str starts-with "com.") or
+			($input_lower | str starts-with "org.") or
+			($input_lower | str starts-with "net.") or
+			($input_lower | str starts-with "edu.") or
+			($input_lower | str starts-with "gov.") or
+			($input_lower | str starts-with "io.") or
+			($input_lower | str starts-with "tv.") or
+			($input_lower | str starts-with "us.") or
+			# Special cases for apps
+			($input_lower | str starts-with "notion.") or
+			($input_lower | str starts-with "ru.")
+		)
+		if $starts_with_tld {
+			return $input
+		}
+	}
+
+	# Only do expensive filesystem search if aliases and bundle ID checks failed
+	let found_apps = (find_apps $input)
+	if ($found_apps | length) > 0 {
+		return $found_apps.0.bundle_id
+	}
+
+	# If nothing found, return null
+	null
+}
+
+# Function to resolve website input to domain
+# Tries: website alias → return input as-is
+def resolve_website [input: string] {
+	# Check website aliases FIRST (case-insensitive) - fastest lookup
+	let input_lower = ($input | str downcase)
+	let alias_result = ($WEBSITE_ALIASES | get -o $input_lower)
+	if $alias_result != null {
+		return $alias_result
+	}
+
+	# If no alias found, return input as-is (assume it's already a domain/URL)
+	$input
+}
+
+# Function to get screen time for a single app
+def get_app_screentime [app_bundle_id: string, tz_offset_hours: int] {
+	# Query the Screen Time database
+	let result = try {
+		open $KNOWLEDGE_DB_PATH
+		| query db $"
+		SELECT
+			SUM\(ZENDDATE - ZSTARTDATE\) AS total_seconds,
+			CAST\(SUM\(ZENDDATE - ZSTARTDATE\) AS REAL\) / 60.0 AS total_minutes
+		FROM ZOBJECT
+		WHERE
+			ZVALUESTRING = '($app_bundle_id)'
+			AND ZSTREAMNAME = '/app/usage'
+			AND date\(datetime\(ZSTARTDATE + ($CORE_DATA_EPOCH_OFFSET), 'unixepoch', '($tz_offset_hours) hours'\)\) = date\('now', '($tz_offset_hours) hours'\)
+		"
+	} catch {
+		null
+		return
+	 }
+
+	# Check if we found any usage data
+	if ($result | length) > 0 and ($result.0.total_seconds != null) {
+		# We found data - calculate all the time units
+		let total_seconds = ($result.0.total_seconds | into int)
+		let total_minutes = ($result.0.total_minutes)
+		let hours = ($total_seconds / 3600 | math floor)
+		let remaining_minutes = (($total_seconds mod 3600) / 60 | math floor)
+		let remaining_seconds = ($total_seconds mod 60)
+
+		# Create human-readable format (e.g., "2h 34m 15s")
+		let total_human = if $hours > 0 {
+			$"($hours)h ($remaining_minutes)m ($remaining_seconds)s"
+		} else if $remaining_minutes > 0 {
+			$"($remaining_minutes)m ($remaining_seconds)s"
+		} else {
+			$"($remaining_seconds)s"
+		}
+
+		{
+			item: $app_bundle_id,
+			type: "app",
+			total_human: $total_human,
+			total_seconds: $total_seconds,
+			hours: $hours,
+			minutes: $remaining_minutes,
+			seconds: $remaining_seconds,
+		}
+	} else {
+		# No data found - return empty data with same structure
+		{
+			item: $app_bundle_id,
+			type: "app",
+			total_human: "0s",
+			total_seconds: 0,
+			hours: 0,
+			minutes: 0,
+			seconds: 0,
+		}
+	}
+}
+
+# Function to get screen time for a website identifier (domain, subdomain, URL, etc.)
+def get_website_screentime [website_identifier: string, tz_offset_hours: int] {
+	# Query the Screen Time database for website usage
+	let result = try {
+		open $KNOWLEDGE_DB_PATH
+		| query db $"
+		SELECT
+			SUM\(o.ZENDDATE - o.ZSTARTDATE\) AS total_seconds,
+			CAST\(SUM\(o.ZENDDATE - ZSTARTDATE\) AS REAL\) / 60.0 AS total_minutes
+		FROM ZOBJECT o
+		JOIN ZSTRUCTUREDMETADATA sm ON o.ZSTRUCTUREDMETADATA = sm.Z_PK
+		WHERE
+			o.ZSTREAMNAME = '/app/webUsage'
+			AND \(sm.Z_DKDIGITALHEALTHMETADATAKEY__WEBDOMAIN LIKE '%($website_identifier)%'
+			     OR sm.Z_DKDIGITALHEALTHMETADATAKEY__WEBPAGEURL LIKE '%($website_identifier)%'\)
+			AND date\(datetime\(o.ZSTARTDATE + ($CORE_DATA_EPOCH_OFFSET), 'unixepoch', '($tz_offset_hours) hours'\)\) = date\('now', '($tz_offset_hours) hours'\)
+		"
+	} catch {
+		null
+		return
+	}
+
+	# Check if we found any usage data
+	if ($result | length) > 0 and ($result.0.total_seconds != null) {
+		# We found data - calculate all the time units
+		let total_seconds = ($result.0.total_seconds | into int)
+		let total_minutes = ($result.0.total_minutes)
+		let hours = ($total_seconds / 3600 | math floor)
+		let remaining_minutes = (($total_seconds mod 3600) / 60 | math floor)
+		let remaining_seconds = ($total_seconds mod 60)
+
+		# Create human-readable format (e.g., "2h 34m 15s")
+		let total_human = if $hours > 0 {
+			$"($hours)h ($remaining_minutes)m ($remaining_seconds)s"
+		} else if $remaining_minutes > 0 {
+			$"($remaining_minutes)m ($remaining_seconds)s"
+		} else {
+			$"($remaining_seconds)s"
+		}
+
+		{
+			item: $website_identifier,
+			type: "website",
+			total_human: $total_human,
+			total_seconds: $total_seconds,
+			hours: $hours,
+			minutes: $remaining_minutes,
+			seconds: $remaining_seconds,
+		}
+	} else {
+		# No data found - return null to indicate failure
+		null
+	}
+}
+
+# Function to create a total row with summed values
+def create_total_row [results: list] {
+	let total_seconds_sum = ($results | get total_seconds | math sum)
+	let total_hours = ($total_seconds_sum / 3600 | math floor)
+	let remaining_minutes = (($total_seconds_sum mod 3600) / 60 | math floor)
+	let remaining_seconds = ($total_seconds_sum mod 60)
+
+	# Create human-readable format for total
+	let total_human = if $total_hours > 0 {
+		$"($total_hours)h ($remaining_minutes)m ($remaining_seconds)s"
+	} else if $remaining_minutes > 0 {
+		$"($remaining_minutes)m ($remaining_seconds)s"
+	} else {
+		$"($remaining_seconds)s"
+	}
+
+	{
+		item: "",  # Empty for total row
+		type: "total",
+		total_human: $total_human,
+		total_seconds: $total_seconds_sum,
+		hours: $total_hours,
+		minutes: $remaining_minutes,
+		seconds: $remaining_seconds,
+	}
+}
+
+# Fetch the screentime usage of various <item:app|website>s
+def main [
+	...items: string # Application/website name(s), alias(es), or bundle ID(s). Examples: "vscode", "chrome github", "notifications.github.com", "com.microsoft.VSCode"
+	--app: string = "" # Specific apps to query (can be used with --website)
+	--website: string = "" # Specific websites/domains/URLs to query (can be used with --app)
+	--format: string = "" # Output format: table (default), json, or seconds
+	--seconds(-s) # Alias for --format=seconds
+	--json(-j) # Alias for --format=json
+	--table(-t) # Alias for --format=table
+	--quiet(-q) # Suppress error messages when items aren't found
+] {
+	# Parse options
+	let format = get_mode_from_options --name=format --default=table {table: $table, json: $json, seconds: $seconds, format: $format}
+
+	# Get the current timezone offset in hours
+	let tz_offset_hours = (date now | format date "%z" | str substring 0..3 | into int)
+
+	# Process all items efficiently in a single loop
+	let results = []
+
+	# Check if we actually have access to screentime, by checking if the database is readable
+	try {
+		open --raw ($KNOWLEDGE_DB_PATH) | ignore
+	} catch {
+		if not $quiet {
+			print --stderr $"Error: Cannot read the screentime database at ($KNOWLEDGE_DB_PATH)"
+		}
+		exit 13 # EACCES 13 Permission denied
+	}
+
+	# First, handle explicit --app items (comma-separated)
+	let app_items = if ($app | str trim | is-empty) { [] } else { $app | split row "," | each { |item| $item | str trim } }
+	let results = ($results | append ($app_items | each { |app_item|
+		let resolved_app = (resolve_app $app_item)
+		if $resolved_app != null {
+			get_app_screentime $resolved_app $tz_offset_hours
+		} else {
+			if not $quiet {
+				print --stderr $"App not found: ($app_item)"
+			}
+			null
+		}
+	} | where $it != null))
+
+	# Second, handle explicit --website items (comma-separated)
+	let website_items = if ($website | str trim | is-empty) { [] } else { $website | split row "," | each { |item| $item | str trim } }
+	let results = ($results | append ($website_items | each { |website_item|
+		let resolved_website = (resolve_website $website_item)
+		let website_result = (get_website_screentime $resolved_website $tz_offset_hours)
+		if $website_result != null {
+			$website_result
+		} else {
+			if not $quiet {
+				print --stderr $"Website not found: ($website_item)"
+			}
+			null
+		}
+	} | where $it != null))
+
+	# Third, handle positional arguments (try app first, then website)
+	let target_items = if ($items | length) == 0 and ($app_items | length) == 0 and ($website_items | length) == 0 {
+		# Default to VSCode if nothing specified
+		["vscode"]
+	} else {
+		$items
+	}
+
+	let results = ($results | append ($target_items | each { |item|
+		# Try as app first
+		let resolved_app = (resolve_app $item)
+		if $resolved_app != null {
+			get_app_screentime $resolved_app $tz_offset_hours
+		} else {
+			# Try as website
+			let resolved_website = (resolve_website $item)
+			let website_result = (get_website_screentime $resolved_website $tz_offset_hours)
+			if $website_result != null {
+				$website_result
+			} else {
+				if not $quiet {
+					print --stderr $"Item not found as app or website: ($item)"
+				}
+				null
+			}
+		}
+	} | where $it != null))
+
+	# Output based on format
+	match $format {
+		"seconds" => {
+			# Sum all total_seconds values and output the total
+			let total_seconds = ($results | get total_seconds | math sum)
+			print $total_seconds
+		}
+		"json" => {
+			# Output as JSON string
+			print ($results | to json)
+		}
+		"table" => {
+			# Add total row only if there are multiple items
+			if ($results | length) > 1 {
+				let total_row = (create_total_row $results)
+				$results | append $total_row
+			} else {
+				$results
+			}
+		}
+	}
+}
