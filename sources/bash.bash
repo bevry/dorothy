@@ -95,7 +95,13 @@ function __is_linux {
 
 # see `commands/is-linux` for details
 function __is_wsl {
-	uname -a | grep --quiet --ignore-case --fixed-strings --regexp='-WSL' || return $?
+	# `HOSTTYPE` = `x86_64`
+	# `OSTYPE` = `linux-gnu`
+	# `MACHTYPE` = `x86_64-pc-linux-gnu`
+	# `uname -r` = `6.6.87.2-microsoft-standard-WSL2`
+	local via_uname
+	via_uname="$(uname -r)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	[[ $via_uname == *-WSL2* ]] || return $?
 }
 
 # see `commands/is-brew` for details
