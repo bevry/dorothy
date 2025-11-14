@@ -63,7 +63,7 @@ Dorothy is a dotfile ecosystem featuring:
 | 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 𝚖 [Manjaro on ARM][ManjaroARM]                                                                                 | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
 | ![OpenEulerLogo][OpenEulerLogo] [OpenEuler][OpenEuler]                                                         | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ![OpenEulerLogo][OpenEulerLogo] [OpenEuler on Raspberry Pi][OpenEulerPi]                                       | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ![OpenEulerLogo][OpenEulerLogo] [OpenEuler on Raspberry Pi][OpenEulerPi]                                       | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
 | ❍ [OpenMandriva][Mandriva]: [Rock][MandrivaRock], [Rolling][MandrivaRolling]                                   | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE][SUSE]: [Leap][SUSELeap], [Tumbleweed][SUSETumbleweed]                                            | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE on Raspberry Pi][SUSEPi]: [Leap][SUSELeap], [Tumbleweed][SUSETumbleweed]                          | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
