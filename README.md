@@ -39,35 +39,42 @@ Dorothy is a dotfile ecosystem featuring:
 
 ### Supported Platforms
 
-<!-- Sorted by arch relevance, then by docker pulls then byy docker stars -->
+<!-- Sorted arch relevance, then by alpha -->
 
 | Operating System                                                                                               | Architecture                                   | Support                  |
 | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------ |
 | 🍏 macOS                                                                                                       | 🍏 Apple Silicon (ARM64)                       | 👌 Daily Driver, 🤖 CI   |
-| 🍏 macOS                                                                                                       | 🍏 Apple on Intel (x86_64)                     | 👌 Daily Driver, 🤖 CI   |
+| 🍏 macOS                                                                                                       | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
 | 🍏 macOS                                                                                                       | 🍏 Apple Silicon with `HOMEBREW_ARCH="x86_64"` | 🌗 Monthly Driver        |
-| 🍓 [Raspberry Pi OS][PiOS]: [Desktop][PiOSDownload], [Lite][PiOSDownload]                                      | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ⭕️ [Ubuntu on Raspberry Pi][UbuntuPi]: Desktop, Server                                                         | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 👌 Daily Driver          |
-| ꩜ [Debian on Raspberry Pi][DebianPi]                                                                           | 🍓 Raspberry Pi 4/400/5 (ARM64)                | 🌗 Monthly Driver        |
+| 🍓 [Raspberry Pi OS][PiOS]: [Desktop][PiOSDownload], [Lite][PiOSDownload]                                      | 🍓 Raspberry Pi (ARM64)                        | 👌 Daily Driver          |
 | 🪟 Windows 10/11 [WSL2][WSL2]: [Ubuntu][UbuntuWSL], [Debian][DebianWSL], [AlmaLinux][AlmaWSL], [Kali][KaliWSL] | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver          |
-| ⭕️ [Ubuntu][Ubuntu]: [Desktop][UbuntuD], [Server][UbuntuS]                                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ꩜ [Debian][Debian]                                                                                             | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ∞ [Fedora][Fedora]: [Workstation][FedoraW], [Server][FedoraS]                                                  | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ▲ [Arch][Arch]                                                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 👐 [AlmaLinux][AlmaLinux]                                                                                      | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 🦎 [OpenSUSE][OpenSUSE]: [Leap][Leap], [Tumbleweed][Tumbleweed]                                                | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 🐉 [Kali][Kali]                                                                                                | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ![OpenEulerLogo][OpenEulerLogo] [OpenEuler][OpenEuler]                                                         | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 𝓮 [elementary OS][elementaryOS]                                                                                | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⭐ [Vanilla][Vanilla]                                                                                          | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| 💫 [Devuan][Devuan]                                                                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 👐 [AlmaLinux on Raspberry Pi][AlmaLinuxPi]                                                                    | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
+| ▲ [Arch][Arch]                                                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ![CachyOSLogo][CachyOSLogo] [CachyOS][CachyOS]                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ❍ [OpenMandriva][Mandriva]: [Rock][Rock], [Rolling][Rolling]                                                   | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ꩜ [Debian][Debian]                                                                                             | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ꩜ [Debian on Raspberry Pi][DebianPi]                                                                           | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver        |
+| 💫 [Devuan][Devuan]                                                                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 𝓮 [elementary OS][elementaryOS]                                                                                | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ∞ [Fedora][Fedora]: [Workstation][FedoraW], [Server][FedoraS]                                                  | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ∞ [Fedora on Raspberry Pi][FedoraPi]: [Workstation][FedoraW], [Server][FedoraS]                                | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
+| 🐉 [Kali][Kali]                                                                                                | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🐉 [Kali on ARM][KaliARM]                                                                                      | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
+| 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 𝚖 [Manjaro on ARM][ManjaroARM]                                                                                 | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
+| ![OpenEulerLogo][OpenEulerLogo] [OpenEuler][OpenEuler]                                                         | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ![OpenEulerLogo][OpenEulerLogo] [OpenEuler on Raspberry Pi][OpenEulerPi]                                       | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| ❍ [OpenMandriva][Mandriva]: [Rock][MandrivaRock], [Rolling][MandrivaRolling]                                   | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🦎 [OpenSUSE][SUSE]: [Leap][SUSELeap], [Tumbleweed][SUSETumbleweed]                                            | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
+| 🦎 [OpenSUSE on Raspberry Pi][SUSEPi]: [Leap][SUSELeap], [Tumbleweed][SUSETumbleweed]                          | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
+| ⭕️ [Ubuntu][Ubuntu]: [Desktop][UbuntuD], [Server][UbuntuS]                                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
+| ⭕️ [Ubuntu on Raspberry Pi][UbuntuPi]: Desktop, Server                                                         | 🍓 Raspberry Pi (ARM64)                        | 👌 Daily Driver          |
+| ⭐ [Vanilla][Vanilla]                                                                                          | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 
 <!-- Sorted alphabetically -->
 
 [AlmaLinux]: https://almalinux.org
+[AlmaLinuxPi]: https://wiki.almalinux.org/documentation/raspberry-pi.html
 [AlmaWSL]: https://apps.microsoft.com/search/publisher?name=AlmaLinux+OS+Foundation
 [Arch]: https://wiki.archlinux.org/title/Arch_Linux
 [CachyOS]: https://cachyos.org/download/
@@ -78,21 +85,26 @@ Dorothy is a dotfile ecosystem featuring:
 [Devuan]: https://www.devuan.org
 [elementaryOS]: https://elementary.io
 [Fedora]: https://fedoraproject.org
+[FedoraPi]: https://docs.fedoraproject.org/en-US/quick-docs/raspberry-pi/
 [FedoraS]: https://fedoraproject.org/server/
 [FedoraW]: https://fedoraproject.org/workstation/
 [Kali]: https://www.kali.org/get-kali/#kali-platforms
+[KaliARM]: https://www.kali.org/docs/arm/
 [KaliWSL]: https://apps.microsoft.com/detail/9pkr34tncv07
-[Leap]: https://get.opensuse.org/leap/
 [Mandriva]: https://www.openmandriva.org
+[MandrivaRock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
+[MandrivaRolling]: https://wiki.openmandriva.org/en/distribution/releases/rome
 [Manjaro]: https://manjaro.org/download/
+[ManjaroARM]: https://manjaro.org/products/download/arm
 [OpenEuler]: https://www.openeuler.org/en/download/
 [OpenEulerLogo]: docs/assets/openeuler.svg
-[OpenSUSE]: https://www.opensuse.org
+[OpenEulerPi]: https://www.openeuler.org/en/wiki/install/raspberry-pi/
 [PiOS]: https://www.raspberrypi.com/documentation/computers/os.html
 [PiOSDownload]: https://www.raspberrypi.com/software/operating-systems/
-[Rock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
-[Rolling]: https://wiki.openmandriva.org/en/distribution/releases/rome
-[Tumbleweed]: https://get.opensuse.org/tumbleweed/
+[SUSE]: https://www.opensuse.org
+[SUSELeap]: https://get.opensuse.org/leap/
+[SUSEPi]: https://en.opensuse.org/HCL:Raspberry_Pi
+[SUSETumbleweed]: https://get.opensuse.org/tumbleweed/
 [Ubuntu]: https://ubuntu.com
 [UbuntuD]: https://ubuntu.com/download/desktop
 [UbuntuPi]: https://ubuntu.com/download/raspberry-pi
