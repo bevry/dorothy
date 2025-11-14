@@ -6,7 +6,7 @@ fi
 if [[ $# -eq 0 ]]; then
 	exit 22 # EINVAL 22 Invalid argument
 fi
-if [[ "$(uname -s)" == 'Darwin' ]]; then # see `__is_macos` for details
+if [[ $OSTYPE == darwin* ]]; then # see `__is_macos` for details
 	function __get_owner {
 		stat -Lf '%u %Su %g %Sg' -- "$1"
 	}

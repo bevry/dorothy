@@ -1237,7 +1237,7 @@ function __print_help {
 	cat |
 		echo-regexp -gm '^([\t ]*)[-*] ' '$1• ' |
 		echo-regexp -gm '^([A-Z ]+\:)$' "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
-		echo-regexp -gm '^( *)([[<\-a-z][{}()[\]<>\-._:=*`?/| a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
+		echo-regexp -gm '^( *)([[<\-a-z][{}()[\]<>\-._:$'\''=*`?/| a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
 		echo-regexp -g '\[0\](\s)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |
 		echo-regexp -g '\[([\d]+)\](\s)' "${STYLE__foreground_red}[\$1]${STYLE__END__foreground_red}\$2" |
 		{

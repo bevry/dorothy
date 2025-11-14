@@ -53,6 +53,31 @@ fi
 # -------------------------------------
 # Environment Toolkit & Print Toolkit Dependencies
 
+# see `commands/get-arch` for details
+function __get_arch {
+	local arch="$HOSTTYPE"
+	if [[ $arch == 'aarch64' || $arch == 'arm64' ]]; then
+		printf '%s' 'a64' # Raspberry Pi, Apple Silicon
+	elif [[ $arch == x86_64* ]]; then
+		# Is this Apple Silicon running via `arch -x86_64 <command>`?
+		# if it is, then `$HOSTTYPE` and `uname -m` is `x86_64`:
+		# so on macOS/Darwin, we can must fallback to a `uname -v` check
+		if [[ $OSTYPE == darwin* && "$(uname -v || :)" == *ARM64* ]]; then
+			printf '%s' 'a64' # Apple Silicon running via `arch -x86_64 <command>`
+		else
+			printf '%s' 'x64'
+		fi
+	elif [[ $arch == i*86 ]]; then
+		printf '%s' 'x32'
+	elif [[ $arch == arm* ]]; then
+		printf '%s' 'a32'
+	elif [[ $arch == 'riscv64' ]]; then
+		printf '%s' 'r64'
+	else
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
+}
+
 # see `commands/is-mac` for details
 function __is_macos {
 	[[ $OSTYPE == darwin* ]] || return $?
@@ -61,7 +86,11 @@ function __is_macos {
 # see `commands/is-linux` for details
 # this will/should pass on WSL on Windows
 function __is_linux {
-	[[ "$(uname -s)" == 'Linux' ]] || return $?
+	# `OSTYPE` = `linux-gnu` (on everything, sans exceptions)
+	# `OSTYPE` = `linux` (opensuse)
+	# `uname -o` = `GNU/Linux`
+	# `uname -s` = `Linux`
+	[[ $OSTYPE == linux* ]] || return $?
 }
 
 # see `commands/is-linux` for details
@@ -1065,10 +1094,10 @@ if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_M
 	# bash 4.3 and above
 	# > This document details the changes between this version, `bash-4.3-alpha`, and the previous version, `bash-4.2-release`.
 	# > ddddd. Fixed a bug that caused `printf`'s `%q` format specifier not to quote a tilde even if it appeared in a location where it would be subject to tilde expansion.
-	BASH_PRINTF_Q_ESCAPES_TIDLE='yes'
+	BASH_PRINTF_Q_ESCAPES_TILDE='yes'
 else
 	# trunk-ignore(shellcheck/SC2034)
-	BASH_PRINTF_Q_ESCAPES_TIDLE='no'
+	BASH_PRINTF_Q_ESCAPES_TILDE='no'
 fi
 if [[ $BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -eq 3 ]]; then
 	# function fn { local var; local -a arr; declare -p var arr || :; __get_var_declaration var arr a; }; fn
