@@ -53,7 +53,7 @@ Dorothy is a dotfile ecosystem featuring:
 | ▲ [Arch][Arch]                                                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ![CachyOSLogo][CachyOSLogo] [CachyOS][CachyOS]                                                                 | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ꩜ [Debian][Debian]                                                                                             | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ꩜ [Debian on Raspberry Pi][DebianPi]                                                                           | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver        |
+| ꩜ [Debian on Raspberry Pi][DebianPi]                                                                           | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
 | 💫 [Devuan][Devuan]                                                                                            | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 𝓮 [elementary OS][elementaryOS]                                                                                | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | ∞ [Fedora][Fedora]: [Workstation][FedoraW], [Server][FedoraS]                                                  | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
@@ -68,7 +68,7 @@ Dorothy is a dotfile ecosystem featuring:
 | 🦎 [OpenSUSE][SUSE]: [Leap][SUSELeap], [Tumbleweed][SUSETumbleweed]                                            | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
 | 🦎 [OpenSUSE on Raspberry Pi][SUSEPi]: [Leap][SUSELeap], [Tumbleweed][SUSETumbleweed]                          | 🍓 Raspberry Pi (ARM64)                        | 🌗 Monthly Driver, 🤖 CI |
 | ⭕️ [Ubuntu][Ubuntu]: [Desktop][UbuntuD], [Server][UbuntuS]                                                     | 👔 Intel/AMD (x86_64)                          | 👌 Daily Driver, 🤖 CI   |
-| ⭕️ [Ubuntu on Raspberry Pi][UbuntuPi]: Desktop, Server                                                         | 🍓 Raspberry Pi (ARM64)                        | 👌 Daily Driver          |
+| ⭕️ [Ubuntu on Raspberry Pi][UbuntuPi]: Desktop, Server                                                         | 🍓 Raspberry Pi (ARM64)                        | 👌 Daily Driver, 🤖 CI   |
 | ⭐ [Vanilla][Vanilla]                                                                                          | 👔 Intel/AMD (x86_64)                          | 🌗 Monthly Driver, 🤖 CI |
 
 <!-- Sorted alphabetically -->
