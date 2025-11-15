@@ -288,7 +288,7 @@ function setup_util() (
 		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
 		'--checker='*) option_checker="${item#*=}" ;; # must be before check, otherwise it won't be found
-		'--no-check'* | '--check'*) __flag --source={item} --target={option_check} --affirmative ;;
+		'--no-check'* | '--check'*) __flag --source={item} --target={option_check} --affirmative --coerce ;;
 		# <shared options between many setup commands>
 		'--no-reconfigure'* | '--reconfigure'*) : ;; # disabled as it is absorbed by `setup-util-*` commands, not this
 		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
@@ -314,12 +314,12 @@ function setup_util() (
 		'--font='*) option_font="${item#*=}" ;;
 		'--name='*) option_name="${item#*=}" ;;
 		# @todo redo the elevate/xdg flow in this, make it like sbin instead
-		'--no-xdg'* | '--xdg'*) __flag --source={item} --target={option_xdg} --affirmative ;;
+		'--no-xdg'* | '--xdg'*) __flag --source={item} --target={option_xdg} --affirmative --coerce ;;
 		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
-		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative ;;
-		'--no-optional'* | '--optional'*) __flag --source={item} --target={option_optional} --affirmative ;;
-		'--no-force'* | '--force'*) __flag --source={item} --target={option_force} --affirmative ;;
-		'--no-upgrade'* | '--upgrade'*) __flag --source={item} --target={option_upgrade} --affirmative ;;
+		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative --coerce ;;
+		'--no-optional'* | '--optional'*) __flag --source={item} --target={option_optional} --affirmative --coerce ;;
+		'--no-force'* | '--force'*) __flag --source={item} --target={option_force} --affirmative --coerce ;;
+		'--no-upgrade'* | '--upgrade'*) __flag --source={item} --target={option_upgrade} --affirmative --coerce ;;
 		'--')
 			if [[ -z $option_installer ]]; then
 				help --='--installer=<installer> is required when using: -- [...packages]'
@@ -3322,14 +3322,16 @@ function setup_util() (
 	# installs applications (via ids) to various locations
 	# https://docs.microsoft.com/en-us/windows/package-manager/winget/
 	# https://docs.microsoft.com/en-us/windows/package-manager/winget/install
-	function __is_this_winget_package_installed {
-		winget.exe list --disable-interactivity --id="$package" &>/dev/null
-	}
+	# aria2c gets installed as aria2c.exe
+	# which is available via an inherited and complicated PATH modification
+	# as such isn't available to VSCode Terminal
+	# the .exe suffix also means it isn't easily discoverable either
 	function __are_any_of_these_winget_packages_installed {
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
+			# https://learn.microsoft.com/en-us/windows/package-manager/winget/list
 			# only supports one package at a time
-			if __is_this_winget_package_installed "$package"; then
+			if winget.exe list --disable-interactivity --id="$package" &>/dev/null; then
 				return 0
 			fi
 		done
@@ -3348,7 +3350,7 @@ function setup_util() (
 
 		# check for applicability based on action and packages
 		if [[ $option_action == 'uninstall' ]]; then
-			__is_this_winget_package_installed "${packages[@]}" || return 200 # ECUSTOM 200 Not applicable to this uninstallation
+			__are_any_of_these_winget_packages_installed "${packages[@]}" || return 200 # ECUSTOM 200 Not applicable to this uninstallation
 		else
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
@@ -3357,50 +3359,36 @@ function setup_util() (
 		local args=() opts=() package packages=("${WINGET[@]}")
 
 		# args
-		# supports one package at a time
-		for package in "${packages[@]}"; do
-			args=()
-			if [[ $option_action == 'uninstall' ]]; then
-				# fails if already uninstalled, so check beforehand
-				if ! __is_this_winget_package_installed "${packages[@]}"; then
-					continue
-				fi
-				args+=(
-					'winget.exe'
-					'uninstall'
-				)
-			elif [[ $option_upgrade == 'yes' ]]; then
-				args+=(
-					'winget.exe'
-					'upgrade'
-				)
-			else
-				if __is_this_winget_package_installed "${packages[@]}"; then
-					continue
-				fi
-				# --accept-package-agreements: Accept all license agreements for packages
-				# --accept-source-agreements: Accept all source agreements during source operations
-				args+=(
-					'winget.exe'
-					'install'
-					'--accept-package-agreements'
-					'--accept-source-agreements'
-				)
-				# aria2c gets installed as aria2c.exe
-				# which is available via an inherited and complicated PATH modification
-				# as such isn't available to VSCode Terminal
-				# the .exe suffix also means it isn't easily discoverable either
-			fi
-			if [[ $option_quiet == 'yes' || -n $CI ]]; then
-				# -h,--silent: Request silent installation
-				# --disable-interactivity: Disable interactive prompts
-				args+=(
-					'--disable-interactivity'
-					'--silent'
-				)
-			fi
-			"${args[@]}" "$package"
-		done
+		# supports multiple packages at a time
+		# --accept-package-agreements: Accept all license agreements for packages
+		# --accept-source-agreements: Accept all source agreements during source operations
+		if [[ $option_action == 'uninstall' ]]; then
+			# https://learn.microsoft.com/en-us/windows/package-manager/winget/uninstall
+			args+=('winget.exe' 'uninstall')
+		elif [[ $option_upgrade == 'yes' ]]; then
+			# https://learn.microsoft.com/en-us/windows/package-manager/winget/upgrade
+			args+=('winget.exe' 'upgrade' '--accept-package-agreements' '--accept-source-agreements')
+		else
+			# https://learn.microsoft.com/en-us/windows/package-manager/winget/install
+			args+=('winget.exe' 'install' '--accept-package-agreements' '--accept-source-agreements')
+			# upgrade already handled via the earlier `winget upgrade` action
+			# if [[ $option_upgrade == 'no' ]]; then
+			# 	# --no-upgrade: Skips upgrade if an installed version already exists.
+			# 	args+=('--no-upgrade')
+			# fi
+		fi
+		# all actions support these
+		if [[ $option_quiet == 'yes' || -n $CI ]]; then
+			# -h,--silent: Request silent installation
+			# --disable-interactivity: Disable interactive prompts
+			args+=('--disable-interactivity' '--silent')
+		fi
+		if [[ $option_force == 'yes' ]]; then
+			# --force: Direct run the command and continue with non security related issues.
+			args+=('--force')
+		fi
+		# run the action
+		"${args[@]}" "${packages[@]}"
 	}
 
 	# emerge / Portage / GURU / Gentoo Linux
