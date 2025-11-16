@@ -72,6 +72,7 @@ HOMEBREW_FONTS=(
 )
 # HOMEBREW_UNINSTALL=() # for casks and formulas
 # HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
+# HOMEBREW_ENCODING_REINSTALL='' # '', 'yes', 'no'
 
 # Golang / go
 # Used by `setup-go`
