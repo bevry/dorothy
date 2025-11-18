@@ -122,14 +122,7 @@ function __command_missing {
 	# proceed
 	local COMMAND_MISSING__command
 	for COMMAND_MISSING__command in "$@"; do
-		if [[ $COMMAND_MISSING__command == 'brew' ]]; then
-			# workaround for our `brew` wrapper
-			if __is_brew; then
-				continue
-			else
-				return 0 # a command is missing
-			fi
-		elif type -P "$COMMAND_MISSING__command" &>/dev/null; then
+		if type -P "$COMMAND_MISSING__command" &>/dev/null; then
 			continue
 		else
 			return 0 # a command is missing
@@ -150,14 +143,7 @@ function __command_exists {
 	# proceed
 	local COMMAND_EXISTS__command
 	for COMMAND_EXISTS__command in "$@"; do
-		if [[ $COMMAND_EXISTS__command == 'brew' ]]; then
-			# workaround for Dorothy's `brew` wrapper
-			if __is_brew; then
-				continue
-			else
-				return 1 # a command is missing
-			fi
-		elif type -P "$COMMAND_EXISTS__command" &>/dev/null; then
+		if type -P "$COMMAND_EXISTS__command" &>/dev/null; then
 			continue
 		else
 			return 1 # a command is missing
