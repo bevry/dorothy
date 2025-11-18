@@ -177,9 +177,9 @@ function __command_required {
 		COMMAND_REQUIRED__item="$1"
 		shift
 		case "$COMMAND_REQUIRED__item" in
-		--no-print* | --print*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__print} --affirmative --coerce || return $? ;;
-		--no-install* | --install*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__install} --affirmative --coerce || return $? ;;
-		--)
+		'--no-print'* | '--print'*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__print} --affirmative --coerce || return $? ;;
+		'--no-install'* | '--install'*) __flag --source={COMMAND_REQUIRED__item} --target={COMMAND_REQUIRED__install} --affirmative --coerce || return $? ;;
+		'--')
 			COMMAND_REQUIRED__commands+=("$@")
 			shift $#
 			break
@@ -317,8 +317,8 @@ function __print_join {
 	local parts=() delimiter=$'\n'
 	while [[ $# -ne 0 ]]; do
 		case "$1" in
-		--delimiter=*) delimiter="${1#*=}" ;;
-		--)
+		'--delimiter='*) delimiter="${1#*=}" ;;
+		'--')
 			shift
 			break
 			;;
@@ -369,22 +369,22 @@ function __dump {
 		DUMP__show_name='yes'
 		shift
 		case "$DUMP__item" in
-		--debug)
+		'--debug')
 			if [[ $DOROTHY_DEBUG != 'yes' ]]; then
 				return 0
 			fi
 			DUMP__log+=("$DUMP__item")
 			continue
 			;;
-		--no-style | --no-color)
+		'--no-style' | '--no-color')
 			DUMP__color=no
 			continue
 			;;
-		--indices)
+		'--indices')
 			DUMP__indices=yes
 			continue
 			;;
-		--value=*)
+		'--value='*)
 			DUMP__value="${DUMP__item#*=}"
 			if [[ -z $DUMP__value ]]; then
 				DUMP__log+=(--commentary-empty='' --newline)
@@ -393,14 +393,14 @@ function __dump {
 			fi
 			continue
 			;;
-		--variable-value=*)
+		'--variable-value='*)
 			DUMP__show_name='no'
 			DUMP__item="${DUMP__item#*=}"
 			;;
-		--variable=*)
+		'--variable='*)
 			DUMP__item="${DUMP__item#*=}"
 			;;
-		--*)
+		'--'*)
 			DUMP__log+=("$DUMP__item")
 			continue
 			;;
@@ -512,7 +512,7 @@ function __dump {
 # }
 
 # =============================================================================
-# Bash Configuration & Capability Detection, Including Shims/Polyfills
+# Bash Versions & Configuration & Capability Detection, Including Shims/Polyfills
 # Place changelog entries in `versions.md`
 # Distribution of bash versions: <https://repology.org/project/bash/versions>
 # Listing of bash releases: <https://ftp.gnu.org/gnu/bash/?C=M;O=D>
@@ -815,10 +815,10 @@ function __get_date {
 			GET_DATE__item="$1"
 			shift
 			case "$GET_DATE__item" in
-			--format=*) GET_DATE__format="${GET_DATE__item#*=}" ;;
-			-*) GET_DATE__date_args+=("$GET_DATE__item") ;;
-			+*) GET_DATE__format="${GET_DATE__item:1}" ;; # this is constrained to $#==1 because of (-v +1y) combo
-			%*) GET_DATE__format="$GET_DATE__item" ;;
+			'--format='*) GET_DATE__format="${GET_DATE__item#*=}" ;;
+			'-'*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			'+'*) GET_DATE__format="${GET_DATE__item:1}" ;; # this is constrained to $#==1 because of (-v +1y) combo
+			'%'*) GET_DATE__format="$GET_DATE__item" ;;
 			*) GET_DATE__format="$GET_DATE__item" ;; # the only single argument that `date` supports is setting the system clock, e.g. `date 0613162785` and `date 1432`, which is not what this function is for, so assume it is not that, and instead is a format
 			esac
 		done
@@ -838,10 +838,10 @@ function __get_date {
 			GET_DATE__item="$1"
 			shift
 			case "$GET_DATE__item" in
-			--format=*) GET_DATE__date_args+=("+${GET_DATE__item#*=}") ;;
-			-*) GET_DATE__date_args+=("$GET_DATE__item") ;;
-			+*) GET_DATE__date_args+=("$GET_DATE__item") ;;
-			%*) GET_DATE__date_args+=("+$GET_DATE__item") ;;
+			'--format='*) GET_DATE__date_args+=("+${GET_DATE__item#*=}") ;;
+			'-'*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			'+'*) GET_DATE__date_args+=("$GET_DATE__item") ;;
+			'%'*) GET_DATE__date_args+=("+$GET_DATE__item") ;;
 			*) GET_DATE__date_args+=("$GET_DATE__item") ;;
 			esac
 		done
@@ -1308,11 +1308,11 @@ function __has_array_capability {
 	local HAS_ARRAY_CAPABILITY__item
 	for HAS_ARRAY_CAPABILITY__item in "$@"; do
 		case "$HAS_ARRAY_CAPABILITY__item" in
-		--) : ;; # ignore
-		associative*) [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]] || return 43 ;;
-		mapfile*) [[ $BASH_HAS_NATIVE_MAPFILE == 'yes' ]] || return 43 ;;
-		readarray*) [[ $BASH_HAS_NATIVE_READARRAY == 'yes' ]] || return 43 ;;
-		empty*) [[ $BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS == 'yes' ]] || return 43 ;;
+		'--') : ;; # ignore
+		'associative'*) [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]] || return 43 ;;
+		'mapfile'*) [[ $BASH_HAS_NATIVE_MAPFILE == 'yes' ]] || return 43 ;;
+		'readarray'*) [[ $BASH_HAS_NATIVE_READARRAY == 'yes' ]] || return 43 ;;
+		'empty'*) [[ $BASH_HAS_NATIVE_EMPTY_ARRAY_ACCESS == 'yes' ]] || return 43 ;;
 		*) __unrecognised_flag "$HAS_ARRAY_CAPABILITY__item" || return $? ;;
 		esac
 	done
@@ -1367,22 +1367,22 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 		local MAPFILE__delim=$'\n' MAPFILE__t='no' MAPFILE__variable_name='' MAPFILE__reply
 		while :; do
 			case "$1" in
-			-t)
+			'-t')
 				MAPFILE__t='yes'
 				shift # trim -t
 				;;
-			-td)
+			'-td')
 				MAPFILE__t='yes'
 				shift # trim -td
 				MAPFILE__delim="$1"
 				shift # trim delim
 				;;
-			-d)
+			'-d')
 				shift # trim -d
 				MAPFILE__delim="$1"
 				shift # trim delim
 				;;
-			-*)
+			'-'*)
 				__print_lines \
 					"mapfile[shim]: $1: invalid option" \
 					'mapfile[shim]: usage: mapfile -t [-d delim] <array>' >&2 || :
@@ -1460,7 +1460,7 @@ function __affirm_value_is_valid_write_mode {
 		return 22
 	fi
 	case "$1" in
-	'' | prepend | append | overwrite) return 0 ;; # valid modes
+	'' | 'prepend' | 'append' | 'overwrite') return 0 ;; # valid modes
 	*)
 		__print_lines "ERROR: ${FUNCNAME[1]}: An invalid mode was provided: $1" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1655,20 +1655,20 @@ function __return {
 		RETURN__item="$1"
 		shift
 		case "$RETURN__item" in
-		--invoke-only-on-failure) RETURN__invoke_only_on_failure=yes ;;
-		--)
+		'--invoke-only-on-failure') RETURN__invoke_only_on_failure=yes ;;
+		'--')
 			RETURN__invoke_command+=("$@")
 			shift $#
 			break
 			;;
 		[0-9]*)
 			__affirm_value_is_positive_integer "$RETURN__item" 'exit status' || return $?
-			# it is an exit status, update our result exit status if it is still non-zero
+			# it is an exit status, update our result exit status if it is still zero
 			if [[ $RETURN__status -eq 0 ]]; then
 				RETURN__status="$RETURN__item"
 			fi
 			;;
-		--*) __unrecognised_flag "$RETURN__item" || return $? ;;
+		'--'*) __unrecognised_flag "$RETURN__item" || return $? ;;
 		*) __unrecognised_argument "$RETURN__item" || return $? ;;
 		esac
 	done
@@ -1812,27 +1812,27 @@ function __is_affirmative {
 		IS_AFFIRMATIVE__item="$1"
 		shift
 		case "$IS_AFFIRMATIVE__item" in
-		--no-ignore-empty* | --ignore-empty*) __flag --source={IS_AFFIRMATIVE__item} --target={IS_AFFIRMATIVE__ignore_empty} --affirmative --coerce || return $? ;;
-		--affirmation=affirmative | --affirmation=non-affirmative) IS_AFFIRMATIVE__affirmation="${IS_AFFIRMATIVE__item#*=}" ;;
-		--)
+		'--no-ignore-empty'* | '--ignore-empty'*) __flag --source={IS_AFFIRMATIVE__item} --target={IS_AFFIRMATIVE__ignore_empty} --affirmative --coerce || return $? ;;
+		'--affirmation=affirmative' | '--affirmation=non-affirmative') IS_AFFIRMATIVE__affirmation="${IS_AFFIRMATIVE__item#*=}" ;;
+		'--')
 			IS_AFFIRMATIVE__inputs+=("$@")
 			shift "$#"
 			break
 			;;
-		--*) __unrecognised_flag "$IS_AFFIRMATIVE__item" || return $? ;;
+		'--'*) __unrecognised_flag "$IS_AFFIRMATIVE__item" || return $? ;;
 		*) IS_AFFIRMATIVE__inputs+=("$IS_AFFIRMATIVE__item") ;;
 		esac
 	done
 	local IS_AFFIRMATIVE__input IS_AFFIRMATIVE__affirmed='no'
 	for IS_AFFIRMATIVE__input in "${IS_AFFIRMATIVE__inputs[@]}"; do
 		case "$IS_AFFIRMATIVE__input" in
-		yes | y | true | Y | YES | TRUE)
+		'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE')
 			if [[ $IS_AFFIRMATIVE__affirmation == 'non-affirmative' ]]; then
 				return 1
 			fi
 			IS_AFFIRMATIVE__affirmed='yes'
 			;;
-		no | n | false | N | NO | FALSE)
+		'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE')
 			if [[ $IS_AFFIRMATIVE__affirmation == 'affirmative' ]]; then
 				return 1
 			fi
@@ -1867,7 +1867,7 @@ function __is_non_affirmative {
 function __is_special_file {
 	local IS_SPECIAL_FILE__target="$1"
 	case "$IS_SPECIAL_FILE__target" in
-	0 | STDIN | stdin | /dev/stdin | 1 | STDOUT | stdout | /dev/stdout | 2 | STDERR | stderr | /dev/stderr | TTY | tty | /dev/tty | NULL | null | /dev/null) return 0 ;; # is a special file
+	'0' | 'STDIN' | 'stdin' | '/dev/stdin' | '1' | 'STDOUT' | 'stdout' | '/dev/stdout' | '2' | 'STDERR' | 'stderr' | '/dev/stderr' | 'TTY' | 'tty' | '/dev/tty' | 'NULL' | 'null' | '/dev/null') return 0 ;; # is a special file
 	'')
 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $IS_SPECIAL_FILE__target" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1892,7 +1892,7 @@ function __is_special_file {
 # this is beta, and may change later
 function __is_tty_special_file {
 	case "$1" in
-	TTY | tty | /dev/tty) return 0 ;; # is a tty target
+	'TTY' | 'tty' | '/dev/tty') return 0 ;; # is a tty target
 	'')
 		__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was provided: $1" >&2 || :
 		return 22 # EINVAL 22 Invalid argument
@@ -1920,14 +1920,14 @@ function __string_to_variable {
 	local STRING_TO_VARIABLE__value="$1" STRING_TO_VARIABLE__target_variable_name="$2" STRING_TO_VARIABLE__mode="${3-}"
 	if __is_array "$STRING_TO_VARIABLE__target_variable_name"; then
 		case "$STRING_TO_VARIABLE__mode" in
-		prepend) eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\" \"\${${STRING_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
-		append) eval "$STRING_TO_VARIABLE__target_variable_name+=(\"\${STRING_TO_VARIABLE__value}\")" || return $? ;;
+		'prepend') eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\" \"\${${STRING_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
+		'append') eval "$STRING_TO_VARIABLE__target_variable_name+=(\"\${STRING_TO_VARIABLE__value}\")" || return $? ;;
 		*) eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\")" || return $? ;;
 		esac
 	else
 		case "$STRING_TO_VARIABLE__mode" in
-		prepend) eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\${${STRING_TO_VARIABLE__target_variable_name}}\"" || return $? ;;
-		append) eval "$STRING_TO_VARIABLE__target_variable_name+=\"\${STRING_TO_VARIABLE__value}\"" || return $? ;;
+		'prepend') eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\${${STRING_TO_VARIABLE__target_variable_name}}\"" || return $? ;;
+		'append') eval "$STRING_TO_VARIABLE__target_variable_name+=\"\${STRING_TO_VARIABLE__value}\"" || return $? ;;
 		*) eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\"" || return $? ;;
 		esac
 	fi
@@ -1940,14 +1940,14 @@ function __variable_to_variable {
 	if __is_array "$VARIABLE_TO_VARIABLE__target_variable_name"; then
 		if __is_array "$VARIABLE_TO_VARIABLE__source_variable_name"; then
 			case "$VARIABLE_TO_VARIABLE__mode" in
-			prepend) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
-			append) eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return $? ;;
+			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
+			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return $? ;;
 			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return $? ;;
 			esac
 		else
 			case "$VARIABLE_TO_VARIABLE__mode" in
-			prepend) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
-			append) eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return $? ;;
+			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
+			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return $? ;;
 			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return $? ;;
 			esac
 		fi
@@ -1958,8 +1958,8 @@ function __variable_to_variable {
 			return 22 # EINVAL 22 Invalid argument
 		else
 			case "$VARIABLE_TO_VARIABLE__mode" in
-			prepend) eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\${${VARIABLE_TO_VARIABLE__target_variable_name}}\"" || return $? ;;
-			append) eval "$VARIABLE_TO_VARIABLE__target_variable_name+=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return $? ;;
+			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\${${VARIABLE_TO_VARIABLE__target_variable_name}}\"" || return $? ;;
+			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return $? ;;
 			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return $? ;;
 			esac
 		fi
@@ -1990,17 +1990,17 @@ function __value_to_target {
 	# process
 	case "$VALUE_TO_TARGET__target" in
 	# stdout
-	1 | STDOUT | stdout | /dev/stdout | '')
+	'1' | 'STDOUT' | 'stdout' | '/dev/stdout' | '')
 		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return $?
 		printf '%s' "$VALUE_TO_TARGET__value" || return $?
 		;;
 	# stderr
-	2 | STDERR | stderr | /dev/stderr)
+	'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return $?
 		printf '%s' "$VALUE_TO_TARGET__value" >&2 || return $?
 		;;
 	# tty
-	TTY | tty | /dev/tty)
+	'TTY' | 'tty' | '/dev/tty')
 		# handle TTY redirects
 		if ! __is_tty_special_file "$TERMINAL_OUTPUT_TARGET"; then
 			__value_to_target "$VALUE_TO_TARGET__value" "$TERMINAL_OUTPUT_TARGET" "$VALUE_TO_TARGET__mode" || return $?
@@ -2011,26 +2011,25 @@ function __value_to_target {
 		printf '%s' "$VALUE_TO_TARGET__value" >>/dev/tty || return $?
 		;;
 	# null
-	NULL | null | /dev/null) : ;;
+	'NULL' | 'null' | '/dev/null') : ;;
 	# file descriptor
 	[0-9]*)
-		# __affirm_value_is_positive_integer "$VALUE_TO_TARGET__target" 'file descriptor' || return $?
-		# ^ no need, as the regex already affirms that
+		__affirm_value_is_positive_integer "$VALUE_TO_TARGET__target" 'file descriptor' || return $?
 		__affirm_empty_mode "$VALUE_TO_TARGET__mode" "$VALUE_TO_TARGET__target" || return $?
 		printf '%s' "$VALUE_TO_TARGET__value" >&"$VALUE_TO_TARGET__target" || return $?
 		;;
 	# file target
 	*)
 		case "$VALUE_TO_TARGET__mode" in
-		prepend)
+		'prepend')
 			local REPLY
 			__read_whole <"$VALUE_TO_TARGET__target" || return $?
 			printf '%s' "$VALUE_TO_TARGET__value$REPLY" >"$VALUE_TO_TARGET__target" || return $?
 			;;
-		append)
+		'append')
 			printf '%s' "$VALUE_TO_TARGET__value" >>"$VALUE_TO_TARGET__target" || return $?
 			;;
-		'' | overwrite)
+		'' | 'overwrite')
 			printf '%s' "$VALUE_TO_TARGET__value" >"$VALUE_TO_TARGET__target" || return $?
 			;;
 		esac
@@ -2047,37 +2046,37 @@ function __dereference {
 		DEREFERENCE__item="$1"
 		shift
 		case "$DEREFERENCE__item" in
-		--source={*})
+		'--source={'*'}')
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
 			DEREFERENCE__source_variable_name="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
 			DEREFERENCE__source_prefix="${DEREFERENCE__source_variable_name%%__*}__"
 			;;
-		--source=*)
+		'--source='*)
 			DEREFERENCE__source_variable_name="${DEREFERENCE__item#*=}"
 			DEREFERENCE__source_prefix="${DEREFERENCE__source_variable_name%%__*}__"
 			;;
-		--name={*})
+		'--name={'*'}')
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
 			DEREFERENCE__target_name_variable_name="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
 			DEREFERENCE__internal_prefix="${DEREFERENCE__target_name_variable_name%%__*}__"
 			;;
-		--value={*})
+		'--value={'*'}')
 			DEREFERENCE__item="${DEREFERENCE__item#*=}"
 			DEREFERENCE__size="${#DEREFERENCE__item}"
 			DEREFERENCE__target_value_variable_name="${DEREFERENCE__item:1:DEREFERENCE__size-2}" # trim starting and trailing squigglies
 			DEREFERENCE__internal_prefix="${DEREFERENCE__target_value_variable_name%%__*}__"
 			;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$DEREFERENCE__mode" 'write mode' || return $?
 			DEREFERENCE__mode="${DEREFERENCE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$DEREFERENCE__mode" 'write mode' || return $?
 			DEREFERENCE__mode="${DEREFERENCE__item:2}"
 			;;
-		--*) __unrecognised_flag "$DEREFERENCE__item" || return $? ;;
+		'--'*) __unrecognised_flag "$DEREFERENCE__item" || return $? ;;
 		*) __unrecognised_argument "$DEREFERENCE__item" || return $? ;;
 		esac
 	done
@@ -2181,24 +2180,24 @@ function __to {
 		TO__item="$1"
 		shift
 		case "$TO__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$TO__source" 'source variable reference' || return $?
 			__dereference --source="${TO__item#*=}" --name={TO__source} || return $?
 			;;
-		--targets=*) __dereference --source="${TO__item#*=}" --append --value={TO__targets} || return $? ;;
-		--target=*) TO__targets+=("${TO__item#*=}") ;;
+		'--targets='*) __dereference --source="${TO__item#*=}" --append --value={TO__targets} || return $? ;;
+		'--target='*) TO__targets+=("${TO__item#*=}") ;;
 		# can't use `__flag` as `__flag` uses `__to`, so the wrong variables will be set due to recursion
-		--no-coerce | --coerce=no | --no-coerce=yes) TO__coerce=no ;;
-		--coerce | --coerce=yes | --no-coerce=no) TO__coerce=yes ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--no-coerce' | '--coerce=no' | '--no-coerce=yes') TO__coerce=no ;;
+		'--coerce' | '--coerce=yes' | '--no-coerce=no') TO__coerce=yes ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$TO__mode" 'write mode' || return $?
 			TO__mode="${TO__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$TO__mode" 'write mode' || return $?
 			TO__mode="${TO__item:2}"
 			;;
-		--)
+		'--')
 			__affirm_value_is_undefined "$TO__source" 'source variable reference' || return $?
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
@@ -2215,7 +2214,7 @@ function __to {
 			shift $#
 			break
 			;;
-		--*) __unrecognised_flag "$TO__item" || return $? ;;
+		'--'*) __unrecognised_flag "$TO__item" || return $? ;;
 		*) __unrecognised_argument "$TO__item" || return $? ;;
 		esac
 	done
@@ -2243,9 +2242,9 @@ function __to {
 				if __is_array "$TO__target"; then #
 					# array to array
 					case "$TO__mode" in
-					prepend) eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return $? ;;
-					append) eval "$TO__target+=(\"\${${TO__source}[@]}\")" || return $? ;;
-					'' | overwrite) eval "$TO__target=(\"\${${TO__source}[@]}\")" || return $? ;;
+					'prepend') eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return $? ;;
+					'append') eval "$TO__target+=(\"\${${TO__source}[@]}\")" || return $? ;;
+					'' | 'overwrite') eval "$TO__target=(\"\${${TO__source}[@]}\")" || return $? ;;
 					# mode is already validated
 					esac
 				else
@@ -2253,17 +2252,17 @@ function __to {
 					if [[ $TO__coerce == 'yes' && $TO__source_size -eq 0 ]]; then
 						# array of no elements to empty string
 						case "$TO__mode" in
-						prepend) : ;;
-						append) : ;;
-						'' | overwrite) eval "$TO__target=" || return $? ;;
+						'prepend') : ;;
+						'append') : ;;
+						'' | 'overwrite') eval "$TO__target=" || return $? ;;
 						# mode is already validated
 						esac
 					elif [[ $TO__coerce == 'yes' && $TO__source_size -eq 1 ]]; then
 						# array of single element to string
 						case "$TO__mode" in
-						prepend) eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return $? ;;
-						append) eval "$TO__target+=\"\${${TO__source}[0]}\")" || return $? ;;
-						'' | overwrite) eval "$TO__target=\"\${${TO__source}[0]}\"" || return $? ;;
+						'prepend') eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return $? ;;
+						'append') eval "$TO__target+=\"\${${TO__source}[0]}\")" || return $? ;;
+						'' | 'overwrite') eval "$TO__target=\"\${${TO__source}[0]}\"" || return $? ;;
 						# mode is already validated
 						esac
 					else
@@ -2277,9 +2276,9 @@ function __to {
 				if __is_array "$TO__target"; then
 					if [[ $TO__coerce == 'yes' ]]; then
 						case "$TO__mode" in
-						prepend) eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return $? ;;
-						append) eval "$TO__target+=(\"\${${TO__source}}\")" || return $? ;;
-						'' | overwrite) eval "$TO__target=(\"\${${TO__source}}\")" || return $? ;;
+						'prepend') eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return $? ;;
+						'append') eval "$TO__target+=(\"\${${TO__source}}\")" || return $? ;;
+						'' | 'overwrite') eval "$TO__target=(\"\${${TO__source}}\")" || return $? ;;
 						# mode is already validated
 						esac
 					else
@@ -2290,9 +2289,9 @@ function __to {
 				else
 					# string to string
 					case "$TO__mode" in
-					prepend) eval "$TO__target=\"\${${TO__source}}\${${TO__target}}\"" || return $? ;;
-					append) eval "$TO__target+=\"\$${TO__source}\"" || return $? ;;
-					'' | overwrite) eval "$TO__target=\"\${${TO__source}}\"" || return $? ;;
+					'prepend') eval "$TO__target=\"\${${TO__source}}\${${TO__target}}\"" || return $? ;;
+					'append') eval "$TO__target+=\"\$${TO__source}\"" || return $? ;;
+					'' | 'overwrite') eval "$TO__target=\"\${${TO__source}}\"" || return $? ;;
 					# mode is already validated
 					esac
 				fi
@@ -2300,7 +2299,7 @@ function __to {
 		else
 			# no-ops on null targets
 			case "$TO__target" in
-			NULL | null | /dev/null) continue ;;
+			'NULL' | 'null' | '/dev/null') continue ;;
 			esac
 			# render for the non-null targets
 			local TO__value=''
@@ -2371,18 +2370,18 @@ function __do {
 	local DO__trailing_newlines=no DO__args=() DO__cmd=()
 	while [[ $# -ne 0 ]]; do
 		case "$1" in
-		--trailing-newlines | --trailing-newlines=yes)
+		'--trailing-newlines' | '--trailing-newlines=yes')
 			DO__trailing_newlines=yes
 			shift
 			;;
-		--no-trailing-newlines | --trailing-newlines=no)
+		'--no-trailing-newlines' | '--trailing-newlines=no')
 			DO__trailing_newlines=no
 			shift
 			;;
-		--trailing-newlines=)
+		'--trailing-newlines=')
 			shift
 			;;
-		--)
+		'--')
 			shift
 			DO__cmd=("$@")
 			shift $#
@@ -2432,28 +2431,28 @@ function __do {
 		;;
 
 	# discard status
-	--discard-status | --no-status | --status=no)
+	'--discard-status' | '--no-status' | '--status=no')
 		# catch and discard the status
 		__try -- __do --inverted "$@"
 		return $?
 		;;
 
 	# aliases for discard stdout, stderr, output
-	--discard-stdout | --no-stdout | --stdout=no)
+	'--discard-stdout' | '--no-stdout' | '--stdout=no')
 		__do --inverted "$@" >/dev/null
 		return $?
 		;;
-	--discard-stderr | --no-stderr | --stderr=no)
+	'--discard-stderr' | '--no-stderr' | '--stderr=no')
 		__do --inverted "$@" 2>/dev/null
 		return $?
 		;;
-	--discard-output | --no-output | --output=no | --discard-stdout+stderr | --no-stdout+stderr | --stdout+stderr=no)
+	'--discard-output' | '--no-output' | '--output=no' | '--discard-stdout+stderr' | '--no-stdout+stderr' | '--stdout+stderr=no')
 		__do --inverted "$@" &>/dev/null
 		return $?
 		;;
 
 	# redirect or copy, status, to a var target
-	--redirect-status={*} | --copy-status={*})
+	'--redirect-status={'*'}' | '--copy-status={'*'}')
 		local DO__variable_name DO__status
 		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return $?
 
@@ -2466,8 +2465,8 @@ function __do {
 
 		# return or discard the status
 		case "$DO__arg_flag" in
-		--redirect-*) return 0 ;;
-		--copy-*) return "$DO__status" ;;
+		'--redirect-'*) return 0 ;;
+		'--copy-'*) return "$DO__status" ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -2476,7 +2475,7 @@ function __do {
 		;;
 
 	# redirect or copy, status, to a non-var target
-	--redirect-status=* | --copy-status=*)
+	'--redirect-status='* | '--copy-status='*)
 		# catch the status
 		local DO__status
 		__try {DO__status} -- __do --inverted "$@"
@@ -2487,8 +2486,8 @@ function __do {
 
 		# return or discard the status
 		case "$DO__arg_flag" in
-		--redirect-*) return 0 ;;
-		--copy-*) return "$DO__status" ;;
+		'--redirect-'*) return 0 ;;
+		'--copy-'*) return "$DO__status" ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -2497,7 +2496,7 @@ function __do {
 		;;
 
 	# redirect or copy, device files, to a var target
-	--redirect-stdout={*} | --redirect-stderr={*} | --redirect-output={*} | --copy-stdout={*} | --copy-stderr={*} | --copy-output={*})
+	'--redirect-stdout={'*'}' | '--redirect-stderr={'*'}' | '--redirect-output={'*'}' | '--copy-stdout={'*'}' | '--copy-stderr={'*'}' | '--copy-output={'*'}')
 		local DO__variable_name DO__semaphore REPLY
 		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return $?
 
@@ -2551,7 +2550,7 @@ function __do {
 	# 	;;
 
 	# redirect, device files, to process substitution
-	--redirect-stdout=\(*\) | --redirect-stderr=\(*\) | --redirect-output=\(*\))
+	'--redirect-stdout=('*')' | '--redirect-stderr=('*')' | '--redirect-output=('*')')
 		local DO__code DO__semaphore DO__size
 
 		# trim starting and trailing parentheses, converting (<code>) to <code>
@@ -2577,9 +2576,9 @@ function __do {
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
 		# note [>(...)] and [> >(...)] are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
 		case "$DO__arg_flag" in
-		--redirect-stdout) __do --inverted "$@" > >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		--redirect-stderr) __do --inverted "$@" 2> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		--redirect-output) __do --inverted "$@" &> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		'--redirect-stdout') __do --inverted "$@" > >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		'--redirect-stderr') __do --inverted "$@" 2> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		'--redirect-output') __do --inverted "$@" &> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -2593,35 +2592,35 @@ function __do {
 
 	# note that copying to a process substitution is not yet supported
 	# @todo implement this
-	--copy-stdout=\(*\) | --copy-stderr=\(*\) | --copy-output=\(*\))
+	'--copy-stdout=('*')' | '--copy-stderr=('*')' | '--copy-output=('*')')
 		__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 		return 78 # NOSYS 78 Function not implemented
 		;;
 
 	# redirect, stdout, to various targets
-	--redirect-stdout=*)
+	'--redirect-stdout='*)
 		case "$DO__arg_value" in
 
 		# redirect stdout to stdout, this is a no-op, continue to next
-		1 | STDOUT | stdout | /dev/stdout)
+		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			__do --inverted "$@"
 			return $?
 			;;
 
 		# redirect stdout to stderr
-		2 | STDERR | stderr | /dev/stderr)
+		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			__do --inverted "$@" >&2
 			return $?
 			;;
 
 		# redirect stdout to tty
-		TTY | tty | /dev/tty)
+		'TTY' | 'tty' | '/dev/tty')
 			__do --inverted "$@" >>/dev/tty
 			return $?
 			;;
 
 		# redirect stdout to null
-		NULL | null | /dev/null)
+		'NULL' | 'null' | '/dev/null')
 			__do --inverted "$@" >/dev/null
 			return $?
 			;;
@@ -2650,18 +2649,18 @@ function __do {
 		;;
 
 	# copy, stdout, to various targets
-	--copy-stdout=*)
+	'--copy-stdout='*)
 		case "$DO__arg_value" in
 
 		# copy stdout to stdout
-		1 | STDOUT | stdout | /dev/stdout)
+		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			# no-op
 			__do --inverted "$@"
 			return $?
 			;;
 
 		# copy stdout to stderr
-		2 | STDERR | stderr | /dev/stderr)
+		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
@@ -2685,7 +2684,7 @@ function __do {
 			;;
 
 		# copy stdout to tty
-		TTY | tty | /dev/tty)
+		'TTY' | 'tty' | '/dev/tty')
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
@@ -2709,7 +2708,7 @@ function __do {
 			;;
 
 		# copy stdout to null
-		NULL | null | /dev/null)
+		'NULL' | 'null' | '/dev/null')
 			# no-op
 			__do --inverted "$@"
 			return $?
@@ -2769,29 +2768,29 @@ function __do {
 		esac
 		;;
 
-	--redirect-stderr=*)
+	'--redirect-stderr='*)
 		case "$DO__arg_value" in
 
 		# redirect stderr to stdout
-		1 | STDOUT | stdout | /dev/stdout)
+		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			__do --inverted "$@" 2>&1
 			return $?
 			;;
 
 		# redirect stderr to stderr, this is a no-op, continue to next
-		2 | STDERR | stderr | /dev/stderr)
+		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			__do --inverted "$@"
 			return $?
 			;;
 
 		# redirect stderr to tty
-		TTY | tty | /dev/tty)
+		'TTY' | 'tty' | '/dev/tty')
 			__do --inverted "$@" 2>>/dev/tty
 			return $?
 			;;
 
 		# redirect stderr to null
-		NULL | null | /dev/null)
+		'NULL' | 'null' | '/dev/null')
 			__do --inverted "$@" 2>/dev/null
 			return $?
 			;;
@@ -2820,11 +2819,11 @@ function __do {
 		;;
 
 	# copy, stderr, to various targets
-	--copy-stderr=*)
+	'--copy-stderr='*)
 		case "$DO__arg_value" in
 
 		# copy stderr to stdout
-		1 | STDOUT | stdout | /dev/stdout)
+		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
@@ -2848,14 +2847,14 @@ function __do {
 			;;
 
 		# copy stderr to stderr, this behaviour is unspecified, should it double the data to stderr?
-		2 | STDERR | stderr | /dev/stderr)
+		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			# no-op
 			__do --inverted "$@"
 			return $?
 			;;
 
 		# copy stderr to tty
-		TTY | tty | /dev/tty)
+		'TTY' | 'tty' | '/dev/tty')
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
@@ -2879,7 +2878,7 @@ function __do {
 			;;
 
 		# copy stderr to null
-		NULL | null | /dev/null)
+		'NULL' | 'null' | '/dev/null')
 			# no-op
 			__do --inverted "$@"
 			return $?
@@ -2939,29 +2938,29 @@ function __do {
 		esac
 		;;
 
-	--redirect-output=*)
+	'--redirect-output='*)
 		case "$DO__arg_value" in
 
 		# redirect stderr to stdout
-		1 | STDOUT | stdout | /dev/stdout)
+		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			__do --inverted "$@" 2>&1
 			return $?
 			;;
 
 		# redirect stdout to stderr
-		2 | STDERR | stderr | /dev/stderr)
+		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			__do --inverted "$@" >&2
 			return $?
 			;;
 
 		# redirect stderr to stdout, then stdout to tty, as `&>>` is not supported in all bash versions
-		TTY | tty | /dev/tty)
+		'TTY' | 'tty' | '/dev/tty')
 			__do --inverted "$@" >>/dev/tty 2>&1
 			return $?
 			;;
 
 		# redirect output to null
-		NULL | null | /dev/null | no)
+		'NULL' | 'null' | '/dev/null' | 'no')
 			__do --inverted "$@" &>/dev/null
 			return $?
 			;;
@@ -2990,32 +2989,32 @@ function __do {
 		;;
 
 	# copy, output, to various targets
-	--copy-output=*)
+	'--copy-output='*)
 		case "$DO__arg_value" in
 
 		# copy output to stdout, this behaviour is unspecified, as there is no way to send it back to output
-		1 | STDOUT | stdout | /dev/stdout)
+		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy output to stderr, this behaviour is unspecified, as there is no way to send it back to output
-		2 | STDERR | stderr | /dev/stderr)
+		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy output to tty, this behaviour is unspecified, as there is no way to send it back to output
-		TTY | tty | /dev/tty)
+		'TTY' | 'tty' | '/dev/tty')
 			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
 
 		# copy stderr to null
-		NULL | null | /dev/null)
+		'NULL' | 'null' | '/dev/null')
 			# no-op
 			__do --inverted "$@"
 			return $?
@@ -3024,7 +3023,6 @@ function __do {
 		# copy output to FD target, this behaviour is unspecified, as there is no way to send it back to output
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return $?
-			# @todo implement this
 			__print_lines "ERROR: ${FUNCNAME[0]}: A to be implemented flag was provided: $DO__arg" >&2 || :
 			return 78 # NOSYS 78 Function not implemented
 			;;
@@ -3220,7 +3218,7 @@ function __try {
 			shift $#
 			break
 			;;
-		{*}) __dereference --source="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_variable_name} || return $? ;;
+		'{'*'}') __dereference --source="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_variable_name} || return $? ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $DOROTHY_TRY__item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -3710,11 +3708,11 @@ function __sudo_mkdirp {
 # 	local READ__whole='' READ__pieces='' READ__lines='' READ__inline='' READ__until=''
 # 	while [[ $# -ne 0 ]]; do
 # 		case "$1" in
-# 		--whole) READ__whole=yes ;;
-# 		--null-separated-pieces) READ__pieces=yes ;;
-# 		--lines) READ__lines=yes ;;
-# 		--inline) READ__inline=yes ;;
-# 		--until=*)
+# 		'--whole') READ__whole=yes ;;
+# 		'--null-separated-pieces') READ__pieces=yes ;;
+# 		'--lines') READ__lines=yes ;;
+# 		'--inline') READ__inline=yes ;;
+# 		'--until='*)
 # 			READ__until="${1#*=}"
 # 			if [[ ${#READ__until} -gt 1 ]]; then
 # 				printf '%s%q%d' "ERROR: ${FUNCNAME[0]}: The until character must be zero-length or a single-length character:" "$READ__until" "${#READ__until}" >&2 || :
@@ -3804,8 +3802,8 @@ function __is_fd_open {
 		shift
 		case "$IS_FD_OPEN__item" in
 		# no way to test if a file descriptor reference is available, it has to be dereferenced first
-		{*}) __dereference --source="$IS_FD_OPEN__item" --append --value={IS_FD_OPEN__numbers} || return $? ;;
-		[0-9]*) IS_FD_OPEN__numbers+=("$IS_FD_OPEN__item") ;;
+		'{'*'}') __dereference --source="$IS_FD_OPEN__item" --append --value={IS_FD_OPEN__numbers} || return $? ;;
+		[0-9]*) IS_FD_OPEN__numbers+=("$IS_FD_OPEN__item") ;; # affirmation is handled later
 		*) __unrecognised_argument "$IS_FD_OPEN__item" || return $? ;;
 		esac
 	done
@@ -3828,8 +3826,8 @@ function __is_fd_available {
 		shift
 		case "$IS_FD_AVAILABLE__item" in
 		# no way to test if a file descriptor reference is available, it has to be dereferenced first
-		{*}) __dereference --source="$IS_FD_AVAILABLE__item" --append --value={IS_FD_AVAILABLE__numbers} || return $? ;;
-		[0-9]*) IS_FD_AVAILABLE__numbers+=("$IS_FD_AVAILABLE__item") ;;
+		'{'*'}') __dereference --source="$IS_FD_AVAILABLE__item" --append --value={IS_FD_AVAILABLE__numbers} || return $? ;;
+		[0-9]*) IS_FD_AVAILABLE__numbers+=("$IS_FD_AVAILABLE__item") ;; # affirmation is handled later
 		*) __unrecognised_argument "$IS_FD_AVAILABLE__item" || return $? ;;
 		esac
 	done
@@ -3853,16 +3851,15 @@ function __open_fd {
 		if [[ -z $OPEN_FD__mode ]]; then
 			case "$OPEN_FD__item" in
 			# file descriptor
-			{*}) __dereference --source="$OPEN_FD__item" --append --name={OPEN_FD__references} || return $? ;;
+			'{'*'}') __dereference --source="$OPEN_FD__item" --append --name={OPEN_FD__references} || return $? ;;
 			[0-9]*)
 				__affirm_value_is_positive_integer "$OPEN_FD__item" 'file descriptor' || return $?
-				OPEN_FD__numbers+=("$OPEN_FD__item")
-				;;
+				OPEN_FD__numbers+=("$OPEN_FD__item") ;;
 			# mode
-			'<' | --read) OPEN_FD__mode='<' ;;
-			'>' | --overwrite | --write) OPEN_FD__mode='>' ;;
-			'<>' | --read-write) OPEN_FD__mode='<>' ;;
-			'>>' | --append) OPEN_FD__mode='>>' ;;
+			'<' | '--read') OPEN_FD__mode='<' ;;
+			'>' | '--overwrite' | '--write') OPEN_FD__mode='>' ;;
+			'<>' | '--read-write') OPEN_FD__mode='<>' ;;
+			'>>' | '--append') OPEN_FD__mode='>>' ;;
 			*) __unrecognised_argument "$OPEN_FD__item" || return $? ;;
 			esac
 		elif __is_positive_integer "$OPEN_FD__item"; then
@@ -4028,20 +4025,20 @@ function __semaphores {
 		SEMAPHORES__item="$1"
 		shift
 		case "$SEMAPHORES__item" in
-		--target={*})
+		'--target={'*'}')
 			__affirm_value_is_undefined "$SEMAPHORES__variable_name" 'target reference' || return $?
 			__dereference --source="${SEMAPHORES__item#*=}" --name={SEMAPHORES__variable_name} || return $?
 			;;
-		--size=*)
+		'--size='*)
 			__affirm_value_is_undefined "$SEMAPHORES__size" 'size/count of semaphores' || return $?
 			SEMAPHORES__size="${SEMAPHORES__item#*=}"
 			;;
-		--)
+		'--')
 			SEMAPHORES__context_ids+=("$@")
 			shift $#
 			break
 			;;
-		--*) __unrecognised_flag "$TO__item" || return $? ;;
+		'--'*) __unrecognised_flag "$TO__item" || return $? ;;
 		*) __unrecognised_argument "$TO__item" || return $? ;;
 		esac
 	done
@@ -4119,29 +4116,29 @@ function __flag {
 		local FLAG__item="$1"
 		shift
 		case "$FLAG__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$FLAG__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${FLAG__item#*=}" --name={FLAG__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			FLAG__item="${FLAG__item#*=}"
 			FLAG__targets+=("$FLAG__item")
 			__affirm_value_is_undefined "$FLAG__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$FLAG__item" --name={FLAG__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${FLAG__item#*=}" --append --value={FLAG__targets} || return $? ;;
-		--target=*) FLAG__targets+=("${FLAG__item#*=}") ;;
-		--yes=*) FLAG__yes="${FLAG__item#*=}" ;;
-		--no=*) FLAG__no="${FLAG__item#*=}" ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${FLAG__item#*=}" --append --value={FLAG__targets} || return $? ;;
+		'--target='*) FLAG__targets+=("${FLAG__item#*=}") ;;
+		'--yes='*) FLAG__yes="${FLAG__item#*=}" ;;
+		'--no='*) FLAG__no="${FLAG__item#*=}" ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return $?
 			FLAG__mode="${FLAG__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$FLAG__mode" 'write mode' || return $?
 			FLAG__mode="${FLAG__item:2}"
 			;;
-		--)
+		'--')
 			__affirm_value_is_undefined "$FLAG__source_variable_name" 'source variable reference' || return $?
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
@@ -4159,20 +4156,20 @@ function __flag {
 			break
 			;;
 		# </single-source helper arguments>
-		--name=*)
+		'--name='*)
 			__affirm_value_is_undefined "$FLAG__filter" 'flag name filter' || return $?
 			FLAG__filter="${FLAG__item#*=}"
 			;;
-		--affirmative) FLAG__boolean='yes' ;; # consider enforcing coerce, which was to be opted out of for non yes/no values
-		--non-affirmative)                    # consider enforcing coerce, which has to be opted out of for non yes/no values
+		'--affirmative') FLAG__boolean='yes' ;; # consider enforcing coerce, which was to be opted out of for non yes/no values
+		'--non-affirmative')                    # consider enforcing coerce, which has to be opted out of for non yes/no values
 			FLAG__boolean='yes'
 			FLAG__invert='yes'
 			;;
-		--export) FLAG__export='yes' ;;
-		--coerce) FLAG__coerce='yes' ;;
-		--no-coerce) FLAG__coerce='no' ;;
-		--no-empty) FLAG__empty='no' ;; # aka --discard-empty, --fallback-on-empty, --ignore-empty
-		--*) __unrecognised_flag "$FLAG__item" || return $? ;;
+		'--export') FLAG__export='yes' ;;
+		'--coerce') FLAG__coerce='yes' ;;
+		'--no-coerce') FLAG__coerce='no' ;;
+		'--no-empty') FLAG__empty='no' ;; # aka --discard-empty, --fallback-on-empty, --ignore-empty
+		'--'*) __unrecognised_flag "$FLAG__item" || return $? ;;
 		*) __unrecognised_argument "$FLAG__item" || return $? ;;
 		esac
 	done
@@ -4256,13 +4253,13 @@ function __flag {
 		if [[ $FLAG__boolean == 'yes' ]]; then
 			if [[ $FLAG__invert == 'no' ]]; then
 				case "$FLAG__value" in
-				yes | y | true | Y | YES | TRUE) FLAG__value='yes' ;;
-				no | n | false | N | NO | FALSE) FLAG__value='no' ;;
+				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='yes' ;;
+				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='no' ;;
 				esac
 			else
 				case "$FLAG__value" in
-				yes | y | true | Y | YES | TRUE) FLAG__value='no' ;;
-				no | n | false | N | NO | FALSE) FLAG__value='yes' ;;
+				'yes' | 'y' | 'true' | 'Y' | 'YES' | 'TRUE') FLAG__value='no' ;;
+				'no' | 'n' | 'false' | 'N' | 'NO' | 'FALSE') FLAG__value='yes' ;;
 				esac
 			fi
 			if [[ $FLAG__coerce == 'yes' && $FLAG__value != 'yes' && $FLAG__value != 'no' ]]; then
@@ -4305,26 +4302,26 @@ function __array {
 		ARRAY__item="$1"
 		shift
 		case "$ARRAY__item" in
-		--targets=*) __dereference --source="${ARRAY__item#*=}" --append --value={ARRAY__targets} || return $? ;;
-		--target=*) ARRAY__targets+=("${ARRAY__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${ARRAY__item#*=}" --append --value={ARRAY__targets} || return $? ;;
+		'--target='*) ARRAY__targets+=("${ARRAY__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$ARRAY__mode" 'write mode' || return $?
 			ARRAY__mode="${ARRAY__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$ARRAY__mode" 'write mode' || return $?
 			ARRAY__mode="${ARRAY__item:2}"
 			;;
 		# </no-source, multi-target, helper arguments>
-		--size=*)
+		'--size='*)
 			__affirm_value_is_undefined "${ARRAY__size-}" 'array size' || return $?
 			ARRAY__size="${ARRAY__item#*=}"
 			;;
-		--fill=*)
+		'--fill='*)
 			__affirm_value_is_undefined "$ARRAY__fill" 'array fill' || return $?
 			ARRAY__fill="${ARRAY__item#*=}"
 			;;
-		--*) __unrecognised_flag "$ARRAY__item" || return $? ;;
+		'--'*) __unrecognised_flag "$ARRAY__item" || return $? ;;
 		*) __unrecognised_argument "$ARRAY__item" || return $? ;;
 		esac
 	done
@@ -4346,27 +4343,27 @@ function __reverse {
 		REVERSE__item="$1"
 		shift
 		case "$REVERSE__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$REVERSE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${REVERSE__item#*=}" --name={REVERSE__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			REVERSE__item="${REVERSE__item#*=}"
 			REVERSE__targets+=("$REVERSE__item")
 			__affirm_value_is_undefined "$REVERSE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$REVERSE__item" --name={REVERSE__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${REVERSE__item#*=}" --append --value={REVERSE__targets} || return $? ;;
-		--target=*) REVERSE__targets+=("${REVERSE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${REVERSE__item#*=}" --append --value={REVERSE__targets} || return $? ;;
+		'--target='*) REVERSE__targets+=("${REVERSE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$REVERSE__mode" 'write mode' || return $?
 			REVERSE__mode="${REVERSE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$REVERSE__mode" 'write mode' || return $?
 			REVERSE__mode="${REVERSE__item:2}"
 			;;
-		--)
+		'--')
 			# they are inputs
 			__affirm_value_is_undefined "$REVERSE__source_variable_name" 'source variable reference' || return $?
 			if [[ $# -eq 1 ]]; then
@@ -4384,7 +4381,7 @@ function __reverse {
 			break
 			;;
 		# </single-source helper arguments>
-		--*) __unrecognised_flag "$REVERSE__item" || return $? ;;
+		'--'*) __unrecognised_flag "$REVERSE__item" || return $? ;;
 		*) __unrecognised_argument "$REVERSE__item" || return $? ;;
 		esac
 	done
@@ -4423,27 +4420,27 @@ function __indices {
 		INDICES__item="$1"
 		shift
 		case "$INDICES__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$INDICES__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${INDICES__item#*=}" --name={INDICES__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			INDICES__item="${INDICES__item#*=}"
 			INDICES__targets+=("$INDICES__item")
 			__affirm_value_is_undefined "$INDICES__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$INDICES__item" --name={INDICES__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${INDICES__item#*=}" --append --value={INDICES__targets} || return $? ;;
-		--target=*) INDICES__targets+=("${INDICES__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${INDICES__item#*=}" --append --value={INDICES__targets} || return $? ;;
+		'--target='*) INDICES__targets+=("${INDICES__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$INDICES__mode" 'write mode' || return $?
 			INDICES__mode="${INDICES__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$INDICES__mode" 'write mode' || return $?
 			INDICES__mode="${INDICES__item:2}"
 			;;
-		--)
+		'--')
 			# they are inputs
 			__affirm_value_is_undefined "$INDICES__source_variable_name" 'source variable reference' || return $?
 			if [[ $# -eq 1 ]]; then
@@ -4461,9 +4458,9 @@ function __indices {
 			break
 			;;
 		# </single-source helper arguments># direction mode:
-		--direction=descending | --direction=reverse | --direction=reversed | --descending | --reverse | --reversed) INDICES__direction='descending' ;;
-		--direction=ascending | --direction=forward | --ascending | --forward) INDICES__direction='ascending' ;; # default
-		--*) __unrecognised_flag "$INDICES__item" || return $? ;;
+		'--direction=descending' | '--direction=reverse' | '--direction=reversed' | '--descending' | '--reverse' | '--reversed') INDICES__direction='descending' ;;
+		'--direction=ascending' | '--direction=forward' | '--ascending' | '--forward') INDICES__direction='ascending' ;; # default
+		'--'*) __unrecognised_flag "$INDICES__item" || return $? ;;
 		*) __unrecognised_argument "$INDICES__item" || return $? ;;
 		esac
 	done
@@ -4510,27 +4507,27 @@ function __at {
 		AT__item="$1"
 		shift
 		case "$AT__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$AT__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${AT__item#*=}" --name={AT__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			AT__item="${AT__item#*=}"
 			AT__targets+=("$AT__item")
 			__affirm_value_is_undefined "$AT__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$AT__item" --name={AT__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${AT__item#*=}" --append --value={AT__targets} || return $? ;;
-		--target=*) AT__targets+=("${AT__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${AT__item#*=}" --append --value={AT__targets} || return $? ;;
+		'--target='*) AT__targets+=("${AT__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$AT__mode" 'write mode' || return $?
 			AT__mode="${AT__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$AT__mode" 'write mode' || return $?
 			AT__mode="${AT__item:2}"
 			;;
-		--)
+		'--')
 			if [[ -z $AT__source_variable_name ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
@@ -4555,16 +4552,14 @@ function __at {
 			break
 			;;
 		# </single-source helper arguments>
-		--index=*)
+		'--index='[0-9]* | '--index=-'[0-9]*)
 			AT__item="${AT__item#*=}"
 			__affirm_value_is_integer "$AT__item" 'index' || return $?
-			AT__indices+=("$AT__item")
-			;;
-		[0-9]* | -[0-9]*)
+			AT__indices+=("$AT__item") ;;
+		[0-9]* | '-'[0-9]*)
 			__affirm_value_is_integer "$AT__item" 'index' || return $?
-			AT__indices+=("$AT__item")
-			;;
-		--*) __unrecognised_flag "$AT__item" || return $? ;;
+			AT__indices+=("$AT__item") ;;
+		'--'*) __unrecognised_flag "$AT__item" || return $? ;;
 		*) __unrecognised_argument "$AT__item" || return $? ;;
 		esac
 	done
@@ -4609,27 +4604,27 @@ function __case {
 		CASE__item="$1"
 		shift
 		case "$CASE__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${CASE__item#*=}" --name={CASE__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			CASE__item="${CASE__item#*=}"
 			CASE__targets+=("$CASE__item")
 			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$CASE__item" --name={CASE__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${CASE__item#*=}" --append --value={CASE__targets} || return $? ;;
-		--target=*) CASE__targets+=("${CASE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${CASE__item#*=}" --append --value={CASE__targets} || return $? ;;
+		'--target='*) CASE__targets+=("${CASE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return $?
 			CASE__mode="${CASE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return $?
 			CASE__mode="${CASE__item:2}"
 			;;
-		--)
+		'--')
 			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return $?
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
@@ -4647,10 +4642,10 @@ function __case {
 			break
 			;;
 		# </single-source helper arguments>
-		--case=* | --convert=* | --conversion=* | --case-convert=* | --case-conversion=*) CASE__conversion="${CASE__item#*=}" ;;
-		--upper | --uppercase | --upper-case) CASE__conversion='upper' ;;
-		--lower | --lowercase | --lower-case) CASE__conversion='lower' ;;
-		--*) __unrecognised_flag "$CASE__item" || return $? ;;
+		'--case='* | '--convert='* | '--conversion='* | '--case-convert='* | '--case-conversion='*) CASE__conversion="${CASE__item#*=}" ;;
+		'--upper' | '--uppercase' | '--upper-case') CASE__conversion='upper' ;;
+		'--lower' | '--lowercase' | '--lower-case') CASE__conversion='lower' ;;
+		'--'*) __unrecognised_flag "$CASE__item" || return $? ;;
 		*) __unrecognised_argument "$CASE__item" || return $? ;;
 		esac
 	done
@@ -4789,27 +4784,27 @@ function __iterate {
 		ITERATE__item="$1"
 		shift
 		case "$ITERATE__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$ITERATE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${ITERATE__item#*=}" --name={ITERATE__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			ITERATE__item="${ITERATE__item#*=}"
 			ITERATE__targets+=("$ITERATE__item")
 			__affirm_value_is_undefined "$ITERATE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$ITERATE__item" --name={ITERATE__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${ITERATE__item#*=}" --append --value={ITERATE__targets} || return $? ;;
-		--target=*) ITERATE__targets+=("${ITERATE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${ITERATE__item#*=}" --append --value={ITERATE__targets} || return $? ;;
+		'--target='*) ITERATE__targets+=("${ITERATE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$ITERATE__mode" 'write mode' || return $?
 			ITERATE__mode="${ITERATE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$ITERATE__mode" 'write mode' || return $?
 			ITERATE__mode="${ITERATE__item:2}"
 			;;
-		--)
+		'--')
 			if [[ -z $ITERATE__source_variable_name ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
@@ -4838,45 +4833,45 @@ function __iterate {
 			;;
 		# </single-source helper arguments>
 		# lookups:
-		--value=* | --needle=* | --index=* | --prefix=* | --suffix=* | --pattern=* | --glob=*) ITERATE__lookups+=("$ITERATE__item") ;;
+		'--value='* | '--needle='* | '--index='* | '--prefix='* | '--suffix='* | '--pattern='* | '--glob='*) ITERATE__lookups+=("$ITERATE__item") ;;
 		# order mode
-		--by=lookup | --order=lookup | --order=argument | --lookup) ITERATE__by='lookup' ;;
-		--by=cursor | --by=content | --order=content | --order=source | --cursor) ITERATE__by='content' ;;
+		'--by=lookup' | '--order=lookup' | '--order=argument' | '--lookup') ITERATE__by='lookup' ;;
+		'--by=cursor' | '--by=content' | '--order=content' | '--order=source' | '--cursor') ITERATE__by='content' ;;
 		# content direction mode
-		--direction=descending | --direction=reverse | --descending | --reverse) ITERATE__direction='descending' ;;
-		--direction=ascending | --direction=forward | --ascending | --forward) ITERATE__direction='ascending' ;; # default
+		'--direction=descending' | '--direction=reverse' | '--descending' | '--reverse') ITERATE__direction='descending' ;;
+		'--direction=ascending' | '--direction=forward' | '--ascending' | '--forward') ITERATE__direction='ascending' ;; # default
 		# seek mode
-		--seek=first | --first) ITERATE__seek='first' ;;                                   # only the first match of any needle
-		--seek=each | --each) ITERATE__seek='each' ;;                                      # only the first match of each needle
-		--seek=every | --seek=multiple | --every | --multiple) ITERATE__seek='multiple' ;; # all matches of all needles
+		'--seek=first' | '--first') ITERATE__seek='first' ;;                                   # only the first match of any needle
+		'--seek=each' | '--each') ITERATE__seek='each' ;;                                      # only the first match of each needle
+		'--seek=every' | '--seek=multiple' | '--every' | '--multiple') ITERATE__seek='multiple' ;; # all matches of all needles
 		# overlap mode
-		--overlap=yes | --overlap) ITERATE__overlap='yes' ;;  # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" 3 times and "a" 4 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 1 time
-		--overlap=no | --no-overlap) ITERATE__overlap='no' ;; # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" 0 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 0 times
+		'--overlap=yes' | '--overlap') ITERATE__overlap='yes' ;;  # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" 3 times and "a" 4 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 1 time
+		'--overlap=no' | '--no-overlap') ITERATE__overlap='no' ;; # for `seek=multiple` string matches, "aaaa" with needles "aa" and "a" will match "aa" twice and "a" 0 times, for `seek=each` string matches, "aab" will match needles "aa" 1 time and "ab" 0 times
 		# require mode
-		--require=none | --optional) ITERATE__require='none' ;;
-		--require=any | --any) ITERATE__require='any' ;;
-		--require=all | --all | --required) ITERATE__require='all' ;;
+		'--require=none' | '--optional') ITERATE__require='none' ;;
+		'--require=any' | '--any') ITERATE__require='any' ;;
+		'--require=all' | '--all' | '--required') ITERATE__require='all' ;;
 		# quiet mode
-		--no-verbose* | --verbose*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
-		--no-quiet* | --quiet*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
 		# case conversion mode
-		--case=* | --convert=* | --conversion=* | --case-convert=* | --case-conversion=*) ITERATE__case="${CASE__item#*=}" ;;
-		--upper | --uppercase | --upper-case) ITERATE__case='upper' ;;
-		--lower | --lowercase | --lower-case) ITERATE__case='lower' ;;
-		--ignore-case | --ignore-case=yes | --respect-case=no | --case-insensitive | --case-insensitive=yes | --case-sensitive=no) ITERATE__case='lower' ;;
-		--ignore-case=no | --respect-case | --respect-case=yes | --case-insensitive=no | --case-sensitive | --case-sensitive=yes) : ;; # no-op
+		'--case='* | '--convert='* | '--conversion='* | '--case-convert='* | '--case-conversion='*) ITERATE__case="${CASE__item#*=}" ;;
+		'--upper' | '--uppercase' | '--upper-case') ITERATE__case='upper' ;;
+		'--lower' | '--lowercase' | '--lower-case') ITERATE__case='lower' ;;
+		'--ignore-case' | '--ignore-case=yes' | '--respect-case=no' | '--case-insensitive' | '--case-insensitive=yes' | '--case-sensitive=no') ITERATE__case='lower' ;;
+		'--ignore-case=no' | '--respect-case' | '--respect-case=yes' | '--case-insensitive=no' | '--case-sensitive' | '--case-sensitive=yes') : ;; # no-op
 		# operation mode
-		--operation=index | --index | --indices) ITERATE__operation='index' ;;
-		--operation=has | --has)
+		'--operation=index' | '--index' | '--indices') ITERATE__operation='index' ;;
+		'--operation=has' | '--has')
 			ITERATE__operation='has'
 			ITERATE__quiet='yes'
 			;;
-		--operation=evict | --evict) ITERATE__operation='evict' ;;
+		'--operation=evict' | '--evict') ITERATE__operation='evict' ;;
 		# evict on mode
-		# --on=content) ITERATE__on='content' ;;
-		# --on=result) ITERATE__on='result' ;; <-- this would work by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the `__replace` function
+		# '--on=content') ITERATE__on='content' ;;
+		# '--on=result') ITERATE__on='result' ;; <-- this would work by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the `__replace` function
 		# shortcut mode mostly for has/evict
-		--*) __unrecognised_flag "$ITERATE__item" || return $? ;;
+		'--'*) __unrecognised_flag "$ITERATE__item" || return $? ;;
 		*) __unrecognised_argument "$ITERATE__item" || return $? ;;
 		esac
 	done
@@ -4972,10 +4967,10 @@ function __iterate {
 			if [[ -z ${ITERATE__item#*=} ]]; then
 				case "$ITERATE__item" in
 				# we can lookup empty array elements
-				--value=* | --needle=*) : ;;
+				'--value='* | '--needle='*) : ;;
 
 				# these lookups make no sense if they are empty
-				--prefix=* | --suffix=* | --pattern=* | --glob=*)
+				'--prefix='* | '--suffix='* | '--pattern='* | '--glob='*)
 					__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$ITERATE__item" || :) option must not have an empty value." >&2 || :
 					__dump {ITERATE__lookups} "{$ITERATE__source_variable_name}" >&2 || :
 					return 22 # EINVAL 22 Invalid argument
@@ -5050,7 +5045,7 @@ function __iterate {
 			ITERATE__lookup_option="${ITERATE__lookups[ITERATE__lookup_index]}" ITERATE__match='' ITERATE__matched=no ITERATE__value='' ITERATE__match_index=$ITERATE__index ITERATE__break=0
 			ITERATE__lookup="${ITERATE__lookup_option#*=}"
 			case "$ITERATE__lookup_option" in
-			--value=* | --needle=*)
+			'--value='* | '--needle='*)
 				# exact match
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
@@ -5091,7 +5086,7 @@ function __iterate {
 					continue
 				fi
 				;;
-			--index=*)
+			'--index='*)
 				# index match
 				ITERATE__lookup_size=1
 				if [[ $ITERATE__array == 'yes' ]]; then
@@ -5107,7 +5102,7 @@ function __iterate {
 					continue
 				fi
 				;;
-			--prefix=*)
+			'--prefix='*)
 				# prefix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
@@ -5130,7 +5125,7 @@ function __iterate {
 					continue
 				fi
 				;;
-			--suffix=*)
+			'--suffix='*)
 				# suffix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
@@ -5153,7 +5148,7 @@ function __iterate {
 					continue
 				fi
 				;;
-			--pattern=*)
+			'--pattern='*)
 				# pattern match: POSIX extended regular expression
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
@@ -5171,7 +5166,7 @@ function __iterate {
 					continue
 				fi
 				;;
-			--glob=*)
+			'--glob='*)
 				# pattern match
 				if [[ $ITERATE__array == 'yes' ]]; then
 					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
@@ -5308,27 +5303,27 @@ function __replace {
 		REPLACE__item="$1"
 		shift
 		case "$REPLACE__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$REPLACE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${REPLACE__item#*=}" --name={REPLACE__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			REPLACE__item="${REPLACE__item#*=}"
 			REPLACE__targets+=("$REPLACE__item")
 			__affirm_value_is_undefined "$REPLACE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$REPLACE__item" --name={REPLACE__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${REPLACE__item#*=}" --append --value={REPLACE__targets} || return $? ;;
-		--target=*) REPLACE__targets+=("${REPLACE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${REPLACE__item#*=}" --append --value={REPLACE__targets} || return $? ;;
+		'--target='*) REPLACE__targets+=("${REPLACE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$REPLACE__mode" 'write mode' || return $?
 			REPLACE__mode="${REPLACE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$REPLACE__mode" 'write mode' || return $?
 			REPLACE__mode="${REPLACE__item:2}"
 			;;
-		--)
+		'--')
 			# they are inputs
 			__affirm_value_is_undefined "$REPLACE__source_variable_name" 'source variable reference' || return $?
 			if [[ $# -eq 1 ]]; then
@@ -5346,21 +5341,21 @@ function __replace {
 			break
 			;;
 		# </single-source helper arguments>
-		--default-replacement=* | --default-replace=*)
+		'--default-replacement='* | '--default-replace='*)
 			__affirm_value_is_undefined "$REPLACE__default_replacement" 'default replace' || return $?
 			REPLACE__default_replacement="${REPLACE__item#*=}"
 			;;
-		--replacement=* | --replace=* | --with=*) REPLACE__lookups+=("$REPLACE__item") ;;
+		'--replacement='* | '--replace='* | '--with='*) REPLACE__lookups+=("$REPLACE__item") ;;
 		# require mode:
-		--require=none | --optional | --fallback) REPLACE__require='none' ;;
-		--require=any | --any) REPLACE__require='any' ;;
-		--require=all | --all) REPLACE__require='all' ;;
-		--fallback=*) REPLACE__default_fallback="${REPLACE__item#*=}" REPLACE__require='none' ;;
+		'--require=none' | '--optional' | '--fallback') REPLACE__require='none' ;;
+		'--require=any' | '--any') REPLACE__require='any' ;;
+		'--require=all' | '--all') REPLACE__require='all' ;;
+		'--fallback='*) REPLACE__default_fallback="${REPLACE__item#*=}" REPLACE__require='none' ;;
 		# quiet mode
-		--no-verbose* | --verbose*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
-		--no-quiet* | --quiet*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
 		# everything else assume is a lookup to save us from duplicating case statements:
-		--*)
+		'--'*)
 			if [[ -z ${REPLACE__item#*=} ]]; then
 				__print_lines "ERROR: ${FUNCNAME[0]}: The $(__dump --value="$REPLACE__item" || :) option must not have an empty value." >&2 || :
 				__dump {REPLACE__lookups} "{$REPLACE__source_variable_name}" >&2 || :
@@ -5408,68 +5403,68 @@ function __replace {
 		REPLACE__value_before="$REPLACE__value_wip"
 		case "$REPLACE__lookup" in
 		# --replace-this=*
-		--value=* | --needle=*)
+		'--value='* | '--needle='*)
 			REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/"$REPLACE__replacement"}"
 			;;
 		# --replace-all-occurrences-of-this=*
-		--value-all=* | --needle-all=*)
+		'--value-all='* | '--needle-all='*)
 			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; do
 				REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/$REPLACE__replacement}"
 			done
 			;;
 
 		# --replace-this-prefix=*
-		--prefix=* | --leading=*)
+		'--prefix='* | '--leading='*)
 			if [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; then
 				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#"$REPLACE__lookup_query"}"
 			fi
 			;;
 		# --replace-all-occurrences-of-this-prefix=*
-		--prefix-all=* | --leading-all=*)
+		'--prefix-all='* | '--leading-all='*)
 			while [[ $REPLACE__value_wip == "$REPLACE__lookup_query"* ]]; do
 				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#"$REPLACE__lookup_query"}"
 			done
 			;;
 
 		# --replace-this-suffix=*
-		--suffix=* | --trailing=*)
+		'--suffix='* | '--trailing='*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; then
 				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replacement"
 			fi
 			;;
 		# --replace-all-occurrences-of-this-suffix=*
-		--suffix-all=* | --trailing-all=*)
+		'--suffix-all='* | '--trailing-all='*)
 			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query" ]]; do
 				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"}$REPLACE__replacement"
 			done
 			;;
 
 		# --replace-this-pattern=*
-		--pattern=*)
+		'--pattern='*)
 			REPLACE__value_wip="${REPLACE__value_wip/$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 		# --replace-all-occurrences-of-this-pattern=*
-		--pattern-all=*)
+		'--pattern-all='*)
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 
-		--leading-whitespace)
+		'--leading-whitespace')
 			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[![:space:]]*}"}"
 			;;
-		--trailing-whitespace)
+		'--trailing-whitespace')
 			REPLACE__value_wip="${REPLACE__value_wip%"${REPLACE__value_wip##*[![:space:]]}"}"
 			;;
 
 		# --replace-everything-before-the-start-of-this=*
 		# --keep-everything-after-the-start-of-this=*
-		--replace-before-first=*)
+		'--replace-before-first='*)
 			local -i REPLACE__index
 			REPLACE__index="$(__index --source={REPLACE__value_wip} --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip:REPLACE__index}"
 			;;
 		# --replace-everything-before-the-start-of-the-last-occurrence-of-this=*
 		# --keep-everything-after-the-start-of-the-last-occurrence-of-this=*
-		--replace-before-last=*)
+		'--replace-before-last='*)
 			local -i REPLACE__index
 			REPLACE__index="$(__index --source={REPLACE__value_wip} --reverse --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip:REPLACE__index}"
@@ -5477,14 +5472,14 @@ function __replace {
 
 		# --replace-everything-before-the-end-of-this=*
 		# --keep-everything-after-the-end-of-this=*
-		--keep-after-first=*)
+		'--keep-after-first='*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
 				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip#*"$REPLACE__lookup_query"}"
 			fi
 			;;
 		# --replace-everything-before-the-end-of-the-last-occurrence-of-this=*
 		# --keep-everything-after-the-end-of-the-last-occurrence-of-this=*
-		--keep-after-last=*)
+		'--keep-after-last='*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
 				REPLACE__value_wip="$REPLACE__replacement${REPLACE__value_wip##*"$REPLACE__lookup_query"}"
 			fi
@@ -5492,14 +5487,14 @@ function __replace {
 
 		# --replace-everything-after-the-start-of-this=*
 		# --keep-everything-before-the-start-of-this=*
-		--keep-before-first=*)
+		'--keep-before-first='*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
 				REPLACE__value_wip="${REPLACE__value_wip%%"$REPLACE__lookup_query"*}$REPLACE__replacement"
 			fi
 			;;
 		# --replace-everything-after-the-start-of-the-last-occurrence-of-this=*
 		# --keep-everything-before-the-start-of-the-last-occurrence-of-this=*
-		--keep-before-last=*)
+		'--keep-before-last='*)
 			if [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; then
 				REPLACE__value_wip="${REPLACE__value_wip%"$REPLACE__lookup_query"*}$REPLACE__replacement"
 			fi
@@ -5507,7 +5502,7 @@ function __replace {
 
 		# --replace-everything-after-the-end-of-this=*
 		# --keep-everything-before-the-end-of-this=*
-		--replace-after-first=*)
+		'--replace-after-first='*)
 			local -i REPLACE__index REPLACE__lookup_size
 			REPLACE__index="$(__index --source={REPLACE__value_wip} --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__lookup_size=${#REPLACE__lookup_query}
@@ -5515,7 +5510,7 @@ function __replace {
 			;;
 		# --replace-everything-after-the-end-of-the-last-occurrence-of-this=*
 		# --keep-everything-before-the-end-of-the-last-occurrence-of-this=*
-		--replace-after-last=*)
+		'--replace-after-last='*)
 			local -i REPLACE__index REPLACE__lookup_size
 			REPLACE__index="$(__index --source={REPLACE__value_wip} --reverse --first --quiet -- "$REPLACE__lookup_query")" || continue
 			REPLACE__lookup_size=${#REPLACE__lookup_query}
@@ -5566,25 +5561,25 @@ function __unique {
 		UNIQUE__item="$1"
 		shift
 		case "$UNIQUE__item" in
-		--source={*})
+		'--source={'*'}')
 			__dereference --source="${UNIQUE__item#*=}" --append --name={UNIQUE__sources_variable_names} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			UNIQUE__item="${UNIQUE__item#*=}"
 			UNIQUE__targets+=("$UNIQUE__item") # keep squigglies
 			__dereference --source="$UNIQUE__item" --append --name={UNIQUE__sources_variable_names} || return $?
 			;;
-		--targets=*) __dereference --source="${UNIQUE__item#*=}" --append --value={UNIQUE__targets} || return $? ;;
-		--target=*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${UNIQUE__item#*=}" --append --value={UNIQUE__targets} || return $? ;;
+		'--target='*) UNIQUE__targets+=("${UNIQUE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return $?
 			UNIQUE__mode="${UNIQUE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$UNIQUE__mode" 'write mode' || return $?
 			UNIQUE__mode="${UNIQUE__item:2}"
 			;;
-		--)
+		'--')
 			# an array input
 			# trunk-ignore(shellcheck/SC2034)
 			local UNIQUE__inputs=("$@")
@@ -5593,7 +5588,7 @@ function __unique {
 			break
 			;;
 		# </multi-source helper arguments>
-		--*) __unrecognised_flag "$UNIQUE__item" || return $? ;;
+		'--'*) __unrecognised_flag "$UNIQUE__item" || return $? ;;
 		*) __unrecognised_argument "$UNIQUE__item" || return $? ;;
 		esac
 	done
@@ -5680,27 +5675,27 @@ function __slice {
 		SLICE__item="$1"
 		shift
 		case "$SLICE__item" in
-		--source={*})
+		'--source={'*'}')
 			__affirm_value_is_undefined "$SLICE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="${SLICE__item#*=}" --name={SLICE__source_variable_name} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			SLICE__item="${SLICE__item#*=}"
 			SLICE__targets+=("$SLICE__item")
 			__affirm_value_is_undefined "$SLICE__source_variable_name" 'source variable reference' || return $?
 			__dereference --source="$SLICE__item" --name={SLICE__source_variable_name} || return $?
 			;;
-		--targets=*) __dereference --source="${SLICE__item#*=}" --append --value={SLICE__targets} || return $? ;;
-		--target=*) SLICE__targets+=("${SLICE__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${SLICE__item#*=}" --append --value={SLICE__targets} || return $? ;;
+		'--target='*) SLICE__targets+=("${SLICE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$SLICE__mode" 'write mode' || return $?
 			SLICE__mode="${SLICE__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$SLICE__mode" 'write mode' || return $?
 			SLICE__mode="${SLICE__item:2}"
 			;;
-		--)
+		'--')
 			if [[ -z $SLICE__source_variable_name ]]; then
 				# they are inputs
 				if [[ $# -eq 1 ]]; then
@@ -5726,14 +5721,13 @@ function __slice {
 			;;
 		# </single-source helper arguments>
 		# quiet mode
-		--no-verbose* | --verbose*) __flag --source={SLICE__item} --target={SLICE__quiet} --non-affirmative --coerce ;;
-		--no-quiet* | --quiet*) __flag --source={SLICE__item} --target={SLICE__quiet} --affirmative --coerce ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={SLICE__item} --target={SLICE__quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={SLICE__item} --target={SLICE__quiet} --affirmative --coerce ;;
 		# index/length
-		[0-9]* | -[0-9]*)
-			__affirm_value_is_integer "$SLICE__item" 'index/length' || return $?
-			SLICE__indices+=("$SLICE__item")
-			;;
-		--*) __unrecognised_flag "$SLICE__item" || return $? ;;
+		[0-9]* | '-'[0-9]*)
+			__affirm_value_is_integer "$SLICE__item" 'index' || return $?
+			SLICE__indices+=("$SLICE__item") ;;
+		'--'*) __unrecognised_flag "$SLICE__item" || return $? ;;
 		*) __unrecognised_argument "$SLICE__item" || return $? ;;
 		esac
 	done
@@ -5815,26 +5809,26 @@ function __split {
 		SPLIT__item="$1"
 		shift
 		case "$SPLIT__item" in
-		--source={*})
+		'--source={'*'}')
 			__dereference --source="${SPLIT__item#*=}" --name={SPLIT__sources_variable_names} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			SPLIT__item="${SPLIT__item#*=}"
 			SPLIT__targets+=("$SPLIT__item")
 			__dereference --source="$SPLIT__item" --append --name={SPLIT__sources_variable_names} || return $?
 			;;
-		--targets=*) __dereference --source="${SPLIT__item#*=}" --append --value={SPLIT__targets} || return $? ;;
-		--target=*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${SPLIT__item#*=}" --append --value={SPLIT__targets} || return $? ;;
+		'--target='*) SPLIT__targets+=("${SPLIT__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return $?
 			SPLIT__mode="${SPLIT__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$SPLIT__mode" 'write mode' || return $?
 			SPLIT__mode="${SPLIT__item:2}"
 			;;
 		# </multi-source helper arguments>
-		--stdin | --source=STDIN | --source=stdin | --source=/dev/stdin | --source=0)
+		'--stdin' | '--source=STDIN' | '--source=stdin' | '--source=/dev/stdin' | '--source=0')
 			local SPLIT__stdin='' SPLIT__reply=''
 			while LC_ALL=C IFS= read -rd '' SPLIT__reply || [[ -n $SPLIT__reply ]]; do
 				if [[ -n $SPLIT__stdin ]]; then
@@ -5844,7 +5838,7 @@ function __split {
 			done
 			SPLIT__sources_variable_names+=('SPLIT__stdin')
 			;;
-		--)
+		'--')
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				local SPLIT__fodder_with_redirect_exit_status SPLIT__exit_status
 				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
@@ -5870,20 +5864,19 @@ function __split {
 			shift $#
 			break
 			;;
-		--no-trailing-newlines* | --trailing-newlines*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return $? ;;
-		--no-zero-length) SPLIT__zero_length='no' ;;
-		--keep-zero-length) : ;; # no-op as already the case
-		--invoke=try) SPLIT__invoke='try' ;;
-		--invoke) SPLIT__invoke='yes' ;;
-		--delimiter=*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
-		--delimiters=*)
+		'--no-trailing-newlines'* | '--trailing-newlines'*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return $? ;;
+		'--no-zero-length'* | '--zero-length'* | '--keep-zero-length'*) __flag --source={SPLIT__item} --target={SPLIT__zero_length} --affirmative --coerce || return $? ;;
+		'--invoke=try') SPLIT__invoke='try' ;;
+		'--invoke') SPLIT__invoke='yes' ;;
+		'--delimiter='*) SPLIT__delimiters+=("${SPLIT__item#*=}") ;;
+		'--delimiters='*)
 			SPLIT__item="${SPLIT__item#*=}"
 			for ((SPLIT__character_left_index = 0, SPLIT__string_length = "${#SPLIT__item}"; SPLIT__character_left_index < SPLIT__string_length; SPLIT__character_left_index++)); do
 				SPLIT__character="${SPLIT__item:SPLIT__character_left_index:1}"
 				SPLIT__delimiters+=("$SPLIT__character")
 			done
 			;;
-		--*) __unrecognised_flag "$SPLIT__item" || return $? ;;
+		'--'*) __unrecognised_flag "$SPLIT__item" || return $? ;;
 		*) __unrecognised_argument "$SPLIT__item" || return $? ;;
 		esac
 	done
@@ -5973,25 +5966,25 @@ function __join {
 		JOIN__item="$1"
 		shift
 		case "$JOIN__item" in
-		--source={*})
+		'--source={'*'}')
 			__dereference --source="${JOIN__item#*=}" --append --name={JOIN__sources_variable_names} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			JOIN__item="${JOIN__item#*=}"
 			JOIN__targets+=("$JOIN__item")
 			__dereference --source="$JOIN__item" --append --name={JOIN__sources_variable_names} || return $?
 			;;
-		--targets=*) __dereference --source="${JOIN__item#*=}" --append --value={JOIN__targets} || return $? ;;
-		--target=*) JOIN__targets+=("${JOIN__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${JOIN__item#*=}" --append --value={JOIN__targets} || return $? ;;
+		'--target='*) JOIN__targets+=("${JOIN__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$JOIN__mode" 'write mode' || return $?
 			JOIN__mode="${JOIN__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$JOIN__mode" 'write mode' || return $?
 			JOIN__mode="${JOIN__item:2}"
 			;;
-		--)
+		'--')
 			# an array input
 			# trunk-ignore(shellcheck/SC2034)
 			local JOIN__inputs=("$@")
@@ -6000,8 +5993,8 @@ function __join {
 			break
 			;;
 		# </multi-source helper arguments>
-		--delimiter=*) JOIN__delimiter="${JOIN__item#*=}" ;;
-		--*) __unrecognised_flag "$JOIN__item" || return $? ;;
+		'--delimiter='*) JOIN__delimiter="${JOIN__item#*=}" ;;
+		'--'*) __unrecognised_flag "$JOIN__item" || return $? ;;
 		*) __unrecognised_argument "$JOIN__item" || return $? ;;
 		esac
 	done
@@ -6036,32 +6029,32 @@ function __sort {
 		SORT__item="$1"
 		shift
 		case "$SORT__item" in
-		--source={*})
+		'--source={'*'}')
 			__dereference --source="${SORT__item#*=}" --append --value={SORT__elements} || return $?
 			;;
-		--source+target={*})
+		'--source+target={'*'}')
 			SORT__item="${SORT__item#*=}"
 			SORT__targets+=("$SORT__item")
 			__dereference --source="$SORT__item" --append --value={SORT__elements} || return $?
 			;;
-		--targets=*) __dereference --source="${SORT__item#*=}" --append --value={SORT__targets} || return $? ;;
-		--target=*) SORT__targets+=("${SORT__item#*=}") ;;
-		--mode=prepend | --mode=append | --mode=overwrite | --mode=)
+		'--targets='*) __dereference --source="${SORT__item#*=}" --append --value={SORT__targets} || return $? ;;
+		'--target='*) SORT__targets+=("${SORT__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
 			__affirm_value_is_undefined "$SORT__mode" 'write mode' || return $?
 			SORT__mode="${SORT__item#*=}"
 			;;
-		--append | --prepend | --overwrite)
+		'--append' | '--prepend' | '--overwrite')
 			__affirm_value_is_undefined "$SORT__mode" 'write mode' || return $?
 			SORT__mode="${SORT__item:2}"
 			;;
-		--)
+		'--')
 			# an array input
 			SORT__elements+=("$@")
 			shift $#
 			break
 			;;
 		# </multi-source-value helper arguments>
-		-*) SORT__args+=("$SORT__item") ;;
+		'-'*) SORT__args+=("$SORT__item") ;;
 		*) __unrecognised_argument "$SORT__item" || return $? ;;
 		esac
 	done
@@ -6079,10 +6072,10 @@ function __tool {
 		TOOL_item="$1"
 		shift
 		case "$TOOL_item" in
-		--tool={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_variable_name} || return $? ;;
-		--tools={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_variable_name} || return $? ;;
-		--help={*}) __dereference --source="${TOOL_item#*=}" --name={TOOL__help_function_name} || return $? ;;
-		--*) __unrecognised_flag "$JOIN__item" || return $? ;;
+		'--tool={'*'}') __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_variable_name} || return $? ;;
+		'--tools={'*'}') __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_variable_name} || return $? ;;
+		'--help={'*'}') __dereference --source="${TOOL_item#*=}" --name={TOOL__help_function_name} || return $? ;;
+		'--'*) __unrecognised_flag "$JOIN__item" || return $? ;;
 		*) __unrecognised_argument "$JOIN__item" || return $? ;;
 		esac
 	done
@@ -6180,35 +6173,30 @@ function __terminal_title_progress_bar__on_alarm {
 	fi
 }
 function __terminal_title_progress_bar {
-	local -i TERMINAL_TITLE_PROGRESS_BAR__progress=0 TERMINAL_TITLE_PROGRESS_BAR__remaining=-1 TERMINAL_TITLE_PROGRESS_BAR__total=100 # TERMINAL_TITLE_PROGRESS_BAR__id=-1
+	local -i TERMINAL_TITLE_PROGRESS_BAR__progress=0 TERMINAL_TITLE_PROGRESS_BAR__remaining=-1 TERMINAL_TITLE_PROGRESS_BAR__total=100
 	local TERMINAL_TITLE_PROGRESS_BAR__item='' TERMINAL_TITLE_PROGRESS_BAR__create='no' TERMINAL_TITLE_PROGRESS_BAR__destroy='no'
 	while [[ $# -ne 0 ]]; do
 		TERMINAL_TITLE_PROGRESS_BAR__item="$1"
 		shift
 		case "$TERMINAL_TITLE_PROGRESS_BAR__item" in
-		--create) TERMINAL_TITLE_PROGRESS_BAR__create='yes' ;;
-		--destroy) TERMINAL_TITLE_PROGRESS_BAR__destroy='yes' ;;
-		# --id=*)
-		# 	TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
-		# 	__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'progress bar identifier' || return $?
-		# 	TERMINAL_TITLE_PROGRESS_BAR__id="$TERMINAL_TITLE_PROGRESS_BAR__item"
-		# 	;;
-		--progress=* | --index=*)
+		'--create') TERMINAL_TITLE_PROGRESS_BAR__create='yes' ;;
+		'--destroy') TERMINAL_TITLE_PROGRESS_BAR__destroy='yes' ;;
+		'--progress='* | '--index='*)
 			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
 			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'progress' || return $?
 			TERMINAL_TITLE_PROGRESS_BAR__progress="$TERMINAL_TITLE_PROGRESS_BAR__item"
 			;;
-		--remaining=*)
+		'--remaining='*)
 			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
 			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'remaining' || return $?
 			TERMINAL_TITLE_PROGRESS_BAR__remaining="$TERMINAL_TITLE_PROGRESS_BAR__item"
 			;;
-		--total=*)
+		'--total='*)
 			TERMINAL_TITLE_PROGRESS_BAR__item="${TERMINAL_TITLE_PROGRESS_BAR__item#*=}"
 			__affirm_value_is_integer "$TERMINAL_TITLE_PROGRESS_BAR__item" 'total' || return $?
 			TERMINAL_TITLE_PROGRESS_BAR__total="$TERMINAL_TITLE_PROGRESS_BAR__item"
 			;;
-		--*) __unrecognised_flag "$JOIN__item" || return $? ;;
+		'--'*) __unrecognised_flag "$JOIN__item" || return $? ;;
 		*) __unrecognised_argument "$JOIN__item" || return $? ;;
 		esac
 	done
@@ -6237,7 +6225,6 @@ function __terminal_title_progress_bar {
 			# trunk-ignore(shellcheck/SC2017)
 			TERMINAL_TITLE_PROGRESS_BAR__progress="$(((TERMINAL_TITLE_PROGRESS_BAR__progress * 100 / TERMINAL_TITLE_PROGRESS_BAR__total * 100) / 100))" # bash can't do floating point, so this variation is a workaround
 		fi
-
 		# update via alarmer or directly
 		TERMINAL_TITLE_PROGRESS_BAR__ansi=$'\e]9;4;1;'"$TERMINAL_TITLE_PROGRESS_BAR__progress"$'\a'
 		__terminal_title_progress_bar__send_alarm || {
