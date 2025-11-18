@@ -503,8 +503,31 @@ function __dump {
 # Distribution of bash versions: <https://repology.org/project/bash/versions>
 # Listing of bash releases: <https://ftp.gnu.org/gnu/bash/?C=M;O=D>
 
+# convert a version (short and full) into its corresponding latest downloadable version identifier
+function __get_coerced_bash_version {
+	local input="$1" result
+	case "$input" in
+	'3.0'*) result='3.0.16' ;;
+	'3.1'*) result='3.1' ;;
+	'3' | '3.' | '3.2'*) result='3.2.57' ;;
+	'4.0'*) result='4.0' ;;
+	'4.1'*) result='4.1' ;;
+	'4.2'*) result='4.2.53' ;;
+	'4.3'*) result='4.3.30' ;;
+	'4' | '4.' | '4.4'*) result='4.4.18' ;;
+	'5.0'*) result='5.0' ;;
+	'5.1'*) result='5.1.16' ;;
+	'5.2'*) result='5.2.37' ;;
+	'' | '5' | '5.' | '5.3'*) result='5.3' ;;
+	*)
+		__print_lines "ERROR: The bash version $(__dump --value="$input" || :) is not supported by Dorothy." >&2 || :
+		return 75 # EPROGMISMATCH 75 Program version wrong
+		;;
+	esac
+	printf '%s' "$result" || return $?
+}
+
 # Determine the bash version information, which is used to determine if we can use certain features or not.
-if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	# e.g. 5.2.15(1)-release => 5.2.15
 	# https://www.gnu.org/software/bash/manual/bash.html#index-BASH_005fVERSINFO
 	# `read` technique not needed as `BASH_VERSINFO` exists in all versions:
@@ -515,21 +538,6 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 	BASH_VERSION_CURRENT="${BASH_VERSION_MAJOR}.${BASH_VERSION_MINOR}.${BASH_VERSION_PATCH}" # 5.2.15(1)-release => 5.2.15
 	# trunk-ignore(shellcheck/SC2034)
 	BASH_VERSION_LATEST='5.3' # https://ftp.gnu.org/gnu/bash/?C=M;O=D
-	# bash v4.4 and above are supported by Dorothy, unless on SUSE in which it is v5.1 and above, see <versions.md> for reasoning
-	# opensuse/leap hits a bash 4.4 error on the `is-same` test:
-	# https://github.com/bevry/dorothy/actions/runs/17821527495/job/50664874215#step:4:24635
-	# /github/home/.local/share/dorothy/commands/checksum: line 532: wait_for: No record of process 3552994
-	# https://gist.github.com/azat/affbda3f8c6b5c38648d4ab105777d88
-	if [[ ${MACTYPE-} =~ suse-linux-gnu$ && ($BASH_VERSION_MAJOR -lt 5 || ($BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -lt 1)) ]]; then
-		IS_BASH_VERSION_OUTDATED='yes'
-	elif [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
-		IS_BASH_VERSION_OUTDATED='no'
-	else
-		IS_BASH_VERSION_OUTDATED='yes'
-	fi
-	if [[ $IS_BASH_VERSION_OUTDATED == 'no' ]]; then
-		function __require_upgraded_bash { :; }
-	else
 		function __require_upgraded_bash {
 			local reason="${1-}" reason_args=()
 			if [[ -n $reason ]]; then
@@ -539,69 +547,6 @@ if [[ -z ${BASH_VERSION_CURRENT-} ]]; then
 				--path="$0" ' ' --error='is incompatible with' ' ' --code="bash $BASH_VERSION" "${reason_args[@]}" $'\n' \
 				'Run ' --code='setup-util-bash' ' to upgrade capabilities, then run the prior command again.' >&2 || :
 			return 45 # ENOTSUP 45 Operation not supported
-		}
-	fi
-fi
-
-# Unsupported versions should be reflected in `dorothy-workflow.yml`
-# trunk-ignore(shellcheck/SC2034)
-BASH_VERSIONS_SUPPORTED=(
-	# they all compile on ubuntu x86 without any flags, however byacc is needed for a few of them
-	# 3.0.16 # compiles on macos with CPPFLAGS modification <-- not supported by dorothy
-	# 3.1    # compiles on macos with CPPFLAGS modification <-- not supported by dorothy
-	3.2.57 # compiles on macos with CPPFLAGS modification
-	4.0    # compiles on macos with CPPFLAGS modification
-	# 4.1    # compiles on macos with CPPFLAGS modification <-- not supported by dorothy, see note at `__wait_for_semaphores`
-	# 4.2.53 # compiles on macos with CPPFLAGS modification <-- partially supported by dorothy, crashes can fail to return the correct exit status
-	# 4.3.30 # compiles on macos with CPPFLAGS modification <-- partially supported by dorothy, crashes can fail to return the correct exit status
-	4.4.18 # compiles on macos with CPPFLAGS modification
-	5.0    # compiles on macos with CPPFLAGS modification
-	5.1.16 # compiles on macos x86 without any flags
-	5.2.37 # compiles on macos x86 without any flags
-	5.3    # compiles on macos x86 without any flags
-)
-
-# Things below 100% are broken, and require immediate upgrading.
-# Things above 100% are working
-# Increments within a centigrade, e.g. 100% to 110%, are minor improvements or new features.
-# Increments of a centigrade, e.g. 100% to 200%, fix a significant bug.
-# BASH_VERSIONS_SUPPORT=(
-# 	3.0 0%   # untested
-# 	3.1 0%   # untested
-# 	3.2 100% # passes, but bugs require workarounds
-# 	4.0 110% # passes, but bugs require workarounds, adds `read` defaults, adds `globstar`
-# 	4.1 0%   # broken as `__wait_for_semaphores` cannot detect updates
-# 	4.2 50%  # is-fs.bash broken, as crashes do not return the correct exit status
-# 	4.3 50%  # is-fs.bash broken, as crashes do not return the correct exit status
-# 	4.4 200% # working, but has `wait_for` issue (unsure if earlier versions also have the same issue)
-# 	5.0 210% # adds `EPOCHSECONDS`, `EPOCHREALTIME`
-# 	5.1 300% # fixes `wait_for`, adds case conversions, adds associative arrays
-# 	5.2 300% # adds nameref
-# 	5.3 310% # adds fltexpr
-# )
-
-# convert a version (short and full) into its corresponding latest downloadable version identifier
-function __get_coerced_bash_version {
-	local input="$1" result
-	case "$input" in
-	3.0*) result='3.0.16' ;;
-	3.1*) result='3.1' ;;
-	3 | 3. | 3.2*) result='3.2.57' ;;
-	4.0*) result='4.0' ;;
-	4.1*) result='4.1' ;;
-	4.2*) result='4.2.53' ;;
-	4.3*) result='4.3.30' ;;
-	4 | 4. | 4.4*) result='4.4.18' ;;
-	5.0*) result='5.0' ;;
-	5.1*) result='5.1.16' ;;
-	5.2*) result='5.2.37' ;;
-	'' | 5 | 5. | 5.3*) result='5.3' ;;
-	*)
-		__print_lines "ERROR: The bash version $(__dump --value="$input" || :) is not supported by Dorothy." >&2 || :
-		return 75 # EPROGMISMATCH 75 Program version wrong
-		;;
-	esac
-	printf '%s' "$result" || return $?
 }
 
 # CONSIDER
@@ -1480,6 +1425,19 @@ function __affirm_value_is_undefined {
 	fi
 }
 
+# affirm the value is a version number
+# __affirm_value_is_version_number <value> <description>
+function __affirm_value_is_version_number {
+	if [[ $# -ne 1 && $# -ne 2 ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Expected one or two arguments, but $(__dump --value=$# || :) were provided." >&2 || :
+		return 22
+	fi
+	if ! __is_version_number "$1"; then
+		__print_lines "ERROR: ${FUNCNAME[1]}: The ${2:-"value"} must be a version number, it was: $(__dump --value="$1" || :)" >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+}
+
 # affirm the value is an integer
 # __affirm_value_is_integer <value> <description>
 function __affirm_value_is_integer {
@@ -1753,6 +1711,14 @@ function __is_number {
 	__affirm_length_defined $# 'input' || return $?
 	while [[ $# -ne 0 ]]; do
 		[[ $1 =~ ^[-]?[0-9]+(\.[0-9]+)?$ ]] || return $?
+		shift
+	done
+}
+
+function __is_version_number {
+	__affirm_length_defined $# 'input' || return $?
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[.0-9]+$ ]] || return $?
 		shift
 	done
 }
@@ -6047,6 +6013,110 @@ function __sort {
 	__affirm_value_is_valid_write_mode "$SORT__mode" || return $?
 	# process
 	__split --targets={SORT__targets} --no-zero-length --invoke -- sort "${SORT__args[@]}" <<< "$(__print_lines "${SORT__elements[@]}")" || return $?
+}
+
+# minimum
+function __minimum {
+	local MINIMUM__args=()
+	# <multi-source-value helper arguments>
+	local MINIMUM__item MINIMUM__elements=() MINIMUM__targets=() MINIMUM__mode=''
+	while [[ $# -ne 0 ]]; do
+		MINIMUM__item="$1"
+		shift
+		case "$MINIMUM__item" in
+		'--source={'*'}')
+			__dereference --source="${MINIMUM__item#*=}" --append --value={MINIMUM__elements} || return $?
+			;;
+		'--source+target={'*'}')
+			MINIMUM__item="${MINIMUM__item#*=}"
+			MINIMUM__targets+=("$MINIMUM__item")
+			__dereference --source="$MINIMUM__item" --append --value={MINIMUM__elements} || return $?
+			;;
+		'--targets='*) __dereference --source="${MINIMUM__item#*=}" --append --value={MINIMUM__targets} || return $? ;;
+		'--target='*) MINIMUM__targets+=("${MINIMUM__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
+			__affirm_value_is_undefined "$MINIMUM__mode" 'write mode' || return $?
+			MINIMUM__mode="${MINIMUM__item#*=}"
+			;;
+		'--append' | '--prepend' | '--overwrite')
+			__affirm_value_is_undefined "$MINIMUM__mode" 'write mode' || return $?
+			MINIMUM__mode="${MINIMUM__item:2}"
+			;;
+		'--')
+			# an array input
+			MINIMUM__elements+=("$@")
+			shift $#
+			break
+			;;
+		# </multi-source-value helper arguments>
+		'-'*) MINIMUM__args+=("$MINIMUM__item") ;;
+		*) __unrecognised_argument "$MINIMUM__item" || return $? ;;
+		esac
+	done
+	__affirm_value_is_valid_write_mode "$MINIMUM__mode" || return $?
+	__affirm_length_defined "${#MINIMUM__elements[@]}" 'elements' || return $?
+	# process
+	local MINIMUM__result=''
+	for MINIMUM__item in "${MINIMUM__elements[@]}"; do
+		if [[ -z $MINIMUM__result ]]; then
+			MINIMUM__result="$MINIMUM__item"
+		elif [[ $MINIMUM__item -lt $MINIMUM__result ]]; then
+			MINIMUM__result="$MINIMUM__item"
+		fi
+	done
+	__to --source={MINIMUM__result} --mode="$MINIMUM__mode" --targets={MINIMUM__targets} || return $?
+}
+
+# maximum
+function __maximum {
+	local MAXIMUM__args=()
+	# <multi-source-value helper arguments>
+	local MAXIMUM__item MAXIMUM__elements=() MAXIMUM__targets=() MAXIMUM__mode=''
+	while [[ $# -ne 0 ]]; do
+		MAXIMUM__item="$1"
+		shift
+		case "$MAXIMUM__item" in
+		'--source={'*'}')
+			__dereference --source="${MAXIMUM__item#*=}" --append --value={MAXIMUM__elements} || return $?
+			;;
+		'--source+target={'*'}')
+			MAXIMUM__item="${MAXIMUM__item#*=}"
+			MAXIMUM__targets+=("$MAXIMUM__item")
+			__dereference --source="$MAXIMUM__item" --append --value={MAXIMUM__elements} || return $?
+			;;
+		'--targets='*) __dereference --source="${MAXIMUM__item#*=}" --append --value={MAXIMUM__targets} || return $? ;;
+		'--target='*) MAXIMUM__targets+=("${MAXIMUM__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
+			__affirm_value_is_undefined "$MAXIMUM__mode" 'write mode' || return $?
+			MAXIMUM__mode="${MAXIMUM__item#*=}"
+			;;
+		'--append' | '--prepend' | '--overwrite')
+			__affirm_value_is_undefined "$MAXIMUM__mode" 'write mode' || return $?
+			MAXIMUM__mode="${MAXIMUM__item:2}"
+			;;
+		'--')
+			# an array input
+			MAXIMUM__elements+=("$@")
+			shift $#
+			break
+			;;
+		# </multi-source-value helper arguments>
+		'-'*) MAXIMUM__args+=("$MAXIMUM__item") ;;
+		*) __unrecognised_argument "$MAXIMUM__item" || return $? ;;
+		esac
+	done
+	__affirm_value_is_valid_write_mode "$MAXIMUM__mode" || return $?
+	__affirm_length_defined "${#MAXIMUM__elements[@]}" 'elements' || return $?
+	# process
+	local MAXIMUM__result=''
+	for MAXIMUM__item in "${MAXIMUM__elements[@]}"; do
+		if [[ -z $MAXIMUM__result ]]; then
+			MAXIMUM__result="$MAXIMUM__item"
+		elif [[ $MAXIMUM__item -gt $MAXIMUM__result ]]; then
+			MAXIMUM__result="$MAXIMUM__item"
+		fi
+	done
+	__to --source={MAXIMUM__result} --mode="$MAXIMUM__mode" --targets={MAXIMUM__targets} || return $?
 }
 
 # tool

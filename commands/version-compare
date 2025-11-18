@@ -1,9 +1,80 @@
 #!/usr/bin/env bash
 
-# @todo rewrite arg passing, adopting modern help conventions
-
+# Originally based on my earlier work from here:
 # https://github.com/bevry/version-compare/blob/76f92ccde39e05a4af147eac293fe6b6743c9b73/source/index.ts
-# MIT License - 2020+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
+
+function __version_compare {
+	local VERSION_COMPARE__current='' VERSION_COMPARE__other=''
+	# <target helper arguments>
+	local VERSION_COMPARE__item VERSION_COMPARE__targets=() VERSION_COMPARE__mode=''
+	while [[ $# -ne 0 ]]; do
+		VERSION_COMPARE__item="$1"
+		shift
+		case "$VERSION_COMPARE__item" in
+		'--targets='*) __dereference --source="${VERSION_COMPARE__item#*=}" --append --value={VERSION_COMPARE__targets} || return $? ;;
+		'--target='*) VERSION_COMPARE__targets+=("${VERSION_COMPARE__item#*=}") ;;
+		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
+			__affirm_value_is_undefined "$VERSION_COMPARE__mode" 'write mode' || return $?
+			VERSION_COMPARE__mode="${VERSION_COMPARE__item#*=}"
+			;;
+		'--append' | '--prepend' | '--overwrite')
+			__affirm_value_is_undefined "$VERSION_COMPARE__mode" 'write mode' || return $?
+			VERSION_COMPARE__mode="${VERSION_COMPARE__item:2}"
+			;;
+		# </target helper arguments>
+		'--') : ;; # ignore
+		[.0-9]*)
+			__affirm_value_is_version_number "$VERSION_COMPARE__item" 'index' || return $?
+			if [[ -z $VERSION_COMPARE__current ]]; then
+				VERSION_COMPARE__current="$VERSION_COMPARE__item"
+			elif [[ -z $VERSION_COMPARE__other ]]; then
+				VERSION_COMPARE__other="$VERSION_COMPARE__item"
+			else
+				__unrecognised_argument "$VERSION_COMPARE__item"
+			fi
+			;;
+		*) __unrecognised_argument "$VERSION_COMPARE__item" || return $? ;;
+		esac
+	done
+	__affirm_value_is_valid_write_mode "$VERSION_COMPARE__mode" || return $?
+	if [[ -z $VERSION_COMPARE__current || -z $VERSION_COMPARE__other ]]; then
+		__print_lines "ERROR: ${FUNCNAME[0]}: Two version strings are required for comparison." >&2 || :
+		return 22 # EINVAL 22 Invalid argument
+	fi
+
+	# split into segments
+	local VERSION_COMPARE__current_parts=() VERSION_COMPARE__other_parts=()
+	__split --source={VERSION_COMPARE__current} --target={VERSION_COMPARE__current_parts} --keep-zero-length --delimiter='.' || return $?
+	__split --source={VERSION_COMPARE__other} --target={VERSION_COMPARE__other_parts} --keep-zero-length --delimiter='.' || return $?
+
+	# determinate shared segments
+	local -i VERSION_COMPARE__current_parts_count VERSION_COMPARE__other_parts_count VERSION_COMPARE__shared_parts_count
+	VERSION_COMPARE__current_parts_count="${#VERSION_COMPARE__current_parts[@]}"
+	VERSION_COMPARE__other_parts_count="${#VERSION_COMPARE__other_parts[@]}"
+	__minimum --target={VERSION_COMPARE__shared_parts_count} -- "$VERSION_COMPARE__current_parts_count" "$VERSION_COMPARE__other_parts_count" || return $?
+	# they shouldn't be empty, as we checked for that earlier
+
+	# compare shared segments
+	local -i VERSION_COMPARE__result=0 VERSION_COMPARE__current_depth VERSION_COMPARE__current_part VERSION_COMPARE__other_part
+	for ((VERSION_COMPARE__current_depth = 0; "$VERSION_COMPARE__current_depth" < "$VERSION_COMPARE__shared_parts_count"; VERSION_COMPARE__current_depth++)); do
+		VERSION_COMPARE__current_part="${VERSION_COMPARE__current_parts[VERSION_COMPARE__current_depth]:-0}" # replace zero-length with 0
+		VERSION_COMPARE__other_part="${VERSION_COMPARE__other_parts[VERSION_COMPARE__current_depth]:-0}"     # replace zero-length with 0
+		if [[ $VERSION_COMPARE__current_part -gt $VERSION_COMPARE__other_part ]]; then
+			# greater than
+			VERSION_COMPARE__result='1' || return $?
+			break
+		fi
+		if [[ $VERSION_COMPARE__other_part -gt $VERSION_COMPARE__current_part ]]; then
+			# less than
+			# trunk-ignore(shellcheck/SC2034)
+			VERSION_COMPARE__result='-1' || return $?
+			break
+		fi
+	done
+
+	# send the result
+	__to --source={VERSION_COMPARE__result} --mode="$VERSION_COMPARE__mode" --targets={VERSION_COMPARE__targets} || return $?
+}
 
 function version_compare() (
 	source "$DOROTHY/sources/bash.bash"
@@ -17,7 +88,7 @@ function version_compare() (
 			Compare two version numbers.
 
 			USAGE:
-			\`version-compare <current> <other>\`
+			\`version-compare [--] <current> <other>\`
 
 			OUTPUTS:
 			\`-1\`  if <current> is less than <other>
@@ -34,8 +105,10 @@ function version_compare() (
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--') : ;; # discard
 		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*)
+		[0-9.]*)
+			__affirm_value_is_version_number "$item" || return $?
 			if [[ -z $option_current ]]; then
 				option_current="$item"
 			elif [[ -z $option_other ]]; then
@@ -44,6 +117,7 @@ function version_compare() (
 				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
@@ -58,30 +132,8 @@ function version_compare() (
 	# =====================================
 	# Act
 
-	local current_parts=() other_parts=()
-	__split --source={option_current} --target={current_parts} --no-zero-length --delimiter='.'
-	__split --source={option_other} --target={other_parts} --no-zero-length --delimiter='.'
-
-	local current_parts_count other_parts_count shared_parts_count
-	current_parts_count="${#current_parts[@]}"
-	other_parts_count="${#other_parts[@]}"
-	shared_parts_count="$(get-min -- "$current_parts_count" "$other_parts_count")"
-
-	local current_depth current_part other_part
-	for ((current_depth = 0; "$current_depth" < "$shared_parts_count"; current_depth++)); do
-		current_part="${current_parts[current_depth]:-0}"
-		other_part="${other_parts[current_depth]:-0}"
-		if [[ $current_part -gt $other_part ]]; then
-			__print_lines '1' # greater than
-			return 0
-		fi
-		if [[ $other_part -gt $current_part ]]; then
-			__print_lines '-1' # less than
-			return 0
-		fi
-	done
-
-	__print_lines '0' # equal
+	__version_compare "$option_current" "$option_other"
+	printf '\n'
 )
 
 # fire if invoked standalone
