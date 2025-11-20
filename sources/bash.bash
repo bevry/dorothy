@@ -6058,6 +6058,7 @@ function __minimum {
 	# process
 	local MINIMUM__result=''
 	for MINIMUM__item in "${MINIMUM__elements[@]}"; do
+		__affirm_value_is_integer "$MINIMUM__item" || return $?
 		if [[ -z $MINIMUM__result ]]; then
 			MINIMUM__result="$MINIMUM__item"
 		elif [[ $MINIMUM__item -lt $MINIMUM__result ]]; then
@@ -6110,6 +6111,7 @@ function __maximum {
 	# process
 	local MAXIMUM__result=''
 	for MAXIMUM__item in "${MAXIMUM__elements[@]}"; do
+		__affirm_value_is_integer "$MAXIMUM__item" || return $?
 		if [[ -z $MAXIMUM__result ]]; then
 			MAXIMUM__result="$MAXIMUM__item"
 		elif [[ $MAXIMUM__item -gt $MAXIMUM__result ]]; then
