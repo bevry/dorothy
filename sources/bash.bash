@@ -78,12 +78,10 @@ function __get_arch {
 	fi
 }
 
-# see `commands/is-mac` for details
 function __is_macos {
 	[[ $OSTYPE == darwin* ]] || return $?
 }
 
-# see `commands/is-linux` for details
 # this will/should pass on WSL on Windows
 function __is_linux {
 	# `OSTYPE` = `linux-gnu` (on everything, sans exceptions)
@@ -93,7 +91,6 @@ function __is_linux {
 	[[ $OSTYPE == linux* ]] || return $?
 }
 
-# see `commands/is-linux` for details
 function __is_wsl {
 	# `HOSTTYPE` = `x86_64`
 	# `OSTYPE` = `linux-gnu`
@@ -104,8 +101,6 @@ function __is_wsl {
 	[[ $via_uname == *-WSL2* ]] || return $?
 }
 
-# see `commands/is-brew` for details
-# workaround for Dorothy's `brew` helper
 function __is_brew {
 	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return $?
 }

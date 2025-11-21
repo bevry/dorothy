@@ -58,9 +58,9 @@ else
 fi
 
 # based on platform
-if is-mac; then
+if is-system --macos; then
 	# ...
-elif is-ubuntu; then
+elif is-system --ubuntu; then
 	# ...
 fi
 
