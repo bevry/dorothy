@@ -149,9 +149,13 @@ Windows 10/11:
 
 ```bash
 # https://learn.microsoft.com/en-au/windows/wsl/install
-wsl --set-default-version 2
-wsl --install
-wsl --list --verbose
+wsl.exe --install --no-distribution
+# wsl.exe --set-default-version 2
+wsl.exe --list --online
+wsl.exe --install # -d Debian
+# wsl.exe --set-default Debian
+wsl.exe --list --verbose
+# wsl.exe --unregister Debian # do not use --uninstall, that removes WSL
 ```
 
 Ubuntu / Debian / Kali:
