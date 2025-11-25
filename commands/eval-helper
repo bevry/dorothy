@@ -182,6 +182,9 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 			    If specified as an <exit-status> integer, then the command will be run without elevation, and if it fails with that exit status, then it will be run again with elevation.
 			    Can be specified multiple times, and can be \`\n\t ,|\` separated. The \`yes\` and \`no\` values will reset prior values.
 			    Empty values will be ignored. If this is not specified at all, or is only empty strings, it will default to \`no\`.
+			    If elevating on a \`sudo\` system, detection will occur if the user can elevate, and if the user does not need to be prompted to elevate the command.
+			        If the user cannot elevate, then the failure will be the helpful error of \`sudo -v\` with [80] as the exit status, despite <wrap> indicating the full command.
+			        If the user does or does not need to be prompted for the command, then <confirm> will adapt accordingly, being ignored if \`sudo\` already does the confirm.
 			--user=<user>
 			    Specify a user to run the command as. Forces <elevate>.
 			--group=<group>
@@ -371,7 +374,9 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 	fi
 
 	# default reason
+	local is_standard_reason='no'
 	if [[ -z $option_reason ]]; then
+		is_standard_reason='yes'
 		option_reason='Your password is required to momentarily grant privileges to execute the command:'
 	fi
 
@@ -435,9 +440,32 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 			esac
 		done
 	fi
+	local sudo_path='' elevate_permitted='' # if empty, means it elevation is not desired, or all sudo variations are unsupported
 	if [[ $elevate != 'no' ]]; then
 		if __command_exists -- sudo; then
 			elevate_technique='sudo'
+			# determine if the user can elevate privileges with a valid sudo
+			local sudo_paths=() sudo_response
+			__split --target={sudo_paths} --no-zero-length --invoke=try -- type -Pa sudo
+			for sudo_path in "${sudo_paths[@]}"; do
+				sudo_response="$(LANG=C.UTF-8 "$sudo_path" -v --non-interactive 2>&1 || :)"
+				case "$sudo_response" in
+				# they can
+				'sudo: a password is required')
+					elevate_permitted='yes'
+					break
+					;;
+				# they can't
+				"Sorry, user "*" may not run sudo on "*)
+					elevate_permitted='no'
+					break
+					;;
+				# this sudo executable is broken, move onto the next sudo
+				*)
+					continue
+					;;
+				esac
+			done
 		elif __command_exists -- doas; then
 			elevate_technique='doas'
 		else
@@ -527,11 +555,16 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		fi
 
 		# add reason, and if desired, confirm
-		if [[ $elevate_prompt == 'yes' ]]; then
-			# has a reason
+		if [[ $elevate_permitted == 'no' ]]; then
+			# we wanted elevation, but are not permitted, so there will be no prompt, so only show the reason if it was custom
+			if [[ $is_standard_reason == 'no' ]]; then
+				messages+="$(__print_style --notice="$option_reason")"$'\n'
+			fi
+		elif [[ $elevate_prompt == 'yes' ]]; then
+			# sudo requires password confirmation
 			messages+="$(__print_style --notice="$option_reason")"$'\n'
 		elif [[ $option_confirm == 'yes' ]] && __flush_messages && ! confirm --positive --ppid=$$ -- 'Confirm execution of the command:' "$command"; then
-			# cancelled
+			# sudo didn't require password confirmation so we just did it manually, and it failed
 			run_status=125
 			messages+="$(__print_style --element/="$styled_command_string" --status="$run_status")"$'\n'
 			if [[ -n $option_failure ]]; then
@@ -749,7 +782,7 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		if [[ ${#cmd_elevate[@]} -eq 0 ]]; then
 			local home='' non_interactive_flags=() suffix_flags=()
 			if [[ $elevate_technique == 'sudo' ]]; then
-				cmd_elevate+=(sudo)
+				cmd_elevate+=("$sudo_path")
 
 				# if no-tty, then use the builtin sudo workaround which is the same as Dorothy's
 				# cmd_elevate+=('--stdin') # note tha this outputs what they are typing unconcealed to terminal
@@ -761,7 +794,7 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 				# don't use is-directory, is-missing, __elevate_mkdirp, as they will cause infinite recursion
 				if [[ -n $option_user ]]; then
 					cmd_elevate+=(--user="$option_user")
-					# should coincide with [setup-environment-commands]
+					# should coincide with `setup-environment-commands`
 					if [[ -d /Users ]]; then
 						home="/Users/$option_user"
 					elif [[ -d '/home' ]]; then
@@ -796,7 +829,7 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 				if [[ $option_inherit == 'yes' ]]; then
 					# if you want root `eval-helper --elevate --inherit -- bash -il` to work, then Dorothy's sourcing must be added to `/etc/bashrc` or `/etc/profile`
 					cmd_elevate+=(--preserve-env PATH="$PATH") # this might be needed to cause a reload if desired: DOROTHY_LOADED_EXPORT_SCOPE=
-					# if it is linux, [sudo PATH=$PATH] doesn't seem to work, but [env PATH=$PATH] does, so just duplicate it
+					# if it is linux, `sudo PATH=$PATH` doesn't seem to work, but [env PATH=$PATH] does, so just duplicate it
 					if __is_linux; then
 						suffix_flags+=(-- env PATH="$PATH")
 					else
@@ -831,8 +864,11 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 		fi
 
 		# check if password is required
-		# [sudo --validate] doesn't work on multipass, so just use [true] as a no-op
-		if [[ $elevate_technique == 'sudo' ]] && ! "${cmd_elevate[@]}" "${non_interactive_flags[@]}" &>/dev/null; then
+		# `sudo --validate` doesn't work on multipass, so just use [true] as a no-op
+		if [[ $elevate_permitted == 'no' ]]; then
+			# we aren't permitted, so there will be no prompt
+			elevate_prompt='no'
+		elif [[ $elevate_technique == 'sudo' ]] && ! "${cmd_elevate[@]}" "${non_interactive_flags[@]}" &>/dev/null; then
 			# password is required, let the user know what they are being prompted for
 			elevate_prompt='yes'
 		else
@@ -846,7 +882,17 @@ function eval_helper() ( # to use this as a function, it needs to change from a 
 
 		# run the possibly elevated command
 		styled_command_string="$styled_elevate_command_string"
-		run_args "${cmd_elevate[@]}" "${suffix_flags[@]}" "${option_cmd[@]}"
+		if [[ $elevate_permitted == 'no' ]]; then
+			function __sudo_not_permitted {
+				# get the native error message
+				"$sudo_path" -v || :
+				# get our new exit status
+				return 80 # EAUTH 80 Authentication error
+			}
+			run_args __sudo_not_permitted
+		else
+			run_args "${cmd_elevate[@]}" "${suffix_flags[@]}" "${option_cmd[@]}"
+		fi
 	}
 
 	run_args_with_optional_elevation "${cmd_elevate[@]}" "${option_cmd[@]}"
