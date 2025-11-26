@@ -3,6 +3,12 @@
 # Historical `bash.bash` implementations for usage in testing and comparison for when things break.
 # Consumed by `dorothy-internals`
 
+if [[ $BASH_VERSION_MAJOR -gt 4 || ($BASH_VERSION_MAJOR -eq 4 && $BASH_VERSION_MINOR -ge 4) ]]; then
+	IS_BASH_VERSION_OUTDATED='no'
+else
+	IS_BASH_VERSION_OUTDATED='yes'
+fi
+
 # function __is_standard_function {
 # 	local cmd="$1" inner
 # 	inner="$(declare -f "$cmd")"
