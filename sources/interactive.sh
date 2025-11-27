@@ -31,3 +31,14 @@ if command-exists -- shuf; then
 	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
 fi
 dorothy-warnings warn
+
+# Ghostty, it is here, because the title is better here
+# https://ghostty.org/docs/features/shell-integration
+# https://github.com/ghostty-org/ghostty/blob/main/src/shell-integration/README.md
+if [ -n "${GHOSTTY_RESOURCES_DIR-}" ]; then
+	if [ "$ACTIVE_POSIX_SHELL" = 'bash' ]; then
+		. "$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"
+	elif [ "$ACTIVE_POSIX_SHELL" = 'zsh' ]; then
+		. "$GHOSTTY_RESOURCES_DIR"/shell-integration/zsh/ghostty-integration
+	fi
+fi

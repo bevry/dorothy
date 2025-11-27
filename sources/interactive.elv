@@ -22,3 +22,8 @@ if ?(command-exists -- shuf) {
 	shuf -n1 $E:DOROTHY'/sources/shoutouts.txt'
 }
 dorothy-warnings warn
+
+# Ghostty: https://github.com/ghostty-org/ghostty/blob/main/src/shell-integration/README.md
+if (eq $E:TERM "xterm-ghostty") {
+  use ghostty-integration
+}
