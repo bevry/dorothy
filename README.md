@@ -502,7 +502,9 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 #### Sponsors
 
 - [Andrew Nesbitt](https://nesbitt.io) — Working on mapping the world of open source software @ecosyste-ms and empowering developers with @octobox
+- [Canonical](https://canonical.com)
 - [Divinci ™](https://divinci.ai) — A more comfortable AI conversation experience, with friends! 🤖🖤
+- [Edward J. Schwartz](https://github.com/edmcman)
 - [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
 - [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
@@ -516,17 +518,18 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 - [Chad](https://opencollective.com/chad8)
 - [Codecov](https://codecov.io)
 - [Divinci ™](https://divinci.ai)
+- [Edward J. Schwartz](https://github.com/edmcman)
 - [entroniq](https://gitlab.com/entroniq)
 - [Frontend Masters](https://FrontendMasters.com)
 - [Jean-Luc Geering](https://github.com/jlgeering)
-- [Michael Duane Mooring](https://divinci.app)
-- [Mohammed Shah](https://github.com/smashah)
+- [Michael Duane Mooring](https://divinci.ai)
 - [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
 - [Rob Morris](https://linktr.ee/recipromancer)
 - [Roboflow](https://roboflow.com)
 - [Sentry](https://sentry.io)
 - [ServieJS](https://github.com/serviejs)
+- [Shah](https://github.com/smashah)
 - [Square](https://github.com/square)
 - [Syntax](https://syntax.fm)
 
