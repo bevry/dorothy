@@ -1,5 +1,15 @@
 #!/usr/bin/env xonsh
 
+# =====================================
+# Visuals
+
+if !(command-exists -- shuf).returncode == 0:
+	shuf -n1 @($DOROTHY + '/sources/shoutouts.txt')
+dorothy-warnings warn
+
+# =====================================
+# Configuration
+
 # @todo figure out why this doesn't work:
 # Source our ability to load configuration files
 # evalx(compilex(open($DOROTHY + '/sources/config.xsh').read()))
@@ -19,15 +29,16 @@ elif path.exists($DOROTHY + '/config/interactive.xsh'):
 	# otherwise load default configuration
 	execx(compilex(open($DOROTHY + '/config/interactive.xsh').read()))
 
-# Continue with the shell extras
-# execx(compilex(open($DOROTHY + '/sources/history.xsh').read()))
+# =====================================
+# Theme
+
 execx(compilex(open($DOROTHY + '/sources/theme.xsh').read()))
-# execx(compilex(open($DOROTHY + '/sources/ssh.xsh').read()))
-execx(compilex(open($DOROTHY + '/sources/autocomplete.xsh').read()))
 
-# @todo someone more experienced with xonsh should get config files loading, and get history, ssh, and autocomplete going
+# =====================================
+# Autocomplete
 
-# Shoutouts
-if !(command-exists -- shuf).returncode == 0:
-	shuf -n1 @($DOROTHY + '/sources/shoutouts.txt')
-dorothy-warnings warn
+# Carapace
+# https://carapace-sh.github.io/carapace-bin/setup.html#xonsh
+if !(command-exists -- carapace).returncode == 0:
+	COMPLETIONS_CONFIRM=True
+	exec($(carapace _carapace xonsh))

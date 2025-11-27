@@ -8,7 +8,7 @@ if ! set -q DOROTHY
 end
 
 if status --is-login
-	source "$DOROTHY/sources/login.fish"
+	source "$DOROTHY/sources/environment.fish"
 	if status --is-interactive
 		source "$DOROTHY/sources/interactive.fish"
 	end

@@ -2,6 +2,18 @@
 
 # use test -f, instead of os builtin, as test -f actually handles /user symlink
 
+# =====================================
+# Visuals
+
+# Shoutouts
+if ?(command-exists -- shuf) {
+	shuf -n1 $E:DOROTHY'/sources/shoutouts.txt'
+}
+dorothy-warnings warn
+
+# =====================================
+# Configuration
+
 # Load the configuration for interactive shells
 if ?(test -f $E:DOROTHY'/user/config.local/interactive.elv') {
 	eval (cat $E:DOROTHY'/user/config.local/interactive.elv' | slurp)
@@ -11,19 +23,25 @@ if ?(test -f $E:DOROTHY'/user/config.local/interactive.elv') {
 	eval (cat $E:DOROTHY'/config/interactive.elv' | slurp)
 }
 
-# Continue with the shell extras
-# use ./history.elv
+# =====================================
+# Dorothy
+
+# Theme
 eval (cat $E:DOROTHY'/sources/theme.elv' | slurp)
-# use ./ssh.elv
-eval (cat $E:DOROTHY'/sources/autocomplete.elv' | slurp)
 
-# Shoutouts
-if ?(command-exists -- shuf) {
-	shuf -n1 $E:DOROTHY'/sources/shoutouts.txt'
+# =====================================
+# Autocomplete
+
+# Carapace
+# https://carapace-sh.github.io/carapace-bin/setup.html#elvish
+if ?( command-exists -- carapace ) {
+	eval (carapace _carapace elvish | slurp)
 }
-dorothy-warnings warn
 
-# Ghostty: https://github.com/ghostty-org/ghostty/blob/main/src/shell-integration/README.md
+# =====================================
+# Terminals
+
+# Ghostty: https://github.com/ghostty-org/ghostty/tree/main/src/shell-integration
 if (eq $E:TERM "xterm-ghostty") {
   use ghostty-integration
 }
