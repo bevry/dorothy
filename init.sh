@@ -70,7 +70,12 @@ else
 			if shopt -qp login_shell; then
 				DOROTHY_LOAD='yes'
 			elif [ "$-" = 'himBH' ] && [ "${DOROTHY_LOADED_EXPORT_SCOPE-}" != 'yes' ]; then
-				case "${GIO_LAUNCHED_DESKTOP_FILE-}" in *lxterminal*) DOROTHY_LOAD='yes' ;; esac
+				# Workaround for `Raspberry Pi OS: Terminal` which has no way to enable Login Shell
+				case "${GIO_LAUNCHED_DESKTOP_FILE-}" in
+				# /usr/share/applications/x-terminal-emulator.desktop
+				*'/x-terminal-'*) DOROTHY_LOAD='yes' ;;
+				*lxterminal*) DOROTHY_LOAD='yes' ;;
+				esac
 			fi
 		elif [ -n "${ZSH_VERSION-}" ]; then
 			# trunk-ignore(shellcheck/SC3010)
