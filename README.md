@@ -296,10 +296,8 @@ For each shell that you configured during the Dorothy installation (can be recon
 1.  The initialization script will:
     1. Ensure the `DOROTHY` environment variable is set to the location of the Dorothy installation.
 
-    1. If a login shell, it loads our login script `sources/login.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-        1. Apply any configuration changes necessary for that login shell
-        1. Load our environment script `sources/environment.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
-            1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
+    1. If a login shell, it loads our environment script `sources/environment.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
+        1. Invoke `commands/setup-environment-commands` which determines and applies all necessary environment configuration changes to the shell. It loads your `user/config(.local)/environment.bash` configuration script for your own custom environment configuration that will be applied to all your login shells.
 
     1. If a login and interactive shell, it loads our interactive script `sources/interactive.(bash|dash|elv|fish|ksh|nu|xsh|zsh)`, which will:
         1. Load your own `user/config(.local)/interactive.(sh|bash|dash|elv|fish|ksh|nu|xsh|zsh)` configuration script for your own interactive login shell configuration.
