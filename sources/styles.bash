@@ -1170,7 +1170,6 @@ function __print_style {
 						continue
 						;;
 					help | man)
-						# trunk-ignore(shellcheck/SC2119)
 						PRINT_STYLE__item_content="$(__print_help <<<"$PRINT_STYLE__item_content" 2>&1)" || return $?
 						continue
 						;;
@@ -1231,19 +1230,38 @@ function __print_style {
 }
 
 # beta command, will change
-# trunk-ignore(shellcheck/SC2120)
+# Challenging commands:
+# dorothy: --utils=<utility1,utility2,...>
+# echo-clear-lines: <<< <(
+# echo-count-lines: [0]$
+# echo-escape-regexp: [a-z]
+# echo-if-command-exists: [1]$
+# echo-revolving-door: >&
+# echo-split: trailing ` in example
+# git-helper:    ...<argument>
 function __print_help {
-	__load_styles --save -- intensity bold dim code foreground_magenta foreground_green foreground_red
+	__load_styles --save -- intensity bold dim code link foreground_magenta foreground_green foreground_red
 	cat |
 		echo-regexp -gm '^([\t ]*)[-*] ' '$1• ' |
 		echo-regexp -gm '^([A-Z ]+\:)$' "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
-		echo-regexp -gm '^( *)([[<\-a-z][{}()[\]<>\-._:$'\''=*`?/| a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
-		echo-regexp -g '\[0\](\s)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |
-		echo-regexp -g '\[([\d]+)\](\s)' "${STYLE__foreground_red}[\$1]${STYLE__END__foreground_red}\$2" |
+		echo-regexp -gm '\[0\](\s|$)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |
+		echo-regexp -gm '\[([\d*]+)\](\s|$)' "${STYLE__foreground_red}[\$1]${STYLE__END__foreground_red}\$2" |
+		echo-regexp -g '\<(http[^>]+)>' "${STYLE__link}\$1${STYLE__END__link}" |
+		echo-regexp -gm '^( *)([<[\-a-z.][<>[\]{}()\-._:$'\''=*?/|, a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
 		{
-			local buffer='' character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
-			local -i c l
+			local characters=() buffer='' character='' prev prev_prev next next_next buffer='' last='' in_tick='no' in_color='no' intensities=()
+			local -i i n c l
 			while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+				characters+=("$character")
+			done
+			n="${#characters[@]}"
+			for ((i = 0; i < n; i++)); do
+				character="${characters[i]}"
+				prev="${characters[i - 1]-}"
+				next="${characters[i + 1]-}"
+				prev_prev="${characters[i - 2]-}"
+				next_next="${characters[i + 2]-}"
+				# prev and next are to prevent things like <(...) and << and <<< and [[ and ]] from being misinterpreted
 				if [[ $character == $'\e' ]]; then
 					in_color='yes'
 					buffer+="${character}"
@@ -1260,13 +1278,13 @@ function __print_help {
 						in_tick='no'
 						buffer+="${STYLE__END__code}"
 					fi
-				elif [[ $character == '<' ]]; then
+				elif [[ $character == '<' && $next != ' ' && $next != '(' && $prev != '<' && $next != '<' ]]; then
 					intensities+=("$STYLE__bold")
 					buffer+="${STYLE__bold}${character}"
-				elif [[ $character == '[' ]]; then
+				elif [[ $character == '[' && $next != ' ' && $prev != '[' && $next != '[' && ( $next != 'a' && $next_next != '-' ) ]]; then
 					intensities+=("$STYLE__dim")
 					buffer+="${STYLE__dim}${character}"
-				elif [[ $character == '>' || $character == ']' ]]; then
+				elif [[ ( ( $character == '>' && $prev != '>' && $next != '>' && $next != '&' ) || ( $character == ']' && $prev != ']' && $next != ']' && $prev != 'z' && $prev_prev != '-' ) ) && $prev != ' ' ]]; then
 					buffer+="${character}"
 
 					# there's currently a bug in __slice that prevents -1 being used as a length
