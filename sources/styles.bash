@@ -1231,14 +1231,16 @@ function __print_style {
 
 # beta command, will change
 # Challenging commands:
-# dorothy: --utils=<utility1,utility2,...>
-# echo-clear-lines: <<< <(
-# echo-count-lines: [0]$
-# echo-escape-regexp: [a-z]
-# echo-if-command-exists: [1]$
-# echo-revolving-door: >&
+# dorothy: `--utils=<utility1,utility2,...>` and actions
+# echo-clear-lines: `<<<` and `<(`
+# echo-count-lines: `[0]$`
+# echo-escape-regexp: `[a-z]`
+# echo-if-command-exists: `[1]$`
+# echo-revolving-door: `>&`
 # echo-split: trailing ` in example
-# git-helper:    ...<argument>
+# echo-verbose: need for `\`\`\``
+# git-helper: `    ...<argument>`
+# echo-trim-zero-length: `null` in multi-line example output, caused need for `:` prefix for actions to avoid being magenta highlighted
 function __print_help {
 	__load_styles --save -- intensity bold dim code link foreground_magenta foreground_green foreground_red
 	cat |
@@ -1247,7 +1249,7 @@ function __print_help {
 		echo-regexp -gm '\[0\](\s|$)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |
 		echo-regexp -gm '\[([\d*]+)\](\s|$)' "${STYLE__foreground_red}[\$1]${STYLE__END__foreground_red}\$2" |
 		echo-regexp -g '\<(http[^>]+)>' "${STYLE__link}\$1${STYLE__END__link}" |
-		echo-regexp -gm '^( *)([<[\-a-z.][<>[\]{}()\-._:$'\''=*?/|, a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
+		echo-regexp -gm '^( *)(?:(?:(?:\: )|([<[\-]|\.\.\.))([<>[\]{}()\-._:$'\''=*?/|, a-zA-Z0-9]+))$' "${STYLE__foreground_magenta}\$1\$2\$3${STYLE__END__foreground_magenta}" |
 		{
 			local characters=() buffer='' character='' prev prev_prev next next_next buffer='' last='' in_tick='no' in_color='no' intensities=()
 			local -i i n c l
