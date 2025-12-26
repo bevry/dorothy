@@ -38,7 +38,7 @@ fi
 # NVM, might be used by theme, so load it here
 
 if [ "$ACTIVE_POSIX_SHELL" != 'ksh' ]; then # nvm is not compatible with ksh
-	nvm() { # lazy-load, as nvm is really slow to load
+	nvm() {                                    # lazy-load, as nvm is really slow to load
 		. "$DOROTHY/sources/nvm.sh" || return $?
 		nvm "$@"
 	}

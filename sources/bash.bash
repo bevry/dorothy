@@ -52,13 +52,15 @@ fi
 
 # Used to load functions from dependency source files
 function __invoke_function_from_source {
+	local file="$1"
+	shift
 	if [[ -n ${DOROTHY-} ]]; then
 		# function romeo { function romeo { echo replaced; }; romeo; }; romeo; romeo
 		# $'replaced\nreplaced'
-		source "$DOROTHY/sources/$1" || return $?
-		"${FUNCNAME[1]}" "${@:2}" || return $?
+		source "$DOROTHY/sources/${file}" || return $?
+		"${FUNCNAME[1]}" "$@" || return $?
 	else
-		printf '%s\n' "${FUNCNAME[1]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/$1> to be sourced." >&2 || :
+		printf '%s\n' "${FUNCNAME[1]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/${file}> to be sourced." >&2 || :
 		return 6 # ENXIO 6 Device not configured
 	fi
 }

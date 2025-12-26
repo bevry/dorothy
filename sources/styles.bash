@@ -1255,12 +1255,12 @@ function __print_help {
 		local -i ii
 		E="$i"
 		# check if all preceding line characters are pattern
-		for (( ii = i-1; ii >= 0; ii-- )); do
-			if [[ "${s[ii]}" =~ $pattern ]]; then
+		for ((ii = i - 1; ii >= 0; ii--)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
 				match='yes'
 				E="$ii"
 				continue
-			elif [[ "${s[ii]}" == "$until" ]]; then
+			elif [[ ${s[ii]} == "$until" ]]; then
 				break
 			else
 				return 1
@@ -1273,12 +1273,12 @@ function __print_help {
 		local -i ii
 		E="$i"
 		# check if all preceding line characters are pattern
-		for (( ii = i+1; ii < n; ii++ )); do
-			if [[ "${s[ii]}" =~ $pattern ]]; then
+		for ((ii = i + 1; ii < n; ii++)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
 				match='yes'
 				E="$ii"
 				continue
-			elif [[ "${s[ii]}" == "$until" ]]; then
+			elif [[ ${s[ii]} == "$until" ]]; then
 				break
 			else
 				return 1
@@ -1290,8 +1290,8 @@ function __print_help {
 		local pattern="$1"
 		local -i ii
 		E="$i"
-		for (( ii = i-1; ii >= 0; ii-- )); do
-			if [[ "${s[ii]}" =~ $pattern ]]; then
+		for ((ii = i - 1; ii >= 0; ii--)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
 				E="$ii"
 				break
 			else
@@ -1306,8 +1306,8 @@ function __print_help {
 		local pattern="$1"
 		local -i ii
 		E="$i"
-		for (( ii = i+1; ii < n; ii++ )); do
-			if [[ "${s[ii]}" =~ $pattern ]]; then
+		for ((ii = i + 1; ii < n; ii++)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
 				E="$ii"
 				break
 			else
@@ -1327,11 +1327,11 @@ function __print_help {
 	function __require_fence {
 		local segment="$1" prefix='' suffix=''
 		if __apply_index_of_prior_pattern $'\n'; then
-			E="$((E+1))"
-			IFS='' prefix="${s[*]:E:(i-E)}"
+			E="$((E + 1))"
+			IFS='' prefix="${s[*]:E:i-E}"
 		fi
 		if __apply_index_of_next_pattern $'\n'; then
-			IFS='' suffix="${s[*]:i:(E-i)}"
+			IFS='' suffix="${s[*]:i:E-i}"
 		fi
 		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' ' of:' --newline --code="$prefix$suffix" --newline 'Try:' --newline --code='```'"$prefix$suffix"'```' || return $?
 		return 94 # EBADMSG 94 Bad message
@@ -1360,9 +1360,9 @@ function __print_help {
 			s[i + 1]=''
 			s[i + 2]=''
 			# if the code fence is the only non-whitespace thing on the line, then remove the line
-			if [[ "${s[i + 3]-}" == $'\n' ]] && __are_prior_characters_only_padding; then
+			if [[ ${s[i + 3]-} == $'\n' ]] && __are_prior_characters_only_padding; then
 				s[i + 3]=''
-				for (( ii = E; ii < i; ii++ )); do
+				for ((ii = E; ii < i; ii++)); do
 					s[ii]=''
 				done
 			fi
@@ -1394,7 +1394,7 @@ function __print_help {
 				suffixes[i]+="${STYLE__END__foreground_magenta}"
 				continue
 			fi
-		elif [[ "$c" == '<' ]]; then
+		elif [[ $c == '<' ]]; then
 			# urls
 			if [[ "${s[i + 1]-}${s[i + 2]-}${s[i + 3]-}${s[i + 4]-}" == 'http' ]]; then
 				if __apply_index_of_next_pattern '^>$'; then
@@ -1404,7 +1404,7 @@ function __print_help {
 				fi
 				continue
 			fi
-		elif [[ "$c" == '[' ]]; then
+		elif [[ $c == '[' ]]; then
 			# return statuses
 			if __are_next_characters_matching '^0+$' ']' 'no'; then
 				prefixes[i]+="${STYLE__foreground_green}"
@@ -1417,7 +1417,7 @@ function __print_help {
 				i="$((E + 1))"
 				continue
 			fi
-		elif [[ "$c" == '`' ]]; then
+		elif [[ $c == '`' ]]; then
 			# code
 			if [[ $in_code == 'no' ]]; then
 				in_code='yes'
@@ -1453,9 +1453,9 @@ function __print_help {
 		case "$c" in
 		'[')
 			# is it an example regular expression, then require fence
-			if [[ "${s[i + 1]-}" == 'a' && "${s[i + 2]-}" == '-' && "${s[i + 3]-}" == 'z' ]]; then
+			if [[ ${s[i + 1]-} == 'a' && ${s[i + 2]-} == '-' && ${s[i + 3]-} == 'z' ]]; then
 				__require_fence "${c}${s[i + 1]}${s[i + 2]}${s[i + 3]}${s[i + 4]}" || return $?
-			elif [[ "${s[i + 1]-}" == ' ' ]]; then
+			elif [[ ${s[i + 1]-} == ' ' ]]; then
 				__require_fence "${c}${s[i + 1]}" || return $?
 			else
 				intensities+=("$STYLE__dim")
@@ -1471,16 +1471,16 @@ function __print_help {
 			;;
 		'>')
 			case "${s[i - 1]-}" in
-			' ' | ')')  __require_fence "${c}${s[i - 1]}" || return $? ;;
+			' ' | ')') __require_fence "${c}${s[i - 1]}" || return $? ;;
 			esac
 			case "${s[i + 1]-}" in
-			'&' | '>' | '=')  __require_fence "${c}${s[i + 1]}" || return $? ;;
+			'&' | '>' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
 			esac
 			end_intensity='yes'
 			;;
 		']')
 			case "${s[i - 1]-}" in
-			' ')  __require_fence "${c}${s[i - 1]}" || return $? ;;
+			' ') __require_fence "${c}${s[i - 1]}" || return $? ;;
 			esac
 			end_intensity='yes'
 			;;
@@ -1493,7 +1493,7 @@ function __print_help {
 				suffixes[i]+="${STYLE__END__intensity}"
 			else
 				# fallback to the prior intensity
-				intensities=("${intensities[@]:0:nn - 1}")
+				intensities=("${intensities[@]:0:nn-1}")
 				suffixes[i]+="${STYLE__END__intensity}${intensities[-1]}"
 			fi
 		fi
