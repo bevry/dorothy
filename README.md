@@ -504,32 +504,45 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 - [Divinci ™](https://divinci.ai) — A more comfortable AI conversation experience, with friends! 🤖🖤
 - [Edward J. Schwartz](https://github.com/edmcman)
 - [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
-- [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
 - [Roboflow](https://roboflow.com)
 
 #### Donors
 
 - [Andrew Nesbitt](https://nesbitt.io)
+- [Ángel González](https://univunix.com)
+- [Arjun Aditya](https://arjunaditya.xyz)
+- [Armen Mkrtchian](https://mogoni.dev)
 - [Balsa](https://balsa.com)
 - [Canonical](https://canonical.com)
 - [Chad](https://opencollective.com/chad8)
 - [Codecov](https://codecov.io)
 - [Divinci ™](https://divinci.ai)
+- [dr.dimitru](https://veliovgroup.com)
 - [Edward J. Schwartz](https://github.com/edmcman)
+- [Elliott Ditman](https://elliottditman.com)
 - [entroniq](https://gitlab.com/entroniq)
 - [Frontend Masters](https://FrontendMasters.com)
+- [GitHub](https://github.com/about)
+- [Hunter Beast](https://cryptoquick.com)
 - [Jean-Luc Geering](https://github.com/jlgeering)
+- [Lee Driscoll](https://leedriscoll.me)
 - [Michael Duane Mooring](https://divinci.ai)
+- [Michael Harry Scepaniak](https://michaelscepaniak.com)
 - [Mr. Henry](https://mrhenry.be)
+- [Pleo](https://pleo.io)
 - [Poonacha Medappa](https://poonachamedappa.com)
+- [Robert de Forest](https://github.com/rdeforest)
 - [Rob Morris](https://linktr.ee/recipromancer)
 - [Roboflow](https://roboflow.com)
+- [Scott Kempson](https://github.com/scokem)
 - [Sentry](https://sentry.io)
 - [ServieJS](https://github.com/serviejs)
 - [Shah](https://github.com/smashah)
+- [Skunk Team](https://skunk.team)
 - [Square](https://github.com/square)
 - [Syntax](https://syntax.fm)
+- [WriterJohnBuck](https://github.com/WriterJohnBuck)
 
 <!-- /BACKERS -->
 
