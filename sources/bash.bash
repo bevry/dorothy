@@ -5401,6 +5401,7 @@ function __replace {
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 
+		# Bash/POSIX Character Classes: <https://www.gnu.org/software/gawk/manual/html_node/Bracket-Expressions.html>
 		'--leading-whitespace')
 			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[![:space:]]*}"}"
 			;;
