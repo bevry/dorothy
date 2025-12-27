@@ -1495,7 +1495,8 @@ function __print_help {
 			intensities_size="${#intensities[@]}"
 			if [[ $intensities_size -eq 0 ]]; then
 				# mismatched, fail
-				__print_error 'Invalid help template. Mismatched intensity modifiers.' || return 94 # EBADMSG 94 Bad message
+				__print_error 'Invalid help template. Mismatched intensity modifiers.' || return $?
+				return 94 # EBADMSG 94 Bad message
 			elif [[ $intensities_size -eq 1 ]]; then
 				# no more intensities so clear
 				suffixes[i]+="$STYLE__END__intensity"
