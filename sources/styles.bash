@@ -1336,8 +1336,8 @@ function __print_help {
 		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' ' of:' --newline --code="$prefix$suffix" --newline 'Try:' --newline --code='```'"$prefix$suffix"'```' || return $?
 		return 94 # EBADMSG 94 Bad message
 	}
-	local in_code='no' in_fence='no' in_color='no' in_option end_intensity intensities=()
-	local -i nn
+	local in_code='no' in_fence='no' in_color='no' in_option remove_intensity intensities=()
+	local -i intensities_size
 	for ((i = 0; i < n; i++)); do
 		c="${s[i]}"
 		if [[ $c == '' ]]; then
@@ -1390,16 +1390,16 @@ function __print_help {
 		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
 			# headers
 			if __are_prior_characters_only_uppercase; then
-				prefixes[E]+="${STYLE__foreground_magenta}"
-				suffixes[i]+="${STYLE__END__foreground_magenta}"
+				prefixes[E]+="$STYLE__foreground_magenta"
+				suffixes[i]+="$STYLE__END__foreground_magenta"
 				continue
 			fi
 		elif [[ $c == '<' ]]; then
 			# urls
 			if [[ "${s[i + 1]-}${s[i + 2]-}${s[i + 3]-}${s[i + 4]-}" == 'http' ]]; then
 				if __apply_index_of_next_pattern '^>$'; then
-					s[i]="${STYLE__link}"
-					s[E]="${STYLE__END__link}"
+					s[i]="$STYLE__link"
+					s[E]="$STYLE__END__link"
 					i="$E"
 				fi
 				continue
@@ -1407,13 +1407,13 @@ function __print_help {
 		elif [[ $c == '[' ]]; then
 			# return statuses
 			if __are_next_characters_matching '^0+$' ']' 'no'; then
-				prefixes[i]+="${STYLE__foreground_green}"
-				suffixes[E + 1]+="${STYLE__END__foreground_green}"
+				prefixes[i]+="$STYLE__foreground_green"
+				suffixes[E + 1]+="$STYLE__END__foreground_green"
 				i="$((E + 1))"
 				continue
 			elif __are_next_characters_matching '^[[:digit:]*]+$' ']' 'no'; then
-				prefixes[i]+="${STYLE__foreground_red}"
-				suffixes[E + 1]+="${STYLE__END__foreground_red}"
+				prefixes[i]+="$STYLE__foreground_red"
+				suffixes[E + 1]+="$STYLE__END__foreground_red"
 				i="$((E + 1))"
 				continue
 			fi
@@ -1421,10 +1421,10 @@ function __print_help {
 			# code
 			if [[ $in_code == 'no' ]]; then
 				in_code='yes'
-				s[i]="${STYLE__code}"
+				s[i]="$STYLE__code"
 			else
 				in_code='no'
-				s[i]="${STYLE__END__code}"
+				s[i]="$STYLE__END__code"
 			fi
 			continue
 		fi
@@ -1442,14 +1442,14 @@ function __print_help {
 		if [[ $in_option == 'yes' ]] && __are_prior_characters_only_padding; then
 			prefixes[i]="${STYLE__foreground_magenta}"
 			if __apply_index_of_next_pattern $'^\n$'; then
-				suffixes[E]+="${STYLE__END__foreground_magenta}"
+				suffixes[E]+="$STYLE__END__foreground_magenta"
 			else
 				# no trailing line
-				suffixes[n - 1]+="${STYLE__END__foreground_magenta}"
+				suffixes[n - 1]+="$STYLE__END__foreground_magenta"
 			fi
 		fi
 
-		end_intensity='no'
+		remove_intensity='no'
 		case "$c" in
 		'[')
 			# is it an example regular expression, then require fence
@@ -1459,7 +1459,7 @@ function __print_help {
 				__require_fence "${c}${s[i + 1]}" || return $?
 			else
 				intensities+=("$STYLE__dim")
-				prefixes[i]+="${STYLE__dim}"
+				prefixes[i]+="$STYLE__dim"
 			fi
 			;;
 		'<')
@@ -1467,7 +1467,7 @@ function __print_help {
 			' ' | '&' | '(' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
 			esac
 			intensities+=("$STYLE__bold")
-			prefixes[i]+="${STYLE__bold}"
+			prefixes[i]+="$STYLE__bold"
 			;;
 		'>')
 			case "${s[i - 1]-}" in
@@ -1476,25 +1476,30 @@ function __print_help {
 			case "${s[i + 1]-}" in
 			'&' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
 			esac
-			end_intensity='yes'
+			remove_intensity='yes'
 			;;
 		']')
 			case "${s[i - 1]-}" in
 			' ') __require_fence "${c}${s[i - 1]}" || return $? ;;
 			esac
-			end_intensity='yes'
+			remove_intensity='yes'
 			;;
 		esac
-		if [[ $end_intensity == 'yes' ]]; then
-			nn="${#intensities[@]}"
-			if [[ $nn -le 1 ]]; then
+		if [[ $remove_intensity == 'yes' ]]; then
+			intensities_size="${#intensities[@]}"
+			if [[ $intensities_size -eq 0 ]]; then
+				# mismatched, fail
+				__print_error 'Invalid help template. Mismatched intensity modifiers.' || return 94 # EBADMSG 94 Bad message
+			elif [[ $intensities_size -eq 1 ]]; then
 				# no more intensities so clear
+				suffixes[i]+="$STYLE__END__intensity"
 				intensities=()
-				suffixes[i]+="${STYLE__END__intensity}"
 			else
-				# fallback to the prior intensity
-				intensities=("${intensities[@]:0:nn-1}")
-				suffixes[i]+="${STYLE__END__intensity}${intensities[@]:-1:1}"
+				# pop intensity
+				intensities=("${intensities[@]:0:intensities_size-1}")
+				intensities_size="${#intensities[@]}"
+				# reset intensity, and re-affirm prior intensities
+				IFS='' suffixes[i]+="$STYLE__END__intensity${intensities[*]}"
 			fi
 		fi
 	done
