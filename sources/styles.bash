@@ -1474,7 +1474,13 @@ function __print_help {
 			' ' | ')') __require_fence "${c}${s[i - 1]}" || return $? ;;
 			esac
 			case "${s[i + 1]-}" in
-			'&' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			'&') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			'=')
+				# only disallow `=` if `>= ` and not something like `--<field>=<value>`
+				if [[ ${s[i + 2]-} == ' ' ]]; then
+					__require_fence "${c}${s[i + 1]}${s[i + 2]}" || return $?
+				fi
+				;;
 			esac
 			remove_intensity='yes'
 			;;
