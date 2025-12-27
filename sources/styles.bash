@@ -1321,8 +1321,9 @@ function __print_help {
 	function __are_prior_characters_only_padding {
 		__are_prior_characters_matching '^[[:blank:]]+$' $'\n' 'yes' || return $?
 	}
-	function __are_prior_characters_only_uppercase {
-		__are_prior_characters_matching '^[A-Z]+$' $'\n' 'no' || return $?
+	function __are_prior_characters_only_header {
+		# @todo this may match `\n :`, as such we change prior characters to fetching all characters until <until> then do the pattern test on their string; this is difficult for now due to the need to update E with the index of matched characters; as such it may be worth matching characters, and then matching spread separately
+		__are_prior_characters_matching '^[A-Z ]+$' $'\n' 'no' || return $?
 	}
 	function __require_fence {
 		local segment="$1" prefix='' suffix=''
@@ -1389,7 +1390,7 @@ function __print_help {
 			fi
 		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
 			# headers
-			if __are_prior_characters_only_uppercase; then
+			if __are_prior_characters_only_header; then
 				prefixes[E]+="$STYLE__foreground_magenta"
 				suffixes[i]+="$STYLE__END__foreground_magenta"
 				continue
