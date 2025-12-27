@@ -1464,7 +1464,7 @@ function __print_help {
 			;;
 		'<')
 			case "${s[i + 1]-}" in
-			' ' | '&' | '(' | '<' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			' ' | '&' | '(' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
 			esac
 			intensities+=("$STYLE__bold")
 			prefixes[i]+="${STYLE__bold}"
@@ -1474,7 +1474,7 @@ function __print_help {
 			' ' | ')') __require_fence "${c}${s[i - 1]}" || return $? ;;
 			esac
 			case "${s[i + 1]-}" in
-			'&' | '>' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			'&' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
 			esac
 			end_intensity='yes'
 			;;
@@ -1494,7 +1494,7 @@ function __print_help {
 			else
 				# fallback to the prior intensity
 				intensities=("${intensities[@]:0:nn-1}")
-				suffixes[i]+="${STYLE__END__intensity}${intensities[-1]}"
+				suffixes[i]+="${STYLE__END__intensity}${intensities[@]:-1:1}"
 			fi
 		fi
 	done
