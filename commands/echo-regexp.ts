@@ -65,10 +65,7 @@ const replacements = Deno.args.slice(2).map(function (replacement) {
 })
 const regexp = new RegExp(find, Array.from(flags).join(''))
 const globalRegexp = new RegExp(find, Array.from(globalFlags).join(''))
-const input = (await new Response(Deno.stdin.readable).text()).replace(
-	/\n$/,
-	'',
-) // Deno adds trailing line
+const input = await new Response(Deno.stdin.readable).text()
 async function write(output: string) {
 	return await Deno.stdout.write(new TextEncoder().encode(output))
 }

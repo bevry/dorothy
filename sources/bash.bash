@@ -3210,26 +3210,28 @@ function eval_capture {
 		shift
 		case "$item" in
 		'--help')
-			cat <<-EOF >/dev/stderr
+			__print_help <<-EOF
 				ABOUT:
 				Capture or ignore exit status, without disabling errexit, and without a subshell.
+				\`\`\`
 				Copyright 2023+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
 				Written for Dorothy (https://github.com/bevry/dorothy)
 				Licensed under the Reciprocal Public License 1.5 (http://spdx.org/licenses/RPL-1.5.html)
+				\`\`\`
 
 				USAGE:
-				local status=0 stdout='' stderr='' output=''
-				eval_capture [--status-var=status] [--stdout-var=stdout] [--stderr-var=stderr] [--output-var=output] [--stdout-target=/dev/stdout] [--stderr-target=/dev/stderr] [--output-target=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...
+				\`local status=0 stdout='' stderr='' output=''\`
+				\`eval_capture [--status-var=status] [--stdout-var=stdout] [--stderr-var=stderr] [--output-var=output] [--stdout-target=/dev/stdout] [--stderr-target=/dev/stderr] [--output-target=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...\`
 
 				QUIRKS:
-				Using --stdout-var will set --stdout-target=/dev/null
-				Using --stderr-var will set --stderr-target=/dev/null
-				Using --output-var will set --stdout-target=/dev/null --stderr-target=/dev/null
+				Using \`--stdout-var\` will set \`--stdout-target=/dev/null\`
+				Using \`--stderr-var\` will set \`--stderr-target=/dev/null\`
+				Using \`--output-var\` will set \`--stdout-target=/dev/null --stderr-target=/dev/null\`
 
 				WARNING:
-				If [eval_capture] triggers something that still does function invocation via [if], [&&], [||], or [!], then errexit will still be disabled for that invocation.
+				If \`eval_capture\` triggers something that still does function invocation via \`if\`, \`&&\`, \`||\`, or \`!\`, then errexit will still be disabled for that invocation.
 				This is a limitation of bash, with no workaround (at least at the time of bash v5.2).
-				Refer to https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md for guidance.
+				Refer to <https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md> for guidance.
 			EOF
 			return 22 # EINVAL 22 Invalid argument
 			;;

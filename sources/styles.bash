@@ -1232,6 +1232,7 @@ function __print_style {
 # beta command, will change
 # Challenging commands:
 # dorothy: `--utils=<utility1,utility2,...>` and actions
+# confirm, secret: comment lines that starts with a lowercase character
 # echo-clear-lines: `<<<` and `<(`
 # echo-count-lines: `[0]$`
 # echo-escape-regexp: `[a-z]`
@@ -1434,6 +1435,13 @@ function __print_help {
 		in_option='no'
 		case "$c" in
 		'-' | '<' | '[' | '|') in_option='yes' ;;
+		'&')
+			if [[ "${s[i + 1]-}" == ' ' ]]; then
+				in_option='yes'
+				s[i]=''
+				s[i + 1]=''
+			fi
+			;;
 		'.')
 			if [[ "${s[i + 1]-}${s[i + 2]-}" == '..' ]]; then
 				in_option='yes'

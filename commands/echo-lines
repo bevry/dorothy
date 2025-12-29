@@ -160,7 +160,7 @@ function echo_lines() (
 	# =====================================
 	# Arguments
 
-	function help {
+	function __help {
 		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Outputs each input on a separate line.
@@ -182,6 +182,9 @@ function echo_lines() (
 			    The default is a space character as it doesn't risk issues with variance.
 			--distance=<distance>
 			    The minimum amount of filler spacing to provide between columns.
+			--trail=<YES/no>
+			    If \`yes\`: output will contain a trailing newline.
+			    If \`no\`: output will contain a trailing newline.
 			--spread=<YES/no>
 			    If \`yes\`: unused space will be spread evenly between columns.
 			    If \`no\`: unused space will be right-aligned.
@@ -205,12 +208,12 @@ function echo_lines() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_columns=1 option_width='terminal' option_filler=' ' option_distance=2 option_spread='yes' option_shrink='yes' option_indent='' option_prefix='' option_suffix='' option_quote='no' option_args=()
+	local item option_columns=1 option_width='terminal' option_filler=' ' option_distance=2 option_trail='yes' option_spread='yes' option_shrink='yes' option_indent='' option_prefix='' option_suffix='' option_quote='no' option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
+		'--help' | '-h') __help || return $? ;;
 		'--columns='*) option_columns="${item#*=}" ;;
 		'--columns') option_columns=0 ;;
 		'--filler=tab') option_filler=$'\t' ;;
@@ -221,12 +224,14 @@ function echo_lines() (
 		'--prefix='*) option_prefix="${item#*=}" ;;
 		'--indent='*) option_indent="${item#*=}" ;;
 		'--suffix='*) option_suffix="${item#*=}" ;;
+		'--no-trail'* | '--trail'*) __flag --source={item} --target={option_trail} --affirmative ;;
 		'--no-spread'* | '--spread'*) __flag --source={item} --target={option_spread} --affirmative ;;
 		'--no-shrink'* | '--shrink'*) __flag --source={item} --target={option_shrink} --affirmative ;;
 		'--quote=bash') option_quote='bash' ;;
 		'--quote=command') option_quote='command' ;;
 		'--quote=generic') option_quote='generic' ;;
-		'--no-quote'* | '--quote'*) # will also support quoted
+		'--no-quote'* | '--quote'*)
+			# will also support quoted
 			__flag --source={item} --target={option_quote} --affirmative
 			;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
@@ -268,23 +273,23 @@ function echo_lines() (
 			items+=("$option_prefix$item$option_suffix")
 		}
 	fi
-	function floor {
+	function __floor {
 		local n="$1" d="$2"
 		if [[ $d -eq 1 ]]; then
-			__print_lines "$n"
+			__print_lines "$n" || return $?
 			return 0
 		fi
-		__print_lines "$((n / d * d))"
+		__print_lines "$((n / d * d))" || return $?
 	}
-	function ceil {
+	function __ceil {
 		local n="$1" d="$2"
 		if [[ $d -eq 1 ]]; then
-			__print_lines "$n"
+			__print_lines "$n" || return $?
 			return 0
 		fi
-		__print_lines "$((n / d * d + (n % d != 0) * d))"
+		__print_lines "$((n / d * d + (n % d != 0) * d))" || return $?
 	}
-	function get_size {
+	function __get_size {
 		# ' ' = 1
 		# '  ' = 2
 		# '\t' = 8
@@ -298,9 +303,9 @@ function echo_lines() (
 				size="$((size + 1))"
 			fi
 		done
-		__print_lines "$size"
+		__print_lines "$size" || return $?
 	}
-	function get_inverse_proportion {
+	function __get_inverse_proportion {
 		# bash does not support decimals (floating point arithmetic)
 		# 1 = 0
 		# 2 = 50
@@ -309,18 +314,18 @@ function echo_lines() (
 		# 5 = 80
 		# and so on, always approaching 1
 		local share="$1" divisor="$2"
-		echo-math --integer -- "$share * (1 - (1 / $divisor))"
+		echo-math --integer -- "$share * (1 - (1 / $divisor))" || return $?
 	}
-	function output_single_column {
+	function __output_single_column {
 		# prepare the format
-		local format='%s\n'
-		if [[ -n $option_indent ]]; then
-			format="$option_indent$format"
+		local last=''
+		if [[ $option_trail == 'yes' ]]; then
+			last=$'\n'
 		fi
 
 		# output lines to the format
 		if [[ ${#items[@]} -ne 0 ]]; then
-			printf "$format" "${items[@]}"
+			__join --source={items} --left="$option_indent" --last="$last" --between=$'\n' || return $?
 		fi
 	}
 	function on_finish {
@@ -331,17 +336,17 @@ function echo_lines() (
 		elif __is_integer "$option_columns"; then
 			columns="$option_columns"
 		else
-			help "<columns> must be a positive integer: $option_columns"
+			__help --help='<columns> must be a positive integer: ' --variable-value={option_columns} || return $?
 		fi
 		if [[ $columns -eq 1 ]]; then
 			# simple mode, as single column
-			output_single_column
-			return $?
+			__output_single_column || return $?
+			return 0
 		fi
 		if [[ $columns -le 1 && $option_width == 'inputs' ]]; then
 			# simple mode, inputs requires at least 2 columns
-			output_single_column
-			return $?
+			__output_single_column || return $?
+			return 0
 		fi
 
 		# if unable to autodetect, be simple
@@ -357,23 +362,23 @@ function echo_lines() (
 				terminal_columns="${terminal_size[1]}"
 			else
 				# simple mode, as cannot determine terminal size
-				output_single_column
-				return $?
+				__output_single_column || return $?
+				return 0
 			fi
 		fi
 
 		# verify
 		if [[ -z $option_filler ]]; then
-			help "<filler> cannot be empty: $option_filler"
+			__help --help='<filler> cannot be empty: ' --variable-value={option_filler} || return $?
 		fi
 		if [[ $option_distance -le 0 ]] || ! __is_integer "$option_distance"; then
-			help "<distance> must be a positive integer: $option_distance"
+			__help --help='<distance> must be a positive integer: ' --variable-value={option_distance} || return $?
 		fi
 
 		# ensure filler and indent padding is respectful of tabs
 		local -i filler_size indent_size
-		filler_size="$(get_size "$option_filler")"
-		indent_size="$(get_size "$option_indent")"
+		filler_size="$(__get_size "$option_filler")" || return $?
+		indent_size="$(__get_size "$option_indent")" || return $?
 
 		# calculate size of largest line/item
 		local item
@@ -392,19 +397,19 @@ function echo_lines() (
 		# calculate column size
 		local -i generic_column_size indent_column_size content_size
 		generic_column_size="$((largest_item_size + option_distance))"
-		generic_column_size="$(ceil "$generic_column_size" "$filler_size")"
+		generic_column_size="$(__ceil "$generic_column_size" "$filler_size")" || return $?
 		indent_column_size="$((indent_size + largest_item_size + option_distance))"
-		indent_column_size="$(ceil "$indent_column_size" "$filler_size")"
+		indent_column_size="$(__ceil "$indent_column_size" "$filler_size")" || return $?
 		if [[ $columns -eq 0 ]]; then
 			if [[ $terminal_columns -le 0 ]]; then
 				# simple mode, as cannot determine terminal size
-				output_single_column
-				return $?
+				__output_single_column || return $?
+				return 0
 			fi
 			columns="$((1 + (terminal_columns - indent_column_size) / generic_column_size))"
 		fi
 		content_size="$((indent_column_size + generic_column_size * (columns - 1)))"
-		content_size="$(ceil "$content_size" "$filler_size")"
+		content_size="$(__ceil "$content_size" "$filler_size")" || return $?
 
 		# calculate canvas size
 		local -i canvas_size
@@ -415,28 +420,28 @@ function echo_lines() (
 		elif __is_integer "$option_width"; then
 			canvas_size="$option_width"
 		else
-			help "<width> must be one of: inputs, terminal, or an integer: $option_width"
+			__help --help='<width> must be one of: `inputs`, `terminal`, or an integer: ' --variable-value={option_width} || return $?
 		fi
 		if [[ $canvas_size -le 0 ]]; then
 			# simple mode, as could not determine canvas_size
-			output_single_column
-			return $?
+			__output_single_column || return $?
+			return 0
 		fi
 		if [[ $canvas_size -le $indent_column_size ]]; then
 			# simple mode, as columns are too large
-			output_single_column
-			return $?
+			__output_single_column || return $?
+			return 0
 		fi
 		if [[ $canvas_size -le $content_size ]]; then
 			# shrink the amount of columns, as there are too many
 			columns="$((1 + (canvas_size - indent_column_size) / generic_column_size))"
 			if [[ $columns -le 1 ]]; then
 				# simple mode, as single column
-				output_single_column
-				return $?
+				__output_single_column || return $?
+				return 0
 			fi
 			content_size="$((indent_column_size + generic_column_size * (columns - 1)))"
-			content_size="$(ceil "$content_size" "$filler_size")"
+			content_size="$(__ceil "$content_size" "$filler_size")" || return $?
 		fi
 
 		# shrink or expand if we care for that
@@ -445,7 +450,7 @@ function echo_lines() (
 			# if the canvas will be mostly empty, shrink it
 			local temp_size
 			if [[ $option_shrink == 'yes' ]]; then
-				temp_size="$(get_inverse_proportion "$canvas_size" "$columns")"
+				temp_size="$(__get_inverse_proportion "$canvas_size" "$columns")" || return $?
 				if [[ $temp_size -gt $content_size ]]; then
 					canvas_size="$temp_size"
 				fi
@@ -454,15 +459,15 @@ function echo_lines() (
 			# expand the column size to fill the canvas
 			if [[ $option_spread == 'yes' ]]; then
 				unused_size="$((canvas_size - content_size))"
-				unused_size="$(floor "$unused_size" "$filler_size")"
+				unused_size="$(__floor "$unused_size" "$filler_size")" || return $?
 				margin_size="$((unused_size / columns))"
-				margin_size="$(floor "$margin_size" "$filler_size")"
+				margin_size="$(__floor "$margin_size" "$filler_size")" || return $?
 			fi
 		fi
 
 		# render the columns
 		local -i item_column_size padding_size column=0
-		local trailing_newline='no'
+		local had_trailing_newline='no'
 		for item in "${items[@]}"; do
 			item_size="${#item}"
 			if [[ $column -eq 0 ]]; then
@@ -478,19 +483,19 @@ function echo_lines() (
 			column="$((column + 1))"
 			if [[ $column -eq $columns ]]; then
 				# last column
-				trailing_newline='yes'
+				had_trailing_newline='yes'
 				printf '\n'
 				column=0
 			else
 				# first or inside column
-				trailing_newline='no'
+				had_trailing_newline='no'
 				padding_size="$((item_column_size - item_size + margin_size))"
 				for ((i = 0; i < padding_size; i += filler_size)); do
 					printf '%s' "$option_filler"
 				done
 			fi
 		done
-		if [[ $trailing_newline == 'no' ]]; then
+		if [[ $had_trailing_newline == 'no' && $option_trail == 'yes' ]]; then
 			printf '\n'
 		fi
 		return 0
