@@ -1436,7 +1436,7 @@ function __print_help {
 		case "$c" in
 		'-' | '<' | '[' | '|') in_option='yes' ;;
 		'&')
-			if [[ "${s[i + 1]-}" == ' ' ]]; then
+			if [[ ${s[i + 1]-} == ' ' ]]; then
 				in_option='yes'
 				s[i]=''
 				s[i + 1]=''
