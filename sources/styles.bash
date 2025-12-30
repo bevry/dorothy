@@ -5,15 +5,7 @@
 # See <ansi-escape-codes.md>
 
 # disable tracing of this while it loads as it is too large
-# shared by `bash.bash` `styles.bash`
-if [[ $- == *x* ]]; then
-	set +x
-	BASH_X=yes
-fi
-if [[ $- == *v* ]]; then
-	set +v
-	BASH_V=yes
-fi
+__pause_tracing
 
 #######################################
 # CAPABILITY DETECTION ################
@@ -1018,6 +1010,7 @@ function __refresh_style_cache {
 }
 
 function __print_style {
+	__pause_tracing || return $?
 	# process
 	local PRINT_STYLE__item PRINT_STYLE__items=() PRINT_STYLE__trail='yes' PRINT_STYLE__color=''
 	while [[ $# -ne 0 ]]; do
@@ -1227,6 +1220,7 @@ function __print_style {
 		PRINT_STYLE__buffer_right+=$'\n'
 	fi
 	__value_to_target "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" "$PRINT_STYLE__buffer_target" || return $?
+	__restore_tracing || return $?
 }
 
 # beta command, will change
@@ -1243,6 +1237,7 @@ function __print_style {
 # git-helper: `    ...<argument>`
 # echo-trim-zero-length: `null` in multi-line example output, caused need for `:` prefix for actions to avoid being magenta highlighted
 function __print_help {
+	__pause_tracing || return $?
 	__load_styles --save -- intensity bold dim code link foreground_magenta foreground_green foreground_red
 	local s=() prefixes=() suffixes=() c
 	while LC_ALL=C IFS= read -rd '' -n1 c || [[ -n $c ]]; do
@@ -1528,15 +1523,8 @@ function __print_help {
 		__print_line || return $?
 		__print_error "$@" || return $?
 	fi
+	__restore_tracing || return $?
 }
 
 # restore tracing
-# shared by `bash.bash` `styles.bash`
-if [[ -n ${BASH_X-} ]]; then
-	unset BASH_X
-	set -x
-fi
-if [[ -n ${BASH_V-} ]]; then
-	unset BASH_V
-	set -v
-fi
+__restore_tracing

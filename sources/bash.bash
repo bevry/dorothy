@@ -37,15 +37,38 @@
 # w.  `set -i' is no longer valid, as in other shells.
 
 # disable tracing of this while it loads as it is too large
-# shared by `bash.bash` `styles.bash`
-if [[ $- == *x* ]]; then
-	set +x
-	BASH_X=yes
-fi
-if [[ $- == *v* ]]; then
-	set +v
-	BASH_V=yes
-fi
+PAUSE_RESTORE_TRACING_X=''
+PAUSE_RESTORE_TRACING_V=''
+function __pause_tracing {
+	if [[ $- == *x* ]]; then
+		set +x
+		PAUSE_RESTORE_TRACING_X+='1'
+	else
+		PAUSE_RESTORE_TRACING_X+='0'
+	fi
+
+	if [[ $- == *v* ]]; then
+		set +v
+		PAUSE_RESTORE_TRACING_V+='1'
+	else
+		PAUSE_RESTORE_TRACING_V+='0'
+	fi
+}
+function __restore_tracing {
+	if [[ -n $PAUSE_RESTORE_TRACING_X ]]; then
+		if [[ ${PAUSE_RESTORE_TRACING_X: -1} == '1' ]]; then
+			set -x
+		fi
+		PAUSE_RESTORE_TRACING_X="${PAUSE_RESTORE_TRACING_X:0:${#PAUSE_RESTORE_TRACING_X} - 1}"
+	fi
+	if [[ -n $PAUSE_RESTORE_TRACING_V ]]; then
+		if [[ ${PAUSE_RESTORE_TRACING_V: -1} == '1' ]]; then
+			set -v
+		fi
+		PAUSE_RESTORE_TRACING_V="${PAUSE_RESTORE_TRACING_V:0:${#PAUSE_RESTORE_TRACING_V} - 1}"
+	fi
+}
+__pause_tracing
 
 # =============================================================================
 # Essential Toolkit
@@ -4732,6 +4755,7 @@ function __case {
 # If `--require=all`, all the specified lookups must have matched at least once.
 # If no require mode failures, then the noted indexes are sent to the targets.
 function __iterate {
+	__pause_tracing || return $?
 	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='' ITERATE__overlap='no' ITERATE__require='' ITERATE__quiet='no' ITERATE__by='' ITERATE__operation='' ITERATE__case=''
 	# <single-source helper arguments>
 	local ITERATE__item ITERATE__source_variable_name='' ITERATE__targets=() ITERATE__mode=''
@@ -5238,6 +5262,7 @@ function __iterate {
 	fi
 	# send the results
 	__to --source={ITERATE__results} --mode="$ITERATE__mode" --targets={ITERATE__targets} || return $?
+	__restore_tracing || return $?
 }
 function __index {
 	__iterate --index "$@" || return $?
@@ -6338,12 +6363,4 @@ function __disable_debugging {
 }
 
 # restore tracing
-# shared by `bash.bash` `styles.bash`
-if [[ -n ${BASH_X-} ]]; then
-	unset BASH_X
-	set -x
-fi
-if [[ -n ${BASH_V-} ]]; then
-	unset BASH_V
-	set -v
-fi
+__restore_tracing
