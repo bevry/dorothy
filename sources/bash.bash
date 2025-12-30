@@ -5384,12 +5384,12 @@ function __replace {
 		case "$REPLACE__lookup" in
 		# --replace-this=*
 		'--value='* | '--needle='*)
-			REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/"$REPLACE__replacement"}"
+			REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/$REPLACE__replacement}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 			;;
 		# --replace-all-occurrences-of-this=*
 		'--value-all='* | '--needle-all='*)
 			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; do
-				REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/$REPLACE__replacement}"
+				REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/$REPLACE__replacement}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 			done
 			;;
 

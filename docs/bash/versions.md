@@ -173,6 +173,7 @@ From changelog:
 
 From manual discovery:
 
+- Fixes parameter expansion replacement that is double-quoted from outputting the quotes in the replacement, e.g.  `a="abc"; echo "${a//b/"z"}"` now outputs `azc` instead of the prior `a"z"c`.
 - If a crash occurs via `errexit` the exit status will always be `1` instead of the intended exit status. Refer to <errors.md> for guidance.
 - `declare -p ...<var>` fails to correctly find the declaration for `<var>` even though it exists within `declare -p`.
 
