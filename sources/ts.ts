@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+#!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 // this file is alpha quality, conventions will change, feedback welcome
 // for instance, here's some over-engineered alternative:
 // https://gist.github.com/balupton/4138b7ab3bb72caf020c061a872e1631
