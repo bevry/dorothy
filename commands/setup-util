@@ -30,9 +30,6 @@ function setup_util() (
 	# prefer precompiled with autoupdate with extras
 	# extras = man packages, autocompletes, etc
 	local sources=(
-		# prefer scoop, as it will make it available to all distros and works with existing PATH, and is +precompiled, +autoupdate
-		scoop # installs exes to consistent path location
-
 		# +precompiled +compiling +autoupdate +extras
 		brew
 		cask
@@ -109,12 +106,15 @@ function setup_util() (
 		# stack
 		# kiss
 
-		# now prefer winget, as it is +precompiled +autoupdate, however requires environment to be reloaded, and requires .exe handling
-		winget # installs apps to windows, installs exes to windows, paths inherited but custom
-
 		# now prefer these custom methods, -autoupdate
 		installer # local or remote installer
 		'eval'    # run a function or another script
+
+		# prefer scoop before winget and choco, is +exposed +shared +precompiled, +autoupdate, however binaries are exposed to WSL but expect Windows conventions, such as Windows paths, CRLF line endings, etc; this can be worked around for things like `deno` with `eval-wsl`, or with `jq` with `bash.bash:__jq`, however things like `ripgrep` it is too involved, so bump this way later, to prefer internal-WSL sources, then Windows sources
+		scoop # installs exes to consistent path location
+
+		# prefer winget after scoop but before choco, is +precompiled +autoupdate, however requires environment to be reloaded, and requires manual .exe handling
+		winget # installs apps to windows, installs exes to windows, paths inherited but custom
 
 		# now prefer choco, as it is +precompiled (unknown for autoupdate), however it requires custom PATH, path, and .exe handling
 		choco # choco/chocolatey/cinst, interferes with WSL, so should be last preference on windows
@@ -128,6 +128,7 @@ function setup_util() (
 
 	local invocation="$0 $*"
 	function help {
+		# trunk-ignore(shellcheck/SC2034)
 		local source_options=() source_options_rendered=''
 		# prevent endless `setup-util` recursion
 		if __command_exists -- deno; then
@@ -1402,7 +1403,7 @@ function setup_util() (
 		fi
 	}
 	function __check_apt {
-		local packages=()
+		local packages=() repo="$APT_REPO"
 		if [[ ${#APT[@]} -ne 0 ]]; then
 			packages+=("${APT[@]}")
 		elif [[ ${#DEB[@]} -ne 0 ]]; then
@@ -1414,6 +1415,9 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 		if __command_missing -- apt-get; then
+			return 200 # ECUSTOM 200 Not applicable for this package system
+		fi
+		if [[ $APT_REPO == 'ppa:'* ]] && ! is-system --ubuntu; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 
@@ -1440,11 +1444,7 @@ function setup_util() (
 			# determine APT_ID
 			if [[ -z $id ]]; then
 				if [[ ${#packages[@]} -gt 1 ]]; then
-					__print_help "$@" <<-EOF || return $?
-						$(__print_style --error="If APT has multiple packages, then APT_ID must be specified.")
-
-						APT: ${packages[*]}
-					EOF
+					__print_error --help='If APT has multiple packages, then APT_ID must be specified.' --newline --variable={invocation}
 					return 1
 				else
 					id="${packages[*]}" # needed for the rm commands
@@ -1526,7 +1526,15 @@ function setup_util() (
 			fs-remove --quiet --elevate --no-confirm --optional -- /etc/apt/sources.list.d/*"$id"* || :
 
 			# add the repo with appropriate technique for the repo type
-			if [[ $repo == 'deb '* ]]; then
+			# https://documentation.ubuntu.com/launchpad/user/explanation/launchpad-api/launchpad-web-service/
+			if [[ $repo == 'ppa:'* ]]; then
+				# `ppa` sources are only for ubuntu, and ubuntu has `apt-add-repository`
+				# refer to <https://gist.github.com/balupton/1ab5e001b56bd0cd480aa63d9e8ae3fa> for research and manual technique
+				# ubuntu check already occurred earlier
+				if [[ $option_action != 'uninstall' ]]; then
+					eval-helper --elevate -- apt-add-repository -y --enable-source "$repo"
+				fi
+			elif [[ $repo == 'deb '* ]]; then
 				# adjust key modifier
 				repo="${repo/"{KEY}"/$keyring}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 
@@ -1534,10 +1542,11 @@ function setup_util() (
 				repo="${repo/"{ARCH}"/$(
 					dpkg --print-architecture
 				)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+				# `dpkg --print-architecture` outputs `amd64`, `$HOSTTYPE` is `x86_64`, `get-arch` is `x64`
 
 				# adjust release modifier
 				repo="${repo/"{RELEASE}"/$(
-					lsb_release --codename --short
+					get-system --codename
 				)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 
 				# use a non-deprecated technique that supports the deb modifiers
@@ -1545,18 +1554,11 @@ function setup_util() (
 					echo-write -- "/etc/apt/sources.list.d/$id.list" <<<"$repo"
 				fi
 			else
-				# @todo consider automatic rewrites to the above
-				# ppa:transmissionbt/ppa =>
-				# deb https://ppa.launchpadcontent.net/transmissionbt/ppa/ubuntu/ jammy main
-
-				# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
-				# however the alternative for `ppa:` and other syntax is too complicated
-				if [[ $option_action != 'uninstall' ]]; then
-					eval-helper --elevate -- apt-add-repository -y --enable-source "$repo"
-				fi
+				# unknown
+				__print_error --help='`APT_REPO` was set but was unrecognised:`' --newline --variable={invocation}
+				return 1
 			fi
-
-			# to debug:
+			# to debug failures:
 			# sudo apt-add-repository --list
 		fi
 
