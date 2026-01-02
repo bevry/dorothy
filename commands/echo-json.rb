@@ -40,28 +40,38 @@ def main(*args)
     raise HelpError.new("An unrecognised <action> was provided: #{args[0]}")
   end
   action = args.shift
-  # remove -- if present, note it is optional, because not all actions use arguments
-  if args.length && args[0] == '--'
-    args.shift
+  # parse [...options] ...<input>
+  properties = []
+  inputs = []
+  while args.length > 0
+    arg = args.shift
+    if arg == '--'
+      inputs.concat(args)
+      break
+    elsif arg.start_with?('--property=')
+      properties << arg.sub(/^--property=/, '')
+    else
+      inputs << arg
+    end
   end
   # <make> ...[<key> <value>]
   if action == 'make'
     # validate we have a <value> for every <key>
-    if args.length % 2 != 0
+    if inputs.length % 2 != 0
       raise '<make> requires an even number of <key> <value> pairs.'
     end
     # build the object
     output = {}
-    while args.length > 0
-      key = args.shift
-      value = args.shift
+    while inputs.length > 0
+      key = inputs.shift
+      value = inputs.shift
       output[key] = real(value)
     end
     return write_stdout_stringify(output)
   end
   # <action> ...<input>
-  while args.length > 0
-    input = args.shift
+  while inputs.length > 0
+    input = inputs.shift
     case action
     when 'stringify'
       write_stdout_stringify(input)
@@ -80,12 +90,33 @@ def main(*args)
       write_stdout_stringify(parsed[:value])
     when 'decode'
       parsed = parse_json(input)
-      output = if parsed[:value].is_a?(Hash) || parsed[:value].is_a?(Array) || parsed[:value].nil?
-                 JSON.generate(parsed[:value])
-               else
-                 parsed[:value].to_s
-               end
-      write_stdout_plain(output)
+      if properties.length == 0
+        output = if parsed[:value].is_a?(Hash) || parsed[:value].is_a?(Array) || parsed[:value].nil?
+                   JSON.generate(parsed[:value])
+                 else
+                   parsed[:value].to_s
+                 end
+        write_stdout_plain(output)
+      else
+        outputs = []
+        properties.each do |property|
+          keys = property.split('.')
+          diver = parsed[:value]
+          keys.each do |key|
+            if diver.is_a?(Hash) && diver.key?(key)
+              diver = diver[key]
+            else
+              raise "Property \"#{property}\" does not exist in the provided input."
+            end
+          end
+          if diver.is_a?(Hash) || diver.is_a?(Array) || diver.nil?
+            outputs << JSON.generate(diver)
+          else
+            outputs << diver.to_s
+          end
+        end
+        write_stdout_plain(outputs.join("\n"))
+      end
     when 'parse'
       parsed = parse_json(input)
       if parsed[:parseError] != nil

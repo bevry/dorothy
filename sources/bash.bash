@@ -139,9 +139,34 @@ function __is_wsl {
 	[[ $via_uname == *-WSL2* ]] || return $?
 }
 
+function __is_windows {
+	local via_uname
+	via_uname="$(uname -r)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	[[ $via_uname =~ MINGW64_NT|-WSL ]] || return $?
+}
+
 function __is_brew {
 	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return $?
 }
+
+# handle JQ built for windows inserting carriage returns on windows
+# `printf '{"key": "value"}' | jq.exe -r '.key' | cat -v` results in `value^M`
+# gh, even with `--jq <filter>` does not inject such carriage returns (this could be however gh built for linux, instead of built for windows)
+if __is_windows; then
+	function __strip_carriage_returns_if_windows {
+		sed 's/\r//g'
+	}
+	function __jq {
+		jq "$@" | __strip_carriage_returns_if_windows
+	}
+else
+	function __strip_carriage_returns_if_windows {
+		cat
+	}
+	function __jq {
+		jq "$@"
+	}
+fi
 
 # see `commands/command-missing` for details
 # returns `0` if ANY command is missing

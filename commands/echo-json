@@ -46,12 +46,29 @@ function echo_json_test() (
 			encode="${encodes[index]}"
 			decode="${decodes[index]}"
 			eval-tester --stdout="$string" --ignore-tty --ignore-stderr -- \
-				echo-json --stringify --tool="$tool" -- "$input"
+				echo-json --tool="$tool" stringify -- "$input"
 			eval-tester --stdout="$encode" -- \
-				echo-json --encode --tool="$tool" -- "$input"
+				echo-json --tool="$tool" encode -- "$input"
 			eval-tester --stdout="$decode" -- \
-				echo-json --decode --tool="$tool" -- "$input"
+				echo-json --tool="$tool" decode -- "$input"
 		done
+	done
+
+	input='{"a": { "b": 1.1 }, "c": 2 }'
+	for tool in "${all_tools[@]}"; do
+		eval-tester --stdout=1.1 -- \
+			echo-json --tool="$tool" decode --property=a.b -- "$input"
+		eval-tester --stdout=2 -- \
+			echo-json --tool="$tool" decode --property=c -- "$input"
+		eval-tester --stdout=$'2\n1.1' -- \
+			echo-json --tool="$tool" decode --property=c,a.b -- "$input"
+		eval-tester --stdout=$'2\n1.1' -- \
+			echo-json --tool="$tool" decode --properties=c,a.b -- "$input"
+		eval-tester --stdout=$'2\n1.1' -- \
+			echo-json --tool="$tool" decode --property=c --property=a.b -- "$input"
+		# eval-tester --status=1 --ignore-stderr -- \
+		# 	echo-json --tool="$tool" decode --property=z -- "$input"
+		# @todo jq will output null, instead of failing, solve that at a later point
 	done
 
 	return 0
@@ -69,28 +86,32 @@ function echo_json() (
 			For each input, stringify, encode or decode JSON.
 
 			USAGE:
-			\`echo-json <action> [--] ...<input>\`
-			\`echo-lines ...<input> | echo-json <action>\`
+			\`echo-json [...options] <action> [...arguments]\`
+			\`echo-lines ...<input> | echo-json [...options] <action> [...arguments]\`
 
 			OPTIONS:
-			make | --make | --action=make -- ...[<key> <value>]
+			--tool=<tool:$(__join --source={all_tools} --between='|' -- '?')>
+			    The tool to use. Use \`?\` to prompt. Default is the first available tool.
+
+			ACTIONS:
+			& make -- ...[<key> <value>]
 			    Render a minified JSON object out of the \`...[<key> <value>]\` arguments.
 			    Rejects STDIN.
 			    * \`...[<key> <value>]\` becomes \`{"key":"value",...}\`
 
-			stream | --stream | --action=stream
+			& stream
 			    Parse STDIN <input> as individual JSON-encoded values, and output as a minified JSON-encoded array.
 			    Rejects arguments. Enforces <tool:jq>.
 			    * \`'{"a": 1}'\` then \`'{"b": 2}'\` becomes \`{"a":1,"b":2}\`
 
-			stringify | --stringify | --action=stringify
+			& stringify
 			    Render <input> as a JSON-encoded JSON-string.
 			    * \`true\` becomes \`"true"\`
 			    * \`hello\` becomes \`"hello"\`
 			    * \`"hello"\` becomes \`"\\"hello\\""\`
 			    * \`{"key":  "value"}\` becomes \`"{\\"key\\":  \\"value\\"}"\`
 
-			encode | --encode | --action=encode
+			& encode
 			    Render <input> as a minified JSON-encoded value.
 			    <input> that were already JSON-encoded, will remain JSON-encoded.
 			    * \`true\` remains \`true\` (was JSON-encoded, so is retained)
@@ -98,30 +119,28 @@ function echo_json() (
 			    * \`"hello"\` remains \`"hello"\` (was JSON-encoded, so is retained)
 			    * \`{"key":  "value"}\` becomes \`{"key":"value"}\` (was JSON-coded, so is retained however minified)
 
-			decode | --decode | --action=decode
+			& decode ...[--property=<property>]
 			    Render <input> as a minified JSON-decoded value.
 			    <input> that were already not JSON-encoded, will remain JSON-decoded.
 			    * \`true\` remains \`true\`
 			    * \`hello\` remains \`hello\` (was not JSON-encoded, so is retained)
 			    * \`"hello"\` becomes \`hello\`
 			    * \`{"key":  "value"}\` becomes \`{"key":"value"}\` (minified)
+				If <property> is specified, instead of outputting all decoded <input>, output the value of each <property> within the <input> on their own lines.
 
-			json | --json | --action=json
+			& json
 			    Parse JSON-encoded <input> and render as minified JSON.
-			pretty | --pretty | --action=pretty
+			& pretty
 			    Parse JSON-encoded <input> and render prettily in a format native to the <tool>.
-			table | --table | --action=table
+			& table
 			    Parse JSON-encoded <input> and render as a table.
 			    Enforces <tool:nu>.
-			csv | --csv | --action=csv
+			& csv
 			    Parse JSON-encoded <input> and render as CSV.
 			    Enforces <tool:nu>.
-			tsv | --tsv | --action=tsv
+			& tsv
 			    Parse JSON-encoded <input> and render as TSV.
 			    Enforces <tool:nu>.
-
-			--tool=<tool:$(__join --source={all_tools} --between='|' -- '?')>
-			    The tool to use. Use \`?\` to prompt. Default is the first available tool.
 
 			$(__stdinargs__help_options --)
 		EOF
@@ -129,7 +148,7 @@ function echo_json() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_action='' option_tool=''
+	local item option_action='' option_tool='' option_properties=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -137,6 +156,7 @@ function echo_json() (
 		--help | -h) __help ;;
 		--action=* | --operation=*) option_action="${item#*=}" ;;
 		--tool=*) option_tool="${item#*=}" ;;
+		'--property='* | '--properties='*) __split --target={option_properties} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		--)
 			option_args+=("$item" "$@")
@@ -159,6 +179,13 @@ function echo_json() (
 			fi
 			;;
 		esac
+	done
+
+	# adjust properties
+	local option_argument_properties=() option_colon_properties=()
+	for item in "${option_properties[@]}"; do
+		option_argument_properties+=("--property=$item")
+		option_colon_properties+=(":--property=$item")
 	done
 
 	# ensure action
@@ -211,7 +238,7 @@ function echo_json() (
 			function on_argument { inputs+=("$1"); }
 			function on_finish {
 				if [[ $script == 'jq' ]]; then
-					jq -n --args 'reduce (range(0; ($ARGS.positional | length); 2)) as $i ({}; . + { ($ARGS.	positional[$i]): $ARGS.positional[$i+1] })' -- "${inputs[@]}" || return $?
+					__jq -n --args 'reduce (range(0; ($ARGS.positional | length); 2)) as $i ({}; . + { ($ARGS.	positional[$i]): $ARGS.positional[$i+1] })' -- "${inputs[@]}" || return $?
 				else
 					"$script" "$option_action" -- "${inputs[@]}"
 				fi
@@ -220,48 +247,57 @@ function echo_json() (
 		stream)
 			# Parse STDIN <input> as individual JSON-encoded values, and output as a JSON-encoded array.
 			# supporting streaming json is difficult, as it actually supports multiline JSON strings, so requires a proper parser that can handle it
-			function on_stdin { jq -s '.' || return $?; }
+			function on_stdin { __jq -s '.' || return $?; }
 			function on_argument { __help '<stdin> is not supported for <stream> with <jq>' || return $?; }
 			;;
-		stringify) function on_whole {
-			__print_string "$1" | jq -RsM '.' || return $?
-		} ;;
-		encode) function on_whole {
-			local stdout status
-			__do --redirect-status={status} --redirect-stdout={stdout} --discard-stderr -- \
-				jq -rM '@json' < <(__print_string "$1") # use process substitution to not create a pipe subshell
-			if [[ $status == 0 ]]; then
-				__print_lines "$stdout"
-			else
-				__print_string "$1" | jq -RsM '.'
-			fi
-		} ;;
-		decode) function on_whole {
-			local stdout status
-			__do --redirect-status={status} --redirect-stdout={stdout} --discard-stderr -- \
-				jq -crM '.' < <(__print_string "$1") # use process substitution to not create a pipe subshell
-			if [[ $status == 0 ]]; then
-				__print_string "$stdout" # it was valid JSON
-			else
-				__print_string "$1" # it's was just a string
-			fi
-		} ;;
-		json) function on_whole {
-			__print_string "$1" | jq -r '.' || return $?
-		} ;;
-		pretty) function on_whole {
-			__print_string "$1" | jq '.' || return $?
-		} ;;
+		stringify)
+			function on_whole { __print_string "$1" | __jq -RsM '.' || return $?; }
+			;;
+		encode)
+			function on_whole {
+				local stdout status
+				__do --redirect-status={status} --redirect-stdout={stdout} --discard-stderr -- \
+					__jq -rM '@json' < <(__print_string "$1") # use process substitution to not create a pipe subshell
+				if [[ $status == 0 ]]; then
+					__print_lines "$stdout" || return $?
+				else
+					__print_string "$1" | __jq -RsM '.' || return $?
+				fi
+			}
+			;;
+		decode)
+			function on_whole {
+				local stdout status query=''
+				if [[ ${#option_properties[@]} -ne 0 ]]; then
+					__join --source={option_properties} --left='.' --between=',' --target={query}
+				else
+					query='.'
+				fi
+				__do --redirect-status={status} --redirect-stdout={stdout} --discard-stderr -- \
+					__jq -crM "$query" < <(__print_string "$1") # use process substitution to not create a pipe subshell
+				if [[ $status == 0 ]]; then
+					__print_string "$stdout" || return $? # it was valid JSON
+				else
+					__print_string "$1" || return $? # it's was just a string
+				fi
+			}
+			;;
+		json)
+			function on_whole { __print_string "$1" | __jq -r '.' || return $?; }
+			;;
+		pretty)
+			function on_whole { __print_string "$1" | __jq '.' || return $?; }
+			;;
 		esac
 	elif [[ $option_tool == 'nu' ]]; then
 		# nushell doesn't support doubledash and args that start with a dash, so prefix each arg with a colon
 		local inputs=()
 		function on_whole { inputs+=(":$1"); }
-		function on_finish { "$script" "$option_action" "${inputs[@]}" || return $?; }
+		function on_finish { "$script" "$option_action" "${option_colon_properties[@]}" "${inputs[@]}" || return $?; }
 	else
 		local inputs=()
 		function on_whole { inputs+=("$1"); }
-		function on_finish { "$script" "$option_action" -- "${inputs[@]}" || return $?; }
+		function on_finish { "$script" "$option_action" "${option_argument_properties[@]}" -- "${inputs[@]}" || return $?; }
 	fi
 
 	stdinargs "${option_args[@]}"

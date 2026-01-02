@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+#!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 // deno-lint-ignore-file no-explicit-any
 
 // parse stdin
