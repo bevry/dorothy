@@ -59,8 +59,6 @@ Dorothy is a dotfile ecosystem featuring:
 | ∞ [Fedora on Raspberry Pi][FedoraPi]: [Workstation][FedoraW], [Server][FedoraS]                                | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
 | 🐉 [Kali][Kali]                                                                                                | 👔 Intel/AMD (x84_64)    | 🤖 CI   |
 | 🐉 [Kali on ARM][KaliARM]                                                                                      | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
-| 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)    | 🤖 CI   |
-| 𝚖 [Manjaro on ARM][ManjaroARM]                                                                                 | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
 | ![OpenEulerLogo][OpenEulerLogo] [OpenEuler][OpenEuler]                                                         | 👔 Intel/AMD (x84_64)    | 🤖 CI   |
 | ![OpenEulerLogo][OpenEulerLogo] [OpenEuler on Raspberry Pi][OpenEulerPi]                                       | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
 | ❍ [OpenMandriva][Mandriva]: [Rock][MandrivaRock], [Rolling][MandrivaRolling]                                   | 👔 Intel/AMD (x86_64)    | 🤖 CI   |
@@ -93,8 +91,6 @@ Dorothy is a dotfile ecosystem featuring:
 [Mandriva]: https://www.openmandriva.org
 [MandrivaRock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
 [MandrivaRolling]: https://wiki.openmandriva.org/en/distribution/releases/rome
-[Manjaro]: https://manjaro.org/download/
-[ManjaroARM]: https://manjaro.org/products/download/arm
 [OpenEuler]: https://www.openeuler.org/en/download/
 [OpenEulerLogo]: docs/assets/openeuler.svg
 [OpenEulerPi]: https://www.openeuler.org/en/wiki/install/raspberry-pi/
@@ -115,13 +111,17 @@ Dorothy is a dotfile ecosystem featuring:
 <!--
 Previously supported, but support broke.
 
-| ⭕️ [Ubuntu Server][UbuntuFive]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
-| ⛰ [Alpine][Alpine]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⛰ [Alpine][Alpine]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
+| ⛰ [Alpine][Alpine]                                                                                            | 🍏 Apple Silicon (ARM64)           | 🤖 CI   |
+| ⛰ [Alpine][Alpine]                                                                                            | 👔 Intel/AMD (x84_64)              | 🤖 CI   |
+| ⭕️ [Ubuntu Server][UbuntuFive]                                                                                 | 5️⃣ StarFive’s VisionFive (RISC-V)  | 🤖 CI   |
+| 𝚖 [Manjaro on ARM][ManjaroARM]                                                                                 | 🍓 Raspberry Pi (ARM64)            | 🤖 CI   |
+| 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)              | 🤖 CI   |
 
-[UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 [Alpine]: https://www.alpinelinux.org/downloads/
+[Manjaro]: https://manjaro.org/download/
+[ManjaroARM]: https://manjaro.org/products/download/arm
 [Rocky]: https://rockylinux.org
+[UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 -->
 
 Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
