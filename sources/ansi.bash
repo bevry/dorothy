@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# disable tracing of this while it loads as it is too large
+__pause_tracing
+
 # -------------------------------------
 # ANSI Toolkit
 
@@ -1037,3 +1040,6 @@ function __should_wrap {
 	fi
 	return 1 # don't wrap
 }
+
+# restore tracing
+__restore_tracing

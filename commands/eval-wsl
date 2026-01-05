@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+function eval_wsl_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- eval-wsl --help
+)
+
+function eval_wsl() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function __help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Evaluate the given command and its arguments, and if the command is for a Windows compiled binary within WSL, then convert arguments that are UNIX paths to Windows paths.
+
+			USAGE:
+			\`eval-wsl <...command>\`
+
+			EXPLANATION:
+			Fixes incompatibilities where the command expects paths to be of Windows format, such as Deno binaries that were built for Windows not understanding UNIX paths, such as the case of Deno installed by Scoop.
+
+			\`\`\`
+			> which deno
+			/home/balupton/.local/bin/deno
+
+			> ls -la .local/bin/deno
+			lrwxrwxrwx 1 balupton balupton 39 Dec 31 04:23 .local/bin/deno -> /mnt/c/Users/balup/scoop/shims/deno.exe
+
+			> echo-regexp.ts --help
+			error: Import 'file://wsl.localhost/home/balupton/.local/share/dorothy/commands/echo-regexp.ts' failed.
+				0: The user name or password is incorrect. (os error 1326)
+			\`\`\`
+
+			Which when \`eval-wsl\` is used within the shebang like so:
+			\`\`\`
+			#!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+			\`\`\`
+			It resolves the issue.
+
+			\`\`\`
+			> echo-regexp.ts --help
+			error: Uncaught (in promise) SyntaxError: Invalid flags supplied to RegExp constructor '-help'
+			const regexp = new RegExp(find, Array.from(flags).join(''))
+							^
+				at new RegExp (<anonymous>)
+				at file://wsl.localhost/Debian/home/balupton/.local/share/dorothy/commands/echo-regexp.ts:66:16
+			\`\`\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	if [[ $# -eq 0 || $* == '--help' || $* == '-h' ]]; then
+		__help || return $?
+	fi
+
+	# =================================
+	# Action
+
+	function __is_wsl_exe {
+		__is_wsl || return $?
+		local bin="$1" path extension
+		path="$(type -P "$bin")" || return $?
+		extension="$(fs-path --resolve --extension -- "$path")" || return $?
+		[[ $extension == 'exe' ]] || return $?
+		return 0
+	}
+
+	if __is_wsl_exe "$1"; then
+		local args=() item
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			if [[ $item == /* && -e $item ]]; then
+				# -aw is probably more correct, however -am works fine, and would be more compatible with other tooling
+				item="$(wslpath -am "$item")"
+			fi
+			args+=("$item")
+		done
+		"${args[@]}" # eval
+	else
+		"$@" # eval
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		eval_wsl_test
+	else
+		eval_wsl "$@"
+	fi
+fi

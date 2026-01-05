@@ -154,8 +154,8 @@ function __is_fs__error {
 	# Custom <error>
 	*)
 		# pluralise error message
-		error="${error//"<path>"/"$label"}"
-		error="${error//"was"/"$was_were"}"
+		error="${error//"<path>"/$label}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+		error="${error//"was"/$was_were}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 		if [[ $error != *: ]]; then
 			error="$error:"
 		fi

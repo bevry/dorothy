@@ -1,82 +1,106 @@
 #!/usr/bin/env bash
 
-# @todo
-# redo this command to only reset what was necessary, so that this works:
-# echo-style --blink '(' --green+bold='Y' '/n)')
-
-# @todo
-# support `quiet` and `verbose` styles that default to the value of `get-terminal-quiet-support`
-
-# @todo
-# consolidate into a `__print_style` function that lives in `sources/styles.bash` and eliminate all external command calls, or cache them, to improve performance
+function echo_style_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-style --help
+)
 
 function echo_style() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/styles.bash" # load style names
 
+	function __get_names_of_all_styles {
+		# this will have duplicates from monocolor/multicolor/end combinations
+		declare -p | echo-regexp -gon 'STYLE__[A-Z_]*([^ =]+)' '$1' | sort -u
+	}
 	function __help {
-		cat <<-EOF >&2
+		# trunk-ignore(shellcheck/SC2034)
+		local styles=()
+		__split --target={styles} --no-zero-length --invoke -- __get_names_of_all_styles
+		__print_help "$@" <<-EOF || return $?
 			USAGE:
-
-			echo-style [...options] [--!style] [--!style+!style] value [--!style=value] [--!style+!style=value]
+			\`echo-style [...options] [--<style>] [--<style>+<style>] <value> [--<style>=<value>] [--<style>+<style>=<value>]\`
 
 			OPTIONS:
-			--no-trail
-			    Disables outputting a trailing newline.
+			--[no-]trail
+			    If disabled, des not output a trailing newline.
 
-			--color | --colors | --colors=yes
-			    Enables styles.
-
-			--no-color | --no-colors | --colors=no
-			    Disables styles.
-
-			EXAMPLES:
-
-			echo-style --bold --blue 'this is bold and blue' 'so is this' --yellow ' but this is bold and yellow'
-			echo-style --bg-red+hi-white='this is very bad' --green+bold=' while this is good'
-
-			STYLES:
-
-			Colors: black, red, green, yellow, blue, magenta, cyan, white
-			Modifiers: background_*, intense_*, background_intense_*
-			Modifier aliases: bg-*, fg-*
-			Modes: reset, bold, dim, underline, blink, invert
-			Targets: nocolor, color, stdout, stderr, tty: these must have <value>
-			Special: h1, e1, g1, header, error
-
-			QUIRKS:
-
-			Hyphens (-) in style names are converted to underscores (_).
-
-			If [env NO_COLOR=yes] or [env COLOR=no], [--no-color[s]/--color[s]=no] then styles will be omitted.
-
-			Use [--multicolor=<value>] to indicate the value should only be outputted if colors are.
-
-			Use [--monocolor=<value>] to indicate the value should only be outputted if colors are not.
-
-			value="\$(echo-style --bold='first' --monocolor=' ' --color+dim=' → ' --bold='second')"; printf '%s\n' "\$value"
-			# outputs with colors: first → second
-
-			value="\$(env NO_COLOR=yes echo-style --bold='first' --monocolor=' ' --color+dim=' → ' --bold='second')"; printf '%s\n' "\$value"
-			# outputs without colors: first second
+			--[no-]color | --[no-]colors
+			    If enabled, enforces multicolor styles.
+			    If disabled, enforces monocolor styles.
 
 			EXPLANATION:
+			* \`--<style>=<value>\` will apply the <style> only to that <value>.
+			* \`--<style> <value> <value>\` will apply the <style> to all subsequent <value>s, until \`--reset\` is provided.
+			* \`--blue+bold=<value> <value>\` will make the first <value> blue and bold, with no style to the second <value>.
+			* \`--blue --bold <value> <value>\` will make the <value>s blue and bold.
+			* Dashes \`-\` in <style>s are converted to underscores \`_\`, e.g. \`foreground-red\` is becomes the underlying \`foreground_red\`.
+			* Some styles have a combination of \`MONOCOLOR\`, \`MULTICOLOR\`, and \`END\` variants.
 
-			[--style=value] will apply the style only to that value.
-			[--style value value] will apply the style to all subsequent values, until [--reset] is provided.
-			[--blue --bold value] will make value be blue and bold.
+			MONOCOLOR VS MULTICOLOR:
+			If \`env COLOR=no\` or \`--no-color[s]/--color[s]=no\` then monocolor styles are applied.
+			Use \`--multicolor=<value>\` to indicate the value should only be outputted if colors are.
+			Use \`--monocolor=<value>\` to indicate the value should only be outputted if colors are not.
 
-			TIPS:
+			SHORTHAND STYLES:
+			* \`<color>\` is shorthand for \`foreground_<color>\`
+			* \`intense_<color>\` is shorthand for \`foreground_intense_<color>\`
+			* \`/<style>\` is shorthand for \`slash_<style>\`
+			* \`<style>/\` is shorthand for \`<style>_slash\`
 
-			[-n] at the start to avoid printing the trailing newline
-			[--h1=value] for segment headers
-			[--e1=value] for segment failure footers
-			[--g1=value] for segment success footers
-			[--error=value] for unexpected errors
-			[--header] for general headers
-			[--dim] for quoting
+			TYPICAL STYLES:
+			* Colors: $(__join --style=code --between=', ' -- black red green yellow blue magenta cyan white)
+			* Intensities: $(__join --style=code --between=', ' -- bold dim)
+			* Decorations: $(__join --style=code --between=', ' -- italic underline double_underline invert conceal strike framed circled overlined)
+			* Special: $(__join --style=code --between=', ' -- reset newline tab space ellipsis)
+			* Terminal: $(__join --style=code --between=', ' -- bell backspace home terminal_title terminal_resize terminal_clipboard clear_line delete_line clear_screen)
 
-			Remember [\$'\n'] is available to you to place newlines between arguments, e.g.
-			echo-style value \$'\n' value
+			SPECIAL STYLES:
+			* \`status\` adjusts style based on success exit status zero, or failure exit status non-zero
+			* \`multicolor\` only outputs the value if colors are enabled
+			* \`monocolor\` only outputs the value if colors are disabled
+			* \`stdout\`, \`stderr\`, \`tty\`, \`debug\`, \`null\` set the target
+			* \`value\` outputs the <value> with value styling
+			* \`variable\` treats the <value> as a variable name, outputting the variable name and its value
+			* \`variable-value\` treats the <value> as a variable name, outputting only its value
+			* \`help\` process the <value> with \`__print_help\`
+			* \`error\` outputs the <value> with error styling, however you should use \`echo-error\` or \`__print_error\` for errors instead
+			* \`key\` styles the <value> as a keyboard key
+			* \`element\`, \`/element\`, \`element/\` styles the <value> as an opening element, a closing element, and a self-closing element respectively
+			* \`h1\` outputs a level 1 segment header
+			* \`n1\` outputs a level 1 segment footer
+			* \`e1\` outputs a level 1 error-styled segment footer
+			* \`g1\` outputs a level 1 success-styled segment footer
+
+			EXAMPLES:
+			\`\`\`
+			echo-style --blue+bold='this is blue and bold' ' and this is normal'
+			\`\`\`
+			Outputs: $(echo-style --blue+bold='this is blue and bold' ' and this is normal')
+
+			\`\`\`
+			echo-style --blue --bold 'this is blue and bold' ' and so is this'
+			\`\`\`
+			Outputs: $(echo-style --blue --bold 'this is blue and bold' ' and so is this')
+
+			\`\`\`
+			echo-style --bold --blue 'this is bold and blue' ' and so is this' --yellow ' this is yellow and bold' ' and so is this' --reset ' and' ' these' ' are' ' normal'
+			\`\`\`
+			Outputs: $(echo-style --bold --blue 'this is bold and blue' ' and so is this' --yellow ' this is yellow and bold' ' and so is this' --reset ' and' ' these' ' are' ' normal')
+
+			\`\`\`
+			echo-style --bold='first' --monocolor=' ' --multicolor+dim=' → ' --bold='second'
+			\`\`\`
+			Outputs: $(echo-style --bold='first' --monocolor=' ' --multicolor+dim=' → ' --bold='second')
+
+			\`\`\`
+			env COLOR=no echo-style --bold='first' --monocolor=' ' --multicolor+dim=' → ' --bold='second'
+			\`\`\`
+			Outputs: $(env COLOR=no echo-style --bold='first' --monocolor=' ' --multicolor+dim=' → ' --bold='second')
+
+			ALL STYLES:
+			$(__join --source={styles} --style=code --join=', ').
+			Styles are defined in \`$DOROTHY/sources/styles.bash\`
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -90,5 +114,9 @@ function echo_style() (
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	echo_style "$@"
+	if [[ $* == '--test' ]]; then
+		echo_style_test
+	else
+		echo_style "$@"
+	fi
 fi

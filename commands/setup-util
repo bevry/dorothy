@@ -7,10 +7,13 @@
 # https://cashapp.github.io/hermit/
 # https://github.com/innobead/huber#installing-huber
 
+function setup_util_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-util --help
+)
+
 function setup_util() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$DOROTHY/sources/styles.bash" # __load_styles
-	source "$(type -P eval-helper)"
 
 	# when running via fresh source environment, ensure that environment gets configured
 	if [[ -z ${DOROTHY_ENVIRONMENT-} ]]; then
@@ -27,9 +30,6 @@ function setup_util() (
 	# prefer precompiled with autoupdate with extras
 	# extras = man packages, autocompletes, etc
 	local sources=(
-		# prefer scoop, as it will make it available to all distros and works with existing PATH, and is +precompiled, +autoupdate
-		scoop # installs exes to consistent path location
-
 		# +precompiled +compiling +autoupdate +extras
 		brew
 		cask
@@ -106,12 +106,15 @@ function setup_util() (
 		# stack
 		# kiss
 
-		# now prefer winget, as it is +precompiled +autoupdate, however requires environment to be reloaded, and requires .exe handling
-		winget # installs apps to windows, installs exes to windows, paths inherited but custom
-
 		# now prefer these custom methods, -autoupdate
 		installer # local or remote installer
 		'eval'    # run a function or another script
+
+		# prefer scoop before winget and choco, is +exposed +shared +precompiled, +autoupdate, however binaries are exposed to WSL but expect Windows conventions, such as Windows paths, CRLF line endings, etc; this can be worked around for things like `deno` with `eval-wsl`, or with `jq` with `bash.bash:__jq`, however things like `ripgrep` it is too involved, so bump this way later, to prefer internal-WSL sources, then Windows sources
+		scoop # installs exes to consistent path location
+
+		# prefer winget after scoop but before choco, is +precompiled +autoupdate, however requires environment to be reloaded, and requires manual .exe handling
+		winget # installs apps to windows, installs exes to windows, paths inherited but custom
 
 		# now prefer choco, as it is +precompiled (unknown for autoupdate), however it requires custom PATH, path, and .exe handling
 		choco # choco/chocolatey/cinst, interferes with WSL, so should be last preference on windows
@@ -125,13 +128,15 @@ function setup_util() (
 
 	local invocation="$0 $*"
 	function help {
-		# get content of this file between <options-for-sources> and </options-for-sources>
-		local source_options
+		# trunk-ignore(shellcheck/SC2034)
+		local source_options=() source_options_rendered=''
 		# prevent endless `setup-util` recursion
 		if __command_exists -- deno; then
-			source_options="$(echo-regexp -smgf '.+# <options-for-sources>\s+|\s+# </options-for-sources>.+|\t|local ' '' <"${BASH_SOURCE[0]}")"
+			__split --target={source_options} --no-zero-length --invoke -- \
+				echo-regexp -smgf '.+# [<]options-for-sources[>]\s+|\s+# [<]/options-for-sources[>].+|\t|local ' '' <"${BASH_SOURCE[0]}"
+			__join --source={source_options} --target={source_options_rendered} --left='* ' --style=code --between=$'\n'
 		else
-			source_options='`deno` is required to display the source options, install with `setup-util-deno`'
+			source_options_rendered="$(__print_error --help='`deno` is required to display the source options; install it with: `setup-util-deno`' 2>&1)" || return $?
 		fi
 
 		# add invocation for debugging if error
@@ -220,20 +225,20 @@ function setup_util() (
 
 			SOURCES:
 			The following sources are supported, in this default order of preference:
+			$(__join --source={sources} --left='* ' --style=code --between=$'\n')
 
-			$(echo-lines --indent='* ' --prefix='`' --suffix='`' -- "${sources[@]}")
-
-			Their options are as follows:
+			SOURCE OPTIONS:
 			\`=()\` indicates the option can be specified multiple times, e.g. [APT=one APT=two].
 			\`=''\` indicates the option can be specified only once.
+			$source_options_rendered
 
-			$(echo-lines --indent='* ' --prefix='`' --suffix='`' <<<"$source_options")
-
-			EXAMPLE:
-			\`setup-util --name='bottom' --cli='btm' --order='brew cargo aur' \\
+			EXAMPLES:
+			\`\`\`
+			setup-util --name='bottom' --cli='btm' --order='brew cargo aur' \\
 			    AUR='bottom-bin' \\
 			    BREW='bottom' \\
-			    CARGO='bottom'\`
+			    CARGO='bottom'
+			\`\`\`
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -460,7 +465,7 @@ function setup_util() (
 		if [[ -n $option_app ]]; then
 			option_name="$option_app"
 		elif [[ ${#option_clis[@]} -ne 0 ]]; then
-			__join --source={option_clis} --target={option_name} --delimiter='|'
+			__join --source={option_clis} --between='|' --target={option_name}
 		elif [[ -n $option_font ]]; then
 			option_name="$option_font"
 		elif [[ -n $option_source ]]; then
@@ -1398,7 +1403,7 @@ function setup_util() (
 		fi
 	}
 	function __check_apt {
-		local packages=()
+		local packages=() repo="$APT_REPO"
 		if [[ ${#APT[@]} -ne 0 ]]; then
 			packages+=("${APT[@]}")
 		elif [[ ${#DEB[@]} -ne 0 ]]; then
@@ -1410,6 +1415,9 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 		if __command_missing -- apt-get; then
+			return 200 # ECUSTOM 200 Not applicable for this package system
+		fi
+		if [[ $APT_REPO == 'ppa:'* ]] && ! is-system --ubuntu; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 
@@ -1436,11 +1444,7 @@ function setup_util() (
 			# determine APT_ID
 			if [[ -z $id ]]; then
 				if [[ ${#packages[@]} -gt 1 ]]; then
-					cat <<-EOF >&2
-						$(__print_style --error="If APT has multiple packages, then APT_ID must be specified.")
-
-						APT: ${packages[*]}
-					EOF
+					__print_error --help='If APT has multiple packages, then APT_ID must be specified.' --newline --variable={invocation}
 					return 1
 				else
 					id="${packages[*]}" # needed for the rm commands
@@ -1522,37 +1526,39 @@ function setup_util() (
 			fs-remove --quiet --elevate --no-confirm --optional -- /etc/apt/sources.list.d/*"$id"* || :
 
 			# add the repo with appropriate technique for the repo type
-			if [[ $repo == 'deb '* ]]; then
+			# https://documentation.ubuntu.com/launchpad/user/explanation/launchpad-api/launchpad-web-service/
+			if [[ $repo == 'ppa:'* ]]; then
+				# `ppa` sources are only for ubuntu, and ubuntu has `apt-add-repository`
+				# refer to <https://gist.github.com/balupton/1ab5e001b56bd0cd480aa63d9e8ae3fa> for research and manual technique
+				# ubuntu check already occurred earlier
+				if [[ $option_action != 'uninstall' ]]; then
+					eval-helper --elevate -- apt-add-repository -y --enable-source "$repo"
+				fi
+			elif [[ $repo == 'deb '* ]]; then
 				# adjust key modifier
-				repo="${repo/"{KEY}"/"$keyring"}"
+				repo="${repo/"{KEY}"/$keyring}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 
 				# adjust arch modifier
-				repo="${repo/"{ARCH}"/"$(
+				repo="${repo/"{ARCH}"/$(
 					dpkg --print-architecture
-				)"}"
+				)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+				# `dpkg --print-architecture` outputs `amd64`, `$HOSTTYPE` is `x86_64`, `get-arch` is `x64`
 
 				# adjust release modifier
-				repo="${repo/"{RELEASE}"/"$(
-					lsb_release --codename --short
-				)"}"
+				repo="${repo/"{RELEASE}"/$(
+					get-system --codename
+				)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 
 				# use a non-deprecated technique that supports the deb modifiers
 				if [[ $option_action != 'uninstall' ]]; then
 					echo-write -- "/etc/apt/sources.list.d/$id.list" <<<"$repo"
 				fi
 			else
-				# @todo consider automatic rewrites to the above
-				# ppa:transmissionbt/ppa =>
-				# deb https://ppa.launchpadcontent.net/transmissionbt/ppa/ubuntu/ jammy main
-
-				# [apt-add-repository --help] notes [sudo apt-add-repository -y "$repo"] is deprecated
-				# however the alternative for `ppa:` and other syntax is too complicated
-				if [[ $option_action != 'uninstall' ]]; then
-					eval-helper --elevate -- apt-add-repository -y --enable-source "$repo"
-				fi
+				# unknown
+				__print_error --help='`APT_REPO` was set but was unrecognised:`' --newline --variable={invocation}
+				return 1
 			fi
-
-			# to debug:
+			# to debug failures:
 			# sudo apt-add-repository --list
 		fi
 
@@ -1929,7 +1935,7 @@ function setup_util() (
 	# MacOS
 
 	# brew / Homebrew / macOS
-	# @todo change this to `any` instead of `all`, byy adding support into `brew-installed`, so that it works correctly with multiple formulas, which so far doesn't occur fortunately
+	# @todo change this to `any` instead of `all`, by adding support into `brew-installed`, so that it works correctly with multiple formulas, which so far doesn't occur fortunately
 	function __are_all_of_these_brew_packages_installed {
 		local packages=("$@")
 		brew-installed --formula -- "${packages[@]}" &>/dev/null || return $?
@@ -2028,7 +2034,7 @@ function setup_util() (
 	# brew / Homebrew Casks / macOS
 	# some packages are available as both brew, and cask
 	# ... so provide both independently as they are alternatives
-	# @todo change this to `any` instead of `all`, byy adding support into `brew-installed`, so that it works correctly with multiple formulas, which so far doesn't occur fortunately
+	# @todo change this to `any` instead of `all`, by adding support into `brew-installed`, so that it works correctly with multiple formulas, which so far doesn't occur fortunately
 	function __are_all_of_these_cask_packages_installed {
 		local packages=("$@")
 		brew-installed --cask -- "${packages[@]}" &>/dev/null || return $?
@@ -3254,7 +3260,7 @@ function setup_util() (
 		# -e flag for jq fails if not found, but still outputs
 		# suppress all output as https://github.com/jqlang/jq/issues/1225
 		if __command_exists -- jq; then
-			scoop export | __do --discard-output -- jq -er --arg Name "$package" '.apps[] | select(.Name == $Name)'
+			scoop export | __do --discard-output -- __jq -er --arg Name "$package" '.apps[] | select(.Name == $Name)'
 			return $?
 		else
 			scoop list "$package" | grep --quiet --fixed-strings --regexp='----'
@@ -3875,7 +3881,6 @@ function setup_util() (
 		fi
 
 		# don't always do log_pending, as that will cause all the 200 not applicable ones to be dumped
-		# eval_helper is compatible with setup-util-warp, however it becomes incredibly slow to cycle through all the sources
 		local -i run_status
 		if [[ $use_alt_screen_buffer == 'yes' ]]; then
 			__value_to_tty "$alternative_screen_buffer"
@@ -3938,7 +3943,7 @@ function setup_util() (
 		if [[ $option_quiet == 'yes' ]]; then
 			__do --redirect-stdout=TTY -- fc-cache -f
 		else
-			__do --redirect-stdout=TTY -- eval_helper --quiet --wrap \
+			__do --redirect-stdout=TTY -- eval-helper --quiet --wrap \
 				--pending="$(__print_style --bold='Refreshing font cache...')" \
 				--failure="$(__print_style --error='Failed to refresh font cache.')" -- \
 				fc-cache -f -v
@@ -3969,5 +3974,9 @@ function setup_util() (
 
 # fire if invoked standalone
 if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
-	setup_util "$@"
+	if [[ $* == '--test' ]]; then
+		setup_util_test
+	else
+		setup_util "$@"
+	fi
 fi
