@@ -26,7 +26,7 @@ For example, in the below code example, tab indentation is used for code alignme
 
 # help
 function help() {
-	cat <<-EOF >&2
+	__print_help "$@" <<-EOF || return $?
 		ABOUT:
 		Prompt the user for an input value in a clean and robust way.
 

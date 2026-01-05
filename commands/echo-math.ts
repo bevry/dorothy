@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+#!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 const precision = Number(Deno.args[0])
 const formula = Deno.args[1]
 const result = Number(eval(formula))

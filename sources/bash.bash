@@ -37,18 +37,56 @@
 # w.  `set -i' is no longer valid, as in other shells.
 
 # disable tracing of this while it loads as it is too large
-# shared by `bash.bash` `styles.bash`
-if [[ $- == *x* ]]; then
-	set +x
-	BASH_X=yes
-fi
-if [[ $- == *v* ]]; then
-	set +v
-	BASH_V=yes
-fi
+PAUSE_RESTORE_TRACING_X=''
+PAUSE_RESTORE_TRACING_V=''
+function __pause_tracing {
+	if [[ $- == *x* ]]; then
+		set +x
+		PAUSE_RESTORE_TRACING_X+='1'
+	else
+		PAUSE_RESTORE_TRACING_X+='0'
+	fi
+
+	if [[ $- == *v* ]]; then
+		set +v
+		PAUSE_RESTORE_TRACING_V+='1'
+	else
+		PAUSE_RESTORE_TRACING_V+='0'
+	fi
+}
+function __restore_tracing {
+	if [[ -n $PAUSE_RESTORE_TRACING_X ]]; then
+		if [[ ${PAUSE_RESTORE_TRACING_X: -1} == '1' ]]; then
+			set -x
+		fi
+		PAUSE_RESTORE_TRACING_X="${PAUSE_RESTORE_TRACING_X:0:${#PAUSE_RESTORE_TRACING_X} - 1}"
+	fi
+	if [[ -n $PAUSE_RESTORE_TRACING_V ]]; then
+		if [[ ${PAUSE_RESTORE_TRACING_V: -1} == '1' ]]; then
+			set -v
+		fi
+		PAUSE_RESTORE_TRACING_V="${PAUSE_RESTORE_TRACING_V:0:${#PAUSE_RESTORE_TRACING_V} - 1}"
+	fi
+}
+__pause_tracing
 
 # =============================================================================
 # Essential Toolkit
+
+# Used to load functions from dependency source files
+function __invoke_function_from_source {
+	local file="$1"
+	shift
+	if [[ -n ${DOROTHY-} ]]; then
+		# function romeo { function romeo { echo replaced; }; romeo; }; romeo; romeo
+		# $'replaced\nreplaced'
+		source "$DOROTHY/sources/${file}" || return $?
+		"${FUNCNAME[1]}" "$@" || return $?
+	else
+		printf '%s\n' "${FUNCNAME[1]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/${file}> to be sourced." >&2 || :
+		return 6 # ENXIO 6 Device not configured
+	fi
+}
 
 # -------------------------------------
 # Environment Toolkit & Print Toolkit Dependencies
@@ -101,9 +139,34 @@ function __is_wsl {
 	[[ $via_uname == *-WSL2* ]] || return $?
 }
 
+function __is_windows {
+	local via_uname
+	via_uname="$(uname -r)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	[[ $via_uname =~ MINGW64_NT|-WSL ]] || return $?
+}
+
 function __is_brew {
 	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return $?
 }
+
+# handle JQ built for windows inserting carriage returns on windows
+# `printf '{"key": "value"}' | jq.exe -r '.key' | cat -v` results in `value^M`
+# gh, even with `--jq <filter>` does not inject such carriage returns (this could be however gh built for linux, instead of built for windows)
+if __is_windows; then
+	function __strip_carriage_returns_if_windows {
+		sed 's/\r//g'
+	}
+	function __jq {
+		jq "$@" | __strip_carriage_returns_if_windows
+	}
+else
+	function __strip_carriage_returns_if_windows {
+		cat
+	}
+	function __jq {
+		jq "$@"
+	}
+fi
 
 # see `commands/command-missing` for details
 # returns `0` if ANY command is missing
@@ -294,47 +357,19 @@ function __print_value_lines_or_line {
 	fi
 }
 
-function __print_join {
-	local parts=() delimiter=$'\n'
-	while [[ $# -ne 0 ]]; do
-		case "$1" in
-		'--delimiter='*) delimiter="${1#*=}" ;;
-		'--')
-			shift
-			break
-			;;
-		*) break ;;
-		esac
-		shift
-	done
-	while [[ $# -gt 1 ]]; do
-		parts+=("$1$delimiter")
-		shift
-	done
-	printf '%s' "${parts[@]}" "$@"
-}
-
 export DOROTHY_DEBUG
 DOROTHY_DEBUG="${DOROTHY_DEBUG:-"no"}"
+function __get_terminal_color_support {
+	__invoke_function_from_source 'styles.bash' "$@" || return $?
+}
+function __load_styles {
+	__invoke_function_from_source 'styles.bash' "$@" || return $?
+}
 function __print_style {
-	if [[ -n ${DOROTHY-} ]]; then
-		# function romeo { function romeo { echo replaced; }; romeo; }; romeo; romeo
-		# $'replaced\nreplaced'
-		source "$DOROTHY/sources/styles.bash" || return $?
-		__print_style "$@" || return $?
-	else
-		printf '%s\n' "${FUNCNAME[0]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/styles.bash> to be sourced." >&2 || :
-		return 6 # ENXIO 6 Device not configured
-	fi
+	__invoke_function_from_source 'styles.bash' "$@" || return $?
 }
 function __print_help {
-	if [[ -n ${DOROTHY-} ]]; then
-		source "$DOROTHY/sources/styles.bash" || return $?
-		__print_help "$@" || return $?
-	else
-		printf '%s\n' "${FUNCNAME[0]} requires Dorothy <https://dorothy.bevry.me> to be installed, or for <https://dorothy.bevry.me/sources/styles.bash> to be sourced." >&2 || :
-		return 6 # ENXIO 6 Device not configured
-	fi
+	__invoke_function_from_source 'styles.bash' "$@" || return $?
 }
 function __print_error {
 	__print_style --stderr --error='ERROR:' ' ' "$@" || return $?
@@ -3223,26 +3258,28 @@ function eval_capture {
 		shift
 		case "$item" in
 		'--help')
-			cat <<-EOF >/dev/stderr
+			__print_help <<-EOF
 				ABOUT:
 				Capture or ignore exit status, without disabling errexit, and without a subshell.
+				\`\`\`
 				Copyright 2023+ Benjamin Lupton <b@lupton.cc> (https://balupton.com)
 				Written for Dorothy (https://github.com/bevry/dorothy)
 				Licensed under the Reciprocal Public License 1.5 (http://spdx.org/licenses/RPL-1.5.html)
+				\`\`\`
 
 				USAGE:
-				local status=0 stdout='' stderr='' output=''
-				eval_capture [--status-var=status] [--stdout-var=stdout] [--stderr-var=stderr] [--output-var=output] [--stdout-target=/dev/stdout] [--stderr-target=/dev/stderr] [--output-target=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...
+				\`local status=0 stdout='' stderr='' output=''\`
+				\`eval_capture [--status-var=status] [--stdout-var=stdout] [--stderr-var=stderr] [--output-var=output] [--stdout-target=/dev/stdout] [--stderr-target=/dev/stderr] [--output-target=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...\`
 
 				QUIRKS:
-				Using --stdout-var will set --stdout-target=/dev/null
-				Using --stderr-var will set --stderr-target=/dev/null
-				Using --output-var will set --stdout-target=/dev/null --stderr-target=/dev/null
+				Using \`--stdout-var\` will set \`--stdout-target=/dev/null\`
+				Using \`--stderr-var\` will set \`--stderr-target=/dev/null\`
+				Using \`--output-var\` will set \`--stdout-target=/dev/null --stderr-target=/dev/null\`
 
 				WARNING:
-				If [eval_capture] triggers something that still does function invocation via [if], [&&], [||], or [!], then errexit will still be disabled for that invocation.
+				If \`eval_capture\` triggers something that still does function invocation via \`if\`, \`&&\`, \`||\`, or \`!\`, then errexit will still be disabled for that invocation.
 				This is a limitation of bash, with no workaround (at least at the time of bash v5.2).
-				Refer to https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md for guidance.
+				Refer to <https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md> for guidance.
 			EOF
 			return 22 # EINVAL 22 Invalid argument
 			;;
@@ -3672,6 +3709,25 @@ function __sudo_mkdirp {
 # 		esac
 # 		shift
 # 	done
+
+function __ansi_trim {
+	__invoke_function_from_source 'ansi.bash' "$@" || return $?
+}
+function __split_shapeshifting {
+	__invoke_function_from_source 'ansi.bash' "$@" || return $?
+}
+function __ansi_keep_right {
+	__invoke_function_from_source 'ansi.bash' "$@" || return $?
+}
+function __is_shapeshifter {
+	__invoke_function_from_source 'ansi.bash' "$@" || return $?
+}
+function __read_key {
+	__invoke_function_from_source 'ansi.bash' "$@" || return $?
+}
+function __should_wrap {
+	__invoke_function_from_source 'ansi.bash' "$@" || return $?
+}
 
 # once this supports a target variable, then make __split use it
 function __read_whole {
@@ -4724,6 +4780,7 @@ function __case {
 # If `--require=all`, all the specified lookups must have matched at least once.
 # If no require mode failures, then the noted indexes are sent to the targets.
 function __iterate {
+	__pause_tracing || return $?
 	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='' ITERATE__overlap='no' ITERATE__require='' ITERATE__quiet='no' ITERATE__by='' ITERATE__operation='' ITERATE__case=''
 	# <single-source helper arguments>
 	local ITERATE__item ITERATE__source_variable_name='' ITERATE__targets=() ITERATE__mode=''
@@ -5230,6 +5287,7 @@ function __iterate {
 	fi
 	# send the results
 	__to --source={ITERATE__results} --mode="$ITERATE__mode" --targets={ITERATE__targets} || return $?
+	__restore_tracing || return $?
 }
 function __index {
 	__iterate --index "$@" || return $?
@@ -5351,12 +5409,12 @@ function __replace {
 		case "$REPLACE__lookup" in
 		# --replace-this=*
 		'--value='* | '--needle='*)
-			REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/"$REPLACE__replacement"}"
+			REPLACE__value_wip="${REPLACE__value_wip/"$REPLACE__lookup_query"/$REPLACE__replacement}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 			;;
 		# --replace-all-occurrences-of-this=*
 		'--value-all='* | '--needle-all='*)
 			while [[ $REPLACE__value_wip == *"$REPLACE__lookup_query"* ]]; do
-				REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/$REPLACE__replacement}"
+				REPLACE__value_wip="${REPLACE__value_wip//"$REPLACE__lookup_query"/$REPLACE__replacement}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
 			done
 			;;
 
@@ -5395,6 +5453,7 @@ function __replace {
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 
+		# Bash/POSIX Character Classes: <https://www.gnu.org/software/gawk/manual/html_node/Bracket-Expressions.html>
 		'--leading-whitespace')
 			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[![:space:]]*}"}"
 			;;
@@ -5906,7 +5965,7 @@ function __split {
 
 # join by the delimiter
 function __join {
-	local JOIN__delimiter=$'\n'
+	local JOIN__between='' JOIN__first='' JOIN__last='' JOIN__before='' JOIN__after='' JOIN__style='' JOIN__wrap_style='' JOIN__between_style=''
 	# <multi-source helper arguments>
 	local JOIN__item JOIN__sources_variable_names=() JOIN__targets=() JOIN__mode=''
 	while [[ $# -ne 0 ]]; do
@@ -5940,7 +5999,14 @@ function __join {
 			break
 			;;
 		# </multi-source helper arguments>
-		'--delimiter='*) JOIN__delimiter="${JOIN__item#*=}" ;;
+		'--first='* ) JOIN__first="${JOIN__item#*=}" ;;
+		'--last='* ) JOIN__last="${JOIN__item#*=}" ;;
+		'--between='* | '--join='* | '--delimiter='*) JOIN__between="${JOIN__item#*=}" ;;
+		'--before='* | '--prefix='* | '--left='*) JOIN__before="${JOIN__item#*=}" ;;
+		'--after='* | '--suffix='* | '--right='*) JOIN__after="${JOIN__item#*=}" ;;
+		'--style='*) JOIN__style="${JOIN__item#*=}" ;;
+		'--wrap-style='*) JOIN__wrap_style="${JOIN__item#*=}" ;;
+		'--between-style='*) JOIN__between_style="${JOIN__item#*=}" ;;
 		'--'*) __unrecognised_flag "$JOIN__item" || return $? ;;
 		*) __unrecognised_argument "$JOIN__item" || return $? ;;
 		esac
@@ -5948,22 +6014,34 @@ function __join {
 	__affirm_length_defined "${#JOIN__sources_variable_names[@]}" 'source variable reference' || return $?
 	__affirm_value_is_valid_write_mode "$JOIN__mode" || return $?
 	# process
-	local JOIN__source_variable_name JOIN__values=() JOIN__result=''
-	local -i JOIN__size JOIN__last JOIN__index
+	local JOIN__source_variable_name JOIN__values=() JOIN__result="$JOIN__first"
+	if [[ -n $JOIN__style ]]; then
+		__load_styles --save -- "$JOIN__style" || return $?
+		eval 'JOIN__before="$JOIN__before${STYLE__'"$JOIN__style"'-}"'
+		eval 'JOIN__after="${STYLE__END__'"$JOIN__style"'-}$JOIN__after"'
+	fi
+	if [[ -n $JOIN__wrap_style ]]; then
+		__load_styles --save -- "$JOIN__wrap_style" || return $?
+		eval 'JOIN__before="${STYLE__'"$JOIN__wrap_style"'-}$JOIN__before"'
+		eval 'JOIN__after="$JOIN__after${STYLE__END__'"$JOIN__wrap_style"'-}"'
+	fi
+	if [[ -n $JOIN__between_style ]]; then
+		__load_styles --save -- "$JOIN__between_style" || return $?
+		eval 'JOIN__between="${STYLE__'"$JOIN__between_style"'-}$JOIN__between${STYLE__END__'"$JOIN__between_style"'-}"'
+	fi
 	for JOIN__source_variable_name in "${JOIN__sources_variable_names[@]}"; do
 		__affirm_variable_is_array "$JOIN__source_variable_name" 'source variable reference' || return $?
-		eval "JOIN__values=(\"\${${JOIN__source_variable_name}[@]}\")" || return $?
-		JOIN__size=${#JOIN__values[@]}
-		if [[ $JOIN__size -eq 0 ]]; then
-			# no values in this source, so skip to the next source, otherwise JOIN__last will be -1
-			continue
-		fi
-		JOIN__last=$((JOIN__size - 1))
-		for ((JOIN__index = 0; JOIN__index < JOIN__last; ++JOIN__index)); do
-			JOIN__result+="${JOIN__values[JOIN__index]}$JOIN__delimiter"
-		done
-		JOIN__result+="${JOIN__values[JOIN__index]}"
+		eval 'JOIN__values+=("${'"$JOIN__source_variable_name"'[@]}")' || return $?
 	done
+	set -- "${JOIN__values[@]}" || return $?
+	while [[ $# -gt 1 ]]; do
+		JOIN__result+="$JOIN__before$1$JOIN__after$JOIN__between"
+		shift
+	done
+	if [[ $# -eq 1 ]]; then
+		JOIN__result+="$JOIN__before$1$JOIN__after"
+	fi
+	JOIN__result+="$JOIN__last"
 	__to --source={JOIN__result} --mode="$JOIN__mode" --targets={JOIN__targets} || return $?
 }
 
@@ -6310,12 +6388,4 @@ function __disable_debugging {
 }
 
 # restore tracing
-# shared by `bash.bash` `styles.bash`
-if [[ -n ${BASH_X-} ]]; then
-	unset BASH_X
-	set -x
-fi
-if [[ -n ${BASH_V-} ]]; then
-	unset BASH_V
-	set -v
-fi
+__restore_tracing

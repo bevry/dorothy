@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+#!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 
 import {
 	AbstractHelpError,
@@ -63,32 +63,46 @@ function parse(input: string): {
 }
 
 // Execute
+// <action> [...options] ...<input>
 async function main(...args: string[]) {
 	// parse <action>
 	if (args.length === 0) {
 		throw new HelpError(`No <action> was provided.`)
 	}
 	const action: Action = asAction(args.shift())
-	// remove -- if present, note it is optional, because not all actions use arguments
-	if (args.length && args[0] === '--') args.shift()
+	// parse [...options] ...<input>
+	const properties = [],
+		inputs = []
+	while (args.length !== 0) {
+		const input = asString(args.shift())
+		if (input == '--') {
+			inputs.push(...args)
+			break
+		} else if (input.startsWith('--property=')) {
+			const property = input.replace(/^--property=/, '')
+			properties.push(property)
+		} else {
+			inputs.push(input)
+		}
+	}
 	// <make> ...[<key> <value>]
 	if (action === 'make') {
 		// validate we have a <value> for every <key>
-		if (args.length % 2 !== 0) {
+		if (inputs.length % 2 !== 0) {
 			throw new Error('<make> requires an even number of <key> <value> pairs.')
 		}
 		// build the object
 		const output: Record<string, unknown> = {}
-		while (args.length) {
-			const key = asString(args.shift())
-			const value = asString(args.shift())
+		while (inputs.length) {
+			const key = asString(inputs.shift())
+			const value = asString(inputs.shift())
 			output[key] = real(value)
 		}
 		return writeStdoutStringify(output)
 	}
-	// <action> ...<input>
-	while (args.length) {
-		const input = asString(args.shift())
+	// ...<input>
+	while (inputs.length) {
+		const input = asString(inputs.shift())
 		switch (action) {
 			case 'stringify': {
 				return writeStdoutStringify(input)
@@ -116,8 +130,30 @@ async function main(...args: string[]) {
 			}
 			case 'decode': {
 				const { value } = parse(input)
-				const output =
-					typeof value === 'object' ? JSON.stringify(value) : String(value)
+				let output = ''
+				if (properties.length === 0) {
+					output =
+						typeof value === 'object' ? JSON.stringify(value) : String(value)
+				} else {
+					const outputs = []
+					for (const property of properties) {
+						const keys = property.split('.')
+						let diver: any = value
+						for (const key of keys) {
+							if (diver && typeof diver === 'object' && key in diver) {
+								diver = diver[key]
+							} else {
+								throw new Error(
+									`Property "${property}" does not exist in the provided input.`,
+								)
+							}
+						}
+						outputs.push(
+							typeof diver === 'object' ? JSON.stringify(diver) : String(diver),
+						)
+					}
+					output = outputs.join('\n')
+				}
 				return writeStdoutPlain(output)
 				break
 			}

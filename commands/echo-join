@@ -2,20 +2,20 @@
 
 function echo_join_test() (
 	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-join --help
 
-	eval-tester --stdout='a b' -- echo-join -- a b
+	eval-tester --ignore-stderr --status=22 -- echo-join ', ' -- a b
 
-	eval-tester --stdout='a, b' -- echo-join ', ' -- a b
+	eval-tester --stdout='ab' -- echo-join -- a b
+	eval-tester --stdout='a, b' -- echo-join --between=', ' -- a b
+	eval-tester --stdout=$'a\n\tb' -- echo-join --between=$'\n\t' -- a b
 
-	eval-tester --stdout=$'a\n\tb' -- echo-join --delimiter=$'\n\t' -- a b
+	__print_lines a b | eval-tester --stdout='ab' -- echo-join --stdin
+	__print_lines a b | eval-tester --stdout='a, b' -- echo-join --between=', ' --stdin
+	__print_lines a b | eval-tester --stdout=$'a\n\tb' -- echo-join --between=$'\n\t' --stdin
 
-	eval-tester --stdout=$'\e[1ma\e[22m \e[1mb\e[22m' -- echo-join --join=' ' --style=bold -- a b
-
-	__print_lines a b | eval-tester --stdout='a b' -- echo-join --stdin
-
-	__print_lines a b | eval-tester --stdout='a, b' -- echo-join ', ' --stdin
-
-	__print_lines a b | eval-tester --stdout=$'a\n\tb' -- echo-join --join=$'\n\t' --stdin
+	eval-tester --stdout=$'{\e[31m<\e[1ma\e[22m>\e[39m\e[2m|\e[22m\e[31m<\e[1mb\e[22m>\e[39m\e[2m|\e[22m\e[31m<\e[1mc\e[22m>\e[39m}' -- \
+		echo-join --first='{' --last='}' --left='<' --right='>' --between='|' --style=bold --wrap-style=foreground_red --between-style=dim -- a b c
 
 	return 0
 )
@@ -25,39 +25,56 @@ function echo_join() (
 	# =====================================
 	# Arguments
 
-	# trunk-ignore(shellcheck/SC2120)
 	function help {
 		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Concatenate the inputs with the <join> between them.
 
 			USAGE:
-			\`echo-join <join> [...options] [--] ...<input>\`
-			\`echo-lines ...<input> | echo-join <join> [...options]\`
+			\`echo-join [...options] -- ...<input>\`
+			\`echo-lines ...<input> | echo-join [...options]\`
 
 			OPTIONS:
-			<delimiter> | --join=<delimiter> | --delimiter=<delimiter>
+			--first=<text>
+			    Text to put before the first <input>.
+			--last=<text>
+			    Text to put after the last <input>.
+			--between=<text> | --join=<text> | --delimiter=<text>
 			    The delimiter to put between each <input>. If not provided, a space is used.
+			--before=<text> | --prefix=<text> | --left=<text>
+			    Text to put before each <input>.
+			--after=<text> | --suffix=<text> | --right=<text>
+			    Text to put after each <input>.
+			--style=<style>
+			    The style to apply to each <input>.
+			--wrap-style=<style>
+			    The style to apply to the entire output.
+			--between-style=<style>
+			    The style to apply to the <between> text.
 
 			$(__stdinargs__help_options --)
 
 			QUIRKS:
-			There will be no newline at the end, in case you your input or <join> contains newlines, we do not wish to mangle your intention.
+			Use \`--last=\$'\\n'\` to add a trailing newline.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local rand="$RANDOM"
-	local item option_delimiter="$rand" option_style='' option_args=()
+	local item option_first='' option_last='' option_between='' option_before='' option_after='' option_style='' option_wrap_style='' option_between_style=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		# trunk-ignore(shellcheck/SC2119)
 		'--help' | '-h') help ;;
-		'--delimiter='* | '--join='*) option_delimiter="${item#*=}" ;;
+		'--first='*) option_first="${item#*=}" ;;
+		'--last='*) option_last="${item#*=}" ;;
+		'--between='* | '--join='* | '--delimiter='*) option_between="${item#*=}" ;;
+		'--before='* | '--prefix='* | '--left='*) option_before="${item#*=}" ;;
+		'--after='* | '--suffix='* | '--right='*) option_after="${item#*=}" ;;
 		'--style='*) option_style="${item#*=}" ;;
+		'--wrap-style='*) option_wrap_style="${item#*=}" ;;
+		'--between-style='*) option_between_style="${item#*=}" ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
 			option_args+=("$item" "$@")
@@ -65,40 +82,19 @@ function echo_join() (
 			break
 			;;
 		'--'*) option_args+=("$item") ;;
-		*)
-			if [[ $option_delimiter == "$rand" ]]; then
-				option_delimiter="$item"
-			else
-				option_args+=("$item")
-			fi
-			;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
-
-	# default to empty space
-	if [[ $option_delimiter == "$rand" ]]; then
-		option_delimiter=' '
-	fi
 
 	# =================================
 	# Action
 
-	local items=()
-	if [[ -n $option_style ]]; then
-		function __on_piece {
-			local item="$1" render
-			if [[ -n $item ]]; then
-				render="$(__print_style "--$option_style=$item")" || return $?
-				items+=("$render")
-			fi
-		}
-	else
-		function __on_piece {
-			items+=("$1")
-		}
-	fi
+	local pieces=()
+	function __on_piece {
+		pieces+=("$1")
+	}
 	function __on_finish {
-		__join --source={items} --delimiter="$option_delimiter" || return $?
+		__join --source={pieces} --first="$option_first" --last="$option_last" --between="$option_between" --before="$option_before" --after="$option_after" --style="$option_style" --wrap-style="$option_wrap_style" --between-style="$option_between_style"
 	}
 
 	stdinargs "${option_args[@]}"

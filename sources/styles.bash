@@ -5,15 +5,7 @@
 # See <ansi-escape-codes.md>
 
 # disable tracing of this while it loads as it is too large
-# shared by `bash.bash` `styles.bash`
-if [[ $- == *x* ]]; then
-	set +x
-	BASH_X=yes
-fi
-if [[ $- == *v* ]]; then
-	set +v
-	BASH_V=yes
-fi
+__pause_tracing
 
 #######################################
 # CAPABILITY DETECTION ################
@@ -1018,6 +1010,7 @@ function __refresh_style_cache {
 }
 
 function __print_style {
+	__pause_tracing || return $?
 	# process
 	local PRINT_STYLE__item PRINT_STYLE__items=() PRINT_STYLE__trail='yes' PRINT_STYLE__color=''
 	while [[ $# -ne 0 ]]; do
@@ -1170,7 +1163,6 @@ function __print_style {
 						continue
 						;;
 					help | man)
-						# trunk-ignore(shellcheck/SC2119)
 						PRINT_STYLE__item_content="$(__print_help <<<"$PRINT_STYLE__item_content" 2>&1)" || return $?
 						continue
 						;;
@@ -1228,96 +1220,311 @@ function __print_style {
 		PRINT_STYLE__buffer_right+=$'\n'
 	fi
 	__value_to_target "${PRINT_STYLE__buffer_left}${PRINT_STYLE__buffer_disable}${PRINT_STYLE__buffer_right}" "$PRINT_STYLE__buffer_target" || return $?
+	__restore_tracing || return $?
 }
 
 # beta command, will change
-# trunk-ignore(shellcheck/SC2120)
+# Challenging commands:
+# dorothy: `--utils=<utility1,utility2,...>` and actions
+# confirm, secret: comment lines that starts with a lowercase character
+# echo-clear-lines: `<<<` and `<(`
+# echo-count-lines: `[0]$`
+# echo-escape-regexp: `[a-z]`
+# echo-if-command-exists: `[1]$`
+# echo-revolving-door: `>&`
+# echo-split: trailing ` in example
+# echo-verbose: need for `\`\`\``
+# git-helper: `    ...<argument>`
+# echo-trim-zero-length: `null` in multi-line example output, caused need for `:` prefix for actions to avoid being magenta highlighted
 function __print_help {
-	__load_styles --save -- intensity bold dim code foreground_magenta foreground_green foreground_red
-	cat |
-		echo-regexp -gm '^([\t ]*)[-*] ' '$1• ' |
-		echo-regexp -gm '^([A-Z ]+\:)$' "${STYLE__foreground_magenta}\$1${STYLE__END__foreground_magenta}" |
-		echo-regexp -gm '^( *)([[<\-a-z][{}()[\]<>\-._:$'\''=*`?/| a-zA-Z0-9]+)$' "${STYLE__foreground_magenta}\$1\$2${STYLE__END__foreground_magenta}" |
-		echo-regexp -g '\[0\](\s)' "${STYLE__foreground_green}[0]${STYLE__END__foreground_green}\$1" |
-		echo-regexp -g '\[([\d]+)\](\s)' "${STYLE__foreground_red}[\$1]${STYLE__END__foreground_red}\$2" |
-		{
-			local buffer='' character='' buffer='' last='' in_tick='no' in_color='no' intensities=()
-			local -i c l
-			while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
-				if [[ $character == $'\e' ]]; then
-					in_color='yes'
-					buffer+="${character}"
-				elif [[ $in_color == 'yes' ]]; then
-					if [[ $character == 'm' ]]; then
-						in_color='no'
-					fi
-					buffer+="${character}"
-				elif [[ $character == '`' ]]; then
-					if [[ $in_tick == 'no' ]]; then
-						in_tick='yes'
-						buffer+="${STYLE__code}"
-					else
-						in_tick='no'
-						buffer+="${STYLE__END__code}"
-					fi
-				elif [[ $character == '<' ]]; then
-					intensities+=("$STYLE__bold")
-					buffer+="${STYLE__bold}${character}"
-				elif [[ $character == '[' ]]; then
-					intensities+=("$STYLE__dim")
-					buffer+="${STYLE__dim}${character}"
-				elif [[ $character == '>' || $character == ']' ]]; then
-					buffer+="${character}"
+	__pause_tracing || return $?
+	__load_styles --save -- intensity bold dim code link foreground_magenta foreground_green foreground_red
+	local s=() prefixes=() suffixes=() c
+	while LC_ALL=C IFS= read -rd '' -n1 c || [[ -n $c ]]; do
+		s+=("$c")
+		prefixes+=('')
+		suffixes+=('')
+	done
+	local -i n="${#s[@]}" i E
+	function __are_prior_characters_matching {
+		local pattern="$1" until="$2" match="$3"
+		local -i ii
+		E="$i"
+		# check if all preceding line characters are pattern
+		for ((ii = i - 1; ii >= 0; ii--)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
+				match='yes'
+				E="$ii"
+				continue
+			elif [[ ${s[ii]} == "$until" ]]; then
+				break
+			else
+				return 1
+			fi
+		done
+		[[ $match == 'yes' ]] || return $?
+	}
+	function __are_next_characters_matching {
+		local pattern="$1" until="$2" match="$3"
+		local -i ii
+		E="$i"
+		# check if all preceding line characters are pattern
+		for ((ii = i + 1; ii < n; ii++)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
+				match='yes'
+				E="$ii"
+				continue
+			elif [[ ${s[ii]} == "$until" ]]; then
+				break
+			else
+				return 1
+			fi
+		done
+		[[ $match == 'yes' ]] || return $?
+	}
+	function __apply_index_of_prior_pattern {
+		local pattern="$1"
+		local -i ii
+		E="$i"
+		for ((ii = i - 1; ii >= 0; ii--)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
+				E="$ii"
+				break
+			else
+				continue
+			fi
+		done
+		if [[ $E -eq -1 ]]; then
+			return 1
+		fi
+	}
+	function __apply_index_of_next_pattern {
+		local pattern="$1"
+		local -i ii
+		E="$i"
+		for ((ii = i + 1; ii < n; ii++)); do
+			if [[ ${s[ii]} =~ $pattern ]]; then
+				E="$ii"
+				break
+			else
+				continue
+			fi
+		done
+		if [[ $E -eq -1 ]]; then
+			return 1
+		fi
+	}
+	function __are_prior_characters_only_padding {
+		__are_prior_characters_matching '^[[:blank:]]+$' $'\n' 'yes' || return $?
+	}
+	function __are_prior_characters_only_header {
+		# @todo this may match `\n :`, as such we change prior characters to fetching all characters until <until> then do the pattern test on their string; this is difficult for now due to the need to update E with the index of matched characters; as such it may be worth matching characters, and then matching spread separately
+		__are_prior_characters_matching '^[A-Z ]+$' $'\n' 'no' || return $?
+	}
+	function __require_fence {
+		local segment="$1" prefix='' suffix=''
+		if __apply_index_of_prior_pattern $'\n'; then
+			E="$((E + 1))"
+			IFS='' prefix="${s[*]:E:i-E}"
+		fi
+		if __apply_index_of_next_pattern $'\n'; then
+			IFS='' suffix="${s[*]:i:E-i}"
+		fi
+		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' ' of:' --newline --code="$prefix$suffix" --newline 'Try:' --newline --code='```'"$prefix$suffix"'```' || return $?
+		return 94 # EBADMSG 94 Bad message
+	}
+	local in_code='no' in_fence='no' in_color='no' in_option remove_intensity intensities=()
+	local -i intensities_size
+	for ((i = 0; i < n; i++)); do
+		c="${s[i]}"
+		if [[ $c == '' ]]; then
+			continue
+		elif [[ $c == $'\e' ]]; then
+			in_color='yes'
+			continue
+		elif [[ $in_color == 'yes' ]]; then
+			if [[ $c == 'm' ]]; then
+				in_color='no'
+			fi
+			continue
+		fi
 
-					# there's currently a bug in __slice that prevents -1 being used as a length
-					# __dump {intensities} >&2
-					# __slice --source+target={intensities} --mode=overwrite 0 -1 || return $?
-					# __dump {intensities} >&2
+		# check for fence
+		if [[ "$c${s[i + 1]-}${s[i + 2]-}" == '```' ]]; then
+			# code fence
+			# remove the code fence
+			s[i]=''
+			s[i + 1]=''
+			s[i + 2]=''
+			# if the code fence is the only non-whitespace thing on the line, then remove the line
+			if [[ ${s[i + 3]-} == $'\n' ]] && __are_prior_characters_only_padding; then
+				s[i + 3]=''
+				for ((ii = E; ii < i; ii++)); do
+					s[ii]=''
+				done
+			fi
+			# toggle
+			if [[ $in_fence == 'no' ]]; then
+				in_fence='yes'
+				s[i]+="$STYLE__code"
+			else
+				s[i]+="$STYLE__END__code"
+				in_fence='no'
+			fi
+			continue
+		# check if we are in a code fence, if so, ignore all else
+		elif [[ $in_fence == 'yes' ]]; then
+			continue
+		fi
 
-					c="${#intensities[@]}"
-					if [[ $c -eq 0 ]]; then
-						# this is probably malformed syntax, or something like this from `fs-copy`:
-						# Enable SSH on macOS via \`System Preferences > Sharing > Remote Login\`.
-						# @todo figure out why the first > there drops the backtick intensity
-						continue
-					fi
-
-					# pop off the last intensity as it is now finished
-					if [[ $c -eq 1 ]]; then
-						intensities=()
-					else
-						l="$((c - 1))"
-						intensities=("${intensities[@]:0:l}")
-						l="$((l - 1))"
-					fi
-
-					# re-affirm the prior intensity
-					if [[ ${#intensities[@]} -eq 0 ]]; then
-						buffer+="${STYLE__END__intensity}"
-					else
-						# __slice --source={intensities} --target={last} -1 || return $?
-						last="${intensities[l]}"
-						buffer+="${STYLE__END__intensity}${last}"
-					fi
-				else
-					buffer+="${character}"
+		# we are now things we want to act upon
+		if [[ "$c${s[i + 1]-}" == '* ' ]]; then
+			# lists
+			if __are_prior_characters_only_padding; then
+				s[i]='•'
+				continue
+			fi
+		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
+			# headers
+			if __are_prior_characters_only_header; then
+				prefixes[E]+="$STYLE__foreground_magenta"
+				suffixes[i]+="$STYLE__END__foreground_magenta"
+				continue
+			fi
+		elif [[ $c == '<' ]]; then
+			# urls
+			if [[ "${s[i + 1]-}${s[i + 2]-}${s[i + 3]-}${s[i + 4]-}" == 'http' ]]; then
+				if __apply_index_of_next_pattern '^>$'; then
+					s[i]="$STYLE__link"
+					s[E]="$STYLE__END__link"
+					i="$E"
 				fi
-			done
-			__print_lines "$buffer" >&2 || return $?
-		}
+				continue
+			fi
+		elif [[ $c == '[' ]]; then
+			# return statuses
+			if __are_next_characters_matching '^0+$' ']' 'no'; then
+				prefixes[i]+="$STYLE__foreground_green"
+				suffixes[E + 1]+="$STYLE__END__foreground_green"
+				i="$((E + 1))"
+				continue
+			elif __are_next_characters_matching '^[[:digit:]*]+$' ']' 'no'; then
+				prefixes[i]+="$STYLE__foreground_red"
+				suffixes[E + 1]+="$STYLE__END__foreground_red"
+				i="$((E + 1))"
+				continue
+			fi
+		elif [[ $c == '`' ]]; then
+			# code
+			if [[ $in_code == 'no' ]]; then
+				in_code='yes'
+				s[i]="$STYLE__code"
+			else
+				in_code='no'
+				s[i]="$STYLE__END__code"
+			fi
+			continue
+		fi
+
+		# magenta for options and actions
+		in_option='no'
+		case "$c" in
+		'-' | '<' | '[' | '|') in_option='yes' ;;
+		'&')
+			if [[ ${s[i + 1]-} == ' ' ]]; then
+				in_option='yes'
+				s[i]=''
+				s[i + 1]=''
+			fi
+			;;
+		'.')
+			if [[ "${s[i + 1]-}${s[i + 2]-}" == '..' ]]; then
+				in_option='yes'
+			fi
+			;;
+		esac
+		if [[ $in_option == 'yes' ]] && __are_prior_characters_only_padding; then
+			prefixes[i]="${STYLE__foreground_magenta}"
+			if __apply_index_of_next_pattern $'^\n$'; then
+				suffixes[E]+="$STYLE__END__foreground_magenta"
+			else
+				# no trailing line
+				suffixes[n - 1]+="$STYLE__END__foreground_magenta"
+			fi
+		fi
+
+		remove_intensity='no'
+		case "$c" in
+		'[')
+			# is it an example regular expression, then require fence
+			if [[ ${s[i + 1]-} == 'a' && ${s[i + 2]-} == '-' && ${s[i + 3]-} == 'z' ]]; then
+				__require_fence "${c}${s[i + 1]}${s[i + 2]}${s[i + 3]}${s[i + 4]}" || return $?
+			elif [[ ${s[i + 1]-} == ' ' ]]; then
+				__require_fence "${c}${s[i + 1]}" || return $?
+			else
+				intensities+=("$STYLE__dim")
+				prefixes[i]+="$STYLE__dim"
+			fi
+			;;
+		'<')
+			case "${s[i + 1]-}" in
+			' ' | '&' | '(' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			esac
+			intensities+=("$STYLE__bold")
+			prefixes[i]+="$STYLE__bold"
+			;;
+		'>')
+			case "${s[i - 1]-}" in
+			' ' | ')') __require_fence "${c}${s[i - 1]}" || return $? ;;
+			esac
+			case "${s[i + 1]-}" in
+			'&') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			'=')
+				# only disallow `=` if `>= ` and not something like `--<field>=<value>`
+				if [[ ${s[i + 2]-} == ' ' ]]; then
+					__require_fence "${c}${s[i + 1]}${s[i + 2]}" || return $?
+				fi
+				;;
+			esac
+			remove_intensity='yes'
+			;;
+		']')
+			case "${s[i - 1]-}" in
+			' ') __require_fence "${c}${s[i - 1]}" || return $? ;;
+			esac
+			remove_intensity='yes'
+			;;
+		esac
+		if [[ $remove_intensity == 'yes' ]]; then
+			intensities_size="${#intensities[@]}"
+			if [[ $intensities_size -eq 0 ]]; then
+				# mismatched, fail
+				__print_error 'Invalid help template. Mismatched intensity modifiers.' || return $?
+				return 94 # EBADMSG 94 Bad message
+			elif [[ $intensities_size -eq 1 ]]; then
+				# no more intensities so clear
+				suffixes[i]+="$STYLE__END__intensity"
+				intensities=()
+			else
+				# pop intensity
+				intensities=("${intensities[@]:0:intensities_size-1}")
+				intensities_size="${#intensities[@]}"
+				# reset intensity, and re-affirm prior intensities
+				IFS='' suffixes[i]+="$STYLE__END__intensity${intensities[*]}"
+			fi
+		fi
+	done
+	local result=''
+	for ((i = 0; i < n; i++)); do
+		result+="${prefixes[i]}${s[i]}${suffixes[i]}"
+	done
+	printf '%s' "$result" >&2
 	if [[ $# -ne 0 ]]; then
 		__print_line || return $?
 		__print_error "$@" || return $?
 	fi
+	__restore_tracing || return $?
 }
 
 # restore tracing
-# shared by `bash.bash` `styles.bash`
-if [[ -n ${BASH_X-} ]]; then
-	unset BASH_X
-	set -x
-fi
-if [[ -n ${BASH_V-} ]]; then
-	unset BASH_V
-	set -v
-fi
+__restore_tracing

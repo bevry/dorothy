@@ -59,8 +59,6 @@ Dorothy is a dotfile ecosystem featuring:
 | ∞ [Fedora on Raspberry Pi][FedoraPi]: [Workstation][FedoraW], [Server][FedoraS]                                | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
 | 🐉 [Kali][Kali]                                                                                                | 👔 Intel/AMD (x84_64)    | 🤖 CI   |
 | 🐉 [Kali on ARM][KaliARM]                                                                                      | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
-| 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)    | 🤖 CI   |
-| 𝚖 [Manjaro on ARM][ManjaroARM]                                                                                 | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
 | ![OpenEulerLogo][OpenEulerLogo] [OpenEuler][OpenEuler]                                                         | 👔 Intel/AMD (x84_64)    | 🤖 CI   |
 | ![OpenEulerLogo][OpenEulerLogo] [OpenEuler on Raspberry Pi][OpenEulerPi]                                       | 🍓 Raspberry Pi (ARM64)  | 🤖 CI   |
 | ❍ [OpenMandriva][Mandriva]: [Rock][MandrivaRock], [Rolling][MandrivaRolling]                                   | 👔 Intel/AMD (x86_64)    | 🤖 CI   |
@@ -93,8 +91,6 @@ Dorothy is a dotfile ecosystem featuring:
 [Mandriva]: https://www.openmandriva.org
 [MandrivaRock]: https://wiki.openmandriva.org/en/distribution/releases/omlx60
 [MandrivaRolling]: https://wiki.openmandriva.org/en/distribution/releases/rome
-[Manjaro]: https://manjaro.org/download/
-[ManjaroARM]: https://manjaro.org/products/download/arm
 [OpenEuler]: https://www.openeuler.org/en/download/
 [OpenEulerLogo]: docs/assets/openeuler.svg
 [OpenEulerPi]: https://www.openeuler.org/en/wiki/install/raspberry-pi/
@@ -115,13 +111,17 @@ Dorothy is a dotfile ecosystem featuring:
 <!--
 Previously supported, but support broke.
 
-| ⭕️ [Ubuntu Server][UbuntuFive]                           | 5️⃣ StarFive’s VisionFive (RISC-V)              | 🌗 Monthly Driver        |
-| ⛰ [Alpine][Alpine]                                   | 👔 Intel/AMD (x84_64)                          | 🌗 Monthly Driver, 🤖 CI |
-| ⛰ [Alpine][Alpine]                                   | 🍏 Apple Silicon (ARM64)                       | 🌗 Monthly Driver        |
+| ⛰ [Alpine][Alpine]                                                                                            | 🍏 Apple Silicon (ARM64)           | 🤖 CI   |
+| ⛰ [Alpine][Alpine]                                                                                            | 👔 Intel/AMD (x84_64)              | 🤖 CI   |
+| ⭕️ [Ubuntu Server][UbuntuFive]                                                                                 | 5️⃣ StarFive’s VisionFive (RISC-V)  | 🤖 CI   |
+| 𝚖 [Manjaro on ARM][ManjaroARM]                                                                                 | 🍓 Raspberry Pi (ARM64)            | 🤖 CI   |
+| 𝚖 [Manjaro][Manjaro]                                                                                           | 👔 Intel/AMD (x86_64)              | 🤖 CI   |
 
-[UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 [Alpine]: https://www.alpinelinux.org/downloads/
+[Manjaro]: https://manjaro.org/download/
+[ManjaroARM]: https://manjaro.org/products/download/arm
 [Rocky]: https://rockylinux.org
+[UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 -->
 
 Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
@@ -504,32 +504,45 @@ Join the [Bevry Software community](https://discord.gg/nQuXddV7VP) to stay up-to
 - [Divinci ™](https://divinci.ai) — A more comfortable AI conversation experience, with friends! 🤖🖤
 - [Edward J. Schwartz](https://github.com/edmcman)
 - [Frontend Masters](https://FrontendMasters.com) — The training platform for web app engineering skills – from front-end to full-stack! 🚀
-- [Mr. Henry](https://mrhenry.be)
 - [Poonacha Medappa](https://poonachamedappa.com)
 - [Roboflow](https://roboflow.com)
 
 #### Donors
 
 - [Andrew Nesbitt](https://nesbitt.io)
+- [Ángel González](https://univunix.com)
+- [Arjun Aditya](https://arjunaditya.xyz)
+- [Armen Mkrtchian](https://mogoni.dev)
 - [Balsa](https://balsa.com)
 - [Canonical](https://canonical.com)
 - [Chad](https://opencollective.com/chad8)
 - [Codecov](https://codecov.io)
 - [Divinci ™](https://divinci.ai)
+- [dr.dimitru](https://veliovgroup.com)
 - [Edward J. Schwartz](https://github.com/edmcman)
+- [Elliott Ditman](https://elliottditman.com)
 - [entroniq](https://gitlab.com/entroniq)
 - [Frontend Masters](https://FrontendMasters.com)
+- [GitHub](https://github.com/about)
+- [Hunter Beast](https://cryptoquick.com)
 - [Jean-Luc Geering](https://github.com/jlgeering)
+- [Lee Driscoll](https://leedriscoll.me)
 - [Michael Duane Mooring](https://divinci.ai)
+- [Michael Harry Scepaniak](https://michaelscepaniak.com)
 - [Mr. Henry](https://mrhenry.be)
+- [Pleo](https://pleo.io)
 - [Poonacha Medappa](https://poonachamedappa.com)
+- [Robert de Forest](https://github.com/rdeforest)
 - [Rob Morris](https://linktr.ee/recipromancer)
 - [Roboflow](https://roboflow.com)
+- [Scott Kempson](https://github.com/scokem)
 - [Sentry](https://sentry.io)
 - [ServieJS](https://github.com/serviejs)
 - [Shah](https://github.com/smashah)
+- [Skunk Team](https://skunk.team)
 - [Square](https://github.com/square)
 - [Syntax](https://syntax.fm)
+- [WriterJohnBuck](https://github.com/WriterJohnBuck)
 
 <!-- /BACKERS -->
 
