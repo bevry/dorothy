@@ -9,10 +9,16 @@ function echo_lines_before_test() (
 	eval_tester --ignore-stderr --status=22 -- echo-lines-before --help
 
 	# prepare
-	local expected=$'a\nb' needles=('--needle=')
+	local expected=$'a\nb' needles=('--line=')
 	function pl {
 		__print_lines a b '' c d
 	}
+
+	# failure tests
+	eval_tester --name='no needles' --ignore-stderr --status=22 -- \
+		echo-lines-before --stdin <<<"$(pl)"
+	eval_tester --name='unknown argument' --ignore-stderr --status=22 -- \
+		echo-lines-before 'unknown argument' --stdin <<<"$(pl)"
 
 	# standard tests
 	eval_tester --name='using arguments' --stdout="$expected" -- \
@@ -63,6 +69,12 @@ function echo_lines_before_test() (
 	eval_tester --stdout=$'0\n'"$expected" -- test_aa
 	eval_tester --stdout=$'0\n'"$expected" -- test_bb
 
+	# pattern and glob tests
+	eval_tester --name='glob' --stdout='a' -- \
+		echo-lines-before --glob='bb*' -- $'a\nbbb\nc\nd'
+	eval_tester --name='pattern' --stdout='a' -- \
+		echo-lines-before --pattern='bb+' -- $'a\nbbb\nc\nd'
+
 	# done
 	return 0
 )
@@ -75,29 +87,33 @@ function echo_lines_before() (
 	function help {
 		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get everything before the first occurrence of <line>.
+			Get everything before the first occurrence of <line>, <glob>, or <pattern>.
 
 			USAGE:
-			\`echo-lines-before <needle> [...options] [--] ...<input>\`
-			\`echo-lines ...<input> | echo-lines-before <needle> [...options]\`
-
+			\`echo-lines-before [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-lines-before [...options]\`
 			OPTIONS:
-			<needle> | --needle=<needle>
-			    Only output the <input> that occurs before one of these <needle> lines.
-			    Use \`--needle=<needle> ...[--needle=<needle>]\` to provide multiple needles.
+			--line=<line>|--needle=<line> | --glob=<glob> | --pattern=<pattern>
+			    Only output the <input> that occurs before the first match of one of these <line>s, <glob>s, or <pattern>s.
 
 			$(__stdinargs__help_options --)
 
 			EXAMPLES:
-			\`\`\`echo-lines-before --needle='b' -- a b b c b\`\`\`
+			\`\`\`
+			echo-lines-before --needle='b' -- a b b c b
+			\`\`\`
 			Outputs: \`a\`
 			Returns: [0]
 
-			\`\`\`echo-lines -- a b b c b | echo-lines-before --needle='' --stdin\`\`\`
+			\`\`\`
+			echo-lines -- a b b c b | echo-lines-before --needle='' --stdin
+			\`\`\`
 			Outputs: \`a\`
 			Returns: [0]
 
-			\`\`\`echo-lines-before --needle='' --stdin <<< "\$(echo-lines -- a b b c b)"\`\`\`
+			\`\`\`
+			echo-lines-before --needle='' --stdin <<< "\$(echo-lines -- a b b c b)"
+			\`\`\`
 			Outputs: \`a\`
 			Returns: [0]
 		EOF
@@ -105,46 +121,53 @@ function echo_lines_before() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_needles=() option_args=()
+	local item option_lines=() option_patterns=() option_globs=() option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--needle='*) option_needles+=("${item#*=}") ;;
+		'--line='* | '--needle='*) option_lines+=("${item#*=}") ;;
+		'--pattern='*) option_patterns+=("${item#*=}") ;;
+		'--glob='*) option_globs+=("${item#*=}") ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
 			option_args+=("$item" "$@")
 			shift $#
 			break
 			;;
-		'--'*) option_args+=("$item") ;;
-		*)
-			if [[ ${#option_needles[@]} -eq 0 ]]; then
-				option_needles+=("$item")
-			else
-				option_args+=("$item")
-			fi
-			;;
+		'-'*) option_args+=("$item") ;; # single dash to also capture trailing `-` for STDIN
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check
-	if [[ ${#option_needles[@]} -eq 0 ]]; then
-		help 'No <needle>s provided.'
+	if [[ ${#option_lines[@]} -eq 0 && ${#option_patterns[@]} -eq 0 && ${#option_globs[@]} -eq 0 ]]; then
+		help 'No <line>s, <pattern>s, nor <glob>s provided. At least one must be provided.'
 	fi
 
 	# =====================================
 	# Action
 
 	function on_line {
-		local line="$1" needle
-		for needle in "${option_needles[@]}"; do
-			if [[ $line == "$needle" ]]; then
+		local read_line="$1" sought_line south_pattern sought_glob
+		for sought_line in "${option_lines[@]}"; do
+			if [[ $read_line == "$sought_line" ]]; then
 				return 210 # ECUSTOM 210 Processing complete, exit early
 			fi
 		done
-		__print_lines "$line"
+		for south_pattern in "${option_patterns[@]}"; do
+			if [[ $read_line =~ $south_pattern ]]; then
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
+		for sought_glob in "${option_globs[@]}"; do
+			# trunk-ignore(shellcheck/SC2053)
+			if [[ $read_line == $sought_glob ]]; then
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
+		__print_lines "$read_line"
 	}
 
 	stdinargs "${option_args[@]}"

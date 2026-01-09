@@ -6,10 +6,16 @@ function echo_lines_after_test() (
 	eval_tester --ignore-stderr --status=22 -- echo-lines-after --help
 
 	# prepare
-	local expected=$'c\n\nb' needles=('' '--needle=b')
+	local expected=$'c\n\nb' needles=('--line=' '--needle=b')
 	function pl {
 		__print_lines a b '' b '' c '' b
 	}
+
+	# failure tests
+	eval_tester --name='no needles' --ignore-stderr --status=22 -- \
+		echo-lines-after --stdin <<<"$(pl)"
+	eval_tester --name='unknown argument' --ignore-stderr --status=22 -- \
+		echo-lines-after 'unknown argument' --stdin <<<"$(pl)"
 
 	# standard tests
 	eval_tester --name='using arguments' --stdout="$expected" -- \
@@ -60,6 +66,12 @@ function echo_lines_after_test() (
 	eval_tester --stdout=$'0\n'"$expected" -- test_aa
 	eval_tester --stdout=$'0\n'"$expected" -- test_bb
 
+	# pattern and glob tests
+	eval_tester --name='glob' --stdout=$'c\nd' -- \
+		echo-lines-after --glob='bb*' -- $'a\nbbb\nc\nd'
+	eval_tester --name='pattern' --stdout=$'c\nd' -- \
+		echo-lines-after --pattern='bb+' -- $'a\nbbb\nc\nd'
+
 	# done
 	return 0
 )
@@ -72,22 +84,21 @@ function echo_lines_after() (
 	function help {
 		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get everything after the first recurrence of <line>.
+			Get everything after the last consecutive recurrence of <line>, <glob>, or <pattern>.
 
 			USAGE:
-			\`echo-lines-after <needle> [...options] [--] ...<input>\`
-			\`echo-lines ...<input> | echo-lines-after <needle> [...options]\`
+			\`echo-lines-after [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-lines-after [...options]\`
 
 			OPTIONS:
-			<needle> | --needle=<needle>
-			    Only output the <input> that occurs after one of these <needle> lines.
-			    Use \`--needle=<needle> ...[--needle=<needle>]\` to provide multiple needles.
+			--line=<line>|--needle=<line> | --glob=<glob> | --pattern=<pattern>
+			    Only output the <input> that occurs after the last consecutive match of one of these <line>s, <glob>s, or <pattern>s.
 
 			$(__stdinargs__help_options --)
 
 			EXAMPLES:
 			\`\`\`
-			echo-lines-after --needle='b' -- a b b c b
+			echo-lines-after --line='b' -- a b b c b
 			\`\`\`
 			Outputs:
 			\`\`\`
@@ -97,7 +108,7 @@ function echo_lines_after() (
 			Returns: [0]
 
 			\`\`\`
-			echo-lines -- a b b c b | echo-lines-after --needle='b' --stdin
+			echo-lines -- a b b c b | echo-lines-after --line='b' --stdin
 			\`\`\`
 			Outputs:
 			\`\`\`
@@ -107,7 +118,7 @@ function echo_lines_after() (
 			Returns: [0]
 
 			\`\`\`
-			echo-lines-after --needle='b' --stdin <<< "\$(echo-lines -- a b b c b)"
+			echo-lines-after --line='b' --stdin <<< "\$(echo-lines -- a b b c b)"
 			\`\`\`
 			Outputs:
 			\`\`\`
@@ -120,67 +131,67 @@ function echo_lines_after() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_needles=() option_args=()
+	local item option_lines=() option_patterns=() option_globs=() option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--needle='*) option_needles+=("${item#*=}") ;;
+		'--line='* | '--needle='*) option_lines+=("${item#*=}") ;;
+		'--pattern='*) option_patterns+=("${item#*=}") ;;
+		'--glob='*) option_globs+=("${item#*=}") ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
 			option_args+=("$item" "$@")
 			shift $#
 			break
 			;;
-		'--'*) option_args+=("$item") ;;
-		*)
-			if [[ ${#option_needles[@]} -eq 0 ]]; then
-				option_needles+=("$item")
-			else
-				option_args+=("$item")
-			fi
-			;;
+		'-'*) option_args+=("$item") ;; # single dash to also capture trailing `-` for STDIN
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check
-	if [[ ${#option_needles[@]} -eq 0 ]]; then
-		help 'No <needle>s provided.'
+	if [[ ${#option_lines[@]} -eq 0 && ${#option_patterns[@]} -eq 0 && ${#option_globs[@]} -eq 0 ]]; then
+		help 'No <line>s, <pattern>s, nor <glob>s provided. At least one must be provided.'
 	fi
 
 	# =====================================
 	# Action
 
-	local output='no' found='no' # buffer=''
+	local found='no'
 	function __on_line {
-		local line="$1" match='no' needle
-		if [[ $output == 'no' ]]; then
-			for needle in "${option_needles[@]}"; do
-				if [[ $line == "$needle" ]]; then
-					match='yes'
-					break
-				fi
-			done
-			if [[ $match == 'yes' ]]; then
-				# found, but not yet stopped finding, continue to next line
+		local read_line="$1" sought_line south_pattern sought_glob
+		for sought_line in "${option_lines[@]}"; do
+			if [[ $read_line == "$sought_line" ]]; then
 				found='yes'
 				return 0
-			elif [[ $found == 'yes' ]]; then
-				# found, and stopped matching, start outputting
-				output='yes'
-			else
-				# not yet found, continue to try and find a match
+			fi
+		done
+		for south_pattern in "${option_patterns[@]}"; do
+			if [[ $read_line =~ $south_pattern ]]; then
+				found='yes'
 				return 0
 			fi
+		done
+		for sought_glob in "${option_globs[@]}"; do
+			# trunk-ignore(shellcheck/SC2053)
+			if [[ $read_line == $sought_glob ]]; then
+				found='yes'
+				return 0
+			fi
+		done
+		# this line did not match, so we are done finding if we have found before, so simplify our future function for following iterations
+		if [[ $found == 'yes' ]]; then
+			# print this current non-matched line
+			__print_lines "$read_line" || return $?
+			# simplify printing of subsequent lines
+			function __on_line {
+				local read_line="$1"
+				__print_lines "$read_line" || return $?
+			}
 		fi
-		# buffer+="$line"$'\n'
-		__print_lines "$line" || return $?
 	}
-	# function __on_finish {
-	# 	__print_value_strings_or_nothing "$buffer" || return $?
-	# }
-	# ^ buffering does not solve the tests on linux (non-bsd/macos), as on linux `>>` will still overwrite if something called still did `>/dev/stdout` instead of `>>/dev/stdout`
 
 	stdinargs "${option_args[@]}"
 )
