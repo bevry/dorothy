@@ -12,15 +12,15 @@ function get_app() (
 
 	# determine and cache capabilities
 	local system findable='no' appimage='no' flatpak='no' winget='no' scoop='no'
-	local app_dirs=(
+	local app_search_paths=(
 		"$APPIMAGE_HOME"
 		"$HOME/Applications"
 		'/Applications'
-	) # @todo support windows wsl paths and search for exes
+	)
 	if __is_macos; then
 		findable='yes'
 		system='macos'
-		app_dirs+=(
+		app_search_paths+=(
 			'/Applications/Setapp'
 			'/Applications/Utilities'
 			'/System/Applications'           # TextEdit
@@ -28,6 +28,7 @@ function get_app() (
 			'/System/Library/CoreServices'   # Finder
 		)
 	elif __is_windows; then
+		# @todo now that nested exe searching is there, consider adding the Windows WSL paths for nested exe searching
 		if is-system --winget; then
 			findable='yes'
 			winget='yes'
@@ -38,7 +39,7 @@ function get_app() (
 		fi
 		system='windows'
 	elif __is_linux; then
-		app_dirs+=(
+		app_search_paths+=(
 			/usr/share/applications
 			"$DATA_DIR/applications"
 			"$XDG_DATA_HOME/applications"
@@ -53,8 +54,8 @@ function get_app() (
 		fi
 		system='linux'
 	fi
-	__evict --source+target={app_dirs} --optional --every --value=''
-	__unique --source+target={app_dirs}
+	__evict --source+target={app_search_paths} --optional --every --value=''
+	__unique --source+target={app_search_paths}
 
 	# =====================================
 	# Arguments
@@ -76,12 +77,12 @@ function get_app() (
 			    Invoke the <app> if found, passing any provided <argument>s to it.
 			    Not yet supported for WinGet and Scoop applications.
 
-			--source=...<source:path|apps|flatpak|scoop|winget> | ---sources=...<source>
+			--source=...<source:bins|apps|flatpak|scoop|winget> | ---sources=...<source>
 			    Limit searching to the specified <source>s.
 			    If not provided, all available sources will be searched.
-			    If <source:path> is enabled, searches PATH. WSL paths will are included already.
-			    If <source:apps> is enabled, searches standard application locations. Which on this system are:
-			$(__join --source={app_dirs} --left='        * ' --style=code --between=$'\n')
+			    If <source:bins> is enabled, searches for the application's binaries via \`PATH\`, which includes WSL paths.
+			    If <source:apps> is enabled, searches for the application via usual paths and formats. Which on this system are:
+			$(__join --source={app_search_paths} --left='        * ' --style=code --between=$'\n')
 			    If <source:flatpak> is enabled, searches Flatpak applications. Only available on Linux.
 			    If <source:scoop> is enabled, searches Scoop applications. Only available on Windows.
 			    If <source:winget> is enabled, searches WinGet applications. Only available on Windows.
@@ -96,11 +97,11 @@ function get_app() (
 			    If <all>, require all <app>s to be found.
 
 			--details | --input | --name | --id | --path | --output=<output:details|input|name|id|path>
-			    If <details>, and if the <app> is found, output the all details of the <app>.
-			    If <input>, and if the <app> is found, output the <app> value.
-			    If <name>, and if the <app> is found, output the name of the <app>.
-			    If <id>, and if the <app> is found, output the identifier of the <app>, if an identifier is not available, output the name.
-			    If <path>, and if the <app> is found, output the location of the <app>. Not yet supported for WinGet and Scoop applications.
+			    If <output:details>, and if the <app> is found, output the all details of the <app>.
+			    If <output:input>, and if the <app> is found, output the <app> value.
+			    If <output:name>, and if the <app> is found, output the name of the <app>.
+			    If <output:id>, and if the <app> is found, output the identifier of the <app>, if an identifier is not available, output the name.
+			    If <output:path>, and if the <app> is found, output the location of the <app>. Not yet supported for WinGet and Scoop applications.
 			--[no-]quiet | --[no-]verbose
 			    If <quiet>, do not output any result.
 			If neither <output> nor <quiet> are provided, then <output:details> will be set.
@@ -158,7 +159,7 @@ function get_app() (
 	# if no sources, add them all
 	local sources=''
 	if [[ ${#option_sources[@]} -eq 0 ]]; then
-		option_sources+=('path' 'flatpak' 'scoop' 'winget')
+		option_sources+=('bins' 'apps' 'flatpak' 'scoop' 'winget')
 	fi
 	__unique --source+target={option_sources}
 	__join --source={option_sources} --target={sources} --left='[' --right=']'
@@ -245,44 +246,59 @@ function get_app() (
 	}
 
 	# lower="$(__get_lowercase_string -- "$app")"
-	local app name lower app_basenames app_paths app_basename app_dir app_path findable success='no' found
+	local app name lower app_basenames app_extensions app_paths app_path success='no' found
 	for app in "${option_apps[@]}"; do
-		name='' lower='' app_basenames=() app_paths=() findable='no' found='no'
+		name='' lower='' app_basenames=() app_extensions=() app_paths=() found='no'
 		if [[ -z $app ]]; then
 			return 22 # EINVAL 22 Invalid argument
 		fi
 		__replace --source={app} --target={name} --optional --suffix='.app' --suffix='.exe' --suffix='.desktop' --suffix='.appimage' --suffix='AppImage' --suffix='Appimage' --suffix='appImage'
 		lower="$(__get_lowercase_string -- "$name")"
 		if [[ $system == 'macos' ]]; then
-			findable='yes'
 			app_basenames+=("$name.app")
+			app_extensions+=('app')
 		elif [[ $system == 'windows' ]]; then
-			findable='yes'
 			app_basenames+=("$name.exe")
+			app_extensions+=('exe')
 		elif [[ $system == 'linux' ]]; then
 			app_basenames+=("$name.desktop")
-			# consider using * and `expand-path`
+			app_extensions+=('desktop')
 			if [[ $appimage == 'yes' ]]; then
 				app_basenames+=("$name.appimage")
+				app_extensions+=('appimage')
 			fi
 		fi
 		# iterate through PATH
-		if [[ $sources == *'[path]'* ]]; then
+		if [[ $sources == *'[bins]'* ]]; then
+			# which doing executable scans, also search just for the name, as apps usually have a corresponding CLI, e.g.
+			# /usr/bin/vivaldi
+			# /usr/bin/vivaldi
+			# /usr/sbin/vivaldi
+			# /sbin/vivaldi
+			# /bin/vivaldi
 			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
-				type -Pa "${app_basenames[@]}"
+				type -Pa "$name" "${app_basenames[@]}"
 		fi
 		# iterate through apps
-		if [[ $sources == *'[apps]'* ]]; then
-			for app_basename in "${app_basenames[@]}"; do
-				for app_dir in "${app_dirs[@]}"; do
-					# macos is rarely case-sensitive
-					app_path="$app_dir/$app_basename"
-					# -e, as only on macos it is a directory
-					if [[ -e $app_path ]]; then
-						app_paths+=("$app_path")
-					fi
-				done
-			done
+		# only fetch if necessary as is slow
+		if [[ ! ($option_which == 'first' && ${#app_paths[@]} -ne 0) && $sources == *'[apps]'* ]]; then
+			# assume case insensitive filesystem
+			# can be files, dirs, symlinks
+			# can be inside nested directories, which can be case for Chrome apps, or maybe WinGet?, which requires `expand-path`
+			# the below is expensive, 2.2 seconds:
+			# ```
+			# local app_basename app_search_path app_expansions=()
+			# for app_basename in "${app_basenames[@]}"; do
+			# 	for app_search_path in "${app_search_paths[@]}"; do
+			# 		app_expansions+=("$app_search_path/**/$app_basename")
+			# 	done
+			# done
+			# __split --target={app_paths} --append --no-zero-length --invoke=try -- \
+			# 	expand-path -- "${app_expansions[@]}"
+			# ```
+			# the below is better, 1.5 seconds, but doesn't support commas, which is fine:
+			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
+				expand-path -- "{$(__join --source={app_search_paths} --between=',')}/**/$name.{$(__join --source={app_extensions} --between=',')}"
 		fi
 		# cycle through app paths
 		for app_path in "${app_paths[@]}"; do
@@ -294,6 +310,10 @@ function get_app() (
 					# @todo add version
 					app_name="$(defaults read "$app_path/Contents/Info.plist" CFBundleName || :)"
 					app_id="$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier || :)"
+				elif [[ $app_path == *.desktop ]]; then
+					# @todo add version
+					app_name="$(config-helper --path="$app_path" -- --field='Name' || :)"
+					app_id="$(fs-path --no-parents --no-extensions -- "$app_path")"
 				else
 					app_name="$(fs-path --no-parents -- "$app_path")"
 				fi
