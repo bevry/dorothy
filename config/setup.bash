@@ -2,6 +2,26 @@
 # shellcheck disable=SC2034
 # Do not use `export` keyword in this file
 
+# Login Shells
+# Used by `setup-shell`
+# List with your most preferred login shell first. The first installed preference will be used as your login shell.
+DOROTHY_LOGIN_SHELLS=(
+	# officially supported shells
+	bash # bourne again shell
+	dash # debian almquist shell
+	fish # fish shell
+	nu   # nushell
+	zsh  # Z shell
+	# officially supported shells (alpha/beta quality integrations)
+	elvish # elvish shell
+	ksh    # korn shell
+	xonsh  # python-powered shell
+	# potentially supported shells
+	ash  # almquist shell
+	hush # hush, an independent implementation of a Bourne shell for BusyBox
+	sh   # the operating-system symlinks this to any POSIX compliant shell
+)
+
 # APK
 # Used by `setup-linux`
 # APK_INSTALL=()
@@ -48,26 +68,20 @@
 HOMEBREW_FONTS=(
 	'font-cantarell'
 	'font-cascadia-code'
-	'font-fira-code'
-	'font-fira-code-nerd-font'
-	'font-fira-mono'
-	'font-fira-mono-nerd-font'
-	'font-hack' # many editors require this
+	'font-hack' # many editors require this font, @todo make `setup-util-hack`
 	'font-hasklig'
 	'font-inconsolata-go-nerd-font'
-	'font-inter' # many apps require this
+	'font-inter' # many apps require this font, @todo make `setup-util-inter`
 	'font-jetbrains-mono'
 	'font-jetbrains-mono-nerd-font'
 	'font-lato'
 	'font-maven-pro'
-	'font-monoid'
 	'font-montserrat'
 	'font-open-sans'
 	'font-oxygen'
 	'font-oxygen-mono'
 	'font-roboto'
 	'font-roboto-mono'
-	'font-source-code-pro' # many editors require this
 	'font-ubuntu'
 )
 # HOMEBREW_UNINSTALL=() # for casks and formulas
@@ -97,11 +111,14 @@ HOMEBREW_FONTS=(
 # Used by `setup-rust`
 # CARGO_INSTALL=()
 
-# Utilities to install, these are the [setup-util-*] scripts
+# Utilities to install, these are the `setup-util-*` scripts
 # Used by `setup-utils`
 # You can use `setup-utils --configure` to configure these.
 SETUP_UTILS=(
-	'ibm-plex' # many editors require this
+	'fira-code'
+	'ibm-plex' # many editors require this font
+	'monoid'
 	'nano'
+	'source-code-pro' # many editors require this font
 	'vim'
 )
