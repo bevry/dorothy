@@ -76,9 +76,15 @@ function get_app() (
 			    Invoke the <app> if found, passing any provided <argument>s to it.
 			    Not yet supported for WinGet and Scoop applications.
 
-			--source=...<source:path|flatpak|winget|scoop> | ---sources=...<source>
+			--source=...<source:path|apps|flatpak|winget|scoop> | ---sources=...<source>
 			    Limit searching to the specified <source>s.
 			    If not provided, all available sources will be searched.
+			    If <source:path> is enabled, searches PATH. WSL paths will are included already.
+			    If <source:apps> is enabled, searches standard application locations. Which on this system are:
+			$(__join --source={app_dirs} --left='        * ' --style=code --between=$'\n')
+			    If <source:flatpak> is enabled, searches Flatpak applications. Only available on Linux.
+			    If <source:winget> is enabled, searches WinGet applications. Only available on Windows.
+			    If <source:scoop> is enabled, searches Scoop applications. Only available on Windows.
 
 			--first | --each | --every | --which=<which:first|each|every>
 			    If <first>, the default, stop after the first found <app> occurrence. Implies <any>.
@@ -98,10 +104,6 @@ function get_app() (
 			--[no-]quiet | --[no-]verbose
 			    If <quiet>, do not output any result.
 			If neither <output> nor <quiet> are provided, then <output:details> will be set.
-
-			QUIRKS:
-			If <source:path> is enabled, searches the following paths for the <app>:
-			$(__join --source={app_dirs} --left='* ' --style=code --between=$'\n')
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -129,7 +131,7 @@ function get_app() (
 		'--name' | '--output=name') option_output='name' ;;
 		'--id' | '--output=id') option_output='id' ;;
 		'--path' | '--output=path' | '--location' | '--output=location') option_output='path' ;;
-		--)
+		'--')
 			if [[ $option_invoke == 'yes' ]]; then
 				option_args+=("$@")
 			else
@@ -138,7 +140,8 @@ function get_app() (
 			shift $#
 			break
 			;;
-		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		'-'*) help 'An unrecognised argument was provided: ' --variable-value={item} ;; # capture typos like -source=<souirce>
 		*) option_apps+=("$item") ;;
 		esac
 	done
@@ -153,11 +156,11 @@ function get_app() (
 	fi
 
 	# if no sources, add them all
+	local sources=''
 	if [[ ${#option_sources[@]} -eq 0 ]]; then
 		option_sources+=('path' 'flatpak' 'winget' 'scoop')
 	fi
 	__unique --source+target={option_sources}
-	local sources=''
 	__join --source={option_sources} --target={sources} --left='[' --right=']'
 
 	# imply
@@ -196,19 +199,55 @@ function get_app() (
 	function __fetch_all_installed_from_flatpak {
 		flatpak list --columns=name,application | __columns_to_csv || return $?
 	}
+	function __cleanup_winget_output {
+		"$@" | echo-regexp -g --regexp=$'\r\n' --replace=$'\n' | echo-regexp -gm --regexp=$'[^\r]*\r' --replace='' | echo-regexp -g --regexp=$'\r' --replace='' || return $? # eval
+	}
 	function __fetch_matching_from_winget {
-		local query="$1"
-		winget.exe list --disable-interactivity --query="$app" | echo-lines-after --pattern='^---+$' --stdin | echo-regexp -g --regexp='  +' --replace=$'\t' || return $?
+		local query="$1" winget_rows=() row header_columns=() winget_name winget_id winget_version winget_source
+		# If you want to match the whole header separator, it is `^---+\s*$` as there is trailing blanks
+		# winget.exe list --disable-interactivity --query="$app" | echo-lines-after --pattern='^---' --stdin | echo-regexp -g --regexp='  +' --replace=',' || return $?
+		# However, the above does not work if there is only one result, as then thre is only a single space between columns, and column values can include spaces, so we need split based on the column lenghts in the header
+		__split --target={winget_rows} --no-zero-length --invoke -- \
+			__cleanup_winget_output winget.exe list --disable-interactivity --query="$app" || return $?
+		# Name                                 Id                                    Version
+		__split --target={header_columns} --no-zero-length --invoke -- \
+			echo-regexp -g --regexp='( +)' --replace=$'$1\n' -- "${winget_rows[0]}" || return $?
+		for row in "${winget_rows[@]:2}"; do
+			winget_name="${row:0:${#header_columns[0]}}"
+			winget_id="${row:${#header_columns[0]}:${#header_columns[1]}}"
+			winget_version="${row:${#header_columns[0]}+${#header_columns[1]}:${#header_columns[2]}}"
+			winget_source="${row:${#header_columns[0]}+${#header_columns[1]}+${#header_columns[2]}}"
+			# trim trailing spaces
+			__replace --source+target={winget_name} --suffix-all=' ' --optional || return $?
+			__replace --source+target={winget_id} --suffix-all=' ' --optional || return $?
+			__replace --source+target={winget_version} --suffix-all=' ' --optional || return $?
+			__replace --source+target={winget_source} --suffix-all=' ' --optional || return $?
+			# csv it
+			__print_lines "${winget_name},${winget_id},${winget_version}" || return $?
+		done
 	}
 	function __fetch_matching_from_scoop {
 		local query="$1"
-		scoop list "$query" | grep --invert-match --extended-regexp --regexp='---+|^\s*$|:$' | tr -s ' ' ',' || return $?
+		scoop list "$query" | echo-lines-after --pattern='---+' --stdin | grep --invert-match --extended-regexp --regexp='---+|^\s*$|:$' | tr -s ' ' ',' || return $?
+	}
+	# annoying workaround for windows
+	local wsl_home=''
+	function __windows_to_unix_path {
+		local wsl_path="$1"
+		if [[ -z $wsl_home ]]; then
+			wsl_home="$(wslpath -au "$(powershell.exe -NoProfile -NonInteractive -Command "\$Env:UserProfile" || cmd.exe /c "echo %UserProfile%")" 2>/dev/null)" || return $?
+		fi
+		wsl_path="$(wslpath -au "$wsl_path")" || return $?
+		if [[ ${wsl_path:0:1} == '~' ]]; then
+			wsl_path="$wsl_home${wsl_path:1}"
+		fi
+		__print_lines "$wsl_path"
 	}
 
 	# lower="$(__get_lowercase_string -- "$app")"
-	local app name lower app_basenames app_basename app_dir app_path findable success='no' found
+	local app name lower app_basenames app_paths app_basename app_dir app_path findable success='no' found
 	for app in "${option_apps[@]}"; do
-		name='' lower='' app_basenames=() findable='no' found='no'
+		name='' lower='' app_basenames=() app_paths=() findable='no' found='no'
 		if [[ -z $app ]]; then
 			return 22 # EINVAL 22 Invalid argument
 		fi
@@ -227,46 +266,53 @@ function get_app() (
 				app_basenames+=("$name.appimage")
 			fi
 		fi
-		# iterate through the various locations
+		# iterate through PATH
 		if [[ $sources == *'[path]'* ]]; then
+			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
+				type -Pa "${app_basenames[@]}"
+		fi
+		# iterate through apps
+		if [[ $sources == *'[apps]'* ]]; then
 			for app_basename in "${app_basenames[@]}"; do
-				if [[ -n $app_basename ]]; then
-					for app_dir in "${app_dirs[@]}"; do
-						# macos is rarely case-sensitive
-						app_path="$app_dir/$app_basename"
-						# -e, as only on macos it is a directory
-						if [[ -e $app_path ]]; then
-							# app was found
-							found='yes'
-							if [[ -n $option_output ]]; then
-								local app_name app_id
-								if [[ $system == 'macos' ]]; then
-									# @todo add version
-									app_name="$(defaults read "$app_path/Contents/Info.plist" CFBundleName || :)"
-									app_id="$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier || :)"
-								else
-									app_name="$name"
-								fi
-								case "$option_output" in
-								details) __dump {name} {app_name} {app_id} {app_basename} {app_path} ;;
-								input) __print_lines "$app" ;;
-								name) __print_lines "$app_name" ;;
-								id) __print_lines "${app_id:-"$app_name"}" ;;
-								path) __print_lines "$app_path" ;;
-								esac
-							fi
-							if [[ $option_invoke == 'yes' ]]; then
-								open -a "$app_path" "${option_args[@]}" # eval
-							fi
-							case "$option_which" in
-							first) return 0 ;;
-							each) break 2 ;;
-							esac
-						fi
-					done
-				fi
+				for app_dir in "${app_dirs[@]}"; do
+					# macos is rarely case-sensitive
+					app_path="$app_dir/$app_basename"
+					# -e, as only on macos it is a directory
+					if [[ -e $app_path ]]; then
+						app_paths+=("$app_path")
+					fi
+				done
 			done
 		fi
+		# cycle through app paths
+		for app_path in "${app_paths[@]}"; do
+			# app was found
+			found='yes'
+			if [[ -n $option_output ]]; then
+				local app_name app_id
+				if [[ $app_path == *.app ]]; then
+					# @todo add version
+					app_name="$(defaults read "$app_path/Contents/Info.plist" CFBundleName || :)"
+					app_id="$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier || :)"
+				else
+					app_name="$(fs-path --no-parents -- "$app_path")"
+				fi
+				case "$option_output" in
+				details) __dump {name} {app_name} {app_id} {app_path} ;;
+				input) __print_lines "$app" ;;
+				name) __print_lines "$app_name" ;;
+				id) __print_lines "${app_id:-"$app_name"}" ;;
+				path) __print_lines "$app_path" ;;
+				esac
+			fi
+			if [[ $option_invoke == 'yes' ]]; then
+				open -a "$app_path" "${option_args[@]}" # eval
+			fi
+			case "$option_which" in
+			first) return 0 ;;
+			each) break 2 ;;
+			esac
+		done
 		# platforms
 		if [[ $sources == *'[flatpak]'* && $flatpak == 'yes' ]]; then
 			local rows=() row columns=() flatpak_name flatpak_id flatpak_lower flatpak_path
@@ -340,22 +386,20 @@ function get_app() (
 				found='yes'
 				__split --source={row} --target={columns} --delimiter=','
 				scoop_id="${columns[0]}"
-				if [[ $option_output == 'details' || $option_output == 'path' || $option_invoke == 'yes' ]]; then
-					scoop_details="$(scoop show "$scoop_id")"
-					if [[ $option_output == 'path' || $option_invoke == 'yes' ]]; then
-						scoop_path="$(echo-regexp -onm --regexp='^Binaries\s*:\s*([^\s]+)' --replace='$1' || :)"
-						if [[ -n $scoop_path ]]; then
-							scoop_path="$(type -P "$scoop_path" || :)"
-						fi
-						if [[ -z $scoop_path ]]; then
-							__print_error --help='Failed to fetch the path of a Scoop app.' --newline --variable={app} --newline --variable={scoop_id} || return $?
-							return 93 # ENOATTR 93 Attribute not found
-						fi
+				if [[ $option_output =~ ^(details|path)$ || $option_invoke == 'yes' ]]; then
+					scoop_details="$(scoop info "$scoop_id" | echo-trim-padding --stdin)"
+					if [[ $option_output =~ ^(details|path)$ || $option_invoke == 'yes' ]]; then
+						# Binaries    : Application\vivaldi.exe
+						# However, fetch path via `scoop which` and wsl
+						scoop_path="$(scoop which "$scoop_id")"
+						# `~/scoop/apps/vivaldi/current/Application/vivaldi.exe`
+						# `wslpath -au '...'` => `/home/balupton/.local/share/dorothy/~/scoop/apps/vivaldi/current/Application/vivaldi.exe` hence need for __windows_to_unix_path
+						scoop_path="$(__windows_to_unix_path "$scoop_path")"
 					fi
 				fi
 				if [[ -n $option_output ]]; then
 					case "$option_output" in
-					details) __print_lines "$scoop_details" ;;
+					details) __dump {name} {scoop_id} {scoop_path}; __print_lines "$scoop_details" ;;
 					input) __print_lines "$app" ;;
 					name) __print_lines "$scoop_id" ;;
 					id) __print_lines "$scoop_id" ;;
