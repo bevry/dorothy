@@ -110,10 +110,18 @@ function setup_util() (
 		installer # local or remote installer
 		'eval'    # run a function or another script
 
-		# prefer scoop before winget, is +exposed +shared +precompiled, +autoupdate, however binaries are exposed to WSL but expect Windows conventions, such as Windows paths, CRLF line endings, etc; this can be worked around for things like `deno` with `eval-wsl`, or with `jq` with `bash.bash:__jq`, however things like `ripgrep` it is too involved, so bump this way later, to prefer internal-WSL sources, then Windows sources
+		# A note on Windows
+		# Dorothy only supports WSL
+		# Which `is-system --linux` and `is-system --windows` and `is-system --wsl` will all be true.
+		# Utilities should be installed via the Linux options, as utilities compiled for Windows is compiled for a Windows NOT WSL environment, and expects Windows and outputs conventions, such as Windows-style file paths and line endings. As such `.exe`s will fail on WSL unless wrapped in `eval-wsl` and with line endings etc handled.
+		# Applications however, should be  installed via Scoop or Winget only, as WSL does not have the necessary privileges to install applications itself, as it cannot run as a Windows administrator. As such, do not write INSTALLER and EVAL scripts for `.msi`s etc.
+		# In summary, if <app> and if Windows and if no <cli>, then you should exclude all but scoop and winget. Perhaps later `setup-util` will do this exclusion ourself.
+		# Note that applications can still be installed on  headless environments, such as Plex Media Server.
+
+		# Prefer scoop before winget, is +exposed +shared +precompiled, +autoupdate, however binaries are exposed to WSL but expect Windows conventions, such as Windows paths, CRLF line endings, etc; this can be worked around for things like `deno` with `eval-wsl`, or with `jq` with `bash.bash:__jq`, however things like `ripgrep` it is too involved, so bump this way later, to prefer internal-WSL sources, then Windows sources
 		scoop # installs exes to consistent path location
 
-		# prefer winget after scoop, is +precompiled +autoupdate, however requires environment to be reloaded, and requires manual .exe handling
+		# Prefer winget after scoop, is +precompiled +autoupdate, however requires environment to be reloaded, and requires manual .exe handling
 		winget # installs apps to windows, installs exes to windows, paths inherited but custom
 
 		# choco/chocolatey/cinst is not supported as it does not support WSL: <https://gist.github.com/balupton/f1c70ec7420e7cdea1aedf6bdb898589>
@@ -158,13 +166,12 @@ function setup_util() (
 			--source=<source> -- ...<package>
 			    Install all packages with this <source>.
 
-			--cli=<cli>
+			These can be specified multiple times in case the utility has different identifiers on different platforms:
+			--cli=...<cli>
 			    Used to check if the utility is already installed, in this case, a CLI executable.
-
-			--app=<app>
+			--app=...<app>
 			    Used to check if the utility is already installed, in this case, an application.
-
-			--font=<font>
+			--font=...<font>
 			    Used to check if the utility is already installed, in this case, a font.
 
 			--checker=<command>
@@ -263,7 +270,7 @@ function setup_util() (
 	local GEM=() RUBY=()
 	local GO=()
 	local GUIX=()
-	local INSTALLER='' INSTALLER_FILENAME='' INSTALLER_OPEN=''
+	local INSTALLER='' INSTALLER_FILENAME='' INSTALLER_OPEN='' INSTALLER_UNINSTALL_ARGUMENT=()
 	local MAS=()
 	local NIX=() NIX_PROFILE=()
 	local NPM=() NODE=()
@@ -289,7 +296,7 @@ function setup_util() (
 	# </options-for-sources>
 
 	# process
-	local item option_quiet='' option_action='install' option_check='' option_checker='' option_source='' option_app='' option_clis=() option_font='' option_name='' option_xdg='yes' option_elevate='no' option_confirm='no' option_optional='no' option_deps='yes' option_fallback='yes' option_upgrade='no' option_force='no' option_order=()
+	local item option_quiet='' option_action='install' option_check='' option_checker='' option_source='' option_apps=() option_clis=() option_fonts=() option_name='' option_xdg='yes' option_elevate='no' option_confirm='no' option_optional='no' option_deps='yes' option_fallback='yes' option_upgrade='no' option_force='no' option_order=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -319,9 +326,9 @@ function setup_util() (
 		'--action='*) option_action="${item#*=}" ;;
 		'--order='*) __split --target={option_order} --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
 		'--source='* | '--installer='*) option_source="${item#*=}" ;;
-		'--app='*) option_app="${item#*=}" ;;
+		'--app='*) option_apps+=("${item#*=}") ;;
 		'--cli='*) option_clis+=("${item#*=}") ;;
-		'--font='*) option_font="${item#*=}" ;;
+		'--font='*) option_fonts+=("${item#*=}") ;;
 		'--name='*) option_name="${item#*=}" ;;
 		# @todo redo the elevate/xdg flow in this, make it like sbin instead
 		'--no-xdg'* | '--xdg'*) __flag --source={item} --target={option_xdg} --affirmative --coerce ;;
@@ -398,6 +405,7 @@ function setup_util() (
 		'GUIX='*) GUIX+=("${item#*=}") ;;
 		'INSTALLER_FILENAME='*) INSTALLER_FILENAME="${item#*=}" ;;
 		'INSTALLER_OPEN='*) INSTALLER_OPEN="${item#*=}" ;;
+		'INSTALLER_UNINSTALL_ARGUMENT='*) INSTALLER_UNINSTALL_ARGUMENT+=("${item#*=}") ;;
 		'INSTALLER='*) INSTALLER="${item#*=}" ;;
 		'MAS='*) MAS+=("${item#*=}") ;;
 		'NIX_PROFILE='*) NIX_PROFILE+=("${item#*=}") ;;
@@ -457,12 +465,12 @@ function setup_util() (
 
 	# ensure name fallback
 	if [[ -z $option_name ]]; then
-		if [[ -n $option_app ]]; then
-			option_name="$option_app"
+		if [[ ${#option_apps[*]} -ne 0 ]]; then
+			option_name="${option_apps[0]}"
 		elif [[ ${#option_clis[@]} -ne 0 ]]; then
 			__join --source={option_clis} --between='|' --target={option_name}
-		elif [[ -n $option_font ]]; then
-			option_name="$option_font"
+		elif [[ ${#option_fonts[*]} -ne 0 ]]; then
+			option_name="${option_fonts[0]}"
 		elif [[ -n $option_source ]]; then
 			option_name="$option_source"
 		elif [[ -n $option_checker ]]; then
@@ -488,7 +496,7 @@ function setup_util() (
 
 	# check if exists
 	local can_validate='' is_working='' is_missing=''
-	if [[ ${#option_clis[@]} -ne 0 || -n $option_app || -n $option_checker || -n $option_font ]]; then
+	if [[ ${#option_clis[@]} -ne 0 || ${#option_apps[@]} -ne 0 || -n $option_checker || ${#option_fonts[@]} -ne 0 ]]; then
 		can_validate='yes'
 		is_working='yes'
 		is_missing='yes'
@@ -499,8 +507,8 @@ function setup_util() (
 				is_working='no'
 			fi
 		fi
-		if [[ -n $option_app ]]; then
-			if get-app --quiet -- "$option_app"; then
+		if [[ ${#option_apps[@]} -ne 0 ]]; then
+			if get-app --quiet --first -- "${option_apps[@]}"; then
 				is_missing='no'
 			else
 				is_working='no'
@@ -522,8 +530,8 @@ function setup_util() (
 				is_missing='no'
 			fi
 		fi
-		if [[ -n $option_font ]]; then
-			if get-font --quiet -- "$option_font"; then
+		if [[ ${#option_fonts[@]} -ne 0 ]]; then
+			if get-font --quiet -- "${option_fonts[@]}"; then
 				is_missing='no'
 			else
 				is_working='no'
@@ -640,35 +648,35 @@ function setup_util() (
 	# Process
 
 	# helpers
-	function get_path_from_filename {
+	function __get_path_from_filename {
 		local filename="$1"
 		# only place in appimage_home if it keeps the appimage extension
 		if [[ $filename =~ \.(ttf|otf)$ ]]; then
 			local font_dir
-			font_dir="$(get-font --dirs | echo-first-line)"
-			__print_lines "$font_dir/$filename"
+			font_dir="$(get-font --only-print-dirs | echo-first-line)" || return $?
+			__print_lines "$font_dir/$filename" || return $?
 		elif [[ $filename == *'.app' ]]; then
 			# macos /Applications/$filename.app
-			__print_lines "$HOME/Applications/$filename"
+			__print_lines "$HOME/Applications/$filename" || return $?
 		elif [[ $filename == *'.appimage' ]]; then
 			# macos $HOME/Applications/$filename.appimage
-			__mkdirp "$APPIMAGE_HOME"
-			__print_lines "$APPIMAGE_HOME/$filename"
+			__mkdirp "$APPIMAGE_HOME" || return $?
+			__print_lines "$APPIMAGE_HOME/$filename" || return $?
 		elif [[ $option_xdg == 'no' ]]; then
-			__elevate_mkdirp '/usr/local/bin'
-			__print_lines "/usr/local/bin/$filename"
+			__elevate_mkdirp '/usr/local/bin' || return $?
+			__print_lines "/usr/local/bin/$filename" || return $?
 		else
 			# macos $HOME/.local/bin/$filename
-			__mkdirp "$XDG_BIN_HOME"
-			__print_lines "$XDG_BIN_HOME/$filename"
+			__mkdirp "$XDG_BIN_HOME" || return $?
+			__print_lines "$XDG_BIN_HOME/$filename" || return $?
 		fi
 	}
-	function verify_saved_path {
+	function __verify_saved_path {
 		local path="$1"
 
 		# verify
 		if is-missing -- "$path"; then
-			__print_style --stderr --error1='Failed to install:' ' ' --path="$path"
+			__print_style --stderr --error1='Failed to install:' ' ' --path="$path" || return $?
 			return 1
 		fi
 
@@ -677,8 +685,8 @@ function setup_util() (
 			return 0
 		else
 			# adjust
-			fs-own --permissions='+x' -- "$path"
-			fs-dequarantine -- "$path"
+			fs-own --permissions='+x' -- "$path" || return $?
+			fs-dequarantine -- "$path" || return $?
 
 			# check app or cli
 			if [[ $path == *'.app' && -d $path ]]; then
@@ -689,41 +697,41 @@ function setup_util() (
 		fi
 
 		# failure
-		__print_style --stderr --error1='Failed to verify:' ' ' --path="$path"
+		__print_style --stderr --error1='Failed to verify:' ' ' --path="$path" || return $?
 		# remove so it doesn't interfere with other install methods and other processes
-		rm_helper "$path"
+		__rm_helper "$path" || return $?
 		# return failure
 		return 1
 	}
-	function rm_helper {
+	function __rm_helper {
 		local remove_paths=("$@") remove_paths_present_unique=()
 		if [[ ${#remove_paths[@]} -eq 0 ]]; then
 			return 0
 		fi
-		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(echo-if-present --elevate="$option_elevate" -- "${remove_paths[@]}" | echo-unique --stdin || :)
+		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(echo-if-present --elevate="$option_elevate" -- "${remove_paths[@]}" | echo-unique --stdin || :) || return $?
 		if [[ ${#remove_paths_present_unique[@]} -eq 0 ]]; then
 			return 0
 		fi
 		# prefer moving to trash, because trash allows invocations to continue
 		# otherwise active invocations will crash, such as [setup-util-bash] uninstalling the bash it was invoked with
-		fs-remove --quiet --no-confirm --trash --delete --elevate="$option_elevate" -- "${remove_paths_present_unique[@]}"
+		fs-remove --quiet --no-confirm --trash --delete --elevate="$option_elevate" -- "${remove_paths_present_unique[@]}" || return $?
 		return $?
 	}
-	function rm_helper_which {
+	function __rm_helper_which {
 		local remove_paths=("$@") remove_paths_present_unique=() remove_paths_selected=()
 		if [[ ${#remove_paths[@]} -eq 0 ]]; then
 			return 0
 		fi
-		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(echo-if-present -- "${remove_paths[@]}" | echo-unique --stdin || :)
+		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(echo-if-present -- "${remove_paths[@]}" | echo-unique --stdin || :) || return $?
 		if [[ ${#remove_paths_present_unique[@]} -eq 0 ]]; then
 			return 0
 		fi
 		__split --target={remove_paths_selected} --no-zero-length --invoke -- \
-			choose --linger --confirm --multi --default-all --question='Which files to remove?' -- "${remove_paths_present_unique[@]}"
+			choose --linger --confirm --multi --default-all --question='Which files to remove?' -- "${remove_paths_present_unique[@]}" || return $?
 		if [[ ${#remove_paths_selected[@]} -eq 0 ]]; then
 			return 0
 		fi
-		rm_helper "${remove_paths_selected[@]}"
+		__rm_helper "${remove_paths_selected[@]}" || return $?
 		return $?
 	}
 
@@ -738,7 +746,7 @@ function setup_util() (
 			for cli in "${option_clis[@]}"; do
 				cli_paths+=("$XDG_BIN_HOME/$cli") # "/usr/local/bin/$cli"
 			done
-			rm_helper "${cli_paths[@]}"
+			__rm_helper "${cli_paths[@]}"
 		fi
 	fi
 
@@ -1851,7 +1859,7 @@ function setup_util() (
 				for cli in "${option_clis[@]}"; do
 					cli_paths+=("$GOPATH/bin/$cli")
 				done
-				rm_helper "${cli_paths[@]}"
+				__rm_helper "${cli_paths[@]}"
 				return $?
 			else
 				return 78 # NOSYS 78 Function not implemented, as the package is not a CLI
@@ -2009,7 +2017,7 @@ function setup_util() (
 			# the only thing that works is invoking such a script with system bash, however there is no way to do that comprehensively, so we just warn by going back to the default terminal device immediately amd dump the warning, so that the warning persists in context of the need for the upgrade and the result of upgrade which is the upcoming crash
 			__value_to_tty "$default_screen_buffer"
 			__print_style --stderr \
-				--notice1='Homebrew is about to delete the currently running bash executable, which will cause this sript to crash with exit status ' --code-notice1='137' --newline \
+				--notice1='Homebrew is about to delete the currently running bash executable, which will cause this sript to crash with exit status ' --value='137' --newline \
 				--notice1='Once crashed, please manually continue by re-running the prior script that you executed.'
 		fi
 
@@ -3467,7 +3475,7 @@ function setup_util() (
 		# checks and adjustments
 		local infer_from_font='no'
 		if [[ ${#filenames[@]} -eq 0 ]]; then
-			if [[ -n $option_font ]]; then
+			if [[ ${#option_fonts[@]} -ne 0 ]]; then
 				infer_from_font='yes'
 			elif [[ ${#option_clis[@]} -ne 0 ]]; then
 				filenames=("${option_clis[@]}")
@@ -3481,7 +3489,7 @@ function setup_util() (
 		fi
 		if [[ ${#target_paths[@]} -eq 0 ]]; then
 			for filename in "${filenames[@]}"; do
-				target_path="$(get_path_from_filename "$filename")"
+				target_path="$(__get_path_from_filename "$filename")"
 				target_paths+=("$target_path")
 			done
 		elif [[ ${#target_paths[@]} -ne ${#filenames[@]} ]]; then
@@ -3530,7 +3538,7 @@ function setup_util() (
 				return 200 # ECUSTOM 200 Not applicable to this utility
 			fi
 			# continue with install of fonts
-			download_directory="$(get-font --dirs | echo-first-line)"
+			download_directory="$(get-font --only-print-dirs | echo-first-line)"
 		else
 			# downloading a directory or files?
 			if [[ -n $build_install || -n $build_uninstall || -n $build_glob || ${#target_paths[@]} -gt 1 ]]; then
@@ -3552,14 +3560,14 @@ function setup_util() (
 					do_the_download
 					# build uninstall
 					local build_status
-					__print_style --info1='Uninstalling the built ' --code-info1="$option_name" --info1=' in ' --code-info1="$download_directory" --info1=' ...'
+					__print_style --info1='Uninstalling the built ' --variable-value={option_name} --info1=' in ' --variable-value={download_directory} --info1=' ...'
 					pushd "$download_directory" &>/dev/null
 					__try {build_status} -- "$build_uninstall"
 					popd &>/dev/null
 					if [[ $build_status -eq 0 ]]; then
-						__print_style --good1='Uninstalled the built ' --code-good1="$option_name" --good1=' in ' --code-good1="$download_directory"
+						__print_style --good1='Uninstalled the built ' --variable-value={option_name} --good1=' in ' --variable-value={download_directory}
 					else
-						__print_style --stderr --error1='Failed to uninstall the built ' --code-error1="$option_name" --error1=' in ' --code-error1="$download_directory"
+						__print_style --stderr --error1='Failed to uninstall the built ' --variable-value={option_name} --error1=' in ' --variable-value={download_directory}
 						return "$build_status"
 					fi
 				else
@@ -3569,7 +3577,7 @@ function setup_util() (
 					fi
 				fi
 				# cleanup
-				rm_helper "${target_paths[@]}" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"
+				__rm_helper "${target_paths[@]}" "$XDG_BIN_HOME/$filename" "/usr/local/bin/$filename"
 				# continue to generic uninstall
 				return 0
 			fi
@@ -3586,7 +3594,7 @@ function setup_util() (
 			__split --target={filtered_paths} --no-zero-length --invoke -- \
 				expand-path -- "$download_directory/$glob"
 			if [[ ${#filtered_paths[@]} -eq 0 ]]; then
-				__print_error "No files matched the $name " --code="$glob" ' within ' --path="$download_directory" --newline --bold='Expected:' --newline --variable={target_paths} --newline --bold='Actual:'
+				__print_error 'No files matched the ' --variable={name} ' ' --variable={glob} ' within ' --path="$download_directory" --newline --bold='Expected:' --newline --variable={target_paths} --newline --bold='Actual:'
 				fs-structure -- "$download_directory" >&2
 				return 1
 			elif [[ ${#filtered_paths[@]} -eq ${#target_paths[@]} ]]; then
@@ -3600,7 +3608,7 @@ function setup_util() (
 					fs-move --verbose --overwrite -- "$filtered_path" "$target_path"
 				done
 			else
-				__print_error "Too many files matched the $name " --code="$glob" ' within ' --path="$download_directory" --newline --bold='Expected:' --newline --variable={target_paths} --newline --bold='Actual:' --newline --variable={filtered_paths}
+				__print_error 'Too many files matched the ' --variable={name} ' ' --variable={glob} ' within ' --path="$download_directory" --newline --bold='Expected:' --newline --variable={target_paths} --newline --bold='Actual:' --newline --variable={filtered_paths}
 				fs-structure -- "$download_directory" >&2
 				return 1
 			fi
@@ -3608,15 +3616,15 @@ function setup_util() (
 		if [[ -n $build_install ]]; then
 			# build install
 			local build_status
-			__print_style --info1='Building ' --code-info1="$option_name" --info1=' in ' --code-info1="$download_directory" --info1=' ...'
+			__print_style --info1='Building ' --variable-value={option_name} --info1=' in ' --variable-value={download_directory} --info1=' ...'
 			# can't do cd in a subshell as we want to capture the status
 			pushd "$download_directory" &>/dev/null
 			__try {build_status} -- "$build_install"
 			popd &>/dev/null
 			if [[ $build_status -eq 0 ]]; then
-				__print_style --good1='Built ' --code-good1="$option_name" --good1=' in ' --code-good1="$download_directory"
+				__print_style --good1='Built ' --variable-value={option_name} --good1=' in ' --variable-value={download_directory}
 			else
-				__print_style --stderr --error1='Failed to build ' --code-error1="$option_name" --error1=' in ' --code-error1="$download_directory"
+				__print_style --stderr --error1='Failed to build ' --variable-value={option_name} --error1=' in ' --variable-value={download_directory}
 				return "$build_status"
 			fi
 			# move to target path if have pattern
@@ -3631,13 +3639,13 @@ function setup_util() (
 
 		# verify
 		if [[ $infer_from_font == 'yes' ]]; then
-			if ! get-font --quiet -- "$option_font"; then
-				__print_style --stderr --error1='Failed to verify: ' --code-error1="$option_font"
+			if ! get-font --quiet -- "${option_fonts[@]}"; then
+				__print_style --stderr --error1='Failed to verify font installation: ' --variable={option_fonts}
 				return 1
 			fi
 		else
 			for target_path in "${target_paths[@]}"; do
-				verify_saved_path "$target_path"
+				__verify_saved_path "$target_path"
 			done
 		fi
 	}
@@ -3659,7 +3667,7 @@ function setup_util() (
 		fi
 	}
 	function do_installer {
-		local args=() filepath file_or_url="$INSTALLER" filename="$INSTALLER_FILENAME" open="$INSTALLER_OPEN"
+		local args=() filepath file_or_url="$INSTALLER" filename="$INSTALLER_FILENAME" open="$INSTALLER_OPEN" uninstall_arguments=("${INSTALLER_UNINSTALL_ARGUMENT[@]}")
 
 		# optional filename
 		if [[ -z $filename ]]; then
@@ -3688,7 +3696,11 @@ function setup_util() (
 			fi
 		else
 			# external installer script
-			"$filepath"
+			local arguments=()
+			if [[ $option_action == 'uninstall' ]]; then
+				arguments+=("${uninstall_arguments[@]}")
+			fi
+			"$filepath" "${arguments[@]}"
 		fi
 	}
 
@@ -3701,28 +3713,26 @@ function setup_util() (
 	function do_generic {
 		local status=200
 		if [[ $option_action == 'uninstall' ]]; then
-			if [[ ${#option_clis[@]} -ne 0 ]]; then
-				local cli cli_path
-				for cli in "${option_clis[@]}"; do
-					cli_path="$(get_path_from_filename "$cli")"
-					if ! is-missing -- "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"; then
-						rm_helper_which "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"
-						status=0
-					fi
-				done
-			fi
-			if [[ -n $option_app ]]; then
-				local app_path
-				app_path="$(get_path_from_filename "$option_app")"
-				if ! is-missing -- "$app_path" "$XDG_BIN_HOME/$option_app" "/usr/local/bin/$option_app"; then
-					rm_helper_which "$app_path" "$XDG_BIN_HOME/$option_app" "/usr/local/bin/$option_app"
+			local cli cli_path
+			for cli in "${option_clis[@]}"; do
+				cli_path="$(__get_path_from_filename "$cli")"
+				if ! is-missing -- "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"; then
+					__rm_helper_which "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"
 					status=0
 				fi
-			fi
-			if [[ -n $option_font ]]; then
+			done
+			local app app_path
+			for app in "${option_apps[@]}"; do
+				app_path="$(__get_path_from_filename "$app")"
+				if ! is-missing -- "$app_path" "$XDG_BIN_HOME/$app" "/usr/local/bin/$app"; then
+					__rm_helper_which "$app_path" "$XDG_BIN_HOME/$app" "/usr/local/bin/$app"
+					status=0
+				fi
+			done
+			if [[ ${#option_fonts[@]} -ne 0 ]]; then
 				local fonts=() count
 				__split --target={fonts} --no-zero-length --invoke=try -- \
-					get-font -- "$option_font"
+					get-font -- "${option_fonts[@]}"
 				count="${#fonts[@]}"
 				if [[ $count -ne 0 ]]; then
 					# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose, so use to gum
@@ -3732,16 +3742,16 @@ function setup_util() (
 						__split --target={selection} --no-zero-length --invoke -- \
 							gum choose --no-limit --header='Which fonts to remove?' -- "${fonts[@]}"
 						if [[ ${#selection[@]} -gt 100 ]]; then
-							# it'll also be too much for rm_helper/fs-remove
+							# it'll also be too much for __rm_helper/fs-remove
 							rm -f -- "${selection[@]}"
 						else
-							rm_helper "${selection[@]}"
+							__rm_helper "${selection[@]}"
 						fi
 					else
 						local selection=()
 						__split --target={selection} --no-zero-length --invoke -- \
 							choose --linger --confirm --multi --question='Which fonts to remove?' -- "${fonts[@]}"
-						rm_helper "${selection[@]}"
+						__rm_helper "${selection[@]}"
 					fi
 				fi
 				status=0
@@ -3891,7 +3901,7 @@ function setup_util() (
 	}
 	run_sources
 	# if font, refresh the cache
-	if [[ -n $option_font ]] && __command_exists -- fc-cache; then
+	if [[ ${#option_fonts[@]} -ne 0 ]] && __command_exists -- fc-cache; then
 		if [[ $option_quiet == 'yes' ]]; then
 			__do --redirect-stdout=TTY -- fc-cache -f
 		else

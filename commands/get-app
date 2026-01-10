@@ -5,19 +5,57 @@ function get_app_test() (
 	eval-tester --ignore-stderr --status=22 -- get-app --help
 )
 
+# @todo it's possible to add support for fetching version as well
+
 function get_app() (
 	source "$DOROTHY/sources/bash.bash"
 
-	# @todo support linux systems, so [setup-util-1password] can detect successful install
-	local dirs=(
+	# determine and cache capabilities
+	local system findable='no' appimage='no' flatpak='no' winget='no' scoop='no'
+	local app_search_paths=(
+		"$APPIMAGE_HOME"
 		"$HOME/Applications"
 		'/Applications'
-		'/Applications/Setapp'
-		'/Applications/Utilities'
-		'/System/Applications'           # TextEdit
-		'/System/Applications/Utilities' # Terminal
-		'/System/Library/CoreServices'   # Finder
 	)
+	if __is_macos; then
+		findable='yes'
+		system='macos'
+		app_search_paths+=(
+			'/Applications/Setapp'
+			'/Applications/Utilities'
+			'/System/Applications'           # TextEdit
+			'/System/Applications/Utilities' # Terminal
+			'/System/Library/CoreServices'   # Finder
+		)
+	elif __is_windows; then
+		# @todo now that nested exe searching is there, consider adding the Windows WSL paths for nested exe searching
+		if is-system --winget; then
+			findable='yes'
+			winget='yes'
+		fi
+		if is-system --scoop; then
+			findable='yes'
+			scoop='yes'
+		fi
+		system='windows'
+	elif __is_linux; then
+		app_search_paths+=(
+			/usr/share/applications
+			"$DATA_DIR/applications"
+			"$XDG_DATA_HOME/applications"
+		)
+		if is-system --appimage; then
+			findable='yes'
+			appimage='yes'
+		fi
+		if is-system --flatpak; then
+			findable='yes'
+			flatpak='yes'
+		fi
+		system='linux'
+	fi
+	__evict --source+target={app_search_paths} --optional --every --value=''
+	__unique --source+target={app_search_paths}
 
 	# =====================================
 	# Arguments
@@ -25,152 +63,393 @@ function get_app() (
 	function help {
 		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get the full path of a GUI application.
+			Check, invoke, or query an <app>.
 
 			USAGE:
 			\`get-app [...options] [--] <app>\`
+			\`get-app --open [..options] [-- ...<argument>]\`
 
 			OPTIONS:
-			<app> | --app=<app> | --name=<app>
+			<app> | --app=<app>
 			    The application name or path to get the full path of.
 
-			--no-quiet | --quiet
-			    If enabled, do not output the path of the application, and do not output any error messages.
+			--invoke|open [-- ...<argument>]
+			    Invoke the <app> if found, passing any provided <argument>s to it.
+			    Not yet supported for WinGet and Scoop applications.
 
-			--id | --output=id
-			    If enabled, on macos, output the bundle identifier of the application instead of the path.
+			--source=...<source:bins|apps|flatpak|scoop|winget> | ---sources=...<source>
+			    Limit searching to the specified <source>s.
+			    If not provided, all available sources will be searched.
+			    If <source:bins> is enabled, searches for the application's binaries via \`PATH\`, which includes WSL paths.
+			    If <source:apps> is enabled, searches for the application via usual paths and formats. Which on this system are:
+			$(__join --source={app_search_paths} --left='        * ' --style=code --between=$'\n')
+			    If <source:flatpak> is enabled, searches Flatpak applications. Only available on Linux.
+			    If <source:scoop> is enabled, searches Scoop applications. Only available on Windows.
+			    If <source:winget> is enabled, searches WinGet applications. Only available on Windows.
 
-			QUIRKS:
-			Searches the following paths for the application:
-			$(__print_lines "${dirs[@]}")
+			--first | --each | --every | --which=<which:first|each|every>
+			    If <first>, the default, stop after the first found <app> occurrence. Implies <any>.
+			    If <each>, stop at the <first> found of each <app>. Requires <need> to be specified.
+			    If <every>, find all occurrences of each <app>. Requires <need> to be specified.
+			--optional | --any | --all | --need=<need:optional|any|all>
+			    If <optional>, do not require any <app>s to be found, but output their information if not <quiet>.
+			    If <any>, require at least one <app> to be found. Unless <first> is specified, continue to output details for all if not <quiet>.
+			    If <all>, require all <app>s to be found.
 
-			If the application failed to resolve, it will not be outputted.
-			Only if it is impossible to detect whether the application is present, will a failure occur.
+			--details | --input | --name | --id | --path | --output=<output:details|input|name|id|path>
+			    If <output:details>, and if the <app> is found, output the all details of the <app>.
+			    If <output:input>, and if the <app> is found, output the <app> value.
+			    If <output:name>, and if the <app> is found, output the name of the <app>.
+			    If <output:id>, and if the <app> is found, output the identifier of the <app>, if an identifier is not available, output the name.
+			    If <output:path>, and if the <app> is found, output the location of the <app>. Not yet supported for WinGet and Scoop applications.
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, do not output any result.
+			If neither <output> nor <quiet> are provided, then <output:details> will be set.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_apps=() option_quiet='' option_output=path
+	local item option_apps=() option_sources=() option_args=() option_quiet='no' option_which='first' option_need='' option_invoke='no' option_output=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		--help | -h) help ;;
-		--app=*) option_apps+=("${item#*=}") ;;
-		--name=*) option_apps+=("${item#*=}") ;;
-		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative ;;
-		--id | --output=id) option_output=id ;;
-		--path | --output=path) option_output=path ;;
-		--)
-			option_apps+=("$@")
+		'--help' | '-h') help ;;
+		'--app='* | '--name='* | '--id='*) option_apps+=("${item#*=}") ;;
+		'--source='* | '--sources='*) __split --target={option_sources} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-invoke'* | '--invoke'* | '--no-open'* | '--open'*) __flag --source={item} --target={option_invoke} --affirmative --coerce ;;
+		'--first') option_which='first' ;;
+		'--each') option_which='each' ;;
+		'--every') option_which='every' ;;
+		'--optional') option_need='optional' ;;
+		'--any') option_need='any' ;;
+		'--all') option_need='all' ;;
+		'--details' | '--output=details') option_output='details' ;;
+		'--input' | '--output=input') option_output='input' ;;
+		'--name' | '--output=name') option_output='name' ;;
+		'--id' | '--output=id') option_output='id' ;;
+		'--path' | '--output=path' | '--location' | '--output=location') option_output='path' ;;
+		'--')
+			if [[ $option_invoke == 'yes' ]]; then
+				option_args+=("$@")
+			else
+				option_apps+=("$@")
+			fi
 			shift $#
 			break
 			;;
-		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*)
-			if [[ ${#option_apps[@]} -eq 0 ]]; then
-				option_apps+=("$item")
-			else
-				help 'An unrecognised argument was provided: ' --variable-value={item}
-			fi
-			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		'-'*) help 'An unrecognised argument was provided: ' --variable-value={item} ;; # capture typos like -source=<source>
+		*) option_apps+=("$item") ;;
 		esac
 	done
 
 	# check
 	if [[ ${#option_apps[@]} -eq 0 ]]; then
-		help 'No <app>s provided.'
+		help --help='No <app>s provided.'
+	fi
+	if [[ $findable == 'no' ]]; then
+		help 'Unable to detect applications on this platform. Windows supports Scoop and WinGet. Linux supports AppImage and Flatpak.'
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+
+	# if no sources, add them all
+	local sources=''
+	if [[ ${#option_sources[@]} -eq 0 ]]; then
+		option_sources+=('bins' 'apps' 'flatpak' 'scoop' 'winget')
+	fi
+	__unique --source+target={option_sources}
+	__join --source={option_sources} --target={sources} --left='[' --right=']'
+
+	# imply
+	# @todo should check and ensure this match's `bash.bash:__iterate`
+	if [[ -z $option_which ]]; then
+		option_which='first'
+	fi
+	if [[ -z $option_need ]]; then
+		if [[ $option_which == 'first' ]]; then
+			option_need='any'
+		else
+			option_need='all'
+		fi
+	fi
+
+	# headless, no apps
+	if is-system --headless; then
+		if [[ $option_need == 'optional' ]]; then
+			return 0
+		fi
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+
+	# details
+	if [[ $option_quiet == 'no' && -z $option_output ]]; then
+		option_output='details'
 	fi
 
 	# =====================================
 	# Action
 
-	local name app dir path can_find was_found result
-	for name in "${option_apps[@]}"; do
-		if [[ -z $name ]]; then
-			return 1
+	# helpers
+	function __columns_to_csv {
+		tr $'\t' ',' || return $?
+	}
+	function __fetch_all_installed_from_flatpak {
+		flatpak list --columns=name,application | __columns_to_csv || return $?
+	}
+	function __cleanup_winget_output {
+		"$@" | echo-regexp -g --regexp=$'\r\n' --replace=$'\n' | echo-regexp -gm --regexp=$'[^\r]*\r' --replace='' | echo-regexp -g --regexp=$'\r' --replace='' || return $? # eval
+	}
+	function __fetch_matching_from_winget {
+		local query="$1" winget_rows=() row header_columns=() winget_name winget_id winget_version winget_source
+		# If you want to match the whole header separator, it is `^---+\s*$` as there is trailing blanks
+		# winget.exe list --disable-interactivity --query="$app" | echo-lines-after --pattern='^---' --stdin | echo-regexp -g --regexp='  +' --replace=',' || return $?
+		# However, the above does not work if there is only one result, as then there is only a single space between columns, and column values can include spaces, so we need split based on the column lengths in the header
+		__split --target={winget_rows} --no-zero-length --invoke -- \
+			__cleanup_winget_output winget.exe list --disable-interactivity --query="$app" || return $?
+		# Name                                 Id                                    Version
+		__split --target={header_columns} --no-zero-length --invoke -- \
+			echo-regexp -g --regexp='( +)' --replace=$'$1\n' -- "${winget_rows[0]}" || return $?
+		for row in "${winget_rows[@]:2}"; do
+			winget_name="${row:0:${#header_columns[0]}}"
+			winget_id="${row:${#header_columns[0]}:${#header_columns[1]}}"
+			winget_version="${row:${#header_columns[0]}+${#header_columns[1]}:${#header_columns[2]}}"
+			winget_source="${row:${#header_columns[0]}+${#header_columns[1]}+${#header_columns[2]}}"
+			# trim trailing spaces
+			__replace --source+target={winget_name} --suffix-all=' ' --optional || return $?
+			__replace --source+target={winget_id} --suffix-all=' ' --optional || return $?
+			__replace --source+target={winget_version} --suffix-all=' ' --optional || return $?
+			__replace --source+target={winget_source} --suffix-all=' ' --optional || return $?
+			# csv it
+			__print_lines "$winget_name,$winget_id,$winget_version,$winget_source" || return $?
+		done
+	}
+	function __fetch_matching_from_scoop {
+		local query="$1"
+		scoop list "$query" | echo-lines-after --pattern='---+' --stdin | grep --invert-match --extended-regexp --regexp='---+|^\s*$|:$' | tr -s ' ' ',' || return $?
+	}
+	# annoying workaround for windows
+	local wsl_home=''
+	function __windows_to_unix_path {
+		local wsl_path="$1"
+		if [[ -z $wsl_home ]]; then
+			wsl_home="$(wslpath -au "$(powershell.exe -NoProfile -NonInteractive -Command '$Env:UserProfile' || cmd.exe /c "echo %UserProfile%")" 2>/dev/null)" || return $?
 		fi
-		if __is_macos; then
-			# ensure the name has .app appended
-			app="${name%.app}.app"
+		wsl_path="$(wslpath -au "$wsl_path")" || return $?
+		if [[ ${wsl_path:0:1} == '~' ]]; then
+			wsl_path="$wsl_home${wsl_path:1}"
+		fi
+		__print_lines "$wsl_path"
+	}
 
-			# iterate through the various locations
-			was_found='no'
-			for dir in "${dirs[@]}"; do
-				path="$dir/$app"
-				if [[ -d $path ]]; then
-					if [[ $option_output == 'id' ]]; then
-						# get the bundle identifier
-						result="$(defaults read "$path/Contents/Info.plist" CFBundleIdentifier 2>/dev/null || :)"
-						if [[ -z $result ]]; then
-							continue
-						fi
-					else
-						result="$path"
+	# lower="$(__get_lowercase_string -- "$app")"
+	local app name lower app_basenames app_extensions app_paths app_path success='no' found
+	for app in "${option_apps[@]}"; do
+		name='' lower='' app_basenames=() app_extensions=() app_paths=() found='no'
+		if [[ -z $app ]]; then
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		__replace --source={app} --target={name} --optional --suffix='.app' --suffix='.exe' --suffix='.desktop' --suffix='.appimage' --suffix='AppImage' --suffix='Appimage' --suffix='appImage'
+		lower="$(__get_lowercase_string -- "$name")"
+		if [[ $system == 'macos' ]]; then
+			app_basenames+=("$name.app")
+			app_extensions+=('app')
+		elif [[ $system == 'windows' ]]; then
+			app_basenames+=("$name.exe")
+			app_extensions+=('exe')
+		elif [[ $system == 'linux' ]]; then
+			app_basenames+=("$name.desktop")
+			app_extensions+=('desktop')
+			if [[ $appimage == 'yes' ]]; then
+				app_basenames+=("$name.appimage")
+				app_extensions+=('appimage')
+			fi
+		fi
+		# iterate through PATH
+		if [[ $sources == *'[bins]'* ]]; then
+			# which doing executable scans, also search just for the name, as apps usually have a corresponding CLI, e.g.
+			# /usr/bin/vivaldi
+			# /usr/bin/vivaldi
+			# /usr/sbin/vivaldi
+			# /sbin/vivaldi
+			# /bin/vivaldi
+			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
+				type -Pa "$name" "${app_basenames[@]}"
+		fi
+		# iterate through apps
+		# only fetch if necessary as is slow
+		if [[ ! ($option_which == 'first' && ${#app_paths[@]} -ne 0) && $sources == *'[apps]'* ]]; then
+			# assume case insensitive filesystem
+			# can be files, dirs, symlinks
+			# can be inside nested directories, which can be case for Chrome apps, or maybe WinGet?, which requires `expand-path`
+			# the below is expensive, 2.2 seconds:
+			# ```
+			# local app_basename app_search_path app_expansions=()
+			# for app_basename in "${app_basenames[@]}"; do
+			# 	for app_search_path in "${app_search_paths[@]}"; do
+			# 		app_expansions+=("$app_search_path/**/$app_basename")
+			# 	done
+			# done
+			# __split --target={app_paths} --append --no-zero-length --invoke=try -- \
+			# 	expand-path -- "${app_expansions[@]}"
+			# ```
+			# the below is better, 1.5 seconds, but doesn't support commas, which is fine:
+			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
+				expand-path -- "{$(__join --source={app_search_paths} --between=',')}/**/$name.{$(__join --source={app_extensions} --between=',')}"
+		fi
+		# cycle through app paths
+		for app_path in "${app_paths[@]}"; do
+			# app was found
+			found='yes'
+			if [[ -n $option_output ]]; then
+				local app_name app_id
+				if [[ $app_path == *.app ]]; then
+					# @todo add version
+					app_name="$(defaults read "$app_path/Contents/Info.plist" CFBundleName || :)"
+					app_id="$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier || :)"
+				elif [[ $app_path == *.desktop ]]; then
+					# @todo add version
+					app_name="$(config-helper --path="$app_path" -- --field='Name' || :)"
+					app_id="$(fs-path --no-parents --no-extensions -- "$app_path")"
+				else
+					app_name="$(fs-path --no-parents -- "$app_path")"
+				fi
+				case "$option_output" in
+				details) __dump {name} {app_name} {app_id} {app_path} ;;
+				input) __print_lines "$app" ;;
+				name) __print_lines "$app_name" ;;
+				id) __print_lines "${app_id:-"$app_name"}" ;;
+				path) __print_lines "$app_path" ;;
+				esac
+			fi
+			if [[ $option_invoke == 'yes' ]]; then
+				open -a "$app_path" "${option_args[@]}" # eval
+			fi
+			case "$option_which" in
+			first) return 0 ;;
+			each) break 2 ;;
+			esac
+		done
+		# platforms
+		if [[ $sources == *'[flatpak]'* && $flatpak == 'yes' ]]; then
+			local rows=() row columns=() flatpak_name flatpak_id flatpak_lower flatpak_path
+			__split --target={rows} --no-zero-length --invoke=try -- \
+				__fetch_all_installed_from_flatpak
+			for row in "${rows[@]}"; do
+				__split --source={row} --target={columns} --delimiter=','
+				flatpak_name="${columns[0]}"
+				flatpak_id="${columns[1]}"
+				flatpak_lower="$(__get_lowercase_string -- "$flatpak_name")"
+				if [[ $flatpak_lower == "$lower" ]]; then
+					found='yes'
+					if [[ -n $option_output ]]; then
+						flatpak_path="$(flatpak info --show-location "$flatpak_id" || :)"
+						case "$option_output" in
+						details) __dump {name} {flatpak_name} {flatpak_id} {flatpak_path} ;;
+						input) __print_lines "$app" ;;
+						name) __print_lines "$flatpak_name" ;;
+						id) __print_lines "$flatpak_id" ;;
+						path) __print_lines "$flatpak_path" ;;
+						esac
 					fi
-					was_found='yes'
-					if [[ $option_quiet != 'yes' ]]; then
-						__print_lines "$result"
+					if [[ $option_invoke == 'yes' ]]; then
+						flatpak run "$flatpak_id" "${option_args[@]}" # eval
 					fi
-					continue
+					case "$option_which" in
+					first) return 0 ;;
+					each) break ;;
+					esac
 				fi
 			done
+		fi
+		if [[ $sources == *'[scoop]'* && $scoop == 'yes' ]]; then
+			local rows=() row columns=() scoop_id scoop_details scoop_path
+			__split --target={rows} --no-zero-length --invoke=try -- \
+				__fetch_matching_from_scoop "$name"
+			# trunk-ignore(shellcheck/SC2034)
+			for row in "${rows[@]}"; do
+				found='yes'
+				__split --source={row} --target={columns} --delimiter=','
+				scoop_id="${columns[0]}"
+				if [[ $option_output =~ ^(details|path)$ || $option_invoke == 'yes' ]]; then
+					scoop_details="$(scoop info "$scoop_id" | echo-trim-padding --stdin)"
+					if [[ $option_output =~ ^(details|path)$ || $option_invoke == 'yes' ]]; then
+						# Binaries    : Application\vivaldi.exe
+						# However, fetch path via `scoop which` and wsl
+						scoop_path="$(scoop which "$scoop_id")"
+						# `~/scoop/apps/vivaldi/current/Application/vivaldi.exe`
+						# `wslpath -au '...'` => `/home/balupton/.local/share/dorothy/~/scoop/apps/vivaldi/current/Application/vivaldi.exe` hence need for __windows_to_unix_path
+						scoop_path="$(__windows_to_unix_path "$scoop_path")"
+					fi
+				fi
+				if [[ -n $option_output ]]; then
+					case "$option_output" in
+					details)
+						__dump {name} {scoop_id} {scoop_path}
+						__print_lines "$scoop_details"
+						;;
+					input) __print_lines "$app" ;;
+					name) __print_lines "$scoop_id" ;;
+					id) __print_lines "$scoop_id" ;;
+					path) __print_lines "$scoop_path" ;;
+					esac
+				fi
+				if [[ $option_invoke == 'yes' ]]; then
+					"$scoop_path" "${option_args[@]}" # eval
+				fi
+				case "$option_which" in
+				first) return 0 ;;
+				each) break ;;
+				esac
+			done
+		fi
+		if [[ $sources == *'[winget]'* && $winget == 'yes' ]]; then
+			local rows=() row columns=() winget_name winget_id winget_version
+			__split --target={rows} --no-zero-length --invoke=try -- \
+				__fetch_matching_from_winget "$name"
+			for row in "${rows[@]}"; do
+				found='yes'
+				__split --source={row} --target={columns} --delimiter=','
+				winget_name="${columns[0]}"
+				winget_id="${columns[1]}"
+				# trunk-ignore(shellcheck/SC2034)
+				winget_version="${columns[2]}"
+				if [[ -n $option_output ]]; then
+					case "$option_output" in
+					details) __dump {name} {winget_name} {winget_id} {winget_version} ;;
+					input) __print_lines "$app" ;;
+					name) __print_lines "$winget_name" ;;
+					id) __print_lines "$winget_id" ;;
+					path)
+						help --help='Cannot output <path> for WinGet matches, as WinGet does not expose it. Change your `get-app` invocation to not request <path>, or send a PR to add a workaround.' --newline --variable={app} --newline --variable={winget_id} || return $?
+						return 43 # EPROTONOSUPPORT 43 Protocol not supported
+						;;
+					esac
+				fi
+				if [[ $option_invoke == 'yes' ]]; then
+					help --help='Cannot invoke applications via WinGet matches, as WinGet does not expose the path. Change your `get-app` invocation to not request opening via WinGet matches, or send a PR to add a workaround.' --newline --variable={app} --newline --variable={winget_id} || return $?
+				fi
+				case "$option_which" in
+				first) return 0 ;;
+				each) break ;;
+				esac
+			done
+		fi
 
-			# check if found
-			if [[ $was_found == 'yes' ]]; then
-				continue
-			fi
-			# wasn't found
-			return 1
-		elif __is_windows; then
-			can_find='no'
-			if is-system --winget; then
-				can_find='yes'
-				# only output if found
-				local winget_status winget_stdout
-				__do --redirect-status={winget_status} --redirect-stdout={winget_stdout} -- winget.exe list --disable-interactivity "$name"
-				if [[ $winget_status -eq 0 ]]; then
-					if [[ $option_quiet != 'yes' ]]; then
-						echo-last-line --stdin <<<"$winget_stdout"
-					fi
-					continue
-				fi
-			fi
-			if is-system --scoop; then
-				can_find='yes'
-				# check for the header of the table of results
-				local scoop_stdout
-				scoop_stdout="$(scoop list "$name" || :)"
-				if [[ $scoop_stdout == *'----'* ]]; then
-					if [[ $option_quiet != 'yes' ]]; then
-						echo-trim-padding -- "$scoop_stdout" | echo-last-line --stdin
-					fi
-					continue
-				fi
-			fi
-			if [[ $can_find == 'no' ]]; then
-				if [[ $option_quiet != 'yes' ]]; then
-					__print_error 'Unable to detect application ' --variable-value={name} ' on WSL. Install Winget or Scoop.'
-				fi
-				return 6 # ENXIO 6 Device not configured
-			fi
-			# wasn't found
-			return 1
-		elif is-system --headless; then
-			if [[ $option_quiet != 'yes' ]]; then
-				__print_style --stderr --notice 'Skipping detection of application ' --variable-value={name} ' on headless system.'
-			fi
-			return 19 # ENODEV 19 Operation not supported by device
-		else
-			if [[ $option_quiet != 'yes' ]]; then
-				__print_style --stderr --notice 'Unable to detect application ' --variable-value={name} ' on Linux. Submit a PR to support it.'
-			fi
-			return 19 # ENODEV 19 Operation not supported by device
+		# handle found or not found
+		if [[ $found == 'yes' ]]; then
+			success='yes'
+		elif [[ $option_need == 'all' ]]; then
+			return 3 # ESRCH 3 No such process
 		fi
 	done
-	return 0
+	# did we find anything?
+	if [[ $success == 'no' && $option_need != 'optional' ]]; then
+		return 3 # ESRCH 3 No such process
+	fi
 )
 
 # fire if invoked standalone

@@ -9,16 +9,21 @@ function get_font() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# @todo support linux systems, so [setup-util-1password] can detect successful install
-	local dirs=()
+	local font_search_paths=()
 	if __is_macos; then
-		dirs+=(
+		font_search_paths+=(
 			"$HOME/Library/Fonts"
 		)
 	else
-		dirs+=(
+		font_search_paths+=(
 			"$XDG_DATA_HOME/fonts"
+			"$DATA_DIR/fonts"
+			'/usr/local/share/fonts'
+			'/usr/share/fonts'
 		)
 	fi
+	# __evict --source+target={font_search_paths} --optional --every --value=''
+	__unique --source+target={font_search_paths}
 
 	# =====================================
 	# Arguments
@@ -29,113 +34,150 @@ function get_font() (
 			Get the full path of an installed font.
 
 			USAGE:
-			\`get-font [...options] [--] <font>\`
+			\`get-font [...options] [--] ...<font>\`
 
 			OPTIONS:
 			<font> | --font=<font>
 			    The font name to get the full path of. Can be a glob pattern.
 
-			--dirs
+			--only-print-dirs | --dirs
 			    Only output the font directories that will be searched.
 
-			--no-quiet | --quiet
-			    If enabled, do not output the path of the font, and do not output any error messages.
+			--first | --each | --every | --which=<which:first|each|every>
+			    If <first>, the default, stop after the first found <app> occurrence. Implies <any>.
+			    If <each>, stop at the <first> found of each <app>. Requires <need> to be specified.
+			    If <every>, find all occurrences of each <app>. Requires <need> to be specified.
+			--optional | --any | --all | --need=<need:optional|any|all>
+			    If <optional>, do not require any <app>s to be found, but output their information if not <quiet>.
+			    If <any>, require at least one <app> to be found. Unless <first> is specified, continue to output details for all if not <quiet>.
+			    If <all>, require all <app>s to be found.
+
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, do not output any result.
 
 			QUIRKS:
-			Searches the following paths for the font:
-			$(__print_lines "${dirs[@]}")
+			Searches the following paths for the <font>:
+			$(__join --source={font_search_paths} --left='* ' --style=code --between=$'\n')
+
+			If the incorrect path of \`$HOME/.fonts\` is present, its contents will be merged with the first search path above, and it will be removed.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_fonts=() option_dirs='no' option_quiet=''
+	local item option_fonts=() option_only_print_dirs='no' option_quiet='no' option_which='first' option_need=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--font='*) option_fonts+=("${item#*=}") ;;
-		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
-		'--no-dirs'* | '--dirs'*) __flag --source={item} --target={option_dirs} --affirmative ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-only-print-dirs'* | '--only-print-dirs'* | '--no-dirs'* | '--dirs'*) __flag --source={item} --target={option_only_print_dirs} --affirmative --coerce ;;
+		'--first') option_which='first' ;;
+		'--each') option_which='each' ;;
+		'--every') option_which='every' ;;
+		'--optional') option_need='optional' ;;
+		'--any') option_need='any' ;;
+		'--all') option_need='all' ;;
 		'--')
 			option_fonts+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*)
-			if [[ ${#option_fonts[@]} -eq 0 ]]; then
-				option_fonts+=("$item")
-			else
-				help 'An unrecognised argument was provided: ' --variable-value={item}
-			fi
-			;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_fonts+=("$item") ;;
 		esac
 	done
+
+	# adjust
+	# ensure the most desired font directory exists, and that undesired directories are trimmed
+	# aka enforce xdg fonts directory on linux so that flatpak can detect the fonts
+	if [[ -d "$HOME/.fonts" ]]; then
+		if [[ ! -d ${font_search_paths[0]} ]]; then
+			mv -v -- "$HOME/.fonts" "${font_search_paths[0]}" >&2
+		else
+			__mkdirp "${font_search_paths[0]}"
+			mv -v -- "$HOME/.fonts/"* "${font_search_paths[0]}" >&2
+			fs-remove --quiet --no-confirm -- "$HOME/.fonts"
+		fi
+	else
+		__mkdirp "${font_search_paths[0]}"
+	fi
+
+	# if only print
+	if [[ $option_only_print_dirs == 'yes' ]]; then
+		__print_lines "${font_search_paths[@]}"
+		return 0
+	fi
+
+	# check
+	if [[ ${#option_fonts[@]} -eq 0 ]]; then
+		help 'No <font>s provided.'
+	fi
+
+	# imply
+	# @todo should check and ensure this match's `bash.bash:__iterate`
+	if [[ -z $option_which ]]; then
+		option_which='first'
+	fi
+	if [[ -z $option_need ]]; then
+		if [[ $option_which == 'first' ]]; then
+			option_need='any'
+		else
+			option_need='all'
+		fi
+	fi
 
 	# =====================================
 	# Action
 
-	# ensure the most desired font directory exists, and that undesired directories are trimmed
-	# aka enforce xdg fonts directory on linux so that flatpak can detect the fonts
-	if [[ -d "$HOME/.fonts" ]]; then
-		if [[ ! -d ${dirs[0]} ]]; then
-			mv -v -- "$HOME/.fonts" "${dirs[0]}" >&2
-		else
-			__mkdirp "${dirs[0]}"
-			mv -v -- "$HOME/.fonts/"* "${dirs[0]}" >&2
-			fs-remove --quiet --no-confirm -- "$HOME/.fonts"
-		fi
-	else
-		__mkdirp "${dirs[0]}"
-	fi
-
-	# if only dirs
-	if [[ $option_dirs == 'yes' ]]; then
-		__print_lines "${dirs[@]}"
-		return 0
-	fi
-
 	# get the font paths
-	local font paths=() path
-	if [[ ${#option_fonts[@]} -eq 0 ]]; then
-		help 'No <font>s provided.'
-	fi
+	local font paths path lookups success='no' found
 	for font in "${option_fonts[@]}"; do
+		paths=() lookups=() found='no'
 		if [[ -z $font ]]; then
-			return 1
+			return 22 # EINVAL 22 Invalid argument
 		fi
-		# if no extension or glob, add it
-		if ! [[ $font =~ [.*] ]]; then
-			# instead of doing .* directly, just do *, as Monoid.* doesn't capture Monoid-Regular.* which is typical
-			font="$font*"
-		fi
-		# iterate through the font directories
-		was_found='no'
-		for dir in "${dirs[@]}"; do
-			# find fonts that match the pattern
-			__split --target={paths} --no-zero-length --invoke -- \
-				expand-path -- "$dir/$font"
-			for path in "${paths[@]}"; do
-				if [[ -f $path ]]; then
-					was_found='yes'
-					if [[ $option_quiet != 'yes' ]]; then
-						__print_lines "$path"
-					fi
-				fi
-			done
+
+		# iif it has an extension then it is already a lookup
+		for dir in "${font_search_paths[@]}"; do
+			if [[ $font == *.* ]]; then
+				lookups+=("$dir/**/$font")
+			else
+				# otherwise, it could be a directory, or a prefix, or whatever
+				lookups+=("$dir/**/*$font*.*" "$dir/**/*$font*/*.*")
+			fi
 		done
 
-		# check if found
-		if [[ $was_found == 'yes' ]]; then
-			continue
+		# find fonts that match the pattern
+		__split --target={paths} --no-zero-length --invoke=try -- \
+			expand-path -- "${lookups[@]}"
+		for path in "${paths[@]}"; do
+			if [[ -f $path ]]; then
+				found='yes'
+				if [[ $option_quiet != 'yes' ]]; then
+					__print_lines "$path"
+				fi
+				case "$option_which" in
+				first) return 0 ;;
+				each) break ;;
+				esac
+			fi
+		done
+
+		# handle found or not found
+		if [[ $found == 'yes' ]]; then
+			success='yes'
+		elif [[ $option_need == 'all' ]]; then
+			return 3 # ESRCH 3 No such process
 		fi
-		# wasn't found
-		return 1
 	done
-	return 0
+	# did we find anything?
+	if [[ $success == 'no' && $option_need != 'optional' ]]; then
+		return 3 # ESRCH 3 No such process
+	fi
 )
 
 # fire if invoked standalone
