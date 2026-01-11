@@ -267,6 +267,21 @@ function setup_shell() (
 		fi
 	}
 
+	function __get_unique_and_permitted_and_allowed_paths_of_installed_or_allowed_shells {
+		local list=() allowed=() shell paths=()
+		__split --target={list} --no-zero-length --invoke=try -- \
+			__get_unique_and_permitted_paths_of_installed_shells "$@" || return $?
+		__split --target={allowed} --target={list} --append --no-zero-length --invoke=try -- \
+			__get_unique_and_permitted_paths_of_allowed_shells || return $?
+		__unique --source+target={list}
+		for shell in "${list[@]}"; do
+			if __has --source={allowed} -- "$shell"; then
+				paths+=("$shell")
+			fi
+		done
+		__print_lines "${paths[@]}" || return $?
+	}
+
 	function __get_unique_and_permitted_and_allowed_paths_of_installed_and_allowed_shells {
 		local installed=() allowed=() shell paths=()
 		__split --target={installed} --no-zero-length --invoke=try -- \
@@ -827,7 +842,7 @@ function setup_shell() (
 					for shell in "${all_configurable_basenames_of_shells[@]}"; do
 						if __has --source={user_uninstall_shells} -- "$shell"; then
 							if [[ $shell == 'bash' ]]; then
-								__print_style --tty --notice='Cannot uninstall Bash, as it is a dependency of Dorothy.'
+								__print_style --tty --notice='Cannot uninstall Bash, as it is a dependency of Dorothy.' || return $?
 							else
 								command "setup-util-$shell" --uninstall --optional "${slim_options[@]}" || return $? # eval
 							fi
@@ -867,13 +882,16 @@ function setup_shell() (
 					# ```
 					# So do it directly instead:
 					if [[ ${#user_allow_shells[@]} -ne 0 || ${#user_disallow_shells[@]} -ne 0 ]]; then
-						local config_lines=("${user_allow_shells[@]}")
-						__split --target={config_lines} --append --no-zero-length -- "$(</etc/shells)"
+						local config config_lines=("${user_allow_shells[@]}")
+						# trunk-ignore(shellcheck/SC2034)
+						config="$(</etc/shells)" || return $?
+						__split --source={config} --target={config_lines} --append --no-zero-length || return $?
 						if [[ ${#user_disallow_shells[@]} -ne 0 ]]; then
-							__evict --source+target={config_lines} --every --optional -- "${user_disallow_shells[@]}"
+							__evict --source+target={config_lines} --every --optional -- "${user_disallow_shells[@]}" || return $?
 						fi
-						__print_lines "${config_lines[@]}" | echo-write --path=/etc/shells
-						__print_style --stderr --success='Updated configuration file:' ' ' --path=/etc/shells
+						__unique --source+target={config_lines} || return $?
+						__print_lines "${config_lines[@]}" | echo-write --path=/etc/shells || return $?
+						__print_style --stderr --success='Updated configuration file:' ' ' --path=/etc/shells || return $?
 					fi
 					;;
 				fin)
@@ -959,14 +977,13 @@ function setup_shell() (
 				;;
 			disallow)
 				__split --target={list} --overwrite --no-zero-length --invoke -- \
-					__get_unique_and_permitted_paths_of_installed_shells "${all_allowable_basenames_of_shells[@]}" || return $?
-				__split --target={list} --append --no-zero-length --invoke -- \
-					__get_unique_and_permitted_paths_of_allowed_shells || return $?
+					__get_unique_and_permitted_and_allowed_paths_of_installed_or_allowed_shells "${all_allowable_basenames_of_shells[@]}" || return $?
+				# evict selection from allowed
 				if [[ ${#user_allow_shells[@]} -ne 0 ]]; then
 					__evict --source+target={list} --optional --every -- "${user_allow_shells[@]}" || return $?
 				fi
 				__unique --source+target={list} || return $?
-				question='Which undesired shells to disallow as system login shells?'
+				question='Which undesired allowed shells to disallow as system login shells?'
 				description='Shells that are no longer listed to run as system login shells will no longer be able to be used by your system upon login to configure your environment, nor by your terminal emulator as your default shell.'
 				action_enabled="$option_disallow"
 				action_shells=("${option_disallow_shells[@]}")
@@ -1010,9 +1027,9 @@ function setup_shell() (
 			group+=("$action")
 
 			# generate menu
-			local basename has_args=() results=() label paths=() path defaults=() details=() version preselections=() choices=()
+			local basename has_args=() results=() label paths=() path default defaults=() details=() version preselections=() choices=() choices_standard=() choices_default=()
 			for shell in "${list[@]}"; do
-				has_args=("$shell")
+				has_args=("$shell") default='no'
 				if [[ $shell == /* ]]; then
 					# shell is path
 					basename="$(__get_basename_of_shell "$shell")"
@@ -1025,7 +1042,7 @@ function setup_shell() (
 						__get_unique_and_permitted_and_resolved_paths_of_installed_shells "$shell" || return $?
 					if [[ ${#paths[@]} -ne 0 ]]; then
 						if [[ $action == 'install' ]]; then
-							defaults+=("$shell")
+							default='yes'
 						fi
 						details=('Existing installation at ')
 						for path in "${paths[@]}"; do
@@ -1040,28 +1057,28 @@ function setup_shell() (
 				fi
 				preselections=()
 				if __has --source={action_shells} --any -- "${has_args[@]}"; then
-					defaults+=("$shell")
+					default='yes'
 					preselections+=("--$action=<shell>")
 				elif __has --source={option_shells} --any -- "${has_args[@]}"; then
-					defaults+=("$shell")
+					default='yes'
 					preselections+=('--shell=<shell>')
 				fi
 				if [[ $action == 'install' || $action == 'upgrade' ]]; then
 					if __has --source={SETUP_UTILS} --any -- "${has_args[@]}"; then
 						if [[ $action == 'install' ]]; then
-							defaults+=("$shell")
+							default='yes'
 						fi
 						preselections+=('setup.bash:SETUP_UTILS')
 					fi
 				elif [[ $action == 'allow' || $action == 'disallow' || $action == 'login' ]]; then
 					if [[ $action == 'allow' || $action == 'login' ]]; then
 						if __has --source={DOROTHY_LOGIN_SHELLS} --any -- "${has_args[@]}"; then
-							defaults+=("$shell")
+							default='yes'
 							preselections+=('setup.bash:DOROTHY_LOGIN_SHELLS')
 						fi
 					fi
 					if __has --source={allowed_shells} --any -- "${has_args[@]}"; then
-						defaults+=("$shell")
+						default='yes'
 						preselections+=('/etc/shells')
 						# label+=$'\nExisting allowance from '"$(__print_style --code='/etc/shells')." || return $?
 					fi
@@ -1071,12 +1088,18 @@ function setup_shell() (
 				fi
 				if [[ $action == 'configure' || $action == 'deconfigure' ]]; then
 					if __has --source={configured_shells} --any -- "${has_args[@]}"; then
-						defaults+=("$shell")
+						default='yes'
 						label+=$'\nExisting configuration for Dorothy.' || return $?
 					fi
 				fi
-				choices+=("$shell" "$label")
+				if [[ $default == 'yes' ]]; then
+					defaults+=("$shell")
+					choices_default+=("$shell" "$label")
+				else
+					choices_standard+=("$shell" "$label")
+				fi
 			done
+			choices=("${choices_default[@]}" "${choices_standard[@]}")
 			__unique --source+target={defaults}
 
 			local skip_default='no'
