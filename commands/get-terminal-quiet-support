@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+
+function get_terminal_quiet_support_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- get-terminal-quiet-support --help
+)
+
+function get_terminal_quiet_support() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Outputs \`yes\`, \`no\`, or nothing, based on comprehensive QUIET mode detection.
+
+			USAGE:
+			\`get-terminal-quiet-support [...options] [-- "\$@"]\`
+
+			OPTIONS:
+			--fallback=<fallback>
+			    If provided, use this value if quiet mode could not be determined.
+
+			--no-env
+			    If provided, don't test the environment variables.
+
+			--quiet
+			    If enabled, do not output anything, instead return the exit status [0] if quiet, [1] if not. [91] is returned if not determined (no fallback).
+
+			-- "\$@"
+			    All arguments passed to your command, so we can scan them for relevant flags.
+
+			QUIRKS:
+			Checks for \`--[no-][verbose|quiet]=[yes|no]\` values, as well as \`QUIET|VERBOSE\` environment variables.
+
+			RETURNS:
+			[0] if enabled
+			[1] if disabled
+			[91] if not determined (no fallback).
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_fallback='' option_quiet='' option_env='yes' option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--fallback='*) option_fallback="${item#*=}" ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-env'* | '--env'*) __flag --source={item} --target={option_env} --affirmative ;;
+		'--')
+			option_args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*)
+			if [[ -z $option_fallback ]]; then
+				option_fallback="$item"
+			else
+				help 'An unrecognised argument was provided: ' --variable-value={item}
+			fi
+			;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	# prepare
+	local status verbose='' quiet=''
+
+	# process arguments
+	for item in "${option_args[@]}"; do
+		case "$item" in
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={verbose} --affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={quiet} --affirmative ;;
+		*) ;; # ignore
+		esac
+	done
+
+	# handle quiet and verbose modes
+	if [[ $option_quiet == 'yes' ]]; then
+		# quiet
+		function process_status {
+			:
+		}
+	else
+		# verbose, output instead
+		function process_status {
+			if [[ $status -eq 0 ]]; then
+				__print_lines 'yes'
+			elif [[ $status -eq 1 ]]; then
+				__print_lines 'no'
+				status=0
+			fi
+			# don't ignore 91, as a fallback should have been provided, right?
+		}
+	fi
+
+	# process arguments against env
+	# note __do is not necessary here, as the sourced functions already support conditional evaluation as seen by there __, this could be that they were coded before eval_capture maybe?
+	if [[ -n $verbose ]]; then
+		status=0
+		__is_non_affirmative -- "$verbose" || status=$?
+		if [[ $status -eq 0 || $status -eq 1 ]]; then
+			process_status
+			return "$status"
+		fi
+	fi
+	if [[ -n $quiet ]]; then
+		status=0
+		__is_affirmative -- "$quiet" || status=$?
+		if [[ $status -eq 0 || $status -eq 1 ]]; then
+			process_status
+			return "$status"
+		fi
+	fi
+	if [[ $option_env == 'yes' && -n ${VERBOSE-} ]]; then
+		status=0
+		__is_non_affirmative -- "$VERBOSE" || status=$?
+		if [[ $status -eq 0 || $status -eq 1 ]]; then
+			process_status
+			return "$status"
+		fi
+	fi
+	if [[ $option_env == 'yes' && -n ${QUIET-} ]]; then
+		status=0
+		__is_affirmative -- "$QUIET" || status=$?
+		if [[ $status -eq 0 || $status -eq 1 ]]; then
+			process_status
+			return "$status"
+		fi
+	fi
+
+	# fallback
+	if [[ -n $option_fallback ]]; then
+		status=0
+		__is_affirmative -- "$option_fallback" || status=$?
+		if [[ $status -eq 0 || $status -eq 1 ]]; then
+			process_status
+			return "$status"
+		fi
+	fi
+
+	# nothing
+	status=91 # ENOMSG 91 No message of desired type
+	process_status
+	return "$status"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		get_terminal_quiet_support_test
+	else
+		get_terminal_quiet_support "$@"
+	fi
+fi

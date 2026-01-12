@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function brew_installed_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- brew-installed --help
+)
+
 function brew_installed() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,175 +12,132 @@ function brew_installed() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Outputs the names of the installed packages.
+			Outputs the names of the homebrew installed items.
 
 			USAGE:
-			brew-installed [...options] -- [...<package>]
+			\`brew-installed [...options] -- [...<items>]\`
 
 			OPTIONS:
-			--requested
-			    Output only packages that were manually installed, not packages that were only dependencies.
+			-- ...<item>
+			    If provided, only get details for these <item>s. Fail if one of them has not yet been installed.
 
-			--formula
-			    Output only packages that are formulas.
+			--[no-]formula
+			    Output consider formulas. Formulas can be installed by request, or by dependency; use <requested> to filter.
+			--[no-]cask
+			    Output consider casks. All casks are only installed by request.
+			--[no-]tap
+			    Output consider taps. All taps are only installed by request.
 
-			--cask
-			    Output only packages that are casks.
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, do not output anything, just return the exit status.
 
-			...<package>
-			    If provided, only get details for these packages. Fail if one of them has not yet been installed.
+			--[no-]requested
+			    Only consider formulas that were manually installed, not formulas that were only dependencies.
+			    Only compatible with --formula.
 
 			QUIRKS:
-			If packages are provided, failure exit code will be returned if any are missing.
-			To check if any are present, use:
-
-			    $(echo-style --code="test -n \"\$(brew-installed -- bash something-missing &>/dev/null || :)\"")
-
-			If you just want the exit code, use:
-
-			    $(echo-style --code="brew-installed -- bash something-missing &>/dev/null")
+			If <item>s are provided, failure exit status will be returned if any are missing.
+			Existing <item>s will still be output to stdout, unless <quiet> is enabled.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item requested='no' packages=() brew_type brew_list_cmd brew_info_cmd deno_script_args
-	brew_type='' # empty, formula, cask
-	brew_list_cmd=(
-		'brew'
-		'list'
-		'--versions' # --versions is necessary to limit to installed packages, as --full-name/-1 doesn't
-	)
-	brew_info_cmd=(
-		'brew'
-		'info'
-	)
-	deno_script_args=(
-		'--requested' # the deno script only runs with brew info, which is only run when --requested is provided
-	)
-	while test "$#" -ne 0; do
+	local item option_quiet='' option_requested='no' option_items=() option_type='' # empty, formula, cask, tap
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--formula' | '--formulae') brew_type='formula' ;;
-		'--cask' | '--casks') brew_type='cask' ;;
-		'--no-requested'* | '--requested'*)
-			requested="$(get-flag-value requested --missing="$requested" -- "$item" | echo-affirmative --stdin)"
-			;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--type=formula' | '--type=formulas' | '--formula' | '--formulae') option_type=formula ;;
+		'--type=cask' | '--type=casks' | '--cask' | '--casks') option_type=cask ;;
+		'--type=tap' | '--type=taps' | '--tap' | '--taps') option_type=tap ;;
+		'--no-requested'* | '--requested'*) __flag --source={item} --target={option_requested} --affirmative --coerce ;;
 		'--')
-			packages+=("$@")
+			option_items+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# add the filter
-	if test -n "$brew_type"; then
-		brew_list_cmd+=("--$brew_type")
-		brew_info_cmd+=("--$brew_type")
-		deno_script_args+=("--$brew_type")
-	fi
-
-	# add the packages
-	if test "${#packages[@]}" -ne 0; then
-		brew_list_cmd+=("${packages[@]}")
-		brew_info_cmd+=(
-			'--json=v2'
-			"${packages[@]}"
-		)
-	else
-		brew_info_cmd+=(
-			'--json=v2'
-			'--installed'
-		)
+	# assert compatibility
+	if ! is-system --brew; then
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
 	fi
 
 	# =====================================
-	# Helpers
+	# Action
+
+	local deno_script_args=()
+	if [[ $option_requested == 'yes' ]]; then
+		if [[ $option_type != 'formula' ]]; then
+			help --help='<requested> requires <formula>'
+		fi
+		deno_script_args+=('--requested')
+	fi
+
+	local brew_list_cmd=() brew_info_cmd=()
+	if [[ $option_type == 'tap' ]]; then
+		brew_info_cmd=(brew tap-info --json)
+		deno_script_args+=(--type=tap)
+	else
+		brew_list_cmd=(brew list --versions)
+		# --versions is necessary to limit to installed option_packages, as --full-name/-1 doesn't
+		brew_info_cmd=(brew info --json=v2)
+		if [[ -n $option_type ]]; then
+			brew_list_cmd+=("--$option_type")
+			brew_info_cmd+=("--$option_type")
+			deno_script_args+=("--type=$option_type")
+		fi
+		# if no items, only get the installed ones
+		if [[ ${#option_items[@]} -eq 0 ]]; then
+			brew_info_cmd+=('--installed')
+		fi
+	fi
 
 	function do_brew_simple {
 		# handles only --cask and --formula, but not --requested
-		"${brew_list_cmd[@]}" | cut -d' ' -f1 | sort | uniq
+		if [[ $option_quiet == 'yes' ]]; then
+			"${brew_list_cmd[@]}" "${option_items[@]}" &>/dev/null
+		else
+			"${brew_list_cmd[@]}" "${option_items[@]}" | cut -d' ' -f1 | echo-unique --stdin
+		fi
 	}
 
 	function do_brew_advanced {
 		# handles --requested, --cask, and --formula
-
-		# ensure deno exists
-		setup-util-deno --quiet
-
-		# prepare as the .ts extension is essential
-		local temp_deno_script
-		temp_deno_script="$(fs-temp --directory='brew-installed' --file='deno.ts')"
-		cat <<-EOF >"$temp_deno_script"
-			// parse stdin
-			import { readLines } from "https://deno.land/std/io/bufio.ts";
-			let data = "";
-			for await (const line of readLines(Deno.stdin)) {
-				data += line;
-			}
-			const json = JSON.parse(data);
-
-			// prepare result
-			const names = new Set<string>();
-
-			// add casks if not filtered to only formula
-			if ( Deno.args.includes('--formula') === false ) {
-				// all casks are by request, so no need for special --requested handling for casks
-				for (const cask of json.casks.filter((i: any) => i.installed)) {
-					names.add(cask.full_token);
-				}
-			}
-
-			// add formulas if not filtered to only casks
-			if ( Deno.args.includes('--cask') === false ) {
-				if ( Deno.args.includes('--requested') ) {
-					// only requested formula
-					for (const formula of json.formulae) {
-						if (formula.installed.find((i: any) => i.installed_on_request)) {
-							names.add(formula.full_name);
-						}
-					}
-				} else {
-					// all formula
-					for (const formula of json.formulae.filter((i: any) => i.installed)) {
-						names.add(formula.full_name);
-					}
-				}
-			}
-
-			// output result
-			if (names.size) {
-				await Deno.stdout.write(
-					new TextEncoder().encode(Array.from(names).sort().concat("").join("\n"))
-				);
-			}
-		EOF
-
-		# run
-		"${brew_info_cmd[@]}" | deno run --quiet "$temp_deno_script" "${deno_script_args[@]}"
+		__command_required -- 'deno' || return $?
+		local deno_script
+		deno_script="$(type -P 'brew-installed.ts')"
+		if [[ $option_quiet == 'yes' ]]; then
+			"${brew_info_cmd[@]}" "${option_items[@]}" | "$deno_script" "${deno_script_args[@]}" &>/dev/null
+		else
+			"${brew_info_cmd[@]}" "${option_items[@]}" | "$deno_script" "${deno_script_args[@]}"
+		fi
 	}
 
 	# get names of requested packages
-	if test "$requested" = 'no'; then
+	if [[ $option_requested == 'no' && ${#brew_list_cmd[@]} -ne 0 ]]; then
 		do_brew_simple
-	elif test "${#packages[@]}" -eq 0; then
+	elif [[ ${#option_items[@]} -eq 0 ]]; then
 		do_brew_advanced
-	elif test "$(do_brew_advanced | echo-count-lines --no-inline --stdin)" -ne "${#packages[@]}"; then
+	elif [[ "$(do_brew_advanced | echo-count-lines --no-inline --stdin)" -ne ${#option_items[@]} ]]; then
 		return 1
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	brew_installed "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		brew_installed_test
+	else
+		brew_installed "$@"
+	fi
 fi

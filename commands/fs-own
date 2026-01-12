@@ -2,188 +2,314 @@
 
 function fs_own_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-segment --h1="TEST: $0"
+	eval-tester --ignore-stderr --status=22 -- fs-own --help
 
-	local dir file
-	dir="$(fs-temp --directory)"
-	file="$(fs-temp --directory="$dir" --file --touch)"
+	local root dir subfile file
+	root="$(fs-temp --directory='dorothy' --directory='fs-own' --directory='tests' --directory)"
+	dir="$(fs-temp --root="$root" --directory='dir' --touch)"
+	subfile="$(fs-temp --root="$dir" --file='subfile' --touch)"
+	file="$(fs-temp --root="$root" --file='file' --touch)"
 
-	eval-tester --name='can own a file +quiet' \
-		-- fs-own --quiet -- "$file"
+	local flag flags=(
+		--root
+		--admin
+		--me
+		--X
+		--x
+		--r
+		--w
+		--u
+		--ug
+		--ugx
+		--permissions='a-xrw,ug+Xrw'
+		# --reference="$DOROTHY" <-- on macos this is 40755 which fails when applied to files
+	)
+	fs-structure -- "$root" "$dir"
 
-	eval-tester --name='can own a durectory +quiet' \
-		-- fs-own --quiet -- "$dir"
+	local test_args=()
+	for flag in "${flags[@]}"; do
+		test_args+=()
+		if [[ $flag == '--root' || $flag == '--admin' ]]; then
+			test_args+=('--ignore-tty')
+		fi
+		__print_line
+		eval-tester "${test_args[@]}" --ignore-stderr -- fs-own --no-color --changes "$flag" -- "$dir" "$file"
+		eval-tester "${test_args[@]}" --ignore-stderr -- fs-own --no-color --verbose "$flag" -- "$dir" "$file"
+		eval-tester "${test_args[@]}" -- fs-own --no-color --quiet "$flag" -- "$dir" "$file"
+		eval-tester "${test_args[@]}" -- fs-own --no-color "$flag" -- "$dir" "$file"
+		eval-tester "${test_args[@]}" --ignore-stderr -- fs-own --no-color --recursive --changes "$flag" -- "$dir"
+		eval-tester "${test_args[@]}" --ignore-stderr -- fs-own --no-color --recursive --verbose "$flag" -- "$dir"
+		eval-tester "${test_args[@]}" -- fs-own --no-color --recursive --quiet "$flag" -- "$dir"
+		eval-tester "${test_args[@]}" -- fs-own --no-color --recursive "$flag" -- "$dir"
+		fs-structure -- "$root" "$dir" || :
+	done
 
-	eval-tester --name='can own a file -quiet' --ignore-stdout \
-		-- fs-own --no-quiet -- "$file"
+	# @todo confirm dir and subfile, because of recursion, matched
 
-	eval-tester --name='can own a durectory -quiet' --ignore-stdout \
-		-- fs-own --no-quiet -- "$dir"
+	__print_line
+	fs-structure -- "$root" || :
+	eval-helper --verbose --wrap -- is-accessible.bash -- "$dir" || :
+	eval-helper --verbose --wrap -- is-accessible -- "$dir" || :
+	eval-helper --verbose --wrap -- stat -L -- "$dir" || :
+	eval-helper --verbose --wrap --elevate -- stat -L -- "$dir" || :
 
-	eval-tester --name='can own a file +verbose' --ignore-stdout --ignore-stderr \
-		-- fs-own --verbose -- "$file"
+	__print_line
+	fs-structure -- "$dir" || :
+	eval-helper --verbose --wrap -- is-accessible.bash -- "$subfile" || :
+	eval-helper --verbose --wrap -- is-accessible -- "$subfile" || :
+	eval-helper --verbose --wrap -- stat -L -- "$subfile" || :
+	eval-helper --verbose --wrap --elevate -- stat -L -- "$subfile" || :
 
-	eval-tester --name='can own a durectory +verbose' --ignore-stdout --ignore-stderr \
-		-- fs-own --verbose -- "$dir"
-
-	eval-tester --name='can own a durectory +quiet +admin' --ignore-stderr \
-		-- fs-own --quiet --admin -- "$dir"
-
-	eval-tester --name='can own a durectory -quiet +admin' --ignore-stdout --ignore-stderr \
-		-- fs-own --no-quiet --admin -- "$dir"
-
-	echo-segment --g1="TEST: $0"
 	return 0
 )
 function fs_own() (
 	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Claim ownership of a path, by updating its permissions via chmod and chown.
 
 			USAGE:
-			fs-own [...options] [--] ...<path>
+			\`fs-own [...options] -- ...<path>\`
+
+			EXAMPLES:
+			Sets the current working directory to be accessible by the user and group, recursively:
+			\`\`\`fs-own --recursive --ug -- .\`\`\`
 
 			OPTIONS:
-			--no-quiet
-			    if provided, will output the executed commands.
-
-			--verbose
-			    if provied, will use --no-quiet for this command, and use --verbose on executed chmod/chown commands.
-
-			--changes
-			    if provided, changes will be reported if the operating system supports it.
-				defaults to enabled if --quiet is not provided.
-
-			--permissions=<permissions>
-			    sets file and directory permissions
-
-			--admin
-			    if provided, will use the platform specific admin values.
-
-			--owner=<owner>
-			    if provided, will set the path owner to this.
-
-			--user=<user>
-			    if provided, will set the path owner to this user.
-
-			--group=<group>
-			    if provided, will set the path owner to this group.
-
-			--sudo
-			    if provided, sudo will be used, automatically enabled when admin/owner/user/group is provided.
-
-			--partial
-			    if provided, failures will be ignored.
+			--quiet | --verbose | --changes
+			    If \`--quiet\`, don't output permission operations or failures to STDERR.
+			    If \`--verbose\`, output to STDERR all operations and any failures.
+			    If \`--changes\`, the default, only output to STDERR the changes and any failures.
 
 			--optional
-			    if provided, missing paths will be ignored.
+			    If provided, ignore and continue on:
+			    * permission change failures
+			    * <path>s that do not exist
+			    * no <path>s provided
 
-			--no-recursive
-			    if provided, only the exact path will be used, not any child paths.
+			--recursive
+			    If provided, also set <permissions> on all descendants of <path>s.
 
-			QUIRKS:
-			If [--permissions=...], [--directory-permissions=...], [--file-permissions=...] are all omitted, then the directory permissions will be set to [755] and the file permissions set to [644].
+			--X | -X
+			    Sets <permissions> to be executable directories for the user, i.e. \`+X\`.
+			--x | -x
+			    Sets <permissions> to be executable for the user, i.e. \`+x\`.
+			--r | -r
+			    Sets <permissions> to be readable for the user, i.e. \`+r\`.
+			--w | -w
+			    Sets <permissions> to be writable for the user, i.e. \`+w\`.
+			--u | -u
+			    Sets <permissions> to only be available to the user, i.e. \`a-xrw,u+Xrw\`.
+			--ux | -ux
+			    Sets <permissions> to only be available and executable to the user, i.e. \`a-xrw,u+xrw\`.
+			--ug | -ug
+			    Sets <permissions> to only be available to the user and group, i.e. \`a-xrw,ug+Xrw\`.
+			--ugx | -ugx
+			    Sets <permissions> to only be available and executable to the user and group, i.e. \`a-xrw,ug+xrw\`.
+			--permissions=<permissions>
+			    Sets file and directory permissions.
+			--reference=<path>
+			    Replicate the <permissions> from this <path>.
+			    Is a cross-platform alternative to: \`\`\`chmod --reference=<source> <target>\`\`\`
+
+			--owner=<owner>
+			    If provided, will set the <path> to be owned by <owner>.
+			--me
+			    If provided, will set <user> to yourself.
+			--admin
+			    If provided, will set <owner> to the platform specific admin values.
+			--root
+			    If provided, will set <owner> to the platform specific root values.
+			--user=<user>
+			    If provided, will set <owner> to this user.
+			--group=<group>
+			    If provided, will set <owner> to this group.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.s.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item paths=()
+	local item
+	local option_paths=()
 	local option_quiet=''
-	local option_verbose='no'
 	local option_changes='' # os support
 	local option_owner=''
 	local option_user=''
 	local option_group=''
+	local option_parents='no'
+	local option_me='no'
 	local option_admin='no'
+	local option_root='no'
 	local option_permissions=''
 	local option_directory_permissions='' # deprecated
 	local option_file_permissions=''      # deprecated
-	local option_sudo='no'
-	local option_partial='no'
+	local option_reference=''
+	local option_elevated='' option_elevate='' option_reason=''
 	local option_optional='no'
-	local option_recursive='yes'
-	option_quiet="$(is-quiet-enabled "$option_quiet" -- "$@")"
-	while test "$#" -ne 0; do
+	local option_recursive='no'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'*) ;; # handled by is-quiet-enabled
-		'--no-verbose'* | '--verbose'*)
-			option_verbose="$(get-flag-value verbose --missing="$option_verbose" -- "$item" | echo-affirmative --stdin)"
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-changes'* | '--changes'*) __flag --source={item} --target={option_changes} --affirmative ;;
+		'--no-parents'* | '--parents'*) __flag --source={item} --target={option_parents} --affirmative ;;
+		'--no-me'* | '--me'*) __flag --source={item} --target={option_me} --affirmative ;;
+		'--no-admin'* | '--admin'*) __flag --source={item} --target={option_admin} --affirmative ;;
+		'--no-root'* | '--root'*) __flag --source={item} --target={option_root} --affirmative ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--no-optional'* | '--optional'*) __flag --source={item} --target={option_optional} --affirmative ;;
+		'--no-recursive'* | '--recursive'* | '--no-recurse'* | '--recurse'* | '--no-recursion'* | '--recursion'*) __flag --source={item} --target={option_recursive} --affirmative ;;
+		'--X')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='+X'
 			;;
-		'--no-changes'* | '--changes'*)
-			option_changes="$(get-flag-value changes --missing="$option_changes" -- "$item" | echo-affirmative --stdin)"
+		'--x' | '-x')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='+x'
 			;;
-		'--no-admin'* | '--admin'*)
-			option_admin="$(get-flag-value admin --missing="$option_admin" -- "$item" | echo-affirmative --stdin)"
+		'--r' | '-r')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='+r'
 			;;
-		'--no-sudo'* | '--sudo'*)
-			option_sudo="$(get-flag-value sudo --missing="$option_sudo" -- "$item" | echo-affirmative --stdin)"
+		'--w' | '-w')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='+w'
 			;;
-		'--no-partial'* | '--partial'*)
-			option_partial="$(get-flag-value partial --missing="$option_partial" -- "$item" | echo-affirmative --stdin)"
+		'--u' | '-u')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='a-xrw,u+Xrw'
 			;;
-		'--no-optional'* | '--optional'*)
-			option_optional="$(get-flag-value optional --missing="$option_optional" -- "$item" | echo-affirmative --stdin)"
+		'--ux' | '-ux')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='a-xrw,u+xrw'
 			;;
-		'--no-recursive'* | '--recursive'*)
-			option_recursive="$(get-flag-value recursive --missing="$option_recursive" -- "$item" | echo-affirmative --stdin)"
+		'--ug' | '-ug')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='a-xrw,ug+Xrw'
 			;;
-		'--permissions='*) option_permissions="${item#*--permissions=}" ;;
-		'--directory-permissions='*) option_directory_permissions="${item#*--directory-permissions=}" ;;
-		'--file-permissions='*) option_file_permissions="${item#*--file-permissions=}" ;;
-		'--owner='*) option_owner="${item#*--owner=}" ;;
-		'--user='*) option_user="${item#*--user=}" ;;
-		'--group='*) option_group="${item#*--group=}" ;;
+		'--ugx' | '-ugx')
+			if [[ -n $option_permissions ]]; then
+				help "$item cannot be specified with other <permissions>"
+			fi
+			option_permissions='a-xrw,ug+xrw'
+			;;
+		'--permissions='*) option_permissions="${item#*=}" ;;
+		'--directory-permissions='*) option_directory_permissions="${item#*=}" ;;
+		'--file-permissions='*) option_file_permissions="${item#*=}" ;;
+		'--reference='* | '--ref='*) option_reference="${item#*=}" ;;
+		'--owner='*) option_owner="${item#*=}" ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--path='*) option_paths+=("${item#*=}") ;;
+		# these have to be last and in this order, as they could match earlier options:
+		'--no-u'* | '--u'*) __flag --source={item} --target={option_u} --affirmative ;;
 		'--')
-			paths+=("$@")
+			option_paths+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# check
-	local index
-	if test "${#paths[@]}" -eq 0; then
-		help "No paths were provided."
+	# deprecations
+	if [[ -n $option_directory_permissions || -n $option_file_permissions ]]; then
+		help '[file|directory]-permissions are deprecated, you probably just wanted to do --permissions=X..., see https://superuser.com/a/91966/32418'
 	fi
-	for index in "${!paths[@]}"; do
-		if test -z "${paths[index]}"; then
-			echo-error 'Cannot claim ownership of an empty path:' $'\n' "$(echo-verbose -- "${paths[@]}")"
-			return 1
+
+	# check
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		if [[ $option_optional == 'yes' ]]; then
+			return 0
+		fi
+		__print_error 'No <path>s provided.'
+		return 22 # EINVAL 22 Invalid argument
+	fi
+	local path
+	for path in "${option_paths[@]}"; do
+		if [[ -z $path ]]; then
+			__print_error 'Cannot claim ownership of an empty path:' --newline \
+				--variable={option_paths}
+			return 22 # EINVAL 22 Invalid argument
 		fi
 	done
 
-	# check for deprecation
-	if test -n "$option_directory_permissions" -o -n "$option_file_permissions"; then
-		help "[file|directory]-permissions are deprecated, you probably just wanted to do --permissions=X..., see https://superuser.com/a/91966/32418"
-	fi
-
-	# adjustments: permissions
-	if test -z "$option_permissions"; then
-		option_permissions='a-xrw,ug+Xrw'
+	# adjustments: reference
+	if [[ -n $option_reference ]]; then
+		if [[ -n $option_permissions ]]; then
+			help '<reference> and <permissions> cannot both be provided'
+		fi
+		if __is_macos; then
+			option_permissions="$(stat -f '%p' -- "$option_reference")"
+		else
+			# %a = 644
+			# #A = -rw-r--r--
+			option_permissions="$(stat --format='%a' -- "$option_reference")"
+		fi
 	fi
 
 	# adjustments: admin
-	if test "$option_admin" = 'yes'; then
-		if is-mac; then
-			option_user="$(whoami)"
+	if [[ $option_me == 'yes' && $option_admin == 'yes' ]]; then
+		help --='--me and --admin cannot both be provided'
+	elif [[ $option_me == 'yes' && $option_root == 'yes' ]]; then
+		help --='--me and --root cannot both be provided'
+	elif [[ $option_admin == 'yes' && $option_root == 'yes' ]]; then
+		help --='--admin and --root cannot both be provided'
+	elif [[ $option_me == 'yes' ]]; then
+		__prepare_current_user # could prompt
+		option_user="$CURRENT_USER"
+	elif [[ $option_admin == 'yes' ]]; then
+		# so far this is only used to configure permissions for /etc/hosts to be the current user and extend to other admins
+		# this may need to be adjusted, as really, it could be [--me --admin] combination where [--admin] only applies the admin groups and ignores the user, unlike [--root] which should be user and group, and [--me] which should just modify the user and leave the group intact; for now this ambiguity is fine, and due to the lack of use, it is fine for now; will rely on feedback to find the ideal
+		if __is_macos; then
+			__prepare_current_user # could prompt
+			option_user="$CURRENT_USER"
 			option_group='admin'
 			# ^ https://superuser.com/a/20430/32418
+		else
+			option_user='root'
+			option_group='root'
+		fi
+	elif [[ $option_root == 'yes' ]]; then
+		# option_user='0'
+		# option_group='0'
+		if __is_macos; then
+			option_user='root'
+			option_group='wheel'
 		else
 			option_user='root'
 			option_group='root'
@@ -192,213 +318,187 @@ function fs_own() (
 
 	# adjustments: owner
 	local owner=''
-	if test -n "$option_owner"; then
-		owner="$option_owner"
-	elif test -n "$option_user" -a -n "$option_group"; then
+	if [[ -n $option_user && -n $option_group ]]; then
 		owner="$option_user:$option_group"
-	elif test -n "$option_user"; then
+	elif [[ -n $option_user ]]; then
 		owner="$option_user"
-	elif test -n "$option_group"; then
+	elif [[ -n $option_group ]]; then
 		owner=":$option_group"
+	fi
+	# check owner
+	if [[ -n $option_owner ]]; then
+		if [[ -n $owner ]]; then
+			if [[ $option_owner != "$owner" ]]; then
+				help 'multiple conflicting <owner> options cannot be provided'
+			fi
+			# $owner = $option_owner already
+		else
+			# $owner is empty, and $option_owner is defined
+			owner="$option_owner"
+		fi
+		# now check user and group
+		local user_group=()
+		__split --target={user_group} --delimiter=':' -- "$owner"
+		if [[ ${#user_group[@]} -gt 2 ]]; then
+			help 'invalid <owner> provided, must be in the format [<user>][:][<group>]'
+		fi
+		if [[ -n $option_user && $option_user != "${user_group[0]}" ]]; then
+			help 'multiple conflicting <user> options cannot be provided'
+		fi
+		if [[ -n $option_group && $option_group != "${user_group[1]-}" ]]; then
+			help 'multiple conflicting <group> options cannot be provided'
+		fi
+		option_user="${user_group[0]}"
+		option_group="${user_group[1]-}"
+	fi
+
+	# validate there is an action to perform
+	if [[ -z $option_permissions && -z $owner ]]; then
+		help '<permissions> or <owner> required, to match the functionality of prior versions, provide --ug'
 	fi
 
 	# adjustments: recursive
+	# -f: Do not display a diagnostic message when chmod could not modify the mode for file, nor modify the exit status to reflect such (macos)
+	# -f, --silent, --quiet: suppress most error messages (ubuntu)
+	# -R/--recursive: self-explanatory
+	# -h: If the file is a symbolic link, change the mode of the link itself rather than the file that the link points to.
 	local ch_args=()
-	if test "$option_recursive" = 'yes'; then
-		if is-mac || is-alpine; then
+	if [[ $option_recursive == 'yes' ]]; then
+		if __is_macos || is-system --alpine; then
 			ch_args+=('-R')
 		else
 			ch_args+=('--recursive')
 		fi
 	fi
+	if [[ $option_optional == 'yes' ]]; then
+		# chmod
+		# macos: -f: Do not display a diagnostic message if chmod could not modify the mode for file, nor modify the exit status to reflect such failures.
+		# ubuntu: -f, --silent, --quiet: suppress most error messages
+		ch_args+=('-f')
+	fi
 
-	# adjustments: changes
-	if test -z "$option_changes"; then
-		if test "$option_quiet" = 'yes' || is-mac; then
-			option_changes='no'
+	# adjustments: changes, quiet, verbose
+	function __filter_changes {
+		cat
+	}
+	if [[ $option_quiet == 'no' ]]; then
+		if __is_macos; then
+			# Reports even if there are no changes.
+			# -v: Cause chown to be verbose, showing files as the owner is modified.  If the -v flag is specified more than once, chown will print the filename, followed by the old and new numeric user/group ID.
+			# -v: Cause chmod to be verbose, showing filenames as the mode is modified.  If the -v flag is specified more than once, the old and new modes of the file will also be printed, in both octal and symbolic notation.
+			ch_args+=('-vv')
 		else
-			option_changes='yes'
+			# -v, --verbose: output a diagnostic for every file processed
+			ch_args+=('--verbose')
 		fi
-	fi
-
-	# adjustments: quiet
-	if test -z "$option_quiet"; then
-		option_quiet='yes'
-	fi
-
-	# apply args
-	if test "$option_changes" = 'yes'; then
-		if is-mac || is-alpine; then
-			echo-style --dim='Reporting permission changes is not provided by this Operating System.' >/dev/stderr
+	elif [[ $option_changes != 'no' ]]; then
+		if __is_macos || is-system --alpine; then
+			ch_args+=('-vv')
+			function __filter_changes {
+				local line mode_before mode_after
+				while IFS= read -r line; do
+					if [[ $line != *' -> '* ]]; then
+						# not a change line, skip it
+						continue
+					fi
+					# line = "<path>: <before_mode> -> <mode_after>"
+					__replace --source={line} --target={mode_before} --keep-after-first=': ' --keep-before-first=' -> ' || return $?
+					__replace --source={line} --target={mode_after} --keep-after-first=' -> ' || return $?
+					if [[ $mode_before != "$mode_after" ]]; then
+						__print_lines "$line" || return $?
+					fi
+				done
+			}
 		else
 			ch_args+=('--changes')
-		fi
-	fi
-	if test "$option_verbose" = 'yes'; then
-		if is-mac; then
-			echo-style --dim='Verbose permission changes is not provided by this Operating System.' >/dev/stderr
-		else
-			ch_args+=('--verbose')
 		fi
 	fi
 
 	# =====================================
 	# Prepare
 
-	# the argument handling is complex for bash v3 compat
-	local sudo_as_user_args=() sudo_as_admin_args=() sudo_reason
-
-	# prepare, don't put each path on a new line, as that can make a lot of lines!
-	sudo_reason="Correcting permissions for the following paths requires your sudo/root/login password:$(
-		echo-style $'\n' --reset --code="${paths[*]}"
-	)"
-
-	# if not quiet, then wrap the sudo commands
-	if test "$option_quiet" = 'no'; then
-		sudo_as_user_args+=(
-			'eval-helper'
-			'--no-quiet'
-			'--wrap'
-			'--'
-		)
-		sudo_as_admin_args+=(
-			'eval-helper'
-			'--no-quiet'
-			'--wrap'
-			'--'
-		)
+	# prepare reason, don't put each path on a new line, as that can make a lot of lines!
+	if [[ -z $option_reason ]]; then
+		option_reason=$'Your password is required to momentarily grant privileges to correct permissions for the following paths:\n'"$(
+			__print_style --reset --code="$(echo-lines --columns -- "${option_paths[@]/"$HOME"/'~'}")"
+		)"
 	fi
 
-	# sudo as the user/group
-	if test -n "$owner" -o "$option_sudo" = 'yes'; then
-		sudo_as_user_args+=(
-			'sudo-helper'
-			"--reason=$sudo_reason"
-		)
-		if test -n "$option_user"; then
-			sudo_as_user_args+=("--user=$option_user")
-		fi
-		if test -n "$option_group"; then
-			sudo_as_user_args+=("--group=$option_group")
-		fi
-		sudo_as_user_args+=('--')
-	fi
-
-	# sudo as the admin
-	if test -n "$owner" -o "$option_sudo" = 'yes'; then
-		sudo_as_admin_args+=(
-			'sudo-helper'
-			"--reason=$sudo_reason"
-			'--'
-		)
+	# mac does not support double dash on [chown] and [chmod]
+	local double_dash_args=()
+	if ! __is_macos; then
+		double_dash_args+=('--')
 	fi
 
 	# =====================================
-	# Helpers
+	# Action
 
-	function is_available {
-		local path="$1" cmd=()
-		if test -n "$owner"; then
-			if test "${#sudo_as_admin_args[@]}" -ne 0; then
-				cmd+=("${sudo_as_admin_args[@]}")
-			fi
-		else
-			if test "${#sudo_as_user_args[@]}" -ne 0; then
-				cmd+=("${sudo_as_user_args[@]}")
-			fi
-		fi
-		# can't use is-present, because sudo doesn't have access, and it is too complicated to add access for it
-		cmd+=(test -e "$path" -o -L "$path")
-		"${cmd[@]}"
-	}
-	function check_exists {
-		local path="$1" available_status
-		eval_capture --statusvar=available_status -- is_available "$path"
-		if test "$available_status" -ne 0; then
-			if test "$option_optional" != 'yes'; then
-				echo-error 'Cannot claim ownership a path that does exist or is inaccessible:' $'\n' --code="$path"
-				return "$available_status"
-			fi
-		fi
-	}
-	function do_own {
-		local path="$1" cmd
+	function __own {
+		local paths=("$@")
 
 		# chown
-		if test -n "$owner"; then
-			cmd=()
-			if test "${#sudo_as_admin_args[@]}" -ne 0; then
-				cmd+=("${sudo_as_admin_args[@]}")
-			fi
-			cmd+=(chown "${ch_args[@]}" "$owner" "$path")
-			"${cmd[@]}"
+		if [[ -n $owner ]]; then
+			# as root
+			eval_helper --redirect-stdout='(__filter_changes)' --redirect-output=STDERR --elevated="$option_elevated" --elevate="$option_elevate" --reason="$option_reason" --user=root -- \
+				chown "${ch_args[@]}" "$owner" "${double_dash_args[@]}" "${paths[@]}" || return $? # eval
 		fi
 
 		# chmod
-		if test -n "$option_permissions"; then
-			cmd=()
+		if [[ -n $option_permissions ]]; then
 			# https://superuser.com/a/91966/32418
-			if test "${#sudo_as_user_args[@]}" -ne 0; then
-				cmd+=("${sudo_as_user_args[@]}")
-			fi
-			cmd+=(chmod "${ch_args[@]}" "$option_permissions" "$path")
-			"${cmd[@]}"
+			# removing readable perms on a directory, while recursing, will cause permission denied failure
+			# as user
+			eval_helper --redirect-stdout='(__filter_changes)' --redirect-output=STDERR --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+				chmod "${ch_args[@]}" "$option_permissions" "${double_dash_args[@]}" "${paths[@]}" || return $? # eval
 		fi
 	}
 
-	# =====================================
-	# Act
-
-	local path exists_status
-	if test "$option_partial" = 'yes'; then
-		for path in "${paths[@]}"; do
-			# ignore exists and own failures in partial mode
-			eval_capture --statusvar=exists_status -- check_exists "$path"
-			if test "$exists_status" -eq 0; then
-				eval_capture -- do_own "$path"
+	# perform the ownership
+	local __result_status=0
+	if [[ $option_parents == 'yes' ]]; then
+		local path parent __path_status
+		for path in "${option_paths[@]}"; do
+			__path_status=0
+			__own "$path" || __path_status=$?
+			if [[ $__path_status -ne 0 ]]; then
+				parent=$(fs-path --parents -- "$path") || __path_status=$?
+				if [[ $__path_status -ne 0 ]]; then
+					continue
+				fi
+				fs-own \
+					--quiet="$option_quiet" \
+					--changes="$option_changes" \
+					--optional="$option_optional" \
+					--owner="$owner" \
+					--elevated="$option_elevated" \
+					--elevate="$option_elevate" \
+					--reason="$option_reason" \
+					--permissions="$option_permissions" \
+					--no-recursive --parents -- "$parent" || __path_status=$?
+				if [[ $__path_status -eq 0 ]]; then
+					__own "$path" || __path_status=$?
+				fi
+				if [[ $__path_status -ne 0 ]]; then
+					__result_status=$__path_status
+				fi
 			fi
 		done
 	else
-		for path in "${paths[@]}"; do
-			# respect exists and own failures in non-partial mode (this also allows capturing ctrl+c on sudo)
-			eval_capture --statusvar=exists_status -- check_exists "$path"
-			if test "$exists_status" -eq 0; then
-				do_own "$path"
-			else
-				return "$exists_status"
-			fi
-		done
+		__own "${option_paths[@]}" || __result_status=$?
 	fi
+
+	# handle failures
+	if [[ $option_optional == 'yes' ]]; then
+		return 0
+	fi
+	return "$__result_status"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	if test "$*" = '--test'; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
 		fs_own_test
 	else
 		fs_own "$@"
 	fi
 fi
-
-# # find -exec fails when --user --group is provided as it fails to attach to correct home
-# # so instead xargs needs to be used, but that fails because too many files or so
-# # so instead we do a loop, but that is very slow
-# # and in the end, the only time people ever need this is when they actually inded to do
-# # an uppercase X permission https://superuser.com/a/91966/32418
-
-# if test -n "$option_directory_permissions"; then
-# 	test "$option_quiet" = 'no' && set -x || :
-# 	"${sudo_as_user_args[@]}" find "$path" -type d | while read -r dir; do
-# 		"${sudo_as_user_args[@]}" \
-# 			chmod "${ch_args[@]}" "$option_directory_permissions" "$dir"
-# 	done
-# 	test "$option_quiet" = 'no' && set +x || :
-# fi
-# if test -n "$option_file_permissions"; then
-# 	test "$option_quiet" = 'no' && set -x || :
-# 	"${sudo_as_user_args[@]}" find "$path" -type f | while read -r file; do
-# 		"${sudo_as_user_args[@]}" \
-# 			chmod "${ch_args[@]}" "$option_file_permissions" "$file"
-# 	done
-# 	test "$option_quiet" = 'no' && set +x || :
-# fi

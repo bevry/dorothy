@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
+function setup_ruby_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-ruby --help
+)
+
 function setup_ruby() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile' 'empty'
 
 	# =====================================
 	# Configuration
@@ -21,111 +25,126 @@ function setup_ruby() (
 	load_dorothy_config 'setup.bash'
 
 	# deprecations
-	if test "${#RUBY_INSTALL[@]}" -ne 0; then
+	if [[ ${#RUBY_INSTALL[@]} -ne 0 ]]; then
 		GEM_INSTALL+=("${RUBY_INSTALL[@]}")
 		dorothy-config 'setup.bash' -- \
 			--field='RUBY_INSTALL' --replace= \
-			--field='GEM_INSTALL' --array="$(echo-lines -- "${GEM_INSTALL[@]}" | sort --ignore-case | uniq)"
+			--field='GEM_INSTALL' --array="$(echo-unique --ignore-case -- "${GEM_INSTALL[@]}")"
 	fi
 
 	# adjustments
-	mapfile -t GEM_INSTALL < <(dorothy-config --packages-var='GEM_INSTALL' -- "${GEM_INSTALL[@]}")
+	__split --target={GEM_INSTALL} --no-zero-length --invoke -- \
+		dorothy-config --packages-var='GEM_INSTALL' -- "${GEM_INSTALL[@]}"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
-			USAGE:
-			setup-ruby [--flags]
+		__print_help "$@" <<-EOF || return $?
+			Setup the Ruby ecosystem.
 
-			FLAGS:
-			--optional
-			    Only setup if it is needed by packages.
+			USAGE:
+			\`setup-ruby [...options] [install|update|setup|configure]\`
+
+			OPTIONS:
+			--configure
+			    Whether to prompt, confirm, or save configuration changes.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item optional=''
-	while test "$#" -ne 0; do
+	local item option_configure=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-optional'* | '--optional'*)
-			optional="$(get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative --stdin)"
+		# install|update|setup|configure
+		'setup') ;;
+		'update')
+			option_configure='no'
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'install' | 'configure')
+			option_configure='yes'
+			;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check
-	if test "$optional" = 'yes' -a "${#GEM_INSTALL[@]}" -eq 0 && ! confirm --negative --ppid=$$ -- 'Setup Ruby?'; then
-		return 0
+	if [[ ${#GEM_INSTALL[@]} -eq 0 ]]; then
+		if [[ $option_configure == 'no' ]]; then
+			__print_style --dim='Setup of Ruby ecosystem skipped.'
+			return 0
+		elif ! confirm --linger --negative --ppid=$$ -- 'Setup Ruby ecosystem?'; then
+			return 0
+		fi
 	fi
 
 	# =====================================
 	# Start
 
-	echo-segment --h1="Setup Ruby"
+	__print_style --h1='Setup Ruby'
 
 	# =====================================
 	# Install
 
-	echo-segment --h2='Install ruby'
+	__print_style --h2='Install ruby'
 	setup-util-ruby --upgrade --no-quiet
-	echo-segment --h2='Install ruby'
+	__print_style --h2='Install ruby'
 
 	# =====================================
 	# Caches
 
-	echo-segment --h2='Pruning cache'
+	__print_style --h2='Pruning cache'
 
 	# .ruby is an deprecated cache location, clear it
-	if test -d "$HOME/.ruby"; then
-		echo-style --dim="Pruning:       $HOME/.ruby"
-		fs-rm --no-confirm --quiet -- "$HOME/.ruby"
+	if [[ -d "$HOME/.ruby" ]]; then
+		# @todo style with var_dump or something
+		__print_style --dim="Pruning:       $HOME/.ruby"
+		fs-remove --quiet --no-confirm -- "$HOME/.ruby"
 	fi
 
 	# clear .gem
-	if test -d "$HOME/.gem"; then
-		echo-style --dim="Pruning:       $HOME/.gem"
-		fs-rm --no-confirm --quiet -- "$HOME/.gem"
+	if [[ -d "$HOME/.gem" ]]; then
+		# @todo style with var_dump or something
+		__print_style --dim="Pruning:       $HOME/.gem"
+		fs-remove --quiet --no-confirm -- "$HOME/.gem"
 	fi
 
 	# clear GEM_HOME and remake it
-	if test -n "${GEM_HOME-}"; then
-		if test -d "$GEM_HOME"; then
-			echo-style --dim="Pruning:       $GEM_HOME"
-			fs-rm --no-confirm --quiet -- "$GEM_HOME"
+	if [[ -n ${GEM_HOME-} ]]; then
+		if [[ -d $GEM_HOME ]]; then
+			# @todo style with var_dump or something
+			__print_style --dim="Pruning:       $GEM_HOME"
+			fs-remove --quiet --no-confirm -- "$GEM_HOME"
 		fi
-		mkdir -p "$GEM_HOME"
+		__mkdirp "$GEM_HOME"
 	fi
 
-	echo-segment --g2='Pruning cache'
+	__print_style --g2='Pruning cache'
 
 	# =====================================
 	# Reload
 
 	# reload paths for changes to be detected and confirm installation
 
-	echo-segment --h2='Reload paths'
+	__print_style --h2='Reload paths'
 	source "$DOROTHY/sources/environment.sh"
-	if ! command-exists gem; then
-		echo-style --e2='Unable to find [gem] executable, so cannot proceed... ❌' >/dev/stderr
+	if __command_missing -- gem; then
+		__print_style --stderr --error2='Unable to find [gem] executable, so cannot proceed... ❌'
 		return 1
 	fi
-	echo-style \
-		--dim="Ruby Path:      $(type -P ruby)" $'\n' \
-		--dim="Ruby Version:   $(ruby --version)" $'\n' \
-		--dim="Gem Path:       $(type -P gem)" $'\n' \
-		--dim="Gem Version:    $(gem --version)"
-	echo-segment --g2='Reload paths'
+	# @todo style with var_dump or something
+	__print_style \
+		--dim="Ruby Path:      $(type -P ruby)" --newline \
+		--dim="Ruby Version:   $(ruby --version)" --newline \
+		--dim="Gem Path:       $(type -P gem)" --newline \
+		--dim="Gem Version:    $(gem --version)" --newline \
+		--g2='Reload paths'
 
 	# =====================================
 	# Update
@@ -136,22 +155,25 @@ function setup_ruby() (
 	# 	itself is unsupported. If you really need the latest version of RubyGems (tip:
 	# 	you usually don't), then you need to install RubyGems (and Ruby) manually,
 	# 	maybe using tools like ruby-install, rvm, etc.
-	# echo
-	# print_line 'Updating ruby gems...'
+	# __print_lines '' 'Updating ruby gems...'
 	# gem update --system
 
 	# =====================================
 	# Packages
 
-	setup-util --installer=GEM -- "${GEM_INSTALL[@]}"
+	setup-util --source=GEM -- "${GEM_INSTALL[@]}"
 
 	# =====================================
 	# Finish
 
-	echo-segment --g1="Setup Ruby"
+	__print_style --g1='Setup Ruby'
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_ruby "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_ruby_test
+	else
+		setup_ruby "$@"
+	fi
 fi

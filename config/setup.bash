@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
+# Do not use `export` keyword in this file
 
 # APK
 # Used by `setup-linux`
@@ -34,7 +34,7 @@
 # macOS App Store / mas / https://github.com/mas-cli/mas
 # Used by `setup-mac-appstore`
 # You can use `mas list` and `mas search` to find apps
-# MAS_INSTALL=() # tupe array of id, label
+# MAS_INSTALL=() # tuple array of id, label
 # MAS_UPGRADE='no'
 
 # Homebrew / brew / https://brew.sh
@@ -54,7 +54,6 @@ HOMEBREW_FONTS=(
 	'font-fira-mono-nerd-font'
 	'font-hack' # many editors require this
 	'font-hasklig'
-	'font-ibm-plex' # many editors require this
 	'font-inconsolata-go-nerd-font'
 	'font-inter' # many apps require this
 	'font-jetbrains-mono'
@@ -71,8 +70,9 @@ HOMEBREW_FONTS=(
 	'font-source-code-pro' # many editors require this
 	'font-ubuntu'
 )
-# HOMEBREW_UNINSTALL=()        # for casks and formulas
+# HOMEBREW_UNINSTALL=() # for casks and formulas
 # HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
+# HOMEBREW_ENCODING_REINSTALL='' # '', 'yes', 'no'
 
 # Golang / go
 # Used by `setup-go`
@@ -82,14 +82,12 @@ HOMEBREW_FONTS=(
 # Node.js
 # Used by `setup-node`
 # NPM_INSTALL=()
+# NODE_VERSIONS=()
 
 # Python
 # Used by `setup-python`
 # PYTHON_INSTALL=()
-# PIP_INSTALL=()
-# PYTHON2_PIP_INSTALL=()
-# PYTHON3_PIP_INSTALL=()
-# PIPX_INSTALL=()
+# UV_INSTALL=()
 
 # Ruby
 # Used by `setup-ruby`
@@ -103,7 +101,7 @@ HOMEBREW_FONTS=(
 # Used by `setup-utils`
 # You can use `setup-utils --configure` to configure these.
 SETUP_UTILS=(
+	'ibm-plex' # many editors require this
 	'nano'
-	'neovim'
 	'vim'
 )

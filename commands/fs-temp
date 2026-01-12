@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function fs_temp_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-temp --help
+)
+
 function fs_temp() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,126 +12,162 @@ function fs_temp() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Make a temporary path.
 
 			USAGE:
-			fs-temp [...options] --directory[=<dirname>]   # generate a directory path
-			fs-temp [...options] --file[=<filename>]       # generate a file path
+			\`fs-temp [...options]\`
 
 			OPTIONS:
-			--xdg
+			--[no-]touch
+			    Unless falsey, then directories will be made.
+			    If truthy, the file, if applicable, will be created.
+
+			--temp | --temporary | --type=temp | --type=temporary
+			    Ephemeral and in-memory, intended to purge upon reboot.
+			    Saves SSDs from wear and tear. Saves HDDs from spin-ups.
+			    Not <xdg> applicable.
+			    Unless another <type> is specified, this is the default.
+			--cache | --type=cache
+			    Ephemeral yet persistent, persists through reboots, clears upon maintenance.
+			--state | --type=state
+			    Ephemeral yet persistent.
+			--config | --type=config
+			    Persistent, for configuration.
+			--share | --data | --type=share | --type=data
+			    Persistent, for application data.
+			--bin | --binary | --type=bin | --type=binary
+			    Persistent, for binaries/executables.
+
+			--[no-]xdg
 			    If truthy, enforce XDG usage.
 			    If falsey, disable XDG usage.
-			    If omitted, use system XDG prefernce.
+			    If omitted, use system XDG preference.
 
 			--root=<root> | --inside=<root>
-			    Use this as the root directory path.
-			    If omitted, will detect it based on XDG usage.
+			    If provided, will discard <type> and <xdg> options, and use this as the root directory path.
+			    If empty or omitted, will set <root> automatically based upon <type> and <xdg>.
 
-			--directory=<dirname>
+			--directory[=...<dirname>]
 			    Append the <root> path with this <dirname>.
 			    Use an empty <dirname> to generate a non-existent directory name.
-
-			--file=<filename>
+			--file[=...<filename>]
 			    Append the <root> path with this <filename>.
 			    Use an empty <filename> to generate a non-existent filename.
 			    You can specify multiple if you want multiple filenames generated.
-
 			--prefix=<prefix>
 			    When generating a <dirname> or <filename>, use this <prefix>.
-
 			--suffix=<suffix>
 			    When generating a <dirname> or <filename>, use this <suffix>.
-
 			--extension=<extension>
 			    When generating a <filename>, use this <extension>.
 
-			--touch
-			    If a <filename> was provided, then touch the file to ensure it exists.
+			--content=<content>
+			    If provided, and if making a file, then the content of the file will be <content>.
+			    Implies <touch>.
 
 			QUIRKS:
-			Unless [--touch] is truthy, then file paths won't be created on the file system.
-			However, directory paths will be created regardless.
+			Unless <touch> is truthy, then file paths won't be created on the file system.
+			Unless <touch> is falsey, directory paths will be created.
 			This combination is to avoid your tooling complaining about existing files,
 			while avoiding complaints about unable to write a new file to a non-existent path.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item
-	local option_xdg="${PREFER_XDG:-"no"}"
-	local option_root=''
-	local option_directories=()
-	local option_files=()
-	local option_prefix=''
-	local option_suffix=''
-	local option_extension=''
-	local option_touch='no'
-	while test "$#" -ne 0; do
+	local item option_type='temp' option_xdg="${PREFER_XDG:-"no"}" option_root='' option_directories=() option_files=() option_prefix='' option_suffix='' option_extension='' option_touch='' option_content=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-xdg'* | '--xdg'*)
-			option_xdg="$(get-flag-value xdg --missing="$option_xdg" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-touch'* | '--touch'*)
-			option_touch="$(get-flag-value touch --missing="$option_touch" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--root='*) option_root="${item#*--root=}" ;;
-		'--inside='*) option_root="${item#*--inside=}" ;;
+		'--temp' | '--temporary' | '--type=temp' | '--type=temporary' | '--type=') option_type='temp' ;;
+		'--cache' | '--type=cache') option_type='cache' ;;
+		'--state' | '--type=state') option_type='state' ;;
+		'--config' | '--type=config') option_type='config' ;;
+		'--share' | '--data' | '--type=share' | '--type=data') option_type='data' ;;
+		'--bin' | '--binary' | '--type=bin' | '--type=binary') option_type='bin' ;;
+		'--no-xdg'* | '--xdg'*) __flag --source={item} --target={option_xdg} --affirmative --coerce ;;
+		'--no-touch'* | '--touch'*) __flag --source={item} --target={option_touch} --affirmative --coerce ;;
+		'--root='* | '--inside='*) option_root="${item#*=}" ;;
 		'--directory') option_directories+=('') ;;
-		'--directory='*) option_directories+=("${item#*--directory=}") ;;
+		'--directory='*) option_directories+=("${item#*=}") ;;
 		'--file') option_files+=('') ;;
-		'--file='*) option_files+=("${item#*--file=}") ;;
-		'--prefix='*) option_prefix="${item#*--prefix=}" ;;
-		'--suffix='*) option_suffix="${item#*--suffix=}" ;;
-		'--extension='*) option_extension="${item#*--extension=}" ;;
+		'--file='*) option_files+=("${item#*=}") ;;
+		'--prefix='*) option_prefix="${item#*=}" ;;
+		'--suffix='*) option_suffix="${item#*=}" ;;
+		'--extension='*) option_extension="${item#*=}" ;;
+		'--content='*)
+			option_touch=yes
+			option_content="${item#*=}"
+			;;
 		'--') ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# if extension exists, ensure it starts with a .
-	if test -n "$option_extension" -a "${option_extension:0:1}" != '.'; then
+	if [[ -n $option_extension && ${option_extension:0:1} != '.' ]]; then
 		option_extension=".${option_extension}"
-	fi
-
-	# ensure --file[=...] or --directory[=....] where provided
-	if test "${#option_files[@]}" -eq 0 -a "${#option_directories[@]}" -eq 0; then
-		help "You must provide at least one --file[=<filename>] or --directory[=<dirname>] option, so we know what we are generating."
 	fi
 
 	# =====================================
 	# Act
 
-	local root directory file
-
 	# generate the root path, that directories and the file will go inside
-	if test -n "$option_root"; then
+	local root
+	if [[ -n $option_root ]]; then
 		root="$option_root"
+	elif [[ $option_type == 'temp' ]]; then
+		root="$TMPDIR"
+	elif [[ $option_xdg == 'yes' ]]; then
+		case $option_type in
+		cache) root="$XDG_CACHE_HOME" ;;
+		state) root="$XDG_STATE_HOME" ;;
+		config) root="$XDG_CONFIG_HOME" ;;
+		data) root="$XDG_DATA_HOME" ;;
+		bin) root="$XDG_BIN_HOME" ;;
+		*) help 'An unrecognised type was provided: ' --variable-value={option_type} ;;
+		esac
 	else
-		if test "$option_xdg" = 'yes'; then
-			root="$XDG_CACHE_HOME/dorothy"
-		else
-			root="$(mktemp -d)"
+		case $option_type in
+		cache) root="$TMPDIR" ;;
+		state) root="$STATE_DIR" ;;
+		config) root="$CONF_DIR" ;;
+		data) root="$DATA_DIR" ;;
+		bin) root="$BIN_DIR" ;;
+		*) help 'An unrecognised type was provided: ' --variable-value={option_type} ;;
+		esac
+	fi
+
+	# trim trailing slashes from root
+	__replace --source+target={root} --optional --trailing-all='/'
+
+	# ensure
+	function __ensure {
+		if [[ $option_touch != 'no' ]]; then
+			__mkdirp "$root"
 		fi
+	}
+
+	# if no <directory>s or <file>s, just ensure and dump the root
+	if [[ ${#option_files[@]} -eq 0 && ${#option_directories[@]} -eq 0 ]]; then
+		__ensure
+		__print_lines "$root"
+		return 0
 	fi
 
 	# add the directories to the root
+	local directory
 	for directory in "${option_directories[@]}"; do
-		if test -z "$directory"; then
+		if [[ -z $directory ]]; then
 			# generate a non-existent directory name
-			while true; do
-				directory="$option_prefix$(get-random-number)$option_suffix"
-				if is-missing "$root/$directory"; then
+			while :; do
+				directory="${option_prefix}${RANDOM}${option_suffix}"
+				if is-missing -- "$root/$directory"; then
 					break
 				fi
 			done
@@ -134,33 +175,42 @@ function fs_temp() (
 		root="$root/$directory"
 	done
 
-	# ensure the root now exists
-	mkdir -p "$root"
+	# ensure the root (with added directories) now exists
+	__ensure
 
 	# if no files, output directory path
-	if test "${#option_files[@]}" -eq 0; then
-		print_line "$root"
+	if [[ ${#option_files[@]} -eq 0 ]]; then
+		__print_lines "$root"
 	else
 		# output as many filenames as requested
+		local file
 		for file in "${option_files[@]}"; do
-			if test -z "$file"; then
+			if [[ -z $file ]]; then
 				# generate a non-existent filename
-				while true; do
-					file="$option_prefix$(get-random-number)$option_suffix$option_extension"
-					if is-missing "$root/$file"; then
+				while :; do
+					file="${option_prefix}${RANDOM}${option_suffix}${option_extension}"
+					if ! [[ -e "$root/$file" ]]; then
 						break
 					fi
 				done
 			fi
-			if test "$option_touch" = 'yes'; then
-				touch "$root/$file"
+			if [[ $option_touch == 'yes' ]]; then
+				if [[ -n $option_content ]]; then
+					printf '%s' "$option_content" >"$root/$file"
+				else
+					touch -- "$root/$file"
+				fi
 			fi
-			print_line "$root/$file"
+			__print_lines "$root/$file"
 		done
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_temp "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_temp_test
+	else
+		fs_temp "$@"
+	fi
 fi

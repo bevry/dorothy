@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function setup_utils_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-utils --help
+)
+
 function setup_utils() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,16 +12,16 @@ function setup_utils() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			USAGE:
-			setup-utils [...options] [-- ...<util>]
+			\`setup-utils [...options] [-- ...<util>]\`
 
 			OPTIONS:
 			<util>
 			    Specific utility to setup.
 
 			--configure
-			    Prompt for which utilities you wish to setup, and update [SETUP_UTILS] accordingly.
+			    Prompt for which utilities you wish to setup, and update \`SETUP_UTILS\` accordingly.
 
 			All other options are forwarded to the utility installer.
 		EOF
@@ -24,19 +29,19 @@ function setup_utils() (
 	}
 
 	# process
-	local item args=() utils=() reconfigure='no'
-	while test "$#" -ne 0; do
+	local item option_args=() option_utils=() option_configure='no'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--configure') reconfigure='yes' ;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
 		'--')
-			utils+=("$@")
+			option_utils+=("$@")
 			shift $#
 			break
 			;;
-		*) args+=("$item") ;;
+		*) option_args+=("$item") ;;
 		esac
 	done
 
@@ -44,10 +49,7 @@ function setup_utils() (
 	# Configuration
 
 	# if args, don't use config
-	if test "${#utils[@]}" -eq 0; then
-		# dependencies
-		require_array 'mapfile'
-
+	if [[ ${#option_utils[@]} -eq 0 ]]; then
 		# no args, so use configuration
 		source "$DOROTHY/sources/config.sh"
 
@@ -57,32 +59,30 @@ function setup_utils() (
 
 		# if reconfiguring, prompt the user which ones
 		local options file basename name
-		if test "$reconfigure" = 'yes'; then
+		if [[ $option_configure == 'yes' ]]; then
 			options=()
 			for file in "$DOROTHY/commands/setup-util-"*; do
-				basename="$(basename "$file")"
+				basename="$(basename -- "$file")"
 				name="${basename#*setup-util-}"
 				options+=("$name")
 			done
-			mapfile -t utils < <(
-				choose-option --multi \
-					--question="Which utilities to install?" \
-					--defaults="$(echo-lines -- "${SETUP_UTILS[@]}")" \
-					-- "${options[@]}"
-			)
+			__split --target={option_utils} --no-zero-length --invoke -- \
+				choose --linger --confirm --multi \
+				--question="Which utilities to install?" \
+				--defaults="$(__print_lines "${SETUP_UTILS[@]}")" -- \
+				"${options[@]}"
 
 			# save
 			dorothy-config 'setup.bash' -- \
-				--field='SETUP_UTILS' --array="$(echo-lines -- "${utils[@]}")"
+				--field='SETUP_UTILS' --array="$(__print_lines "${option_utils[@]}")"
 		else
-			utils=("${SETUP_UTILS[@]}")
+			option_utils=("${SETUP_UTILS[@]}")
 		fi
 	fi
 
 	# check
-	if test "${#utils[@]}" -eq 0; then
-		echo-style --notice='No utilities provided, to configure some use:' $'\n' \
-			'   ' --code='setup-utils --configure'
+	if [[ ${#option_utils[@]} -eq 0 ]]; then
+		__print_style --notice1='No utilities provided, to configure some use: ' --code-notice1='setup-utils --configure'
 		return 0
 	fi
 
@@ -90,33 +90,36 @@ function setup_utils() (
 	# Action
 
 	local item cmd
-	echo-segment --h1="Setup ${#utils[@]} utilities"
-	for item in "${utils[@]}"; do
-		if test -n "$item"; then
+	__print_style --h1="Setup ${#option_utils[@]} utilities"
+	for item in "${option_utils[@]}"; do
+		if [[ -n $item ]]; then
 			cmd="setup-util-${item}"
-			if command-exists "$cmd"; then
-				"$cmd" "${args[@]}" || : # don't fail everything if one fails
+			if __command_exists -- "$cmd"; then
+				"$cmd" "${option_args[@]}" || : # don't fail everything if one fails
 			else
 				# can't use -EOF, as we want to print spacing
-				{
-					echo-style --e1="Unable to install [$item], as [$cmd] doesn't exist." $'\n' \
-						$'\n' \
-						--red="You can create the missing command by running:" $'\n' \
-						$'\n' \
-						--dim="    touch $DOROTHY/user/$cmd" $'\n' \
-						--dim="    edit $DOROTHY/user/$cmd" $'\n' \
-						--dim="    open https://github.com/bevry/dorothy/discussions/73" $'\n' \
-						$'\n' \
-						--red="Once the command is created, re-run your prior command."
-					return 1
-				} >/dev/stderr
+				__print_style --stderr \
+					--error1="Unable to install [$item], as [$cmd] doesn't exist." --newline \
+					--newline \
+					--red="You can create the missing command by running:" --newline \
+					--newline \
+					--dim="    touch $DOROTHY/user/$cmd" --newline \
+					--dim="    edit $DOROTHY/user/$cmd" --newline \
+					--dim="    open https://github.com/bevry/dorothy/discussions/73" --newline \
+					--newline \
+					--red='Once the command is created, re-run your prior command.'
+				return 1
 			fi
 		fi
 	done
-	echo-segment --g1="Setup ${#utils[@]} utilities"
+	__print_style --g1="Setup ${#option_utils[@]} utilities"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_utils "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_utils_test
+	else
+		setup_utils "$@"
+	fi
 fi

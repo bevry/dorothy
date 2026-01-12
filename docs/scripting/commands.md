@@ -4,10 +4,10 @@
 
 There are several places commands are located, [ordered by least preferred to most preferred](https://github.com/bevry/dorothy/discussions/28).
 
--   `$DOROTHY/commands/*` for Dorothy's stable commands
--   `$DOROTHY/commands.beta/*` for Dorothy's beta commands
--   `$DOROTHY/user/commands/*` for your public commands
--   `$DOROTHY/user/commands.local/*` for your local/private commands
+- `$DOROTHY/commands/*` for Dorothy's stable commands
+- `$DOROTHY/commands.beta/*` for Dorothy's beta commands
+- `$DOROTHY/user/commands/*` for your public commands
+- `$DOROTHY/user/commands.local/*` for your local/private commands
 
 Commands that have demand by the wider community will be promoted to exist directly within Dorothy, but should always start within your own user configuration first.
 
@@ -25,7 +25,7 @@ function the_name_of_my_command() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	the_name_of_my_command "$@"
 fi
 ```
@@ -38,9 +38,9 @@ The `source ...` sources our [`sources/bash.bash` file](https://github.com/bevry
 
 For instance:
 
--   if your command needs to capture the exit status and/or output of a command, you can use `eval_capture ...`
--   if your command requires `globstar` you can use `require_globstar` to fail if globstar is unsupported.
--   if your command uses `mapfile` you can use `require_array 'mapfile'` to fail if mapfile is unsupported.
+- if your command needs to capture the exit status and/or output of a command, you can use `eval_capture ...`
+- if your command requires `globstar` you can use `__require_globstar` to fail if that is unsupported.
+- if your command accesses empty arrays you can use `__require_array 'empty'` to fail if that is unsupported.
 
 If your bash command makes use of `ripgrep`, then use the following to ensure it is installed and that it won't output something silly.
 
@@ -55,9 +55,9 @@ Dorothy prefers user commands to its own commands, allowing users to extend the 
 For instance, if we want to have the user affirm honesty before any call to the the `ask` command, we can create our own `commands/ask` command in our user configuration:
 
 ```bash
-touch "$DOROTHY/user/commands/ask"
-chmod +x "$DOROTHY/user/commands/ask"
-edit "$DOROTHY/user/commands/ask"
+touch -- "$DOROTHY/user/commands/ask"
+fs-own --permissions=+x -- "$DOROTHY/user/commands/ask"
+edit -- "$DOROTHY/user/commands/ask"
 ```
 
 And set its contents to:
@@ -66,17 +66,17 @@ And set its contents to:
 #!/usr/bin/env bash
 
 function ask_() (
-    source "$DOROTHY/sources/bash.bash"
-    if confirm --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
-        "$DOROTHY/commands/ask" "$@"
-    else
-        echo-style --error='If we cannot trust your answers, we cannot act reliably. Exiting...'
-        return 1
-    fi
+	source "$DOROTHY/sources/bash.bash"
+	if confirm --linger --ppid=$$ --positive -- 'You will soon be asked a question. Do you affirm you reply honestly?'; then
+		"$DOROTHY/commands/ask" "$@"
+	else
+		echo-style --error='If we cannot trust your answers, we cannot act reliably. Exiting...'
+		return 1
+	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	ask_ "$@"
 fi
 ```
@@ -90,7 +90,7 @@ ask --question='What is your name?'
 As this is not a useful example, remember to remove it:
 
 ```bash
-rm "$DOROTHY/user/commands/silent"
+rm -f -- "$DOROTHY/user/commands/silent"
 ```
 
 ## Types

@@ -1,68 +1,77 @@
 #!/usr/bin/env bash
 
+function sparse_vault_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- sparse-vault --help
+)
+
 function sparse_vault() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Helpers for working with macOS sparse vaults (encrypted DMGs).
 
 			USAGE:
-			sparse-vault mount|open <path>
+			\`sparse-vault <action> <path>\`
 
+			ACTIONS:
+			& mount|open <path>
 			    Mounts an existing sparse vault.
 
-			sparse-vault unmount|eject <path>
-
+			& unmount|eject <path>
 			    Unmount an existing sparse vault.
 
-			sparse-vault create|make <path>
-			  [--name=...]  # Volume name
-			  [--size=...]  # Examples: MAXSIZE, 100g, 1t
-			  [--type=<sparseimage|sparsebundle>]
-
+			& create|make <path>
 			    Creates a new sparse vault.
-			    Note that the extension of ".<type>" appended onto the <path>.
-
-			    Use [--type=sparseimage] for a single file.
-			    Use [--type=sparsebundle] for a directory style file, made up of dozens of block files.
+			    --name=<name>
+			        Volume name.
+			    --size=<size>
+			        Examples: \`MAXSIZE\`, \`100g\`, \`1t\`.
+			    --type=<sparseimage|sparsebundle>
+			        Use \`--type=sparseimage\` for a single file.
+			        Use \`--type=sparsebundle for a directory style file, made up of dozens of block files.
+			        The extension of \`.<type>\` is appended to the <path>.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item action='' path='' name='' size='' type=''
-	while test "$#" -ne 0; do
+	local item action='' option_path='' option_name='' option_size='' option_type=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
+		'--help' | '-h') __help ;;
 		'create' | 'make') action='create' ;;
 		'mount' | 'open') action='mount' ;;
 		'unmount' | 'eject') action='unmount' ;;
-		'--path='*) path="${item#*--path=}" ;;
-		'--name='*) name="${item#*--name=}" ;;
-		'--size='*) size="${item#*--size=}" ;;
-		'--type='*) type="${item#*--type=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--path='*) option_path="${item#*=}" ;;
+		'--name='*) option_name="${item#*=}" ;;
+		'--size='*) option_size="${item#*=}" ;;
+		'--type='*) option_type="${item#*=}" ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$action"; then
+			if [[ -z $action ]]; then
 				action="$item"
-			elif test -z "$path"; then
-				path="$item"
+			elif [[ -z $option_path ]]; then
+				option_path="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				__help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
+
+	# assert compatibility
+	if ! __is_macos; then
+		__help 'This command is only purposeful on macOS, which you are not running.' || :
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
 
 	# ensure valid action
 	local actions=(
@@ -71,35 +80,35 @@ function sparse_vault() (
 		'create'
 	)
 	action="$(
-		choose-option --required \
-			--question='which action to perform?' \
-			--filter="$action" -- "${actions[@]}"
+		choose --required \
+			--question='Which action to perform?' \
+			--skip-default --default="$action" -- "${actions[@]}"
 	)"
 
 	# adjustments: path
-	path="$(
-		ask --required \
+	option_path="$(
+		ask --linger --required \
 			--question='Enter its path.' \
-			--default="$path"
+			--default="$option_path"
 	)"
-	path="$(fs-absolute -- "$path")"
+	option_path="$(fs-path --absolute -- "$option_path")"
 
 	# adjustments: create
-	if test "$action" = 'create'; then
-		name="$(
-			ask --required --confirm \
+	if [[ $action == 'create' ]]; then
+		option_name="$(
+			ask --linger --required --confirm \
 				--question='Enter the volume name.' \
-				--default="$name"
+				--default="$option_name"
 		)"
-		size="$(
-			ask --required --confirm \
+		option_size="$(
+			ask --linger --required --confirm \
 				--question='Enter its maximum size. E.g. MAXSIZE|100g|1t' \
-				--default="$size"
+				--default="$option_size"
 		)"
-		type="$(
-			choose-option \
+		option_type="$(
+			choose --linger --required \
 				--question='Enter its type.' \
-				--filter="$type" -- sparseimage sparsebundle
+				--default="$option_type" -- sparseimage sparsebundle
 		)"
 	fi
 
@@ -107,82 +116,82 @@ function sparse_vault() (
 	# Helpers
 
 	function get_macos_version {
-		sw_vers -productVersion | awk -F '.' '{print $2}'
+		sw_vers -productVersion | echo-regexp -o '^\d+'
 	}
 
 	# =====================================
 	# Actions
 
 	function act_mount {
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Compacting...")" \
-			--success="$(echo-style --success="Compacted.")" \
-			--failure="$(echo-style --error="Failed to compact.")" \
-			-- hdiutil compact "$path"
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold='Compacting...')" \
+			--success="$(__print_style --success='Compacted.')" \
+			--failure="$(__print_style --error='Failed to compact.')" -- \
+			hdiutil compact "$option_path"
 
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Mounting...")" \
-			--success="$(echo-style --success="Mounted.")" \
-			--failure="$(echo-style --error="Failed to mount.")" \
-			-- hdiutil mount "$path"
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold='Mounting...')" \
+			--success="$(__print_style --success='Mounted.')" \
+			--failure="$(__print_style --error='Failed to mount.')" -- \
+			hdiutil mount "$option_path"
 	}
 
 	function act_create {
 		local args=(
 			'-encryption' 'AES-256'
-			'-size' "$size"
-			'-volname' "$name"
+			'-size' "$option_size"
+			'-volname' "$option_name"
 		)
-		if test "$(get_macos_version)" -ge 13; then
+		if [[ "$(get_macos_version)" -ge 13 ]]; then
 			args+=('-fs' 'APFS')
 		else
 			args+=('-fs' 'Journaled HFS+')
 		fi
-		if test "$type" = 'sparseimage'; then
+		if [[ $option_type == 'sparseimage' ]]; then
 			args+=('-type' 'SPARSE')
-			if [[ $path != *'.sparseimage' ]]; then
+			if [[ $option_path != *'.sparseimage' ]]; then
 				path="${path}.sparseimage"
 			fi
 		else
 			args+=('-type' 'SPARSEBUNDLE')
-			if [[ $path != *'.sparsebundle' ]]; then
+			if [[ $option_path != *'.sparsebundle' ]]; then
 				path="${path}.sparsebundle"
 			fi
 		fi
 
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Creating...")" \
-			--success="$(echo-style --success="Created.")" \
-			--failure="$(echo-style --error="Failed to create.")" \
-			-- hdiutil create "${args[@]}" "$path"
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold='Creating...')" \
+			--success="$(__print_style --success='Created.')" \
+			--failure="$(__print_style --error='Failed to create.')" -- \
+			hdiutil create "${args[@]}" "$option_path"
 
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Mounting...")" \
-			--success="$(echo-style --success="Mounted.")" \
-			--failure="$(echo-style --error="Failed to mount.")" \
-			-- hdiutil mount "$path"
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold='Mounting...')" \
+			--success="$(__print_style --success='Mounted.')" \
+			--failure="$(__print_style --error='Failed to mount.')" -- \
+			hdiutil mount "$option_path"
 	}
 
 	function act_unmount {
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Unmounting...")" \
-			--success="$(echo-style --success="Unmount.")" \
-			--failure="$(echo-style --error="Failed to unmount.")" \
-			-- hdiutil unmount "$path"
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold='Unmounting...')" \
+			--success="$(__print_style --success='Unmount.')" \
+			--failure="$(__print_style --error='Failed to unmount.')" -- \
+			hdiutil unmount "$option_path"
 	}
 
 	# =====================================
-	# Act
+	# Action
 
-	if test "$(type -t "act_$action")" = 'function'; then
-		"act_$action"
-	else
-		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
-		return 78 # ENOSYS 78 Function not implemented
-	fi
+	__affirm_function_is_defined "act_$action"
+	"act_$action" # eval
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	sparse_vault "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		sparse_vault_test
+	else
+		sparse_vault "$@"
+	fi
 fi

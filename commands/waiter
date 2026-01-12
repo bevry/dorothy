@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function waiter_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- waiter --help
+)
+
 function waiter_() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,107 +12,168 @@ function waiter_() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Take a break.
 
 			USAGE:
-			waiter [...options]
+			\`waiter [...options]\`
 
 			OPTIONS:
-			--timeout=<timeout> | <timeout>
-			    How many seconds to wait for before timing out.
-			    Defaults to 5 seconds.
+			<timeout> | --timeout=<timeout:seconds>
+			    If provided, will wait for this amount of seconds, and count down.
+			    If not provided, will wait indefinitely, and count up.
+				If zero, will not wait and will return immediately.
+
+			--message=<message>
+			    A custom message where %s will be replaced with the time remaining or the time waited.
 
 			--exists=<path>
-			    If the path exists, then skip waiting.
+			    If the path exists, skip any more waiting, and return success exit status (0).
 
 			--status=<exit-status>
-			    If provided, once done waiting, return this status code.
-			    Defaults to 0.
+			    If timed out, return this exit status.
+			    Defaults to 0, however if --exists is provided, this will default to [ETIMEDOUT 60 Operation timed out] instead.
 
 			--stdout=<stdout>
-			    If provided, once done waiting, output this to stdout.
-
+			    If provided, once done waiting, output this to STDOUT.
 			--stderr=<stderr>
-			    If provided, once done waiting, output this to stderr.
-
+			    If provided, once done waiting, output this to STDERR.
 			--tty=<tty>
 			    If provided, once done waiting, output to this TTY.
-
-			--no-magic
-			    If provided, output wait messages to stdout, and do not clear wait messages.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_timeout='' option_exists='' option_status=0 option_stdout='' option_stderr='' option_tty='' option_magic='yes'
-	while test "$#" -ne 0; do
+	local item option_timeout='' option_message='' option_exists='' option_status='' option_stdout='' option_stderr='' option_tty=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--timeout='*) option_timeout="${item#*--timeout=}" ;;
-		'--exists='*) option_exists="${item#*--exists=}" ;;
-		'--status='*) option_status="${item#*--status=}" ;;
-		'--stdout='*) option_stdout="${item#*--stdout=}" ;;
-		'--stderr='*) option_stderr="${item#*--stderr=}" ;;
-		'--tty='*) option_tty="${item#*--tty=}" ;;
-		'--no-magic') option_magic='no' ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--timeout='*) option_timeout="${item#*=}" ;;
+		'--message='*) option_message="${item#*=}" ;;
+		'--exists='*) option_exists="${item#*=}" ;;
+		'--status='*) option_status="${item#*=}" ;;
+		'--stdout='*) option_stdout="${item#*=}" ;;
+		'--stderr='*) option_stderr="${item#*=}" ;;
+		'--tty='*) option_tty="${item#*=}" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$option_timeout"; then
+			if [[ -z $option_timeout ]]; then
 				option_timeout="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
-	# default timeout here, to allow [waiter <timeout>] usage
-	if test -z "$option_timeout"; then
-		option_timeout=5
+	# validate
+	if [[ -n $option_timeout ]] && ! __is_integer "$option_timeout"; then
+		help --help='An unrecognised <timeout> was provided, it must be an integer: ' --variable-value={option_timeout}
+	fi
+
+	# status
+	if [[ -z $option_status ]]; then
+		if [[ -n $option_exists ]]; then
+			option_status=60 # ETIMEDOUT 60 Operation timed out
+		else
+			option_status=0
+		fi
+	fi
+
+	# message
+	if [[ -z $option_message ]]; then
+		if [[ -n $option_exists ]]; then
+			if [[ -n $option_timeout ]]; then
+				option_message="$(__print_style --dim='Waiting for path ' --code="$option_exists" --dim=' to become available... %s remaining')"
+			else
+				option_message="$(__print_style --dim='Waiting for path ' --code="$option_exists" --dim=' to become available... %s elapsed')"
+			fi
+		else
+			if [[ -n $option_timeout ]]; then
+				option_message="$(__print_style --dim='Waiting... %s remaining')"
+			else
+				option_message="$(__print_style --dim='Waiting... %s elapsed')"
+			fi
+		fi
 	fi
 
 	# =====================================
 	# Action
 
-	local tty_target='/dev/stdout'
-	if test "$option_magic" = 'yes'; then
-		tty_target="$(is-tty --fallback)"
+	__load_styles --save -- clear_line
+
+	# print helpers
+	function __print_revolving_duration {
+		local duration
+		duration="$(echo-duration -- "$1")" || return $?
+		printf "${STYLE__clear_line}${option_message}" "$duration"
+	}
+
+	# wait
+	local needs_final_clear='no'
+	local -i waited=0 timeout="$option_timeout"
+	if [[ -n $CI ]]; then
+		function __pause_for_timeout {
+			sleep "$timeout"
+			timeout=0
+		}
+	else
+		function __pause_for_timeout {
+			sleep 1
+			timeout="$((timeout - 1))"
+		}
 	fi
 
-	local count
-	for ((count = option_timeout; count > 0; count--)); do
-		if test -n "$option_exists" -a -e "$option_exists"; then
+	while :; do
+		if [[ -n $option_exists && -e $option_exists ]]; then
+			option_status=0
 			break
 		fi
-		echo-style --dim="Waiting $count seconds..." >"$tty_target"
-		sleep 1
-		if test "$option_magic" = 'yes'; then
-			echo-clear-line >"$tty_target"
+		# if there is a timeout option
+		if [[ -n $option_timeout ]]; then
+			# then work with the timeout integer
+			if [[ $timeout -eq 0 ]]; then
+				break
+			fi
+			__do --redirect-stdout=TTY -- __print_revolving_duration "$timeout"
+			needs_final_clear='yes'
+			__pause_for_timeout
+		else
+			# work with the waiter integer
+			__do --redirect-stdout=TTY -- __print_revolving_duration "$waited"
+			needs_final_clear='yes'
+			waited="$((waited + 1))"
+			sleep 1
 		fi
 	done
 
+	# erase duration message
+	if [[ $needs_final_clear == 'yes' ]]; then
+		__value_to_tty "$STYLE__clear_line"
+	fi
+
 	# waiting done, do dumps if we have them
-	if test "${option_stdout-}"; then
-		print_line "$option_stdout" >/dev/stdout
+	if [[ -n ${option_stdout-} ]]; then
+		__print_lines "$option_stdout"
 	fi
-	if test "${option_stderr-}"; then
-		print_line "$option_stderr" >/dev/stderr
+	if [[ -n ${option_stderr-} ]]; then
+		__print_lines "$option_stderr" >&2
 	fi
-	if test "${option_tty-}"; then
-		print_line "$option_tty" >"$tty_target"
+	if [[ -n ${option_tty-} ]]; then
+		__do --redirect-stdout=TTY -- __print_lines "$option_tty"
 	fi
 	return "$option_status"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	waiter_ "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		waiter_test
+	else
+		waiter_ "$@"
+	fi
 fi

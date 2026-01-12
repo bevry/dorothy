@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function fetch_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fetch --help
+)
+
 function fetch_() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,74 +12,92 @@ function fetch_() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Fetch the URL, using whichever tool is available on your system.
+			Fetch the URL.
 
 			USAGE:
-			fetch [...options] <url>
+			\`fetch [...options] <url>\`
 
 			OPTIONS:
 			--bearer-token=<token>
 			    If provided, include this in a bearer token header.
 
-			--[no-]status[=<yes|no>]
-			    If truthy, output only the status code, rather than the entire contents of the fetch URL.
+			--[no-]status
+			    If enabled, output only the status code, rather than the entire contents of the fetch URL.
 
-			--[no-]ok[=<yes|no>]
-			    If truthy, skip fetching contents and only test if fetching the URL returned a success status code.
-			    If falsey, skip fetching contents and only test if fetching the URL returned a non-successful status code.
+			--[no-]ok
+			    If enabled, skip fetching contents and only test if fetching the URL returned a success status code.
+			    If disabled, skip fetching contents and only test if fetching the URL returned a non-successful status code.
 
-			QUIRKS:
-			If [curl] was required, but not found, it will be installed automatically.
+			DEPENDENCIES:
+			* \`curl\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_bearer_token='' option_url='' option_status='no' option_ok=''
-	while test "$#" -ne 0; do
+	local item option_auth_token='' option_content_type='' option_body='' option_url='' option_status='no' option_ok=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--bearer-token='*) option_bearer_token="${item#*--bearer-token=}" ;;
-		'--no-status'* | '--status'*)
-			option_status="$(get-flag-value status --missing="$option_status" -- "$item" | echo-affirmative --stdin)"
+		'--auth-token='*) option_auth_token="${item#*=}" ;;
+		'--bot-token='*)
+			option_auth_token="${item#*=}"
+			if [[ -n $option_auth_token ]]; then
+				option_auth_token="Bot $option_auth_token"
+			fi
 			;;
-		'--no-ok'* | '--ok'*)
-			option_ok="$(get-flag-value ok --missing="$option_ok" -- "$item" | echo-affirmative --stdin)"
+		'--bearer-token='*)
+			option_auth_token="${item#*=}"
+			if [[ -n $option_auth_token ]]; then
+				option_auth_token="Bearer $option_auth_token"
+			fi
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--content-type='*) option_content_type="${item#*=}" ;;
+		'--json') option_content_type='application/json' ;;
+		'--body='*) option_body="${item#*=}" ;;
+		'--no-status'* | '--status'*) __flag --source={item} --target={option_status} --affirmative ;;
+		'--no-ok'* | '--ok'*) __flag --source={item} --target={option_ok} --affirmative ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$option_url"; then
+			if [[ -z $option_url ]]; then
 				option_url="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
 	# check
-	if test -z "$option_url"; then
-		help "No URL was provided"
+	if [[ -z $option_url ]]; then
+		help --help='A <url> must be provided.'
 	fi
 
 	# =====================================
 	# Helpers
 
-	function log_failure {
+	# consider converting this to a bash.bash helper called __convert_exit_status 141 -- ...
+	function __to_sigpipe {
+		local status="$?" item
+		for item in "$@"; do
+			if [[ $status -eq $item ]]; then
+				return 141
+			fi
+		done
+		return "$status"
+	}
+
+	function __log_failure {
 		local status="$?"
-		echo-style --error="Failed to fetch the URL:" ' ' --code="$option_url" >/dev/stderr
+		__print_style --stderr --error1='Failed to fetch the URL: ' --code-error1="$option_url" || return $?
 		return "$status"
 	}
 
 	# -I, --head                        Show document info only
-	# -m, --max-time <seconds>          Maximum time allowed for the transfer
 	# -o, --output <file>               Write to file instead of stdout
 	# -s, --silent                      No curl output, only content output.
 	# -w, --write-out <format>          Use output FORMAT after completion
@@ -82,28 +105,40 @@ function fetch_() (
 	# -f, --fail                        Fail on server errors.
 	# -A, --user-agent <name>           Send User-Agent <name> to server
 	# -S, --show-error                  When used with -s, --silent, it makes curl show an error message if it fails.
-	function do_curl {
+	function __fetch_curl {
 		local options=("$@")
-		if test "$option_bearer_token"; then
+		if [[ -n $option_auth_token ]]; then
 			options+=(
 				'--header'
-				"Authorization: Bearer $option_bearer_token"
+				"Authorization: $option_auth_token"
 			)
 		fi
-		# use echo-wait to fix [curl: (23) Failure writing output to destination] when piping to ripgrep
-		curl "${options[@]}" "$option_url" | echo-wait || log_failure
-	}
-	function do_wget {
-		local options=("$@")
-		if test "$option_bearer_token"; then
+		if [[ -n $option_content_type ]]; then
 			options+=(
-				"--header=Authorization: Bearer $option_bearer_token"
+				'--header'
+				"Content-Type: $option_content_type"
 			)
 		fi
-		wget "${options[@]}" "$option_url" || log_failure
+		if [[ -n $option_body ]]; then
+			options+=(
+				'--data'
+				"$option_body"
+			)
+		fi
+
+		# > set -o pipefail
+		# > curl --silent --show-error 'https://www.google.com' | :
+		# curl: Failed writing body
+		# [23]
+		#
+		# > set -o pipefail
+		# > curl --silent --show-error --write-out '%{http_code}' 'https://www.google.com' | :
+		# curl: (56) Failure writing output to destination, passed 1378 returned 0
+		# [56]
+		{ curl "${options[@]}" "$option_url" || __to_sigpipe 23 56; } || __log_failure || return $?
 	}
 
-	function fetch_status {
+	function __fetch_status {
 		local options=(
 			--head                     # only fetch head
 			--max-time 3               # wait three seconds
@@ -112,57 +147,50 @@ function fetch_() (
 			--write-out '%{http_code}' # output the http code
 			--location                 # follow redirects
 		)
-		setup-util-curl --quiet
-		do_curl "${options[@]}"
+		__fetch_curl "${options[@]}" || return $?
 	}
 
-	function fetch_ok {
-		# no wget equivalent
-		local status
-		status="$(fetch_status "$option_url")"
-		test "$status" -ge 200 -a "$status" -le 300
+	function __fetch_ok {
+		local fetch_status
+		fetch_status="$(__fetch_status "$option_url")" || return $?
+		[[ $fetch_status -ge 200 && $fetch_status -le 300 ]] || return $?
 	}
 
-	function fetch_contents {
-		local options
-		if command-exists curl; then
-			options=(
-				--fail       # fail if server fails
-				--silent     # only output content
-				--show-error # output errors
-				--location   # follow redirects
-			)
-			do_curl "${options[@]}"
-		elif command-exists wget; then
-			options=(
-				-quiet # only output content
-				-O-    # output to stdout
-			)
-			do_wget "${options[@]}"
-		else
-			get-installer --first-success --invoke --quiet -- curl wget
-			fetch_contents
-		fi
+	function __fetch_contents {
+		local options=(
+			--fail       # -f, --fail        fail fast with no output on HTTP errors
+			--silent     # -s, --silent:     only output content
+			--show-error # -S, --show-error: show error even when -s is used
+			--location   # -L, --location:   follow redirects
+		)
+		__fetch_curl "${options[@]}" || return $?
 	}
 
 	# =====================================
 	# Action
 
+	# dependencies
+	__command_required -- 'curl' || return $?
+
 	# perform appropriate action
-	if test "$option_status" = 'yes'; then
-		fetch_status
-	elif test "$option_ok" = 'yes'; then
-		fetch_ok
-	elif test "$option_ok" = 'no'; then
-		local ok_status
-		eval_capture --statusvar=ok_status -- fetch_ok
-		test "$ok_status" -ne 0
+	if [[ $option_status == 'yes' ]]; then
+		__fetch_status
+	elif [[ $option_ok == 'yes' ]]; then
+		__fetch_ok
+	elif [[ $option_ok == 'no' ]]; then
+		local __ok_status
+		__fetch_ok || __ok_status="$?"
+		[[ $__ok_status -ne 0 ]] || return $?
 	else
-		fetch_contents
+		__fetch_contents
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	fetch_ "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fetch_test
+	else
+		fetch_ "$@"
+	fi
 fi

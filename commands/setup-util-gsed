@@ -1,47 +1,100 @@
 #!/usr/bin/env bash
 
+# sed / gsed the same:
+# https://repology.org/project/gsed/versions => https://repology.org/project/sed/versions
 # https://packages.debian.org/sid/amd64/sed/filelist
 # /bin/sed
 
 function setup_util_gsed() (
 	source "$DOROTHY/sources/bash.bash"
 
-	# don't provide [--cli=sed] as sed may be a builtin sed that is not the GNU sed
+	# remove deprecated gsed => sed bash link, as echo-gnu-command is a better solution
+	if [[ -e "$XDG_BIN_HOME/gsed" ]] && grep --quiet --fixed-strings --regexp='bash' -- "$XDG_BIN_HOME/gsed"; then
+		fs-remove --no-confirm -- "$XDG_BIN_HOME/gsed"
+	fi
+
+	# enable DOWNLOAD_BUILD_INSTALL
+	source "$(type -P setup-util)"
+
+	# setup
 	local options=(
 		--name='GNU stream editor'
 		"$@"
-		APK='sed' # ALPINE
-		APT='sed' # UBUNTU
-		AUR='sed' # ARCH
+		APK='sed'
+		APT='sed'
+		AUR='sed'
 		BREW='gnu-sed'
-		RPM='sed'    # FEDORA
-		ZYPPER='sed' # SUSE
+		RPM='sed'
+		SCOOP='sed'
+		ZYPPER='sed'
 	)
-	setup-util "${options[@]}"
-
-	# if [sed] is [gsed], then make sure [gsed] is available and working
-	if ! command-working gsed; then
-		local existing symlink="$XDG_BIN_HOME/gsed"
-		existing="$(type -P sed)"
-		if test "$existing" != "$(fs-realpath -- "$existing")"; then
-			# alpine symlinks /bin/sed to /bin/busybox, as such sed symlinks fail (applet not found)
-			# so do a workaround
-			cat <<-EOF >"$symlink"
-				#!/usr/bin/env bash
-				set -Eeuo pipefail
-				sed "\$@"
-			EOF
-			chmod +x "$symlink"
-		else
-			symlink-helper --existing="$existing" --symlink="$symlink"
+	function __install {
+		if ! __is_macos; then
+			setup-util-devel --quiet || return $?
+			source "$DOROTHY/sources/environment.sh" || return $?
+		fi
+		./configure CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
+		make install prefix="$XDG_PREFIX" || return $?
+	}
+	function __uninstall {
+		if ! __is_macos; then
+			setup-util-devel --quiet || return $?
+			source "$DOROTHY/sources/environment.sh" || return $?
+		fi
+		./configure CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
+		make uninstall prefix="$XDG_PREFIX" || return $?
+	}
+	local arch macos_release bottle_url=''
+	arch="$(__get_arch)"
+	if __is_macos; then
+		# macos uses gsed binary
+		options+=(--cli=gsed)
+		# fetch the bottle urls via: brew info --json gnu-sed | __jq -r ".[].bottle.stable.files"
+		macos_release="$(get-macos-release-name)"
+		if [[ $arch == 'a64' ]]; then
+			if [[ $macos_release == 'sequoia' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:7bf9b1bc4e946b0f316cfe1aeacc5fbf418d0045588d381f35439d96dba64f4c'
+			elif [[ $macos_release == 'sonoma' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:5ffd49517ed790e52a088e720de77f1dd4de4e88816fb6a1d244be3f6b01314d'
+			elif [[ $macos_release == 'ventura' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:3770e9098033bc1f32427d3b6502a1ab10082b3945e204286c87060d82d03d19'
+			elif [[ $macos_release == 'monterey' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:e41980dc2d528301c562ed7ec59ee8bcfe43d1f9a4dc734652e9c216ac3fbdf4'
+			fi
+		elif [[ $arch == 'x64' ]]; then
+			if [[ $macos_release == 'sonoma' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:4d10e5703feb75bc37e450178f2c6bdc3a6b2cf9eb72594cfab90f89b270136c'
+			elif [[ $macos_release == 'ventura' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:66f640fbd1291801c04dc8af37378c051aa1ddbb3a620df2b4b85b9f0f6df80e'
+			elif [[ $macos_release == 'monterey' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/gnu-sed/blobs/sha256:0f63397072520ce4c163974de6f0313a9117d106890c8cb0fb9344c723543674'
+			fi
 		fi
 	fi
-
-	# if gsed isn't being found, then you are probably using sudo
-	# in which use `sudo-helper --inherit -- gsed` instead of `sudo gsed`
+	# add the bottle url as an option
+	if [[ -n $bottle_url ]] && fetch --bearer-token='QQ==' --ok "$bottle_url"; then
+		options+=(
+			DOWNLOAD="$bottle_url"
+			DOWNLOAD_ARCHIVE_GLOB='gnu-sed/*/bin/gsed'
+			DOWNLOAD_FILENAME='gsed'
+			DOWNLOAD_BEARER_TOKEN='QQ=='
+		)
+	else
+		# this compiles on macos, however macos requires [gsed] binary, and this installs as [sed] binary
+		options+=(
+			--cli=sed
+			# https://ftp.gnu.org/gnu/sed/?C=M;O=D
+			DOWNLOAD="https://ftpmirror.gnu.org/gnu/sed/sed-4.9.tar.xz"
+			DOWNLOAD_ARCHIVE_GLOB='sed-*/*'
+			DOWNLOAD_TARGET_PATH="$XDG_PREFIX/bin/sed"
+			DOWNLOAD_BUILD_INSTALL='__install'
+			DOWNLOAD_BUILD_UNINSTALL='__uninstall'
+		)
+	fi
+	setup_util "${options[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	setup_util_gsed "$@"
 fi

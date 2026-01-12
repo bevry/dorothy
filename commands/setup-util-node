@@ -2,103 +2,85 @@
 
 function setup_util_node() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P setup-util)"
+	source "$(type -P eval-helper)" # enable `install_nvm_node`
 
-	# improve performance
-	if is-needle --quiet "$@" && ! is-needle --upgrade "$@" && ! is-needle --uninstall "$@" && command-exists node; then
+	# improve performance for detectable utilities with conditional assets
+	if setup-util --check --cli=node "$@"; then
 		return 0
 	fi
+
+	# enable EVAL_INSTALL, etc
+	source "$(type -P setup-util)"
 
 	# =====================================
 	# Helpers
 
-	function get_nvm_versions { # 👍 /docs/bash/errors: disabled errexit
-		source "$DOROTHY/sources/ripgrep.bash"
-		nvm-env nvm ls --no-colors --no-alias | rg -o 'v([^\s]+)' --replace '$1' || :
+	function __get_nvm_versions {
+		nvm-env -- nvm ls --no-colors --no-alias | echo-regexp -ong --regexp='v([^\s]+)' --replace='$1' || return $?
 	}
 
-	function clean_nvm { # 👍 /docs/bash/errors: disabled errexit
-		# prepare
-		local versions version
+	function __clean_nvm {
 		# swap to system
-		nvm-env nvm use system || :
+		nvm-env -- nvm use system || :
 		# fetch versions
-		mapfile -t versions < <(get_nvm_versions)
-		if test "${#versions[@]}" -eq 0; then
+		local versions=()
+		__split --target={versions} --no-zero-length --invoke -- \
+			__get_nvm_versions || return $?
+		if [[ ${#versions[@]} -eq 0 ]]; then
 			# already clean
 			return 0
 		fi
-		# dependencies
-		setup-util-sd --quiet
 		# clean versions
+		local version
 		for version in "${versions[@]}"; do
-			nvm-env nvm uninstall "$version" | sd 'Uninstalled node ' 'Uninstalled: '
+			nvm-env -- nvm uninstall "$version" | echo-regexp -n 'Uninstalled node ' 'Uninstalled: ' || return $?
 		done
 		# confirm clean was successful
-		mapfile -t versions < <(get_nvm_versions)
-		test "${#versions[@]}" -eq 0
-	}
-
-	function wipe_nvm {
-		fs-rm --no-confirm --quiet -- "$NVM_DIR"
+		__split --target={versions} --no-zero-length --invoke -- \
+			__get_nvm_versions || return $?
+		[[ ${#versions[@]} -eq 0 ]] || return $?
 	}
 
 	function clean_otherwise_wipe_nvm {
 		# clean only what is necessary
-		echo-segment --h3='Clean Node.js versions and packages'
-		if clean_nvm; then
-			echo-segment --g3='Clean Node.js versions and packages'
+		__print_style --h3='Clean Node.js versions and packages'
+		if __clean_nvm; then
+			__print_style --g3='Clean Node.js versions and packages'
 		else
 			# nvm buggered, clean it all
-			echo-segment --e3='Clean Node.js versions and packages'
-			echo-segment --h3='Clean Node.js Version Manager (NVM) instead'
-			wipe_nvm
-			echo-segment --g3='Clean Node.js Version Manager (NVM) instead'
+			__print_style --e3='Clean Node.js versions and packages' --newline \
+				--h3='Clean Node.js Version Manager (NVM) instead'
+			setup-util-nvm --uninstall
+			__print_style --g3='Clean Node.js Version Manager (NVM) instead'
 		fi
-	}
-
-	function install_nvm {
-		if test -d "$NVM_DIR"; then
-			cd "$NVM_DIR"
-		else
-			mkdir -p "$NVM_DIR"
-			cd "$NVM_DIR"
-			git init
-			git remote add origin 'https://github.com/nvm-sh/nvm.git'
-		fi
-		# ensure git remote is usable
-		git-helper protocol-update origin https
-		# fetch tags
-		git fetch --tags origin
-		# checkout latest stable tag
-		git checkout "$(git describe --abbrev=0 --tags --match "v[0-9]*" "$(git rev-list --tags --max-count=1)")"
 	}
 
 	function install_nvm_node {
 		# install
-		nvm-env nvm install --no-progress node || return  # latest active
-		nvm-env nvm install --no-progress --lts || return # latest LTS
+		nvm-env -- nvm install --no-progress node  # latest active
+		nvm-env -- nvm install --no-progress --lts # latest LTS
 
 		# set default node version
-		if is-brew; then
-			nvm-env nvm alias default system || return
+		if __is_brew; then
+			nvm-env -- nvm alias default system
 		else
 			# use latest lts
-			nvm-env nvm alias default stable || return
+			nvm-env -- nvm alias default stable
 			# use current lts: "$(nvm version-remote --lts)"
 		fi
 	}
 
 	function setup_system_node {
+		# https://deb.nodesource.com
+		# `libatomic1` as otherwise `node: error while loading shared libraries: libatomic.so.1: cannot open shared object file: No such file or directory` when using to fetch version numbers during npm upgrade
 		setup-util --name='Node.js via System' --cli=node "$@" \
 			APK='nodejs' APK='npm' \
-			APT_KEY='https://deb.nodesource.com/gpgkey/nodesource.gpg.key' \
-			APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://deb.nodesource.com/node_18.x {RELEASE} main' \
-			APT='nodejs' \
+			APT_KEY='https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key' \
+			APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://deb.nodesource.com/node_22.x nodistro main' \
+			APT='nodejs' APT='libatomic1' \
 			AUR='nodejs' AUR='npm' \
 			BREW='node' \
 			BSD='nodejs' \
-			CHOCO='nodejs.install' \
 			EMERGE='nodejs' \
 			EOPKG='nodejs' \
 			RPM='nodejs' \
@@ -106,28 +88,28 @@ function setup_util_node() (
 			SNAP='node --classic' \
 			WINGET='OpenJS.NodeJS' \
 			XBPS='nodejs' \
-			ZYPPER='nodejs' # SUSE
+			ZYPPER='nodejs'
 	}
 
 	function upgrade_system_or_nvm_npm {
 		# ensure the cache is configured correctly
 		# to avoid when say a /Users/... cache config is copied to a Linux machine
 		local cache_dir
-		cache_dir="$(nvm-env npm config get cache || :)"
-		if test -n "$cache_dir" -a ! -d "$cache_dir"; then
+		cache_dir="$(nvm-env -- npm config get cache || :)"
+		if [[ -n $cache_dir && ! -d $cache_dir ]]; then
 			# try and make it
-			mkdir -p "$cache_dir" || {
-				echo-style --notice="Unconfiguring the invalid cache directory:" --code="$cache_dir"
-				nvm-env npm config delete cache
-			}
+			__mkdirp "$cache_dir" || {
+				__print_style --notice='Unconfiguring the invalid cache directory:' ' ' --code="$cache_dir" || return $?
+				nvm-env -- npm config delete cache || return $?
+			} || return $?
 		fi
 
 		# continue with the upgrade
-		echo-style --dim="Before: $(nvm-env npm --version)"
+		__print_style --dim="Before: v$(nvm-env -- npm --version)"
 		setup-util --name='npm' --upgrade --force --quiet \
-			NPM='npm' || echo-style --notice='You can ignore the npm ugprade failure, this will resolve after nvm is used.'
-		nvm-env npm cache clean --force
-		print_line "After:  $(nvm-env npm --version)"
+			NPM='npm' || __print_style --notice='You can ignore the npm upgrade failure, this will resolve after nvm is used.'
+		nvm-env -- npm cache clean --force 2>/dev/null # silent --force warning
+		__print_lines "After:  v$(nvm-env -- npm --version)"
 	}
 
 	# =====================================
@@ -139,19 +121,19 @@ function setup_util_node() (
 
 		# https://nodejs.org/en/download/package-manager/
 		# @todo https://github.com/nodejs/unofficial-builds for riscv, but provides tars that include multiple directories
-		echo-segment --h2='Install Node.js via System'
+		__print_style --h2='Install Node.js via System'
 		setup_system_node --install --force --quiet
-		print_line "Installed: $(node --version)"
-		echo-segment --g2='Install Node.js via System'
+		__print_lines "Installed: $(node --version)"
+		__print_style --g2='Install Node.js via System'
 
 		# =====================================
 		# Clean NVM
 
 		# clean NVM unless configured otherwise
 		# the intent of this is to purge unused global Node.js versions and packages
-		# we use a configuration variable to change this, as interuppting the flow and asking the user creates too much confusion
+		# we use a configuration variable to change this, as interrupting the flow and asking the user creates too much confusion
 		# as such a question is only necessary to experienced users
-		if test -d "$NVM_DIR"; then
+		if [[ -d ${NVM_DIR-} ]]; then
 			clean_otherwise_wipe_nvm
 		fi
 
@@ -160,39 +142,36 @@ function setup_util_node() (
 
 		# (arm) alpine does not support nvm, fails with:
 		# > mode no such file or directory
-		if ! is-alpine; then
+		if ! is-system --alpine; then
 			# install nvm
-			echo-segment --h2='Install Node.js Version Manager (NVM)'
-			echo-style --dim "NVM_DIR=$NVM_DIR"
-			eval_helper --quiet --no-wrap \
-				-- install_nvm
-			echo-segment --g2='Install Node.js Version Manager (NVM)'
+			__print_style --h2='Install Node.js Version Manager (NVM)'
+			setup-util-nvm --install --upgrade
+			__print_style --g2='Install Node.js Version Manager (NVM)'
 
 			# nvm node
-			echo-segment --h2='Install Node.js via NVM'
-			echo-style --dim='Installs active and LTS versions.'
-			eval_helper --no-quiet --no-wrap \
-				-- install_nvm_node
-			mapfile -t versions < <(get_nvm_versions)
+			__print_style --h2='Install Node.js via NVM'
+			__print_style --dim='Installs active and LTS versions.'
+			eval_helper --quiet --no-wrap -- \
+				install_nvm_node
+			local versions=()
+			__split --target={versions} --no-zero-length --invoke -- \
+				__get_nvm_versions
 			for version in "${versions[@]}"; do
-				print_line "Installed: v$version"
+				__print_lines "Installed: v$version"
 			done
-			echo-segment --g2='Install Node.js via NVM'
+			__print_style --g2='Install Node.js via NVM'
 		fi
 
 		# =====================================
 		# Upgrade npm
 
-		echo-segment --h3='Upgrade npm'
+		__print_style --h3='Upgrade npm'
 		upgrade_system_or_nvm_npm
-		echo-segment --g3='Upgrade npm'
-	}
-	function node_upgrade {
-		install_node
+		__print_style --g3='Upgrade npm'
 	}
 	function node_uninstall {
 		setup_system_node --uninstall
-		wipe_nvm
+		__wipe_nvm
 	}
 
 	# setup
@@ -200,13 +179,12 @@ function setup_util_node() (
 		--cli='node'
 		"$@"
 		EVAL_INSTALL='node_install'
-		EVAL_UPGRADE='node_upgrade'
 		EVAL_UNINSTALL='node_uninstall'
 	)
 	setup_util "${options[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	setup_util_node "$@"
 fi

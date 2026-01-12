@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+function echo_gnu_command_test() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$(type -P eval-tester)"
+	eval_tester --ignore-stderr --status=22 -- echo-gnu-command --help
+
+	local cmd n=$'\n'
+	if __command_exists -- gawk; then
+		cmd="$(type -P gawk)"
+		eval_tester --name='fetch existing gawk' --stdout="${cmd}${n}${cmd}" -- \
+			echo-gnu-command -- gawk awk
+	elif __command_exists -- awk; then
+		cmd="$(type -P awk)"
+		eval_tester --name='fetch existing awk' --stdout="${cmd}${n}${cmd}" -- \
+			echo-gnu-command -- gawk awk
+	else
+		eval_tester --name='install gawk' --ignore-stdout -- \
+			echo-gnu-command -- gawk awk
+		cmd="$(type -P gawk)"
+		eval_tester --name='fetch installed gawk' --stdout="${cmd}${n}${cmd}" -- \
+			echo-gnu-command --no-fallback -- gawk awk
+	fi
+
+	return 0
+)
+function echo_gnu_command() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Get the GNU command, or its fallback, or install it.
+
+			USAGE:
+			\`echo-gnu-command [...options] [--] ...<command>\`
+			\`echo-lines ...<command> | echo-gnu-command [...options]\`
+
+			OPTIONS:
+			<command>
+			    A GNU command, with or without the \`g\` prefix.
+
+			--[no-]fallback=[YES|no]
+			    Whether to fallback to the non-GNU command if the GNU command is not found.
+
+			--[no-]install=[YES|no]
+			    Whether to install the GNU command if it is not found.
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLES:
+			Running: \`echo-gnu-command -- gawk gsed\`
+			Outputs something like:
+			\`/opt/homebrew/bin/gawk
+			/opt/homebrew/bin/gsed\`
+			Returns: [0]
+
+			Running: \`echo-lines -- gawk gsed | echo-gnu-command --stdin\`
+			Outputs something like:
+			\`/opt/homebrew/bin/gawk
+			/opt/homebrew/bin/gsed\`
+			Returns: [0]
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_fallback='yes' option_install='yes' option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative ;;
+		'--no-install'* | '--install'*) __flag --source={item} --target={option_install} --affirmative ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	function __on_piece {
+		local item="$1" gcmd fcmd
+		if [[ ${item:0:1} == 'g' ]]; then
+			fcmd="${item:1}"
+			gcmd="$item"
+		else
+			fcmd="$item"
+			gcmd="g${fcmd}"
+		fi
+		if type -P "$gcmd" 2>/dev/null; then
+			return 0
+		fi
+		if [[ $option_fallback == 'yes' ]] && type -P "$fcmd" 2>/dev/null; then
+			return 0
+		fi
+		if [[ $option_install == 'yes' ]]; then
+			__command_required -- "$gcmd" || :
+			if type -P "$gcmd" 2>/dev/null; then
+				return 0
+			fi
+		fi
+		return 6 # ENXIO 6 Device not configured
+	}
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_gnu_command_test
+	else
+		echo_gnu_command "$@"
+	fi
+fi

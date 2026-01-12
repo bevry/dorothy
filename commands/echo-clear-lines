@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function echo_clear_lines_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-clear-lines --help
+)
+
 function echo_clear_lines() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
@@ -7,87 +12,174 @@ function echo_clear_lines() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Deletes as many lines as it received.
 
 			USAGE:
-			... | echo-clear-lines [...options]
-			echo-clear-lines[...options] < ...
+			\`echo-clear-lines [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-clear-lines [...options]\`
 
 			OPTIONS:
-			--piped
-			    If piping, provide this, otherwise don't.
+			--count-only
+			    If provided, only count the lines and do not clear them.
+			    Applies \`--target=STDOUT\`
 
-			$(stdinargs_options_help --stdin)
+			--discard-last-line-as-inline
+			    If the cursor is intended to be shown alongside the last line, instead of below it on a new empty line, then enable this option to reduce the count by one.
 
-			EXAMPLE:
+			--here-string | --herestring
+			    Enables STDIN parsing and enables <discard-last-line-as-inline>, as here strings append a trailing newline.
 
-			echo 'sup'
-			printf 'a\nb\nc' | echo-clear-lines --piped
-			# ^ retains: sup
+			--lines=<lines> | --count=<lines>
+			    If provided, use this many lines rather than counting them from <input>.
 
-			file="\$(mktemp)"
-			echo 'sup'
-			printf 'a\nb\nc' | tee "\$file"; echo-clear-lines < "\$file"
-			# ^ retains: sup
+			--target=<target:file-path|file-descriptor|device-file>
+			    The target to write to, defaults to TTY.
+			    A target can be a file path (e.g. \`out.txt\`), a file descriptor (e.g. \`1\` for STDOUT, \`2\` for STDERR), or a device file (e.g. \`/dev/stdout\`, \`/dev/stderr\`, \`/dev/tty\`).
+			    These are sent to \`bash.bash:__do\` for processing.
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLES:
+			Outputting lines of \`sup\`, \`a\`, \`b\`, \`c\`, with \`c\` being inline (no trailing line), and clearing all but \`sup\`.
+
+			Using arguments. Note that the argument technique should be discouraged, as can cause \`Argument list too long\` error:
+			<https://github.com/bevry/dorothy/actions/runs/7622089094/job/20759535555#step:4:3259>
+			\`printf '%s\n' 'sup'; printf 'a\nb\nc'
+			echo-clear-lines -- \$'a\\nb\\nc'\`
+
+			Using process substitution:
+			\`\`\`
+			printf '%s\n' 'sup'; printf 'a\nb\nc'
+			echo-clear-lines --stdin < <(printf 'a\nb\nc')
+			\`\`\`
+
+			Do not use \`\`\`<<<\`\`\` as it prints a trailing newline, which would erase \`sup\`.
+
+			Using STDIN:
+			\`\`\`
+			printf '%s\n' 'sup'; printf 'a\nb\nc'
+			printf 'a\nb\nc' | echo-clear-lines
+			\`\`\`
+
+			Using \`tee\`:
+			\`\`\`
+			printf '%s\n' 'sup';
+			file="\$(mktemp)"; printf 'a\nb\nc' | tee -- "\$file
+			echo-clear-lines < "\$file"
+			\`\`\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
+	# @todo support [--target=<target>] same as [echo-revolving-door]
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_piped='no' args=()
-	while test "$#" -ne 0; do
+	local item option_discard_last_line_as_inline='no' option_columns='' option_lines='' option_count_only='no' option_target='TTY' option_args=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-piped'* | '--piped'*)
-			option_piped="$(get-flag-value piped --missing="$option_piped" -- "$item" | echo-affirmative --stdin)"
+		'--lines='* | '--count='*) option_lines="${item#*=}" ;;
+		'--no-count-only'* | '--count-only'*)
+			option_target='STDOUT'
+			__flag --source={item} --target={option_count_only} --affirmative
 			;;
+		'--columns='*) option_columns="${item#*=}" ;;
+		'--no-discard-last-line-as-inline'* | '--discard-last-line-as-inline'*) __flag --source={item} --target={option_discard_last_line_as_inline} --affirmative ;;
+		'--here-string')
+			option_discard_last_line_as_inline='yes'
+			option_args+=('--stdin')
+			;;
+		'--target='*) option_target="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		'--')
-			args+=("$item" "$@")
+			option_args+=("$item" "$@")
 			shift $#
 			break
 			;;
-		*) args+=("$item") ;;
+		*) option_args+=("$item") ;;
 		esac
 	done
+
+	# try to detect width, otherwise default to 0
+	if [[ -z $option_columns ]]; then
+		local terminal_size=()
+		__split --target={terminal_size} --no-zero-length --invoke=try -- \
+			get-terminal-lines-and-columns
+		if [[ ${#terminal_size[@]} -eq 2 ]]; then
+			option_columns="${terminal_size[1]}"
+		fi
+	fi
+	if [[ -z $option_columns ]]; then
+		option_columns=0
+	fi
 
 	# =====================================
 	# Action
 
-	# test cases:
-	# confirm --ppid=$$ -- "Press <enter> once you are ready to continue..."
-	# ^ without \e[J it will have an indentation at the start
+	# heredocs don't appear as inline, they always appear as complete lines
+	# so a here-string without a trailing line will appear as a complete line
+	# and a here-string with a trailing line, will appear as a complete line and another complete empty line
 
-	function on_arg {
-		help 'Use STDIN.'
-	}
-	function on_line {
-		# if we are piping (there is newline we want to keep from pressing return in the terminal), or if the input is deleting rather than clearing lines, then we can only safely clear the current line
-		# touch test.txt; fs-rm --no-confirm --quiet --trash -- test.txt
-		# setup-util-sd --uninstall; (create an error in do_brew); setup-util-sd
-		if test "$option_piped" = 'yes' || [[ $1 == *$'\e[J'* || $1 == *$'\e[0J'* || $1 == *$'\e[1J'* || $1 == *$'\e[2J'* || $1 == *$'\e[3J'* ]]; then
-			# erase current line
-			printf '\e[2K\e[G'
+	local count=0 had_inline='no'
+	function __clear_lines {
+		# adapt
+		if [[ $option_discard_last_line_as_inline == 'yes' || $had_inline == 'yes' ]]; then
+			if [[ $count -ge 1 ]]; then
+				count="$((count - 1))"
+			fi
+		fi
+		# clear
+		if [[ $option_count_only == 'yes' ]]; then
+			__value_to_target "$count"$'\n' "$option_target" || return $?
+		elif [[ $count -eq 0 ]]; then
+			__value_to_target $'\e[G\e[J' "$option_target" || return $?
 		else
-			# delete prior line (aka echo-clear-line)
-			printf '\e[F\e[J'
+			__value_to_target $'\e['"$count"$'F\e[J' "$option_target" || return $?
 		fi
 	}
-	function on_inline {
-		# erase current line
-		printf '\e[2K\e[G'
-	}
-
-	stdinargs --stdin "${args[@]}"
+	if [[ -n $option_lines ]]; then
+		count="$option_lines"
+		__clear_lines || return $?
+	else
+		function __on_line {
+			local input="$1" lines
+			if [[ -z $input ]]; then
+				# it is a complete line, so add 1 to count
+				# we don't send empty input to echo-wrap/echo-count-lines as empty input will appear as 0
+				count="$((count + 1))"
+			elif __is_shapeshifter -- "$input"; then
+				# if shapeshifter, reset count
+				count=0
+			else
+				# if not shapeshifter, wrap and count
+				if __should_wrap --content="$input" --width="$option_columns"; then
+					lines="$(echo-wrap --columns="$option_columns" -- "$input" | echo-count-lines --stdin)" || return $?
+				else
+					lines="$(echo-count-lines -- "$input")" || return $?
+				fi
+				count="$((count + lines))"
+			fi
+		}
+		function __on_inline {
+			# if inline, proceed as normal but remove a line
+			__on_line "$1" || return $?
+			had_inline='yes'
+		}
+		function __on_finish {
+			__clear_lines || return $?
+		}
+		stdinargs "${option_args[@]}"
+	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	echo_clear_lines "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_clear_lines_test
+	else
+		echo_clear_lines "$@"
+	fi
 fi

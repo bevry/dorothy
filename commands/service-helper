@@ -4,29 +4,30 @@
 # function get_user {
 # 	local path='/lib/systemd/system/plexmediaserver.service'
 # 	local path='/etc/systemd/system/plexmediaserver.service.d/override.conf''
-# 	sudo-helper --inherit \
-# 		-- config-helper --file="$path" -- \
-# 		--field='User'
+# 	config-helper --elevate --file="$path" -- --field='User'
 # }
 # function get_group {
-# 	sudo-helper --inherit \
-# 		-- config-helper --file="$path" -- \
-# 		--field='Group'
+# 	config-helper --elevate --file="$path" -- --field='Group'
 # }
 
-function fs_own() (
+function service_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- service-helper --help
+)
+
+function service_helper() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Cross-platform service management.
 
 			USAGE:
-			service-helper [...options] -- ...<service>
+			\`service-helper [...options] -- ...<service>\`
 
 			OPTIONS:
 			--quiet
@@ -87,77 +88,31 @@ function fs_own() (
 			--edit
 			    Edit the <service>.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process
+	# process, @todo rewrite with option_ prefix
 	# don't use empty quiet, as that only outputs wraps
-	local item services=() quiet='no' ignore='no' supported='' start='' stop='' restart='' unmask='' load='' unload='' enable='' disable='' reenable='' status='' logs='' running='' remove='' exists='' edit=''
-	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
-	while test "$#" -ne 0; do
+	local item option_quiet='no' option_services=() option_ignore='no' option_supported='' option_actions=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
-		'--supported') supported='yes' ;;
-		'--ignore-missing' | '--ignore') ignore='yes' ;;
-			# service options
-		'--no-start'* | '--start'*)
-			start="$(get-flag-value start --missing="$start" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-stop'* | '--stop'*)
-			stop="$(get-flag-value stop --missing="$stop" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-restart'* | '--restart'*)
-			restart="$(get-flag-value restart --missing="$restart" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-unmask'* | '--unmask'*)
-			unmask="$(get-flag-value unmask --missing="$unmask" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-load'* | '--load'*)
-			load="$(get-flag-value load --missing="$load" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-unload'* | '--unload'*)
-			unload="$(get-flag-value unload --missing="$unload" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-enable'* | '--enable'*)
-			enable="$(get-flag-value enable --missing="$enable" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-disable'* | '--disable'*)
-			disable="$(get-flag-value disable --missing="$disable" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-reenable'* | '--reenable'*)
-			reenable="$(get-flag-value reenable --missing="$reenable" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-status'* | '--status'*)
-			status="$(get-flag-value status --missing="$status" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-logs'* | '--logs'*)
-			logs="$(get-flag-value logs --missing="$logs" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-running'* | '--running'*)
-			running="$(get-flag-value running --missing="$running" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-remove'* | '--remove'*)
-			remove="$(get-flag-value remove --missing="$remove" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-exists'* | '--exists'*)
-			exists="$(get-flag-value exists --missing="$exists" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-edit'* | '--edit'*)
-			edit="$(get-flag-value edit --missing="$edit" -- "$item" | echo-affirmative --stdin)"
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--supported') option_supported='yes' ;;
+		'--ignore-missing' | '--ignore') option_ignore='yes' ;;
+		'--start' | '--stop' | '--restart' | '--unmask' | '--load' | '--unload' | '--enable' | '--enable-now' | '--disable' | '--disable-now' | '--reenable' | '--status' | '--logs' | '--running' | '--remove' | '--exists' | '--edit')
+			option_actions+=("${item#--}")
 			;;
 		'--')
-			services+=("$@")
+			option_services+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) services+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_services+=("$item") ;;
 		esac
 	done
 
@@ -168,14 +123,14 @@ function fs_own() (
 	# SERVICE_DIR='/Library/LaunchDaemons' # macos
 	# SERVICE_DIR='/etc/systemd/system' # linux
 
-	if command-exists launchctl; then
+	if __command_exists -- launchctl; then
 		# quirks about macos/launchctl
 		# - service identifiers can have a `system/`, `user/`, `pid/`, and `session/` prefix, such as `system/com.apple.smbd`
 		# - service identifiers can also have extensions it seems, such as `system/com.apple.smb.preferences`
-		function do_unmask {
+		function __do_unmask {
 			return 0 # not needed
 		}
-		function do_load {
+		function __do_load {
 			# Usage: launchctl load <service-path, service-path2, ...>
 			# -w      If the service is disabled, it will be enabled. In previous
 			# 		versions of launchd, being disabled meant that a service was
@@ -183,69 +138,64 @@ function fs_own() (
 			# 		disabled, launchd does not advertise its service endpoints
 			# 		(sockets, Mach ports, etc.).
 			local plist
-			plist="$(do_find "$1")"
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Loading the service $1 requires your sudo/root/login password." \
-				-- launchctl load -w "$plist"
+			plist="$(__do_find "$1")" || return $?
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to load the service: $1" -- \
+				launchctl load -w "$plist"
 		}
-		function do_unload {
+		function __do_unload {
 			# Usage: launchctl unload <service-path, service-path2, ...>
 			# -w      Additionally disables the service such that future load
 			# 		operations will result in a service which launchd tracks but
 			# 		cannot be launched or discovered in any way.
 			# ...
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Unloading the service $1 requires your sudo/root/login password." \
-				-- launchctl unload -w "$1"
+			local plist
+			plist="$(__do_find "$1")" || return $?
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to unload the service: $1" -- \
+				launchctl unload -w "$plist"
 		}
-		function do_start {
+		function __do_start {
 			local id="$1"
 			id="${id#*system/}" # trim system/
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Starting the service $1 requires your sudo/root/login password." \
-				-- launchctl start "$id"
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to start the service: $1" -- \
+				launchctl start "$id"
 		}
-		function do_stop {
+		function __do_stop {
 			local id="$1"
 			id="${id#*system/}" # trim system/
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Stopping the service $1 requires your sudo/root/login password." \
-				-- launchctl stop "$id"
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to stop the service: $1" -- \
+				launchctl stop "$id"
 		}
-		function do_restart {
-			eval_capture -- do_stop "$1"
-			do_load "$1"
-			do_start "$1"
+		function __do_restart {
+			__do_stop "$1" || : # ignore
+			__do_load "$1" || return $?
+			__do_start "$1" || return $?
 		}
-		function do_enable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Enabling the service $1 requires your sudo/root/login password." \
-				-- launchctl enable "$1"
+		function __do_enable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to enable the service: $1" -- \
+				launchctl enable "$1"
 		}
-		function do_enable_now {
-			do_enable "$1"
-			do_start "$1"
+		function __do_enable_now {
+			__do_enable "$1" || return $?
+			__do_start "$1" || return $?
 		}
-		function do_disable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Disabling the service $1 requires your sudo/root/login password." \
-				-- launchctl disable "$1"
+		function __do_disable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to disable the service: $1" -- \
+				launchctl disable "$1"
 		}
-		function do_disable_now {
-			do_disable "$1"
-			do_stop "$1"
+		function __do_disable_now {
+			__do_disable "$1" || return $?
+			__do_stop "$1" || return $?
 		}
-		function do_reenable {
-			do_disable "$1"
-			do_enable "$1"
+		function __do_reenable {
+			__do_disable "$1" || return $?
+			__do_enable "$1" || return $?
 		}
-		function do_status {
+		function __do_status {
 			# return code based on service existence, so ignore, save for running and exists
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Getting the status of the service $1 requires your sudo/root/login password." \
-				-- launchctl print "$1" || :
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the status of the service: $1" -- \
+				launchctl print "$1" || :
 		}
-		function do_logs {
+		function __do_logs {
 			# @todo
 			# https://stackoverflow.com/a/29926482/130638
 			# https://stackoverflow.com/a/6887421/130638
@@ -253,30 +203,29 @@ function fs_own() (
 			# https://apple.stackexchange.com/a/435504/15131
 			return 78 # ENOSYS 78 Function not implemented
 		}
-		function do_running {
-			# return code based on service pid existing / running, hide outpu
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Checking the run status of the service $1 requires your sudo/root/login password." \
-				-- launchctl list | grep "$1" | grep -q '^[^-]'
+		function __do_running {
+			# return code based on service pid existing / running, hide output
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the run status of the service: $1" -- \
+				launchctl list | grep --extended-regexp --regexp="$1" | grep --quiet --extended-regexp --regexp='^[^-]'
 		}
-		function do_remove {
+		function __do_remove {
 			return 78 # ENOSYS 78 Function not implemented
 		}
-		function do_exists {
+		function __do_exists {
 			# return code based on service existence
-			sudo-helper --reason="Getting the existing of the service $1 requires your sudo/root/login password." \
-				-- launchctl print "$1" &>/dev/null
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the existence of the service: $1" -- \
+				launchctl print "$1" &>/dev/null
 		}
-		function do_edit {
+		function __do_edit {
 			local plist
-			plist="$(do_find "$1")"
-			edit --sudo -- "$plist"
+			plist="$(__do_find "$1")" || return $?
+			edit --wait --elevate -- "$plist" || return $?
 		}
-		function do_find {
+		function __do_find {
 			local id="$1"
 			id="${id#*system/}" # trim system/
-			if test -f "$id"; then
-				print_line "$id"
+			if [[ -f $id ]]; then
+				__print_lines "$id" || return $?
 				return 0
 			fi
 			local paths=(
@@ -287,87 +236,73 @@ function fs_own() (
 				/Library/LaunchDaemons/*"$id"*
 				/System/Library/LaunchAgents/*"$id"*
 			)
-			if test "${#paths[@]}" -eq 0; then
-				echo-error 'Service does not exist:' ' ' --code="$id"
+			if [[ ${#paths[@]} -eq 0 ]]; then
+				__print_style -stderr --error1='Service does not exist: ' --code-error1="$id" || return $?
 				return 2 # ENOENT 2 No such file or directory
 			else
-				echo-lines -- "${paths[@]}"
+				__print_lines "${paths[@]}" || return $?
 			fi
 		}
-	elif command-exists systemctl; then
-		function do_unmask {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Unmkasing the service $1 requires your sudo/root/login password." \
-				-- systemctl unmask "$1"
+	elif __command_exists -- systemctl; then
+		function __do_unmask {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to unmask the service: $1" -- \
+				systemctl unmask "$1"
 		}
-		function do_load {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Loading the service $1 requires your sudo/root/login password." \
-				-- systemctl daemon-reload
+		function __do_load {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to load the service: $1" -- \
+				systemctl daemon-reload
 		}
-		function do_unload {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Unloading the service $1 requires your sudo/root/login password." \
-				-- systemctl daemon-reload
+		function __do_unload {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to unload the service: $1" -- \
+				systemctl daemon-reload
 		}
-		function do_start {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Starting the service $1 requires your sudo/root/login password." \
-				-- systemctl start "$1"
+		function __do_start {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to start the service: $1" -- \
+				systemctl start "$1"
 		}
-		function do_stop {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Stopping the service $1 requires your sudo/root/login password." \
-				-- systemctl stop "$1"
+		function __do_stop {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to stop the service: $1" -- \
+				systemctl stop "$1"
 		}
-		function do_restart {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Restarting the service $1 requires your sudo/root/login password." \
-				-- systemctl restart "$1"
+		function __do_restart {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to restart the service: $1" -- \
+				systemctl restart "$1"
 		}
-		function do_enable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Enabling the service $1 requires your sudo/root/login password." \
-				-- systemctl enable "$1"
+		function __do_enable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to enable the service: $1" -- \
+				systemctl enable "$1"
 		}
-		function do_enable_now {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Enabling the service $1 requires your sudo/root/login password." \
-				-- systemctl enable --now "$1"
+		function __do_enable_now {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to instantly enable the service: $1" -- \
+				systemctl enable --now "$1"
 		}
-		function do_disable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Disabling service $1 requires your sudo/root/login password." \
-				-- systemctl disable "$1"
+		function __do_disable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to disable service $1" -- \
+				systemctl disable "$1"
 		}
-		function do_disable_now {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Disabling service $1 requires your sudo/root/login password." \
-				-- systemctl disable --now "$1"
+		function __do_disable_now {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to instantly disable service $1" -- \
+				systemctl disable --now "$1"
 		}
-		function do_reenable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Reenabling service $1 requires your sudo/root/login password." \
-				-- systemctl reenable "$1"
+		function __do_reenable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to reenable service $1" -- \
+				systemctl reenable "$1"
 		}
-		function do_status {
+		function __do_status {
 			# return code based on service running, so ignore, save for running and exists
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Getting the status of the service $1 requires your sudo/root/login password." \
-				-- systemctl status "$1" --no-pager || :
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the status of the service: $1" -- \
+				systemctl status "$1" --no-pager || :
 		}
-		function do_logs {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Getting the logs of the service $1 requires your sudo/root/login password." \
-				-- sudo journalctl -u "$1" --no-pager || :
+		function __do_logs {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the logs of the service: $1" -- \
+				sudo journalctl -u "$1" --no-pager || :
 		}
-		function do_running {
+		function __do_running {
 			# return code based on service running, hide output
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Checking the run status of the service $1 requires your sudo/root/login password." \
-				-- systemctl status "$1" --no-pager &>/dev/null
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the run status of the service: $1" -- \
+				systemctl status "$1" --no-pager &>/dev/null
 		}
-		function do_remove {
+		function __do_remove {
 			local id="$1" paths
 			if [[ $id == *'@'* ]]; then
 				id="${id%@*}@" # `syncthing@user` => `syncthing@`
@@ -378,14 +313,14 @@ function fs_own() (
 				/etc/systemd/system/*"$id"*
 				/usr/lib/systemd/system/*"$id"*
 			)
-			if test "${#paths[@]}" -ne 0; then
-				fs-rm --sudo -- "${paths[@]}"
+			if [[ ${#paths[@]} -ne 0 ]]; then
+				fs-remove --confirm --elevate -- "${paths[@]}" || return $?
 			fi
 		}
-		function do_exists {
+		function __do_exists {
 			# return code based on service existence
-			# sudo-helper -- service "$1" | rg ' * Usage:'
-			# sudo-helper -- service --status-all | rg "$1"
+			# eval-helper --elevate -- service "$1" | echo-regexp --regexp=' * Usage:'
+			# eval-helper --elevate -- service --status-all | echo-regexp --regexp="$1"
 			# @todo this fails for virtual ids, e.g. `syncthing@ubuntu`
 			local id="$1" paths
 			if [[ $id == *'@'* ]]; then
@@ -397,114 +332,102 @@ function fs_own() (
 				/etc/systemd/system/*"$id"*
 				/usr/lib/systemd/system/*"$id"*
 			)
-			test "${#paths[@]}" -ne 0
+			[[ ${#paths[@]} -ne 0 ]] || return $?
 		}
-		function do_edit {
+		function __do_edit {
 			local id="$1"
 			# --inherit to maintain editor preferences
-			sudo-helper --inherit -- systemctl edit "$id"
+			eval-helper --elevate --inherit -- systemctl edit "$id" || return $?
 			# apply the changes, otherwise they will be reverted
-			sudo-helper -- systemctl daemon-reload
+			eval-helper --elevate -- systemctl daemon-reload || return $?
 			# if you aren't seeing your changes saved, make sure you save them between the comment sections where it tells you to, and not just say at the very top of the file
 		}
-	elif command-exists rc-service; then
-		function do_unmask {
+	elif __command_exists -- rc-service; then
+		function __do_unmask {
 			return 0 # not needed
 		}
-		function do_load {
+		function __do_load {
 			return 0 # not needed
 		}
-		function do_unload {
+		function __do_unload {
 			return 0 # not needed
 		}
-		function do_start {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Starting the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" start
+		function __do_start {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to start the service: $1" -- \
+				rc-service "$1" start
 		}
-		function do_stop {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Stopping the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" stop
+		function __do_stop {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to stop the service: $1" -- \
+				rc-service "$1" stop
 		}
-		function do_restart {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Restarting the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" restart
+		function __do_restart {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to restart the service: $1" -- \
+				rc-service "$1" restart
 		}
-		function do_enable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Enabling the service $1 requires your sudo/root/login password." \
-				-- rc-update add "$1"
+		function __do_enable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to enable the service: $1" -- \
+				rc-update add "$1"
 		}
-		function do_enable_now {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Adding the service $1 requires your sudo/root/login password." \
-				-- rc-update add "$1"
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Starting the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" start
+		function __do_enable_now {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to add the service: $1" -- \
+				rc-update add "$1"
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to start the service: $1" -- \
+				rc-service "$1" start
 		}
-		function do_disable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Disabling the service $1 requires your sudo/root/login password." \
-				-- rc-update del "$1"
+		function __do_disable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to disable the service: $1" -- \
+				rc-update del "$1"
 		}
-		function do_disable_now {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Stopping the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" stop
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Removing the service $1 requires your sudo/root/login password." \
-				-- rc-update del "$1"
+		function __do_disable_now {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to stop the service: $1" -- \
+				rc-service "$1" stop
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to remove the service: $1" -- \
+				rc-update del "$1"
 		}
-		function do_reenable {
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Reenabling the service $1 requires your sudo/root/login password." \
-				-- rc-update add "$1"
+		function __do_reenable {
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to reenable the service: $1" -- \
+				rc-update add "$1"
 		}
-		function do_status {
+		function __do_status {
 			# return code based on service running, so ignore, save for running and exists
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Getting the status of the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" status || :
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the status of the service: $1" -- \
+				rc-service "$1" status || :
 		}
-		function do_logs {
+		function __do_logs {
 			# @todo
 			return 78 # ENOSYS 78 Function not implemented
 		}
-		function do_running {
+		function __do_running {
 			# return code based on service running, hide output
-			eval-helper --quiet="$quiet" \
-				-- sudo-helper --reason="Getting the run status of the service $1 requires your sudo/root/login password." \
-				-- rc-service "$1" status &>/dev/null
+			eval-helper --elevate --reason="Your password is required to momentarily grant privileges to fetch the run status of the service: $1" -- \
+				rc-service "$1" status &>/dev/null
 		}
-		function do_remove {
+		function __do_remove {
 			return 78 # ENOSYS 78 Function not implemented
 		}
-		function do_exists {
+		function __do_exists {
 			# return code based on service existence
-			# sudo-helper -- rc-service --list | grep -i "$1"
+			# eval-helper --elevate -- rc-service --list | grep --ignore-case --extended-regexp --regexp="$1"
 			# https://wiki.alpinelinux.org/wiki/OpenRC
 			# despite docs, it is actually /etc/init.d/ and not /lib/rc/init.d
 			local id="$1" paths
 			paths=(
 				/etc/init.d/*"$id"*
 			)
-			test "${#paths[@]}" -ne 0
+			[[ ${#paths[@]} -ne 0 ]] || return $?
 		}
 	else
-		if test "$supported" = 'yes'; then
+		if [[ $option_supported == 'yes' ]]; then
 			# if --supported, no error message
 			return 1
 		else
-			echo-error 'Services are not supported on this platform.'
+			__print_error 'Services are not supported on this platform.'
 			return 19 # ENODEV 19 Operation not supported by device
 		fi
 	fi
 
 	# if --supported, then we are done
-	if test "$supported" = 'yes'; then
+	if [[ $option_supported == 'yes' ]]; then
 		return 0
 	fi
 
@@ -522,173 +445,70 @@ function fs_own() (
 	# https://man.archlinux.org/man/systemctl.1.en
 	# https://wiki.gentoo.org/wiki/OpenRC_to_systemd_Cheatsheet
 	function handle {
-		local this_service="$1" this_unmask="$unmask" this_load="$load" this_unload="$unload" this_start="$start" this_stop="$stop" this_restart="$restart" this_enable="$enable" this_disable="$disable" this_reenable="$reenable" this_status="$status" this_logs="$logs" this_running="$running" this_remove="$remove" this_exists="$exists" this_edit="$edit"
+		local this_service="$1" this_action=''
 
 		# ignore?
-		if test "$ignore" = 'yes' && ! do_exists "$this_service"; then
+		if [[ $option_ignore == 'yes' ]] && ! __do_exists "$this_service"; then
 			# is missing, and desire to ignore, so skip this one
-			if test "$quiet" = 'no'; then
-				echo-style \
+			if [[ $option_quiet == 'no' ]]; then
+				__print_style \
 					--dim="Skipping non-existent service: " \
-					--code="$this_service"
+					--code="$this_service" || return $?
 			fi
 			return 0
 		fi
 
-		# exists?
-		if test "$this_exists" = 'yes'; then
-			this_exists=''
-			do_exists "$this_service"
-		fi
-
-		# edit?
-		if test "$this_edit" = 'yes'; then
-			this_edit=''
-			do_edit "$this_service"
-		fi
-
-		# remove?
-		if test "$this_remove" = 'yes'; then
-			this_remove=''
-			do_remove "$this_service"
-		fi
-
-		# status
-		if test "$this_status" = 'yes'; then
-			this_status='maybe'
-			do_status "$this_service"
-		fi
-
-		# unmask, do before load
-		if test "$this_unmask"; then
-			this_unmask=''
-			do_unmask "$this_service"
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		fi
-
-		# load
-		if test "$this_load"; then
-			this_load=''
-			do_load "$this_service"
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		fi
-
-		# split restart if autostart is being modified
-		if test "$this_restart" = 'yes' && test "$this_reenable" = 'yes' -o "$this_enable" = 'yes' -o "$this_disable" = 'yes'; then
-			this_restart=''
-			this_stop='yes'
-			this_start='yes'
-		fi
-
-		# stop
-		if test "$this_stop" = 'yes'; then
-			this_stop=''
-			do_stop "$this_service"
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		fi
-
-		# autostart
-		if test "$this_reenable" = 'yes'; then
-			this_reenable=''
-			do_reenable "$this_service"
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		elif test "$this_enable" = 'yes'; then
-			this_enable=''
-			if test "$this_start" = 'yes'; then
-				this_start=''
-				do_enable_now "$this_service"
-			else
-				do_enable "$this_service"
-			fi
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		elif test "$this_disable" = 'yes'; then
-			this_disable=''
-			if test "$this_stop" = 'yes'; then
-				this_stop=''
-				do_disable_no "$this_service"
-			else
-				do_disable "$this_service"
-			fi
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		fi
-
-		# start / restart
-		if test "$this_start" = 'yes'; then
-			this_start=''
-			do_start "$this_service"
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		fi
-		if test "$this_restart" = 'yes'; then
-			this_restart=''
-			do_restart "$this_service"
-
-			# renable status
-			if test "$this_status" = 'maybe'; then
-				this_status='yes'
-			fi
-		fi
-
-		# unload
-		if test "$this_unload" = 'yes'; then
-			this_unload=''
-			do_unload "$this_service"
-		fi
-
-		# status
-		if test "$this_status" = 'yes'; then
-			this_status=''
-			do_status "$this_service"
-		fi
-
-		# logs
-		if test "$this_logs" = 'yes'; then
-			this_logs=''
-			do_logs "$this_service"
-		fi
-
-		# running
-		if test "$this_running" = 'yes'; then
-			this_running=''
-			do_running "$this_service"
-		fi
+		# actions
+		for this_action in "${option_actions[@]}"; do
+			case "$this_action" in
+			'exists')
+				if [[ $option_ignore == 'yes' ]]; then
+					return 0 # we already know from earlier
+				else
+					__do_exists "$this_service"
+				fi
+				;;
+			'edit') __do_edit "$this_service" ;;
+			'remove') __do_remove "$this_service" ;;
+			'status') __do_status "$this_service" ;;
+			# unmask before load
+			'unmask') __do_unmask "$this_service" ;;
+			# load before stops
+			'load') __do_load "$this_service" ;;
+			# do stop, starts, before unload
+			'stop') __do_stop "$this_service" ;;
+			'reenable') __do_reenable "$this_service" ;;
+			'enable') __do_enable "$this_service" ;;
+			'disable') __do_disable "$this_service" ;;
+			# do enable/disable starts stops
+			'enable-now') __do_enable_now "$this_service" ;;
+			'disable-now') __do_disable_now "$this_service" ;;
+			# do starts
+			'start') __do_start "$this_service" ;;
+			# if any of reenable/disable/enable, then restart should be changed to stop and start
+			'restart') __do_restart "$this_service" ;;
+			# do unload
+			'unload') __do_unload "$this_service" ;;
+			'logs') __do_logs "$this_service" ;;
+			# do running
+			'running') __do_running "$this_service" ;;
+			*) help 'An unrecognised action was provided: ' --variable-value={this_action} ;;
+			esac
+		done
 	}
 
 	# cycle through
 	local service
-	for service in "${services[@]}"; do
+	for service in "${option_services[@]}"; do
 		handle "$service"
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_own "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		service_helper_test
+	else
+		service_helper "$@"
+	fi
 fi

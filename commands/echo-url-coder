@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+function echo_url_coder_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-url-coder --help
+
+	local inputs=(
+		'https://sup.com/hello world'
+		'https://sup.com/hello%20world'
+	)
+	local expected_encode=$'https://sup.com/hello%20world\nhttps://sup.com/hello%2520world'
+	local expected_decode=$'https://sup.com/hello world\nhttps://sup.com/hello world'
+	local action actions=('encode' 'decode')
+	local tool all_tools=(deno node python3)
+	local expected
+
+	for action in "${actions[@]}"; do
+		if [[ $action == 'encode' ]]; then
+			expected="$expected_encode"
+		else
+			expected="$expected_decode"
+		fi
+		for tool in "${all_tools[@]}"; do
+			if __command_exists -- "$tool"; then
+				eval-tester --stdout="$expected" -- \
+					echo-url-coder --action="$action" --tool="$tool" -- "${inputs[@]}"
+
+				{
+					__print_lines "${inputs[@]}"
+				} | eval-tester --stdout="$expected" -- \
+					echo-url-coder --action="$action" --tool="$tool" --stdin
+			fi
+		done
+	done
+
+	return 0
+)
+function echo_url_coder() (
+	source "$DOROTHY/sources/stdinargs.bash"
+	local all_tools=(deno node python3)
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			For each input, decode or encode it's URL entities.
+
+			USAGE:
+			\`echo-url-coder [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-url-coder [...options]\`
+
+			OPTIONS:
+			--tool=<tool:$(__join --source={all_tools} --between='|' -- '?')>
+			    The tool to use. Use \`?\` to prompt. Default is the first available tool.
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLES:
+			\`\`\`
+			echo-url-coder --encode -- 'https://sup.com/hello world'
+			echo-lines -- 'https://sup.com/hello world' | echo-url-coder --encode --stdin
+			\`\`\`
+			Outputs: \`https://sup.com/hello%20world\`
+			Returns: [0]
+
+			\`\`\`
+			echo-url-coder --decode -- 'https://sup.com/hello%20world'
+			echo-lines -- 'https://sup.com/hello%20world' | echo-url-coder --decode --stdin
+			\`\`\`
+			Outputs: \`https://sup.com/hello world\`
+			Returns: [0]
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_action='' option_tool=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--encode' | '--decode') option_action="${item#--}" ;;
+		'--action='*) option_action="${item#*=}" ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# tool aliases
+	case $option_tool in
+	'ts' | 'typescript') option_tool='deno' ;;
+	'js' | 'javascript' | 'node.js' | 'nodejs') option_tool='node' ;;
+	'py' | 'python') option_tool='python3' ;;
+	esac
+
+	# ensure tool
+	__tool --tool={option_tool} --tools={all_tools} --help={help} || return $?
+
+	# ensure action
+	if [[ $option_action == '?' ]]; then
+		option_action="$(choose --required 'Which action to perform?' -- 'encode' 'decode')"
+	elif ! [[ $option_action =~ ^(encode|decode)$ ]]; then
+		__help 'An unrecognised action was provided: ' --variable-value={option_action} || return $?
+	fi
+
+	# =====================================
+	# Action
+
+	# recode doesn't support url encoding/decoding: https://github.com/rrthomas/recode/issues/51
+	# xmlstarlet is only for html/xml encoding
+	local script
+	if [[ $option_tool == 'deno' ]]; then
+		script="$(type -P echo-url-coder.ts)"
+	elif [[ $option_tool == 'node' ]]; then
+		script="$(type -P echo-url-coder.js)"
+	# elif [[ "$option_tool" = 'php' ]]; then
+	# 	script="$(type -P echo-url-coder.php)"
+	elif [[ $option_tool == 'python3' ]]; then
+		script="$(type -P echo-url-coder.py)"
+	else
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+	function on_line {
+		"$script" "$option_action" "$1"
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_url_coder_test
+	else
+		echo_url_coder "$@"
+	fi
+fi

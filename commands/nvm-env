@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function nvm_env_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- nvm-env --help
+)
+
 function nvm_env() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,55 +12,53 @@ function nvm_env() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Execute a command inside a NVM context without inheriting the shell's strict mode (if any).
 
 			USAGE:
-			nvm-env [...options] [--] ...<command>
+			\`nvm-env [...options] [--] ...<command>\`
 
 			OPTIONS:
 			--[no-]rosetta=[yes|no]
 			    If empty, auto-detection is used to determine if Rosetta should be used to install Node.js versions that do not support ARM:
-			    https://github.com/nvm-sh/nvm/issues/2596
+			    <https://github.com/nvm-sh/nvm/issues/2596>
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_rosetta='' cmd=()
-	while test "$#" -ne 0; do
+	local item option_rosetta='' option_quiet='' option_cmd=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-rosetta'* | '--rosetta'*)
-			option_rosetta="$(get-flag-value rosetta --missing="$option_rosetta" -- "$item" | echo-affirmative --stdin)"
-			;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-rosetta'* | '--rosetta'*) __flag --source={item} --target={option_rosetta} --affirmative ;;
 		'--')
-			cmd+=("$@")
+			option_cmd+=("$@")
 			shift $#
 			break
 			;;
 		*)
-			cmd+=("$item" "$@")
+			option_cmd+=("$item" "$@")
 			shift $#
+			break
 			;;
 		esac
 	done
 
 	# ensure
-	if test "${#cmd[@]}" -eq 0; then
-		help "You must provide a <cmd>"
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
+		help 'No <cmd> was provided.'
 	fi
-	if ! is-apple-silicon; then
+	if ! is-system --apple-silicon; then
 		option_rosetta='no'
-	elif test -z "$option_rosetta"; then
-		local bin="${cmd[0]}" action="${cmd[1]-}" version="${cmd[2]-}"
-		if test "$bin" = 'nvm' -a "$action" = 'install' && is-number "$version" && test "$(version-compare "$version" 16)" = -1; then
+	elif [[ -z $option_rosetta ]]; then
+		local bin="${option_cmd[0]}" action="${option_cmd[1]-}" version="${option_cmd[2]-}"
+		if [[ $bin == 'nvm' && $action == 'install' ]] && __is_number "$version" && [[ "$(version-compare "$version" 16)" == -1 ]]; then
 			option_rosetta='yes'
 		else
 			option_rosetta='no'
@@ -65,17 +68,34 @@ function nvm_env() (
 	# =====================================
 	# Action
 
-	# execute the command in new bash environemnt that doesn't inherit our strict mode
-	if test "$option_rosetta" = 'yes'; then
-		# only /bin/bash allows rosetta
-		echo-style --dim="Executing via Rosetta: ${cmd[*]}" >/dev/tty
-		arch -x86_64 /bin/bash -c "source $DOROTHY/sources/nvm.sh; ${cmd[*]}"
+	# convert to quoted string if not already quoted
+	local cmd_exec
+	if [[ ${#option_cmd[@]} -eq 1 ]]; then
+		cmd_exec="${option_cmd[0]}"
 	else
-		bash -c "source $DOROTHY/sources/nvm.sh; ${cmd[*]}"
+		cmd_exec="$(echo-escape-command -- "${option_cmd[@]}")"
+	fi
+
+	# quiet
+	if [[ $option_quiet == 'yes' ]]; then
+		cmd_exec="$cmd_exec >/dev/null 2>&1"
+	fi
+
+	# execute the command in new bash environment that doesn't inherit our strict mode
+	# the nullglob is to fix: https://github.com/nvm-sh/nvm/issues/3727
+	if [[ $option_rosetta == 'yes' ]]; then
+		# only /bin/bash allows rosetta
+		arch -x86_64 /bin/bash -c "shopt -s nullglob; source $DOROTHY/sources/nvm.sh; $cmd_exec"
+	else
+		bash -c "shopt -s nullglob; source $DOROTHY/sources/nvm.sh; $cmd_exec"
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	nvm_env "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		nvm_env_test
+	else
+		nvm_env "$@"
+	fi
 fi

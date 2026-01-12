@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+function setup_util_plex_media_server() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Preparation
+
+	local service_title='Plex Media Server'
+	local service_ids=(
+		'plexmediaserver'
+	)
+	local service_uninstall_paths=(
+		# user config and data
+		'/var/lib/plexmediaserver/'
+
+		# app data
+		'/usr/lib/plexmediaserver/'
+	)
+
+	# =====================================
+	# Setup Utility
+
+	# https://forums.plex.tv/t/809529?u=balupton
+	# fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass' | __jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url'
+
+	# apt doesn't seem to work correctly
+	# APT_KEY='https://downloads.plex.tv/plex-keys/PlexSign.key' \
+	# APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://downloads.plex.tv/repo/deb public main' \
+	# APT='plexmediaserver' \
+
+	# setup
+	local arch options=(
+		--cli='plex-media-server'
+		--app='Plex Media Server'
+		"$@"
+		CASK='plex-media-server'
+	)
+	function __get_json {
+		fetch 'https://plex.tv/pms/downloads/1.json?channel=plexpass' || return $?
+	}
+	function __get_platform_url {
+		if __is_macos; then
+			__get_json | __jq -r '.computer.MacOS.releases[].url' || return $?
+		elif __is_linux; then
+			__get_json | __jq -r '.computer.Linux.releases[].url' || return $?
+		elif __is_windows; then
+			__get_json | __jq -r '.computer.Windows.releases[].url' || return $?
+		else
+			__get_json | __jq -r '.computer | (.Windows, .MacOS, .Linux) | .releases[].url' || return $?
+		fi
+	}
+	function __add_download_app_option {
+		local url
+		url="$(__get_platform_url | echo-regexp -om --regexp='^.+-universal.zip$')" || return $?
+		options+=(
+			DOWNLOAD="$url"
+			DOWNLOAD_ARCHIVE_EXTRACT='yes'
+			DOWNLOAD_FILENAME='Plex Media Server.app'
+		)
+	}
+	function __add_deb_option {
+		local regexp="$1" url
+		url="$(__get_platform_url | echo-regexp -om --regexp="$regexp")" || return $?
+		options+=(DEB="$url")
+	}
+	function __add_rpm_option {
+		local regexp="$1" url
+		url="$(__get_platform_url | echo-regexp -om --regexp="$regexp")" || return $?
+		options+=(RPM="$url")
+	}
+	arch="$(__get_arch)"
+	if __is_macos; then
+		__add_download_app_option || :
+	elif is-system --ubuntu; then
+		if [[ $arch == 'x64' ]]; then
+			__add_deb_option '^.+_amd64.deb$' || :
+		elif [[ $arch == 'x32' ]]; then
+			__add_deb_option '^.+_i386.deb$' || :
+		elif [[ $arch == 'a64' ]]; then
+			__add_deb_option '^.+_arm64.deb$' || :
+		elif [[ $arch == 'a32' ]]; then
+			__add_deb_option '^.+_armhf.deb$' || :
+		fi
+	elif __command_exists -- rpm; then
+		if [[ $arch == 'x64' ]]; then
+			__add_rpm_option '^.+\.x86_64\.rpm$' || :
+		elif [[ $arch == 'x32' ]]; then
+			__add_rpm_option '^.+\.i686\.rpm$' || :
+		fi
+	fi
+	setup-util "${options[@]}"
+
+	# if missing, complete uninstall and exit
+	if __command_missing -- plex-media-server && ! get-app --quiet --app='Plex Media Server'; then
+		# remove services
+		service-helper --remove -- \
+			"${service_ids[@]}"
+
+		# remove paths
+		fs-remove --confirm --elevate -- \
+			"${service_uninstall_paths[@]}"
+
+		# remove user
+		if is-user -- plex; then
+			eval-helper --elevate -- userdel plex
+		fi
+
+		# remove group
+		if is-group -- plex; then
+			eval-helper --elevate -- groupdel --force plex
+		fi
+
+		# all done for uninstall
+		return 0
+	fi
+
+	# if installed, configure service if supported
+	if service-helper --supported; then
+		# verify the service was initialised
+		if ! service-helper --exists -- "${service_ids[@]}"; then
+			__print_error "$service_title was installed, however the service was not."
+			return 1
+		fi
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	setup_util_plex_media_server "$@"
+fi

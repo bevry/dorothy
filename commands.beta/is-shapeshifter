@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+function is_shapeshifter_test() (
+	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/ansi.bash" # ANSI_SIZE, ANSI
+	eval-tester --ignore-stderr --status=22 -- is-shapeshifter --help
+
+	local inputs=() inputs_no_shapeshifters=() outputs=() output item
+
+	# prep
+	local -i ansi_index
+	local key pattern name tags escaped_key fail=no # shapeshifter
+	for ((ansi_index = 0; ansi_index < ANSI_SIZE; ansi_index += 4)); do
+		# <KEY/EXAMPLE-KEY> <PATTERN> <NAME> <CONSUMERS>
+		# printf '%s' $'\e#8\e[H' # make everything E characters so that we can see if things that delete forward do so, and go to top
+		key="${ANSI[ansi_index]}"
+		pattern="${ANSI[ansi_index + 1]}"
+		name="${ANSI[ansi_index + 2]}"
+		tags="${ANSI[ansi_index + 3]}"
+		if [[ -z $pattern || $key =~ $pattern ]]; then
+			# did not have a pattern, or matched the pattern
+			:
+		else
+			# had a pattern and did not match it
+			printf '%s %q %s\n' "$name example key" "$key" 'FAILED to match the pattern' >&2
+			fail=yes
+		fi
+		printf -v escaped_key '%q' "$key"
+		if [[ $tags == *'[shapeshifter]'* ]]; then
+			# shapeshifter='SHAPESHIFTER '
+			inputs+=("$key")
+			outputs+=("yes $escaped_key")
+		else
+			# shapeshifter='
+			inputs_no_shapeshifters+=("$key")
+			inputs+=("$key")
+			outputs+=("no $escaped_key")
+		fi
+		# __print_lines "$name $escaped_key $shapeshifter" "[12${key}34]" "$name $escaped_key $shapeshifter"
+		# read -s
+	done
+	if [[ $fail == 'yes' ]]; then
+		__print_error "Some ANSI keys did not match their patterns, see above."
+		return 1
+	fi
+
+	# test
+	__join --source={outputs} --between=$'\n' --target={output}
+	eval-tester --name='testing non-shapeshift inputs' --status=1 -- \
+		is-shapeshifter -- "${inputs_no_shapeshifters[@]}"
+	eval-tester --name='testing all inputs' -- \
+		is-shapeshifter -- "${inputs[@]}"
+	eval-tester --name='testing all inputs' --stdout="$output" -- \
+		is-shapeshifter --verbose -- "${inputs[@]}"
+
+	return 0
+)
+
+function is_shapeshifter() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Checks whether the <input> is a shapeshifter (something that outputs TTY control sequences)
+
+			USAGE:
+			\`is-shapeshifter [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | is-shapeshifter [...options]\`
+
+			OPTIONS:
+			$(__stdinargs__help_options --)
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_quiet='yes' option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	local found='no'
+	if [[ $option_quiet == 'yes' ]]; then
+		function __on_piece {
+			local input="$1"
+			if __is_shapeshifter -- "$input"; then
+				found='yes'
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		}
+	else
+		function __on_piece {
+			local input="$1"
+			if __is_shapeshifter -- "$input"; then
+				found='yes'
+				printf '%s %q\n' 'yes' "$input" || return $?
+			else
+				printf '%s %q\n' 'no' "$input" || return $?
+			fi
+		}
+	fi
+	function __on_finish {
+		[[ $found == 'yes' ]] || return $?
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		is_shapeshifter_test
+	else
+		is_shapeshifter "$@"
+	fi
+fi

@@ -1,0 +1,512 @@
+#!/usr/bin/env bash
+
+# @todo write tests, use fs-trim and is-readable for reference, make sure to test unreadable dirs, files, and unreadable nested contents of a readable dir
+
+function fs_remove_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-remove --help
+)
+
+function fs_remove() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Remove the paths from the file system, with some safety checks in place.
+
+			USAGE:
+			\`fs-remove [...options] [--] ...<path>\`
+
+			OPTIONS:
+			--reason=<reason>
+			    The reason for the removal.
+
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, only output errors or when user intervention is required.
+
+			--[no-]confirm
+			    If disabled, skip confirmations.
+
+			--[no-]confirm-if-empty
+			    If disabled, skip confirmations if the file or directory is empty.
+
+			--[no-]optional
+			    If enabled, doesn't fail if no <path>s were provided.
+
+			--[no-]readable
+			    If enabled, make the <path> and its content readable.
+
+			--[no-]trim
+			    If enabled, trim redundant content and re-evaluate.
+			    Requires <path> to be readable.
+
+			--[no-]trash
+			    If enabled, remove the <path> by moving it to trash, if the system supports it.
+			    Does not require the <path> and its content to be readable.
+			    Cannot be used with <elevate>, <user>, <group>.
+
+			--[no-]delete
+			    If enabled, remove the <path> by deleting it immediately, without recovery.
+			    If the <path> is a directory, then the <path> and its content must be readable.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Ultimately forwarded to \`eval-helper\`
+
+			QUIRKS:
+			If <confirm> is not disabled, or if an error or complication is encountered, the user will be prompted for which action to take.
+			Delete will fail if it encounters a directory that is unreadable.
+			Removing a parent directory is forbidden, a the shell would crash.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='no' option_inputs=() option_optional='no' option_confirm='' option_confirm_if_empty='' option_readable='' option_trim='' option_trash='' option_delete='' option_preferences=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-optional'* | '--optional'*) __flag --source={item} --target={option_optional} --affirmative ;;
+		'--no-confirm-if-empty'* | '--confirm-if-empty'*) # must be before --no-confirm as otherwise --no-confirm* will match it
+			__flag --source={item} --target={option_confirm_if_empty} --affirmative
+			;;
+		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative ;;
+		'--no-readable'* | '--readable'*)
+			__flag --source={item} --target={option_readable} --affirmative
+			if [[ $option_readable == 'yes' ]]; then
+				option_preferences+=('readable')
+			fi
+			;;
+		'--no-trim'* | '--trim'*)
+			__flag --source={item} --target={option_trim} --affirmative
+			if [[ $option_trim == 'yes' ]]; then
+				option_preferences+=('trim')
+			fi
+			;;
+		'--no-trash'* | '--trash'*)
+			__flag --source={item} --target={option_trash} --affirmative
+			if [[ $option_trash == 'yes' ]]; then
+				option_preferences+=('trash')
+			fi
+			;;
+		'--no-delete'* | '--delete'*)
+			__flag --source={item} --target={option_delete} --affirmative
+			if [[ $option_delete == 'yes' ]]; then
+				option_preferences+=('delete')
+			fi
+			;;
+		'--path='*) option_inputs+=("${item#*=}") ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--')
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		if [[ $option_optional == 'yes' ]]; then
+			return 0
+		else
+			help 'No <path>s provided.'
+		fi
+	fi
+
+	# adjust reason
+	local styled_reason=''
+	if [[ -n $option_reason ]]; then
+		styled_reason="$(__print_style --notice1="$option_reason")"$'\n'
+	fi
+
+	# =====================================
+	# Dependencies
+
+	# prep menu
+	local \
+		readable_options=('readable' 'Make contents readable, then reevaluate') \
+		trim_options=('trim' 'Trim redundant contents, then reevaluate') \
+		trash_options=('trash' 'Move to trash') \
+		delete_options=('delete' 'Delete immediately, without recovery') \
+		again_options=('again' "I've done manual changes, reevaluate") \
+		abort_options=('abort' 'Keep it, and abort the requested removal')
+
+	# adjust options with warnings
+	if [[ $option_elevate == 'yes' || -n $option_user || -n $option_group ]]; then
+		if [[ $option_trash == 'yes' ]]; then
+			__print_style --stderr --dim='Moving to trash is not supported with elevated privileges, falling back to immediate deletion for: ' --code="${option_inputs[*]}"
+			option_trash='no'
+		fi
+	fi
+
+	# handle macos trash support, which is only properly supported with the builtin trash command in macOS 14.0 and up
+	# adjust options with warnings, and feature detection
+	local trash_bin
+	if [[ $option_trash != 'no' ]]; then
+		if [[ -z $option_trash && $option_delete != 'yes' ]]; then
+			# no trash/delete preference set, so provide it
+			setup-util-trash --quiet --optional --no-fallback
+		fi
+		if __is_macos; then
+			if [[ -x '/usr/bin/trash' ]]; then
+				trash_bin='/usr/bin/trash'
+			else
+				trash_bin=''
+			fi
+		elif __is_linux; then
+			trash_bin="$(type -P 'trash-put' 2>/dev/null || :)"
+		else
+			# @todo for windows, implement one of these: https://superuser.com/q/24662
+			trash_bin=''
+		fi
+		if [[ -z $trash_bin ]]; then
+			if [[ $option_trash == 'yes' ]]; then
+				__print_style --stderr --dim='Moving to trash is not available, falling back to immediate deletion for: ' --code="${option_inputs[*]}"
+			fi
+			option_trash='no'
+		fi
+	fi
+
+	# prep defaults if none
+	# do not do readable or trash or trim, as if we don't have permissions, we want to fail to let the user aware
+	# do not do trim, as it is redundant if we are empty
+	if [[ ${#option_preferences[@]} -eq 0 ]]; then
+		option_preferences=('delete')
+	fi
+
+	# =====================================
+	# Action
+
+	local elevation_args=(--elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason")
+
+	function __wrap {
+		eval-helper "${elevation_args[@]}" --quiet="$option_quiet" --no-wrap="$option_quiet" --inherit -- "$@"
+	}
+
+	local CONCLUSION
+	function do_rm {
+		local input="$1" path title='' body choices choice is defaults default_args preferences=("${option_preferences[@]}") temp had_failure='' is_readable is_empty can_readable can_trim can_trash can_delete default_for_noconfirm
+		__affirm_value_is_defined "$input" '<path>' || return $?
+
+		# is the input already removed?
+		if is-missing "${elevation_args[@]}" -- "$input"; then
+			CONCLUSION="$(
+				__print_style --success='previously removed.'
+			)"
+			return 0
+		fi
+
+		# prevent deleting ourself which causes: shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+		path="$(fs-path "${elevation_args[@]}" --absolute -- "$input")"
+		if [[ "$(pwd)" == "$path"* ]]; then
+			CONCLUSION="$(
+				__print_style --error='contains the CWD, denied.'
+			)"
+			__print_style --stderr --error1='Denied removing an ancestor of the current working directory, change the working directory to elsewhere and try again: ' --code-error1="$path"
+			return 1
+		fi
+
+		# it is remaining, so prompt on what to do
+		while :; do
+			CONCLUSION=''
+			is=''
+			choices=()
+			defaults=()
+			default_args=()
+			is_readable=''
+			is_directory=''
+			is_empty=''
+			can_readable=''
+			can_trim=''
+			can_trash=''
+			can_delete=''
+			default_for_noconfirm=''
+
+			# if not quiet, dump the progress
+			if [[ -n $CONCLUSION && $option_quiet == 'no' ]]; then
+				__print_style --stderr --code="$path" " $CONCLUSION"
+			fi
+
+			# if readable, then we can detect emptiness
+			if ! is-readable "${elevation_args[@]}" -- "$path"; then
+				is_readable='no'
+				is='non-readable'
+			else
+				is_readable='yes'
+				if is-broken-symlink "${elevation_args[@]}" -- "$path"; then
+					is_directory='no'
+					is='broken symlink'
+				elif is-not-symlink "${elevation_args[@]}" -- "$path"; then
+					if is-empty-file "${elevation_args[@]}" -- "$path"; then
+						is_empty='yes'
+						is_directory='no'
+						is='empty file'
+					elif is-empty-directory "${elevation_args[@]}" -- "$path"; then
+						is_empty='yes'
+						is_directory='yes'
+						is='empty directory'
+					else
+						is='non-empty'
+					fi
+				else
+					is='symlink'
+				fi
+			fi
+			if [[ -z $is_directory ]]; then
+				if is-directory "${elevation_args[@]}" -- "$path"; then
+					is_directory='yes'
+					if [[ -z $is ]]; then
+						is='directory'
+					else
+						is+=' directory'
+					fi
+				else
+					is_directory='no'
+					# don't bother with commentary on files
+				fi
+			fi
+
+			# adjust options
+			if [[ $is_readable == 'no' ]]; then
+				can_readable='yes'
+				# no trim
+				# can trash
+				if [[ $option_trash != 'no' ]]; then
+					can_trash='yes'
+				fi
+				# no delete if directory
+				if ! [[ $option_delete == 'no' || $is_directory == 'yes' ]]; then
+					can_delete='yes'
+				fi
+			else
+				if [[ $option_readable == 'yes' || $had_failure == 'yes' ]]; then
+					can_readable='yes'
+				fi
+				if [[ $option_trim != 'no' ]]; then
+					can_trim='yes'
+				fi
+				if [[ $option_trash != 'no' ]]; then
+					can_trash='yes'
+				fi
+				if [[ $option_delete != 'no' ]]; then
+					can_delete='yes'
+				fi
+			fi
+
+			# adjust menu choices and defaults
+			if [[ $can_readable == 'yes' ]]; then
+				choices+=("${readable_options[@]}")
+			fi
+			if [[ $can_delete == 'yes' ]]; then
+				choices+=("${delete_options[@]}")
+			fi
+			if [[ $can_trash == 'yes' ]]; then
+				choices+=("${trash_options[@]}")
+			fi
+			if [[ $can_trim == 'yes' ]]; then
+				choices+=("${trim_options[@]}")
+			fi
+			choices+=(
+				"${again_options[@]}"
+				"${abort_options[@]}"
+			)
+			for item in "${preferences[@]}"; do
+				case "$item" in
+				'readable')
+					if [[ $can_readable == 'yes' ]]; then
+						defaults+=('readable')
+					fi
+					;;
+				'trim')
+					if [[ $can_trim == 'yes' && $had_failure != 'yes' ]]; then
+						defaults+=('trim')
+					fi
+					;;
+				'trash')
+					if [[ $can_trash == 'yes' && $had_failure != 'yes' ]]; then
+						defaults+=('trash')
+					fi
+					;;
+				'delete')
+					if [[ $can_delete == 'yes' && $had_failure != 'yes' ]]; then
+						defaults+=('delete')
+					fi
+					;;
+				esac
+			done
+			if [[ ${#defaults[@]} -eq 0 ]]; then
+				if [[ $option_confirm != 'no' && $had_failure == 'yes' ]]; then
+					defaults+=('readable' 'trash')
+				fi
+			fi
+			if [[ ${#defaults[@]} -ne 0 ]]; then
+				if [[ $option_confirm == 'no' ]]; then
+					default_for_noconfirm="${defaults[0]}"
+				elif [[ $is_empty == 'yes' && $option_confirm_if_empty == 'no' ]]; then
+					default_for_noconfirm='delete'
+				fi
+				for item in "${defaults[@]}"; do
+					default_args+=("--default-exact=$item")
+				done
+			fi
+			# else allow the prompt
+
+			# prompt
+			if [[ -n $default_for_noconfirm ]]; then
+				choice="$default_for_noconfirm"
+			else
+				if [[ -n $is ]]; then
+					title="$(
+						__print_style --="$styled_reason" --notice1="How to remove $is " --code-notice1="$path"
+					)"
+				else
+					title="$(
+						__print_style --="$styled_reason" --notice1='How to remove ' --code-notice1="$path"
+					)"
+				fi
+				if [[ $is_readable == 'no' && $is_directory == 'yes' ]]; then
+					# cannot ls/eza if directory is unreadable
+					body=''
+				else
+					body="$(__print_style --reset)$(fs-structure "${elevation_args[@]}" -- "$path")"
+				fi
+				choice="$(
+					choose --required "$title" "$body" --truncate-body "${default_args[@]}" --label -- "${choices[@]}"
+				)"
+			fi
+
+			# remove the predetermined choice from the preferences from next times defaults
+			# this is complicated as readable may have been provided to solve a nested readable issue, but not available yet due to is-readable showing it is readable, which is then changed to maybe on failure, allowing readable to become available for the default: this only applies to --confirm
+			if [[ ${#defaults[@]} -ne 0 && $choice == "${defaults[0]}" ]]; then
+				temp=()
+				for item in "${preferences[@]}"; do
+					if [[ $item != "$choice" ]]; then
+						temp+=("$item")
+					fi
+				done
+				preferences=("${temp[@]}")
+			fi
+
+			# handle
+			# @todo maybe at one point store the output of the failures to show them in the next menu
+			# however, the ideal would be to have --inline for choose
+			had_failure=''
+			case "$choice" in
+			'delete')
+				__wrap rm -rf -- "$path" || {
+					had_failure='yes'
+				}
+				;;
+			'trash')
+				__wrap "$trash_bin" "$path" || {
+					had_failure='yes'
+				}
+				;;
+			'trim')
+				fs-trim "${elevation_args[@]}" --quiet="$option_quiet" --confirm="$option_confirm" -- "$path" || {
+					had_failure='yes'
+				}
+				;;
+			'readable')
+				fs-own "${elevation_args[@]}" --quiet="$option_quiet" --r --recursive -- "$path"
+				;;
+			'abort')
+				if [[ -n $is ]]; then
+					CONCLUSION="$is "
+				fi
+				CONCLUSION+="$(
+					__print_style --error='failed to remove'
+				)"
+				__print_style --stderr --code="$path" " $CONCLUSION"
+				return 66 # ENOTEMPTY 66 Directory not empty
+				;;
+			'again' | '' | *)
+				continue
+				;;
+			esac
+
+			# check after trash/delete
+			if is-missing "${elevation_args[@]}" -- "$path"; then
+				if [[ -n $is ]]; then
+					CONCLUSION="$is "
+				fi
+				CONCLUSION+="$(
+					__print_style --success='removed'
+				)"
+				break
+			fi
+		done
+		return 0
+	}
+
+	function act {
+		local input="$1" title rm_status
+		if [[ $option_quiet == 'yes' ]]; then
+			do_rm "$input"
+			return $?
+		else
+			title='fs-remove'
+			if [[ $option_confirm == 'yes' ]]; then
+				title+=' --confirm'
+			fi
+			if [[ $option_trim == 'yes' ]]; then
+				title+=' --trim'
+			fi
+			if [[ $option_trash == 'yes' ]]; then
+				title+=' --trash'
+			fi
+			if [[ $option_elevate == 'yes' ]]; then
+				title+=' --elevate'
+			fi
+			if [[ -n $option_user ]]; then
+				title+=" --user=$option_user"
+			fi
+			if [[ -n $option_group ]]; then
+				title+=" --group=$option_group"
+			fi
+			title+=" $(echo-escape-command -- "$input")"
+			__print_style --stderr --h2="$title"
+			__try {rm_status} -- do_rm "$input"
+			if [[ $rm_status -eq 0 ]]; then
+				__print_style --stderr --g2="$title" " $CONCLUSION"
+			else
+				__print_style --stderr --e2="$title" " $CONCLUSION"
+				return "$rm_status"
+			fi
+		fi
+	}
+
+	local input
+	for input in "${option_inputs[@]}"; do
+		act "$input"
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_remove_test
+	else
+		fs_remove "$@"
+	fi
+fi

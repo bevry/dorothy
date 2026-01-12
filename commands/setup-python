@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
-# ✓✔☑
-# todo: this is newer than [setup-util pip|pipx] so consider what to do with them
+function setup_python_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-python --help
+)
 
 function setup_python() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile'
 
 	# =====================================
 	# Configuration
@@ -18,201 +19,123 @@ function setup_python() (
 	local PYTHON2_PIP_INSTALL=()
 	local PYTHON3_PIP_INSTALL=()
 	local PIPX_INSTALL=()
+	local UV_INSTALL=()
 	load_dorothy_config 'setup.bash'
 
+	# deprecations
+	local deprecations='no'
+	if [[ ${#PIPX_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PIPX_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead.'
+		deprecations='yes'
+	fi
+	if [[ ${#PIP_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PIP_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead.'
+		deprecations='yes'
+	fi
+	if [[ ${#PYTHON2_PIP_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PYTHON2_PIP_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead. Or send a PR for `PYTHON2_INSTALL` which uses UV in the background.'
+		deprecations='yes'
+	fi
+	if [[ ${#PYTHON3_PIP_INSTALL[@]} -ne 0 ]]; then
+		__print_error 'Inside `setup.bash` user configuration, `PYTHON3_PIP_INSTALL` is deprecated, please use `PYTHON_INSTALL` or `UV_INSTALL` instead.  Or send a PR for `PYTHON3_INSTALL` which uses UV in the background.'
+		deprecations='yes'
+	fi
+	if [[ $deprecations == 'yes' ]]; then
+		return 6 # ENXIO 6 Device not configured
+	fi
+
 	# adjustments
-	mapfile -t PYTHON_INSTALL < <(dorothy-config --packages-var='PYTHON_INSTALL' -- "${PYTHON_INSTALL[@]}")
-	mapfile -t PIP_INSTALL < <(dorothy-config --packages-var='PIP_INSTALL' -- "${PIP_INSTALL[@]}")
-	mapfile -t PYTHON2_PIP_INSTALL < <(dorothy-config --packages-var='PYTHON2_PIP_INSTALL' -- "${PYTHON2_PIP_INSTALL[@]}")
-	mapfile -t PYTHON3_PIP_INSTALL < <(dorothy-config --packages-var='PYTHON3_PIP_INSTALL' -- "${PYTHON3_PIP_INSTALL[@]}")
-	mapfile -t PIPX_INSTALL < <(dorothy-config --packages-var='PIPX_INSTALL' -- "${PIPX_INSTALL[@]}")
+	__split --target={PYTHON_INSTALL} --no-zero-length --invoke -- \
+		dorothy-config --packages-var='PYTHON_INSTALL' -- "${PYTHON_INSTALL[@]}"
+	__split --target={UV_INSTALL} --no-zero-length --invoke -- \
+		dorothy-config --packages-var='UV_INSTALL' -- "${UV_INSTALL[@]}"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
-			USAGE:
-			setup-python [--flags]
+		__print_help "$@" <<-EOF || return $?
+			Setup the Python ecosystem via uv.
 
-			FLAGS:
-			--optional
-			    Only setup if it is needed by packages.
+			USAGE:
+			\`setup-python [...options] [install|update|setup|configure]\`
+
+			OPTIONS:
+			--[no-]configure
+			    Whether to prompt, confirm, or save configuration changes.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item optional=''
-	while test "$#" -ne 0; do
+	local item option_configure=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-optional'* | '--optional'*)
-			optional="$(get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative --stdin)"
+		# install|update|setup|configure
+		'setup') ;;
+		'update')
+			option_configure='no'
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'install' | 'configure')
+			option_configure='yes'
+			;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check
-	if test "$optional" = 'yes' -a -z "${PYTHON_INSTALL[*]}${PIP_INSTALL[*]}${PYTHON2_PIP_INSTALL[*]}${PYTHON3_PIP_INSTALL[*]}${PIPX_INSTALL[*]}" && ! confirm --negative --ppid=$$ -- 'Setup Python?'; then
-		return 0
+	if [[ -z "${PYTHON_INSTALL[*]}${UV_INSTALL[*]}" ]]; then
+		if [[ $option_configure == 'no' ]]; then
+			__print_style --dim='Setup of Python ecosystem skipped.'
+			return 0
+		elif ! confirm --negative --ppid=$$ -- 'Setup Python ecosystem?'; then
+			return 0
+		fi
 	fi
 
 	# =====================================
 	# Start
 
-	echo-segment --h1='Setup Python'
+	__print_style --h1='Setup Python'
 
 	# =====================================
 	# Install
 
 	# log
-	echo-segment --h2="Install Python"
+	__print_style --h2="Install Python"
 	setup-util-python
 	source "$DOROTHY/sources/environment.sh"
-	echo-segment --g2="Install Python"
-
-	# =====================================
-	# PyEnv
-
-	# pyenv
-	# PYENV_ROOT="${PYENV_ROOT:-"$HOME/.pyenv"}"
-	# echo
-	# print_line 'Cleaning pyenv...'
-	# rm -Rf "$PYENV_ROOT"
-	# if test -n "${PYENV_VERSION-}"; then
-	# 	echo
-	#	print_line 'Ensuring pyenv is latest...'
-	# 	fetch https://pyenv.run | bash
-	# 	source "$DOROTHY/sources/environment.sh"
-	# 	pyenv install "$PYENV_VERSION"
-	# fi
-	# source "$DOROTHY/sources/environment.sh"
+	__print_style --g2="Install Python"
 
 	# =====================================
 	# Packages
 
-	# pip, pipx, user
-	function pip_install {
-		local bin="$1"
-		local pip_install=()
-		local pipx_install=()
-		local pip_installer_url pip_installer python_version
+	# there use to be support for pip and pipx here, but it was dropped, as uv is superior
 
-		if ! command-exists "$bin"; then
-			return 0
-		fi
-
-		# log
-		echo-segment --h2="packages for $bin"
-		echo-style --dim="$bin: $(type -P "$bin")"
-
-		# generic prepare
-		pip_install+=(
-			"${PIP_INSTALL[@]}"
-			"${PYTHON_INSTALL[@]}"
-		)
-
-		# version specific prepare
-		if get-python-version "$bin" '2.'; then
-			python_version=2
-			pip_install+=("${PYTHON2_PIP_INSTALL[@]}")
-			pip_installer_url='https://bootstrap.pypa.io/pip/2.7/get-pip.py'
-		else
-			python_version=3
-			pip_install+=("${PYTHON3_PIP_INSTALL[@]}")
-			pipx_install+=("${PIPX_INSTALL[@]}")
-			pip_installer_url='https://bootstrap.pypa.io/get-pip.py'
-		fi
-
-		# download pip
-		echo-segment --h3="download pip"
-		pip_installer="$(
-			fs-temp \
-				--directory='setup-python' \
-				--directory="python-${python_version}" \
-				--file='get-pip.py'
-		)"
-		# ^ filename must be get-pip.py, otherwise this error occurs:
-		# https://github.com/pypa/pip/issues/10809
-		# AssertionError: /usr/local/Cellar/python@3.9/3.9.10/Frameworks/Python.framework/Versions/3.9/lib/python3.9/distutils/core.py
-		eval-helper --quiet \
-			-- down "$pip_installer_url" --filepath="$pip_installer"
-		chmod +x "$pip_installer"
-		echo-style --dim="installer: $pip_installer"
-		echo-segment --g3="download pip"
-
-		# install pip, depending on the situation, it may or may not have --break-system-packages
-		echo-segment --h3="install pip"
-		eval-helper --quiet \
-			-- "$bin" "$pip_installer" --user --break-system-packages || eval-helper --quiet \
-			-- "$bin" "$pip_installer" --user
-		echo-segment --g3="install pip"
-		source "$DOROTHY/sources/environment.sh"
-
-		# echo
-		# print_line "Upgrading pip for $bin..."
-		# "$bin" -m pip install \
-		# 	--user --upgrade --force-reinstall --no-warn-script-location \
-		# 	pip setuptools
-		# source "$DOROTHY/sources/environment.sh"
-
-		# install pip packages
-		echo-segment --h3="install ${#pip_install[@]} pip packages"
-		for item in "${pip_install[@]}"; do
-			eval-helper --quiet --success="$(echo-style --success="pip installed: $item")" \
-				-- "$bin" -m \
-				pip install --user --break-system-packages --upgrade --force-reinstall --no-warn-script-location \
-				"$item" || :
-		done
-		echo-segment --g3="install ${#pip_install[@]} pip packages"
-
-		# pipx
-		if test "$python_version" -eq 3; then
-			# install pipx
-			echo-segment --h3="install pipx"
-			rm -Rf "$HOME/.local/pipx" # fix: Not removing existing venv /Users/balupton/.local/pipx/venvs/youtube-dl because it was not created in this session
-			eval-helper --quiet \
-				-- "$bin" -m \
-				pip install --user --break-system-packages --upgrade --force-reinstall --no-warn-script-location \
-				pipx || :
-			source "$DOROTHY/sources/environment.sh"
-			echo-segment --g3="install pipx"
-
-			# install pipx packages
-			echo-segment --h3="install ${#pipx_install[@]} pipx packages"
-			for item in "${pipx_install[@]}"; do
-				eval-helper --quiet --success="$(echo-style --success="pipx installed: $item")" \
-					-- "$bin" -m \
-					pipx install --include-deps --force \
-					"$item" || :
-			done
-			echo-segment --g3="install ${#pipx_install[@]} pipx packages"
-		fi
-
-		# done
-		echo-segment --g2="packages for $bin"
-	}
-
-	# install
-	pip_install python
-	pip_install python2
-	pip_install python3
+	# @todo update uv to also handle the PYTHON2 and PYTHON3 options, via PYTHON2_INSTALL and PYTHON3_INSTALL, or have UV_INSTALL include a python specifier
+	local uv_install=("${UV_INSTALL[@]}" "${PYTHON_INSTALL[@]}")
+	if [[ ${#uv_install[@]} -ne 0 ]]; then
+		__print_style --h3="install ${#uv_install[@]} uv packages"
+		setup-util --source=UV -- "${uv_install[@]}"
+		__print_style --g3="install ${#uv_install[@]} uv packages"
+	fi
 
 	# =====================================
 	# Finish
 
-	echo-segment --g1='Setup Python'
+	__print_style --g1='Setup Python'
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_python "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_python_test
+	else
+		setup_python "$@"
+	fi
 fi

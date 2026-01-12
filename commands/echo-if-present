@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+
+function echo_if_present_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-if-present --help
+
+	eval-tester --name='no args' -- \
+		echo-if-present --
+
+	eval-tester --name='empty args' -- \
+		echo-if-present -- '' ''
+
+	eval-tester --name='missing' -- \
+		echo-if-present -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' --stdout="$DOROTHY" -- \
+		echo-if-present -- "$DOROTHY"
+
+	eval-tester --name='file' --stdout="$DOROTHY/README.md" -- \
+		echo-if-present -- "$DOROTHY/README.md"
+
+	eval-tester --name='file then missing then dir' --stdout="$DOROTHY/README.md"$'\n'"$DOROTHY" -- \
+		echo-if-present -- "$DOROTHY/README.md" "$DOROTHY/this-does-not-exist" "$DOROTHY"
+
+	eval-tester --name='dir then missing then file' --stdout="$DOROTHY"$'\n'"$DOROTHY/README.md" -- \
+		echo-if-present -- "$DOROTHY" "$DOROTHY/this-does-not-exist" "$DOROTHY/README.md"
+
+	# test working symlinks
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='dorothy' --directory='echo-if-present' --directory='tests' --directory)"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	fs-link --quiet \
+		--existing="$dir_target" --symlink="$dir_symlink" \
+		--existing="$file_target" --symlink="$file_symlink"
+
+	eval-tester --name='symlink dir' --stdout="$dir_symlink" -- \
+		echo-if-present -- "$dir_symlink"
+
+	eval-tester --name='symlink file' --stdout="$file_symlink" -- \
+		echo-if-present -- "$file_symlink"
+
+	# test broken symlinks
+	fs-remove --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' --stdout="$dir_symlink" -- \
+		echo-if-present -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' --stdout="$file_symlink" -- \
+		echo-if-present -- "$file_symlink"
+
+	return 0
+)
+function echo_if_present() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Output <input>s that are paths that are present (including that of symlinks, broken or otherwise).
+			Companion to: $(__join --style=code --between=', ' -- 'is-missing' 'is-present').
+
+			USAGE:
+			\`echo-if-present [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-if-present [...options]\`
+
+			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`is-present\`
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLES:
+			\`\`\`
+			echo-if-present -- "$HOME"
+			echo-lines -- "$HOME" | echo-if-present --stdin
+			\`\`\`
+			Outputs: \`$HOME\`
+			Returns: [0]
+
+			\`\`\`
+			echo-if-present -- "$DOROTHY/missing"
+			echo-lines -- "$DOROTHY/missing" | echo-if-present --stdin
+			\`\`\`
+			Returns: [0]
+
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_args=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	function __on_piece {
+		local path="$1"
+		if is-present --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			__print_lines "$path" || return $?
+		fi
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_if_present_test
+	else
+		echo_if_present "$@"
+	fi
+fi

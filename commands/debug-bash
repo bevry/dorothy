@@ -1,80 +1,213 @@
 #!/usr/bin/env bash
 
+function debug_bash_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- debug-bash --help
+)
+
 function debug_bash() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
+	# @todo the help text here is out of date to the actual code, needs to be updated
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Run a bash script with [-x] applied: Print a trace of simple commands.
+			Wrapper to debug a bash command.
 
 			USAGE:
-			debug-bash [...options] -- <command> [...args]
+			\`debug-bash [...options] [--] <command> [...args]\`
 
 			OPTIONS:
-			--bash=<bash path>
+			--bash=<bash-path>
 			    If you want to invoke the command through a custom bash binary, then provide it here.
+			    The \`PATH\` will be modified to enforce it.
+			--all
+			    Use all available bash binaries on the system.
+			--continue
+			    Continue on failure to the next bash version.
 
-			-v
-			    Pass the -v flag to bash: Print shell input lines as they are read.
+			--wrap
+			    Wrap the command so we can see what we are executing.
+
+			-v | -x | -xv | -vx
+			    Pass these flags to bash.
+
+			[--] <command> [...args]
+			    The command to run.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_bash='' bash_args=('-x') cmd=()
-	while test "$#" -ne 0; do
+	local DOROTHY_DEBUG__original="${DOROTHY_DEBUG-}"
+	local item option_bash_binaries=() option_bash_options=() option_code='no' option_debug='no' option_x='no' option_v='no' option_wrap='no' option_continue='no' option_bash_arguments=() option_only_print_binaries='no'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--bash='*) option_bash="${item#*--bash=}" ;;
-		'-v') bash_args+=('-v') ;;
-		'--')
-			cmd+=("$@")
-			shift "$#"
+		--help | -h) help ;;
+		--no-wrap* | --wrap*) __flag --source={item} --target={option_wrap} --affirmative ;;
+		--no-continue* | --continue*) __flag --source={item} --target={option_continue} --affirmative ;;
+		--no-only-print-binaries* | --only-print-binaries*) __flag --source={item} --target={option_only_print_binaries} --affirmative ;;
+		--all) option_bash_binaries+=(all) ;;
+		--ab | --all-binaries | --all-bash-binaries) option_bash_binaries+=(all-binaries) ;;
+		--av | --all-versions | --all-bash-versions) option_bash_binaries+=(all-versions) ;;
+		--bash=* | --b=* | --binary=* | --binaries=* | --bash-binary=* | --bash-binaries=*) __split --target={option_bash_binaries} --append --no-zero-length --delimiters=$'\n\t' -- "${item#*=}" ;;
+		--v=* | --version=* | --versions=* | --bash-version=* | --bash-versions=*) __split --target={option_bash_binaries} --append --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
+		-c=* | --code=* | --eval=*)
+			option_code=yes
+			option_bash_options+=(-c "${item#*=}")
+			;;
+		--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative ;;
+		--no-trace* | --trace*) __flag --source={item} --target={option_x} --target={option_v} --affirmative ;;
+		-x) option_x='yes' ;;
+		-v) option_v='yes' ;;
+		-xv | -vx) option_x='yes' option_v='yes' ;;
+		--)
+			if [[ $1 == bash ]]; then
+				shift
+				if [[ $1 == -- ]]; then
+					shift
+				fi
+			fi
+			# if not code, then ensure it is a command
+			if [[ $option_code == 'yes' ]]; then
+				option_bash_arguments+=("$@")
+				shift "$#"
+			else
+				if [[ $1 == -* ]]; then
+					help 'Custom options for bash are not supported.'
+				fi
+				# ensure the first command is absolute otherwise the $0 / BASH_SOURCE checks won't work
+				item="$(type -p "$1")" || help 'The command ' --value="$1" ' does not exist.'
+				shift
+				option_bash_arguments+=("$item" "$@")
+				shift "$#"
+			fi
 			break
 			;;
-		*)
-			cmd+=("$item" "$@")
-			shift $#
-			;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# check
-	if test "${#cmd[@]}" -eq 0; then
-		help 'No <command> was provided.'
+	# handle
+	if [[ $option_x == 'yes' ]]; then
+		option_bash_options+=(-x)
+	fi
+	if [[ $option_v == 'yes' ]]; then
+		option_bash_options+=(-v)
 	fi
 
-	# fallback
-	if test -z "$option_bash"; then
-		option_bash="$(type -P bash)"
+	# prepare
+	local __exit_status=0
+	function __get_all_bash_binaries {
+		{
+			type -pa bash || :
+			expand-path -- "$XDG_BIN_HOME/bash-*" || :
+		} | echo-unique --stdin || return $?
+	}
+
+	# determine bash binaries
+	local bash_input bash_version bash_binary bash_binaries=()
+	if [[ ${#option_bash_binaries[@]} -eq 0 ]]; then
+		option_bash_binaries+=('bash')
+	fi
+	for bash_input in "${option_bash_binaries[@]}"; do
+		if [[ $bash_input == 'all' ]]; then
+			setup-util-bash --all-versions || return $?
+			__split --target={bash_binaries} --no-zero-length --invoke -- \
+				__get_all_bash_binaries || return $?
+			continue
+		elif [[ $bash_input == 'all-versions' ]]; then
+			# install all versions, and use all binaries
+			setup-util-bash --all-versions || return $?
+			__split --target={bash_binaries} --no-zero-length --invoke -- \
+				__get_all_bash_binaries || return $?
+			continue
+		elif [[ $bash_input == 'all-binaries' ]]; then
+			__split --target={bash_binaries} --no-zero-length --invoke -- \
+				__get_all_bash_binaries || return $?
+			continue
+		fi
+		# convert version to executable
+		if [[ $bash_input =~ ^[0-9] ]]; then
+			bash_version="$(__get_coerced_bash_version "$bash_input" || :)"
+			if [[ -n $bash_version ]]; then
+				bash_binary="$(expand-path -- "$XDG_BIN_HOME/bash-$bash_version*" | echo-first-line --stdin || :)"
+				if [[ -z $bash_binary ]]; then
+					if setup-util-bash --version="$bash_version"; then
+						bash_binary="$(expand-path -- "$XDG_BIN_HOME/bash-$bash_version*" | echo-first-line --stdin || :)"
+					fi
+				fi
+			else
+				bash_binary=''
+			fi
+		else
+			bash_binary="$(type -P "$bash_input" || :)"
+		fi
+		# add binary path or note failure
+		if [[ -z $bash_binary ]]; then
+			__print_style --error='The bash binary ' --path="$bash_input" --error=' does not exist.' || return $?
+			__exit_status=2 # ENOENT 2 No such file or directory
+			continue
+		elif command-working -- "$bash_binary"; then # will output a error if it fails
+			bash_binaries+=("$bash_binary")
+		else
+			__exit_status=74 # EPROGUNAVAIL 74 RPC prog. not avail
+		fi
+	done
+	__unique --source+target={bash_binaries}
+	if [[ $option_only_print_binaries == 'yes' ]]; then
+		__print_lines "${bash_binaries[@]}" || return $?
+		return "$__exit_status"
 	fi
 
-	# =====================================
-	# Act
-
-	# invoke the command or function
-	local cmd_path
-	cmd_path="$(type -P "${cmd[0]}" 2>/dev/null || :)"
-	if test -n "$cmd_path" && [[ $cmd_path == "$DOROTHY"* ]]; then
-		# command
-		cmd[0]="$cmd_path"
-		"$option_bash" "${bash_args[@]}" "${cmd[@]}"
-		return
-	else
-		# function/builtin
-		set "${bash_args[@]}"
-		"${cmd[@]}"
-		return
+	# execute bash commands now
+	local cmd=() bash_binary bash_version bash_path
+	for bash_binary in "${bash_binaries[@]}"; do
+		bash_version="$("$bash_binary" -c 'printf '%s' "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}.${BASH_VERSINFO[2]}"')"
+		# enforce the bash version if custom
+		if [[ ${#option_bash_binaries[@]} -eq 0 ]]; then
+			# we are just using the default one
+			cmd=("$bash_binary" "${option_bash_options[@]}" -- "${option_bash_arguments[@]}")
+			if [[ $option_wrap == 'yes' ]]; then
+				cmd=(eval-helper --verbose --wrap -- "${cmd[@]}")
+			fi
+		else
+			bash_path="$(fs-temp --directory='dorothy' --directory='debug-bash' --directory="custom-path-for-bash-$bash_version" --directory --touch)"
+			ln -sf -- "$bash_binary" "$bash_path/bash"
+			cmd=(env PATH="$bash_path:$PATH" "$bash_binary" "${option_bash_options[@]}" -- "${option_bash_arguments[@]}")
+			if [[ $option_wrap == 'yes' ]]; then
+				# --command="${cmd[*]/$PATH/\"\$PATH\"}"
+				cmd=(eval-helper --verbose --wrap -- "${cmd[@]}")
+			fi
+		fi
+		if [[ $option_debug == 'yes' ]]; then
+			DOROTHY_DEBUG=yes
+		fi
+		if [[ $option_continue == 'yes' ]]; then
+			"${cmd[@]}" || __exit_status=$? # eval
+		else
+			"${cmd[@]}" # eval
+		fi
+		if [[ $option_debug == 'yes' ]]; then
+			DOROTHY_DEBUG="$DOROTHY_DEBUG__original"
+		fi
+	done
+	if [[ $__exit_status -ne 0 ]]; then
+		return "$__exit_status"
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	debug_bash "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		debug_bash_test
+	else
+		debug_bash "$@"
+	fi
 fi

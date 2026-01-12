@@ -1,16 +1,16 @@
 <!-- LICENSEFILE/ -->
 
-<h1>License</h1>
+# License
 
 Unless stated otherwise all works are:
 
-<ul><li>Copyright &copy; 2013+ <a href="https://github.com/balupton">Benjamin Lupton</a></li></ul>
+- Copyright &copy; [Benjamin Lupton](https://balupton.com)
 
 and licensed under:
 
-<ul><li><a href="http://spdx.org/licenses/RPL-1.5.html">Reciprocal Public License 1.5</a></li></ul>
+- [Reciprocal Public License 1.5](http://spdx.org/licenses/RPL-1.5.html)
 
-<h2>Reciprocal Public License 1.5 (RPL1.5)</h2>
+## Reciprocal Public License 1.5 (RPL1.5)
 
 <pre>
 Version 1.5, July 15, 2007

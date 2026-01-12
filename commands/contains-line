@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function contains_line_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- contains-line --help
+)
+
 function contains_line() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
@@ -7,61 +12,95 @@ function contains_line() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Returns [0] if any STDIN line matched <expected>, otherwise returns [1].
+			Returns [0] if any <input> line matched a <needle> line, otherwise returns [1].
 
 			USAGE:
-			echo-lines ...<input> | contains-line <expected> [...options]
+			\`contains-line <needle> [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | contains-line <needle> [...options]\`
+
+			\`echo-lines -- 'one' 'two' 'three'   | contains-line --needle='two'    # success\`
+			\`echo-lines -- 'one' 'two' 'three'   | contains-line --needle='three'  # success\`
+			\`echo-lines -- 'one' 'two' 'three'   | contains-line --needle='z'      # failure\`
+			\`echo-lines -- 'one' 'two' 'three'   | contains-line --needle=''       # failure\`
+			\`echo-lines -- 'one' ' two' 'three'  | contains-line --needle='two'    # failure\`
+			\`echo-lines -- 'one' '' 'three'      | contains-line --needle=''       # success\`
 
 			OPTIONS:
-			<expected>
-			    The line to search STDIN for.
+			<needle> | --needle=<needle>
+			    Compare each <input> line with this <needle> line.
+			    Use \`--needle=<needle> ...[--needle=<needle>]\` to provide multiple needles.
 
-			$(stdinargs_options_help --stdin)
-
-			USAGE:
-			echo-lines -- 'one' 'two' 'three'  | contains-line 'two'    # success
-			echo-lines -- 'one' 'two' 'three'  | contains-line 'three'  # success
-			echo-lines -- 'one' 'two' 'three'  | contains-line 'w'      # failure
-			echo-lines -- 'one' 'two' 'three'  | contains-line ''       # failure
+			$(__stdinargs__help_options --)
 
 			RETURNS:
-			[0] if the line is contained in STDIN.
-			[1] if the line is not contained in STDIN.
+			[0] if ANY <input> line are a <needle> line.
+			[1] if all <input> lines are not a <needle> line.
+
+			QUIRKS:
+			Lines will not contain their trailing newline characters (if any) when compared.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process <expected>
-	local expected="$1"
-	shift
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_needles=() option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--needle='*) option_needles+=("${item#*=}") ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		*)
+			if [[ ${#option_needles[@]} -eq 0 ]]; then
+				option_needles+=("$item")
+			else
+				option_args+=("$item")
+			fi
+			;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_needles[@]} -eq 0 ]]; then
+		help 'No <needle>s provided.'
+	fi
 
 	# =====================================
 	# Action
 
-	function on_arg {
-		help 'Use STDIN.'
-	}
-	function on_line {
-		if test "$1" = "$expected"; then
-			# it was found, success case, exit immediately
-			exit 0
-		fi
+	local found='no'
+	function __on_line {
+		local line="$1" needle
+		for needle in "${option_needles[@]}"; do
+			if [[ $needle == "$line" ]]; then
+				# it was found, success case, exit immediately
+				found='yes'
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
 		# not found, continue reading
 	}
-	function on_finish {
-		# it was not found, failure case
-		return 1
+	function __on_finish {
+		[[ $found == 'yes' ]] || return $?
 	}
 
-	stdinargs --stdin "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	contains_line "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		contains_line_test
+	else
+		contains_line "$@"
+	fi
 fi

@@ -4,10 +4,10 @@
 
 Your user configuration goes to the XDG location of `~/.local/config/dorothy` which Dorothy symlinks to `~/.local/share/dorothy/user`, your user configuration consists of the following:
 
--   `commands` directory, for public commands
--   `commands.local` directory, for private commands (git ignored by default)
--   `config` directory, for public configuration
--   `config.local` directory, for private configuration (git ignored by default)
+- `commands` directory, for public commands
+- `commands.local` directory, for private commands (git ignored by default)
+- `config` directory, for public configuration
+- `config.local` directory, for private configuration (git ignored by default)
 
 The order of preference within Dorothy is `(commands|config).local` first, then `(commands|config)`, then Dorothy's own `(commands|config)` then everything else.
 
@@ -19,9 +19,11 @@ You can find the various configuration files that are available to you by browsi
 
 When setting up your user configuration, Dorothy will make sure that the `*.local` directories are git ignored by default (using `$DOROTHY/user/.gitignore`), so that they are not unintentionally pushed to the public.
 
-To share this git ignored configuration between your machines, you would have to use a tool like Dorothy's [`cpr` command](https://github.com/bevry/dorothy/blob/master/commands/cpr) to copy the configuration between machines.
+To share this git ignored configuration between your machines, you would have to use a tool like Dorothy's [`fs-copy` command](https://github.com/bevry/dorothy/blob/master/commands/fs-copy) to copy the configuration between machines.
 
 ### Strongbox
+
+#### Initial Setup
 
 To work around the sharing difficulty of git ignored configuration, Dorothy also supports [Strongbox](https://github.com/uw-labs/strongbox) encryption, which allows you to encrypt your `*.local` directories, sync them with git, and keep them private from everyone who doesn't have your Strongbox key.
 
@@ -38,7 +40,7 @@ setup-util-strongbox
 strongbox -git-config
 
 # add the .local directories to your user repository's .gitattributes file
-echo '*.local/* filter=strongbox diff=strongbox' >> .gitattributes
+printf '%s\n' '*.local/* filter=strongbox diff=strongbox' >> .gitattributes
 
 # generate your strongbox key
 strongbox -gen-key 'username/repository'
@@ -54,6 +56,10 @@ git diff-index -p master
 ```
 
 When Dorothy checks out a Strongbox configured repository it will prompt you to copy of the Strongbox key to the machine beforehand, to ensure decryption works correctly.
+
+#### Subsequent Setup
+
+If you are setting up a new machine with your Strongbox encrypted Dorothy User Configuration, Dorothy will walk you through the setup.
 
 ## Examples of Private Configuration
 

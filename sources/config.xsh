@@ -1,31 +1,54 @@
 #!/usr/bin/env xonsh
-
-# @todo: couldn't get this going
+# @todo THIS IS UNUSED, AS COULD NOT GET IT WORKING AS INTENDED
 
 from os import path
 
 # for scripts and sources to load a configuration file
-# load_dorothy_config ...<filename>
+# load_dorothy_config [--first] [--silent] [--] ...<filename>
 def load_dorothy_config(*args):
-	dorothy_config_loaded = False
+	# process arguments
+	only_first = False
+	optional = False
+	while len(args) > 0:
+		if args[0] == '--first':
+			args = args[1:]
+			only_first = True
+		elif args[0] == '--optional':
+			args = args[1:]
+			optional = True
+		elif args[0] == '--':
+			args = args[1:]
+			break
+		else:
+			break
 
-	# for each filename, load a single config file
+	# load the configuration
+	loaded = False
+	# for each filename, try user/config.local otherwise user/config
 	for filename in args:
 		if path.exists($DOROTHY + '/user/config.local/' + filename):
 			# load user/config.local/*
 			execx(compilex(open($DOROTHY + '/user/config.local/' + filename).read()))
-			dorothy_config_loaded = True
+			loaded = True
 		elif path.exists($DOROTHY + '/user/config/' + filename):
-			# otherwise load user/config/*
+			# load user/config/*
 			execx(compilex(open($DOROTHY + '/user/config/' + filename).read()))
-			dorothy_config_loaded = True
-		elif path.exists($DOROTHY + '/config/' + filename):
-			# otherwise load default configuration
-			execx(compilex(open($DOROTHY + '/config/' + filename).read()))
-			dorothy_config_loaded = True
-		# otherwise try next filename
+			loaded = True
+		if only_first == 'yes' and loaded == 'yes':
+			break
+	# if no user-defined configuration was provided, try the same filenames, but in the default configuration
+	if loaded == False:
+		for filename in args:
+			if path.exists($DOROTHY + '/config/' + filename):
+				# load default configuration
+				execx(compilex(open($DOROTHY + '/config/' + filename).read()))
+				loaded = True
+			if only_first == 'yes' and loaded == 'yes':
+				break
 
 	# if nothing was loaded, then fail
-	if dorothy_config_loaded == False:
-		echo-style --error=@('Missing the configuration file: ' + args.join(' ')) >/dev/stderr
-		return 2  # No such file or directory
+	if loaded == False:
+		if optional == False:
+			echo-style --stderr --error=@('Missing the configuration file: ' + args.join(' '))
+			return 2  # ENOENT 2 No such file or directory
+	return 0

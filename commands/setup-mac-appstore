@@ -1,63 +1,55 @@
 #!/usr/bin/env bash
 
+function setup_mac_appstore_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-mac-appstore --help
+)
+
 function setup_mac_appstore() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile' 'empty'
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			USAGE:
-			setup-mac-appstore
-			# ^ install using [MAS_INSTALL] from your [setup.bash] configuration file
+			Install using \`MAS_INSTALL\` from your \`setup.bash\` configuration file:
+			\`setup-mac-appstore\`
 
-			setup-mac-appstore -- ...<name/id>
-			# ^ install the specified Mac App Store apps
+			Install the specified Mac App Store apps:
+			\`setup-mac-appstore -- ...<name/id>\`
 
-			setup-mac-appstore --configure
-			# ^ Prompts to configure [MAS_INSTALL] with what you currently have installed.
+			Prompts to configure \`MAS_INSTALL\` with what you currently have installed:
+			\`setup-mac-appstore --configure\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item install='no' upgrade='no' configure='no' packages=()
-	while test "$#" -ne 0; do
+	local item option_install='no' option_upgrade='no' option_configure='no' packages=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-install'* | '--install'*)
-			install="$(get-flag-value install --missing="$install" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-upgrade'* | '--upgrade'*)
-			upgrade="$(get-flag-value upgrade --missing="$upgrade" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-configure'* | '--configure'*)
-			configure="$(get-flag-value configure --missing="$configure" -- "$item" | echo-affirmative --stdin)"
-			;;
+		'--help' | '-h') __help ;;
+		'--no-install'* | '--install'*) __flag --source={item} --target={option_install} --affirmative ;;
+		'--no-upgrade'* | '--upgrade'*) __flag --source={item} --target={option_upgrade} --affirmative ;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
 		'--')
 			packages+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) __help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# =====================================
-	# Checks
-
-	# check that an accident has not occured
-	if ! is-mac; then
-		echo-style --notice="[$0] is only intended to be run on macOS systems, skipping." >/dev/stderr
-		return 0
+	# assert compatibility
+	if ! __is_macos; then
+		__help 'This command is only purposeful on macOS, which you are not running.' || :
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
 	fi
 
 	# =====================================
@@ -66,7 +58,7 @@ function setup_mac_appstore() (
 	source "$DOROTHY/sources/config.sh"
 
 	# setup.bash provides:
-	local MAS_INSTALL=() # tupe array of id, label
+	local MAS_INSTALL=() # tuple array of id, label
 	local MAS_UPGRADE='no'
 	load_dorothy_config 'setup.bash'
 
@@ -74,53 +66,56 @@ function setup_mac_appstore() (
 	# Action
 
 	# log
-	echo-segment --h1="Mac App Store"
+	__print_style --h1="Mac App Store"
 
 	# dependencies
-	setup-util-mas --quiet
+	__command_required -- 'mas' || return $?
 
 	# action
-	if test "${#packages[@]}" -ne 0; then
+	if [[ ${#packages[@]} -ne 0 ]]; then
 		# use args
-		setup-util --installer=MAS -- "${packages[@]}"
-	elif test "${#MAS_INSTALL[@]}" -ne 0 -a "$install" = 'yes'; then
+		setup-util --source=MAS -- "${packages[@]}"
+	elif [[ ${#MAS_INSTALL[@]} -ne 0 && $option_install == 'yes' ]]; then
 		# select packages
-		local choices
-		mapfile -t choices < <(
-			choose-option --multi \
-				--question="Which Mac App Store apps would you like to install?" \
-				--label -- "${MAS_INSTALL[@]}"
-		)
-		setup-util --installer=MAS -- "${choices[@]}"
+		local choices=()
+		__split --target={choices} --no-zero-length --invoke -- \
+			choose --multi \
+			--question="Which Mac App Store apps would you like to install?" \
+			--label -- "${MAS_INSTALL[@]}"
+		setup-util --source=MAS -- "${choices[@]}"
 	fi
 
 	# upgrade
-	if test "$upgrade" = 'yes' -a "$MAS_UPGRADE" = 'yes'; then
+	if [[ $option_upgrade == 'yes' && $MAS_UPGRADE == 'yes' ]]; then
 		# upgrade
-		eval-helper --no-quiet --wrap \
-			-- mas upgrade || :
+		eval-helper --verbose --wrap -- \
+			mas upgrade || :
 	fi
 
 	# configure
-	if test "$configure" = 'yes'; then
+	if [[ $option_configure == 'yes' ]]; then
 		# update MAS_INSTALL with all that are installed
 		local id name
 		while read -r id name; do
-			if ! is-needle "$id" "${MAS_INSTALL[@]}"; then
+			if ! __has --source={MAS_INSTALL} -- "$id"; then
 				MAS_INSTALL+=("$id" "$name")
 			fi
 		done <<<"$(mas list | cut -w -f1,2 | sort --ignore-case -k 2)"
 
 		# save
 		dorothy-config 'setup.bash' -- \
-			--field='MAS_INSTALL' --columns=2 --array="$(echo-lines -- "${MAS_INSTALL[@]}" | sort --ignore-case -k 2)"
+			--field='MAS_INSTALL' --columns=2 --array="$(__print_lines "${MAS_INSTALL[@]}" | sort --ignore-case -k 2)"
 	fi
 
 	# log
-	echo-segment --g1="Mac App Store"
+	__print_style --g1="Mac App Store"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_mac_appstore "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_mac_appstore_test
+	else
+		setup_mac_appstore "$@"
+	fi
 fi

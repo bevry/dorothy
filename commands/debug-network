@@ -1,8 +1,9 @@
 #!/usr/bin/env sh
 # can't do subshell wrapper, as in [sh] not [bash]
+# do not use any dorothy command, as this is eval'd on environments and situations where dorothy may not be available
 
-if test "$*" = '--help'; then
-	cat <<-EOF >/dev/stderr
+if [ "$*" = '--help' ]; then
+	cat <<-EOF >&2
 		ABOUT:
 		Runs a series of network debugging commands.
 
@@ -12,126 +13,120 @@ if test "$*" = '--help'; then
 	exit 22 # EINVAL 22 Invalid argument
 fi
 
-# see sources/bash.bash for details
-print_string() {
-	if test "$#" -ne 0; then
-		printf '%s' "$*"
+# see [sources/bash.bash] for details
+__command_exists() {
+	type "$1" >/dev/null 2>&1 || return $?
+}
+__elevate() {
+	# trim -- prefix
+	if [ "${1-}" = '--' ]; then
+		shift
 	fi
-}
-print_line() {
-	print_string "$@"
-	printf '\n'
-}
-# see commands/command_exists for details
-command_exists() { # 👍 /docs/bash/errors: robust exit status
-	type "$1" >/dev/null 2>&1
-}
-# see commands/sudo-helper for details
-try_sudo() { # 👍 /docs/bash/errors: robust exit status
-	if command_exists sudo; then
+	# forward to [eval-helper --elevate] if it exists, as it is more detailed
+	if __command_exists -- eval-helper; then
+		eval-helper --elevate -- "$@"
+		return $?
+	elif __command_exists -- sudo; then
 		# check if password is required
-		if
-			! sudo --non-interactive true >/dev/null 2>&1
-		then
+		if ! sudo --non-interactive "$@" 2>/dev/null; then
 			# password is required, let the user know what they are being prompted for
-			print_line 'Your sudo/root/login password is required to execute the command:' >/dev/stderr
-			print_line "sudo $*" >/dev/stderr
-			sudo "$@" || return
+			printf '%s\n' 'Your password is required to momentarily grant privileges to execute the command:' "sudo $*" >&2
+			sudo "$@"
+			return $?
 		else
 			# session still active, password not required
-			sudo "$@" || return
+			sudo "$@"
+			return $?
 		fi
-	elif command_exists doas; then
-		set -x # <inform the user of why they are being prompted for a doas password>
-		doas "$@" || return
-		set +x # </inform>
+	elif __command_exists -- doas; then
+		doas "$@" || return $?
 	else
-		"$@" || return
+		"$@" || return $?
 	fi
 }
 
 # only use double quotes, as we wrap it in single quotes in setup-docker --debug
 
-domain="api.nordvpn.com"
-server="9.9.9.9"
-invalid="192.0.2.1"
+domain='api.nordvpn.com'
+server='9.9.9.9'
+invalid='192.0.2.1'
 
-print_line "PING:"
+printf '%s\n' 'PING:'
 ping -c 5 "$server"
 ping -c 5 "$domain"
 
-print_line "NSLOOKUP:"
+printf '%s\n' 'NSLOOKUP:'
 nslookup search
 
 # install curl, dig (bind-tools/dnsutils), whois
-if command_exists apk; then
-	try_sudo apk update
-	try_sudo apk add curl bind-tools
-elif command_exists apt; then
-	try_sudo apt update
-	try_sudo apt install -y curl dnsutils whois
-elif command_exists pacman; then
-	try_sudo pacman -Syu
-	try_sudo pacman -Sy curl dnsutils
-elif command_exists zypper; then
-	try_sudo zypper update
-	try_sudo zypper install curl dnsutils
+if __command_exists apk; then
+	__elevate apk update
+	__elevate apk add curl bind-tools
+elif __command_exists apt; then
+	__elevate apt update
+	__elevate apt install -y curl dnsutils whois
+elif __command_exists pacman; then
+	__elevate pacman -Syu
+	__elevate pacman -Sy curl dnsutils
+elif __command_exists zypper; then
+	__elevate zypper update
+	__elevate zypper install curl dnsutils
 fi
 
-print_line "DATE:"
+printf '%s\n' 'DATE:'
 date
 
-print_line "RESOLVE:"
+printf '%s\n' 'RESOLVE:'
 systemd-resolve --status
 
-print_line "DNS LISTENERS:"
-try_sudo ss -lp "sport = :domain"
+printf '%s\n' 'DNS LISTENERS:'
+__elevate ss -lp "sport = :domain"
 
-print_line "LISTENERS:"
-try_sudo netstat -tulpn | grep LISTEN
+printf '%s\n' 'LISTENERS:'
+__elevate netstat -tulpn | grep LISTEN
 
-print_line "DNS:"
-try_sudo resolvectl dns
+printf '%s\n' 'DNS:'
+__elevate resolvectl dns
 
-print_line "RESOLV:"
+printf '%s\n' 'RESOLV:'
 cat /etc/resolv.conf
 
-print_line "ROUTE:"
-try_sudo route -n
+printf '%s\n' 'ROUTE:'
+__elevate route -n
 
-print_line "DIG:"
+printf '%s\n' 'DIG:'
 dig "$domain"
 
-print_line "TRACE:"
+printf '%s\n' 'TRACE:'
 dig +trace "$domain"
 
-print_line "DIG @%s:" "$invalid"
+printf 'DIG @%s:\n' "$invalid"
 dig @"$invalid" "$domain"
 
-print_line "DIG @%s:" "$server"
+printf 'DIG @%s:\n' "$server"
 dig @"$server" hostname.bind chaos txt
 dig @"$server" id.server chaos txt
 
-print_line "HOST:"
+printf '%s\n' 'HOST:'
 host -va "$domain"
 
-print_line "NSLOOKUP:"
+printf '%s\n' 'NSLOOKUP:'
 nslookup -debug "$domain"
 
-print_line "CURL:"
+printf '%s\n' 'CURL:'
 curl "$domain"
 
-print_line "PING:"
+printf '%s\n' 'PING:'
 ping -c 5 "$domain"
 
-print_line "WHOIS:"
+printf '%s\n' 'WHOIS:'
 whois "$domain"
 
 # maybe_sudo apt install traceroute
 # inetutils-traceroute is worse
 
-# print_line "TRACEROUTE:"
+# printf '%s\n's "TRACEROUTE:"
 # traceroute -p 53 "$server"
 
-# print_line "TRACEROUTE -r:"
+# printf '%s\n's "TRACEROUTE -r:"
 # traceroute -r -p 53 "$server"

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+function echo_revolving_screen_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-revolving-screen --help
+)
+
+function echo_revolving_screen() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Continuously clear the output of a command, showing only the latest output, then clearing it upon completion.
+
+			USAGE:
+			\`\`\`
+			(echo-lines -- 1 2; sleep 2; echo-lines -- 3 4; sleep 2) | echo-revolving-door [...options]
+			# outputs 2, then waits, then outputs 4, then waits, then clears
+			\`\`\`
+
+			OPTIONS:
+			--columns=<columns>
+			    The number of columns to display. If not provided, the terminal's columns will be used. If the terminal's columns cannot be determined, or if below or equal to \`0\`, then the full line will be displayed.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_lines='' option_columns=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--lines='*) option_lines="${item#*=}" ;;
+		'--columns='*) option_columns="${item#*=}" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# determine columns
+	if [[ -z $option_lines || -z $option_columns ]]; then
+		local terminal_size=()
+		__split --target={terminal_size} --no-zero-length --stdin < <(get-terminal-lines-and-columns || :)
+		if [[ ${#terminal_size[@]} -eq 2 ]]; then
+			if [[ -z $option_lines ]]; then
+				option_lines="${terminal_size[0]}"
+			fi
+			if [[ -z $option_columns ]]; then
+				option_columns="${terminal_size[1]}"
+			fi
+		fi
+	fi
+
+	# =====================================
+	# Action
+
+	if [[ -z $option_lines || -z $option_columns || $option_lines -le 0 || $option_columns -le 0 ]]; then
+		cat
+	else
+		local clear_screen=$'\e[H\e[J' input total_lines=0 status wrapped lines=0
+		while IFS= read -r input || [[ -n $input ]]; do
+			__do --redirect-status={status} --redirect-output={wrapped} -- \
+				gfold --width="$option_columns" <<<"$input"
+			#-- echo-wrap --width="$option_columns" -- "$input"
+			if [[ $status -ne 0 ]]; then
+				__print_error "$wrapped"
+				return "$status"
+			fi
+			# count lines
+			lines="$(echo-count-lines -- "$wrapped")"
+			total_lines="$((total_lines + lines))"
+			if [[ $total_lines -ge $option_lines ]]; then
+				if [[ $lines -ge $option_lines ]]; then
+					# this line is very long and wraps across all lines of our screen, this is an edge case
+					# use a coreutil to trim the excess lines
+					__print_lines "${clear_screen}${wrapped}" | head -n "$option_lines"
+				else
+					# clear the screen
+					__value_to_tty "${clear_screen}${wrapped}"$'\n'
+				fi
+				total_lines="$lines"
+			else
+				# print the wrapped output
+				__value_to_tty "$wrapped"$'\n'
+			fi
+		done
+		# we are now done, so clear wrapped
+		__value_to_tty "$clear_screen"
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_revolving_screen_test
+	else
+		echo_revolving_screen "$@"
+	fi
+fi

@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+# [Stack Exchange: How to apply shell command to each line of a command output?](https://stackoverflow.com/a/68310927/130638)
+# `ls -1 | xargs -I %s -- echo %s`
+# ^ xargs is too complicated, hence why this now exists
+
+function echo_eval_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-eval --help
+)
+
+function echo_eval() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Execute the <command> on each stdin input.
+
+			USAGE:
+			... | echo-eval [...options] -- ...<command> # same as '\$1'
+			... | echo-eval [...options] -- ...<command> '\$1' # runs the command for each input individually
+			... | echo-eval [...options] -- ...<command> '\$@' # runs the command for all inputs at once
+
+			EXAMPLES:
+			echo-verbose A B C | echo-eval -- echo-lowercase --
+			choose-path 'Which animation?' -- *.mp4 | echo-eval --stdin -- image-to-ascii -w 200 --fps 24
+
+			OPTIONS:
+			$(__stdinargs__help_options --stdin)
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_cmd=() option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			option_cmd+=("$@")
+			shift $#
+			break
+			;;
+		'--'*)
+			option_args+=("$item")
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# checks
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
+		help --help='A <command> must be provided.'
+	fi
+
+	# =====================================
+	# Action
+
+	local index='' before=() after=() expand='no'
+	# split on $@ or $1
+	__index --source={option_cmd} --target={index} --first -- '$@' '$1'
+	if [[ ${option_cmd[index]} == '$@' ]]; then
+		expand='yes'
+	fi
+	__slice --source={option_cmd} --target={before} -- 0 "$index"
+	__slice --source={option_cmd} --target={after} --quiet -- "$((index + 1))" || __ignore_exit_status 33
+
+	if [[ $expand == 'no' ]]; then
+		function __on_piece {
+			"${before[@]}" "$1" "${after[@]}" || return $? # eval
+		}
+	else
+		local inputs=()
+		function __on_piece {
+			inputs+=("$1")
+		}
+		function __on_finish {
+			"${before[@]}" "${inputs[@]}" "${after[@]}" || return $? # eval
+		}
+	fi
+
+	stdinargs --stdin "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_eval_test
+	else
+		echo_eval "$@"
+	fi
+fi

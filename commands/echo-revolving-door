@@ -1,53 +1,306 @@
 #!/usr/bin/env bash
 
+# @todo it may be possible in this to detect an unsupported shapeshifter code, and then output the clear, then the stored lines in an alterative screen buffer, then upon exit, default screen buffer - this won't support stdin captures though, but will be better than using alternative screen buffers even when not needed
+
+function echo_revolving_door_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-revolving-door --help
+)
+
 function echo_revolving_door() (
 	source "$DOROTHY/sources/bash.bash"
 
-	local cols queue line
+	# =====================================
+	# Arguments
 
-	# the `|| test -n` trick is from https://unix.stackexchange.com/a/418067/50703
-	# and allows trailing lines that do not have a trealing newline to still work
-	# as is the case with:
-	# sudo-helper -- pacman -S --needed --noconfirm --quiet bash-completion |& echo-revolving-door
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Continuously clear the output of a command, showing only the latest output, then clearing it upon completion.
 
-	# see echo-clear-line, and echo-clear-lines for similar commands
+			USAGE:
+			\`\`\`{ sleep 1; echo-lines -- 1 2; sleep 1; echo-style --green=3; sleep 1; echo-style --red=4; sleep 1; echo-style --blue=5; sleep 1; } 2>&1 | echo-revolving-door --lines=3\`\`\`
 
-	# cols is essential, as lines larger than the window will wrap and become two cusor lines
-	#    and we can't have that
-	# macos terminal will always have cols=80 (or whatever the terminal preferences set),
-	#    and it does not adjust to resizes
-	cols="$(tput cols 2>/dev/null || :)"
+			OPTIONS:
+			--ignore-pattern=<ignore-pattern>
+			    If a line matches this (rudimentary) POSIX extended regular expression pattern, the line will be discarded before it is processed.
+			    <https://en.wikibooks.org/wiki/Regular_Expressions/POSIX-Extended_Regular_Expressions>
 
-	# if we are not running in a TTY, [tput cols] will fail, so just dump stdin if that is the case
-	# tput: No value for $TERM and no -T specified
-	if test -z "$cols"; then
-		cat
-	else
-		# we are in a TTY, so proceed with revolving door
-		queue=0
+			--lines=<lines> | --lines=terminal
+			    The number of lines to display, defaults to the terminal line size if possible, otherwise becomes \`0\`.
+			    If set to a negative number, then will use the terminal line size minus this offset.
+			    If set to \`0\`, revolving door functionality is disabled.
+			--max-lines=<max-lines>
+			    The maximum number of lines to display, defaults to terminal line size if possible.
+			--min-lines=<min-lines>
+			    The minimum number of lines to display.
+			--terminal-lines=<terminal-lines>
+			    The terminal line size. Will be fetched automatically if not provided.
 
-		# timeout will cause read to emit a failure exit code, which causes the while loop to fail, which causes everything to fail
-		while read -r -n "$cols" line || test -n "$line"; do
-			if test -z "$line"; then
-				# don't output empty lines, as that is confusing in a revolving-door context
-				continue
+			--columns=<columns> | --columns=terminal
+			    The number of columns to display, defaults to the terminal column size if possible, otherwise becomes \`0\`.
+			    If set to a negative number, then will use the terminal column size minus this offset.
+			    If set to \`0\`, revolving door functionality is disabled.
+			--max-columns=<max-columns>
+			    The maximum number of columns to display, defaults to terminal column size if possible.
+			--min-columns=<min-columns>
+			    The minimum number of columns to display.
+			--terminal-columns=<terminal-columns>
+			    The terminal column size. Will be fetched automatically if not provided.
+
+			--target=<target:file-path|file-descriptor|device-file>
+			    The target to write to, defaults to TTY.
+			    A target can be a file path (e.g. \`out.txt\`), a file descriptor (e.g. \`1\` for STDOUT, \`2\` for STDERR), or a device file (e.g. \`/dev/stdout\`, \`/dev/stderr\`, \`/dev/tty\`). These are sent to \`bash.bash:__do\` for processing.
+
+			QUIRKS:
+			If a line exceeds <columns>, only its rightmost <columns> will be shown, with frontmost content being truncated.
+
+			Shapeshifting ANSI escape codes will be escaped, however, naturally, we can only process data that is piped to us.
+			If you want to also process STDERR content, do:
+			    \`\`\`... 2>&1 | echo-revolving-door ...\`\`\`
+			If you want to also do TTY content, do:
+			    \`\`\`TERMINAL_OUTPUT_TARGET=2 ... 2>&1 | echo-revolving-door ...\`\`\`
+			Note that would only hijack Dorothy TTY outputs, as other commands will just write to \`/dev/tty\` directly, rather than going through Dorothy's TTY helpers.
+
+			If you dislike empty lines hogging space in the revolving door, discard them via:
+			    \`\`\`... | echo-revolving-door --ignore-pattern="^$"\`\`\`
+
+			TODOS:
+			If multiple <lines> is supported, usage of gfold may be possible to allow for wrapped lines.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_target='TTY' option_ignore_pattern=() option_lines='' option_columns='' option_max_lines='' option_max_columns='' option_min_lines='' option_min_columns='' option_terminal_lines='' option_terminal_columns=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--help | -h) help ;;
+		--target=*) option_target="${item#*=}" ;;
+		--ignore-pattern=*) option_ignore_pattern+=("${item#*=}") ;;
+		--lines=*) option_lines="${item#*=}" ;;
+		--columns=*) option_columns="${item#*=}" ;;
+		--max-lines=*) option_max_lines="${item#*=}" ;;
+		--max-columns=*) option_max_columns="${item#*=}" ;;
+		--min-lines=*) option_min_lines="${item#*=}" ;;
+		--min-columns=*) option_min_columns="${item#*=}" ;;
+		--terminal-lines=*) option_terminal_lines="${item#*=}" ;;
+		--terminal-columns=*) option_terminal_columns="${item#*=}" ;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# ensure min and max are, if specified, valid positive numbers
+	if [[ -n $option_max_lines && ! ($option_max_lines =~ ^[0-9]+$) ]]; then
+		help --="<max-lines=$option_max_lines> must be 0 or above"
+	fi
+	if [[ -n $option_min_lines && ! ($option_min_lines =~ ^[0-9]+$) ]]; then
+		help --="<min-lines=$option_min_lines> must be 0 or above"
+	fi
+	if [[ -n $option_max_lines && -n $option_min_lines && $option_max_lines -lt $option_min_lines ]]; then
+		help --="<max-lines=$option_min_lines> must be greater than <min-lines=$option_min_lines>"
+	fi
+	if [[ -n $option_max_columns && ! ($option_max_columns =~ ^[0-9]+$) ]]; then
+		help --="<max-columns=$option_max_columns> must be 0 or above"
+	fi
+	if [[ -n $option_min_columns && ! ($option_min_columns =~ ^[0-9]+$) ]]; then
+		help --="<min-columns=$option_min_columns> must be 0 or above"
+	fi
+	if [[ -n $option_max_columns && -n $option_min_columns && $option_max_columns -lt $option_min_columns ]]; then
+		help --="<max-columns=$option_min_columns> must be greater than <min-columns=$option_min_columns>"
+	fi
+
+	# adjust lines and columns to terminal lines and columns
+	if [[ -z $option_terminal_lines || -z $option_terminal_columns ]]; then
+		local terminal_size=()
+		__split --target={terminal_size} --no-zero-length --invoke=try -- \
+			get-terminal-lines-and-columns
+		if [[ ${#terminal_size[@]} -eq 2 ]]; then
+			if [[ -z $option_terminal_lines ]]; then
+				option_terminal_lines="${terminal_size[0]}"
 			fi
-			while test "$queue" -ne 0; do
-				printf '\e[F\e[J'
-				queue=$((queue - 1))
-			done
-			print_line "$line"
-			queue=$((queue + 1))
-		done </dev/stdin
+			if [[ -z $option_terminal_columns ]]; then
+				option_terminal_columns="${terminal_size[1]}"
+			fi
+		fi
+	fi
+	if [[ -n $option_terminal_lines ]]; then
+		if [[ -z $option_lines || $option_lines == 'terminal' ]]; then
+			option_lines="$option_terminal_lines"
+		elif [[ $option_lines -lt 0 ]]; then
+			option_lines="$((option_terminal_lines + option_lines))"
+		elif [[ $option_lines -gt $option_terminal_lines ]]; then
+			option_lines="$option_terminal_lines"
+		fi
+	elif [[ -z $option_lines || $option_lines == 'terminal' || $option_lines -lt 0 ]]; then
+		option_lines="${option_max_lines:-"$option_min_lines"}"
+	fi
+	if [[ -n $option_terminal_columns ]]; then
+		if [[ -z $option_columns || $option_columns == 'terminal' ]]; then
+			option_columns="$option_terminal_columns"
+		elif [[ $option_columns -lt 0 ]]; then
+			option_columns="$((option_terminal_columns + option_columns))"
+		elif [[ $option_columns -gt $option_terminal_columns ]]; then
+			option_columns="$option_terminal_columns"
+		fi
+	elif [[ -z $option_columns || $option_columns == 'terminal' || $option_columns -lt 0 ]]; then
+		option_columns="${option_max_columns:-"$option_min_columns"}"
+	fi
 
-		while test "$queue" -ne 0; do
-			printf '\e[F\e[J'
-			queue=$((queue - 1))
+	# ensure lines and columns are within the range
+	if [[ -z $option_lines || -z $option_columns ]]; then
+		cat
+		return $?
+	fi
+	if [[ -n $option_max_lines && $option_lines -gt $option_max_lines ]]; then
+		option_lines="$option_max_lines"
+		for (( ; option_lines < option_min_lines; option_lines++)); do
+			:
 		done
+	elif [[ -n $option_min_lines && $option_lines -lt $option_min_lines ]]; then
+		for (( ; option_lines < option_min_lines; option_lines++)); do
+			:
+		done
+	fi
+
+	# =====================================
+	# Action
+
+	# trap 'trap - SIGINT; return 130' SIGINT
+
+	if [[ $option_lines -eq 0 || $option_columns -eq 0 ]]; then
+		cat &>/dev/null
+	else
+		local negative_columns prior_lines_count=0 last_modifier='' last_input_ignored='no'
+		negative_columns="$((option_columns * -1))"
+		function __clear_all {
+			if [[ $prior_lines_count -eq 0 ]]; then
+				:
+			elif [[ $prior_lines_count -eq 1 ]]; then
+				# clear the line
+				__value_to_target $'\e[G\e[K' "$option_target"
+			else
+				# delete the lines
+				__value_to_target $'\e['"$((prior_lines_count - 1))"$'F\e[J' "$option_target"
+			fi
+		}
+		function __flush {
+			# get the new input
+			local input="$1"
+			# handle prefix
+			if [[ $last_modifier == $'\r' ]]; then
+				# apply \r
+				__value_to_target $'\r'"$input" "$option_target"
+				last_modifier=''
+			else
+				# trim the first item from the old inputs
+				if [[ $option_lines -eq 1 ]]; then
+					prior_lines_count=1
+					# erase this line, injecting the new input at the start of the line
+					__value_to_target $'\e[G\e[K'"$input" "$option_target"
+				elif [[ $prior_lines_count -eq $option_lines ]]; then
+					# delete the top line, then inject our new line at the start of the line
+					__value_to_target $'\e['"$((prior_lines_count - 1))"$'F\e[M\e['"$((prior_lines_count - 1))"$'E'"$input" "$option_target"
+				elif [[ $prior_lines_count -eq 0 ]]; then
+					# add our new line
+					__value_to_target "$input" "$option_target"
+					prior_lines_count="$((prior_lines_count + 1))"
+				else
+					# add our new line after the prior line
+					__value_to_target $'\n'"$input" "$option_target"
+					prior_lines_count="$((prior_lines_count + 1))"
+				fi
+			fi
+		}
+		function __process {
+			local input="$1"
+			# input="$(__ansi_keep_right "$input" 'echo-revolving-door')"
+			input="$(__split_shapeshifting -- "$input")"
+			if [[ $input == *$'\n'* ]]; then
+				__replace --source+target={input} --keep-after-last=$'\n'
+			fi
+			input_size="${#input}"
+			# is ignored?
+			last_input_ignored='no'
+			local pattern
+			for pattern in "${option_ignore_pattern[@]}"; do
+				if [[ $input =~ $pattern ]]; then
+					last_input_ignored='yes'
+					return 0
+				fi
+			done
+			# get only the last columns
+			if [[ $input_size -gt $option_columns ]]; then
+				# trim the front
+				input="${input:negative_columns}"
+			fi
+			# flush this input
+			__flush "$input"
+		}
+		# process with support for shapeshifting
+		local character last_character='' backspace_index=0 input=''
+		# only bash v5: while IFS= read -rN1 character || [[ -n $character ]]; do
+		# what we implemented works on all bash: https://unix.stackexchange.com/a/626655/50703
+		while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+			if [[ $character == $'\b' ]]; then
+				# \b has no effect on \n and \r
+				if [[ $last_character == $'\n' || $last_character == $'\r' ]]; then
+					backspace_index=0
+					continue
+				elif [[ $last_character == $'\b' ]]; then
+					backspace_index="$((backspace_index - 1))"
+				else
+					backspace_index=-1
+				fi
+				last_character=$'\b'
+				continue
+			elif [[ $character == $'\r' ]]; then
+				# if \r would be a no-op, then skip it
+				if [[ -z $last_character || $last_character == $'\n' || $last_character == $'\r' ]]; then
+					last_character=$'\r'
+					continue
+				fi
+				# no need to apply backspace, as \r discards \b
+				# flush the prior input
+				__process "$input"
+				input=''
+				last_character=$'\r'
+				if [[ $last_input_ignored == 'no' ]]; then
+					last_modifier=$'\r'
+				fi
+			elif [[ $character == $'\n' ]]; then
+				# no need to apply backspace, as \n discards \b
+				# flush the prior input
+				__process "$input"
+				input=''
+				last_character=$'\n'
+				last_modifier=$'\n'
+			else
+				if [[ $last_character == $'\b' ]]; then
+					# apply the backspace
+					local prefix suffix
+					prefix="${input:0:backspace_index}"
+					suffix="${input:backspace_index+1}"
+					input="$prefix$character$suffix"
+				else
+					input+="$character"
+				fi
+				last_character="$character"
+			fi
+		done
+		__process "$input"
+		__clear_all
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	echo_revolving_door "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_revolving_door_test
+	else
+		echo_revolving_door "$@"
+	fi
 fi

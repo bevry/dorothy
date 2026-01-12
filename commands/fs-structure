@@ -1,5 +1,35 @@
 #!/usr/bin/env bash
 
+# @todo support these:
+# https://github.com/lsd-rs/lsd
+# https://github.com/dduan/tre
+# https://github.com/pls-rs/pls
+# https://github.com/chaqchase/lla
+
+# don't need these, these are explorers, not listers:
+# https://github.com/gokcehan/lf
+
+function fs_structure_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-structure --help
+
+	eval-tester --ignore-outputs -- \
+		fs-structure --no-eza
+	eval-tester --ignore-outputs -- \
+		fs-structure
+
+	eval-tester --ignore-outputs -- \
+		fs-structure --no-eza -- .
+	eval-tester --ignore-outputs -- \
+		fs-structure -- .
+
+	eval-tester --ignore-outputs -- \
+		fs-structure --no-eza -- "$DOROTHY"
+	eval-tester --ignore-outputs -- \
+		fs-structure -- "$DOROTHY"
+
+	return 0
+)
 function fs_structure() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,89 +37,205 @@ function fs_structure() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Output the structure of a directory path.
 
 			USAGE:
-			fs-structure [...options] [--] ...<path>
+			\`fs-structure [...options] [--] ...<path>\`
 
 			OPTIONS:
-			--sudo
-			    If specified, use sudo when removing the files.
+			--relative
+			    If specified, paths displayed are relative to the <path>.
+			--no-perms
+			    If specified, don't display permission and ownerships information.
+			    Incompatible with \`--no-eza\`.
+			--no-time
+			    If specified, don't display time information.
+			--no-eza
+			    If specified, don't try to use \`eza\`.
+			--no-color
+			    If specified, don't use colors.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item paths=() sudo='no'
-	while test "$#" -ne 0; do
+	local item option_inputs=() option_relative='' option_perms='' option_time='' option_eza='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-sudo'* | '--sudo'*)
-			sudo="$(get-flag-value sudo --missing="$sudo" -- "$item" | echo-affirmative --stdin)"
-			;;
+		'--no-relative'* | '--relative'*) __flag --source={item} --target={option_relative} --affirmative ;;
+		'--no-perms'* | '--perms'* | '--no-permissions'* | '--permissions'*) __flag --source={item} --target={option_perms} --affirmative ;;
+		'--no-time'* | '--time'*) __flag --source={item} --target={option_time} --affirmative ;;
+		'--no-eza'* | '--eza'*) __flag --source={item} --target={option_eza} --affirmative ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
-			paths+=("$@")
+			option_inputs+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#paths[@]}" -eq 0; then
-		help 'No <path>s were provided.'
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		option_inputs+=('.')
 	fi
 
 	# =====================================
 	# Action
 
+	# dependencies
+	if [[ $option_eza != 'no' ]]; then
+		setup-util-eza --quiet --optional
+	elif [[ $option_perms == 'no' ]]; then
+		help 'Cannot use --no-perms with --no-eza'
+	fi
+	# another alternative is lsd:
+	# lsd -lA  --total-size --header
+	# however it doesn't support removing time, and removing owner/permissions
+
 	# prepare
-	local cmd=()
-	if test "$sudo" = 'yes'; then
-		cmd+=(
-			'sudo-helper'
-			'--'
-		)
-	fi
-	cmd+=(
-		'ls'
-		'-lA'
-	)
-	# -A, --almost-all: do not list implied . and ..
-	# -l: use a long listing format
+	local eza_cmd=() ls_cmd=() # dust_sizes_cmd=() dust_counts_cmd=() du_cmd=()
+	if [[ $option_eza != 'no' ]] && __command_exists -- eza; then
+		# -h, --header: Add a header row to each column.
+		# -l, --long: Display extended file metadata as a table.
+		# -a, --all: show hidden and 'dot' files. Use this twice to also show the '.' and '..' directories
+		# -A, --almost-all: Equivalent to –all; included for compatibility with ls -A.
+		# -M, --mounts: how mount details (Linux and Mac only)
+		# --absolute: display entries with their absolute path (on, follow, off)
+		# --total-size: show the size of a directory as the size of all  files and directories inside (unix only)
+		# don't do absolute for now, as not sure if it is better with or without it
+		eza_cmd+=(eza -hlAM --total-size)
 
-	# hide the time
-	if is-mac; then
-		# -D format: When printing in the long (-l) format, use format to format the date and time output.  The argument format is a string used by trftime(3).  Depending on the choice of format string, this may result in a different number of columns in the output.  This option overrides the -T option.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
-		cmd+=('-D' '')
-	else
-		# --time-style=TIME_STYLE: time/date format with -l; see TIME_STYLE below
-		cmd+=("--time-style=+''")
-	fi
-
-	local path
-	for path in "${paths[@]}"; do
-		if test -d "$path"; then
-			cd "$path" || return 1
-			"${cmd[@]}"
+		# hide the permissions?
+		if [[ $option_perms == 'no' ]]; then
+			eza_cmd+=(--no-permissions --no-user)
 		else
-			cd "$(dirname "$path")" || return 1
-			basename="$(basename "$path")"
-			"${cmd[@]}" "$basename" | sd --fixed-strings "$basename" ''
+			eza_cmd+=(--group)
+		fi
+
+		# hide the time?
+		if [[ $option_time == 'no' ]]; then
+			eza_cmd+=(--no-time)
+		fi
+
+		# disable colors?
+		if [[ $COLOR == 'no' ]]; then
+			eza_cmd+=(--color=never)
+		elif [[ $COLOR == 'yes' ]]; then
+			eza_cmd+=(--color=always)
+		fi
+	else
+		# -A, --almost-all: do not list implied . and ..
+		# -l: use a long listing format
+		# -h: When used with the -l option, use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte,  Terabyte and Petabyte in order to reduce the number of digits to four or fewer using base 2 for sizes.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
+		ls_cmd+=(ls -lAh)
+
+		# hide the time?
+		if [[ $option_time == 'no' ]]; then
+			if __is_macos; then
+				# -D format: When printing in the long (-l) format, use format to format the date and time output.  The argument format is a string used by trftime(3).  Depending on the choice of format string, this may result in a different number of columns in the output.  This option overrides the -T option.  This option is not defined in IEEE Std 1003.1-2008 (“POSIX.1”).
+				ls_cmd+=(-D '')
+			else
+				# --time-style=TIME_STYLE: time/date format with -l; see TIME_STYLE below
+				ls_cmd+=("--time-style=+''")
+			fi
+		fi
+
+		# counts
+		# if __command_exists -- dust; then
+		# 	dust_sizes_cmd+=(dust --no-percent-bars)
+		# 	dust_counts_cmd+=(dust --no-percent-bars --filecount)
+		# elif __command_exists -- du; then
+		# 	du_cmd+=(du -hd1)
+		# fi
+
+		# disable colors?
+		if [[ $COLOR == 'no' ]]; then
+			ls_cmd+=(--color=never)
+			# dust_sizes_cmd+=(--no-colors)
+			# dust_counts_cmd+=(--no-colors)
+		elif [[ $COLOR == 'yes' ]]; then
+			ls_cmd+=(--color=always)
+			# dust_sizes_cmd+=(--force-colors)
+			# dust_counts_cmd+=(--force-colors)
+		fi
+	fi
+
+	# helpers
+	function __wrap {
+		eval-helper --no-wrap --inherit --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"
+	}
+	function __list {
+		local path="$1"
+		if [[ ${#eza_cmd[@]} -ne 0 ]]; then
+			__wrap "${eza_cmd[@]}" "$path"
+		fi
+		if [[ ${#ls_cmd[@]} -ne 0 ]]; then
+			__wrap "${ls_cmd[@]}" "$path"
+		fi
+	}
+
+	local input path
+	for input in "${option_inputs[@]}"; do
+		# check is invalid
+		if [[ -z $input ]]; then
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# just -e is faulty, as -e fails on broken symlinks
+		if is-missing --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input"; then
+			__print_style --stderr --error1='The path is missing: ' --code-error1="$input"
+			return 2 # ENOENT 2 No such file or directory
+		fi
+
+		# now that we know it exists, get its path
+		path="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
+
+		# if it is empty, note it, as otherwise the output of eza and ls is unintuitive
+		if is-empty-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			__print_style --notice1='The directory is empty: ' --code-notice1="$path"
+			continue
+		fi
+
+		# it exists and isn't an empty directory, list its contents
+		if [[ $option_relative == 'yes' ]]; then
+			local parent child
+			parent="$(fs-path --parents -- "$path")" || return $?
+			child="$(fs-path --no-parents -- "$path")" || return $?
+			cd "$parent" || return $?
+			__list "$child"
+		else
+			__list "$path"
 		fi
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_structure "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_structure_test
+	else
+		fs_structure "$@"
+	fi
 fi

@@ -1,393 +1,434 @@
 #!/usr/bin/env bash
 
+# PROGRESS BARS:
+# Verify via: |& echo-escape-special --stdin
+#
+# These only output progress bar iff STDERR is attached to TTY:
+# aim "$url" output.file
+# http --ignore-stdin --pretty all --download --output  output.file "$url"
+# xh --Ido output.file --pretty all "$url"
+#
+# These output their progress bars to STDOUT, using \r
+# got "$url"
+#
+# These output their progress bars to STDERR, using \r
+# curl -LO --progress-bar "$url"
+# curl -LO "$url"
+# wget --unlink --progress=bar:force:giga "$url"
+#
+# These output their progress bars to STDERR, using \n
+# wget --unlink --progress=bar:giga "$url" # [bar] is converted to [dot] when STDERR isn't TTY
+# wget --unlink --progress=dot:force:giga "$url"
+#
+# These output their progress bars to STDOUT, using \n, however their progress bar is filled with file summaries that make them not useful and cannot be altered/disabled
+# aria2c --show-console-readout=true --truncate-console-readout=true --summary-interval=1 --allow-overwrite=true --no-conf --out=output.file "$url" | grep --fixed-strings 'DL:'
+
+# Here's some WIP code for supporting multiple tools, which was ripped out as curl does everything we want:
+# https://gist.github.com/balupton/c85591c0ca02ddb996f9271d0c9ab7e7
+
+function down_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- down --help
+
+	local large='https://github.com/BrentOzarULTD/Stack-Overflow-Database/releases/download/20230114/StackOverflowMini.bak'
+	local zip='https://github.com/bevry/dorothy/archive/refs/heads/master.zip'
+	local failure='http://httpstat.us/504' # it is not https
+
+	local root
+	root="$(fs-temp --directory='dorothy' --directory='down' --directory='tests' --directory)"
+	cd "$root" || return $?
+
+	if [[ -z $CI ]]; then
+		eval-tester --ignore-stderr --ignore-tty -- down "$large"
+	fi
+	eval-tester --ignore-stderr --ignore-tty -- down "$zip"
+	eval-tester --ignore-stderr --ignore-tty -- down --tool=curl -- "$zip"
+	eval-tester --ignore-stderr --ignore-tty -- down --tool=wget -- "$zip"
+	eval-tester --ignore-stderr --ignore-tty --status=52 -- down --verbose --tool=curl --attempts=1 -- "$failure"
+	eval-tester --ignore-stderr --ignore-tty --status=4 -- down --verbose --tool=wget --attempts=1 -- "$failure"
+
+	# wget is failing on fedora:
+	# https://github.com/bevry/dorothy/actions/runs/18323839922/job/52183264098#step:4:31507
+	# likely related to this `fs-size` failure on fedora too:
+	# https://github.com/bevry/dorothy/actions/runs/18323839922/job/52183264098#step:4:32053
+	# and this `video-merge` failure on fedora:
+	# https://github.com/bevry/dorothy/actions/runs/18323839922/job/52183264098#step:4:32509
+
+	# down --url="$url" --quiet
+	# down --url="$url" --verbose
+
+	# down --url="$url" --progress
+	# down --url="$url" --no-progress
+
+	# down --url="$url" --quiet --progress
+	# down --url="$url" --quiet --no-progress
+	# down --url="$url" --verbose --progress
+	# down --url="$url" --verbose --no-progress
+
+	# down --url="$url" --directory="$root"
+
+	return 0
+)
+
 function down_() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$(type -P eval-helper)"
-
-	# supported tools
-	# @todo probably won't require shapeshifter if [eval-helper] is wrote to make more use of [eval_capture]
-	local tool available_tools=() all_tools=(
-		wget   # nice progress bar without shapeshifter
-		curl   # nice progress bar with shapeshifter
-		got    # nice progress bar with shapeshifter
-		aria2c # no useful progress bar
-		# httpie # writes to stdout with [eval-helper], shapeshifter doesn't fix it, [eval-helper --no-quiet] solves it, but isn't what we want
-	) shapeshifter_tools=(
-		curl
-		got
-	)
-
-	# determine which tools are available
-	for tool in "${all_tools[@]}"; do
-		if command-exists "$tool"; then
-			available_tools+=("$tool")
-		fi
-	done
-	tool=''
-
-	# if no tools are available, install preference
-	if test "${#available_tools[@]}" -eq 0; then
-		get-installer --first-success --invoke --quiet -- "${all_tools[@]}"
-		down "$@"
-		return
-	fi
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Download a file, using the best available tool, and with the best available options.
+			Download the URL to a file.
 
 			USAGE:
-			down [...options] <url>
-
-			OUTPUTS:
-			Progress to tty.
-			Errors to stderr.
-			Downloaded filepath to stdout.
+			\`down [...options] <url>\`
 
 			OPTIONS:
-			--tool=<tool>
-			    Enforce the usage of <tool> to download the file.
-			    If omitted, the first available preferred tool will be used.
-
-			--unzip-format=<format>
-			    Treat the download as a zip file, and enforce <format> as the extraction format.
-			    This option is handled by the [unziptar] command.
-
-			--unzip-filter=<filter>
-			    Treat the download as a zip fie, and only extract files that match the glob pattern <filter>.
-			    This option is handled by the [unziptar] command.
+			--tool=<tool:curl|wget>
+			    Which tool to use to perform the download. By default it will prefer \`wget\` (version 1) if available, otherwise it will use \`curl\`.
 
 			--bearer-token=<token>
 			    If provided, include this in a bearer token header.
+			--attempts=<attempts>
+			    How many times to attempt the download. Certain failures will not be retried, based on \`curl\` and \`wget\` intelligence.
+			    Defaults to 2 tries, which is 1 retry. If set to 0 it will continue until successful.
+			--attempt-interval=<interval>
+			    How long to wait between attempts, in seconds. Defaults to 60 seconds.
+			    If \`wget\` is used, then this becomes the maximum seconds to use.
 
 			--directory=<directory>
 			    Place downloaded file(s) inside <directory>.
-			    If ommitted, the current working directory will be used.
-
+			    If omitted, the current working directory will be used.
 			--file=<file>
 			    If only a single file was downloaded, rename it to <file>.
 			    If multiple files were downloaded, then fail.
-
-			--filepath=<directory>/<file>
+			--filepath=<filepath:<directory>/<file>>
 			    If only a single file was downloaded, rename it to <file>, and place it inside <directory>.
 			    If multiple files were downloaded, then fail.
-
-			--retry=<retries>
-			    How many times to retry the download.
-			    Defaults to 2.
+			--archive-*
+			    If <archive> is enabled, or an \`--archive-*\` option is provided, the download will instead occur to a temporary location, and an extraction will occur by forwarding these arguments \`unziptar\`. You probably wan \`--archive-extract\` to enable default extraction, or to customise extraction, you probably want \`--archive-format=<format>\` and/or \`--archive-glob=<glob>\`. See \`unziptar --help\` for all options.
 
 			--[no-]quiet
-			    Whether or not output should be simplified, defaults to enabled.
+			    If quiet, do not output any messages unless failure.
+			    If empty, the default, output status messages, but clean up download output, unless failure.
+			    IF verbose, output status messages and retain download outputs.
+			    If <progress> is used, then even in <quiet> the progress bar will be visible temporarily.
+			--[no-]progress
+			    If enabled, the default, the download progress will be visible temporarily.
+			    If disabled or if <quiet>, no download progress will be visible temporarily.
 
-			TOOLS:
-			The following download tools, sorted by order of preference, were determined to be available on your system:
-
-			    ${available_tools[*]}
-
+			RETURNS:
+			[0] Success.
+			[5] Likely that the download was successful, however the file was not present afterwards.
+			[*] The exact failure exit status is dependent on the tool used.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item url='' tool='' unzip_format='' unzip_filter='' directory='' file='' filepath='' retry='2' quiet='yes' option_bearer_token=''
-	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
-	while test "$#" -ne 0; do
+	local item option_quiet='' option_wrap='' option_progress='' option_tool='' option_url='' option_bearer_token='' option_attempts='' option_attempt_interval='' option_directory='' option_file='' option_filepath='' option_archive_extract='no' option_archive_args=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--bearer-token='*) option_bearer_token="${item#*--bearer-token=}" ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
-		'--tool='*) tool="${item#*--tool=}" ;;
-		'--unzip-format='*) unzip_format="${item#*--unzip-format=}" ;;
-		'--unzip-filter='*) unzip_filter="${item#*--unzip-filter=}" ;;
-		'--directory='*) directory="${item#*--directory=}" ;;
-		'--file='*) file="${item#*--file=}" ;;
-		'--filepath='*) filepath="${item#*--filepath=}" ;;
-		'--retry='*) retry="${item#*--retry=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-progress'* | '--progress'*) __flag --source={item} --target={option_progress} --affirmative --coerce ;;
+		'--no-wrap'* | '--wrap'*) __flag --source={item} --target={option_wrap} --affirmative --coerce ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		'--url='*) option_url="${item#*=}" ;;
+		'--bearer-token='*) option_bearer_token="${item#*=}" ;;
+		'--attempts='*) option_attempts="${item#*=}" ;;
+		'--attempt-interval='*) option_attempt_interval="${item#*=}" ;;
+		'--directory='*) option_directory="${item#*=}" ;;
+		'--file='*) option_file="${item#*=}" ;;
+		'--filepath='*) option_filepath="${item#*=}" ;;
+		'--no-archive-extract='* | '--no-archive-extract' | '--archive-extract' | '--archive-extract='*) __flag --source={item} --target={option_archive_extract} --affirmative --coerce ;;
+		'--archive'*)
+			if [[ -n ${item#*=} ]]; then
+				option_archive_extract='yes'
+				option_archive_args+=("--${item#--archive-}")
+			fi
+			;;
+		--)
+			local urls=("$@") url
+			if [[ -n $option_url ]]; then
+				urls+=("$option_url")
+			fi
+			for url in "${urls[@]}"; do
+				down_ --quiet="$option_quiet" --wrap="$option_wrap" --tool="$option_tool" --bearer-token="$option_bearer_token" --attempts="$option_attempts" --attempt-interval="$option_attempt_interval" --directory="$option_directory" --file="$option_file" --filepath="$option_filepath" --archive-extract="$option_archive_extract" "${option_archive_args[@]}" --url="$url"
+			done
+			return $?
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$url"; then
-				url="$item"
+			if [[ -z $option_url ]]; then
+				option_url="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
-	# assert url
-	if test -z "$url"; then
-		help "No URL was provided."
-	fi
-
-	# ensure tool
-	if test -z "$tool"; then
-		tool="${available_tools[0]}"
-	elif ! is-needle "$tool" "${available_tools[@]}"; then
-		help "The specified tool is not available: $tool"
-	fi
-
-	# some tools need shapeshifter
-	local shapeshifter='no'
-	if is-needle "$tool" "${shapeshifter_tools[@]}"; then
-		shapeshifter='yes'
+	# check url
+	if [[ -z $option_url ]]; then
+		help '<url> is required'
 	fi
 
 	# ensure filepath, directory, file
-	if test -n "$filepath"; then
+	# should be the same code in [down] and [unziptar]
+	if [[ -n $option_filepath ]]; then
 		# filepath is a directory + file combination
-		filepath="$(fs-absolute -- "$filepath")"
-		directory="$(dirname "$filepath")"
-		file="$(basename "$filepath")"
-	elif test -n "$directory" -a -n "$file"; then
+		option_filepath="$(fs-path --absolute -- "$option_filepath")"
+		option_directory="$(dirname -- "$option_filepath")"
+		option_file="$(basename -- "$option_filepath")"
+	elif [[ -n $option_directory && -n $option_file ]]; then
 		# directory + file
-		filepath="$(fs-absolute -- "$directory/$file")"
-		directory="$(dirname "$filepath")"
-		file="$(basename "$filepath")"
-	elif test -z "$directory" -a -n "$file"; then
+		option_filepath="$(fs-path --absolute -- "$option_directory/$option_file")"
+		option_directory="$(dirname -- "$option_filepath")"
+		option_file="$(basename -- "$option_filepath")"
+	elif [[ -z $option_directory && -n $option_file ]]; then
 		# file, without directory
-		filepath="$(pwd)/$file"
-		directory="$(dirname "$filepath")"
-		file="$(basename "$filepath")"
-	elif test -n "$directory" -a -z "$file"; then
+		option_filepath="$(pwd)/$option_file"
+		option_directory="$(dirname -- "$option_filepath")"
+		option_file="$(basename -- "$option_filepath")"
+	elif [[ -n $option_directory && -z $option_file ]]; then
 		# directory, without file
-		directory="$(fs-absolute -- "$directory")"
-		filepath='' # it is for dir+file combos only
+		option_directory="$(fs-path --absolute -- "$option_directory")"
+		option_filepath='' # it is for dir+file combos only
 	else
-		directory="$(pwd)"
-		filepath='' # it is for dir+file combos only
+		option_directory="$(pwd)"
+		option_filepath='' # it is for dir+file combos only
 	fi
-	mkdir -p "$directory"
+	__mkdirp "$option_directory"
+
+	# ensure attempts
+	if [[ -z $option_attempts ]]; then
+		option_attempts=2
+	fi
+	if [[ -z $option_attempt_interval ]]; then
+		option_attempt_interval=60
+	fi
 
 	# =====================================
 	# Action
 
-	function act {
-		# if zip, then download to a temporary/random directory first, filename must be valid but keep extension for unziptar (so trim special)
-		local download_directory download_file
-		if test -n "$unzip_format" -o -n "$unzip_filter"; then
-			local url_basename
-			url_basename="$(basename "$url" | echo-trim-special --stdin)"
-			download_directory="$(fs-temp --directory='down' --directory)"
-			download_file="$url_basename"
-		else
-			download_directory="$directory"
-			download_file="$file" # can be empty
-		fi
-		mkdir -p "$download_directory"
-
-		# tool helpers
-		function do_aria2c {
-			local aria2c_options=(
-				--dir="$download_directory"
-				--file-allocation=none
-				--allow-overwrite=true
-				--always-resume=true
-				--auto-file-renaming=false
-				--show-console-readout=false
-				--quiet # its multiline bar doesn't reset itself, just dumps more bars to stdout
-				--no-conf
-			)
-			if test -n "$option_bearer_token"; then
-				aria2c_options+=(
-					"--header=Authorization: Bearer $option_bearer_token"
-				)
-			fi
-			if test -n "$download_file"; then
-				aria2c_options+=(
-					--out="$download_file"
-				)
-			fi
-			aria2c_options+=("$url")
-			aria2c "${aria2c_options[@]}"
-		}
-		function do_curl {
-			# [--progress-bar] not as nice as default table
-			local curl_options=(
-				'-L'
-			)
-			if test -n "$option_bearer_token"; then
-				curl_options+=(
-					'--header'
-					"Authorization: Bearer $option_bearer_token"
-				)
-			fi
-			if test -n "$download_file"; then
-				curl_options+=(-o "$download_file")
-			else
-				curl_options+=(-O)
-			fi
-			curl_options+=("$url")
-			(
-				cd "$download_directory"
-				curl "${curl_options[@]}"
-			)
-		}
-		function do_got {
-			# https://github.com/melbahja/got#command-line-tool-usage
-			local got_options=()
-			if test -n "$option_bearer_token"; then
-				got_options+=(
-					'--header'
-					"Authorization: Bearer $option_bearer_token"
-				)
-			fi
-			if test -n "$download_file"; then
-				got_options+=(-o "$download_file")
-			fi
-			got_options+=("$url")
-			(
-				cd "$download_directory"
-				got "${got_options[@]}"
-			)
-		}
-		function do_httpie {
-			# https://httpie.io/docs/cli/download-mode
-			local http_options=(
-				'--download'
-			)
-			if test -n "$option_bearer_token"; then
-				http_options+=(
-					'--auth'
-					"Bearer $option_bearer_token"
-				)
-			fi
-			if test -n "$download_file"; then
-				http_options+=(
-					'--continue' # --continue only works with --output
-					'--output' "$download_file"
-				)
-			fi
-			http_options+=("$url")
-			(
-				cd "$download_directory"
-				http "${http_options[@]}"
-			)
-		}
-		function do_wget() (
-			#   -O,  --output-document=FILE      write documents to FILE
-			#   -o,  --output-file=FILE          log messages to FILE
-			#   -N,  --timestamping              don't re-retrieve files unless newer than local
-			#   -c,  --continue                  resume getting a partially-downloaded file
-			#   -q,  --quiet                     quiet (no output)
-			#   -v,  --verbose                   be verbose (this is the default)
-			#   -nv, --no-verbose                turn off verboseness, without being quiet
-			#        --show-progress             display the progress bar in any verbosity mode
-			# WARNING: timestamping does nothing in combination with -O. See the manual for details.
-			local wget_options=(
-				# nicer than dot, and noscroll prevents issues with our clearing
-				'--progress=bar:noscroll'
-			)
-			if test "$option_bearer_token"; then
-				wget_options+=(
-					"--header=Authorization: Bearer $option_bearer_token"
-				)
-			fi
-			if test -n "$download_file"; then
-				wget_options+=(
-					"--output-document=$download_file"
-				)
-			else
-				wget_options+=(
-					--timestamping
-				)
-			fi
-			wget_options+=("$url")
-			(
-				cd "$download_directory"
-				wget "${wget_options[@]}"
-			)
-		)
-		function do_download {
-			if test "$(type -t "do_$tool")" = 'function'; then
-				"do_$tool"
-			else
-				help "Unrecognised tool: $tool"
-			fi
-		}
-
-		# invoke the download with retry support, capturing exit codes
-		local download_status
-		while test "$retry" -ge 0; do
-			eval_capture --statusvar=download_status -- do_download
-			if test "$download_status" -eq 0; then
-				break
-			fi
-			retry=$((retry - 1))
-		done
-
-		# double confirm it was created, in case exit code passed but it still was not created
-		if test -n "$download_file"; then
-			if is-missing "$download_directory/$download_file"; then
-				echo-error "Failed to download " --code="$url" ' to ' --code="$download_directory/$download_file"
-				return 1
-			fi
-		fi
-
-		# log
-		echo-style --success="Downloaded!"
-
-		# if desired, perform extraction of the temporary file
-		if test -n "$unzip_format" -o -n "$unzip_filter"; then
-			echo-style --notice="Unzipping..."
-			unziptar "$download_directory/$download_file" \
-				--prune \
-				--directory="$directory" \
-				--file="$file" \
-				--filepath="$filepath" \
-				--format="$unzip_format" \
-				--filter="$unzip_filter"
-
-			# check extraction
-			if test -n "$file"; then
-				# assert it was created
-				if is-missing "$filepath"; then
-					echo-error "Failed to extract " --code="$url" ' to ' --code="$filepath"
-					return 1
-				fi
-			fi
-		fi
-
-		# log
-		echo-style --success="Extracted!"
-	}
-
-	# messages
-	local pending="Downloading"
-	local success="Downloaded"
-	local failure="Failed to download"
-	if test -n "$unzip_format" -o -n "$unzip_filter"; then
-		pending="Downloading and extracting"
-		success="Downloaded and extracted"
-		failure="Failed to download and extract"
+	# if zip, then download to a temporary/random directory first, filename must be valid but keep extension for unziptar (so trim special)
+	local download_directory download_file download_filepath
+	if [[ $option_archive_extract == 'yes' ]]; then
+		local url_basename
+		url_basename="$(basename -- "$option_url" | echo-trim-special --stdin)"
+		download_directory="$(fs-temp --directory='dorothy' --directory='down' --directory --touch)"
+		download_file="$url_basename"
+		download_filepath="$download_directory/$download_file"
+	else
+		download_directory="$option_directory"
+		download_file="$option_file"         # can be empty
+		download_filepath="$option_filepath" # can be empty
+		__mkdirp "$download_directory"       # fs-temp makes directory
 	fi
 
-	# act
-	eval_helper --quiet="$quiet" --no-wrap --shapeshifter="$shapeshifter" \
-		--pending="$(
-			echo-style --bold="$pending " \
-				--code="$url" " to " --code="$directory/$file"
-		)" \
-		--success="$(
-			echo-style --success="$success " \
-				--code="$url" " to " --code="$directory/$file"
-		)" \
-		--failure="$(
-			echo-style --error="$failure " \
-				--code="$url" " to " --code="$directory/$file"
-		)" \
-		-- act
+	# quiet / progress
+	local pending='Downloading' success='Downloaded' failure='Failed to download'
+	failure="$(
+		__print_style --error="$failure" ' ' --link="$option_url" ' ' --bold='to' ' ' --path="$download_directory/$download_file"
+	)"
+	local eval_options=(--failure="$failure")
+	if [[ $option_quiet != 'yes' ]]; then
+		pending="$(
+			__print_style --bold="$pending" ' ' --link="$option_url" ' ' --bold='to' ' ' --path="$download_directory/$download_file"
+		)"
+		success="$(
+			__print_style --success="$success" ' ' --link="$option_url" ' ' --bold='to' ' ' --path="$download_directory/$download_file"
+		)"
+		eval_options+=(--quiet --pending="$pending" --success="$success")
+	fi
+	if [[ $option_quiet == 'no' ]]; then
+		eval_options+=(--verbose)
+		if [[ $option_wrap != 'no' ]]; then
+			eval_options+=(--wrap)
+		fi
+	elif [[ $option_wrap == 'yes' ]]; then
+		eval_options+=(--wrap)
+	fi
+	if [[ -z $option_progress ]]; then
+		if [[ $IS_TTY_AVAILABLE == 'no' || $option_quiet == 'yes' ]]; then
+			option_progress='no'
+		else
+			option_progress='yes'
+		fi
+	fi
+
+	# ensure tool
+	# workaround wget (version 1) aka wget1, wget2, and wget (busybox) discrepancies
+	# prefer wget version 1), wget1, and wget (busybox) if installed, as wget has a better progress bar than curl, however wget2 is broken (doesn't return failure exit status)
+	# if no suitable wget, fallback to curl
+	local wget_binary='wget' wget_busybox='no'
+	function __prepare_wget {
+		if __command_exists -- wget1; then
+			wget_binary='wget1'
+		elif __command_exists -- wget && wget --version 2>/dev/null | grep --quiet --fixed-strings --regexp='Wget 1.'; then
+			option_tool='wget'
+			wget_binary='wget'
+		elif is-busybox -- wget; then
+			option_tool='wget'
+			wget_binary='wget'
+			wget_busybox='yes'
+		elif is-system --fedora; then
+			# placing this here, allows for when https://packages.fedoraproject.org/pkgs/wget1/wget1-wget/ is used which aliases `wget` to `wget1`
+			# or for when busybox is being used for whatever reason on fedora, if that is a thing
+			# this is also essential, as it ensures the later `__command_required` has the correct `wget1` binary to require
+			wget_binary='wget1'
+			# finally, return missing, as we already know it is missing, from the earlier failures
+			return 75 # EPROGMISMATCH 75 Program version wrong
+		else
+			return 75 # EPROGMISMATCH 75 Program version wrong
+		fi
+	}
+	if [[ -z $option_tool || $option_tool == 'wget' ]]; then
+		if __prepare_wget; then
+			# wget already correct, use wget
+			option_tool='wget'
+		elif [[ -z $option_tool ]]; then
+			# wget not correct, but wget is not explicitly desired, fallback to curl
+			option_tool='curl'
+		elif __command_required -- "$wget_binary" && __prepare_wget; then
+			# wget now installed and correct, use wget
+			option_tool='wget'
+		else
+			# wget was requested, but failed to become correct, fail
+			__print_error --code='down' ' is only compatible with ' --code='wget' ' (version 1), as ' --code='wget2' ' does not return failure exit status'
+			"$wget_binary" --version >&2 || :
+			return 75 # EPROGMISMATCH 75 Program version wrong
+		fi
+	fi
+
+	# do download
+	# @todo ensure consistent existing/resume functionality, it should always overwrite
+	if [[ $option_tool == 'wget' ]]; then
+		# already ensured wget earlier
+		local wget_options=()
+		if [[ $wget_busybox == 'yes' ]]; then
+			# busybox wget is different to wget (version 1), and wget2
+			wget_options+=(-c)
+			if [[ -n $option_attempts && $option_attempts -ne 1 ]]; then
+				eval_options+=(--until=success --until-attempts="$option_attempts" --until-interval="$option_attempt_interval")
+			fi
+			if [[ -n $option_bearer_token ]]; then
+				wget_options+=(--header "Authorization: Bearer $option_bearer_token")
+			fi
+			if [[ -n $download_file ]]; then
+				wget_options+=(-O "$download_file")
+			fi
+			if [[ $option_quiet == 'yes' || $option_progress == 'no' ]]; then
+				wget_options+=(-q)
+			fi
+		else
+			# in wget, 0 = unlimited, N = tries/attempts (not retries)
+			wget_options+=(--continue --unlink --tries="${option_attempts:-"1"}" --retry-connrefused --waitretry="$option_attempt_interval")
+			if [[ -n $option_bearer_token ]]; then
+				wget_options+=(--header="Authorization: Bearer $option_bearer_token")
+			fi
+			if [[ -n $download_file ]]; then
+				wget_options+=(--output-document="$download_file")
+			fi
+			if [[ $option_progress == 'no' ]]; then
+				wget_options+=(--no-verbose)
+			else
+				if [[ $option_quiet == 'yes' ]]; then
+					wget_options+=(--no-verbose)
+				fi
+				# bar is nicer than dot, and noscroll prevents issues with our clearing
+				# wget_options+=(--progress=dot:giga)
+				# @note: with bar and no TTY, wget will not be aware of the terminal columns, so the name will be truncated
+				wget_options+=(--show-progress --progress=bar:force:noscroll)
+				eval_options+=(--revolving-max-lines=1 --revolving-ignore-pattern='^$') # hide gaps in retries
+			fi
+		fi
+		wget_options+=("$option_url")
+		(
+			cd "$download_directory"
+			if [[ -n $download_file ]]; then
+				fs-remove --quiet --no-confirm -- "$download_file"
+			fi
+			eval-helper "${eval_options[@]}" -- "$wget_binary" "${wget_options[@]}"
+		)
+	elif [[ $option_tool == 'curl' ]]; then
+		__command_required -- 'curl' || return $?
+		# proceed with curl
+		# curl fails if cannot resume, so don't use: [-C -]
+		local curl_options=(--location --fail --fail-early --show-error)
+		if [[ -n $option_attempts && $option_attempts -ne 1 ]]; then
+			if [[ $option_attempts -eq 0 ]]; then
+				# in curl, 0 = no retries, so we will use [eval-helper] for unlimited
+				eval_options+=(--until=success --until-attempts="$option_attempts" --until-interval="$option_attempt_interval") # --retry-all-errors
+			else
+				# in curl, N = additional tries/attempts
+				curl_options+=(--retry "$((option_attempts - 1))" --retry-connrefused --retry-delay "$option_attempt_interval")
+			fi
+		fi
+		if [[ -n $option_bearer_token ]]; then
+			curl_options+=(--header "Authorization: Bearer $option_bearer_token")
+		fi
+		if [[ -n $download_file ]]; then
+			curl_options+=(--output "$download_file")
+		else
+			curl_options+=(--remote-name)
+		fi
+		# curl's [--silent] negates curl's [--progress-meter]
+		if [[ $option_quiet == 'yes' ]]; then
+			curl_options+=(--silent)
+		elif [[ $option_progress == 'no' ]]; then
+			curl_options+=(--no-progress-meter)
+		else
+			curl_options+=(--progress-meter)
+			# use 4 lines, to handle retries better, it will still be 3 lines under normal operation
+			eval_options+=(--revolving-max-lines=4 --revolving-ignore-pattern='^  0') # hide HEAD progress row
+		fi
+		curl_options+=("$option_url")
+		(
+			cd "$download_directory"
+			if [[ -n $download_file ]]; then
+				fs-remove --quiet --no-confirm -- "$download_file"
+			fi
+			eval-helper "${eval_options[@]}" -- curl "${curl_options[@]}"
+		)
+	else
+		help 'An unrecognised tool was provided: ' --variable-value={option_tool} || return $?
+	fi
+
+	# sanity check
+	if [[ -n $download_file ]] && is-missing -- "$download_directory/$download_file"; then
+		__print_error --="$failure"
+		return 5 # EIO 5 Input/output error
+	fi
+
+	# if desired, perform extraction of the temporary file
+	if [[ $option_archive_extract == 'yes' ]]; then
+		unziptar "$download_filepath" \
+			--quiet="$option_quiet" \
+			--directory="$option_directory" \
+			--file="$option_file" \
+			--filepath="$option_filepath" \
+			"${option_archive_args[@]}"
+
+		# sanity check
+		if [[ -n $option_file ]] && is-missing -- "$option_filepath"; then
+			__print_error 'Failed to extract ' --code="$option_url" ' to ' --code="$option_filepath"
+			return 5 # EIO 5 Input/output error
+		fi
+	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	down_ "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		down_test
+	else
+		down_ "$@"
+	fi
 fi

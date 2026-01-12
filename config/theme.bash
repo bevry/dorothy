@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# do not use `export` keyword in this file:
 # shellcheck disable=SC2034
-# @BETA @TODO this file and its associated commands should be split into `set-wallpaper`, `set-vscode-theme`, etc.
-
 # Used by `macos-theme`
+# Do not use `export` keyword in this file
+# @BETA @TODO this file and its associated commands should be split into `set-wallpaper`, `set-vscode-theme`, etc.
 
 # WALLPAPER_DIRECTORY_LIGHT="$HOME/Wallpapers/Light"
 # WALLPAPER_DIRECTORY_DARK="$HOME/Wallpapers/Dark"
@@ -22,7 +21,7 @@
 # 'Dark+'
 # 'GitHub Dark Default' - highlights complex code blocks, but sometimes not others
 # 'Monokai Night' - fails to highlight complex code blocks, otherwise great
-# 'Save My Eyes' - fails to highight complex code blocks, uninstalled
+# 'Save My Eyes' - fails to highlight complex code blocks, uninstalled
 # 'An Old Hope' - uninstalled
 # 'Adapta Nokto' - uninstalled
 # 'An Old Hope' - uninstalled

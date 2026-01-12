@@ -13,6 +13,11 @@
 # https://security.stackexchange.com/a/243798/110805
 # Note that edit-key and delete require no-tty to be removed from gpg.conf
 
+function setup_git_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-git --help
+)
+
 function setup_git() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -20,64 +25,103 @@ function setup_git() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Configures git, gpg, and ssh for your preferences and for the system capabilities.
 
 			USAGE:
-			setup-git [--flags]
+			\`setup-git [...options] <action>\`
 
-			FLAGS:
-			--configure            Configuration guide.
+			OPTIONS:
+			--[no-]reconfigure
+			    Whether to re-prompt and re-save configuration settings.
+			--[no-]fallback
+			    If disabled, prevents installation of fallbacks to install dependencies.
+			--[no-]deps
+			    If disabled, prevents installation of dependencies, such as gpg etc.
+			--[no-]slim
+			    If enabled, disables reconfiguration, fallbacks, and dependencies.
+
+			ACTIONS
+			setup
+			update
+			install|configure
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item reconfigure='no'
-	while test "$#" -ne 0; do
+	local item option_reconfigure='' option_fallback='' option_deps=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-configure'* | '--configure'*)
-			reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative --stdin)"
+		# <shared arguments between many setup commands>
+		'setup')
+			action='setup'
+			# option_reconfigure will autodetect
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'update')
+			action='setup'
+			if [[ -z $option_reconfigure ]]; then
+				option_reconfigure='no'
+			fi
+			;;
+		'install' | 'configure')
+			action='setup'
+			if [[ -z $option_reconfigure ]]; then
+				option_reconfigure='yes'
+			fi
+			;;
+		# </shared actions between many setup commands>
+		# <shared options between many setup commands>
+		'--no-reconfigure'* | '--reconfigure'*) __flag --source={item} --target={option_reconfigure} --affirmative --coerce ;;
+		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
+		'--no-deps'* | '--deps'*) __flag --source={item} --target={option_deps} --affirmative --coerce ;;
+		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_reconfigure} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
+		# </shared options between many setup commands>
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
+
+	# slim options
+	local slim_options=(
+		--reconfigure="$option_reconfigure"
+		--fallback="$option_fallback"
+		--deps="$option_deps"
+	)
 
 	# =====================================
 	# Prepare
 
-	echo-segment --h1='Setup Git'
+	__print_style --h1='Setup Git'
 
 	# dependencies
-	echo-segment --h2='Install Git'
-	setup-util-git
-	echo-segment --g2='Install Git'
+	if [[ $option_deps != 'no' ]] || __command_missing -- git; then
+		__print_style --h2='Install Git'
+		setup-util-git "${slim_options[@]}"
+		__print_style --g2='Install Git'
+	fi
 
 	# vars
 	local protocol_options=(
 		ssh
 		https
 	)
-	local tool_options=()
-	if command-exists meld; then
-		tool_options+=(meld)
+	local merge_tools=()
+	if __command_exists -- meld; then
+		merge_tools+=(meld)
 	fi
-	if command-exists delta; then
-		tool_options+=(delta)
+	if __command_exists -- delta; then
+		merge_tools+=(delta)
 	fi
-	if command-exists opendiff; then
-		tool_options+=(opendiff)
+	if __command_exists -- opendiff; then
+		merge_tools+=(opendiff)
 	fi
-	if command-exists diff; then
-		tool_options+=(diff)
+	if __command_exists -- diff; then
+		merge_tools+=(diff)
 	fi
 
 	# =====================================
@@ -93,19 +137,36 @@ function setup_git() (
 	local MERGE_TOOL=''
 	local GITHUB_USERNAME=''
 	local GITLAB_USERNAME=''
-	local GPG_SIGNING_KEY='' # use 'krypton' for Krypt.co
-	local KRYPTON_GPG=''     # deprecated, use GPG_SIGNING_KEY=krypton
-	local HUB_PROTOCOL=''    # deprecated, replaced by GIT_PROTOCOL
+	local GPG_SIGNING_KEY=''
+	local GPG_SIGNING_AGENT='' # 'op' for 1password, 'krypton' for Krypt.co, 'default' for system default
+	local KRYPTON_GPG=''       # deprecated, use GPG_SIGNING_KEY=krypton
+	local HUB_PROTOCOL=''      # deprecated, replaced by GIT_PROTOCOL
 	load_dorothy_config 'git.bash'
+	if [[ $GPG_SIGNING_KEY == '1password' ]]; then
+		GPG_SIGNING_KEY='op'
+	fi
 
 	# handle deprecations
-	if test "$KRYPTON_GPG" = 'yes'; then
-		GPG_SIGNING_KEY='krypton'
+	if [[ $GPG_SIGNING_KEY =~ ^(op|1password)$ ]]; then
+		GPG_SIGNING_AGENT='op'
+		dorothy-config 'git.bash' -- \
+			--field='GPG_SIGNING_KEY' --replace= \
+			--field='GPG_SIGNING_AGENT' --value='op'
+	fi
+	if [[ $GPG_SIGNING_KEY == 'krypton' ]]; then
+		GPG_SIGNING_AGENT='krypton'
 		dorothy-config 'git.bash' -- \
 			--field='KRYPTON_GPG' --replace= \
-			--field='GPG_SIGNING_KEY' --value='krypton'
+			--field='GPG_SIGNING_KEY' --replace= \
+			--field='GPG_SIGNING_AGENT' --value='krypton'
 	fi
-	if test -z "$GIT_PROTOCOL" -a -n "$HUB_PROTOCOL"; then
+	if [[ $KRYPTON_GPG == 'yes' ]]; then
+		GPG_SIGNING_AGENT='krypton'
+		dorothy-config 'git.bash' -- \
+			--field='KRYPTON_GPG' --replace= \
+			--field='GPG_SIGNING_AGENT' --value='krypton'
+	fi
+	if [[ -z $GIT_PROTOCOL && -n $HUB_PROTOCOL ]]; then
 		GIT_PROTOCOL="$HUB_PROTOCOL"
 		dorothy-config 'git.bash' -- \
 			--field='HUB_PROTOCOL' --replace= \
@@ -120,163 +181,172 @@ function setup_git() (
 	# GITLAB_USERNAME
 
 	# required
-	if test -z "$GIT_NAME" -o -z "$GIT_EMAIL" -o -z "$GIT_DEFAULT_BRANCH"; then
-		reconfigure='yes'
-	fi
-	if ! is-needle "$GIT_PROTOCOL" "${protocol_options[@]}"; then
-		reconfigure='yes'
-	fi
-	if ! is-needle "$MERGE_TOOL" "${tool_options[@]}"; then
-		reconfigure='yes'
+	if [[ -z $option_reconfigure ]]; then
+		if [[ -z $GIT_NAME || -z $GIT_EMAIL || -z $GIT_DEFAULT_BRANCH ]] ||
+			! __has --source={protocol_options} -- "$GIT_PROTOCOL" ||
+			! __has --source={merge_tools} -- "$MERGE_TOOL"; then
+			option_reconfigure='yes'
+		fi
 	fi
 
-	# reconfigure
-	if test "$reconfigure" = 'yes'; then
+	# fetch 1password ssh signing agent
+	local op_ssh_sign_potential_paths=(
+		"$(type -P op-ssh-sign)"
+		'/Applications/1Password.app/Contents/MacOS/op-ssh-sign' # macOS
+		'/opt/1Password/op-ssh-sign'                             # linux
+	) op_ssh_sign_potential_path op_ssh_sign_path=''
+	for op_ssh_sign_potential_path in "${op_ssh_sign_potential_paths[@]}"; do
+		if [[ -n $op_ssh_sign_potential_path && -e $op_ssh_sign_potential_path ]]; then
+			if [[ ! -f $op_ssh_sign_potential_path ]]; then
+				__print_style --path="$op_ssh_sign_potential_path" ' ' --warning='was found, but it is not a file.'
+			elif [[ ! -x $op_ssh_sign_potential_path ]]; then
+				__print_style --path="$op_ssh_sign_potential_path" ' ' --warning='was found, but it is not executable.'
+			else
+				op_ssh_sign_path="$op_ssh_sign_potential_path"
+				break
+			fi
+		fi
+	done
+
+	# configure
+	if [[ $option_reconfigure == 'yes' ]]; then
 		# required
 		GIT_NAME="$(
-			ask --required --confirm \
-				--question="What is the name that you want to configure git with?" \
+			ask --required --linger \
+				--question='What is the name that you want to configure git with?' \
 				--default="${GIT_NAME:-"$(get-profile name -- git ... || :)"}"
 		)"
 		GIT_EMAIL="$(
-			ask --required --confirm \
-				--question="What is the email that you want to configure git with?" \
+			ask --required --linger \
+				--question='What is the email that you want to configure git with?' \
 				--default="${GIT_EMAIL:-"$(get-profile email -- git ... || :)"}"
 		)"
 		# optional
 		GITHUB_USERNAME="$(
-			ask --confirm \
-				--question="What is the GitHub username that you want to configure git with?" \
+			ask --linger \
+				--question='What is the GitHub username that you want to configure git with?' \
 				--default="${GITHUB_USERNAME:-"$(get-profile username -- git ... || :)"}"
 		)"
 		GITLAB_USERNAME="$(
-			ask --confirm \
-				--question="What is the GitLab username that you want to configure git with?" \
+			ask --linger \
+				--question='What is the GitLab username that you want to configure git with?' \
 				--default="${GITLAB_USERNAME:-"$(get-profile username -- git ... || :)"}"
 		)"
 		# required
 		GIT_PROTOCOL="$(
-			choose-option --required --confirm \
+			choose --required --confirm --linger \
 				--question='Which git protocol to prefer?' \
-				--filter="$GIT_PROTOCOL" -- "${protocol_options[@]}"
+				--default="$GIT_PROTOCOL" -- "${protocol_options[@]}"
 		)"
 		MERGE_TOOL="$(
-			choose-option --required --confirm \
+			choose --required --confirm --linger \
 				--question='Which merge/diff tool to prefer?' \
-				--filter="$MERGE_TOOL" -- "${tool_options[@]}"
+				--default="$MERGE_TOOL" -- "${merge_tools[@]}"
 		)"
 		GIT_DEFAULT_BRANCH="$(
-			ask --required --confirm \
+			ask --required --linger \
 				--question='Which branch to use as the default for new repositories?' \
 				--default="$GIT_DEFAULT_BRANCH"
 		)"
 
 		# prefer 1password
-		if command-exists op-ssh-sign; then
-			if test "$GPG_SIGNING_KEY" != 'op'; then
-				if confirm --positive --ppid=$$ -- '1Password SSH Signing Agent is available for GPG, use it?'; then
-					GPG_SIGNING_KEY='op'
-				fi
-			fi
-		else
-			if test "$GPG_SIGNING_KEY" = 'op'; then
-				cat <<-EOF >/dev/stderr
-					$(echo-style --e2="Git Configuration: Signing: 1Password")
-					GPG using 1Password was desired, however 1Password does not appear to be installed on this system. Install it first via:
-
-					    $(echo-style --code="setup-util-1password")
-					    $(echo-style --code="setup-util-1password-cli")
-
-					Will continue without this.
-				EOF
-				GPG_SIGNING_KEY=''
+		if [[ -n $op_ssh_sign_path ]]; then
+			if [[ -z $GPG_SIGNING_AGENT ]] && confirm --linger --positive --ppid=$$ -- '1Password SSH Signing Agent is available for GPG, use it?'; then
+				GPG_SIGNING_AGENT='op'
 			fi
 		fi
-		if command-exists krgpg; then
-			if test "$GPG_SIGNING_KEY" != 'krypton'; then
-				if confirm --positive --ppid=$$ -- 'Krypton is available for GPG, use it?'; then
-					GPG_SIGNING_KEY='krypton'
-				fi
-			fi
-		else
-			if test "$GPG_SIGNING_KEY" = 'krypton'; then
-				cat <<-EOF >/dev/stderr
-					$(echo-style --e2="Git Configuration: Signing: Krypton")
-					GPG using Krypton was desired, however Krypton does not appear to be installed on this system. Install it first. Will continue without this.
-				EOF
-				GPG_SIGNING_KEY=''
+		if __command_exists -- krgpg; then
+			if [[ -z $GPG_SIGNING_AGENT ]] && confirm --linger --positive --ppid=$$ -- 'Krypton is available for GPG, use it?'; then
+				GPG_SIGNING_AGENT='krypton'
 			fi
 		fi
-		if test "$GPG_SIGNING_KEY" != 'op' && "$GPG_SIGNING_KEY" != 'krypton'; then
+		if [[ $GPG_SIGNING_AGENT != 'op' && $GPG_SIGNING_AGENT != 'krypton' ]]; then
 			# 2>/dev/null || : in case there are no gpg keys
-			GPG_SIGNING_KEY="$(gpg-helper get private 2>/dev/null || :)"
+			GPG_SIGNING_KEY="$(gpg-helper "${slim_options[@]}" get private 2>/dev/null || :)"
 		fi
 
 		# save
-		dorothy-config 'git.bash' --prefer=local -- \
-			--field='GIT_DEFAULT_BRANCH' --value="$GIT_DEFAULT_BRANCH" \
-			--field='GIT_EMAIL' --value="$GIT_EMAIL" \
-			--field='GIT_NAME' --value="$GIT_NAME" \
-			--field='GIT_PROTOCOL' --value="$GIT_PROTOCOL" \
-			--field='GITHUB_USERNAME' --value="$GITHUB_USERNAME" \
-			--field='GITLAB_USERNAME' --value="$GITLAB_USERNAME" \
-			--field='GPG_SIGNING_KEY' --value="$GPG_SIGNING_KEY" \
+		local new_config=(
+			--field='GIT_DEFAULT_BRANCH' --value="$GIT_DEFAULT_BRANCH"
+			--field='GIT_EMAIL' --value="$GIT_EMAIL"
+			--field='GIT_NAME' --value="$GIT_NAME"
+			--field='GIT_PROTOCOL' --value="$GIT_PROTOCOL"
+			--field='GITHUB_USERNAME' --value="$GITHUB_USERNAME"
+			--field='GITLAB_USERNAME' --value="$GITLAB_USERNAME"
+			--field='GPG_SIGNING_KEY' --value="$GPG_SIGNING_KEY"
 			--field='MERGE_TOOL' --value="$MERGE_TOOL"
+		)
+		# do not update agent if ssh, unless it is headless, in which ssh is the usual
+		# aka, do not update if ssh and headful, in which case this config is a temporary workaround, and not the usual
+		if ! (is-ssh && is-system --headful); then
+			new_config+=(
+				--field='GPG_SIGNING_AGENT' --value="$GPG_SIGNING_AGENT"
+			)
+		fi
+		dorothy-config 'git.bash' --prefer=local -- "${new_config[@]}"
 	fi
 
 	# =====================================
 	# Apply Configuration
 
 	# General
-	echo-style --h2='Git Configuration: General'
+	__print_style --header2='Git Configuration: General'
 	git config --global core.excludesfile "$HOME/.gitignore_global"
 	git config --global push.default simple
 	git config --global mergetool.keepBackup false
 	git config --global color.ui auto
-	if test -n "$GIT_DEFAULT_BRANCH"; then
+	if [[ -n $GIT_DEFAULT_BRANCH ]]; then
 		git config --global init.defaultBranch "$GIT_DEFAULT_BRANCH"
 	fi
 
 	# Profile
-	echo-style --h2='Git Configuration: Profile'
-	git config --global user.name "$GIT_NAME"
-	git config --global user.email "$GIT_EMAIL"
-	git config --global git.protocol "$GIT_PROTOCOL"
+	__print_style --header2='Git Configuration: Profile'
+	if [[ -n $GIT_NAME ]]; then
+		git config --global user.name "$GIT_NAME"
+	fi
+	if [[ -n $GIT_EMAIL ]]; then
+		git config --global user.email "$GIT_EMAIL"
+	fi
+	if [[ -n $GIT_PROTOCOL ]]; then
+		git config --global git.protocol "$GIT_PROTOCOL"
+	fi
 
 	# Authorizations
-	echo-style --h2='Git Configuration: Auth'
-	if test -n "$GITHUB_USERNAME"; then
+	__print_style --header2='Git Configuration: Auth'
+	if [[ -n $GITHUB_USERNAME ]]; then
 		git config --global github.user "$GITHUB_USERNAME"
 	else
 		git config --global --unset github.user || : # will fail if already unset
 	fi
-	if test -n "$GITLAB_USERNAME"; then
+	if [[ -n $GITLAB_USERNAME ]]; then
 		git config --global gitlab.user "$GITLAB_USERNAME"
 	else
 		git config --global --unset gitlab.user || : # will fail if already unset
 	fi
 
 	# Merge Tool
-	echo-style --h2="Git Configuration: Merge/Diff Tool: $MERGE_TOOL"
-	git config --global diff.tool "$MERGE_TOOL"
-	git config --global merge.tool "$MERGE_TOOL"
+	__print_style --header2='Git Configuration: Merge/Diff Tool:' ' ' --code="$MERGE_TOOL"
+	if [[ -n $MERGE_TOOL ]]; then
+		git config --global diff.tool "$MERGE_TOOL"
+		git config --global merge.tool "$MERGE_TOOL"
+	fi
 
 	# Editor
 	local editor
-	editor="$(edit --dry --prompt || :)"
-	if test -n "$editor"; then
-		echo-style --h2="Git Configuration: Editor: $editor"
+	editor="$(edit --dry --wait || :)"
+	if [[ -n $editor ]]; then
+		__print_style --header2='Git Configuration: Editor:' ' ' --code="$editor"
 		git config --global core.editor "$editor"
 	fi
 
 	# Authentication
 	# Use MacOS Credential Helper if available, otherwise default to time cache
-	if is-mac; then
-		echo-style --h2="Git Configuration: MacOS Credentials"
+	if __is_macos; then
+		__print_style --header2='Git Configuration: MacOS Credentials'
 		git config --global credential.helper osxkeychain
 		git config --global difftool.prompt false
 	else
-		echo-style --h2="Git Configuration: Linux Credentials"
+		__print_style --header2='Git Configuration: Linux Credentials'
 		git config --global credential.helper 'cache --timeout=86400'
 	fi
 
@@ -296,30 +366,24 @@ function setup_git() (
 		#   fatal: the receiving end does not support --signed push
 
 		# done
-		echo-style --h2="Git Configuration: Signing: Enabled"
+		__print_style --header2='Git Configuration: Signing:' ' ' --positive='Enabled'
 	}
 	function sign_check_key {
 		# Check we have a key
-		if test -z "$key"; then
-			cat <<-EOF >/dev/stderr
-				$(echo-style --e2="Git Configuration: Signing:")
-				Signing was desired, however there was no key specified.
-				$(echo-style --notice="Run the following to configure it accordingly:")
-
-				    $(echo-style --code="setup-git --configure")
-			EOF
+		if [[ -z $key ]]; then
+			__print_style --stderr \
+				--error1='Git Configuration: Signing:' --newline \
+				--error1='Signing was desired, however there was no key specified.' --newline \
+				--notice1='Run ' --code-notice1='setup-git --reconfigure' --notice1=' to configure.'
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 
 		# Check the key exists
-		if test ! -f "$key"; then
-			cat <<-EOF >/dev/stderr
-				$(echo-style --e2="Git Configuration: Signing:")
-				Signing was desired, however the key does not exist: $key
-				$(echo-style --notice="Run the following to configure it accordingly:")
-
-				    $(echo-style --code="setup-git --configure")
-			EOF
+		if [[ ! -f $key ]]; then
+			__print_style --stderr \
+				--error1='Git Configuration: Signing:' --newline \
+				--error1='Signing was desired, however the key does not exist: ' --code-error1="$key" --newline \
+				--notice1='Run ' --code-notice1='setup-git --reconfigure' --notice1=' to configure.'
 			return 29 # ESPIPE 29 Illegal seek
 		fi
 	}
@@ -331,29 +395,29 @@ function setup_git() (
 		git config --global --unset tag.gpgsign || :
 		git config --global --unset commit.gpgsign || :
 		git config --global --unset user.signingkey || :
-		echo-style --h2="Git Configuration: Signing: Disabled"
+		__print_style --header2='Git Configuration: Signing:' ' ' --negative='Disabled'
 	}
 	function sign_krypton {
 		# Use Krypton for Signing
-		setup-util-krypton
+		setup-util-krypton "${slim_options[@]}"
 		kr pair # krgpg and kr are both installed above
 		# configure git for krypton
 		git config --global gpg.program "$(type -P krgpg)"
 		git config --global --unset user.signingkey || :
-		echo-style --h2="Git Configuration: Kypton: Enabled"
+		__print_style --header2='Git Configuration: Krypton:' ' ' --positive='Enabled'
 	}
 	function sign_gnu {
-		# Use GnuGP (GPG) Key for Signing
+		# Use GnuPG (GPG) Key for Signing
 		local key="${1-}"
 		sign_check_key "$key"
 
 		# key
-		echo-style --h2="Git Configuration: Signing: GPG Key: $key"
+		__print_style --header2='Git Configuration: Signing: GPG Key:' ' ' --path="$key"
 		git config --using GnuPGlobal gpg.program "$(type -P gpg)"
 		git config --global user.signingkey "$key"
 
 		# configure
-		gpg-helper configure
+		gpg-helper "${slim_options[@]}" configure
 	}
 	function sign_ssh {
 		# Use SSH Key for Signing
@@ -361,53 +425,57 @@ function setup_git() (
 		sign_check_key "$key"
 
 		# key
-		echo-style --h2="Git Configuration: Signing: SSH Key: $key"
+		__print_style --header2='Git Configuration: Signing: SSH Key:' ' ' --path="$key"
 		git config --global gpg.format ssh
 		git config --global user.signingkey "$key"
 	}
 	function sign_op {
 		# Use 1Password SSH Signing for GPG
-		local op_pub=''
-		op_pub="$(ssh-helper export --raw || :)"
-		if command-exists op-ssh-sign; then
-			if test -n "$op_pub"; then
+		local op_pub="$GPG_SIGNING_KEY"
+		if [[ -n $op_pub ]]; then
+			if [[ -f "$op_pub.pub" ]]; then
+				op_pub="$op_pub.pub"
+			elif [[ -f $op_pub ]]; then
+				:
+			else
+				op_pub=''
+			fi
+		fi
+		if [[ -z $op_pub ]]; then
+			op_pub="$(ssh-helper "${slim_options[@]}" export --raw || :)"
+			GPG_SIGNING_KEY="$op_pub"
+		fi
+		if [[ -n $op_ssh_sign_path ]]; then
+			if [[ -n $op_pub ]]; then
 				git config --global gpg.format ssh
 				git config --global user.signingkey "$op_pub"
-				git config --global gpg.ssh.program "$(type -P op-ssh-sign)"
-				cat <<-EOF
-					$(echo-style --h2="Git Configuration: Signing: 1Password")
-					Make sure you add the following public key as your SSH signing key on:
-					https://github.com/settings/ssh/new
-
-					$(echo-style --code="$op_pub")
-
-				EOF
+				git config --global gpg.ssh.program "$op_ssh_sign_path"
+				# @todo use the GitHub CLI (gh) to automatically do this
+				# @todo or use fetch to check it, as I believe GitHub exposes such things
+				__print_style --header2='Git Configuration: Signing:' ' ' --code='1Password' --newline \
+					'Ensure the public key of ' --path="$op_pub" ' is a SSH signing key at ' --url='https://github.com/settings/ssh/new'
 			else
-				cat <<-EOF >/dev/stderr
-					$(echo-style --e2="Git Configuration: Signing: 1Password")
-					GPG using 1Password was desired, however was unable to find a public key.
-				EOF
+				__print_style --stderr \
+					--error2='Git Configuration: Signing:' ' ' --code='1Password' --newline \
+					'GPG using 1Password was desired, however ' --negative='unable to find a public key.'
 				return 1
 			fi
 		else
-			cat <<-EOF >/dev/stderr
-				$(echo-style --e2="Git Configuration: Signing: 1Password")
-				GPG using 1Password was desired, however 1Password does not appear to be installed on this system. Install it first via:
-
-					$(echo-style --code="setup-util-1password")
-					$(echo-style --code="setup-util-1password-cli")
-
-			EOF
+			__print_style --stderr \
+				--error2='Git Configuration: Signing:' ' ' --code='1Password' --newline \
+				'GPG using 1Password was desired, however ' --negative='1Password does not appear to be installed on this system.' ' ' --notice='Install it first via:' --newline \
+				--code='setup-util-1password' --newline \
+				--code='setup-util-1password-cli'
 			return 1
 		fi
 	}
 	function sign_setup {
-		echo-style --h2="Git Configuration: Signing"
+		__print_style --header2='Git Configuration: Signing'
 
 		# adjust
-		if test "$GPG_SIGNING_KEY" = 'op'; then
+		if [[ $GPG_SIGNING_AGENT == 'op' ]]; then
 			sign_op
-		elif test "$GPG_SIGNING_KEY" = 'krypton'; then
+		elif [[ $GPG_SIGNING_AGENT == 'krypton' ]]; then
 			sign_krypton
 		elif [[ $GPG_SIGNING_KEY == *".ssh"* ]]; then
 			sign_ssh "$GPG_SIGNING_KEY"
@@ -417,9 +485,9 @@ function setup_git() (
 	}
 	function sign_setup_and_enable {
 		local setup_status enable_status
-		eval_capture --statusvar=setup_status -- sign_setup
-		if test "$setup_status" -eq 0; then
-			eval_capture --statusvar=enable_status -- sign_enable
+		__try {setup_status} -- sign_setup
+		if [[ $setup_status -eq 0 ]]; then
+			__try {enable_status} -- sign_enable
 			return "$enable_status"
 		else
 			return "$setup_status"
@@ -428,9 +496,9 @@ function setup_git() (
 
 	# act
 	local setup_and_enable_status
-	if command-exists gpg; then
-		eval_capture --statusvar=setup_and_enable_status -- sign_setup_and_enable
-		if test "$setup_and_enable_status" -ne 0; then
+	if __command_exists -- gpg; then
+		__try {setup_and_enable_status} -- sign_setup_and_enable
+		if [[ $setup_and_enable_status -ne 0 ]]; then
 			sign_disable
 		fi
 	fi
@@ -438,56 +506,51 @@ function setup_git() (
 	# =====================================
 	# Security
 
-	echo-style --h2="Git Configuration: Permissions"
-	ssh-helper permissions
-	gpg-helper permissions
+	__print_style --header2='Git Configuration: Permissions'
+	ssh-helper "${slim_options[@]}" permissions
+	gpg-helper "${slim_options[@]}" permissions
+	# @todo apply the above --install flag
+	# @todo github-download caching
+	# @todo read -i version added and bash.bash update
 
 	# =====================================
 	# SSH
 
-	ssh-helper configure
+	ssh-helper "${slim_options[@]}" setup
 
 	# =====================================
 	# Authenticate with CLIs
 
 	# Must be done here, as they depend on git and ssh being correctly configured
-	if test -n "$GITHUB_USERNAME"; then
-		setup-util-gh --optional
-		# check we can auth
-		if command-exists gh; then
-			# check if we aren't authed
-			if ! gh auth status &>/dev/null; then
-				# check if we want to auth
-				if confirm --negative --ppid=$$ -- "Authenticate with the GitHub CLI?"; then
-					gh auth login
-				fi
-			fi
-		fi
+	if [[ -n $GITHUB_USERNAME && $option_deps != 'no' ]]; then
+		setup-util-gh --optional "${slim_options[@]}"
 	fi
 
 	# =====================================
 	# Configure protocols now that ssh is setup
 
-	echo-style --h2="Git Configuration: Protocol: $GIT_PROTOCOL"
-	if test "$GIT_PROTOCOL" = 'ssh' && ! ssh-helper test; then
-		echo-style --notice="SSH failed, temporarily configuring for HTTPS"
-		GIT_PROTOCOL='https'
-	fi
-	git config --global git.protocol "$GIT_PROTOCOL"
-	if command-exists hub; then
-		git config --global hub.protocol "$GIT_PROTOCOL"
-	else
-		git config --global --unset hub.protocol || :
-	fi
-	if command-exists gh; then
-		gh config set git_protocol "$GIT_PROTOCOL" || : # can fail
+	__print_style --header2='Git Configuration: Protocol:' ' ' --code="$GIT_PROTOCOL"
+	if [[ -n $GIT_PROTOCOL ]]; then
+		if [[ $GIT_PROTOCOL == 'ssh' ]] && ! ssh-helper "${slim_options[@]}" test; then
+			__print_style --notice='SSH failed, temporarily configuring for HTTPS'
+			GIT_PROTOCOL='https'
+		fi
+		git config --global git.protocol "$GIT_PROTOCOL"
+		if __command_exists -- hub; then
+			git config --global hub.protocol "$GIT_PROTOCOL"
+		else
+			git config --global --unset hub.protocol || :
+		fi
+		if __command_exists -- gh; then
+			gh config set git_protocol "$GIT_PROTOCOL" || : # can fail
+		fi
 	fi
 
-	# if test -n "$GITLAB_USERNAME"; then
+	# if [[ -n "$GITLAB_USERNAME" ]]; then
 	# glab writes to stderr, grep needed as return status is not indicative
 	# wrap in `! (` is to catch failures in the grep, and in the glab call
 	# setup-util-glab--optional # only install if gitlab is configured
-	# if ! (glab auth status |& grep --quiet --fixed-strings --regexp='Logged in to '); then
+	# if ! (glab auth status 2>&1 | grep --quiet --fixed-strings --regexp='Logged in to '); then
 	# 	glab auth login
 	# fi
 	# ^ currently broken
@@ -498,10 +561,14 @@ function setup_git() (
 	# =====================================
 	# Done
 
-	echo-segment --g1='Setup Git'
+	__print_style --g1='Setup Git'
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_git "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_git_test
+	else
+		setup_git "$@"
+	fi
 fi

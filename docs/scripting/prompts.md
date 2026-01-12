@@ -1,28 +1,27 @@
 # Prompts
 
-A few different tools exist in Dorothy for doing fancy TTY stuff:
+Dorothy provides tooling for advanced terminal interactions.
 
--   For creating alternative TTYs (which is necessary for when the content to be "erased" may span the terminal window's height):
+- For reading input:
+    - `read-key` read keys from the keyboard
+    - `choose` a selection prompt
+    - `confirm` a yes/no or proceed prompt
+    - `ask` a text prompt
 
-    -   `sources/tty.bash` which is what `ask` and `choose-menu` uses
-        -   `choose-option` uses `choose-menu`, and `ask` also uses `choose-option` for confirmations
+- For managing the terminal cursor, screen, and lines:
+    - `get-terminal-*` commands
+    - the ANSI Escape Codes section of `styles.bash` used by `echo-style`
 
--   For erasing only certain lines (which only works when the content to be "erased" is within the terminal widow's height):
+- For erasing only certain lines (which only works when the content to be "erased" is within the terminal window's height):
+    - `echo-clear-lines` erase prior lines
+    - `echo-revolving-door` only shows the revolving last line, erasing prior lines as output is being generated
+    - `eval-helper` (which is used by `setup-util`) uses `echo-revolving-door` for the executing command, and `echo-clear-lines` for cleaning up headers for producing summary outputs
+    - the ANSI Escape Codes section of `styles.bash` used by `echo-style`
 
-    -   `echo-revolving-door` only shows the revolving last line, erasing prior lines as output is being generated
-    -   `echo-clear-line`, `echo-clear-lines` erase prior lines
-    -   `eval-collapse` (which is used by `setup-util`) uses `echo-revolving-door` for the executing command, and `echo-clear-lines` for cleaning up headers for producing summary outputs
+- For styling, colors, etc:
+    - `styles.bash` and `echo-style`
 
--   For custom cursor magic:
+- For debugging:
+    - `waiter` for specifying `stdout`, `stderr`, and `tty` output after a delay, etc.
 
-    -   `confirm` uses the TTY ANSI codes directly to move the cursor to first line of the prompt, then to erase and clean up afterwards and during
-
--   For colors:
-
-    -   `echo-style` does the magic
-
-For learning how these actually work behind the scenes:
-
--   For the cursor movement: https://en.wikipedia.org/wiki/ANSI_escape_code#CSI_(Control_Sequence_Introducer)_sequences
--   For the alt TTY stuff in `tty.bash`: https://unix.stackexchange.com/a/668615/50703
--   For colors: https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
+For learning how these actually work, see the `ansi-escape-codes.md` document.

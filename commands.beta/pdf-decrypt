@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function pdf_decrypt_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- pdf-decrypt --help
+)
+
 function pdf_decrypt() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,65 +12,71 @@ function pdf_decrypt() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Save decrypted copies of the PDF inputs.
+			Take PDF <input>s that have passwords, and save copies that have the passwords removed.
 
 			USAGE:
-			pdf-decrypt [--password=<password>] ...<input>
+			\`pdf-decrypt [--password=<password>] ...<input>\`
 
-			EXAMPLE:
-			pdf-decrypt *.pdf
+			EXAMPLES:
+			\`\`\`
+			pdf-decrypt -- *.pdf
+			\`\`\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item files=() password=''
-	while test "$#" -ne 0; do
+	local item option_inputs=() option_password=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--password='*) password="${item#*--password=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) files+=("$item") ;;
+		'--password='*) option_password="${item#*=}" ;;
+		'--')
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_inputs+=("$item") ;;
 		esac
 	done
 
 	# =====================================
 	# Dependencies
 
-	if command-missing qpdf; then
-		echo-style --error="[qpdf] is missing, install it first." >/dev/stderr
-		return 1
-	fi
+	__command_required -- 'qpdf' || return $?
 
 	# =====================================
 	# Act
 
-	local input output current_password
-	for input in "${files[@]}"; do
-		output="$(fs-filename -- "$input") [decrypted].pdf"
-		current_password="$(
-			ask --required --password \
-				--question="Enter the password for $input" \
-				--default="$password"
-		)"
-
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Decrypting " --code="$input" --bold=" to " --code="$output")" \
-			--success="$(echo-style --bold+green="Decrypted " --code="$input" --bold=" to " --code="$output")" \
-			--failure="$(echo-style --bold+red="Failed to decrypt " --code="$input" --bold=" to " --code="$output")" \
-			-- qpdf -password="$current_password" -decrypt "$input" "$output" || :
+	local password path file outpath
+	password="$(
+		ask --required --password \
+			--question='Enter the decryption password for the PDFs' \
+			--question="$(echo-lines --columns -- "${option_inputs[@]}")" \
+			--default="$option_password"
+	)"
+	for path in "${option_inputs[@]}"; do
+		file="$(fs-path --no-parents --no-extensions -- "$path")"
+		outpath="$file [decrypted].pdf"
+		eval-helper --quiet --no-wrap \
+			--pending="$(__print_style --bold='Decrypting ' --code="$path" --bold=' to ' --code="$outpath")" \
+			--success="$(__print_style --bold+green='Decrypted ' --code="$path" --bold=' to ' --code="$outpath")" \
+			--failure="$(__print_style --bold+red='Failed to decrypt ' --code="$path" --bold=' to ' --code="$outpath")" -- \
+			qpdf -password="$password" -decrypt "$path" "$outpath" || :
 	done
 
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	pdf_decrypt "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		pdf_decrypt_test
+	else
+		pdf_decrypt "$@"
+	fi
 fi

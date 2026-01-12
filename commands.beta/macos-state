@@ -2,19 +2,24 @@
 
 # we can assume [HOMEBREW_PREFIX] have already been provided
 
+function macos_state_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- macos-state --help
+)
+
 function macos_state() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Applies your theme preference to macOS, VSCode, and Wallpaper.
 
 			USAGE:
-			macos-state <backup|restore> [...options]
+			\`macos-state <backup|restore> [...options]\`
 
 			OPTIONS:
 			--local=<local>
@@ -23,51 +28,52 @@ function macos_state() (
 			--backups=<backups>
 			    Where backups are stored / will be stored.
 
-			EXAMPLE:
-
-			# To restore configuration from a remote machine:
-			macos-state restore --root='username@hostname:/Volumes/System'
+			EXAMPLES:
+			To restore configuration from a remote machine:
+			\`\`\`macos-state restore --root='username@hostname:/Volumes/System'\`\`\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item action='' local_root='' backup_root=''
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--local='*) local_root="${item#--local=}" ;;
-		'--backups='*) backup_root="${item#--backups=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--help' | '-h') __help ;;
+		'--local='*) local_root="${item#*=}" ;;
+		'--backups='*) backup_root="${item#*=}" ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$action"; then
+			if [[ -z $action ]]; then
 				action="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				__help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
+	# assert compatibility
+	if ! __is_macos; then
+		__help 'This command is only purposeful on macOS, which you are not running.' || :
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
+
 	# ensure
 	action="$(
-		choose-option \
-			--question='What do you want to do?' \
-			--label --filter="$action" -- \
+		choose --linger --question='What do you want to do?' \
+			--label --default="$action" -- \
 			backup 'Make a backup?' \
 			restore 'Restore a backup?'
 	)"
 
 	# What is the local volume?
 	local_root="$(
-		choose-option --required \
+		choose --linger --required \
 			--question='What is your local volume?' \
-			--filter="$local_root" -- /Volumes/*
+			--default="$local_root" -- /Volumes/*
 	)"
 
 	# =====================================
@@ -76,35 +82,34 @@ function macos_state() (
 	# Use time machine?
 	local backup_type='fs' # tm, fs, remote
 	local time_backup_volume='' time_backup_machine=''
-	if test "$action" = 'restore' -a -z "$backup_root"; then
-		echo
+	if [[ $action == 'restore' && -z $backup_root ]]; then
+		__print_line
 		if
-			confirm --bool --ppid=$$ -- 'Do you want to restore from Time Machine?' \
+			confirm --linger --bool --ppid=$$ -- 'Do you want to restore from Time Machine?' \
 				"Ensure either:" \
 				"- Time Machine is configured in system preferences" \
 				"- The Time Machine Backup Volume is already mounted"
 		then
 			backup_root="$(tmutil latestbackup || :)"
-			if test ! -d "$backup_root"; then
-				echo
-				print_line 'Unable to find the Time Machine backup automatically, attempting manual resolution...'
+			if [[ ! -d $backup_root ]]; then
+				__print_lines '' 'Unable to find the Time Machine backup automatically, attempting manual resolution...'
 				time_backup_volume="$(
-					choose-option --required \
-						--question='Which volume contains the time machine backups?' \
-						-- /Volumes/*
+					choose --linger --required \
+						--question='Which volume contains the time machine backups?' -- \
+						/Volumes/*
 				)"
 				time_backup_machine="$(
 					choose-path --required \
-						--question='Which backup entry to use?' \
-						-- "$time_backup_volume/Backups.backupdb/"*
+						--question='Which backup entry to use?' -- \
+						"$time_backup_volume/Backups.backupdb/"*
 				)"
 				backup_root="$time_backup_machine/Latest"
 			fi
-			if test -d "$backup_root"; then
-				print_line "Time Machine Backup: $backup_root"
+			if [[ -d $backup_root ]]; then
+				__print_lines "Time Machine Backup: $backup_root"
 				backup_type='tm'
 			else
-				print_line 'Time Machine backup could not be determined' >/dev/stderr
+				__print_lines 'Time Machine backup could not be determined' >&2
 				backup_root=''
 			fi
 		fi
@@ -112,21 +117,21 @@ function macos_state() (
 
 	# Use cloud location if it exists
 	local cloud_root=''
-	if test "$action" = 'restore' -a -z "$backup_root"; then
+	if [[ $action == 'restore' && -z $backup_root ]]; then
 		cloud_root="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Apps/macos-state"
-		if test -d "$cloud_root"; then
+		if [[ -d $cloud_root ]]; then
 			backup_root="$(fs-join -- "$cloud_root" "$local_root")"
 		fi
 	fi
 
 	# Confirm the backup location
+	__print_line
 	local question=''
-	echo
 	cloud_root="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Apps/macos-state"
-	if test "$action" = 'backup'; then
-		question="Where will the backups be stored?"
+	if [[ $action == 'backup' ]]; then
+		question='Where will the backups be stored?'
 	else
-		question="Where are the backups stored?"
+		question='Where are the backups stored?'
 	fi
 	backup_root="$(
 		ask --required --confirm \
@@ -135,7 +140,7 @@ function macos_state() (
 	)"
 
 	# Detection
-	if [[ "Time Machine Backups" == *"$backup_root"* ]] || [[ "Backups.backupdb" == *"$backup_root"* ]]; then
+	if [[ "Time Machine Backups" == *"$backup_root"* || "Backups.backupdb" == *"$backup_root"* ]]; then
 		# tm
 		backup_type='tm'
 	elif [[ $backup_root == *"@"* ]]; then
@@ -153,59 +158,52 @@ function macos_state() (
 	local potential_root=''
 	if [[ $backup_root != *"Volumes"* ]]; then
 		# if it is backup, use our current location
-		if test "$action" = 'backup'; then
+		if [[ $action == 'backup' ]]; then
 			backup_root="$(fs-join -- "$backup_root" "$local_root")"
 		else
 			# if it is restore, then ask the user, if supported
-			if test "$backup_type" = 'remote'; then
+			if [[ $backup_type == 'remote' ]]; then
 				# fail on remote
-				{
-					potential_root="$(fs-join -- "$backup_root" "$local_root")"
-					echo-style \
-						--error='Remote backup locations must manually specify the volume.' $'\n' \
-						--notice='Try again with something like:' $'\n' \
-						--code="macos-state $(echo-quote -- "$potential_root")"
-					return 1
-				} >/dev/stderr
+				potential_root="$(fs-join -- "$backup_root" "$local_root")"
+				__print_style --stderr \
+					--error='Remote backup locations must manually specify the volume.' --newline \
+					--notice='Try again with something like:' --newline \
+					--code="$(echo-escape-command -- 'macos-state' "$potential_root")"
+				return 1
 			else
 				# ask
 				backup_root="$(
-					choose-option --required \
-						--question='Which backup volume to use?' \
-						-- "$(fs-join -- "$backup_root" 'Volumes')/"*
+					choose --linger --required \
+						--question='Which backup volume to use?' -- \
+						"$(fs-join -- "$backup_root" 'Volumes')/"*
 				)"
 			fi
 		fi
 	fi
 
-	# dump variables
-	echo-style --dim \
-		"Action: $action" $'\n' \
-		"Local Volume: $local_root" $'\n' \
-		"Cloud Root: $cloud_root" $'\n' \
-		"Backup Root: $backup_root" $'\n' \
-		"Backup Type: $backup_type"
+	# dump
+	__dump {action} {local_root} {cloud_root} {backup_root} {backup_type} || return $?
 
 	# Helpers
-	function fs_volume_join() (
+	function fs_volume_join {
 		if [[ $2 == '/'* ]]; then
 			fs-join -- "$1" "$2"
 		else
 			fs-join -- "$1" "$HOME/$2"
 		fi
-	)
+	}
 
 	function do_remove {
 		local path="$1"
-		if is-present "$path"; then
-			if confirm --positive --ppid=$$ -- "^ will be replaced, continue?"; then
-				sudo-helper -- rm -Rf "$path"
+		if is-present -- "$path"; then
+			if confirm --linger --positive --ppid=$$ -- '^ will be replaced, continue?'; then
+				fs-remove --quiet --no-confirm --elevate -- "$path"
 			fi
 		fi
 	}
 	function do_mkdir {
 		local path="$1"
-		mkdir -p "$(dirname "$path")"
+		__mkdirp "$(dirname -- "$path")"
 	}
 	function do_replace {
 		local path="$path"
@@ -224,18 +222,17 @@ function macos_state() (
 			$to
 		EOF
 
-		if is-present "$from"; then
-			if test "$backup_type" = 'remote'; then
-				# @todo will "${from@Q}" work?
-				cpr -- "$from" "$to"
+		if is-present -- "$from"; then
+			if [[ $backup_type == 'remote' ]]; then
+				fs-copy -- "$from" "$to"
 			else
 				do_replace "$to"
-				cpr -- "$from" "$to"
+				fs-copy -- "$from" "$to"
 			fi
 		else
-			echo-style --notice='^ MISSING'
+			__print_style --notice='^ MISSING'
 			warnings+=("MISSING: $from")
-			sudo-helper -- rm -Rf "$path"
+			fs-remove --quiet --no-confirm --elevate -- "$path"
 		fi
 	}
 
@@ -244,44 +241,43 @@ function macos_state() (
 		from="$(fs_volume_join "$backup_root" "$path")"
 		to="$(fs_volume_join "$local_root" "$path")"
 		cat <<-EOF
-			$(echo-style --bold='RESTORE:')
+			$(__print_style --bold='RESTORE:')
 			$from
 			=>
 			$to
 		EOF
 
-		if test "$backup_type" = 'tm'; then
+		if [[ $backup_type == 'tm' ]]; then
 			do_replace "$to"
 			tmutil restore -v "$from" "$to"
-		elif test "$backup_type" = 'remote'; then
+		elif [[ $backup_type == 'remote' ]]; then
 			do_replace "$to"
-			# @todo will "${from@Q}" work?
-			cpr -- "$from" "$to"
-		elif is-present "$from"; then
+			fs-copy -- "$from" "$to"
+		elif is-present -- "$from"; then
 			do_replace "$to"
-			cpr -- "$from" "$to"
+			fs-copy -- "$from" "$to"
 		else
-			echo-style --notice='^ MISSING'
+			__print_style --notice='^ MISSING'
 			warnings+=("MISSING: $from")
-			sudo-helper -- rm -Rf "$path"
+			fs-remove --quiet --no-confirm --elevate -- "$path"
 		fi
 	}
 
 	function process {
-		local title="$1" paths=("${@:1}") path=''
-		echo-segment --h1 "$title"
-		if confirm --bool --ppid=$$ -- "Do you want to $action $title"; then
+		local title="$1" paths=("${@:2}") path=''
+		__print_style --h1 "$title"
+		if confirm --linger --bool --ppid=$$ -- "Do you want to $action $title"; then
 			for path in "${paths[@]}"; do
-				if test "$action" = 'backup'; then
+				if [[ $action == 'backup' ]]; then
 					do_backup "$path"
-				elif test "$action" = 'restore'; then
+				elif [[ $action == 'restore' ]]; then
 					do_restore "$path"
 				fi
 			done
 		else
-			echo-style --dim="Skipped..."
+			__print_style --dim="Skipped..."
 		fi
-		echo-segment --g1 "$title"
+		__print_style --g1 "$title"
 	}
 
 	# ===============
@@ -389,7 +385,7 @@ function macos_state() (
 
 	process "DevDocs" "Library/Application Support/DevDocs/"
 	process "DiskMap" "Library/Preferences/com.fiplab.diskmap.plist"
-	process "DNSCrypt" "${HOMEBREW_PREFIX}/etc/dnscrypt-proxy.toml"
+	process "DNSCrypt" "$HOMEBREW_PREFIX/etc/dnscrypt-proxy.toml"
 
 	process "Donut" \
 		"Library/Application Support/Donut/" \
@@ -568,17 +564,19 @@ function macos_state() (
 	setup-mac clean
 
 	# Finish
-	if test "${#warnings[@]}" -eq 0; then
-		echo-style --success="Completed successfully"
+	if [[ ${#warnings[@]} -eq 0 ]]; then
+		__print_style --success="Completed successfully"
 	else
-		{
-			echo-style --error="Completed with warnings:"
-			echo-lines -- "${warnings[@]}"
-		} >/dev/stderr
+		__print_style --stderr --warning='Completed with warnings:'
+		__print_lines "${warnings[@]}" >&2
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	macos_state "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		macos_state_test
+	else
+		macos_state "$@"
+	fi
 fi

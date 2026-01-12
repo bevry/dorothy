@@ -1,173 +1,367 @@
 #!/usr/bin/env bash
 
+function eval_tester_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- eval-tester --help
+)
+
 function eval_tester() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$DOROTHY/sources/tty.bash"
+	source "$(type -P debug-bash)"
+	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			USAGE:
-			eval-tester [...options] -- <command> [...args]
+			\`eval-tester [...options] -- <command> [...args]\`
 
 			OPTIONS:
 			--name=<test name>
-			--status=<expected exit code> (defaults to 0)
+
+			--status=<expected exit code>
+			    Defaults to expecting the success exit status of [0].
 			--ignore-status
-			--stdout=<expected stdout> (defaults to empty)
-			--ignore-stdout
-			--stderr=<expected stderr> (defaults to empty)
-			--ignore-stderr
-			--debug (implies --ignore-stderr)
+
+			--stdout=<expected stdout>
+			    Defaults to expecting this to be empty.
+			--[no-]compare-stdout | --[no-]ignore-stdout
+			    If not comparing, aka if ignoring, then do not compare STDOUT.
+			--[no-]output-stdout | --[no-]hide-stdout | --[no-]discard-stdout
+			    If not outputting, aka if hiding, then do not output STDOUT while executing the command.
+
+			--stderr=<expected stderr>
+			    Defaults to expecting this to be empty.
+			--[no-]compare-stderr | --[no-]ignore-stderr
+			    If not comparing, aka if ignoring, then do not compare STDERR.
+			--[no-]output-stderr | --[no-]hide-stderr | --[no-]discard-stderr
+			    If not outputting, aka if hiding, then do not output STDERR while executing the command.
+
+			--tty=<expected tty>
+			    Defaults to expecting this to be empty.
+			--[no-]compare-tty | --[no-]ignore-tty
+			    If not comparing, aka if ignoring, then do not compare TTY.
+			--[no-]output-tty | --[no-]hide-tty | --[no-]discard-tty
+			    If not outputting, aka if hiding, then do not output TTY while executing the command.
+
+			--debug
+			    Will run the command with debugging enabled.
 			--bash=<bash path>
-			    Used to ensure that the command is invoked through a specific bash binary. Defaults to the env var EVAL_TESTER_BASH.
+			    Used to ensure that the command is invoked through a specific bash binary.
+
+			--trailing-newlines
+			    Preserve trailing newlines on STDOUT, STDERR, and TTY comparisons.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item cmd=() ignore_option=$'\e' option_name='' option_status='0' option_stdout='' option_stderr='' option_debug='no' option_bash="${EVAL_TESTER_BASH-}"
-	while test "$#" -ne 0; do
+	local item option_cmd=() ignore_value=$'\f' option_quiet='yes' option_name='' option_bash='' option_status='0' \
+	option_stdout='' option_compare_stdout='yes' option_output_stdout='yes' \
+	option_stderr='' option_compare_stderr='yes' option_output_stderr='yes' \
+	option_tty='' option_compare_tty='yes' option_output_tty='yes' \
+	option_debug='no' option_trace='no' option_trailing_newlines='no'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--name='*) option_name="${item#*--name=}" ;;
-		'--bash='*) option_bash="${item#*--bash=}" ;;
-		'--ignore-status') option_status="$ignore_option" ;;
-		'--ignore-stdout') option_stdout="$ignore_option" ;;
-		'--ignore-stderr') option_stderr="$ignore_option" ;;
-		'--status='*) option_status="${item#*--status=}" ;;
-		'--stdout='*) option_stdout="${item#*--stdout=}" ;;
-		'--stderr='*) option_stderr="${item#*--stderr=}" ;;
-		'--no-debug'* | '--debug'*)
-			option_debug="$(get-flag-value debug --missing="$option_debug" -- "$item" | echo-affirmative --stdin)"
+		--help | -h) help ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		--name=*) option_name="${item#*=}" ;;
+		--bash=*) option_bash="${item#*=}" ;; # unlike [dorothy test] and [debug-bash] only support a single bash binary here, as nothing else makes sense for the [eval-tester] use case, as it is for getting specific results for a specific bash version
+		--no-compare-stdout* | --compare-stdout*) __flag --source={item} --target={option_compare_stdout} --affirmative ;;
+		--no-compare-stderr* | --compare-stderr*) __flag --source={item} --target={option_compare_stderr} --affirmative ;;
+		--no-compare-tty* | --compare-tty*) __flag --source={item} --target={option_compare_tty} --affirmative ;;
+		--no-ignore-stdout* | --ignore-stdout*) __flag --source={item} --target={option_compare_stdout} --non-affirmative ;;
+		--no-ignore-stderr* | --ignore-stderr*) __flag --source={item} --target={option_compare_stderr} --non-affirmative ;;
+		--no-ignore-tty* | --ignore-tty*) __flag --source={item} --target={option_compare_tty} --non-affirmative ;;
+		--no-output-stdout* | --output-stdout*) __flag --source={item} --target={option_output_stdout} --affirmative ;;
+		--no-output-stderr* | --output-stderr*) __flag --source={item} --target={option_output_stderr} --affirmative ;;
+		--no-output-tty* | --output-tty*) __flag --source={item} --target={option_output_tty} --affirmative ;;
+		--no-hide-stdout* | --hide-stdout*) __flag --source={item} --target={option_output_stdout} --non-affirmative ;;
+		--no-hide-stderr* | --hide-stderr*) __flag --source={item} --target={option_output_stderr} --non-affirmative ;;
+		--no-hide-tty* | --hide-tty*) __flag --source={item} --target={option_output_tty} --non-affirmative ;;
+		--no-discard-stdout* | --discard-stdout*) __flag --source={item} --target={option_output_stdout} --non-affirmative ;;
+		--no-discard-stderr* | --discard-stderr*) __flag --source={item} --target={option_output_stderr} --non-affirmative ;;
+		--no-discard-tty* | --discard-tty*) __flag --source={item} --target={option_output_tty} --non-affirmative ;;
+		--no-ignore-output* | --ignore-output*)
+			__flag --source+target={item} --affirmative
+			if [[ $item == 'yes' ]]; then
+				option_stdout="$ignore_value"
+				option_stderr="$ignore_value"
+				option_tty="$ignore_value"
+			fi
 			;;
-		'--')
-			cmd+=("$@")
+		--status=*) option_status="${item#*=}" ;;
+		--stdout=*) option_stdout="${item#*=}" ;;
+		--stderr=*) option_stderr="${item#*=}" ;;
+		--tty=*) option_tty="${item#*=}" ;;
+		--no-debug* | --debug*) __flag --source={item} --target={option_debug} --affirmative ;;
+		--no-trace* | --trace*) __flag --source={item} --target={option_trace} --affirmative ;;
+		--no-trailing-newlines* | --trailing-newlines*) __flag --source={item} --target={option_trailing_newlines} --affirmative --coerce ;;
+		--)
+			option_cmd+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# if invoking a dorothy command (not a function, nor things like cat), then support debug and custom bash
-	# otherwise, custom bash not necessary as already inherited
-	# and debug-bash not possible
-	local cmd_path
-	cmd_path="$(type -P "${cmd[0]}" 2>/dev/null || :)"
-	if test -n "$cmd_path" && [[ $cmd_path == "$DOROTHY"* ]]; then
-		cmd[0]="$cmd_path"
-		if test "$option_debug" = 'yes'; then
-			cmd=(
-				'debug-bash'
-				"--bash=$option_bash"
-				'--'
-				"${cmd[@]}"
-			)
-		elif test -n "$option_bash"; then
-			cmd=(
-				"$option_bash"
-				"${cmd[@]}"
-			)
+	# adjust ignore
+	if [[ $option_compare_stdout == 'no' ]]; then
+		option_stdout="$ignore_value"
+	fi
+	if [[ $option_compare_stderr == 'no' ]]; then
+		option_stderr="$ignore_value"
+	fi
+	if [[ $option_compare_tty == 'no' ]]; then
+		option_tty="$ignore_value"
+	fi
+
+	# quiet already defaults to yes, but if they did --quiet= or so, then change it to CI status
+	if [[ -z $option_quiet ]]; then
+		if [[ -n $CI ]]; then
+			option_quiet='yes'
+		else
+			option_quiet='no'
+		fi
+	fi
+
+	# if debugging, or custom bash, wrap in debug_bash, keep it clean
+	if [[ -n $option_bash || $option_debug == 'yes' || $option_trace == 'yes' ]]; then
+		local pieces=(debug_bash)
+		if [[ -n $option_bash ]]; then
+			pieces+=(--bash="$option_bash")
+		fi
+		if [[ $option_debug == 'yes' ]]; then
+			pieces+=(--debug)
+		fi
+		if [[ $option_trace == 'yes' ]]; then
+			pieces+=(--trace)
+		fi
+		option_cmd=("${pieces[@]}" -- "${option_cmd[@]}")
+	fi
+
+	# determine bash version, so we can know if BASH_XTRACEFD is supported
+	local stderr_unable_reason=''
+	if [[ $option_debug == 'yes' ]]; then
+		local bash_version_major bash_version_minor
+		function __get_bash_binary_version {
+			debug_bash --bash="$1" -c 'printf "%s\n" "${BASH_VERSINFO[@]}"' || return $?
+		}
+		if [[ -n $option_bash ]]; then
+			local versions=()
+			__split --target={versions} --no-zero-length --invoke -- \
+				__get_bash_binary_version "$option_bash"
+			if [[ ${#versions[@]} -lt 2 ]]; then
+				__print_style --error="Unable to determine bash version from $option_bash"
+				return 1
+			fi
+			bash_version_major="${versions[0]}"
+			bash_version_minor="${versions[1]}"
+		else
+			# trunk-ignore(shellcheck/SC2153)
+			bash_version_major="$BASH_VERSION_MAJOR"
+			# trunk-ignore(shellcheck/SC2153)
+			bash_version_minor="$BASH_VERSION_MINOR"
+		fi
+		if ! [[ $bash_version_major -ge 5 || $bash_version_major -eq 4 && $bash_version_minor -ge 1 ]]; then
+			stderr_unable_reason='Unable to validate stderr, as it will be filled with debugging output.'
 		fi
 	fi
 
 	# =====================================
 	# Action
 
+	local FAIL='no'
+	function __element {
+		local label="$1" style="$2" value="$3"
+		if [[ -n $value ]]; then
+			__print_style --"$style"+element="$label" --newline --="$value" --newline --"$style"+/element="$label" || return 223 # ECUSTOM 223 Tests broken
+		else
+			__print_style --"$style"+element/="$label" --commentary-empty || return 223 # ECUSTOM 223 Tests broken
+		fi
+	}
+	function __escaped_element {
+		local label="$1" style="$2" value="$3" escaped
+		if [[ -n $value ]]; then
+			printf -v escaped '%q' "$value" || return $?
+			__element "$label escaped" "$style" "$escaped" || return $?
+		else
+			__print_style --"$style"+element/="$label escaped" --commentary-empty || return 223 # ECUSTOM 223 Tests broken
+		fi
+	}
+	function __compare {
+		local name="$1" actual="$2" expected="$3"
+		if [[ $option_quiet == 'no' && $name == 'STATUS' ]]; then
+			__print_line || return 223 # ECUSTOM 223 Tests broken
+		fi
+		if [[ $name == 'STDERR' && -n $stderr_unable_reason ]]; then
+			__print_style --stderr --notice="$stderr_unable_reason" || return 223 # ECUSTOM 223 Tests broken
+		elif [[ $name == 'STATUS' ]]; then
+			if [[ $expected == "$ignore_value" ]]; then
+				__print_style --note="${name} is IGNORED [$actual]" || return 223 # ECUSTOM 223 Tests broken
+			elif [[ $actual == "$expected" ]]; then
+				__print_style --success="${name} is EXPECTED [$expected]" || return 223 # ECUSTOM 223 Tests broken
+			else
+				__print_style --error="${name} [$actual] is NOT EXPECTED [$expected]" || return 223 # ECUSTOM 223 Tests broken
+			fi
+		elif [[ $expected == "$ignore_value" ]]; then
+			__print_style --note="${name} is IGNORED" || return 223 # ECUSTOM 223 Tests broken
+			if [[ $option_quiet == 'no' ]]; then
+				if ! __is_shapeshifter -- "$actual"; then
+					__element "$name" blue "$actual" || return $?
+				fi
+				if [[ $actual =~ [[:cntrl:]] ]]; then
+					__escaped_element "$name" blue "$actual" || return $?
+				fi
+			fi
+		else
+			if [[ $actual == "$expected" ]]; then
+				__print_style --success="${name} is EXPECTED" || return 223 # ECUSTOM 223 Tests broken
+				if [[ $option_quiet == 'no' ]]; then
+					if ! __is_shapeshifter -- "$actual"; then
+						__element "$name" green "$actual" || return $?
+					fi
+					if [[ $actual =~ [[:cntrl:]] ]]; then
+						__escaped_element "$name" green "$actual" || return $?
+					fi
+				fi
+			else
+				__print_style --error="${name} is NOT EXPECTED" || return 223 # ECUSTOM 223 Tests broken
+				if ! __is_shapeshifter -- "$actual$expected"; then
+					__element "actual $name" red "$actual" || return $?
+					__element "expected $name" red "$expected" || return $?
+				fi
+				if [[ $actual$expected =~ [[:cntrl:]] ]]; then
+					__escaped_element "actual $name" red "$actual" || return $?
+					__escaped_element "expected $name" red "$expected" || return $?
+				fi
+				local diff actual_file expected_file
+				actual_file="$(fs-temp --directory='dorothy' --directory='eval-tester' --file)" || return 223 # ECUSTOM 223 Tests broken
+				expected_file="$actual_file.expected"
+				actual_file="$actual_file.actual"
+				__print_string "$actual" >"$actual_file" || return 223     # ECUSTOM 223 Tests broken
+				__print_string "$expected" >"$expected_file" || return 223 # ECUSTOM 223 Tests broken
+				diff="$(fs-diff --unchanged --before="$actual_file" --after="$expected_file" || :)"
+				__element "diff $name" red "$diff" || return $?
+			fi
+		fi
+		if [[ $option_quiet == 'no' && $name != 'TTY' ]]; then
+			__print_line || return 223 # ECUSTOM 223 Tests broken
+		fi
+	}
+
 	# run the command
-	local args=() cmd_status stdout stderr cmd_string fail='no' title='' using_tty_stderr_fallback='no'
-	cmd_string="$(echo-quote -- "${cmd[@]}" | echo-join ' ' --stdin)"
-	if ! is-tty; then
-		using_tty_stderr_fallback='yes'
-	fi
-	if test -n "$option_name"; then
-		title="$option_name: $cmd_string"
+	local args=() cmd_string title=''
+	cmd_string="$(echo-escape-command -- "${option_cmd[@]}")"
+	if [[ -n $option_name ]]; then
+		title="$option_name" # no longer need to append cmd_string as we always output it now via the element wrap later
 	else
 		title="$cmd_string"
 	fi
-	if test -n "$option_status" -a "$option_status" != "$ignore_option"; then
-		args+=('--statusvar=cmd_status')
-	fi
-	if test "$option_stdout" != "$ignore_option"; then
-		args+=('--stdoutvar=stdout')
+
+	# file descriptor magic
+	local semaphores_status=() semaphore_tty_content semaphore_tty_status
+	semaphore_tty_content="$(__get_semaphore "$(__get_context_id 'eval-tester' 'tty' 'content' || :)")"
+	semaphore_tty_status="$(__get_semaphore "$(__get_context_id 'eval-tester' 'tty' 'status' || :)")"
+	semaphores_status+=("$semaphore_tty_status")
+	local TERMINAL_OUTPUT_TARGET__original="$TERMINAL_OUTPUT_TARGET"
+	export TERMINAL_OUTPUT_TARGET # from bash.bash but not exported
+	local reader
+	if [[ $BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
+		# Bash v4.2 has a bug where closing a file descriptor does not close the input to the file descriptor's process substitution, as such we have to send a terminating character ourself and handle that ourself.
+		reader='__cat_until'
 	else
-		args+=('--no-stdout')
+		reader='cat'
 	fi
-	if test "$option_debug" = 'yes' -o "$using_tty_stderr_fallback" = 'yes'; then
-		: # allow stdderr to go directly to stderr
-	elif test "$option_stderr" != "$ignore_option"; then
-		args+=('--stderrvar=stderr')
+	__open_fd {TERMINAL_OUTPUT_TARGET} '>' >(
+		set +e
+		if [[ $option_output_tty == 'no' ]]; then
+			"$reader" >"$semaphore_tty_content"
+		else
+			__do --copy-stdout="$semaphore_tty_content" --redirect-stdout="$TERMINAL_OUTPUT_TARGET__original" -- "$reader"
+		fi
+		printf '%s' "$?" >"$semaphore_tty_status"
+	)
+	# capture
+	local command_string time_before time_after actual_exit_status actual_stdout actual_stderr actual_tty
+	args+=(
+		--trailing-newlines="$option_trailing_newlines"
+		--redirect-status={actual_exit_status}
+	)
+	if [[ $option_output_stdout == 'no' ]]; then
+		args+=(--redirect-stdout={actual_stdout})
 	else
-		args+=('--no-stderr')
+		args+=(--copy-stdout={actual_stdout})
 	fi
-	echo-segment --h3="$title"
-	eval_capture "${args[@]}" -- "${cmd[@]}"
+	if [[ $option_output_stderr == 'no' ]]; then
+		args+=(--redirect-stderr={actual_stderr})
+	else
+		args+=(--copy-stderr={actual_stderr})
+	fi
+	command_string="$(echo-escape-command -- "${option_cmd[@]}")"
+	__print_style --h2="$title" --newline --element+bold="$command_string"
+	time_before="$(__get_epoch_time)"
+	# __eval_helper --quiet="$option_quiet" --wrap <-- if this is done, element rendering, quite mode, and time duration can all be moved to eval-helper
+	__do "${args[@]}" -- "${option_cmd[@]}"
+	time_after="$(__get_epoch_time)"
+	if [[ $BASH_CLOSURE_OF_FILE_DESCRIPTOR_CLOSES_THE_STDIN_OF_ITS_PROCESS_SUBSTITUTION == 'no' ]]; then
+		__value_to_target $'\004' "$TERMINAL_OUTPUT_TARGET"
+	fi
+	__close_fd {TERMINAL_OUTPUT_TARGET}
+	TERMINAL_OUTPUT_TARGET="$TERMINAL_OUTPUT_TARGET__original"
+	__print_style --/element+bold="$command_string"
+	__wait_for_and_return_semaphores "${semaphores_status[@]}"
+	__wait_for_semaphores "$semaphore_tty_content"
+	if [[ $option_trailing_newlines == 'no' ]]; then
+		actual_tty="$(<"$semaphore_tty_content")"
+	else
+		local REPLY
+		__read_whole <"$semaphore_tty_content"
+		actual_tty="$REPLY"
+	fi
+	rm -f -- "$semaphore_tty_content"
 
-	# test exit code
-	if test -n "$option_status" -a "$option_status" != "$ignore_option"; then
-		if test "$option_status" -ne "$cmd_status"; then
-			fail='yes'
-			echo-style --red="Actual Exit Code [$cmd_status]  !=  Expected Exit Code [$option_status]"
-		else
-			echo-style --green="Actual Exit Code [$cmd_status]  ==  Expected Exit Code [$option_status]"
-		fi
+	# determine if we fail, then we can decide what we are outputting
+	# do not put the next line as two lines, as that confuses the linting
+	if [[ ($option_status != "$ignore_value" && $actual_exit_status -ne $option_status) ||
+		($option_stdout != "$ignore_value" && $actual_stdout != "$option_stdout") ||
+		($option_stderr != "$ignore_value" && $actual_stderr != "$option_stderr") ||
+		($option_tty != "$ignore_value" && $actual_tty != "$option_tty") ]]; then
+		FAIL='yes'
+		option_quiet='no'
 	fi
 
-	# test stdout
-	if test "$option_stdout" != "$ignore_option"; then
-		if test "$option_stdout" != "$stdout"; then
-			fail='yes'
-			echo-style --red="Actual Stdout  !=  Expected Stdout" $'\n' \
-				--h3='< actual stdout>' $'\n' \
-				"$stdout" $'\n' \
-				--h3='</ actual stdout>' $'\n' \
-				--h3='< expected stdout>' $'\n' \
-				"$option_stdout" $'\n' \
-				--h3='</ expected stdout>'
-		else
-			echo-style --green="Actual Stdout  ==  Expected Stdout"
-		fi
-	fi
-
-	# test stderr
-	if test "$option_stderr" != "$ignore_option"; then
-		if test "$option_debug" = 'yes'; then
-			echo-style --notice='Unable to test stderr, as debugging.'
-		elif test "$using_tty_stderr_fallback" = 'yes'; then
-			echo-style --notice='Unable to test stderr, as it will be filled with TTY output.'
-		elif test "$option_stderr" != "$stderr"; then
-			fail='yes'
-			echo-style --red="Actual Stderr  !=  Expected Stderr" $'\n' \
-				--h3='< actual stderr>' $'\n' \
-				"$stderr" $'\n' \
-				--h3='</ actual stderr>' $'\n' \
-				--h3='< expected stderr>' $'\n' \
-				"$option_stderr" $'\n' \
-				--h3='</ expected stderr>'
-		else
-			echo-style --green="Actual Stderr  ==  Expected Stderr"
-		fi
+	# compare
+	if [[ $FAIL == 'yes' || $option_quiet != 'yes' ]]; then
+		__compare STATUS "$actual_exit_status" "$option_status"
+		__compare STDOUT "$actual_stdout" "$option_stdout"
+		__compare STDERR "$actual_stderr" "$option_stderr"
+		__compare TTY "$actual_tty" "$option_tty"
 	fi
 
 	# pass or fail
-	if test "$fail" = 'yes'; then
-		echo-segment --e3="$title" $'\n'
-		return 1
+	local time_duration
+	time_duration="$(echo-duration --before="$time_before" --after="$time_after" || :)"
+	if [[ $FAIL == 'yes' ]]; then
+		__print_style --e2="$title" ' ' --code="in $time_duration" $'\n'
+		return 221 # ECUSTOM 221 Tests failed
 	else
-		echo-segment --g3="$title" $'\n'
+		__print_style --g2="$title" ' ' --code="in $time_duration" $'\n'
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	eval_tester "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		eval_tester_test
+	else
+		eval_tester "$@"
+	fi
 fi

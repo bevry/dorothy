@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+
+# =====================================
+# INITIALISE
+
+SELF="${BASH_SOURCE[0]}"
+if [[ -z ${DOROTHY-} ]]; then
+	export DOROTHY
+	DOROTHY="${XDG_DATA_HOME:-"$HOME/.local/share"}/dorothy"
+	source "$DOROTHY/sources/environment.sh"
+fi
+source "$DOROTHY/sources/bash.bash"
+
+RESULT_FILE="$(fs-temp --directory='dorothy' --directory='debug-terminal' --file='debug-terminal.tsv')"
+function __render {
+	echo-json stream --stdin <"$RESULT_FILE" | echo-json table --stdin || exit 116
+}
+
+# =====================================
+# ACTION
+
+# process action
+if [[ -z $* || $1 == '--test' ]]; then
+	: >"$RESULT_FILE" # erase the result file
+	# dependencies
+	__command_required jq
+	__command_required nu
+	# run all the variations
+	"$SELF" --all "${@:2}"
+	if [[ -z $CI ]]; then
+		"$SELF" --ssh "${@:2}"
+	fi
+	__render
+	exit $?
+elif [[ $1 == '--normal' || $* == *'--no-recurse'* ]]; then
+	:
+elif [[ $1 == '--all' ]]; then
+	variations=(
+		'--normal'
+		'--background'
+		'--stdin-pipe'
+		'--stdin-redirection'
+		'--stdin-stdout-pipe'
+		'--stdin-stdout-stderr-redirection'
+		'--closed-stdin-stdout'
+		'--delayed-stdin-pipe'
+		'--delayed-stdin-redirection'
+		'--immediate-and-delayed-stdin-pipe'
+		'--immediate-and-delayed-stdin-redirection'
+	)
+	for variation in "${variations[@]}"; do
+		eval-helper --wrap --verbose -- "$SELF" "$variation" "${@:2}"
+	done
+	exit $?
+elif [[ $1 == '--ssh' ]]; then
+	ssh -T localhost "$SELF" --all --within-ssh
+	exit $?
+elif [[ $1 == '--background' ]]; then
+	"$SELF" "$@" --no-recurse &
+	wait $! # just [wait] is bash v5
+	exit $?
+elif [[ $1 == '--stdin-pipe' ]]; then
+	printf '%s\n' 1 2 3 4 5 6 7 8 9 0 | "$SELF" "$@" --no-recurse
+	exit $?
+elif [[ $1 == '--stdin-redirection' ]]; then
+	"$SELF" "$@" --no-recurse < <(printf '%s\n' 1 2 3 4 5 6 7 8 9 0)
+	exit $?
+elif [[ $1 == '--stdin-stdout-pipe' ]]; then
+	printf '%s\n' 1 2 3 4 5 6 7 8 9 0 | "$SELF" "$@" --no-recurse | cat
+	exit $?
+elif [[ $1 == '--stdin-stdout-stderr-redirection' ]]; then
+	"$SELF" "$@" --no-recurse 2> >(cat) > >(cat) < <(printf '%s\n' 1 2 3 4 5 6 7 8 9 0)
+	exit $?
+elif [[ $1 == '--closed-stdin-stdout' ]]; then
+	"$SELF" "$@" --no-recurse >&- <&- # can't close stderr, as for some reason, it hangs: 2>&-
+	# > BASH_XTRACEFD=1 debug-bash -x -- debug-terminal --closed-stdin-stdout-stderr --no-recurse 2>&-
+	exit $?
+elif [[ $1 == '--delayed-stdin-pipe' ]]; then
+	{
+		sleep 5
+		# on ci mac this returns 1, everywhere else this returns 141, and there doesn't seem to be a workaround
+		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
+	} | "$SELF" "$@" --no-recurse || __ignore_sigpipe || __ignore_exit_status 1 # this will sigpipe fail as the command will finish before the sleep finishes
+	exit $?
+elif [[ $1 == '--delayed-stdin-redirection' ]]; then
+	"$SELF" "$@" --no-recurse < <(
+		sleep 5
+		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
+	)
+	exit $?
+elif [[ $1 == '--immediate-and-delayed-stdin-pipe' ]]; then
+	{
+		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
+		sleep 5
+		# on ci mac this returns 1, everywhere else this returns 141, and there doesn't seem to be a workaround
+		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
+	} | "$SELF" "$@" --no-recurse || __ignore_sigpipe || __ignore_exit_status 1 # this will sigpipe fail as the command will finish before the sleep finishes
+	exit $?
+elif [[ $1 == '--immediate-and-delayed-stdin-redirection' ]]; then
+	"$SELF" "$@" --no-recurse < <(
+		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
+		sleep 5
+		printf '%s\n' 1 2 3 4 5 6 7 8 9 0
+	)
+	exit $?
+else
+	echo "Unknown option: $1" >&2
+	exit 22 # EINVAL 22 Invalid argument
+fi
+
+# =====================================
+# HELPERS
+
+CONTEXT="$*"
+if [[ -n $CI ]]; then
+	CONTEXT+=' --within-ci'
+fi
+__replace --optional --source+target={CONTEXT} --value='--no-recurse' --leading-whitespace --trailing-whitespace
+
+RESULTS=()
+function __check {
+	local code="$1" status=0 # stdout stderr
+	# __do --redirect-status={status} --redirect-stdout={stdout} --redirect-stderr={stderr} -- eval "$code" <-- we can't use do, as we are debugging the descriptors themselves, and do modifies them
+	eval "$code" || status=$?
+	RESULTS+=("$(
+		echo-json make -- \
+			'context' "$CONTEXT" \
+			'code' "$code" \
+			'status' "$status"
+	)") || return $?
+	# ^ jq has a weird clear line behaviour
+	# 'stdout' "$stdout" \
+	# 'stderr' "$stderr"
+}
+function __finish {
+	local semlock_file
+	semlock_file="$(__get_semlock 'debug-terminal')" || exit 113
+	__print_lines "${RESULTS[@]}" >>"$RESULT_FILE" || exit 114
+	# @todo remove need for manual semlock tracking and do: `| echo-write --append -- "$RESULT_FILE"` instead which will be updated to use a semlock
+	rm -f "$semlock_file" || exit 115
+}
+function __file {
+	[[ -e $1 ]] || return 2 # ENOENT 2 No such file or directory
+	file "$1" || return 74  # EPROGUNAVAIL 74 RPC prog. not avail
+}
+
+# =====================================
+# TESTS
+
+__check 'ls -la /proc/SELF/fd'
+__check '__file /proc/SELF/fd/0'
+__check '__file /proc/SELF/fd/1'
+__check '__file /proc/SELF/fd/2'
+
+__check 'ls -la /proc/$$/fdinfo'
+__check '__file /proc/$$/fdinfo/0'
+__check '__file /proc/$$/fdinfo/1'
+__check '__file /proc/$$/fdinfo/2'
+
+__check 'ls -la /dev/fd'
+__check '__file /dev/fd/0'
+__check '__file /dev/fd/1'
+__check '__file /dev/fd/2'
+
+__check 'ls -la /dev/pts'
+__check '__file /dev/pts/0'
+__check '__file /dev/pts/1'
+__check '__file /dev/pts/2'
+
+__check '__file /dev/stdin'
+__check '__file /dev/stdout'
+__check '__file /dev/stderr'
+__check '__file /dev/tty'
+
+# __check 'printf [%s] $SSH_CONNECTION'
+# __check 'printf [%s] $SSH_CLIENT'
+# __check 'printf [%s] $SSH_TTY'
+
+# stdin can be output and input depending, whereas the rest in practice are only output
+__check '(: </dev/stdin >/dev/stdin)'
+__check '(: </dev/stdin)'
+__check '(: >/dev/stdin)'
+__check '(: </dev/stdout >/dev/stdout)'
+__check '(: </dev/stdout)'
+__check '(: >/dev/stdout)'
+__check '(: </dev/stderr >/dev/stderr)'
+__check '(: </dev/stderr)'
+__check '(: >/dev/stderr)'
+__check '(: </dev/tty >/dev/tty)'
+__check '(: </dev/tty)'
+__check '(: >/dev/tty)'
+
+# True if FD is opened on a terminal.
+__check '[[ -t 0 ]]'
+__check '[[ -t 1 ]]'
+__check '[[ -t 2 ]]'
+
+# True if file is a named pipe.
+__check '[[ -p /dev/stdin ]]'
+__check '[[ -p /dev/stdout ]]'
+__check '[[ -p /dev/stderr ]]'
+__check '[[ -p /dev/tty ]]' # This is always false
+
+# True if file is character special.
+__check '[[ -c /dev/stdin ]]'
+__check '[[ -c /dev/stdout ]]'
+__check '[[ -c /dev/stderr ]]'
+__check '[[ -c /dev/tty ]]'
+
+# True if file is block special.
+# These are always false
+# __check '[[ -b /dev/stdin ]]'
+# __check '[[ -b /dev/stdout ]]'
+# __check '[[ -b /dev/stderr ]]'
+# __check '[[ -b /dev/tty ]]'
+
+# True if file is readable by you.
+__check '[[ -r /dev/stdin ]]'
+__check '[[ -r /dev/stdout ]]'
+__check '[[ -r /dev/stderr ]]'
+__check '[[ -r /dev/tty ]]'
+
+# True if file is writable by you.
+__check '[[ -w /dev/stdin ]]'
+__check '[[ -w /dev/stdout ]]'
+__check '[[ -w /dev/stderr ]]'
+__check '[[ -w /dev/tty ]]'
+
+# True if data is already available for reading.
+__check 'read -t 0 </dev/stdin'
+__check 'read -t 0 </dev/stdout' # This is always false
+__check 'read -t 0 </dev/stderr' # This is always false
+__check 'read -t 0 </dev/tty'    # This is always false, but perhaps, if we preload some data, it will work
+
+function __get_terminal_size {
+	if [[ -n ${BASH_SUBSHELL-} && $BASH_SUBSHELL -ne 0 ]]; then
+		return 76 # EPROCUNAVAIL 76 Bad procedure for program
+	else
+		# checkwinsize: If set, Bash checks the window size after each external (non-builtin) command and, if necessary, updates the values of LINES and COLUMNS. This option is enabled by default.
+		shopt -s checkwinsize || return 115
+		(:) # noop subshell which updates LINES and COLUMNS
+		if [[ -n ${LINES-} && -n ${COLUMNS-} ]]; then
+			printf "%s\n" "$LINES" "$COLUMNS" || :
+			return 0
+		else
+			return 116
+		fi
+	fi
+}
+__check '__get_terminal_size'
+
+function __get_terminal_cursor_position {
+	local input_device_file="$1" line column
+	IFS='[;' read -t 2 -srd R -p $'\e[6n' _ line column <"$input_device_file" || return 117
+	if [[ -n ${line-} && -n ${column-} ]]; then
+		printf "%s\n" "$line" "$column" || :
+		return 0
+	else
+		return 118
+	fi
+}
+
+__check '__get_terminal_cursor_position /dev/stdin'
+__check '__get_terminal_cursor_position /dev/stdout'
+# on the CI arm runners, this stderr read never times out, and goes forever
+# https://github.com/bevry/dorothy/actions/runs/17858215146/job/50782141605
+if [[ -z $CI ]]; then
+	__check '__get_terminal_cursor_position /dev/stderr'
+	if [[ $IS_TTY_AVAILABLE == 'yes' ]]; then
+		__check '__get_terminal_cursor_position /dev/tty'
+	fi
+fi
+
+# function __get_terminal_theme {
+# 	local input_device_file="$1" original_tty_settings REPLY=''
+# 	original_tty_settings="$(stty -g || :)"
+# 	stty raw -echo || return 1
+# 	read -n 24 -t 1 -rsp $'\e]11;?\a' <"$input_device_file" || return 1
+# 	stty "$original_tty_settings" || return 1
+# 	if [[ -n $REPLY ]]; then
+# 		printf "%s\n" "$REPLY"
+# 		return 0
+# 	else
+# 		return 1
+# 	fi
+# }
+# __check '__get_terminal_theme /dev/stdin'
+# __check '__get_terminal_theme /dev/stdout'
+# __check '__get_terminal_theme /dev/stderr'
+# __check '__get_terminal_theme /dev/tty'
+
+__finish

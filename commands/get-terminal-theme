@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# trunk-ignore-all(shellcheck/SC2162)
+
+function get_terminal_theme_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- get-terminal-theme --help
+)
 
 function get_terminal_theme() (
 	source "$DOROTHY/sources/bash.bash"
@@ -8,68 +12,173 @@ function get_terminal_theme() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get whether the terminal is light or dark.
+			Get whether the terminal is \`light\` or \`dark\`.
 
 			USAGE:
-			get-terminal-theme [...options]
+			\`get-terminal-theme [...options]\`
 
 			OPTIONS:
-			--refresh-cache
-			    Clear the cache, and fetch the terminal theme.
-
-			--clear-cache
-			    Only clear the cache, do not fetch the terminal theme.
-
-			--fallback=<light|dark|>
+			--fallback=<light|dark> | --no-fallback
 			    If a theme cannot be determined, use this instead.
-			    Defaults to [dark]
+			    Fallback is not written to cache.
+			    Defaults to \`dark\`.
+
+			--cache=<prefer|refresh|only|ignore|clear>
+			    If \`prefer\` or \`default\`:
+			        Fetch the terminal theme from the cache.
+			        If fetching from the cache is unsuccessful, fetch the terminal theme anew.
+			        If fetching anew is successful, update the cache.
+			        If fetching anew is unsuccessful, use <fallback>.
+			    If \`refresh\`:
+			        Fetch the terminal theme anew.
+			        If fetching anew is successful, update the cache
+			        If fetching anew is unsuccessful, use <fallback>.
+			    If \`only\`:
+			        Fetch the terminal theme from the cache.
+			        If fetching from the cache is unsuccessful, use <fallback>.
+			    If \`ignore\`:
+			        Fetch the terminal theme anew.
+			        If fetching anew is successful, do not update the cache.
+			        If fetching anew is unsuccessful, use <fallback>.
+			    If \`clear\`:
+			        Do not fetch the terminal theme at all, only clear the cache.
+
+			RETURNS:
+			[1] if the terminal theme could not be determined, and \`--no-fallback\` is used.
 		EOF
-		if test "$#" -ne 0; then
-			printf '%s\n' '' 'ERROR:' "$@" # don't get echo-style, as echo-style uses this
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_fallback='dark' option_clear_cache='no' option_refresh_cache='no'
-	while test "$#" -ne 0; do
+	local item option_fallback='dark' option_cache='prefer'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--refresh-cache') option_refresh_cache='yes' ;;
-		'--clear-cache') option_clear_cache='yes' ;;
-		'--fallback='*) option_fallback="${item#*--fallback=}" ;;
+		'--cache=default' | '--cache=prefer') option_cache='prefer' ;;
+		'--cache=refresh' | '--refresh-cache') option_cache='refresh' ;;
+		'--cache=only' | '--only-cache') option_cache='only' ;;
+		'--cache=clear' | '--clear-cache') option_cache='clear' ;;
+		'--no-cache' | '--cache=ignore' | '--cache=no' | '--ignore-cache') option_cache='ignore' ;;
+		'--fallback='*) option_fallback="${item#*=}" ;;
 		'--no-fallback') option_fallback='' ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	if test "$option_fallback" != 'dark' -a "$option_fallback" != 'light' -a -n "$option_fallback"; then
-		help "Invalid fallback theme [$option_fallback] must either be empty, light, or dark"
+	# validate fallback
+	if ! [[ -z $option_fallback || $option_fallback =~ ^(light|dark)$ ]]; then
+		help 'The provided ' --code='--fallback=' --variable-value={option_fallback} ' is invalid, its must be either empty, light, or dark.'
 	fi
 
 	# =====================================
-	# Action
+	# Prepare
 
-	# prepare cache
-	local cache_file
-	cache_file="$(fs-temp --file='terminal-theme')"
+	local theme='' root result_path='' failure_path='' term="${TERM_PROGRAM:-"$TERM"}" request_read_args=()
+	# printf '%s\n' "TERM_PROGRAM=${TERM_PROGRAM-} TERM=${TERM-}" >&2
+	# if invalid or dodgy term, then mark as invalid
+	if [[ -z $term ]] && ! [[ $term =~ ^[a-zA-Z_.-]+$ ]]; then
+		term='invalid'
+	fi
+	case "$term" in
+	# ignore invalid entries
+	invalid) : ;;
+
+	# Alacritty
+	# TERM_PROGRAM= TERM=alacritty
+	# dark: $'REPLY=\E]11;rgb:1818/1818/1818\a'
+	alacritty) request_read_args+=(-n 24) ;;
+
+	# macOS Terminal
+	# TERM_PROGRAM=Apple_Terminal TERM=xterm-256color
+	# dark: $'REPLY=\E]11;rgb:1e1e/1e1e/1e1e\a'
+	Apple_Terminal) request_read_args+=(-n 24) ;;
+
+	# contour
+	# TERM_PROGRAM= TERM=contour
+	# dark: REPLY={FAILS}
+	contour) : ;;
+
+	# cool-retro-term
+	# TERM_PROGRAM= TERM=xterm
+	# dark: COLORFGBG=15;0 REPLY={FAILS}
+	xterm) : ;;
+
+	# ExtratermQt
+	# Windows Terminal (WSL2 Ubuntu)
+	# TERM_PROGRAM= TERM=xterm-256color
+	# dark: {FAILS TO IDENTIFY AS TTY}
+	xterm-256color) : ;;
+
+	# Ghostty
+	# TERM_PROGRAM=ghostty TERM=xterm-ghostty
+	# dark: $'REPLY=\E]11;rgb:1919/1313/2323\a'
+	# light: $'REPLY=\E]11;rgb:f7f7/f7f7/f7f7\a'
+	ghostty) request_read_args+=(-n 24) ;;
+
+	# Hyper
+	# TERM_PROGRAM=Hyper TERM=xterm-256color
+	# dark: $'REPLY=\E]11;rgb:0000/0000/0000\E\\'
+	Hyper) request_read_args+=(-n 25) ;;
+
+	# iTerm
+	# TERM_PROGRAM=iTerm.app TERM=xterm-256color
+	# dark: COLORFGBG=15;0 $'REPLY=\E]11;rgb:158e/193a/1e75\E\\'
+	# light: COLORFGBG=0;15 $'REPLY=\E]11;rgb:fffe/ffff/ffff\E\\'
+	iTerm.app) request_read_args+=(-n 25) ;;
+
+	# Kitty
+	# TERM_PROGRAM= TERM=xterm-kitty
+	# dark: $'REPLY=\E]11;rgb:0000/0000/0000\E\\'
+	kitty) request_read_args+=(-n 25) ;;
+
+	# Rio
+	# TERM_PROGRAM=rio TERM=xterm-256color
+	# dark: $'REPLY=\E]11;rgb:0000/0000/0000\a'
+	rio) request_read_args+=(-n 25) ;;
+
+	# Tabby
+	# TERM_PROGRAM=Tabby TERM=xterm-256color
+	# dark: REPLY={FAILS}
+	Tabby) : ;;
+
+	# Visual Studio Code
+	# TERM_PROGRAM=vscode TERM=xterm-256color
+	# dark: $'REPLY=\E]11;rgb:0101/0404/0909\E\\'
+	vscode) request_read_args+=(-n 25) ;;
+
+	# Warp
+	# TERM_PROGRAM=WarpTerminal TERM=xterm-256color
+	# dark: $'REPLY=\E]11;rgb:0000/0000/0000\a'
+	warp) request_read_args+=(-n 24) ;;
+
+	# anything else, hope for the best with $'\a'
+	*) request_read_args+=(-d $'\a') ;;
+	esac
 
 	# if clearing cache, only clear cache
-	if test "$option_clear_cache" = 'yes' -o "$option_refresh_cache" = 'yes'; then
-		if test -f "$cache_file"; then
-			rm "$cache_file"
-		fi
-		if test "$option_clear_cache" = 'yes'; then
+	if [[ $option_cache != 'ignore' ]]; then
+		root="$(fs-temp --directory='dorothy' --directory='get-terminal-theme')"
+		result_path="$root/$term.result"
+		failure_path="$root/$term.failed"
+		if [[ $option_cache =~ 'clear' ]]; then
+			rm -f -- "$result_path" "$failure_path"
 			return 0
+		elif [[ $option_cache != 'refresh' && -f $result_path ]]; then
+			cat -- "$result_path"
+			return 0
+		elif [[ $option_cache == 'only' ]]; then
+			if [[ -n $option_fallback ]]; then
+				__print_lines "$option_fallback"
+				return 0
+			else
+				return 1
+			fi
 		fi
-	elif test -f "$cache_file"; then
-		cat "$cache_file"
-		return 0
 	fi
 
 	# on macos, one can do this:
@@ -78,106 +187,169 @@ function get_terminal_theme() (
 	# 5310, 8279, 11815
 	# however that prompts the user if they want to allow terminal to access system events
 
-	# methods
-	local theme=''
-	function get_theme_via_fallback {
-		if test -n "$option_fallback"; then
+	# =================================
+	# Techniques
+
+	function __get_theme_via_fallback {
+		if [[ -n $option_fallback ]]; then
 			theme="$option_fallback"
+			return 0
 		fi
+		return 1
 	}
-	function get_theme_via_theme_env_var {
-		if [[ ${THEME-} =~ light|dark ]]; then
+
+	function __get_theme_via_theme_env_var {
+		if [[ ${THEME-} =~ ^(light|dark)$ ]]; then
 			theme="$THEME"
+			return 0
 		fi
+		return 1
 	}
-	function get_theme_via_uname {
+
+	function __get_theme_via_uname {
 		# if there are linux distros that don't have a dark theme, then this will need to be updated
-		if is-linux; then
+		if __is_linux; then
 			theme='dark'
+			return 0
 		fi
+		return 1
 	}
-	function get_theme_via_colorfgbg_env_var {
-		if test -n "${COLORFGBG-}"; then
+
+	function __get_theme_via_colorfgbg_env_var {
+		if [[ -n ${COLORFGBG-} ]]; then
 			# COLORFGBG contains segments of ANSI colors:
+			# 15;0 - Foreground color code 15, background color code 0.
+			# 0;15 - Foreground color code 0, background color code 15.
 			# 12;8 — Foreground color code 12 and background color code 8.
-			# 1;15;10 — Foreground color code 1, background color code 15, and alternate background color code 10.
 			# 7;0 — Foreground color code 7 and background color code 0.
+			# 1;15;10 — Foreground color code 1, background color code 15, and alternate background color code 10.
 			# 15;default;0 — Foreground color code 15, background color code default, and alternate background color code 0.
 			# default;default — Foreground color code default and background color code default.
 			# ANSI colors are 0-15, in which 7 and 15 are light grey, and 9-15 are light colors.
-			local bg="$COLORFGBG"
-			if test -n "$bg"; then
-				bg="${bg##*;}" # trim everything prior to the last ;
-				if test "$bg" = 'default' || test "$bg" -le 6 -o "$bg" -eq 8; then
-					theme='light'
-				else
-					theme='dark'
-				fi
-			fi
+			local bg="${COLORFGBG##*;}" # trim everything prior to the last ;
+			# printf '%s\n' "COLORFGBG=$COLORFGBG bg=$bg" >&2
+			if [[ $bg =~ ^(0|1|2|3|4|5|6|8)$ ]]; then
+				theme='dark'
+				return 0
+			elif [[ $bg =~ ^(7|9|10|11|12|13|14|15)$ ]]; then
+				theme='light'
+				return 0
+			fi # else unknown
 		fi
+		return 1
 	}
-	function get_theme_via_ansi_tty_query {
-		# If the background color is `ba1a2b3c` the read will return `1a74/2b98/3cb6`
-		local _ color='' r g b l
-		# stdin+stderr must be readable+writable for the read to work, but we can't check silently, as failures are noisey, and silencing the failures causes them to close: https://gist.github.com/balupton/6eee015345c663d7d7baf83d8e20ce1f so just note in this comment
-		# as terminal theme is really only important for TTY use cases, use is-tty, this also solves vscode unable to ssh session into a machine
-		if is-tty; then
-			#  </dev/tty is used to ensure data = book in this example (don't need >/dev/tty as -s flag prevents output):
-			# echo 'book' | {
-			# 	IFS=: read -s -t 1 -d $'\a' -p $'\e]11;?\a' _ color </dev/tty;
-			# 	read -t 1 data
-			# 	echo data = $data
-			# }
-			#
-			# use a timeout of 1 seconds, as 0.01 is too slow for vscode tunnels, which causes the respond to be to tty and not captured, causing a false guess to them... as [get-terminal-theme] now has a cache, the larger timeout is not a big deal
-			IFS=: read -s -t 1 -d $'\a' -p $'\e]11;?\a' _ color </dev/tty || :
-			if test -n "$color"; then
-				# Fetch the first two characters of [1a]74/[2b]98/[3c]b6 which is our color, and convert from hexadecimal to decimal
+
+	function __get_theme_via_ansi_tty_query {
+		# stdin+stderr must be readable+writable for the read to work, but we can't check silently, as failures are noisy, and silencing the failures causes them to close: https://gist.github.com/balupton/6eee015345c663d7d7baf83d8e20ce1f so just note in this comment
+		# as terminal theme is really only important for TTY use cases, detecting TTY support solves vscode unable to ssh session into a machine
+		if [[ -n $TERMINAL_THEME_INPUT_TARGET ]]; then
+			# if term was invalid, skip this
+			if [[ ${#request_read_args[@]} -eq 0 ]]; then
+				return 1
+			fi
+
+			# for why we construct it the way we do
+			# use [-rn 25] to exit early if we got what we wanted, -r needed to capture everything otherwise [-n 24] is needed to exit early and the \x01 silently leaks
+			# use [-s] to prevent any output leakage, making both [&>/dev/null] irrelevant
+			# use [-t 1] with [-d ''] to exit eventually if we don't get what we want
+			# delim of $'\a', '', $'\001', '$\x01' all same result on macos, note $'\001' = $'\x01'
+			# delim of $'\e' and anything else that is in the response, will fail, as it only reads up to this then the rest leaks
+			# use [-t 1] as 0.01 is too slow for vscode tunnels, which a lower timeout would cause the response to come later and as such go to TTY,
+			# this slow timeout is fine as we cache
+			# use [</dev/tty] to ensure [book=book] in this example:
+			# printf '%s\n' 'book' | { read -t 1 -d '' -rn 25 -sp $'\e]11;?\a' </dev/tty; read -t 1; printf '%s\n' "book=$REPLY"; }
+
+			# send and read the ANSI TTY query
+			local request=$'\e]11;?\a' original_tty_settings REPLY
+			# prevent response leaking if it happened outside our read
+			original_tty_settings="$(stty -g)"
+			stty raw -echo || :
+			# rather than [printf '%s' "$request"], instead send the request as part of our read, increasing the chance read captures the response
+			# execute our request and receive the response
+			read "${request_read_args[@]}" -t 1 -rsp "$request" <"$TERMINAL_THEME_INPUT_TARGET" || :
+			# restore the terminal settings
+			stty "$original_tty_settings"
+			# printf '%q\n' "REPLY=$REPLY" >&2
+
+			# extract only the color from it
+			local color
+			color="$REPLY"
+			color="${color##*rgb:}"  # trim everything after the last [rgb:] in case there are multiple
+			color="${color%%$'\e'*}" # trim everything before the last [\e] or [\a] in case there are multiple
+			color="${color%%$'\a'*}" # trim everything before the last [\e] or [\a] in case there are multiple
+			# printf '%q\n' "COLOR=$color" >&2 # COLOR=0101/0404/0909
+			if [[ -n $color ]]; then
+				# If the background color is `ba1a2b3c` the colour response is `1a74/2b98/3cb6`
+				# In which the first two characters of each segment is our colour, so extract them `[1a]74/[2b]98/[3c]b6``
 				# For what the latter two characters are, no one seems to know: https://unix.stackexchange.com/q/754952/50703
+				# 00 = 0 = black
+				# FF = 255 = white
+				local r g b
 				r=$((16#${color:0:2}))  # 1a => 26
 				g=$((16#${color:5:2}))  # 2b => 43
 				b=$((16#${color:10:2})) # 3c => 60
 
 				# Figure out the lightness from HSL
+				local max min l
 				max=$((r > g ? (r > b ? r : b) : (g > b ? g : b)))
 				min=$((r < g ? (r < b ? r : b) : (g < b ? g : b)))
 				l=$(((max + min) * 50 / 255))
 
 				# Is the lightness dark or light?
-				if ((l < 50)); then
+				if ((l >= 0 && l <= 50)); then
 					theme='dark'
-				else
+					return 0
+				elif ((l > 50 && l <= 100)); then
 					theme='light'
+					return 0
 				fi
 			fi
 		fi
+		return 1
 	}
 
-	local method methods=(
-		# this is always accurate, as is intentional
-		get_theme_via_theme_env_var
-		# this should be accurate if we parse it correctly
-		get_theme_via_colorfgbg_env_var
-		# this should be accurate, as is from experience
-		get_theme_via_uname
-		# this is accurate, but has the side effect of reading the TTY (has delay, can trim input from other readers)
-		get_theme_via_ansi_tty_query
-		# the fallback
-		get_theme_via_fallback
-	)
-	for method in "${methods[@]}"; do
-		"$method"
-		if test -n "$theme"; then
-			tee "$cache_file" <<<"$theme"
-			return 0
-		fi
-	done
+	# =================================
+	# Action
 
-	# no successful method
+	# this is always accurate, as is intentional
+	if __get_theme_via_theme_env_var; then
+		__print_lines "$theme"
+		return 0
+	fi
+
+	# check if [term] has failed before, if it has, then skip it
+	if [[ -n $failure_path && -e $failure_path ]]; then
+		__get_theme_via_fallback
+		return $?
+	fi
+
+	# this should be accurate if we parse it correctly
+	if __get_theme_via_colorfgbg_env_var || __get_theme_via_uname || __get_theme_via_ansi_tty_query; then
+		if [[ $option_cache == 'ignore' ]]; then
+			# output
+			__print_lines "$theme"
+		else
+			# save and output
+			tee -- "$result_path" <<<"$theme"
+		fi
+		return 0
+	fi
+
+	# fetching failed, note not to try with that term again
+	if [[ -n $failure_path ]]; then
+		touch -- "$failure_path"
+	fi
+
+	# finally, try the fallback
+	__get_theme_via_fallback
 	return 1
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	get_terminal_theme "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		get_terminal_theme_test
+	else
+		get_terminal_theme "$@"
+	fi
 fi

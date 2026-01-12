@@ -4,6 +4,11 @@
 # https://apple.stackexchange.com/a/326863/15131
 # https://stackoverflow.com/a/39208361/130638
 
+function macos_theme_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- macos-theme --help
+)
+
 function macos_theme() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -22,113 +27,116 @@ function macos_theme() (
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Applies your theme preference to macOS, VSCode, and Wallpaper.
 
 			USAGE:
-			macos-theme <light|dark>
+			\`macos-theme <light|dark>\`
 
-			CONFIGURATION [theme.bash]:
-			WALLPAPER_DIRECTORY_LIGHT = $WALLPAPER_DIRECTORY_LIGHT
-			WALLPAPER_DIRECTORY_DARK = $WALLPAPER_DIRECTORY_DARK
-			VSCODE_SETTINGS_FILE = $VSCODE_SETTINGS_FILE
-			VSCODE_THEME_LIGHT = $VSCODE_THEME_LIGHT
-			VSCODE_THEME_DARK = $VSCODE_THEME_DARK
+			CONFIGURATION:
+			Your \`theme.bash\` user configuration file:
+			$(__dump {WALLPAPER_DIRECTORY_LIGHT} {WALLPAPER_DIRECTORY_DARK} {VSCODE_SETTINGS_FILE} {VSCODE_THEME_LIGHT} {VSCODE_THEME_DARK} || :)
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item theme=''
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--help' | '-h') __help ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$theme"; then
+			if [[ -z $theme ]]; then
 				theme="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				__help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
+	# assert compatibility
+	if ! __is_macos; then
+		__help 'This command is only purposeful on macOS, which you are not running.' || :
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
+
 	# check
-	if test -z "$WALLPAPER_DIRECTORY_LIGHT" -o ! -d "$WALLPAPER_DIRECTORY_LIGHT"; then
-		help "Missing directory [WALLPAPER_DIRECTORY_LIGHT] = [$WALLPAPER_DIRECTORY_LIGHT]"
+	if [[ -z $WALLPAPER_DIRECTORY_LIGHT || ! -d $WALLPAPER_DIRECTORY_LIGHT ]]; then
+		__help 'Missing directory ' --variable={WALLPAPER_DIRECTORY_LIGHT}
 	fi
-	if test -z "$WALLPAPER_DIRECTORY_DARK" -o ! -d "$WALLPAPER_DIRECTORY_DARK"; then
-		help "Missing directory [WALLPAPER_DIRECTORY_DARK] = [$WALLPAPER_DIRECTORY_DARK]"
+	if [[ -z $WALLPAPER_DIRECTORY_DARK || ! -d $WALLPAPER_DIRECTORY_DARK ]]; then
+		__help 'Missing directory ' --variable={WALLPAPER_DIRECTORY_DARK}
 	fi
-	if test -z "$VSCODE_SETTINGS_FILE" -o ! -f "$VSCODE_SETTINGS_FILE"; then
-		help "Missing file [VSCODE_SETTINGS_FILE] = [$VSCODE_SETTINGS_FILE]"
+	if [[ -z $VSCODE_SETTINGS_FILE || ! -f $VSCODE_SETTINGS_FILE ]]; then
+		__help 'Missing file ' --variable={VSCODE_SETTINGS_FILE}
 	fi
-	if test -z "$VSCODE_THEME_LIGHT"; then
-		help "Missing value [VSCODE_THEME_LIGHT] = [$VSCODE_THEME_LIGHT]"
+	if [[ -z $VSCODE_THEME_LIGHT ]]; then
+		__help 'Missing value ' --variable={VSCODE_THEME_LIGHT}
 	fi
-	if test -z "$VSCODE_THEME_DARK"; then
-		help "Missing value [VSCODE_THEME_DARK] = [$VSCODE_THEME_DARK]"
+	if [[ -z $VSCODE_THEME_DARK ]]; then
+		__help 'Missing value ' --variable={VSCODE_THEME_DARK}
 	fi
 
 	# ensure
 	theme="$(
-		choose-option --required \
+		choose --required \
 			--question='Which theme to apply?' \
-			--filter="$theme" -- dark light
+			--default="$theme" -- dark light
 	)"
 
 	# =====================================
 	# Dependencies
 
-	setup-util-jq --quiet
+	__command_required -- 'jq' || return $?
 
 	# =====================================
 	# Action
 
-	function macos_set_wallpaper_directory {
+	function __macos_set_wallpaper_directory {
 		local wallpaper_directory="$1"
-		echo-style --bold="Wallpaper Directory:       " "$wallpaper_directory"
-		osascript -e "tell application \"System Events\" to tell current desktop to set pictures folder to \"$wallpaper_directory\""
+		__dump {wallpaper_directory} || return $?
+		osascript -e "tell application \"System Events\" to tell current desktop to set pictures folder to \"$wallpaper_directory\"" || return $?
 	}
-	function vscode_set_theme {
+	function __vscode_set_theme {
 		local vscode_theme="$1"
-		echo-style --bold="Visual Studio Code Theme:  " "$vscode_theme"
-		jq ".[\"workbench.colorTheme\"] = \"$vscode_theme\"" "$VSCODE_SETTINGS_FILE" | echo-wait "$VSCODE_SETTINGS_FILE"
+		__dump {vscode_theme} || return $?
+		__jq ".[\"workbench.colorTheme\"] = \"$vscode_theme\"" "$VSCODE_SETTINGS_FILE" | echo-write --atomic -- "$VSCODE_SETTINGS_FILE" || return $?
 	}
-	function macos_dark_mode_enable {
+	function __macos_dark_mode_enable {
 		local dark_mode="$1"
-		if is-affirmative -- "$dark_mode"; then
-			echo-style --bold="macOS Theme:               " "Dark Mode"
+		if __is_affirmative -- "$dark_mode"; then
 			dark_mode='true'
 		else
-			echo-style --bold="macOS Theme:               " --dim="Light Mode"
 			dark_mode='false'
 		fi
-		osascript -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $dark_mode"
+		__dump {dark_mode} || return $?
+		osascript -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $dark_mode" || return $?
 	}
 
-	if test "$theme" = 'dark'; then
+	if [[ $theme == 'dark' ]]; then
 		# enable dark mode
-		macos_dark_mode_enable 'yes'
-		vscode_set_theme "$VSCODE_THEME_DARK"
-		macos_set_wallpaper_directory "$WALLPAPER_DIRECTORY_DARK"
+		__macos_dark_mode_enable 'yes'
+		__vscode_set_theme "$VSCODE_THEME_DARK"
+		__macos_set_wallpaper_directory "$WALLPAPER_DIRECTORY_DARK"
 	else
 		# disable dark mode
-		macos_dark_mode_enable 'no'
-		vscode_set_theme "$VSCODE_THEME_LIGHT"
-		macos_set_wallpaper_directory "$WALLPAPER_DIRECTORY_LIGHT"
+		__macos_dark_mode_enable 'no'
+		__vscode_set_theme "$VSCODE_THEME_LIGHT"
+		__macos_set_wallpaper_directory "$WALLPAPER_DIRECTORY_LIGHT"
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	macos_theme "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		macos_theme_test
+	else
+		macos_theme "$@"
+	fi
 fi

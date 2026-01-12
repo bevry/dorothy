@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
+function setup_rust_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-rust --help
+)
+
 function setup_rust() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile'
 
 	# =====================================
 	# Configuration
@@ -15,58 +19,70 @@ function setup_rust() (
 	load_dorothy_config 'setup.bash'
 
 	# deprecations
-	if test "${#RUST_INSTALL[@]}" -ne 0; then
+	if [[ ${#RUST_INSTALL[@]} -ne 0 ]]; then
 		CARGO_INSTALL+=("${RUST_INSTALL[@]}")
 		dorothy-config 'setup.bash' -- \
 			--field='RUST_INSTALL' --replace= \
-			--field='CARGO_INSTALL' --array="$(echo-lines -- "${CARGO_INSTALL[@]}" | sort --ignore-case | uniq)"
+			--field='CARGO_INSTALL' --array="$(echo-unique --ignore-case -- "${CARGO_INSTALL[@]}")"
 	fi
 
 	# adjustments
-	mapfile -t CARGO_INSTALL < <(dorothy-config --packages-var='CARGO_INSTALL' -- "${CARGO_INSTALL[@]}")
+	__split --target={CARGO_INSTALL} --no-zero-length --invoke -- \
+		dorothy-config --packages-var='CARGO_INSTALL' -- "${CARGO_INSTALL[@]}"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
-			USAGE:
-			setup-rust [--flags]
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Setup the Rust ecosystem.
 
-			FLAGS:
-			--optional
-			    Only setup if it is needed by packages.
+			USAGE:
+			\`setup-rust [...options] [install|update|setup|configure]\`
+
+			OPTIONS:
+			--configure
+			    Whether to prompt, confirm, or save configuration changes.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item optional=''
-	while test "$#" -ne 0; do
+	local item option_configure=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-optional'* | '--optional'*)
-			optional="$(get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative --stdin)"
+		# install|update|setup|configure
+		'setup') ;;
+		'update')
+			option_configure='no'
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'install' | 'configure')
+			option_configure='yes'
+			;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check
-	if test "$optional" = 'yes' -a "${#CARGO_INSTALL[@]}" -eq 0 && ! confirm --negative --ppid=$$ -- 'Setup Rust?'; then
-		return 0
+	if [[ ${#CARGO_INSTALL[@]} -eq 0 ]]; then
+		if [[ $option_configure == 'no' ]]; then
+			__print_style --dim='Setup of Rust ecosystem skipped.'
+			return 0
+		elif ! confirm --linger --negative --ppid=$$ -- 'Setup Rust ecosystem?'; then
+			return 0
+		fi
 	fi
 
 	# =====================================
 	# Start
 
-	echo-segment --h1='Setup Rust'
+	__print_style --h1='Setup Rust'
 
 	# =====================================
 	# Install
@@ -76,15 +92,19 @@ function setup_rust() (
 	# =====================================
 	# Packages
 
-	setup-util --installer=CARGO -- "${CARGO_INSTALL[@]}"
+	setup-util --source=CARGO -- "${CARGO_INSTALL[@]}"
 
 	# =====================================
 	# Finish
 
-	echo-segment --g1='Setup Rust'
+	__print_style --g1='Setup Rust'
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_rust "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_rust_test
+	else
+		setup_rust "$@"
+	fi
 fi

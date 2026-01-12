@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+
+# https://en.wikipedia.org/wiki/High-Efficiency_Advanced_Audio_Coding
+# https://en.wikipedia.org/wiki/Parametric_Stereo
+# https://developer.apple.com/library/content/technotes/tn2236/_index.html
+# https://developer.apple.com/library/content/technotes/tn2224/_index.html#//apple_ref/doc/uid/DTS40009745-CH1-SETTINGSFILES
+# https://trac.ffmpeg.org/wiki/Encode/AAC#fdk_he
+# https://trac.ffmpeg.org/wiki/AudioChannelManipulation
+
+# < /dev/null
+# https://unix.stackexchange.com/a/36363/50703
+
+# HE-AAC v2 for lower bitrates between 16 - 40 kb/s.
+# HE-AAC v1 for bitrates between 32 - 80 kb/s
+# AAC-LC for bitrates higher than 80 kb/s
+
+# HE-AAC v1 at 64 kb/s is comparable to AAC-LC at 96 kb/s.
+# HE-AAC version 2 (HE-AAC v2) adds Parametric Stereo (PS) to further enhance the compression efficiency of stereo signals at very low bit rates only. This technique is only useful at the lowest bitrates (approx. 16 - 48 kbit/s).
+
+# HE-AAC version 1 is suited for bit rates below 64kb/s (for stereo audio) down to about 48 kb/s
+# HE-AAC version 2 is suited for bit rates as low as 32 kb/s (again, for stereo)
+
+# HE-AAC version 2 only handles stereo
+# If you have mono, or want to down-mix to mono, use HE-AAC version 1
+
+# -profile:a aac_he -b:a 64k
+# -profile:a aac_he_v2 -b:a 32k
+
+# ffmpeg
+# -i INPUT
+# -b:a AUDIO_BITRATE
+# -c:a AUDIO_CODEC
+# -profile:a AUDIO_PROFILE
+# -ac AUDIO_CHANNELS
+
+#avconv -i "$1" -vn -c:a libfdk_aac -profile:a aac_he -b:a 48k "$out"
+
+function convert_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- convert-helper --help
+)
+
+function convert_helper() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Covert a format into other formats.
+
+			USAGE:
+			\`convert-helper [...options] --- ...<input>\`
+
+			OPTIONS:
+			--podaudio
+			    Produce a HE-AAC outfile file for podcasting
+			--stereo
+			    Produce a stereo HE-AAC outfile file for podcasting, defaults to auto-detection
+			--mono
+			    Produce a mono HE-AAC outfile file for podcasting, defaults to auto-detection
+
+			--podvideo
+			    Produce a H.264 outfile file for podcasting
+
+			--alac
+			    Produce a Apple Lossless output file (should intake flac and wave files)
+
+			--split
+			    Split a mov file with multiple embedded streams into separate files
+
+			--png
+			    Produce a png file from an image file
+
+
+			--timestamp[=<name>]
+			    Productions will be prefixed with a timestamp, using <name> otherwise the filename.
+			--transcribe
+			    Produce a OpenAI Whisper transcription of the audio file
+			--delete
+			    Delete the original file after conversion
+			--trim-trailing-silence
+			    Trim trailing silence from an audio file
+
+			EXAMPLES:
+			\`\`\`
+			convert-helper --podaudio -- *.wav
+			\`\`\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item files=() action='' option_stereo='' option_mono='' option_timestamp='' option_delete='no' option_transcribe='no' option_trim_trailing_silence='no'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--podaudio') action='podaudio' ;;
+		'--stereo') option_stereo='yes' ;;
+		'--mono') option_mono='yes' ;;
+		'--podvideo') action='podvideo' ;;
+		'--png') action='png' ;;
+		'--alac') action='alac' ;;
+		'--split') action='split' ;;
+		'--timestamp') option_timestamp='yes' ;;
+		'--timestamp='*) option_timestamp="${item#*=}" ;;
+		'--delete') option_delete='yes' ;;
+		'--transcribe') option_transcribe='yes' ;;
+		'--trim-trailing-silence') option_trim_trailing_silence='yes' ;;
+		'--')
+			files+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# =====================================
+	# Act
+
+	# convert
+	local path filename extension outfile use_stereo="$option_stereo" use_mono="$option_mono"
+	function run {
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold='Converting ' --code="$path" --bold=' to ' --code="$outfile")" \
+			--success="$(__print_style --bold+green='Converted ' --code="$path" --bold=' to ' --code="$outfile")" \
+			--failure="$(__print_style --bold+red='Failed to convert ' --code="$path" --bold=' to ' --code="$outfile")" -- \
+			"$@" </dev/null
+	}
+	for path in "${files[@]}"; do
+		dir="$(fs-path --parents -- "$path")"
+		cd "$dir" || return $?
+		filename="$(fs-path --no-parents --no-extensions -- "$path")"
+		extension="$(fs-path --no-parents --extensions -- "$path")"
+		if [[ -n $option_timestamp ]]; then
+			# prefix filename with timestamp
+			if [[ $option_timestamp == 'yes' ]]; then
+				filename="$(date-helper --8601 | echo-regexp -g ':' '-') $filename"
+			else
+				filename="$(date-helper --8601 | echo-regexp -g ':' '-') $option_timestamp"
+			fi
+			cp "$path" "$filename.$extension"
+			path="$filename.$extension"
+		fi
+		if [[ $option_trim_trailing_silence == 'yes' ]]; then
+			outfile="$filename [trimmed].m4a"
+			run ffmpeg -y -i "$path" -af 'silenceremove=stop_periods=-1:stop_duration=0.5:stop_threshold=-60dB' "$outfile"
+			if [[ $option_delete == 'yes' ]]; then
+				fs-remove --quiet --no-confirm -- "$path"
+			fi
+			filename="$filename [trimmed]"
+			path="$outfile"
+		fi
+		if [[ $action == 'podaudio' ]]; then
+			if [[ -z $option_stereo && -z $option_mono ]]; then
+				if is-audio-stereo -- "$path"; then
+					use_stereo='yes'
+				else
+					use_mono='yes'
+				fi
+			fi
+			if [[ $use_stereo == 'yes' ]]; then
+				outfile="$filename [aac_he_v2] [48k] [stereo].m4a"
+				run ffmpeg -y -i "$path" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 48k "$outfile"
+			fi
+			if [[ $use_mono == 'yes' ]]; then
+				outfile="$filename [aac_he_v1] [48k] [mono].m4a"
+				run ffmpeg -y -i "$path" -ac 1 -c:a libfdk_aac -profile:a aac_he -b:a 48k "$outfile"
+			fi
+		elif [[ $action == 'podvideo' ]]; then
+			outfile="$filename [h264].mp4"
+			run ffmpeg -y -i "$path" -c:v libx264 -c:a libfdk_aac "$outfile"
+		elif [[ $action == 'alac' ]]; then
+			outfile="$filename.m4a"
+			run ffmpeg -y -vn -i "$path" -c:a alac "$outfile"
+		elif [[ $action == 'split' ]]; then
+			run ffmpeg -y -i "$path" -map 0:0 -map 0:2 -c copy "$filename [00+02].mov"
+			run ffmpeg -y -i "$path" -map 0:1 -map 0:3 -c copy "$filename [01+03].mov"
+		# elif [[ "$action" = 'trim' ]]; then
+		#	# Trim superfluous audio streams from a video file
+		# 	help 'trim action not yet finished'
+		# 	# run ffmpeg -i "$input" -c copy -an "$output"
+		# 	# run ffmpeg -i "$input" -c copy -map 0:v -map "0:a:$stream" "$output"
+		# elif [[ "$action" = 'thumbnail' ]]; then
+		# 	help 'thumbnail action not yet finished'
+		# 	# outfile="$filename.jpg"
+		# 	# run ffmpeg -y -i "$path" -vf "thumbnail" -frames:v 1 "$outfile"
+		# 	# run ffmpeg -i "$1" -i "$2" -map 0 -map 1 -c copy -c:v:1 avif -disposition:v:1 attached_pic out.webm
+		elif [[ $action == 'png' ]]; then
+			outfile="$filename.png"
+			run sips -s format png "$path" --out "$outfile"
+		elif [[ -n $action ]]; then
+			help 'Unknown action'
+		fi
+		if [[ $option_transcribe == 'yes' ]]; then
+			outfile="$filename.srt"
+			whisper --model base --language English --output_format srt "$path"
+		fi
+		if [[ $option_delete == 'yes' ]]; then
+			fs-remove --quiet --no-confirm -- "$path"
+		fi
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		convert_helper_test
+	else
+		convert_helper "$@"
+	fi
+fi

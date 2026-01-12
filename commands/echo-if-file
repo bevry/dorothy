@@ -1,48 +1,139 @@
 #!/usr/bin/env bash
 
+function echo_if_file_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-if-file --help
+
+	eval-tester --name='no args' -- \
+		echo-if-file --
+
+	eval-tester --name='empty args' -- \
+		echo-if-file -- '' ''
+
+	eval-tester --name='missing' -- \
+		echo-if-file -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' -- \
+		echo-if-file -- "$DOROTHY"
+
+	eval-tester --name='file' --stdout="$DOROTHY/README.md" -- \
+		echo-if-file -- "$DOROTHY/README.md"
+
+	eval-tester --name='file then missing then dir' --stdout="$DOROTHY/README.md" -- \
+		echo-if-file -- "$DOROTHY/README.md" "$DOROTHY/this-does-not-exist" "$DOROTHY"
+
+	eval-tester --name='dir then missing then file' --stdout="$DOROTHY/README.md" -- \
+		echo-if-file -- "$DOROTHY" "$DOROTHY/this-does-not-exist" "$DOROTHY/README.md"
+
+	# test working symlinks
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='dorothy' --directory='echo-if-file' --directory='tests' --directory)"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	fs-link --quiet \
+		--existing="$dir_target" --symlink="$dir_symlink" \
+		--existing="$file_target" --symlink="$file_symlink"
+
+	eval-tester --name='symlink dir' -- \
+		echo-if-file -- "$dir_symlink"
+
+	eval-tester --name='symlink file' --stdout="$file_symlink" -- \
+		echo-if-file -- "$file_symlink"
+
+	# test broken symlinks
+	fs-remove --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' -- \
+		echo-if-file -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' -- \
+		echo-if-file -- "$file_symlink"
+
+	return 0
+)
 function echo_if_file() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Output inputs that are files.
+			Output <input>s that are a file, or an unbroken symlink to a file.
+			Companion to: $(__join --style=code --between=', ' -- 'is-file').
 
 			USAGE:
-			echo-if-file [...options] [--] ...<input>
-			echo-lines ...<input> | echo-if-file [...options]
+			\`echo-if-file [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-if-file [...options]\`
 
 			OPTIONS:
-			$(stdinargs_options_help --)
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`is-file\`.
+
+			$(__stdinargs__help_options --)
 
 			EXAMPLES:
+			\`\`\`
+			echo-if-file -- "$DOROTHY/README.md"
+			echo-lines -- "$DOROTHY/README.md" | echo-if-file --stdin
+			\`\`\`
+			Outputs: \`$DOROTHY/README.md\`
+			Returns: [0]
 
-			touch file
-
-			echo-if-file -- file missing
-
-			    file
-			    # exit status: 0
-
-			echo-lines -- file missing | echo-if-file --stdin
-
-			    file
-			    # exit status: 0
-
+			\`\`\`
+			echo-if-file -- "$DOROTHY/missing.file"
+			echo-lines -- "$DOROTHY/missing.file" | echo-if-file --stdin
+			\`\`\`
+			Returns: [0]
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	function on_input {
-		if test -n "$1" -a -f "$1"; then
-			print_line "$1"
+	# process
+	local item option_args=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	function __on_whole {
+		local path="$1"
+		if is-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			__print_lines "$path"
 		fi
 	}
-
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	echo_if_file "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_if_file_test
+	else
+		echo_if_file "$@"
+	fi
 fi

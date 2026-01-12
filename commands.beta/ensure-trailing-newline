@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function ensure_trailing_newline_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- ensure-trailing-newline --help
+)
+
 function ensure_trailing_newline() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,64 +12,74 @@ function ensure_trailing_newline() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Ensure a file's contents has a trailing newline.
+			Ensure an existing file has a trailing newline.
 
 			USAGE:
-			ensure-trailing-newline [--] ...<path>
+			\`ensure-trailing-newline [...options] [--] ...<path>\`
+
+			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item paths=()
-	while test "$#" -ne 0; do
+	local item option_paths=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
-			paths+=("$@")
+			option_paths+=("$@")
 			shift "$#"
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_paths+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#paths[@]}" -eq 0; then
-		help "No paths were provided"
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		help --help='A <path> must be provided.'
 	fi
 
 	# =====================================
 	# Action
 
-	local path result=0
-	for path in "${paths[@]}"; do
-		if test -f "$path"; then
-			if test "$(tail -n1 <"$path" | wc -l)" -eq 0; then
-				if test -w "$path"; then
-					echo >>"$path"
-				else
-					echo-style --error="$0: File is not writable: " --code="$path" >/dev/stderr
-					result=13 # EACCES 13 Permission denied
-				fi
-			fi
-		else
-			echo-style --error="$0: Path is not a file: " --code="$path" >/dev/stderr
-			result=2 # ENOENT 2 No such file or directory
+	local path reason result
+	for path in "${option_paths[@]}"; do
+		reason="${option_reason:-"Your password is required to momentarily grant privileges to ensure a trailing newline in the file: $path"}"
+		# check if it has a trailing newline, 0 = no, 1 = yes
+		result="$(echo-file --raw --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- "$path" | tail -n1 | wc -l | echo-trim-each-line --stdin)"
+		if [[ $result == 0 ]]; then # use ==, as number not guaranteed
+			# requires trailing newline to be added
+			__print_line | echo-write --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$reason" -- "$path"
 		fi
 	done
-	return "$result"
+	return 0
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	ensure_trailing_newline "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		ensure_trailing_newline_test
+	else
+		ensure_trailing_newline "$@"
+	fi
 fi

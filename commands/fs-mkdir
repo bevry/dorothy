@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+function fs_mkdir_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-mkdir --help
+)
+
+function fs_mkdir() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Make a directory at each input path, if it was not already one, and output its absolute path.
+
+			USAGE:
+			\`fs-mkdir [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | fs-mkdir [...options]\`
+
+			OPTIONS:
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, the absolute directory path will be output if it was created.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLES:
+			\`\`\`
+			fs-mkdir -- ./temp
+			\`\`\`
+			Returns: [0]
+
+			\`\`\`
+			fs-mkdir --verbose -- ./temp
+			\`\`\`
+			Outputs: $(pwd)/temp
+			Returns: [0]
+
+			RETURNS:
+			[0] if all <path>s were created or already existed as directories.
+			[*] if any <path>s could not be created.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_quiet='yes' option_args=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	function __mkdirp {
+		local target_elevated target_elevate="$option_elevate"
+		target_elevated="$(mktemp)" || return $?
+		if is-missing --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"; then
+			if [[ -s $target_elevated ]]; then
+				target_elevate='yes'
+			fi
+			eval-helper --elevated="$option_elevated" --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- mkdir -p -- "$@" || return $?
+		else
+			is-directory --verbose --elevated="$(__print_lines "$target_elevated" "$option_elevated")" --elevate="$target_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@" || return $?
+		fi
+	}
+
+	function __on_line {
+		local __status=0
+		__mkdirp "$1" || __status=$?
+		if [[ $__status -eq 0 ]]; then
+			if [[ $option_quiet != 'yes' ]]; then
+				fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$1" || return $?
+			fi
+			return 0
+		else
+			return "$__status"
+		fi
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_mkdir_test
+	else
+		fs_mkdir "$@"
+	fi
+fi

@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+
+# @todo currently this is only for creating, however we could make it also for listing/finding as well - probably a bad idea
+
+# @todo update this for auto-elevation
+
+function fs_link_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-link --help
+)
+
+function fs_link() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Create a link (symlink / symbolic link) at a new location that points to an existing location.
+
+			USAGE:
+			\`fs-link [...options] --target=<target> --link=<link>\`
+
+			OPTIONS:
+			--target=<target> | --existing=<target>
+			    The target of the link.
+			--link=<link> | --symlink=<link>
+			    The location of the link to modify.
+
+			--[no-]relative
+			    If enabled, save the link a relative path from <link> to <target>, instead of the absolute path of <target>.
+
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, only output errors, do not output link creation.
+			    If <verbose>, output even if link is already desired.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`
+
+			EXAMPLES:
+			\`\`\`
+			fs-link --target="$HOME" --link=./my-home-folder-link
+			\`\`\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='' option_targets=() option_links=() option_relative='' option_follow='' option_validate='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--target='* | '--existing='*) option_targets+=("${item#*=}") ;;
+		'--link='* | '--symlink='*) option_links+=("${item#*=}") ;;
+		'--no-absolute'* | '--absolute'*) __flag --source={item} --target={option_relative} --non-affirmative ;;
+		'--no-relative'* | '--relative'*) __flag --source={item} --target={option_relative} --affirmative ;;
+		'--no-follow'* | '--follow'*) __flag --source={item} --target={option_follow} --affirmative ;;
+		'--no-validate'* | '--validate'*) __flag --source={item} --target={option_validate} --affirmative ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag --source={item} --target={option_elevate} --affirmative ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# defaults
+	if [[ -z $option_relative ]]; then
+		option_relative='no'
+	fi
+	if [[ -z $option_follow ]]; then
+		option_follow='no'
+	fi
+	if [[ -z $option_validate ]]; then
+		option_validate='yes'
+	fi
+
+	# ensure as many targets as links
+	if [[ ${#option_targets[@]} -ne ${#option_links[@]} ]]; then
+		help --help='The amount of <target>s was not equal to the amount of <link>s.' --newline \
+			--variable={option_targets} --newline \
+			--variable={option_links}
+	elif [[ ${#option_targets[@]} -eq 0 ]]; then
+		option_targets+=("$(
+			ask --required \
+				--question='What is the existing path that you want the link to target?'
+		)")
+		option_links+=("$(
+			ask --required \
+				--question='What is the new path that you want to be the link that redirects?'
+		)")
+	fi
+
+	# =====================================
+	# Helpers
+
+	local elevation_args=(--elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason")
+
+	function __wrap {
+		eval-helper "${elevation_args[@]}" -- "$@" || return $?
+	}
+
+	# create a symbolic link
+	# __ln <target> <symlink>
+	if is-busybox -- ln; then
+		function __ln {
+			# alpine's ln doesn't support -F, however the above removals should make it unnecessary
+			# https://github.com/bevry/dorothy/actions/runs/11323459946/job/31486170602#step:4:11
+			# -f: unlink symlink path if needed
+			# -s: symbolic link
+			__wrap ln -sf "$@" || return $?
+		}
+	else
+		function __ln {
+			# -F: replace symlink if directory if needed
+			# -f: unlink symlink path if needed
+			# -s: symbolic link
+			__wrap ln -sfF "$@" || return $?
+		}
+	fi
+
+	# =====================================
+	# Action
+
+	# ensure validity of target path
+	local index target target_resolved link link_resolved
+	for index in "${!option_targets[@]}"; do
+		target="${option_targets[index]}"
+		link="${option_links[index]}"
+		__affirm_value_is_defined "$target" '<target>' || return $?
+		__affirm_value_is_defined "$link" '<link>' || return $?
+
+		# resolve paths for now
+		target="$(fs-path "${elevation_args[@]}" --absolute -- "$target")"
+		link="$(fs-path "${elevation_args[@]}" --absolute -- "$link")"
+		link_resolved="$(fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate -- "$link")"
+		target_resolved="$(fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --validate="$option_validate" -- "$target" || :)"
+		if [[ -z $target_resolved ]]; then
+			target_resolved="$(fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate -- "$target" || :)"
+			if [[ -z $target_resolved ]]; then
+				__print_style --stderr \
+					--error='FAILURE:' --newline \
+					--='Cannot create the link ' --path="$link" --=' because the target ' --path="$target" --=' failed to resolve.' --newline \
+					--='Create the target ' --path="$target" --=' or use ' --code='--no-validate' || :
+				eval-helper --wrap -- \
+					fs-path "${elevation_args[@]}" --quiet="$option_quiet" --resolve --follow="$option_follow" --no-validate -- "$target" >&2 || :
+				return 2 # ENOENT 2 No such file or directory
+			fi
+		fi
+		if [[ $target != "$target_resolved" ]]; then
+			if [[ $option_follow == 'yes' ]]; then
+				# if follow is enabled, we will use the resolved path
+				if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+					__print_style --stderr --bold='💁‍♀️ Target ' --path="$target" --bold=' redirects to ' --path="$target_resolved" ' ' --bold='using the redirection...'
+				fi
+				target="$target_resolved"
+			else
+				# otherwise we will use the original path
+				if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+					__print_style --stderr --bold='💁‍♀️ Target ' --path="$target" --bold=' redirects to ' --path="$target_resolved" ' ' --warning='ignoring the redirection...'
+				fi
+			fi
+		fi
+		# determine the desired path
+		if [[ $option_relative == 'yes' ]]; then
+			target="$(fs-path "${elevation_args[@]}" --relative-to="$(fs-path --parents -- "$link")" -- "$target")"
+		fi
+
+		# check if the link is already desired
+		if is-present "${elevation_args[@]}" -- "$link"; then
+			if [[ $link != "$link_resolved" ]]; then
+				if [[ $link_resolved == "$target_resolved" ]]; then
+					if [[ $option_quiet == 'no' ]]; then
+						__print_style --stderr --note='👍 Link already created at ' --path="$link" --bold=' targetting ' --path="$target"
+					fi
+					continue
+				fi
+				if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+					__print_style --stderr --note='💁‍♀️ Link already exists at ' --path="$link" --bold=' targetting ' --path="$target" ' ' --note='recreating...'
+				fi
+				# is a link but a different target, drop it and recreate to our intended target, ignoring target of the link
+				__wrap rm -f -- "$link" >&2
+			else
+				# not a link, confirm with the user what to do
+				fs-remove "${elevation_args[@]}" --quiet="$option_quiet" --confirm -- "$link" >&2
+			fi
+		else
+			# nothing exists at the location, ensure its parent path at least exists
+			__wrap mkdir -p -- "$(fs-path --parents -- "$link")" >&2
+		fi
+
+		# create the link
+		__ln -- "$target" "$link" >&2
+
+		# log result to stderr
+		if [[ -z $option_quiet || $option_quiet == 'no' ]]; then
+			__print_style --stderr --success='👍 Link created at ' --path="$link" --bold=' targetting ' --path="$target"
+		fi
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_link_test
+	else
+		fs_link "$@"
+	fi
+fi

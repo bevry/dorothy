@@ -1,99 +1,397 @@
 #!/usr/bin/env bash
-# trunk-ignore-all(shellcheck/SC2016)
 
 # https://repology.org/project/bash/versions
-
-# @note that if they have installed bash via homebrew, and that is what is invoking this script, and then that is what is being uninstalled, the script will crash once bash has been removed. Other methods shouldn't have this issue, as they move the bash executable to a 'trash' equiavlent directory, which allows the invoked script to continue. This is such an edge case, it's not worth doing more on, unless a user actually reports a valid need for a warning or workaround. A workaround being ensuring this script invokes with the system bash instead of the installed bash.
-
-# @todo instead of compiling from source with DOWNLOAD, consider using homebrew bottles
-# can use [get-macos-release-name] to figure it out programatically
-# https://github.com/Homebrew/homebrew-core/pkgs/container/core%2Fbash
-# > brew info --json bash | jq -r ".[].bottle.stable.files"
+# https://ftp.gnu.org/gnu/bash/?C=M;O=D
 
 function setup_util_bash() (
 	source "$DOROTHY/sources/bash.bash"
 	# imports:
-	# IS_BASH_VERSION_OUTDATED
 	# BASH_VERSION_CURRENT
 	# BASH_VERSION_LATEST
 
-	# enable DOWNLOAD_BUILD_EVAL
-	source "$(type -P setup-util)"
+	source "$(type -P version-compare)"
 
-	# if outdated bash, then enable upgrade option
-	local extras=()
-	if test "$IS_BASH_VERSION_OUTDATED" = 'yes'; then
-		extras+=('--upgrade')
+	# =================================
+	# Helpers
+
+	# Things below 1.0.0 are broken, and require immediate upgrading.
+	# Things above 1.0.0 are working
+	# Increments of X.X.1 are an improvement we don't use
+	# Increments of X.1.X are an improvement we do use
+	# Increments of 1.X.X are a significant bug fix
+	# Should match what is in `dorothy-workflow.yml` and `__get_coerced_bash_version`
+	local BASH_VERSIONS_WITH_SUPPORT_RANKS=(
+		3.0.16 0.0.0 # untested, compiles on macos with CPPFLAGS modification
+		3.1 0.0.0    # untested, compiles on macos with CPPFLAGS modification
+		3.2.57 1.0.0 # passes, but bugs require workarounds, compiles on macos with CPPFLAGS modification
+		4.0 1.1.0    # passes, but bugs require workarounds, adds `read` defaults, adds `globstar`, compiles on macos with CPPFLAGS modification
+		4.1 0.0.0    # broken as `__wait_for_semaphores` cannot detect updates, compiles on macos with CPPFLAGS modification
+		4.2.53 0.5.0 # is-fs.bash broken, as crashes do not return the correct exit status, compiles on macos with CPPFLAGS modification
+		4.3.30 0.5.0 # is-fs.bash broken, as crashes do not return the correct exit status, compiles on macos with CPPFLAGS modification
+		4.4.18 2.0.0 # working, but has `wait_for` issue (unsure if earlier versions also have the same issue), compiles on macos with CPPFLAGS modification
+		5.0 2.1.0    # adds `EPOCHSECONDS`, `EPOCHREALTIME`, compiles on macos with CPPFLAGS modification
+		5.1.16 3.0.0 # fixes `wait_for`, adds case conversions, adds associative arrays, compiles on macos x86 without any flags
+		5.2.37 3.0.5 # adds nameref, compiles on macos x86 without any flags
+		5.3 3.1.0    # fixes trap return issue, adds fltexpr, compiles on macos x86 without any flags
+	)
+
+	# `__bash_versions_by_support_rank` is `__bash_versions_by_support_rank 1.0.0` is `__bash_versions_by_support_rank >= 1.0.0`
+	# `__bash_versions_by_support_rank --current` is `__bash_versions_by_support_rank +` is `__bash_versions_by_support_rank + 1.0.0` is `__bash_versions_by_support_rank --current + 1.0.0`
+	function __bash_versions_by_support_rank {
+		local BASH_VERSIONS_BY_SUPPORT_RANK__current_version='' BASH_VERSIONS_BY_SUPPORT_RANK__plus='' BASH_VERSIONS_BY_SUPPORT_RANK__rank=''
+		# <target helper arguments>
+		local BASH_VERSIONS_BY_SUPPORT_RANK__item BASH_VERSIONS_BY_SUPPORT_RANK__targets=() BASH_VERSIONS_BY_SUPPORT_RANK__mode=''
+		while [[ $# -ne 0 ]]; do
+			BASH_VERSIONS_BY_SUPPORT_RANK__item="$1"
+			shift
+			case "$BASH_VERSIONS_BY_SUPPORT_RANK__item" in
+			'--targets='*) __dereference --source="${BASH_VERSIONS_BY_SUPPORT_RANK__item#*=}" --append --value={BASH_VERSIONS_BY_SUPPORT_RANK__targets} || return $? ;;
+			'--target='*) BASH_VERSIONS_BY_SUPPORT_RANK__targets+=("${BASH_VERSIONS_BY_SUPPORT_RANK__item#*=}") ;;
+			'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
+				__affirm_value_is_undefined "$BASH_VERSIONS_BY_SUPPORT_RANK__mode" 'write mode' || return $?
+				BASH_VERSIONS_BY_SUPPORT_RANK__mode="${BASH_VERSIONS_BY_SUPPORT_RANK__item#*=}"
+				;;
+			'--append' | '--prepend' | '--overwrite')
+				__affirm_value_is_undefined "$BASH_VERSIONS_BY_SUPPORT_RANK__mode" 'write mode' || return $?
+				BASH_VERSIONS_BY_SUPPORT_RANK__mode="${BASH_VERSIONS_BY_SUPPORT_RANK__item:2}"
+				;;
+			# </target helper arguments>
+			'--current') BASH_VERSIONS_BY_SUPPORT_RANK__current_version="$BASH_VERSION_CURRENT" ;;
+			'--current='* | '--from='*) BASH_VERSIONS_BY_SUPPORT_RANK__current_version="${BASH_VERSIONS_BY_SUPPORT_RANK__item#*=}" ;;
+			'>=') : ;;
+			'+') BASH_VERSIONS_BY_SUPPORT_RANK__plus='yes' ;;
+			[.0-9]*)
+				__affirm_value_is_version_number "$BASH_VERSIONS_BY_SUPPORT_RANK__item" 'support rank' || return $?
+				BASH_VERSIONS_BY_SUPPORT_RANK__rank="$BASH_VERSIONS_BY_SUPPORT_RANK__item"
+				;;
+			*) __unrecognised_argument "$BASH_VERSIONS_BY_SUPPORT_RANK__item" || return $? ;;
+			esac
+		done
+
+		# adjustments
+		if [[ -z $BASH_VERSIONS_BY_SUPPORT_RANK__plus ]]; then
+			if [[ -n $BASH_VERSIONS_BY_SUPPORT_RANK__current_version ]]; then
+				BASH_VERSIONS_BY_SUPPORT_RANK__plus='yes'
+			else
+				BASH_VERSIONS_BY_SUPPORT_RANK__plus='no'
+			fi
+		fi
+		if [[ $BASH_VERSIONS_BY_SUPPORT_RANK__plus == 'yes' ]]; then
+			if [[ -z $BASH_VERSIONS_BY_SUPPORT_RANK__current_version ]]; then
+				BASH_VERSIONS_BY_SUPPORT_RANK__current_version="$BASH_VERSION_CURRENT"
+			fi
+		fi
+		if [[ -z $BASH_VERSIONS_BY_SUPPORT_RANK__rank ]]; then
+			BASH_VERSIONS_BY_SUPPORT_RANK__rank='1.0.0'
+		fi
+
+		# coerce
+		if [[ -n $BASH_VERSIONS_BY_SUPPORT_RANK__current_version ]]; then
+			BASH_VERSIONS_BY_SUPPORT_RANK__current_version="$(__get_coerced_bash_version "$BASH_VERSIONS_BY_SUPPORT_RANK__current_version")" || return $?
+		fi
+
+		# prep
+		local BASH_VERSIONS_BY_SUPPORT_RANK__other_version BASH_VERSIONS_BY_SUPPORT_RANK__other_rank
+
+		# plus
+		if [[ $BASH_VERSIONS_BY_SUPPORT_RANK__plus == 'yes' ]]; then
+			# fetch current rank
+			local BASH_VERSIONS_BY_SUPPORT_RANK__current_rank=''
+			set -- "${BASH_VERSIONS_WITH_SUPPORT_RANKS[@]}"
+			while [[ $# -ne 0 ]]; do
+				BASH_VERSIONS_BY_SUPPORT_RANK__other_version="$1"
+				shift
+				BASH_VERSIONS_BY_SUPPORT_RANK__other_rank="$1"
+				shift
+				if [[ $BASH_VERSIONS_BY_SUPPORT_RANK__other_version == "$BASH_VERSIONS_BY_SUPPORT_RANK__current_version" ]]; then
+					# trunk-ignore(shellcheck/SC2034)
+					BASH_VERSIONS_BY_SUPPORT_RANK__current_rank="$BASH_VERSIONS_BY_SUPPORT_RANK__other_rank"
+					break
+				fi
+			done
+
+			# if plus, then plus the current rank onto the threshold rank
+			local BASH_VERSIONS_BY_SUPPORT_RANK__current_parts=() BASH_VERSIONS_BY_SUPPORT_RANK__parts=()
+			__split --source={BASH_VERSIONS_BY_SUPPORT_RANK__current_rank} --delimiter='.' --target={BASH_VERSIONS_BY_SUPPORT_RANK__current_parts} || return $?
+			__split --source={BASH_VERSIONS_BY_SUPPORT_RANK__rank} --delimiter='.' --target={BASH_VERSIONS_BY_SUPPORT_RANK__parts} || return $?
+			local -i BASH_VERSIONS_BY_SUPPORT_RANK__index BASH_VERSIONS_BY_SUPPORT_RANK__size="${#BASH_VERSIONS_BY_SUPPORT_RANK__parts[@]}"
+			for ((BASH_VERSIONS_BY_SUPPORT_RANK__index = 0; BASH_VERSIONS_BY_SUPPORT_RANK__index < BASH_VERSIONS_BY_SUPPORT_RANK__size; ++BASH_VERSIONS_BY_SUPPORT_RANK__index)); do
+				BASH_VERSIONS_BY_SUPPORT_RANK__current_parts[BASH_VERSIONS_BY_SUPPORT_RANK__index]="${BASH_VERSIONS_BY_SUPPORT_RANK__current_parts[BASH_VERSIONS_BY_SUPPORT_RANK__index]:-0}"
+				BASH_VERSIONS_BY_SUPPORT_RANK__parts[BASH_VERSIONS_BY_SUPPORT_RANK__index]="${BASH_VERSIONS_BY_SUPPORT_RANK__parts[BASH_VERSIONS_BY_SUPPORT_RANK__index]:-0}"
+				BASH_VERSIONS_BY_SUPPORT_RANK__parts[BASH_VERSIONS_BY_SUPPORT_RANK__index]="$((BASH_VERSIONS_BY_SUPPORT_RANK__current_parts[BASH_VERSIONS_BY_SUPPORT_RANK__index] + BASH_VERSIONS_BY_SUPPORT_RANK__parts[BASH_VERSIONS_BY_SUPPORT_RANK__index]))"
+			done
+			__join --source={BASH_VERSIONS_BY_SUPPORT_RANK__parts} --between='.' --target={BASH_VERSIONS_BY_SUPPORT_RANK__rank} || return $?
+		fi
+
+		# now return all versions that are >= to the desired rank
+		local BASH_VERSIONS_BY_SUPPORT_RANK__compare BASH_VERSIONS_BY_SUPPORT_RANK__results=()
+		set -- "${BASH_VERSIONS_WITH_SUPPORT_RANKS[@]}"
+		while [[ $# -ne 0 ]]; do
+			BASH_VERSIONS_BY_SUPPORT_RANK__other_version="$1"
+			shift
+			BASH_VERSIONS_BY_SUPPORT_RANK__other_rank="$1"
+			shift
+			__version_compare --target={BASH_VERSIONS_BY_SUPPORT_RANK__compare} -- "$BASH_VERSIONS_BY_SUPPORT_RANK__other_rank" "$BASH_VERSIONS_BY_SUPPORT_RANK__rank" || return $?
+			if [[ $BASH_VERSIONS_BY_SUPPORT_RANK__compare -ge 0 ]]; then
+				BASH_VERSIONS_BY_SUPPORT_RANK__results+=("$BASH_VERSIONS_BY_SUPPORT_RANK__other_version")
+			fi
+		done
+
+		# send the result
+		__to --source={BASH_VERSIONS_BY_SUPPORT_RANK__results} --mode="$BASH_VERSIONS_BY_SUPPORT_RANK__mode" --targets={BASH_VERSIONS_BY_SUPPORT_RANK__targets} || return $?
+	}
+
+	function __is_bash_outdated {
+		local current_version upgrade_versions=()
+		current_version="$(bash -c 'printf "%s" "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}.${BASH_VERSINFO[2]}"')" || return $?
+		__bash_versions_by_support_rank --target={upgrade_versions} --current="$current_version" + 1.0.0 || return $?
+		if [[ ${#upgrade_versions[@]} -ne 0 ]]; then
+			return 0
+		else
+			return 1
+		fi
+	}
+
+	# =================================
+	# Arguments
+
+	local item versions=() util_options=() option_uninstall=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--all' | '--av' | '--all-versions' | '--all-bash-versions') __bash_versions_by_support_rank --target={versions} --append ;;
+		'--v='* | '--version='* | '--versions='* | '--bash-version='* | '--bash-versions='*) __split --target={versions} --append --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
+		'--no-uninstall'* | '--uninstall'*)
+			__flag --source={item} --target={option_uninstall} --affirmative --coerce
+			util_options+=("$item")
+			;;
+		*) util_options+=("$item") ;;
+		esac
+	done
+	set -- "${util_options[@]}"
+
+	# if doing specific versions, then just do those specific versions
+	if [[ ${#versions[@]} -ne 0 ]]; then
+		# convert short versions into preferred versions
+		local index
+		for index in "${!versions[@]}"; do
+			item="${versions[index]}"
+			versions[index]="$(__get_coerced_bash_version "$item")" || return $?
+		done
+
+		# this block offers no benefit as it is already fast enough
+		# # improve performance for detectable utilities with conditional assets
+		# # don't use setup_util as it is conditional
+		# local check_all=yes
+		# for version in "${versions[@]}"; do
+		# 	if ! setup-util --check --cli="bash-$version" "$@"; then
+		# 		check_all=no
+		# 	fi
+		# done
+		# if [[ $check_all == yes ]]; then
+		# 	return 0
+		# fi
+
+		# enable DOWNLOAD_BUILD_INSTALL
+		source "$(type -P setup-util)"
+
+		# @todo support uninstall
+
+		# https://www.gnu.org/prep/ftp.html
+		# try mirrors first as they are faster, then fallback to main site
+		function __download_bash_version_patch {
+			local version="$1" patch="$2"
+			down --url="https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" ||
+				down --url="https://ftp.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" || return $?
+		}
+		function __fetch_bash_version_patches {
+			local version="$1"
+			fetch "https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/" ||
+				fetch "https://ftp.gnu.org/gnu/bash/bash-${version}-patches/" || return $?
+		}
+		function __get_bash_version_patches {
+			# https://github.com/bevry/dorothy/actions/runs/18237950922/job/51935016858#step:2:1816
+			# some mirrors have two <a> tags:
+			# https://ftp.wayne.edu/gnu/bash/bash-5.0-patches/
+			# <td valign="top">
+			#     <a href="bash50-001">
+			#         <img src="/icons/text.gif" alt="[TXT]">
+			#     </a>
+			# </td>
+			# <td>
+			#     <a href="bash50-001">bash50-001</a>
+			# </td>
+			# https://ftp.gnu.org/gnu/bash/bash-5.0-patches/
+			# <td valign="top">
+			#     <img src="/icons/unknown.gif" alt="[   ]">
+			# </td>
+			# <td>
+			#     <a href="bash50-001">bash50-001</a>
+			# </td>
+			# so send to `echo-unique` rather than complicating our filter
+			# also send to `sort`, as depending on the mirror, a different sort order will be returned, and they must be sorted by ascending name
+			local version="$1"
+			__fetch_bash_version_patches "$version" | echo-regexp -gno --regexp='href="(bash[^"]+)' --replace='$1' | grep --invert-match --extended-regexp --regexp='\.sig$' | echo-unique --stdin | sort || return $?
+		}
+		function __install {
+			# dependencies
+			setup-util-devel --quiet || return $?
+			setup-util --quiet --cli='yacc' APT='byacc' BREW='byacc' || return $?
+			source "$DOROTHY/sources/environment.sh" || return $?
+			# patches
+			local version
+			# don't look to ./configure as that is only minor version, and we want the patch version, which should be in the path
+			# version="$(echo-regexp -o --regexp='BASHVERS=(.+)' --replace='$1' <./configure)" || return $?
+			version="$(pwd | echo-regexp -o --regexp='/bash-([^/]+)/' --replace='$1' || :)"
+			# if it isn't in the path, then it we aren't doing a versioned download, and just getting the latest, so use that
+			if [[ -z $version ]]; then
+				version="$BASH_VERSION_LATEST"
+			fi
+			# if the version has a patch, we don't need to patch
+			if [[ $version == *.*.* ]]; then
+				__print_style --stderr --bold='Bash version ' --code="$version" --bold=' is already patched.' || return $?
+			else
+				# use ftp.gnu.org for fetching the listing, then use mirrors for fetching the mirrors
+				# mirrors sometimes are not reliable with duplicate data or missing items
+				local patches=() patch
+				__split --target={patches} --no-zero-length --invoke=try -- \
+					__get_bash_version_patches "$version" || return $?
+				for patch in "${patches[@]}"; do
+					# if the mirror fails, then fallback to the main site, and if that fails, then give up
+					__download_bash_version_patch "$version" "$patch" || return $?
+					patch --input="$patch" -p0 || return $? # p0 is necessary for linux builds
+				done
+			fi
+			# compile
+			./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
+			make || return $?
+		}
+		for version in "${versions[@]}"; do
+			options=(
+				--cli="bash-$version"
+				--order='download'
+				"$@"
+				DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${version}.tar.gz"
+				DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
+				DOWNLOAD_BUILD_INSTALL='__install'
+				DOWNLOAD_BUILD_GLOB='bash'
+			)
+			setup_util --optional "${options[@]}"
+		done
+		return 0
 	fi
 
-	# setup bash
-	function build_bash {
-		# dependencies
-		setup-util-devel --quiet
-		source "$DOROTHY/sources/environment.sh"
+	# prevent crashes
+	if [[ ${RELOADED_IN_SYSTEM_BASH-} != 'yes' ]]; then
+		# bash is not outdated, and we can exit early
+		if ! __is_bash_outdated && setup-util --check --cli=bash "$@"; then
+			return 0
+		fi
+		# continue
+		if __is_macos && [[ -x '/bin/bash' ]]; then
+			# reload in system bash to prevent modification crashing uus
+			# don't use `debug-bash` as we still want invocations to `bash` to be the latest, so we can detect the upgraded version
+			env RELOADED_IN_SYSTEM_BASH=yes /bin/bash "${BASH_SOURCE[0]}" "$@"
+			return $?
+		fi
+	fi
 
-		# build
-		./configure
-		make
-	}
+	# enable DOWNLOAD_BUILD_INSTALL
+	source "$(type -P setup-util)"
+
+	# process
 	local bottle_url='' macos_release arch options=(
-		"${extras[@]}"
 		--cli='bash'
 		"$@"
-		APK='bash' # ALPINE
-		APT='bash' # UBUNTU
-		AUR='bash' # ARCH
+		APK='bash'
+		APT='bash'
+		AUR='bash'
 		BREW='bash'
-		EMERGE='app-shells/bash' # GENTOO
-		URPMI='bash'             # MAGEIA
+		EMERGE='app-shells/bash'
 		NIX='nixpkgs.bash'
-		RPM='bash'    # FEDORA
-		XBPS='bash'   # VOID
-		ZYPPER='bash' # SUSE
+		RPM='bash'
+		URPMI='bash'
+		XBPS='bash'
+		ZYPPER='bash'
 	)
-	arch="$(get-arch)"
-	if is-mac; then
+	function __install {
+		# dependencies
+		if ! __is_macos; then
+			setup-util-devel --quiet || return $?
+			source "$DOROTHY/sources/environment.sh" || return $?
+		fi
+
+		# install for all users
+		# support unbounded flags, as empty from [setup-environment-commands] then it will remain unbounded
+		# https://www.gnu.org/software/bash/manual//html_node/Installation-Names.html
+		# https://www.gnu.org/software/bash/manual//html_node/Compilers-and-Options.html
+		./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
+		make install prefix="$XDG_PREFIX" || return $?
+	}
+	function __uninstall {
+		# the configure is necessary to make [make uninstall] available
+		if ! __is_macos; then
+			setup-util-devel --quiet || return $?
+			source "$DOROTHY/sources/environment.sh" || return $?
+		fi
+		./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
+		make uninstall prefix="$XDG_PREFIX" || return $?
+	}
+	arch="$(__get_arch)"
+	if __is_macos; then
+		# fetch the bottle urls via: brew info --json bash | __jq -r '.[].bottle.stable.files'
 		macos_release="$(get-macos-release-name)"
-		if test "$arch" = 'a64'; then
-			if test "$macos_release" = 'ventura'; then
+		if [[ $arch == 'a64' ]]; then
+			if [[ $macos_release == 'sequoia' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:066b7eba204091b70860d2f17d0dd65201900b3e3ca32de87a746ed1baf13332'
+			elif [[ $macos_release == 'sonoma' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:bd484090760c2736fa30e29a7861aaf115330bfb10178ce398e1f927a056a047'
+			elif [[ $macos_release == 'ventura' ]]; then
 				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:f3a42b9282e6779504034485634a2f3e6e3bddfc70b9990e09e66e3c8c926b7d'
-			elif test "$macos_release" = 'monterey'; then
+			elif [[ $macos_release == 'monterey' ]]; then
 				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:5e7e3e3387fc60e907683b437ac6e64879e117a3c5c1421fe6e6257f6aaa3c69'
-			elif test "$macos_release" = 'big_sur'; then
+			elif [[ $macos_release == 'big_sur' ]]; then
 				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:d19858831275271cc8aa9a1a28de6223faa44c6ebbc88e83898fd559de5b627e'
 			fi
-		elif test "$arch" = 'x64'; then
-			if test "$macos_release" = 'ventura'; then
+		elif [[ $arch == 'x64' ]]; then
+			if [[ $macos_release == 'sonoma' ]]; then
+				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:354e107695c01f1b970174487d0f5e501774c485b60e13f95141884b31ba883d'
+			elif [[ $macos_release == 'ventura' ]]; then
 				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:fd01a9dbdc56f6313a725cb345a3b991cfdaa9e1a91b08fd9791a0e695b55723'
-			elif test "$macos_release" = 'monterey'; then
+			elif [[ $macos_release == 'monterey' ]]; then
 				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:05a5f9435c9e9ffe8377b03e0ca6b27bbb32cc01aff47dd1692cd8d7e735ab3a'
-			elif test "$macos_release" = 'big_sur'; then
+			elif [[ $macos_release == 'big_sur' ]]; then
 				bottle_url='https://ghcr.io/v2/homebrew/core/bash/blobs/sha256:680dd3b37e17cc4fa1af6dd8c51c774dd0c9aa3e594e96527020845516b1ea77'
 			fi
 		fi
 	fi # don't use linux bottle, as linux is too varied, and doesn't work on opensuse/leap: https://github.com/bevry/dorothy/actions/runs/6048593518/job/16414257095
-	if test -n "$bottle_url" && fetch --bearer-token='QQ==' --ok "$bottle_url"; then
+	if [[ -n $bottle_url ]] && fetch --bearer-token='QQ==' --ok "$bottle_url"; then
 		options+=(
 			DOWNLOAD="$bottle_url"
 			DOWNLOAD_BEARER_TOKEN='QQ=='
-			DOWNLOAD_UNZIP_FORMAT='tar'
-			DOWNLOAD_UNZIP_FILTER='bash/*/bin/bash'
+			DOWNLOAD_ARCHIVE_EXTRACT='yes'
+			DOWNLOAD_ARCHIVE_GLOB='bash/*/bin/bash'
 		)
 	else
 		options+=(
-			DOWNLOAD="https://ftp.gnu.org/gnu/bash/bash-${BASH_VERSION_LATEST}.tar.gz"
-			DOWNLOAD_UNZIP_FORMAT='tar'
-			DOWNLOAD_UNZIP_FILTER='bash-*/*'
-			DOWNLOAD_BUILD_EVAL='build_bash'
+			DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${BASH_VERSION_LATEST}.tar.gz"
+			DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
+			DOWNLOAD_TARGET_PATH="$XDG_PREFIX/bin/bash"
+			DOWNLOAD_BUILD_INSTALL='__install'
+			DOWNLOAD_BUILD_UNINSTALL='__uninstall'
 		)
 	fi
 	setup_util "${options[@]}"
 
-	# check if still outdated, if so, install via building instead
-	if is-bash-version-outdated --quiet; then
+	# reload environment, so that bash modifications are detected
+	source "$DOROTHY/sources/environment.sh" || return $?
+
+	# if not uninstalling, then upgrade if it is still outdated
+	if [[ $option_uninstall != 'yes' ]] && __is_bash_outdated; then
 		options+=(
-			'--upgrade'
-			'--order=download'
+			--upgrade
+			--order='download ...'
 		)
 		setup_util "${options[@]}"
 	fi
@@ -101,38 +399,35 @@ function setup_util_bash() (
 	# setup bash completions
 	# https://github.com/scop/bash-completion
 	options=(
-		"${extras[@]}"
 		--optional
 		--no-fallback
 		--name='Bash Completions'
 		"$@"
-		APK='bash-completion' # ALPINE
-		APT='bash-completion' # UBUNTU
-		AUR='bash-completion' # ARCH
+		APK='bash-completion'
+		APT='bash-completion'
+		AUR='bash-completion'
 		BREW='bash-completion'
-		RPM='bash-completion'    # FEDORA
-		ZYPPER='bash-completion' # SUSE
+		RPM='bash-completion'
+		ZYPPER='bash-completion'
 	)
 	setup_util "${options[@]}"
 
-	# if we are interactive, allow shell modification
-	if is-interactive; then
+	# if we are reactive, allow shell modification
+	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
 		# if the login shell is outdated bash, and if the new bash is installed, then update the login shell to the newer bash
 		# @todo figure out how this works if login shell is the now uninstall bash
 		local login_shell bash_shell
 		login_shell="${SHELL-}"
 		bash_shell="$(type -P bash)"
-		if test -n "$login_shell"; then
-			login_shell_name="$(basename "$login_shell")"
-			if test "$login_shell_name" = 'bash' -a "$login_shell" != "$bash_shell"; then
-				login_shell_version="$("$login_shell" -c -- 'echo $BASH_VERSION')"
-				bash_shell_version="$("$bash_shell" -c -- 'echo $BASH_VERSION')"
-				if test "$login_shell_version" != "$bash_shell_version"; then
-					echo-style --h2="Your login shell is an outdated version of bash."
-					echo-style --h2="You will now be prompted now to change it to a more modern shell."
-					setup-shell
-					echo-style --h2="Close this terminal, open a new one, then run the command you ran again."
-					return 0
+		if [[ -n $login_shell ]]; then
+			login_shell_name="$(basename -- "$login_shell")"
+			if [[ $login_shell_name == 'bash' && $login_shell != "$bash_shell" ]]; then
+				login_shell_version="$("$login_shell" -c -- 'printf "%s\n" "$BASH_VERSION"')"
+				bash_shell_version="$("$bash_shell" -c -- 'printf "%s\n" "$BASH_VERSION"')"
+				if [[ $login_shell_version != "$bash_shell_version" ]]; then
+					if confirm --positive --ppid=$$ -- "Upgrade your login shell from bash $login_shell $login_shell_version to $bash_shell $bash_shell_version ?"; then
+						setup-shell "$bash_shell"
+					fi
 				fi
 			fi
 		fi
@@ -140,6 +435,6 @@ function setup_util_bash() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	setup_util_bash "$@"
 fi

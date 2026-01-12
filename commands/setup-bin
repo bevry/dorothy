@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function setup_bin_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-bin --help
+)
+
 function setup_bin() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,28 +12,25 @@ function setup_bin() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			For Applications you already have installed, expose their binaries to PATH by symylinks inside $(echo-style --code="$XDG_BIN_HOME").
+			For Applications you already have installed, expose their binaries to \`PATH\` by symlinks inside \`XDG_BIN_HOME\`.
 
 			USAGE:
-			setup-bin
+			\`setup-bin\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
@@ -36,7 +38,7 @@ function setup_bin() (
 	# Helpers
 
 	# prepare
-	echo-segment --h1='Setup Binaries'
+	__print_style --h1='Setup Binaries'
 
 	# symlink_app <app> ...[<existing> <symlink>]
 	function symlink_app {
@@ -45,16 +47,16 @@ function setup_bin() (
 		app="$1"
 		shift
 		# get the path
-		path="$(get-app "$app" || :)"
-		if test -n "$path" -a -d "$path"; then
+		path="$(get-app --quiet --app="$app" || :)"
+		if [[ -n $path && -d $path ]]; then
 			# create a symlink for each bin
-			while test "$#" -ne 0; do
+			while [[ $# -ne 0 ]]; do
 				existing="$path/$1"
 				shift
 				symlink="$XDG_BIN_HOME/$1"
 				shift
-				if test -x "$existing"; then
-					symlink-helper --existing="$existing" --symlink="$symlink"
+				if [[ -x $existing ]]; then
+					fs-link --existing="$existing" --symlink="$symlink"
 				fi
 			done
 		fi
@@ -73,12 +75,12 @@ function setup_bin() (
 		'Contents/Resources/app/bin/code' 'code'
 
 	# Visual Studio Code - Flatpak
-	if command-exists flatpak && flatpak info com.visualstudio.code &>/dev/null; then
+	if __command_exists -- flatpak && flatpak info com.visualstudio.code &>/dev/null; then
 		cat <<-EOF >"$XDG_BIN_HOME/code"
 			#!/usr/bin/env bash
 			flatpak run com.visualstudio.code "\$@"
 		EOF
-		chmod +x "$XDG_BIN_HOME/code"
+		fs-own --x -- "$XDG_BIN_HOME/code"
 	fi
 
 	# Visual Studio Code
@@ -102,20 +104,47 @@ function setup_bin() (
 		'Contents/Resources/bin/ksdiff' 'ksdiff'
 
 	# =====================================
+	# Remove broken symlinks
+
+	local bins=() bin missing=() remove=()
+	__split --target={bins} --no-zero-length --invoke -- \
+		echo-subpaths -- "$XDG_BIN_HOME"
+	for bin in "${bins[@]}"; do
+		if [[ ! -e $bin ]]; then
+			missing+=("$bin")
+		fi
+	done
+	for bin in "${missing[@]}"; do
+		if is-broken-symlink -- "$bin"; then
+			remove+=("$bin")
+		fi
+	done
+	if [[ ${#remove[@]} -ne 0 ]]; then
+		eval-helper \
+			--pending="$(__print_style --notice='Removing broken symlinks:')" \
+			--success="$(__print_style --success='Removed broken symlinks.')" \
+			--failure="$(__print_style --error='Failed to remove broken symlinks.')" \
+			-- rm -v -- "${remove[@]}" # fs-remove is too verbose
+	fi
+
+	# =====================================
 	# Permissions
 
 	# gsed symlink requires sudo
-	# [stat  -c %U "$(fs-realpath "$XDG_BIN_HOME/gsed")"] returns [root] however that is so involved for this check
-	fs-own --sudo --permissions='+x' \
-		-- "$XDG_BIN_HOME/"*
+	# [stat  -c %U "$(fs-path --resolve "$XDG_BIN_HOME/gsed")"] returns [root] however that is so involved for this check
+	fs-own --x -- "$XDG_BIN_HOME/"* || :
 
 	# =====================================
 	# Done
 
-	echo-segment --g1='Setup Binaries'
+	__print_style --g1='Setup Binaries'
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_bin "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_bin_test
+	else
+		setup_bin "$@"
+	fi
 fi

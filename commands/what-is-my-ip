@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function what_is_my_ip_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- what-is-my-ip --help
+)
+
 function what_is_my_ip() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,12 +12,12 @@ function what_is_my_ip() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Outputs your IP address(es).
 
 			USAGE:
-			what-is-my-ip [--] ...<type>
+			\`what-is-my-ip [--] ...<type>\`
 
 			TYPES:
 			local
@@ -24,61 +29,53 @@ function what_is_my_ip() (
 			QUIRKS:
 			If no <type> is specified, all types will be returned.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item types=()
-	while test "$#" -ne 0; do
+	local item option_types=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
 		'--')
-			types+=("$@")
+			option_types+=("$@")
 			shift "$#"
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) types+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_types+=("$item") ;;
 		esac
 	done
 
 	# ensure types
-	if test "${#types[@]}" -eq 0; then
-		types=(
+	if [[ ${#option_types[@]} -eq 0 ]]; then
+		option_types=(
 			'local'
 			'remote'
 		)
 	fi
 
 	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
-
-	# =====================================
 	# Helpers
 
 	function get_ip_local {
 		# [ip] filters out bad interfaces, [ifconfig] works better on alpine
-		if command-exists ip && ! is-alpine; then
+		if __command_exists -- ip && ! is-busybox -- ip; then
 			# https://stackoverflow.com/a/26694162/130638
 			# -P is for perl regular expressions and is rarely supported
 			# ip -4 addr show eth0 | grep --only-matching -P '(?<=inet\s)\d+(\.\d+){3}'
 
 			# works on all interfaces, filters out DOWN/UNKNOWN interfaces, such as broken docker virtual network interfaces
-			ip -brief address | rg -o 'UP\s+(.+?)[/ ]' --replace '$1'
-		elif command-exists ifconfig; then
+			ip -brief address | echo-regexp -fon --regexp='UP\s+(.+?)[/ ]' --replace='$1'
+		elif __command_exists -- ifconfig; then
 			# fetch all 192.168.x and 10.0.x addresses
 			# mac prefixes with `inet ...` and has unwanted prefix `broadcast ...`
 			# alpine prefixes with `inet addr:...` and has unwanted prefix `Bcast:...` and `Mask:...`
-			ifconfig | rg -o 'inet.+?((192\.168\.|10\.0\.)\d+\.\d+)' --replace '$1'
+			ifconfig | echo-regexp -fon --regexp='inet.+?((192\.168\.|10\.0\.)\d+\.\d+)' --replace='$1'
 		else
-			echo-style --error="$0: Getting the local IP address is unsupported on this platform." >/dev/stderr
+			__print_style --stderr --error="$0: Getting the local IP address is unsupported on this platform."
 			return 19 # ENODEV 19 Operation not supported by device
 		fi
 	}
@@ -89,18 +86,19 @@ function what_is_my_ip() (
 		# fetch https://ipinfo.io/ip
 
 		# does take into account cloudflare warp
-		fetch https://whatmyip.bevry.workers.dev
+		fetch 'https://whatmyip.bevry.workers.dev'
 	}
 
 	# =====================================
 	# Act
 
-	local type
-	if test "${#types[@]}" -eq 1; then
-		"get_ip_${types[0]}"
+	local type Type
+	if [[ ${#option_types[@]} -eq 1 ]]; then
+		"get_ip_${option_types[0]}"
 	else
-		for type in "${types[@]}"; do
-			printf '%s: ' "$(uppercase_first_letter "$type")"
+		for type in "${option_types[@]}"; do
+			Type="$(__get_uppercase_first_letter -- "$type")"
+			__print_string "${Type}: "
 			"get_ip_$type"
 		done
 	fi
@@ -108,6 +106,10 @@ function what_is_my_ip() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	what_is_my_ip "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		what_is_my_ip_test
+	else
+		what_is_my_ip "$@"
+	fi
 fi

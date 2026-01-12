@@ -26,7 +26,7 @@ For example, in the below code example, tab indentation is used for code alignme
 
 # help
 function help() {
-	cat <<-EOF >/dev/stderr
+	__print_help "$@" <<-EOF || return $?
 		ABOUT:
 		Prompt the user for an input value in a clean and robust way.
 
@@ -37,8 +37,8 @@ function help() {
 		--question=<string>
 		    Specifies the question that the prompt will be answering.
 	EOF
-	if test "$#" -ne 0; then
-		echo-error "$@"
+	if [[ $# -ne 0 ]]; then
+		__print_error "$@"
 	fi
 	return 22 # Invalid argument
 }
@@ -65,25 +65,25 @@ function test_dorothy_scopes() (
 	source "$DOROTHY/sources/bash.bash"
 
 	local var='a'
-	print_line "$var"
+	__print_lines "$var"
 	function nested_function {
 		local var='b'
-		print_line "$var"
+		__print_lines "$var"
 	}
 	nested_function
-	print_line "$var"
+	__print_lines "$var"
 	# a
 	# b
 	# a
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ "$0" = "${BASH_SOURCE[0]}" ]]; then
 	test_dorothy_scopes "$@"
 fi
 ```
 
-Variables can use the name of a function or command, e.g. `local source=...; echo "$source"` as variables do not conflict with functions/commands due to them requiring the `$` prefix.
+Variables can use the name of a function or command, e.g. `local source=...; printf '%s\n' "$source"` as variables do not conflict with functions/commands due to them requiring the `$` prefix.
 
 As bash is a case-sensitive language, we are open to adopting `camelCase` and `CamelCase` if there is well reasoned grounds for it.
 
@@ -108,7 +108,7 @@ Use single-quotes `'` if there is no need for interpolation, use double-quotes `
 If doing value substitution, always use double-quotes `"` as single-quotes will be outputted:
 
 ```bash
-echo "${missing:-'bad'} ${missing:-"good"}"
+printf '%s\n' "${missing:-'bad'} ${missing:-"good"}"
 # outputs:
 # 'bad' good
 ```
@@ -132,22 +132,15 @@ echo-verbose "$a"
 
 ## Interpolation
 
-Prefer `$var` rather than `${var}` to interpolate variables, unless doing so would otherwise complicate matters.
+Prefer `$var` rather than `${var}` for simple interpolations, for advanced interpolations it is up to you.
 
 ```bash
-# don't
+# recommended
 local indent='  ' world='Earth'
-echo "${indent}Hello, ${world}."
-cat <<-EOF
-Hello, ${world}.
-EOF
-
-# do
-local indent='  ' world='Earth'
-echo "${indent}Hello, $world."
-cat <<-EOF
-${indent}Hello, $world.
-EOF
+printf '%s\n' "$world" # good
+printf '%s\n' "${world}" # bad, unnecessary complexity
+printf '%s\n' "${indent}Hello, $world." # fine
+printf '%s\n' "${indent}Hello, ${world}." # also fine
 ```
 
 Always use `"$HOME"` instead of `~`, as `~` doesn't work if it is inside a string, which becomes a common mistake when refactoring.
@@ -158,25 +151,26 @@ Sometimes you may need to use special characters, such as newlines, here are som
 
 ```bash
 # this is good
-echo $'hello\nworld'
+printf '%s\n' $'hello\nworld'
 # but it is too simple for most use cases
 
 # a more involved use case would be variable interpolation
 name='dorothy'
-echo $'hello\n$name'
+printf '%s\n' $'hello\n$name'
 # which outputs:
 # hello
 # $name
 # which is not what we desire
 
 # let's try this:
-echo $"hello\n$name"
+printf '%s\n' $"hello\n$name"
 # which outputs:
 # hello\ndorothy
 # which is is still not desire
 
 # so let's use this, which is the right technique for the right bits
-echo 'hello'$'\n'"$name"
+printf '%s\n' 'hello'$'\n'"$name" # fine
+printf '%s\n' $'hello\n'"$name" # also fine
 # which outputs:
 # hello
 # dorothy
@@ -201,15 +195,11 @@ require_globstar
 
 ## Conditionals
 
-### Prefer `test`
+### Use `[[` with bash, `[` with sh, instead of `test`
 
-Always use `test ...` instead of `[` or `[[` unless doing bash special comparisons such as `[[ "$var" = *suffix ]]`.
+Avoid `test` at all costs, as `test -n "$a" -a "$b" = "$c"` fails when `a='>'`, which Dorothy encountered in practice with it's `echo-*` commands.
 
-`test` is easy to get help for `help test`, and works consistently across shells for the vast majority of cases.
-
-### Use `=`, not `==`
-
-Always use a single `=`, as `==` does not matter.
+If you are needing to do a privileged invocation of such a comparison, move the comparison into its own file and execute the file instead.
 
 ### Use `if`, not magic
 
@@ -217,9 +207,9 @@ Always use `if [condition] then [action]` statements over, implicit `condition &
 
 Magic makes refactoring later more difficult, such as when eventually:
 
--   conditions become more complicated, such as `if ... elif ... elif ... fi` statements
--   adding more conditions, such as `condition && other-condition && action` or `(condition || else-condition) && action`
--   adding more actions, such as: `condition && { action; other-action; }`
+- conditions become more complicated, such as `if ... elif ... elif ... fi` statements
+- adding more conditions, such as `condition && other-condition && action` or `(condition || else-condition) && action`
+- adding more actions, such as: `condition && { action; other-action; }`
 
 Magic is complex because it mixes and matches conditional statements with action statements, requiring grokking to understand the explicit intent of each statement, whether it is working as a condition, an action, or both as a condition and an action. `If ... then` statements make this explicit.
 

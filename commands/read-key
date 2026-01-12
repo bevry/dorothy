@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# trunk-ignore-all(shellcheck/SC2162)
+# trunk-ignore-all(shellcheck/SC2162,shellcheck/SC2030,shellcheck/SC2031)
+# We use lastpipe so 2030 and 2031 are false positives.
+
+# read
+# -s do not echo input coming from a terminal
+# -t timeout	time out and return failure if a complete line of input is not read within TIMEOUT seconds.  The value of the TMOUT variable is the default timeout.  TIMEOUT may be a fractional number.  If TIMEOUT is 0, read returns immediately, without trying to read any data, returning success only if input is available on the specified file descriptor.  The exit status is greater than 128 if the timeout is exceeded
+# -n nchars	return after reading NCHARS characters rather than waiting for a newline, but honor a delimiter if fewer than NCHARS characters are read before the delimiter
+# -N nchars	return only after reading exactly NCHARS characters, unless EOF is encountered or read times out, ignoring any delimiter
+# Exit Status: The return code is zero, unless end-of-file is encountered, read times out (in which case it's greater than 128), a variable assignment error occurs, or an invalid file descriptor is supplied as the argument to -u.
 
 function read_key_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-segment --h1="TEST: $0"
+	source "$DOROTHY/sources/ansi.bash" # ANSI_ALL
+	eval-tester --ignore-stderr --status=22 -- read-key --help
 
-	# refer to [is-tty --test] for more comprehensive testing
-
-	# do a test without any capturing
+	local -i delay=1
 	local book status
 
 	printf '%s\n' "read-key bash version [$BASH_VERSION] [$BASH_VERSION_MAJOR] "
@@ -28,7 +35,7 @@ function read_key_test() (
 	read -t 0 < <(printf '%s\n' 'abc') || status=$?
 	printf '%s\n' "read-key < <(...) check status [$status] "
 
-	if test "$BASH_VERSION_MAJOR" -ge '4'; then
+	if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 		status=0
 		date
 		read -sN1 -t 5 book || status=$?
@@ -42,7 +49,7 @@ function read_key_test() (
 	date
 	printf '%s\n' "read-key v3 status [$status] and read [$book]"
 
-	if test "$BASH_VERSION_MAJOR" -ge '4'; then
+	if [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
 		status=0
 		printf '%s\n' 'abc' | read -sN1 -t 5 book || status=$?
 		printf '%s\n' "read-key v4 status [$status] and read [$book]"
@@ -62,39 +69,69 @@ function read_key_test() (
 
 	status=0
 	(
-		sleep 3
 		printf '%s\n' 'abc'
 	) | read -t 60 book || status=$?
 	printf '%s\n' "read-key manual timeout [$status] and read [$book]"
 
-	eval-tester --name='timeout was detected' --status='60' \
-		-- read-key --timeout=10
+	{
+		printf '%s' "$ANSI_ALL"
+	} | eval-tester --name='all was detected' --stdout='all' -- \
+		read-key --timeout="$delay"
+
+	eval-tester --name='timeout was detected' --status='60' -- \
+		read-key --timeout="$delay"
 
 	{
-		sleep 3
-		echo
-	} | eval-tester --name='enter was detected' --stdout='enter' \
-		-- read-key --timeout=10
+		__print_line
+	} | eval-tester --name='enter was detected' --stdout='enter' -- \
+		read-key --timeout="$delay"
 
 	{
-		sleep 3
 		printf '%s' $'\x0a'
-	} | eval-tester --name='enter was detected' --stdout='enter' \
-		-- read-key --timeout=10
+	} | eval-tester --name='enter was detected' --stdout='enter' -- \
+		read-key --timeout="$delay"
 
 	{
-		sleep 3
-		printf '%s' $'\eOB'
-	} | eval-tester --name='down was detected' --stdout='down' \
-		-- read-key --timeout=10
+		printf '%s' $'\e\e\e\e'
+	} | eval-tester --name='escapes were detected' --stdout=$'escape\nescape\nescape\nescape' -- \
+		read-key --timeout="$delay"
 
 	{
-		sleep 3
+		printf '%s' $'\e[Ha\e[1~'
+	} | eval-tester --name='home variants were detected' --stdout=$'home\na\nhome' -- \
+		read-key --timeout="$delay"
+
+	{
 		printf '%s' $'\e[B'
-	} | eval-tester --name='down was detected' --stdout='down' \
-		-- read-key --timeout=10
+	} | eval-tester --name='down was detected' --stdout='down' -- \
+		read-key --timeout="$delay"
 
-	echo-segment --g1="TEST: $0"
+	{
+		printf '%s' $'\e[F'
+	} | eval-tester --name='end was detected' --stdout='end' -- \
+		read-key --timeout="$delay"
+
+	local enter_if_not_ignored
+	if [[ $IS_STDIN_LINE_BUFFERED == 'no' ]]; then
+		enter_if_not_ignored=$'enter\n'
+	else
+		enter_if_not_ignored=''
+	fi
+	{
+		printf '%s' $'\e\e\n\e[Hab\e[1~cd'
+	} | eval-tester --name='a series of characters were detected' --stdout=$'escape\nescape\n'"$enter_if_not_ignored"$'home\na\nb\nhome\nc\nd' -- \
+		read-key --timeout="$delay"
+
+	{
+		printf '%s' $'\e[Hab\e[1~cd\e[F\e[Jef'
+	} | eval-tester --name='unknown read-key ANSI escape codes report failure' --status=94 --stdout=$'home\na\nb\nhome\nc\nd\nend' -- \
+		read-key --timeout="$delay"
+
+	{
+		printf '%s' $'\e[Hab\e[1~cd\e[F\e[Jef'
+	} | eval-tester --name='unknown read-key ANSI escape codes report verbal failure if verbose' --status=94 --stdout=$'home $\'\\E[H\'\na a\nb b\nhome $\'\\E[1~\'\nc c\nd d\nend $\'\\E[F\'' --stderr="unknown \$'\E[Jef'" -- \
+		read-key --verbose --timeout="$delay"
+
 	return 0
 )
 function read_key() (
@@ -103,144 +140,53 @@ function read_key() (
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Read the pressed character and output what it was, such as [a], [left], [backspace], [enter], etc.
+			Reads the immediately received characters and outputs which keys they are.
 
 			USAGE:
-			read-key [--timeout=600]
+			\`read-key [...options]\`
+
+			OPTIONS:
+			--verbose | --no-quiet
+			    If an unknown key is encountered, output a warning about it.
+
+			--timeout=<timeout>
+			    Custom timeout value in seconds. Defaults to \`600\`.
+
+			--keep-line-buffer-newlines
+			    By default, when in non-TTY environments, characters are line buffered and require an \`enter\` key to be sent, of which we will discard such \`enter\` keys. Enabling this flag will send \`line-buffer\` on such \`enter\` keys.
+
+			--continue
+			    Continue reading keys.
+
+			RETURNS:
+			[0] if only printable keys and known non-printable keys were received.
+			[60] if a timeout occurred.
+			[94] if an unknown non-printable character sequence was received.
+
+			QUIRKS:
+			A pressable key can be a printable key, like \`a\` and \`!\`, or a non-printable key, like \`enter\`, \`backspace\`, and \`left\`.
+			Non-printable keys can be a sequence of non-printable and printable characters.
+			ANSI Escape Codes are a sequence of non-printable and printable characters, that the terminal interprets as a command, such as \`erase line\` and \`move cursor\`, and are not always pressable keys (things like the \`home\` and \`end\` pressable keys actually function by sending ANSI Escape Codes).
+			As the utility of this command is for reactivity to user interactions, only pressable keys are supported, and does not attempt to translate all ANSI Escape Codes into human readable commands, such as \`move cursor up 5 lines\`.
+			Furthermore, under typical circumstances this will react to a single key press, however under the line-buffer mode of non-TTY environments, which requires an enter key to be pressed to send the prior keys for processing, or under the circumstance of rapid key presses under Bash v3 which requires a second to process received input, then multiple keys may be rightfully be received and processed, in which multiple keys will be outputted, as such to properly handle key presses, you should treat the output of this command as an array.
+			Because the \`escape\` key is translated as the start of an escaped character sequence, the \`escape\` key will only be understood if done at the end of a known sequence.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
-
-	# process
-	local item timeout=''
-	while test "$#" -ne 0; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--timeout='*) timeout="${item#*--timeout=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
-		esac
-	done
-
-	# timeout
-	if ! is-number "$timeout"; then
-		timeout=600 # ten minutes
-	fi
-	timeout="$(get_read_decimal_timeout "$timeout")"
-
-	# helper
-	# -s do not echo input coming from a terminal
-	# -t timeout	time out and return failure if a complete line of
-	# 	input is not read within TIMEOUT seconds.  The value of the
-	# 	TMOUT variable is the default timeout.  TIMEOUT may be a
-	# 	fractional number.  If TIMEOUT is 0, read returns
-	# 	immediately, without trying to read any data, returning
-	# 	success only if input is available on the specified
-	# 	file descriptor.  The exit status is greater than 128
-	# 	if the timeout is exceeded
-	# -n nchars	return after reading NCHARS characters rather than waiting
-	# 	for a newline, but honor a delimiter if fewer than
-	# 	NCHARS characters are read before the delimiter
-	# -N nchars	return only after reading exactly NCHARS characters, unless
-	# 	EOF is encountered or read times out, ignoring any
-	# 	delimiter
-	local key='' k0='' k1='' k2='' k3='' status=0
-	if test "$BASH_VERSION_MAJOR" -ge '4'; then
-		# bash v4+ technique
-		read -sN1 -t "$timeout" k0 || status=$?
-		read -sN1 -t 0.0001 k1 || :
-		read -sN1 -t 0.0001 k2 || :
-		read -sN1 -t 0.0001 k3 || :
-		key="${k0}${k1}${k2}${k3}"
-	else
-		# bash v3 technique
-		# IFS= is necessary to separate space from enter
-		IFS= read -sn1 -t "$timeout" k0 || status=$?
-		# printf 'k0 = %q \n' "$k0" >/dev/stderr
-		if test "$k0" = $'\e'; then
-			IFS= read -sn1 -t1 k1 || :
-			# printf 'k1 = %q \n' "$k1" >/dev/stderr
-			if test "$k1" = $'\e'; then
-				print_line 'escape' # duplicate escape press
-				return 0
-			fi
-			IFS= read -sn1 -t1 k2 || :
-			# printf 'k2 = %q \n' "$k2" >/dev/stderr
-		fi
-		key="${k0}${k1}${k2}"
-	fi
-	if test "$status" -eq 142; then
-		return 60 # ETIMEDOUT 60 Operation timed out
-	elif test "$status" -eq 1 && (! test -t 0 || ! read -t 0); then
-		# this can happen on CI environments, and other environments with stdin and TTY trickery
-		# the read isn't wrapped in this, as those check are immediate, whereas read-key supports non-immediate timeouts
-		# return a timeout, read-key always functions with a timeout, so no input = is the same result as a timeout
-		return 60 # ETIMEDOUT 60 Operation timed out
-	elif test "$status" -ne 0; then
-		return "$status" # some other issue, let the caller figure it out
+	if [[ $* == '--help' ]]; then
+		__help || return $?
 	fi
 
-	# expand the key
-	case "$key" in
-	# vt100
-	$'\eOB') print_line 'down' ;;
-	$'\eOD') print_line 'left' ;;
-	$'\eOC') print_line 'right' ;;
-	$'\eOA') print_line 'up' ;;
-
-		# linux
-	$'\e[B') print_line 'down' ;;
-	$'\e[4~') print_line 'end' ;;
-	$'\e[1~') print_line 'home' ;;
-	$'\e[D') print_line 'left' ;;
-	$'\e[C') print_line 'right' ;;
-	$'\e[A') print_line 'up' ;;
-
-		# screen
-	$'\eOB') print_line 'down' ;;
-	$'\e[4~') print_line 'end' ;;
-	$'\e[1~') print_line 'home' ;;
-	$'\eOD') print_line 'left' ;;
-	$'\eOC') print_line 'right' ;;
-	$'\eOA') print_line 'up' ;;
-
-		# xterm
-	$'\eOB') print_line 'down' ;;
-	$'\eOF') print_line 'end' ;;
-	$'\eOH') print_line 'home' ;;
-	$'\eOD') print_line 'left' ;;
-	$'\eOC') print_line 'right' ;;
-	$'\eOA') print_line 'up' ;;
-
-		# special
-	$'\x7f') print_line 'backspace' ;;
-	$'\x01') print_line 'all' ;;    # what type of key is this?
-	$'\x1b') print_line 'escape' ;; # same as $'\e'
-	$'\x0a') print_line 'enter' ;;  # same as $'\n'
-	'') print_line 'enter' ;;       # bash v3 compat
-	$'\t') print_line 'tab' ;;
-	' ') print_line 'space' ;;
-
-	# other
-	$'\eOH') print_line 'home' ;;
-	$'\e[H') print_line 'home' ;;
-	$'\eOF') print_line 'end' ;;
-	$'\eOF') print_line 'end' ;;
-	*) print_line "$key" ;;
-	esac
+	# forward
+	__read_key "$@" || return $?
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	if test "$*" = '--test'; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
 		read_key_test
 	else
 		read_key "$@"

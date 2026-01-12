@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 
+function command_working_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- command-working --help
+
+	eval-tester --status=3 --stderr="< this-is-a-non-existent-command />[3] not working because it is missing" -- \
+		command-working --no-color -- this-is-a-non-existent-command
+
+	eval-tester --status=3 --stderr="< this-is-a-non-existent-command />[3] not working because it is missing" -- \
+		command-working --no-color -- this-is-a-non-existent-command command-missing
+
+	eval-tester -- \
+		command-working -- command-exists
+
+	eval-tester -- \
+		command-working -- command-exists command-missing
+
+	return 0
+)
 function command_working() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,115 +25,194 @@ function command_working() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Returns success exit code if all <command>s are available and working.
-			Working check is done via [<command> --help] and [<command> --version] checks.
+			Check if <command>s are available and working.
+			Working check is done via \`<command> --help\` and \`<command> --version\` checks.
 
 			USAGE:
-			command-working [--] ...<command>
+			\`command-working [...options] [--] ...<command>\`
+
+			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
+
+			RETURNS:
+			[0] if ALL commands are working
+			[1] if the first failure was due to the command not working
+			[3] if the first failure was due to the command not existing
+
+			QUIRKS:
+			Returns on first failure.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item commands=()
-	while test "$#" -ne 0; do
+	local item option_commands=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason='Your password is required to momentarily grant privileges to validate that this command is available and working:'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevated>
 		'--')
-			commands+=("$@")
+			option_commands+=("$@")
 			shift "$#"
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) commands+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_commands+=("$item") ;;
 		esac
 	done
 
+	# ensure elevate is a valid value
+	if [[ -n $option_user || -n $option_group ]]; then
+		option_elevate='yes'
+	fi
+
 	# check
-	if test "${#commands[@]}" -eq 0; then
-		help 'No <command> was provided.'
+	if [[ ${#option_commands[@]} -eq 0 ]]; then
+		help 'No <command>s provided.'
 	fi
 
 	# =====================================
 	# Helpers
 
+	# exceptions are all commands that do not respond to a version or help query
 	# https://github.com/greymd/teip/issues/29
 	# https://trunkcommunity.slack.com/archives/C0205B6KK8X/p1661601215325159
-	local exceptions=(
+	local failures=() exceptions=(
+		dash
+		find
+		gsed
+		ksh
+		rmtrash
+		rpi-update
+		sed
+		ssh
 		ssh-askpass
 		sshd
 		teip
+		trash
 		trunk
+		xargs
 	)
-	function check_status {
-		local cmd=() command_exit_status
+	function __check_status {
+		local cmd=() cmd_string cmd_exit_status cmd_output
 		# ensure sbin commands work
-		if [[ $* == *sbin* ]]; then
+		if [[ $* == *sbin* || $option_elevate == 'yes' ]]; then
 			cmd+=(
-				'sudo-helper'
-				'--reason=Your sudo/root/login password is required to verify this command is available and working:'
-				'--'
+				eval-helper
+				--elevated="$option_elevated"
+				--elevate="$option_elevate"
+				--user="$option_user"
+				--group="$option_group"
+				--reason="$option_reason"
+				--
 			)
 		fi
-		# continue with the comand
+		# continue with the command
 		cmd+=("$@")
 		# run the command hiding the output
-		eval_capture --statusvar=command_exit_status --no-output -- "${cmd[@]}"
+		__do --redirect-status={cmd_exit_status} --redirect-output={cmd_output} -- command "${cmd[@]}" || return $? # eval
 		# check for correct failure codes
-		if test "$command_exit_status" -eq 22 -o "$command_exit_status" -eq 200; then
+		if [[ $cmd_exit_status -eq 22 || $cmd_exit_status -eq 200 ]]; then
 			return 0
 		else
 			# otherwise return success or failure code
-			return "$command_exit_status"
+			cmd_string="$(echo-escape-command -- "${cmd[@]}")" || return $?
+			if [[ -n $cmd_output ]]; then
+				cmd_output+=$'\n'
+			fi
+			local styled
+			styled="$(__print_style --element+red="$cmd_string" $'\n' "$cmd_output" --/element+red="$cmd_string" --status="$cmd_exit_status")" || return $?
+			failures+=("$styled")
+			return "$cmd_exit_status"
 		fi
 	}
-	function check_working {
+	function __check_cmd {
+		local cmd_path="$1"
+		if [[ $cmd_path == */ffmpeg ]]; then
+			__check_status "$cmd_path" -version || return $?
+		else
+			__check_status "$cmd_path" --version ||
+				__check_status "$cmd_path" version ||
+				__check_status "$cmd_path" --help ||
+				__check_status "$cmd_path" -h || return $?
+		fi
+	}
+	function __check_working {
+		# reset debug
+		failures=()
+
 		# check it exists first
-		local cmd
-		cmd="$(type -P "$1" 2>/dev/null || :)"
-		if test -z "$cmd"; then
+		local cmd_path cmd_string executable_status
+		cmd_string="$(echo-escape-command -- "$1")" || return $?
+		cmd_path="$(type -P "$1" 2>/dev/null || :)"
+		if [[ -z $cmd_path ]]; then
 			# we must at least find it
-			return 1
+			__print_style --stderr --element/+red="$cmd_string" --status=3 ' ' --error='not working because it is missing' || return $?
+			return 3 # ESRCH 3 No such process
+		fi
+
+		__try {executable_status} -- is-executable --quiet -- "$cmd_path"
+		if [[ $executable_status -ne 0 ]]; then
+			case "$executable_status" in
+			2) __print_style --stderr --element/+red="$cmd_string" --status="$executable_status" ' ' --error='not working because it is missing.' || return $? ;;
+			9) __print_style --stderr --element/+red="$cmd_string" --status="$executable_status" ' ' --error='not working because it is a broken symlink.' || return $? ;;
+			13) __print_style --stderr --element/+red="$cmd_string" --status="$executable_status" ' ' --error='not working because it is not accessible.' || return $? ;;
+			22) __print_style --stderr --element/+red="$cmd_string" --status="$executable_status" ' ' --error='not working because it is not a valid argument.' || return $? ;;
+			93) __print_style --stderr --element/+red="$cmd_string" --status="$executable_status" ' ' --error='not working because it is not executable.' || return $? ;;
+			*) __print_style --stderr --element/+red="$cmd_string" --status="$executable_status" ' ' --error='not working because of unknown failure.' || return $? ;;
+			esac
+			return "$executable_status"
 		fi
 
 		# check if presence is enough for this cmd
 		local exception
 		for exception in "${exceptions[@]}"; do
-			if [[ $cmd == */"$exception" ]]; then
+			if [[ $cmd_path == */"$exception" ]]; then
 				return 0
 			fi
 		done
 
 		# it does exist, now check its return code
-		check_status "$cmd" --version ||
-			check_status "$cmd" version ||
-			check_status "$cmd" --help ||
-			check_status "$cmd" -h
+		__check_cmd "$cmd_path" || {
+			__print_style --stderr \
+				--element+red="$cmd_string" --newline \
+				--="$(__print_lines "${failures[@]}")" --newline \
+				--/element+red="$cmd_string" --status=1 ' ' --error='not working because it is failing' || return $?
+			return 1 # command not working
+		}
 	}
 
 	# =====================================
 	# Action
 
-	local command action_exit_status
-	for command in "${commands[@]}"; do
-		eval_capture --statusvar=action_exit_status -- check_working "$command"
-		if test "$action_exit_status" -eq 0; then
-			continue
-		else
-			return 1 # command not working
-		fi
+	local command
+	for command in "${option_commands[@]}"; do
+		__check_working "$command" || return $?
 	done
 	return 0 # all commands are working
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	command_working "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		command_working_test
+	else
+		command_working "$@"
+	fi
 fi

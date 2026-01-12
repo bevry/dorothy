@@ -2,127 +2,109 @@
 
 # use `gpg --debug-level guru` for debugging
 
+function gpg_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- gpg-helper --help
+)
+
 function gpg_helper() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile'
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Helpers for interacting with GPG (GNU Pretty Good Privacy).
 
 			USAGE:
+			\`gpg-helper [...options] <action> [...arguments]\`
 
-			gpg-helper config
+			OPTIONS:
+			--[no-]reconfigure
+			    Whether to re-prompt and re-save configuration settings.
+			--[no-]fallback
+			    If disabled, prevents installation of fallbacks to install dependencies.
+			--[no-]deps
+			    If disabled, prevents installation of dependencies, such as gpg etc.
+			--[no-]slim
+			    If enabled, disables reconfiguration, fallbacks, and dependencies.
 
+			ACTIONS:
+			& config
 			    Output the GPG configuration files.
 
-			gpg-helper configure
-
+			& configure
 			    Open the gpg configuration files in your desired editor.
 
-			gpg-helper permissions
-
+			& permissions
 			    Correct the permissions for the GPG files.
 
-			gpg-helper list
-			  <public|private>
-
+			& list <public|private>
 			    Output the details for all keys.
 
-			gpg-helper get
-			  <public|private>
-
+			& get <public|private>
 			    Output the identifier of a selected key.
 
-			gpg-helper import
-			  <file>
-
+			& import <file>
 			    Import the contents of a specific key file.
 
-			gpg-helper export
-			  <public|private>
-			  <key id>
-
+			& export <public|private> <key-id>
 			    Output the contents of a specific key.
+			    This \`gpg-helper export public\` is what you want to share your public key with another.
 
-			    This [gpg-helper export public] is what you want to share your public key with another.
-
-			gpg-helper delete
-			  <public|private>
-			  <key id>
-
+			& delete <public|private> <key-id>
 			    Delete a specific key.
 
-			gpg-helper new
-
+			& new
 			    Generate a new key.
 
-			gpg-helper edit
-			  <key id>
-
+			& edit <key-id>
 			    Edit a specific private key.
 
-			gpg-helper trust
-			  <private key id>
-
+			& trust <private-key-id>
 			    Mark that you trust a specific key.
 
-			gpg-helper password
-			  <private key id>
-
+			& password <private-key-id>
 			    Change the password of a specific key.
 
-			gpg-helper extend
-			  <private key id>
-			  <date>
-
+			& extend <private-key-id> <date>
 			    Extend a specific key to a specific date, or if no date was supplied, then a year from now.
 
-			gpg-helper expire
-			  <private key id>
-
+			& expire <private-key-id>
 			    Expire a specific key by marking its expiry date was this very moment.
 
-			gpg-helper encrypt
-			  <the file>
-			  <their user id, e.g. email>
-			  [your secret user id, e.g. email]
-
+			& encrypt <the-file> <their-user-id: e.g. email> [<your-secret-user-id: e.g. email>]
 			    Encrypt a file between yourself and someone else.
+			    You must have imported their public key into your keyring already.
 
-				 You must have imported their public key into your keyring already.
-
-			gpg-helper decrypt
-			  <the file>
-
+			& decrypt <the-file>
 			    Decrypt a file that has been encrypted to your public key.
 
-			gpg-helper symmetric
-			  <the file>
-
+			& symmetric <the-file>
 			    Encrypt a file using a passphrase instead.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item action='' args=()
-	while test "$#" -ne 0; do
+	local item action='' option_reconfigure='' option_fallback='' option_deps='' option_args=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		# <shared options between many setup commands>
+		'--no-reconfigure'* | '--reconfigure'*) __flag --source={item} --target={option_reconfigure} --affirmative --coerce ;;
+		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
+		'--no-deps'* | '--deps'*) __flag --source={item} --target={option_deps} --affirmative --coerce ;;
+		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_reconfigure} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
+		# </shared options between many setup commands>
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
 			action="$item"
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			break
 			;;
@@ -150,15 +132,15 @@ function gpg_helper() (
 		'symmetric'
 	)
 	action="$(
-		choose-option --required \
-			--question='which action to perform?' \
-			--filter="$action" -- "${actions[@]}"
+		choose --required \
+			--question='Which action to perform?' \
+			--skip-default --default="$action" -- "${actions[@]}"
 	)"
 
 	# =====================================
 	# Dependencies
 
-	setup-util-sd --quiet
+	__command_required -- 'gpg' || return $?
 
 	# =====================================
 	# Helpers
@@ -184,77 +166,57 @@ function gpg_helper() (
 	# helpers
 	function get_mode {
 		local mode="${1-}"
-		choose-option \
+		choose \
 			--question='What type of GPG key do you wish to fetch?' \
-			--filter="$mode" -- 'public' 'private'
+			--skip-default --default="$mode" -- 'public' 'private'
 	}
-	function get_date {
+	function get_gpg_date {
 		local date="${1-}"
-		if test -n "$date"; then
-			print_line "$date"
+		if [[ -n $date ]]; then
+			__print_lines "$date"
 		else
 			date-helper --gpg --next-year
 		fi
 	}
 
 	# =====================================
-	# Adjustments
-
-	# Ensure GNUPGHOME exists
-	source "$DOROTHY/sources/environment.sh"
-	if test -z "$GNUPGHOME"; then
-		echo-error "$0: GNUPGHOME is not set"
-		return 1
-	fi
-
-	# Ensure GNUPGHOME is not duplicated
-	if test "$GNUPGHOME" != "$HOME/.gnupg"; then
-		if test -d "$GNUPGHOME" -a -d "$HOME/.gnupg"; then
-			echo-style --warning="Both" ' ' --code="$GNUPGHOME" ' ' --warning='and' ' ' --code="$HOME/.gnupg" ' ' --warning="exist. There should only be one."
-		fi
-	fi
-
-	# Ensure GNUPGHOME physically exists
-	mkdir -p "$GNUPGHOME"
-
-	# =====================================
 	# Actions
 
 	# permissions
 	function act_permissions {
-		fs-own --changes --permissions='a-xrw,u+Xrw' \
-			-- "$GNUPGHOME"
+		fs-own --u --recursive -- "$GNUPGHOME"
 	}
 
 	# configure
 	function act_configure {
-		act_permissions
-
-		# stop
+		# shut it down
 		killall gpg-agent &>/dev/null || :
 		killall gpg &>/dev/null || :
 
+		# fix its permissions
+		act_permissions
+
 		# configure
-		if confirm --positive --ppid=$$ -- "Apply sensible defaults?"; then
+		if confirm --positive --ppid=$$ -- 'Apply sensible defaults?'; then
 			# http://github.com/isaacs/github/issues/675
-			# ^ no longer necessary, and intereferes with gpg edit key
+			# ^ no longer necessary, and interferes with gpg edit key
 			config-helper --file="$GNUPGHOME/gpg.conf" -- \
 				--find='no-tty' --replace=''
 
 			# pinentry
 			local agent_file agent_program
 			agent_program="$(type -P pinentry)"
-			if test -n "$agent_program"; then
+			if [[ -n $agent_program ]]; then
 				agent_file="$GNUPGHOME/gpg-agent.conf"
-				touch "$agent_file"
+				touch -- "$agent_file"
 				config-helper --file="$agent_file" -- \
 					--find='pinentry-program .+' --replace="pinentry-program $agent_program"
 			fi
 		fi
 
 		# review
-		if confirm --negative --ppid=$$ -- "Review configuration?"; then
-			edit -- "$GNUPGHOME/" "$GNUPGHOME/"*".conf"
+		if confirm --negative --ppid=$$ -- 'Review configuration?'; then
+			edit --wait -- "$GNUPGHOME/" "$GNUPGHOME/"*".conf"
 		fi
 
 		# restart
@@ -270,7 +232,7 @@ function gpg_helper() (
 	function act_list {
 		local mode="${1-}"
 		mode="$(get_mode "$mode")"
-		if test "$mode" = 'private'; then
+		if [[ $mode == 'private' ]]; then
 			gpg --keyid-format LONG -K
 		else
 			gpg --keyid-format LONG -k
@@ -279,9 +241,9 @@ function gpg_helper() (
 
 	# get [mode] [key]
 	function act_get {
-		local mode="${1-}" key="${2-}" flag type keys=()
+		local mode="${1-}" key="${2-}" flag type
 		mode="$(get_mode "$mode")"
-		if test "$mode" = 'private'; then
+		if [[ $mode == 'private' ]]; then
 			flag="K"
 			type='sec'
 		else
@@ -290,18 +252,20 @@ function gpg_helper() (
 		fi
 
 		# get keys, trimming spaces
-		mapfile -t keys < <(
+		function __get_keys {
 			gpg --fingerprint --keyid-format LONG "-$flag" |
 				grep --after-context=1 --fixed-strings --regexp="$type" |
 				grep --fixed-strings --regexp='Key fingerprint =' |
-				sd '.*=' '' |
-				sd ' *' ''
-		)
-
-		choose-option --required \
+				echo-regexp -gn '.*=' '' |
+				echo-regexp -gn ' *' ''
+		}
+		local keys=()
+		__split --target={keys} --no-zero-length --invoke -- \
+			__get_keys
+		choose --required \
 			--question='Which key to select?' \
-			--default="$key" \
-			-- "${keys[@]}"
+			--skip-default --default="$key" -- \
+			"${keys[@]}"
 	}
 
 	# import [key]
@@ -310,11 +274,11 @@ function gpg_helper() (
 		# --allow-secret-key-import is deprecated
 		act_permissions
 		local file="${1-}" key
-		if contains-line '-----BEGIN PGP PRIVATE KEY BLOCK-----' <"$file"; then
-			key="$(fs-temp --file --extension='gpg')"
+		if contains-line --stdin --needle='-----BEGIN PGP PRIVATE KEY BLOCK-----' <"$file"; then
+			key="$(fs-temp --directory='dorothy' --directory='gpg-helper' --file --extension='gpg')"
 			gpg -o "$key" --dearmor "$file"
 			gpg --import "$key"
-			rm -f "$key"
+			fs-remove --quiet --no-confirm -- "$key"
 		else
 			gpg --import "$file"
 		fi
@@ -325,7 +289,7 @@ function gpg_helper() (
 		local mode="${1-}" key="${2-}"
 		mode="$(get_mode "$mode")"
 		key="$(act_get "$mode" "$key")"
-		if test "$mode" = 'private'; then
+		if [[ $mode == 'private' ]]; then
 			gpg --armor --export-options backup --export-secret-keys "$key"
 		else
 			gpg --armor --export-options backup --export "$key"
@@ -338,7 +302,7 @@ function gpg_helper() (
 		mode="$(get_mode "$mode")"
 		key="$(act_get "$mode" "$key")"
 		if confirm --bool --ppid=$$ -- "Confirm you wish to delete [$mode] key [$key]?"; then
-			if test "$mode" = 'private'; then
+			if [[ $mode == 'private' ]]; then
 				gpg --delete-secret-keys "$key"
 			else
 				gpg --delete-keys "$key"
@@ -363,7 +327,7 @@ function gpg_helper() (
 		local key="${1-}"
 		key="$(act_get private "$key")"
 		if confirm --positive --ppid=$$ -- "Confirm you wish to trust key [$key]?"; then
-			echo-style --notice='Use:' ' ' --code='trust' ', ' --code='5' ', ' --code='save'
+			__print_style --notice='Use:' ' ' --code='trust' ', ' --code='5' ', ' --code='save'
 			gpg --edit-key "$key"
 		fi
 	}
@@ -373,7 +337,7 @@ function gpg_helper() (
 		local key="${1-}"
 		key="$(act_get private "$key")"
 		if confirm --positive --ppid=$$ -- "Confirm you wish to change the password for [$key]?"; then
-			echo-style --notice='Use:' ' ' --code='passwd' ', ' --code='save'
+			__print_style --notice='Use:' ' ' --code='passwd' ', ' --code='save'
 			gpg --edit-key "$key"
 		fi
 	}
@@ -382,7 +346,7 @@ function gpg_helper() (
 	function act_extend {
 		local key="${1-}" date="${2-}"
 		key="$(act_get private "$key")"
-		date="$(get_date "$date")"
+		date="$(get_gpg_date "$date")"
 		if confirm --positive --ppid=$$ -- "Confirm you wish to extend key [$key] to [$date]?"; then
 			gpg --quick-set-expire "$key" "$date"
 		fi
@@ -404,10 +368,10 @@ function gpg_helper() (
 		file="${1-}"
 		them="${2-}"
 		you="${3-}" # "$(act_get private "${3-}")"
-		if test -z "$file" -o -z "$them"; then
-			help "encrypt requires file and their user id"
+		if [[ -z $file || -z $them ]]; then
+			help --help='The encrypt action requires <the-file> <their-user-id>'
 		fi
-		if test -n "$you"; then
+		if [[ -n $you ]]; then
 			gpg -ase -r "$them" -u "$you" "$file"
 		else
 			gpg -ase -r "$them" "$file"
@@ -417,8 +381,8 @@ function gpg_helper() (
 	# decrypt <file>
 	function act_decrypt {
 		local file="${1-}"
-		if test -z "$file"; then
-			help "decrypt requires file"
+		if [[ -z $file ]]; then
+			help --help='The decrypt action requires <the-file>'
 		fi
 		gpg -d "$file"
 	}
@@ -426,24 +390,24 @@ function gpg_helper() (
 	# symmetric <file>
 	function act_symmetric {
 		local file="${1-}"
-		if test -z "$file"; then
-			help "symmetric encryption requires file"
+		if [[ -z $file ]]; then
+			help --help='The symmetric action requires <the-file>'
 		fi
 		gpg -c "$file"
 	}
 
 	# =====================================
-	# Act
+	# Action
 
-	if test "$(type -t "act_$action")" = 'function'; then
-		"act_$action" "${args[@]}"
-	else
-		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
-		return 78 # ENOSYS 78 Function not implemented
-	fi
+	__affirm_function_is_defined "act_$action"
+	"act_$action" "${option_args[@]}" # eval
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	gpg_helper "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		gpg_helper_test
+	else
+		gpg_helper "$@"
+	fi
 fi

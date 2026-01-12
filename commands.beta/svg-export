@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# @todo merge into `convert-helper`
+
+function svg_export_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- svg-export --help
+)
+
 function svg_export() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -15,120 +22,117 @@ function svg_export() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Convert SVGs into PNGs.
 
 			USAGE:
-			svg-export [...options] -- ...<input>
+			\`svg-export [...options] -- ...<input>\`
 
 			OPTIONS:
 			--dpi=<dpi>
-			    Set the display pixels per inch, e.g. [150].
+			    Set the display pixels per inch, e.g. \`150\`.
 
 			--scale=<scale>
-			    Set the scale factor, e.g. [2] for 2x.
+			    Set the scale factor, e.g. \`2\` for 2x.
 
 			--background=<background-color>
-			    Set the background color, defaults to [white].
-			    To keep transparency, use [--background=].
+			    Set the background color, defaults to \`white\`.
+			    To keep transparency, use \`--background=\`.
 
-			--format=$(
-				echo-join '|' -- "${formats[@]}"
-			)]
+			--format=<$(__join --source={formats} --between='|')>
 
-			EXAMPLE:
+			EXAMPLES:
+			\`\`\`
 			svg-export -- *.svg
+			\`\`\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item files=() dpi='' scale='' background='white' format=''
-	while test "$#" -ne 0; do
+	local item option_inputs=() option_dpi='' option_scale='' option_background='white' option_format=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--dpi='*) dpi="${item#*--dpi=}" ;;
-		'--scale='*) scale="${item#*--scale=}" ;;
-		'--bg='*) background="${item#*--bg=}" ;;
-		'--background='*) background="${item#*--background=}" ;;
-		'--format='*) format="${item#*--format=}" ;;
+		'--dpi='*) option_dpi="${item#*=}" ;;
+		'--scale='*) option_scale="${item#*=}" ;;
+		'--background='* | '--bg='*) option_background="${item#*=}" ;;
+		'--format='*) option_format="${item#*=}" ;;
 		'--')
-			files+=("$@")
+			option_inputs+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# if no files, fail
-	if test "${#files[@]}" -eq 0; then
-		help 'No <input>s were provided.'
+	# if no inputs, fail
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		help 'No <input>s provided.'
 	fi
 
 	# ensure correct format
-	format="$(
-		choose-option --required \
+	option_format="$(
+		choose --required \
 			--question='Which format to export to?' \
-			--filter="$format" -- "${formats[@]}"
+			--default="$option_format" -- "${formats[@]}"
 	)"
 
 	# =====================================
 	# Dependencies
 
-	# https://github.com/sharkdp/bat
-	# cat alternative
-
 	setup-util --quiet --cli='cairosvg' \
-		PIP='cairosvg'
+		UV='cairosvg'
 
 	# =====================================
 	# Act
 
 	# adjustments
 	local suffix='' args=(
-		--format "$format"
+		--format "$option_format"
 	)
-	if test -n "$scale"; then
-		suffix+=" [scale=$scale]"
-		args+=(--scale "$scale")
+	if [[ -n $option_scale ]]; then
+		suffix+=" [scale=$option_scale]"
+		args+=(--scale "$option_scale")
 	fi
-	if test -n "$dpi"; then
-		suffix+=" [dpi=$dpi]"
-		args+=(--dpi "$dpi")
+	if [[ -n $option_dpi ]]; then
+		suffix+=" [dpi=$option_dpi]"
+		args+=(--dpi "$option_dpi")
 	fi
-	if test -n "$background"; then
-		suffix+=" [bg=$background]"
-		args+=(--background "$background")
+	if [[ -n $option_background ]]; then
+		suffix+=" [bg=$option_background]"
+		args+=(--background "$option_background")
 	fi
-	suffix+=".$format"
+	suffix+=".$option_format"
 
 	# convert
 	local input output prefix
-	for input in "${files[@]}"; do
-		prefix="$(fs-filename -- "$input")"
-		output="${prefix}${suffix}"
+	for input in "${option_inputs[@]}"; do
+		prefix="$(fs-path --no-extensions -- "$input")"
+		output="$prefix$suffix"
 
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Converting " --code="$input" --bold=" to " --code="$output")" \
-			--success="$(echo-style --bold+green="Converted " --code="$input" --bold=" to " --code="$output")" \
-			--failure="$(echo-style --bold+red="Failed to convert " --code="$input" --bold=" to " --code="$output")" \
-			-- cairosvg "${args[@]}" --output "$output" "$input" || :
+		eval-helper --quiet --wrap \
+			--pending="$(__print_style --bold="Converting " --code="$input" --bold=" to " --code="$output")" \
+			--success="$(__print_style --bold+green="Converted " --code="$input" --bold=" to " --code="$output")" \
+			--failure="$(__print_style --bold+red="Failed to convert " --code="$input" --bold=" to " --code="$output")" -- \
+			cairosvg "${args[@]}" --output "$output" "$input" || :
 
 		# svg2png doesn't work well
 		# https://github.com/domenic/svg2png
-		# svg2png --scale="$scale" "$input" "$output"
+		# svg2png --scale="$option_scale" "$input" "$output"
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	svg_export "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		svg_export_test
+	else
+		svg_export "$@"
+	fi
 fi

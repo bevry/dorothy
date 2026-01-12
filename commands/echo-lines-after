@@ -2,30 +2,77 @@
 
 function echo_lines_after_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-segment --h1="TEST: $0"
+	source "$(type -P eval-tester)"
+	eval_tester --ignore-stderr --status=22 -- echo-lines-after --help
 
-	eval-tester --name='using arguments' --stdout=$'c\nd' \
-		-- echo-lines-after '' -- a b '' c d
+	# prepare
+	local expected=$'c\n\nb' needles=('--line=' '--needle=b')
+	function pl {
+		__print_lines a b '' b '' c '' b
+	}
 
-	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using stdin' --stdout=$'c\nd' \
-		-- echo-lines-after ''
+	# failure tests
+	eval_tester --name='no needles' --ignore-stderr --status=22 -- \
+		echo-lines-after --stdin <<<"$(pl)"
+	eval_tester --name='unknown argument' --ignore-stderr --status=22 -- \
+		echo-lines-after 'unknown argument' --stdin <<<"$(pl)"
 
-	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using --stdin' --stdout=$'c\nd' \
-		-- echo-lines-after '' --stdin
+	# standard tests
+	eval_tester --name='using arguments' --stdout="$expected" -- \
+		echo-lines-after "${needles[@]}" -- "$(pl)"
 
-	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using -' --stdout=$'c\nd' \
-		-- echo-lines-after '' -
+	pl | eval_tester --name='using stdin' --stdout="$expected" -- \
+		echo-lines-after "${needles[@]}"
 
-	eval-tester --name='using <<<' --stdout=$'c\nd' \
-		-- echo-lines-after '' - <<<"$(echo-lines -- a b '' c d)"
+	pl | eval_tester --name='using --stdin' --stdout="$expected" -- \
+		echo-lines-after "${needles[@]}" --stdin
 
-	echo-segment --g1="TEST: $0"
+	pl | eval_tester --name='using -' --stdout="$expected" -- \
+		echo-lines-after "${needles[@]}" -
+
+	eval_tester --name='using <<<' --stdout="$expected" -- \
+		echo-lines-after "${needles[@]}" - <<<"$(pl)"
+
+	# https://github.com/bevry/dorothy/issues/283
+	local root in out
+	root="$(fs-temp --directory='dorothy' --directory='echo-lines-after' --directory='tests' --directory)"
+	in="$(fs-temp --root="$root" --file='in')"
+	out="$(fs-temp --root="$root" --file='out')"
+	pl >"$in"
+	function test_a {
+		echo-lines-after "${needles[@]}" --stdin <"$in"
+	}
+	function test_b {
+		echo-lines-after "${needles[@]}" --stdin <"$in" >"$out"
+		cat "$out"
+	}
+	function test_c {
+		echo-lines-after "${needles[@]}" --stdin >"$out" <"$in"
+		cat "$out"
+	}
+	function test_aa {
+		__print_lines '0' >"$out"
+		echo-lines-after "${needles[@]}" --stdin >>"$out" <"$in"
+		cat "$out"
+	}
+	function test_bb {
+		__print_lines '0' >"$out"
+		echo-lines-after "${needles[@]}" --stdin <"$in" >>"$out"
+		cat "$out"
+	}
+	eval_tester --stdout="$expected" -- test_a
+	eval_tester --stdout="$expected" -- test_b
+	eval_tester --stdout="$expected" -- test_c
+	eval_tester --stdout=$'0\n'"$expected" -- test_aa
+	eval_tester --stdout=$'0\n'"$expected" -- test_bb
+
+	# pattern and glob tests
+	eval_tester --name='glob' --stdout=$'c\nd' -- \
+		echo-lines-after --glob='bb*' -- $'a\nbbb\nc\nd'
+	eval_tester --name='pattern' --stdout=$'c\nd' -- \
+		echo-lines-after --pattern='bb+' -- $'a\nbbb\nc\nd'
+
+	# done
 	return 0
 )
 function echo_lines_after() (
@@ -35,65 +82,123 @@ function echo_lines_after() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get everything after the first recurrence of <line>.
+			Get everything after the last consecutive recurrence of <line>, <glob>, or <pattern>.
 
 			USAGE:
-			echo-lines-after <needle> [...options] [--] ...<input>
-			echo-lines ...<input> | echo-lines-after <needle> [...options]
+			\`echo-lines-after [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-lines-after [...options]\`
 
 			OPTIONS:
-			<needle>
-			    Only output the <input> that is after this line.
+			--line=<line>|--needle=<line> | --glob=<glob> | --pattern=<pattern>
+			    Only output the <input> that occurs after the last consecutive match of one of these <line>s, <glob>s, or <pattern>s.
 
-			$(stdinargs_options_help --)
+			$(__stdinargs__help_options --)
 
-			EXAMPLE:
+			EXAMPLES:
+			\`\`\`
+			echo-lines-after --line='b' -- a b b c b
+			\`\`\`
+			Outputs:
+			\`\`\`
+			c
+			b
+			\`\`\`
+			Returns: [0]
 
-			echo-lines-after '' -- a b '' '' c d
+			\`\`\`
+			echo-lines -- a b b c b | echo-lines-after --line='b' --stdin
+			\`\`\`
+			Outputs:
+			\`\`\`
+			c
+			b
+			\`\`\`
+			Returns: [0]
 
-			    c
-			    d
-			    # exit status: 0
-
-			echo-lines -- a b '' '' c d | echo-lines-after '' --stdin
-
-			    c
-			    d
-			    # exit status: 0
-
-			echo-lines-after '' --stdin <<< "\$(echo-lines -- a b '' c d)"
-
-			    c
-			    d
-			    # exit status: 0
+			\`\`\`
+			echo-lines-after --line='b' --stdin <<< "\$(echo-lines -- a b b c b)"
+			\`\`\`
+			Outputs:
+			\`\`\`
+			c
+			b
+			\`\`\`
+			Returns: [0]
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process <needle>
-	local option_needle="$1"
-	shift
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_lines=() option_patterns=() option_globs=() option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--line='* | '--needle='*) option_lines+=("${item#*=}") ;;
+		'--pattern='*) option_patterns+=("${item#*=}") ;;
+		'--glob='*) option_globs+=("${item#*=}") ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'-'*) option_args+=("$item") ;; # single dash to also capture trailing `-` for STDIN
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_lines[@]} -eq 0 && ${#option_patterns[@]} -eq 0 && ${#option_globs[@]} -eq 0 ]]; then
+		help 'No <line>s, <pattern>s, nor <glob>s provided. At least one must be provided.'
+	fi
 
 	# =====================================
 	# Action
 
 	local found='no'
-	function on_input {
-		if test "$1" = "$option_needle"; then
-			found='yes'
-		elif test "$found" = 'yes'; then
-			print_line "$1"
+	function __on_line {
+		local read_line="$1" sought_line south_pattern sought_glob
+		for sought_line in "${option_lines[@]}"; do
+			if [[ $read_line == "$sought_line" ]]; then
+				found='yes'
+				return 0
+			fi
+		done
+		for south_pattern in "${option_patterns[@]}"; do
+			if [[ $read_line =~ $south_pattern ]]; then
+				found='yes'
+				return 0
+			fi
+		done
+		for sought_glob in "${option_globs[@]}"; do
+			# trunk-ignore(shellcheck/SC2053)
+			if [[ $read_line == $sought_glob ]]; then
+				found='yes'
+				return 0
+			fi
+		done
+		# this line did not match, so we are done finding if we have found before, so simplify our future function for following iterations
+		if [[ $found == 'yes' ]]; then
+			# print this current non-matched line
+			__print_lines "$read_line" || return $?
+			# simplify printing of subsequent lines
+			function __on_line {
+				local read_line="$1"
+				__print_lines "$read_line" || return $?
+			}
 		fi
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	if test "$*" = '--test'; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
 		echo_lines_after_test
 	else
 		echo_lines_after "$@"

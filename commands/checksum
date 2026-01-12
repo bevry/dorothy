@@ -1,153 +1,607 @@
 #!/usr/bin/env bash
 
+# prefer openssl implementation, as it supports more algorithms, so one install is necessary for most things; however, if openssl is not installed, many *sum CLI tools are already provided by coreutils
+# for all except [md5] both [<<<"$1"] and [< <(__print_string "$1")] are equivalent
+# @todo support all [openssl dgst -list] algorithms
+# https://github.com/Nicoshev/rapidhash is apparently fastest, however no CLI yet
+
+function checksum_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- checksum --help
+
+	cd "$DOROTHY" || return $?
+
+	local root c1 c2 c3 c4 cr d1 d2 d3 d4 f1 f2 f3 f4 expected tab=$'\t'
+	root="$(fs-temp --directory='dorothy' --directory='checksum' --directory='tests' --directory)"
+
+	d1='hello'
+	c1='5d41402abc4b2a76b9719d911017c592'
+	f1="$(fs-temp --root="$root" --file='file1.txt' --content="$d1")"
+
+	d2=$'hello\n'
+	c2='b1946ac92492d2347c6235b4d2611184'
+	f2="$(fs-temp --root="$root" --file='file2.txt' --content="$d2")"
+
+	d3=$'hello\nworld'
+	c3='9195d0beb2a889e1be05ed6bb1954837'
+	f3="$(fs-temp --root="$root" --file='file3.txt' --content="$d3")"
+
+	d4=$'hello\nworld\n'
+	c4='0f723ae7f9bf07744445e93ac5595156'
+	f4="$(fs-temp --root="$root" --file='file4.txt' --content="$d4")"
+
+	cr='76cc25e02af5f892e8454ebeb9e7769b' # '0e295efb654f83f0186ea2746c297d0f'
+
+	expected="$(
+		cat <<-EOF
+			${c3}${tab}/dev/stdin
+			${c1}${tab}/dev/argument/1
+			${c2}${tab}/dev/argument/2
+			${c3}${tab}/dev/argument/3
+			${c4}${tab}/dev/argument/4
+			${c1}${tab}${f1}
+			${c2}${tab}${f2}
+			${c3}${tab}${f3}
+			${c4}${tab}${f4}
+			${cr}${tab}${root}
+		EOF
+	)"
+	printf '%s' "$d3" | eval-tester --stdout="$expected" --ignore-tty -- \
+		checksum --no-color --no-progress \
+		--stdin \
+		--string="$d1" --string="$d2" --string="$d3" --string="$d4" \
+		--path="$f1" --path="$f2" --path="$f3" --path="$f4" \
+		-- "$root"
+
+	expected="$(
+		cat <<-EOF
+			${c3}${tab}/dev/stdin
+			${c1}${tab}/dev/argument/1
+			${c2}${tab}/dev/argument/2
+			${c3}${tab}/dev/argument/3
+			${c4}${tab}/dev/argument/4
+			${c1}${tab}${f1}
+			${c2}${tab}${f2}
+			${c3}${tab}${f3}
+			${c4}${tab}${f4}
+			${c1}${tab}${f1}
+			${c2}${tab}${f2}
+			${c3}${tab}${f3}
+			${c4}${tab}${f4}
+		EOF
+	)"
+	printf '%s' "$d3" | eval-tester --stdout="$expected" -- \
+		checksum --no-color --no-progress --no-summary \
+		--stdin \
+		--string="$d1" --string="$d2" --string="$d3" --string="$d4" \
+		--path="$f1" --path="$f2" --path="$f3" --path="$f4" \
+		-- "$root"
+
+)
 function checksum_() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile'
 
-	local item algorithms=()
-	for item in 'md5sum' 'shasum' 'sha256sum'; do
-		if command-exists "$item"; then
-			algorithms+=("$item")
-		fi
+	local algorithms=(
+		'MD5'
+		'[md5][md5sum]'
+		'XXH32'
+		'[xxh32]'
+		'XXH64'
+		'[xxh][xxhash][xxhsum][xxh64]'
+		'XXH3 64bits'
+		'[xxh3][xxh364b][xxh364bits]'
+		'XXH3 128bits'
+		'[xxh128][xxh3128b][xxh3128bits]'
+		'BLAKE2b'
+		'[b2][b2sum][blake2][blake2b][blake2b512]'
+		'BLAKE3'
+		'[b3][b3sum][blake3]'
+		'SHA-1: SHA-160'
+		'[sha][shasum][sha1][sha160]'
+		'SHA-2: SHA-224'
+		'[sha224]'
+		'SHA-2: SHA-256'
+		'[sha256]'
+		'SHA-2: SHA-384'
+		'[sha384]'
+		'SHA-2: SHA-512'
+		'[sha512]'
+		'SHA-2: SHA-512/224'
+		'[sha512224]'
+		'SHA-2: SHA-512/256'
+		'[sha512256]'
+		'SHA-3: SHA3-224'
+		'[sha3224]'
+		'SHA-3: SHA3-256'
+		'[sha3256]'
+		'SHA-3: SHA3-384'
+		'[sha3384]'
+		'SHA-3: SHA3-512'
+		'[sha3512]'
+	) human_algorithms_list=''
+	__load_styles --save -- bold
+	local -i index
+	local name ids
+	for ((index = 0; index < ${#algorithms[@]}; index += 2)); do
+		name="${algorithms[index]}"
+		ids="${algorithms[index + 1]}"
+		ids="${ids//\]\[/], [}"
+		ids="${ids//[\[\]]/\`}"
+		human_algorithms_list+="${STYLE__bold}${name}${STYLE__END__bold-}: ${ids}"$'\n'
 	done
+	human_algorithms_list="${human_algorithms_list%$'\n'}" # trim trailing newline
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get the checksum for a path, with progress updates if it takes a while.
+			Checksum strings and paths (files, directories), with progress updates if it takes a while.
 
 			USAGE:
-			checksum [...options]
+			\`checksum [...options]\`
 			    Checksums the current directory.
 
-			checksum [...options] -- ...<path>
-			    Checksums each path provided.
+			\`checksum [...options] --string=<string> --string=<string>\`
+			    Checksums the <string>s.
 
-			OPTIONS:
-			--summary
-			    Summarises the directory as a single checksum.
-
-			--relative
-			    Use relative paths instead of absolute paths.
-
-			--untitled
-			    Do not display the path that the checksums are for.
-
-			--algorithm=<algorithm>
-			    Forces a specific algorithm to be used.
+			\`checksum [...options] -- ...<path>\`
+			    Checksums the <path>s.
 
 			ALGORITHMS:
-			We have determined the following algorithms are available on your system:
-			$(echo-lines --indent='    ' "${algorithms[@]}")
+			$human_algorithms_list
 
-			QUIRKS:
-			[--relative] does not respect pwd, as such [--relative] is only useful when in [--no-summary] mode.
+			OPTIONS:
+			--no-confirm
+			    Skip confirmation of checksum algorithm.
+			--algorithm=<algorithm>
+			    Forces the specific <algorithm> to be used.
+			    Use \`--algorithm=?\` to select from the available algorithms.
+			    Defaults to ${STYLE__bold}${algorithms[0]}${STYLE__END__bold}.
+
+			--string=<string>
+			    Instead of checksumming a path, checksum this string.
+			    Can be specified multiple times.
+
+			--path=<path> | -- ...<path>
+			    Checksum this <path>.
+			    Can be specified multiple times.
+			--summary
+			    Summarises the directory as a single checksum.
+			--no-summary
+			    Do not summarise the directory as a single checksum, instead output checksums for each of its children.
+
+			--(result|results|field|fields)=...<checksum|input|algorithm>
+			    Which fields to output. Separated by tabs in the output.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item path paths=() relative='no' untitled='no' summary='no' algorithm=''
-	while test "$#" -ne 0; do
+	local item option_paths=() option_strings=() option_algorithms=() option_fields=() option_confirm='' option_summary='yes' option_progress='yes' option_stdin='no' option_delimiter='' option_terminal_columns=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-relative'* | '--relative'*)
-			relative="$(get-flag-value relative --missing="$relative" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-untitled'* | '--untitled'*)
-			untitled="$(get-flag-value untitled --missing="$untitled" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-summary'* | '--summary'*)
-			summary="$(get-flag-value summary --missing="$summary" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--algorithm='*) algorithm="${item#*--algorithm=}" ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		'--algorithm='* | '--algorithms='*) __split --target={option_algorithms} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--result='* | '--results='* | '--field='* | '--fields='*) __split --target={option_fields} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--string='*) option_strings+=("${item#*=}") ;;
+		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative ;;
+		'--no-summary'* | '--summary'*) __flag --source={item} --target={option_summary} --affirmative ;;
+		'--no-progress'* | '--progress'*) __flag --source={item} --target={option_progress} --affirmative ;;
+		'--no-stdin'* | '--stdin'*) __flag --source={item} --target={option_stdin} --affirmative ;;
+		'--terminal-columns='*) option_terminal_columns="${item#*=}" ;;
+		'--delimiter='*) option_delimiter="${item#*=}" ;;
+		'--path='*) option_paths+=("${item#*=}") ;;
 		'--')
-			mapfile -t paths < <(fs-absolute -- "$@")
+			option_paths+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
-	# ensure algorithm
-	algorithm="$(
-		choose-option --required \
-			--question='Which checksum algorithm do you wish to use?' \
-			--filter="$algorithm" -- "${algorithms[@]}"
-	)"
-
-	# ensure paths
-	if test "${#paths[@]}" -eq 0; then
-		paths+=("$(pwd)")
+	# ensure delimiter
+	if [[ -z $option_delimiter ]]; then
+		option_delimiter=$'\t'
 	fi
 
-	# =====================================
-	# Dependencies
+	# ensure algorithm
+	if [[ ${option_algorithms[*]} == 'all' ]]; then
+		option_algorithms=("${algorithms[@]}")
+	elif [[ ${#option_algorithms[@]} -eq 0 ]]; then
+		option_algorithms=("${algorithms[0]}")
+	else # includes --algorithm=? usage
+		__split --target={option_algorithms} --no-zero-length --invoke -- \
+			choose --required --multi --confirm="$option_confirm" --label=first --return="\$LABEL" \
+			--question='Which checksum algorithms to use?' \
+			--defaults-fuzzy="$(echo-lines --prefix='[' --suffix=']' -- "${option_algorithms[@]}")" -- "${algorithms[@]}"
+	fi
 
-	setup-util-pv --quiet
+	# ensure all paths exist and are resolved to absolute
+	if [[ ${#option_paths[@]} -ne 0 ]]; then
+		# ensure paths are absolute
+		__split --target={option_paths} --no-zero-length --invoke -- \
+			fs-path --absolute -- "${option_paths[@]}"
+		# ensure pv for progress bars on large files
+		# __command_required -- pv || return $?
+	fi
+
+	# ensure fields
+	if [[ ${#option_fields[@]} -eq 0 ]]; then
+		option_fields=(checksum)
+		if ! [[ ${#option_strings[@]} -le 1 && ($option_summary == 'yes' && ${#option_paths[@]} -le 1) ]]; then
+			option_fields+=(input)
+		fi
+		if [[ ${#option_algorithms[@]} -gt 1 ]]; then
+			option_fields+=(algorithm)
+		fi
+	fi
 
 	# =====================================
 	# Action
 
-	# helpers
-	function do_checksum_of_stdin_with_filename {
-		local path="$1" use_relative="$2" hash_dot
+	local ALGORITHM
+	function __cut {
+		# turn `<hash>  <path>` into `<hash>`
+		# cut -f1 -d ' '
+		local checksum
+		IFS=' ' read -r checksum _
+		__print_lines "$checksum"
+	}
+	function __no_tool {
+		__print_error "Unable to find a suitable tool for the $ALGORITHM algorithm."
+		return 19 # ENODEV 19 Operation not supported by device
+	}
+	function __unrecognised {
+		__print_error "An unrecognised algorithm was provided: $ALGORITHM"
+		return 22 # EINVAL 22 Invalid argument
+	}
+	function __checksum {
+		case "$ALGORITHM" in
+		md5 | md5sum)
+			# bsd
+			# -q, --quiet                   Quiet mode — only the checksum is printed out.  Overrides the -r or --reverse option.
+			# -s string, --string=string    Print a checksum of the given string.  In this mode, any files specified on the command line are silently ignored.
+			# -c string, --check=string     Compare the digest of the file against this string.  If combined with the -q or --quiet option, the calculated digest is printed in addition to the exit status being set.  (Note that this option is not yet useful if multiple files are specified.)
+			#
+			# gnu
+			# --quiet        When verifying checksums, do not print anything unless the verification fails.
+			# -b, --binary   Read files in binary mode.
+			# -t, --text     Read files in text mode.  This is the default.  Note that this implementation does not differentiate between binary and text mode.
+			# -c, --check    The file passed as arguments must contain digest lines generated by the same digest algorithm in either classical BSD format or in GNU coreutils format.  A line with the file name followed by a colon “:” and either OK or FAILED is written for each well-formed line in the digest file.  If applicable, the number of failed comparisons and the number of lines that were skipped since they were not well-formed are printed at the end.  The --quiet option can be used to quiesce the  output unless there are mismatched entries in the digest.
+			#
+			# md5sum, md5, openssl are all the same speed
+			if __command_exists -- openssl; then
+				openssl dgst -md5 -r | __cut
+			elif __command_exists -- md5sum; then
+				md5sum | __cut
+			elif __command_exists -- md5; then
+				md5 -q
+			elif __command_required -- openssl md5sum md5; then
+				__checksum
+			else
+				__no_tool
+			fi
+			;;
+		# md4, md5-sha1 via openssl
+		b2 | b2sum | blake2 | blake2b | blake2b512)
+			# -b, --binary          read in binary mode
+			# -c, --check           read checksums from the FILEs and check them
+			# -l, --length=BITS     digest length in bits; must not exceed the max for the blake2 algorithm and must be a multiple of 8
+			# --tag                 create a BSD-style checksum
+			# -t, --text            read in text mode (default)
+			if __command_exists -- openssl; then
+				openssl dgst -blake2b512 -r | __cut
+			elif __command_exists -- b2sum; then
+				b2sum | __cut
+			elif __command_required -- openssl b2sum; then
+				__checksum
+			else
+				__no_tool
+			fi
+			;;
+		# blake2s256 via openssl
+		b3 | b3sum | blake3)
+			# -c, --check Read BLAKE3 sums from the [FILE]s and check them
+			# --no-names Omit filenames in the output
+			if __command_exists -- b3sum; then
+				b3sum --no-names
+			elif __command_required -- b3sum; then
+				__checksum
+			else
+				__no_tool
+			fi
+			;;
+		xxh | xxhash | xxhsum | xxh32 | xxh64 | xxh128 | xxh3128b | xxh3128bits | xxh3 | xxh364b | xxh364bits)
+			# -H#    select an xxhash algorithm (default: 1)
+			# -H0    XXH32
+			# -H1    XXH64
+			# -H2    XXH128 (also called XXH3_128bits)
+			# -H3    XXH3 (also called XXH3_64bits)
+			# -c, --check   read xxHash checksum from [files] and check them
+			# --filelist    generate hashes for files listed in [files]
+			# --binary      Read in binary mode
+			# 1#XXH32       102400 ->    59807 it/s ( 5840.6 MB/s)
+			# 3#XXH64       102400 ->   117119 it/s (11437.4 MB/s)
+			# 5#XXH3_64b    102400 ->   295241 it/s (28832.1 MB/s)
+			# 11#XXH128     102400 ->   309275 it/s (30202.6 MB/s)
+			if __command_exists -- xxhsum; then
+				case "$ALGORITHM" in
+				# H0: 32-bit, slowest
+				xxh32) xxhsum -H0 | __cut ;;
+				# H1: 64-bit, default
+				xxh | xxhash | xxhsum | xxh64) xxhsum -H1 | __cut ;;
+				# H2: 128-bit, fast
+				xxh128 | xxh3128b | xxh3128bits) xxhsum -H2 | __cut ;;
+				# H3: 64-bit, fast
+				xxh3 | xxh364b | xxh364bits) xxhsum -H3 | __cut ;;
+				*)
+					__print_error "Unrecognised xxhash algorithm: $ALGORITHM"
+					return 19 # ENODEV 19 Operation not supported by device
+					;;
+				esac
+			elif __command_required -- xxhsum; then
+				__checksum
+			else
+				__no_tool
+			fi
+			;;
+		sha | shasum | sha1 | sha160 | sha224 | sha256 | sha384 | sha512 | sha512224 | sha512256 | sha3224 | sha3256 | sha3384 | sha3512)
+			# Usage: shasum [OPTION]... [FILE]...
+			# -a, --algorithm   1 (default), 224, 256, 384, 512, 512224, 512256
+			# -b, --binary      read in binary mode
+			# -c, --check       read SHA sums from the FILEs and check them
+			# -t, --text        read in text mode (default)
+			#
+			# > sha
+			# sha1, sha224, sha256, sha384, sha512, shasum5.34, sha1sum, sha224sum, sha256sum, sha384sum, sha512sum, shasum
+			#
+			# > openssl dgst -list
+			# SHA v1
+			# -sha1
+			# SHA v2
+			# -sha224
+			# -sha256
+			# -sha384
+			# -sha512
+			# -sha512-224
+			# -sha512-256
+			# SHA v3
+			# -sha3-224
+			# -sha3-256
+			# -sha3-384
+			# -sha3-512
+			# -shake128
+			# -shake256
+			#
+			# https://en.wikipedia.org/wiki/Secure_Hash_Algorithms
+			#
+			# case "$ALGORITHM" in
+			# sha3224 | sha3256 | sha3384 | sha3512) ALGORITHM="sha${ALGORITHM:4}" ;;
+			# esac
+			case "$ALGORITHM" in
+			sha | shasum | sha1 | sha160)
+				if __command_exists -- openssl; then
+					openssl dgst -sha1 -r | __cut
+				elif __command_exists -- shasum; then
+					shasum --algorithm 1 | __cut
+				elif __command_exists -- sha1sum; then
+					sha1sum | __cut
+				elif __command_required -- openssl shasum sha1sum; then
+					__checksum
+				else
+					__no_tool
+				fi
+				;;
+			sha224 | sha256 | sha384 | sha512)
+				if __command_exists -- openssl; then
+					openssl dgst -sha1 -r "-$ALGORITHM" | __cut
+				elif __command_exists -- shasum; then
+					shasum --algorithm "${ALGORITHM:3}" | __cut
+				elif __command_exists -- "${ALGORITHM}sum"; then
+					"${ALGORITHM}sum" | __cut
+				elif __command_required -- openssl shasum "${ALGORITHM}sum"; then
+					__checksum
+				else
+					__no_tool
+				fi
+				;;
+			sha512224 | sha512256)
+				if __command_exists -- openssl; then
+					openssl dgst -sha1 -r "-sha512-${ALGORITHM:6}" | __cut
+				elif __command_exists -- shasum; then
+					shasum --algorithm "${ALGORITHM:3}" | __cut
+				elif __command_required -- openssl shasum; then
+					__checksum
+				else
+					__no_tool
+				fi
+				;;
+			sha3224 | sha3256 | sha3384 | sha3512)
+				if __command_exists -- openssl; then
+					openssl dgst -sha1 -r "-sha3-${ALGORITHM:4}" | __cut
+				elif __command_required -- openssl; then
+					__checksum
+				else
+					__no_tool
+				fi
+				;;
+			*)
+				__unrecognised
+				;;
+			esac
+			;;
+		*)
+			__unrecognised
+			;;
+		esac
+	}
+	# function __pad {
+	# 	local size="$1" padding="$2" i
+	# 	for ((i = "${#padding}"; i < size; i++)); do
+	# 		padding+=' '
+	# 	done
+	# 	printf '%s' "$padding"
+	# }
+	# __do --redirect-output=TTY -- printf '\r%s\r' "$(__pad "$terminal_columns" "$message")" <-- has no effect
+	# a better solution to the below progress flashing on small files, is to only show the progress bar is the file is larger than say 100MB
+	if [[ $option_delimiter == $'\t' ]]; then
+		function __progress {
+			local message="$1"
+			__do --redirect-output=TTY -- printf $'\e[G\e[J%s' "$message"
+		}
+	else
+		local terminal_columns="$option_terminal_columns"
+		function __refresh_terminal_size {
+			if [[ -z $option_terminal_columns ]]; then
+				local terminal_size=()
+				__split --target={terminal_size} --no-zero-length --invoke=try -- \
+					get-terminal-lines-and-columns || return $?
+				if [[ ${#terminal_size[@]} -eq 2 ]]; then
+					if [[ -z $option_terminal_columns ]]; then
+						terminal_columns="${terminal_size[1]}"
+					fi
+				fi
+			fi
+		}
+		__refresh_terminal_size
+		function __progress {
+			local message="$1"
+			__do --redirect-output=TTY -- printf $'\r'"%-${terminal_columns}s"$'\r' "$message"
+		}
+	fi
+	function do_checksum_of_stdin {
+		local input relative='no' relative_from='' raw='' progress=''
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			'--input='*) input="${item#*=}" ;;
+			'--progress' | '--progress=yes') progress='yes' ;;
+			'--no-progress' | '--progress=no') progress='no' ;;
+			'--relative') relative='yes' ;;
+			'--relative-from='*) relative_from="${item#*=}" ;;
+			'--raw') raw='yes' ;;
+			*)
+				__print_error "An unrecognised argument was provided: $item"
+				return 22
+				;;
+			esac
+		done
+
+		# progress
+		if [[ $progress == 'yes' ]]; then
+			__progress "$input"
+		fi
 
 		# relative
-		if test "$use_relative" = 'yes'; then
-			path="$(basename "$path")"
+		if [[ $relative == 'yes' && -n $relative_from && $input == "$relative_from"* ]]; then
+			#  "/Users/balupton/.local/share/dorothy/.vscode/extensions.json" => ./extensions.json
+			local -i size="${#relative_from}"
+			input="${input:size}"
 		fi
 
 		# algorithm
-		"$algorithm" | {
-			IFS=' ' read -ra hash_dot
-			if test "$untitled" = 'yes'; then
-				print_line "${hash_dot[0]}"
+		__checksum | {
+			local checksum
+			IFS= read -r checksum
+			if [[ $progress == 'yes' ]]; then
+				__progress ''
+			fi
+			if [[ $raw == 'yes' ]]; then
+				__print_lines "$checksum  $input"
 			else
-				print_line "${hash_dot[0]}  $path"
+				local field values=()
+				# fields
+				for field in "${option_fields[@]}"; do
+					case "$field" in
+					checksum) values+=(--code="$checksum" --="$option_delimiter") ;;
+					input) values+=(--path="$input" --="$option_delimiter") ;;
+					algorithm) values+=(--bold="$ALGORITHM" --="$option_delimiter") ;;
+					*)
+						__print_error "An unrecognised field was provided: $field"
+						return 22
+						;;
+					esac
+				done
+				# replace the trailing delimiter array value with an empty string
+				# @todo once `__join` supports an array target, it could be used instead
+				local -i size="${#values[@]}" last_index
+				last_index="$((size - 1))"
+				values[last_index]=''
+				__print_style "${values[@]}"
 			fi
 		}
 	}
 	function do_checksum_of_file_or_directory {
-		local path="$1" use_relative="$2" file
-
+		local path="$1" args=("${@:2}")
 		# shows progress, works on files, and directories, and symlinks, and expands paths
 		# -L show symlinks too
+		__command_required -- 'find' || return $?
 		find -L "$path" -type f | sort | while read -r file; do
-			pv --delay-start 5 "$file" | do_checksum_of_stdin_with_filename "$file" "$use_relative"
+			# pv --height 1 --name "$file" "$file" <-- no way to have it cleanup after itself
+			do_checksum_of_stdin --input="$file" --relative-from="$path" "${args[@]}" <"$file"
 		done
 	}
 	function do_checksum_of_paths {
-		local path temp_file use_relative="${2:-"$relative"}"
-		for path in "$@"; do
-			if test -f "$path" -o "$summary" != 'yes'; then
-				# file, or itemise
-				do_checksum_of_file_or_directory "$path" "$use_relative"
+		local path
+		for path in "${option_paths[@]}"; do
+			if [[ ! -d $path ]]; then # -f $path || -p $path
+				# file || named pipe / file descriptor
+				do_checksum_of_stdin --input="$path" --progress="$option_progress" <"$path"
+			elif [[ $option_summary != 'yes' ]]; then
+				# each item in a directory
+				do_checksum_of_file_or_directory "$path" --progress="$option_progress"
 			else
-				# directory and summarise
+				# summarised directory
 				# force --relative, as otherwise full paths in checksums will ruin comparison
-				temp_file="$(mktemp)"
-				do_checksum_of_file_or_directory "$path" 'yes' | tee "$temp_file" | do_checksum_of_stdin_with_filename "$path" "$use_relative"
-				rm "$temp_file"
+				do_checksum_of_file_or_directory "$path" --progress="$option_progress" --relative --raw | echo-write --buffer | do_checksum_of_stdin --input="$path"
 			fi
+		done
+	}
+	function do_checksum_of_strings {
+		local index string name
+		for index in "${!option_strings[@]}"; do
+			string="${option_strings[index]}"
+			name="/dev/argument/$((index + 1))"
+			do_checksum_of_stdin --input="$name" < <(__print_string "$string")
 		done
 	}
 
 	# act
-	do_checksum_of_paths "${paths[@]}"
+	if [[ ${#option_algorithms[@]} -gt 1 ]]; then
+		if [[ $option_stdin == 'yes' ]]; then
+			help --help='Cannot use <stdin> with multiple algorithms.'
+		fi
+		for ALGORITHM in "${option_algorithms[@]}"; do
+			ALGORITHM="$(__get_lowercase_string -- "$ALGORITHM")"
+			ALGORITHM="${ALGORITHM//[^a-z0-9]/}"
+			do_checksum_of_strings
+			do_checksum_of_paths
+		done
+	else
+		ALGORITHM="${option_algorithms[0]}"
+		ALGORITHM="$(__get_lowercase_string -- "$ALGORITHM")"
+		ALGORITHM="${ALGORITHM//[^a-z0-9]/}"
+		if [[ $option_stdin == 'yes' ]]; then
+			do_checksum_of_stdin --input='/dev/stdin' --progress="$option_progress"
+		fi
+		do_checksum_of_strings
+		do_checksum_of_paths
+	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	checksum_ "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		checksum_test
+	else
+		checksum_ "$@"
+	fi
 fi

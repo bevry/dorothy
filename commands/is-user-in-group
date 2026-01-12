@@ -1,61 +1,77 @@
 #!/usr/bin/env bash
 
+function is_user_in_group_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- is-user-in-group --help
+)
+
 function is_user_in_group() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
-	# help
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Checks if the current user, or a specified user is part of a group.
+			Checks if the current user, or specified users, are members of one or more groups.
+			Companion set: $(__join --style=code --between=', ' -- 'get-profile' 'get-group-id' 'get-user-id' 'is-admin' 'is-group' 'is-owner' 'is-password-usable' 'is-root' 'is-user-in-group' 'is-user').
 
 			USAGE:
-			is-user-in-group [...options]
+			\`is-user-in-group [...options]\`
 
 			OPTIONS:
-			--user=<user>
-			    User to check exists in <group>.
+			--user=<user> | --users=<users>
+			    The users to check are within the <group>s.
+			--login
+			    If enabled, the login user will be used as the <user>, if none were provided.
+			    Otherwise, the current user will be used as the <user>, if none were provided.
 
-			--group=<group>
-			    Group to check <user> exists inside.
+			--group=<group> | --groups=<groups>
+			    The groups to check that the <user>s exists inside.
+
+			RETURNS:
+			[0] if all <user>s are within all <group>s.
+			[1] if any <user>s are not within all <group>s.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item users=() groups=()
-	while test "$#" -ne 0; do
+	local item option_users=() option_groups=() option_login=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--user='*) users+=("${item#*--user=}") ;;
-		'--group='*) groups+=("${item#*--group=}") ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--no-login'* | '--login'*) __flag --source={item} --target={option_login} --affirmative ;;
+		'--user='* | '--users='*) __split --target={option_users} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--group='* | '--groups='*) __split --target={option_groups} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# ensure user
-	if test "${#users[@]}" -eq 0; then
-		users+=("$(whoami)")
+	if [[ ${#option_users[@]} -eq 0 ]]; then
+		if [[ $option_login == 'yes' ]]; then
+			__prepare_login_user
+			option_users+=("$LOGIN_USER")
+		else
+			__prepare_current_user # could prompt
+			option_users+=("$CURRENT_USER")
+		fi
 	fi
 
 	# check group
-	if test "${#groups[@]}" -eq 0; then
-		help "A <group> is required."
+	if [[ ${#option_groups[@]} -eq 0 ]]; then
+		help 'No <group>s provided.'
 	fi
 
 	# confirm `groups` is available
 	# vscode flatpak doesn't have it, so vscode flatpak terminal will fail
 	# groups: command not found
-	if command-missing groups; then
+	if __command_missing -- groups; then
 		help 'This operating-system is unsupported, as the helper utility [groups] was not available.'
 		# @todo can the helper utility be installed?
 		return 19 # ENODEV 19 Operation not supported by device
@@ -64,20 +80,40 @@ function is_user_in_group() (
 	# =====================================
 	# Action
 
-	# dependencies
-	source "$DOROTHY/sources/ripgrep.bash"
-
 	# action
-	local user group
-	for user in "${users[@]}"; do
-		for group in "${groups[@]}"; do
-			groups "$user" | rg -Fqo "$group"
+	# trunk-ignore(shellcheck/SC2034)
+	local user group fodder_to_respect_exit_status user_groups found='no'
+	for user in "${option_users[@]}"; do
+		found='no'
+		fodder_to_respect_exit_status="$(groups "$user")" || return $?
+		# trim user prefix on ubuntu
+		if [[ $fodder_to_respect_exit_status == *': '* ]]; then
+			__replace --source+target={fodder_to_respect_exit_status} --keep-after-first=': ' || return $?
+		fi
+		# split the space separated groups
+		__split --target={user_groups} --delimiters=' ' -- "$fodder_to_respect_exit_status" || return $?
+		for group in "${option_groups[@]}"; do
+			if __has --source={user_groups} -- "$group"; then
+				found='yes'
+				break
+			else
+				return 1
+			fi
 		done
+		if [[ $found == 'no' ]]; then
+			return 1
+		fi
 	done
-
+	if [[ $found == 'no' ]]; then
+		return 1
+	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	is_user_in_group "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		is_user_in_group_test
+	else
+		is_user_in_group "$@"
+	fi
 fi

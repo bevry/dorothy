@@ -1,50 +1,137 @@
 #!/usr/bin/env bash
 
+function echo_if_executable_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-if-executable --help
+
+	eval-tester --name='no args' -- \
+		echo-if-executable --
+
+	eval-tester --name='empty args' -- \
+		echo-if-executable -- '' ''
+
+	eval-tester --name='missing' -- \
+		echo-if-executable -- "$DOROTHY/this-does-not-exist"
+
+	eval-tester --name='directory' --stdout="$DOROTHY" -- \
+		echo-if-executable -- "$DOROTHY"
+
+	eval-tester --name='file' --stdout="$DOROTHY/commands/dorothy" -- \
+		echo-if-executable -- "$DOROTHY/commands/dorothy"
+
+	eval-tester --name='file then missing then dir' --stdout="$DOROTHY/commands/dorothy"$'\n'"$DOROTHY" -- \
+		echo-if-executable -- "$DOROTHY/commands/dorothy" "$DOROTHY/this-does-not-exist" "$DOROTHY"
+
+	eval-tester --name='dir then missing then file' --stdout="$DOROTHY"$'\n'"$DOROTHY/commands/dorothy" -- \
+		echo-if-executable -- "$DOROTHY" "$DOROTHY/this-does-not-exist" "$DOROTHY/commands/dorothy"
+
+	# test working symlinks
+	local root dir_target dir_symlink file_target file_symlink
+	root="$(fs-temp --directory='dorothy' --directory='echo-if-executable' --directory='tests')"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	fs-link --quiet \
+		--existing="$dir_target" --symlink="$dir_symlink" \
+		--existing="$file_target" --symlink="$file_symlink"
+
+	eval-tester --name='symlink dir' --stdout="$dir_symlink" -- \
+		echo-if-executable -- "$dir_symlink"
+
+	eval-tester --name='symlink file' -- \
+		echo-if-executable -- "$file_symlink"
+	fs-own --quiet --x -- "$file_target"
+	eval-tester --name='symlink file' --stdout="$file_symlink" -- \
+		echo-if-executable -- "$file_symlink"
+
+	# test broken symlinks
+	fs-remove --quiet --no-confirm -- "$dir_target" "$file_target"
+
+	eval-tester --name='broken symlink dir' -- \
+		echo-if-executable -- "$dir_symlink"
+
+	eval-tester --name='broken symlink file' -- \
+		echo-if-executable -- "$file_symlink"
+
+	return 0
+)
 function echo_if_executable() (
 	source "$DOROTHY/sources/stdinargs.bash"
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Output inputs that are executable paths.
+			Output <input>s that are paths that are executable (including that of symlinks, broken or otherwise).
+			Companion to: $(__join --style=code --between=', ' -- 'is-executable').
 
 			USAGE:
-			echo-if-file [...options] [--] ...<input>
-			echo-lines ...<input> | echo-if-file [...options]
+			\`echo-if-executable [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-if-executable [...options]\`
 
 			OPTIONS:
-			$(stdinargs_options_help --)
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`
 
-			EXAMPLE:
+			$(__stdinargs__help_options --)
 
-			touch executable
-			chmodx +x executable
-			touch file
-
-			echo-if-file -- executable file missing
-
-			    executable
-			    # exit status: 0
-
-			echo-lines -- executable file missing | echo-if-file --stdin
-
-			    executable
-			    # exit status: 0
-
+			EXAMPLES:
+			\`\`\`
+			echo-if-executable -- "$HOME"
+			echo-lines -- "$HOME" | echo-if-executable --stdin
+			\`\`\`
+			Outputs: \`$HOME\`
+			Returns: [0]
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	function on_input {
-		if test -n "$1" -a -x "$1"; then
-			print_line "$1"
+	# process
+	local item option_args=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	function __on_piece {
+		local path="$1"
+		if is-executable --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			__print_lines "$path"
 		fi
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	echo_if_executable "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_if_executable_test
+	else
+		echo_if_executable "$@"
+	fi
 fi

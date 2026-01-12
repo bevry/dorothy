@@ -1,0 +1,173 @@
+#!/usr/bin/env nu
+use ~/.local/share/dorothy/sources/nu.nu terminal_title_progress_bar
+use ./get-apple-intelligence apple_intelligence_prompt
+
+def ensure_trailing_punctuation [argument?: string] {
+	let input = if $argument != null { $argument } else { $in } | str trim
+
+	if ($input | is-empty) {
+		''
+	} else if not ( ($input | str ends-with '.') or ($input | str ends-with '!') or ($input | str ends-with '?') or ($input | str ends-with '...') ) {
+		$input + '.'
+	} else {
+		$input
+	}
+}
+
+# Remove hallucinations
+def clean_caption_line [argument?: string] {
+	let input = if $argument != null { $argument } else { $in } | str trim
+
+	# trunk-ignore(cspell)
+	$input | str replace -ar '^\s+|\s+$|^.*?[ЖЯУЫ].*?$|^.*BF-WATCH TV.*$|^MUSIC$|^[-.,]+|[-.,]+$|[«»♪*"]+|^[^0-9a-zA-Z .!]+|^[(][Ss]peaking .+?[)]$|^\[.+?\]$' '' | str replace "she exhausted crack she abandons" "she's exhausted! CRACK! she abandons!" | str trim
+}
+
+# Remove hallucinations and ensure trailing punctuation to prevent further hallucinations (however, it's not perfect, and AIs may still hallucinate)
+def prepare_caption_line [argument?: string] {
+	let input = if $argument != null { $argument } else { $in } | str trim
+
+	$input | clean_caption_line | ensure_trailing_punctuation
+}
+
+# Translate .srt subtitle file using Apple Shortcut
+def main [
+	input_file: string  # Input .srt subtitle file path
+	output_file: string  # Output .srt file path
+	--language (-l): string = "en"  # Target language for translation (en or id)
+	--batch: int = 80  # Initial number of subtitle blocks to process at once
+	--variance: float = 0.2 # Variance to the batch size to attempt to work around AI errors
+] {
+	# convert the language identifier into full language name
+	let lang_result = do { ^get-language $language } | complete
+	if $lang_result.exit_code != 0 {
+		^echo-style --tty --error2='ERROR:' $"--= ($lang_result.stderr)"
+		error make {msg: $"Unsupported Language Identifier: ($language)."}
+	}
+	let language_full = $lang_result.stdout | str trim
+	let prompt = $"Your input is a list of subtitle captions represented by a JSON array of strings. Your job is to provide the equivalent JSON array of strings, ensuring each and every string will be in ($language_full), translating strings that were not, and retaining strings that already were. Do not provide supplemental commentary/notes/formatting. Never combine multiple strings/captions/entries into fewer, and never expand a string/caption/entry into multiple; there must be the same amount of strings/captions/entries in the output as there were in the input." # regardless of those warnings, strings still get combined or split, albeit less often, however ensuring each string is a sentence (with trailing punctuation) fixes it
+
+	# Read the input .srt file
+	let content = open $input_file | str trim
+	if ($content | is-empty) {
+		error make {msg: $"Input file ($input_file) is empty or not found"}
+	}
+
+	# Split into subtitle blocks (separated by empty lines)
+	mut remaining_subtitle_blocks = $content | split row "\n\n" | each { |block|
+		let lines = $block | split row "\n" | each { |line| $line | str trim } | where { |line| not ($line | is-empty) }
+		if ($lines | length) > 1 {
+			# let count = $lines | get 0
+			let timestamp = $lines | get 1
+			let captions = $lines | skip 2 | each { |line| $line | prepare_caption_line } | str join " " | prepare_caption_line
+			if not ($captions | is-empty) {
+				[$timestamp, $captions]
+			}
+		}
+	} | where { |block| not ($block | is-empty) }
+	mut result_subtitle_blocks = []
+	let total_subtitle_blocks_count = $remaining_subtitle_blocks | length
+	mut remaining_subtitle_blocks_count = $total_subtitle_blocks_count
+	let slice_min_modifier = 1.0 - $variance
+	let slice_max_modifier = 1.0 + $variance
+	mut slice_batch = $batch
+
+	let progress_id = terminal_title_progress_bar --create
+	^echo-style --tty --bold='Starting ' $"--value=($language_full)" --bold=' translation of ' $"--path=($input_file)" --bold=' to ' $"--path=($output_file)"
+
+	while $remaining_subtitle_blocks_count > 0 {
+		# Take the slice of subtitle blocks, extract only the caption, and convert into a json array
+		let slice_min_size = [1, ($slice_batch * $slice_min_modifier)] | math max | math floor
+		let slice_max_size = [$remaining_subtitle_blocks_count, ($slice_batch * $slice_max_modifier)] | math min | math ceil # ensure max isn't bigger than the remaining
+		let slice_min_size = [$remaining_subtitle_blocks_count, $slice_min_size, $slice_max_size] | math min | math floor # ensure min isn't bigger than the remaining and the amx
+		# ^echo-style --tty $"--bold=DEBUG: slice_min_size = ($slice_min_size) | slice_max_size = ($slice_max_size)"
+		let slice_size = random int $slice_min_size..$slice_max_size
+		let slice_subtitle_blocks = $remaining_subtitle_blocks | take $slice_size
+		let slice_result_size = $slice_subtitle_blocks | length
+		let captions = $slice_subtitle_blocks | each { |block| $block | get 1 }
+		let json_input = $captions | to json
+
+		# Log progress
+		terminal_title_progress_bar --id $progress_id --total $total_subtitle_blocks_count --remaining $remaining_subtitle_blocks_count
+		^echo-style --tty --bold='Translating ' $"--value=($slice_result_size)" --bold=' subtitles of ' $"--value=($total_subtitle_blocks_count)" --bold=' total, with ' $"--value=($remaining_subtitle_blocks_count)" --bold=' remaining, in slices of ' $"--value=($slice_batch)" '--=±' $"--value=($variance)" --bold='...'
+
+		# Start and process translation
+		let result = apple_intelligence_prompt $prompt $json_input
+		let translated_captions =  if $result.error { [] } else { $result.result | from json | each { |line| $line | clean_caption_line } }
+		let translated_size = $translated_captions | length
+		mut $slice_size_modifier = 0.0
+
+		# Check and handle obvious and non-obvious errors
+		if ($result.stderr | str contains 'Error: The request exceeded the maximum allowed length.') {
+			# Slice too large, reduce slice size and try again
+			^echo-style --tty --error2='ERROR:' $"--= ($result.stderr)"
+			$slice_size_modifier = random float 0.5..0.9
+		} else if ($result.stderr | str contains 'Error: The model cannot provide a response for this request. Please revise the request and try again.') {
+			# Slice too small or too large, adapt slice size and try again
+			^echo-style --tty --error2='ERROR:' $"--= ($result.stderr)"
+			if $slice_size >= $remaining_subtitle_blocks_count {
+				# Slice is too large, reduce it
+				$slice_size_modifier = random float 0.5..0.9
+			} else {
+				# Slice is too large or too small, do a random operation
+				$slice_size_modifier = random float 0.5..2.5
+			}
+		} else if $result.error {
+			# Non-recoverable error, throw
+			^echo-style --tty --error1='ERROR ' $"--status=($result.exit_code)" --newline --bold='STDOUT:' ' ' $"--code=($result.stdout)" --newline --bold='STDERR:' ' ' $"--code=($result.stderr)" --newline --bold='RESULT:' ' ' $"--code=($result.result)"
+			error make {msg: $"Apple Intelligence: ($result.stderr)"}
+		} else if $translated_size != $slice_result_size {
+			# If we don't have the same amount of captions that went in, then reduce slice size and try again
+			^echo-style --tty --error2='ERROR:' ' Mismatched number of translated captions. Expected ' $"--value=($slice_result_size)" ' but got ' $"--value=($translated_size)"
+			# Shrink until we remove the problematic sentence
+			$slice_size_modifier = random float 0.5..0.9
+		}
+
+		# If we are reducing slice size, then do that
+		if $slice_size_modifier != 0.0 and $slice_size_modifier != 1.0 {
+			$slice_batch = ($slice_result_size * $slice_size_modifier | math floor)
+			if $slice_batch < 1 {
+				error make {msg: 'Slice size reduced down too small, unable to continue.'}
+			}
+			^echo-style --tty --notice1='NOTICE:' ' Adapted slice size to ' $"--value=($slice_batch)" ' and retrying...'
+			sleep 1sec
+		} else {
+			# Success, continue to next slice
+
+			# Recombine the prior subtitle blocks of the slice but with their translated captions
+			let translated_subtitle_blocks = $slice_subtitle_blocks | enumerate | each { |it|
+				let i = $it.index
+				let block = $it.item
+				let caption = $translated_captions | get $i
+				[$block.0, $caption]
+			}
+
+			# Join the result blocks and update remaining
+			$result_subtitle_blocks = $result_subtitle_blocks | append $translated_subtitle_blocks
+			$remaining_subtitle_blocks = $remaining_subtitle_blocks | skip $slice_result_size
+			$remaining_subtitle_blocks_count = $remaining_subtitle_blocks | length
+		}
+	}
+	terminal_title_progress_bar --id $progress_id --destroy
+
+	# Sanity check for final result
+	let total_translated_blocks_count = $result_subtitle_blocks | length
+	if $total_translated_blocks_count != $total_subtitle_blocks_count {
+			^echo-style --tty --error2='ERROR:' ' Mismatched number of total translated captions. Expected ' $"--value=($total_subtitle_blocks_count)" ' but got ' $"--value=($total_translated_blocks_count)"
+		error make {msg: $'Mismatched number of total translated captions.'}
+	}
+
+	# Join all translated blocks and write to the output file
+	$result_subtitle_blocks | enumerate | each { |it|
+		[
+			# id
+			($it.index + 1),
+			# timestamp
+			($it.item | get 0),
+			# caption
+			($it.item | get 1)
+		] | str join "\n"
+	} | str join "\n\n" | save -f $output_file
+
+	# Note the translation is complete
+	^echo-style --tty --success='Translation complete. Output saved to ' $"--path=($output_file)"
+}

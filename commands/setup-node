@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 
+function setup_node_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-node --help
+)
+
 function setup_node() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile' 'empty'
-	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Configuration
@@ -13,75 +16,78 @@ function setup_node() (
 	# environment.bash provides:
 	# NVM_DIR
 	# but in case it failed to:
-	if test -z "${NVM_DIR-}"; then
+	if [[ -z ${NVM_DIR-} ]]; then
 		export NVM_DIR="$HOME/.nvm"
 	fi
 
 	# setup.bash provides:
 	local NPM_INSTALL=()
 	local NODE_INSTALL=() # deprecated, use NPM_INSTALL
+	local NODE_VERSIONS=()
 	load_dorothy_config 'setup.bash'
 
 	# deprecations
-	if test "${#NODE_INSTALL[@]}" -ne 0; then
+	if [[ ${#NODE_INSTALL[@]} -ne 0 ]]; then
 		NPM_INSTALL+=("${NODE_INSTALL[@]}")
 		dorothy-config 'setup.bash' -- \
 			--field='NODE_INSTALL' --replace= \
-			--field='NPM_INSTALL' --array="$(echo-lines -- "${NPM_INSTALL[@]}" | sort --ignore-case | uniq)"
+			--field='NPM_INSTALL' --array="$(echo-unique --ignore-case -- "${NPM_INSTALL[@]}")"
 	fi
 
 	# adjustments
-	mapfile -t NPM_INSTALL < <(dorothy-config --packages-var='NPM_INSTALL' -- "${NPM_INSTALL[@]}")
+	__split --target={NPM_INSTALL} --no-zero-length --invoke -- \
+		dorothy-config --packages-var='NPM_INSTALL' -- "${NPM_INSTALL[@]}"
 
 	# =====================================
 	# Arguments
 
 	# help
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Setup the Node.js ecosystem.
+
 			USAGE:
-			setup-node [--flags]
+			\`setup-node [...options] [install|update|setup|configure]\`
 
-			FLAGS:
+			OPTIONS:
 			--configure
-			    Configuration guide.
-
-			--optional
-			    Only setup if it is needed by packages.
+			    Whether to prompt, confirm, or save configuration changes.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item reconfigure='no' optional=''
-	while test "$#" -ne 0; do
+	local item option_configure=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-optional'* | '--optional'*)
-			optional="$(get-flag-value optional --missing="$optional" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--no-configure'* | '--configure'*)
-			reconfigure="$(get-flag-value configure --missing="$reconfigure" -- "$item" | echo-affirmative --stdin)"
-			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		# install|update|setup|configure
+		'setup') ;;
+		'update') option_configure='no' ;;
+		'install' | 'configure') option_configure='yes' ;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative --coerce || return $? ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check
-	if test "$optional" = 'yes' -a "${#NPM_INSTALL[@]}" -eq 0 && ! confirm --negative --ppid=$$ -- 'Setup Node.js?'; then
-		return 0
+	if [[ ${#NPM_INSTALL[@]} -eq 0 ]]; then
+		if [[ $option_configure == 'no' ]]; then
+			__print_style --dim='Setup of Node.js ecosystem skipped.' || return $?
+			return 0
+		elif ! confirm --linger --negative --ppid=$$ -- 'Setup Node.js ecosystem?'; then
+			return 0
+		fi
 	fi
 
 	# =====================================
 	# Start
 
-	echo-segment --h1='Setup Node.js'
+	__print_style --h1='Setup Node.js' || return $?
 
 	# =====================================
 	# Install/Upgrade Node.js and npm
@@ -93,57 +99,74 @@ function setup_node() (
 
 	# helper
 	function configure_system_npm {
-		echo-segment --h2='Configure npm'
-		nvm-env npm config set init-author-name "$(
-			ask --required --confirm \
-				--question="What is the profile name that you want to configure npm with?" \
+		__print_style --h2='Configure npm' || return $?
+		nvm-env -- npm config set init-author-name "$(
+			ask --required --linger \
+				--question='What is the profile name that you want to configure npm with?' \
 				--default="$(get-profile name -- npm ... || :)"
 		)"
-		nvm-env npm config set init-author-email "$(
-			ask --required --confirm \
-				--question="What is the profile email that you want to configure npm with?" \
+		nvm-env -- npm config set init-author-email "$(
+			ask --required --linger \
+				--question='What is the profile email that you want to configure npm with?' \
 				--default="$(get-profile email -- npm ... || :)"
 		)"
-		nvm-env npm config set init-author-url "$(
-			ask --required --confirm \
-				--question="What is the profile homepage that you want to configure npm with?" \
+		nvm-env -- npm config set init-author-url "$(
+			ask --required --linger \
+				--question='What is the profile homepage that you want to configure npm with?' \
 				--default="$(get-profile url -- npm ... || :)"
 		)"
-		nvm-env npm config set init-license "$(
-			ask --required --confirm \
-				--question="What license do you want to configure npm to default to?" \
+		nvm-env -- npm config set init-license "$(
+			ask --required --linger \
+				--question='What license do you want to configure npm to default to?' \
 				--default="$(npm config get init-license)"
 		)"
-		echo-segment --g2='Configure npm'
+		__print_style --g2='Configure npm' || return $?
 	}
 
 	# check
 	if
-		is-empty-value "$(npm config get init-author-name)" ||
-			is-empty-value "$(npm config get init-author-email)" ||
-			is-empty-value "$(npm config get init-author-url)" ||
-			is-empty-value "$(npm config get init-license)"
+		is-empty-value -- "$(npm config get init-author-name)" ||
+			is-empty-value -- "$(npm config get init-author-email)" ||
+			is-empty-value -- "$(npm config get init-author-url)" ||
+			is-empty-value -- "$(npm config get init-license)"
 	then
-		reconfigure='yes'
+		option_configure='yes'
 	fi
 
-	# reconfigure
-	if test "$reconfigure" = 'yes'; then
+	# configure
+	if [[ $option_configure == 'yes' ]]; then
 		configure_system_npm
 	fi
 
 	# =====================================
 	# Packages via npm
 
-	setup-util --installer=NODE -- "${NPM_INSTALL[@]}"
+	if [[ ${#NPM_INSTALL[@]} -ne 0 ]]; then
+		__print_style --h2='Node.js Packages' || return $?
+		setup-util --source=NODE -- "${NPM_INSTALL[@]}"
+		__print_style --g2='Node.js Packages' || return $?
+	fi
+
+	# =====================================
+	# Additional Node.js versions
+
+	if [[ ${#NODE_VERSIONS[@]} -ne 0 ]]; then
+		__print_style --h2='Additional Node.js Versions' || return $?
+		setup-util --source=NVM -- "${NODE_VERSIONS[@]}"
+		__print_style --g2='Additional Node.js Versions' || return $?
+	fi
 
 	# =====================================
 	# Finish
 
-	echo-segment --g1='Setup Node.js'
+	__print_style --g1='Setup Node.js' || return $?
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_node "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_node_test
+	else
+		setup_node "$@"
+	fi
 fi

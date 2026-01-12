@@ -5,9 +5,15 @@
 
 # https://github.com/denoland/deno/releases
 # deno-aarch64-apple-darwin.zip
+# deno-aarch64-unknown-linux-gnu.zip
 # deno-x86_64-apple-darwin.zip
 # deno-x86_64-pc-windows-msvc.zip
 # deno-x86_64-unknown-linux-gnu.zip
+# denort-aarch64-apple-darwin.zip
+# denort-aarch64-unknown-linux-gnu.zip
+# denort-x86_64-apple-darwin.zip
+# denort-x86_64-pc-windows-msvc.zip
+# denort-x86_64-unknown-linux-gnu.zip
 
 # https://github.com/LukeChannings/deno-arm64/releases
 # deno-linux-arm64.zip
@@ -15,72 +21,79 @@
 # arm64
 # https://github.com/denoland/deno/issues/4862
 # https://github.com/LukeChannings/deno-arm64
+# now mainlined
 
 # https://repology.org/project/deno/versions
+
+# Note that for Alpine, Alpine uses musl, whereas Deno only provides gnu builds, as such executing the gnu build on Alpine fails with 127
+# https://github.com/denoland/deno_docker/issues/240 - request for apk package
+# https://github.com/denoland/deno/issues/3711 - request for musl build
+# https://pkgs.alpinelinux.org/packages?name=deno - community build for alpine
 
 function setup_util_deno() (
 	source "$DOROTHY/sources/bash.bash"
 
-	# improve performance
-	if is-needle --quiet "$@" && ! is-needle --upgrade "$@" && ! is-needle --uninstall "$@" && command-exists deno; then
+	# check if deno is installed via snap, if so, uninstall it
+	# if [--classic] worked, we could do [ | grep --quiet --extended-regexp --regexp='classic$'] however --classic doesn't work either
+	if __command_exists -- deno && is-system --snap && snap list deno &>/dev/null; then
+		setup-util --quiet --uninstall --cli=deno SNAP='deno'
+	fi
+
+	# improve performance for detectable utilities with conditional assets
+	if setup-util --check --cli=deno "$@"; then
 		return 0
 	fi
 
 	# setup
+	# Don't use the official yet setupid [INSTALLER='https://deno.land/install.sh'], unlike setup-util, it ignores XDG and dumps the bin in [$HOME/.deno/bin/deno] with nothing else in [$HOME/.deno] except that bin, making it useless without slow clutter of env modifications
+	# Don't use [SNAP='deno'] without --classic as it faces [Permission denied (os error 13)] when running on scripts outside the snap: https://github.com/denoland/deno/issues/5816
+	# However, Don't use [SNAP='deno --classic'] either as --classic is ignored sometimes with [Warning: flag --classic ignored for strictly confined snap deno]
 	local arch options=(
 		--cli='deno'
 		"$@"
-		AUR='deno' # ARCH
+		APK_REPO='http://dl-cdn.alpinelinux.org/alpine/edge/community'
+		APK='deno'
+		AUR='deno'
 		BREW='deno'
-		CARGO='deno'
-		CHOCO='deno'
-		INSTALLER='https://deno.land/install.sh'
 		PORT='deno'
 		SCOOP='deno'
-		SNAP='deno'
-		WINGET='deno'
+		WINGET='DenoLand.Deno'
 	)
-	arch="$(get-arch)"
-	function get_github_asset_url {
-		github-download \
-			--dry \
-			--slug="${2:-"denoland/deno"}" \
-			--release='latest' \
-			--asset-filter="$(echo-escape-regex -- "$1")$" | echo-first-line || :
+	# cargo fails on windows: https://github.com/bevry/dorothy/actions/runs/16106748853/job/45443438885
+	if ! __is_windows; then
+		options+=(CARGO='deno')
+	fi
+	arch="$(__get_arch)"
+	function __get_github_asset_url {
+		local suffix="$1" regexp
+		regexp="$(echo-escape-regexp -- "$suffix")$" || return $?
+		github-download --dry --slug="${2:-"denoland/deno"}" --latest --asset-regexp="$regexp" | echo-first-line || return $?
 	}
-	function add_download_option {
+	function __add_download_option {
+		local suffix="$1" file="$2" url
+		url="$(__get_github_asset_url "$suffix")" || return $?
 		options+=(
-			DOWNLOAD="$(get_github_asset_url "$1")"
-			DOWNLOAD_UNZIP_FILTER="$2"
+			DOWNLOAD="$url"
+			DOWNLOAD_ARCHIVE_GLOB="$file"
 		)
 	}
-	function add_download_option_arm {
-		options+=(
-			DOWNLOAD="$(get_github_asset_url "$1" 'LukeChannings/deno-arm64')"
-			DOWNLOAD_UNZIP_FILTER="$2"
-		)
-	}
-	if is-mac; then
-		if test "$arch" = 'a64'; then
-			add_download_option 'deno-aarch64-apple-darwin.zip' 'deno'
-		elif test "$arch" = 'x64'; then
-			add_download_option 'deno-x86_64-apple-darwin.zip' 'deno'
+	if __is_macos; then
+		if [[ $arch == 'a64' ]]; then
+			__add_download_option 'deno-aarch64-apple-darwin.zip' 'deno' || :
+		elif [[ $arch == 'x64' ]]; then
+			__add_download_option 'deno-x86_64-apple-darwin.zip' 'deno' || :
 		fi
-	elif is-linux; then
-		if test "$arch" = 'a64'; then
-			add_download_option_arm 'deno-linux-arm64.zip' 'deno'
-		elif test "$arch" = 'x64'; then
-			add_download_option 'deno-x86_64-unknown-linux-gnu.zip' 'deno'
-		fi
-	elif is-wsl; then
-		if test "$arch" = 'x64'; then
-			add_download_option 'deno-x86_64-pc-windows-msvc.zip' 'deno.exe'
+	elif __is_linux; then
+		if [[ $arch == 'a64' ]]; then
+			__add_download_option 'deno-aarch64-unknown-linux-gnu.zip' 'deno' || :
+		elif [[ $arch == 'x64' ]]; then
+			__add_download_option 'deno-x86_64-unknown-linux-gnu.zip' 'deno' || :
 		fi
 	fi
 	setup-util "${options[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	setup_util_deno "$@"
 fi

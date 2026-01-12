@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 
 # NOTES:
-# use /dev/random as on macos /dev/zero is instant
-# |& is because dd writes to something other than stdout
+# use `/dev/random` as on macos `/dev/zero` is instant
+#
+# Prototypes: https://gist.github.com/balupton/c46c22a891b4d14da2407bba9283c843
+
+function fs_speed_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-speed --help
+)
 
 function fs_speed() (
 	source "$DOROTHY/sources/bash.bash"
@@ -11,105 +17,87 @@ function fs_speed() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Calculate the speed at a directory path.
 
 			USAGE:
-			fs-speed [--] ...<path>
+			\`fs-speed [...options] [--] ...<path>\`
+
+			OPTIONS:
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item paths=()
-	while test "$#" -ne 0; do
+	local item option_paths=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		'--path='*) option_paths+=("${item#*=}") ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
 		'--')
-			paths+=("$@")
+			option_paths+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) paths+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_paths+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#paths[@]}" -eq 0; then
-		help 'No <path>s were provided.'
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		help 'No <path>s provided.'
 	fi
-
-	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
 
 	# =====================================
 	# Action
 
-	# prepare
-	local megabytes_in_gigabyte=1024 bs
-	if is-mac; then
-		bs="1m" # mac only
-	else
-		bs="1M" # linux only
-	fi
+	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-read.fio
+	# is broken: https://github.com/axboe/fio/blob/master/examples/fio-seq-write.fio
 
-	local scratchpad log bytes path
-	for path in "${paths[@]}"; do
+	local path
+	for path in "${option_paths[@]}"; do
 		# start
-		echo-segment --h1="Speed Test: $path"
+		__print_style --h1="Speed Test: $path"
 
-		# prepare a temporary file in the path we wish to speed test
-		scratchpad="$(fs-temp --root="$path" --file)"
-
-		# prepare a temporary file in our temp directory, to store the output
-		# which we use for the speed analysis
-		log="$(fs-temp --directory='fs-speed' --file="$(basename "$scratchpad").log")"
-
-		# ensure they are empty
-		rm -f "$scratchpad" "$log"
-
-		# @todo add some type of DEBUG=yes flag to avoid helpers, so we can still see block and time per block calculations
-
-		# write performance
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Calculating write performance...")" \
-			--success="$(echo-style --success="Calculated write performance.")" \
-			--failure="$(echo-style --error="Failed calculate write.")" \
-			-- dd if=/dev/random of="$scratchpad" bs="$bs" count="$megabytes_in_gigabyte" |& tee "$log"
-		bytes="$(rg -o '(\d+) bytes/sec' --replace '$1' <"$log" || :)"
-		if test -n "$bytes"; then
-			echo-style "Writes at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second."
-		fi
-
-		# read performance
-		eval-helper --quiet \
-			--pending="$(echo-style --bold="Calculating read performance...")" \
-			--success="$(echo-style --success="Calculated read performance.")" \
-			--failure="$(echo-style --error="Failed calculate read.")" \
-			-- dd if="$scratchpad" of=/dev/null bs="$bs" |& tee "$log"
-		bytes="$(rg -o '(\d+) bytes/sec' --replace '$1' <"$log" || :)"
-		if test -n "$bytes"; then
-			echo-style "Reads at " --bold="$((bytes / 1024 / 1024)) megabytes" " a second."
-		fi
-
+		# https://raw.githubusercontent.com/axboe/fio/master/examples/fio-seq-RW.fio
+		cd "$path"
 		# cleanup
-		rm -f "$scratchpad" "$log"
+		fs-remove --quiet --no-confirm --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			./fio-seq-RW
+		# run
+		eval-helper --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			fio --name=fio-seq-RW --filename=fio-seq-RW --rw=rw --rwmixread=60 --rwmixwrite=40 --bs=256K --direct=0 --numjobs=2 --time_based=1 --runtime=90 --size=1G --ioengine=libaio --iodepth=16
+		# cleanup again
+		fs-remove --quiet --no-confirm --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
+			./fio-seq-RW
 
 		# done
-		echo-segment --g1="Speed Test: $path"
+		__print_style --g1="Speed Test: $path"
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_speed "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_speed_test
+	else
+		fs_speed "$@"
+	fi
 fi

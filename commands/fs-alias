@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+
+function fs_alias_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-alias --help
+)
+
+function fs_alias() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Wrappers around macOS aliases to make things easier.
+
+			USAGE:
+			\`fs-alias <action>\`
+
+			ACTIONS:
+			& new -- <alias-file-path> <target-file-path>
+			    Makes a new macOS alias file at the <alias-file-path> pointing to the <target-file-path>.
+
+			& symlink -- <alias-file-path>
+			    Converts the macOS alias file with its UNIX symlink equivalent.
+
+			& verify -- <alias-file-path>
+			    Verify the path is a macOS alias file.
+
+			& target -- <alias-file-path>
+			    Output the target if the path is a macOS alias file.
+
+			& info -- <alias-file-path>
+			    Human friendly details about the macOS alias file.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item action='' option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--')
+			option_args+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*)
+			if [[ -z $action ]]; then
+				action="$item"
+			else
+				help 'An unrecognised argument was provided: ' --variable-value={item}
+			fi
+			;;
+		esac
+	done
+
+	# =====================================
+	# Actions
+
+	function get_alias_origin {
+		local path="$1"
+		osascript <<-EOF
+			tell application "Finder"
+				set theItem to (POSIX file "$path") as alias
+				if the kind of theItem is "alias" then
+					get the posix path of ((theItem) as text)
+				end if
+			end tell
+		EOF
+	}
+
+	function get_alias_target {
+		local path="$1"
+		osascript 2>/dev/null <<-EOF
+			tell application "Finder"
+				set theItem to (POSIX file "$path") as alias
+				if the kind of theItem is "alias" then
+					get the POSIX path of ((original item of theItem) as text)
+				end if
+			end tell
+		EOF
+	}
+
+	function do_verify {
+		local path="$1" alias
+		if [[ -L $path ]]; then
+			__print_style --stderr --bold+red="$path" ' ' --error='<- origin is a symlink not an alias'
+			return 22 # EINVAL 22 Invalid argument
+		elif [[ -e $path ]]; then
+			__do --redirect-stdout={alias} -- get_alias_origin "$path"
+			if [[ -n $alias ]]; then
+				# don't output anything, we are just verifying
+				return 0
+			else
+				__print_style --stderr --bold+red="$path" ' ' --error='<- origin is not an alias'
+				return 22 # EINVAL 22 Invalid argument
+			fi
+		else
+			__print_style --stderr --bold+red="$path" ' ' --error='<- origin does not exist'
+			return 22 # EINVAL 22 Invalid argument
+		fi
+	}
+
+	function do_target {
+		local path="$1" target verify_status
+		__do --redirect-status={verify_status} -- do_verify "$path"
+		if [[ $verify_status -eq 0 ]]; then
+			__do --redirect-stdout={target} -- get_alias_target "$path"
+			if [[ -n $target ]]; then
+				__print_lines "$target" # output the target from the origin
+				return 0
+			else
+				__print_style --stderr --bold+red="$path" ' ' --error='<- alias target is broken'
+				return 22 # EINVAL 22 Invalid argument
+			fi
+		fi
+	}
+
+	function do_info {
+		local path="$1" origin target
+
+		# verify
+		__do --redirect-stdout={origin} -- get_alias_origin "$path"
+		if [[ -z $origin ]]; then
+			__print_style --stderr \
+				--bold+red="$path" \
+				$'\t' \
+				$'\t' --error='← not an alias'
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# target
+		__do --redirect-stdout={target} -- get_alias_target "$path"
+		if [[ -z $target ]]; then
+			__print_style --stderr \
+				--bold="$origin" \
+				$'\t' \
+				$'\t' --error='← target broken'
+			return 9 # EBADF 9 Bad file descriptor
+		fi
+		if [[ ! -e $target ]]; then
+			__print_style --stderr \
+				--bold="$origin" \
+				--monocolor=$'\t' --multicolor+dim=$'\t→\t' --bold+red="$target" \
+				$'\t' --error='← target missing'
+			return 2 # ENOENT 2 No such file or directory
+		fi
+
+		# success
+		__print_style \
+			--bold="$origin" \
+			--monocolor=$'\t' --multicolor+dim=$'\t→\t' --bold+green="$target"
+	}
+
+	function do_new {
+		local path="$1" target="$2" type target_absolute path_absolute path_stem path_leaf
+		target_absolute="$(fs-path --absolute -- "$target")"
+		path_absolute="$(fs-path --absolute -- "$path")"
+		path_stem="$(fs-path --parents -- "$path_absolute")"
+		path_leaf="$(fs-path --no-parents -- "$path_absolute")"
+
+		# act
+		if [[ -d $target_absolute ]]; then
+			type='folder'
+		elif [[ -f $target_absolute ]]; then
+			type='file'
+		else
+			__print_error 'Invalid path or unsupported type:' ' ' --code="$path"
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# remove it if it already exists
+		fs-remove --quiet --confirm -- "$path_absolute"
+
+		osascript <<-EOF
+			tell application "Finder"
+				make new alias to $type (posix file "$target_absolute") at (posix file "$path_stem")
+				set name of result to "$path_leaf"
+			end tell
+		EOF
+
+		# make the alias's permissions the same as the target's
+		fs-own --reference="$target_absolute" -- "$path_absolute"
+	}
+
+	function do_symlink {
+		local path="$1" origin target
+
+		# verify alias
+		__do --redirect-stdout={origin} -- get_alias_origin "$path"
+		if [[ -z $origin ]]; then
+			__print_style --stderr --bold+red="$path" ' ' --error='<- not an alias'
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# verify target
+		__do --redirect-stdout={target} -- get_alias_target "$path"
+		if [[ -z $target ]]; then
+			__print_style --stderr --bold="$origin" --dim=' → ' --bold+red="$target" ' ' --error='← target broken'
+			return 9 # EBADF 9 Bad file descriptor
+		fi
+		if [[ ! -e $target ]]; then
+			__print_style --stderr --bold="$origin" --dim=' → ' --bold+red="$target" ' ' --error='← target missing'
+			return 2 # ENOENT 2 No such file or directory
+		fi
+
+		# convert
+		if [[ -f $target ]]; then
+			ln -nfs -- "$target" "$origin"
+			__print_lines "converted $path -> $target"
+		elif [[ -d $target ]]; then
+			ln -nfs -- "$target" "$origin"
+			__print_lines "converted $path -> $target"
+		fi
+	}
+
+	# =====================================
+	# Act
+
+	if __is_function_defined "do_$action"; then
+		"do_$action" "${option_args[@]}"
+	else
+		help "<action> unsupported or yet implemented: $action" || :
+		return 78 # ENOSYS 78 Function not implemented
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_alias_test
+	else
+		fs_alias "$@"
+	fi
+fi

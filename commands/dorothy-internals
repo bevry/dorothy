@@ -1,0 +1,3265 @@
+#!/usr/bin/env bash
+# trunk-ignore-all(shellcheck/SC2034)
+# trunk-ignore-all(cspell/error)
+source "$DOROTHY/sources/bash.bash"
+
+# =====================================
+# SPECIAL NOTES ON IMPLEMENTATIONS
+
+# Initial prototypes are found here:
+# https://gist.github.com/balupton/21ded5cefc26dc20833e6ed606209e1b
+
+# Within the trap, one must use `|| return $?` instead of `|| return` due to this bug in versions prior to v4.4:
+# > f.  Fixed a bug that caused `return' executed from a trap handler to use the wrong return status when one was not supplied as an argument.
+# Which caused these failures:
+# https://github.com/bevry/dorothy/actions/runs/13102792036
+
+# Within the wrapper, care must be taken to ensure any function calls do not throw another ERR trap
+# For instance, if `__is_subshell_function` uses `test` instead of `[[`
+# Or if, `[[ ... ]]` is used but without `|| return`
+# Then an ERR trap will be thrown, causing unintended logic paths
+
+# Bash versions prior to 4.4, have a bug where `return <non-zero>` becomes `return 0` within traps
+# > _run_trap_internal: make sure to catch and use return values supplied as arguments to return $?; instead of just catching return, make sure we use return_catch_value as well. Affects RETURN, DEBUG, ERROR traps.
+# > https://stackoverflow.com/q/79495360/130638
+# There are some ways to work around this, such as leveraging difference between bash 4.2 and 4.3; however nothing is perfect, as such detection, prevention, and crashing for consistency and safety is essential
+# This is likely what actually caused this bug report:
+# https://github.com/bevry/dorothy/issues/203#issuecomment-2628393491
+
+# Bash v4.4 also introduces `inherit_errexit`, however this has no effect on our tests so far, as only `se -Ee` are relevant.
+
+# For interesting outputs of historical tests, see:
+# https://gist.github.com/balupton/029d30458b6f31dddb8091496c7f8b3e
+
+# =====================================
+# Parse Arguments
+
+all_implementations=(core 1 2 3 4 4b 5 5b 5c 6)
+
+function help {
+	__print_help "$@" <<-EOF || return $?
+		dorothy-internals
+
+		USAGE:
+		\`dorothy-internals [...options]\`
+
+		OPTIONS:
+		--i=<implementation> | --implementation=<implementation> | -- ...<implementation>
+		    Use this specific __try implementation, available are: ${all_implementations[*]}.
+		--ai | --all-implementations | --all-try-implementations
+		    Use all available __try implementations.
+
+		--v=<version> | --version=<version>
+		    Use this specific bash <version> or binary.
+		--av | --all-versions | --all-bash-versions | --test
+		    Use all available bash versions.
+
+		--skip=<test>
+		    Skip this specific test.
+		--skip-to=<test>
+		    Skip all tests until this specific test.
+		--only=<test>
+		    Only run this specific test. This is used to capture results of tests that crash.
+
+		DEFAULTS:
+		Defaults to [core] for the implementation. Defaults to current bash version.
+	EOF
+	return 22 # EINVAL 22 Invalid argument
+}
+item=''
+option_implementations=()
+option_binaries=()
+option_csv_file=''
+option_skip=()
+option_only=()
+option_skip_to=''
+option_csv='yes'
+while [[ $# -ne 0 ]]; do
+	item="$1"
+	shift
+	case "$item" in
+	--test)
+		__split --target={option_binaries} --no-zero-length --append --invoke -- \
+			debug-bash --all-bash-binaries --only-print-binaries
+		;;
+	--ab | --all-binaries | --all-bash-binaries | --av | --all-versions | --all-bash-versions | --bash=* | --b=* | --binary=* | --binaries=* | --bash-binary=* | --bash-binaries=* | --v=* | --version=* | --versions=* | --bash-version=* | --bash-versions=*)
+		__split --target={option_binaries} --no-zero-length --append --invoke -- \
+			debug-bash "$item" --only-print-binaries
+		;;
+	--i=* | --implementation=*) option_implementations+=("${item#*=}") ;;
+	--ai | --all-implementations | --all-try-implementations) option_implementations=("${all_implementations[@]}") ;;
+	--skip=*)
+		__split --target={option_skip} --append --no-zero-length -- "${item#*=}"
+		;;
+	--only=*)
+		__split --target={option_only} --append --no-zero-length -- "${item#*=}"
+		;;
+	--skip-to=*) option_skip_to="${item#*=}" ;;
+	--csv=no | --no-csv) option_csv=no ;;
+	--csv=yes | --csv) option_csv=yes ;;
+	--csv=*) option_csv_file="${item#*=}" ;;
+	--)
+		option_implementations+=("$@")
+		shift $#
+		break
+		;;
+	*) help "$0: An unrecognised flag was provided: $item" ;;
+	esac
+done
+
+# create a csv file
+render_csv='yes'
+if [[ $option_csv == 'yes' && -z $option_csv_file ]]; then
+	option_csv_file="$(fs-temp --directory='dorothy' --directory='dorothy-internals' --directory --file='results.csv')"
+else
+	render_csv='no'
+fi
+
+# default to core as the implementation
+if [[ ${#option_implementations[@]} -eq 0 ]]; then
+	option_implementations=('core')
+fi
+
+# =====================================
+# Handle Arguments
+
+function __crash_malformed {
+	exit 222 # ECUSTOM 222 Tests malformed
+}
+function __crash_broken {
+	exit 223 # ECUSTOM 223 Tests broken
+}
+
+function __render_csv {
+	if [[ $render_csv == 'no' ]]; then
+		return 0
+	fi
+
+	local c_fail=$'\e[41m'   # background red
+	local c_faulty=$'\e[43m' # background yellow
+	local c_pass=$'\e[42m'   # background green
+	local c_skip=$'\e[46m'   # background cyan
+	local c_header=$'\e[44m' # background blue
+	local c_end_field=''
+	local c_end_line=$'\e[49m' # end background
+	local implementations=() versions=() tests=() results=()
+	local passed_implementations='' passed_versions=''
+	local failed_implementations='' failed_versions=''
+	local headers=(
+		"${c_header}implementation${c_end_field}"
+		"${c_header}version${c_end_field}"
+		"${c_header}test${c_end_field}"
+		"${c_header}result${c_end_field}"
+	)
+	local blank=('' '' '' '')
+	local parts=("${headers[@]}" "${blank[@]}")
+	local implementation_length=14
+	local version_length=7
+	local test_length=4
+	local result_length=6
+
+	# csv file handling
+	echo-file --raw -- "$option_csv_file" | echo-write --atomic -- "$option_csv_file" || return $?
+
+	# fetch details
+	local implementation version test result
+	while IFS=, read -r implementation version test result; do
+		implementations+=("$implementation")
+		versions+=("$version")
+		tests+=("$test")
+		results+=("$result")
+		if [[ $result != *'ok'* ]]; then
+			if [[ $failed_implementations != *"{$implementation}"* ]]; then
+				failed_implementations+="{$implementation}"
+			fi
+			if [[ $failed_versions != *"{$implementation$version}"* ]]; then
+				failed_versions+="{$implementation$version}"
+			fi
+		else
+			if [[ $passed_implementations != *"{$implementation}"* ]]; then
+				passed_implementations+="{$implementation}"
+			fi
+			if [[ $passed_versions != *"{$implementation$version}"* ]]; then
+				passed_versions+="{$implementation$version}"
+			fi
+		fi
+	done <"$option_csv_file"
+
+	# calculate output
+	for ((i = 0; i < ${#implementations[@]}; i++)); do
+		implementation="${implementations[i]}"
+		version="${versions[i]}"
+		test="${tests[i]}"
+		result="${results[i]}"
+		if [[ ${#implementation} -gt $implementation_length ]]; then
+			implementation_length=${#implementation}
+		fi
+		if [[ ${#version} -gt $version_length ]]; then
+			version_length=${#version}
+		fi
+		if [[ ${#test} -gt $test_length ]]; then
+			test_length=${#test}
+		fi
+		if [[ ${#result} -gt $result_length ]]; then
+			result_length=${#result}
+		fi
+		if [[ $failed_implementations == *"{$implementation}"* && $passed_implementations == *"{$implementation}"* ]]; then
+			rendered_implementation="${c_faulty}${implementation}${c_end_field}"
+		elif [[ $failed_implementations == *"{$implementation}"* ]]; then
+			rendered_implementation="${c_fail}${implementation}${c_end_field}"
+		else
+			rendered_implementation="${c_pass}${implementation}${c_end_field}"
+		fi
+		if [[ $failed_versions == *"{$implementation$version}"* && $passed_versions == *"{$implementation$version}"* ]]; then
+			rendered_version="${c_faulty}${version}${c_end_field}"
+		elif [[ $failed_versions == *"{$implementation$version}"* ]]; then
+			rendered_version="${c_fail}${version}${c_end_field}"
+		else
+			rendered_version="${c_pass}${version}${c_end_field}"
+		fi
+		if [[ $result != *'ok'* ]]; then
+			if [[ $result == *'SKIPPED'* ]]; then
+				rendered_test="${c_skip}${test}${c_end_field}"
+				rendered_result="${c_skip}${result}${c_end_field}"
+			else
+				rendered_test="${c_fail}${test}${c_end_field}"
+				rendered_result="${c_fail}${result}${c_end_field}"
+			fi
+		else
+			rendered_test="${c_pass}${test}${c_end_field}"
+			rendered_result="${c_pass}${result}${c_end_field}"
+		fi
+		if [[ i -gt 1 ]]; then
+			if [[ ${implementations[i - 1]} != "${implementations[i]}" ]]; then
+				parts+=("${blank[@]}")
+			fi
+			if [[ ${versions[i - 1]} != "${versions[i]}" ]]; then
+				parts+=("${blank[@]}")
+			fi
+		fi
+		parts+=("$rendered_implementation" "$rendered_version" "$rendered_test" "$rendered_result")
+	done
+
+	# add some padding
+	implementation_length=$((implementation_length + 20))
+	version_length=$((version_length + 20))
+	test_length=$((test_length + 20))
+	result_length=$((result_length + 20))
+
+	# output result
+	printf "%-${implementation_length}s%-${version_length}s%-${test_length}s%-${result_length}s${c_end_line}\n" "${parts[@]}" || return $?
+}
+
+# handle multiple bash versions
+if [[ ${#option_binaries[@]} -ne 0 ]]; then
+	__result_status=0
+	debug-bash --binaries="$(__print_lines "${option_binaries[@]}")" --no-wrap --continue -- \
+		dorothy-internals --skip="$(__print_lines "${option_skip[@]}")" --only="$(__print_lines "${option_only[@]}")" --csv="$option_csv" --csv="$option_csv_file" -- "${option_implementations[@]}" || __result_status=$?
+	__render_csv || __crash_broken
+	exit "$__result_status"
+fi
+# we are now a single bash version
+
+# then handle multiple implementations within the same bash version execution
+if [[ ${#option_implementations[@]} -ne 1 ]]; then
+	__result_status=0
+	for option_implementation in "${option_implementations[@]}"; do
+		dorothy-internals --skip="$(__print_lines "${option_skip[@]}")" --only="$(__print_lines "${option_only[@]}")" --csv="$option_csv" --csv="$option_csv_file" --implementation="$option_implementation" || __result_status=$?
+	done
+	exit "$__result_status"
+fi
+
+# we are now a single bash version and implementation
+option_implementation="${option_implementations[0]}"
+
+# =====================================
+# Helpers for Tests
+
+# prepare vars
+BASH_VERSION_AND_BINARY="$BASH_VERSION_CURRENT:$BASH"
+if [[ $BASH_VERSION_AND_BINARY == '3.2.57:/bin/bash' ]] && __is_macos; then
+	BASH_VERSION_AND_BINARY+=':macos'
+fi
+SUITE_NAME="$BASH_VERSION_AND_BINARY"
+TEST_NAME=''
+TEST_DURATION=''
+COUNT_TESTS=0
+TESTS=()
+COUNT=0
+TESTS_OK=()
+COUNT_OK=0
+TESTS_FAIL=()
+COUNT_FAIL=0
+TESTS_SKIP=()
+COUNT_SKIP=0
+TESTS_PENDING=()
+COUNT_PENDING=0
+CSV_UPDATES=''
+
+# parse skip and only into an easier format that works across all bash versions and doesn't use one of our bash.bash helpers
+skip_string=''
+only_string=''
+for item in "${option_skip[@]}"; do
+	skip_string+="{$item}"
+done
+for item in "${option_only[@]}"; do
+	only_string+="{$item}"
+done
+if [[ -n $option_skip_to ]]; then
+	FOUND_SKIP_TO=no
+else
+	FOUND_SKIP_TO=yes
+fi
+
+# start the suite
+__print_style --stderr --h1="$SUITE_NAME" --tty+terminal-title="$SUITE_NAME" ' ' --code="$option_implementation"
+
+# prepare
+function __begin_test_block {
+	# process arguments
+	local item option_name option_crash_on=() option_crash_exit_status='' option_crash_stdout='' had_crash_stdout='no'
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--name=*) option_name="${item#*=}" ;;
+		--crash-on=*) option_crash_on+=("${item#*=}") ;;
+		--crash-exit-status=*) option_crash_exit_status="${item#*=}" ;;
+		--crash-stdout=*)
+			had_crash_stdout='yes'
+			option_crash_stdout="${item#*=}"
+			;;
+		--*) __unrecognised_flag "$item" || __crash_broken ;;
+		*) __unrecognised_argument "$item" || __crash_broken ;;
+		esac
+	done
+
+	# ensure we have a name
+	if [[ -z $option_name ]]; then
+		__print_lines "ERROR: __begin_test_block: A name was not provided" >&2 || __crash_broken
+		__crash_malformed
+	fi
+
+	# verify all test data is as expected
+	__verify_test_blocks || exit $?
+
+	# note the test exists
+	TEST_NAME="$option_name" TEST_DURATION=''
+	TESTS+=("$TEST_NAME")
+	TESTS_PENDING+=("$TEST_NAME")
+
+	# check skips
+	local skip='no'
+	if [[ -n $option_skip_to && $FOUND_SKIP_TO == 'no' ]]; then
+		if [[ $option_skip_to == "$TEST_NAME" ]]; then
+			FOUND_SKIP_TO='yes'
+		else
+			skip='yes'
+		fi
+	fi
+	if [[ -n $only_string ]]; then
+		if [[ $only_string != *"{$TEST_NAME}"* ]]; then
+			skip='yes'
+		fi
+	fi
+	if [[ -n $skip_string ]]; then
+		if [[ $skip_string == *"{$TEST_NAME}"* ]]; then
+			skip='yes'
+		fi
+	fi
+	if [[ $skip == 'yes' ]]; then
+		# note the test is skipped
+		TESTS_SKIP+=("$TEST_NAME")
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,SKIPPED"$'\n'
+		__complete_test_block || exit $?
+		# __print_style --stderr --h2="$TEST_NAME" --newline --warning='SKIPPED MANUAL' --newline --e2="$TEST_NAME" || return $?
+		# return non-zero such that the begin block is not entered
+		return 1
+	fi
+
+	# check if we are a crash version
+	local crashes=''
+	for item in "${option_crash_on[@]}"; do
+		if [[ $BASH_VERSION_AND_BINARY == "$item"* ]]; then
+			crashes='yes'
+			break
+		fi
+	done
+
+	# if it crashes, then run again, invoking only this test, and capture its stdout and status
+	if [[ $crashes == 'yes' && -z $only_string ]]; then
+		local __crash_exit_status='' crash_stdout_file crash_stdout='' crash_ok=yes
+		# run only this text, capturing status and stdout
+		# @todo capture stderr?
+		crash_stdout_file="$(mktemp)"
+		set +e
+		dorothy-internals --only="$TEST_NAME" --no-csv --implementation="$option_implementation" --version="$BASH" >"$crash_stdout_file"
+		__crash_exit_status=$?
+		set -e
+		# we want to trim trailing newlines for consistency with bash, __do, and eval-tester
+		crash_stdout="$(<"$crash_stdout_file")" || __crash_broken
+		rm -f -- "$crash_stdout_file" || __crash_broken
+
+		# @todo delegate the below to __end_test_block ???
+
+		# compare status
+		if [[ -n $option_crash_exit_status && $__crash_exit_status -ne $option_crash_exit_status ]]; then
+			crash_ok=no
+			__print_style --stderr --red --bold='Crashed Exit Status' ' ' --="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="$option_crash_exit_status" || __crash_broken
+		elif [[ $__crash_exit_status -eq 0 ]]; then
+			crash_ok=no
+			__print_style --stderr --green --bold='Crashed Exit Status:' ' ' --invert="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="<non-zero>" || __crash_broken
+		else
+			__print_style --stderr --green --bold='Crashed Exit Status:' ' ' --invert="$__crash_exit_status" ' ' --bold='Expected Exit Status:' ' ' --invert="<non-zero>" || __crash_broken
+		fi
+
+		# compare crash stdout
+		if [[ $had_crash_stdout == 'yes' ]]; then
+			if [[ -z $crash_stdout ]]; then
+				crash_stdout='<empty>'
+			fi
+			if [[ -z $option_crash_stdout ]]; then
+				option_crash_stdout='<empty>'
+			fi
+			if [[ $crash_stdout != "$option_crash_stdout" ]]; then
+				crash_ok=no
+				__print_style --stderr --red --bold='Crashed STDOUT:' ' ' --invert="$crash_stdout" --newline --bold='Expected STDOUT:' ' ' --invert="$option_crash_stdout" || __crash_broken
+			else
+				__print_style --stderr --green --bold='Crashed STDOUT:' ' ' --invert="$crash_stdout" --newline --bold='Expected STDOUT:' ' ' --invert="$option_crash_stdout" || __crash_broken
+			fi
+		fi
+
+		# note the crash result
+		if [[ $crash_ok == yes ]]; then
+			TESTS_OK+=("$TEST_NAME")
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,crash ok"$'\n'
+			__print_style --stderr --g2="$TEST_NAME" ' ' --success='crash ok' || __crash_broken
+		else
+			TESTS_FAIL+=("$TEST_NAME")
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,CRASH DIVERGED"$'\n'
+			__print_style --stderr --e2="$TEST_NAME" ' ' --error='CRASH DIVERGED' || __crash_broken
+		fi
+
+		# now that the result is noted, remove from pending
+		__complete_test_block || exit $?
+
+		# return non-zero such that the begin block is not entered
+		return 1
+	fi
+
+	# run the test in this context
+	__print_style --stderr --h2="$TEST_NAME" || __crash_broken
+}
+function __run_test_block {
+	local results time_before time_after
+	time_before="$(__get_epoch_time)" || return $?
+	results="$(tests 2>&1)"
+	time_after="$(__get_epoch_time)" || return $?
+	TEST_DURATION="$(echo-duration --before="$time_before" --after="$time_after")" || return $?
+	__end_test_block {results} "$@"
+}
+function __end_test_block {
+	# runs once the test is ended, but not on crash test ending
+	local ok='yes' actual_var actual expected escaped_name actual_file expected_file
+	while [[ $# -ne 0 ]]; do
+		__dereference --source="$1" --name={actual_var} || __crash_broken
+		actual="${!actual_var-}" actual_file='' expected_file=''
+		shift
+		if [[ $# -eq 0 ]]; then
+			escaped_name="$(echo-escape-filesystem --name -- "$TEST_NAME")" || __crash_broken
+			expected_file="$DOROTHY/fixtures/$escaped_name.expected.txt"
+			if [[ -f $expected_file ]]; then
+				expected="$(
+					sed \
+						-e "s/\\\$PLACEHOLDER__DECLARED_BUT_UNDEFINED/$PLACEHOLDER__DECLARED_BUT_UNDEFINED/" \
+						-e "s/\\\$PLACEHOLDER__NON_EXISTENT_COMMAND/$PLACEHOLDER__NON_EXISTENT_COMMAND/" \
+						-e "s/\\\$PLACEHOLDER__IS_UNDEFINED_DEFINED/$PLACEHOLDER__IS_UNDEFINED_DEFINED/" \
+						"$DOROTHY/fixtures/$escaped_name.expected.txt"
+				)" || __crash_broken
+			else
+				touch "$expected_file" || __crash_broken
+				expected=''
+			fi
+			actual_file="$DOROTHY/fixtures/$escaped_name.actual.txt"
+			__print_string "$actual" >"$actual_file" || __crash_broken
+		else
+			expected="$1"
+			shift
+		fi
+		if [[ $actual != "$expected" ]]; then
+			local diff='yes'
+			if [[ -z $actual_file || -z $expected_file ]]; then
+				__print_lines '' \
+					$'\e[7m'"FAIL: [$actual_var]"$'\e[0m' \
+					$'\e[7m'"== IT WAS == "$'\e[0m' \
+					"$actual" \
+					$'\e[7m''== IT SHOULD BE =='$'\e[0m' \
+					"$expected" \
+					$'\e[7m'"== END FAILURE =="$'\e[0m' || __crash_broken
+
+				actual_file="$(fs-temp --directory='dorothy' --directory='dorothy-internals' --file)"
+				expected_file="$actual_file.expected"
+				actual_file="$actual_file.actual"
+				__print_string "$actual" >"$actual_file" || __crash_broken
+				__print_string "$expected" >"$expected_file" || __crash_broken
+			else
+				__print_lines '' \
+					$'\e[7m'"FAIL: [$actual_var]"$'\e[0m' || __crash_broken
+				diff='yes' # now that all our tests are mature, their diffs should be small
+				# local lines
+				# lines="$(fs-size --lines -- "$actual_file" "$expected_file" | echo-max --stdin)" || __crash_broken
+				# if [[ $lines -gt 100 ]]; then
+				# 	diff=no
+				# fi
+			fi
+			if [[ $diff == 'yes' ]]; then
+				fs-diff --before="$actual_file" --after="$expected_file" || :
+				# use unchanged to see the full file:
+				# fs-diff --unchanged --before="$actual_file" --after="$expected_file" || :
+			fi
+			ok='no'
+		fi
+	done
+	# note the appropriate result
+	local duration_args=()
+	if [[ -n $TEST_DURATION ]]; then
+		duration_args+=(' ' --code="in $TEST_DURATION")
+	fi
+	if [[ $ok == 'yes' ]]; then
+		TESTS_OK+=("$TEST_NAME")
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,ok"$'\n'
+		__print_style --stderr --g2="$TEST_NAME" "${duration_args[@]}" || __crash_broken
+	else
+		TESTS_FAIL+=("$TEST_NAME")
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,FAIL"$'\n'
+		__print_style --stderr --e2="$TEST_NAME" "${duration_args[@]}" || __crash_broken
+	fi
+	# now that the result is noted, remove from pending
+	__complete_test_block || exit $?
+}
+function __complete_test_block {
+	# run once the test is ended, and on crash test ending
+	# ensure we are still relevant
+	if [[ -z $TEST_NAME ]]; then
+		__print_style --stderr --error="ERROR: ${FUNCNAME[0]}: Cannot complete a test block that has already cleaned itself up." || __crash_broken
+		__crash_malformed
+	fi
+	# remove the test from pending
+	local last
+	local -i count=${#TESTS_PENDING[@]} last_index
+	last_index=$((count - 1))
+	if [[ $count -eq 0 ]]; then
+		__print_style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) has finished but it was not inside pending..." || __crash_broken
+		__dump {TESTS_PENDING} >&2 || __crash_broken
+		__crash_malformed
+	elif [[ $count -ne 1 ]]; then
+		__print_style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) has finished but there were more than one pending test..." || __crash_broken
+		__dump {TESTS_PENDING} >&2 || __crash_broken
+		__crash_malformed
+	else
+		last="${TESTS_PENDING[last_index]}"
+		if [[ $last == "$TEST_NAME" ]]; then
+			TEST_NAME=''
+			TESTS_PENDING=("${TESTS_PENDING[@]:0:last_index}")
+		else
+			__print_style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) does not match the last pending test name of $(__dump --value="$last")" || __crash_broken
+
+			__dump {TESTS_PENDING} >&2 || __crash_broken
+			__crash_malformed
+		fi
+	fi
+	# verify all test data is as expected
+	__verify_test_blocks || exit $?
+}
+function __verify_test_blocks {
+	local -i count_tests="${#TESTS[@]}" count_pending="${#TESTS_PENDING[@]}" count_ok="${#TESTS_OK[@]}" count_fail="${#TESTS_FAIL[@]}" count_skip="${#TESTS_SKIP[@]}" count_finished
+	count_finished=$((count_ok + count_fail + count_skip))
+	if [[ -n $TEST_NAME ]]; then
+		__print_style --stderr --e2="$TEST_NAME" ' ' --error='PENDING' || __crash_broken
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,PENDING"$'\n'
+		return 221 # ECUSTOM 221 Tests failed
+	fi
+	if [[ $count_pending -ne 0 ]]; then
+		local pending_test_name
+		for pending_test_name in "${TESTS_PENDING[@]}"; do
+			__print_style --stderr --e2="$pending_test_name" ' ' --error='INCOMPLETE' || __crash_broken
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$pending_test_name,INCOMPLETE"$'\n'
+		done
+		return 221 # ECUSTOM 221 Tests failed
+	fi
+	if [[ $count_tests -ne $count_finished ]]; then
+		__print_style --stderr --e2="$SUITE_NAME" ' ' --status="$exit_status" ' ' --error='UNFINISHED' || __crash_broken
+		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$SUITE_NAME,UNFINISHED"$'\n'
+		return 221 # ECUSTOM 221 Tests failed
+	fi
+}
+function __on_exit {
+	local -i exit_status=$?
+	local -i count_tests="${#TESTS[@]}" count_pending="${#TESTS_PENDING[@]}" count_ok="${#TESTS_OK[@]}" count_fail="${#TESTS_FAIL[@]}" count_skip="${#TESTS_SKIP[@]}" count_finished
+	count_finished=$((count_ok + count_fail + count_skip))
+	local count_message="TESTS:$count_tests  FINISHED:$count_finished  OK:$count_ok  FAIL:$count_fail  SKIP:$count_skip  PENDING:$count_pending"
+
+	# verify if we aren't coming from a failed verification
+	if [[ $exit_status -ne 221 && $exit_status -ne 222 && $exit_status -ne 223 ]]; then
+		__verify_test_blocks || :
+	fi
+
+	# log the suite
+	if [[ $exit_status -ne 0 ]]; then
+		__print_style --stderr --e1="$SUITE_NAME" ' ' --status="$exit_status" || :
+	else
+		__print_style --stderr --g1="$SUITE_NAME" || :
+	fi
+
+	# append all our results to the csv file
+	if [[ -n $CSV_UPDATES ]]; then
+		if [[ $count_ok -ne $count_tests ]]; then
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$count_message,FAIL"$'\n'
+		else
+			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$count_message,ok"$'\n'
+		fi
+		if [[ -n $option_csv_file ]]; then
+			__print_string "$CSV_UPDATES" >>"$option_csv_file" || __crash_broken
+		fi
+	fi
+
+	# finish
+	__render_csv || __crash_broken
+}
+
+# write everything at once on exit, as writing as it happens causes corruption
+trap __on_exit EXIT
+
+# =====================================
+# Implementations
+
+source "$DOROTHY/sources/bash-legacy.bash"
+
+# =====================================
+# Helpers for tests
+
+newline=$'\n'
+space=' '
+clear_line=$'\e[G\e[2K'
+delete_line=$'\e[F\e[J'
+
+S1='==============================================================================='
+S2='-------------------------------------------------------------------------------'
+if [[ $BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED == 'yes' ]]; then
+	PLACEHOLDER__DECLARED_BUT_UNDEFINED='[ empty ]'
+	PLACEHOLDER__IS_UNDEFINED_DEFINED=0
+else
+	PLACEHOLDER__DECLARED_BUT_UNDEFINED='[ undefined ]'
+	PLACEHOLDER__IS_UNDEFINED_DEFINED=1
+fi
+PLACEHOLDER__NON_EXISTENT_COMMAND='this-command-should-not-exist'
+
+# enable debug for this testing command
+#shopt -s extdebug 2>/dev/null || :
+function __enable_strict {
+	# no impact if this is [set -e] or the below
+	set -Eeuo pipefail
+	shopt -s inherit_errexit 2>/dev/null || : # has no effect on try_
+	#shopt -s extdebug 2>/dev/null || :
+}
+
+function __ansi_trim_special_from_stdin {
+	local REPLY
+	__read_whole
+	__ansi_trim "$REPLY" 'not-text'
+}
+
+function __apply_escaped_command {
+	local var="$1" pieces='' piece escaped
+	shift
+	for piece in "$@"; do
+		printf -v escaped '%q' "$piece" || return $?
+		pieces+="$escaped "
+	done
+	printf -v "$var" '%s' "${pieces% }" || return $?
+}
+
+function __eval { # this cannot be a subshell function
+	local -i exit_status
+	local cmd='' color
+	__apply_escaped_command cmd "$@" || __crash_broken
+	if [[ $IS_TTY_AVAILABLE == 'yes' ]]; then
+		__print_string "$cmd" >>/dev/tty || __crash_broken
+	fi
+	__print_lines "$S2" "$cmd" || __crash_broken
+	"$@" # eval
+	exit_status=$?
+	if [[ $IS_TTY_AVAILABLE == 'yes' ]]; then
+		__print_string "$clear_line" >>/dev/tty || __crash_broken
+	fi
+	__print_lines "[status = $exit_status]" || __crash_broken
+	return "$exit_status"
+}
+
+# =====================================
+# TESTS
+
+# -------------------------------------
+# Print Toolkit Dependencies
+
+if __begin_test_block --name='__command_missing'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __command_missing 2>&1
+		__eval __command_missing -- 2>&1
+		__eval __command_missing -- bash
+		__eval __command_missing -- bash bash
+		__eval __command_missing -- "$PLACEHOLDER__NON_EXISTENT_COMMAND"
+		__eval __command_missing -- "$PLACEHOLDER__NON_EXISTENT_COMMAND" bash
+		__eval __command_missing -- bash "$PLACEHOLDER__NON_EXISTENT_COMMAND"
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__command_exists'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __command_exists
+		__eval __command_exists --
+		__eval __command_exists -- bash
+		__eval __command_exists -- bash bash
+		__eval __command_exists -- "$PLACEHOLDER__NON_EXISTENT_COMMAND"
+		__eval __command_exists -- "$PLACEHOLDER__NON_EXISTENT_COMMAND" bash
+		__eval __command_exists -- bash "$PLACEHOLDER__NON_EXISTENT_COMMAND"
+		return 0
+	)
+	__run_test_block
+fi
+
+# -------------------------------------
+# Print Toolkit
+
+if __begin_test_block --name='__print_string'; then
+	function tests() (
+		COLOR=no
+		__eval __print_string
+		__eval __print_string ''
+		__eval __print_string a
+		__eval __print_string a '' b
+		return 0
+	)
+	__run_test_block
+fi
+if __begin_test_block --name='__print_strings'; then
+	function tests() (
+		COLOR=no
+		__eval __print_strings
+		__eval __print_strings ''
+		__eval __print_strings a
+		__eval __print_strings a '' b
+		return 0
+	)
+	__run_test_block
+fi
+if __begin_test_block --name='__print_strings_or_nothing'; then
+	function tests() (
+		COLOR=no
+		__eval __print_strings_or_nothing
+		__eval __print_strings_or_nothing ''
+		__eval __print_strings_or_nothing a
+		__eval __print_strings_or_nothing a '' b
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__print_line'; then
+	function tests() (
+		COLOR=no
+		__eval __print_line
+		__eval __print_line ''
+		__eval __print_line a
+		__eval __print_line a '' b
+		return 0
+	)
+	__run_test_block
+fi
+if __begin_test_block --name='__print_lines_or_line'; then
+	function tests() (
+		COLOR=no
+		__eval __print_lines_or_line
+		__eval __print_lines_or_line ''
+		__eval __print_lines_or_line a
+		__eval __print_lines_or_line a '' b
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__print_lines'; then
+	function tests() (
+		COLOR=no
+		__eval __print_lines
+		__eval __print_lines ''
+		__eval __print_lines a
+		__eval __print_lines a '' b
+		return 0
+	)
+	__run_test_block
+fi
+if __begin_test_block --name='__print_lines_or_nothing'; then
+	function tests() (
+		COLOR=no
+		__eval __print_lines_or_nothing
+		__eval __print_lines_or_nothing ''
+		__eval __print_lines_or_nothing a
+		__eval __print_lines_or_nothing a '' b
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__print_value_strings_or_nothing'; then
+	function tests() (
+		COLOR=no
+		__eval __print_value_strings_or_nothing
+		__eval __print_value_strings_or_nothing ''
+		__eval __print_value_strings_or_nothing '' ''
+		__eval __print_value_strings_or_nothing a
+		__eval __print_value_strings_or_nothing a '' b
+		return 0
+	)
+	__run_test_block
+fi
+if __begin_test_block --name='__print_value_lines_or_nothing'; then
+	function tests() (
+		COLOR=no
+		__eval __print_value_lines_or_nothing
+		__eval __print_value_lines_or_nothing ''
+		__eval __print_value_lines_or_nothing '' ''
+		__eval __print_value_lines_or_nothing a
+		__eval __print_value_lines_or_nothing a '' b
+		return 0
+	)
+	__run_test_block
+fi
+if __begin_test_block --name='__print_value_lines_or_line'; then
+	function tests() (
+		COLOR=no
+		__eval __print_value_lines_or_line
+		__eval __print_value_lines_or_line ''
+		__eval __print_value_lines_or_line '' ''
+		__eval __print_value_lines_or_line a
+		__eval __print_value_lines_or_line a '' b
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__dump'; then
+	function tests() (
+		COLOR=no
+		local undefined_var empty='' defined=value empty_array=() defined_array=('' value)
+		local -a undefined_array
+		__dump \
+			{BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED} BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED \
+			--value= --value=value \
+			undeclared_var \
+			undefined_var \
+			empty \
+			defined \
+			undefined_array \
+			empty_array \
+			defined_array
+		__print_lines "[status = $?]"
+		return 0
+	)
+	results="$(tests | __ansi_trim_special_from_stdin)"
+	if [[ $BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED == 'yes' ]]; then
+		__end_test_block {results} "$(
+			cat <<-EOF
+				BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED = yes
+				BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED = yes
+				[ empty ]
+				value
+				undeclared_var = [ undeclared ]
+				undefined_var = [ empty ]
+				empty = [ empty ]
+				defined = value
+				undefined_array[@] = [ empty ]
+				empty_array[@] = [ empty ]
+				defined_array[0] = [ empty ]
+				defined_array[1] = value
+				[status = 0]
+			EOF
+		)"
+	elif [[ $BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED == 'yes' ]]; then
+		__end_test_block {results} "$(
+			cat <<-EOF
+				BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED = no
+				BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED = yes
+				[ empty ]
+				value
+				undeclared_var = [ undeclared ]
+				undefined_var = [ undefined ]
+				empty = [ empty ]
+				defined = value
+				undefined_array[@] = [ empty ]
+				empty_array[@] = [ empty ]
+				defined_array[0] = [ empty ]
+				defined_array[1] = value
+				[status = 0]
+			EOF
+		)"
+	else
+		__end_test_block {results} "$(
+			cat <<-EOF
+				BASH_DECLARED_VARS_ARE_ALWAYS_DEFINED = no
+				BASH_DECLARED_ARRAYS_ARE_ALWAYS_DEFINED = no
+				[ empty ]
+				value
+				undeclared_var = [ undeclared ]
+				undefined_var = [ undefined ]
+				empty = [ empty ]
+				defined = value
+				undefined_array[@] = [ undefined ]
+				empty_array[@] = [ empty ]
+				defined_array[0] = [ empty ]
+				defined_array[1] = value
+				[status = 0]
+			EOF
+		)"
+	fi
+fi
+
+# -------------------------------------
+# Shims Toolkit
+
+if __begin_test_block --name='__get_epoch_time'; then
+	function tests() (
+		COLOR=no
+		set +e
+		if __get_epoch_time; then
+			__print_lines 'got epoch time' >&2
+		else
+			__print_lines 'failed to get epoch time' >&2
+		fi
+		return 0
+	)
+	results="$(tests 2>&1 >/dev/null)" # don't capture or compare stdout, as we don't care, but do care about stderr
+	__end_test_block {results}
+fi
+
+if __begin_test_block --name="__get_read_decimal_timeout.$BASH_CAN_READ_DECIMAL_TIMEOUT"; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __get_read_decimal_timeout 1
+		__eval __get_read_decimal_timeout 1.
+		__eval __get_read_decimal_timeout 1.0
+		__eval __get_read_decimal_timeout 1.01
+		__eval __get_read_decimal_timeout 1.010
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__get_uppercase_first_letter'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __get_uppercase_first_letter
+		__eval __get_uppercase_first_letter --
+		__eval __get_uppercase_first_letter aa
+		__eval __get_uppercase_first_letter aa bb 'cc dd'
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__get_uppercase_string'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __get_uppercase_string
+		__eval __get_uppercase_string --
+		__eval __get_uppercase_string aa
+		__eval __get_uppercase_string aa bb 'cc dd'
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__get_lowercase_string'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __get_lowercase_string
+		__eval __get_lowercase_string --
+		__eval __get_lowercase_string AA
+		__eval __get_lowercase_string AA BB 'CC DD'
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__is_var_defined'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local undefined empty_array=() empty_string=''
+		local -i undefined_number zero=0
+		__eval __is_var_defined
+		__eval __is_var_defined --
+		__eval __is_var_defined {reference}
+		__eval __is_var_defined undeclared
+		__eval __is_var_defined undefined
+		__eval __is_var_defined undefined_number
+		__eval __is_var_defined empty_array
+		__eval __is_var_defined empty_string
+		__eval __is_var_defined zero
+		__eval __is_var_defined empty_array empty_string zero
+		__eval __is_var_defined empty_array empty_string zero undeclared
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__is_var_declared'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local undefined empty_array=() empty_string=''
+		local -i undefined_number zero=0
+		__eval __is_var_declared
+		__eval __is_var_declared --
+		__eval __is_var_declared {reference}
+		__eval __is_var_declared undeclared
+		__eval __is_var_declared undefined
+		__eval __is_var_declared undefined_number
+		__eval __is_var_declared empty_array
+		__eval __is_var_declared empty_string
+		__eval __is_var_declared zero
+		__eval __is_var_declared empty_array empty_string zero
+		__eval __is_var_declared empty_array empty_string zero undeclared
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__is_array'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local undefined empty_array=() non_empty_array=(a b c) sparse_array=() empty_string=''
+		local -i undefined_number zero=0
+		sparse_array[0]='a'
+		sparse_array[2]='c'
+		__eval __is_array
+		__eval __is_array --
+		__eval __is_array {reference}
+		__eval __is_array undeclared
+		__eval __is_array undefined
+		__eval __is_array undefined_number
+		__eval __is_array empty_array
+		__eval __is_array non_empty_array
+		__eval __is_array sparse_array
+		__eval __is_array empty_string
+		__eval __is_array zero
+		__eval __is_array empty_array non_empty_array sparse_array
+		__eval __is_array empty_array non_empty_array sparse_array empty_string
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__is_sparse_array'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local undefined empty_array=() non_empty_array=(a b c) sparse_array=() empty_string=''
+		local -i undefined_number zero=0
+		sparse_array[0]='a'
+		sparse_array[2]='c'
+		__eval __is_sparse_array
+		__eval __is_sparse_array --
+		__eval __is_sparse_array {reference}
+		__eval __is_sparse_array undeclared
+		__eval __is_sparse_array undefined
+		__eval __is_sparse_array undefined_number
+		__eval __is_sparse_array empty_array
+		__eval __is_sparse_array non_empty_array
+		__eval __is_sparse_array sparse_array
+		__eval __is_sparse_array empty_string
+		__eval __is_sparse_array zero
+		__eval __is_sparse_array sparse_array sparse_array
+		__eval __is_sparse_array sparse_array empty_array
+		return 0
+	)
+	__run_test_block
+fi
+
+# -------------------------------------
+# Errors Toolkit
+
+if __begin_test_block --name='__unrecognised_flag'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __unrecognised_flag
+		__eval __unrecognised_flag 'flag'
+		__eval __unrecognised_flag 'flag' discarded
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__unrecognised_argument'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __unrecognised_argument
+		__eval __unrecognised_argument 'arg'
+		__eval __unrecognised_argument 'arg' discarded
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_value_is_valid_write_mode'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __affirm_value_is_valid_write_mode
+		__eval __affirm_value_is_valid_write_mode ''
+		__eval __affirm_value_is_valid_write_mode '' discarded
+		__eval __affirm_value_is_valid_write_mode prepend
+		__eval __affirm_value_is_valid_write_mode prepend discarded
+		__eval __affirm_value_is_valid_write_mode append
+		__eval __affirm_value_is_valid_write_mode append discarded
+		__eval __affirm_value_is_valid_write_mode overwrite
+		__eval __affirm_value_is_valid_write_mode overwrite discarded
+		__eval __affirm_value_is_valid_write_mode other
+		__eval __affirm_value_is_valid_write_mode other discarded
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_value_is_defined'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __affirm_value_is_defined
+		__eval __affirm_value_is_defined ''
+		__eval __affirm_value_is_defined '' custom-name-of-value
+		__eval __affirm_value_is_defined ' '
+		__eval __affirm_value_is_defined ' ' custom-name-of-value
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_value_is_undefined'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __affirm_value_is_undefined
+		__eval __affirm_value_is_undefined ''
+		__eval __affirm_value_is_undefined '' custom-name-of-value
+		__eval __affirm_value_is_undefined ' '
+		__eval __affirm_value_is_undefined ' ' custom-name-of-value
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_value_is_positive_integer'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __affirm_value_is_positive_integer
+		__eval __affirm_value_is_positive_integer ''
+		__eval __affirm_value_is_positive_integer '' custom-name-of-value
+		__eval __affirm_value_is_positive_integer 1
+		__eval __affirm_value_is_positive_integer 1 custom-name-of-value
+		__eval __affirm_value_is_positive_integer 0
+		__eval __affirm_value_is_positive_integer 0 custom-name-of-value
+		__eval __affirm_value_is_positive_integer -0
+		__eval __affirm_value_is_positive_integer -0 custom-name-of-value
+		__eval __affirm_value_is_positive_integer -1
+		__eval __affirm_value_is_positive_integer -1 custom-name-of-value
+		__eval __affirm_value_is_positive_integer a
+		__eval __affirm_value_is_positive_integer a custom-name-of-value
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_length_defined'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __affirm_length_defined
+		__eval __affirm_length_defined ''
+		__eval __affirm_length_defined '' custom-name-of-value
+		__eval __affirm_length_defined 0
+		__eval __affirm_length_defined 0 custom-name-of-value
+		__eval __affirm_length_defined 1
+		__eval __affirm_length_defined 1 custom-name-of-value
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_variable_is_array'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local string='' array=() undefined
+		__dump {string} {array} {undefined}
+		__eval __affirm_variable_is_array
+		__eval __affirm_variable_is_array ''
+		__eval __affirm_variable_is_array string
+		__eval __affirm_variable_is_array string custom-variable-name
+		__eval __affirm_variable_is_array array
+		__eval __affirm_variable_is_array array custom-variable-name
+		__eval __affirm_variable_is_array undefined
+		__eval __affirm_variable_is_array undefined custom-variable-name
+		__eval __affirm_variable_is_array undeclared
+		__eval __affirm_variable_is_array undeclared custom-variable-name
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__affirm_variable_name'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __affirm_variable_name
+		__eval __affirm_variable_name ''
+		__eval __affirm_variable_name a_0Z
+		__eval __affirm_variable_name a_0Z custom-variable-name
+		__eval __affirm_variable_name 'a_0Z!'
+		__eval __affirm_variable_name 'a_0Z!' custom-variable-name
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__return'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		__eval __return
+
+		[[ 1 -eq 2 ]]
+		__return # don't use eval, as it has preceeding commands
+		__print_lines "$S2" "__return" "[status = $?]"
+
+		__eval __return 0
+		__eval __return 123
+		__eval __return 0 2 4
+
+		__eval __return 0 -- __print_string invoked
+		__eval __return 123 -- __print_string invoked
+
+		__eval __return 0 --invoke-only-on-failure -- __print_string invoked
+		__eval __return 123 --invoke-only-on-failure -- __print_string invoked
+
+		__eval __return 0 2 4 -- __print_string invoked
+		__eval __return 0 2 4 --invoke-only-on-failure -- __print_string invoked
+
+		__eval __return 0 -- __return 123 -- __print_string invoked
+		__eval __return 0 2 4 -- __return 123 -- __print_string invoked
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__ignore_exit_status'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__return 0 || __ignore_exit_status 2
+		__print_lines "[status = $?]"
+		__return 2 || __ignore_exit_status 2
+		__print_lines "[status = $?]"
+		__return 4 || __ignore_exit_status 2
+		__print_lines "[status = $?]"
+		__return 0 || __ignore_exit_status 1 2
+		__print_lines "[status = $?]"
+		__return 2 || __ignore_exit_status 1 2
+		__print_lines "[status = $?]"
+		__return 4 || __ignore_exit_status 1 2
+		__print_lines "[status = $?]"
+		return 0
+	)
+	__run_test_block "$(
+		cat <<-EOF
+			[status = 0]
+			[status = 0]
+			[status = 4]
+			[status = 0]
+			[status = 0]
+			[status = 4]
+		EOF
+	)"
+fi
+
+if __begin_test_block --name='__ignore_sigpipe'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__return 0 || __ignore_sigpipe
+		__print_lines "[status = $?]"
+		__return 141 || __ignore_sigpipe
+		__print_lines "[status = $?]"
+		__return 4 || __ignore_exit_status
+		__print_lines "[status = $?]"
+		return 0
+	)
+	__run_test_block "$(
+		cat <<-EOF
+			[status = 0]
+			[status = 0]
+			[status = 4]
+		EOF
+	)"
+fi
+
+# @todo figure out a way to test `__exit_on_exit_status`
+
+# -------------------------------------
+# Value Toolkit
+
+number_value_functions=(
+	__is_positive_integer
+	__is_negative_integer
+	__is_integer
+	__is_digit
+	__is_even
+	__is_odd
+	__is_zero
+)
+for number_value_function in "${number_value_functions[@]}"; do
+	if __begin_test_block --name="$number_value_function"; then
+		function tests() (
+			COLOR=no
+			set +e
+			__eval "$number_value_function"
+			__eval "$number_value_function" ''
+			__eval "$number_value_function" --
+			__eval "$number_value_function" -- 1
+
+			__eval "$number_value_function" 33.2
+			__eval "$number_value_function" 33.1
+			__eval "$number_value_function" 33.0
+			__eval "$number_value_function" 33
+			__eval "$number_value_function" 20.2
+			__eval "$number_value_function" 20.1
+			__eval "$number_value_function" 20.0
+			__eval "$number_value_function" +20
+			__eval "$number_value_function" 20
+			__eval "$number_value_function" +2.5
+			__eval "$number_value_function" 2.5
+			__eval "$number_value_function" +2
+			__eval "$number_value_function" 2
+			__eval "$number_value_function" +1.5
+			__eval "$number_value_function" 1.5
+			__eval "$number_value_function" +1
+			__eval "$number_value_function" 1
+			__eval "$number_value_function" +0.5
+			__eval "$number_value_function" 0.5
+			__eval "$number_value_function" +0
+			__eval "$number_value_function" 0
+			__eval "$number_value_function" 00
+			__eval "$number_value_function" -0
+			__eval "$number_value_function" -0.5
+			__eval "$number_value_function" -1
+			__eval "$number_value_function" -1.5
+			__eval "$number_value_function" -20
+			__eval "$number_value_function" -20.0
+			__eval "$number_value_function" -20.1
+			__eval "$number_value_function" -20.2
+			__eval "$number_value_function" -33
+			__eval "$number_value_function" -33.0
+			__eval "$number_value_function" -33.1
+			__eval "$number_value_function" -33.2
+
+			__eval "$number_value_function" +1.1.1
+			__eval "$number_value_function" 1.1.1
+			__eval "$number_value_function" -1.1.1
+			__eval "$number_value_function" +1.2.3
+			__eval "$number_value_function" 1.2.3
+			__eval "$number_value_function" -1.2.3
+			__eval "$number_value_function" +2.2.2
+			__eval "$number_value_function" 2.2.2
+			__eval "$number_value_function" -2.2.2
+
+			__eval "$number_value_function" +1.1a
+			__eval "$number_value_function" +1.a
+			__eval "$number_value_function" +1a
+			__eval "$number_value_function" 1a
+			__eval "$number_value_function" -1a
+			__eval "$number_value_function" -1.a
+			__eval "$number_value_function" -1.1a
+
+			__eval "$number_value_function" +2a
+			__eval "$number_value_function" +2.a
+			__eval "$number_value_function" +2.2a
+			__eval "$number_value_function" +2.2.a
+			__eval "$number_value_function" +2.2.2a
+			__eval "$number_value_function" 2a
+			__eval "$number_value_function" 2.a
+			__eval "$number_value_function" 2.2a
+			__eval "$number_value_function" 2.2.a
+			__eval "$number_value_function" 2.2.2a
+			__eval "$number_value_function" -2a
+			__eval "$number_value_function" -2.a
+			__eval "$number_value_function" -2.2a
+			__eval "$number_value_function" -2.2.a
+			__eval "$number_value_function" -2.2.2a
+
+			__eval "$number_value_function" 1 a
+			__eval "$number_value_function" 1 2
+			__eval "$number_value_function" 1 3
+			__eval "$number_value_function" 2 4
+			__eval "$number_value_function" 0 -0
+			__eval "$number_value_function" 0 0
+			__eval "$number_value_function" 0 +0
+			__eval "$number_value_function" -4 -2
+			__eval "$number_value_function" -3 -1
+			__eval "$number_value_function" -2 -1
+			__eval "$number_value_function" -1 a
+
+			return 0
+		)
+		results="$(tests 2>&1)"
+		__end_test_block {results}
+	fi
+done
+
+for affirmative_function in __is_affirmative __is_non_affirmative; do
+	if __begin_test_block --name="$affirmative_function"; then
+		function tests() (
+			COLOR=no
+			set +e
+			__eval "$affirmative_function"
+			__eval "$affirmative_function" ''
+
+			__eval "$affirmative_function" '' yes
+			__eval "$affirmative_function" '' yes asd
+			__eval "$affirmative_function" --ignore-empty '' yes
+			__eval "$affirmative_function" --ignore-empty '' yes asd
+
+			__eval "$affirmative_function" '' no
+			__eval "$affirmative_function" '' no asd
+			__eval "$affirmative_function" --ignore-empty '' no
+			__eval "$affirmative_function" --ignore-empty '' no asd
+
+			__eval "$affirmative_function" y
+			__eval "$affirmative_function" yes
+			__eval "$affirmative_function" true
+			__eval "$affirmative_function" y yes true Y YES TRUE
+			__eval "$affirmative_function" y -- yes true
+			__eval "$affirmative_function" -- y yes true
+
+			__eval "$affirmative_function" n yes true
+			__eval "$affirmative_function" n -- yes true
+			__eval "$affirmative_function" -- n yes true
+
+			__eval "$affirmative_function" n
+			__eval "$affirmative_function" no
+			__eval "$affirmative_function" false
+			__eval "$affirmative_function" n no false N NO FALSE
+			__eval "$affirmative_function" n -- no false
+			__eval "$affirmative_function" -- n no false
+
+			return 0
+		)
+		results="$(tests 2>&1)"
+		__end_test_block {results}
+	fi
+done
+
+# @todo do tests for `__is_special_file` and `__is_tty_special_file`
+
+# -------------------------------------
+# Reference Toolkit
+
+if __begin_test_block --name='__is_reference'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __is_reference
+		__eval __is_reference ''
+		__eval __is_reference '{}'
+		__eval __is_reference '{a}'
+		__eval __is_reference '{a}' ''
+		__eval __is_reference '' ''
+		__eval __is_reference '{a}' '{b}'
+		return 0
+	)
+	__run_test_block
+fi
+
+# @todo add tests for `__apply_value` and `__apply_value`
+
+if __begin_test_block --name='__dereference'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local string='abb' array=('a' 'bb')
+
+		function __dereference_test {
+			local input="$1" name names=() value values=()
+
+			__print_lines "$S1"
+			__dump {input} {string} {array} {name} {value} {names} {values}
+
+			__eval __dereference --source="$input" --name={name}
+			__dump {name}
+			__eval __dereference --source="$input" --name={name}
+			__dump {name}
+
+			__eval __dereference --source="$input" --append --name={names}
+			__dump {names}
+			__eval __dereference --source="$input" --append --name={names}
+			__dump {names}
+
+			__eval __dereference --source="$input" --value={value}
+			__dump {value}
+			__eval __dereference --source="$input" --value={value}
+			__dump {value}
+
+			__eval __dereference --source="$input" --overwrite --value={value}
+			__dump {value}
+			__eval __dereference --source="$input" --overwrite --value={value}
+			__dump {value}
+
+			__eval __dereference --source="$input" --append --value={values}
+			__dump {values}
+			__eval __dereference --source="$input" --append --value={values}
+			__dump {values}
+		}
+
+		__dereference_test string
+		__dereference_test {string}
+		__dereference_test array
+		__dereference_test {array}
+
+		return 0
+	)
+	__run_test_block
+fi
+
+# -------------------------------------
+# Function Toolkit
+
+if __begin_test_block --name='__is_subshell_function'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		function fn_with_squigglies { :; }
+		__eval __is_subshell_function fn_with_squigglies
+
+		function fn_with_parens() (:)
+		__eval __is_subshell_function fn_with_parens
+
+		local string=''
+		__eval __is_subshell_function string
+		__eval __is_subshell_function undefined
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='inner of standard function'; then
+	function standard_function {
+		:
+	}
+	got_function_inner="$(__get_function_inner standard_function)"
+	__end_test_block {got_function_inner} '    :'
+fi
+if __begin_test_block --name='inner of standard function with parens'; then
+	function standard_function_with_parens() {
+		:
+	}
+	got_function_inner="$(__get_function_inner standard_function_with_parens)"
+	__end_test_block {got_function_inner} '    :'
+fi
+if __begin_test_block --name='inner of subshell function'; then
+	function subshell_function() {
+		:
+	}
+	got_function_inner="$(__get_function_inner subshell_function)"
+	__end_test_block {got_function_inner} '    :'
+fi
+
+if __begin_test_block --name='__get_index_of_parent_function'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__get_index_of_parent_function 'tests'
+		function fn {
+			__get_index_of_parent_function 'tests'
+		}
+		fn
+		function fn {
+			__get_index_of_parent_function 'undef' 'fn' 'tests'
+		}
+		fn
+		return 0
+	)
+	__run_test_block "$(
+		cat <<-EOF
+			010
+		EOF
+	)"
+fi
+
+# -------------------------------------
+# Read Toolkit
+# this is out of order in their appearance in bash.bash, but necessary for the rest of the tests
+
+if __begin_test_block --name='__read_whole'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local REPLY file
+		file="$(mktemp)"
+		printf 'before-null\0before-eot\004before-form-feed\fbefore-newline\nafter-newline' >"$file"
+		__read_whole <"$file"
+		printf '%q' "$REPLY"
+		return 0
+	)
+	__run_test_block "$'before-nullbefore-eot\004before-form-feed\fbefore-newline\nafter-newline'"
+fi
+
+if __begin_test_block --name='__cat_pieces'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local REPLY file1 file2
+		file1="$(mktemp)"
+		file2="$(mktemp)"
+		printf 'before-null\0before-eot\004before-form-feed\fbefore-newline\nafter-newline' >"$file1"
+		__cat_pieces <"$file1" >"$file2"
+		cat -vbn "$file1"
+		__print_line
+		cat -vbn "$file2"
+		return 0
+	)
+	__run_test_block "$(
+		cat <<EOF
+     1	before-null^@before-eot^Dbefore-form-feed^Lbefore-newline
+     2	after-newline
+     1	before-null^@before-eot^Dbefore-form-feed^Lbefore-newline
+     2	after-newline
+EOF
+	)"
+fi
+
+# =====================================
+# Redirection & Error Handling Toolkit
+
+# -------------------------------------
+# __to
+
+if __begin_test_block --name="__to.$IS_TTY_AVAILABLE"; then
+	# trunk-ignore-begin(shellcheck/SC2069)
+	function tests() (
+		COLOR=no
+		set +e
+		local REPLY target='' file inputs=($'content\n')
+		file="$(mktemp)"
+
+		__to -- "${inputs[@]}"
+		__to --target={target} -- "${inputs[@]}"
+		__to --target=STDOUT -- "${inputs[@]}"
+		__to --target=STDERR -- "${inputs[@]}" 2>&1 >/dev/null
+		__to --target=TTY -- $'content that is sent to TTY\n'
+
+		__print_lines '---'
+		__to --source={inputs} --target={target} --target=STDOUT --target=STDERR --target="$file" 2>&1
+		__dump --no-style {target}
+		__read_whole <"$file"
+		__print_lines "file = $REPLY"
+
+		__print_lines '---'
+		local targets=({target} STDOUT STDERR 1 2 "$file")
+		__to --source={inputs} --targets={targets} 2>&1
+		__dump --no-style {target}
+		__read_whole <"$file"
+		__print_lines "file = $REPLY"
+
+		# STDOUT/STDERR/1/2 etc will fail as they cannot be used with append/prepend
+		targets=({target} "$file")
+
+		__print_lines '---'
+		input=$'appended\n'
+		__to --source={input} --append --targets={targets} 2>&1
+		__dump --no-style {target}
+		__read_whole <"$file"
+		__print_lines "file = $REPLY"
+
+		__print_lines '---'
+		input=$'prepended\n'
+		__to --source={input} --prepend --targets={targets} 2>&1
+		__dump --no-style {target}
+		__read_whole <"$file"
+		__print_lines "file = $REPLY"
+
+		__print_lines '---'
+		target=()
+		inputs=('first' $'second\n')
+		__to --target={target} -- "${inputs[@]}"
+		__dump --no-style {target}
+
+		__print_lines '---'
+		__to -- ''
+		return 0
+	)
+	# trunk-ignore-end(shellcheck/SC2069)
+	__run_test_block
+fi
+
+# -------------------------------------
+# __try and __do: test their exit status handling, which requires overrides to monitor complexities
+
+function dorothy_try__context_lines {
+	printf '%s\n' "CONTEXT: $DOROTHY_TRY__CONTEXT" "COMMAND: ${DOROTHY_TRY__COMMAND[*]}" >&2
+	printf '         %s\n' "$@" >&2
+}
+
+function dorothy_try__dump_lines {
+	__print_lines "$@" \
+		"DOROTHY_TRY__COUNT    = ${DOROTHY_TRY__COUNT-}" \
+		"DOROTHY_TRY__STATUS   = ${DOROTHY_TRY__STATUS-}" \
+		"DOROTHY_TRY__CONTEXT  = ${DOROTHY_TRY__CONTEXT-}" \
+		"DOROTHY_TRY__COMMAND  = ${DOROTHY_TRY__COMMAND:+"${DOROTHY_TRY__COMMAND[*]}"}" \
+		"DOROTHY_TRY__SUBSHELL = ${DOROTHY_TRY__SUBSHELL-}" \
+		"BASH_SOURCE           = ${BASH_SOURCE[*]}" \
+		"BASH_LINENO           = ${BASH_LINENO[*]}" \
+		"LINENO                = ${LINENO}" \
+		"FUNCNAME              = ${FUNCNAME[*]}" \
+		"CHILD_MAX             = ${CHILD_MAX-}" \
+		"SHLVL                 = ${SHLVL-}" \
+		"BASH_SUBSHELL         = ${BASH_SUBSHELL-}" \
+		"BASH_COMMAND          = ${BASH_COMMAND-}" \
+		"BASH_CMDS             = ${BASH_CMDS[*]}" \
+		"BASH_ARGC             = ${BASH_ARGC[*]}" \
+		"BASH_ARGV             = ${BASH_ARGV[*]}" \
+		"BASH_VERSION          = ${BASH_VERSION}" \
+		"-                     = $-" >&2
+}
+
+# -------------------------------------
+
+if __begin_test_block --name='try __return 0'; then
+	__try {caught_test_status} -- __return 0
+	__end_test_block {caught_test_status} 0
+fi
+
+if __begin_test_block --name='try __return 123'; then
+	__try {caught_test_status} -- __return 123
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='do __return 123 [--redirect-status]'; then
+	__do --redirect-status={caught_test_status} -- __return 123
+	__end_test_block {caught_test_status} 123
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try __return 0 [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__try {caught_test_status} -- __return 0 || __conditional_test_status=$?
+	__end_test_block {caught_test_status} 0 {__conditional_test_status} 0
+fi
+
+if __begin_test_block --name='try __return 123 [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__try {caught_test_status} -- __return 123 || __conditional_test_status=$?
+	__end_test_block {caught_test_status} 123 {__conditional_test_status} 0
+fi
+
+if __begin_test_block --name='do __return 0 [--copy-status]  [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__do --copy-status={caught_test_status} -- __return 0 || __conditional_test_status=$?
+	__end_test_block {caught_test_status} 0 {__conditional_test_status} 0
+fi
+
+if __begin_test_block --name='do __return 0 [--redirect-status] [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__do --redirect-status={caught_test_status} -- __return 0 || __conditional_test_status=$?
+	__end_test_block {caught_test_status} 0 {__conditional_test_status} 0
+fi
+
+if __begin_test_block --name='do __return 123 [--copy-status] [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__do --copy-status={caught_test_status} -- __return 123 || __conditional_test_status=$?
+	__end_test_block {caught_test_status} 123 {__conditional_test_status} 123
+fi
+
+if __begin_test_block --name='do __return 123 [--redirect-status] [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__do --redirect-status={caught_test_status} -- __return 123 || __conditional_test_status=$?
+	__end_test_block {caught_test_status} 123 {__conditional_test_status} 0
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try solo'; then
+	function solo {
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3) AFTER (1/2) THROW"
+		__return 124
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3) AFTER (2/2) THROW" # tests to make sure we clear status correctly
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3) AFTER CONDITIONAL"
+		return 126
+	}
+	__try {caught_test_status} -- solo
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try solo[subshell]'; then
+	function solo() (
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3) AFTER (1/2) THROW"
+		__return 124
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3) AFTER (2/2) THROW" # tests to make sure we clear status correctly
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3) AFTER CONDITIONAL"
+		return 126
+	)
+	__try {caught_test_status} -- solo
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try solo[subshell] [reinforced errexit]'; then
+	function solo() (
+		__enable_strict
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3) AFTER (1/2) THROW"
+		__return 124
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3) AFTER (2/2) THROW" # tests to make sure we clear status correctly
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3) AFTER CONDITIONAL"
+		return 126
+	)
+	__try {caught_test_status} -- solo
+	__end_test_block {caught_test_status} 123
+fi
+
+# -------------------------------------
+
+# this isn't a real safety function, but we have to satisfy the linter
+function __solo_with_side_effects {
+	a=1
+	__return 123
+	a=2
+	__return 124 || return $?
+	a=3
+	return 125
+}
+
+if __begin_test_block --name='try __solo_with_side_effects'; then
+	a=0
+	__try {caught_test_status} -- __solo_with_side_effects
+	__end_test_block \
+		{caught_test_status} 123 \
+		{a} 1
+fi
+
+if __begin_test_block --name='try __solo_with_side_effects [errexit disabled via conditional]'; then
+	a=0
+	__conditional_test_status=0
+	__try {caught_test_status} -- __solo_with_side_effects || __conditional_test_status=$?
+	__end_test_block \
+		{caught_test_status} 124 \
+		{__conditional_test_status} 0 \
+		{a} 2
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try __outer __inner'; then
+	function __inner {
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function __outer {
+		__inner || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	}
+	__try {caught_test_status} -- __outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try __outer[subshell] __inner'; then
+	function __inner {
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function __outer() (
+		__inner || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- __outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try __outer[subshell] __inner [reinforced errexit]'; then
+	function __inner {
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/32)"
+		return 124
+	}
+	function __outer() (
+		__enable_strict
+		__inner || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- __outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try __outer[subshell] __inner[subshell]'; then
+	function __inner() (
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/2)"
+		return 124
+	)
+	function __outer() (
+		__inner || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- __outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try __outer[subshell] __inner[subshell] [reinforced errexit]'; then
+	function __inner() (
+		__enable_strict
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	)
+	function __outer() (
+		__enable_strict
+		__inner || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- __outer
+	__end_test_block {caught_test_status} 123
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try throws_solo'; then
+	function throws_solo {
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/2)"
+		__return 124
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/2)"
+		return 125
+	}
+	__try {caught_test_status} -- throws_solo
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_solo[subshell]'; then
+	function throws_solo() (
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/2)"
+		__return 124
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/2)"
+		return 125
+	)
+	__try {caught_test_status} -- throws_solo
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_solo[subshell] [reinforced errexit]'; then
+	function throws_solo() (
+		__enable_strict
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/2)"
+		__return 124
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/2)"
+		return 125
+	)
+	__try {caught_test_status} -- throws_solo
+	__end_test_block {caught_test_status} 123
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try throws_solo[subshell] [errexit momentarily disabled within]'; then
+	function throws_solo() (
+		set +e # disable errexit
+		__return 124
+		__print_lines "OK: [$?] SHOULD SEE THIS (1/1)"
+		set -e # re-enable errexit
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT NOT SEE THIS (1/1)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_solo
+	__end_test_block {caught_test_status} 125
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try throws_outer __inner'; then
+	function __inner {
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function throws_outer {
+		__inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	}
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] __inner'; then
+	function __inner {
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function throws_outer() (
+		__inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] __inner [reinforced errexit]'; then
+	function __inner {
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/32)"
+		return 124
+	}
+	function throws_outer() (
+		__enable_strict
+		__inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] __inner[subshell]'; then
+	function __inner() (
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/2)"
+		return 124
+	)
+	function throws_outer() (
+		__inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] __inner[subshell] [reinforced errexit]'; then
+	function __inner() (
+		__enable_strict
+		__return 123 || return $?
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	)
+	function throws_outer() (
+		__enable_strict
+		__inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+# -------------------------------------
+
+if __begin_test_block --name='try throws_outer throws_inner' \
+	--crash-on=3.2 --crash-on=4.0 --crash-on=4.1 --crash-on=4.2 --crash-on=4.3 \
+	--crash-exit-status=123 --crash-stdout=''; then
+	function throws_inner {
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function throws_outer {
+		throws_inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	}
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+# this test is here to determine if it is the trap that is causing `FAIL: [0]` in the surrounding tests
+if __begin_test_block --name='try throws_outer throws_inner [errexit disabled in root]'; then
+	function throws_inner {
+		__return 123
+		__print_lines "OK: [$?] SHOULD SEE THIS (1/3)"
+		return 124
+	}
+	function throws_outer {
+		throws_inner
+		__print_lines "OK: [$?] SHOULD SEE THIS (2/3)"
+		__return 125
+		__print_lines "OK: [$?] SHOULD SEE THIS (3/3)"
+		return 126
+	}
+	set +e
+	__try {caught_test_status} -- throws_outer
+	set -e
+	__end_test_block {caught_test_status} 126
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] throws_inner'; then
+	function throws_inner {
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function throws_outer() (
+		throws_inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+# this test is here to determine if it is the trap that is causing `FAIL: [0]` in the surrounding tests
+if __begin_test_block --name='try throws_outer[subshell] throws_inner [errexit momentarily disabled within]'; then
+	function throws_inner {
+		__return 123
+		__print_lines "OK: [$?] SHOULD SEE THIS (1/2)"
+		return 124
+	}
+	function throws_outer() (
+		set +e
+		throws_inner
+		__print_lines "OK: [$?] SHOULD SEE THIS (2/2)"
+		set -e
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/1)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 125
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] throws_inner [reinforced errexit]'; then
+	function throws_inner {
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	}
+	function throws_outer() (
+		__enable_strict
+		throws_inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] throws_inner[subshell]'; then
+	function throws_inner() (
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	)
+	function throws_outer() (
+		throws_inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+if __begin_test_block --name='try throws_outer[subshell] throws_inner[subshell] [reinforced errexit]'; then
+	function throws_inner() (
+		__enable_strict
+		__return 123
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (1/3)"
+		return 124
+	)
+	function throws_outer() (
+		__enable_strict
+		throws_inner
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (2/3)"
+		__return 125
+		__print_lines "FAIL: [$?] SHOULD NOT SEE THIS (3/3)"
+		return 126
+	)
+	__try {caught_test_status} -- throws_outer
+	__end_test_block {caught_test_status} 123
+fi
+
+# -------------------------------------
+
+function recursed_standard {
+	caught_try_01=-1
+	caught_try_02=-1
+	caught_try_03=-1
+	caught_try_04=-1
+	caught_do_01=-1
+	caught_do_02=-1
+	caught_do_03=-1
+	caught_do_04=-1
+	caught_do_05=-1
+	__try {caught_try_01} -- __return 0
+	__print_lines "caught_try_01 = $caught_try_01 ?= $?"
+	__try {caught_try_02} -- __return 102
+	__print_lines "caught_try_02 = $caught_try_02 ?= $?"
+	__try {caught_try_03} -- __return 103
+	__print_lines "caught_try_03 = $caught_try_03 ?= $?"
+	__try {caught_try_04} -- __return 0
+	__print_lines "caught_try_04 = $caught_try_04 ?= $?"
+	__do --copy-status={caught_do_01} -- __return 0
+	__print_lines "caught_do_01 = $caught_do_01 ?= $?"
+	__do --redirect-status={caught_do_02} -- __return 202
+	__print_lines "caught_do_02 = $caught_do_02 ?= $?"
+	__do --copy-status={caught_do_03} -- __return 0
+	__print_lines "caught_do_03 = $caught_do_03 ?= $?"
+	__do --copy-status={caught_do_04} -- __return 204
+	__print_lines "caught_do_04 = $caught_do_04 ?= $?"
+	__do --copy-status={caught_do_05} -- __return 205 || return $?
+	__print_lines "caught_do_05 = $caught_do_05 ?= $?"
+	return 99
+}
+function recursed_subshell() (
+	__try {caught_try_01} -- __return 0
+	__print_lines "caught_try_01 = $caught_try_01 ?= $?"
+	__try {caught_try_02} -- __return 102
+	__print_lines "caught_try_02 = $caught_try_02 ?= $?"
+	__try {caught_try_03} -- __return 103
+	__print_lines "caught_try_03 = $caught_try_03 ?= $?"
+	__try {caught_try_04} -- __return 0
+	__print_lines "caught_try_04 = $caught_try_04 ?= $?"
+	__do --copy-status={caught_do_01} -- __return 0
+	__print_lines "caught_do_01 = $caught_do_01 ?= $?"
+	__do --redirect-status={caught_do_02} -- __return 202
+	__print_lines "caught_do_02 = $caught_do_02 ?= $?"
+	__do --copy-status={caught_do_03} -- __return 0
+	__print_lines "caught_do_03 = $caught_do_03 ?= $?"
+	__do --copy-status={caught_do_04} -- __return 204
+	__print_lines "caught_do_04 = $caught_do_04 ?= $?"
+	__do --copy-status={caught_do_05} -- __return 205 || return $?
+	__print_lines "caught_do_05 = $caught_do_05 ?= $?"
+	return 99
+)
+recursed_expected_errexit_stdout="$(
+	cat <<-EOF
+		caught_try_01 = 0 ?= 0
+		caught_try_02 = 102 ?= 0
+		caught_try_03 = 103 ?= 0
+		caught_try_04 = 0 ?= 0
+		caught_do_01 = 0 ?= 0
+		caught_do_02 = 202 ?= 0
+		caught_do_03 = 0 ?= 0
+	EOF
+)" # 204 is not output as it is returned before the output
+
+# test
+if __begin_test_block --name='try recursed' \
+	--crash-on=3.2 --crash-on=4.0 --crash-on=4.1 --crash-on=4.2 --crash-on=4.3 \
+	--crash-exit-status=204 --crash-stdout="$recursed_expected_errexit_stdout"; then
+	__try {caught_test_status} -- recursed_standard
+	__end_test_block \
+		{caught_test_status} 204 \
+		{caught_try_01} 0 \
+		{caught_try_02} 102 \
+		{caught_try_03} 103 \
+		{caught_try_04} 0 \
+		{caught_do_01} 0 \
+		{caught_do_02} 202 \
+		{caught_do_03} 0 \
+		{caught_do_04} 204 \
+		{caught_do_05} -1
+fi
+
+# test
+if __begin_test_block --name='try recursed [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__try {caught_test_status} -- recursed_standard || __conditional_test_status=$?
+	__end_test_block \
+		{caught_test_status} 205 \
+		{__conditional_test_status} 0 \
+		{caught_try_01} 0 \
+		{caught_try_02} 102 \
+		{caught_try_03} 103 \
+		{caught_try_04} 0 \
+		{caught_do_01} 0 \
+		{caught_do_02} 202 \
+		{caught_do_03} 0 \
+		{caught_do_04} 204 \
+		{caught_do_05} 205
+fi
+
+# can't test subshell directly as the subshell prevents the variables from being modified
+# instead must use do and compare outputs
+
+# test
+if __begin_test_block --name='do recursed[subshell] [--redirect-status] [--copy-stdout]' \
+	--crash-on='3.2.57:/bin/bash:macos' \
+	--crash-exit-status=204 --crash-stdout="$recursed_expected_errexit_stdout"; then
+	__do --redirect-status={caught_test_status} --copy-stdout={caught_test_stdout} -- recursed_subshell
+	__end_test_block \
+		{caught_test_status} 204 \
+		{caught_test_stdout} "$recursed_expected_errexit_stdout"
+fi
+
+if __begin_test_block --name='do recursed[subshell] [--redirect-status] [--copy-stdout] [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__do --redirect-status={caught_test_status} --copy-stdout={caught_test_stdout} -- recursed_subshell || __conditional_test_status=$?
+	__end_test_block \
+		{caught_test_status} 205 \
+		{__conditional_test_status} 0 \
+		{caught_test_stdout} "$(
+			cat <<-EOF
+				caught_try_01 = 0 ?= 0
+				caught_try_02 = 102 ?= 0
+				caught_try_03 = 103 ?= 0
+				caught_try_04 = 0 ?= 0
+				caught_do_01 = 0 ?= 0
+				caught_do_02 = 202 ?= 0
+				caught_do_03 = 0 ?= 0
+				caught_do_04 = 204 ?= 204
+			EOF
+		)" # 205 is not output as it is returned before the output
+fi
+
+if __begin_test_block --name='do recursed[subshell] [--copy-status] [--copy-stdout] [errexit disabled via conditional]'; then
+	__conditional_test_status=0
+	__do --copy-status={caught_test_status} --copy-stdout={caught_test_stdout} -- recursed_subshell || __conditional_test_status=$?
+	__end_test_block \
+		{caught_test_status} 205 \
+		{__conditional_test_status} 205 \
+		{caught_test_stdout} '' # we do not have the stdout due to the failure not being ignored
+fi
+
+# -------------------------------------
+# now that the testing of exit status is finished, undo the overrides
+# and start testing content redirections instead
+
+function dorothy_try__context_lines { :; }
+function dorothy_try__dump_lines { :; }
+
+function __write_stdout_stderr {
+	printf '%s\n' 'stdout1' >&1
+	printf '%s\n' 'stderr1' >&2
+	printf '%s\n\n' 'stdout2' >&1
+	printf '%s\n\n' 'stderr2' >&2
+}
+
+if __begin_test_block --name='do [--redirect-stdout] [--redirect-stderr]'; then
+	__do \
+		--redirect-status={caught_test_status} \
+		--redirect-stdout={caught_test_stdout} \
+		--redirect-stderr={caught_test_stderr} \
+		-- \
+		__write_stdout_stderr
+	__end_test_block \
+		{caught_test_status} 0 \
+		{caught_test_stdout} $'stdout1\nstdout2' \
+		{caught_test_stderr} $'stderr1\nstderr2'
+fi
+if __begin_test_block --name='do [--redirect-stdout] [--redirect-stderr] [--trailing-newlines]'; then
+	__do --trailing-newlines \
+		--redirect-status={caught_test_status} \
+		--redirect-stdout={caught_test_stdout} \
+		--redirect-stderr={caught_test_stderr} \
+		-- \
+		__write_stdout_stderr
+	__end_test_block \
+		{caught_test_status} 0 \
+		{caught_test_stdout} $'stdout1\nstdout2\n\n' \
+		{caught_test_stderr} $'stderr1\nstderr2\n\n'
+fi
+if __begin_test_block --name='do [--redirect-output]'; then
+	__do \
+		--redirect-status={caught_test_status} \
+		--redirect-output={caught_test_output} \
+		-- \
+		__write_stdout_stderr
+	__end_test_block \
+		{caught_test_status} 0 \
+		{caught_test_output} $'stdout1\nstderr1\nstdout2\n\nstderr2'
+fi
+if __begin_test_block --name='do [--redirect-output] [--trailing-newlines]'; then
+	__do --trailing-newlines \
+		--redirect-status={caught_test_status} \
+		--redirect-output={caught_test_output} \
+		-- \
+		__write_stdout_stderr
+	__end_test_block \
+		{caught_test_status} 0 \
+		{caught_test_output} $'stdout1\nstderr1\nstdout2\n\nstderr2\n\n'
+fi
+
+# @todo resolve copy-output and expectations on how the below does not behave as intuited
+# if __begin_test_block --name='do stdout/stderr --trailing-newlines'; then
+# 	__do --trailing-newlines \
+# 		--redirect-status={caught_test_status} \
+# 		--copy-stdout={caught_test_stdout} \
+# 		--copy-stderr={caught_test_stderr_original} \
+# 		--redirect-stderr='(echo-uppercase --stdin >&2)' \
+# 		--copy-stderr={caught_test_stderr} \
+# 		--redirect-stderr=STDOUT \
+# 		--copy-stdout={caught_test_output} \
+# 		-- \
+# 		__write_stdout_stderr
+# 	__end_test_block \
+# 		{caught_test_status} 0 \
+# 		{caught_test_stdout} $'my-stdout\n\n' \
+# 		{caught_test_stderr_original} 'my-stderr' \
+# 		{caught_test_stderr} 'MY-STDERR' \
+# 		{caught_test_output} $'my-stdoutMY-STDERR\n\n'
+# fi
+
+# =============================================================================
+# Extra Toolkit
+
+# -------------------------------------
+# User & Group Toolkit
+
+if __begin_test_block --name='__prepare_(login|current)_(user|uid|group|gid|groups|gids)'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		__eval __prepare_login_user
+		__dump {LOGIN_USER} >&2
+
+		__eval __prepare_login_uid
+		__dump {LOGIN_UID} >&2
+
+		__eval __prepare_login_group
+		__dump {LOGIN_GROUP} >&2
+
+		__eval __prepare_login_gid
+		__dump {LOGIN_GID} >&2
+
+		__eval __prepare_login_groups
+		__dump {LOGIN_GROUPS} >&2
+
+		__eval __prepare_login_gids
+		__dump {LOGIN_GIDS} >&2
+
+		__eval __prepare_current_user
+		__dump {CURRENT_USER} >&2
+
+		__eval __prepare_current_uid
+		__dump {CURRENT_UID} >&2
+
+		__eval __prepare_current_group
+		__dump {CURRENT_GROUP} >&2
+
+		__eval __prepare_current_gid
+		__dump {CURRENT_GID} >&2
+
+		__eval __prepare_current_groups
+		__dump {CURRENT_GROUPS} >&2
+
+		__eval __prepare_current_gids
+		__dump {CURRENT_GIDS} >&2
+
+		return 0
+	)
+	results="$(tests)"
+	__end_test_block {results}
+fi
+
+# -------------------------------------
+# Filesystem & Elevate Toolkit
+
+# @todo do these tests later
+
+# -------------------------------------
+# ANSI Toolkit
+
+# these are already tested indirectly via their respective commands
+
+# -------------------------------------
+# Read Toolkit
+# consider moving in bash.bash to before the __to stuff
+
+# already tested earlier
+
+# -------------------------------------
+# File Descriptor Toolkit
+# consider moving in bash.bash to before the __to stuff
+
+# if these are broken then eval-tester is broken, so no need to test them here, at least for now
+
+# -------------------------------------
+# Semaphore Toolkit
+# consider moving in bash.bash to before the __to stuff
+
+# -------------------------------------
+# Strings & Arrays Toolkit
+
+if __begin_test_block --name='__flag'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		function __test {
+			local result
+			__eval __flag --target={result} "$@"
+			__dump {result}
+			result='default-value'
+			__eval __flag --target={result} "$@"
+			__dump {result}
+		}
+
+		__print_lines "$S1" '--flag...'
+		__test -- "--flag"
+		__test -- "--flag=NO"
+		__test -- "--flag=YES"
+		__test -- "--flag=value"
+		__test -- "--flag="
+
+		__print_lines "$S1" '--no-flag...'
+		__test -- "--no-flag"
+		__test -- "--no-flag=NO"
+		__test -- "--no-flag=YES"
+		__test -- "--no-flag=value"
+		__test -- "--no-flag="
+
+		__print_lines "$S1" '--affirmative --flag...'
+		__test --affirmative -- "--flag"
+		__test --affirmative -- "--flag=NO"
+		__test --affirmative -- "--flag=YES"
+		__test --affirmative -- "--flag=value"
+		__test --affirmative -- "--flag="
+
+		__print_lines "$S1" '--affirmative --no-flag...'
+		__test --affirmative -- "--no-flag"
+		__test --affirmative -- "--no-flag=NO"
+		__test --affirmative -- "--no-flag=YES"
+		__test --affirmative -- "--no-flag=value"
+		__test --affirmative -- "--no-flag="
+
+		__print_lines "$S1" '--non-affirmative --flag...'
+		__test --non-affirmative -- "--flag"
+		__test --non-affirmative -- "--flag=NO"
+		__test --non-affirmative -- "--flag=YES"
+		__test --non-affirmative -- "--flag=value"
+		__test --non-affirmative -- "--flag="
+
+		__test --non-affirmative -- "--no-flag"
+		__test --non-affirmative -- "--no-flag=NO"
+		__test --non-affirmative -- "--no-flag=YES"
+		__test --non-affirmative -- "--no-flag=value"
+		__test --non-affirmative -- "--no-flag="
+
+		__print_lines "$S1" '--coerce --affirmative --flag...'
+		__test --affirmative --coerce -- "--flag"
+		__test --affirmative --coerce -- "--flag=NO"
+		__test --affirmative --coerce -- "--flag=YES"
+		__test --affirmative --coerce -- "--flag=value"
+		__test --affirmative --coerce -- "--flag="
+
+		__print_lines "$S1" '--coerce --affirmative --no-flag...'
+		__test --affirmative --coerce -- "--no-flag"
+		__test --affirmative --coerce -- "--no-flag=NO"
+		__test --affirmative --coerce -- "--no-flag=YES"
+		__test --affirmative --coerce -- "--no-flag=value"
+		__test --affirmative --coerce -- "--no-flag="
+
+		__print_lines "$S1" '--coerce --non-affirmative --flag...'
+		__test --non-affirmative --coerce -- "--flag"
+		__test --non-affirmative --coerce -- "--flag=NO"
+		__test --non-affirmative --coerce -- "--flag=YES"
+		__test --non-affirmative --coerce -- "--flag=value"
+		__test --non-affirmative --coerce -- "--flag="
+
+		__print_lines "$S1" '--coerce --non-affirmative --no-flag...'
+		__test --non-affirmative --coerce -- "--no-flag"
+		__test --non-affirmative --coerce -- "--no-flag=NO"
+		__test --non-affirmative --coerce -- "--no-flag=YES"
+		__test --non-affirmative --coerce -- "--no-flag=value"
+		__test --non-affirmative --coerce -- "--no-flag="
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__array'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local defined_array=() declared_variable targets=({defined_array} {declared_variable})
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --target={defined_array} --target={declared_variable}
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --target={defined_array} --target={declared_variable} --size=0
+		__dump {defined_array} {declared_variable}
+
+		declared_variable=()
+
+		__eval __array --target={defined_array} --target={declared_variable} --size=1
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --target={defined_array} --target={declared_variable} --size=2
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --target={defined_array} --target={declared_variable} --size=3
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --targets={targets} --size=1 --fill='.' --prepend
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --targets={targets} --size=2 --fill='..' --append
+		__dump {defined_array} {declared_variable}
+
+		__eval __array --targets={targets} --size=3 --fill='x'
+		__dump {defined_array} {declared_variable}
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__reverse'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		local input_array=(aaa bb c) input_string='aaabbc' input_sparse=()
+		input_sparse[0]=aaa
+		input_sparse[2]=c
+
+		function __test {
+			__eval __reverse "$@"
+		}
+		function __test_targets {
+			local defined_array_target=() defined_string_target=''
+			__test --target={defined_array_target} "$@"
+			__dump {defined_array_target}
+			__test --target={defined_string_target} "$@"
+			__dump {defined_string_target}
+			__test "$@"
+		}
+		function __test_inputs {
+			__test_targets --source={input_array}
+			__test_targets --source={input_string}
+			__test_targets -- "${input_array[@]}"
+			__test_targets -- "$input_string"
+			__test_targets --source={input_sparse}
+		}
+		__test_inputs
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__indices'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		local input_array=(aaa bb c) input_string='aaabbc' input_sparse=()
+		input_sparse[0]=aaa
+		input_sparse[2]=c
+
+		function __test {
+			__eval __indices "$@"
+		}
+		function __test_targets {
+			local defined_array_target=() defined_string_target=''
+			__test --target={defined_array_target} "$@"
+			__dump {defined_array_target}
+			__test --target={defined_string_target} "$@"
+			__dump {defined_string_target}
+			__test "$@"
+		}
+		function __test_direction {
+			__test_targets "$@"
+			__test_targets --reverse "$@"
+			__test_targets --direction=descending "$@"
+		}
+		function __test_inputs {
+			__test_direction --source={input_array}
+			__test_direction --source={input_string}
+			__test_direction -- "${input_array[@]}"
+			__test_direction -- "$input_string"
+			__test_direction --source={input_sparse}
+		}
+		__test_inputs
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__at'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local array=(a b c d e f) string='abcdef' array_target=() string_target
+		__dump {array} {string}
+
+		__eval __at --source={array} --index=0         # a
+		__eval __at --source={array} 1                 # b
+		__eval __at --source={array} -1                # f
+		__eval __at --source={array} -- -2             # e
+		__eval __at --source={array} --index=0 1 -- -1 # a b f, but failure as going to STDOUT
+		__eval __at --source={array} --target={array_target} --index=0 --index=1 --index=-1 -- -2
+		__dump {array_target}
+
+		__eval __at --source={string} --index=0         # a
+		__eval __at --source={string} 1                 # b
+		__eval __at --source={string} -1                # f
+		__eval __at --source={string} -- -2             # e
+		__eval __at --source={string} --index=0 1 -- -1 # a b f, but failure as going to STDOUT
+		__eval __at --source={string} --target={string_target} --index=0 --index=1 --index=-1 -- -2
+		__dump {string_target}
+
+		__eval __at --source={array} --index=5
+		__eval __at --source={array} --index=6
+		__eval __at --source={array} --index=7
+		__eval __at --source={array} -5
+		__eval __at --source={array} --index=-6
+		__eval __at --source={array} --index=-7
+
+		__eval __at --source={string} --index=5
+		__eval __at --source={string} --index=6
+		__eval __at --source={string} --index=7
+		__eval __at --source={string} -5
+		__eval __at --source={string} --index=-6
+		__eval __at --source={string} --index=-7
+
+		return 0
+
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__case'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		local input_array=(aA Bb C d) input_string='aA Bb C d' input_sparse=()
+		input_sparse[0]=aAa
+		input_sparse[2]=Bb
+		input_sparse[3]=C
+		input_sparse[5]=d
+
+		local arguments=(
+			# upper
+			--upper
+			--upper-case
+			--uppercase
+			--case=upper
+			--conversion=upper
+			--case-convert=upper
+			--case-conversion=upper
+
+			# lower
+			--lower
+			--lower-case
+			--lowercase
+			--case=
+			--case=lower
+			--conversion=
+			--conversion=lower
+			--case-convert=
+			--case-convert=lower
+			--case-conversion=
+			--case-conversion=lower
+		)
+
+		local arg
+		for arg in "${arguments[@]}"; do
+			__eval __case --source={input_array} "$arg"
+			__eval __case --source={input_string} "$arg"
+			__eval __case "$arg" -- "${input_array[@]}"
+			__eval __case "$arg" -- "$input_string"
+			__eval __case --source={input_sparse} "$arg"
+		done
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__index'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		local string='aba bab ab ba'
+		__dump --indices {string}
+
+		function __test {
+			local result=()
+			__eval __index "$@" --target={result}
+			__dump {result}
+		}
+
+		__test --source={string} --needle=ba --needle=ab --every --lookup
+		__test --source={string} --needle=ba --needle=ab --every --cursor
+		__test --source={string} --needle=ba --needle=ab --every --no-overlap --lookup
+		__test --source={string} --needle=ba --needle=ab --every --no-overlap --cursor
+		__test --source={string} --needle=ba --needle=ab --every --overlap --lookup
+		__test --source={string} --needle=ba --needle=ab --every --overlap --cursor
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__has'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local array=(a aa aab Cc) string
+		string="${array[*]}"
+		__dump --indices {array} {string}
+
+		function __test {
+			# has doesn't use result, only exit status
+			__eval __has "$@"
+		}
+		function __test_require {
+			__test "$@"
+			__test "$@" --any
+			__test "$@" --all
+		}
+		function __test_case {
+			__test_require "$@"
+			__test_require "$@" --ignore-case
+		}
+		function __test_lookups {
+			__test_case "$@" --needle=aa
+			__test_case "$@" --needle=ab
+			__test_case "$@" --needle=Cc
+			__test_case "$@" --needle=cC
+			__test_case "$@" --needle=z
+			__test_case "$@" --needle=aa --needle=ab --needle=Cc
+			__test_case "$@" --needle=aa --needle=ab --needle=cC
+			__test_case "$@" --needle=z --needle=aa --needle=ab
+			__test_case "$@" --suffix=c
+			__test_case "$@" --prefix=aa
+			__test_case "$@" --prefix=aa --suffix=c
+			__test_case "$@" --pattern='[ c]'
+			__test_case "$@" --glob='*c'
+		}
+		__test_lookups --source={array}
+		__test_lookups --source={string}
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__evict'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local array=(a '' aB '' aBc ' ' aBcd ' ') string='a aB aBc aBcd'
+		__dump --indices {array} {string}
+
+		function __test {
+			local result=()
+			__eval __evict "$@" --target={result}
+			__dump {result}
+		}
+		function __test_case {
+			__test "$@"
+			__test "$@" --ignore-case
+		}
+		function __test_require {
+			__test_case "$@"
+			__test_case "$@" --optional
+			__test_case "$@" --any
+			__test_case "$@" --all
+		}
+		function __test_seek {
+			__test_require "$@"
+			__test_require "$@" --first
+			__test_require "$@" --each
+			__test_require "$@" --every
+		}
+		function __test_lookups {
+			__test_seek "$@" --needle='abc'
+			__test_seek "$@" --needle='aBc' --needle=' '
+			__test_seek "$@" --needle='aBc' --needle=' ' --needle=''
+			__test_seek "$@" --prefix=x --suffix=z
+			__test_seek "$@" --prefix=ab
+			__test_seek "$@" --prefix=aB --suffix=cd
+			__test_seek "$@" --suffix=cd --prefix=aB
+			__test_seek "$@" --pattern='[ c]'
+			__test_seek "$@" --glob='*d'
+		}
+		__test_lookups --source={array}
+		__test_lookups --source={string}
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__iterate'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		local array=(aab a aa aaa aaaa aaa aa a aabb b bb bbb bbbb bbb bb b abb) string
+		string="${array[*]}"
+		__dump --indices {array} {string}
+
+		function __test {
+			local result=()
+			__eval __iterate "$@" --target={result}
+			__dump {result}
+		}
+
+		# standard cases
+		function __test_require {
+			__test "$@"
+			__test "$@" --require=none
+			__test "$@" --require=any
+			__test "$@" --require=all
+		}
+		function __test_seek {
+			__test_require "$@"
+			__test_require "$@" --seek=first
+			__test_require "$@" --seek=each
+			__test_require "$@" --seek=every
+		}
+		function __test_overlap {
+			__test_seek "$@"
+			__test_seek "$@" --overlap
+		}
+		function __test_by {
+			__test_overlap "$@"
+			__test_overlap "$@" --by=lookup
+			__test_overlap "$@" --by=cursor
+		}
+		function __test_lookups {
+			__test_by "$@" --needle=aa
+			__test_by "$@" --needle=aa --needle=ab --needle=bb
+			__test_by "$@" --needle=aa --needle=z --needle=bb
+			__test_by "$@" --needle=z
+			__test_by "$@" --prefix='aa'
+			__test_by "$@" --suffix='bb'
+			__test_by "$@" --pattern='.ab'
+			__test_by "$@" --glob='*ab*'
+		}
+		function __test_reverse {
+			__test_lookups "$@"
+			__test_lookups "$@" --reverse
+		}
+		function __test_inputs {
+			__test_reverse "$@" --source={array}
+			__test_reverse "$@" --source={string}
+		}
+		function __test_operation {
+			__test_inputs --operation=index
+			__test_inputs --operation=has
+			__test_inputs --operation=evict
+		}
+		__test_operation
+
+		return 0
+	)
+	__run_test_block
+fi
+
+# @todo do tests for `__replace`, especially as parameter expansion replacements have differing behaviours across bash versions
+
+if __begin_test_block --name='__unique'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local array_one=(a b a c '' '' ' ') array_two=(c d) array_target=()
+
+		__eval __unique --source={array_one} --target={array_target}
+		__dump {array_target}
+
+		__eval __unique --source={array_one} --source={array_two} --target={array_target}
+		__dump {array_target}
+
+		__eval __unique --source+target={array_one}
+		__dump {array_one}
+
+		return 0
+	)
+	__run_test_block
+fi
+
+# @todo do tests for `__slice` with `-1` end
+if __begin_test_block --name='__slice'; then
+	function tests() (
+		COLOR=no
+		set +e
+		local array=(a b c d e f) string='abcdef'
+		__dump --indices {array} {string}
+
+		__print_lines "$S1" 'complex indices'
+
+		__eval __slice --source={array} 0         # abcdef
+		__eval __slice --source={array} 1         # bcdef
+		__eval __slice --source={array} -1        # f
+		__eval __slice --source={array} -- -2     # ef
+		__eval __slice --source={array} 0 2 -- -2 # failure
+
+		__eval __slice --source={string} 0         # abcdef
+		__eval __slice --source={string} 1         # bcdef
+		__eval __slice --source={string} -1        # f
+		__eval __slice --source={string} -- -2     # ef
+		__eval __slice --source={string} 0 2 -- -2 # failure
+
+		__print_lines "$S1" 'standard indices'
+
+		__eval __slice --source={array} 5
+		__eval __slice --source={array} 6
+		__eval __slice --source={array} 7
+		__eval __slice --source={array} -5
+		__eval __slice --source={array} -6
+		__eval __slice --source={array} -7
+
+		__eval __slice --source={string} 5
+		__eval __slice --source={string} 6
+		__eval __slice --source={string} 7
+		__eval __slice --source={string} -5
+		__eval __slice --source={string} -6
+		__eval __slice --source={string} -7
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__split'; then
+	function tests() (
+		COLOR=no
+		set +e
+
+		local array=($'a\nb' c d) string=$'e\nf\n\ng'
+
+		function __test {
+			local result=()
+			__eval __split --target={result} "$@"
+			__dump {result}
+		}
+
+		local shared=()
+		function __test_shared {
+			__eval __split --target={shared} "$@"
+			__dump {shared}
+		}
+
+		function __invoke_that_fails {
+			__print_lines $'a\nb\n\nc'
+			return 210
+		}
+
+		__print_lines "$S1" 'split on multiple args'
+		__test --delimiter=':' -- a b # success
+
+		__print_lines "$S1" 'split on nothing'
+		__test --delimiter=':' -- # failure
+
+		__print_lines "$S1" 'split inputs are now always inputs and not delimiters'
+		__test --delimiter=':' --source={array} -- "$string"
+
+		__print_lines "$S1" 'split on undeclared source'
+		__test --delimiter=':' --source={undeclared}
+
+		__print_lines "$S1" 'split on empty'
+		__test --delimiter=':' -- ''
+
+		__print_lines "$S1" 'split on empty with no-zero-length'
+		__test --delimiter=':' --no-zero-length -- ''
+
+		__print_lines "$S1" 'split on single character delimiter'
+		__test --delimiter=':' -- $'a:b:c\nd:e:f'
+
+		__print_lines "$S1" 'split on multiple character delimiter'
+		__test --delimiter='::' -- $'a::b::c\nd::e::f'
+
+		__print_lines "$S1" 'split on multiple delimiters'
+		__test --delimiter='::' --delimiters=$'!@\n' -- $'a::b:!c\nd@e'
+
+		__print_lines "$S1" 'split on newline via argument'
+		__test --delimiter=$'\n' -- $'a\nb\nc'
+
+		__print_lines "$S1" 'split on newline via process substitution'
+		__test --delimiter=$'\n' < <(__print_string $'a\nb\nc')
+
+		__print_lines "$S1" 'split on newline via here string'
+		__test --delimiter=$'\n' <<<$'a\nb\nc' # <<< injects a trailing newline
+
+		__print_lines "$S1" 'split on newline via arguments'
+		__test --delimiter=$'\n' -- a b $'c\n' $'d\n\n' $'e' $'\n\nf' $'\n\ng\n\n'
+
+		__print_lines "$S1" 'split on newline via arguments without zero-length'
+		__test --no-zero-length --delimiter=$'\n' -- a b $'c\n' $'d\n\n' $'e' $'\n\nf' $'\n\ng\n\n'
+
+		__print_lines "$S1" 'split on newline via sources and arguments without zero-length'
+		__test --delimiter=$'\n' --source={array} --source={string} --no-zero-length -- $'\n\nh\n\n'
+
+		__print_lines "$S1" 'split with invoke'
+		__test --delimiters=$'\n\t ,|' --delimiter='**' --no-zero-length --invoke -- \
+			__print_lines $'a\nb' $'c\td' 'e f' 'g, h' 'i|j' 'k*l**m'
+
+		__print_lines "$S1" 'split with invoke that fails'
+		__test --no-zero-length --invoke -- \
+			__invoke_that_fails
+
+		__print_lines "$S1" 'split with invoke try that skips failure'
+		__test --no-zero-length --invoke=try -- \
+			__invoke_that_fails
+
+		__print_lines "$S1" 'split with invoke and source without zero-length'
+		__test --source={array} --source={string} --no-zero-length --invoke -- \
+			__print_lines $'h\ni\n\n'
+
+		__print_lines "$S1" 'split with invoke and source and stdin without zero-length'
+		__print_lines "${array[@]}" | __test --source={string} --no-zero-length --stdin --invoke -- \
+			__print_lines $'h\ni\n\n'
+
+		__print_lines "$S1" 'split with append on empty target'
+		__test --append --delimiters=$'\n\t ,|' --no-zero-length -- 'yes'
+
+		__print_lines "$S1" 'split with append and defaulted delim'
+		shared=()
+		__test_shared -- $'a\nb' c d
+		__test_shared --append -- $'e\nf' $'g\nh'
+		local array=($'i\nj' k l)
+		__test_shared --source={array}
+
+		return 0
+	)
+	__run_test_block
+fi
+
+if __begin_test_block --name='__join'; then
+	function tests() (
+		COLOR=no
+		set +e
+		__eval __join
+		__eval __join --
+		__eval __join a
+		__eval __join a b
+		__eval __join -- a b
+		__eval __join --delimiter=,
+		__eval __join --delimiter=, -- a
+		__eval __join --delimiter=, -- a b
+		__eval __join --delimiter=, a b
+		__eval __join --delimiter=, a
+		__eval __join --between=,
+		__eval __join --between=, -- a
+		__eval __join --between=, -- a b
+		__eval __join --between=, a b
+		__eval __join --between=, a
+		__eval __join --before='<'
+		__eval __join --before='<' -- a
+		__eval __join --before='<' -- a b
+		__eval __join --before='<' a b
+		__eval __join --before='<' a
+		__eval __join --after='>'
+		__eval __join --after='>' -- a
+		__eval __join --after='>' -- a b
+		__eval __join --after='>' a b
+		__eval __join --after='>' a
+		__eval __join --before='<' --after='>' --between=','
+		__eval __join --before='<' --after='>' --between=',' -- a
+		__eval __join --before='<' --after='>' --between=',' -- a b
+		__eval __join --before='<' --after='>' --between=',' a b
+		__eval __join --before='<' --after='>' --between=',' a
+		# more complex tests handled by `echo-join`
+		return 0
+	)
+	__run_test_block
+fi
+
+# -------------------------------------
+# Bash Versions
+
+# this test is to test if the known latest version is the latest available version
+if __begin_test_block --name='__is_bash_version_latest_the_latest_available'; then
+	function tests() (
+		COLOR=no
+		set +e
+		# mirrors change in their sorting order and how sorting order query params work, so do not use mirrors here
+		fetch 'https://ftp.gnu.org/gnu/bash/?C=M;O=D' | echo-regexp -o --regexp='href="bash-([0-9.]+?)[.]tar[.]gz"' --replace='$1'
+		return 0
+	)
+	__run_test_block "$BASH_VERSION_LATEST"
+fi
+
+# =====================================
+# Conclusion
+
+__verify_test_blocks
+# proceed to EXIT

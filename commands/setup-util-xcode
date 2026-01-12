@@ -2,72 +2,87 @@
 
 function setup_util_xcode() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P eval-helper)"
+	source "$(type -P eval-helper)" # enable `__xcode_license_accepted`
 
 	# checks
-	if ! is-mac || is-ci; then
-		echo-style --notice="[$0] is only intended to be run on interactive macOS systems, skipping." >/dev/stderr
+	if ! __is_macos || [[ -n $CI ]]; then
+		__print_style --stderr --notice="[$0] is only intended to be run on interactive macOS systems, skipping." || return $?
 		return 0
 	fi
+
+	# =====================================
+	# Dependencies
+
+	local bin_gsed_or_sed
+	bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)" || return $?
 
 	# =====================================
 	# Action
 
 	# arguments
-	local quiet='no'
-	quiet="$(is-quiet-enabled "$quiet" -- "$@")"
+	local option_quiet='no'
+	option_quiet="$(get-terminal-quiet-support --fallback="$option_quiet" -- "$@")" || return $?
 
 	# log
-	if test "$quiet" = 'no'; then
-		echo-segment --h1="Install Xcode"
+	if [[ $option_quiet == 'no' ]]; then
+		__print_style --h1="Install Xcode" || return $?
 	fi
 
 	# check if xcode exists
 	local xcode xcodebuild xcodesdk
-	while true; do
-		# prerequisites
-		setup-util-apple-rosetta --quiet="$quiet"
-		setup-util-apple-cli-tools --quiet="$quiet"
+	function __xcode_license_accepted {
+		# https://stackoverflow.com/a/60906147/130638
+		local xcode_version accepted_license_version
+		# @todo replace with `echo-regexp` and `echo-write`
+		xcode_version="$("$xcodebuild" -version | grep --extended-regexp --regexp='^Xcode\s' | "$bin_gsed_or_sed" -E 's/^Xcode[[:space:]]+([0-9\.]+)/\1/' | cut -d '.' -f 1 || :)"
+		accepted_license_version="$(defaults read /Library/Preferences/com.apple.dt.Xcode 2>/dev/null | grep IDEXcodeVersionForAgreedToGMLicense | cut -d '"' -f 2 | cut -d '.' -f 1 || :)"
+		[[ $xcode_version -eq $accepted_license_version ]] || eval-helper --elevate -- "$xcodebuild" -license accept || return $?
+		return 0
+	}
 
-		# determine xcode location
-		xcode="$(get-app 'Xcode' || get-app 'Xcode-beta' || :)"
+	# wrap this whole thing in a loop, to ensure that if the user does steps out of order, such as uninstalling something, or whatever, that is also caught
+	while :; do
+		# prerequisites
+		setup-util-apple-rosetta --quiet="$option_quiet" || return $?
+		setup-util-apple-cli-tools --quiet="$option_quiet" || return $?
+
+		# repeat until xcode location is determined
+		xcode="$(get-app --path --first --app='Xcode' --app='Xcode-beta' || :)"
+		if [[ -z $xcode ]]; then
+			# unable to find xcode
+			if setup-util --name='Xcode' MAS='497799835'; then
+				# install of Xcode was successful
+				continue # try again
+			else
+				# unable to install, fail and require manual installation
+				__print_style --notice='Xcode requires manual installation...' || return $?
+				open 'https://apps.apple.com/us/app/xcode/id497799835' || return $?
+				confirm --ppid=$$ -- 'Press <enter> once Xcode has been installed...' || return $?
+				continue # try again
+			fi
+		fi
+
+		# now that xcode exists, fill these paths
 		xcodebuild="$xcode/Contents/Developer/usr/bin/xcodebuild"
 		xcodesdk="$xcode/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 
-		# confirm xcode exists
-		if test -z "$xcode"; then
-			if command-missing mas || ! setup-util --name='Xcode' MAS='497799835'; then
-				echo-style --notice='Xcode requires manual installation...'
-				open 'https://apps.apple.com/us/app/xcode/id497799835'
-				confirm --ppid=$$ -- 'Press <enter> once Xcode has been installed...'
-			fi
-			continue # try again
-		fi
-
-		# confirm xcode sdk exists
-		if test ! -x "$xcodebuild" || ! "$xcodebuild" -sdk "$xcodesdk" -find clang &>/dev/null; then
-			echo-style --notice="Xcode SDKs require manual installation, opening Xcode..."
-			open "$xcode"
-			confirm --ppid=$$ -- 'Press <enter> once the Xcode Components have been installed...'
+		# check xcode sdks exist
+		if [[ ! -x $xcodebuild ]] || ! "$xcodebuild" -sdk "$xcodesdk" -find clang &>/dev/null; then
+			__print_style --notice='Xcode SDKs require manual installation, opening Xcode...' || return $?
+			open "$xcode" || return $?
+			confirm --ppid=$$ -- 'Press <enter> once the Xcode Components have been installed...' || return $?
 			continue # try again
 		fi
 
 		# xcode sdk license
-		function xcode_license_accepted { # 👍 /docs/bash/errors: robust exit status
-			# https://stackoverflow.com/a/60906147/130638
-			local xcode_version accepted_license_version
-			xcode_version="$("$xcodebuild" -version | grep '^Xcode\s' | sed -E 's/^Xcode[[:space:]]+([0-9\.]+)/\1/' | cut -d '.' -f 1 || :)"
-			accepted_license_version="$(defaults read /Library/Preferences/com.apple.dt.Xcode 2>/dev/null | grep IDEXcodeVersionForAgreedToGMLicense | cut -d '"' -f 2 | cut -d '.' -f 1 || :)"
-			test "$xcode_version" -eq "$accepted_license_version" || sudo-helper -- "$xcodebuild" -license accept || return
-		}
-		if test "$quiet" = 'yes'; then
-			xcode_license_accepted || continue # try again
+		if [[ $option_quiet == 'yes' ]]; then
+			__xcode_license_accepted || continue # if fail, try again
 		else
-			eval_helper --quiet="$quiet" --no-wrap \
-				--pending="$(echo-style --bold="Accepting Xcode license...")" \
-				--success="$(echo-style --success="Accepted Xcode license.")" \
-				--failure="$(echo-style --error="Failed to accept Xcode license.")" \
-				-- xcode_license_accepted || continue # try again
+			eval_helper --quiet="$option_quiet" --no-wrap --shapeshifter \
+				--pending="$(__print_style --bold="Accepting Xcode license...")" \
+				--success="$(__print_style --success="Accepted Xcode license.")" \
+				--failure="$(__print_style --error="Failed to accept Xcode license.")" -- \
+				__xcode_license_accepted || continue # if fail, try again
 		fi
 
 		# success
@@ -75,12 +90,12 @@ function setup_util_xcode() (
 	done
 
 	# log
-	if test "$quiet" = 'no'; then
-		echo-segment --g1="Install Xcode"
+	if [[ $option_quiet == 'no' ]]; then
+		__print_style --g1="Install Xcode" || return $?
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	setup_util_xcode "$@"
 fi

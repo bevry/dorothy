@@ -2,62 +2,111 @@
 
 function setup_util_brew() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P setup-util)"
 
-	# improve performance
-	if is-needle --quiet "$@" && ! is-needle --upgrade "$@" && ! is-needle --uninstall "$@" && is-brew; then
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Install, uninstall, or upgrade Homebrew, a package manager for macOS and Linux.
+
+			USAGE:
+			\`setup-util-brew [...options]\`
+
+			OPTIONS:
+			Refer to \`setup-util --help\` for common options.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+	if [[ $* == '--help' || $* == '-h' ]]; then
+		help
+	fi
+
+	# improve performance for detectable utilities with conditional assets
+	if setup-util --check --cli=brew --checker=__is_brew "$@"; then
 		return 0
 	fi
 
+	# environment provides:
+	# HOMEBREW_PREFIX (macOS, Linux)
+	if [[ -z ${HOMEBREW_PREFIX-} ]]; then
+		help --help="$(
+			cat <<-EOF
+				Cannot setup Homebrew because \`HOMEBREW_PREFIX\` is missing, this could be due to:
+				* Homebrew is only supported on macOS and Linux
+				* this command was executed before Dorothy could configure the shell environment, this most likely occurred because a Dorothy maintainer invoked a Dorothy command within the Dorothy install process
+			EOF
+		)" || :
+		env
+		return 6 # ENXIO 6 Device not configured
+	fi
+
+	# ensure we are running inside the system bash, such that after homebrew install this continues
+	local system_bash_command_args=() system_bash_command option_uninstall=''
+	__flag --target={option_uninstall} --name='uninstall' --affirmative --coerce -- "$@"
+	if [[ ${DOROTHY_RUN-} == 'yes' ]]; then
+		system_bash_command_args=(env BASH_CHECKED=yes /bin/bash "$(type -P 'dorothy')" run -- /bin/bash "$(type -P 'setup-util-brew')" --uninstall --verbose)
+	else
+		system_bash_command_args=(env BASH_CHECKED=yes /bin/bash "$(type -P 'setup-util-brew')" --uninstall --verbose)
+	fi
+	system_bash_command="$(echo-escape-command -- "${system_bash_command_args[@]}")"
+	if [[ $option_uninstall == 'yes' && ${BASH_CHECKED-} != 'yes' ]]; then
+		help 'Cannot uninstall homebrew while running inside a Homebrew shell, continue the uninstallation by running:' --newline \
+			--code="$system_bash_command" || :
+		return 6 # ENXIO 6 Device not configured
+	fi
+
+	# enable EVAL_INSTALL, etc
+	source "$(type -P setup-util)"
+
 	# uninstall brew, and adapt the system accordingly
 	function brew_uninstall {
-		# environment provides:
-		# HOMEBREW_ARCH, HOMEBREW_PREFIX
-		if test -z "${HOMEBREW_PREFIX-}"; then
-			echo-error 'HOMEBREW_PREFIX is not defined, cannot uninstall brew.'
-			return 6 # ENXIO 6 Device not configured
-		fi
-		local remove removals=(
-			"${HOMEBREW_PREFIX}/"*
-			/usr/local/*
-			/opt/homebrew/*
-		)
-
 		# reconfigure shells for the lack of brew, by trimming the brew shells
-		grep --invert-match --fixed-strings --regexp="$HOMEBREW_PREFIX" /etc/shells | echo-wait --sudo /etc/shells
+		grep --invert-match --fixed-strings --regexp="$HOMEBREW_PREFIX" -- /etc/shells | echo-write --atomic -- /etc/shells
 
 		# set the default shell to a non-brew shell
 		setup-shell --no-brew
 
-		# reset anything that depends on brew
-		setup-dns system || :
-		setup-git || :
-
-		# uninstall brew
-		if is-brew; then
-			arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
+		# ensure that the login shell is not brew
+		if [[ $SHELL == "$HOMEBREW_PREFIX/"* ]]; then
+			help 'Cannot uninstall Homebrew while running inside a Homebrew login shell, continue the uninstallation by running:' --newline \
+				--code="$system_bash_command" || :
+			return 6 # ENXIO 6 Device not configured
 		fi
 
+		# reset anything that depends on brew
+		setup-dns --service='system' || :
+
+		# uninstall brew
+		if __is_brew; then
+			/bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
+		fi
+		source "$DOROTHY/sources/environment.sh"
+
 		# remove any leftover directories
-		for remove in "${removals[@]}"; do
-			if test -n "$remove" -a -e "$remove"; then
-				sudo-helper -- rm -Rf "$remove" || :
-			fi
-		done
+		# use /* as the actual homebrew location can be a read-only filesystem
+		local homebrew_paths=(
+			"$HOMEBREW_PREFIX"/*
+			/usr/local/*
+			/opt/homebrew/*
+		)
+		if [[ ${#homebrew_paths[@]} -ne 0 ]]; then
+			fs-remove --quiet --no-confirm --elevate -- "${homebrew_paths[@]}" || :
+		fi
+
+		# reconfigure git after the uninstallation of brew
+		setup-git --slim || :
 	}
 
-	# recomended installation method, it is pretty much the only one that works properly
-	# https://github.com/balupton/dotfiles/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
-	# https://github.com/balupton/dotfiles/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
+	# recommended installation method, it is pretty much the only one that works properly
+	# https://github.com/bevry/dorothy/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
+	# https://github.com/bevry/dorothy/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
 	function brew_install {
-		env HOMEBREW_NO_AUTO_UPDATE=1 \
-			arch -"${HOMEBREW_ARCH}" /bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+		/bin/bash -c "$(fetch 'https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh')"
 		source "$DOROTHY/sources/environment.sh" # child processes will also inherit these changes
 	}
 
-	# ugprade brew
+	# upgrade brew
 	function brew_upgrade {
-		if is-brew; then
+		if __is_brew; then
 			brew update
 		else
 			brew_install
@@ -66,7 +115,9 @@ function setup_util_brew() (
 
 	# setup
 	local options=(
+		--name='Homebrew'
 		--cli='brew'
+		--checker='__is_brew'
 		"$@"
 		EVAL_INSTALL='brew_install'
 		EVAL_UPGRADE='brew_upgrade'
@@ -76,6 +127,6 @@ function setup_util_brew() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	setup_util_brew "$@"
 fi

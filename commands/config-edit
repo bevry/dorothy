@@ -1,28 +1,34 @@
 #!/usr/bin/env bash
 
+function config_edit_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- config-edit --help
+)
+
 function config_edit() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Enforces a specific configuration by editing the configuration.
 
 			USAGE:
-			config-edit [--options]
-			config-edit --fuse --line=<line>
-			config-edit --fstab --line=<line>
-			config-edit --sudoers --line=<line>
-			config-edit --cron-system --line=<line>
-			config-edit --cron-user --line=<line>
-			config-edit --file --line=<line>
+			\`config-edit [...options]\`
+			\`config-edit [...options] --fuse --line=<line>\`
+			\`config-edit [...options] --fstab --line=<line>\`
+			\`config-edit [...options] --sudoers --line=<line>\`
+			\`config-edit [...options] --cron-system --line=<line>\`
+			\`config-edit [...options] --cron-user --line=<line>\`
+			\`config-edit [...options] --file --line=<line>\`
+			\`config-edit [...options] --local\`
 
 			OPTIONS:
 			--name=<name>
-			    The name of the configuration to edit, e.g. 'sudoers'
+			    The name of the configuration to edit, e.g. \`sudoers\`
 
 			--action=<add|remove|edit|has>
 			--add
@@ -42,250 +48,301 @@ function config_edit() (
 			--comparer=<compare-command>
 			    A command that is called that will compare the found lines (first argument) with the desired <line> (second argument).
 
-			--editer=<edit-command>
+			--editor=<edit-command>
 			    A command that is called that will edit the configuration file.
 
 			--applier=<apply-command>
 			    A command that is called that will automatically replace the found lines (first argument) with the desired <line> (second argument) and save changes, inserting the desired <line> if no lines were found.
 
+			--[no-]local
+			    Update sudo and cron configuration to enable or disable access to \`/usr/local\` paths
 			--fuse | --fstab | --sudoers | --hosts | --cron-system | --cron-user | --file=<file>
 			    Each of these set appropriate defaults for those configurations.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# helpers
 	function default_comparer {
-		test "$1" = "$2"
+		[[ $1 == "$2" ]] || return $?
 	}
 
 	# process
-	local item option_name='' option_file='' option_action='' option_line='' option_needle='' option_searcher='' option_comparer='default_comparer' option_editer='' option_applier=''
-	while test "$#" -ne 0; do
+	local item option_name='' option_file='' option_action='' option_line='' option_needle='' option_searcher='' option_comparer='default_comparer' option_editor='' option_applier='' option_local=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--action='*) option_action="${item#*--action=}" ;;
-		'--no-add'* | '--add'*)
-			if test "$(get-flag-value add -- "$item" | echo-affirmative --stdin)" = 'yes'; then
-				option_action='add'
-			else
-				option_action='remove'
-			fi
-			;;
-		'--no-remove'* | '--remove'*)
-			if test "$(get-flag-value remove -- "$item" | echo-affirmative --stdin)" = 'yes'; then
-				option_action='remove'
-			else
-				option_action='add'
-			fi
-			;;
+		'--help' | '-h') __help || return $? ;;
+		'--action='*) option_action="${item#*=}" ;;
+		'--no-add'* | '--add'*) __flag --source={item} --target={option_action} --affirmative --yes=add --no=remove || return $? ;;
+		'--no-remove'* | '--remove'*) __flag --source={item} --target={option_action} --affirmative --yes=remove --no=add || return $? ;;
 		'--has') option_action='has' ;;
 		'--edit') option_action='edit' ;;
-		'--name='*) option_name="${item#*--name=}" ;;
+		'--name='*) option_name="${item#*=}" ;;
 		'--file='*)
-			option_file="${item#*--file=}"
+			option_file="${item#*=}"
 			option_name="$option_file"
 			option_searcher='default_file_searcher'
-			option_editer='default_file_editer'
+			option_editor='default_file_editor'
 			option_applier='default_file_applier'
 			function default_file_searcher {
-				rg --fixed-strings --regexp="$1" "$option_file"
+				rg --fixed-strings --regexp="$1" "$option_file" || return $?
 			}
-			function default_file_editer {
-				edit -- "$option_file"
+			function default_file_editor {
+				edit --wait -- "$option_file" || return $?
 			}
 			function default_file_applier {
 				local needle="${1:-"$2"}" replace="$2"
 				config-helper --file="$option_file" -- \
-					--string-find="$needle" --string-replace="$replace"
+					--string-find="$needle" --string-replace="$replace" || return $?
 			}
 			;;
-		'--line='*) option_line="${item#*--line=}" ;;
-		'--needle='*) option_needle="${item#*--needle=}" ;;
-		'--searcher='*) option_searcher="${item#*--searcher=}" ;;
-		'--comparer='*) option_comparer="${item#*--comparer=}" ;;
-		'--editer='*) option_editer="${item#*--editer=}" ;;
-		'--applier='*) option_applier="${item#*--applier=}" ;;
+		'--line='*) option_line="${item#*=}" ;;
+		'--needle='*) option_needle="${item#*=}" ;;
+		'--searcher='*) option_searcher="${item#*=}" ;;
+		'--comparer='*) option_comparer="${item#*=}" ;;
+		'--editor='*) option_editor="${item#*=}" ;;
+		'--applier='*) option_applier="${item#*=}" ;;
 		'--fuse')
 			option_name='fuse'
 			option_searcher='default_fuse_searcher'
-			option_editer='default_fuse_editer'
+			option_editor='default_fuse_editor'
 			option_applier='default_fuse_applier'
 			function default_fuse_searcher {
-				rg --fixed-strings --regexp="$1" --line-regexp '/etc/fuse.conf'
+				rg --fixed-strings --regexp="$1" --line-regexp '/etc/fuse.conf' || return $?
 			}
-			function default_fuse_editer {
-				edit --sudo -- '/etc/fuse.conf'
+			function default_fuse_editor {
+				edit --wait --elevate -- '/etc/fuse.conf' || return $?
 			}
 			function default_fuse_applier {
 				local needle="${1:-"$2"}" replace="$2"
-				sudo-helper --inherit \
-					-- config-helper --file='/etc/fuse.conf' -- \
-					--string-find="$needle" --string-replace="$replace"
+				eval-helper --elevate --inherit -- \
+					config-helper --file='/etc/fuse.conf' -- \
+					--string-find="$needle" --string-replace="$replace" || return $?
 			}
 			;;
 		'--fstab')
 			option_name='fstab'
 			option_searcher='default_fstab_searcher'
-			option_editer='default_fstab_editer'
+			option_editor='default_fstab_editor'
 			option_applier='default_fstab_applier'
 			function default_fstab_searcher {
-				rg --fixed-strings --regexp="$1" '/etc/fstab'
+				rg --fixed-strings --regexp="$1" '/etc/fstab' || return $?
 			}
-			function default_fstab_editer {
-				edit --sudo -- '/etc/fstab'
-				if is-linux; then
-					sudo-helper -- systemctl daemon-reload
+			function default_fstab_editor {
+				edit --wait --elevate -- '/etc/fstab' || return $?
+				if __is_linux; then
+					eval-helper --elevate -- systemctl daemon-reload || return $?
 				fi
 			}
 			function default_fstab_applier {
 				local needle="${1:-"$2"}" replace="$2"
-				sudo-helper --inherit \
-					-- config-helper --file='/etc/fstab' -- \
-					--string-find="$needle" --string-replace="$replace"
-				if is-linux; then
-					sudo-helper -- systemctl daemon-reload
+				eval-helper --elevate --inherit -- \
+					config-helper --file='/etc/fstab' -- \
+					--string-find="$needle" --string-replace="$replace" || return $?
+				if __is_linux; then
+					eval-helper --elevate -- systemctl daemon-reload || return $?
 				fi
 			}
 			;;
 		'--sudoers')
 			option_name='sudoers'
 			option_searcher='default_sudoers_searcher'
-			option_editer='default_sudoers_editer'
+			option_editor='default_sudoers_editor'
 			function default_sudoers_searcher {
-				sudo-helper -- cat /etc/sudoers | rg --fixed-strings --regexp="$1"
+				echo-file --raw -- /etc/sudoers | rg --fixed-strings --regexp="$1" || return $?
 			}
-			function default_sudoers_editer {
+			function default_sudoers_editor {
 				# --inherit to maintain editor preferences
-				sudo-helper --inherit -- visudo
+				eval-helper --elevate --inherit -- visudo || return $?
 			}
 			;;
 		'--hosts')
-			option_name='fuse'
+			option_name='hosts'
 			option_searcher='default_hosts_searcher'
-			option_editer='default_hosts_editer'
+			option_editor='default_hosts_editor'
 			option_applier='default_hosts_applier'
 			function default_hosts_searcher {
-				rg --fixed-strings --regexp="$1" --line-regexp '/etc/hosts.conf'
+				rg --fixed-strings --regexp="$1" --line-regexp '/etc/hosts' || return $?
 			}
-			function default_hosts_editer {
-				edit --sudo -- '/etc/hosts'
+			function default_hosts_editor {
+				edit --wait --elevate -- '/etc/hosts' || return $?
 			}
 			function default_hosts_applier {
 				local needle="${1:-"$2"}" replace="$2"
-				sudo-helper --inherit \
-					-- config-helper --file='/etc/hosts.conf' -- \
-					--string-find="$needle" --string-replace="$replace"
+				eval-helper --elevate --inherit -- \
+					config-helper --file='/etc/hosts' -- \
+					--string-find="$needle" --string-replace="$replace" || return $?
 			}
 			;;
 		'--cron-system')
 			option_name='cron[system]'
 			option_comparer='default_cron_system_comparer'
 			option_searcher='default_cron_system_searcher'
-			option_editer='default_cron_system_editer'
+			option_editor='default_cron_system_editor'
 			function default_cron_system_comparer {
-				test "$1" = "$2" || [[ $1 == *cronitor*"$2"* ]]
+				[[ $1 == "$2" || $1 == *cronitor*"$2"* ]] || return $?
 			}
 			function default_cron_system_searcher {
-				sudo-helper -- crontab -l | echo-wait | rg --fixed-strings --regexp="$1"
+				# did testing on macos, and windows WSL2 ubuntu, [echo-write] seemed unnecessary, no documentation why it was there, works with sudo and without sudo prompt
+				# @todo test on raspberry pi if [echo-write] and [--buffer] are even needed
+				eval-helper --elevate -- crontab -l | echo-write --buffer | rg --fixed-strings --regexp="$1" || return $?
 			}
-			function default_cron_system_editer {
+			function default_cron_system_editor {
 				# --inherit to maintain editor preferences
-				sudo-helper --inherit -- crontab -e || :
-				if is-mac; then
-					service-helper --restart -- system/com.vix.cron
+				eval-helper --elevate --inherit -- crontab -e || :
+				if __is_macos; then
+					service-helper --restart -- system/com.vix.cron || return $?
 				else
-					service-helper --restart -- cron
+					service-helper --restart -- cron || return $?
 				fi
 			}
 			;;
 		'--cron-user')
-			option_name="cron[$USER]"
+			__prepare_current_user || return $?
+			if [[ $CURRENT_USER == 'root' ]]; then
+				local error_args=(
+					'You cannot use ' --code='config-edit --cron-user' ' as ' --code='root'
+					'. If you intend to edit the cron of the system, then explicitly use ' --code='config-edit --cron-system' '.'
+				)
+				__prepare_login_user || return $?
+				if [[ $LOGIN_USER != "$CURRENT_USER" ]]; then
+					error_args+=(
+						'If you intend to edit the cron of ' --code="$LOGIN_USER" ', then leave the elevated context and run again.'
+					)
+				fi
+				__print_error "${error_args[@]}" || return $?
+				return 1 # EPERM 1 Operation not permitted
+			fi
+			option_name="cron[$CURRENT_USER]"
 			option_comparer='default_cron_user_comparer'
 			option_searcher='default_cron_user_searcher'
-			option_editer='default_cron_user_editer'
+			option_editor='default_cron_user_editor'
 			function default_cron_user_comparer {
-				test "$1" = "$2" || [[ $1 == *cronitor*"$2"* ]]
+				[[ $1 == "$2" || $1 == *cronitor*"$2"* ]] || return $?
 			}
 			function default_cron_user_searcher {
-				crontab -l | echo-wait | rg --fixed-strings --regexp="$1"
+				# did testing on macos, and windows WSL2 ubuntu, [echo-write] seemed unnecessary, no documentation why it was there, works with sudo and without sudo prompt
+				# @todo test on raspberry pi if [echo-write] and [--buffer] are even needed
+				crontab -l | echo-write --buffer | rg --fixed-strings --regexp="$1" || return $?
 			}
-			function default_cron_user_editer {
-				# user contrab already inherits editor preferences
+			function default_cron_user_editor {
+				# user crontab already inherits editor preferences
 				crontab -e || :
-				if is-mac; then
-					service-helper --restart -- system/com.vix.cron
+				if __is_macos; then
+					service-helper --restart -- system/com.vix.cron || return $?
 				else
-					service-helper --restart -- cron
+					service-helper --restart -- cron || return $?
 				fi
 			}
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--no-local'* | '--local'*) __flag --source={item} --target={option_local} --affirmative || return $? ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
+		*) __help 'An unrecognised argument was provided: ' --variable-value={item} || return $? ;;
 		esac
 	done
 
-	if test "${TERM_PROGRAM-}" = 'vscode'; then
+	# --local
+	# update sudoers and cron to have a PATH that includes local paths
+	if [[ -n $option_local ]]; then
+		# trim problematic paths
+		# trunk-ignore(shellcheck/SC2034)
+		local system_paths_array=() system_paths_string='' sudoers_line cron_system_line cron_user_line evict_args=(
+			# these are not needed for `dorothy run` to bootstrap itself
+			--prefix="$HOME"
+			--prefix='/Applications/'
+		)
+		if [[ -n ${HOMEBREW_PREFIX-} ]]; then
+			# these are not needed for `dorothy run` to bootstrap itself
+			# and they confuse `cron` as it thinks they have minutes due to version numbers
+			# @todo perhaps there is some cron escape format that I am not aware of?
+			evict_args+=(
+				--prefix="$HOMEBREW_PREFIX/Cellar"
+				--prefix="$HOMEBREW_PREFIX/lib"
+				--prefix="$HOMEBREW_PREFIX/opt"
+			)
+		fi
+
+		# split PATH
+		__split --source={PATH} --delimiter=':' --no-zero-length --target={system_paths_array} || return $?
+		# trim problematic paths from PATH
+		__evict --source+target={system_paths_array} --every --optional "${evict_args[@]}" || return $?
+		# recombine PATH
+		__join --source={system_paths_array} --between=':' --target={system_paths_string} || return $?
+
+		sudoers_line="Defaults	secure_path=\"$system_paths\"" # $HOME paths do not make sense for root operation
+		cron_system_line="PATH=\"$system_paths\""             # $HOME paths do not make sense for root operation
+		cron_user_line="PATH=\"$system_paths\""               # $HOME paths fails to apply
+
+		# sudoers
+		config-edit --sudoers --line="$sudoers_line" --needle='secure_path' --add="$option_local" || return $?
+
+		# cron
+		config-edit --cron-system --line="$cron_system_line" --needle='PATH=' --add="$option_local" || return $?
+		config-edit --cron-user --line="$cron_user_line" --needle='PATH=' --add="$option_local" || return $?
+
+		# done
+		return 0
+	fi
+
+	if is-vscode; then
 		# https://github.com/Microsoft/vscode/issues/29523
 		if [[ $option_line == *'	'* ]]; then
 			option_line="${option_line/	/        }"
 		fi
 	fi
 
-	if test -z "$option_needle" -a -n "$option_line"; then
+	if [[ -z $option_needle && -n $option_line ]]; then
 		option_needle="$option_line"
 	fi
 
-	if test -z "$option_action"; then
-		if test -n "$option_line"; then
+	if [[ -z $option_action ]]; then
+		if [[ -n $option_line ]]; then
 			option_action='add'
-		elif test -n "$option_needle"; then
+		elif [[ -n $option_needle ]]; then
 			option_action='remove'
 		else
 			option_action='edit'
 		fi
 	fi
 
-	if test "$option_action" = 'edit'; then
-		if test -z "$option_editer" || ! command -v "$option_editer" >/dev/null; then
-			help 'The editer command ' --code="$option_editer" ' does not exist.'
+	# use [command -v] as we want builtins/functions as well
+	if [[ $option_action == 'edit' ]]; then
+		if [[ -z $option_editor ]] || ! command -v "$option_editor" >/dev/null; then
+			__help 'The editor command ' --code="$option_editor" ' does not exist.' || return $?
 		else
-			"$option_editer"
-			return
+			"$option_editor" # eval
+			return $?
 		fi
 	fi
 
-	if test -z "$option_name"; then
-		help 'You must provide a <name>'
+	if [[ -z $option_name ]]; then
+		__help 'You must provide a <name>' || return $?
 	fi
 
-	if test -z "$option_searcher" || ! command -v "$option_searcher" >/dev/null; then
-		help 'The provided searcher command ' --code="$option_searcher" ' does not exist.'
+	if [[ -z $option_searcher ]] || ! command -v "$option_searcher" >/dev/null; then
+		__help 'The provided searcher command ' --code="$option_searcher" ' does not exist.' || return $?
 	fi
 
-	if test "$option_action" = 'has'; then
-		if test -z "$("$option_searcher" "$option_needle" || :)"; then
+	if [[ $option_action == 'has' ]]; then
+		if [[ -z "$("$option_searcher" "$option_needle" || :)" ]]; then
 			return 1
 		else
 			return 0
 		fi
 	fi
 
-	if test -z "$option_comparer" || ! command -v "$option_comparer" >/dev/null; then
-		help 'The provided comparer command ' --code="$option_comparer" ' does not exist.'
+	if [[ -z $option_comparer ]] || ! command -v "$option_comparer" >/dev/null; then
+		__help 'The provided comparer command ' --code="$option_comparer" ' does not exist.' || return $?
 	fi
 
-	if test -z "$option_editer" || ! command -v "$option_editer" >/dev/null; then
-		help 'The provided editer command ' --code="$option_editer" ' does not exist.'
+	if [[ -z $option_editor ]] || ! command -v "$option_editor" >/dev/null; then
+		__help 'The provided editor command ' --code="$option_editor" ' does not exist.' || return $?
 	fi
 
-	if test -n "$option_applier" && ! command -v "$option_applier" >/dev/null; then
-		help 'The provided applier command ' --code="$option_applier" ' does not exist.'
+	if [[ -n $option_applier ]] && ! command -v "$option_applier" >/dev/null; then
+		__help 'The provided applier command ' --code="$option_applier" ' does not exist.' || return $?
 	fi
 
 	# =====================================
@@ -293,42 +350,51 @@ function config_edit() (
 
 	# act
 	local lines expected status
-	if test "$option_action" = 'add'; then
+	if [[ $option_action == 'add' ]]; then
 		expected="$option_line"
 	else
 		expected=''
 	fi
-	while true; do
+	while :; do
 		lines="$("$option_searcher" "$option_needle" || :)"
-		eval_capture --statusvar=status -- "$option_comparer" "$lines" "$expected"
-		if test "$status" -eq 0; then
-			echo-style --invert="$option_name" ' is ' --positive='correctly' ' configured.'
-			if test -z "$expected"; then
-				echo-style --positive='It already has the undesired configuration removed.'
+		__try {status} -- "$option_comparer" "$lines" "$expected"
+		if [[ $status -eq 0 ]]; then
+			__print_style --invert="$option_name" ' is ' --positive='correctly' ' configured.' || return $?
+			if [[ -z $expected ]]; then
+				__print_style --positive='It already has the undesired configuration removed.' || return $?
 			else
-				echo-style --positive='It already has these lines:' $'\n' --code="$option_line"
+				__print_style --positive='It already has these lines:' $'\n' --code="$option_line" | echo-trim-padding --stdin || return $?
 			fi
 			break
 		else
-			echo-style --invert="$option_name" ' is ' --negative='incorrectly' ' configured.'
-			if test -n "$lines"; then
-				echo-style --negative='These lines must be removed:' $'\n' --code="$lines"
+			__print_style --invert="$option_name" ' is ' --negative='incorrectly' ' configured.' || return $?
+			if [[ -n $lines ]]; then
+				__print_style --negative='These lines must be removed:' $'\n' --code="$lines" | echo-trim-padding --stdin || return $?
 			fi
-			if test -n "$expected"; then
-				echo-style --positive='These lines must be added:' $'\n' --code="$expected"
+			if [[ -n $expected ]]; then
+				__print_style --positive='These lines must be added:' $'\n' --code="$expected" | echo-trim-padding --stdin || return $?
 			fi
-			if test -n "$option_applier" && confirm --positive --ppid=$$ -- "$(echo-style --bold='Apply these changes ' --positive='automatically' --bold=', or ' --negative='manually' --bold='?')"; then
-				"$option_applier" "$option_needle" "$expected" # don't use lines, as applier uses regex, and found lines aren't escaped for regex
-			elif confirm --positive --ppid=$$ -- "Ready to apply the changes manually?"; then
-				"$option_editer"
+			local question
+			question="$(__print_style --bold='Apply these changes ' --positive='automatically' --bold=', or ' --negative='manually' --bold='?')" || return $?
+			if [[ -n $option_applier ]] && confirm --positive --ppid=$$ -- "$question"; then
+				"$option_applier" "$option_needle" "$expected" # eval: don't use lines, as applier uses regex, and found lines aren't escaped for regex
 			else
-				return 125 # ECANCELED 125 Operation cancelled
+				question="$(__print_style --bold='Ready to apply the changes ' --bold+negative='manually?')" || return $?
+				if confirm --positive --ppid=$$ -- "$question"; then
+					"$option_editor" # eval
+				else
+					return 125 # ECANCELED 125 Operation cancelled
+				fi
 			fi
 		fi
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	config_edit "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		config_edit_test
+	else
+		config_edit "$@"
+	fi
 fi

@@ -1,76 +1,71 @@
 #!/usr/bin/env bash
 
-# @todo this is used by cpr under special circumstances
+# @todo this is used by `fs-copy` under special circumstances
 # add EXAMPLE for its actual use
+
+function get_local_to_remote_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- get-local-to-remote --help
+)
+
 function get_local_to_remote() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile'
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			If the provided path a mount of a remote target,
 			get the remote equivalent of the mount.
 
 			USAGE:
-			get-local-to-remote <locally-mounted-path>
+			\`get-local-to-remote <locally-mounted-path>\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item target=''
-	while test "$#" -ne 0; do
+	local item option_target=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$target"; then
-				target="$item"
+			if [[ -z $option_target ]]; then
+				option_target="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
 	# check
-	if test -z "$target"; then
+	if [[ -z $option_target ]]; then
 		help "<locally-mounted-path> is required"
 	fi
-
-	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
+	option_target="$(fs-path --resolve -- "$option_target")"
 
 	# =====================================
 	# Action
 
-	local remotes result volume path server directory result
-	mapfile -t remotes < <(get-volumes --remote | echo-if-nonempty)
-	if test "${#remotes[@]}" -eq 0; then
-		help 'There were no remote volumes to convert to.'
+	local remotes=() volume path server directory result=''
+	__split --target={remotes} --no-zero-length --invoke -- \
+		get-volumes --remote
+	if [[ ${#remotes[@]} -eq 0 ]]; then
+		help 'There were no remote volumes to convert ' --code="$option_target"
 	fi
-
-	result=''
+	# trunk-ignore(shellcheck/SC2034)
 	for remote in "${remotes[@]}"; do
-		# skip empty ones
-		if test -z "$remote"; then
-			continue
-		fi
-		mapfile -t parts < <(echo-split $'\t' -- "$remote")
-		volume="${parts[0]}"
-		path="$(rg '^'"$volume"'(.+)' --replace '$1' <<<"$target" || :)"
-		if test -n "$path"; then
+		local parts=()
+		__split --source={remote} --target={parts} --no-zero-length --delimiter=$'\t'
+		volume="${parts[0]}"s
+		path="$(echo-regexp --regexp="^$volume(.+)" --replace='$1' -- "$option_target")"
+		if [[ -n $path ]]; then
 			server="${parts[1]}"
 			directory="${parts[2]}"
 			result="$server:$directory$path"
@@ -78,19 +73,22 @@ function get_local_to_remote() (
 		fi
 	done
 
-	if test -n "$result"; then
-		cat <<-EOF
-			The local to remote conversion for [$target] will probably be something like these, but not these, as the username will be a local login username, and the mount point will be the local mount point rather than the remote mount point, as such, these are only suggestions to guide what the correct combination could be:
-
-			$result
-		EOF
-		rg '(.+)@(.+?)([.].+)?:(.+)' --replace 'a-login-user@$2:/mnt$4' <<<"$result"
+	if [[ -n $result ]]; then
+		local example_result
+		example_result="$(echo-regexp --regexp='(.+)@(.+?)([.].+)?:(.+)' --replace='a-login-user@$2:/mnt$4' -- "$result")"
+		__print_style 'The local to remote conversion for ' --code="$option_target" ' will probably be something like these, but not these, as the username will be a local login username, and the mount point will be the local mount point rather than the remote mount point, as such, these are only suggestions to guide what the correct combination could be:' --newline \
+			--code="$result" --newline \
+			--code="$example_result"
 	else
 		return 1
 	fi
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	get_local_to_remote "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		get_local_to_remote_test
+	else
+		get_local_to_remote "$@"
+	fi
 fi

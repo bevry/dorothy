@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+
+function echo_html_coder_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-html-coder --help
+
+	local inputs=(
+		'Jack & Jill'
+		'Jack &amp; Jill'
+	)
+	# don't test &nbsp; as it gets converted into a special character
+	local expected_encode=$'Jack &amp; Jill\nJack &amp;amp; Jill'
+	local expected_decode=$'Jack & Jill\nJack & Jill'
+	local action actions=('encode' 'decode')
+	local tool all_tools=(deno php python3)
+	local expected
+
+	for action in "${actions[@]}"; do
+		if [[ $action == 'encode' ]]; then
+			expected="$expected_encode"
+		else
+			expected="$expected_decode"
+		fi
+		for tool in "${all_tools[@]}"; do
+			if __command_exists -- "$tool"; then
+				eval-tester --stdout="$expected" -- \
+					echo-html-coder --action="$action" --tool="$tool" -- "${inputs[@]}"
+
+				{
+					__print_lines "${inputs[@]}"
+				} | eval-tester --stdout="$expected" -- \
+					echo-html-coder --action="$action" --tool="$tool" --stdin
+			fi
+		done
+	done
+
+	return 0
+)
+function echo_html_coder() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# textutil doesn't work
+	# xmlstarlet is too old, last update 9 August 2014; 10 years ago
+	local all_tools=(deno php python3)
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			For each input, encode or decode it's HTML entities.
+
+			USAGE:
+			\`echo-html-coder [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-html-coder [...options]\`
+
+			OPTIONS:
+			--tool=<tool:$(__join --source={all_tools} --between='|' -- '?')>
+			    The tool to use. Use \`?\` to prompt. Default is the first available tool.
+
+			$(__stdinargs__help_options --)
+
+			EXAMPLES:
+			\`\`\`
+			echo-html-coder --encode -- 'Jack & Jill'
+			echo-lines -- 'Jack & Jill' | echo-html-coder --encode --stdin
+			\`\`\`
+			Outputs: \`Jack &amp; Jill\`
+			Returns: [0]
+
+			\`\`\`
+			echo-html-coder --decode -- 'Jack &amp; Jill'
+			echo-lines -- 'Jack &amp; Jill' | echo-html-coder --decode --stdin
+			\`\`\`
+			Outputs: \`Jack & Jill\`
+			Returns: [0]
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_action='' option_tool=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--encode' | '--decode') option_action="${item#--}" ;;
+		'--action='*) option_action="${item#*=}" ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# tool aliases
+	case $option_tool in
+	'ts' | 'typescript') option_tool='deno' ;;
+	'js' | 'javascript' | 'node.js' | 'nodejs') option_tool='node' ;;
+	'py' | 'python') option_tool='python3' ;;
+	esac
+
+	# ensure tool
+	__tool --tool={option_tool} --tools={all_tools} --help={help} || return $?
+
+	# ensure action
+	if [[ $option_action == '?' ]]; then
+		option_action="$(choose --required 'Which action to perform?' -- 'encode' 'decode')"
+	elif ! [[ $option_action =~ ^(encode|decode)$ ]]; then
+		__help 'An unrecognised action was provided: ' --variable-value={option_action} || return $?
+	fi
+
+	# =====================================
+	# Action
+
+	local script
+	# if [[ "$option_tool" = 'recode' ]]; then
+	# 	script="$(type -P echo-html-coder.recode)"
+	# elif [[ "$option_tool" = 'textutil' ]]; then
+	# 	script="$(type -P echo-html-coder.textutil)"
+	# elif [[ "$option_tool" = 'xmlstarlet' ]]; then
+	# 	script="$(type -P echo-html-coder.xmlstarlet)"
+	if [[ $option_tool == 'deno' ]]; then
+		script="$(type -P echo-html-coder.ts)"
+	elif [[ $option_tool == 'php' ]]; then
+		script="$(type -P echo-html-coder.php)"
+	elif [[ $option_tool == 'python3' ]]; then
+		script="$(type -P echo-html-coder.py)"
+	else
+		return 19 # ENODEV 19 Operation not supported by device
+	fi
+	function on_line {
+		"$script" "$option_action" "$1"
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_html_coder_test
+	else
+		echo_html_coder "$@"
+	fi
+fi

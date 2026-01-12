@@ -1,52 +1,54 @@
 #!/usr/bin/env bash
 
+function setup_hosts_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- setup-hosts --help
+)
+
 function setup_hosts() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Adapt your system's hosts configuration to the desired values.
 
 			USAGE:
-			setup-hosts
-			# ^ use your prior configuration, or if there is none, prompt for configuration
+			\`setup-hosts [...options]\`
 
-			setup-hosts --configure
-			# ^ force reconfiguration
+			OPTIONS:
+			--[no-]configure
+			    If enabled, reconfigure.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item reconfigure='no'
-	while test "$#" -ne 0; do
+	local item option_configure='no'
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--configure') reconfigure='yes' ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# =====================================
 	# Dependencies
 
-	setup-util-gsed --quiet
+	local bin_gsed_or_sed
+	bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
 
 	# =====================================
 	# Start
 
-	echo-segment --h1="Setup Hosts file"
+	__print_style --h1='Setup Hosts file'
 
 	# =====================================
 	# Configuration
@@ -58,19 +60,19 @@ function setup_hosts() (
 	load_dorothy_config 'hosts.bash'
 
 	# adjustments
-	if test -z "$CHOICE" -o "$reconfigure" = 'yes'; then
-		if test "${#OPTIONS[@]}" -eq 0; then
-			echo-segment --error="Invalid configuration, there must be valid OPTIONS."
+	if [[ -z $CHOICE || $option_configure == 'yes' ]]; then
+		if [[ ${#OPTIONS[@]} -eq 0 ]]; then
+			help 'Invalid configuration, there must be valid OPTIONS.'
 		fi
 		CHOICE="$(
-			choose-option \
+			choose \
 				--question='Which host file do you wish to use?' \
 				--label=first -- 'No custom hosts file.' 'system' "${OPTIONS[@]}"
 		)"
 	fi
 
 	# turn empty choice into system
-	if test -z "$CHOICE"; then
+	if [[ -z $CHOICE ]]; then
 		CHOICE='system'
 	fi
 
@@ -83,27 +85,16 @@ function setup_hosts() (
 	# helper
 	function apply_hosts_file {
 		# prepare
-		local url custom_file content_file combined_file hostname
+		local url root custom_file content_file combined_file hostname
 		url="$1"
-		custom_file="$(
-			fs-temp \
-				--directory='setup-hosts' \
-				--file='custom_file' --touch
-		)"
-		content_file="$(
-			fs-temp \
-				--directory='setup-hosts' \
-				--file='content_file' --touch
-		)"
-		combined_file="$(
-			fs-temp \
-				--directory='setup-hosts' \
-				--file='combined_file' --touch
-		)"
+		root="$(fs-temp --directory='dorothy' --directory='setup-hosts')"
+		custom_file="$(fs-temp --root="$root" --file='custom_file' --touch)"
+		content_file="$(fs-temp --root="$root" --file='content_file' --touch)"
+		combined_file="$(fs-temp --root="$root" --file='combined_file' --touch)"
 		hostname="$(get-hostname)"
 
 		# log
-		echo-style --bold="Applying [$url] to [$hosts_file]..."
+		__print_style --bold='Applying' ' ' --url="$url" ' to ' --path="$hosts_file" ' ...'
 
 		# prepare defaults in case of failure
 		cat <<-EOF >"$content_file"
@@ -120,10 +111,11 @@ function setup_hosts() (
 
 		# grab the custom content, and save it temporarily
 		# @todo test this if there was no match
-		function save_custom_segment { # 👍 /docs/bash/errors: robust exit status
-			gsed -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
+		# @todo replace with `echo-regexp` and `echo-write`
+		function __save_custom_segment {
+			"$bin_gsed_or_sed" -n '/<custom>/,/<\/custom>/p' <"$hosts_file" >"$custom_file"
 		}
-		if ! save_custom_segment; then
+		if ! __save_custom_segment; then
 			cat <<-EOF >"$custom_file"
 				# <custom>
 				# </custom>
@@ -131,36 +123,35 @@ function setup_hosts() (
 		fi
 
 		# if we have a new file
-		if test -n "$url" -a "$url" != 'system'; then
-			echo-style --dim="Upgrading existing hosts file with data from: $url"
+		if [[ -n $url && $url != 'system' ]]; then
+			__print_style --dim 'Upgrading existing hosts file with data from ' --url="$url"
 
 			# download the new file to a temporary location
 			down "$url" --filepath="$content_file" || :
 
 			# combine the parts
-			cat "$custom_file" "$content_file" >"$combined_file"
+			cat -- "$custom_file" "$content_file" >"$combined_file"
 		else
-			echo-style --dim="Upgrading existing hosts file."
+			__print_style --dim 'Upgrading existing hosts file.'
 
 			# combine the parts
-			cat "$custom_file" "$content_file" >"$combined_file"
+			cat -- "$custom_file" "$content_file" >"$combined_file"
 		fi
 
 		# ensure the hostname exists
-		gsed --null-data --in-place --regexp-extended \
+		"$bin_gsed_or_sed" --null-data --in-place --regexp-extended \
 			--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$hostname\n#" \
 			"$combined_file"
 
 		# combine the custom content with the new content, and save it to the destination
-		sudo-helper --reason='Your sudo/root/login password is required to write the changes to the system hosts file:' -- mv -f "$combined_file" "$hosts_file"
+		eval-helper --elevate --reason='Your password is required to momentarily grant privileges to write the changes to the system hosts file:' -- mv -f -- "$combined_file" "$hosts_file"
 
 		# fix permissions, otherwise `sudo systemctl status systemd-resolved` could fail with:
 		# Failed to open /etc/hosts: Permission denied
-		fs-own --permissions=644 --admin \
-			-- /etc/hosts
+		fs-own --permissions=644 --admin -- /etc/hosts
 
 		# log
-		echo-style --success="Applied [$url] to [$hosts_file]."
+		__print_style --success='Applied' ' ' --url="$url" ' to ' --path="$hosts_file"
 	}
 
 	# apply
@@ -176,13 +167,17 @@ function setup_hosts() (
 	# =====================================
 	# Finish
 
-	echo-segment --g1="Setup Hosts file"
+	__print_style --g1='Setup Hosts file'
 
 	# finally, flush dns
 	flush-dns
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	setup_hosts "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_hosts_test
+	else
+		setup_hosts "$@"
+	fi
 fi

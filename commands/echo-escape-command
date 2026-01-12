@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+
+function echo_escape_command_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- echo-escape-command --help
+
+	eval-tester --stdout='my-command argument spaced\ argument'$'\n' --trailing-newlines -- \
+		echo-escape-command -- 'my-command' 'argument' 'spaced argument'
+
+	eval-tester --stdout='my-command --var=\~/dir spaced\ argument'$'\n' --trailing-newlines -- \
+		echo-escape-command -- 'my-command' '--var=~/dir' 'spaced argument'
+
+	eval-tester --stdout='my-command --var=~/dir spaced\ argument'$'\n' --trailing-newlines -- \
+		echo-escape-command --persist='~' -- 'my-command' '--var=~/dir' 'spaced argument'
+
+	# @todo add tests for --variable
+
+	return 0
+)
+function echo_escape_command() (
+	source "$DOROTHY/sources/stdinargs.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Escape the <...command> for human readability.
+
+			USAGE:
+			\`echo-escape-command [...options] [--] <...command>\`
+			\`echo-lines <...command> | echo-escape-command [...options]\`
+
+			OPTIONS:
+			--persist=<string>
+			    A string to persist unescaped in the output.
+
+			--variable=<string>
+			    A variable whose value should be restored back to the variable in the output.
+
+			$(__stdinargs__help_options --)
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_persist=() option_variables=() option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--persist='*) option_persist+=("${item#*=}") ;;
+		'--var='* | '--variable='*) option_variables+=("${item#*=}") ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'--'*) option_args+=("$item") ;;
+		*) option_args+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Action
+
+	local inputs=()
+	if [[ $BASH_PRINTF_Q_ESCAPES_TILDE == 'yes' ]]; then
+		function __escape {
+			printf -v REPLY '%q' "$1" || return $?
+		}
+	else
+		local tilde='~' escaped_tilde='\~'
+		function __escape {
+			printf -v REPLY '%q' "$1" || return $?
+			REPLY="${REPLY//$tilde/$escaped_tilde}"
+		}
+	fi
+	function __on_piece {
+		local REPLY escaped persist variable
+		__escape "$1" || return $?
+		escaped="$REPLY"
+		for persist in "${option_persist[@]}"; do
+			escaped="${escaped//"\\$persist"/$persist}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+		done
+		for variable in "${option_variables[@]}"; do
+			escaped="${escaped//"${!variable}"/\$$variable}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+		done
+		inputs+=("$escaped")
+	}
+	function __on_finish {
+		local result=''
+		__join --source={inputs} --between=' ' --target={result} || return $?
+		__print_lines "$result" || return $?
+	}
+
+	stdinargs "${option_args[@]}"
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		echo_escape_command_test
+	else
+		echo_escape_command "$@"
+	fi
+fi

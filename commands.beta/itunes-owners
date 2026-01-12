@@ -1,87 +1,97 @@
 #!/usr/bin/env bash
 # dependencies: ffmpeg, php, pv
 
+function itunes_owners_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=0 -- itunes-owners --help
+)
+
 function itunes_owners() (
 	source "$DOROTHY/sources/bash.bash"
 
 	# =====================================
 	# Arguments
 
-	function help {
-		cat <<-EOF >/dev/stderr
+	function __help {
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Outputs ownership data for your iTunes media library.
 
 			USAGE:
-			itunes-owners
+			\`itunes-owners\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--help' | '-h') __help ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) __help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
+
+	# assert compatibility
+	if ! __is_macos; then
+		__help 'This command is only purposeful on macOS, which you are not running.' || :
+		return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
 
 	# =====================================
 	# Dependencies
 
-	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-pv --quiet
+	__command_required -- 'pv' || return $?
+	__command_required -- 'xargs' || return $?
 
 	# =====================================
 	# Action
 
-	local song_list owner_list missing_list database
-	song_list="$(fs-temp --directory='itunes-owners' --file='songs.txt' --touch)"
-	owner_list="$(fs-temp --directory='itunes-owners' --file='owner.txt' --touch)"
-	missing_list="$(fs-temp --directory='itunes-owners' --file='missing.txt' --touch)"
+	local root song_list owner_list missing_list database
+	root="$(fs-temp --cache --directory='dorothy' --directory='itunes-owners')"
+	song_list="$(fs-temp --root="$root" --file='songs.txt' --touch)"
+	owner_list="$(fs-temp --root="$root" --file='owner.txt' --touch)"
+	missing_list="$(fs-temp --root="$root" --file='missing.txt' --touch)"
 	database="$HOME/Music/iTunes/iTunes Music Library.xml"
-	echo-style --h2="Reading $database"
+	__print_style --header2="Reading $database"
 
 	# fetch songs
 	local song_count=0
 	function fetch_songs {
-		echo-style --h2="Fetching songs to $song_list"
-		rg -o '<string>file://(.+)</string>' --replace '$1' <"$database" |
+		__print_style --header2="Fetching songs to $song_list"
+		echo-regexp -ong --regexp='<string>file://(.+)</string>' --replace='$1' <"$database" |
 			echo-url-decode --stdin |
 			echo-html-decode --stdin >"$song_list"
 		song_count="$(wc -l <"$song_list" | xargs)"
-		echo-style --g2="...found $song_count media files."
+		__print_style --good2="...found $song_count media files."
 	}
 	fetch_songs # @todo use eval-helper
 
 	# fetch owners
 	function fetch_owners {
 		local song owner
-		echo-style --h2="Fetching owners to $owner_list"
+		__print_style --header2="Fetching owners to $owner_list"
 		while read -r song; do
 			# check
-			if test ! -f "$song"; then
-				echo-style "$song" ' ' --notice='is missing'
-				print_line "$song" >>"$missing_list"
+			if [[ ! -f $song ]]; then
+				__print_style "$song" ' ' --notice='is missing'
+				__print_lines "$song" >>"$missing_list"
 				continue
 			fi
 
 			# fetch owner
-			owner="$(ffprobe -i "$song" |& rg -o 'account_id\s*:\s*(.+)' --replace '$1' || :)"
+			# ffprobe doesn't support --
+			owner="$(ffprobe -i "$song" 2>&1 | echo-regexp -o --regexp='account_id\s*:\s*(.+)' --replace='$1')"
 
 			# write
-			if test -n "$owner"; then
-				echo-style "$song" ' ' --green='owner is' ' ' --bold="$owner"
+			if [[ -n $owner ]]; then
+				__print_style "$song" ' ' --green='owner is' ' ' --bold="$owner"
 				printf '%s\t%s' "$owner" "$song" >>"$owner_list"
 				# else
-				# echo-style --notice='👆 owner is missing'
+				# __print_style --notice='👆 owner is missing'
 			fi
 		done <"$song_list" # | pv -s "$song_count" - >/dev/null
 	}
@@ -89,24 +99,24 @@ function itunes_owners() (
 
 	# extract
 	local owners owner_count owned_count
-	owners="$(cut -f1 -s <"$owner_list" | sort | uniq)"
-	owner_count="$(print_line "$owners" | wc -l | xargs)"
+	owners="$(cut -f1 -s -- "$owner_list" | echo-unique --stdin)"
+	owner_count="$(__print_lines "$owners" | wc -l | xargs)"
 	owned_count="$(wc -l <"$owner_list" | xargs)"
 
-	echo-style --h2="$owner_count UNIQUE OWNERS:"
-	print_line "$owners"
-	echo
+	__print_style --header2="$owner_count UNIQUE OWNERS:" --newline \
+		--="$owners" --newline
 
-	echo-style --h2="$owned_count OWNED MEDIA:"
-	sort <"$owner_list" | column -t -s $'\t'
-	echo
+	__print_style --header2="$owned_count OWNED MEDIA:"
+	sort -- "$owner_list" | column -t -s $'\t'
+	__print_line
 
-	echo-style --h2="$(wc -l <"$missing_list" | xargs) MISSING MEDIA:"
-	sort <"$missing_list"
-	echo
+	# wc with < to suppress filename
+	__print_style --header2="$(wc -l <"$missing_list" | xargs) MISSING MEDIA:"
+	sort -- "$missing_list"
+	__print_line
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
 	itunes_owners "$@"
 fi

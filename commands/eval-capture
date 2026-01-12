@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+source "$DOROTHY/sources/bash.bash"
+
+# disable strict mode so that we can test it specifically
+set +eu
+
+# handle macos expected crash
+expect_crash='no'
+if __is_macos && [[ $BASH_VERSION_CURRENT == '3.2.57' && $BASH == '/bin/bash' ]]; then
+	expect_crash='yes'
+	# because of the crash, cleanup the leftover semaphores
+	function cleanup {
+		rm -f -- "$TMPDIR/dorothy/semaphores/[3.2.57] [main][testing_root][testing_middle] [__try] "* >&2
+	}
+	trap cleanup EXIT
+fi
+if [[ $* == '--test' ]]; then
+	if [[ $expect_crash == 'yes' ]]; then
+		__print_lines 'macOS bundled bash 3.2.57 includes an expected crash' >&2
+		# this version will crash
+		expected="$(
+			cat <<-EOF
+				root start
+				middle start
+				first hBE
+				second hBE
+				third ehBE
+				57
+				middle failure 125
+				57
+				root failure 125
+				0
+				core failure 125
+				trap was removed
+				root start
+				middle start
+				first ehBE
+			EOF
+		)"
+	else
+		expected="$(
+			cat <<-EOF
+				root start
+				middle start
+				first hBE
+				second hBE
+				third ehBE
+				57
+				middle failure 125
+				57
+				root failure 125
+				0
+				core failure 125
+				trap was removed
+				root start
+				middle start
+				first ehBE
+				57
+				middle failure 123
+				0
+				root failure 123
+			EOF
+		)"
+	fi
+	eval-tester --name='as expected' --status='123' --stdout="$expected" -- \
+		eval-capture --
+	exit $?
+elif [[ $* == '--' ]]; then
+	: # all good, run
+else
+	__print_error 'eval-capture only exists for testing, you actually want to use eval_capture which is provided by sourcing bash.bash'
+	exit 22 # EINVAL 22 Invalid argument
+fi
+
+# note CI also has SIGPIPE traps
+
+function testing_failure() (
+	__print_lines "first $-"
+	__return 123
+	set +e
+	__print_lines "second $-"
+	__return 124
+	set -e
+	__print_lines "third $-"
+	__return 125
+	__print_lines "fourth $- YOU SHOULD NOT SEE THIS"
+)
+function testing_middle {
+	local middle_status
+	__print_lines 'middle start'
+	eval_capture --statusvar=middle_status -- testing_failure
+	trap -p ERR | echo-count-lines --stdin || :
+	if [[ $middle_status -eq 0 ]]; then
+		__print_lines "middle ok $middle_status"
+	else
+		__print_lines "middle failure $middle_status"
+	fi
+	return "$middle_status"
+}
+function testing_root {
+	local root_status
+	__print_lines 'root start'
+	eval_capture --statusvar=root_status -- testing_middle
+	trap -p ERR | echo-count-lines --stdin || :
+	if [[ $root_status -eq 0 ]]; then
+		__print_lines "root ok $root_status"
+	else
+		__print_lines "root failure $root_status"
+	fi
+	return "$root_status"
+}
+
+core_status=
+eval_capture --statusvar=core_status -- testing_root
+trap -p ERR | echo-count-lines --stdin || :
+if [[ $core_status -eq 0 ]]; then
+	__print_lines "core ok $core_status"
+else
+	__print_lines "core failure $core_status"
+fi
+
+# test that trap was removed
+if is-whitespace -- "$(trap -p ERR)"; then
+	__print_lines 'trap was removed'
+else
+	__print_lines 'trap was not removed'
+	exit 1
+fi
+
+# test that root-level failures fail
+set -e
+testing_root
+print_line "finale $- YOU SHOULD NOT SEE THIS"

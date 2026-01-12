@@ -1,48 +1,50 @@
 #!/usr/bin/env bash
 
+function wallhaven_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- wallhaven-helper --help
+)
+
 function wallhaven_helper() (
 	source "$DOROTHY/sources/bash.bash"
-	require_array 'mapfile'
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Enter your wallhaven details, and it'll download your wallpaper collections: https://wallhaven.cc
+			Enter your wallhaven details, and it'll download your wallpaper collections:
+			<https://wallhaven.cc>
 
 			USAGE:
-			wallhaven-helper [--user=...] [--key=...]
+			\`wallhaven-helper [--user=...] [--key=...]\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item username='' apikey=''
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--user='*) username="${item#*--user=}" ;;
-		'--key='*) apikey="${item#*--key=}" ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) help "An unrecognised argument was provided: $item" ;;
+		'--user='*) username="${item#*=}" ;;
+		'--key='*) apikey="${item#*=}" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# essentials
-	if test -z "$username"; then
+	if [[ -z $username ]]; then
 		username="$(
 			ask --required \
 				--question="Enter the wallhaven username."
 		)"
 	fi
-	if test -z "$apikey"; then
+	if [[ -z $apikey ]]; then
 		apikey="$(
 			ask --required --password \
 				--question="Enter the wallhaven API Key for $username. You can get this from: https://wallhaven.cc/settings/account"
@@ -52,86 +54,30 @@ function wallhaven_helper() (
 	# =====================================
 	# Dependencies
 
-	setup-util-deno --quiet
-	setup-util-jq --quiet
+	__command_required -- 'jq' || return $?
+	__command_required -- 'deno' || return $?
 
 	# =====================================
 	# Act
 
 	# collections
-	local collections collection
-	mapfile -t collections < <(fetch "https://wallhaven.cc/api/v1/collections?apikey=$apikey" | jq -r '.data[] | (.id, .label)')
+	local collections=() collection
+	function __fetch_collections {
+		fetch "https://wallhaven.cc/api/v1/collections?apikey=$apikey" | __jq -r '.data[] | (.id, .label)' || return $?
+	}
+	__split --target={collections} --no-zero-length --invoke -- __fetch_collections
 	collection="$(
-		choose-option \
+		choose \
 			--question='Which collection to download?' \
-			--label --visual="\$LABEL [\$VALUE]" \
-			-- "${collections[@]}"
+			--label --visual="\$LABEL [\$VALUE]" -- \
+			"${collections[@]}"
 	)"
-
-	# collection
-	local temp_deno_script
-	temp_deno_script="$(
-		fs-temp \
-			--directory='wallhaven-helper' \
-			--file='deno.ts'
-	)"
-	cat <<EOF >"$temp_deno_script"
-const url = new URL(Deno.args[0])
-function stderr(text: string) {
-	return Deno.stderr.write(
-		new TextEncoder().encode(text + "\n")
-	);
-}
-function stdout(text: string) {
-	return Deno.stdout.write(
-		new TextEncoder().encode(text + "\n")
-	);
-}
-function wait(ms: number, callback: () => void) {
-	return new Promise((resolve, reject) => {
-		setTimeout(function () {
-			try {
-				resolve(callback())
-			} catch (error) {
-				reject(error)
-			}
-		}, ms)
-	})
-}
-async function fetch_next_page() {
-	await stderr('Fetching: ' + url.toString())
-	const req = await fetch(url)
-	if ( req.status === 429 ) {
-		await stderr('Waiting 45 seconds for rate limiting.')
-		return await wait(45 * 1000, fetch_next_page)
-	}
-	const text = await req.text()
-	const json: any = await Promise.resolve().then(function () {
-		try {
-			return JSON.parse(text)
-		} catch (err) {
-			console.error('Failed to parse JSON:', err, text)
-			return Promise.reject('Failed to download ' + url)
-		}
-	})
-	const urls = json.data.map( (item: any) => item.path )
-	await stdout(urls.join('\n'))
-	if ( json.meta.last_page != json.meta.current_page ) {
-		url.searchParams.set('page', String(json.meta.current_page + 1))
-		fetch_next_page()
-	}
-}
-await fetch_next_page()
-EOF
 
 	# run the deno script to fetch the wallpaper urls via the api and store them in a file
-	local temp_list_file
-	temp_list_file="$(
-		fs-temp \
-			--directory='wallhaven-helper' \
-			--file="$username-$collection.txt"
-	)"
-	deno run --allow-net --quiet "$temp_deno_script" "https://wallhaven.cc/api/v1/collections/$username/$collection?apikey=$apikey" | tee "$temp_list_file"
+	local deno_script temp_list_file
+	temp_list_file="$(fs-temp --cache --directory='dorothy' --directory='wallhaven-helper' --file="$user-$collection.txt")"
+	deno_script="$(type -P 'wallhaven-helper.ts')"
+	"$deno_script" "$apikey" "$username" "$collection" | tee -- "$temp_list_file"
 
 	# with that file, download each of them
 	local url
@@ -141,6 +87,10 @@ EOF
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	wallhaven_helper "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		wallhaven_helper_test
+	else
+		wallhaven_helper "$@"
+	fi
 fi

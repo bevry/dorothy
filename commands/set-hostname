@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function set_hostname_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- set-hostname --help
+)
+
 function set_hostname() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,46 +12,44 @@ function set_hostname() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Update the current machine's hostname, with correct support for:
-			- updating dependent services
-			- multiple operating systems and their configurations
+			* updating dependent services
+			* multiple operating systems and their configurations
 
 			USAGE:
-			set-hostname <hostname>
+			\`set-hostname <hostname>\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item hostname=''
-	while test "$#" -ne 0; do
+	local item option_hostname=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$hostname"; then
-				hostname="$item"
+			if [[ -z $option_hostname ]]; then
+				option_hostname="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
-	if test -z "$hostname"; then
-		help "No <hostname> was provided"
+	if [[ -z $option_hostname ]]; then
+		help --help='A <hostname> must be provided.'
 	fi
 
 	# =====================================
 	# Dependencies
 
-	setup-util-gsed --quiet
+	local bin_gsed_or_sed
+	bin_gsed_or_sed="$(echo-gnu-command --install -- gsed)"
 
 	# =====================================
 	# Action
@@ -58,39 +61,41 @@ function set_hostname() (
 	original="$(get-hostname)"
 
 	# apply the hostname, using ALL available methods
-	if command-exists setup-hostname; then
+	# @todo verify none of these output to stdout
+	if __command_exists -- setup-hostname; then
 		# https://wiki.alpinelinux.org/wiki/Alpine_setup_scripts#setup-hostname
-		setup-hostname -n "$hostname"
+		setup-hostname -n "$option_hostname"
 		result=0
 	fi
-	if command-exists 'hostname'; then
-		sudo-helper -- hostname "$hostname"
+	if __command_exists -- 'hostname'; then
+		eval-helper --elevate -- hostname "$option_hostname"
 		result=0
 	fi
-	if command-exists 'hostnamectl'; then
-		sudo-helper -- hostnamectl set-hostname "$hostname"
+	if __command_exists -- 'hostnamectl'; then
+		eval-helper --elevate -- hostnamectl set-hostname "$option_hostname"
 		result=0
 	fi
-	if test -f '/etc/hostname'; then
-		print_line "$hostname" | sudo-helper -- tee -a /etc/hostname
+	if [[ -f '/etc/hostname' ]]; then
+		echo-write --append -- /etc/hostname <<<"$option_hostname"
 		result=0
 	fi
-	if test -f '/proc/sys/kernel/hostname'; then
-		print_line "$hostname" | sudo-helper -- tee -a /proc/sys/kernel/hostname
+	if [[ -f '/proc/sys/kernel/hostname' ]]; then
+		echo-write --append -- /proc/sys/kernel/hostname <<<"$option_hostname"
 		result=0
 	fi
-	if command-exists 'sysctl'; then
-		sudo-helper -- sysctl kernel.hostname="$hostname"
+	if __command_exists -- 'sysctl'; then
+		eval-helper --elevate -- sysctl kernel.hostname="$option_hostname"
 		result=0
 	fi
 
 	# write the hostname to the /etc/hosts file, this was necessary for a forgotten reason
 	# instead of two --expression, can also do -e 's//; s//'
 	# don't use sd, as this runs in initial setup
-	sudo-helper --inherit \
-		-- gsed --null-data --in-place --regexp-extended \
-		--expression="s#127.0.0.1\s+($original|$hostname)\n##g" \
-		--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$hostname\n#" \
+	# @todo replace with `echo-regexp` and `echo-write`
+	eval-helper --elevate --inherit -- \
+		"$bin_gsed_or_sed" --null-data --in-place --regexp-extended \
+		--expression="s#127.0.0.1\s+($original|$option_hostname)\n##g" \
+		--expression="s#(\s+)localhost\n#\1localhost\n127.0.0.1\1$option_hostname\n#" \
 		/etc/hosts
 	# cat /etc/hosts
 
@@ -98,13 +103,13 @@ function set_hostname() (
 	if service-helper --supported; then
 		service-helper --ignore --restart -- nmb nmbd
 	fi
-	if test -x /etc/init.d/hostname; then
+	if [[ -x '/etc/init.d/hostname' ]]; then
 		/etc/init.d/hostname restart
 	fi
-	if test -f /etc/sysconfig/network; then
-		sudo-helper --inherit \
-			-- config-helper --file='/etc/sysconfig/network' -- \
-			--field='HOSTNAME' --no-quote --value="$hostname"
+	if [[ -f '/etc/sysconfig/network' ]]; then
+		eval-helper --elevate --inherit -- \
+			config-helper --file='/etc/sysconfig/network' -- \
+			--field='HOSTNAME' --no-quote --value="$option_hostname"
 	fi
 
 	# return success or failure
@@ -112,6 +117,10 @@ function set_hostname() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	set_hostname "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		set_hostname_test
+	else
+		set_hostname "$@"
+	fi
 fi

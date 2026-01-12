@@ -1,0 +1,116 @@
+#!/usr/bin/env nu
+
+def ensure_correct_trailing_json_punctuation [argument?: string] {
+	let input = if $argument != null { $argument } else { $in } | str trim
+
+	if ($input | str starts-with "{") and not ($input | str ends-with "}") {
+		$input + "}"
+	} else if ($input | str starts-with "[") and not ($input | str ends-with "]") {
+		$input + "]"
+	} else if ($input | str starts-with '"') and not ($input | str ends-with '"') {
+		$input + '"'
+	} else {
+		$input
+	}
+}
+
+export def apple_intelligence_prompt [prompt: string, json_data?: string] {
+	let json_data = if $json_data == null { "" } else { $json_data }
+
+	# Create temp input file
+	let rand = random int
+	let prompt_input_filepath = $"/tmp/apple_intelligence_prompt_($rand).txt"
+
+	let prompt_input = if $json_data == "" {
+		$"PLAINTEXT PROMPT: ($prompt | str trim)\nPLAINTEXT RESPONSE:"
+	} else {
+		$"($prompt | str trim)\nJSON INPUT:\n($json_data)\nJSON RESPONSE:"
+	}
+	$prompt_input | save $prompt_input_filepath
+	let shortcut_name = "Apple Intelligence Prompt"
+
+	^echo-style --tty --header2='PROMPT:' --newline $"--code=($prompt_input)"
+	let response = do { ^shortcuts run $shortcut_name --input-path $prompt_input_filepath } | complete
+
+	# ensure output is json, as apple shortcuts sometimes returns RTF
+	let raw_result = $response.stdout | str trim
+	mut cleaned_result = if ($raw_result | str starts-with "{\\rtf") {
+		let rtf_file = $"/tmp/rtf_($rand).rtf"
+		$raw_result | save $rtf_file
+		^textutil -convert txt $rtf_file -output $"/tmp/txt_($rand).txt"
+		open $"/tmp/txt_($rand).txt"
+	} else {
+		$raw_result
+	}
+
+	# strip markdown code blocks if any, as sometimes Apple Intelligence includes them
+	$cleaned_result = $cleaned_result | str trim | str replace -r '^```(?:json)?\s*' '' | str replace -r '\s*```$' '' | str trim
+
+	# ensure opening and closing brackets/quotes exist, as sometimes Apple Intelligence omits them
+	$cleaned_result = $cleaned_result | ensure_correct_trailing_json_punctuation
+
+	# try to parse the JSON data, and re-assign it as cleaned up JSON
+	# if it fails to parse, then recurse in another attempt
+	let final_result = if $json_data == "" {
+		$cleaned_result
+	} else {
+		try { $cleaned_result | from json | to json } catch { |err|
+			^echo-style --tty --error2='ERROR:' ' Failed to parse JSON response. Retrying...' --newline --header2='RAW RESPONSE:' ' ' $"--code=($raw_result | str trim)" --newline --error2='PARSE ERROR:' ' ' $"--code=($err.msg | str trim)"
+			sleep 1sec
+			apple_intelligence_prompt $prompt $json_data
+			return
+		}
+	}
+
+	# handle error or success
+	if ($response.exit_code != 0) or ($final_result | is-empty) {
+		# error
+		{
+			result: "",
+			error: true,
+			stderr: ($response.stderr | str trim),
+			stdout: ($response.stdout | str trim),
+			exit_code: $response.exit_code,
+			prompt_input_filepath: $prompt_input_filepath
+		}
+	} else {
+		# success
+		^echo-style --tty --header2='RESPONSE:' --newline $"--code=($final_result)"
+		{
+			result: ($final_result | str trim),
+			error: false,
+			stderr: "",
+			stdout: "",
+			exit_code: 0,
+			prompt_input_filepath: $prompt_input_filepath
+		}
+	}
+}
+
+# Send a prompt to Apple Intelligence and get the response
+# This interfaces with Apple Intelligence via Apple Shortcuts, in which you need to install this Apple Shortcut:
+# <https://www.icloud.com/shortcuts/88adb0c30eb941068f72b44fb6c14030>
+def main [
+	prompt: string,	 # The prompt to send to Apple Intelligence
+	json_data?: string, # If you are sending JSON and wanting a JSON response back, provide the JSON input here.
+	--raw, # Provide the raw response from Apple Intelligence
+	--table, # Format the response as a Nushell table
+	--json # Format the response as JSON
+] {
+	let json_data = if $json_data == null { "" } else { $json_data }
+	let response = apple_intelligence_prompt $prompt $json_data
+	if $raw {
+		if $response.error {
+			^echo-style --tty --error2='ERROR:' ' ' $"--=$response.stderr"
+			exit $response.exit_code
+		} else {
+			$response.result
+		}
+	} else if $table {
+		$response | table
+	} else if $json {
+		$response | to json
+	} else {
+		$response
+	}
+}

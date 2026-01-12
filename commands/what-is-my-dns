@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function what_is_my_country_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- what-is-my-country --help
+)
+
 function what_is_my_dns() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,58 +12,55 @@ function what_is_my_dns() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Outputs your DNS resolver.
 
 			USAGE:
-			what-is-my-dns [--] ...<type>
+			\`what-is-my-dns [--] ...<type>\`
 
 			TYPES:
 			system
 			    Returns the resolver of your system configuration, be it a local DNS service or an external DNS service.
 
 			exposed
-			    Returns the exposed resolver of your system configuration, which if using a local DNS service, will convert internal IP ranges (127...) into protected/public IP ranges (192...).
+			    Returns the exposed resolver of your system configuration, which if using a local DNS service, will convert internal IP ranges (\`127...\`) into protected/public IP ranges (\`192...\`).
 			    You should use this value for ensuring the DNS service you expose to containers and virtual machines is accessible by them, as local internal ranges of the host will not be.
 
 			authority
 			    Returns the remote resolver that intermediate resolvers may have delegated to.
 			    You should use this to manually identify if your DNS resolutions are being intercepted, which will be if the value of this differs from your intended DNS provider.
-			    If your DNS is being intercepted, you can use [setup-dns] to elect an encrypted DNS service and provider.
+			    If your DNS is being intercepted, you can use \`setup-dns\` to elect an encrypted DNS service and provider.
 
 			QUIRKS:
 			If no <type> is specified, all types will be returned.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item types=()
-	while test "$#" -ne 0; do
+	local item option_types=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'local') types+=('system') ;;
-		'remote' | 'network') types+=('exposed') ;;
-		'ultimate' | 'external' | 'resolver' | 'resolved') types+=('authority') ;;
+		'local') option_types+=('system') ;;
+		'remote' | 'network') option_types+=('exposed') ;;
+		'ultimate' | 'external' | 'resolver' | 'resolved') option_types+=('authority') ;;
 		'--')
-			types+=("$@")
+			option_types+=("$@")
 			shift "$#"
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*) types+=("$item") ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_types+=("$item") ;;
 		esac
 	done
 
 	# ensure types
-	if test "${#types[@]}" -eq 0; then
-		types=(
+	if [[ ${#option_types[@]} -eq 0 ]]; then
+		option_types=(
 			'system'
 			'exposed'
 			'authority'
@@ -68,68 +70,72 @@ function what_is_my_dns() (
 	# =====================================
 	# Dependencies
 
-	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-httpie --quiet
-	setup-util-dig --quiet
-	setup-util-sd --quiet
+	__command_required -- 'dig' || return $?
 
 	# =====================================
 	# Helpers
 
 	function get_dns_system {
-		# fetch
-		dig cloudflare.com | rg -o 'SERVER: .+?[(]([^)]+)' --replace '$1'
+		if [[ ${1-} == 'yes' ]]; then
+			__print_style --no-trail --bold='System: '
+		fi
+		dig cloudflare.com | echo-regexp -fon --regexp='SERVER: .+?[(]([^)]+)' --replace='$1'
 	}
 
 	function get_dns_exposed {
+		if [[ ${1-} == 'yes' ]]; then
+			__print_style --no-trail --bold='Exposed: '
+		fi
 		local dnsip links
-		dnsip="$(get_dns_system)"
-		if test "$dnsip" = '127.0.0.53'; then
-			# resolvctl local dns server
-			links="$(sudo-helper -- resolvectl dns --no-pager)"
-			print_line "$links" | rg -o 'Global: (.+)' --replace '$1' || {
-				print_line "$links" | rg -o ': (.+?)( |$)' --replace '$1' | echo-first-line || {
-					print_line '127.0.0.53'
+		dnsip="$(get_dns_system 'no')"
+		if [[ $dnsip == '127.0.0.53' ]]; then
+			if __command_exists -- resolvectl; then
+				# resolvctl local dns server
+				links="$(eval-helper --elevate -- resolvectl dns --no-pager)"
+				echo-regexp -fon --regexp='Global: (.+)' --replace='$1' -- "$links" || {
+					echo-regexp -fon --regexp=': (.+?)( |$)' --replace='$1' -- "$links" || {
+						__print_lines '127.0.0.53'
+					}
 				}
-			}
-		elif test "$dnsip" = '0.0.0.0' -o "$dnsip" = '127.0.0.1'; then
+			else
+				__print_lines '127.0.0.53'
+			fi
+		elif [[ $dnsip == '0.0.0.0' || $dnsip == '127.0.0.1' ]]; then
 			# local dns server
 			what-is-my-ip 'local'
 		else
 			# remote dns server
-			print_line "$dnsip"
+			__print_lines "$dnsip"
 		fi
 	}
 
 	function get_dns_authority {
-		local id
-
-		# note that $1 here refers to a regex match, not a shell argument
-		id="$(http "http://whatismydnsresolver.com" | rg -o "id = '(.+?)'" --replace '$1')"
-		http "http://$id.receiver.whatismydnsresolver.com" >/dev/null
-		http "http://whatismydnsresolver.com/query.php?id=$id" |
-			sd '</p>' $'</p>    ' |
-			sd '<[^>]+>' '' |
-			sd '&nbsp;' '' |
-			grep --fixed-strings --regexp='Resolver'
+		# whatismydnsresolver.com is now defunct
+		if is-system --headful; then
+			open 'https://dnscheck.tools'
+		else
+			__print_style --stderr 'Open ' --code='dnscheck.tools' ' in your browser to check your DNS authorities/resolvers.'
+		fi
 	}
 
 	# =====================================
 	# Act
 
-	local type
-	if test "${#types[@]}" -eq 1; then
-		"get_dns_${types[0]}"
-	else
-		for type in "${types[@]}"; do
-			printf '%s: ' "$(uppercase_first_letter "$type")"
-			"get_dns_$type"
-		done
+	local headers='no' type
+	if [[ ${#option_types[@]} -ne 1 ]]; then
+		headers='yes'
 	fi
+	for type in "${option_types[@]}"; do
+		"get_dns_$type" "$headers"
+	done
 
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	what_is_my_dns "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		what_is_my_country_test
+	else
+		what_is_my_dns "$@"
+	fi
 fi

@@ -1,121 +1,309 @@
 #!/usr/bin/env bash
 
+function fs_size_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-size --help
+
+	# @todo update for multiple tools
+	# @todo update for actual consistent files of consistent size, so stdout can be tested
+
+	eval-tester --ignore-outputs -- \
+		fs-size -- "$0"
+	eval-tester --ignore-outputs -- \
+		fs-size --lines "$0"
+
+	local tools=(dust du stat) denominations=(bytes kilobytes megabytes gigabytes nearest) tool denomination status
+	for denomination in "${denominations[@]}"; do
+		eval-tester --ignore-outputs -- \
+			fs-size --"$denomination" -- "$0"
+	done
+	for tool in "${tools[@]}"; do
+		eval-tester --ignore-outputs -- \
+			fs-size --tool="$tool" -- "$0"
+		for denomination in "${denominations[@]}"; do
+			status=0
+			if [[ $tool == 'du' && $denomination == 'bytes' ]] && __is_macos; then
+				status=19
+			fi
+			eval-tester --ignore-outputs --status="$status" -- \
+				fs-size --"$denomination" --tool="$tool" -- "$0"
+		done
+	done
+
+	return 0
+)
 function fs_size() (
 	source "$DOROTHY/sources/bash.bash"
+	all_tools=(dust du stat wc)
 
 	# =====================================
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Output detailed size information about a path.
+			Get the size of a path.
 
 			USAGE:
-			fs-size [...options] [--] ...<path>
+			\`fs-size [...options] [--] ...<path>\`
 
 			OPTIONS:
-			--quiet
-			    If not provided, size details are wrapped in more information.
+			--tool=<tool:$(__join --source={all_tools} --between='|' -- '?')>
+			    The tool to use. Use \`?\` to prompt. Default is the first available tool.
+			--nearest
+			    Get the size in the nearest denomination, which is the default.
+			    B = bytes, K = kilobytes, M = megabytes, G = gigabytes.
+			--bytes
+			    Get the size in bytes.
+			    Not supported if <tool> is \`du\` on macOS.
+			--kilobytes
+			    Get the size in kilobytes.
+			--megabytes
+			    Get the size in megabytes.
+			--gigabytes
+			    Get the size in gigabytes.
+			--lines
+			    Get the size in lines instead of bytes.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_quiet='no' option_paths=()
-	option_quiet="$(is-quiet-enabled "$option_quiet" -- "$@")"
-	while test "$#" -ne 0; do
+	local item option_paths=() option_tool='' option_denomination=''
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--no-quiet'* | '--quiet'* | '--no-verbose'* | '--verbose'*) ;; # handled by is-quiet-enabled
+		'--path='*) option_paths+=("${item#*=}") ;;
+		'--tool='*) option_tool="${item#*=}" ;;
+		'--b' | '--bytes' | '--denomination=b' | '--denomination=bytes') option_denomination='bytes' ;;
+		'--kb' | '--kilobytes' | '--denomination=kb' | '--denomination=kilobytes') option_denomination='kilobytes' ;;
+		'--mb' | '--megabytes' | '--denomination=mb' | '--denomination=megabytes') option_denomination='megabytes' ;;
+		'--gb' | '--gigabytes' | '--denomination=gb' | '--denomination=gigabytes') option_denomination='gigabytes' ;;
+		'--nearest' | '--denomination=nearest') option_denomination='nearest' ;;
+		'--lines' | '--denomination=lines') option_denomination='lines' ;;
 		'--')
 			option_paths+=("$@")
 			shift $#
 			break
 			;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*) option_paths+=("$item") ;;
 		esac
 	done
 
 	# check
-	if test "${#option_paths[@]}" -eq 0; then
-		help 'No <path>s were provided.'
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		help 'No <path>s provided.'
+	fi
+	if [[ -z $option_denomination ]]; then
+		option_denomination='nearest'
 	fi
 
 	# =====================================
 	# Dependencies
 
-	setup-util-dust --quiet
+	function __cut {
+		local delimiter="$1" size
+		# echo-regexp -fo "^(\d+)$delimiter" '$1' || return $?
+		# echo-regexp -fo "^(\w+)$delimiter" '$1' || return $?
+		IFS="$delimiter" read -r size _ || return $?
+		__print_lines "$size"
+	}
+
+	# wc
+	function __wc_lines {
+		wc -l "$path" | __cut ' ' || return $?
+	}
+
+	# dust
+	function __dust_bytes {
+		local path="$1"
+		dust -sbcP -ob -d0 -- "$path" | __cut ' B' || return $?
+	}
+	function __dust_kilobytes {
+		local path="$1"
+		dust -sbcP -ok -d0 -- "$path" | __cut ' K' || return $?
+	}
+	function __dust_megabytes {
+		local path="$1"
+		dust -sbcP -om -d0 -- "$path" | __cut ' M' || return $?
+	}
+	function __dust_gigabytes {
+		local path="$1"
+		dust -sbcP -oG -d0 -- "$path" | __cut ' G' || return $?
+	}
+	function __dust_nearest {
+		local path="$1"
+		dust -sbcP -d0 -- "$path" | __cut ' ' || return $?
+	}
+
+	# these argument combinations report blocks, not bytes:
+	# bsd: du -sAB1 "$path"
+	# gnu: du --summarize --apparent-size --block-size=1 "$path" | echo-regexp -o '^\d+'
+	# macos: du -sAB1 --
+
+	# macos and linux both support these:
+	function __du_nearest {
+		local path="$1"
+		du -hd0 -- "$path" | __cut $' \t' || return $?
+	}
+	# the rest deviate based on platform
+	if __is_linux; then
+		# -h, --human-readable: print sizes in human readable format (e.g., 1K 234M 2G)
+		# --si: like -h, but use powers of 1000 not 1024
+		# -s, --summarize: display only a total for each argument
+		# -b, --bytes: equivalent to '--apparent-size --block-size=1'
+		function __du_bytes {
+			local path="$1"
+			du -sb -- "$path" | __cut $' \t' || return $?
+		}
+		function __du_kilobytes {
+			local path="$1" bytes
+			bytes="$(__du_bytes "$path")" || return $?
+			echo-math --decimals=1 --trim -- "$bytes / 1024" || return $?
+		}
+		function __du_megabytes {
+			local path="$1" bytes
+			bytes="$(__du_bytes "$path")" || return $?
+			echo-math --decimals=1 --trim -- "$bytes / 1024 / 1024" || return $?
+		}
+		function __du_gigabytes {
+			local path="$1" bytes
+			bytes="$(__du_bytes "$path")" || return $?
+			echo-math --decimals=1 --trim -- "$bytes / 1024 / 1024 / 1024" || return $?
+		}
+	else
+		# -A: Display the apparent size instead of the disk usage.  This can be helpful when operating on compressed volumes or sparse files.
+		# --si: “Human-readable” output.  Use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte, Terabyte and Petabyte based on powers of 1000. <-- outputs everything within a directory, seems just an alias for -shd0
+		# -d depth: Display an entry for all files and directories depth directories deep.
+		# -h: “Human-readable” output.  Use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte, Terabyte and Petabyte based on powers of 1024.
+		# -s: Display an entry for each specified file.  (Equivalent to -d 0)
+		# -k: Display block counts in 1024-byte (1 kiB) blocks.
+		# -m: Display block counts in 1048576-byte (1 MiB) blocks.
+		# -g: Display block counts in 1073741824-byte (1 GiB) blocks.
+		# -a: Display an entry for each file in a file hierarchy.
+
+		# --> THERE IS NO WAY TO GET ONLY BYTES WITH DU ON MACOS <--
+		function __du_kilobytes {
+			local path="$1"
+			du -sk -- "$path" | __cut $' \t' || return $?
+		}
+		function __du_megabytes {
+			local path="$1"
+			du -sm -- "$path" | __cut $' \t' || return $?
+		}
+		function __du_gigabytes {
+			local path="$1"
+			du -sg -- "$path" | __cut $' \t' || return $?
+		}
+	fi
+
+	# stat
+	# STAT DOES NOT GIVE US THE RECURSIVE SIZE FOR DIRECTORIES
+	if __is_macos; then
+		function __stat_bytes {
+			local path="$1"
+			stat -f '%z' -- "$path" || return $?
+		}
+	else
+		function __stat_bytes {
+			local path="$1"
+			stat -c '%s' -- "$path" || return $?
+		}
+	fi
+	function __stat_kilobytes {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")" || return $?
+		echo-math --decimals=1 --trim -- "$bytes / 1024" || return $?
+	}
+	function __stat_megabytes {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")" || return $?
+		echo-math --decimals=1 --trim -- "$bytes / 1024 / 1024" || return $?
+	}
+	function __stat_gigabytes {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")" || return $?
+		echo-math --decimals=1 --trim -- "$bytes / 1024 / 1024 / 1024" || return $?
+	}
+	function __stat_nearest {
+		local path="$1" bytes
+		bytes="$(__stat_bytes "$path")" || return $?
+		__print_lines "${bytes}B" || return $?
+	}
+
+	function __tool_help {
+		# vars are inherited from the caller scopes
+		if ! __has --source={all_tools} --any -- "$TOOL__tool"; then
+			help 'The tool ' --code="$TOOL__tool" ' is unrecognised.' || return $?
+		fi
+		help 'The tool ' --code="$TOOL__tool" ' does not support the denomination ' --code="$option_denomination" ' on the path ' --path="$path" || :
+		return 19 # ENODEV 19 Operation not supported by device
+	}
+	function __get_tool_function {
+		local tool="$1" fn
+		fn="__${tool}_${option_denomination}"
+		if __is_function_defined "$fn"; then
+			__print_string "$fn"
+		else
+			return 78 # NOSYS 78 Function not implemented
+		fi
+	}
+	function __has_tool_function {
+		local tool="$1" fn
+		__get_tool_function "$tool" >/dev/null || return $?
+	}
+	function __size {
+		local path="$1" fn available_tools=("${all_tools[@]}") desired_tool="$option_tool" tool fn
+		if [[ -p $path ]]; then
+			__print_error 'Cannot determine size of ' --path="$path" ' as it is a named pipe / file descriptor.'
+			return 79 # EFTYPE 79 Inappropriate file type or format
+		else
+			is-readable --verbose -- "$path" || __return $? -- \
+				__print_error 'Cannot determine size of ' --path="$path" ' as it is not readable.' || return $?
+		fi
+		# disable tools without an implementation for that operation
+		for tool in "${available_tools[@]}"; do
+			if ! __has_tool_function "$tool"; then
+				__evict --source+target={available_tools} --value="$tool" --each --required
+			fi
+		done
+		# disable tools that do have an operation defined, but it is conditional
+		if is-directory -- "$path"; then
+			__evict --source+target={available_tools} --value='stat' --value='wc' --each --optional # optional, as it may have been removed earlier
+		fi
+		# confirm there are tools available (there won't be for `fs-size --lines -- .`)
+		if [[ ${#available_tools[@]} -eq 0 ]]; then
+			help 'No tools available that support the denomination ' --code="$option_denomination" ' on the path ' --path="$path" || :
+			return 19 # ENODEV 19 Operation not supported by device
+		fi
+		# for the available tools, select the available and desired tool
+		__tool --tool={desired_tool} --tools={available_tools} --help={__tool_help} || return $?
+		# invoke the available and desired tool, with sanity checks
+		fn="$(__get_tool_function "$desired_tool")" || return $?
+		if [[ -z $fn ]]; then
+			return 104 # ENOTRECOVERABLE 104 State not recoverable
+		fi
+		"$fn" "$path" || return $?
+	}
 
 	# =====================================
 	# Action
 
-	local CONCLUSION=''
-	function do_size {
-		local path="$1"
-
-		# is the path missing
-		if is-missing "$path"; then
-			CONCLUSION='is missing.'
-			return 2 # ENOENT 2 No such file or directory
-		fi
-
-		# note its contents
-		echo
-		eval-helper --no-quiet --wrap \
-			-- ls -la "$path"
-		echo
-		if test -d "$path"; then
-			eval-helper --no-quiet --wrap \
-				-- dust --no-percent-bars "$path"
-			echo
-			eval-helper --no-quiet --wrap \
-				-- dust --no-percent-bars --filecount "$path"
-			echo
-		fi
-
-		# note the conclusion
-		if is-empty-ls "$path"; then
-			CONCLUSION='is an empty directory.'
-		elif is-empty-size "$path"; then
-			CONCLUSION='is only empty directories.'
-		else
-			# leftovers
-			CONCLUSION='has non-empty files.'
-		fi
-	}
-
-	function act {
-		local path="$1" title size_status
-		if test "$option_quiet" = 'yes'; then
-			do_size "$path"
-			return
-		else
-			title="fs-size $(echo-quote -- "$path")"
-			echo-segment --h2="$title"
-			eval_capture --statusvar=size_status -- do_size "$path"
-			if test "$size_status" -eq 0; then
-				echo-segment --g2="$title" " $CONCLUSION"
-			else
-				echo-segment --e2="$title" " $CONCLUSION"
-				return "$size_status"
-			fi
-		fi
-	}
-
+	# get apparent size in bytes
 	local path
 	for path in "${option_paths[@]}"; do
-		act "$path"
+		__size "$path"
 	done
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	fs_size "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_size_test
+	else
+		fs_size "$@"
+	fi
 fi

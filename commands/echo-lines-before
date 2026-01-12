@@ -1,34 +1,81 @@
 #!/usr/bin/env bash
 
 # https://stackoverflow.com/a/1603436/130638
-# sed -e '/^$/,$d' "$@" <-- before blank lines
+# "$bin_gsed" -e '/^$/,$d' "$@" <-- before blank lines
 
 function echo_lines_before_test() (
 	source "$DOROTHY/sources/bash.bash"
-	echo-segment --h1="TEST: $0"
+	source "$(type -P eval-tester)"
+	eval_tester --ignore-stderr --status=22 -- echo-lines-before --help
 
-	eval-tester --name='using arguments' --stdout=$'a\nb' \
-		-- echo-lines-before '' -- a b '' c d
+	# prepare
+	local expected=$'a\nb' needles=('--line=')
+	function pl {
+		__print_lines a b '' c d
+	}
 
-	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using stdin' --stdout=$'a\nb' \
-		-- echo-lines-before ''
+	# failure tests
+	eval_tester --name='no needles' --ignore-stderr --status=22 -- \
+		echo-lines-before --stdin <<<"$(pl)"
+	eval_tester --name='unknown argument' --ignore-stderr --status=22 -- \
+		echo-lines-before 'unknown argument' --stdin <<<"$(pl)"
 
-	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using --stdin' --stdout=$'a\nb' \
-		-- echo-lines-before '' --stdin
+	# standard tests
+	eval_tester --name='using arguments' --stdout="$expected" -- \
+		echo-lines-before "${needles[@]}" -- "$(pl)"
 
-	{
-		echo-lines -- a b '' c d
-	} | eval-tester --name='using -' --stdout=$'a\nb' \
-		-- echo-lines-before '' -
+	pl | eval_tester --name='using stdin' --stdout="$expected" -- \
+		echo-lines-before "${needles[@]}"
 
-	eval-tester --name='using <<<' --stdout=$'a\nb' \
-		-- echo-lines-before '' - <<<"$(echo-lines -- a b '' c d)"
+	pl | eval_tester --name='using --stdin' --stdout="$expected" -- \
+		echo-lines-before "${needles[@]}" --stdin
 
-	echo-segment --g1="TEST: $0"
+	pl | eval_tester --name='using -' --stdout="$expected" -- \
+		echo-lines-before "${needles[@]}" -
+
+	eval_tester --name='using <<<' --stdout="$expected" -- \
+		echo-lines-before "${needles[@]}" - <<<"$(pl)"
+
+	# https://github.com/bevry/dorothy/issues/283
+	local root in out
+	root="$(fs-temp --directory='dorothy' --directory='echo-lines-before' --directory='tests' --directory)"
+	in="$(fs-temp --root="$root" --file='in')"
+	out="$(fs-temp --root="$root" --file='out')"
+	pl >"$in"
+	function test_a {
+		echo-lines-before "${needles[@]}" --stdin <"$in"
+	}
+	function test_b {
+		echo-lines-before "${needles[@]}" --stdin <"$in" >"$out"
+		cat "$out"
+	}
+	function test_c {
+		echo-lines-before "${needles[@]}" --stdin >"$out" <"$in"
+		cat "$out"
+	}
+	function test_aa {
+		__print_lines '0' >"$out"
+		echo-lines-before "${needles[@]}" --stdin >>"$out" <"$in"
+		cat "$out"
+	}
+	function test_bb {
+		__print_lines '0' >"$out"
+		echo-lines-before "${needles[@]}" --stdin <"$in" >>"$out"
+		cat "$out"
+	}
+	eval_tester --stdout="$expected" -- test_a
+	eval_tester --stdout="$expected" -- test_b
+	eval_tester --stdout="$expected" -- test_c
+	eval_tester --stdout=$'0\n'"$expected" -- test_aa
+	eval_tester --stdout=$'0\n'"$expected" -- test_bb
+
+	# pattern and glob tests
+	eval_tester --name='glob' --stdout='a' -- \
+		echo-lines-before --glob='bb*' -- $'a\nbbb\nc\nd'
+	eval_tester --name='pattern' --stdout='a' -- \
+		echo-lines-before --pattern='bb+' -- $'a\nbbb\nc\nd'
+
+	# done
 	return 0
 )
 function echo_lines_before() (
@@ -38,64 +85,97 @@ function echo_lines_before() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Get everything before the first occurence of <line>.
+			Get everything before the first occurrence of <line>, <glob>, or <pattern>.
 
 			USAGE:
-			echo-lines-before <needle> [...options] [--] ...<input>
-			echo-lines ...<input> | echo-lines-before <needle> [...options]
-
+			\`echo-lines-before [...options] [--] ...<input>\`
+			\`echo-lines ...<input> | echo-lines-before [...options]\`
 			OPTIONS:
-			<needle>
-			    Output output the <input> that is before this line.
+			--line=<line>|--needle=<line> | --glob=<glob> | --pattern=<pattern>
+			    Only output the <input> that occurs before the first match of one of these <line>s, <glob>s, or <pattern>s.
 
-			$(stdinargs_options_help --)
+			$(__stdinargs__help_options --)
 
-			EXAMPLE:
+			EXAMPLES:
+			\`\`\`
+			echo-lines-before --needle='b' -- a b b c b
+			\`\`\`
+			Outputs: \`a\`
+			Returns: [0]
 
-			echo-lines-before '' -- a b '' c d
+			\`\`\`
+			echo-lines -- a b b c b | echo-lines-before --needle='' --stdin
+			\`\`\`
+			Outputs: \`a\`
+			Returns: [0]
 
-			    a
-			    b
-			    # exit status: 0
-
-			echo-lines -- a b '' c d | echo-lines-before '' --stdin
-
-			    a
-			    b
-			    # exit status: 0
-
-			echo-lines-before '' --stdin <<< "\$(echo-lines -- a b '' c d)"
-
-			    a
-			    b
-			    # exit status: 0
+			\`\`\`
+			echo-lines-before --needle='' --stdin <<< "\$(echo-lines -- a b b c b)"
+			\`\`\`
+			Outputs: \`a\`
+			Returns: [0]
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
-	# process <needle>
-	local option_needle="$1"
-	shift
+	# process our own arguments, delegate everything else to stdinargs
+	local item option_lines=() option_patterns=() option_globs=() option_args=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--line='* | '--needle='*) option_lines+=("${item#*=}") ;;
+		'--pattern='*) option_patterns+=("${item#*=}") ;;
+		'--glob='*) option_globs+=("${item#*=}") ;;
+		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
+		'--')
+			option_args+=("$item" "$@")
+			shift $#
+			break
+			;;
+		'-'*) option_args+=("$item") ;; # single dash to also capture trailing `-` for STDIN
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_lines[@]} -eq 0 && ${#option_patterns[@]} -eq 0 && ${#option_globs[@]} -eq 0 ]]; then
+		help 'No <line>s, <pattern>s, nor <glob>s provided. At least one must be provided.'
+	fi
 
 	# =====================================
 	# Action
 
-	function on_input {
-		if test "$1" = "$option_needle"; then
-			return 210 # ECUSTOM 210 Processing complete, exit early
-		else
-			print_line "$1"
-		fi
+	function on_line {
+		local read_line="$1" sought_line south_pattern sought_glob
+		for sought_line in "${option_lines[@]}"; do
+			if [[ $read_line == "$sought_line" ]]; then
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
+		for south_pattern in "${option_patterns[@]}"; do
+			if [[ $read_line =~ $south_pattern ]]; then
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
+		for sought_glob in "${option_globs[@]}"; do
+			# trunk-ignore(shellcheck/SC2053)
+			if [[ $read_line == $sought_glob ]]; then
+				return 210 # ECUSTOM 210 Processing complete, exit early
+			fi
+		done
+		__print_lines "$read_line"
 	}
 
-	stdinargs "$@"
+	stdinargs "${option_args[@]}"
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	if test "$*" = '--test'; then
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
 		echo_lines_before_test
 	else
 		echo_lines_before "$@"

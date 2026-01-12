@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+function subtitles_generate_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- subtitles-generate --help
+)
+
+function subtitles_generate() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Generate subtitles for media files.
+
+			USAGE:
+			\`subtitles-generate [...options] [-- ...<path>]\`
+
+			OPTIONS:
+			-- ...<path>
+			    The paths to look for media files within. Looking will be deep, looking in subdirectories.
+			    If no paths are provided, the current working directory will be used.
+
+			--[no-]overwrite
+			    If enabled, will overwrite existing subtitle files.
+
+			--[no-]quiet | --[no-]verbose
+			    If <quiet>, output less information.
+
+			--skip-until=<needle>
+			    Skip until this needle is found.
+
+			All other options are forwarded to the utility installer.
+
+			DEPENDENCIES:
+			* \`whisper\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='' option_overwrite='' option_until='' option_paths=() options=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-overwrite'* | '--overwrite'*) __flag --source={item} --target={option_overwrite} --affirmative ;;
+		'--until='* | '--skip-until='*) option_until="${item#*=}" ;;
+		'--')
+			option_paths+=("$@")
+			shift $#
+			break
+			;;
+		*) options+=("$item") ;;
+		esac
+	done
+
+	if [[ -z $option_overwrite ]]; then
+		option_overwrite='no'
+	fi
+
+	if [[ -z $option_quiet ]]; then
+		option_quiet='yes'
+	fi
+
+	if [[ ${#option_paths[@]} -eq 0 ]]; then
+		option_paths+=('.')
+	fi
+
+	# =====================================
+	# Helpers
+
+	# --language English
+	# (whisper-cli --vad --model /Users/balupton/Downloads/whisper.cpp/models/ggml-large-v3-turbo.bin --output-srt --output-vtt --translate) # --language auto)
+	# if __is_macos; then
+	# 	whisper_cmd+=(--fp16 False)
+	# fi
+
+	# function __transcribe {
+	# 	if [[ $option_overwrite == 'no' ]]; then
+	# 		# check if the subtitle file already exists, only do --no-extension, as it could have a . in its name, like [A vs. B]
+	# 		filepath_no_extension="$(fs-path --no-extension -- "$filepath")" || return $?
+	# 		if [[ -f "$filepath_no_extension.srt" ]]; then
+	# 			return 0
+	# 		fi
+	# 	fi
+	# 	dirpath="$(fs-path --parents -- "$filepath")" || return $?
+	# 	(
+	# 		cd "$dirpath" || return $?
+	# 		# --revolving-max-lines=1
+	# 		# eval-helper --wrap --quiet="$option_quiet" --revolving-lines=terminal -- \
+	# 		"${whisper_cmd[@]}" "$filepath" || return $?
+	# 	) || return $?
+	# }
+
+	local cmd=(whisperkit-cli transcribe --verbose --task transcribe --report --skip-special-tokens --chunking-strategy vad --model large-v3 "${options[@]}")
+
+	local option_paths paths path
+	for path in "${option_paths[@]}"; do
+		if [[ -d $path ]]; then
+			# whisperkit does not support: mkv
+			# https://github.com/argmaxinc/WhisperKit/issues/356
+			paths+=("$path"/**/*.{mp4,webm,avi,flv,wmv,mov,mpg,mpeg,m4v,3gp,3g2,webp,mp3,m4a,ogg,wav,flac,opus})
+		elif [[ -f $path ]]; then
+			paths+=("$path")
+		else
+			__print_error 'The path ' --path="$path" ' is neither a file nor directory.'
+			return 2 # ENOENT 2 No such file or directory
+		fi
+	done
+	local filename root subtitle transcription first_successful_translation languages=(en id) language translation skipping='no'
+	if [[ -n $option_until ]]; then
+		skipping='yes'
+	fi
+	for path in "${paths[@]}"; do
+		path="$(fs-path --absolute -- "$path")" || return $?
+		filename="$(fs-path --no-parents -- "$path")" || return $?
+		root="$(fs-path --no-extension -- "$path")" || return $?
+		subtitle="$root.srt"
+		transcription="$root.ai.transcription.srt"
+		if [[ $skipping == 'yes' ]]; then
+			if [[ $filename != *"$option_until"* ]]; then
+				continue
+			else
+				skipping='no'
+			fi
+		fi
+		__print_style --header1="$filename" --newline --variable={path} --newline --variable={subtitle}
+		if [[ -s $transcription && $option_overwrite == 'no' ]]; then
+			__print_style --info='Already transcribed'
+		else
+			__print_style --info='Transcribing...'
+			eval-helper --wrap -- "${cmd[@]}" --audio-path "$path" || return $?
+			if ! [[ -s $subtitle ]]; then
+				__print_error 'Failed to generate subtitle at ' --path="$subtitle"
+				return 2 # ENOENT 2 No such file or directory
+			fi
+			mv -v -- "$subtitle" "$transcription"
+		fi
+		if [[ -f "$root.json" ]]; then
+			# don't confuse .info.json with whisperkit's .json
+			mv -v -- "$root.json" "$root.whisperkit.json" || :
+		fi
+		first_successful_translation=''
+		for language in "${languages[@]}"; do
+			translation="$root.ai.translation.$language.srt"
+			if [[ -s $translation && $option_overwrite == 'no' ]]; then
+				__print_style --info="Already translated to $language"
+			else
+				__print_style --info="Translating into $language..."
+				# The transcription can contain multiple languages
+				# Apple Intelligence cannot translate multiple languages into non-english
+				# However, our translations will result into a single-language subtitle file
+				# As such, we should translate the first successful translation if it exists for subsequent rarer languages
+				eval-helper --wrap -- subtitles-translate --language="$language" "${first_successful_translation:-"$transcription"}" "$translation" || :
+				if ! [[ -s $translation ]]; then
+					__print_error 'Failed to generate translation at ' --path="$translation"
+					# return 2 # ENOENT 2 No such file or directory
+					continue # continue to try the next language
+				fi
+			fi
+			if [[ -z $first_successful_translation ]]; then
+				first_successful_translation="$translation"
+			fi
+		done
+		__print_line
+	done
+	# doing all audio-path at in one whisperkit call seems to try to do them all at once in parallel
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		subtitles_generate_test
+	else
+		subtitles_generate "$@"
+	fi
+fi

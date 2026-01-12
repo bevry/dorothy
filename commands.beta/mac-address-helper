@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+function mac_address_helper_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- mac-address-helper --help
+)
+
 function mac_address_helper() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,12 +12,12 @@ function mac_address_helper() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Helpers for working with your MAC address.
 
 			USAGE:
-			mac-address-helper <action>
+			\`mac-address-helper <action>\`
 
 			ACTION:
 			new
@@ -24,75 +29,68 @@ function mac_address_helper() (
 			get <interface>
 			    Get the MAC address of the specified network interface <interface>.
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item action='' args=()
-	while test "$#" -ne 0; do
+	local item action='' option_args=()
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
-		*)
+		--help | -h) help ;;
+		--*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		new | apply | get)
 			action="$item"
-			args+=("$@")
+			option_args+=("$@")
 			shift $#
 			break
 			;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
-
-	# =====================================
-	# Dependencies
-
-	source "$DOROTHY/sources/ripgrep.bash"
-	setup-util-gsed --quiet
 
 	# =====================================
 	# Action
 
 	function act_new {
-		openssl rand -hex 6 | gsed 's/\(..\)/\1:/g; s/./0/2; s/.$//'
+		# see the [git history] for this file for a non [echo-regexp] solution
+		openssl rand -hex 6 | echo-regexp -g '(..)' '$1:' | echo-regexp ':$' ''
 	}
 	function act_apply {
 		local interface="${1-}" mac="${2-}"
-		if test -z "$interface"; then
-			help "<interface> was missing for:" "    mac-address-helper apply <interface> <mac>" '' "Typically [en0] or [p2p0] is used."
+		if [[ -z $interface ]]; then
+			help '<interface> was missing for: ' --code='mac-address-helper apply <interface> <mac>' $'\n' 'Typically ' --code='en0' ' or ' --code='p2p0' ' is used.'
 		fi
-		if test -z "$mac"; then
-			help "<mac> was missing for:" "    mac-address-helper apply <interface> <mac>" '' "You can generate one using:" "    mac-address-helper new"
+		if [[ -z $mac ]]; then
+			help '<mac> was missing for: ' --code='mac-address-helper apply <interface> <mac>' $'\n' 'You can generate one using: ' --code='mac-address-helper new'
 		fi
-		sudo-helper -- /system/Library/PrivateFrameworks/Apple80211.framework/Resources/airport --disassociate
-		sudo-helper -- ifconfig "$interface" ether "$mac"
-		sudo-helper -- ifconfig "$interface" down || :
-		sudo-helper -- ifconfig "$interface" up || :
+		eval-helper --elevate -- /System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport --disassociate
+		eval-helper --elevate -- ifconfig "$interface" ether "$mac"
+		eval-helper --elevate -- ifconfig "$interface" down || :
+		eval-helper --elevate -- ifconfig "$interface" up || :
 		networksetup -detectnewhardware
 	}
 	function act_get {
 		local interface="${1-}"
-		if test -z "$interface"; then
-			help "<interface> was missing for:" "    mac-address-helper get <interface>" '' "Typically [en0] or [p2p0] is used."
+		if [[ -z $interface ]]; then
+			help '<interface> was missing for: ' --code='mac-address-helper get <interface>' $'\n' 'Typically ' --code='en0' ' or ' --code='p2p0' ' is used.'
 		fi
-		sudo-helper -- ifconfig "$interface" ether | rg -o 'ether ([\w\d:]+)' --replace '$1'
+		eval-helper --elevate -- ifconfig "$interface" ether | echo-regexp -fon --regexp='ether ([\w\d:]+)' --replace='$1'
 	}
 
 	# =====================================
 	# Act
 
-	if test "$(type -t "act_$action")" = 'function'; then
-		"act_$action" "${args[@]}"
-	else
-		echo-style --error="Action [$action] not yet implemented." >/dev/stderr
-		return 78 # ENOSYS 78 Function not implemented
-	fi
+	__affirm_function_is_defined act_"$action"
+	"act_$action" "${option_args[@]}" # eval
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	mac_address_helper "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		mac_address_helper_test
+	else
+		mac_address_helper "$@"
+	fi
 fi

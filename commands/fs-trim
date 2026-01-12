@@ -1,0 +1,424 @@
+#!/usr/bin/env bash
+
+function fs_trim_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-trim --help
+
+	eval-tester --name='no args' --status=22 --ignore-stderr -- \
+		fs-trim --
+
+	eval-tester --name='empty args' --status=22 -- \
+		fs-trim -- '' ''
+
+	eval-tester --name='missing' -- \
+		fs-trim -- "$DOROTHY/this-does-not-exist"
+
+	# test working symlinks
+	local root dir_target dir_symlink file_in_dir_target file_target file_symlink file_in_dir_symlink file_resolved # file_in_dir_resolved dir_resolved
+	root="$(fs-temp --directory='dorothy' --directory='fs-trim' --directory='tests' --directory)"
+	dir_target="$(fs-temp --root="$root" --directory='dir_target' --touch)"
+	file_target="$(fs-temp --root="$root" --file='file_target' --touch)"
+	file_in_dir_target="$(fs-temp --root="$dir_target" --file='file_in_dir_target' --touch)"
+	dir_symlink="$(fs-temp --root="$root" --directory='dir_symlink' --no-touch)"
+	file_symlink="$(fs-temp --root="$root" --file='file_symlink' --no-touch)"
+	file_in_dir_symlink="$(fs-temp --root="$dir_target" --file='file_in_dir_symlink' --no-touch)"
+	fs-link --quiet \
+		--existing="$dir_target" --symlink="$dir_symlink" \
+		--existing="$file_target" --symlink="$file_symlink" \
+		--existing="$file_in_dir_target" --symlink="$file_in_dir_symlink"
+
+	# handle macos temporary files being created in a path that has a symlink that needs resolving
+	file_resolved="$(fs-path --resolve -- "$file_symlink")"
+	# file_in_dir_resolved="$(fs-path --resolve -- "$file_in_dir_symlink")"
+	# dir_resolved="$(fs-path --resolve -- "$dir_symlink")"
+
+	# add data and test no-op trim
+	__print_line 'sup' >"$file_in_dir_target"
+	# --ignore-tty on this one as it may install find
+	eval-tester --name='trim non-empty dir target should be no-op' --ignore-tty -- \
+		fs-trim --no-confirm -- "$dir_target"
+	eval-tester --name='trim non-empty dir symlink should be no-op' -- \
+		fs-trim --no-confirm -- "$dir_symlink"
+	eval-tester --name='trim non-empty dir should be no-op (check)' -- \
+		is-present -- "$root" "$dir_target" "$file_target" "$file_in_dir_target" "$dir_symlink" "$file_symlink" "$file_in_dir_symlink"
+
+	# test symlinks
+	eval-tester --name='trim empty file symlink should NOT remove its empty target and itself' -- \
+		fs-trim --no-confirm -- "$file_symlink"
+	eval-tester --name='trim empty file symlink should NOT remove its empty target and itself (check)' -- \
+		is-present -- "$file_target" "$file_symlink"
+	# --ignore-tty on this one as it may install deno
+	eval-tester --name='trim empty file symlink WITH --empty-files should remove its empty target and itself' --stdout="The following items were trimmed from $file_symlink"$'\n'"$file_resolved"$'\n'"$file_symlink" --ignore-tty -- \
+		fs-trim --no-color --no-confirm --empty-files -- "$file_symlink"
+	eval-tester --name='trim empty file symlink WITH --empty-files should remove its empty target and itself (check)' -- \
+		is-missing -- "$file_target" "$file_symlink"
+
+	# make it empty and test again
+	printf '' >"$file_in_dir_target"
+	eval-tester --name='trim root without --all should be no-op' -- \
+		fs-trim --no-confirm -- "$root"
+	eval-tester --name='trim root without --all should be no-op (check)' -- \
+		is-present -- "$root" "$dir_target" "$file_in_dir_target" "$dir_symlink" "$file_in_dir_symlink"
+	eval-tester --name='trim root with --all should trim everything' --stdout="The following items were trimmed from $root"$'\n'"$file_in_dir_target"$'\n'"$file_in_dir_symlink"$'\n'"$dir_target"$'\n'"$dir_symlink"$'\n'"$root" -- \
+		fs-trim --no-color --all --no-confirm -- "$root"
+	eval-tester --name='trim root with --all should trim everything (check)' -- \
+		is-missing -- "$root"
+
+	# recreate empty dirs and files
+	__mkdirp "$dir_target"
+	touch -- "$file_target" "$file_in_dir_target"
+	fs-link --quiet \
+		--existing="$file_in_dir_target" --symlink="$file_in_dir_symlink"
+	rm -f -- "$file_in_dir_target"
+	eval-tester --name='trim root that has empty file, dir, and broken symlink, with --empty, should trim everything' --stdout="The following items were trimmed from $root"$'\n'"$file_target"$'\n'"$file_in_dir_symlink"$'\n'"$dir_target"$'\n'"$root" -- \
+		fs-trim --no-color --no-confirm --empty -- "$root"
+	eval-tester --name='trim root that has empty file, dir, and broken symlink, with --empty, should trim everything (check)' -- \
+		is-missing -- "$root"
+
+	# recreate empty dirs
+	__mkdirp "$dir_target"
+	eval-tester --name='trim root that has only empty dirs, should trim everything' --stdout="The following items were trimmed from $root"$'\n'"$dir_target"$'\n'"$root" -- \
+		fs-trim --no-color --no-confirm -- "$root"
+	eval-tester --name='trim root that has only empty dirs, should trim everything (check)' -- \
+		is-missing -- "$root"
+
+	return 0
+)
+function fs_trim() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# prepare leaves
+	local cache_leaves=(
+		'.DS_Store'
+		'._.DS_Store'
+		'Desktop.ini'
+		'Thumbs.db'
+		'.log'
+	)
+	local module_leaves=(
+		'node_modules'
+		'pnp'
+		'package-lock.json'
+		'yarn.lock'
+		'.pnp.js'
+	)
+	local item cache_find=() module_find=()
+	for item in "${cache_leaves[@]}"; do
+		cache_find+=(-iname "$item" -or)
+	done
+	for item in "${module_leaves[@]}"; do
+		module_find+=(-iname "$item" -or)
+	done
+	cache_find=("${cache_find[@]:0:${#cache_find[@]}-1}")
+	module_find=("${module_find[@]:0:${#module_find[@]}-1}")
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Trim the <path>s of commonly redundant files and directories.
+
+			USAGE:
+			\`fs-trim [...options] [--] ...<path>\`
+
+			OPTIONS:
+			--quiet | --no-verbose
+			    If quiet, do not output trimmed paths.
+			--confirm | --no-confirm
+			    If enabled, confirm the actions.
+			    If disabled, do not confirm the actions.
+			    If empty, confirm only the default action.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`.
+
+			--cache
+			    If provided, leaves/filenames/basenames matching these will be removed: ${cache_leaves[*]}
+			--module
+			    If provided, leaves/filenames/basenames matching these will be removed: ${module_leaves[*]}
+			--empty-files
+			    If provided, empty files will be removed.
+			--broken-symlinks
+			    If provided, broken symlinks will be removed.
+			--empty-directories
+			    If provided, empty directories will be removed.
+
+			--empty
+			    Alias for\` --empty-files --broken-symlinks --empty-directories\`.
+
+			RETURNS:
+			[0] if all <path>s were trimmed of empty files/directories.
+			[22] if empty arguments were provided.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='' option_inputs=() option_confirm='' option_all='' option_cache='' option_module='' option_empty_files='' option_broken_symlinks='' option_empty_directories='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative ;;
+		'--no-all'* | '--all'*)
+			__flag --source={item} --target={option_all} --affirmative
+			if [[ $option_all == 'yes' ]]; then
+				option_cache='yes'
+				option_module='yes'
+				option_empty_files='yes'
+				option_broken_symlinks='yes'
+				option_empty_directories='yes'
+			fi
+			;;
+		'--no-cache'* | '--cache'*) __flag --source={item} --target={option_cache} --affirmative ;;
+		'--no-module'* | '--module'*) __flag --source={item} --target={option_module} --affirmative ;;
+		'--no-empty-files'* | '--empty-files'*) __flag --source={item} --target={option_empty_files} --affirmative ;;
+		'--no-broken-symlinks'* | '--broken-symlinks'*) __flag --source={item} --target={option_broken_symlinks} --affirmative ;;
+		'--no-empty-directories'* | '--empty-directories'*) __flag --source={item} --target={option_empty_directories} --affirmative ;;
+		'--empty')
+			option_empty_files='yes'
+			option_broken_symlinks='yes'
+			option_empty_directories='yes'
+			;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--')
+			option_inputs+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_inputs+=("$item") ;;
+		esac
+	done
+
+	# check
+	if [[ ${#option_inputs[@]} -eq 0 ]]; then
+		help 'No <path>s provided.' # don't set to CWD, as trimming CWD is dangerous
+	fi
+
+	# =====================================
+	# Action
+
+	local selection=()
+	if [[ $option_cache == 'yes' ]]; then
+		selection+=('cache')
+	fi
+	if [[ $option_module == 'yes' ]]; then
+		selection+=('module')
+	fi
+	if [[ $option_empty_files == 'yes' ]]; then
+		selection+=('files')
+	fi
+	if [[ $option_broken_symlinks == 'yes' ]]; then
+		selection+=('broken')
+	fi
+	if [[ $option_empty_directories == 'yes' ]]; then
+		selection+=('directories')
+	fi
+	if [[ ${#selection[@]} -eq 0 ]]; then
+		selection+=('directories')
+		if [[ -z $option_confirm ]]; then
+			option_confirm='yes'
+		fi
+	fi
+
+	# helpers
+	function __confirm {
+		local path="$1" title body
+		if [[ $option_confirm == 'yes' ]]; then
+			title="$(
+				__print_style --notice1='What items do you wish to trim for:' --newline \
+					--code-notice1="$path"
+			)"
+			body="$(__print_style --reset)$(fs-structure --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path")"
+			__split --target={selection} --no-zero-length --invoke -- \
+				choose "$title" "$body" --truncate-body --multiple --defaults-exact="$(__print_lines "${selection[@]}")" --label -- \
+				cache "Caches: $(__print_style --newline --dim="${cache_leaves[*]}")" \
+				module "Module Caches: $(__print_style --newline --dim="${module_leaves[*]}")" \
+				files 'Empty files' \
+				broken 'Broken symlinks' \
+				directories 'Empty directories'
+		fi
+		# still apply defaults in no-confirm mode
+		for item in "${selection[@]}"; do
+			case "$item" in
+			'cache') option_cache='yes' ;;
+			'module') option_module='yes' ;;
+			'files') option_empty_files='yes' ;;
+			'broken') option_broken_symlinks='yes' ;;
+			'directories') option_empty_directories='yes' ;;
+			esac
+		done
+	}
+	function __wrap {
+		eval-helper --inherit --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"
+		return $?
+	}
+	function __find {
+		local path="$1" find_modifications
+		find_modifications="$(fs-temp --directory='fs-trim' --file)" || return $?
+		__command_required -- 'find' || return $?
+		while is-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; do
+			: >"$find_modifications" # clear
+			if [[ $option_cache == 'yes' ]]; then
+				__wrap find "$path" \( "${cache_find[@]}" \) -delete -print >>"$find_modifications" || return $?
+			fi
+			if [[ $option_module == 'yes' ]]; then
+				__wrap find "$path" \( "${module_find[@]}" \) -delete -print >>"$find_modifications" || return $?
+			fi
+			if [[ $option_empty_files == 'yes' ]]; then
+				__wrap find "$path" -type f -empty -delete -print >>"$find_modifications" || return $?
+			fi
+			if [[ $option_broken_symlinks == 'yes' ]]; then
+				__wrap find "$path" -type l -exec fs-trim-broken-symlinks.bash -- {} + >>"$find_modifications" || return $?
+			fi
+			if [[ $option_empty_directories == 'yes' ]]; then
+				__wrap find "$path" -type d -empty -delete -print >>"$find_modifications" || return $?
+			fi
+			if [[ ! -s $find_modifications ]]; then
+				# nothing was trimmed, find_modifications is empty
+				rm -f -- "$find_modifications" || return $?
+				break
+			else
+				cat -- "$find_modifications" || return $?
+				rm -f -- "$find_modifications" || return $?
+			fi
+		done
+	}
+
+	# action
+	local input path target path_leaf target_leaf leaves trim_modifications
+	trim_modifications="$(fs-temp --directory='fs-trim' --file)"
+	for input in "${option_inputs[@]}"; do
+		# check is invalid
+		if [[ -z $input ]]; then
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# just -e is faulty, as -e fails on broken symlinks
+		if is-missing --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input"; then
+			# already missing on the filesystem
+			continue
+		fi
+
+		# prevent deleting ourself which causes: shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+		path="$(fs-path --absolute --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$input")"
+		if [[ "$(pwd)" == "$path"* ]]; then
+			__print_style --stderr --error1='Denied trimming an ancestor of the current working directory, change the working directory to elsewhere and try again: ' --code-error1="$path"
+			return 1
+		fi
+
+		# reset modifications
+		: >"$trim_modifications"
+
+		# confirm the user for action if still ambiguous
+		__confirm "$path"
+
+		# check we have something to do
+		if [[ $option_cache != 'yes' && $option_module != 'yes' && $option_empty_files != 'yes' && $option_broken_symlinks != 'yes' && $option_empty_directories != 'yes' ]]; then
+			# no-op, user is aborting essentially
+			return 0
+		fi
+
+		# continue
+		if is-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			# it is a symlink
+			if is-broken-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+				# it is broken, remove it if desired
+				if [[ $option_broken_symlinks == 'yes' ]]; then
+					__wrap rm -fv -- "$path" >>"$trim_modifications"
+				fi
+				continue
+			fi
+
+			# get the target
+			target="$(fs-path --resolve --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path")"
+
+			# check if it is a cache/module file
+			leaves=()
+			if [[ $option_cache == 'yes' ]]; then
+				leaves+=("${cache_leaves[@]}")
+			fi
+			if [[ $option_module == 'yes' ]]; then
+				leaves+=("${module_leaves[@]}")
+			fi
+			if [[ ${#leaves[@]} -ne 0 ]]; then
+				target_leaf="$(fs-path --no-parents -- "$target")"
+				path_leaf="$(fs-path --no-parents -- "$path")"
+				if __has --source={leaves} --ignore-case --any -- "$target_leaf" "$path_leaf"; then
+					__wrap rm -fv -- "$target" "$path" >>"$trim_modifications"
+					continue
+				fi
+			fi
+
+			# trim target and symlink
+			if is-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
+				# it is a directory or symlink to a directory on the filesystem
+				__find "$target" >>"$trim_modifications"
+				# remove the symlink if its target was just removed
+				if is-missing --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
+					__wrap rm -fv -- "$path" >>"$trim_modifications"
+				fi
+			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
+				__wrap rm -fv -- "$target" "$path" >>"$trim_modifications"
+			fi
+		else
+			# check if it is a cache/module file
+			leaves=()
+			if [[ $option_cache == 'yes' ]]; then
+				leaves+=("${cache_leaves[@]}")
+			fi
+			if [[ $option_module == 'yes' ]]; then
+				leaves+=("${module_leaves[@]}")
+			fi
+			if [[ ${#leaves[@]} -ne 0 ]]; then
+				leaf="$(fs-path --no-parents -- "$path")"
+				if __has --source={leaves} --ignore-case -- "$leaf"; then
+					__wrap rm -fv -- "$path" >>"$trim_modifications"
+					continue
+				fi
+			fi
+
+			# trim path
+			if is-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+				# it is a directory or symlink to a directory on the filesystem
+				__find "$path" >>"$trim_modifications"
+			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+				__wrap rm -fv -- "$path" >>"$trim_modifications"
+			fi
+		fi
+
+		# output modifications
+		if [[ $option_quiet != 'yes' && -s $trim_modifications ]]; then
+			__print_style --notice1='The following items were trimmed from ' --code-notice1="$path"
+			# macos vs linux compat, linux wraps: https://github.com/bevry/dorothy/actions/runs/12093858728/job/33725316374#step:2:1270
+			echo-regexp -gmn "^removed '(.+?)'\$" '$1' <"$trim_modifications"
+		fi
+		rm -f -- "$trim_modifications"
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_trim_test
+	else
+		fs_trim "$@"
+	fi
+fi

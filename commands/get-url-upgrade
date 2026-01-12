@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+function get_url_upgrade_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- get-url-upgrade --help
+	__require_array 'associative' || return 0
+
+	return 0
+)
+
 function get_url_upgrade() (
 	source "$DOROTHY/sources/bash.bash"
 
@@ -7,89 +15,88 @@ function get_url_upgrade() (
 	# Arguments
 
 	function help {
-		cat <<-EOF >/dev/stderr
+		__print_help "$@" <<-EOF || return $?
 			ABOUT:
 			Upgrade a <url> to https if possible.
 
 			USAGE:
-			get-url-upgrade <url>
+			\`get-url-upgrade <url>\`
 		EOF
-		if test "$#" -ne 0; then
-			echo-error "$@"
-		fi
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item option_url=''
-	while test "$#" -ne 0; do
+	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
-		'--'*) help "An unrecognised flag was provided: $item" ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
 		*)
-			if test -z "$option_url"; then
+			if [[ -z $option_url ]]; then
 				option_url="$item"
 			else
-				help "An unrecognised argument was provided: $item"
+				help 'An unrecognised argument was provided: ' --variable-value={item}
 			fi
 			;;
 		esac
 	done
 
+	# assert compatibility
+	__require_array 'associative' || return $?
+
 	# check
-	if test -z "$option_url"; then
+	if [[ -z $option_url ]]; then
 		help "<url> is required"
 	fi
 
 	# =====================================
-	# Dependencies
-
-	setup-util-sd --quiet
-
-	# =====================================
 	# Action
+
+	declare -A old_urls_to_new_url
+	old_urls_to_new_url['https://login.live.com']='https://account.microsoft.com'
+	old_urls_to_new_url['https://account.live.com']='https://account.microsoft.com'
+	old_urls_to_new_url['https://signin.ebay.com.au']='https://www.ebay.com.au/signin/'
 
 	function do_url_upgrade {
 		local url="$1" protocol result
 
-		# remove superflous trailing slash
-		# trunk-ignore(shellcheck/SC2016)
-		url="$(print_line "$url" | sd '([.][a-z]+)[/]$' '$1')"
+		# remove superfluous trailing slash
+		url="$(echo-regexp '([.][a-z]+)[/]$' '$1' -- "$url")"
 
 		# test the original url
 		protocol="$(get-url-protocol "$url" || :)"
-		if test -z "$protocol"; then
+		if [[ -z $protocol ]]; then
 			# try http, which tries https first, otherwise fail
-			print_line "[$url] missing protocol, will try variations" >/dev/stderr
+			__print_style --stderr 'The url ' --variable-value={url} ' is missing its protocol, we will attempt to determine the missing protocol by testing variations...'
 			do_url_upgrade "http://$url"
-			return
-		elif test "$protocol" = 'https'; then
+			return $?
+		elif [[ $protocol == 'https' ]]; then
 			# test original url works
 			if ! fetch --ok "$url"; then
-				print_line "[$url] failing, will try variations" >/dev/stderr
+				__print_style --stderr 'The url ' --variable-value={url} ' is failing, we will try variations...'
 			fi
-		elif test "$protocol" = 'http'; then
+		elif [[ $protocol == 'http' ]]; then
 			# try upgrade to https
 			result="${url//http\:/https\:}"
 			result="$(do_url_upgrade "$result")"
-			if test -n "$result"; then
-				print_line "$result"
+			if [[ -n $result ]]; then
+				__print_lines "$result"
 				return 0
 			fi
 			result=''
 		else
-			print_line "[$url] invalid protocol, unable to upgrade" >/dev/stderr
+			__print_style --stderr 'The url ' --variable-value={url} ' has an invalid protocol, unable to upgrade.'
 			return 1
 		fi
 
 		# try removing www
 		result="${url//www./}"
-		if test "$result" != "$url"; then
+		if [[ $result != "$url" ]]; then
 			result="$(do_url_upgrade "$result")"
-			if test -n "$result"; then
-				print_line "$result"
+			if [[ -n $result ]]; then
+				__print_lines "$result"
 				return 0
 			fi
 		fi
@@ -98,28 +105,28 @@ function get_url_upgrade() (
 		# test the url
 		if fetch --ok "$url"; then
 			# try removing login items
-			if is-match -i 'reg=|registration|verify|create|signup|signing|reset|token|join|register|logout|password|forgot|invitation|invite' "$url"; then
+			if echo-regexp -qi 'reg=|registration|verify|create|signup|signing|reset|token|join|register|logout|password|forgot|invitation|invite' -- "$url"; then
 				result="$(get-url-domain "$url")"
-				if test "$result" != "$url"; then
+				if [[ $result != "$url" ]]; then
 					result="$(do_url_upgrade "$result")"
-					if test -n "$result"; then
-						print_line "$result"
+					if [[ -n $result ]]; then
+						__print_lines "$result"
 						return 0
 					fi
 				fi
 				result=''
 			fi
-			print_line "$url"
+			__print_lines "$url"
 			return 0
 		fi
 
 		# try removing path if ? is not present
 		if [[ $url != *'?'* ]]; then
 			result="$(get-url-domain "$url")"
-			if test "$result" != "$url"; then
+			if [[ $result != "$url" ]]; then
 				result="$(do_url_upgrade "$result")"
-				if test -n "$result"; then
-					print_line "$result"
+				if [[ -n $result ]]; then
+					__print_lines "$result"
 					return 0
 				fi
 			fi
@@ -128,26 +135,23 @@ function get_url_upgrade() (
 
 		# try removing path altogether
 		result="$(get-url-domain "$url")"
-		if test "$result" != "$url"; then
+		if [[ $result != "$url" ]]; then
 			result="$(do_url_upgrade"$result")"
-			if test -n "$result"; then
-				print_line "$result"
+			if [[ -n $result ]]; then
+				__print_lines "$result"
 				return 0
 			fi
 		fi
 		result=''
 
 		# check if it is a replaced domain
-		if is-needle "$url" 'https://login.live.com' 'https://account.live.com' 'https://account.microsoft.com'; then
-			print_line 'https://account.microsoft.com' # curl fails for this, even though it exists, user agent change does nothing
-			return 0
-		elif is-needle "$url" 'https://signin.ebay.com.au'; then
-			print_line 'https://www.ebay.com.au/signin/'
+		if eval '[[ -n $url && -v old_urls_to_new_url["$url"] ]]'; then # avoids: bad array subscript
+			__print_lines "${old_urls_to_new_url["$url"]}"
 			return 0
 		fi
 
 		# unable to make https
-		print_line "[$url] unresponsive" >/dev/stderr
+		__print_style --stderr 'The url ' --variable-value={url} ' is unresponsive.'
 		return 1
 	}
 
@@ -155,6 +159,10 @@ function get_url_upgrade() (
 )
 
 # fire if invoked standalone
-if test "$0" = "${BASH_SOURCE[0]}"; then
-	get_url_upgrade "$@"
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		get_url_upgrade_test
+	else
+		get_url_upgrade "$@"
+	fi
 fi

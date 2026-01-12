@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+
+function fs_move_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-move --help
+)
+
+function fs_move() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	# @todo this is getting too complicated, just do the features we need right now
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Relocate all <source>s to the <destination>, prompting upon conflicts.
+
+			USAGE:
+			\`fs-move [...options] [--] [...<source>] <destination>\`
+
+			OPTIONS:
+			...<source>
+			    The <source>s to relocate to or into or as the <destination>.
+			<destination>
+			    The <destination> to relocate the <source>s to or into or as.
+
+			--[no-]quiet | --[no-]verbose
+			    Forwarded to \`fs-link\`, \`fs-copy\`, \`fs-remove\`, \`fs-trim\`.
+
+			--[no-]symlink
+			    If enabled, each <source> will be persisted afterwards as a symlink to the <destination>.
+			--[no-]absolute | --[no-]relative
+			    If provided, forces the <source> symlinks to <destination> to be absolute or relative.
+			    By default, this is determined by whether or not the <destination> was absolute or relative.
+			--[no-]resolve
+			    If enabled, each and every <source> and <destination> symlink source and destination will be added as additional <source>s.
+			--[no-]follow
+			    If enabled, the <destination> will become the <destination> symlink target if so.
+			--[no-]rename | --[no-]overwrite
+			    If <rename>, rename conflicting <destination> targets, such that they are not overwritten.
+			    If <overwrite>, just overwrite conflicting <destination> targets without renaming them.
+			    Defaults to <rename>.
+			    PARTIALLY IMPLEMENTED: Currently only implemented for when <source> and <destination> are both directories.
+			--[no-]merge | --[no-]replace
+			    If <merge>,
+			        * if <source> is a directory and <destination> is a file, place <destination> into <source> before relocating <source> to <destination>, abiding by <rename>/<overwrite>.
+			        * if <source> is a file and <destination> is a directory, place <source> into <destination>, abiding by <rename>/<overwrite>.
+			        * if <source> and <destination> are both a file, abide by <rename>/<overwrite>.
+			        * if <source> and <destination> are both a directory, merge the contents of <source> into <destination>, abiding by <rename>/<overwrite>.
+			    If <replace>, removes <destination> and replace it with the <source>.
+			    Defaults to <merge>.
+			    NOT YET IMPLEMENTED.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`eval-helper\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='' option_paths=() \
+	option_symlink='' option_absolute='' option_resolve='' option_follow='' option_rename='' \
+	option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-symlink'* | '--symlink'*)
+			__flag --source={item} --target={option_symlink} --affirmative --coerce
+			if [[ $option_symlink == 'all' ]]; then
+				help --help='The `--symlink=all` option is not yet implemented.'
+			elif ! [[ -z $option_symlink || $option_symlink =~ ^(yes|no)$ ]]; then # bash 3.2 doesn't support ^(yes|no|)$
+				help --help='An unrecognised <symlink> was provided: ' --variable-value={option_symlink}
+			fi
+			;;
+		'--no-absolute'* | '--absolute'*) __flag --source={item} --target={option_absolute} --affirmative --coerce ;;
+		'--no-relative'* | '--relative'*) __flag --source={item} --target={option_absolute} --non-affirmative --coerce ;;
+		'--no-resolve'* | '--resolve'*) __flag --source={item} --target={option_resolve} --affirmative --coerce ;;
+		'--no-follow'* | '--follow'*) __flag --source={item} --target={option_follow} --affirmative --coerce ;;
+		'--no-rename'* | '--rename'*) __flag --source={item} --target={option_rename} --affirmative --coerce ;;
+		'--no-overwrite'* | '--overwrite'*) __flag --source={item} --target={option_rename} --non-affirmative --coerce ;;
+		# '--no-merge'* | '--merge'*) __flag --source={item} --target={option_merge} --affirmative --coerce ;;
+		# '--no-replace'* | '--replace'*) __flag --source={item} --target={option_merge} --non-affirmative --coerce ;;
+		# <elevate>
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--')
+			option_paths+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) option_paths+=("$item") ;;
+		esac
+	done
+
+	# =====================================
+	# Helpers
+
+	local elevation_args=(--elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason")
+
+	function __wrap {
+		eval-helper "${elevation_args[@]}" -- "$@" || return $?
+	}
+
+	# =====================================
+	# Action
+
+	# check
+	if [[ ${#option_paths[@]} -lt 2 ]]; then
+		help 'There must at least be a <source> and <destination> provided.'
+	fi
+
+	# determine the destination
+	local destination
+	__at --source={option_paths} --target={destination} -- -1
+
+	# determine destination relative or absolute
+	if [[ -z $option_absolute ]]; then
+		if [[ $destination == /* ]]; then
+			option_absolute=yes
+		else
+			option_absolute='no'
+		fi
+	fi
+
+	# expand the destination?
+	if [[ $option_follow == 'yes' ]]; then
+		destination="$(fs-path "${elevation_args[@]}" --absolute --resolve --follow -- "$destination")"
+	else
+		destination="$(fs-path "${elevation_args[@]}" --absolute --no-resolve --no-follow -- "$destination")"
+	fi
+
+	# determine the sources
+	local sources=() destination path
+	if [[ $option_resolve == 'yes' ]]; then
+		for path in "${option_paths[@]}"; do
+			__affirm_value_is_defined "$path" '<path>' || return $?
+			# add the path to the sources
+			path="$(fs-path "${elevation_args[@]}" --absolute --no-resolve --no-follow -- "$path")"
+			sources+=("$path")
+			# resolve the path if it is a symlink
+			while is-symlink "${elevation_args[@]}" -- "$path"; do
+				path="$(fs-path "${elevation_args[@]}" --absolute --resolve --no-follow -- "$path")"
+				# add the resolved symlink to the sources
+				sources+=("$path")
+			done
+		done
+	else
+		for path in "${option_paths[@]}"; do
+			__affirm_value_is_defined "$path" '<path>' || return $?
+			# add the path to the sources
+			path="$(fs-path "${elevation_args[@]}" --absolute --no-resolve --no-follow -- "$path")"
+			sources+=("$path")
+		done
+	fi
+
+	# ensure sources are unique, and do not contain the destination
+	__unique --source+target={sources}
+	__evict --source+target={sources} --every --optional -- "$destination"
+
+	# if there are no sources remaining, then the sources were only the destination, which is a problem
+	if [[ ${#sources[@]} -eq 0 ]]; then
+		if [[ $option_quiet == 'no' ]]; then
+			__print_style --stderr --notice='Nothing to move, as the <source>s were only the <destination>:' ' ' --path="$destination"
+			return 0
+		fi
+	fi
+
+	# move all sources to the destination
+	local source
+	function __fail {
+		__print_style --stderr --notice='Something went wrong when relocating paths to their correct location. Please remove one of these to try again:' --newline --code="$source" --newline --code="$destination" || :
+		return 17 # EEXIST 17 File exists
+	}
+	for source in "${sources[@]}"; do
+		if [[ $option_symlink == 'yes' ]]; then
+			fs-link "${elevation_args[@]}" --quiet="$option_quiet" --symlink="$source" --target="$destination" --absolute="$option_absolute"
+		elif is-symlink "${elevation_args[@]}" -- "$source"; then
+			fs-remove "${elevation_args[@]}" --quiet="$option_quiet" --no-confirm -- "$source"
+		elif is-present "${elevation_args[@]}" -- "$source"; then
+			# if the destination exists, trim both the source and destination to avoid merge failures
+			# this is done for the destination here as prior moves could result in new trim-able destination contents
+			if is-present "${elevation_args[@]}" -- "$destination"; then
+				fs-trim "${elevation_args[@]}" --quiet="$option_quiet" --no-confirm --empty --cache -- "$source" "$destination"
+				# if source doesn't exist anymore, we are done, as there is nothing left to relocate
+				if is-missing "${elevation_args[@]}" -- "$source"; then
+					continue
+				fi
+			else
+				# nothing exists at the location, ensure its parent path at least exists
+				__wrap mkdir -p -- "$(fs-path --parents -- "$destination")" >&2
+			fi
+			# merge the source into the destination
+			if is-directory "${elevation_args[@]}" -- "$source" "$destination" || [[ $option_rename == 'yes' ]]; then
+				# they were both directories, so we need advanced merging
+				fs-copy --no-confirm --remove --backup="${option_rename}" --quiet="$option_quiet" -- "$source" "$destination" || __fail
+			elif [[ $option_quiet == 'yes' ]]; then
+				# one was a file, so make this easy
+				__wrap mv -f -- "$source" "$destination" || __fail
+			else
+				# one was a file, so make this easy
+				__wrap mv -fv -- "$source" "$destination" || __fail
+			fi
+		fi
+	done
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_move_test
+	else
+		fs_move "$@"
+	fi
+fi
