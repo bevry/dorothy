@@ -77,7 +77,7 @@ if command -v ssh-agent >/dev/null 2>&1; then
 		export SSH_ASKPASS
 		SSH_ASKPASS="$(command -v ssh-askpass)"
 	fi
-	# setting [SSH_ASKPASS_REQUIRE] to [prefer] voids TTY responses
+	# setting `SSH_ASKPASS_REQUIRE` to `prefer` voids TTY responses
 
 	# check if the agent is still running
 	if [ -n "${SSH_AGENT_PID-}" ] && ! kill -0 "$SSH_AGENT_PID" >/dev/null 2>&1; then

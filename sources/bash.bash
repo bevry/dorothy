@@ -1299,7 +1299,7 @@ if [[ $BASH_VERSION_MAJOR -ge 5 ]]; then
 		BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY=no
 	fi
 elif [[ $BASH_VERSION_MAJOR -ge 4 ]]; then
-	# note that these versions do not support [-d <delim>] or [-t] options with mapfile
+	# note that these versions do not support `-d <delim>` or `-t` options with mapfile
 	# bash >= 4
 	BASH_HAS_NATIVE_READARRAY=yes
 	BASH_HAS_NATIVE_MAPFILE=yes
@@ -1602,9 +1602,9 @@ function __affirm_variable_name {
 
 # use this to ensure that the prior command's exit status bubbles a failure, regardless of whether errexit is on or off:
 # __return $? || return $?
-# in your [__*] functions instead of this mess:
+# in your `__*` functions instead of this mess:
 # status=$?; if [[ $status -ne 0 ]]; then return $status; fi
-# this is all necessary as just doing this disables errexit in [__fn]:
+# this is all necessary as just doing this disables errexit in `__fn`:
 # __fn || return $?
 #
 # use this to ensure the touch always functions and the failure status is persisted:

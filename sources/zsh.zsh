@@ -5,8 +5,8 @@
 # =============================================================================
 # Print Helpers
 
-# These should be the same in [bash.bash] and [zsh.zsh].
-# They exist because [echo] has flaws, notably [v='-n'; echo "$v"] will not output [-n].
+# These should be the same in `bash.bash` and `zsh.zsh`.
+# They exist because `echo` has flaws, notably `v='-n'; echo "$v"` will not output `-n`.
 # In UNIX there is no difference between an empty string and no input:
 # empty stdin:  printf '' | wc
 #               wc < <(printf '')

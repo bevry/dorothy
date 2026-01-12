@@ -62,7 +62,7 @@ else
 	DOROTHY_LOAD='no' # this must be outside the below if, to ensure DOROTHY_LOAD is reset, and DOROTHY_LOADED is respected, otherwise posix shells may double load due to cross-compat between dotfiles (.profile along with whatever they support)
 	if [ -z "${DOROTHY_LOADED_SHARED_SCOPE-}" ]; then
 		# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
-		# NVIM here because it sets $0 as whichever shell invoked Neovim: https://github.com/bevry/dorothy/pull/279$0
+		# NVIM here because it sets $0 as whichever shell invoked Neovim <https://github.com/bevry/dorothy/pull/279$0>
 		if [ "$0" = '-bash' ] || [ "$0" = '-zsh' ] || [ "$0" = '-dash' ] || [ "$0" = 'dash' ] || [ -n "${NVIM-}" ]; then
 			DOROTHY_LOAD='yes'
 		elif [ -n "${BASH_VERSION-}" ]; then
@@ -84,7 +84,7 @@ else
 				DOROTHY_LOAD='yes'
 			fi
 		elif [ -z "$-" ] && [ -z "$*" ] && [ "${CI-}" = 'true' ]; then
-			DOROTHY_LOAD='yes' # dash on github ci, in which [$-] and [$*] are empty, and $0 = /home/runner....
+			DOROTHY_LOAD='yes' # dash on github ci, in which `$-` and `$*` are empty, and $0 = /home/runner....
 		else
 			# bash v3 and dash do not set l in $-
 			# zsh does, however zsh we have a definite option earlier
@@ -110,9 +110,9 @@ if [ "${DOROTHY_LOAD-}" = 'yes' ]; then
 	if [ -z "${DOROTHY-}" ]; then
 		# https://stackoverflow.com/a/246128
 		# https://stackoverflow.com/a/14728194
-		# if true login shell on macos, then $0 is [-bash], [-zsh], [-dash], etc.
+		# if true login shell on macos, then $0 is `-bash`, `-zsh`, `-dash`, etc.
 		export DOROTHY
-		# this should somewhat coincide with [prepare_dorothy] in [dorothy]
+		# this should somewhat coincide with `prepare_dorothy` in `dorothy`
 		if [ -n "${XDG_DATA_HOME-}" ] && [ -d "$XDG_DATA_HOME/dorothy" ]; then
 			DOROTHY="$XDG_DATA_HOME/dorothy"
 		else
@@ -124,6 +124,6 @@ if [ "${DOROTHY_LOAD-}" = 'yes' ]; then
 	. "$DOROTHY/sources/environment.sh"
 
 	# if the login shell is also interactive, then init dorothy for the interactive login shell
-	# [-t 0] and [-s] are true despite [env -i bash -lc ...]
+	# `-t 0` and `-s` are true despite `env -i bash -lc ...`
 	case $- in *i*) . "$DOROTHY/sources/interactive.sh" ;; esac
 fi
