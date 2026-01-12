@@ -19,7 +19,7 @@ Dorothy provides tooling for advanced terminal interactions.
     - the ANSI Escape Codes section of `styles.bash` used by `echo-style`
 
 - For styling, colors, etc:
-    - `styles.bash` and `echo-style`
+    - `sources/styles.bash` which provides `__print_style` (automagically loaded by `bash.bash`), and exposed to other commands via `echo-style`. Refer to `echo-style --help` for assistance.
 
 - For debugging:
     - `waiter` for specifying `stdout`, `stderr`, and `tty` output after a delay, etc.

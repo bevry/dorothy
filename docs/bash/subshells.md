@@ -2,12 +2,6 @@
 
 Pipes will create accidental subshells, which will fail to apply changes to the parent scope.
 
-Sources:
-
-- [Explanation](https://mywiki.wooledge.org/BashFAQ/024)
-
-Advice:
-
 ```bash
 source "$DOROTHY/sources/bash.bash"
 
@@ -31,3 +25,7 @@ __split --target={lines} --no-zero-length --stdin < <(printf '%s\n' foo bar) # a
 printf 'total number of lines: %s\n' "${#lines[@]}"
 # outputs 2
 ```
+
+Past References:
+
+- [Explanation](https://mywiki.wooledge.org/BashFAQ/024)
