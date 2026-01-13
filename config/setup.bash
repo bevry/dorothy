@@ -2,25 +2,26 @@
 # shellcheck disable=SC2034
 # Do not use `export` keyword in this file
 
-# Login Shells
+# Shells
 # Used by `setup-shell`
-# List with your most preferred login shell first. The first installed preference will be used as your login shell.
-DOROTHY_LOGIN_SHELLS=(
-	# officially supported shells
-	bash # bourne again shell
-	dash # debian almquist shell
-	fish # fish shell
-	nu   # nushell
-	zsh  # Z shell
-	# officially supported shells (alpha/beta quality integrations)
-	elvish # elvish shell
-	ksh    # korn shell
-	xonsh  # python-powered shell
-	# potentially supported shells
-	ash  # almquist shell
-	hush # hush, an independent implementation of a Bourne shell for BusyBox
-	sh   # the operating-system symlinks this to any POSIX compliant shell
-)
+# Configure Shells: All the shells you wish to enable Dorothy for.
+DOROTHY_CONFIGURE_SHELLS=()
+# Login Shells: Your preferred login shells, by earliest order of preference.
+DOROTHY_LOGIN_SHELLS=()
+# ## officially supported shells
+# bash # bourne again shell
+# dash # debian almquist shell
+# fish # fish shell
+# nu   # nushell
+# zsh  # Z shell
+# ## officially supported shells (alpha/beta quality integrations)
+# elvish # elvish shell
+# ksh    # korn shell
+# xonsh  # python-powered shell
+# ## potentially supported shells
+# ash  # almquist shell
+# hush # hush, an independent implementation of a Bourne shell for BusyBox
+# sh   # the operating-system symlinks this to any POSIX compliant shell
 
 # APK
 # Used by `setup-linux`

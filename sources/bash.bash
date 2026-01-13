@@ -4600,6 +4600,7 @@ function __at {
 	__to --source={AT__results} --mode="$AT__mode" --targets={AT__targets} || return $?
 }
 
+# @todo rename to `__transform`
 function __case {
 	local CASE__conversion='lower'
 	# <single-source helper arguments>

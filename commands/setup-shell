@@ -5,10 +5,6 @@
 # Excluded shells are provided by command line args, to exclude shells, such as when a shell is about to be uninstalled, so must be trimmed from say allowed shells.
 # Allowed shells are shells within `/etc/shells` that are able to be login shells.
 
-# todo add configuration saving
-# todo add DOROTHY_CONFIGURE_SHELLS
-# todo test uninstallation
-
 # todo add --clear-history option
 # nu: history -c
 # sh: history -c
@@ -82,7 +78,7 @@ function setup_shell() (
 	# used by these helpers
 	local option_brew='' option_exclusions=()
 	local all_installable_basenames_of_shells=(
-		# in order of usage
+		# in order of usage, order should match `setup.bash`
 		bash
 		zsh
 		fish
@@ -658,7 +654,7 @@ function setup_shell() (
 			--[no-]configure[=...<configure-shell>]
 			    If disabled, do not configure any shells for Dorothy and reset <configure-shell>s.
 			    If enabled, prompt from these <configure-shell>s or <shell>s to configure.
-			    Selection will be from installed shells, and will default to all <installed-shell>s.
+			    Selection will be from installed shells, and will default to \`setup.bash:DOROTHY_CONFIGURE_SHELLS\`.
 			    Result will be <configured-shell>s.
 			--[no-]deconfigure[=...<deconfigure-shell>]
 			    If disabled, do not deconfigure any shells for Dorothy and reset <deconfigure-shell>s.
@@ -679,7 +675,7 @@ function setup_shell() (
 			--[no-]login[=...<login-shell>]
 			    If disabled, disable changing the login shell, and reset <login-shell>s.
 			    If enabled, prompt from these <login-shell>s or <shell>s as your login shell,
-			    Selection will be from <allowed-shell>s. Order will be from \`setup.bash:DOROTHY_LOGIN_SHELLS\` (previously \`shells.bash:USER_SHELLS\`).
+			    Selection will be from \`setup.bash:DOROTHY_LOGIN_SHELLS\` and <allowed-shell>s.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -784,17 +780,45 @@ function setup_shell() (
 	# load configuration regardless, as it is important for the clarity prompts
 	source "$DOROTHY/sources/config.sh"
 	# trunk-ignore(shellcheck/SC2034)
-	local SETUP_UTILS=() DOROTHY_LOGIN_SHELLS=() USER_SHELLS=()
+	local SETUP_UTILS=() DOROTHY_CONFIGURE_SHELLS=() DOROTHY_LOGIN_SHELLS=() USER_SHELLS=()
 	load_dorothy_config -- 'setup.bash'
 
-	# `USER_SHELLS` replaced by `DOROTHY_LOGIN_SHELLS`
+	# `USER_SHELLS` replaced by `DOROTHY_CONFIGURE_SHELLS` and `DOROTHY_LOGIN_SHELLS`
 	load_dorothy_config --optional -- 'shells.bash' # deprecated
+	function __save_configuration {
+		local args=() arg
+		while [[ $# -ne 0 ]]; do
+			arg="$1"
+			shift
+			case "$arg" in
+			configure)
+				__case --source+target={DOROTHY_CONFIGURE_SHELLS} --lowercase
+				__unique --source+target={DOROTHY_CONFIGURE_SHELLS}
+				args+=(
+					--field='DOROTHY_CONFIGURE_SHELLS'
+					--array="$(__print_lines "${DOROTHY_CONFIGURE_SHELLS[@]}")"
+				)
+				;;
+			login)
+				__case --source+target={DOROTHY_LOGIN_SHELLS} --lowercase
+				__unique --source+target={DOROTHY_LOGIN_SHELLS}
+				args+=(
+					--field='DOROTHY_LOGIN_SHELLS'
+					--array="$(__print_lines "${DOROTHY_LOGIN_SHELLS[@]}")"
+				)
+				;;
+			esac
+		done
+		if [[ ${#args[@]} -ne 0 ]]; then
+			dorothy-config 'setup.bash' -- "${args[@]}"
+		fi
+	}
 	if [[ ${#USER_SHELLS[@]} -ne 0 ]]; then
+		DOROTHY_CONFIGURE_SHELLS=("${USER_SHELLS[@]}")
 		DOROTHY_LOGIN_SHELLS=("${USER_SHELLS[@]}")
-		dorothy-config 'setup.bash' -- \
-			--field='DOROTHY_LOGIN_SHELLS' --array="$(echo-unique --ignore-case -- "${DOROTHY_LOGIN_SHELLS[@]}")"
+		__save_configuration configure login
 	fi
-	remove_dorothy_config --reason='The shells.bash:USER_SHELLS has been relocated to setup.bash:DOROTHY_LOGIN_SHELLS. Relocation already done.' -- 'shells.bash'
+	remove_dorothy_config --reason='The shells.bash:USER_SHELLS has been relocated to setup.bash:DOROTHY_CONFIGURE_SHELLS and setup.bash:DOROTHY_LOGIN_SHELLS. Relocation already performed.' -- 'shells.bash'
 
 	# =====================================
 	# Helpers
@@ -817,7 +841,7 @@ function setup_shell() (
 		# trunk-ignore-end(shellcheck/SC2034)
 
 		# do the prompts
-		local action list=() shell defaults=() multi question description action_enabled action_shells action_shells_or_generic_shells_applied action_shells_or_generic_shells=() action_result_var group=() group_message=''
+		local action list=() shell defaults=() multi single question description action_enabled action_shells action_shells_or_generic_shells_applied action_shells_or_generic_shells=() action_result_var group=() group_message=''
 		function __apply_action_shells_or_generic_shells {
 			if [[ $action_shells_or_generic_shells_applied == 'no' ]]; then
 				if [[ ${#action_shells[@]} -ne 0 ]]; then
@@ -1020,7 +1044,7 @@ function setup_shell() (
 			# check
 			if [[ $action == 'login' && $apply_login_shell_method == 'none' ]]; then
 				__print_style --tty --newline --notice="Dorothy doesn't know how to set the login shell on this Operating System." || return $?
-				return 0
+				break
 				# return 19 # ENODEV 19 Operation not configurable by device
 			fi
 
@@ -1079,6 +1103,11 @@ function setup_shell() (
 						fi
 						preselections+=('setup.bash:SETUP_UTILS')
 					fi
+				elif [[ $action == 'configure' ]]; then
+					if __has --source={DOROTHY_CONFIGURE_SHELLS} --any -- "${has_args[@]}"; then
+						default='yes'
+						preselections+=('setup.bash:DOROTHY_CONFIGURE_SHELLS')
+					fi
 				elif [[ $action == 'allow' || $action == 'disallow' || $action == 'login' ]]; then
 					if [[ $action == 'allow' || $action == 'login' ]]; then
 						if __has --source={DOROTHY_LOGIN_SHELLS} --any -- "${has_args[@]}"; then
@@ -1119,8 +1148,13 @@ function setup_shell() (
 			# select which shells to install and consequently which to also uninstall
 			local -i status=0
 			__value_to_tty $'\n' || return $?
+			if [[ $multi == 'yes' ]]; then
+				single='no'
+			else
+				single='yes'
+			fi
 			__split --target={"$action_result_var"} --overwrite --no-zero-length --invoke -- \
-				choose --linger --skip-default="$skip_default" --multi="$multi" "$question" "$description" --defaults="$(__print_lines "${defaults[@]}")" --label -- "${choices[@]}" || status=$?
+				choose --linger --skip-default="$skip_default" --confirm-input="$single" --confirm-cancel --multi="$multi" "$question" "$description" --defaults="$(__print_lines "${defaults[@]}")" --label -- "${choices[@]}" || status=$?
 			if [[ $status -eq 130 ]]; then
 				# this shouldn't happen, as 130 will only be returned if `--required` and no selection were made, which is not the case here
 				# but just continue anyway
@@ -1129,6 +1163,28 @@ function setup_shell() (
 				return "$status"
 			fi
 		done
+
+		# save configuration
+		if [[ $option_reconfigure == 'yes' ]]; then
+			local save=()
+			if [[ $option_configure != 'no' && ${user_configure_shells[*]} != "${DOROTHY_CONFIGURE_SHELLS[*]}" ]]; then
+				DOROTHY_CONFIGURE_SHELLS=("${user_configure_shells[@]}")
+				save+=('configure')
+			fi
+			local basenames_of_user_login_shells=()
+			# convert login selections back into basenames
+			# @todo perhaps consider offering the basenames alongside the paths in the login prompt, so that we don't have to do this magic
+			if [[ ${#user_login_shells[@]} -ne 0 ]]; then
+				__split --target={basenames_of_user_login_shells} --no-zero-length --invoke=try -- \
+					fs-path --no-parents --no-extension -- "${user_login_shells[@]}" || return $?
+				__unique --source+target={basenames_of_user_login_shells} || return $?
+			fi
+			if [[ $option_login != 'no' && ${basenames_of_user_login_shells[*]} != "${DOROTHY_LOGIN_SHELLS[*]}" ]]; then
+				DOROTHY_LOGIN_SHELLS=("${basenames_of_user_login_shells[@]}")
+				save+=('login')
+			fi
+			__save_configuration "${save[@]}" || return $?
+		fi
 	}
 
 	# =====================================
