@@ -210,7 +210,7 @@ function stdinargs {
 	else
 		"$fn_help" 'An unrecognised <timeout> was provided: ' --variable-value={option_timeout}
 	fi
-	# defaults, notably timeout_max defualts to stdin
+	# defaults, notably timeout_max defaults to stdin
 	if [[ -z $timeout_immediate ]]; then
 		timeout_immediate='no'
 	fi
