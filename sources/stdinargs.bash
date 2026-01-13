@@ -205,8 +205,10 @@ function stdinargs {
 	elif [[ $option_timeout == 0 || $option_timeout == 'immediate' ]]; then
 		timeout_immediate='yes'
 		timeout_seconds=0
-	else
+	elif __is_number "$option_timeout"; then
 		timeout_seconds="$(__get_read_decimal_timeout "$option_timeout")" || return $?
+	else
+		"$fn_help" 'An unrecognised <timeout> was provided: ' --variable-value={option_timeout}
 	fi
 	if [[ -z $timeout_max ]]; then
 		timeout_max="${option_stdin:-"no"}"
