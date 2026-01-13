@@ -128,7 +128,7 @@ From changelog:
 > Because of the exit status bug in this version, this version is discouraged.
 
 > [!NOTE]
-> Dorothy's `bash.bash` includes cross-version compatible implementations of `__is_var_defined`, `__is_var_declared`, `__is_var_set`, `__get_date`, `__slice`.
+> Dorothy's `bash.bash` includes cross-version compatible implementations of `__is_var_declared`, `__is_var_defined`, `__get_date`, `__slice`.
 
 From manual discovery:
 

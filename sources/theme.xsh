@@ -11,4 +11,4 @@ if ${...}.get('DOROTHY_THEME') != None and ${...}.get('DOROTHY_THEME') != 'syste
 	elif path.exists($DOROTHY + '/themes/' + $DOROTHY_THEME + '.xsh'):
 		execx(compilex(open($DOROTHY + '/themes/' + $DOROTHY_THEME + '.xsh').read()))
 	else:
-		echo-style --stderr --warning=@('Dorothy theme [' + $DOROTHY_THEME + '] is not supported by this shell [xsh]')
+		echo-style --stderr --warning='WARNING:' ' ' @('--help=Dorothy theme `' + $DOROTHY_THEME + '` is not supported by this shell `xsh`')

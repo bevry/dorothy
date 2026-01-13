@@ -60,7 +60,7 @@ function __is_fs__args {
 
 	# verify
 	if [[ ${#option_inputs[@]} -eq 0 ]]; then
-		__help 'No <input>s provided.' || return $?
+		__help --help='No <input>s provided.' || return $?
 	fi
 }
 

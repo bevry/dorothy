@@ -9,7 +9,7 @@
 # if ( printf '%s\n' 'path' | path exists ) {
 # 	source 'path'
 # }
-# is useless, as if [path] doesn't exist, [source 'path'] will still fail
+# is useless, as if `path` doesn't exist, `source 'path'` will still fail
 
 def load_dorothy_config [...filenames: string] {
 	echo-style --stderr --error='Nu does not support dynamic loading of configuration files.'

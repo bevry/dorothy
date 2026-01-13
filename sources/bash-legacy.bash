@@ -368,7 +368,7 @@ core) ;;
 		DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}"
 		local DOROTHY_TRY__STATUS=
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM"
-		# ^ two randoms, as before [eval_capture_wait] solved the race condition, it could be that the temp files were not detected in the tail of this script and as such were not removed, and could persist, which would cause the below failures, now that [eval_capture_wait] is used, a single random should be sufficient, however we won't know until later
+		# ^ two randoms, as before `eval_capture_wait` solved the race condition, it could be that the temp files were not detected in the tail of this script and as such were not removed, and could persist, which would cause the below failures, now that `eval_capture_wait` is used, a single random should be sufficient, however we won't know until later
 
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
@@ -403,7 +403,7 @@ core) ;;
 			# the [$?] in [return $?] in the trap is necessary: https://github.com/bevry/dorothy/actions/runs/13102792036
 			trap 'DOROTHY_TRY__TRAP_STATUS=$?; if [[ $- = *e* ]]; then dorothy_try__trap "$DOROTHY_TRY__TRAP_STATUS" "${FUNCNAME-}" "${BASH_SOURCE[0]}:${LINENO}:${FUNCNAME-}:$-:$BASH_VERSION" "${BASH_SUBSHELL-}" "$DOROTHY_TRY__CONTEXT"; return $?; fi' ERR
 
-			# if [__is_subshell_function__internal] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function__internal] will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
+			# if `__is_subshell_function__internal` uses test instead of [[, then under bash v3 with `set -e` then `__is_subshell_function__internal` will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
 			if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 				set +e
 				(
@@ -569,7 +569,7 @@ core) ;;
 		# trunk-ignore(shellcheck/SC2064)
 		trap "$dorothy_try__trap_inner" ERR
 
-		# if [__is_subshell_function__internal] uses test instead of [[, then under bash v3 with [set -e] then [__is_subshell_function__internal] will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
+		# if `__is_subshell_function__internal` uses test instead of [[, then under bash v3 with `set -e` then `__is_subshell_function__internal` will cause ERR to fire within the context of ${DOROTHY_TRY__COMMAND[0]} and will skip everything bel
 		if [[ $IS_BASH_VERSION_OUTDATED == 'yes' ]] && __is_errexit && __is_subshell_function__internal "${DOROTHY_TRY__COMMAND[0]}"; then
 			set +e
 			(
@@ -617,7 +617,7 @@ core) ;;
 		DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}"
 		local DOROTHY_TRY__STATUS=
 		local DOROTHY_TRY__CONTEXT="$RANDOM$RANDOM"
-		# ^ two randoms, as before [eval_capture_wait] solved the race condition, it could be that the temp files were not detected in the tail of this script and as such were not removed, and could persist, which would cause the below failures, now that [eval_capture_wait] is used, a single random should be sufficient, however we won't know until later
+		# ^ two randoms, as before `eval_capture_wait` solved the race condition, it could be that the temp files were not detected in the tail of this script and as such were not removed, and could persist, which would cause the below failures, now that `eval_capture_wait` is used, a single random should be sufficient, however we won't know until later
 
 		local DOROTHY_TRY__COMMAND=("${cmd[@]}")
 		local DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"

@@ -126,7 +126,7 @@ function is_fs_tests__prep {
 	__print_style --tty --header1='prepping structure'
 	fs-structure -- "$root/targets" >&2
 
-	# invalidate elevation after the [fs-own] calls above, such that our [__status__root_or_nonroot] returns correct results
+	# invalidate elevation after the `fs-own` calls above, such that our `__status__root_or_nonroot` returns correct results
 	eval-helper --invalidate-elevation
 
 	__print_lines "$root"
@@ -182,7 +182,7 @@ function is_fs_tests__tuples {
 			eval-tester --ignore-tty --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path" || result=$?
 		fi
 	done
-	eval-helper --invalidate-elevation # ensure subsequent [__status__root_or_nonroot] are running with intended elevation
+	eval-helper --invalidate-elevation # ensure subsequent `__status__root_or_nonroot` are running with intended elevation
 	if [[ $result -ne 0 ]]; then
 		if [[ -n $group ]]; then
 			__print_style --e2="$group"

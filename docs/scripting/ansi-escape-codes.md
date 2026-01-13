@@ -1,5 +1,7 @@
 # ANSI Escape Codes
 
+- See our [`sources/ansi.bash`](https://github.com/bevry/dorothy/blob/master/sources/ansi.bash) for our ANSI handling. Some other documetnation also exists in [`prompts.md`](https://github.com/bevry/dorothy/blob/master/docs/scripting/prompts.md).
+
 ## Documentation on ANSI Escape Codes
 
 - <https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences>

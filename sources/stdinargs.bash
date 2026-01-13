@@ -30,25 +30,24 @@ function __stdinargs__help_options {
 		stdin_empty_message="$default_message"
 	fi
 	cat <<-EOF || return $?
-		--timeout | --timeout=yes
-		    Wait one second for STDIN content before timing out.
-		    This is the default behaviour.
-		--no-timeout | --timeout=no | --timeout=max
-		    Do not timeout waiting for STDIN content.
-		--timeout=immediate | --timeout=0
-		    STDIN content must be immediate.
-		--timeout=<seconds>
-		    We will wait <seconds> before moving on. Decimal values are supported, but will be changed to \`1\` second on earlier bash versions.
+		--[no-]color[s]
+		    Enforce or disable colored output, by exporting \`COLOR\` as \`tes\` (if enabled) or \`no\` (if disabled).
 
-		--stdin=
-		    Use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
-		--stdin | --stdin=yes | -
-		    Require STDIN for processing inputs, and disable timeout.$stdin_yes_message
-		--no-stdin | --stdin=no | --
-		    Require arguments for processing inputs, and ignore STDIN.$stdin_no_message
+		--[no-]timeout[=<timeout:yes|no|max|immediate|0|<seconds>]
+		    If enabled or omitted, STDIN content will be waited for \`1\` second before timing out.
+		    If disabled or \`max\`, STDIN content will wait forever and not timeout.
+		    If \`immediate\` or \`0\`, STDIN content must be immediate before timing out.
+		    If <seconds>, STDIN content will be waited for <seconds> before timing out. Decimal values are supported, however decimals will be converted to \`1\` second on legacy bash versions.
 
-		--no-color
-		    Disables colored output.
+		--[no-]stdin
+		    If empty or omitted, use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
+		    If enabled, require STDIN for processing inputs, and disable timeout.$stdin_yes_message
+		    If disabled, require arguments for processing inputs, and ignore STDIN.$stdin_no_message
+
+		--[no-]inline
+		    If enabled or omitted, always read the last line.
+		    If disabled, only read the last tine if it has a terminating newline.
+		    Support for this is dependent on the transformer, as it may not always be applicable.
 	EOF
 }
 function stdinargs_options_help { __stdinargs__help_options "$@"; } # b/c alias
@@ -151,8 +150,7 @@ function stdinargs {
 	fi
 
 	# arguments
-	local timeout_immediate='no' timeout_max='no' timeout_seconds=1
-	local item option_stdin='' option_inline='yes' option_max_args='' option_args=()
+	local item option_stdin='' option_timeout='' option_inline='yes' option_max_args='' option_args=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -167,43 +165,15 @@ function stdinargs {
 			fi
 			;;
 		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export || return $? ;;
-		'--timeout' | '--timeout=' | '--timeout=yes')
-			timeout_seconds=1
-			;;
-		'--no-timeout' | '--timeout=no' | '--timeout=max')
-			timeout_max='yes'
-			;;
-		'--timeout=0' | '--timeout=immediate')
-			timeout_immediate='yes'
-			timeout_seconds=0
-			;;
-		'--timeout='*)
-			timeout_seconds="${item#*=}"
-			timeout_seconds="$(__get_read_decimal_timeout "$timeout_seconds")" || return $?
-			;;
-		# inline
-		'--no-inline' | '--inline=no')
-			option_inline='no'
-			;;
-		'--inline' | '--inline=yes')
-			option_inline='yes'
-			;;
-		# don't use __flag as we want to do the `timeout_max` modification
-		'--no-stdin' | '--stdin=no')
-			option_stdin='no'
-			;;
-		'--stdin' | '--stdin=yes')
-			option_stdin='yes'
-			timeout_max='yes'
-			;;
-		# max args
+		'--no-stdin'* | '--stdin'*) __flag --source={item} --target={option_stdin} --affirmative --no-coerce || return $? ;;
+		'--no-timeout'* | '--timeout'*) __flag --source={item} --target={option_timeout} --affirmative --no-coerce || return  ;;
+		'--no-inline'* | '--inline'*) __flag --source={item} --target={option_inline} --affirmative --coerce || return $? ;;
 		'--max-args='*) option_max_args="${item#*=}" ;;
 		# arguments, stdin
 		'-')
 			if [[ $# -eq 0 ]]; then
 				# if - was the last argument, this is a convention for enforcing stdin
 				option_stdin='yes'
-				timeout_max='yes'
 			else
 				option_args+=("$item")
 			fi
@@ -225,6 +195,28 @@ function stdinargs {
 		*) option_args+=("$item") ;;
 		esac
 	done
+
+	# determine timeouts
+	local timeout_immediate='' timeout_max='' timeout_seconds=1
+	if [[ -z $option_timeout || $option_timeout == 'yes' || $option_timeout == 1 ]]; then
+		timeout_seconds=1
+	elif [[ $option_timeout == 'no' || $option_timeout == 'max' ]]; then
+		timeout_max='yes'
+	elif [[ $option_timeout == 0 || $option_timeout == 'immediate' ]]; then
+		timeout_immediate='yes'
+		timeout_seconds=0
+	elif __is_number "$option_timeout"; then
+		timeout_seconds="$(__get_read_decimal_timeout "$option_timeout")" || return $?
+	else
+		"$fn_help" 'An unrecognised <timeout> was provided: ' --variable-value={option_timeout}
+	fi
+	# defaults, notably timeout_max defaults to stdin
+	if [[ -z $timeout_immediate ]]; then
+		timeout_immediate='no'
+	fi
+	if [[ -z $timeout_max ]]; then
+		timeout_max="${option_stdin:-"no"}"
+	fi
 
 	# process
 	local had_args='maybe' had_stdin='maybe' args_count="${#option_args[@]}" complete='no' read_args=('-r')

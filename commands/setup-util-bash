@@ -152,6 +152,108 @@ function setup_util_bash() (
 		fi
 	}
 
+	# https://www.gnu.org/prep/ftp.html
+	# try mirrors first as they are faster, then fallback to main site
+	function __download_bash_version_patch {
+		local version="$1" patch="$2"
+		down --url="https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" ||
+			down --url="https://ftp.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" || return $?
+	}
+	function __fetch_bash_version_patches {
+		local version="$1"
+		fetch "https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/" ||
+			fetch "https://ftp.gnu.org/gnu/bash/bash-${version}-patches/" || return $?
+	}
+	function __get_bash_version_patches {
+		# https://github.com/bevry/dorothy/actions/runs/18237950922/job/51935016858#step:2:1816
+		# some mirrors have two <a> tags:
+		# https://ftp.wayne.edu/gnu/bash/bash-5.0-patches/
+		# <td valign="top">
+		#     <a href="bash50-001">
+		#         <img src="/icons/text.gif" alt="[TXT]">
+		#     </a>
+		# </td>
+		# <td>
+		#     <a href="bash50-001">bash50-001</a>
+		# </td>
+		# https://ftp.gnu.org/gnu/bash/bash-5.0-patches/
+		# <td valign="top">
+		#     <img src="/icons/unknown.gif" alt="[   ]">
+		# </td>
+		# <td>
+		#     <a href="bash50-001">bash50-001</a>
+		# </td>
+		# so send to `echo-unique` rather than complicating our filter
+		# also send to `sort`, as depending on the mirror, a different sort order will be returned, and they must be sorted by ascending name
+		local version="$1"
+		__fetch_bash_version_patches "$version" | echo-regexp -gno --regexp='href="(bash[^"]+)' --replace='$1' | grep --invert-match --extended-regexp --regexp='\.sig$' | echo-unique --stdin | sort || return $?
+	}
+	function __dependencies {
+		local version="$1"
+		if __is_macos && [[ $version == "$BASH_VERSION_LATEST" ]]; then
+			: # dependencies not needed on macos on latest bash version
+		else
+			setup-util-devel --quiet || return $?
+			if [[ $version == "$BASH_VERSION_LATEST" ]]; then
+				: # yacc not required on newer bash versions
+			else
+				setup-util --quiet --cli='yacc' APT='byacc' BREW='byacc' || return $?
+			fi
+			source "$DOROTHY/sources/environment.sh" || return $?
+		fi
+	}
+	function __configure {
+		# ensure unbounded vars, as `setup-environment-commands` will remove empty vars, in which they will will remain unbounded
+		# https://www.gnu.org/software/bash/manual//html_node/Installation-Names.html
+		# https://www.gnu.org/software/bash/manual//html_node/Compilers-and-Options.html
+		# `-w` disables all warnings
+		# `-Wno-error=all` disables all errors
+		# `-std=gnu89` fixes
+		# `CFLAGS` is for C, `CPPFLAGS` is for C++
+		# `-DSSH_SOURCE_BASHRC` tells the compiled bash to source `~/.bashrc` when accessed via SSH, it was determined from <https://github.com/Homebrew/homebrew-core/blob/fafb2acd40e20f772a1cd33db67ebab81c206987/Formula/b/bash.rb#L116-L122>
+		local version="$1" cflags='' cppflags=''
+		case "$version" in
+		# all versions prior to 5.3 require older coding standards, at least for Fedora
+		# it is only required for `CPPFLAGS`, and applying it also to `CFLAGS` doesn't fail, so it seems it would be better to apply to both, which is what we do
+		5.3) : ;;
+		*) cflags='-std=gnu89' cppflags='-std=gnu89' ;;
+		esac
+		./configure CFLAGS="-w -Wno-error=all $cflags -DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all $cppflags ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
+	}
+	function __install {
+		# patches
+		local make_args=("$@") version
+		# don't look to ./configure as that is only minor version, and we want the patch version, which should be in the path
+		# version="$(echo-regexp -o --regexp='BASHVERS=(.+)' --replace='$1' <./configure)" || return $?
+		version="$(pwd | echo-regexp -o --regexp='/bash-([^/]+)/' --replace='$1' || :)"
+		# if it isn't in the path, then it we aren't doing a versioned download, and just getting the latest, so use that
+		if [[ -z $version ]]; then
+			version="$BASH_VERSION_LATEST"
+		fi
+		__dependencies "$version"
+		# if the version has a patch, we don't need to patch
+		if [[ $version == *.*.* ]]; then
+			__print_style --stderr --bold='Bash version ' --code="$version" --bold=' is already patched.' || return $?
+		else
+			# use ftp.gnu.org for fetching the listing, then use mirrors for fetching the mirrors
+			# mirrors sometimes are not reliable with duplicate data or missing items
+			local patches=() patch
+			__split --target={patches} --no-zero-length --invoke=try -- \
+				__get_bash_version_patches "$version" || return $?
+			for patch in "${patches[@]}"; do
+				# if the mirror fails, then fallback to the main site, and if that fails, then give up
+				__download_bash_version_patch "$version" "$patch" || return $?
+				patch --input="$patch" -p0 || return $? # p0 is necessary for linux builds
+			done
+		fi
+		# compile
+		__configure "$version" || return $?
+		make "${make_args[@]}" || return $?
+	}
+	function __install_xdg {
+		__install install prefix="$XDG_PREFIX" || return $?
+	}
+
 	# =================================
 	# Arguments
 
@@ -197,76 +299,6 @@ function setup_util_bash() (
 		source "$(type -P setup-util)"
 
 		# @todo support uninstall
-
-		# https://www.gnu.org/prep/ftp.html
-		# try mirrors first as they are faster, then fallback to main site
-		function __download_bash_version_patch {
-			local version="$1" patch="$2"
-			down --url="https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" ||
-				down --url="https://ftp.gnu.org/gnu/bash/bash-${version}-patches/${patch}" --file="$patch" || return $?
-		}
-		function __fetch_bash_version_patches {
-			local version="$1"
-			fetch "https://ftpmirror.gnu.org/gnu/bash/bash-${version}-patches/" ||
-				fetch "https://ftp.gnu.org/gnu/bash/bash-${version}-patches/" || return $?
-		}
-		function __get_bash_version_patches {
-			# https://github.com/bevry/dorothy/actions/runs/18237950922/job/51935016858#step:2:1816
-			# some mirrors have two <a> tags:
-			# https://ftp.wayne.edu/gnu/bash/bash-5.0-patches/
-			# <td valign="top">
-			#     <a href="bash50-001">
-			#         <img src="/icons/text.gif" alt="[TXT]">
-			#     </a>
-			# </td>
-			# <td>
-			#     <a href="bash50-001">bash50-001</a>
-			# </td>
-			# https://ftp.gnu.org/gnu/bash/bash-5.0-patches/
-			# <td valign="top">
-			#     <img src="/icons/unknown.gif" alt="[   ]">
-			# </td>
-			# <td>
-			#     <a href="bash50-001">bash50-001</a>
-			# </td>
-			# so send to `echo-unique` rather than complicating our filter
-			# also send to `sort`, as depending on the mirror, a different sort order will be returned, and they must be sorted by ascending name
-			local version="$1"
-			__fetch_bash_version_patches "$version" | echo-regexp -gno --regexp='href="(bash[^"]+)' --replace='$1' | grep --invert-match --extended-regexp --regexp='\.sig$' | echo-unique --stdin | sort || return $?
-		}
-		function __install {
-			# dependencies
-			setup-util-devel --quiet || return $?
-			setup-util --quiet --cli='yacc' APT='byacc' BREW='byacc' || return $?
-			source "$DOROTHY/sources/environment.sh" || return $?
-			# patches
-			local version
-			# don't look to ./configure as that is only minor version, and we want the patch version, which should be in the path
-			# version="$(echo-regexp -o --regexp='BASHVERS=(.+)' --replace='$1' <./configure)" || return $?
-			version="$(pwd | echo-regexp -o --regexp='/bash-([^/]+)/' --replace='$1' || :)"
-			# if it isn't in the path, then it we aren't doing a versioned download, and just getting the latest, so use that
-			if [[ -z $version ]]; then
-				version="$BASH_VERSION_LATEST"
-			fi
-			# if the version has a patch, we don't need to patch
-			if [[ $version == *.*.* ]]; then
-				__print_style --stderr --bold='Bash version ' --code="$version" --bold=' is already patched.' || return $?
-			else
-				# use ftp.gnu.org for fetching the listing, then use mirrors for fetching the mirrors
-				# mirrors sometimes are not reliable with duplicate data or missing items
-				local patches=() patch
-				__split --target={patches} --no-zero-length --invoke=try -- \
-					__get_bash_version_patches "$version" || return $?
-				for patch in "${patches[@]}"; do
-					# if the mirror fails, then fallback to the main site, and if that fails, then give up
-					__download_bash_version_patch "$version" "$patch" || return $?
-					patch --input="$patch" -p0 || return $? # p0 is necessary for linux builds
-				done
-			fi
-			# compile
-			./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
-			make || return $?
-		}
 		for version in "${versions[@]}"; do
 			options=(
 				--cli="bash-$version"
@@ -274,8 +306,9 @@ function setup_util_bash() (
 				"$@"
 				DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${version}.tar.gz"
 				DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
-				DOWNLOAD_BUILD_INSTALL='__install'
 				DOWNLOAD_BUILD_GLOB='bash'
+				DOWNLOAD_BUILD_INSTALL='__install'
+				# uninstall not necessary, as it is handled by the generic source
 			)
 			setup_util --optional "${options[@]}"
 		done
@@ -315,31 +348,9 @@ function setup_util_bash() (
 		XBPS='bash'
 		ZYPPER='bash'
 	)
-	function __install {
-		# dependencies
-		if ! __is_macos; then
-			setup-util-devel --quiet || return $?
-			source "$DOROTHY/sources/environment.sh" || return $?
-		fi
-
-		# install for all users
-		# support unbounded flags, as empty from [setup-environment-commands] then it will remain unbounded
-		# https://www.gnu.org/software/bash/manual//html_node/Installation-Names.html
-		# https://www.gnu.org/software/bash/manual//html_node/Compilers-and-Options.html
-		./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
-		make install prefix="$XDG_PREFIX" || return $?
-	}
-	function __uninstall {
-		# the configure is necessary to make [make uninstall] available
-		if ! __is_macos; then
-			setup-util-devel --quiet || return $?
-			source "$DOROTHY/sources/environment.sh" || return $?
-		fi
-		./configure CFLAGS="-DSSH_SOURCE_BASHRC ${CFLAGS-}" CPPFLAGS="-w -Wno-error=all ${CPPFLAGS-}" LDFLAGS="-s ${LDFLAGS-}" || return $?
-		make uninstall prefix="$XDG_PREFIX" || return $?
-	}
 	arch="$(__get_arch)"
 	if __is_macos; then
+		# https://formulae.brew.sh/api/formula/bash.json
 		# fetch the bottle urls via: brew info --json bash | __jq -r '.[].bottle.stable.files'
 		macos_release="$(get-macos-release-name)"
 		if [[ $arch == 'a64' ]]; then
@@ -378,9 +389,15 @@ function setup_util_bash() (
 			DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${BASH_VERSION_LATEST}.tar.gz"
 			DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
 			DOWNLOAD_TARGET_PATH="$XDG_PREFIX/bin/bash"
-			DOWNLOAD_BUILD_INSTALL='__install'
+			DOWNLOAD_BUILD_INSTALL='__install_xdg'
 			DOWNLOAD_BUILD_UNINSTALL='__uninstall'
 		)
+		function __uninstall {
+			__dependencies "$BASH_VERSION_LATEST"
+			# the configure is necessary to make `make uninstall` available
+			__configure "$version" || return $?
+			make uninstall prefix="$XDG_PREFIX" || return $?
+		}
 	fi
 	setup_util "${options[@]}"
 

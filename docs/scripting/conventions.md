@@ -24,23 +24,19 @@ For example, in the below code example, tab indentation is used for code alignme
 # =====================================
 # Arguments
 
-# help
-function help() {
+function help {
 	__print_help "$@" <<-EOF || return $?
 		ABOUT:
 		Prompt the user for an input value in a clean and robust way.
 
 		USAGE:
-		ask [...options]
+		\`ask [...options]\`
 
 		OPTIONS:
 		--question=<string>
 		    Specifies the question that the prompt will be answering.
 	EOF
-	if [[ $# -ne 0 ]]; then
-		__print_error "$@"
-	fi
-	return 22 # Invalid argument
+	return 22 # EINVAL 22 Invalid argument
 }
 ```
 
@@ -86,6 +82,8 @@ fi
 Variables can use the name of a function or command, e.g. `local source=...; printf '%s\n' "$source"` as variables do not conflict with functions/commands due to them requiring the `$` prefix.
 
 As bash is a case-sensitive language, we are open to adopting `camelCase` and `CamelCase` if there is well reasoned grounds for it.
+
+If your function works within conditionals (errexit disabled), which is a function with `|| return $?` catches everywhere, then you can prefix it with two underscores `__<function_name>` to indicate that it is a safety function and will work within conditionals and that it will not evoke the demons of [`errors.md`](https://github.com/bevry/dorothy/blob/master/docs/bash/errors.md).
 
 ## Variables
 

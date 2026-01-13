@@ -1,7 +1,8 @@
 # Mastering Arrays in Bash
 
 > [!WARNING]
-> This document is grossly out of date and incorrect or even invalid. Modern Dorothy conventions, which have yet to be documented, have done away with most of the tedium described here.
+> This document is grossly out of date and incorrect or even invalid due to mass regexp replacements of old conventions with new conventions, which may function differently in these examples. Modern Dorothy conventions, which have yet to be documented, have done away with most of the tedium described here.
+> Past history <https://github.com/bevry/dorothy/commits/master/docs/bash/arrays.md>
 
 Sources:
 

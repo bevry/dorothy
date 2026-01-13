@@ -25,7 +25,7 @@ echo-style --tty
 
 ```plain
 > setup-util-curlie --order=download --verbose
-The [curlie] utility was not found. Installing automatically... ⏲
+The `curlie` utility was not found. Installing automatically... ⏲
 </ wget --continue --progress=dot:giga --output-document=curlie1.8.2darwinarm64.tar.gz https://github.com/rs/curlie/releases/download/v1.8.2/curlie_1.8.2_darwin_arm64.tar.gz >[0]
 ```
 

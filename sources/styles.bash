@@ -725,6 +725,7 @@ STYLE__MULTICOLOR__END__input_error="${STYLE__MULTICOLOR__END__error1}"
 STYLE__commentary='[ '
 STYLE__commentary__END=' ]'
 STYLE__icon_nothing_provided="${STYLE__commentary}nothing provided${STYLE__commentary__END}"
+STYLE__icon_nothing_available="${STYLE__commentary}nothing available${STYLE__commentary__END}"
 STYLE__icon_undeclared="${STYLE__commentary}undeclared${STYLE__commentary__END}"
 STYLE__icon_undefined="${STYLE__commentary}undefined${STYLE__commentary__END}"
 STYLE__icon_empty="${STYLE__commentary}empty${STYLE__commentary__END}"
@@ -738,6 +739,9 @@ STYLE__icon_input_failure="${STYLE__commentary}input failure: %s${STYLE__comment
 
 STYLE__MONOCOLOR__commentary_nothing_provided="${STYLE__icon_nothing_provided}"
 STYLE__MULTICOLOR__commentary_nothing_provided="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_nothing_provided}${STYLE__MULTICOLOR__END__empty_line}"
+
+STYLE__MONOCOLOR__commentary_nothing_available="${STYLE__icon_nothing_available}"
+STYLE__MULTICOLOR__commentary_nothing_available="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_nothing_available}${STYLE__MULTICOLOR__END__empty_line}"
 
 STYLE__MONOCOLOR__commentary_undeclared="${STYLE__icon_undeclared}"
 STYLE__MULTICOLOR__commentary_undeclared="${STYLE__MULTICOLOR__empty_line}${STYLE__icon_undeclared}${STYLE__MULTICOLOR__END__empty_line}"

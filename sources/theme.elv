@@ -10,6 +10,6 @@ if (and (has-env DOROTHY_THEME) (not-eq $E:DOROTHY_THEME 'system')) {
 	} elif ?(test -f $E:DOROTHY'/themes/'$E:DOROTHY_THEME'.elv') {
 		eval (cat $E:DOROTHY'/themes/'$E:DOROTHY_THEME'.elv' | slurp)
 	} else {
-		echo-style --stderr --warning='Dorothy theme ['$E:DOROTHY_THEME'] is not supported by this shell [elvish]'
+		echo-style --stderr --warning='WARNING:' ' ' --help='Dorothy theme `'$E:DOROTHY_THEME'` is not supported by this shell `elvish`'
 	}
 }
