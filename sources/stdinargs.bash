@@ -197,7 +197,7 @@ function stdinargs {
 	done
 
 	# determine timeouts
-	local timeout_immediate='no' timeout_max='no' timeout_seconds=1
+	local timeout_immediate='' timeout_max='' timeout_seconds=1
 	if [[ -z $option_timeout || $option_timeout == 'yes' || $option_timeout == 1 ]]; then
 		timeout_seconds=1
 	elif [[ $option_timeout == 'no' || $option_timeout == 'max' ]]; then
@@ -209,6 +209,10 @@ function stdinargs {
 		timeout_seconds="$(__get_read_decimal_timeout "$option_timeout")" || return $?
 	else
 		"$fn_help" 'An unrecognised <timeout> was provided: ' --variable-value={option_timeout}
+	fi
+	# defaults, notably timeout_max defualts to stdin
+	if [[ -z $timeout_immediate ]]; then
+		timeout_immediate='no'
 	fi
 	if [[ -z $timeout_max ]]; then
 		timeout_max="${option_stdin:-"no"}"
