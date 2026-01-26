@@ -1564,6 +1564,14 @@ function __affirm_variable_is_array {
 	fi
 }
 
+# aka `__is_valid_variable_name`, `__is_valid_function_name`
+function __is_valid_name {
+	__affirm_length_defined $# 'input' || return $?
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[_a-zA-Z0-9]+$ ]] || return $?
+		shift
+	done
+}
 # affirm <variable-name> is a valid variable name, not a reference (a variable named wrapped in squigglies), nor an invalid pattern
 # __affirm_variable_name <variable-name>
 function __affirm_variable_name {
@@ -3212,31 +3220,43 @@ function __try {
 	# update globals
 	DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}" # so we can remove our trap once all tries are finished
 
-	# update shared variables
-	# [3.2.57][testing_middle] [__try] [26180].status
-	DOROTHY_TRY__CONTEXT="$(__get_context_id '__try' 'status' || :)"
-	DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "$DOROTHY_TRY__CONTEXT")"
-
-	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
-	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
-	dorothy_try__wrapper
-	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT - 1))"
-	if [[ $DOROTHY_TRY__COUNT -eq 0 ]]; then
-		# if all our tries have now finished, remove the lingering trap
-		trap - ERR
-	fi
-
-	# load the exit status if necessary
-	if [[ -f $DOROTHY_TRY__SEMAPHORE ]]; then
-		local DOROTHY_TRY__loaded_status
-		DOROTHY_TRY__loaded_status="$(<"$DOROTHY_TRY__SEMAPHORE")"
-		if [[ $DOROTHY_TRY__loaded_status -ne $DOROTHY_TRY__STATUS ]]; then
-			dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    NEEDED" || :
-		else
-			dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    SAME" || :
+	# if it is a safety function (quick check), or a not a function (quick check, then expensive check), then skip very expensive workaround
+	if [[ ${DOROTHY_TRY__COMMAND[0]:0:2} == __ ]] || ! __is_valid_name "${DOROTHY_TRY__COMMAND[0]}"; then
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
+		dorothy_try__context_lines "VANILLA: ${DOROTHY_TRY__COMMAND[0]}" || :
+		"${DOROTHY_TRY__COMMAND[@]}" || DOROTHY_TRY__STATUS=$? # eval
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT - 1))"
+		if [[ $DOROTHY_TRY__COUNT -eq 0 ]]; then
+			# if all our tries have now finished, remove the lingering trap
+			trap - ERR
 		fi
-		DOROTHY_TRY__STATUS="$DOROTHY_TRY__loaded_status"
-		rm -f -- "$DOROTHY_TRY__SEMAPHORE" || :
+	else
+		# update shared variables
+		# [3.2.57][testing_middle] [__try] [26180].status
+		DOROTHY_TRY__CONTEXT="$(__get_context_id '__try' 'status' || :)"
+		DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "$DOROTHY_TRY__CONTEXT")"
+
+		# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
+		dorothy_try__wrapper
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT - 1))"
+		if [[ $DOROTHY_TRY__COUNT -eq 0 ]]; then
+			# if all our tries have now finished, remove the lingering trap
+			trap - ERR
+		fi
+
+		# load the exit status if necessary
+		if [[ -f $DOROTHY_TRY__SEMAPHORE ]]; then
+			local DOROTHY_TRY__loaded_status
+			DOROTHY_TRY__loaded_status="$(<"$DOROTHY_TRY__SEMAPHORE")"
+			if [[ $DOROTHY_TRY__loaded_status -ne $DOROTHY_TRY__STATUS ]]; then
+				dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    NEEDED" || :
+			else
+				dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    SAME" || :
+			fi
+			DOROTHY_TRY__STATUS="$DOROTHY_TRY__loaded_status"
+			rm -f -- "$DOROTHY_TRY__SEMAPHORE" || :
+		fi
 	fi
 
 	# apply the exit status
