@@ -1522,6 +1522,10 @@ function __print_help {
 	for ((i = 0; i < n; i++)); do
 		result+="${prefixes[i]}${s[i]}${suffixes[i]}"
 	done
+	# trim double trailing newline, which is an EOF accident
+	while [[ $result == *$'\n\n' ]]; do
+		result="${result%$'\n'*}"
+	done
 	printf '%s' "$result" >&2
 	if [[ $# -ne 0 ]]; then
 		__print_line || return $?
