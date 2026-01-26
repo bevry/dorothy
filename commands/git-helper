@@ -130,6 +130,10 @@ function git_helper() (
 			    --[no-]test
 			        If enabled, test the connection to <remote>.
 			        Will default to enabled if <remote> and <url> is provided with <mode:apply>.
+			    --depth=<depth> | --unshallow
+			        Prune the remote's fetched history to <depth> commits from tip.
+			        If \`0\` or <unshallow>, then unshallow the history.
+			        Only applicable with <test> enabled.
 			& url [...arguments]
 			    Alias for \`remote --result=url [...arguments]\`
 
@@ -149,8 +153,9 @@ function git_helper() (
 			        If provided, then configure and sync the remote to this <url>.
 			    --branch=<branch>
 			        If provided, sync with this branch, instead of the current branch, or if indeterminate, the default branch.
-			    --depth=<depth>
+			    --depth=<depth> | --unshallow
 			        If cloning or pulling, only fetch <depth> commits from tip.
+			        If \`0\` or <unshallow>, then unshallow the history.
 			    --[no-]rebase
 			        If pulling, rebase our changes atop of the remote changes, useful to avoid diverging branch blocks.
 			    --[no-]new [...arguments]
@@ -937,7 +942,7 @@ function git_helper() (
 
 	function __remote {
 		# process
-		local item mode='get' protocol='' remote='' url='' result='' verify='' test=''
+		local item mode='get' protocol='' remote='' url='' result='' verify='' test='' depth=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -951,6 +956,13 @@ function git_helper() (
 			--no-result* | --result*) __flag --source={item} --target={result} --affirmative --no-coerce || return $? ;;
 			--no-verify* | --verify*) __flag --source={item} --target={verify} --affirmative --coerce || return $? ;;
 			--no-test* | --test*) __flag --source={item} --target={test} --affirmative --coerce || return $? ;;
+			--depth=*) depth="${item#*=}" ;;
+			--no-unshallow* | --unshallow*)
+				__flag --source+target={item}  --affirmative --coerce || return $?
+				if [[ $item == 'yes' ]]; then
+					depth=0
+				fi
+				;;
 			--*) __unrecognised_flag "$item" || return $? ;;
 			*) __unrecognised_argument "$item" || return $? ;;
 			esac
@@ -1099,9 +1111,25 @@ function git_helper() (
 
 		# test application
 		function __test_with_fallback {
-			if eval-helper --quiet --wrap -- git fetch --dry-run --depth=1 "$remote"; then
+			# before this was `--dry-run --depth=1`, however specifying `--depth=<depth>` disregards `--dry-run` which then requires `git fetch --unshallow` to repair the `grafted` and diverged (diverged only in perception) commit history
+			# there is `---negotiate-only` which seems like it would work, but it isn't
+			# however, without any other args, it seems it will just do what was previously configured, however, this is called in `sync` before our initial fetch/pull, so respect the depth if one was provided, and file a bug with git that depth discards dry-run
+			local depth_args=()
+			# if our depth is 0, and if it is shallow
+			if [[ -n $depth ]]; then
+				if [[ $depth -ge 1 ]]; then
+					# make shallow
+					depth_args+=("--depth=$depth")
+				elif [[ -e .git/shallow ]]; then
+					# make unshallow
+					depth_args+=('--unshallow')
+				fi # else already unshallow
+			fi
+			# perform the fetch
+			if eval-helper --quiet --wrap -- git fetch --dry-run "${depth_args[@]}" "$remote"; then
 				return 0
 			fi
+			# it failed, handle fallback
 			local tested_url
 			tested_url="$(git remote get-url "$remote")" || return $?
 			# @todo once `choose` supports `--inline` then change to `choose` instead of this `confirm` seesaw
@@ -1178,7 +1206,7 @@ function git_helper() (
 
 	function __sync {
 		# process
-		local item remote='origin' url='' branch='' depth='' protocol='' project='' description='' homepage='' new='' init='' update=''
+		local item remote='origin' url='' branch='' depth='' protocol='' project='' description='' homepage='' rebase='' new='' init='' update=''
 		while [[ $# -ne 0 ]]; do
 			item="$1"
 			shift
@@ -1187,6 +1215,12 @@ function git_helper() (
 			--url=*) url="${item#*=}" ;;
 			--branch=*) branch="${item#*=}" ;;
 			--depth=*) depth="${item#*=}" ;;
+			--no-unshallow* | --unshallow*)
+				__flag --source+target={item}  --affirmative --coerce || return $?
+				if [[ $item == 'yes' ]]; then
+					depth=0
+				fi
+				;;
 			--no-protocol* | --protocol*) __flag --source={item} --target={protocol} --affirmative --no-coerce || return $? ;;
 			--project=*) project="${item#*=}" ;;
 			--description=*) description="${item#*=}" ;;
@@ -1199,12 +1233,6 @@ function git_helper() (
 			*) __unrecognised_argument "$item" || return $? ;;
 			esac
 		done
-
-		# depth
-		local depth_args=()
-		if [[ -n $depth ]]; then
-			depth_args+=("--depth=$depth")
-		fi
 
 		# rebase
 		local rebase_args=()
@@ -1401,6 +1429,22 @@ function git_helper() (
 			return 0
 		fi
 
+		# prepare depth
+		local depth_args=()
+		function __prepare_depth {
+			depth_args=()
+			# if our depth is 0, and if it is shallow
+			if [[ -n $depth ]]; then
+				if [[ $depth -ge 1 ]]; then
+					# make shallow
+					depth_args+=("--depth=$depth")
+				elif [[ -e .git/shallow ]]; then
+					# make unshallow
+					depth_args+=('--unshallow')
+				fi # else already unshallow
+			fi
+		}
+
 		# wrap the update to handle optional
 		function __do_update {
 			# avoid merge conflicts
@@ -1409,10 +1453,11 @@ function git_helper() (
 			git config --local pull.ff only || return $?
 
 			# ensure and fetch the remote, testing it
-			remote="$(__remote --apply --remote="$remote" --url="$url" --protocol="$protocol" --verify --test)" || return $?
-
+			remote="$(__remote --apply --remote="$remote" --url="$url" --protocol="$protocol" --verify --test --depth="$depth")" || return $?
+			
 			# fetch all origins, branches, and prune remote deleted branches
 			local pending success failure
+			__prepare_depth
 			pending="$(__print_style --bold='Fetching' ' ' --path="$option_path" ' ' --variable={remote})" || return $?
 			success="$(__print_style --success='Fetched' ' ' --path="$option_path" ' ' --variable={remote})" || return $?
 			failure="$(__print_style --error='Failed to fetch' ' ' --path="$option_path" ' ' --variable={remote})" || return $?
@@ -1506,6 +1551,7 @@ function git_helper() (
 				eval-helper --quiet --wrap --pending="$pending" --success="$success" --failure="$failure" -- \
 					git checkout --track "$remote/$branch" || return $?
 			else
+				__prepare_depth
 				pending="$(__print_style --bold='Pulling' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return $?
 				success="$(__print_style --success='Pulled' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return $?
 				failure="$(__print_style --error='Failed to pull' ' ' --path="$option_path" ' ' --variable={remote} ' ' --variable={branch})" || return $?
