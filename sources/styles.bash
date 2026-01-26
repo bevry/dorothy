@@ -1013,6 +1013,7 @@ function __refresh_style_cache {
 	__load_styles --save "$@"
 }
 
+# @todo support `__to` variable targets for better performance, as process substitution is slow
 function __print_style {
 	__pause_tracing || return $?
 	# process
