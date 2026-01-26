@@ -3988,9 +3988,13 @@ function __is_trap_alive {
 # -------------------------------------
 # Semaphore Toolkit
 
+function __prepare_semlocks {
+	__mkdirp "$GET_SEMLOCK__dir" || return $?
+	function __prepare_semlocks { :; }
+}
 function __get_semlock {
 	local GET_SEMLOCK__context_id="$1" GET_SEMLOCK__dir="$TMPDIR/dorothy/semlocks" GET_SEMLOCK__semlock GET_SEMLOCK__wait GET_SEMLOCK__pid=$$
-	__mkdirp "$GET_SEMLOCK__dir" || return $?
+	__prepare_semlocks || return $?
 	# the lock file contains the process id that has the lock
 	GET_SEMLOCK__semlock="${GET_SEMLOCK__dir}/${GET_SEMLOCK__context_id}.lock"
 	# wait for a exclusive lock
@@ -4014,9 +4018,13 @@ function __get_semlock {
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
 # as to why use `__get_semaphore` instead of `mktemp`, is that we want `dorothy test` to check if we cleaned everything up, furthermore, `mktemp` actually makes the files, so you have to do more expensive `-s` checks
+function __prepare_semaphores {
+	__mkdirp "$GET_SEMAPHORE__dir" || return $?
+	function __prepare_semaphores { :; }
+}
 function __get_semaphore {
 	local GET_SEMAPHORE__context_id="${1:-"$RANDOM$RANDOM"}" GET_SEMAPHORE__dir="$TMPDIR/dorothy/semaphores"
-	__mkdirp "$GET_SEMAPHORE__dir" || return $?
+	__prepare_semaphores || return $?
 	__print_lines "${GET_SEMAPHORE__dir}/${GET_SEMAPHORE__context_id}" || return $?
 }
 
