@@ -91,6 +91,21 @@ function __invoke_function_from_source {
 # -------------------------------------
 # Environment Toolkit & Print Toolkit Dependencies
 
+# cache `uname -r` to prevent slow invocations
+function __prepare_uname_r {
+	if [[ -z ${UNAME_R-} ]]; then
+		export UNAME_R
+		UNAME_R="$(uname -r)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
+}
+# cache `uname -v` to prevent slow invocations
+function __prepare_uname_v {
+	if [[ -z ${UNAME_V-} ]]; then
+		export UNAME_V
+		UNAME_V="$(uname -v)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
+	fi
+}
+
 # see `commands/get-arch` for details
 function __get_arch {
 	local arch="$HOSTTYPE"
@@ -100,7 +115,7 @@ function __get_arch {
 		# Is this Apple Silicon running via `arch -x86_64 <command>`?
 		# if it is, then `$HOSTTYPE` and `uname -m` is `x86_64`:
 		# so on macOS/Darwin, we can must fallback to a `uname -v` check
-		if [[ $OSTYPE == darwin* && "$(uname -v || :)" == *ARM64* ]]; then
+		if [[ $OSTYPE == darwin* ]] && __prepare_uname_v && [[ "$UNAME_V" == *ARM64* ]]; then
 			printf '%s' 'a64' # Apple Silicon running via `arch -x86_64 <command>`
 		else
 			printf '%s' 'x64'
@@ -134,15 +149,13 @@ function __is_wsl {
 	# `OSTYPE` = `linux-gnu`
 	# `MACHTYPE` = `x86_64-pc-linux-gnu`
 	# `uname -r` = `6.6.87.2-microsoft-standard-WSL2`
-	local via_uname
-	via_uname="$(uname -r)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
-	[[ $via_uname == *-WSL2* ]] || return $?
+	__prepare_uname_r || return $?
+	[[ $UNAME_R == *-WSL2* ]] || return $?
 }
 
 function __is_windows {
-	local via_uname
-	via_uname="$(uname -r)" || return 46 # EPFNOSUPPORT 46 Protocol family not supported
-	[[ $via_uname =~ MINGW64_NT|-WSL ]] || return $?
+	__prepare_uname_r || return $?
+	[[ $UNAME_R =~ MINGW64_NT|-WSL ]] || return $?
 }
 
 function __is_brew {
