@@ -2585,7 +2585,8 @@ function __do {
 		case "$DO__arg_flag" in
 		'--redirect-stdout') "$DO__do" --inverted "$@" > >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		'--redirect-stderr') "$DO__do" --inverted "$@" 2> >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		'--redirect-output') "$DO__do" --inverted "$@" &> >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		# this line fails with just `&> >(...)` as bash 4.0 interprets it as `&>>` which it does not support, despite the sapce, and despite bash 4.0 supporting `&> >(...)` in other contexts, and it is not due to the case statement either as `case 'a' in a) echo &> >(cat) ;; esac` works fine on bash 4.0
+		'--redirect-output') "$DO__do" --inverted "$@" > >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") 2>&1 ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
