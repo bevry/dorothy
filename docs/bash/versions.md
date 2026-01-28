@@ -39,6 +39,7 @@ From manual discovery:
 - Introduces escape code support inside `echo -en`, prior to that `printf` must be used.
 - No longer needs `export BASH_SILENCE_DEPRECATION_WARNING=1` to silence Bash v3 deprecation warnings on macOS.
 - Fixes the bug where using `\001` in an array would result in its duplication: `arr=($'\001'); printf '%q' "${arr[0]}" "${#arr[0]}"` outputs `$'\001\001'2`.
+- Introduces an issue where `function fn { echo &> >(cat); }; declare -f fn` converts `&> >(` to `&>>(` which results in an invalid syntax error, fixed in Bash v4.3.
 
 From changelog:
 

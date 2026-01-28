@@ -2096,6 +2096,7 @@ function __dereference {
 # -------------------------------------
 # Function Toolkit
 
+# does not include bash 4.0 workaround for `&> >(`
 function __get_function_inner {
 	local GET_FUNCTION_INNER__function_code GET_FUNCTION_INNER__left=$'{ \n' GET_FUNCTION_INNER__right=$'\n}'
 	GET_FUNCTION_INNER__function_code="$(declare -f "$1")" || return $?
@@ -2112,10 +2113,22 @@ function __get_function_inner {
 	printf '%s' "$GET_FUNCTION_INNER__function_code" || return $?
 }
 
+# does include bash 4.0 workaround for `&> >(`
 function __copy_function {
-	local COPY_FUNCTION__from="$1" COPY_FUNCTION__to="$2" COPY_FUNCTION__inner
-	COPY_FUNCTION__inner="$(__get_function_inner "$COPY_FUNCTION__from")" || return $?
-	eval "function $COPY_FUNCTION__to { $COPY_FUNCTION__inner; }" || return $?
+	local COPY_FUNCTION__from="$1" COPY_FUNCTION__to="$2" COPY_FUNCTION__outer COPY_FUNCTION__find='&>>(' COPY_FUNCTION__replace='&> >('
+	COPY_FUNCTION__outer="$(declare -f "$COPY_FUNCTION__from")" || return $?
+	# fix `bash-4.0 -c 'function fn { echo &> >(cat); }; declare -f fn; eval "$(declare -f fn | sed s/fn/busted/)"'`
+	# causing:
+	# ```
+	# fn ()
+	# {
+	# 	echo &>>(cat)
+	# }
+	# bash-4.0: syntax error near unexpected token `('
+	# ```
+	COPY_FUNCTION__outer="${COPY_FUNCTION__outer/$COPY_FUNCTION__from/$COPY_FUNCTION__to}" || return $?
+	COPY_FUNCTION__outer="${COPY_FUNCTION__outer//$COPY_FUNCTION__find/$COPY_FUNCTION__replace}" || return $?
+	eval "$COPY_FUNCTION__outer" || return $?
 }
 
 function __get_index_of_parent_function {
@@ -2581,12 +2594,11 @@ function __do {
 
 		# execute while tracking the exit status to our semaphore file
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
-		# note [>(...)] and [> >(...)] are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
+		# note `>(...)` and `> >(...)` are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
 		case "$DO__arg_flag" in
 		'--redirect-stdout') "$DO__do" --inverted "$@" > >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		'--redirect-stderr') "$DO__do" --inverted "$@" 2> >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		# this line fails with just `&> >(...)` as bash 4.0 interprets it as `&>>` which it does not support, despite the sapce, and despite bash 4.0 supporting `&> >(...)` in other contexts, and it is not due to the case statement either as `case 'a' in a) echo &> >(cat) ;; esac` works fine on bash 4.0
-		'--redirect-output') "$DO__do" --inverted "$@" > >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") 2>&1 ;;
+		'--redirect-output') "$DO__do" --inverted "$@" &> >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
