@@ -286,17 +286,11 @@ fi
 SUITE_NAME="$BASH_VERSION_AND_BINARY"
 TEST_NAME=''
 TEST_DURATION=''
-COUNT_TESTS=0
 TESTS=()
-COUNT=0
 TESTS_OK=()
-COUNT_OK=0
 TESTS_FAIL=()
-COUNT_FAIL=0
 TESTS_SKIP=()
-COUNT_SKIP=0
 TESTS_PENDING=()
-COUNT_PENDING=0
 CSV_UPDATES=''
 
 # parse skip and only into an easier format that works across all bash versions and doesn't use one of our bash.bash helpers
@@ -341,10 +335,11 @@ function __begin_test_block {
 	if [[ -z $option_name ]]; then
 		__print_lines "ERROR: __begin_test_block: A name was not provided" >&2 || __crash_broken
 		__crash_malformed
+		exit $?
 	fi
 
 	# verify all test data is as expected
-	__verify_test_blocks || exit $?
+	__verify_test || exit $?
 
 	# note the test exists
 	TEST_NAME="$option_name" TEST_DURATION=''
@@ -566,57 +561,68 @@ function __complete_test_block {
 			TESTS_PENDING=("${TESTS_PENDING[@]:0:last_index}")
 		else
 			__print_style --stderr --error="ERROR: ${FUNCNAME[0]}: The test name $(__dump --value="$TEST_NAME" || :) does not match the last pending test name of $(__dump --value="$last")" || __crash_broken
-
 			__dump {TESTS_PENDING} >&2 || __crash_broken
 			__crash_malformed
 		fi
 	fi
-	# verify all test data is as expected
-	__verify_test_blocks || exit $?
+	# now that we verified this test is as expected, verify that all tests data is still as expected
+	__verify_test || exit $?
 }
-function __verify_test_blocks {
-	local -i count_tests="${#TESTS[@]}" count_pending="${#TESTS_PENDING[@]}" count_ok="${#TESTS_OK[@]}" count_fail="${#TESTS_FAIL[@]}" count_skip="${#TESTS_SKIP[@]}" count_finished
-	count_finished=$((count_ok + count_fail + count_skip))
+declare -i TOTAL_TESTS TOTAL_PENDING TOTAL_OK TOTAL_FAIL TOTAL_SKIP TOTAL_PROCESSED TOTAL_NOMINAL
+function __refresh_counts {
+	TOTAL_TESTS="${#TESTS[@]}" TOTAL_PENDING="${#TESTS_PENDING[@]}" TOTAL_OK="${#TESTS_OK[@]}" TOTAL_FAIL="${#TESTS_FAIL[@]}" TOTAL_SKIP="${#TESTS_SKIP[@]}"
+	TOTAL_PROCESSED=$((TOTAL_OK + TOTAL_SKIP + TOTAL_FAIL))
+	TOTAL_NOMINAL=$((TOTAL_OK + TOTAL_SKIP))
+}
+function __verify_test {
+	__refresh_counts || __crash_broken
+	# check test cleaned up
 	if [[ -n $TEST_NAME ]]; then
 		__print_style --stderr --e2="$TEST_NAME" ' ' --error='PENDING' || __crash_broken
 		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$TEST_NAME,PENDING"$'\n'
 		return 221 # ECUSTOM 221 Tests failed
-	fi
-	if [[ $count_pending -ne 0 ]]; then
+	# double check tests cleaned up
+	elif [[ $TOTAL_PENDING -ne 0 ]]; then
 		local pending_test_name
 		for pending_test_name in "${TESTS_PENDING[@]}"; do
 			__print_style --stderr --e2="$pending_test_name" ' ' --error='INCOMPLETE' || __crash_broken
 			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$pending_test_name,INCOMPLETE"$'\n'
 		done
 		return 221 # ECUSTOM 221 Tests failed
-	fi
-	if [[ $count_tests -ne $count_finished ]]; then
-		__print_style --stderr --e2="$SUITE_NAME" ' ' --status="$exit_status" ' ' --error='UNFINISHED' || __crash_broken
+	# triple check cleaning up
+	elif [[ $TOTAL_TESTS -ne $TOTAL_PROCESSED ]]; then
+		# regard the suite as a test here
+		__print_style --stderr --e2="$SUITE_NAME" ' ' --error='UNFINISHED' || __crash_broken
 		CSV_UPDATES+="$option_implementation,$SUITE_NAME,$SUITE_NAME,UNFINISHED"$'\n'
 		return 221 # ECUSTOM 221 Tests failed
 	fi
+	# we can check for failure here (total vs nominal) but that wouldn't run the rest of the tests, we want to determine all failures, not just the first
 }
 function __on_exit {
-	local -i exit_status=$?
-	local -i count_tests="${#TESTS[@]}" count_pending="${#TESTS_PENDING[@]}" count_ok="${#TESTS_OK[@]}" count_fail="${#TESTS_FAIL[@]}" count_skip="${#TESTS_SKIP[@]}" count_finished
-	count_finished=$((count_ok + count_fail + count_skip))
-	local count_message="TESTS:$count_tests  FINISHED:$count_finished  OK:$count_ok  FAIL:$count_fail  SKIP:$count_skip  PENDING:$count_pending"
+	__refresh_counts || __crash_broken
+	local -i __final_status=0
+	local count_message="TESTS:$TOTAL_TESTS  PROCESSED:$TOTAL_PROCESSED  NOMINAL:$TOTAL_NOMINAL  SKIP:$TOTAL_SKIP  OK:$TOTAL_OK  FAIL:$TOTAL_FAIL  PENDING:$TOTAL_PENDING"
 
-	# verify if we aren't coming from a failed verification
-	if [[ $exit_status -ne 221 && $exit_status -ne 222 && $exit_status -ne 223 ]]; then
-		__verify_test_blocks || :
+	# if we aren't crashing, then change the exit status to tests success or failure
+	if [[ $__final_status -eq 0 ]]; then
+		# verify all tests were processed (no pending)
+		__verify_test || __final_status=$?
+		# now that all tests have run, verify all tests were nominal (no failures)
+		if [[ $TOTAL_TESTS -ne $TOTAL_NOMINAL ]]; then
+			__final_status=221 # ECUSTOM 221 Tests failed
+		fi
 	fi
 
 	# log the suite
-	if [[ $exit_status -ne 0 ]]; then
-		__print_style --stderr --e1="$SUITE_NAME" ' ' --status="$exit_status" || :
-	else
+	if [[ $__final_status -eq 0 ]]; then
 		__print_style --stderr --g1="$SUITE_NAME" || :
+	else
+		__print_style --stderr --e1="$SUITE_NAME" ' ' --status="$__final_status" || :
 	fi
 
-	# append all our results to the csv file
+	# append suite final result to the csv file
 	if [[ -n $CSV_UPDATES ]]; then
-		if [[ $count_ok -ne $count_tests ]]; then
+		if [[ $TOTAL_TESTS -ne $TOTAL_OK ]]; then
 			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$count_message,FAIL"$'\n'
 		else
 			CSV_UPDATES+="$option_implementation,$SUITE_NAME,$count_message,ok"$'\n'
@@ -628,6 +634,7 @@ function __on_exit {
 
 	# finish
 	__render_csv || __crash_broken
+	exit "$__final_status"
 }
 
 # write everything at once on exit, as writing as it happens causes corruption
@@ -683,21 +690,25 @@ function __apply_escaped_command {
 	printf -v "$var" '%s' "${pieces% }" || return $?
 }
 
+if [[ 1 -eq 2 && $IS_TTY_AVAILABLE == 'yes' ]]; then
+	function __log_progress {
+		__print_string "$1" >>/dev/tty || return $?
+	}
+else
+	function __log_progress { :; }
+fi
+
 function __eval { # this cannot be a subshell function
-	local -i exit_status
+	local -i __eval_exit_status
 	local cmd='' color
 	__apply_escaped_command cmd "$@" || __crash_broken
-	if [[ $IS_TTY_AVAILABLE == 'yes' ]]; then
-		__print_string "$cmd" >>/dev/tty || __crash_broken
-	fi
+	__log_progress "$cmd" || __crash_broken
 	__print_lines "$S2" "$cmd" || __crash_broken
 	"$@" # eval
-	exit_status=$?
-	if [[ $IS_TTY_AVAILABLE == 'yes' ]]; then
-		__print_string "$clear_line" >>/dev/tty || __crash_broken
-	fi
-	__print_lines "[status = $exit_status]" || __crash_broken
-	return "$exit_status"
+	__eval_exit_status=$?
+	__log_progress "$clear_line" || __crash_broken
+	__print_lines "[status = $__eval_exit_status]" || __crash_broken
+	return "$__eval_exit_status"
 }
 
 # =====================================
@@ -3261,5 +3272,4 @@ fi
 # =====================================
 # Conclusion
 
-__verify_test_blocks
-# proceed to EXIT
+# proceed to EXIT trap
