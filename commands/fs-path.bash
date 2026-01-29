@@ -125,7 +125,13 @@ function __process() (
 		__accessible || return $?
 		# we are accessible, so it is just missing
 		if [[ $option_validate == 'yes' ]]; then
-			__fail 2 || return $? # ENOENT 2 No such file or directory
+			if [[ -L $path ]]; then
+				# it is a broken symlink
+				__fail 9 || return 9 # EBADF 9 Bad file descriptor
+			else
+				# it is just a missing path
+				__fail 2 || return $? # ENOENT 2 No such file or directory
+			fi
 		fi
 		# bubble up
 		subpath="/$(basename -- "$path")$subpath" || __fail $? || return $?
