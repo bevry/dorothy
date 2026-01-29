@@ -52,20 +52,31 @@ else
 	}
 fi
 function __process() (
-	# keep going upwards until we find the first existing parent
-	local path="$1" subpath='' status resolved_absolute_or_relative_path is_accessible=''
+	# keep going upwards on this path until we find the first existing parent
+	local path="$1" subpath='' resolved_absolute_or_relative_path='' is_accessible=''
 	function __fail {
 		# inherit $path
-		local status="$1"
+		local -i status="$1"
 		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
 		return "$status"
 	}
 	function __accessible {
 		# inherit $path
-		# we only need to do the accessibility check once
+		# we only need to do the accessibility check once, as the most nested path will reveal the accessibility of parents
 		if [[ -z $is_accessible ]]; then
 			is-accessible.bash -- "$path" || return $?
 			is_accessible='yes'
+		fi
+	}
+	function __parse_readlink_failure {
+		# readlink on macos (unsure on other distros) will output the resolution of the broken symlink, but return 1, as such, handle that case
+		local -i readlink_status=$?
+		if [[ -n $resolved_absolute_or_relative_path && $option_validate == 'no' ]]; then
+			return 0
+		elif [[ ! -e $path ]]; then
+			return 9 # EBADF 9 Bad file descriptor
+		else
+			__fail "$readlink_status" || return $?
 		fi
 	}
 	while :; do
@@ -105,7 +116,7 @@ function __process() (
 					# => `../../Frameworks/Python.framework/Versions/3.13/bin/python3.13` which is 404, as depends upon
 					# `readlink /opt/homebrew/opt/python`
 					# => `../Cellar/python@3.13/3.13.7` to be resolved first
-					resolved_absolute_or_relative_path="$(readlink -f -- "$path")" || __fail $? || return $?
+					resolved_absolute_or_relative_path="$(readlink -f -- "$path")" || __parse_readlink_failure || return $?
 					if [[ $option_resolve == 'follow' ]]; then
 						resolved_absolute_or_relative_path="$(__process "$resolved_absolute_or_relative_path")" || __fail $? || return $?
 					fi
