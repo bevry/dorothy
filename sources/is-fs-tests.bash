@@ -1,12 +1,15 @@
 source "$DOROTHY/sources/bash.bash"
 
+function is_fs_tests__root {
+	fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory
+}
+
 function is_fs_tests__prep {
-	local command="$1" root
-	root="$(fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory)"
-	# if [[ -d $root ]]; then
-	# 	__print_lines "$root"
-	# 	return 0
-	# fi
+	local command="$1" root="${2-}" output_root='no'
+	if [[ -z $root ]]; then
+		output_root='yes'
+		root="$(is_fs_tests__root)" || return $?
+	fi
 
 	__print_style --tty --header1='prepping directories'
 	__mkdirp \
@@ -129,7 +132,9 @@ function is_fs_tests__prep {
 	# invalidate elevation after the `fs-own` calls above, such that our `__is_fs_tests__print_root_or_nonroot` returns correct results
 	eval-helper --invalidate-elevation
 
-	__print_lines "$root"
+	if [[ $output_root == 'yes' ]]; then
+		__print_lines "$root"
+	fi
 }
 function is_fs_tests__break_symlinks {
 	eval-helper --elevate -- rm -rf -- "$root/targets"
