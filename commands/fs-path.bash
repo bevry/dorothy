@@ -127,28 +127,46 @@ function __process() (
 				# resolve all symlinks (nested and recursive) and make absolute
 				# macos will resolve a broken symlink while returning a failure exit status
 				# so abort if there was no resolution, or is broken and we are validating
-				resolution="$(readlink -f -- "$path")" || __readlink_status=$?
-				if [[ -z $resolution || $__readlink_status -ne 0 ]]; then
-					if [[ $validate == 'yes' ]]; then
-						return 9 # EBADF 9 Bad file descriptor
-					else
-						bubble='yes'
+				resolution="$(readlink -f -- "$path")" || __readlink_status=9 # EBADF 9 Bad file descriptor
+				if [[ -z $resolution ]]; then
+					resolution="$path"
+					if [[ $__readlink_status -eq 0 ]]; then
+						__readlink_status=9 # EBADF 9 Bad file descriptor
 					fi
-				else
-					path="$resolution"
+				elif [[ $validate == 'no' ]]; then
+					__readlink_status=0
+				elif [[ ! -e "$path" ]]; then
+					# handle the case where this symlink resolves, but resolves to another symlink that doesn't, or when we are on a platform where readlink doesn't fail for whatever reason
+					__readlink_status=9 # EBADF 9 Bad file descriptor
+				fi
+				path="$resolution"
+				if [[ $__readlink_status -eq 0 ]]; then
 					printf '%s\n' "$path$subpath"
 					break
+				elif [[ $validate == 'yes' ]]; then
+					return "$__readlink_status"
+				else
+					bubble='yes'
 				fi
 			elif [[ $resolve == 'yes' ]]; then
 				# this can return absolute or relative, and real or synthetic, so we have to process it again
-				resolution="$(readlink -- "$path")" || __readlink_status=$?
-				if [[ -z $resolution || $__readlink_status -ne 0 ]]; then
-					if [[ $validate == 'yes' ]]; then
-						return 9 # EBADF 9 Bad file descriptor
-					else
-						bubble='yes'
+				resolution="$(readlink -- "$path")" || __readlink_status=9 # EBADF 9 Bad file descriptor
+				if [[ -z $resolution ]]; then
+					resolution="$path"
+					if [[ $__readlink_status -eq 0 ]]; then
+						__readlink_status=9 # EBADF 9 Bad file descriptor
 					fi
-				else
+				elif [[ $validate == 'no' ]]; then
+					__readlink_status=0
+				elif [[ ! -e "$path" ]]; then
+					# handle the case where this symlink resolves, but resolves to another symlink that doesn't, or when we are on a platform where readlink doesn't fail for whatever reason
+					__readlink_status=9 # EBADF 9 Bad file descriptor
+				fi
+				# reset lineage
+				resolve='no'
+				accessible=''
+				if [[ $__readlink_status -eq 0 ]]; then
+					# success, reiterate to complete the removal of synthetics and relatives
 					if [[ ${resolution:0:1} == '/' ]]; then
 						# absolute, replace
 						path="$resolution"
@@ -157,9 +175,19 @@ function __process() (
 						path="$(dirname -- "$path")"
 						subpath="/$(basename -- "$resolution")$subpath"
 					fi
-					resolve='no'
-					accessible='' # reset lineage
 					continue
+				elif [[ $validate == 'yes' ]]; then
+					return "$__readlink_status"
+				else
+					# failed, so bubble to complete the removal of synthetics and relatives
+					if [[ ${resolution:0:1} == '/' ]]; then
+						# absolute, replace
+						path="$resolution"
+					else
+						# relative, append to original parent
+						path="$(dirname -- "$path")/$(basename -- "$resolution")"
+					fi
+					bubble='yes'
 				fi
 			fi
 		elif [[ -e $path ]]; then
