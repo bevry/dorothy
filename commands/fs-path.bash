@@ -1,160 +1,194 @@
 #!/usr/bin/env bash
 
-option_resolve='no'
-option_validate='no'
-while :; do
-	case "$1" in
-	--resolve | --resolve=yes)
-		option_resolve='yes'
-		shift
-		;;
-	--resolve=follow)
-		option_resolve='follow'
-		shift
-		;;
-	--no-resolve | --resolve=no)
-		option_resolve='no'
-		shift
-		;;
-	--resolve=) shift ;;
-	--validate | --validate=yes)
-		option_validate='yes'
-		shift
-		;;
-	--no-validate | --validate=no)
-		option_validate='no'
-		shift
-		;;
-	--validate=) shift ;;
-	--)
-		shift
-		break
-		;;
-	*) break ;;
+paths=() option_resolve='no'  option_validate='no'
+while [[ $# -ne 0 ]]; do
+	item="$1"
+	shift
+	case "$item" in
+	--resolve | --resolve=yes) option_resolve='yes' ;;
+	--resolve=follow) option_resolve='follow' ;;
+	--no-resolve | --resolve=no) option_resolve='no' ;;
+	--resolve=) : ;;
+	--validate | --validate=yes) option_validate='yes' ;;
+	--no-validate | --validate=no) option_validate='no' ;;
+	--validate=) : ;;
+	--path=*) paths+=("${item#*=}") ;;
+	--) paths+=("$@"); shift $#; ;;
+	*) paths+=("$item") ;;
 	esac
 done
-if [[ $# -eq 0 ]]; then
+if [[ ${#paths[@]} -eq 0 ]]; then
 	exit 22 # EINVAL 22 Invalid argument
 fi
-if [[ $option_resolve == 'yes' ]]; then
-	function __cd {
-		cd -P "$@" || return $?
-	}
-	function __pwd {
-		pwd -P || return $?
-	}
-else
-	function __cd {
-		cd "$@" || return $?
-	}
-	function __pwd() {
-		pwd || return $?
-	}
-fi
+# make it absolute, with optional resolution, optional validation
+function __fail {
+	# inherit $path
+	local -i status="$1"
+	printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
+	return "$status"
+}
 function __process() (
-	# keep going upwards on this path until we find the first existing parent
-	local path="$1" subpath='' resolved_absolute_or_relative_path='' is_accessible=''
-	function __fail {
-		# inherit $path
-		local -i status="$1"
-		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
-		return "$status"
-	}
+	local item path='' subpath='' resolve='no' validate='no' accessible=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		--path=*) path="${item#*=}" ;;
+		--subpath=*) subpath="${item#*=}" ;;
+		--resolve=*) resolve="${item#*=}" ;;
+		--validate=*) validate="${item#*=}" ;;
+		--accessible=*) accessible="${item#*=}" ;;
+		*) exit 22 ;; # EINVAL 22 Invalid argument
+		esac
+	done
 	function __accessible {
 		# inherit $path
-		# we only need to do the accessibility check once, as the most nested path will reveal the accessibility of parents
-		if [[ -z $is_accessible ]]; then
+		# we only need to do the accessibility check once for each ancestral lineage, as the most nested path will reveal the accessibility of parents
+		if [[ -z $accessible ]]; then
 			is-accessible.bash -- "$path" || return $?
-			is_accessible='yes'
+			accessible='yes'
+		fi
+	}
+	function __parse_dir_failure {
+		local check_path="$1"
+		is-accessible.bash -- "$check_path" || return $?
+		if [[ -e "$check_path" ]]; then
+			# its parent directory is aware of it, however it itself is inaccessible
+			return 13 # EACCES 13 Permission denied
+		else
+			# it is missing
+			return 2 # ENOENT 2 No such file or directory
 		fi
 	}
 	function __parse_readlink_failure {
-		# readlink on macos (unsure on other distros) will output the resolution of the broken symlink, but return 1, as such, handle that case
+		# `readlink -<f|e|m>` resolves every symlink in every component (aka recursive and deep resolution)
+		# `readlink -<f|m> <broken-symlink|missing-file>` on fedora output resolution with [0] exit status
+		# `readlink -e <broken-symlink|missing-file>` on fedora outputs nothing with [1] exit status
+		# `readlink -f <broken-symlink>` on macos output resolution with [1] exit status
 		local -i readlink_status=$?
-		if [[ -n $resolved_absolute_or_relative_path && $option_validate == 'no' ]]; then
+		if [[ -n $path && $validate == 'no' ]]; then
 			return 0
-		elif [[ ! -e $path ]]; then
+		elif [[ -z $path || ! -e $path ]]; then
 			return 9 # EBADF 9 Bad file descriptor
 		else
 			__fail "$readlink_status" || return $?
 		fi
 	}
+	function __bubble {
+		local basename dirname
+		subpath="/$(basename -- "$path")$subpath" || return $?
+		path="$(dirname -- "$path")" || return $?
+	}
+	function __absolute_path_as_dirname {
+		local pwd
+		__cd "$path" || __parse_dir_failure "$path" || return $?
+		pwd="$(__pwd)" || return $?
+		printf '%s\n' "$pwd$subpath" || return $?
+	}
+	function __absolute_path_as_basename {
+		local dirname basename pwd
+		dirname="$(dirname -- "$path")" || return $?
+		basename="$(basename -- "$path")" || return $?
+		__cd  "$dirname" || __parse_dir_failure "$dirname" || return $?
+		pwd="$(__pwd)" || return $?
+		printf '%s\n' "$pwd/$basename$subpath" || return $?
+	}
+	if [[ $resolve == 'follow' ]]; then
+		# these resolve all symlinks (nested and recursive)
+		function __cd {
+			cd -P "$@" 2>/dev/null || return $?
+		}
+		function __pwd {
+			pwd -P || return $?
+		}
+	else
+		# these do not resolve any symlink
+		function __cd {
+			cd "$@" 2>/dev/null || return $?
+		}
+		function __pwd {
+			pwd || return $?
+		}
+	fi
+	# buble upwards until successful absolute or root
 	while :; do
-		if [[ $path == '/' ]]; then
-			# reached root, so return it
+		# confirm we or the user hasn't stuffed up
+		if [[ -z $path ]]; then
+			return 22 # EINVAL 22 Invalid argument
+		# if we've reached root, stop bubbling and return
+		elif [[ $path == '/' ]]; then
 			if [[ -n $subpath ]]; then
 				# we have a subpath, so return it
-				printf '%s\n' "$subpath" || __fail $? || return $?
+				printf '%s\n' "$subpath" || return $?
 			else
 				# no subpath, so return root
-				printf '%s\n' '/' || __fail $? || return $?
+				printf '%s\n' '/' || return $?
 			fi
 			break
-		fi
-		if [[ -d $path ]]; then
-			# found an existing parent
-			__cd "$path" || __fail $? || return $?
-			printf '%s\n' "$(__pwd)$subpath" || __fail $? || return $?
-			break
-		else
-			# not a directory
-			if [[ $option_resolve =~ ^(yes|follow)$ ]]; then
-				if [[ -L $path ]]; then
-					if [[ -p $path ]]; then
-						# on linux, /dev/fd/* (which things know how to handle), is a name-pipe but also a symlink, that will go to pipe:[*] (which nothing knows how to handle)
-						printf '%s\n' "$path" || __fail $? || return $?
-						break
-					fi
-					# is a symlink (broken or otherwise), resolve it
-					# `stat -tc %N "$path"` # alpine, however format is tedious, use `readlink` instead
-					# `stat -f %Y "$path"`  # macos/bsd, use `readlink` for consistency as wherever `readlink` is available, `stat` is available
-					# readlink supports broken symlinks
-					# must do `-f` to handle the case where a path is a symlink inside a symlink, e.g.
-					# `readlink -f /opt/homebrew/opt/python/libexec/bin/python`
-					# => `/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/bin/python3.13`
-					# `readlink /opt/homebrew/opt/python/libexec/bin/python`
-					# => `../../Frameworks/Python.framework/Versions/3.13/bin/python3.13` which is 404, as depends upon
-					# `readlink /opt/homebrew/opt/python`
-					# => `../Cellar/python@3.13/3.13.7` to be resolved first
-					resolved_absolute_or_relative_path="$(readlink -f -- "$path")" || __parse_readlink_failure || return $?
-					if [[ $option_resolve == 'follow' ]]; then
-						resolved_absolute_or_relative_path="$(__process "$resolved_absolute_or_relative_path")" || __fail $? || return $?
-					fi
-					__cd "$(dirname -- "$resolved_absolute_or_relative_path")" || __fail $? || return $?
-					printf '%s\n' "$(__pwd)/$(basename -- "$resolved_absolute_or_relative_path")$subpath" || __fail $? || return $?
+		elif [[ -L $path ]]; then
+			# is a symlink (broken or otherwise)
+			if [[ -p $path ]]; then
+				# on linux, named-pipes `/dev/fd/X` are symlinks that exist, which resolve to `pi`pe:[Y]`, of which nothing knows how to handle this resolution, so return the symlink not the resolution
+				printf '%s\n' "$path" || return $?
+				break
+			# if we are validating, confirm it
+			elif [[ $validate == 'yes' && ! -e $path ]]; then
+				# doesn't exist, check if it is because we are not accessible
+				__accessible || return $?
+				# we are accessible, so it is just a broken symlink
+				return 9 # EBADF 9 Bad file descriptor
+			elif [[ $resolve =~ ^(yes|follow)$ ]]; then
+				# resolve the symlink (present or otherwise)
+				# notes on stat:
+				# `stat -tc %N "$path"` # alpine, however format is tedious, use `readlink` instead
+				# `stat -f %Y "$path"`  # macos/bsd, use `readlink` for consistency as wherever `readlink` is available, `stat` is available
+				# `stat -tc %n "$path"` # does not absolute
+				# notes on readlink:
+				# must do `-f` to handle the case where a path is a symlink inside a symlink, e.g.
+				# `readlink -f /opt/homebrew/opt/python/libexec/bin/python`
+				# => `/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/bin/python3.13`
+				# `readlink /opt/homebrew/opt/python/libexec/bin/python`
+				# => `../../Frameworks/Python.framework/Versions/3.13/bin/python3.13` which is 404, as depends upon
+				# `readlink /opt/homebrew/opt/python`
+				# => `../Cellar/python@3.13/3.13.7` to be resolved first
+				if [[ $resolve == 'follow' ]]; then
+					# resolve all symlinks (nested and recursive) and make absolute
+					# this is two-step as macos will provide output and a failure exit status on a broken symlink
+					path="$(readlink -f -- "$path")" || __parse_readlink_failure || return $?
+					printf '%s\n' "$path" || return $?
+					break
+				else
+					# resolve only this symlink, can return relative path, even `ln -s /.. <symlink>` resolves via `readlink -- <symlink>` to `/..`
+					# `readlink -- <path>` fails if `<path>` is not a symlink
+					path="$(readlink -- "$path")" || __parse_readlink_failure || return $?
+					# relative to absolute
+					__process --path="$path" --subpath="$subpath" --resolve=no --validate="$validate" || return $?
 					break
 				fi
 			fi
-			if [[ -e $path ]]; then
-				# exists
-				__cd "$(dirname -- "$path")" || __fail $? || return $?
-				printf '%s\n' "$(__pwd)/$(basename -- "$path")$subpath" || __fail $? || return $?
-				break
-			fi
 		fi
-		# doesn't exist, check if it is because we are not accessible
-		__accessible || return $?
-		# we are accessible, so it is just missing
-		if [[ $option_validate == 'yes' ]]; then
-			if [[ -L $path ]]; then
-				# it is a broken symlink
-				__fail 9 || return 9 # EBADF 9 Bad file descriptor
-			else
-				# it is just a missing path
-				__fail 2 || return $? # ENOENT 2 No such file or directory
-			fi
+		# continue with path and file handling in the case of a non-broken symlink that we don't want to resolve
+		if [[ -d $path ]]; then
+			# is a directory
+			__absolute_path_as_dirname || return $?
+			break
+		elif [[ -e $path ]]; then
+			# is a file
+			__absolute_path_as_basename || return $?
+			break
+		elif [[ $validate == 'yes' ]]; then
+			# doesn't exist, check if it is because we are not accessible
+			__accessible || return $?
+			# we are accessible, so is just a missing path
+			return 2 # ENOENT 2 No such file or directory
+		else
+			# it is missing, but we aren't validating, so try parse the parent
+			__bubble || return $?
+			continue
 		fi
-		# bubble up
-		subpath="/$(basename -- "$path")$subpath" || __fail $? || return $?
-		path="$(dirname -- "$path")" || __fail $? || return $?
 	done
 )
-while [[ $# -ne 0 ]]; do
-	if [[ -z $1 ]]; then
-		exit 22 # EINVAL 22 Invalid argument
-	fi
-	path="$1"
-	shift
-	__process "$path" || exit $?
+for path in "${paths[@]}"; do
+	__process --path="$path" --resolve="$option_resolve" --validate="$option_validate" || __fail $? || exit $?
 done
 exit 0

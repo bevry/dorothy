@@ -5,6 +5,10 @@ function __is_fs__options {
 	local elevate="${1-}"
 	if [[ -n $elevate ]]; then
 		cat <<-EOF || return $?
+			...<path> | --path=...<path> | --- ...<path>
+			    The <path>s to perform the operation on.
+			    NOTE: \`--path=~\` will not interpolate the tilde as \`\$HOME\`. Use \`...<path>\` for tilde as home interpolation. This is a shell convention, not a Dorothy convention.
+
 			--verbose | --no-quiet | --quiet=no
 			    If affirmative, output to STDERR the first <path> that failed and how it failed.
 
@@ -48,6 +52,7 @@ function __is_fs__args {
 		'--group='*) option_group="${item#*=}" ;;
 		'--reason='*) option_reason="${item#*=}" ;;
 		# </elevate>
+		'--path='*) option_inputs+=("${item#*=}") ;;
 		'--')
 			option_inputs+=("$@")
 			shift $#
