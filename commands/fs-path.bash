@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-paths=() option_resolve='no'  option_validate='no'
+paths=() option_resolve='no' option_validate='no'
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
@@ -13,7 +13,10 @@ while [[ $# -ne 0 ]]; do
 	--no-validate | --validate=no) option_validate='no' ;;
 	--validate=) : ;;
 	--path=*) paths+=("${item#*=}") ;;
-	--) paths+=("$@"); shift $#; ;;
+	--)
+		paths+=("$@")
+		shift $#
+		;;
 	*) paths+=("$item") ;;
 	esac
 done
@@ -115,7 +118,7 @@ function __process() (
 				is-accessible.bash -- "$path" || return $?
 				accessible='yes' # cache lineages
 			fi
-			if [[ -e "$path" ]]; then
+			if [[ -e $path ]]; then
 				# its parent directory is aware of it, however it itself is inaccessible
 				return 13 # EACCES 13 Permission denied
 			fi
@@ -135,7 +138,7 @@ function __process() (
 					fi
 				elif [[ $validate == 'no' ]]; then
 					__readlink_status=0
-				elif [[ ! -e "$path" ]]; then
+				elif [[ ! -e $path ]]; then
 					# handle the case where this symlink resolves, but resolves to another symlink that doesn't, or when we are on a platform where readlink doesn't fail for whatever reason
 					__readlink_status=9 # EBADF 9 Bad file descriptor
 				fi
@@ -158,7 +161,7 @@ function __process() (
 					fi
 				elif [[ $validate == 'no' ]]; then
 					__readlink_status=0
-				elif [[ ! -e "$path" ]]; then
+				elif [[ ! -e $path ]]; then
 					# handle the case where this symlink resolves, but resolves to another symlink that doesn't, or when we are on a platform where readlink doesn't fail for whatever reason
 					__readlink_status=9 # EBADF 9 Bad file descriptor
 				fi
@@ -196,7 +199,7 @@ function __process() (
 			break
 		elif [[ $validate == 'no' ]]; then
 			bubble='yes'
-		elif [[ -L "$path" ]]; then
+		elif [[ -L $path ]]; then
 			# broken symlink
 			return 9 # EBADF 9 Bad file descriptor
 		else
