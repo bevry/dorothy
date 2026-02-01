@@ -176,13 +176,14 @@ function __process() (
 				if [[ -z $resolution ]]; then
 					symlink_status=9 # EBADF 9 Bad file descriptor
 					resolution="$path"
+				elif [[ $validate == 'yes' && ! -e $resolution ]]; then # we support broken symlinks with successful resolution if not validating
+					symlink_status=9 # EBADF 9 Bad file descriptor
 				fi
-				# check symlink and resolution, is fine that it runs on the pre-resolution old path, as long as it is absolute
-				if [[ $symlink_status -ne 0 || ! -e $resolution ]]; then
+				# check resolution, is fine that it runs on the pre-resolution old path, as long as it is absolute
+				if [[ $symlink_status -ne 0 ]]; then
 					__is_accessible || return $?
-					if [[ $validate == 'yes' ]]; then
-						return "$symlink_status"
-					fi
+					# no need for validate check, as we have already done prior checks to ensure failure is only if desired
+					return "$symlink_status"
 				fi
 				# reset lineage
 				accessible=''
