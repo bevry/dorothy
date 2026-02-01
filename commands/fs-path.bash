@@ -179,6 +179,8 @@ function __process() (
 				fi
 				# reset lineage: shouldn't be necessary
 				# accessible=''
+				# prevent future resolutions as we only wanted to resolve once
+				resolve='no'
 				# reiterate on the resolved path, without further resolutions, to resolve synthetics and relatives, and validation
 				# can't do validation earlier, as `[[ -<...> ]]` behave differently on synthetic and relative paths within a symlink dir, see earlier note
 				if_missing_it_is_because_of_symlink='yes'
