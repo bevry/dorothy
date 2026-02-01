@@ -70,7 +70,7 @@ function __process() (
 		fi
 	}
 	# buble upwards until successful absolute or root
-	local resolution bubble subpath='' accessible=''
+	local resolution bubble subpath='' accessible='' initial_iteration='yes'
 	local -i __readlink_status
 	while :; do
 		# prepare
@@ -124,6 +124,12 @@ function __process() (
 			fi
 		}
 		# now handle the resolution
+		if [[ $resolve == 'yes' && $initial_iteration == 'no' ]]; then
+			# if <resolve:yes> then we only care about resolving if the leaf is a symlink
+			# this prevents missing leafs bubbling up to resolving the first directory if it is a symlink, which is peculiar behaviour
+			resolve='no'
+		fi
+		initial_iteration='no'
 		if [[ $resolve =~ ^(yes|follow)$ && -L $path ]]; then
 			__readlink_status=0
 			if [[ $resolve == 'follow' ]]; then
@@ -142,6 +148,9 @@ function __process() (
 					# handle the case where this symlink resolves, but resolves to another symlink that doesn't, or when we are on a platform where readlink doesn't fail for whatever reason
 					__readlink_status=9 # EBADF 9 Bad file descriptor
 				fi
+				# reset lineage
+				accessible=''
+				# handle resolution
 				path="$resolution"
 				if [[ $__readlink_status -eq 0 ]]; then
 					printf '%s\n' "$path$subpath"
@@ -166,8 +175,10 @@ function __process() (
 					__readlink_status=9 # EBADF 9 Bad file descriptor
 				fi
 				# reset lineage
-				resolve='no'
 				accessible=''
+				# prevent future resolutions as we only wanted to resolve once
+				resolve='no'
+				# handle resolution
 				if [[ $__readlink_status -eq 0 ]]; then
 					# success, reiterate to complete the removal of synthetics and relatives
 					if [[ ${resolution:0:1} == '/' ]]; then
