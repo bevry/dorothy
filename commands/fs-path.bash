@@ -145,7 +145,7 @@ function __process() (
 				resolution="$(readlink -f -- "$path")" || __readlink_status=9 # EBADF 9 Bad file descriptor
 				if [[ -z $resolution ]]; then
 					resolution="$(readlink -m -- "$path")" || __return "$__readlink_status" $? || return $?
-					if [[ -z $path ]]; then
+					if [[ -z $resolution ]]; then
 						# should never happen
 						return 14 # EFAULT 14 Bad address
 					fi
