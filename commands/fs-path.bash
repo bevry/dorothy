@@ -70,7 +70,7 @@ function __process() (
 		fi
 	}
 	# buble upwards until successful absolute or root
-	local resolution bubble subpath='' accessible='' initial_iteration='yes'
+	local resolution bubble subpath='' accessible='' initial_iteration='yes' if_missing_it_is_because_of_symlink='no'
 	local -i symlink_status
 	function __is_accessible {
 		if [[ -z $accessible ]]; then
@@ -116,7 +116,7 @@ function __process() (
 			fi
 			break
 		fi
-		# `-<d|e|f|L>` do not operate correctly when inside a symlinked directory, and doing on `fs-path --resolve -- ../<symlink>`
+		# `[[ -<d|e|f|L> ]]` do not operate correctly when inside a symlinked directory, and doing on `fs-path --resolve -- ../<symlink>`
 		# so we must first resolve these synthetic paths before anything else, so those conditionals work correctly
 		bubble='no'
 		__enter || {
@@ -159,8 +159,8 @@ function __process() (
 						return "$symlink_status"
 					fi
 				fi
-				# reset lineage
-				accessible=''
+				# reset lineage: shouldn't be necessary
+				# accessible=''
 				# assign resolution
 				path="$resolution"
 				# done
@@ -174,44 +174,21 @@ function __process() (
 				# on macos and fedora/GNU will not resolve with failure exit status (however we have already excluded this case earlier with -L)
 				resolution="$(readlink -- "$path" || :)"
 				if [[ -z $resolution ]]; then
-					symlink_status=9 # EBADF 9 Bad file descriptor
-					resolution="$path"
-				elif [[ $validate == 'yes' && ! -e $resolution ]]; then # we support broken symlinks with successful resolution if not validating
-					symlink_status=9 # EBADF 9 Bad file descriptor
+					# success exit status, but still failed resolution, should never happen, but if it does, hard give up
+					return 9 # EBADF 9 Bad file descriptor
 				fi
-				# check resolution, is fine that it runs on the pre-resolution old path, as long as it is absolute
-				if [[ $symlink_status -ne 0 ]]; then
-					__is_accessible || return $?
-					# no need for validate check, as we have already done prior checks to ensure failure is only if desired
-					return "$symlink_status"
-				fi
-				# reset lineage
-				accessible=''
-				# prevent future resolutions as we only wanted to resolve once
-				resolve='no'
-				# check resolution
-				if [[ $symlink_status -eq 0 ]]; then
-					# success, reiterate to complete the removal of synthetics and relatives
-					if [[ ${resolution:0:1} == '/' ]]; then
-						# absolute, replace
-						path="$resolution"
-					else
-						# relative, append to the parent
-						path="$(dirname -- "$path")"
-						subpath="/$(basename -- "$resolution")$subpath"
-					fi
-					continue
+				# reset lineage: shouldn't be necessary
+				# accessible=''
+				# reiterate on the resolved path, without further resolutions, to resolve synthetics and relatives, and validation
+				if_missing_it_is_because_of_symlink='yes'
+				if [[ ${resolution:0:1} == '/' ]]; then
+					# absolute, replace
+					path="$resolution"
 				else
-					# failed, so bubble to complete the removal of synthetics and relatives
-					if [[ ${resolution:0:1} == '/' ]]; then
-						# absolute, replace
-						path="$resolution"
-					else
-						# relative, append to original parent
-						path="$(dirname -- "$path")/$(basename -- "$resolution")"
-					fi
-					bubble='yes'
+					# relative, append to original parent
+					path="$(dirname -- "$path")/$(basename -- "$resolution")"
 				fi
+				continue
 			fi
 		elif [[ -e $path ]]; then
 			# finally found something that does exist, so we are done
@@ -221,7 +198,7 @@ function __process() (
 			bubble='yes'
 		else
 			__is_accessible || return $?
-			if [[ -L $path ]]; then
+			if [[ $if_missing_it_is_because_of_symlink == 'yes' || -L $path ]]; then
 				# broken symlink
 				return 9 # EBADF 9 Bad file descriptor
 			else
