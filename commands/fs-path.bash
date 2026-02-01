@@ -137,10 +137,16 @@ function __process() (
 			symlink_status=0
 			if [[ $resolve == 'follow' ]]; then
 				# resolve all symlinks (nested and recursive) and make absolute
-				# `readlink ...` on a broken symlink (recursive or otherwise) / on a inaccessible target (recursive or otherwise)
+				# `readlink ...` on a broken symlink (recursive or otherwise):
+				# `-f` on macos will resolve with failure exit status
+				# `-f` on fedora/GNU will resolve with success exit status
+				# `-m` on fedora/GNU will resolve with readlsuccess exit status
+				# `-e` on fedora/GNU will not resolve with failure exit status
+				# `readlink ...` on a inaccessible target (recursive or otherwise)
 				# `-f` on macos will resolve with failure exit status
 				# `-f` on fedora/GNU will not resolve with failure exit status
 				# `-m` on fedora/GNU will resolve with success exit status
+				# `-e` on fedora/GNU will not resolve with failure exit status
 				# macos only has `-f`, fedora/GNU has `-<f|e|m>`
 				# so do `-f` which is macos and fedora, and if it is empty (fedora/GNU) then fill with `-m` but keep `-f`'s exit status
 				resolution="$(readlink -f -- "$path")" || symlink_status=9
@@ -151,6 +157,9 @@ function __process() (
 					if [[ -z $resolution ]]; then
 						return 9 # EBADF 9 Bad file descriptor
 					fi
+				elif [[ $symlink_status -eq 0 ]] && ! readlink -e -- "$path"; then
+					# broken symlink on fedora/GNU; this will never be reached on macos, as on macos `readlink -f` always resolves
+					symlink_status=9 # EBADF 9 Bad file descriptor
 				fi
 				# check resolution, is fine that it runs on the pre-resolution old path, as long as it is absolute
 				if [[ $symlink_status -ne 0 ]]; then
@@ -184,6 +193,7 @@ function __process() (
 				# reiterate on the resolved path, without further resolutions, to resolve synthetics and relatives, and validation
 				# can't do validation earlier, as `[[ -<...> ]]` behave differently on synthetic and relative paths within a symlink dir, see earlier note
 				if_missing_it_is_because_of_symlink='yes'
+				# @for with the current <validate> functionality, it behaves akin to `--follow --validate`, so we perhaps could avoid a lot of drama by just doing a `readlink -e` check regardless of resolution method, however `readlink -e` is not available on macos, and eventually @todo we may want `--resolve --validate` to only validate the first resolution and not all - but for now, `--validate` essentially implies `--follow`
 				if [[ ${resolution:0:1} == '/' ]]; then
 					# absolute, replace
 					path="$resolution"
