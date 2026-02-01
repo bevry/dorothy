@@ -72,6 +72,12 @@ function __process() (
 	# buble upwards until successful absolute or root
 	local resolution bubble subpath='' accessible='' initial_iteration='yes'
 	local -i __readlink_status
+	function __is_accessible {
+		if [[ -z $accessible ]]; then
+			is-accessible.bash -- "$path" || return $?
+			accessible='yes' # cache lineages
+		fi
+	}
 	while :; do
 		# prepare
 		if [[ $resolve == 'follow' ]]; then
@@ -114,10 +120,7 @@ function __process() (
 		# so we must first resolve these synthetic paths before anything else, so those conditionals work correctly
 		bubble='no'
 		__enter || {
-			if [[ -z $accessible ]]; then
-				is-accessible.bash -- "$path" || return $?
-				accessible='yes' # cache lineages
-			fi
+			__is_accessible || return $?
 			if [[ -e $path ]]; then
 				# its parent directory is aware of it, however it itself is inaccessible
 				return 13 # EACCES 13 Permission denied
@@ -134,11 +137,18 @@ function __process() (
 			__readlink_status=0
 			if [[ $resolve == 'follow' ]]; then
 				# resolve all symlinks (nested and recursive) and make absolute
-				# macos will resolve a broken symlink while returning a failure exit status
-				# so abort if there was no resolution, or is broken and we are validating
+				# on a broken symlink:
+				# `-f` on macos will resolve while returning a failure exit status
+				# `-f` on fedora will return a failure exit status
+				# macos only has `-f`, fedora/GNU has `-<f|e|m>`
+				# so do `-f` which is macos and fedora, and if it is empty (fedora/GNU) then fill with `-m` but keep `-f`'s exit status
 				resolution="$(readlink -f -- "$path")" || __readlink_status=9 # EBADF 9 Bad file descriptor
 				if [[ -z $resolution ]]; then
-					resolution="$path"
+					resolution="$(readlink -m -- "$path")" || __return "$__readlink_status" $? || return $?
+					if [[ -z $path ]]; then
+						# should never happen
+						return 14 # EFAULT 14 Bad address
+					fi
 					if [[ $__readlink_status -eq 0 ]]; then
 						__readlink_status=9 # EBADF 9 Bad file descriptor
 					fi
@@ -155,10 +165,13 @@ function __process() (
 				if [[ $__readlink_status -eq 0 ]]; then
 					printf '%s\n' "$path$subpath"
 					break
-				elif [[ $validate == 'yes' ]]; then
-					return "$__readlink_status"
 				else
-					bubble='yes'
+					__is_accessible || return $?
+					if [[ $validate == 'yes' ]]; then
+						return "$__readlink_status"
+					else
+						bubble='yes'
+					fi
 				fi
 			elif [[ $resolve == 'yes' ]]; then
 				# this can return absolute or relative, and real or synthetic, so we have to process it again
@@ -190,18 +203,21 @@ function __process() (
 						subpath="/$(basename -- "$resolution")$subpath"
 					fi
 					continue
-				elif [[ $validate == 'yes' ]]; then
-					return "$__readlink_status"
 				else
-					# failed, so bubble to complete the removal of synthetics and relatives
-					if [[ ${resolution:0:1} == '/' ]]; then
-						# absolute, replace
-						path="$resolution"
+					__is_accessible || return $?
+					if [[ $validate == 'yes' ]]; then
+						return "$__readlink_status"
 					else
-						# relative, append to original parent
-						path="$(dirname -- "$path")/$(basename -- "$resolution")"
+						# failed, so bubble to complete the removal of synthetics and relatives
+						if [[ ${resolution:0:1} == '/' ]]; then
+							# absolute, replace
+							path="$resolution"
+						else
+							# relative, append to original parent
+							path="$(dirname -- "$path")/$(basename -- "$resolution")"
+						fi
+						bubble='yes'
 					fi
-					bubble='yes'
 				fi
 			fi
 		elif [[ -e $path ]]; then
@@ -210,12 +226,15 @@ function __process() (
 			break
 		elif [[ $validate == 'no' ]]; then
 			bubble='yes'
-		elif [[ -L $path ]]; then
-			# broken symlink
-			return 9 # EBADF 9 Bad file descriptor
 		else
-			# missing
-			return 2 # ENOENT 2 No such file or directory
+			__is_accessible || return $?
+			if [[ -L $path ]]; then
+				# broken symlink
+				return 9 # EBADF 9 Bad file descriptor
+			else
+				# missing
+				return 2 # ENOENT 2 No such file or directory
+			fi
 		fi
 		if [[ $bubble == 'yes' ]]; then
 			# bubble up until we find something that does exist
