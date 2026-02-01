@@ -143,7 +143,7 @@ function __process() (
 				# `-m` on fedora/GNU will resolve with success exit status
 				# macos only has `-f`, fedora/GNU has `-<f|e|m>`
 				# so do `-f` which is macos and fedora, and if it is empty (fedora/GNU) then fill with `-m` but keep `-f`'s exit status
-				resolution="$(readlink -f -- "$path" || :)"
+				resolution="$(readlink -f -- "$path")" || symlink_status=9
 				if [[ -z $resolution ]]; then
 					symlink_status=9 # EBADF 9 Bad file descriptor
 					resolution="$(readlink -m -- "$path" || :)"
@@ -180,6 +180,7 @@ function __process() (
 				# reset lineage: shouldn't be necessary
 				# accessible=''
 				# reiterate on the resolved path, without further resolutions, to resolve synthetics and relatives, and validation
+				# can't do validation earlier, as `[[ -<...> ]]` behave differently on synthetic and relative paths within a symlink dir, see earlier note
 				if_missing_it_is_because_of_symlink='yes'
 				if [[ ${resolution:0:1} == '/' ]]; then
 					# absolute, replace
