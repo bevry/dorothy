@@ -69,8 +69,56 @@ function __process() (
 			fi
 		fi
 	}
+	# macos only has `readlink <path>`, and `-f [--] <path>`
+	# fedora/GNU has `readlink <path>`, `readlink -version`, and `readlink -<f|e|m> [--] <path>`
+	#
+	# on a symlink with a missing target (recursive or otherwise):
+	# `[[ -e <path> ]]` returns failure exit status
+	# `[[ -L <path> ]]` returns success exit status
+	# `readlink -- <path>` on macos and fedora/GNU will resolve with success exit status
+	# `readlink -f -- <path>` on macos will resolve with failure exit status
+	# `readlink -f -- <path>` on fedora/GNU will resolve with success exit status
+	# `readlink -m -- <path>` on fedora/GNU will resolve with success exit status
+	# `readlink -e -- <path>` on fedora/GNU will not resolve with failure exit status
+	#
+	# on a symlink with an inaccessible target (recursive or otherwise)
+	# `readlink -- <path>` on macos and fedora/GNU will resolve with success exit status
+	# `readlink -f -- <path>` on macos will resolve with failure exit status
+	# `readlink -f -- <path>` on fedora/GNU will not resolve with failure exit status
+	# `readlink -m -- <path>` on fedora/GNU will resolve with success exit status
+	# `readlink -e -- <path>` on fedora/GNU will not resolve with failure exit status
+	#
+	# on a working symlink (resurcive or otherwise):
+	#
+	# on a non-symlink that is missing:
+	# `readlink -- <path> on macos and fedora/GNU will not resolve with failure exit status
+	#
+	# on a non-symlink that is present:
+	#
+	# on a non-symlink that inaccessible:
+	local resolution
+	if readlink --version &>/dev/null; then
+		# fedora/GNU
+		function __check {
+			readlink -e -- "$path" &>/dev/null || return $?
+		}
+		function __follow {
+			readlink -m -- "$path" || :
+		}
+	else
+		# macos
+		function __check {
+			readlink -f -- "$path" &>/dev/null || return $?
+		}
+		function __follow {
+			readlink -f -- "$path" || :
+		}
+	fi
+	function __resolve {
+		readlink -- "$path" || :
+	}
 	# buble upwards until successful absolute or root
-	local resolution bubble subpath='' accessible='' initial_iteration='yes' if_missing_it_is_because_of_symlink='no'
+	local resolution bubble subpath='' accessible='' initial_iteration='yes'
 	local -i symlink_status
 	function __is_accessible {
 		if [[ -z $accessible ]]; then
@@ -134,66 +182,35 @@ function __process() (
 		fi
 		initial_iteration='no'
 		if [[ $resolve =~ ^(yes|follow)$ && -L $path ]]; then
-			symlink_status=0
+			# @todo this does a follow check, which later, we want to avoid unless following (as it violates logical and leaf resolution), but for now, it's fine
+			if ! __check; then
+				__is_accessible || return $?
+				if [[ $validate == 'yes' ]]; then
+					return 9 # EBADF 9 Bad file descriptor
+				fi
+			fi
 			if [[ $resolve == 'follow' ]]; then
 				# resolve all symlinks (nested and recursive) and make absolute
-				# `readlink ...` on a broken symlink (recursive or otherwise):
-				# `-f` on macos will resolve with failure exit status
-				# `-f` on fedora/GNU will resolve with success exit status
-				# `-m` on fedora/GNU will resolve with readlsuccess exit status
-				# `-e` on fedora/GNU will not resolve with failure exit status
-				# `readlink ...` on a inaccessible target (recursive or otherwise)
-				# `-f` on macos will resolve with failure exit status
-				# `-f` on fedora/GNU will not resolve with failure exit status
-				# `-m` on fedora/GNU will resolve with success exit status
-				# `-e` on fedora/GNU will not resolve with failure exit status
-				# macos only has `-f`, fedora/GNU has `-<f|e|m>`
-				# so do `-f` which is macos and fedora, and if it is empty (fedora/GNU) then fill with `-m` but keep `-f`'s exit status
-				resolution="$(readlink -f -- "$path")" || symlink_status=9
+				resolution="$(__follow "$path")" || return $?
 				if [[ -z $resolution ]]; then
-					symlink_status=9 # EBADF 9 Bad file descriptor
-					resolution="$(readlink -m -- "$path" || :)"
-					# success exit status, but still failed resolution, should never happen, but if it does, hard give up
-					if [[ -z $resolution ]]; then
-						return 9 # EBADF 9 Bad file descriptor
-					fi
-				elif [[ $symlink_status -eq 0 ]] && ! readlink -e -- "$path"; then
-					# broken symlink on fedora/GNU; this will never be reached on macos, as on macos `readlink -f` always resolves
-					symlink_status=9 # EBADF 9 Bad file descriptor
+					return 14 # EFAULT 14 Bad address
 				fi
-				# check resolution, is fine that it runs on the pre-resolution old path, as long as it is absolute
-				if [[ $symlink_status -ne 0 ]]; then
-					__is_accessible || return $?
-					if [[ $validate == 'yes' ]]; then
-						return "$symlink_status"
-					fi
-				fi
-				# reset lineage: shouldn't be necessary
-				# accessible=''
-				# assign resolution
+				# assign resolution, and exit
 				path="$resolution"
-				# done
 				printf '%s\n' "$path$subpath"
 				break
 			elif [[ $resolve == 'yes' ]]; then
 				# this can return absolute or relative, and real or synthetic, so we have to process the resolve path again, to make real and absolute
-				# `readlink` on a broken symlink (recursive or otherwise) / on a inacessible target (recursive or otherwise)
-				# on macos and fedora/GNU will resolve with success exit status
-				# `readlink` on a missing path:
-				# on macos and fedora/GNU will not resolve with failure exit status (however we have already excluded this case earlier with -L)
-				resolution="$(readlink -- "$path" || :)"
+				resolution="$(__resolve "$path")" || return $?
 				if [[ -z $resolution ]]; then
-					# success exit status, but still failed resolution, should never happen, but if it does, hard give up
-					return 9 # EBADF 9 Bad file descriptor
+					return 14 # EFAULT 14 Bad address
 				fi
-				# reset lineage: shouldn't be necessary
-				# accessible=''
+				## reiterate on the resolved path, without further resolutions, to resolve synthetics and relatives, and validation
+				# reset lineage, necessary if the target doesn't exist, and we have to bubble up in the future
+				accessible=''
 				# prevent future resolutions as we only wanted to resolve once
 				resolve='no'
-				# reiterate on the resolved path, without further resolutions, to resolve synthetics and relatives, and validation
-				# can't do validation earlier, as `[[ -<...> ]]` behave differently on synthetic and relative paths within a symlink dir, see earlier note
-				if_missing_it_is_because_of_symlink='yes'
-				# @for with the current <validate> functionality, it behaves akin to `--follow --validate`, so we perhaps could avoid a lot of drama by just doing a `readlink -e` check regardless of resolution method, however `readlink -e` is not available on macos, and eventually @todo we may want `--resolve --validate` to only validate the first resolution and not all - but for now, `--validate` essentially implies `--follow`
+				# handle absolute vs relative
 				if [[ ${resolution:0:1} == '/' ]]; then
 					# absolute, replace
 					path="$resolution"
@@ -201,6 +218,7 @@ function __process() (
 					# relative, append to original parent
 					path="$(dirname -- "$path")/$(basename -- "$resolution")"
 				fi
+				# perform the reiteration
 				continue
 			fi
 		elif [[ -e $path ]]; then
@@ -211,7 +229,7 @@ function __process() (
 			bubble='yes'
 		else
 			__is_accessible || return $?
-			if [[ $if_missing_it_is_because_of_symlink == 'yes' || -L $path ]]; then
+			if [[ -L $path ]]; then
 				# broken symlink
 				return 9 # EBADF 9 Bad file descriptor
 			else
