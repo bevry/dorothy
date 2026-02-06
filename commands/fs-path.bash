@@ -17,10 +17,15 @@ while [[ $# -ne 0 ]]; do
 		paths+=("$@")
 		shift $#
 		;;
+	--*)
+		printf '%s\n' "ERROR: An unrecognised flag was provided: $item" >&2
+		exit 22 # EINVAL 22 Invalid argument
+		;;
 	*) paths+=("$item") ;;
 	esac
 done
 if [[ ${#paths[@]} -eq 0 ]]; then
+	printf '%s\n' 'ERROR: No <path>s were provided.' >&2
 	exit 22 # EINVAL 22 Invalid argument
 fi
 # make it absolute, with optional resolution, optional validation
@@ -46,29 +51,6 @@ function __process() (
 		*) exit 22 ;; # EINVAL 22 Invalid argument
 		esac
 	done
-	function __enter {
-		local dirname basename
-		dirname="$(dirname "$path")" || return $?
-		basename="$(basename "$path")" || return $?
-		# swap it around, to avoid having to do two `cd` operations
-		if [[ $dirname == '.' && $basename == '..' ]]; then
-			dirname='..'
-			basename='.'
-		fi
-		__cd "$dirname" || return $?
-		path="$(__pwd)" || return $?
-		if [[ $basename != '.' ]]; then
-			if [[ ${path:-1} != '/' ]]; then
-				path+="/$basename"
-			else
-				path+="$basename"
-			fi
-			if [[ -d $path ]]; then
-				__cd "$path" || return $?
-				path="$(__pwd)" || return $?
-			fi
-		fi
-	}
 	# macos only has `readlink <path>`, and `-f [--] <path>`
 	# fedora/GNU has `readlink <path>`, `readlink -version`, and `readlink -<f|e|m> [--] <path>`
 	#
@@ -96,7 +78,6 @@ function __process() (
 	# on a non-symlink that is present:
 	#
 	# on a non-symlink that inaccessible:
-	local resolution
 	if readlink --version &>/dev/null; then
 		# fedora/GNU
 		function __check {
@@ -117,6 +98,45 @@ function __process() (
 	function __resolve {
 		readlink -- "$path" || :
 	}
+	# `cd -P <path>` and `pwd -P` resolves all symlinks (nested and recursive), replicates `<cd -P | ls | ...> <a>/<b>/<symlink-dir>/../..` functionality which return to two parents of <symlink-dir>'s target
+	# `cd <path>` and `pwd` resolves no symlinks, replicates `cd <a>/<b>/<symlink-dir>/../..` functionality which return to <a>
+	function __enter {
+		local dirname basename
+		dirname="$(dirname "$path")" || return $?
+		basename="$(basename "$path")" || return $?
+		# swap it around, to avoid having to do two `cd` operations
+		if [[ $basename == '..' ]]; then
+			dirname+='/..'
+			basename='.'
+		fi
+		# if we have upwards traversal, then follow
+		# @todo in the future, this should do recursive readlink only if upward traversal is of a symlink directory, but that is too complicated for now
+		if [[ $dirname =~ (^|/)[.][.](/|$) || $resolve == 'follow' ]]; then
+			# enter via follow, however `cd -P <path>` fails for missing paths, which if .. then will persist
+			cd -P "$dirname" &>/dev/null || return $?
+		elif [[ $dirname != '.' ]]; then
+			# otherwise enter normally
+			cd "$dirname" &>/dev/null || return $?
+		fi
+		# now get the current path
+		path="$(pwd)" || return $?
+		if [[ $basename != '.' ]]; then
+			if [[ ${path:-1} != '/' ]]; then
+				path+="/$basename"
+			else
+				path+="$basename"
+			fi
+			# if basename is also a directory, then enter it
+			if [[ -d $path ]]; then
+				if [[ $resolve == 'follow' ]]; then
+					cd -P "$path" &>/dev/null || return $?
+				else
+					cd "$path" &>/dev/null || return $?
+				fi
+				path="$(pwd)" || return $?
+			fi
+		fi
+	}
 	# buble upwards until successful absolute or root
 	local resolution bubble subpath='' accessible='' initial_iteration='yes'
 	local -i symlink_status
@@ -127,24 +147,6 @@ function __process() (
 		fi
 	}
 	while :; do
-		# prepare
-		if [[ $resolve == 'follow' ]]; then
-			# resolve all symlinks (nested and recursive), replicates `<cd -P | ls | ...> <a>/<b>/<symlink-dir>/../..` functionality which return to two parents of <symlink-dir>'s target
-			function __cd {
-				cd -P "$@" 2>/dev/null || return $?
-			}
-			function __pwd {
-				pwd -P || return $?
-			}
-		else
-			# resolves no symlinks, replicates `cd <a>/<b>/<symlink-dir>/../..` functionality which return to <a>
-			function __cd {
-				cd "$@" 2>/dev/null || return $?
-			}
-			function __pwd {
-				pwd || return $?
-			}
-		fi
 		# essential checks
 		if [[ -z $path ]]; then
 			# we or the user has stuffed up
