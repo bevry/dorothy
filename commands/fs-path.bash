@@ -92,7 +92,13 @@ function __process() (
 			readlink -f -- "$path" &>/dev/null || return $?
 		}
 		function __follow {
-			readlink -f -- "$path" || :
+			# `readlink -f -- <broken-symlink>` is messed up
+			# `readlink -f -- /private/var/folders/wm/8g56ry4s47z_hbt0tgv0m5gr0000gn/T/dorothy/fs-path/tests/30356/symlinks/empty-dir` outputs:
+			# `/private/var/folders/wm/8g56ry4s47z_hbt0tgv0m5gr0000gn/T/dorothy/fs-path/tests/30356/targets`
+			# instead of:
+			# `/var/folders/wm/8g56ry4s47z_hbt0tgv0m5gr0000gn/T/dorothy/fs-path/tests/30356/targets/empty-dir`
+			# so still return the exit status so we can fallback to manual following
+			readlink -f -- "$path" || return $?
 		}
 	fi
 	function __resolve {
@@ -119,7 +125,7 @@ function __process() (
 			cd "$dirname" &>/dev/null || return $?
 		fi
 		# now get the current path
-		path="$(pwd)" || return $?
+		path="$(pwd)" || exit 14 # EFAULT 14 Bad address
 		if [[ $basename != '.' ]]; then
 			if [[ ${path:-1} != '/' ]]; then
 				path+="/$basename"
@@ -193,7 +199,21 @@ function __process() (
 			fi
 			if [[ $resolve == 'follow' ]]; then
 				# resolve all symlinks (nested and recursive) and make absolute
-				resolution="$(__follow "$path")" || return $?
+				resolution="$(__follow "$path")" || {
+					# workaround macos follow of broken symlinks returning bad data, by manually following instead
+					resolution="$(__resolve "$path")" || return $?
+					accessible=''
+					if [[ ${resolution:0:1} == '/' ]]; then
+						# absolute, replace
+						path="$resolution"
+					else
+						# relative, append to original parent
+						path="$(dirname -- "$path")/$(basename -- "$resolution")"
+					fi
+					# repeat again for the resolution
+					continue
+				}
+				# otherwise continue with this resolution
 				if [[ -z $resolution ]]; then
 					return 14 # EFAULT 14 Bad address
 				fi
