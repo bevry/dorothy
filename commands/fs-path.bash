@@ -70,7 +70,7 @@ function __process() (
 	# `readlink -m -- <path>` on fedora/GNU will resolve with success exit status
 	# `readlink -e -- <path>` on fedora/GNU will not resolve with failure exit status
 	#
-	# on a working symlink (resurcive or otherwise):
+	# on a working symlink (recursive or otherwise):
 	#
 	# on a non-symlink that is missing:
 	# `readlink -- <path> on macos and fedora/GNU will not resolve with failure exit status
@@ -145,7 +145,6 @@ function __process() (
 	}
 	# buble upwards until successful absolute or root
 	local resolution bubble subpath='' accessible='' initial_iteration='yes'
-	local -i symlink_status
 	function __is_accessible {
 		if [[ -z $accessible ]]; then
 			is-accessible.bash -- "$path" || return $?
