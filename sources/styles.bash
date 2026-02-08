@@ -1388,6 +1388,14 @@ function __print_help {
 				s[i]='•'
 				continue
 			fi
+		elif [[ "$c${s[i + 1]-}" == '! ' ]]; then
+			# lists
+			if __are_prior_characters_only_padding; then
+				prefixes[E]+="$STYLE__foreground_red"
+				s[i]='!'
+				suffixes[i]+="$STYLE__END__foreground_red"
+				continue
+			fi
 		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
 			# headers
 			if __are_prior_characters_only_header; then

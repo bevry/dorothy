@@ -1788,71 +1788,114 @@ function fs_path() (
 			USAGE:
 			\`fs-path [...options] [--] ...<path>\`
 
+			LOGICAL VS ABSOLUTE RESOLUTION:
+			Consider the following:
+			\`\`\`
+			cd "\$HOME"; rm -f symlink-to-root-directory; ln -s / symlink-to-root-directory
+			pwd # outputs \`$HOME\`
+			cd "\$HOME/symlink-to-root-directory/.." || echo "cd failed: \$?"
+			pwd # outputs \`$HOME\` because it did a logical resolution
+			cd "\$HOME/symlink-to-root-directory/../\$HOME" || echo "cd failed: \$?"
+			pwd # outputs \`$HOME\` not \`/\` because it did a physical resolution
+			\`\`\`
+			Logical resolutions operate on the path as is, and is only done by \`cd <path>\`.
+			Physical resolutions operate on the path, as located on the filesystem, and is done by everything except \`cd <path>\`.
+			Symlinks resolve based on their physical location.
+
+			LOGICAL RESOLUTIONS:
+			* \`cd <symlink-dir>; pwd\`
+			* \`cd <symlink-dir>; cd ..\`, \`cd <symlink-dir>; cd ../\`, \`cd <symlink-dir>; cd ../.\`
+			* \`cd <symlink-dir>/..\`, \`cd <symlink-dir>/../\`, \`cd <symlink-dir>/../.\`
+			* \`cd <symlink-dir>/../..\`, \`cd <symlink-dir>/../..\`, \`cd <symlink-dir>/../../.\`
+
+			PHYSICAL RESOLUTIONS:
+			* \`cd <symlink-dir>; pwd -P\`
+			* \`cd -P <symlink-dir>; pwd\`
+			* \`cd <symlink-dir>/../<sub-path>\`
+			* \`cd -P <symlink-dir>/..\`, \`cd -P <symlink-dir>/../\`, \`cd -P <symlink-dir>/../.\`
+			* \`ls <symlink-dir>/..\`, \`ls <symlink-dir>/../\`, \`ls <symlink-dir>/../.\`
+			* \`ls <symlink-dir>/../..\`, \`ls <symlink-dir>/../..\`, \`ls <symlink-dir>/../../.\`
+
+			SYNTHETIC VS REAL:
+			A synthetic path contains syntax that are shortcuts that are expected to be expanded, but may or may not be depending on context. For example:
+			* \`~\` is usually expanded to \`\$HOME\` by the shell, when used like so \`echo ~/subpath\`, but not like so \`echo --path=~/subpath\`
+			* \`.\` (self reference) and \`..\` (parent traversal) are usually expanded by the file system (not the shell), as such argument vs flag usage usually doesn't matter.
+			A real path is a path that does not have, or no longer has, any synthetic segments.
+
+			ABSOLUTE VS RELATIVE:
+			An absolute path is one that includes a root filesystem, such that it resolves to the same target, no matter where it is on the system. E.g. \`$HOME\`
+			A relative path is one that does not begin with a root filesystem, as such it begins from somewhere else, which when invoked, will be from the current working directory. E.g. \`.local/share/dorothy\`
+
+			SYMLINK RESOLUTIONS:
+			Symlinks are shotcuts from one location to another, which are resolved physically from the parent of the symlink's target. Such that a symlink located at \`$HOME/symlink\` to \`.local/share\` will target \`.local/share\` from \`$HOME\`, this is equally true for recursive symlinks, that each resolution occurs from the physical location of each symlink, regardless of the logical traversals.
+
+			SYMLINK LEAF VS FOLLOW RESOLUTION:
+			A symlink that is resolved only once, performs leaf resolution.
+			A symlink that is resolved recursively, until the target is no longer a symlink, performs a follow resolution.
+			For example:
+			\`\`\`
+			ln -s f ff
+			ln -s ff fff
+			# If leaf resolution is performed on \`fff\`, it resolves once to \`ff\`
+			# If follow resolution is performed on \`fff\`, it recursively resolves to \`f\`
+			\`\`\`
+
 			OPTIONS:
-			--[no-]resolve | --resolve=follow | --[no-]follow
-			    Resolve symlinks into their target paths.
-			    If <follow> all symlinks in the <path> are resolved recursively.
-			    If <resolve> then the leaf of <path> is resolved once.
-			        ! Upward traversals \`..\` will always be followed, as that is how filesystems work.
-			    ! If <resolve>/<follow>, then <absolute> is implied.
-			    ! Resolutions will always be <absolute> and <physical> during resolutions.
-			    ! If <relative>, the absolute resolution will be converted to relative using <relative-from> or <relative-ancestor>.
-			--[no-]physical | --[no-]logical
-			    If <physical>, treats \`..\` as physical parent directory (how nearly everything works, including \`cd -P <path>\`).
-			    If <logical>, treats \`..\` as logical parent directory (this is how \`cd <path>\` and URLs work, but nothing else).
-			        This will cause  \`<logical-parent>/<symlink>/..\` to go to <logical-parent>, instead of the parent of the resolved symlink, which contradicts everything else.
-			        If applied with <resolve>/<follow>, logical resolutions will occur before symlink resolutions, as symlink resolutions will always be physical.
-			    ! If <path> contains \`..\`, <physical> is implied.
-			--[no-]absolute | --[no-]relative
-			    If <absolute>, the result will be resolved to be absolute.
-			    If <relative>, the resolved path will be resolved to be relative.
-			    ! If neither provided, then <absolute> is implied if <resolve>/<follow>, otherwise
-			    ! If <relative>, and if <resolve>/<follow>, then <relative-from> xor <relative-ancestor> will be used, defaulting to <relative-from> as current working directory if neither provided.
-				 Cannot use <relative-from> with <relative-ancestor>, as they are mutually exclusive.
-			    --relative-from=<relative-from> | --relative-to=<relative-from>
-			        If specified, implies <relative>, and if <relative> then makes the <path> relative from this path. Defaults to the current working directory if <relative> and no <relative-ancestor>.
-			    --relative-ancestor=<relative-ancestor> | --relative-parent=<relative-ancestor> | --relative-base=<relative-ancestor>
-			        If specified, implies <relative>, and if <relative> and if the resolved <path> is within this ancestor, then make the resolution relative from this ancestor.
+			--[no-]logical
+			    If <logical>, then perform a logical resolution, prior to any optional physical resolution.
+			    ! Will default to disabled if the path has \`..\` or if <physical> is enabled.
+
+			After the optional logical resolution:
+
 			--[no-]validate
-			    If <validate>, then fail if any part of the recursive path was not resolvable, that is missing [2], inaccessible [13], or broken [9].
+			    ! If <validate>, enforce <physical>, implying <physical=physical>, and verify the resolution exists.
+			--[no-]absolute
+			    ! If <absolute>, enforce <physical>, implying <physical=physical>, and ensure the output is absolute.
+			--physical=physical | --physical
+			--physical=leaf | --leaf
+			--physical=follow | --follow
+			    If <physical=physical>, then perform a physical resolution.
+			    If <physical=leaf>, then perform a once-off physical leaf symlink resolution.
+			    If <physical=follow>, then perform a recursive symlink resolution.
+			    ! For now, \`..\` segments will be followed, regardless of <physical=physical|leaf>.
+			    ! For now, <physical> will result in an absolute path, implying <absolute>, use \`readlink\` directly if you require otherwise.
+
+			After the optional physical resolution:
+
+			--[no-]relative [--relative-ancestor=<ancestor> | --relative-from=<from>]
+			    If <relative>, after the optional physical resolution, ensure the output is relative, to either <other> or <ancestor>.
+			        If <from>, the output path will become relative from <from>.
+			        If <ancestor>, the output path will become relative from om <ancestor>, iff it was a child of <ancestor>, otherwise it will be <absolute>.
+			        ! Cannot uuse <from> with <ancestor>, as they are mutually exclusive.
+			        ! <from> and <ancestor> imply <relative>, and require <relative> to be enabled.
+			        ! if <relative>, but neither <from> nor <ancestor> were specified, and the path is absolute, then <from> will become the current working directory.
+			! Cannot use <absolute> with <relative>, as they are mutually exclusive.
+
+			After the optional relative enforcement:
 
 			--[no-]extensions
-			    If <extensions> enabled, only output the extensions of the basename. If no extensions, an empty result will be returned.
+			    If <extensions>, only output the extensions of the basename. If no extensions, an empty result will be returned.
 			    If disabled, remove all extensions from the basename.
 			--[no-]extension
-			    If <extension> enabled, only output the last extension of the basename. If no last extension, an empty result will be returned.
+			    If <extension>, only output the last extension of the basename. If no last extension, an empty result will be returned.
 			    If disabled, remove the last extension from the basename.
-			Cannot use <extensions> with <extension>, as they are mutually exclusive.
+			! Cannot use <extensions> with <extension>, as they are mutually exclusive.
 
 			--[no-]parents
-			    If <parents> enabled, only return the containing path and not the basename.
+			    If <parents>, only return the containing path and not the basename.
 			        Use <parents> with <absolute> to return the complete ancestry, which a <relative> resolution will not do.
-			        Cannot use <parents> with <extensions>/<extension>, as that does not make sense, you want <parent> instead of <parents>.
+			        ! Cannot use <parents> with <extensions>/<extension>, as that does not make sense, you want <parent> instead of <parents>.
 			    If disabled, only return the basename of the path.
 			--[no-]parent
-			    If <parent> enabled, only return the basename of the parent path.
+			    If <parent>, only return the basename of the parent path.
 			    If disabled, only return the basename of the path.
+
+			Shared \`fs-*\` options:
 
 			$fodder
 
 			QUIRKS:
-			To understand logical, physical, and the enforcement of physical for resolutions, consider this:
-			* These are logical operations:
-			    * \`cd <symlink-dir>; pwd\`
-			    * \`cd <symlink-dir>; cd ..\`
-			    * \`cd <symlink-dir>/..\`, \`cd <symlink-dir>/../\`, \`cd <symlink-dir>/../.\`
-			    * \`cd <symlink-dir>/../..\`, \`cd <symlink-dir>/../..\`, \`cd <symlink-dir>/../../.\`
-			* These are physical operations:
-			    * \`cd <symlink-dir>; pwd -P\`
-			    * \`cd -P <symlink-dir>; pwd\`
-			    * \`cd -P <symlink-dir>/..\`
-			    * \`cd <symlink-dir>/../<sub-path>\`
-			    * \`ls <symlink-dir>/..\`, \`ls <symlink-dir>/../\`, \`ls <symlink-dir>/../.\`
-			    * \`ls <symlink-dir>/../..\`, \`ls <symlink-dir>/../..\`, \`ls <symlink-dir>/../../.\`
-
-			For now, resolutions of \`..\` will do a <follow> on its traversal, even on <resolve>. This may change at a later point. Such a change would also enable <relative> during resolutions.
-
-			Testing of \`fs-path -- <path> <path> ...<path>\` is not yet tested, so expect bugs with <absolute>/<resolve>/<validate> around working directory changes.
+			! Testing of \`fs-path -- <path> <path> ...<path>\` is not yet tested, so expect bugs with <absolute>/<resolve>/<validate> around working directory changes.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
