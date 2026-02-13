@@ -241,6 +241,21 @@ STYLE__END__terminal_clipboard=$'\a'
 # echo-style --pre-print-delay=$delay --down --enter --escape --escape --escape --enter --enter | eval-tester ...
 # echo-style --pre-print-delay=$delay --down+enter+escape+escape+escape+enter+enter | eval-tester ...
 
+# sizes
+# https://sw.kovidgoyal.net/kitty/text-sizing-protocol/
+STYLE__MULTICOLOR__s2=$'\e]66;s=2;'
+STYLE__MULTICOLOR__END__s2=$'\a'
+STYLE__MULTICOLOR__s3=$'\e]66;s=3;'
+STYLE__MULTICOLOR__END__s3=$'\a'
+STYLE__MULTICOLOR__s4=$'\e]66;s=4;'
+STYLE__MULTICOLOR__END__s4=$'\a'
+STYLE__MULTICOLOR__s5=$'\e]66;s=5;'
+STYLE__MULTICOLOR__END__s5=$'\a'
+STYLE__MULTICOLOR__s6=$'\e]66;s=6;'
+STYLE__MULTICOLOR__END__s6=$'\a'
+STYLE__MULTICOLOR__s7=$'\e]66;s=7;'
+STYLE__MULTICOLOR__END__s7=$'\a'
+
 # modes
 STYLE__MULTICOLOR__END__intensity=$'\e[22m'  #
 STYLE__MULTICOLOR__END__foreground=$'\e[39m' #
