@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 
-paths=() option_resolve='no' option_validate='no'
+paths=() option_physical='physical' option_validate='no'
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
-	--resolve | --resolve=yes) option_resolve='yes' ;;
-	--resolve=follow) option_resolve='follow' ;;
-	--no-resolve | --resolve=no) option_resolve='no' ;;
-	--resolve=) : ;;
+	# physical, leaf, follow
+	--physical | --physical=yes | --physical=physical | --resolve=physical) option_physical='physical' ;;
+	--leaf | --leaf=yes | --physical=leaf | --resolve=leaf) option_physical='leaf' ;;
+	--follow | --follow=yes | --physical=follow | --resolve=follow) option_physical='follow' ;;
+	# validate
 	--validate | --validate=yes) option_validate='yes' ;;
 	--no-validate | --validate=no) option_validate='no' ;;
-	--validate=) : ;;
+	# ignore
+	--physical= | --leaf= | --follow= | --validate=) : ;;
+	# path, as option ~ isn't interpolated by the caller shell
 	--path=*) paths+=("${item#*=}") ;;
+	# path, with interpolations by caller shell
 	--)
 		paths+=("$@")
 		shift $#
@@ -40,13 +44,14 @@ function __fail {
 # PS4="$BASH_DEBUG_FORMAT"
 # set -xv
 function __process() (
-	local item path='' resolve='no' validate='no'
+	# ^ subshell so change directories do not affect subsequent calls
+	local item path='' physical='physical' validate='no'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		--path=*) path="${item#*=}" ;;
-		--resolve=*) resolve="${item#*=}" ;;
+		--physical=*) physical="${item#*=}" ;;
 		--validate=*) validate="${item#*=}" ;;
 		*) exit 22 ;; # EINVAL 22 Invalid argument
 		esac
@@ -58,7 +63,7 @@ function __process() (
 	# `[[ -e <path> ]]` returns failure exit status
 	# `[[ -L <path> ]]` returns success exit status
 	# `readlink -- <path>` on macos and fedora/GNU will resolve with success exit status
-	# `readlink -f -- <path>` on macos will resolve with failure exit status
+	# `readlink -f -- <path>` on macos will partially resolve with failure exit status
 	# `readlink -f -- <path>` on fedora/GNU will resolve with success exit status
 	# `readlink -m -- <path>` on fedora/GNU will resolve with success exit status
 	# `readlink -e -- <path>` on fedora/GNU will not resolve with failure exit status
@@ -70,14 +75,16 @@ function __process() (
 	# `readlink -m -- <path>` on fedora/GNU will resolve with success exit status
 	# `readlink -e -- <path>` on fedora/GNU will not resolve with failure exit status
 	#
-	# on a working symlink (recursive or otherwise):
-	#
 	# on a non-symlink that is missing:
 	# `readlink -- <path> on macos and fedora/GNU will not resolve with failure exit status
+	# @todo
 	#
 	# on a non-symlink that is present:
+	# @todo
 	#
 	# on a non-symlink that inaccessible:
+	# @todo
+	#
 	if readlink --version &>/dev/null; then
 		# fedora/GNU
 		function __check {
@@ -108,8 +115,8 @@ function __process() (
 	# `cd <path>` and `pwd` resolves no symlinks, replicates `cd <a>/<b>/<symlink-dir>/../..` functionality which return to <a>
 	function __enter {
 		local dirname basename
-		dirname="$(dirname "$path")" || return $?
-		basename="$(basename "$path")" || return $?
+		dirname="$(dirname -- "$path")" || return $?
+		basename="$(basename -- "$path")" || return $?
 		# swap it around, to avoid having to do two `cd` operations
 		if [[ $basename == '..' ]]; then
 			dirname+='/..'
@@ -117,12 +124,12 @@ function __process() (
 		fi
 		# if we have upwards traversal, then follow
 		# @todo in the future, this should do recursive readlink only if upward traversal is of a symlink directory, but that is too complicated for now
-		if [[ $dirname =~ (^|/)[.][.](/|$) || $resolve == 'follow' ]]; then
+		if [[ $dirname =~ (^|/)[.][.](/|$) || $physical == 'follow' ]]; then
 			# enter via follow, however `cd -P <path>` fails for missing paths, which if .. then will persist
-			cd -P "$dirname" &>/dev/null || return $?
+			cd -P -- "$dirname" &>/dev/null || return $?
 		elif [[ $dirname != '.' ]]; then
 			# otherwise enter normally
-			cd "$dirname" &>/dev/null || return $?
+			cd -- "$dirname" &>/dev/null || return $?
 		fi
 		# now get the current path
 		path="$(pwd)" || exit 14 # EFAULT 14 Bad address
@@ -134,10 +141,10 @@ function __process() (
 			fi
 			# if basename is also a directory, then enter it
 			if [[ -d $path ]]; then
-				if [[ $resolve == 'follow' ]]; then
-					cd -P "$path" &>/dev/null || return $?
+				if [[ $physical == 'follow' ]]; then
+					cd -P -- "$path" &>/dev/null || return $?
 				else
-					cd "$path" &>/dev/null || return $?
+					cd -- "$path" &>/dev/null || return $?
 				fi
 				path="$(pwd)" || return $?
 			fi
@@ -171,8 +178,7 @@ function __process() (
 			fi
 			break
 		fi
-		# `[[ -<d|e|f|L> ]]` do not operate correctly when inside a symlinked directory, and doing on `fs-path --resolve -- ../<symlink>`
-		# so we must first resolve these synthetic paths before anything else, so those conditionals work correctly
+		# `[[ -<d|e|f|L> ]]` are physical not logical operations, so resolve synthetic paths
 		bubble='no'
 		__enter || {
 			__is_accessible || return $?
@@ -182,13 +188,13 @@ function __process() (
 			fi
 		}
 		# now handle the resolution
-		if [[ $resolve == 'yes' && $initial_iteration == 'no' ]]; then
+		if [[ $physical == 'leaf' && $initial_iteration == 'no' ]]; then
 			# if <resolve:yes> then we only care about resolving if the leaf is a symlink
 			# this prevents missing leafs bubbling up to resolving the first directory if it is a symlink, which is peculiar behaviour
-			resolve='no'
+			physical='physical'
 		fi
 		initial_iteration='no'
-		if [[ $resolve =~ ^(yes|follow)$ && -L $path ]]; then
+		if [[ $physical =~ ^(leaf|follow)$ && -L $path ]]; then
 			# @todo this does a follow check, which later, we want to avoid unless following (as it violates logical and leaf resolution), but for now, it's fine
 			if ! __check; then
 				__is_accessible || return $?
@@ -196,7 +202,7 @@ function __process() (
 					return 9 # EBADF 9 Bad file descriptor
 				fi
 			fi
-			if [[ $resolve == 'follow' ]]; then
+			if [[ $physical == 'follow' ]]; then
 				# resolve all symlinks (nested and recursive) and make absolute
 				resolution="$(__follow "$path")" || {
 					# workaround macos follow of broken symlinks returning bad data, by manually following instead
@@ -220,7 +226,7 @@ function __process() (
 				path="$resolution"
 				printf '%s\n' "$path$subpath"
 				break
-			elif [[ $resolve == 'yes' ]]; then
+			elif [[ $physical == 'leaf' ]]; then
 				# this can return absolute or relative, and real or synthetic, so we have to process the resolve path again, to make real and absolute
 				resolution="$(__resolve "$path")" || return $?
 				if [[ -z $resolution ]]; then
@@ -230,7 +236,7 @@ function __process() (
 				# reset lineage, necessary if the target doesn't exist, and we have to bubble up in the future
 				accessible=''
 				# prevent future resolutions as we only wanted to resolve once
-				resolve='no'
+				physical='physical'
 				# handle absolute vs relative
 				if [[ ${resolution:0:1} == '/' ]]; then
 					# absolute, replace
@@ -274,6 +280,6 @@ function __process() (
 	done
 )
 for path in "${paths[@]}"; do
-	__process --path="$path" --resolve="$option_resolve" --validate="$option_validate" || __fail $? || exit $?
+	__process --path="$path" --physical="$option_physical" --validate="$option_validate" || __fail $? || exit $?
 done
 exit 0

@@ -7,7 +7,7 @@ function __is_fs__options {
 		cat <<-EOF || return $?
 			...<path> | --path=...<path> | --- ...<path>
 			    The <path>s to perform the operation on.
-			    NOTE: \`--path=~\` will not interpolate the tilde as \`\$HOME\`. Use \`[--] ...<path>\` for tilde-as-home interpolation. This is a shell convention, not a Dorothy convention.
+			    ! \`--path=~\` will not interpolate the tilde as \`\$HOME\`. Use \`[--] ...<path>\` for tilde-as-home interpolation. This is a shell convention, not a Dorothy convention.
 
 			--[no-]verbose | --[no-]quiet
 			    If <verbose>, output to STDERR the first <path> that failed and how it failed.
