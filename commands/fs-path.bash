@@ -13,7 +13,7 @@ while [[ $# -ne 0 ]]; do
 	--validate | --validate=yes) option_validate='yes' ;;
 	--no-validate | --validate=no) option_validate='no' ;;
 	# ignore
-	--physical= | --leaf= | --follow= | --validate=) : ;;
+	--absolute= | --physical= | --leaf= | --follow= | --validate=) : ;;
 	# path, as option ~ isn't interpolated by the caller shell
 	--path=*) paths+=("${item#*=}") ;;
 	# path, with interpolations by caller shell
@@ -198,7 +198,7 @@ function __process() (
 		fi
 		initial_iteration='no'
 		if [[ $absolute =~ ^(leaf|follow)$ && -L $path ]]; then
-			# @todo this does a follow check, which later, we want to avoid unless following (as it violates logical and leaf resolution), but for now, it's fine
+			# we do a follow check even for leaf as that is how the filesystem works
 			if ! __check; then
 				__is_accessible || return $?
 				if [[ $validate == 'yes' ]]; then
@@ -256,6 +256,8 @@ function __process() (
 			printf '%s\n' "$path$subpath"
 			break
 		elif [[ $validate == 'no' ]]; then
+			# still do an accessible check
+			__is_accessible || return $?
 			# we don't exist, bubble up until we find something that does exist
 			dirname="$(dirname -- "$path")" || return $?
 			if [[ $dirname == '/' ]]; then
