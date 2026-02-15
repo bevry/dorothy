@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-paths=() option_physical='physical' option_validate='no'
+paths=() option_absolute='physical' option_validate='no'
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
 	# physical, leaf, follow
-	--physical | --physical=yes | --physical=physical | --resolve=physical) option_physical='physical' ;;
-	--leaf | --leaf=yes | --physical=leaf | --resolve=leaf) option_physical='leaf' ;;
-	--follow | --follow=yes | --physical=follow | --resolve=follow) option_physical='follow' ;;
+	--absolute=physical | --absolute=yes | --absolute | --physical=yes | --physical) option_absolute='physical' ;;
+	--absolute=leaf | --leaf=yes | --leaf) option_absolute='leaf' ;;
+	--absolute=follow | --follow=yes | --follow) option_absolute='follow' ;;
 	# validate
 	--validate | --validate=yes) option_validate='yes' ;;
 	--no-validate | --validate=no) option_validate='no' ;;
@@ -45,13 +45,13 @@ function __fail {
 # set -xv
 function __process() (
 	# ^ subshell so change directories do not affect subsequent calls
-	local item path='' physical='physical' validate='no'
+	local item path='' absolute='physical' validate='no'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		--path=*) path="${item#*=}" ;;
-		--physical=*) physical="${item#*=}" ;;
+		--absolute=*) absolute="${item#*=}" ;;
 		--validate=*) validate="${item#*=}" ;;
 		*) exit 22 ;; # EINVAL 22 Invalid argument
 		esac
@@ -115,6 +115,10 @@ function __process() (
 	# `cd <path>` and `pwd` resolves no symlinks, replicates `cd <a>/<b>/<symlink-dir>/../..` functionality which return to <a>
 	function __enter {
 		local dirname basename
+		# if the path is relative, then prepend our current pwd
+		if [[ ${path:0:1} != '/' ]]; then
+			path="$(pwd)/$path" || return $?
+		fi
 		dirname="$(dirname -- "$path")" || return $?
 		basename="$(basename -- "$path")" || return $?
 		# swap it around, to avoid having to do two `cd` operations
@@ -124,7 +128,7 @@ function __process() (
 		fi
 		# if we have upwards traversal, then follow
 		# @todo in the future, this should do recursive readlink only if upward traversal is of a symlink directory, but that is too complicated for now
-		if [[ $dirname =~ (^|/)[.][.](/|$) || $physical == 'follow' ]]; then
+		if [[ $dirname =~ (^|/)[.][.](/|$) || $absolute == 'follow' ]]; then
 			# enter via follow, however `cd -P <path>` fails for missing paths, which if .. then will persist
 			cd -P -- "$dirname" &>/dev/null || return $?
 		elif [[ $dirname != '.' ]]; then
@@ -141,7 +145,7 @@ function __process() (
 			fi
 			# if basename is also a directory, then enter it
 			if [[ -d $path ]]; then
-				if [[ $physical == 'follow' ]]; then
+				if [[ $absolute == 'follow' ]]; then
 					cd -P -- "$path" &>/dev/null || return $?
 				else
 					cd -- "$path" &>/dev/null || return $?
@@ -150,8 +154,8 @@ function __process() (
 			fi
 		fi
 	}
-	# buble upwards until successful absolute or root
-	local resolution bubble subpath='' accessible='' initial_iteration='yes'
+	# bubble upwards until successful absolute or root
+	local resolution subpath='' accessible='' initial_iteration='yes' dirname basename
 	function __is_accessible {
 		if [[ -z $accessible ]]; then
 			is-accessible.bash -- "$path" || return $?
@@ -179,7 +183,6 @@ function __process() (
 			break
 		fi
 		# `[[ -<d|e|f|L> ]]` are physical not logical operations, so resolve synthetic paths
-		bubble='no'
 		__enter || {
 			__is_accessible || return $?
 			if [[ -e $path ]]; then
@@ -188,13 +191,13 @@ function __process() (
 			fi
 		}
 		# now handle the resolution
-		if [[ $physical == 'leaf' && $initial_iteration == 'no' ]]; then
+		if [[ $absolute == 'leaf' && $initial_iteration == 'no' ]]; then
 			# if <resolve:yes> then we only care about resolving if the leaf is a symlink
 			# this prevents missing leafs bubbling up to resolving the first directory if it is a symlink, which is peculiar behaviour
-			physical='physical'
+			absolute='physical'
 		fi
 		initial_iteration='no'
-		if [[ $physical =~ ^(leaf|follow)$ && -L $path ]]; then
+		if [[ $absolute =~ ^(leaf|follow)$ && -L $path ]]; then
 			# @todo this does a follow check, which later, we want to avoid unless following (as it violates logical and leaf resolution), but for now, it's fine
 			if ! __check; then
 				__is_accessible || return $?
@@ -202,7 +205,7 @@ function __process() (
 					return 9 # EBADF 9 Bad file descriptor
 				fi
 			fi
-			if [[ $physical == 'follow' ]]; then
+			if [[ $absolute == 'follow' ]]; then
 				# resolve all symlinks (nested and recursive) and make absolute
 				resolution="$(__follow "$path")" || {
 					# workaround macos follow of broken symlinks returning bad data, by manually following instead
@@ -226,7 +229,7 @@ function __process() (
 				path="$resolution"
 				printf '%s\n' "$path$subpath"
 				break
-			elif [[ $physical == 'leaf' ]]; then
+			elif [[ $absolute == 'leaf' ]]; then
 				# this can return absolute or relative, and real or synthetic, so we have to process the resolve path again, to make real and absolute
 				resolution="$(__resolve "$path")" || return $?
 				if [[ -z $resolution ]]; then
@@ -236,7 +239,7 @@ function __process() (
 				# reset lineage, necessary if the target doesn't exist, and we have to bubble up in the future
 				accessible=''
 				# prevent future resolutions as we only wanted to resolve once
-				physical='physical'
+				absolute='physical'
 				# handle absolute vs relative
 				if [[ ${resolution:0:1} == '/' ]]; then
 					# absolute, replace
@@ -253,7 +256,17 @@ function __process() (
 			printf '%s\n' "$path$subpath"
 			break
 		elif [[ $validate == 'no' ]]; then
-			bubble='yes'
+			# we don't exist, bubble up until we find something that does exist
+			dirname="$(dirname -- "$path")" || return $?
+			if [[ $dirname == '/' ]]; then
+				# we've already gotten as far as we can
+				printf '%s\n' "$path$subpath"
+				break
+			else
+				subpath="/$(basename -- "$path")$subpath" || return $?
+			fi
+			path="$dirname"
+			continue
 		else
 			__is_accessible || return $?
 			if [[ -L $path ]]; then
@@ -264,22 +277,9 @@ function __process() (
 				return 2 # ENOENT 2 No such file or directory
 			fi
 		fi
-		if [[ $bubble == 'yes' ]]; then
-			# bubble up until we find something that does exist
-			resolution="$(dirname -- "$path")" || return $?
-			if [[ $resolution == '.' ]]; then
-				# we've already gotten as far as we can
-				printf '%s\n' "$path$subpath"
-				break
-			else
-				subpath="/$(basename -- "$path")$subpath" || return $?
-				path="$resolution"
-				continue
-			fi
-		fi
 	done
 )
 for path in "${paths[@]}"; do
-	__process --path="$path" --physical="$option_physical" --validate="$option_validate" || __fail $? || exit $?
+	__process --path="$path" --absolute="$option_absolute" --validate="$option_validate" || __fail $? || exit $?
 done
 exit 0
