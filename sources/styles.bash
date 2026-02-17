@@ -241,6 +241,21 @@ STYLE__END__terminal_clipboard=$'\a'
 # echo-style --pre-print-delay=$delay --down --enter --escape --escape --escape --enter --enter | eval-tester ...
 # echo-style --pre-print-delay=$delay --down+enter+escape+escape+escape+enter+enter | eval-tester ...
 
+# sizes
+# https://sw.kovidgoyal.net/kitty/text-sizing-protocol/
+STYLE__MULTICOLOR__s2=$'\e]66;s=2;'
+STYLE__MULTICOLOR__END__s2=$'\a'
+STYLE__MULTICOLOR__s3=$'\e]66;s=3;'
+STYLE__MULTICOLOR__END__s3=$'\a'
+STYLE__MULTICOLOR__s4=$'\e]66;s=4;'
+STYLE__MULTICOLOR__END__s4=$'\a'
+STYLE__MULTICOLOR__s5=$'\e]66;s=5;'
+STYLE__MULTICOLOR__END__s5=$'\a'
+STYLE__MULTICOLOR__s6=$'\e]66;s=6;'
+STYLE__MULTICOLOR__END__s6=$'\a'
+STYLE__MULTICOLOR__s7=$'\e]66;s=7;'
+STYLE__MULTICOLOR__END__s7=$'\a'
+
 # modes
 STYLE__MULTICOLOR__END__intensity=$'\e[22m'  #
 STYLE__MULTICOLOR__END__foreground=$'\e[39m' #
@@ -1388,6 +1403,14 @@ function __print_help {
 				s[i]='•'
 				continue
 			fi
+		elif [[ "$c${s[i + 1]-}" == '! ' ]]; then
+			# lists
+			if __are_prior_characters_only_padding; then
+				prefixes[E]+="$STYLE__foreground_red"
+				s[i]='!'
+				suffixes[i]+="$STYLE__END__foreground_red"
+				continue
+			fi
 		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
 			# headers
 			if __are_prior_characters_only_header; then
@@ -1521,6 +1544,10 @@ function __print_help {
 	local result=''
 	for ((i = 0; i < n; i++)); do
 		result+="${prefixes[i]}${s[i]}${suffixes[i]}"
+	done
+	# trim double trailing newline, which is an EOF accident
+	while [[ $result == *$'\n\n' ]]; do
+		result="${result%$'\n'*}"
 	done
 	printf '%s' "$result" >&2
 	if [[ $# -ne 0 ]]; then

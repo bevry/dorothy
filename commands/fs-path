@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 
 function fs_path_test() (
-	source "$DOROTHY/sources/bash.bash"
-	eval-tester --ignore-stderr --status=22 -- fs-path --help
+	source "$DOROTHY/sources/is-fs-tests.bash"
+	local root root_resolved command='fs-path' tuples=()
+	root="$(is_fs_tests__root)"
+	# handle macos temporary files being created in a path that has a symlink that needs resolving
+	root_resolved="$(fs-path --follow -- "$root")" # @todo consider changing `--resolve` to `--follow` and introduce a new `--shallow`, as most of the time, I think we want `--follow` behaviour
+
+	eval-tester --ignore-stderr --status=22 -- "$command" --help
+	eval-tester --name='no args' --status=22 --ignore-stderr -- "$command" --
+	eval-tester --name='empty path arg' --status=22 --ignore-stderr -- "$command" -- ''
+	eval-tester --name='empty path option' --status=22 --ignore-stderr -- "$command" --path=''
 
 	# simple case with no parent
 
@@ -62,10 +70,10 @@ function fs_path_test() (
 	eval-tester --stdout='a.b.c' -- \
 		fs-path --parents -- 'a.b.c/d.e.f'
 
-	eval-tester --status=22 --ignore-stderr -- \
+	eval-tester --stdout='c' -- \
 		fs-path --parents --extension -- 'a.b.c/d.e.f'
 
-	eval-tester --status=22 --ignore-stderr -- \
+	eval-tester --stdout='b.c' -- \
 		fs-path --parents --extensions -- 'a.b.c/d.e.f'
 
 	eval-tester --stdout='c' -- \
@@ -97,21 +105,21 @@ function fs_path_test() (
 	eval-tester --stdout='.dorothy' -- \
 		fs-path --parents -- '.dorothy/a.b.c'
 
-	eval-tester --status=22 --ignore-stderr -- \
+	eval-tester --stdout='' -- \
 		fs-path --parents --no-extension -- '.dorothy/a.b.c'
-
-	eval-tester --status=22 --ignore-stderr -- \
+	eval-tester --stdout='' -- \
 		fs-path --parents --no-extensions -- '.dorothy/a.b.c'
-
-	eval-tester --status=22 --ignore-stderr -- \
-		fs-path --parents --extension -- '.dorothy/a.b.c'
-
-	eval-tester --status=22 --ignore-stderr -- \
-		fs-path --parents --extensions -- '.dorothy/a.b.c'
+	eval-tester --stdout='' -- \
+		fs-path --parent --no-extension -- '.dorothy/a.b.c'
+	eval-tester --stdout='' -- \
+		fs-path --parent --no-extensions -- '.dorothy/a.b.c'
 
 	eval-tester --stdout='dorothy' -- \
+		fs-path --parents --extension -- '.dorothy/a.b.c'
+	eval-tester --stdout='dorothy' -- \
+		fs-path --parents --extensions -- '.dorothy/a.b.c'
+	eval-tester --stdout='dorothy' -- \
 		fs-path --parent --extension -- '.dorothy/a.b.c'
-
 	eval-tester --stdout='dorothy' -- \
 		fs-path --parent --extensions -- '.dorothy/a.b.c'
 
@@ -180,12 +188,26 @@ function fs_path_test() (
 	eval-tester --stdout='/a' -- \
 		fs-path -- '/a'
 
-	eval-tester --stdout='/' -- \
+	eval-tester --stdout='/../..' -- \
 		fs-path -- '//..///..////./////'
-	eval-tester --stdout='/' -- \
+	eval-tester --stdout='..' -- \
 		fs-path --no-parents -- '//..///..////./////'
-	eval-tester --stdout='/' -- \
+	eval-tester --stdout='/..' -- \
 		fs-path --parents -- '//..///..////./////'
+
+	eval-tester --stdout='/' -- \
+		fs-path --logical -- '//..///..////./////'
+	eval-tester --stdout='/' -- \
+		fs-path --logical --no-parents -- '//..///..////./////'
+	eval-tester --stdout='/' -- \
+		fs-path --logical --parents -- '//..///..////./////'
+
+	eval-tester --stdout='/' -- \
+		fs-path --absolute -- '//..///..////./////'
+	eval-tester --stdout='/' -- \
+		fs-path --absolute --no-parents -- '//..///..////./////'
+	eval-tester --stdout='/' -- \
+		fs-path --absolute --parents -- '//..///..////./////'
 
 	eval-tester --stdout='/' -- \
 		fs-path -- /
@@ -228,6 +250,22 @@ function fs_path_test() (
 	eval-tester --stdout='.' -- \
 		fs-path --parents -- './//.////./////'
 
+	# empty parent style 1
+	eval-tester --stdout='.' -- \
+		fs-path --logical -- './..'
+	eval-tester --stdout='.' -- \
+		fs-path --logical --no-parents -- './..'
+	eval-tester --stdout='.' -- \
+		fs-path --logical --parents -- './..'
+
+	# empty parent style 2
+	eval-tester --stdout='.' -- \
+		fs-path --logical -- 'a/..'
+	eval-tester --stdout='.' -- \
+		fs-path --logical --no-parents -- 'a/..'
+	eval-tester --stdout='.' -- \
+		fs-path --logical --parents -- 'a/..'
+
 	# we don't resolve
 
 	eval-tester --stdout='a' -- \
@@ -257,7 +295,1773 @@ function fs_path_test() (
 	eval-tester --stdout='/' -- \
 		fs-path --parents -- '/a'
 
-	# @todo add symlink edge cases
+	# symlink edge cases via `is-fs`
+	(
+		# prep
+		# f=file inside tests root
+		# b=broken symlink inside tests root
+		# r=dir symlink inside tests root, pointing to filesystem root parent, which is just filesystem root
+		# d=dir inside tests root
+		# e=file inside d
+		# s=dir symlink inside d, pointing to ., which is d
+		# p=dir symlink inside d, pointing to .., which is tests root
+		# n=dir inside d
+		# o=file inside n
+		# u=dir symlink inside n, pointing to .., which is d
+		# q/w/r=path that is missing
+
+		set -xv
+		cd "$root"
+		rm -rf f ff fff b bb bbb r rr rrr d dd ddd e ee eee s ss sss p pp ppp n nn nnn o oo ooo u uu uuu || :
+		touch f
+		ln -s f ff
+		ln -s ff fff
+		ln -s b bb
+		ln -s bb bbb
+		ln -s /.. r
+		ln -s r rr
+		ln -s rr rrr
+		mkdir -p d/n
+		touch d/e d/n/o
+		ln -s d dd
+		ln -s dd ddd
+		ln -s e d/ee
+		ln -s ee d/eee
+		ln -s . d/s # . is relative to d, the physical container of s, targeting d
+		ln -s s d/ss
+		ln -s ss d/sss
+		ln -s .. d/p # .. is relative to d, the physical container of p. targeting tests root
+		ln -s p d/pp
+		ln -s pp d/ppp
+		ln -s n d/nn
+		ln -s nn d/nnn
+		ln -s o d/n/oo
+		ln -s oo d/n/ooo
+		ln -s .. d/n/u # .. is relative to n, the physical container of u, targeting d
+		ln -s u d/n/uu
+		ln -s uu d/n/uuu
+		cd ddd
+		set +xv
+
+		# start with follow tests, so ensure our setup is correct
+		tuples=(
+			--path='.' --stdout="$root_resolved/d"
+			--path='..' --stdout="$root_resolved"
+
+			--path="$root/ddd/q/w/r" --stdout="$root_resolved/d/q/w/r"
+			--path="$root/ddd/q/w/.." --stdout="$root_resolved/d/q/w/.." # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/q/../r" --stdout="$root_resolved/d/q/../r" # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/../q/w/r" --stdout="$root_resolved/q/w/r"
+			--path="$root/ddd/../q/../r" --stdout="$root_resolved/q/../r"       # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/../q/../r/.." --stdout="$root_resolved/q/../r/.." # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path="$root/f" --stdout="$root_resolved/f"
+			--path="$root/ff" --stdout="$root_resolved/f"
+			--path="$root/fff" --stdout="$root_resolved/f"
+			--path="$root/b" --stdout="$root_resolved/b"
+			--path="$root/bb" --stdout="$root_resolved/b"
+			--path="$root/bbb" --stdout="$root_resolved/b"
+			--path="$root/r" --stdout='/'
+			--path="$root/rr" --stdout='/'
+			--path="$root/rrr" --stdout='/'
+			--path="$root/d" --stdout="$root_resolved/d"
+			--path="$root/dd" --stdout="$root_resolved/d"
+			--path="$root/ddd" --stdout="$root_resolved/d"
+			--path="$root/d/e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/s" --stdout="$root_resolved/d"
+			--path="$root/dd/ss" --stdout="$root_resolved/d"
+			--path="$root/ddd/sss" --stdout="$root_resolved/d"
+			--path="$root/d/s/e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/ss/ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/sss/eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/s/.." --stdout="$root_resolved"
+			--path="$root/dd/ss/.." --stdout="$root_resolved"
+			--path="$root/ddd/sss/.." --stdout="$root_resolved"
+			--path="$root/d/s/../f" --stdout="$root_resolved/f"
+			--path="$root/dd/ss/../ff" --stdout="$root_resolved/f"
+			--path="$root/ddd/sss/../fff" --stdout="$root_resolved/f"
+			--path="$root/d/p" --stdout="$root_resolved"
+			--path="$root/dd/pp" --stdout="$root_resolved"
+			--path="$root/ddd/ppp" --stdout="$root_resolved"
+			--path="$root/d/p/f" --stdout="$root_resolved/f"
+			--path="$root/dd/pp/ff" --stdout="$root_resolved/f"
+			--path="$root/ddd/ppp/fff" --stdout="$root_resolved/f"
+			--path="$root/d/n" --stdout="$root_resolved/d/n"
+			--path="$root/dd/nn" --stdout="$root_resolved/d/n"
+			--path="$root/ddd/nnn" --stdout="$root_resolved/d/n"
+			--path="$root/d/n/.." --stdout="$root_resolved/d"
+			--path="$root/dd/nn/.." --stdout="$root_resolved/d"
+			--path="$root/ddd/nnn/.." --stdout="$root_resolved/d"
+			--path="$root/d/n/../e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/nnn/../eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/n/u" --stdout="$root_resolved/d"
+			--path="$root/dd/nn/uu" --stdout="$root_resolved/d"
+			--path="$root/ddd/nnn/uuu" --stdout="$root_resolved/d"
+			--path="$root/d/n/u/e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/n/u/.." --stdout="$root_resolved"
+			--path="$root/dd/nn/uu/.." --stdout="$root_resolved"
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root_resolved"
+			--path="$root/d/n/u/../f" --stdout="$root_resolved/f"
+			--path="$root/dd/nn/uu/../ff" --stdout="$root_resolved/f"
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root_resolved/f"
+
+			--path="q/w/r" --stdout="$root_resolved/d/q/w/r"
+			--path="q/w/.." --stdout="$root_resolved/d/q/w/.." # the filesystem leaves missing segments unresolved
+			--path="q/../r" --stdout="$root_resolved/d/q/../r" # the filesystem leaves missing segments unresolved
+			--path="../q/w/r" --stdout="$root_resolved/q/w/r"
+			--path="../q/../r" --stdout="$root_resolved/q/../r"       # the filesystem leaves missing segments unresolved
+			--path="../q/../r/.." --stdout="$root_resolved/q/../r/.." # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path='../f' --stdout="$root_resolved/f"
+			--path='../ff' --stdout="$root_resolved/f"
+			--path='../fff' --stdout="$root_resolved/f"
+			--path='../b' --stdout="$root_resolved/b" # broken
+			--path='../bb' --stdout="$root_resolved/b"
+			--path='../bbb' --stdout="$root_resolved/b"
+			--path='../r' --stdout="/"
+			--path='../rr' --stdout="/"
+			--path='../rrr' --stdout="/"
+			--path='../d' --stdout="$root_resolved/d"
+			--path='../dd' --stdout="$root_resolved/d"
+			--path='../ddd' --stdout="$root_resolved/d"
+			--path='e' --stdout="$root_resolved/d/e"
+			--path='ee' --stdout="$root_resolved/d/e"
+			--path='eee' --stdout="$root_resolved/d/e"
+			--path='s' --stdout="$root_resolved/d"
+			--path='ss' --stdout="$root_resolved/d"
+			--path='sss' --stdout="$root_resolved/d"
+			--path='s/e' --stdout="$root_resolved/d/e"
+			--path='ss/ee' --stdout="$root_resolved/d/e"
+			--path='sss/ee' --stdout="$root_resolved/d/e"
+			--path="s/.." --stdout="$root_resolved"
+			--path="ss/.." --stdout="$root_resolved"
+			--path="sss/.." --stdout="$root_resolved"
+			--path="s/../f" --stdout="$root_resolved/f"
+			--path="ss/../ff" --stdout="$root_resolved/f"
+			--path="sss/../fff" --stdout="$root_resolved/f"
+			--path="p" --stdout="$root_resolved"
+			--path="pp" --stdout="$root_resolved"
+			--path="ppp" --stdout="$root_resolved"
+			--path="p/f" --stdout="$root_resolved/f"
+			--path="pp/ff" --stdout="$root_resolved/f"
+			--path="ppp/fff" --stdout="$root_resolved/f"
+			--path="n" --stdout="$root_resolved/d/n"
+			--path="nn" --stdout="$root_resolved/d/n"
+			--path="nnn" --stdout="$root_resolved/d/n"
+			--path="n/.." --stdout="$root_resolved/d"
+			--path="nn/.." --stdout="$root_resolved/d"
+			--path="nnn/.." --stdout="$root_resolved/d"
+			--path="n/../e" --stdout="$root_resolved/d/e"
+			--path="nn/../ee" --stdout="$root_resolved/d/e"
+			--path="nnn/../eee" --stdout="$root_resolved/d/e"
+			--path="n/u" --stdout="$root_resolved/d"
+			--path="nn/uu" --stdout="$root_resolved/d"
+			--path="nnn/uuu" --stdout="$root_resolved/d"
+			--path="n/u/e" --stdout="$root_resolved/d/e"
+			--path="nn/uu/ee" --stdout="$root_resolved/d/e"
+			--path="nnn/uuu/eee" --stdout="$root_resolved/d/e"
+			--path="n/u/.." --stdout="$root_resolved"
+			--path="nn/uu/.." --stdout="$root_resolved"
+			--path="nnn/uuu/.." --stdout="$root_resolved"
+			--path="n/u/../f" --stdout="$root_resolved/f"
+			--path="nn/uu/../ff" --stdout="$root_resolved/f"
+			--path="nnn/uuu/../fff" --stdout="$root_resolved/f"
+		)
+		is_fs_tests__tuples --group='test symlinks: follow' "$command" --no-elevate --follow -- "${tuples[@]}"
+
+		# now do follow validate
+		tuples=(
+			--path='.' --stdout="$root_resolved/d"
+			--path='..' --stdout="$root_resolved"
+
+			--path="$root/ddd/q/w/r" --status=2
+			--path="$root/ddd/q/w/r" --status=2
+			--path="$root/ddd/q/w/.." --status=2
+			--path="$root/ddd/q/../r" --status=2
+			--path="$root/ddd/../q/w/r" --status=2
+			--path="$root/ddd/../q/../r" --status=2
+			--path="$root/ddd/../q/../r/.." --status=2 # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path="$root/f" --stdout="$root_resolved/f"
+			--path="$root/ff" --stdout="$root_resolved/f"
+			--path="$root/fff" --stdout="$root_resolved/f"
+			--path="$root/b" --status=2
+			--path="$root/bb" --status=9
+			--path="$root/bbb" --status=9
+			--path="$root/r" --stdout='/'
+			--path="$root/rr" --stdout='/'
+			--path="$root/rrr" --stdout='/'
+			--path="$root/d" --stdout="$root_resolved/d"
+			--path="$root/dd" --stdout="$root_resolved/d"
+			--path="$root/ddd" --stdout="$root_resolved/d"
+			--path="$root/d/e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/s" --stdout="$root_resolved/d"
+			--path="$root/dd/ss" --stdout="$root_resolved/d"
+			--path="$root/ddd/sss" --stdout="$root_resolved/d"
+			--path="$root/d/s/e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/ss/ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/sss/eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/s/.." --stdout="$root_resolved"
+			--path="$root/dd/ss/.." --stdout="$root_resolved"
+			--path="$root/ddd/sss/.." --stdout="$root_resolved"
+			--path="$root/d/s/../f" --stdout="$root_resolved/f"
+			--path="$root/dd/ss/../ff" --stdout="$root_resolved/f"
+			--path="$root/ddd/sss/../fff" --stdout="$root_resolved/f"
+			--path="$root/d/p" --stdout="$root_resolved"
+			--path="$root/dd/pp" --stdout="$root_resolved"
+			--path="$root/ddd/ppp" --stdout="$root_resolved"
+			--path="$root/d/p/f" --stdout="$root_resolved/f"
+			--path="$root/dd/pp/ff" --stdout="$root_resolved/f"
+			--path="$root/ddd/ppp/fff" --stdout="$root_resolved/f"
+			--path="$root/d/n" --stdout="$root_resolved/d/n"
+			--path="$root/dd/nn" --stdout="$root_resolved/d/n"
+			--path="$root/ddd/nnn" --stdout="$root_resolved/d/n"
+			--path="$root/d/n/.." --stdout="$root_resolved/d"
+			--path="$root/dd/nn/.." --stdout="$root_resolved/d"
+			--path="$root/ddd/nnn/.." --stdout="$root_resolved/d"
+			--path="$root/d/n/../e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/nnn/../eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/n/u" --stdout="$root_resolved/d"
+			--path="$root/dd/nn/uu" --stdout="$root_resolved/d"
+			--path="$root/ddd/nnn/uuu" --stdout="$root_resolved/d"
+			--path="$root/d/n/u/e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root_resolved/d/e"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root_resolved/d/e"
+			--path="$root/d/n/u/.." --stdout="$root_resolved"
+			--path="$root/dd/nn/uu/.." --stdout="$root_resolved"
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root_resolved"
+			--path="$root/d/n/u/../f" --stdout="$root_resolved/f"
+			--path="$root/dd/nn/uu/../ff" --stdout="$root_resolved/f"
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root_resolved/f"
+
+			--path="q/w/r" --status=2
+			--path="q/w/.." --status=2
+			--path="q/../r" --status=2
+			--path="../q/w/r" --status=2
+			--path="../q/../r" --status=2
+			--path="../q/../r/.." --status=2 # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path='../f' --stdout="$root_resolved/f"
+			--path='../ff' --stdout="$root_resolved/f"
+			--path='../fff' --stdout="$root_resolved/f"
+			--path='../b' --status=2
+			--path='../bb' --status=9
+			--path='../bbb' --status=9
+			--path='../r' --stdout="/"
+			--path='../rr' --stdout="/"
+			--path='../rrr' --stdout="/"
+			--path='../d' --stdout="$root_resolved/d"
+			--path='../dd' --stdout="$root_resolved/d"
+			--path='../ddd' --stdout="$root_resolved/d"
+			--path='e' --stdout="$root_resolved/d/e"
+			--path='ee' --stdout="$root_resolved/d/e"
+			--path='eee' --stdout="$root_resolved/d/e"
+			--path='s' --stdout="$root_resolved/d"
+			--path='ss' --stdout="$root_resolved/d"
+			--path='sss' --stdout="$root_resolved/d"
+			--path='s/e' --stdout="$root_resolved/d/e"
+			--path='ss/ee' --stdout="$root_resolved/d/e"
+			--path='sss/eee' --stdout="$root_resolved/d/e"
+			--path="s/.." --stdout="$root_resolved"
+			--path="ss/.." --stdout="$root_resolved"
+			--path="sss/.." --stdout="$root_resolved"
+			--path="s/../f" --stdout="$root_resolved/f"
+			--path="ss/../ff" --stdout="$root_resolved/f"
+			--path="sss/../fff" --stdout="$root_resolved/f"
+			--path="p" --stdout="$root_resolved"
+			--path="pp" --stdout="$root_resolved"
+			--path="ppp" --stdout="$root_resolved"
+			--path="p/f" --stdout="$root_resolved/f"
+			--path="pp/ff" --stdout="$root_resolved/f"
+			--path="ppp/fff" --stdout="$root_resolved/f"
+			--path="n" --stdout="$root_resolved/d/n"
+			--path="nn" --stdout="$root_resolved/d/n"
+			--path="nnn" --stdout="$root_resolved/d/n"
+			--path="n/.." --stdout="$root_resolved/d"
+			--path="nn/.." --stdout="$root_resolved/d"
+			--path="nnn/.." --stdout="$root_resolved/d"
+			--path="n/../e" --stdout="$root_resolved/d/e"
+			--path="nn/../ee" --stdout="$root_resolved/d/e"
+			--path="nnn/../eee" --stdout="$root_resolved/d/e"
+			--path="n/u" --stdout="$root_resolved/d"
+			--path="nn/uu" --stdout="$root_resolved/d"
+			--path="nnn/uuu" --stdout="$root_resolved/d"
+			--path="n/u/e" --stdout="$root_resolved/d/e"
+			--path="nn/uu/ee" --stdout="$root_resolved/d/e"
+			--path="nnn/uuu/eee" --stdout="$root_resolved/d/e"
+			--path="n/u/.." --stdout="$root_resolved"
+			--path="nn/uu/.." --stdout="$root_resolved"
+			--path="nnn/uuu/.." --stdout="$root_resolved"
+			--path="n/u/../f" --stdout="$root_resolved/f"
+			--path="nn/uu/../ff" --stdout="$root_resolved/f"
+			--path="nnn/uuu/../fff" --stdout="$root_resolved/f"
+		)
+		is_fs_tests__tuples --group='test symlinks: follow, validate' "$command" --no-elevate --follow --validate -- "${tuples[@]}"
+
+		# now do leaf
+		tuples=(
+			--path='.' --stdout="$root/dd"
+			--path='..' --stdout="$root_resolved" # the filesystem resolves parents physically
+
+			--path="$root/ddd/q/w/r" --stdout="$root/ddd/q/w/r"
+			--path="$root/ddd/q/w/.." --stdout="$root/ddd/q/w/.."               # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/q/../r" --stdout="$root/ddd/q/../r"               # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/../q/w/r" --stdout="$root_resolved/q/w/r"         # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically
+			--path="$root/ddd/../q/../r" --stdout="$root_resolved/q/../r"       # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically
+			--path="$root/ddd/../q/../r/.." --stdout="$root_resolved/q/../r/.." # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically ; @todo consider flag to do a post-resolve compaction
+			--path="$root/f" --stdout="$root/f"
+			--path="$root/ff" --stdout="$root/f"
+			--path="$root/fff" --stdout="$root/ff"
+			--path="$root/b" --stdout="$root/b"
+			--path="$root/bb" --stdout="$root/b"
+			--path="$root/bbb" --stdout="$root/bb"
+			--path="$root/r" --stdout='/'
+			--path="$root/rr" --stdout="$root/r"
+			--path="$root/rrr" --stdout="$root/rr"
+			--path="$root/d" --stdout="$root/d"
+			--path="$root/dd" --stdout="$root/d"
+			--path="$root/ddd" --stdout="$root/dd"
+			--path="$root/d/e" --stdout="$root/d/e"
+			--path="$root/dd/ee" --stdout="$root/dd/e"
+			--path="$root/ddd/eee" --stdout="$root/ddd/ee"
+			--path="$root/d/s" --stdout="$root/d"
+			--path="$root/dd/ss" --stdout="$root/dd/s"
+			--path="$root/ddd/sss" --stdout="$root/ddd/ss"
+			--path="$root/d/s/e" --stdout="$root/d/s/e"
+			--path="$root/dd/ss/ee" --stdout="$root/dd/ss/e"
+			--path="$root/ddd/sss/eee" --stdout="$root/ddd/sss/ee"
+			--path="$root/d/s/.." --stdout="$root_resolved"            # the filesystem resolves parents physically
+			--path="$root/dd/ss/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="$root/ddd/sss/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="$root/d/s/../f" --stdout="$root_resolved/f"        # the filesystem resolves parents physically
+			--path="$root/dd/ss/../ff" --stdout="$root_resolved/f"     # the filesystem resolves parents physically
+			--path="$root/ddd/sss/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+			--path="$root/d/p" --stdout="$root_resolved"               # the filesystem resolves parents physically
+			--path="$root/dd/pp" --stdout="$root/dd/p"
+			--path="$root/ddd/ppp" --stdout="$root/ddd/pp"
+			--path="$root/d/p/f" --stdout="$root/d/p/f"
+			--path="$root/dd/pp/ff" --stdout="$root/dd/pp/f"
+			--path="$root/ddd/ppp/fff" --stdout="$root/ddd/ppp/ff"
+			--path="$root/d/n" --stdout="$root/d/n"
+			--path="$root/dd/nn" --stdout="$root/dd/n"
+			--path="$root/ddd/nnn" --stdout="$root/ddd/nn"
+			--path="$root/d/n/.." --stdout="$root_resolved/d"
+			--path="$root/dd/nn/.." --stdout="$root_resolved/d"   # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/../e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root_resolved/d/e"     # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/../eee" --stdout="$root_resolved/d/ee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/u" --stdout="$root_resolved/d"
+			--path="$root/dd/nn/uu" --stdout="$root/dd/nn/u"
+			--path="$root/ddd/nnn/uuu" --stdout="$root/ddd/nnn/uu"
+			--path="$root/d/n/u/e" --stdout="$root/d/n/u/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root/dd/nn/uu/e"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/ee"
+			--path="$root/d/n/u/.." --stdout="$root_resolved"              # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="$root/d/n/u/../f" --stdout="$root_resolved/f"          # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/../ff" --stdout="$root_resolved/f"      # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+
+			--path="q/w/r" --stdout="$root/ddd/q/w/r"
+			--path="q/w/.." --stdout="$root/ddd/q/w/.."               # the filesystem leaves missing segments unresolved
+			--path="q/../r" --stdout="$root/ddd/q/../r"               # the filesystem leaves missing segments unresolved
+			--path="../q/w/r" --stdout="$root_resolved/q/w/r"         # the filesystem resolves parents physically
+			--path="../q/../r" --stdout="$root_resolved/q/../r"       # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically
+			--path="../q/../r/.." --stdout="$root_resolved/q/../r/.." # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically ; @todo consider flag to do a post-resolve compaction
+			--path="../f" --stdout="$root_resolved/f"                 # the filesystem resolves parents physically
+			--path="../ff" --stdout="$root_resolved/f"                # the filesystem resolves parents physically
+			--path="../fff" --stdout="$root_resolved/ff"              # the filesystem resolves parents physically
+			--path="../b" --stdout="$root_resolved/b"                 # the filesystem resolves parents physically
+			--path="../bb" --stdout="$root_resolved/b"                # the filesystem resolves parents physically
+			--path="../bbb" --stdout="$root_resolved/bb"              # the filesystem resolves parents physically
+			--path="../r" --stdout='/'
+			--path="../rr" --stdout="$root_resolved/r"   # the filesystem resolves parents physically
+			--path="../rrr" --stdout="$root_resolved/rr" # the filesystem resolves parents physically
+			--path="../d" --stdout="$root_resolved/d"    # the filesystem resolves parents physically
+			--path="../dd" --stdout="$root_resolved/d"   # the filesystem resolves parents physically
+			--path="../ddd" --stdout="$root_resolved/dd" # the filesystem resolves parents physically
+			--path="e" --stdout="$root/ddd/e"
+			--path="ee" --stdout="$root/ddd/e"
+			--path="eee" --stdout="$root/ddd/ee"
+			--path="s" --stdout="$root/ddd" # interesting result
+			--path="ss" --stdout="$root/ddd/s"
+			--path="sss" --stdout="$root/ddd/ss"
+			--path="s/e" --stdout="$root/ddd/s/e"
+			--path="ss/ee" --stdout="$root/ddd/ss/e"
+			--path="sss/eee" --stdout="$root/ddd/sss/ee"
+			--path="s/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="ss/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="sss/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="s/../f" --stdout="$root_resolved/f"      # the filesystem resolves parents physically
+			--path="ss/../ff" --stdout="$root_resolved/f"    # the filesystem resolves parents physically
+			--path="sss/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+			--path="p" --stdout="$root_resolved"             # the filesystem resolves parents physically
+			--path="pp" --stdout="$root/ddd/p"
+			--path="ppp" --stdout="$root/ddd/pp"
+			--path="p/f" --stdout="$root/ddd/p/f"
+			--path="pp/ff" --stdout="$root/ddd/pp/f"
+			--path="ppp/fff" --stdout="$root/ddd/ppp/ff"
+			--path="n" --stdout="$root/ddd/n"
+			--path="nn" --stdout="$root/ddd/n"
+			--path="nnn" --stdout="$root/ddd/nn"
+			--path="n/.." --stdout="$root_resolved/d"
+			--path="nn/.." --stdout="$root_resolved/d"  # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/../e" --stdout="$root_resolved/d/e"
+			--path="nn/../ee" --stdout="$root_resolved/d/e"    # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/../eee" --stdout="$root_resolved/d/ee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/u" --stdout="$root_resolved/d"           # the filesystem resolves parents physically
+			--path="nn/uu" --stdout="$root/ddd/nn/u"
+			--path="nnn/uuu" --stdout="$root/ddd/nnn/uu"
+			--path="n/u/e" --stdout="$root/ddd/n/u/e"
+			--path="nn/uu/ee" --stdout="$root/ddd/nn/uu/e"
+			--path="nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/ee"
+			--path="n/u/.." --stdout="$root_resolved"            # the filesystem resolves parents physically
+			--path="nn/uu/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="nnn/uuu/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="n/u/../f" --stdout="$root_resolved/f"        # the filesystem resolves parents physically
+			--path="nn/uu/../ff" --stdout="$root_resolved/f"     # the filesystem resolves parents physically
+			--path="nnn/uuu/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+		)
+		is_fs_tests__tuples --group='test symlinks: leaf' "$command" --no-elevate --leaf -- "${tuples[@]}"
+
+		# now do leaf validate
+		tuples=(
+			--path='.' --stdout="$root/dd"
+			--path='..' --stdout="$root_resolved" # the filesystem resolves parents physically
+
+			--path="$root/ddd/q/w/r" --status=2
+			--path="$root/ddd/q/w/.." --status=2
+			--path="$root/ddd/q/../r" --status=2
+			--path="$root/ddd/../q/w/r" --status=2
+			--path="$root/ddd/../q/../r" --status=2
+			--path="$root/ddd/../q/../r/.." --status=2 # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path="$root/f" --stdout="$root/f"
+			--path="$root/ff" --stdout="$root/f"
+			--path="$root/fff" --stdout="$root/ff"
+			--path="$root/b" --status=2
+			--path="$root/bb" --status=9
+			--path="$root/bbb" --status=9
+			--path="$root/r" --stdout='/'
+			--path="$root/rr" --stdout="$root/r"
+			--path="$root/rrr" --stdout="$root/rr"
+			--path="$root/d" --stdout="$root/d"
+			--path="$root/dd" --stdout="$root/d"
+			--path="$root/ddd" --stdout="$root/dd"
+			--path="$root/d/e" --stdout="$root/d/e"
+			--path="$root/dd/ee" --stdout="$root/dd/e"
+			--path="$root/ddd/eee" --stdout="$root/ddd/ee"
+			--path="$root/d/s" --stdout="$root/d"
+			--path="$root/dd/ss" --stdout="$root/dd/s"
+			--path="$root/ddd/sss" --stdout="$root/ddd/ss"
+			--path="$root/d/s/e" --stdout="$root/d/s/e"
+			--path="$root/dd/ss/ee" --stdout="$root/dd/ss/e"
+			--path="$root/ddd/sss/eee" --stdout="$root/ddd/sss/ee"
+			--path="$root/d/s/.." --stdout="$root_resolved"            # the filesystem resolves parents physically
+			--path="$root/dd/ss/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="$root/ddd/sss/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="$root/d/s/../f" --stdout="$root_resolved/f"        # the filesystem resolves parents physically
+			--path="$root/dd/ss/../ff" --stdout="$root_resolved/f"     # the filesystem resolves parents physically
+			--path="$root/ddd/sss/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+			--path="$root/d/p" --stdout="$root_resolved"               # the filesystem resolves parents physically
+			--path="$root/dd/pp" --stdout="$root/dd/p"
+			--path="$root/ddd/ppp" --stdout="$root/ddd/pp"
+			--path="$root/d/p/f" --stdout="$root/d/p/f"
+			--path="$root/dd/pp/ff" --stdout="$root/dd/pp/f"
+			--path="$root/ddd/ppp/fff" --stdout="$root/ddd/ppp/ff"
+			--path="$root/d/n" --stdout="$root/d/n"
+			--path="$root/dd/nn" --stdout="$root/dd/n"
+			--path="$root/ddd/nnn" --stdout="$root/ddd/nn"
+			--path="$root/d/n/.." --stdout="$root_resolved/d"
+			--path="$root/dd/nn/.." --stdout="$root_resolved/d"   # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/../e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root_resolved/d/e"     # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/../eee" --stdout="$root_resolved/d/ee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/u" --stdout="$root_resolved/d"             # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu" --stdout="$root/dd/nn/u"
+			--path="$root/ddd/nnn/uuu" --stdout="$root/ddd/nnn/uu"
+			--path="$root/d/n/u/e" --stdout="$root/d/n/u/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root/dd/nn/uu/e"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/ee"
+			--path="$root/d/n/u/.." --stdout="$root_resolved"              # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="$root/d/n/u/../f" --stdout="$root_resolved/f"          # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/../ff" --stdout="$root_resolved/f"      # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+
+			--path="q/w/r" --status=2
+			--path="q/w/.." --status=2
+			--path="q/../r" --status=2
+			--path="../q/w/r" --status=2
+			--path="../q/../r" --status=2
+			--path="../q/../r/.." --status=2             # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path="../f" --stdout="$root_resolved/f"    # the filesystem resolves parents physically
+			--path="../ff" --stdout="$root_resolved/f"   # the filesystem resolves parents physically
+			--path="../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+			--path="../b" --status=2
+			--path="../bb" --status=9
+			--path="../bbb" --status=9
+			--path="../r" --stdout='/'
+			--path="../rr" --stdout="$root_resolved/r"   # the filesystem resolves parents physically
+			--path="../rrr" --stdout="$root_resolved/rr" # the filesystem resolves parents physically
+			--path="../d" --stdout="$root_resolved/d"    # the filesystem resolves parents physically
+			--path="../dd" --stdout="$root_resolved/d"   # the filesystem resolves parents physically
+			--path="../ddd" --stdout="$root_resolved/dd" # the filesystem resolves parents physically
+			--path="e" --stdout="$root/ddd/e"
+			--path="ee" --stdout="$root/ddd/e"
+			--path="eee" --stdout="$root/ddd/ee"
+			--path="s" --stdout="$root/ddd" # interesting result
+			--path="ss" --stdout="$root/ddd/s"
+			--path="sss" --stdout="$root/ddd/ss"
+			--path="s/e" --stdout="$root/ddd/s/e"
+			--path="ss/ee" --stdout="$root/ddd/ss/e"
+			--path="sss/eee" --stdout="$root/ddd/sss/ee"
+			--path="s/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="ss/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="sss/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="s/../f" --stdout="$root_resolved/f"      # the filesystem resolves parents physically
+			--path="ss/../ff" --stdout="$root_resolved/f"    # the filesystem resolves parents physically
+			--path="sss/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+			--path="p" --stdout="$root_resolved"             # the filesystem resolves parents physically
+			--path="pp" --stdout="$root/ddd/p"
+			--path="ppp" --stdout="$root/ddd/pp"
+			--path="p/f" --stdout="$root/ddd/p/f"
+			--path="pp/ff" --stdout="$root/ddd/pp/f"
+			--path="ppp/fff" --stdout="$root/ddd/ppp/ff"
+			--path="n" --stdout="$root/ddd/n"
+			--path="nn" --stdout="$root/ddd/n"
+			--path="nnn" --stdout="$root/ddd/nn"
+			--path="n/.." --stdout="$root_resolved/d"
+			--path="nn/.." --stdout="$root_resolved/d"  # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/../e" --stdout="$root_resolved/d/e"
+			--path="nn/../ee" --stdout="$root_resolved/d/e"    # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/../eee" --stdout="$root_resolved/d/ee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/u" --stdout="$root_resolved/d"           # the filesystem resolves parents physically
+			--path="nn/uu" --stdout="$root/ddd/nn/u"
+			--path="nnn/uuu" --stdout="$root/ddd/nnn/uu"
+			--path="n/u/e" --stdout="$root/ddd/n/u/e"
+			--path="nn/uu/ee" --stdout="$root/ddd/nn/uu/e"
+			--path="nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/ee"
+			--path="n/u/.." --stdout="$root_resolved"            # the filesystem resolves parents physically
+			--path="nn/uu/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="nnn/uuu/.." --stdout="$root_resolved"        # the filesystem resolves parents physically
+			--path="n/u/../f" --stdout="$root_resolved/f"        # the filesystem resolves parents physically
+			--path="nn/uu/../ff" --stdout="$root_resolved/f"     # the filesystem resolves parents physically
+			--path="nnn/uuu/../fff" --stdout="$root_resolved/ff" # the filesystem resolves parents physically
+		)
+		is_fs_tests__tuples --group='test symlinks: leaf, validate' "$command" --no-elevate --leaf --validate -- "${tuples[@]}"
+
+		# now do physical
+		tuples=(
+			--path='.' --stdout="$root/ddd"
+			--path='..' --stdout="$root_resolved" # the filesystem resolves parents physically
+
+			--path="$root/ddd/q/w/r" --stdout="$root/ddd/q/w/r"
+			--path="$root/ddd/q/w/.." --stdout="$root/ddd/q/w/.."               # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/q/../r" --stdout="$root/ddd/q/../r"               # the filesystem leaves missing segments unresolved
+			--path="$root/ddd/../q/w/r" --stdout="$root_resolved/q/w/r"         # the filesystem resolves parents physically
+			--path="$root/ddd/../q/../r" --stdout="$root_resolved/q/../r"       # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically
+			--path="$root/ddd/../q/../r/.." --stdout="$root_resolved/q/../r/.." # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically ; @todo consider flag to do a post-resolve compaction
+			--path="$root/f" --stdout="$root/f"
+			--path="$root/ff" --stdout="$root/ff"
+			--path="$root/fff" --stdout="$root/fff"
+			--path="$root/b" --stdout="$root/b"
+			--path="$root/bb" --stdout="$root/bb"
+			--path="$root/bbb" --stdout="$root/bbb"
+			--path="$root/r" --stdout="$root/r"
+			--path="$root/rr" --stdout="$root/rr"
+			--path="$root/rrr" --stdout="$root/rrr"
+			--path="$root/d" --stdout="$root/d"
+			--path="$root/dd" --stdout="$root/dd"
+			--path="$root/ddd" --stdout="$root/ddd"
+			--path="$root/d/e" --stdout="$root/d/e"
+			--path="$root/dd/ee" --stdout="$root/dd/ee"
+			--path="$root/ddd/eee" --stdout="$root/ddd/eee"
+			--path="$root/d/s" --stdout="$root/d/s"
+			--path="$root/dd/ss" --stdout="$root/dd/ss"
+			--path="$root/ddd/sss" --stdout="$root/ddd/sss"
+			--path="$root/d/s/e" --stdout="$root/d/s/e"
+			--path="$root/dd/ss/ee" --stdout="$root/dd/ss/ee"
+			--path="$root/ddd/sss/eee" --stdout="$root/ddd/sss/eee"
+			--path="$root/d/s/.." --stdout="$root_resolved"             # the filesystem resolves parents physically
+			--path="$root/dd/ss/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="$root/ddd/sss/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="$root/d/s/../f" --stdout="$root_resolved/f"         # the filesystem resolves parents physically
+			--path="$root/dd/ss/../ff" --stdout="$root_resolved/ff"     # the filesystem resolves parents physically
+			--path="$root/ddd/sss/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+			--path="$root/d/p" --stdout="$root/d/p"
+			--path="$root/dd/pp" --stdout="$root/dd/pp"
+			--path="$root/ddd/ppp" --stdout="$root/ddd/ppp"
+			--path="$root/d/p/f" --stdout="$root/d/p/f"
+			--path="$root/dd/pp/ff" --stdout="$root/dd/pp/ff"
+			--path="$root/ddd/ppp/fff" --stdout="$root/ddd/ppp/fff"
+			--path="$root/d/n" --stdout="$root/d/n"
+			--path="$root/dd/nn" --stdout="$root/dd/nn"
+			--path="$root/ddd/nnn" --stdout="$root/ddd/nnn"
+			--path="$root/d/n/.." --stdout="$root_resolved/d"
+			--path="$root/dd/nn/.." --stdout="$root_resolved/d"   # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/../e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root_resolved/d/ee"     # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/../eee" --stdout="$root_resolved/d/eee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/u" --stdout="$root/d/n/u"
+			--path="$root/dd/nn/uu" --stdout="$root/dd/nn/uu"
+			--path="$root/ddd/nnn/uuu" --stdout="$root/ddd/nnn/uuu"
+			--path="$root/d/n/u/e" --stdout="$root/d/n/u/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root/dd/nn/uu/ee"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/eee"
+			--path="$root/d/n/u/.." --stdout="$root_resolved"               # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/.." --stdout="$root_resolved"            # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="$root/d/n/u/../f" --stdout="$root_resolved/f"           # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/../ff" --stdout="$root_resolved/ff"      # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+
+			--path="q/w/r" --stdout="$root/ddd/q/w/r"
+			--path="q/w/.." --stdout="$root/ddd/q/w/.."               # the filesystem leaves missing segments unresolved
+			--path="q/../r" --stdout="$root/ddd/q/../r"               # the filesystem leaves missing segments unresolved
+			--path="../q/w/r" --stdout="$root_resolved/q/w/r"         # the filesystem resolves parents physically
+			--path="../q/../r" --stdout="$root_resolved/q/../r"       # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically
+			--path="../q/../r/.." --stdout="$root_resolved/q/../r/.." # the filesystem leaves missing segments unresolved ; the filesystem resolves parents physically ; @todo consider flag to do a post-resolve compaction
+			--path="../f" --stdout="$root_resolved/f"                 # the filesystem resolves parents physically
+			--path="../ff" --stdout="$root_resolved/ff"               # the filesystem resolves parents physically
+			--path="../fff" --stdout="$root_resolved/fff"             # the filesystem resolves parents physically
+			--path="../b" --stdout="$root_resolved/b"                 # the filesystem resolves parents physically
+			--path="../bb" --stdout="$root_resolved/bb"               # the filesystem resolves parents physically
+			--path="../bbb" --stdout="$root_resolved/bbb"             # the filesystem resolves parents physically
+			--path="../r" --stdout="$root_resolved/r"                 # the filesystem resolves parents physically
+			--path="../rr" --stdout="$root_resolved/rr"               # the filesystem resolves parents physically
+			--path="../rrr" --stdout="$root_resolved/rrr"             # the filesystem resolves parents physically
+			--path="../d" --stdout="$root_resolved/d"                 # the filesystem resolves parents physically
+			--path="../dd" --stdout="$root_resolved/dd"               # the filesystem resolves parents physically
+			--path="../ddd" --stdout="$root_resolved/ddd"             # the filesystem resolves parents physically
+			--path="e" --stdout="$root/ddd/e"
+			--path="ee" --stdout="$root/ddd/ee"
+			--path="eee" --stdout="$root/ddd/eee"
+			--path="s" --stdout="$root/ddd/s"
+			--path="ss" --stdout="$root/ddd/ss"
+			--path="sss" --stdout="$root/ddd/sss"
+			--path="s/e" --stdout="$root/ddd/s/e"
+			--path="ss/ee" --stdout="$root/ddd/ss/ee"
+			--path="sss/eee" --stdout="$root/ddd/sss/eee"
+			--path="s/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="ss/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="sss/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="s/../f" --stdout="$root_resolved/f"       # the filesystem resolves parents physically
+			--path="ss/../ff" --stdout="$root_resolved/ff"    # the filesystem resolves parents physically
+			--path="sss/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+			--path="p" --stdout="$root/ddd/p"
+			--path="pp" --stdout="$root/ddd/pp"
+			--path="ppp" --stdout="$root/ddd/ppp"
+			--path="p/f" --stdout="$root/ddd/p/f"
+			--path="pp/ff" --stdout="$root/ddd/pp/ff"
+			--path="ppp/fff" --stdout="$root/ddd/ppp/fff"
+			--path="n" --stdout="$root/ddd/n"
+			--path="nn" --stdout="$root/ddd/nn"
+			--path="nnn" --stdout="$root/ddd/nnn"
+			--path="n/.." --stdout="$root_resolved/d"
+			--path="nn/.." --stdout="$root_resolved/d"  # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/../e" --stdout="$root_resolved/d/e"
+			--path="nn/../ee" --stdout="$root_resolved/d/ee"    # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/../eee" --stdout="$root_resolved/d/eee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/u" --stdout="$root/ddd/n/u"
+			--path="nn/uu" --stdout="$root/ddd/nn/uu"
+			--path="nnn/uuu" --stdout="$root/ddd/nnn/uuu"
+			--path="n/u/e" --stdout="$root/ddd/n/u/e"
+			--path="nn/uu/ee" --stdout="$root/ddd/nn/uu/ee"
+			--path="nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/eee"
+			--path="n/u/.." --stdout="$root_resolved"             # the filesystem resolves parents physically
+			--path="nn/uu/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="nnn/uuu/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="n/u/../f" --stdout="$root_resolved/f"         # the filesystem resolves parents physically
+			--path="nn/uu/../ff" --stdout="$root_resolved/ff"     # the filesystem resolves parents physically
+			--path="nnn/uuu/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+		)
+		is_fs_tests__tuples --group='test symlinks: physical' "$command" --no-elevate --physical -- "${tuples[@]}"
+		# test these equivalent variations now so we don't have to test them later
+		is_fs_tests__tuples --group='test symlinks: physical' "$command" --no-elevate --absolute -- "${tuples[@]}"
+
+		# now do physical validate
+		tuples=(
+			--path='.' --stdout="$root/ddd"
+			--path='..' --stdout="$root_resolved" # the filesystem resolves parents physically
+
+			--path="$root/ddd/q/w/r" --status=2
+			--path="$root/ddd/q/w/.." --status=2
+			--path="$root/ddd/q/../r" --status=2
+			--path="$root/ddd/../q/w/r" --status=2
+			--path="$root/ddd/../q/../r" --status=2
+			--path="$root/ddd/../q/../r/.." --status=2 # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path="$root/f" --stdout="$root/f"
+			--path="$root/ff" --stdout="$root/ff"
+			--path="$root/fff" --stdout="$root/fff"
+			--path="$root/b" --status=2
+			--path="$root/bb" --status=9
+			--path="$root/bbb" --status=9
+			--path="$root/r" --stdout="$root/r"
+			--path="$root/rr" --stdout="$root/rr"
+			--path="$root/rrr" --stdout="$root/rrr"
+			--path="$root/d" --stdout="$root/d"
+			--path="$root/dd" --stdout="$root/dd"
+			--path="$root/ddd" --stdout="$root/ddd"
+			--path="$root/d/e" --stdout="$root/d/e"
+			--path="$root/dd/ee" --stdout="$root/dd/ee"
+			--path="$root/ddd/eee" --stdout="$root/ddd/eee"
+			--path="$root/d/s" --stdout="$root/d/s"
+			--path="$root/dd/ss" --stdout="$root/dd/ss"
+			--path="$root/ddd/sss" --stdout="$root/ddd/sss"
+			--path="$root/d/s/e" --stdout="$root/d/s/e"
+			--path="$root/dd/ss/ee" --stdout="$root/dd/ss/ee"
+			--path="$root/ddd/sss/eee" --stdout="$root/ddd/sss/eee"
+			--path="$root/d/s/.." --stdout="$root_resolved"             # the filesystem resolves parents physically
+			--path="$root/dd/ss/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="$root/ddd/sss/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="$root/d/s/../f" --stdout="$root_resolved/f"         # the filesystem resolves parents physically
+			--path="$root/dd/ss/../ff" --stdout="$root_resolved/ff"     # the filesystem resolves parents physically
+			--path="$root/ddd/sss/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+			--path="$root/d/p" --stdout="$root/d/p"
+			--path="$root/dd/pp" --stdout="$root/dd/pp"
+			--path="$root/ddd/ppp" --stdout="$root/ddd/ppp"
+			--path="$root/d/p/f" --stdout="$root/d/p/f"
+			--path="$root/dd/pp/ff" --stdout="$root/dd/pp/ff"
+			--path="$root/ddd/ppp/fff" --stdout="$root/ddd/ppp/fff"
+			--path="$root/d/n" --stdout="$root/d/n"
+			--path="$root/dd/nn" --stdout="$root/dd/nn"
+			--path="$root/ddd/nnn" --stdout="$root/ddd/nnn"
+			--path="$root/d/n/.." --stdout="$root_resolved/d"
+			--path="$root/dd/nn/.." --stdout="$root_resolved/d"   # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/../e" --stdout="$root_resolved/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root_resolved/d/ee"     # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="$root/ddd/nnn/../eee" --stdout="$root_resolved/d/eee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="$root/d/n/u" --stdout="$root/d/n/u"
+			--path="$root/dd/nn/uu" --stdout="$root/dd/nn/uu"
+			--path="$root/ddd/nnn/uuu" --stdout="$root/ddd/nnn/uuu"
+			--path="$root/d/n/u/e" --stdout="$root/d/n/u/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root/dd/nn/uu/ee"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/eee"
+			--path="$root/d/n/u/.." --stdout="$root_resolved"               # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/.." --stdout="$root_resolved"            # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="$root/d/n/u/../f" --stdout="$root_resolved/f"           # the filesystem resolves parents physically
+			--path="$root/dd/nn/uu/../ff" --stdout="$root_resolved/ff"      # the filesystem resolves parents physically
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+
+			--path="q/w/r" --status=2
+			--path="q/w/.." --status=2
+			--path="q/../r" --status=2
+			--path="../q/w/r" --status=2
+			--path="../q/../r" --status=2
+			--path="../q/../r/.." --status=2              # the filesystem leaves missing segments unresolved ; @todo consider flag to do a post-resolve compaction
+			--path="../f" --stdout="$root_resolved/f"     # the filesystem resolves parents physically
+			--path="../ff" --stdout="$root_resolved/ff"   # the filesystem resolves parents physically
+			--path="../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+			--path="../b" --status=2
+			--path="../bb" --status=9
+			--path="../bbb" --status=9
+			--path="../r" --stdout="$root_resolved/r"     # the filesystem resolves parents physically
+			--path="../rr" --stdout="$root_resolved/rr"   # the filesystem resolves parents physically
+			--path="../rrr" --stdout="$root_resolved/rrr" # the filesystem resolves parents physically
+			--path="../d" --stdout="$root_resolved/d"     # the filesystem resolves parents physically
+			--path="../dd" --stdout="$root_resolved/dd"   # the filesystem resolves parents physically
+			--path="../ddd" --stdout="$root_resolved/ddd" # the filesystem resolves parents physically
+			--path="e" --stdout="$root/ddd/e"
+			--path="ee" --stdout="$root/ddd/ee"
+			--path="eee" --stdout="$root/ddd/eee"
+			--path="s" --stdout="$root/ddd/s"
+			--path="ss" --stdout="$root/ddd/ss"
+			--path="sss" --stdout="$root/ddd/sss"
+			--path="s/e" --stdout="$root/ddd/s/e"
+			--path="ss/ee" --stdout="$root/ddd/ss/ee"
+			--path="sss/eee" --stdout="$root/ddd/sss/eee"
+			--path="s/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="ss/.." --stdout="$root_resolved"          # the filesystem resolves parents physically
+			--path="sss/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="s/../f" --stdout="$root_resolved/f"       # the filesystem resolves parents physically
+			--path="ss/../ff" --stdout="$root_resolved/ff"    # the filesystem resolves parents physically
+			--path="sss/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+			--path="p" --stdout="$root/ddd/p"
+			--path="pp" --stdout="$root/ddd/pp"
+			--path="ppp" --stdout="$root/ddd/ppp"
+			--path="p/f" --stdout="$root/ddd/p/f"
+			--path="pp/ff" --stdout="$root/ddd/pp/ff"
+			--path="ppp/fff" --stdout="$root/ddd/ppp/fff"
+			--path="n" --stdout="$root/ddd/n"
+			--path="nn" --stdout="$root/ddd/nn"
+			--path="nnn" --stdout="$root/ddd/nnn"
+			--path="n/.." --stdout="$root_resolved/d"
+			--path="nn/.." --stdout="$root_resolved/d"  # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/.." --stdout="$root_resolved/d" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/../e" --stdout="$root_resolved/d/e"
+			--path="nn/../ee" --stdout="$root_resolved/d/ee"    # the filesystem resolves parents physically, which is why it does not resolve to dd
+			--path="nnn/../eee" --stdout="$root_resolved/d/eee" # the filesystem resolves parents physically, which is why it does not resolve to ddd
+			--path="n/u" --stdout="$root/ddd/n/u"
+			--path="nn/uu" --stdout="$root/ddd/nn/uu"
+			--path="nnn/uuu" --stdout="$root/ddd/nnn/uuu"
+			--path="n/u/e" --stdout="$root/ddd/n/u/e"
+			--path="nn/uu/ee" --stdout="$root/ddd/nn/uu/ee"
+			--path="nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/eee"
+			--path="n/u/.." --stdout="$root_resolved"             # the filesystem resolves parents physically
+			--path="nn/uu/.." --stdout="$root_resolved"           # the filesystem resolves parents physically
+			--path="nnn/uuu/.." --stdout="$root_resolved"         # the filesystem resolves parents physically
+			--path="n/u/../f" --stdout="$root_resolved/f"         # the filesystem resolves parents physically
+			--path="nn/uu/../ff" --stdout="$root_resolved/ff"     # the filesystem resolves parents physically
+			--path="nnn/uuu/../fff" --stdout="$root_resolved/fff" # the filesystem resolves parents physically
+		)
+		is_fs_tests__tuples --group='test symlinks: absolute, validate' "$command" --no-elevate --physical --validate -- "${tuples[@]}"
+		# test these equivalent variations now so we don't have to test them later
+		is_fs_tests__tuples --group='test symlinks: validate' "$command" --no-elevate --validate -- "${tuples[@]}"
+		is_fs_tests__tuples --group='test symlinks: absolute, validate' "$command" --no-elevate --absolute --validate -- "${tuples[@]}"
+
+		# now do logical
+		tuples=(
+			--path='.' --stdout='.'
+			--path='..' --stdout='..'
+
+			--path="$root/ddd/q/w/r" --stdout="$root/ddd/q/w/r"
+			--path="$root/ddd/q/w/.." --stdout="$root/ddd/q"
+			--path="$root/ddd/q/../r" --stdout="$root/ddd/r"
+			--path="$root/ddd/../q/w/r" --stdout="$root/q/w/r"
+			--path="$root/ddd/../q/../r" --stdout="$root/r"
+			--path="$root/ddd/../q/../r/.." --stdout="$root"
+			--path="$root/f" --stdout="$root/f"
+			--path="$root/ff" --stdout="$root/ff"
+			--path="$root/fff" --stdout="$root/fff"
+			--path="$root/b" --stdout="$root/b"
+			--path="$root/bb" --stdout="$root/bb"
+			--path="$root/bbb" --stdout="$root/bbb"
+			--path="$root/r" --stdout="$root/r"
+			--path="$root/rr" --stdout="$root/rr"
+			--path="$root/rrr" --stdout="$root/rrr"
+			--path="$root/d" --stdout="$root/d"
+			--path="$root/dd" --stdout="$root/dd"
+			--path="$root/ddd" --stdout="$root/ddd"
+			--path="$root/d/e" --stdout="$root/d/e"
+			--path="$root/dd/ee" --stdout="$root/dd/ee"
+			--path="$root/ddd/eee" --stdout="$root/ddd/eee"
+			--path="$root/d/s" --stdout="$root/d/s"
+			--path="$root/dd/ss" --stdout="$root/dd/ss"
+			--path="$root/ddd/sss" --stdout="$root/ddd/sss"
+			--path="$root/d/s/e" --stdout="$root/d/s/e"
+			--path="$root/dd/ss/ee" --stdout="$root/dd/ss/ee"
+			--path="$root/ddd/sss/eee" --stdout="$root/ddd/sss/eee"
+			--path="$root/d/s/.." --stdout="$root/d"
+			--path="$root/dd/ss/.." --stdout="$root/dd"
+			--path="$root/ddd/sss/.." --stdout="$root/ddd"
+			--path="$root/d/s/../f" --stdout="$root/d/f"
+			--path="$root/dd/ss/../ff" --stdout="$root/dd/ff"
+			--path="$root/ddd/sss/../fff" --stdout="$root/ddd/fff"
+			--path="$root/d/p" --stdout="$root/d/p"
+			--path="$root/dd/pp" --stdout="$root/dd/pp"
+			--path="$root/ddd/ppp" --stdout="$root/ddd/ppp"
+			--path="$root/d/p/f" --stdout="$root/d/p/f"
+			--path="$root/dd/pp/ff" --stdout="$root/dd/pp/ff"
+			--path="$root/ddd/ppp/fff" --stdout="$root/ddd/ppp/fff"
+			--path="$root/d/n" --stdout="$root/d/n"
+			--path="$root/dd/nn" --stdout="$root/dd/nn"
+			--path="$root/ddd/nnn" --stdout="$root/ddd/nnn"
+			--path="$root/d/n/.." --stdout="$root/d"
+			--path="$root/dd/nn/.." --stdout="$root/dd"
+			--path="$root/ddd/nnn/.." --stdout="$root/ddd"
+			--path="$root/d/n/../e" --stdout="$root/d/e"
+			--path="$root/dd/nn/../ee" --stdout="$root/dd/ee"
+			--path="$root/ddd/nnn/../eee" --stdout="$root/ddd/eee"
+			--path="$root/d/n/u" --stdout="$root/d/n/u"
+			--path="$root/dd/nn/uu" --stdout="$root/dd/nn/uu"
+			--path="$root/ddd/nnn/uuu" --stdout="$root/ddd/nnn/uuu"
+			--path="$root/d/n/u/e" --stdout="$root/d/n/u/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root/dd/nn/uu/ee"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/eee"
+			--path="$root/d/n/u/.." --stdout="$root/d/n"
+			--path="$root/dd/nn/uu/.." --stdout="$root/dd/nn"
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root/ddd/nnn"
+			--path="$root/d/n/u/../f" --stdout="$root/d/n/f"
+			--path="$root/dd/nn/uu/../ff" --stdout="$root/dd/nn/ff"
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root/ddd/nnn/fff"
+
+			--path="q/w/r" --stdout="q/w/r"
+			--path="q/w/.." --stdout="q"
+			--path="q/../r" --stdout="r"
+			--path="../q/w/r" --stdout="../q/w/r"
+			--path="../q/../r" --stdout="../r"
+			--path="../q/../r/.." --stdout=".."
+			--path="../f" --stdout="../f"
+			--path="../ff" --stdout="../ff"
+			--path="../fff" --stdout="../fff"
+			--path="../b" --stdout="../b"
+			--path="../bb" --stdout="../bb"
+			--path="../bbb" --stdout="../bbb"
+			--path="../r" --stdout="../r"
+			--path="../rr" --stdout="../rr"
+			--path="../rrr" --stdout="../rrr"
+			--path="../d" --stdout="../d"
+			--path="../dd" --stdout="../dd"
+			--path="../ddd" --stdout="../ddd"
+			--path="e" --stdout="e"
+			--path="ee" --stdout="ee"
+			--path="eee" --stdout="eee"
+			--path="s" --stdout="s"
+			--path="ss" --stdout="ss"
+			--path="sss" --stdout="sss"
+			--path="s/e" --stdout="s/e"
+			--path="ss/ee" --stdout="ss/ee"
+			--path="sss/eee" --stdout="sss/eee"
+			--path="s/.." --stdout="."
+			--path="ss/.." --stdout="."
+			--path="sss/.." --stdout="."
+			--path="s/../f" --stdout="f"
+			--path="ss/../ff" --stdout="ff"
+			--path="sss/../fff" --stdout="fff"
+			--path="p" --stdout="p"
+			--path="pp" --stdout="pp"
+			--path="ppp" --stdout="ppp"
+			--path="p/f" --stdout="p/f"
+			--path="pp/ff" --stdout="pp/ff"
+			--path="ppp/fff" --stdout="ppp/fff"
+			--path="n" --stdout="n"
+			--path="nn" --stdout="nn"
+			--path="nnn" --stdout="nnn"
+			--path="n/.." --stdout="."
+			--path="nn/.." --stdout="."
+			--path="nnn/.." --stdout="."
+			--path="n/../e" --stdout="e"
+			--path="nn/../ee" --stdout="ee"
+			--path="nnn/../eee" --stdout="eee"
+			--path="n/u" --stdout="n/u"
+			--path="nn/uu" --stdout="nn/uu"
+			--path="nnn/uuu" --stdout="nnn/uuu"
+			--path="n/u/e" --stdout="n/u/e"
+			--path="nn/uu/ee" --stdout="nn/uu/ee"
+			--path="nnn/uuu/eee" --stdout="nnn/uuu/eee"
+			--path="n/u/.." --stdout="n"
+			--path="nn/uu/.." --stdout="nn"
+			--path="nnn/uuu/.." --stdout="nnn"
+			--path="n/u/../f" --stdout="n/f"
+			--path="nn/uu/../ff" --stdout="nn/ff"
+			--path="nnn/uuu/../fff" --stdout="nnn/fff"
+		)
+		is_fs_tests__tuples --group='test symlinks: logical' "$command" --no-elevate --logical -- "${tuples[@]}"
+
+		# now do default
+		tuples=(
+			--path='.' --stdout='.'
+			--path='..' --stdout='..'
+
+			--path="$root/ddd/q/w/r" --stdout="$root/ddd/q/w/r"
+			--path="$root/ddd/q/w/.." --stdout="$root/ddd/q/w/.."
+			--path="$root/ddd/q/../r" --stdout="$root/ddd/q/../r"
+			--path="$root/ddd/../q/w/r" --stdout="$root/ddd/../q/w/r"
+			--path="$root/ddd/../q/../r" --stdout="$root/ddd/../q/../r"
+			--path="$root/ddd/../q/../r/.." --stdout="$root/ddd/../q/../r/.."
+			--path="$root/f" --stdout="$root/f"
+			--path="$root/ff" --stdout="$root/ff"
+			--path="$root/fff" --stdout="$root/fff"
+			--path="$root/b" --stdout="$root/b"
+			--path="$root/bb" --stdout="$root/bb"
+			--path="$root/bbb" --stdout="$root/bbb"
+			--path="$root/r" --stdout="$root/r"
+			--path="$root/rr" --stdout="$root/rr"
+			--path="$root/rrr" --stdout="$root/rrr"
+			--path="$root/d" --stdout="$root/d"
+			--path="$root/dd" --stdout="$root/dd"
+			--path="$root/ddd" --stdout="$root/ddd"
+			--path="$root/d/e" --stdout="$root/d/e"
+			--path="$root/dd/ee" --stdout="$root/dd/ee"
+			--path="$root/ddd/eee" --stdout="$root/ddd/eee"
+			--path="$root/d/s" --stdout="$root/d/s"
+			--path="$root/dd/ss" --stdout="$root/dd/ss"
+			--path="$root/ddd/sss" --stdout="$root/ddd/sss"
+			--path="$root/d/s/e" --stdout="$root/d/s/e"
+			--path="$root/dd/ss/ee" --stdout="$root/dd/ss/ee"
+			--path="$root/ddd/sss/eee" --stdout="$root/ddd/sss/eee"
+			--path="$root/d/s/.." --stdout="$root/d/s/.."
+			--path="$root/dd/ss/.." --stdout="$root/dd/ss/.."
+			--path="$root/ddd/sss/.." --stdout="$root/ddd/sss/.."
+			--path="$root/d/s/../f" --stdout="$root/d/s/../f"
+			--path="$root/dd/ss/../ff" --stdout="$root/dd/ss/../ff"
+			--path="$root/ddd/sss/../fff" --stdout="$root/ddd/sss/../fff"
+			--path="$root/d/p" --stdout="$root/d/p"
+			--path="$root/dd/pp" --stdout="$root/dd/pp"
+			--path="$root/ddd/ppp" --stdout="$root/ddd/ppp"
+			--path="$root/d/p/f" --stdout="$root/d/p/f"
+			--path="$root/dd/pp/ff" --stdout="$root/dd/pp/ff"
+			--path="$root/ddd/ppp/fff" --stdout="$root/ddd/ppp/fff"
+			--path="$root/d/n" --stdout="$root/d/n"
+			--path="$root/dd/nn" --stdout="$root/dd/nn"
+			--path="$root/ddd/nnn" --stdout="$root/ddd/nnn"
+			--path="$root/d/n/.." --stdout="$root/d/n/.."
+			--path="$root/dd/nn/.." --stdout="$root/dd/nn/.."
+			--path="$root/ddd/nnn/.." --stdout="$root/ddd/nnn/.."
+			--path="$root/d/n/../e" --stdout="$root/d/n/../e"
+			--path="$root/dd/nn/../ee" --stdout="$root/dd/nn/../ee"
+			--path="$root/ddd/nnn/../eee" --stdout="$root/ddd/nnn/../eee"
+			--path="$root/d/n/u" --stdout="$root/d/n/u"
+			--path="$root/dd/nn/uu" --stdout="$root/dd/nn/uu"
+			--path="$root/ddd/nnn/uuu" --stdout="$root/ddd/nnn/uuu"
+			--path="$root/d/n/u/e" --stdout="$root/d/n/u/e"
+			--path="$root/dd/nn/uu/ee" --stdout="$root/dd/nn/uu/ee"
+			--path="$root/ddd/nnn/uuu/eee" --stdout="$root/ddd/nnn/uuu/eee"
+			--path="$root/d/n/u/.." --stdout="$root/d/n/u/.."
+			--path="$root/dd/nn/uu/.." --stdout="$root/dd/nn/uu/.."
+			--path="$root/ddd/nnn/uuu/.." --stdout="$root/ddd/nnn/uuu/.."
+			--path="$root/d/n/u/../f" --stdout="$root/d/n/u/../f"
+			--path="$root/dd/nn/uu/../ff" --stdout="$root/dd/nn/uu/../ff"
+			--path="$root/ddd/nnn/uuu/../fff" --stdout="$root/ddd/nnn/uuu/../fff"
+
+			--path="q/w/r" --stdout="q/w/r"
+			--path="q/w/.." --stdout="q/w/.."
+			--path="q/../r" --stdout="q/../r"
+			--path="../q/w/r" --stdout="../q/w/r"
+			--path="../q/../r" --stdout="../q/../r"
+			--path="../q/../r/.." --stdout="../q/../r/.."
+			--path="../f" --stdout="../f"
+			--path="../ff" --stdout="../ff"
+			--path="../fff" --stdout="../fff"
+			--path="../b" --stdout="../b"
+			--path="../bb" --stdout="../bb"
+			--path="../bbb" --stdout="../bbb"
+			--path="../r" --stdout="../r"
+			--path="../rr" --stdout="../rr"
+			--path="../rrr" --stdout="../rrr"
+			--path="../d" --stdout="../d"
+			--path="../dd" --stdout="../dd"
+			--path="../ddd" --stdout="../ddd"
+			--path="e" --stdout="e"
+			--path="ee" --stdout="ee"
+			--path="eee" --stdout="eee"
+			--path="s" --stdout="s"
+			--path="ss" --stdout="ss"
+			--path="sss" --stdout="sss"
+			--path="s/e" --stdout="s/e"
+			--path="ss/ee" --stdout="ss/ee"
+			--path="sss/eee" --stdout="sss/eee"
+			--path="s/.." --stdout="s/.."
+			--path="ss/.." --stdout="ss/.."
+			--path="sss/.." --stdout="sss/.."
+			--path="s/../f" --stdout="s/../f"
+			--path="ss/../ff" --stdout="ss/../ff"
+			--path="sss/../fff" --stdout="sss/../fff"
+			--path="p" --stdout="p"
+			--path="pp" --stdout="pp"
+			--path="ppp" --stdout="ppp"
+			--path="p/f" --stdout="p/f"
+			--path="pp/ff" --stdout="pp/ff"
+			--path="ppp/fff" --stdout="ppp/fff"
+			--path="n" --stdout="n"
+			--path="nn" --stdout="nn"
+			--path="nnn" --stdout="nnn"
+			--path="n/.." --stdout="n/.."
+			--path="nn/.." --stdout="nn/.."
+			--path="nnn/.." --stdout="nnn/.."
+			--path="n/../e" --stdout="n/../e"
+			--path="nn/../ee" --stdout="nn/../ee"
+			--path="nnn/../eee" --stdout="nnn/../eee"
+			--path="n/u" --stdout="n/u"
+			--path="nn/uu" --stdout="nn/uu"
+			--path="nnn/uuu" --stdout="nnn/uuu"
+			--path="n/u/e" --stdout="n/u/e"
+			--path="nn/uu/ee" --stdout="nn/uu/ee"
+			--path="nnn/uuu/eee" --stdout="nnn/uuu/eee"
+			--path="n/u/.." --stdout="n/u/.."
+			--path="nn/uu/.." --stdout="nn/uu/.."
+			--path="nnn/uuu/.." --stdout="nnn/uuu/.."
+			--path="n/u/../f" --stdout="n/u/../f"
+			--path="nn/uu/../ff" --stdout="nn/uu/../ff"
+			--path="nnn/uuu/../fff" --stdout="nnn/uuu/../fff"
+		)
+		is_fs_tests__tuples --group='test symlinks: default' "$command" --no-elevate -- "${tuples[@]}"
+
+		# @todo consider default as `--resolve` if `..`
+		# @todo test `--relative-from` and `--relative-ancestor`
+	)
+
+	# formal `is-fs-tests.bash` tests now
+	is_fs_tests__prep "$command" "$root"
+
+	# test no privilege elevation: logical
+	tuples=(
+		--path="$root/missing-dir/missing-file" --stdout="$root/missing-dir/missing-file"
+		--path="$root/missing-file" --stdout="$root/missing-file"
+
+		--path="$root/targets/empty-dir" --stdout="$root/targets/empty-dir"
+		--path="$root/targets/empty-file" --stdout="$root/targets/empty-file"
+		--path="$root/targets/filled-dir/empty-subfile" --stdout="$root/targets/filled-dir/empty-subfile"
+		--path="$root/targets/filled-dir/filled-subdir" --stdout="$root/targets/filled-dir/filled-subdir"
+		--path="$root/targets/filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/filled-dir/filled-subfile" --stdout="$root/targets/filled-dir/filled-subfile"
+		--path="$root/targets/filled-file" --stdout="$root/targets/filled-file"
+		--path="$root/targets/unaccessible-empty-dir" --stdout="$root/targets/unaccessible-empty-dir"
+		--path="$root/targets/unaccessible-empty-file" --stdout="$root/targets/unaccessible-empty-file"
+		--path="$root/targets/unaccessible-filled-dir" --stdout="$root/targets/unaccessible-filled-dir"
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unaccessible-filled-file" --stdout="$root/targets/unaccessible-filled-file"
+		--path="$root/targets/unexecutable-empty-dir" --stdout="$root/targets/unexecutable-empty-dir"
+		--path="$root/targets/unexecutable-empty-file" --stdout="$root/targets/unexecutable-empty-file"
+		--path="$root/targets/unexecutable-filled-dir" --stdout="$root/targets/unexecutable-filled-dir"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-file" --stdout="$root/targets/unexecutable-filled-file"
+		--path="$root/targets/unreadable-empty-dir" --stdout="$root/targets/unreadable-empty-dir"
+		--path="$root/targets/unreadable-empty-file" --stdout="$root/targets/unreadable-empty-file"
+		--path="$root/targets/unreadable-filled-dir" --stdout="$root/targets/unreadable-filled-dir"
+		--path="$root/targets/unreadable-filled-dir/empty-subfile" --stdout="$root/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subfile" --stdout="$root/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/targets/unreadable-filled-file" --stdout="$root/targets/unreadable-filled-file"
+		--path="$root/targets/unwritable-empty-dir" --stdout="$root/targets/unwritable-empty-dir"
+		--path="$root/targets/unwritable-empty-file" --stdout="$root/targets/unwritable-empty-file"
+		--path="$root/targets/unwritable-filled-dir" --stdout="$root/targets/unwritable-filled-dir"
+		--path="$root/targets/unwritable-filled-dir/empty-subfile" --stdout="$root/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subfile" --stdout="$root/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/targets/unwritable-filled-file" --stdout="$root/targets/unwritable-filled-file"
+
+		--path="$root/symlinks/empty-dir" --stdout="$root/symlinks/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root/symlinks/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root/symlinks/filled-dir--empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root/symlinks/filled-dir--filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root/symlinks/filled-dir--filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root/symlinks/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root/symlinks/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root/symlinks/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root/symlinks/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root/symlinks/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root/symlinks/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root/symlinks/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root/symlinks/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root/symlinks/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root/symlinks/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root/symlinks/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root/symlinks/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root/symlinks/unreadable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root/symlinks/unreadable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root/symlinks/unreadable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root/symlinks/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root/symlinks/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root/symlinks/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root/symlinks/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root/symlinks/unwritable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root/symlinks/unwritable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root/symlinks/unwritable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root/symlinks/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test no privilege elevation' "$command" --no-elevate -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test no privilege elevation: logical' "$command" --no-elevate --logical -- "${tuples[@]}"
+
+	# test no privilege elevation: physical (this does access checks, which is what we want with physical, if we want logical when logical makes sense (without `..`) or physical when physical makes sense (with `..`), don't provide logical nor absolute, to just use the defaults)
+	tuples=(
+		--path="$root/missing-dir/missing-file" --stdout="$root/missing-dir/missing-file"
+		--path="$root/missing-file" --stdout="$root/missing-file"
+
+		--path="$root/targets/empty-dir" --stdout="$root/targets/empty-dir"
+		--path="$root/targets/empty-file" --stdout="$root/targets/empty-file"
+		--path="$root/targets/filled-dir/empty-subfile" --stdout="$root/targets/filled-dir/empty-subfile"
+		--path="$root/targets/filled-dir/filled-subdir" --stdout="$root/targets/filled-dir/filled-subdir"
+		--path="$root/targets/filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/filled-dir/filled-subfile" --stdout="$root/targets/filled-dir/filled-subfile"
+		--path="$root/targets/filled-file" --stdout="$root/targets/filled-file"
+		--path="$root/targets/unaccessible-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-empty-file" --stdout="$root/targets/unaccessible-empty-file"
+		--path="$root/targets/unaccessible-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-file" --stdout="$root/targets/unaccessible-filled-file"
+		--path="$root/targets/unexecutable-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-empty-file" --stdout="$root/targets/unexecutable-empty-file"
+		--path="$root/targets/unexecutable-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-file" --stdout="$root/targets/unexecutable-filled-file"
+		--path="$root/targets/unreadable-empty-dir" --stdout="$root/targets/unreadable-empty-dir"
+		--path="$root/targets/unreadable-empty-file" --stdout="$root/targets/unreadable-empty-file"
+		--path="$root/targets/unreadable-filled-dir" --stdout="$root/targets/unreadable-filled-dir"
+		--path="$root/targets/unreadable-filled-dir/empty-subfile" --stdout="$root/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subfile" --stdout="$root/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/targets/unreadable-filled-file" --stdout="$root/targets/unreadable-filled-file"
+		--path="$root/targets/unwritable-empty-dir" --stdout="$root/targets/unwritable-empty-dir"
+		--path="$root/targets/unwritable-empty-file" --stdout="$root/targets/unwritable-empty-file"
+		--path="$root/targets/unwritable-filled-dir" --stdout="$root/targets/unwritable-filled-dir"
+		--path="$root/targets/unwritable-filled-dir/empty-subfile" --stdout="$root/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subfile" --stdout="$root/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/targets/unwritable-filled-file" --stdout="$root/targets/unwritable-filled-file"
+
+		--path="$root/symlinks/empty-dir" --stdout="$root/symlinks/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root/symlinks/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root/symlinks/filled-dir--empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root/symlinks/filled-dir--filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root/symlinks/filled-dir--filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root/symlinks/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unaccessible-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root/symlinks/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unaccessible-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unaccessible-filled-dir--empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unaccessible-filled-dir--filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unaccessible-filled-dir--filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root/symlinks/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unexecutable-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root/symlinks/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unexecutable-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unexecutable-filled-dir--empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unexecutable-filled-dir--filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/symlinks/unexecutable-filled-dir--filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root/symlinks/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root/symlinks/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root/symlinks/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root/symlinks/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root/symlinks/unreadable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root/symlinks/unreadable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root/symlinks/unreadable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root/symlinks/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root/symlinks/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root/symlinks/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root/symlinks/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root/symlinks/unwritable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root/symlinks/unwritable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root/symlinks/unwritable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root/symlinks/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test no privilege elevation: physical' "$command" --no-elevate --physical -- "${tuples[@]}"
+	tuples[1]='--status=2' tuples[3]='--status=2'
+	is_fs_tests__tuples --group='test no privilege elevation: physical, validate' "$command" --no-elevate --physical --validate -- "${tuples[@]}"
+
+	# test no privilege elevation: leaf
+	tuples=(
+		--path="$root/missing-dir/missing-file" --stdout="$root/missing-dir/missing-file"
+		--path="$root/missing-file" --stdout="$root/missing-file"
+
+		--path="$root/targets/empty-dir" --stdout="$root/targets/empty-dir"
+		--path="$root/targets/empty-file" --stdout="$root/targets/empty-file"
+		--path="$root/targets/filled-dir/empty-subfile" --stdout="$root/targets/filled-dir/empty-subfile"
+		--path="$root/targets/filled-dir/filled-subdir" --stdout="$root/targets/filled-dir/filled-subdir"
+		--path="$root/targets/filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/filled-dir/filled-subfile" --stdout="$root/targets/filled-dir/filled-subfile"
+		--path="$root/targets/filled-file" --stdout="$root/targets/filled-file"
+		--path="$root/targets/unaccessible-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-empty-file" --stdout="$root/targets/unaccessible-empty-file"
+		--path="$root/targets/unaccessible-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-file" --stdout="$root/targets/unaccessible-filled-file"
+		--path="$root/targets/unexecutable-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-empty-file" --stdout="$root/targets/unexecutable-empty-file"
+		--path="$root/targets/unexecutable-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-file" --stdout="$root/targets/unexecutable-filled-file"
+		--path="$root/targets/unreadable-empty-dir" --stdout="$root/targets/unreadable-empty-dir"
+		--path="$root/targets/unreadable-empty-file" --stdout="$root/targets/unreadable-empty-file"
+		--path="$root/targets/unreadable-filled-dir" --stdout="$root/targets/unreadable-filled-dir"
+		--path="$root/targets/unreadable-filled-dir/empty-subfile" --stdout="$root/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subfile" --stdout="$root/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/targets/unreadable-filled-file" --stdout="$root/targets/unreadable-filled-file"
+		--path="$root/targets/unwritable-empty-dir" --stdout="$root/targets/unwritable-empty-dir"
+		--path="$root/targets/unwritable-empty-file" --stdout="$root/targets/unwritable-empty-file"
+		--path="$root/targets/unwritable-filled-dir" --stdout="$root/targets/unwritable-filled-dir"
+		--path="$root/targets/unwritable-filled-dir/empty-subfile" --stdout="$root/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subfile" --stdout="$root/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/targets/unwritable-filled-file" --stdout="$root/targets/unwritable-filled-file"
+
+		--path="$root/symlinks/empty-dir" --stdout="$root/targets/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root/targets/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root/targets/filled-dir/empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root/targets/filled-dir/filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root/targets/filled-dir/filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root/targets/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root/targets/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unaccessible-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root/targets/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root/targets/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root/targets/unexecutable-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root/targets/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root/targets/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root/targets/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root/targets/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root/targets/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root/targets/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root/targets/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root/targets/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root/targets/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test no privilege elevation: leaf' "$command" --no-elevate --leaf -- "${tuples[@]}"
+	tuples[1]='--status=2' tuples[3]='--status=2'
+	is_fs_tests__tuples --group='test no privilege elevation: leaf, validate' "$command" --no-elevate --leaf --validate -- "${tuples[@]}"
+
+	# test no privilege elevation: follow
+	tuples=(
+		--path="$root/missing-dir/missing-file" --stdout="$root_resolved/missing-dir/missing-file"
+		--path="$root/missing-file" --stdout="$root_resolved/missing-file"
+
+		--path="$root/targets/empty-dir" --stdout="$root_resolved/targets/empty-dir"
+		--path="$root/targets/empty-file" --stdout="$root_resolved/targets/empty-file"
+		--path="$root/targets/filled-dir/empty-subfile" --stdout="$root_resolved/targets/filled-dir/empty-subfile"
+		--path="$root/targets/filled-dir/filled-subdir" --stdout="$root_resolved/targets/filled-dir/filled-subdir"
+		--path="$root/targets/filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/filled-dir/filled-subfile" --stdout="$root_resolved/targets/filled-dir/filled-subfile"
+		--path="$root/targets/filled-file" --stdout="$root_resolved/targets/filled-file"
+		--path="$root/targets/unaccessible-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-empty-file" --stdout="$root_resolved/targets/unaccessible-empty-file"
+		--path="$root/targets/unaccessible-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unaccessible-filled-file" --stdout="$root_resolved/targets/unaccessible-filled-file"
+		--path="$root/targets/unexecutable-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-empty-file" --stdout="$root_resolved/targets/unexecutable-empty-file"
+		--path="$root/targets/unexecutable-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/targets/unexecutable-filled-file" --stdout="$root_resolved/targets/unexecutable-filled-file"
+		--path="$root/targets/unreadable-empty-dir" --stdout="$root_resolved/targets/unreadable-empty-dir"
+		--path="$root/targets/unreadable-empty-file" --stdout="$root_resolved/targets/unreadable-empty-file"
+		--path="$root/targets/unreadable-filled-dir" --stdout="$root_resolved/targets/unreadable-filled-dir"
+		--path="$root/targets/unreadable-filled-dir/empty-subfile" --stdout="$root_resolved/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unreadable-filled-dir/filled-subfile" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/targets/unreadable-filled-file" --stdout="$root_resolved/targets/unreadable-filled-file"
+		--path="$root/targets/unwritable-empty-dir" --stdout="$root_resolved/targets/unwritable-empty-dir"
+		--path="$root/targets/unwritable-empty-file" --stdout="$root_resolved/targets/unwritable-empty-file"
+		--path="$root/targets/unwritable-filled-dir" --stdout="$root_resolved/targets/unwritable-filled-dir"
+		--path="$root/targets/unwritable-filled-dir/empty-subfile" --stdout="$root_resolved/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unwritable-filled-dir/filled-subfile" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/targets/unwritable-filled-file" --stdout="$root_resolved/targets/unwritable-filled-file"
+
+		--path="$root/symlinks/empty-dir" --stdout="$root_resolved/targets/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root_resolved/targets/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root_resolved/targets/filled-dir/empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root_resolved/targets/filled-dir/filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root_resolved/targets/filled-dir/filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root_resolved/targets/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root_resolved/targets/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unaccessible-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root_resolved/targets/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-empty-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root_resolved/targets/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/empty-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/filled-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$(__is_fs_tests__print_root_or_nonroot "$root_resolved/targets/unexecutable-filled-dir/filled-subfile" '')" --status="$(__is_fs_tests__print_root_or_nonroot 0 13)"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root_resolved/targets/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root_resolved/targets/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root_resolved/targets/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root_resolved/targets/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root_resolved/targets/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root_resolved/targets/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root_resolved/targets/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root_resolved/targets/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root_resolved/targets/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test no privilege elevation: follow' "$command" --no-elevate --follow -- "${tuples[@]}"
+	tuples[1]='--status=2' tuples[3]='--status=2'
+	is_fs_tests__tuples --group='test no privilege elevation: follow, validate' "$command" --no-elevate --follow --validate -- "${tuples[@]}"
+
+	# test default privilege elevation
+	tuples=(
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root/symlinks/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root/symlinks/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subfile"
+
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root/symlinks/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root/symlinks/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subfile"
+	)
+	is_fs_tests__tuples --group='test default privilege elevation: physical' "$command" --physical -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test default privilege elevation: physical, validate' "$command" --physical --validate -- "${tuples[@]}"
+	tuples=(
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root/targets/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root/targets/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root/targets/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root/targets/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+	)
+	is_fs_tests__tuples --group='test default privilege elevation: leaf' "$command" --leaf -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test default privilege elevation: leaf, validate' "$command" --leaf --validate -- "${tuples[@]}"
+	tuples=(
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subfile"
+
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root_resolved/targets/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root_resolved/targets/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subfile"
+
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root_resolved/targets/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root_resolved/targets/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subfile"
+	)
+	is_fs_tests__tuples --group='test default privilege elevation: follow' "$command" --follow -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test default privilege elevation: follow, validate' "$command" --follow --validate -- "${tuples[@]}"
+
+	# test with privilege elevation
+	tuples=(
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subfile"
+	)
+	is_fs_tests__tuples --group='test with privilege elevation: validate' "$command" --elevate --physical -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test with privilege elevation: physical, validate' "$command" --elevate --physical --validate -- "${tuples[@]}"
+	tuples=(
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+	)
+	is_fs_tests__tuples --group='test with privilege elevation: leaf' "$command" --elevate --leaf -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test with privilege elevation: leaf, validate' "$command" --elevate --leaf --validate -- "${tuples[@]}"
+	tuples=(
+		--path="$root/targets/unaccessible-filled-dir/empty-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unaccessible-filled-dir/filled-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/targets/unexecutable-filled-dir/empty-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/targets/unexecutable-filled-dir/filled-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subfile"
+	)
+	is_fs_tests__tuples --group='test with privilege elevation: follow' "$command" --elevate --follow -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test with privilege elevation: follow, validate' "$command" --elevate --follow --validate -- "${tuples[@]}"
+
+	# break the symlinks
+	is_fs_tests__break_symlinks
+
+	# test broken symlinks with default elevation
+	tuples=(
+		--path="$root/symlinks/empty-dir" --stdout="$root/symlinks/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root/symlinks/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root/symlinks/filled-dir--empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root/symlinks/filled-dir--filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root/symlinks/filled-dir--filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root/symlinks/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root/symlinks/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root/symlinks/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root/symlinks/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/symlinks/unaccessible-filled-dir--filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root/symlinks/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root/symlinks/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root/symlinks/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root/symlinks/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/symlinks/unexecutable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root/symlinks/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root/symlinks/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root/symlinks/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root/symlinks/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root/symlinks/unreadable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root/symlinks/unreadable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root/symlinks/unreadable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root/symlinks/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root/symlinks/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root/symlinks/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root/symlinks/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root/symlinks/unwritable-filled-dir--empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root/symlinks/unwritable-filled-dir--filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root/symlinks/unwritable-filled-dir--filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root/symlinks/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test broken symlinks' "$command" -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test broken symlinks: physical' "$command" --physical -- "${tuples[@]}"
+	tuples=(
+		--path="$root/symlinks/empty-dir" --stdout="$root/targets/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root/targets/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root/targets/filled-dir/empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root/targets/filled-dir/filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root/targets/filled-dir/filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root/targets/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root/targets/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root/targets/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root/targets/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root/targets/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root/targets/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root/targets/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root/targets/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root/targets/unexecutable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root/targets/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root/targets/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root/targets/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root/targets/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root/targets/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root/targets/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root/targets/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root/targets/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root/targets/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test broken symlinks: leaf' "$command" --leaf -- "${tuples[@]}"
+	tuples=(
+		--path="$root/symlinks/empty-dir" --stdout="$root_resolved/targets/empty-dir"
+		--path="$root/symlinks/empty-file" --stdout="$root_resolved/targets/empty-file"
+		--path="$root/symlinks/filled-dir--empty-subfile" --stdout="$root_resolved/targets/filled-dir/empty-subfile"
+		--path="$root/symlinks/filled-dir--filled-subdir" --stdout="$root_resolved/targets/filled-dir/filled-subdir"
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/filled-dir--filled-subfile" --stdout="$root_resolved/targets/filled-dir/filled-subfile"
+		--path="$root/symlinks/filled-file" --stdout="$root_resolved/targets/filled-file"
+		--path="$root/symlinks/unaccessible-empty-dir" --stdout="$root_resolved/targets/unaccessible-empty-dir"
+		--path="$root/symlinks/unaccessible-empty-file" --stdout="$root_resolved/targets/unaccessible-empty-file"
+		--path="$root/symlinks/unaccessible-filled-dir" --stdout="$root_resolved/targets/unaccessible-filled-dir"
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/empty-subfile"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unaccessible-filled-dir/filled-subfile"
+		--path="$root/symlinks/unaccessible-filled-file" --stdout="$root_resolved/targets/unaccessible-filled-file"
+		--path="$root/symlinks/unexecutable-empty-dir" --stdout="$root_resolved/targets/unexecutable-empty-dir"
+		--path="$root/symlinks/unexecutable-empty-file" --stdout="$root_resolved/targets/unexecutable-empty-file"
+		--path="$root/symlinks/unexecutable-filled-dir" --stdout="$root_resolved/targets/unexecutable-filled-dir"
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unexecutable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unexecutable-filled-file" --stdout="$root_resolved/targets/unexecutable-filled-file"
+		--path="$root/symlinks/unreadable-empty-dir" --stdout="$root_resolved/targets/unreadable-empty-dir"
+		--path="$root/symlinks/unreadable-empty-file" --stdout="$root_resolved/targets/unreadable-empty-file"
+		--path="$root/symlinks/unreadable-filled-dir" --stdout="$root_resolved/targets/unreadable-filled-dir"
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unreadable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unreadable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unreadable-filled-file" --stdout="$root_resolved/targets/unreadable-filled-file"
+		--path="$root/symlinks/unwritable-empty-dir" --stdout="$root_resolved/targets/unwritable-empty-dir"
+		--path="$root/symlinks/unwritable-empty-file" --stdout="$root_resolved/targets/unwritable-empty-file"
+		--path="$root/symlinks/unwritable-filled-dir" --stdout="$root_resolved/targets/unwritable-filled-dir"
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --stdout="$root_resolved/targets/unwritable-filled-dir/empty-subfile"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subdir/empty-subdir"
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --stdout="$root_resolved/targets/unwritable-filled-dir/filled-subfile"
+		--path="$root/symlinks/unwritable-filled-file" --stdout="$root_resolved/targets/unwritable-filled-file"
+	)
+	is_fs_tests__tuples --group='test broken symlinks: follow' "$command" --follow -- "${tuples[@]}"
+
+	# test broken symlinks with default elevation: validate
+	tuples=(
+		--path="$root/symlinks/empty-dir" --status=9
+		--path="$root/symlinks/empty-file" --status=9
+		--path="$root/symlinks/filled-dir--empty-subfile" --status=9
+		--path="$root/symlinks/filled-dir--filled-subdir" --status=9
+		--path="$root/symlinks/filled-dir--filled-subdir--empty-subdir" --status=9
+		--path="$root/symlinks/filled-dir--filled-subfile" --status=9
+		--path="$root/symlinks/filled-file" --status=9
+		--path="$root/symlinks/unaccessible-empty-dir" --status=9
+		--path="$root/symlinks/unaccessible-empty-file" --status=9
+		--path="$root/symlinks/unaccessible-filled-dir" --status=9
+		--path="$root/symlinks/unaccessible-filled-dir--empty-subfile" --status=9
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir" --status=9
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subdir--empty-subdir" --status=9
+		--path="$root/symlinks/unaccessible-filled-dir--filled-subfile" --status=9
+		--path="$root/symlinks/unaccessible-filled-file" --status=9
+		--path="$root/symlinks/unexecutable-empty-dir" --status=9
+		--path="$root/symlinks/unexecutable-empty-file" --status=9
+		--path="$root/symlinks/unexecutable-filled-dir" --status=9
+		--path="$root/symlinks/unexecutable-filled-dir--empty-subfile" --status=9
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir" --status=9
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subdir--empty-subdir" --status=9
+		--path="$root/symlinks/unexecutable-filled-dir--filled-subfile" --status=9
+		--path="$root/symlinks/unexecutable-filled-file" --status=9
+		--path="$root/symlinks/unreadable-empty-dir" --status=9
+		--path="$root/symlinks/unreadable-empty-file" --status=9
+		--path="$root/symlinks/unreadable-filled-dir" --status=9
+		--path="$root/symlinks/unreadable-filled-dir--empty-subfile" --status=9
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir" --status=9
+		--path="$root/symlinks/unreadable-filled-dir--filled-subdir--empty-subdir" --status=9
+		--path="$root/symlinks/unreadable-filled-dir--filled-subfile" --status=9
+		--path="$root/symlinks/unreadable-filled-file" --status=9
+		--path="$root/symlinks/unwritable-empty-dir" --status=9
+		--path="$root/symlinks/unwritable-empty-file" --status=9
+		--path="$root/symlinks/unwritable-filled-dir" --status=9
+		--path="$root/symlinks/unwritable-filled-dir--empty-subfile" --status=9
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir" --status=9
+		--path="$root/symlinks/unwritable-filled-dir--filled-subdir--empty-subdir" --status=9
+		--path="$root/symlinks/unwritable-filled-dir--filled-subfile" --status=9
+		--path="$root/symlinks/unwritable-filled-file" --status=9
+	)
+	is_fs_tests__tuples --group='test broken symlinks: validate' "$command" --validate -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test broken symlinks: leaf, validate' "$command" --leaf --validate -- "${tuples[@]}"
+	is_fs_tests__tuples --group='test broken symlinks: follow, validate' "$command" --follow --validate -- "${tuples[@]}"
 
 	return 0
 )
@@ -277,65 +2081,211 @@ function fs_path() (
 			USAGE:
 			\`fs-path [...options] [--] ...<path>\`
 
+			LOGICAL VS ABSOLUTE RESOLUTION:
+			Consider the following:
+			\`\`\`
+			cd "\$HOME"; rm -f symlink-to-root-directory; ln -s / symlink-to-root-directory
+			pwd # outputs \`$HOME\`
+			cd "\$HOME/symlink-to-root-directory/.." || echo "cd failed: \$?"
+			pwd # outputs \`$HOME\` because it did a logical resolution
+			cd "\$HOME/symlink-to-root-directory/../\$HOME" || echo "cd failed: \$?"
+			pwd # outputs \`$HOME\` not \`/\` because it did a physical resolution
+			\`\`\`
+			Logical resolutions operate on the path as is, and is only done by \`cd <path>\`.
+			Physical resolutions operate on the path, as located on the filesystem, and is done by everything except \`cd <path>\`.
+			Symlinks resolve based on their physical location.
+
+			LOGICAL RESOLUTIONS:
+			* \`cd <symlink-dir>; pwd\`
+			* \`cd <symlink-dir>; cd ..\`, \`cd <symlink-dir>; cd ../\`, \`cd <symlink-dir>; cd ../.\`
+			* \`cd <symlink-dir>/..\`, \`cd <symlink-dir>/../\`, \`cd <symlink-dir>/../.\`
+			* \`cd <symlink-dir>/../..\`, \`cd <symlink-dir>/../..\`, \`cd <symlink-dir>/../../.\`
+
+			PHYSICAL RESOLUTIONS:
+			* \`cd <symlink-dir>; pwd -P\`
+			* \`cd -P <symlink-dir>; pwd\`
+			* \`cd <symlink-dir>/../<sub-path>\`
+			* \`cd -P <symlink-dir>/..\`, \`cd -P <symlink-dir>/../\`, \`cd -P <symlink-dir>/../.\`
+			* \`ls <symlink-dir>/..\`, \`ls <symlink-dir>/../\`, \`ls <symlink-dir>/../.\`
+			* \`ls <symlink-dir>/../..\`, \`ls <symlink-dir>/../..\`, \`ls <symlink-dir>/../../.\`
+
+			SYNTHETIC VS REAL:
+			A synthetic path contains syntax that are shortcuts that are expected to be expanded, but may or may not be depending on context. For example:
+			* \`~\` is usually expanded to \`\$HOME\` by the shell, when used like so \`echo ~/subpath\`, but not like so \`echo --path=~/subpath\`
+			* \`.\` (self reference) and \`..\` (parent traversal) are usually expanded by the file system (not the shell), as such argument vs flag usage usually doesn't matter.
+			A real path is a path that does not have, or no longer has, any synthetic segments.
+
+			ABSOLUTE VS RELATIVE:
+			An absolute path is one that includes a root filesystem, such that it resolves to the same target, no matter where it is on the system. E.g. \`$HOME\`
+			A relative path is one that does not begin with a root filesystem, as such it begins from somewhere else, which when invoked, will be from the current working directory. E.g. \`.local/share/dorothy\`
+
+			SYMLINK RESOLUTIONS:
+			Symlinks are shortcuts from one location to another, which are resolved physically from the parent of the symlink's target. Such that a symlink located at \`$HOME/symlink\` to \`.local/share\` will target \`.local/share\` from \`$HOME\`, this is equally true for recursive symlinks, that each resolution occurs from the physical location of each symlink, regardless of the logical traversals.
+
+			SYMLINK LEAF VS FOLLOW RESOLUTION:
+			A symlink that is resolved only once, performs leaf resolution.
+			A symlink that is resolved recursively, until the target is no longer a symlink, performs a follow resolution.
+			For example:
+			\`\`\`
+			ln -s f ff
+			ln -s ff fff
+			# If leaf resolution is performed on \`fff\`, it resolves once to \`ff\`
+			# If follow resolution is performed on \`fff\`, it recursively resolves to \`f\`
+			\`\`\`
+
 			OPTIONS:
-			--resolve | --resolve=follow | --follow
-			    Transform the symlinks into their target paths. Implies <absolute>.
-			    If set to <follow>, then continue following resolutions until the target is no longer a symlink. As a comparison, \`realpath\` follows, \`readlink\` does not.
-			--absolute | --relative
-			    If the path was relative, then <absolute> will resolve it to an absolute path, and <relative> will persist it as a relative path.
-			--relative-from=<relative-from> | --relative-to=<relative-from>
-			    If provided, make the result <path> relative from <relative-from>.
-			--relative-base=<relative-base>
-			    If provided, make the result <path> relative within <relative-base>.
+			--[no-]logical
+			    If <logical>, then perform a logical resolution, prior to any optional physical resolution.
+			    ! Will default to disabled if the path has \`..\`, or if <absolute> is enabled, otherwise will be enabled.
+			    ! This is where <logical> ends, as absolute resolution is inherently physical due to its intercourse with the filesystem, <logical> makes no sense for the filesystem.
 
-			--validate
-			    If enabled, then fail if any part of the path was not resolvable, that is missing, inaccessible, or broken.
+			After the optional logical resolution, we can now do physical resolution:
 
-			--[no-]extensions
-			    If enabled, only output the extensions of the basename. If no extensions, an empty result will be returned.
-			    If disabled, remove all extensions from the basename.
-			--[no-]extension
-			    If enabled, only output the last extension of the basename. If no last extension, an empty result will be returned.
-			    If disabled, remove the last extension from the basename.
+			--[no-]validate
+			    If <validate>, verify the resolution exists, returning [2] if missing, [9] if broken, [13] if inaccessible.
+			        ! Requires and implies <absolute>.
+			--absolute=physical | --absolute | --physical
+			--absolute=leaf | --leaf | --resolve
+			--absolute=follow | --follow
+			    If <absolute=physical>, the default <absolute>, then perform a physical resolution.
+			    If <absolute=leaf>, then perform a once-off physical leaf symlink resolution.
+			    If <absolute=follow>, then perform a recursive symlink resolution.
+			    ! Upward traversal segments of \`..\` will be followed, regardless of <absolute=physical|leaf>, as that is how the filesystem works.
+			    ! Missing segments will be retained as is, meaning synthetic missing segments will be retained, as that is how the filesystem works; use <absolute=follow> with <validate> to ensure resolution to a real path or failure.
+			    ! Use \`readlink -- <path>\` directly if you require knowledge of relative symlink resolutions.
+
+			After the optional physical resolution, we can now do relative resolution:
+
+			--relative-from=<from>
+			    ! If <from>, adjust the path is relative from <from>.
+			        ! Requires and implies <absolute=follow>.
+			    ! Providing <from> will discard <ancestor>.
+			--relative-ancestor=<ancestor>
+			    ! If <ancestor>, adjust the path to be relative from <ancestor>, iff the path is a child of <ancestor>, otherwise keep it absolute.
+			        ! Requires and implies <absolute=follow>.
+			    ! Providing <ancestor> will discard <from>.
+
+			If no optional relative resolution:
 
 			--[no-]parents
-			    If enabled, only return the containing path and not the basename. Incompatible with <extension> and <extensions>.
-				If disabled, only return the basename of the path.
-			--[no-]parent
-			    If enabled, only return the basename of the parent path.
+			    If <parents>, only return the containing path and not the basename.
+			        ! Use <parents> with <absolute> to return the complete ancestry, which a <relative> resolution will not do.
 			    If disabled, only return the basename of the path.
+			    ! Providing <parents> will discard <parent>.
+			--[no-]parent
+			    If <parent>, only return the basename of the parent path.
+			        ! Use <parent> with <absolute> to ensure a synthetic parent of \`.\` or \`..\` is resolved to its actual name.
+			    If disabled, only return the basename of the path.
+			    ! Providing <parent> will discard <parents>.
+
+			--[no-]extensions
+			    If <extensions>, only output the extensions of the result basename. If no extensions, an empty result will be returned.
+			    If disabled, remove all extensions from the basename.
+			    ! Providing <extensions> will discard <extension>.
+			--[no-]extension
+			    If <extension>, only output the last extension of the result basename. If no last extension, an empty result will be returned.
+			    If disabled, remove the last extension from the basename.
+			    ! Providing <extension> will discard <extensions>.
+
+			Shared \`fs-*\` options:
 
 			$fodder
+
+			QUIRKS:
+			! Testing of \`fs-path -- <path> <path> ...<path>\` is not yet tested, so expect bugs with <absolute>/<resolve>/<validate> around working directory changes.
+			! Testing of <from> and <ancestor> is not yet tested.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item args=() option_absolute='' option_resolve='' option_follow='' option_validate='' option_relative_from='' option_relative_base='' option_extensions='' option_extension='' option_parents='' option_parent=''
+	local item args=() option_logical='' option_validate='' option_absolute='' option_relative_from='' option_relative_ancestor='' option_parents='' option_parent='' option_extensions='' option_extension=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') __help || return $? ;;
-		'--relative-to='* | '--relative-from='*) option_relative_from="${item#*=}" ;;
-		'--relative-base='*) option_relative_base="${item#*=}" ;;
-		'--no-relative'* | '--relative'*)
-			# this must be after --relative-{to,base} otherwise it will capture them
-			__flag --source={item} --target={option_absolute} --non-affirmative || return $?
+
+		'--no-logical'* | '--logical'*) __flag --source={item} --target={option_logical} --affirmative --coerce || return $? ;;
+
+		'--no-validate'* | '--validate'*) __flag --source={item} --target={option_validate} --affirmative --coerce || return $? ;;
+		'--absolute'*)
+			__flag --source+target={item} --affirmative --no-coerce || return $?
+			if [[ $item =~ ^(yes|physical)$ ]]; then
+				option_absolute='physical'
+			elif [[ $item == 'leaf' ]]; then
+				option_absolute='leaf'
+			elif [[ $item == 'follow' ]]; then
+				option_absolute='follow'
+			elif [[ $item == 'no' ]]; then
+				option_absolute='no'
+			fi
 			;;
-		'--no-absolute'* | '--absolute'*) __flag --source={item} --target={option_absolute} --affirmative || return $? ;;
-		'--no-resolve'* | '--resolve'*) __flag --source={item} --target={option_resolve} --affirmative || return $? ;;
-		'--no-follow'* | '--follow'*) __flag --source={item} --target={option_follow} --affirmative || return $? ;;
-		'--no-validate'* | '--validate'*) __flag --source={item} --target={option_validate} --affirmative || return $? ;;
-		'--no-extensions'* | '--extensions'*) __flag --source={item} --target={option_extensions} --affirmative || return $? ;;
-		'--no-extension'* | '--extension'*) __flag --source={item} --target={option_extension} --affirmative || return $? ;;
-		'--no-parents'* | '--parents'*) __flag --source={item} --target={option_parents} --affirmative || return $? ;;
-		'--no-parent'* | '--parent'*) __flag --source={item} --target={option_parent} --affirmative || return $? ;;
+		'--no-physical'* | '--physical'*)
+			__flag --source+target={item} --affirmative --coerce || return $?
+			if [[ $item == 'yes' ]]; then
+				option_absolute='physical'
+			fi
+			;;
+		'--no-leaf'* | '--leaf'* | '--no-resolve'* | '--resolve'*)
+			__flag --source+target={item} --affirmative --coerce || return $?
+			if [[ $item == 'yes' ]]; then
+				option_absolute='leaf'
+			fi
+			;;
+		'--no-follow'* | '--follow'*)
+			__flag --source+target={item} --affirmative --coerce || return $?
+			if [[ $item == 'yes' ]]; then
+				option_absolute='follow'
+			fi
+			;;
+
+		'--relative-from='* | '--relative-to='*)
+			option_relative_from="${item#*=}"
+			if [[ -n $option_relative_from ]]; then
+				option_relative_ancestor=''
+			fi
+			;;
+		'--relative-ancestor='* | '--relative-parent='* | '--relative-base='*)
+			option_relative_ancestor="${item#*=}"
+			if [[ -n $option_relative_ancestor ]]; then
+				option_relative_from=''
+			fi
+			;;
+
+		'--no-parents'* | '--parents'*)
+			__flag --source={item} --target={option_parents} --affirmative --coerce || return $?
+			if [[ -n $option_parents ]]; then
+				option_parent=''
+			fi
+			;;
+		'--no-parent'* | '--parent'*)
+			__flag --source={item} --target={option_parent} --affirmative --coerce || return $?
+			if [[ -n $option_parent ]]; then
+				option_parents=''
+			fi
+			;;
+
+		'--no-extensions'* | '--extensions'*)
+			__flag --source={item} --target={option_extensions} --affirmative --coerce || return $?
+			if [[ -n $option_extensions ]]; then
+				option_extension=''
+			fi
+			;;
+		'--no-extension'* | '--extension'*)
+			__flag --source={item} --target={option_extension} --affirmative --coerce || return $?
+			if [[ -n $option_extension ]]; then
+				option_extensions=''
+			fi
+			;;
+
+		# b/c
 		'--dirname') option_parents='yes' ;;
 		'--basename') option_parents='no' ;;
+
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
-		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative || return $? ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce || return $? ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
 		'--reason='*) option_reason="${item#*=}" ;;
@@ -345,30 +2295,51 @@ function fs_path() (
 	done
 	__is_fs__args "${args[@]}" || return $?
 
-	# check
-	if [[ $option_parent == 'no' ]]; then
-		option_parents='no'
-	elif [[ $option_parent == 'yes' ]]; then
-		option_parents='no'
+	# adjust
+	if [[ $option_relative_from == 'yes' || $option_relative_ancestor == 'yes' ]]; then
+		if [[ -z $option_absolute ]]; then
+			option_absolute='follow'
+		elif [[ $option_absolute != 'follow' ]]; then
+			__help --help='Cannot use <from>/<ancestor> without <absolute=follow>.' || return $?
+		fi
+		if [[ -n $option_parents || -n $option_parent || -n $option_extensions || -n $option_extension ]]; then
+			__help --help='Cannot use <from>/<ancestor> with <parents>/<parent>/<extensions>/<extension>.' || return $?
+		fi
 	fi
-	if [[ $option_follow == 'yes' ]]; then
-		option_resolve='follow'
+	if [[ $option_validate == 'yes' ]]; then
+		if [[ -z $option_absolute ]]; then
+			option_absolute='physical'
+		elif [[ $option_absolute == 'no' ]]; then
+			__help --help='Cannot use <validate> without <absolute>.' || return $?
+		fi
 	fi
 	if [[ $option_parents == 'yes' && (-n $option_extensions || -n $option_extension) ]]; then
-		__help --help='Cannot use <parents> with <extension> and/or <extensions> as that does not make sense. Use <parent> instead.' || return $?
+		# change to <parent>, as it is equivalent in this use case
+		option_parent='yes'
+		option_parents=''
+	fi
+	if [[ -z $option_logical ]]; then
+		if [[ $option_absolute =~ ^(physical|leaf|follow)$ ]]; then
+			option_logical='no'
+		fi
+	fi
+
+	# should never be the case, but sanity check:
+	if [[ -n $option_relative_from && -n $option_relative_ancestor ]]; then
+		# grealpath will discard both if both are provided
+		__help --help='Failed to discard during option parsing either <from> or <ancestor>.' || return $?
+	fi
+	if [[ -n $option_parents && -n $option_parent ]]; then
+		__help --help='Failed to discard during option parsing either <parents> or <parent>.' || return $?
 	fi
 	if [[ -n $option_extensions && -n $option_extension ]]; then
-		__help --help='Cannot use <extension> with <extensions> as they are mutually exclusive.' || return $?
-	fi
-	if [[ -n $option_relative_from && -n $option_relative_base ]]; then
-		# grealpath will discard both if both are provided
-		__help --help='Cannot use <relative-from> with <relative-base>, as they are mutually exclusive.' || return $?
+		__help --help='Failed to discard during option parsing either <extensions> or <extension>.' || return $?
 	fi
 
 	# =====================================
 	# Act
 
-	local option_input path stem leaf prefix
+	local input_path path stem leaf prefix logical # absolute
 	function __expand {
 		local EXPAND__variable_name
 		if [[ $# -ne 1 && $1 != --source+target={*} ]]; then
@@ -376,17 +2347,40 @@ function fs_path() (
 		fi
 		__dereference --source="${1#*=}" --name={EXPAND__variable_name} || return $?
 		__is_fs__invoke --elevate=13 --redirect-stdout="{$EXPAND__variable_name}" -- \
-			fs-path.bash --resolve="$option_resolve" --validate="$option_validate" -- "${!EXPAND__variable_name}" || return $?
+			fs-path.bash --absolute="$option_absolute" --validate="$option_validate" -- "${!EXPAND__variable_name}" || return $? # ="$absolute"
 		__is_fs__error || return $?
 		return "$fs_status"
 	}
 	for path in "${option_inputs[@]}"; do
 		# trunk-ignore(shellcheck/SC2034)
-		option_input="$path"
+		input_path="$path"
+		logical="$option_logical"
+		# absolute="$option_absolute"
+
+		# adjust options
+		if [[ -z $logical ]]; then
+			if [[ $path =~ (^|/)[.][.](/|$) ]]; then
+				logical='no'
+				# the absolute code is disabled, as we don't want that
+				# we just want to disable logical compaction
+				# not enable physical compaction
+				# as enabling physical compaction now turns what was a virtual (theoretical) path into a real physical path, which is not what we want unless specified
+				# if [[ -z $absolute ]]; then
+				# 	absolute='physical'
+				# fi
+			else
+				logical='yes'
+			fi
+		fi
+
+		# check it before all other operations
+		if [[ -z $path ]]; then
+			__help --help='An unrecognised <path> was provided: ' --variable-value={path} || return $?
+		fi
 
 		# `dirname` and `basename` operate on the last forward-slash, back-slashes are not relevant as even in WSL which is our only supported Windows target, there forward-slashes are enforced/emulated.
 
-		# remove all duplicates slashes, and self-references
+		# remove all duplicates slashes, and final self-references
 		__replace --source+target={path} --fallback \
 			--value-all='//' --with='/' \
 			--suffix-all='/./' \
@@ -398,59 +2392,63 @@ function fs_path() (
 			__replace --source+target={path} --fallback \
 				--suffix-all='/' || return $?
 
-			# resolve the path
-			if [[ $option_resolve =~ ^(yes|follow)$ || $option_validate == 'yes' ]]; then
-				# we need it to be resolved, or validated
-				__expand --source+target={path} || return $?
-			elif [[ $path != /* && (-n $option_relative_from || -n $option_relative_base || $option_absolute == 'yes') ]]; then
-				# we need to it to be absolute, in cases where it is not
-				__expand --source+target={path} || return $?
+			if [[ $logical == 'yes' ]]; then
+				# logically compress .. and . if desired
+				local parts=() i v
+				__split --source={path} --target={parts} --delimiter='/' --no-zero-length || return $?
+				if [[ $path == /* ]]; then
+					parts=('/' "${parts[@]}")
+				fi
+				for ((i = 1; i < ${#parts[@]}; i++)); do
+					case "${parts[i]}" in
+					'' | '.')
+						# remove the current part
+						__evict --source+target={parts} --each --all --index="$i" || return $?
+						i=$((i - 1))
+						;;
+					'..')
+						if [[ $i -ge 1 ]]; then
+							v="${parts[i - 1]}"
+							if [[ $v == '/' ]]; then
+								# prior part is root, so remove the current part
+								__evict --source+target={parts} --each --all --index="$i" || return $?
+								i=$((i - 1))
+							elif [[ $v != '..' ]]; then
+								# prior part is neither root nor an unresolvable parent
+								# remove the prior part and the current part
+								__evict --source+target={parts} --each --all --index="$((i - 1))" --index="$i" || return $?
+								i=$((i - 2))
+							fi
+						fi
+						;;
+					esac
+				done
+				__join --source={parts} --between='/' --target={path} || return $?
+				if [[ -z $path ]]; then
+					# it was as many nested directories as upward traversals, so it cancelled itself out
+					path='.'
+				else
+					# if it was an absolute path, of multiple segments, then the first segment would be `/` and the join operation will join the first segment of `/` with the second segment, resulting in `//<second-segment>`, so repair that to `/<second-segment>`
+					__replace --source+target={path} --fallback --prefix='//' --with='/' || return $?
+				fi
 			fi
 
-			# compress .. and . where possible
-			local parts=() i v
-			__split --source={path} --target={parts} --delimiter='/' --no-zero-length || return $?
-			if [[ $path == /* ]]; then
-				parts=('/' "${parts[@]}")
+			# expand the path
+			# $absolute
+			if [[ $option_absolute =~ ^(physical|leaf|follow)$ ]]; then
+				__expand --source+target={path} || return $?
 			fi
-			for ((i = 1; i < ${#parts[@]}; i++)); do
-				case "${parts[i]}" in
-				'' | '.')
-					# remove the current part
-					__evict --source+target={parts} --each --all --index="$i" || return $?
-					i=$((i - 1))
-					;;
-				'..')
-					if [[ $i -ge 1 ]]; then
-						v="${parts[i - 1]}"
-						if [[ $v == '/' ]]; then
-							# prior part is root, so remove the current part
-							__evict --source+target={parts} --each --all --index="$i" || return $?
-							i=$((i - 1))
-						elif [[ $v != '..' ]]; then
-							# prior part is neither root nor an unresolvable parent
-							# remove the prior part and the current part
-							__evict --source+target={parts} --each --all --index="$((i - 1))" --index="$i" || return $?
-							i=$((i - 2))
-						fi
-					fi
-					;;
-				esac
-			done
-			__join --source={parts} --between='/' --target={path} || return $?
-			# if it was an absolute path, of multiple segments, then the first segment would be `/` and the join operation will join the first segment of `/` with the second segment, resulting in `//<second-segment>`, so repair that to `/<second-segment>`
-			__replace --source+target={path} --fallback --prefix='//' --with='/' || return $?
 		fi
 
-		# handle relative-to and relative-base
+		# handle relative from, <absolute> is required
 		if [[ -n $option_relative_from ]]; then
 			# find the common ancestor
 			local from_parts=() to_parts=() from_n from_slice to_slice relative_slice relative_path
 			__expand --source+target={option_relative_from} || return $?
 			# /0/1/2/a/b/c
-			# /0/1/2/x/y/z
-			# --relative-from=/0/1/2/a/b/c -- /0/1/2/x/y/z
-			# should return ../../../x/y/z
+			# /0/1/2/x/y/d
+			# --relative-from=/0/1/2/a/b/c -- /0/1/2/x/y/d
+			# should return ../../../x/y/d
 			__split --source={option_relative_from} --delimiter='/' --target={from_parts} || return $?
 			__split --source={path} --delimiter='/' --target={to_parts} || return $?
 			from_n="${#from_parts[@]}"
@@ -467,13 +2465,15 @@ function fs_path() (
 				fi
 			done
 			path="$relative_path"
-		elif [[ -n $option_relative_base ]]; then
+
+		# handle relative ancestor, <absolute> is required
+		elif [[ -n $option_relative_ancestor ]]; then
 			# make the path relative within the base
-			__expand --source+target={option_relative_base} || return $?
-			option_relative_base+='/' # add a trailing slash
-			if [[ $path == $option_relative_base* ]]; then
+			__expand --source+target={option_relative_ancestor} || return $?
+			option_relative_ancestor+='/' # add a trailing slash
+			if [[ $path == $option_relative_ancestor* ]]; then
 				# the path is within the base, so we can return it relative from the base
-				local -i size="${#option_relative_base}"
+				local -i size="${#option_relative_ancestor}"
 				path="${path:size}"
 			fi
 		fi
@@ -537,7 +2537,7 @@ function fs_path() (
 		if [[ -n $option_extensions || -n $option_extension ]]; then
 			if [[ $leaf == '.' || $leaf == '..' ]]; then
 				__help --help='Cannot use `--extensions`/`--extension` on a reference path (., ..). You must combine with either `--resolve` or `--absolute`' || :
-				__dump {option_input} {path} {stem} {leaf} >&2 || :
+				__dump {input_path} {path} {stem} {leaf} >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
 			# trim leading dots
@@ -622,7 +2622,7 @@ function fs_path() (
 		fi
 
 		# do we want to exclude parents? or are there no parents?
-		if [[ $option_parents == 'no' || $option_extension == 'yes' || $option_extensions == 'yes' || $stem == '.' ]]; then
+		if [[ $option_parents == 'no' || $option_parent == 'no' || $option_extension == 'yes' || $option_extensions == 'yes' || $stem == '.' ]]; then
 			stem=''
 		fi
 

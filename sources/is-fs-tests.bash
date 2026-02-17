@@ -1,12 +1,15 @@
 source "$DOROTHY/sources/bash.bash"
 
+function is_fs_tests__root {
+	fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory
+}
+
 function is_fs_tests__prep {
-	local command="$1" root
-	root="$(fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory)"
-	# if [[ -d $root ]]; then
-	# 	__print_lines "$root"
-	# 	return 0
-	# fi
+	local command="$1" root="${2-}" output_root='no'
+	if [[ -z $root ]]; then
+		output_root='yes'
+		root="$(is_fs_tests__root)" || return $?
+	fi
 
 	__print_style --tty --header1='prepping directories'
 	__mkdirp \
@@ -126,12 +129,17 @@ function is_fs_tests__prep {
 	__print_style --tty --header1='prepping structure'
 	fs-structure -- "$root/targets" >&2
 
-	# invalidate elevation after the `fs-own` calls above, such that our `__status__root_or_nonroot` returns correct results
+	# invalidate elevation after the `fs-own` calls above, such that our `__is_fs_tests__print_root_or_nonroot` returns correct results
 	eval-helper --invalidate-elevation
 
-	__print_lines "$root"
+	if [[ $output_root == 'yes' ]]; then
+		__print_lines "$root"
+	fi
 }
-function __status__root_or_nonroot {
+function is_fs_tests__break_symlinks {
+	eval-helper --elevate -- rm -rf -- "$root/targets"
+}
+function __is_fs_tests__print_root_or_nonroot {
 	# don't do login, as it just wiggles around what we actually need, which is for the current user to be the current elevation
 	# note that invalidation in a process that is already elevated has no effect on that process, only those beyond it
 	if is-root; then
@@ -141,7 +149,7 @@ function __status__root_or_nonroot {
 	fi
 }
 function is_fs_tests__tuples {
-	local group='' command args=() tuples=()
+	local group='' command command_args=() tuples=()
 
 	# process
 	local item
@@ -160,34 +168,59 @@ function is_fs_tests__tuples {
 			if [[ -z ${command-} ]]; then
 				command="$item"
 			else
-				args+=("$item")
+				command_args+=("$item")
 			fi
 			;;
 		esac
 	done
 
-	# tests
+	# ensure tests are running with intended elevation
+	eval-helper --invalidate-elevation
+
+	# parse tests
 	if [[ -n $group ]]; then
 		__print_style --h2="$group"
 	fi
-	local index status path total="${#tuples[@]}" result=0
-	eval-helper --invalidate-elevation # ensure tests are running with intended elevation
-	for ((index = 0; index < total; index += 2)); do
-		status="${tuples[index]}"
-		path="${tuples[index + 1]}"
-		# --ignore-tty to ignore elevation output on non-root systems like local macOS
-		if [[ ${#args[@]} -eq 0 ]]; then
-			eval-tester --ignore-tty --name="$index / $total" --status="$status" -- "$command" -- "$path" || result=$?
-		else
-			eval-tester --ignore-tty --name="$index / $total" --status="$status" -- "$command" "${args[@]}" -- "$path" || result=$?
+	local test_args=() path=''
+	local -i total=0 index=0 result=0 # some bash versions don't default it to zero it seems, so must be explicit
+	function __flush {
+		# or condition to handle `--path='' --status=22`
+		if [[ -n $path || ${#test_args[@]} -ne 0 ]]; then
+			index=$((index + 1))
+			eval-tester --ignore-tty --name="$index / $total" "${test_args[@]}" -- "$command" "${command_args[@]}" -- "$path" || result=$?
+			# reset
+			path=''
+			test_args=()
+		fi
+	}
+
+	# count the amount of paths so we have a total
+	for item in "${tuples[@]}"; do
+		if [[ $item == '--path='* ]]; then
+			total=$((total+1))
 		fi
 	done
-	eval-helper --invalidate-elevation # ensure subsequent `__status__root_or_nonroot` are running with intended elevation
+
+	# parse and perform our tuple tests
+	for item in "${tuples[@]}"; do
+		if [[ $item == '--path='* ]]; then
+			__flush
+			path="${item#*=}"
+		else
+			test_args+=("$item")
+		fi
+	done
+	__flush
+
+	# ensure subsequent `__is_fs_tests__print_root_or_nonroot` are running with intended elevation
+	eval-helper --invalidate-elevation
+
+	# result
 	if [[ $result -ne 0 ]]; then
 		if [[ -n $group ]]; then
 			__print_style --e2="$group"
 		fi
-		return 1
+		return "$result"
 	fi
 	if [[ -n $group ]]; then
 		__print_style --g2="$group"
