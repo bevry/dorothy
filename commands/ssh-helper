@@ -36,6 +36,15 @@ function ssh_helper() (
 			& add
 			    Make the SSH agent aware of all your SSH keys.
 
+			& list [<public|private>]
+			    List the SSH keys that you have inside \`\$HOME/.ssh\`.
+
+			& get [<public|private>]
+			    Select a single SSH key that you have inside \`\$HOME/.ssh\`.
+
+			& hosts
+			    List all hosts from \`\$HOME/.ssh/config\`. Returns [96] if no hosts were found.
+
 			& permissions
 			    Correct the permissions for the SSH files.
 
@@ -49,6 +58,19 @@ function ssh_helper() (
 		return 22 # EINVAL 22 Invalid argument
 	}
 
+	# valid actions
+	local actions=(
+		'setup'
+		'new'
+		'add'
+		'list'
+		'get'
+		'hosts'
+		'permissions'
+		'test'
+		'connect'
+		'export'
+	)
 	# process
 	local item action='' option_args=() option_reconfigure='' option_fallback='' option_deps=''
 	while [[ $# -ne 0 ]]; do
@@ -81,6 +103,7 @@ function ssh_helper() (
 		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_reconfigure} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
 		# </shared options between many setup commands>
 		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		# all other things are assumed to be actions, which are validated later
 		*)
 			action="$item"
 			option_args+=("$@")
@@ -101,15 +124,6 @@ function ssh_helper() (
 	)
 
 	# ensure valid action
-	local actions=(
-		'setup'
-		'new'
-		'add'
-		'permissions'
-		'test'
-		'connect'
-		'export'
-	)
 	action="$(
 		choose --required \
 			--question='Which action to perform?' \
@@ -429,6 +443,62 @@ function ssh_helper() (
 		fi
 	}
 
+	function __get_mode {
+		local mode="${1-}"
+		if [[ $mode =~ ^($|public|private)$ ]]; then
+			# empty means both public and private
+			return 0
+		fi
+		# the choose is for filtering
+		choose --question='What type of SSH key do you wish to fetch?' --skip-default --default="$mode" -- 'public' 'private'
+	}
+
+	function __get_keys {
+		local mode="$1" public_key keys=()
+		if [[ $mode == 'public' ]]; then
+			for public_key in "$HOME/.ssh/"*.pub; do
+				keys+=("$public_key")
+			done
+		else
+			local private_key
+			if [[ $mode == 'private' ]]; then
+				for public_key in "$HOME/.ssh/"*.pub; do
+					private_key="${public_key%.pub}"
+					if [[ -f $private_key ]]; then
+						keys+=("$private_key")
+					fi
+				done
+			else
+				for public_key in "$HOME/.ssh/"*.pub; do
+					keys+=("$public_key")
+					private_key="${public_key%.pub}"
+					if [[ -f $private_key ]]; then
+						keys+=("$private_key")
+					fi
+				done
+			fi
+		fi
+
+		if [[ ${#keys[@]} -eq 0 ]]; then
+			return 96 # ENODATA 96 No message available on STREAM
+		fi
+		__print_lines "${keys[@]}"
+	}
+
+	function ssh_list {
+		local mode="${1-}"
+		mode="$(__get_mode "$mode")" || return $?
+		__get_keys "$mode" || return $?
+	}
+
+	function ssh_get {
+		local mode="${1-}" key="${2-}" keys=()
+		mode="$(__get_mode "$mode")" || return $?
+		__split --target={keys} --no-zero-length --invoke -- \
+			__get_keys "$mode" || return $?
+		choose --question='Which SSH key to get?' --skip-default --default="$key" -- "${keys[@]}"
+	}
+
 	function ssh_permissions {
 		# create .ssh config file if necessary
 		__mkdirp "$HOME/.ssh"
@@ -503,6 +573,10 @@ function ssh_helper() (
 			sleep 10
 			ssh_connect "$@"
 		fi
+	}
+
+	function ssh_hosts {
+		echo-regexp -gon 'Host (.+)' '$1' <~/.ssh/config | echo-regexp -g ' ' $'\n' | grep --invert-match --fixed-strings --regexp='*' | echo-or-fail --stdin
 	}
 
 	# =====================================
