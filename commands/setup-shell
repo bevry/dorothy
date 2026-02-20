@@ -366,37 +366,64 @@ function setup_shell() (
 	elif [[ -f /etc/passwd ]]; then
 		apply_login_shell_method='passwd'
 	fi
+	local LOGIN_SHELL_COMMAND=() LOGIN_SHELL_UNCHANGED='' LOGIN_SHELL_PATH=''
+	function __process_login_shell_command {
+		# `chpass`, `chsh` only give one login attempt, so do it in a loop
+		# can't do `chsh ... 2> >(echo-regexp ...)` as the `Password: ` inline prompt on Ubuntu goes to STDERR instead of TTY, and because it is inline, it is not detected yet by `echo-regexp`, so it appears as if hangs
+		# the alternative was `... 2> >(tee "$login_shell_temp" >&2)` however from user feedback, we want to communicate the command to the user
+		local login_shell_temp
+		login_shell_temp="$(fs-temp --directory='setup-shell' --file)"
+		local -i __login_shell_status
+		while :; do
+			__login_shell_status=0
+			set -m # enable job control to not bubble SIGINT up to us
+			eval-helper --wrap --copy-stderr="$login_shell_temp" -- "${LOGIN_SHELL_COMMAND[@]}" || __login_shell_status=$?
+			set +m
+			if grep --fixed-strings --regexp="$LOGIN_SHELL_UNCHANGED" <"$login_shell_temp"; then
+				# already configured
+				__print_style --success='Your login shell is already ' --path="$LOGIN_SHELL_PATH" || return $?
+			elif [[ $__login_shell_status -eq 0 ]]; then
+				# successfully updated
+				__print_style --success='Your login shell is now ' --path="$LOGIN_SHELL_PATH" || return $?
+				break
+			elif [[ $__login_shell_status -eq 1 ]]; then
+				# incorrect password or other failure
+				# just try again rather than do another prompt
+				# if grep --fixed-strings --regexp='Authentication failure' <"$chsh_temp"; then
+				# 	if ! confirm --ppid=$$ --positive --question='Password was incorrect. Try again?'; then
+				# 		break
+				# 	fi
+				# fi
+				continue # try again until ctrl+c abort
+			elif [[ $__login_shell_status -eq 130 ]]; then
+				# 130 = SIGINT = ctrl+c = abort
+				# we don't want o fail on abort, just skip the login shell, let them press ctrl+c again if they want to abort everything
+				# __print_error 'Updating the login shell to ' --path="$LOGIN_SHELL_PATH" ' failed because ' --code="$apply_login_shell_method" ' was aborted with exit status ' --status="$__login_shell_status" || return $?
+				# return 125 # ECANCELED 125 Operation cancelled
+				break
+			else
+				# error message no longer needed due to `eval-helper --wrap``
+				# __print_error 'Updating the login shell to ' --path="$LOGIN_SHELL_PATH" ' failed because ' --code="$apply_login_shell_method" ' failed with exit status ' --status="$__login_shell_status" || return $?
+				return "$__login_shell_status"
+			fi
+		done
+	}
 	case "$apply_login_shell_method" in
 	chpass)
 		function __apply_login_shell_path {
-			local login_shell_path="$1"
-			local -i __chpass_status
-			# `chpass` only give you one password attempt, so do it in a loop
-			while :; do
-				__chpass_status=0
-				chpass -s "$login_shell_path" -u "$USER" 2> >(echo-regexp --regexp='chpass: no changes made' --replace='Already is your login shell.') || return $? || __chpass_status=$?
-				if [[ $__chpass_status -eq 0 ]]; then
-					# successfully updated
-					break
-				elif [[ $__chpass_status -eq 1 ]]; then
-					# incorrect password
-					continue # try again
-				elif [[ $__chpass_status -eq 130 ]]; then
-					# 130 = SIGINT = ctrl+c = abort
-					__print_error 'Updating the login shell failed because ' --code='chpass' ' was aborted with exit status ' --status="$__chpass_status" || return $?
-					return 125 # ECANCELED 125 Operation cancelled
-				else
-					__print_error 'Updating the login shell failed because ' --code='chpass' ' failed with exit status ' --status="$__chpass_status" || return $?
-					return "$__chpass_status"
-				fi
-			done
+			LOGIN_SHELL_PATH="$1"
+			LOGIN_SHELL_COMMAND=(chpass -s "$LOGIN_SHELL_PATH" -u "$USER")
+			LOGIN_SHELL_UNCHANGED='no changes made'
+			__process_login_shell_command || return $?
 		}
 		;;
 	chsh)
 		# ubuntu, fedora
 		function __apply_login_shell_path {
-			local login_shell_path="$1"
-			chsh -s "$login_shell_path" "$USER" 2> >(echo-regexp --regexp='chsh: Shell not changed.' --replace='Already is your login shell.') || return $?
+			LOGIN_SHELL_PATH="$1"
+			LOGIN_SHELL_COMMAND=(chsh -s "$LOGIN_SHELL_PATH" "$USER")
+			LOGIN_SHELL_UNCHANGED='no changes made'
+			__process_login_shell_command || return $?
 		}
 		;;
 	usermod)
