@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
-paths=() option_absolute='physical' option_validate='no'
+paths=() option_failures='' option_absolute='physical' option_validate='no'
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
+	'--failures='*) option_failures="${item#*=}" ;;
 	# physical, leaf, follow
 	--absolute=physical | --absolute=yes | --absolute | --physical=yes | --physical) option_absolute='physical' ;;
 	--absolute=leaf | --leaf=yes | --leaf) option_absolute='leaf' ;;
@@ -36,7 +37,9 @@ fi
 function __fail {
 	# inherit $path
 	local -i status="$1"
-	printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
+	if [[ -n $option_failures ]]; then
+		printf '%d\t%s\n' "$status" "$path" >>"$option_failures"
+	fi
 	return "$status"
 }
 # export BASH_DEBUG_FORMAT PS4
