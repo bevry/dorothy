@@ -1,77 +1,218 @@
 # Mastering Arrays in Bash
 
-> [!WARNING]
-> This document is grossly out of date and incorrect or even invalid due to mass regexp replacements of old conventions with new conventions, which may function differently in these examples. Modern Dorothy conventions, which have yet to be documented, have done away with most of the tedium described here.
-> Past history <https://github.com/bevry/dorothy/commits/master/docs/bash/arrays.md>
+## forms
 
-Sources:
+Arrays in Bash have two forms.
 
-- [Bash Manual](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
-- [Tutorial](https://www.shell-tips.com/bash/arrays/)
+1. The arguments form: accessed via `$@`, length via `$#`, first element via `$1` or `${@:0:1}` (from index 0 with size of 1)
+2. The array variable form: access via `${var[@]}`, length via `${#var[@]}`, first element via `${var[@]:0:1}` (from index 0 with size of 1)
 
-Advice:
 
-```bash
-a=(
-	a
-	b
-	'c d'
-	e
-	f
-)
-a+=(
-	g
-	'h i'
-	j
-)
+## joining
 
-for r in "${a[@]}"; do
-    printf '%s\n' "[$r]"
-done
+To join array elements into a string, you can use `$*` in argument form, and `${arr[*]}` in array variable form, however expected output is dependent on `IFS` being unaltered.
 
-# args length
-printf '%s\n' "$#"
+``` bash
+source "$DOROTHY/sources/bash.bash" # source Dorothy's `bash.bash` helper for `__dump`
+set +e # enable interactive shell usage, disabling exit on error
 
-# array length
-printf '%s\n' "${#a[@]}"
-# ^ this is usually okay, but has a gotcha with `mapfile ... <<< ...` usage, see the later chapter about array lengths
+var=(a 'b b' 'c c c')
+__dump {var}
+# var[0] = a
+# var[1] = b b
+# var[2] = c c c
+echo-verbose -- "${var[*]}"
+echo-verbose -- "${var[*]:1}"
 
-# contains
-if __has --source={a} --needle=' '; then
-	printf '%s\n' 'with [ ]'
-else
-	printf '%s\n' 'without [ ]'
-fi
-if __has --source={a} --needle='c d'; then
-	printf '%s\n' 'with [c d]'
-else
-	printf '%s\n' 'without [c d]'
-fi
+# via command
+# using a multi-character deliminator only uses the first character
+IFS='//' echo-verbose -- "${var[*]}" # result is `a b b c c c`
+IFS='//'; echo-verbose -- "${var[*]}"; unset IFS # result is `a/b b/c c c`
+# using no deliminator
+IFS='' echo-verbose -- "${var[*]}" # result is `a b b c c c`
+IFS=''; echo-verbose -- "${var[*]}"; unset IFS # result is `ab bc c c`
+IFS= echo-verbose -- "${var[*]}" # result is `a b b c c c`
+IFS=; echo-verbose -- "${var[*]}"; unset IFS # result is `ab bc c c`
 
-# subsets
-echo-verbose "${a[@]:2:1}" # get one item, from the second index starting at 0
-# [0] = [c d]
-
-echo-verbose "${a[@]:2:3}" # get three items, from the second index starting at 0
-# [0] = [c d]
-# [1] = [e]
-# [2] = [f]
-
-echo-verbose "${a[@]:1}"  # get all items, from the first index starting at 0
-# [0] = [b]
-# [1] = [c d]
-# [2] = [e]
-# [3] = [f]
-# [4] = [g]
-# [5] = [h i]
-# [6] = [j]
-
-echo-verbose ${a[@]::2}  # get all items until the second index, starting at 0
-# [0] = [a]
-# [1] = [b]
+# via assignment
+# using a multi-character deliminator only uses the first character
+IFS='//' str="${var[*]}"; __dump {str} # result is `a/b b/c c c`
+IFS='//'; str="${var[*]}"; unset IFS; __dump {str} # result is `a/b b/c c c`
+# using no deliminator
+IFS='' str="${var[*]}"; __dump {str}  # result is `ab bc c c`
+IFS=''; str="${var[*]}"; unset IFS; __dump {str}  # result is `ab bc c c`
+IFS= str="${var[*]}"; __dump {str}  # result is `ab bc c c`
+IFS=; str="${var[*]}"; unset IFS; __dump {str} # result is `ab bc c c`
 ```
 
-## mapfile array length gotcha
+So when using `*`, then:
+- You must be aware of the value of `IFS`, as it will affect the outputs.
+- If invoking a command, you must use `IFS=<value>; ...` then reset IFS back to its original value.
+- If assigning a variable, you can use `IFS= <assignment>` which applies it only for that assignment.
+
+For readability, or for complex situations, utilise Dorothy's `bash.bash:__join` function (also exposed via `echo-join` command) instead:
+
+``` bash
+__join --source={var} --between='//' # outputs `a//b b//c c c`
+__join --source={var} --first='{' --last='}' --before='[' --after=']' --between='//' # outputs `{[a]//[b b]//[c c c]}`
+```
+
+
+## lengths
+
+You can get the length of the argument form via `$#`, and the variable form via `${#var[@]}`.
+
+You cannot get the length of an element by `${#@:0:1}` or `${#var[@]:0:1}`. You must do `str="${@:0:1}"` or `str="${var[@]:0:1}"` then `${#str}"`.
+
+## indexes
+
+You can get the index of the variable form via `${!var[@]}`.
+
+You cannot get the indexes of the arguments form, Doing `${!@}` will look for the variable from the interpolation of `$*`.
+
+## partial
+
+Array variables can be partial, in that they can have missing elements:
+
+``` bash
+partial=()
+partial[0]=a
+partial[2]='c c c'
+__dump {partial}
+# partial[0] = a
+# partial[2] = c c c
+```
+
+## iterating
+
+To iterate the argument form:
+
+``` bash
+function fn {
+    local item
+    for item in "$@"; do
+        __dump {item}
+    done
+}
+fn "${arr[@]}"
+```
+
+To iterate the argument form with removal:
+
+``` bash
+function fn {
+    local item
+    while [[ $# -ne 0 ]]; do
+        item="$1"
+        shift
+        __dump {item}
+    done
+}
+fn "${arr[@]}"
+```
+
+To iterate the variable form:
+
+``` bash
+for item in "${arr[@]}"; do
+    __dump {item}
+done
+```
+
+## double quotes
+
+The double quotes are important, as otherwise our spaces in `b b` and `c c c` will become separate elements:
+
+``` bash
+for item in ${arr[@]}; do
+    __dump {item}
+done
+
+function fn {
+    local item
+    while [[ $# -ne 0 ]]; do
+        item="$1"
+        shift
+        __dump {item}
+    done
+}
+fn ${arr[@]}
+```
+
+## modifying
+
+Arrays can be modified like so:
+
+``` bash
+new=("${arr[@]}")
+new=(before elements "${new[@]}" after elements)
+new+=(appended elements)
+```
+
+## checking if an element exists
+
+Checking only for `b b` and dumping it:
+
+``` bash
+for item in "${arr[@]}"; do
+    if [[ $item == 'b b' ]]; then
+        __dump {item}
+        break
+    fi
+done
+```
+
+For readability, or for complex situations, you can utilise Dorothy's `bash.bash:__has` function (also exposed via `is-needle` command) instead:
+
+``` bash
+__has --source={arr} -- 'b b'
+__has --source={arr} --first -- 'z' 'b b' # exit on the first found item
+__has --source={arr} --all -- 'z' 'b b' # ensure each item is found at least once
+__has --source={arr} --ignore-case -- 'B B' # ignore case when comparing
+
+# `__has` supports a lot more capabilities than those, read the `bash.bash` source for details
+```
+
+## fetching indices
+
+Fetching the index of `b b` and dumping it:
+
+``` bash
+for index in "${!arr[@]}"; do
+    item="${arr[index]}"
+    if [[ $item == 'b b' ]]; then
+        __dump {index} {item}
+        break
+    fi
+done
+```
+
+For readability, or for complex situations, you can utilise Dorothy's `bash.bash:__index` function:
+
+``` bash
+__index --source={arr} -- 'b b'
+__index --source={arr} --first -- 'z' 'b b' # exit on the first found item
+__index --source={arr} --all -- 'z' 'b b' # ensure each item is found at least once
+__index --source={arr} --ignore-case -- 'B B' # ignore case when comparing
+
+indices=()
+__index --source={arr} --target={indices} --ignore-case --each --any --overlap -- 'b b' 'z' 'B B'
+__dump {indices}
+
+# `__index` supports a lot more capabilities than those, read the `bash.bash` source for details
+```
+
+
+## strings to arrays
+
+> [!WARNING]
+> This following section has gone through several mass regexp replacements of old conventions with new conventions, which may or may not have resulted in correct examples. Modern Dorothy conventions, which have yet to be documented, have done away with most of the tedium described here.
+> Past history <https://github.com/bevry/dorothy/commits/master/docs/bash/arrays.md>
+> Earlier version before new conventions <https://github.com/bevry/dorothy/commits/16e34fd1f8a44be0a2a188144e046a73ebf678dc/docs/bash/arrays.md>
+
+> There is also some duplication with `trailing-lines.md`
+
+### reading into arrays
 
 ```bash
 source "$DOROTHY/sources/bash.bash"
@@ -80,37 +221,16 @@ source "$DOROTHY/sources/bash.bash"
 __split --target={a} --no-zero-length -- "$(failure-because-this-method-does-not-exist | echo-or-fail --stdin)"
 printf '%s\n' $? # 0 -- success exit code, despite failure
 printf '%s\n' "${#a[@]}" # 1
-echo-verbose "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
+echo-verbose -- "${a[@]}" # [0] = [] -- the <<< "$(...)" usage always provides a string to mapfile, so here the empty string becomes an array item
 
 # do this instead
 __split --target={a} --no-zero-length --stdin < <(failure-because-this-method-does-not-exist | echo-or-fail --stdin)
 printf '%s\n' $? # 0 -- success exit code, despite failure
 printf '%s\n' "${#a[@]}" # 0
-echo-verbose "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
-
-# you can use this to ensure that the array is not empty
-if is-array-empty -- "${a[@]}"; then
-	printf '%s\n' 'failure' >/dev/stderr
-	exit 1
-fi
-
-# depending on your use case, you may also find these useful
-is-array-partial -- "${a[@]}"
-is-array-empty -- "${a[@]}"
-is-array-empty-or-partial -- "${a[@]}"
-is-array-full -- "${a[@]}"
-is-array-full-or-partial -- "${a[@]}"
-is-array-count -size=1 -- "${a[@]}"
-is-array-count-ge --size=1 -- "${a[@]}"
+echo-verbose -- "${a[@]}" # [ nothing provided ] -- the < <(...) usage successfully provides mapfile with zero input, creating an array with zero length
 ```
 
-## strings to arrays
-
-- [Bash Manual: Word Splitting](https://www.gnu.org/software/bash/manual/bash.html#Word-Splitting)
-- [Stack Exchange: In bash, what is the difference between IFS= and IFS=$'\n'](https://unix.stackexchange.com/a/676876/50703)
-- [`readarray`](https://www.gnu.org/software/bash/manual/bash.html#index-readarray) is an alias for [`mapfile`](https://www.gnu.org/software/bash/manual/bash.html#index-mapfile)
-
-### newline deliminator
+#### newline deliminator
 
 ```bash
 str=$'a b\nc d'
@@ -136,7 +256,7 @@ mapfile -td $'\n' a <<< "$str"; echo-verbose -- "${a[@]}"
 # [1] = [c d]
 ```
 
-### custom deliminator
+#### custom deliminator
 
 ```bash
 str=$'a b\nc d'
@@ -175,7 +295,7 @@ The peculiarities for `read -ra` are because `read` goes one line at a time, as 
 
 The peculiarities for `mapfile -td` are just weird.
 
-### recommendations
+#### recommendations
 
 ```bash
 str=$'a b\nc d'
@@ -337,3 +457,12 @@ echo-verbose -- "${a[@]}"
 ```
 
 See the comparison between `github-release-file` and `get-volumes`.
+
+
+## other reading
+
+- [`readarray`](https://www.gnu.org/software/bash/manual/bash.html#index-readarray) is an alias for [`mapfile`](https://www.gnu.org/software/bash/manual/bash.html#index-mapfile)
+- [Bash Manual: arrays](https://www.gnu.org/software/bash/manual/bash.html#Arrays)
+- [Bash Manual: Word Splitting](https://www.gnu.org/software/bash/manual/bash.html#Word-Splitting)
+- [Stack Exchange: In bash, what is the difference between IFS= and IFS=$'\n'](https://unix.stackexchange.com/a/676876/50703)
+- [Arrays Tutorial](https://www.shell-tips.com/bash/arrays/)
