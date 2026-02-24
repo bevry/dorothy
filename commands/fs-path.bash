@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 
-paths=() option_failures='' option_absolute='physical' option_validate='no'
+paths=() option_absolute='physical' option_validate='no' options=()
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
-	'--failures='*) option_failures="${item#*=}" ;;
-	# discard no-op `is-fs.bash` options we don't support
-	'--echo=' | '--first=' | '--need=') : ;;
 	# physical, leaf, follow
 	--absolute=physical | --absolute=yes | --absolute | --physical=yes | --physical) option_absolute='physical' ;;
 	--absolute=leaf | --leaf=yes | --leaf) option_absolute='leaf' ;;
@@ -17,50 +14,21 @@ while [[ $# -ne 0 ]]; do
 	--no-validate | --validate=no) option_validate='no' ;;
 	# ignore
 	--absolute= | --physical= | --leaf= | --follow= | --validate=) : ;;
-	# path, as option ~ isn't interpolated by the caller shell
-	--path=*) paths+=("${item#*=}") ;;
-	# path, with interpolations by caller shell
-	--)
-		paths+=("$@")
-		shift $#
-		;;
-	--*)
-		printf '%s\n' "ERROR: An unrecognised flag was provided: $item" >&2
-		exit 22 # EINVAL 22 Invalid argument
-		;;
-	*) paths+=("$item") ;;
+	# other
+	*) options+=("$item") ;;
 	esac
 done
-if [[ ${#paths[@]} -eq 0 ]]; then
-	printf '%s\n' 'ERROR: No <path>s were provided.' >&2
-	exit 22 # EINVAL 22 Invalid argument
-fi
-# make it absolute, with optional resolution, optional validation
-function __fail {
-	# inherit $path
-	local -i status="$1"
-	if [[ -n $option_failures ]]; then
-		printf '%d\t%s\n' "$status" "$path" >>"$option_failures"
-	fi
-	return "$status"
-}
-# export BASH_DEBUG_FORMAT PS4
-# BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
-# PS4="$BASH_DEBUG_FORMAT"
-# set -xv
-function __process() (
-	# ^ subshell so change directories do not affect subsequent calls
-	local item path='' absolute='physical' validate='no'
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		--path=*) path="${item#*=}" ;;
-		--absolute=*) absolute="${item#*=}" ;;
-		--validate=*) validate="${item#*=}" ;;
-		*) exit 22 ;; # EINVAL 22 Invalid argument
-		esac
-	done
+set -- "${options[@]}"
+
+# subshell so change directories do not affect subsequent calls
+function __is_fs__operation (
+	# export BASH_DEBUG_FORMAT PS4
+	# BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
+	# PS4="$BASH_DEBUG_FORMAT"
+	# set -xv
+
+	local item path="$1" absolute="$option_absolute" validate="$option_validate"
+
 	# macos only has `readlink <path>`, and `-f [--] <path>`
 	# fedora/GNU has `readlink <path>`, `readlink -version`, and `readlink -<f|e|m> [--] <path>`
 	#
@@ -286,7 +254,5 @@ function __process() (
 		fi
 	done
 )
-for path in "${paths[@]}"; do
-	__process --path="$path" --absolute="$option_absolute" --validate="$option_validate" || __fail $? || exit $?
-done
-exit 0
+
+source "$DOROTHY/sources/is-fs-operation.bash"

@@ -2199,7 +2199,7 @@ function fs_path() (
 	}
 
 	# process
-	local item args=() option_logical='' option_validate='' option_absolute='' option_relative_from='' option_relative_ancestor='' option_parents='' option_parent='' option_extensions='' option_extension=''
+	local item args=() option_logical='' option_validate='' option_absolute='' option_from='' option_ancestor='' option_parents='' option_parent='' option_extensions='' option_extension=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -2241,15 +2241,15 @@ function fs_path() (
 			;;
 
 		'--relative-from='* | '--relative-to='*)
-			option_relative_from="${item#*=}"
-			if [[ -n $option_relative_from ]]; then
-				option_relative_ancestor=''
+			option_from="${item#*=}"
+			if [[ -n $option_from ]]; then
+				option_ancestor=''
 			fi
 			;;
 		'--relative-ancestor='* | '--relative-parent='* | '--relative-base='*)
-			option_relative_ancestor="${item#*=}"
-			if [[ -n $option_relative_ancestor ]]; then
-				option_relative_from=''
+			option_ancestor="${item#*=}"
+			if [[ -n $option_ancestor ]]; then
+				option_from=''
 			fi
 			;;
 
@@ -2296,7 +2296,7 @@ function fs_path() (
 	__is_fs__args "${args[@]}" || return $?
 
 	# adjust
-	if [[ $option_relative_from == 'yes' || $option_relative_ancestor == 'yes' ]]; then
+	if [[ $option_from == 'yes' || $option_ancestor == 'yes' ]]; then
 		if [[ -z $option_absolute ]]; then
 			option_absolute='follow'
 		elif [[ $option_absolute != 'follow' ]]; then
@@ -2325,7 +2325,7 @@ function fs_path() (
 	fi
 
 	# should never be the case, but sanity check:
-	if [[ -n $option_relative_from && -n $option_relative_ancestor ]]; then
+	if [[ -n $option_from && -n $option_ancestor ]]; then
 		# grealpath will discard both if both are provided
 		__help --help='Failed to discard during option parsing either <from> or <ancestor>.' || return $?
 	fi
@@ -2336,26 +2336,29 @@ function fs_path() (
 		__help --help='Failed to discard during option parsing either <extensions> or <extension>.' || return $?
 	fi
 
+	# absolute <from> <ancestor>
+	if [[ -n $option_from ]]; then
+		option_from="$(fs-path --follow --validate --verbose -- "$option_from")" || return $?
+	fi
+	if [[ -n $option_ancestor ]]; then
+		option_ancestor="$(fs-path --follow --validate --verbose -- "$option_ancestor")" || return $?
+		# ensure trailing slash to make its application easier
+		if [[ ${option_ancestor:-1} != '/' ]]; then
+			option_ancestor+='/'
+		fi
+	fi
+
 	# =====================================
 	# Act
 
-	local input_path path stem leaf prefix logical # absolute
-	function __expand {
-		local EXPAND__variable_name
-		if [[ $# -ne 1 && $1 != --source+target={*} ]]; then
-			__help 'Internal Error: ' --code='__expand' --bold=' requires ' --code='--source+target=<var>' || return $?
-		fi
-		__dereference --source="${1#*=}" --name={EXPAND__variable_name} || return $?
-		__is_fs__invoke --command='fs-path.bash' --elevate=13 --redirect-stdout="{$EXPAND__variable_name}" -- \
-			--absolute="$option_absolute" --validate="$option_validate" -- "${!EXPAND__variable_name}" || return $? # ="$absolute"
-		__is_fs__error || return $?
-		return "$fs_status"
-	}
-	for path in "${option_inputs[@]}"; do
+	# do our own handling of `is-fs-operation` as `fs-path` is split into processing here for performance, and processing in `fs-path.bash` for elevation and filesystem processing
+	local -i path_status=0 paths_status=0
+	local any_had_success_override='no'
+	function __is_fs__operation {
+		local path="$1" original_path stem leaf prefix logical
 		# trunk-ignore(shellcheck/SC2034)
-		input_path="$path"
+		original_path="$path"
 		logical="$option_logical"
-		# absolute="$option_absolute"
 
 		# adjust options
 		if [[ -z $logical ]]; then
@@ -2371,11 +2374,6 @@ function fs_path() (
 			else
 				logical='yes'
 			fi
-		fi
-
-		# check it before all other operations
-		if [[ -z $path ]]; then
-			__help --help='An unrecognised <path> was provided: ' --variable-value={path} || return $?
 		fi
 
 		# `dirname` and `basename` operate on the last forward-slash, back-slashes are not relevant as even in WSL which is our only supported Windows target, there forward-slashes are enforced/emulated.
@@ -2434,22 +2432,24 @@ function fs_path() (
 			fi
 
 			# expand the path
-			# $absolute
 			if [[ $option_absolute =~ ^(physical|leaf|follow)$ ]]; then
-				__expand --source+target={path} || return $?
+				__is_fs__invoke --command='fs-path.bash' --elevate=13 --redirect-stdout={path} -- \
+					--absolute="$option_absolute" --validate="$option_validate" --required -- "$path" || return $?
+				if [[ $fs_status -ne 0 ]]; then
+					return "$fs_status"
+				fi
 			fi
 		fi
 
 		# handle relative from, <absolute> is required
-		if [[ -n $option_relative_from ]]; then
+		if [[ -n $option_from ]]; then
 			# find the common ancestor
 			local from_parts=() to_parts=() from_n from_slice to_slice relative_slice relative_path
-			__expand --source+target={option_relative_from} || return $?
 			# /0/1/2/a/b/c
 			# /0/1/2/x/y/d
 			# --relative-from=/0/1/2/a/b/c -- /0/1/2/x/y/d
 			# should return ../../../x/y/d
-			__split --source={option_relative_from} --delimiter='/' --target={from_parts} || return $?
+			__split --source={option_from} --delimiter='/' --target={from_parts} || return $?
 			__split --source={path} --delimiter='/' --target={to_parts} || return $?
 			from_n="${#from_parts[@]}"
 			for ((from_index = from_n - 1; from_index >= 0; from_index--)); do
@@ -2467,13 +2467,11 @@ function fs_path() (
 			path="$relative_path"
 
 		# handle relative ancestor, <absolute> is required
-		elif [[ -n $option_relative_ancestor ]]; then
+		elif [[ -n $option_ancestor ]]; then
 			# make the path relative within the base
-			__expand --source+target={option_relative_ancestor} || return $?
-			option_relative_ancestor+='/' # add a trailing slash
-			if [[ $path == $option_relative_ancestor* ]]; then
+			if [[ $path == $option_ancestor* ]]; then
 				# the path is within the base, so we can return it relative from the base
-				local -i size="${#option_relative_ancestor}"
+				local -i size="${#option_ancestor}"
 				path="${path:size}"
 			fi
 		fi
@@ -2511,7 +2509,7 @@ function fs_path() (
 		# do we only want the stem/parents?
 		if [[ $option_parents == 'yes' ]]; then
 			__print_lines "$stem" || return $?
-			continue
+			return 0
 		elif [[ $option_parent == 'yes' ]]; then
 			# separate the path and stem
 			path="$stem"
@@ -2536,8 +2534,12 @@ function fs_path() (
 		# do we want to trim extension? with workaround when starting with a dot
 		if [[ -n $option_extensions || -n $option_extension ]]; then
 			if [[ $leaf == '.' || $leaf == '..' ]]; then
-				__help --help='Cannot use `--extensions`/`--extension` on a reference path (., ..). You must combine with either `--resolve` or `--absolute`' || :
-				__dump {input_path} {path} {stem} {leaf} >&2 || :
+				# this will double report, but that is fine
+				__help --help='Cannot use <extensions>/<extension> on a synthetic leaf (., ..). Pair with <follow> to avoid this.' --newline \
+					--variable={original_path} --newline \
+					--variable={path} --newline \
+					--variable={stem} --newline \
+					--variable={leaf} >&2 || :
 				return 22 # EINVAL 22 Invalid argument
 			fi
 			# trim leading dots
@@ -2636,8 +2638,43 @@ function fs_path() (
 		else
 			__print_lines "$stem/$leaf" || return $?
 		fi
-		continue
+		return 0
+	}
+	for path in "${option_inputs[@]}"; do
+		if [[ -z $path ]]; then
+			printf '%d\t%s\n' 22 "$path" >>"$fs_failures"
+			break
+		fi
+		path_status=0
+		# </is-fs:header>
+
+		# operation
+		__is_fs__operation "$path" || path_status=$?
+
+		# <is-fs:footer>
+		# handle our exit combination
+		if [[ $path_status -eq 0 ]]; then
+			if [[ $option_need == 'any' ]]; then
+				any_had_success_override='yes'
+			fi
+			# `fs-path` always echos, so no `--echo` handling
+			if [[ $option_first == 'yes' ]]; then
+				break
+			fi
+		else
+			printf '%d\t%s\n' "$path_status" "$path" >>"$fs_failures"
+			paths_status="$path_status"
+			if [[ $path_status -eq 22 || $path_status -eq 13 || $option_need == 'all' ]]; then
+				# if invalid arg, or inaccessible, or all, then exit right away
+				break
+			fi
+		fi
 	done
+	__is_fs__error || return $?
+	if [[ $any_had_success_override == 'yes' ]]; then
+		paths_status=0
+	fi
+	return "$paths_status"
 )
 
 # fire if invoked standalone

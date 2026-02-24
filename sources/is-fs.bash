@@ -29,6 +29,7 @@ function __is_fs__options {
 		        ! Cannot be used with <all>.
 		--<optional|none> | --any | --<all|required> | --<need|require>=<need:<optional|none>|any|<all|required>>
 		    If <optional>, do not require any <path>s to be successful.
+		        ! Empty <path>s and no <path>s will still report [22] failure.
 		    If <any>, the default if <first>, require at least one <app> to be successful. Unless <first> is specified, continue to output details for all if not <quiet>.
 		    If <all>, the default if not <first>, require all <app>s to be successful.
 		    ! Exit statuses of [13] and [22] will always be reported, irrespective of <need>.
@@ -90,7 +91,7 @@ function __is_fs__args {
 }
 
 # trunk-ignore(shellcheck/SC2168)
-local fs_status fs_failures="$TMPDIR/is-fs--failures--$RANDOM"
+local fs_status=0 fs_failures="$TMPDIR/is-fs--failures--$RANDOM"
 function __is_fs__invoke {
 	# execute once for all, capturing the failed path
 	# failed paths are output to a fixed path because there is no simple way to separate the failed paths from other stdout and stderr output when using sudo in in-no tty mode, as sudo will be using stderr for its own output, and fs-owner.bash outputs to stdout
@@ -131,8 +132,10 @@ function __is_fs__invoke {
 # This only outputs the appropriate error message, and return status is based on whether that output of the error message (if applicable) was successful
 # You still need to finish your script with `return "$fs_status"` to return the appropriate status
 function __is_fs__error {
-	# skip contextual failure unless verbose AND failure
-	if [[ $option_quiet != 'no' || $fs_status -eq 0 ]]; then
+	# skip contextual failure unless verbose
+	# if verbose, regardless of `--optional` then report
+	# as otherwise, there is no way to diagnose unexpected results due to failures
+	if [[ $option_quiet != 'no' ]]; then
 		return 0
 	fi
 
