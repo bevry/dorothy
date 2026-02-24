@@ -2,53 +2,69 @@
 source "$DOROTHY/sources/bash.bash"
 
 function __is_fs__options {
-	local elevate="${1-}" elevate_description=''
-	if [[ -n $elevate ]]; then
-		elevate_description=$'\n'"    Defaults to \`$elevate\` which will elevate privileges if necessary."
+	local item option_elevate='' option_echo='' elevate_description='' echo_description=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--no-echo'* | '--echo'*) __flag --source={item} --target={option_echo} --affirmative --coerce || return $? ;;
+		'--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce || return $? ;;
+		'--'*) __unrecognised_flag "$item" || return $? ;;
+		*) __unrecognised_argument "$item" || return $? ;;
+		esac
+	done
+	if [[ -n $option_elevate ]]; then
+		elevate_description=$'\n'"    Defaults to \`$option_elevate\` which will elevate privileges if necessary."
 	fi
-	# If <optional>, do not require any <path>s to be successful.
+	if [[ $option_echo != 'no' ]]; then
+		echo_description=$'\n--[no-]echo\n    If <echo>, output to STDOUT any <path> that was successful.'
+	fi
 	cat <<-EOF || return $?
 		...<path> | --path=...<path> | --- ...<path>
-			The <path>s to perform the operation on.
-			! \`--path=~\` will not interpolate the tilde as \`\$HOME\`. Use \`[--] ...<path>\` for tilde-as-home interpolation. This is a shell convention, not a Dorothy convention.
+		    The <path>s to perform the operation on.
+		    ! \`--path=~\` will not interpolate the tilde as \`\$HOME\`. Use \`[--] ...<path>\` for tilde-as-home interpolation. This is a shell convention, not a Dorothy convention.
 
 		--first
-		    If enabled, stop on the first successful <path>. Cannot be used with <all>.
-		--optional | --any | --all | --need=<need:optional|any|all>
+		    If enabled, stop on the first successful <path>.
+		        ! Cannot be used with <all>.
+		--<optional|none> | --any | --<all|required> | --<need|require>=<need:<optional|none>|any|<all|required>>
+		    If <optional>, do not require any <path>s to be successful.
 		    If <any>, the default if <first>, require at least one <app> to be successful. Unless <first> is specified, continue to output details for all if not <quiet>.
 		    If <all>, the default if not <first>, require all <app>s to be successful.
-		    ! If an invalid or <inaccessible <path> is encountered, it will disregard <need>, however, <first> is still respected.
+		    ! Exit statuses of [13] and [22] will always be reported, irrespective of <need>.
 
 		--[no-]verbose | --[no-]quiet
-			If <verbose>, output to STDERR the <path> failure and how it failed.
+		    If <verbose>, output to STDERR any <path> that failed and how it failed.$echo_description
 
 		--elevated=<elevated>
 		--elevate=<elevate>$elevate_description
 		--user=<user>
 		--group=<group>
 		--reason=<reason>
-			Forwarded to \`eval-helper\`.
+		    Forwarded to \`eval-helper\`.
 	EOF
 }
 
 # trunk-ignore(shellcheck/SC2168)
-local item option_inputs=() option_first='' option_need='' option_quiet='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+local option_inputs=() option_echo='' option_first='' option_need='' option_quiet='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 function __is_fs__args {
+	local item
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') __help || return $? ;;
-		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative || return $? ;;
-		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative || return $? ;;
-		'--no-first'* | '--first'*) __flag --source={item} --target={option_first} --affirmative || return $? ;;
-		# '--optional' | '--need=optional') option_need='optional' ;;
-		'--any' | '--need=any') option_need='any' ;;
-		'--all' | '--need=all') option_need='all' ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce || return $? ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce || return $? ;;
+		'--no-echo'* | '--echo'*) __flag --source={item} --target={option_echo} --affirmative --coerce || return $? ;;
+		'--no-first'* | '--first'*) __flag --source={item} --target={option_first} --affirmative --coerce || return $? ;;
+		'--none' | '--need=none' | '--require=none' | '--optional' | '--need=optional' | '--require=optional') option_need='none' ;;
+		'--any' | '--need=any' | '--require=any') option_need='any' ;;
+		'--all' | '--need=all' | '--require=all' | '--required' | '--need=required' | '--require=required') option_need='all' ;;
 		'--need=') : ;;
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
-		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag --source={item} --target={option_elevate} --affirmative || return $? ;;
+		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce || return $? ;;
 		'--user='*) option_user="${item#*=}" ;;
 		'--group='*) option_group="${item#*=}" ;;
 		'--reason='*) option_reason="${item#*=}" ;;
@@ -87,29 +103,15 @@ function __is_fs__invoke {
 		'--command='*) command+=("${item#*=}") ;;
 		'--elevate='*) elevate="${item#*=}" ;;
 		'--discard-'* | '--copy-'* | '--redirect-'*) do_args+=("$item") ;;
-		--)
+		'--')
 			command_args+=("$@")
 			shift $#
 			;;
-		*)
-			if [[ ${#command[@]} -eq 0 ]]; then
-				command+=("$item")
-			elif [[ -z $elevate ]]; then
-				elevate="$item"
-			else
-				__unrecognised_argument "$item" || return $?
-			fi
-			;;
+		*) __unrecognised_argument "$item" || return $? ;;
 		esac
 	done
 	: >"$fs_failures" || return $? # touch/reset failures here, so we have access to it; if we leave it up to to the operation to create, then it could be created with elevated permissions, in which we won't be able to access it
-	command+=("--failures=$fs_failures")
-	if [[ -n $option_first ]]; then
-		command+=("--first=$option_first")
-	fi
-	if [[ -n $option_need ]]; then
-		command+=("--need=$option_need")
-	fi
+	command+=("--failures=$fs_failures" "--echo=$option_echo" "--first=$option_first" "--need=$option_need")
 	if [[ ${#command_args[@]} -eq 0 ]]; then
 		command+=(-- "${option_inputs[@]}")
 	else
@@ -120,16 +122,15 @@ function __is_fs__invoke {
 	__do --redirect-status={fs_status} "${do_args[@]}" -- \
 		eval-helper --inherit --elevated="$option_elevated" --elevate="$elevate $option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- \
 		"${command[@]}" || return $?
+	# adjust the exit status
+	if [[ $option_need == 'none' && $fs_status -ne 0 && $fs_status -ne 13 && $fs_status -ne 22 ]]; then
+		fs_status=0
+	fi
 }
 
 # This only outputs the appropriate error message, and return status is based on whether that output of the error message (if applicable) was successful
 # You still need to finish your script with `return "$fs_status"` to return the appropriate status
 function __is_fs__error {
-	# if optional, adjust the exit status <-- however, optional doesn't make any sense in this context
-	# if [[ $option_need == 'optional' && $fs_status -ne 0 && $fs_status -ne 13 && $fs_status -ne 22 ]]; then
-	# 	fs_status=0
-	# fi
-
 	# skip contextual failure unless verbose AND failure
 	if [[ $option_quiet != 'no' || $fs_status -eq 0 ]]; then
 		return 0

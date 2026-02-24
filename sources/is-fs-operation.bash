@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
 # <is-fs:header>
-item='' option_failures='' option_first='no' option_need='all' path='' option_paths=() path_status=0 paths_status=0
+item='' option_failures='' option_echo='no' option_first='no' option_need='all' path='' option_paths=() path_status=0 paths_status=0
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
 	'--failures='*) option_failures="${item#*=}" ;;
+	'--echo' | '--echo=yes' | '--no-echo=no') option_echo='yes' ;;
+	'--no-echo' | '--echo=no' | '--no-echo=yes') option_echo='no' ;;
+	'--echo=') : ;;
 	'--first' | '--first=yes' | '--no-first=no') option_first='yes' ;;
 	'--no-first' | '--first=no' | '--no-first=yes') option_first='no' ;;
 	'--first=') : ;;
-	'--any' | '--need=any') option_need='any' ;;
-	'--all' | '--need=all') option_need='all' ;;
+	'--none' | '--need=none' | '--require=none' | '--optional' | '--need=optional' | '--require=optional') option_need='none' ;;
+	'--any' | '--need=any' | '--require=any') option_need='any' ;;
+	'--all' | '--need=all' | '--require=all' | '--required' | '--need=required' | '--require=required') option_need='all' ;;
 	'--need=') : ;;
 	'--path='*) option_paths+=("${item#*=}") ;;
 	'--')
@@ -23,6 +27,7 @@ while [[ $# -ne 0 ]]; do
 	*) option_paths+=("$item") ;;
 	esac
 done
+any_had_success_override='no'
 for path in "${option_paths[@]}"; do
 	if [[ -z $path ]]; then
 		if [[ -n $option_failures ]]; then
@@ -40,8 +45,12 @@ for path in "${option_paths[@]}"; do
 	# handle our exit combination
 	if [[ $path_status -eq 0 ]]; then
 		if [[ $option_need == 'any' ]]; then
-			exit 0
-		elif [[ $option_first == 'yes' ]]; then
+			any_had_success_override='yes'
+		fi
+		if [[ $option_echo == 'yes' ]]; then
+			printf '%s\n' "$path"
+		fi
+		if [[ $option_first == 'yes' ]]; then
 			break
 		fi
 	else
@@ -55,5 +64,8 @@ for path in "${option_paths[@]}"; do
 		fi
 	fi
 done
+if [[ $any_had_success_override == 'yes' ]]; then
+	paths_status=0
+fi
 exit "$paths_status"
 # </is-fs:footer>

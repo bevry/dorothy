@@ -6,6 +6,8 @@ while [[ $# -ne 0 ]]; do
 	shift
 	case "$item" in
 	'--failures='*) option_failures="${item#*=}" ;;
+	# discard no-op `is-fs.bash` options we don't support
+	'--echo=' | '--first=' | '--need=') : ;;
 	# physical, leaf, follow
 	--absolute=physical | --absolute=yes | --absolute | --physical=yes | --physical) option_absolute='physical' ;;
 	--absolute=leaf | --leaf=yes | --leaf) option_absolute='leaf' ;;
