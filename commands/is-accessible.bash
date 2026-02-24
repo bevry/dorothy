@@ -6,7 +6,7 @@ function __is_fs__operation {
 	# stat: cannot statx '<path>': Permission denied
 	# MACOS
 	# stat: <path>: stat: Permission denied
-	if stat -L -- "$path" 2>&1 | grep --quiet --extended-regexp --regexp=': Permission denied$'; then
+	if LC_ALL=C stat -L -- "$path" 2>&1 | grep --quiet --extended-regexp --regexp=': Permission denied$'; then
 		return 13 # EACCES 13 Permission denied
 	fi
 }
