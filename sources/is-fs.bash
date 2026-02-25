@@ -132,13 +132,6 @@ function __is_fs__invoke {
 # This only outputs the appropriate error message, and return status is based on whether that output of the error message (if applicable) was successful
 # You still need to finish your script with `return "$fs_status"` to return the appropriate status
 function __is_fs__error {
-	# skip contextual failure unless verbose
-	# if verbose, regardless of `--optional` then report
-	# as otherwise, there is no way to diagnose unexpected results due to failures
-	if [[ $option_quiet != 'no' ]]; then
-		return 0
-	fi
-
 	# trunk-ignore(shellcheck/SC2034)
 	local path_status path args=("$@") arg arg_status message
 	if [[ -s $fs_failures ]]; then
@@ -152,6 +145,11 @@ function __is_fs__error {
 					break
 				fi
 			done
+			# if not verbose, and not invalid argument, then skip
+			if [[ $path_status -ne 22 && $option_quiet != 'no' ]]; then
+				continue
+			fi
+			# if it wasn't a custom code and message, then use a default message
 			if [[ -z $message ]]; then
 				case "$path_status" in
 				# ENOENT 2 No such file or directory

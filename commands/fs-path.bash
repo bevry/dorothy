@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 
-paths=() option_absolute='physical' option_validate='no' options=()
+option_absolute='physical' option_validate='no' options=()
 while [[ $# -ne 0 ]]; do
 	item="$1"
 	shift
 	case "$item" in
+	# discard `--failures=` as we handle it inside `fs-path` instead
+	--failures=*) : ;;
 	# physical, leaf, follow
 	--absolute=physical | --absolute=yes | --absolute | --physical=yes | --physical) option_absolute='physical' ;;
 	--absolute=leaf | --leaf=yes | --leaf) option_absolute='leaf' ;;
@@ -21,7 +23,7 @@ done
 set -- "${options[@]}"
 
 # subshell so change directories do not affect subsequent calls
-function __is_fs__operation (
+function __is_fs__operation() (
 	# export BASH_DEBUG_FORMAT PS4
 	# BASH_DEBUG_FORMAT='+ ${BASH_SOURCE[0]-} [${LINENO}] [${FUNCNAME-}] [${BASH_SUBSHELL-}]'$'    \t'
 	# PS4="$BASH_DEBUG_FORMAT"
