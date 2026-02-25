@@ -483,16 +483,26 @@ function setup_util() (
 	fi
 
 	# prep terminal vars
-	local use_alt_screen_buffer alternative_screen_buffer default_screen_buffer
+	local use_alt_screen_buffer
 	if [[ $option_quiet != 'no' && $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
 		use_alt_screen_buffer='yes'
 		__load_styles --save -- alternative_screen_buffer default_screen_buffer
-		alternative_screen_buffer="$STYLE__alternative_screen_buffer"
-		default_screen_buffer="$STYLE__default_screen_buffer"
+		function reset_terminal_modifications_now {
+			__value_to_tty "$STYLE__default_screen_buffer"
+			trap - EXIT
+		}
+		function reset_terminal_modifications_on_exit {
+			trap reset_terminal_modifications_now EXIT
+		}
+		function apply_terminal_modifications_now {
+			__value_to_tty "$STYLE__alternative_screen_buffer"
+			reset_terminal_modifications_on_exit
+		}
 	else
 		use_alt_screen_buffer='no'
-		alternative_screen_buffer=''
-		default_screen_buffer=''
+		function reset_terminal_modifications_now { :; }
+		function reset_terminal_modifications_on_exit { :; }
+		function apply_terminal_modifications_now { :; }
 	fi
 
 	# check if exists
@@ -2014,7 +2024,7 @@ function setup_util() (
 			# it is our own script crashing with 137 and not homebrew
 			# trapping 137 doesn't work either, one gets [bash: trap: 137: invalid signal specification]
 			# the only thing that works is invoking such a script with system bash, however there is no way to do that comprehensively, so we just warn by going back to the default terminal device immediately amd dump the warning, so that the warning persists in context of the need for the upgrade and the result of upgrade which is the upcoming crash
-			__value_to_tty "$default_screen_buffer"
+			reset_terminal_modifications_now
 			__print_style --stderr \
 				--notice1='Homebrew is about to delete the currently running bash executable, which will cause this sript to crash with exit status ' --value='137' --newline \
 				--notice1='Once crashed, please manually continue by re-running the prior script that you executed.'
@@ -3855,10 +3865,12 @@ function setup_util() (
 		# don't always do log_pending, as that will cause all the 200 not applicable ones to be dumped
 		local -i run_status
 		if [[ $use_alt_screen_buffer == 'yes' ]]; then
-			__value_to_tty "$alternative_screen_buffer"
+			# enable job control to not bubble SIGINT up to us
+			# such that we can ensure we always restore the default screen buffer, otherwise scrolling will be broken
+			apply_terminal_modifications_now
 			log_pending "$source"
 			__do --redirect-status={run_status} --redirect-output=STDERR --copy-stderr={run_output} --redirect-output=TTY -- "$fn"
-			__value_to_tty "$default_screen_buffer"
+			reset_terminal_modifications_now
 		else
 			__do --redirect-status={run_status} --redirect-output=TTY -- "$fn"
 		fi
