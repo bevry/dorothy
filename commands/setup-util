@@ -726,24 +726,6 @@ function setup_util() (
 		# prefer moving to trash, because trash allows invocations to continue
 		# otherwise active invocations will crash, such as `setup-util-bash` uninstalling the bash it was invoked with
 		fs-remove --quiet --no-confirm --trash --delete --elevate="$option_elevate" -- "${remove_paths_present_unique[@]}" || return $?
-		return $?
-	}
-	function __rm_helper_which {
-		local remove_paths=("$@") remove_paths_present_unique=() remove_paths_selected=()
-		if [[ ${#remove_paths[@]} -eq 0 ]]; then
-			return 0
-		fi
-		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(is-present --echo --optional -- "${remove_paths[@]}" | echo-unique --stdin || :) || return $?
-		if [[ ${#remove_paths_present_unique[@]} -eq 0 ]]; then
-			return 0
-		fi
-		__split --target={remove_paths_selected} --no-zero-length --invoke -- \
-			choose --linger --confirm --multi --default-all --question='Which files to remove?' -- "${remove_paths_present_unique[@]}" || return $?
-		if [[ ${#remove_paths_selected[@]} -eq 0 ]]; then
-			return 0
-		fi
-		__rm_helper "${remove_paths_selected[@]}" || return $?
-		return $?
 	}
 
 	# prepare fallbacks, for when the package could not be installed without installing a package system first
@@ -3730,54 +3712,54 @@ function setup_util() (
 		fi
 	}
 	function do_generic {
-		local -i status=200
+		local paths=() item path
 		if [[ $option_action == 'uninstall' ]]; then
-			local cli cli_path
-			for cli in "${option_clis[@]}"; do
-				cli_path="$(__get_path_from_filename "$cli")"
-				if ! is-missing -- "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"; then
-					__rm_helper_which "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"
-					status=0
-				fi
+			# clis and apps have same paths
+			for item in "${option_clis[@]}" "${option_apps[@]}"; do
+				path="$(__get_path_from_filename "$item")"
+				paths+=("$path" "$XDG_BIN_HOME/$item" "/usr/local/bin/$item")
 			done
-			local app app_path
-			for app in "${option_apps[@]}"; do
-				app_path="$(__get_path_from_filename "$app")"
-				if ! is-missing -- "$app_path" "$XDG_BIN_HOME/$app" "/usr/local/bin/$app"; then
-					__rm_helper_which "$app_path" "$XDG_BIN_HOME/$app" "/usr/local/bin/$app"
-					status=0
-				fi
-			done
+			# however apps also have additional paths
+			# @todo add .appimage and .desktop and whatnot files
+			# now de-dupe
+			__unique --source+target={paths}
+			__split --target={paths} --overwrite --no-zero-length --invoke -- \
+				is-present --echo --optional -- "${paths[@]}"
+			# now add the fonts
 			if [[ ${#option_fonts[@]} -ne 0 ]]; then
-				local fonts=() count
-				__split --target={fonts} --no-zero-length --invoke=try -- \
+				__split --target={paths} --append --no-zero-length --invoke=try -- \
 					get-font --every -- "${option_fonts[@]}"
-				count="${#fonts[@]}"
-				if [[ $count -ne 0 ]]; then
-					# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose, so use to gum
-					if [[ $count -gt 100 ]]; then
-						setup-util-gum --quiet
-						local selection=()
-						__split --target={selection} --no-zero-length --invoke -- \
-							gum choose --no-limit --header='Which fonts to remove?' -- "${fonts[@]}"
-						if [[ ${#selection[@]} -gt 100 ]]; then
-							# it'll also be too much for __rm_helper/fs-remove
-							rm -f -- "${selection[@]}"
-						else
-							__rm_helper "${selection[@]}"
-						fi
+			fi
+			# now handle paths specially as because of fonts, there can be a lot
+			local -i count="${#paths[@]}"
+			if [[ $count -eq 0 ]]; then
+				return 200  # ECUSTOM 200 Not applicable as nothing to do for the inputs
+			else
+				# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose, so use to gum
+				if [[ $count -gt 100 ]]; then
+					# as options are more than a hundred, no default
+					setup-util-gum --quiet
+					local selection=()
+					__split --target={selection} --no-zero-length --invoke -- \
+						gum choose --no-limit --header='Which files to remove?' -- "${fonts[@]}"
+					# if selection is more than a hundred, it'll be too much for `__rm_helper` and `fs-remove`
+					if [[ ${#selection[@]} -gt 100 ]]; then
+						rm -f -- "${selection[@]}"
 					else
-						# @todo `--default-all` is used here, but we need to rewrite this whole section for consistent removal, including of appimage .desktop files
-						local selection=()
-						__split --target={selection} --no-zero-length --invoke -- \
-							choose --linger --confirm --multi --question='Which fonts to remove?' --default-all -- "${fonts[@]}"
 						__rm_helper "${selection[@]}"
 					fi
+				else
+					# as less than a hundred, default all
+					local selection=()
+					__split --target={selection} --no-zero-length --invoke -- \
+						choose --linger --confirm --multi --question='Which files to remove?' --default-all -- "${fonts[@]}"
+					__rm_helper "${selection[@]}"
 				fi
-				status=0
+				return 0
 			fi
+		else
+			return 200 # ECUSTOM 200 Not applicable as nothing to do for this action
 		fi
-		return "$status"
 	}
 
 	# =====================================
