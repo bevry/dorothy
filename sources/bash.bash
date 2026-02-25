@@ -1627,7 +1627,7 @@ function __affirm_variable_name {
 # note that this disabled errexit on the eval'd code
 function __return {
 	# `__return`
-	local RETURN__original_exit_status="$?"
+	local -i RETURN__original_exit_status="$?"
 	if [[ $# -eq 0 ]]; then
 		return "$RETURN__original_exit_status"
 	fi
@@ -1687,7 +1687,7 @@ function __return {
 
 # ignore an exit status
 function __ignore_exit_status {
-	local actual_status="$?" ignore_status
+	local -i actual_status="$?" ignore_status
 	for ignore_status in "$@"; do
 		if [[ $actual_status -eq $ignore_status ]]; then
 			return 0
@@ -1706,7 +1706,8 @@ function __ignore_sigpipe {
 
 # exit on a specific exit status
 function __exit_on_exit_status {
-	local status="$?" item
+	local -i status="$?"
+	local item
 	for item in "$@"; do
 		if [[ $status -eq $item ]]; then
 			exit 0
@@ -2473,7 +2474,7 @@ function __do {
 	# redirect or copy, status, to a non-var target
 	'--redirect-status='* | '--copy-status='*)
 		# catch the status
-		local DO__status
+		local -i DO__status
 		__try {DO__status} -- __do --inverted "$@"
 		__return $? || return $?
 
@@ -3148,7 +3149,7 @@ function dorothy_try__trap_outer {
 }
 dorothy_try__trap_inner="$(__get_function_inner dorothy_try__trap_outer)"
 function dorothy_try__wrapper {
-	local continued_status
+	local -i continued_status
 	# trunk-ignore(shellcheck/SC2064)
 	trap "$dorothy_try__trap_inner" ERR
 
@@ -3282,7 +3283,7 @@ function eval_capture {
 				\`\`\`
 
 				USAGE:
-				\`local status=0 stdout='' stderr='' output=''\`
+				\`local -i status=0; local stdout='' stderr='' output=''\`
 				\`eval_capture [--status-var=status] [--stdout-var=stdout] [--stderr-var=stderr] [--output-var=output] [--stdout-target=/dev/stdout] [--stderr-target=/dev/stderr] [--output-target=...] [--no-stdout] [--no-stderr] [--no-output] [--] cmd ...\`
 
 				QUIRKS:
@@ -3625,7 +3626,8 @@ function __mkdirp {
 		shift
 	fi
 	# proceed
-	local status=0 dir missing=()
+	local -i status=0
+	local dir missing=()
 	for dir in "$@"; do
 		if [[ -n $dir && ! -d $dir ]]; then
 			missing+=("$dir")
@@ -3666,7 +3668,8 @@ function __elevate_mkdirp {
 		shift
 	fi
 	# proceed
-	local status=0 dir missing=()
+	local -i status=0
+	local dir missing=()
 	for dir in "$@"; do
 		if [[ -n $dir && ! -d $dir ]]; then
 			missing+=("$dir")

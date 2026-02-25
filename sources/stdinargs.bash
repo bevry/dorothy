@@ -224,7 +224,7 @@ function stdinargs {
 		read_args+=('-t' "$timeout_seconds")
 	fi
 	function stdinargs__eval {
-		local stdinargs_status
+		local -i stdinargs_status
 		__try {stdinargs_status} -- "$@"
 		if [[ $stdinargs_status == 210 ]]; then
 			complete='yes'

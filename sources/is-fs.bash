@@ -91,7 +91,9 @@ function __is_fs__args {
 }
 
 # trunk-ignore(shellcheck/SC2168)
-local fs_status=0 fs_failures="$TMPDIR/is-fs--failures--$RANDOM"
+local -i fs_status=0
+# trunk-ignore(shellcheck/SC2168)
+local fs_failures="$TMPDIR/is-fs--failures--$RANDOM"
 function __is_fs__invoke {
 	# execute once for all, capturing the failed path
 	# failed paths are output to a fixed path because there is no simple way to separate the failed paths from other stdout and stderr output when using sudo in in-no tty mode, as sudo will be using stderr for its own output, and fs-owner.bash outputs to stdout
@@ -133,7 +135,8 @@ function __is_fs__invoke {
 # You still need to finish your script with `return "$fs_status"` to return the appropriate status
 function __is_fs__error {
 	# trunk-ignore(shellcheck/SC2034)
-	local path_status path args=("$@") arg arg_status message
+	local -i path_status arg_status
+	local path args=("$@") arg message
 	if [[ -s $fs_failures ]]; then
 		# trunk-ignore(shellcheck/SC2034)
 		while IFS=$'\t' read -rd $'\n' path_status path; do
