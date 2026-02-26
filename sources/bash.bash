@@ -1029,8 +1029,8 @@ else
 		BASH_NATIVE_UPPERCASE_SUFFIX=''
 		BASH_NATIVE_LOWERCASE_SUFFIX=''
 		# bash versions prior to v4 also do not have:
-		# `declare -u`: -u	to convert NAMEs to upper case on assignment
-		# `declare -l`: -l	to convert NAMEs to lower case on assignment
+		# `declare -u`: -u	to convert NAMEs to uppercase on assignment
+		# `declare -l`: -l	to convert NAMEs to lowercase on assignment
 		function __get_uppercase_first_letter {
 			# trim -- prefix
 			if [[ ${1-} == '--' ]]; then
