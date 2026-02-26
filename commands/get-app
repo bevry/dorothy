@@ -249,13 +249,13 @@ function get_app() (
 		__print_lines "$wsl_path"
 	}
 
-	# lower="$(__get_lowercase_string -- "$app")"
-	local app name lower app_basenames app_extensions app_paths app_path success='no' found
+	local app name app_extensions extension replace_options app_paths app_path success='no' found
 	function __join_for_squigglies {
 		if [[ $# -gt 1 ]]; then
 			# `{desktop,appimage}`` is `desktop` or `appimage`, so do squigglies
 			# trunk-ignore(shellcheck/SC2034)
 			local alts=("$@") result=''
+			__unique --source+target={alts} || return $?
 			__join --source={alts} --target={result} --between=',' || return $?
 			__print_string "{$result}" || return $?
 		else
@@ -263,33 +263,50 @@ function get_app() (
 			__print_string "$*" || return $?
 		fi
 	}
+	function __get_bin_paths {
+		local name="$1" lower names=() extension seek=()
+		lower="$(__get_lowercase_string "$name")" || return $?
+		names+=("$name")
+		if [[ $name != "$lower" ]]; then
+			names+=("$lower")
+		fi
+		seek+=("${names[@]}")
+		for extension in "${bin_extensions[@]}"; do
+			for name in "${names[@]}"; do
+				seek+=("$name.$extension")
+			done
+		done
+		type -Pa "${seek[@]}" || return $?
+	}
 	function __get_app_paths {
-		local name="$1" sup sub
+		local name="$1" lower sup mid sub
+		lower="$(__get_lowercase_string "$name")" || return $?
 		sup="$(__join_for_squigglies "${app_search_paths[@]}")" || return $?
+		mid="$(__join_for_squigglies "$name" "$lower")" || return $?
 		sub="$(__join_for_squigglies "${app_extensions[@]}")" || return $?
-		expand-path -- "$sup/**/$name.$sub" || return $?
+		expand-path -- "$sup/**/$mid.$sub" || return $?
 	}
 	for app in "${option_apps[@]}"; do
-		name='' lower='' app_basenames=() app_extensions=() app_paths=() found='no'
+		name='' bin_extensions=() app_extensions=() replace_options=() app_paths=() found='no'
 		if [[ -z $app ]]; then
 			return 22 # EINVAL 22 Invalid argument
 		fi
-		__replace --source={app} --target={name} --optional --suffix='.app' --suffix='.exe' --suffix='.desktop' --suffix='.appimage' --suffix='AppImage' --suffix='Appimage' --suffix='appImage'
-		lower="$(__get_lowercase_string -- "$name")"
+		# remove suffixes from name
 		if [[ $system == 'macos' ]]; then
-			app_basenames+=("$name.app")
 			app_extensions+=('app')
 		elif [[ $system == 'windows' ]]; then
-			app_basenames+=("$name.exe")
+			bin_extensions+=('exe')
 			app_extensions+=('exe')
 		elif [[ $system == 'linux' ]]; then
-			app_basenames+=("$name.desktop")
 			app_extensions+=('desktop')
 			if [[ $appimage == 'yes' ]]; then
-				app_basenames+=("$name.appimage")
-				app_extensions+=('appimage')
+				app_extensions+=('appimage' 'Appimage' 'AppImage' 'appImage') # case-sensitive filesystems
 			fi
 		fi
+		for extension in "${bin_extensions[@]}" "${app_extensions[@]}"; do
+			replace_options+=("--suffix=.$extension")
+		done
+		__replace --source={app} --target={name} --optional "${replace_options[@]}"
 		# iterate through PATH
 		if [[ $sources == *'[bins]'* ]]; then
 			# which doing executable scans, also search just for the name, as apps usually have a corresponding CLI, e.g.
@@ -299,26 +316,11 @@ function get_app() (
 			# /sbin/vivaldi
 			# /bin/vivaldi
 			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
-				type -Pa "$name" "${app_basenames[@]}"
+				__get_bin_paths "$name"
 		fi
 		# iterate through apps
 		# only fetch if necessary as is slow
 		if [[ ! ($option_which == 'first' && ${#app_paths[@]} -ne 0) && $sources == *'[apps]'* ]]; then
-			# assume case insensitive filesystem
-			# can be files, dirs, symlinks
-			# can be inside nested directories, which can be case for Chrome apps, or maybe WinGet?, which requires `expand-path`
-			# the below is expensive, 2.2 seconds:
-			# ```
-			# local app_basename app_search_path app_expansions=()
-			# for app_basename in "${app_basenames[@]}"; do
-			# 	for app_search_path in "${app_search_paths[@]}"; do
-			# 		app_expansions+=("$app_search_path/**/$app_basename")
-			# 	done
-			# done
-			# __split --target={app_paths} --append --no-zero-length --invoke=try -- \
-			# 	expand-path -- "${app_expansions[@]}"
-			# ```
-			# the below is better, 1.5 seconds, but doesn't support commas, which is fine:
 			__split --target={app_paths} --append --no-zero-length --invoke=try -- \
 				__get_app_paths "$name"
 		fi
@@ -357,15 +359,14 @@ function get_app() (
 		done
 		# platforms
 		if [[ $sources == *'[flatpak]'* && $flatpak == 'yes' ]]; then
-			local rows=() row columns=() flatpak_name flatpak_id flatpak_lower flatpak_path
+			local rows=() row columns=() flatpak_name flatpak_id flatpak_path
 			__split --target={rows} --no-zero-length --invoke=try -- \
 				__fetch_all_installed_from_flatpak
 			for row in "${rows[@]}"; do
 				__split --source={row} --target={columns} --delimiter=','
 				flatpak_name="${columns[0]}"
 				flatpak_id="${columns[1]}"
-				flatpak_lower="$(__get_lowercase_string -- "$flatpak_name")"
-				if [[ $flatpak_lower == "$lower" ]]; then
+				if __case_insensitive_compare "$flatpak_name" "$name" || __case_insensitive_compare "$flatpak_id" "$name"; then
 					found='yes'
 					if [[ -n $option_output ]]; then
 						flatpak_path="$(flatpak info --show-location "$flatpak_id" || :)"

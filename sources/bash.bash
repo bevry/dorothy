@@ -967,6 +967,17 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 		# proceed
 		printf '%s' "${@@L}" || return $?
 	}
+	function __case_insensitive_compare {
+		[[ ${1@L} == "${2@L}" ]] || return $?
+	}
+	function __case_insensitive_compare_pattern {
+		# trunk-ignore(shellcheck/SC2053)
+		[[ ${1@L} =~ ${2@L} ]] || return $?
+	}
+	function __case_insensitive_compare_glob {
+		# trunk-ignore(shellcheck/SC2053)
+		[[ ${1@L} == ${2@L} ]] || return $?
+	}
 	# Don't shim escaping/quoting as their native behaviour is divergent to intuition.
 	# `${var@Q}` is available, but it is strange, `Ben's World` becomes `'Ben'\''s World'`
 	# If you want `"Ben's World"`, use `echo-quote` instead.
@@ -1001,6 +1012,17 @@ else
 			fi
 			# proceed
 			printf '%s' "${@,,}" || return $?
+		}
+		function __case_insensitive_compare {
+			[[ ${1,,} == "${2,,}" ]] || return $?
+		}
+		function __case_insensitive_compare_pattern {
+		# trunk-ignore(shellcheck/SC2053)
+			[[ ${1,,} =~ ${2,,} ]] || return $?
+		}
+		function __case_insensitive_compare_glob {
+		# trunk-ignore(shellcheck/SC2053)
+			[[ ${1,,} == ${2,,} ]] || return $?
 		}
 	else
 		# bash < 4
@@ -1045,6 +1067,20 @@ else
 				shift
 			done
 		}
+		function __case_insensitive_compare () (
+			shopt -s nocasematch
+			[[ $1 == "$2" ]] || return $?
+		)
+		function __case_insensitive_compare_pattern () (
+			shopt -s nocasematch
+			# trunk-ignore(shellcheck/SC2053)
+			[[ $1 =~ $2 ]] || return $?
+		)
+		function __case_insensitive_compare_glob () (
+			shopt -s nocasematch
+			# trunk-ignore(shellcheck/SC2053)
+			[[ $1 == $2 ]] || return $?
+		)
 	fi
 fi
 
@@ -1388,9 +1424,9 @@ elif [[ $BASH_VERSION_MAJOR -ge 3 ]]; then
 			return 2 # that's what native mapfile returns
 		fi
 		shift
-		eval "$MAPFILE__variable_name=()" || return $?
+		eval "$MAPFILE__variable_name=()" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		while IFS= read -rd "$MAPFILE__delim" MAPFILE__reply || [[ -n $MAPFILE__reply ]]; do
-			eval "${MAPFILE__variable_name}+=(\"\${MAPFILE__reply}\")" || return $?
+			eval "${MAPFILE__variable_name}+=(\"\${MAPFILE__reply}\")" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		done
 	}
 fi
@@ -1917,15 +1953,15 @@ function __string_to_variable {
 	local STRING_TO_VARIABLE__value="$1" STRING_TO_VARIABLE__target_variable_name="$2" STRING_TO_VARIABLE__mode="${3-}"
 	if __is_array "$STRING_TO_VARIABLE__target_variable_name"; then
 		case "$STRING_TO_VARIABLE__mode" in
-		'prepend') eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\" \"\${${STRING_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
-		'append') eval "$STRING_TO_VARIABLE__target_variable_name+=(\"\${STRING_TO_VARIABLE__value}\")" || return $? ;;
-		*) eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\")" || return $? ;;
+		'prepend') eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\" \"\${${STRING_TO_VARIABLE__target_variable_name}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+		'append') eval "$STRING_TO_VARIABLE__target_variable_name+=(\"\${STRING_TO_VARIABLE__value}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+		*) eval "$STRING_TO_VARIABLE__target_variable_name=(\"\${STRING_TO_VARIABLE__value}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 		esac
 	else
 		case "$STRING_TO_VARIABLE__mode" in
-		'prepend') eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\${${STRING_TO_VARIABLE__target_variable_name}}\"" || return $? ;;
-		'append') eval "$STRING_TO_VARIABLE__target_variable_name+=\"\${STRING_TO_VARIABLE__value}\"" || return $? ;;
-		*) eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\"" || return $? ;;
+		'prepend') eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\${${STRING_TO_VARIABLE__target_variable_name}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+		'append') eval "$STRING_TO_VARIABLE__target_variable_name+=\"\${STRING_TO_VARIABLE__value}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+		*) eval "$STRING_TO_VARIABLE__target_variable_name=\"\${STRING_TO_VARIABLE__value}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 		esac
 	fi
 }
@@ -1937,15 +1973,15 @@ function __variable_to_variable {
 	if __is_array "$VARIABLE_TO_VARIABLE__target_variable_name"; then
 		if __is_array "$VARIABLE_TO_VARIABLE__source_variable_name"; then
 			case "$VARIABLE_TO_VARIABLE__mode" in
-			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
-			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return $? ;;
-			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return $? ;;
+			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 			esac
 		else
 			case "$VARIABLE_TO_VARIABLE__mode" in
-			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return $? ;;
-			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return $? ;;
-			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return $? ;;
+			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\" \"\${${VARIABLE_TO_VARIABLE__target_variable_name}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=(\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 			esac
 		fi
 	else
@@ -1955,9 +1991,9 @@ function __variable_to_variable {
 			return 22 # EINVAL 22 Invalid argument
 		else
 			case "$VARIABLE_TO_VARIABLE__mode" in
-			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\${${VARIABLE_TO_VARIABLE__target_variable_name}}\"" || return $? ;;
-			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return $? ;;
-			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return $? ;;
+			'prepend') eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\${${VARIABLE_TO_VARIABLE__target_variable_name}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'append') eval "$VARIABLE_TO_VARIABLE__target_variable_name+=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			*) eval "$VARIABLE_TO_VARIABLE__target_variable_name=\"\${${VARIABLE_TO_VARIABLE__source_variable_name}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 			esac
 		fi
 	fi
@@ -2239,27 +2275,27 @@ function __to {
 				if __is_array "$TO__target"; then #
 					# array to array
 					case "$TO__mode" in
-					'prepend') eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return $? ;;
-					'append') eval "$TO__target+=(\"\${${TO__source}[@]}\")" || return $? ;;
-					'' | 'overwrite') eval "$TO__target=(\"\${${TO__source}[@]}\")" || return $? ;;
+					'prepend') eval "$TO__target=(\"\${${TO__source}[@]}\" \"\${${TO__target}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+					'append') eval "$TO__target+=(\"\${${TO__source}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+					'' | 'overwrite') eval "$TO__target=(\"\${${TO__source}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 					# mode is already validated
 					esac
 				else
-					eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return $?
+					eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 					if [[ $TO__coerce == 'yes' && $TO__source_size -eq 0 ]]; then
 						# array of no elements to empty string
 						case "$TO__mode" in
 						'prepend') : ;;
 						'append') : ;;
-						'' | 'overwrite') eval "$TO__target=" || return $? ;;
+						'' | 'overwrite') eval "$TO__target=" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 						# mode is already validated
 						esac
 					elif [[ $TO__coerce == 'yes' && $TO__source_size -eq 1 ]]; then
 						# array of single element to string
 						case "$TO__mode" in
-						'prepend') eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return $? ;;
-						'append') eval "$TO__target+=\"\${${TO__source}[0]}\")" || return $? ;;
-						'' | 'overwrite') eval "$TO__target=\"\${${TO__source}[0]}\"" || return $? ;;
+						'prepend') eval "$TO__target=\"\${${TO__source}[0]}\${${TO__target}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+						'append') eval "$TO__target+=\"\${${TO__source}[0]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+						'' | 'overwrite') eval "$TO__target=\"\${${TO__source}[0]}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 						# mode is already validated
 						esac
 					else
@@ -2273,9 +2309,9 @@ function __to {
 				if __is_array "$TO__target"; then
 					if [[ $TO__coerce == 'yes' ]]; then
 						case "$TO__mode" in
-						'prepend') eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return $? ;;
-						'append') eval "$TO__target+=(\"\${${TO__source}}\")" || return $? ;;
-						'' | 'overwrite') eval "$TO__target=(\"\${${TO__source}}\")" || return $? ;;
+						'prepend') eval "$TO__target=(\"\${${TO__source}}\" \"\${${TO__target}[@]}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+						'append') eval "$TO__target+=(\"\${${TO__source}}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+						'' | 'overwrite') eval "$TO__target=(\"\${${TO__source}}\")" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 						# mode is already validated
 						esac
 					else
@@ -2286,9 +2322,9 @@ function __to {
 				else
 					# string to string
 					case "$TO__mode" in
-					'prepend') eval "$TO__target=\"\${${TO__source}}\${${TO__target}}\"" || return $? ;;
-					'append') eval "$TO__target+=\"\$${TO__source}\"" || return $? ;;
-					'' | 'overwrite') eval "$TO__target=\"\${${TO__source}}\"" || return $? ;;
+					'prepend') eval "$TO__target=\"\${${TO__source}}\${${TO__target}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+					'append') eval "$TO__target+=\"\$${TO__source}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+					'' | 'overwrite') eval "$TO__target=\"\${${TO__source}}\"" || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 					# mode is already validated
 					esac
 				fi
@@ -2301,10 +2337,10 @@ function __to {
 			# render for the non-null targets
 			local TO__value=''
 			if __is_array "$TO__source"; then
-				eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return $?
+				eval "TO__source_size=\"\${#${TO__source}[@]}\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				if [[ $TO__coerce == 'yes' && $TO__source_size -eq 1 ]]; then
 					# array of single element to string
-					eval "TO__value=\"\${${TO__source}[0]}\"" || return $?
+					eval "TO__value=\"\${${TO__source}[0]}\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					__print_lines "ERROR: ${FUNCNAME[0]}: If the source $(__dump --value="$TO__source" || :) is an array, then the target $(__dump --value="$TO__target" || :) must be as well:" >&2 || :
 					__dump "$TO__source" >&2 || :
@@ -2320,7 +2356,7 @@ function __to {
 				# 	TO__value+=\"\${${TO__source}[TO__index]}\"\$'\n'
 				# done" || return $?
 			else
-				eval "TO__value=\"\$${TO__source}\"" || return $?
+				eval "TO__value=\"\$${TO__source}\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 			fi
 			# send to target
 			__value_to_target "$TO__value" "$TO__target" "$TO__mode" || return $?
@@ -2458,7 +2494,7 @@ function __do {
 		__return $? || return $?
 
 		# apply the status to the var target
-		eval "$DO__variable_name=\$DO__status" || return $?
+		eval "$DO__variable_name=\$DO__status" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 
 		# return or discard the status
 		case "$DO__arg_flag" in
@@ -2498,7 +2534,7 @@ function __do {
 		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return $?
 
 		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
-		eval "$DO__variable_name=" || return $?
+		eval "$DO__variable_name=" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
@@ -2512,7 +2548,7 @@ function __do {
 		else
 			__read_whole <"$DO__semaphore" || __return $? -- rm -f -- "$DO__semaphore" || return $?
 		fi
-		eval "$DO__variable_name=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return $?
+		eval "$DO__variable_name=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		rm -f -- "$DO__semaphore" || return $?
 		return $?
 		;;
@@ -3942,7 +3978,7 @@ function __open_fd {
 		done
 	fi
 	# apply
-	eval "exec $OPEN_FD__eval_statement_exec; $OPEN_FD__eval_statement_assignments" || return $?
+	eval "exec $OPEN_FD__eval_statement_exec; $OPEN_FD__eval_statement_assignments" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 }
 
 # __close_fd ...<{file_descriptor_reference}> ...<file_descriptor_number>
@@ -3971,7 +4007,7 @@ function __close_fd {
 		# close the file descriptor number
 		CLOSE_FD__eval_statement_exec+="$CLOSE_FD__number>&- "
 	done
-	eval "exec $CLOSE_FD__eval_statement_exec" || return $?
+	eval "exec $CLOSE_FD__eval_statement_exec" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 	sleep 0.01 # closures complete in the background, so we need to sleep to have them happen now
 }
 
@@ -4071,7 +4107,7 @@ function __semaphores {
 		SEMAPHORES__semaphores+=("$(__get_semaphore)") || return $?
 	done
 	# append the semaphores to the target
-	eval "$SEMAPHORES__variable_name+=(\"\${SEMAPHORES__semaphores[@]}\")" || return $?
+	eval "$SEMAPHORES__variable_name+=(\"\${SEMAPHORES__semaphores[@]}\")" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 }
 
 # As to why semaphores are even necessary,
@@ -4412,20 +4448,20 @@ function __reverse {
 		# support sparse arrays
 		# trunk-ignore(shellcheck/SC2034)
 		local REVERSE__indices=() REVERSE__results=()
-		eval 'REVERSE__indices=("${!'"$REVERSE__source_variable_name"'[@]}")' || return $?
+		eval 'REVERSE__indices=("${!'"$REVERSE__source_variable_name"'[@]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		local -i REVERSE__index REVERSE__source_index REVERSE__size="${#REVERSE__indices[@]}"
 		for ((REVERSE__index = REVERSE__size - 1; REVERSE__index >= 0; REVERSE__index--)); do
 			REVERSE__source_index="${REVERSE__indices[REVERSE__index]}"
-			eval 'REVERSE__results+=("${'"$REVERSE__source_variable_name"'[REVERSE__source_index]}")' || return $?
+			eval 'REVERSE__results+=("${'"$REVERSE__source_variable_name"'[REVERSE__source_index]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		done
 		__to --source={REVERSE__results} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return $?
 	else
 		# trunk-ignore(shellcheck/SC2034)
 		local REVERSE__result=''
 		local -i REVERSE__source_index REVERSE__source_size
-		eval 'REVERSE__source_size=${#'"$REVERSE__source_variable_name"'}' || return $?
+		eval 'REVERSE__source_size=${#'"$REVERSE__source_variable_name"'}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		for ((REVERSE__source_index = REVERSE__source_size - 1; REVERSE__source_index >= 0; REVERSE__source_index--)); do
-			eval 'REVERSE__result+="${'"$REVERSE__source_variable_name"':REVERSE__source_index:1}"' || return $?
+			eval 'REVERSE__result+="${'"$REVERSE__source_variable_name"':REVERSE__source_index:1}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		done
 		__to --source={REVERSE__result} --mode="$REVERSE__mode" --targets={REVERSE__targets} || return $?
 	fi
@@ -4490,7 +4526,7 @@ function __indices {
 	if __is_array "$INDICES__source_variable_name"; then
 		# support sparse arrays
 		local INDICES__indices=()
-		eval 'INDICES__indices=("${!'"$INDICES__source_variable_name"'[@]}")' || return $?
+		eval 'INDICES__indices=("${!'"$INDICES__source_variable_name"'[@]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		if [[ $INDICES__direction == 'ascending' ]]; then
 			__to --source={INDICES__indices} --mode="$INDICES__mode" --targets={INDICES__targets} || return $?
 		else
@@ -4504,7 +4540,7 @@ function __indices {
 	else
 		local INDICES__indices=()
 		local -i INDICES__index INDICES__size
-		eval 'INDICES__size=${#'"$INDICES__source_variable_name"'}' || return $?
+		eval 'INDICES__size=${#'"$INDICES__source_variable_name"'}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		if [[ $INDICES__direction == 'ascending' ]]; then
 			for ((INDICES__index = 0; INDICES__index < INDICES__size; INDICES__index++)); do
 				INDICES__indices+=("$INDICES__index")
@@ -4611,118 +4647,113 @@ function __at {
 		elif [[ $AT__index -lt 0 ]]; then
 			AT__index="$((AT__size + AT__index))"
 		fi
-		eval "$AT__eval_segment" || return $?
+		eval "$AT__eval_segment" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 	done
 	__to --source={AT__results} --mode="$AT__mode" --targets={AT__targets} || return $?
 }
 
-# @todo rename to `__transform`
-function __case {
-	local CASE__conversion='lower'
+function __transform {
+	local TRANSFORM__case='sensitive'
 	# <single-source helper arguments>
-	local CASE__item CASE__source_variable_name='' CASE__targets=() CASE__mode=''
+	local TRANSFORM__item TRANSFORM__source_variable_name='' TRANSFORM__targets=() TRANSFORM__mode=''
 	while [[ $# -ne 0 ]]; do
-		CASE__item="$1"
+		TRANSFORM__item="$1"
 		shift
-		case "$CASE__item" in
+		case "$TRANSFORM__item" in
 		'--source={'*'}')
-			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return $?
-			__dereference --source="${CASE__item#*=}" --name={CASE__source_variable_name} || return $?
+			__affirm_value_is_undefined "$TRANSFORM__source_variable_name" 'source variable reference' || return $?
+			__dereference --source="${TRANSFORM__item#*=}" --name={TRANSFORM__source_variable_name} || return $?
 			;;
 		'--source+target={'*'}')
-			CASE__item="${CASE__item#*=}"
-			CASE__targets+=("$CASE__item")
-			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return $?
-			__dereference --source="$CASE__item" --name={CASE__source_variable_name} || return $?
+			TRANSFORM__item="${TRANSFORM__item#*=}"
+			TRANSFORM__targets+=("$TRANSFORM__item")
+			__affirm_value_is_undefined "$TRANSFORM__source_variable_name" 'source variable reference' || return $?
+			__dereference --source="$TRANSFORM__item" --name={TRANSFORM__source_variable_name} || return $?
 			;;
-		'--targets='*) __dereference --source="${CASE__item#*=}" --append --value={CASE__targets} || return $? ;;
-		'--target='*) CASE__targets+=("${CASE__item#*=}") ;;
+		'--targets='*) __dereference --source="${TRANSFORM__item#*=}" --append --value={TRANSFORM__targets} || return $? ;;
+		'--target='*) TRANSFORM__targets+=("${TRANSFORM__item#*=}") ;;
 		'--mode=prepend' | '--mode=append' | '--mode=overwrite' | '--mode=')
-			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return $?
-			CASE__mode="${CASE__item#*=}"
+			__affirm_value_is_undefined "$TRANSFORM__mode" 'write mode' || return $?
+			TRANSFORM__mode="${TRANSFORM__item#*=}"
 			;;
 		'--append' | '--prepend' | '--overwrite')
-			__affirm_value_is_undefined "$CASE__mode" 'write mode' || return $?
-			CASE__mode="${CASE__item:2}"
+			__affirm_value_is_undefined "$TRANSFORM__mode" 'write mode' || return $?
+			TRANSFORM__mode="${TRANSFORM__item:2}"
 			;;
 		'--')
-			__affirm_value_is_undefined "$CASE__source_variable_name" 'source variable reference' || return $?
+			__affirm_value_is_undefined "$TRANSFORM__source_variable_name" 'source variable reference' || return $?
 			# they are inputs
 			if [[ $# -eq 1 ]]; then
 				# a string input
 				# trunk-ignore(shellcheck/SC2034)
-				local CASE__input="$1"
-				CASE__source_variable_name='CASE__input'
+				local TRANSFORM__input="$1"
+				TRANSFORM__source_variable_name='TRANSFORM__input'
 			else
 				# an array input
 				# trunk-ignore(shellcheck/SC2034)
-				local CASE__inputs=("$@")
-				CASE__source_variable_name='CASE__inputs'
+				local TRANSFORM__inputs=("$@")
+				TRANSFORM__source_variable_name='TRANSFORM__inputs'
 			fi
 			shift $#
 			break
 			;;
 		# </single-source helper arguments>
-		'--case='* | '--convert='* | '--conversion='* | '--case-convert='* | '--case-conversion='*) CASE__conversion="${CASE__item#*=}" ;;
-		'--upper' | '--uppercase' | '--upper-case') CASE__conversion='upper' ;;
-		'--lower' | '--lowercase' | '--lower-case') CASE__conversion='lower' ;;
-		'--'*) __unrecognised_flag "$CASE__item" || return $? ;;
-		*) __unrecognised_argument "$CASE__item" || return $? ;;
+		'--case=upper' | '--uppercase') TRANSFORM__case='upper' ;;
+		'--case=lower' | '--lowercase') TRANSFORM__case='lower' ;;
+		'--case=sensitive') TRANSFORM__case='sensitive' ;;
+		'--case=') : ;;
+		# later on there will be more transformations
+		'--'*) __unrecognised_flag "$TRANSFORM__item" || return $? ;;
+		*) __unrecognised_argument "$TRANSFORM__item" || return $? ;;
 		esac
 	done
-	__affirm_variable_is_defined "$CASE__source_variable_name" 'source variable reference' || return $?
-	__affirm_value_is_valid_write_mode "$CASE__mode" || return $?
-	if [[ -z $CASE__conversion ]]; then
-		CASE__conversion='lower'
-	fi
-	if [[ $CASE__conversion != 'lower' && $CASE__conversion != 'upper' ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: Invalid case mode: $(__dump --value="$CASE__conversion" || :), expected $(__dump --value=lower) or $(__dump --value=upper)." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
+	__affirm_variable_is_defined "$TRANSFORM__source_variable_name" 'source variable reference' || return $?
+	__affirm_value_is_valid_write_mode "$TRANSFORM__mode" || return $?
+	if [[ "$TRANSFORM__case" == 'sensitive' ]]; then
+		# nothing to do so exit early
+		__to --source={TRANSFORM__result} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
+		return 0
 	fi
 	# action
 	# we do a sparse array check here, as the native case changes convert sparse arrays into complete arrays by redoing indices
-	if [[ -n $BASH_NATIVE_UPPERCASE_SUFFIX ]] && ! __is_sparse_array "$CASE__source_variable_name"; then
-		if __is_array "$CASE__source_variable_name"; then
-			local CASE__results=()
-			if [[ $CASE__conversion == 'upper' ]]; then
-				eval 'CASE__results=("${'"$CASE__source_variable_name"'[@]'"$BASH_NATIVE_UPPERCASE_SUFFIX"'}")' || return $?
-			else
-				eval 'CASE__results=("${'"$CASE__source_variable_name"'[@]'"$BASH_NATIVE_LOWERCASE_SUFFIX"'}")' || return $?
-			fi
-			__to --source={CASE__results} --mode="$CASE__mode" --targets={CASE__targets} || return $?
+	if [[ -n $BASH_NATIVE_UPPERCASE_SUFFIX ]] && ! __is_sparse_array "$TRANSFORM__source_variable_name"; then
+		if __is_array "$TRANSFORM__source_variable_name"; then
+			local TRANSFORM__results=()
+			case "$TRANSFORM__case" in
+			'upper') eval 'TRANSFORM__results=("${'"$TRANSFORM__source_variable_name"'[@]'"$BASH_NATIVE_UPPERCASE_SUFFIX"'}")' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'lower') eval 'TRANSFORM__results=("${'"$TRANSFORM__source_variable_name"'[@]'"$BASH_NATIVE_LOWERCASE_SUFFIX"'}")' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			esac
+			__to --source={TRANSFORM__results} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
 		else
-			local CASE__result=''
-			if [[ $CASE__conversion == 'upper' ]]; then
-				eval 'CASE__result="${'"${CASE__source_variable_name}${BASH_NATIVE_UPPERCASE_SUFFIX}"'}"' || return $?
-			else
-				eval 'CASE__result="${'"${CASE__source_variable_name}${BASH_NATIVE_LOWERCASE_SUFFIX}"'}"' || return $?
-			fi
-			__to --source={CASE__result} --mode="$CASE__mode" --targets={CASE__targets} || return $?
+			local TRANSFORM__result=''
+			case "$TRANSFORM__case" in
+			'upper') eval 'TRANSFORM__result="${'"${TRANSFORM__source_variable_name}${BASH_NATIVE_UPPERCASE_SUFFIX}"'}"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'lower') eval 'TRANSFORM__result="${'"${TRANSFORM__source_variable_name}${BASH_NATIVE_LOWERCASE_SUFFIX}"'}"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			esac
+			__to --source={TRANSFORM__result} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
 		fi
 	else
-		if __is_array "$CASE__source_variable_name"; then
-			local -i CASE__index
+		if __is_array "$TRANSFORM__source_variable_name"; then
+			local -i TRANSFORM__index
 			# trunk-ignore(shellcheck/SC2034)
-			local CASE__results=() CASE__indices=()
-			__indices --source="{$CASE__source_variable_name}" --target={CASE__indices} || return $?
+			local TRANSFORM__results=() TRANSFORM__indices=()
+			__indices --source="{$TRANSFORM__source_variable_name}" --target={TRANSFORM__indices} || return $?
 			# trunk-ignore(shellcheck/SC2034)
-			for CASE__index in "${CASE__indices[@]}"; do
-				if [[ $CASE__conversion == 'upper' ]]; then
-					eval 'CASE__results[CASE__index]="$(__get_uppercase_string -- "${'"$CASE__source_variable_name"'[CASE__index]}")"' || return $?
-				else
-					eval 'CASE__results[CASE__index]="$(__get_lowercase_string -- "${'"$CASE__source_variable_name"'[CASE__index]}")"' || return $?
-				fi
+			for TRANSFORM__index in "${TRANSFORM__indices[@]}"; do
+				case "$TRANSFORM__case" in
+				'upper') eval 'TRANSFORM__results[TRANSFORM__index]="$(__get_uppercase_string -- "${'"$TRANSFORM__source_variable_name"'[TRANSFORM__index]}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+				'lower') eval 'TRANSFORM__results[TRANSFORM__index]="$(__get_lowercase_string -- "${'"$TRANSFORM__source_variable_name"'[TRANSFORM__index]}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+				esac
 			done
-			__to --source={CASE__results} --mode="$CASE__mode" --targets={CASE__targets} || return $?
+			__to --source={TRANSFORM__results} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
 		else
 			# trunk-ignore(shellcheck/SC2034)
-			local CASE__result=''
-			if [[ $CASE__conversion == 'upper' ]]; then
-				eval 'CASE__result="$(__get_uppercase_string -- "${'"$CASE__source_variable_name"'}")"' || return $?
-			else
-				eval 'CASE__result="$(__get_lowercase_string -- "${'"$CASE__source_variable_name"'}")"' || return $?
-			fi
-			__to --source={CASE__result} --mode="$CASE__mode" --targets={CASE__targets} || return $?
+			local TRANSFORM__result=''
+			case "$TRANSFORM__case" in
+			'upper') eval 'TRANSFORM__result="$(__get_uppercase_string -- "${'"$TRANSFORM__source_variable_name"'}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'lower') eval 'TRANSFORM__result="$(__get_lowercase_string -- "${'"$TRANSFORM__source_variable_name"'}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			esac
+			__to --source={TRANSFORM__result} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
 		fi
 	fi
 }
@@ -4799,7 +4830,7 @@ function __case {
 # If no require mode failures, then the noted indexes are sent to the targets.
 function __iterate {
 	__pause_tracing || return $?
-	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='' ITERATE__overlap='no' ITERATE__require='' ITERATE__quiet='no' ITERATE__by='' ITERATE__operation='' ITERATE__case=''
+	local ITERATE__lookups=() ITERATE__direction='ascending' ITERATE__seek='' ITERATE__overlap='no' ITERATE__require='' ITERATE__quiet='no' ITERATE__by='' ITERATE__operation='' ITERATE__case='sensitive'
 	# <single-source helper arguments>
 	local ITERATE__item ITERATE__source_variable_name='' ITERATE__targets=() ITERATE__mode=''
 	while [[ $# -ne 0 ]]; do
@@ -4835,14 +4866,14 @@ function __iterate {
 					# ITERATE__source_variable_name='ITERATE__input'
 					# ^ this doesn't allow for recursive sources, whereas the below does
 					ITERATE__source_variable_name="ITERATE_${RANDOM}__input"
-					eval "local $ITERATE__source_variable_name=\"\$1\"" || return $?
+					eval "local $ITERATE__source_variable_name=\"\$1\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					# an array input
 					# ITERATE__inputs=("$@")
 					# ITERATE__source_variable_name='ITERATE__inputs'
 					# ^ this doesn't allow for recursive sources, whereas the below does
 					ITERATE__source_variable_name="ITERATE_${RANDOM}__inputs"
-					eval "local $ITERATE__source_variable_name=(\"\$@\")" || return $?
+					eval "local $ITERATE__source_variable_name=(\"\$@\")" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				fi
 			else
 				# they are needles
@@ -4876,12 +4907,12 @@ function __iterate {
 		# quiet mode
 		'--no-verbose'* | '--verbose'*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --non-affirmative --coerce ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={ITERATE__item} --target={ITERATE__quiet} --affirmative --coerce ;;
-		# case conversion mode
-		'--case='* | '--convert='* | '--conversion='* | '--case-convert='* | '--case-conversion='*) ITERATE__case="${CASE__item#*=}" ;;
-		'--upper' | '--uppercase' | '--upper-case') ITERATE__case='upper' ;;
-		'--lower' | '--lowercase' | '--lower-case') ITERATE__case='lower' ;;
-		'--ignore-case' | '--ignore-case=yes' | '--respect-case=no' | '--case-insensitive' | '--case-insensitive=yes' | '--case-sensitive=no') ITERATE__case='lower' ;;
-		'--ignore-case=no' | '--respect-case' | '--respect-case=yes' | '--case-insensitive=no' | '--case-sensitive' | '--case-sensitive=yes') : ;; # no-op
+		# case mode
+		'--case=upper' | '--uppercase') ITERATE__case='upper' ;; # result/compare
+		'--case=lower' | '--lowercase') ITERATE__case='lower' ;; # result/compare
+		'--case=ignore' | '--ignore-case') ITERATE__case='ignore' ;; # compare
+		'--case=sensitive') ITERATE__case='sensitive' ;;
+		'--case=') : ;;
 		# operation mode
 		'--operation=index' | '--index' | '--indices') ITERATE__operation='index' ;;
 		'--operation=has' | '--has')
@@ -4889,6 +4920,7 @@ function __iterate {
 			ITERATE__quiet='yes'
 			;;
 		'--operation=evict' | '--evict') ITERATE__operation='evict' ;;
+		'--operation=filter' | '--filter') ITERATE__operation='filter' ;;
 		# evict on mode
 		# '--on=content') ITERATE__on='content' ;;
 		# '--on=result') ITERATE__on='result' ;; <-- this would work by wrapping the iteration in a while loop, that checks if there is another iteration to perform, which is enabled when the content is changed in which case the indices and their corresponding variables are regenerated, however, with that complexity, one is probably just wanting the `__replace` function
@@ -5014,22 +5046,9 @@ function __iterate {
 			fi
 		done
 	fi
-	# because our comparison reference can be different based on case modification, setup a new variable
-	# this is because if we are comparing ignoring case, we still want to return the original case sensitive result
-	local ITERATE__compare_source_reference="$ITERATE__source_variable_name"
-	if [[ -n $ITERATE__case ]]; then
-		# convert the source reference
-		if [[ $ITERATE__array == 'yes' ]]; then
-			ITERATE__compare_source_reference="ITERATE_${RANDOM}__inputs__${ITERATE__case}"
-			eval "local $ITERATE__compare_source_reference=()" || return $?
-			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_variable_name}" --target="{$ITERATE__compare_source_reference}"
-		else
-			ITERATE__compare_source_reference="ITERATE_${RANDOM}__input__${ITERATE__case}"
-			eval "local $ITERATE__compare_source_reference=''" || return $?
-			__case --conversion="$ITERATE__case" --source="{$ITERATE__source_variable_name}" --target="{$ITERATE__compare_source_reference}"
-		fi
-		# convert lookups
-		__case --conversion="$ITERATE__case" --source+target={ITERATE__lookups}
+	# case
+	if [[ $ITERATE__case != 'sensitive' ]]; then
+		shopt -s nocasematch
 	fi
 	# iterate
 	local -i ITERATE__outer ITERATE__inner ITERATE__index ITERATE__lookup_index ITERATE__lookup_size ITERATE__match_index ITERATE__match_size ITERATE__overlap_index ITERATE__break
@@ -5070,7 +5089,7 @@ function __iterate {
 			'--value='* | '--needle='*)
 				# exact match
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
+					eval 'ITERATE__value=${'"$ITERATE__source_variable_name"'[ITERATE__index]}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					ITERATE__lookup_size=${#ITERATE__lookup}
 					if [[ $ITERATE__direction == 'ascending' ]]; then
@@ -5081,7 +5100,7 @@ function __iterate {
 								continue
 							fi
 							# valid, note the match value
-							eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return $?
+							eval 'ITERATE__value="${'"$ITERATE__source_variable_name"':ITERATE__match_index:ITERATE__lookup_size}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 						else
 							continue
 						fi
@@ -5094,7 +5113,7 @@ function __iterate {
 								continue
 							fi
 							# valid, note the match value
-							eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index:ITERATE__lookup_size}"' || return $?
+							eval 'ITERATE__value="${'"$ITERATE__source_variable_name"':ITERATE__match_index:ITERATE__lookup_size}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 						else
 							continue
 						fi
@@ -5112,9 +5131,9 @@ function __iterate {
 				# index match
 				ITERATE__lookup_size=1
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
+					eval 'ITERATE__value=${'"$ITERATE__source_variable_name"'[ITERATE__index]}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
-					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__index:1}"' || return $?
+					eval 'ITERATE__value="${'"$ITERATE__source_variable_name"':ITERATE__index:1}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				fi
 				if [[ $ITERATE__index == "$ITERATE__lookup" ]]; then
 					ITERATE__matched=yes
@@ -5128,14 +5147,14 @@ function __iterate {
 				# prefix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]:0:ITERATE__lookup_size}' || return $?
+					eval 'ITERATE__value=${'"$ITERATE__source_variable_name"'[ITERATE__index]:0:ITERATE__lookup_size}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_whole ]]; then # only match when we are at the first in whole index
 					# when not overlapping, validate none of the indices have been consumed
 					if __is_string_overlapped; then
 						continue
 					fi
 					# valid, note the match value
-					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':0:ITERATE__lookup_size}"' || return $?
+					eval 'ITERATE__value="${'"$ITERATE__source_variable_name"':0:ITERATE__lookup_size}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					continue
 				fi
@@ -5151,14 +5170,14 @@ function __iterate {
 				# suffix match
 				ITERATE__lookup_size=${#ITERATE__lookup}
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]: -ITERATE__lookup_size}' || return $?
+					eval 'ITERATE__value=${'"$ITERATE__source_variable_name"'[ITERATE__index]: -ITERATE__lookup_size}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				elif [[ $ITERATE__index -eq $ITERATE__last_in_whole ]]; then         # only match once when we are at the last in whole index
 					ITERATE__match_index=$((ITERATE__index - ITERATE__lookup_size + 1)) # +1 to include the current character# when not overlapping, validate none of the indices have been consumed
 					if __is_string_overlapped; then
 						continue
 					fi
 					# valid, note the match value
-					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"':ITERATE__match_index}"' || return $?
+					eval 'ITERATE__value="${'"$ITERATE__source_variable_name"':ITERATE__match_index}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					continue
 				fi
@@ -5173,10 +5192,10 @@ function __iterate {
 			'--pattern='*)
 				# pattern match: POSIX extended regular expression
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
+					eval 'ITERATE__value=${'"$ITERATE__source_variable_name"'[ITERATE__index]}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
-					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"'}"' || return $?
+					eval 'ITERATE__value="${'"$ITERATE__source_variable_name"'}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					continue
 				fi
@@ -5191,10 +5210,10 @@ function __iterate {
 			'--glob='*)
 				# pattern match
 				if [[ $ITERATE__array == 'yes' ]]; then
-					eval 'ITERATE__value=${'"$ITERATE__compare_source_reference"'[ITERATE__index]}' || return $?
+					eval 'ITERATE__value=${'"$ITERATE__source_variable_name"'[ITERATE__index]}' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				elif [[ $ITERATE__index -eq $ITERATE__first_in_order ]]; then
 					# whole string match
-					eval 'ITERATE__value="${'"$ITERATE__compare_source_reference"'}"' || return $?
+					eval 'ITERATE__value="${'"$ITERATE__source_variable_name"'}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 				else
 					continue
 				fi
@@ -5244,10 +5263,15 @@ function __iterate {
 			fi
 		done
 	done
+	# reset case
+	if [[ $ITERATE__case != 'sensitive' ]]; then
+		shopt -u nocasematch
+	fi
 	# any/all require checks
 	local -i ITERATE__found_size="${#ITERATE__consumed_lookups_map[@]}"
-	# if we are eviction, then generate the eviction result
-	if [[ $ITERATE__operation == 'evict' ]]; then
+	# handle special operations
+	case "$ITERATE__operation" in
+	'evict')
 		ITERATE__results=()
 		if [[ $ITERATE__array == 'yes' ]]; then
 			for ITERATE__index in "${ITERATE__indices[@]}"; do
@@ -5255,7 +5279,7 @@ function __iterate {
 					# this index was consumed, so skip it
 					continue
 				fi
-				eval 'ITERATE__results+=("${'"$ITERATE__source_variable_name"'[ITERATE__index]}")' || return $?
+				eval 'ITERATE__results+=("${'"$ITERATE__source_variable_name"'[ITERATE__index]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 			done
 		else
 			local ITERATE__result=''
@@ -5264,16 +5288,36 @@ function __iterate {
 					# this index was consumed, so skip it
 					continue
 				fi
-				eval 'ITERATE__result+="${'"$ITERATE__source_variable_name"':ITERATE__index:1}"' || return $?
+				eval 'ITERATE__result+="${'"$ITERATE__source_variable_name"':ITERATE__index:1}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 			done
 			ITERATE__results+=("$ITERATE__result")
 		fi
-	fi
-	# validate has mode
-	if [[ $ITERATE__operation == 'has' && $ITERATE__require == 'none' ]]; then
-		__print_lines "ERROR: ${FUNCNAME[0]}: The operation $(__dump --value=has || :) cannot be used with the require mode $(__dump --value=none || :), use $(__dump --value=any || :) or $(__dump --value=all || :) or there is no point." >&2 || :
-		return 22 # EINVAL 22 Invalid argument
-	fi
+		;;
+	'filter')
+		local ITERATE__values=()
+		if [[ $ITERATE__array == 'yes' ]]; then
+			for ITERATE__index in "${ITERATE__results[@]}"; do
+				eval 'ITERATE__values+=("${'"$ITERATE__source_variable_name"'[ITERATE__index]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
+			done
+		else
+			local ITERATE__result=''
+			for ITERATE__index in "${ITERATE__results[@]}"; do
+				eval 'ITERATE__result+="${'"$ITERATE__source_variable_name"':ITERATE__index:1}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
+			done
+			ITERATE__values+=("$ITERATE__result")
+		fi
+		case "$ITERATE__case" in
+		'upper' | 'lower') __transform --source+target={ITERATE__values} --case="$ITERATE__case" || return $? ;;
+		esac
+		ITERATE__results=("${ITERATE__values[@]}")
+		;;
+	'has')
+		if [[ $ITERATE__require == 'none' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: The operation $(__dump --value=has || :) cannot be used with the require mode $(__dump --value=none || :), use $(__dump --value=any || :) or $(__dump --value=all || :) or there is no point." >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+		;;
+	esac
 	# validate first mode
 	if [[ $ITERATE__seek == 'first' && $ITERATE__found_size -gt 1 ]]; then
 		__print_lines "ERROR: ${FUNCNAME[0]}: Too many lookups were found, expected $(__dump --value="1" || :) but found $(__dump --value="$ITERATE__found_size" || :):" >&2 || :
@@ -5306,6 +5350,9 @@ function __iterate {
 	# send the results
 	__to --source={ITERATE__results} --mode="$ITERATE__mode" --targets={ITERATE__targets} || return $?
 	__restore_tracing || return $?
+}
+function __filter {
+	__iterate --filter "$@" || return $?
 }
 function __index {
 	__iterate --index "$@" || return $?
@@ -5369,11 +5416,13 @@ function __replace {
 			REPLACE__default_replacement="${REPLACE__item#*=}"
 			;;
 		'--replacement='* | '--replace='* | '--with='*) REPLACE__lookups+=("$REPLACE__item") ;;
-		# require mode:
+		# require mode
 		'--require=none' | '--optional' | '--fallback') REPLACE__require='none' ;;
 		'--require=any' | '--any') REPLACE__require='any' ;;
 		'--require=all' | '--all') REPLACE__require='all' ;;
 		'--fallback='*) REPLACE__default_fallback="${REPLACE__item#*=}" REPLACE__require='none' ;;
+		# case mode
+		# @todo support case mode, same as `__iterate`
 		# quiet mode
 		'--no-verbose'* | '--verbose'*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --non-affirmative --coerce ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={REPLACE__item} --target={REPLACE__quiet} --affirmative --coerce ;;
@@ -5409,7 +5458,7 @@ function __replace {
 	# handle string
 	local -i REPLACE__expected_size=0
 	local REPLACE__found_lookups=() REPLACE__missing_lookups=() REPLACE__value_wip REPLACE__replacement
-	eval 'REPLACE__value_wip="${'"$REPLACE__source_variable_name"'}"' || return $?
+	eval 'REPLACE__value_wip="${'"$REPLACE__source_variable_name"'}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 	set -- "${REPLACE__lookups[@]}"
 	while [[ $# -ne 0 ]]; do
 		REPLACE__lookup="$1"
@@ -5579,6 +5628,7 @@ function __replace {
 }
 
 function __unique {
+	local UNIQUE__case='sensitive'
 	# <multi-source helper arguments>
 	local UNIQUE__item UNIQUE__sources_variable_names=() UNIQUE__targets=() UNIQUE__mode=''
 	while [[ $# -ne 0 ]]; do
@@ -5612,29 +5662,61 @@ function __unique {
 			break
 			;;
 		# </multi-source helper arguments>
+		'--case=lower' | '--lowercase') UNIQUE__case='lower' ;;
+		'--case=upper' | '--uppercase') UNIQUE__case='upper' ;;
+		'--case=ignore' | '--ignore-case') UNIQUE__case='ignore' ;;
+		'--case=sensitive') UNIQUE__case='sensitive' ;;
+		'--case=') : ;;
 		'--'*) __unrecognised_flag "$UNIQUE__item" || return $? ;;
 		*) __unrecognised_argument "$UNIQUE__item" || return $? ;;
 		esac
 	done
 	__affirm_length_defined "${#UNIQUE__sources_variable_names[@]}" 'source variable reference' || return $?
 	__affirm_value_is_valid_write_mode "$UNIQUE__mode" || return $?
+	# case
+	local UNIQUE__value UNIQUE__lookup
+	case "$UNIQUE__case" in
+	'sensitive')
+		function UNIQUE__prepare {
+			UNIQUE__lookup="$UNIQUE__value"
+		}
+		;;
+	'ignore')
+		function UNIQUE__prepare {
+			UNIQUE__lookup="$(__get_lowercase_string "$UNIQUE__value")"
+		}
+		;;
+	'lower')
+		function UNIQUE__prepare {
+			UNIQUE__value="$(__get_lowercase_string "$UNIQUE__value")"
+			UNIQUE__lookup="$UNIQUE__value"
+		}
+		;;
+	'upper')
+		function UNIQUE__prepare {
+			UNIQUE__value="$(__get_uppercase_string "$UNIQUE__value")"
+			UNIQUE__lookup="$UNIQUE__value"
+		}
+		;;
+	esac
 	# process
 	local -i UNIQUE__index
-	local UNIQUE__source_variable_name UNIQUE__indices=() UNIQUE__value UNIQUE__empty="EMPTY${RANDOM}EMPTY" UNIQUE__results=()
+	local UNIQUE__source_variable_name UNIQUE__indices=() UNIQUE__empty="EMPTY${RANDOM}EMPTY" UNIQUE__results=()
 	if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-		declare -A UNIQUE__encountered
+		declare -A UNIQUE__encountered_associative
 		for UNIQUE__source_variable_name in "${UNIQUE__sources_variable_names[@]}"; do
 			__affirm_variable_is_array "$UNIQUE__source_variable_name" 'source variable reference' || return $?
-			eval 'UNIQUE__indices=("${!'"$UNIQUE__source_variable_name"'[@]}")' || return $?
-			# source is always an array, so no need for: __indices --source="{$UNIQUE__source_variable_name}" --target={UNIQUE__indices} || return $?
+			eval 'UNIQUE__indices=("${!'"$UNIQUE__source_variable_name"'[@]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
+			# source is always an array, so no need for `__indices --source="{$UNIQUE__source_variable_name}" --target={UNIQUE__indices} || return $?`
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
-				eval 'UNIQUE__value="${'"$UNIQUE__source_variable_name"'[UNIQUE__index]:-"$UNIQUE__empty"}"' || return $?
+				eval 'UNIQUE__value="${'"$UNIQUE__source_variable_name"'[UNIQUE__index]:-"$UNIQUE__empty"}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
+				UNIQUE__prepare || return $?
 				# associative arrays cannot have zero-length keys, so we do the UNIQUE__empty fallback
-				if [[ -n ${UNIQUE__encountered["$UNIQUE__value"]-} ]]; then
+				if [[ -n ${UNIQUE__encountered_associative["$UNIQUE__lookup"]-} ]]; then
 					continue
 				fi
-				UNIQUE__encountered["$UNIQUE__value"]="$UNIQUE__index"
-				# when doing the results, handle the UNIQUE__empty placeholder
+				UNIQUE__encountered_associative["$UNIQUE__lookup"]="$UNIQUE__index"
+				# when doing the results, handle the `UNIQUE__empty` placeholder
 				if [[ $UNIQUE__value == "$UNIQUE__empty" ]]; then
 					UNIQUE__results+=('')
 				else
@@ -5643,18 +5725,20 @@ function __unique {
 			done
 		done
 	else
-		local UNIQUE__result_value
+		local UNIQUE__encountered_array=() UNIQUE__encountered_value
 		for UNIQUE__source_variable_name in "${UNIQUE__sources_variable_names[@]}"; do
 			__affirm_variable_is_array "$UNIQUE__source_variable_name" 'source variable reference' || return $?
-			eval 'UNIQUE__indices=("${!'"$UNIQUE__source_variable_name"'[@]}")' || return $?
-			# source is always an array, so no need for: __indices --source="{$UNIQUE__source_variable_name}" --target={UNIQUE__indices} || return $?
+			eval 'UNIQUE__indices=("${!'"$UNIQUE__source_variable_name"'[@]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
+			# source is always an array, so no need for `__indices --source="{$UNIQUE__source_variable_name}" --target={UNIQUE__indices} || return $?`
 			for UNIQUE__index in "${UNIQUE__indices[@]}"; do
-				eval 'UNIQUE__value="${'"$UNIQUE__source_variable_name"'[UNIQUE__index]}"' || return $?
-				for UNIQUE__result_value in "${UNIQUE__results[@]}"; do
-					if [[ $UNIQUE__result_value == "$UNIQUE__value" ]]; then
+				eval 'UNIQUE__value="${'"$UNIQUE__source_variable_name"'[UNIQUE__index]}"' || return 104 # ENOTRECOVERABLE 104 State not recoverable
+				UNIQUE__prepare || return $?
+				for UNIQUE__encountered_value in "${UNIQUE__encountered_array[@]}"; do
+					if [[ $UNIQUE__encountered_value == "$UNIQUE__lookup" ]]; then
 						continue 2 # skip to the next index
 					fi
 				done
+				UNIQUE__encountered_array+=("$UNIQUE__lookup")
 				UNIQUE__results+=("$UNIQUE__value")
 			done
 		done
@@ -5768,11 +5852,11 @@ function __slice {
 	# trunk-ignore(shellcheck/SC2034)
 	local SLICE__results=() SLICE__eval_left_segment SLICE__eval_length_segment SLICE__left SLICE__length # left and length could be -0 which is string
 	if __is_array "$SLICE__source_variable_name"; then
-		eval "SLICE__size=\"\${#${SLICE__source_variable_name}[@]}\"" || return $?
+		eval "SLICE__size=\"\${#${SLICE__source_variable_name}[@]}\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}[@]:SLICE__left}\")"
 		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}[@]:SLICE__left:SLICE__length}\")"
 	else
-		eval "SLICE__size=\"\${#${SLICE__source_variable_name}}\"" || return $?
+		eval "SLICE__size=\"\${#${SLICE__source_variable_name}}\"" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		SLICE__eval_left_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}:SLICE__left}\")"
 		SLICE__eval_length_segment="SLICE__results+=(\"\${${SLICE__source_variable_name}:SLICE__left:SLICE__length}\")"
 	fi
@@ -5794,7 +5878,7 @@ function __slice {
 			return 33 # EDOM 33 Numerical argument out of domain
 		fi
 		if [[ $SLICE__length == '-0' || $SLICE__length -eq $SLICE__size ]]; then
-			eval "$SLICE__eval_left_segment" || return $?
+			eval "$SLICE__eval_left_segment" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 			continue
 		fi
 		SLICE__remaining="$((SLICE__size - SLICE__left))"
@@ -5807,7 +5891,7 @@ function __slice {
 		elif [[ $SLICE__length -lt 0 && $BASH_CAN_USE_A_NEGATIVE_LENGTH == 'no' ]]; then
 			SLICE__length="$((SLICE__size + SLICE__length - SLICE__left))"
 		fi
-		eval "$SLICE__eval_length_segment" || return $?
+		eval "$SLICE__eval_length_segment" || return 104 # ENOTRECOVERABLE 104 State not recoverable
 	done
 	__to --source={SLICE__results} --mode="$SLICE__mode" --targets={SLICE__targets} || return $?
 }
@@ -5914,9 +5998,9 @@ function __split {
 	for SPLIT__source_variable_name in "${SPLIT__sources_variable_names[@]}"; do
 		__affirm_variable_is_defined "$SPLIT__source_variable_name" 'source variable reference' || return $?
 		if __is_array "$SPLIT__source_variable_name"; then
-			eval 'SPLIT__strings+=("${'"$SPLIT__source_variable_name"'[@]}")' || return $?
+			eval 'SPLIT__strings+=("${'"$SPLIT__source_variable_name"'[@]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		else
-			eval 'SPLIT__strings+=("${'"$SPLIT__source_variable_name"'}")' || return $?
+			eval 'SPLIT__strings+=("${'"$SPLIT__source_variable_name"'}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 		fi
 	done
 	local SPLIT__string SPLIT__results=()
@@ -6049,7 +6133,7 @@ function __join {
 	fi
 	for JOIN__source_variable_name in "${JOIN__sources_variable_names[@]}"; do
 		__affirm_variable_is_array "$JOIN__source_variable_name" 'source variable reference' || return $?
-		eval 'JOIN__values+=("${'"$JOIN__source_variable_name"'[@]}")' || return $?
+		eval 'JOIN__values+=("${'"$JOIN__source_variable_name"'[@]}")' || return 104 # ENOTRECOVERABLE 104 State not recoverable
 	done
 	set -- "${JOIN__values[@]}" || return $?
 	while [[ $# -gt 1 ]]; do

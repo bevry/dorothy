@@ -18,7 +18,8 @@ if [[ "${1-}" = '--' ]]; then
 fi
 
 # proceed
-# zsh is case-insensitive, so cannot use path as it becomes PATH
-for _path in "$@"; do
-	eval __print_lines "$(echo-escape-spaces -- "$_path")"
+# zsh is case-insensitive, so cannot use `path` as it becomes `PATH`
+for expansion_path in "$@"; do
+	escaped_paths_as_arguments_for_printing="$(echo-escape-spaces -- "$expansion_path")"
+	eval __print_lines $escaped_paths_as_arguments_for_printing
 done
