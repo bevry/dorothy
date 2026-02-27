@@ -60,11 +60,11 @@ function fs_copy() (
 			* local and remote sources
 
 			USAGE:
-			\`fs-copy [...options] [--] <origin> <destination>\`
-			\`fs-copy [...options] [--origin=<origin>] [--destination=<destination>]\`
+			\`fs-copy [...options] -- ...<origin> <destination>\`
+			\`fs-copy [...options] --origin=...<origin> --destination=<destination>\`
 
 			OPTIONS:
-			<origin> <destination>
+			...<origin> <destination> | --origin=...<origin> --destination=<destination>
 			    These can be a local path on your current machine, or a remote path.
 			    If a remote file path, it should be: \`<username>@<hostname>:/<path>\`
 			    If a remote directory path, it should be: \`<username>@<hostname>:/<path>/\`
@@ -79,12 +79,14 @@ function fs_copy() (
 
 			--[no-]confirm
 			    If enabled, do not confirm anything.
-			--[no-]dry
-			    If enabled, only output the determined command, do not run it.
 			--[no-]elevate
 			    If enabled, run the determined command with elevated privileges.
-			--[no-]verify | --[no-]dry
-			    If enabled, do a dry run and only verify that the target contains all the files from the source, do not modify anything.
+
+			--[no-]dry
+			    If enabled, only output the determined command, do not run it.
+
+			--[no-]verify
+			    If enabled, only verify that the target contains all the files from the source, do not modify anything.
 
 			RSYNC OPTIONS:
 			When <tool> is \`rsync\`, these options are also available:
@@ -94,8 +96,6 @@ function fs_copy() (
 			    If enabled, remove source files as they are successfully copied to the target; defaults <tool> to \`rsync\`.
 			--[no-]checksum
 			    If enabled, files are compared by their checksums, instead of the default quicker date and size comparison; defaults <tool> to \`rsync\`.
-			--[no-]linux
-			    If enabled, increases compatibility with between linux systems; defaults <tool> to \`rsync\`.
 			--owner=<user>:<group>
 			    If specified, uses this value for the ownership of copied files; defaults <tool> to \`rsync\`.
 		EOF
@@ -103,7 +103,7 @@ function fs_copy() (
 	}
 
 	# process
-	local item option_quiet='no' option_tool='' option_origin='' option_destination='' option_confirm='' option_dry='' option_elevate='' option_verify='' option_backup='' option_remove='' option_checksum='' option_linux='' option_owner=''
+	local item option_quiet='no' option_tool='' option_origins=() option_destination='' option_confirm='' option_dry='' option_elevate='' option_verify='' option_backup='' option_remove='' option_checksum='' option_owner=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -112,7 +112,7 @@ function fs_copy() (
 		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
 		'--tool='*) option_tool="${item#*=}" ;;
-		'--origin='* | '--source='*) option_origin="${item#*=}" ;;
+		'--origin='* | '--source='*) option_origins+=("${item#*=}") ;;
 		'--destination='*) option_ destination="${item#*=}" ;;
 		'--owner='*) option_owner="${item#*=}" ;;
 		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative --coerce ;;
@@ -122,37 +122,30 @@ function fs_copy() (
 		'--no-backup'* | '--backup'*) __flag --source={item} --target={option_backup} --affirmative --coerce ;;
 		'--no-remove'* | '--remove'*) __flag --source={item} --target={option_remove} --affirmative --coerce ;;
 		'--no-checksum'* | '--checksum'*) __flag --source={item} --target={option_checksum} --affirmative --coerce ;;
-		'--no-linux'* | '--linux'*) __flag --source={item} --target={option_linux} --affirmative --coerce ;;
 		'--')
-			if [[ -n $option_origin || -n $option_destination ]]; then
-				help --help='[--] can only be used if <origin> and <destination> are not set via other means'
+			if [[ ${#option_origins[@]} -ne 0 || -n $option_destination ]]; then
+				help --help='Cannot set <origin> and <destination> via arguments `-- ...<origin> <destination>` if either were already set via a flag.'
 			fi
-			option_origin="$1"
-			option_destination="$2"
-			shift "$#"
+			while [[ $# -ne 1 ]]; do
+				option_origins+=("$1")
+				shift
+			done
+			option_destination="$1"
+			shift
 			;;
 		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*)
-			if [[ -z $item ]]; then
-				help --help='Empty <origin> or <destination> argument provided.'
-			elif [[ -z $option_origin ]]; then
-				option_origin={item}
-			elif [[ -z $option_destination ]]; then
-				option_destination="$item"
-			else
-				help 'An unrecognised argument was provided: ' --variable-value={item}
-			fi
-			;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
 		esac
 	done
 
 	# check origin and destination
-	if [[ -z $option_origin || -z $option_destination ]]; then
+	__evict --source+target={option_origins} --optional --every --value="$option_destination" --value=''
+	if [[ ${#option_origins[@]} -eq 0 || -z $option_destination ]]; then
 		help --help='Both <origin> and <destination> must be specified.'
 	fi
 
 	# if manually set an rsync option, then default tool to rsync
-	if [[ -z $option_tool && ($option_backup == 'yes' || $option_remove == 'yes' || $option_checksum == 'yes' || $option_linux == 'yes' || -n $option_owner) ]]; then
+	if [[ -z $option_tool && ($option_backup == 'yes' || $option_remove == 'yes' || $option_checksum == 'yes' || -n $option_owner) ]]; then
 		option_tool='rsync'
 	fi
 
@@ -163,36 +156,8 @@ function fs_copy() (
 		__tool --tool={option_tool} --tools={copy_tools} --help={help} || return $?
 	fi
 
-	# if both local and directories, prevent weird behaviour
-	if [[ $option_origin != *:* && $option_destination != *:* && ${option_origin:-1} != '/' && ${option_destination:-1} != '/' && -d $option_origin && -d $option_destination ]]; then
-		option_origin+='/'
-		option_destination+='/'
-	fi
-
 	# rsync options
 	if [[ $option_tool == 'rsync' ]]; then
-		# ensure linux
-		if [[ -z $option_linux ]]; then
-			if [[ $option_origin != *:* && $option_destination != *:* ]]; then
-				# both local
-				if __is_linux; then
-					option_linux='yes'
-				else
-					option_linux='no'
-				fi
-			elif [[ $option_origin == *:* && $option_destination == *:* ]] || __is_linux; then
-				# both remote
-				# or one remote, and we are linux
-				if [[ $option_confirm != 'no' ]] && confirm --bool --ppid=$$ -- 'Are both machines Linux machines?'; then
-					option_linux='yes'
-				else
-					option_linux='no'
-				fi
-			else
-				# one is remote, and we are not linux
-				option_linux='no'
-			fi
-		fi
 		# ensure checksum
 		if [[ -z $option_checksum ]]; then
 			if [[ $option_confirm != 'no' ]] && confirm --negative --ppid=$$ -- 'Compare files via checksum, instead of the quicker and default date and size comparison?'; then
@@ -258,7 +223,7 @@ function fs_copy() (
 			elif [[ $tangent == 'different' ]]; then
 				RECURSED='yes'
 				__print_style --dim='Faux Remotes: attempting a different tool' || return $?
-				fs-copy --confirm="$option_confirm" --dry="$option_dry" --elevate="$option_elevate" --verify="$option_verify" -- "$option_origin" "$option_destination" || return $?
+				fs-copy --confirm="$option_confirm" --dry="$option_dry" --elevate="$option_elevate" --verify="$option_verify" -- "${option_origins[@]}" "$option_destination" || return $?
 				return 0
 			else
 				__print_style --dim='Faux Remotes: exit' || return $?
@@ -270,10 +235,13 @@ function fs_copy() (
 	}
 	if [[ $option_confirm != 'no' ]]; then
 		if [[ $option_tool == 'rsync' ]]; then
-			__adjust_faux "$option_origin" || return $?
-			if [[ $RECURSED == 'yes' ]]; then
-				return 0
-			fi
+			local origin
+			for origin in "${option_origins[@]}"; do
+				__adjust_faux "$origin" || return $?
+				if [[ $RECURSED == 'yes' ]]; then
+					return 0
+				fi
+			done
 			__adjust_faux "$option_destination" || return $?
 			if [[ $RECURSED == 'yes' ]]; then
 				return 0
@@ -299,7 +267,7 @@ function fs_copy() (
 		# --archive, -a: archive mode; equals -rlptgoD (no -H,-A,-X)
 		#   --recursive, -r: recurse into directories
 		#   --links, -l: copy symlinks as symlinks
-		#   --perms, -p: preserve permissions
+		#   --perms, -p: preserve permissions (includes --executability, -E)
 		#   --times, -t: preserve modification times
 		#   --group, -g: preserve group
 		#   --owner, -o: preserve owner (super-user only)
@@ -308,25 +276,17 @@ function fs_copy() (
 		#   --specials: preserve special files
 		#
 		# --human-readable, -h: output numbers in a human-readable format
-		cmd+=(-P --archive --human-readable)
+		# --acls, -A: preserve ACLs (implies --perms)
+		# --xattrs, -X: preserve extended attributes
+		# --atimes, -U: preserve access (use) times
+		# --crtimes, -N: preserve create times (newness)
+		cmd+=(-P --archive --human-readable --acls --xattrs --atimes --crtimes)
 
 		# verify
 		if [[ $option_verify == 'yes' ]]; then
 			# -i, --itemize-changes       output a change-summary for all updates
 			# -n, --dry-run               show what would have been transferred
 			cmd+=(--itemize-changes --dry-run)
-		fi
-
-		# linux
-		if [[ $option_linux == 'yes' ]]; then
-			# --acls, -A: preserve ACLs (implies --perms)
-			# --xattrs, -X: preserve extended attributes
-			# --atimes, -U: preserve access (use) times
-			cmd+=(--acls --xattrs --atimes)
-
-			# --crtimes, -N: preserve create times (newness)
-			# --crtimes not supported on ubuntu server on arm, nor manjero on x86
-			# cmd+=('--crtimes')
 		fi
 
 		# checksum
@@ -352,7 +312,7 @@ function fs_copy() (
 		fi
 
 		# paths
-		cmd+=("$option_origin" "$option_destination")
+		cmd+=("${option_origins[@]}" "$option_destination")
 
 		# workaround for rsync always returning success exit code
 		# https://superuser.com/q/1700581/32418
@@ -383,7 +343,7 @@ function fs_copy() (
 
 		# paths
 		cmd+=(
-			"$option_origin"
+			"${option_origins[@]}"
 			"$option_destination"
 		)
 
@@ -408,7 +368,7 @@ function fs_copy() (
 
 		# paths
 		cmd+=(
-			"$option_origin"
+			"${option_origins[@]}"
 			"$option_destination"
 		)
 
@@ -425,6 +385,9 @@ function fs_copy() (
 		cmd+=(--brief --recursive)
 
 		# paths
+		if [[ ${#option_origins[@]} -ne 1 ]]; then
+			help '<diff> is incompatible with multiple <origin>s'
+		fi
 		cmd+=(
 			"$option_origin"
 			"$option_destination"
@@ -443,7 +406,8 @@ function fs_copy() (
 
 		# paths
 		cmd+=(
-			"$option_origin"
+			--
+			"${option_origins[@]}"
 			"$option_destination"
 		)
 
