@@ -944,27 +944,12 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 	BASH_NATIVE_UPPERCASE_SUFFIX='@U'
 	BASH_NATIVE_LOWERCASE_SUFFIX='@L'
 	function __get_uppercase_first_letter {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
 		printf '%s' "${@@u}" || return $?
 	}
 	function __get_uppercase_string {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
 		printf '%s' "${@@U}" || return $?
 	}
 	function __get_lowercase_string {
-		# trim -- prefix
-		if [[ ${1-} == '--' ]]; then
-			shift
-		fi
-		# proceed
 		printf '%s' "${@@L}" || return $?
 	}
 	function __case_insensitive_compare {
@@ -4741,8 +4726,8 @@ function __transform {
 			# trunk-ignore(shellcheck/SC2034)
 			for TRANSFORM__index in "${TRANSFORM__indices[@]}"; do
 				case "$TRANSFORM__case" in
-				'upper') eval 'TRANSFORM__results[TRANSFORM__index]="$(__get_uppercase_string -- "${'"$TRANSFORM__source_variable_name"'[TRANSFORM__index]}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
-				'lower') eval 'TRANSFORM__results[TRANSFORM__index]="$(__get_lowercase_string -- "${'"$TRANSFORM__source_variable_name"'[TRANSFORM__index]}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+				'upper') eval 'TRANSFORM__results[TRANSFORM__index]="$(__get_uppercase_string "${'"$TRANSFORM__source_variable_name"'[TRANSFORM__index]}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+				'lower') eval 'TRANSFORM__results[TRANSFORM__index]="$(__get_lowercase_string "${'"$TRANSFORM__source_variable_name"'[TRANSFORM__index]}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 				esac
 			done
 			__to --source={TRANSFORM__results} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
@@ -4750,8 +4735,8 @@ function __transform {
 			# trunk-ignore(shellcheck/SC2034)
 			local TRANSFORM__result=''
 			case "$TRANSFORM__case" in
-			'upper') eval 'TRANSFORM__result="$(__get_uppercase_string -- "${'"$TRANSFORM__source_variable_name"'}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
-			'lower') eval 'TRANSFORM__result="$(__get_lowercase_string -- "${'"$TRANSFORM__source_variable_name"'}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'upper') eval 'TRANSFORM__result="$(__get_uppercase_string "${'"$TRANSFORM__source_variable_name"'}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
+			'lower') eval 'TRANSFORM__result="$(__get_lowercase_string "${'"$TRANSFORM__source_variable_name"'}")"' || return 104 ;; # ENOTRECOVERABLE 104 State not recoverable
 			esac
 			__to --source={TRANSFORM__result} --mode="$TRANSFORM__mode" --targets={TRANSFORM__targets} || return $?
 		fi
