@@ -1,7 +1,7 @@
 source "$DOROTHY/sources/bash.bash"
 
 function is_fs_tests__root {
-	fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory
+	fs-make --directory='dorothy' --directory="$command" --directory='tests' --directory
 }
 
 function is_fs_tests__prep {
