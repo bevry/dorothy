@@ -955,6 +955,10 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 	function __case_insensitive_compare {
 		[[ ${1@L} == "${2@L}" ]] || return $?
 	}
+	function __case_insensitive_compare_contains {
+		# trunk-ignore(shellcheck/SC2053)
+		[[ ${1@L} == *"${2@L}"* ]] || return $?
+	}
 	function __case_insensitive_compare_pattern {
 		# trunk-ignore(shellcheck/SC2053)
 		[[ ${1@L} =~ ${2@L} ]] || return $?
@@ -1000,6 +1004,9 @@ else
 		}
 		function __case_insensitive_compare {
 			[[ ${1,,} == "${2,,}" ]] || return $?
+		}
+		function __case_insensitive_compare_contains {
+			[[ ${1,,} == *"${2,,}"* ]] || return $?
 		}
 		function __case_insensitive_compare_pattern {
 		# trunk-ignore(shellcheck/SC2053)
@@ -1055,6 +1062,10 @@ else
 		function __case_insensitive_compare () (
 			shopt -s nocasematch
 			[[ $1 == "$2" ]] || return $?
+		)
+		function __case_insensitive_compare_contains () (
+			shopt -s nocasematch
+			[[ $1 == *"$2"* ]] || return $?
 		)
 		function __case_insensitive_compare_pattern () (
 			shopt -s nocasematch
