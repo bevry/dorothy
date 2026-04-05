@@ -100,15 +100,6 @@ function fs_trim() (
 		'yarn.lock'
 		'.pnp.js'
 	)
-	local item cache_find=() module_find=()
-	for item in "${cache_leaves[@]}"; do
-		cache_find+=(-iname "$item" -or)
-	done
-	for item in "${module_leaves[@]}"; do
-		module_find+=(-iname "$item" -or)
-	done
-	cache_find=("${cache_find[@]:0:${#cache_find[@]}-1}")
-	module_find=("${module_find[@]:0:${#module_find[@]}-1}")
 
 	# =====================================
 	# Arguments
@@ -158,7 +149,7 @@ function fs_trim() (
 	}
 
 	# process
-	local item option_quiet='' option_inputs=() option_confirm='' option_all='' option_cache='' option_module='' option_empty_files='' option_broken_symlinks='' option_empty_directories='' option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	local item option_quiet='' option_inputs=() option_confirm='' option_all='' option_cache='' option_module='' option_empty_files='' option_broken_symlinks='' option_empty_directories='' option_extensions=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -188,6 +179,7 @@ function fs_trim() (
 			option_broken_symlinks='yes'
 			option_empty_directories='yes'
 			;;
+		'--extension='* | '--extensions='*) __split --target={option_extensions} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
 		# <elevate>
 		'--elevated='*) option_elevated="${item#*=}" ;;
 		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
@@ -213,6 +205,24 @@ function fs_trim() (
 	# =====================================
 	# Action
 
+	# prepare queries
+	local item cache_find=() module_find=() extension_find=()
+	for item in "${cache_leaves[@]}"; do
+		cache_find+=(-iname "$item" -or)
+	done
+	cache_find=("${cache_find[@]:0:${#cache_find[@]}-1}")
+	for item in "${module_leaves[@]}"; do
+		module_find+=(-iname "$item" -or)
+	done
+	module_find=("${module_find[@]:0:${#module_find[@]}-1}")
+	if [[ ${#option_extensions[@]} -ne 0 ]]; then
+		for item in "${option_extensions[@]}"; do
+			extension_find+=(-iname "*.$item" -or)
+		done
+		extension_find=("${extension_find[@]:0:${#extension_find[@]}-1}")
+	fi
+
+	# selection
 	local selection=()
 	if [[ $option_cache == 'yes' ]]; then
 		selection+=('cache')
@@ -229,6 +239,10 @@ function fs_trim() (
 	if [[ $option_empty_directories == 'yes' ]]; then
 		selection+=('directories')
 	fi
+	if [[ ${#option_extensions[@]} -ne 0 ]]; then
+		selection+=('extensions')
+	fi
+	# defaults
 	if [[ ${#selection[@]} -eq 0 ]]; then
 		selection+=('directories')
 		if [[ -z $option_confirm ]]; then
@@ -238,31 +252,28 @@ function fs_trim() (
 
 	# helpers
 	function __confirm {
-		local path="$1" title body
+		local path="$1" title body choices=()
 		if [[ $option_confirm == 'yes' ]]; then
 			title="$(
 				__print_style --notice1='What items do you wish to trim for:' --newline \
 					--code-notice1="$path"
 			)"
 			body="$(__print_style --reset)$(fs-structure --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path")"
-			__split --target={selection} --no-zero-length --invoke -- \
-				choose "$title" "$body" --truncate-body --multiple --defaults-exact="$(__print_lines "${selection[@]}")" --label -- \
-				cache "Caches: $(__print_style --newline --dim="${cache_leaves[*]}")" \
-				module "Module Caches: $(__print_style --newline --dim="${module_leaves[*]}")" \
-				files 'Empty files' \
-				broken 'Broken symlinks' \
+			choices=(
+				cache "Caches: $(__print_style --newline --dim="${cache_leaves[*]}")"
+				module "Module Caches: $(__print_style --newline --dim="${module_leaves[*]}")"
+				files 'Empty files'
+				broken 'Broken symlinks'
 				directories 'Empty directories'
+			)
+			if [[ ${#option_extensions[@]} -ne 0 ]]; then
+				choices+=(
+					extensions "Extensions: $(__print_style --newline --dim="${option_extensions[*]}")"
+				)
+			fi
+			__split --target={selection} --no-zero-length --invoke -- \
+				choose "$title" "$body" --truncate-body --multiple --defaults-exact="$(__print_lines "${selection[@]}")" --label -- "${choices[@]}"
 		fi
-		# still apply defaults in no-confirm mode
-		for item in "${selection[@]}"; do
-			case "$item" in
-			'cache') option_cache='yes' ;;
-			'module') option_module='yes' ;;
-			'files') option_empty_files='yes' ;;
-			'broken') option_broken_symlinks='yes' ;;
-			'directories') option_empty_directories='yes' ;;
-			esac
-		done
 	}
 	function __wrap {
 		eval-helper --inherit --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$@"
@@ -274,19 +285,22 @@ function fs_trim() (
 		__command_required -- 'find' || return $?
 		while is-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; do
 			: >"$find_modifications" # clear
-			if [[ $option_cache == 'yes' ]]; then
+			if __has --source={selection} -- cache; then
 				__wrap find "$path" \( "${cache_find[@]}" \) -delete -print >>"$find_modifications" || return $?
 			fi
-			if [[ $option_module == 'yes' ]]; then
+			if __has --source={selection} -- module; then
 				__wrap find "$path" \( "${module_find[@]}" \) -delete -print >>"$find_modifications" || return $?
 			fi
-			if [[ $option_empty_files == 'yes' ]]; then
+			if __has --source={selection} -- files; then
 				__wrap find "$path" -type f -empty -delete -print >>"$find_modifications" || return $?
 			fi
-			if [[ $option_broken_symlinks == 'yes' ]]; then
+			if __has --source={selection} -- extensions; then
+				__wrap find "$path" \( "${extension_find[@]}" \) -delete -print >>"$find_modifications" || return $?
+			fi
+			if __has --source={selection} -- broken; then
 				__wrap find "$path" -type l -exec fs-trim-broken-symlinks.bash -- {} + >>"$find_modifications" || return $?
 			fi
-			if [[ $option_empty_directories == 'yes' ]]; then
+			if __has --source={selection} -- directories; then
 				__wrap find "$path" -type d -empty -delete -print >>"$find_modifications" || return $?
 			fi
 			if [[ ! -s $find_modifications ]]; then
@@ -330,7 +344,7 @@ function fs_trim() (
 		__confirm "$path"
 
 		# check we have something to do
-		if [[ $option_cache != 'yes' && $option_module != 'yes' && $option_empty_files != 'yes' && $option_broken_symlinks != 'yes' && $option_empty_directories != 'yes' ]]; then
+		if [[ ${#selection[@]} -eq 0 ]] ; then
 			# no-op, user is aborting essentially
 			return 0
 		fi
@@ -340,7 +354,7 @@ function fs_trim() (
 			# it is a symlink
 			if is-broken-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
 				# it is broken, remove it if desired
-				if [[ $option_broken_symlinks == 'yes' ]]; then
+				if __has --source={selection} -- broken; then
 					__wrap rm -fv -- "$path" >>"$trim_modifications"
 				fi
 				continue
@@ -351,10 +365,10 @@ function fs_trim() (
 
 			# check if it is a cache/module file
 			leaves=()
-			if [[ $option_cache == 'yes' ]]; then
+			if __has --source={selection} -- cache; then
 				leaves+=("${cache_leaves[@]}")
 			fi
-			if [[ $option_module == 'yes' ]]; then
+			if __has --source={selection} -- module; then
 				leaves+=("${module_leaves[@]}")
 			fi
 			if [[ ${#leaves[@]} -ne 0 ]]; then
@@ -374,16 +388,16 @@ function fs_trim() (
 				if is-missing --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
 					__wrap rm -fv -- "$path" >>"$trim_modifications"
 				fi
-			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
+			elif __has --source={selection} -- files && is-empty-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$target"; then
 				__wrap rm -fv -- "$target" "$path" >>"$trim_modifications"
 			fi
 		else
 			# check if it is a cache/module file
 			leaves=()
-			if [[ $option_cache == 'yes' ]]; then
+			if __has --source={selection} -- cache; then
 				leaves+=("${cache_leaves[@]}")
 			fi
-			if [[ $option_module == 'yes' ]]; then
+			if __has --source={selection} -- module; then
 				leaves+=("${module_leaves[@]}")
 			fi
 			if [[ ${#leaves[@]} -ne 0 ]]; then
@@ -398,7 +412,7 @@ function fs_trim() (
 			if is-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
 				# it is a directory or symlink to a directory on the filesystem
 				__find "$path" >>"$trim_modifications"
-			elif [[ $option_empty_files == 'yes' ]] && is-empty-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
+			elif __has --source={selection} -- files && is-empty-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$path"; then
 				__wrap rm -fv -- "$path" >>"$trim_modifications"
 			fi
 		fi

@@ -1258,22 +1258,30 @@ function __print_style {
 function __print_help {
 	__pause_tracing || return $?
 	__load_styles --save -- intensity bold dim code link foreground_magenta foreground_green foreground_red
+	# This works by reading everything, splitting each character into a segment, stored in the array `$s` accompanied by as many `$prefixes` and `$suffixes`
+	# Character/segment removals work by say `s[i]=''`
+	# Character/segment replacements work by say `s[i]='replacement'`
+	# Adjusting styling of `s[i]` works by adjusting its `prefixes[i]` for starting style and `suffixes[i]` for ending style
+	# This allows us different mediums for content and styling, which is important for AST
+	# Sometimes we write the style directly to `s[i]` in situations where it doesn't matter
 	local s=() prefixes=() suffixes=() c
 	while LC_ALL=C IFS= read -rd '' -n1 c || [[ -n $c ]]; do
 		s+=("$c")
 		prefixes+=('')
 		suffixes+=('')
 	done
-	local -i n="${#s[@]}" i E
+	local -i n="${#s[@]}" i FOUND_INDEX
+	# __are_prior_characters_matching <pattern> <until> <is-empty-a-match>
 	function __are_prior_characters_matching {
+		# back tracking, updates FOUND_INDEX with each backward step of matching, with until and with default matching
 		local pattern="$1" until="$2" match="$3"
 		local -i ii
-		E="$i"
+		FOUND_INDEX="$i"
 		# check if all preceding line characters are pattern
 		for ((ii = i - 1; ii >= 0; ii--)); do
 			if [[ ${s[ii]} =~ $pattern ]]; then
 				match='yes'
-				E="$ii"
+				FOUND_INDEX="$ii"
 				continue
 			elif [[ ${s[ii]} == "$until" ]]; then
 				break
@@ -1283,15 +1291,17 @@ function __print_help {
 		done
 		[[ $match == 'yes' ]] || return $?
 	}
+	# __are_next_characters_matching <pattern> <until> <is-empty-a-match>
 	function __are_next_characters_matching {
+		# forward tracking, updates FOUND_INDEX with each forward step of matching, with until and with default matching
 		local pattern="$1" until="$2" match="$3"
 		local -i ii
-		E="$i"
+		FOUND_INDEX="$i"
 		# check if all preceding line characters are pattern
 		for ((ii = i + 1; ii < n; ii++)); do
 			if [[ ${s[ii]} =~ $pattern ]]; then
 				match='yes'
-				E="$ii"
+				FOUND_INDEX="$ii"
 				continue
 			elif [[ ${s[ii]} == "$until" ]]; then
 				break
@@ -1302,39 +1312,41 @@ function __print_help {
 		[[ $match == 'yes' ]] || return $?
 	}
 	function __apply_index_of_prior_pattern {
+		# back tracking, updates FOUND_INDEX with each backward step of matching, failing if pattern was never found
 		local pattern="$1"
 		local -i ii
-		E="$i"
+		FOUND_INDEX=-1
 		for ((ii = i - 1; ii >= 0; ii--)); do
 			if [[ ${s[ii]} =~ $pattern ]]; then
-				E="$ii"
+				FOUND_INDEX="$ii"
 				break
 			else
 				continue
 			fi
 		done
-		if [[ $E -eq -1 ]]; then
+		if [[ $FOUND_INDEX -eq -1 ]]; then
 			return 1
 		fi
 	}
 	function __apply_index_of_next_pattern {
+		# forward tracking, updates FOUND_INDEX with each forward step of matching, failing if pattern was never found
 		local pattern="$1"
 		local -i ii
-		E="$i"
+		FOUND_INDEX=-1
 		for ((ii = i + 1; ii < n; ii++)); do
 			if [[ ${s[ii]} =~ $pattern ]]; then
-				E="$ii"
+				FOUND_INDEX="$ii"
 				break
 			else
 				continue
 			fi
 		done
-		if [[ $E -eq -1 ]]; then
+		if [[ $FOUND_INDEX -eq -1 ]]; then
 			return 1
 		fi
 	}
 	function __are_prior_characters_only_padding {
-		__are_prior_characters_matching '^[[:blank:]]+$' $'\n' 'yes' || return $?
+		__are_prior_characters_matching '^[\t ]+$' $'\n' 'yes' || return $?
 	}
 	function __are_prior_characters_only_header {
 		# @todo this may match `\n :`, as such we change prior characters to fetching all characters until <until> then do the pattern test on their string; this is difficult for now due to the need to update E with the index of matched characters; as such it may be worth matching characters, and then matching spread separately
@@ -1343,11 +1355,11 @@ function __print_help {
 	function __require_fence {
 		local segment="$1" prefix='' suffix=''
 		if __apply_index_of_prior_pattern $'\n'; then
-			E="$((E + 1))"
-			IFS='' prefix="${s[*]:E:i-E}"
+			FOUND_INDEX="$((FOUND_INDEX + 1))"
+			IFS='' prefix="${s[*]:FOUND_INDEX:i-FOUND_INDEX}"
 		fi
 		if __apply_index_of_next_pattern $'\n'; then
-			IFS='' suffix="${s[*]:i:E-i}"
+			IFS='' suffix="${s[*]:i:FOUND_INDEX-i}"
 		fi
 		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' ' of:' --newline --code="$prefix$suffix" --newline 'Try:' --newline --code='```'"$prefix$suffix"'```' || return $?
 		return 94 # EBADMSG 94 Bad message
@@ -1378,7 +1390,7 @@ function __print_help {
 			# if the code fence is the only non-whitespace thing on the line, then remove the line
 			if [[ ${s[i + 3]-} == $'\n' ]] && __are_prior_characters_only_padding; then
 				s[i + 3]=''
-				for ((ii = E; ii < i; ii++)); do
+				for ((ii = FOUND_INDEX; ii < i; ii++)); do
 					s[ii]=''
 				done
 			fi
@@ -1406,7 +1418,7 @@ function __print_help {
 		elif [[ "$c${s[i + 1]-}" == '! ' ]]; then
 			# lists
 			if __are_prior_characters_only_padding; then
-				prefixes[E]+="$STYLE__foreground_red"
+				prefixes[FOUND_INDEX]+="$STYLE__foreground_red"
 				s[i]='!'
 				suffixes[i]+="$STYLE__END__foreground_red"
 				continue
@@ -1414,31 +1426,37 @@ function __print_help {
 		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
 			# headers
 			if __are_prior_characters_only_header; then
-				prefixes[E]+="$STYLE__foreground_magenta"
+				prefixes[FOUND_INDEX]+="$STYLE__foreground_magenta"
 				suffixes[i]+="$STYLE__END__foreground_magenta"
 				continue
 			fi
 		elif [[ $c == '<' ]]; then
 			# urls
+			# https://spec.commonmark.org/0.31.2/#autolink
+			# if we want to do full autolinks, this would then be:
+			# `if __apply_index_of_next_pattern '[a-z][a-z0-9+.-]+:[^[:cntrl:] <>]*^>$'; then`
+			# but until we have a use case for that, ignore that use case and go with the simplest option
 			if [[ "${s[i + 1]-}${s[i + 2]-}${s[i + 3]-}${s[i + 4]-}" == 'http' ]]; then
 				if __apply_index_of_next_pattern '^>$'; then
 					s[i]="$STYLE__link"
-					s[E]="$STYLE__END__link"
-					i="$E"
+					s[FOUND_INDEX]="$STYLE__END__link"
+					i="$FOUND_INDEX"
 				fi
 				continue
 			fi
 		elif [[ $c == '[' ]]; then
 			# return statuses
 			if __are_next_characters_matching '^0+$' ']' 'no'; then
+				# next characters are `0+\]`, success exit status
 				prefixes[i]+="$STYLE__foreground_green"
-				suffixes[E + 1]+="$STYLE__END__foreground_green"
-				i="$((E + 1))"
+				suffixes[FOUND_INDEX + 1]+="$STYLE__END__foreground_green"
+				i="$((FOUND_INDEX + 1))"
 				continue
 			elif __are_next_characters_matching '^[[:digit:]*]+$' ']' 'no'; then
+				# next characters are one or more of any digit or asterisk then `]`, so `[1]` or `[*]`, which denotes failure exit status
 				prefixes[i]+="$STYLE__foreground_red"
-				suffixes[E + 1]+="$STYLE__END__foreground_red"
-				i="$((E + 1))"
+				suffixes[FOUND_INDEX + 1]+="$STYLE__END__foreground_red"
+				i="$((FOUND_INDEX + 1))"
 				continue
 			fi
 		elif [[ $c == '`' ]]; then
@@ -1473,13 +1491,14 @@ function __print_help {
 		if [[ $in_option == 'yes' ]] && __are_prior_characters_only_padding; then
 			prefixes[i]="${STYLE__foreground_magenta}"
 			if __apply_index_of_next_pattern $'^\n$'; then
-				suffixes[E]+="$STYLE__END__foreground_magenta"
+				suffixes[FOUND_INDEX]+="$STYLE__END__foreground_magenta"
 			else
 				# no trailing line
 				suffixes[n - 1]+="$STYLE__END__foreground_magenta"
 			fi
 		fi
 
+		# require fencing
 		remove_intensity='no'
 		case "$c" in
 		'[')
@@ -1545,13 +1564,13 @@ function __print_help {
 	for ((i = 0; i < n; i++)); do
 		result+="${prefixes[i]}${s[i]}${suffixes[i]}"
 	done
-	# trim double trailing newline, which is an EOF accident
-	while [[ $result == *$'\n\n' ]]; do
+	# trim trailing newlines, ensuring only one, such that consistent formatting is adhered to (double can happen when doing EOF, and none can happen when doing file piping)
+	while [[ $result == *$'\n' ]]; do
 		result="${result%$'\n'*}"
 	done
-	printf '%s' "$result" >&2
+	printf '%s\n' "$result" >&2
 	if [[ $# -ne 0 ]]; then
-		__print_line || return $?
+		printf '\n' >&2 || return $?
 		__print_error "$@" || return $?
 	fi
 	__restore_tracing || return $?

@@ -2359,22 +2359,46 @@ function __do {
 	# __do --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
 	# if [[ $choice == $'b\n' ]]; then
 	# or:
-	# __do --no-trailing-newlines --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
+	# __do --no-exact --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
 	# if [[ $choice == $'b\n' ]]; then
 	# or `choose` itself would need to be modified to not have a trailing newline on the last item
 	# however, such trailing newlines are common everywhere, and are expected in all CLI/TUI output as they want a trailing newline so that dumb interactive shell prompts don't have the prompt on the same line as the tool output, so instead interactive shells just strip the trailing newline in script usage; the whole thing is a mess, and explains why consistency in an inconsistent world is not ideal and why divergence in a divergent world is better
-	local DO__trailing_newlines=no DO__args=() DO__cmd=()
+	local DO__exact_stdout='' DO__exact_stderr='' DO__exact_tty='' DO__exact='' DO__args=() DO__cmd=()
 	while [[ $# -ne 0 ]]; do
 		case "$1" in
-		'--trailing-newlines' | '--trailing-newlines=yes')
-			DO__trailing_newlines=yes
+		'--exact-stdout' | '--exact-stdout=yes')
+			DO__exact_stdout=yes
 			shift
 			;;
-		'--no-trailing-newlines' | '--trailing-newlines=no')
-			DO__trailing_newlines=no
+		'--no-exact-stdout' | '--exact-stdout=no')
+			DO__exact_stdout=no
 			shift
 			;;
-		'--trailing-newlines=')
+		'--exact-stderr' | '--exact-stderr=yes')
+			DO__exact_stderr=yes
+			shift
+			;;
+		'--no-exact-stderr' | '--exact-stderr=no')
+			DO__exact_stderr=no
+			shift
+			;;
+		'--exact-tty' | '--exact-tty=yes')
+			DO__exact_tty=yes
+			shift
+			;;
+		'--no-exact-tty' | '--exact-tty=no')
+			DO__exact_stdout=no
+			shift
+			;;
+		'--exact' | '--exact=yes')
+			DO__exact=yes
+			shift
+			;;
+		'--no-exact' | '--exact=no')
+			DO__exact=no
+			shift
+			;;
+		'--exact-stdout=' | '--exact-stderr=' | '--exact-tty=' | '--exact=')
 			shift
 			;;
 		'--')
@@ -2398,14 +2422,26 @@ function __do {
 		return $?
 	fi
 	# extract the arg that we will be working with on this recursion iteration
-	local DO__arg DO__arg_value DO__arg_flag
+	local DO__arg DO__arg_value DO__arg_flag DO__inheritance=()
+	if [[ -n $DO__exact_stdout ]]; then
+		DO__inheritance+=("--exact-stdout=$DO__exact_stdout")
+	fi
+	if [[ -n $DO__exact_stderr ]]; then
+		DO__inheritance+=("--exact-stderr=$DO__exact_stderr")
+	fi
+	if [[ -n $DO__exact_tty ]]; then
+		DO__inheritance+=("--exact-tty=$DO__exact_tty")
+	fi
+	if [[ -n $DO__exact ]]; then
+		DO__inheritance+=("--exact=$DO__exact")
+	fi
 	if [[ ${#DO__args[@]} -eq 1 ]]; then
 		DO__arg="${DO__args[0]}"
-		set -- --trailing-newlines="$DO__trailing_newlines" -- "${DO__cmd[@]}"
+		set -- "${DO__inheritance[@]}" -- "${DO__cmd[@]}"
 	else
 		DO__arg="${DO__args[0]}"      # get the first argument
 		DO__args=("${DO__args[@]:1}") # remove the first argument from the remainder
-		set -- --trailing-newlines="$DO__trailing_newlines" "${DO__args[@]}" -- "${DO__cmd[@]}"
+		set -- "${DO__inheritance[@]}" "${DO__args[@]}" -- "${DO__cmd[@]}"
 	fi
 	DO__arg_flag="${DO__arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
 	DO__arg_value="${DO__arg#*=}"
@@ -2493,7 +2529,12 @@ function __do {
 
 	# redirect or copy, device files, to a var target
 	'--redirect-stdout={'*'}' | '--redirect-stderr={'*'}' | '--redirect-output={'*'}' | '--copy-stdout={'*'}' | '--copy-stderr={'*'}' | '--copy-output={'*'}')
-		local DO__variable_name DO__semaphore REPLY
+		local DO__exact_specific="$DO__exact" DO__variable_name DO__semaphore REPLY
+		case "$DO__arg" in
+		'--redirect-stdout='* | '--copy-stdout='*) DO__exact_specific="${DO__exact_stdout:-"$DO__exact"}" ;;
+		'--redirect-stderr='* | '--copy-stderr='*) DO__exact_specific="${DO__exact_stderr:-"$DO__exact"}" ;;
+		'--redirect-tty='* | '--copy-tty='*) DO__exact_specific="${DO__exact_tty:-"$DO__exact"}" ;;
+		esac
 		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return $?
 
 		# reset to prevent inheriting prior values of the same name if this one has a failure status which prevents updating the values
@@ -2506,10 +2547,10 @@ function __do {
 		__return $? --invoke-only-on-failure -- rm -f -- "$DO__semaphore" || return $?
 
 		# load the value of the file, remove the file, apply the value to the var target
-		if [[ $DO__trailing_newlines == no ]]; then
-			REPLY="$(<"$DO__semaphore")" || __return $? -- rm -f -- "$DO__semaphore" || return $?
-		else
+		if [[ $DO__exact_specific == yes ]]; then
 			__read_whole <"$DO__semaphore" || __return $? -- rm -f -- "$DO__semaphore" || return $?
+		else
+			REPLY="$(<"$DO__semaphore")" || __return $? -- rm -f -- "$DO__semaphore" || return $?
 		fi
 		eval "$DO__variable_name=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return $?
 		rm -f -- "$DO__semaphore" || return $?
@@ -5468,6 +5509,13 @@ function __replace {
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 
+		'--leading-newlines')
+			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[!\n]*}"}"
+			;;
+		'--trailing-newlines')
+			REPLACE__value_wip="${REPLACE__value_wip%"${REPLACE__value_wip##*[!\n]}"}"
+			;;
+
 		# Bash/POSIX Character Classes: <https://www.gnu.org/software/gawk/manual/html_node/Bracket-Expressions.html>
 		'--leading-whitespace')
 			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[![:space:]]*}"}"
@@ -5822,7 +5870,7 @@ function __slice {
 # __split --target={arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
 # use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
 function __split {
-	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
+	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__exact='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
 	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
 	# <multi-source helper arguments>
 	local SPLIT__item SPLIT__sources_variable_names=() SPLIT__targets=() SPLIT__mode=''
@@ -5862,7 +5910,7 @@ function __split {
 		'--')
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				local SPLIT__fodder_with_redirect_exit_status SPLIT__exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
+				__do --exact="$SPLIT__exact" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
 				if [[ $SPLIT__exit_status -ne 0 ]]; then
 					return "$SPLIT__exit_status"
 				fi
@@ -5870,7 +5918,7 @@ function __split {
 				SPLIT__sources_variable_names+=('SPLIT__input')
 			elif [[ $SPLIT__invoke == 'try' ]]; then
 				local SPLIT__fodder_with_discard_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
+				__do --exact="$SPLIT__exact" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
 				# trunk-ignore(shellcheck/SC2034)
 				local SPLIT__input="$SPLIT__fodder_with_discard_exit_status"
 				SPLIT__sources_variable_names+=('SPLIT__input')
@@ -5885,7 +5933,7 @@ function __split {
 			shift $#
 			break
 			;;
-		'--no-trailing-newlines'* | '--trailing-newlines'*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return $? ;;
+		'--no-exact'* | '--exact'*) __flag --source={SPLIT__item} --target={SPLIT__exact} --affirmative --coerce || return $? ;;
 		'--no-zero-length'* | '--zero-length'* | '--keep-zero-length'*) __flag --source={SPLIT__item} --target={SPLIT__zero_length} --affirmative --coerce || return $? ;;
 		'--invoke=try') SPLIT__invoke='try' ;;
 		'--invoke') SPLIT__invoke='yes' ;;

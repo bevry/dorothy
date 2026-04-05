@@ -1,7 +1,8 @@
 #!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 
+import { styleText } from 'node:util';
 import {
-	AbstractHelpError,
+	HelpError,
 	exitWithError,
 	writeStdoutStringify,
 	writeStdoutPlain,
@@ -20,16 +21,16 @@ const actions: Action[] = [
 	'json',
 	'pretty',
 ]
-class HelpError extends AbstractHelpError {
+class UsageError extends HelpError {
 	override help = [
 		'USAGE:',
-		'echo-json.ts <make> [--] ...[<key> <value>]',
-		'echo-json.ts <stringify|encode|decode|json|pretty> [--] ...<input>',
+		'`echo-json.ts <make> [--] ...[<key> <value>]`',
+		'`echo-json.ts <stringify|encode|decode|json|pretty> [--] ...<input>`',
 	].join('\n')
 }
 function assertAction(value: unknown): asserts value is Action {
 	if (!actions.includes(value as Action)) {
-		throw new HelpError(`An unrecognised <action> was provided: ${value}`)
+		throw new UsageError(`An unrecognised <action> was provided: \`${value}\``)
 	}
 }
 function asAction(value: unknown): Action {
@@ -89,7 +90,9 @@ async function main(...args: string[]) {
 	if (action === 'make') {
 		// validate we have a <value> for every <key>
 		if (inputs.length % 2 !== 0) {
-			throw new Error('<make> requires an even number of <key> <value> pairs.')
+			throw new UsageError(
+				'<make> requires an even number of <key> <value> pairs.',
+			)
 		}
 		// build the object
 		const output: Record<string, unknown> = {}
@@ -112,8 +115,8 @@ async function main(...args: string[]) {
 			case 'pretty': {
 				const { parseError, value } = parse(input)
 				if (parseError != null) {
-					throw new Error(
-						`Failed to parse what should be JSON-encoded <input> = ${parseError.message}`,
+					throw new UsageError(
+						`Failed to parse what should be JSON-encoded <input> = \`${parseError.message}\``,
 					)
 				}
 				if (action == 'json') {
@@ -143,8 +146,8 @@ async function main(...args: string[]) {
 							if (diver && typeof diver === 'object' && key in diver) {
 								diver = diver[key]
 							} else {
-								throw new Error(
-									`Property "${property}" does not exist in the provided input.`,
+								throw new HelpError(
+									`Property \`${property}\` does not exist in the provided input.`,
 								)
 							}
 						}
@@ -158,7 +161,7 @@ async function main(...args: string[]) {
 				break
 			}
 			default:
-				throw new Error(`Invalid action: ${action}`)
+				throw new UsageError(`Invalid <action>: \`${action}\``)
 				break
 		}
 	}

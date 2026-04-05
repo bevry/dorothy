@@ -1,0 +1,686 @@
+#!/usr/bin/env -S eval-wsl deno run --quiet --allow-env --allow-read --allow-write --allow-run --no-config --no-lock --no-npm --no-remote --cached-only
+
+import {
+	HelpError,
+	exitWithError,
+	writeStdoutPlain,
+	asString,
+	asError,
+} from '../sources/ts.ts'
+
+// Custom error for this command with help text
+class UsageError extends HelpError {
+	override help = [
+		'USAGE:',
+		'`ai-sync --import-typingmind-json-export=<path> --target=anythingllm`',
+		'',
+		'OPTIONS:',
+		'--import-typingmind-json-export=<typingmind-json-export>',
+		'    Path to the TypingMind export saved as .json file.',
+		'--target=<target>',
+		'    Import target (currently: AnythingLLM)',
+		'',
+		'EXAMPLES:',
+		'`ai-sync --import-typingmind-json-export="$HOME/Downloads/typingmind.json" --target=anythingllm`',
+	].join('\n')
+
+	constructor(message = 'Help requested') {
+		super(message)
+	}
+}
+
+// Validate target
+type ImportTarget = 'anythingllm'
+const validTargets: ImportTarget[] = ['anythingllm']
+
+// Normalize target: lowercase and remove non a-z characters
+function normalizeTarget(value: string): string {
+	return value.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+function assertTarget(value: unknown): asserts value is ImportTarget {
+	if (!validTargets.includes(value as ImportTarget)) {
+		throw new UsageError(`Invalid --target: ${value}. Must be one of: ${validTargets.join(', ')}`)
+	}
+}
+
+// Types
+interface TypingMindChat {
+	chatID: string
+	chatTitle: string
+	createdAt: string
+	deletedAt: string | null
+	folderID: string | null  // Note: uppercase ID in TypeMind JSON
+	messages: Array<{
+		role: string
+		content: string
+		[key: string]: unknown
+	}>
+	syncedAt: string
+	updatedAt: string
+}
+
+interface TypingMindFolder {
+	id: string
+	title: string
+	[key: string]: unknown
+}
+
+interface TypingMindData {
+	chats: TypingMindChat[]
+	folders?: TypingMindFolder[]
+	[key: string]: unknown
+}
+
+function validateSQLSchema(dbPath: string): void {
+	writeStdoutPlain('Validating AnythingLLM database schema...')
+
+	// Check if sqlite3 is available
+	const checkCmd = new Deno.Command('sqlite3', {
+		args: [dbPath, "SELECT name FROM sqlite_master WHERE type='table'"],
+		stdout: 'piped',
+		stderr: 'piped',
+	})
+
+	const result = checkCmd.outputSync()
+	if (!result.success) {
+		throw new Error('Cannot access SQLite database. Make sure sqlite3 is installed and the database is readable.')
+	}
+
+	const output = new TextDecoder().decode(result.stdout)
+	const tables = output
+		.split('\n')
+		.filter((line) => line.trim())
+		.map((line) => line.trim())
+
+	const requiredTables = ['workspace_chats', 'workspaces']
+	const tableSet = new Set(tables)
+	const missingTables = requiredTables.filter((t) => !tableSet.has(t))
+
+	if (missingTables.length > 0) {
+		throw new Error(
+			`Missing required database tables: ${missingTables.join(', ')}. This may not be an AnythingLLM database.`
+		)
+	}
+
+	// Verify workspace_chats schema
+	const chatsSchemaCmd = new Deno.Command('sqlite3', {
+		args: [dbPath, "PRAGMA table_info(workspace_chats)"],
+		stdout: 'piped',
+		stderr: 'piped',
+	})
+
+	const chatsResult = chatsSchemaCmd.outputSync()
+	const chatsSchemaOutput = new TextDecoder().decode(chatsResult.stdout)
+	const chatsColumns = chatsSchemaOutput
+		.split('\n')
+		.filter((line) => line.trim())
+		.map((line) => line.split('|')[1].trim())
+
+	const requiredChatsCols = ['workspaceId', 'prompt', 'response', 'createdAt']
+	const chatsColSet = new Set(chatsColumns)
+	const missingChatsCols = requiredChatsCols.filter((c) => !chatsColSet.has(c))
+
+	if (missingChatsCols.length > 0) {
+		throw new Error(
+			`Missing required columns in 'workspace_chats' table: ${missingChatsCols.join(', ')}`
+		)
+	}
+
+	writeStdoutPlain('✓ Database schema is valid')
+}
+
+function runSQLQuery(dbPath: string, sql: string): void {
+	const cmd = new Deno.Command('sqlite3', {
+		args: [dbPath, sql],
+		stdout: 'piped',
+		stderr: 'piped',
+	})
+
+	const result = cmd.outputSync()
+	if (!result.success) {
+		const errorMsg = new TextDecoder().decode(result.stderr)
+		throw new Error(`SQL Error: ${errorMsg}`)
+	}
+}
+
+function querySQLOne<T extends Record<string, unknown>>(dbPath: string, sql: string): T | null {
+	const cmd = new Deno.Command('sqlite3', {
+		args: [dbPath, '.mode json', sql],
+		stdout: 'piped',
+		stderr: 'piped',
+	})
+
+	const result = cmd.outputSync()
+	if (!result.success) {
+		const errorMsg = new TextDecoder().decode(result.stderr)
+		throw new Error(`SQL Error: ${errorMsg}`)
+	}
+
+	const output = new TextDecoder().decode(result.stdout).trim()
+	if (!output) return null
+
+	try {
+		const parsed = JSON.parse(output) as T[]
+		return parsed[0] || null
+	} catch {
+		return null
+	}
+}
+
+function querySQLAll<T extends Record<string, unknown>>(dbPath: string, sql: string): T[] {
+	const cmd = new Deno.Command('sqlite3', {
+		args: [dbPath, '.mode json', sql],
+		stdout: 'piped',
+		stderr: 'piped',
+	})
+
+	const result = cmd.outputSync()
+	if (!result.success) {
+		const errorMsg = new TextDecoder().decode(result.stderr)
+		throw new Error(`SQL Error: ${errorMsg}`)
+	}
+
+	const output = new TextDecoder().decode(result.stdout).trim()
+	if (!output) return []
+
+	try {
+		return JSON.parse(output) as T[]
+	} catch {
+		return []
+	}
+}
+
+function generateBetterThreadName(chat: TypingMindChat): string {
+	// Check if the title is generic/ambiguous
+	const genericNames = ['new chat', 'chat', 'conversation', 'untitled']
+	const isGeneric = genericNames.some(name => chat.chatTitle.toLowerCase() === name)
+
+	if (!isGeneric) {
+		return chat.chatTitle
+	}
+
+	// Extract first user message for context
+	if (!chat.messages || chat.messages.length === 0) {
+		return chat.chatTitle
+	}
+
+	// Find the first user message
+	const firstUserMessage = chat.messages.find(msg => msg.role?.toLowerCase() === 'user')
+	if (!firstUserMessage) {
+		return chat.chatTitle
+	}
+
+	const content = (firstUserMessage.content || '').trim()
+	if (!content) {
+		return chat.chatTitle
+	}
+
+	// Fallback: Extract key phrases from the message (first ~80 chars or first sentence)
+	let title = content
+	const sentenceEnd = Math.min(content.indexOf('.') + 1, 80)
+	if (sentenceEnd > 1) {
+		title = content.substring(0, sentenceEnd)
+	} else {
+		title = content.substring(0, 80)
+	}
+
+	// Clean up the title
+	title = title.replace(/^\s+|\s+$/g, '').replace(/\s+/g, ' ')
+
+	// Truncate if too long (max 100 chars)
+	if (title.length > 100) {
+		const lastSpace = title.lastIndexOf(' ', 100)
+		title = title.substring(0, lastSpace > 50 ? lastSpace : 100)
+	}
+
+	return title || chat.chatTitle
+}
+
+function validateJsonStructure(typingMindData: TypingMindData): void {
+	writeStdoutPlain('Validating typingmind.json structure...')
+
+	if (!typingMindData) {
+		throw new Error('typingmind.json has no data root')
+	}
+
+	if (!Array.isArray(typingMindData.chats)) {
+		throw new Error('typingmind.json.data.chats is not an array')
+	}
+
+	if (typingMindData.chats.length === 0) {
+		throw new Error('No chats found in typingmind.json')
+	}
+
+	// Validate each chat has required fields
+	for (let i = 0; i < typingMindData.chats.length; i++) {
+		const chat = typingMindData.chats[i]
+		const requiredFields = ['chatID', 'chatTitle', 'createdAt', 'updatedAt', 'messages']
+
+		for (const field of requiredFields) {
+			if (!(field in chat)) {
+				throw new Error(`Chat at index ${i} is missing required field: ${field}`)
+			}
+		}
+
+		if (!Array.isArray(chat.messages)) {
+			throw new Error(`Chat at index ${i}: messages is not an array`)
+		}
+
+		// Validate each message
+		for (let j = 0; j < chat.messages.length; j++) {
+			const msg = chat.messages[j]
+			if (!('role' in msg) || !('content' in msg)) {
+				throw new Error(`Chat at index ${i}, message ${j}: missing role or content`)
+			}
+		}
+	}
+
+	writeStdoutPlain('✓ JSON structure is valid')
+}
+
+function generatePreview(
+	typingMindData: TypingMindData,
+	workspaceId: number
+): { validChats: TypingMindChat[]; stats: { total: number; valid: number; deleted: number; empty: number } } {
+	writeStdoutPlain('\n📋 Import Preview:')
+	writeStdoutPlain('─'.repeat(80))
+
+	let validCount = 0
+	let deletedCount = 0
+	let emptyCount = 0
+	const validChats: TypingMindChat[] = []
+
+	for (const chat of typingMindData.chats) {
+		if (chat.deletedAt) {
+			deletedCount++
+			continue
+		}
+
+		if (!chat.chatID || !chat.chatTitle) {
+			emptyCount++
+			continue
+		}
+
+		validCount++
+		validChats.push(chat)
+
+		const messageCount = chat.messages ? chat.messages.length : 0
+		const slug = chat.chatID.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+		const createdDate = new Date(chat.createdAt).toLocaleDateString()
+
+		writeStdoutPlain(`\n  Chat ID (slug): ${slug}`)
+		writeStdoutPlain(`  Title: ${chat.chatTitle}`)
+		writeStdoutPlain(`  Messages: ${messageCount}`)
+		writeStdoutPlain(`  Created: ${createdDate}`)
+
+		if (messageCount > 0 && messageCount <= 5) {
+			for (let i = 0; i < messageCount; i++) {
+				const msg = chat.messages[i]
+				const role = msg.role || 'unknown'
+				const preview = (msg.content || '').substring(0, 50).replace(/\n/g, ' ')
+				writeStdoutPlain(`    [${i + 1}] ${role}: ${preview}${preview.length > 50 ? '...' : ''}`)
+			}
+		} else if (messageCount > 5) {
+			writeStdoutPlain(`    [1] ${chat.messages[0].role}: ${chat.messages[0].content?.substring(0, 50)}...`)
+			writeStdoutPlain(`    [2] ${chat.messages[1].role}: ${chat.messages[1].content?.substring(0, 50)}...`)
+			writeStdoutPlain(`    ... (${messageCount - 4} more messages)`)
+			writeStdoutPlain(
+				`    [${messageCount - 1}] ${chat.messages[messageCount - 2].role}: ${chat.messages[messageCount - 2].content?.substring(0, 50)}...`
+			)
+			writeStdoutPlain(
+				`    [${messageCount}] ${chat.messages[messageCount - 1].role}: ${chat.messages[messageCount - 1].content?.substring(0, 50)}...`
+			)
+		}
+	}
+
+	writeStdoutPlain('\n' + '─'.repeat(80))
+	writeStdoutPlain(`\nSummary:`)
+	writeStdoutPlain(`  Total chats in file: ${typingMindData.chats.length}`)
+	writeStdoutPlain(`  ✓ Valid (will import): ${validCount}`)
+	writeStdoutPlain(`  ⊘ Deleted (will skip): ${deletedCount}`)
+	writeStdoutPlain(`  ✗ Empty/invalid (will skip): ${emptyCount}`)
+	writeStdoutPlain(`  Target workspace ID: ${workspaceId}`)
+	writeStdoutPlain(`\n`)
+
+	return {
+		validChats,
+		stats: {
+			total: typingMindData.chats.length,
+			valid: validCount,
+			deleted: deletedCount,
+			empty: emptyCount,
+		},
+	}
+}
+
+async function backupDatabase(dbPath: string): Promise<string> {
+	const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+	const backupFileName = `anythingllm.db.backup.${timestamp}.db`
+
+	// Determine backup directory
+	const homeDir = Deno.env.get('HOME')
+	if (!homeDir) {
+		throw new Error('HOME environment variable not set')
+	}
+
+	const xdgStateHome = Deno.env.get('XDG_STATE_HOME') || `${homeDir}/.local/state`
+	const backupDir = `${xdgStateHome}/dorothy/ai-sync`
+
+	// Create backup directory if it doesn't exist
+	try {
+		await Deno.mkdir(backupDir, { recursive: true })
+	} catch (error) {
+		throw new Error(`Failed to create backup directory at ${backupDir}: ${asString(error)}`)
+	}
+
+	const backupPath = `${backupDir}/${backupFileName}`
+
+	writeStdoutPlain(`Creating timestamped backup of database...`)
+
+	try {
+		const dbContent = await Deno.readFile(dbPath)
+		await Deno.writeFile(backupPath, dbContent)
+		writeStdoutPlain(`✓ Database backed up to: ${backupPath}`)
+		return backupPath
+	} catch (error) {
+		throw new Error(`Failed to create database backup: ${asString(error)}`)
+	}
+}
+
+async function importTypingMindToAnythingLLM(typingMindJsonPath: string): Promise<void> {
+	// Expand tilde in path
+	if (typingMindJsonPath.startsWith('~')) {
+		const homeDir = Deno.env.get('HOME')
+		if (!homeDir) {
+			throw new Error('HOME environment variable not set')
+		}
+		typingMindJsonPath = typingMindJsonPath.replace('~', homeDir)
+	}
+
+	// Get paths
+	const homeDir = Deno.env.get('HOME')
+	if (!homeDir) {
+		throw new Error('HOME environment variable not set')
+	}
+
+	const anythingLLMDbPath = homeDir + '/Library/Application Support/anythingllm-desktop/storage/anythingllm.db'
+
+	// Check if database exists first so we can back it up before any other operations
+	try {
+		await Deno.stat(anythingLLMDbPath)
+	} catch {
+		throw new Error(`AnythingLLM database not found at ${anythingLLMDbPath}`)
+	}
+
+	// Create timestamped backup immediately
+	await backupDatabase(anythingLLMDbPath)
+
+	// Check if JSON file exists
+	try {
+		await Deno.stat(typingMindJsonPath)
+	} catch {
+		throw new Error(`typingmind.json not found at ${typingMindJsonPath}`)
+	}
+
+	writeStdoutPlain(`Reading typingmind.json from ${typingMindJsonPath}...`)
+	const typingMindContent = await Deno.readTextFile(typingMindJsonPath)
+	const typingMindJson = JSON.parse(typingMindContent) as { data: TypingMindData }
+	const typingMindData = typingMindJson.data
+
+	// Validate JSON structure first
+	validateJsonStructure(typingMindData)
+
+	// Connect to AnythingLLM database
+	writeStdoutPlain(`Connecting to AnythingLLM database at ${anythingLLMDbPath}...`)
+
+	try {
+		// Validate SQL schema
+		validateSQLSchema(anythingLLMDbPath)
+
+		// Build map of folder ID to folder title
+		const folderMap = new Map<string | null, string>()
+		if (typingMindData.folders && Array.isArray(typingMindData.folders)) {
+			for (const folder of typingMindData.folders) {
+				folderMap.set(folder.id, folder.title)
+			}
+		}
+
+		// Group chats by folder/workspace
+		const chatsByFolder = new Map<string | null, TypingMindChat[]>()
+		for (const chat of typingMindData.chats) {
+			const folderId = chat.folderID || null  // Use folderID (uppercase)
+			if (!chatsByFolder.has(folderId)) {
+				chatsByFolder.set(folderId, [])
+			}
+			chatsByFolder.get(folderId)!.push(chat)
+		}
+
+		// Map to store workspace info (folderId -> workspaceId)
+		const workspaceMap = new Map<string | null, number>()
+
+		// Get or create workspaces for each folder
+		for (const [folderId] of chatsByFolder) {
+			const folderTitle = folderId ? folderMap.get(folderId) : null
+			const workspaceName = folderTitle ? `TypingMind: ${folderTitle}` : 'TypingMind'
+			const workspaceSlug = folderTitle ? `typingmind-${folderTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : 'typingmind'
+
+			// Try to find existing workspace
+			let existingWorkspaces = querySQLAll<{ id: number }>(anythingLLMDbPath, `SELECT id FROM workspaces WHERE slug = '${workspaceSlug}';`)
+
+			if (existingWorkspaces.length > 0) {
+				workspaceMap.set(folderId, existingWorkspaces[0].id)
+			} else {
+				// Create new workspace
+				const timestamp = new Date().toISOString()
+				runSQLQuery(anythingLLMDbPath, `INSERT INTO workspaces (name, slug, createdAt, lastUpdatedAt) VALUES ('${workspaceName.replace(/'/g, "''")}', '${workspaceSlug}', '${timestamp}', '${timestamp}');`)
+
+				// Get the newly created workspace
+				const newWorkspaces = querySQLAll<{ id: number }>(anythingLLMDbPath, `SELECT id FROM workspaces WHERE slug = '${workspaceSlug}' ORDER BY id DESC LIMIT 1;`)
+				if (newWorkspaces.length === 0) {
+					throw new Error(`Failed to create workspace for folder "${folderTitle || 'Default'}"`)
+				}
+				workspaceMap.set(folderId, newWorkspaces[0].id)
+				writeStdoutPlain(`✓ Created workspace: "${workspaceName}"`)
+			}
+		}
+
+		// Generate and show preview
+		const { validChats, stats } = generatePreview(typingMindData, -1) // Pass -1 as placeholder
+
+		// Prompt user for confirmation
+		writeStdoutPlain('Proceed with import? (type "yes" to continue, anything else to cancel)')
+		try {
+			const decoder = new TextDecoder()
+			const buffer = new Uint8Array(1024)
+			const bytesRead = await Deno.stdin.read(buffer)
+
+			if (bytesRead === null) {
+				writeStdoutPlain('No input received. Import cancelled.')
+				return
+			}
+
+			const input = decoder.decode(buffer.subarray(0, bytesRead))
+			const confirmation = input.trim().toLowerCase()
+
+			if (confirmation !== 'yes') {
+				writeStdoutPlain('Import cancelled.')
+				return
+			}
+		} catch {
+			writeStdoutPlain('Error reading input. Import cancelled.')
+			return
+		}
+
+		writeStdoutPlain('\nStarting import...\n')
+
+		let importedCount = 0
+		let existingCount = 0
+
+		// Import each validated chat as a separate thread
+		for (const chat of validChats) {
+			try {
+				// Generate better name if the title is generic
+				const betterTitle = generateBetterThreadName(chat)
+				const escapedTitle = betterTitle.replace(/'/g, "''")
+				const timestamp = new Date().toISOString()
+
+				// Determine which workspace this chat belongs to
+				const folderId = chat.folderID || null  // Use folderID (uppercase)
+				const workspaceId = workspaceMap.get(folderId)
+				if (!workspaceId) {
+					throw new Error(`No workspace found for folder "${folderId || 'Default'}"`)
+				}
+
+				// Create a slug for the thread (use chatID or generate from title)
+				const threadSlug = chat.chatID ? chat.chatID.toLowerCase() : chat.chatTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+
+				// Create a new thread for this chat
+				const createThreadSql = `INSERT INTO workspace_threads (name, slug, workspace_id, createdAt, lastUpdatedAt) VALUES ('${escapedTitle}', '${threadSlug}', ${workspaceId}, '${timestamp}', '${timestamp}');`
+				runSQLQuery(anythingLLMDbPath, createThreadSql)
+
+				// Get the newly created thread ID
+				const newThreads = querySQLAll<{ id: number }>(anythingLLMDbPath, `SELECT id FROM workspace_threads WHERE workspace_id = ${workspaceId} AND slug = '${threadSlug}' ORDER BY id DESC LIMIT 1;`)
+				if (newThreads.length === 0) {
+					throw new Error(`Failed to create thread for chat "${chat.chatTitle}"`)
+				}
+				const threadId = newThreads[0].id
+
+				// Pair up messages: user message followed by assistant response
+				if (chat.messages && chat.messages.length > 0) {				// Check for incomplete chats (only system + user message, no responses)
+				const userMessages = chat.messages.filter(m => m.role?.toLowerCase() === 'user')
+				const assistantMessages = chat.messages.filter(m => m.role?.toLowerCase() === 'assistant')
+				if (userMessages.length > 0 && assistantMessages.length === 0) {
+					writeStdoutPlain(`  ⚠ Incomplete chat: "${betterTitle}" has ${userMessages.length} user message(s) but no responses`)
+				}
+					let i = 0
+					while (i < chat.messages.length) {
+						const currentMsg = chat.messages[i]
+						const isUserMsg = currentMsg.role?.toLowerCase() === 'user'
+					const isSystemMsg = currentMsg.role?.toLowerCase() === 'system'
+
+					// Skip system messages
+					if (isSystemMsg) {
+						i++
+						continue
+					}
+
+					// If current message is from user, pair with next assistant message
+					if (isUserMsg) {
+						const hasNextMsg = i + 1 < chat.messages.length
+						const nextMsg = hasNextMsg ? chat.messages[i + 1] : null
+						const isAssistantMsg = nextMsg && nextMsg.role?.toLowerCase() === 'assistant'
+
+						const prompt = (currentMsg.content || '').replace(/'/g, "''")
+						let responseText = ''
+
+						// Use assistant response if it exists, otherwise use empty response
+						if (isAssistantMsg && nextMsg) {
+							responseText = (nextMsg.content || '').replace(/'/g, "''")
+						}
+
+						// Build the response JSON object
+						const responseJson = {
+							text: responseText || '',
+							sources: [],
+							type: 'chat',
+							attachments: [],
+							metrics: {
+								completion_tokens: 0,
+								prompt_tokens: 0,
+								total_tokens: 0,
+								timestamp: new Date().toISOString(),
+							},
+						}
+
+						const responseJsonString = JSON.stringify(responseJson).replace(/'/g, "''")
+
+						runSQLQuery(
+							anythingLLMDbPath,
+							`INSERT INTO workspace_chats (workspaceId, thread_id, prompt, response, createdAt, lastUpdatedAt, include) VALUES (${workspaceId}, ${threadId}, '${prompt}', '${responseJsonString}', '${timestamp}', '${timestamp}', 1);`
+						)
+
+						// Skip both user and assistant if paired, otherwise just user
+						i += isAssistantMsg ? 2 : 1
+						continue
+					}
+
+					// For any other message type, skip it
+					i++
+				}
+
+				writeStdoutPlain(`  ✓ Imported chat "${betterTitle}" as thread (${chat.messages?.length ?? 0} messages)`)
+				importedCount++
+			} else {
+				writeStdoutPlain(`  ⊘ Skipping chat "${betterTitle}" (no messages)`)
+			}
+		} catch (error) {
+			writeStdoutPlain(`  ✗ Failed to import chat "${chat.chatTitle}": ${error instanceof Error ? error.message : String(error)}`)
+		}
+		}
+
+		writeStdoutPlain('')
+		writeStdoutPlain(
+			`Import complete: ${importedCount} chats imported, ${existingCount} already existed, ${stats.deleted} deleted (skipped), ${stats.empty} empty/invalid (skipped)`
+		)
+	} catch (error) {
+		throw error
+	}
+}
+
+// Main execution
+async function main(...args: string[]) {
+	let importTypingMindJsonPath: string | null = null
+	let target: ImportTarget | null = null
+
+	// Parse arguments
+	while (args.length > 0) {
+		const arg = asString(args.shift())
+
+		if (arg.startsWith('--import-typingmind-json-export=')) {
+			importTypingMindJsonPath = arg.replace(/^--import-typingmind-json-export=/, '')
+		} else if (arg.startsWith('--target=')) {
+			const targetValue = arg.replace(/^--target=/, '')
+			target = normalizeTarget(targetValue) as ImportTarget
+			assertTarget(target)
+		} else if (arg === '--help' || arg === '-h') {
+			throw new UsageError()
+		} else {
+			throw new UsageError(`Unknown argument: ${arg}`)
+		}
+	}
+
+	// Validate required arguments
+	if (!importTypingMindJsonPath) {
+		throw new UsageError('Missing required argument: --import-typingmind-json-export=<path>')
+	}
+	if (!target) {
+		throw new UsageError('Missing required argument: --target=<target>')
+	}
+
+	// Execute based on target
+	switch (target) {
+		case 'anythingllm':
+			await importTypingMindToAnythingLLM(importTypingMindJsonPath)
+			break
+		default:
+			throw new UsageError(`Unknown target: ${target}`)
+	}
+}
+
+(async () => {
+	try {
+		const args = Deno.args
+		if (args.length === 0) {
+			throw new UsageError('No arguments provided')
+		}
+		await main(...args)
+	} catch (error) {
+		const err = asError(error)
+		if (err instanceof HelpError) {
+			exitWithError(err)
+		} else {
+			exitWithError(err.message)
+		}
+	}
+})()
