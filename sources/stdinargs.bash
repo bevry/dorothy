@@ -113,6 +113,16 @@ function __print_piece {
 	fi
 }
 
+# This allows the caller to filter out our arguments from theirs
+function __is_stdinargs_option_or_argument {
+	case "$1" in
+	'--no-color'* | '--color' | '--no-stdin'* | '--stdin' | '--no-timeout'* | '--timeout' | '--no-inline'* | '--inline' | '--max-args=' | '-' | '--') return 0 ;;
+	'--'*) return 1 ;;
+	*) return 0 ;;
+	esac
+}
+# consider `__segregate_options --stdinargs={option_stdinargs} --ours={options_filter}`
+
 # This processes the arguments.
 # This cannot become a safety function, as it needs to support unsafe functions, which safety functions cannot.
 # Only if unsafe is hard deprecated, could it become a safety function, but that doesn't make sense.
@@ -224,7 +234,7 @@ function stdinargs {
 		read_args+=('-t' "$timeout_seconds")
 	fi
 	function stdinargs__eval {
-		local stdinargs_status
+		local -i stdinargs_status
 		__try {stdinargs_status} -- "$@"
 		if [[ $stdinargs_status == 210 ]]; then
 			complete='yes'

@@ -42,6 +42,7 @@ function setup_util() (
 		yum    # fedora package manager (includes RPM, predecessor to dnf)
 
 		# +precompiled[containers] +autoupdate +extras
+		#soar    # appimage package system, dependencies are within
 		snap    # dependencies are within the snap
 		flatpak # dependencies are their own flatpaks, but everything is precompiled
 
@@ -61,6 +62,7 @@ function setup_util() (
 		aurutils # CLI, shell, wraps pacman: https://github.com/AladW/aurutils
 
 		# +precompiled -autoupdate +extras
+		#appimage # our own appimage support, dependencies are within
 		dpkg # prefer apt wrapper
 		rpm  # prefer dnf wrapper, note this is also available on opensuse however zypper is preferred there
 
@@ -250,6 +252,7 @@ function setup_util() (
 	}
 
 	# <options-for-sources>
+	local APPIMAGE=() APPIMAGE_FILENAME=''
 	local APK=() APK_REPO=''
 	local APT=() APT_REPO='' APT_KEY='' APT_ID=''
 	local AUR=()
@@ -284,6 +287,7 @@ function setup_util() (
 	local PKGIN=()
 	local PORT=()
 	local RPM=()
+	local SOAR=()
 	local SCOOP=() SCOOP_BUCKET=()
 	local SNAP=() SNAP_CHANNEL=''
 	local URPMI=()
@@ -358,6 +362,8 @@ function setup_util() (
 			;;
 
 			# options for sources
+		'APPIMAGE_FILENAME='*) APPIMAGE_FILENAME="${item#*=}" ;;
+		'APPIMAGE='*) APPIMAGE+=("${item#*=}") ;;
 		'APK_REPO='*) APK_REPO="${item#*=}" ;;
 		'APK='* | 'ALPINE='*) APK+=("${item#*=}") ;;
 		'APPIMAGE='*) APPIMAGE+=("${item#*=}") ;;
@@ -426,6 +432,7 @@ function setup_util() (
 		'RPM='*) RPM+=("${item#*=}") ;;
 		'RUBY='*) RUBY+=("${item#*=}") ;;
 		'RUST='*) RUST+=("${item#*=}") ;;
+		'SOAR='*) SOAR+=("${item#*=}") ;;
 		'SCOOP_BUCKET='*) SCOOP_BUCKET+=("${item#*=}") ;;
 		'SCOOP='*) SCOOP+=("${item#*=}") ;;
 		'SNAP_CHANNEL='*) SNAP_CHANNEL="${item#*=}" ;;
@@ -483,16 +490,26 @@ function setup_util() (
 	fi
 
 	# prep terminal vars
-	local use_alt_screen_buffer alternative_screen_buffer default_screen_buffer
+	local use_alt_screen_buffer
 	if [[ $option_quiet != 'no' && $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
 		use_alt_screen_buffer='yes'
 		__load_styles --save -- alternative_screen_buffer default_screen_buffer
-		alternative_screen_buffer="$STYLE__alternative_screen_buffer"
-		default_screen_buffer="$STYLE__default_screen_buffer"
+		function reset_terminal_modifications_now {
+			__value_to_tty "$STYLE__default_screen_buffer"
+			trap - EXIT
+		}
+		function reset_terminal_modifications_on_exit {
+			trap reset_terminal_modifications_now EXIT
+		}
+		function apply_terminal_modifications_now {
+			__value_to_tty "$STYLE__alternative_screen_buffer"
+			reset_terminal_modifications_on_exit
+		}
 	else
 		use_alt_screen_buffer='no'
-		alternative_screen_buffer=''
-		default_screen_buffer=''
+		function reset_terminal_modifications_now { :; }
+		function reset_terminal_modifications_on_exit { :; }
+		function apply_terminal_modifications_now { :; }
 	fi
 
 	# check if exists
@@ -649,6 +666,16 @@ function setup_util() (
 	# Process
 
 	# helpers
+	function __is_remote {
+		# `dnf`/`yum` don't support remote packages, defer to `rpm`
+		local package
+		for package in "$@"; do
+			if [[ $package == *'://'* ]]; then
+				return 0
+			fi
+		done
+		return 1
+	}
 	function __get_path_from_filename {
 		local filename="$1"
 		# only place in appimage_home if it keeps the appimage extension
@@ -709,31 +736,13 @@ function setup_util() (
 		if [[ ${#remove_paths[@]} -eq 0 ]]; then
 			return 0
 		fi
-		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(echo-if-present --elevate="$option_elevate" -- "${remove_paths[@]}" | echo-unique --stdin || :) || return $?
+		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(is-present --echo --optional --elevate="$option_elevate" -- "${remove_paths[@]}" | echo-unique --stdin || :) || return $?
 		if [[ ${#remove_paths_present_unique[@]} -eq 0 ]]; then
 			return 0
 		fi
 		# prefer moving to trash, because trash allows invocations to continue
 		# otherwise active invocations will crash, such as `setup-util-bash` uninstalling the bash it was invoked with
 		fs-remove --quiet --no-confirm --trash --delete --elevate="$option_elevate" -- "${remove_paths_present_unique[@]}" || return $?
-		return $?
-	}
-	function __rm_helper_which {
-		local remove_paths=("$@") remove_paths_present_unique=() remove_paths_selected=()
-		if [[ ${#remove_paths[@]} -eq 0 ]]; then
-			return 0
-		fi
-		__split --target={remove_paths_present_unique} --no-zero-length --stdin < <(echo-if-present -- "${remove_paths[@]}" | echo-unique --stdin || :) || return $?
-		if [[ ${#remove_paths_present_unique[@]} -eq 0 ]]; then
-			return 0
-		fi
-		__split --target={remove_paths_selected} --no-zero-length --invoke -- \
-			choose --linger --confirm --multi --default-all --question='Which files to remove?' -- "${remove_paths_present_unique[@]}" || return $?
-		if [[ ${#remove_paths_selected[@]} -eq 0 ]]; then
-			return 0
-		fi
-		__rm_helper "${remove_paths_selected[@]}" || return $?
-		return $?
 	}
 
 	# prepare fallbacks, for when the package could not be installed without installing a package system first
@@ -1595,9 +1604,9 @@ function setup_util() (
 		# convert urls to local
 		for download_index in "${!packages[@]}"; do
 			download_url="${packages[download_index]}"
-			if [[ $download_url == 'http'* ]]; then
+			if __is_remote "$download_url"; then
 				# fetch temp path
-				download_filepath="$(fs-temp --cache --directory='dorothy' --directory='setup-util' --file="$option_name.deb" --touch)"
+				download_filepath="$(fs-make --cache --directory='dorothy' --directory='setup-util' --file="$option_name.deb" --touch)"
 				# download to temp path
 				down --filepath="$download_filepath" "$download_url"
 				# apt supports .deb packages for install and uninstall
@@ -1655,9 +1664,9 @@ function setup_util() (
 		# convert urls to local
 		for download_index in "${!packages[@]}"; do
 			download_url="${packages[download_index]}"
-			if [[ $download_url == 'http'* ]]; then
+			if __is_remote "$download_url"; then
 				# fetch temp path
-				download_filepath="$(fs-temp --cache --directory='dorothy' --directory='setup-util' --file="$option_name.deb" --touch)"
+				download_filepath="$(fs-make --cache --directory='dorothy' --directory='setup-util' --file="$option_name.deb" --touch)"
 				# download to temp path
 				down --filepath="$download_filepath" "$download_url"
 				# adjust the cmd
@@ -1811,13 +1820,11 @@ function setup_util() (
 		if [[ -z ${GOPATH-} || ${#option_clis[@]} -eq 0 ]]; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		local cli
+		local cli go_paths=()
 		for cli in "${option_clis[@]}"; do
-			if is-present -- "$GOPATH/bin/$cli"; then
-				return 0
-			fi
+			go_paths+=("$GOPATH/bin/$cli")
 		done
-		return 200 # ECUSTOM 200 Not applicable for this package system
+		is-present --first -- "${go_paths[@]]}" || return 200 # ECUSTOM 200 Not applicable for this package system
 	}
 
 	function __check_go {
@@ -2016,7 +2023,7 @@ function setup_util() (
 			# it is our own script crashing with 137 and not homebrew
 			# trapping 137 doesn't work either, one gets [bash: trap: 137: invalid signal specification]
 			# the only thing that works is invoking such a script with system bash, however there is no way to do that comprehensively, so we just warn by going back to the default terminal device immediately amd dump the warning, so that the warning persists in context of the need for the upgrade and the result of upgrade which is the upcoming crash
-			__value_to_tty "$default_screen_buffer"
+			reset_terminal_modifications_now
 			__print_style --stderr \
 				--notice1='Homebrew is about to delete the currently running bash executable, which will cause this sript to crash with exit status ' --value='137' --newline \
 				--notice1='Once crashed, please manually continue by re-running the prior script that you executed.'
@@ -2125,7 +2132,7 @@ function setup_util() (
 		while read -r id name; do
 			# trim version from the name, it doesn't work in the `read` arguments, as spaces inside name will be considered the version
 			name="${name%%  *}"
-			if [[ "$(__get_lowercase_string -- "$option_name")" == "$(__get_lowercase_string -- "$arg")" ]]; then
+			if __case_insensitive_compare "$option_name" "$arg"; then
 				exact+=("$id" "$option_name")
 			else
 				options+=("$id" "$option_name")
@@ -2553,6 +2560,9 @@ function setup_util() (
 		if __command_missing -- dnf; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
+		if __is_remote "${packages[@]}"; then
+			return 200 # ECUSTOM 200 Not applicable to this utility
+		fi
 	}
 	function do_dnf {
 		local opts=() args=() packages=() groups=("${DNF_GROUP[@]}") copr=("${DNF_COPR[@]}") repos=("${DNF_REPO[@]}")
@@ -2754,6 +2764,9 @@ function setup_util() (
 		fi
 		if __command_missing -- yum; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
+		fi
+		if __is_remote "${packages[@]}"; then
+			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 	}
 	function do_yum {
@@ -3553,10 +3566,10 @@ function setup_util() (
 		else
 			# downloading a directory or files?
 			if [[ -n $build_install || -n $build_uninstall || -n $build_glob || ${#target_paths[@]} -gt 1 ]]; then
-				download_directory="$(fs-temp --cache --directory='dorothy' --directory='setup-util' --directory="$option_name" --directory)"
+				download_directory="$(fs-make --cache --directory='dorothy' --directory='setup-util' --directory="$option_name" --directory)"
 			elif [[ $option_xdg == 'no' ]]; then
 				# if not xdg, to avoid permission issues, download to a temporary location then relocation with permission awareness
-				download_filepath="$(fs-temp --cache --directory='dorothy' --directory='setup-util' --file="${filenames[0]}")"
+				download_filepath="$(fs-make --cache --directory='dorothy' --directory='setup-util' --file="${filenames[0]}")"
 			else
 				download_filepath="${target_paths[0]}"
 			fi
@@ -3570,7 +3583,7 @@ function setup_util() (
 					# do the download for uninstall
 					do_the_download
 					# build uninstall
-					local build_status
+					local -i build_status
 					__print_style --info1='Uninstalling the built ' --variable-value={option_name} --info1=' in ' --variable-value={download_directory} --info1=' ...'
 					pushd "$download_directory" &>/dev/null
 					__try {build_status} -- "$build_uninstall"
@@ -3626,7 +3639,7 @@ function setup_util() (
 		}
 		if [[ -n $build_install ]]; then
 			# build install
-			local build_status
+			local -i build_status
 			__print_style --info1='Building ' --variable-value={option_name} --info1=' in ' --variable-value={download_directory} --info1=' ...'
 			# can't do cd in a subshell as we want to capture the status
 			pushd "$download_directory" &>/dev/null
@@ -3692,7 +3705,7 @@ function setup_util() (
 		else
 			# it is remote
 			# download it to a temporary location and use that
-			filepath="$(fs-temp --cache --directory='dorothy' --directory='setup-util' --directory="$option_name" --file="$filename")"
+			filepath="$(fs-make --cache --directory='dorothy' --directory='setup-util' --directory="$option_name" --file="$filename")"
 			down "$file_or_url" --filepath="$filepath"
 		fi
 
@@ -3722,54 +3735,54 @@ function setup_util() (
 		fi
 	}
 	function do_generic {
-		local status=200
+		local paths=() item path
 		if [[ $option_action == 'uninstall' ]]; then
-			local cli cli_path
-			for cli in "${option_clis[@]}"; do
-				cli_path="$(__get_path_from_filename "$cli")"
-				if ! is-missing -- "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"; then
-					__rm_helper_which "$cli_path" "$XDG_BIN_HOME/$cli" "/usr/local/bin/$cli"
-					status=0
-				fi
+			# clis and apps have same paths
+			for item in "${option_clis[@]}" "${option_apps[@]}"; do
+				path="$(__get_path_from_filename "$item")"
+				paths+=("$path" "$XDG_BIN_HOME/$item" "/usr/local/bin/$item")
 			done
-			local app app_path
-			for app in "${option_apps[@]}"; do
-				app_path="$(__get_path_from_filename "$app")"
-				if ! is-missing -- "$app_path" "$XDG_BIN_HOME/$app" "/usr/local/bin/$app"; then
-					__rm_helper_which "$app_path" "$XDG_BIN_HOME/$app" "/usr/local/bin/$app"
-					status=0
-				fi
-			done
+			# however apps also have additional paths
+			# @todo add .appimage and .desktop and whatnot files
+			# now de-dupe
+			__unique --source+target={paths}
+			__split --target={paths} --overwrite --no-zero-length --invoke -- \
+				is-present --echo --optional -- "${paths[@]}"
+			# now add the fonts
 			if [[ ${#option_fonts[@]} -ne 0 ]]; then
-				local fonts=() count
-				__split --target={fonts} --no-zero-length --invoke=try -- \
+				__split --target={paths} --append --no-zero-length --invoke=try -- \
 					get-font --every -- "${option_fonts[@]}"
-				count="${#fonts[@]}"
-				if [[ $count -ne 0 ]]; then
-					# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose, so use to gum
-					if [[ $count -gt 100 ]]; then
-						setup-util-gum --quiet
-						local selection=()
-						__split --target={selection} --no-zero-length --invoke -- \
-							gum choose --no-limit --header='Which fonts to remove?' -- "${fonts[@]}"
-						if [[ ${#selection[@]} -gt 100 ]]; then
-							# it'll also be too much for __rm_helper/fs-remove
-							rm -f -- "${selection[@]}"
-						else
-							__rm_helper "${selection[@]}"
-						fi
+			fi
+			# now handle paths specially as because of fonts, there can be a lot
+			local -i count="${#paths[@]}"
+			if [[ $count -eq 0 ]]; then
+				return 200  # ECUSTOM 200 Not applicable as nothing to do for the inputs
+			else
+				# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose, so use to gum
+				if [[ $count -gt 100 ]]; then
+					# as options are more than a hundred, no default
+					setup-util-gum --quiet
+					local selection=()
+					__split --target={selection} --no-zero-length --invoke -- \
+						gum choose --no-limit --header='Which files to remove?' -- "${fonts[@]}"
+					# if selection is more than a hundred, it'll be too much for `__rm_helper` and `fs-remove`
+					if [[ ${#selection[@]} -gt 100 ]]; then
+						rm -f -- "${selection[@]}"
 					else
-						# @todo `--default-all` is used here, but we need to rewrite this whole section for consistent removal, including of appimage .desktop files
-						local selection=()
-						__split --target={selection} --no-zero-length --invoke -- \
-							choose --linger --confirm --multi --question='Which fonts to remove?' --default-all -- "${fonts[@]}"
 						__rm_helper "${selection[@]}"
 					fi
+				else
+					# as less than a hundred, default all
+					local selection=()
+					__split --target={selection} --no-zero-length --invoke -- \
+						choose --linger --confirm --multi --question='Which files to remove?' --default-all -- "${fonts[@]}"
+					__rm_helper "${selection[@]}"
 				fi
-				status=0
+				return 0
 			fi
+		else
+			return 200 # ECUSTOM 200 Not applicable as nothing to do for this action
 		fi
-		return "$status"
 	}
 
 	# =====================================
@@ -3857,10 +3870,12 @@ function setup_util() (
 		# don't always do log_pending, as that will cause all the 200 not applicable ones to be dumped
 		local -i run_status
 		if [[ $use_alt_screen_buffer == 'yes' ]]; then
-			__value_to_tty "$alternative_screen_buffer"
+			# enable job control to not bubble SIGINT up to us
+			# such that we can ensure we always restore the default screen buffer, otherwise scrolling will be broken
+			apply_terminal_modifications_now
 			log_pending "$source"
 			__do --redirect-status={run_status} --redirect-output=STDERR --copy-stderr={run_output} --redirect-output=TTY -- "$fn"
-			__value_to_tty "$default_screen_buffer"
+			reset_terminal_modifications_now
 		else
 			__do --redirect-status={run_status} --redirect-output=TTY -- "$fn"
 		fi
