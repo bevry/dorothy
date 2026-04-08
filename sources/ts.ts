@@ -721,10 +721,21 @@ export class CodeError extends Error {
 export class HelpError extends Error {
 	readonly help: string = ''
 	readonly messages: string[] = []
-	readonly code = 22
-	constructor(...messages: string[]) {
+	readonly code: number = 22
+	constructor(config: { help?: string; code?: number }, ...messages: string[])
+	constructor(...messages: string[])
+	constructor(
+		first?: string | { help?: string; code?: number },
+		...rest: string[]
+	) {
 		super()
-		this.messages = messages
+		if (typeof first === 'object' && first !== null) {
+			if (first.help != null) this.help = first.help
+			if (first.code != null) this.code = first.code
+			this.messages = rest
+		} else if (typeof first === 'string') {
+			this.messages = [first, ...rest]
+		}
 	}
 	public override toString(): string {
 		if (this.messages.length) {
@@ -758,7 +769,7 @@ export async function exec(cmd: string[]): Promise<void> {
 	}
 }
 
-export type AssertValues<T extends readonly unknown[]> = T[number]
+export type AssertFactoryValues<T extends readonly unknown[]> = T[number]
 export function assertFactory<T extends readonly unknown[]>(
 	values: T,
 	typeName: string,
@@ -807,7 +818,7 @@ export function asError(value: unknown): Error {
 
 export async function exitWithError(error?: unknown, status?: number) {
 	if (status == null || status < 0) {
-		if (error instanceof CodeError) {
+		if (error instanceof CodeError || error instanceof HelpError) {
 			status = error.code ?? 1
 		} else {
 			status = 1

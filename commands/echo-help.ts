@@ -11,6 +11,7 @@ class UsageError extends HelpError {
 	override help = [
 		'USAGE:',
 		'`echo-help.ts --test`',
+		'`echo-help.ts --help`',
 		'`echo-help.ts [...<styled error messages>] < template.txt`',
 		'',
 		'NOTE:',
@@ -21,16 +22,14 @@ class UsageError extends HelpError {
 // Execute
 async function main(...args: string[]) {
 	const help = await readStdinWhole()
-	class CustomError extends HelpError {
-		override help: help
-		override code: 0
-	}
-	return new CustomError(...args)
+	throw new HelpError({help, code: 0}, ...args)
 }
 
 // invoke command or tests
 try {
-	if (Deno.args.join('') == '--test' ) {
+	if (Deno.args.join('') == '--help' ) {
+		throw new UsageError()
+	} else if (Deno.args.join('') == '--test' ) {
 		await exec(['eval-tester', '--fixture=echo-help', '--', 'echo-help.ts'])
 	} else {
 		await main(...Deno.args)
