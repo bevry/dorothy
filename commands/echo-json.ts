@@ -1,12 +1,14 @@
 #!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+// deno-lint-ignore-file no-unreachable
 
-import { styleText } from 'node:util'
 import {
 	HelpError,
 	exitWithError,
 	writeStdoutStringify,
 	writeStdoutPlain,
 	writeStdoutPretty,
+	heredoc,
+	wantsHelp,
 	asString,
 	asError,
 	assertFactory,
@@ -18,11 +20,11 @@ const { values: actionValues, as: asAction } = assertFactory(
 )
 
 class UsageError extends HelpError {
-	override help = [
-		'USAGE:',
-		'`echo-json.ts <make> [--] ...[<key> <value>]`',
-		`\`echo-json.ts <${actionValues.join('|')}> [--] ...<input>\``,
-	].join('\n')
+	override help = heredoc`
+		USAGE:
+		\`echo-json.ts <make> [--] ...[<key> <value>]\`
+		\`echo-json.ts <${actionValues.join('|')}> [--] ...<input>\`
+	`
 }
 
 // Parsing
@@ -52,7 +54,7 @@ function parse(input: string): {
 
 // Execute
 // <action> [...options] ...<input>
-async function main(...args: string[]) {
+function main(...args: string[]) {
 	// parse <action>
 	if (args.length === 0) {
 		throw new UsageError(`--help=No <action> was provided.`)
@@ -158,7 +160,10 @@ async function main(...args: string[]) {
 }
 
 try {
+	if (wantsHelp(Deno.args)) {
+		throw new UsageError()
+	}
 	await main(...Deno.args)
 } catch (error) {
-	exitWithError(error)
+	await exitWithError(error)
 }

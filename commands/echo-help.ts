@@ -5,31 +5,34 @@ import {
 	exitWithError,
 	readStdinWhole,
 	exec,
+	heredoc,
+	wantsHelp,
+	wantsTests,
 } from '../sources/ts.ts'
 
 class UsageError extends HelpError {
-	override help = [
-		'USAGE:',
-		'`echo-help.ts --test`',
-		'`echo-help.ts --help`',
-		'`echo-help.ts [...<styled error messages>] < template.txt`',
-		'',
-		'NOTE:',
-		'This is a test implementation only. Use the bash version `echo-help` for production.',
-	].join('\n')
+	override help = heredoc`
+		USAGE:
+		\`echo-help.ts --test\`
+		\`echo-help.ts --help\`
+		\`echo-help.ts [...<styled error messages>] <template.txt\`
+
+		NOTE:
+		This is a test implementation only. Use the bash version \`echo-help\` for production.
+	`
 }
 
 // Execute
 async function main(...args: string[]) {
 	const help = await readStdinWhole()
-	throw new HelpError({help, code: 0}, ...args)
+	throw new HelpError({ help, code: 0 }, ...args)
 }
 
 // invoke command or tests
 try {
-	if (Deno.args.join('') == '--help' ) {
+	if (wantsHelp(Deno.args)) {
 		throw new UsageError()
-	} else if (Deno.args.join('') == '--test' ) {
+	} else if (wantsTests(Deno.args)) {
 		await exec(['eval-tester', '--fixture=echo-help', '--', 'echo-help.ts'])
 	} else {
 		await main(...Deno.args)

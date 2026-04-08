@@ -1,15 +1,16 @@
 #!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
-// this file is alpha quality, conventions will change, feedback welcome
-// for instance, here's some over-engineered alternative:
-// https://gist.github.com/balupton/4138b7ab3bb72caf020c061a872e1631
 
-// style('blue', 'my blue string')
-// style(`--blue=${stringvar}`)
-// `styleText` now built into node, but doesn't have support for our `echo-style` comprehensive styles, and unsure of its adaptions
-// throw new StyledError(style('help', 'No <action> was present.'), ' ' , style('blue', 'my blue text'))
-// throw new UsageError('--help=No <action> was present.', ' ', '--blue=my blue text')
+/**
+ * Shared TypeScript runtime helpers for Dorothy commands.
+ *
+ * This module is still alpha quality; conventions can change.
+ * Alternative implementation notes: <https://gist.github.com/balupton/4138b7ab3bb72caf020c061a872e1631>
+ */
 
-// ANSI style codes (must match styles.bash exactly)
+/**
+ * ANSI styles.
+ * Partial TypeScript-style implementation of the source-of-truth reference `styles.bash`.
+ */
 const STYLE: Record<string, string> = {
 	// Text styles
 	reset: '\x1b[0m',
@@ -258,7 +259,7 @@ const STYLE: Record<string, string> = {
 /** Resolve a style name to its canonical STYLE key, applying aliases (e.g. red -> foreground_red). */
 function resolveStyleName(name: string): string {
 	// convert hyphens to underscores
-	let s = name.replace(/-/g, '_')
+	const s = name.replace(/-/g, '_')
 	// foreground color shorthand aliases
 	if (
 		/^(black|red|green|yellow|blue|magenta|cyan|white|purple|gray|grey)$/.test(
@@ -304,15 +305,28 @@ function resolveStyles(names: string[]): { begin: string; end: string } {
 }
 
 /**
- * @usage style(`--<style>=<text rendered in style>`)
- * @usage style(`--<style>+<style>=<text rendered in both styles>`)
- * @usage style(`--<style>`, `--<style>=<text rendered in both styles>`)
- * @usage style(`--<style>`, `--reset`, `--<style>=<text rendered only in the latter style>`)
- * @example style(`--red`, 'red text', `--bold=red and bold text as the red has carried over`)
- * @example style(`--error=<wrapped in STYLE.error and STYLE.END__error>`)
- * @example style(`--help=<forward to renderHelp>`)
- * @example style(`--bold=<wrapped in STYLE.bold and STYLE.END__bold>`)
- **/
+ * Render text with Dorothy's style-flag mini-language.
+ * Partial TypeScript-style implementation of the source-of-truth reference `styles.bash:__print_style`.
+ *
+ * @param messages Plain text and/or style flags such as `--bold` or
+ * `--red=message`.
+ * @returns ANSI-styled output string.
+ * @remarks
+ * Supported patterns include:
+ * - carry-forward flags: `--bold`
+ * - wrapped content flags: `--bold=message`
+ * - combined styles: `--bold+red=message`
+ * - reset: `--reset`
+ * - help rendering: `--help=...`
+ * @example
+ * ```ts
+ * style('--red', 'red text', '--bold=red and bold text as red carries over')
+ * ```
+ * @example
+ * ```ts
+ * style('--error=wrapped in STYLE.error and STYLE.END__error')
+ * ```
+ */
 export function style(...messages: Array<string | number>): string {
 	// Matches the buffer model of styles.bash:__print_style
 	// - flag only (--bold): opens style that carries forward via buffer_right
@@ -401,11 +415,52 @@ export function style(...messages: Array<string | number>): string {
 	return bufferLeft + bufferRight
 }
 
+/** Prefix a message list with a styled ERROR label. */
 export function printError(...messages: Array<string | number>): string {
-	return style(`--error=ERROR: `, ...messages)
+	return style(`--error1=ERROR:`, ' ', ...messages)
 }
 
-// This is a AI conversion of Dorothy's source of truth `styles.bash:__print_help` implementation, which has tests in `echo-help`.
+/**
+ * Tagged template helper for indented multiline text blocks.
+ * Trims surrounding blank lines and removes shared leading indentation.
+ * TypeScript-like implementation of the source-of-truth reference of Bash's tab-stripped heredocs `<<-EOF`.
+ */
+export function heredoc(
+	strings: TemplateStringsArray,
+	...values: unknown[]
+): string {
+	let output = strings[0] ?? ''
+	for (let i = 0; i < values.length; i++) {
+		output += String(values[i]) + (strings[i + 1] ?? '')
+	}
+
+	const lines = output.replace(/\r\n?/g, '\n').split('\n')
+	while (lines.length > 0 && lines[0].trim() === '') lines.shift()
+	while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+	if (lines.length === 0) return ''
+
+	let minIndent = Number.POSITIVE_INFINITY
+	for (const line of lines) {
+		if (line.trim() === '') continue
+		const indent = line.match(/^[\t ]*/)?.[0].length ?? 0
+		if (indent < minIndent) minIndent = indent
+	}
+
+	if (!Number.isFinite(minIndent) || minIndent === 0) {
+		return lines.join('\n')
+	}
+
+	return lines
+		.map((line) => (line.trim() === '' ? '' : line.slice(minIndent)))
+		.join('\n')
+}
+
+/**
+ * Render Dorothy help templates into ANSI-styled terminal output.
+ *
+ * Full TypeScript-style implementation of the source-of-truth reference `styles.bash:__print_help`.
+ * Validated by `echo-help.ts --test` which shares fixtures with the source-of-truth reference `echo-help --test`.
+ */
 export function renderHelp(template: string): string {
 	// Convert string to character array for character-by-character processing
 	// This matches the bash version's approach of storing characters in an array
@@ -421,82 +476,90 @@ export function renderHelp(template: string): string {
 	let inOption = false
 	const intensities: string[] = []
 
-	// Helper: check if all prior characters on line match pattern
 	function arePriorCharactersMatching(
 		pattern: RegExp,
 		until: string,
 		from: number,
+		matchEmpty: boolean,
 	): number | null {
-		let lastMatchIndex = -1
+		let foundIndex = from
+		let matched = matchEmpty
 		for (let ii = from - 1; ii >= 0; ii--) {
-			if (chars[ii] === until) break
 			if (pattern.test(chars[ii])) {
-				lastMatchIndex = ii
-			} else if (chars[ii] !== ' ' && chars[ii] !== '\t') {
-				return null
+				matched = true
+				foundIndex = ii
+				continue
 			}
+			if (chars[ii] === until) break
+			return null
 		}
-		return lastMatchIndex >= 0 ? lastMatchIndex : null
+		return matched ? foundIndex : null
 	}
 
-	// Helper: check if all next characters match pattern until boundary
 	function areNextCharactersMatching(
 		pattern: RegExp,
 		until: string,
 		from: number,
+		matchEmpty: boolean,
 	): number | null {
-		let lastMatchIndex = -1
+		let foundIndex = from
+		let matched = matchEmpty
 		for (let ii = from + 1; ii < n; ii++) {
-			if (chars[ii] === until) break
 			if (pattern.test(chars[ii])) {
-				lastMatchIndex = ii
-			} else {
-				return null
+				matched = true
+				foundIndex = ii
+				continue
 			}
+			if (chars[ii] === until) break
+			return null
 		}
-		return lastMatchIndex >= 0 ? lastMatchIndex : null
+		return matched ? foundIndex : null
 	}
 
-	// Helper: find next pattern index
 	function findNextPatternIndex(pattern: RegExp, from: number): number | null {
 		for (let ii = from + 1; ii < n; ii++) {
 			if (pattern.test(chars[ii])) return ii
-			if (chars[ii] === '\n') break
 		}
 		return null
 	}
 
-	// Helper: find prior pattern index
 	function findPriorPatternIndex(pattern: RegExp, from: number): number | null {
 		for (let ii = from - 1; ii >= 0; ii--) {
 			if (pattern.test(chars[ii])) return ii
-			if (chars[ii] === '\n') break
 		}
 		return null
 	}
 
-	// Helper: check if prior characters are only whitespace
-	function arePriorCharactersOnlyPadding(from: number): boolean {
-		//
-		for (let ii = from - 1; ii >= 0; ii--) {
-			if (chars[ii] === '\n') return true
-			if (!/[\s]/.test(chars[ii])) return false
-		}
-		return true
+	function arePriorCharactersOnlyPadding(from: number): number | null {
+		return arePriorCharactersMatching(/^[\t ]$/, '\n', from, true)
 	}
 
-	// Helper: check if prior characters are only header (uppercase + space)
-	function arePriorCharactersOnlyHeader(from: number): boolean {
-		let foundMatch = false
-		for (let ii = from - 1; ii >= 0; ii--) {
-			if (chars[ii] === '\n') break
-			if (/[A-Z ]/.test(chars[ii])) {
-				foundMatch = true
-			} else {
-				return false
-			}
-		}
-		return foundMatch
+	function arePriorCharactersOnlyHeader(from: number): number | null {
+		return arePriorCharactersMatching(/^[A-Z ]$/, '\n', from, false)
+	}
+
+	function requireFence(segment: string, from: number): never {
+		const lineStart = (findPriorPatternIndex(/^\n$/, from) ?? -1) + 1
+		const lineEnd = findNextPatternIndex(/^\n$/, from) ?? n
+		const line = chars.slice(lineStart, lineEnd).join('')
+		throw new CodeError(
+			94,
+			printError(
+				'Invalid help template. Wrap ',
+				`--code=${segment}`,
+				' in ',
+				'--code=```',
+				'.',
+				'\n',
+				'Problem:',
+				'\n',
+				`--code=${line}`,
+				'\n',
+				'Solution:',
+				'\n',
+				`--code=\`\`\`${line}\`\`\``,
+			),
+		)
 	}
 
 	// Main processing loop - character by character
@@ -527,13 +590,11 @@ export function renderHelp(template: string): string {
 			chars[i + 2] = ''
 
 			// Remove fence if it's the only non-whitespace on line
-			if (chars[i + 3] === '\n' && arePriorCharactersOnlyPadding(i)) {
+			const paddingStart = arePriorCharactersOnlyPadding(i)
+			if (chars[i + 3] === '\n' && paddingStart !== null) {
 				chars[i + 3] = ''
-				const startIdx = findPriorPatternIndex(/\n/, i)
-				if (startIdx !== null) {
-					for (let ii = startIdx + 1; ii < i; ii++) {
-						chars[ii] = ''
-					}
+				for (let ii = paddingStart; ii < i; ii++) {
+					chars[ii] = ''
 				}
 			}
 
@@ -553,11 +614,11 @@ export function renderHelp(template: string): string {
 
 		// LIST MARKER: * or !
 		if ((c === '*' || c === '!') && next1 === ' ') {
-			if (arePriorCharactersOnlyPadding(i)) {
+			if (arePriorCharactersOnlyPadding(i) !== null) {
 				if (c === '*') {
 					chars[i] = '•'
 				} else if (c === '!') {
-					const priorIdx = findPriorPatternIndex(/\n/, i)
+					const priorIdx = findPriorPatternIndex(/^\n$/, i)
 					if (priorIdx !== null) {
 						prefixes[priorIdx + 1] += STYLE.foreground_red
 					} else {
@@ -572,10 +633,9 @@ export function renderHelp(template: string): string {
 
 		// HEADER: Uppercase text ending with :
 		if (c === ':' && next1 === '\n') {
-			if (arePriorCharactersOnlyHeader(i)) {
-				const headerStart = findPriorPatternIndex(/\n/, i)
-				const startIdx = (headerStart ?? -1) + 1
-				prefixes[startIdx] += STYLE.foreground_magenta
+			const headerStart = arePriorCharactersOnlyHeader(i)
+			if (headerStart !== null) {
+				prefixes[headerStart] += STYLE.foreground_magenta
 				suffixes[i] += STYLE.END__foreground
 				continue
 			}
@@ -585,23 +645,25 @@ export function renderHelp(template: string): string {
 		if (c === '<' && `${next1}${next2}${next3}${next4}` === 'http') {
 			const endIdx = findNextPatternIndex(/^>$/, i)
 			if (endIdx !== null) {
-				chars[i] = STYLE.foreground_blue + STYLE.link
-				chars[endIdx] = STYLE.END__link + STYLE.END__foreground
+				chars[i] = STYLE.link
+				chars[endIdx] = STYLE.END__link
 				i = endIdx
+			} else {
 				continue
 			}
+			continue
 		}
 
 		// RETURN STATUS: [0...] or [1-9...]
 		if (c === '[') {
-			const nextIdx = areNextCharactersMatching(/^0+$/, ']', i)
+			const nextIdx = areNextCharactersMatching(/^0$/, ']', i, false)
 			if (nextIdx !== null) {
 				prefixes[i] += STYLE.foreground_green
 				suffixes[nextIdx + 1] += STYLE.END__foreground
 				i = nextIdx + 1
 				continue
 			}
-			const nextIdx2 = areNextCharactersMatching(/^[\d*]*$/, ']', i)
+			const nextIdx2 = areNextCharactersMatching(/^[\d*]$/, ']', i, false)
 			if (nextIdx2 !== null) {
 				prefixes[i] += STYLE.foreground_red
 				suffixes[nextIdx2 + 1] += STYLE.END__foreground
@@ -645,7 +707,7 @@ export function renderHelp(template: string): string {
 				break
 		}
 
-		if (inOption && arePriorCharactersOnlyPadding(i)) {
+		if (inOption && arePriorCharactersOnlyPadding(i) !== null) {
 			prefixes[i] = STYLE.foreground_magenta
 			const eol = findNextPatternIndex(/^\n$/, i)
 			if (eol !== null) {
@@ -659,31 +721,46 @@ export function renderHelp(template: string): string {
 		let removeIntensity = false
 		switch (c) {
 			case '<':
-				if (![' ', '&', '(', '='].includes(next1)) {
-					intensities.push(STYLE.bold)
-					prefixes[i] += STYLE.bold
+				if ([' ', '&', '(', '='].includes(next1)) {
+					requireFence(`${c}${next1}`, i)
 				}
+				intensities.push(STYLE.bold)
+				prefixes[i] += STYLE.bold
 				break
 			case '[':
-				if (
-					!(next1 === 'a' && next2 === '-' && next3 === 'z') &&
-					next1 !== ' '
-				) {
+				if (next1 === 'a' && next2 === '-' && next3 === 'z') {
+					requireFence(`${c}${next1}${next2}${next3}${next4}`, i)
+				} else if (next1 === ' ' || next1 === ']') {
+					requireFence(`${c}${next1}`, i)
+				} else {
 					intensities.push(STYLE.dim)
 					prefixes[i] += STYLE.dim
 				}
 				break
 			case '>':
+				if (prev1 === ' ' || prev1 === ')') {
+					requireFence(`${c}${prev1}`, i)
+				} else if (next1 === '&') {
+					requireFence(`${c}${next1}`, i)
+				} else if (next1 === '=' && next2 === ' ') {
+					requireFence(`${c}${next1}${next2}`, i)
+				}
 				removeIntensity = true
 				break
 			case ']':
+				if (prev1 === ' ') {
+					requireFence(`${c}${prev1}`, i)
+				}
 				removeIntensity = true
 				break
 		}
 
 		if (removeIntensity) {
 			if (intensities.length === 0) {
-				// Mismatched - but for now just skip
+				throw new CodeError(
+					94,
+					printError('Invalid help template. Mismatched intensity modifiers.'),
+				)
 			} else if (intensities.length === 1) {
 				suffixes[i] += STYLE.END__intensity
 				intensities.length = 0
@@ -708,8 +785,14 @@ export function renderHelp(template: string): string {
 	return result
 }
 
+/** Error type carrying an explicit process exit code. */
 export class CodeError extends Error {
 	readonly code: number = 1
+
+	/**
+	 * @param code Process exit code to use.
+	 * @param message Human-readable error message.
+	 */
 	constructor(code: number, message: string) {
 		super(message)
 		if (code != null) {
@@ -718,10 +801,22 @@ export class CodeError extends Error {
 	}
 }
 
+/**
+ * Error type used for command usage/help flows.
+ *
+ * If both help and messages are provided, help is rendered first and error
+ * messages are appended.
+ *
+ * TypeScript-like implementation of Dorothy's `__help` bash function convention, which defers to its `styles.bash:__print_help` implementation (our TypeScript `renderHelp` implementation).
+ */
 export class HelpError extends Error {
 	readonly help: string = ''
 	readonly messages: string[] = []
 	readonly code: number = 22
+
+	/**
+	 * Construct a HelpError from either config+messages or only messages.
+	 */
 	constructor(config: { help?: string; code?: number }, ...messages: string[])
 	constructor(...messages: string[])
 	constructor(
@@ -737,6 +832,8 @@ export class HelpError extends Error {
 			this.messages = [first, ...rest]
 		}
 	}
+
+	/** Render this error for terminal display. */
 	public override toString(): string {
 		if (this.messages.length) {
 			if (this.help) {
@@ -757,6 +854,13 @@ export class HelpError extends Error {
 	}
 }
 
+/**
+ * Execute a command with inherited stdout/stderr.
+ *
+ * @param cmd Command array where the first element is the executable.
+ * @returns Resolves when the command exits with code 0.
+ * @throws {CodeError} If the command exits non-zero.
+ */
 export async function exec(cmd: string[]): Promise<void> {
 	// cannot do `, stderr` because we do `stderr: inherit`
 	const { code } = await new Deno.Command(cmd[0], {
@@ -769,7 +873,42 @@ export async function exec(cmd: string[]): Promise<void> {
 	}
 }
 
+/**
+ * Union of all literal values accepted by {@link assertFactory}.
+ *
+ * @typeParam T Tuple of allowed literal values.
+ */
 export type AssertFactoryValues<T extends readonly unknown[]> = T[number]
+
+/**
+ * Create reusable runtime type guards for a fixed set of allowed values.
+ *
+ * This is useful when command options are user input (strings/unknown values)
+ * and you want both:
+ * - runtime validation with a clear error, and
+ * - compile-time narrowing to a literal union type.
+ *
+ * @typeParam T Tuple of allowed values, usually declared with `as const`.
+ * @param values Allowed values.
+ * @param typeName Human-friendly type name for error messages.
+ * @returns Helpers to validate (`assert`) or coerce-with-check (`as`).
+ * @throws {CodeError} If a value is not present in `values`.
+ * @remarks
+ * - `assert(value)` narrows the type in-place when validation succeeds.
+ * - `as(value)` is a convenience wrapper that returns the validated value.
+ * @example
+ * ```ts
+ * const LEVELS = ['info', 'warn', 'error'] as const
+ * const Level = assertFactory(LEVELS, 'LogLevel')
+ *
+ * const raw: unknown = 'warn'
+ * Level.assert(raw)
+ * // raw is now narrowed to 'info' | 'warn' | 'error'
+ *
+ * const level = Level.as('error')
+ * // level has type 'info' | 'warn' | 'error'
+ * ```
+ */
 export function assertFactory<T extends readonly unknown[]>(
 	values: T,
 	typeName: string,
@@ -796,57 +935,171 @@ export function assertFactory<T extends readonly unknown[]>(
 	}
 }
 
+/**
+ * Assert that a value is a string.
+ *
+ * TypeScript does not trust unknown input by default. This assertion narrows
+ * `unknown` to `string` after the call succeeds.
+ *
+ * @param value Value to validate.
+ * @throws {CodeError} If `value` is not a string.
+ */
 export function assertString(value: unknown): asserts value is string {
 	if (typeof value !== 'string') {
 		throw new CodeError(14, `Expected a string, but received: ${typeof value}`)
 	}
 }
+
+/**
+ * Return a value as `string` after runtime validation.
+ *
+ * Use this when you need a string value immediately (instead of calling
+ * `assertString` and then returning the original variable yourself).
+ *
+ * @param value Value to validate and return.
+ * @returns The same value, typed as `string`.
+ * @throws {CodeError} If `value` is not a string.
+ */
 export function asString(value: unknown): string {
 	assertString(value)
 	return value
 }
 
+/**
+ * Assert that a value is an Error instance.
+ *
+ * Useful in `catch` blocks where the caught value is `unknown` in modern TS.
+ *
+ * @param value Value to validate.
+ * @throws {CodeError} If `value` is not an Error instance.
+ */
 export function assertError(value: unknown): asserts value is Error {
 	if (!(value instanceof Error)) {
 		throw new CodeError(14, `Expected an Error, but received: ${typeof value}`)
 	}
 }
+
+/**
+ * Return a value as `Error` after runtime validation.
+ *
+ * @param value Value to validate and return.
+ * @returns The same value, typed as `Error`.
+ * @throws {CodeError} If `value` is not an Error instance.
+ */
 export function asError(value: unknown): Error {
 	assertError(value)
 	return value
 }
 
+/**
+ * Render an error to stderr and terminate the process.
+ *
+ * @param error Optional unknown error value.
+ * @param status Optional explicit status code; inferred when omitted.
+ * @returns Never returns because this function terminates the process.
+ * @remarks
+ * This function always calls `Deno.exit(...)`.
+ */
 export async function exitWithError(error?: unknown, status?: number) {
+	let finalError = error
+	let output: string | undefined
+	if (error) {
+		try {
+			output = error instanceof CodeError ? error.message : error.toString()
+		} catch (renderError) {
+			finalError = renderError
+			if (renderError instanceof CodeError) {
+				output = renderError.message
+			} else if (renderError instanceof Error) {
+				output = renderError.toString()
+			} else {
+				output = String(renderError)
+			}
+		}
+	}
 	if (status == null || status < 0) {
-		if (error instanceof CodeError || error instanceof HelpError) {
-			status = error.code ?? 1
+		if (finalError instanceof CodeError || finalError instanceof HelpError) {
+			status = finalError.code ?? 1
 		} else {
 			status = 1
 		}
 	}
-	if (error) {
-		let output: string
-		// If it's a HelpError, use its toTerminalString method for formatting
-		output = error.toString()
+	if (output != null) {
 		// Write directly to stderr to preserve ANSI codes
 		await Deno.stderr.write(new TextEncoder().encode(output + '\n'))
 	}
 	Deno.exit(status)
 }
 
+/** Serialize unknown output as JSON and write to stdout. */
 export function writeStdoutStringify(output: unknown) {
 	return writeStdoutPlain(JSON.stringify(output))
 }
+
+/** Write plain text to stdout without adding a trailing newline. */
 export function writeStdoutPlain(output: string) {
 	return Deno.stdout.write(new TextEncoder().encode(output))
 }
+
+/** Pretty-print output via console.log. */
 export function writeStdoutPretty(output: unknown) {
 	console.log(output)
 }
 
-export async function readWhole(reader: Deno.Reader): Promise<string> {
-	// `Deno.readAll` was deprecated <https://docs.deno.com/api/deno/~/Deno.readAll>
-	// Implementation based on `@std/io/read-all` <https://github.com/denoland/std/blob/main/io/read_all.ts> <https://github.com/denoland/std/blob/main/LICENSE> Copyright 2018-2022 the Deno authors. MIT License
+/**
+ * Return true when arguments request help output for a command.
+ *
+ * @param args Process arguments, usually Deno.args.
+ * @returns True when args is exactly one help flag.
+ */
+export function wantsHelp(args: string[]): boolean {
+	return args.length === 1 && (args[0] === '--help' || args[0] === '-h')
+}
+
+/**
+ * Return true when arguments request running command tests.
+ *
+ * @param args Process arguments, usually Deno.args.
+ * @returns True when args is exactly the test flag.
+ */
+export function wantsTests(args: string[]): boolean {
+	return args.length === 1 && args[0] === '--test'
+}
+
+/**
+ * Local recreation of the removed `Deno.Reader` type for Deno 2 compatibility.
+ *
+ * @remarks
+ * Shape-compatible with the standard Reader contract so existing callers such
+ * as `Deno.stdin` can be passed without adapters.
+ * @see {@link https://docs.deno.com/runtime/reference/migration_guide/#api-changes | Deno migration guide API changes}
+ * @see {@link https://jsr.io/@std/io/doc/types/~/Reader | @std/io Reader contract}
+ * @see {@link https://github.com/denoland/std/blob/main/io/types.ts | Upstream type source}
+ * @see {@link https://github.com/denoland/std/blob/main/LICENSE | Upstream license}
+ * @copyright
+ * Copyright the Deno authors.
+ * Licensed under the MIT License.
+ */
+export type ReaderLike = {
+	read(p: Uint8Array): Promise<number | null>
+}
+
+/**
+ * Read all bytes from a ReaderLike and decode as UTF-8 text.
+ *
+ * @param reader Byte reader implementing the ReaderLike contract.
+ * @returns Decoded UTF-8 text containing the full reader contents.
+ * @throws {Error} Any I/O error thrown by `reader.read`.
+ * @remarks
+ * This function replaces removed runtime helpers like `Deno.readAll` while
+ * keeping equivalent behavior for command input handling.
+ * @see {@link https://github.com/denoland/std/blob/main/io/read_all.ts | Upstream read_all implementation}
+ * @see {@link https://github.com/denoland/std/blob/main/LICENSE | Upstream license}
+ * @copyright
+ * Copyright 2018-2022 the Deno authors.
+ * Licensed under the MIT License.
+ */
+export async function readWhole(reader: ReaderLike): Promise<string> {
 	const buffer: Uint8Array[] = []
 	const DEFAULT_CHUNK_SIZE = 16_640 // <https://github.com/denoland/std/blob/main/io/_constants.ts>
 	const buf = new Uint8Array(DEFAULT_CHUNK_SIZE)
@@ -863,6 +1116,11 @@ export async function readWhole(reader: Deno.Reader): Promise<string> {
 	return new TextDecoder().decode(data)
 }
 
-export async function readStdinWhole(): Promise<string> {
+/**
+ * Read all data from stdin as UTF-8 text.
+ *
+ * @returns Decoded UTF-8 text from `Deno.stdin`.
+ */
+export function readStdinWhole(): Promise<string> {
 	return readWhole(Deno.stdin)
 }

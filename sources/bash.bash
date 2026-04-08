@@ -2373,7 +2373,7 @@ function __do {
 	else
 		shift # remove the --inverted flag
 	fi
-	# there use to be complex code here to strip trailing newlines, to mimic `$(...)` command substitution behaviour, however, this deviation from actuality and its inherent complexity itself then deviated from simplicty and reliability, see commit after fbb2d062b3bc9765b5b2e8a58ea631eac818587a
+	# there use to be complex code here to strip trailing newlines, to mimic `$(...)` command substitution behaviour, however, this deviation from actuality and its inherent complexity itself then deviated from simplicity and reliability, see commit after fbb2d062b3bc9765b5b2e8a58ea631eac818587a
 	local DO__args=() DO__cmd=()
 	while [[ $# -ne 0 ]]; do
 		case "$1" in
