@@ -1311,7 +1311,7 @@ function __print_help {
 		done
 		[[ $match == 'yes' ]] || return $?
 	}
-	function __apply_index_of_prior_pattern {
+	function __find_index_of_prior_pattern {
 		# back tracking, updates FOUND_INDEX with each backward step of matching, failing if pattern was never found
 		local pattern="$1"
 		local -i ii
@@ -1328,7 +1328,7 @@ function __print_help {
 			return 1
 		fi
 	}
-	function __apply_index_of_next_pattern {
+	function __find_index_of_next_pattern {
 		# forward tracking, updates FOUND_INDEX with each forward step of matching, failing if pattern was never found
 		local pattern="$1"
 		local -i ii
@@ -1353,15 +1353,20 @@ function __print_help {
 		__are_prior_characters_matching '^[A-Z ]+$' $'\n' 'no' || return $?
 	}
 	function __require_fence {
-		local segment="$1" prefix='' suffix=''
-		if __apply_index_of_prior_pattern $'\n'; then
+		local segment="$1" left='' right='' string
+		IFS='' string="${s[*]}"
+		if __find_index_of_prior_pattern $'\n'; then
 			FOUND_INDEX="$((FOUND_INDEX + 1))"
-			IFS='' prefix="${s[*]:FOUND_INDEX:i-FOUND_INDEX}"
+			left="${string:FOUND_INDEX:((i - FOUND_INDEX))}"
 		fi
-		if __apply_index_of_next_pattern $'\n'; then
-			IFS='' suffix="${s[*]:i:FOUND_INDEX-i}"
+		if __find_index_of_next_pattern $'\n'; then
+			right="${string:i:((FOUND_INDEX - i))}"
+		else
+			right="${string:i}"
 		fi
-		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' ' of:' --newline --code="$prefix$suffix" --newline 'Try:' --newline --code='```'"$prefix$suffix"'```' || return $?
+		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' '.' --newline \
+			'Problem:' --newline --code="$left$right" --newline \
+			'Solution:' --newline --code='```'"$left$right"'```' || return $?
 		return 94 # EBADMSG 94 Bad message
 	}
 	local in_code='no' in_fence='no' in_color='no' in_option remove_intensity intensities=()
@@ -1434,10 +1439,10 @@ function __print_help {
 			# urls
 			# https://spec.commonmark.org/0.31.2/#autolink
 			# if we want to do full autolinks, this would then be:
-			# `if __apply_index_of_next_pattern '[a-z][a-z0-9+.-]+:[^[:cntrl:] <>]*^>$'; then`
+			# `if __find_index_of_next_pattern '[a-z][a-z0-9+.-]+:[^[:cntrl:] <>]*^>$'; then`
 			# but until we have a use case for that, ignore that use case and go with the simplest option
 			if [[ "${s[i + 1]-}${s[i + 2]-}${s[i + 3]-}${s[i + 4]-}" == 'http' ]]; then
-				if __apply_index_of_next_pattern '^>$'; then
+				if __find_index_of_next_pattern '^>$'; then
 					s[i]="$STYLE__link"
 					s[FOUND_INDEX]="$STYLE__END__link"
 					i="$FOUND_INDEX"
@@ -1490,7 +1495,7 @@ function __print_help {
 		esac
 		if [[ $in_option == 'yes' ]] && __are_prior_characters_only_padding; then
 			prefixes[i]="${STYLE__foreground_magenta}"
-			if __apply_index_of_next_pattern $'^\n$'; then
+			if __find_index_of_next_pattern $'^\n$'; then
 				suffixes[FOUND_INDEX]+="$STYLE__END__foreground_magenta"
 			else
 				# no trailing line
@@ -1505,7 +1510,7 @@ function __print_help {
 			# is it an example regular expression, then require fence
 			if [[ ${s[i + 1]-} == 'a' && ${s[i + 2]-} == '-' && ${s[i + 3]-} == 'z' ]]; then
 				__require_fence "${c}${s[i + 1]}${s[i + 2]}${s[i + 3]}${s[i + 4]}" || return $?
-			elif [[ ${s[i + 1]-} == ' ' ]]; then
+			elif [[ ${s[i + 1]-} == ' ' || ${s[i + 1]-} == ']' ]]; then
 				__require_fence "${c}${s[i + 1]}" || return $?
 			else
 				intensities+=("$STYLE__dim")

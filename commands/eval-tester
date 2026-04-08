@@ -17,7 +17,7 @@ function eval_tester() (
 	function __help {
 		__print_help "$@" <<-EOF || return $?
 			USAGE:
-			\`eval-tester [...options] -- <command> [...args]\`
+			\`eval-tester [...options]\`
 
 			OPTIONS:
 
@@ -27,15 +27,26 @@ function eval_tester() (
 			--[no-]quiet | --[no-]verbose
 			    If quiet, the default on CI, do not output test outputs unless there is a failure.
 
+			--command=<command>
+			    Enforce this <command> for the test.
+			--argument=...<argument>
+			    Enforce these <argument>s for the tests.
+			-- <command> [...<argument>]
+			    If not already specified by explicit options, then default to this <command> and <argument>s for the tests.
+			! A <command> is required, either by explicit definition via one of the above options, or via the fixture.
+
 			If using a fixture to define expectations:
 
-			--fixture=[<fixture-name>] -- <command> [...args]
-			    If enabled, uses \`\$DOROTHY(/user)?/fixtures/<fixture-name>.(actual|expected).txt\` for the expectations.
-			    Each test is split by eighty dashes, then can use <command>, <argument>, <stdin[ exact]>, <stdout[ exact]>, <stderr[ exact]>, <tty[ exact]>, <status>, <exact> to define properties.
+			--fixture[=<fixture-name>] [-- <command> [...<argument>]]
+			    If enabled, uses \`\$DOROTHY(/user)?/fixtures/<fixture-name>.fixure.txt\` for the expectations.
+			    Each test is split by eighty dashes, then can use <...option> to define properties.
 			    If <fixture-name> is not defined, defaults to <command>, otherwise <test-name>.
 			    See \`echo-help\` for an example.
 
 			If defining expectations without a fixture:
+
+			--[no-]write
+			    If enabled, writes failures to a temporary path, for use in updating your expectations.
 
 			--status=<expected-exit-code>
 			    Defaults to expecting the success exit status of [0].
@@ -43,13 +54,9 @@ function eval_tester() (
 
 			--stdin=<actual-stdin>
 			    String to send to the STDIN of the <command>.
-			--[no-]exact-stdin
-			    If provided, then do not trim leading and trailing newlines from <actual-stdin>.
 
 			--stdout=<expected-stdout>
 			    Defaults to expecting this to be empty.
-			--[no-]exact-stdout
-			    If provided, then do not trim leading and trailing newlines from actual and expected STDOUT.
 			--[no-]compare-stdout | --[no-]ignore-stdout
 			    If not comparing, aka if ignoring, then do not compare STDOUT.
 			--[no-]output-stdout | --[no-]hide-stdout | --[no-]discard-stdout
@@ -57,8 +64,6 @@ function eval_tester() (
 
 			--stderr=<expected-stderr>
 			    Defaults to expecting this to be empty.
-			--[no-]exact-stderr
-			    If provided, then do not trim leading and trailing newlines from actual and expected STDERR.
 			--[no-]compare-stderr | --[no-]ignore-stderr
 			    If not comparing, aka if ignoring, then do not compare STDERR.
 			--[no-]output-stderr | --[no-]hide-stderr | --[no-]discard-stderr
@@ -66,8 +71,6 @@ function eval_tester() (
 
 			--tty=<expected-tty>
 			    Defaults to expecting this to be empty.
-			--[no-]exact-tty
-			    If provided, then do not trim leading and trailing newlines from actual and expected TTY.
 			--[no-]compare-tty | --[no-]ignore-tty
 			    If not comparing, aka if ignoring, then do not compare TTY.
 			--[no-]output-tty | --[no-]hide-tty | --[no-]discard-tty
@@ -75,30 +78,29 @@ function eval_tester() (
 
 			--debug | --trace | --bash=<bash-path-or-binary-or-version>
 			    Forwarded to \`debug-bash\`.
-
-			--exact
-			    Do not trim leading and trailing newlines on actual and fixture STDIN, STDOUT, STDERR, and TTY.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
 	local item ignore_output_value=$'\f' \
-	option_name='' option_quiet='yes' option_fixture='' option_command='' option_args=() \
+	option_quiet='yes'  \
+	option_name=''  option_write='' option_fixture='' option_command='' option_args=() \
 	option_status='0' \
 	option_stdin='' option_stdout='' option_stderr='' option_tty='' \
 	option_bash='' option_debug='' option_trace='' \
 	option_output_stdout='' option_output_stderr='' option_output_tty='' \
-	option_compare_stdout='' option_compare_stderr='' option_compare_tty='' \
-	option_exact_stdin='' option_exact_stdout='' option_exact_stderr='' option_exact_tty='' option_exact=''
+	option_compare_stdout='' option_compare_stderr='' option_compare_tty=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		--help | -h) __help || return $? ;;
-		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative ;;
+		--no-verbose* | --verbose*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		--no-quiet* | --quiet*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+
 		--name=*) option_name="${item#*=}" ;;
+		--write*) __flag --source={item} --target={option_write} --affirmative --coerce ;;
 		--fixture*) __flag --source={item} --target={option_fixture} --affirmative --no-coerce ;;
 
 		--status=*) option_status="${item#*=}" ;;
@@ -106,12 +108,6 @@ function eval_tester() (
 		--stdout=*) option_stdout="${item#*=}" ;;
 		--stderr=*) option_stderr="${item#*=}" ;;
 		--tty=*) option_tty="${item#*=}" ;;
-
-		--no-exact-stdin* | --exact-stdin*) __flag --source={item} --target={option_exact_stdin} --affirmative --coerce ;;
-		--no-exact-stdout* | --exact-stdout*) __flag --source={item} --target={option_exact_stdout} --affirmative --coerce ;;
-		--no-exact-stderr* | --exact-stderr*) __flag --source={item} --target={option_exact_stderr} --affirmative --coerce ;;
-		--no-exact-tty* | --exact-tty*) __flag --source={item} --target={option_exact_tty} --affirmative --coerce ;;
-		--no-exact* | --exact*) __flag --source={item} --target={option_exact} --affirmative --coerce ;;
 
 		--no-compare-stdout* | --compare-stdout*) __flag --source={item} --target={option_compare_stdout} --affirmative --coerce ;;
 		--no-ignore-stdout* | --ignore-stdout*) __flag --source={item} --target={option_compare_stdout} --non-affirmative --coerce ;;
@@ -134,9 +130,13 @@ function eval_tester() (
 		--command=*) option_command="${item#*=}" ;;
 		--arg=* | --argument=*) option_args+=("${item#*=}") ;;
 		--)
-			option_command="$1"
+			if [[ -z $option_command ]]; then
+				option_command="$1"
+			fi
 			shift
-			option_args=("$@")
+			if [[ ${#option_args[@]} -eq 0 ]]; then
+				option_args=("$@")
+			fi
 			shift $#
 			break
 			;;
@@ -166,9 +166,6 @@ function eval_tester() (
 				fi
 			fi
 		fi
-		if [[ -z $option_name ]]; then
-			option_name="$option_fixture"
-		fi
 		# ensure none of the other args are specified
 		if [[ $option_status != '0' || -n $option_stdout || -n $option_stderr || -n $option_tty ]]; then
 			__help 'When using --fixture, do not specify any expectation options.' || return $?
@@ -183,25 +180,14 @@ function eval_tester() (
 			__help 'The fixture ' --variable-value={option_fixture} ' does not exist. Create it at either:' --newline --path="$user_fixture_path" --newline --path="$core_fixture_path" || return $?
 		fi
 		# now read the fixture, split by eighty dashes, and fill in the expectation options, then recall
-		local fixture_content fixture_inheritance=(--name="$option_name") fixture_options=() fixture_custom_command='' fixture_ordinal fixture_option_outer='' fixture_option_inner='' fixture_option_close=''
+		local fixture_content fixture_inheritance fixture_options=() fixture_extras=() fixture_ordinal fixture_option_self='' fixture_option_outer='' fixture_option_inner='' fixture_option_close='' fixture_name=''
 		local split=$'\n-------------------------------------------------------------------------------\n'
 		# read everything
-		fixture_content=$'\n'"$(<"$fixture_path")" || return $?
+		fixture_content=$'\n'"$(<"$fixture_path")""$split" || return $?
 		local -i fixture_count=0 n="${#fixture_content}" i d split_length="${#split}" fixture_option_begin fixture_option_close_length fixtures_exit_status=0
-		if [[ -n $option_exact_stdin ]]; then
-			fixture_inheritance+=("--exact-stdin=$option_exact_stdin")
-		fi
-		if [[ -n $option_exact_stdout ]]; then
-			fixture_inheritance+=("--exact-stdout=$option_exact_stdout")
-		fi
-		if [[ -n $option_exact_stderr ]]; then
-			fixture_inheritance+=("--exact-stderr=$option_exact_stderr")
-		fi
-		if [[ -n $option_exact_tty ]]; then
-			fixture_inheritance+=("--exact-tty=$option_exact_tty")
-		fi
-		if [[ -n $option_exact ]]; then
-			fixture_inheritance+=("--exact=$option_exact")
+		fixture_inheritance+=('--write')
+		if [[ -n $option_name ]]; then
+			fixture_inheritance+=("--name=$option_name")
 		fi
 		if [[ -n $option_compare_stdout ]]; then
 			fixture_inheritance+=("--compare-stdout=$option_compare_stdout")
@@ -233,24 +219,25 @@ function eval_tester() (
 		for (( i=0; i<n; ++i )); do
 			# __dump i n split_length fixture_option_outer
 			# printf 'c=%q\n' "${fixture_content:i:5}"
-			if [[ -z $fixture_option_outer ]]; then
+			if [[ -z $fixture_option_close ]]; then
 				if [[ "${fixture_content:i:split_length}" == "$split" ]]; then
 					i=$((i + split_length - 2)) # include the trailing newline in the next match
 					fixture_count="$((fixture_count + 1))"
 					if [[ ${#fixture_options[@]} -ne 0  ]]; then
-						if [[ -n $fixture_custom_command ]]; then
-							eval-tester "${fixture_inheritance[@]}" "${fixture_options[@]}" || fixtures_exit_status=$?
-						else
-							if [[ -z $option_command ]]; then
-								__help --help="A <command> is required either as an option or via a fixture." || return $?
+						if [[ -z $fixture_name ]]; then
+							if [[ -n $option_name ]]; then
+								fixture_name="${option_name}: fixture #$fixture_count"
+							else
+								fixture_name="fixture #$fixture_count"
 							fi
-							eval-tester "${fixture_inheritance[@]}" "${fixture_options[@]}" -- "${command_array[@]}" || fixtures_exit_status=$?
 						fi
+						fixture_extras+=("--name=$fixture_name")
+						eval-tester "${fixture_inheritance[@]}" "${fixture_options[@]}" "${fixture_extras[@]}" -- "${command_array[@]}" || fixtures_exit_status=$?
 						fixture_options=()
-						fixture_custom_command=''
-					elif [[ $fixture_count -ne 1 ]]; then
-						fixture_ordinal="$(echo-ordinal -- "$fixture_count")" || return $?
-						__help --help="The $fixture_ordinal fixture had no expectations." || return $?
+						fixture_extras=()
+						fixture_name=''
+					else
+						: # empty fixture, such as the void before the first, or the void after our injected last
 					fi
 				elif [[ "${fixture_content:i:2}" == $'\n<' ]]; then
 					i="$((i+2))"
@@ -263,25 +250,21 @@ function eval_tester() (
 					done
 					# check if it was preceeded by /, so self-closing, e.g. /> for <ignore-stdout/>
 					if [[ "${fixture_content:((i+d-1)):1}" == '/' ]]; then
-						fixture_option_outer="${fixture_content:i:((d-1))}"
-						fixture_options+=("--${fixture_option_outer}")
+						# self-closing, e.g. <ignore-stdout/>
+						fixture_option_self="${fixture_content:i:((d-1))}"
+						fixture_options+=("--${fixture_option_self}")
 					else
+						# had separate closing, e.g. <stdout>...</stdout> for <stdout>...</stdout>
 						fixture_option_outer="${fixture_content:i:d}"
 						fixture_option_begin="$((i+d+1))"
+						fixture_option_close="</$fixture_option_outer>"$'\n'
+						fixture_option_close_length="${#fixture_option_close}"
 					fi
-					# check if there was a ` exact` trail
-					case "$fixture_option_outer" in
-					'stdin exact') fixture_option_outer='stdin'; fixture_options+=('--exact-stdin') ;;
-					'stdout exact') fixture_option_outer='stdout'; fixture_options+=('--exact-stdout') ;;
-					'stderr exact') fixture_option_outer='stderr'; fixture_options+=('--exact-stderr') ;;
-					'tty exact') fixture_option_outer='tty'; fixture_options+=('--exact-tty') ;;
-					esac
-					if ! [[ $fixture_option_outer =~ ^(command|argument|(ignore-)?(stdin|stdout|stderr|tty|status))$ ]]; then
+					if ! [[ $fixture_option_outer =~ ^(command|arg|argument|(ignore-)?(stdin|stdout|stderr|tty|status)|bash|debug|trace)$ ]]; then
 						fixture_ordinal="$(echo-ordinal -- "$fixture_count")" || return $?
 						__help --help="The $fixture_ordinal fixture had angled brackets that were neither definining an expectation, nor were inside an expectation, resulting in an invalid expectation of " --variable-value={fixture_option_outer} || return $?
 					fi
-					fixture_option_close="</$fixture_option_outer>"
-					fixture_option_close_length="${#fixture_option_close}"
+					# go until the closing >, so the next iteration occurs after it
 					i=$((i + d))
 				fi
 			elif [[ ${fixture_content:i:fixture_option_close_length} == "$fixture_option_close" ]]; then
@@ -291,23 +274,19 @@ function eval_tester() (
 					if [[ -z $fixture_option_inner ]]; then
 						__help --help="The $fixture_ordinal fixture cannot have an empty value for <command>." || return $?
 					fi
-					fixture_custom_command="$fixture_option_inner"
-					;;
-				arg|argument)
-					if [[ -z $fixture_custom_command ]]; then
-						if [[ -n $option_command ]]; then
-							fixture_custom_command="$option_command"
-						else
-							__help --help="The $fixture_ordinal fixture cannot have an <argument> before a <command> is defined either via the fixture or via options." || return $?
-						fi
-					fi
 					;;
 				esac
-				fixture_options+=("--${fixture_option_outer}=${fixture_option_inner}")
+				if [[ $fixture_option_outer == 'name' ]]; then
+					fixture_name="$fixture_option_inner"
+				else
+					fixture_options+=("--${fixture_option_outer}=${fixture_option_inner}")
+				fi
 				fixture_option_outer=''
 				fixture_option_inner=''
 				fixture_option_close=''
 				fixture_option_close_length=0
+				# go to afer the closing element minus 1 for the closing newline
+				i=$((i + fixture_option_close_length - 1))
 			fi
 		done
 		if [[ -n $fixture_option_outer ]]; then
@@ -322,29 +301,16 @@ function eval_tester() (
 		__help --help="A <command> is required either as an option or via a fixture." || return $?
 	fi
 
+
 	# adjust for ignore
-	if [[ $option_compare_stdout == 'yes'  ]]; then
+	if [[ $option_compare_stdout == 'no'  ]]; then
 		option_stdout="$ignore_output_value"
 	fi
-	if [[ $option_compare_stderr == 'yes'  ]]; then
+	if [[ $option_compare_stderr == 'no'  ]]; then
 		option_stderr="$ignore_output_value"
 	fi
-	if [[ $option_compare_tty == 'yes'  ]]; then
+	if [[ $option_compare_tty == 'no'  ]]; then
 		option_tty="$ignore_output_value"
-	fi
-
-	# adjust for exact
-	if [[ ${option_exact_stdin:-"$option_exact"} == 'yes'  ]]; then
-		__replace --source+target={option_stdin} --optional --leading-newlines --trailing-newlines
-	fi
-	if [[ ${option_exact_stdout:-"$option_exact"} == 'yes'  ]]; then
-		__replace --source+target={option_stdout} --optional --leading-newlines --trailing-newlines
-	fi
-	if [[ ${option_exact_stderr:-"$option_exact"} == 'yes'  ]]; then
-		__replace --source+target={option_stderr} --optional --leading-newlines --trailing-newlines
-	fi
-	if [[ ${option_exact_tty:-"$option_exact"} == 'yes'  ]]; then
-		__replace --source+target={option_tty} --optional --leading-newlines --trailing-newlines
 	fi
 
 	# quiet already defaults to yes, but if they did --quiet= or so, then change it to CI status
@@ -482,12 +448,12 @@ function eval_tester() (
 	}
 
 	# prepare the execution
-	local do_args=() command_string title=''
+	local do_args=() command_string name=''
 	command_string="$(echo-escape-command -- "${command_array[@]}")"
 	if [[ -n $option_name ]]; then
-		title="$option_name" # no longer need to append command_string as we always output it now via the element wrap later
+		name="$option_name" # no longer need to append command_string as we always output it now via the element wrap later
 	else
-		title="$command_string"
+		name="$command_string"
 	fi
 
 	# file descriptor magic
@@ -514,14 +480,8 @@ function eval_tester() (
 	)
 
 	# run and capture and close
-	local time_before time_after actual_exit_status actual_stdout actual_stderr actual_tty
-	do_args+=(
-		--exact-stdout="$option_exact_stdout"
-		--exact-stderr="$option_exact_stderr"
-		--exact-tty="$option_exact_tty"
-		--exact="$option_exact"
-		--redirect-status={actual_exit_status}
-	)
+	local time_before time_after actual_status actual_stdout actual_stderr actual_tty
+	do_args+=(--redirect-status={actual_status})
 	if [[ $option_output_stdout == 'no' ]]; then
 		do_args+=(--redirect-stdout={actual_stdout})
 	else
@@ -532,7 +492,7 @@ function eval_tester() (
 	else
 		do_args+=(--copy-stderr={actual_stderr})
 	fi
-	__print_style --h2="$title" --newline --element+bold="$command_string"
+	__print_style --h2="$name" --newline --element+bold="$command_string"
 	time_before="$(__get_epoch_time)"
 	if [[ -n $option_stdin ]]; then
 		__do "${do_args[@]}" -- "${command_array[@]}" < <(printf '%s' "$option_stdin")
@@ -548,18 +508,14 @@ function eval_tester() (
 	__print_style --/element+bold="$command_string"
 	__wait_for_and_return_semaphores "$semaphore_tty_status"
 	__wait_for_semaphores "$semaphore_tty_content"
-	if [[ $option_exact == 'yes' ]]; then
-		local REPLY
-		__read_whole <"$semaphore_tty_content"
-		actual_tty="$REPLY"
-	else
-		actual_tty="$(<"$semaphore_tty_content")"
-	fi
+	local REPLY
+	__read_whole <"$semaphore_tty_content"
+	actual_tty="$REPLY"
 	rm -f -- "$semaphore_tty_content"
 
 	# determine if we fail, then we can decide what we are outputting
 	# do not put the next line as two lines, as that confuses the linting
-	if [[ ($option_status != "$ignore_output_value" && $actual_exit_status -ne $option_status) ||
+	if [[ ($option_status != "$ignore_output_value" && $actual_status -ne $option_status) ||
 		($option_stdout != "$ignore_output_value" && $actual_stdout != "$option_stdout") ||
 		($option_stderr != "$ignore_output_value" && $actual_stderr != "$option_stderr") ||
 		($option_tty != "$ignore_output_value" && $actual_tty != "$option_tty") ]]; then
@@ -569,7 +525,7 @@ function eval_tester() (
 
 	# compare
 	if [[ $FAIL == 'yes' || $option_quiet != 'yes' ]]; then
-		__compare STATUS "$actual_exit_status" "$option_status"
+		__compare STATUS "$actual_status" "$option_status"
 		__compare STDOUT "$actual_stdout" "$option_stdout"
 		__compare STDERR "$actual_stderr" "$option_stderr"
 		__compare TTY "$actual_tty" "$option_tty"
@@ -579,10 +535,47 @@ function eval_tester() (
 	local time_duration
 	time_duration="$(echo-duration --before="$time_before" --after="$time_after" || :)"
 	if [[ $FAIL == 'yes' ]]; then
-		__print_style --e2="$title" ' ' --code="in $time_duration" $'\n'
+		local message=()
+		message+=(--e2="$name" ' ' --code="in $time_duration")
+		if [[ $option_write == 'yes' ]]; then
+			local write_path writes=()
+			write_path="$(fs-temp --file --extension='txt')"
+			writes+=("<name>$name</name>")
+			writes+=("<command>${command_array[0]}</command>")
+			for (( i=1; i<${#command_array[@]}; ++i )); do
+				writes+=("<argument>${command_array[i]}</argument>")
+			done
+			if [[ -n $option_stdin ]]; then
+				writes+=("<stdin>$option_stdin</stdin>")
+			fi
+			if [[ -n $actual_stdout ]]; then
+				writes+=("<stdout>$actual_stdout</stdout>")
+			fi
+			if [[ -n $actual_stderr ]]; then
+				writes+=("<stderr>$actual_stderr</stderr>")
+			fi
+			if [[ -n $actual_tty ]]; then
+				writes+=("<tty>$actual_tty</tty>")
+			fi
+			if [[ $actual_status -ne 0 ]]; then
+				writes+=("<status>$actual_status</status>")
+			fi
+			if [[ -n $option_bash ]]; then
+				writes+=("<bash>$option_bash</bash>")
+			fi
+			if [[ -n $option_debug ]]; then
+				writes+=("<debug>$option_debug</debug>")
+			fi
+			if [[ -n $option_trace ]]; then
+				writes+=("<trace>$option_trace</trace>")
+			fi
+			__print_lines "${writes[@]}" >"$write_path" || return $?
+			message+=(' ' --path="$write_path")
+		fi
+		__print_style "${message[@]}" --newline
 		return 221 # ECUSTOM 221 Tests failed
 	else
-		__print_style --g2="$title" ' ' --code="in $time_duration" $'\n'
+		__print_style --g2="$name" ' ' --code="in $time_duration" --newline
 	fi
 )
 

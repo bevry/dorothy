@@ -1,6 +1,6 @@
 #!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 
-import { styleText } from 'node:util';
+import { styleText } from 'node:util'
 import {
 	HelpError,
 	exitWithError,
@@ -9,33 +9,20 @@ import {
 	writeStdoutPretty,
 	asString,
 	asError,
+	assertFactory,
 } from '../sources/ts.ts'
 
-// Actions and Arguments
-type Action = 'make' | 'stringify' | 'encode' | 'decode' | 'json' | 'pretty'
-const actions: Action[] = [
-	'make',
-	'stringify',
-	'encode',
-	'decode',
-	'json',
-	'pretty',
-]
+const { values: actionValues, as: asAction } = assertFactory(
+	['make', 'stringify', 'encode', 'decode', 'json', 'pretty'] as const,
+	'action',
+)
+
 class UsageError extends HelpError {
 	override help = [
 		'USAGE:',
 		'`echo-json.ts <make> [--] ...[<key> <value>]`',
-		'`echo-json.ts <stringify|encode|decode|json|pretty> [--] ...<input>`',
+		`\`echo-json.ts <${actionValues.join('|')}> [--] ...<input>\``,
 	].join('\n')
-}
-function assertAction(value: unknown): asserts value is Action {
-	if (!actions.includes(value as Action)) {
-		throw new UsageError(`An unrecognised <action> was provided: \`${value}\``)
-	}
-}
-function asAction(value: unknown): Action {
-	assertAction(value)
-	return value
 }
 
 // Parsing
@@ -68,9 +55,9 @@ function parse(input: string): {
 async function main(...args: string[]) {
 	// parse <action>
 	if (args.length === 0) {
-		throw new HelpError(`No <action> was provided.`)
+		throw new UsageError(`--help=No <action> was provided.`)
 	}
-	const action: Action = asAction(args.shift())
+	const action = asAction(args.shift())
 	// parse [...options] ...<input>
 	const properties = [],
 		inputs = []
@@ -91,7 +78,7 @@ async function main(...args: string[]) {
 		// validate we have a <value> for every <key>
 		if (inputs.length % 2 !== 0) {
 			throw new UsageError(
-				'<make> requires an even number of <key> <value> pairs.',
+				`--help=<make> requires an even number of <key> <value> pairs.`,
 			)
 		}
 		// build the object
@@ -116,7 +103,8 @@ async function main(...args: string[]) {
 				const { parseError, value } = parse(input)
 				if (parseError != null) {
 					throw new UsageError(
-						`Failed to parse what should be JSON-encoded <input> = \`${parseError.message}\``,
+						`--help=Failed to parse what should be JSON-encoded <input> = `,
+						`--value=${parseError.message}`,
 					)
 				}
 				if (action == 'json') {
@@ -146,8 +134,10 @@ async function main(...args: string[]) {
 							if (diver && typeof diver === 'object' && key in diver) {
 								diver = diver[key]
 							} else {
-								throw new HelpError(
-									`Property \`${property}\` does not exist in the provided input.`,
+								throw new UsageError(
+									`Property `,
+									`--value=${property}`,
+									` does not exist in the provided input.`,
 								)
 							}
 						}
@@ -161,7 +151,7 @@ async function main(...args: string[]) {
 				break
 			}
 			default:
-				throw new UsageError(`Invalid <action>: \`${action}\``)
+				throw new UsageError(`--help=Invalid <action>: `, `--value=${action}`)
 				break
 		}
 	}
