@@ -1333,7 +1333,7 @@ function __print_help {
 	function __find_index_of_upcoming_pattern {
 		__find_segment --pattern="$1" --start="${2-}" || return $?
 	}
-	function __expand_across_possible_pading_to_end {
+	function __expand_across_possible_padding_to_end {
 		__find_segment --direction=-1 --pattern='^[\t ]+$' --until=$'\n' --match-extends --match-nothing --other-fails || return $?
 	}
 	function __leftwards_of_header {
@@ -1429,7 +1429,7 @@ function __print_help {
 			SEGMENTS[CURRENT_SEGMENT_INDEX + 1]=''
 			SEGMENTS[CURRENT_SEGMENT_INDEX + 2]=''
 			# if the code fence is the only non-whitespace thing on the line, then remove the line
-			if [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 3]-} == $'\n' ]] && __expand_across_possible_pading_to_end; then
+			if [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 3]-} == $'\n' ]] && __expand_across_possible_padding_to_end; then
 				SEGMENTS[CURRENT_SEGMENT_INDEX + 3]=''
 				for ((subindex = FOUND_SEGMENT_INDEX; subindex < CURRENT_SEGMENT_INDEX; subindex++)); do
 					SEGMENTS[subindex]=''
@@ -1452,13 +1452,13 @@ function __print_help {
 		# we are now things we want to act upon
 		if [[ "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" == '* ' ]]; then
 			# lists
-			if __expand_across_possible_pading_to_end; then
+			if __expand_across_possible_padding_to_end; then
 				SEGMENTS[CURRENT_SEGMENT_INDEX]='•'
 				continue
 			fi
 		elif [[ "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" == '! ' ]]; then
 			# lists
-			if __expand_across_possible_pading_to_end; then
+			if __expand_across_possible_padding_to_end; then
 				prefixes[FOUND_SEGMENT_INDEX]+="$STYLE__foreground_red"
 				SEGMENTS[CURRENT_SEGMENT_INDEX]='!'
 				suffixes[CURRENT_SEGMENT_INDEX]+="$STYLE__END__foreground_red"
@@ -1529,7 +1529,7 @@ function __print_help {
 			fi
 			;;
 		esac
-		if [[ $in_option == 'yes' ]] && __expand_across_possible_pading_to_end; then
+		if [[ $in_option == 'yes' ]] && __expand_across_possible_padding_to_end; then
 			prefixes[CURRENT_SEGMENT_INDEX]="${STYLE__foreground_magenta}"
 			if __find_index_of_upcoming_pattern $'^\n$'; then
 				# intermediate line that has a trailing newline
