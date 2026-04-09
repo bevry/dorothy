@@ -855,13 +855,13 @@ export class HelpError extends Error {
 }
 
 /**
- * Execute a command with inherited stdout/stderr.
+ * Run a command with inherited stdout/stderr.
  *
  * @param cmd Command array where the first element is the executable.
  * @returns Resolves when the command exits with code 0.
  * @throws {CodeError} If the command exits non-zero.
  */
-export async function exec(cmd: string[]): Promise<void> {
+export async function run(cmd: string[]): Promise<void> {
 	// cannot do `, stderr` because we do `stderr: inherit`
 	const { code } = await new Deno.Command(cmd[0], {
 		args: cmd.slice(1),

@@ -4,7 +4,7 @@ import {
 	HelpError,
 	exitWithError,
 	readStdinWhole,
-	exec,
+	run,
 	heredoc,
 	wantsHelp,
 	wantsTests,
@@ -33,7 +33,7 @@ try {
 	if (wantsHelp(Deno.args)) {
 		throw new UsageError()
 	} else if (wantsTests(Deno.args)) {
-		await exec(['eval-tester', '--fixture=echo-help', '--', 'echo-help.ts'])
+		await run(['eval-tester', '--fixture=echo-help', '--', 'echo-help.ts'])
 	} else {
 		await main(...Deno.args)
 	}
