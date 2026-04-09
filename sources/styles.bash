@@ -1388,7 +1388,7 @@ function __print_help {
 			# go to the end
 			right="$(__concatenate_segments_from_until "$intensity_segment_index")"
 		fi
-		__print_error 'Invalid help template. Unable to complete ' --code="$intensity_segment" ' at ' --code="$intensity_segment_index" ' within:' --newline --code="$left$right" --newline 'Check for complete opening and closure of this intensity modifier, or for complete opening and closure of intensity modifiers within it.' || return $?
+		__print_error 'Invalid help template. Unable to complete ' --code="$intensity_segment" ' at ' --code="$intensity_segment_index" ' within:' --newline --code="$left$right" --newline 'Check for complete opening and closure of this intensity modifier, or for complete opening and closure of intensity modifiers within it.' --newline 'If the segment is correct, such as being valid code, then wrap it or the line in three backticks ' --code='```' ' to prevent its interpretation as an intensity modifier.' || return $?
 		return 94 # EBADMSG 94 Bad message
 	}
 	function __report_mismatched_intensity {

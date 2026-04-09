@@ -462,192 +462,325 @@ export function heredoc(
  * Validated by `echo-help.ts --test` which shares fixtures with the source-of-truth reference `echo-help --test`.
  */
 export function renderHelp(template: string): string {
-	// Convert string to character array for character-by-character processing
-	// This matches the bash version's approach of storing characters in an array
-	const chars = template.split('')
-	const n = chars.length
-	const prefixes: string[] = Array(n).fill('')
-	const suffixes: string[] = Array(n).fill('')
+	// This works by splitting text into per-character segments, with parallel
+	// prefixes/suffixes arrays that carry styling metadata for each segment.
+	// Segment removals use: segments[index] = ''.
+	// Segment replacements use: segments[index] = 'replacement'.
+	// Segment styling uses: prefixes[index] += beginStyle and suffixes[index] += endStyle.
+	// This mirrors styles.bash:__print_help and keeps content and style transformations separate.
+	// In simple cases we may place style codes directly into segments[index].
+	const segments = template.split('')
+	const segmentsCount = segments.length
+	const prefixes: string[] = Array(segmentsCount).fill('')
+	const suffixes: string[] = Array(segmentsCount).fill('')
 
 	// State tracking
 	let inCode = false
 	let inFence = false
 	let inColor = false
 	let inOption = false
-	const intensities: string[] = []
+	type IntensityEntry = { style: string; segmentIndex: number; segment: string }
+	const intensities: IntensityEntry[] = []
 
-	function arePriorCharactersMatching(
-		pattern: RegExp,
-		until: string,
-		from: number,
-		matchEmpty: boolean,
-	): number | null {
-		let foundIndex = from
-		let matched = matchEmpty
-		for (let ii = from - 1; ii >= 0; ii--) {
-			if (pattern.test(chars[ii])) {
-				matched = true
-				foundIndex = ii
+	// <expansive>: when a match is found, keep extending while pattern matches.
+	// <xenophobic>: matching must remain contiguous from the start position.
+	function findSegment(options: {
+		start?: number
+		direction?: -1 | 1
+		pattern: RegExp
+		until?: string
+		matchExtends?: boolean
+		matchNothing?: boolean
+		otherFails?: boolean
+	}): number | null {
+		const startSegmentIndex = options.start ?? 0
+		const direction = options.direction ?? 1
+		const pattern = options.pattern
+		const until = options.until
+		const matchExtends = options.matchExtends ?? false
+		const matchNothing = options.matchNothing ?? false
+		const otherFails = options.otherFails ?? false
+
+		let foundSegmentIndex: number | null = null
+		let iterations = 0
+		for (
+			let searchSegmentIndex = startSegmentIndex + direction;
+			searchSegmentIndex >= 0 && searchSegmentIndex < segmentsCount;
+			searchSegmentIndex += direction
+		) {
+			iterations++
+			if (pattern.test(segments[searchSegmentIndex])) {
+				foundSegmentIndex = searchSegmentIndex
+				if (!matchExtends) break
 				continue
 			}
-			if (chars[ii] === until) break
-			return null
+			if (until != null && segments[searchSegmentIndex] === until) {
+				if (matchNothing && iterations === 1) {
+					return startSegmentIndex
+				}
+				break
+			}
+			if (otherFails) {
+				return null
+			}
+			if (foundSegmentIndex != null) {
+				break
+			}
 		}
-		return matched ? foundIndex : null
+
+		if (matchNothing && iterations === 0) {
+			return startSegmentIndex
+		}
+
+		return foundSegmentIndex
 	}
 
-	function areNextCharactersMatching(
+	function findXenophobicMatchesUntil(
 		pattern: RegExp,
 		until: string,
-		from: number,
-		matchEmpty: boolean,
+		fromSegmentIndex: number,
 	): number | null {
-		let foundIndex = from
-		let matched = matchEmpty
-		for (let ii = from + 1; ii < n; ii++) {
-			if (pattern.test(chars[ii])) {
-				matched = true
-				foundIndex = ii
-				continue
-			}
-			if (chars[ii] === until) break
-			return null
+		return findSegment({
+			start: fromSegmentIndex,
+			pattern,
+			until,
+			matchExtends: true,
+			otherFails: true,
+		})
+	}
+
+	function findIndexOfEarlierPattern(
+		pattern: RegExp,
+		fromSegmentIndex: number,
+	): number | null {
+		return findSegment({ start: fromSegmentIndex, direction: -1, pattern })
+	}
+
+	function findIndexOfUpcomingPattern(
+		pattern: RegExp,
+		fromSegmentIndex: number,
+	): number | null {
+		return findSegment({ start: fromSegmentIndex, pattern })
+	}
+
+	function expandAcrossPossiblePaddingToEnd(
+		fromSegmentIndex: number,
+	): number | null {
+		return findSegment({
+			start: fromSegmentIndex,
+			direction: -1,
+			pattern: /^[\t ]$/,
+			until: '\n',
+			matchExtends: true,
+			matchNothing: true,
+			otherFails: true,
+		})
+	}
+
+	function leftwardsOfHeader(fromSegmentIndex: number): number | null {
+		return findSegment({
+			start: fromSegmentIndex,
+			direction: -1,
+			pattern: /^[A-Z ]$/,
+			until: '\n',
+			matchExtends: true,
+			matchNothing: true,
+			otherFails: true,
+		})
+	}
+
+	// Concatenate a segment range, defaulting to the end of input.
+	function concatenateSegments(
+		fromSegmentIndex: number,
+		untilSegmentIndex: number = segmentsCount,
+	): string {
+		return segments.slice(fromSegmentIndex, untilSegmentIndex).join('')
+	}
+
+	// Require problematic help syntax to be fenced, and report the exact line context.
+	function requireFence(segment: string, fromSegmentIndex: number): never {
+		const lineStartSegmentIndex =
+			(findIndexOfEarlierPattern(/^\n$/, fromSegmentIndex) ?? -1) + 1
+		const lineEndSegmentIndex =
+			findIndexOfUpcomingPattern(/^\n$/, fromSegmentIndex) ?? segmentsCount
+		const line = concatenateSegments(lineStartSegmentIndex, lineEndSegmentIndex)
+		throw new HelpError(
+			{ code: 94 },
+			'Invalid help template. Wrap ',
+			`--code=${segment}`,
+			' in ',
+			'--code=```',
+			'.',
+			'\n',
+			'Problem:',
+			'\n',
+			`--code=${line}`,
+			'\n',
+			'Solution:',
+			'\n',
+			`--code=\`\`\`${line}\`\`\``,
+		)
+	}
+
+	// Report intensity parsing failures with local line context and remediation guidance.
+	function requireMatchedIntensitiesError(
+		intensityIndex: number,
+		intensitySegment: string,
+	): never {
+		const priorNewline = findIndexOfEarlierPattern(/^\n$/, intensityIndex)
+		const nextNewline = findIndexOfUpcomingPattern(/^\n$/, intensityIndex)
+		const left =
+			priorNewline != null
+				? concatenateSegments(priorNewline + 1, intensityIndex)
+				: ''
+		const right =
+			nextNewline != null
+				? concatenateSegments(intensityIndex, nextNewline)
+				: concatenateSegments(intensityIndex)
+
+		throw new HelpError(
+			{ code: 94 },
+			'Invalid help template. Unable to complete ',
+			`--code=${intensitySegment}`,
+			' at ',
+			`--code=${String(intensityIndex)}`,
+			' within:',
+			'\n',
+			`--code=${left}${right}`,
+			'\n',
+			'Check for complete opening and closure of this intensity modifier, or for complete opening and closure of intensity modifiers within it.',
+			'\n',
+			'If the segment is correct, such as being valid code, then wrap it or the line in three backticks ',
+			'--code=```',
+			' to prevent its interpretation as an intensity modifier.',
+		)
+	}
+
+	// Closing marker without any currently-open intensity.
+	function reportMismatchedIntensity(atSegmentIndex: number): never {
+		return requireMatchedIntensitiesError(
+			atSegmentIndex,
+			segments[atSegmentIndex] ?? '',
+		)
+	}
+
+	// End of parse while one or more intensity markers remain open.
+	function reportUnclosedIntensity(): never {
+		for (const intensity of intensities) {
+			requireMatchedIntensitiesError(intensity.segmentIndex, intensity.segment)
 		}
-		return matched ? foundIndex : null
-	}
-
-	function findNextPatternIndex(pattern: RegExp, from: number): number | null {
-		for (let ii = from + 1; ii < n; ii++) {
-			if (pattern.test(chars[ii])) return ii
-		}
-		return null
-	}
-
-	function findPriorPatternIndex(pattern: RegExp, from: number): number | null {
-		for (let ii = from - 1; ii >= 0; ii--) {
-			if (pattern.test(chars[ii])) return ii
-		}
-		return null
-	}
-
-	function arePriorCharactersOnlyPadding(from: number): number | null {
-		return arePriorCharactersMatching(/^[\t ]$/, '\n', from, true)
-	}
-
-	function arePriorCharactersOnlyHeader(from: number): number | null {
-		return arePriorCharactersMatching(/^[A-Z ]$/, '\n', from, false)
-	}
-
-	function requireFence(segment: string, from: number): never {
-		const lineStart = (findPriorPatternIndex(/^\n$/, from) ?? -1) + 1
-		const lineEnd = findNextPatternIndex(/^\n$/, from) ?? n
-		const line = chars.slice(lineStart, lineEnd).join('')
 		throw new CodeError(
 			94,
-			printError(
-				'Invalid help template. Wrap ',
-				`--code=${segment}`,
-				' in ',
-				'--code=```',
-				'.',
-				'\n',
-				'Problem:',
-				'\n',
-				`--code=${line}`,
-				'\n',
-				'Solution:',
-				'\n',
-				`--code=\`\`\`${line}\`\`\``,
-			),
+			printError('Invalid help template. Mismatched intensity modifiers.'),
 		)
 	}
 
 	// Main processing loop - character by character
-	for (let i = 0; i < n; i++) {
-		const c = chars[i]
-		const next1 = chars[i + 1] || ''
-		const next2 = chars[i + 2] || ''
-		const next3 = chars[i + 3] || ''
-		const next4 = chars[i + 4] || ''
-		const prev1 = chars[i - 1] || ''
+	for (
+		let currentSegmentIndex = 0;
+		currentSegmentIndex < segmentsCount;
+		currentSegmentIndex++
+	) {
+		const segment = segments[currentSegmentIndex]
+		const nextSegment1 = segments[currentSegmentIndex + 1] || ''
+		const nextSegment2 = segments[currentSegmentIndex + 2] || ''
+		const nextSegment3 = segments[currentSegmentIndex + 3] || ''
+		const nextSegment4 = segments[currentSegmentIndex + 4] || ''
+		const priorSegment1 = segments[currentSegmentIndex - 1] || ''
 
-		// Skip control sequences
-		if (c === '\x1b') {
+		// Skip ANSI control sequences present in incoming content.
+		if (segment === '\x1b') {
 			inColor = true
 			continue
 		}
 		if (inColor) {
-			if (c === 'm') {
+			if (segment === 'm') {
 				inColor = false
 			}
 			continue
 		}
 
 		// CODE FENCE: ```
-		if (c === '`' && next1 === '`' && next2 === '`') {
-			chars[i] = ''
-			chars[i + 1] = ''
-			chars[i + 2] = ''
+		// Fence bodies disable all non-code parsing rules until the closing fence.
+		if (segment === '`' && nextSegment1 === '`' && nextSegment2 === '`') {
+			segments[currentSegmentIndex] = ''
+			segments[currentSegmentIndex + 1] = ''
+			segments[currentSegmentIndex + 2] = ''
 
 			// Remove fence if it's the only non-whitespace on line
-			const paddingStart = arePriorCharactersOnlyPadding(i)
-			if (chars[i + 3] === '\n' && paddingStart !== null) {
-				chars[i + 3] = ''
-				for (let ii = paddingStart; ii < i; ii++) {
-					chars[ii] = ''
+			const paddingStartSegmentIndex =
+				expandAcrossPossiblePaddingToEnd(currentSegmentIndex)
+			if (
+				segments[currentSegmentIndex + 3] === '\n' &&
+				paddingStartSegmentIndex !== null
+			) {
+				segments[currentSegmentIndex + 3] = ''
+				for (
+					let subSegmentIndex = paddingStartSegmentIndex;
+					subSegmentIndex < currentSegmentIndex;
+					subSegmentIndex++
+				) {
+					segments[subSegmentIndex] = ''
 				}
 			}
 
 			// Toggle fence
 			if (!inFence) {
 				inFence = true
-				chars[i] = STYLE.code
+				segments[currentSegmentIndex] = STYLE.code
 			} else {
-				chars[i] = STYLE.END__code
+				segments[currentSegmentIndex] = STYLE.END__code
 				inFence = false
 			}
 			continue
 		}
 
-		// If in fence, skip all other processing
+		// Ignore all transformations inside fenced code.
 		if (inFence) continue
 
 		// LIST MARKER: * or !
-		if ((c === '*' || c === '!') && next1 === ' ') {
-			if (arePriorCharactersOnlyPadding(i) !== null) {
-				if (c === '*') {
-					chars[i] = '•'
-				} else if (c === '!') {
-					const priorIdx = findPriorPatternIndex(/^\n$/, i)
-					if (priorIdx !== null) {
-						prefixes[priorIdx + 1] += STYLE.foreground_red
+		if ((segment === '*' || segment === '!') && nextSegment1 === ' ') {
+			if (expandAcrossPossiblePaddingToEnd(currentSegmentIndex) !== null) {
+				if (segment === '*') {
+					segments[currentSegmentIndex] = '•'
+				} else if (segment === '!') {
+					const paddingSegmentIndex =
+						expandAcrossPossiblePaddingToEnd(currentSegmentIndex)
+					if (paddingSegmentIndex !== null) {
+						prefixes[paddingSegmentIndex] += STYLE.foreground_red
 					} else {
 						prefixes[0] += STYLE.foreground_red
 					}
-					chars[i] = '!'
-					suffixes[i] += STYLE.END__foreground
+					segments[currentSegmentIndex] = '!'
+					suffixes[currentSegmentIndex] += STYLE.END__foreground
 				}
 				continue
 			}
 		}
 
 		// HEADER: Uppercase text ending with :
-		if (c === ':' && next1 === '\n') {
-			const headerStart = arePriorCharactersOnlyHeader(i)
-			if (headerStart !== null) {
-				prefixes[headerStart] += STYLE.foreground_magenta
-				suffixes[i] += STYLE.END__foreground
+		if (segment === ':' && nextSegment1 === '\n') {
+			const headerStartSegmentIndex = leftwardsOfHeader(currentSegmentIndex)
+			if (headerStartSegmentIndex !== null) {
+				prefixes[headerStartSegmentIndex] += STYLE.foreground_magenta
+				suffixes[currentSegmentIndex] += STYLE.END__foreground
 				continue
 			}
 		}
 
 		// URL: <http...>
-		if (c === '<' && `${next1}${next2}${next3}${next4}` === 'http') {
-			const endIdx = findNextPatternIndex(/^>$/, i)
-			if (endIdx !== null) {
-				chars[i] = STYLE.link
-				chars[endIdx] = STYLE.END__link
-				i = endIdx
+		if (
+			segment === '<' &&
+			`${nextSegment1}${nextSegment2}${nextSegment3}${nextSegment4}` === 'http'
+		) {
+			const endSegmentIndex = findIndexOfUpcomingPattern(
+				/^>$/,
+				currentSegmentIndex,
+			)
+			if (endSegmentIndex !== null) {
+				segments[currentSegmentIndex] = STYLE.link
+				segments[endSegmentIndex] = STYLE.END__link
+				currentSegmentIndex = endSegmentIndex
 			} else {
 				continue
 			}
@@ -655,38 +788,48 @@ export function renderHelp(template: string): string {
 		}
 
 		// RETURN STATUS: [0...] or [1-9...]
-		if (c === '[') {
-			const nextIdx = areNextCharactersMatching(/^0$/, ']', i, false)
-			if (nextIdx !== null) {
-				prefixes[i] += STYLE.foreground_green
-				suffixes[nextIdx + 1] += STYLE.END__foreground
-				i = nextIdx + 1
+		if (segment === '[') {
+			const successfulStatusEndSegmentIndex = findXenophobicMatchesUntil(
+				/^0+$/,
+				']',
+				currentSegmentIndex,
+			)
+			if (successfulStatusEndSegmentIndex !== null) {
+				prefixes[currentSegmentIndex] += STYLE.foreground_green
+				suffixes[successfulStatusEndSegmentIndex + 1] += STYLE.END__foreground
+				currentSegmentIndex = successfulStatusEndSegmentIndex + 1
 				continue
-			}
-			const nextIdx2 = areNextCharactersMatching(/^[\d*]$/, ']', i, false)
-			if (nextIdx2 !== null) {
-				prefixes[i] += STYLE.foreground_red
-				suffixes[nextIdx2 + 1] += STYLE.END__foreground
-				i = nextIdx2 + 1
-				continue
+			} else {
+				const failingStatusEndSegmentIndex = findXenophobicMatchesUntil(
+					/^[\d*]+$/,
+					']',
+					currentSegmentIndex,
+				)
+				if (failingStatusEndSegmentIndex !== null) {
+					prefixes[currentSegmentIndex] += STYLE.foreground_red
+					suffixes[failingStatusEndSegmentIndex + 1] += STYLE.END__foreground
+					currentSegmentIndex = failingStatusEndSegmentIndex + 1
+					continue
+				}
 			}
 		}
 
 		// INLINE CODE: `
-		if (c === '`') {
+		if (segment === '`') {
 			if (!inCode) {
 				inCode = true
-				chars[i] = STYLE.code
+				segments[currentSegmentIndex] = STYLE.code
 			} else {
 				inCode = false
-				chars[i] = STYLE.END__code
+				segments[currentSegmentIndex] = STYLE.END__code
 			}
 			continue
 		}
 
 		// OPTIONS/ACTIONS: -, <, [, |, &, ...
+		// Entire option/action line is styled in magenta when detected.
 		inOption = false
-		switch (c) {
+		switch (segment) {
 			case '-':
 			case '<':
 			case '[':
@@ -694,87 +837,124 @@ export function renderHelp(template: string): string {
 				inOption = true
 				break
 			case '&':
-				if (next1 === ' ') {
+				if (nextSegment1 === ' ') {
 					inOption = true
-					chars[i] = ''
-					chars[i + 1] = ''
+					segments[currentSegmentIndex] = ''
+					segments[currentSegmentIndex + 1] = ''
 				}
 				break
 			case '.':
-				if (next1 === '.' && next2 === '.') {
+				if (nextSegment1 === '.' && nextSegment2 === '.') {
 					inOption = true
 				}
 				break
 		}
 
-		if (inOption && arePriorCharactersOnlyPadding(i) !== null) {
-			prefixes[i] = STYLE.foreground_magenta
-			const eol = findNextPatternIndex(/^\n$/, i)
-			if (eol !== null) {
-				suffixes[eol] += STYLE.END__foreground
+		if (
+			inOption &&
+			expandAcrossPossiblePaddingToEnd(currentSegmentIndex) !== null
+		) {
+			prefixes[currentSegmentIndex] = STYLE.foreground_magenta
+			const lineEndSegmentIndex = findIndexOfUpcomingPattern(
+				/^\n$/,
+				currentSegmentIndex,
+			)
+			if (lineEndSegmentIndex !== null) {
+				suffixes[lineEndSegmentIndex] += STYLE.END__foreground
 			} else {
-				suffixes[n - 1] += STYLE.END__foreground
+				suffixes[segmentsCount - 1] += STYLE.END__foreground
 			}
 		}
 
 		// INTENSITY MODIFIERS: <, [, >, ]
-		let removeIntensity = false
-		switch (c) {
+		// Use a stack to support nesting and to re-apply parent intensity after pop.
+		let shouldRemoveIntensity = false
+		switch (segment) {
 			case '<':
-				if ([' ', '&', '(', '='].includes(next1)) {
-					requireFence(`${c}${next1}`, i)
+				if ([' ', '&', '(', '='].includes(nextSegment1)) {
+					requireFence(`${segment}${nextSegment1}`, currentSegmentIndex)
 				}
-				intensities.push(STYLE.bold)
-				prefixes[i] += STYLE.bold
+				intensities.push({
+					style: STYLE.bold,
+					segmentIndex: currentSegmentIndex,
+					segment,
+				})
+				prefixes[currentSegmentIndex] += STYLE.bold
 				break
 			case '[':
-				if (next1 === 'a' && next2 === '-' && next3 === 'z') {
-					requireFence(`${c}${next1}${next2}${next3}${next4}`, i)
-				} else if (next1 === ' ' || next1 === ']') {
-					requireFence(`${c}${next1}`, i)
+				if (
+					nextSegment1 === 'a' &&
+					nextSegment2 === '-' &&
+					nextSegment3 === 'z'
+				) {
+					requireFence(
+						`${segment}${nextSegment1}${nextSegment2}${nextSegment3}${nextSegment4}`,
+						currentSegmentIndex,
+					)
+				} else if (nextSegment1 === ' ' || nextSegment1 === ']') {
+					requireFence(`${segment}${nextSegment1}`, currentSegmentIndex)
 				} else {
-					intensities.push(STYLE.dim)
-					prefixes[i] += STYLE.dim
+					intensities.push({
+						style: STYLE.dim,
+						segmentIndex: currentSegmentIndex,
+						segment,
+					})
+					prefixes[currentSegmentIndex] += STYLE.dim
 				}
 				break
 			case '>':
-				if (prev1 === ' ' || prev1 === ')') {
-					requireFence(`${c}${prev1}`, i)
-				} else if (next1 === '&') {
-					requireFence(`${c}${next1}`, i)
-				} else if (next1 === '=' && next2 === ' ') {
-					requireFence(`${c}${next1}${next2}`, i)
+				if (priorSegment1 === ' ' || priorSegment1 === ')') {
+					requireFence(`${segment}${priorSegment1}`, currentSegmentIndex)
+				} else if (nextSegment1 === '&') {
+					requireFence(`${segment}${nextSegment1}`, currentSegmentIndex)
+				} else if (nextSegment1 === '=' && nextSegment2 === ' ') {
+					requireFence(
+						`${segment}${nextSegment1}${nextSegment2}`,
+						currentSegmentIndex,
+					)
 				}
-				removeIntensity = true
+				shouldRemoveIntensity = true
 				break
 			case ']':
-				if (prev1 === ' ') {
-					requireFence(`${c}${prev1}`, i)
+				if (priorSegment1 === ' ') {
+					requireFence(`${segment}${priorSegment1}`, currentSegmentIndex)
 				}
-				removeIntensity = true
+				shouldRemoveIntensity = true
 				break
 		}
 
-		if (removeIntensity) {
+		if (shouldRemoveIntensity) {
 			if (intensities.length === 0) {
-				throw new CodeError(
-					94,
-					printError('Invalid help template. Mismatched intensity modifiers.'),
-				)
+				reportMismatchedIntensity(currentSegmentIndex)
 			} else if (intensities.length === 1) {
-				suffixes[i] += STYLE.END__intensity
+				// Last open intensity closed: emit reset and clear stack.
+				suffixes[currentSegmentIndex] += STYLE.END__intensity
 				intensities.length = 0
 			} else {
+				// Nested close: reset intensity then re-apply still-open parent styles.
 				intensities.pop()
-				suffixes[i] += STYLE.END__intensity + intensities.join('')
+				suffixes[currentSegmentIndex] +=
+					STYLE.END__intensity +
+					intensities.map((intensity) => intensity.style).join('')
 			}
 		}
 	}
 
+	if (intensities.length !== 0) {
+		reportUnclosedIntensity()
+	}
+
 	// Build result
 	let result = ''
-	for (let i = 0; i < n; i++) {
-		result += prefixes[i] + chars[i] + suffixes[i]
+	for (
+		let currentSegmentIndex = 0;
+		currentSegmentIndex < segmentsCount;
+		currentSegmentIndex++
+	) {
+		result +=
+			prefixes[currentSegmentIndex] +
+			segments[currentSegmentIndex] +
+			suffixes[currentSegmentIndex]
 	}
 
 	// Trim double trailing newline
