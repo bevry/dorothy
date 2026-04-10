@@ -315,6 +315,7 @@ function __print_lines_or_line {
 }
 
 # print each argument on its own line, if no arguments, do nothing
+# note, if you are wanting to use this for outputs, you probably don't; outputs should be complete lines (have a trailing newline) - why? - because multiple calls will still be of value, e.g. `echo "$(call1; call2)"`
 function __print_lines { # b/c alias for __print_lines_or_nothing
 	if [[ $# -ne 0 ]]; then
 		printf '%s\n' "$@" || return $?
@@ -323,6 +324,26 @@ function __print_lines { # b/c alias for __print_lines_or_nothing
 function __print_lines_or_nothing {
 	if [[ $# -ne 0 ]]; then
 		printf '%s\n' "$@" || return $?
+	fi
+}
+
+# print each argument on its own line, with the exception of the last argument, which should not have a trailing newline
+function __print_inlines { # b/c alias for __print_inlines_or_nothing
+	if [[ $# -gt 1 ]]; then
+		local args=("$@")
+		printf '%s\n' "${args[@]:0:(($# - 1))}" || return $?
+		printf '%s' "${args[-1]}" || return $?
+	elif [[ $# -eq 1 ]]; then
+		printf '%s' "$1" || return $?
+	fi
+}
+function __print_inlines_or_nothing {
+	if [[ $# -gt 1 ]]; then
+		local args=("$@")
+		printf '%s\n' "${args[@]:0:(($# - 1))}" || return $?
+		printf '%s' "${args[-1]}" || return $?
+	elif [[ $# -eq 1 ]]; then
+		printf '%s' "$1" || return $?
 	fi
 }
 
@@ -2352,31 +2373,10 @@ function __do {
 	else
 		shift # remove the --inverted flag
 	fi
-	# trailing newlines defaults to no, to match bash $(...) behaviour, which while divergent from writing to files/file-descriptors/etc, this divergence is too convenient, hence why bash even has the divergence in the first place, for instance, if one does consistency, then this:
-	# __do --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
-	# if [[ $choice == 'b' ]]; then
-	# has to become:
-	# __do --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
-	# if [[ $choice == $'b\n' ]]; then
-	# or:
-	# __do --no-trailing-newlines --redirect-status={choose_status} --redirect-stdout={choice} -- choose q -- a b c
-	# if [[ $choice == $'b\n' ]]; then
-	# or `choose` itself would need to be modified to not have a trailing newline on the last item
-	# however, such trailing newlines are common everywhere, and are expected in all CLI/TUI output as they want a trailing newline so that dumb interactive shell prompts don't have the prompt on the same line as the tool output, so instead interactive shells just strip the trailing newline in script usage; the whole thing is a mess, and explains why consistency in an inconsistent world is not ideal and why divergence in a divergent world is better
-	local DO__trailing_newlines=no DO__args=() DO__cmd=()
+	# there use to be complex code here to strip trailing newlines, to mimic `$(...)` command substitution behaviour, however, this deviation from actuality and its inherent complexity itself then deviated from simplicity and reliability, see commit after fbb2d062b3bc9765b5b2e8a58ea631eac818587a
+	local DO__args=() DO__cmd=()
 	while [[ $# -ne 0 ]]; do
 		case "$1" in
-		'--trailing-newlines' | '--trailing-newlines=yes')
-			DO__trailing_newlines=yes
-			shift
-			;;
-		'--no-trailing-newlines' | '--trailing-newlines=no')
-			DO__trailing_newlines=no
-			shift
-			;;
-		'--trailing-newlines=')
-			shift
-			;;
 		'--')
 			shift
 			DO__cmd=("$@")
@@ -2401,11 +2401,11 @@ function __do {
 	local DO__arg DO__arg_value DO__arg_flag
 	if [[ ${#DO__args[@]} -eq 1 ]]; then
 		DO__arg="${DO__args[0]}"
-		set -- --trailing-newlines="$DO__trailing_newlines" -- "${DO__cmd[@]}"
+		set -- -- "${DO__cmd[@]}"
 	else
 		DO__arg="${DO__args[0]}"      # get the first argument
 		DO__args=("${DO__args[@]:1}") # remove the first argument from the remainder
-		set -- --trailing-newlines="$DO__trailing_newlines" "${DO__args[@]}" -- "${DO__cmd[@]}"
+		set -- "${DO__args[@]}" -- "${DO__cmd[@]}"
 	fi
 	DO__arg_flag="${DO__arg%%=*}" # [--stdout=], [--stderr=], [--output=] to [--stdout], [--stderr], [--output]
 	DO__arg_value="${DO__arg#*=}"
@@ -2506,11 +2506,7 @@ function __do {
 		__return $? --invoke-only-on-failure -- rm -f -- "$DO__semaphore" || return $?
 
 		# load the value of the file, remove the file, apply the value to the var target
-		if [[ $DO__trailing_newlines == no ]]; then
-			REPLY="$(<"$DO__semaphore")" || __return $? -- rm -f -- "$DO__semaphore" || return $?
-		else
-			__read_whole <"$DO__semaphore" || __return $? -- rm -f -- "$DO__semaphore" || return $?
-		fi
+		__read_whole <"$DO__semaphore" || __return $? -- rm -f -- "$DO__semaphore" || return $?
 		eval "$DO__variable_name=\"\$REPLY\"" || __return $? -- rm -f -- "$DO__semaphore" || return $?
 		rm -f -- "$DO__semaphore" || return $?
 		return $?
@@ -5468,6 +5464,13 @@ function __replace {
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
 
+		'--leading-newlines')
+			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[!\n]*}"}"
+			;;
+		'--trailing-newlines')
+			REPLACE__value_wip="${REPLACE__value_wip%"${REPLACE__value_wip##*[!\n]}"}"
+			;;
+
 		# Bash/POSIX Character Classes: <https://www.gnu.org/software/gawk/manual/html_node/Bracket-Expressions.html>
 		'--leading-whitespace')
 			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[![:space:]]*}"}"
@@ -5822,7 +5825,7 @@ function __slice {
 # __split --target={arr} --delimiters=$'\n\t ,|' --no-zero-length -- "$fodder_to_respect_exit_status"
 # use --delimiter='<a multi character delimiter>' to specify a single multi-character delimiter
 function __split {
-	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__trailing_newlines='' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
+	local SPLIT__character SPLIT__results=() SPLIT__window SPLIT__segment SPLIT__invoke='no' SPLIT__zero_length='yes' SPLIT__delimiters=() SPLIT__delimiter
 	local -i SPLIT__last_slice_left_index SPLIT__string_length SPLIT__string_last SPLIT__delimiter_size SPLIT__window_size SPLIT__window_offset SPLIT__character_left_index
 	# <multi-source helper arguments>
 	local SPLIT__item SPLIT__sources_variable_names=() SPLIT__targets=() SPLIT__mode=''
@@ -5862,7 +5865,7 @@ function __split {
 		'--')
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				local SPLIT__fodder_with_redirect_exit_status SPLIT__exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
+				__do --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
 				if [[ $SPLIT__exit_status -ne 0 ]]; then
 					return "$SPLIT__exit_status"
 				fi
@@ -5870,7 +5873,7 @@ function __split {
 				SPLIT__sources_variable_names+=('SPLIT__input')
 			elif [[ $SPLIT__invoke == 'try' ]]; then
 				local SPLIT__fodder_with_discard_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
+				__do --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
 				# trunk-ignore(shellcheck/SC2034)
 				local SPLIT__input="$SPLIT__fodder_with_discard_exit_status"
 				SPLIT__sources_variable_names+=('SPLIT__input')
@@ -5885,7 +5888,6 @@ function __split {
 			shift $#
 			break
 			;;
-		'--no-trailing-newlines'* | '--trailing-newlines'*) __flag --source={SPLIT__item} --target={SPLIT__trailing_newlines} --affirmative --coerce || return $? ;;
 		'--no-zero-length'* | '--zero-length'* | '--keep-zero-length'*) __flag --source={SPLIT__item} --target={SPLIT__zero_length} --affirmative --coerce || return $? ;;
 		'--invoke=try') SPLIT__invoke='try' ;;
 		'--invoke') SPLIT__invoke='yes' ;;

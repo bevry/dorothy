@@ -1,8 +1,30 @@
 #!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
 
-if (Deno.args.length === 0) throw new Error('USAGE: get-url-domain.ts <url>')
+import { heredoc, HelpError, exitWithError, wantsHelp } from '../sources/ts.ts'
 
-for (const input of Deno.args) {
-	const url = new URL(input)
-	console.log(url.protocol.replace(/:$/, ''))
+class UsageError extends HelpError {
+	override help = heredoc`
+		USAGE:
+		\`get-url-protocol.ts ...<url>\`
+	`
+}
+
+function main(...urls: string[]) {
+	if (urls.length === 0) {
+		throw new UsageError('--help=At least one <url> must be provided.')
+	}
+
+	for (const input of urls) {
+		const url = new URL(input)
+		console.log(url.protocol.replace(/:$/, ''))
+	}
+}
+
+try {
+	if (wantsHelp(Deno.args)) {
+		throw new UsageError()
+	}
+	main(...Deno.args)
+} catch (error) {
+	await exitWithError(error)
 }

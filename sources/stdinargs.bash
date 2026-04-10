@@ -33,7 +33,7 @@ function __stdinargs__help_options {
 		--[no-]color[s]
 		    Enforce or disable colored output, by exporting \`COLOR\` as \`tes\` (if enabled) or \`no\` (if disabled).
 
-		--[no-]timeout[=<timeout:yes|no|max|immediate|0|<seconds>]
+		--[no-]timeout[=<timeout:yes|no|max|immediate|0|<seconds>>]
 		    If enabled or omitted, STDIN content will be waited for \`1\` second before timing out.
 		    If disabled or \`max\`, STDIN content will wait forever and not timeout.
 		    If \`immediate\` or \`0\`, STDIN content must be immediate before timing out.
