@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+
+function fs_rename_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- fs-rename --help
+
+	# @todo add tests
+	local root sub a b
+	root="$(fs-make --directory='fs-rename' --directory)"
+	sub="$(fs-make --root="$root" --directory='sub')"
+	a="$(fs-make --root="$root" --file='aa' --touch)"
+	b="$(fs-make --root="$sub" --file='bb' --touch)"
+
+	eval-tester --ignore-stderr --status=22 -- fs-rename -- "$a" "$b"
+	eval-tester --ignore-stderr --status=22 -- fs-rename --search='anything' -- "$a" "$b"
+	eval-tester --ignore-stderr --status=22 -- fs-rename --replace='anything' -- "$a" "$b"
+
+	eval-tester --ignore-stdout --ignore-tty -- fs-rename --search='^(a|b)' --replace='z' -- "$a" "$b"
+	eval-tester -- is-present -- "$root/za"
+	eval-tester -- is-present -- "$sub/zb"
+	eval-tester --ignore-stdout --ignore-tty -- fs-rename --files --search='(.+?)(sub/)?(a|b)$' --replace='$1z' -- "$root"/**
+	eval-tester -- is-present -- "$root/zz"
+	eval-tester -- is-present -- "$root/zz"
+)
+
+function fs_rename() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function __help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Rename all passed files via the provided regular expression.
+			Companions: $(__join --style=code --between=', ' -- 'fs-move' 'fs-rename').
+
+			USAGE:
+			\`fs-rename [...options] -- ...<path>\`
+
+			OPTIONS:
+			--search=<search>
+			    The regular expression to search for.
+			--replace=<replace>
+			    The string to replace the search with.
+			--flags=<flags>
+			    Regular expression flags, e.g. \`i\` for case-insensitive.
+
+			--absolute | --basename
+			    If <absolute>, apply the regular expression on the absolute path, instead of the basename.
+
+			--[no-]files
+			--[no-]directories
+			--[no-]symlinks
+			    If any of these are specified, filter the <path>s to their combination.
+			    If any were enabled, omissions will default to disabled.
+			    If none were enabled, omissions will default to enabled.
+
+			--elevated=<elevated>
+			--elevate=<elevate>
+			--user=<user>
+			--group=<group>
+			--reason=<reason>
+			    Forwarded to \`fs-move\`
+
+			EXAMPLES:
+			\`\`\`
+			fs-rename 'setup-util-(.+)' 'rive-\$1' -- *
+			\`\`\`
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_search='' option_replace='' option_flags='' option_absolute='no' option_files='' option_directories='' option_symlinks='' option_paths=() option_elevated='' option_elevate='' option_user='' option_group='' option_reason=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') __help || return $? ;;
+		'--no-basename'* | '--basename'*) __flag --source={item} --target={option_absolute} --non-affirmative --coerce || return $? ;;
+		'--no-absolute'* | '--absolute'*) __flag --source={item} --target={option_absolute} --affirmative --coerce || return $? ;;
+		'--search='*) option_search="${item#*=}" ;;
+		'--replace='*) option_replace="${item#*=}" ;;
+		'--flags='*) option_flags="${item#*=}" ;;
+		'--no-files'* | '--files'*) __flag --source={item} --target={option_files} --affirmative --coerce || return $? ;;
+		'--no-directories'* | '--directories'*) __flag --source={item} --target={option_directories} --affirmative --coerce || return $? ;;
+		'--no-symlinks'* | '--symlinks'*) __flag --source={item} --target={option_symlinks} --affirmative --coerce || return $? ;;
+		'--elevated='*) option_elevated="${item#*=}" ;;
+		'--no-elevate'* | '--elevate'* | '--no-sudo'* | '--sudo'*) __flag --source={item} --target={option_elevate} --affirmative || return $? ;;
+		'--user='*) option_user="${item#*=}" ;;
+		'--group='*) option_group="${item#*=}" ;;
+		'--reason='*) option_reason="${item#*=}" ;;
+		# </elevate>
+		'--')
+			option_paths+=("$@")
+			shift $#
+			break
+			;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
+		*) __help 'An unrecognised argument was provided: ' --variable-value={item} || return $? ;;
+		esac
+	done
+
+	# check for files
+	local -i total=${#option_paths[@]}
+	if [[ $total -eq 0 ]]; then
+		__help --help='No <input>s were provided.' || return $?
+	fi
+	if [[ -z $option_search ]]; then
+		__help --help='No <search> was provided.' || return $?
+	fi
+	if [[ -z $option_replace ]]; then
+		__help --help='No <replace> was provided.' || return $?
+	fi
+
+	# handle types
+	if [[ $option_files == 'yes' || $option_directories == 'yes' || $option_symlinks == 'yes' ]]; then
+		# default omissions to disabled
+		if [[ -z $option_files ]]; then
+			option_files='no'
+		fi
+		if [[ -z $option_directories ]]; then
+			option_directories='no'
+		fi
+		if [[ -z $option_symlinks ]]; then
+			option_symlinks='no'
+		fi
+	else
+		# default omissions to enabled
+		if [[ -z $option_files ]]; then
+			option_files='yes'
+		fi
+		if [[ -z $option_directories ]]; then
+			option_directories='yes'
+		fi
+		if [[ -z $option_symlinks ]]; then
+			option_symlinks='yes'
+		fi
+	fi
+
+	# =====================================
+	# Action
+
+	# ensure validity of target path
+	local -i index
+	local path absolute parents basename destination
+	__terminal_title_progress_bar --create || :
+	for index in "${!option_paths[@]}"; do
+		path="${option_paths[index]}"
+		absolute="$(fs-path --absolute --validate -- "$path")"
+		# match type
+		if [[ $option_files == 'no' ]] && is-file --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$absolute"; then
+			continue
+		fi
+		if [[ $option_directories == 'no' ]] && is-directory --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$absolute"; then
+			continue
+		fi
+		if [[ $option_symlinks == 'no' ]] && is-symlink --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$absolute"; then
+			continue
+		fi
+		# determine destination
+		if [[ $option_absolute == 'yes' ]]; then
+			destination="$(echo-regexp --search="$option_search" --replace="$option_replace" --flags="$option_flags" -- "$absolute")" || return $?
+		else
+			parents="$(fs-path --parents -- "$absolute")"
+			basename="$(fs-path --no-parents -- "$absolute")"
+			destination="$parents/$(echo-regexp --search="$option_search" --replace="$option_replace" --flags="$option_flags" -- "$basename")" || return $?
+		fi
+		# don't rename if same
+		if [[ $absolute == "$destination" ]]; then
+			continue
+		fi
+		# perform rename
+		fs-move --elevated="$option_elevated" --elevate="$option_elevate" --user="$option_user" --group="$option_group" --reason="$option_reason" -- "$absolute" "$destination" || return $?
+	done
+	__terminal_title_progress_bar --destroy || :
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		fs_rename_test
+	else
+		fs_rename "$@"
+	fi
+fi

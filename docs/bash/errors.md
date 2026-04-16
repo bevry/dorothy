@@ -95,6 +95,9 @@ Includes usage for unimplemented actions.
 EFTYPE 79 Inappropriate file type or format
 Includes usage for when a path is not of the sought format, such as wanting an empty file but found a directory.
 
+EIDRM 90 Identifier removed
+Includes usage for deprecated paths / deprecations.
+
 ENOMSG 91 No message of desired type
 
 ENOATTR 93 Attribute not found

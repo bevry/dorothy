@@ -527,13 +527,13 @@ function dorothy_() (
 
 		# macos tooling
 		if __is_macos; then
-			setup-util-apple-rosetta --quiet
-			setup-util-apple-cli-tools --quiet
+			setup-util-apple-rosetta dependency
+			setup-util-apple-cli-tools dependency
 			# environment invalidation and reloading now happens automatically via signals
 		fi
 
 		# upgrade bash if necessary
-		setup-util-bash --quiet
+		setup-util-bash dependency
 
 		# `github-download` sometimes requires `jq`
 		# `get-github-release` sometimes requires `gsed` however it allows fallback to `sed`
@@ -542,13 +542,13 @@ function dorothy_() (
 			if __command_exists -- apt-get; then
 				__elevate apt-get -qq update # -qq: quiet
 			fi
-			setup-util-jq --quiet
-			setup-util-deno --quiet
+			setup-util-jq dependency
+			setup-util-deno dependency
 		fi
 
 		# ensure nushell always has the config files it needs
 		if __command_exists -- nu; then
-			setup-util-nu --quiet
+			setup-util-nu dependency
 		fi
 
 		# log
@@ -572,12 +572,12 @@ function dorothy_() (
 		__print_style --h2='Ensure development dependencies'
 
 		# install
-		setup-util-bash
-		setup-util-ripgrep
-		setup-util-prettier --upgrade="$upgrade"
-		setup-util-shellcheck --upgrade="$upgrade"
-		setup-util-shfmt --upgrade="$upgrade"
-		setup-util-trunk --upgrade="$upgrade"
+		setup-util-bash dependency
+		setup-util-ripgrep dependency
+		setup-util-prettier dependency --upgrade="$upgrade"
+		setup-util-shellcheck dependency --upgrade="$upgrade"
+		setup-util-shfmt dependency --upgrade="$upgrade"
+		setup-util-trunk dependency --upgrade="$upgrade"
 
 		# versions
 		eval-helper --verbose --wrap -- bash --version
@@ -935,7 +935,7 @@ function dorothy_() (
 		fi
 		local util
 		for util in "${utils[@]}"; do
-			"setup-util-$util" # eval
+			"setup-util-$util" --dependency # eval
 		done
 		setup-shell --reconfigure -- "${shells[@]}"
 
@@ -1028,7 +1028,7 @@ function dorothy_() (
 				return 93 # EPROTONOSUPPORT 93 Protocol not supported
 			fi
 			local rcfile
-			rcfile="$(fs-temp --directory='dorothy' --directory='repl' --file="$theme.$ACTIVE_POSIX_SHELL")"
+			rcfile="$(fs-make --directory='dorothy' --directory='repl' --file="$theme.$ACTIVE_POSIX_SHELL")"
 			cat <<-EOF >"$rcfile"
 				#!/usr/bin/env bash
 				DOROTHY_FORCE_LOAD=yes
@@ -1058,7 +1058,7 @@ function dorothy_() (
 		function __repl_nu {
 			# No longer supported:
 			# Error:   × Nushell launched as a REPL, but STDIN is not a TTY; either launch in a valid terminal or provide arguments to invoke a script!
-			setup-util-nu --quiet || return $?
+			setup-util-nu dependency || return $?
 			"$shell" --interactive --login --no-config-file --execute "$(
 				cat <<-EOF
 					#!/usr/bin/env nu
@@ -1071,7 +1071,7 @@ function dorothy_() (
 
 		# act, installing the shell if it is missing
 		if __has --source={shells} -- "$shell"; then
-			setup-util-"$shell" --quiet || return $?
+			setup-util-"$shell" --dependency || return $?
 			# TERM dumb fallback solves: warning: Could not set up terminal because $TERM is unset. Falling back to hardcoded xterm-256color values
 			export DOROTHY_RUN=yes TERM="${TERM:-"dumb"}"
 			__repl_"$shell" || return $?
@@ -1123,8 +1123,8 @@ function dorothy_() (
 		# output the commands
 		local paths=()
 		__split --target={paths} --no-zero-length --invoke -- \
-			echo-if-present -- "$DOROTHY/commands" "$DOROTHY/commands.beta" "$DOROTHY/user/commands" "$DOROTHY/user/commands.local"
-		setup-util-eza --quiet --optional
+			is-present --echo --optional -- "$DOROTHY/commands" "$DOROTHY/commands.beta" "$DOROTHY/user/commands" "$DOROTHY/user/commands.local"
+		setup-util-eza dependency --optional
 		if __command_exists eza; then
 			eza "${paths[@]}"
 		else
@@ -1285,7 +1285,7 @@ function dorothy_() (
 		done
 
 		# prepare
-		local -i __lint_status=0
+		local -i lint_status=0
 
 		# adjustments
 		local intent
@@ -1377,21 +1377,20 @@ function dorothy_() (
 
 			# @todo enforce that unnecessary quoting of var references is removed
 
-			# check for unsafe function calls, by checking for missing __* safety convention
-			# ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+
-			# \s[a-z]+_[a-z_]+( ([&][&]|[|][|]))
-			# @todo improve upon this by checking if the function also calls function, as any calling of a function must also be safe
-			# Unfortunately, it seems [^=] does not work in ((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+[^=]
-			# To avoid matching: OR a_var=$?
-			# So for now, just modify the var names even though it is unnecessary.
-			local unsafe_regexp='((if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+|\s[a-z]+_[a-z_]+( ([&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
+			# @todo parse safety functions to check if they have unsafe function calls
+
+			# Check for unsafe functions being invoked conditionally
+			# `(?<=(?:if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+(?=\s|$|[&|);])` checks for conditional then unsafe function
+			# `(?:^|\s)[a-z]+_[a-z_]+(?=\s(?:[&][&]|[|][|]))` checks for unsafe function then conditional
+			local unsafe_regexp='(?<=(?:if|[&][&]|[|][|]|[!])\s)[a-z]+_[a-z_]+(?=\s|$|[&|);])|(?:^|\s)[a-z]+_[a-z_]+(?=\s(?:[&][&]|[|][|]))' unsafe_contents='' unsafe_bundle='' unsafe_count=0
 			__split --target={commands} --no-zero-length --invoke=try -- \
-				rg --files-with-matches --sortr modified --regexp="$unsafe_regexp" "${scan_paths[@]}"
+				rg --files-with-matches --sortr modified --pcre2 --regexp="$unsafe_regexp" "${scan_paths[@]}"
 			for filepath in "${commands[@]}"; do
 				if [[ $filepath =~ (dorothy-internals|rb|py|ts|js|php)$ ]]; then
 					continue
 				fi
-				unsafe_contents="$(rg --color always --regexp="$unsafe_regexp" "$filepath" | grep --invert-match --extended-regexp --regexp='(for|__load_styles) ' || :)"
+				# Fetch the match for displaying, but prevent false positives
+				unsafe_contents="$(rg --color always --pcre2 --regexp="$unsafe_regexp" "$filepath" | grep --invert-match --extended-regexp --regexp='(for|__load_styles) ' || :)"
 				if [[ -z $unsafe_contents ]]; then
 					continue
 				fi
@@ -1400,7 +1399,7 @@ function dorothy_() (
 			done
 			if [[ $unsafe_count -ne 0 ]]; then
 				__print_style --no-trail --error='The following commands have unsafe function calls:' $'\n' "$unsafe_bundle"
-				__lint_status=1
+				lint_status=1
 			fi
 
 			# nushell linting
@@ -1408,7 +1407,7 @@ function dorothy_() (
 			# __split --target={commands} --no-zero-length --invoke=try -- \
 			# 	rg --files-with-matches --sortr modified --regexp="^[#][!]/usr/bin/env nu" "${scan_paths[@]}"
 			# for filepath in "${commands[@]}"; do
-			# 	nu -c "nu-check -d \"$filepath\"" >/dev/null || __lint_status=$?
+			# 	nu -c "nu-check -d \"$filepath\"" >/dev/null || lint_status=$?
 			# done
 		fi
 
@@ -1420,7 +1419,6 @@ function dorothy_() (
 
 		# lint with trunk
 		function __lint() (
-			local __status=0
 			cd "$path" || return $?
 			# if format fails, it is likely for a check failure
 			# `--ignore-git-state` is necessary to prevent trunk shfmt bugs
@@ -1455,16 +1453,16 @@ function dorothy_() (
 				return 221 # ECUSTOM 221 Tests failed
 			fi
 		}
-		__traverse "$DOROTHY" || __lint_status=$?
-		__traverse "$DOROTHY/user" || __lint_status=$?
+		__traverse "$DOROTHY" || lint_status=$?
+		__traverse "$DOROTHY/user" || lint_status=$?
 
 		# done
-		if [[ $__lint_status -eq 0 ]]; then
+		if [[ $lint_status -eq 0 ]]; then
 			__print_style --g1="Dorothy $intent"
 		else
 			__print_style --e1="Dorothy $intent"
 		fi
-		return "$__lint_status"
+		return "$lint_status"
 	}
 
 	# this is shared between `debug-bash` and `dorothy`
@@ -1659,15 +1657,14 @@ function dorothy_() (
 
 		# check for eval-capture failed cleaning
 		if [[ -n $CI ]]; then
-			local leftover leftovers=(
-				"$TMPDIR/dorothy/semlocks"
+			local leftovers=()
+			__split --target={leftovers} --no-zero-length --invoke=try -- \
+				is-nonempty-directory --echo -- \
+				"$TMPDIR/dorothy/semlocks" \
 				"$TMPDIR/dorothy/semaphores"
-			)
-			for leftover in "${leftovers[@]}"; do
-				if is-nonempty-directory -- "$leftover"; then
-					failures+=("$leftover had leftovers:"$'\n'"$(fs-structure -- "$leftover")")
-				fi
-			done
+			if [[ ${#leftovers[@]} -ne 0 ]]; then
+				failures+=("These leftovers were not cleaned up:"$'\n'"$(fs-structure -- "${leftovers[@]}")")
+			fi
 		fi
 
 		# check for warnings
@@ -1753,7 +1750,7 @@ function dorothy_() (
 				# does the file have help
 				if rg --quiet --fixed-strings --regexp='function help {' "$filepath"; then
 					:
-				elif [[ $filename != *setup-util-* ]]; then # ignore missing help on setup-util- files
+				elif [[ $filename != *setup-util-* ]]; then # ignore missing help on `setup-util-*` files
 					file_status=1
 					messages+=(
 						'  '
@@ -1800,17 +1797,17 @@ function dorothy_() (
 				return 221 # ECUSTOM 221 Tests failed
 			fi
 		}
-		local __command_status=0
 
-		__todos_scan 'commands' || __command_status=1
+		local -i command_status=0
+		__todos_scan 'commands' || command_status=1
 		__todos_scan 'commands.beta' || :
 
 		# done
-		if [[ $__command_status -eq 0 ]]; then
+		if [[ $command_status -eq 0 ]]; then
 			__print_style --g1='Dorothy Todos'
 		else
 			__print_style --e1='Dorothy Todos'
-			return "$__command_status"
+			return "$command_status"
 		fi
 	}
 
