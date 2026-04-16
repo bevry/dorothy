@@ -260,7 +260,7 @@ function __command_required {
 		return 6 # ENXIO 6 Device not configured
 	fi
 	# @todo update this to be inlined into `setup-util` to make implementing the `--(fallback|deps|slim)` options easier
-	get-installer --first-success --invoke --quiet -- "${COMMAND_REQUIRED__commands[@]}" || return $?
+	setup-util dependency --first-success -- "${COMMAND_REQUIRED__commands[@]}" || return $?
 	# verify installation
 	for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
 		if __command_exists -- "$COMMAND_REQUIRED__command"; then

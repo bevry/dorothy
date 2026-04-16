@@ -193,11 +193,11 @@ function setup_util_bash() (
 		if __is_macos && [[ $version == "$BASH_VERSION_LATEST" ]]; then
 			: # dependencies not needed on macos on latest bash version
 		else
-			setup-util-devel --quiet || return $?
+			setup-util-devel dependency || return $?
 			if [[ $version == "$BASH_VERSION_LATEST" ]]; then
 				: # yacc not required on newer bash versions
 			else
-				setup-util --quiet --cli='yacc' APT='byacc' BREW='byacc' || return $?
+				setup-util dependency --cli='yacc' APT='byacc' BREW='byacc' || return $?
 			fi
 			source "$DOROTHY/sources/environment.sh" || return $?
 		fi
@@ -257,21 +257,16 @@ function setup_util_bash() (
 	# =================================
 	# Arguments
 
-	local item versions=() util_options=() option_uninstall=''
+	local item versions=() user_options=() util_options=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--all' | '--av' | '--all-versions' | '--all-bash-versions') __bash_versions_by_support_rank --target={versions} --append ;;
 		'--v='* | '--version='* | '--versions='* | '--bash-version='* | '--bash-versions='*) __split --target={versions} --append --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
-		'--no-uninstall'* | '--uninstall'*)
-			__flag --source={item} --target={option_uninstall} --affirmative --coerce
-			util_options+=("$item")
-			;;
-		*) util_options+=("$item") ;;
+		*) user_options+=("$item") ;;
 		esac
 	done
-	set -- "${util_options[@]}"
 
 	# if doing specific versions, then just do those specific versions
 	if [[ ${#versions[@]} -ne 0 ]]; then
@@ -282,35 +277,19 @@ function setup_util_bash() (
 			versions[index]="$(__get_coerced_bash_version "$item")" || return $?
 		done
 
-		# this block offers no benefit as it is already fast enough
-		# # improve performance for detectable utilities with conditional assets
-		# # don't use setup_util as it is conditional
-		# local check_all=yes
-		# for version in "${versions[@]}"; do
-		# 	if ! setup-util --check --cli="bash-$version" "$@"; then
-		# 		check_all=no
-		# 	fi
-		# done
-		# if [[ $check_all == yes ]]; then
-		# 	return 0
-		# fi
-
-		# enable DOWNLOAD_BUILD_INSTALL
-		source "$(type -P setup-util)"
-
 		# @todo support uninstall
+		source "$(type -P setup-util)" # enable *_EVAL
 		for version in "${versions[@]}"; do
-			options=(
+			util_options=(
 				--cli="bash-$version"
-				--order='download'
-				"$@"
+				--source='download'
 				DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${version}.tar.gz"
 				DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
 				DOWNLOAD_BUILD_GLOB='bash'
-				DOWNLOAD_BUILD_INSTALL='__install'
+				DOWNLOAD_BUILD_INSTALL_EVAL='__install'
 				# uninstall not necessary, as it is handled by the generic source
 			)
-			setup_util --optional "${options[@]}"
+			setup_util --optional "${util_options[@]}" "${user_options[@]}"
 		done
 		return 0
 	fi
@@ -318,25 +297,23 @@ function setup_util_bash() (
 	# prevent crashes
 	if [[ ${RELOADED_IN_SYSTEM_BASH-} != 'yes' ]]; then
 		# bash is not outdated, and we can exit early
-		if ! __is_bash_outdated && setup-util --check --cli=bash "$@"; then
+		if ! __is_bash_outdated && setup-util check --cli=bash "${user_options[@]}"; then
 			return 0
 		fi
 		# continue
 		if __is_macos && [[ -x '/bin/bash' ]]; then
 			# reload in system bash to prevent modification crashing us
 			# don't use `debug-bash` as we still want invocations to `bash` to be the latest, so we can detect the upgraded version
-			env RELOADED_IN_SYSTEM_BASH=yes /bin/bash "${BASH_SOURCE[0]}" "$@"
+			env RELOADED_IN_SYSTEM_BASH=yes /bin/bash "${BASH_SOURCE[0]}" "${user_options[@]}"
 			return $?
 		fi
 	fi
 
-	# enable DOWNLOAD_BUILD_INSTALL
-	source "$(type -P setup-util)"
 
 	# process
-	local bottle_url='' macos_release arch options=(
+	source "$(type -P setup-util)" # enable *_EVAL
+	util_options=(
 		--cli='bash'
-		"$@"
 		APK='bash'
 		APT='bash'
 		AUR='bash'
@@ -348,6 +325,7 @@ function setup_util_bash() (
 		XBPS='bash'
 		ZYPPER='bash'
 	)
+	local bottle_url='' macos_release arch
 	arch="$(__get_arch)"
 	if __is_macos; then
 		# https://formulae.brew.sh/api/formula/bash.json
@@ -378,19 +356,19 @@ function setup_util_bash() (
 		fi
 	fi # don't use linux bottle, as linux is too varied, and doesn't work on opensuse/leap: https://github.com/bevry/dorothy/actions/runs/6048593518/job/16414257095
 	if [[ -n $bottle_url ]] && fetch --bearer-token='QQ==' --ok "$bottle_url"; then
-		options+=(
+		util_options+=(
 			DOWNLOAD="$bottle_url"
 			DOWNLOAD_BEARER_TOKEN='QQ=='
 			DOWNLOAD_ARCHIVE_EXTRACT='yes'
 			DOWNLOAD_ARCHIVE_GLOB='bash/*/bin/bash'
 		)
 	else
-		options+=(
+		util_options+=(
 			DOWNLOAD="https://ftpmirror.gnu.org/gnu/bash/bash-${BASH_VERSION_LATEST}.tar.gz"
 			DOWNLOAD_ARCHIVE_GLOB='bash-*/*'
 			DOWNLOAD_TARGET_PATH="$XDG_PREFIX/bin/bash"
-			DOWNLOAD_BUILD_INSTALL='__install_xdg'
-			DOWNLOAD_BUILD_UNINSTALL='__uninstall'
+			DOWNLOAD_BUILD_INSTALL_EVAL='__install_xdg'
+			DOWNLOAD_BUILD_UNINSTALL_EVAL='__uninstall'
 		)
 		function __uninstall {
 			__dependencies "$BASH_VERSION_LATEST"
@@ -399,27 +377,34 @@ function setup_util_bash() (
 			make uninstall prefix="$XDG_PREFIX" || return $?
 		}
 	fi
-	setup_util "${options[@]}"
+
+	# determine action
+	local want_uninstall='no'
+	if setup-util want-uninstall "${user_options[@]}"; do
+		want_uninstall='yes'
+	fi
+
+	# if bash not upgraded, try using recommended sources to upgrade
+	if [[ $want_uninstall != 'yes' ]] && __is_bash_outdated; then
+		setup_util "${util_options[@]}" "${user_options[@]}" upgrade
+	else
+		setup_util "${util_options[@]}" "${user_options[@]}"
+	fi
 
 	# reload environment, so that bash modifications are detected
 	source "$DOROTHY/sources/environment.sh" || return $?
 
-	# if not uninstalling, then upgrade if it is still outdated
-	if [[ $option_uninstall != 'yes' ]] && __is_bash_outdated; then
-		options+=(
-			--upgrade
-			--order='download ...'
-		)
-		setup_util "${options[@]}"
+	# if bash still not upgraded, use the download source to upgrades
+	if [[ $want_uninstall != 'yes' ]] && __is_bash_outdated; then
+		setup_util "${util_options[@]}" "${user_options[@]}" upgrade --source='download'
 	fi
 
 	# setup bash completions
 	# https://github.com/scop/bash-completion
-	options=(
+	util_options=(
 		--optional
 		--no-fallback
 		--name='Bash Completions'
-		"$@"
 		APK='bash-completion'
 		APT='bash-completion'
 		AUR='bash-completion'
@@ -427,7 +412,7 @@ function setup_util_bash() (
 		RPM='bash-completion'
 		ZYPPER='bash-completion'
 	)
-	setup_util "${options[@]}"
+	setup_util "${util_options[@]}" "${user_options[@]}"
 
 	# if we are reactive, allow shell modification
 	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
