@@ -29,6 +29,7 @@ const characterClasses: {
 }
 
 function compatRegexpString(input: string): string {
+	// convert rust named capture groups `(?P<` to ecmascript `(?<`
 	let wip = input.replaceAll('(?P<', '(?<')
 	// convert [[:digit:][:lower:]] to [0-9a-z]
 	// this also happens to convert [[:digit:]] to [0-9]
