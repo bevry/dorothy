@@ -197,7 +197,7 @@ function is_fs_tests__tuples {
 	# count the amount of paths so we have a total
 	for item in "${tuples[@]}"; do
 		if [[ $item == '--path='* ]]; then
-			total=$((total+1))
+			total=$((total + 1))
 		fi
 	done
 

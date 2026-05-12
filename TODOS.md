@@ -8,7 +8,7 @@ TODOS:
 - check `setup-python` and other `setup-*` for if they want `upstall`
 - consider `--upstall` for `setup-util --install="$option_install" --upgrade="$option_upgrade" --transpose=MAS -- "${packages[@]}"`
 - `setup-util-bat upstall`
-- `RECONFIGURE_` to `CONFIGURE_` ?
+- `CONFIGURE_` to `CONFIGURE_` ?
 - converge on `has` vs `is-installed` nomenclature
 
 - `setup-system` should adopt `install`, `upgrade`, `upstall`, `(re)configure` nomenclature
@@ -17,14 +17,16 @@ TODOS:
 
 - `setup-util-docker` changed from its own `--postinstall` to the `--reconfigure` convention
 
+- `setup-util want-uninstall`
+
 - `setup-utils`
 - `get-installer`
 - `get-app`
 - `get-font`
 - `open-app`
 
-- `RECONFIGURE_INSTALLED_EVAL` - cannot reconfigure if check, as check is often conditional
-- `RECONFIGURE_EVAL`
+- `CONFIGURE_INSTALLED_EVAL` - cannot reconfigure if check, as check is often conditional
+- `CONFIGURE_EVAL`
 - `APT_INSTALL_EVAL`
 - `AUR_INSTALL_EVAL`
 - `RPM_INSTALL_EVAL`
@@ -52,17 +54,17 @@ mediainfo repo install
 
 for review:
 
-- check glob var has \*/ if originalcode had it
+- check glob var has \*/ if original code had it
 
 docker reconfigure, check, debug
 
 .app/.dmg
 
-- ghostty, has soar dusabled
+- ghostty, has soar disabled
 - discord, ghostty, legcord, ple-media-server - all have .dmg, but uses .zip instead of .dmg
-- hyper, obs, plexam, tabby - uses .dmg, with custom extraction
-- rpi-imager, super-produc - uses dmg, but no custom extraction
-- vivaldi and vcode use custom fetch andextraction `DOWNLOAD_ARCHIVE_EXTRACT`
+- hyper, obs, plexamp, tabby - uses .dmg, with custom extraction
+- rpi-imager, super-productivity - uses dmg, but no custom extraction
+- vivaldi and vscode use custom fetch and extraction `DOWNLOAD_ARCHIVE_EXTRACT`
 
 - .exe
 
@@ -78,7 +80,7 @@ setup-util-bat
 # tell us information about bat
 setup-util about|get bat # util-bat --help
 
-# return json about bat installions, empty result if no bat installatins (failure exit status)
+# return json about bat installations, empty result if no bat installations (failure exit status)
 setup-util where|find|has bat
 
 # returns [0] if the action is necessary
@@ -111,16 +113,16 @@ setup-util --quiet bat # no messaging, even if it is installing - when really, w
 setup-util --dependency bat # quiet if no action, otherwise TTY/STDERR if action
 ```
 
-# Todos
+## Todos
 
-- [ ] new intall/upgrade/uninstall as options, instead of action, allowing all to be run
+- [ ] new install/upgrade/uninstall as options, instead of action, allowing all to be run
 - [ ] updating each source to properly support upgrade
 - [ ] updating each source to properly support get
 - [ ] implementing the dependency verbosity
 - [ ] merging `utils` into `util`
 - [ ] merging `get-app` and `get-font` into `util`
 
-# OLDER TODOS
+## OLDER TODOS
 
 ssh-helper --install=\*
 

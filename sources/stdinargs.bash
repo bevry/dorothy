@@ -176,7 +176,7 @@ function stdinargs {
 			;;
 		'--no-color'* | '--color'*) __flag --source={item} --target={COLOR} --affirmative --export || return $? ;;
 		'--no-stdin'* | '--stdin'*) __flag --source={item} --target={option_stdin} --affirmative --no-coerce || return $? ;;
-		'--no-timeout'* | '--timeout'*) __flag --source={item} --target={option_timeout} --affirmative --no-coerce || return  ;;
+		'--no-timeout'* | '--timeout'*) __flag --source={item} --target={option_timeout} --affirmative --no-coerce || return ;;
 		'--no-inline'* | '--inline'*) __flag --source={item} --target={option_inline} --affirmative --coerce || return $? ;;
 		'--max-args='*) option_max_args="${item#*=}" ;;
 		# arguments, stdin

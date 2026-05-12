@@ -956,11 +956,9 @@ if [[ $BASH_VERSION_MAJOR -eq 5 && $BASH_VERSION_MINOR -ge 1 ]]; then
 		[[ ${1@L} == "${2@L}" ]] || return $?
 	}
 	function __case_insensitive_compare_contains {
-		# trunk-ignore(shellcheck/SC2053)
 		[[ ${1@L} == *"${2@L}"* ]] || return $?
 	}
 	function __case_insensitive_compare_pattern {
-		# trunk-ignore(shellcheck/SC2053)
 		[[ ${1@L} =~ ${2@L} ]] || return $?
 	}
 	function __case_insensitive_compare_glob {
@@ -1009,7 +1007,6 @@ else
 			[[ ${1,,} == *"${2,,}"* ]] || return $?
 		}
 		function __case_insensitive_compare_pattern {
-		# trunk-ignore(shellcheck/SC2053)
 			[[ ${1,,} =~ ${2,,} ]] || return $?
 		}
 		function __case_insensitive_compare_glob {
@@ -1069,7 +1066,6 @@ else
 		)
 		function __case_insensitive_compare_pattern () (
 			shopt -s nocasematch
-			# trunk-ignore(shellcheck/SC2053)
 			[[ $1 =~ $2 ]] || return $?
 		)
 		function __case_insensitive_compare_glob () (
@@ -6294,16 +6290,16 @@ function __maximum {
 
 # tool
 function __tool {
-	# local TOOL_delimiter=$'\n'
-	# <multi-source helper arguments>
-	local TOOL_item TOOL__tool_variable_name='' TOOL__tools_variable_name='' TOOL__help_function_name=''
+	local TOOL__question='Which tool to use?'
+	local TOOL__item TOOL__tool_variable_name='' TOOL__tools_variable_name='' TOOL__help_function_name=''
 	while [[ $# -ne 0 ]]; do
-		TOOL_item="$1"
+		TOOL__item="$1"
 		shift
-		case "$TOOL_item" in
-		'--tool={'*'}') __dereference --source="${TOOL_item#*=}" --name={TOOL__tool_variable_name} || return $? ;;
-		'--tools={'*'}') __dereference --source="${TOOL_item#*=}" --name={TOOL__tools_variable_name} || return $? ;;
-		'--help={'*'}') __dereference --source="${TOOL_item#*=}" --name={TOOL__help_function_name} || return $? ;;
+		case "$TOOL__item" in
+		'--tool={'*'}') __dereference --source="${TOOL__item#*=}" --name={TOOL__tool_variable_name} || return $? ;;
+		'--tools={'*'}') __dereference --source="${TOOL__item#*=}" --name={TOOL__tools_variable_name} || return $? ;;
+		'--help={'*'}') __dereference --source="${TOOL__item#*=}" --name={TOOL__help_function_name} || return $? ;;
+		'--question='*) TOOL__question="${TOOL__item#*=}" ;;
 		'--'*) __unrecognised_flag "$JOIN__item" || return $? ;;
 		*) __unrecognised_argument "$JOIN__item" || return $? ;;
 		esac
@@ -6317,7 +6313,7 @@ function __tool {
 	__dereference --source="$TOOL__tools_variable_name" --value={TOOL__tools} || return $?
 	# dependency
 	if [[ $TOOL__tool == '?' ]]; then
-		TOOL__tool="$(choose --required 'Which tool to use?' -- "${TOOL__tools[@]}")" || return $?
+		TOOL__tool="$(choose --required --question="$TOOL__question" -- "${TOOL__tools[@]}")" || return $?
 		__command_required -- "$TOOL__tool" || return $?
 	elif [[ -z $TOOL__tool ]]; then
 		TOOL__tool="$(__command_required --print -- "${TOOL__tools[@]}")" || return $?

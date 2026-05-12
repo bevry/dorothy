@@ -5,11 +5,92 @@ function setup_util_ruby() (
 	source "$(type -P setup-util)" # enable *_EVAL
 	util_options=(
 		--cli='ruby'
+		--eval-installed='ruby_configure'
 		EVAL_INSTALL='ruby_install'
 		EVAL_UPGRADE='ruby_upgrade'
 		EVAL_UNINSTALL='ruby_uninstall'
 	)
+
 	# `ruby_upgrade` just calls `ruby_install upgrade` which calls `setup-util ... upgrade`
+
+	function ruby_configure {
+		if [[ $SETUP_UTIL__EXTRA == 'yes' ]]; then
+			# environment provides:
+			# GEM_HOME
+
+			# environment.bash provides:
+			# HOMEBREW_RUBY_VERSION
+
+			# setup.bash provides:
+			local GEM_INSTALL=()
+			local RUBY_INSTALL=() # deprecated, use GEM_INSTALL
+			load_dorothy_config 'setup.bash'
+
+			# deprecations
+			if [[ ${#RUBY_INSTALL[@]} -ne 0 ]]; then
+				GEM_INSTALL+=("${RUBY_INSTALL[@]}")
+				__unique --source+target={GEM_INSTALL} --ignore-case || return $?
+				dorothy-config 'setup.bash' -- \
+					--field='RUBY_INSTALL' --replace= \
+					--field='GEM_INSTALL' --array="$(__print_lines "${GEM_INSTALL[@]}")"
+			fi
+
+			# adjustments
+			__split --target={GEM_INSTALL} --no-zero-length --invoke -- \
+				dorothy-config --packages-var='GEM_INSTALL' -- "${GEM_INSTALL[@]}"
+
+			# =====================================
+			# Caches
+
+			local prune=(
+				"$HOME/.ruby" # `.ruby` is an deprecated cache location, clear it
+				"$HOME/.gem"  # `GEM_HOME` is usually this
+			)
+			if [[ -n ${GEM_HOME-} ]]; then
+				prune+=("$GEM_HOME")
+			fi
+			__unique --source+target={prune}
+			__print_style --h2='Pruning cache'
+			fs-remove --quiet --no-confirm -- "${prune[@]}"
+			__print_style --g2='Pruning cache'
+
+			# =====================================
+			# Reload
+
+			# reload paths for changes to be detected and confirm installation
+
+			__print_style --h2='Reload paths'
+			source "$DOROTHY/sources/environment.sh"
+			if __command_missing -- gem; then
+				__print_error --help='Unable to find `gem` executable, so cannot proceed... ❌'
+				return 1
+			fi
+			# @todo style with var_dump or something
+			__print_style \
+				--dim="Ruby Path:      $(type -P ruby || :)" --newline \
+				--dim="Ruby Version:   $(ruby --version || :)" --newline \
+				--dim="Gem Path:       $(type -P gem || :)" --newline \
+				--dim="Gem Version:    $(gem --version || :)" --newline \
+				--g2='Reload paths'
+
+			# =====================================
+			# Update
+
+			# As we wipe gems each time, this is no longer needed
+			# also, it causes the following error on apt systems
+			# ERROR:  Your RubyGems was installed trough APT, and upgrading it through RubyGems
+			# 	itself is unsupported. If you really need the latest version of RubyGems (tip:
+			# 	you usually don't), then you need to install RubyGems (and Ruby) manually,
+			# 	maybe using tools like ruby-install, rvm, etc.
+			# __print_lines '' 'Updating ruby gems...'
+			# gem update --system
+
+			# =====================================
+			# Packages
+
+			setup-util install --transpose=GEM -- "${GEM_INSTALL[@]}"
+		fi
+	}
 	function ruby_install {
 		local util_options=() custom_options=("$@") # upgrade
 
@@ -101,7 +182,7 @@ function setup_util_ruby() (
 			RPM='ruby-devel' \
 			ZYPPER='ruby-devel' # 'ruby' is also available
 	}
-	setup_util "${util_options[@]}" "${user_options[@]}"
+	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
 
 # fire if invoked standalone

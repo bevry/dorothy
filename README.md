@@ -357,12 +357,6 @@ Stable commands:
         - [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
         - [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
 
-    - [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go) correctly setup GoLang on your system if desired or if required for your desired packages
-    - [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node) correctly setup Node.js on your system if desired or if required for your desired packages
-    - [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python) correctly setup Python on your system if desired or if required for your desired packages
-    - [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby) correctly setup Ruby on your system if desired or if required for your desired packages
-    - [`setup-rust`](https://github.com/bevry/dorothy/tree/master/commands/setup-rust) correctly setup Rust on your system if desired or if required for your desired packages
-
 - [`setup-util`](https://github.com/bevry/dorothy/tree/master/commands/setup-util) is an intelligent wrapper around every package system, allowing a cross-compatible way to install, upgrade, uninstall, and invoke utilities.
 
     It is used by the hundreds of `setup-util-*` commands, which enable installing a utility as easy as invoking `setup-util <utility>` and `setup-util-<utility>`.

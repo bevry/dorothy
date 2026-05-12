@@ -134,7 +134,6 @@ function __is_fs__invoke {
 # This only outputs the appropriate error message, and return status is based on whether that output of the error message (if applicable) was successful
 # You still need to finish your script with `return "$fs_status"` to return the appropriate status
 function __is_fs__error {
-	# trunk-ignore(shellcheck/SC2034)
 	local -i path_status arg_status
 	local path args=("$@") arg message
 	if [[ -s $fs_failures ]]; then

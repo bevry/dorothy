@@ -1,12 +1,183 @@
 #!/usr/bin/env bash
 
-function setup_util_node() (
+function setup_node() (
 	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Configuration
+
+	source "$DOROTHY/sources/config.sh"
+
+	# environment.bash provides:
+	# NVM_DIR
+	# but in case it failed to:
+	if [[ -z ${NVM_DIR-} ]]; then
+		export NVM_DIR="$HOME/.nvm"
+	fi
+
+	# setup.bash provides:
+	local NPM_INSTALL=()
+	local NODE_INSTALL=() # deprecated, use `NPM_INSTALL`
+	local NODE_VERSIONS=()
+	load_dorothy_config 'setup.bash'
+
+	# deprecations
+	if [[ ${#NODE_INSTALL[@]} -ne 0 ]]; then
+		NPM_INSTALL+=("${NODE_INSTALL[@]}")
+		__unique --source+target={NPM_INSTALL} --ignore-case || return $?
+		dorothy-config 'setup.bash' -- \
+			--field='NODE_INSTALL' --replace=
+	fi
+
+	# adjustments
+	__split --target={NPM_INSTALL} --no-zero-length --invoke -- \
+		dorothy-config --packages-var='NPM_INSTALL' -- "${NPM_INSTALL[@]}"
+
+	# =====================================
+	# Arguments
+
+	# help
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Setup the Node.js ecosystem.
+
+			USAGE:
+			\`setup-node [...options] [install|update|setup|configure]\`
+
+			OPTIONS:
+			--configure
+			    Whether to prompt, confirm, or save configuration changes.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_configure=''
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		# install|update|setup|configure
+		'setup') ;;
+		'update') option_configure='no' ;;
+		'install' | 'configure') option_configure='yes' ;;
+		'--no-configure'* | '--configure'*) __flag --source={item} --target={option_configure} --affirmative --coerce || return $? ;;
+		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		esac
+	done
+
+	# check
+	if [[ ${#NPM_INSTALL[@]} -eq 0 ]]; then
+		if [[ $option_configure == 'no' ]]; then
+			__print_style --dim='Setup of Node.js ecosystem skipped.' || return $?
+			return 0
+		elif ! confirm --linger --negative --ppid=$$ -- 'Setup Node.js ecosystem?'; then
+			return 0
+		fi
+	fi
+
+	# =====================================
+	# Start
+
+	__print_style --h1='Setup Node.js' || return $?
+
+	# =====================================
+	# Install/Upgrade Node.js and npm
+
+	setup-util-node upstall
+
+	# =====================================
+	# Reconfigure npm
+
+	# helper
+	function configure_system_npm {
+		__print_style --h2='Configure npm' || return $?
+		nvm-env -- npm config set init-author-name "$(
+			ask --required --linger \
+				--question='What is the profile name that you want to configure npm with?' \
+				--default="$(get-profile name -- npm ... || :)"
+		)"
+		nvm-env -- npm config set init-author-email "$(
+			ask --required --linger \
+				--question='What is the profile email that you want to configure npm with?' \
+				--default="$(get-profile email -- npm ... || :)"
+		)"
+		nvm-env -- npm config set init-author-url "$(
+			ask --required --linger \
+				--question='What is the profile homepage that you want to configure npm with?' \
+				--default="$(get-profile url -- npm ... || :)"
+		)"
+		nvm-env -- npm config set init-license "$(
+			ask --required --linger \
+				--question='What license do you want to configure npm to default to?' \
+				--default="$(npm config get init-license)"
+		)"
+		__print_style --g2='Configure npm' || return $?
+	}
+
+	# check
+	if
+		is-empty-value -- "$(npm config get init-author-name)" ||
+			is-empty-value -- "$(npm config get init-author-email)" ||
+			is-empty-value -- "$(npm config get init-author-url)" ||
+			is-empty-value -- "$(npm config get init-license)"
+	then
+		option_configure='yes'
+	fi
+
+	# configure
+	if [[ $option_configure == 'yes' ]]; then
+		configure_system_npm
+	fi
+
+	# =====================================
+	# Packages via npm
+
+	if [[ ${#NPM_INSTALL[@]} -ne 0 ]]; then
+		__print_style --h2='Node.js Packages' || return $?
+		setup-util install --transpose=NODE -- "${NPM_INSTALL[@]}"
+		__print_style --g2='Node.js Packages' || return $?
+	fi
+
+	# =====================================
+	# Additional Node.js versions
+
+	if [[ ${#NODE_VERSIONS[@]} -ne 0 ]]; then
+		__print_style --h2='Additional Node.js Versions' || return $?
+		setup-util install --transpose=NVM -- "${NODE_VERSIONS[@]}"
+		__print_style --g2='Additional Node.js Versions' || return $?
+	fi
+
+	# =====================================
+	# Finish
+
+	__print_style --g1='Setup Node.js' || return $?
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		setup_node_test
+	else
+		setup_node "$@"
+	fi
+fi
+
+function setup_util_node() (
+	source "$DOROTHY/sources/util.bash"
 	source "$(type -P eval-helper)" # enable `install_nvm_node`
-	source "$(type -P setup-util)" # enable *_EVAL
+	source "$(type -P setup-util)"  # enable *_EVAL
+	util_options=(
+		--cli='node'
+		EVAL_INSTALL='node_install'
+		EVAL_UNINSTALL='node_uninstall'
+	)
 
 	# improve performance for detectable utilities when fetching asset configuration
-	if setup-util check "${util_options[@]}" "${user_options[@]}"; then
+	if setup-util check "${util_options[@]}" "${setup_options[@]}"; then
 		return 0
 	fi
 
@@ -104,7 +275,7 @@ function setup_util_node() (
 
 		# continue with the upgrade
 		__print_style --dim="Before: v$(nvm-env -- npm --version)"
-		setup-util install --upgrade --name='npm' --force --quiet \
+		setup-util upstall --name='npm' --force --quiet \
 			NPM='npm' || __print_style --notice='You can ignore the npm upgrade failure, this will resolve after nvm is used.'
 		nvm-env -- npm cache clean --force 2>/dev/null # silent --force warning
 		__print_lines "After:  v$(nvm-env -- npm --version)"
@@ -143,7 +314,7 @@ function setup_util_node() (
 		if ! is-system --alpine; then
 			# install nvm
 			__print_style --h2='Install Node.js Version Manager (NVM)'
-			setup-util-nvm install --upgrade
+			setup-util-nvm upstall
 			__print_style --g2='Install Node.js Version Manager (NVM)'
 
 			# nvm node
@@ -173,12 +344,7 @@ function setup_util_node() (
 	}
 
 	# setup
-	local user_options=("$@") util_options=(
-		--cli='node'
-		EVAL_INSTALL='node_install'
-		EVAL_UNINSTALL='node_uninstall'
-	)
-	setup_util "${util_options[@]}" "${user_options[@]}"
+	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
 
 # fire if invoked standalone

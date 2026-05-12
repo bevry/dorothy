@@ -23,7 +23,7 @@ while [[ $# -ne 0 ]]; do
 		shift $#
 		break
 		;;
-	'--'*) exit 22 ;;  # EINVAL 22 Invalid argument
+	'--'*) exit 22 ;; # EINVAL 22 Invalid argument
 	*) option_paths+=("$item") ;;
 	esac
 done

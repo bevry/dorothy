@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
 # source "$(type -P setup-util)" # enable *_EVAL
-local user_options=("$@") util_options=()
-shift $#
+# trunk-ignore(shellcheck/SC2168,shellcheck/SC2034)
+local setup_options=("$@") util_options=()
 
 # __symlink_app_cli <app> ...[<existing> <symlink>]
 function __symlink_app_cli {
@@ -56,21 +56,21 @@ function __add_download_option_via_url_glob {
 }
 function __get_github_asset_url_via_slug_regexp {
 	local slug="$1" asset_regexp="$2"
-	github-download --dry --slug="$slug" --latest  --asset-regexp="$asset_regexp"|| return $?
+	github-download --dry --slug="$slug" --latest --asset-regexp="$asset_regexp" || return $?
 }
 function __get_github_asset_url_via_slug_asset {
 	local slug="$1" asset="$2" asset_regexp
 	asset_regexp="^$(echo-escape-regexp -- "$asset")$" || return $?
-	github-download --dry --slug="$slug" --latest  --asset-regexp="$asset_regexp"|| return $?
+	github-download --dry --slug="$slug" --latest --asset-regexp="$asset_regexp" || return $?
 }
 function __get_github_asset_url_via_slug_suffix {
 	local slug="$1" asset_suffix="$2" asset_regexp
 	asset_regexp="$(echo-escape-regexp -- "$asset_suffix")$" || return $?
-	github-download --dry --slug="$slug" --latest  --asset-regexp="$asset_regexp"|| return $?
+	github-download --dry --slug="$slug" --latest --asset-regexp="$asset_regexp" || return $?
 }
 function __get_github_asset_url_via_slug_pathname {
 	local slug="$1" pathname="$2"
-	github-download --dry --slug="$slug" --head  --pathname="$pathname" || return $?
+	github-download --dry --slug="$slug" --head --pathname="$pathname" || return $?
 }
 function __get_github_asset {
 	github-download --dry "$@" | echo-first-line || return $? # don't escape, we actually use a regex

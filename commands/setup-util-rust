@@ -5,39 +5,68 @@ function setup_util_rust() (
 	source "$(type -P setup-util)" # enable *_EVAL
 	util_options=(
 		--cli='rustup'
+		--configure-eval='__configure'
 		EVAL_INSTALL='rust_install'
 		EVAL_UPGRADE='rust_upgrade'
 		EVAL_UNINSTALL='rust_uninstall'
 	)
+	function __configure {
+		if [[ $SETUP_UTIL__INSTALLED == 'yes' && $SETUP_UTIL__EXTRA == 'yes' ]]; then
+			source "$DOROTHY/sources/config.sh"
+
+			# setup.bash provides:
+			local CARGO_INSTALL=()
+			local RUST_INSTALL=() # deprecated, use `CARGO_INSTALL`
+			load_dorothy_config 'setup.bash'
+
+			# deprecations
+			if [[ ${#RUST_INSTALL[@]} -ne 0 ]]; then
+				CARGO_INSTALL+=("${RUST_INSTALL[@]}")
+				__unique --source+target={CARGO_INSTALL} --ignore-case || return $?
+				dorothy-config 'setup.bash' -- \
+					--field='RUST_INSTALL' --replace= \
+					--field='CARGO_INSTALL' --array="$(__print_lines "${CARGO_INSTALL[@]}")"
+			fi
+
+			# adjustments
+			__split --target={CARGO_INSTALL} --no-zero-length --invoke -- \
+				dorothy-config --packages-var='CARGO_INSTALL' -- "${CARGO_INSTALL[@]}"
+
+			# check
+			if [[ ${#CARGO_INSTALL[@]} -ne 0 ]]; then
+				setup-util install --transpose=CARGO -- "${CARGO_INSTALL[@]}"
+			fi
+		fi
+	}
 	function rust_install {
 		# dependencies
-		setup-util-devel dependency
+		setup-util-devel --dependency
 
 		# https://rust-lang.github.io/rustup/installation/other.html
 		# rustup: Unable to run interactively. Run with -y to accept defaults, --help for additional options
 		# stdout to /dev/null as it useless stuff goes to stdout, useful stuff goes to stderr
-		fetch 'https://sh.rustup.rs' | sh -s -- --quiet --no-modify-path -y >/dev/null
+		fetch 'https://sh.rustup.rs' | sh -s -- --quiet --no-modify-path -y >/dev/null || return ?
 	}
 	function rust_upgrade {
 		if __command_exists -- rustup; then
-			rustup update
+			rustup update || return $?
 		else
-			rust_install "$@"
+			rust_install "$@" || return ?
 		fi
 	}
 	function rust_uninstall {
-		rustup self uninstall
+		rustup self uninstall || return ?
 	}
 
 	# checks
 	if __is_brew && [[ -n "$(brew-installed -- rustup rust || :)" ]]; then
 		if confirm --linger --positive --ppid=$$ -- 'Rust is currently installed via homebrew. Confirm that you want Dorothy to use rustup to manage rust instead. Rustup is the official and only endorsed method of managing Rust.'; then
-			brew uninstall -f rustup rust
+			brew uninstall -f rustup rust || return ?
 		fi
 	fi
 
 	# setup
-	setup_util "${util_options[@]}" "${user_options[@]}"
+	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
 
 # fire if invoked standalone

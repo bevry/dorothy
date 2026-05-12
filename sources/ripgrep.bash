@@ -2,7 +2,7 @@
 
 if [[ -z ${RIPGREP_BIN_PATH-} ]]; then
 	# install ripgrep
-	setup-util-ripgrep dependency
+	setup-util-ripgrep --dependency
 
 	# workaround for ripgrep outputting colors in pipes
 	function rg {
