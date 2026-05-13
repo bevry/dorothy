@@ -1,186 +1,167 @@
 #!/usr/bin/env bash
 
+# @todo change to behave like `setup-util-python  requiring `uv`, have `setup-util-ruby` require `ruby-install` or `rvm`, or at least support them
+
 function setup_util_ruby() (
 	source "$DOROTHY/sources/bash.bash"
 	source "$(type -P setup-util)" # enable *_EVAL
 	util_options=(
 		--cli='ruby'
-		--eval-installed='ruby_configure'
+		--configure-eval='ruby_configure'
 		EVAL_INSTALL='ruby_install'
-		EVAL_UPGRADE='ruby_upgrade'
+		EVAL_UPGRADE='ruby_install upgrade'
 		EVAL_UNINSTALL='ruby_uninstall'
+		APK='ruby-full'
+		APT='ruby-full'
+		AUR='ruby'
+		RPM='ruby-devel'
+		ZYPPER='ruby-devel' # 'ruby' is also available
 	)
 
-	# `ruby_upgrade` just calls `ruby_install upgrade` which calls `setup-util ... upgrade`
+	# environment provides:
+	# GEM_HOME
+
+	# environment.bash provides:
+	# HOMEBREW_RUBY_VERSION
+
+	# upgrade configuration to use a single specific ruby version (if multiple exist)
+	if __is_brew; then
+		if [[ -n ${HOMEBREW_RUBY_VERSION-} && $HOMEBREW_RUBY_VERSION != 'default' ]]; then
+			util_options+=("BREW=ruby@$HOMEBREW_RUBY_VERSION")
+		else
+			util_options+=('BREW=ruby')
+		fi
+	fi
 
 	function ruby_configure {
-		if [[ $SETUP_UTIL__EXTRA == 'yes' ]]; then
-			# environment provides:
-			# GEM_HOME
+		if [[ $SETUP_UTIL__INSTALLED == 'yes' ]]; then
+			# leave gem dirs intact, as there can be multiple
 
-			# environment.bash provides:
-			# HOMEBREW_RUBY_VERSION
-
-			# setup.bash provides:
-			local GEM_INSTALL=()
-			local RUBY_INSTALL=() # deprecated, use GEM_INSTALL
-			load_dorothy_config 'setup.bash'
-
-			# deprecations
-			if [[ ${#RUBY_INSTALL[@]} -ne 0 ]]; then
-				GEM_INSTALL+=("${RUBY_INSTALL[@]}")
-				__unique --source+target={GEM_INSTALL} --ignore-case || return $?
-				dorothy-config 'setup.bash' -- \
-					--field='RUBY_INSTALL' --replace= \
-					--field='GEM_INSTALL' --array="$(__print_lines "${GEM_INSTALL[@]}")"
+			# `.ruby` is an deprecated cache location, clear it
+			if [[ -d "$HOME/.ruby" ]]; then
+				fs-remove --quiet --no-confirm -- "$HOME/.ruby" || return $?
 			fi
 
-			# adjustments
-			__split --target={GEM_INSTALL} --no-zero-length --invoke -- \
-				dorothy-config --packages-var='GEM_INSTALL' -- "${GEM_INSTALL[@]}"
-
-			# =====================================
-			# Caches
-
-			local prune=(
-				"$HOME/.ruby" # `.ruby` is an deprecated cache location, clear it
-				"$HOME/.gem"  # `GEM_HOME` is usually this
-			)
-			if [[ -n ${GEM_HOME-} ]]; then
-				prune+=("$GEM_HOME")
-			fi
-			__unique --source+target={prune}
-			__print_style --h2='Pruning cache'
-			fs-remove --quiet --no-confirm -- "${prune[@]}"
-			__print_style --g2='Pruning cache'
-
-			# =====================================
-			# Reload
-
-			# reload paths for changes to be detected and confirm installation
-
-			__print_style --h2='Reload paths'
-			source "$DOROTHY/sources/environment.sh"
-			if __command_missing -- gem; then
-				__print_error --help='Unable to find `gem` executable, so cannot proceed... ❌'
-				return 1
-			fi
-			# @todo style with var_dump or something
-			__print_style \
-				--dim="Ruby Path:      $(type -P ruby || :)" --newline \
-				--dim="Ruby Version:   $(ruby --version || :)" --newline \
-				--dim="Gem Path:       $(type -P gem || :)" --newline \
-				--dim="Gem Version:    $(gem --version || :)" --newline \
-				--g2='Reload paths'
-
-			# =====================================
-			# Update
-
-			# As we wipe gems each time, this is no longer needed
-			# also, it causes the following error on apt systems
-			# ERROR:  Your RubyGems was installed trough APT, and upgrading it through RubyGems
-			# 	itself is unsupported. If you really need the latest version of RubyGems (tip:
-			# 	you usually don't), then you need to install RubyGems (and Ruby) manually,
-			# 	maybe using tools like ruby-install, rvm, etc.
-			# __print_lines '' 'Updating ruby gems...'
-			# gem update --system
-
-			# =====================================
-			# Packages
-
-			setup-util install --transpose=GEM -- "${GEM_INSTALL[@]}"
-		fi
-	}
-	function ruby_install {
-		local util_options=() custom_options=("$@") # upgrade
-
-		# install a specific ruby version via homebrew if supported
-		local brew_ruby='ruby'
-		if [[ -n ${HOMEBREW_RUBY_VERSION-} && ${HOMEBREW_RUBY_VERSION-} != 'default' ]]; then
-			brew_ruby="ruby@${HOMEBREW_RUBY_VERSION}"
-		fi
-
-		# perform the installation
-		util_options=(
-			--cli='ruby'
-			APK='ruby-full'
-			APT='ruby-full'
-			AUR='ruby'
-			BREW="$brew_ruby"
-			RPM='ruby-devel'
-			ZYPPER='ruby-devel' # 'ruby' is also available
-		)
-		setup_util "${util_options[@]}" "${custom_options[@]}"
-
-		# =====================================
-		# Selection
-
-		# upgrade configuration to use a single specific ruby version (if multiple exist)
-		local version_options bin_directory executable directory_name directory_version full_version version_options
-		if __is_brew; then
-			if [[ -z ${HOMEBREW_RUBY_VERSION-} || ($HOMEBREW_RUBY_VERSION == 'default' && ! -d "$HOMEBREW_PREFIX/opt/ruby") || -d "$HOMEBREW_PREFIX/opt/ruby@$HOMEBREW_RUBY_VERSION" ]]; then
-				# discover
-				version_options=()
-				rubyBinDirectories=("$HOMEBREW_PREFIX/opt/ruby"*'/bin')
-				for bin_directory in "${rubyBinDirectories[@]}"; do
-					executable="$bin_directory/ruby"
-					directory_name="$(fs-path --parent -- "$bin_directory")"
-					directory_version="${directory_name#*@}"
-					full_version="$("$executable" --version)"
-					if [[ $directory_version == "$directory_name" ]]; then
-						directory_version='default'
-					fi
-					version_options+=(
-						"$directory_version"
-						"$(
+			# revise preferred homebrew ruby version
+			if __is_brew; then
+				local configure_version="$SETUP_UTIL__CONFIGURE" version_options bin_directory executable directory_name directory_version full_version version_label version_options
+				# do we need to force revision?
+				if [[ -z ${HOMEBREW_RUBY_VERSION-} || ($HOMEBREW_RUBY_VERSION == 'default' && ! -d "$HOMEBREW_PREFIX/opt/ruby") || ! -d "$HOMEBREW_PREFIX/opt/ruby@$HOMEBREW_RUBY_VERSION" ]]; then
+					configure_version='yes'
+				fi
+				# perform revision
+				if [[ $configure_version == 'yes' ]]; then
+					# discover
+					version_options=()
+					rubyBinDirectories=("$HOMEBREW_PREFIX/opt/ruby"*'/bin')
+					for bin_directory in "${rubyBinDirectories[@]}"; do
+						executable="$bin_directory/ruby"
+						directory_name="$(fs-path --parent -- "$bin_directory")" || return $?
+						directory_version="${directory_name#*@}"
+						full_version="$("$executable" --version)"
+						if [[ $directory_version == "$directory_name" ]]; then
+							directory_version='default'
+						fi
+						version_label="$(
 							__print_style \
 								--bold="$directory_version" \
 								$'\n  ' --dim="$full_version" \
 								$'\n  ' --dim="$executable"
-						)"
-					)
-				done
+						)" || return $?
+						version_options+=(
+							"$directory_version"
+							"$version_label"
+						)
+					done
 
-				# select
-				HOMEBREW_RUBY_VERSION="$(
-					choose \
-						--question='There are multiple homebrew ruby versions installed, which version do you wish to prefer?' \
-						--label -- "${version_options[@]}"
-				)"
+					# select
+					HOMEBREW_RUBY_VERSION="$(
+						choose \
+							--linger --question='There are multiple homebrew ruby versions installed, which version do you wish to prefer?' \
+							--label --default="${HOMEBREW_RUBY_VERSION-}" -- "${version_options[@]}"
+					)" || return $?
 
-				# apply
-				config-helper --file="$DOROTHY/user/config/environment.bash" -- \
-					--field='HOMEBREW_RUBY_VERSION' --value="$HOMEBREW_RUBY_VERSION"
+					# apply
+					config-helper --file="$DOROTHY/user/config/environment.bash" -- \
+						--field='HOMEBREW_RUBY_VERSION' --value="$HOMEBREW_RUBY_VERSION" || return $?
+				fi
 			fi
 
-			__print_style --dim="Homebrew Ruby Version: $HOMEBREW_RUBY_VERSION"
-		fi
+			# ecosystem
+			if [[ $SETUP_UTIL__EXTRA == 'yes' ]]; then
+				# setup.bash provides:
+				local GEM_INSTALL=()
+				local RUBY_INSTALL=() # deprecated, use `GEM_INSTALL`
+				load_dorothy_config 'setup.bash'
 
-		# .ruby is an deprecated cache location, clear it
-		if [[ -d "$HOME/.ruby" ]]; then
-			fs-remove --quiet --no-confirm -- "$HOME/.ruby"
-		fi
-		# clear .gem is if it is not GEM_HOME
-		if [[ -n ${GEM_HOME-} ]]; then
-			if [[ $GEM_HOME != "$HOME/.gem" ]]; then
-				fs-remove --quiet --no-confirm -- "$HOME/.gem"
+				# deprecations
+				if [[ ${#RUBY_INSTALL[@]} -ne 0 ]]; then
+					GEM_INSTALL+=("${RUBY_INSTALL[@]}")
+					__unique --source+target={GEM_INSTALL} --ignore-case || return $?
+					dorothy-config 'setup.bash' -- \
+						--field='RUBY_INSTALL' --replace= \
+						--field='GEM_INSTALL' --array="$(__print_lines "${GEM_INSTALL[@]}")" || return $?
+				fi
+
+				# adjustments
+				__split --target={GEM_INSTALL} --no-zero-length --invoke -- \
+					dorothy-config --packages-var='GEM_INSTALL' -- "${GEM_INSTALL[@]}" || return $?
+
+				# =====================================
+				# Caches
+
+				__print_style --h3='Pruning cache' || return $?
+				local prune=(
+					"$HOME/.ruby" # `.ruby` is an deprecated cache location, clear it
+					"$HOME/.gem"  # `GEM_HOME` is usually this
+				)
+				if [[ -n ${GEM_HOME-} ]]; then
+					prune+=("$GEM_HOME")
+				fi
+				__unique --source+target={prune} || return $?
+				fs-remove --quiet --no-confirm -- "${prune[@]}" || return $?
+				__print_style --g3='Pruning cache' || return $?
+
+				# =====================================
+				# Reload
+
+				# reload paths for changes to be detected and confirm installation
+
+				source "$DOROTHY/sources/environment.sh"
+				if __command_missing -- gem; then
+					__print_error --help='Unable to find `gem` executable, so cannot proceed... ❌' || return $?
+					return 1
+				fi
+				# @todo style with var_dump or something
+				__print_style \
+					--dim="Ruby Path:      $(type -P ruby || :)" --newline \
+					--dim="Ruby Version:   $(ruby --version || :)" --newline \
+					--dim="Gem Path:       $(type -P gem || :)" --newline \
+					--dim="Gem Version:    $(gem --version || :)" --newline \
+					--g2='Reload paths' || return $?
+
+				# =====================================
+				# Update
+
+				# As we wipe gems each time, this is no longer needed
+				# also, it causes the following error on apt systems
+				# ERROR:  Your RubyGems was installed trough APT, and upgrading it through RubyGems
+				# 	itself is unsupported. If you really need the latest version of RubyGems (tip:
+				# 	you usually don't), then you need to install RubyGems (and Ruby) manually,
+				# 	maybe using tools like ruby-install, rvm, etc.
+				# __print_lines '' 'Updating ruby gems...'
+				# gem update --system
+
+				# =====================================
+				# Packages
+
+				if [[ ${#GEM_INSTALL[@]} -ne 0 ]]; then
+					__print_style --h3="Install ${#GEM_INSTALL[@]} gem packages" || return $?
+					setup-util install --transpose=GEM -- "${GEM_INSTALL[@]}" || return $?
+					__print_style --g3="Install ${#GEM_INSTALL[@]} gem packages" || return $?
+				fi
 			fi
-			__mkdirp "$GEM_HOME"
-		else
-			__mkdirp "$HOME/.gem"
 		fi
-	}
-	function ruby_upgrade {
-		ruby_install upgrade
-	}
-	function ruby_uninstall {
-		setup_util uninstall --cli='ruby' \
-			APK='ruby-full' \
-			APT='ruby-full' \
-			AUR='ruby' \
-			BREW="$brew_ruby" \
-			RPM='ruby-devel' \
-			ZYPPER='ruby-devel' # 'ruby' is also available
 	}
 	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
