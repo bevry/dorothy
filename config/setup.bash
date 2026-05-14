@@ -112,8 +112,8 @@ HOMEBREW_FONTS=(
 # CARGO_INSTALL=()
 
 # Utilities to install, these are the `setup-util-*` scripts
-# Used by `setup-utils`
-# You can use `setup-utils --configure` to configure these.
+# Used by `setup-util`
+# You can use `setup-util --configure` to configure these.
 SETUP_UTILS=(
 	'fira-code'
 	'ibm-plex' # many editors require this font

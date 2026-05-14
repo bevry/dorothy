@@ -110,7 +110,7 @@ function setup_util() (
 
 		# now prefer these custom methods, -autoupdate
 		installer # local or remote installer
-		'eval'    # run a function or another script
+		custom    # invoke a function/command/script
 
 		# A note on Windows
 		# Dorothy only supports WSL
@@ -136,21 +136,22 @@ function setup_util() (
 	# Arguments
 
 	local invocation="$0 $*"
-	function help {
+	function __help {
 		# trunk-ignore(shellcheck/SC2034)
-		local source_options=() source_options_rendered=''
+		local source_options=() source_options_rendered='' sources_rendered
 		# prevent endless `setup-util` recursion
 		if __command_exists -- deno; then
 			__split --target={source_options} --no-zero-length --invoke -- \
-				echo-regexp -smgf '.+# [<]options-for-sources[>]\s+|\s+# [<]/options-for-sources[>].+|\t|local ' '' <"${BASH_SOURCE[0]}"
-			__join --source={source_options} --target={source_options_rendered} --left='* ' --style=code --between=$'\n'
+				echo-regexp -smgf '.+# [<]options-for-sources[>]\s+|\s+# [<]/options-for-sources[>].+|\t|local ' '' <"${BASH_SOURCE[0]}" || return $?
+			__join --source={source_options} --target={source_options_rendered} --left='* ' --style=code --between=$'\n' || return $?
 		else
 			source_options_rendered="$(__print_error --help='`deno` is required to display the source options; install it with: `setup-util-deno`' 2>&1)" || return $?
 		fi
+		__join --source={sources} --target={sources_rendered} --left='* ' --style=code --between=$'\n' || return $?
 
 		# add invocation for debugging if error
 		if [[ $# -ne 0 ]]; then
-			set -- "$@" $'\nFailed invocation: ' --code="$invocation"
+			set -- "$@" $'\nFailed invocation: ' --code="$invocation" || return $?
 		fi
 
 		# output the help
@@ -167,6 +168,19 @@ function setup_util() (
 
 			Invoke a predefined utility from its \`setup-util-*\` command:
 			\`setup-util [...options] invoke <utility> [-- <...arguments>]\`
+
+			EXAMPLES:
+			\`\`\`
+			# different ways to install bottom
+			setup-util --name='bottom' --cli='btm' AUR='bottom-bin' BREW='bottom' CARGO='bottom'
+			setup-util-bottom # directly calls the comprehensive bottom utility setup command
+			setup-util bottom # defers to \`setup-util-bottom\`
+			setup-util btm    # defers to \`setup-util.dat\` Dorothy configuration file, which defers it to \`setup-util-bottom\`
+
+			# invoke bottom
+			setup-util --invoke bottom
+			setup-util --invoke bottom -- --help # passing \`--help\` argument to bottom's \`btm\` CLI
+			\`\`\`
 
 			OPTIONS:
 			These options determine the action to provide on the utility:
@@ -205,6 +219,11 @@ function setup_util() (
 			    Returns [0] if quiet and no action is necessary.
 			    Returns [1] if an action is necessary.
 
+			[--]want-uninstall
+			    If used, just check whether uninstallation is the desired action of the options.
+			    Returns [0] if uninstall is the desired action.
+			    Returns [1] if any other action is desired.
+
 			[--]get-installations [...<utility>]
 			    Outputs a minified JSON array for existing installations. If no installations, return nothing with a failure. Discards all other actions.
 			    Theoretical non-minified output for \`setup-util-vscode get-installations\` if there are existing flatpak, cask, and desktop installations:
@@ -213,7 +232,7 @@ function setup_util() (
 			        {"source":"flatpak","id":"com.visualstudio.code"},
 			        {"source":"cask","id":"visual-studio-code"},
 			        {"source":"desktop","path":"/usr/share/applications/code.desktop"}
-				]
+			    ]
 			    \`\`\`
 
 			[--]get-installer [<utility>]
@@ -223,6 +242,15 @@ function setup_util() (
 			[--]invoke [<utility>] [-- <...arguments>]
 			    If enabled, invoke the <utility>.
 			    Returns the invocations exit status.
+
+			These options provide hooks:
+
+			--action-eval=<invocation>
+			    Runs the <invocation> if the action will be invoked.
+			--acted-eval=<invocation>
+			    Runs the <invocation> if the action was invoked.
+			--configure-eval=<invocation>
+			    Runs the <invocation> after the action, if <configure>> is true.
 
 			These options specify and customise our interaction with the utility:
 
@@ -234,18 +262,37 @@ function setup_util() (
 			--[no-]confirm
 			    If enabled, confirm installation of the utility before installing it.
 			--[no-]xdg
-			    If disabled, place the binary in /usr/local/bin and symlink the XDG binary to it.
+			    If disabled, place the binary in \`/usr/local/bin\` and symlink the XDG binary to it, such that it is exposed to root.
 			--[no-]force
 			    If enabled, use the <source>'s force mode if it has one.
 			--[no-]elevate
 			    Specify whether the utility requires elevation. Forwarded to \`command-working\`.
 
 			--[no-]dependency
-			    If enabled, output messages iff changes occur.
+			    If enabled, treat this utility as a dependency, only outputting messages iff changes occur.
+			--dependency=...<dependencies>
+			    Append <dependencies> to the list of dependencies that must be installed before this utility is installed.
+			--dependencies=<dependencies>
+			    Set these <dependencies> as the list of dependencies that must be installed before this utility is installed.
 			--[no-]quiet | --[no-]verbose
 			    If unspecified, outputs only useful things.
 			    If quiet, don't output anything that isn't an error message.
 			    If verbose, output everything.
+
+			UTILITIES:
+			You can specify utilities to install directly via:
+			[--first-success] [--] ...<utility>
+
+			These options help us detect existing and successful installations:
+
+			--cli=...<cli>
+			    Used to check if the utility is already installed, in this case, a CLI executable.
+			--app=...<app>
+			    Used to check if the utility is already installed, in this case, an application.
+			--font=...<font>
+			    Used to check if the utility is already installed, in this case, a font.
+			--checker=<command>
+			    The <command> is invoked to check if the utility is already installed. It should return [0] if installed, [1] if not installed.
 
 			These options are more intended to be used by the \`setup-util-*\` ecosystem, rather than the \`setup-util\` command itself. For adjust command behaviour respective the commands utilities.
 
@@ -262,20 +309,9 @@ function setup_util() (
 			    If enabled, disables <configure>, <fallback>, <dependencies>, <extras>.
 			    ! If unset, defaults to the \`SETUP_UTIL__SLIM\` environment variable.
 
-			These options help us detect existing and successful installations:
-
-			--cli=...<cli>
-			    Used to check if the utility is already installed, in this case, a CLI executable.
-			--app=...<app>
-			    Used to check if the utility is already installed, in this case, an application.
-			--font=...<font>
-			    Used to check if the utility is already installed, in this case, a font.
-			--checker=<command>
-			    The <command> is invoked to check if the utility is already installed. It should return [0] if installed, [1] if not installed.
-
 			SOURCES:
 			Available sources and their default order of preference:
-			$(__join --source={sources} --left='* ' --style=code --between=$'\n')
+			$sources_rendered
 
 			You can specify which sources are used by:
 
@@ -288,25 +324,12 @@ function setup_util() (
 			! \`=''\` indicates the option can be specified only once.
 			$source_options_rendered
 
-			TRANSPOSING:
-			You can transpose <package>s onto a specify <source> via:
+			You can simplify the specification of multiple packages from the same source with:
+
 			--transpose=<source> -- ...<package>
-			    E.g. \`--transpose=APT -- a b c\` becomes \`APT=a APT=b APT=c\`
-
-			UTILITIES:
-			You can specify utilities to install directly via:
-			[--first-success] [--] ...<utility>
-
-			EXAMPLES:
-			\`\`\`
-			setup-util --name='bottom' --cli='btm' --source='brew cargo aur' \\
-			    AUR='bottom-bin' \\
-			    BREW='bottom' \\
-			    CARGO='bottom'
-
-			setup-util bottom # infers \`setup-util-bottom\`
-			setup-util btm # uses \`setup-util.dat\`
-			\`\`\`
+			    Transposes <package>s onto a specific <source>.
+			    e.g. \`setup-util upstall --transpose=APT -- a b c\` becomes
+			         \`setup-util upstall APT=a APT=b APT=c\`
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
@@ -314,8 +337,8 @@ function setup_util() (
 	# <options-for-sources>
 	local APPIMAGE=() APPIMAGE_FILENAME=''
 	local APK=() APK_REPO=''
-	local APT=() APT_REPO='' APT_KEY='' APT_ID='' APT_INSTALL_EVAL=''
-	local AUR=() AUR_INSTALL_EVAL=''
+	local APT=() APT_REPO='' APT_KEY='' APT_ID=''
+	local AUR=()
 	local AURUTILS=()
 	local BREW=() BREW_TAP=()
 	local BSD=()
@@ -323,12 +346,12 @@ function setup_util() (
 	local CARGO=() RUST=()
 	local CASK=() CASK_TAP=()
 	local CONDA=() CONDA_CHANNEL=''
+	local CUSTOM_EVAL=() CUSTOM_INSTALL_EVAL=() CUSTOM_UNINSTALL_EVAL=() CUSTOM_UPGRADE_EVAL=()
 	local DNF=() DNF_GROUP=() DNF_COPR=() DNF_REPO=()
 	local DOWNLOAD='' DOWNLOAD_FILENAME=() DOWNLOAD_TARGET_PATH=() DOWNLOAD_BEARER_TOKEN='' DOWNLOAD_ARCHIVE_EXTRACT='' DOWNLOAD_ARCHIVE_FORMAT='' DOWNLOAD_ARCHIVE_GLOB='' DOWNLOAD_BUILD_INSTALL_EVAL='' DOWNLOAD_BUILD_UNINSTALL_EVAL='' DOWNLOAD_BUILD_GLOB=''
 	local DPKG=() DEB=()
 	local EMERGE=() EMERGE_REPO=()
 	local EOPKG=()
-	local EVAL=() EVAL_INSTALL=() EVAL_UNINSTALL=() EVAL_UPGRADE=()
 	local FLATPAK=() FLATPAK_REPO=()
 	local GEM=() RUBY=()
 	local GO=()
@@ -346,7 +369,7 @@ function setup_util() (
 	local PKGADD=()
 	local PKGIN=()
 	local PORT=()
-	local RPM=() RPM_INSTALL_EVAL=''
+	local RPM=()
 	local SOAR=()
 	local SCOOP=() SCOOP_BUCKET=()
 	local SNAP=() SNAP_CHANNEL=''
@@ -372,7 +395,7 @@ function setup_util() (
 		shift
 		case "$item" in
 		# note that `--check` usage will cause help to be output twice, and adjusting for this, will not support when the check passes or fails, still risking either no or double helpers the solution will be for `setup-util-*` --installers to provide their own help and thus handle help
-		'--help' | '-h') help ;;
+		'--help' | '-h') __help || return $? ;;
 		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
 		'--checker='*) option_checker="${item#*=}" ;; # must be before check, otherwise it won't be found
@@ -410,7 +433,7 @@ function setup_util() (
 		'--no-upgrade'* | '--upgrade'*) __flag --source={item} --target={option_upgrade} --affirmative --coerce ;;
 		'--')
 			if [[ -z $option_source ]]; then
-				help --='--source=<source> is required when using: -- [...packages]'
+				__help --='--source=<source> is required when using: -- [...packages]' || return $?
 			fi
 			if [[ -z $option_name ]]; then
 				option_name="${option_source}:$*"
@@ -467,10 +490,10 @@ function setup_util() (
 		'EMERGE_REPO='*) EMERGE+=("${item#*=}") ;;
 		'EMERGE='* | 'GENTOO='*) EMERGE+=("${item#*=}") ;;
 		'EOPKG='* | 'SOLUS='*) EOPKG+=("${item#*=}") ;;
-		'EVAL_INSTALL='*) EVAL_INSTALL+=("${item#*=}") ;;
-		'EVAL_UNINSTALL='*) EVAL_UNINSTALL+=("${item#*=}") ;;
-		'EVAL_UPGRADE='*) EVAL_UPGRADE+=("${item#*=}") ;;
-		'EVAL='*) EVAL+=("${item#*=}") ;;
+		'CUSTOM_INSTALL_EVAL='* | 'EVAL_INSTALL='*) CUSTOM_INSTALL_EVAL+=("${item#*=}") ;;
+		'CUSTOM_UNINSTALL_EVAL='* | 'EVAL_UNINSTALL='*) CUSTOM_UNINSTALL_EVAL+=("${item#*=}") ;;
+		'CUSTOM_UPGRADE_EVAL='* | 'EVAL_UPGRADE='*) CUSTOM_UPGRADE_EVAL+=("${item#*=}") ;;
+		'CUSTOM_EVAL='* | 'EVAL='*) CUSTOM_EVAL+=("${item#*=}") ;;
 		'FLATPAK_REPO='*) FLATPAK_REPO+=("${item#*=}") ;;
 		'FLATPAK='*) FLATPAK+=("${item#*=}") ;;
 		'GEM='*) GEM+=("${item#*=}") ;;
@@ -514,8 +537,8 @@ function setup_util() (
 		'ZYPPER_REPO='*) ZYPPER_REPO="${item#*=}" ;;
 		'ZYPPER_TYPE='*) ZYPPER_TYPE="${item#*=}" ;;
 		'ZYPPER='* | 'OPENSUSE='* | 'SUSE='*) ZYPPER+=("${item#*=}") ;;
-		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
+		*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
 		esac
 	done
 
@@ -525,7 +548,7 @@ function setup_util() (
 		source "$DOROTHY/sources/config.sh"
 
 		# setup.bash provides:
-		local SETUP_UTILS=()
+		local SETUP_UTILS=() # this would be better as `SETUP_UTIL_INSTALL` but historical usage keeps it `SETUP_UTILS`
 		load_dorothy_config 'setup.bash'
 
 		# if reconfiguring, prompt the user which ones
@@ -590,7 +613,7 @@ function setup_util() (
 		option_action='install'
 	fi
 	if ! [[ $option_action =~ ^(install|uninstall|upgrade|configure)$ ]]; then
-		help --help='Invalid <action>, must be either `install`, `uninstall`, `upgrade`, `configure`.'
+		__help --help='Invalid <action>, must be either `install`, `uninstall`, `upgrade`, `configure`.' || return $?
 	fi
 
 	# if configure, then we don't actually need to do anything, as any action is handled by the [setup-util-*] caller
@@ -618,7 +641,7 @@ function setup_util() (
 		fi
 	fi
 	if [[ -z $option_name ]]; then
-		help --help='Either <name>, <cli>, <app>, <font>, <source>, <checker> must be provided.'
+		__help --help='Either <name>, <cli>, <app>, <font>, <source>, <checker> must be provided.' || return $?
 	fi
 
 	# prep terminal vars
@@ -929,7 +952,7 @@ function setup_util() (
 		local package packages=("$@")
 		apk info "${packages[@]}" &>/dev/null || return 1
 	}
-	function __check_apk {
+	function __is_applicable__apk {
 		local packages=("${APK[@]}")
 
 		# check if applicable
@@ -947,7 +970,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_apk {
+	function action__apk {
 		local args=() packages=("${APK[@]}") repo="$APK_REPO"
 
 		# args
@@ -984,7 +1007,7 @@ function setup_util() (
 	# https://docs.conda.io/projects/conda/en/latest/commands/install.html
 	# https://docs.conda.io/projects/conda/en/latest/commands/remove.html
 	# https://docs.conda.io/projects/conda/en/latest/commands/update.html
-	function __check_conda {
+	function __is_applicable__conda {
 		local packages=("${CONDA[@]}")
 
 		# check if applicable
@@ -995,7 +1018,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_conda {
+	function action__conda {
 		local args=() packages=("${CONDA[@]}") channel="$CONDA_CHANNEL"
 
 		# args
@@ -1038,7 +1061,7 @@ function setup_util() (
 	# aurutils / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
 	# https://github.com/AladW/aurutils
-	function __check_aurutils {
+	function __is_applicable__aurutils {
 		local packages=()
 		if [[ ${#AURUTILS[@]} -ne 0 ]]; then
 			packages+=("${AURUTILS[@]}")
@@ -1054,7 +1077,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_aurutils {
+	function action__aurutils {
 		local args=() packages=() package
 		if [[ ${#AURUTILS[@]} -ne 0 ]]; then
 			packages+=("${AURUTILS[@]}")
@@ -1090,7 +1113,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_pacman {
+	function __is_applicable__pacman {
 		local packages=()
 		if [[ ${#PACMAN[@]} -ne 0 ]]; then
 			packages=("${PACMAN[@]}")
@@ -1113,7 +1136,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_pacman {
+	function action__pacman {
 		local opts=() args=() packages=()
 		if [[ ${#PACMAN[@]} -ne 0 ]]; then
 			packages=("${PACMAN[@]}")
@@ -1171,7 +1194,7 @@ function setup_util() (
 	# pakku / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
 	# https://github.com/kitsunyan/pakku
-	function __check_pakku {
+	function __is_applicable__pakku {
 		local packages=()
 		if [[ ${#PAKKU[@]} -ne 0 ]]; then
 			packages+=("${PAKKU[@]}")
@@ -1187,7 +1210,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_pakku {
+	function action__pakku {
 		local args=() packages=() package
 		if [[ ${#PAKKU[@]} -ne 0 ]]; then
 			packages+=("${PAKKU[@]}")
@@ -1216,7 +1239,7 @@ function setup_util() (
 	# https://itsfoss.com/best-aur-helpers/
 	# https://linuxcommandlibrary.com/man/pamac
 	# sudo with pamac avoids gui sudo prompt
-	function __check_pamac {
+	function __is_applicable__pamac {
 		local packages=()
 		if [[ ${#PAMAC[@]} -ne 0 ]]; then
 			packages+=("${PAMAC[@]}")
@@ -1233,7 +1256,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
 	}
-	function do_pamac {
+	function action__pamac {
 		local args=() packages=()
 		if [[ ${#PAMAC[@]} -ne 0 ]]; then
 			packages+=("${PAMAC[@]}")
@@ -1274,19 +1297,19 @@ function setup_util() (
 		# packages
 		eval-helper --elevate -- "${args[@]}" "${packages[@]}"
 	}
-	function do_pamac_fallback {
+	function fallback__pamac {
 		if ! is-system --manjaro; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		log_fallback 'Pamac'
-		setup-util-pamac --dependency --quiet="$option_quiet"
-		do_pamac "$@"
+		__log_fallback 'Pamac' || return $?
+		setup-util-pamac --dependency --quiet="$option_quiet" || return $?
+		action__pamac "$@"
 	}
 
 	# paru / AUR / Arch Linux
 	# https://itsfoss.com/paru-aur-helper/
 	# https://github.com/Morganamilo/paru
-	function __check_paru {
+	function __is_applicable__paru {
 		local packages=()
 		if [[ ${#PARU[@]} -ne 0 ]]; then
 			packages+=("${PARU[@]}")
@@ -1302,7 +1325,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_paru {
+	function action__paru {
 		local args=() packages=() package
 		if [[ ${#PARU[@]} -ne 0 ]]; then
 			packages+=("${PARU[@]}")
@@ -1333,7 +1356,7 @@ function setup_util() (
 
 	# yay / AUR / Arch Linux
 	# https://github.com/Jguer/yay
-	function __check_yay {
+	function __is_applicable__yay {
 		local packages=()
 		if [[ ${#YAY[@]} -ne 0 ]]; then
 			packages+=("${YAY[@]}")
@@ -1349,7 +1372,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_yay {
+	function action__yay {
 		local args=() packages=() package
 		if [[ ${#YAY[@]} -ne 0 ]]; then
 			packages+=("${YAY[@]}")
@@ -1383,7 +1406,7 @@ function setup_util() (
 	# pkg / FreeBSD / Termux
 	# https://www.freebsd.org/cgi/man.cgi?query=pkg&sektion=&n=1
 	# https://www.freebsd.org/cgi/man.cgi?query=pkg-install
-	function __check_pkg {
+	function __is_applicable__pkg {
 		local packages=()
 		if [[ ${#PKG[@]} -ne 0 ]]; then
 			packages+=("${PKG[@]}")
@@ -1399,7 +1422,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_pkg {
+	function action__pkg {
 		local args=() packages=()
 		if [[ ${#PKG[@]} -ne 0 ]]; then
 			packages+=("${PKG[@]}")
@@ -1429,7 +1452,7 @@ function setup_util() (
 
 	# pkgadd / pkg_add / OpenBSD
 	# https://docs.oracle.com/cd/E19455-01/806-0625/6j9vfilsu/index.html
-	function __check_pkgadd {
+	function __is_applicable__pkgadd {
 		local packages=()
 		if [[ ${#PKGADD[@]} -ne 0 ]]; then
 			packages+=("${PKGADD[@]}")
@@ -1445,7 +1468,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_pkgadd {
+	function action__pkgadd {
 		local packages=() package
 		if [[ ${#PKGADD[@]} -ne 0 ]]; then
 			packages+=("${PKGADD[@]}")
@@ -1467,7 +1490,7 @@ function setup_util() (
 	# pkgin / NetBSD
 	# successor to pkg_in, pkg_add
 	# https://pkgin.net/
-	function __check_pkgin {
+	function __is_applicable__pkgin {
 		local packages=()
 		if [[ ${#PKGIN[@]} -ne 0 ]]; then
 			packages+=("${PKGIN[@]}")
@@ -1483,7 +1506,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_pkgin {
+	function action__pkgin {
 		local args=() packages=() package
 		if [[ ${#PKGIN[@]} -ne 0 ]]; then
 			packages+=("${PKGIN[@]}")
@@ -1537,7 +1560,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function do_apt_key_fetch {
+	function action__apt_key_fetch {
 		local key="$1"
 		if [[ $key == *'.asc' ]]; then
 			# .asc files
@@ -1547,7 +1570,7 @@ function setup_util() (
 			fetch "$key"
 		fi
 	}
-	function __check_apt {
+	function __is_applicable__apt {
 		local packages=() repo="$APT_REPO"
 		if [[ ${#APT[@]} -ne 0 ]]; then
 			packages+=("${APT[@]}")
@@ -1573,7 +1596,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_apt {
+	function action__apt {
 		local args=() packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" keyring='' download_index download_url download_filepath
 		if [[ ${#APT[@]} -ne 0 ]]; then
 			packages+=("${APT[@]}")
@@ -1649,7 +1672,7 @@ function setup_util() (
 			fs-remove --quiet --elevate --no-confirm --optional -- /usr/local/share/keyrings/*"$id"* /etc/apt/trusted.gpg.d/*"$id"*
 
 			# helper for quiet output
-			function do_apt_key_add {
+			function action__apt_key_add {
 				# fetch and convert format, then import with export into correct format
 				do_apt_key_fetch "$key" | eval-helper --elevate -- gpg \
 					--no-default-keyring \
@@ -1755,7 +1778,7 @@ function setup_util() (
 	# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
 	# supports installing/uninstalling downloaded .deb files
 	# https://man7.org/linux/man-pages/man1/dpkg.1.html
-	function __check_dpkg {
+	function __is_applicable__dpkg {
 		local packages=()
 		if [[ ${#DPKG[@]} -ne 0 ]]; then
 			packages+=("${DPKG[@]}")
@@ -1771,7 +1794,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_dpkg {
+	function action__dpkg {
 		local args=() packages=() download_index download_filepath download_url
 		if [[ ${#DPKG[@]} -ne 0 ]]; then
 			packages+=("${DPKG[@]}")
@@ -1831,7 +1854,7 @@ function setup_util() (
 	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-uninstall
 	# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-update
 	# sudo with flatpak avoids gui sudo prompt
-	function __check_flatpak {
+	function __is_applicable__flatpak {
 		local packages=("${FLATPAK[@]}")
 
 		# check if applicable
@@ -1843,7 +1866,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
 	}
-	function do_flatpak {
+	function action__flatpak {
 		local args=() packages=("${FLATPAK[@]}") repos=("${FLATPAK_REPO[@]}") package repo
 
 		# repos
@@ -1898,10 +1921,10 @@ function setup_util() (
 			eval-helper --elevate -- "${args[@]}" "$package"
 		done
 	}
-	function do_flatpak_fallback {
-		log_fallback 'Flatpak'
-		setup-util-flatpak --dependency --quiet="$option_quiet"
-		do_flatpak "$@"
+	function fallback__flatpak {
+		__log_fallback 'Flatpak' || return $?
+		setup-util-flatpak --dependency --quiet="$option_quiet"  || return $?
+		action__flatpak "$@"
 	}
 
 	# ---------------------------------
@@ -1909,7 +1932,7 @@ function setup_util() (
 
 	# guix / GNU Guix
 	# https://linuxcommandlibrary.com/man/guix-package
-	function __check_guix {
+	function __is_applicable__guix {
 		local packages=("${GUIX[@]}")
 
 		# check if applicable
@@ -1920,7 +1943,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_guix {
+	function action__guix {
 		local args=() packages=("${GUIX[@]}")
 
 		# args
@@ -1959,7 +1982,7 @@ function setup_util() (
 		is-present --first -- "${go_paths[@]}" || return 200 # ECUSTOM 200 Not applicable for this package system
 	}
 
-	function __check_go {
+	function __is_applicable__go {
 		local packages=("${GO[@]}")
 
 		# check if applicable
@@ -1978,7 +2001,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_go {
+	function action__go {
 		local args=() packages=("${GO[@]}") package
 
 		# uninstall for go get, which is no longer relevant
@@ -2024,11 +2047,11 @@ function setup_util() (
 			# ^ don't use sudo, not needed, and requires env vars to function
 		done
 	}
-	function do_go_fallback {
-		log_fallback 'Go'
-		setup-util-go --dependency --quiet="$option_quiet"
+	function fallback__go {
+		__log_fallback 'Go' || return $?
+		setup-util-go --dependency --quiet="$option_quiet"  || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_go "$@"
+		action__go "$@"
 	}
 
 	# -------------------------------------
@@ -2041,7 +2064,7 @@ function setup_util() (
 	# https://cabal.readthedocs.io/en/stable/cabal-commands.html
 	# https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-update
 	# https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-install
-	function __check_cabal {
+	function __is_applicable__cabal {
 		local packages=("${CABAL[@]}")
 
 		# check if applicable
@@ -2052,7 +2075,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_cabal {
+	function action__cabal {
 		local args=() packages=("${CABAL[@]}")
 
 		# args
@@ -2083,7 +2106,7 @@ function setup_util() (
 		local packages=("$@")
 		brew-installed --formula -- "${packages[@]}" &>/dev/null || return $?
 	}
-	function __check_brew {
+	function __is_applicable__brew {
 		local packages=("${BREW[@]}")
 
 		# check if applicable
@@ -2105,7 +2128,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_brew {
+	function action__brew {
 		local args=() opts=() packages=("${BREW[@]}") taps=("${BREW_TAP[@]}") tap
 
 		# opts
@@ -2164,14 +2187,14 @@ function setup_util() (
 		# packages
 		"${args[@]}" "${packages[@]}"
 	}
-	function do_brew_fallback {
+	function fallback__brew {
 		if ! __is_macos; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		log_fallback 'Homebrew'
-		setup-util-brew --dependency --quiet="$option_quiet"
+		__log_fallback 'Homebrew' || return $?
+		setup-util-brew --dependency --quiet="$option_quiet" || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_brew "$@"
+		action__brew "$@"
 	}
 
 	# brew / Homebrew Casks / macOS
@@ -2182,7 +2205,7 @@ function setup_util() (
 		local packages=("$@")
 		brew-installed --cask -- "${packages[@]}" &>/dev/null || return $?
 	}
-	function __check_cask {
+	function __is_applicable__cask {
 		local packages=("${CASK[@]}")
 
 		# check if applicable
@@ -2204,7 +2227,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_cask {
+	function action__cask {
 		local args=() opts=() packages=("${CASK[@]}") taps=("${CASK_TAP[@]}") tap
 
 		# opts
@@ -2246,14 +2269,14 @@ function setup_util() (
 		"${args[@]}" "${packages[@]}"
 		# ^ some casks may require sudo
 	}
-	function do_cask_fallback {
+	function fallback__cask {
 		if ! __is_macos; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		log_fallback 'Homebrew Cask'
-		setup-util-brew --dependency --quiet="$option_quiet"
+		__log_fallback 'Homebrew Cask' || return $?
+		setup-util-brew --dependency --quiet="$option_quiet" || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_cask "$@"
+		action__cask "$@"
 	}
 
 	# mas / Mac App Store
@@ -2281,7 +2304,7 @@ function setup_util() (
 			--question="Which Mac App Store app was intended for $package?" \
 			--label -- "${options[@]}"
 	}
-	function __check_mas {
+	function __is_applicable__mas {
 		local packages=("${MAS[@]}")
 
 		# check if applicable
@@ -2296,7 +2319,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
 	}
-	function do_mas {
+	function action__mas {
 		local args=() packages=("${MAS[@]}") package
 
 		# action args
@@ -2348,20 +2371,20 @@ function setup_util() (
 			"${args[@]}" "$package"
 		done
 	}
-	function do_mas_fallback {
+	function fallback__mas {
 		if ! __is_macos; then
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
-		log_fallback 'mas'
-		setup-util-mas --dependency --quiet="$option_quiet"
-		do_mas "$@"
+		__log_fallback 'mas' || return $?
+		setup-util-mas --dependency --quiet="$option_quiet"  || return $?
+		action__mas "$@"
 	}
 
 	# port / MacPorts
 	# https://guide.macports.org/#using.port.install
 	# https://guide.macports.org/#using.port.uninstall
 	# https://guide.macports.org/#using.port.upgrade
-	function __check_port {
+	function __is_applicable__port {
 		local packages=("${PORT[@]}")
 
 		# check if applicable
@@ -2372,7 +2395,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_port {
+	function action__port {
 		local args=() packages=("${PORT[@]}") package
 
 		# args
@@ -2406,7 +2429,7 @@ function setup_util() (
 	# https://www.mankier.com/1/nix-env
 	# https://nixos.org/manual/nix/stable/command-ref/nix-env.html
 	# https://search.nixos.org/packages
-	function __check_nix {
+	function __is_applicable__nix {
 		local packages=("${NIX[@]}")
 
 		# check if applicable
@@ -2417,7 +2440,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_nix {
+	function action__nix {
 		local args=() packages=("${NIX[@]}") profiles=("${NIX_PROFILE[@]}")
 
 		# args
@@ -2457,7 +2480,7 @@ function setup_util() (
 		# returns 1 only if all are missing, returns 0 if any are installed
 		nvm-env -- npm list --global --depth 0 "${packages[@]}" &>/dev/null || return $?
 	}
-	function __check_npm {
+	function __is_applicable__npm {
 		local packages=()
 		if [[ ${#NPM[@]} -ne 0 ]]; then
 			packages+=("${NPM[@]}")
@@ -2481,7 +2504,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_npm {
+	function action__npm {
 		local args=() packages=()
 		if [[ ${#NPM[@]} -ne 0 ]]; then
 			packages+=("${NPM[@]}")
@@ -2509,11 +2532,11 @@ function setup_util() (
 		# packages
 		nvm-env -- npm "${args[@]}" "${packages[@]}"
 	}
-	function do_npm_fallback {
-		log_fallback 'Node.js & NPM'
-		setup-util-node --dependency --quiet="$option_quiet"
+	function fallback__npm {
+		__log_fallback 'Node.js & NPM' || return $?
+		setup-util-node --dependency --quiet="$option_quiet" || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_npm "$@"
+		action__npm "$@"
 	}
 
 	# @todo add yarn
@@ -2534,7 +2557,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_nvm {
+	function __is_applicable__nvm {
 		local packages=("${NVM[@]}")
 
 		# check if applicable
@@ -2553,7 +2576,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_nvm {
+	function action__nvm {
 		local packages=("${NVM[@]}") args=() package
 
 		# args
@@ -2574,11 +2597,11 @@ function setup_util() (
 			nvm-env -- nvm "${args[@]}" "$package"
 		done
 	}
-	function do_nvm_fallback {
-		log_fallback 'Node.js Version Manager (NVM)'
-		setup-util-nvm --dependency --quiet="$option_quiet"
+	function fallback__nvm {
+		__log_fallback 'Node.js Version Manager (NVM)' || return $?
+		setup-util-nvm --dependency --quiet="$option_quiet" || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_nvm "$@"
+		action__nvm "$@"
 	}
 
 	# -------------------------------------
@@ -2597,7 +2620,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_uv {
+	function __is_applicable__uv {
 		local packages=()
 		if [[ ${#UV[@]} -ne 0 ]]; then
 			packages+=("${UV[@]}")
@@ -2621,7 +2644,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_uv {
+	function action__uv {
 		local args=()
 
 		# args
@@ -2660,11 +2683,11 @@ function setup_util() (
 		# eval
 		"${args[@]}" # eval
 	}
-	function do_uv_fallback {
-		log_fallback 'UV'
-		setup-util-uv
+	function fallback__uv {
+		__log_fallback 'UV' || return $?
+		setup-util-uv --dependency --quiet="$option_quiet" || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_uv "$@"
+		action__uv "$@"
 	}
 
 	# -------------------------------------
@@ -2677,7 +2700,7 @@ function setup_util() (
 	# https://dnf.readthedocs.io/en/latest/command_ref.html
 	# https://opensource.com/article/18/8/guide-yum-dnf
 	# https://docs.fedoraproject.org/en-US/quick-docs/dnf/
-	function __check_dnf {
+	function __is_applicable__dnf {
 		local packages=() groups=("${DNF_GROUP[@]}")
 		if [[ ${#DNF[@]} -ne 0 ]]; then
 			packages+=("${DNF[@]}")
@@ -2696,7 +2719,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 	}
-	function do_dnf {
+	function action__dnf {
 		local opts=() args=() packages=() groups=("${DNF_GROUP[@]}") copr=("${DNF_COPR[@]}") repos=("${DNF_REPO[@]}")
 		if [[ ${#DNF[@]} -ne 0 ]]; then
 			packages+=("${DNF[@]}")
@@ -2771,7 +2794,7 @@ function setup_util() (
 	# rpm / RedHat / Fedora / CentOS / etc
 	# installs RPM files
 	# does exist on OpenSUSE, even though yum and dnf do not
-	function __check_rpm {
+	function __is_applicable__rpm {
 		local packages=("${RPM[@]}")
 
 		# check if applicable
@@ -2782,7 +2805,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_rpm {
+	function action__rpm {
 		local args=() packages=("${RPM[@]}") package
 
 		# args
@@ -2822,7 +2845,7 @@ function setup_util() (
 	# https://wiki.mageia.org/en/URPMI
 	# https://wiki.mageia.org/en/URPMI#Basic_commands:_Install.2C_remove.2C_update
 	# https://man.linuxreviews.org/man8/urpmi.8.html
-	function __check_urpmi {
+	function __is_applicable__urpmi {
 		local packages=()
 		if [[ ${#URPMI[@]} -ne 0 ]]; then
 			packages+=("${URPMI[@]}")
@@ -2838,7 +2861,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_urpmi {
+	function action__urpmi {
 		local args=() packages=()
 		if [[ ${#URPMI[@]} -ne 0 ]]; then
 			packages+=("${URPMI[@]}")
@@ -2882,7 +2905,7 @@ function setup_util() (
 	# -b, --best                try the best available package versions in transactions.
 	# -q, --quiet               quiet operation
 	# -y, --assumeyes           automatically answer yes for all questions
-	function __check_yum {
+	function __is_applicable__yum {
 		local packages=()
 		if [[ ${#YUM[@]} -ne 0 ]]; then
 			packages+=("${YUM[@]}")
@@ -2901,7 +2924,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 	}
-	function do_yum {
+	function action__yum {
 		local opts=() args=() packages=() repos=("${YUM_REPO[@]}") repo
 		if [[ ${#YUM[@]} -ne 0 ]]; then
 			packages+=("${YUM[@]}")
@@ -2955,7 +2978,7 @@ function setup_util() (
 	# https://en.opensuse.org/Portal:Zypper
 	# https://documentation.suse.com/smart/linux/single-html/reference-zypper-install/index.html
 	# https://en.opensuse.org/Snap
-	function __check_zypper {
+	function __is_applicable__zypper {
 		local packages=("${ZYPPER[@]}")
 
 		# check if applicable
@@ -2966,7 +2989,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_zypper {
+	function action__zypper {
 		local cmd_opts=() action_opts=() args=() packages=("${ZYPPER[@]}") type="$ZYPPER_TYPE" repo="$ZYPPER_REPO" alias="$ZYPPER_REPO_ALIAS"
 
 		# --recommends
@@ -3053,7 +3076,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_gem {
+	function __is_applicable__gem {
 		local packages=()
 		if [[ ${#GEM[@]} -ne 0 ]]; then
 			packages+=("${GEM[@]}")
@@ -3077,7 +3100,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_gem {
+	function action__gem {
 		local opts=() args=() packages=() package parts=()
 		if [[ ${#GEM[@]} -ne 0 ]]; then
 			packages+=("${GEM[@]}")
@@ -3108,11 +3131,11 @@ function setup_util() (
 			"${args[@]}" "${parts[@]}"
 		done
 	}
-	function do_gem_fallback {
-		log_fallback 'Ruby & Gem'
-		setup-util-ruby --dependency --quiet="$option_quiet"
+	function fallback__gem {
+		__log_fallback 'Ruby & Gem' || return $?
+		setup-util-ruby --dependency --quiet="$option_quiet" || return $?
 		# environment invalidation now happens automatically via signals
-		do_gem "$@"
+		action__gem "$@"
 	}
 
 	# -------------------------------------
@@ -3131,7 +3154,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_cargo {
+	function __is_applicable__cargo {
 		local packages=()
 		if [[ ${#CARGO[@]} -ne 0 ]]; then
 			packages+=("${CARGO[@]}")
@@ -3155,7 +3178,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_cargo {
+	function action__cargo {
 		local args=() packages=() package
 		if [[ ${#CARGO[@]} -ne 0 ]]; then
 			packages+=("${CARGO[@]}")
@@ -3194,11 +3217,11 @@ function setup_util() (
 		# packages
 		"${args[@]}" "${packages[@]}"
 	}
-	function do_cargo_fallback {
-		log_fallback 'Rust & Cargo'
-		setup-util-rust --dependency --quiet="$option_quiet"
+	function fallback__cargo {
+		__log_fallback 'Rust & Cargo' || return $?
+		setup-util-rust --dependency --quiet="$option_quiet" || return $?
 		source "$DOROTHY/sources/environment.sh"
-		do_cargo "$@"
+		action__cargo "$@"
 	}
 
 	# -------------------------------------
@@ -3211,7 +3234,7 @@ function setup_util() (
 		# returns 1 only if all are missing, returns 0 if any are installed
 		snap list "${packages[@]}" &>/dev/null || return $?
 	}
-	function __check_snap {
+	function __is_applicable__snap {
 		local packages=("${SNAP[@]}")
 
 		# check if applicable
@@ -3230,7 +3253,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_snap {
+	function action__snap {
 		local args=() packages=("${SNAP[@]}") channel="$SNAP_CHANNEL" package
 
 		# action args
@@ -3262,10 +3285,10 @@ function setup_util() (
 		done
 
 	}
-	function do_snap_fallback {
-		log_fallback 'Snap'
-		setup-util-snap --dependency --quiet="$option_quiet"
-		do_snap "$@"
+	function fallback__snap {
+		__log_fallback 'Snap' || return $?
+		setup-util-snap --dependency --quiet="$option_quiet" || return $?
+		action__snap "$@"
 	}
 
 	# -------------------------------------
@@ -3274,7 +3297,7 @@ function setup_util() (
 	# eopkg / Solus
 	# https://github.com/solus-project/package-management/blob/master/man/eopkg.1.md
 	# @todo support repos
-	function __check_eopkg {
+	function __is_applicable__eopkg {
 		local packages=("${EOPKG[@]}")
 
 		# check if applicable
@@ -3285,7 +3308,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_eopkg {
+	function action__eopkg {
 		local args=() packages=("${EOPKG[@]}")
 
 		# args
@@ -3318,7 +3341,7 @@ function setup_util() (
 
 	# xbps / Void Linux
 	# https://github.com/void-linux/xbps
-	function __check_xbps {
+	function __is_applicable__xbps {
 		local packages=("${XBPS[@]}")
 
 		# check if applicable
@@ -3329,7 +3352,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_xbps {
+	function action__xbps {
 		local args=() packages=("${XBPS[@]}")
 
 		# args
@@ -3393,7 +3416,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_scoop {
+	function __is_applicable__scoop {
 		local packages=("${SCOOP[@]}")
 
 		# check if applicable
@@ -3411,7 +3434,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_scoop {
+	function action__scoop {
 		local args=() packages=("${SCOOP[@]}") buckets=("${SCOOP_BUCKET[@]}")
 
 		# buckets
@@ -3472,7 +3495,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __check_winget {
+	function __is_applicable__winget {
 		local packages=("${WINGET[@]}")
 
 		# check if applicable
@@ -3490,7 +3513,7 @@ function setup_util() (
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
 	}
-	function do_winget {
+	function action__winget {
 		local args=() opts=() package packages=("${WINGET[@]}")
 
 		# args
@@ -3533,7 +3556,7 @@ function setup_util() (
 	# https://wiki.gentoo.org/wiki/Gentoo_Cheat_Sheet#Package_installation
 	# https://dev.gentoo.org/~zmedico/portage/doc/man/emerge.1.html
 	# https://packages.gentoo.org/categories
-	function __check_emerge {
+	function __is_applicable__emerge {
 		local packages=("${EMERGE[@]}")
 
 		# check if applicable
@@ -3544,7 +3567,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable for this package system
 		fi
 	}
-	function do_emerge {
+	function action__emerge {
 		local args=() packages=("${EMERGE[@]}") repos=("${EMERGE_REPO[@]}") package repo
 
 		# repos
@@ -3576,37 +3599,29 @@ function setup_util() (
 	# Custom Sources
 
 	# eval
-	function __check_eval {
+	function __is_applicable__custom {
 		local scripts=()
-		if [[ ${#EVAL[@]} -ne 0 ]]; then
-			scripts+=("${EVAL[@]}")
+		if [[ ${#CUSTOM_EVAL[@]} -ne 0 ]]; then
+			return 0
+		elif [[ ${#CUSTOM_INSTALL_EVAL[@]} -ne 0 && $option_action == 'install' ]]; then
+			return 0
+		elif [[ ${#CUSTOM_UPGRADE_EVAL[@]} -ne 0 && $option_action == 'upgrade' ]]; then
+			return 0
+		elif [[ ${#CUSTOM_UNINSTALL_EVAL[@]} -ne 0 && $option_action == 'uninstall' ]]; then
+			return 0
 		fi
-		if [[ ${#EVAL_INSTALL[@]} -ne 0 && $option_action == 'install' ]]; then
-			scripts+=("${EVAL_INSTALL[@]}")
-		fi
-		if [[ ${#EVAL_UPGRADE[@]} -ne 0 && $option_action == 'upgrade' ]]; then
-			scripts+=("${EVAL_UPGRADE[@]}")
-		fi
-		if [[ ${#EVAL_UNINSTALL[@]} -ne 0 && $option_action == 'uninstall' ]]; then
-			scripts+=("${EVAL_UNINSTALL[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#scripts[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
+		return 200 # ECUSTOM 200 Not applicable to this utility
 	}
-	function do_eval {
+	function action__custom {
 		local scripts=() script
-		if [[ ${#EVAL[@]} -ne 0 ]]; then
-			scripts+=("${EVAL[@]}")
-		fi
-		if [[ ${#EVAL_UPGRADE[@]} -ne 0 && $option_upgrade == 'yes' ]]; then
-			scripts+=("${EVAL_UPGRADE[@]}")
-		elif [[ ${#EVAL_INSTALL[@]} -ne 0 && $option_action == 'install' ]]; then
-			scripts+=("${EVAL_INSTALL[@]}")
-		elif [[ ${#EVAL_UNINSTALL[@]} -ne 0 && $option_action == 'uninstall' ]]; then
-			scripts+=("${EVAL_UNINSTALL[@]}")
+		if [[ ${#CUSTOM_UPGRADE_EVAL[@]} -ne 0 && $option_upgrade == 'yes' ]]; then
+			scripts+=("${CUSTOM_UPGRADE_EVAL[@]}")
+		elif [[ ${#CUSTOM_INSTALL_EVAL[@]} -ne 0 && $option_action == 'install' ]]; then
+			scripts+=("${CUSTOM_INSTALL_EVAL[@]}")
+		elif [[ ${#CUSTOM_UNINSTALL_EVAL[@]} -ne 0 && $option_action == 'uninstall' ]]; then
+			scripts+=("${CUSTOM_UNINSTALL_EVAL[@]}")
+		elif [[ ${#CUSTOM_EVAL[@]} -ne 0 ]]; then
+			scripts+=("${CUSTOM_EVAL[@]}")
 		fi
 
 		# action
@@ -3617,7 +3632,7 @@ function setup_util() (
 	}
 
 	# download
-	function __check_download {
+	function __is_applicable__download {
 		local download="$DOWNLOAD"
 
 		# check if applicable
@@ -3625,7 +3640,7 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 	}
-	function do_download {
+	function action__download {
 		local download="$DOWNLOAD" filename filenames=("${DOWNLOAD_FILENAME[@]}") target_path target_paths=("${DOWNLOAD_TARGET_PATH[@]}") bearer_token="$DOWNLOAD_BEARER_TOKEN" archive_extract="$DOWNLOAD_ARCHIVE_EXTRACT" archive_format="$DOWNLOAD_ARCHIVE_FORMAT" archive_glob="$DOWNLOAD_ARCHIVE_GLOB" build_install="$DOWNLOAD_BUILD_INSTALL_EVAL" build_uninstall="$DOWNLOAD_BUILD_UNINSTALL_EVAL" build_glob="$DOWNLOAD_BUILD_GLOB"
 
 		# checks and adjustments
@@ -3718,7 +3733,7 @@ function setup_util() (
 					local -i build_status
 					__print_style --info1='Uninstalling the built ' --variable-value={option_name} --info1=' in ' --variable-value={download_directory} --info1=' ...'
 					pushd "$download_directory" &>/dev/null
-					__try {build_status} -- "$build_uninstall"
+					__try {build_status} -- "$build_uninstall" # eval
 					popd &>/dev/null
 					if [[ $build_status -eq 0 ]]; then
 						__print_style --good1='Uninstalled the built ' --variable-value={option_name} --good1=' in ' --variable-value={download_directory}
@@ -3775,7 +3790,7 @@ function setup_util() (
 			__print_style --info1='Building ' --variable-value={option_name} --info1=' in ' --variable-value={download_directory} --info1=' ...'
 			# can't do cd in a subshell as we want to capture the status
 			pushd "$download_directory" &>/dev/null
-			__try {build_status} -- "$build_install"
+			__try {build_status} -- "$build_install" # eval
 			popd &>/dev/null
 			if [[ $build_status -eq 0 ]]; then
 				__print_style --good1='Built ' --variable-value={option_name} --good1=' in ' --variable-value={download_directory}
@@ -3807,7 +3822,7 @@ function setup_util() (
 	}
 
 	# installer
-	function __check_installer {
+	function __is_applicable__installer {
 		local file_or_url="$INSTALLER"
 
 		# check if applicable
@@ -3818,11 +3833,11 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable to this utility
 		fi
 		if [[ $file_or_url == *'/setup-util-'* ]]; then
-			help --help='Using `INSTALLER=setup-util-*` --is deprecated, use an alternative for ' --variable-value={option_name}
+			__help --help='Using `INSTALLER=setup-util-*` --is deprecated, use an alternative for ' --variable-value={option_name} || return $?
 			return 43 # EPROTONOSUPPORT 43 Protocol not supported
 		fi
 	}
-	function do_installer {
+	function action__installer {
 		local args=() filepath file_or_url="$INSTALLER" filename="$INSTALLER_FILENAME" open="$INSTALLER_OPEN" uninstall_arguments=("${INSTALLER_UNINSTALL_ARGUMENT[@]}")
 
 		# optional filename
@@ -3860,13 +3875,13 @@ function setup_util() (
 		fi
 	}
 
-	function __check_generic {
+	function __is_applicable__generic {
 		# check if applicable
 		if [[ $option_action != 'uninstall' ]]; then
 			return 200
 		fi
 	}
-	function do_generic {
+	function action__generic {
 		local paths=() item path
 		if [[ $option_action == 'uninstall' ]]; then
 			# clis and apps have same paths
@@ -3943,19 +3958,19 @@ function setup_util() (
 		action_current='installing'
 		action_past='installed'
 	fi
-	function log_fallback {
+	function __log_fallback {
 		local source="$1"
 		__print_style --tty --notice3="The ❬${option_name}❭ utility was unavailable, however it is available by sourcing ❬${source}❭, which we are attempting now... ⏲"
 	}
-	function log_pending {
+	function __log_pending {
 		local method="${1-}"
 		if [[ -n $method ]]; then
-			__maybe_style --tty --good3="The ❬${option_name}❭ utility is ${action_current} via ❬${method}❭ ... ⏲"
+			__maybe_style --tty --good3="The ❬${option_name}❭ utility is ${action_current} via ❬${method}❭ ... ⏲" || return $?
 		else
-			__maybe_style --tty --good3="The ❬${option_name}❭ utility is ${action_current} ... ⏲"
+			__maybe_style --tty --good3="The ❬${option_name}❭ utility is ${action_current} ... ⏲" || return $?
 		fi
 	}
-	function log_success {
+	function __log_success {
 		local method="${1-}"
 		if [[ -n $method ]]; then
 			__maybe_style --tty --good3="The ❬${option_name}❭ utility was ${action_past} via ❬${method}❭"
@@ -3963,7 +3978,7 @@ function setup_util() (
 			__maybe_style --tty --good3="The ❬${option_name}❭ utility was ${action_past}. ✅"
 		fi
 	}
-	function log_failure {
+	function __log_failure {
 		local method="${1-}" suffix=''
 		if [[ -n $method ]]; then
 			suffix+=" via ❬${method}❭"
@@ -3973,15 +3988,15 @@ function setup_util() (
 			suffix+=". ❌"
 		fi
 		if [[ $option_optional == 'yes' ]]; then
-			__maybe_style --stderr --notice3="The ❬${option_name}❭ optional utility was not ${action_past}${suffix}"
+			__maybe_style --stderr --notice3="The ❬${option_name}❭ optional utility was not ${action_past}${suffix}" || return $?
 		else
-			__print_style --stderr --error3="The ❬${option_name}❭ required utility was not ${action_past}${suffix}"
+			__print_style --stderr --error3="The ❬${option_name}❭ required utility was not ${action_past}${suffix}" || return $?
 		fi
 		return 0
 	}
 	function run_source {
 		# install/upgrade until successful, uninstall for all
-		local source="$1" fn="$2" check_fn="__check_$1" run_output=''
+		local source="$1" fn="$2" check_fn="__is_applicable__$1" run_output=''
 
 		# if not fallback, check applicability
 		if [[ $fn != *'_fallback' ]]; then
@@ -3994,18 +4009,18 @@ function setup_util() (
 					return 0
 				fi
 				# error determining applicability
-				log_failure "$source"
+				__log_failure "$source" || return $?
 				return "$check_status"
 			fi
 		fi
 
-		# don't always do log_pending, as that will cause all the 200 not applicable ones to be dumped
+		# don't always do `__log_pending` as that will cause all the 200 not applicable ones to be dumped
 		local -i run_status
 		if [[ $use_alt_screen_buffer == 'yes' ]]; then
 			# enable job control to not bubble SIGINT up to us
 			# such that we can ensure we always restore the default screen buffer, otherwise scrolling will be broken
 			apply_terminal_modifications_now
-			log_pending "$source"
+			__log_pending "$source" || return $?
 			__do --redirect-status={run_status} --redirect-output=STDERR --copy-stderr={run_output} --redirect-output=TTY -- "$fn"
 			reset_terminal_modifications_now
 		else
@@ -4016,7 +4031,7 @@ function setup_util() (
 		if [[ $run_status -eq 0 ]]; then
 			# success case
 			had_success='yes'
-			log_success "$source"
+			__log_success "$source" || return $?
 			if [[ $option_action != 'uninstall' ]]; then
 				had_finish='yes'
 			fi
@@ -4025,7 +4040,7 @@ function setup_util() (
 			if [[ $use_alt_screen_buffer == 'yes' && -n $run_output ]]; then
 				__print_lines "$run_output" >&2 # needs to be print lines, as the trailing line gets trimmed
 			fi
-			log_failure "$source"
+			__log_failure "$source" || return $?
 			if [[ $option_action == 'uninstall' ]]; then
 				had_failure='yes' # an uninstall failed
 			fi
@@ -4038,10 +4053,10 @@ function setup_util() (
 		for source in "${option_order[@]}"; do
 			# sanity check
 			if [[ -z $source ]]; then
-				help 'An empty order argument was provided:' --newline \
-					--variable={option_order}
+				__help 'An empty order argument was provided:' --newline \
+					--variable={option_order} || return $?
 			fi
-			run_source "$source" "do_$source"
+			run_source "$source" "action__$source"
 			if [[ $had_finish == 'yes' ]]; then
 				return 0
 			fi
@@ -4049,7 +4064,7 @@ function setup_util() (
 		# if nothing was successful, if we are not uninstall, if we allow fallbacks, and if we have fallbacks, then use the fallbacks (install the utility by installing the ecosystem of the utility)
 		if [[ $had_success == 'no' && $option_action != 'uninstall' && $option_fallback == 'yes' && ${#fallbacks[@]} -ne 0 ]]; then
 			for source in "${fallbacks[@]}"; do
-				run_source "$source" "do_${source}_fallback"
+				run_source "$source" "fallback__${source}"
 				if [[ $had_finish == 'yes' ]]; then
 					return 0
 				fi
@@ -4074,19 +4089,19 @@ function setup_util() (
 	if [[ $option_action == 'uninstall' ]]; then
 		# @todo detect if cli is still present, if so, perhaps prompt the user what to do
 		if [[ $had_failure == 'no' ]]; then
-			log_success
+			__log_success || return $?
 		else
 			# still some that aren't uninstalled
-			log_failure
+			__log_failure || return $?
 			if [[ $option_optional != 'yes' ]]; then
 				return 1
 			fi
 		fi
 	elif [[ $had_success == 'yes' ]]; then
 		# at least one installed
-		log_success
+		__log_success || return $?
 	else
-		log_failure
+		__log_failure || return $?
 		if [[ $option_optional != 'yes' ]]; then
 			return 1
 		fi
