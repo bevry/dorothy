@@ -12,24 +12,66 @@
 # https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-armhf
 
 function setup_util_vscode() (
-	source "$DOROTHY/sources/bash.bash"
-
-	# cleanup our `code` alias that we add later
-	fs-remove --quiet --no-confirm -- "$XDG_BIN_HOME/code"
-
-	# determine the options
-	local arch options=(
+	source "$DOROTHY/sources/util.bash"
+	source "$(type -P setup-util)" # enable *_EVAL
+	util_options=(
 		--name='Visual Studio Code'
 		--cli=code
-		"$@"
+		--app=code # .desktop
+		--app='Visual Studio Code'
+		--app='Visual Studio Code - Insiders'
+		--configure-eval='__configure'
 		AUR='visual-studio-code-bin'
 		CASK='visual-studio-code'
 		FLATPAK='com.visualstudio.code'
 		NIX='vscode'
 		SNAP='code --classic'
 	)
+	function __configure {
+		if [[ $SETUP_UTIL__INSTALLED == 'yes' ]]; then
+			# remove our alias for recreation if installed, or persisted removal if uninstalled
+			fs-remove --quiet --no-confirm -- "$XDG_BIN_HOME/code" || return $?
+
+			# scan our installations to create the correct and preferred invocation of `code`
+			local installations=() installation source id path existing
+			__split --target={installations} --no-zero-length --invoke=try -- \
+				setup-util "${util_options[@]}" "${setup_options[@]}" get-installations || return $?
+			for installation in "${installations[@]}"; do
+				source="$(echo-json decode --property=source -- "$installation")" || return $?
+				if [[ $source == 'flatpak' ]]; then
+					id="$(echo-json decode --property=id -- "$installation")" || return $?
+					cat <<-EOF >"$XDG_BIN_HOME/code" || return $?
+						#!/usr/bin/env bash
+						flatpak run "$id" "\$@"
+					EOF
+					break
+				elif [[ $source == 'app' ]]; then
+					path="$(echo-json decode --property=path -- "$installation")" || return $?
+					existing="$path/Contents/Resources/app/bin/code"
+					if [[ -x $existing ]]; then
+						fs-link --existing="$existing" --symlink="$XDG_BIN_HOME/code" || return $?
+						fs-own --x -- "$XDG_BIN_HOME/code" || return $?
+					fi
+					break
+				else
+					: # unknown how to invoke
+				fi
+			done
+		fi
+	}
+
+	# dependencies
+	if __is_linux; then
+		# https://docs.microsoft.com/en-us/visualstudio/liveshare/reference/linux#install-linux-prerequisites
+		# optional as currently not completely supported on ubuntu 22.04
+		# `__print_line |` to skip the `Press enter to dismiss this message' prompt
+		__print_line | setup-util "$@" --name='Visual Studio Code: Linux Dependencies' --optional INSTALLER='https://aka.ms/vsls-linux-prereq-script'
+	fi
+
+	# fetch and use configuration
+	local arch
 	if __is_macos; then
-		options+=(
+		util_options+=(
 			DOWNLOAD='https://code.visualstudio.com/sha/download?build=stable&os=darwin-universal'
 			DOWNLOAD_ARCHIVE_EXTRACT='yes'
 			DOWNLOAD_FILENAME='Visual Studio Code.app'
@@ -37,37 +79,19 @@ function setup_util_vscode() (
 	elif __is_linux; then
 		arch="$(__get_arch)"
 		if [[ $arch == 'a64' ]]; then
-			options+=(
-				DEB='https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-arm64'
-				RPM='https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-arm64'
-			)
+			__add_deb_option_via_url 'https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-arm64'
+			__add_rpm_option_via_url 'https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-arm64'
 		elif [[ $arch == 'a32' ]]; then
-			options+=(
-				DEB='https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-armhf'
-				RPM='https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-armhf'
-			)
+			__add_deb_option_via_url 'https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-armhf'
+			__add_rpm_option_via_url 'https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-armhf'
 		elif [[ $arch == 'x64' ]]; then
-			options+=(
-				DEB='https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64'
-				RPM='https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-x64'
-			)
+			__add_deb_option_via_url 'https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64'
+			__add_rpm_option_via_url 'https://code.visualstudio.com/sha/download?build=stable&os=linux-rpm-x64'
 		fi
 	fi
 
-	# dependencies
-	if __is_linux; then
-		# https://docs.microsoft.com/en-us/visualstudio/liveshare/reference/linux#install-linux-prerequisites
-		# optional as currently not completely supported on ubuntu 22.04
-		# `__print_line |` to skip the `Press enter to dismiss this message' prompt
-		__print_line | setup-util --name='Visual Studio Code: Linux Dependencies' --optional "$@" \
-			INSTALLER='https://aka.ms/vsls-linux-prereq-script'
-	fi
-
-	# install
-	setup-util "${options[@]}"
-
-	# ensure `code` is available
-	setup-bin
+	# setup
+	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
 
 # fire if invoked standalone

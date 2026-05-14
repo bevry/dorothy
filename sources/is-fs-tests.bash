@@ -1,7 +1,7 @@
 source "$DOROTHY/sources/bash.bash"
 
 function is_fs_tests__root {
-	fs-temp --directory='dorothy' --directory="$command" --directory='tests' --directory
+	fs-make --directory='dorothy' --directory="$command" --directory='tests' --directory
 }
 
 function is_fs_tests__prep {
@@ -197,7 +197,7 @@ function is_fs_tests__tuples {
 	# count the amount of paths so we have a total
 	for item in "${tuples[@]}"; do
 		if [[ $item == '--path='* ]]; then
-			total=$((total+1))
+			total=$((total + 1))
 		fi
 	done
 

@@ -1,16 +1,103 @@
 #!/usr/bin/env bash
 
 function setup_util_node() (
-	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/util.bash"
 	source "$(type -P eval-helper)" # enable `install_nvm_node`
+	source "$(type -P setup-util)"  # enable *_EVAL
+	util_options=(
+		--cli='node'
+		--configured-eval='node_configure'
+		CUSTOM_INSTALL_EVAL='node_install'
+		CUSTOM_UNINSTALL_EVAL='node_uninstall'
+	)
 
-	# improve performance for detectable utilities with conditional assets
-	if setup-util --check --cli=node "$@"; then
+	function node_configure {
+		if [[ $SETUP_UTIL__INSTALLED == 'yes' ]]; then
+			source "$DOROTHY/sources/config.sh"
+
+			# environment.bash provides:
+			# NVM_DIR
+			# but in case it failed to:
+			if [[ -z ${NVM_DIR-} ]]; then
+				export NVM_DIR="$HOME/.nvm"
+			fi
+
+			# setup.bash provides:
+			local NPM_INSTALL=()
+			local NODE_INSTALL=() # deprecated, use `NPM_INSTALL`
+			local NODE_VERSIONS=()
+			load_dorothy_config 'setup.bash'
+
+			# deprecations
+			if [[ ${#NODE_INSTALL[@]} -ne 0 ]]; then
+				NPM_INSTALL+=("${NODE_INSTALL[@]}")
+				__unique --source+target={NPM_INSTALL} --ignore-case || return $?
+				dorothy-config 'setup.bash' -- \
+					--field='NODE_INSTALL' --replace= || return $?
+			fi
+
+			# adjustments
+			__split --target={NPM_INSTALL} --no-zero-length --invoke -- \
+				dorothy-config --packages-var='NPM_INSTALL' -- "${NPM_INSTALL[@]}" || return $?
+
+			# configure npm
+			local configure="$SETUP_UTIL__CONFIGURE"
+			if
+				is-empty-value -- "$(npm config get init-author-name || :)" ||
+					is-empty-value -- "$(npm config get init-author-email || :)" ||
+					is-empty-value -- "$(npm config get init-author-url || :)" ||
+					is-empty-value -- "$(npm config get init-license || :)"
+			then
+				configure='yes'
+			fi
+			if [[ $configure == 'yes' ]]; then
+				__print_style --h3='Configure npm' || return $?
+				nvm-env -- npm config set init-author-name "$(
+					ask --required --linger \
+						--question='What is the profile name that you want to configure npm with?' \
+						--default="$(get-profile name -- npm ... || :)"
+				)" || return $?
+				nvm-env -- npm config set init-author-email "$(
+					ask --required --linger \
+						--question='What is the profile email that you want to configure npm with?' \
+						--default="$(get-profile email -- npm ... || :)"
+				)" || return $?
+				nvm-env -- npm config set init-author-url "$(
+					ask --required --linger \
+						--question='What is the profile homepage that you want to configure npm with?' \
+						--default="$(get-profile url -- npm ... || :)"
+				)" || return $?
+				nvm-env -- npm config set init-license "$(
+					ask --required --linger \
+						--question='What license do you want to configure npm to default to?' \
+						--default="$(npm config get init-license)"
+				)" || return $?
+				__print_style --g3='Configure npm' || return $?
+			fi
+
+			# ecosystem
+			if [[ $SETUP_UTIL__EXTRA == 'yes' ]]; then
+				# Packages via npm
+				if [[ ${#NPM_INSTALL[@]} -ne 0 ]]; then
+					__print_style --h3="Install ${#NPM_INSTALL[@]} npm packages" || return $?
+					setup-util install --transpose=NODE -- "${NPM_INSTALL[@]}" || return $?
+					__print_style --g3="Install ${#NPM_INSTALL[@]} npm packages" || return $?
+				fi
+
+				# Additional Node.js versions
+				if [[ ${#NODE_VERSIONS[@]} -ne 0 ]]; then
+					__print_style --h3="Install ${#NODE_VERSIONS[@]} additional Node.js versions" || return $?
+					setup-util install --transpose=NVM -- "${NODE_VERSIONS[@]}" || return $?
+					__print_style --g3="Install ${#NODE_VERSIONS[@]} additional Node.js versions" || return $?
+				fi
+			fi
+		fi
+	}
+
+	# improve performance for detectable utilities when fetching asset configuration
+	if setup-util check "${util_options[@]}" "${setup_options[@]}"; then
 		return 0
 	fi
-
-	# enable EVAL_INSTALL, etc
-	source "$(type -P setup-util)"
 
 	# =====================================
 	# Helpers
@@ -50,7 +137,7 @@ function setup_util_node() (
 			# nvm buggered, clean it all
 			__print_style --e3='Clean Node.js versions and packages' --newline \
 				--h3='Clean Node.js Version Manager (NVM) instead'
-			setup-util-nvm --uninstall
+			setup-util-nvm uninstall
 			__print_style --g3='Clean Node.js Version Manager (NVM) instead'
 		fi
 	}
@@ -106,7 +193,7 @@ function setup_util_node() (
 
 		# continue with the upgrade
 		__print_style --dim="Before: v$(nvm-env -- npm --version)"
-		setup-util --name='npm' --upgrade --force --quiet \
+		setup-util upstall --name='npm' --force --quiet \
 			NPM='npm' || __print_style --notice='You can ignore the npm upgrade failure, this will resolve after nvm is used.'
 		nvm-env -- npm cache clean --force 2>/dev/null # silent --force warning
 		__print_lines "After:  v$(nvm-env -- npm --version)"
@@ -145,7 +232,7 @@ function setup_util_node() (
 		if ! is-system --alpine; then
 			# install nvm
 			__print_style --h2='Install Node.js Version Manager (NVM)'
-			setup-util-nvm --install --upgrade
+			setup-util-nvm upstall
 			__print_style --g2='Install Node.js Version Manager (NVM)'
 
 			# nvm node
@@ -175,13 +262,7 @@ function setup_util_node() (
 	}
 
 	# setup
-	local options=(
-		--cli='node'
-		"$@"
-		EVAL_INSTALL='node_install'
-		EVAL_UNINSTALL='node_uninstall'
-	)
-	setup_util "${options[@]}"
+	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
 
 # fire if invoked standalone

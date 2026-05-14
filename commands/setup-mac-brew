@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# @todo merge into `setup-util-brew`
+
 function setup_mac_brew_test() (
 	source "$DOROTHY/sources/bash.bash"
 	eval-tester --ignore-stderr --status=22 -- setup-mac-brew --help
@@ -7,7 +9,6 @@ function setup_mac_brew_test() (
 
 function setup_mac_brew() (
 	source "$DOROTHY/sources/bash.bash"
-	source "$(type -P eval-helper)"
 
 	# =====================================
 	# Configuration
@@ -202,48 +203,107 @@ function setup_mac_brew() (
 	# Action Helpers
 
 	# clean brew caches
-	function clean_brew {
-		__print_style --h2='Cleanup homebrew'
+	function __clean_brew {
+		local -i clean_exit_status=0
+		__print_style --h2='Cleanup Homebrew' || return $?
 		if __is_brew; then
 			# fix common permission errors
 			# Error: Could not cleanup old kegs! Fix your permissions on:
 			# /usr/local/Cellar/go/1.17.2
 			if [[ -n ${HOMEBREW_CELLAR-} ]]; then
 				if [[ -d "$HOMEBREW_CELLAR/go" ]]; then
-					fs-own --ugx -- "$HOMEBREW_CELLAR/go"
+					fs-own --ugx -- "$HOMEBREW_CELLAR/go" || clean_exit_status=$?
 					# bin, libexec, and many other directories contain executables, so just make it all executable
 				fi
 			fi
 			if [[ -d "$HOME/Library/Caches/go-build" ]]; then
-				fs-own --elevate --ugx -- "$HOME/Library/Caches/go-build"
+				fs-own --elevate --ugx -- "$HOME/Library/Caches/go-build" || clean_exit_status=$?
 				# fix: go: unlinkat /Users/balupton/Library/Caches/go-build/01/0128314b8deff070ae65a398c7404f3988fc31b20cd934f950eee92284d36875-d: permission denied
 			fi
 			# cleanup
-			eval_helper --quiet --wrap -- \
-				brew cleanup --quiet -s --prune=all
+			eval-helper --quiet --wrap -- brew cleanup --quiet -s --prune=all || clean_exit_status=$?
 			# cleanup further
-			fs-remove --quiet --no-confirm -- "$(brew --cache)"
+			fs-remove --quiet --no-confirm -- "$(brew --cache)" || clean_exit_status=$?
 		fi
-		__print_style --g2='Cleanup homebrew'
+		if [[ $clean_exit_status -eq 0 ]]; then
+			__print_style --g2='Cleanup Homebrew' || return $?
+		else
+			__print_style --e2='Cleanup Homebrew' ' ' --status="$clean_exit_status" || return $?
+			return "$clean_exit_status"
+		fi
+	}
+
+	# proceed?
+	function __proceed {
+		local exit_status=$?
+		if [[ $exit_status -ne 0 ]]; then
+			if ! confirm --positive --ppid=$$ --linger -- 'Would you like to proceed?' "Homebrew reported failure exit status of $exit_status, however unless there is actually an error above that requires attention then you can proceed safely, as homebrew reports failure exit statuses even when they are merely recommendations, and such recommendations are typically already handled by Dorothy."; then
+				return "$exit_status"
+			fi
+		fi
+	}
+
+	# install brew
+	function __install_brew {
+		if __is_brew; then
+			return 0
+		fi
+		local -i install_exit_status=0
+		__print_style --h2='Install Homebrew'
+		setup-util-brew install --verbose || install_exit_status=$?
+		source "$DOROTHY/sources/environment.sh" # child processes will also inherit these changes
+		if [[ $install_exit_status -eq 0 ]]; then
+			__print_style --g2='Install Homebrew' || return $?
+		else
+			__print_style --e2='Install Homebrew' ' ' --status="$install_exit_status" || return $?
+			return "$install_exit_status"
+		fi
 	}
 
 	# update brew
-	function update_brew {
-		local __brew_upgrade_status=0
-		brew upgrade || __brew_upgrade_status=$? # don't use `--quiet` such that progress bars are visible, which is important on slow or unreliable internet connections that otherwise may think the operation has stalled
-		if [[ $__brew_upgrade_status -ne 0 ]]; then
-			if ! confirm --positive --ppid=$$ --linger -- 'Would you like to proceed?' "The homebrew upgrade reported a failure exit status of $__brew_upgrade_status, however unless there is actually an error above that requires attention then you can proceed safely, as homebrew reports failure exit statuses when there are merely recommendations, and such recommendations are typically already handled by Dorothy."; then
-				return "$__brew_upgrade_status"
-			fi
+	function __update_brew {
+		local -i update_exit_status=0
+		__print_style --h2='Update Homebrew'
+		brew update --quiet || update_exit_status=$?
+		if [[ $update_exit_status -eq 0 ]]; then
+			__print_style --g2='Update Homebrew' || return $?
+		else
+			__print_style --e2='Update Homebrew' ' ' --status="$update_exit_status" || return $?
+			return "$update_exit_status"
 		fi
-		return 0
+	}
+
+	# upgrade brew
+	function __upgrade_brew {
+		local -i upgrade_exit_status=0
+		__print_style --h2='Upgrade Homebrew'
+		brew upgrade || upgrade_exit_status=$? # don't use `--quiet` such that progress bars are visible, which is important on slow or unreliable internet connections that otherwise may think the operation has stalled
+		if [[ $upgrade_exit_status -eq 0 ]]; then
+			__print_style --g2='Upgrade Homebrew' || return $?
+		else
+			__print_style --e2='Upgrade Homebrew' ' ' --status="$upgrade_exit_status" || return $?
+			return "$upgrade_exit_status"
+		fi
+	}
+
+	# install build deps
+	function __install_build_deps {
+		local -i install_exit_status=0
+		__print_style --h2='Install build dependencies'
+		setup-util-devel --dependency || install_exit_status=$?
+		if [[ $install_exit_status -eq 0 ]]; then
+			__print_style --g2='Install build dependencies' || return $?
+		else
+			__print_style --e2='Install build dependencies' ' ' --status="$install_exit_status" || return $?
+			return "$install_exit_status"
+		fi
 	}
 
 	# install encoding tools
-	function uninstall_encoding {
-		brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || :
+	function __uninstall_encoding {
+		__brew_uninstall ffmpeg homebrew-ffmpeg/ffmpeg/ffmpeg || return $?
 	}
-	function install_encoding {
+	function __install_encoding {
 		# encoding
 		if [[ $action == 'install' ]]; then
 			# determine full value for HOMEBREW_ENCODING_INSTALL
@@ -256,7 +316,7 @@ function setup_mac_brew() (
 				# we don't want to trigger a full configure, when just this is missing
 				if [[ $option_configure == 'no' ]]; then
 					dorothy-config 'setup.bash' -- \
-						--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL"
+						--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL" || return $?
 				fi
 			fi
 		fi
@@ -265,13 +325,13 @@ function setup_mac_brew() (
 		if [[ $HOMEBREW_ENCODING_INSTALL == 'yes' || $HOMEBREW_ENCODING_REINSTALL == 'yes' ]]; then
 			__print_style \
 				--h1='Homebrew encoding tools' --newline \
-				--notice='This can take a while... ⏲'
+				--notice='This can take a while... ⏲' || return $?
 
 			# install dependencies:
 			# https://github.com/varenc/homebrew-ffmpeg/issues/28
 			# https://trac.ffmpeg.org/wiki/CompilationGuide/macOS
 			# @todo perhaps this entire encoding section can become modifiers to the existing operations
-			brew_install_fast "${HOMEBREW_ENCODING_FORMULAS[@]}"
+			__brew_install_fast "${HOMEBREW_ENCODING_FORMULAS[@]}" || return $?
 
 			# Only reinstall if desired
 			if [[ $HOMEBREW_ENCODING_REINSTALL == 'yes' ]] || ! command-working -- ffmpeg; then
@@ -284,188 +344,249 @@ function setup_mac_brew() (
 				#     Error: chromaprint not found
 				# More details:
 				# https://github.com/homebrew-ffmpeg/homebrew-ffmpeg/issues/13#issuecomment-647408007
-				uninstall_encoding
+				__uninstall_encoding || :
 
 				# log
-				__print_style --h2='Install ffmpeg with options'
+				__print_style --h2='Install ffmpeg with options' || return $?
 
-				# fetch all the build options for ffmpeg
-				local ffmpeg_opts_string ffmpeg_opts_array=() bad_option
-				ffmpeg_opts_string="$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact)"
-				# remove options that break ffmpeg
-				for bad_option in "${HOMEBREW_ENCODING_REMOVE_OPTIONS[@]}"; do
-					ffmpeg_opts_string="${ffmpeg_opts_string/$bad_option /}"
-				done
-				# parse the space separated options into an array
-				__split --source={ffmpeg_opts_string} --target={ffmpeg_opts_array} --delimiter=' ' --no-zero-length
+				# fetch all possible build options for ffmpeg
+				local options_for_ffmpeg=()
+				__split --target={options_for_ffmpeg} --delimiter=' ' --no-zero-length --invoke -- \
+					brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact || return $?
+
+				# remove unwanted options that break the build
+				__evict --source+target={options_string_for_ffmpeg} --optional --every -- \
+					"${HOMEBREW_ENCODING_REMOVE_OPTIONS[@]}" || return $?
+
 				# install with the build options
-				eval_helper --quiet --wrap -- \
-					brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${ffmpeg_opts_array[@]}"
+				eval-helper --quiet --wrap -- \
+					brew install homebrew-ffmpeg/ffmpeg/ffmpeg "${options_for_ffmpeg[@]}" || return $?
 
 				# log
-				__print_style --g2='Install ffmpeg with options'
+				__print_style --g2='Install ffmpeg with options' || return $?
 			fi
 
 			# log
-			__print_style --g1='Homebrew encoding tools'
+			__print_style --g1='Homebrew encoding tools' || return $?
 		else
-			__print_style --notice='Skipped encoding tools installation, due to preference.'
+			__print_style --notice='Skipped encoding tools installation, due to preference.' || return $?
 		fi
 	}
 
 	# install packages with brew
-	function brew_install {
-		# fetch options in a way that works with multi-line values
-		local brew_opts=('--quiet')
+	# __brew_install [...<option>] -- ...<package>
+	function __brew_install {
+		local -i install_exit_status=0
+		# extract brew options from arguments
+		local options_for_brew=('--quiet')
 		while [[ $# -gt 0 ]]; do
 			if [[ $1 == '--' ]]; then
 				shift
 				break
 			fi
-			brew_opts+=("$1")
+			options_for_brew+=("$1")
 			shift
 		done
 		# install
-		local pkg brew_pkgs_bulk=()
-		for pkg in "$@"; do
-			if [[ -z $pkg ]]; then
+		local package packages_without_options=()
+		for package in "$@"; do
+			if [[ -z $package ]]; then
 				# ffmpeg argument may be trimmed
 				continue
 			fi
-			local brew_pkg_args=()
-			__split --source={pkg} --target={brew_pkg_args} --delimiter=' ' --no-zero-length
-			if [[ ${#brew_pkg_args[@]} -eq 1 ]]; then
+			local arguments_for_package=()
+			__split --source={package} --target={arguments_for_package} --delimiter=' ' --no-zero-length || return $?
+			if [[ ${#arguments_for_package[@]} -eq 1 ]]; then
 				# it doesn't have arguments, install it in bulk
-				brew_pkgs_bulk+=("$pkg")
+				packages_without_options+=("$package")
 			else
 				# it has arguments, install it right now with the arguments
-				eval_helper --quiet --wrap -- \
-					brew install "${brew_opts[@]}" "${brew_pkg_args[@]}"
+				eval-helper --quiet --wrap -- \
+					brew install "${options_for_brew[@]}" "${arguments_for_package[@]}" || install_exit_status=$?
 			fi
 		done
-		if [[ ${#brew_pkgs_bulk[@]} -ne 0 ]]; then
-			eval_helper --quiet --wrap -- \
-				brew install "${brew_opts[@]}" "${brew_pkgs_bulk[@]}"
+		if [[ ${#packages_without_options[@]} -ne 0 ]]; then
+			eval-helper --quiet --wrap -- \
+				brew install "${options_for_brew[@]}" "${packages_without_options[@]}" || install_exit_status=$?
 		fi
+		return "$install_exit_status"
 	}
 
 	# install packages with brew, that are fast to install
-	function brew_install_fast {
-		__print_style --h2="Install $# formulas"
-		brew_install --formula -- "$@"
-		__print_style --g2="Install $# formulas"
+	function __brew_install_fast {
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		local -i install_exit_status=0
+		__print_style --h2="Install $# formulas" || return $?
+		__brew_install --formula -- "$@" || install_exit_status=$?
+		if [[ $install_exit_status -eq 0 ]]; then
+			__print_style --g2="Install $# formulas" || return $?
+		else
+			__print_style --e2="Install $# formulas" ' ' --status="$install_exit_status" || return $?
+			return "$install_exit_status"
+		fi
 	}
 
 	# install packages with brew, that are slow to install
-	function brew_install_slow {
+	function __brew_install_slow {
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		local -i install_exit_status=0
 		# if we are on an official directory, then we are using bottles which are pre-compiled and fast
 		if [[ $HOMEBREW_PREFIX == '/usr/local' || $HOMEBREW_PREFIX == '/opt/homebrew' ]]; then
-			__print_style --h2="Install $# extra formulas"
-			brew_install --formula -- "$@"
-			__print_style --g2="Install $# extra formulas"
+			__print_style --h2="Install $# extra formulas" || return $?
+			__brew_install --formula -- "$@" || install_exit_status=$?
+			if [[ $install_exit_status -eq 0 ]]; then
+				__print_style --g2="Install $# extra formulas" || return $?
+			else
+				__print_style --e2="Install $# extra formulas" || return $?
+				return "$install_exit_status"
+			fi
 		else
 			# otherwise we are on a custom directory, can't use bottles, so have to compile ourselves, which takes forever
 			if confirm --linger --bool --ppid=$$ -- "Do you want to install [$*]?" 'These can take hours, so best left overnight...'; then
-				__print_style --h2="Install $# slow formulas"
-				__print_style --notice='This can take a while... ⏲'
-				brew_install --formula -- "$@"
-				__print_style --g2="Install $# slow formulas"
+				__print_style --h2="Install $# slow formulas" --newline \
+					--notice='This can take a while... ⏲' || return $?
+				__brew_install --formula -- "$@" || install_exit_status=$?
+				if [[ $install_exit_status -eq 0 ]]; then
+					__print_style --g2="Install $# slow formulas" || return $?
+				else
+					__print_style --e2="Install $# slow formulas" ' ' --status="$install_exit_status" || return $?
+					return "$install_exit_status"
+				fi
 			fi
 		fi
 	}
 
 	# install fonts with brew
-	function brew_install_fonts {
-		__print_style --h2="Install $# fonts"
-		if [[ $# -ne 0 ]]; then
-			__try -- brew_install --cask -- "$@"
+	function __brew_install_fonts {
+		if [[ $# -eq 0 ]]; then
+			return 0
 		fi
-		__print_style --g2="Install $# fonts"
+		local -i install_exit_status=0
+		__print_style --h2="Install $# fonts" || return $?
+		__brew_install --cask -- "$@" || install_exit_status=$?
+		if [[ $install_exit_status -eq 0 ]]; then
+			__print_style --g2="Install $# fonts" || return $?
+		else
+			__print_style --e2="Install $# fonts" ' ' --status="$install_exit_status" || return $?
+			return "$install_exit_status"
+		fi
 	}
 
 	# install casks with brew
-	function brew_install_cask {
-		local cask_selection=() fodder
-		if [[ $# -eq 1 ]] && confirm --linger --negative --ppid=$$ -- "Would you like to install the cask [$1]?"; then
-			cask_selection=("$1")
-		elif [[ $# -gt 1 ]]; then
-			# trunk-ignore(shellcheck/SC2034)
-			fodder="$(
-				choose --multi \
-					--question='Which casks would you like to brew install?' -- \
-					"$@"
-			)"
-			__split --source={fodder} --target={cask_selection} --no-zero-length
+	function __brew_install_cask {
+		if [[ $# -eq 0 ]]; then
+			return 0
 		fi
+		local selection=()
+		__split --target={selection} --no-zero-length --invoke -- \
+			choose --default-all --multi --question='Which casks would you like to brew install?' -- "$@" || return $?
+		local -i install_exit_status=0
 		__print_style --h2="Install $# casks"
-		if [[ ${#cask_selection[@]} -ne 0 ]]; then
-			brew_install --cask -- "${cask_selection[@]}"
+		__brew_install --cask -- "${selection[@]}" || install_exit_status=$?
+		if [[ $install_exit_status -eq 0 ]]; then
+			__print_style --g2="Install $# casks" || return $?
+		else
+			__print_style --e2="Install $# casks" ' ' --status="$install_exit_status" || return $?
+			return "$install_exit_status"
 		fi
-		__print_style --g2="Install $# casks"
 	}
 
 	# uninstall packages with brew
-	function brew_uninstall {
-		local pkg
-		__print_style --h2="Uninstall $# packages"
+	function __brew_uninstall {
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		local -i uninstall_exit_status=0
+		__print_style --h2="Uninstall $# packages" || return $?
 		if [[ $# -ne 0 ]]; then
 			if brew-installed --quiet -- "$@"; then
-				for pkg in "$@"; do
-					if brew-installed --quiet -- "$pkg"; then
-						eval_helper --quiet --wrap \
-							--pending="$(__print_style --bold='Uninstalling: ' --code="$pkg")" \
-							--success="$(__print_style --success='Uninstalled: ' --code="$pkg")" \
-							--failure="$(__print_style --error='Failed to uninstall: ' --code="$pkg")" -- \
-							brew uninstall --quiet --ignore-dependencies "$pkg" || :
+				local package
+				for package in "$@"; do
+					if brew-installed --quiet -- "$package"; then
+						eval-helper --quiet --wrap \
+							--pending="$(__print_style --bold='Uninstalling: ' --code="$package")" \
+							--success="$(__print_style --success='Uninstalled: ' --code="$package")" \
+							--failure="$(__print_style --error='Failed to uninstall: ' --code="$package")" -- \
+							brew uninstall --quiet --ignore-dependencies "$package" || uninstall_exit_status=$?
 					fi
 				done
 				# cleanup, used to fix any breaks after the removals, this is only here are is purges upgrade caches, which is undesirable on unreliable internet connections as it means re-runs always has to download everything again
 				source "$DOROTHY/sources/environment.sh"
-				clean_brew
+				__clean_brew || return $?
 			fi
 		fi
-		__print_style --g2="Uninstall $# packages"
+		if [[ $uninstall_exit_status -eq 0 ]]; then
+			__print_style --g2="Uninstall $# packages" || return $?
+		else
+			__print_style --e2="Uninstall $# packages" ' ' --status="$uninstall_exit_status" || return $?
+			return "$uninstall_exit_status"
+		fi
 	}
 
 	# untap repositories with brew
-	function brew_untap {
-		local tap
-		__print_style --h2="Untap $# repositories"
-		if [[ $# -ne 0 ]]; then
-			if brew-installed --quiet --tap -- "$@"; then
-				for tap in "$@"; do
-					if brew-installed --quiet -- "$tap"; then
-						eval_helper --quiet --wrap \
-							--pending="$(__print_style --bold='Untapping: ' --code="$tap")" \
-							--success="$(__print_style --success='Untapped: ' --code="$tap")" \
-							--failure="$(__print_style --error='Failed to untap: ' --code="$tap")" -- \
-							brew untap --quiet "$tap" || :
-					fi
-				done
-			fi
+	function __brew_untap {
+		if [[ $# -eq 0 ]]; then
+			return 0
 		fi
-		__print_style --g2="Untap $# repositories"
+		local -i tap_exit_status=0
+		local tap
+		__print_style --h2="Untap $# repositories" || return $?
+		if brew-installed --quiet --tap -- "$@"; then
+			for tap in "$@"; do
+				if brew-installed --quiet -- "$tap"; then
+					eval-helper --quiet --wrap \
+						--pending="$(__print_style --bold='Untapping: ' --code="$tap")" \
+						--success="$(__print_style --success='Untapped: ' --code="$tap")" \
+						--failure="$(__print_style --error='Failed to untap: ' --code="$tap")" -- \
+						brew untap --quiet "$tap" || tap_exit_status=$?
+				fi
+			done
+		fi
+		if [[ $tap_exit_status -eq 0 ]]; then
+			__print_style --g2="Untap $# repositories" || return $?
+		else
+			__print_style --e2="Untap $# repositories" ' ' --status="$tap_exit_status" || return $?
+			return "$tap_exit_status"
+		fi
 	}
 
 	# tap repositories with brew
-	function brew_tap {
+	function __brew_tap {
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		local -i tap_exit_status=0
 		local tap
-		__print_style --h2="Tap $# repositories"
+		__print_style --h2="Tap $# repositories" || return $?
 		for tap in "$@"; do
-			eval_helper --quiet --wrap \
+			eval-helper --quiet --wrap \
 				--pending="$(__print_style --bold='Tap: ' --code="$tap")" \
 				--success="$(__print_style --success='Tapped: ' --code="$tap")" \
 				--failure="$(__print_style --error='Failed to tap: ' --code="$tap")" -- \
-				brew tap --quiet "$tap"
+				brew tap --quiet "$tap" || tap_exit_status=$?
 		done
-		__print_style --g2="Tap $# repositories"
+		if [[ $tap_exit_status -eq 0 ]]; then
+			__print_style --g2="Tap $# repositories" || return $?
+		else
+			__print_style --e2="Tap $# repositories" ' ' --status="$tap_exit_status" || return $?
+			return "$tap_exit_status"
+		fi
 	}
 
-	# update A repository with brew
-	function brew_update_repo() ( # subshell as cd
-		cd "$1"
-		git-helper verify
-		if git-helper is-shallow; then
+	# update repositories
+	function __brew_update_repo {
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		local -i repo_exit_status=0
+		local repo
+		__print_style --h2="Update $# repositories" || return $?
+		for repo in "$@"; do
+			# Unshallow fixes:
 			# https://github.com/Homebrew/brew/pull/9383
 			# ^ fix: Error: homebrew-cask is a shallow clone
 			# ^ github requested initial clones be shallow, however initial clones cannot be updated
@@ -473,24 +594,37 @@ function setup_mac_brew() (
 			# ^ however, `git fetch --unshallow` will fail if already not shallow
 			# ^ as such, detect accordingly
 			# https://stackoverflow.com/a/37533086/130638
-			git fetch --unshallow
-		else
-			git fetch
-		fi
-	)
-
-	# update repositories with brew
-	function brew_repo {
-		local repo
-		__print_style --h2="Update $# repositories"
-		for repo in "$@"; do
-			eval_helper --quiet --wrap \
-				--pending="$(__print_style --bold='Updating: ' --path="$repo")" \
-				--success="$(__print_style --success='Updated: ' --path="$repo")" \
-				--failure="$(__print_style --error='Failed to update: ' --path="$repo")" -- \
-				brew_update_repo "$repo"
+			# eval-helper --quiet --wrap \
+			# 	--pending="$(__print_style --bold='Updating: ' --path="$repo")" \
+			# 	--success="$(__print_style --success='Updated: ' --path="$repo")" \
+			# 	--failure="$(__print_style --error='Failed to update: ' --path="$repo")" -- \
+			git-helper sync --unshallow --path="$repo" || repo_exit_status=$?
 		done
-		__print_style --g2="Update $# repositories"
+		if [[ $repo_exit_status -eq 0 ]]; then
+			__print_style --g2="Update $# repositories" || return $?
+		else
+			__print_style --e2="Update $# repositories" ' ' --status="$repo_exit_status" || return $?
+			return "$repo_exit_status"
+		fi
+	}
+
+	# update taps, using the first passed one, to figure out all the rest
+	function __brew_update_tap {
+		if [[ $# -eq 0 ]]; then
+			return 0
+		fi
+		# repositories
+		local first_tap="$1" first_tap_repo_path casks_repo_path
+		first_tap_repo_path="$(brew --repo "$first_tap")" || return $?
+		casks_repo_path="$(fs-path --parents -- "$first_tap_repo_path")" || return $?
+		if [[ $first_tap == */* ]]; then
+			# homebrew-ffmpeg/ffmpeg => /opt/homebrew/Library/Taps/homebrew-ffmpeg/homebrew-ffmpeg => /opt/homebrew/Library/Taps
+			casks_repo_path="$(fs-path --parents -- "$casks_repo_path")" || return $?
+		fi
+		local repo_paths=()
+		__split --target={repo_paths} --no-zero-length --invoke -- \
+			echo-subpaths -- "$casks_repo_path" || return $?
+		__brew_update_repo "${repo_paths[@]}" || return $?
 	}
 
 	# =====================================
@@ -498,91 +632,65 @@ function setup_mac_brew() (
 
 	# action: clean then exit
 	if [[ $action == 'clean' ]]; then
-		clean_brew
+		__clean_brew || return $?
 		return $?
 	fi
 
 	# action: uninstall then exit
 	if [[ $action == 'uninstall' ]]; then
 		__print_style --h1='Uninstall Homebrew'
-		setup-util-brew --uninstall --verbose
+		setup-util-brew uninstall --verbose
 		return $?
 	fi
 
 	# log
 	local action_title
-	action_title="$(__get_uppercase_first_letter -- "$action")"
+	action_title="$(__get_uppercase_first_letter "$action")"
 	action_title="Setup/${action_title} Homebrew"
 	__print_style --h1="$action_title"
 
 	# ensure brew is installed
-	if ! __is_brew; then
-		__print_style --h2='Install Homebrew'
-		setup-util-brew --upgrade --verbose
-		source "$DOROTHY/sources/environment.sh" # child processes will also inherit these changes
-		__print_style --g2='Install Homebrew'
-	fi
+	__install_brew || return $?
 
 	# taps
-	brew_untap "${HOMEBREW_UNTAPS[@]}"
-	brew_tap "${HOMEBREW_TAPS[@]}"
-
-	# repositories
-	if [[ ${#HOMEBREW_TAPS[@]} -ne 0 ]]; then
-		local first_tap="${HOMEBREW_TAPS[0]}" first_tap_repo_path casks_repo_path repo_paths=()
-		first_tap_repo_path="$(brew --repo "$first_tap")"
-		casks_repo_path="$(fs-path --parents -- "$first_tap_repo_path")"
-		if [[ $first_tap == */* ]]; then
-			# homebrew-ffmpeg/ffmpeg => /opt/homebrew/Library/Taps/homebrew-ffmpeg/homebrew-ffmpeg => /opt/homebrew/Library/Taps
-			casks_repo_path="$(fs-path --parents -- "$casks_repo_path")"
-		fi
-		__split --target={repo_paths} --no-zero-length --invoke -- \
-			echo-subpaths -- "$casks_repo_path"
-		brew_repo "${repo_paths[@]}"
-	fi
+	__brew_untap "${HOMEBREW_UNTAPS[@]}" || __proceed || return $?
+	__brew_tap "${HOMEBREW_TAPS[@]}" || __proceed || return $?
+	__brew_update_tap "${HOMEBREW_TAPS[@]}" || __proceed || return $?
 
 	# update
-	__print_style --h2='Update Homebrew'
-	brew update --quiet
-	__print_style --g2='Update Homebrew'
+	__update_brew || __proceed || return $?
 
 	# uninstall packages
-	brew_uninstall "${HOMEBREW_UNINSTALL[@]}"
+	__brew_uninstall "${HOMEBREW_UNINSTALL[@]}" || __proceed || return $?
 
 	# uninstall encoding tools
 	# this is necessary before updates, as it could update to a broken update
 	# as such, uninstall before updates, so we can reinstall with our workarounds after
 	if [[ $HOMEBREW_ENCODING_REINSTALL == 'yes' ]] || ([[ $HOMEBREW_ENCODING_INSTALL == 'yes' ]] && ! command-working -- ffmpeg); then
-		uninstall_encoding
+		__uninstall_encoding || __proceed || return $?
 	fi
 
 	# update packages
-	__print_style --h2='Upgrade Homebrew'
-	update_brew
-	__print_style --g2='Upgrade Homebrew'
+	__upgrade_brew || __proceed || return $?
 
 	# dependencies
-	__print_style --h2='Install build dependencies'
-	setup-util-devel --quiet
-	__print_style --g2='Install build dependencies'
+	__install_build_deps || __proceed || return $?
 
 	# install encoding tools
-	install_encoding
+	__install_encoding || __proceed || return $?
 
 	# install (fast/default) formulas
-	brew_install_fast "${HOMEBREW_FORMULAS[@]}"
+	__brew_install_fast "${HOMEBREW_FORMULAS[@]}" || __proceed || return $?
 
 	# install slow formulas
-	brew_install_slow "${HOMEBREW_SLOW_FORMULAS[@]}"
+	__brew_install_slow "${HOMEBREW_SLOW_FORMULAS[@]}" || __proceed || return $?
 
-	# install casks
 	if [[ $action == 'install' ]]; then
-		brew_install_cask "${HOMEBREW_CASKS[@]}"
-	fi
+		# install casks
+		__brew_install_cask "${HOMEBREW_CASKS[@]}" || __proceed || return $?
 
-	# install fonts
-	if [[ $action == 'install' ]]; then
-		brew_install_fonts "${HOMEBREW_FONTS[@]}"
+		# install fonts
+		__brew_install_fonts "${HOMEBREW_FONTS[@]}" || __proceed || return $?
 	fi
 
 	# -------------------------------------
@@ -609,12 +717,12 @@ function setup_mac_brew() (
 		HOMEBREW_FORMULAS=()
 		HOMEBREW_FONTS=()
 		HOMEBREW_CASKS=()
-		# do not reset SETUP_UTILS, only add to it, as there isn't installed detection for it
+		# do not reset `SETUP_UTILS`, only add to it, as there isn't installed detection for it
 
 		# update our listings appropriately
 		local item installer
 		for item in "${requested_formulas[@]}"; do
-			installer="$(get-installer --quiet -- "$item" || :)"
+			installer="$(setup-util get-installer --quiet -- "$item" || :)"
 			if [[ -n $installer ]]; then
 				if [[ $installer == 'setup-util-'* ]]; then
 					SETUP_UTILS+=("${installer#*setup-util-}")
@@ -634,7 +742,7 @@ function setup_mac_brew() (
 			HOMEBREW_FORMULAS+=("$item")
 		done
 		for item in "${requested_cask[@]}"; do
-			installer="$(get-installer --quiet -- "$item" || :)"
+			installer="$(setup-util get-installer --quiet -- "$item" || :)"
 			if [[ -n $installer ]]; then
 				if [[ $installer == 'setup-util-'* ]]; then
 					SETUP_UTILS+=("${installer:11}")
@@ -649,8 +757,9 @@ function setup_mac_brew() (
 		done
 
 		# save
+		__unique --source+target={SETUP_UTILS} --ignore-case || return $?
 		dorothy-config 'setup.bash' -- \
-			--field='SETUP_UTILS' --array="$(echo-unique --ignore-case -- "${SETUP_UTILS[@]}")" \
+			--field='SETUP_UTILS' --array="$(__print_lines "${SETUP_UTILS[@]}")" \
 			--field='HOMEBREW_ENCODING_INSTALL' --value="$HOMEBREW_ENCODING_INSTALL" \
 			--field='HOMEBREW_FORMULAS' --array="$(__print_lines "${HOMEBREW_FORMULAS[@]}")" \
 			--field='HOMEBREW_CASKS' --array="$(__print_lines "${HOMEBREW_CASKS[@]}")" \

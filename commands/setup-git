@@ -13,6 +13,8 @@
 # https://security.stackexchange.com/a/243798/110805
 # Note that edit-key and delete require no-tty to be removed from gpg.conf
 
+# @todo move to `setup-util-git --configure`
+
 function setup_git_test() (
 	source "$DOROTHY/sources/bash.bash"
 	eval-tester --ignore-stderr --status=22 -- setup-git --help
@@ -24,74 +26,88 @@ function setup_git() (
 	# =====================================
 	# Arguments
 
-	function help {
+	function __help {
 		__print_help "$@" <<-EOF || return $?
 			ABOUT:
-			Configures git, gpg, and ssh for your preferences and for the system capabilities.
+			Setup \`git\`, \`gpg\`, and \`ssh\` for your preferences and for the system capabilities.
 
 			USAGE:
-			\`setup-git [...options] <action>\`
+			\`setup-git [...options]\`
 
 			OPTIONS:
-			--[no-]reconfigure
-			    Whether to re-prompt and re-save configuration settings.
-			--[no-]fallback
-			    If disabled, prevents installation of fallbacks to install dependencies.
-			--[no-]deps
-			    If disabled, prevents installation of dependencies, such as gpg etc.
-			--[no-]slim
-			    If enabled, disables reconfiguration, fallbacks, and dependencies.
-
-			ACTIONS
-			setup
-			update
-			install|configure
+			These options are common among Dorothy's \`setup-*\` ecosystem. Refer to \`setup-util --help\` for more details and customisation:
+			[--]setup
+			    Alias for <upstall> and <configure>.
+			[--]upstall
+			    Alias for <install> and <update>.
+			    ! This is the default.
+			[--]install
+			    Install as necessary.
+			[--]update | [--]upgrade
+			    Update as necessary.
+			[--]configure
+			    If enabled, (re)configure for new and existing configs.
+			    If unset, (re)configure for new configs.
+			    If disabled, avoid (re)configure.
 		EOF
 		return 22 # EINVAL 22 Invalid argument
 	}
 
 	# process
-	local item option_reconfigure='' option_fallback='' option_deps=''
+	local item option_install='' option_upgrade='' option_configure=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		'--help' | '-h') help ;;
+		'--help' | '-h') __help || return $? ;;
 		# <shared arguments between many setup commands>
-		'setup')
-			action='setup'
-			# option_reconfigure will autodetect
+		'--setup' | 'setup')
+			option_install='yes'
+			option_upgrade='yes'
+			option_configure='yes'
 			;;
-		'update')
-			action='setup'
-			if [[ -z $option_reconfigure ]]; then
-				option_reconfigure='no'
+		'--upstall' | 'upstall')
+			option_install='yes'
+			option_upgrade='yes'
+			if [[ ${item:0:2} != '--' ]]; then
+				option_configure=''
 			fi
 			;;
-		'install' | 'configure')
-			action='setup'
-			if [[ -z $option_reconfigure ]]; then
-				option_reconfigure='yes'
+		'--install' | 'install')
+			option_install='yes'
+			if [[ ${item:0:2} != '--' ]]; then
+				option_upgrade=''
+				option_configure=''
+			fi
+			;;
+		'--upgrade' | 'upgrade')
+			option_upgrade='yes'
+			if [[ ${item:0:2} != '--' ]]; then
+				option_configure=''
+				option_install=''
+			fi
+			;;
+		'--configure' | 'configure')
+			option_configure='yes'
+			if [[ ${item:0:2} != '--' ]]; then
+				option_install=''
+				option_upgrade=''
 			fi
 			;;
 		# </shared actions between many setup commands>
-		# <shared options between many setup commands>
-		'--no-reconfigure'* | '--reconfigure'*) __flag --source={item} --target={option_reconfigure} --affirmative --coerce ;;
-		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
-		'--no-deps'* | '--deps'*) __flag --source={item} --target={option_deps} --affirmative --coerce ;;
-		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_reconfigure} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
-		# </shared options between many setup commands>
-		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*) help 'An unrecognised argument was provided: ' --variable-value={item} ;;
+		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
+		*) __help 'An unrecognised argument was provided: ' --variable-value={item} || return $? ;;
 		esac
 	done
 
-	# slim options
-	local slim_options=(
-		--reconfigure="$option_reconfigure"
-		--fallback="$option_fallback"
-		--deps="$option_deps"
-	)
+	# default to `setup` action
+	if [[ -z $option_install && -z $option_configure && -z $option_upgrade ]]; then
+		option_install='yes'
+		option_upgrade='yes'
+		option_configure='yes'
+	fi
+
+	local setup_util_options=(--install="$option_install" --upgrade="$option_upgrade")
 
 	# =====================================
 	# Prepare
@@ -99,30 +115,22 @@ function setup_git() (
 	__print_style --h1='Setup Git'
 
 	# dependencies
-	if [[ $option_deps != 'no' ]] || __command_missing -- git; then
-		__print_style --h2='Install Git'
-		setup-util-git "${slim_options[@]}"
-		__print_style --g2='Install Git'
-	fi
+	setup-util-git --dependency "${setup_util_options[@]}"
+	setup-util-git-lfs --dependency "${setup_util_options[@]}"
+	setup-util-gitell --dependency "${setup_util_options[@]}"
+	setup-util-pinentry --dependency --optional "${setup_util_options[@]}"
 
 	# vars
 	local protocol_options=(
 		ssh
 		https
 	)
-	local merge_tools=()
-	if __command_exists -- meld; then
-		merge_tools+=(meld)
-	fi
-	if __command_exists -- delta; then
-		merge_tools+=(delta)
-	fi
-	if __command_exists -- opendiff; then
-		merge_tools+=(opendiff)
-	fi
-	if __command_exists -- diff; then
-		merge_tools+=(diff)
-	fi
+	local merge_tool available_merge_tools=(delta meld opendiff diff) installed_merge_tools=()
+	for merge_tool in "${available_merge_tools[@]}"; do
+		if __command_exists -- "$merge_tool"; then
+			installed_merge_tools+=("$merge_tool")
+		fi
+	done
 
 	# =====================================
 	# Configuration
@@ -181,11 +189,11 @@ function setup_git() (
 	# GITLAB_USERNAME
 
 	# required
-	if [[ -z $option_reconfigure ]]; then
+	if [[ -z $option_configure ]]; then
 		if [[ -z $GIT_NAME || -z $GIT_EMAIL || -z $GIT_DEFAULT_BRANCH ]] ||
 			! __has --source={protocol_options} -- "$GIT_PROTOCOL" ||
-			! __has --source={merge_tools} -- "$MERGE_TOOL"; then
-			option_reconfigure='yes'
+			! __has --source={installed_merge_tools} -- "$MERGE_TOOL"; then
+			option_configure='yes'
 		fi
 	fi
 
@@ -209,8 +217,7 @@ function setup_git() (
 	done
 
 	# configure
-	if [[ $option_reconfigure == 'yes' ]]; then
-		# required
+	if [[ $option_configure == 'yes' ]]; then
 		GIT_NAME="$(
 			ask --required --linger \
 				--question='What is the name that you want to configure git with?' \
@@ -221,28 +228,25 @@ function setup_git() (
 				--question='What is the email that you want to configure git with?' \
 				--default="${GIT_EMAIL:-"$(get-profile email -- git ... || :)"}"
 		)"
-		# optional
 		GITHUB_USERNAME="$(
-			ask --linger \
+			ask --no-required --linger \
 				--question='What is the GitHub username that you want to configure git with?' \
 				--default="${GITHUB_USERNAME:-"$(get-profile username -- git ... || :)"}"
 		)"
 		GITLAB_USERNAME="$(
-			ask --linger \
+			ask --no-required --linger \
 				--question='What is the GitLab username that you want to configure git with?' \
 				--default="${GITLAB_USERNAME:-"$(get-profile username -- git ... || :)"}"
 		)"
-		# required
 		GIT_PROTOCOL="$(
 			choose --required --confirm --linger \
 				--question='Which git protocol to prefer?' \
 				--default="$GIT_PROTOCOL" -- "${protocol_options[@]}"
 		)"
-		MERGE_TOOL="$(
-			choose --required --confirm --linger \
-				--question='Which merge/diff tool to prefer?' \
-				--default="$MERGE_TOOL" -- "${merge_tools[@]}"
-		)"
+		local merge_tools=()
+		merge_tools=("${installed_merge_tools[@]}" "${merge_tools[@]}")
+		__unique --source+target={merge_tools}
+		__tool --tool={MERGE_TOOL} --tools={merge_tools} --help={__help} --question='Which merge/diff tool to prefer?' || return $?
 		GIT_DEFAULT_BRANCH="$(
 			ask --required --linger \
 				--question='Which branch to use as the default for new repositories?' \
@@ -262,7 +266,7 @@ function setup_git() (
 		fi
 		if [[ $GPG_SIGNING_AGENT != 'op' && $GPG_SIGNING_AGENT != 'krypton' ]]; then
 			# 2>/dev/null || : in case there are no gpg keys
-			GPG_SIGNING_KEY="$(gpg-helper "${slim_options[@]}" get private 2>/dev/null || :)"
+			GPG_SIGNING_KEY="$(gpg-helper get private 2>/dev/null || :)"
 		fi
 
 		# save
@@ -356,17 +360,19 @@ function setup_git() (
 	# https://gist.github.com/troyfontaine/18c9146295168ee9ca2b30c00bd1b41e
 
 	function sign_enable {
-		# Enable Signing for Git
-		git config --global tag.gpgsign true
-		git config --global commit.gpgsign true
+		setup-util-gpg --dependency "${setup_util_options[@]}" || return $?
 
-		# git config --global push.gpgsign true
+		# Enable Signing for Git
+		git config --global tag.gpgsign true || return $?
+		git config --global commit.gpgsign true || return $?
+
+		# git config --global push.gpgsign true || return $?
 		# ^ github doesn’t support this with:
 		#   fatal: receiving end does not support --signed push
 		#   fatal: the receiving end does not support --signed push
 
 		# done
-		__print_style --header2='Git Configuration: Signing:' ' ' --positive='Enabled'
+		__print_style --header2='Git Configuration: Signing:' ' ' --positive='Enabled' || return $?
 	}
 	function sign_check_key {
 		# Check we have a key
@@ -399,7 +405,7 @@ function setup_git() (
 	}
 	function sign_krypton {
 		# Use Krypton for Signing
-		setup-util-krypton "${slim_options[@]}"
+		setup-util-krypton --dependency "${setup_util_options[@]}"
 		kr pair # krgpg and kr are both installed above
 		# configure git for krypton
 		git config --global gpg.program "$(type -P krgpg)"
@@ -417,7 +423,7 @@ function setup_git() (
 		git config --global user.signingkey "$key"
 
 		# configure
-		gpg-helper "${slim_options[@]}" configure
+		gpg-helper configure
 	}
 	function sign_ssh {
 		# Use SSH Key for Signing
@@ -442,7 +448,7 @@ function setup_git() (
 			fi
 		fi
 		if [[ -z $op_pub ]]; then
-			op_pub="$(ssh-helper "${slim_options[@]}" export --raw || :)"
+			op_pub="$(ssh-helper export --raw || :)"
 			GPG_SIGNING_KEY="$op_pub"
 		fi
 		if [[ -n $op_ssh_sign_path ]]; then
@@ -484,7 +490,7 @@ function setup_git() (
 		fi
 	}
 	function sign_setup_and_enable {
-		local setup_status enable_status
+		local -i setup_status enable_status
 		__try {setup_status} -- sign_setup
 		if [[ $setup_status -eq 0 ]]; then
 			__try {enable_status} -- sign_enable
@@ -495,8 +501,8 @@ function setup_git() (
 	}
 
 	# act
-	local setup_and_enable_status
 	if __command_exists -- gpg; then
+		local -i setup_and_enable_status
 		__try {setup_and_enable_status} -- sign_setup_and_enable
 		if [[ $setup_and_enable_status -ne 0 ]]; then
 			sign_disable
@@ -507,8 +513,8 @@ function setup_git() (
 	# Security
 
 	__print_style --header2='Git Configuration: Permissions'
-	ssh-helper "${slim_options[@]}" permissions
-	gpg-helper "${slim_options[@]}" permissions
+	ssh-helper permissions
+	gpg-helper permissions
 	# @todo apply the above --install flag
 	# @todo github-download caching
 	# @todo read -i version added and bash.bash update
@@ -516,14 +522,14 @@ function setup_git() (
 	# =====================================
 	# SSH
 
-	ssh-helper "${slim_options[@]}" setup
+	ssh-helper setup
 
 	# =====================================
 	# Authenticate with CLIs
 
 	# Must be done here, as they depend on git and ssh being correctly configured
-	if [[ -n $GITHUB_USERNAME && $option_deps != 'no' ]]; then
-		setup-util-gh --optional "${slim_options[@]}"
+	if [[ -n $GITHUB_USERNAME ]]; then
+		setup-util-gh --dependency --optional "${setup_util_options[@]}"
 	fi
 
 	# =====================================
@@ -531,7 +537,7 @@ function setup_git() (
 
 	__print_style --header2='Git Configuration: Protocol:' ' ' --code="$GIT_PROTOCOL"
 	if [[ -n $GIT_PROTOCOL ]]; then
-		if [[ $GIT_PROTOCOL == 'ssh' ]] && ! ssh-helper "${slim_options[@]}" test; then
+		if [[ $GIT_PROTOCOL == 'ssh' ]] && ! ssh-helper test; then
 			__print_style --notice='SSH failed, temporarily configuring for HTTPS'
 			GIT_PROTOCOL='https'
 		fi
@@ -547,7 +553,7 @@ function setup_git() (
 	fi
 
 	# if [[ -n "$GITLAB_USERNAME" ]]; then
-	# glab writes to stderr, grep needed as return status is not indicative
+	# `glab` writes to stderr, grep needed as return status is not indicative
 	# wrap in `! (` is to catch failures in the grep, and in the glab call
 	# setup-util-glab--optional # only install if gitlab is configured
 	# if ! (glab auth status 2>&1 | grep --quiet --fixed-strings --regexp='Logged in to '); then
