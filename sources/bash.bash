@@ -1577,6 +1577,15 @@ function __affirm_variable_is_array {
 	fi
 }
 
+# aka `__is_valid_variable_name`, `__is_valid_function_name`
+# inlined into `__affirm_variable_name` and `__try` for performance
+function __is_valid_name {
+	__affirm_length_defined $# 'input' || return $?
+	while [[ $# -ne 0 ]]; do
+		[[ $1 =~ ^[_a-zA-Z0-9]+$ ]] || return $?
+		shift
+	done
+}
 # affirm <variable-name> is a valid variable name, not a reference (a variable named wrapped in squigglies), nor an invalid pattern
 # __affirm_variable_name <variable-name>
 function __affirm_variable_name {
@@ -1588,7 +1597,7 @@ function __affirm_variable_name {
 		__print_lines "ERROR: ${FUNCNAME[1]}: A ${2:-"variable name"} must be provided." >&2 || :
 		return 22 # EINVAL 22 Invalid argument
 	fi
-	if ! [[ $1 =~ ^[_a-zA-Z0-9]+$ ]]; then
+	if ! [[ $1 =~ ^[_a-zA-Z0-9]+$ ]]; then # should match `__is_valid_name`
 		if [[ ${1:0:1} == '{' ]]; then
 			__print_lines "ERROR: ${FUNCNAME[1]}: Invalid ${2:-"variable name"}, remove the squigglies: $1" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -2100,6 +2109,7 @@ function __dereference {
 # -------------------------------------
 # Function Toolkit
 
+# does not include bash 4.0 workaround for `&> >(`
 function __get_function_inner {
 	local GET_FUNCTION_INNER__function_code GET_FUNCTION_INNER__left=$'{ \n' GET_FUNCTION_INNER__right=$'\n}'
 	GET_FUNCTION_INNER__function_code="$(declare -f "$1")" || return $?
@@ -2114,6 +2124,24 @@ function __get_function_inner {
 	GET_FUNCTION_INNER__function_code="${GET_FUNCTION_INNER__function_code#*"$GET_FUNCTION_INNER__left"}"
 	GET_FUNCTION_INNER__function_code="${GET_FUNCTION_INNER__function_code%"$GET_FUNCTION_INNER__right"*}"
 	printf '%s' "$GET_FUNCTION_INNER__function_code" || return $?
+}
+
+# does include bash 4.0 workaround for `&> >(`
+function __copy_function {
+	local COPY_FUNCTION__from="$1" COPY_FUNCTION__to="$2" COPY_FUNCTION__outer COPY_FUNCTION__find='&>>(' COPY_FUNCTION__replace='&> >('
+	COPY_FUNCTION__outer="$(declare -f "$COPY_FUNCTION__from")" || return $?
+	# fix `bash-4.0 -c 'function fn { echo &> >(cat); }; declare -f fn; eval "$(declare -f fn | sed s/fn/busted/)"'`
+	# causing:
+	# ```
+	# fn ()
+	# {
+	# 	echo &>>(cat)
+	# }
+	# bash-4.0: syntax error near unexpected token `('
+	# ```
+	COPY_FUNCTION__outer="${COPY_FUNCTION__outer/$COPY_FUNCTION__from/$COPY_FUNCTION__to}" || return $?
+	COPY_FUNCTION__outer="${COPY_FUNCTION__outer//$COPY_FUNCTION__find/$COPY_FUNCTION__replace}" || return $?
+	eval "$COPY_FUNCTION__outer" || return $?
 }
 
 function __get_index_of_parent_function {
@@ -2149,7 +2177,7 @@ function __get_context_id {
 	# 331 characters: /var/folders/3v/fjmy4fyx1p9c28v31vzm8j9r0000gn/T/dorothy/semaphores/[5.3.3] [main][setup_mac_brew][uninstall_encoding][brew_uninstall][clean_brew][eval_helper][run_args_with_optional_elevation][run_args][__refresh_terminal_size][__split] [__do][data-to-reference][--redirect-stdout][SPLIT__fodder_with_discard_exit_status] [19657]
 	# 263 characters: [5.3.3] [main][setup_mac_brew][uninstall_encoding][brew_uninstall][clean_brew][eval_helper][run_args_with_optional_elevation][run_args][__refresh_terminal_size][__split] [__do][data-to-reference][--redirect-stdout][SPLIT__fodder_with_discard_exit_status] [19657]
 	# <255 characters: 19657 5.3.3 setup_mac_brew uninstall_encoding brew_uninstall clean_brew eval_helper run_args_with_optional_elevation run_args refresh_terminal_size split do data-to-reference redirect-stdout SPLIT fodder_with_discard_exit_status
-	local exclude='[main][__get_context_id][eval_capture][__do][__try][dorothy_try__wrapper]' contexts=() context fn exclude
+	local exclude='[main][__get_context_id][eval_capture][__do][_do][__try][_try][dorothy_try__wrapper]' contexts=() context fn exclude
 	for fn in "${FUNCNAME[@]:1}"; do
 		if [[ $exclude == *"[$fn]"* ]]; then
 			continue
@@ -2333,6 +2361,15 @@ function __to {
 function __do {
 	# 🧙🏻‍♀️ the power is yours, send donations to github.com/sponsors/balupton
 	__affirm_length_defined $# 'argument' || return $?
+	# handle safe vs unsafe recursion, note we copy `__do` to `_do` after `__do`'s definition
+	local DO__do DO__try
+	if [[ ${FUNCNAME[0]} == '__do' ]]; then
+		DO__do='__do'
+		DO__try='__try'
+	else
+		DO__do='_do'
+		DO__try='_try'
+	fi
 	# normally, with > it is right to left, however that makes sense as > portions of our statement are on the right-side
 	# however, __do is on the left side, so it should be left to right, such that this intuitively makes sense:
 	# __do --copy-stderr=stderr.txt --copy-stdout=stdout.txt --redirect-stderr=STDOUT --copy-stdout=output.txt --redirect-stdout=NULL -- echo-style --stderr=my-stderr --stdout=my-stdout
@@ -2347,7 +2384,7 @@ function __do {
 			DO__inversion=("$1" "${DO__inversion[@]}")
 			shift
 		done
-		__do --inverted "${DO__inversion[@]}" "$@"
+		"$DO__do" --inverted "${DO__inversion[@]}" "$@"
 		return $?
 	else
 		shift # remove the --inverted flag
@@ -2429,21 +2466,21 @@ function __do {
 	# discard status
 	'--discard-status' | '--no-status' | '--status=no')
 		# catch and discard the status
-		__try -- __do --inverted "$@"
+		"$DO__try" -- "$DO__do" --inverted "$@"
 		return $?
 		;;
 
 	# aliases for discard stdout, stderr, output
 	'--discard-stdout' | '--no-stdout' | '--stdout=no')
-		__do --inverted "$@" >/dev/null
+		"$DO__do" --inverted "$@" >/dev/null
 		return $?
 		;;
 	'--discard-stderr' | '--no-stderr' | '--stderr=no')
-		__do --inverted "$@" 2>/dev/null
+		"$DO__do" --inverted "$@" 2>/dev/null
 		return $?
 		;;
 	'--discard-output' | '--no-output' | '--output=no' | '--discard-stdout+stderr' | '--no-stdout+stderr' | '--stdout+stderr=no')
-		__do --inverted "$@" &>/dev/null
+		"$DO__do" --inverted "$@" &>/dev/null
 		return $?
 		;;
 
@@ -2453,7 +2490,7 @@ function __do {
 		__dereference --source="$DO__arg_value" --name={DO__variable_name} || return $?
 
 		# catch the status
-		__try {DO__status} -- __do --inverted "$@"
+		"$DO__try" {DO__status} -- "$DO__do" --inverted "$@"
 		__return $? || return $?
 
 		# apply the status to the var target
@@ -2474,11 +2511,11 @@ function __do {
 	'--redirect-status='* | '--copy-status='*)
 		# catch the status
 		local DO__status
-		__try {DO__status} -- __do --inverted "$@"
+		"$DO__try" {DO__status} -- "$DO__do" --inverted "$@"
 		__return $? || return $?
 
 		# apply the status to the non-var target
-		__do --inverted --redirect-stdout="$DO__arg_value" -- printf '%s' "$DO__status" || return $?
+		"$DO__do" --inverted --redirect-stdout="$DO__arg_value" -- printf '%s' "$DO__status" || return $?
 
 		# return or discard the status
 		case "$DO__arg_flag" in
@@ -2501,8 +2538,8 @@ function __do {
 
 		# execute and write to a file
 		# @todo consider a way to set the vars with what was written even if this fails, may not be a good idea
-		DO__semaphore="$(__get_semaphore "$(__get_context_id '__do' "$DO__arg_flag" 'to-var' "$DO__variable_name" || :)")" || return $?
-		__do --inverted "$DO__arg_flag=$DO__semaphore" "$@"
+		DO__semaphore="$(__get_semaphore "$(__get_context_id "$DO__do" "$DO__arg_flag" 'to-var' "$DO__variable_name" || :)")" || return $?
+		"$DO__do" --inverted "$DO__arg_flag=$DO__semaphore" "$@"
 		__return $? --invoke-only-on-failure -- rm -f -- "$DO__semaphore" || return $?
 
 		# load the value of the file, remove the file, apply the value to the var target
@@ -2526,7 +2563,7 @@ function __do {
 	# 	# run our pipes
 	# 	case "$DO__arg_flag" in
 	# 	--redirect-stdout)
-	# 		__do --inverted "$@" | eval "$DO__code"
+	# 		"$DO__do" --inverted "$@" | eval "$DO__code"
 	# 		return $?
 	# 		;;
 	# 	--redirect-stderr)
@@ -2535,7 +2572,7 @@ function __do {
 	# 		return 76 # EPROCUNAVAIL 76 Bad procedure for program
 	# 		;;
 	# 	--redirect-output)
-	# 		__do --inverted "$@" 2>&1 | eval "$DO__code"
+	# 		"$DO__do" --inverted "$@" 2>&1 | eval "$DO__code"
 	# 		return $?
 	# 		;;
 	# 	*)
@@ -2554,27 +2591,27 @@ function __do {
 		DO__code="${DO__arg_value:1:DO__size-2}"
 
 		# executing this in errexit mode:
-		# __do --stderr='(cat; __return 10; __return 20)' -- echo-style --stderr=stderr-result --stdout=stdout-result; echo "status=[${statusvar-}] stdout=[${stdoutvar-}] stderr=[${stderrvar-}]"
+		# "$DO__do" --stderr='(cat; __return 10; __return 20)' -- echo-style --stderr=stderr-result --stdout=stdout-result; echo "status=[${statusvar-}] stdout=[${stdoutvar-}] stderr=[${stderrvar-}]"
 		#
 		# with this internal code, will not fail, as the return statuses of the subshell redirections are ignored:
-		# --stderr) __do --inverted "$@" 2> >(eval "$DO__code"; __return $? -- touch "$DO__semaphore") ;;
+		# --stderr) "$DO__do" --inverted "$@" 2> >(eval "$DO__code"; __return $? -- touch "$DO__semaphore") ;;
 		#
 		# with this internal code, will fail with 20:
-		# --stderr) __do --inverted "$@" 2> >(set +e; eval "$DO__code"; printf '%s' "$?" >"$DO__semaphore") ;;
+		# --stderr) "$DO__do" --inverted "$@" 2> >(set +e; eval "$DO__code"; printf '%s' "$?" >"$DO__semaphore") ;;
 		#
 		# with this internal code, will fail with 10, which is what we want
-		# --stderr) __do --inverted "$@" 2> >(__do --status="$DO__semaphore" -- eval "$DO__code") ;;
+		# --stderr) "$DO__do" --inverted "$@" 2> >("$DO__do" --status="$DO__semaphore" -- eval "$DO__code") ;;
 
 		# prepare our semaphore file that will track the exit status of the process substitution
-		DO__semaphore="$(__get_semaphore "$(__get_context_id '__do' "$DO__arg_flag" 'to-process' || :)")" || return $?
+		DO__semaphore="$(__get_semaphore "$(__get_context_id "$DO__do" "$DO__arg_flag" 'to-process' || :)")" || return $?
 
 		# execute while tracking the exit status to our semaphore file
 		# can't use `__try` as >() is a subshell, so the status variable application won't escape the subshell
-		# note [>(...)] and [> >(...)] are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
+		# note `>(...)` and `> >(...)` are different, the former interpolates as a file descriptor, the latter forwards stdout to the file descriptor
 		case "$DO__arg_flag" in
-		'--redirect-stdout') __do --inverted "$@" > >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		'--redirect-stderr') __do --inverted "$@" 2> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
-		'--redirect-output') __do --inverted "$@" &> >(__do --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		'--redirect-stdout') "$DO__do" --inverted "$@" > >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		'--redirect-stderr') "$DO__do" --inverted "$@" 2> >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
+		'--redirect-output') "$DO__do" --inverted "$@" &> >("$DO__do" --inverted --redirect-status="$DO__semaphore" -- eval "$DO__code") ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised target was encountered: $DO__arg" >&2 || :
 			return 76 # EPROCUNAVAIL 76 Bad procedure for program
@@ -2599,44 +2636,44 @@ function __do {
 
 		# redirect stdout to stdout, this is a no-op, continue to next
 		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
 		# redirect stdout to stderr
 		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
-			__do --inverted "$@" >&2
+			"$DO__do" --inverted "$@" >&2
 			return $?
 			;;
 
 		# redirect stdout to tty
 		'TTY' | 'tty' | '/dev/tty')
-			__do --inverted "$@" >>/dev/tty
+			"$DO__do" --inverted "$@" >>/dev/tty
 			return $?
 			;;
 
 		# redirect stdout to null
 		'NULL' | 'null' | '/dev/null')
-			__do --inverted "$@" >/dev/null
+			"$DO__do" --inverted "$@" >/dev/null
 			return $?
 			;;
 
 		# redirect stdout to FD target
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return $?
-			__do --inverted "$@" >&"$DO__arg_value"
+			"$DO__do" --inverted "$@" >&"$DO__arg_value"
 			return $?
 			;;
 
 		# no-op
 		'')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
 		# redirect stdout to file target
 		*)
-			__do --inverted "$@" >>"$DO__arg_value"
+			"$DO__do" --inverted "$@" >>"$DO__arg_value"
 			return $?
 			;;
 
@@ -2651,7 +2688,7 @@ function __do {
 		# copy stdout to stdout
 		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
 			# no-op
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -2660,11 +2697,11 @@ function __do {
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
-				"$(__get_context_id '__do' 'copy-stdout-to-stderr' 1 || :)" \
-				"$(__get_context_id '__do' 'copy-stdout-to-stderr' 2 || :)" || return $?
+				"$(__get_context_id "$DO__do" 'copy-stdout-to-stderr' 1 || :)" \
+				"$(__get_context_id "$DO__do" 'copy-stdout-to-stderr' 2 || :)" || return $?
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
-			__do --inverted "$@" > >(
+			"$DO__do" --inverted "$@" > >(
 				set +e
 				tee -- >(
 					set +e
@@ -2684,11 +2721,11 @@ function __do {
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
-				"$(__get_context_id '__do' 'copy-stdout-to-tty' 1 || :)" \
-				"$(__get_context_id '__do' 'copy-stdout-to-tty' 2 || :)" || return $?
+				"$(__get_context_id "$DO__do" 'copy-stdout-to-tty' 1 || :)" \
+				"$(__get_context_id "$DO__do" 'copy-stdout-to-tty' 2 || :)" || return $?
 
 			# execute, keeping stdout, copying to stderr, and tracking the exit status to our semaphore file
-			__do --inverted "$@" > >(
+			"$DO__do" --inverted "$@" > >(
 				set +e
 				tee -- >(
 					set +e
@@ -2706,7 +2743,7 @@ function __do {
 		# copy stdout to null
 		'NULL' | 'null' | '/dev/null')
 			# no-op
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -2717,11 +2754,11 @@ function __do {
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
-				"$(__get_context_id '__do' 'copy-stdout-to-fd' "$DO__arg_value" 1 || :)" \
-				"$(__get_context_id '__do' 'copy-stdout-to-fd' "$DO__arg_value" 2 || :)" || return $?
+				"$(__get_context_id "$DO__do" 'copy-stdout-to-fd' "$DO__arg_value" 1 || :)" \
+				"$(__get_context_id "$DO__do" 'copy-stdout-to-fd' "$DO__arg_value" 2 || :)" || return $?
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
-			__do --inverted "$@" > >(
+			"$DO__do" --inverted "$@" > >(
 				set +e
 				tee -- >(
 					set +e
@@ -2738,7 +2775,7 @@ function __do {
 
 		# no-op
 		'')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -2746,10 +2783,10 @@ function __do {
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
 			local DO__semaphore
-			DO__semaphore="$(__get_semaphore "$(__get_context_id '__do' 'copy-stdout-to-file' || :)")" || return $?
+			DO__semaphore="$(__get_semaphore "$(__get_context_id "$DO__do" 'copy-stdout-to-file' || :)")" || return $?
 
 			# execute, keeping stdout, copying to the value target, and tracking the exit status to our semaphore file
-			__do --inverted "$@" > >(
+			"$DO__do" --inverted "$@" > >(
 				set +e
 				tee -a -- "$DO__arg_value"
 				printf '%s' "$?" >"$DO__semaphore"
@@ -2769,44 +2806,44 @@ function __do {
 
 		# redirect stderr to stdout
 		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
-			__do --inverted "$@" 2>&1
+			"$DO__do" --inverted "$@" 2>&1
 			return $?
 			;;
 
 		# redirect stderr to stderr, this is a no-op, continue to next
 		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
 		# redirect stderr to tty
 		'TTY' | 'tty' | '/dev/tty')
-			__do --inverted "$@" 2>>/dev/tty
+			"$DO__do" --inverted "$@" 2>>/dev/tty
 			return $?
 			;;
 
 		# redirect stderr to null
 		'NULL' | 'null' | '/dev/null')
-			__do --inverted "$@" 2>/dev/null
+			"$DO__do" --inverted "$@" 2>/dev/null
 			return $?
 			;;
 
 		# redirect stderr to FD target
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return $?
-			__do --inverted "$@" 2>&"$DO__arg_value"
+			"$DO__do" --inverted "$@" 2>&"$DO__arg_value"
 			return $?
 			;;
 
 		# no-op
 		'')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
 		# redirect stderr to file target
 		*)
-			__do --inverted "$@" 2>>"$DO__arg_value"
+			"$DO__do" --inverted "$@" 2>>"$DO__arg_value"
 			return $?
 			;;
 
@@ -2823,11 +2860,11 @@ function __do {
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
-				"$(__get_context_id '__do' 'copy-stderr-to-stdout' 1 || :)" \
-				"$(__get_context_id '__do' 'copy-stderr-to-stdout' 2 || :)" || return $?
+				"$(__get_context_id "$DO__do" 'copy-stderr-to-stdout' 1 || :)" \
+				"$(__get_context_id "$DO__do" 'copy-stderr-to-stdout' 2 || :)" || return $?
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
-			__do --inverted "$@" 2> >(
+			"$DO__do" --inverted "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
@@ -2845,7 +2882,7 @@ function __do {
 		# copy stderr to stderr, this behaviour is unspecified, should it double the data to stderr?
 		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
 			# no-op
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -2854,11 +2891,11 @@ function __do {
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
-				"$(__get_context_id '__do' 'copy-stderr-to-tty' 1 || :)" \
-				"$(__get_context_id '__do' 'copy-stderr-to-tty' 2 || :)" || return $?
+				"$(__get_context_id "$DO__do" 'copy-stderr-to-tty' 1 || :)" \
+				"$(__get_context_id "$DO__do" 'copy-stderr-to-tty' 2 || :)" || return $?
 
 			# execute, keeping stderr, copying to stdout, and tracking the exit status to our semaphore file
-			__do --inverted "$@" 2> >(
+			"$DO__do" --inverted "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
@@ -2876,7 +2913,7 @@ function __do {
 		# copy stderr to null
 		'NULL' | 'null' | '/dev/null')
 			# no-op
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -2887,11 +2924,11 @@ function __do {
 			# prepare our semaphore files that will track the exit status of the process substitution
 			local DO__semaphores
 			__semaphores --target={DO__semaphores} -- \
-				"$(__get_context_id '__do' 'copy-stderr-to-fd' "$DO__arg_value" 1 || :)" \
-				"$(__get_context_id '__do' 'copy-stderr-to-fd' "$DO__arg_value" 2 || :)" || return $?
+				"$(__get_context_id "$DO__do" 'copy-stderr-to-fd' "$DO__arg_value" 1 || :)" \
+				"$(__get_context_id "$DO__do" 'copy-stderr-to-fd' "$DO__arg_value" 2 || :)" || return $?
 
 			# execute, keeping stdout, copying to FD, and tracking the exit status to our semaphore file
-			__do --inverted "$@" 2> >(
+			"$DO__do" --inverted "$@" 2> >(
 				set +e
 				tee -- >(
 					set +e
@@ -2908,7 +2945,7 @@ function __do {
 
 		# no-op
 		'')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -2916,10 +2953,10 @@ function __do {
 		*)
 			# prepare our semaphore file that will track the exit status of the process substitution
 			local DO__semaphore
-			DO__semaphore="$(__get_semaphore "$(__get_context_id '__do' 'copy-stderr-to-file' || :)")" || return $?
+			DO__semaphore="$(__get_semaphore "$(__get_context_id "$DO__do" 'copy-stderr-to-file' || :)")" || return $?
 
 			# execute, keeping stderr, copying to the value target, and tracking the exit status to our semaphore file
-			__do --inverted "$@" 2> >(
+			"$DO__do" --inverted "$@" 2> >(
 				set +e
 				tee -a -- "$DO__arg_value" >&2
 				printf '%s' "$?" >"$DO__semaphore"
@@ -2939,44 +2976,44 @@ function __do {
 
 		# redirect stderr to stdout
 		'1' | 'STDOUT' | 'stdout' | '/dev/stdout')
-			__do --inverted "$@" 2>&1
+			"$DO__do" --inverted "$@" 2>&1
 			return $?
 			;;
 
 		# redirect stdout to stderr
 		'2' | 'STDERR' | 'stderr' | '/dev/stderr')
-			__do --inverted "$@" >&2
+			"$DO__do" --inverted "$@" >&2
 			return $?
 			;;
 
 		# redirect stderr to stdout, then stdout to tty, as `&>>` is not supported in all bash versions
 		'TTY' | 'tty' | '/dev/tty')
-			__do --inverted "$@" >>/dev/tty 2>&1
+			"$DO__do" --inverted "$@" >>/dev/tty 2>&1
 			return $?
 			;;
 
 		# redirect output to null
 		'NULL' | 'null' | '/dev/null' | 'no')
-			__do --inverted "$@" &>/dev/null
+			"$DO__do" --inverted "$@" &>/dev/null
 			return $?
 			;;
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirected to the fd target
 		[0-9]*)
 			__affirm_value_is_positive_integer "$DO__arg_value" 'file descriptor' || return $?
-			__do --inverted "$@" 1>&"$DO__arg_value" 2>&1
+			"$DO__do" --inverted "$@" 1>&"$DO__arg_value" 2>&1
 			return $?
 			;;
 
 		# no-op
 		'')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
 		# redirect stderr to stdout, such that and then, both stdout and stderr are redirect to the file target
 		*)
-			__do --inverted "$@" >"$DO__arg_value" 2>&1
+			"$DO__do" --inverted "$@" >"$DO__arg_value" 2>&1
 			return $?
 			;;
 
@@ -3012,7 +3049,7 @@ function __do {
 		# copy stderr to null
 		'NULL' | 'null' | '/dev/null')
 			# no-op
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -3025,7 +3062,7 @@ function __do {
 
 		# no-op
 		'')
-			__do --inverted "$@"
+			"$DO__do" --inverted "$@"
 			return $?
 			;;
 
@@ -3053,6 +3090,7 @@ function __do {
 	__print_lines "ERROR: ${FUNCNAME[0]}: An unhandled argument provided: $DO__arg" >&2 || :
 	return 29 # ESPIPE 29 Illegal seek
 }
+__copy_function __do _do
 
 # debug helpers, that are overwritten within `dorothy-internals`
 function dorothy_try__context_lines { :; }
@@ -3124,7 +3162,7 @@ function dorothy_try__trap_outer {
 				dorothy_try__context_lines "THROW TO SUBSHELL OLD BASH: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" "FUNCNAME: ${FUNCNAME[*]}" || :
 				# Bash 3.2, 4.0 will crash
 				# Bash 4.2, 4.3 will be ok
-			elif [[ "$(__get_index_of_parent_function 'dorothy_try__wrapper' '__do' '__try' || :)" -eq 1 ]]; then
+			elif [[ "$(__get_index_of_parent_function 'dorothy_try__wrapper' '__do' '_do' '__try' '_try' || :)" -eq 1 ]]; then
 				dorothy_try__context_lines "RETURN TO PARENT SUBSHELL OLD BASH: $DOROTHY_TRY__TRAP_STATUS" "LOCATION: $DOROTHY_TRY__TRAP_LOCATION" "FUNCNAME: ${FUNCNAME[*]}" || :
 				return "$DOROTHY_TRY__TRAP_STATUS" # for some reason this changes to `return 0` even on 4.2 and 4.3, however this is going to one of our functions, which will load the STORE or SAVED value
 				# on bash 3.2 and 4.0 this still results in a crash on: do recursed[subshell] --no-status
@@ -3202,7 +3240,7 @@ function dorothy_try__wrapper {
 # as such, trying for compat with `__do` is silly, as they are different
 function __try {
 	# declare local variables
-	local DOROTHY_TRY__item DOROTHY_TRY__exit_status_variable_name=''
+	local DOROTHY_TRY__item DOROTHY_TRY__exit_status_variable_name='' DOROTHY_TRY__force_unsafe='no'
 	# declare shared variables
 	local DOROTHY_TRY__COMMAND=() DOROTHY_TRY__CONTEXT DOROTHY_TRY__SEMAPHORE DOROTHY_TRY__STATUS='' DOROTHY_TRY__SUBSHELL="${BASH_SUBSHELL-}"
 	while [[ $# -ne 0 ]]; do
@@ -3215,6 +3253,7 @@ function __try {
 			break
 			;;
 		'{'*'}') __dereference --source="$DOROTHY_TRY__item" --name={DOROTHY_TRY__exit_status_variable_name} || return $? ;;
+		'--unsafe') DOROTHY_TRY__force_unsafe='yes' ;;
 		*)
 			__print_lines "ERROR: ${FUNCNAME[0]}: An unrecognised flag was provided: $DOROTHY_TRY__item" >&2 || :
 			return 22 # EINVAL 22 Invalid argument
@@ -3225,31 +3264,54 @@ function __try {
 	# update globals
 	DOROTHY_TRY__COUNT="${DOROTHY_TRY__COUNT:-0}" # so we can remove our trap once all tries are finished
 
-	# update shared variables
+	# update shared variables, this is still necessary for `dorothy-internals`
 	# [3.2.57][testing_middle] [__try] [26180].status
-	DOROTHY_TRY__CONTEXT="$(__get_context_id '__try' 'status' || :)"
-	DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "$DOROTHY_TRY__CONTEXT")"
+	DOROTHY_TRY__CONTEXT="$(__get_context_id "${FUNCNAME[0]}" 'status' || :)"
 
-	# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
-	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
-	dorothy_try__wrapper
-	DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT - 1))"
-	if [[ $DOROTHY_TRY__COUNT -eq 0 ]]; then
-		# if all our tries have now finished, remove the lingering trap
-		trap - ERR
-	fi
-
-	# load the exit status if necessary
-	if [[ -f $DOROTHY_TRY__SEMAPHORE ]]; then
-		local DOROTHY_TRY__loaded_status
-		DOROTHY_TRY__loaded_status="$(<"$DOROTHY_TRY__SEMAPHORE")"
-		if [[ $DOROTHY_TRY__loaded_status -ne $DOROTHY_TRY__STATUS ]]; then
-			dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    NEEDED" || :
-		else
-			dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    SAME" || :
+	# if it is a safety function (quick check), or a not a possible function (quick check), then skip expensive workaround
+	# this requires ensuring `_try` and `_do` are used for unsafe functions, instead of `__try` and `__do`, such a requirement is desirable as nesting an unsafe function in a safe function call that is called conditionally will break the errexit of the unsafe function
+	# we use `DOROTHY_TRY__force_unsafe` to force unsafe during testing
+	if [[ ( ${DOROTHY_TRY__COMMAND[0]:0:2} == __ || ! ( ${DOROTHY_TRY__COMMAND[0]} =~ ^[_a-zA-Z0-9]+$  ) ) && $DOROTHY_TRY__force_unsafe != 'yes' ]]; then
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
+		dorothy_try__context_lines "VANILLA: ${DOROTHY_TRY__COMMAND[0]}" || :
+		"${DOROTHY_TRY__COMMAND[@]}" || DOROTHY_TRY__STATUS=$? # eval
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT - 1))"
+		if [[ $DOROTHY_TRY__COUNT -eq 0 ]]; then
+			# if all our tries have now finished, remove the lingering trap
+			trap - ERR
 		fi
-		DOROTHY_TRY__STATUS="$DOROTHY_TRY__loaded_status"
-		rm -f -- "$DOROTHY_TRY__SEMAPHORE" || :
+	else
+		# prevent mistake from calling unsafe function within a safety function that could be invoked conditionally
+		# unless we are testing, in which case permit it
+		if [[ ${FUNCNAME[0]} == '__try' && $DOROTHY_TRY__force_unsafe != 'yes' ]]; then
+			__print_lines "ERROR: ${FUNCNAME[0]}: Cannot invoke unsafe function from safety __try, invoke via _try instead: ${DOROTHY_TRY__COMMAND[*]}" >&2 || :
+			return 22 # EINVAL 22 Invalid argument
+		fi
+
+		# update shared variables
+		DOROTHY_TRY__SEMAPHORE="$(__get_semaphore "$DOROTHY_TRY__CONTEXT")"
+
+		# execute the command within our wrapper, such that we can handle edge cases, and identify it inside our trap
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT + 1))" # increment the count
+		dorothy_try__wrapper
+		DOROTHY_TRY__COUNT="$((DOROTHY_TRY__COUNT - 1))"
+		if [[ $DOROTHY_TRY__COUNT -eq 0 ]]; then
+			# if all our tries have now finished, remove the lingering trap
+			trap - ERR
+		fi
+
+		# load the exit status if necessary
+		if [[ -f $DOROTHY_TRY__SEMAPHORE ]]; then
+			local DOROTHY_TRY__loaded_status
+			DOROTHY_TRY__loaded_status="$(<"$DOROTHY_TRY__SEMAPHORE")"
+			if [[ $DOROTHY_TRY__loaded_status -ne $DOROTHY_TRY__STATUS ]]; then
+				dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    NEEDED" || :
+			else
+				dorothy_try__context_lines "LOADED: $DOROTHY_TRY__loaded_status    PRIOR: $DOROTHY_TRY__STATUS    SAME" || :
+			fi
+			DOROTHY_TRY__STATUS="$DOROTHY_TRY__loaded_status"
+			rm -f -- "$DOROTHY_TRY__SEMAPHORE" || :
+		fi
 	fi
 
 	# apply the exit status
@@ -3261,11 +3323,12 @@ function __try {
 	# return success
 	return 0
 }
+__copy_function __try _try
 
 function eval_capture {
 	local item cmd=() exit_status_variable='' stdout_variable='' stderr_variable='' output_variable='' stdout_target='/dev/stdout' stderr_target='/dev/stderr'
 	if __command_exists -- dorothy-warnings; then
-		dorothy-warnings add --code='eval_capture' --bold=' has been deprecated in favor of ' --code='__try' --bold=' and ' --code='__do' || :
+		dorothy-warnings add --code='eval_capture' --bold=' has been deprecated in favor of ' --code='__try' --bold='/' --code='_try' --bold=' and ' --code='__do' --bold='/' --code='_do' || :
 	fi
 	while [[ $# -ne 0 ]]; do
 		item="$1"
@@ -3353,33 +3416,33 @@ function eval_capture {
 		esac
 	done
 
-	# prep our values
-	local do=(__do)
+	# prep our wrap
+	local wrap=(_do)
 	# status
 	if [[ -n $exit_status_variable ]]; then
-		do+=("--redirect-status={$exit_status_variable}")
+		wrap+=("--redirect-status={$exit_status_variable}")
 	else
-		do+=(--discard-status)
+		wrap+=(--discard-status)
 	fi
 	# vars
 	if [[ -n $stdout_variable ]]; then
-		do+=("--copy-stdout={$stdout_variable}")
+		wrap+=("--copy-stdout={$stdout_variable}")
 	fi
 	if [[ -n $stderr_variable ]]; then
-		do+=("--copy-stderr={$stderr_variable}")
+		wrap+=("--copy-stderr={$stderr_variable}")
 	fi
 	if [[ -n $output_variable ]]; then
-		do+=("--copy-output={$output_variable}")
+		wrap+=("--copy-output={$output_variable}")
 	fi
 	# targets
 	if [[ -n $stdout_target ]]; then
-		do+=("--redirect-stdout=$stdout_target")
+		wrap+=("--redirect-stdout=$stdout_target")
 	fi
 	if [[ -n $stderr_target ]]; then
-		do+=("--redirect-stderr=$stderr_target")
+		wrap+=("--redirect-stderr=$stderr_target")
 	fi
 	# execute to the newer function
-	"${do[@]}" -- "${cmd[@]}"
+	"${wrap[@]}" -- "${cmd[@]}"
 }
 
 # =============================================================================
@@ -4001,9 +4064,13 @@ function __is_trap_alive {
 # -------------------------------------
 # Semaphore Toolkit
 
+function __prepare_semlocks {
+	__mkdirp "$GET_SEMLOCK__dir" || return $?
+	function __prepare_semlocks { :; }
+}
 function __get_semlock {
 	local GET_SEMLOCK__context_id="$1" GET_SEMLOCK__dir="$TMPDIR/dorothy/semlocks" GET_SEMLOCK__semlock GET_SEMLOCK__wait GET_SEMLOCK__pid=$$
-	__mkdirp "$GET_SEMLOCK__dir" || return $?
+	__prepare_semlocks || return $?
 	# the lock file contains the process id that has the lock
 	GET_SEMLOCK__semlock="${GET_SEMLOCK__dir}/${GET_SEMLOCK__context_id}.lock"
 	# wait for a exclusive lock
@@ -4027,9 +4094,13 @@ function __get_semlock {
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:7505
 # https://github.com/bevry/dorothy/actions/runs/13038210988/job/36373738417#step:2:12541
 # as to why use `__get_semaphore` instead of `mktemp`, is that we want `dorothy test` to check if we cleaned everything up, furthermore, `mktemp` actually makes the files, so you have to do more expensive `-s` checks
+function __prepare_semaphores {
+	__mkdirp "$GET_SEMAPHORE__dir" || return $?
+	function __prepare_semaphores { :; }
+}
 function __get_semaphore {
 	local GET_SEMAPHORE__context_id="${1:-"$RANDOM$RANDOM"}" GET_SEMAPHORE__dir="$TMPDIR/dorothy/semaphores"
-	__mkdirp "$GET_SEMAPHORE__dir" || return $?
+	__prepare_semaphores || return $?
 	__print_lines "${GET_SEMAPHORE__dir}/${GET_SEMAPHORE__context_id}" || return $?
 }
 
@@ -5862,7 +5933,11 @@ function __split {
 		'--')
 			if [[ $SPLIT__invoke == 'yes' ]]; then
 				local SPLIT__fodder_with_redirect_exit_status SPLIT__exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
+				if [[ ${FUNCNAME[0]} == '__split' ]]; then
+					__do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@" || return $?
+				else
+					_do --trailing-newlines="$SPLIT__trailing_newlines" --redirect-status={SPLIT__exit_status} --redirect-stdout={SPLIT__fodder_with_redirect_exit_status} -- "$@"
+				fi
 				if [[ $SPLIT__exit_status -ne 0 ]]; then
 					return "$SPLIT__exit_status"
 				fi
@@ -5870,7 +5945,11 @@ function __split {
 				SPLIT__sources_variable_names+=('SPLIT__input')
 			elif [[ $SPLIT__invoke == 'try' ]]; then
 				local SPLIT__fodder_with_discard_exit_status
-				__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
+				if [[ ${FUNCNAME[0]} == '__split' ]]; then
+					__do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@" || return $?
+				else
+					_do --trailing-newlines="$SPLIT__trailing_newlines" --discard-status --redirect-stdout={SPLIT__fodder_with_discard_exit_status} -- "$@"
+				fi
 				# trunk-ignore(shellcheck/SC2034)
 				local SPLIT__input="$SPLIT__fodder_with_discard_exit_status"
 				SPLIT__sources_variable_names+=('SPLIT__input')
@@ -5977,6 +6056,7 @@ function __split {
 	done
 	__to --source={SPLIT__results} --mode="$SPLIT__mode" --targets={SPLIT__targets} || return $?
 }
+__copy_function __split _split
 
 # join by the delimiter
 function __join {
