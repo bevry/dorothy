@@ -190,20 +190,23 @@ function setup_util() (
 
 			[--]setup
 			    Alias for <upstall> and <configure>.
+			    Effect is, if enabled, ensure installed and configured.
 			[--]install
 			    If enabled, if the utility is not installed, install it.
+			    This is the default action for \`setup-util\`.
 			[--]upgrade | [--]update
 			    If enabled, if the utility is installed, and if it is outdated, reinstall it.
 			[--]reinstall
 			    If enabled, if the utility is installed, reinstall it.
 			[--]upstall
-			    If enabled, if the utility is not installed, it will be installed; if the utility is installed, and it is outdated, it will upgraded.
+			    Alias for <install> and <upgrade>.
+			    Effect is, if enabled, if the utility is not installed, it will be installed; if the utility is installed, and it is outdated, it will upgraded.
 			[--]uninstall
 			    If enabled, if the utility is installed, uninstall it.
-			    ! If enabled and <install> also enabled, then do uninstall  (if installed) then do install, regardless of initial install.
+			    ! If enabled and <install> also enabled, then do uninstall (if installed) then do install, regardless of initial install.
 			[--][re]configure
 			    If enabled, or if unset and a change occurs, then configure the utility.
-			    ! If unset, defaults to the \`SETUP_UTIL__CONFIGURE\` environment variable.
+			    ! If empty, defaults to the \`SETUP_UTIL__CONFIGURE\` environment variable.
 
 			These options do not run the above actions, they only perform their own action, then exit immediately:
 
@@ -219,9 +222,9 @@ function setup_util() (
 			    Returns [0] if quiet and no action is necessary.
 			    Returns [1] if an action is necessary.
 
-			[--]want-uninstall
-			    If used, just check whether uninstallation is the desired action of the options.
-			    Returns [0] if uninstall is the desired action.
+			[--]want-<want-action:install|upgrade|reinstall|uninstall>
+			    If used, just check whether the action is the desired action of the options.
+			    Returns [0] if <want-action> is the desired action.
 			    Returns [1] if any other action is desired.
 
 			[--]get-installations [--] [...<utility>]
@@ -242,6 +245,9 @@ function setup_util() (
 			[--]invoke [<utility>] [--] [<...arguments>]
 			    If enabled, invoke the <utility>.
 			    Returns the invocations exit status.
+
+			[--]help | -h
+			    Output this help documentation.
 
 			These options provide hooks:
 			--action-eval=<invocation>
@@ -271,16 +277,16 @@ function setup_util() (
 			    If enabled, treat this utility as a dependency, only outputting messages iff changes occur. And not installing it if <dependencies> is false. <extra> will also be disabled iff <dependency>.
 			--[no-]deps | --[no-]dependencies
 			    If disabled, do not install any dependencies, even if required.
-			    ! If unset, defaults to the \`SETUP_UTIL__DEPENDENCIES\` environment variable.
+			    ! If empty, defaults to the \`SETUP_UTIL__DEPENDENCIES\` environment variable.
 			--[no-]extra
 			    If disabled, do not install any recommended but supplementary dependencies.
-			    ! If unset, defaults to the \`SETUP_UTIL__EXTRA\` environment variable.
+			    ! If empty, defaults to the \`SETUP_UTIL__EXTRA\` environment variable.
 			--[no-]fallback
 			    If disabled, do not install a package system in order to install the package.
-			    ! If unset, defaults to the \`SETUP_UTIL__FALLBACK\` environment variable.
+			    ! If empty, defaults to the \`SETUP_UTIL__FALLBACK\` environment variable.
 			--[no-]slim
 			    If enabled, disables <configure>, <fallback>, <dependencies>, <extras>.
-			    ! If unset, defaults to the \`SETUP_UTIL__SLIM\` environment variable.
+			    ! If empty, defaults to the \`SETUP_UTIL__SLIM\` environment variable.
 			--dependency=...<dependencies>
 			    Append these <dependencies> to the list of dependencies that must be installed before this utility is installed.
 			--dependencies=<dependencies>
@@ -376,74 +382,105 @@ function setup_util() (
 	# </options-for-sources>
 
 	# process
+	# help is done as an option to avoid recursive actions, like `--check` to output double help
 	local item \
-		option_install='' option_upgrade='' option_uninstall='' option_dependency='' option_configure='' option_invoke='' \
-		option_action='' option_transpose='' \
-		option_source=() option_dependencies=() \
-		option_apps=() option_clis=() option_fonts=() option_checker='' \
-		option_name='' option_quiet='' option_confirm='no' option_xdg='yes'option_optional='no' option_fallback='yes' option_force='no' option_elevate='no' \
-		option_deps='yes' # configure/deps/slim
+		option_install='' option_upgrade='' option_reinstall=''  option_uninstall='' option_configure='' \
+		option_check='' option_is_installed='' option_is_unstalled='' option_want_install='' option_want_upgrade='' option_want_reinstall='' option_want_uninstall='' option_get_installations='' option_get_installer='' option_invoke='' option_help='' \
+		option_action_eval='' option_acted_eval='' option_configure_eval='' \
+		option_name='' \
+		option_optional='' option_confirm='' option_xdg='' option_force='' option_elevate='' \
+		option_is_dependency='' option_wants_dependencies='' option_dependencies=() option_extsra='' option_fallback='' option_slim='' option_quiet='' \
+		option_first_success='' \
+		option_utilities=() \
+		option_clis=()  option_apps=() option_fonts=() option_checker='' \
+		option_transpose='' \
+		option_order=()
+		option_dependency='' option_invoke=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
-		# note that `--check` usage will cause help to be output twice, and adjusting for this, will not support when the check passes or fails, still risking either no or double helpers the solution will be for `setup-util-*` --installers to provide their own help and thus handle help
-		'--help' | '-h') __help || return $? ;;
+		# definitions, this is earlier due to naming conflict
+		'--cli='*) __split --target={option_clis} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--clis='*) __split --target={option_clis} --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--app='*) __split --target={option_apps} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--apps='*) __split --target={option_apps} --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--font='*) __split --target={option_fonts} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--fonts='*) __split --target={option_fonts} --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
+		'--checker='*) option_checker="${item#*=}" ;; # must be before check, otherwise it won't be found
+
+		# actions
+		'--no-setup'* | '--setup'*)
+			__flag --source={item} --target={option_install} --affirmative --coerce
+			__flag --source={item} --target={option_upgradel --affirmative --coerce
+			__flag --source={item} --target={option_configure} --affirmative --coerce
+			;;
+		'--no-install'* | '--install'*) __flag --source={item} --target={option_install} --affirmative --coerce ;;
+		'--no-upgrade'* | '--upgrade'* | '--no-update'* | '--update'*) __flag --source={item} --target={option_upgrade} --affirmative --coerce ;;
+		'--no-upstall'* | '--upstall'*)
+			__flag --source={item} --target={option_install} --affirmative --coerce
+			__flag --source={item} --target={option_upgrade} --affirmative --coerce
+			;;
+		'--no-reinstall'* | '--reinstall'*) __flag --source={item} --target={option_reinstall} --affirmative --coerce ;;
+		'--no-uninstall'* | '--uninstall'*) __flag --source={item} --target={option_uninstall} --affirmative --coerce ;;
+		'--no-configure'* | '--configure'* | '--no-reconfigure'* | '--reconfigure'*) __flag --source={item} --target={option_configure} --affirmative --coerce ;;
+
+		# custom actions
+		'--no-check'* | '--check'*) __flag --source={item} --target={option_check} --affirmative --coerce ;;
+		'--no-installed'* | '--installed'* | '--no-has'* | '--has'* | '--no-is-installed'* | '--is-installed'*) __flag --source={item} --target={option_is_installed} --affirmative --coerce ;;
+		'--no-uninstalled'* | '--uninstalled'* | '--no-is-uninstalled'* | '--is-uninstalled'*) __flag --source={item} --target={option_is_uninstalled} --affirmative --coerce ;;
+		'--no-want-install'* | '--want-install'*) __flag --source={item} --target={option_want_install} --affirmative --coerce ;;
+		'--no-want-upgrade'* | '--want-upgrade'*) __flag --source={item} --target={option_want_upgrade} --affirmative --coerce ;;
+		'--no-want-reinstall'* | '--want-reinstall'*) __flag --source={item} --target={option_want_reinstall} --affirmative --coerce ;;
+		'--no-want-uninstall'* | '--want-uninstall'*) __flag --source={item} --target={option_want_uninstall} --affirmative --coerce ;;
+		'--no-get-installations'* | '--get-installations'*) __flag --source={item} --target={option_get_installations} --affirmative --coerce ;;
+		'--no-get-installer'* | '--get-installer'*) __flag --source={item} --target={option_get_installer} --affirmative --coerce ;;
+		'--no-invoke'* | '--invoke'*) __flag --source={item} --target={option_invoke} --affirmative --coerce ;;
+		'--help' | '-h') option_help='yes' ;;
+		'--no-help'* | '--help'*) __flag --source={item} --target={option_help} --affirmative --coerce ;;
+
+		# hooks
+		'--action-eval='*) option_action_eval="${item#*=}" ;;
+		'--acted-eval='*) option_acted_eval="${item#*=}" ;;
+		'--configure-eval='*) option_configure_eval="${item#*=}" ;;
+
+		# customisation
+		'--name='*) option_name="${item#*=}" ;;
+		'--no-optional'* | '--optional'*) __flag --source={item} --target={option_optional} --affirmative --coerce ;;
+		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative --coerce ;;
+		'--no-xdg'* | '--xdg'*) __flag --source={item} --target={option_xdg} --affirmative --coerce ;;
+		'--no-force'* | '--force'*) __flag --source={item} --target={option_force} --affirmative --coerce ;;
+		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
+		'--no-dependencies'* | '--dependencies'* | '--no-deps'* | '--deps'*)
+			__flag --source+target={item} --affirmative --no-coerce
+			if ! [[ -z $item || $item == 'yes' || $item == 'no' ]]; then
+				# is a dependency
+				__split --source={item} --target={option_utilities} --append --delimiters=$'\n\t ,|' --no-zero-length
+			else
+				# is our dependencies status
+				option_wants_dependencies="$item"
+			fi
+			;;
+		'--no-dependency'* | '--dependency'* | '--no-dep'* | '--dep'*)
+			__flag --source+target={item} --affirmative --no-coerce
+			if ! [[ -z $item || $item == 'yes' || $item == 'no' ]]; then
+				# is a dependency
+				__split --source={item} --target={option_utilities} --delimiters=$'\n\t ,|' --no-zero-length
+			else
+				# is our dependency status
+				option_is_dependency="$item"
+			fi
+			;;
+		'--no-extra'* | '--extra'*) __flag --source={item} --target={option_extra} --affirmative --coerce ;;
+		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
+		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_slim} --affirmative --coerce ;;
 		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
-		'--checker='*) option_checker="${item#*=}" ;; # must be before check, otherwise it won't be found
-		'--no-check'* | '--check'*) __flag --source={item} --target={option_check} --affirmative --coerce ;;
-		# <shared options between many setup commands>
-		'--no-configure'* | '--configure'*) : ;; # disabled as it is absorbed by `setup-util-*` commands, not this
-		'--no-fallback'* | '--fallback'*) __flag --source={item} --target={option_fallback} --affirmative --coerce ;;
-		'--no-deps'* | '--deps'*) __flag --source={item} --target={option_deps} --affirmative --coerce ;;
-		'--no-slim'* | '--slim'*) __flag --source={item} --target={option_fallback} --target={option_deps} --affirmative --coerce ;;
-		# </shared options between many setup commands>
-		'--install') option_action='install' ;;
-		'--uninstall') option_action='uninstall' ;;
-		'--configure') option_action='configure' ;;
-		'--installed')
-			option_check='yes'
-			option_action='install'
-			;;
-		'--uninstalled')
-			option_check='yes'
-			option_action='uninstall'
-			;;
-		'--action='*) option_action="${item#*=}" ;;
-		'--order='*) __split --target={option_order} --no-zero-length --delimiters=$'\n\t ,|' -- "${item#*=}" ;;
-		'--source='* | '--installer='*) option_source="${item#*=}" ;;
-		'--app='*) option_apps+=("${item#*=}") ;;
-		'--cli='*) option_clis+=("${item#*=}") ;;
-		'--font='*) option_fonts+=("${item#*=}") ;;
-		'--name='*) option_name="${item#*=}" ;;
-		# @todo redo the elevate/xdg flow in this, make it like sbin instead
-		'--no-xdg'* | '--xdg'*) __flag --source={item} --target={option_xdg} --affirmative --coerce ;;
-		'--no-elevate'* | '--elevate'*) __flag --source={item} --target={option_elevate} --affirmative --no-coerce ;;
-		'--no-confirm'* | '--confirm'*) __flag --source={item} --target={option_confirm} --affirmative --coerce ;;
-		'--no-optional'* | '--optional'*) __flag --source={item} --target={option_optional} --affirmative --coerce ;;
-		'--no-force'* | '--force'*) __flag --source={item} --target={option_force} --affirmative --coerce ;;
-		'--no-upgrade'* | '--upgrade'*) __flag --source={item} --target={option_upgrade} --affirmative --coerce ;;
-		'--')
-			if [[ -z $option_source ]]; then
-				__help --='--source=<source> is required when using: -- [...packages]' || return $?
-			fi
-			if [[ -z $option_name ]]; then
-				option_name="${option_source}:$*"
-			fi
-			if [[ $# -eq 0 ]]; then
-				return 0 # no packages to install
-			fi
-			# convert each argument into its X=Y equivalent
-			local new_args=()
-			for item in "$@"; do
-				new_args+=("${option_source}=${item}")
-			done
-			set -- "${new_args[@]}"
-			continue
-			;;
 
-			# options for sources
+		# modifiers
+		'--no-first-success'* | '--first-success'*) __flag --source={item} --target={option_first_success} --affirmative --coerce ;;
+
+			# sources
 		'APPIMAGE_FILENAME='*) APPIMAGE_FILENAME="${item#*=}" ;;
 		'APPIMAGE='*) APPIMAGE+=("${item#*=}") ;;
 		'APK_REPO='*) APK_REPO="${item#*=}" ;;
@@ -530,8 +567,24 @@ function setup_util() (
 		'ZYPPER_REPO='*) ZYPPER_REPO="${item#*=}" ;;
 		'ZYPPER_TYPE='*) ZYPPER_TYPE="${item#*=}" ;;
 		'ZYPPER='* | 'OPENSUSE='* | 'SUSE='*) ZYPPER+=("${item#*=}") ;;
+
+			# utilities
+		'--')
+			if [[ -n $option_transpose ]]; then
+				# convert each argument into its X=Y equivalent
+				local new_args=()
+				for item in "$@"; do
+					new_args+=("${option_transpose}=${item}")
+				done
+				set -- "${new_args[@]}"
+			else
+
+				option_utils+=("$@")
+				shift $#
+			fi
+			;;
 		'--'*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
-		*) __help 'An unrecognised flag was provided: ' --variable-value={item} || return $? ;;
+		*) option_utils+=("$item") ;;
 		esac
 	done
 
