@@ -795,428 +795,12 @@ function setup_util() (
 		__help || return $?
 	fi
 
-	# if definition and utilities, fail
-	if [[ $option_defined == 'yes' && ${#option_utils[@]} -ne 0 ]]; then
-		__help 'Cannot specify definitions and utilities at the same time...' || return $?
-	# if setup, and no definition nor utils, prompt for which utilities
-	elif [[ $option_action == 'setup' && $option_defined == 'no' && ${#option_utils[@]} -eq 0 ]]; then
-		# however, only do this for install
-		if [[ $option_install == 'yes' && $option_configure != 'no' ]]; then
-			# no args, so use configuration
-			source "$DOROTHY/sources/config.sh"
-
-			# setup.bash provides:
-			local SETUP_UTILS=() # this would be better as `SETUP_UTIL_INSTALL` but historical usage keeps it `SETUP_UTILS`
-			load_dorothy_config 'setup.bash'
-
-			# reconfigure if no existing configuration, or if reconfiguration is desired
-			if [[ ${#SETUP_UTILS[@]} -eq 0 || $option_configure == 'yes' ]]; then
-				# prompt
-				local options=() file basename name
-				for file in "$DOROTHY/commands"*"/setup-util-"* "$DOROTHY/user/commands"*"/setup-util-"*; do
-					basename="$(basename -- "$file")"
-					name="${basename#*setup-util-}"
-					options+=("$name")
-				done
-
-				# apply
-				__split --target={option_utils} --no-zero-length --invoke -- \
-					choose --linger --confirm --multi \
-					--question="Which utilities to $option_action?" \
-					--defaults="$(__print_lines "${SETUP_UTILS[@]}")" -- \
-					"${options[@]}"
-
-				# save if reconfiguring
-				if [[ $option_configure == 'yes' ]]; then
-					dorothy-config 'setup.bash' -- \
-						--field='SETUP_UTILS' --array="$(__print_lines "${option_utils[@]}")"
-				fi
-			else
-				# apply
-				option_utils=("${SETUP_UTILS[@]}")
-			fi
-		elif [[ ${#option_utils[@]} -eq 0 ]]; then
-			# fail
-			__help --help='No <utility>s nor <...defition> specified for the setup action.' return $?
-			return 0
-		fi
-	fi
-
-	if [[ ${#option_utils[@]} -ne 0 ]]; then
-		# cycle through the utilities, and check if there are any aliases
-		local util alias util_aliases=() util_commands=()
-		# convert utils into aliases and commands
-		for util in "${option_utils[@]}"; do
-			# trim version suffix
-			# ruby@3 => ruby
-			alias="${alias%%@*}"
-			# trim tap prefix
-			# clementtsang/bottom/bottom => bottom
-			alias="${alias##*/}"
-			# if alias has a space character, then it must have flags or superfluous spaces, trim them
-			if [[ $alias == *' '* ]]; then
-				# --classic code --classic => code
-				# (^| ) matches either start of the line, or a space character
-				# -[^ ]+ matches a dash followed by one or more non-space characters
-				# so this is what converts the `--classic` flag into ``
-				# then we trim whitespace at the start and end
-				# @todo replace with pure bash to prevent slowdown
-				alias="$(echo-regexp -g '(^| )-[^ ]+' '' -- "$alias" | echo-trim-each-line --stdin)" || return $?
-			fi
-			# add
-			util_aliases+=("$alias")
-			util_commands+=("setup-util-$alias")
-		done
-		if __command_missing -- "${util_commands[@]}"; then
-			# associative
-			if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
-				declare -A utils_associative_array
-				function __add_alias_command {
-					local alias="$1" command="$2"
-					utils_associative_array["$alias"]="$command"
-				}
-				function __get_alias_command {
-					local alias="$1"
-					printf '%s' "${utils_associative_array["$alias"]-}" || return 0
-				}
-			else
-				local aliases=() alias_commands=()
-				function __add_alias_command {
-					local alias="$1" command="$2"
-					aliases+=("$alias")
-					alias_commands+=("$command")
-				}
-				function __get_alias_command {
-					local alias="$1"
-					local -i index
-					for index in "${!aliases[@]}"; do
-						if [[ "${aliases[index]}" == "$alias" ]]; then
-							printf '%s' "${alias_commands["$index"]-}" || return 0
-						fi
-					done
-				}
-			fi
-			# load aliases
-			local database="$DOROTHY/config/setup-util.dat" alias command
-			while IFS=' ' read -rd $'\n' alias command; do
-				if [[ -z $alias && -z $command ]]; then
-					# skip empty lines
-					continue
-				elif [[ -z $alias || -z $command ]]; then
-					# if one of them is missing, then it's an invalid line
-					__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='invalid database entry' || return $?
-					return 79 # EFTYPE 79 Inappropriate file type or format
-				elif [[ "setup-util-$alias" == "$command" ]]; then
-					# alias not needed
-					__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='no need for the alias' || return $?
-					return 79 # EFTYPE 79 Inappropriate file type or format
-				fi
-				# both are present, it is a valid line
-				__add_alias_command "$alias" "$command"
-			done
-			# replace the util commands with the resolved alias commands
-			util_commands=()
-			for alias in "${util_aliases[@]}"; do
-				command="setup-util-$alias"
-				if __command_exists -- "$command"; then
-					util_commands+=("$command")
-				else
-					command="$(__get_alias_command "$alias")" || return $?
-					if [[ -z $command ]]; then
-						# validation for empty done later
-						util_commands+=('')
-					elif __command_exists -- "$command"; then
-						util_commands+=("$command")
-					else
-						# the alias command is missing, error now
-						__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='the aliased command does not exist' || return $?
-						return 79 # EFTYPE 79 Inappropriate file type or format
-					fi
-				fi
-			done
-		fi
-		# now process the action on the `util_commands`
-
-		# else
-		# 	# @todo this may be permissible if multiple utilities provide
-		# 	__print_error --help='No `setup-util-*` command exists for the utility ' --code="$alias" || return $?
-		# 	return 2 # ENOENT 2 No such file or directory
-		# fi
-
-		# # handle each utility
-		# local util alias installer any_failure='no'
-		# for util in "${option_utils[@]}"; do
-		# 	# get the alias
-		# 	alias="$(__get_alias "$util")" || return $?
-		# 	if [[ -z $alias ]]; then
-		# 		continue
-		# 	fi
-
-		# 	# get the installer
-		# 	installer="$(__get_installer "$alias" || :)"
-		# 	if [[ -z $installer ]]; then
-		# 		any_failure='yes'
-		# 		if [[ $option_quiet != 'yes' ]]; then
-		# 			__print_style --stderr --notice1='No installer found for: ' --code-notice1="$util" || return $?
-		# 		fi
-		# 		if [[ $option_first_failure == 'yes' ]]; then
-		# 			return 1
-		# 		fi
-		# 	elif [[ $option_invoke == 'no' ]]; then
-		# 		__print_lines "$installer" || return $?
-		# 		if [[ $option_first_success == 'yes' ]]; then
-		# 			return 0
-		# 		fi
-		# 	elif "$installer" --quiet="$option_quiet"; then # eval
-		# 		if [[ $option_first_success == 'yes' ]]; then
-		# 			return 0
-		# 		fi
-		# 	else
-		# 		any_failure='yes'
-		# 		if [[ $option_first_failure == 'yes' ]]; then
-		# 			return 1
-		# 		fi
-		# 	fi
-		# done
-
-		# # check for failures
-		# [[ $any_failure == 'no' ]] || return $?
-
-		# if __command_exists -- "$cmd"; then
-		# 	"$cmd" "${option_args[@]}" || : # don't fail everything if one fails
-		# else
-		# 	# can't use -EOF, as we want to print spacing
-		# 	__print_error \
-		# 		--help="Unable to install \`$item\`, as \`$cmd\` doesn't exist." --newline \
-		# 		--newline \
-		# 		--red="You can create the missing command by running:" --newline \
-		# 		--newline \
-		# 		--dim="    touch $DOROTHY/user/$cmd" --newline \
-		# 		--dim="    edit $DOROTHY/user/$cmd" --newline \
-		# 		--dim="    open https://github.com/bevry/dorothy/discussions/73" --newline \
-		# 		--newline \
-		# 		--red='Once the command is created, re-run your prior command.'
-		# 	return 1
-		# fi
-	fi
-
-
 	# =====================================
-	# Action
+	# Ecosystem sources, groups sorted alphabetically, then sources sorted alphabetically
 
-	# @todo redo this
+	# prepare fallbacks, for when the package could not be installed without installing a package system first
+	local fallbacks=()
 
-	# move this is to the end, as if it is a valid action, then it gets handled, only if it is invalid, it would have reached the end without handling
-	if ! [[ $option_action =~ ^(install|uninstall|upgrade|configure)$ ]]; then
-		__help --help='Invalid <action>.' || return $?
-	fi
-
-
-	# if configure, then we don't actually need to do anything, as any action is handled by the [setup-util-*] caller
-	if [[ $option_action == 'configure' ]]; then
-		return 0
-	fi
-
-	# if uninstall, disable upgrade
-	if [[ $option_action == 'uninstall' ]]; then
-		option_upgrade='no'
-	fi
-
-	# ensure name fallback
-	if [[ -z $option_name ]]; then
-		if [[ ${#option_apps[*]} -ne 0 ]]; then
-			option_name="${option_apps[0]}"
-		elif [[ ${#option_clis[@]} -ne 0 ]]; then
-			__join --source={option_clis} --between='|' --target={option_name}
-		elif [[ ${#option_fonts[*]} -ne 0 ]]; then
-			option_name="${option_fonts[0]}"
-		elif [[ -n $option_source ]]; then
-			option_name="$option_source"
-		elif [[ -n $option_checker ]]; then
-			option_name="$option_checker"
-		fi
-	fi
-	if [[ -z $option_name ]]; then
-		__help --help='Either <name>, <cli>, <app>, <font>, <source>, <checker> must be provided.' || return $?
-	fi
-
-	# prep terminal vars
-	local use_alt_screen_buffer
-	if [[ $option_quiet != 'no' && $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
-		use_alt_screen_buffer='yes'
-		__load_styles --save -- alternative_screen_buffer default_screen_buffer
-		function reset_terminal_modifications_now {
-			__value_to_tty "$STYLE__default_screen_buffer"
-			trap - EXIT
-		}
-		function reset_terminal_modifications_on_exit {
-			trap reset_terminal_modifications_now EXIT
-		}
-		function apply_terminal_modifications_now {
-			__value_to_tty "$STYLE__alternative_screen_buffer"
-			reset_terminal_modifications_on_exit
-		}
-	else
-		use_alt_screen_buffer='no'
-		function reset_terminal_modifications_now { :; }
-		function reset_terminal_modifications_on_exit { :; }
-		function apply_terminal_modifications_now { :; }
-	fi
-
-	# check if exists
-	local can_validate='' is_working='' is_missing=''
-	if [[ ${#option_clis[@]} -ne 0 || ${#option_apps[@]} -ne 0 || -n $option_checker || ${#option_fonts[@]} -ne 0 ]]; then
-		can_validate='yes'
-		is_working='yes'
-		is_missing='yes'
-		if [[ -n $option_checker ]]; then
-			if eval "$option_checker" >/dev/null; then
-				is_missing='no'
-			else
-				is_working='no'
-			fi
-		fi
-		if [[ ${#option_apps[@]} -ne 0 ]]; then
-			if get-app --quiet --first -- "${option_apps[@]}"; then
-				is_missing='no'
-			else
-				is_working='no'
-			fi
-		fi
-		if [[ ${#option_clis[@]} -ne 0 ]]; then
-			local cli clis_are_missing='no'
-			for cli in "${option_clis[@]}"; do
-				if __command_exists -- "$cli"; then
-					if ! command-working --elevate="$option_elevate" -- "$cli"; then
-						is_working='no'
-					fi
-				else
-					clis_are_missing='yes'
-					is_working='no'
-				fi
-			done
-			if [[ $clis_are_missing == 'no' ]]; then
-				is_missing='no'
-			fi
-		fi
-		if [[ ${#option_fonts[@]} -ne 0 ]]; then
-			if get-font --quiet -- "${option_fonts[@]}"; then
-				is_missing='no'
-			else
-				is_working='no'
-			fi
-		fi
-	fi
-
-	# check if already in desired state
-	if [[ $can_validate == 'yes' ]]; then
-		if [[ $is_missing == 'yes' ]]; then
-			# missing, nothing installed
-			if [[ $option_action == 'uninstall' ]]; then
-				# nothing installed, so no need to uninstall
-				__maybe_style --tty --good3="The ❬${option_name}❭ utility was not found. Already uninstalled. ✅"
-				# exit
-				return 0
-			fi
-			# nothing installed, want to install
-			if [[ $option_check == 'yes' ]]; then
-				# we are just checking if we need to act, no action is necessary
-				return 1
-			fi
-			# if no deps, then cancel
-			if [[ $option_deps == 'no' ]]; then
-				return 89 # ECANCELED 89 Operation canceled
-			fi
-			# note that we aren't upgrading, which is used for logging
-			option_upgrade='no'
-			# perform install
-			__maybe_style --tty --header3="The ❬${option_name}❭ utility was not found. Installing automatically... ⏲"
-		elif [[ $option_action == 'uninstall' ]]; then
-			# exists, uninstall enabled, want to uninstall
-			if [[ $option_check == 'yes' ]]; then
-				# we are just checking if we need to act, no action is necessary
-				return 1
-			fi
-			# note that we aren't upgrading, which is used for logging
-			option_upgrade='no'
-			# perform uninstall
-			__maybe_style --tty --header3="The ❬${option_name}❭ utility is marked for uninstall. Uninstalling... ⏲"
-		elif [[ $option_upgrade == 'yes' ]]; then
-			# exists, upgrade enabled, want to upgrade
-			if [[ $option_check == 'yes' ]]; then
-				# we are just checking if we need to act, no action is necessary
-				return 1
-			fi
-			# if no deps, then cancel
-			if [[ $option_deps == 'no' ]]; then
-				return 89 # ECANCELED 89 Operation canceled
-			fi
-			# perform upgrade
-			__maybe_style --tty --header3="The ❬${option_name}❭ utility is marked for upgrade. Upgrading... ⏲"
-		elif [[ $is_working == 'no' ]]; then
-			# exists, not working, want to fix
-			if [[ $option_check == 'yes' ]]; then
-				# we are just checking if we need to act, no action is necessary
-				return 1
-			fi
-			# if no deps, then cancel
-			if [[ $option_deps == 'no' ]]; then
-				return 89 # ECANCELED 89 Operation canceled
-			fi
-			# perform reinstall
-			__maybe_style --tty --header3="The ❬${option_name}❭ utility is misbehaving. Reinstalling automatically... ⏲"
-		elif [[ $is_working == 'yes' ]]; then
-			# exists, no upgrade, is working, no action necessary
-			__maybe_style --tty --good3="The ❬${option_name}❭ utility is already installed. ✅"
-			return 0
-		else
-			# exists, don't care, proceed anyway
-			# used by setup-util-nerd-fonts to ensure we check for the correct font
-			if [[ $option_check == 'yes' ]]; then
-				# we are just checking if we need to act, no action is necessary
-				return 1
-			fi
-			# if no deps, then cancel
-			if [[ $option_deps == 'no' ]]; then
-				return 89 # ECANCELED 89 Operation canceled
-			fi
-		fi
-	elif [[ $option_check == 'yes' ]]; then
-		# we are just checking if we need to act, no action is necessary
-		return 1
-	fi
-
-	# ensure order
-	if [[ ${#option_order[@]} -eq 0 ]]; then
-		option_order=("${sources[@]}")
-	else
-		# custom order, handle ...
-		# so [snap ...] means snap first, then everything else, whereas [... apt] means everything then apt
-		# as such, the specified sources need to be trimmed from the ... substitution
-		# @todo this will currently hard fail if there is two ... occurrences
-		local temp_order source inject_source
-		temp_order=()
-		for source in "${option_order[@]}"; do
-			if [[ $source == '...' ]]; then
-				# @todo this could become like intersect/union/complement or something
-				for inject_source in "${sources[@]}"; do
-					if __has --source={option_order} -- "$inject_source"; then
-						continue
-					else
-						temp_order+=("$inject_source")
-					fi
-				done
-			else
-				temp_order+=("$source")
-			fi
-		done
-		option_order=("${temp_order[@]}")
-	fi
-
-	# =====================================
-	# Process
-
-	# helpers
 	function __is_remote {
 		# `dnf`/`yum` don't support remote packages, defer to `rpm`
 		local package
@@ -1227,6 +811,7 @@ function setup_util() (
 		done
 		return 1
 	}
+
 	function __get_path_from_filename {
 		local filename="$1"
 		# only place in appimage_home if it keeps the appimage extension
@@ -1250,6 +835,7 @@ function setup_util() (
 			__print_lines "$XDG_BIN_HOME/$filename" || return $?
 		fi
 	}
+
 	function __verify_saved_path {
 		local path="$1"
 
@@ -1282,6 +868,7 @@ function setup_util() (
 		# return failure
 		return 1
 	}
+
 	function __rm_helper {
 		local remove_paths=("$@") remove_paths_present_unique=()
 		if [[ ${#remove_paths[@]} -eq 0 ]]; then
@@ -1295,38 +882,6 @@ function setup_util() (
 		# otherwise active invocations will crash, such as `setup-util-bash` --uninstalling the bash it was invoked with
 		fs-remove --quiet --no-confirm --trash --delete --elevate="$option_elevate" -- "${remove_paths_present_unique[@]}" || return $?
 	}
-
-	# prepare fallbacks, for when the package could not be installed without installing a package system first
-	local fallbacks=()
-
-	# for upgrade only, remove existing bin if it exists, as we don't want conflicts if it is deprecated
-	# do not do this for uninstall, as we want the actual methods to handle that
-	if [[ $option_upgrade == 'yes' ]]; then
-		if [[ ${#option_clis[@]} -ne 0 ]]; then
-			local cli cli_paths=()
-			for cli in "${option_clis[@]}"; do
-				cli_paths+=("$XDG_BIN_HOME/$cli") # "/usr/local/bin/$cli"
-			done
-			__rm_helper "${cli_paths[@]}"
-		fi
-	fi
-
-	# confirm if necessary
-	if [[ $option_confirm == 'yes' ]]; then
-		if ! confirm --linger --positive --ppid=$$ -- "Do you want to setup the ❬${option_name}❭ utility?"; then
-			# we don't want to modify it
-			if [[ $option_optional == 'yes' ]]; then
-				# it was optional, so success case
-				return 0
-			else
-				# it was not optional, so abort
-				return 125 # ECANCELED 125 Operation cancelled
-			fi
-		fi
-	fi
-
-	# =====================================
-	# Ecosystem sources, groups sorted alphabetically, then sources sorted alphabetically
 
 	# -------------------------------------
 	# Alpine
@@ -4342,6 +3897,445 @@ function setup_util() (
 	#
 	# So we're using our own, note that return codes can't go higher than 232
 	# 200 = not applicable ...
+
+	# if definition and utilities, fail
+	if [[ $option_defined == 'yes' && ${#option_utils[@]} -ne 0 ]]; then
+		__help 'Cannot specify definitions and utilities at the same time...' || return $?
+	# if setup, and no definition nor utils, prompt for which utilities
+	elif [[ $option_action == 'setup' && $option_defined == 'no' && ${#option_utils[@]} -eq 0 ]]; then
+		# however, only do this for install
+		if [[ $option_install == 'yes' && $option_configure != 'no' ]]; then
+			# no args, so use configuration
+			source "$DOROTHY/sources/config.sh"
+
+			# setup.bash provides:
+			local SETUP_UTILS=() # this would be better as `SETUP_UTIL_INSTALL` but historical usage keeps it `SETUP_UTILS`
+			load_dorothy_config 'setup.bash'
+
+			# reconfigure if no existing configuration, or if reconfiguration is desired
+			if [[ ${#SETUP_UTILS[@]} -eq 0 || $option_configure == 'yes' ]]; then
+				# prompt
+				local options=() file basename name
+				for file in "$DOROTHY/commands"*"/setup-util-"* "$DOROTHY/user/commands"*"/setup-util-"*; do
+					basename="$(basename -- "$file")"
+					name="${basename#*setup-util-}"
+					options+=("$name")
+				done
+
+				# apply
+				__split --target={option_utils} --no-zero-length --invoke -- \
+					choose --linger --confirm --multi \
+					--question="Which utilities to $option_action?" \
+					--defaults="$(__print_lines "${SETUP_UTILS[@]}")" -- \
+					"${options[@]}"
+
+				# save if reconfiguring
+				if [[ $option_configure == 'yes' ]]; then
+					dorothy-config 'setup.bash' -- \
+						--field='SETUP_UTILS' --array="$(__print_lines "${option_utils[@]}")"
+				fi
+			else
+				# apply
+				option_utils=("${SETUP_UTILS[@]}")
+			fi
+		elif [[ ${#option_utils[@]} -eq 0 ]]; then
+			# fail
+			__help --help='No <utility>s nor <...defition> specified for the setup action.' return $?
+			return 0
+		fi
+	fi
+
+	if [[ ${#option_utils[@]} -ne 0 ]]; then
+		# cycle through the utilities, and check if there are any aliases
+		local util alias util_aliases=() util_commands=()
+		# convert utils into aliases and commands
+		for util in "${option_utils[@]}"; do
+			# trim version suffix
+			# ruby@3 => ruby
+			alias="${alias%%@*}"
+			# trim tap prefix
+			# clementtsang/bottom/bottom => bottom
+			alias="${alias##*/}"
+			# if alias has a space character, then it must have flags or superfluous spaces, trim them
+			if [[ $alias == *' '* ]]; then
+				# --classic code --classic => code
+				# (^| ) matches either start of the line, or a space character
+				# -[^ ]+ matches a dash followed by one or more non-space characters
+				# so this is what converts the `--classic` flag into ``
+				# then we trim whitespace at the start and end
+				# @todo replace with pure bash to prevent slowdown
+				alias="$(echo-regexp -g '(^| )-[^ ]+' '' -- "$alias" | echo-trim-each-line --stdin)" || return $?
+			fi
+			# add
+			util_aliases+=("$alias")
+			util_commands+=("setup-util-$alias")
+		done
+		if __command_missing -- "${util_commands[@]}"; then
+			# associative
+			if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+				declare -A utils_associative_array
+				function __add_alias_command {
+					local alias="$1" command="$2"
+					utils_associative_array["$alias"]="$command"
+				}
+				function __get_alias_command {
+					local alias="$1"
+					printf '%s' "${utils_associative_array["$alias"]-}" || return 0
+				}
+			else
+				local aliases=() alias_commands=()
+				function __add_alias_command {
+					local alias="$1" command="$2"
+					aliases+=("$alias")
+					alias_commands+=("$command")
+				}
+				function __get_alias_command {
+					local alias="$1"
+					local -i index
+					for index in "${!aliases[@]}"; do
+						if [[ "${aliases[index]}" == "$alias" ]]; then
+							printf '%s' "${alias_commands["$index"]-}" || return 0
+						fi
+					done
+				}
+			fi
+			# load aliases
+			local database="$DOROTHY/config/setup-util.dat" alias command
+			while IFS=' ' read -rd $'\n' alias command; do
+				if [[ -z $alias && -z $command ]]; then
+					# skip empty lines
+					continue
+				elif [[ -z $alias || -z $command ]]; then
+					# if one of them is missing, then it's an invalid line
+					__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='invalid database entry' || return $?
+					return 79 # EFTYPE 79 Inappropriate file type or format
+				elif [[ "setup-util-$alias" == "$command" ]]; then
+					# alias not needed
+					__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='no need for the alias' || return $?
+					return 79 # EFTYPE 79 Inappropriate file type or format
+				fi
+				# both are present, it is a valid line
+				__add_alias_command "$alias" "$command"
+			done
+			# replace the util commands with the resolved alias commands
+			util_commands=()
+			for alias in "${util_aliases[@]}"; do
+				command="setup-util-$alias"
+				if __command_exists -- "$command"; then
+					util_commands+=("$command")
+				else
+					command="$(__get_alias_command "$alias")" || return $?
+					if [[ -z $command ]]; then
+						# validation for empty done later
+						util_commands+=('')
+					elif __command_exists -- "$command"; then
+						util_commands+=("$command")
+					else
+						# the alias command is missing, error now
+						__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='the aliased command does not exist' || return $?
+						return 79 # EFTYPE 79 Inappropriate file type or format
+					fi
+				fi
+			done
+		fi
+		# now process the action on the `util_commands`
+
+		# else
+		# 	# @todo this may be permissible if multiple utilities provide
+		# 	__print_error --help='No `setup-util-*` command exists for the utility ' --code="$alias" || return $?
+		# 	return 2 # ENOENT 2 No such file or directory
+		# fi
+
+		# # handle each utility
+		# local util alias installer any_failure='no'
+		# for util in "${option_utils[@]}"; do
+		# 	# get the alias
+		# 	alias="$(__get_alias "$util")" || return $?
+		# 	if [[ -z $alias ]]; then
+		# 		continue
+		# 	fi
+
+		# 	# get the installer
+		# 	installer="$(__get_installer "$alias" || :)"
+		# 	if [[ -z $installer ]]; then
+		# 		any_failure='yes'
+		# 		if [[ $option_quiet != 'yes' ]]; then
+		# 			__print_style --stderr --notice1='No installer found for: ' --code-notice1="$util" || return $?
+		# 		fi
+		# 		if [[ $option_first_failure == 'yes' ]]; then
+		# 			return 1
+		# 		fi
+		# 	elif [[ $option_invoke == 'no' ]]; then
+		# 		__print_lines "$installer" || return $?
+		# 		if [[ $option_first_success == 'yes' ]]; then
+		# 			return 0
+		# 		fi
+		# 	elif "$installer" --quiet="$option_quiet"; then # eval
+		# 		if [[ $option_first_success == 'yes' ]]; then
+		# 			return 0
+		# 		fi
+		# 	else
+		# 		any_failure='yes'
+		# 		if [[ $option_first_failure == 'yes' ]]; then
+		# 			return 1
+		# 		fi
+		# 	fi
+		# done
+
+		# # check for failures
+		# [[ $any_failure == 'no' ]] || return $?
+
+		# if __command_exists -- "$cmd"; then
+		# 	"$cmd" "${option_args[@]}" || : # don't fail everything if one fails
+		# else
+		# 	# can't use -EOF, as we want to print spacing
+		# 	__print_error \
+		# 		--help="Unable to install \`$item\`, as \`$cmd\` doesn't exist." --newline \
+		# 		--newline \
+		# 		--red="You can create the missing command by running:" --newline \
+		# 		--newline \
+		# 		--dim="    touch $DOROTHY/user/$cmd" --newline \
+		# 		--dim="    edit $DOROTHY/user/$cmd" --newline \
+		# 		--dim="    open https://github.com/bevry/dorothy/discussions/73" --newline \
+		# 		--newline \
+		# 		--red='Once the command is created, re-run your prior command.'
+		# 	return 1
+		# fi
+	fi
+
+	# move this is to the end, as if it is a valid action, then it gets handled, only if it is invalid, it would have reached the end without handling
+	if ! [[ $option_action =~ ^(install|uninstall|upgrade|configure)$ ]]; then
+		__help --help='Invalid <action>.' || return $?
+	fi
+
+
+	# if configure, then we don't actually need to do anything, as any action is handled by the [setup-util-*] caller
+	if [[ $option_action == 'configure' ]]; then
+		return 0
+	fi
+
+	# if uninstall, disable upgrade
+	if [[ $option_action == 'uninstall' ]]; then
+		option_upgrade='no'
+	fi
+
+	# ensure name fallback
+	if [[ -z $option_name ]]; then
+		if [[ ${#option_apps[*]} -ne 0 ]]; then
+			option_name="${option_apps[0]}"
+		elif [[ ${#option_clis[@]} -ne 0 ]]; then
+			__join --source={option_clis} --between='|' --target={option_name}
+		elif [[ ${#option_fonts[*]} -ne 0 ]]; then
+			option_name="${option_fonts[0]}"
+		elif [[ -n $option_source ]]; then
+			option_name="$option_source"
+		elif [[ -n $option_checker ]]; then
+			option_name="$option_checker"
+		fi
+	fi
+	if [[ -z $option_name ]]; then
+		__help --help='Either <name>, <cli>, <app>, <font>, <source>, <checker> must be provided.' || return $?
+	fi
+
+	# prep terminal vars
+	local use_alt_screen_buffer
+	if [[ $option_quiet != 'no' && $ALTERNATIVE_SCREEN_BUFFER_SUPPORTED == 'yes' ]]; then
+		use_alt_screen_buffer='yes'
+		__load_styles --save -- alternative_screen_buffer default_screen_buffer
+		function reset_terminal_modifications_now {
+			__value_to_tty "$STYLE__default_screen_buffer"
+			trap - EXIT
+		}
+		function reset_terminal_modifications_on_exit {
+			trap reset_terminal_modifications_now EXIT
+		}
+		function apply_terminal_modifications_now {
+			__value_to_tty "$STYLE__alternative_screen_buffer"
+			reset_terminal_modifications_on_exit
+		}
+	else
+		use_alt_screen_buffer='no'
+		function reset_terminal_modifications_now { :; }
+		function reset_terminal_modifications_on_exit { :; }
+		function apply_terminal_modifications_now { :; }
+	fi
+
+	# check if exists
+	local can_validate='' is_working='' is_missing=''
+	if [[ ${#option_clis[@]} -ne 0 || ${#option_apps[@]} -ne 0 || -n $option_checker || ${#option_fonts[@]} -ne 0 ]]; then
+		can_validate='yes'
+		is_working='yes'
+		is_missing='yes'
+		if [[ -n $option_checker ]]; then
+			if eval "$option_checker" >/dev/null; then
+				is_missing='no'
+			else
+				is_working='no'
+			fi
+		fi
+		if [[ ${#option_apps[@]} -ne 0 ]]; then
+			if get-app --quiet --first -- "${option_apps[@]}"; then
+				is_missing='no'
+			else
+				is_working='no'
+			fi
+		fi
+		if [[ ${#option_clis[@]} -ne 0 ]]; then
+			local cli clis_are_missing='no'
+			for cli in "${option_clis[@]}"; do
+				if __command_exists -- "$cli"; then
+					if ! command-working --elevate="$option_elevate" -- "$cli"; then
+						is_working='no'
+					fi
+				else
+					clis_are_missing='yes'
+					is_working='no'
+				fi
+			done
+			if [[ $clis_are_missing == 'no' ]]; then
+				is_missing='no'
+			fi
+		fi
+		if [[ ${#option_fonts[@]} -ne 0 ]]; then
+			if get-font --quiet -- "${option_fonts[@]}"; then
+				is_missing='no'
+			else
+				is_working='no'
+			fi
+		fi
+	fi
+
+	# check if already in desired state
+	if [[ $can_validate == 'yes' ]]; then
+		if [[ $is_missing == 'yes' ]]; then
+			# missing, nothing installed
+			if [[ $option_action == 'uninstall' ]]; then
+				# nothing installed, so no need to uninstall
+				__maybe_style --tty --good3="The ❬${option_name}❭ utility was not found. Already uninstalled. ✅"
+				# exit
+				return 0
+			fi
+			# nothing installed, want to install
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# if no deps, then cancel
+			if [[ $option_deps == 'no' ]]; then
+				return 89 # ECANCELED 89 Operation canceled
+			fi
+			# note that we aren't upgrading, which is used for logging
+			option_upgrade='no'
+			# perform install
+			__maybe_style --tty --header3="The ❬${option_name}❭ utility was not found. Installing automatically... ⏲"
+		elif [[ $option_action == 'uninstall' ]]; then
+			# exists, uninstall enabled, want to uninstall
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# note that we aren't upgrading, which is used for logging
+			option_upgrade='no'
+			# perform uninstall
+			__maybe_style --tty --header3="The ❬${option_name}❭ utility is marked for uninstall. Uninstalling... ⏲"
+		elif [[ $option_upgrade == 'yes' ]]; then
+			# exists, upgrade enabled, want to upgrade
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# if no deps, then cancel
+			if [[ $option_deps == 'no' ]]; then
+				return 89 # ECANCELED 89 Operation canceled
+			fi
+			# perform upgrade
+			__maybe_style --tty --header3="The ❬${option_name}❭ utility is marked for upgrade. Upgrading... ⏲"
+		elif [[ $is_working == 'no' ]]; then
+			# exists, not working, want to fix
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# if no deps, then cancel
+			if [[ $option_deps == 'no' ]]; then
+				return 89 # ECANCELED 89 Operation canceled
+			fi
+			# perform reinstall
+			__maybe_style --tty --header3="The ❬${option_name}❭ utility is misbehaving. Reinstalling automatically... ⏲"
+		elif [[ $is_working == 'yes' ]]; then
+			# exists, no upgrade, is working, no action necessary
+			__maybe_style --tty --good3="The ❬${option_name}❭ utility is already installed. ✅"
+			return 0
+		else
+			# exists, don't care, proceed anyway
+			# used by setup-util-nerd-fonts to ensure we check for the correct font
+			if [[ $option_check == 'yes' ]]; then
+				# we are just checking if we need to act, no action is necessary
+				return 1
+			fi
+			# if no deps, then cancel
+			if [[ $option_deps == 'no' ]]; then
+				return 89 # ECANCELED 89 Operation canceled
+			fi
+		fi
+	elif [[ $option_check == 'yes' ]]; then
+		# we are just checking if we need to act, no action is necessary
+		return 1
+	fi
+
+	# ensure order
+	if [[ ${#option_order[@]} -eq 0 ]]; then
+		option_order=("${sources[@]}")
+	else
+		# custom order, handle ...
+		# so [snap ...] means snap first, then everything else, whereas [... apt] means everything then apt
+		# as such, the specified sources need to be trimmed from the ... substitution
+		# @todo this will currently hard fail if there is two ... occurrences
+		local temp_order source inject_source
+		temp_order=()
+		for source in "${option_order[@]}"; do
+			if [[ $source == '...' ]]; then
+				# @todo this could become like intersect/union/complement or something
+				for inject_source in "${sources[@]}"; do
+					if __has --source={option_order} -- "$inject_source"; then
+						continue
+					else
+						temp_order+=("$inject_source")
+					fi
+				done
+			else
+				temp_order+=("$source")
+			fi
+		done
+		option_order=("${temp_order[@]}")
+	fi
+
+	# for upgrade only, remove existing bin if it exists, as we don't want conflicts if it is deprecated
+	# do not do this for uninstall, as we want the actual methods to handle that
+	if [[ $option_upgrade == 'yes' ]]; then
+		if [[ ${#option_clis[@]} -ne 0 ]]; then
+			local cli cli_paths=()
+			for cli in "${option_clis[@]}"; do
+				cli_paths+=("$XDG_BIN_HOME/$cli") # "/usr/local/bin/$cli"
+			done
+			__rm_helper "${cli_paths[@]}"
+		fi
+	fi
+
+	# confirm if necessary
+	if [[ $option_confirm == 'yes' ]]; then
+		if ! confirm --linger --positive --ppid=$$ -- "Do you want to setup the ❬${option_name}❭ utility?"; then
+			# we don't want to modify it
+			if [[ $option_optional == 'yes' ]]; then
+				# it was optional, so success case
+				return 0
+			else
+				# it was not optional, so abort
+				return 125 # ECANCELED 125 Operation cancelled
+			fi
+		fi
+	fi
+
 
 	local had_success='no' had_failure='no' had_finish='no' action_current action_past
 	if [[ $option_action == 'uninstall' ]]; then
