@@ -191,15 +191,13 @@ function __command_missing {
 	fi
 	__affirm_length_defined $# 'command' || return $?
 	# proceed
-	local COMMAND_MISSING__command
-	for COMMAND_MISSING__command in "$@"; do
-		if type -P "$COMMAND_MISSING__command" &>/dev/null; then
-			continue
-		else
-			return 0 # a command is missing
-		fi
-	done
-	return 1 # all commands are present
+	if type -P "$@" &>/dev/null; then
+		# all commands are present
+		return 1
+	else
+		# a command is missing
+		return 0
+	fi
 }
 
 # see `commands/command-exists` for details
@@ -212,15 +210,13 @@ function __command_exists {
 	fi
 	__affirm_length_defined $# 'command' || return $?
 	# proceed
-	local COMMAND_EXISTS__command
-	for COMMAND_EXISTS__command in "$@"; do
-		if type -P "$COMMAND_EXISTS__command" &>/dev/null; then
-			continue
-		else
-			return 1 # a command is missing
-		fi
-	done
-	return 0 # all commands are present
+	if type -P "$@" &>/dev/null; then
+		# all commands are present
+		return 0
+	else
+		# a command is missing
+		return 1
+	fi
 }
 
 # command existence and installation
