@@ -178,8 +178,8 @@ function setup_util() (
 			setup-util btm    # defers to \`setup-util.dat\` Dorothy configuration file, which defers it to \`setup-util-bottom\`
 
 			# invoke bottom
-			setup-util --invoke bottom
-			setup-util --invoke bottom -- --help # passing \`--help\` argument to bottom's \`btm\` CLI
+			setup-util invoke bottom
+			setup-util invoke bottom -- --help # passing \`--help\` argument to bottom's \`btm\` CLI
 			\`\`\`
 
 			OPTIONS:
@@ -242,7 +242,7 @@ function setup_util() (
 			    Outputs the command to install <util>.
 			    If no command, return failure status.
 
-			[--]invoke [<utility>] [--] [<...arguments>]
+			[--]invoke [...<utility>] [--] [<...arguments>]
 			    If enabled, invoke the <utility>.
 			    Returns the invocations exit status.
 
@@ -795,266 +795,222 @@ function setup_util() (
 		__help || return $?
 	fi
 
-	# if no definition nor utils, preload utilities
-	if [[ $option_defined == 'no' && ${#option_utils[@]} -eq 0 ]]; then
-		# no args, so use configuration
-		source "$DOROTHY/sources/config.sh"
+	# if definition and utilities, fail
+	if [[ $option_defined == 'yes' && ${#option_utils[@]} -ne 0 ]]; then
+		__help 'Cannot specify definitions and utilities at the same time...' || return $?
+	# if setup, and no definition nor utils, prompt for which utilities
+	elif [[ $option_action == 'setup' && $option_defined == 'no' && ${#option_utils[@]} -eq 0 ]]; then
+		# however, only do this for install
+		if [[ $option_install == 'yes' && $option_configure != 'no' ]]; then
+			# no args, so use configuration
+			source "$DOROTHY/sources/config.sh"
 
-		# setup.bash provides:
-		local SETUP_UTILS=() # this would be better as `SETUP_UTIL_INSTALL` but historical usage keeps it `SETUP_UTILS`
-		load_dorothy_config 'setup.bash'
+			# setup.bash provides:
+			local SETUP_UTILS=() # this would be better as `SETUP_UTIL_INSTALL` but historical usage keeps it `SETUP_UTILS`
+			load_dorothy_config 'setup.bash'
 
-		# if reconfiguring, prompt the user which ones
-		local options file basename name
-		if [[ $option_configure == 'yes' ]]; then
-			options=()
-			for file in "$DOROTHY/commands/setup-util-"*; do
-				basename="$(basename -- "$file")"
-				name="${basename#*setup-util-}"
-				options+=("$name")
-			done
-			__split --target={option_utils} --no-zero-length --invoke -- \
-				choose --linger --confirm --multi \
-				--question="Which utilities to $option_action?" \
-				--defaults="$(__print_lines "${SETUP_UTILS[@]}")" -- \
-				"${options[@]}"
+			# reconfigure if no existing configuration, or if reconfiguration is desired
+			if [[ ${#SETUP_UTILS[@]} -eq 0 || $option_configure == 'yes' ]]; then
+				# prompt
+				local options=() file basename name
+				for file in "$DOROTHY/commands"*"/setup-util-"* "$DOROTHY/user/commands"*"/setup-util-"*; do
+					basename="$(basename -- "$file")"
+					name="${basename#*setup-util-}"
+					options+=("$name")
+				done
 
-			# save
-			dorothy-config 'setup.bash' -- \
-				--field='SETUP_UTILS' --array="$(__print_lines "${option_utils[@]}")"
-		else
-			option_utils=("${SETUP_UTILS[@]}")
-		fi
-	fi
+				# apply
+				__split --target={option_utils} --no-zero-length --invoke -- \
+					choose --linger --confirm --multi \
+					--question="Which utilities to $option_action?" \
+					--defaults="$(__print_lines "${SETUP_UTILS[@]}")" -- \
+					"${options[@]}"
 
-	# check
-	if [[ ${#option_utils[@]} -eq 0 ]]; then
-		__print_style --notice1='No utilities provided, to configure some use: ' --code-notice1='setup-utils --configure'
-		return 0
-	fi
-
-	# =====================================
-	# Action
-
-	function help {
-		__print_help "$@" <<-EOF || return $?
-			ABOUT:
-			Output the command(s) necessary to install the <utility>.
-
-			USAGE:
-			\`get-installer [...options] -- ...<utility>\`
-
-			RETURNS:
-			Success if all <utility> had an installer.
-			Failure if any <utility> did not have an installer.
-
-			OPTIONS:
-			--invoke
-			    Rather than output the installer, invoke it, such that installation occurs.
-
-			--first-success
-			    Exit on the first success, ignoring earlier failures.
-
-			--first-failure
-			    Exit on the first failure, skipping later utilities.
-
-			--quiet
-			    If invoke, forwarded to installer.
-			    Otherwise, used to suppress missing installer error.
-
-			--verify
-			    Verify that the installers exist for the aliases. Useful only for testing.
-		EOF
-		return 22 # EINVAL 22 Invalid argument
-	}
-
-	# process
-	local item option_quiet='' option_verify='no' option_utils=() option_invoke='no' option_first_success='no' option_first_failure='no'
-	while [[ $# -ne 0 ]]; do
-		item="$1"
-		shift
-		case "$item" in
-		'--help' | '-h') help ;;
-		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative ;;
-		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative ;;
-		'--no-invoke'* | '--invoke'*) __flag --source={item} --target={option_invoke} --affirmative ;;
-		'--no-verify'* | '--verify'*) __flag --source={item} --target={option_verify} --affirmative ;;
-		'--first-success'*) option_first_success='yes' ;;
-		'--first-failure'*) option_first_failure='yes' ;;
-		'--')
-			option_utils+=("$@")
-			shift "$#"
-			break
-			;;
-		'--'*) help 'An unrecognised flag was provided: ' --variable-value={item} ;;
-		*) option_utils+=("$item") ;;
-		esac
-	done
-
-	# =====================================
-	# Configuration
-
-	# load aliases
-	local database="$DOROTHY/config/setup-util.dat" aliases=() installers=() alias installer
-	while IFS=' ' read -rd $'\n' alias installer; do
-		if [[ -z $alias && -z $installer ]]; then
-			# skip empty lines
-			continue
-		fi
-		if [[ -z $alias || -z $installer ]]; then
-			# if one of them is missing, then it's an invalid line
-			__print_style --stderr --code="$alias" ' => ' --code="$installer" ' ❌ ' --error='invalid database entry'
-			continue
-		fi
-		# both are present, it is a valid line
-		aliases+=("$alias")
-		installers+=("$installer")
-	done <"$database"
-
-	# =====================================
-	# Testing
-
-	# testing
-	if [[ $option_verify == 'yes' ]]; then
-		# test that the installers for the aliases actually exist
-		# queue the log entries to output all at once, as it turns it from like a minute into a second
-		local index result=0 logs=()
-		for index in "${!aliases[@]}"; do
-			alias="${aliases[index]}"
-			installer="${installers[index]}"
-			if [[ "setup-util-$alias" == "$installer" ]]; then
-				logs+=(--code="$alias" ' => ' --code="$installer" ' ❌ ' --error='no need for the alias' --newline)
-				result=1
-			elif __command_missing -- "$installer"; then
-				logs+=(--code="$alias" ' => ' --code="$installer" ' ❌ ' --error='missing' --newline)
-				result=1
-			elif [[ $option_quiet == 'no' ]]; then
-				logs+=(--code="$alias" ' => ' --code="$installer" ' ✅ ' --newline)
-			fi
-		done
-		if [[ ${#logs[@]} -ne 0 ]]; then
-			__print_style --no-trail --stderr "${logs[@]}"
-		fi
-
-		# return result
-		return "$result"
-	fi
-
-	# =====================================
-	# Action
-
-	# check
-	if [[ ${#option_utils[@]} -eq 0 ]]; then
-		help --help='No <utility>s specified.'
-	fi
-
-	# helpers
-	function __get_alias {
-		local util="$1"
-		# trim version suffix
-		# ruby@3 => ruby
-		util="${util%%@*}"
-		# trim tap prefix
-		# clementtsang/bottom/bottom => bottom
-		util="${util##*/}"
-		# if util has a space character, then it must have flags or superfluous spaces, trim them
-		if [[ $util == *' '* ]]; then
-			# --classic code --classic => code
-			# (^| ) matches either start of the line, or a space character
-			# -[^ ]+ matches a dash followed by one or more non-space characters
-			# so this is what converts the `--classic` flag into ``
-			# then we trim whitespace at the start and end
-			util="$(echo-regexp -g '(^| )-[^ ]+' '' -- "$util" | echo-trim-each-line --stdin)" || return $?
-		fi
-		# done
-		__print_lines "$util" || return $?
-	}
-
-	function __get_installer {
-		local alias="$1" index
-		for index in "${!aliases[@]}"; do
-			if [[ $alias == "${aliases[index]}" ]]; then
-				__print_lines "${installers[index]}" || return $?
-				return 0
-			fi
-		done
-		# alias not found, check if it exists normally
-		echo-if-command-exists -- "setup-util-$alias" || return $?
-	}
-
-	# handle each utility
-	local util alias installer any_failure='no'
-	for util in "${option_utils[@]}"; do
-		# get the alias
-		alias="$(__get_alias "$util")" || return $?
-		if [[ -z $alias ]]; then
-			continue
-		fi
-
-		# get the installer
-		installer="$(__get_installer "$alias" || :)"
-		if [[ -z $installer ]]; then
-			any_failure='yes'
-			if [[ $option_quiet != 'yes' ]]; then
-				__print_style --stderr --notice1='No installer found for: ' --code-notice1="$util" || return $?
-			fi
-			if [[ $option_first_failure == 'yes' ]]; then
-				return 1
-			fi
-		elif [[ $option_invoke == 'no' ]]; then
-			__print_lines "$installer" || return $?
-			if [[ $option_first_success == 'yes' ]]; then
-				return 0
-			fi
-		elif "$installer" --quiet="$option_quiet"; then
-			if [[ $option_first_success == 'yes' ]]; then
-				return 0
-			fi
-		else
-			any_failure='yes'
-			if [[ $option_first_failure == 'yes' ]]; then
-				return 1
-			fi
-		fi
-	done
-
-	# check for failures
-	[[ $any_failure == 'no' ]] || return $?
-
-	# -------------------------------------------------------------------------
-
-	local item cmd
-	__print_style --h1="Setup ${#option_utils[@]} utilities"
-	for item in "${option_utils[@]}"; do
-		if [[ -n $item ]]; then
-			cmd="setup-util-${item}"
-			if __command_exists -- "$cmd"; then
-				"$cmd" "${option_args[@]}" || : # don't fail everything if one fails
+				# save if reconfiguring
+				if [[ $option_configure == 'yes' ]]; then
+					dorothy-config 'setup.bash' -- \
+						--field='SETUP_UTILS' --array="$(__print_lines "${option_utils[@]}")"
+				fi
 			else
-				# can't use -EOF, as we want to print spacing
-				__print_error \
-					--help="Unable to install \`$item\`, as \`$cmd\` doesn't exist." --newline \
-					--newline \
-					--red="You can create the missing command by running:" --newline \
-					--newline \
-					--dim="    touch $DOROTHY/user/$cmd" --newline \
-					--dim="    edit $DOROTHY/user/$cmd" --newline \
-					--dim="    open https://github.com/bevry/dorothy/discussions/73" --newline \
-					--newline \
-					--red='Once the command is created, re-run your prior command.'
-				return 1
+				# apply
+				option_utils=("${SETUP_UTILS[@]}")
 			fi
+		elif [[ ${#option_utils[@]} -eq 0 ]]; then
+			# fail
+			__help --help='No <utility>s nor <...defition> specified for the setup action.' return $?
+			return 0
 		fi
-	done
-	__print_style --g1="Setup ${#option_utils[@]} utilities"
+	fi
 
-	# ensure action
-	if [[ -z $option_action ]]; then
-		option_action='install'
+	if [[ ${#option_utils[@]} -ne 0 ]]; then
+		# cycle through the utilities, and check if there are any aliases
+		local util alias util_aliases=() util_commands=()
+		# convert utils into aliases and commands
+		for util in "${option_utils[@]}"; do
+			# trim version suffix
+			# ruby@3 => ruby
+			alias="${alias%%@*}"
+			# trim tap prefix
+			# clementtsang/bottom/bottom => bottom
+			alias="${alias##*/}"
+			# if alias has a space character, then it must have flags or superfluous spaces, trim them
+			if [[ $alias == *' '* ]]; then
+				# --classic code --classic => code
+				# (^| ) matches either start of the line, or a space character
+				# -[^ ]+ matches a dash followed by one or more non-space characters
+				# so this is what converts the `--classic` flag into ``
+				# then we trim whitespace at the start and end
+				# @todo replace with pure bash to prevent slowdown
+				alias="$(echo-regexp -g '(^| )-[^ ]+' '' -- "$alias" | echo-trim-each-line --stdin)" || return $?
+			fi
+			# add
+			util_aliases+=("$alias")
+			util_commands+=("setup-util-$alias")
+		done
+		if __command_missing -- "${util_commands[@]}"; then
+			# associative
+			if [[ $BASH_HAS_NATIVE_ASSOCIATIVE_ARRAY == 'yes' ]]; then
+				declare -A utils_associative_array
+				function __add_alias_command {
+					local alias="$1" command="$2"
+					utils_associative_array["$alias"]="$command"
+				}
+				function __get_alias_command {
+					local alias="$1"
+					printf '%s' "${utils_associative_array["$alias"]-}" || return 0
+				}
+			else
+				local aliases=() alias_commands=()
+				function __add_alias_command {
+					local alias="$1" command="$2"
+					aliases+=("$alias")
+					alias_commands+=("$command")
+				}
+				function __get_alias_command {
+					local alias="$1"
+					local -i index
+					for index in "${!aliases[@]}"; do
+						if [[ "${aliases[index]}" == "$alias" ]]; then
+							printf '%s' "${alias_commands["$index"]-}" || return 0
+						fi
+					done
+				}
+			fi
+			# load aliases
+			local database="$DOROTHY/config/setup-util.dat" alias command
+			while IFS=' ' read -rd $'\n' alias command; do
+				if [[ -z $alias && -z $command ]]; then
+					# skip empty lines
+					continue
+				elif [[ -z $alias || -z $command ]]; then
+					# if one of them is missing, then it's an invalid line
+					__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='invalid database entry' || return $?
+					return 79 # EFTYPE 79 Inappropriate file type or format
+				elif [[ "setup-util-$alias" == "$command" ]]; then
+					# alias not needed
+					__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='no need for the alias' || return $?
+					return 79 # EFTYPE 79 Inappropriate file type or format
+				fi
+				# both are present, it is a valid line
+				__add_alias_command "$alias" "$command"
+			done
+			# replace the util commands with the resolved alias commands
+			util_commands=()
+			for alias in "${util_aliases[@]}"; do
+				command="setup-util-$alias"
+				if __command_exists -- "$command"; then
+					util_commands+=("$command")
+				else
+					command="$(__get_alias_command "$alias")" || return $?
+					if [[ -z $command ]]; then
+						# validation for empty done later
+						util_commands+=('')
+					elif __command_exists -- "$command"; then
+						util_commands+=("$command")
+					else
+						# the alias command is missing, error now
+						__print_error --code="$alias" ' => ' --code="$command" ' ❌ ' --error='the aliased command does not exist' || return $?
+						return 79 # EFTYPE 79 Inappropriate file type or format
+					fi
+				fi
+			done
+		fi
+		# now process the action on the `util_commands`
+
+		# else
+		# 	# @todo this may be permissible if multiple utilities provide
+		# 	__print_error --help='No `setup-util-*` command exists for the utility ' --code="$alias" || return $?
+		# 	return 2 # ENOENT 2 No such file or directory
+		# fi
+
+		# # handle each utility
+		# local util alias installer any_failure='no'
+		# for util in "${option_utils[@]}"; do
+		# 	# get the alias
+		# 	alias="$(__get_alias "$util")" || return $?
+		# 	if [[ -z $alias ]]; then
+		# 		continue
+		# 	fi
+
+		# 	# get the installer
+		# 	installer="$(__get_installer "$alias" || :)"
+		# 	if [[ -z $installer ]]; then
+		# 		any_failure='yes'
+		# 		if [[ $option_quiet != 'yes' ]]; then
+		# 			__print_style --stderr --notice1='No installer found for: ' --code-notice1="$util" || return $?
+		# 		fi
+		# 		if [[ $option_first_failure == 'yes' ]]; then
+		# 			return 1
+		# 		fi
+		# 	elif [[ $option_invoke == 'no' ]]; then
+		# 		__print_lines "$installer" || return $?
+		# 		if [[ $option_first_success == 'yes' ]]; then
+		# 			return 0
+		# 		fi
+		# 	elif "$installer" --quiet="$option_quiet"; then # eval
+		# 		if [[ $option_first_success == 'yes' ]]; then
+		# 			return 0
+		# 		fi
+		# 	else
+		# 		any_failure='yes'
+		# 		if [[ $option_first_failure == 'yes' ]]; then
+		# 			return 1
+		# 		fi
+		# 	fi
+		# done
+
+		# # check for failures
+		# [[ $any_failure == 'no' ]] || return $?
+
+		# if __command_exists -- "$cmd"; then
+		# 	"$cmd" "${option_args[@]}" || : # don't fail everything if one fails
+		# else
+		# 	# can't use -EOF, as we want to print spacing
+		# 	__print_error \
+		# 		--help="Unable to install \`$item\`, as \`$cmd\` doesn't exist." --newline \
+		# 		--newline \
+		# 		--red="You can create the missing command by running:" --newline \
+		# 		--newline \
+		# 		--dim="    touch $DOROTHY/user/$cmd" --newline \
+		# 		--dim="    edit $DOROTHY/user/$cmd" --newline \
+		# 		--dim="    open https://github.com/bevry/dorothy/discussions/73" --newline \
+		# 		--newline \
+		# 		--red='Once the command is created, re-run your prior command.'
+		# 	return 1
+		# fi
 	fi
+
+
+	# =====================================
+	# Action
+
+	# @todo redo this
+
+	# move this is to the end, as if it is a valid action, then it gets handled, only if it is invalid, it would have reached the end without handling
 	if ! [[ $option_action =~ ^(install|uninstall|upgrade|configure)$ ]]; then
-		__help --help='Invalid <action>, must be either `install`, `uninstall`, `upgrade`, `configure`.' || return $?
+		__help --help='Invalid <action>.' || return $?
 	fi
+
 
 	# if configure, then we don't actually need to do anything, as any action is handled by the [setup-util-*] caller
 	if [[ $option_action == 'configure' ]]; then
@@ -4345,7 +4301,7 @@ function setup_util() (
 			if [[ $count -eq 0 ]]; then
 				return 200 # ECUSTOM 200 Not applicable as nothing to do for the inputs
 			else
-				# if one installs all nerd fonts, it results in 1910 font files, which is too much for choose, so use to gum
+				# if one installs all nerd fonts, it results in 1910 font files, which is too much for `choose`, so use to `gum`
 				if [[ $count -gt 100 ]]; then
 					# as options are more than a hundred, no default
 					setup-util-gum --dependency
