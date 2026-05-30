@@ -162,22 +162,26 @@ function __is_brew {
 	[[ -n ${HOMEBREW_PREFIX-} && -x "${HOMEBREW_PREFIX-}/bin/brew" ]] || return $?
 }
 
+# handle `winget.exe`, `powershell.exe`, `cmd.exe`
+function __workaround_carriage_returns {
+	echo-regexp -g --regexp=$'\r\n' --replace=$'\n' | echo-regexp -gm --regexp=$'[^\r]*\r' --replace='' || return $?
+}
+function __invoke_and_workaround_carriage_returns {
+	# replace `\r\n` with newline, as it is a line to be persisted
+	# replace `*\r` content on each line with nothing, as it is intended to be erased
+	"$@" | __workaround_carriage_returns || return $? # eval
+}
 # handle JQ built for windows inserting carriage returns on windows
 # `printf '{"key": "value"}' | jq.exe -r '.key' | cat -v` results in `value^M`
 # gh, even with `--jq <filter>` does not inject such carriage returns (this could be however gh built for linux, instead of built for windows)
 if __is_windows; then
-	function __strip_carriage_returns_if_windows {
-		sed 's/\r//g'
-	}
 	function __jq {
-		jq "$@" | __strip_carriage_returns_if_windows
+		# strip the `\r` from the trailing `\r\n` from `jq` output on windows
+		jq "$@" | sed 's/\r//g' || return $?
 	}
 else
-	function __strip_carriage_returns_if_windows {
-		cat
-	}
 	function __jq {
-		jq "$@"
+		jq "$@" || return $?
 	}
 fi
 

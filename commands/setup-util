@@ -26,6 +26,9 @@ function setup_util() (
 			__print_style "$@" || return $?
 		fi
 	}
+	function __columns_to_csv {
+		tr $'\t' ',' || return $?
+	}
 
 	# app paths
 	local app_search_paths=() system
@@ -72,6 +75,45 @@ function setup_util() (
 		)
 		__unique --source+target={font_search_paths}
 	fi
+
+	function __join_for_squigglies {
+		# handle single vs multiple items differently regarding squiglies
+		if [[ $# -gt 1 ]]; then
+			# transform `desktop` and `appimage` to `{desktop,appimage}` which means `desktop` or `appimage`
+			# trunk-ignore(shellcheck/SC2034)
+			local alts=("$@") result=''
+			__unique --source+target={alts} || return $?
+			__join --source={alts} --target={result} --between=',' || return $?
+			__print_string "{$result}" || return $?
+		else
+			# retain `desktop` as `desktop`, do not add squiglies, and `{desktop}` is `{desktop}` not `desktop`
+			__print_string "$*" || return $?
+		fi
+	}
+
+	function __get_bin_paths {
+		local name="$1" lower names=() extension seek=()
+		lower="$(__get_lowercase_string "$name")" || return $?
+		names+=("$name")
+		if [[ $name != "$lower" ]]; then
+			names+=("$lower")
+		fi
+		seek+=("${names[@]}")
+		for extension in "${bin_extensions[@]}"; do
+			for name in "${names[@]}"; do
+				seek+=("$name.$extension")
+			done
+		done
+		type -Pa "${seek[@]}" || return $?
+	}
+	function __get_app_paths {
+		local name="$1" lower sup mid sub
+		lower="$(__get_lowercase_string "$name")" || return $?
+		sup="$(__join_for_squigglies "${app_search_paths[@]}")" || return $?
+		mid="$(__join_for_squigglies "$name" "$lower")" || return $?
+		sub="$(__join_for_squigglies "${app_extensions[@]}")" || return $?
+		expand-path -- "$sup/**/$mid.$sub" || return $?
+	}
 
 	# prefer precompiled with autoupdate with extras
 	# extras = man packages, autocompletes, etc
@@ -1864,6 +1906,68 @@ function setup_util() (
 			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
 		fi
 	}
+	function __fetch_all_installed_from_flatpak {
+		# https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-list
+		#
+		# `flatpak list --columns=name,application,version`:
+		# ```
+		# Name                                  Application ID                           Version
+		# CoMaps                                app.comaps.comaps                        2026.05.04
+		# ...
+		# ```
+		#
+		# When piping, it does not output the header:
+		# `flatpak list --columns=name,application,version | cat`:
+		# ```
+		# CoMaps	app.comaps.comaps	2026.05.04
+		# Metronome	com.adrienplazas.Metronome	1.3.0
+		# ```
+		#
+		# `flatpak list --columns=name,application | tr $'\t' ','`:
+		# ```
+		# CoMaps,app.comaps.comaps
+		# Metronome,com.adrienplazas.Metronome
+		# ...
+		# ```
+		#
+		# No ability to filter by arguments.
+		flatpak list --columns=name,application,version | __columns_to_csv || return $?
+	}
+	function __get__flatpak {
+		local packages=("${FLATPAK[@]}") package found='no' rows=() row columns=() flatpak_name flatpak_id flatpak_version flatpak_path properties=()
+		__split --target={rows} --no-zero-length --invoke=try -- \
+			__fetch_all_installed_from_flatpak || return $?
+		for package in "${packages[@]}"; do
+			# @todo have `__iterate` support an eval, so we can natively handle `which` and `need` options
+			found
+			for row in "${rows[@]}"; do
+				__split --source={row} --target={columns} --delimiter=',' || return $?
+				flatpak_name="${columns[0]}"
+				flatpak_id="${columns[1]}"
+				if __case_insensitive_compare "$flatpak_name" "$name" || __case_insensitive_compare "$flatpak_id" "$name"; then
+					found='yes'
+					if [[ $option_invoke == 'yes' ]]; then
+						flatpak run "$flatpak_id" "${option_args[@]}" || return $? # eval
+					else
+						flatpak_version="${columns[2]}"
+						flatpak_path="$(flatpak info --show-location "$flatpak_id" || :)"
+						properties=(
+							source 'winget'
+							id "$flatpak_id"
+							name "$flatpak_name"
+							version "$flatpak_version"
+							path "$flatpak_path"
+						)
+						echo-json make -- "${properties[@]}" || return $?
+					fi
+					# good enough/
+					case "$option_which" in
+					'first'|'each') break ;;
+					esac
+				fi
+			done
+		done
+	}
 	function __setup__flatpak {
 		local args=() packages=("${FLATPAK[@]}") repos=("${FLATPAK_REPO[@]}") package repo
 
@@ -3383,6 +3487,20 @@ function setup_util() (
 	# -------------------------------------
 	# Windows
 
+	# annoying workaround for windows
+	local wsl_user_profile=''
+	function __windows_to_unix_path {
+		local wsl_path="$1"
+		if [[ ${wsl_path:0:1} == '~' ]]; then
+			if [[ -z $wsl_user_profile ]]; then
+				wsl_user_profile="$( { powershell.exe -NoProfile -NonInteractive -Command '$Env:UserProfile' || cmd.exe /c "echo %UserProfile%"; } | __workaround_carriage_returns)" || return $?
+			fi
+			wsl_path="$wsl_user_profile${wsl_path:1}"
+		fi
+		wsl_path="$(wslpath -au "$wsl_path")" || return $?
+		__print_lines "$wsl_path"
+	}
+
 	# scoop / Windows
 	# installs [.exe]s (via names) to a consistent path location
 	# https://scoop.sh/
@@ -3399,10 +3517,8 @@ function setup_util() (
 		if __command_exists -- jq; then
 			# `__jq` provided by `bash.bash`
 			scoop export | __do --discard-output -- __jq -er --arg Name "$package" '.apps[] | select(.Name == $Name)' || return $?
-			return $?
 		else
 			scoop list "$package" | grep --quiet --fixed-strings --regexp='----' || return $?
-			return $?
 		fi
 	}
 	function __are_any_of_these_scoop_packages_installed {
@@ -3432,6 +3548,78 @@ function setup_util() (
 		else
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
+	}
+	function __fetch_matching_from_scoop {
+		# returns rows of csv columns: name,version,source,updated,info
+		# `scoop list vivaldi`:
+		# ```
+		# Installed apps matching 'vivaldi':
+		# Name    Version     Source Updated             Info
+		# ----    -------     ------ -------             ----
+		# vivaldi 7.7.3851.67 extras 2026-01-10 06:59:54
+		# ```
+		local query="$1"
+		scoop list "$query" | echo-lines-after --pattern='---+' --stdin | grep --invert-match --extended-regexp --regexp='---+|^\s*$|:$' | tr -s ' ' ',' || return $?
+	}
+	function __get__scoop {
+		local rows=() row columns=() scoop_id scoop_version scoop_path scoop_details properties=()
+		# split rows into array
+		__split --target={rows} --no-zero-length --invoke=try -- \
+			__fetch_matching_from_scoop "$name" || return $?
+		# cycle rows
+		for row in "${rows[@]}"; do
+			# had a result
+			found='yes'
+			# split row into columns
+			__split --source={row} --target={columns} --delimiter=',' || return $?
+			scoop_id="${columns[0]}"
+			scoop_version="${columns[1]}"
+			# fetch path via `scoop which` and wsl conversion
+			# `scoop which vivaldi`:
+			# ```
+			# ~\scoop\apps\vivaldi\current\Application\vivaldi.exe
+			# ```
+			# `wslpath -au '~\scoop\apps\vivaldi\current\Application\vivaldi.exe':
+			# ```
+			# /home/balupton/~/scoop/apps/vivaldi/current/Application/vivaldi.exe
+			# ```
+			# ^ hence need for `__windows_to_unix_path` for correct resolution and handling `~`
+			scoop_path="$(scoop which "$scoop_id")" || return $?
+			scoop_path="$(__windows_to_unix_path "$scoop_path")" || return $?
+			# result into json object
+			if [[ $option_invoke == 'yes' ]]; then
+				"$scoop_path" "${option_args[@]}" || return $?
+			else
+				properties=(
+					source 'scoop'
+					id "$scoop_id"
+					name "$scoop_id"
+					version "$scoop_version"
+					path "$scoop_path"
+				)
+				# `scoop info vivaldi`:
+				# ```
+				# Name        : vivaldi
+				# Description : An innovatively designed web browser, based on Blink, for users in Vivaldi.net community that replaced departed My Opera.
+				# Version     : 7.7.3851.67
+				# Source      : extras
+				# Website     : https://vivaldi.com
+				# License     : BSD-3-Clause
+				# Updated at  : 7/01/2026 4:30:39 PM
+				# Updated by  : github-actions[bot]
+				# Installed   : 7.7.3851.67
+				# Binaries    : Application\vivaldi.exe
+				# Shortcuts   : Vivaldi
+				# ```
+				# scoop_details="$(scoop info "$scoop_id" | echo-trim-padding --stdin)" || return $?
+				# properties+=(details "$scoop_details")
+				echo-json make -- "${properties[@]}" || return $?
+			fi
+			# good enough?
+			case "$option_which" in
+			'first'|'each') break ;;
+			esac
+		done
 	}
 	function __setup__scoop {
 		local args=() packages=("${SCOOP[@]}") buckets=("${SCOOP_BUCKET[@]}")
@@ -3511,6 +3699,120 @@ function setup_util() (
 		else
 			: # for upgrade and install, dorothy has already determined if we are applicable
 		fi
+	}
+	function __fetch_matching_from_winget {
+		local query="$1" winget_rows=() row header_columns=() winget_name winget_id winget_version winget_source
+		# Winget returns carriage returns that erase, and for newlines.
+		# Winget has a header separator of ^---+\s*$`
+		# Winget headers can be one or more spaces separated
+		# Winget searches are also for descriptions it seems (see Telegram query example returning Beeper).
+		#
+		# e.g. `winget.exe list`:
+		# ````
+		# Name                                                                                       Id                                                       Version                Available     Source
+		# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+		# Windows Driver Package - Broadcom (B57ports) Net  (10/15/2012 1.0.0.3)                     ARP\Machine\X64\01396BB9E2633BC0DF02F4456D00791CEC0386A6 10/15/2012 1.0.0.3
+		# Windows Driver Package - Broadcom (BCM43XX) Net  (11/21/2016 7.35.118.68)                  ARP\Machine\X64\0E6EDF0776809A3E3271E36BBFC152665FC451FD 11/21/2016 7.35.118.68
+		# ```
+		#
+		# e.g. `winget.exe list --disable-interactivity --query=Telegram`:
+		# Name             Id                       Version Available Source
+		# ------------------------------------------------------------------
+		# Telegram Desktop Telegram.TelegramDesktop 6.3.9   6.8.2     winget
+		# Beeper 4.2.860   Beeper.Beeper            4.2.860 4.2.876   winget
+		# ```
+		#
+		# Interesting options are:
+		# `  -q,--query                      The query used to search for a package` (fuzzy)
+		# `  --id                            Filter results by id` (fuzzy)
+		# `  --name                          Filter results by name` (fuzzy)
+		# `  --moniker                       Filter results by moniker` (fuzzy)
+		# `  --upgrade-available             Lists only packages which have an upgrade available`
+		# `  --details                       Show detailed information about packages`
+		#
+		# With details:
+		# e.g. `winget.exe list --disable-interactivity --details --query=Telegram`:
+		# ```
+		# (1/2) Telegram Desktop [Telegram.TelegramDesktop]
+		# Version: 6.3.9
+		# Publisher: Telegram FZ-LLC
+		# Local Identifier: ARP\User\X64\{53F49750-6209-4FBF-9CA8-7A333C87D1ED}_is1
+		# Product Code: {53f49750-6209-4fbf-9ca8-7a333c87d1ed}_is1
+		# Installer Category: exe
+		# Installed Scope: User
+		# Installed Location: C:\Users\balup\AppData\Roaming\Telegram Desktop\
+		# Available Upgrades:
+		#   winget [6.8.2]
+		# (2/2) Beeper 4.2.860 [Beeper.Beeper]
+		# Version: 4.2.860
+		# Publisher: Automattic, Inc.
+		# Local Identifier: ARP\User\X64\4005ec12-b235-5981-b49e-4005d478a398
+		# Product Code: 4005ec12-b235-5981-b49e-4005d478a398
+		# Installer Category: exe
+		# Installed Scope: User
+		# Installed Architecture: X64
+		# Origin Source: winget
+		# Available Upgrades:
+		#   winget [4.2.876]
+		# ```
+		#
+		# There is also a more limited listing:
+		# E.g. `winget.exe show --query Telegram`:
+		# ```
+		# Multiple packages found matching input criteria. Please refine the input.
+		# Name                           Id                       Source
+		# ---------------------------------------------------------------
+		# Telegram for Windows (Unigram) 9N97ZCKPD60Q             msstore
+		# Telegram Desktop               Telegram.TelegramDesktop winget
+		# ```
+		#
+		# So fetch the rows:
+		__split --target={winget_rows} --no-zero-length --invoke -- \
+			__invoke_and_workaround_carriage_returns winget.exe list --disable-interactivity --query="$app" || return $?
+		# Convert the rows into columns, maintaining their trailing spaces, so we can use their values for column length
+		# Columns: Name, Id, Version, Available, Source
+		__split --target={header_columns} --no-zero-length --invoke -- \
+			echo-regexp -g --regexp='( +)' --replace=$'$1\n' -- "${winget_rows[0]}" || return $?
+		for row in "${winget_rows[@]:2}"; do
+			winget_name="${row:0:${#header_columns[0]}}"
+			winget_id="${row:${#header_columns[0]}:${#header_columns[1]}}"
+			winget_version="${row:${#header_columns[0]}+${#header_columns[1]}:${#header_columns[2]}}"
+			winget_source="${row:${#header_columns[0]}+${#header_columns[1]}+${#header_columns[2]}}"
+			# trim trailing spaces
+			__replace --source+target={winget_name} --trailing-whitespace --optional || return $?
+			__replace --source+target={winget_id} --trailing-whitespace --optional || return $?
+			__replace --source+target={winget_version} --trailing-whitespace --optional || return $?
+			__replace --source+target={winget_source} --trailing-whitespace --optional || return $?
+			# csv it
+			__print_lines "$winget_name,$winget_id,$winget_version,$winget_source" || return $?
+		done
+	}
+	function __get__winget {
+		if [[ $option_invoke == 'yes' ]]; then
+			# @todo handle this where if it is installed, we error
+			return 200 # ECUSTOM 200 Not applicable for this package system
+		fi
+		local rows=() row columns=() winget_name winget_id winget_version properties=()
+		__split --target={rows} --no-zero-length --invoke=try -- \
+			__fetch_matching_from_winget "$name" || return $?
+		for row in "${rows[@]}"; do
+			found='yes'
+			__split --source={row} --target={columns} --delimiter=',' || return $?
+			winget_name="${columns[0]}"
+			winget_id="${columns[1]}"
+			winget_version="${columns[2]}"
+			properties=(
+				source 'winget'
+				id "$winget_id"
+				name "$winget_name"
+				version "$winget_version"
+			)
+			echo-json make -- "${properties[@]}" || return $?
+			# good enough?
+			case "$option_which" in
+			'first'|'each') break ;;
+			esac
+		done
 	}
 	function __setup__winget {
 		local args=() opts=() package packages=("${WINGET[@]}")
@@ -3880,6 +4182,91 @@ function setup_util() (
 		# check if applicable
 		if [[ $option_action != 'uninstall' ]]; then
 			return 200
+		fi
+	}
+	function __get__generic {
+		local app name app_extensions extension replace_options app_paths app_path success='no' found
+		for app in "${option_apps[@]}"; do
+			name='' bin_extensions=() app_extensions=() replace_options=() app_paths=() found='no'
+			if [[ -z $app ]]; then
+				return 22 # EINVAL 22 Invalid argument
+			fi
+			# remove suffixes from name
+			if [[ $system == 'macos' ]]; then
+				app_extensions+=('app')
+			elif [[ $system == 'windows' ]]; then
+				bin_extensions+=('exe')
+				app_extensions+=('exe')
+			elif [[ $system == 'linux' ]]; then
+				app_extensions+=('desktop')
+				if [[ $appimage == 'yes' ]]; then
+					app_extensions+=('appimage' 'Appimage' 'AppImage' 'appImage') # case-sensitive filesystems
+				fi
+			fi
+			for extension in "${bin_extensions[@]}" "${app_extensions[@]}"; do
+				replace_options+=("--suffix=.$extension")
+			done
+			__replace --source={app} --target={name} --optional "${replace_options[@]}"
+			# iterate through PATH
+			if [[ $sources == *'[bins]'* ]]; then
+				# which doing executable scans, also search just for the name, as apps usually have a corresponding CLI, e.g.
+				# /usr/bin/vivaldi
+				# /usr/bin/vivaldi
+				# /usr/sbin/vivaldi
+				# /sbin/vivaldi
+				# /bin/vivaldi
+				__split --target={app_paths} --append --no-zero-length --invoke=try -- \
+					__get_bin_paths "$name"
+			fi
+			# iterate through apps
+			# only fetch if necessary as is slow
+			if [[ ! ($option_which == 'first' && ${#app_paths[@]} -ne 0) && $sources == *'[apps]'* ]]; then
+				__split --target={app_paths} --append --no-zero-length --invoke=try -- \
+					__get_app_paths "$name"
+			fi
+			# cycle through app paths
+			for app_path in "${app_paths[@]}"; do
+				# app was found
+				found='yes'
+				if [[ -n $option_output ]]; then
+					local app_name app_id
+					if [[ $app_path == *.app ]]; then
+						# @todo add version
+						app_name="$(defaults read "$app_path/Contents/Info.plist" CFBundleName || :)"
+						app_id="$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier || :)"
+					elif [[ $app_path == *.desktop ]]; then
+						# @todo add version
+						app_name="$(config-helper --path="$app_path" -- --field='Name' || :)"
+						app_id="$(fs-path --no-parents --no-extensions -- "$app_path")"
+					else
+						app_name="$(fs-path --no-parents -- "$app_path")"
+					fi
+					case "$option_output" in
+					'details') __dump {name} {app_name} {app_id} {app_path} ;;
+					'input') __print_lines "$app" ;;
+					'name') __print_lines "$app_name" ;;
+					'id') __print_lines "${app_id:-"$app_name"}" ;;
+					'path') __print_lines "$app_path" ;;
+					esac
+				fi
+				if [[ $option_invoke == 'yes' ]]; then
+					open -a "$app_path" "${option_args[@]}" # eval
+				fi
+				case "$option_which" in
+				'first') return 0 ;;
+				'each') break 2 ;;
+				esac
+			done
+			# handle found or not found
+			if [[ $found == 'yes' ]]; then
+				success='yes'
+			elif [[ $option_need == 'all' ]]; then
+				return 3 # ESRCH 3 No such process
+			fi
+		done
+		# did we find anything?
+		if [[ $success == 'no' && $option_need != 'optional' ]]; then
+			return 3 # ESRCH 3 No such process
 		fi
 	}
 	function __setup__generic {
