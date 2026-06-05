@@ -281,7 +281,6 @@ function setup_util_bash() (
 		done
 
 		# @todo support uninstall
-		source "$(type -P setup-util)" # enable *_EVAL
 		for version in "${versions[@]}"; do
 			util_options=(
 				--cli="bash-$version"
@@ -297,12 +296,14 @@ function setup_util_bash() (
 		return 0
 	fi
 
-	# prevent crashes
+	# prevent crashes and perform checks
 	if [[ ${RELOADED_IN_SYSTEM_BASH-} != 'yes' ]]; then
 		# bash is not outdated, and we can exit early
-		if ! __is_bash_outdated && setup-util check --cli=bash "${setup_options[@]}"; then
-			return 0
+		if ! __is_bash_outdated && setup-util is-shallow --cli=bash "${setup_options[@]}"; then
+			setup-uti shallow --cli=bash "${setup_options[@]}" || return $?
+			return $?
 		fi
+
 		# continue
 		if __is_macos && [[ -x '/bin/bash' ]]; then
 			# reload in system bash to prevent modification crashing us
@@ -313,7 +314,6 @@ function setup_util_bash() (
 	fi
 
 	# process
-	source "$(type -P setup-util)" # enable *_EVAL
 	util_options=(
 		--cli='bash'
 		APK='bash'
@@ -381,56 +381,62 @@ function setup_util_bash() (
 	fi
 
 	# determine action
-	local want_uninstall='no'
-	if setup-util want-uninstall "${setup_options[@]}"; then
-		want_uninstall='yes'
-	fi
-
-	# if bash not upgraded, try using recommended sources to upgrade
-	if [[ $want_uninstall != 'yes' ]] && __is_bash_outdated; then
-		setup_util "${util_options[@]}" "${setup_options[@]}" upgrade
+	if ! setup-util is-setup "${setup_options[@]}"; then
+		# non-install/uninstall
+		setup-util "${util_options[@]}" "${setup_options[@]}"
 	else
-		setup_util "${util_options[@]}" "${setup_options[@]}"
-	fi
+		# install/uninstall
+		if setup-util is-uninstall "${setup_options[@]}"; then
+			setup_util "${util_options[@]}" "${setup_options[@]}"
+		else
+			# if outdated, then force upgrade
+			if __is_bash_outdated; then
+				setup_util upstall "${util_options[@]}"
+			else
+				setup_util "${util_options[@]}" "${setup_options[@]}"
+			fi
 
-	# reload environment, so that bash modifications are detected
-	source "$DOROTHY/sources/environment.sh" || return $?
+			# reload environment, so that bash modifications are detected
+			source "$DOROTHY/sources/environment.sh" || return $?
 
-	# if bash still not upgraded, use the download source to upgrades
-	if [[ $want_uninstall != 'yes' ]] && __is_bash_outdated; then
-		setup_util "${util_options[@]}" "${setup_options[@]}" upgrade --source='download'
-	fi
+			# if still outdated, force upgrade via download
+			if __is_bash_outdated; then
+				setup_util upstall --source='download' "${util_options[@]}"
+			fi
+		fi
 
-	# setup bash completions
-	# https://github.com/scop/bash-completion
-	util_options=(
-		--optional
-		--no-fallback
-		--name='Bash Completions'
-		APK='bash-completion'
-		APT='bash-completion'
-		AUR='bash-completion'
-		BREW='bash-completion'
-		RPM='bash-completion'
-		ZYPPER='bash-completion'
-	)
-	setup_util "${util_options[@]}" "${setup_options[@]}"
+		# install/uninstall bash completions
+		# https://github.com/scop/bash-completion
+		local sub_util_options=(
+			--dependency
+			--optional
+			--no-fallback
+			--name='Bash Completions'
+			APK='bash-completion'
+			APT='bash-completion'
+			AUR='bash-completion'
+			BREW='bash-completion'
+			RPM='bash-completion'
+			ZYPPER='bash-completion'
+		)
+		setup_util "${sub_util_options[@]}" "${setup_options[@]}"
 
-	# if we are reactive, allow shell modification
-	if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
-		# if the login shell is outdated bash, and if the new bash is installed, then update the login shell to the newer bash
-		# @todo figure out how this works if login shell is the now uninstall bash
-		local login_shell bash_shell
-		login_shell="${SHELL-}"
-		bash_shell="$(type -P bash)"
-		if [[ -n $login_shell ]]; then
-			login_shell_name="$(basename -- "$login_shell")"
-			if [[ $login_shell_name == 'bash' && $login_shell != "$bash_shell" ]]; then
-				login_shell_version="$("$login_shell" -c -- 'printf "%s\n" "$BASH_VERSION"')"
-				bash_shell_version="$("$bash_shell" -c -- 'printf "%s\n" "$BASH_VERSION"')"
-				if [[ $login_shell_version != "$bash_shell_version" ]]; then
-					if confirm --positive --ppid=$$ -- "Upgrade your login shell from bash $login_shell $login_shell_version to $bash_shell $bash_shell_version ?"; then
-						setup-shell "$bash_shell"
+		# if we are reactive, allow shell modification
+		if [[ $IS_STDIN_OPENED_ON_TERMINAL == 'yes' ]]; then
+			# if the login shell is outdated bash, and if the new bash is installed, then update the login shell to the newer bash
+			# @todo figure out how this works if login shell is the now uninstall bash
+			local login_shell bash_shell
+			login_shell="${SHELL-}"
+			bash_shell="$(type -P bash)"
+			if [[ -n $login_shell ]]; then
+				login_shell_name="$(basename -- "$login_shell")"
+				if [[ $login_shell_name == 'bash' && $login_shell != "$bash_shell" ]]; then
+					login_shell_version="$("$login_shell" -c -- 'printf "%s\n" "$BASH_VERSION"')"
+					bash_shell_version="$("$bash_shell" -c -- 'printf "%s\n" "$BASH_VERSION"')"
+					if [[ $login_shell_version != "$bash_shell_version" ]]; then
+						if confirm --positive --ppid=$$ -- "Upgrade your login shell from bash $login_shell $login_shell_version to $bash_shell $bash_shell_version ?"; then
+							setup-shell "$bash_shell"
+						fi
 					fi
 				fi
 			fi

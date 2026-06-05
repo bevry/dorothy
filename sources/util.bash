@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 source "$DOROTHY/sources/bash.bash"
-# source "$(type -P setup-util)" # enable *_EVAL
 # trunk-ignore(shellcheck/SC2168,shellcheck/SC2034)
 local setup_options=("$@") util_options=()
+
+function setup_util {
+	source "$(type -P setup-util)" # enable *_EVAL
+	setup_util "$@"
+}
 
 # __symlink_app_cli <app> ...[<existing> <symlink>]
 function __symlink_app_cli {

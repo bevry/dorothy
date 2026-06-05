@@ -2,8 +2,7 @@
 
 function setup_util_node() (
 	source "$DOROTHY/sources/util.bash"
-	source "$(type -P eval-helper)" # enable `install_nvm_node`
-	source "$(type -P setup-util)"  # enable *_EVAL
+	source "$(type -P eval-helper)" # enable `__install_nvm_node`
 	util_options=(
 		--cli='node'
 		--configured-eval='node_configure'
@@ -78,25 +77,22 @@ function setup_util_node() (
 			# ecosystem
 			if [[ $SETUP_UTIL__EXTRA == 'yes' ]]; then
 				# Packages via npm
-				if [[ ${#NPM_INSTALL[@]} -ne 0 ]]; then
-					__print_style --h3="Install ${#NPM_INSTALL[@]} npm packages" || return $?
-					setup-util install --transpose=NODE -- "${NPM_INSTALL[@]}" || return $?
-					__print_style --g3="Install ${#NPM_INSTALL[@]} npm packages" || return $?
+				if [[ ${#MAS_INSTALL[@]} -ne 0 ]]; then
+					setup-util --transpose=NPM -- "${NPM_INSTALL[@]}" || return $?
 				fi
 
 				# Additional Node.js versions
 				if [[ ${#NODE_VERSIONS[@]} -ne 0 ]]; then
-					__print_style --h3="Install ${#NODE_VERSIONS[@]} additional Node.js versions" || return $?
-					setup-util install --transpose=NVM -- "${NODE_VERSIONS[@]}" || return $?
-					__print_style --g3="Install ${#NODE_VERSIONS[@]} additional Node.js versions" || return $?
+					setup-util --transpose=NVM -- "${NODE_VERSIONS[@]}" || return $?
 				fi
 			fi
 		fi
 	}
 
-	# improve performance for detectable utilities when fetching asset configuration
-	if setup-util check "${util_options[@]}" "${setup_options[@]}"; then
-		return 0
+	# skip costly operations and fetches on shallow actions
+	if setup-util is-shallow "${util_options[@]}" "${setup_options[@]}"; then
+		setup-util shallow "${util_options[@]}" "${setup_options[@]}" || return $?
+		return $?
 	fi
 
 	# =====================================
@@ -128,75 +124,82 @@ function setup_util_node() (
 		[[ ${#versions[@]} -eq 0 ]] || return $?
 	}
 
-	function clean_otherwise_wipe_nvm {
+	function __clean_otherwise_wipe_nvm {
 		# clean only what is necessary
-		__print_style --h3='Clean Node.js versions and packages'
+		__print_style --h3='Clean Node.js versions and packages' || return $?
 		if __clean_nvm; then
-			__print_style --g3='Clean Node.js versions and packages'
+			__print_style --g3='Clean Node.js versions and packages' || return $?
 		else
 			# nvm buggered, clean it all
 			__print_style --e3='Clean Node.js versions and packages' --newline \
-				--h3='Clean Node.js Version Manager (NVM) instead'
-			setup-util-nvm uninstall
-			__print_style --g3='Clean Node.js Version Manager (NVM) instead'
+				--h3='Clean Node.js Version Manager (NVM) instead' || return $?
+			setup-util-nvm uninstall || return $?
+			__print_style --g3='Clean Node.js Version Manager (NVM) instead' || return $?
 		fi
 	}
 
-	function install_nvm_node {
+	function __install_nvm_node {
 		# install
-		nvm-env -- nvm install --no-progress node  # latest active
-		nvm-env -- nvm install --no-progress --lts # latest LTS
+		nvm-env -- nvm install --no-progress node || return $?  # latest active
+		nvm-env -- nvm install --no-progress --lts || return $? # latest LTS
 
 		# set default node version
 		if __is_brew; then
-			nvm-env -- nvm alias default system
+			nvm-env -- nvm alias default system || return $?
 		else
 			# use latest lts
-			nvm-env -- nvm alias default stable
+			nvm-env -- nvm alias default stable || return $?
 			# use current lts: "$(nvm version-remote --lts)"
 		fi
 	}
 
-	function setup_system_node {
+	function __setup_system_node {
 		# https://deb.nodesource.com
 		# `libatomic1` as otherwise `node: error while loading shared libraries: libatomic.so.1: cannot open shared object file: No such file or directory` when using to fetch version numbers during npm upgrade
-		setup-util --name='Node.js via System' --cli=node "$@" \
-			APK='nodejs' APK='npm' \
-			APT_KEY='https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key' \
-			APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://deb.nodesource.com/node_22.x nodistro main' \
-			APT='nodejs' APT='libatomic1' \
-			AUR='nodejs' AUR='npm' \
-			BREW='node' \
-			BSD='nodejs' \
-			EMERGE='nodejs' \
-			EOPKG='nodejs' \
-			RPM='nodejs' \
-			SCOOP='nodejs' \
-			SNAP='node --classic' \
-			WINGET='OpenJS.NodeJS' \
-			XBPS='nodejs' \
+		local sub_util_options=(
+			--name='Node.js via System' --cli=node
+			APK='nodejs' APK='npm'
+			APT_KEY='https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key'
+			APT_REPO='deb [arch={ARCH} signed-by={KEY}] https://deb.nodesource.com/node_22.x nodistro main'
+			APT='nodejs' APT='libatomic1'
+			AUR='nodejs' AUR='npm'
+			BREW='node'
+			BSD='nodejs'
+			EMERGE='nodejs'
+			EOPKG='nodejs'
+			RPM='nodejs'
+			SCOOP='nodejs'
+			SNAP='node --classic'
+			WINGET='OpenJS.NodeJS'
+			XBPS='nodejs'
 			ZYPPER='nodejs'
+		) sub_setup_options=("$@")
+		setup-util "${sub_util_options[@]}" "${sub_setup_options[@]}" || return $?
 	}
 
-	function upgrade_system_or_nvm_npm {
+	function __upgrade_system_or_nvm_npm {
 		# ensure the cache is configured correctly
 		# to avoid when say a /Users/... cache config is copied to a Linux machine
 		local cache_dir
 		cache_dir="$(nvm-env -- npm config get cache || :)"
 		if [[ -n $cache_dir && ! -d $cache_dir ]]; then
 			# try and make it
-			__mkdirp "$cache_dir" || {
+			if ! __mkdirp "$cache_dir"; then
 				__print_style --notice='Unconfiguring the invalid cache directory:' ' ' --code="$cache_dir" || return $?
 				nvm-env -- npm config delete cache || return $?
-			} || return $?
+			fi
 		fi
 
 		# continue with the upgrade
-		__print_style --dim="Before: v$(nvm-env -- npm --version)"
-		setup-util upstall --name='npm' --force --quiet \
-			NPM='npm' || __print_style --notice='You can ignore the npm upgrade failure, this will resolve after nvm is used.'
-		nvm-env -- npm cache clean --force 2>/dev/null # silent --force warning
-		__print_lines "After:  v$(nvm-env -- npm --version)"
+		local nvm_npm_version
+		nvm_npm_version="$(nvm-env -- npm --version)" || return $?
+		__print_style --dim="Before: v${nvm_npm_version}" || return $?
+		if ! setup-util upstall --name='npm' --force --quiet NPM='npm'; then
+			__print_style --notice='You can ignore the npm upgrade failure, this will resolve after nvm is used.' || return $?
+		fi
+		nvm-env -- npm cache clean --force 2>/dev/null || return $? # silent --force warning
+		nvm_npm_version="$(nvm-env -- npm --version)" || return $?
+		__print_lines "After:  v${nvm_npm_version}" || return $?
 	}
 
 	# =====================================
@@ -208,10 +211,10 @@ function setup_util_node() (
 
 		# https://nodejs.org/en/download/package-manager/
 		# @todo https://github.com/nodejs/unofficial-builds for riscv, but provides tars that include multiple directories
-		__print_style --h2='Install Node.js via System'
-		setup_system_node --install --force --quiet
-		__print_lines "Installed: $(node --version)"
-		__print_style --g2='Install Node.js via System'
+		__print_style --h2='Install Node.js via System' || return $?
+		__setup_system_node --install --force --quiet || return $?
+		__print_lines "Installed: $(node --version)" || return $?
+		__print_style --g2='Install Node.js via System' || return $?
 
 		# =====================================
 		# Clean NVM
@@ -221,7 +224,7 @@ function setup_util_node() (
 		# we use a configuration variable to change this, as interrupting the flow and asking the user creates too much confusion
 		# as such a question is only necessary to experienced users
 		if [[ -d ${NVM_DIR-} ]]; then
-			clean_otherwise_wipe_nvm
+			__clean_otherwise_wipe_nvm || return $?
 		fi
 
 		# =====================================
@@ -231,33 +234,33 @@ function setup_util_node() (
 		# > mode no such file or directory
 		if ! is-system --alpine; then
 			# install nvm
-			__print_style --h2='Install Node.js Version Manager (NVM)'
-			setup-util-nvm upstall
-			__print_style --g2='Install Node.js Version Manager (NVM)'
+			__print_style --h2='Install Node.js Version Manager (NVM)' || return $?
+			setup-util-nvm upstall || return $?
+			__print_style --g2='Install Node.js Version Manager (NVM)' || return $?
 
 			# nvm node
-			__print_style --h2='Install Node.js via NVM'
-			__print_style --dim='Installs active and LTS versions.'
+			__print_style --h2='Install Node.js via NVM' || return $?
+			__print_style --dim='Installs active and LTS versions.' || return $?
 			eval_helper --quiet --no-wrap -- \
-				install_nvm_node
+				__install_nvm_node
 			local versions=()
 			__split --target={versions} --no-zero-length --invoke -- \
-				__get_nvm_versions
+				__get_nvm_versions || return $?
 			for version in "${versions[@]}"; do
-				__print_lines "Installed: v$version"
+				__print_lines "Installed: v$version" || return $?
 			done
-			__print_style --g2='Install Node.js via NVM'
+			__print_style --g2='Install Node.js via NVM' || return $?
 		fi
 
 		# =====================================
 		# Upgrade npm
 
-		__print_style --h3='Upgrade npm'
-		upgrade_system_or_nvm_npm
+		__print_style --h3='Upgrade npm' || return $?
+		__upgrade_system_or_nvm_npm || return $?
 		__print_style --g3='Upgrade npm'
 	}
 	function node_uninstall {
-		setup_system_node --uninstall
+		__setup_system_node --uninstall
 		__wipe_nvm
 	}
 

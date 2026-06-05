@@ -116,6 +116,9 @@ Used to signal to the caller that the action was not performed, and might be fin
 - Doing an operation on a utility, that is unnecessary, as the utility is already in the desired state.
 - Doing an operation on a path, such a mount path, that is already in the desired state.
 
+ECUSTOM 201 Not applicable yet as requires fallback installation
+Used by `setup-util` to signal the source requires to be installed before it can install packages.
+
 ECUSTOM 210 Processing complete, exit early
 
 ECUSTOM 220 Expectation mismatch
