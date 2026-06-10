@@ -124,7 +124,7 @@ Previously supported, but support broke.
 [UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 -->
 
-Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
+Other platforms may or may not be supported. [Gentoo, Mageia, Nix, Solaris, Solus are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
 ### Dependencies
 
@@ -158,21 +158,21 @@ wsl.exe --list --verbose
 # wsl.exe --unregister Debian # do not use --uninstall, that removes WSL
 ```
 
-Ubuntu / Debian / Kali:
+Ubuntu, Debian, Devuan, Elementary, Kali, Raspberry Pi OS, Vanilla:
 
 ```bash
 sudo apt-get update
 sudo apt-get install bash curl
 ```
 
-Fedora:
+Fedora, AlmaLinux, OpenEuler, OpenMandriva:
 
 ```bash
 dnf check-update
 dnf --refresh --best install bash curl
 ```
 
-OpenSUSE / SUSE:
+OpenSUSE, SUSE:
 
 ```bash
 zypper --gpg-auto-import-keys refresh
@@ -182,8 +182,8 @@ zypper install bash curl
 Alpine:
 
 ```bash
-doas apk update
-doas apk add bash curl
+apk update
+apk add bash curl
 ```
 
 Manjaro:
@@ -192,19 +192,21 @@ Manjaro:
 pamac install bash curl
 ```
 
-Arch:
+Arch, CachyOS:
 
 ```bash
 pacman-key --init
 pacman --refresh --sync --needed bash curl
 ```
 
+<!--
 Void:
 
 ```bash
 xbps-install --sync --update xbps
 xbps-install --sync bash curl
 ```
+-->
 
 #### Requisites
 
