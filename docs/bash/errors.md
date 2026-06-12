@@ -122,6 +122,9 @@ Used by `setup-util` to signal the source is already in its desired state
 ECUSTOM 202 Not applicable yet as requires fallback installation
 Used by `setup-util` to signal the source requires to be installed before it can install packages
 
+ECUSTOM 203 Not applicable as not installed
+Used by `setup-util` to singal the source cannot upgrade the package as it is not installed
+
 ECUSTOM 210 Processing complete, exit early
 
 ECUSTOM 220 Expectation mismatch

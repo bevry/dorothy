@@ -144,10 +144,10 @@ function setup_util() (
 		# https://wiki.manjaro.org/index.php/Arch_User_Repository
 		# https://itsfoss.com/paru-aur-helper/
 		# https://itsfoss.com/best-aur-helpers/
-		yay      # GUI, go, wraps pacman: https://github.com/Jguer/yay
-		paru     # CLI, rust, wraps pacman: https://github.com/Morganamilo/paru
-		pakku    # CLI, nim, wraps pacman: https://github.com/kitsunyan/pakku
-		aurutils # CLI, shell, wraps pacman: https://github.com/AladW/aurutils
+		# yay      # GUI, go, wraps pacman: https://github.com/Jguer/yay
+		# paru     # CLI, rust, wraps pacman: https://github.com/Morganamilo/paru
+		# pakku    # CLI, nim, wraps pacman: https://github.com/kitsunyan/pakku
+		# aurutils # CLI, shell, wraps pacman: https://github.com/AladW/aurutils
 
 		# +precompiled -autoupdate +extras
 		#appimage # our own appimage support, dependencies are within
@@ -1005,9 +1005,67 @@ function setup_util() (
 		eval-helper --elevate -- "$@" || return $?
 	}
 
+	# For `setup-util upgrade`, we need to distinguish between packages that were not upgraded because they were already up-to-date, and packages that were not upgraded because they were uninstalled. This distinctio nis important, because if it is installed and already up to date, that is a success case for the source, and if none of the sources were able to upgrade because none of them have the package installed, then that is a failure case.
+	local packages_unable_to_upgrade_as_uninstalled=()
+	function __log_unable_to_upgrade_package {
+		local package packages=("$@")
+		for package in "${packages[@]}"; do
+			packages_unable_to_upgrade_as_uninstalled+=("$SETUP_UTIL__SOURCE:$package")
+		done
+	}
+
 	function __source_unsupported_action {
 		return 78 # NOSYS 78 Function not implemented
 	}
+	function __source_unsupported_check {
+		return 14 # EFAULT 14 Bad address
+	}
+
+	function __check {
+		# inherits {SETUP_UTIL__SOURCE}
+		local __checker="__check__${SETUP_UTIL__SOURCE}"
+		eval "$__checker \"\$@\"" || return $?
+	}
+	function __all_installed_to_any {
+		# inherits {SETUP_UTIL__SOURCE}
+		local package packages=("$@")
+		for package in "${packages[@]}"; do
+			if __check all-installed "$package"; then
+				return 0
+			fi
+		done
+		return 1
+	}
+	function __all_installed_to_none {
+		# inherits {SETUP_UTIL__SOURCE}
+		local packages=("$@")
+		if __check all-installed "${packages[@]}"; then
+			return 1
+		else
+			return 0
+		fi
+	}
+	function __applicable {
+		# inherits {SETUP_UTIL__SOURCE} {packages} {search}
+		case "$option_action"; in
+		'install' | 'upstall' | 'upgrade' | 'uninstall')
+			if [[ ${#packages[@]} -eq 0 ]]; then
+				return 200 # ECUSTOM 200 Not applicable to this utility
+			fi
+			;;
+		'installed') : ;; # all good, action doesn't require packages
+		'search')
+			if [[ ${#search[@]} -eq 0 ]]; then
+				return 200 # ECUSTOM 200 Not applicable to this utility
+			fi
+			;;
+		*) __source_unsupported_action || return $? ;;
+		esac
+		if __command_missing -- "$SETUP_UTIL__SOURCE"; then
+			return 200 # ECUSTOM 200 Not applicable for this package system
+		fi
+	}
+
 
 	# -------------------------------------
 	# Alpine
@@ -1024,121 +1082,61 @@ function setup_util() (
 	# `-e` checks for installed packages
 	# `--fields name,version` only works with `--format <json|yaml>` and becomes incompatible with `-e`
 	# however, `apk query` supports `--fields` and even with `--format <default|json|yaml>` and with `--installed` (instead of `-e`) but always returns `0` exit status
-	function __are_any_of_these_apk_packages_installed {
-		local package packages=("$@")
-		# returns 1 if any are missing
-		for package in "${packages[@]}"; do
-			if apk info -e "$package" &>/dev/null; then
-				return 0
-			fi
-		done
-		return 1
-	}
-	function __are_all_of_these_apk_packages_installed {
+	function __check__apk {
+		local check="$1"
+		shift
 		local packages=("$@")
-		apk info -e "${packages[@]}" &>/dev/null || return 1
-	}
-	function __are_none_of_these_apk_packages_installed {
-		if __are_any_of_these_apk_packages_installed "$@"; then
-			return 1
-		else
-			return 0
-		fi
+		case "$check" in
+		'all-installed') apk info -e "${packages[@]}" &>/dev/null || return 1 ;;
+		'any-installed') __all_installed_to_any "${packages[@]}" || return $? ;;
+		'none-installed') __all_installed_to_none "${packages[@]}" || return $? ;;
+		*) __source_unsupported_check || return $? ;;
+		esac
 	}
 	function __setup__apk {
 		local cmd=() packages=("${APK[@]}") repo="$APK_REPO"
+		local search="(${packages[@]}" "${option_search[@]}")
 
 		# applicability
-		case "$option_action"; in
-		'install' | 'upstall' | 'upgrade' | 'uninstall')
-			if [[ ${#packages[@]} -eq 0 ]]; then
-				return 200 # ECUSTOM 200 Not applicable to this utility
-			fi
-			;;
-		'installed') : ;; # all good, action doesn't require packages
-		'search')
-			if [[ ${#packages[@]} -eq 0 ]]; then
-				return 200 # ECUSTOM 200 Not applicable to this utility
-			fi
-			;;
-		*) __source_unsupported_action || return $? ;;
-		esac
-		if __command_missing -- apk; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-		if [[ $CHECK_APPLICABLE == 'yes' ]]; then
-			case "$option_action" in
+		__applicable || return $?
+		if [[ $SETUP_UTIL__DEEP_APPLICABILITY == 'yes' ]]; then
+			case "$option_action"; in
 			'uninstall')
-				if __are_none_of_these_apk_packages_installed "${packages[@]}"; then
+				if __check none-installed "${packages[@]}"; then
 					return 201 # ECUSTOM 201 Not applicable as already in desired state
 				fi
 				;;
 			'install')
-				if __are_all_of_these_apk_packages_installed "${packages[@]}"; then
+				if __check all-installed "${packages[@]}"; then
 					return 201 # ECUSTOM 201 Not applicable as already in desired state
-				fi
 				;;
 			esac
 			return 0
 		fi
 
 		# action
+		# @todo should installed and search have deep checks?
 		case "$option_action"; in
-		'uninstall')
-			cmd+=(apk del)
-			;;
-		'installed')
-			# packages optional
-			# name, version, description, url, installed-size
-			cmd+=(apk info --format json "${packages[@]}" "${option_search[@]}")
-			;;
-		'search')
-			# name, version, description, arch, license, origin, url, file-size
-			cmd+=(apk --update-cache query --format json "${packages[@]}" "${option_search[@]}")
-			;;
+		'uninstall') cmd=(apk del "${packages[@]}") ;;
+		# info returns: name, version, description, url, installed-size
+		'installed') cmd=(apk info --format json "${search[@]}") ;;
+		# query returns: name, version, description, arch, license, origin, url, file-size
+		'search') cmd=(apk --update-cache query --format json "${search[@]}") ;;
 		*)
-			cmd+=(apk ---update-cache)
+			cmd=(apk ---update-cache)
 			if [[ -n $repo ]]; then
 				apk+=(--repository "$repo")
 			fi
 			case "$option_action" in
-			'install')
-				if [[ $CHECK_APPLICABLE == 'yes' ]]; then
-					return 0
-				fi
-				cmd+=(apk --update-cache add)
-				;;
-			'upstall')
-				if [[ $CHECK_APPLICABLE == 'yes' ]]; then
-					return 0
-				fi
-				cmd+=(apk --update-cache add --upgrade)
-				;;
-			'upgrade')
-				if [[ $CHECK_APPLICABLE == 'yes' ]]; then
-					return 0
-				fi
-				cmd+=(apk --update-cache upgrade)
-				;;
+			# @todo add tests to ensure these operate to expected exit statuses on edge cases, like pacman
+			'install') cmd=(--update-cache add "${packages[@]}" ) ;;
+			'upstall') cmd=(--update-cache add --upgrade "${packages[@]}" ) ;;
+			'upgrade') cmd=(--update-cache upgrade "${packages[@]}" ) ;;
 			*) __source_unsupported_action || return $? ;;
 			esac
 		esac
-		__elevate -- "${cmd[@]}" "${packages[@]}" || return $?
+		__elevate -- "${cmd[@]}" || return $?
 	}
-
-	# -------------------------------------
-	# Conda; is a subset of Anaconda, but is not Anaconda; is used for Python package management
-
-	# conda / miniconda / miniforge
-	# https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html
-	# https://docs.conda.io/projects/conda/en/latest/commands/index.html
-	# https://docs.conda.io/projects/conda/en/latest/commands/install.html
-	# https://docs.conda.io/projects/conda/en/latest/commands/remove.html
-	# https://docs.conda.io/projects/conda/en/latest/commands/update.html
-
-	# Implementation not yet updated for modern conventions, and without any CI testing.
-	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
-	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
 
 	# -------------------------------------
 	# AUR, Arch Linux
@@ -1151,150 +1149,182 @@ function setup_util() (
 	# aurutils / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
 	# https://github.com/AladW/aurutils
-	function __setup__aurutils {
-		local args=() packages=() package
-		if [[ ${#AURUTILS[@]} -ne 0 ]]; then
-			packages+=("${AURUTILS[@]}")
-		elif [[ ${#AUR[@]} -ne 0 ]]; then
-			packages+=("${AUR[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- aurutils; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-
-		# args
-		if [[ $option_action == 'uninstall' ]]; then
-			return 78 # NOSYS 78 Function not implemented
-		else
-			# install / upgrade
-			args+=(
-				'aurutils'
-				'-Sy'
-			)
-		fi
-
-		# packages
-		for package in "${packages[@]}"; do
-			eval-helper --elevate -- "${args[@]}" "$package" || return $?
-		done
-	}
+	#
+	# Implementation not yet updated for modern conventions, and without any CI testing.
+	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
+	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
 
 	# pacman / Arch Linux / Manjaro
-	function __are_any_of_these_pacman_packages_installed {
-		local package packages=("$@")
-		# returns 1 if any are missing
-		for package in "${packages[@]}"; do
-			if pacman -Q "$package" &>/dev/null; then
-				return 0
+	# https://archlinux.org/pacman/pacman.8.html
+	# -Q, --query: Query the package database. This operation allows you to view installed packages and their files, as well as meta-information about individual packages (dependencies, conflicts, install date, build date, size). This can be run against the local package database or can be used on individual package files. In the first case, if no package names are provided in the command line, all installed packages will be queried. Additionally, various filters can be applied on the package list. See Query Options below.
+	# -S, --sync: Synchronize packages. Packages are installed directly from the remote repositories, including all dependencies required to run the packages.
+	# -R, --remove: Either a URL or file path can be specified. This is a “remove-then-add” process.
+	# --needed: Do not reinstall the targets that are already up-to-date.
+	# -U, --upgrade: Upgrade or add package(s) to the system and install the required dependencies from sync repositories.
+	#
+	# OPTIONS
+	# --noconfirm: Bypass any and all “Are you sure?” messages. It’s not a good idea to do this unless you want to run pacman from a script.
+	#
+	# TRANSACTION OPTIONS (APPLY TO -S, -R AND -U):
+	# --noprogressbar: Do not show a progress bar when downloading files. This can be useful for scripts that call pacman and capture the output.
+	# -p, --print: Only print the targets instead of performing the actual operation (sync, remove or upgrade). Use --print-format to specify how targets are displayed. The default format string is "%l", which displays URLs with -S, file names with -U, and pkgname-pkgver with -R.
+	# --print-format <format>: Specify a printf-like format to control the output of the --print operation. The possible attributes are: "%a" for arch, "%b" for builddate, "%d" for description, "%e" for pkgbase, "%f" for filename, "%g" for base64 encoded PGP signature, "%h" for sha256sum, "%m" for md5sum, "%n" for pkgname, "%p" for packager, "%v" for pkgver, "%l" for location, "%r" for repository, "%s" for size, "%C" for checkdepends, "%D" for depends, "%G" for groups, "%H" for conflicts, "%L" for licenses, "%M" for makedepends, "%O" for optional depends, "%P" for provides and "%R" for replaces. Implies --print.
+	#
+	# UPGRADE OPTIONS (APPLY TO -S AND -U):
+	# --needed: Do not reinstall the targets that are already up-to-date.
+	#
+	# QUERY OPTIONS (APPLY TO -Q):
+	# -c, --changelog: View the ChangeLog of a package if it exists.
+	# -i, --info: Display information on a given package. The -p option can be used if querying a package file instead of the local database. Passing two --info or -i flags will also display the list of backup files and their modification states.
+	# -k, --check: Check that all files owned by the given package(s) are present on the system. If packages are not specified or filter flags are not provided, check all installed packages. Specifying this option twice will perform more detailed file checking (including permissions, file sizes, and modification times) for packages that contain the needed mtree file.
+	# -q, --quiet: Show less information for certain query operations. This is useful when pacman’s output is processed in a script. Search will only show package names and not version, group, and description information; owns will only show package names instead of "file is owned by pkg" messages; group will only show package names and omit group names; list will only show files and omit package names; check will only show pairs of package names and missing files; a bare query will only show package names rather than names and versions.
+	# -s, --search <regexp>: Search each locally-installed package for names or descriptions that match regexp. When including multiple search terms, only packages with descriptions matching ALL of those terms are returned.
+	# -u, --upgrades: Restrict or filter output to packages that are out-of-date on the local system. Only package versions are used to find outdated packages; replacements are not checked here. This option works best if the sync database is refreshed using -Sy.
+	#
+	# REMOVE OPTIONS (APPLY TO -R):
+	# -s, --recursive: Remove each target specified including all of their dependencies, provided that (A) they are not required by other packages; and (B) they were not explicitly installed by the user. This operation is recursive and analogous to a backwards --sync operation, and it helps keep a clean system without orphans. If you want to omit condition (B), pass this option twice.
+	#
+	# SYNC OPTIONS (APPLY TO -S):
+	# -c, --clean: Remove packages that are no longer installed from the cache as well as currently unused sync databases to free up disk space.
+	# -q, --quiet: Show less information for certain sync operations.
+	# -s, --search <regexp>: This will search each package in the sync databases for names or descriptions that match regexp. When you include multiple search terms, only packages with descriptions matching ALL of those terms will be returned.
+	# -u, --sysupgrade: Upgrades all packages that are out-of-date. Each currently-installed package will be examined and upgraded if a newer package exists. A report of all packages to upgrade will be presented, and the operation will not proceed without user confirmation. Dependencies are automatically resolved at this level and will be installed/upgraded if necessary. Pass this option twice to enable package downgrades; in this case, pacman will select sync packages whose versions do not match with the local versions. This can be useful when the user switches from a testing repository to a stable one. Additional targets can also be specified manually, so that -Su foo will do a system upgrade and install/upgrade the "foo" package in the same operation.
+	# -y, --refresh: Download a fresh copy of the master package databases (repo.db) from the server(s) defined in pacman.conf(5). This should typically be used each time you use --sysupgrade or -u. Passing two --refresh or -y flags will force a refresh of all package databases, even if they appear to be up-to-date.
+	function __check__pacman {
+		local check="$1"
+		shift
+		local packages=("$@")
+		case "$check" in
+		# returns 0 if all installed, 1 if any not installed
+		'all-installed') pacman --noconfirm -Q "${packages[@]}" &>/dev/null || return 1 ;;
+		# returns 0 if any installed, 1 if all not installed
+		'any-installed') __all_installed_to_any "${packages[@]}" || return $? ;;
+		# none-installed returns 0 if all not installed, 1 if any installed
+		'none-installed') __all_installed_to_none "${packages[@]}" || return $? ;;
+		#
+		'all-installed-and-outdated') __elevate -- pacman --noconfirm -Q --upgrades "${packages[@]}" || return 1 ;;
+		'all-installed-and-updated')
+			if __check__pacman 'all-installed' "${packages[@]}"; then
+				if ! __check__pacman 'all-installed-and-outdated' "${packages[@]}"; then
+					# all installed, and not outdated, so that means all installed and up-to-date
+					return 0
+				fi
 			fi
-		done
-		return 1
+			return 1
+			;;
+		esac
 	}
 	function __setup__pacman {
-		local opts=() args=() packages=()
+		local cmd=() packages=()
 		if [[ ${#PACMAN[@]} -ne 0 ]]; then
 			packages=("${PACMAN[@]}")
 		elif [[ ${#AUR[@]} -ne 0 ]]; then
 			packages=("${AUR[@]}")
 		fi
+		local search="(${packages[@]}" "${option_search[@]}") parse=''
 
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- pacman; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-		if [[ $option_action == 'uninstall' ]]; then
-			__are_any_of_these_pacman_packages_installed "${packages[@]}" || return 200 # ECUSTOM 200 Not applicable to this uninstallation
-		fi
+		# applicability
+		__applicable || return $?
 
-		# https://archlinux.org/pacman/pacman.8.html
-		# --noconfirm: Bypass any and all “Are you sure?” messages. It’s not a good idea to do this unless you want to run pacman from a script.
-		# -q, --quiet: Show less information for certain query operations.
-		# -y, --refresh: Download fresh package databases from the server. Use twice to force a refresh even if databases are up to date.
-		# -S, --sync: Synchronize packages. Packages are installed directly from the remote repositories, including all dependencies required to run the packages.
-		# -R, --remove: Either a URL or file path can be specified. This is a “remove-then-add” process.
-		# --needed: Do not reinstall the targets that are already up-to-date.
-		# -U, --upgrade: Upgrade or add package(s) to the system and install the required dependencies from sync repositories.
-		# -u, --upgrades: Restrict or filter output to packages that are out-of-date on the local system. Only package versions are used to find outdated packages; replacements are not checked here. This option works best if the sync database is refreshed using -Sy.
-
-		# init the local database
-		eval-helper --elevate -- pacman-key --init || return $?
-
-		# args
-		if [[ $option_action == 'uninstall' ]]; then
-			args+=(
-				'pacman'
-				'--noconfirm'
-				'--remove'
-			)
-		elif [[ $option_upgrade == 'yes' ]]; then
-			args+=(
-				'pacman'
-				'--noconfirm'
-				'--refresh'
-				'--sync'
-				'--upgrade'
-				'--needed'
-			)
-		else
-			args+=(
-				'pacman'
-				'--noconfirm'
-				'--refresh'
-				'--sync'
-				'--needed'
-			)
-		fi
-		if [[ $option_quiet != 'no' ]]; then
-			args+=('--quiet')
-		fi
-
-		# packages
-		eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+		# action
+		__elevate -- pacman-key --init || return $? # init the local database
+		case "$option_action"; in
+		'uninstall')
+			# @todo needs deep check
+			cmd=(pacman --noconfirm -R --recursive "${packages[@]}")
+			__elevate -- "${cmd[@]}" || return $?
+			;;
+		'installed')
+			# packages optional
+			cmd=(pacman --noconfirm -Q "${packages[@]}")
+			parse='ssv'
+			if [[ "${option_search[@]}" -ne 0 ]]; then
+				cmd+=(-s "${option_search[@]}")
+				parse='ssv'
+			fi
+			__elevate -- "${cmd[@]}" || return $?
+			;;
+		'search')
+			cmd=(pacman --noconfirm -S --noprogressbar -s "${search[@]}")
+			__elevate -- "${cmd[@]}" || return $?
+			;;
+		'install')
+			# only install missing packages, as pacman always installs and upgrades
+			local package install_packages=()
+			local -i install_status=0
+			for package in "${packages[@]}"; do
+				if __check__pacman 'all-installed' "$package"; then
+					# already installed
+					continue
+				elif
+					# not installed (will install)
+					install_packages+=("$package")
+				fi
+			done
+			if [[ ${#install_packages[@]} -ne 0 ]]; then
+				if [[ $SETUP_UTIL__DEEP_APPLICABILITY != 'yes' ]]; then
+					cmd=(pacman --noconfirm -S --noprogressbar --refresh --needed "${install_packages[@]}")
+					__elevate -- "${cmd[@]}" || return $?
+				fi
+			else
+				upgrade_status=201 # ECUSTOM 201 Not applicable as already in desired state
+			fi
+			return $upgrade_status
+			;;
+		'upstall')
+			# install or upgrade packages to latest version
+			if [[ $SETUP_UTIL__DEEP_APPLICABILITY == 'yes' ]]; then
+				local -i upstall_status=0
+				if __check__pacman 'all-installed-and-updated' "${packages[@]}"; then
+					# installed (already updated)
+					upgrade_status=201 # ECUSTOM 201 Not applicable as already in desired state
+				fi
+				return $upgrade_status
+			else
+				cmd=(pacman --noconfirm -S --noprogressbar --refresh --needed "${packages[@]}")
+				__elevate -- "${cmd[@]}" || return $?
+			else
+			fi
+			;;
+		'upgrade')
+			# only upgrade installed packages, as pacman always installs and upgrades
+			local package upgrade_packages=() uninstalled_packages=()
+			local -i upgrade_status=0
+			for package in "${packages[@]}"; do
+				if __check__pacman 'all-installed-and-outdated' "$package"; then
+					# installed (outdated)
+					upgrade_packages+=("$package")
+				elif __check__pacman 'all-installed' "$package"; then
+					# installed (already updated, as not outdated from earlier)
+					continue
+				else
+					# not installed (unable to be upgraded)
+					__log_unable_to_upgrade_package "$package"
+					upgrade_status=203 # ECUSTOM 203 Not applicable as not installed
+				fi
+			done
+			# upgrade possible first
+			if [[ ${#upgrade_packages[@]} -ne 0 ]]; then
+				if [[ $SETUP_UTIL__DEEP_APPLICABILITY != 'yes' ]]; then
+					cmd=(pacman --noconfirm -S --noprogressbar --refresh --needed "${upgrade_packages[@]}")
+					__elevate -- "${cmd[@]}" || return $?
+				fi
+			elif [[ $upgrade_status -eq 0 ]]; then
+				upgrade_status=201 # ECUSTOM 201 Not applicable as already in desired state
+			fi
+			return $upgrade_status
+			;;
+		*) __source_unsupported_action || return $? ;;
+		esac
 	}
 
 	# pakku / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
 	# https://github.com/kitsunyan/pakku
-	function __setup__pakku {
-		local args=() packages=() package
-		if [[ ${#PAKKU[@]} -ne 0 ]]; then
-			packages+=("${PAKKU[@]}")
-		elif [[ ${#AUR[@]} -ne 0 ]]; then
-			packages+=("${AUR[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- pakku; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-
-		# args
-		if [[ $option_action == 'uninstall' ]]; then
-			return 78 # NOSYS 78 Function not implemented
-		else
-			# install / upgrade
-			args+=(
-				'pakku'
-				'-Sy'
-			)
-		fi
-
-		# packages
-		for package in "${packages[@]}"; do
-			eval-helper --elevate -- "${args[@]}" "$package" || return $?
-		done
-	}
+	#
+	# Implementation not yet updated for modern conventions, and without any CI testing.
+	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
+	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
 
 	# pamac / AUR / Arch Linux
 	# https://itsfoss.com/best-aur-helpers/
@@ -1362,100 +1392,24 @@ function setup_util() (
 	# paru / AUR / Arch Linux
 	# https://itsfoss.com/paru-aur-helper/
 	# https://github.com/Morganamilo/paru
-	function __is_applicable__paru {
-		local packages=()
-		if [[ ${#PARU[@]} -ne 0 ]]; then
-			packages+=("${PARU[@]}")
-		elif [[ ${#AUR[@]} -ne 0 ]]; then
-			packages+=("${AUR[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- paru; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-	}
-	function __setup__paru {
-		local args=() packages=() package
-		if [[ ${#PARU[@]} -ne 0 ]]; then
-			packages+=("${PARU[@]}")
-		elif [[ ${#AUR[@]} -ne 0 ]]; then
-			packages+=("${AUR[@]}")
-		fi
-
-		# args
-		if [[ $option_action == 'uninstall' ]]; then
-			return 78 # NOSYS 78 Function not implemented
-		elif [[ $option_upgrade == 'yes' ]]; then
-			args+=(
-				'paru'
-				'-Sua'
-			)
-		else
-			args+=(
-				'paru'
-				'-Sy'
-			)
-		fi
-
-		# packages
-		for package in "${packages[@]}"; do
-			eval-helper --elevate -- "${args[@]}" "$package" || return $?
-		done
-	}
+	#
+	# Implementation not yet updated for modern conventions, and without any CI testing.
+	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
+	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
 
 	# yay / AUR / Arch Linux
 	# https://github.com/Jguer/yay
-	function __is_applicable__yay {
-		local packages=()
-		if [[ ${#YAY[@]} -ne 0 ]]; then
-			packages+=("${YAY[@]}")
-		elif [[ ${#AUR[@]} -ne 0 ]]; then
-			packages+=("${AUR[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- yay; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-	}
-	function __setup__yay {
-		local args=() packages=() package
-		if [[ ${#YAY[@]} -ne 0 ]]; then
-			packages+=("${YAY[@]}")
-		elif [[ ${#AUR[@]} -ne 0 ]]; then
-			packages+=("${AUR[@]}")
-		fi
-
-		# args
-		if [[ $option_action == 'uninstall' ]]; then
-			return 78 # NOSYS 78 Function not implemented
-		else
-			# install / upgrade
-			args+=(
-				'yay'
-				'-Sy'
-			)
-		fi
-
-		# packages
-		for package in "${packages[@]}"; do
-			eval-helper --elevate -- "${args[@]}" "$package" || return $?
-		done
-	}
+	#
+	# Implementation not yet updated for modern conventions, and without any CI testing.
+	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
+	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
 
 	# -------------------------------------
 	# BSD / Solaris
 
 	# `doas` is a `sudo` replacement for OpenBSD
 	# https://www.openbsdhandbook.com/openbsd_for_linux_users/
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -1917,7 +1871,7 @@ function setup_util() (
 
 	# guix / GNU Guix
 	# https://linuxcommandlibrary.com/man/guix-package
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -2021,7 +1975,7 @@ function setup_util() (
 	# https://cabal.readthedocs.io/en/stable/cabal-commands.html
 	# https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-update
 	# https://cabal.readthedocs.io/en/stable/cabal-commands.html#cabal-install
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -2315,7 +2269,7 @@ function setup_util() (
 	# https://guide.macports.org/#using.port.install
 	# https://guide.macports.org/#using.port.uninstall
 	# https://guide.macports.org/#using.port.upgrade
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -2327,7 +2281,7 @@ function setup_util() (
 	# https://www.mankier.com/1/nix-env
 	# https://nixos.org/manual/nix/stable/command-ref/nix-env.html
 	# https://search.nixos.org/packages
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -2465,6 +2419,18 @@ function setup_util() (
 
 	# -------------------------------------
 	# Python
+
+	# conda / miniconda / miniforge
+	# Conda; is a subset of Anaconda, but is not Anaconda; is used for Python package management
+	# https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/index.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/install.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/remove.html
+	# https://docs.conda.io/projects/conda/en/latest/commands/update.html
+	#
+	# Implementation not yet updated for modern conventions, and without any CI testing.
+	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
+	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
 
 	# uv / Python
 	function __are_any_of_these_uv_packages_installed {
@@ -2703,7 +2669,7 @@ function setup_util() (
 	# https://wiki.mageia.org/en/URPMI
 	# https://wiki.mageia.org/en/URPMI#Basic_commands:_Install.2C_remove.2C_update
 	# https://man.linuxreviews.org/man8/urpmi.8.html
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -3117,7 +3083,7 @@ function setup_util() (
 	# eopkg / Solus
 	# https://github.com/solus-project/package-management/blob/master/man/eopkg.1.md
 	# @todo support repos
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -3128,7 +3094,7 @@ function setup_util() (
 
 	# xbps / Void Linux
 	# https://github.com/void-linux/xbps
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
@@ -3506,7 +3472,7 @@ function setup_util() (
 	# https://wiki.gentoo.org/wiki/Gentoo_Cheat_Sheet#Package_installation
 	# https://dev.gentoo.org/~zmedico/portage/doc/man/emerge.1.html
 	# https://packages.gentoo.org/categories
-
+	#
 	# Implementation not yet updated for modern conventions, and without any CI testing.
 	# Prior implementation can be found at: https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692
 	# It requires a champion who uses it to update and implement, or a sponsor who uses it to fund a maintainer to update and implement.
