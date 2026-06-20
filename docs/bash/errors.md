@@ -111,19 +111,10 @@ Includes usage for unknown/unexpected logic path.
 
 ECANCELED 125 Operation cancelled
 
-ECUSTOM 200 Not applicable <for reason>
+ECUSTOM 200-209 Not applicable <for reason>
 Used to signal to the caller that the action was not performed, and might be fine because the action wasn't applicable, such as:
 - Doing an operation on a utility, that is unnecessary, as the utility is already in the desired state.
 - Doing an operation on a path, such a mount path, that is already in the desired state.
-
-ECUSTOM 201 Not applicable as already in desired state
-Used by `setup-util` to signal the source is already in its desired state
-
-ECUSTOM 202 Not applicable yet as requires fallback installation
-Used by `setup-util` to signal the source requires to be installed before it can install packages
-
-ECUSTOM 203 Not applicable as not installed
-Used by `setup-util` to singal the source cannot upgrade the package as it is not installed
 
 ECUSTOM 210 Processing complete, exit early
 

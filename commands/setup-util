@@ -10,6 +10,50 @@
 function setup_util_test() (
 	source "$DOROTHY/sources/bash.bash"
 	eval-tester --ignore-stderr --status=22 -- setup-util --help
+
+	# test runners:
+
+	# apk:
+	# docker run --rm -it alpine:latest
+	# apk update
+
+	# pacman:
+	# docker run --rm -it archlinux:latest
+	# docker run --rm -it cachyos/cachyos:latest
+	# pacman-key --init
+	# pacman --noconfirm -S --refresh
+
+	# pamac:
+	# docker run --rm -it manjarolinux/base:latest
+	# pacman-key --init
+	# pacman --noconfirm -S --refresh --needed pamac-gtk
+
+	# apt, dpkg, snap:
+	# docker run --rm -it ubuntu:latest
+	# docker run --rm -it debian:latest
+	# docker run --rm -it devuan/devuan:latest
+	# docker run --rm -it kalilinux/kali-rolling:latest
+	# apt update
+
+	# dnf, yum, rpm, flatpak, soar:
+	# docker run --rm -it fedora:latest
+	# docker run --rm -it almalinux:latest
+	# docker run --rm -it openeuler/openeuler:latest
+	# docker run --rm -it openmandriva/minimal:rock
+	# docker run --rm -it openmandriva/minimal:rolling
+
+	# zypper:
+	# docker run --rm -it opensuse/leap:latest
+	# docker run --rm -it opensuse/tumbleweed:latest
+
+	# all of them
+	# nvm, cargo, go, npm, gem, uv
+
+	# macos containers not possible in linux hosts, use SSH or CI to test
+	# brew, cask, mas
+
+	# windows containers not possible in linux hosts, use SSH or CI to test
+	# scoop, winget
 )
 
 function setup_util() (
@@ -130,7 +174,7 @@ function setup_util() (
 		yum    # fedora package manager (includes RPM, predecessor to dnf)
 
 		# +precompiled[containers] +autoupdate +extras
-		#soar    # appimage package system, dependencies are within
+		soar    # appimage package system, dependencies are within
 		snap    # dependencies are within the snap
 		flatpak # dependencies are their own flatpaks, but everything is precompiled
 
@@ -1002,7 +1046,7 @@ function setup_util() (
 	}
 
 	function __elevate {
-		eval-helper --elevate -- "$@" || return $?
+		__elevate -- "$@" || return $?
 	}
 
 	# For `setup-util upgrade`, we need to distinguish between packages that were not upgraded because they were already up-to-date, and packages that were not upgraded because they were uninstalled. This distinctio nis important, because if it is installed and already up to date, that is a success case for the source, and if none of the sources were able to upgrade because none of them have the package installed, then that is a failure case.
@@ -1014,19 +1058,12 @@ function setup_util() (
 		done
 	}
 
-	function __source_unsupported_action {
-		return 78 # NOSYS 78 Function not implemented
-	}
-	function __source_unsupported_check {
-		return 14 # EFAULT 14 Bad address
-	}
-
 	function __check {
 		# inherits {SETUP_UTIL__SOURCE}
 		local __checker="__check__${SETUP_UTIL__SOURCE}"
 		eval "$__checker \"\$@\"" || return $?
 	}
-	function __all_installed_to_any {
+	function __is_installed_all_to_any {
 		# inherits {SETUP_UTIL__SOURCE}
 		local package packages=("$@")
 		for package in "${packages[@]}"; do
@@ -1036,7 +1073,7 @@ function setup_util() (
 		done
 		return 1
 	}
-	function __all_installed_to_none {
+	function __is_installed_all_to_none {
 		# inherits {SETUP_UTIL__SOURCE}
 		local packages=("$@")
 		if __check all-installed "${packages[@]}"; then
@@ -1045,24 +1082,45 @@ function setup_util() (
 			return 0
 		fi
 	}
+	local -i STATUS__INVALID_ACTION=14 # return 14 # EFAULT 14 Bad address
+	local -i STATUS__NOT_IMPLEMENTED=78 # NOSYS 78 Function not implemented
+	local -i STATUS__PACKAGE_NA=201 # ECUSTOM 201 Not applicable as the package is not relevant to this package system
+	local -i STATUS__SYSTEM_NA=202 # ECUSTOM 202 Not applicable as the package system not relevant to this machine
+	local -i STATUS__PACKAGE_STATE_NA=203 # ECUSTOM 205 Not applicable as the package is not in an applicable state for the desired action
+	local -i STATUS__PAKCAGE_STATE_ALREADY=204 # ECUSTOM 204 Not applicable as the package is already in the desired state for the action
+	local -i STATUS__SYSTEM_FALLBACK=205 # ECUSTOM 202 Not applicable yet as the package system is not yet installed, and has a fallback
+	local -i STATUS__SYSTEM_MISSING=206 # ECUSTOM 203 Not applicable yet as the package system is not yet installed, and does not have a fallback
 	function __applicable {
+		local item fallback='no' command="$SETUP_UTIL__SOURCE"
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			'--fallback') fallback='yes' ;;
+			'--command=') comamnd="${item#*=}" ;;
+			*) __unrecognised_argument "$item" || return $? ;;
+			esac
+		done
 		# inherits {SETUP_UTIL__SOURCE} {packages} {search}
-		case "$option_action"; in
-		'install' | 'upstall' | 'upgrade' | 'uninstall')
+		case "$option_action" in
+		'setup-upgrade-all') : ;;
+		'is-'* | 'setup-*')
 			if [[ ${#packages[@]} -eq 0 ]]; then
-				return 200 # ECUSTOM 200 Not applicable to this utility
+				return "$STATUS__PACKAGE_NA"
 			fi
 			;;
-		'installed') : ;; # all good, action doesn't require packages
-		'search')
-			if [[ ${#search[@]} -eq 0 ]]; then
-				return 200 # ECUSTOM 200 Not applicable to this utility
+		'search-'*)
+			if [[ ${#packages[@]} -eq 0 && ${#option_search[@]} -eq 0 ]]; then
+				return "$STATUS__PACKAGE_NA"
 			fi
 			;;
-		*) __source_unsupported_action || return $? ;;
 		esac
-		if __command_missing -- "$SETUP_UTIL__SOURCE"; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
+		if __command_missing -- "$command"; then
+			if [[ "$fallback" == 'yes' ]]; then
+				return "$STATUS__SYSTEM_FALLBACK"
+			else
+				return "$STATUS__SYSTEM_MISSING"
+			fi
 		fi
 	}
 
@@ -1073,55 +1131,139 @@ function setup_util() (
 	# apk / Alpine Linux
 	# https://wiki.alpinelinux.org/wiki/Package_management
 	# https://pkgs.alpinelinux.org/packages
+	# https://man.archlinux.org/man/apk.8
 	# https://man.archlinux.org/man/apk-del.8.en
 	# https://man.archlinux.org/man/apk-add.8.en
 	# https://man.archlinux.org/man/apk-upgrade.8.en
 	# https://man.archlinux.org/man/apk-info.8.en
 	# https://man.archlinux.org/man/apk-query.8.en
-	# apk is strange, the documentation provides more options that are implemented in practice
-	# `-e` checks for installed packages
-	# `--fields name,version` only works with `--format <json|yaml>` and becomes incompatible with `-e`
-	# however, `apk query` supports `--fields` and even with `--format <default|json|yaml>` and with `--installed` (instead of `-e`) but always returns `0` exit status
-	function __check__apk {
-		local check="$1"
-		shift
-		local packages=("$@")
-		case "$check" in
-		'all-installed') apk info -e "${packages[@]}" &>/dev/null || return 1 ;;
-		'any-installed') __all_installed_to_any "${packages[@]}" || return $? ;;
-		'none-installed') __all_installed_to_none "${packages[@]}" || return $? ;;
-		*) __source_unsupported_check || return $? ;;
-		esac
+	# `apk` is strange, the documentation provides more options that are implemented in practice
+	# `man apk info` describes query options, and supports then only when provided a search argument
+	# `man apk list` describes query options. but does not actually support them <https://gitlab.alpinelinux.org/alpine/apk-tools/-/work_items/11207>
+	# `apk query` naturally supports query options, and as such, requires a search argument
+	# `apk info -e ...<search>` checks for installed packaged and returns exit status `1` if any are not installed,
+	#  whereas `apk list|query --installed <search>` will list installed packages, ignore missing packages, and return exit status `0`
+	# `--fields name,version` only works with `--format <json|yaml>` and becomes incompatible with `-e`, as they are query options
+	# `apk list|info|query` all have an undocumented `--search` option that enables fuzzy searches <https://gitlab.alpinelinux.org/alpine/apk-tools/-/work_items/11210>
+	# `apk query --format json ...<search>` returns: name, version, description, arch, license, origin, url, file-size
+	# `apk info --format json ...<package>` returns: name, version, description, url, installed-size
+	# there is also `--fields all` which returns more
+	function __parse_apk_list {
+		# sed coercion from <https://superuser.com/a/1870448/32418>
+		# turns
+		# ```
+		# zziplib-doc-0.13.80-r1 x86_64 {zziplib} (LGPL-2.0-or-later OR MPL-1.1)
+		# zziplib-utils-0.13.80-r1 x86_64 {zziplib} (LGPL-2.0-or-later OR MPL-1.1)
+		# ```
+		# into
+		# ```
+		# zziplib-doc 0.13.80-r1
+		# zziplib-utils 0.13.80-r1
+		# ```
+		sed 's/ .*//;s/-\(r[0-9]\+\)$/@@\1/;s/\(.*\)-/\1 /;s/@@/-/' || return $?
+	}
+	function __parse_apk_yaml_query {
+		# turns:
+		# ```
+		# - name: zziplib-doc
+		# version: 0.13.80-r1
+		# - name: zziplib-utils
+		# version: 0.13.80-r1
+		# ```
+		# into:
+		# ```
+		# zziplib-doc 0.13.80-r1
+		# zziplib-utils 0.13.80-r1
+		# ```
+		echo-regexp -gmo '- name:\s+([^\s]+)\s+version: ([^\s]+)' --replace='$1 $2'
 	}
 	function __setup__apk {
-		local cmd=() packages=("${APK[@]}") repo="$APK_REPO"
-		local search="(${packages[@]}" "${option_search[@]}")
+		local packages=("${APK[@]}") repo="$APK_REPO"
 
 		# applicability
 		__applicable || return $?
 
 		# action
-		# @todo should installed and search have deep checks?
 		case "$option_action"; in
-		'uninstall') cmd=(apk del "${packages[@]}") ;;
-		# info returns: name, version, description, url, installed-size
-		'installed') cmd=(apk info --format json "${search[@]}") ;;
-		# query returns: name, version, description, arch, license, origin, url, file-size
-		'search') cmd=(apk --update-cache query --format json "${search[@]}") ;;
-		*)
-			cmd=(apk ---update-cache)
-			if [[ -n $repo ]]; then
-				apk+=(--repository "$repo")
+		# is-*  ...<package>
+		'is-installed-all') apk info -e "${packages[@]}" &>/dev/null || return 1 ;;
+		'is-installed-any') __is_installed_all_to_any "${packages[@]}" || return $? ;;
+		'is-installed-none') __is_installed_all_to_none "${packages[@]}" || return $? ;;
+		# list-*
+		'list-installed') apk list --installed | __parse_apk_list || return $? ;;
+		'list-outdated') apk --update-cache list --upgradable | __parse_apk_list || return $? ;;
+		'list-updated')
+			# get all upgraded, and use their names to evict, then get all installed, and filter them by upgraded
+			local outdated_ids=() other_id lines=() id version
+			while read id version; do
+				outdated_ids+=("$id")
+			done < <(apk --update-cache list --upgradable | __parse_apk_list)
+			# if none to evict, then exit early with all installed
+			if [[ ${#outdated_ids[@]} -eq 0 ]]; then
+				apk list --installed | __parse_apk_list || return $?
+				return 0
 			fi
-			case "$option_action" in
-			# @todo add tests to ensure these operate to expected exit statuses on edge cases, like pacman
-			'install') cmd=(--update-cache add "${packages[@]}" ) ;;
-			'upstall') cmd=(--update-cache add --upgrade "${packages[@]}" ) ;;
-			'upgrade') cmd=(--update-cache upgrade "${packages[@]}" ) ;;
-			*) __source_unsupported_action || return $? ;;
-			esac
+			# if we have ones to evict, then do so
+			while read id version; do
+				for other_id in "${outdated_ids[@]}"; do
+					if [[ $id == "$other_id" ]]; then
+						continue
+					fi
+				done
+				lines+=("$id $version")
+				# printf '%s=%q %s=%q\n' id "$id" version "$version" || return $?
+			done < <(apk list --installed | __parse_apk_list)
+			__print_lines "${lines[@]}" || return $?
+			;;
+		'list-available') apk --update-cache list --available | __parse_apk_list || return $? ;;
+		# search-* ...<package> --search=...<search>
+		'search-'*)
+			# glob
+			local search_options=(--format=yaml --fields=name,version "${packages[@]}") search
+			for search in "${option_search[@]}"; do
+				search_options+=("*$search*")
+			done
+			;;&
+		'search-installed' ) apk query --installed "${search_options[@]}" | __parse_apk_yaml_query || return $? ;;
+		'search-outdated') apk --update-cache query --upgradable "${search_options[@]}" | __parse_apk_yaml_query || return $? ;;
+		'search-updated')
+			# get all upgraded, and use their names to evict, then get all installed, and filter them by upgraded
+			local outdated_ids=() other_id lines=() id version
+			while read id version; do
+				outdated_ids+=("$id")
+			done < <(apk --update-cache query --upgradable "${search_options[@]}" | __parse_apk_yaml_query)
+			# if none to evict, then exit early with all installed
+			if [[ ${#outdated_ids[@]} -eq 0 ]]; then
+				apk query --installed "${search_options[@]}" | __parse_apk_yaml_query || return $?
+				return 0
+			fi
+			# if we have ones to evict, then do so
+			while read id version; do
+				for other_id in "${outdated_ids[@]}"; do
+					if [[ $id == "$other_id" ]]; then
+						continue
+					fi
+				done
+				lines+=("$id $version")
+				# printf '%s=%q %s=%q\n' id "$id" version "$version" || return $?
+			done < <(apk query --installed "${search_options[@]}" | __parse_apk_yaml_query)
+			__print_lines "${lines[@]}" || return $?
+			;;
+		'search-available') apk --update-cache query --available "${search_options[@]}" | __parse_apk_yaml_query || return $? ;;
+		# setup-* ...<package>
+		'setup-'*)
+			local repository_options=()
+			if [[ -n $repo ]]; then
+				repository_options+=(--repository "$repo")
+			fi
+			;;&
+		'setup-uninstall') __elevate -- apk del "${packages[@]}" ;;
+		'setup-install') __elevate -- apk --update-cache "${repository_options[@]}" add "${packages[@]}" ;;
+		'setup-upstall') __elevate -- apk --update-cache "${repository_options[@]}" add --upgrade "${packages[@]}" ;;
+		'setup-upgrade') __elevate -- apk --update-cache "${repository_options[@]}" upgrade "${packages[@]}" ;;
+		'setup-upgrade-all') __elevate -- apk --update-cache upgrade ;;
+		*) return "$STATUS__INVALID_ACTION" ;;
 		esac
-		__elevate -- "${cmd[@]}" || return $?
 	}
 
 	# -------------------------------------
@@ -1161,6 +1303,8 @@ function setup_util() (
 	#
 	# QUERY OPTIONS (APPLY TO -Q):
 	# -c, --changelog: View the ChangeLog of a package if it exists.
+	# -d, --deps: list packages installed as dependencies [filter]
+	# -e, --explicit: list packages explicitly installed [filter]
 	# -i, --info: Display information on a given package. The -p option can be used if querying a package file instead of the local database. Passing two --info or -i flags will also display the list of backup files and their modification states.
 	# -k, --check: Check that all files owned by the given package(s) are present on the system. If packages are not specified or filter flags are not provided, check all installed packages. Specifying this option twice will perform more detailed file checking (including permissions, file sizes, and modification times) for packages that contain the needed mtree file.
 	# -q, --quiet: Show less information for certain query operations. This is useful when pacman’s output is processed in a script. Search will only show package names and not version, group, and description information; owns will only show package names instead of "file is owned by pkg" messages; group will only show package names and omit group names; list will only show files and omit package names; check will only show pairs of package names and missing files; a bare query will only show package names rather than names and versions.
@@ -1176,70 +1320,104 @@ function setup_util() (
 	# -s, --search <regexp>: This will search each package in the sync databases for names or descriptions that match regexp. When you include multiple search terms, only packages with descriptions matching ALL of those terms will be returned.
 	# -u, --sysupgrade: Upgrades all packages that are out-of-date. Each currently-installed package will be examined and upgraded if a newer package exists. A report of all packages to upgrade will be presented, and the operation will not proceed without user confirmation. Dependencies are automatically resolved at this level and will be installed/upgraded if necessary. Pass this option twice to enable package downgrades; in this case, pacman will select sync packages whose versions do not match with the local versions. This can be useful when the user switches from a testing repository to a stable one. Additional targets can also be specified manually, so that -Su foo will do a system upgrade and install/upgrade the "foo" package in the same operation.
 	# -y, --refresh: Download a fresh copy of the master package databases (repo.db) from the server(s) defined in pacman.conf(5). This should typically be used each time you use --sysupgrade or -u. Passing two --refresh or -y flags will force a refresh of all package databases, even if they appear to be up-to-date.
-	function __check__pacman {
-		local check="$1"
-		shift
-		local packages=("$@")
-		case "$check" in
-		# returns 0 if all installed, 1 if any not installed
-		'all-installed') pacman --noconfirm -Q "${packages[@]}" &>/dev/null || return 1 ;;
-		# returns 0 if any installed, 1 if all not installed
-		'any-installed') __all_installed_to_any "${packages[@]}" || return $? ;;
-		# none-installed returns 0 if all not installed, 1 if any installed
-		'none-installed') __all_installed_to_none "${packages[@]}" || return $? ;;
-		#
-		'all-installed-and-outdated') __elevate -- pacman --noconfirm -Q --upgrades "${packages[@]}" || return 1 ;;
-		'all-installed-and-updated')
-			if __check__pacman 'all-installed' "${packages[@]}"; then
-				if ! __check__pacman 'all-installed-and-outdated' "${packages[@]}"; then
-					# all installed, and not outdated, so that means all installed and up-to-date
-					return 0
-				fi
-			fi
-			return 1
-			;;
-		esac
+	function __parse_pacman_query {
+		# turns:
+		# ```
+		# local/zstd 1.5.7-3
+		#     Zstandard - Fast real-time compression algorithm
+		# ```
+		# into:
+		# ```
+		# local/zstd 1.5.7-3
+		# ```
+		grep --regexp='^[^ ]' || return $?
+	}
+	function __refresh_pacman {
+		__elevate -- pacman -Sy || return $? # --sync --refresh
 	}
 	function __setup__pacman {
-		local cmd=() packages=()
+		local packages=()
 		if [[ ${#PACMAN[@]} -ne 0 ]]; then
 			packages=("${PACMAN[@]}")
 		elif [[ ${#AUR[@]} -ne 0 ]]; then
 			packages=("${AUR[@]}")
 		fi
-		local search="(${packages[@]}" "${option_search[@]}") parse=''
 
 		# applicability
 		__applicable || return $?
 
+		# prep
+		# `pacman-key --init`
+		# `pacman -Sy` is `pacman --sync --refresh`
+
 		# action
-		__elevate -- pacman-key --init || return $? # init the local database
 		case "$option_action"; in
-		'uninstall')
-			# @todo needs deep check
-			cmd=(pacman --noconfirm -R --recursive "${packages[@]}")
-			__elevate -- "${cmd[@]}" || return $?
+		# is-*  ...<package>
+		'is-installed-all') pacman -Q "${packages[@]}" &>/dev/null || return 1 ;;
+		'is-installed-any') __is_installed_all_to_any "${packages[@]}" || return $? ;;
+		'is-installed-none') __is_installed_all_to_none "${packages[@]}" || return $? ;;
+		# list-*
+		'list-installed')
+			pacman -Q || return $?
 			;;
-		'installed')
-			# packages optional
-			cmd=(pacman --noconfirm -Q "${packages[@]}")
-			parse='ssv'
-			if [[ "${option_search[@]}" -ne 0 ]]; then
-				cmd+=(-s "${option_search[@]}")
-				parse='ssv'
+		'list-outdated')
+			__refresh_pacman || return $?
+			pacman -Q --upgrades | sed 's/ -> / /' || return $?
+			;;
+		'list-updated')
+			return "$STATUS__NOT_IMPLEMENTED"
+			;;
+		'list-available')
+			pacman -S --refresh --search | grep --invert-match --regexp='^ ' || return $?
+			;;
+		# search-* ...<package> --search=...<search>
+		'setup-'*)
+			__refresh_pacman || return $?
+			;;&
+		'search-installed' )
+			if [[ ${#packages[@]} -ne 0 ]]; then
+				pacman -Q "${packages[@]}" | __parse_pacman_query || return $?
 			fi
-			__elevate -- "${cmd[@]}" || return $?
+			if [[ ${#option_search[@]} -ne 0 ]]; then
+				pacman -Q --search "${option_search[@]}" | __parse_pacman_query || return $?
+			fi
 			;;
-		'search')
-			cmd=(pacman --noconfirm -S --noprogressbar -s "${search[@]}")
-			__elevate -- "${cmd[@]}" || return $?
+		'search-outdated')
+			if [[ ${#packages[@]} -ne 0 ]]; then
+				pacman -Q --upgrades "${packages[@]}" | __parse_pacman_query || return $?
+			fi
+			if [[ ${#option_search[@]} -ne 0 ]]; then
+				pacman -Q --upgrades --search "${option_search[@]}" | __parse_pacman_query || return $?
+			fi
 			;;
-		'install')
-			# only install missing packages, as pacman always installs and upgrades
+		'search-updated')
+			return "$STATUS__NOT_IMPLEMENTED"
+			;;
+		'search-available')
+			if [[ ${#packages[@]} -ne 0 ]]; then
+				pacman -S --print --print-format '%r/%n %v' "${packages[@]}" || return $?
+			fi
+			if [[ ${#option_search[@]} -ne 0 ]]; then
+				pacman -S --print --print-format '%r/%n %v' --search "${option_search[@]}" || return $?
+			fi
+			;;
+		# setup-* ...<package>
+		'setup-'*)
+			local repository_options=()
+			if [[ -n $repo ]]; then
+				repository_options+=(--repository "$repo")
+			fi
+			;;&
+		'setup-uninstall')
+			__elevate -- pacman --noconfirm -R --unneeded --nosave "${packages[@]}" || return $?
+			;;
+		'setup-install')
+			# only install missing packages, as pacman does install+upgrade
+			__refresh_pacman || return $?
 			local package install_packages=()
 			local -i install_status=0
 			for package in "${packages[@]}"; do
-				if __check__pacman 'all-installed' "$package"; then
+				if pacman -Qu "$package" &>/dev/null; then
 					# already installed
 					continue
 				elif
@@ -1248,45 +1426,48 @@ function setup_util() (
 				fi
 			done
 			if [[ ${#install_packages[@]} -ne 0 ]]; then
-				cmd=(pacman --noconfirm -S --noprogressbar --refresh --needed "${install_packages[@]}")
+				cmd=(pacman --noconfirm -S --refresh --needed "${install_packages[@]}")
 				__elevate -- "${cmd[@]}" || return $?
 			else
-				upgrade_status=201 # ECUSTOM 201 Not applicable as already in desired state
+				upgrade_status="$STATUS__PAKCAGE_STATE_ALREADY"
 			fi
 			return $upgrade_status
 			;;
-		'upstall')
+		'setup-upstall')
 			# install or upgrade packages to latest version
-			cmd=(pacman --noconfirm -S --noprogressbar --refresh --needed "${packages[@]}")
+			cmd=(pacman --noconfirm -S --refresh --needed "${packages[@]}")
 			__elevate -- "${cmd[@]}" || return $?
 			;;
-		'upgrade')
-			# only upgrade installed packages, as pacman always installs and upgrades
+		'setup-upgrade')
+			# only upgrade installed packages, as pacman does install+upgrade
+			__refresh_pacman || return $?
 			local package upgrade_packages=() uninstalled_packages=()
 			local -i upgrade_status=0
 			for package in "${packages[@]}"; do
-				if __check__pacman 'all-installed-and-outdated' "$package"; then
+				if paman -Qu "$package" &>/dev/null; then
 					# installed (outdated)
 					upgrade_packages+=("$package")
-				elif __check__pacman 'all-installed' "$package"; then
+				elif pacman -Q "$package" &>/dev/null; then
 					# installed (already updated, as not outdated from earlier)
 					continue
 				else
 					# not installed (unable to be upgraded)
 					__log_unable_to_upgrade_package "$package"
-					upgrade_status=203 # ECUSTOM 203 Not applicable as not installed
+					upgrade_status="$STATUS__PACKAGE_STATE_NA"
 				fi
 			done
 			# upgrade possible first
 			if [[ ${#upgrade_packages[@]} -ne 0 ]]; then
-				cmd=(pacman --noconfirm -S --noprogressbar --refresh --needed "${upgrade_packages[@]}")
-				__elevate -- "${cmd[@]}" || return $?
+				__elevate -- pacman --noconfirm -S --needed "${upgrade_packages[@]}" || return $?
 			elif [[ $upgrade_status -eq 0 ]]; then
-				upgrade_status=201 # ECUSTOM 201 Not applicable as already in desired state
+				upgrade_status="$STATUS__PAKCAGE_STATE_ALREADY"
 			fi
 			return $upgrade_status
 			;;
-		*) __source_unsupported_action || return $? ;;
+		'setup-upgrade-all')
+			__elevate -- pacman --noconfirm -S --refresh --sysupgrade || return $?
+			;;
+		*) return "$STATUS__INVALID_ACTION" ;;
 		esac
 	}
 
@@ -1302,6 +1483,96 @@ function setup_util() (
 	# https://itsfoss.com/best-aur-helpers/
 	# https://linuxcommandlibrary.com/man/pamac
 	# sudo with pamac avoids gui sudo prompt
+	#
+	# `pamac` actions:
+	# pamac search         [options] <package(s)>
+	# pamac list           [options]
+	# pamac info           [options] <package(s)>
+	# pamac install        [options] <package(s)>
+	# pamac reinstall      [options] <package(s)>
+	# pamac remove         [options] [package(s)]
+	# pamac checkupdates   [options]
+	# pamac update,upgrade [options]
+	# pamac clone          [options] <package(s)>
+	# pamac build          [options] [package(s)]
+	# pamac clean          [options]
+	#
+	# `pamac search` options:
+	# --installed, -i : only search for installed packages
+	# --repos, -r     : only search for packages in repositories
+	# --aur, -a       : also search in AUR
+	# --no-aur        : do not search in AUR
+	# --files, -f     : search for packages which own the given filenames (filenames can be partial)
+	# --quiet, -q     : only print names
+	#
+	# `pamac search` results:
+	# db5.3  5.3.28-7 [Installed]                           core
+	#     The Berkeley DB embedded database system v5.3
+	#
+	# `pamac list` options:
+	# --installed, -i            : list installed packages
+	# --explicitly-installed, -e : list explicitly installed packages
+	# --orphans, -o              : list packages that were installed as dependencies but are no longer required by any installed package
+	# --foreign, -m              : list packages that were not found in the repositories
+	# --groups, -g [group(s)]    : list all packages that are members of the given groups, if no group is given list all groups
+	# --repos, -r [repo(s)]      : list all packages available in the given repos, if no repo is given list all repos
+	# --files, -f <package(s)>   : list files owned by the given packages
+	# --quiet, -q                : only print names
+	# `pamac list -i` results:
+	# zlib                      1:1.3.2-3                   core   347.6 kB
+	#
+	# `pamac info` options:
+	# --aur, -a : also search in AUR
+	# --no-aur  : do not search in AUR
+	#
+	# `pamac install` options:
+	# --ignore <package(s)> : ignore a package upgrade, multiple packages can be specified by separating them with a comma
+	# --overwrite <glob>    : overwrite conflicting files, multiple patterns can be specified by separating them with a comma
+	# --download-only, -w   : download all packages but do not install/upgrade anything
+	# --dry-run, -d         : only print what would be done but do not run the transaction
+	# --as-deps             : mark all packages installed as a dependency
+	# --as-explicit         : mark all packages explicitly installed
+	# --upgrade             : check for updates
+	# --no-upgrade          : do not check for updates
+	# --no-confirm          : bypass any and all confirmation messages
+	#
+	#  `pamac remove` options:
+	# --unneeded, -u : remove packages only if they are not required by any other packages
+	# --cascade, -c  : remove all target packages, as well as all packages that depend on one or more target packages
+	# --orphans, -o  : remove dependencies that are not required by other packages, if this option is used without package name remove all orphans
+	# --no-orphans   : do not remove dependencies that are not required by other packages
+	# --no-save, -n  : ignore files backup
+	# --dry-run, -d  : only print what would be done but do not run the transaction
+	# --no-confirm   : bypass any and all confirmation messages
+	#
+	# `pamac checkupdates` options (outputs a list of packages with updates available):
+	# --builddir <dir> : build directory (use with --devel), if no directory is given the one specified in pamac.conf file is used
+	# --aur, -a        : also check updates in AUR
+	# --no-aur         : do not check updates in AUR
+	# --quiet, -q      : only print one line per update
+	# --devel          : also check development packages updates (use with --aur)
+	# --no-devel       : do not check development packages updates
+	# `pacmac checkupdates -q` results:
+	# zlib  1:1.3.1-2 -> 1:1.3.2-3
+	#
+	# `pamac update|upgrade` options:
+	# --force-refresh       : force the refresh of the databases
+	# --no-refresh          : do not refresh the databases
+	# --enable-downgrade    : enable package downgrades
+	# --disable-downgrade   : disable package downgrades
+	# --download-only, -w   : download all packages but do not install/upgrade anything
+	# --dry-run, -d         : only print what would be done but do not run the transaction
+	# --ignore <package(s)> : ignore a package upgrade, multiple packages can be specified by separating them with a comma
+	# --overwrite <glob>    : overwrite conflicting files, multiple patterns can be specified by separating them with a comma
+	# --no-confirm          : bypass any and all confirmation messages
+	# --aur, -a             : also upgrade packages installed from AUR
+	# --no-aur              : do not upgrade packages installed from AUR
+	# --devel               : also upgrade development packages (use with --aur)
+	# --no-devel            : do not upgrade development packages
+	# --builddir <dir>      : build directory (use with --aur), if no directory is given the one specified in pamac.conf file is used
+	function __parse_pamac_search {
+		echo-regexp -go --regexp='^([^\s]+)\s+([^\s]+)' --replace='$1 $2' || return $?
+	}
 	function __setup__pamac {
 		local args=() packages=()
 		if [[ ${#PAMAC[@]} -ne 0 ]]; then
@@ -1310,55 +1581,50 @@ function setup_util() (
 			packages+=("${AUR[@]}")
 		fi
 
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- pamac; then
-			fallbacks+=('pamac')
-			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
-		fi
+		# applicability
+		__applicable --fallback || return $?
 
-		# --no-confirm
-		# bypass any and all confirmation messages
-
-		# args
-		if [[ $option_action == 'uninstall' ]]; then
-			args+=(
-				'pamac'
-				'remove'
-				'--no-confirm'
-			)
-		else
-			# install / reinstall / upgrade
-			if [[ $option_force == 'yes' ]]; then
-				args+=(
-					'pamac'
-					'reinstall'
-					'--no-confirm'
-				)
-			else
-				args+=(
-					'pamac'
-					'install'
-					'--no-confirm'
-				)
-			fi
-
-			# without `--no-upgrade` pamac upgrades everything on the system, which can be over 40GB on initial upgrades
-			args+=('--no-upgrade')
-		fi
-
-		# packages
-		eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+		# action
+		case "$option_action"; in
+		# is-*  ...<package>
+		'is-installed-all') || return 1 ;;
+		'is-installed-any') __is_installed_all_to_any "${packages[@]}" || return $? ;;
+		'is-installed-none') __is_installed_all_to_none "${packages[@]}" || return $? ;;
+		# list-*
+		'list-installed') pamac list -i | echo-regexp -go --regexp='^([^\s]+)\s+([^\s]+)' --replace='$1 $2' || return $? ;;
+		'list-outdated') pamac checkupdates -q | echo-regexp -go --regexp='^([^\s]+)\s+([^\s]+)\s+->\s+([^\s]+)' --replace='$1 $2 $3' || return $? ;;
+		'list-updated') return "$STATUS__NOT_IMPLEMENTED" ;;
+		'list-available') pamac search . | __parse_pamac_search || return $? ;;
+		# search-* ...<package> --search=...<search>
+		'search-'*)
+			# regexp
+			local search_options=() search
+			for search in "${packages[@]}"; do
+				search_options+=("^${search}\$")
+			done
+			for search in "${option_search[@]}"; do
+				search_options+=("$search")
+			done
+			;;&
+		'search-installed' ) pamac search -i | __parse_pamac_search || return $?;;
+		'search-outdated') return "$STATUS__NOT_IMPLEMENTED" ;;
+		'search-updated') return "$STATUS__NOT_IMPLEMENTED" ;;
+		'search-available') pamac search "${search_options[@]}" | __parse_pamac_search || return $?;;
+		# setup-* ...<package>
+		'setup-uninstall') __elevate -- pamac remove --no-confirm --unneeded --no-save "${packages[@]}" || return $? ;;
+		'setup-install') __elevate -- pamac install --no-confirm --no-upgrade "${packages[@]}" || return $? ;;
+		'setup-upstall') __elevate -- pamac install --no-confirm --upgrade "${packages[@]}" || return $? ;;
+		'setup-upgrade') __elevate -- pamac update --no-confirm --upgrade "${packages[@]}" || return $? ;;
+		'setup-upgrade-all');;
+		*) return "$STATUS__INVALID_ACTION" ;;
+		esac
 	}
 	function __fallback__pamac {
 		if ! is-system --manjaro; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
+			return "$STATUS__SYSTEM_NA"
 		fi
 		__log_fallback 'Pamac' || return $?
 		setup-util-pamac --dependency --quiet="$option_quiet" || return $?
-		__setup__pamac "$@" || return $?
 	}
 
 	# paru / AUR / Arch Linux
@@ -1394,46 +1660,65 @@ function setup_util() (
 	# supports installing/uninstalling downloaded .deb files
 	# successor to aptitude
 	# https://wiki.debian.org/Apt
-	function __are_any_of_these_apt_packages_installed {
-		local packages=("$@") list package
-		list="$(apt list --installed 2>/dev/null)" || :
-		# Listing... Done
-		# adduser/noble,now 3.137ubuntu1 all [installed]
-		# alsa-topology-conf/noble,now 1.2.5.1-2 all [installed,automatic]
-		# ...
-		for package in "${packages[@]}"; do
-			if [[ $list == *$'\n'"$package/"* ]]; then
-				return 0
-			fi
-		done
-		return 1
-	}
-	function __is_applicable__apt {
-		local packages=() repo="$APT_REPO"
-		if [[ ${#APT[@]} -ne 0 ]]; then
-			packages+=("${APT[@]}")
-		elif [[ ${#DEB[@]} -ne 0 ]]; then
-			packages+=("${DEB[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- apt-get; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-		if [[ $APT_REPO == 'ppa:'* ]] && ! is-system --ubuntu; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-
-		# check for applicability based on action and packages
-		if [[ $option_action == 'uninstall' ]]; then
-			__are_any_of_these_apt_packages_installed "${packages[@]}" || return 200 # ECUSTOM 200 Not applicable to this uninstallation
-		else
-			: # for upgrade and install, dorothy has already determined if we are applicable
-		fi
-	}
+	# https://manpages.ubuntu.com/manpages/xenial/man8/apt.8.html
+	# https://linuxcommandlibrary.com/man/apt-list
+	#
+	# Use `apt-get`, as `apt` produces this warning on `Ubuntu 20.04.3 LTS`:
+	# ````
+	# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+	# ```
+	# And the manpage states:
+	# ```
+	# APT explicitly warns that apt does not have a stable CLI; output formatting may change between releases. Use dpkg-query -l or apt-cache in scripts. Run apt update beforehand if recent repository changes should be visible. Pattern arguments are interpreted by the shell, so quote wildcards to prevent local file expansion.
+	# ```
+	#
+	# `apt list --installed sed zzuf` result:
+	# ```
+	# root@f241ea67b453:/# PAGER= apt list --installed sed zzuf; echo "[$?]"
+	# sed/resolute,now 4.9-2build3 amd64 [installed,upgradable to: 4.9-2ubuntu1]
+	# [0]
+	# ```
+	#
+	# `apt show zlib1g` result:
+	# ```
+	# Package: zlib1g
+	# Version: 1:1.3.dfsg+really1.3.1-1ubuntu3
+	# Priority: required
+	# Section: libs
+	# Source: zlib
+	# Origin: Ubuntu
+	# Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+	# Original-Maintainer: Mark Brown <broonie@debian.org>
+	# Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+	# Installed-Size: 175 kB
+	# Provides: libz1
+	# Depends: libc6 (>= 2.14)
+	# Conflicts: zlib1 (<= 1:1.0.4-7)
+	# Breaks: libxml2 (<< 2.7.6.dfsg-2), texlive-binaries (<< 2023.20230311.66589-8)
+	# Homepage: http://zlib.net/
+	# Task: cloud-minimal, minimal, server-minimal
+	# Download-Size: 63.9 kB
+	# APT-Manual-Installed: yes
+	# APT-Sources: http://archive.ubuntu.com/ubuntu resolute/main amd64 Packages
+	# Description: compression library - runtime
+	# ```
+	#
+	# https://manpages.ubuntu.com/manpages/xenial/man8/apt-get.8.html
+	# `apt-get` options:
+	# --install-suggests: Consider suggested packages as a dependency for installing. Configuration Item: APT::Install-Suggests.
+	# -f, --fix-broken: Fix; attempt to correct a system with broken dependencies in place. This option, when used with install/remove, can omit any packages to permit APT to deduce a likely solution. If packages are specified, these have to completely correct the problem. The option is sometimes necessary when running APT for the first time; APT itself does not allow broken package dependencies to exist on a system. It is possible that a system's dependency structure can be so corrupt as to require manual intervention (which usually means using dpkg --remove to eliminate some of the offending packages). Use of this option together with -m may produce an error in some situations. Configuration Item: APT::Get::Fix-Broken.
+	# -m, --ignore-missing, --fix-missing: Ignore missing packages; if packages cannot be retrieved or fail the integrity check after retrieval (corrupted package files), hold back those packages and handle the result. Use of this option together with -f may produce an error in some situations. If a package is selected for installation (particularly if it is mentioned on the command line) and it could not be downloaded then it will be silently held back. Configuration Item: APT::Get::Fix-Missing.
+	# -q, --quiet: Quiet; produces output suitable for logging, omitting progress indicators. More q's will produce more quiet up to a maximum of 2. You can also use -q=# to set the quiet level, overriding the configuration file. Note that quiet level 2 implies -y; you should never use -qq without a no-action modifier such as -d, --print-uris or -s as APT may decide to do something you did not expect. Configuration Item: quiet.
+	# -y, --yes, --assume-yes: Automatic yes to prompts; assume "yes" as answer to all prompts and run non-interactively. If an undesirable situation, such as changing a held package, trying to install a unauthenticated package or removing an essential package occurs then apt-get will abort. Configuration Item: APT::Get::Assume-Yes.
+	# -u, --show-upgraded: Show upgraded packages; print out a list of all packages that are to be upgraded. Configuration Item: APT::Get::Show-Upgraded.
+	# --no-upgrade: Do not upgrade packages; when used in conjunction with install, no-upgrade will prevent packages on the command line from being upgraded if they are already installed. Configuration Item: APT::Get::Upgrade.
+	# --only-upgrade: Do not install new packages; when used in conjunction with install, only-upgrade will install upgrades for already installed packages only and ignore requests to install new packages. Configuration Item: APT::Get::Only-Upgrade.
+	# --allow-downgrades: This is a dangerous option that will cause apt to continue without prompting if it is doing downgrades. It should not be used except in very special situations. Using it can potentially destroy your system! Configuration Item: APT::Get::allow-downgrades. Introduced in APT 1.1.
+	# --purge: Use purge instead of remove for anything that would be removed. An asterisk ("*") will be displayed next to packages which are scheduled to be purged. remove --purge is equivalent to the purge command. Configuration Item: APT::Get::Purge.
+	# --reinstall: Re-install packages that are already installed and at the newest version. Configuration Item: APT::Get::ReInstall.
+	# --trivial-only: Only perform operations that are 'trivial'. Logically this can be considered related to --assume-yes; where --assume-yes will answer yes to any prompt, --trivial-only will answer no. Configuration Item: APT::Get::Trivial-Only.
+	# --auto-remove, --autoremove: If the command is either install or remove, then this option acts like running the autoremove command, removing unused dependency packages. Configuration Item: APT::Get::AutomaticRemove.
+	# --show-progress: Show user friendly progress information in the terminal window when packages are installed, upgraded or removed. For a machine parsable version of this data see README.progress-reporting in the apt doc directory. Configuration Item: Dpkg::Progress and Dpkg::Progress-Fancy.
 	function __apt_key_fetch {
 		local key="$1"
 		if [[ $key == *'.asc' ]]; then
@@ -1456,193 +1741,261 @@ function setup_util() (
 		# adjust permission to fix [_apt access error] on ubuntu 21.10
 		fs-own --elevate --permissions='a+r' -- "$keyring" || return $?
 	}
+	# turns `apt list` and `apt search` results of:
+	# ```
+	# zzuf/resolute 0.15-5ubuntu1 amd64
+	#   transparent application fuzzer
+	#
+	# sed/resolute-updates,resolute-security 4.9-2ubuntu1 amd64 [upgradable from: 4.9-2build3]
+	#   GNU	 stream editor for filtering/transforming text
+	#
+	# bash/resolute,now 5.3-2ubuntu1 amd64 [installed]
+	#   GNU Bourne Again SHell
+	#
+	# ```
+	# into:
+	# ```
+	# zzuf 0.15-5ubuntu1
+	# sed 4.9-2ubuntu1
+	# bash 5.3-2ubuntu1
+	# ```
+	# edge cases:
+	# `zlib1g/resolute,now 1:1.3.dfsg+really1.3.1-1ubuntu3 amd64 [installed]`
+	function __parse_apt {
+		echo-regexp -ong --regexp='^([^/\s]+)[^\s]+\s+([^\s]+)' --replace='$1 $2' || return $?
+	}
+	function __parse_apt_installed {
+		echo-regexp -ong --regexp='^([^/\s]+)[^\s]+\s+([^\s]+).+?(installed|upgradable)' --replace='$1 $2' || return $?
+	}
+	function __parse_apt_updated {
+		echo-regexp -ong --regexp='^([^/\s]+)[^\s]+\s+([^\s]+).+?installed' --replace='$1 $2' || return $?
+	}
+	function __parse_apt_upgradeable {
+		# turns: `sed/resolute-updates,resolute-security 4.9-2ubuntu1 amd64 [upgradable from: 4.9-2build3]`
+		# into: `sed 4.9-2build3 4.9-2ubuntu1`
+		echo-regexp -ong --regexp='^([^/\s]+)[^\s]+\s+([^\s]+).+?upgradable from: ([^\]]+)' --replace='$1 $3 $2' || return $?
+	}
+	function __invoke_apt_without_page_nor_stderr {
+		PAGER= apt "$@" 2>/dev/null || return $?
+	}
 	function __setup__apt {
-		local args=() packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID" keyring='' download_index download_url download_filepath
+		local packages=() repo="$APT_REPO" key="$APT_KEY" id="$APT_ID"
 		if [[ ${#APT[@]} -ne 0 ]]; then
 			packages+=("${APT[@]}")
 		elif [[ ${#DEB[@]} -ne 0 ]]; then
 			packages+=("${DEB[@]}")
 		fi
 
-		# when APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
+		# applicability
+		__applicable --command='apt-get' || return $?
+		if [[ $repo == 'ppa:'* ]] && ! is-system --ubuntu; then
+			return "$STATUS__PACKAGE_NA"
+		fi
+
+		# handle `repo` and `key`
 		if [[ -n $repo || -n $key ]]; then
-			# ensure apt is setup
+			# ensure apt dependencies for repo and key are correctly configured
 			setup-util-apt --dependency --quiet="$option_quiet" || return $?
 			setup-util-gpg --dependency --quiet="$option_quiet" || return $?
-			# determine APT_ID
+
+			# check id
 			if [[ -z $id ]]; then
 				if [[ ${#packages[@]} -gt 1 ]]; then
 					__print_error --help='If APT has multiple packages, then APT_ID must be specified.' --newline --variable={invocation} || return $?
 					return 1
 				else
+					# when APT_REPO or APT_KEY are used, then determine APT_ID automatically, and fail if it couldn't be determined
 					id="${packages[*]}" # needed for the rm commands
 				fi
 			fi
-		fi
 
-		# ensure key has repo correctly set
-		if [[ -n $key ]]; then
-			if [[ -z $repo ]]; then
-				__print_error --help='`APT_KEY` was set but `APT_REPO` was missing.' --newline --variable={invocation} || return $?
-				return 1
-			fi
-			if [[ $key == *'http:'* ]]; then
-				__print_error --help='`APT_KEY` was set but contained `http:` instead of `https:`' --newline --variable={invocation} || return $?
-				return 1
-			fi
-			if [[ $repo != *'signed-by={KEY}'* ]]; then
-				__print_error --help='`APT_KEY` was set but `APT_REPO` did not contain the literal `signed-by={KEY}` which is needed to automatically reference it.' --newline --variable={invocation} || return $?
-				return 1
-			fi
-		fi
-
-		# ensure repo is correct for non deb urls
-		if [[ -n $repo && $repo == 'deb '* ]]; then
-			if [[ $repo != *'arch={ARCH}'* ]]; then
-				__print_error --help='`APT_REPO` was set but did not contain the literal `arch={ARCH}` which is needed to automatically reference the current architecture.' --newline --variable={invocation} || return $?
-				return 1
-			fi
-			if [[ $repo == *'http:'* ]]; then
-				__print_error --help='`APT_REPO` was set but contained `http:` instead of `https:`' --newline --variable={invocation} || return $?
-				return 1
-			fi
-		fi
-
-		# prepare APT with APT_KEY
-		if [[ -n $key ]]; then
-			# Deprecated technique is:
-			# fetch ... | eval-helper --elevate -- apt-key add -
-			# Modern and working technique is what we do below...
-			# which improves upon these incomplete and non-working suggestions:
-			# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
-			# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
-			# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
-			# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
-			# https://stackoverflow.com/a/69015383/130638
-			# https://askubuntu.com/a/1307181
-			# https://askubuntu.com/a/1306494
-
-			# prepare new location
-			# /usr/share/keyrings - system packagers
-			# /usr/local/share/keyrings - system operator
-			eval-helper --elevate -- mkdir -p --mode=0755 -- /usr/share/keyrings /usr/local/share/keyrings || return $?
-			keyring="/usr/local/share/keyrings/$id.gpg"
-
-			# remove old keys if they exist
-			fs-remove --quiet --elevate --no-confirm --optional -- /usr/local/share/keyrings/*"$id"* /etc/apt/trusted.gpg.d/*"$id"* || return $?
-
-			# add the apt key if not uninstalling
-			if [[ $option_action != 'uninstall' ]]; then
-				__apt_key_add "$key" "$keyring" || return $?
-			fi
-		fi
-
-		# prepare APT with APT_REPO
-		if [[ -n $repo ]]; then
-			# remove old listings if they exist
-			fs-remove --quiet --elevate --no-confirm --optional -- /etc/apt/sources.list.d/*"$id"* || :
-
-			# add the repo with appropriate technique for the repo type
-			# https://documentation.ubuntu.com/launchpad/user/explanation/launchpad-api/launchpad-web-service/
-			if [[ $repo == 'ppa:'* ]]; then
-				# `ppa` sources are only for ubuntu, and ubuntu has `apt-add-repository`
-				# refer to <https://gist.github.com/balupton/1ab5e001b56bd0cd480aa63d9e8ae3fa> for research and manual technique
-				# ubuntu check already occurred earlier
-				if [[ $option_action != 'uninstall' ]]; then
-					eval-helper --elevate -- apt-add-repository -y --enable-source "$repo" || return $?
+			# check key
+			if [[ -n $key ]]; then
+				if [[ -z $repo ]]; then
+					__print_error --help='`APT_KEY` was set but `APT_REPO` was missing.' --newline --variable={invocation} || return $?
+					return 1
 				fi
-			elif [[ $repo == 'deb '* ]]; then
-				# adjust key modifier
-				repo="${repo/"{KEY}"/$keyring}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
-
-				# adjust arch modifier
-				repo="${repo/"{ARCH}"/$(
-					dpkg --print-architecture
-				)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
-				# `dpkg --print-architecture` outputs `amd64`, `$HOSTTYPE` is `x86_64`, `get-arch` is `x64`
-
-				# adjust release modifier
-				repo="${repo/"{RELEASE}"/$(
-					get-system --codename
-				)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
-
-				# use a non-deprecated technique that supports the deb modifiers
-				if [[ $option_action != 'uninstall' ]]; then
-					echo-write -- "/etc/apt/sources.list.d/$id.list" <<<"$repo" || return $?
+				if [[ $key == *'http:'* ]]; then
+					__print_error --help='`APT_KEY` was set but contained `http:` instead of `https:`' --newline --variable={invocation} || return $?
+					return 1
 				fi
-			else
-				# unknown
-				__print_error --help='`APT_REPO` was set but was unrecognised:`' --newline --variable={invocation} || return $?
+				if [[ $repo != *'signed-by={KEY}'* ]]; then
+					__print_error --help='`APT_KEY` was set but `APT_REPO` did not contain the literal `signed-by={KEY}` which is needed to automatically reference it.' --newline --variable={invocation} || return $?
+					return 1
+				fi
+			fi
+
+			# cbeck repo
+			if [[ -n $repo && $repo == 'deb '* ]]; then
+				if [[ $repo != *'arch={ARCH}'* ]]; then
+					__print_error --help='`APT_REPO` was set but did not contain the literal `arch={ARCH}` which is needed to automatically reference the current architecture.' --newline --variable={invocation} || return $?
+					return 1
+				fi
+				if [[ $repo == *'http:'* ]]; then
+					__print_error --help='`APT_REPO` was set but contained `http:` instead of `https:`' --newline --variable={invocation} || return $?
+					return 1
+				fi
+			fi
+
+			# apply key
+			if [[ -n $key ]]; then
+				# Deprecated technique is:
+				# fetch ... | eval-helper --elevate -- apt-key add -
+				# Modern and working technique is what we do below...
+				# which improves upon these incomplete and non-working suggestions:
+				# https://blog.jak-linux.org/2021/06/20/migrating-away-apt-key/
+				# https://packagecloud.io/blog/what-does-it-mean-to-add-a-repository-to-my-sources/#strongaddaptrepositorystrong
+				# https://linuxize.com/post/how-to-add-apt-repository-in-ubuntu/
+				# https://www.techrepublic.com/article/how-to-add-an-openpgp-repository-key-now-that-apt-key-is-deprecated/
+				# https://stackoverflow.com/a/69015383/130638
+				# https://askubuntu.com/a/1307181
+				# https://askubuntu.com/a/1306494
+
+				# prepare new location
+				# /usr/share/keyrings - system packagers
+				# /usr/local/share/keyrings - system operator
+				__elevate -- mkdir -p --mode=0755 -- /usr/share/keyrings /usr/local/share/keyrings || return $?
+
+				# remove old keys if they exist
+				fs-remove --quiet --elevate --no-confirm --optional -- /usr/local/share/keyrings/*"$id"* /etc/apt/trusted.gpg.d/*"$id"* || return $?
+
+				# add the apt key if not uninstalling
+				if [[ $option_action != 'uninstall' ]]; then
+					local keyring="/usr/local/share/keyrings/$id.gpg"
+					__apt_key_add "$key" "$keyring" || return $?
+				fi
+			fi
+
+			# apply repo
+			if [[ -n $repo ]]; then
+				# remove old listings if they exist
+				fs-remove --quiet --elevate --no-confirm --optional -- /etc/apt/sources.list.d/*"$id"* || :
+
+				# add the repo with appropriate technique for the repo type
+				# https://documentation.ubuntu.com/launchpad/user/explanation/launchpad-api/launchpad-web-service/
+				if [[ $repo == 'ppa:'* ]]; then
+					# `ppa` sources are only for ubuntu, and ubuntu has `apt-add-repository`
+					# refer to <https://gist.github.com/balupton/1ab5e001b56bd0cd480aa63d9e8ae3fa> for research and manual technique
+					# ubuntu check already occurred earlier
+					if [[ $option_action != 'uninstall' ]]; then
+						__elevate -- apt-add-repository -y --enable-source "$repo" || return $?
+					fi
+				elif [[ $repo == 'deb '* ]]; then
+					# adjust key modifier
+					repo="${repo/"{KEY}"/$keyring}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+
+					# adjust arch modifier
+					repo="${repo/"{ARCH}"/$(
+						dpkg --print-architecture
+					)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+					# `dpkg --print-architecture` outputs `amd64`, `$HOSTTYPE` is `x86_64`, `get-arch` is `x64`
+
+					# adjust release modifier
+					repo="${repo/"{RELEASE}"/$(
+						get-system --codename
+					)}" # don't wrap replacement in `"` as that outputs the `"` on bash versions <= 4.2
+
+					# use a non-deprecated technique that supports the deb modifiers
+					if [[ $option_action != 'uninstall' ]]; then
+						echo-write -- "/etc/apt/sources.list.d/$id.list" <<<"$repo" || return $?
+					fi
+				else
+					# unknown
+					__print_error --help='`APT_REPO` was set but was unrecognised:`' --newline --variable={invocation} || return $?
+					return 1
+				fi
+				# to debug failures:
+				# sudo apt-add-repository --list
+			fi
+
+			# if we added a new repo or key, we need to refresh the apt references
+			__elevate -- apt-get update -y || return $?
+		fi
+
+		# action
+		case "$option_action"; in
+		# is-*  ...<package>
+		'is-installed-'*)
+			local results=()
+			__split --target={results} --invoke=try -- \
+				__invoke_apt_without_page_nor_stderr list --installed "${packages[@]}" || return $?
+			;;&
+		'is-installed-all')
+			if [[ ${#results[@]} -ne "${#packages[@]}" ]]; then
 				return 1
 			fi
-			# to debug failures:
-			# sudo apt-add-repository --list
-		fi
-
-		# if we added a new repo or key, we need to refresh the apt references
-		if [[ -n $repo || -n $key ]]; then
-			eval-helper --elevate -- apt-get update -y || return $?
-		fi
-
-		# action args
-		if [[ $option_action == 'uninstall' ]]; then
+			;;
+		'is-installed-any')
+			if [[ ${#results[@]} -ne 0 ]]; then
+				return 1
+			fi
+			;;
+		'is-installed-none')
+			if [[ ${#results[@]} -eq 0 ]]; then
+				return 1
+			fi
+			;;
+		# list-*
+		'list-installed') __invoke_apt_without_page_nor_stderr list --installed "${packages[@]}" | __parse_apt_installed || return $? ;;
+		'list-outdated') __invoke_apt_without_page_nor_stderr list --upgradeable "${packages[@]}" | __parse_apt_upgradeable || return $? ;;
+		'list-updated') __invoke_apt_without_page_nor_stderr list --installed "${packages[@]}" | __parse_apt_updated || return $? ;;
+		'list-available') __invoke_apt_without_page_nor_stderr list "${packages[@]}" | __parse_apt_updated || return $?  ;;
+		# search-* ...<package> --search=...<search>
+		'search-'*)
+			# regexp
+			local search_options=() search
+			for search in "${packages[@]}"; do
+				search_options+=("^${search}\$")
+			done
+			for search in "${option_search[@]}"; do
+				search_options+=("$search")
+			done
+			;;&
+		'search-installed') __invoke_apt_without_page_nor_stderr search "${search_options[@]}" | __parse_apt_installed || return $? ;;
+		'search-outdated') __invoke_apt_without_page_nor_stderr search "${search_options[@]}" | __parse_apt_upgradeable || return $? ;;
+		'search-updated') __invoke_apt_without_page_nor_stderr search "${search_options[@]}" | __parse_apt_updated || return $? ;;
+		'search-available') __invoke_apt_without_page_nor_stderr search "${search_options[@]}" | __parse_apt_updated || return $?  ;;
+		# setup-* ...<package>
+		'setup-'*)
+			# convert urls to local
+			local download_index download_url download_filepath
+			for download_index in "${!packages[@]}"; do
+				download_url="${packages[download_index]}"
+				if __is_remote "$download_url"; then
+					# fetch temp path
+					download_filepath="$(fs-make --cache --directory='dorothy' --directory='setup-util' --file="$option_name.deb" --touch)" || return $?
+					# download to temp path
+					down --filepath="$download_filepath" "$download_url" || return $?
+					# apt supports .deb packages for install and uninstall
+					packages[download_index]="$download_filepath"
+				fi
+			done
+			;;&
+		'setup-uninstall')
 			# don't use `apt remove --purge` as it is equivalent to `apt purge`
 			# and purge removing python will also remove ufw and samba and a whole bunch of other things that depend on python
 			# as such, only use `--auto-remove` as that is safer
-			args+=(
-				'apt-get'
-				'remove'
-				'-y'
-				'--auto-remove'
-			)
-		else
-			# install / upgrade
-			args+=(
-				'apt-get'
-				'install'
-				'-y'
-				'--fix-broken'
-			)
-		fi
-
-		# convert urls to local
-		for download_index in "${!packages[@]}"; do
-			download_url="${packages[download_index]}"
-			if __is_remote "$download_url"; then
-				# fetch temp path
-				download_filepath="$(fs-make --cache --directory='dorothy' --directory='setup-util' --file="$option_name.deb" --touch)" || return $?
-				# download to temp path
-				down --filepath="$download_filepath" "$download_url" || return $?
-				# apt supports .deb packages for install and uninstall
-				packages[download_index]="$download_filepath"
-			fi
-		done
-
-		# packages
-		# use `apt-get`, as `apt` produces this warning on Ubuntu 20.04.3 LTS
-		# WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
-		eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+			__elevate -- apt-get remove --assume-yes --auto-remove "${packages[@]}" || return $?
+			;;
+		'setup-install')
+			__elevate -- apt-get install --assume-yes --fix-broken --no-upgrade "${packages[@]}" || return $?
+			;;
+		'setup-upstall')
+			__elevate -- apt-get install --assume-yes --fix-broken "${packages[@]}" || return $?
+			;;
+		'setup-upgrade')
+			__elevate -- apt-get install --assume-yes --fix-broken --only-upgrade "${packages[@]}" || return $?
+			;;
+		'setup-upgrade-all')
+			__elevate -- apt-get install --assume-yes --fix-broken "${packages[@]}" || return $?
+			;;
+		*) return "$STATUS__INVALID_ACTION" ;;
+		esac
 	}
 
 	# dpkg / Debian / Ubuntu / Linux Mint / elementary OS / etc
 	# supports installing/uninstalling downloaded .deb files
 	# https://man7.org/linux/man-pages/man1/dpkg.1.html
-	function __is_applicable__dpkg {
-		local packages=()
-		if [[ ${#DPKG[@]} -ne 0 ]]; then
-			packages+=("${DPKG[@]}")
-		elif [[ ${#DEB[@]} -ne 0 ]]; then
-			packages+=("${DEB[@]}")
-		fi
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- dpkg; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-	}
 	function __setup__dpkg {
 		local args=() packages=() download_index download_filepath download_url
 		if [[ ${#DPKG[@]} -ne 0 ]]; then
@@ -1687,7 +2040,7 @@ function setup_util() (
 		done
 
 		# packages
-		eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+		__elevate -- "${args[@]}" "${packages[@]}" || return $?
 	}
 
 	# -------------------------------------
@@ -1798,7 +2151,7 @@ function setup_util() (
 			)
 		fi
 		for repo in "${repos[@]}"; do
-			eval-helper --elevate -- "${args[@]}" "$repo" || return $?
+			__elevate -- "${args[@]}" "$repo" || return $?
 		done
 
 		# args
@@ -1829,13 +2182,12 @@ function setup_util() (
 
 		# packages
 		for package in "${packages[@]}"; do
-			eval-helper --elevate -- "${args[@]}" "$package" || return $?
+			__elevate -- "${args[@]}" "$package" || return $?
 		done
 	}
 	function __fallback__flatpak {
 		__log_fallback 'Flatpak' || return $?
 		setup-util-flatpak --dependency --quiet="$option_quiet" || return $?
-		__setup_flatpak || return $?
 	}
 
 	# ---------------------------------
@@ -2234,7 +2586,6 @@ function setup_util() (
 		fi
 		__log_fallback 'mas' || return $?
 		setup-util-mas --dependency --quiet="$option_quiet" || return $?
-		__setup_mas || return $?
 	}
 
 	# port / MacPorts
@@ -2322,7 +2673,6 @@ function setup_util() (
 	function __fallback__npm {
 		__log_fallback 'Node.js & NPM' || return $?
 		setup-util-node --dependency --quiet="$option_quiet" || return $?
-		__setup_npm || return $?
 	}
 
 	# @todo add yarn
@@ -2386,7 +2736,6 @@ function setup_util() (
 	function __fallback__nvm {
 		__log_fallback 'Node.js Version Manager (NVM)' || return $?
 		setup-util-nvm --dependency --quiet="$option_quiet" || return $?
-		__setup_nvm || return $?
 	}
 
 	# -------------------------------------
@@ -2483,7 +2832,6 @@ function setup_util() (
 	function __fallback__uv {
 		__log_fallback 'UV' || return $?
 		setup-util-uv --dependency --quiet="$option_quiet" || return $?
-		__setup_uv || return $?
 	}
 
 	# -------------------------------------
@@ -2535,13 +2883,13 @@ function setup_util() (
 
 		# copr
 		if [[ ${#copr[@]} -ne 0 ]]; then
-			eval-helper --elevate -- dnf "${opts[@]}" copr enable "${copr[@]}" || return $?
+			__elevate -- dnf "${opts[@]}" copr enable "${copr[@]}" || return $?
 		fi
 
 		# repos
 		if [[ ${#repos[@]} -ne 0 ]]; then
 			# fix https://github.com/bevry/dorothy/actions/runs/7622089094/job/20759534693#step:4:1514
-			eval-helper --elevate -- dnf "${opts[@]}" install 'dnf-command(config-manager)' || return $?
+			__elevate -- dnf "${opts[@]}" install 'dnf-command(config-manager)' || return $?
 			# fix: Unknown argument "--add-repo" for command "config-manager". Add "--help" for more information about the arguments.
 			# dnf5 [GLOBAL OPTIONS] config-manager <COMMAND> ...
 			# addrepo: Add repositories from the specified configuration file or define a new repository using user options
@@ -2552,12 +2900,12 @@ function setup_util() (
 			for repo in "${repos[@]}"; do
 				repo_args+=("--from-repofile=$repo")
 			done
-			eval-helper --elevate -- dnf "${opts[@]}" config-manager addrepo "${repo_args[@]}" || return $?
+			__elevate -- dnf "${opts[@]}" config-manager addrepo "${repo_args[@]}" || return $?
 		fi
 
 		# groups
 		if [[ ${#groups[@]} -ne 0 ]]; then
-			eval-helper --elevate -- dnf "${opts[@]}" groupinstall "${groups[@]}" || return $?
+			__elevate -- dnf "${opts[@]}" groupinstall "${groups[@]}" || return $?
 		fi
 
 		# args
@@ -2583,7 +2931,7 @@ function setup_util() (
 
 		# packages
 		if [[ ${#packages[@]} -ne 0 ]]; then
-			eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+			__elevate -- "${args[@]}" "${packages[@]}" || return $?
 		fi
 	}
 
@@ -2632,7 +2980,7 @@ function setup_util() (
 				# it was not a file, so this is not a suitable combination
 				return 1
 			fi
-			eval-helper --elevate -- "${args[@]}" "$package" || return $?
+			__elevate -- "${args[@]}" "$package" || return $?
 		done
 	}
 
@@ -2725,7 +3073,7 @@ function setup_util() (
 		fi
 
 		# packages
-		eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+		__elevate -- "${args[@]}" "${packages[@]}" || return $?
 	}
 
 	# zypper / openSUSE / SLES
@@ -2771,16 +3119,16 @@ function setup_util() (
 		# repos
 		if [[ -n $repo ]]; then
 			if [[ -n $alias ]]; then
-				eval-helper --elevate -- zypper "${cmd_opts[@]}" \
+				__elevate -- zypper "${cmd_opts[@]}" \
 					addrepo --refresh "$repo" "$alias" || return $?
 
-				eval-helper --elevate -- zypper "${cmd_opts[@]}" \
+				__elevate -- zypper "${cmd_opts[@]}" \
 					dist-upgrade --auto-agree-with-licenses --no-confirm --from "$alias" || return $?
 			else
-				eval-helper --elevate -- zypper "${cmd_opts[@]}" \
+				__elevate -- zypper "${cmd_opts[@]}" \
 					addrepo --refresh "$repo" || return $?
 
-				eval-helper --elevate -- zypper "${cmd_opts[@]}" \
+				__elevate -- zypper "${cmd_opts[@]}" \
 					refresh || return $?
 			fi
 		fi
@@ -2815,7 +3163,7 @@ function setup_util() (
 		fi
 
 		# packages
-		eval-helper --elevate -- "${args[@]}" "${packages[@]}" || return $?
+		__elevate -- "${args[@]}" "${packages[@]}" || return $?
 	}
 
 	# -------------------------------------
@@ -2892,7 +3240,6 @@ function setup_util() (
 	function __fallback__gem {
 		__log_fallback 'Ruby & Gem' || return $?
 		setup-util-ruby --dependency --quiet="$option_quiet" || return $?
-		__setup_gem || return $?
 	}
 
 	# -------------------------------------
@@ -3039,14 +3386,13 @@ function setup_util() (
 			if [[ $option_action == 'uninstall' ]]; then
 				parts=("${parts[0]}") # if uninstalling, trim --classic
 			fi
-			eval-helper --elevate -- "${args[@]}" "${parts[@]}" || return $? # eval
+			__elevate -- "${args[@]}" "${parts[@]}" || return $? # eval
 		done
 
 	}
 	function __fallback__snap {
 		__log_fallback 'Snap' || return $?
 		setup-util-snap --dependency --quiet="$option_quiet" || return $?
-		__setup_snap || return $?
 	}
 
 	# -------------------------------------
