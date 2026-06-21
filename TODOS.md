@@ -2,21 +2,25 @@
 
 <https://gist.github.com/balupton/035fc0cb50f72cc419158c878ef8a692>
 
-``` bash
+```bash
 		# applicability
 		__applicable || return $?
 
 		# action
-		case "$option_action"; in
+		case "$option_action" in
 		# is-*  ...<package>
 		'is-installed-all') || return 1 ;;
 		'is-installed-any') __is_installed_all_to_any "${packages[@]}" || return $? ;;
 		'is-installed-none') __is_installed_all_to_none "${packages[@]}" || return $? ;;
 		# list-*
-		'list-installed') ;;
-		'list-outdated') ;;
-		'list-updated') ;;
-		'list-available') ;;
+		'list-installed')
+            ;;
+		'list-outdated')
+            ;;
+		'list-updated')
+            ;;
+		'list-available')
+            ;;
 		# search-* ...<package> --search=...<search>
 		'search-'*)
 			local search_options=(--format=yaml --fields=name,version "${packages[@]}") search
@@ -24,10 +28,14 @@
 				search_options+=("*$search*")
 			done
 			;;&
-		'search-installed' )  ;;
-		'search-outdated') ;;
-		'search-updated') ;;
-		'search-available') ;;
+		'search-installed' )
+            ;;
+		'search-outdated')
+            ;;
+		'search-updated')
+            ;;
+		'search-available')
+            ;;
 		# setup-* ...<package>
 		'setup-'*)
 			local repository_options=()
@@ -35,11 +43,16 @@
 				repository_options+=(--repository "$repo")
 			fi
 			;;&
-		'setup-uninstall') ;;
-		'setup-install') ;;
-		'setup-upstall') ;;
-		'setup-upgrade')  ;;
-		'setup-upgrade-all');;
+		'setup-uninstall')
+            ;;
+		'setup-install')
+            ;;
+		'setup-upstall')
+            ;;
+		'setup-upgrade')
+            ;;
+		'setup-upgrade-all')
+            ;;
 		*) return "$STATUS__INVALID_ACTION" ;;
 		esac
 ```
