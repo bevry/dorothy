@@ -28,7 +28,7 @@ ESRCH 3 No such process
 Includes usage for missing required dependency.
 
 ENXIO 6 Device not configured
-Includes usage for missing required dependency.
+Includes usage for missing required dependency/configuration.
 
 ENOEXEC 8 Exec format error
 Includes usage for malfunctioning required dependency.
@@ -99,6 +99,7 @@ EIDRM 90 Identifier removed
 Includes usage for deprecated paths / deprecations.
 
 ENOMSG 91 No message of desired type
+Includes usage when a user defined expection is not met.
 
 ENOATTR 93 Attribute not found
 Includes usage when a <path> is missing a required attribute, such as missing readable/writable/executable permissions when that specific attribute is sought.

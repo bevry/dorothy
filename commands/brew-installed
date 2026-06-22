@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# @todo rename to `brew-query` and add support for `--installed` vs `--available`, as well as --search=...<fuzzy-match>
+# @todo add tests
+
 function brew_installed_test() (
 	source "$DOROTHY/sources/bash.bash"
 	eval-tester --ignore-stderr --status=22 -- brew-installed --help
@@ -23,19 +26,50 @@ function brew_installed() (
 			-- ...<item>
 			    If provided, only get details for these <item>s. Fail if one of them has not yet been installed.
 
-			--[no-]formula
-			    Output consider formulas. Formulas can be installed by request, or by dependency; use <requested> to filter.
-			--[no-]cask
-			    Output consider casks. All casks are only installed by request.
-			--[no-]tap
-			    Output consider taps. All taps are only installed by request.
+			--type=
+			    Output only formulas and casks.
+			    ! The default behaviour.
+			--formula | --type=formula
+			    Output only formulas. Formulas can be installed by request, or by dependency; use <requested> to filter.
+			--cask | --type=cask
+			    Output only casks. All casks are only installed by request.
+			--tap | --type=tap
+			    Output only taps. All taps are only installed by request.
 
+			--expects[=<integer>] | --[no-]expects
+			    If provided, expect this amount of results otherwise [91] will be returned.
+			    ! Defaults to the amount of <item>s specified.
 			--[no-]quiet | --[no-]verbose
-			    If <quiet>, do not output anything, just return the exit status.
+			    If <quiet>, do not output anything.
 
-			--[no-]requested
-			    Only consider formulas that were manually installed, not formulas that were only dependencies.
-			    Only compatible with --formula.
+			The following are only compatible with <cask> and <formula>:
+
+			--type=
+			    Output packages, regardless of outdated/updated status.
+			    ! The default behaviour.
+			--[no-]outdated | --status=outdated
+			    Only output outdated packages.
+			    ! If enabled, will default <versions> to \`latest\`.
+			--[no-]updated | --status=updated
+			    Only output updated packages.
+			    ! If enabled, will default <versions> to \`latest\`.
+
+			--[no-]versions | --versions=latest | --versions=current
+			    Output versions alongside the package name.
+			    If \`latest\`, format will be:
+			    \`\`\`
+			    <name> <version> <latest-version>
+			    \`\`\`
+			    If \`current\`, format will be:
+			    \`\`\`
+			    <name> <version>
+			    \`\`\`
+			    ! Note that <version> may not equal <latest-version> and it can still be considered updated, this is because the cask will auto-updates enabled. See <https://github.com/Homebrew/brew/issues/22853>.
+
+			The following are only compatible with <formula>:
+
+			--[no-]requested | --[no-]explicit
+			    Output only packages that were manually/explicitly installed, not packages that were only dependencies.
 
 			QUIRKS:
 			If <item>s are provided, failure exit status will be returned if any are missing.
@@ -45,17 +79,31 @@ function brew_installed() (
 	}
 
 	# process
-	local item option_quiet='' option_requested='no' option_items=() option_type='' # empty, formula, cask, tap
+	local item option_quiet='' option_expects='' option_type='' option_status='no' option_versions='' option_requested='no' option_items=()
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
 		case "$item" in
 		'--help' | '-h') help ;;
+		# quiet
 		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
 		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
-		'--type=formula' | '--type=formulas' | '--formula' | '--formulae') option_type=formula ;;
-		'--type=cask' | '--type=casks' | '--cask' | '--casks') option_type=cask ;;
-		'--type=tap' | '--type=taps' | '--tap' | '--taps') option_type=tap ;;
+		# type filter
+		'--type=cask' | '--type=formula' | '--type=tap' | '--type=') option_type="${item#*=}" ;;
+		'--no-cask'* | '--cask'*) __flag --source={item} --target={option_type} --yes='cask' --no='' --affirmative --coerce ;;
+		'--no-formula'* | '--formula'*) __flag --source={item} --target={option_type} --yes='formula' --no='' --affirmative --coerce ;;
+		'--no-tap'* | '--tap'*) __flag --source={item} --target={option_type} --yes='tap' --no='' --affirmative --coerce ;;
+		# status filter
+		'--status=updated' | '--status=outdated' | '--status=') option_status="${item#*=}" ;;
+		'--no-updated'* | '--updated'*) __flag --source={item} --target={option_status} --yes='updated' --affirmative --coerce ;;
+		'--no-outdated'* | '--outdated'*) __flag --source={item} --target={option_status} --yes='outdated' --affirmative --coerce ;;
+		# expects
+		'--no-expects'* | '--expects'*) __flag --source={item} --target={option_expects} --affirmative --no-coerce ;;
+		# versions
+		'--versions=latest') option_versions='latest' ;;
+		'--versions=current') option_versions='current' ;;
+		'--no-versions'* | '--versions'*) __flag --source={item} --target={option_versions} --affirmative --coerce ;;
+		# requested
 		'--no-requested'* | '--requested'*) __flag --source={item} --target={option_requested} --affirmative --coerce ;;
 		'--')
 			option_items+=("$@")
@@ -72,64 +120,95 @@ function brew_installed() (
 		return 46 # EPFNOSUPPORT 46 Protocol family not supported
 	fi
 
+	# adjust
+	if [[ -z $option_versions ]]; then
+		if [[ $option_status != 'no' ]]; then
+			option_versions='latest'
+		else
+			option_versions='no'
+		fi
+	elif [[ $option_versions == 'yes' ]]; then
+		if [[ $option_status != 'no' ]]; then
+			option_versions='latest'
+		else
+			option_versions='current'
+		fi
+	fi
+
+	# verify
+	if [[ $option_requested == 'yes' && $option_type != 'formula' ]]; then
+		help --help='<requested> requires <formula>'
+	fi
+
+	# expects
+	if [[ -z $option_expects ]]; then
+		if [[ ${#option_items[@]} -ne 0 ]]; then
+			option_expects=${#option_items[@]}
+		fi
+	elif [[ $option_expects == 'yes' ]]; then
+		option_expects=${#option_items[@]}
+	elif [[ $option_expects == 'no' ]]; then
+		option_expects=''
+	else
+		__affirm_value_is_positive_integer "$option_expects" '<expects>' || return $?
+	fi
+
 	# =====================================
 	# Action
 
-	local deno_script_args=()
-	if [[ $option_requested == 'yes' ]]; then
-		if [[ $option_type != 'formula' ]]; then
-			help --help='<requested> requires <formula>'
-		fi
-		deno_script_args+=('--requested')
-	fi
+	# to debug, trim `2>/dev/null`
 
-	local brew_list_cmd=() brew_info_cmd=()
-	if [[ $option_type == 'tap' ]]; then
-		brew_info_cmd=(brew tap-info --json)
-		deno_script_args+=(--type=tap)
-	else
-		brew_list_cmd=(brew list --versions)
-		# --versions is necessary to limit to installed option_packages, as --full-name/-1 doesn't
-		brew_info_cmd=(brew info --json=v2)
-		if [[ -n $option_type ]]; then
-			brew_list_cmd+=("--$option_type")
-			brew_info_cmd+=("--$option_type")
-			deno_script_args+=("--type=$option_type")
-		fi
-		# if no items, only get the installed ones
-		if [[ ${#option_items[@]} -eq 0 ]]; then
-			brew_info_cmd+=('--installed')
-		fi
-	fi
-
-	function do_brew_simple {
-		# handles only --cask and --formula, but not --requested
-		if [[ $option_quiet == 'yes' ]]; then
-			"${brew_list_cmd[@]}" "${option_items[@]}" &>/dev/null
-		else
-			"${brew_list_cmd[@]}" "${option_items[@]}" | cut -d' ' -f1 | echo-unique --stdin
-		fi
-	}
-
-	function do_brew_advanced {
-		# handles --requested, --cask, and --formula
-		__command_required -- 'deno' || return $?
+	function __parse_and_validate_with_deno {
 		local deno_script
-		deno_script="$(type -P 'brew-installed.ts')"
-		if [[ $option_quiet == 'yes' ]]; then
-			"${brew_info_cmd[@]}" "${option_items[@]}" | "$deno_script" "${deno_script_args[@]}" &>/dev/null
-		else
-			"${brew_info_cmd[@]}" "${option_items[@]}" | "$deno_script" "${deno_script_args[@]}"
+		deno_script="$(type -P 'brew-installed.ts')" || return $?
+		"$deno_script" --quiet="$option_quiet" --type="$option_type" --status="$option_status" --expects="$option_expects" --versions="$option_versions" --requested="$option_requested" 2>/dev/null || return $?
+	}
+	function __validate_ourselves {
+		local REPLY=''
+		__read_whole || return $?
+		if [[ $option_quiet != 'yes' ]]; then
+			printf '%s' "$REPLY" || return $?
+		fi
+		if [[ -n $option_expects ]]; then
+			local results=()
+			__split --source={REPLY} --target={results} --no-zero-length || return $?
+			local -i received=${#results[@]}
+			if [[ $option_expects -ne $received ]]; then
+				return 91 # ENOMSG 91 No message of desired type
+			fi
 		fi
 	}
 
-	# get names of requested packages
-	if [[ $option_requested == 'no' && ${#brew_list_cmd[@]} -ne 0 ]]; then
-		do_brew_simple
-	elif [[ ${#option_items[@]} -eq 0 ]]; then
-		do_brew_advanced
-	elif [[ "$(do_brew_advanced | echo-count-lines --no-inline --stdin)" -ne ${#option_items[@]} ]]; then
-		return 1
+	if [[ $option_type == 'tap' ]]; then
+		__command_required -- 'deno' || return $?
+		brew tap-info --json 2>/dev/null | __parse_and_validate_with_deno || return $?
+	else
+		local brew_options=()
+		# add type option
+		case "$option_type" in
+		'cask' | 'formula') brew_options+=("--$option_type") ;;
+		esac
+		# add requested option
+		if [[ $option_status == 'no' && $option_versions != 'latest' && ! ($option_versions == 'current' && $option_requested == 'yes') ]]; then
+			if [[ $option_versions == 'current' ]]; then
+				brew_options+=(--versions)
+			else
+				if [[ $option_requested == 'yes' ]]; then
+					# incompatible with --versions
+					brew_options+=(--installed-on-request)
+				fi
+				brew_options+=(--full-name -1)
+			fi
+			# `brew list --cask "${option_items[@]}"` is a different format, but with `--full-names` and/or `-1` it is fine
+			brew list "${brew_options[@]}" "${option_items[@]}" 2>/dev/null | __validate_ourselves || return $?
+		else
+			__command_required -- 'deno' || return $?
+			# if no items, restrict to installed (rather than available casks); with items, --installed can't be used as otherwise it discards the items
+			if [[ ${#option_items[@]} -eq 0 ]]; then
+				brew_options+=(--installed)
+			fi
+			brew info --json=v2 "${brew_options[@]}" "${option_items[@]}" 2>/dev/null | __parse_and_validate_with_deno || return $?
+		fi
 	fi
 )
 
