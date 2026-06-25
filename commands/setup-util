@@ -1031,30 +1031,6 @@ function setup_util() (
 	}
 
 	# @todo revise these
-	function __check {
-		# inherits {SETUP_UTIL__SOURCE}
-		local __checker="__check__${SETUP_UTIL__SOURCE}"
-		eval "$__checker \"\$@\"" || return $?
-	}
-	function __is_installed_all_to_any {
-		# inherits {SETUP_UTIL__SOURCE}
-		local package packages=("$@")
-		for package in "${packages[@]}"; do
-			if __check all-installed "$package"; then
-				return 0
-			fi
-		done
-		return 1
-	}
-	function __is_installed_all_to_none {
-		# inherits {SETUP_UTIL__SOURCE}
-		local packages=("$@")
-		if __check all-installed "${packages[@]}"; then
-			return 1
-		else
-			return 0
-		fi
-	}
 	local -i STATUS__INVALID_ACTION=14                 # 14 # EFAULT 14 Bad address
 	local -i STATUS__NOT_IMPLEMENTED=78                # NOSYS 78 Function not implemented
 	local -i STATUS__NOT_CONFIGURED=6                  # ENXIO 6 Device not configured
@@ -1096,6 +1072,82 @@ function setup_util() (
 			else
 				return "$STATUS__SOURCE_MISSING"
 			fi
+		fi
+	}
+	function __expect_from_stdin { # aka `__expect_specified_amount_of_stdin_lines`
+		# `__setup__apt` has another nifty way of doing this, `__setup__flatpak` has another approach as well
+		local expect="$1" # any/none/<positive-integer>
+		local REPLY lines=()
+		__read_whole || return $?
+		__split --source={REPLY} --target={lines} --no-zero-length || return $?
+		case "$expect" in
+		'all')
+			__print_error '`__expect_from_stdin all` should be `__expect_from_stdin <integer>`' || return $?
+			exit 104 # ENOTRECOVERABLE 104 State not recoverable
+			;;
+		'any')
+			if [[ ${#lines[@]} -eq 0 ]]; then
+				return 1
+			fi
+			;;
+		'none' | '0')
+			if [[ ${#lines[@]} -ne 0 ]]; then
+				return 1
+			fi
+			;;
+		*)
+			__affirm_value_is_positive_integer "$expect" '__expect_from_stdin <integer>' || return $?
+			if [[ ${#lines[@]} -eq $expect ]]; then
+				return 1
+			fi
+			;;
+		esac
+	}
+	function __updated_by_evicting_outdated_from_installed {
+		local action="$1"
+		# get all upgraded, and use their names to evict, then get all installed, and filter them by upgraded
+		local outdated_ids=() other_id lines=() id version
+		while read id version; do
+			outdated_ids+=("$id")
+		done < <(__recurse "$action-outdated") || return $?
+		# if none to evict, then exit early with all installed
+		if [[ ${#outdated_ids[@]} -eq 0 ]]; then
+			__recurse "$action-installed" || return $?
+			return 0
+		fi
+		# if we have ones to evict, then do so
+		while read id version; do
+			for other_id in "${outdated_ids[@]}"; do
+				if [[ $id == "$other_id" ]]; then
+					continue
+				fi
+			done
+			lines+=("$id $version")
+		done < <(__recurse "$action-installed") || return $?
+		__print_lines "${lines[@]}" || return $?
+	}
+	function __recurse {
+		# inherits {SETUP_UTIL__SOURCE}
+		local __fn="__setup__${SETUP_UTIL__SOURCE}"
+		eval "$__fn \"\$@\"" || return $?
+	}
+	function __is_installed_all_to_any {
+		# inherits {SETUP_UTIL__SOURCE}
+		local package packages=("$@")
+		for package in "${packages[@]}"; do
+			if __recurse is-installed-all "$package"; then
+				return 0
+			fi
+		done
+		return 1
+	}
+	function __is_installed_all_to_none {
+		# inherits {SETUP_UTIL__SOURCE}
+		local packages=("$@")
+		if __recurse is-installed-all "${packages[@]}"; then
+			return 1
+		else
+			return 0
 		fi
 	}
 
@@ -1169,7 +1221,8 @@ function setup_util() (
 		'is-installed-none')
 			__is_installed_all_to_none "${packages[@]}" || return $?
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
+		# @todo these are missing packages
 		'list-installed')
 			apk list --installed | __parse_apk_list || return $?
 			;;
@@ -1177,32 +1230,15 @@ function setup_util() (
 			apk --update-cache list --upgradable | __parse_apk_list || return $?
 			;;
 		'list-updated')
-			# get all upgraded, and use their names to evict, then get all installed, and filter them by upgraded
-			local outdated_ids=() other_id lines=() id version
-			while read id version; do
-				outdated_ids+=("$id")
-			done < <(apk --update-cache list --upgradable | __parse_apk_list)
-			# if none to evict, then exit early with all installed
-			if [[ ${#outdated_ids[@]} -eq 0 ]]; then
-				apk list --installed | __parse_apk_list || return $?
-				return 0
-			fi
-			# if we have ones to evict, then do so
-			while read id version; do
-				for other_id in "${outdated_ids[@]}"; do
-					if [[ $id == "$other_id" ]]; then
-						continue
-					fi
-				done
-				lines+=("$id $version")
-				# printf '%s=%q %s=%q\n' id "$id" version "$version" || return $?
-			done < <(apk list --installed | __parse_apk_list)
-			__print_lines "${lines[@]}" || return $?
+			__updated_by_evicting_outdated_from_installed 'list' || return $?
 			;;
 		'list-available')
 			apk --update-cache list --available | __parse_apk_list || return $?
 			;;
 		# search-* ...<package> --search=...<search>
+		'search-updated')
+			__updated_by_evicting_outdated_from_installed 'search' || return $?
+			;;
 		'search-'*)
 			# glob
 			local search_options=(--format=yaml --fields=name,version "${packages[@]}") search
@@ -1210,32 +1246,11 @@ function setup_util() (
 				search_options+=("*$search*")
 			done
 			;;&
-		'search-installed') apk query --installed "${search_options[@]}" | __parse_apk_yaml_query || return $? ;;
+		'search-installed')
+			apk query --installed "${search_options[@]}" | __parse_apk_yaml_query || return $?
+			;;
 		'search-outdated')
 			apk --update-cache query --upgradable "${search_options[@]}" | __parse_apk_yaml_query || return $?
-			;;
-		'search-updated')
-			# get all upgraded, and use their names to evict, then get all installed, and filter them by upgraded
-			local outdated_ids=() other_id lines=() id version
-			while read id version; do
-				outdated_ids+=("$id")
-			done < <(apk --update-cache query --upgradable "${search_options[@]}" | __parse_apk_yaml_query)
-			# if none to evict, then exit early with all installed
-			if [[ ${#outdated_ids[@]} -eq 0 ]]; then
-				apk query --installed "${search_options[@]}" | __parse_apk_yaml_query || return $?
-				return 0
-			fi
-			# if we have ones to evict, then do so
-			while read id version; do
-				for other_id in "${outdated_ids[@]}"; do
-					if [[ $id == "$other_id" ]]; then
-						continue
-					fi
-				done
-				lines+=("$id $version")
-				# printf '%s=%q %s=%q\n' id "$id" version "$version" || return $?
-			done < <(apk query --installed "${search_options[@]}" | __parse_apk_yaml_query)
-			__print_lines "${lines[@]}" || return $?
 			;;
 		'search-available')
 			apk --update-cache query --available "${search_options[@]}" | __parse_apk_yaml_query || return $?
@@ -1354,7 +1369,8 @@ function setup_util() (
 		'is-installed-none')
 			__is_installed_all_to_none "${packages[@]}" || return $?
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
+		# @todo these are missing packages
 		'list-installed')
 			pacman -Q || return $?
 			;;
@@ -1363,12 +1379,13 @@ function setup_util() (
 			pacman -Q --upgrades | sed 's/ -> / /' || return $?
 			;;
 		'list-updated')
-			return "$STATUS__NOT_IMPLEMENTED"
+			__updated_by_evicting_outdated_from_installed 'list' || return $?
 			;;
 		'list-available')
 			pacman -S --refresh --search | grep --invert-match --regexp='^ ' || return $?
 			;;
 		# search-* ...<package> --search=...<search>
+		# @todo these need to be deduplicated
 		'setup-'*)
 			__refresh_pacman || return $?
 			;;&
@@ -1389,7 +1406,7 @@ function setup_util() (
 			fi
 			;;
 		'search-updated')
-			return "$STATUS__NOT_IMPLEMENTED"
+			__updated_by_evicting_outdated_from_installed 'updated' || return $?
 			;;
 		'search-available')
 			if [[ ${#packages[@]} -ne 0 ]]; then
@@ -1586,7 +1603,8 @@ function setup_util() (
 		'is-installed-none')
 			__is_installed_all_to_none "${packages[@]}" || return $?
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
+		# @todo these are missing packages
 		'list-installed')
 			pamac list -i | echo-regexp -go --regexp='^([^\s]+)\s+([^\s]+)' --replace='$1 $2' || return $?
 			;;
@@ -1594,7 +1612,7 @@ function setup_util() (
 			pamac checkupdates -q | echo-regexp -go --regexp='^([^\s]+)\s+([^\s]+)\s+->\s+([^\s]+)' --replace='$1 $2 $3' || return $?
 			;;
 		'list-updated')
-			return "$STATUS__NOT_IMPLEMENTED"
+			__updated_by_evicting_outdated_from_installed 'list' || return $?
 			;;
 		'list-available')
 			pamac search . | __parse_pamac_search || return $?
@@ -1610,8 +1628,11 @@ function setup_util() (
 				search_options+=("$search")
 			done
 			;;&
-		'search-installed') pamac search -i | __parse_pamac_search || return $? ;;
+		'search-installed')
+			pamac search -i | __parse_pamac_search || return $?
+			;;
 		'search-outdated')
+			# @todo requires our own searching functionality for the list results
 			return "$STATUS__NOT_IMPLEMENTED"
 			;;
 		'search-updated')
@@ -1937,7 +1958,7 @@ function setup_util() (
 				return 1
 			fi
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
 		'list-installed')
 			__invoke_apt_without_page_nor_stderr list --installed "${packages[@]}" | __parse_apt_installed || return $?
 			;;
@@ -2204,7 +2225,7 @@ function setup_util() (
 		local packages=("${FLATPAK[@]}") repos=("${FLATPAK_REPO[@]}") package repo
 
 		# applicability
-		__applicable || return $?
+		__applicable --fallback || return $?
 
 		# add repos
 		if [[ $option_action != 'uninstall' ]]; then
@@ -2219,6 +2240,7 @@ function setup_util() (
 		# action
 		case "$option_action" in
 		# is-*  ...<package>
+		# flatpak doesn't do any filtering of its list, so we use `__has` to do the filtering
 		*'-outdated' | *'-updated' | *'-available')
 			__elevate -- flatpak update --appstream || return $?
 			;;&
@@ -2238,7 +2260,7 @@ function setup_util() (
 				return 1
 			fi
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
 		'list-installed')
 			flatpak list --app --columns=application,version | echo-regexp -g --regexp='[ \t]+' --replace=' ' || return $?
 			;;
@@ -2317,12 +2339,12 @@ function setup_util() (
 
 		# applicability
 		if [[ ${#option_clis[@]} -eq 0 ]]; then
-			# @todo queue an error
+			# @todo queue an error message
 			return "$STATUS__INVALID_ARGUMENT"
 		elif [[ -z ${GOPATH-} ]]; then
 			return "$STATUS__SOURCE_FALLBACK"
 		fi
-		__applicable || return $?
+		__applicable --fallback || return $?
 
 		# prep cli paths as they are common
 		local cli cli_paths=()
@@ -2334,6 +2356,7 @@ function setup_util() (
 		case "$option_action" in
 		# is-*  ...<package>
 		# we can't actually detect if each package is installed, only each cli
+		# we use `is-present` which uses `is-fs.bash` which supports `<all>/<first>/etc`
 		'is-installed-all')
 			is-present --all -- "${cli_paths[@]}" || return $?
 			;;
@@ -2345,7 +2368,7 @@ function setup_util() (
 				return 1
 			fi
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
 		'list-installed') return "$STATUS__NOT_IMPLEMENTED" ;;
 		'list-outdated') return "$STATUS__NOT_IMPLEMENTED" ;;
 		'list-updated') return "$STATUS__NOT_IMPLEMENTED" ;;
@@ -2434,7 +2457,7 @@ function setup_util() (
 		fi
 
 		# applicability
-		__applicable || return $?
+		__applicable --fallback || return $?
 		if ! __is_macos; then
 			return "$STATUS__SOURCE_NOT_FOR_SYSTEM"
 		fi
@@ -2450,16 +2473,17 @@ function setup_util() (
 		# action
 		case "$option_action" in
 		# is-*  ...<package>
+		# @todo `--<all|any|none>` need to be implemented, could use `__expect_from_stdin`
 		'is-installed-all')
 			brew-installed --type="$what" --quiet --all -- "${packages[@]}" || return $?
 			;;
 		'is-installed-any')
-			brew-installed --type="$what" --quiet --all -- "${packages[@]}" || return $?
+			brew-installed --type="$what" --quiet --any -- "${packages[@]}" || return $?
 			;;
 		'is-installed-none')
 			brew-installed --type="$what" --quiet --none -- "${packages[@]}" || return $?
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
 		'list-installed')
 			brew-installed --type="$what" -- "${packages[@]}" || return $?
 			;;
@@ -2471,6 +2495,7 @@ function setup_util() (
 			;;
 		'list-available') return "$STATUS__NOT_IMPLEMENTED" ;;
 		# search-* ...<package> --search=...<search>
+		# @todo implement helper to transform list into search, so that will help all those that have list but not consistent search
 		'search-installed') return "$STATUS__NOT_IMPLEMENTED" ;;
 		'search-outdated') return "$STATUS__NOT_IMPLEMENTED" ;;
 		'search-updated') return "$STATUS__NOT_IMPLEMENTED" ;;
@@ -2523,6 +2548,7 @@ function setup_util() (
 	function __setup__brew {
 		__brew_and_cask --formula "$@" || return $?
 	}
+	# @todo fallbsacks but call their action/setup handler, as otherwise the sourced data won't be incldued in the scope of the action/setup handler if they are done individually due to the complexities of try/do
 	unsafe_fallbacks+=('brew')
 	function fallback__brew {
 		setup-util-brew --dependency --quiet="$option_quiet" || return $?
@@ -2539,96 +2565,127 @@ function setup_util() (
 	}
 
 	# mas / Mac App Store
-	# https://github.com/mas-cli/mas/issues
-	# only use sudo on uninstall
-	function __mas_search {
-		local package="$1" exact=() options=() id name
-		while read -r id name; do
-			# trim version from the name, it doesn't work in the `read` arguments, as spaces inside name will be considered the version
-			name="${name%%  *}"
-			if __case_insensitive_compare "$option_name" "$arg"; then
-				exact+=("$id" "$option_name")
-			else
-				options+=("$id" "$option_name")
-			fi
-			# ^ append the id and name (which are space and tab separated)
-		done < <(mas search "$arg" | echo-trim-each-line --stdin | sort --ignore-case -k 2 || :)
-		# ^ trim superfluous padding that will cause confusion to IFS
-
-		# ensure exact match is first
-		options=("${exact[@]}" "${options[@]}")
-
-		# return the selection
-		choose \
-			--question="Which Mac App Store app was intended for $package?" \
-			--label -- "${options[@]}" || return $?
-	}
-	function __is_applicable__mas {
-		local packages=("${MAS[@]}")
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if ! __is_macos; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-		if __command_missing -- mas; then
-			fallbacks+=('mas')
-			return 200 # ECUSTOM 200 Not applicable yet but provided fallback
-		fi
-	}
+	# <https://github.com/mas-cli/mas/issues>
+	# <https://github.com/mas-cli/mas/issues/321> is unaware of ipados/ios apps available on apple-silicon machines
+	# <https://github.com/mas-cli/mas/issues/844> is unaware of testflight apps
+	# app store ids (numbers) and bundle ids (strings) both work, both are immutable
+	# v7 which came out in may has `--json` flag
+	#
+	#
+	# `mas search` does fuzzy searches on titles and descriptions, as such our search actions have to combine `mas search` and `mas info`
+	# `mas search` also when given an exact id, will still return recommendations, with closest match being first:
+	# ```
+	# mas search com.apple.dt.Xcode --json | jq -r '[.bundleID, .version] | join(" ")'
+	# ```
+	# returns oplenty of results, with xcode being firs
+	#
+	#
+	# list for machine output:
+	# ```
+	# $ mas list | echo-regexp -gon --regexp='^\s*(\d+).+?\(([^\)]+)' --replace='$1 $2'
+	# 1586435171 4.2.1
+	# ```
+	#
+	# list for readable output:
+	# ```
+	# $ mas list --json | jq -r '[.bundleID, .version] | join(" ")'
+	# $ mas list --json | echo-json pluck --stdin --property=bundleID,version --deliminator=' ' <-- requires deno
+	# com.sindresorhus.Actions 4.2.1
+	# ```
+	#
+	# list for pretty output:
+	# ```
+	# mas list --json | echo-json stream --stdin | echo-json pretty --stdin
+	# ```
 	function __setup__mas {
 		local args=() packages=("${MAS[@]}") package
 
-		# action args
-		if [[ $option_action == 'uninstall' ]]; then
-			args+=(eval-helper --elevate --inherit -- mas uninstall)
-		else
-			# install / upgrade
-			args+=(mas install)
+		# applicability
+		__applicable --fallback || return $?
+		if ! __is_macos; then
+			return "$STATUS__SOURCE_NOT_FOR_SYSTEM"
 		fi
 
-		# signin, signout, no longer supported
-		# local signed_in='maybe'
-		# function __mas_signin {
-		# 	local email
-		# 	if [[ "$signed_in" = 'yes' ]]; then
-		# 		return 0
-		# 	fi
-		# 	email="$(
-		# 		ask --required \
-		# 			--question='The Mac App Store requires your email, enter it now.''
-		# 	)"
-		# 	if is-value -- "$email"; then
-		# 		# mas signout || :
-		# 		mas signin --dialog "$email" || {
-		# 			__print_style --notice='Failed to signin to the Mac App Store.''
-		# 			return 1
-		# 		}
-		# 		signed_in='yes'
-		# 	else
-		# 		signed_in='no'
-		# 		return 1
-		# 	fi
-		# }
-		# function __mas_action {
-		# 	"${args[@]}" "${packages[@]}"
-		# }
-		# __mas_action || {
-		# 	__mas_signin && __mas_action
-		# }
-
-		# packages
-		for package in "${packages[@]}"; do
-			# convert labels into ids
-			if ! __is_number "$package"; then
-				package="$(__mas_search "$package")" || return $?
+		# action
+		case "$option_action" in
+		# is-*  ...<package
+		# `mas list ...<package>` will STDOUT for all found, STDERR for the missing, and if any missing [1] exit status>
+		'is-installed-all')
+			mas list "${packages[@]}" &>/dev/null || return $?
+			;;
+		'is-installed-any')
+			mas list "${packages[@]}" 2>/dev/null | __expect_from_stdin 'any' || return $?
+			;;
+		'is-installed-none')
+			mas list "${packages[@]}" 2>/dev/null | __expect_from_stdin 'none'  || return $?
+			;;
+		# list-* [...<package>] [--search=...<search>]
+		'list-installed')
+			setup-util-jq --dependency || return $?
+			mas list --json "${packages[@]}" | __jq -r '[.bundleID, .version] | join(" ")' || return $? # `newVersion` is not provided
+			;;
+		'list-outdated')
+			setup-util-jq --dependency || return $?
+			mas outdated --json "${packages[@]}" | __jq -r '[.bundleID, .version, .newVersion] | join(" ")' || return $?
+			;;
+		'list-updated')
+			__updated_by_evicting_outdated_from_installed 'list' || return $?
+			;;
+		'list-available')
+			if [[ ${#packages[@]} -eq 0 ]]; then
+				# this would be millions of apps...
+				return "$STATUS__NOT_IMPLEMENTED"
+			else
+				: # @todo
 			fi
-
-			# action
-			"${args[@]}" "$package" || return $? # eval
-		done
+			;;
+		# search-* ...<package> --search=...<search>
+		'search-installed' )
+			{
+				if [[ ${#packages[@]} -ne 0 ]]; then
+					mas list --json "${packages[@]}" 2>/dev/null || :
+				fi
+				if [[ ${#option_search[@]} -ne 0 ]]; then
+					mas search --json "${option_search[@]}" || return $?
+				fi
+			} | __jq -r '[.bundleID, .version] | join(" ")' | echo-unique --stdin || return $? # `newVersion` is not provided
+			;;
+		'search-outdated')
+			# @todo requries our own search functionality for list
+			return "$STATUS__NOT_IMPLEMENTED"
+			;;
+		'search-updated')
+			# @todo requries our own search functionality for list
+			return "$STATUS__NOT_IMPLEMENTED"
+			;;
+		'search-available')
+			{
+				if [[ ${#packages[@]} -ne 0 ]]; then
+					mas info --json "${packages[@]}" 2>/dev/null || :
+				fi
+				if [[ ${#option_search[@]} -ne 0 ]]; then
+					mas search --json "${option_search[@]}" || return $?
+				fi
+			} | __jq -r '[.bundleID, .version] | join(" ")' | echo-unique --stdin || return $? # `newVersion` is not provided
+			;;
+		# setup-* ...<package>
+		'setup-uninstall')
+			mas uninstall "${packages[@]}" || return $?
+			;;
+		'setup-install')
+			mas install "${packages[@]}" || return $?
+			;;
+		'setup-upstall')
+			mas update "${packages[@]}" || return $?
+			;;
+		'setup-upgrade')
+			mas update "${packages[@]}" || return $?
+			;;
+		'setup-upgrade-all')
+			mas update || return $?
+			;;
+		*) return "$STATUS__INVALID_ACTION" ;;
+		esac
 	}
 	function __fallback__mas {
 		if ! __is_macos; then
@@ -3293,61 +3350,68 @@ function setup_util() (
 	# https://github.com/ScoopInstaller/Scoop/wiki/Commands
 	# https://github.com/ScoopInstaller/Scoop/wiki/Example-Setup-Scripts
 	# https://github.com/ScoopInstaller/Scoop/wiki/Buckets
-	function __is_this_scoop_package_installed {
-		# both of these seem to work fine, tested on Windows 10 WSL2
-		# the list option however, won't be good, as it also does partial matching
-		# scoop list "$package" | grep --quiet --fixed-strings --regexp='----'
-		# the scoop export option does exact matching
-		# -e flag for jq fails if not found, but still outputs
-		# suppress all output as https://github.com/jqlang/jq/issues/1225
-		if __command_exists -- jq; then
-			# `__jq` provided by `bash.bash`
-			scoop export | __do --discard-output -- __jq -er --arg Name "$package" '.apps[] | select(.Name == $Name)' || return $?
-		else
-			scoop list "$package" | grep --quiet --fixed-strings --regexp='----' || return $?
-		fi
-	}
-	function __are_any_of_these_scoop_packages_installed {
-		local package packages=("$@")
-		for package in "${packages[@]}"; do
-			# only supports one package at a time
-			if __is_this_scoop_package_installed "$package"; then
-				return 0
-			fi
-		done
-		return 1
-	}
-	function __is_applicable__scoop {
-		local packages=("${SCOOP[@]}")
-
-		# check if applicable
-		if [[ ${#packages[@]} -eq 0 ]]; then
-			return 200 # ECUSTOM 200 Not applicable to this utility
-		fi
-		if __command_missing -- scoop; then
-			return 200 # ECUSTOM 200 Not applicable for this package system
-		fi
-
-		# check for applicability based on action and packages
-		if [[ $option_action == 'uninstall' ]]; then
-			__are_any_of_these_scoop_packages_installed "${packages[@]}" || return 200 # ECUSTOM 200 Not applicable to this uninstallation
-		else
-			: # for upgrade and install, dorothy has already determined if we are applicable
-		fi
-	}
-	function __fetch_matching_from_scoop {
-		# returns rows of csv columns: name,version,source,updated,info
-		# `scoop list vivaldi`:
-		# ```
-		# Installed apps matching 'vivaldi':
-		# Name    Version     Source Updated             Info
-		# ----    -------     ------ -------             ----
-		# vivaldi 7.7.3851.67 extras 2026-01-10 06:59:54
-		# ```
-		local query="$1"
-		scoop list "$query" | echo-lines-after --pattern='---+' --stdin | grep --invert-match --extended-regexp --regexp='---+|^\s*$|:$' | tr -s ' ' ',' || return $?
-	}
+	#
+	# `scoop list ...<package>` does fuzzy matching, and always returns [0] exit status
+	# as such scoop list requires this to detect if results were achieved:
+	# `scoop list "$package" | grep --quiet --fixed-strings --regexp='----'`
+	# `scoop export` does exist matching
+	#
+	# `scoop list d`:
+	# ```
+	# Installed apps matching 'd':
+	#
+	# Name    Version     Source Updated             Info
+	# ----    -------     ------ -------             ----
+	# delta   0.18.2      main   2025-12-31 12:50:25
+	# deno    2.5.6       main   2025-11-21 12:43:43
+	# nodejs  25.2.1      main   2026-01-02 08:23:59
+	# vivaldi 7.7.3851.67 extras 2026-01-10 06:59:54
+	# ```
+	#
+	# `scoop list $RANDOM`:
+	# ```
+	# Installed apps matching '5307':
+	# ```
+	#
+	# `scoop info vivaldi`:
+	# ```
+	# Name        : vivaldi
+	# Description : An innovatively designed web browser, based on Blink, for users in Vivaldi.net community that replaced
+	#               departed My Opera.
+	# Version     : 7.7.3851.67
+	# Source      : extras
+	# Website     : https://vivaldi.com
+	# License     : BSD-3-Clause
+	# Updated at  : 7/01/2026 4:30:39 PM
+	# Updated by  : github-actions[bot]
+	# Installed   : 7.7.3851.67
+	# Binaries    : Application\vivaldi.exe
+	# Shortcuts   : Vivaldi
+	# ```
+	# `scoop info vivaldi | echo-regexp -msonf --regexp='Name[\s:]+([^\s]+).+Version[\s:]+([^\s]+)' --replace='$1 $2'`:
+	# ```
+	# vivaldi 7.7.3851.67
+	# ```
+	#
+	# `scoop which vivaldi`:
+	# ```
+	# ~\scoop\apps\vivaldi\current\Application\vivaldi.exe
+	# ```
+	#
+	# `scoop status`:
+	# ```
+	# WARN  Scoop bucket(s) out of date. Run 'scoop update' to get the latest changes.
+	#
+	# Name   Installed Version Latest Version Missing Dependencies Info
+	# ----   ----------------- -------------- -------------------- ----
+	# bottom 0.11.4            0.12.3
+	# deno   2.5.6             2.6.4
+	# go     1.25.4            1.25.5
+	# qemu   10.1.0            10.2.0
+	# uv     0.9.11            0.9.23
+	# ```
 	function __get__scoop {
+		# @todo revise this
 		local rows=() row columns=() scoop_id scoop_version scoop_path scoop_details properties=()
 		# split rows into array
 		__split --target={rows} --no-zero-length --invoke=try -- \
@@ -3383,20 +3447,6 @@ function setup_util() (
 					version "$scoop_version"
 					path "$scoop_path"
 				)
-				# `scoop info vivaldi`:
-				# ```
-				# Name        : vivaldi
-				# Description : An innovatively designed web browser, based on Blink, for users in Vivaldi.net community that replaced departed My Opera.
-				# Version     : 7.7.3851.67
-				# Source      : extras
-				# Website     : https://vivaldi.com
-				# License     : BSD-3-Clause
-				# Updated at  : 7/01/2026 4:30:39 PM
-				# Updated by  : github-actions[bot]
-				# Installed   : 7.7.3851.67
-				# Binaries    : Application\vivaldi.exe
-				# Shortcuts   : Vivaldi
-				# ```
 				# scoop_details="$(scoop info "$scoop_id" | echo-trim-padding --stdin)" || return $?
 				# properties+=(details "$scoop_details")
 				echo-json make -- "${properties[@]}" || return $?
@@ -3407,8 +3457,97 @@ function setup_util() (
 			esac
 		done
 	}
+	function __parse_scoop_info {
+		echo-regexp -gmson --regexp='Name[\s:]+([^\s]+).+Version[\s:]+([^\s]+)' --replace='$1 $2' || return $?
+	}
+	function __parse_scoop_list {
+		echo-regexp -gonm --regexp='^([0-9a-z][^\s]+)\s+([^\s]+)' --replace='$1 $2' || return $?
+	}
+	function __parse_scoop_status {
+		echo-regexp -gonm --regexp='^([0-9a-z][^\s]+)\s+([^\s]+)\s+([^\s]+)' --replace='$1 $2 $3' || return $?
+	}
+	function __parse_scoop_export {
+		# echo-json pluck --property=Name,Version --deliminator=' ' || return $?
+		__jq -r '.apps[] | [.Name, .Version] | join(" ")' || retuurn $?
+	}
 	function __setup__scoop {
 		local args=() packages=("${SCOOP[@]}") buckets=("${SCOOP_BUCKET[@]}")
+
+		# applicability
+		__applicable || return $?
+
+		# action
+		case "$option_action" in
+		# is-*  ...<package>
+		'is-installed-all')
+			__recurse 'list-installed' | __expect_from_stdin "${#packages[@]}" || return $?
+			;;
+		'is-installed-any')
+			__recurse 'list-installed' | __expect_from_stdin any || return $?
+			;;
+		'is-installed-none')
+			__recurse 'list-installed' | __expect_from_stdin none || return $?
+			;;
+		# list-* [...<package>] [--search=...<search>]
+		'list-installed')
+			# scoop export | __parse_scoop_export
+			scoop list 2>/dev/null | __parse_scoop_list || return $?
+			;;
+		'list-outdated')
+			scoop status 2>/dev/null | __parse_scoop_status || return $?
+			;;
+		'list-updated')
+			__updated_by_evicting_outdated_from_installed 'list' || return $?
+			;;
+		'list-available')
+			if [[ ${#packages[@]} -eq 0 && "${#option_search[@]}" -eq 0 ]]; then
+				# this would be millions of apps...
+				return "$STATUS__NOT_IMPLEMENTED"
+			else
+				{
+					if [[ ${#packages[@]} -ne 0 ]]; then
+						{
+							local package
+							for package in "${packages[@]}"; do
+								scoop info "$package" 2>/dev/null || :
+							done
+						} | __parse_scoop_info || return $?
+					fi
+					if [[ ${#option_search[@]} -ne 0 ]]; then
+						{
+							local search
+							for search in "${option_search[@]}"; do
+								scoop search "$search" 2>/dev/null || :
+							done
+						} | __parse_scoop_list || return $?
+					fi
+				} | echo-unique --stdin
+			fi
+			;;
+		# setup-* ...<package>
+		'setup-uninstall')
+			;;
+		'setup-install')
+			;;
+		'setup-upstall')
+			;;
+		'setup-upgrade')
+			;;
+		'setup-upgrade-all')
+			;;
+		*) return "$STATUS__INVALID_ACTION" ;;
+		esac
+
+	function __is_this_scoop_package_installed {
+		# `jq -e` flag fails if selector fails, but still outputs things <https://github.com/jqlang/jq/issues/1225>, so need to discard
+		# `__jq` provided by `bash.bash`
+		if __command_exists -- jq; then
+			scoop export | __jq -er --arg Name "$package" '.apps[] | select(.Name == $Name)' &>/dev/null || return $?
+		else
+			scoop list "$package" | grep --quiet --fixed-strings --regexp='----' || return $?
+		fi
+	}
+		scoop list "$query" | echo-regexp -gonm --regexp='^([a-z][^\s]+)\s+([^\s]+)' --replace='$1 $2'
 
 		# buckets
 		local bucket

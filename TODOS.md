@@ -4,6 +4,7 @@
 
 ```bash
 		# applicability
+		# __applicable --fallback || return $?
 		__applicable || return $?
 
 		# action

@@ -156,6 +156,7 @@ wsl.exe --install # -d Debian
 # wsl.exe --set-default Debian
 wsl.exe --list --verbose
 # wsl.exe --unregister Debian # do not use --uninstall, that removes WSL
+# Optionally, install scoop <https://scoop.sh> for more power
 ```
 
 Ubuntu, Debian, Devuan, Elementary, Kali, Raspberry Pi OS, Vanilla:
