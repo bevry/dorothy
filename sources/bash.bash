@@ -164,12 +164,9 @@ function __is_brew {
 
 # handle `winget.exe`, `powershell.exe`, `cmd.exe`
 function __workaround_carriage_returns {
-	echo-regexp -g --regexp=$'\r\n' --replace=$'\n' | echo-regexp -gm --regexp=$'[^\r]*\r' --replace='' || return $?
-}
-function __invoke_and_workaround_carriage_returns {
 	# replace `\r\n` with newline, as it is a line to be persisted
 	# replace `*\r` content on each line with nothing, as it is intended to be erased
-	"$@" | __workaround_carriage_returns || return $? # eval
+	echo-regexp -g --regexp=$'\r\n' --replace=$'\n' | echo-regexp -gm --regexp=$'[^\r]*\r' --replace='' || return $?
 }
 # handle JQ built for windows inserting carriage returns on windows
 # `printf '{"key": "value"}' | jq.exe -r '.key' | cat -v` results in `value^M`
@@ -260,7 +257,7 @@ function __command_required {
 		return 6 # ENXIO 6 Device not configured
 	fi
 	# @todo update this to be inlined into `setup-util` to make implementing the `--(fallback|deps|slim)` options easier
-	setup-util dependency --first-success -- "${COMMAND_REQUIRED__commands[@]}" || return $?
+	setup-util install --dependency --first-success -- "${COMMAND_REQUIRED__commands[@]}" || return $?
 	# verify installation
 	for COMMAND_REQUIRED__command in "${COMMAND_REQUIRED__commands[@]}"; do
 		if __command_exists -- "$COMMAND_REQUIRED__command"; then

@@ -1545,13 +1545,16 @@ function __print_help {
 	for ((i = 0; i < n; i++)); do
 		result+="${prefixes[i]}${s[i]}${suffixes[i]}"
 	done
-	# trim double trailing newline, which is an EOF accident
-	while [[ $result == *$'\n\n' ]]; do
-		result="${result%$'\n'*}"
-	done
+	# trim all trailing newlinews
+	__replace --source+target={result} --trailing-all=$'\n' || return $?
+	# ensure a single trailing newline
+	result+=$'\n'
+	# if arguments, ensure a blank line
+	if [[ $# -ne 0 ]]; then
+		result+=$'\n'
+	fi
 	printf '%s' "$result" >&2
 	if [[ $# -ne 0 ]]; then
-		__print_line || return $?
 		__print_error "$@" || return $?
 	fi
 	__restore_tracing || return $?

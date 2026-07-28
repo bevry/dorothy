@@ -15,11 +15,15 @@ if [ "$ACTIVE_POSIX_SHELL" = 'bash' ]; then
 	export HISTTIMEFORMAT='%F %T '
 fi
 
-# Shoutouts
-if command -v shuf >/dev/null 2>&1; then
-	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
+# Informs, only when stdout is an actual terminal (not git hooks, pipes, TERM=dumb)
+if [ -t 1 ] && [ "${TERM:-dumb}" != 'dumb' ]; then
+	# Shoutouts
+	if command -v shuf >/dev/null 2>&1; then
+		shuf -n1 "$DOROTHY/sources/shoutouts.txt"
+	fi
+	# Warnings
+	dorothy-warnings warn
 fi
-dorothy-warnings warn
 
 # =====================================
 # Configuration
@@ -32,16 +36,6 @@ if [ "$ACTIVE_POSIX_SHELL" = 'sh' ]; then
 	load_dorothy_config --first --optional -- 'interactive.sh'
 else
 	load_dorothy_config --first --optional -- "interactive.$ACTIVE_POSIX_SHELL" 'interactive.sh'
-fi
-
-# =====================================
-# NVM, might be used by theme, so load it here
-
-if [ "$ACTIVE_POSIX_SHELL" != 'ksh' ]; then # nvm is not compatible with ksh
-	nvm() {                                    # lazy-load, as nvm is really slow to load
-		. "$DOROTHY/sources/nvm.sh" || return $?
-		nvm "$@"
-	}
 fi
 
 # =====================================

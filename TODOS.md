@@ -5,7 +5,7 @@
 ```bash
 		# applicability
 		# __applicable --fallback || return $?
-		__applicable || return $?
+		__applicable --no-invoke --no-system-upgrade || return $?
 
 		# action
 		case "$option_action" in
@@ -19,7 +19,13 @@
 		'is-installed-none')
 			__is_installed_all_to_none "${packages[@]}" || return $?
 			;;
-		# list-*
+		# list-* [...<package>] [--search=...<search>]
+		'list-'*)
+			local search_options=(--format=yaml --fields=name,version "${packages[@]}") search
+			for search in "${option_search[@]}"; do
+				search_options+=("*$search*")
+			done
+			;;&
 		'list-installed')
 			;;
 		'list-outdated')
@@ -27,21 +33,6 @@
 		'list-updated')
 			;;
 		'list-available')
-			;;
-		# search-* ...<package> --search=...<search>
-		'search-'*)
-			local search_options=(--format=yaml --fields=name,version "${packages[@]}") search
-			for search in "${option_search[@]}"; do
-				search_options+=("*$search*")
-			done
-			;;&
-		'search-installed' )
-			;;
-		'search-outdated')
-			;;
-		'search-updated')
-			;;
-		'search-available')
 			;;
 		# setup-* ...<package>
 		'setup-'*)
@@ -56,10 +47,17 @@
 			;;
 		'setup-upstall')
 			;;
-		'setup-upgrade')
+		'setup-update')
 			;;
-		'setup-upgrade-all')
+		# system-*
+		'system-update' )
 			;;
+		'system-clean')
+			;;
+		'system-upgrade')
+			;;
+		# unhandled
+		'invoke' | 'system-update' | 'system-clean' | 'system-upgrade') return "$STATUS__ACTION_NOT_FOR_SOURCE" ;;
 		*) return "$STATUS__INVALID_ACTION" ;;
 		esac
 ```

@@ -63,7 +63,6 @@ DOROTHY_LOGIN_SHELLS=()
 # HOMEBREW_UNTAPS=()
 # HOMEBREW_TAPS=()
 # HOMEBREW_FORMULAS=()
-# HOMEBREW_SLOW_FORMULAS=()
 # HOMEBREW_CASKS=()
 HOMEBREW_FONTS=(
 	'font-cantarell'
@@ -85,23 +84,21 @@ HOMEBREW_FONTS=(
 	'font-ubuntu'
 )
 # HOMEBREW_UNINSTALL=() # for casks and formulas
-# HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
-# HOMEBREW_ENCODING_REINSTALL='' # '', 'yes', 'no'
 
 # Golang / go
 # Used by `setup-util-go`
 # GO_LINTING_INSTALL='' # '', 'yes', 'no'
 # GO_INSTALL=()
 
-# Node.js
+# Node.js / npm
 # Used by `setup-util-node`
 # NPM_INSTALL=()
-# NODE_VERSIONS=()
+# Used by `setup-util-nvm`
+# NVM_NODE_VERSIONS_INSTALL=()
 
 # Python
-# Used by `setup-util-python`
-# PYTHON_INSTALL=()
-# UV_INSTALL=()
+# Used by `setup-util-uv`
+# UV_TOOL_INSTALL=()
 
 # Ruby
 # Used by `setup-util-ruby`
