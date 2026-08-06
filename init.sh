@@ -63,7 +63,8 @@ else
 	if [ -z "${DOROTHY_LOADED_SHARED_SCOPE-}" ]; then
 		# `-dash` is macos login shell, `dash` is manual `dash -l` invocation (as $- doesn't include l in dash)
 		# NVIM here because it sets $0 as whichever shell invoked Neovim <https://github.com/bevry/dorothy/pull/279$0>
-		if [ "$0" = '-bash' ] || [ "$0" = '-zsh' ] || [ "$0" = '-dash' ] || [ "$0" = 'dash' ] || [ -n "${NVIM-}" ]; then
+		# ZELLIJ is here because it doesn't do login shells <https://github.com/zellij-org/zellij/issues/1434>
+		if [ "$0" = '-bash' ] || [ "$0" = '-zsh' ] || [ "$0" = '-dash' ] || [ "$0" = 'dash' ] || [ -n "${NVIM-}" ] || [ -n "${ZELLIJ-}" ]; then
 			DOROTHY_LOAD='yes'
 		elif [ -n "${BASH_VERSION-}" ]; then
 			# trunk-ignore(shellcheck/SC3044)

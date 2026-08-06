@@ -51,11 +51,62 @@ function setup_system() (
 
 	# generate log title
 	local action_title
-	action_title="$(__get_uppercase_first_letter -- "$action")"
+	action_title="$(__get_uppercase_first_letter "$action")"
 	action_title+=' System'
 
 	# =====================================
 	# Action
+
+	if is-system --mac; then
+		# reassert minimal apple dependencies
+		setup-util install -- apple-rosetta apple-cli-tools
+		setup-util upstall -- brew
+	fi
+
+	# upgrade all existing packages
+	# ask, because manjaro and rolling releases can demand over 40GB for initial upgrades
+	if confirm --linger --positive --ppid=$$ -- 'Upgrade existing packages?'; then
+		setup-util upgrade-all --confirm --verbose --sources=apk,apt,dnf,pacman,zypper,... || return $?
+	fi
+
+	# setup essential system utilities
+	if [[ $action == 'install' ]]; then
+		setup-util-devel install
+	fi
+	if is-system --raspi; then
+		setup-linux-raspi "$action" # @todo move to `setup-util-*` ecosystem
+	fi
+	if [[ $action == 'install' ]] && confirm --linger --negative --ppid=$$ -- 'Enable recovery hotkeys?'; then
+		setup-linux-recovery # @todo move to `setup-util-*` ecosystem
+	fi
+
+	# install package managers
+	if [[ $action == 'install' ]]; then
+		if __is_linux; then
+			# in this order, based on dependency relationships
+			# relevacny is already handled by their scripts
+			setup-util install --optional --confirm -- pamac snap flatpak gnome-software
+		fi
+	fi
+
+	# upgrade the entire system
+	setup-util system-upgrade --optional --confirm
+
+	# setup user packages
+	# @todo redo this to do `SETUP_UTILS`, etc.
+	# for item in "${packages[@]}"; do
+	# 	if __command_exists -- "$item"; then
+	# 		eval_helper --no-wrap --shapeshifter \
+	# 			--pending="$(__print_style --bold="Installing packages of $item...")" \
+	# 			--success="$(__print_style --success="Installed packages of $item.")" \
+	# 			--failure="$(__print_style --error="Failed to install packages of $item.")" -- \
+	# 			"do_${item}_packages"
+	# 	fi
+	# done
+
+	# cleanup
+	setup-util clean-all --verbose || return $?
+
 
 	# log
 	__print_style --h1="$action_title"
@@ -74,7 +125,8 @@ function setup_system() (
 		if __is_macos; then
 			setup-mac "$action"
 		elif __is_linux; then
-			setup-linux "$action"
+			if is-system --raspi; then
+				setup-linux-raspi
 		fi
 
 		# windows
@@ -87,38 +139,19 @@ function setup_system() (
 		fi
 
 		# ecosystem
-		# don't setup-dns, as it can cause issues on fragile environments
+		# don't `setup-dns`, as it can cause issues on fragile environments
 		# let users call it themselves
 		setup-git "$action"
-		setup-rust "$action"
-		setup-node "$action"
-		setup-go "$action"
-		setup-ruby "$action"
-		setup-python "$action"
-		setup-bin
-		if [[ $action == 'install' ]]; then
-			setup-utils # @todo update `setup-util` to support `--update` which only updates, doesn't install, then do `setup-utils --update` accordingly
-		fi
+
+		# @todo `setup-utils`
+		# if [[ $action == 'install' ]]; then
+		# 	setup-util install "${SETUP_UTILS[@]}"
+		# else
+		# 	setup-util upgrade -- "${SETUP_UTILS[@]}"
+		# fi
 
 		# extras
 		if [[ $action == 'install' ]]; then
-			if __is_macos; then
-				# mac restore
-				if confirm --linger --bool --ppid=$$ -- 'Would you like restore from backup?'; then
-					setup-mac restore
-				fi
-
-				# mac settings
-				if confirm --linger --bool --ppid=$$ -- 'Would you like configure macOS settings?'; then
-					setup-mac settings
-				fi
-			elif __is_linux; then
-				# linux fonts
-				if confirm --linger --bool --ppid=$$ -- 'Would you like to install Nerd Fonts?'; then
-					setup-util-nerd-fonts
-				fi
-			fi
-
 			# shell
 			setup-shell
 		fi
@@ -147,12 +180,12 @@ function setup_system() (
 		clean_dirs
 
 	# npm
-	if __command_exists -- npm; then
+	if setup-util-npm is-installed; then
 		eval_helper --quiet --wrap --shapeshifter \
 			--pending="$(__print_style --bold="Cleaning npm...")" \
 			--success="$(__print_style --success="Cleaned npm.")" \
 			--failure="$(__print_style --error="Failed to clean npm.")" -- \
-			nvm-env -- npm cache clean --force || :
+			node-env -- npm cache clean --force || :
 	fi
 
 	# operating system

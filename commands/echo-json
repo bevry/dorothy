@@ -9,6 +9,18 @@ function echo_json_test() (
 	source "$DOROTHY/sources/bash.bash"
 	eval-tester --ignore-stderr --status=22 -- echo-json --help
 
+	# ---------------------------------
+	# test make then plucking on ndjson
+
+	{
+		echo-json make -- string $'unescaped\nnewline' boolean false nothing null number 0.1
+		echo-json make -- string '' boolean true nothing null number 0
+	} | eval-tester --stdout='unescaped\nnewline'$'\tfalse\tnull\t0.1\n\ttrue\tnull\t0' -- \
+		echo-json pluck --property=string,boolean,nothing,number
+
+	# ---------------------------------
+	# test stringify, encode, and decode
+
 	local inputs=(
 		'hello'
 		'hello world'
@@ -75,7 +87,7 @@ function echo_json_test() (
 )
 function echo_json() (
 	source "$DOROTHY/sources/stdinargs.bash"
-	local all_tools=(deno nu jq ruby) actions=(make stream stringify encode decode json pretty table csv tsv)
+	local all_tools=(deno nu jq ruby) actions=(make stream stringify encode decode pluck json pretty table csv tsv)
 
 	# =====================================
 	# Arguments
@@ -119,19 +131,38 @@ function echo_json() (
 			    * \`"hello"\` remains \`"hello"\` (was JSON-encoded, so is retained)
 			    * \`{"key":  "value"}\` becomes \`{"key":"value"}\` (was JSON-coded, so is retained however minified)
 
-			& decode ...[--property=<property>]
+			& decode [--property=...<property>]
 			    Render <input> as a minified JSON-decoded value.
 			    <input> that were already not JSON-encoded, will remain JSON-decoded.
 			    * \`true\` remains \`true\`
 			    * \`hello\` remains \`hello\` (was not JSON-encoded, so is retained)
 			    * \`"hello"\` becomes \`hello\`
 			    * \`{"key":  "value"}\` becomes \`{"key":"value"}\` (minified)
-				If <property> is specified, instead of outputting all decoded <input>, output the value of each <property> within the <input> on their own lines.
+			    If <property> is specified, instead of outputting all decoded <input>, output the value of each <property> within the <input> on their own lines.
+
+			& pluck [--property=...<property>] [--deliminator=<deliminator>]
+			    Pluck ordered property values out of JSON, regardless of its format, and output their values separated by the <deliminator>.
+			    If <deliminator> is not specified, it defaults to a single tab character.
+			    ! Property names and string values must not contain a \`"\` character.
+			    ! Array values must not contain a \`\`\`]\`\`\` character.
+			    ! String values will have their leading and trailing double-quote trimmed, but will not be decoded, so escaped characters will remain escaped.
+			    ! Properties must be specified in the order they are defined in the JSON, otherwise nothing will be returned.
+			    ! Because of these pitfalls, it is only suitable for fetching simple consistent ordered values, with a deno dependency.
+			    ! To avoid these pitfalls, use \`jq\` directly like so:
+			    \`\`\`
+			    ... | echo-json pluck --property=a,b  # before
+			    ... | jq -r '[.a, .b] | join("\t")'   # after
+			    \`\`\`
 
 			& json
 			    Parse JSON-encoded <input> and render as minified JSON.
 			& pretty
 			    Parse JSON-encoded <input> and render prettily in a format native to the <tool>.
+			    ! To prettify ndjson (newline delimitated json), first pipe to the \`stream\` action like so:
+			    \`\`\`
+			    ... | echo-json stream --stdin | echo-json pretty --stdin
+			    \`\`\`
+
 			& table
 			    Parse JSON-encoded <input> and render as a table.
 			    Enforces <tool:nu>.
@@ -148,7 +179,7 @@ function echo_json() (
 	}
 
 	# process our own arguments, delegate everything else to stdinargs
-	local item option_action='' option_tool='' option_properties=()
+	local item option_action='' option_tool='' option_properties=() option_deliminator=$'\t'
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -156,6 +187,7 @@ function echo_json() (
 		--help | -h) __help ;;
 		--action=* | --operation=*) option_action="${item#*=}" ;;
 		--tool=*) option_tool="${item#*=}" ;;
+		--deliminator=*) option_deliminator="${item#*=}" ;;
 		'--property='* | '--properties='*) __split --target={option_properties} --append --delimiters=$'\n\t ,|' --no-zero-length -- "${item#*=}" ;;
 		# forward to stdinargs, however support mixing and matching of our options, with stdinargs options
 		--)
@@ -193,6 +225,30 @@ function echo_json() (
 		option_action="$(choose --required 'Which action to perform?' -- "${actions[@]}")"
 	elif [[ -z $option_action ]] || ! __has --source={option_action} --any -- "${actions[@]}"; then
 		__help --help='You must provide a valid <action>' --newline --variable={option_action} --newline --variable={actions}
+	fi
+
+	# pluck action
+	if [[ $option_action == 'pluck' ]]; then
+		# @todo rewrite this to support decoding and changing result order
+		# either by rewriting all all of `echo-json` crystal, so it can be used in `get-github-release` as there wouldn't be any dependency
+		# or by adding the pluck action into `echo-json.ts` as this current `echo-regexp` solution already requires deno
+		if [[ ${#option_properties[@]} -eq 0 ]]; then
+			__help --help='You must provide a <property> to use the <pluck> action.' || return $?
+		fi
+		local regexp_parts=() regexp='' replacement_parts=() replacement='' inputs=()
+		local -i count=1
+		for item in "${option_properties[@]}"; do
+			regexp_parts+=("$item"'[^:][ :"]+(?:,|(\[[^\]]+\]|true|false|null|[0-9.]+|[^"]+))')
+			# regexp_parts+=("$item"'[^:][ :]+(\[[^\]]+\]|true|false|null|[0-9.]+|"[^"]+")') <-- strings wrapped in " so suitable for decoding
+			replacement_parts+=("\$$count")
+			count=$((count + 1))
+		done
+		__join --source={regexp_parts} --target={regexp} --between='.+?' || return $?
+		__join --source={replacement_parts} --target={replacement} --between="$option_deliminator" || return $?
+		function on_whole { inputs+=("$1"); }
+		function on_finish { echo-regexp -gon --regexp="$regexp" --replace="$replacement" -- "${inputs[@]}" || return $?; }
+		stdinargs "${option_args[@]}"
+		return $?
 	fi
 
 	# tool aliases

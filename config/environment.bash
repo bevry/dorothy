@@ -9,7 +9,7 @@
 # export NVM_DIR HOMEBREW_RUBY_VERSION # ...
 
 # NVM_DIR="$HOME/.nvm"
-# ^ Used by: setup-environment-commands, setup-node
+# ^ Used by: `setup-environment-commands`, `setup-util-node`, `setup-util-nvm`
 
 # HOMEBREW_RUBY_VERSION='default'
-# ^ Used by: setup-environment-commands, setup-ruby
+# ^ Used by: `setup-environment-commands`, `setup-util-ruby`

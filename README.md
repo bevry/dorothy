@@ -124,7 +124,7 @@ Previously supported, but support broke.
 [UbuntuFive]: https://ubuntu.com/blog/canonical-enables-ubuntu-on-starfives-visionfive-risc-v-boards
 -->
 
-Other platforms may or may not be supported. [Mageia, Nix, Gentoo are unsupported.](https://github.com/bevry/dorothy/issues/162)
+Other platforms may or may not be supported. [Gentoo, Mageia, Nix, Solaris, Solus are unsupported.](https://github.com/bevry/dorothy/issues/162)
 
 ### Dependencies
 
@@ -156,23 +156,24 @@ wsl.exe --install # -d Debian
 # wsl.exe --set-default Debian
 wsl.exe --list --verbose
 # wsl.exe --unregister Debian # do not use --uninstall, that removes WSL
+# Optionally, install scoop <https://scoop.sh> for more power
 ```
 
-Ubuntu / Debian / Kali:
+Ubuntu, Debian, Devuan, Elementary, Kali, Raspberry Pi OS, Vanilla:
 
 ```bash
 sudo apt-get update
 sudo apt-get install bash curl
 ```
 
-Fedora:
+Fedora, AlmaLinux, OpenEuler, OpenMandriva:
 
 ```bash
 dnf check-update
 dnf --refresh --best install bash curl
 ```
 
-OpenSUSE / SUSE:
+OpenSUSE, SUSE:
 
 ```bash
 zypper --gpg-auto-import-keys refresh
@@ -182,8 +183,8 @@ zypper install bash curl
 Alpine:
 
 ```bash
-doas apk update
-doas apk add bash curl
+apk update
+apk add bash curl
 ```
 
 Manjaro:
@@ -192,19 +193,21 @@ Manjaro:
 pamac install bash curl
 ```
 
-Arch:
+Arch, CachyOS:
 
 ```bash
 pacman-key --init
 pacman --refresh --sync --needed bash curl
 ```
 
+<!--
 Void:
 
 ```bash
 xbps-install --sync --update xbps
 xbps-install --sync bash curl
 ```
+-->
 
 #### Requisites
 
@@ -351,25 +354,15 @@ Stable commands:
     This is done via these commands:
     - [`setup-linux`](https://github.com/bevry/dorothy/tree/master/commands/setup-linux) correctly setup your Linux system, and its various packaging systems, as desired
     - [`setup-mac`](https://github.com/bevry/dorothy/tree/master/commands/setup-mac) correctly setup your macOS system, including its homebrew and Mac App Store installations, as desired
-    - [`setup-bin`](https://github.com/bevry/dorothy/tree/master/commands/setup-bin) correctly setup available CLI utilities from installed GUI Applications
     - [`setup-git`](https://github.com/bevry/dorothy/tree/master/commands/setup-git) correctly setup Git on your system, including your profile, SSH, GPG, and 1Password configurations, as desired.
 
         Related commands:
         - [`gpg-helper`](https://github.com/bevry/dorothy/tree/master/commands/gpg-helper) interact with your GPG keys
         - [`ssh-helper`](https://github.com/bevry/dorothy/tree/master/commands/ssh-helper) interact with your SSH keys
 
-    - [`setup-go`](https://github.com/bevry/dorothy/tree/master/commands/setup-go) correctly setup GoLang on your system if desired or if required for your desired packages
-    - [`setup-node`](https://github.com/bevry/dorothy/tree/master/commands/setup-node) correctly setup Node.js on your system if desired or if required for your desired packages
-    - [`setup-python`](https://github.com/bevry/dorothy/tree/master/commands/setup-python) correctly setup Python on your system if desired or if required for your desired packages
-    - [`setup-ruby`](https://github.com/bevry/dorothy/tree/master/commands/setup-ruby) correctly setup Ruby on your system if desired or if required for your desired packages
-    - [`setup-rust`](https://github.com/bevry/dorothy/tree/master/commands/setup-rust) correctly setup Rust on your system if desired or if required for your desired packages
-    - [`setup-utils`](https://github.com/bevry/dorothy/tree/master/commands/setup-utils) correctly setup your selected `setup-util-*` utilities as desired
+- [`setup-util`](https://github.com/bevry/dorothy/tree/master/commands/setup-util) is an intelligent wrapper around every package system, allowing a cross-compatible way to install, upgrade, uninstall, and invoke utilities.
 
-- [`setup-util`](https://github.com/bevry/dorothy/tree/master/commands/setup-util) is an intelligent wrapper around every package system, allowing a cross-compatible way to install, upgrade, and uninstall utilities.
-
-    It is used by the hundreds of `setup-util-*` commands, which enable installing a utility as easy as invoking `setup-util-<utility>`
-
-    If you don't know which command you need to call, you can use [`get-installer`](https://github.com/bevry/dorothy/tree/master/commands/get-installer) to get which command you will need to invoke to install a utility/binary/application.
+    It is used by the hundreds of `setup-util-*` commands, which enable installing a utility as easy as invoking `setup-util <utility>` and `setup-util-<utility>`.
 
 - [`setup-shell`](https://github.com/bevry/dorothy/tree/master/commands/setup-shell) correctly configure your desired shell to be your default shell.
 

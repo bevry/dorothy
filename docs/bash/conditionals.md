@@ -14,7 +14,7 @@
 - `[` is the external POSIX `test` which is a process call which is slow
 - `[[` is bash's builtin `test` and is fast, use `[[` in bash
 
-Past References:
+## other reading
 
 - [Bash Manual: Conditionals](https://www.gnu.org/software/bash/manual/bash.html#Conditional-Constructs)
 - [Bash Manual: Grouping](https://www.gnu.org/software/bash/manual/bash.html#Command-Grouping)

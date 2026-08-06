@@ -1,36 +1,21 @@
 #!/usr/bin/env bash
 
-if [[ $1 == '--' ]]; then
-	shift
-fi
-if [[ $# -eq 0 ]]; then
-	exit 22 # EINVAL 22 Invalid argument
-fi
-while [[ $# -ne 0 ]]; do
-	if [[ -z $1 ]]; then
-		exit 22 # EINVAL 22 Invalid argument
-	fi
-	path="$1"
-	shift
-
-	# checks
+function __is_fs__operation {
 	if [[ -w $path ]]; then
 		# does exist: is writable
-		continue
+		:
 	elif [[ -e $path ]]; then
 		# does exist: is not writable
-		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
-		exit 93 # ENOATTR 93 Attribute not found
+		return 93 # ENOATTR 93 Attribute not found
 	else
 		# discern if inaccessible, broken, missing
-		is-accessible.bash -- "$path" || exit $?
+		is-accessible.bash -- "$path" || return $?
 		if [[ -L $path ]]; then
 			# broken symlink
-			printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
-			exit 9 # EBADF 9 Bad file descriptor
+			return 9 # EBADF 9 Bad file descriptor
 		fi
-		printf '%s\n' "$path" >>"$TMPDIR/is-fs-failed-paths"
-		exit 2 # ENOENT 2 No such file or directory
+		return 2 # ENOENT 2 No such file or directory
 	fi
-done
-exit 0
+}
+
+source "$DOROTHY/sources/is-fs-operation.bash"

@@ -56,7 +56,6 @@ DOROTHY_LOGIN_SHELLS=()
 # Used by `setup-mac-appstore`
 # You can use `mas list` and `mas search` to find apps
 # MAS_INSTALL=() # tuple array of id, label
-# MAS_UPGRADE='no'
 
 # Homebrew / brew / https://brew.sh
 # Used by `setup-mac-brew`
@@ -64,7 +63,6 @@ DOROTHY_LOGIN_SHELLS=()
 # HOMEBREW_UNTAPS=()
 # HOMEBREW_TAPS=()
 # HOMEBREW_FORMULAS=()
-# HOMEBREW_SLOW_FORMULAS=()
 # HOMEBREW_CASKS=()
 HOMEBREW_FONTS=(
 	'font-cantarell'
@@ -86,35 +84,33 @@ HOMEBREW_FONTS=(
 	'font-ubuntu'
 )
 # HOMEBREW_UNINSTALL=() # for casks and formulas
-# HOMEBREW_ENCODING_INSTALL='' # '', 'yes', 'no'
-# HOMEBREW_ENCODING_REINSTALL='' # '', 'yes', 'no'
 
 # Golang / go
-# Used by `setup-go`
+# Used by `setup-util-go`
 # GO_LINTING_INSTALL='' # '', 'yes', 'no'
 # GO_INSTALL=()
 
-# Node.js
-# Used by `setup-node`
+# Node.js / npm
+# Used by `setup-util-node`
 # NPM_INSTALL=()
-# NODE_VERSIONS=()
+# Used by `setup-util-nvm`
+# NVM_NODE_VERSIONS_INSTALL=()
 
 # Python
-# Used by `setup-python`
-# PYTHON_INSTALL=()
-# UV_INSTALL=()
+# Used by `setup-util-uv`
+# UV_TOOL_INSTALL=()
 
 # Ruby
-# Used by `setup-ruby`
+# Used by `setup-util-ruby`
 # GEM_INSTALL=()
 
 # Rust / Cargo / Crates.io
-# Used by `setup-rust`
+# Used by `setup-util-rust`
 # CARGO_INSTALL=()
 
 # Utilities to install, these are the `setup-util-*` scripts
-# Used by `setup-utils`
-# You can use `setup-utils --configure` to configure these.
+# Used by `setup-util`
+# You can use `setup-util --configure` to configure these.
 SETUP_UTILS=(
 	'fira-code'
 	'ibm-plex' # many editors require this font

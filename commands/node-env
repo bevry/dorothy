@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+
+function node_env_test() (
+	source "$DOROTHY/sources/bash.bash"
+	eval-tester --ignore-stderr --status=22 -- node-env --help
+)
+
+function node_env() (
+	source "$DOROTHY/sources/bash.bash"
+
+	# =====================================
+	# Arguments
+
+	function help {
+		__print_help "$@" <<-EOF || return $?
+			ABOUT:
+			Execute a command inside a \`nvm\`, \`fnm\`, or system context.
+
+			USAGE:
+			\`node-env [...options] [--] <...command>\`
+
+			OPTIONS:
+			--nvm | --fnm | --system | --tool=<nvm|fnm|system>
+			    The tool to invoke Node.js with.
+			    ! Defaults to \`nvm\` is none of them are available.
+			--[no-]install
+			    Install the <tool> if necessary.
+			    ! Defaults to disabled.
+			--[no-]quiet | --[no-]verbose
+			    Forwarded to \`setup-util-fnm\` if <install>.
+
+			--[no-]rosetta=[yes|no]
+			    If empty, and if <tool=nvm>, then auto-detection is used to determine if Rosetta should be used to install Node.js versions that do not support ARM:
+			    <https://github.com/nvm-sh/nvm/issues/2596>
+
+			RETURNS:
+			[3] if Node.js was not found.
+		EOF
+		return 22 # EINVAL 22 Invalid argument
+	}
+
+	# process
+	local item option_quiet='' option_install='no' option_rosetta='' option_cmd=()
+	while [[ $# -ne 0 ]]; do
+		item="$1"
+		shift
+		case "$item" in
+		'--help' | '-h') help ;;
+		'--no-verbose'* | '--verbose'*) __flag --source={item} --target={option_quiet} --non-affirmative --coerce ;;
+		'--no-quiet'* | '--quiet'*) __flag --source={item} --target={option_quiet} --affirmative --coerce ;;
+		'--no-install'* | '--install'*) __flag --source={item} --target={option_install} --affirmative --coerce ;;
+		'--no-rosetta'* | '--rosetta'*) __flag --source={item} --target={option_rosetta} --affirmative ;;
+		'--')
+			option_cmd+=("$@")
+			shift $#
+			break
+			;;
+		*)
+			option_cmd+=("$item" "$@")
+			shift $#
+			break
+			;;
+		esac
+	done
+
+	# ensure
+	if [[ ${#option_cmd[@]} -eq 0 ]]; then
+		help --help='No <...command> was provided.'
+	fi
+
+	# rosetta
+	if [[ $option_tool == 'nvm' ]]; then
+		if ! is-system --apple-silicon; then
+			option_rosetta='no'
+		elif [[ -z $option_rosetta ]]; then
+			local bin="${option_cmd[0]}" action="${option_cmd[1]-}" version="${option_cmd[2]-}"
+			# only apply to `nvm install <version below 16>`
+			if [[ $bin == 'nvm' && $action == 'install' ]] && __is_number "$version" && [[ "$(version-compare "$version" 16)" == -1 ]]; then
+				option_rosetta='yes'
+			else
+				option_rosetta='no'
+			fi
+		fi
+	fi
+
+	# @todo properly finish this, use required dependency or tool helper if not `system` or whatever
+
+	if [[ $option_install == 'yes' ]]; then
+		setup-util-fnm --dependency --quiet="$option_quiet" || return $?
+	fi
+
+	# =====================================
+	# Action
+
+	# Configuration: NVM
+	if [[ -z ${NVM_DIR-}  ]]; then
+		export NVM_DIR="$HOME/.nvm"
+	fi
+
+	# Configuration: FNM
+	if [[ -z ${FNM_PATH-}  ]]; then
+		export FNM_PATH="$XDG_DATA_HOME/fnm"
+		# don't call `fnm env` here as already injects it into `.bashrc`, and such were to be done then it should be done in `interactive.*` so it can be shell specific
+	fi
+
+	# =====================================
+	# Action
+
+	if __command_exists -- fnm; then
+		if [[ -z ${FNM_ARCH-} ]]; then
+			# fnm env hasn't loaded yet so load it
+			eval "$(fnm env --shell bash)" || :
+		fi
+		# run fnm
+		fnm "${option_cmd[@]}" || return $?
+	else
+		return 3 # ESRCH 3 No such process
+	fi
+	if [[ $option_install == 'yes' ]]; then
+		setup-util-nvm --dependency --quiet="$option_quiet" || return $?
+		source "$DOROTHY/sources/environment.sh"
+	fi
+
+	# convert to quoted string if not already quoted
+	local cmd_exec
+	if [[ ${#option_cmd[@]} -eq 1 ]]; then
+		cmd_exec="${option_cmd[0]}"
+	else
+		cmd_exec="$(echo-escape-command -- "${option_cmd[@]}")" || return $?
+	fi
+
+	# execute the command in new bash environment that doesn't inherit our strict mode
+	# the nullglob is to fix: https://github.com/nvm-sh/nvm/issues/3727
+	if [[ $option_rosetta == 'yes' ]]; then
+		# only /bin/bash allows rosetta
+		arch -x86_64 /bin/bash -c "shopt -s nullglob; source \"$NVM_DIR/nvm.sh\"; $cmd_exec" || return $?
+	else
+		bash -c "shopt -s nullglob; source \"$NVM_DIR/nvm.sh\"; $cmd_exec" || return $?
+	fi
+)
+
+# fire if invoked standalone
+if [[ $0 == "${BASH_SOURCE[0]}" ]]; then
+	if [[ $* == '--test' ]]; then
+		node_env_test
+	else
+		node_env "$@"
+	fi
+fi

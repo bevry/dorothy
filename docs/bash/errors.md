@@ -28,7 +28,7 @@ ESRCH 3 No such process
 Includes usage for missing required dependency.
 
 ENXIO 6 Device not configured
-Includes usage for missing required dependency.
+Includes usage for missing required dependency/configuration.
 
 ENOEXEC 8 Exec format error
 Includes usage for malfunctioning required dependency.
@@ -95,7 +95,11 @@ Includes usage for unimplemented actions.
 EFTYPE 79 Inappropriate file type or format
 Includes usage for when a path is not of the sought format, such as wanting an empty file but found a directory.
 
+EIDRM 90 Identifier removed
+Includes usage for deprecated paths / deprecations.
+
 ENOMSG 91 No message of desired type
+Includes usage when a user defined expection is not met.
 
 ENOATTR 93 Attribute not found
 Includes usage when a <path> is missing a required attribute, such as missing readable/writable/executable permissions when that specific attribute is sought.
@@ -108,7 +112,7 @@ Includes usage for unknown/unexpected logic path.
 
 ECANCELED 125 Operation cancelled
 
-ECUSTOM 200 Not applicable <for reason>
+ECUSTOM 200-209 Not applicable <for reason>
 Used to signal to the caller that the action was not performed, and might be fine because the action wasn't applicable, such as:
 - Doing an operation on a utility, that is unnecessary, as the utility is already in the desired state.
 - Doing an operation on a path, such a mount path, that is already in the desired state.

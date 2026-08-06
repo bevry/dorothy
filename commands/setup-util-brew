@@ -1,41 +1,34 @@
 #!/usr/bin/env bash
 
 function setup_util_brew() (
-	source "$DOROTHY/sources/bash.bash"
+	source "$DOROTHY/sources/util.bash"
+	util_options=(
+		--name='Homebrew'
+		--cli='brew'
+		# --about='Install, uninstall, or upgrade Homebrew, a package manager for macOS and Linux.'
+		--checker='__is_brew' # this is fine for `setup-util` as it is `bash.bash` so available to `setup-util` (`setup_util` not needed)
+		CUSTOM_INSTALL_EVAL='__brew_install'
+		CUSTOM_UPGRADE_EVAL='__brew_upgrade'
+		CUSTOM_UNINSTALL_EVAL='brew_uninstall'
+	)
 
-	function help {
-		__print_help "$@" <<-EOF || return $?
-			ABOUT:
-			Install, uninstall, or upgrade Homebrew, a package manager for macOS and Linux.
-
-			USAGE:
-			\`setup-util-brew [...options]\`
-
-			OPTIONS:
-			Refer to \`setup-util --help\` for common options.
-		EOF
-		return 22 # EINVAL 22 Invalid argument
-	}
-	if [[ $* == '--help' || $* == '-h' ]]; then
-		help
-	fi
-
-	# improve performance for detectable utilities with conditional assets
-	if setup-util --check --cli=brew --checker=__is_brew "$@"; then
-		return 0
+	# skip costly operations and fetches on shallow actions
+	if setup-util is-shallow "${util_options[@]}" "${setup_options[@]}"; then
+		setup-util shallow "${util_options[@]}" "${setup_options[@]}" || return $?
+		return $?
 	fi
 
 	# environment provides:
 	# HOMEBREW_PREFIX (macOS, Linux)
 	if [[ -z ${HOMEBREW_PREFIX-} ]]; then
-		help --help="$(
+		__print_help "$(
 			cat <<-EOF
 				Cannot setup Homebrew because \`HOMEBREW_PREFIX\` is missing, this could be due to:
 				* Homebrew is only supported on macOS and Linux
 				* this command was executed before Dorothy could configure the shell environment, this most likely occurred because a Dorothy maintainer invoked a Dorothy command within the Dorothy install process
 			EOF
 		)" || :
-		env
+		env >&2 || :
 		return 6 # ENXIO 6 Device not configured
 	fi
 
@@ -54,20 +47,17 @@ function setup_util_brew() (
 		return 6 # ENXIO 6 Device not configured
 	fi
 
-	# enable EVAL_INSTALL, etc
-	source "$(type -P setup-util)"
-
 	# uninstall brew, and adapt the system accordingly
 	function brew_uninstall {
 		# reconfigure shells for the lack of brew, by trimming the brew shells
-		grep --invert-match --fixed-strings --regexp="$HOMEBREW_PREFIX" -- /etc/shells | echo-write --atomic -- /etc/shells
+		grep --invert-match --fixed-strings --regexp="$HOMEBREW_PREFIX" -- /etc/shells | echo-write --atomic -- /etc/shells || return $?
 
 		# set the default shell to a non-brew shell
-		setup-shell --no-brew
+		setup-shell --no-brew || return $?
 
 		# ensure that the login shell is not brew
 		if [[ $SHELL == "$HOMEBREW_PREFIX/"* ]]; then
-			help 'Cannot uninstall Homebrew while running inside a Homebrew login shell, continue the uninstallation by running:' --newline \
+			__print_error 'Cannot uninstall Homebrew while running inside a Homebrew login shell, continue the uninstallation by running:' --newline \
 				--code="$system_bash_command" || :
 			return 6 # ENXIO 6 Device not configured
 		fi
@@ -77,7 +67,7 @@ function setup_util_brew() (
 
 		# uninstall brew
 		if __is_brew; then
-			/bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force
+			/bin/bash -c "$(fetch https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)" -- --force || return $?
 		fi
 		source "$DOROTHY/sources/environment.sh"
 
@@ -99,31 +89,15 @@ function setup_util_brew() (
 	# recommended installation method, it is pretty much the only one that works properly
 	# https://github.com/bevry/dorothy/commit/fff6fbc079aaa6ab9bb8438e02c307ebad46fd75
 	# https://github.com/bevry/dorothy/commit/69dbbe81bf30f9e0d9a1dd1d00eca3f3c88b943b
-	function brew_install {
-		/bin/bash -c "$(fetch 'https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh')"
-		source "$DOROTHY/sources/environment.sh" # child processes will also inherit these changes
+	function __brew_install {
+		/bin/bash -c "$(fetch 'https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh')" || return $?
 	}
-
-	# upgrade brew
-	function brew_upgrade {
-		if __is_brew; then
-			brew update
-		else
-			brew_install
-		fi
+	function __brew_upgrade {
+		brew update || return $?
 	}
 
 	# setup
-	local options=(
-		--name='Homebrew'
-		--cli='brew'
-		--checker='__is_brew'
-		"$@"
-		EVAL_INSTALL='brew_install'
-		EVAL_UPGRADE='brew_upgrade'
-		EVAL_UNINSTALL='brew_uninstall'
-	)
-	setup_util "${options[@]}"
+	setup_util "${util_options[@]}" "${setup_options[@]}"
 )
 
 # fire if invoked standalone
