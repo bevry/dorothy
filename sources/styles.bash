@@ -1258,136 +1258,189 @@ function __print_style {
 function __print_help {
 	__pause_tracing || return $?
 	__load_styles --save -- intensity bold dim code link foreground_magenta foreground_green foreground_red
-	local s=() prefixes=() suffixes=() c
-	while LC_ALL=C IFS= read -rd '' -n1 c || [[ -n $c ]]; do
-		s+=("$c")
+	# This works by reading everything, splitting each character into a segment, stored in the array `segments` accompanied by as many `prefixes` and `suffixes`
+	# Character/segment removals work by say `segmentSEGMENTS[CURRENT_SEGMENT_INDEX]=''`
+	# Character/segment replacements work by say `segmentSEGMENTS[CURRENT_SEGMENT_INDEX]='replacement'`
+	# Adjusting styling of `segmentSEGMENTS[CURRENT_SEGMENT_INDEX]` works by adjusting its `prefixes[CURRENT_SEGMENT_INDEX]` for starting style and `suffixes[CURRENT_SEGMENT_INDEX]` for ending style
+	# This allows us different mediums for content and styling, which is important for AST
+	# Sometimes we write the style directly to `segmentSEGMENTS[CURRENT_SEGMENT_INDEX]` in situations where it doesn't matter
+	local SEGMENTS=() prefixes=() suffixes=() character
+	while LC_ALL=C IFS= read -rd '' -n1 character || [[ -n $character ]]; do
+		SEGMENTS+=("$character")
 		prefixes+=('')
 		suffixes+=('')
 	done
-	local -i n="${#s[@]}" i E
-	function __are_prior_characters_matching {
-		local pattern="$1" until="$2" match="$3"
-		local -i ii
-		E="$i"
+	local -i CURRENT_SEGMENT_INDEX SEGMENTS_COUNT="${#SEGMENTS[@]}"
+
+	# <expansive> once match is found, keep matching: used for reporting the furthest index of the continuous match, or if disabled, the first matching index
+	# <xenophobic> must be matching from the start: used for reporting only matching indexes
+	local -i FOUND_SEGMENT_INDEX
+	function __find_segment {
+		# inherits SEGMENTS, CURRENT_SEGMENT_INDEX, SEGMENTS_COUNT
+		# declares FOUND_SEGMENT_INDEX
+		FOUND_SEGMENT_INDEX=-1
+		local -i start="$CURRENT_SEGMENT_INDEX" direction=1 last=0
+		local item value pattern='' until='' match_extends='no' match_nothing='no' other_fails='no'
+		while [[ $# -ne 0 ]]; do
+			item="$1"
+			shift
+			case "$item" in
+			'--start='*)
+				value="${item#*=}"
+				if [[ -n $value ]]; then start="$value"; fi
+				;;
+			'--pattern='*) pattern="${item#*=}" ;;
+			'--direction=-1' | '--direction=left' | '--direction=back' | '--direction=backward' | '--direction=backwards') direction=-1 ;;
+			'--direction=1' | '--direction=right' | '--direction=forward' | '--direction=forwards') direction=1 ;;
+			'--until='*) until="${item#*=}" ;;
+			'--no-match-extends'* | '--match-extends'*) __flag --source={item} --target={match_extends} --affirmative --coerce ;;
+			'--no-match-nothing'* | '--match-nothing'*) __flag --source={item} --target={match_nothing} --affirmative --coerce ;;
+			'--no-other-fails'* | '--other-fails'*) __flag --source={item} --target={other_fails} --affirmative --coerce ;;
+			esac
+		done
 		# check if all preceding line characters are pattern
-		for ((ii = i - 1; ii >= 0; ii--)); do
-			if [[ ${s[ii]} =~ $pattern ]]; then
-				match='yes'
-				E="$ii"
-				continue
-			elif [[ ${s[ii]} == "$until" ]]; then
+		local -i subindex iterations=0
+		for ((subindex = start + direction; subindex >= 0 && subindex < SEGMENTS_COUNT; subindex += direction)); do
+			iterations="$((iterations + 1))"
+			if [[ ${SEGMENTS[subindex]} =~ $pattern ]]; then
+				FOUND_SEGMENT_INDEX="$subindex"
+				if [[ $match_extends == 'no' ]]; then
+					break
+				fi
+			elif [[ -n $until && ${SEGMENTS[subindex]} == "$until" ]]; then
+				if [[ $match_nothing == 'yes' && $iterations -eq 1 ]]; then
+					FOUND_SEGMENT_INDEX="$start"
+				fi
 				break
-			else
+			elif [[ $other_fails == 'yes' ]]; then
 				return 1
-			fi
-		done
-		[[ $match == 'yes' ]] || return $?
-	}
-	function __are_next_characters_matching {
-		local pattern="$1" until="$2" match="$3"
-		local -i ii
-		E="$i"
-		# check if all preceding line characters are pattern
-		for ((ii = i + 1; ii < n; ii++)); do
-			if [[ ${s[ii]} =~ $pattern ]]; then
-				match='yes'
-				E="$ii"
-				continue
-			elif [[ ${s[ii]} == "$until" ]]; then
+			elif [[ $FOUND_SEGMENT_INDEX -ne -1 ]]; then
 				break
-			else
-				return 1
 			fi
 		done
-		[[ $match == 'yes' ]] || return $?
-	}
-	function __apply_index_of_prior_pattern {
-		local pattern="$1"
-		local -i ii
-		E="$i"
-		for ((ii = i - 1; ii >= 0; ii--)); do
-			if [[ ${s[ii]} =~ $pattern ]]; then
-				E="$ii"
-				break
-			else
-				continue
-			fi
-		done
-		if [[ $E -eq -1 ]]; then
+		if [[ $match_nothing == 'yes' && $iterations -eq 0 ]]; then
+			FOUND_SEGMENT_INDEX="$start"
+		elif [[ $FOUND_SEGMENT_INDEX -eq -1 ]]; then
 			return 1
 		fi
 	}
-	function __apply_index_of_next_pattern {
-		local pattern="$1"
-		local -i ii
-		E="$i"
-		for ((ii = i + 1; ii < n; ii++)); do
-			if [[ ${s[ii]} =~ $pattern ]]; then
-				E="$ii"
-				break
-			else
-				continue
-			fi
+	function __find_xenophobic_matches_until {
+		__find_segment --pattern="$1" --until="$2" --match-extends --other-fails || return $?
+	}
+	function __find_index_of_earlier_pattern {
+		__find_segment --direction=-1 --pattern="$1" --start="${2-}" || return $?
+	}
+	function __find_index_of_upcoming_pattern {
+		__find_segment --pattern="$1" --start="${2-}" || return $?
+	}
+	function __expand_across_possible_padding_to_end {
+		__find_segment --direction=-1 --pattern='^[\t ]+$' --until=$'\n' --match-extends --match-nothing --other-fails || return $?
+	}
+	function __leftwards_of_header {
+		__find_segment --direction=-1 --pattern='^[A-Z ]+$' --until=$'\n' --match-extends --match-nothing --other-fails || return $?
+	}
+	# <from-index> [<until-index>]
+	function __concatenate_segments_from_until {
+		local from="$1" concatenation=''
+		local -i subindex until="${2:-$SEGMENTS_COUNT}"
+		for ((subindex = from; subindex < until; subindex++)); do
+			concatenation+="${SEGMENTS[subindex]}"
 		done
-		if [[ $E -eq -1 ]]; then
-			return 1
-		fi
+		printf '%s' "$concatenation" || return $?
 	}
-	function __are_prior_characters_only_padding {
-		__are_prior_characters_matching '^[[:blank:]]+$' $'\n' 'yes' || return $?
-	}
-	function __are_prior_characters_only_header {
-		# @todo this may match `\n :`, as such we change prior characters to fetching all characters until <until> then do the pattern test on their string; this is difficult for now due to the need to update E with the index of matched characters; as such it may be worth matching characters, and then matching spread separately
-		__are_prior_characters_matching '^[A-Z ]+$' $'\n' 'no' || return $?
-	}
-	function __require_fence {
-		local segment="$1" prefix='' suffix=''
-		if __apply_index_of_prior_pattern $'\n'; then
-			E="$((E + 1))"
-			IFS='' prefix="${s[*]:E:i-E}"
+	function __report_fence_required {
+		local segment="$1" left right
+		if __find_index_of_earlier_pattern $'\n'; then
+			# go from ahead of that prior newline
+			FOUND_SEGMENT_INDEX="$((FOUND_SEGMENT_INDEX + 1))"
+			left="$(__concatenate_segments_from_until "$FOUND_SEGMENT_INDEX" "$CURRENT_SEGMENT_INDEX")"
+		else
+			# no prior newlines
+			left=''
 		fi
-		if __apply_index_of_next_pattern $'\n'; then
-			IFS='' suffix="${s[*]:i:E-i}"
+		if __find_index_of_upcoming_pattern $'\n'; then
+			# go until that newline
+			right="$(__concatenate_segments_from_until "$CURRENT_SEGMENT_INDEX" "$FOUND_SEGMENT_INDEX")"
+		else
+			# go to the end
+			right="$(__concatenate_segments_from_until "$CURRENT_SEGMENT_INDEX")"
 		fi
-		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' ' of:' --newline --code="$prefix$suffix" --newline 'Try:' --newline --code='```'"$prefix$suffix"'```' || return $?
+		__print_error 'Invalid help template. Wrap ' --code="$segment" ' in ' --code='```' '.' --newline \
+			'Problem:' --newline --code="$left$right" --newline \
+			'Solution:' --newline --code="\`\`\`$left$right\`\`\`" || return $?
 		return 94 # EBADMSG 94 Bad message
 	}
-	local in_code='no' in_fence='no' in_color='no' in_option remove_intensity intensities=()
-	local -i intensities_size
-	for ((i = 0; i < n; i++)); do
-		c="${s[i]}"
-		if [[ $c == '' ]]; then
+	function __require_matched_intensities_error {
+		local -i intensity_segment_index="$1"
+		local intensity_segment="$2" left right
+		if __find_index_of_earlier_pattern $'\n' "$intensity_segment_index"; then
+			# go from ahead of that prior newline
+			FOUND_SEGMENT_INDEX="$((FOUND_SEGMENT_INDEX + 1))"
+			left="$(__concatenate_segments_from_until "$FOUND_SEGMENT_INDEX" "$intensity_segment_index")"
+		else
+			# no prior newlines
+			left=''
+		fi
+		if __find_index_of_upcoming_pattern $'\n' "$intensity_segment_index"; then
+			# go until that newline
+			right="$(__concatenate_segments_from_until "$intensity_segment_index" "$FOUND_SEGMENT_INDEX")"
+		else
+			# go to the end
+			right="$(__concatenate_segments_from_until "$intensity_segment_index")"
+		fi
+		__print_error 'Invalid help template. Unable to complete ' --code="$intensity_segment" ' at ' --code="$intensity_segment_index" ' within:' --newline --code="$left$right" --newline 'Check for complete opening and closure of this intensity modifier, or for complete opening and closure of intensity modifiers within it.' --newline 'If the segment is correct, such as being valid code, then wrap it or the line in three backticks ' --code='```' ' to prevent its interpretation as an intensity modifier.' || return $?
+		return 94 # EBADMSG 94 Bad message
+	}
+	function __report_mismatched_intensity {
+		__require_matched_intensities_error "$CURRENT_SEGMENT_INDEX" "${SEGMENTS[CURRENT_SEGMENT_INDEX]}" || return $?
+		return 94 # EBADMSG 94 Bad message
+	}
+	function __report_unclosed_intensity {
+		local -i intensities_count="${#intensities[@]}" subindex intensity_segment_index
+		local intensity_segment left right
+		for ((subindex = 0; subindex < intensities_count; subindex++)); do
+			intensity_segment_index="${intensities_indices[subindex]}"
+			intensity_segment="${intensities_segments[subindex]}"
+			__require_matched_intensities_error "$intensity_segment_index" "$intensity_segment" || return $?
+		done
+		return 94 # EBADMSG 94 Bad message
+	}
+	local segment in_code='no' in_fence='no' in_color='no' in_option remove_intensity intensities=() intensities_indices=() intensities_segments=()
+	local -i subindex intensities_count
+	for ((CURRENT_SEGMENT_INDEX = 0; CURRENT_SEGMENT_INDEX < SEGMENTS_COUNT; CURRENT_SEGMENT_INDEX++)); do
+		segment="${SEGMENTS[CURRENT_SEGMENT_INDEX]}"
+		if [[ $segment == '' ]]; then
 			continue
-		elif [[ $c == $'\e' ]]; then
+		elif [[ $segment == $'\e' ]]; then
 			in_color='yes'
 			continue
 		elif [[ $in_color == 'yes' ]]; then
-			if [[ $c == 'm' ]]; then
+			if [[ $segment == 'm' ]]; then
 				in_color='no'
 			fi
 			continue
 		fi
 
 		# check for fence
-		if [[ "$c${s[i + 1]-}${s[i + 2]-}" == '```' ]]; then
+		if [[ "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]-}" == '```' ]]; then
 			# code fence
 			# remove the code fence
-			s[i]=''
-			s[i + 1]=''
-			s[i + 2]=''
+			SEGMENTS[CURRENT_SEGMENT_INDEX]=''
+			SEGMENTS[CURRENT_SEGMENT_INDEX + 1]=''
+			SEGMENTS[CURRENT_SEGMENT_INDEX + 2]=''
 			# if the code fence is the only non-whitespace thing on the line, then remove the line
-			if [[ ${s[i + 3]-} == $'\n' ]] && __are_prior_characters_only_padding; then
-				s[i + 3]=''
-				for ((ii = E; ii < i; ii++)); do
-					s[ii]=''
+			if [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 3]-} == $'\n' ]] && __expand_across_possible_padding_to_end; then
+				SEGMENTS[CURRENT_SEGMENT_INDEX + 3]=''
+				for ((subindex = FOUND_SEGMENT_INDEX; subindex < CURRENT_SEGMENT_INDEX; subindex++)); do
+					SEGMENTS[subindex]=''
 				done
 			fi
 			# toggle
 			if [[ $in_fence == 'no' ]]; then
 				in_fence='yes'
-				s[i]+="$STYLE__code"
+				SEGMENTS[CURRENT_SEGMENT_INDEX]+="$STYLE__code"
 			else
-				s[i]+="$STYLE__END__code"
+				SEGMENTS[CURRENT_SEGMENT_INDEX]+="$STYLE__END__code"
 				in_fence='no'
 			fi
 			continue
@@ -1397,161 +1450,182 @@ function __print_help {
 		fi
 
 		# we are now things we want to act upon
-		if [[ "$c${s[i + 1]-}" == '* ' ]]; then
+		if [[ "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" == '* ' ]]; then
 			# lists
-			if __are_prior_characters_only_padding; then
-				s[i]='•'
+			if __expand_across_possible_padding_to_end; then
+				SEGMENTS[CURRENT_SEGMENT_INDEX]='•'
 				continue
 			fi
-		elif [[ "$c${s[i + 1]-}" == '! ' ]]; then
+		elif [[ "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" == '! ' ]]; then
 			# lists
-			if __are_prior_characters_only_padding; then
-				prefixes[E]+="$STYLE__foreground_red"
-				s[i]='!'
-				suffixes[i]+="$STYLE__END__foreground_red"
+			if __expand_across_possible_padding_to_end; then
+				prefixes[FOUND_SEGMENT_INDEX]+="$STYLE__foreground_red"
+				SEGMENTS[CURRENT_SEGMENT_INDEX]='!'
+				suffixes[CURRENT_SEGMENT_INDEX]+="$STYLE__END__foreground_red"
 				continue
 			fi
-		elif [[ "$c${s[i + 1]-}" == $':\n' ]]; then
+		elif [[ "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" == $':\n' ]]; then
 			# headers
-			if __are_prior_characters_only_header; then
-				prefixes[E]+="$STYLE__foreground_magenta"
-				suffixes[i]+="$STYLE__END__foreground_magenta"
+			if __leftwards_of_header; then
+				prefixes[FOUND_SEGMENT_INDEX]+="$STYLE__foreground_magenta"
+				suffixes[CURRENT_SEGMENT_INDEX]+="$STYLE__END__foreground_magenta"
 				continue
 			fi
-		elif [[ $c == '<' ]]; then
+		elif [[ $segment == '<' ]]; then
 			# urls
-			if [[ "${s[i + 1]-}${s[i + 2]-}${s[i + 3]-}${s[i + 4]-}" == 'http' ]]; then
-				if __apply_index_of_next_pattern '^>$'; then
-					s[i]="$STYLE__link"
-					s[E]="$STYLE__END__link"
-					i="$E"
+			# https://spec.commonmark.org/0.31.2/#autolink
+			# if we want to do full autolinks, this would then be:
+			# `if __find_index_of_upcoming_pattern '[a-z][a-z0-9+.-]+:[^[:cntrl:] <>]*^>$'; then`
+			# but until we have a use case for that, ignore that use case and go with the simplest option
+			if [[ "${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]-}${SEGMENTS[CURRENT_SEGMENT_INDEX + 3]-}${SEGMENTS[CURRENT_SEGMENT_INDEX + 4]-}" == 'http' ]]; then
+				if __find_index_of_upcoming_pattern '^>$'; then
+					SEGMENTS[CURRENT_SEGMENT_INDEX]="$STYLE__link"
+					SEGMENTS[FOUND_SEGMENT_INDEX]="$STYLE__END__link"
+					CURRENT_SEGMENT_INDEX="$FOUND_SEGMENT_INDEX"
 				fi
 				continue
 			fi
-		elif [[ $c == '[' ]]; then
+		elif [[ $segment == '[' ]]; then
 			# return statuses
-			if __are_next_characters_matching '^0+$' ']' 'no'; then
-				prefixes[i]+="$STYLE__foreground_green"
-				suffixes[E + 1]+="$STYLE__END__foreground_green"
-				i="$((E + 1))"
+			if __find_xenophobic_matches_until '^0+$' ']'; then
+				# next characters are `0+\]`, success exit status
+				prefixes[CURRENT_SEGMENT_INDEX]+="$STYLE__foreground_green"
+				suffixes[FOUND_SEGMENT_INDEX + 1]+="$STYLE__END__foreground_green"
+				CURRENT_SEGMENT_INDEX="$((FOUND_SEGMENT_INDEX + 1))"
 				continue
-			elif __are_next_characters_matching '^[[:digit:]*]+$' ']' 'no'; then
-				prefixes[i]+="$STYLE__foreground_red"
-				suffixes[E + 1]+="$STYLE__END__foreground_red"
-				i="$((E + 1))"
+			elif __find_xenophobic_matches_until '^[[:digit:]*]+$' ']'; then
+				# next characters are one or more of any digit or asterisk then `]`, so `[1]` or `[*]`, which denotes failure exit status
+				prefixes[CURRENT_SEGMENT_INDEX]+="$STYLE__foreground_red"
+				suffixes[FOUND_SEGMENT_INDEX + 1]+="$STYLE__END__foreground_red"
+				CURRENT_SEGMENT_INDEX="$((FOUND_SEGMENT_INDEX + 1))"
 				continue
 			fi
-		elif [[ $c == '`' ]]; then
+		elif [[ $segment == '`' ]]; then
 			# code
 			if [[ $in_code == 'no' ]]; then
 				in_code='yes'
-				s[i]="$STYLE__code"
+				SEGMENTS[CURRENT_SEGMENT_INDEX]="$STYLE__code"
 			else
 				in_code='no'
-				s[i]="$STYLE__END__code"
+				SEGMENTS[CURRENT_SEGMENT_INDEX]="$STYLE__END__code"
 			fi
 			continue
 		fi
 
 		# magenta for options and actions
 		in_option='no'
-		case "$c" in
+		case "$segment" in
 		'-' | '<' | '[' | '|') in_option='yes' ;;
 		'&')
-			if [[ ${s[i + 1]-} == ' ' ]]; then
+			if [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-} == ' ' ]]; then
 				in_option='yes'
-				s[i]=''
-				s[i + 1]=''
+				SEGMENTS[CURRENT_SEGMENT_INDEX]=''
+				SEGMENTS[CURRENT_SEGMENT_INDEX + 1]=''
 			fi
 			;;
 		'.')
-			if [[ "${s[i + 1]-}${s[i + 2]-}" == '..' ]]; then
+			if [[ "${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]-}" == '..' ]]; then
 				in_option='yes'
 			fi
 			;;
 		esac
-		if [[ $in_option == 'yes' ]] && __are_prior_characters_only_padding; then
-			prefixes[i]="${STYLE__foreground_magenta}"
-			if __apply_index_of_next_pattern $'^\n$'; then
-				suffixes[E]+="$STYLE__END__foreground_magenta"
+		if [[ $in_option == 'yes' ]] && __expand_across_possible_padding_to_end; then
+			prefixes[CURRENT_SEGMENT_INDEX]="${STYLE__foreground_magenta}"
+			if __find_index_of_upcoming_pattern $'^\n$'; then
+				# intermediate line that has a trailing newline
+				suffixes[FOUND_SEGMENT_INDEX]+="$STYLE__END__foreground_magenta"
 			else
-				# no trailing line
-				suffixes[n - 1]+="$STYLE__END__foreground_magenta"
+				# last line without a trailing newline
+				suffixes[SEGMENTS_COUNT - 1]+="$STYLE__END__foreground_magenta"
 			fi
 		fi
 
+		# require fencing
 		remove_intensity='no'
-		case "$c" in
+		case "$segment" in
 		'[')
 			# is it an example regular expression, then require fence
-			if [[ ${s[i + 1]-} == 'a' && ${s[i + 2]-} == '-' && ${s[i + 3]-} == 'z' ]]; then
-				__require_fence "${c}${s[i + 1]}${s[i + 2]}${s[i + 3]}${s[i + 4]}" || return $?
-			elif [[ ${s[i + 1]-} == ' ' ]]; then
-				__require_fence "${c}${s[i + 1]}" || return $?
+			if [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-} == 'a' && ${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]-} == '-' && ${SEGMENTS[CURRENT_SEGMENT_INDEX + 3]-} == 'z' ]]; then
+				__report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]}${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]}${SEGMENTS[CURRENT_SEGMENT_INDEX + 3]}${SEGMENTS[CURRENT_SEGMENT_INDEX + 4]}" || return $?
+			elif [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-} == ' ' || ${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-} == ']' ]]; then
+				__report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]}" || return $?
 			else
 				intensities+=("$STYLE__dim")
-				prefixes[i]+="$STYLE__dim"
+				intensities_indices+=("$CURRENT_SEGMENT_INDEX")
+				intensities_segments+=("$segment")
+				prefixes[CURRENT_SEGMENT_INDEX]+="$STYLE__dim"
 			fi
 			;;
 		'<')
-			case "${s[i + 1]-}" in
-			' ' | '&' | '(' | '=') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			case "${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" in
+			' ' | '&' | '(' | '=') __report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]}" || return $? ;;
 			esac
 			intensities+=("$STYLE__bold")
-			prefixes[i]+="$STYLE__bold"
+			intensities_indices+=("$CURRENT_SEGMENT_INDEX")
+			intensities_segments+=("$segment")
+			prefixes[CURRENT_SEGMENT_INDEX]+="$STYLE__bold"
 			;;
 		'>')
-			case "${s[i - 1]-}" in
-			' ' | ')') __require_fence "${c}${s[i - 1]}" || return $? ;;
+			case "${SEGMENTS[CURRENT_SEGMENT_INDEX - 1]-}" in
+			' ' | ')') __report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX - 1]}" || return $? ;;
 			esac
-			case "${s[i + 1]-}" in
-			'&') __require_fence "${c}${s[i + 1]}" || return $? ;;
+			case "${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]-}" in
+			'&') __report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]}" || return $? ;;
 			'=')
 				# only disallow `=` if `>= ` and not something like `--<field>=<value>`
-				if [[ ${s[i + 2]-} == ' ' ]]; then
-					__require_fence "${c}${s[i + 1]}${s[i + 2]}" || return $?
+				if [[ ${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]-} == ' ' ]]; then
+					__report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX + 1]}${SEGMENTS[CURRENT_SEGMENT_INDEX + 2]}" || return $?
 				fi
 				;;
 			esac
 			remove_intensity='yes'
 			;;
 		']')
-			case "${s[i - 1]-}" in
-			' ') __require_fence "${c}${s[i - 1]}" || return $? ;;
+			case "${SEGMENTS[CURRENT_SEGMENT_INDEX - 1]-}" in
+			' ') __report_fence_required "${segment}${SEGMENTS[CURRENT_SEGMENT_INDEX - 1]}" || return $? ;;
 			esac
 			remove_intensity='yes'
 			;;
 		esac
 		if [[ $remove_intensity == 'yes' ]]; then
-			intensities_size="${#intensities[@]}"
-			if [[ $intensities_size -eq 0 ]]; then
+			intensities_count="${#intensities[@]}"
+			case "$intensities_count" in
+			0)
 				# mismatched, fail
-				__print_error 'Invalid help template. Mismatched intensity modifiers.' || return $?
-				return 94 # EBADMSG 94 Bad message
-			elif [[ $intensities_size -eq 1 ]]; then
+				 __report_mismatched_intensity || return $?
+				;;
+			1)
 				# no more intensities so clear
-				suffixes[i]+="$STYLE__END__intensity"
+				suffixes[CURRENT_SEGMENT_INDEX]+="$STYLE__END__intensity"
 				intensities=()
-			else
+				intensities_indices=()
+				intensities_segments=()
+				;;
+			*)
 				# pop intensity
-				intensities=("${intensities[@]:0:intensities_size-1}")
-				intensities_size="${#intensities[@]}"
+				intensities=("${intensities[@]:0:intensities_count-1}")
+				intensities_indices=("${intensities_indices[@]:0:intensities_count-1}")
+				intensities_segments=("${intensities_segments[@]:0:intensities_count-1}")
 				# reset intensity, and re-affirm prior intensities
-				IFS='' suffixes[i]+="$STYLE__END__intensity${intensities[*]}"
-			fi
+				IFS='' suffixes[CURRENT_SEGMENT_INDEX]+="$STYLE__END__intensity${intensities[*]}"
+				;;
+			esac
 		fi
 	done
+	if [[ ${#intensities[@]} -ne 0 ]]; then
+		__report_unclosed_intensity || return $?
+	fi
 	local result=''
-	for ((i = 0; i < n; i++)); do
-		result+="${prefixes[i]}${s[i]}${suffixes[i]}"
+	for ((CURRENT_SEGMENT_INDEX = 0; CURRENT_SEGMENT_INDEX < SEGMENTS_COUNT; CURRENT_SEGMENT_INDEX++)); do
+		result+="${prefixes[CURRENT_SEGMENT_INDEX]}${SEGMENTS[CURRENT_SEGMENT_INDEX]}${suffixes[CURRENT_SEGMENT_INDEX]}"
 	done
-	# trim double trailing newline, which is an EOF accident
-	while [[ $result == *$'\n\n' ]]; do
+	# trim trailing newlines, ensuring only one, such that consistent formatting is adhered to (double can happen when doing EOF, and none can happen when doing file piping)
+	while [[ $result == *$'\n' ]]; do
 		result="${result%$'\n'*}"
 	done
-	printf '%s' "$result" >&2
+	printf '%s\n' "$result" >&2
 	if [[ $# -ne 0 ]]; then
-		__print_line || return $?
+		printf '\n' >&2 || return $?
 		__print_error "$@" || return $?
 	fi
 	__restore_tracing || return $?
