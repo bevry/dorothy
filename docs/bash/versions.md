@@ -142,7 +142,7 @@ From changelog:
 - Introduces `test -v VAR` for testing variable declaration.
 - Introduces `printf %(datefmt)T`.
 - Introduces negative lengths for arrays and strings, e.g. `${array[@]:0: -1}` for all except the last element.
-- Introduces `lastpipe`.
+- Introduces `lastpipe`, which removes the need to do `cmd < <(...)` to maintain shared scope with `cmd`, enabling `... | cmd` which prior to `lastpipe` would not have manipulations from `cmd` traverse the scope.
 
 <details>
 <summary>Changelog:</summary>

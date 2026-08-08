@@ -35,6 +35,9 @@ function eval_tester() (
 			    If not already specified by explicit options, then default to this <command> and <argument>s for the tests.
 			! A <command> is required, either by explicit definition via one of the above options, or via the fixture.
 
+			--discard-regexp=<discard-regexp>
+			    If provided, strips the matches of this regular expression when performing internal comparisons between actual and expectations. This is used for stripped deltas that are due to environment changes, such as subtle differences between theme colours, that would otherwise cause the tests to fail. The matches are not stripped from the visual comparisons, so debugging failures is still accurate.
+
 			If using a fixture to define expectations:
 
 			--fixture[=<fixture-name>] [-- <command> [...<argument>]]
@@ -92,7 +95,8 @@ function eval_tester() (
 	local item original_output_value=$'\f'"$RANDOM" ignore_output_value=$'\f'"$RANDOM"
 	local \
 		option_quiet='yes' \
-		option_name='' option_write='' option_fixture='' option_command='' option_args=() \
+		option_name='' option_write='' option_fixture='' option_discard_regexp='' \
+		option_command='' option_args=() \
 		option_status='0' \
 		option_stdin='' \
 		option_stdout="$original_output_value" option_stderr="$original_output_value" option_tty="$original_output_value" \
@@ -111,6 +115,7 @@ function eval_tester() (
 		--name=*) option_name="${item#*=}" ;;
 		--write*) __flag --source={item} --target={option_write} --affirmative --coerce ;;
 		--fixture*) __flag --source={item} --target={option_fixture} --affirmative --no-coerce ;;
+		--discard-regexp=*) option_discard_regexp="${item#*=}" ;;
 
 		--status=*) option_status="${item#*=}" ;;
 		--stdin=*) option_stdin="${item#*=}" ;;
@@ -224,6 +229,9 @@ function eval_tester() (
 		fixture_inheritance+=('--write' '--no-add-trailing-newlines-to-specified-expectations')
 		if [[ -n $option_name ]]; then
 			fixture_inheritance+=("--name=$option_name")
+		fi
+		if [[ -n $option_discard_regexp ]]; then
+			fixture_inheritance+=("--discard-regexp=$option_discard_regexp")
 		fi
 		if [[ -n $option_compare_stdout ]]; then
 			fixture_inheritance+=("--compare-stdout=$option_compare_stdout")
@@ -423,9 +431,6 @@ function eval_tester() (
 	}
 	function __compare {
 		local name="$1" actual="$2" expected="$3"
-		if [[ $option_quiet == 'no' && $name == 'STATUS' ]]; then
-			__print_line || return 223 # ECUSTOM 223 Tests broken
-		fi
 		if [[ $name == 'STDERR' && -n $stderr_unable_reason ]]; then
 			__print_style --stderr --notice="$stderr_unable_reason" || return 223 # ECUSTOM 223 Tests broken
 		elif [[ $name == 'STATUS' ]]; then
@@ -434,6 +439,7 @@ function eval_tester() (
 			elif [[ $actual == "$expected" ]]; then
 				__print_style --success="${name} is EXPECTED [$expected]" || return 223 # ECUSTOM 223 Tests broken
 			else
+				FAIL='yes'
 				__print_style --error="${name} [$actual] is NOT EXPECTED [$expected]" || return 223 # ECUSTOM 223 Tests broken
 			fi
 		elif [[ $expected == "$ignore_output_value" ]]; then
@@ -447,7 +453,20 @@ function eval_tester() (
 				fi
 			fi
 		else
-			if [[ $actual == "$expected" ]]; then
+			# adjust for things that differ between between environments, such as theme colors, see `echo-help`
+			local actual_compare expected_compare
+			if [[ -n $option_discard_regexp && $actual != "$expected" ]]; then
+				# using `__do` to maintain trailing lines or their lack of
+				printf '%s' "$actual" | __do --redirect-stdout={actual_compare} -- \
+					echo-regexp -g --regexp="$option_discard_regexp" --replace='' || return $?
+				printf '%s' "$expected" | __do --redirect-stdout={expected_compare} -- \
+					echo-regexp -g --regexp="$option_discard_regexp" --replace='' || return $?
+			else
+				actual_compare="$actual"
+				expected_compare="$expected"
+			fi
+			# now compare the adjusted, but still report the pre-adjusted
+			if [[ $actual_compare == "$expected_compare" ]]; then
 				__print_style --success="${name} is EXPECTED" || return 223 # ECUSTOM 223 Tests broken
 				if [[ $option_quiet == 'no' ]]; then
 					if ! __is_shapeshifter -- "$actual"; then
@@ -458,6 +477,7 @@ function eval_tester() (
 					fi
 				fi
 			else
+				FAIL='yes'
 				__print_style --error="${name} is NOT EXPECTED" || return 223 # ECUSTOM 223 Tests broken
 				if ! __is_shapeshifter -- "$actual$expected"; then
 					__element "received $name" red "$actual" || return $?
@@ -550,20 +570,21 @@ function eval_tester() (
 
 	# determine if we fail, then we can decide what we are outputting
 	# do not put the next line as two lines, as that confuses the linting
+	local check_further='no'
 	if [[ ($option_status != "$ignore_output_value" && $actual_status -ne $option_status) ||
 		($option_stdout != "$ignore_output_value" && $actual_stdout != "$option_stdout") ||
 		($option_stderr != "$ignore_output_value" && $actual_stderr != "$option_stderr") ||
 		($option_tty != "$ignore_output_value" && $actual_tty != "$option_tty") ]]; then
-		FAIL='yes'
+		check_further='yes'
 		option_quiet='no'
 	fi
 
 	# compare
-	if [[ $FAIL == 'yes' || $option_quiet != 'yes' ]]; then
-		__compare STATUS "$actual_status" "$option_status"
-		__compare STDOUT "$actual_stdout" "$option_stdout"
-		__compare STDERR "$actual_stderr" "$option_stderr"
-		__compare TTY "$actual_tty" "$option_tty"
+	if [[ $check_further == 'yes' || $option_quiet != 'yes' ]]; then
+		__compare STATUS "$actual_status" "$option_status" || return $?
+		__compare STDOUT "$actual_stdout" "$option_stdout" || return $?
+		__compare STDERR "$actual_stderr" "$option_stderr" || return $?
+		__compare TTY "$actual_tty" "$option_tty" || return $?
 	fi
 
 	# pass or fail

@@ -695,6 +695,11 @@ set -Eeuo pipefail
 # set +E # __try now crashes or never finishes on bash versions prior to 4.4
 shopt -s inherit_errexit 2>/dev/null || : # has no effect on __try
 
+# Disable errexit if login shell
+if [[ -n ${ACTIVE_POSIX_SHELL-} ]]; then
+	set +e
+fi
+
 # Detect errexit
 function __is_errexit {
 	[[ $- == *e* ]] || return $? # explicit `|| return` required to prevent ERR trap from firing, which is important here as it is used within our ERR trap
@@ -5463,12 +5468,24 @@ function __replace {
 		'--pattern-all='*)
 			REPLACE__value_wip="${REPLACE__value_wip//$REPLACE__lookup_query/$REPLACE__replacement}"
 			;;
+		'--leading-pattern='*)
+			REPLACE__value_wip="${REPLACE__value_wip/#$REPLACE__lookup_query}"
+			;;
+		'--trailing-pattern='*)
+			REPLACE__value_wip="${REPLACE__value_wip/%$REPLACE__lookup_query}"
+			;;
 
+		'--leading-newline')
+			REPLACE__value_wip="${REPLACE__value_wip#$'\n'}"
+			;;
 		'--leading-newlines')
-			REPLACE__value_wip="${REPLACE__value_wip#"${REPLACE__value_wip%%[!\n]*}"}"
+			REPLACE__value_wip="${REPLACE__value_wip/#+($'\n')}"
+			;;
+		'--trailing-newline')
+			REPLACE__value_wip="${REPLACE__value_wip%$'\n'}"
 			;;
 		'--trailing-newlines')
-			REPLACE__value_wip="${REPLACE__value_wip%"${REPLACE__value_wip##*[!\n]}"}"
+			REPLACE__value_wip="${REPLACE__value_wip/%+($'\n')}"
 			;;
 
 		# Bash/POSIX Character Classes: <https://www.gnu.org/software/gawk/manual/html_node/Bracket-Expressions.html>

@@ -113,9 +113,9 @@ if [ "$ACTIVE_POSIX_SHELL" = 'bash' ]; then
 
 	# Carapace
 	# https://carapace-sh.github.io/carapace-bin/setup.html#bash
-	if command -v carapace >/dev/null 2>&1; then
-		eval "$(carapace _carapace bash)"
-	fi
+	# if command -v carapace >/dev/null 2>&1; then
+	#	eval "$(carapace _carapace bash)"
+	# fi
 
 elif [ "$ACTIVE_POSIX_SHELL" = 'zsh' ]; then
 	# Enable Completions
