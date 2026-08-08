@@ -1,40 +1,30 @@
 #!/usr/bin/env -S eval-wsl deno run --quiet --no-config --no-lock --no-npm --no-remote --cached-only
+// deno-lint-ignore-file no-unreachable
 
 import {
-	AbstractHelpError,
+	HelpError,
 	exitWithError,
 	writeStdoutStringify,
 	writeStdoutPlain,
 	writeStdoutPretty,
+	heredoc,
+	wantsHelp,
 	asString,
 	asError,
+	assertFactory,
 } from '../sources/ts.ts'
 
-// Actions and Arguments
-type Action = 'make' | 'stringify' | 'encode' | 'decode' | 'json' | 'pretty'
-const actions: Action[] = [
-	'make',
-	'stringify',
-	'encode',
-	'decode',
-	'json',
-	'pretty',
-]
-class HelpError extends AbstractHelpError {
-	override help = [
-		'USAGE:',
-		'echo-json.ts <make> [--] ...[<key> <value>]',
-		'echo-json.ts <stringify|encode|decode|json|pretty> [--] ...<input>',
-	].join('\n')
-}
-function assertAction(value: unknown): asserts value is Action {
-	if (!actions.includes(value as Action)) {
-		throw new HelpError(`An unrecognised <action> was provided: ${value}`)
-	}
-}
-function asAction(value: unknown): Action {
-	assertAction(value)
-	return value
+const { values: actionValues, as: asAction } = assertFactory(
+	['make', 'stringify', 'encode', 'decode', 'json', 'pretty'] as const,
+	'action',
+)
+
+class UsageError extends HelpError {
+	override help = heredoc`
+		USAGE:
+		\`echo-json.ts <make> [--] ...[<key> <value>]\`
+		\`echo-json.ts <${actionValues.join('|')}> [--] ...<input>\`
+	`
 }
 
 // Parsing
@@ -64,12 +54,12 @@ function parse(input: string): {
 
 // Execute
 // <action> [...options] ...<input>
-async function main(...args: string[]) {
+function main(...args: string[]) {
 	// parse <action>
 	if (args.length === 0) {
-		throw new HelpError(`No <action> was provided.`)
+		throw new UsageError(`--help=No <action> was provided.`)
 	}
-	const action: Action = asAction(args.shift())
+	const action = asAction(args.shift())
 	// parse [...options] ...<input>
 	const properties = [],
 		inputs = []
@@ -89,7 +79,9 @@ async function main(...args: string[]) {
 	if (action === 'make') {
 		// validate we have a <value> for every <key>
 		if (inputs.length % 2 !== 0) {
-			throw new Error('<make> requires an even number of <key> <value> pairs.')
+			throw new UsageError(
+				`--help=<make> requires an even number of <key> <value> pairs.`,
+			)
 		}
 		// build the object
 		const output: Record<string, unknown> = {}
@@ -112,8 +104,9 @@ async function main(...args: string[]) {
 			case 'pretty': {
 				const { parseError, value } = parse(input)
 				if (parseError != null) {
-					throw new Error(
-						`Failed to parse what should be JSON-encoded <input> = ${parseError.message}`,
+					throw new UsageError(
+						`--help=Failed to parse what should be JSON-encoded <input> = `,
+						`--value=${parseError.message}`,
 					)
 				}
 				if (action == 'json') {
@@ -143,8 +136,10 @@ async function main(...args: string[]) {
 							if (diver && typeof diver === 'object' && key in diver) {
 								diver = diver[key]
 							} else {
-								throw new Error(
-									`Property "${property}" does not exist in the provided input.`,
+								throw new UsageError(
+									`Property `,
+									`--value=${property}`,
+									` does not exist in the provided input.`,
 								)
 							}
 						}
@@ -158,14 +153,17 @@ async function main(...args: string[]) {
 				break
 			}
 			default:
-				throw new Error(`Invalid action: ${action}`)
+				throw new UsageError(`--help=Invalid <action>: `, `--value=${action}`)
 				break
 		}
 	}
 }
 
 try {
+	if (wantsHelp(Deno.args)) {
+		throw new UsageError()
+	}
 	await main(...Deno.args)
 } catch (error) {
-	exitWithError(error)
+	await exitWithError(error)
 }

@@ -52,42 +52,61 @@ Past References:
 
 ```bash
 # get first line, via pipe, tried and tested
-printf '%s\n' $'a\nb' | echo-first-line
+printf '%s' $'a\nb' | echo-first-line
 
 # get first line, via variable
 var=$'a\nb\nc'
-printf '%s\n' "${var%%$'\n'*}" # a
+printf '%s' "${var%%$'\n'*}" # a
 __replace --source={var} --keep-before-first=$'\n' # a
 
 # get everything before the first X
 var='aXbXc'
-printf '%s\n' "${var%%X*}" # a
+printf '%s' "${var%%X*}" # a
 __replace --source={var} --keep-before-first='X' # a
 
 # get everything after the first X
 var='aXbXc'
-printf '%s\n' "${var#*X}" # bXc
+printf '%s' "${var#*X}" # bXc
 __replace --source={var} --keep-after-first='X' # bXc
+
+# trim leading newline
+var=$'\na\nb\nc\n'
+printf '%q' "${var#$'\n'}" # note no asterisk
+__replace --source={var} --leading-newline
+
+# trim leading newlines
+var=$'\n\na\nb\nc\n\n'
+printf '%q' "${var/#+($'\n')}"
+__replace --source={var} --leading-newlines
 
 # get everything before the last X
 var='aXbXc'
-printf '%s\n' "${var%X*}" # aXb
+printf '%s' "${var%X*}" # aXb
 __replace --source={var} --keep-before-last='X' # aXb
+
+# trim trailing newline
+var=$'\na\nb\nc\n'
+printf '%q' "${var%$'\n'}" # note no asterisk
+__replace --source={var} --trailing-newline
+
+# trim trailing newlines
+var=$'\n\na\nb\nc\n\n'
+printf '%q' "${var/%+($'\n')}"
+__replace --source={var} --trailing-newlines
 
 # get everything after the last X
 var='aXbXc'
-printf '%s\n' "${var##*X}" # c
+printf '%s' "${var##*X}" # c
 __replace --source={var} --keep-after-last='X' # c
-
 
 # replace first o with O
 var='oXoXo'
-printf '%s\n' "${var/o/O}"
+printf '%s' "${var/o/O}"
 __replace --source={var} --value='o' --replace='O'
 
 # replace all o with O
 var='oXoXo'
-printf '%s\n' "${var//o/O}"
+printf '%s' "${var//o/O}"
 __replace --source={var} --value-all='o' --replace='O'
 ```
 

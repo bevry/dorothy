@@ -33,7 +33,7 @@ function __stdinargs__help_options {
 		--[no-]color[s]
 		    Enforce or disable colored output, by exporting \`COLOR\` as \`tes\` (if enabled) or \`no\` (if disabled).
 
-		--[no-]timeout[=<timeout:yes|no|max|immediate|0|<seconds>]
+		--[no-]timeout[=<timeout:yes|no|max|immediate|0|<seconds>>]
 		    If enabled or omitted, STDIN content will be waited for \`1\` second before timing out.
 		    If disabled or \`max\`, STDIN content will wait forever and not timeout.
 		    If \`immediate\` or \`0\`, STDIN content must be immediate before timing out.
@@ -43,6 +43,7 @@ function __stdinargs__help_options {
 		    If empty or omitted, use arguments if they are provided, otherwise wait the timeout duration for STDIN.$stdin_empty_message
 		    If enabled, require STDIN for processing inputs, and disable timeout.$stdin_yes_message
 		    If disabled, require arguments for processing inputs, and ignore STDIN.$stdin_no_message
+		    ! STDIN is processed after arguments.
 
 		--[no-]inline
 		    If enabled or omitted, always read the last line.
@@ -127,7 +128,7 @@ function stdinargs {
 	fn_arg="$(__stdinargs__get_first_function __on_argument on_argument __on_arg on_arg)" || return $?
 	# if there is stdin content, handle it ourself
 	fn_stdin="$(__stdinargs__get_first_function __on_stdin on_stdin)" || return $?
-	# if there is stdin or argument content, receive it in whole
+	# if there is stdin or argument content, receive it in whole, including any trailing newline
 	fn_whole="$(__stdinargs__get_first_function __on_whole on_whole)" || return $?
 	# before we begin parsing stdin or arguments, call this
 	fn_start="$(__stdinargs__get_first_function __on_start on_start)" || return $?
@@ -317,10 +318,13 @@ function stdinargs {
 			elif [[ -n $fn_piece ]]; then
 				stdinargs__eval "$fn_piece" "$item"
 			else
-				stdinargs__read arg < <(printf '%s' "$item") # don't use [ <<< "$item"] as that doesn't respect inlines, don't use [printf '%s' "$item" | ...] as that doesn't support shared scoping in bash v3
+				stdinargs__read arg < <(printf '%s' "$item") # don't use ` <<< "$item"` as that doesn't respect inlines, don't use `printf '%s' "$item" | ...` as that doesn't support shared scoping in bash v3
 			fi
 		done
 	fi
+
+	# @todo this means args are processed first, then stdin, which is counter to their caller's order
+	# e.g. `... | echo-* --stdin -- one two` makes it seem the stdin will be processed first, then `one` and `two`.
 
 	# if we don't want stdin, never read stdin, e.g. [echo-* --] or [echo-* --no-stdin]
 	# if we want stdin, always read stdin, e.g. [echo-* --stdin] or [echo-* -]
