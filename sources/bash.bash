@@ -6288,7 +6288,7 @@ function __maximum {
 # tool
 function __tool {
 	local TOOL__question='Which tool to use?'
-	local TOOL__item TOOL__tool_variable_name='' TOOL__tools_variable_name='' TOOL__help_function_name=''
+	local TOOL__item TOOL__tool_variable_name='' TOOL__tools_variable_name='' TOOL__help_function_name='' TOOL__install='yes'
 	while [[ $# -ne 0 ]]; do
 		TOOL__item="$1"
 		shift
@@ -6296,6 +6296,7 @@ function __tool {
 		'--tool={'*'}') __dereference --source="${TOOL__item#*=}" --name={TOOL__tool_variable_name} || return $? ;;
 		'--tools={'*'}') __dereference --source="${TOOL__item#*=}" --name={TOOL__tools_variable_name} || return $? ;;
 		'--help={'*'}') __dereference --source="${TOOL__item#*=}" --name={TOOL__help_function_name} || return $? ;;
+		'--no-install'* | '--install'*) __flag --source={TOOL__item} --target={TOOL__install} --affirmative --coerce || return $? ;;
 		'--question='*) TOOL__question="${TOOL__item#*=}" ;;
 		'--'*) __unrecognised_flag "$JOIN__item" || return $? ;;
 		*) __unrecognised_argument "$JOIN__item" || return $? ;;
@@ -6311,11 +6312,11 @@ function __tool {
 	# dependency
 	if [[ $TOOL__tool == '?' ]]; then
 		TOOL__tool="$(choose --required --question="$TOOL__question" -- "${TOOL__tools[@]}")" || return $?
-		__command_required -- "$TOOL__tool" || return $?
+		__command_required --install="$TOOL__install" -- "$TOOL__tool" || return $?
 	elif [[ -z $TOOL__tool ]]; then
-		TOOL__tool="$(__command_required --print -- "${TOOL__tools[@]}")" || return $?
+		TOOL__tool="$(__command_required --install="$TOOL__install" --print -- "${TOOL__tools[@]}")" || return $?
 	elif __has --source={TOOL__tools} -- "$TOOL__tool"; then
-		__command_required -- "$TOOL__tool" || return $?
+		__command_required --install="$TOOL__install" -- "$TOOL__tool" || return $?
 	else
 		"$TOOL__help_function_name" 'The provided <tool> of ' --variable-value={TOOL__tool} ' is not supported. Supported tools are:' --newline --variable-value={TOOL__tools} || return $? # eval
 		return $?
