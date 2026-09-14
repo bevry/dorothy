@@ -88,10 +88,10 @@ function ytd_helper() (
 	# Action
 
 	# prep our result args that are forwarded
-	local args=(--geo-bypass)
+	local yt_download_args=(--geo-bypass) cookie_args=()
 
 	# arguments
-	local item option_args=() option_urls=() option_tool='' option_redo='' option_overwrite='' option_resume='' option_playlist_or_channel='' option_mark='' option_format='' option_container='' option_recode='' option_languages=() option_embed='yes' option_month='' option_archive='' option_audio='' option_enforce='' option_browser='' option_sponsors='' option_slim='' option_json=''
+	local item option_urls=() option_tool='' option_redo='' option_overwrite='' option_resume='' option_playlist_or_channel='' option_mark='' option_format='' option_container='' option_recode='' option_languages=() option_embed='yes' option_month='' option_archive='' option_audio='' option_enforce='' option_cookies='' option_sponsors='' option_slim='' option_json=''
 	while [[ $# -ne 0 ]]; do
 		item="$1"
 		shift
@@ -101,8 +101,8 @@ function ytd_helper() (
 		'--redo') option_redo='.' ;;
 		'--redo='*) option_redo="${item#*=}" ;;
 		'--audio+video')
-			ytd_helper --audio "${args[@]}" "$@"
-			ytd_helper "${args[@]}" "$@"
+			ytd_helper --audio "${yt_download_args[@]}" "$@"
+			ytd_helper "${yt_download_args[@]}" "$@"
 			return 0
 			;;
 		'--video='* | '--youtube-video='* | '--youtube-video-id='*)
@@ -145,25 +145,27 @@ function ytd_helper() (
 		'--no-list'* | '--list'*) __flag --source={item} --target={option_list} --affirmative --coerce ;;
 		'--format='*) option_format="${item#*=}" ;;
 		'--in='* | '--container='*) option_container="${item#*=}" ;;
+		'--cookies='* | '--browser='*) option_cookies="${item#*=}" ;;
 		'--no-safari'* | '--safari'*)
+			# note that safari will not expose av1 formats
 			__flag --source+target={item} --affirmative --coerce
 			if [[ $item == 'yes' ]]; then
-				option_browser='safari'
+				option_cookies='safari'
 			fi
 			;;
 		'--no-chrome'* | '--chrome'*)
+			# note that chrome will not expose av1 formats, if the user is not premium
 			__flag --source+target={item} --affirmative --coerce
 			if [[ $item == 'yes' ]]; then
-				option_browser='chrome'
+				option_cookies='chrome'
 			fi
 			;;
-		'--browser='*) option_browser="${item#*=}" ;;
 		'--')
 			for item in "$@"; do
 				if [[ $item =~ ^https?:// ]]; then
 					option_urls+=("$item")
 				else
-					option_args+=("$item")
+					yt_download_args+=("$item")
 				fi
 			done
 			shift $#
@@ -176,17 +178,28 @@ function ytd_helper() (
 
 	# options
 	if [[ $option_slim == 'yes' ]]; then
-		args+=(--sponsorblock-remove all)
+		yt_download_args+=(--sponsorblock-remove all)
 	elif [[ $option_sponsors == 'no' ]]; then
-		args+=(--sponsorblock-remove default)
+		yt_download_args+=(--sponsorblock-remove default)
 	fi
-	if [[ -n $option_browser ]]; then
-		option_args+=(--cookies-from-browser "$option_browser")
+	if [[ -n $option_cookies ]]; then
+		if [[ $option_cookies =~ ^(chrome|safari)$ ]]; then
+			cookie_args+=(--cookies-from-browser "$option_cookies")
+		elif [[ -f $option_cookies ]]; then
+			cookie_args+=(--cookies="$option_cookies")
+		else
+			local cookies_file
+			cookies_file="$(fs-temp --cache --directory='ytd-helper' --directory='cookies' --file)" || return $?
+			__print_lines "$option_cookies" >"$cookies_file"
+			cookie_args+=(--cookies="$cookies_file")
+		fi
+		yt_download_args+=("${cookie_args[@]}")
 	fi
 	if [[ $option_audio == 'yes' ]]; then
-		args+=(--extract-audio)
+		yt_download_args+=(--extract-audio)
 		if [[ -z $option_format ]]; then
 			option_format='bestaudio[ext=opus]'
+			__print_style --dim='enabling --format=bestaudio[ext=opus]' || :
 		fi
 	fi
 	# https://en.wikipedia.org/wiki/Comparison_of_video_container_formats
@@ -196,6 +209,7 @@ function ytd_helper() (
 		'best')
 			if [[ -z $option_container ]]; then
 				option_container='mp4'
+				__print_style --dim='enabling --container=mp4' || :
 			fi
 			# just using 'best' can download a 360p video
 			# this combination will always download the best resolution and codec
@@ -207,10 +221,11 @@ function ytd_helper() (
 			# avc1 = Advanced Video Coding (AVC) = H.264 = MPEG-4 Part 10
 			if [[ -z $option_container ]]; then
 				option_container='mp4'
+				__print_style --dim='enabling --container=mp4' || :
 			fi
 			if [[ $option_enforce == 'yes' ]]; then
 				option_format='(bestvideo[vcodec^=h265]/bestvideo[vcodec^=h264]/bestvideo[ext=mp4]/bestvideo)+(bestaudio[ext=m4a]/bestaudio)/best[ext=mp4]/best'
-				args+=(--postprocessor-args '-c:a aac -c:v libx265 -strict experimental')
+				yt_download_args+=(--postprocessor-args '-c:a aac -c:v libx265 -strict experimental')
 			else
 				option_format='(bestvideo[vcodec^=h265]/bestvideo[vcodec^=h264]/bestvideo[ext=mp4])+(bestaudio[ext=m4a])/best[ext=mp4]'
 			fi
@@ -219,6 +234,7 @@ function ytd_helper() (
 			# prefer the highest efficiency formats first
 			if [[ -z $option_container ]]; then
 				option_container='mp4'
+				__print_style --dim='enabling --container=mp4' || :
 			fi
 			# Usually, each codec is available for each resolution, with YouTube Premium accounts getting access to higher bitrates or higher resolutions:
 			# [LGQWMH7zb0k]
@@ -359,17 +375,18 @@ function ytd_helper() (
 			# However, even that fails to work as expected, as on [y1otd2x1b-k] it still downloads 399 instead of 356.
 			# Omitting it altogether, does allow `yt-dlp` to select the correct format.
 			if [[ $option_enforce == 'yes' ]]; then
-				args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
+				yt_download_args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
 			fi
 			;;
 		'free')
 			# `--prefer-free-formats` only prefers, it doesn't guarantee
 			if [[ -z $option_container ]]; then
 				option_container='mp4'
+				__print_style --dim='enabling --container=mp4' || :
 			fi
 			if [[ $option_enforce == 'yes' ]]; then
 				option_format='(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
-				args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
+				yt_download_args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
 			else
 				option_format='(bestvideo[vcodec^=av01]/bestvideo[vcodec^=vp9])+bestaudio[acodec=opus]'
 			fi
@@ -380,10 +397,11 @@ function ytd_helper() (
 			# My guess is that this is because YouTube may restrict av1 to YouTube Premium accounts when logged in
 			if [[ -z $option_container ]]; then
 				option_container='mp4'
+				__print_style --dim='enabling --container=mp4' || :
 			fi
 			if [[ $option_enforce == 'yes' ]]; then
 				option_format='(bestvideo[vcodec^=av01]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
-				args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
+				yt_download_args+=(--postprocessor-args '-c:a libopus -c:v av1 -strict experimental')
 			else
 				option_format='bestvideo[vcodec^=av01]+bestaudio[acodec=opus]'
 			fi
@@ -391,17 +409,18 @@ function ytd_helper() (
 		'vp9')
 			if [[ -z $option_container ]]; then
 				option_container='mp4'
+				__print_style --dim='enabling --container=mp4' || :
 			fi
 			if [[ $option_enforce == 'yes' ]]; then
 				option_format='(bestvideo[vcodec^=vp9]/bestvideo)+(bestaudio[acodec=opus]/bestaudio)/best'
-				args+=(--postprocessor-args '-c:a libopus -c:v vp9 -strict experimental')
+				yt_download_args+=(--postprocessor-args '-c:a libopus -c:v vp9 -strict experimental')
 			else
 				option_format='bestvideo[vcodec^=vp9]+bestaudio[acodec=opus]'
 			fi
 			;;
 		esac
 		if [[ -n $option_format ]]; then
-			args+=(--format "$option_format")
+			yt_download_args+=(--format "$option_format")
 		fi
 	fi
 	# mp4, mkv, webm
@@ -409,22 +428,23 @@ function ytd_helper() (
 		# --recode-video mkv <-- this will always re-encode
 		# --remux-video mkv <-- this will remux, but will fail if there is already a mp4 downloaded that has embedded data inside it, hence need for [--force-overwrites]
 		if [[ $option_recode == 'yes' ]]; then
-			args+=(--recode-video "$option_container")
+			yt_download_args+=(--recode-video "$option_container")
 		else
-			args+=(--remux-video "$option_container")
+			yt_download_args+=(--remux-video "$option_container")
 		fi
-		args+=(--merge-output-format "$option_container")
+		yt_download_args+=(--merge-output-format "$option_container")
 	fi
 	if [[ ${#option_languages[@]} -ne 0 ]]; then
 		local csv_languages
 		__join --source={option_languages} --between=',' --target={csv_languages} || return $?
-		args+=(--sub-langs "$csv_languages")
+		yt_download_args+=(--sub-langs "$csv_languages")
 	fi
 	if [[ $option_mark == 'yes' ]]; then
-		args+=(--sponsorblock-mark all)
+		yt_download_args+=(--sponsorblock-mark all)
 	fi
 	if [[ $option_embed == 'yes' ]]; then
-		args+=(
+		yt_download_args+=(
+			--write-auto-subs
 			--embed-subs
 			--embed-thumbnail
 			--embed-metadata
@@ -443,13 +463,14 @@ function ytd_helper() (
 		)
 		# --xattrs not supported on macos
 		if [[ $option_container == 'mkv' ]]; then
-			args+=(--embed-info-json) # [Metadata] The info-json can only be attached to mkv/mka files
+			yt_download_args+=(--embed-info-json) # [Metadata] The info-json can only be attached to mkv/mka files
 		elif [[ -z $option_json ]]; then
+			__print_style --dim='enabling --json' || :
 			option_json='yes'
 		fi
 	fi
 	if [[ $option_archive == 'yes' ]]; then
-		args+=(
+		yt_download_args+=(
 			--all-formats
 			--all-subs
 			--no-overwrites
@@ -462,31 +483,31 @@ function ytd_helper() (
 			--write-subs
 		)
 	elif [[ $option_json == 'yes' ]]; then
-		args+=(
+		yt_download_args+=(
 			--write-info-json
 		)
 	fi
 	if [[ $option_month == 'yes' ]]; then
-		args+=(--dateafter "$(date-helper --ytd --month-ago)")
+		yt_download_args+=(--dateafter "$(date-helper --ytd --month-ago)")
 	fi
 	if [[ $option_overwrite == 'yes' ]]; then
-		args+=(--force-overwrites)
+		yt_download_args+=(--force-overwrites)
 	elif [[ $option_overwrite == 'no' ]]; then
-		args+=(--no-overwrites)
+		yt_download_args+=(--no-overwrites)
 	fi
 	if [[ $option_resume == 'yes' ]]; then
-		args+=(--continue)
+		yt_download_args+=(--continue)
 	fi
 
 	# playlist or channel
 	if [[ $option_playlist_or_channel == 'yes' ]]; then
-		args+=(
+		yt_download_args+=(
 			--playlist-reverse # when you are updating downloads from a playlist, you want to start with most recent first
 			--ignore-errors
 			--output '%(playlist_uploader)s [%(playlist_uploader_id)s]/%(playlist_title)s [%(playlist_id)s]/%(playlist_index)s - %(title)s [%(id)s].%(ext)s'
 		)
 	else
-		args+=(--no-playlist)
+		yt_download_args+=(--no-playlist)
 	fi
 
 	# ensure tool
@@ -497,8 +518,9 @@ function ytd_helper() (
 
 	function __download {
 		local urls=("$@")
-		eval-helper --wrap --verbose -- "$option_tool" --list-formats "${option_args[@]}" "${urls[@]}" || :
-		eval-helper --wrap --verbose -- "$option_tool" "${args[@]}" "${option_args[@]}" "${urls[@]}" || return $?
+		eval-helper --wrap --verbose -- "$option_tool" --update || :
+		eval-helper --wrap --verbose -- "$option_tool" --list-formats "${cookie_args[@]}" "${urls[@]}" || :
+		eval-helper --wrap --verbose -- "$option_tool" "${yt_download_args[@]}" "${urls[@]}" || return $?
 	}
 
 	# if redo, re-add all local files
