@@ -15,11 +15,15 @@ if [ "$ACTIVE_POSIX_SHELL" = 'bash' ]; then
 	export HISTTIMEFORMAT='%F %T '
 fi
 
-# Shoutouts
-if command -v shuf >/dev/null 2>&1; then
-	shuf -n1 "$DOROTHY/sources/shoutouts.txt"
+# Informs, only when stdout is an actual terminal (not git hooks, pipes, TERM=dumb)
+if [ -t 1 ] && [ "${TERM:-dumb}" != 'dumb' ]; then
+	# Shoutouts
+	if command -v shuf >/dev/null 2>&1; then
+		shuf -n1 "$DOROTHY/sources/shoutouts.txt"
+	fi
+	# Warnings
+	dorothy-warnings warn
 fi
-dorothy-warnings warn
 
 # =====================================
 # Configuration
