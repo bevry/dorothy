@@ -3609,10 +3609,16 @@ function __try_sudo {
 	return 0
 }
 
-# this should never be the case, as TMPDIR bash should prefill if not env inherited, but just in case, ensure it
+# if TMPDIR is not inherited, fall back to the system temp directory
+# NOTE: bash does not prefill TMPDIR, so this is a common case, not a rare one
+# a stable path is used instead of `mktemp -d`, as `mktemp -d` would:
+# - leak a new directory on every invocation, as nothing ever cleans it up
+# - not be inherited by child commands, as it was not exported, so each child would make its own
 if [[ -z ${TMPDIR-} ]]; then
-	TMPDIR="$(mktemp -d)"
+	TMPDIR='/tmp'
 fi
+# export it, so that child commands, and elevated invocations, inherit and reuse it
+export TMPDIR
 while [[ ${TMPDIR: -1} == '/' ]]; do
 	TMPDIR="${TMPDIR:0:(( ${#TMPDIR} - 1 ))}"
 done
