@@ -119,3 +119,7 @@ SETUP_UTILS=(
 	'source-code-pro' # many editors require this font
 	'vim'
 )
+
+# possible new `util` config file format
+# fira-code ibm-plex monoid nano source-code-pro vim
+# --transpose=CASK -- font-cantarell font-cascadia-code font-hack font-hasklig font-inconsolata-go-nerd-font font-inter font-jetbrains-mono font-jetbrains-mono-nerd-font font-lato font-maven-pro font-montserrat font-open-sans font-oxygen font-oxygen-mono font-roboto font-roboto-mono font-ubuntu
